@@ -11,7 +11,7 @@ use super::manager::SharedNetRefs;
 use crate::device::DeviceFilter;
 use crate::events;
 use crate::protocol::{
-    AppRequest, AppResponse, OfferRejectReason, PairingRequest, ResumeRejectReason,
+    AppNetClient, AppRequest, AppResponse, OfferRejectReason, PairingRequest, ResumeRejectReason,
     TransferRequest, TransferResponse,
 };
 use crate::transfer::progress::{TransferDbErrorEvent, TransferDirection, TransferFailedEvent, TransferPausedEvent, TransferResumedEvent, TransferResumedFileInfo};
@@ -61,14 +61,54 @@ use crate::transfer::offer::{
 };
 use crate::transfer::sender::SendSession;
 
-/// 构造拒绝恢复的响应
-fn reject_resume(session_id: Uuid, reason: ResumeRejectReason) -> TransferResponse {
-    TransferResponse::ResumeResult {
-        session_id,
-        accepted: false,
-        reason: Some(reason),
-        key: None,
+/// 断点续传的共用验证结果
+struct ResumeValidation {
+    session: entity::transfer_session::Model,
+    db_files: Vec<entity::transfer_file::Model>,
+    db: DatabaseConnection,
+}
+
+/// 校验断点续传的前置条件：DB 连接、session 存在且未取消、文件 checksum 匹配
+async fn validate_resume(
+    app: &AppHandle,
+    session_id: Uuid,
+    file_checksums: &[FileChecksum],
+) -> Result<ResumeValidation, ResumeRejectReason> {
+    let db = app
+        .try_state::<DatabaseConnection>()
+        .map(|db| db.inner().clone())
+        .ok_or(ResumeRejectReason::SessionNotFound)?;
+
+    let session = entity::TransferSession::find_by_id(session_id)
+        .one(&db)
+        .await
+        .ok()
+        .flatten()
+        .ok_or(ResumeRejectReason::SessionNotFound)?;
+
+    if session.status == entity::SessionStatus::Cancelled {
+        return Err(ResumeRejectReason::SenderCancelled);
     }
+
+    let db_files = crate::database::ops::get_session_files(&db, session_id)
+        .await
+        .map_err(|_| ResumeRejectReason::SessionNotFound)?;
+
+    // 校验文件 checksum 是否匹配
+    let all_matched = file_checksums.iter().all(|fc| {
+        db_files
+            .iter()
+            .any(|f| f.file_id == fc.file_id as i32 && f.checksum == fc.checksum)
+    });
+    if !all_matched {
+        return Err(ResumeRejectReason::FileModified);
+    }
+
+    Ok(ResumeValidation {
+        session,
+        db_files,
+        db,
+    })
 }
 
 /// 断点续传校验上下文（公共校验阶段的输出）
@@ -144,16 +184,26 @@ async fn handle_resume_request(
     for db_file in &ctx.db_files {
         let Some(source_path) = &db_file.source_path else {
             warn!("文件缺少 source_path: file_id={}", db_file.file_id);
-            return reject_resume(session_id, ResumeRejectReason::SessionNotFound);
+            return TransferResponse::ResumeResult {
+                session_id,
+                accepted: false,
+                reason: Some(ResumeRejectReason::SessionNotFound),
+                key: None,
+            };
         };
 
         // 验证源文件仍存在且大小匹配
-        let path = PathBuf::from(&source_path);
+        let path = PathBuf::from(source_path);
         match tokio::fs::metadata(&path).await {
             Ok(meta) if meta.len() == db_file.size as u64 => {}
             _ => {
                 warn!("源文件不存在或大小不匹配: {}", source_path);
-                return reject_resume(session_id, ResumeRejectReason::FileModified);
+                return TransferResponse::ResumeResult {
+                    session_id,
+                    accepted: false,
+                    reason: Some(ResumeRejectReason::FileModified),
+                    key: None,
+                };
             }
         }
 
@@ -263,12 +313,47 @@ async fn handle_resume_offer(
     }
 }
 
-/// 构造拒绝 ResumeOffer 的响应
-fn reject_resume_offer(session_id: Uuid, reason: ResumeRejectReason) -> TransferResponse {
-    TransferResponse::ResumeOfferResult {
-        session_id,
-        accepted: false,
-        reason: Some(reason),
+/// 发送 Ack 响应并执行 DB 操作（合并为一个异步任务）
+fn spawn_ack_and_db<F, Fut>(
+    client: AppNetClient,
+    app: AppHandle,
+    pending_id: u64,
+    session_id: Uuid,
+    db_op: F,
+) where
+    F: FnOnce(DatabaseConnection, Uuid) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    tokio::spawn(async move {
+        let response = AppResponse::Transfer(TransferResponse::Ack { session_id });
+        let _ = client.send_response(pending_id, response).await;
+        if let Some(db) = app.try_state::<DatabaseConnection>() {
+            db_op(db.inner().clone(), session_id).await;
+        }
+    });
+}
+
+/// 保存发送方 per-file 进度到 DB（断点续传恢复时使用）
+pub(crate) async fn save_sender_file_progress(
+    app: &AppHandle,
+    session_id: Uuid,
+    session: &SendSession,
+) {
+    if let Some(db) = app.try_state::<DatabaseConnection>() {
+        for (file_id, _chunks_done, transferred) in session.get_file_progress() {
+            if transferred > 0 {
+                if let Err(e) = crate::database::ops::update_sender_file_progress(
+                    &db,
+                    session_id,
+                    file_id as i32,
+                    transferred as i64,
+                )
+                .await
+                {
+                    warn!("保存发送方文件进度失败: file_id={}, {}", file_id, e);
+                }
+            }
+        }
     }
 }
 
@@ -488,47 +573,36 @@ pub fn spawn_event_loop(
                             // 检查是否有接收会话
                             if let Some(s) = shared.transfer.get_receive_session(&session_id) {
                                 shared.transfer.remove_receive_session(&session_id);
-                                // 先等待 bitmap 刷写完成，再清理 .part 文件
                                 tokio::spawn(async move {
                                     s.cancel_and_wait().await;
                                     s.cleanup_part_files().await;
                                 });
                             }
 
-                            // 回复 Ack + DB 标记取消（合并为一个异步任务）
-                            let client = shared.client.clone();
-                            let app2 = app.clone();
-                            tokio::spawn(async move {
-                                let response =
-                                    AppResponse::Transfer(TransferResponse::Ack { session_id });
-                                let _ = client.send_response(pending_id, response).await;
-
-                                if let Some(db) = app2.try_state::<DatabaseConnection>() {
-                                    if let Err(e) =
-                                        crate::database::ops::mark_session_cancelled(
-                                            &db, session_id,
-                                        )
-                                        .await
-                                    {
+                            spawn_ack_and_db(
+                                shared.client.clone(),
+                                app.clone(),
+                                pending_id,
+                                session_id,
+                                |db, sid| async move {
+                                    if let Err(e) = crate::database::ops::mark_session_cancelled(&db, sid).await {
                                         warn!("DB 标记取消失败: {}", e);
                                     }
-                                }
-                            });
+                                },
+                            );
 
-                            // 发射失败事件
-                            let event = TransferFailedEvent {
-                                session_id,
-                                direction: TransferDirection::Unknown,
-                                error: format!("对方取消: {}", reason),
-                            };
-                            let _ = app.emit(events::TRANSFER_FAILED, &event);
+                            let _ = app.emit(
+                                events::TRANSFER_FAILED,
+                                TransferFailedEvent {
+                                    session_id,
+                                    direction: TransferDirection::Unknown,
+                                    error: format!("对方取消: {}", reason),
+                                },
+                            );
                         }
 
                         AppRequest::Transfer(TransferRequest::Pause { session_id }) => {
-                            info!(
-                                "收到对方暂停传输: session={}",
-                                session_id
-                            );
+                            info!("收到对方暂停传输: session={}", session_id);
 
                             // 检查是否有发送会话（对端是接收方暂停的）
                             let direction = if let Some(s) = shared.transfer.get_send_session(&session_id) {
@@ -552,40 +626,22 @@ pub fn spawn_event_loop(
                                 TransferDirection::Unknown
                             };
 
-                            // 回复 Ack + DB 标记暂停
-                            let client = shared.client.clone();
-                            let app2 = app.clone();
-                            tokio::spawn(async move {
-                                let response =
-                                    AppResponse::Transfer(TransferResponse::Ack { session_id });
-                                let _ = client.send_response(pending_id, response).await;
-
-                                if let Some(db) = app2.try_state::<DatabaseConnection>() {
-                                    if let Err(e) =
-                                        crate::database::ops::mark_session_paused(
-                                            &db, session_id,
-                                        )
-                                        .await
-                                    {
+                            spawn_ack_and_db(
+                                shared.client.clone(),
+                                app.clone(),
+                                pending_id,
+                                session_id,
+                                |db, sid| async move {
+                                    if let Err(e) = crate::database::ops::mark_session_paused(&db, sid).await {
                                         warn!("DB 标记暂停失败: {}", e);
                                     }
-                                    if let Err(e) =
-                                        crate::database::ops::sync_session_transferred_bytes(
-                                            &db, session_id,
-                                        )
-                                        .await
-                                    {
+                                    if let Err(e) = crate::database::ops::sync_session_transferred_bytes(&db, sid).await {
                                         warn!("同步 session 字节数失败: {}", e);
                                     }
-                                }
-                            });
+                                },
+                            );
 
-                            // 发射暂停事件给前端
-                            let event = TransferPausedEvent {
-                                session_id,
-                                direction,
-                            };
-                            let _ = app.emit(events::TRANSFER_PAUSED, &event);
+                            let _ = app.emit(events::TRANSFER_PAUSED, TransferPausedEvent { session_id, direction });
                         }
 
                         AppRequest::Transfer(TransferRequest::Offer {

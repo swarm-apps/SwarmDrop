@@ -239,7 +239,7 @@ impl TransferManager {
         let mut completed_bytes: u64 = 0;
 
         for (file_id, entry) in entries.into_iter().enumerate() {
-            let file_name: std::sync::Arc<str> = entry.name.clone().into();
+            let file_name = entry.name.clone();
             let base_bytes = completed_bytes;
             let completed_files = file_id as u32;
             let progress = on_progress.clone();
@@ -248,7 +248,7 @@ impl TransferManager {
                 .source
                 .compute_hash_with_progress(app, move |bytes_in_file| {
                     let _ = progress.send(PrepareProgress {
-                        current_file: file_name.to_string(),
+                        current_file: file_name.clone(),
                         completed_files,
                         total_files,
                         bytes_hashed: base_bytes + bytes_in_file,
@@ -564,7 +564,7 @@ impl TransferManager {
 
         // 根据 SaveLocation 构造 FileSink 并启动接收
         let sink = build_file_sink(&save_location);
-        self.start_receive_session(
+        self.start_receive_from_offer(
             offer.session_id,
             offer.peer_id,
             offer.files,
@@ -760,7 +760,7 @@ impl TransferManager {
                 let (file_infos, initial_bitmaps) = build_file_infos_and_bitmaps(&files);
                 let (resume_file_infos, transferred_bytes) = build_resume_file_infos(&files);
 
-                self.start_receive_session(
+                self.start_receive_from_offer(
                     session_id,
                     target_peer,
                     file_infos,
@@ -789,7 +789,10 @@ impl TransferManager {
                 reason: Some(ResumeRejectReason::SenderCancelled),
                 ..
             }) => {
-                info!("Resume rejected for session {}: 发送方已取消传输", session_id);
+                info!(
+                    "Resume rejected for session {}: 发送方已取消传输",
+                    session_id
+                );
                 crate::database::ops::mark_session_cancelled(db, session_id).await?;
                 Err(AppError::Transfer("发送方已取消传输".into()))
             }
@@ -916,26 +919,9 @@ impl TransferManager {
         &self.client
     }
 
-    /// 公开接口：创建 ReceiveSession 并开始拉取（供 event_loop 中处理 ResumeOffer 时使用）
+    /// 创建 ReceiveSession 并开始拉取
     #[expect(clippy::too_many_arguments, reason = "传输会话初始化需要完整上下文")]
     pub fn start_receive_from_offer(
-        &self,
-        session_id: Uuid,
-        peer_id: PeerId,
-        files: Vec<FileInfo>,
-        total_size: u64,
-        sink: FileSink,
-        key: &[u8; 32],
-        app: AppHandle,
-        initial_bitmaps: std::collections::HashMap<u32, Vec<u8>>,
-    ) {
-        self.start_receive_session(session_id, peer_id, files, total_size, sink, key, app, initial_bitmaps);
-    }
-
-    // ============ 内部方法 ============
-
-    #[expect(clippy::too_many_arguments, reason = "传输会话初始化需要完整上下文")]
-    fn start_receive_session(
         &self,
         session_id: Uuid,
         peer_id: PeerId,

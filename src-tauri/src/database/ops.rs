@@ -79,6 +79,21 @@ pub async fn create_session(
     Ok(())
 }
 
+/// 查找 session 下的单个文件记录
+async fn find_session_file(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    file_id: i32,
+) -> AppResult<entity::transfer_file::ModelEx> {
+    entity::TransferFile::load()
+        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .filter(entity::transfer_file::Column::FileId.eq(file_id))
+        .with(entity::TransferSession)
+        .one(db)
+        .await?
+        .ok_or_else(|| crate::AppError::Transfer("文件记录不存在".into()))
+}
+
 /// 更新文件的 bitmap 和已传输字节数（断点续传 checkpoint）
 pub async fn update_file_checkpoint(
     db: &DatabaseConnection,
@@ -133,13 +148,7 @@ async fn update_file<F>(
 where
     F: FnOnce(&mut entity::transfer_file::ActiveModelEx),
 {
-    let file = entity::TransferFile::load()
-        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
-        .filter(entity::transfer_file::Column::FileId.eq(file_id))
-        .with(entity::TransferSession)
-        .one(db)
-        .await?
-        .ok_or_else(|| crate::AppError::Transfer("文件记录不存在".into()))?;
+    let file = find_session_file(db, session_id, file_id).await?;
 
     let mut model = file.into_active_model();
     apply(&mut model);
@@ -147,7 +156,6 @@ where
         session.updated_at = Set(now_ms());
     }
     model.save(db).await?;
-
     Ok(())
 }
 

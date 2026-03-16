@@ -11,6 +11,7 @@ mod event_loop;
 mod manager;
 
 pub use event_loop::spawn_event_loop;
+pub(crate) use event_loop::save_sender_file_progress;
 pub use manager::{NetManager, NetManagerState};
 pub use swarm_p2p_core::event::NatStatus;
 
