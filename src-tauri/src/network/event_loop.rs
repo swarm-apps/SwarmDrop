@@ -61,56 +61,6 @@ use crate::transfer::offer::{
 };
 use crate::transfer::sender::SendSession;
 
-/// 断点续传的共用验证结果
-struct ResumeValidation {
-    session: entity::transfer_session::Model,
-    db_files: Vec<entity::transfer_file::Model>,
-    db: DatabaseConnection,
-}
-
-/// 校验断点续传的前置条件：DB 连接、session 存在且未取消、文件 checksum 匹配
-async fn validate_resume(
-    app: &AppHandle,
-    session_id: Uuid,
-    file_checksums: &[FileChecksum],
-) -> Result<ResumeValidation, ResumeRejectReason> {
-    let db = app
-        .try_state::<DatabaseConnection>()
-        .map(|db| db.inner().clone())
-        .ok_or(ResumeRejectReason::SessionNotFound)?;
-
-    let session = entity::TransferSession::find_by_id(session_id)
-        .one(&db)
-        .await
-        .ok()
-        .flatten()
-        .ok_or(ResumeRejectReason::SessionNotFound)?;
-
-    if session.status == entity::SessionStatus::Cancelled {
-        return Err(ResumeRejectReason::SenderCancelled);
-    }
-
-    let db_files = crate::database::ops::get_session_files(&db, session_id)
-        .await
-        .map_err(|_| ResumeRejectReason::SessionNotFound)?;
-
-    // 校验文件 checksum 是否匹配
-    let all_matched = file_checksums.iter().all(|fc| {
-        db_files
-            .iter()
-            .any(|f| f.file_id == fc.file_id as i32 && f.checksum == fc.checksum)
-    });
-    if !all_matched {
-        return Err(ResumeRejectReason::FileModified);
-    }
-
-    Ok(ResumeValidation {
-        session,
-        db_files,
-        db,
-    })
-}
-
 /// 断点续传校验上下文（公共校验阶段的输出）
 struct ResumeContext {
     session: entity::transfer_session::Model,
@@ -333,29 +283,6 @@ fn spawn_ack_and_db<F, Fut>(
     });
 }
 
-/// 保存发送方 per-file 进度到 DB（断点续传恢复时使用）
-pub(crate) async fn save_sender_file_progress(
-    app: &AppHandle,
-    session_id: Uuid,
-    session: &SendSession,
-) {
-    if let Some(db) = app.try_state::<DatabaseConnection>() {
-        for (file_id, _chunks_done, transferred) in session.get_file_progress() {
-            if transferred > 0 {
-                if let Err(e) = crate::database::ops::update_sender_file_progress(
-                    &db,
-                    session_id,
-                    file_id as i32,
-                    transferred as i64,
-                )
-                .await
-                {
-                    warn!("保存发送方文件进度失败: file_id={}, {}", file_id, e);
-                }
-            }
-        }
-    }
-}
 
 /// 当窗口未聚焦时发送系统通知
 fn notify_if_unfocused(app: &AppHandle, title: &str, body: &str) {

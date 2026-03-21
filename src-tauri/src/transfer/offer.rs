@@ -143,6 +143,27 @@ const PENDING_OFFER_TIMEOUT_SECS: u64 = 300; // 5 分钟
 const SEND_SESSION_IDLE_TIMEOUT_MS: u64 = 30 * 60 * 1000; // 30 分钟
 const CLEANUP_INTERVAL_SECS: u64 = 60; // 每 60 秒扫描一次
 
+/// 从 DashMap 中移除满足条件的条目，返回移除数量。
+/// 若有移除条目，用 `label` 记录日志。
+fn remove_expired_and_log<K: Eq + std::hash::Hash + Clone, V>(
+    map: &DashMap<K, V>,
+    label: &str,
+    predicate: impl Fn(&V) -> bool,
+) {
+    let mut count = 0usize;
+    map.retain(|_, v| {
+        if predicate(v) {
+            count += 1;
+            false
+        } else {
+            true
+        }
+    });
+    if count > 0 {
+        info!("清理 {} 个过期的 {}", count, label);
+    }
+}
+
 /// 传输管理器（原 OfferManager，扩展为管理完整传输生命周期）
 pub struct TransferManager {
     /// libp2p 网络客户端
@@ -192,13 +213,13 @@ impl TransferManager {
     fn run_cleanup(&self) {
         let now = Instant::now();
 
-        remove_expired(&self.prepared, |v| {
+        remove_expired_and_log(&self.prepared, "prepared transfers", |v| {
             now.duration_since(v.created_at).as_secs() > PREPARED_TIMEOUT_SECS
-        }, "prepared transfers");
+        });
 
-        remove_expired(&self.pending, |v| {
+        remove_expired_and_log(&self.pending, "pending offers", |v| {
             now.duration_since(v.created_at).as_secs() > PENDING_OFFER_TIMEOUT_SECS
-        }, "pending offers");
+        });
 
         // 清理空闲超时的 send sessions（需要额外 cancel 操作）
         let idle_ids: Vec<Uuid> = self
@@ -1044,7 +1065,7 @@ pub(crate) async fn load_resumable_session(
         )));
     }
 
-    let target_peer = parse_peer_id(&session.peer_id.0)?;
+    let target_peer = parse_peer_id(session.peer_id.as_str())?;
     Ok((session, target_peer))
 }
 
@@ -1128,17 +1149,4 @@ pub(crate) async fn build_prepared_files_from_db(
     Ok(prepared)
 }
 
-/// 从 DashMap 中移除满足条件的条目并记录日志
-fn remove_expired<V>(map: &DashMap<Uuid, V>, is_expired: impl Fn(&V) -> bool, label: &str) {
-    let expired: Vec<Uuid> = map
-        .iter()
-        .filter(|r| is_expired(r.value()))
-        .map(|r| *r.key())
-        .collect();
-    for id in &expired {
-        map.remove(id);
-    }
-    if !expired.is_empty() {
-        info!("清理 {} 个过期的 {}", expired.len(), label);
-    }
-}
+
