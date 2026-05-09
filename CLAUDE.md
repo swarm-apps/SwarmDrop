@@ -182,7 +182,7 @@ swarm-p2p-core = { path = "../libs/core", features = ["dns"] }
 
 Dual-endpoint update checking:
 1. **UpgradeLink** — `https://api.upgrade.toolsetlink.com/v1/tauri/upgrade?tauriKey=...` (primary)
-2. **GitHub Releases** — `https://github.com/yexiyue/SwarmDrop/releases/latest/download/latest.json` (fallback)
+2. **GitHub Releases** — `https://github.com/swarm-apps/SwarmDrop/releases/latest/download/latest.json` (fallback)
 
 The `latest.json` is patched in CI to include Android APK info (`mobile.android` field) and optional `min_version` for forced updates. Windows uses passive install mode.
 

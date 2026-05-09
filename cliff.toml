@@ -7,7 +7,7 @@ All notable changes to SwarmDrop will be documented in this file.\n
 """
 body = """
 {%- macro remote_url() -%}
-  https://github.com/yexiyue/SwarmDrop
+  https://github.com/swarm-apps/SwarmDrop
 {%- endmacro -%}
 
 {% if version -%}

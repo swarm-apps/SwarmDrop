@@ -2,7 +2,7 @@
 
 All notable changes to SwarmDrop will be documented in this file.
 
-## [0.4.4](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.4.4) - 2026-03-17
+## [0.4.4](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.4.4) - 2026-03-17
 
 ### Bug Fixes
 
@@ -30,12 +30,12 @@ All notable changes to SwarmDrop will be documented in this file.
 - 优化文件树组件 UI 细节与代码结构
 - 优化文件树组件 UI 细节与代码结构
 - 重构传输页面，提取共享组件并统一样式
-## [0.4.3](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.4.3) - 2026-03-11
+## [0.4.3](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.4.3) - 2026-03-11
 
 ### Bug Fixes
 
 - Android 打开保存目录改用 showViewDirDialog + 回退打开文件
-## [0.4.2](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.4.2) - 2026-03-10
+## [0.4.2](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.4.2) - 2026-03-10
 
 ### Bug Fixes
 
@@ -43,7 +43,7 @@ All notable changes to SwarmDrop will be documented in this file.
 ### Features
 
 - 引入 SaveLocation 枚举，修复移动端打开文件夹报错
-## [0.4.1](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.4.1) - 2026-03-10
+## [0.4.1](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.4.1) - 2026-03-10
 
 ### Bug Fixes
 
@@ -168,12 +168,12 @@ All notable changes to SwarmDrop will be documented in this file.
 - 简化主题切换，移除 Zustand 冗余管理
 - 配对模块 DHT 命名空间 + 在线宣告重构
 - 配对模块路由化重构 + 入站请求状态分离
-## [0.4.0](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.4.0) - 2026-03-09
+## [0.4.0](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.4.0) - 2026-03-09
 
 ### Features
 
 - 添加 MCP Server 支持，实现 AI 助手控制文件传输
-## [0.3.8](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.3.8) - 2026-03-07
+## [0.3.8](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.3.8) - 2026-03-07
 
 ### Features
 
@@ -188,28 +188,28 @@ All notable changes to SwarmDrop will be documented in this file.
 - 用 identify agent_version 替代硬编码 PeerId 识别引导节点，升级 relay_peers 追踪
 - 传输历史过滤下拉框替换为 shadcn/ui Select
 - 统一移动端和桌面端更新 UI
-## [0.3.7](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.3.7) - 2026-03-05
+## [0.3.7](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.3.7) - 2026-03-05
 
 ### Features
 
 - 集成 git-cliff 自动生成更新日志
 - 传输暂停按钮 + 侧边栏主题语言切换 + 网络状态栏可点击
-## [0.3.6](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.3.6) - 2026-03-04
+## [0.3.6](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.3.6) - 2026-03-04
 
 ### Features
 
 - 完善断点续传功能，补充国际化翻译
-## [0.3.5](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.3.5) - 2026-03-04
+## [0.3.5](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.3.5) - 2026-03-04
 
 ### Bug Fixes
 
 - 修复传输历史为空及 DB 错误静默处理，bump v0.3.5
-## [0.3.4](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.3.4) - 2026-03-04
+## [0.3.4](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.3.4) - 2026-03-04
 
 ### Features
 
 - 断点续传完整实现 + 传输流程优化
-## [0.3.3](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.3.3) - 2026-03-03
+## [0.3.3](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.3.3) - 2026-03-03
 
 ### Documentation
 
@@ -220,7 +220,7 @@ All notable changes to SwarmDrop will be documented in this file.
 ### Miscellaneous
 
 - update submodule
-## [0.3.2](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.3.2) - 2026-02-27
+## [0.3.2](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.3.2) - 2026-02-27
 
 ### Bug Fixes
 
@@ -228,7 +228,7 @@ All notable changes to SwarmDrop will be documented in this file.
 ### Documentation
 
 - 重写 README，优化项目介绍和结构
-## [0.3.1](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.3.1) - 2026-02-27
+## [0.3.1](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.3.1) - 2026-02-27
 
 ### Bug Fixes
 
@@ -253,23 +253,23 @@ All notable changes to SwarmDrop will be documented in this file.
 - Rust 代码质量改进
 - 配对/传输拒绝原因改为类型化枚举
 - 配对码改为单例模式，修复配对逻辑缺陷，优化传输进度追踪
-## [0.3.0](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.3.0) - 2026-02-26
+## [0.3.0](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.3.0) - 2026-02-26
 
 ### Bug Fixes
 
 - Android 传输弹窗重复显示处理中 + 打开文件夹失败回退 + bump v0.3.0
-## [0.2.25](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.25) - 2026-02-26
+## [0.2.25](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.25) - 2026-02-26
 
 ### Bug Fixes
 
 - Android 文件操作调用链修复 + bump version
-## [0.2.24](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.24) - 2026-02-26
+## [0.2.24](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.24) - 2026-02-26
 
 ### Refactor
 
 - Android 文件打开链路重构 + 传输完成事件增强 + 代码简化
 - 新增 file_sink 模块 + 接收端 OOP 重构 + clippy 修复
-## [0.2.23](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.23) - 2026-02-26
+## [0.2.23](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.23) - 2026-02-26
 
 ### Documentation
 
@@ -283,12 +283,12 @@ All notable changes to SwarmDrop will be documented in this file.
 
 - 传输系统两阶段扫描重构 + Android 文件选择器优化
 - 统一 session_id/prepared_id 类型为 uuid::Uuid
-## [0.2.18](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.18) - 2026-02-20
+## [0.2.18](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.18) - 2026-02-20
 
 ### Bug Fixes
 
 - open android folder
-## [0.2.17](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.17) - 2026-02-20
+## [0.2.17](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.17) - 2026-02-20
 
 ### Bug Fixes
 
@@ -296,20 +296,20 @@ All notable changes to SwarmDrop will be documented in this file.
 ### Miscellaneous
 
 - bump version
-## [0.2.16](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.16) - 2026-02-20
+## [0.2.16](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.16) - 2026-02-20
 
 ### Bug Fixes
 
 - android fs
 - android fs
-## [0.2.15](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.15) - 2026-02-20
+## [0.2.15](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.15) - 2026-02-20
 
 ### Bug Fixes
 
 - android check permission
 - 修复路径拼接问题，使用 join 函数
 - 添加 opener 权限到 mobile capability
-## [0.2.14](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.14) - 2026-02-19
+## [0.2.14](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.14) - 2026-02-19
 
 ### Bug Fixes
 
@@ -320,23 +320,23 @@ All notable changes to SwarmDrop will be documented in this file.
 ### Refactor
 
 - 移除未使用的 android 模块
-## [0.2.13](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.13) - 2026-02-19
+## [0.2.13](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.13) - 2026-02-19
 
 ### Features
 
 - add mobile capabilities configuration
-## [0.2.12](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.12) - 2026-02-19
+## [0.2.12](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.12) - 2026-02-19
 
 ### Features
 
 - 传输完成后支持在文件夹中显示文件
 - 优化移动端接收弹窗样式，添加 forceDialog 支持
-## [0.2.11](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.11) - 2026-02-19
+## [0.2.11](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.11) - 2026-02-19
 
 ### Features
 
 - 添加文件传输设置区域
-## [0.2.10](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.10) - 2026-02-19
+## [0.2.10](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.10) - 2026-02-19
 
 ### Features
 
@@ -345,32 +345,32 @@ All notable changes to SwarmDrop will be documented in this file.
 ### Refactor
 
 - 优化前端代码性能和代码规范
-## [0.2.9](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.9) - 2026-02-19
+## [0.2.9](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.9) - 2026-02-19
 
 ### Features
 
 - 前端感知 relay 状态，更新博客文档
-## [0.2.8](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.8) - 2026-02-19
+## [0.2.8](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.8) - 2026-02-19
 
 ### Features
 
 - 修复跨网络 dial 失败，添加 relay circuit reservation
-## [0.2.7](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.7) - 2026-02-19
+## [0.2.7](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.7) - 2026-02-19
 
 ### Bug Fixes
 
 - 修复 Android APK 更新下载失败及通知栏无进度问题
-## [0.2.6](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.6) - 2026-02-18
+## [0.2.6](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.6) - 2026-02-18
 
 ### Features
 
 - 实现分块传输核心（sender/receiver/progress）
-## [0.2.5](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.5) - 2026-02-18
+## [0.2.5](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.5) - 2026-02-18
 
 ### Refactor
 
 - Transfer 模块重组 + 前端代码审查简化
-## [0.2.4](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.4) - 2026-02-18
+## [0.2.4](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.4) - 2026-02-18
 
 ### Bug Fixes
 
@@ -381,23 +381,23 @@ All notable changes to SwarmDrop will be documented in this file.
 ### Refactor
 
 - 统一使用 UpgradeLink 更新系统，移除旧 update-store
-## [0.2.3](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.3) - 2026-02-18
+## [0.2.3](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.3) - 2026-02-18
 
 ### Features
 
 - 文件传输页面重构 + 文件树组件 + 代码优化
-## [0.2.2](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.2) - 2026-02-18
+## [0.2.2](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.2) - 2026-02-18
 
 ### Bug Fixes
 
 - 修复移动端自动升级 + 密钥环境变量化 + 精简多语言
-## [0.2.1](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.1) - 2026-02-18
+## [0.2.1](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.1) - 2026-02-18
 
 ### Features
 
 - 添加文件传输前端页面 + 移动端适配
 - 添加文件传输加密模块 + 设计文档
-## [0.2.0](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.2.0) - 2026-02-16
+## [0.2.0](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.2.0) - 2026-02-16
 
 ### Bug Fixes
 
@@ -413,7 +413,7 @@ All notable changes to SwarmDrop will be documented in this file.
 ### Refactor
 
 - 直接从 rawJson 读取 upgradeType
-## [0.1.2](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.1.2) - 2026-02-14
+## [0.1.2](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.1.2) - 2026-02-14
 
 ### Bug Fixes
 
@@ -422,12 +422,12 @@ All notable changes to SwarmDrop will be documented in this file.
 ### Miscellaneous
 
 - update Cargo.lock for v0.1.2
-## [0.1.1](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.1.1) - 2026-02-14
+## [0.1.1](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.1.1) - 2026-02-14
 
 ### Features
 
 - 添加移动端安全区域适配指南及相关实现
-## [0.1.0](https://github.com/yexiyue/SwarmDrop/releases/tag/v0.1.0) - 2026-02-14
+## [0.1.0](https://github.com/swarm-apps/SwarmDrop/releases/tag/v0.1.0) - 2026-02-14
 
 ### Bug Fixes
 

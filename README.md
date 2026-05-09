@@ -8,7 +8,7 @@
 
 *Drop files anywhere. No cloud. No limits.*
 
-[![Release](https://img.shields.io/github/v/release/yexiyue/SwarmDrop?style=flat-square)](https://github.com/yexiyue/SwarmDrop/releases)
+[![Release](https://img.shields.io/github/v/release/swarm-apps/SwarmDrop?style=flat-square)](https://github.com/swarm-apps/SwarmDrop/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-FFC131?style=flat-square&logo=tauri)](https://tauri.app)
 [![libp2p](https://img.shields.io/badge/libp2p-0.56-blue?style=flat-square)](https://libp2p.io)
@@ -60,7 +60,7 @@ SwarmDrop 是一款无需账号、无需服务器的**点对点文件传输工�
 
 ## 下载安装
 
-前往 [Releases](https://github.com/yexiyue/SwarmDrop/releases/latest) 下载最新版本：
+前往 [Releases](https://github.com/swarm-apps/SwarmDrop/releases/latest) 下载最新版本：
 
 | 平台 | 格式 | 架构 |
 |------|------|------|
@@ -191,7 +191,7 @@ swarmdrop/
 
 ```bash
 # 克隆仓库 (含子模块)
-git clone --recurse-submodules https://github.com/yexiyue/SwarmDrop.git
+git clone --recurse-submodules https://github.com/swarm-apps/SwarmDrop.git
 cd SwarmDrop
 
 # 安装依赖

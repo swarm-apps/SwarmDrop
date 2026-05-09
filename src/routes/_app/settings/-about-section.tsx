@@ -147,7 +147,7 @@ function ReleaseNotesButton() {
   return (
     <button
       type="button"
-      onClick={() => openUrl("https://github.com/yexiyue/SwarmDrop/blob/main/CHANGELOG.md")}
+      onClick={() => openUrl("https://github.com/swarm-apps/SwarmDrop/blob/main/CHANGELOG.md")}
       className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
     >
       <ExternalLink className="size-3.5" />

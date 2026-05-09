@@ -40,7 +40,7 @@
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFDOUYzRTBFNjBEMjBDNEEKUldSS0ROSmdEajZmSEhVa2N5cUFWRXRoMzQ2eUQwK0IvTVFrdXNkSmpoaEVJYUNzUEpkM2xaejAK",
       "endpoints": [
         "https://api.upgrade.toolsetlink.com/v1/tauri/upgrade?tauriKey=LeRhLvlkcdd1FX0etgOJaw&versionName={{current_version}}&target={{target}}&arch={{arch}}",
-        "https://github.com/yexiyue/SwarmDrop/releases/latest/download/latest.json"
+        "https://github.com/swarm-apps/SwarmDrop/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

@@ -167,7 +167,7 @@ cargo tauri signer generate -w keys/swarmdrop.key
     "updater": {
       "pubkey": "<公钥的 base64 编码>",
       "endpoints": [
-        "https://github.com/yexiyue/SwarmDrop/releases/latest/download/latest.json"
+        "https://github.com/swarm-apps/SwarmDrop/releases/latest/download/latest.json"
       ]
     }
   }

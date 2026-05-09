@@ -239,7 +239,7 @@ pub type AppResult<T> = Result<T, AppError>;
 
 ### Git 子模块
 
-`libs/` 是 Git 子模块，指向 `https://github.com/yexiyue/swarm-p2p.git`
+`libs/` 是 Git 子模块，指向 `https://github.com/swarm-apps/swarm-p2p.git`
 
 ```bash
 # 克隆时初始化子模块

@@ -93,7 +93,7 @@ pnpm add @tauri-apps/plugin-updater @tauri-apps/plugin-process
     "updater": {
       "pubkey": "<minisign 公钥 base64>",
       "endpoints": [
-        "https://github.com/yexiyue/SwarmDrop/releases/latest/download/latest.json"
+        "https://github.com/swarm-apps/SwarmDrop/releases/latest/download/latest.json"
       ]
     }
   }
