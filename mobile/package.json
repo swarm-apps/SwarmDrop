@@ -1,0 +1,58 @@
+{
+  "name": "swarmdrop-mobile",
+  "main": "expo-router/entry",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "prebuild": "expo prebuild",
+    "lint": "biome check src/",
+    "lint:ci": "biome ci src/",
+    "format": "biome check --fix src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "@react-navigation/native": "^7.1.33",
+    "expo": "~55.0.12",
+    "expo-build-properties": "~55.0.13",
+    "expo-constants": "~55.0.12",
+    "expo-device": "~55.0.13",
+    "expo-document-picker": "^14.0.7",
+    "expo-file-system": "^55.0.16",
+    "expo-notifications": "~0.32.13",
+    "expo-router": "~55.0.11",
+    "expo-secure-store": "^55.0.13",
+    "expo-splash-screen": "~55.0.16",
+    "expo-status-bar": "~55.0.5",
+    "expo-system-ui": "~55.0.14",
+    "lucide-react-native": "^1.8.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-native": "0.83.4",
+    "react-native-gesture-handler": "~2.30.0",
+    "react-native-reanimated": "4.2.1",
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-screens": "~4.23.0",
+    "react-native-swarmdrop-core": "workspace:*",
+    "react-native-worklets": "0.7.4",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.10",
+    "@react-native/babel-preset": "0.83.0",
+    "@types/react": "~19.2.2",
+    "typescript": "~5.9.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "patchedDependencies": {
+      "uniffi-bindgen-react-native@0.31.0-2": "patches/uniffi-bindgen-react-native@0.31.0-2.patch"
+    }
+  }
+}

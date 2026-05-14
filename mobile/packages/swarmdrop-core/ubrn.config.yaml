@@ -1,0 +1,13 @@
+---
+rust:
+  directory: ./rust/mobile-core
+  manifestPath: Cargo.toml
+
+bindings:
+  cpp: cpp/generated
+  ts: src/generated
+
+noOverwrite:
+  - android/build.gradle
+  - package.json
+  - SwarmdropCore.podspec

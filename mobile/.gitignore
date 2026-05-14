@@ -1,0 +1,37 @@
+# Expo / RN
+.expo/
+.expo-shared/
+node_modules/
+dist/
+web-build/
+*.log
+*.tsbuildinfo
+.metro-health-check*
+.DS_Store
+
+# 仅忽略 mobile root 下的 expo prebuild 产物;packages/*-core 下的原生壳要进 git
+/android/
+/ios/
+
+# UniFFI / RN bridge 的中间产物(产物输出目录,源码不在这里)
+packages/*/lib/
+packages/*/android/build/
+packages/*/android/.cxx/
+packages/*/ios/build/
+
+# Rust 构建产物
+target/
+packages/*/rust/*/target/
+
+# 签名敏感文件
+*.jks
+*.p12
+*.key
+*.mobileprovision
+keystore.properties
+keys/
+
+# 编辑器 / 操作系统
+.idea/
+.vscode/
+.codex
