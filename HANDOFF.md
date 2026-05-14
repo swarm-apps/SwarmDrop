@@ -25,6 +25,10 @@
 - 桌面参考: `swarmnote` (https://github.com/swarm-apps/SwarmNote.git)
 - 移动参考: `swarmnote-mobile` (https://github.com/swarm-apps/SwarmNote-RN.git)
 
+> ℹ️ 主仓库已从 `yexiyue/SwarmDrop` 迁移到 `swarm-apps/SwarmDrop`,本地 origin
+> 还指向旧地址也能用(GitHub 自动重定向),但建议在 Mac 上执行
+> `git remote set-url origin https://github.com/swarm-apps/SwarmDrop.git` 更新一下。
+
 ---
 
 ## 1. 仓库布局
@@ -44,7 +48,7 @@ Clone 命令:
 mkdir -p ~/workspace && cd ~/workspace
 
 # 主仓库 — checkout 当前 WIP 分支
-git clone https://github.com/yexiyue/SwarmDrop.git swarmdrop
+git clone https://github.com/swarm-apps/SwarmDrop.git swarmdrop
 cd swarmdrop
 git checkout wip/extract-core-and-rn-mobile-handoff
 git submodule update --init --recursive
