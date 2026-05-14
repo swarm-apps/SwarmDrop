@@ -101,8 +101,17 @@ pub async fn cleanup_stale_sessions(db: &DatabaseConnection) -> AppResult<()> {
         .await?;
 
     for session in sender_sessions {
-        tracing::info!("启动清理: sender session {} → failed（应用重启）", session.session_id);
-        finish_session(db, session, SessionStatus::Failed, Some("应用重启，连接已断")).await?;
+        tracing::info!(
+            "启动清理: sender session {} → failed（应用重启）",
+            session.session_id
+        );
+        finish_session(
+            db,
+            session,
+            SessionStatus::Failed,
+            Some("应用重启，连接已断"),
+        )
+        .await?;
     }
 
     // 2) receiver + transferring → 根据 bitmap 判断
@@ -119,7 +128,10 @@ pub async fn cleanup_stale_sessions(db: &DatabaseConnection) -> AppResult<()> {
             .await?;
 
         let (status, error_msg) = classify_receiver_session(&files);
-        tracing::info!("启动清理: receiver session {} → {status:?}", session.session_id);
+        tracing::info!(
+            "启动清理: receiver session {} → {status:?}",
+            session.session_id
+        );
         finish_session(db, session, status, error_msg).await?;
     }
 
@@ -133,7 +145,10 @@ pub async fn cleanup_stale_sessions(db: &DatabaseConnection) -> AppResult<()> {
         .await?;
 
     for session in expired_sessions {
-        tracing::info!("启动清理: receiver session {} → failed（paused 超过 7 天）", session.session_id);
+        tracing::info!(
+            "启动清理: receiver session {} → failed（paused 超过 7 天）",
+            session.session_id
+        );
 
         // 清空文件 bitmap + 删除 .part 临时文件
         let files = entity::TransferFile::find()
@@ -159,7 +174,13 @@ pub async fn cleanup_stale_sessions(db: &DatabaseConnection) -> AppResult<()> {
             fmodel.update(db).await?;
         }
 
-        finish_session(db, session, SessionStatus::Failed, Some("传输已过期（超过 7 天）")).await?;
+        finish_session(
+            db,
+            session,
+            SessionStatus::Failed,
+            Some("传输已过期（超过 7 天）"),
+        )
+        .await?;
     }
 
     tracing::info!("启动会话清理完成");

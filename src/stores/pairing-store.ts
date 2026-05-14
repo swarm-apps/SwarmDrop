@@ -173,7 +173,7 @@ export const usePairingStore = create<PairingState>()(
         );
 
         if (response.status === "success") {
-          // 已配对设备由后端通过 paired-device-added 事件同步到 Stronghold
+          // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
           set({
             current: {
               phase: "success",
@@ -221,7 +221,7 @@ export const usePairingStore = create<PairingState>()(
           { status: "success" },
         );
 
-        // 已配对设备由后端通过 paired-device-added 事件同步到 Stronghold
+        // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
         toast.success(t`已与 ${osInfo.hostname} 配对成功`);
         // 处理队列中的下一个请求
         get().processNextInbound();
@@ -282,7 +282,7 @@ export const usePairingStore = create<PairingState>()(
         );
 
         if (response.status === "success") {
-          // 已配对设备由后端通过 paired-device-added 事件同步到 Stronghold
+          // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
           const device = useNetworkStore.getState().devices.find(d => d.peerId === peerId);
           const deviceName = device?.hostname ?? peerId.slice(-8);
 

@@ -6,9 +6,7 @@ use std::time::Duration;
 
 use axum::Router;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService,
-};
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use tauri::AppHandle;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -45,12 +43,10 @@ pub async fn start(app: AppHandle, port: u16) -> AppResult<McpServerHandle> {
 
     let cancel_token = CancellationToken::new();
 
-    let config = StreamableHttpServerConfig {
-        sse_keep_alive: Some(Duration::from_secs(15)),
-        stateful_mode: true,
-        cancellation_token: cancel_token.clone(),
-        ..Default::default()
-    };
+    let mut config = StreamableHttpServerConfig::default();
+    config.sse_keep_alive = Some(Duration::from_secs(15));
+    config.stateful_mode = true;
+    config.cancellation_token = cancel_token.clone();
 
     let session_manager = Arc::new(LocalSessionManager::default());
 
@@ -84,4 +80,3 @@ pub async fn start(app: AppHandle, port: u16) -> AppResult<McpServerHandle> {
 pub fn stop(handle: McpServerHandle) {
     handle.cancel_token.cancel();
 }
-

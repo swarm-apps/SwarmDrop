@@ -28,6 +28,7 @@ use crate::{AppError, AppResult};
 /// 文件写入目标
 ///
 /// 桌面端仅编译 `Path` 分支；Android 端同时支持两者。
+#[derive(Clone)]
 pub enum FileSink {
     /// 桌面端：直接写到本地目录
     Path { save_dir: PathBuf },
@@ -94,11 +95,7 @@ impl PartFile {
     }
 
     /// 创建不含写入句柄的 PartFile（仅用于 `build_part_file`）
-    pub(crate) fn new_without_handle(
-        part_path: PathBuf,
-        final_path: PathBuf,
-        size: u64,
-    ) -> Self {
+    pub(crate) fn new_without_handle(part_path: PathBuf, final_path: PathBuf, size: u64) -> Self {
         Self {
             part_path,
             final_path,

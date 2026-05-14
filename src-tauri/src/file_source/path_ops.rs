@@ -27,8 +27,7 @@ pub async fn compute_hash_with_progress(
     on_progress: impl Fn(u64) + Send + 'static,
 ) -> AppResult<String> {
     let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || compute_hash_sync_with_progress(&path, on_progress))
-        .await?
+    tokio::task::spawn_blocking(move || compute_hash_sync_with_progress(&path, on_progress)).await?
 }
 
 /// 获取文件或目录的元数据
@@ -111,10 +110,7 @@ fn compute_hash_sync(path: &Path) -> AppResult<String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
-fn compute_hash_sync_with_progress(
-    path: &Path,
-    on_progress: impl Fn(u64),
-) -> AppResult<String> {
+fn compute_hash_sync_with_progress(path: &Path, on_progress: impl Fn(u64)) -> AppResult<String> {
     use std::io::Read;
 
     let mut file = std::fs::File::open(path)?;

@@ -7805,7 +7805,7 @@ dependencies = [
 
 [[package]]
 name = "swarmdrop"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "axum",
  "blake3",

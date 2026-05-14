@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_core::host::FileAccess;
+use swarmdrop_core::transfer::CHUNK_SIZE;
 use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -18,7 +20,9 @@ use crate::file_source::calc_total_chunks;
 use crate::protocol::TransferResponse;
 use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::offer::PreparedFile;
-use crate::transfer::progress::{FileDesc, ProgressTracker, TransferDirection};
+use crate::transfer::progress::{
+    FileDesc, ProgressTracker, ProgressTrackerTauriExt, TransferDirection,
+};
 use crate::{AppError, AppResult};
 
 /// 发送方会话
@@ -34,6 +38,7 @@ pub struct SendSession {
     /// Tauri 应用句柄（文件读取时传递给 FileSource + 进度事件发射）
     app: AppHandle,
     /// 进度追踪器（Arc<Mutex> 供并发 ChunkRequest 任务共享）
+    file_access: Arc<dyn FileAccess>,
     progress: Arc<Mutex<ProgressTracker>>,
     /// 取消令牌
     cancel_token: CancellationToken,
@@ -50,8 +55,17 @@ impl SendSession {
         files: Vec<PreparedFile>,
         key: &[u8; 32],
         app: AppHandle,
+        file_access: Arc<dyn FileAccess>,
     ) -> Self {
-        Self::new_inner(session_id, peer_id, files, key, app, &std::collections::HashMap::new())
+        Self::new_inner(
+            session_id,
+            peer_id,
+            files,
+            key,
+            app,
+            file_access,
+            &std::collections::HashMap::new(),
+        )
     }
 
     /// 断点续传专用构造函数
@@ -64,9 +78,18 @@ impl SendSession {
         files: Vec<PreparedFile>,
         key: &[u8; 32],
         app: AppHandle,
+        file_access: Arc<dyn FileAccess>,
         resume_state: &std::collections::HashMap<u32, (u32, u64)>,
     ) -> Self {
-        Self::new_inner(session_id, peer_id, files, key, app, resume_state)
+        Self::new_inner(
+            session_id,
+            peer_id,
+            files,
+            key,
+            app,
+            file_access,
+            resume_state,
+        )
     }
 
     fn new_inner(
@@ -75,13 +98,18 @@ impl SendSession {
         files: Vec<PreparedFile>,
         key: &[u8; 32],
         app: AppHandle,
+        file_access: Arc<dyn FileAccess>,
         resume_state: &std::collections::HashMap<u32, (u32, u64)>,
     ) -> Self {
         let total_bytes: u64 = files.iter().map(|f| f.size).sum();
         let total_files = files.len();
 
-        let mut tracker =
-            ProgressTracker::new(session_id, TransferDirection::Send, total_bytes, total_files);
+        let mut tracker = ProgressTracker::new(
+            session_id,
+            TransferDirection::Send,
+            total_bytes,
+            total_files,
+        );
 
         let file_descs: Vec<FileDesc> = files
             .iter()
@@ -99,6 +127,7 @@ impl SendSession {
             files,
             crypto: TransferCrypto::new(key),
             app,
+            file_access,
             progress: Arc::new(Mutex::new(tracker)),
             cancel_token: CancellationToken::new(),
             created_at: Instant::now(),
@@ -140,12 +169,22 @@ impl SendSession {
             .files
             .iter()
             .find(|f| f.file_id == file_id)
-            .ok_or_else(|| {
-                AppError::Transfer(format!("文件不存在: file_id={file_id}"))
-            })?;
+            .ok_or_else(|| AppError::Transfer(format!("文件不存在: file_id={file_id}")))?;
 
         // 通过 FileSource 异步读取分块（内部已处理 spawn_blocking）
-        let plaintext = file.source.read_chunk(file.size, chunk_index, &self.app).await?;
+        let offset = chunk_index as u64 * CHUNK_SIZE as u64;
+        let remaining = file.size.saturating_sub(offset);
+        if remaining == 0 && file.size != 0 {
+            return Err(AppError::Transfer(format!(
+                "chunk_index 超出范围: offset={offset}, file_size={}",
+                file.size
+            )));
+        }
+        let length = (remaining as usize).min(CHUNK_SIZE);
+        let plaintext = self
+            .file_access
+            .read_source_chunk(&file.source_id, offset, length)
+            .await?;
 
         let plaintext_len = plaintext.len() as u64;
 
@@ -156,8 +195,10 @@ impl SendSession {
             .map_err(|e| AppError::Transfer(format!("加密失败: {e}")))?;
 
         // 更新最后活动时间戳
-        self.last_activity_ms
-            .store(self.created_at.elapsed().as_millis() as u64, Ordering::Relaxed);
+        self.last_activity_ms.store(
+            self.created_at.elapsed().as_millis() as u64,
+            Ordering::Relaxed,
+        );
 
         // 上报进度（锁内操作极短：VecDeque push + 200ms 节流检查）
         if let Ok(mut p) = self.progress.lock() {
@@ -189,10 +230,7 @@ impl SendSession {
 
     /// 处理 Cancel：取消所有进行中的操作
     pub fn handle_cancel(&self) {
-        warn!(
-            "Transfer cancelled by peer: session={}",
-            self.session_id
-        );
+        warn!("Transfer cancelled by peer: session={}", self.session_id);
         self.cancel_token.cancel();
     }
 

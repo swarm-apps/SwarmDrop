@@ -15,5 +15,5 @@ path = "src/main.rs"
 [dependencies]
 sea-orm-migration = { workspace = true }
 sea-orm = { workspace = true, features = ["schema-sync"] }
-strum = { version = "0.27", features = ["derive"] }
+strum = { workspace = true }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

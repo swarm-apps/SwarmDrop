@@ -9,12 +9,16 @@ pub mod path_ops;
 pub mod android_ops;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use swarmdrop_core::host::{FileAccess, FileSinkId, FileSourceId, HostFileMetadata};
 
 #[cfg(target_os = "android")]
 use tauri_plugin_android_fs::FileUri;
 
+use crate::file_sink::{FileSink, PartFile};
 use crate::AppResult;
 
 /// 分块大小：256 KB
@@ -103,9 +107,7 @@ impl FileSource {
         on_progress: impl Fn(u64) + Send + 'static,
     ) -> AppResult<String> {
         match self {
-            Self::Path { path } => {
-                path_ops::compute_hash_with_progress(path, on_progress).await
-            }
+            Self::Path { path } => path_ops::compute_hash_with_progress(path, on_progress).await,
             #[cfg(target_os = "android")]
             Self::AndroidUri(file_uri) => {
                 android_ops::compute_hash_with_progress(file_uri, app, on_progress).await
@@ -140,6 +142,185 @@ impl FileSource {
                 android_ops::enumerate_dir(file_uri, parent_relative_path, app).await
             }
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct TauriFileAccess {
+    app: tauri::AppHandle,
+    sink: Option<FileSink>,
+    active_sinks: Arc<DashMap<FileSinkId, ActiveSink>>,
+}
+
+#[derive(Clone)]
+struct ActiveSink {
+    part_file: Arc<PartFile>,
+    checksum: Option<String>,
+}
+
+impl TauriFileAccess {
+    pub fn new(app: tauri::AppHandle) -> Self {
+        Self {
+            app,
+            sink: None,
+            active_sinks: Arc::new(DashMap::new()),
+        }
+    }
+
+    pub fn with_sink(app: tauri::AppHandle, sink: FileSink) -> Self {
+        Self {
+            app,
+            sink: Some(sink),
+            active_sinks: Arc::new(DashMap::new()),
+        }
+    }
+}
+
+pub fn source_id(source: &FileSource) -> FileSourceId {
+    match source {
+        FileSource::Path { path } => FileSourceId(path.to_string_lossy().into_owned()),
+        #[cfg(target_os = "android")]
+        FileSource::AndroidUri(_) => {
+            FileSourceId(serde_json::to_string(source).unwrap_or_default())
+        }
+    }
+}
+
+fn source_from_id(source: &FileSourceId) -> swarmdrop_core::AppResult<FileSource> {
+    if let Ok(source) = serde_json::from_str::<FileSource>(&source.0) {
+        return Ok(source);
+    }
+    Ok(FileSource::Path {
+        path: PathBuf::from(&source.0),
+    })
+}
+
+fn to_core_error(error: crate::AppError) -> swarmdrop_core::AppError {
+    swarmdrop_core::AppError::Transfer(error.to_string())
+}
+
+#[async_trait::async_trait]
+impl FileAccess for TauriFileAccess {
+    async fn source_metadata(
+        &self,
+        source: &FileSourceId,
+    ) -> swarmdrop_core::AppResult<HostFileMetadata> {
+        let source = source_from_id(source)?;
+        let metadata = source.metadata(&self.app).await.map_err(to_core_error)?;
+        Ok(HostFileMetadata {
+            name: metadata.name.clone(),
+            relative_path: metadata.name,
+            size: metadata.size,
+            modified_at: None,
+            checksum: None,
+        })
+    }
+
+    async fn read_source_chunk(
+        &self,
+        source: &FileSourceId,
+        offset: u64,
+        _length: usize,
+    ) -> swarmdrop_core::AppResult<Vec<u8>> {
+        let file_source = source_from_id(source)?;
+        let metadata = file_source
+            .metadata(&self.app)
+            .await
+            .map_err(to_core_error)?;
+        let chunk_index = u32::try_from(offset / CHUNK_SIZE as u64)
+            .map_err(|_| swarmdrop_core::AppError::Transfer("chunk offset is too large".into()))?;
+        file_source
+            .read_chunk(metadata.size, chunk_index, &self.app)
+            .await
+            .map_err(to_core_error)
+    }
+
+    async fn create_sink(
+        &self,
+        metadata: HostFileMetadata,
+    ) -> swarmdrop_core::AppResult<FileSinkId> {
+        let sink = self.sink.as_ref().ok_or_else(|| {
+            swarmdrop_core::AppError::Transfer("TauriFileAccess sink is not configured".into())
+        })?;
+        let part_file = sink
+            .create_part_file(&metadata.relative_path, metadata.size, &self.app)
+            .await
+            .map_err(to_core_error)?;
+        let sink_id = FileSinkId(metadata.relative_path);
+        self.active_sinks.insert(
+            sink_id.clone(),
+            ActiveSink {
+                part_file: Arc::new(part_file),
+                checksum: metadata.checksum,
+            },
+        );
+        Ok(sink_id)
+    }
+
+    async fn open_or_create_sink(
+        &self,
+        metadata: HostFileMetadata,
+    ) -> swarmdrop_core::AppResult<FileSinkId> {
+        let sink = self.sink.as_ref().ok_or_else(|| {
+            swarmdrop_core::AppError::Transfer("TauriFileAccess sink is not configured".into())
+        })?;
+        let part_file = sink
+            .open_or_create_part_file(&metadata.relative_path, metadata.size, &self.app)
+            .await
+            .map_err(to_core_error)?;
+        let sink_id = FileSinkId(metadata.relative_path);
+        self.active_sinks.insert(
+            sink_id.clone(),
+            ActiveSink {
+                part_file: Arc::new(part_file),
+                checksum: metadata.checksum,
+            },
+        );
+        Ok(sink_id)
+    }
+
+    async fn write_sink_chunk(
+        &self,
+        sink: &FileSinkId,
+        offset: u64,
+        data: Vec<u8>,
+    ) -> swarmdrop_core::AppResult<()> {
+        let active = self
+            .active_sinks
+            .get(sink)
+            .ok_or_else(|| {
+                swarmdrop_core::AppError::Transfer(format!("file sink not found: {}", sink.0))
+            })?
+            .clone();
+        let chunk_index = u32::try_from(offset / CHUNK_SIZE as u64)
+            .map_err(|_| swarmdrop_core::AppError::Transfer("chunk offset is too large".into()))?;
+        active
+            .part_file
+            .write_chunk(chunk_index, &data)
+            .await
+            .map_err(to_core_error)
+    }
+
+    async fn finalize_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<()> {
+        let (_, active) = self.active_sinks.remove(sink).ok_or_else(|| {
+            swarmdrop_core::AppError::Transfer(format!("file sink not found: {}", sink.0))
+        })?;
+        let checksum = active.checksum.ok_or_else(|| {
+            swarmdrop_core::AppError::Transfer(format!("file sink checksum missing: {}", sink.0))
+        })?;
+        active
+            .part_file
+            .verify_and_finalize(&checksum, &self.app)
+            .await
+            .map(|_| ())
+            .map_err(to_core_error)
+    }
+
+    async fn cleanup_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<()> {
+        if let Some((_, active)) = self.active_sinks.remove(sink) {
+            active.part_file.cleanup(&self.app).await;
+        }
+        Ok(())
     }
 }
 

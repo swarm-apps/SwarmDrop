@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+/target/
 *.local
 
 # Editor directories and files
@@ -37,3 +38,4 @@ dist-ssr
 # Signing keys
 keys/
 keystore.properties
+.codex

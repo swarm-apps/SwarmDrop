@@ -36,10 +36,18 @@ impl MigrationTrait for Migration {
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // 按外键依赖反序删除
         manager
-            .drop_table(Table::drop().table(entity::transfer_file::Entity).to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(entity::transfer_file::Entity)
+                    .to_owned(),
+            )
             .await?;
         manager
-            .drop_table(Table::drop().table(entity::transfer_session::Entity).to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(entity::transfer_session::Entity)
+                    .to_owned(),
+            )
             .await?;
         Ok(())
     }

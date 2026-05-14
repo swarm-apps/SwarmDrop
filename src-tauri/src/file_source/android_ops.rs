@@ -149,9 +149,7 @@ pub async fn enumerate_dir(
 
         for entry in entries {
             match entry {
-                Entry::File {
-                    uri, name, len, ..
-                } => {
+                Entry::File { uri, name, len, .. } => {
                     let relative_path = if parent_path.is_empty() {
                         name.clone()
                     } else {

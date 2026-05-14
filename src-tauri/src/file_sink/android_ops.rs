@@ -55,36 +55,24 @@ pub async fn create_part_file(
             None, // 从扩展名推断 MIME 类型
         )
         .await
-        .map_err(|e| {
-            AppError::Transfer(format!(
-                "Android 创建文件失败: {relative_path}, {e}"
-            ))
-        })?;
+        .map_err(|e| AppError::Transfer(format!("Android 创建文件失败: {relative_path}, {e}")))?;
 
     // 打开文件并缓存句柄（用于后续 pwrite 写入分块）
     let file = app
         .android_fs_async()
         .open_file(&file_uri, FileAccessMode::ReadWrite)
         .await
-        .map_err(|e| {
-            AppError::Transfer(format!(
-                "Android 打开文件失败: {relative_path}, {e}"
-            ))
-        })?;
+        .map_err(|e| AppError::Transfer(format!("Android 打开文件失败: {relative_path}, {e}")))?;
 
     // 预分配文件大小：提前检查磁盘空间，避免传输到一半才失败
     if file_size > 0 {
         let f = file.try_clone().map_err(|e| {
-            AppError::Transfer(format!(
-                "Android clone 文件句柄失败: {relative_path}, {e}"
-            ))
+            AppError::Transfer(format!("Android clone 文件句柄失败: {relative_path}, {e}"))
         })?;
         tokio::task::spawn_blocking(move || f.set_len(file_size))
             .await?
             .map_err(|e: std::io::Error| {
-                AppError::Transfer(format!(
-                    "Android 预分配文件大小失败: {relative_path}, {e}"
-                ))
+                AppError::Transfer(format!("Android 预分配文件大小失败: {relative_path}, {e}"))
             })?;
     }
 
@@ -145,9 +133,7 @@ pub async fn verify_and_finalize(
         .public_storage()
         .set_pending(file_uri, false)
         .await
-        .map_err(|e| {
-            AppError::Transfer(format!("Android set_pending(false) 失败: {e}"))
-        })?;
+        .map_err(|e| AppError::Transfer(format!("Android set_pending(false) 失败: {e}")))?;
 
     // 刷新 MediaStore 索引
     app.android_fs_async()

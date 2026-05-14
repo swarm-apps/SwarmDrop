@@ -19,7 +19,12 @@ pub(crate) async fn create_part_file(
     let f = create_new_part(&part_path, file_size).await?;
     let write_handle = f.into_std().await;
 
-    Ok(PartFile::new_path(part_path, final_path, file_size, write_handle))
+    Ok(PartFile::new_path(
+        part_path,
+        final_path,
+        file_size,
+        write_handle,
+    ))
 }
 
 /// 打开已有 .part 文件或创建新文件（断点续传用）
@@ -52,14 +57,16 @@ pub(crate) async fn open_or_create_part_file(
     };
 
     let write_handle = f.into_std().await;
-    Ok(PartFile::new_path(part_path, final_path, file_size, write_handle))
+    Ok(PartFile::new_path(
+        part_path,
+        final_path,
+        file_size,
+        write_handle,
+    ))
 }
 
 /// 解析最终路径和 .part 路径，并确保父目录存在
-async fn resolve_paths(
-    save_dir: &Path,
-    relative_path: &str,
-) -> AppResult<(PathBuf, PathBuf)> {
+async fn resolve_paths(save_dir: &Path, relative_path: &str) -> AppResult<(PathBuf, PathBuf)> {
     let final_path = save_dir.join(relative_path);
     let part_path = compute_part_path(&final_path);
 
@@ -140,9 +147,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
 
-        let part = create_part_file(&dir, "docs/readme.md", 512)
-            .await
-            .unwrap();
+        let part = create_part_file(&dir, "docs/readme.md", 512).await.unwrap();
         assert!(part.part_path.exists());
         assert!(dir.join("docs").is_dir());
         assert_eq!(part.part_path, dir.join("docs").join("readme.md.part"));
@@ -203,7 +208,9 @@ mod tests {
 
         let chunk_size = crate::file_source::CHUNK_SIZE;
         let file_size = chunk_size as u64 * 2;
-        let part = create_part_file(&dir, "multi.bin", file_size).await.unwrap();
+        let part = create_part_file(&dir, "multi.bin", file_size)
+            .await
+            .unwrap();
 
         let data0 = vec![0xAAu8; chunk_size];
         let data1 = vec![0xBBu8; chunk_size];
@@ -242,7 +249,10 @@ mod tests {
         let final_path = verify_and_finalize(&part, &hash).await.unwrap();
         assert!(final_path.exists());
         assert!(!part.part_path.exists());
-        assert_eq!(std::fs::read_to_string(&final_path).unwrap(), "hello swarmdrop");
+        assert_eq!(
+            std::fs::read_to_string(&final_path).unwrap(),
+            "hello swarmdrop"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

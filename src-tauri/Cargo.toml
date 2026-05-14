@@ -1,22 +1,3 @@
-[workspace]
-members = [".", "entity", "migration"]
-resolver = "2"
-
-[workspace.dependencies]
-sea-orm = { version = "2.0.0-rc", features = [
-    "macros",
-    "runtime-tokio-rustls",
-    "sqlx-sqlite",
-    "with-chrono",
-    "with-uuid",
-] }
-sea-orm-migration = { version = "2.0.0-rc", features = [
-    "runtime-tokio-rustls",
-    "sqlx-sqlite",
-] }
-entity = { path = "entity" }
-migration = { path = "migration" }
-
 [package]
 name = "swarmdrop"
 version = "0.4.4"
@@ -43,10 +24,11 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 serde_json = "1"
 tokio = "1.49.0"
-swarm-p2p-core = { path = "../libs/core" }
+async-trait = { workspace = true }
+swarm-p2p-core = { workspace = true }
+swarmdrop-core = { workspace = true }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
-tauri-plugin-stronghold = "2"
 tauri-plugin-biometry = "0.2"
 tauri-plugin-fs = "2"
 tauri-plugin-os = "2"
@@ -74,22 +56,31 @@ entity = { workspace = true }
 migration = { workspace = true }
 rmcp = { version = "1.1.0", features = ["server", "transport-streamable-http-server"] }
 axum = "0.8"
+url = "2"
 
 # 桌面端启用 DNS 解析（Android 上 /etc/resolv.conf 不存在，不启用）
 [target.'cfg(not(target_os = "android"))'.dependencies]
-swarm-p2p-core = { path = "../libs/core", features = ["dns"] }
+swarm-p2p-core = { workspace = true, features = ["dns"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = [
+    "windows-native",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = [
+    "apple-native",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = [
+    "linux-native-sync-persistent",
+    "crypto-rust",
+    "vendored",
+] }
 
 # Android 文件选择插件
 [target.'cfg(target_os = "android")'.dependencies]
 tauri-plugin-android-fs = { version = "=26.0.0", features = [
     "legacy_storage_permission",
 ] }
-
-# 在 dev 模式下为依赖开启优化（加密运算必须）
-# 否则 Stronghold 等加密库会慢 10-100 倍
-[profile.dev.package."*"]
-opt-level = 3
-
-# Stronghold 相关依赖特别需要优化
-[profile.dev.package.tauri-plugin-stronghold]
-opt-level = 3

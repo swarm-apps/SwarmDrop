@@ -42,7 +42,6 @@
     "@tauri-apps/plugin-os": "~2.3.2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-store": "~2.4.2",
-    "@tauri-apps/plugin-stronghold": "~2",
     "@tauri-apps/plugin-updater": "^2.10.0",
     "@toolsetlink/upgradelink-api-typescript": "^2.4.1",
     "class-variance-authority": "^0.7.1",

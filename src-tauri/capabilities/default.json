@@ -24,7 +24,6 @@
         }
       ]
     },
-    "stronghold:default",
     "fs:allow-exists",
     "fs:allow-remove",
     "fs:allow-app-read",
