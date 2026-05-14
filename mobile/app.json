@@ -6,12 +6,17 @@
     "orientation": "portrait",
     "scheme": "swarmdrop",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/images/icon.png",
     "ios": {
       "bundleIdentifier": "com.yexiyue.swarmdrop"
     },
     "android": {
       "package": "com.yexiyue.swarmdrop",
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0F172A"
+      }
     },
     "plugins": [
       "expo-router",
@@ -19,7 +24,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0F172A"
+          "backgroundColor": "#0F172A",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200
         }
       ],
       [
