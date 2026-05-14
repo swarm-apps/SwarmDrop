@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
 import { getMobileCore } from "@/core/mobile-core";
 
-const PAIRING_CODE_TTL_SECS = 600;
+// u64 在 TS 端是 bigint,这里直接用字面量,后续无需手动 BigInt(...)
+const PAIRING_CODE_TTL_SECS = 600n;
 
 export function usePairingCodeGenerator() {
   const [code, setCode] = useState<string | null>(null);

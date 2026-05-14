@@ -1,6 +1,6 @@
 import {
-  createMobileCore,
-  type MobileCorePort,
+  MobileCore,
+  type MobileCoreLike,
 } from "react-native-swarmdrop-core";
 import { mobileEventBus } from "./event-bus";
 import { Keychain } from "./keychain";
@@ -10,16 +10,16 @@ const hostAdapters = {
   eventBus: mobileEventBus,
 };
 
-let corePromise: Promise<MobileCorePort> | null = null;
-let core: MobileCorePort | null = null;
+let corePromise: Promise<MobileCoreLike> | null = null;
+let core: MobileCoreLike | null = null;
 
-export function initMobileCore(): Promise<MobileCorePort> {
+export function initMobileCore(): Promise<MobileCoreLike> {
   if (corePromise !== null) {
     return corePromise;
   }
 
   corePromise = Promise.resolve(
-    createMobileCore(hostAdapters.keychain, hostAdapters.eventBus),
+    new MobileCore(hostAdapters.keychain, hostAdapters.eventBus),
   ).then((instance) => {
     core = instance;
     return instance;
@@ -27,7 +27,7 @@ export function initMobileCore(): Promise<MobileCorePort> {
   return corePromise;
 }
 
-export function getMobileCore(): MobileCorePort {
+export function getMobileCore(): MobileCoreLike {
   if (core === null) {
     throw new Error("MobileCore not initialized; call initMobileCore() first");
   }

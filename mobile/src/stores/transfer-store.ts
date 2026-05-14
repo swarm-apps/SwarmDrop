@@ -1,6 +1,6 @@
 import type {
-  TransferOffer,
-  TransferSession,
+  MobileTransferOffer as TransferOffer,
+  MobileTransferSession as TransferSession,
 } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 

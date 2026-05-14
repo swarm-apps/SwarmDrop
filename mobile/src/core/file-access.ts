@@ -1,5 +1,5 @@
 import * as DocumentPicker from "expo-document-picker";
-import type { TransferFile } from "react-native-swarmdrop-core";
+import type { MobileTransferFile as TransferFile } from "react-native-swarmdrop-core";
 
 export async function pickTransferFiles(): Promise<TransferFile[]> {
   const result = await DocumentPicker.getDocumentAsync({
@@ -14,9 +14,10 @@ export async function pickTransferFiles(): Promise<TransferFile[]> {
   return result.assets.map((asset, index) => ({
     fileId: stableFileId(asset.uri, index),
     name: asset.name,
-    relativePath: null,
+    // ubrn 把 Rust `Option<String>` 映射为 `string | undefined`,而不是 null
+    relativePath: undefined,
     uri: asset.uri,
-    size: asset.size ?? 0,
+    size: BigInt(asset.size ?? 0),
     isDirectory: false,
   }));
 }

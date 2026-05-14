@@ -56,7 +56,7 @@ export function TransferOfferHost() {
     return null;
   }
 
-  const totalLabel = formatBytes(current.offer.totalSize);
+  const totalLabel = formatBytes(Number(current.offer.totalSize));
 
   return (
     <Modal
@@ -92,7 +92,7 @@ export function TransferOfferHost() {
                   <Text style={styles.fileName} numberOfLines={1}>
                     {f.name}
                   </Text>
-                  <Text style={styles.fileSize}>{formatBytes(f.size)}</Text>
+                  <Text style={styles.fileSize}>{formatBytes(Number(f.size))}</Text>
                 </View>
               ))}
             {current.offer.files.length > 5 ? (

@@ -1,13 +1,18 @@
 import type {
-  DeviceInfo,
-  NetworkStatus,
-  TransferFile,
+  MobileDevice as DeviceInfo,
+  MobileNetworkStatus as NetworkStatus,
+  MobileTransferFile as TransferFile,
 } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { pickTransferFiles } from "@/core/file-access";
 import { initMobileCore } from "@/core/mobile-core";
 
 export type RuntimeState = "stopped" | "starting" | "running" | "error";
+
+// Rust 端 networkStatus.status 是任意字符串,RN 用 union 类型,需要收敛
+function toRuntimeState(status: string): RuntimeState {
+  return status === "running" ? "running" : "stopped";
+}
 
 type MobileCoreState = {
   identityStatus: string;
@@ -58,7 +63,7 @@ export const useMobileCoreStore = create<MobileCoreState>((set, get) => ({
       set({
         networkStatus,
         devices,
-        runtimeState: networkStatus.status,
+        runtimeState: toRuntimeState(networkStatus.status),
         initialized: true,
       });
     } catch (error) {
@@ -74,7 +79,11 @@ export const useMobileCoreStore = create<MobileCoreState>((set, get) => ({
       const core = await initMobileCore();
       const devices = await core.listDevices("all");
       const networkStatus = await core.networkStatus();
-      set({ devices, networkStatus, runtimeState: networkStatus.status });
+      set({
+        devices,
+        networkStatus,
+        runtimeState: toRuntimeState(networkStatus.status),
+      });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -84,7 +93,10 @@ export const useMobileCoreStore = create<MobileCoreState>((set, get) => ({
     try {
       const core = await initMobileCore();
       const networkStatus = await core.networkStatus();
-      set({ networkStatus, runtimeState: networkStatus.status });
+      set({
+        networkStatus,
+        runtimeState: toRuntimeState(networkStatus.status),
+      });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -104,7 +116,10 @@ export const useMobileCoreStore = create<MobileCoreState>((set, get) => ({
   },
 
   applyNetworkStatus(status) {
-    set({ networkStatus: status, runtimeState: status.status });
+    set({
+      networkStatus: status,
+      runtimeState: toRuntimeState(status.status),
+    });
   },
 
   applyDevices(devices) {

@@ -1,10 +1,10 @@
 import * as SecureStore from "expo-secure-store";
-import type { KeychainProvider } from "react-native-swarmdrop-core";
+import type { ForeignKeychainProvider } from "react-native-swarmdrop-core";
 
 const IDENTITY_KEY = "swarmdrop.identity.keypair";
 const PAIRED_DEVICES_KEY = "swarmdrop.paired-devices";
 
-export class Keychain implements KeychainProvider {
+export class Keychain implements ForeignKeychainProvider {
   async loadIdentity(): Promise<ArrayBuffer | undefined> {
     const encoded = await SecureStore.getItemAsync(IDENTITY_KEY);
     return encoded === null ? undefined : base64ToBytes(encoded);

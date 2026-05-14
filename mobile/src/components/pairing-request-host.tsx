@@ -29,9 +29,10 @@ export function PairingRequestHost() {
       if (!current || !payload || responding) return;
       setResponding(true);
       try {
+        // pendingId 来自 Rust 端 u64,在 TS 中是 bigint,直接透传
         await getMobileCore().respondPairingRequest(
-          Number(payload.pendingId),
-          payload.code ?? null,
+          payload.pendingId,
+          payload.code ?? undefined,
           accept,
         );
       } catch (err) {

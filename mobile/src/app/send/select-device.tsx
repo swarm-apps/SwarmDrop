@@ -27,7 +27,8 @@ export default function SelectDevice() {
   const [sendingTo, setSendingTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0);
+  // file.size 来自 Rust u64 → bigint,累加用 bigint 字面量初值
+  const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0n);
 
   const onSend = async (peerId: string) => {
     if (sendingTo !== null || selectedFiles.length === 0) return;
@@ -35,9 +36,11 @@ export default function SelectDevice() {
     setSendingTo(peerId);
     try {
       const prepared = await getMobileCore().prepareSend(selectedFiles);
+      // 第三个参数 file_ids 为空数组时,后端会发所有 prepared 文件
       const session = await getMobileCore().sendPrepared(
         prepared.preparedId,
         peerId,
+        [],
       );
       upsertSession(session);
       clearSelectedFiles();
@@ -115,12 +118,13 @@ export default function SelectDevice() {
   );
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+// bigint 输入(来自 Rust u64),内部转 number 走原有比较;TB+ 级别本机不可能命中
+function formatBytes(bytes: bigint): string {
+  const n = Number(bytes);
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 const styles = StyleSheet.create({

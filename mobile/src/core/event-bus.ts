@@ -1,5 +1,5 @@
 import type {
-  EventBus as EventBusContract,
+  ForeignEventBus as EventBusContract,
   MobileCoreEvent,
 } from "react-native-swarmdrop-core";
 import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
@@ -30,15 +30,8 @@ export class EventBus implements EventBusContract {
 function routeEventToStores(event: MobileCoreEvent): void {
   switch (event.tag) {
     case MobileCoreEvent_Tags.NetworkStatusChanged: {
-      const status = event.inner.status;
-      useMobileCoreStore.getState().applyNetworkStatus({
-        ...status,
-        status: status.status === "running" ? "running" : "stopped",
-        peerId: status.peerId ?? null,
-        publicAddr: status.publicAddr ?? null,
-        connectedPeers: Number(status.connectedPeers),
-        discoveredPeers: Number(status.discoveredPeers),
-      });
+      // status 已经是 ubrn 生成的 MobileNetworkStatus,直接透传
+      useMobileCoreStore.getState().applyNetworkStatus(event.inner.status);
       break;
     }
 
@@ -69,21 +62,8 @@ function routeEventToStores(event: MobileCoreEvent): void {
     }
 
     case MobileCoreEvent_Tags.TransferOfferReceived: {
-      const native = event.inner.offer;
-      type NativeOfferFile = (typeof native.files)[number];
-      useTransferStore.getState().pushOffer({
-        sessionId: native.sessionId,
-        peerId: native.peerId,
-        deviceName: native.deviceName,
-        totalSize: Number(native.totalSize),
-        files: native.files.map((f: NativeOfferFile) => ({
-          fileId: f.fileId,
-          name: f.name,
-          relativePath: f.relativePath ?? null,
-          size: Number(f.size),
-          isDirectory: f.isDirectory,
-        })),
-      });
+      // offer 已经是 ubrn 生成的 MobileTransferOffer,store 类型也对齐它,直接透传
+      useTransferStore.getState().pushOffer(event.inner.offer);
       break;
     }
 
