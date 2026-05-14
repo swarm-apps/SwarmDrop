@@ -24,6 +24,10 @@ pub enum AppError {
     #[error("Tauri error: {0}")]
     Tauri(#[from] tauri::Error),
 
+    /// 平台无关 core 错误
+    #[error("Core error: {0}")]
+    Core(#[from] swarmdrop_core::AppError),
+
     /// P2P 核心库错误
     #[error("P2P error: {0}")]
     P2p(#[from] swarm_p2p_core::Error),
@@ -75,6 +79,7 @@ impl Serialize for AppError {
             AppError::Io(e) => ("Io", e.to_string()),
             AppError::Serialization(e) => ("Serialization", e.to_string()),
             AppError::Tauri(e) => ("Tauri", e.to_string()),
+            AppError::Core(e) => ("Core", e.to_string()),
             AppError::P2p(e) => ("P2p", e.to_string()),
             AppError::Network(msg) => ("Network", msg.clone()),
             AppError::Identity(msg) => ("Identity", msg.clone()),

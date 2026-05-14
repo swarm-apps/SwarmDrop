@@ -191,7 +191,7 @@ pub async fn get_transfer_history(
     db: State<'_, sea_orm::DatabaseConnection>,
     status: Option<entity::SessionStatus>,
 ) -> crate::AppResult<Vec<crate::database::ops::TransferHistoryItem>> {
-    crate::database::ops::get_transfer_history(&db, status).await
+    Ok(crate::database::ops::get_transfer_history(&db, status).await?)
 }
 
 /// 查询单个传输会话详情
@@ -200,7 +200,7 @@ pub async fn get_transfer_session(
     db: State<'_, sea_orm::DatabaseConnection>,
     session_id: Uuid,
 ) -> crate::AppResult<crate::database::ops::TransferHistoryItem> {
-    crate::database::ops::get_session_detail(&db, session_id).await
+    Ok(crate::database::ops::get_session_detail(&db, session_id).await?)
 }
 
 /// 删除单个传输会话
@@ -209,7 +209,7 @@ pub async fn delete_transfer_session(
     db: State<'_, sea_orm::DatabaseConnection>,
     session_id: Uuid,
 ) -> crate::AppResult<()> {
-    crate::database::ops::delete_session(&db, session_id).await
+    Ok(crate::database::ops::delete_session(&db, session_id).await?)
 }
 
 /// 清空所有传输历史
@@ -217,7 +217,7 @@ pub async fn delete_transfer_session(
 pub async fn clear_transfer_history(
     db: State<'_, sea_orm::DatabaseConnection>,
 ) -> crate::AppResult<()> {
-    crate::database::ops::clear_all_history(&db).await
+    Ok(crate::database::ops::clear_all_history(&db).await?)
 }
 
 /// 暂停传输（自动检测发送/接收方向，通知对端）
@@ -239,9 +239,7 @@ pub async fn pause_transfer(
     crate::database::ops::mark_session_paused(&db, session_id).await?;
 
     // 同步 session 级别的 transferred_bytes（从文件记录汇总）
-    if let Err(e) =
-        crate::database::ops::sync_session_transferred_bytes(&db, session_id).await
-    {
+    if let Err(e) = crate::database::ops::sync_session_transferred_bytes(&db, session_id).await {
         tracing::warn!("同步 session 字节数失败: {}", e);
     }
 
@@ -338,8 +336,6 @@ pub async fn resolve_android_dir_uri(
 /// 从 Tauri State 中获取 TransferManager（短暂持锁后立即释放）
 async fn get_transfer(net: &NetManagerState) -> crate::AppResult<Arc<TransferManager>> {
     let guard = net.lock().await;
-    let manager = guard
-        .as_ref()
-        .ok_or(crate::AppError::NodeNotStarted)?;
+    let manager = guard.as_ref().ok_or(crate::AppError::NodeNotStarted)?;
     Ok(manager.transfer_arc())
 }

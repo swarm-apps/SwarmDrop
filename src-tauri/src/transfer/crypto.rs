@@ -56,8 +56,7 @@ impl TransferCrypto {
         ciphertext: &[u8],
     ) -> aead::Result<Vec<u8>> {
         let nonce = derive_nonce(session_id, file_id, chunk_index);
-        self.cipher
-            .decrypt(XNonce::from_slice(&nonce), ciphertext)
+        self.cipher.decrypt(XNonce::from_slice(&nonce), ciphertext)
     }
 }
 
@@ -123,9 +122,7 @@ mod tests {
         let crypto2 = TransferCrypto::new(&key2);
         let sid = test_uuid();
 
-        let ciphertext = crypto1
-            .encrypt_chunk(&sid, 0, 0, b"secret data")
-            .unwrap();
+        let ciphertext = crypto1.encrypt_chunk(&sid, 0, 0, b"secret data").unwrap();
 
         let result = crypto2.decrypt_chunk(&sid, 0, 0, &ciphertext);
         assert!(result.is_err());
@@ -182,9 +179,7 @@ mod tests {
         let crypto = TransferCrypto::new(&key);
         let sid = test_uuid();
 
-        let mut ciphertext = crypto
-            .encrypt_chunk(&sid, 0, 0, b"important data")
-            .unwrap();
+        let mut ciphertext = crypto.encrypt_chunk(&sid, 0, 0, b"important data").unwrap();
 
         // 篡改密文的第一个字节
         ciphertext[0] ^= 0xff;

@@ -5,13 +5,17 @@
 //! [`device`](crate::device) 和 [`pairing`](crate::pairing) 模块。
 
 use crate::device::{DeviceFilter, DeviceListResult, PairedDeviceInfo};
-use crate::network::{NetManager, NetManagerState, NetworkStatus};
-use crate::protocol::{AppRequest, AppResponse};
+use crate::network::{NetManagerState, NetworkStatus};
+use crate::transfer::offer::TransferManager;
 use crate::AppError;
-use swarm_p2p_core::libp2p::{identity::Keypair, PeerId};
+use swarm_p2p_core::libp2p::identity::Keypair;
+use swarmdrop_core::host::{UpdateInstallRequest, UpdateInstaller};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
+
+#[cfg(not(target_os = "android"))]
+use crate::host::keychain::DesktopKeychainProvider;
 
 /// 从 NetManagerState 获取 manager 引用并执行表达式（短暂持锁）
 macro_rules! with_manager {
@@ -20,7 +24,7 @@ macro_rules! with_manager {
         let $m = guard
             .as_ref()
             .ok_or_else(|| $crate::AppError::NodeNotStarted)?;
-        $body
+        Ok::<_, $crate::AppError>($body?)
     }};
 }
 
@@ -43,22 +47,18 @@ pub async fn start(
     paired_devices: Vec<PairedDeviceInfo>,
     custom_bootstrap_nodes: Option<Vec<String>>,
 ) -> crate::AppResult<()> {
-    let agent_version = crate::device::OsInfo::default().to_agent_version();
-    let config = crate::network::config::create_node_config(
-        agent_version,
-        &custom_bootstrap_nodes.unwrap_or_default(),
-    );
+    let paired_devices = load_host_paired_devices(paired_devices).await?;
 
-    let (client, receiver) =
-        swarm_p2p_core::start::<AppRequest, AppResponse>((*keypair).clone(), config)
-            .map_err(|e| AppError::Network(e.to_string()))?;
-
-    let peer_id = PeerId::from_public_key(&keypair.public());
-    let net_manager = NetManager::new(
-        client.clone(),
-        peer_id,
+    let started = swarmdrop_core::runtime::start_node(
+        (*keypair).clone(),
         paired_devices,
-    );
+        custom_bootstrap_nodes.unwrap_or_default(),
+        TransferManager::new,
+    )?;
+
+    let net_manager = started.manager;
+    let receiver = started.receiver;
+    let client = net_manager.client().clone();
 
     // 宣布上线（bootstrap 前发布，尽早让对方发现）
     if let Err(e) = net_manager.pairing().announce_online().await {
@@ -91,6 +91,21 @@ pub async fn start(
     crate::network::spawn_event_loop(receiver, app, shared);
 
     Ok(())
+}
+
+async fn load_host_paired_devices(
+    fallback: Vec<PairedDeviceInfo>,
+) -> crate::AppResult<Vec<PairedDeviceInfo>> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let provider = DesktopKeychainProvider::new()?;
+        let devices = swarmdrop_core::identity::load_paired_devices(&provider).await?;
+        if !devices.is_empty() {
+            return Ok(devices);
+        }
+    }
+
+    Ok(fallback)
 }
 
 #[tauri::command]
@@ -145,10 +160,10 @@ pub async fn install_update(app: AppHandle, url: String, is_force: bool) -> crat
 
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (app, url, is_force);
-        Err(crate::AppError::Io(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "install_update is only supported on Android",
-        )))
+        let installer = crate::host::update_installer::DesktopUpdateInstaller::new(app);
+        installer
+            .install_update(UpdateInstallRequest { url, is_force })
+            .await?;
+        Ok(())
     }
 }

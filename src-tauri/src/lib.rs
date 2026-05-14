@@ -1,17 +1,18 @@
 pub mod commands;
+pub(crate) mod database;
 pub mod device;
 pub mod error;
 pub mod events;
+pub(crate) mod mcp;
 pub(crate) mod network;
 pub(crate) mod pairing;
 pub mod protocol;
 pub(crate) mod transfer;
-pub(crate) mod database;
-pub(crate) mod mcp;
 pub use error::{AppError, AppResult};
 
 pub mod file_sink;
 pub mod file_source;
+pub mod host;
 mod mobile;
 
 use tauri::Manager;
@@ -56,9 +57,6 @@ pub fn run() {
             {
                 tracing::warn!("Failed to initialize updater plugin: {e}");
             }
-            let salt_path = app.path().app_local_data_dir()?.join("salt.txt");
-            app.handle()
-                .plugin(tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build())?;
 
             // 初始化数据库（SeaORM + SQLite）
             let handle = app.handle().clone();
@@ -77,6 +75,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::start,
             commands::shutdown,
+            commands::initialize_identity,
             commands::generate_keypair,
             commands::register_keypair,
             commands::generate_pairing_code,

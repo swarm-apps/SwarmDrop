@@ -1,5 +1,11 @@
 use serde::Serialize;
 use swarm_p2p_core::{EventReceiver, NodeEvent};
+use swarmdrop_core::host::{CoreEvent, EventBus};
+use swarmdrop_core::pairing::manager::PairingManager;
+use swarmdrop_core::transfer::incoming::{
+    handle_incoming_transfer_request, IncomingTransferDisposition, IncomingTransferRuntime,
+    TransferCompleteOutcome,
+};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tracing::{info, warn};
@@ -10,22 +16,16 @@ use sea_orm::DatabaseConnection;
 use super::manager::SharedNetRefs;
 use crate::device::DeviceFilter;
 use crate::events;
+use crate::host::event_bus::{notify_if_unfocused, PairingRequestPayload, TauriEventBus};
 use crate::protocol::{
-    AppRequest, AppResponse, OfferRejectReason, PairingRequest, ResumeRejectReason,
-    TransferRequest, TransferResponse,
+    AppRequest, AppResponse, OfferRejectReason, ResumeRejectReason, TransferRequest,
+    TransferResponse,
 };
-use crate::transfer::progress::{TransferDbErrorEvent, TransferDirection, TransferFailedEvent, TransferPausedEvent, TransferResumedEvent, TransferResumedFileInfo};
+use crate::transfer::progress::{
+    TransferCompleteEvent, TransferDbErrorEvent, TransferDirection, TransferFailedEvent,
+    TransferPausedEvent, TransferResumedEvent, TransferResumedFileInfo,
+};
 use swarm_p2p_core::libp2p::PeerId;
-
-/// 配对请求事件 payload
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct PairingRequestPayload {
-    peer_id: PeerId,
-    pending_id: u64,
-    #[serde(flatten)]
-    request: PairingRequest,
-}
 
 /// 传输 Offer 事件 payload（推送给前端）
 #[derive(Serialize, Clone)]
@@ -53,8 +53,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sea_orm::EntityTrait;
+use swarmdrop_core::host::FileSourceId;
 
-use crate::file_source::FileSource;
+use crate::file_source::TauriFileAccess;
 use crate::protocol::FileChecksum;
 use crate::transfer::offer::{
     build_file_infos_and_bitmaps, build_sender_resume_state, PreparedFile, TransferManager,
@@ -120,10 +121,7 @@ async fn validate_resume_session(
         warn!("DB 标记 session transferring 失败: {}", e);
     }
 
-    Ok(ResumeContext {
-        session,
-        db_files,
-    })
+    Ok(ResumeContext { session, db_files })
 }
 
 /// 发送方处理 ResumeRequest：验证文件校验和，重建 PreparedFile，创建 SendSession
@@ -161,7 +159,7 @@ async fn handle_resume_request(
             file_id: db_file.file_id as u32,
             name: db_file.name.clone(),
             relative_path: db_file.relative_path.clone(),
-            source: FileSource::Path { path },
+            source_id: FileSourceId(path.to_string_lossy().into_owned()),
             size: db_file.size as u64,
             checksum: db_file.checksum.clone(),
         });
@@ -180,6 +178,7 @@ async fn handle_resume_request(
         prepared_files,
         &key,
         app.clone(),
+        Arc::new(TauriFileAccess::new(app.clone())),
         &resume_state,
     ));
     transfer.insert_send_session(session_id, send_session);
@@ -273,7 +272,8 @@ fn reject_resume_offer(session_id: Uuid, reason: ResumeRejectReason) -> Transfer
 }
 
 /// 当窗口未聚焦时发送系统通知
-fn notify_if_unfocused(app: &AppHandle, title: &str, body: &str) {
+#[allow(dead_code)]
+fn legacy_notify_if_unfocused(app: &AppHandle, title: &str, body: &str) {
     let focused = app
         .get_webview_window("main")
         .and_then(|w| w.is_focused().ok())
@@ -289,12 +289,254 @@ fn notify_if_unfocused(app: &AppHandle, title: &str, body: &str) {
 /// 启动事件循环：后端消费所有 NodeEvent，通过 Tauri Event 推送高层域事件 + payload
 ///
 /// 参照 libs/core 的责任链模式——前端不接触原始 NodeEvent。
+#[derive(Clone)]
+#[allow(dead_code)]
+struct LegacyTauriEventBus {
+    app: AppHandle,
+}
+
+#[derive(Clone)]
+struct TauriIncomingTransferRuntime {
+    app: AppHandle,
+    transfer: Arc<TransferManager>,
+    pairing: Arc<PairingManager>,
+}
+
+#[async_trait::async_trait]
+impl EventBus for LegacyTauriEventBus {
+    async fn publish(&self, event: CoreEvent) -> swarmdrop_core::AppResult<()> {
+        match event {
+            CoreEvent::NetworkStatusChanged { status } => self
+                .app
+                .emit(events::NETWORK_STATUS_CHANGED, &status)
+                .map_err(|e| swarmdrop_core::AppError::Network(e.to_string()))?,
+            CoreEvent::DevicesChanged { devices } => self
+                .app
+                .emit(events::DEVICES_CHANGED, &devices)
+                .map_err(|e| swarmdrop_core::AppError::Network(e.to_string()))?,
+            CoreEvent::PairingRequestReceived {
+                peer_id,
+                pending_id,
+                request,
+            } => {
+                notify_if_unfocused(
+                    &self.app,
+                    "配对请求",
+                    &format!("{} 请求与您配对", request.os_info.hostname),
+                );
+
+                let payload = PairingRequestPayload {
+                    peer_id,
+                    pending_id,
+                    request,
+                };
+                self.app
+                    .emit(events::PAIRING_REQUEST_RECEIVED, &payload)
+                    .map_err(|e| swarmdrop_core::AppError::Network(e.to_string()))?;
+            }
+            CoreEvent::PairingCompleted { .. } | CoreEvent::TransferProgress { .. } => {}
+            CoreEvent::TransferOfferReceived { offer } => {
+                self.app
+                    .emit(events::TRANSFER_OFFER, &offer)
+                    .map_err(|e| swarmdrop_core::AppError::Network(e.to_string()))?;
+                notify_if_unfocused(
+                    &self.app,
+                    "收到文件传输请求",
+                    &format!("{} 想要向您发送文件", offer.device_name),
+                );
+            }
+            CoreEvent::TransferCompleted { event } => self
+                .app
+                .emit(events::TRANSFER_COMPLETE, &event)
+                .map_err(|e| swarmdrop_core::AppError::Network(e.to_string()))?,
+            CoreEvent::TransferFailed { event } => {
+                self.app
+                    .emit(events::TRANSFER_FAILED, &event)
+                    .map_err(|e| swarmdrop_core::AppError::Network(e.to_string()))?
+            }
+            CoreEvent::TransferPaused { event } => {
+                self.app
+                    .emit(events::TRANSFER_PAUSED, &event)
+                    .map_err(|e| swarmdrop_core::AppError::Network(e.to_string()))?
+            }
+            CoreEvent::TransferDbError { event } => self
+                .app
+                .emit(events::TRANSFER_DB_ERROR, &event)
+                .map_err(|e| swarmdrop_core::AppError::Network(e.to_string()))?,
+            CoreEvent::Error { .. } => {}
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl IncomingTransferRuntime for TauriIncomingTransferRuntime {
+    async fn handle_chunk_request(
+        &self,
+        session_id: Uuid,
+        file_id: u32,
+        chunk_index: u32,
+    ) -> swarmdrop_core::AppResult<TransferResponse> {
+        match self.transfer.get_send_session(&session_id) {
+            Some(session) => session
+                .handle_chunk_request(file_id, chunk_index)
+                .await
+                .map_err(|e| swarmdrop_core::AppError::Transfer(e.to_string())),
+            None => Ok(TransferResponse::ChunkError {
+                session_id,
+                file_id,
+                chunk_index,
+                error: "发送会话不存在".into(),
+            }),
+        }
+    }
+
+    async fn handle_complete(
+        &self,
+        session_id: Uuid,
+    ) -> swarmdrop_core::AppResult<TransferCompleteOutcome> {
+        let (total_bytes, elapsed_ms) = self
+            .transfer
+            .get_send_session(&session_id)
+            .map(|session| {
+                session.handle_complete();
+                (session.total_bytes_sent(), session.elapsed_ms())
+            })
+            .unwrap_or((0, 0));
+        self.transfer.remove_send_session(&session_id);
+
+        let mut db_error = None;
+        if let Some(db) = self.app.try_state::<DatabaseConnection>() {
+            if let Err(e) = crate::database::ops::mark_session_completed(&db, session_id).await {
+                warn!("DB 标记发送完成失败: {}", e);
+                db_error = Some(TransferDbErrorEvent {
+                    session_id,
+                    message: format!("保存完成状态失败: {e}"),
+                });
+            }
+        }
+
+        Ok(TransferCompleteOutcome {
+            event: TransferCompleteEvent {
+                session_id,
+                direction: TransferDirection::Send,
+                total_bytes,
+                elapsed_ms,
+                save_location: None,
+            },
+            db_error,
+        })
+    }
+
+    async fn handle_cancel(
+        &self,
+        session_id: Uuid,
+        reason: String,
+    ) -> swarmdrop_core::AppResult<TransferFailedEvent> {
+        if let Some(session) = self.transfer.get_send_session(&session_id) {
+            session.handle_cancel();
+            self.transfer.remove_send_session(&session_id);
+        }
+
+        if let Some(session) = self.transfer.get_receive_session(&session_id) {
+            self.transfer.remove_receive_session(&session_id);
+            tokio::spawn(async move {
+                session.cancel_and_wait().await;
+                session.cleanup_part_files().await;
+            });
+        }
+
+        if let Some(db) = self.app.try_state::<DatabaseConnection>() {
+            if let Err(e) = crate::database::ops::mark_session_cancelled(&db, session_id).await {
+                warn!("DB 标记取消失败: {}", e);
+            }
+        }
+
+        Ok(TransferFailedEvent {
+            session_id,
+            direction: TransferDirection::Unknown,
+            error: format!("对方取消: {reason}"),
+        })
+    }
+
+    async fn handle_pause(
+        &self,
+        session_id: Uuid,
+    ) -> swarmdrop_core::AppResult<TransferPausedEvent> {
+        let direction = if let Some(session) = self.transfer.get_send_session(&session_id) {
+            if let Some(db) = self.app.try_state::<DatabaseConnection>() {
+                let progress = session.get_file_progress();
+                let _ = crate::database::ops::save_sender_file_progress(&db, session_id, &progress)
+                    .await;
+            }
+            session.cancel();
+            self.transfer.remove_send_session(&session_id);
+            TransferDirection::Send
+        } else if let Some(session) = self.transfer.get_receive_session(&session_id) {
+            self.transfer.remove_receive_session(&session_id);
+            session.cancel_and_wait().await;
+            TransferDirection::Receive
+        } else {
+            TransferDirection::Unknown
+        };
+
+        if let Some(db) = self.app.try_state::<DatabaseConnection>() {
+            if let Err(e) = crate::database::ops::mark_session_paused(&db, session_id).await {
+                warn!("DB 标记暂停失败: {}", e);
+            }
+            if let Err(e) =
+                crate::database::ops::sync_session_transferred_bytes(&db, session_id).await
+            {
+                warn!("同步 session 字节数失败: {}", e);
+            }
+        }
+
+        Ok(TransferPausedEvent {
+            session_id,
+            direction,
+        })
+    }
+
+    fn is_paired(&self, peer_id: &PeerId) -> bool {
+        self.pairing.is_paired(peer_id)
+    }
+
+    fn paired_device_name(&self, peer_id: &PeerId) -> Option<String> {
+        self.pairing
+            .get_paired_devices()
+            .into_iter()
+            .find(|d| d.peer_id == *peer_id)
+            .map(|d| d.os_info.hostname)
+    }
+
+    fn cache_inbound_offer(
+        &self,
+        pending_id: u64,
+        peer_id: PeerId,
+        device_name: String,
+        session_id: Uuid,
+        files: Vec<crate::protocol::FileInfo>,
+        total_size: u64,
+    ) {
+        self.transfer.cache_inbound_offer(
+            pending_id,
+            peer_id,
+            device_name,
+            session_id,
+            files,
+            total_size,
+        );
+    }
+}
+
 pub fn spawn_event_loop(
     mut receiver: EventReceiver<AppRequest>,
     app: AppHandle,
     shared: SharedNetRefs,
 ) {
     tokio::spawn(async move {
+        let event_bus = TauriEventBus { app: app.clone() };
         let emit_device_and_status = || {
             let devices = shared.devices.get_devices(DeviceFilter::All);
             let _ = app.emit(events::DEVICES_CHANGED, &devices);
@@ -304,42 +546,32 @@ pub fn spawn_event_loop(
 
         while let Some(event) = receiver.recv().await {
             // handle_event 对不相关的事件直接忽略，无条件调用后再消费 event
-            shared.devices.handle_event(&event);
+            if let Err(e) = swarmdrop_core::network::event_loop::handle_core_node_event(
+                &shared, &event, &event_bus,
+            )
+            .await
+            {
+                warn!("core 事件处理失败: {}", e);
+            }
+
+            if !matches!(
+                &event,
+                NodeEvent::InboundRequest {
+                    request: AppRequest::Transfer(_),
+                    ..
+                } | NodeEvent::HolePunchFailed { .. }
+            ) {
+                continue;
+            }
 
             match event {
                 // === 网络状态事件 ===
-                NodeEvent::Listening { addr } => {
-                    if let Ok(mut addrs) = shared.listen_addrs.write() {
-                        addrs.push(addr);
-                    }
-                    let status = shared.build_network_status();
-                    let _ = app.emit(events::NETWORK_STATUS_CHANGED, &status);
-                }
-                NodeEvent::NatStatusChanged {
-                    status,
-                    public_addr,
-                } => {
-                    if let Ok(mut ns) = shared.nat_status.write() {
-                        *ns = status;
-                    }
-                    if let Ok(mut pa) = shared.public_addr.write() {
-                        *pa = public_addr;
-                    }
-                    let net_status = shared.build_network_status();
-                    let _ = app.emit(events::NETWORK_STATUS_CHANGED, &net_status);
-                }
-                NodeEvent::RelayReservationAccepted { relay_peer_id, .. } => {
-                    if let Ok(mut rp) = shared.relay_peers.write() {
-                        rp.insert(relay_peer_id);
-                    }
-                    let net_status = shared.build_network_status();
-                    let _ = app.emit(events::NETWORK_STATUS_CHANGED, &net_status);
-                }
+                NodeEvent::Listening { .. } => {}
+                NodeEvent::NatStatusChanged { .. } => {}
+                NodeEvent::RelayReservationAccepted { .. } => {}
 
                 // === 设备事件（handle_event 已在上方处理） ===
-                NodeEvent::PeerConnected { .. } => {
-                    emit_device_and_status();
-                }
+                NodeEvent::PeerConnected { .. } => {}
                 NodeEvent::PeerDisconnected { ref peer_id } => {
                     // 清理中继节点
                     if let Ok(mut rp) = shared.relay_peers.write() {
@@ -361,6 +593,31 @@ pub fn spawn_event_loop(
                     request,
                 } => {
                     info!("Inbound request from {:?}: {:?}", peer_id, request);
+
+                    if let AppRequest::Transfer(transfer_request) = request.clone() {
+                        let transfer_runtime = TauriIncomingTransferRuntime {
+                            app: app.clone(),
+                            transfer: shared.transfer.clone(),
+                            pairing: shared.pairing.clone(),
+                        };
+                        match handle_incoming_transfer_request(
+                            &shared.client,
+                            &transfer_runtime,
+                            &event_bus,
+                            peer_id,
+                            pending_id,
+                            transfer_request,
+                        )
+                        .await
+                        {
+                            Ok(IncomingTransferDisposition::Handled) => continue,
+                            Ok(IncomingTransferDisposition::Unhandled(_)) => {}
+                            Err(e) => {
+                                warn!("core 传输请求处理失败: {}", e);
+                                continue;
+                            }
+                        }
+                    }
 
                     match request {
                         AppRequest::Pairing(req) => {
@@ -397,12 +654,14 @@ pub fn spawn_event_loop(
                                             Ok(resp) => AppResponse::Transfer(resp),
                                             Err(e) => {
                                                 warn!("ChunkRequest 处理失败: {}", e);
-                                                AppResponse::Transfer(TransferResponse::ChunkError {
-                                                    session_id,
-                                                    file_id,
-                                                    chunk_index,
-                                                    error: e.to_string(),
-                                                })
+                                                AppResponse::Transfer(
+                                                    TransferResponse::ChunkError {
+                                                        session_id,
+                                                        file_id,
+                                                        chunk_index,
+                                                        error: e.to_string(),
+                                                    },
+                                                )
                                             }
                                         }
                                     }
@@ -504,11 +763,10 @@ pub fn spawn_event_loop(
                                 let _ = client.send_response(pending_id, response).await;
 
                                 if let Some(db) = app2.try_state::<DatabaseConnection>() {
-                                    if let Err(e) =
-                                        crate::database::ops::mark_session_cancelled(
-                                            &db, session_id,
-                                        )
-                                        .await
+                                    if let Err(e) = crate::database::ops::mark_session_cancelled(
+                                        &db, session_id,
+                                    )
+                                    .await
                                     {
                                         warn!("DB 标记取消失败: {}", e);
                                     }
@@ -525,26 +783,27 @@ pub fn spawn_event_loop(
                         }
 
                         AppRequest::Transfer(TransferRequest::Pause { session_id }) => {
-                            info!(
-                                "收到对方暂停传输: session={}",
-                                session_id
-                            );
+                            info!("收到对方暂停传输: session={}", session_id);
 
                             // 检查是否有发送会话（对端是接收方暂停的）
-                            let direction = if let Some(s) = shared.transfer.get_send_session(&session_id) {
+                            let direction = if let Some(s) =
+                                shared.transfer.get_send_session(&session_id)
+                            {
                                 // 保存发送方 per-file 进度到 DB（断点续传恢复时使用）
                                 if let Some(db) = app.try_state::<DatabaseConnection>() {
                                     let progress = s.get_file_progress();
                                     let _ = crate::database::ops::save_sender_file_progress(
                                         &db, session_id, &progress,
-                                    ).await;
+                                    )
+                                    .await;
                                 }
                                 s.cancel();
                                 shared.transfer.remove_send_session(&session_id);
                                 TransferDirection::Send
                             }
                             // 检查是否有接收会话（对端是发送方暂停的）
-                            else if let Some(s) = shared.transfer.get_receive_session(&session_id) {
+                            else if let Some(s) = shared.transfer.get_receive_session(&session_id)
+                            {
                                 shared.transfer.remove_receive_session(&session_id);
                                 s.cancel_and_wait().await;
                                 TransferDirection::Receive
@@ -562,10 +821,8 @@ pub fn spawn_event_loop(
 
                                 if let Some(db) = app2.try_state::<DatabaseConnection>() {
                                     if let Err(e) =
-                                        crate::database::ops::mark_session_paused(
-                                            &db, session_id,
-                                        )
-                                        .await
+                                        crate::database::ops::mark_session_paused(&db, session_id)
+                                            .await
                                     {
                                         warn!("DB 标记暂停失败: {}", e);
                                     }

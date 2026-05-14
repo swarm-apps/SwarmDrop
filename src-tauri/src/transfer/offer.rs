@@ -9,6 +9,7 @@ use std::time::Instant;
 use dashmap::DashMap;
 use serde::Serialize;
 use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_core::host::FileSourceId;
 use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -20,7 +21,7 @@ use tauri::Manager;
 use tauri::Emitter;
 
 use crate::file_sink::FileSink;
-use crate::file_source::{EnumeratedFile, FileSource};
+use crate::file_source::{source_id, EnumeratedFile, TauriFileAccess};
 use crate::protocol::{
     AppNetClient, AppRequest, AppResponse, FileChecksum, FileInfo, OfferRejectReason,
     ResumeRejectReason, TransferRequest, TransferResponse,
@@ -70,7 +71,7 @@ pub struct PreparedFile {
     /// 相对路径
     pub relative_path: String,
     /// 文件来源（发送时读取文件用）
-    pub source: FileSource,
+    pub source_id: FileSourceId,
     /// 文件大小
     pub size: u64,
     /// BLAKE3 校验和（hex）
@@ -192,13 +193,17 @@ impl TransferManager {
     fn run_cleanup(&self) {
         let now = Instant::now();
 
-        remove_expired(&self.prepared, |v| {
-            now.duration_since(v.created_at).as_secs() > PREPARED_TIMEOUT_SECS
-        }, "prepared transfers");
+        remove_expired(
+            &self.prepared,
+            |v| now.duration_since(v.created_at).as_secs() > PREPARED_TIMEOUT_SECS,
+            "prepared transfers",
+        );
 
-        remove_expired(&self.pending, |v| {
-            now.duration_since(v.created_at).as_secs() > PENDING_OFFER_TIMEOUT_SECS
-        }, "pending offers");
+        remove_expired(
+            &self.pending,
+            |v| now.duration_since(v.created_at).as_secs() > PENDING_OFFER_TIMEOUT_SECS,
+            "pending offers",
+        );
 
         // 清理空闲超时的 send sessions（需要额外 cancel 操作）
         let idle_ids: Vec<Uuid> = self
@@ -262,7 +267,7 @@ impl TransferManager {
                 file_id: file_id as u32,
                 name: entry.name,
                 relative_path: entry.relative_path,
-                source: entry.source,
+                source_id: source_id(&entry.source),
                 size: entry.size,
                 checksum,
             });
@@ -338,7 +343,7 @@ impl TransferManager {
         let total_size: u64 = selected_files.iter().map(|f| f.size).sum();
         let source_paths: Vec<String> = selected_prepared
             .iter()
-            .map(|f| source_path_string(&f.source))
+            .map(|f| source_path_string(&f.source_id))
             .collect();
         let session_id = generate_id();
 
@@ -421,6 +426,7 @@ impl TransferManager {
                         selected_prepared,
                         &key,
                         app.clone(),
+                        Arc::new(TauriFileAccess::new(app.clone())),
                     ));
                     this.send_sessions.insert(session_id, send_session);
                     this.prepared.remove(&prepared_id);
@@ -632,7 +638,8 @@ impl TransferManager {
         // 4. 保存发送方 per-file 进度到 DB（断点续传恢复时使用）
         if let Some(db) = app.try_state::<sea_orm::DatabaseConnection>() {
             let progress = session.get_file_progress();
-            let _ = crate::database::ops::save_sender_file_progress(&db, *session_id, &progress).await;
+            let _ =
+                crate::database::ops::save_sender_file_progress(&db, *session_id, &progress).await;
         }
 
         info!("Send session paused: session={}", session_id);
@@ -789,7 +796,10 @@ impl TransferManager {
                 reason: Some(ResumeRejectReason::SenderCancelled),
                 ..
             }) => {
-                info!("Resume rejected for session {}: 发送方已取消传输", session_id);
+                info!(
+                    "Resume rejected for session {}: 发送方已取消传输",
+                    session_id
+                );
                 crate::database::ops::mark_session_cancelled(db, session_id).await?;
                 Err(AppError::Transfer("发送方已取消传输".into()))
             }
@@ -844,7 +854,8 @@ impl TransferManager {
             target_peer,
             prepared_files,
             &key,
-            app,
+            app.clone(),
+            Arc::new(TauriFileAccess::new(app)),
             &resume_state,
         ));
         self.send_sessions.insert(session_id, send_session);
@@ -929,7 +940,16 @@ impl TransferManager {
         app: AppHandle,
         initial_bitmaps: std::collections::HashMap<u32, Vec<u8>>,
     ) {
-        self.start_receive_session(session_id, peer_id, files, total_size, sink, key, app, initial_bitmaps);
+        self.start_receive_session(
+            session_id,
+            peer_id,
+            files,
+            total_size,
+            sink,
+            key,
+            app,
+            initial_bitmaps,
+        );
     }
 
     // ============ 内部方法 ============
@@ -946,12 +966,14 @@ impl TransferManager {
         app: AppHandle,
         initial_bitmaps: std::collections::HashMap<u32, Vec<u8>>,
     ) {
+        let file_access = Arc::new(TauriFileAccess::with_sink(app.clone(), sink.clone()));
         let receive_session = Arc::new(ReceiveSession::new(
             session_id,
             peer_id,
             files,
             total_size,
             sink,
+            file_access,
             key,
             self.client.clone(),
             app,
@@ -972,12 +994,8 @@ pub fn generate_id() -> Uuid {
 }
 
 /// 将 `FileSource` 转换为可持久化的路径字符串
-fn source_path_string(source: &FileSource) -> String {
-    match source {
-        FileSource::Path { path } => path.to_string_lossy().into_owned(),
-        #[cfg(target_os = "android")]
-        FileSource::AndroidUri(uri) => serde_json::to_string(uri).unwrap_or_default(),
-    }
+fn source_path_string(source: &FileSourceId) -> String {
+    source.0.clone()
 }
 
 /// 根据 SaveLocation 构造 FileSink
@@ -1134,7 +1152,7 @@ pub(crate) async fn build_prepared_files_from_db(
             file_id: f.file_id as u32,
             name: f.name.clone(),
             relative_path: f.relative_path.clone(),
-            source: FileSource::Path { path },
+            source_id: FileSourceId(path.to_string_lossy().into_owned()),
             size: f.size as u64,
             checksum: f.checksum.clone(),
         });

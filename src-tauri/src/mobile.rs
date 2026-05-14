@@ -38,8 +38,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             #[cfg(target_os = "android")]
             {
                 use tauri::Manager;
-                let handle =
-                    api.register_android_plugin(PLUGIN_IDENTIFIER, "UpdaterPlugin")?;
+                let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "UpdaterPlugin")?;
                 app.manage(UpdaterPlugin(handle));
             }
 

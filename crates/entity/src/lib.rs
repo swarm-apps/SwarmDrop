@@ -43,7 +43,11 @@ impl std::fmt::Display for PeerId {
     Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
 )]
 #[serde(rename_all = "lowercase")]
-#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)", rename_all = "lowercase")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
 pub enum TransferDirection {
     Send,
     Receive,
@@ -54,7 +58,11 @@ pub enum TransferDirection {
     Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
 )]
 #[serde(rename_all = "lowercase")]
-#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)", rename_all = "lowercase")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
 pub enum SessionStatus {
     Transferring,
     Paused,
@@ -68,7 +76,11 @@ pub enum SessionStatus {
     Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
 )]
 #[serde(rename_all = "lowercase")]
-#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)", rename_all = "lowercase")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
 pub enum FileStatus {
     Pending,
     Completed,

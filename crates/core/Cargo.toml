@@ -1,0 +1,22 @@
+[package]
+name = "swarmdrop-core"
+version = "0.4.4"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_bytes = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+swarm-p2p-core = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+async-trait = { workspace = true }
+dashmap = { workspace = true }
+tracing = { workspace = true }
+sea-orm = { workspace = true }
+entity = { workspace = true }

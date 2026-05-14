@@ -56,7 +56,9 @@ struct McpNetworkStatus {
 #[tool_router(vis = "pub(super)")]
 impl McpHandler {
     /// 获取 P2P 网络状态
-    #[tool(description = "获取 SwarmDrop P2P 网络节点的运行状态，包括 PeerId、已连接节点数、NAT 类型等")]
+    #[tool(
+        description = "获取 SwarmDrop P2P 网络节点的运行状态，包括 PeerId、已连接节点数、NAT 类型等"
+    )]
     pub async fn get_network_status(&self) -> Result<CallToolResult, ErrorData> {
         let state = self.app.state::<NetManagerState>();
         let guard = state.lock().await;
@@ -110,7 +112,9 @@ impl McpHandler {
     }
 
     /// 向指定设备发送文件
-    #[tool(description = "向指定设备发送文件。需要提供目标设备的 peer_id（从 list_available_devices 获取）和文件的绝对路径列表")]
+    #[tool(
+        description = "向指定设备发送文件。需要提供目标设备的 peer_id（从 list_available_devices 获取）和文件的绝对路径列表"
+    )]
     pub async fn send_files(
         &self,
         Parameters(params): Parameters<SendFilesParams>,
@@ -184,7 +188,13 @@ impl McpHandler {
         // send_offer
         let result = manager
             .transfer_arc()
-            .send_offer(&prepared_id, &params.peer_id, &peer_name, &all_file_ids, self.app.clone())
+            .send_offer(
+                &prepared_id,
+                &params.peer_id,
+                &peer_name,
+                &all_file_ids,
+                self.app.clone(),
+            )
             .map_err(|e| ErrorData::internal_error(format!("发送 Offer 失败: {e}"), None))?;
 
         let response = SendFilesResponse {
