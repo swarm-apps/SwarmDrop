@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use sea_orm::DatabaseConnection;
 
-use super::manager::SharedNetRefs;
+use super::SharedNetRefs;
 use crate::device::DeviceFilter;
 use crate::events;
 use crate::host::event_bus::{notify_if_unfocused, PairingRequestPayload, TauriEventBus};

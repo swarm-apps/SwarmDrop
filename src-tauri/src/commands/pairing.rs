@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use tauri::{AppHandle, Emitter, State};
 
-#[cfg(not(target_os = "android"))]
 use crate::host::keychain::DesktopKeychainProvider;
 
 /// 查询设备信息的返回类型
@@ -108,31 +107,13 @@ pub async fn respond_pairing_request(
 }
 
 async fn persist_paired_device(info: crate::device::PairedDeviceInfo) -> AppResult<()> {
-    #[cfg(not(target_os = "android"))]
-    {
-        let provider = DesktopKeychainProvider::new()?;
-        swarmdrop_core::identity::upsert_paired_device(&provider, info).await?;
-    }
-
-    #[cfg(target_os = "android")]
-    {
-        let _ = info;
-    }
-
+    let provider = DesktopKeychainProvider::new()?;
+    swarmdrop_core::identity::upsert_paired_device(&provider, info).await?;
     Ok(())
 }
 
 async fn persist_paired_device_removal(peer_id: &PeerId) -> AppResult<()> {
-    #[cfg(not(target_os = "android"))]
-    {
-        let provider = DesktopKeychainProvider::new()?;
-        swarmdrop_core::identity::remove_paired_device(&provider, peer_id).await?;
-    }
-
-    #[cfg(target_os = "android")]
-    {
-        let _ = peer_id;
-    }
-
+    let provider = DesktopKeychainProvider::new()?;
+    swarmdrop_core::identity::remove_paired_device(&provider, peer_id).await?;
     Ok(())
 }

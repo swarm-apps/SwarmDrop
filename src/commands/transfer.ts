@@ -4,14 +4,11 @@
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { AndroidFsUri } from "tauri-plugin-android-fs-api";
 
 // === 类型定义 ===
 
-/** 保存位置（跨平台） */
-export type SaveLocation =
-  | { type: "path"; path: string }
-  | { type: "androidPublicDir"; subdir: string };
+/** 保存位置 */
+export type SaveLocation = { type: "path"; path: string };
 
 /** 传输方向 */
 export type TransferDirection = "send" | "receive";
@@ -127,12 +124,8 @@ export interface TransferResumedEvent {
 
 /**
  * 文件来源（与 Rust FileSource 枚举对应）
- * - path: 标准文件系统路径（桌面 + Android 私有目录）
- * - androidUri: Android SAF/MediaStore URI（复用 tauri-plugin-android-fs-api 的 AndroidFsUri）
  */
-export type FileSource =
-  | { type: "path"; path: string }
-  | ({ type: "androidUri" } & AndroidFsUri);
+export type FileSource = { type: "path"; path: string };
 
 // === 扫描结果 ===
 
@@ -344,11 +337,4 @@ export async function resumeTransfer(
   sessionId: string,
 ): Promise<ResumeTransferResult> {
   return invoke("resume_transfer", { sessionId });
-}
-
-/** 解析 Android 公共目录的 content:// URI（用于 showViewDirDialog） */
-export async function resolveAndroidDirUri(
-  subdir: string,
-): Promise<AndroidFsUri | null> {
-  return invoke("resolve_android_dir_uri", { subdir });
 }

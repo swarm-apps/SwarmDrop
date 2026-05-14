@@ -7,15 +7,13 @@
 use crate::device::{DeviceFilter, DeviceListResult, PairedDeviceInfo};
 use crate::network::{NetManagerState, NetworkStatus};
 use crate::transfer::offer::TransferManager;
+use crate::host::keychain::DesktopKeychainProvider;
 use crate::AppError;
 use swarm_p2p_core::libp2p::identity::Keypair;
 use swarmdrop_core::host::{UpdateInstallRequest, UpdateInstaller};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
-
-#[cfg(not(target_os = "android"))]
-use crate::host::keychain::DesktopKeychainProvider;
 
 /// 从 NetManagerState 获取 manager 引用并执行表达式（短暂持锁）
 macro_rules! with_manager {
@@ -96,16 +94,13 @@ pub async fn start(
 async fn load_host_paired_devices(
     fallback: Vec<PairedDeviceInfo>,
 ) -> crate::AppResult<Vec<PairedDeviceInfo>> {
-    #[cfg(not(target_os = "android"))]
-    {
-        let provider = DesktopKeychainProvider::new()?;
-        let devices = swarmdrop_core::identity::load_paired_devices(&provider).await?;
-        if !devices.is_empty() {
-            return Ok(devices);
-        }
+    let provider = DesktopKeychainProvider::new()?;
+    let devices = swarmdrop_core::identity::load_paired_devices(&provider).await?;
+    if devices.is_empty() {
+        Ok(fallback)
+    } else {
+        Ok(devices)
     }
-
-    Ok(fallback)
 }
 
 #[tauri::command]
@@ -148,22 +143,12 @@ pub async fn get_network_status(
     }
 }
 
-/// Android APK 下载安装（仅 Android 平台可用）
+/// 下载并安装应用更新（桌面端）
 #[tauri::command]
 pub async fn install_update(app: AppHandle, url: String, is_force: bool) -> crate::AppResult<()> {
-    #[cfg(target_os = "android")]
-    {
-        let updater = app.state::<crate::mobile::UpdaterPlugin<tauri::Wry>>();
-        updater.install_update(url, is_force)?;
-        return Ok(());
-    }
-
-    #[cfg(not(target_os = "android"))]
-    {
-        let installer = crate::host::update_installer::DesktopUpdateInstaller::new(app);
-        installer
-            .install_update(UpdateInstallRequest { url, is_force })
-            .await?;
-        Ok(())
-    }
+    let installer = crate::host::update_installer::DesktopUpdateInstaller::new(app);
+    installer
+        .install_update(UpdateInstallRequest { url, is_force })
+        .await?;
+    Ok(())
 }

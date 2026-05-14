@@ -1,19 +1,24 @@
 pub mod commands;
 pub(crate) mod database;
-pub mod device;
 pub mod error;
 pub mod events;
 pub(crate) mod mcp;
 pub(crate) mod network;
-pub(crate) mod pairing;
-pub mod protocol;
 pub(crate) mod transfer;
 pub use error::{AppError, AppResult};
 
 pub mod file_sink;
 pub mod file_source;
 pub mod host;
-mod mobile;
+
+// 命名空间 alias —— 直接复用 swarmdrop-core 的业务模块，
+// 让 `crate::pairing::*` / `crate::protocol::*` / `crate::device` 在原引用点无需修改。
+pub use swarmdrop_core::pairing;
+pub use swarmdrop_core::protocol;
+pub mod device {
+    pub use swarmdrop_core::device::*;
+    pub use swarmdrop_core::device_manager::*;
+}
 
 use tauri::Manager;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -28,11 +33,10 @@ fn init_tracing() {
         .init();
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
 
-    let builder = tauri::Builder::default()
+    tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
@@ -42,13 +46,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(mobile::init());
-
-    // Android 文件选择插件
-    #[cfg(target_os = "android")]
-    let builder = builder.plugin(tauri_plugin_android_fs::init());
-
-    builder
         .setup(|app| {
             // updater 在 setup 中注册，移动端不支持时容错跳过
             if let Err(e) = app
@@ -99,7 +96,6 @@ pub fn run() {
             commands::clear_transfer_history,
             commands::pause_transfer,
             commands::resume_transfer,
-            commands::resolve_android_dir_uri,
             commands::get_mcp_status,
             commands::start_mcp_server,
             commands::stop_mcp_server,

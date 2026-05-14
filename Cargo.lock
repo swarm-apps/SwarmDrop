@@ -7298,7 +7298,6 @@ dependencies = [
  "swarmdrop-core",
  "tauri",
  "tauri-build",
- "tauri-plugin-android-fs",
  "tauri-plugin-biometry",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
@@ -7372,17 +7371,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "sync_async"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b815ef8e053247ad785b136d233ee9c9872eeda5319f2719d57cac88270c3dd9"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -7655,25 +7643,6 @@ dependencies = [
  "serde_json",
  "tauri-utils",
  "walkdir",
-]
-
-[[package]]
-name = "tauri-plugin-android-fs"
-version = "26.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0650066846e93e98c2d9ca8f1f54c363ac37c9496a64521b0abb11801c697497"
-dependencies = [
- "base64 0.22.1",
- "glob",
- "percent-encoding",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "sync_async",
- "tauri",
- "tauri-plugin",
- "tauri-plugin-fs",
- "thiserror 2.0.18",
 ]
 
 [[package]]

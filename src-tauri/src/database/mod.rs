@@ -3,7 +3,7 @@
 //! 在 Tauri setup() 中初始化 SeaORM DatabaseConnection（SQLite），
 //! 执行 migration，返回连接供注入 Tauri managed state。
 
-pub mod ops;
+pub use swarmdrop_core::database::ops;
 
 use entity::{SessionStatus, TransferDirection};
 use sea_orm::{

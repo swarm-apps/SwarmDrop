@@ -1,7 +1,8 @@
 //! 文件写入抽象模块（接收端）
 //!
 //! 与 `file_source`（读取来源）对称，`file_sink` 统一处理接收端文件的写入、
-//! 校验和最终化。桌面端直接写入本地路径，Android 端通过 SAF/MediaStore 写入公共目录。
+//! 校验和最终化。当前仅支持桌面端本地路径；移动端已迁到 RN，
+//! 通过 `expo-file-system` + uniffi callback 处理。
 //!
 //! ## 核心设计
 //!
@@ -11,33 +12,19 @@
 
 pub mod path_ops;
 
-#[cfg(target_os = "android")]
-pub mod android_ops;
-
 use std::borrow::Cow;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 
-#[cfg(target_os = "android")]
-use tauri_plugin_android_fs::FileUri;
-
 use crate::file_source::CHUNK_SIZE;
 use crate::{AppError, AppResult};
 
 /// 文件写入目标
-///
-/// 桌面端仅编译 `Path` 分支；Android 端同时支持两者。
 #[derive(Clone)]
 pub enum FileSink {
     /// 桌面端：直接写到本地目录
     Path { save_dir: PathBuf },
-
-    /// Android：保存到公共目录（SAF/MediaStore）
-    ///
-    /// `subdir` 为 Download 目录下的子目录名（如 "SwarmDrop"）。
-    #[cfg(target_os = "android")]
-    AndroidPublicDir { subdir: String },
 }
 
 /// .part 临时文件
@@ -46,21 +33,18 @@ pub enum FileSink {
 /// 写入操作通过 `write_chunk` 方法完成（内部使用 pwrite，支持并发写入）。
 /// 不可 Clone——多处共享时使用 `Arc<PartFile>`。
 pub struct PartFile {
-    /// .part 临时文件路径（桌面端使用）
+    /// .part 临时文件路径
     pub part_path: PathBuf,
-    /// 最终文件路径（桌面端使用，去掉 .part 后缀）
+    /// 最终文件路径（去掉 .part 后缀）
     pub final_path: PathBuf,
     /// 文件大小
     pub size: u64,
     /// 缓存的写入句柄（并发 pwrite 安全，无需外部加锁）
     write_handle: StdMutex<Option<Arc<std::fs::File>>>,
-    /// Android 文件 URI（仅 Android 端使用）
-    #[cfg(target_os = "android")]
-    pub file_uri: Option<FileUri>,
 }
 
 impl PartFile {
-    /// 创建桌面端 PartFile
+    /// 创建 PartFile
     pub(crate) fn new_path(
         part_path: PathBuf,
         final_path: PathBuf,
@@ -72,25 +56,6 @@ impl PartFile {
             final_path,
             size,
             write_handle: StdMutex::new(Some(Arc::new(write_handle))),
-            #[cfg(target_os = "android")]
-            file_uri: None,
-        }
-    }
-
-    /// 创建 Android 端 PartFile
-    #[cfg(target_os = "android")]
-    pub(crate) fn new_android(
-        final_path: PathBuf,
-        size: u64,
-        file_uri: FileUri,
-        write_handle: std::fs::File,
-    ) -> Self {
-        Self {
-            part_path: PathBuf::new(),
-            final_path,
-            size,
-            write_handle: StdMutex::new(Some(Arc::new(write_handle))),
-            file_uri: Some(file_uri),
         }
     }
 
@@ -101,20 +66,7 @@ impl PartFile {
             final_path,
             size,
             write_handle: StdMutex::new(None),
-            #[cfg(target_os = "android")]
-            file_uri: None,
         }
-    }
-
-    /// 转换为可序列化的 FileUri JSON Value（用于完成事件）
-    ///
-    /// Android 端将 `FileUri` 序列化为 `serde_json::Value`，桌面端返回 `None`。
-    pub fn to_uri_value(&self) -> Option<serde_json::Value> {
-        #[cfg(target_os = "android")]
-        if let Some(uri) = &self.file_uri {
-            return serde_json::to_value(uri).ok();
-        }
-        None
     }
 
     /// 写入分块数据（使用缓存句柄 + pwrite，并发安全）
@@ -151,48 +103,33 @@ impl PartFile {
     ///
     /// 1. 关闭写入句柄
     /// 2. 流式计算 BLAKE3 校验和
-    /// 3. 校验通过：桌面端重命名 .part → 最终路径；Android 端 set_pending(false) + scan
+    /// 3. 校验通过：重命名 .part → 最终路径
     /// 4. 校验失败：删除临时文件
     pub async fn verify_and_finalize(
         &self,
         expected_checksum: &str,
-        #[allow(unused_variables)] app: &tauri::AppHandle,
+        _app: &tauri::AppHandle,
     ) -> AppResult<PathBuf> {
         self.close_write_handle();
-
-        #[cfg(target_os = "android")]
-        if self.file_uri.is_some() {
-            return android_ops::verify_and_finalize(self, expected_checksum, app).await;
-        }
-
         path_ops::verify_and_finalize(self, expected_checksum).await
     }
 
     /// 清理临时文件（静默忽略错误）
     ///
     /// 传输取消或失败时调用，删除未最终化的临时文件。
-    pub async fn cleanup(&self, #[allow(unused_variables)] app: &tauri::AppHandle) {
+    pub async fn cleanup(&self, _app: &tauri::AppHandle) {
         self.close_write_handle();
-
-        #[cfg(target_os = "android")]
-        if self.file_uri.is_some() {
-            android_ops::cleanup_part_file(self, app).await;
-            return;
-        }
-
         let _ = tokio::fs::remove_file(&self.part_path).await;
     }
 }
 
 impl fmt::Debug for PartFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut d = f.debug_struct("PartFile");
-        d.field("part_path", &self.part_path)
+        f.debug_struct("PartFile")
+            .field("part_path", &self.part_path)
             .field("final_path", &self.final_path)
-            .field("size", &self.size);
-        #[cfg(target_os = "android")]
-        d.field("file_uri", &self.file_uri);
-        d.finish()
+            .field("size", &self.size)
+            .finish()
     }
 }
 
@@ -246,53 +183,40 @@ impl FileSink {
         &self,
         relative_path: &str,
         file_size: u64,
-        #[allow(unused_variables)] app: &tauri::AppHandle,
+        _app: &tauri::AppHandle,
     ) -> AppResult<PartFile> {
         match self {
             Self::Path { save_dir } => {
                 path_ops::create_part_file(save_dir, relative_path, file_size).await
-            }
-            #[cfg(target_os = "android")]
-            Self::AndroidPublicDir { subdir } => {
-                android_ops::create_part_file(subdir, relative_path, file_size, app).await
             }
         }
     }
 
     /// 打开已有 .part 文件或创建新文件（断点续传用）
     ///
-    /// 桌面端：检查 .part 文件存在且大小匹配时以读写模式打开，否则创建新文件。
-    /// Android 端：暂不支持断点续传，回退到 create_part_file。
+    /// 检查 .part 文件存在且大小匹配时以读写模式打开，否则创建新文件。
     pub async fn open_or_create_part_file(
         &self,
         relative_path: &str,
         file_size: u64,
-        #[allow(unused_variables)] app: &tauri::AppHandle,
+        _app: &tauri::AppHandle,
     ) -> AppResult<PartFile> {
         match self {
             Self::Path { save_dir } => {
                 path_ops::open_or_create_part_file(save_dir, relative_path, file_size).await
-            }
-            #[cfg(target_os = "android")]
-            Self::AndroidPublicDir { subdir } => {
-                android_ops::create_part_file(subdir, relative_path, file_size, app).await
             }
         }
     }
 
     /// 构建 PartFile（不创建实际文件，不含写入句柄）
     ///
-    /// 用于桌面端清理场景：已知 relative_path 但不需要创建文件。
+    /// 用于清理场景：已知 relative_path 但不需要创建文件。
     pub fn build_part_file(&self, relative_path: &str, size: u64) -> PartFile {
         match self {
             Self::Path { save_dir } => {
                 let final_path = save_dir.join(relative_path);
                 let part_path = compute_part_path(&final_path);
                 PartFile::new_without_handle(part_path, final_path, size)
-            }
-            #[cfg(target_os = "android")]
-            Self::AndroidPublicDir { .. } => {
-                PartFile::new_without_handle(PathBuf::new(), PathBuf::new(), size)
             }
         }
     }
@@ -303,10 +227,6 @@ impl FileSink {
             Self::Path { save_dir } => entity::SaveLocation::Path {
                 path: save_dir.to_string_lossy().into_owned(),
             },
-            #[cfg(target_os = "android")]
-            Self::AndroidPublicDir { subdir } => entity::SaveLocation::AndroidPublicDir {
-                subdir: subdir.clone(),
-            },
         }
     }
 
@@ -314,23 +234,13 @@ impl FileSink {
     pub fn save_dir_display(&self) -> Cow<'_, str> {
         match self {
             Self::Path { save_dir } => save_dir.to_string_lossy(),
-            #[cfg(target_os = "android")]
-            Self::AndroidPublicDir { .. } => Cow::Borrowed("Download"),
         }
     }
 
-    /// 请求写入权限
-    ///
-    /// 桌面端无需权限，始终返回 Ok。
-    /// Android 端检查并请求 `WRITE_EXTERNAL_STORAGE` 权限（Android 9 及以下需要）。
-    pub async fn ensure_permission(
-        &self,
-        #[allow(unused_variables)] app: &tauri::AppHandle,
-    ) -> AppResult<()> {
+    /// 请求写入权限（桌面端无需权限，始终返回 Ok）
+    pub async fn ensure_permission(&self, _app: &tauri::AppHandle) -> AppResult<()> {
         match self {
             Self::Path { .. } => Ok(()),
-            #[cfg(target_os = "android")]
-            Self::AndroidPublicDir { .. } => android_ops::ensure_permission(app).await,
         }
     }
 }

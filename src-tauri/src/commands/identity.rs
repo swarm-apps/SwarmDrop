@@ -3,10 +3,8 @@ use swarmdrop_core::device::PairedDeviceInfo;
 use swarmdrop_core::host::{DeviceIdentityBytes, KeychainProvider};
 use tauri::{AppHandle, Manager};
 
-use crate::AppResult;
-
-#[cfg(not(target_os = "android"))]
 use crate::host::keychain::DesktopKeychainProvider;
+use crate::AppResult;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,30 +18,19 @@ pub struct IdentityState {
 /// 从系统 keychain 初始化设备身份，不再要求用户输入 Stronghold 密码。
 #[tauri::command]
 pub async fn initialize_identity(app: AppHandle) -> AppResult<IdentityState> {
-    #[cfg(not(target_os = "android"))]
-    {
-        let provider = DesktopKeychainProvider::new()?;
-        let identity = swarmdrop_core::identity::load_or_create_identity(&provider).await?;
-        let paired_devices = provider.load_paired_devices().await?;
-        let device_id = identity.peer_id.to_string();
+    let provider = DesktopKeychainProvider::new()?;
+    let identity = swarmdrop_core::identity::load_or_create_identity(&provider).await?;
+    let paired_devices = provider.load_paired_devices().await?;
+    let device_id = identity.peer_id.to_string();
 
-        app.manage(identity.keypair);
+    app.manage(identity.keypair);
 
-        return Ok(IdentityState {
-            keypair: identity.keypair_bytes,
-            device_id,
-            paired_devices,
-            created: identity.created,
-        });
-    }
-
-    #[cfg(target_os = "android")]
-    {
-        let _ = app;
-        Err(crate::AppError::Identity(
-            "keychain identity is not implemented for Tauri Android".into(),
-        ))
-    }
+    Ok(IdentityState {
+        keypair: identity.keypair_bytes,
+        device_id,
+        paired_devices,
+        created: identity.created,
+    })
 }
 
 /// 生成新的 Ed25519 密钥对。
@@ -62,17 +49,14 @@ pub async fn register_keypair(app: AppHandle, keypair: Vec<u8>) -> AppResult<Str
         .map_err(|e| crate::AppError::Identity(e.to_string()))?;
     let peer_id = keypair.public().to_peer_id();
 
-    #[cfg(not(target_os = "android"))]
-    {
-        let provider = DesktopKeychainProvider::new()?;
-        provider
-            .save_identity(DeviceIdentityBytes {
-                keypair: keypair
-                    .to_protobuf_encoding()
-                    .map_err(|e| crate::AppError::Identity(e.to_string()))?,
-            })
-            .await?;
-    }
+    let provider = DesktopKeychainProvider::new()?;
+    provider
+        .save_identity(DeviceIdentityBytes {
+            keypair: keypair
+                .to_protobuf_encoding()
+                .map_err(|e| crate::AppError::Identity(e.to_string()))?,
+        })
+        .await?;
 
     app.manage(keypair);
 

@@ -19,7 +19,7 @@ import {
 } from "@/commands/transfer";
 import { FileTree } from "@/routes/_app/send/-components/file-tree";
 import { buildTreeDataFromOffer } from "@/routes/_app/send/-file-tree";
-import { pickFolder, getDefaultSavePath, isAndroid } from "@/lib/file-picker";
+import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -84,9 +84,7 @@ export function TransferOfferDialog() {
     if (!currentOffer) return;
     setProcessing(true);
     try {
-      const saveLocation: SaveLocation = isAndroid()
-        ? { type: "androidPublicDir", subdir: "SwarmDrop" }
-        : { type: "path", path: savePath };
+      const saveLocation: SaveLocation = { type: "path", path: savePath };
 
       await acceptReceive(currentOffer.sessionId, saveLocation);
 
@@ -174,15 +172,13 @@ export function TransferOfferDialog() {
             />
           </div>
 
-          {!isAndroid() && (
-            <div className="mt-4">
-              <SavePathSelector
-                savePath={savePath}
-                onChangePath={handleChangePath}
-                disabled={processing}
-              />
-            </div>
-          )}
+          <div className="mt-4">
+            <SavePathSelector
+              savePath={savePath}
+              onChangePath={handleChangePath}
+              disabled={processing}
+            />
+          </div>
         </div>
 
         <ResponsiveDialogFooter className="flex-row justify-center gap-3 sm:justify-center">

@@ -1004,14 +1004,6 @@ pub(crate) fn build_file_sink(save_location: &entity::SaveLocation) -> FileSink 
         entity::SaveLocation::Path { path } => FileSink::Path {
             save_dir: std::path::PathBuf::from(path),
         },
-        #[cfg(target_os = "android")]
-        entity::SaveLocation::AndroidPublicDir { subdir } => FileSink::AndroidPublicDir {
-            subdir: subdir.clone(),
-        },
-        #[cfg(not(target_os = "android"))]
-        entity::SaveLocation::AndroidPublicDir { .. } => {
-            unreachable!("AndroidPublicDir 不应出现在非 Android 平台")
-        }
     }
 }
 

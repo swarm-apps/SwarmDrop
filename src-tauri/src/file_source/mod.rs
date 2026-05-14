@@ -1,12 +1,9 @@
 //! 文件来源抽象模块
 //!
-//! 统一处理标准路径和 Android content:// URI 两种文件来源。
-//! 通过条件编译隔离平台代码，桌面端不编译 Android 相关逻辑。
+//! 当前仅支持标准文件系统路径（桌面端）。移动端已迁移到 RN，
+//! 通过 `expo-file-system` + uniffi callback 处理文件 I/O，不再走这里。
 
 pub mod path_ops;
-
-#[cfg(target_os = "android")]
-pub mod android_ops;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,30 +12,18 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use swarmdrop_core::host::{FileAccess, FileSinkId, FileSourceId, HostFileMetadata};
 
-#[cfg(target_os = "android")]
-use tauri_plugin_android_fs::FileUri;
-
 use crate::file_sink::{FileSink, PartFile};
 use crate::AppResult;
 
 /// 分块大小：256 KB
 pub const CHUNK_SIZE: usize = 256 * 1024;
 
-/// 文件来源：标准路径 或 Android content:// URI
-///
-/// 桌面端仅编译 `Path` 分支；Android 端同时支持 `Path` 和 `AndroidUri`。
-/// 前端通过 Tauri IPC 传入时，`AndroidUri` 分支的字段与
-/// `tauri-plugin-android-fs-api` 的 `AndroidFsUri` 类型序列化格式一致。
+/// 文件来源：标准文件系统路径
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum FileSource {
-    /// 标准文件系统路径（桌面 + Android 私有目录）
+    /// 标准文件系统路径
     Path { path: PathBuf },
-
-    /// Android SAF/MediaStore URI
-    /// 直接复用 `tauri-plugin-android-fs` 的 `FileUri` 类型
-    #[cfg(target_os = "android")]
-    AndroidUri(FileUri),
 }
 
 /// 文件元数据
@@ -77,53 +62,35 @@ impl FileSource {
         &self,
         file_size: u64,
         chunk_index: u32,
-        #[allow(unused_variables)] app: &tauri::AppHandle,
+        _app: &tauri::AppHandle,
     ) -> AppResult<Vec<u8>> {
         match self {
             Self::Path { path } => path_ops::read_chunk(path, file_size, chunk_index).await,
-            #[cfg(target_os = "android")]
-            Self::AndroidUri(file_uri) => {
-                android_ops::read_chunk(file_uri, file_size, chunk_index, app).await
-            }
         }
     }
 
     /// 流式计算 BLAKE3 hash（不将整个文件加载到内存）
-    pub async fn compute_hash(
-        &self,
-        #[allow(unused_variables)] app: &tauri::AppHandle,
-    ) -> AppResult<String> {
+    pub async fn compute_hash(&self, _app: &tauri::AppHandle) -> AppResult<String> {
         match self {
             Self::Path { path } => path_ops::compute_hash(path).await,
-            #[cfg(target_os = "android")]
-            Self::AndroidUri(file_uri) => android_ops::compute_hash(file_uri, app).await,
         }
     }
 
     /// 流式计算 BLAKE3 hash，每读取一个 chunk 调用 `on_progress(当前文件已读字节数)`
     pub async fn compute_hash_with_progress(
         &self,
-        #[allow(unused_variables)] app: &tauri::AppHandle,
+        _app: &tauri::AppHandle,
         on_progress: impl Fn(u64) + Send + 'static,
     ) -> AppResult<String> {
         match self {
             Self::Path { path } => path_ops::compute_hash_with_progress(path, on_progress).await,
-            #[cfg(target_os = "android")]
-            Self::AndroidUri(file_uri) => {
-                android_ops::compute_hash_with_progress(file_uri, app, on_progress).await
-            }
         }
     }
 
     /// 获取文件或目录的元数据
-    pub async fn metadata(
-        &self,
-        #[allow(unused_variables)] app: &tauri::AppHandle,
-    ) -> AppResult<FileSourceMetadata> {
+    pub async fn metadata(&self, _app: &tauri::AppHandle) -> AppResult<FileSourceMetadata> {
         match self {
             Self::Path { path } => path_ops::metadata(path).await,
-            #[cfg(target_os = "android")]
-            Self::AndroidUri(file_uri) => android_ops::metadata(file_uri, app).await,
         }
     }
 
@@ -133,14 +100,10 @@ impl FileSource {
     pub async fn enumerate_dir(
         &self,
         parent_relative_path: &str,
-        #[allow(unused_variables)] app: &tauri::AppHandle,
+        _app: &tauri::AppHandle,
     ) -> AppResult<Vec<EnumeratedFile>> {
         match self {
             Self::Path { path } => path_ops::enumerate_dir(path, parent_relative_path).await,
-            #[cfg(target_os = "android")]
-            Self::AndroidUri(file_uri) => {
-                android_ops::enumerate_dir(file_uri, parent_relative_path, app).await
-            }
         }
     }
 }
@@ -179,10 +142,6 @@ impl TauriFileAccess {
 pub fn source_id(source: &FileSource) -> FileSourceId {
     match source {
         FileSource::Path { path } => FileSourceId(path.to_string_lossy().into_owned()),
-        #[cfg(target_os = "android")]
-        FileSource::AndroidUri(_) => {
-            FileSourceId(serde_json::to_string(source).unwrap_or_default())
-        }
     }
 }
 
