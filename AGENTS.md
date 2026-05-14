@@ -80,10 +80,6 @@ pnpm dev
 pnpm build              # 前端构建（tsc + vite build）
 pnpm tauri build        # 完整应用构建
 
-# Android 开发
-pnpm android:dev        # 开发模式（自动设置 SODIUM_LIB_DIR）
-pnpm android:build      # 构建 APK
-
 # 国际化
 pnpm i18n:extract       # 提取翻译字符串到 .po 文件
 
@@ -192,14 +188,8 @@ const message = i18n.t(msg`设备已连接`);
 
 **分享码系统**: 6 位数字，DHT key = SHA256(code)，记录包含 OS 信息 + 时间戳，默认 TTL 300 秒
 
-### Android 特殊配置
-
-DNS 功能在 Android 上禁用（`/etc/resolv.conf` 不存在）：
-
-```toml
-[target.'cfg(not(target_os = "android"))'.dependencies]
-swarm-p2p-core = { path = "../libs/core", features = ["dns"] }
-```
+> 移动端（iOS / Android）已迁移到独立的 **SwarmDrop-RN** 项目（React Native + Expo + uniffi），
+> 共用 `crates/core` 与 `libs/core`。本仓库自此只保留桌面端 (Windows / macOS / Linux)。
 
 ## 开发规范
 
