@@ -2503,20 +2503,20 @@ const uniffiCallbackInterfaceForeignKeychainProvider: { vtable: UniffiVTableCall
 
 export interface MobileCoreLike {
     
-    acceptReceive(sessionId: string, destinationUri: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileTransferSession>;
-    cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
-    generatePairingCode(expiresInSecs: /*u64*/bigint, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingCode>;
-    initializeIdentity(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileIdentity>;
     listDevices(filter: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileDevice>>;
-    lookupDeviceByCode(code: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileRemoteDeviceInfo>;
+    initializeIdentity(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileIdentity>;
     networkStatus(asyncOpts_?: { signal: AbortSignal }) : Promise<MobileNetworkStatus>;
-    prepareSend(files: Array<MobileTransferFile>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePreparedTransfer>;
-    rejectReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
-    requestPairing(peerId: string, code: string | undefined, addrs: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingResult>;
-    respondPairingRequest(pendingId: /*u64*/bigint, code: string | undefined, accept: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
-    sendPrepared(preparedId: string, peerId: string, fileIds: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileTransferSession>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     startNode(customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    generatePairingCode(expiresInSecs: /*u64*/bigint, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingCode>;
+    lookupDeviceByCode(code: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileRemoteDeviceInfo>;
+    requestPairing(peerId: string, code: string | undefined, addrs: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingResult>;
+    respondPairingRequest(pendingId: /*u64*/bigint, code: string | undefined, accept: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    acceptReceive(sessionId: string, destinationUri: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileTransferSession>;
+    cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    prepareSend(files: Array<MobileTransferFile>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePreparedTransfer>;
+    rejectReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    sendPrepared(preparedId: string, peerId: string, fileIds: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileTransferSession>;
     transferSession(sessionId: string, asyncOpts_?: { signal: AbortSignal }) : Promise<MobileTransferSession | undefined>;
     transferSessions(asyncOpts_?: { signal: AbortSignal }) : Promise<Array<MobileTransferSession>>;
 }
@@ -2550,22 +2550,22 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     
 
     
-async  acceptReceive(sessionId: string, destinationUri: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTransferSession> /*throws*/ {
+async  listDevices(filter: string, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileDevice>> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive(
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(sessionId),FfiConverterString.lower(destinationUri)
+                    FfiConverterString.lower(filter)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
             /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterTypeMobileTransferSession.lift.bind(FfiConverterTypeMobileTransferSession),
+            /*liftFunc:*/ FfiConverterArrayTypeMobileDevice.lift.bind(FfiConverterArrayTypeMobileDevice),
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -2578,15 +2578,99 @@ async  acceptReceive(sessionId: string, destinationUri: string, asyncOpts_?: { s
     }
     }
     
-async  cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+async  initializeIdentity(asyncOpts_?: { signal: AbortSignal }): Promise<MobileIdentity> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_transfer(
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                    
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterTypeMobileIdentity.lift.bind(FfiConverterTypeMobileIdentity),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+async  networkStatus(asyncOpts_?: { signal: AbortSignal }): Promise<MobileNetworkStatus> {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                    
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterTypeMobileNetworkStatus.lift.bind(FfiConverterTypeMobileNetworkStatus),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+async  shutdownNode(asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                    
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+async  startNode(customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(sessionId)
+                    FfiConverterArrayString.lower(customBootstrapNodes)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -2634,62 +2718,6 @@ async  generatePairingCode(expiresInSecs: /*u64*/bigint, asyncOpts_?: { signal: 
     }
     }
     
-async  initializeIdentity(asyncOpts_?: { signal: AbortSignal }): Promise<MobileIdentity> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
-                    
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterTypeMobileIdentity.lift.bind(FfiConverterTypeMobileIdentity),
-            /*liftString:*/ FfiConverterString.lift,
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-async  listDevices(filter: string, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileDevice>> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(filter)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterArrayTypeMobileDevice.lift.bind(FfiConverterArrayTypeMobileDevice),
-            /*liftString:*/ FfiConverterString.lift,
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
 async  lookupDeviceByCode(code: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileRemoteDeviceInfo> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -2706,90 +2734,6 @@ async  lookupDeviceByCode(code: string, asyncOpts_?: { signal: AbortSignal }): P
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
             /*liftFunc:*/ FfiConverterTypeMobileRemoteDeviceInfo.lift.bind(FfiConverterTypeMobileRemoteDeviceInfo),
-            /*liftString:*/ FfiConverterString.lift,
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-async  networkStatus(asyncOpts_?: { signal: AbortSignal }): Promise<MobileNetworkStatus> {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
-                    
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterTypeMobileNetworkStatus.lift.bind(FfiConverterTypeMobileNetworkStatus),
-            /*liftString:*/ FfiConverterString.lift,
-            /*asyncOpts:*/ asyncOpts_,
-            
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-async  prepareSend(files: Array<MobileTransferFile>, asyncOpts_?: { signal: AbortSignal }): Promise<MobilePreparedTransfer> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_prepare_send(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterArrayTypeMobileTransferFile.lower(files)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterTypeMobilePreparedTransfer.lift.bind(FfiConverterTypeMobilePreparedTransfer),
-            /*liftString:*/ FfiConverterString.lift,
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-async  rejectReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_reject_receive(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(sessionId)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
-            /*liftFunc:*/ (_v) => {},
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -2858,15 +2802,15 @@ async  respondPairingRequest(pendingId: /*u64*/bigint, code: string | undefined,
     }
     }
     
-async  sendPrepared(preparedId: string, peerId: string, fileIds: Array<string>, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTransferSession> /*throws*/ {
+async  acceptReceive(sessionId: string, destinationUri: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTransferSession> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(preparedId),FfiConverterString.lower(peerId),FfiConverterArrayString.lower(fileIds)
+                    FfiConverterString.lower(sessionId),FfiConverterString.lower(destinationUri)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
@@ -2886,15 +2830,15 @@ async  sendPrepared(preparedId: string, peerId: string, fileIds: Array<string>, 
     }
     }
     
-async  shutdownNode(asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+async  cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
-                    
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_transfer(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sessionId)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -2914,15 +2858,43 @@ async  shutdownNode(asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throw
     }
     }
     
-async  startNode(customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+async  prepareSend(files: Array<MobileTransferFile>, asyncOpts_?: { signal: AbortSignal }): Promise<MobilePreparedTransfer> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_prepare_send(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterArrayString.lower(customBootstrapNodes)
+                    FfiConverterArrayTypeMobileTransferFile.lower(files)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterTypeMobilePreparedTransfer.lift.bind(FfiConverterTypeMobilePreparedTransfer),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+async  rejectReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_reject_receive(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sessionId)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -2930,6 +2902,34 @@ async  startNode(customBootstrapNodes: Array<string>, asyncOpts_?: { signal: Abo
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
             /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+async  sendPrepared(preparedId: string, peerId: string, fileIds: Array<string>, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTransferSession> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(preparedId),FfiConverterString.lower(peerId),FfiConverterArrayString.lower(fileIds)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterTypeMobileTransferSession.lift.bind(FfiConverterTypeMobileTransferSession),
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -3126,73 +3126,73 @@ function uniffiEnsureInitialized() {
     if (bindingsContractVersion !== scaffoldingContractVersion) {
         throw new UniffiInternalError.ContractVersionMismatch(scaffoldingContractVersion, bindingsContractVersion);
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit() !== 32284) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity() !== 25355) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_identity() !== 7609) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_identity");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_identity() !== 60751) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_identity");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json() !== 29693) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json() !== 33487) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive() !== 62629) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer() !== 12091) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pairing_code() !== 25997) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pairing_code");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity() !== 52897) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices() !== 35803) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices() !== 31949) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_lookup_device_by_code() !== 36672) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_lookup_device_by_code");
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity() !== 64600) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status() !== 31381) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status() !== 47248) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send() !== 60509) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive() !== 60562) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_request_pairing() !== 20713) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_request_pairing");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request() !== 60931) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared() !== 42882) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node() !== 8650) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node() !== 33806) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 38246) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 40720) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_session() !== 30452) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pairing_code() !== 17271) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pairing_code");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_lookup_device_by_code() !== 42910) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_lookup_device_by_code");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_request_pairing() !== 44624) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_request_pairing");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request() !== 37913) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive() !== 21327) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer() !== 10581) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send() !== 253) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive() !== 8223) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared() !== 44603) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_session() !== 64790) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_session");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_sessions() !== 9524) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_sessions() !== 26371) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_sessions");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new() !== 50560) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit() !== 40391) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity() !== 59813) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_identity() !== 54413) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_identity");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_identity() !== 39634) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_identity");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json() !== 49293) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json() !== 55206) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new() !== 55022) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new");
     }
 
