@@ -6,19 +6,12 @@
  * - mobile (<768px): 隐藏侧边栏，显示底部导航栏
  */
 
-import {
-  createFileRoute,
-  Link,
-  Outlet,
-  redirect,
-  useLocation,
-} from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useEffect } from "react";
 import { AppSidebar } from "@/components/layout/sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { BottomNav } from "@/components/layout/bottom-nav";
-import { useAuthStore } from "@/stores/auth-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
@@ -30,19 +23,6 @@ import {
 } from "@/stores/transfer-store";
 
 export const Route = createFileRoute("/_app")({
-  beforeLoad: () => {
-    const { isSetupComplete, isUnlocked } = useAuthStore.getState();
-
-    // 如果未设置，重定向到欢迎页
-    if (!isSetupComplete) {
-      throw redirect({ to: "/welcome" });
-    }
-
-    // 如果未解锁，重定向到解锁页
-    if (!isUnlocked) {
-      throw redirect({ to: "/unlock" });
-    }
-  },
   component: AppLayout,
 });
 

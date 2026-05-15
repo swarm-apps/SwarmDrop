@@ -5,7 +5,6 @@ import { I18nProvider } from "@lingui/react";
 import { i18n } from "@lingui/core";
 import { ThemeProvider } from "next-themes";
 import { routeTree } from "./routeTree.gen";
-import { useAuthStore } from "@/stores/auth-store";
 import { waitForPreferencesHydration } from "@/stores/preferences-store";
 import { rehydrateSecretStore } from "@/stores/secret-store";
 import { Toaster } from "@/components/ui/sonner";
@@ -26,12 +25,9 @@ function App() {
 
   useEffect(() => {
     // 等待偏好设置 hydration 完成（主题和语言在 onRehydrateStorage 中自动应用）
-    useAuthStore.getState().checkSetupStatus();
-    Promise.all([
-      waitForPreferencesHydration(),
-      rehydrateSecretStore(),
-      useAuthStore.getState().checkBiometricAvailability(),
-    ]).then(() => setIsLoaded(true));
+    Promise.all([waitForPreferencesHydration(), rehydrateSecretStore()]).then(() =>
+      setIsLoaded(true),
+    );
   }, []);
 
   if (!isLoaded) {

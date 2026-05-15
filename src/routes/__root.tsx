@@ -5,7 +5,6 @@
 
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { platform } from "@tauri-apps/plugin-os";
 import {
   ForceUpdateDialog,
   PromptUpdateDialog,
@@ -22,24 +21,6 @@ function RootLayout() {
   const checkForUpdate = useUpgradeLinkStore((s) => s.checkForUpdate);
   const [promptOpen, setPromptOpen] = useState(false);
   const prevStatusRef = useRef(status);
-
-  // 设置 Android 下载事件监听器
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    const setup = async () => {
-      const currentPlatform = await platform();
-      if (currentPlatform === "android") {
-        unlisten = await useUpgradeLinkStore.getState().setupAndroidListeners();
-      }
-    };
-
-    setup();
-
-    return () => {
-      unlisten?.();
-    };
-  }, []);
 
   // 应用启动时检查更新
   useEffect(() => {
