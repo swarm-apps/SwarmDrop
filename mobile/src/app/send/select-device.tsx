@@ -19,7 +19,7 @@ export default function SelectDevice() {
   const devices = useMobileCoreStore((s) => s.devices);
   const selectedFiles = useMobileCoreStore((s) => s.selectedFiles);
   const clearSelectedFiles = useMobileCoreStore((s) => s.clearSelectedFiles);
-  const upsertSession = useTransferStore((s) => s.upsertSession);
+  const registerSession = useTransferStore((s) => s.registerSession);
 
   const onlinePaired = devices.filter(
     (d) => d.isPaired && d.status === "online",
@@ -30,19 +30,20 @@ export default function SelectDevice() {
   // file.size 来自 Rust u64 → bigint,累加用 bigint 字面量初值
   const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0n);
 
-  const onSend = async (peerId: string) => {
+  const onSend = async (peerId: string, peerName: string) => {
     if (sendingTo !== null || selectedFiles.length === 0) return;
     setError(null);
     setSendingTo(peerId);
     try {
       const prepared = await getMobileCore().prepareSend(selectedFiles);
-      // 第三个参数 file_ids 为空数组时,后端会发所有 prepared 文件
-      const session = await getMobileCore().sendPrepared(
+      // 第四个参数 file_ids 为空数组时, 后端会发所有 prepared 文件
+      const result = await getMobileCore().sendPrepared(
         prepared.preparedId,
         peerId,
+        peerName,
         [],
       );
-      upsertSession(session);
+      registerSession(result.sessionId);
       clearSelectedFiles();
       router.back();
     } catch (err) {
@@ -89,7 +90,7 @@ export default function SelectDevice() {
             return (
               <Pressable
                 key={d.peerId}
-                onPress={() => onSend(d.peerId)}
+                onPress={() => onSend(d.peerId, d.hostname)}
                 disabled={disabled}
                 style={[styles.row, disabled && styles.disabled]}
               >

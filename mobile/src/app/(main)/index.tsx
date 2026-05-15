@@ -38,7 +38,7 @@ export default function DevicesScreen() {
     refreshDevices,
     setError,
   } = useMobileCoreStore();
-  const sessions = useTransferStore((s) => s.sessions);
+  const activeSessionIds = useTransferStore((s) => s.activeSessionIds);
   const progress = useTransferStore((s) => s.progress);
   const transferError = useTransferStore((s) => s.lastError);
   const clearTransferError = useTransferStore((s) => s.setError);
@@ -51,7 +51,11 @@ export default function DevicesScreen() {
   }, [initialize, runtimeState]);
 
   const onlinePaired = devices.filter((d) => d.isPaired);
-  const activeSessions = Object.values(sessions);
+  // 仅展示有 progress 快照的活跃 session（registerSession 后等首条 Progress 事件再列出，
+  // 避免 send/accept 瞬间到 EventBus 推送之间的空白行）
+  const activeSnapshots = Array.from(activeSessionIds)
+    .map((sid) => progress[sid])
+    .filter((p): p is NonNullable<typeof p> => p !== undefined);
 
   const onPickFiles = async () => {
     await chooseFiles();
@@ -142,17 +146,18 @@ export default function DevicesScreen() {
           ) : null}
         </View>
 
-        {activeSessions.length > 0 ? (
+        {activeSnapshots.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>正在传输</Text>
-            {activeSessions.map((session) => {
-              const value =
-                progress[session.sessionId] ?? session.progress ?? 0;
-              const percent = Math.min(100, Math.round(value * 100));
+            {activeSnapshots.map((snap) => {
+              const total = Number(snap.totalBytes);
+              const transferred = Number(snap.transferredBytes);
+              const percent = total > 0 ? Math.min(100, Math.round((transferred / total) * 100)) : 0;
+              const isOutgoing = snap.direction === "send";
               return (
-                <View key={session.sessionId} style={styles.transferRow}>
+                <View key={snap.sessionId} style={styles.transferRow}>
                   <View style={styles.transferIcon}>
-                    {session.direction === "outgoing" ? (
+                    {isOutgoing ? (
                       <Upload color="#2563EB" size={16} />
                     ) : (
                       <Download color="#16A34A" size={16} />
@@ -160,8 +165,8 @@ export default function DevicesScreen() {
                   </View>
                   <View style={styles.transferInfo}>
                     <Text style={styles.transferLabel}>
-                      {session.direction === "outgoing" ? "发送中" : "接收中"} ·{" "}
-                      {session.peerId.slice(0, 10)}...
+                      {isOutgoing ? "发送中" : "接收中"} ·{" "}
+                      {snap.completedFiles.toString()}/{snap.totalFiles.toString()} 文件
                     </Text>
                     <View style={styles.progressBar}>
                       <View

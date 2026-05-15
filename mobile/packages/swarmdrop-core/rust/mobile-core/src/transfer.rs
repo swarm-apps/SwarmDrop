@@ -172,7 +172,7 @@ impl MobileCore {
         manager
             .accept_and_start_receive(
                 &session_uuid,
-                entity::SaveLocation::Path {
+                swarmdrop_core::host::CoreSaveLocation::Path {
                     path: save_location_uri,
                 },
             )

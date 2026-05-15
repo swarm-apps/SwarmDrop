@@ -5,13 +5,12 @@
  * 按 chunk 读写，不会把整个文件加载到内存。
  */
 
-import { File, Directory, Paths } from "expo-file-system";
+import { File, Directory } from "expo-file-system";
 import type {
   ForeignFileAccess,
   MobileFileMetadata,
+  MobileSaveLocation,
 } from "react-native-swarmdrop-core";
-
-const SAVE_SUBDIR = "SwarmDrop";
 
 interface OpenSink {
   metadata: MobileFileMetadata;
@@ -34,6 +33,7 @@ export class ExpoFileAccess implements ForeignFileAccess {
       size: BigInt(file.size ?? 0),
       modifiedAt: undefined,
       checksum: undefined,
+      saveDir: undefined,
     };
   }
 
@@ -41,18 +41,23 @@ export class ExpoFileAccess implements ForeignFileAccess {
     sourceId: string,
     offset: bigint,
     length: bigint,
-  ): Promise<Uint8Array> {
+  ): Promise<ArrayBuffer> {
     const handle = new File(sourceId).open();
     try {
       handle.offset = Number(offset);
-      return handle.readBytes(Number(length));
+      // expo-fs readBytes 返回 Uint8Array；ubrn 期望 ArrayBuffer
+      const bytes = handle.readBytes(Number(length));
+      return bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ) as ArrayBuffer;
     } finally {
       handle.close();
     }
   }
 
   async createSink(metadata: MobileFileMetadata): Promise<string> {
-    const file = ensureSinkFile(metadata.relativePath, /* truncate */ true);
+    const file = ensureSinkFile(metadata, /* truncate */ true);
     const sinkId = file.uri;
     this.sinks.set(sinkId, { metadata, file });
     return sinkId;
@@ -60,7 +65,7 @@ export class ExpoFileAccess implements ForeignFileAccess {
 
   async openOrCreateSink(metadata: MobileFileMetadata): Promise<string> {
     // 如果文件已存在则保留（断点续传），否则创建空文件
-    const file = ensureSinkFile(metadata.relativePath, /* truncate */ false);
+    const file = ensureSinkFile(metadata, /* truncate */ false);
     const sinkId = file.uri;
     this.sinks.set(sinkId, { metadata, file });
     return sinkId;
@@ -69,7 +74,7 @@ export class ExpoFileAccess implements ForeignFileAccess {
   async writeSinkChunk(
     sinkId: string,
     offset: bigint,
-    data: Uint8Array,
+    data: ArrayBuffer,
   ): Promise<void> {
     const sink = this.sinks.get(sinkId);
     if (!sink) {
@@ -78,7 +83,7 @@ export class ExpoFileAccess implements ForeignFileAccess {
     const handle = sink.file.open();
     try {
       handle.offset = Number(offset);
-      handle.writeBytes(data);
+      handle.writeBytes(new Uint8Array(data));
     } finally {
       handle.close();
     }
@@ -100,16 +105,18 @@ export class ExpoFileAccess implements ForeignFileAccess {
 }
 
 /**
- * 把 metadata.relativePath 解析成 documentDirectory/SwarmDrop/<path> 的 File。
- * 必要时创建父目录与空文件。
+ * 用 metadata.saveDir（core 注入的用户选择目录）+ relativePath 拼最终文件 File。
+ *
+ * core/host.rs 现在保证 receive 路径调 create_sink 时一定会塞 save_dir，
+ * 不再有"全局共享 sink + None 路径"的隐患。
  */
-function ensureSinkFile(relativePath: string, truncate: boolean): File {
-  const baseDir = new Directory(Paths.document, SAVE_SUBDIR);
+function ensureSinkFile(metadata: MobileFileMetadata, truncate: boolean): File {
+  const baseUri = saveLocationUri(metadata.saveDir);
+  const baseDir = new Directory(baseUri);
   if (!baseDir.exists) {
     baseDir.create({ intermediates: true });
   }
-  const file = new File(baseDir, relativePath);
-  // 确保父目录存在（relativePath 可能含子目录）
+  const file = new File(baseDir, metadata.relativePath);
   const parent = file.parentDirectory;
   if (!parent.exists) {
     parent.create({ intermediates: true });
@@ -121,4 +128,13 @@ function ensureSinkFile(relativePath: string, truncate: boolean): File {
     file.create();
   }
   return file;
+}
+
+function saveLocationUri(saveDir: MobileSaveLocation | undefined): string {
+  if (!saveDir) {
+    throw new Error(
+      "MobileFileMetadata.saveDir 缺失：core 未注入用户选择的保存目录",
+    );
+  }
+  return saveDir.inner.path;
 }

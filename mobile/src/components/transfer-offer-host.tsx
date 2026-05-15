@@ -15,7 +15,7 @@ import { useTransferStore } from "@/stores/transfer-store";
 export function TransferOfferHost() {
   const current = useTransferStore((s) => s.currentOffer);
   const dismiss = useTransferStore((s) => s.dismissOffer);
-  const upsertSession = useTransferStore((s) => s.upsertSession);
+  const registerSession = useTransferStore((s) => s.registerSession);
   const setError = useTransferStore((s) => s.setError);
   const [busy, setBusy] = useState<"accepting" | "rejecting" | null>(null);
 
@@ -26,18 +26,16 @@ export function TransferOfferHost() {
     setBusy("accepting");
     try {
       const { transfersInboxUri } = getMobilePaths();
-      const session = await getMobileCore().acceptReceive(
-        current.id,
-        transfersInboxUri,
-      );
-      upsertSession(session);
+      // acceptReceive 返回 void（接收会话由 core 异步启动 + EventBus 推 Progress）
+      await getMobileCore().acceptReceive(current.id, transfersInboxUri);
+      registerSession(current.id);
       dismiss(current.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
     }
-  }, [busy, current, dismiss, setError, upsertSession]);
+  }, [busy, current, dismiss, setError, registerSession]);
 
   const reject = useCallback(async () => {
     if (!current || busy !== null) return;

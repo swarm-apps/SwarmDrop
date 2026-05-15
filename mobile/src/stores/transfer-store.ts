@@ -1,6 +1,6 @@
 import type {
   MobileTransferOffer as TransferOffer,
-  MobileTransferSession as TransferSession,
+  MobileTransferProgress,
 } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 
@@ -13,16 +13,18 @@ interface TransferOfferQueueItem {
 interface TransferState {
   offerQueue: TransferOfferQueueItem[];
   currentOffer: TransferOfferQueueItem | null;
-  sessions: Record<string, TransferSession>;
-  progress: Record<string, number>;
+  /** 活跃 session id 集合（accept_receive / send_prepared 后注册，complete/fail 时移除） */
+  activeSessionIds: Set<string>;
+  /** 各 session 最新进度快照（含 speed/eta，由 EventBus 直接写入） */
+  progress: Record<string, MobileTransferProgress>;
   lastError: string | null;
 }
 
 interface TransferActions {
   pushOffer(offer: TransferOffer): void;
   dismissOffer(id: string): void;
-  upsertSession(session: TransferSession): void;
-  setProgress(sessionId: string, value: number): void;
+  registerSession(sessionId: string): void;
+  setProgress(sessionId: string, snapshot: MobileTransferProgress): void;
   removeSession(sessionId: string): void;
   setError(message: string | null): void;
   reset(): void;
@@ -32,7 +34,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
   (set, get) => ({
     offerQueue: [],
     currentOffer: null,
-    sessions: {},
+    activeSessionIds: new Set(),
     progress: {},
     lastError: null,
 
@@ -60,23 +62,23 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       }
     },
 
-    upsertSession(session) {
+    registerSession(sessionId) {
       set((s) => ({
-        sessions: { ...s.sessions, [session.sessionId]: session },
+        activeSessionIds: new Set(s.activeSessionIds).add(sessionId),
       }));
     },
 
-    setProgress(sessionId, value) {
-      set((s) => ({ progress: { ...s.progress, [sessionId]: value } }));
+    setProgress(sessionId, snapshot) {
+      set((s) => ({ progress: { ...s.progress, [sessionId]: snapshot } }));
     },
 
     removeSession(sessionId) {
       set((s) => {
-        const sessions = { ...s.sessions };
+        const activeSessionIds = new Set(s.activeSessionIds);
+        activeSessionIds.delete(sessionId);
         const progress = { ...s.progress };
-        delete sessions[sessionId];
         delete progress[sessionId];
-        return { sessions, progress };
+        return { activeSessionIds, progress };
       });
     },
 
@@ -88,7 +90,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       set({
         offerQueue: [],
         currentOffer: null,
-        sessions: {},
+        activeSessionIds: new Set(),
         progress: {},
         lastError: null,
       });

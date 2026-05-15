@@ -68,14 +68,14 @@ function routeEventToStores(event: MobileCoreEvent): void {
     }
 
     case MobileCoreEvent_Tags.TransferProgress: {
-      const { sessionId, progress } = event.inner;
-      useTransferStore.getState().setProgress(sessionId, progress);
+      const { progress } = event.inner;
+      useTransferStore.getState().setProgress(progress.sessionId, progress);
       break;
     }
 
     case MobileCoreEvent_Tags.TransferCompleted: {
       const { sessionId } = event.inner;
-      useTransferStore.getState().setProgress(sessionId, 1);
+      useTransferStore.getState().removeSession(sessionId);
       break;
     }
 

@@ -33,6 +33,7 @@ import nativeModule, {
   type UniffiForeignFutureResultVoid,
   type UniffiForeignFutureCompleteVoid,
   type UniffiVTableCallbackInterfaceForeignEventBus,
+  type UniffiVTableCallbackInterfaceForeignFileAccess,
   type UniffiVTableCallbackInterfaceForeignKeychainProvider,
 } from "./swarmdrop_mobile_core-ffi";
 import {
@@ -47,12 +48,13 @@ import {
   FfiConverterArray, 
   FfiConverterArrayBuffer, 
   FfiConverterBool, 
-  FfiConverterFloat32, 
+  FfiConverterFloat64, 
   FfiConverterInt32, 
   FfiConverterInt64, 
   FfiConverterObject, 
   FfiConverterObjectWithCallbacks, 
   FfiConverterOptional, 
+  FfiConverterUInt32, 
   FfiConverterUInt64, 
   RustBuffer, 
   UniffiAbstractObject, 
@@ -160,6 +162,130 @@ const FfiConverterTypeMobileDevice = (() => {
             FfiConverterOptionalString.allocationSize(value.connection) + 
             FfiConverterOptionalUInt64.allocationSize(value.latencyMs) + 
             FfiConverterBool.allocationSize(value.isPaired);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+/**
+ * 文件元信息（uniffi 镜像 [`HostFileMetadata`]）
+ */
+export type MobileFileMetadata = {
+    name: string,
+    relativePath: string,
+    size: /*u64*/bigint,
+    modifiedAt?: /*i64*/bigint,
+    checksum?: string,
+    /**
+     * 接收端保存目录；source_metadata 调用时固定为 None。
+     */
+    saveDir?: MobileSaveLocation
+}
+
+/**
+ * Generated factory for {@link MobileFileMetadata} record objects.
+ */
+export const MobileFileMetadata = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileFileMetadata, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileFileMetadata>,
+
+    });
+})();
+
+const FfiConverterTypeMobileFileMetadata = (() => {
+    type TypeName = MobileFileMetadata;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                name: FfiConverterString.read(from), 
+                relativePath: FfiConverterString.read(from), 
+                size: FfiConverterUInt64.read(from), 
+                modifiedAt: FfiConverterOptionalInt64.read(from), 
+                checksum: FfiConverterOptionalString.read(from), 
+                saveDir: FfiConverterOptionalTypeMobileSaveLocation.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.name, into);
+            FfiConverterString.write(value.relativePath, into);
+            FfiConverterUInt64.write(value.size, into);
+            FfiConverterOptionalInt64.write(value.modifiedAt, into);
+            FfiConverterOptionalString.write(value.checksum, into);
+            FfiConverterOptionalTypeMobileSaveLocation.write(value.saveDir, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.name) + 
+            FfiConverterString.allocationSize(value.relativePath) + 
+            FfiConverterUInt64.allocationSize(value.size) + 
+            FfiConverterOptionalInt64.allocationSize(value.modifiedAt) + 
+            FfiConverterOptionalString.allocationSize(value.checksum) + 
+            FfiConverterOptionalTypeMobileSaveLocation.allocationSize(value.saveDir);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+export type MobileFileProgress = {
+    fileId: /*u32*/number,
+    name: string,
+    size: /*u64*/bigint,
+    transferred: /*u64*/bigint,
+    status: string
+}
+
+/**
+ * Generated factory for {@link MobileFileProgress} record objects.
+ */
+export const MobileFileProgress = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileFileProgress, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileFileProgress>,
+
+    });
+})();
+
+const FfiConverterTypeMobileFileProgress = (() => {
+    type TypeName = MobileFileProgress;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                fileId: FfiConverterUInt32.read(from), 
+                name: FfiConverterString.read(from), 
+                size: FfiConverterUInt64.read(from), 
+                transferred: FfiConverterUInt64.read(from), 
+                status: FfiConverterString.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterUInt32.write(value.fileId, into);
+            FfiConverterString.write(value.name, into);
+            FfiConverterUInt64.write(value.size, into);
+            FfiConverterUInt64.write(value.transferred, into);
+            FfiConverterString.write(value.status, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterUInt32.allocationSize(value.fileId) + 
+            FfiConverterString.allocationSize(value.name) + 
+            FfiConverterUInt64.allocationSize(value.size) + 
+            FfiConverterUInt64.allocationSize(value.transferred) + 
+            FfiConverterString.allocationSize(value.status);
             
         }
     };
@@ -289,6 +415,51 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
 })();
 
 
+export type MobilePairedDevice = {
+    peerId: string,
+    deviceName: string
+}
+
+/**
+ * Generated factory for {@link MobilePairedDevice} record objects.
+ */
+export const MobilePairedDevice = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobilePairedDevice, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobilePairedDevice>,
+
+    });
+})();
+
+const FfiConverterTypeMobilePairedDevice = (() => {
+    type TypeName = MobilePairedDevice;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                peerId: FfiConverterString.read(from), 
+                deviceName: FfiConverterString.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterString.write(value.deviceName, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.peerId) + 
+            FfiConverterString.allocationSize(value.deviceName);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
 export type MobilePairingCode = {
     code: string,
     createdAt: /*i64*/bigint,
@@ -383,10 +554,127 @@ const FfiConverterTypeMobilePairingResult = (() => {
 })();
 
 
+export type MobilePrepareProgress = {
+    preparedId: string,
+    currentFile: string,
+    completedFiles: /*u32*/number,
+    totalFiles: /*u32*/number,
+    bytesHashed: /*u64*/bigint,
+    totalBytes: /*u64*/bigint
+}
+
+/**
+ * Generated factory for {@link MobilePrepareProgress} record objects.
+ */
+export const MobilePrepareProgress = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobilePrepareProgress, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobilePrepareProgress>,
+
+    });
+})();
+
+const FfiConverterTypeMobilePrepareProgress = (() => {
+    type TypeName = MobilePrepareProgress;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                preparedId: FfiConverterString.read(from), 
+                currentFile: FfiConverterString.read(from), 
+                completedFiles: FfiConverterUInt32.read(from), 
+                totalFiles: FfiConverterUInt32.read(from), 
+                bytesHashed: FfiConverterUInt64.read(from), 
+                totalBytes: FfiConverterUInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.preparedId, into);
+            FfiConverterString.write(value.currentFile, into);
+            FfiConverterUInt32.write(value.completedFiles, into);
+            FfiConverterUInt32.write(value.totalFiles, into);
+            FfiConverterUInt64.write(value.bytesHashed, into);
+            FfiConverterUInt64.write(value.totalBytes, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.preparedId) + 
+            FfiConverterString.allocationSize(value.currentFile) + 
+            FfiConverterUInt32.allocationSize(value.completedFiles) + 
+            FfiConverterUInt32.allocationSize(value.totalFiles) + 
+            FfiConverterUInt64.allocationSize(value.bytesHashed) + 
+            FfiConverterUInt64.allocationSize(value.totalBytes);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+export type MobilePreparedFile = {
+    fileId: /*u32*/number,
+    name: string,
+    relativePath: string,
+    size: /*u64*/bigint
+}
+
+/**
+ * Generated factory for {@link MobilePreparedFile} record objects.
+ */
+export const MobilePreparedFile = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobilePreparedFile, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobilePreparedFile>,
+
+    });
+})();
+
+const FfiConverterTypeMobilePreparedFile = (() => {
+    type TypeName = MobilePreparedFile;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                fileId: FfiConverterUInt32.read(from), 
+                name: FfiConverterString.read(from), 
+                relativePath: FfiConverterString.read(from), 
+                size: FfiConverterUInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterUInt32.write(value.fileId, into);
+            FfiConverterString.write(value.name, into);
+            FfiConverterString.write(value.relativePath, into);
+            FfiConverterUInt64.write(value.size, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterUInt32.allocationSize(value.fileId) + 
+            FfiConverterString.allocationSize(value.name) + 
+            FfiConverterString.allocationSize(value.relativePath) + 
+            FfiConverterUInt64.allocationSize(value.size);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+/**
+ * prepare_send 的返回类型
+ */
 export type MobilePreparedTransfer = {
     preparedId: string,
     totalSize: /*u64*/bigint,
-    files: Array<MobileTransferFile>
+    files: Array<MobilePreparedFile>
 }
 
 /**
@@ -413,18 +701,18 @@ const FfiConverterTypeMobilePreparedTransfer = (() => {
             return {
                 preparedId: FfiConverterString.read(from), 
                 totalSize: FfiConverterUInt64.read(from), 
-                files: FfiConverterArrayTypeMobileTransferFile.read(from)
+                files: FfiConverterArrayTypeMobilePreparedFile.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterString.write(value.preparedId, into);
             FfiConverterUInt64.write(value.totalSize, into);
-            FfiConverterArrayTypeMobileTransferFile.write(value.files, into);
+            FfiConverterArrayTypeMobilePreparedFile.write(value.files, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.preparedId) + 
             FfiConverterUInt64.allocationSize(value.totalSize) + 
-            FfiConverterArrayTypeMobileTransferFile.allocationSize(value.files);
+            FfiConverterArrayTypeMobilePreparedFile.allocationSize(value.files);
             
         }
     };
@@ -501,13 +789,58 @@ const FfiConverterTypeMobileRemoteDeviceInfo = (() => {
 })();
 
 
+export type MobileSendResult = {
+    sessionId: string
+}
+
+/**
+ * Generated factory for {@link MobileSendResult} record objects.
+ */
+export const MobileSendResult = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileSendResult, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileSendResult>,
+
+    });
+})();
+
+const FfiConverterTypeMobileSendResult = (() => {
+    type TypeName = MobileSendResult;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                sessionId: FfiConverterString.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.sessionId, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.sessionId);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+/**
+ * 待发送的单个文件（RN 调 prepare_send 时构造）
+ */
 export type MobileTransferFile = {
-    fileId: string,
+    /**
+     * host 自定义的 source 标识（RN 用 expo-fs uri）
+     */
+    sourceId: string,
     name: string,
-    relativePath?: string,
-    uri: string,
-    size: /*u64*/bigint,
-    isDirectory: boolean
+    relativePath: string,
+    size: /*u64*/bigint
 }
 
 /**
@@ -532,29 +865,23 @@ const FfiConverterTypeMobileTransferFile = (() => {
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             return {
-                fileId: FfiConverterString.read(from), 
+                sourceId: FfiConverterString.read(from), 
                 name: FfiConverterString.read(from), 
-                relativePath: FfiConverterOptionalString.read(from), 
-                uri: FfiConverterString.read(from), 
-                size: FfiConverterUInt64.read(from), 
-                isDirectory: FfiConverterBool.read(from)
+                relativePath: FfiConverterString.read(from), 
+                size: FfiConverterUInt64.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
-            FfiConverterString.write(value.fileId, into);
+            FfiConverterString.write(value.sourceId, into);
             FfiConverterString.write(value.name, into);
-            FfiConverterOptionalString.write(value.relativePath, into);
-            FfiConverterString.write(value.uri, into);
+            FfiConverterString.write(value.relativePath, into);
             FfiConverterUInt64.write(value.size, into);
-            FfiConverterBool.write(value.isDirectory, into);
         }
         allocationSize(value: TypeName): number {
-            return FfiConverterString.allocationSize(value.fileId) + 
+            return FfiConverterString.allocationSize(value.sourceId) + 
             FfiConverterString.allocationSize(value.name) + 
-            FfiConverterOptionalString.allocationSize(value.relativePath) + 
-            FfiConverterString.allocationSize(value.uri) + 
-            FfiConverterUInt64.allocationSize(value.size) + 
-            FfiConverterBool.allocationSize(value.isDirectory);
+            FfiConverterString.allocationSize(value.relativePath) + 
+            FfiConverterUInt64.allocationSize(value.size);
             
         }
     };
@@ -619,8 +946,11 @@ const FfiConverterTypeMobileTransferOffer = (() => {
 })();
 
 
+/**
+ * 接收方收到的 Offer 中的单个文件
+ */
 export type MobileTransferOfferFile = {
-    fileId: string,
+    fileId: /*u32*/number,
     name: string,
     relativePath?: string,
     size: /*u64*/bigint,
@@ -649,7 +979,7 @@ const FfiConverterTypeMobileTransferOfferFile = (() => {
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             return {
-                fileId: FfiConverterString.read(from), 
+                fileId: FfiConverterUInt32.read(from), 
                 name: FfiConverterString.read(from), 
                 relativePath: FfiConverterOptionalString.read(from), 
                 size: FfiConverterUInt64.read(from), 
@@ -657,14 +987,14 @@ const FfiConverterTypeMobileTransferOfferFile = (() => {
             };
         }
         write(value: TypeName, into: RustBuffer): void {
-            FfiConverterString.write(value.fileId, into);
+            FfiConverterUInt32.write(value.fileId, into);
             FfiConverterString.write(value.name, into);
             FfiConverterOptionalString.write(value.relativePath, into);
             FfiConverterUInt64.write(value.size, into);
             FfiConverterBool.write(value.isDirectory, into);
         }
         allocationSize(value: TypeName): number {
-            return FfiConverterString.allocationSize(value.fileId) + 
+            return FfiConverterUInt32.allocationSize(value.fileId) + 
             FfiConverterString.allocationSize(value.name) + 
             FfiConverterOptionalString.allocationSize(value.relativePath) + 
             FfiConverterUInt64.allocationSize(value.size) + 
@@ -676,64 +1006,190 @@ const FfiConverterTypeMobileTransferOfferFile = (() => {
 })();
 
 
-export type MobileTransferSession = {
+export type MobileTransferProgress = {
     sessionId: string,
-    peerId: string,
     direction: string,
-    status: string,
-    totalSize: /*u64*/bigint,
-    completedSize: /*u64*/bigint,
-    progress: /*f32*/number
+    totalFiles: /*u64*/bigint,
+    completedFiles: /*u64*/bigint,
+    totalBytes: /*u64*/bigint,
+    transferredBytes: /*u64*/bigint,
+    speed: /*f64*/number,
+    eta?: /*f64*/number,
+    files: Array<MobileFileProgress>
 }
 
 /**
- * Generated factory for {@link MobileTransferSession} record objects.
+ * Generated factory for {@link MobileTransferProgress} record objects.
  */
-export const MobileTransferSession = (() => {
+export const MobileTransferProgress = (() => {
     const defaults = () => ({
     });
     const create = (() => {
-        return uniffiCreateRecord<MobileTransferSession, ReturnType<typeof defaults>>(defaults);
+        return uniffiCreateRecord<MobileTransferProgress, ReturnType<typeof defaults>>(defaults);
     })();
     return Object.freeze({
         create,
         new: create,
-        defaults: () => Object.freeze(defaults()) as Partial<MobileTransferSession>,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileTransferProgress>,
 
     });
 })();
 
-const FfiConverterTypeMobileTransferSession = (() => {
-    type TypeName = MobileTransferSession;
+const FfiConverterTypeMobileTransferProgress = (() => {
+    type TypeName = MobileTransferProgress;
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             return {
                 sessionId: FfiConverterString.read(from), 
-                peerId: FfiConverterString.read(from), 
                 direction: FfiConverterString.read(from), 
-                status: FfiConverterString.read(from), 
-                totalSize: FfiConverterUInt64.read(from), 
-                completedSize: FfiConverterUInt64.read(from), 
-                progress: FfiConverterFloat32.read(from)
+                totalFiles: FfiConverterUInt64.read(from), 
+                completedFiles: FfiConverterUInt64.read(from), 
+                totalBytes: FfiConverterUInt64.read(from), 
+                transferredBytes: FfiConverterUInt64.read(from), 
+                speed: FfiConverterFloat64.read(from), 
+                eta: FfiConverterOptionalFloat64.read(from), 
+                files: FfiConverterArrayTypeMobileFileProgress.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterString.write(value.sessionId, into);
-            FfiConverterString.write(value.peerId, into);
             FfiConverterString.write(value.direction, into);
-            FfiConverterString.write(value.status, into);
-            FfiConverterUInt64.write(value.totalSize, into);
-            FfiConverterUInt64.write(value.completedSize, into);
-            FfiConverterFloat32.write(value.progress, into);
+            FfiConverterUInt64.write(value.totalFiles, into);
+            FfiConverterUInt64.write(value.completedFiles, into);
+            FfiConverterUInt64.write(value.totalBytes, into);
+            FfiConverterUInt64.write(value.transferredBytes, into);
+            FfiConverterFloat64.write(value.speed, into);
+            FfiConverterOptionalFloat64.write(value.eta, into);
+            FfiConverterArrayTypeMobileFileProgress.write(value.files, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.sessionId) + 
-            FfiConverterString.allocationSize(value.peerId) + 
             FfiConverterString.allocationSize(value.direction) + 
-            FfiConverterString.allocationSize(value.status) + 
-            FfiConverterUInt64.allocationSize(value.totalSize) + 
-            FfiConverterUInt64.allocationSize(value.completedSize) + 
-            FfiConverterFloat32.allocationSize(value.progress);
+            FfiConverterUInt64.allocationSize(value.totalFiles) + 
+            FfiConverterUInt64.allocationSize(value.completedFiles) + 
+            FfiConverterUInt64.allocationSize(value.totalBytes) + 
+            FfiConverterUInt64.allocationSize(value.transferredBytes) + 
+            FfiConverterFloat64.allocationSize(value.speed) + 
+            FfiConverterOptionalFloat64.allocationSize(value.eta) + 
+            FfiConverterArrayTypeMobileFileProgress.allocationSize(value.files);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+export type MobileTransferResumed = {
+    sessionId: string,
+    direction: string,
+    peerId: string,
+    peerName: string,
+    files: Array<MobileTransferResumedFile>,
+    totalSize: /*u64*/bigint
+}
+
+/**
+ * Generated factory for {@link MobileTransferResumed} record objects.
+ */
+export const MobileTransferResumed = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileTransferResumed, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileTransferResumed>,
+
+    });
+})();
+
+const FfiConverterTypeMobileTransferResumed = (() => {
+    type TypeName = MobileTransferResumed;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                sessionId: FfiConverterString.read(from), 
+                direction: FfiConverterString.read(from), 
+                peerId: FfiConverterString.read(from), 
+                peerName: FfiConverterString.read(from), 
+                files: FfiConverterArrayTypeMobileTransferResumedFile.read(from), 
+                totalSize: FfiConverterUInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.sessionId, into);
+            FfiConverterString.write(value.direction, into);
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterString.write(value.peerName, into);
+            FfiConverterArrayTypeMobileTransferResumedFile.write(value.files, into);
+            FfiConverterUInt64.write(value.totalSize, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.sessionId) + 
+            FfiConverterString.allocationSize(value.direction) + 
+            FfiConverterString.allocationSize(value.peerId) + 
+            FfiConverterString.allocationSize(value.peerName) + 
+            FfiConverterArrayTypeMobileTransferResumedFile.allocationSize(value.files) + 
+            FfiConverterUInt64.allocationSize(value.totalSize);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+export type MobileTransferResumedFile = {
+    fileId: /*u32*/number,
+    name: string,
+    relativePath: string,
+    size: /*u64*/bigint,
+    isDirectory: boolean
+}
+
+/**
+ * Generated factory for {@link MobileTransferResumedFile} record objects.
+ */
+export const MobileTransferResumedFile = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileTransferResumedFile, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileTransferResumedFile>,
+
+    });
+})();
+
+const FfiConverterTypeMobileTransferResumedFile = (() => {
+    type TypeName = MobileTransferResumedFile;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                fileId: FfiConverterUInt32.read(from), 
+                name: FfiConverterString.read(from), 
+                relativePath: FfiConverterString.read(from), 
+                size: FfiConverterUInt64.read(from), 
+                isDirectory: FfiConverterBool.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterUInt32.write(value.fileId, into);
+            FfiConverterString.write(value.name, into);
+            FfiConverterString.write(value.relativePath, into);
+            FfiConverterUInt64.write(value.size, into);
+            FfiConverterBool.write(value.isDirectory, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterUInt32.allocationSize(value.fileId) + 
+            FfiConverterString.allocationSize(value.name) + 
+            FfiConverterString.allocationSize(value.relativePath) + 
+            FfiConverterUInt64.allocationSize(value.size) + 
+            FfiConverterBool.allocationSize(value.isDirectory);
             
         }
     };
@@ -750,6 +1206,8 @@ const stringConverter = {
         uniffiCaller.rustCall((status) => nativeModule().ubrn_uniffi_internal_fn_func_ffi__string_to_byte_length(s, status)),
 };
 const FfiConverterString = uniffiCreateFfiConverterString(stringConverter);
+
+
 
 
 
@@ -1305,12 +1763,17 @@ export enum MobileCoreEvent_Tags {
     DevicesChanged = "DevicesChanged",
     PairingRequestReceived = "PairingRequestReceived",
     PairingCompleted = "PairingCompleted",
-    TransferProgress = "TransferProgress",
+    PairedDeviceAdded = "PairedDeviceAdded",
     TransferOfferReceived = "TransferOfferReceived",
+    TransferProgress = "TransferProgress",
+    TransferAccepted = "TransferAccepted",
+    TransferRejected = "TransferRejected",
     TransferCompleted = "TransferCompleted",
     TransferFailed = "TransferFailed",
     TransferPaused = "TransferPaused",
+    TransferResumed = "TransferResumed",
     TransferDbError = "TransferDbError",
+    PrepareProgress = "PrepareProgress",
     Error = "Error"
 }
 export const MobileCoreEvent = (() => {
@@ -1445,31 +1908,31 @@ export const MobileCoreEvent = (() => {
     }
     
 
-    type TransferProgress__interface = {
-        tag: MobileCoreEvent_Tags.TransferProgress;
-        inner: Readonly<{sessionId: string; progress: /*f32*/number}>
+    type PairedDeviceAdded__interface = {
+        tag: MobileCoreEvent_Tags.PairedDeviceAdded;
+        inner: Readonly<{device: MobilePairedDevice}>
     };
 
     
-    class TransferProgress_ extends UniffiEnum implements TransferProgress__interface {
+    class PairedDeviceAdded_ extends UniffiEnum implements PairedDeviceAdded__interface {
         /**
          * @private
          * This field is private and should not be used, use `tag` instead.
          */
         readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
-        readonly tag = MobileCoreEvent_Tags.TransferProgress;
-        readonly inner: Readonly<{sessionId: string; progress: /*f32*/number}>;
-        constructor(inner: { sessionId: string, progress: /*f32*/number }) {
-            super("MobileCoreEvent", "TransferProgress");
+        readonly tag = MobileCoreEvent_Tags.PairedDeviceAdded;
+        readonly inner: Readonly<{device: MobilePairedDevice}>;
+        constructor(inner: { device: MobilePairedDevice }) {
+            super("MobileCoreEvent", "PairedDeviceAdded");
             this.inner = Object.freeze(inner);
         }
 
-        static new(inner: { sessionId: string, progress: /*f32*/number }): TransferProgress_ {
-            return new TransferProgress_(inner);
+        static new(inner: { device: MobilePairedDevice }): PairedDeviceAdded_ {
+            return new PairedDeviceAdded_(inner);
         }
 
-        static instanceOf(obj: any): obj is TransferProgress_ {
-            return obj.tag === MobileCoreEvent_Tags.TransferProgress;
+        static instanceOf(obj: any): obj is PairedDeviceAdded_ {
+            return obj.tag === MobileCoreEvent_Tags.PairedDeviceAdded;
         }
         
 
@@ -1503,6 +1966,105 @@ export const MobileCoreEvent = (() => {
 
         static instanceOf(obj: any): obj is TransferOfferReceived_ {
             return obj.tag === MobileCoreEvent_Tags.TransferOfferReceived;
+        }
+        
+
+        
+
+    }
+    
+
+    type TransferProgress__interface = {
+        tag: MobileCoreEvent_Tags.TransferProgress;
+        inner: Readonly<{progress: MobileTransferProgress}>
+    };
+
+    
+    class TransferProgress_ extends UniffiEnum implements TransferProgress__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.TransferProgress;
+        readonly inner: Readonly<{progress: MobileTransferProgress}>;
+        constructor(inner: { progress: MobileTransferProgress }) {
+            super("MobileCoreEvent", "TransferProgress");
+            this.inner = Object.freeze(inner);
+        }
+
+        static new(inner: { progress: MobileTransferProgress }): TransferProgress_ {
+            return new TransferProgress_(inner);
+        }
+
+        static instanceOf(obj: any): obj is TransferProgress_ {
+            return obj.tag === MobileCoreEvent_Tags.TransferProgress;
+        }
+        
+
+        
+
+    }
+    
+
+    type TransferAccepted__interface = {
+        tag: MobileCoreEvent_Tags.TransferAccepted;
+        inner: Readonly<{sessionId: string}>
+    };
+
+    
+    class TransferAccepted_ extends UniffiEnum implements TransferAccepted__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.TransferAccepted;
+        readonly inner: Readonly<{sessionId: string}>;
+        constructor(inner: { sessionId: string }) {
+            super("MobileCoreEvent", "TransferAccepted");
+            this.inner = Object.freeze(inner);
+        }
+
+        static new(inner: { sessionId: string }): TransferAccepted_ {
+            return new TransferAccepted_(inner);
+        }
+
+        static instanceOf(obj: any): obj is TransferAccepted_ {
+            return obj.tag === MobileCoreEvent_Tags.TransferAccepted;
+        }
+        
+
+        
+
+    }
+    
+
+    type TransferRejected__interface = {
+        tag: MobileCoreEvent_Tags.TransferRejected;
+        inner: Readonly<{sessionId: string; reason: string | undefined}>
+    };
+
+    
+    class TransferRejected_ extends UniffiEnum implements TransferRejected__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.TransferRejected;
+        readonly inner: Readonly<{sessionId: string; reason: string | undefined}>;
+        constructor(inner: { sessionId: string, reason: string | undefined }) {
+            super("MobileCoreEvent", "TransferRejected");
+            this.inner = Object.freeze(inner);
+        }
+
+        static new(inner: { sessionId: string, reason: string | undefined }): TransferRejected_ {
+            return new TransferRejected_(inner);
+        }
+
+        static instanceOf(obj: any): obj is TransferRejected_ {
+            return obj.tag === MobileCoreEvent_Tags.TransferRejected;
         }
         
 
@@ -1610,6 +2172,39 @@ export const MobileCoreEvent = (() => {
     }
     
 
+    type TransferResumed__interface = {
+        tag: MobileCoreEvent_Tags.TransferResumed;
+        inner: Readonly<{event: MobileTransferResumed}>
+    };
+
+    
+    class TransferResumed_ extends UniffiEnum implements TransferResumed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.TransferResumed;
+        readonly inner: Readonly<{event: MobileTransferResumed}>;
+        constructor(inner: { event: MobileTransferResumed }) {
+            super("MobileCoreEvent", "TransferResumed");
+            this.inner = Object.freeze(inner);
+        }
+
+        static new(inner: { event: MobileTransferResumed }): TransferResumed_ {
+            return new TransferResumed_(inner);
+        }
+
+        static instanceOf(obj: any): obj is TransferResumed_ {
+            return obj.tag === MobileCoreEvent_Tags.TransferResumed;
+        }
+        
+
+        
+
+    }
+    
+
     type TransferDbError__interface = {
         tag: MobileCoreEvent_Tags.TransferDbError;
         inner: Readonly<{sessionId: string; message: string}>
@@ -1635,6 +2230,39 @@ export const MobileCoreEvent = (() => {
 
         static instanceOf(obj: any): obj is TransferDbError_ {
             return obj.tag === MobileCoreEvent_Tags.TransferDbError;
+        }
+        
+
+        
+
+    }
+    
+
+    type PrepareProgress__interface = {
+        tag: MobileCoreEvent_Tags.PrepareProgress;
+        inner: Readonly<{event: MobilePrepareProgress}>
+    };
+
+    
+    class PrepareProgress_ extends UniffiEnum implements PrepareProgress__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.PrepareProgress;
+        readonly inner: Readonly<{event: MobilePrepareProgress}>;
+        constructor(inner: { event: MobilePrepareProgress }) {
+            super("MobileCoreEvent", "PrepareProgress");
+            this.inner = Object.freeze(inner);
+        }
+
+        static new(inner: { event: MobilePrepareProgress }): PrepareProgress_ {
+            return new PrepareProgress_(inner);
+        }
+
+        static instanceOf(obj: any): obj is PrepareProgress_ {
+            return obj.tag === MobileCoreEvent_Tags.PrepareProgress;
         }
         
 
@@ -1685,12 +2313,17 @@ export const MobileCoreEvent = (() => {
   DevicesChanged: DevicesChanged_, 
   PairingRequestReceived: PairingRequestReceived_, 
   PairingCompleted: PairingCompleted_, 
-  TransferProgress: TransferProgress_, 
+  PairedDeviceAdded: PairedDeviceAdded_, 
   TransferOfferReceived: TransferOfferReceived_, 
+  TransferProgress: TransferProgress_, 
+  TransferAccepted: TransferAccepted_, 
+  TransferRejected: TransferRejected_, 
   TransferCompleted: TransferCompleted_, 
   TransferFailed: TransferFailed_, 
   TransferPaused: TransferPaused_, 
+  TransferResumed: TransferResumed_, 
   TransferDbError: TransferDbError_, 
+  PrepareProgress: PrepareProgress_, 
   Error: Error_
     });
 
@@ -1713,13 +2346,18 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                 case 2: return new MobileCoreEvent.DevicesChanged();
                 case 3: return new MobileCoreEvent.PairingRequestReceived({peerId: FfiConverterString.read(from), pendingId: FfiConverterUInt64.read(from), code: FfiConverterOptionalString.read(from) });
                 case 4: return new MobileCoreEvent.PairingCompleted({peerId: FfiConverterString.read(from) });
-                case 5: return new MobileCoreEvent.TransferProgress({sessionId: FfiConverterString.read(from), progress: FfiConverterFloat32.read(from) });
+                case 5: return new MobileCoreEvent.PairedDeviceAdded({device: FfiConverterTypeMobilePairedDevice.read(from) });
                 case 6: return new MobileCoreEvent.TransferOfferReceived({offer: FfiConverterTypeMobileTransferOffer.read(from) });
-                case 7: return new MobileCoreEvent.TransferCompleted({sessionId: FfiConverterString.read(from) });
-                case 8: return new MobileCoreEvent.TransferFailed({sessionId: FfiConverterString.read(from), error: FfiConverterString.read(from) });
-                case 9: return new MobileCoreEvent.TransferPaused({sessionId: FfiConverterString.read(from) });
-                case 10: return new MobileCoreEvent.TransferDbError({sessionId: FfiConverterString.read(from), message: FfiConverterString.read(from) });
-                case 11: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
+                case 7: return new MobileCoreEvent.TransferProgress({progress: FfiConverterTypeMobileTransferProgress.read(from) });
+                case 8: return new MobileCoreEvent.TransferAccepted({sessionId: FfiConverterString.read(from) });
+                case 9: return new MobileCoreEvent.TransferRejected({sessionId: FfiConverterString.read(from), reason: FfiConverterOptionalString.read(from) });
+                case 10: return new MobileCoreEvent.TransferCompleted({sessionId: FfiConverterString.read(from) });
+                case 11: return new MobileCoreEvent.TransferFailed({sessionId: FfiConverterString.read(from), error: FfiConverterString.read(from) });
+                case 12: return new MobileCoreEvent.TransferPaused({sessionId: FfiConverterString.read(from) });
+                case 13: return new MobileCoreEvent.TransferResumed({event: FfiConverterTypeMobileTransferResumed.read(from) });
+                case 14: return new MobileCoreEvent.TransferDbError({sessionId: FfiConverterString.read(from), message: FfiConverterString.read(from) });
+                case 15: return new MobileCoreEvent.PrepareProgress({event: FfiConverterTypeMobilePrepareProgress.read(from) });
+                case 16: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -1749,11 +2387,10 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     FfiConverterString.write(inner.peerId, into);
                     return;
                 }
-                case MobileCoreEvent_Tags.TransferProgress: {
+                case MobileCoreEvent_Tags.PairedDeviceAdded: {
                     ordinalConverter.write(5, into);
                     const inner = value.inner;
-                    FfiConverterString.write(inner.sessionId, into);
-                    FfiConverterFloat32.write(inner.progress, into);
+                    FfiConverterTypeMobilePairedDevice.write(inner.device, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferOfferReceived: {
@@ -1762,34 +2399,65 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     FfiConverterTypeMobileTransferOffer.write(inner.offer, into);
                     return;
                 }
-                case MobileCoreEvent_Tags.TransferCompleted: {
+                case MobileCoreEvent_Tags.TransferProgress: {
                     ordinalConverter.write(7, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileTransferProgress.write(inner.progress, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.TransferAccepted: {
+                    ordinalConverter.write(8, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.sessionId, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.TransferRejected: {
+                    ordinalConverter.write(9, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.sessionId, into);
+                    FfiConverterOptionalString.write(inner.reason, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.TransferCompleted: {
+                    ordinalConverter.write(10, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferFailed: {
-                    ordinalConverter.write(8, into);
+                    ordinalConverter.write(11, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     FfiConverterString.write(inner.error, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferPaused: {
-                    ordinalConverter.write(9, into);
+                    ordinalConverter.write(12, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     return;
                 }
+                case MobileCoreEvent_Tags.TransferResumed: {
+                    ordinalConverter.write(13, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileTransferResumed.write(inner.event, into);
+                    return;
+                }
                 case MobileCoreEvent_Tags.TransferDbError: {
-                    ordinalConverter.write(10, into);
+                    ordinalConverter.write(14, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     FfiConverterString.write(inner.message, into);
                     return;
                 }
+                case MobileCoreEvent_Tags.PrepareProgress: {
+                    ordinalConverter.write(15, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobilePrepareProgress.write(inner.event, into);
+                    return;
+                }
                 case MobileCoreEvent_Tags.Error: {
-                    ordinalConverter.write(11, into);
+                    ordinalConverter.write(16, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.message, into);
                     return;
@@ -1824,11 +2492,10 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     size += FfiConverterString.allocationSize(inner.peerId);
                     return size;
                 }
-                case MobileCoreEvent_Tags.TransferProgress: {
+                case MobileCoreEvent_Tags.PairedDeviceAdded: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(5);
-                    size += FfiConverterString.allocationSize(inner.sessionId);
-                    size += FfiConverterFloat32.allocationSize(inner.progress);
+                    size += FfiConverterTypeMobilePairedDevice.allocationSize(inner.device);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferOfferReceived: {
@@ -1837,36 +2504,173 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     size += FfiConverterTypeMobileTransferOffer.allocationSize(inner.offer);
                     return size;
                 }
-                case MobileCoreEvent_Tags.TransferCompleted: {
+                case MobileCoreEvent_Tags.TransferProgress: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(7);
+                    size += FfiConverterTypeMobileTransferProgress.allocationSize(inner.progress);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.TransferAccepted: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(8);
+                    size += FfiConverterString.allocationSize(inner.sessionId);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.TransferRejected: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(9);
+                    size += FfiConverterString.allocationSize(inner.sessionId);
+                    size += FfiConverterOptionalString.allocationSize(inner.reason);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.TransferCompleted: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(10);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferFailed: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(8);
+                    let size = ordinalConverter.allocationSize(11);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     size += FfiConverterString.allocationSize(inner.error);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferPaused: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(9);
+                    let size = ordinalConverter.allocationSize(12);
                     size += FfiConverterString.allocationSize(inner.sessionId);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.TransferResumed: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(13);
+                    size += FfiConverterTypeMobileTransferResumed.allocationSize(inner.event);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferDbError: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(10);
+                    let size = ordinalConverter.allocationSize(14);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
                 }
+                case MobileCoreEvent_Tags.PrepareProgress: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(15);
+                    size += FfiConverterTypeMobilePrepareProgress.allocationSize(inner.event);
+                    return size;
+                }
                 case MobileCoreEvent_Tags.Error: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(11);
+                    let size = ordinalConverter.allocationSize(16);
                     size += FfiConverterString.allocationSize(inner.message);
+                    return size;
+                }
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+
+// Enum: MobileSaveLocation
+export enum MobileSaveLocation_Tags {
+    Path = "Path"
+}
+/**
+ * 接收端保存位置（uniffi 镜像 [`CoreSaveLocation`]）
+ */
+export const MobileSaveLocation = (() => {
+    
+
+    type Path__interface = {
+        tag: MobileSaveLocation_Tags.Path;
+        inner: Readonly<{path: string}>
+    };
+
+    
+    /**
+     * 文件系统路径（RN 用 expo-file-system 的 uri）
+     */
+    class Path_ extends UniffiEnum implements Path__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileSaveLocation";
+        readonly tag = MobileSaveLocation_Tags.Path;
+        readonly inner: Readonly<{path: string}>;
+        constructor(inner: { path: string }) {
+            super("MobileSaveLocation", "Path");
+            this.inner = Object.freeze(inner);
+        }
+
+        static new(inner: { path: string }): Path_ {
+            return new Path_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Path_ {
+            return obj.tag === MobileSaveLocation_Tags.Path;
+        }
+        
+
+        
+
+    }
+
+    function instanceOf(obj: any): obj is MobileSaveLocation {
+        return obj[uniffiTypeNameSymbol] === "MobileSaveLocation";
+    }
+
+    return Object.freeze({
+        instanceOf,
+  Path: Path_
+    });
+
+})();
+
+
+/**
+ * 接收端保存位置（uniffi 镜像 [`CoreSaveLocation`]）
+ */
+
+export type MobileSaveLocation = InstanceType<
+    typeof MobileSaveLocation[keyof Omit<typeof MobileSaveLocation, 'instanceOf'>]
+>;
+
+// FfiConverter for enum MobileSaveLocation
+const FfiConverterTypeMobileSaveLocation = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileSaveLocation;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return new MobileSaveLocation.Path({path: FfiConverterString.read(from) });
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value.tag) {
+                case MobileSaveLocation_Tags.Path: {
+                    ordinalConverter.write(1, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.path, into);
+                    return;
+                }
+                default:
+                    // Throwing from here means that MobileSaveLocation_Tags hasn't matched an ordinal.
+                    throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        allocationSize(value: TypeName): number {
+            switch (value.tag) {
+                case MobileSaveLocation_Tags.Path: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(1);
+                    size += FfiConverterString.allocationSize(inner.path);
                     return size;
                 }
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
@@ -2025,6 +2829,691 @@ const uniffiCallbackInterfaceForeignEventBus: { vtable: UniffiVTableCallbackInte
     register: () => {
         nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreigneventbus(
             uniffiCallbackInterfaceForeignEventBus.vtable
+        );
+    },
+};
+
+
+/**
+ * RN 端必须实现的文件 I/O 接口
+ *
+ * `source_id` 和 `sink_id` 都是字符串（host 自定义编码：桌面用 path，
+ * RN 用 expo-file-system 的 uri）。core 不解析这些 id，只透传。
+ */
+export interface ForeignFileAccess {
+    
+    /**
+     * 读取 source 元信息（文件名/大小）
+     */
+    sourceMetadata(sourceId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileFileMetadata>;
+    /**
+     * 读取指定 chunk —— core 用于 BLAKE3 hash 计算和 chunk 发送
+     */
+    readSourceChunk(sourceId: string, offset: /*u64*/bigint, length: /*u64*/bigint, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<ArrayBuffer>;
+    /**
+     * 创建写入目标，返回 sink_id
+     */
+    createSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<string>;
+    /**
+     * 打开已有 sink 或创建新 sink（断点续传用）
+     */
+    openOrCreateSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<string>;
+    /**
+     * 写入指定偏移
+     */
+    writeSinkChunk(sinkId: string, offset: /*u64*/bigint, data: ArrayBuffer, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    /**
+     * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）
+     */
+    finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    /**
+     * 取消时清理临时文件
+     */
+    cleanupSink(sinkId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+}
+
+
+/**
+ * RN 端必须实现的文件 I/O 接口
+ *
+ * `source_id` 和 `sink_id` 都是字符串（host 自定义编码：桌面用 path，
+ * RN 用 expo-file-system 的 uri）。core 不解析这些 id，只透传。
+ */
+export class ForeignFileAccessImpl extends UniffiAbstractObject implements ForeignFileAccess {
+
+    readonly [uniffiTypeNameSymbol] = "ForeignFileAccessImpl";
+    readonly [destructorGuardSymbol]: UniffiGcObject;
+    readonly [pointerLiteralSymbol]: UniffiHandle;
+    // No primary constructor declared for this class.
+private constructor(pointer: UniffiHandle) {
+    super();
+    this[pointerLiteralSymbol] = pointer;
+    this[destructorGuardSymbol] = uniffiTypeForeignFileAccessImplObjectFactory.bless(pointer);
+}
+
+    
+
+    
+    /**
+     * 读取 source 元信息（文件名/大小）
+     */
+async  sourceMetadata(sourceId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileFileMetadata> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_source_metadata(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sourceId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterTypeMobileFileMetadata.lift.bind(FfiConverterTypeMobileFileMetadata),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 读取指定 chunk —— core 用于 BLAKE3 hash 计算和 chunk 发送
+     */
+async  readSourceChunk(sourceId: string, offset: /*u64*/bigint, length: /*u64*/bigint, asyncOpts_?: { signal: AbortSignal }): Promise<ArrayBuffer> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_read_source_chunk(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sourceId),FfiConverterUInt64.lower(offset),FfiConverterUInt64.lower(length)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterArrayBuffer.lift.bind(FfiConverterArrayBuffer),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 创建写入目标，返回 sink_id
+     */
+async  createSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),
+                    FfiConverterTypeMobileFileMetadata.lower(metadata)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 打开已有 sink 或创建新 sink（断点续传用）
+     */
+async  openOrCreateSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),
+                    FfiConverterTypeMobileFileMetadata.lower(metadata)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 写入指定偏移
+     */
+async  writeSinkChunk(sinkId: string, offset: /*u64*/bigint, data: ArrayBuffer, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sinkId),FfiConverterUInt64.lower(offset),FfiConverterArrayBuffer.lower(data)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）
+     */
+async  finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sinkId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 取消时清理临时文件
+     */
+async  cleanupSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sinkId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+
+    /**
+     * {@inheritDoc uniffi-bindgen-react-native#UniffiAbstractObject.uniffiDestroy}
+     */
+    uniffiDestroy(): void {
+        const ptr = (this as any)[destructorGuardSymbol];
+        if (ptr !== undefined) {
+            const pointer = uniffiTypeForeignFileAccessImplObjectFactory.pointer(this);
+            uniffiTypeForeignFileAccessImplObjectFactory.freePointer(pointer);
+            uniffiTypeForeignFileAccessImplObjectFactory.unbless(ptr);
+            delete (this as any)[destructorGuardSymbol];
+        }
+    }
+
+    static instanceOf(obj: any): obj is ForeignFileAccessImpl {
+        return uniffiTypeForeignFileAccessImplObjectFactory.isConcreteType(obj);
+    }
+
+    
+}
+
+const uniffiTypeForeignFileAccessImplObjectFactory: UniffiObjectFactory<ForeignFileAccess> = (() => {
+    
+    return {
+    create(pointer: UniffiHandle): ForeignFileAccess {
+        const instance = Object.create(ForeignFileAccessImpl.prototype);
+        instance[pointerLiteralSymbol] = pointer;
+        instance[destructorGuardSymbol] = this.bless(pointer);
+        instance[uniffiTypeNameSymbol] = "ForeignFileAccessImpl";
+        return instance;
+    },
+
+    
+    bless(p: UniffiHandle): UniffiGcObject {
+        return uniffiCaller.rustCall(
+            /*caller:*/ (status) =>
+                nativeModule().ubrn_uniffi_internal_fn_method_foreignfileaccess_ffi__bless_pointer(p, status),
+            /*liftString:*/ FfiConverterString.lift
+        );
+    },
+
+    unbless(ptr: UniffiGcObject) {
+        ptr.markDestroyed();
+    },
+
+    pointer(obj: ForeignFileAccess): UniffiHandle {
+        if ((obj as any)[destructorGuardSymbol] === undefined) {
+            throw new UniffiInternalError.UnexpectedNullPointer();
+        }
+        return (obj as any)[pointerLiteralSymbol];
+    },
+
+    clonePointer(obj: ForeignFileAccess): UniffiHandle {
+        const pointer = this.pointer(obj);
+        return uniffiCaller.rustCall(
+            /*caller:*/ (callStatus) => nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreignfileaccess(pointer, callStatus),
+            /*liftString:*/ FfiConverterString.lift
+        );
+    },
+
+    freePointer(pointer: UniffiHandle): void {
+        uniffiCaller.rustCall(
+            /*caller:*/ (callStatus) => nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_free_foreignfileaccess(pointer, callStatus),
+            /*liftString:*/ FfiConverterString.lift
+        );
+    },
+
+    isConcreteType(obj: any): obj is ForeignFileAccess {
+        return obj[destructorGuardSymbol] && obj[uniffiTypeNameSymbol] === "ForeignFileAccessImpl";
+    },
+}})();
+// FfiConverter for ForeignFileAccess
+const FfiConverterTypeForeignFileAccess = new FfiConverterObjectWithCallbacks(uniffiTypeForeignFileAccessImplObjectFactory);
+
+// Add a vtavble for the callbacks that go in ForeignFileAccess.
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+const uniffiCallbackInterfaceForeignFileAccess: { vtable: UniffiVTableCallbackInterfaceForeignFileAccess; register: () => void; } = {
+    // Create the VTable using a series of closures.
+    // ts automatically converts these into C callback functions.
+    vtable: {
+        sourceMetadata: (
+            uniffiHandle: bigint,
+            sourceId: Uint8Array,
+            uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: bigint) => {
+            const uniffiMakeCall = 
+            async (signal: AbortSignal)
+            : Promise<MobileFileMetadata> => {
+                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
+                return await jsCallback.sourceMetadata(
+                    FfiConverterString.lift(sourceId), { signal }
+                )
+            };
+            const uniffiHandleSuccess = (returnValue: MobileFileMetadata) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: FfiConverterTypeMobileFileMetadata.lower(returnValue),
+                        callStatus: uniffiCaller.createCallStatus()
+                    }
+                );
+            };
+            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: /*empty*/ new Uint8Array(0),
+                        // TODO create callstatus with error.
+                        callStatus: uniffiCaller.createErrorStatus(code, errorBuf),
+                    }
+                );
+            };
+            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                /*makeCall:*/ uniffiMakeCall,
+                /*handleSuccess:*/ uniffiHandleSuccess,
+                /*handleError:*/ uniffiHandleError,
+                /*isErrorType:*/ FfiError.instanceOf,
+                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
+                /*lowerString:*/ FfiConverterString.lower
+            );
+            return uniffiForeignFuture;
+        },
+        readSourceChunk: (
+            uniffiHandle: bigint,
+            sourceId: Uint8Array,
+            offset: bigint,
+            length: bigint,
+            uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: bigint) => {
+            const uniffiMakeCall = 
+            async (signal: AbortSignal)
+            : Promise<ArrayBuffer> => {
+                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
+                return await jsCallback.readSourceChunk(
+                    FfiConverterString.lift(sourceId), 
+                    FfiConverterUInt64.lift(offset), 
+                    FfiConverterUInt64.lift(length), { signal }
+                )
+            };
+            const uniffiHandleSuccess = (returnValue: ArrayBuffer) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: FfiConverterArrayBuffer.lower(returnValue),
+                        callStatus: uniffiCaller.createCallStatus()
+                    }
+                );
+            };
+            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: /*empty*/ new Uint8Array(0),
+                        // TODO create callstatus with error.
+                        callStatus: uniffiCaller.createErrorStatus(code, errorBuf),
+                    }
+                );
+            };
+            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                /*makeCall:*/ uniffiMakeCall,
+                /*handleSuccess:*/ uniffiHandleSuccess,
+                /*handleError:*/ uniffiHandleError,
+                /*isErrorType:*/ FfiError.instanceOf,
+                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
+                /*lowerString:*/ FfiConverterString.lower
+            );
+            return uniffiForeignFuture;
+        },
+        createSink: (
+            uniffiHandle: bigint,
+            metadata: Uint8Array,
+            uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: bigint) => {
+            const uniffiMakeCall = 
+            async (signal: AbortSignal)
+            : Promise<string> => {
+                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
+                return await jsCallback.createSink(
+                    FfiConverterTypeMobileFileMetadata.lift(metadata), { signal }
+                )
+            };
+            const uniffiHandleSuccess = (returnValue: string) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: FfiConverterString.lower(returnValue),
+                        callStatus: uniffiCaller.createCallStatus()
+                    }
+                );
+            };
+            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: /*empty*/ new Uint8Array(0),
+                        // TODO create callstatus with error.
+                        callStatus: uniffiCaller.createErrorStatus(code, errorBuf),
+                    }
+                );
+            };
+            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                /*makeCall:*/ uniffiMakeCall,
+                /*handleSuccess:*/ uniffiHandleSuccess,
+                /*handleError:*/ uniffiHandleError,
+                /*isErrorType:*/ FfiError.instanceOf,
+                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
+                /*lowerString:*/ FfiConverterString.lower
+            );
+            return uniffiForeignFuture;
+        },
+        openOrCreateSink: (
+            uniffiHandle: bigint,
+            metadata: Uint8Array,
+            uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: bigint) => {
+            const uniffiMakeCall = 
+            async (signal: AbortSignal)
+            : Promise<string> => {
+                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
+                return await jsCallback.openOrCreateSink(
+                    FfiConverterTypeMobileFileMetadata.lift(metadata), { signal }
+                )
+            };
+            const uniffiHandleSuccess = (returnValue: string) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: FfiConverterString.lower(returnValue),
+                        callStatus: uniffiCaller.createCallStatus()
+                    }
+                );
+            };
+            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: /*empty*/ new Uint8Array(0),
+                        // TODO create callstatus with error.
+                        callStatus: uniffiCaller.createErrorStatus(code, errorBuf),
+                    }
+                );
+            };
+            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                /*makeCall:*/ uniffiMakeCall,
+                /*handleSuccess:*/ uniffiHandleSuccess,
+                /*handleError:*/ uniffiHandleError,
+                /*isErrorType:*/ FfiError.instanceOf,
+                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
+                /*lowerString:*/ FfiConverterString.lower
+            );
+            return uniffiForeignFuture;
+        },
+        writeSinkChunk: (
+            uniffiHandle: bigint,
+            sinkId: Uint8Array,
+            offset: bigint,
+            data: Uint8Array,
+            uniffiFutureCallback: UniffiForeignFutureCompleteVoid,
+            uniffiCallbackData: bigint) => {
+            const uniffiMakeCall = 
+            async (signal: AbortSignal)
+            : Promise<void> => {
+                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
+                return await jsCallback.writeSinkChunk(
+                    FfiConverterString.lift(sinkId), 
+                    FfiConverterUInt64.lift(offset), 
+                    FfiConverterArrayBuffer.lift(data), { signal }
+                )
+            };
+            const uniffiHandleSuccess = (returnValue: void) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        callStatus: uniffiCaller.createCallStatus()
+                    }
+                );
+            };
+            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        // TODO create callstatus with error.
+                        callStatus: uniffiCaller.createErrorStatus(code, errorBuf),
+                    }
+                );
+            };
+            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                /*makeCall:*/ uniffiMakeCall,
+                /*handleSuccess:*/ uniffiHandleSuccess,
+                /*handleError:*/ uniffiHandleError,
+                /*isErrorType:*/ FfiError.instanceOf,
+                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
+                /*lowerString:*/ FfiConverterString.lower
+            );
+            return uniffiForeignFuture;
+        },
+        finalizeSink: (
+            uniffiHandle: bigint,
+            sinkId: Uint8Array,
+            uniffiFutureCallback: UniffiForeignFutureCompleteVoid,
+            uniffiCallbackData: bigint) => {
+            const uniffiMakeCall = 
+            async (signal: AbortSignal)
+            : Promise<void> => {
+                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
+                return await jsCallback.finalizeSink(
+                    FfiConverterString.lift(sinkId), { signal }
+                )
+            };
+            const uniffiHandleSuccess = (returnValue: void) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        callStatus: uniffiCaller.createCallStatus()
+                    }
+                );
+            };
+            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        // TODO create callstatus with error.
+                        callStatus: uniffiCaller.createErrorStatus(code, errorBuf),
+                    }
+                );
+            };
+            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                /*makeCall:*/ uniffiMakeCall,
+                /*handleSuccess:*/ uniffiHandleSuccess,
+                /*handleError:*/ uniffiHandleError,
+                /*isErrorType:*/ FfiError.instanceOf,
+                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
+                /*lowerString:*/ FfiConverterString.lower
+            );
+            return uniffiForeignFuture;
+        },
+        cleanupSink: (
+            uniffiHandle: bigint,
+            sinkId: Uint8Array,
+            uniffiFutureCallback: UniffiForeignFutureCompleteVoid,
+            uniffiCallbackData: bigint) => {
+            const uniffiMakeCall = 
+            async (signal: AbortSignal)
+            : Promise<void> => {
+                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
+                return await jsCallback.cleanupSink(
+                    FfiConverterString.lift(sinkId), { signal }
+                )
+            };
+            const uniffiHandleSuccess = (returnValue: void) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        callStatus: uniffiCaller.createCallStatus()
+                    }
+                );
+            };
+            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        // TODO create callstatus with error.
+                        callStatus: uniffiCaller.createErrorStatus(code, errorBuf),
+                    }
+                );
+            };
+            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                /*makeCall:*/ uniffiMakeCall,
+                /*handleSuccess:*/ uniffiHandleSuccess,
+                /*handleError:*/ uniffiHandleError,
+                /*isErrorType:*/ FfiError.instanceOf,
+                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
+                /*lowerString:*/ FfiConverterString.lower
+            );
+            return uniffiForeignFuture;
+        },
+        uniffiFree: (uniffiHandle: UniffiHandle): void => {
+            // ForeignFileAccess: this will throw a stale handle error if the handle isn't found.
+            FfiConverterTypeForeignFileAccess.drop(uniffiHandle);
+        },
+        uniffiClone: (uniffiHandle: UniffiHandle): UniffiHandle => {
+            return FfiConverterTypeForeignFileAccess.clone(uniffiHandle);
+        }
+    },
+    register: () => {
+        nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreignfileaccess(
+            uniffiCallbackInterfaceForeignFileAccess.vtable
         );
     },
 };
@@ -2512,13 +4001,30 @@ export interface MobileCoreLike {
     lookupDeviceByCode(code: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileRemoteDeviceInfo>;
     requestPairing(peerId: string, code: string | undefined, addrs: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingResult>;
     respondPairingRequest(pendingId: /*u64*/bigint, code: string | undefined, accept: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
-    acceptReceive(sessionId: string, destinationUri: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileTransferSession>;
+    /**
+     * 接受接收：保存到 RN 提供的目录
+     *
+     * `save_location_uri` 是 RN 端把文件写到哪的标识（比如 expo-fs 的 documentDirectory）。
+     * 实际写入路径由 ForeignFileAccess::create_sink 实现决定，core 只把 uri 当作 SaveLocation::Path 透传。
+     */
+    acceptReceive(sessionId: string, saveLocationUri: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    /**
+     * 取消传输（自动判断是发送会话还是接收会话）
+     */
     cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    /**
+     * 暂停传输（自动判断方向）
+     */
+    pauseTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    /**
+     * 准备发送：流式 BLAKE3 hash + 通过 EventBus 推 PrepareProgress 事件
+     */
     prepareSend(files: Array<MobileTransferFile>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePreparedTransfer>;
     rejectReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
-    sendPrepared(preparedId: string, peerId: string, fileIds: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileTransferSession>;
-    transferSession(sessionId: string, asyncOpts_?: { signal: AbortSignal }) : Promise<MobileTransferSession | undefined>;
-    transferSessions(asyncOpts_?: { signal: AbortSignal }) : Promise<Array<MobileTransferSession>>;
+    /**
+     * 发送：构造 Offer 给对端（异步，结果通过 TransferAccepted/Rejected/Failed 事件回报）
+     */
+    sendPrepared(preparedId: string, peerId: string, peerName: string, fileIds: Array</*u32*/number>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileSendResult>;
 }
 /**
  * @deprecated Use `MobileCoreLike` instead.
@@ -2531,7 +4037,10 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     readonly [uniffiTypeNameSymbol] = "MobileCore";
     readonly [destructorGuardSymbol]: UniffiGcObject;
     readonly [pointerLiteralSymbol]: UniffiHandle;
-    constructor(keychain: ForeignKeychainProvider, eventBus: ForeignEventBus) {
+    /**
+     * `data_dir` 是 host 提供的 SQLite 文件父目录（RN 用 `Paths.document.uri`）
+     */
+    constructor(keychain: ForeignKeychainProvider, eventBus: ForeignEventBus, fileAccess: ForeignFileAccess, dataDir: string) {
         super();
         const pointer =
             uniffiCaller.rustCall(
@@ -2539,6 +4048,8 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_constructor_mobilecore_new(
         FfiConverterTypeForeignKeychainProvider.lower(keychain),
         FfiConverterTypeForeignEventBus.lower(eventBus),
+        FfiConverterTypeForeignFileAccess.lower(fileAccess),
+        FfiConverterString.lower(dataDir),
                 callStatus);
             },
             /*liftString:*/ FfiConverterString.lift,
@@ -2802,7 +4313,13 @@ async  respondPairingRequest(pendingId: /*u64*/bigint, code: string | undefined,
     }
     }
     
-async  acceptReceive(sessionId: string, destinationUri: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTransferSession> /*throws*/ {
+    /**
+     * 接受接收：保存到 RN 提供的目录
+     *
+     * `save_location_uri` 是 RN 端把文件写到哪的标识（比如 expo-fs 的 documentDirectory）。
+     * 实际写入路径由 ForeignFileAccess::create_sink 实现决定，core 只把 uri 当作 SaveLocation::Path 透传。
+     */
+async  acceptReceive(sessionId: string, saveLocationUri: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
@@ -2810,14 +4327,14 @@ async  acceptReceive(sessionId: string, destinationUri: string, asyncOpts_?: { s
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(sessionId),FfiConverterString.lower(destinationUri)
+                    FfiConverterString.lower(sessionId),FfiConverterString.lower(saveLocationUri)
                 );
             },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterTypeMobileTransferSession.lift.bind(FfiConverterTypeMobileTransferSession),
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -2830,6 +4347,9 @@ async  acceptReceive(sessionId: string, destinationUri: string, asyncOpts_?: { s
     }
     }
     
+    /**
+     * 取消传输（自动判断是发送会话还是接收会话）
+     */
 async  cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -2858,6 +4378,40 @@ async  cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): 
     }
     }
     
+    /**
+     * 暂停传输（自动判断方向）
+     */
+async  pauseTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sessionId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 准备发送：流式 BLAKE3 hash + 通过 EventBus 推 PrepareProgress 事件
+     */
 async  prepareSend(files: Array<MobileTransferFile>, asyncOpts_?: { signal: AbortSignal }): Promise<MobilePreparedTransfer> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -2914,7 +4468,10 @@ async  rejectReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }): P
     }
     }
     
-async  sendPrepared(preparedId: string, peerId: string, fileIds: Array<string>, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTransferSession> /*throws*/ {
+    /**
+     * 发送：构造 Offer 给对端（异步，结果通过 TransferAccepted/Rejected/Failed 事件回报）
+     */
+async  sendPrepared(preparedId: string, peerId: string, peerName: string, fileIds: Array</*u32*/number>, asyncOpts_?: { signal: AbortSignal }): Promise<MobileSendResult> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
@@ -2922,73 +4479,17 @@ async  sendPrepared(preparedId: string, peerId: string, fileIds: Array<string>, 
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(preparedId),FfiConverterString.lower(peerId),FfiConverterArrayString.lower(fileIds)
+                    FfiConverterString.lower(preparedId),FfiConverterString.lower(peerId),FfiConverterString.lower(peerName),FfiConverterArrayUInt32.lower(fileIds)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
             /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterTypeMobileTransferSession.lift.bind(FfiConverterTypeMobileTransferSession),
+            /*liftFunc:*/ FfiConverterTypeMobileSendResult.lift.bind(FfiConverterTypeMobileSendResult),
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-async  transferSession(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTransferSession | undefined> {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_transfer_session(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(sessionId)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterOptionalTypeMobileTransferSession.lift.bind(FfiConverterOptionalTypeMobileTransferSession),
-            /*liftString:*/ FfiConverterString.lift,
-            /*asyncOpts:*/ asyncOpts_,
-            
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-async  transferSessions(asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileTransferSession>> {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_transfer_sessions(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
-                    
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterArrayTypeMobileTransferSession.lift.bind(FfiConverterArrayTypeMobileTransferSession),
-            /*liftString:*/ FfiConverterString.lift,
-            /*asyncOpts:*/ asyncOpts_,
-            
         );
     } catch (__error: any) {
         if (uniffiIsDebug && __error instanceof Error) {
@@ -3077,8 +4578,12 @@ const FfiConverterTypeMobileCore =  new FfiConverterObject(uniffiTypeMobileCoreO
 const FfiConverterOptionalArrayBuffer = new FfiConverterOptional(FfiConverterArrayBuffer);
 
 
-// FfiConverter for MobileTransferSession | undefined
-const FfiConverterOptionalTypeMobileTransferSession = new FfiConverterOptional(FfiConverterTypeMobileTransferSession);
+// FfiConverter for /*f64*/number | undefined
+const FfiConverterOptionalFloat64 = new FfiConverterOptional(FfiConverterFloat64);
+
+
+// FfiConverter for /*i64*/bigint | undefined
+const FfiConverterOptionalInt64 = new FfiConverterOptional(FfiConverterInt64);
 
 
 // FfiConverter for string | undefined
@@ -3093,6 +4598,14 @@ const FfiConverterOptionalUInt64 = new FfiConverterOptional(FfiConverterUInt64);
 const FfiConverterArrayTypeMobileDevice = new FfiConverterArray(FfiConverterTypeMobileDevice);
 
 
+// FfiConverter for Array<MobileFileProgress>
+const FfiConverterArrayTypeMobileFileProgress = new FfiConverterArray(FfiConverterTypeMobileFileProgress);
+
+
+// FfiConverter for Array<MobilePreparedFile>
+const FfiConverterArrayTypeMobilePreparedFile = new FfiConverterArray(FfiConverterTypeMobilePreparedFile);
+
+
 // FfiConverter for Array<MobileTransferFile>
 const FfiConverterArrayTypeMobileTransferFile = new FfiConverterArray(FfiConverterTypeMobileTransferFile);
 
@@ -3101,12 +4614,20 @@ const FfiConverterArrayTypeMobileTransferFile = new FfiConverterArray(FfiConvert
 const FfiConverterArrayTypeMobileTransferOfferFile = new FfiConverterArray(FfiConverterTypeMobileTransferOfferFile);
 
 
-// FfiConverter for Array<MobileTransferSession>
-const FfiConverterArrayTypeMobileTransferSession = new FfiConverterArray(FfiConverterTypeMobileTransferSession);
+// FfiConverter for Array<MobileTransferResumedFile>
+const FfiConverterArrayTypeMobileTransferResumedFile = new FfiConverterArray(FfiConverterTypeMobileTransferResumedFile);
 
 
 // FfiConverter for Array<string>
 const FfiConverterArrayString = new FfiConverterArray(FfiConverterString);
+
+
+// FfiConverter for Array</*u32*/number>
+const FfiConverterArrayUInt32 = new FfiConverterArray(FfiConverterUInt32);
+
+
+// FfiConverter for MobileSaveLocation | undefined
+const FfiConverterOptionalTypeMobileSaveLocation = new FfiConverterOptional(FfiConverterTypeMobileSaveLocation);
 
 /**
  * This should be called before anything else.
@@ -3153,29 +4674,47 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request() !== 37913) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive() !== 21327) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive() !== 33535) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer() !== 10581) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer() !== 8390) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send() !== 253) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer() !== 55790) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send() !== 57064) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive() !== 8223) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared() !== 44603) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared() !== 28705) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_session() !== 64790) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_session");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_sessions() !== 26371) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_transfer_sessions");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit() !== 40391) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_source_metadata() !== 48098) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_source_metadata");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk() !== 58751) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink() !== 15892) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink() !== 42405) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk() !== 54574) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink() !== 7894) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink() !== 36565) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity() !== 59813) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity");
@@ -3192,11 +4731,12 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json() !== 55206) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new() !== 55022) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new() !== 27705) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new");
     }
 
     uniffiCallbackInterfaceForeignEventBus.register();
+    uniffiCallbackInterfaceForeignFileAccess.register();
     uniffiCallbackInterfaceForeignKeychainProvider.register();
     }
 
@@ -3205,19 +4745,29 @@ export default Object.freeze({
   converters: {
     FfiConverterTypeFfiError,
     FfiConverterTypeForeignEventBus,
+    FfiConverterTypeForeignFileAccess,
     FfiConverterTypeForeignKeychainProvider,
     FfiConverterTypeMobileCore,
     FfiConverterTypeMobileCoreEvent,
     FfiConverterTypeMobileDevice,
+    FfiConverterTypeMobileFileMetadata,
+    FfiConverterTypeMobileFileProgress,
     FfiConverterTypeMobileIdentity,
     FfiConverterTypeMobileNetworkStatus,
+    FfiConverterTypeMobilePairedDevice,
     FfiConverterTypeMobilePairingCode,
     FfiConverterTypeMobilePairingResult,
+    FfiConverterTypeMobilePrepareProgress,
+    FfiConverterTypeMobilePreparedFile,
     FfiConverterTypeMobilePreparedTransfer,
     FfiConverterTypeMobileRemoteDeviceInfo,
+    FfiConverterTypeMobileSaveLocation,
+    FfiConverterTypeMobileSendResult,
     FfiConverterTypeMobileTransferFile,
     FfiConverterTypeMobileTransferOffer,
     FfiConverterTypeMobileTransferOfferFile,
-    FfiConverterTypeMobileTransferSession,
+    FfiConverterTypeMobileTransferProgress,
+    FfiConverterTypeMobileTransferResumed,
+    FfiConverterTypeMobileTransferResumedFile,
   }
 });

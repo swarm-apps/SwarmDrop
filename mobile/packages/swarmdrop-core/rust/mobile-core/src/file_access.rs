@@ -18,10 +18,35 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use swarmdrop_core::host::{FileAccess, FileSinkId, FileSourceId, HostFileMetadata};
+use swarmdrop_core::host::{
+    CoreSaveLocation, FileAccess, FileSinkId, FileSourceId, HostFileMetadata,
+};
 use swarmdrop_core::{AppError, AppResult};
 
 use crate::error::FfiError;
+
+/// 接收端保存位置（uniffi 镜像 [`CoreSaveLocation`]）
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum MobileSaveLocation {
+    /// 文件系统路径（RN 用 expo-file-system 的 uri）
+    Path { path: String },
+}
+
+impl From<CoreSaveLocation> for MobileSaveLocation {
+    fn from(v: CoreSaveLocation) -> Self {
+        match v {
+            CoreSaveLocation::Path { path } => MobileSaveLocation::Path { path },
+        }
+    }
+}
+
+impl From<MobileSaveLocation> for CoreSaveLocation {
+    fn from(v: MobileSaveLocation) -> Self {
+        match v {
+            MobileSaveLocation::Path { path } => CoreSaveLocation::Path { path },
+        }
+    }
+}
 
 /// 文件元信息（uniffi 镜像 [`HostFileMetadata`]）
 #[derive(Debug, Clone, uniffi::Record)]
@@ -31,6 +56,8 @@ pub struct MobileFileMetadata {
     pub size: u64,
     pub modified_at: Option<i64>,
     pub checksum: Option<String>,
+    /// 接收端保存目录；source_metadata 调用时固定为 None。
+    pub save_dir: Option<MobileSaveLocation>,
 }
 
 impl From<HostFileMetadata> for MobileFileMetadata {
@@ -41,6 +68,7 @@ impl From<HostFileMetadata> for MobileFileMetadata {
             size: m.size,
             modified_at: m.modified_at,
             checksum: m.checksum,
+            save_dir: m.save_dir.map(Into::into),
         }
     }
 }
@@ -53,6 +81,7 @@ impl From<MobileFileMetadata> for HostFileMetadata {
             size: m.size,
             modified_at: m.modified_at,
             checksum: m.checksum,
+            save_dir: m.save_dir.map(Into::into),
         }
     }
 }
