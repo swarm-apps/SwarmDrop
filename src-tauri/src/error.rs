@@ -1,103 +1,101 @@
-//! 应用错误处理模块
+//! 桌面端错误类型 —— 仅承载 Tauri-specific 错误，业务错误全部委托给 [`swarmdrop_core::AppError`]。
 //!
-//! Tauri 命令的错误必须实现 Serialize 才能传递给前端
+//! ## 设计
+//!
+//! - `Tauri(...)` 包 [`tauri::Error`]（plugin/Manager/IPC 等只在桌面壳出现的错误）
+//! - `Core(...)` 包 [`swarmdrop_core::AppError`]（一切业务错误：Io / Serialization / P2p /
+//!   Database / Transfer / NodeNotStarted / ExpiredCode / InvalidCode / TaskJoin / ...）
+//!
+//! 调用方只需 `?` 即可：std::io::Error → core::AppError::Io → AppError::Core；
+//! tauri::Error → AppError::Tauri。host adapter 直接产 [`swarmdrop_core::AppResult`]，
+//! 不再需要 to_core_error 手工转换。
+//!
+//! 由 `Serialize` 投影到前端的格式与 core 一致：`{ kind, message }`。
+//! `kind` 优先取 core 自带的 kind（让前端 `isErrorKind` 与单仓时表现完全一致）。
 
 use serde::Serialize;
 use thiserror::Error;
 
-/// 应用统一错误类型
-///
-/// 注意：使用 `#[from]` 的变体会存储原始错误类型，
-/// 但由于 `std::io::Error` 等不实现 `Serialize`，
-/// 通过自定义 Serialize 实现统一转为 `{ kind, message }` 格式。
 #[derive(Debug, Error)]
 pub enum AppError {
-    /// 文件系统错误
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    /// 序列化/反序列化错误
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-
-    /// Tauri 错误
+    /// Tauri-specific 错误：plugin、Manager、IPC、updater 等
     #[error("Tauri error: {0}")]
     Tauri(#[from] tauri::Error),
 
-    /// 平台无关 core 错误
-    #[error("Core error: {0}")]
+    /// 平台无关业务错误（Io / Database / Transfer / NodeNotStarted / ...）
+    #[error(transparent)]
     Core(#[from] swarmdrop_core::AppError),
-
-    /// P2P 核心库错误
-    #[error("P2P error: {0}")]
-    P2p(#[from] swarm_p2p_core::Error),
-
-    /// P2P 网络错误
-    #[error("Network error: {0}")]
-    Network(String),
-
-    /// 身份/密钥对错误
-    #[error("Identity error: {0}")]
-    Identity(String),
-
-    /// 节点未启动
-    #[error("Node not started")]
-    NodeNotStarted,
-
-    /// 配对码已过期
-    #[error("配对码已过期")]
-    ExpiredCode,
-
-    /// 无效的配对码
-    #[error("无效的配对码")]
-    InvalidCode,
-
-    /// tokio 任务错误
-    #[error("Task join error: {0}")]
-    TaskJoin(#[from] tokio::task::JoinError),
-
-    /// 文件传输错误
-    #[error("Transfer error: {0}")]
-    Transfer(String),
-
-    /// 数据库错误
-    #[error("Database error: {0}")]
-    Database(#[from] sea_orm::DbErr),
 }
 
-/// 传递给前端的序列化错误格式
+// ============ 让常见错误源直接 `?` 转 AppError，无需先经 core ============
+
+impl From<std::io::Error> for AppError {
+    fn from(e: std::io::Error) -> Self {
+        AppError::Core(e.into())
+    }
+}
+
+impl From<serde_json::Error> for AppError {
+    fn from(e: serde_json::Error) -> Self {
+        AppError::Core(e.into())
+    }
+}
+
+impl From<swarm_p2p_core::Error> for AppError {
+    fn from(e: swarm_p2p_core::Error) -> Self {
+        AppError::Core(e.into())
+    }
+}
+
+impl From<sea_orm::DbErr> for AppError {
+    fn from(e: sea_orm::DbErr) -> Self {
+        AppError::Core(e.into())
+    }
+}
+
+impl From<tokio::task::JoinError> for AppError {
+    fn from(e: tokio::task::JoinError) -> Self {
+        AppError::Core(e.into())
+    }
+}
+
+// ============ 命令薄壳里仍想直接构造业务错误的便捷构造器 ============
+
+impl AppError {
+    pub fn transfer<S: Into<String>>(msg: S) -> Self {
+        AppError::Core(swarmdrop_core::AppError::Transfer(msg.into()))
+    }
+    pub fn identity<S: Into<String>>(msg: S) -> Self {
+        AppError::Core(swarmdrop_core::AppError::Identity(msg.into()))
+    }
+    pub fn network<S: Into<String>>(msg: S) -> Self {
+        AppError::Core(swarmdrop_core::AppError::Network(msg.into()))
+    }
+    pub fn node_not_started() -> Self {
+        AppError::Core(swarmdrop_core::AppError::NodeNotStarted)
+    }
+}
+
+// ============ 前端友好的 { kind, message } 序列化 ============
+
 impl Serialize for AppError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        use serde::ser::SerializeStruct;
-
-        let mut state = serializer.serialize_struct("AppError", 2)?;
-
-        let (kind, message) = match self {
-            AppError::Io(e) => ("Io", e.to_string()),
-            AppError::Serialization(e) => ("Serialization", e.to_string()),
-            AppError::Tauri(e) => ("Tauri", e.to_string()),
-            AppError::Core(e) => ("Core", e.to_string()),
-            AppError::P2p(e) => ("P2p", e.to_string()),
-            AppError::Network(msg) => ("Network", msg.clone()),
-            AppError::Identity(msg) => ("Identity", msg.clone()),
-            AppError::NodeNotStarted => ("NodeNotStarted", self.to_string()),
-            AppError::ExpiredCode => ("ExpiredCode", self.to_string()),
-            AppError::InvalidCode => ("InvalidCode", self.to_string()),
-            AppError::TaskJoin(e) => ("TaskJoin", e.to_string()),
-            AppError::Transfer(msg) => ("Transfer", msg.clone()),
-            AppError::Database(e) => ("Database", e.to_string()),
-        };
-
-        state.serialize_field("kind", kind)?;
-        state.serialize_field("message", &message)?;
-        state.end()
+        match self {
+            // core 错误：直接委托 core 的 Serialize impl，kind 取 core 的 kind
+            AppError::Core(e) => e.serialize(serializer),
+            // Tauri 错误：包成 { kind: "Tauri", message }
+            AppError::Tauri(e) => {
+                use serde::ser::SerializeStruct;
+                let mut state = serializer.serialize_struct("AppError", 2)?;
+                state.serialize_field("kind", "Tauri")?;
+                state.serialize_field("message", &e.to_string())?;
+                state.end()
+            }
+        }
     }
 }
 
-// ============ 便捷类型别名 ============
-
-/// Result 类型别名
 pub type AppResult<T> = Result<T, AppError>;

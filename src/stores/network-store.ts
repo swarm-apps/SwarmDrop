@@ -21,7 +21,10 @@ import {
 } from "@/constants/events";
 import { getErrorMessage } from "@/lib/errors";
 import { useSecretStore, type PairedDevice } from "@/stores/secret-store";
-import { usePairingStore } from "@/stores/pairing-store";
+import {
+  usePairingStore,
+  type PairingRequestPayload,
+} from "@/stores/pairing-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 /** 节点状态（前端 UI 生命周期） */
@@ -83,8 +86,8 @@ async function setupEventListeners() {
     }),
 
     // 配对请求（转发给 pairing-store）
-    listen(PAIRING_REQUEST_RECEIVED, (event) => {
-      usePairingStore.getState().handleInboundRequest(event.payload as any);
+    listen<PairingRequestPayload>(PAIRING_REQUEST_RECEIVED, (event) => {
+      usePairingStore.getState().handleInboundRequest(event.payload);
     }),
 
     // 配对成功（后端已添加到运行时，并写入 host keychain 持久化）

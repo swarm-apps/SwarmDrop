@@ -39,14 +39,14 @@ pub async fn generate_keypair() -> AppResult<Vec<u8>> {
     let keypair = Keypair::generate_ed25519();
     keypair
         .to_protobuf_encoding()
-        .map_err(|e| crate::AppError::Identity(e.to_string()))
+        .map_err(|e| crate::AppError::identity(e.to_string()))
 }
 
 /// 注册密钥对到 Tauri state，并在桌面端写入系统 keychain。
 #[tauri::command]
 pub async fn register_keypair(app: AppHandle, keypair: Vec<u8>) -> AppResult<String> {
     let keypair = Keypair::from_protobuf_encoding(&keypair)
-        .map_err(|e| crate::AppError::Identity(e.to_string()))?;
+        .map_err(|e| crate::AppError::identity(e.to_string()))?;
     let peer_id = keypair.public().to_peer_id();
 
     let provider = DesktopKeychainProvider::new()?;
@@ -54,7 +54,7 @@ pub async fn register_keypair(app: AppHandle, keypair: Vec<u8>) -> AppResult<Str
         .save_identity(DeviceIdentityBytes {
             keypair: keypair
                 .to_protobuf_encoding()
-                .map_err(|e| crate::AppError::Identity(e.to_string()))?,
+                .map_err(|e| crate::AppError::identity(e.to_string()))?,
         })
         .await?;
 

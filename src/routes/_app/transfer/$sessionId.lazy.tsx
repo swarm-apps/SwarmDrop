@@ -29,8 +29,8 @@ import { openTransferResult } from "@/lib/file-picker";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
-import { FileTree } from "../send/-components/file-tree";
-import { buildTreeDataFromSession } from "../send/-file-tree";
+import { FileTree } from "@/components/file-tree";
+import { buildTreeDataFromSession } from "@/components/file-tree";
 import type { TransferSession, TransferHistoryItem } from "@/commands/transfer";
 import {
   calcPercent,

@@ -10,7 +10,7 @@ import { syncDataLoaderFeature } from "@headless-tree/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Trans } from "@lingui/react/macro";
 import { formatFileSize } from "@/lib/format";
-import type { TreeDataLoader, TreeNodeData, FileStatus } from "../-file-tree";
+import type { TreeDataLoader, TreeNodeData, FileStatus } from "./data";
 import type { TransferProgressEvent } from "@/commands/transfer";
 import { FileTreeItem } from "./file-tree-item";
 import { FolderRow } from "./folder-row";

@@ -22,7 +22,7 @@ macro_rules! with_manager {
         let guard = $net.lock().await;
         let $m = guard
             .as_ref()
-            .ok_or_else(|| $crate::AppError::NodeNotStarted)?;
+            .ok_or_else(|| $crate::AppError::node_not_started())?;
         Ok::<_, $crate::AppError>($body?)
     }};
 }

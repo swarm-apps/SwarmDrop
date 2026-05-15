@@ -244,7 +244,7 @@ pub async fn resume_transfer(
     let session = entity::TransferSession::find_by_id(session_id)
         .one(db.inner())
         .await?
-        .ok_or_else(|| crate::AppError::Transfer("会话不存在".into()))?;
+        .ok_or_else(|| crate::AppError::transfer("会话不存在"))?;
 
     let (resume_info, direction_str) = match session.direction {
         entity::TransferDirection::Receive => {
@@ -281,6 +281,6 @@ pub async fn resume_transfer(
 
 async fn get_transfer(net: &NetManagerState) -> crate::AppResult<Arc<TransferManager>> {
     let guard = net.lock().await;
-    let manager = guard.as_ref().ok_or(crate::AppError::NodeNotStarted)?;
+    let manager = guard.as_ref().ok_or(crate::AppError::node_not_started())?;
     Ok(manager.transfer_arc())
 }

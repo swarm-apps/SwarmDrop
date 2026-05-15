@@ -15,7 +15,7 @@ use swarmdrop_core::host::{
 };
 
 use crate::host::file_sink::{FileSink, PartFile};
-use crate::AppResult;
+use swarmdrop_core::AppResult;
 
 /// 分块大小：256 KB
 pub const CHUNK_SIZE: usize = 256 * 1024;
@@ -162,10 +162,6 @@ fn source_from_id(source: &FileSourceId) -> swarmdrop_core::AppResult<FileSource
     })
 }
 
-fn to_core_error(error: crate::AppError) -> swarmdrop_core::AppError {
-    swarmdrop_core::AppError::Transfer(error.to_string())
-}
-
 #[async_trait::async_trait]
 impl FileAccess for TauriFileAccess {
     async fn source_metadata(
@@ -173,7 +169,7 @@ impl FileAccess for TauriFileAccess {
         source: &FileSourceId,
     ) -> swarmdrop_core::AppResult<HostFileMetadata> {
         let source = source_from_id(source)?;
-        let metadata = source.metadata(&self.app).await.map_err(to_core_error)?;
+        let metadata = source.metadata(&self.app).await?;
         Ok(HostFileMetadata {
             name: metadata.name.clone(),
             relative_path: metadata.name,
@@ -191,16 +187,12 @@ impl FileAccess for TauriFileAccess {
         _length: usize,
     ) -> swarmdrop_core::AppResult<Vec<u8>> {
         let file_source = source_from_id(source)?;
-        let metadata = file_source
-            .metadata(&self.app)
-            .await
-            .map_err(to_core_error)?;
+        let metadata = file_source.metadata(&self.app).await?;
         let chunk_index = u32::try_from(offset / CHUNK_SIZE as u64)
             .map_err(|_| swarmdrop_core::AppError::Transfer("chunk offset is too large".into()))?;
         file_source
             .read_chunk(metadata.size, chunk_index, &self.app)
             .await
-            .map_err(to_core_error)
     }
 
     async fn create_sink(
@@ -210,8 +202,7 @@ impl FileAccess for TauriFileAccess {
         let sink = sink_from_metadata(&metadata)?;
         let part_file = sink
             .create_part_file(&metadata.relative_path, metadata.size, &self.app)
-            .await
-            .map_err(to_core_error)?;
+            .await?;
         let sink_id = FileSinkId(metadata.relative_path);
         self.active_sinks.insert(
             sink_id.clone(),
@@ -230,8 +221,7 @@ impl FileAccess for TauriFileAccess {
         let sink = sink_from_metadata(&metadata)?;
         let part_file = sink
             .open_or_create_part_file(&metadata.relative_path, metadata.size, &self.app)
-            .await
-            .map_err(to_core_error)?;
+            .await?;
         let sink_id = FileSinkId(metadata.relative_path);
         self.active_sinks.insert(
             sink_id.clone(),
@@ -258,11 +248,7 @@ impl FileAccess for TauriFileAccess {
             .clone();
         let chunk_index = u32::try_from(offset / CHUNK_SIZE as u64)
             .map_err(|_| swarmdrop_core::AppError::Transfer("chunk offset is too large".into()))?;
-        active
-            .part_file
-            .write_chunk(chunk_index, &data)
-            .await
-            .map_err(to_core_error)
+        active.part_file.write_chunk(chunk_index, &data).await
     }
 
     async fn finalize_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<()> {
@@ -277,7 +263,6 @@ impl FileAccess for TauriFileAccess {
             .verify_and_finalize(&checksum, &self.app)
             .await
             .map(|_| ())
-            .map_err(to_core_error)
     }
 
     async fn cleanup_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<()> {

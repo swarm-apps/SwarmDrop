@@ -18,7 +18,7 @@ import { Trans } from "@lingui/react/macro";
 import { cn } from "@/lib/utils";
 import { formatFileSize } from "@/lib/format";
 import { Progress } from "@/components/ui/progress";
-import type { FileStatus } from "../-file-tree";
+import type { FileStatus } from "./data";
 
 interface FileTreeItemProps {
   name: string;

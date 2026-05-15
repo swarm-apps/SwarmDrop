@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::host::file_sink::{compute_part_path, PartFile};
-use crate::{AppError, AppResult};
+use swarmdrop_core::{AppError, AppResult};
 
 /// 创建 .part 临时文件：创建目录 → 创建文件 → 预分配大小 → 缓存写入句柄
 pub(crate) async fn create_part_file(

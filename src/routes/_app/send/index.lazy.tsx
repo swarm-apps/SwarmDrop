@@ -25,7 +25,7 @@ import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { FileDropZone } from "./-components/file-drop-zone";
-import { FileTree } from "./-components/file-tree";
+import { FileTree } from "@/components/file-tree";
 
 export const Route = createLazyFileRoute("/_app/send/")({
   component: SendPage,

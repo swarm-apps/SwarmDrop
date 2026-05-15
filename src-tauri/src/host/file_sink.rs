@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use crate::host::file_source::CHUNK_SIZE;
-use crate::{AppError, AppResult};
+use swarmdrop_core::{AppError, AppResult};
 
 /// 文件写入目标
 #[derive(Clone)]

@@ -17,11 +17,6 @@ pub(crate) mod setup;
 
 pub use error::{AppError, AppResult};
 
-// 命名空间 alias —— 直接复用 swarmdrop-core 的业务模块，
-// 让 `crate::pairing::*` / `crate::protocol::*` 在原引用点无需修改。
-pub use swarmdrop_core::pairing;
-pub use swarmdrop_core::protocol;
-
 /// 应用入口（main.rs 调用）。
 #[doc(alias = "main")]
 pub fn run() {

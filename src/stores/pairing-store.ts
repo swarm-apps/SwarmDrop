@@ -68,14 +68,22 @@ export type PairingPhase =
   | { phase: "success"; peerId: string; deviceName: string }
   | { phase: "error"; message: string };
 
-/** 入站配对请求（对应后端 PairingRequestPayload，flatten 了 PairingRequest） */
-interface QueuedInboundRequest {
+/**
+ * 入站配对请求 payload（对应后端 events.rs::PairingRequestPayload）。
+ *
+ * Tauri Event `PAIRING_REQUEST_RECEIVED` 的 payload 形态——network-store 收到事件后
+ * 直接调 `usePairingStore.getState().handleInboundRequest(payload)`，避免 `as any`。
+ */
+export interface PairingRequestPayload {
   peerId: PeerId;
   pendingId: number;
   osInfo: { hostname: string; os: string; platform: string; arch: string };
   timestamp: number;
   method: PairingMethod;
 }
+
+/** @deprecated 使用 [`PairingRequestPayload`] 替代，名称已统一对齐后端类型 */
+type QueuedInboundRequest = PairingRequestPayload;
 
 interface PairingState {
   /** 当前出站配对阶段 */

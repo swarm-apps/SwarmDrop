@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use crate::host::file_source::{EnumeratedFile, FileSource, FileSourceMetadata, CHUNK_SIZE};
-use crate::{AppError, AppResult};
+use swarmdrop_core::{AppError, AppResult};
 
 // ============ FileSource 分派方法 ============
 

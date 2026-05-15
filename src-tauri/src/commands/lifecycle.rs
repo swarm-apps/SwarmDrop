@@ -38,7 +38,7 @@ pub async fn start(
     let db: Arc<DatabaseConnection> = app
         .try_state::<DatabaseConnection>()
         .map(|s| Arc::new(s.inner().clone()))
-        .ok_or_else(|| AppError::Transfer("数据库未初始化".into()))?;
+        .ok_or_else(|| AppError::transfer("数据库未初始化"))?;
 
     let file_access: Arc<dyn FileAccess> =
         Arc::new(crate::host::file_source::TauriFileAccess::new(app.clone()));
@@ -128,7 +128,7 @@ pub async fn list_devices(
     filter: Option<DeviceFilter>,
 ) -> crate::AppResult<DeviceListResult> {
     let guard = net.lock().await;
-    let manager = guard.as_ref().ok_or(AppError::NodeNotStarted)?;
+    let manager = guard.as_ref().ok_or(AppError::node_not_started())?;
     let devices = manager.devices().get_devices(filter.unwrap_or_default());
     let total = devices.len();
     Ok(DeviceListResult { devices, total })

@@ -1,8 +1,8 @@
 use crate::events;
 use crate::network::NetManagerState;
-use crate::pairing::code::{PairingCodeInfo, ShareCodeRecord};
-use crate::protocol::{PairingMethod, PairingResponse};
 use crate::AppResult;
+use swarmdrop_core::pairing::code::{PairingCodeInfo, ShareCodeRecord};
+use swarmdrop_core::protocol::{PairingMethod, PairingResponse};
 use serde::{Deserialize, Serialize};
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use tauri::{AppHandle, Emitter, State};

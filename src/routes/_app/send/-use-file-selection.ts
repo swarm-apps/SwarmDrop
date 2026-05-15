@@ -7,8 +7,8 @@
  */
 
 import { useCallback, useMemo, useState } from "react";
-import { buildTreeDataFromOffer } from "./-file-tree";
-import type { TreeDataLoader } from "./-file-tree";
+import { buildTreeDataFromOffer } from "@/components/file-tree";
+import type { TreeDataLoader } from "@/components/file-tree";
 import type { FileSource, ScannedFile } from "@/commands/transfer";
 import { scanSources } from "@/commands/transfer";
 

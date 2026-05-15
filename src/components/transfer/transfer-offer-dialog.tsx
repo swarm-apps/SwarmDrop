@@ -17,8 +17,8 @@ import {
   rejectReceive,
   type SaveLocation,
 } from "@/commands/transfer";
-import { FileTree } from "@/routes/_app/send/-components/file-tree";
-import { buildTreeDataFromOffer } from "@/routes/_app/send/-file-tree";
+import { FileTree } from "@/components/file-tree";
+import { buildTreeDataFromOffer } from "@/components/file-tree";
 import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
