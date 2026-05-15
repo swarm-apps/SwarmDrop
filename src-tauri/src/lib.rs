@@ -13,9 +13,10 @@ pub mod events;
 pub mod host;
 pub(crate) mod mcp;
 pub(crate) mod network;
-pub(crate) mod setup;
+pub mod setup;
 
 pub use error::{AppError, AppResult};
+pub use setup::specta_builder;
 
 /// 应用入口（main.rs 调用）。
 #[doc(alias = "main")]

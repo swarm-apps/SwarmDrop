@@ -1,64 +1,36 @@
 /**
  * Network commands
  * P2P 网络相关命令
+ *
+ * 类型从 specta 生成的 @/lib/bindings re-export，避免前后端漂移。
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type {
+  ConnectionType,
+  Device,
+  DeviceListResult,
+  DeviceStatus,
+  NetworkStatus,
+  NodeStatus,
+} from "@/lib/bindings";
 import type { PairedDevice } from "@/stores/secret-store";
 
-/**
- * Peer ID (libp2p 节点标识)
- */
+export type {
+  ConnectionType,
+  Device,
+  DeviceListResult,
+  DeviceStatus,
+  NetworkStatus,
+  NodeStatus,
+};
+
+/** Peer ID (libp2p 节点标识) */
 export type PeerId = string;
-
-/**
- * Multiaddr (libp2p 多地址)
- */
+/** Multiaddr (libp2p 多地址) */
 export type Multiaddr = string;
-
-/**
- * NAT 状态
- */
+/** NAT 状态。bindings 把它映射成 string，前端这里收紧到字面量联合类型。 */
 export type NatStatus = "public" | "unknown";
-
-// === 后端输出类型 ===
-
-export type DeviceStatus = "online" | "offline";
-export type ConnectionType = "lan" | "dcutr" | "relay";
-export type NodeStatus = "running" | "stopped";
-
-export interface Device {
-  peerId: string;
-  hostname: string;
-  os: string;
-  platform: string;
-  arch: string;
-  status: DeviceStatus;
-  connection?: ConnectionType;
-  latency?: number;
-  isPaired: boolean;
-}
-
-export interface DeviceListResult {
-  devices: Device[];
-  total: number;
-}
-
-export interface NetworkStatus {
-  status: NodeStatus;
-  peerId: string | null;
-  listenAddrs: string[];
-  natStatus: NatStatus;
-  publicAddr: string | null;
-  connectedPeers: number;
-  discoveredPeers: number;
-  /** Relay 中继是否就绪（至少有一个中继节点已连接） */
-  relayReady: boolean;
-  /** 当前已连接的中继节点 PeerId 列表 */
-  relayPeers: string[];
-  /** 是否至少有一个引导节点已连接 */
-  bootstrapConnected: boolean;
-}
 
 /**
  * 启动 P2P 网络节点
@@ -73,9 +45,7 @@ export async function start(
   await invoke("start", { pairedDevices, customBootstrapNodes });
 }
 
-/**
- * 关闭 P2P 网络节点
- */
+/** 关闭 P2P 网络节点 */
 export async function shutdown(): Promise<void> {
   await invoke("shutdown");
 }
@@ -90,9 +60,7 @@ export async function listDevices(
   return invoke("list_devices", { filter });
 }
 
-/**
- * 获取网络状态
- */
+/** 获取网络状态 */
 export async function getNetworkStatus(): Promise<NetworkStatus> {
   return invoke("get_network_status");
 }

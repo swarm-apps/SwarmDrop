@@ -16,6 +16,15 @@
 use serde::Serialize;
 use thiserror::Error;
 
+/// 前端可见的错误结构体 —— [`AppError`] 在 specta 里被映射成这个形状，
+/// 与 [`AppError::serialize`] 真正写出的 JSON 完全一致。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AppErrorPayload {
+    pub kind: String,
+    pub message: String,
+}
+
 #[derive(Debug, Error)]
 pub enum AppError {
     /// Tauri-specific 错误：plugin、Manager、IPC、updater 等
@@ -25,6 +34,14 @@ pub enum AppError {
     /// 平台无关业务错误（Io / Database / Transfer / NodeNotStarted / ...）
     #[error(transparent)]
     Core(#[from] swarmdrop_core::AppError),
+}
+
+// 手写 Type impl：AppError 的 Serialize 输出就是 AppErrorPayload，
+// 直接复用 payload 的定义，避免重复维护两份 schema。
+impl specta::Type for AppError {
+    fn definition(types: &mut specta::Types) -> specta::datatype::DataType {
+        <AppErrorPayload as specta::Type>::definition(types)
+    }
 }
 
 // ============ 让常见错误源直接 `?` 转 AppError，无需先经 core ============

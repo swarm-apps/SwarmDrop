@@ -17,6 +17,7 @@ use crate::transfer::progress::{
 };
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferOfferEvent {
     pub session_id: Uuid,
@@ -27,6 +28,7 @@ pub struct TransferOfferEvent {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferOfferFileEvent {
     pub file_id: u32,

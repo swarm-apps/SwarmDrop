@@ -4,12 +4,9 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type { McpStatus } from "@/lib/bindings";
 
-/** MCP Server 状态 */
-export interface McpStatus {
-  running: boolean;
-  addr: string | null;
-}
+export type { McpStatus };
 
 /** 查询 MCP Server 当前状态 */
 export function getMcpStatus(): Promise<McpStatus> {

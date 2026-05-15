@@ -20,7 +20,7 @@ use crate::network::NetManagerState;
 
 // ============ scan_sources ============
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ScannedSourceResult {
     pub is_directory: bool,
@@ -29,6 +29,7 @@ pub struct ScannedSourceResult {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn scan_sources(
     app: tauri::AppHandle,
     sources: Vec<FileSource>,
@@ -62,7 +63,7 @@ pub async fn scan_sources(
 
 // ============ prepare_send ============
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferFileResult {
     pub file_id: u32,
@@ -72,7 +73,7 @@ pub struct TransferFileResult {
     pub is_directory: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedTransferResult {
     pub prepared_id: Uuid,
@@ -81,6 +82,7 @@ pub struct PreparedTransferResult {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn prepare_send(
     app: tauri::AppHandle,
     net: State<'_, NetManagerState>,
@@ -123,6 +125,7 @@ pub async fn prepare_send(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn start_send(
     net: State<'_, NetManagerState>,
     prepared_id: Uuid,
@@ -135,6 +138,7 @@ pub async fn start_send(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn accept_receive(
     net: State<'_, NetManagerState>,
     session_id: Uuid,
@@ -147,6 +151,7 @@ pub async fn accept_receive(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn reject_receive(
     net: State<'_, NetManagerState>,
     session_id: Uuid,
@@ -156,6 +161,7 @@ pub async fn reject_receive(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn cancel_send(
     net: State<'_, NetManagerState>,
     session_id: Uuid,
@@ -165,6 +171,7 @@ pub async fn cancel_send(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn cancel_receive(
     db: State<'_, sea_orm::DatabaseConnection>,
     net: State<'_, NetManagerState>,
@@ -179,6 +186,7 @@ pub async fn cancel_receive(
 // ============ 传输历史 API ============
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_transfer_history(
     db: State<'_, sea_orm::DatabaseConnection>,
     status: Option<entity::SessionStatus>,
@@ -187,6 +195,7 @@ pub async fn get_transfer_history(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_transfer_session(
     db: State<'_, sea_orm::DatabaseConnection>,
     session_id: Uuid,
@@ -195,6 +204,7 @@ pub async fn get_transfer_session(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_transfer_session(
     db: State<'_, sea_orm::DatabaseConnection>,
     session_id: Uuid,
@@ -203,6 +213,7 @@ pub async fn delete_transfer_session(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn clear_transfer_history(
     db: State<'_, sea_orm::DatabaseConnection>,
 ) -> crate::AppResult<()> {
@@ -210,6 +221,7 @@ pub async fn clear_transfer_history(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn pause_transfer(
     net: State<'_, NetManagerState>,
     session_id: Uuid,
@@ -221,7 +233,7 @@ pub async fn pause_transfer(
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ResumeTransferResult {
     pub session_id: Uuid,
@@ -234,6 +246,7 @@ pub struct ResumeTransferResult {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn resume_transfer(
     db: State<'_, sea_orm::DatabaseConnection>,
     net: State<'_, NetManagerState>,

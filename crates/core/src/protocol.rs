@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::device::OsInfo;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PairingRequest {
     pub os_info: OsInfo,
@@ -15,6 +16,7 @@ pub struct PairingRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum PairingMethod {
     Code { code: String },
@@ -23,12 +25,14 @@ pub enum PairingMethod {
 
 /// 配对被拒绝的原因。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum PairingRefuseReason {
     UserRejected,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase", tag = "status")]
 pub enum PairingResponse {
     Success,
@@ -37,6 +41,7 @@ pub enum PairingResponse {
 
 /// 传输文件元信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FileInfo {
     pub file_id: u32,
@@ -48,6 +53,7 @@ pub struct FileInfo {
 
 /// 文件校验和。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FileChecksum {
     pub file_id: u32,
@@ -56,6 +62,7 @@ pub struct FileChecksum {
 
 /// 断点续传被拒绝的原因。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum ResumeRejectReason {
     FileModified,
@@ -101,6 +108,7 @@ pub enum TransferRequest {
 
 /// Offer 被拒绝的原因。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum OfferRejectReason {
     NotPaired,

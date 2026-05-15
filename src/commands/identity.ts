@@ -1,5 +1,10 @@
 /**
  * Identity commands
+ *
+ * 注：IdentityState 不直接 re-export 自 @/lib/bindings —— bindings 的
+ * PairedDeviceInfo 比 secret-store 持久化的 PairedDevice 多 `pairedAt`
+ * 字段，前端为兼容旧持久化数据保留较松的形状。其他无漂移类型直接
+ * re-export 自 bindings。
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -12,23 +17,14 @@ export interface IdentityState {
   created: boolean;
 }
 
-/**
- * 从系统 keychain 初始化设备身份；不存在时由后端自动生成并保存。
- */
 export async function initializeIdentity(): Promise<IdentityState> {
   return await invoke("initialize_identity");
 }
 
-/**
- * 生成新的 Ed25519 密钥对。
- */
 export async function generateKeypair(): Promise<number[]> {
   return await invoke("generate_keypair");
 }
 
-/**
- * 注册密钥对到后端状态管理。
- */
 export async function registerKeypair(keypair: number[]): Promise<string> {
   return await invoke("register_keypair", { keypair });
 }

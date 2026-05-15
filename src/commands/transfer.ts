@@ -1,19 +1,67 @@
 /**
  * Transfer commands
  * 文件传输相关类型定义和命令
+ *
+ * 命令的入参/出参类型从 specta 生成的 @/lib/bindings re-export，避免前后端
+ * 漂移。事件类型（TransferOfferEvent / TransferProgressEvent 等）走原生
+ * `app.emit` + `listen<T>`，bindings 暂未生成，留在本文件本地定义。
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type {
+  CoreSaveLocation,
+  EnumeratedFile,
+  FileSource,
+  FileStatus,
+  PrepareProgressEvent,
+  PreparedTransferResult,
+  ResumeTransferResult,
+  ScannedSourceResult,
+  SessionStatus,
+  StartSendResult,
+  TransferDirection,
+  TransferFileResult,
+  TransferHistoryFile,
+  TransferHistoryItem,
+} from "@/lib/bindings";
 
-// === 类型定义 ===
+export type {
+  CoreSaveLocation,
+  EnumeratedFile,
+  FileSource,
+  FileStatus,
+  PrepareProgressEvent,
+  PreparedTransferResult,
+  ResumeTransferResult,
+  ScannedSourceResult,
+  SessionStatus,
+  StartSendResult,
+  TransferDirection,
+  TransferFileResult,
+  TransferHistoryFile,
+  TransferHistoryItem,
+};
 
-/** 保存位置 */
-export type SaveLocation = { type: "path"; path: string };
+// ── 兼容别名（业务代码沿用旧名，bindings 用新名，alias 桥接） ───────
 
-/** 传输方向 */
-export type TransferDirection = "send" | "receive";
+/** 保存位置（=== CoreSaveLocation） */
+export type SaveLocation = CoreSaveLocation;
+/** 扫描出的文件（=== EnumeratedFile） */
+export type ScannedFile = EnumeratedFile;
+/** 准备发送的结果（=== PreparedTransferResult） */
+export type PreparedTransfer = PreparedTransferResult;
+/** prepare_send 进度事件（=== PrepareProgressEvent） */
+export type PrepareProgress = PrepareProgressEvent;
+/** 文件信息（=== TransferFileResult） */
+export type TransferFileInfo = TransferFileResult;
+/** 历史会话状态（=== SessionStatus） */
+export type HistorySessionStatus = SessionStatus;
+/** 历史文件状态（=== FileStatus） */
+export type HistoryFileStatus = FileStatus;
 
-/** 传输状态 */
+// ── 前端运行时聚合类型 / 事件类型（bindings 不生成） ────────────────
+
+/** 传输状态（前端运行时聚合，包含 waiting_accept 等过渡态） */
 export type TransferStatus =
   | "pending"
   | "waiting_accept"
@@ -21,22 +69,6 @@ export type TransferStatus =
   | "completed"
   | "failed"
   | "cancelled";
-
-/** 文件信息 */
-export interface TransferFileInfo {
-  fileId: number;
-  name: string;
-  relativePath: string;
-  size: number;
-  isDirectory: boolean;
-}
-
-/** 准备发送的结果 */
-export interface PreparedTransfer {
-  preparedId: string;
-  files: TransferFileInfo[];
-  totalSize: number;
-}
 
 /** 传输会话 */
 export interface TransferSession {
@@ -53,8 +85,6 @@ export interface TransferSession {
   completedAt: number | null;
   saveLocation?: SaveLocation;
 }
-
-// === 事件类型 ===
 
 /** 接收方收到传输提议 */
 export interface TransferOfferEvent {
@@ -84,7 +114,6 @@ export interface TransferProgressEvent {
   transferredBytes: number;
   speed: number;
   eta: number | null;
-  /** 每个文件的独立进度 */
   files: FileProgressInfo[];
 }
 
@@ -120,55 +149,10 @@ export interface TransferResumedEvent {
   totalSize: number;
 }
 
-// === 文件来源 ===
-
-/**
- * 文件来源（与 Rust FileSource 枚举对应）
- */
-export type FileSource = { type: "path"; path: string };
-
-// === 扫描结果 ===
-
-/** 单个来源的扫描结果 */
-export interface ScannedSourceResult {
-  isDirectory: boolean;
-  files: ScannedFile[];
-  totalSize: number;
-}
-
-/** 扫描到的单个文件（同时用于 scanSources 返回和 prepareSend 输入） */
-export interface ScannedFile {
-  source: FileSource;
-  name: string;
-  relativePath: string;
-  size: number;
-}
-
-/** prepare_send 进度事件 */
-export interface PrepareProgress {
-  /** 当前正在 hash 的文件名 */
-  currentFile: string;
-  /** 已完成 hash 的文件数 */
-  completedFiles: number;
-  /** 总文件数 */
-  totalFiles: number;
-  /** 累积已 hash 的字节数（所有文件） */
-  bytesHashed: number;
-  /** 总字节数（所有文件） */
-  totalBytes: number;
-}
-
-// === 命令函数 ===
-
 /** Offer 被拒绝的原因（与 Rust OfferRejectReason 对应） */
 export type OfferRejectReason =
   | { type: "not_paired" }
   | { type: "user_declined" };
-
-/** 开始发送的结果（立即返回 session_id，后续通过事件通知） */
-export interface StartSendResult {
-  sessionId: string;
-}
 
 /** 对方接受 Offer 的事件 */
 export interface TransferAcceptedEvent {
@@ -187,16 +171,7 @@ export interface TransferDbErrorEvent {
   message: string;
 }
 
-/** 恢复传输的结果（返回给前端以创建运行时 session） */
-export interface ResumeTransferResult {
-  sessionId: string;
-  direction: string;
-  peerId: string;
-  peerName: string;
-  files: TransferFileInfo[];
-  totalSize: number;
-  transferredBytes: number;
-}
+// ── 命令 ────────────────────────────────────────────────────────────
 
 /**
  * 扫描文件来源：遍历目录、收集元数据，不计算 hash
@@ -210,7 +185,6 @@ export async function scanSources(
 
 /**
  * 准备发送：对预扫描的文件列表计算 BLAKE3 校验和
- * 接收 scanSources 返回的 ScannedFile 列表（前端可能已移除部分文件）
  * @param onProgress 可选的进度回调，实时接收 hash 计算进度
  */
 export async function prepareSend(
@@ -257,49 +231,7 @@ export async function cancelReceive(sessionId: string): Promise<void> {
   return invoke("cancel_receive", { sessionId });
 }
 
-// === 传输历史 API ===
-
-/** 历史会话状态（对应 Rust SessionStatus） */
-export type HistorySessionStatus =
-  | "transferring"
-  | "paused"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-/** 历史文件状态（对应 Rust FileStatus） */
-export type HistoryFileStatus =
-  | "pending"
-  | "transferring"
-  | "completed"
-  | "failed";
-
-/** 传输历史文件记录 */
-export interface TransferHistoryFile {
-  fileId: number;
-  name: string;
-  relativePath: string;
-  size: number;
-  status: HistoryFileStatus;
-  transferredBytes: number;
-}
-
-/** 传输历史会话记录（对应 Rust TransferHistoryItem） */
-export interface TransferHistoryItem {
-  sessionId: string;
-  direction: TransferDirection;
-  peerId: string;
-  peerName: string;
-  totalSize: number;
-  transferredBytes: number;
-  status: HistorySessionStatus;
-  startedAt: number;
-  updatedAt: number;
-  finishedAt: number | null;
-  errorMessage: string | null;
-  savePath: SaveLocation | null;
-  files: TransferHistoryFile[];
-}
+// ── 传输历史 API ────────────────────────────────────────────────────
 
 /** 查询传输历史列表（可选按状态过滤） */
 export async function getTransferHistory(

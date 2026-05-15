@@ -8,6 +8,7 @@ const CHARSET: &[u8] = b"0123456789";
 const CODE_LENGTH: usize = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PairingCodeInfo {
     pub code: String,
@@ -35,6 +36,7 @@ impl PairingCodeInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ShareCodeRecord {
     #[serde(flatten)]
@@ -43,6 +45,7 @@ pub struct ShareCodeRecord {
     pub expires_at: i64,
     /// 发布者的可达地址，用于跨网络场景下让对方直接 dial。
     #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
     pub listen_addrs: Vec<Multiaddr>,
 }
 
@@ -59,11 +62,13 @@ impl From<&PairingCodeInfo> for ShareCodeRecord {
 
 /// 在线宣告记录，发布到 DHT 供已配对设备发现地址。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct OnlineRecord {
     #[serde(flatten)]
     pub os_info: OsInfo,
     #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
     pub listen_addrs: Vec<Multiaddr>,
     pub timestamp: i64,
 }

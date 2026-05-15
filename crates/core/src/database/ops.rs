@@ -296,6 +296,7 @@ where
 
 /// 传输历史记录（session + files）
 #[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferHistoryItem {
     pub session_id: Uuid,
@@ -314,6 +315,7 @@ pub struct TransferHistoryItem {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferHistoryFile {
     pub file_id: i32,

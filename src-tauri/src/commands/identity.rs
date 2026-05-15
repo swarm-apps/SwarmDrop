@@ -6,7 +6,7 @@ use tauri::{AppHandle, Manager};
 use crate::host::keychain::DesktopKeychainProvider;
 use crate::AppResult;
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityState {
     pub keypair: Vec<u8>,
@@ -17,6 +17,7 @@ pub struct IdentityState {
 
 /// 从系统 keychain 初始化设备身份，不再要求用户输入 Stronghold 密码。
 #[tauri::command]
+#[specta::specta]
 pub async fn initialize_identity(app: AppHandle) -> AppResult<IdentityState> {
     let provider = DesktopKeychainProvider::new()?;
     let identity = swarmdrop_core::identity::load_or_create_identity(&provider).await?;
@@ -35,6 +36,7 @@ pub async fn initialize_identity(app: AppHandle) -> AppResult<IdentityState> {
 
 /// 生成新的 Ed25519 密钥对。
 #[tauri::command]
+#[specta::specta]
 pub async fn generate_keypair() -> AppResult<Vec<u8>> {
     let keypair = Keypair::generate_ed25519();
     keypair
@@ -44,6 +46,7 @@ pub async fn generate_keypair() -> AppResult<Vec<u8>> {
 
 /// 注册密钥对到 Tauri state，并在桌面端写入系统 keychain。
 #[tauri::command]
+#[specta::specta]
 pub async fn register_keypair(app: AppHandle, keypair: Vec<u8>) -> AppResult<String> {
     let keypair = Keypair::from_protobuf_encoding(&keypair)
         .map_err(|e| crate::AppError::identity(e.to_string()))?;

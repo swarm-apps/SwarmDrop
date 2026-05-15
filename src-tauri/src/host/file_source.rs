@@ -21,7 +21,7 @@ use swarmdrop_core::AppResult;
 pub const CHUNK_SIZE: usize = 256 * 1024;
 
 /// 文件来源：标准文件系统路径
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum FileSource {
     /// 标准文件系统路径
@@ -43,7 +43,7 @@ pub struct FileSourceMetadata {
 ///
 /// 同时用于 `scan_sources` 命令返回和 `prepare_send` 命令输入，
 /// 因此同时派生 Serialize + Deserialize。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct EnumeratedFile {
     /// 文件名

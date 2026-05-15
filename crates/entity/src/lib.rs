@@ -18,6 +18,7 @@ pub use transfer_session::Entity as TransferSession;
 /// impl TryFrom<entity::PeerId> for libp2p::PeerId { ... }
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, DeriveValueType)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct PeerId(pub String);
 
 impl PeerId {
@@ -42,6 +43,7 @@ impl std::fmt::Display for PeerId {
 #[derive(
     Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
 )]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]
 #[sea_orm(
     rs_type = "String",
@@ -57,6 +59,7 @@ pub enum TransferDirection {
 #[derive(
     Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
 )]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]
 #[sea_orm(
     rs_type = "String",
@@ -75,6 +78,7 @@ pub enum SessionStatus {
 #[derive(
     Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
 )]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]
 #[sea_orm(
     rs_type = "String",
@@ -92,6 +96,7 @@ pub enum FileStatus {
 /// 桌面端使用文件系统绝对路径。数据库中以 JSON 形式存储在 `save_path` 列，
 /// 通过 `FromJsonQueryResult` 自动序列化/反序列化。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromJsonQueryResult)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SaveLocation {
     /// 桌面端：文件系统绝对路径

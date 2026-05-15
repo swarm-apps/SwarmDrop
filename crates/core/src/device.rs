@@ -5,6 +5,7 @@ use swarm_p2p_core::libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
 
 /// 设备操作系统信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct OsInfo {
     pub hostname: String,
     pub os: String,
@@ -96,8 +97,10 @@ impl OsInfo {
 
 /// 已配对设备信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PairedDeviceInfo {
+    #[cfg_attr(feature = "specta", specta(type = String))]
     pub peer_id: PeerId,
     #[serde(flatten)]
     pub os_info: OsInfo,
@@ -106,6 +109,7 @@ pub struct PairedDeviceInfo {
 
 /// 设备状态。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum DeviceStatus {
     Online,
@@ -114,6 +118,7 @@ pub enum DeviceStatus {
 
 /// 连接类型。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum ConnectionType {
     Lan,
@@ -123,8 +128,10 @@ pub enum ConnectionType {
 
 /// 统一的设备输出类型。
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct Device {
+    #[cfg_attr(feature = "specta", specta(type = String))]
     pub peer_id: PeerId,
     #[serde(flatten)]
     pub os_info: OsInfo,
@@ -136,6 +143,7 @@ pub struct Device {
 
 /// 设备列表查询结果。
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceListResult {
     pub devices: Vec<Device>,

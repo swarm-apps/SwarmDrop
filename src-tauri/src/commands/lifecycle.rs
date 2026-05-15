@@ -20,6 +20,7 @@ use crate::network::{NetManagerState, NetworkStatus};
 use crate::AppError;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn start(
     app: AppHandle,
     keypair: State<'_, Keypair>,
@@ -108,6 +109,7 @@ async fn load_host_paired_devices(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn shutdown(app: AppHandle) -> crate::AppResult<()> {
     if let Some(state) = app.try_state::<NetManagerState>() {
         let mut guard = state.lock().await;
@@ -123,6 +125,7 @@ pub async fn shutdown(app: AppHandle) -> crate::AppResult<()> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn list_devices(
     net: State<'_, NetManagerState>,
     filter: Option<DeviceFilter>,
@@ -135,6 +138,7 @@ pub async fn list_devices(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_network_status(
     net: State<'_, NetManagerState>,
 ) -> crate::AppResult<NetworkStatus> {
@@ -147,6 +151,7 @@ pub async fn get_network_status(
 
 /// 下载并安装应用更新（桌面端）
 #[tauri::command]
+#[specta::specta]
 pub async fn install_update(app: AppHandle, url: String, is_force: bool) -> crate::AppResult<()> {
     let installer = crate::host::update_installer::DesktopUpdateInstaller::new(app);
     installer

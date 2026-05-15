@@ -23,6 +23,7 @@ use crate::transfer::progress::{
 
 /// 设备身份密钥材料。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceIdentityBytes {
     pub keypair: Vec<u8>,
@@ -30,6 +31,7 @@ pub struct DeviceIdentityBytes {
 
 /// 身份存储迁移状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum IdentityMigrationState {
     NotStarted,
@@ -54,6 +56,7 @@ pub trait KeychainProvider: Send + Sync {
 ///
 /// `#[non_exhaustive]` 让未来新增变体不会破坏外部 host 的 match。
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase", tag = "type")]
 #[non_exhaustive]
 pub enum CoreEvent {
@@ -64,6 +67,7 @@ pub enum CoreEvent {
         devices: Vec<Device>,
     },
     PairingRequestReceived {
+        #[cfg_attr(feature = "specta", specta(type = String))]
         peer_id: PeerId,
         pending_id: u64,
         #[serde(flatten)]
@@ -118,6 +122,7 @@ pub trait EventBus: Send + Sync {
 
 /// 应用路径集合。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct CoreAppPaths {
     pub data_dir: PathBuf,
@@ -133,11 +138,13 @@ pub trait AppPaths: Send + Sync {
 
 /// 文件 source 标识。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FileSourceId(pub String);
 
 /// 文件 sink 标识。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FileSinkId(pub String);
 
@@ -146,6 +153,7 @@ pub struct FileSinkId(pub String);
 /// core 内部统一用此类型，避免把 `entity::SaveLocation`（SeaORM 实体细节）
 /// 暴露到公共 API 上。DB 边界用 [`From`] 与 `entity::SaveLocation` 双向转换。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CoreSaveLocation {
     /// 文件系统绝对路径（桌面）或 `Paths.document` 子路径（移动端）。
@@ -173,6 +181,7 @@ impl From<entity::SaveLocation> for CoreSaveLocation {
 /// `save_dir` 由 core 在 `accept_and_start_receive` 时填入用户选择的保存位置，
 /// host adapter 据此决定真实写入路径——避免 host 端自己保存"当前会话目录"。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct HostFileMetadata {
     pub name: String,
@@ -214,6 +223,7 @@ pub trait FileAccess: Send + Sync {
 
 /// 通知请求。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct NotificationRequest {
     pub title: String,
@@ -235,6 +245,7 @@ pub trait Notifier: Send + Sync {
 
 /// 更新安装请求。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInstallRequest {
     pub url: String,

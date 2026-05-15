@@ -10,6 +10,7 @@ use uuid::Uuid;
 use super::calc_total_chunks;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]
 pub enum TransferDirection {
     Send,
@@ -18,6 +19,7 @@ pub enum TransferDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]
 pub enum FileTransferStatus {
     Pending,
@@ -26,6 +28,7 @@ pub enum FileTransferStatus {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FileProgressInfo {
     pub file_id: u32,
@@ -34,12 +37,15 @@ pub struct FileProgressInfo {
     pub transferred: u64,
     pub status: FileTransferStatus,
     #[serde(skip)]
+    #[cfg_attr(feature = "specta", specta(skip))]
     pub chunks_done: u32,
     #[serde(skip)]
+    #[cfg_attr(feature = "specta", specta(skip))]
     pub total_chunks: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferProgressEvent {
     pub session_id: Uuid,
@@ -54,6 +60,7 @@ pub struct TransferProgressEvent {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferCompleteEvent {
     pub session_id: Uuid,
@@ -64,6 +71,7 @@ pub struct TransferCompleteEvent {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferFailedEvent {
     pub session_id: Uuid,
@@ -72,6 +80,7 @@ pub struct TransferFailedEvent {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferPausedEvent {
     pub session_id: Uuid,
@@ -79,6 +88,7 @@ pub struct TransferPausedEvent {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferResumedEvent {
     pub session_id: Uuid,
@@ -90,6 +100,7 @@ pub struct TransferResumedEvent {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferResumedFileInfo {
     pub file_id: u32,
@@ -100,6 +111,7 @@ pub struct TransferResumedFileInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferDbErrorEvent {
     pub session_id: Uuid,
@@ -108,6 +120,7 @@ pub struct TransferDbErrorEvent {
 
 /// 对方接受 Offer 的事件 payload
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferAcceptedEvent {
     pub session_id: Uuid,
@@ -115,6 +128,7 @@ pub struct TransferAcceptedEvent {
 
 /// 对方拒绝 Offer 的事件 payload
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferRejectedEvent {
     pub session_id: Uuid,
@@ -123,6 +137,7 @@ pub struct TransferRejectedEvent {
 
 /// `prepare_send` 的 hash 进度事件
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareProgressEvent {
     /// 用于区分并发 prepare（多用户在不同会话同时调用）

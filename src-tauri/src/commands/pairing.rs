@@ -8,17 +8,20 @@ use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::host::keychain::DesktopKeychainProvider;
+use crate::AppError;
 
 /// 查询设备信息的返回类型
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
-    pub peer_id: PeerId,
+    /// libp2p PeerId（base58 字符串）
+    pub peer_id: String,
     pub code_record: ShareCodeRecord,
 }
 
 /// 生成配对码
 #[tauri::command]
+#[specta::specta]
 pub async fn generate_pairing_code(
     net: State<'_, NetManagerState>,
     expires_in_secs: Option<u64>,
@@ -31,13 +34,14 @@ pub async fn generate_pairing_code(
 
 /// 通过配对码查询对端设备信息
 #[tauri::command]
+#[specta::specta]
 pub async fn get_device_info(
     net: State<'_, NetManagerState>,
     code: String,
 ) -> AppResult<DeviceInfo> {
     let (peer_id, code_record) = with_manager!(net, |m| m.pairing().get_device_info(&code).await)?;
     Ok(DeviceInfo {
-        peer_id,
+        peer_id: peer_id.to_string(),
         code_record,
     })
 }
@@ -45,14 +49,33 @@ pub async fn get_device_info(
 /// 向对端发起配对请求
 ///
 /// 配对成功后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
+///
+/// `peer_id` 为 base58 字符串，`addrs` 为 multiaddr 字符串列表，由命令内部解析为
+/// libp2p 类型，方便通过 specta 生成 TypeScript bindings（libp2p 类型本身不实现
+/// `specta::Type`）。
 #[tauri::command]
+#[specta::specta]
 pub async fn request_pairing(
     app: AppHandle,
     net: State<'_, NetManagerState>,
-    peer_id: PeerId,
+    peer_id: String,
     method: PairingMethod,
-    addrs: Option<Vec<Multiaddr>>,
+    addrs: Option<Vec<String>>,
 ) -> AppResult<PairingResponse> {
+    let peer_id: PeerId = peer_id
+        .parse()
+        .map_err(|e: swarm_p2p_core::libp2p::identity::ParseError| {
+            AppError::identity(format!("invalid peer_id: {e}"))
+        })?;
+    let addrs = addrs
+        .map(|list| {
+            list.into_iter()
+                .map(|s| s.parse::<Multiaddr>())
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()
+        .map_err(|e| AppError::identity(format!("invalid multiaddr: {e}")))?;
+
     let (response, paired_info) = with_manager!(net, |m| m
         .pairing()
         .request_pairing(peer_id, method, addrs)
@@ -67,11 +90,19 @@ pub async fn request_pairing(
 }
 
 /// 取消与指定设备的配对（同步更新运行时状态）
+///
+/// `peer_id` 为 base58 字符串，由命令内部解析为 libp2p `PeerId`。
 #[tauri::command]
+#[specta::specta]
 pub async fn remove_paired_device(
     net: State<'_, NetManagerState>,
-    peer_id: PeerId,
+    peer_id: String,
 ) -> AppResult<()> {
+    let peer_id: PeerId = peer_id
+        .parse()
+        .map_err(|e: swarm_p2p_core::libp2p::identity::ParseError| {
+            AppError::identity(format!("invalid peer_id: {e}"))
+        })?;
     let guard = net.lock().await;
     // 节点未运行时仍更新 host keychain 中的持久化列表。
     if let Some(manager) = guard.as_ref() {
@@ -85,6 +116,7 @@ pub async fn remove_paired_device(
 ///
 /// 接受配对后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
 #[tauri::command]
+#[specta::specta]
 pub async fn respond_pairing_request(
     app: AppHandle,
     net: State<'_, NetManagerState>,

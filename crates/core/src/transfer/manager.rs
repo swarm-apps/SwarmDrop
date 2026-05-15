@@ -66,6 +66,7 @@ pub struct PendingOffer {
 
 /// `send_offer` 的返回类型
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StartSendResult {
     pub session_id: Uuid,

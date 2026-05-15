@@ -1,61 +1,29 @@
 /**
  * Pairing commands
  * 设备配对相关命令
+ *
+ * 类型从 specta 生成的 @/lib/bindings re-export，避免前后端漂移。
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type {
+  DeviceInfo,
+  PairingCodeInfo,
+  PairingMethod,
+  PairingRefuseReason,
+  PairingResponse,
+  ShareCodeRecord,
+} from "@/lib/bindings";
 import type { PeerId } from "./network";
 
-/**
- * 配对码信息
- */
-export interface PairingCodeInfo {
-  code: string;
-  createdAt: number;
-  expiresAt: number;
-}
-
-/**
- * 配对码关联的设备记录（DHT 中存储的值）
- * 注意：os_info 通过 serde flatten 展平到顶层
- */
-export interface ShareCodeRecord {
-  hostname: string;
-  os: string;
-  platform: string;
-  arch: string;
-  createdAt: number;
-  expiresAt: number;
-  /** 发布者的可达地址（Multiaddr 字符串），用于跨网络场景下直接 dial */
-  listenAddrs: string[];
-}
-
-/**
- * 对端设备信息
- */
-export interface DeviceInfo {
-  peerId: PeerId;
-  codeRecord: ShareCodeRecord;
-}
-
-/**
- * 配对方式
- */
-export type PairingMethod =
-  | { type: "code"; code: string }
-  | { type: "direct" };
-
-/**
- * 配对被拒绝的原因（与 Rust PairingRefuseReason 对应）
- */
-export type PairingRefuseReason = { type: "user_rejected" };
-
-/**
- * 配对响应
- */
-export type PairingResponse =
-  | { status: "success" }
-  | { status: "refused"; reason: PairingRefuseReason };
+export type {
+  DeviceInfo,
+  PairingCodeInfo,
+  PairingMethod,
+  PairingRefuseReason,
+  PairingResponse,
+  ShareCodeRecord,
+};
 
 /**
  * 生成配对码，发布到 DHT 供对端查询

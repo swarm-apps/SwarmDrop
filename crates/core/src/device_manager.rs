@@ -43,6 +43,7 @@ impl PeerInfo {
 
 /// 设备过滤器
 #[derive(Debug, Clone, serde::Deserialize, Default)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum DeviceFilter {
     #[default]

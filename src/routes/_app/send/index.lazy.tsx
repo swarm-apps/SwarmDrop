@@ -59,6 +59,8 @@ function SendPage() {
       platform: stored.platform,
       arch: stored.arch,
       status: "offline" as const,
+      connection: null,
+      latency: null,
       isPaired: true,
     };
   }, [onlineDevice, pairedDevices, peerId]);

@@ -26,7 +26,7 @@ serde_json = "1"
 tokio = "1.49.0"
 async-trait = { workspace = true }
 swarm-p2p-core = { workspace = true, features = ["dns"] }
-swarmdrop-core = { workspace = true }
+swarmdrop-core = { workspace = true, features = ["specta"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 tauri-plugin-biometry = "0.2"
@@ -56,6 +56,9 @@ migration = { workspace = true }
 rmcp = { version = "1.1.0", features = ["server", "transport-streamable-http-server"] }
 axum = "0.8"
 url = "2"
+specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "serde_json"] }
+specta-typescript = "=0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = [

@@ -28,7 +28,7 @@ pub struct McpServerHandle {
 pub type McpServerState = Mutex<Option<McpServerHandle>>;
 
 /// MCP Server 状态返回值
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct McpStatus {
     pub running: bool,
