@@ -17,7 +17,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 
-use crate::file_source::CHUNK_SIZE;
+use crate::host::file_source::CHUNK_SIZE;
 use crate::{AppError, AppResult};
 
 /// 文件写入目标

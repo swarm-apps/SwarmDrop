@@ -41,7 +41,7 @@ pub async fn start(
         .ok_or_else(|| AppError::Transfer("数据库未初始化".into()))?;
 
     let file_access: Arc<dyn FileAccess> =
-        Arc::new(crate::file_source::TauriFileAccess::new(app.clone()));
+        Arc::new(crate::host::file_source::TauriFileAccess::new(app.clone()));
 
     let event_bus_for_factory = event_bus.clone();
     let db_for_factory = db.clone();

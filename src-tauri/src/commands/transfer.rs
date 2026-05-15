@@ -14,7 +14,7 @@ use tauri::ipc::Channel;
 use tauri::{Manager, State};
 use uuid::Uuid;
 
-use crate::file_source::{source_id, EnumeratedFile, FileSource};
+use crate::host::file_source::{source_id, EnumeratedFile, FileSource};
 use crate::host::event_bus::PrepareChannelGuard;
 use crate::network::NetManagerState;
 

@@ -12,7 +12,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use swarmdrop_core::host::{FileAccess, FileSinkId, FileSourceId, HostFileMetadata};
 
-use crate::file_sink::{FileSink, PartFile};
+use crate::host::file_sink::{FileSink, PartFile};
 use crate::AppResult;
 
 /// 分块大小：256 KB

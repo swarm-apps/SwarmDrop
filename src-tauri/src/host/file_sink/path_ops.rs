@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::file_sink::{compute_part_path, PartFile};
+use crate::host::file_sink::{compute_part_path, PartFile};
 use crate::{AppError, AppResult};
 
 /// 创建 .part 临时文件：创建目录 → 创建文件 → 预分配大小 → 缓存写入句柄
@@ -206,7 +206,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
 
-        let chunk_size = crate::file_source::CHUNK_SIZE;
+        let chunk_size = crate::host::file_source::CHUNK_SIZE;
         let file_size = chunk_size as u64 * 2;
         let part = create_part_file(&dir, "multi.bin", file_size)
             .await

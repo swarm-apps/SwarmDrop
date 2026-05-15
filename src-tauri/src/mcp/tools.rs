@@ -12,7 +12,7 @@ use tauri::Manager;
 
 use super::McpHandler;
 use crate::device::{DeviceFilter, DeviceStatus};
-use crate::file_source::{EnumeratedFile, FileSource};
+use crate::host::file_source::{EnumeratedFile, FileSource};
 use crate::network::NetManagerState;
 
 /// 辅助：构造 MCP 错误结果（isError: true）
@@ -167,7 +167,7 @@ impl McpHandler {
         let host_entries: Vec<swarmdrop_core::transfer::HostEnumeratedFile> = entries
             .into_iter()
             .map(|e| swarmdrop_core::transfer::HostEnumeratedFile {
-                source_id: crate::file_source::source_id(&e.source),
+                source_id: crate::host::file_source::source_id(&e.source),
                 name: e.name,
                 relative_path: e.relative_path,
                 size: e.size,

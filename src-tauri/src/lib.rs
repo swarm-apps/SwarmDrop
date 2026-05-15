@@ -10,8 +10,6 @@ pub(crate) mod database;
 pub mod device;
 pub mod error;
 pub mod events;
-pub mod file_sink;
-pub mod file_source;
 pub mod host;
 pub(crate) mod mcp;
 pub(crate) mod network;
