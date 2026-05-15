@@ -1,14 +1,22 @@
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  AppState,
+  type AppStateStatus,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PairingRequestHost } from "@/components/pairing-request-host";
 import { TransferOfferHost } from "@/components/transfer-offer-host";
 import { initMobileCore } from "@/core/mobile-core";
 import { waitForOnboardingHydration } from "@/stores/onboarding-store";
+import { useMobileCoreStore } from "@/stores/mobile-core-store";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -29,6 +37,33 @@ export default function RootLayout() {
       }
     })();
   }, []);
+
+  // AppState lifecycle：进后台关 NetManager，回前台重启
+  // 避免后台 → 前台后留下僵尸 NetManager / socket。
+  // 仅在 ready 后挂载（boot 期 NetManager 还没建好就监听会乱）。
+  const wasRunningBeforeBackgroundRef = useRef(false);
+  useEffect(() => {
+    if (!ready || bootError !== null) return;
+    const sub = AppState.addEventListener("change", (next: AppStateStatus) => {
+      const { runtimeState, shutdownNode, startNode } = useMobileCoreStore.getState();
+      if (next === "background" || next === "inactive") {
+        if (runtimeState === "running") {
+          wasRunningBeforeBackgroundRef.current = true;
+          shutdownNode().catch((err) =>
+            console.warn("[lifecycle] shutdownNode on background failed:", err),
+          );
+        }
+      } else if (next === "active") {
+        if (wasRunningBeforeBackgroundRef.current && runtimeState === "stopped") {
+          wasRunningBeforeBackgroundRef.current = false;
+          startNode().catch((err) =>
+            console.warn("[lifecycle] startNode on foreground failed:", err),
+          );
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [ready, bootError]);
 
   if (!ready) {
     return (

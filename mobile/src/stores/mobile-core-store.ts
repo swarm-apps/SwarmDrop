@@ -24,6 +24,10 @@ type MobileCoreState = {
   error: string | null;
   initialized: boolean;
   initialize: () => Promise<void>;
+  /** 关闭 NetManager 释放 P2P 资源（进入后台时调用） */
+  shutdownNode: () => Promise<void>;
+  /** 启动 NetManager（前台恢复时调用，等价于 initialize 但不重新跑 identity） */
+  startNode: () => Promise<void>;
   refreshDevices: () => Promise<void>;
   refreshNetworkStatus: () => Promise<void>;
   chooseFiles: () => Promise<void>;
@@ -69,6 +73,37 @@ export const useMobileCoreStore = create<MobileCoreState>((set, get) => ({
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : String(error),
+        runtimeState: "error",
+      });
+    }
+  },
+
+  async shutdownNode() {
+    try {
+      const core = await initMobileCore();
+      await core.shutdownNode();
+      set({ runtimeState: "stopped", networkStatus: null });
+    } catch (err) {
+      console.warn("[mobile-core-store] shutdownNode failed:", err);
+    }
+  },
+
+  async startNode() {
+    if (get().runtimeState === "running" || get().runtimeState === "starting") return;
+    set({ runtimeState: "starting", error: null });
+    try {
+      const core = await initMobileCore();
+      await core.startNode([]);
+      const networkStatus = await core.networkStatus();
+      const devices = await core.listDevices("all");
+      set({
+        networkStatus,
+        devices,
+        runtimeState: toRuntimeState(networkStatus.status),
+      });
+    } catch (err) {
+      set({
+        error: err instanceof Error ? err.message : String(err),
         runtimeState: "error",
       });
     }

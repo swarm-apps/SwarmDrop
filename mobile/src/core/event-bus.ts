@@ -6,6 +6,10 @@ import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { useNotificationStore } from "@/stores/notification-store";
 import { useTransferStore } from "@/stores/transfer-store";
+import {
+  fireNotifyPairingRequest,
+  fireNotifyTransferOffer,
+} from "@/core/notifier";
 
 type CoreEventListener = (event: MobileCoreEvent) => void;
 
@@ -53,6 +57,7 @@ function routeEventToStores(event: MobileCoreEvent): void {
         },
         timestamp: Date.now(),
       });
+      fireNotifyPairingRequest(peerId, code ?? undefined);
       break;
     }
 
@@ -63,7 +68,9 @@ function routeEventToStores(event: MobileCoreEvent): void {
 
     case MobileCoreEvent_Tags.TransferOfferReceived: {
       // offer 已经是 ubrn 生成的 MobileTransferOffer,store 类型也对齐它,直接透传
-      useTransferStore.getState().pushOffer(event.inner.offer);
+      const offer = event.inner.offer;
+      useTransferStore.getState().pushOffer(offer);
+      fireNotifyTransferOffer(offer.deviceName, offer.files.length);
       break;
     }
 

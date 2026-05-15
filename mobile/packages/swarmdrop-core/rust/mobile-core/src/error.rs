@@ -49,14 +49,18 @@ impl From<FfiError> for AppError {
     fn from(error: FfiError) -> Self {
         match error {
             FfiError::Io(message) => AppError::Io(std::io::Error::other(message)),
-            FfiError::Serialization(message) => AppError::Identity(message),
+            // serde_json::Error 没有 from-string 构造器，用 io::Error 兜底并标记来源
+            FfiError::Serialization(message) => {
+                AppError::Io(std::io::Error::other(format!("[host serde] {message}")))
+            }
             FfiError::Network(message) => AppError::Network(message),
             FfiError::Identity(message) => AppError::Identity(message),
             FfiError::NodeNotStarted => AppError::NodeNotStarted,
             FfiError::ExpiredCode => AppError::ExpiredCode,
             FfiError::InvalidCode => AppError::InvalidCode,
             FfiError::Transfer(message) => AppError::Transfer(message),
-            FfiError::Database(message) => AppError::Identity(message),
+            // sea_orm::DbErr::Custom 接受 String，可如实保留 Database 类型
+            FfiError::Database(message) => AppError::Database(sea_orm::DbErr::Custom(message)),
         }
     }
 }
