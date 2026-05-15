@@ -1,16 +1,10 @@
-//! Tauri IPC 命令入口
+//! 应用生命周期 / 网络运行时 / 设备列表 / 应用更新等"杂项"IPC 命令
 //!
-//! 薄层命令入口，仅负责 Tauri 状态读取和参数解析，
-//! 所有业务逻辑委托给 [`network`](crate::network)、
-//! [`device`](crate::device) 和 [`pairing`](crate::pairing) 模块。
+//! 把和具体业务（identity / pairing / transfer / mcp）无关的命令集中放在这里，
+//! 避免散落到 [`commands.rs`](super) 顶层。
 
 use std::sync::Arc;
 
-use crate::device::{DeviceFilter, DeviceListResult, PairedDeviceInfo};
-use crate::host::event_bus::TauriEventBus;
-use crate::host::keychain::DesktopKeychainProvider;
-use crate::network::{NetManagerState, NetworkStatus};
-use crate::AppError;
 use sea_orm::DatabaseConnection;
 use swarm_p2p_core::libp2p::identity::Keypair;
 use swarmdrop_core::host::{EventBus, FileAccess, UpdateInstallRequest, UpdateInstaller};
@@ -19,28 +13,11 @@ use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-/// 从 NetManagerState 获取 manager 引用并执行表达式（短暂持锁）
-macro_rules! with_manager {
-    ($net:expr, |$m:ident| $body:expr) => {{
-        let guard = $net.lock().await;
-        let $m = guard
-            .as_ref()
-            .ok_or_else(|| $crate::AppError::NodeNotStarted)?;
-        Ok::<_, $crate::AppError>($body?)
-    }};
-}
-
-mod identity;
-mod mcp;
-mod pairing;
-mod transfer;
-
-// glob re-export：Tauri 的 #[tauri::command] 宏会生成 __cmd__* 隐藏符号，
-// generate_handler! 需要通过模块路径访问这些符号，显式导出无法覆盖。
-pub use identity::*;
-pub use mcp::*;
-pub use pairing::*;
-pub use transfer::*;
+use crate::device::{DeviceFilter, DeviceListResult, PairedDeviceInfo};
+use crate::host::event_bus::TauriEventBus;
+use crate::host::keychain::DesktopKeychainProvider;
+use crate::network::{NetManagerState, NetworkStatus};
+use crate::AppError;
 
 #[tauri::command]
 pub async fn start(
@@ -53,7 +30,6 @@ pub async fn start(
 
     // 准备 host adapters（在 NetManager 构造前必须就绪）
     let event_bus_struct = TauriEventBus::new(app.clone());
-    // 注册到 app state，供 commands::prepare_send 等调用方使用 channel 路由
     if app.try_state::<TauriEventBus>().is_none() {
         app.manage(event_bus_struct.clone());
     }
@@ -94,7 +70,6 @@ pub async fn start(
         warn!("Failed to announce online: {}", e);
     }
 
-    // 获取事件循环需要的共享引用（在存入 state 之前）
     let shared = net_manager.shared_refs();
 
     // DHT bootstrap → 完成后检查已配对设备是否在线
@@ -105,7 +80,6 @@ pub async fn start(
             Ok(result) => info!("DHT bootstrap completed: {:?}", result),
             Err(e) => warn!("DHT bootstrap failed: {}", e),
         }
-        // bootstrap 完成后，查询已配对设备的在线记录并注册地址
         pairing_for_startup.check_paired_online().await;
     });
 
@@ -116,7 +90,6 @@ pub async fn start(
         app.manage(Mutex::new(Some(net_manager)));
     }
 
-    // 启动事件循环
     crate::network::spawn_event_loop(receiver, app, shared, event_bus);
 
     Ok(())
@@ -142,12 +115,10 @@ pub async fn shutdown(app: AppHandle) -> crate::AppResult<()> {
             if let Err(e) = manager.pairing().announce_offline().await {
                 warn!("Failed to announce offline: {}", e);
             }
-            // 取消所有后台任务（超时清理等）
             manager.cancel_background_tasks();
         }
         guard.take();
     }
-
     Ok(())
 }
 
