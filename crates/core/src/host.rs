@@ -8,8 +8,6 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
 use swarm_p2p_core::libp2p::PeerId;
 
 use crate::device::{Device, PairedDeviceInfo};
@@ -18,7 +16,9 @@ use crate::network::NetworkStatus;
 use crate::protocol::PairingRequest;
 use crate::transfer::incoming::TransferOfferEvent;
 use crate::transfer::progress::{
-    TransferCompleteEvent, TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent,
+    PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
+    TransferFailedEvent, TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent,
+    TransferResumedEvent,
 };
 
 /// 设备身份密钥材料。
@@ -51,8 +51,11 @@ pub trait KeychainProvider: Send + Sync {
 }
 
 /// Core 事件。
+///
+/// `#[non_exhaustive]` 让未来新增变体不会破坏外部 host 的 match。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
+#[non_exhaustive]
 pub enum CoreEvent {
     NetworkStatusChanged {
         status: NetworkStatus,
@@ -69,12 +72,20 @@ pub enum CoreEvent {
     PairingCompleted {
         peer_id: String,
     },
-    TransferProgress {
-        session_id: Uuid,
-        progress: f32,
+    PairedDeviceAdded {
+        device: PairedDeviceInfo,
     },
     TransferOfferReceived {
         offer: TransferOfferEvent,
+    },
+    TransferProgress {
+        event: TransferProgressEvent,
+    },
+    TransferAccepted {
+        event: TransferAcceptedEvent,
+    },
+    TransferRejected {
+        event: TransferRejectedEvent,
     },
     TransferCompleted {
         event: TransferCompleteEvent,
@@ -85,8 +96,14 @@ pub enum CoreEvent {
     TransferPaused {
         event: TransferPausedEvent,
     },
+    TransferResumed {
+        event: TransferResumedEvent,
+    },
     TransferDbError {
         event: TransferDbErrorEvent,
+    },
+    PrepareProgress {
+        event: PrepareProgressEvent,
     },
     Error {
         message: String,
@@ -171,9 +188,16 @@ pub struct NotificationRequest {
 }
 
 /// 宿主通知能力。
+///
+/// `notify_if_unfocused` 用于桌面端：仅当窗口未聚焦时才推送通知。
+/// 默认实现 fallback 到 `notify`，移动端无窗口聚焦概念时无需 override。
 #[async_trait]
 pub trait Notifier: Send + Sync {
     async fn notify(&self, request: NotificationRequest) -> AppResult<()>;
+
+    async fn notify_if_unfocused(&self, request: NotificationRequest) -> AppResult<()> {
+        self.notify(request).await
+    }
 }
 
 /// 更新安装请求。

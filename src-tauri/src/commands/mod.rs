@@ -4,13 +4,17 @@
 //! 所有业务逻辑委托给 [`network`](crate::network)、
 //! [`device`](crate::device) 和 [`pairing`](crate::pairing) 模块。
 
+use std::sync::Arc;
+
 use crate::device::{DeviceFilter, DeviceListResult, PairedDeviceInfo};
-use crate::network::{NetManagerState, NetworkStatus};
-use crate::transfer::offer::TransferManager;
+use crate::host::event_bus::TauriEventBus;
 use crate::host::keychain::DesktopKeychainProvider;
+use crate::network::{NetManagerState, NetworkStatus};
 use crate::AppError;
+use sea_orm::DatabaseConnection;
 use swarm_p2p_core::libp2p::identity::Keypair;
-use swarmdrop_core::host::{UpdateInstallRequest, UpdateInstaller};
+use swarmdrop_core::host::{EventBus, FileAccess, UpdateInstallRequest, UpdateInstaller};
+use swarmdrop_core::transfer::manager::TransferManager;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -47,11 +51,38 @@ pub async fn start(
 ) -> crate::AppResult<()> {
     let paired_devices = load_host_paired_devices(paired_devices).await?;
 
+    // 准备 host adapters（在 NetManager 构造前必须就绪）
+    let event_bus_struct = TauriEventBus::new(app.clone());
+    // 注册到 app state，供 commands::prepare_send 等调用方使用 channel 路由
+    if app.try_state::<TauriEventBus>().is_none() {
+        app.manage(event_bus_struct.clone());
+    }
+    let event_bus: Arc<dyn EventBus> = Arc::new(event_bus_struct);
+
+    let db: Arc<DatabaseConnection> = app
+        .try_state::<DatabaseConnection>()
+        .map(|s| Arc::new(s.inner().clone()))
+        .ok_or_else(|| AppError::Transfer("数据库未初始化".into()))?;
+
+    let file_access: Arc<dyn FileAccess> =
+        Arc::new(crate::file_source::TauriFileAccess::new(app.clone()));
+
+    let event_bus_for_factory = event_bus.clone();
+    let db_for_factory = db.clone();
+    let file_access_for_factory = file_access.clone();
+
     let started = swarmdrop_core::runtime::start_node(
         (*keypair).clone(),
         paired_devices,
         custom_bootstrap_nodes.unwrap_or_default(),
-        TransferManager::new,
+        move |client| {
+            TransferManager::new(
+                client,
+                event_bus_for_factory,
+                db_for_factory,
+                file_access_for_factory,
+            )
+        },
     )?;
 
     let net_manager = started.manager;
@@ -86,7 +117,7 @@ pub async fn start(
     }
 
     // 启动事件循环
-    crate::network::spawn_event_loop(receiver, app, shared);
+    crate::network::spawn_event_loop(receiver, app, shared, event_bus);
 
     Ok(())
 }

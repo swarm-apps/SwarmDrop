@@ -106,6 +106,39 @@ pub struct TransferDbErrorEvent {
     pub message: String,
 }
 
+/// 对方接受 Offer 的事件 payload
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferAcceptedEvent {
+    pub session_id: Uuid,
+}
+
+/// 对方拒绝 Offer 的事件 payload
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferRejectedEvent {
+    pub session_id: Uuid,
+    pub reason: Option<crate::protocol::OfferRejectReason>,
+}
+
+/// `prepare_send` 的 hash 进度事件
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareProgressEvent {
+    /// 用于区分并发 prepare（多用户在不同会话同时调用）
+    pub prepared_id: Uuid,
+    /// 当前正在 hash 的文件名
+    pub current_file: String,
+    /// 已完成 hash 的文件数
+    pub completed_files: u32,
+    /// 总文件数
+    pub total_files: u32,
+    /// 累积已 hash 的字节数（所有文件）
+    pub bytes_hashed: u64,
+    /// 总字节数（所有文件）
+    pub total_bytes: u64,
+}
+
 pub struct FileDesc {
     pub file_id: u32,
     pub name: String,

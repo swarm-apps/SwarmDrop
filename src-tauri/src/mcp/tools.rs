@@ -163,15 +163,23 @@ impl McpHandler {
             return mcp_error("没有找到可发送的文件");
         }
 
-        // prepare：计算 BLAKE3 hash（no-op channel，MCP 不需要进度上报）
-        let on_progress = tauri::ipc::Channel::new(|_| Ok(()));
+        // prepare：计算 BLAKE3 hash
+        let host_entries: Vec<swarmdrop_core::transfer::HostEnumeratedFile> = entries
+            .into_iter()
+            .map(|e| swarmdrop_core::transfer::HostEnumeratedFile {
+                source_id: crate::file_source::source_id(&e.source),
+                name: e.name,
+                relative_path: e.relative_path,
+                size: e.size,
+            })
+            .collect();
+        let prepared_id = uuid::Uuid::new_v4();
         let prepared = manager
             .transfer()
-            .prepare(entries, &self.app, on_progress)
+            .prepare(prepared_id, host_entries)
             .await
             .map_err(|e| ErrorData::internal_error(format!("准备传输失败: {e}"), None))?;
 
-        let prepared_id = prepared.prepared_id;
         let all_file_ids: Vec<u32> = prepared.files.iter().map(|f| f.file_id).collect();
         let file_count = all_file_ids.len();
         let total_size = prepared.total_size;
@@ -188,13 +196,7 @@ impl McpHandler {
         // send_offer
         let result = manager
             .transfer_arc()
-            .send_offer(
-                &prepared_id,
-                &params.peer_id,
-                &peer_name,
-                &all_file_ids,
-                self.app.clone(),
-            )
+            .send_offer(&prepared_id, &params.peer_id, &peer_name, &all_file_ids)
             .map_err(|e| ErrorData::internal_error(format!("发送 Offer 失败: {e}"), None))?;
 
         let response = SendFilesResponse {

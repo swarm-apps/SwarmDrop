@@ -1,28 +1,25 @@
 //! 发送方会话
 //!
 //! 管理单个发送传输的生命周期：响应 ChunkRequest、处理 Complete/Cancel。
-//! 文件读取通过 [`file_source`](crate::file_source) 模块完成，加密使用 [`TransferCrypto`]。
+//! 文件读取通过 [`FileAccess`] trait 完成，加密使用 [`TransferCrypto`]。
 //! 使用 `Arc<std::sync::Mutex<ProgressTracker>>` 实现并发安全的进度追踪。
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use swarm_p2p_core::libp2p::PeerId;
-use swarmdrop_core::host::FileAccess;
-use swarmdrop_core::transfer::CHUNK_SIZE;
-use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::file_source::calc_total_chunks;
+use crate::host::{EventBus, FileAccess};
 use crate::protocol::TransferResponse;
-use swarmdrop_core::transfer::crypto::TransferCrypto;
-use crate::transfer::offer::PreparedFile;
-use crate::transfer::progress::{
-    FileDesc, ProgressTracker, ProgressTrackerTauriExt, TransferDirection,
-};
+use crate::transfer::crypto::TransferCrypto;
+use crate::transfer::manager::PreparedFile;
+use crate::transfer::progress::{FileDesc, ProgressTracker, TransferDirection};
+use crate::transfer::{calc_total_chunks, CHUNK_SIZE};
 use crate::{AppError, AppResult};
 
 /// 发送方会话
@@ -35,10 +32,11 @@ pub struct SendSession {
     files: Vec<PreparedFile>,
     /// 加密器
     crypto: TransferCrypto,
-    /// Tauri 应用句柄（文件读取时传递给 FileSource + 进度事件发射）
-    app: AppHandle,
-    /// 进度追踪器（Arc<Mutex> 供并发 ChunkRequest 任务共享）
+    /// 文件访问 trait（host 实现，桌面=本地路径，RN=expo-fs callback）
     file_access: Arc<dyn FileAccess>,
+    /// 事件总线（推送进度等给 host）
+    event_bus: Arc<dyn EventBus>,
+    /// 进度追踪器（Arc<Mutex> 供并发 ChunkRequest 任务共享）
     progress: Arc<Mutex<ProgressTracker>>,
     /// 取消令牌
     cancel_token: CancellationToken,
@@ -54,17 +52,17 @@ impl SendSession {
         peer_id: PeerId,
         files: Vec<PreparedFile>,
         key: &[u8; 32],
-        app: AppHandle,
         file_access: Arc<dyn FileAccess>,
+        event_bus: Arc<dyn EventBus>,
     ) -> Self {
         Self::new_inner(
             session_id,
             peer_id,
             files,
             key,
-            app,
             file_access,
-            &std::collections::HashMap::new(),
+            event_bus,
+            &HashMap::new(),
         )
     }
 
@@ -77,17 +75,17 @@ impl SendSession {
         peer_id: PeerId,
         files: Vec<PreparedFile>,
         key: &[u8; 32],
-        app: AppHandle,
         file_access: Arc<dyn FileAccess>,
-        resume_state: &std::collections::HashMap<u32, (u32, u64)>,
+        event_bus: Arc<dyn EventBus>,
+        resume_state: &HashMap<u32, (u32, u64)>,
     ) -> Self {
         Self::new_inner(
             session_id,
             peer_id,
             files,
             key,
-            app,
             file_access,
+            event_bus,
             resume_state,
         )
     }
@@ -97,9 +95,9 @@ impl SendSession {
         peer_id: PeerId,
         files: Vec<PreparedFile>,
         key: &[u8; 32],
-        app: AppHandle,
         file_access: Arc<dyn FileAccess>,
-        resume_state: &std::collections::HashMap<u32, (u32, u64)>,
+        event_bus: Arc<dyn EventBus>,
+        resume_state: &HashMap<u32, (u32, u64)>,
     ) -> Self {
         let total_bytes: u64 = files.iter().map(|f| f.size).sum();
         let total_files = files.len();
@@ -126,8 +124,8 @@ impl SendSession {
             peer_id,
             files,
             crypto: TransferCrypto::new(key),
-            app,
             file_access,
+            event_bus,
             progress: Arc::new(Mutex::new(tracker)),
             cancel_token: CancellationToken::new(),
             created_at: Instant::now(),
@@ -171,7 +169,7 @@ impl SendSession {
             .find(|f| f.file_id == file_id)
             .ok_or_else(|| AppError::Transfer(format!("文件不存在: file_id={file_id}")))?;
 
-        // 通过 FileSource 异步读取分块（内部已处理 spawn_blocking）
+        // 通过 FileAccess 异步读取分块
         let offset = chunk_index as u64 * CHUNK_SIZE as u64;
         let remaining = file.size.saturating_sub(offset);
         if remaining == 0 && file.size != 0 {
@@ -200,11 +198,21 @@ impl SendSession {
             Ordering::Relaxed,
         );
 
-        // 上报进度（锁内操作极短：VecDeque push + 200ms 节流检查）
-        if let Ok(mut p) = self.progress.lock() {
+        // 累加进度（在锁内做最少操作，拿到事件再 publish）
+        let progress_event = {
+            let mut p = self
+                .progress
+                .lock()
+                .map_err(|_| AppError::Transfer("ProgressTracker 锁中毒".into()))?;
             p.add_bytes(plaintext_len);
             p.update_file_chunk(file_id, plaintext_len);
-            p.emit_progress(&self.app);
+            p.progress_event()
+        };
+        if let Some(event) = progress_event {
+            let _ = self
+                .event_bus
+                .publish(crate::host::CoreEvent::TransferProgress { event })
+                .await;
         }
 
         // 计算 is_last

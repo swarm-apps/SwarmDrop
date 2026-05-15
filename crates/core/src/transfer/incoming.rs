@@ -9,7 +9,8 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::host::{CoreEvent, EventBus};
 use crate::protocol::{
-    AppNetClient, AppResponse, FileInfo, OfferRejectReason, TransferRequest, TransferResponse,
+    AppNetClient, AppResponse, FileChecksum, FileInfo, OfferRejectReason, TransferRequest,
+    TransferResponse,
 };
 use crate::transfer::progress::{
     TransferCompleteEvent, TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent,
@@ -76,6 +77,39 @@ pub trait IncomingTransferRuntime: Send + Sync {
         files: Vec<FileInfo>,
         total_size: u64,
     );
+
+    /// 接收方发起的断点续传：发送方一侧验证文件 + 重建 SendSession，回复 ResumeResult。
+    /// 默认拒绝（mobile-core 占位实现可继承），桌面端在 TransferManager 中具体实现。
+    async fn handle_resume_request(
+        &self,
+        peer_id: PeerId,
+        session_id: Uuid,
+        file_checksums: Vec<FileChecksum>,
+    ) -> AppResult<TransferResponse> {
+        let _ = (peer_id, file_checksums);
+        Ok(TransferResponse::ResumeResult {
+            session_id,
+            accepted: false,
+            reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
+            key: None,
+        })
+    }
+
+    /// 发送方发起的断点续传：接收方一侧验证文件 + 重建 ReceiveSession，回复 ResumeOfferResult。
+    async fn handle_resume_offer(
+        &self,
+        peer_id: PeerId,
+        session_id: Uuid,
+        key: [u8; 32],
+        file_checksums: Vec<FileChecksum>,
+    ) -> AppResult<TransferResponse> {
+        let _ = (peer_id, key, file_checksums);
+        Ok(TransferResponse::ResumeOfferResult {
+            session_id,
+            accepted: false,
+            reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
+        })
+    }
 }
 
 pub async fn handle_incoming_transfer_request<R, B>(
@@ -199,8 +233,43 @@ where
                 .await?;
             Ok(IncomingTransferDisposition::Handled)
         }
-        TransferRequest::ResumeRequest { .. } | TransferRequest::ResumeOffer { .. } => {
-            Ok(IncomingTransferDisposition::Unhandled(request))
+        TransferRequest::ResumeRequest {
+            session_id,
+            file_checksums,
+        } => {
+            let response = runtime
+                .handle_resume_request(peer_id, session_id, file_checksums)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!("ResumeRequest 处理失败: {}", e);
+                    TransferResponse::ResumeResult {
+                        session_id,
+                        accepted: false,
+                        reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
+                        key: None,
+                    }
+                });
+            send_transfer_response(client, pending_id, response).await?;
+            Ok(IncomingTransferDisposition::Handled)
+        }
+        TransferRequest::ResumeOffer {
+            session_id,
+            key,
+            file_checksums,
+        } => {
+            let response = runtime
+                .handle_resume_offer(peer_id, session_id, key, file_checksums)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!("ResumeOffer 处理失败: {}", e);
+                    TransferResponse::ResumeOfferResult {
+                        session_id,
+                        accepted: false,
+                        reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
+                    }
+                });
+            send_transfer_response(client, pending_id, response).await?;
+            Ok(IncomingTransferDisposition::Handled)
         }
     }
 }

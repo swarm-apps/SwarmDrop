@@ -28,4 +28,19 @@ impl Notifier for DesktopNotifier {
             .show()
             .map_err(|error| CoreError::Network(error.to_string()))
     }
+
+    /// 桌面端：仅当窗口失焦时才弹通知，避免打扰前台操作
+    async fn notify_if_unfocused(&self, request: NotificationRequest) -> CoreResult<()> {
+        use tauri::Manager;
+        let focused = self
+            .app
+            .webview_windows()
+            .values()
+            .any(|window| window.is_focused().unwrap_or(false));
+        if !focused {
+            self.notify(request).await
+        } else {
+            Ok(())
+        }
+    }
 }
