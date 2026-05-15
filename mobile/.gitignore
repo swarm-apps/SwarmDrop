@@ -23,6 +23,11 @@ packages/*/ios/build/
 target/
 packages/*/rust/*/target/
 
+# 本地凭证（.env.example 已 commit 作模板）
+.env
+.env.local
+.env.*.local
+
 # 签名敏感文件
 *.jks
 *.p12

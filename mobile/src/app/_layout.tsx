@@ -14,9 +14,11 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PairingRequestHost } from "@/components/pairing-request-host";
 import { TransferOfferHost } from "@/components/transfer-offer-host";
+import { UpdateHost } from "@/components/update-host";
 import { initMobileCore } from "@/core/mobile-core";
-import { waitForOnboardingHydration } from "@/stores/onboarding-store";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
+import { waitForOnboardingHydration } from "@/stores/onboarding-store";
+import { useUpdateStore } from "@/stores/update-store";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -45,7 +47,8 @@ export default function RootLayout() {
   useEffect(() => {
     if (!ready || bootError !== null) return;
     const sub = AppState.addEventListener("change", (next: AppStateStatus) => {
-      const { runtimeState, shutdownNode, startNode } = useMobileCoreStore.getState();
+      const { runtimeState, shutdownNode, startNode } =
+        useMobileCoreStore.getState();
       if (next === "background" || next === "inactive") {
         if (runtimeState === "running") {
           wasRunningBeforeBackgroundRef.current = true;
@@ -54,7 +57,10 @@ export default function RootLayout() {
           );
         }
       } else if (next === "active") {
-        if (wasRunningBeforeBackgroundRef.current && runtimeState === "stopped") {
+        if (
+          wasRunningBeforeBackgroundRef.current &&
+          runtimeState === "stopped"
+        ) {
           wasRunningBeforeBackgroundRef.current = false;
           startNode().catch((err) =>
             console.warn("[lifecycle] startNode on foreground failed:", err),
@@ -63,6 +69,19 @@ export default function RootLayout() {
       }
     });
     return () => sub.remove();
+  }, [ready, bootError]);
+
+  // 升级检查：启动 2s 后首次检查 + AppState 回前台时再检查（store 内部 12h 缓存兜底）
+  useEffect(() => {
+    if (!ready || bootError !== null) return;
+    const timer = setTimeout(() => {
+      void useUpdateStore.getState().checkForUpdate();
+    }, 2000);
+    const teardown = useUpdateStore.getState().setupAppStateListener();
+    return () => {
+      clearTimeout(timer);
+      teardown();
+    };
   }, [ready, bootError]);
 
   if (!ready) {
@@ -109,6 +128,7 @@ export default function RootLayout() {
         </Stack>
         <PairingRequestHost />
         <TransferOfferHost />
+        <UpdateHost />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
