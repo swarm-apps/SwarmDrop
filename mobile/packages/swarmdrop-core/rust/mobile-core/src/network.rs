@@ -56,11 +56,25 @@ impl MobileCore {
         let keypair = self.ensure_keypair().await?;
         let paired_devices =
             swarmdrop_core::identity::load_paired_devices(self.keychain()).await?;
+
+        // 启动前先确保 SQLite 已就绪（断点续传 / 历史记录都依赖它）
+        let db = self.ensure_db().await?;
+        let event_bus = self.event_bus_arc()
+            as std::sync::Arc<dyn swarmdrop_core::host::EventBus>;
+        let file_access = self.file_access_arc();
+
         let started = swarmdrop_core::runtime::start_node(
             keypair,
             paired_devices,
             custom_bootstrap_nodes,
-            |_| (),
+            move |client| {
+                swarmdrop_core::transfer::manager::TransferManager::new(
+                    client,
+                    event_bus,
+                    db,
+                    file_access,
+                )
+            },
         )?;
 
         let shared = started.manager.shared_refs();

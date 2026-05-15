@@ -32,6 +32,7 @@ mod app;
 mod device;
 mod error;
 mod events;
+mod file_access;
 mod identity;
 mod keychain;
 mod network;

@@ -17,6 +17,20 @@ uniffi = { version = "0.31.0", features = ["bindgen", "build", "cli", "tokio"] }
 uuid = { version = "1", features = ["v4"] }
 swarmdrop-core = { path = "../../../../../swarmdrop/crates/core" }
 swarm-p2p-core = { path = "../../../../../swarmdrop/libs/core" }
+entity = { path = "../../../../../swarmdrop/crates/entity" }
+migration = { path = "../../../../../swarmdrop/crates/migration" }
+sea-orm = { version = "2.0.0-rc", features = [
+    "macros",
+    "runtime-tokio-rustls",
+    "sqlx-sqlite",
+    "with-chrono",
+    "with-uuid",
+] }
+sea-orm-migration = { version = "2.0.0-rc", features = [
+    "runtime-tokio-rustls",
+    "sqlx-sqlite",
+] }
+tracing = "0.1"
 
 [profile.release]
 lto = "thin"
