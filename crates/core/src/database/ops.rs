@@ -2,13 +2,14 @@
 //!
 //! 封装传输会话和文件记录的 CRUD 操作，供传输模块和命令层调用。
 
-use entity::{FileStatus, SaveLocation, SessionStatus, TransferDirection};
+use entity::{FileStatus, SessionStatus, TransferDirection};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityLoaderTrait, EntityTrait,
     IntoActiveModel, QueryFilter, QueryOrder, Set,
 };
 use uuid::Uuid;
 
+use crate::host::CoreSaveLocation;
 use crate::protocol::FileInfo;
 use crate::transfer::calc_total_chunks;
 use crate::AppResult;
@@ -30,7 +31,7 @@ pub async fn create_session(
     peer_name: &str,
     files: &[FileInfo],
     total_size: u64,
-    save_path: Option<SaveLocation>,
+    save_path: Option<CoreSaveLocation>,
     source_paths: Option<&[String]>,
 ) -> AppResult<()> {
     let now = now_ms();
@@ -45,7 +46,7 @@ pub async fn create_session(
         .set_status(SessionStatus::Transferring)
         .set_started_at(now)
         .set_updated_at(now)
-        .set_save_path(save_path);
+        .set_save_path(save_path.map(Into::into));
 
     for (idx, file) in files.iter().enumerate() {
         let total_chunks = calc_total_chunks(file.size) as i32;
@@ -308,7 +309,7 @@ pub struct TransferHistoryItem {
     pub updated_at: i64,
     pub finished_at: Option<i64>,
     pub error_message: Option<String>,
-    pub save_path: Option<SaveLocation>,
+    pub save_path: Option<CoreSaveLocation>,
     pub files: Vec<TransferHistoryFile>,
 }
 
@@ -350,7 +351,7 @@ impl From<entity::transfer_session::ModelEx> for TransferHistoryItem {
             updated_at: session.updated_at,
             finished_at: session.finished_at,
             error_message: session.error_message,
-            save_path: session.save_path,
+            save_path: session.save_path.map(Into::into),
             files: session.files.into_iter().map(Into::into).collect(),
         }
     }

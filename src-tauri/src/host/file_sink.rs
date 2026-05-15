@@ -12,7 +12,6 @@
 
 pub mod path_ops;
 
-use std::borrow::Cow;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -221,26 +220,4 @@ impl FileSink {
         }
     }
 
-    /// 转换为 `SaveLocation` 枚举（用于完成事件和数据库持久化）
-    pub fn to_save_location(&self) -> entity::SaveLocation {
-        match self {
-            Self::Path { save_dir } => entity::SaveLocation::Path {
-                path: save_dir.to_string_lossy().into_owned(),
-            },
-        }
-    }
-
-    /// 获取保存目录的显示字符串
-    pub fn save_dir_display(&self) -> Cow<'_, str> {
-        match self {
-            Self::Path { save_dir } => save_dir.to_string_lossy(),
-        }
-    }
-
-    /// 请求写入权限（桌面端无需权限，始终返回 Ok）
-    pub async fn ensure_permission(&self, _app: &tauri::AppHandle) -> AppResult<()> {
-        match self {
-            Self::Path { .. } => Ok(()),
-        }
-    }
 }

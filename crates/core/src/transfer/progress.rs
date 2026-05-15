@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use entity::SaveLocation;
+use crate::host::CoreSaveLocation;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -60,7 +60,7 @@ pub struct TransferCompleteEvent {
     pub direction: TransferDirection,
     pub total_bytes: u64,
     pub elapsed_ms: u64,
-    pub save_location: Option<SaveLocation>,
+    pub save_location: Option<CoreSaveLocation>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -317,7 +317,7 @@ impl ProgressTracker {
         })
     }
 
-    pub fn complete_event(&self, save_location: Option<SaveLocation>) -> TransferCompleteEvent {
+    pub fn complete_event(&self, save_location: Option<CoreSaveLocation>) -> TransferCompleteEvent {
         TransferCompleteEvent {
             session_id: self.session_id,
             direction: self.direction,

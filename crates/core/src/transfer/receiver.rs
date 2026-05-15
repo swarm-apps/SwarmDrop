@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
-use entity::SaveLocation;
 use sea_orm::DatabaseConnection;
 use swarm_p2p_core::libp2p::PeerId;
 use tokio::sync::{watch, Mutex, Semaphore};
@@ -16,7 +15,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::host::{CoreEvent, EventBus, FileAccess, FileSinkId, HostFileMetadata};
+use crate::host::{
+    CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, HostFileMetadata,
+};
 use crate::protocol::{
     AppNetClient, AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse,
 };
@@ -56,7 +57,7 @@ pub struct ReceiveSession {
     /// 数据库连接（断点续传 checkpoint 持久化）
     db: Arc<DatabaseConnection>,
     /// 保存位置（用于完成事件 payload，host 自己定义语义）
-    save_location: SaveLocation,
+    save_location: CoreSaveLocation,
     /// 加密器
     crypto: Arc<TransferCrypto>,
     /// 网络客户端
@@ -81,7 +82,7 @@ impl ReceiveSession {
         file_access: Arc<dyn FileAccess>,
         event_bus: Arc<dyn EventBus>,
         db: Arc<DatabaseConnection>,
-        save_location: SaveLocation,
+        save_location: CoreSaveLocation,
         key: &[u8; 32],
         client: AppNetClient,
         initial_bitmaps: HashMap<u32, Vec<u8>>,
@@ -221,6 +222,7 @@ impl ReceiveSession {
                 size: file_info.size,
                 modified_at: None,
                 checksum: Some(file_info.checksum.clone()),
+                save_dir: Some(self.save_location.clone()),
             };
             let sink_id = if is_resume {
                 self.file_access.open_or_create_sink(metadata).await

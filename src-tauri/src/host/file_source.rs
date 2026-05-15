@@ -10,7 +10,9 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use swarmdrop_core::host::{FileAccess, FileSinkId, FileSourceId, HostFileMetadata};
+use swarmdrop_core::host::{
+    CoreSaveLocation, FileAccess, FileSinkId, FileSourceId, HostFileMetadata,
+};
 
 use crate::host::file_sink::{FileSink, PartFile};
 use crate::AppResult;
@@ -111,7 +113,6 @@ impl FileSource {
 #[derive(Clone)]
 pub struct TauriFileAccess {
     app: tauri::AppHandle,
-    sink: Option<FileSink>,
     active_sinks: Arc<DashMap<FileSinkId, ActiveSink>>,
 }
 
@@ -125,17 +126,24 @@ impl TauriFileAccess {
     pub fn new(app: tauri::AppHandle) -> Self {
         Self {
             app,
-            sink: None,
             active_sinks: Arc::new(DashMap::new()),
         }
     }
+}
 
-    pub fn with_sink(app: tauri::AppHandle, sink: FileSink) -> Self {
-        Self {
-            app,
-            sink: Some(sink),
-            active_sinks: Arc::new(DashMap::new()),
-        }
+/// 从 [`HostFileMetadata::save_dir`] 构造桌面端 [`FileSink`]。
+///
+/// `save_dir` 由 core 在 `accept_and_start_receive` 时填入用户选择的目录，
+/// 缺失即视为协议错误（旧路径走全局共享 sink，导致多会话间无法切换目录，
+/// 已废弃）。
+fn sink_from_metadata(metadata: &HostFileMetadata) -> swarmdrop_core::AppResult<FileSink> {
+    match metadata.save_dir.as_ref() {
+        Some(CoreSaveLocation::Path { path }) => Ok(FileSink::Path {
+            save_dir: PathBuf::from(path),
+        }),
+        None => Err(swarmdrop_core::AppError::Transfer(
+            "HostFileMetadata.save_dir 缺失：core 未注入用户选择的保存目录".into(),
+        )),
     }
 }
 
@@ -172,6 +180,7 @@ impl FileAccess for TauriFileAccess {
             size: metadata.size,
             modified_at: None,
             checksum: None,
+            save_dir: None,
         })
     }
 
@@ -198,9 +207,7 @@ impl FileAccess for TauriFileAccess {
         &self,
         metadata: HostFileMetadata,
     ) -> swarmdrop_core::AppResult<FileSinkId> {
-        let sink = self.sink.as_ref().ok_or_else(|| {
-            swarmdrop_core::AppError::Transfer("TauriFileAccess sink is not configured".into())
-        })?;
+        let sink = sink_from_metadata(&metadata)?;
         let part_file = sink
             .create_part_file(&metadata.relative_path, metadata.size, &self.app)
             .await
@@ -220,9 +227,7 @@ impl FileAccess for TauriFileAccess {
         &self,
         metadata: HostFileMetadata,
     ) -> swarmdrop_core::AppResult<FileSinkId> {
-        let sink = self.sink.as_ref().ok_or_else(|| {
-            swarmdrop_core::AppError::Transfer("TauriFileAccess sink is not configured".into())
-        })?;
+        let sink = sink_from_metadata(&metadata)?;
         let part_file = sink
             .open_or_create_part_file(&metadata.relative_path, metadata.size, &self.app)
             .await

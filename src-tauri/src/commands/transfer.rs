@@ -138,7 +138,7 @@ pub async fn start_send(
 pub async fn accept_receive(
     net: State<'_, NetManagerState>,
     session_id: Uuid,
-    save_location: entity::SaveLocation,
+    save_location: swarmdrop_core::host::CoreSaveLocation,
 ) -> crate::AppResult<()> {
     let transfer = get_transfer(&net).await?;
     Ok(transfer

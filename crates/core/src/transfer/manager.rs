@@ -492,7 +492,7 @@ impl TransferManager {
     pub async fn accept_and_start_receive(
         &self,
         session_id: &Uuid,
-        save_location: entity::SaveLocation,
+        save_location: crate::host::CoreSaveLocation,
     ) -> AppResult<()> {
         let (_, offer) = self
             .pending
@@ -698,9 +698,12 @@ impl TransferManager {
                 crate::database::ops::mark_session_transferring(&self.db, session_id).await?;
 
                 let total_size = session.total_size;
-                let save_location = session.save_path.unwrap_or(entity::SaveLocation::Path {
-                    path: String::new(),
-                });
+                let save_location = session
+                    .save_path
+                    .map(crate::host::CoreSaveLocation::from)
+                    .unwrap_or(crate::host::CoreSaveLocation::Path {
+                        path: String::new(),
+                    });
                 let peer_id = session.peer_id.0;
                 let peer_name = session.peer_name;
 
@@ -869,7 +872,7 @@ impl TransferManager {
         peer_id: PeerId,
         files: Vec<FileInfo>,
         total_size: u64,
-        save_location: entity::SaveLocation,
+        save_location: crate::host::CoreSaveLocation,
         key: &[u8; 32],
         initial_bitmaps: HashMap<u32, Vec<u8>>,
     ) {
@@ -894,7 +897,7 @@ impl TransferManager {
         peer_id: PeerId,
         files: Vec<FileInfo>,
         total_size: u64,
-        save_location: entity::SaveLocation,
+        save_location: crate::host::CoreSaveLocation,
         key: &[u8; 32],
         initial_bitmaps: HashMap<u32, Vec<u8>>,
     ) {
@@ -1133,9 +1136,13 @@ impl IncomingTransferRuntime for TransferManager {
         };
 
         let (file_infos, initial_bitmaps) = build_file_infos_and_bitmaps(&ctx.db_files);
-        let save_location = ctx.session.save_path.unwrap_or(entity::SaveLocation::Path {
-            path: String::new(),
-        });
+        let save_location = ctx
+            .session
+            .save_path
+            .map(crate::host::CoreSaveLocation::from)
+            .unwrap_or(crate::host::CoreSaveLocation::Path {
+                path: String::new(),
+            });
         let total_size = ctx.session.total_size as u64;
         let peer_name = ctx.session.peer_name.clone();
         let peer_id_str = ctx.session.peer_id.0.clone();

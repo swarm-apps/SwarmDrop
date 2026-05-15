@@ -141,7 +141,37 @@ pub struct FileSourceId(pub String);
 #[serde(rename_all = "camelCase")]
 pub struct FileSinkId(pub String);
 
+/// 接收端保存位置（host-agnostic）。
+///
+/// core 内部统一用此类型，避免把 `entity::SaveLocation`（SeaORM 实体细节）
+/// 暴露到公共 API 上。DB 边界用 [`From`] 与 `entity::SaveLocation` 双向转换。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CoreSaveLocation {
+    /// 文件系统绝对路径（桌面）或 `Paths.document` 子路径（移动端）。
+    Path { path: String },
+}
+
+impl From<CoreSaveLocation> for entity::SaveLocation {
+    fn from(v: CoreSaveLocation) -> Self {
+        match v {
+            CoreSaveLocation::Path { path } => entity::SaveLocation::Path { path },
+        }
+    }
+}
+
+impl From<entity::SaveLocation> for CoreSaveLocation {
+    fn from(v: entity::SaveLocation) -> Self {
+        match v {
+            entity::SaveLocation::Path { path } => CoreSaveLocation::Path { path },
+        }
+    }
+}
+
 /// 文件元信息。
+///
+/// `save_dir` 由 core 在 `accept_and_start_receive` 时填入用户选择的保存位置，
+/// host adapter 据此决定真实写入路径——避免 host 端自己保存"当前会话目录"。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostFileMetadata {
@@ -150,6 +180,9 @@ pub struct HostFileMetadata {
     pub size: u64,
     pub modified_at: Option<i64>,
     pub checksum: Option<String>,
+    /// 接收端保存位置；source_metadata（发送端）固定为 None。
+    #[serde(default)]
+    pub save_dir: Option<CoreSaveLocation>,
 }
 
 /// 宿主文件访问能力。
@@ -468,8 +501,9 @@ mod tests {
     use swarm_p2p_core::libp2p::{identity::Keypair, PeerId};
 
     use super::{
-        AppPaths, CoreAppPaths, CoreEvent, DeviceIdentityBytes, EventBus, FileAccess, FileSinkId,
-        FileSourceId, HostFileMetadata, IdentityMigrationState, KeychainProvider, MemoryHost,
+        AppPaths, CoreAppPaths, CoreEvent, CoreSaveLocation, DeviceIdentityBytes, EventBus,
+        FileAccess, FileSinkId, FileSourceId, HostFileMetadata, IdentityMigrationState,
+        KeychainProvider, MemoryHost,
     };
     use crate::device::{OsInfo, PairedDeviceInfo};
     use crate::network::NetworkStatus;
@@ -579,6 +613,7 @@ mod tests {
             size: 11,
             modified_at: Some(100),
             checksum: None,
+            save_dir: None,
         };
         let host =
             memory_host().with_source(source.clone(), metadata.clone(), b"hello world".to_vec());
@@ -596,6 +631,9 @@ mod tests {
                 size: 8,
                 modified_at: None,
                 checksum: Some("unused-in-memory-host".to_string()),
+                save_dir: Some(CoreSaveLocation::Path {
+                    path: "/tmp/memory-host".to_string(),
+                }),
             })
             .await
             .unwrap();
