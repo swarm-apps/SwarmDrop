@@ -3,9 +3,13 @@
 pub mod crypto;
 pub mod incoming;
 pub mod manager;
+mod prepare;
 pub mod progress;
+mod receive;
 pub mod receiver;
+mod resume;
 pub mod sender;
+mod send;
 
 use serde::{Deserialize, Serialize};
 
