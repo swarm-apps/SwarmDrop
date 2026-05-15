@@ -26,7 +26,7 @@ use crate::protocol::{
     AppNetClient, AppRequest, AppResponse, FileChecksum, FileInfo, OfferRejectReason,
     ResumeRejectReason, TransferRequest, TransferResponse,
 };
-use crate::transfer::crypto::generate_key;
+use swarmdrop_core::transfer::crypto::generate_key;
 use crate::transfer::progress::{TransferDbErrorEvent, TransferDirection, TransferFailedEvent};
 use crate::transfer::receiver::ReceiveSession;
 use crate::transfer::sender::SendSession;

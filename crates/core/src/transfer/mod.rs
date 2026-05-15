@@ -1,6 +1,7 @@
 //! 文件传输共享常量和工具函数。
 
 /// 传输分块大小：256 KiB。
+pub mod crypto;
 pub mod incoming;
 pub mod progress;
 

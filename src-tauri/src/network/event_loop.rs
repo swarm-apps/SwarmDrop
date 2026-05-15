@@ -166,7 +166,7 @@ async fn handle_resume_request(
     }
 
     // 生成密钥（发送方不持久化密钥，每次恢复重新生成）
-    let key = crate::transfer::crypto::generate_key();
+    let key = swarmdrop_core::transfer::crypto::generate_key();
 
     // 从 DB 构建 resume_state（file_id → (chunks_done, transferred_bytes)）
     let resume_state = build_sender_resume_state(&ctx.db_files);

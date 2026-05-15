@@ -23,7 +23,7 @@ use crate::file_source::{calc_total_chunks, CHUNK_SIZE};
 use crate::protocol::{
     AppNetClient, AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse,
 };
-use crate::transfer::crypto::TransferCrypto;
+use swarmdrop_core::transfer::crypto::TransferCrypto;
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, ProgressTrackerTauriExt, TransferDbErrorEvent, TransferDirection,
 };

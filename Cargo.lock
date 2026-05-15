@@ -7278,7 +7278,6 @@ dependencies = [
  "async-trait",
  "axum",
  "blake3",
- "chacha20poly1305",
  "chrono",
  "dashmap",
  "entity",
@@ -7323,6 +7322,8 @@ name = "swarmdrop-core"
 version = "0.4.4"
 dependencies = [
  "async-trait",
+ "blake3",
+ "chacha20poly1305",
  "chrono",
  "dashmap",
  "entity",

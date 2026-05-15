@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::file_source::calc_total_chunks;
 use crate::protocol::TransferResponse;
-use crate::transfer::crypto::TransferCrypto;
+use swarmdrop_core::transfer::crypto::TransferCrypto;
 use crate::transfer::offer::PreparedFile;
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, ProgressTrackerTauriExt, TransferDirection,
