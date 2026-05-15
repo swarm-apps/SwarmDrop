@@ -75,17 +75,19 @@ impl MobileEventBusAdapter {
 #[async_trait]
 impl EventBus for MobileEventBusAdapter {
     async fn publish(&self, event: CoreEvent) -> AppResult<()> {
-        self.foreign.emit(map_event(event));
+        if let Some(mobile_event) = map_event(event) {
+            self.foreign.emit(mobile_event);
+        }
         Ok(())
     }
 }
 
-fn map_event(event: CoreEvent) -> MobileCoreEvent {
+fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
     match event {
-        CoreEvent::NetworkStatusChanged { status } => MobileCoreEvent::NetworkStatusChanged {
+        CoreEvent::NetworkStatusChanged { status } => Some(MobileCoreEvent::NetworkStatusChanged {
             status: status.into(),
-        },
-        CoreEvent::DevicesChanged { .. } => MobileCoreEvent::DevicesChanged,
+        }),
+        CoreEvent::DevicesChanged { .. } => Some(MobileCoreEvent::DevicesChanged),
         CoreEvent::PairingRequestReceived {
             peer_id,
             pending_id,
@@ -95,40 +97,46 @@ fn map_event(event: CoreEvent) -> MobileCoreEvent {
                 PairingMethod::Code { code } => Some(code),
                 PairingMethod::Direct => None,
             };
-            MobileCoreEvent::PairingRequestReceived {
+            Some(MobileCoreEvent::PairingRequestReceived {
                 peer_id: peer_id.to_string(),
                 pending_id,
                 code,
-            }
+            })
         }
         CoreEvent::PairingCompleted { peer_id } => {
-            MobileCoreEvent::PairingCompleted { peer_id }
+            Some(MobileCoreEvent::PairingCompleted { peer_id })
         }
-        CoreEvent::TransferProgress {
-            session_id,
-            progress,
-        } => MobileCoreEvent::TransferProgress {
-            session_id: session_id.to_string(),
-            progress,
-        },
-        CoreEvent::TransferOfferReceived { offer } => MobileCoreEvent::TransferOfferReceived {
-            offer: offer.into(),
-        },
-        CoreEvent::TransferCompleted { event } => MobileCoreEvent::TransferCompleted {
+        CoreEvent::TransferProgress { event } => Some(MobileCoreEvent::TransferProgress {
             session_id: event.session_id.to_string(),
-        },
-        CoreEvent::TransferFailed { event } => MobileCoreEvent::TransferFailed {
+            // 取百分比近似（移动端 MobileCoreEvent::TransferProgress payload 还未扩展）
+            progress: if event.total_bytes > 0 {
+                event.transferred_bytes as f32 / event.total_bytes as f32
+            } else {
+                0.0
+            },
+        }),
+        CoreEvent::TransferOfferReceived { offer } => Some(MobileCoreEvent::TransferOfferReceived {
+            offer: offer.into(),
+        }),
+        CoreEvent::TransferCompleted { event } => Some(MobileCoreEvent::TransferCompleted {
+            session_id: event.session_id.to_string(),
+        }),
+        CoreEvent::TransferFailed { event } => Some(MobileCoreEvent::TransferFailed {
             session_id: event.session_id.to_string(),
             error: event.error,
-        },
-        CoreEvent::TransferPaused { event } => MobileCoreEvent::TransferPaused {
+        }),
+        CoreEvent::TransferPaused { event } => Some(MobileCoreEvent::TransferPaused {
             session_id: event.session_id.to_string(),
-        },
-        CoreEvent::TransferDbError { event } => MobileCoreEvent::TransferDbError {
+        }),
+        CoreEvent::TransferDbError { event } => Some(MobileCoreEvent::TransferDbError {
             session_id: event.session_id.to_string(),
             message: event.message,
-        },
-        CoreEvent::Error { message } => MobileCoreEvent::Error { message },
+        }),
+        CoreEvent::Error { message } => Some(MobileCoreEvent::Error { message }),
+        // 新增的事件（PairedDeviceAdded / TransferAccepted / TransferRejected /
+        // TransferResumed / PrepareProgress）当前 MobileCoreEvent 还没镜像，
+        // 等下一轮 mobile-core 接线时补充。
+        _ => None,
     }
 }
 
