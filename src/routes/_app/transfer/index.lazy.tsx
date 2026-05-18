@@ -9,7 +9,6 @@ import { createLazyFileRoute } from "@tanstack/react-router";
 import { ArrowLeftRight, Trash2 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useTransferStore } from "@/stores/transfer-store";
 import { TransferItem } from "./-transfer-item";
 import { HistoryItem } from "./-history-item";
@@ -28,16 +27,12 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
-import { cn } from "@/lib/utils";
 
 export const Route = createLazyFileRoute("/_app/transfer/")({
   component: TransferPage,
 });
 
 function TransferPage() {
-  const breakpoint = useBreakpoint();
-  const isMobile = breakpoint === "mobile";
-
   const sessions = useTransferStore((s) => s.sessions);
   const dbHistory = useTransferStore((s) => s.dbHistory);
   const loadHistory = useTransferStore((s) => s.loadHistory);
@@ -137,10 +132,7 @@ function TransferPage() {
   return (
     <main className="flex h-full flex-1 flex-col bg-background">
       {/* Page Content —— 页面标题由 AppTopBar 面包屑承担,无独立 header */}
-      <div className={cn(
-        "flex-1 overflow-auto",
-        isMobile ? "px-3 py-3" : "p-5 lg:p-6",
-      )}>
+      <div className="flex-1 overflow-auto p-5 lg:p-6">
         {content}
       </div>
     </main>

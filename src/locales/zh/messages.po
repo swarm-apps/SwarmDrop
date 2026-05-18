@@ -18,10 +18,9 @@ msgstr ""
 #~ msgid "/+Z5u4"
 #~ msgstr "/+Z5u4"
 
-#. placeholder {0}: feature.text
 #: src/components/network/start-node-sheet.tsx
-msgid "{0}"
-msgstr "{0}"
+#~ msgid "{0}"
+#~ msgstr "{0}"
 
 #. placeholder {0}: progress?.completedFiles ?? 0
 #: src/components/file-tree/file-tree.tsx
@@ -29,8 +28,8 @@ msgid "{0}/{totalCount}"
 msgstr "{0}/{totalCount}"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "{connectedCount} 台"
-msgstr "{connectedCount} 台"
+#~ msgid "{connectedCount} 台"
+#~ msgstr "{connectedCount} 台"
 
 #: src/components/file-tree/folder-row.tsx
 msgid "{fileCount} 项"
@@ -66,8 +65,8 @@ msgid "MCP Server 的 HTTP 端口号"
 msgstr "MCP Server 的 HTTP 端口号"
 
 #: src/routes/_app/devices/-components/network-status-bar.tsx
-msgid "NAT"
-msgstr "NAT"
+#~ msgid "NAT"
+#~ msgstr "NAT"
 
 #: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
@@ -83,12 +82,12 @@ msgid "P2P 节点启动时自动启动 MCP Server"
 msgstr "P2P 节点启动时自动启动 MCP Server"
 
 #: src/routes/_app/devices/-components/network-status-bar.tsx
-msgid "P2P 节点未启动"
-msgstr "P2P 节点未启动"
+#~ msgid "P2P 节点未启动"
+#~ msgstr "P2P 节点未启动"
 
 #: src/routes/_app/devices/-components/network-status-bar.tsx
-msgid "P2P 节点运行中 · {connectedCount} 台设备在线"
-msgstr "P2P 节点运行中 · {connectedCount} 台设备在线"
+#~ msgid "P2P 节点运行中 · {connectedCount} 台设备在线"
+#~ msgstr "P2P 节点运行中 · {connectedCount} 台设备在线"
 
 #. placeholder {0}: latestVersion ?? "?"
 #: src/routes/_app/settings/-about-section.tsx
@@ -135,21 +134,20 @@ msgstr "个文件"
 #~ msgstr "中等"
 
 #: src/routes/_app/devices/-components/device-card.tsx
-#: src/routes/_app/devices/-components/network-status-bar.tsx
 msgid "中继"
 msgstr "中继"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "中继 / 引导"
-msgstr "中继 / 引导"
+#~ msgid "中继 / 引导"
+#~ msgstr "中继 / 引导"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "中继就绪"
-msgstr "中继就绪"
+#~ msgid "中继就绪"
+#~ msgstr "中继就绪"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "中继未连"
-msgstr "中继未连"
+#~ msgid "中继未连"
+#~ msgstr "中继未连"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "中继节点"
@@ -165,8 +163,8 @@ msgstr "主题"
 
 #: src/components/layout/nav-items.ts
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "传输"
-msgstr "传输"
+#~ msgid "传输"
+#~ msgstr "传输"
 
 #: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
@@ -224,7 +222,6 @@ msgstr "保存位置"
 msgid "保存到"
 msgstr "保存到"
 
-#: src/routes/_app/devices/-components/network-status-bar.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "停止"
 msgstr "停止"
@@ -242,11 +239,9 @@ msgstr "停止"
 #~ "其他设备将无法发现你。"
 
 #: src/components/network/stop-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
 msgid "停止后将断开所有连接，其他设备将无法发现你"
 msgstr "停止后将断开所有连接，其他设备将无法发现你"
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
 msgid "停止节点"
 msgstr "停止节点"
@@ -325,10 +320,9 @@ msgstr "准备中..."
 msgid "删除记录"
 msgstr "删除记录"
 
-#. placeholder {0}: device.hostname
 #: src/routes/_app/send/index.lazy.tsx
-msgid "到 {0}"
-msgstr "到 {0}"
+#~ msgid "到 {0}"
+#~ msgstr "到 {0}"
 
 #: src/routes/_app/settings/-about-section.tsx
 #~ msgid "前往下载"
@@ -358,12 +352,10 @@ msgstr "发起配对"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/send/index.lazy.tsx
-#: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "发送"
 msgstr "发送"
 
-#: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/send/index.lazy.tsx
 msgid "发送中..."
 msgstr "发送中..."
@@ -378,8 +370,8 @@ msgid "发送到 {0}"
 msgstr "发送到 {0}"
 
 #: src/routes/_app/send/index.lazy.tsx
-msgid "发送文件"
-msgstr "发送文件"
+#~ msgid "发送文件"
+#~ msgstr "发送文件"
 
 #. placeholder {0}: device.hostname
 #: src/routes/_app/send/index.lazy.tsx
@@ -390,8 +382,6 @@ msgstr "发送文件到 {0}"
 msgid "发送配对请求"
 msgstr "发送配对请求"
 
-#: src/components/network/start-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/pairing/-device-found-view.tsx
@@ -414,15 +404,14 @@ msgstr "取消传输"
 msgid "取消配对"
 msgstr "取消配对"
 
-#: src/components/network/start-node-sheet.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 #: src/stores/pairing-store.ts
 msgid "启动"
 msgstr "启动"
 
 #: src/components/network/start-node-sheet.tsx
-msgid "启动 P2P 节点"
-msgstr "启动 P2P 节点"
+#~ msgid "启动 P2P 节点"
+#~ msgstr "启动 P2P 节点"
 
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
 msgid "启动 P2P 节点后才能发现设备和传输文件"
@@ -433,7 +422,6 @@ msgstr "启动 P2P 节点后才能发现设备和传输文件"
 msgid "启动中"
 msgstr "启动中"
 
-#: src/components/network/start-node-sheet.tsx
 #: src/components/network/start-node-sheet.tsx
 msgid "启动中..."
 msgstr "启动中..."
@@ -464,8 +452,8 @@ msgid "在另一台设备上输入以下配对码"
 msgstr "在另一台设备上输入以下配对码"
 
 #: src/routes/_app/pairing/-components/mobile-generate-code-view.tsx
-msgid "在另一台设备上输入此配对码"
-msgstr "在另一台设备上输入此配对码"
+#~ msgid "在另一台设备上输入此配对码"
+#~ msgstr "在另一台设备上输入此配对码"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
@@ -557,12 +545,12 @@ msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的
 msgstr "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
 
 #: src/components/network/start-node-sheet.tsx
-msgid ""
-"将连接到 SwarmDrop 网络，\n"
-"其他设备将能够发现你并发送文件。"
-msgstr ""
-"将连接到 SwarmDrop 网络，\n"
-"其他设备将能够发现你并发送文件。"
+#~ msgid ""
+#~ "将连接到 SwarmDrop 网络，\n"
+#~ "其他设备将能够发现你并发送文件。"
+#~ msgstr ""
+#~ "将连接到 SwarmDrop 网络，\n"
+#~ "其他设备将能够发现你并发送文件。"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "局域网"
@@ -643,8 +631,8 @@ msgid "已连接节点"
 msgstr "已连接节点"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "已连接设备"
-msgstr "已连接设备"
+#~ msgid "已连接设备"
+#~ msgstr "已连接设备"
 
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "已连节点"
@@ -655,8 +643,8 @@ msgid "已选文件"
 msgstr "已选文件"
 
 #: src/routes/_app/devices/index.lazy.tsx
-msgid "已配对设备"
-msgstr "已配对设备"
+#~ msgid "已配对设备"
+#~ msgstr "已配对设备"
 
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "开始使用"
@@ -667,15 +655,14 @@ msgstr "已配对设备"
 #~ msgstr "异常"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "引导已连"
-msgstr "引导已连"
+#~ msgid "引导已连"
+#~ msgstr "引导已连"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "引导未连"
-msgstr "引导未连"
+#~ msgid "引导未连"
+#~ msgstr "引导未连"
 
 #: src/components/network/stop-node-sheet.tsx
-#: src/routes/_app/devices/-components/network-status-bar.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点"
 msgstr "引导节点"
@@ -705,8 +692,12 @@ msgstr "当前版本 {currentVersion} 已不再支持，请更新到最新版本
 #~ msgstr "当前版本过旧，无法正常使用"
 
 #: src/routes/_app/receive/index.lazy.tsx
-msgid "当有设备向你发送文件时，会弹出确认对话框"
-msgstr "当有设备向你发送文件时，会弹出确认对话框"
+msgid "当有设备向你发送文件时,会弹出确认对话框"
+msgstr "当有设备向你发送文件时,会弹出确认对话框"
+
+#: src/routes/_app/receive/index.lazy.tsx
+#~ msgid "当有设备向你发送文件时，会弹出确认对话框"
+#~ msgstr "当有设备向你发送文件时，会弹出确认对话框"
 
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "总大小"
@@ -778,7 +769,6 @@ msgid "接收"
 msgstr "接收"
 
 #: src/routes/_app/receive/index.lazy.tsx
-#: src/routes/_app/receive/index.lazy.tsx
 msgid "接收文件"
 msgstr "接收文件"
 
@@ -827,7 +817,6 @@ msgstr "无效的 Multiaddr 地址"
 #~ msgid "无需服务器"
 #~ msgstr "无需服务器"
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "映射成功"
@@ -878,7 +867,6 @@ msgstr "未启动"
 #~ msgstr "未找到存储的密码"
 
 #: src/components/network/stop-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "未知"
 msgstr "未知"
@@ -889,8 +877,8 @@ msgid "未知文件"
 msgstr "未知文件"
 
 #: src/routes/_app/devices/-components/home-recent-transfers.tsx
-msgid "未知设备"
-msgstr "未知设备"
+#~ msgid "未知设备"
+#~ msgstr "未知设备"
 
 #: src/components/network/stop-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
@@ -917,7 +905,6 @@ msgstr "来自 {0}"
 #~ msgid "来自：{0}"
 #~ msgstr "来自：{0}"
 
-#: src/routes/_app/pairing/-components/mobile-input-code-view.tsx
 #: src/stores/pairing-store.ts
 msgid "查找设备"
 msgstr "查找设备"
@@ -995,12 +982,10 @@ msgstr "正在重启..."
 msgid "活跃传输"
 msgstr "活跃传输"
 
-#: src/components/layout/sidebar.tsx
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "浅色"
 msgstr "浅色"
 
-#: src/components/layout/sidebar.tsx
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "深色"
 msgstr "深色"
@@ -1019,7 +1004,6 @@ msgid "添加自定义引导节点"
 msgstr "添加自定义引导节点"
 
 #: src/routes/_app/devices/-components/add-device-menu.tsx
-#: src/routes/_app/pairing/index.lazy.tsx
 msgid "添加设备"
 msgstr "添加设备"
 
@@ -1064,7 +1048,6 @@ msgid "版本 {ver} · 正在更新..."
 msgstr "版本 {ver} · 正在更新..."
 
 #: src/routes/_app/devices/-components/add-device-menu.tsx
-#: src/routes/_app/pairing/index.lazy.tsx
 msgid "生成配对码"
 msgstr "生成配对码"
 
@@ -1192,8 +1175,8 @@ msgstr "自动接收"
 #~ msgstr "至少 8 个字符"
 
 #: src/routes/_app/devices/-components/network-status-bar.tsx
-msgid "节点启动中..."
-msgstr "节点启动中..."
+#~ msgid "节点启动中..."
+#~ msgstr "节点启动中..."
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "节点已重启"
@@ -1207,12 +1190,10 @@ msgstr "节点未启动"
 
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
 msgid "节点状态"
 msgstr "节点状态"
 
 #: src/components/layout/app-topbar.tsx
-#: src/routes/_app/devices/-components/network-status-bar.tsx
 msgid "节点错误"
 msgstr "节点错误"
 
@@ -1231,8 +1212,8 @@ msgid "解锁后自动启动 P2P 网络节点"
 msgstr "解锁后自动启动 P2P 网络节点"
 
 #: src/components/layout/nav-items.ts
-msgid "设备"
-msgstr "设备"
+#~ msgid "设备"
+#~ msgstr "设备"
 
 #: src/routes/_app/settings/-device-info-section.tsx
 #~ msgid "设备 ID"
@@ -1268,8 +1249,6 @@ msgid "设备详情"
 msgstr "设备详情"
 
 #: src/components/layout/app-topbar.tsx
-#: src/components/layout/nav-items.ts
-#: src/routes/_app/settings/index.lazy.tsx
 msgid "设置"
 msgstr "设置"
 
@@ -1293,7 +1272,6 @@ msgstr "请先启动节点"
 #~ msgid "请先在下方选择目标设备"
 #~ msgstr "请先在下方选择目标设备"
 
-#: src/components/layout/sidebar.tsx
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "跟随系统"
 msgstr "跟随系统"
@@ -1311,8 +1289,8 @@ msgid "输入另一台设备上显示的配对码"
 msgstr "输入另一台设备上显示的配对码"
 
 #: src/routes/_app/pairing/-components/mobile-input-code-view.tsx
-msgid "输入另一台设备上的配对码"
-msgstr "输入另一台设备上的配对码"
+#~ msgid "输入另一台设备上的配对码"
+#~ msgstr "输入另一台设备上的配对码"
 
 #: src/routes/_auth/unlock.lazy.tsx
 #~ msgid "输入密码"
@@ -1323,7 +1301,6 @@ msgstr "输入另一台设备上的配对码"
 #~ msgstr "输入至少 8 位密码"
 
 #: src/routes/_app/devices/-components/add-device-menu.tsx
-#: src/routes/_app/pairing/index.lazy.tsx
 msgid "输入配对码"
 msgstr "输入配对码"
 
@@ -1332,7 +1309,6 @@ msgstr "输入配对码"
 msgid "运行中"
 msgstr "运行中"
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
 msgid "运行时长"
 msgstr "运行时长"
@@ -1385,11 +1361,9 @@ msgid "选择应用的外观主题"
 msgstr "选择应用的外观主题"
 
 #: src/routes/_app/send/-components/file-drop-zone.tsx
-#: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "选择文件"
 msgstr "选择文件"
 
-#: src/routes/_app/send/-components/file-drop-zone.tsx
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "选择文件夹"
 msgstr "选择文件夹"
@@ -1411,12 +1385,10 @@ msgid "配对码"
 msgstr "配对码"
 
 #. placeholder {0}: formatCountdown(remainingSeconds)
-#: src/routes/_app/pairing/-components/mobile-generate-code-view.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "配对码将在 {0} 后过期"
 msgstr "配对码将在 {0} 后过期"
 
-#: src/routes/_app/pairing/-components/mobile-generate-code-view.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "配对码已过期"
 msgstr "配对码已过期"
@@ -1442,7 +1414,6 @@ msgstr "重启节点"
 msgid "重启节点失败"
 msgstr "重启节点失败"
 
-#: src/routes/_app/pairing/-components/mobile-generate-code-view.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "重新生成"
 msgstr "重新生成"
@@ -1456,8 +1427,8 @@ msgid "错误"
 msgstr "错误"
 
 #: src/routes/_app/devices/index.lazy.tsx
-msgid "附近设备"
-msgstr "附近设备"
+#~ msgid "附近设备"
+#~ msgstr "附近设备"
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "随节点自动启动"

@@ -6,13 +6,13 @@
 import { ShieldCheck, Monitor, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  ResponsiveDialog,
-  ResponsiveDialogContent,
-  ResponsiveDialogFooter,
-  ResponsiveDialogHeader,
-  ResponsiveDialogTitle,
-  ResponsiveDialogDescription,
-} from "@/components/responsive-dialog";
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Trans } from "@lingui/react/macro";
 import { useShallow } from "zustand/react/shallow";
 import { useNavigate } from "@tanstack/react-router";
@@ -47,19 +47,19 @@ export function ConnectionRequestDialog() {
   };
 
   return (
-    <ResponsiveDialog open={isOpen} onOpenChange={handleOpenChange} forceDialog>
-      <ResponsiveDialogContent className="sm:max-w-md" showCloseButton={false}>
-        <ResponsiveDialogHeader className="flex flex-col items-center gap-2">
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-md" showCloseButton={false}>
+        <DialogHeader className="flex flex-col items-center gap-2">
           <div className="flex size-12 items-center justify-center rounded-full bg-primary/10">
             <ShieldCheck className="size-6 text-primary" />
           </div>
-          <ResponsiveDialogTitle className="text-center text-xl">
+          <DialogTitle className="text-center text-xl">
             <Trans>连接请求</Trans>
-          </ResponsiveDialogTitle>
-          <ResponsiveDialogDescription className="text-center">
+          </DialogTitle>
+          <DialogDescription className="text-center">
             <Trans>一台设备正在请求与您配对</Trans>
-          </ResponsiveDialogDescription>
-        </ResponsiveDialogHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         {incomingRequest && (
           <div className="flex flex-col items-center gap-4 py-2">
@@ -90,15 +90,15 @@ export function ConnectionRequestDialog() {
           </div>
         )}
 
-        <ResponsiveDialogFooter className="flex-row justify-center gap-3 sm:justify-center">
+        <DialogFooter className="flex-row justify-center gap-3 sm:justify-center">
           <Button variant="outline" onClick={() => rejectRequest()}>
             <Trans>拒绝</Trans>
           </Button>
           <Button onClick={handleAccept}>
             <Trans>接受配对</Trans>
           </Button>
-        </ResponsiveDialogFooter>
-      </ResponsiveDialogContent>
-    </ResponsiveDialog>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

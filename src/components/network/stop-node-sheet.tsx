@@ -17,14 +17,13 @@ import { cn } from "@/lib/utils";
 import { formatUptime } from "@/lib/format-uptime";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
-  ResponsiveDialog,
-  ResponsiveDialogContent,
-  ResponsiveDialogHeader,
-  ResponsiveDialogTitle,
-  ResponsiveDialogDescription,
-  ResponsiveDialogFooter,
-  useResponsiveDialog,
-} from "@/components/responsive-dialog";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { NodeStatus } from "@/stores/network-store";
@@ -98,8 +97,8 @@ export function StopNodeSheet({ open, onOpenChange }: StopNodeSheetProps) {
   };
 
   return (
-    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className="max-h-[85vh] overflow-hidden p-0! sm:max-w-[min(90vw,32rem)]">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-hidden p-0! sm:max-w-[min(90vw,32rem)]">
         <StopNodeContent
           onStop={handleStop}
           onCancel={() => onOpenChange(false)}
@@ -119,8 +118,8 @@ export function StopNodeSheet({ open, onOpenChange }: StopNodeSheetProps) {
           relayPeers={relayPeers}
           bootstrapConnected={bootstrapConnected}
         />
-      </ResponsiveDialogContent>
-    </ResponsiveDialog>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -162,7 +161,6 @@ function StopNodeContent({
   bootstrapConnected: boolean;
 }) {
   const { t } = useLingui();
-  const { isMobile } = useResponsiveDialog();
   const config = statusConfig[status];
 
   const windowHeight = useSyncExternalStore(
@@ -172,7 +170,7 @@ function StopNodeContent({
     },
     () => window.innerHeight,
   );
-  const showExtra = isMobile || windowHeight >= 700;
+  const showExtra = windowHeight >= 700;
 
   const truncatedPeerId = peerId
     ? `${peerId.slice(0, 4)}...${peerId.slice(-5)}`
@@ -190,143 +188,9 @@ function StopNodeContent({
     ios: "iOS",
   };
 
-  if (isMobile) {
-    return (
-      <div className="flex flex-col gap-5 px-6 pb-8 pt-2">
-        {/* 设备身份 */}
-        <div className="flex flex-col items-center gap-3">
-          <div className="relative">
-            <div className="flex size-16 items-center justify-center rounded-2xl bg-blue-50 dark:bg-blue-900/20">
-              <span className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400">
-                {avatarInitials}
-              </span>
-            </div>
-            <div className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-lg border border-border bg-background shadow-sm">
-              <DeviceIcon className="size-3 text-muted-foreground" />
-            </div>
-          </div>
-          <div className="text-center">
-            <h2 className="text-lg font-semibold text-foreground">
-              {displayName}
-            </h2>
-            <p className="text-[13px] text-muted-foreground">
-              {platformLabel[platformName] ?? platformName}
-            </p>
-          </div>
-        </div>
-
-        {/* Node Info Card */}
-        <div className="overflow-hidden rounded-[10px] bg-muted/50 dark:bg-muted/30">
-          <div className="flex items-center justify-between px-3.5 py-3">
-            <span className="text-[13px] font-medium text-muted-foreground">
-              <Trans>节点状态</Trans>
-            </span>
-            <Badge variant="outline" className={cn("gap-1.5 text-[12px]", config.className)}>
-              <span className={cn("size-1.5 rounded-full", config.dotColor)} />
-              {t(config.label)}
-            </Badge>
-          </div>
-          <div className="flex items-center justify-between border-t border-border px-3.5 py-3">
-            <span className="text-[13px] font-medium text-muted-foreground">
-              Peer ID
-            </span>
-            <code className="font-mono text-[13px] font-semibold text-foreground">
-              {truncatedPeerId}
-            </code>
-          </div>
-          <div className="flex items-center justify-between border-t border-border px-3.5 py-3">
-            <span className="text-[13px] font-medium text-muted-foreground">
-              <Trans>运行时长</Trans>
-            </span>
-            <span className="text-[13px] font-semibold text-foreground">
-              {uptimeText}
-            </span>
-          </div>
-          <div className="flex items-center justify-between border-t border-border px-3.5 py-3">
-            <span className="text-[13px] font-medium text-muted-foreground">
-              <Trans>已连接设备</Trans>
-            </span>
-            <span className="text-[13px] font-semibold text-foreground">
-              <Trans>{connectedCount} 台</Trans>
-            </span>
-          </div>
-          <div className="flex items-center justify-between border-t border-border px-3.5 py-3">
-            <span className="text-[13px] font-medium text-muted-foreground">
-              NAT
-            </span>
-            <Badge
-              variant="outline"
-              className={cn(
-                "border-transparent text-[12px]",
-                natStatus === "public"
-                  ? "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
-                  : "bg-muted text-muted-foreground",
-              )}
-            >
-              {natStatus === "public" ? t`映射成功` : t`未知`}
-            </Badge>
-          </div>
-          <div className="flex items-center justify-between border-t border-border px-3.5 py-3">
-            <span className="text-[13px] font-medium text-muted-foreground">
-              <Trans>中继 / 引导</Trans>
-            </span>
-            <div className="flex items-center gap-1.5">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "border-transparent text-[12px]",
-                  relayReady
-                    ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {relayReady ? t`中继就绪` : t`中继未连`}
-              </Badge>
-              <Badge
-                variant="outline"
-                className={cn(
-                  "border-transparent text-[12px]",
-                  bootstrapConnected
-                    ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {bootstrapConnected ? t`引导已连` : t`引导未连`}
-              </Badge>
-            </div>
-          </div>
-        </div>
-
-        {/* Warning */}
-        <p className="text-center text-xs font-medium text-red-600 dark:text-red-400">
-          <Trans>停止后将断开所有连接，其他设备将无法发现你</Trans>
-        </p>
-
-        {/* Buttons */}
-        <div className="flex flex-col gap-2.5">
-          <button
-            type="button"
-            onClick={onStop}
-            className="flex h-12 items-center justify-center rounded-xl bg-red-600 text-base font-semibold text-white transition-colors hover:bg-red-700"
-          >
-            <Trans>停止节点</Trans>
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="flex h-12 items-center justify-center rounded-xl text-base font-medium text-foreground transition-colors hover:bg-muted"
-          >
-            <Trans>取消</Trans>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // 桌面端
   return (
     <div className="flex flex-col gap-4 p-6">
-      <ResponsiveDialogHeader className="items-center text-center">
+      <DialogHeader className="items-center text-center">
         {/* 设备身份卡片 */}
         <div className="relative">
           <div className="flex size-16 items-center justify-center rounded-2xl bg-blue-50 dark:bg-blue-900/20">
@@ -339,12 +203,12 @@ function StopNodeContent({
           </div>
         </div>
         <div>
-          <ResponsiveDialogTitle>{displayName}</ResponsiveDialogTitle>
-          <ResponsiveDialogDescription>
+          <DialogTitle>{displayName}</DialogTitle>
+          <DialogDescription>
             {platformLabel[platformName] ?? platformName}
-          </ResponsiveDialogDescription>
+          </DialogDescription>
         </div>
-      </ResponsiveDialogHeader>
+      </DialogHeader>
 
       <div className="flex flex-col gap-3">
         {/* 统计数据 — 高度不足时隐藏 */}
@@ -498,7 +362,7 @@ function StopNodeContent({
       </div>
 
       {/* 警告 + 按钮 */}
-      <ResponsiveDialogFooter className="flex flex-col gap-3">
+      <DialogFooter className="flex flex-col gap-3">
         <p className="text-center text-xs text-red-500 dark:text-red-400">
           <Trans>停止后将断开所有连接，其他设备将无法发现你</Trans>
         </p>
@@ -510,7 +374,7 @@ function StopNodeContent({
             <Trans>停止节点</Trans>
           </Button>
         </div>
-      </ResponsiveDialogFooter>
+      </DialogFooter>
     </div>
   );
 }

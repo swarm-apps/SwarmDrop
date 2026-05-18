@@ -19,7 +19,6 @@ import { Route as AppSendIndexRouteImport } from './routes/_app/send/index'
 const AppTransferIndexLazyRouteImport = createFileRoute('/_app/transfer/')()
 const AppSettingsIndexLazyRouteImport = createFileRoute('/_app/settings/')()
 const AppReceiveIndexLazyRouteImport = createFileRoute('/_app/receive/')()
-const AppPairingIndexLazyRouteImport = createFileRoute('/_app/pairing/')()
 const AppDevicesIndexLazyRouteImport = createFileRoute('/_app/devices/')()
 const AppTransferSessionIdLazyRouteImport = createFileRoute(
   '/_app/transfer/$sessionId',
@@ -63,13 +62,6 @@ const AppReceiveIndexLazyRoute = AppReceiveIndexLazyRouteImport.update({
   getParentRoute: () => AppRoute,
 } as any).lazy(() =>
   import('./routes/_app/receive/index.lazy').then((d) => d.Route),
-)
-const AppPairingIndexLazyRoute = AppPairingIndexLazyRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppPairingRoute,
-} as any).lazy(() =>
-  import('./routes/_app/pairing/index.lazy').then((d) => d.Route),
 )
 const AppDevicesIndexLazyRoute = AppDevicesIndexLazyRouteImport.update({
   id: '/devices/',
@@ -116,19 +108,18 @@ export interface FileRoutesByFullPath {
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/send/': typeof AppSendIndexRoute
   '/devices/': typeof AppDevicesIndexLazyRoute
-  '/pairing/': typeof AppPairingIndexLazyRoute
   '/receive/': typeof AppReceiveIndexLazyRoute
   '/settings/': typeof AppSettingsIndexLazyRoute
   '/transfer/': typeof AppTransferIndexLazyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/pairing': typeof AppPairingRouteWithChildren
   '/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/pairing/input': typeof AppPairingInputLazyRoute
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/send': typeof AppSendIndexRoute
   '/devices': typeof AppDevicesIndexLazyRoute
-  '/pairing': typeof AppPairingIndexLazyRoute
   '/receive': typeof AppReceiveIndexLazyRoute
   '/settings': typeof AppSettingsIndexLazyRoute
   '/transfer': typeof AppTransferIndexLazyRoute
@@ -143,7 +134,6 @@ export interface FileRoutesById {
   '/_app/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/_app/send/': typeof AppSendIndexRoute
   '/_app/devices/': typeof AppDevicesIndexLazyRoute
-  '/_app/pairing/': typeof AppPairingIndexLazyRoute
   '/_app/receive/': typeof AppReceiveIndexLazyRoute
   '/_app/settings/': typeof AppSettingsIndexLazyRoute
   '/_app/transfer/': typeof AppTransferIndexLazyRoute
@@ -158,19 +148,18 @@ export interface FileRouteTypes {
     | '/transfer/$sessionId'
     | '/send/'
     | '/devices/'
-    | '/pairing/'
     | '/receive/'
     | '/settings/'
     | '/transfer/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/pairing'
     | '/pairing/generate'
     | '/pairing/input'
     | '/transfer/$sessionId'
     | '/send'
     | '/devices'
-    | '/pairing'
     | '/receive'
     | '/settings'
     | '/transfer'
@@ -184,7 +173,6 @@ export interface FileRouteTypes {
     | '/_app/transfer/$sessionId'
     | '/_app/send/'
     | '/_app/devices/'
-    | '/_app/pairing/'
     | '/_app/receive/'
     | '/_app/settings/'
     | '/_app/transfer/'
@@ -239,13 +227,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReceiveIndexLazyRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/pairing/': {
-      id: '/_app/pairing/'
-      path: '/'
-      fullPath: '/pairing/'
-      preLoaderRoute: typeof AppPairingIndexLazyRouteImport
-      parentRoute: typeof AppPairingRoute
-    }
     '/_app/devices/': {
       id: '/_app/devices/'
       path: '/devices'
@@ -287,13 +268,11 @@ declare module '@tanstack/react-router' {
 interface AppPairingRouteChildren {
   AppPairingGenerateLazyRoute: typeof AppPairingGenerateLazyRoute
   AppPairingInputLazyRoute: typeof AppPairingInputLazyRoute
-  AppPairingIndexLazyRoute: typeof AppPairingIndexLazyRoute
 }
 
 const AppPairingRouteChildren: AppPairingRouteChildren = {
   AppPairingGenerateLazyRoute: AppPairingGenerateLazyRoute,
   AppPairingInputLazyRoute: AppPairingInputLazyRoute,
-  AppPairingIndexLazyRoute: AppPairingIndexLazyRoute,
 }
 
 const AppPairingRouteWithChildren = AppPairingRoute._addFileChildren(

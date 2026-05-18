@@ -1,19 +1,14 @@
 /**
  * App Layout
- * 需要认证的页面布局（带侧边栏）
- * - desktop (≥1024px): 侧边栏展开
- * - tablet (768-1023px): 侧边栏折叠为图标模式
- * - mobile (<768px): 隐藏侧边栏，显示底部导航栏
+ * 桌面端布局 —— 全局 AppTopBar(非全屏路由)+ 内容区
+ * 移动端已迁移到独立 SwarmDrop-RN 项目,此 layout 仅服务桌面壳
  */
 
-import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AppTopBar } from "@/components/layout/app-topbar";
-import { BottomNav } from "@/components/layout/bottom-nav";
 import { useNetworkStore } from "@/stores/network-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { ConnectionRequestDialog } from "@/components/pairing/connection-request-dialog";
 import { TransferOfferDialog } from "@/components/transfer/transfer-offer-dialog";
 import {
@@ -27,9 +22,6 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
-  const breakpoint = useBreakpoint();
-  const isMobile = breakpoint === "mobile";
-
   // 传输事件监听
   useEffect(() => {
     setupTransferListeners();
@@ -38,7 +30,7 @@ function AppLayout() {
     };
   }, []);
 
-  // 自动启动节点（解锁后首次进入时检查）
+  // 自动启动节点(解锁后首次进入时检查)
   useEffect(() => {
     const { autoStart } = usePreferencesStore.getState();
     const { status, startNetwork } = useNetworkStore.getState();
@@ -49,31 +41,12 @@ function AppLayout() {
 
   const location = useLocation();
 
-  // send/receive/pairing 页面为独立全屏，不显示全局 header
+  // send/receive/pairing 页面为独立全屏,不显示全局 header
   const isFullScreenRoute =
     location.pathname.startsWith("/send") ||
     location.pathname.startsWith("/receive") ||
     location.pathname.startsWith("/pairing");
 
-  // 移动端：只有首页（设备页）显示顶部标题栏
-  const isHomePage = location.pathname === "/" || location.pathname === "/devices";
-
-  if (isMobile) {
-    return (
-      <div className="flex h-svh flex-col pt-[env(safe-area-inset-top)]">
-        {isHomePage && <MobileHeader />}
-        <main className="flex-1 overflow-hidden">
-          <Outlet />
-        </main>
-        {!isFullScreenRoute && <BottomNav />}
-        <ConnectionRequestDialog />
-        <TransferOfferDialog />
-      </div>
-    );
-  }
-
-  // 桌面端:全局 AppTopBar(全屏路由除外)+ 主内容
-  // 全屏路由(send/receive/pairing)用自己的页头,Mac 需要给系统红绿灯让出顶部空间
   return (
     <div className="flex h-svh flex-col">
       {!isFullScreenRoute && <AppTopBar />}
@@ -89,19 +62,5 @@ function AppLayout() {
       <ConnectionRequestDialog />
       <TransferOfferDialog />
     </div>
-  );
-}
-
-function MobileHeader() {
-  return (
-    <header className="flex items-center justify-between px-5 py-2">
-      <span className="text-2xl font-bold text-foreground">SwarmDrop</span>
-      <Link
-        to="/pairing"
-        className="flex size-9 items-center justify-center rounded-full bg-blue-600 text-white transition-colors hover:bg-blue-700"
-      >
-        <Plus className="size-5" />
-      </Link>
-    </header>
   );
 }

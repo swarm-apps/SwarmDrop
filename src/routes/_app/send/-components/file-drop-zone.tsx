@@ -1,15 +1,12 @@
 /**
  * FileDropZone
- * 文件拖放区 — 拖拽文件/文件夹，或通过按钮选择
- * 移动端：隐藏拖拽提示，仅显示选择文件按钮（Android 不支持选择文件夹）
+ * 文件拖放区 —— 拖拽文件/文件夹,或通过按钮选择
  */
 
 import { useCallback, useState } from "react";
-import { CloudUpload, FilePlus, FolderPlus } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { CloudUpload } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { cn } from "@/lib/utils";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { pickFiles, pickFolderAsSource } from "@/lib/file-picker";
 import type { FileSource } from "@/commands/transfer";
 
@@ -20,8 +17,6 @@ interface FileDropZoneProps {
 
 export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const breakpoint = useBreakpoint();
-  const isMobile = breakpoint === "mobile";
 
   function handleDragOver(e: React.DragEvent) {
     e.preventDefault();
@@ -43,7 +38,7 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
       const items = e.dataTransfer.items;
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        // Tauri 环境下 File 对象带有 path 属性（非标准 Web API）
+        // Tauri 环境下 File 对象带有 path 属性(非标准 Web API)
         const file = item.getAsFile() as (File & { path?: string }) | null;
         if (file?.path) {
           sources.push({ type: "path", path: file.path });
@@ -70,38 +65,6 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
     }
   };
 
-  // 移动端：紧凑的按钮式布局
-  if (isMobile) {
-    return (
-      <div
-        className={cn(
-          "flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-4",
-          disabled && "pointer-events-none opacity-50",
-        )}
-      >
-        <Button
-          variant="outline"
-          className="h-12 w-full justify-start gap-3 border-blue-200 bg-blue-50/50 text-foreground hover:bg-blue-50"
-          onClick={handleSelectFiles}
-          disabled={disabled}
-        >
-          <FilePlus className="size-5 text-blue-600" />
-          <Trans>选择文件</Trans>
-        </Button>
-        <Button
-          variant="outline"
-          className="h-12 w-full justify-start gap-3 border-blue-200 bg-blue-50/50 text-foreground hover:bg-blue-50"
-          onClick={handleSelectFolder}
-          disabled={disabled}
-        >
-          <FolderPlus className="size-5 text-blue-600" />
-          <Trans>选择文件夹</Trans>
-        </Button>
-      </div>
-    );
-  }
-
-  // 桌面端：拖拽区 + 按钮
   return (
     <div
       onDragOver={handleDragOver}
@@ -116,7 +79,6 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
       )}
       style={{ height: 164 }}
     >
-      {/* 圆形图标容器 */}
       <div className="flex size-12 items-center justify-center rounded-full bg-blue-100">
         <CloudUpload className="size-5.5 text-blue-600" />
       </div>
