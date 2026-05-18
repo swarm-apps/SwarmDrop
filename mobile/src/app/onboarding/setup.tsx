@@ -1,3 +1,4 @@
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import { CheckCircle2, KeyRound } from "lucide-react-native";
 import { useEffect } from "react";
@@ -13,16 +14,17 @@ import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 
 export default function Setup() {
+  const { t } = useLingui();
   const router = useRouter();
   const markCompleted = useOnboardingStore((s) => s.markCompleted);
-  const { initialize, runtimeState, peerId, error } = useMobileCoreStore();
+  const { loadIdentity, peerId, error } = useMobileCoreStore();
 
   useEffect(() => {
-    void initialize();
-  }, [initialize]);
+    void loadIdentity();
+  }, [loadIdentity]);
 
-  const ready = runtimeState === "running" && peerId !== null;
-  const failed = runtimeState === "error" || error !== null;
+  const ready = peerId !== null && error === null;
+  const failed = error !== null;
 
   const onEnter = () => {
     markCompleted();
@@ -41,14 +43,14 @@ export default function Setup() {
         </View>
 
         <Text style={styles.title}>
-          {ready ? "一切就绪" : failed ? "初始化失败" : "正在准备你的设备"}
+          {ready ? t`一切就绪` : failed ? t`初始化失败` : t`正在准备你的设备`}
         </Text>
         <Text style={styles.subtitle}>
           {ready
-            ? "你的设备已加入蜂群网络，可以开始配对和传输文件了"
+            ? t`设备身份已就绪,可以开始配对和传输文件了`
             : failed
-              ? "请稍后重试，或检查网络与权限"
-              : "正在生成本地身份并连接到 P2P 网络..."}
+              ? t`请稍后重试,或检查存储权限`
+              : t`正在生成本地身份...`}
         </Text>
 
         {!ready && !failed ? (
@@ -61,7 +63,9 @@ export default function Setup() {
 
         {peerId !== null ? (
           <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>设备 ID</Text>
+            <Text style={styles.infoLabel}>
+              <Trans>设备 ID</Trans>
+            </Text>
             <Text style={styles.infoValue} numberOfLines={1}>
               {`${peerId.slice(0, 16)}...${peerId.slice(-6)}`}
             </Text>
@@ -73,8 +77,13 @@ export default function Setup() {
 
       <View style={styles.footer}>
         {failed ? (
-          <Pressable onPress={() => initialize()} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>重试</Text>
+          <Pressable
+            onPress={() => loadIdentity()}
+            style={styles.primaryButton}
+          >
+            <Text style={styles.primaryButtonText}>
+              <Trans>重试</Trans>
+            </Text>
           </Pressable>
         ) : (
           <Pressable
@@ -85,7 +94,9 @@ export default function Setup() {
               !ready && styles.primaryButtonDisabled,
             ]}
           >
-            <Text style={styles.primaryButtonText}>进入 SwarmDrop</Text>
+            <Text style={styles.primaryButtonText}>
+              <Trans>进入 SwarmDrop</Trans>
+            </Text>
           </Pressable>
         )}
         <View style={styles.dots}>

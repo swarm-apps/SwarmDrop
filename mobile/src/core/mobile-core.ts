@@ -1,8 +1,5 @@
 import { Paths } from "expo-file-system";
-import {
-  MobileCore,
-  type MobileCoreLike,
-} from "react-native-swarmdrop-core";
+import { MobileCore, type MobileCoreLike } from "react-native-swarmdrop-core";
 import { mobileEventBus } from "./event-bus";
 import { ExpoFileAccess } from "./foreign-file-access";
 import { Keychain } from "./keychain";

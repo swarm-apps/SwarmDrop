@@ -8,6 +8,7 @@
  * iOS 平台直接返回 null，UpdateHost 整体不挂载，store 也是 no-op，
  * 完整的 iOS 升级路径走 TestFlight / App Store。
  */
+import { Trans, useLingui } from "@lingui/react/macro";
 import { Download, ExternalLink, RefreshCw } from "lucide-react-native";
 import {
   Linking,
@@ -37,6 +38,7 @@ export function UpdateHost() {
 }
 
 function UpdateAvailableModal() {
+  const { t } = useLingui();
   const status = useUpdateStore((s) => s.status);
   const latest = useUpdateStore((s) => s.latestVersion);
   const current = useUpdateStore((s) => s.currentVersion);
@@ -68,12 +70,12 @@ function UpdateAvailableModal() {
       <View style={styles.backdrop}>
         <View style={styles.card}>
           <Text style={styles.title}>
-            {isForce ? "必须更新" : "发现新版本"}
+            {isForce ? t`必须更新` : t`发现新版本`}
           </Text>
           <Text style={styles.versionLine}>
             {isForce
-              ? `当前 v${current ?? ""} 已不再支持，请升级到 v${latest ?? ""}`
-              : `v${latest ?? ""} · 当前 v${current ?? ""}`}
+              ? t`当前 v${current ?? ""} 已不再支持,请升级到 v${latest ?? ""}`
+              : `v${latest ?? ""} · ${t`当前`} v${current ?? ""}`}
           </Text>
 
           {hasNotes ? (
@@ -86,7 +88,9 @@ function UpdateAvailableModal() {
             </ScrollView>
           ) : (
             <Pressable onPress={openReleasePage} style={styles.notesLink}>
-              <Text style={styles.notesLinkText}>查看更新内容</Text>
+              <Text style={styles.notesLinkText}>
+                <Trans>查看更新内容</Trans>
+              </Text>
               <ExternalLink color="#2563EB" size={14} />
             </Pressable>
           )}
@@ -97,14 +101,18 @@ function UpdateAvailableModal() {
               style={styles.primaryButton}
             >
               <Download color="#FFFFFF" size={16} />
-              <Text style={styles.primaryText}>立即更新</Text>
+              <Text style={styles.primaryText}>
+                <Trans>立即更新</Trans>
+              </Text>
             </Pressable>
             {!isForce ? (
               <Pressable
                 onPress={() => void dismiss()}
                 style={styles.secondaryButton}
               >
-                <Text style={styles.secondaryText}>稍后</Text>
+                <Text style={styles.secondaryText}>
+                  <Trans>稍后</Trans>
+                </Text>
               </Pressable>
             ) : null}
           </View>
@@ -131,8 +139,12 @@ function UpdateProgressModal() {
     <Modal animationType="fade" transparent visible={open}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <Text style={styles.title}>正在下载新版本</Text>
-          <Text style={styles.versionLine}>下载完成后系统会引导你完成安装</Text>
+          <Text style={styles.title}>
+            <Trans>正在下载新版本</Trans>
+          </Text>
+          <Text style={styles.versionLine}>
+            <Trans>下载完成后系统会引导你完成安装</Trans>
+          </Text>
 
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${percent}%` }]} />
@@ -149,7 +161,9 @@ function UpdateProgressModal() {
               onPress={backgroundDownload}
               style={styles.primaryButton}
             >
-              <Text style={styles.primaryText}>后台下载</Text>
+              <Text style={styles.primaryText}>
+                <Trans>后台下载</Trans>
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -159,6 +173,7 @@ function UpdateProgressModal() {
 }
 
 function UpdateErrorModal() {
+  const { t } = useLingui();
   const status = useUpdateStore((s) => s.status);
   const error = useUpdateStore((s) => s.error);
   const acknowledgeError = useUpdateStore((s) => s.acknowledgeError);
@@ -181,20 +196,26 @@ function UpdateErrorModal() {
     >
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <Text style={[styles.title, styles.errorTitle]}>更新失败</Text>
+          <Text style={[styles.title, styles.errorTitle]}>
+            <Trans>更新失败</Trans>
+          </Text>
           <Text style={styles.versionLine}>
-            {error ?? "下载或安装过程中出错，请稍后重试。"}
+            {error ?? t`下载或安装过程中出错,请稍后重试。`}
           </Text>
           <View style={styles.actions}>
             <Pressable onPress={handleRetry} style={styles.primaryButton}>
               <RefreshCw color="#FFFFFF" size={16} />
-              <Text style={styles.primaryText}>重试</Text>
+              <Text style={styles.primaryText}>
+                <Trans>重试</Trans>
+              </Text>
             </Pressable>
             <Pressable
               onPress={acknowledgeError}
               style={styles.secondaryButton}
             >
-              <Text style={styles.secondaryText}>关闭</Text>
+              <Text style={styles.secondaryText}>
+                <Trans>关闭</Trans>
+              </Text>
             </Pressable>
           </View>
         </View>

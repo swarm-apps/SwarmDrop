@@ -23,6 +23,10 @@ packages/*/ios/build/
 target/
 packages/*/rust/*/target/
 
+# xcframework 内的 native 静态库太大(>100MB,GitHub 单文件上限),不入 git。
+# 调用方需要本地或 CI 重新跑 cargo xcframework 生成。
+packages/*/*.xcframework/**/*.a
+
 # 本地凭证（.env.example 已 commit 作模板）
 .env
 .env.local

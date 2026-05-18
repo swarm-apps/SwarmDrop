@@ -1,0 +1,821 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-05-18\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: zh-Hans\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
+
+#: src/components/transfer-offer-host.tsx:123
+msgid "...还有 {remainingCount} 个文件"
+msgstr "...还有 {remainingCount} 个文件"
+
+#. placeholder {0}: selectedFiles.length
+#: src/app/send/select-device.tsx:92
+msgid "{0} 个文件"
+msgstr "{0} 个文件"
+
+#. placeholder {0}: formatMmss(remaining)
+#: src/components/pairing-sheet.tsx:152
+msgid "{0} 后过期"
+msgstr "{0} 后过期"
+
+#: src/app/settings/bootstrap-nodes.tsx:169
+msgid "/ip4/.../tcp/.../p2p/..."
+msgstr "/ip4/.../tcp/.../p2p/..."
+
+#: src/app/settings/network.tsx:66
+msgid "App 启动后自动启动 P2P 节点"
+msgstr "App 启动后自动启动 P2P 节点"
+
+#: src/components/device-info-card.tsx:199
+msgid "NAT"
+msgstr "NAT"
+
+#: src/app/settings/network.tsx:42
+#: src/components/node-control-sheet.tsx:177
+msgid "NAT 状态"
+msgstr "NAT 状态"
+
+#: src/app/onboarding/welcome.tsx:15
+msgid "P2P 直连,跨网络也能传输"
+msgstr "P2P 直连,跨网络也能传输"
+
+#: src/components/node-control-sheet.tsx:156
+msgid "Peer ID"
+msgstr "Peer ID"
+
+#: src/app/onboarding/setup.tsx:46
+msgid "一切就绪"
+msgstr "一切就绪"
+
+#: src/components/update-host.tsx:146
+msgid "下载完成后系统会引导你完成安装"
+msgstr "下载完成后系统会引导你完成安装"
+
+#: src/components/update-host.tsx:203
+msgid "下载或安装过程中出错,请稍后重试。"
+msgstr "下载或安装过程中出错,请稍后重试。"
+
+#: src/components/transfer-offer-host.tsx:98
+msgid "个文件"
+msgstr "个文件"
+
+#: src/app/settings/network.tsx:47
+#: src/components/node-control-sheet.tsx:184
+msgid "中继"
+msgstr "中继"
+
+#: src/app/pairing/found-device.tsx:91
+#: src/app/pairing/success.tsx:36
+msgid "主机名"
+msgstr "主机名"
+
+#: src/app/settings/theme.tsx:48
+msgid "主题已更新"
+msgstr "主题已更新"
+
+#: src/app/(main)/index.tsx:290
+msgid "从文件 / 相册 / 视频中选择"
+msgstr "从文件 / 相册 / 视频中选择"
+
+#: src/components/send-options-sheet.tsx:96
+msgid "从相册选择图片"
+msgstr "从相册选择图片"
+
+#: src/components/send-options-sheet.tsx:102
+msgid "从相册选择视频"
+msgstr "从相册选择视频"
+
+#: src/components/send-options-sheet.tsx:90
+msgid "任意类型,支持多选"
+msgstr "任意类型,支持多选"
+
+#: src/app/transfer/[sessionId].tsx:37
+msgid "会话不存在或已结束"
+msgstr "会话不存在或已结束"
+
+#: src/app/transfer/index.tsx:30
+#: src/components/drawer-content.tsx:39
+msgid "传输历史"
+msgstr "传输历史"
+
+#: src/app/transfer/[sessionId].tsx:32
+msgid "传输详情"
+msgstr "传输详情"
+
+#: src/app/settings/language.tsx:49
+#: src/app/settings/theme.tsx:51
+msgid "保存失败"
+msgstr "保存失败"
+
+#: src/components/node-control-sheet.tsx:201
+msgid "停止后将断开所有连接,其他设备将无法发现你"
+msgstr "停止后将断开所有连接,其他设备将无法发现你"
+
+#: src/components/node-control-sheet.tsx:226
+msgid "停止节点"
+msgstr "停止节点"
+
+#: src/app/settings/about.tsx:49
+#: src/app/settings/index.tsx:67
+#: src/components/drawer-content.tsx:41
+msgid "关于"
+msgstr "关于"
+
+#: src/components/update-host.tsx:217
+msgid "关闭"
+msgstr "关闭"
+
+#: src/app/onboarding/setup.tsx:46
+msgid "初始化失败"
+msgstr "初始化失败"
+
+#: src/app/settings/bootstrap-nodes.tsx:152
+msgid "删除"
+msgstr "删除"
+
+#: src/app/settings/about.tsx:102
+msgid "去中心化、跨网络、端到端加密文件传输"
+msgstr "去中心化、跨网络、端到端加密文件传输"
+
+#: src/app/onboarding/welcome.tsx:31
+msgid "去中心化跨网络文件传输"
+msgstr "去中心化跨网络文件传输"
+
+#: src/app/settings/about.tsx:152
+msgid "反馈"
+msgstr "反馈"
+
+#: src/components/update-host.tsx:73
+msgid "发现新版本"
+msgstr "发现新版本"
+
+#: src/app/transfer/[sessionId].tsx:58
+#: src/components/recent-transfer-row.tsx:51
+msgid "发送中"
+msgstr "发送中"
+
+#: src/components/send-options-sheet.tsx:118
+msgid "发送什么?"
+msgstr "发送什么?"
+
+#: src/app/send/select-device.tsx:79
+msgid "发送失败"
+msgstr "发送失败"
+
+#: src/app/(main)/index.tsx:287
+msgid "发送文件"
+msgstr "发送文件"
+
+#: src/app/pairing/found-device.tsx:123
+#: src/app/settings/bootstrap-nodes.tsx:186
+#: src/components/node-control-sheet.tsx:212
+msgid "取消"
+msgstr "取消"
+
+#: src/components/pairing-request-host.tsx:102
+msgid "另一台设备请求与你建立配对"
+msgstr "另一台设备请求与你建立配对"
+
+#: src/components/update-host.tsx:165
+msgid "后台下载"
+msgstr "后台下载"
+
+#: src/app/(main)/index.tsx:346
+#: src/app/send/select-device.tsx:112
+msgid "启动"
+msgstr "启动"
+
+#: src/components/status-pill.tsx:57
+msgid "启动中"
+msgstr "启动中"
+
+#: src/components/node-control-sheet.tsx:241
+msgid "启动节点"
+msgstr "启动节点"
+
+#: src/app/(main)/index.tsx:336
+msgid "启动节点后才能与其他设备通讯"
+msgstr "启动节点后才能与其他设备通讯"
+
+#: src/components/node-control-sheet.tsx:195
+msgid "启动节点后才能发现和连接其他设备"
+msgstr "启动节点后才能发现和连接其他设备"
+
+#: src/app/transfer/index.tsx:41
+msgid "在主屏选择已配对设备开始传输"
+msgstr "在主屏选择已配对设备开始传输"
+
+#: src/app/send/select-device.tsx:193
+#: src/components/device-card.tsx:50
+msgid "在线"
+msgstr "在线"
+
+#: src/app/settings/bootstrap-nodes.tsx:69
+msgid "地址格式无效,需以 / 开头且包含 /p2p/"
+msgstr "地址格式无效,需以 / 开头且包含 /p2p/"
+
+#: src/app/settings/general.tsx:36
+msgid "型号"
+msgstr "型号"
+
+#: src/components/pairing-sheet.tsx:178
+msgid "复制"
+msgstr "复制"
+
+#: src/components/device-info-card.tsx:163
+msgid "复制 PeerID"
+msgstr "复制 PeerID"
+
+#: src/app/settings/index.tsx:49
+#: src/app/settings/theme.tsx:63
+msgid "外观"
+msgstr "外观"
+
+#: src/app/pairing/success.tsx:47
+msgid "完成"
+msgstr "完成"
+
+#: src/app/settings/network.tsx:48
+#: src/components/node-control-sheet.tsx:185
+msgid "就绪"
+msgstr "就绪"
+
+#. placeholder {0}: params.hostname
+#: src/app/pairing/success.tsx:32
+msgid "已与 {0} 建立安全连接"
+msgstr "已与 {0} 建立安全连接"
+
+#. placeholder {0}: peerId.slice(0, 12)
+#: src/components/drawer-content.tsx:62
+msgid "已加载身份 {0}..."
+msgstr "已加载身份 {0}..."
+
+#: src/app/settings/network.tsx:37
+#: src/components/node-control-sheet.tsx:172
+msgid "已发现节点"
+msgstr "已发现节点"
+
+#: src/components/drawer-content.tsx:76
+msgid "已复制 PeerID"
+msgstr "已复制 PeerID"
+
+#: src/components/device-info-card.tsx:81
+msgid "已复制到剪贴板"
+msgstr "已复制到剪贴板"
+
+#: src/components/pairing-sheet.tsx:121
+msgid "已复制配对码"
+msgstr "已复制配对码"
+
+#: src/app/settings/about.tsx:92
+msgid "已是最新"
+msgstr "已是最新"
+
+#: src/components/pairing-request-host.tsx:97
+msgid "已过期"
+msgstr "已过期"
+
+#: src/components/pairing-sheet.tsx:152
+msgid "已过期,请重新生成"
+msgstr "已过期,请重新生成"
+
+#: src/components/node-control-sheet.tsx:190
+msgid "已连接"
+msgstr "已连接"
+
+#: src/app/settings/network.tsx:32
+#: src/components/node-control-sheet.tsx:167
+msgid "已连接节点"
+msgstr "已连接节点"
+
+#: src/components/device-info-card.tsx:187
+msgid "已连节点"
+msgstr "已连节点"
+
+#: src/app/pairing/found-device.tsx:95
+msgid "平台"
+msgstr "平台"
+
+#: src/app/onboarding/welcome.tsx:52
+msgid "开始使用"
+msgstr "开始使用"
+
+#: src/app/settings/bootstrap-nodes.tsx:106
+#: src/app/settings/index.tsx:61
+#: src/components/node-control-sheet.tsx:189
+msgid "引导节点"
+msgstr "引导节点"
+
+#: src/app/settings/bootstrap-nodes.tsx:217
+msgid "引导节点已变更,需重启节点生效"
+msgstr "引导节点已变更,需重启节点生效"
+
+#: src/app/settings/bootstrap-nodes.tsx:112
+msgid "引导节点用于发现 P2P 网络。修改后需重启节点生效。"
+msgstr "引导节点用于发现 P2P 网络。修改后需重启节点生效。"
+
+#: src/components/update-host.tsx:78
+msgid "当前"
+msgstr "当前"
+
+#. placeholder {0}: current ?? ""
+#. placeholder {1}: latest ?? ""
+#: src/components/update-host.tsx:77
+msgid "当前 v{0} 已不再支持,请升级到 v{1}"
+msgstr "当前 v{0} 已不再支持,请升级到 v{1}"
+
+#: src/app/settings/network.tsx:76
+msgid "当前状态"
+msgstr "当前状态"
+
+#: src/components/update-host.tsx:73
+msgid "必须更新"
+msgstr "必须更新"
+
+#: src/app/(main)/index.tsx:153
+msgid "我的设备"
+msgstr "我的设备"
+
+#: src/app/send/select-device.tsx:267
+msgid "所有设备都离线"
+msgstr "所有设备都离线"
+
+#: src/app/(main)/index.tsx:126
+msgid "打开侧栏"
+msgstr "打开侧栏"
+
+#: src/app/pairing/found-device.tsx:84
+msgid "找到设备"
+msgstr "找到设备"
+
+#: src/components/pairing-request-host.tsx:144
+#: src/components/pairing-request-host.tsx:148
+#: src/components/transfer-offer-host.tsx:153
+#: src/components/transfer-offer-host.tsx:157
+msgid "拒绝"
+msgstr "拒绝"
+
+#: src/components/pairing-request-host.tsx:129
+#: src/components/pairing-request-host.tsx:136
+msgid "接受"
+msgstr "接受"
+
+#: src/components/transfer-offer-host.tsx:133
+#: src/components/transfer-offer-host.tsx:145
+msgid "接收"
+msgstr "接收"
+
+#: src/app/transfer/[sessionId].tsx:58
+#: src/components/recent-transfer-row.tsx:51
+msgid "接收中"
+msgstr "接收中"
+
+#: src/components/transfer-offer-host.tsx:143
+msgid "接收中..."
+msgstr "接收中..."
+
+#: src/components/transfer-offer-host.tsx:94
+msgid "收到文件"
+msgstr "收到文件"
+
+#: src/app/transfer/[sessionId].tsx:62
+#: src/components/recent-transfer-row.tsx:54
+msgid "文件"
+msgstr "文件"
+
+#: src/app/settings/about.tsx:146
+msgid "文档"
+msgstr "文档"
+
+#: src/app/settings/about.tsx:38
+msgid "无法打开链接"
+msgstr "无法打开链接"
+
+#: src/components/device-info-card.tsx:200
+#: src/components/node-control-sheet.tsx:179
+msgid "映射成功"
+msgstr "映射成功"
+
+#: src/app/transfer/index.tsx:38
+msgid "暂无传输记录"
+msgstr "暂无传输记录"
+
+#: src/components/update-host.tsx:200
+msgid "更新失败"
+msgstr "更新失败"
+
+#: src/app/settings/about.tsx:125
+#: src/app/settings/about.tsx:131
+msgid "更新日志"
+msgstr "更新日志"
+
+#: src/app/settings/about.tsx:72
+msgid "有新版可用"
+msgstr "有新版可用"
+
+#: src/components/status-pill.tsx:58
+msgid "未启动"
+msgstr "未启动"
+
+#: src/app/settings/network.tsx:48
+#: src/components/node-control-sheet.tsx:185
+msgid "未启用"
+msgstr "未启用"
+
+#: src/components/device-info-card.tsx:200
+#: src/components/node-control-sheet.tsx:179
+msgid "未知"
+msgstr "未知"
+
+#: src/components/node-control-sheet.tsx:190
+msgid "未连接"
+msgstr "未连接"
+
+#: src/components/drawer-content.tsx:126
+msgid "本机"
+msgstr "本机"
+
+#: src/app/transfer/[sessionId].tsx:96
+msgid "查看保存位置"
+msgstr "查看保存位置"
+
+#: src/app/(main)/index.tsx:187
+msgid "查看全部"
+msgstr "查看全部"
+
+#: src/components/update-host.tsx:92
+msgid "查看更新内容"
+msgstr "查看更新内容"
+
+#: src/app/settings/about.tsx:110
+#: src/app/settings/about.tsx:117
+msgid "检查更新"
+msgstr "检查更新"
+
+#: src/components/update-host.tsx:143
+msgid "正在下载新版本"
+msgstr "正在下载新版本"
+
+#: src/components/update-background-tracker.tsx:30
+msgid "正在下载新版本 · {percent}%"
+msgstr "正在下载新版本 · {percent}%"
+
+#: src/app/(main)/index.tsx:179
+msgid "正在传输"
+msgstr "正在传输"
+
+#: src/app/onboarding/setup.tsx:46
+msgid "正在准备你的设备"
+msgstr "正在准备你的设备"
+
+#: src/components/drawer-content.tsx:58
+msgid "正在初始化身份..."
+msgstr "正在初始化身份..."
+
+#: src/app/settings/about.tsx:82
+msgid "正在检查..."
+msgstr "正在检查..."
+
+#: src/app/onboarding/setup.tsx:53
+msgid "正在生成本地身份..."
+msgstr "正在生成本地身份..."
+
+#: src/components/pairing-sheet.tsx:183
+msgid "正在等待对端连接..."
+msgstr "正在等待对端连接..."
+
+#: src/app/transfer/index.tsx:47
+msgid "活跃传输"
+msgstr "活跃传输"
+
+#: src/app/settings/theme.tsx:57
+msgid "浅色"
+msgstr "浅色"
+
+#: src/app/settings/theme.tsx:58
+msgid "深色"
+msgstr "深色"
+
+#: src/app/(main)/index.tsx:163
+#: src/app/settings/bootstrap-nodes.tsx:195
+msgid "添加"
+msgstr "添加"
+
+#: src/app/settings/bootstrap-nodes.tsx:208
+msgid "添加自定义引导节点"
+msgstr "添加自定义引导节点"
+
+#: src/app/(main)/index.tsx:267
+#: src/app/send/select-device.tsx:250
+msgid "添加设备"
+msgstr "添加设备"
+
+#: src/app/send/select-device.tsx:230
+msgid "添加设备后即可向其发送已选文件"
+msgstr "添加设备后即可向其发送已选文件"
+
+#: src/components/send-options-sheet.tsx:95
+msgid "照片"
+msgstr "照片"
+
+#: src/components/pairing-sheet.tsx:128
+msgid "生成一个 6 位配对码,让其他设备输入它建立配对"
+msgstr "生成一个 6 位配对码,让其他设备输入它建立配对"
+
+#: src/components/pairing-sheet.tsx:89
+#: src/components/pairing-sheet.tsx:140
+msgid "生成配对码"
+msgstr "生成配对码"
+
+#: src/app/pairing/found-device.tsx:74
+msgid "确认设备"
+msgstr "确认设备"
+
+#: src/app/pairing/found-device.tsx:87
+msgid "确认这是你要配对的设备?"
+msgstr "确认这是你要配对的设备?"
+
+#: src/app/pairing/found-device.tsx:113
+msgid "确认配对"
+msgstr "确认配对"
+
+#: src/components/send-options-sheet.tsx:101
+msgid "视频"
+msgstr "视频"
+
+#: src/app/send/select-device.tsx:193
+#: src/components/device-card.tsx:50
+msgid "离线"
+msgstr "离线"
+
+#: src/components/update-host.tsx:114
+msgid "稍后"
+msgstr "稍后"
+
+#: src/components/update-host.tsx:105
+msgid "立即更新"
+msgstr "立即更新"
+
+#: src/app/onboarding/welcome.tsx:14
+msgid "端到端加密,数据不经服务器"
+msgstr "端到端加密,数据不经服务器"
+
+#: src/components/drawer-content.tsx:63
+msgid "等待初始化"
+msgstr "等待初始化"
+
+#: src/app/pairing/found-device.tsx:93
+#: src/app/pairing/success.tsx:38
+#: src/app/settings/general.tsx:48
+msgid "系统"
+msgstr "系统"
+
+#: src/components/device-info-card.tsx:134
+msgid "编辑设备名"
+msgstr "编辑设备名"
+
+#: src/app/settings/index.tsx:55
+#: src/app/settings/network.tsx:54
+msgid "网络"
+msgstr "网络"
+
+#: src/components/node-control-sheet.tsx:148
+msgid "网络节点"
+msgstr "网络节点"
+
+#: src/app/settings/network.tsx:63
+msgid "自动启动节点"
+msgstr "自动启动节点"
+
+#: src/app/(main)/index.tsx:328
+msgid "节点出错"
+msgstr "节点出错"
+
+#: src/app/(main)/index.tsx:330
+msgid "节点启动中..."
+msgstr "节点启动中..."
+
+#: src/app/settings/bootstrap-nodes.tsx:96
+msgid "节点已重启"
+msgstr "节点已重启"
+
+#: src/app/(main)/index.tsx:332
+msgid "节点未启动"
+msgstr "节点未启动"
+
+#: src/app/send/select-device.tsx:109
+msgid "节点未启动,启动后才能发送"
+msgstr "节点未启动,启动后才能发送"
+
+#: src/app/settings/network.tsx:73
+msgid "节点状态"
+msgstr "节点状态"
+
+#: src/app/settings/general.tsx:21
+msgid "设备"
+msgstr "设备"
+
+#: src/app/onboarding/setup.tsx:67
+#: src/app/pairing/found-device.tsx:97
+#: src/app/pairing/success.tsx:40
+msgid "设备 ID"
+msgstr "设备 ID"
+
+#: src/app/settings/general.tsx:24
+msgid "设备名"
+msgstr "设备名"
+
+#: src/components/device-info-card.tsx:71
+msgid "设备名称已更新"
+msgstr "设备名称已更新"
+
+#: src/app/(main)/index.tsx:100
+msgid "设备离线,暂无法发送"
+msgstr "设备离线,暂无法发送"
+
+#: src/app/onboarding/setup.tsx:50
+msgid "设备身份已就绪,可以开始配对和传输文件了"
+msgstr "设备身份已就绪,可以开始配对和传输文件了"
+
+#: src/app/onboarding/welcome.tsx:16
+msgid "设备身份本地保存,无需账号"
+msgstr "设备身份本地保存,无需账号"
+
+#: src/app/settings/index.tsx:27
+#: src/components/drawer-content.tsx:40
+msgid "设置"
+msgstr "设置"
+
+#: src/app/settings/bootstrap-nodes.tsx:76
+msgid "该节点已存在"
+msgstr "该节点已存在"
+
+#: src/app/settings/network.tsx:82
+msgid "详细信息"
+msgstr "详细信息"
+
+#: src/app/settings/index.tsx:43
+#: src/app/settings/language.tsx:57
+msgid "语言"
+msgstr "语言"
+
+#: src/app/settings/language.tsx:47
+msgid "语言已更新"
+msgstr "语言已更新"
+
+#: src/app/send/select-device.tsx:270
+msgid "请确保对方设备已启动 SwarmDrop 并连入网络"
+msgstr "请确保对方设备已启动 SwarmDrop 并连入网络"
+
+#: src/app/onboarding/setup.tsx:52
+msgid "请稍后重试,或检查存储权限"
+msgstr "请稍后重试,或检查存储权限"
+
+#: src/app/settings/language.tsx:65
+#: src/app/settings/theme.tsx:56
+msgid "跟随系统"
+msgstr "跟随系统"
+
+#: src/components/drawer-content.tsx:60
+msgid "身份加载失败"
+msgstr "身份加载失败"
+
+#: src/components/pairing-sheet.tsx:234
+msgid "输入对方设备上显示的 6 位配对码"
+msgstr "输入对方设备上显示的 6 位配对码"
+
+#: src/components/pairing-sheet.tsx:92
+msgid "输入配对码"
+msgstr "输入配对码"
+
+#: src/components/status-pill.tsx:56
+msgid "运行中"
+msgstr "运行中"
+
+#: src/components/node-control-sheet.tsx:162
+msgid "运行时长"
+msgstr "运行时长"
+
+#: src/components/settings-header.tsx:25
+msgid "返回"
+msgstr "返回"
+
+#: src/app/send/select-device.tsx:240
+#: src/app/send/select-device.tsx:279
+msgid "返回主页"
+msgstr "返回主页"
+
+#: src/app/(main)/index.tsx:254
+#: src/app/send/select-device.tsx:227
+msgid "还没有配对设备"
+msgstr "还没有配对设备"
+
+#: src/app/onboarding/setup.tsx:98
+msgid "进入 SwarmDrop"
+msgstr "进入 SwarmDrop"
+
+#: src/app/transfer/[sessionId].tsx:73
+msgid "进度"
+msgstr "进度"
+
+#: src/app/settings/theme.tsx:68
+msgid "选择外观"
+msgstr "选择外观"
+
+#: src/components/send-options-sheet.tsx:81
+msgid "选择失败"
+msgstr "选择失败"
+
+#: src/app/send/select-device.tsx:87
+msgid "选择接收设备"
+msgstr "选择接收设备"
+
+#: src/components/send-options-sheet.tsx:89
+msgid "选择文件"
+msgstr "选择文件"
+
+#: src/app/settings/language.tsx:63
+msgid "选择语言"
+msgstr "选择语言"
+
+#: src/app/settings/general.tsx:16
+#: src/app/settings/index.tsx:37
+#: src/app/settings/network.tsx:59
+msgid "通用"
+msgstr "通用"
+
+#: src/app/(main)/index.tsx:257
+msgid "通过配对码连接你的第一台设备"
+msgstr "通过配对码连接你的第一台设备"
+
+#: src/app/pairing/success.tsx:29
+msgid "配对成功"
+msgstr "配对成功"
+
+#. placeholder {0}: payload.code
+#: src/components/pairing-request-host.tsx:118
+msgid "配对码 {0}"
+msgstr "配对码 {0}"
+
+#: src/components/pairing-sheet.tsx:219
+msgid "配对码无效或已过期"
+msgstr "配对码无效或已过期"
+
+#: src/app/pairing/found-device.tsx:41
+msgid "配对被拒绝"
+msgstr "配对被拒绝"
+
+#. placeholder {0}: result.reason
+#: src/app/pairing/found-device.tsx:41
+msgid "配对被拒绝:{0}"
+msgstr "配对被拒绝:{0}"
+
+#: src/components/device-info-card.tsx:193
+msgid "配对设备"
+msgstr "配对设备"
+
+#: src/components/pairing-request-host.tsx:94
+msgid "配对请求"
+msgstr "配对请求"
+
+#: src/app/settings/bootstrap-nodes.tsx:231
+msgid "重启中"
+msgstr "重启中"
+
+#: src/app/settings/bootstrap-nodes.tsx:231
+msgid "重启节点"
+msgstr "重启节点"
+
+#: src/app/settings/bootstrap-nodes.tsx:98
+msgid "重启节点失败"
+msgstr "重启节点失败"
+
+#: src/app/(main)/index.tsx:346
+msgid "重新启动"
+msgstr "重新启动"
+
+#: src/components/pairing-sheet.tsx:168
+msgid "重新生成"
+msgstr "重新生成"
+
+#: src/app/onboarding/setup.tsx:85
+#: src/components/update-host.tsx:209
+msgid "重试"
+msgstr "重试"
+
+#: src/components/status-pill.tsx:59
+msgid "错误"
+msgstr "错误"
+
+#: src/app/settings/bootstrap-nodes.tsx:127
+msgid "默认"
+msgstr "默认"

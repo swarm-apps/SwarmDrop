@@ -5,7 +5,7 @@
  * 按 chunk 读写，不会把整个文件加载到内存。
  */
 
-import { File, Directory } from "expo-file-system";
+import { Directory, File } from "expo-file-system";
 import type {
   ForeignFileAccess,
   MobileFileMetadata,

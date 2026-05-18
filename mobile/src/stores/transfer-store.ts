@@ -1,6 +1,6 @@
 import type {
-  MobileTransferOffer as TransferOffer,
   MobileTransferProgress,
+  MobileTransferOffer as TransferOffer,
 } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 

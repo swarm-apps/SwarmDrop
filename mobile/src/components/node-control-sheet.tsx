@@ -1,0 +1,279 @@
+import {
+  BottomSheetBackdrop,
+  type BottomSheetBackdropProps,
+  BottomSheetModal,
+  BottomSheetScrollView,
+} from "@gorhom/bottom-sheet";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { Power } from "lucide-react-native";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import { ActivityIndicator, Pressable, View } from "react-native";
+import { useShallow } from "zustand/react/shallow";
+import { StatusPill } from "@/components/status-pill";
+import { Text } from "@/components/ui/text";
+import { useThemeColors } from "@/hooks/useThemeColors";
+import { formatUptime } from "@/lib/format-uptime";
+import { truncateMiddle } from "@/lib/utils";
+import { useMobileCoreStore } from "@/stores/mobile-core-store";
+
+export interface NodeControlSheetRef {
+  present: () => void;
+  dismiss: () => void;
+}
+
+/**
+ * 节点控制 BottomSheet —— 对齐桌面 StopNodeSheet/StartNodeSheet。
+ * - running:展示详情 + 「停止节点」(destructive)
+ * - stopped/error:展示精简提示 + 「启动节点」
+ * - starting:加载中提示
+ */
+export const NodeControlSheet = forwardRef<NodeControlSheetRef, object>(
+  function NodeControlSheet(_props, ref) {
+    const sheetRef = useRef<BottomSheetModal>(null);
+    const colors = useThemeColors();
+
+    useImperativeHandle(ref, () => ({
+      present: () => sheetRef.current?.present(),
+      dismiss: () => sheetRef.current?.dismiss(),
+    }));
+
+    const renderBackdrop = useCallback(
+      (props: BottomSheetBackdropProps) => (
+        <BottomSheetBackdrop
+          {...props}
+          opacity={0.4}
+          appearsOnIndex={0}
+          disappearsOnIndex={-1}
+          pressBehavior="close"
+        />
+      ),
+      [],
+    );
+
+    return (
+      <BottomSheetModal
+        ref={sheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        backgroundStyle={{ backgroundColor: colors.card }}
+        handleIndicatorStyle={{ backgroundColor: colors.border }}
+      >
+        <BottomSheetScrollView>
+          <NodeControlContent onDismiss={() => sheetRef.current?.dismiss()} />
+        </BottomSheetScrollView>
+      </BottomSheetModal>
+    );
+  },
+);
+
+function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useLingui();
+  const colors = useThemeColors();
+  const {
+    runtimeState,
+    networkStatus,
+    peerId,
+    startedAt,
+    startNode,
+    shutdownNode,
+  } = useMobileCoreStore(
+    useShallow((s) => ({
+      runtimeState: s.runtimeState,
+      networkStatus: s.networkStatus,
+      peerId: s.peerId,
+      startedAt: s.startedAt,
+      startNode: s.startNode,
+      shutdownNode: s.shutdownNode,
+    })),
+  );
+
+  const [working, setWorking] = useState(false);
+
+  // 每秒重渲染让运行时长更新
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (runtimeState !== "running" || !startedAt) return;
+    const id = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [runtimeState, startedAt]);
+  void tick;
+
+  const handleStart = async () => {
+    setWorking(true);
+    try {
+      await startNode();
+      onDismiss();
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const handleStop = async () => {
+    setWorking(true);
+    try {
+      await shutdownNode();
+      onDismiss();
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const isRunning = runtimeState === "running";
+  const isStarting = runtimeState === "starting";
+
+  return (
+    <View className="gap-4 px-5 pt-2 pb-6">
+      <View className="items-center gap-2">
+        <View
+          className={
+            isRunning
+              ? "size-14 items-center justify-center rounded-full bg-success/10"
+              : "size-14 items-center justify-center rounded-full bg-muted"
+          }
+        >
+          <Power
+            color={isRunning ? colors.success : colors.mutedForeground}
+            size={26}
+          />
+        </View>
+        <Text className="text-base font-bold text-foreground">
+          <Trans>网络节点</Trans>
+        </Text>
+        <StatusPill state={runtimeState} size="md" />
+      </View>
+
+      {isRunning ? (
+        <View className="overflow-hidden rounded-xl border border-border">
+          <Row
+            label={<Trans>Peer ID</Trans>}
+            value={peerId ? truncateMiddle(peerId, 6, 4) : "—"}
+            mono
+          />
+          <Divider />
+          <Row
+            label={<Trans>运行时长</Trans>}
+            value={startedAt ? formatUptime(startedAt) : "—"}
+          />
+          <Divider />
+          <Row
+            label={<Trans>已连接节点</Trans>}
+            value={String(networkStatus?.connectedPeers ?? 0)}
+          />
+          <Divider />
+          <Row
+            label={<Trans>已发现节点</Trans>}
+            value={String(networkStatus?.discoveredPeers ?? 0)}
+          />
+          <Divider />
+          <Row
+            label={<Trans>NAT 状态</Trans>}
+            value={
+              networkStatus?.natStatus === "public" ? t`映射成功` : t`未知`
+            }
+          />
+          <Divider />
+          <Row
+            label={<Trans>中继</Trans>}
+            value={networkStatus?.relayReady ? t`就绪` : t`未启用`}
+          />
+          <Divider />
+          <Row
+            label={<Trans>引导节点</Trans>}
+            value={networkStatus?.bootstrapConnected ? t`已连接` : t`未连接`}
+          />
+        </View>
+      ) : (
+        <Text className="text-center text-[13px] text-muted-foreground px-4">
+          <Trans>启动节点后才能发现和连接其他设备</Trans>
+        </Text>
+      )}
+
+      {isRunning ? (
+        <Text className="text-center text-[11px] text-destructive">
+          <Trans>停止后将断开所有连接,其他设备将无法发现你</Trans>
+        </Text>
+      ) : null}
+
+      <View className="flex-row gap-2.5">
+        <Pressable
+          onPress={onDismiss}
+          accessibilityRole="button"
+          className="flex-1 h-11 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
+        >
+          <Text className="text-[14px] font-medium text-foreground">
+            <Trans>取消</Trans>
+          </Text>
+        </Pressable>
+        {isRunning ? (
+          <Pressable
+            onPress={handleStop}
+            disabled={working || isStarting}
+            accessibilityRole="button"
+            className="flex-1 h-11 items-center justify-center rounded-xl bg-destructive active:opacity-70 disabled:opacity-50"
+          >
+            {working ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <Text className="text-[14px] font-semibold text-destructive-foreground">
+                <Trans>停止节点</Trans>
+              </Text>
+            )}
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={handleStart}
+            disabled={working || isStarting}
+            accessibilityRole="button"
+            className="flex-1 h-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
+          >
+            {working || isStarting ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <Text className="text-[14px] font-semibold text-primary-foreground">
+                <Trans>启动节点</Trans>
+              </Text>
+            )}
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function Row({
+  label,
+  value,
+  mono,
+}: {
+  label: React.ReactNode;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <View className="flex-row items-center justify-between px-3.5 py-2.5">
+      <Text className="text-[13px] text-muted-foreground">{label}</Text>
+      <Text
+        className={
+          mono
+            ? "font-mono text-[12px] text-foreground"
+            : "text-[13px] font-medium text-foreground"
+        }
+        numberOfLines={1}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function Divider() {
+  return <View className="h-px bg-border" />;
+}

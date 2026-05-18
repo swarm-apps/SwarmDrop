@@ -1,9 +1,11 @@
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CheckCircle2 } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function PairingSuccess() {
+  const { t } = useLingui();
   const router = useRouter();
   const params = useLocalSearchParams<{
     peerId: string;
@@ -23,21 +25,27 @@ export default function PairingSuccess() {
         <View style={styles.iconWrap}>
           <CheckCircle2 color="#16A34A" size={56} strokeWidth={2} />
         </View>
-        <Text style={styles.title}>配对成功</Text>
-        <Text style={styles.subtitle}>已与 {params.hostname} 建立安全连接</Text>
+        <Text style={styles.title}>
+          <Trans>配对成功</Trans>
+        </Text>
+        <Text style={styles.subtitle}>
+          <Trans>已与 {params.hostname} 建立安全连接</Trans>
+        </Text>
 
         <View style={styles.card}>
-          <Row label="主机名" value={params.hostname} />
+          <Row label={t`主机名`} value={params.hostname} />
           <Divider />
-          <Row label="系统" value={`${params.os} · ${params.arch}`} />
+          <Row label={t`系统`} value={`${params.os} · ${params.arch}`} />
           <Divider />
-          <Row label="设备 ID" value={truncatePeerId(params.peerId)} mono />
+          <Row label={t`设备 ID`} value={truncatePeerId(params.peerId)} mono />
         </View>
       </View>
 
       <View style={styles.footer}>
         <Pressable onPress={finish} style={styles.primaryButton}>
-          <Text style={styles.primaryButtonText}>完成</Text>
+          <Text style={styles.primaryButtonText}>
+            <Trans>完成</Trans>
+          </Text>
         </Pressable>
       </View>
     </SafeAreaView>

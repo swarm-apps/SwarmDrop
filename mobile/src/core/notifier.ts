@@ -53,13 +53,19 @@ export async function notifyPairingRequest(
  * Fire-and-forget 包装：EventBus.emit 来自 Rust 线程，不能 await，
  * 把 notification 投递异常吞掉避免影响事件分发。
  */
-export function fireNotifyTransferOffer(deviceName: string, fileCount: number): void {
+export function fireNotifyTransferOffer(
+  deviceName: string,
+  fileCount: number,
+): void {
   notifyTransferOffer(deviceName, fileCount).catch((err) => {
     console.warn("[notifier] notifyTransferOffer failed:", err);
   });
 }
 
-export function fireNotifyPairingRequest(peerId: string, code: string | undefined): void {
+export function fireNotifyPairingRequest(
+  peerId: string,
+  code: string | undefined,
+): void {
   notifyPairingRequest(peerId, code).catch((err) => {
     console.warn("[notifier] notifyPairingRequest failed:", err);
   });

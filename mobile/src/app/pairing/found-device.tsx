@@ -1,3 +1,4 @@
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, MonitorSmartphone } from "lucide-react-native";
 import { useState } from "react";
@@ -12,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { getMobileCore } from "@/core/mobile-core";
 
 export default function FoundDevice() {
+  const { t } = useLingui();
   const router = useRouter();
   const params = useLocalSearchParams<{
     peerId: string;
@@ -35,7 +37,9 @@ export default function FoundDevice() {
         [],
       );
       if (!result.accepted) {
-        setError(`配对被拒绝${result.reason ? `：${result.reason}` : ""}`);
+        setError(
+          result.reason ? t`配对被拒绝:${result.reason}` : t`配对被拒绝`,
+        );
         return;
       }
       router.replace({
@@ -66,7 +70,9 @@ export default function FoundDevice() {
         >
           <ArrowLeft color="#0F172A" size={22} />
         </Pressable>
-        <Text style={styles.headerTitle}>确认设备</Text>
+        <Text style={styles.headerTitle}>
+          <Trans>确认设备</Trans>
+        </Text>
         <View style={styles.backButton} />
       </View>
 
@@ -74,17 +80,21 @@ export default function FoundDevice() {
         <View style={styles.heroIcon}>
           <MonitorSmartphone color="#2563EB" size={36} />
         </View>
-        <Text style={styles.title}>找到设备</Text>
-        <Text style={styles.subtitle}>确认这是你要配对的设备？</Text>
+        <Text style={styles.title}>
+          <Trans>找到设备</Trans>
+        </Text>
+        <Text style={styles.subtitle}>
+          <Trans>确认这是你要配对的设备?</Trans>
+        </Text>
 
         <View style={styles.card}>
-          <Row label="主机名" value={params.hostname} />
+          <Row label={t`主机名`} value={params.hostname} />
           <Divider />
-          <Row label="系统" value={`${params.os} · ${params.arch}`} />
+          <Row label={t`系统`} value={`${params.os} · ${params.arch}`} />
           <Divider />
-          <Row label="平台" value={params.platform} />
+          <Row label={t`平台`} value={params.platform} />
           <Divider />
-          <Row label="设备 ID" value={truncatePeerId(params.peerId)} mono />
+          <Row label={t`设备 ID`} value={truncatePeerId(params.peerId)} mono />
         </View>
 
         {error !== null ? <Text style={styles.error}>{error}</Text> : null}
@@ -99,7 +109,9 @@ export default function FoundDevice() {
           {confirming ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.primaryButtonText}>确认配对</Text>
+            <Text style={styles.primaryButtonText}>
+              <Trans>确认配对</Trans>
+            </Text>
           )}
         </Pressable>
         <Pressable
@@ -107,7 +119,9 @@ export default function FoundDevice() {
           disabled={confirming}
           style={styles.secondaryButton}
         >
-          <Text style={styles.secondaryButtonText}>取消</Text>
+          <Text style={styles.secondaryButtonText}>
+            <Trans>取消</Trans>
+          </Text>
         </Pressable>
       </View>
     </SafeAreaView>

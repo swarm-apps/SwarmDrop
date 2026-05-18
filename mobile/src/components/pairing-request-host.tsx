@@ -1,13 +1,30 @@
-import { Link2, X } from "lucide-react-native";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { Link, ShieldCheck } from "lucide-react-native";
 import { useCallback, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Dimensions,
+  Platform,
+  Pressable,
+  View,
+} from "react-native";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
+import { useThemeColors } from "@/hooks/useThemeColors";
+import { truncateMiddle } from "@/lib/utils";
 import { useNotificationStore } from "@/stores/notification-store";
 
 const REQUEST_TTL_SECS = 60;
 
 export function PairingRequestHost() {
+  const { t } = useLingui();
+  const colors = useThemeColors();
   const current = useNotificationStore((s) => s.current);
   const respondStore = useNotificationStore((s) => s.respond);
   const [responding, setResponding] = useState(false);
@@ -29,7 +46,6 @@ export function PairingRequestHost() {
       if (!current || !payload || responding) return;
       setResponding(true);
       try {
-        // pendingId 来自 Rust 端 u64,在 TS 中是 bigint,直接透传
         await getMobileCore().respondPairingRequest(
           payload.pendingId,
           payload.code ?? undefined,
@@ -48,143 +64,92 @@ export function PairingRequestHost() {
     [current, payload, respondStore, responding],
   );
 
-  if (!open || !payload) {
-    return null;
-  }
+  if (!open || !payload) return null;
 
   return (
-    <Modal
-      animationType="fade"
-      transparent
-      visible={open}
-      onRequestClose={() => respondToRequest(false)}
-    >
-      <View style={styles.backdrop}>
-        <View style={styles.card}>
-          <View style={styles.header}>
-            <View style={styles.iconWrap}>
-              <Link2 color="#2563EB" size={22} />
-            </View>
-            <Text style={styles.title}>配对请求</Text>
-            <View style={styles.spacer} />
-            <Text style={styles.countdown}>
-              {remaining > 0 ? `${remaining}s` : "已过期"}
-            </Text>
+    <AlertDialog open={open}>
+      <AlertDialogContent
+        style={[
+          {
+            borderRadius: 20,
+            borderWidth: 0,
+            width: Math.min(Dimensions.get("window").width * 0.86, 480),
+          },
+          Platform.OS === "android"
+            ? { elevation: 24 }
+            : {
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 16 },
+                shadowOpacity: 0.2,
+                shadowRadius: 40,
+              },
+        ]}
+        className="max-w-none gap-4 bg-card p-5 sm:max-w-none"
+      >
+        <View className="flex-row items-center gap-3">
+          <View className="size-11 items-center justify-center rounded-full bg-primary/10">
+            <Link color={colors.primary} size={22} />
           </View>
-
-          <Text style={styles.body}>
-            来自{" "}
-            <Text style={styles.peerId}>{payload.peerId.slice(0, 12)}...</Text>{" "}
-            的设备请求与你配对
-            {payload.code ? `（配对码 ${payload.code}）` : ""}
+          <AlertDialogTitle className="flex-1 text-foreground text-base font-bold">
+            <Trans>配对请求</Trans>
+          </AlertDialogTitle>
+          <Text className="text-xs text-muted-foreground">
+            {remaining > 0 ? `${remaining}s` : t`已过期`}
           </Text>
+        </View>
 
-          <View style={styles.actions}>
-            <Pressable
-              onPress={() => respondToRequest(true)}
-              disabled={responding || remaining === 0}
-              style={[
-                styles.acceptButton,
-                (responding || remaining === 0) && styles.disabled,
-              ]}
+        <Text className="text-sm text-muted-foreground">
+          <Trans>另一台设备请求与你建立配对</Trans>
+        </Text>
+
+        <View className="flex-row items-center gap-3 rounded-xl bg-muted p-3.5">
+          <View className="size-10 items-center justify-center rounded-full bg-background">
+            <ShieldCheck color={colors.primary} size={18} />
+          </View>
+          <View className="flex-1 gap-0.5">
+            <Text
+              className="text-[13px] font-medium text-foreground"
+              numberOfLines={1}
             >
-              <Text style={styles.acceptText}>接受</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => respondToRequest(false)}
-              disabled={responding}
-              style={styles.rejectButton}
-            >
-              <X color="#0F172A" size={16} />
-              <Text style={styles.rejectText}>拒绝</Text>
-            </Pressable>
+              {truncateMiddle(payload.peerId, 12, 8)}
+            </Text>
+            {payload.code ? (
+              <Text className="text-[11px] text-muted-foreground">
+                <Trans>配对码 {payload.code}</Trans>
+              </Text>
+            ) : null}
           </View>
         </View>
-      </View>
-    </Modal>
+
+        <View className="gap-2.5">
+          <Pressable
+            onPress={() => respondToRequest(true)}
+            disabled={responding || remaining === 0}
+            accessibilityRole="button"
+            accessibilityLabel={t`接受`}
+            className="h-12 items-center justify-center rounded-xl bg-primary active:opacity-80 disabled:opacity-50"
+          >
+            {responding ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <Text className="text-base font-semibold text-primary-foreground">
+                <Trans>接受</Trans>
+              </Text>
+            )}
+          </Pressable>
+          <Pressable
+            onPress={() => respondToRequest(false)}
+            disabled={responding}
+            accessibilityRole="button"
+            accessibilityLabel={t`拒绝`}
+            className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-80 disabled:opacity-50"
+          >
+            <Text className="text-base font-medium text-foreground">
+              <Trans>拒绝</Trans>
+            </Text>
+          </Pressable>
+        </View>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    alignItems: "center",
-    backgroundColor: "rgba(15, 23, 42, 0.55)",
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    gap: 16,
-    padding: 20,
-    width: "100%",
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-  },
-  iconWrap: {
-    alignItems: "center",
-    backgroundColor: "#EFF6FF",
-    borderRadius: 999,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  spacer: {
-    flex: 1,
-  },
-  countdown: {
-    color: "#64748B",
-    fontSize: 12,
-  },
-  body: {
-    color: "#334155",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  peerId: {
-    color: "#0F172A",
-    fontFamily: "monospace",
-    fontWeight: "700",
-  },
-  actions: {
-    gap: 10,
-  },
-  acceptButton: {
-    alignItems: "center",
-    backgroundColor: "#2563EB",
-    borderRadius: 10,
-    justifyContent: "center",
-    minHeight: 48,
-  },
-  acceptText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  rejectButton: {
-    alignItems: "center",
-    backgroundColor: "#F1F5F9",
-    borderRadius: 10,
-    flexDirection: "row",
-    gap: 6,
-    justifyContent: "center",
-    minHeight: 48,
-  },
-  rejectText: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-});

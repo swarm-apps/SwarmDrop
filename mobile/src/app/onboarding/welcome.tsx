@@ -1,18 +1,20 @@
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import { Hexagon, Lock, Radio, ShieldCheck } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 
-const FEATURES = [
-  { Icon: ShieldCheck, text: "端到端加密，数据不经服务器" },
-  { Icon: Radio, text: "P2P 直连，跨网络也能传输" },
-  { Icon: Lock, text: "设备身份本地保存，无需账号" },
-];
-
 export default function Welcome() {
+  const { t } = useLingui();
   const router = useRouter();
   const nextStep = useOnboardingStore((s) => s.nextStep);
+
+  const features = [
+    { Icon: ShieldCheck, text: t`端到端加密,数据不经服务器` },
+    { Icon: Radio, text: t`P2P 直连,跨网络也能传输` },
+    { Icon: Lock, text: t`设备身份本地保存,无需账号` },
+  ];
 
   const onNext = () => {
     nextStep();
@@ -25,11 +27,13 @@ export default function Welcome() {
         <View style={styles.hero}>
           <Hexagon color="#2563EB" size={80} strokeWidth={1.5} />
           <Text style={styles.title}>SwarmDrop</Text>
-          <Text style={styles.subtitle}>去中心化跨网络文件传输</Text>
+          <Text style={styles.subtitle}>
+            <Trans>去中心化跨网络文件传输</Trans>
+          </Text>
         </View>
 
         <View style={styles.featureList}>
-          {FEATURES.map(({ Icon, text }) => (
+          {features.map(({ Icon, text }) => (
             <View key={text} style={styles.feature}>
               <Icon color="#2563EB" size={22} strokeWidth={2} />
               <Text style={styles.featureText}>{text}</Text>
@@ -44,7 +48,9 @@ export default function Welcome() {
           style={styles.primaryButton}
           accessibilityRole="button"
         >
-          <Text style={styles.primaryButtonText}>开始使用</Text>
+          <Text style={styles.primaryButtonText}>
+            <Trans>开始使用</Trans>
+          </Text>
         </Pressable>
         <View style={styles.dots}>
           <View style={[styles.dot, styles.dotActive]} />

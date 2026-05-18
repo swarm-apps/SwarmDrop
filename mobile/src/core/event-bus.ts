@@ -3,13 +3,13 @@ import type {
   MobileCoreEvent,
 } from "react-native-swarmdrop-core";
 import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
-import { useMobileCoreStore } from "@/stores/mobile-core-store";
-import { useNotificationStore } from "@/stores/notification-store";
-import { useTransferStore } from "@/stores/transfer-store";
 import {
   fireNotifyPairingRequest,
   fireNotifyTransferOffer,
 } from "@/core/notifier";
+import { useMobileCoreStore } from "@/stores/mobile-core-store";
+import { useNotificationStore } from "@/stores/notification-store";
+import { useTransferStore } from "@/stores/transfer-store";
 
 type CoreEventListener = (event: MobileCoreEvent) => void;
 
@@ -117,11 +117,17 @@ function routeEventToStores(event: MobileCoreEvent): void {
 }
 
 async function refreshDevices(): Promise<void> {
+  // 节点未启动直接跳过 —— Rust 端 list_devices 依赖 NetManager,
+  // shutdownNode/startNode 切换期间可能收到清理事件,这时调用会抛 NodeNotStarted。
+  if (useMobileCoreStore.getState().runtimeState !== "running") return;
   try {
     const { getMobileCore } = await import("./mobile-core");
     const devices = await getMobileCore().listDevices("all");
     useMobileCoreStore.getState().applyDevices(devices);
   } catch (err) {
+    // NodeNotStarted 在节点状态切换的窗口期是预期错误,静默忽略
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("NodeNotStarted")) return;
     console.warn("[event-bus] listDevices failed:", err);
   }
 }

@@ -1,42 +1,71 @@
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Send, Smartphone, WifiOff } from "lucide-react-native";
-import { useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Plus, Power, Send, Smartphone, WifiOff } from "lucide-react-native";
+import { useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
+import { useShallow } from "zustand/react/shallow";
+import {
+  NodeControlSheet,
+  type NodeControlSheetRef,
+} from "@/components/node-control-sheet";
+import { PairingSheet, type PairingSheetRef } from "@/components/pairing-sheet";
+import { SettingsHeader } from "@/components/settings-header";
+import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
-import { useMobileCoreStore } from "@/stores/mobile-core-store";
+import { useThemeColors } from "@/hooks/useThemeColors";
+import { devicePlatformIcon } from "@/lib/device-platform";
+import { toast } from "@/lib/toast";
+import { errorMessage } from "@/lib/utils";
+import {
+  summariesToOfflineDevices,
+  useMobileCoreStore,
+} from "@/stores/mobile-core-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export default function SelectDevice() {
+  const { t } = useLingui();
   const router = useRouter();
-  const devices = useMobileCoreStore((s) => s.devices);
-  const selectedFiles = useMobileCoreStore((s) => s.selectedFiles);
-  const clearSelectedFiles = useMobileCoreStore((s) => s.clearSelectedFiles);
+  const colors = useThemeColors();
+  const pairingSheetRef = useRef<PairingSheetRef>(null);
+  const nodeSheetRef = useRef<NodeControlSheetRef>(null);
+
+  const {
+    devices,
+    pairedDevicesCache,
+    runtimeState,
+    selectedFiles,
+    clearSelectedFiles,
+  } = useMobileCoreStore(
+    useShallow((s) => ({
+      devices: s.devices,
+      pairedDevicesCache: s.pairedDevicesCache,
+      runtimeState: s.runtimeState,
+      selectedFiles: s.selectedFiles,
+      clearSelectedFiles: s.clearSelectedFiles,
+    })),
+  );
   const registerSession = useTransferStore((s) => s.registerSession);
 
-  const onlinePaired = devices.filter(
-    (d) => d.isPaired && d.status === "online",
-  );
   const [sendingTo, setSendingTo] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  // file.size 来自 Rust u64 → bigint,累加用 bigint 字面量初值
+  // 节点 running 时用实时 devices,否则 fallback cache(全离线)
+  const pairedDevices = useMemo<DeviceInfo[]>(() => {
+    if (runtimeState === "running") {
+      return devices.filter((d) => d.isPaired);
+    }
+    return summariesToOfflineDevices(pairedDevicesCache);
+  }, [runtimeState, devices, pairedDevicesCache]);
+
+  const onlineCount = pairedDevices.filter((d) => d.status === "online").length;
   const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0n);
 
   const onSend = async (peerId: string, peerName: string) => {
     if (sendingTo !== null || selectedFiles.length === 0) return;
-    setError(null);
     setSendingTo(peerId);
     try {
       const prepared = await getMobileCore().prepareSend(selectedFiles);
-      // 第四个参数 file_ids 为空数组时, 后端会发所有 prepared 文件
       const result = await getMobileCore().sendPrepared(
         prepared.preparedId,
         peerId,
@@ -47,79 +76,213 @@ export default function SelectDevice() {
       clearSelectedFiles();
       router.back();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(t`发送失败`, errorMessage(err));
     } finally {
       setSendingTo(null);
     }
   };
 
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={12}
-          style={styles.backButton}
-        >
-          <ArrowLeft color="#0F172A" size={22} />
-        </Pressable>
-        <Text style={styles.headerTitle}>选择接收设备</Text>
-        <View style={styles.backButton} />
+    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
+      <SettingsHeader title={t`选择接收设备`} />
+
+      <View className="px-5 pt-2">
+        <View className="rounded-xl bg-primary/10 p-3.5">
+          <Text className="text-[14px] font-semibold text-foreground">
+            <Trans>{selectedFiles.length} 个文件</Trans>
+          </Text>
+          <Text className="text-[12px] text-muted-foreground mt-0.5">
+            {formatBytes(totalSize)}
+          </Text>
+        </View>
       </View>
 
-      <View style={styles.summary}>
-        <Text style={styles.summaryTitle}>{selectedFiles.length} 个文件</Text>
-        <Text style={styles.summaryMeta}>{formatBytes(totalSize)}</Text>
-      </View>
-
-      {error !== null ? <Text style={styles.errorText}>{error}</Text> : null}
-
-      <ScrollView contentContainerStyle={styles.list}>
-        {onlinePaired.length === 0 ? (
-          <View style={styles.empty}>
-            <WifiOff color="#94A3B8" size={36} />
-            <Text style={styles.emptyTitle}>暂无在线的已配对设备</Text>
-            <Text style={styles.emptyHint}>
-              请确保对方设备在线，或先在主页完成配对
+      {runtimeState !== "running" && pairedDevices.length > 0 ? (
+        <View className="px-5 pt-3">
+          <Pressable
+            onPress={() => nodeSheetRef.current?.present()}
+            accessibilityRole="button"
+            className="flex-row items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-2.5 active:opacity-70"
+          >
+            <Power color={colors.warning} size={16} />
+            <Text className="flex-1 text-[12px] font-medium text-warning">
+              <Trans>节点未启动,启动后才能发送</Trans>
             </Text>
-          </View>
+            <Text className="text-[12px] font-semibold text-warning">
+              <Trans>启动</Trans>
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <ScrollView contentContainerClassName="gap-2 px-5 pt-3 pb-6">
+        {pairedDevices.length === 0 ? (
+          <EmptyNoPaired
+            onAdd={() => pairingSheetRef.current?.present()}
+            onBack={() => router.back()}
+          />
+        ) : onlineCount === 0 && runtimeState === "running" ? (
+          <EmptyAllOffline onBack={() => router.back()} />
         ) : (
-          onlinePaired.map((d) => {
-            const sending = sendingTo === d.peerId;
-            const disabled = sendingTo !== null;
-            return (
-              <Pressable
-                key={d.peerId}
-                onPress={() => onSend(d.peerId, d.hostname)}
-                disabled={disabled}
-                style={[styles.row, disabled && styles.disabled]}
-              >
-                <View style={styles.rowIcon}>
-                  <Smartphone color="#2563EB" size={20} />
-                </View>
-                <View style={styles.rowText}>
-                  <Text style={styles.rowTitle} numberOfLines={1}>
-                    {d.hostname}
-                  </Text>
-                  <Text style={styles.rowMeta} numberOfLines={1}>
-                    {d.platform} · {d.connection ?? "在线"}
-                  </Text>
-                </View>
-                {sending ? (
-                  <ActivityIndicator color="#2563EB" />
-                ) : (
-                  <Send color="#2563EB" size={18} />
-                )}
-              </Pressable>
-            );
-          })
+          pairedDevices.map((d) => (
+            <DeviceRow
+              key={d.peerId}
+              device={d}
+              sending={sendingTo === d.peerId}
+              disabled={sendingTo !== null || d.status !== "online"}
+              onPress={() => onSend(d.peerId, d.hostname)}
+            />
+          ))
         )}
       </ScrollView>
+
+      <PairingSheet ref={pairingSheetRef} />
+      <NodeControlSheet ref={nodeSheetRef} />
     </SafeAreaView>
   );
 }
 
-// bigint 输入(来自 Rust u64),内部转 number 走原有比较;TB+ 级别本机不可能命中
+function DeviceRow({
+  device,
+  sending,
+  disabled,
+  onPress,
+}: {
+  device: DeviceInfo;
+  sending: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+  const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
+  const isOnline = device.status === "online";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={device.hostname}
+      className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-3.5 active:opacity-70 disabled:opacity-50"
+    >
+      <View className="size-9 items-center justify-center rounded-full bg-muted">
+        <Icon color={colors.foreground} size={18} />
+      </View>
+      <View className="flex-1 gap-0.5">
+        <Text
+          className="text-[14px] font-semibold text-foreground"
+          numberOfLines={1}
+        >
+          {device.hostname}
+        </Text>
+        <View className="flex-row items-center gap-1">
+          <View
+            className={
+              isOnline
+                ? "size-1.5 rounded-full bg-success"
+                : "size-1.5 rounded-full bg-muted-foreground"
+            }
+          />
+          <Text
+            className={
+              isOnline
+                ? "text-[11px] text-success"
+                : "text-[11px] text-muted-foreground"
+            }
+          >
+            {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
+          </Text>
+          <Text className="text-[11px] text-muted-foreground">
+            · {device.platform}
+          </Text>
+        </View>
+      </View>
+      {sending ? (
+        <ActivityIndicator color={colors.primary} />
+      ) : (
+        <Send
+          color={isOnline ? colors.primary : colors.mutedForeground}
+          size={16}
+        />
+      )}
+    </Pressable>
+  );
+}
+
+function EmptyNoPaired({
+  onAdd,
+  onBack,
+}: {
+  onAdd: () => void;
+  onBack: () => void;
+}) {
+  const colors = useThemeColors();
+  return (
+    <View className="items-center gap-4 py-16">
+      <View className="size-16 items-center justify-center rounded-full bg-muted">
+        <Smartphone color={colors.mutedForeground} size={32} />
+      </View>
+      <View className="gap-1 items-center px-6">
+        <Text className="text-[15px] font-semibold text-foreground">
+          <Trans>还没有配对设备</Trans>
+        </Text>
+        <Text className="text-center text-[13px] text-muted-foreground">
+          <Trans>添加设备后即可向其发送已选文件</Trans>
+        </Text>
+      </View>
+      <View className="flex-row gap-2.5">
+        <Pressable
+          onPress={onBack}
+          accessibilityRole="button"
+          className="h-10 flex-row items-center justify-center rounded-xl border border-border bg-card px-4 active:opacity-70"
+        >
+          <Text className="text-[13px] text-foreground">
+            <Trans>返回主页</Trans>
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={onAdd}
+          accessibilityRole="button"
+          className="h-10 flex-row items-center gap-1.5 rounded-xl bg-primary px-4 active:opacity-70"
+        >
+          <Plus color={colors.background} size={14} />
+          <Text className="text-[13px] font-semibold text-primary-foreground">
+            <Trans>添加设备</Trans>
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function EmptyAllOffline({ onBack }: { onBack: () => void }) {
+  const colors = useThemeColors();
+  return (
+    <View className="items-center gap-4 py-16">
+      <View className="size-16 items-center justify-center rounded-full bg-muted">
+        <WifiOff color={colors.mutedForeground} size={32} />
+      </View>
+      <View className="gap-1 items-center px-6">
+        <Text className="text-[15px] font-semibold text-foreground">
+          <Trans>所有设备都离线</Trans>
+        </Text>
+        <Text className="text-center text-[13px] text-muted-foreground">
+          <Trans>请确保对方设备已启动 SwarmDrop 并连入网络</Trans>
+        </Text>
+      </View>
+      <Pressable
+        onPress={onBack}
+        accessibilityRole="button"
+        className="h-10 flex-row items-center justify-center rounded-xl border border-border bg-card px-4 active:opacity-70"
+      >
+        <Text className="text-[13px] text-foreground">
+          <Trans>返回主页</Trans>
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function formatBytes(bytes: bigint): string {
   const n = Number(bytes);
   if (n < 1024) return `${n} B`;
@@ -127,104 +290,3 @@ function formatBytes(bytes: bigint): string {
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  backButton: {
-    alignItems: "center",
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  headerTitle: {
-    color: "#0F172A",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  summary: {
-    backgroundColor: "#EFF6FF",
-    borderRadius: 12,
-    marginHorizontal: 16,
-    marginTop: 12,
-    padding: 14,
-  },
-  summaryTitle: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  summaryMeta: {
-    color: "#64748B",
-    fontSize: 13,
-    marginTop: 2,
-  },
-  errorText: {
-    color: "#B91C1C",
-    fontSize: 13,
-    marginHorizontal: 16,
-    marginTop: 8,
-  },
-  list: {
-    gap: 8,
-    padding: 16,
-  },
-  row: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 14,
-  },
-  rowIcon: {
-    alignItems: "center",
-    backgroundColor: "#EFF6FF",
-    borderRadius: 999,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
-  },
-  rowText: {
-    flex: 1,
-    gap: 2,
-  },
-  rowTitle: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  rowMeta: {
-    color: "#64748B",
-    fontSize: 12,
-  },
-  empty: {
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  emptyHint: {
-    color: "#64748B",
-    fontSize: 13,
-    textAlign: "center",
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-});

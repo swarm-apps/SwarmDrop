@@ -3,12 +3,14 @@
  * 切换到这个贴底浮动条（半透明深色卡片），不阻塞操作。SwarmDrop-RN 没有引入
  * toast 库，所以自己实现一个简化版。
  */
+import { useLingui } from "@lingui/react/macro";
 import { Download } from "lucide-react-native";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUpdateStore } from "@/stores/update-store";
 
 export function UpdateBackgroundTracker() {
+  const { t } = useLingui();
   const status = useUpdateStore((s) => s.status);
   const backgrounded = useUpdateStore((s) => s.backgrounded);
   const percent = useUpdateStore((s) => s.progress?.percent ?? 0);
@@ -25,7 +27,7 @@ export function UpdateBackgroundTracker() {
     >
       <View style={styles.card}>
         <Download color="#FFFFFF" size={16} />
-        <Text style={styles.text}>正在下载新版本 · {percent}%</Text>
+        <Text style={styles.text}>{t`正在下载新版本 · ${percent}%`}</Text>
       </View>
     </View>
   );

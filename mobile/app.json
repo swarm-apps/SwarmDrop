@@ -21,6 +21,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-localization",
       [
         "expo-splash-screen",
         {
@@ -38,6 +39,12 @@
           "android": {
             "softwareKeyboardLayoutMode": "resize"
           }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许 SwarmDrop 访问相册以选择要发送的照片和视频。"
         }
       ]
     ],
