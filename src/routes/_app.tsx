@@ -9,8 +9,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useEffect } from "react";
-import { AppSidebar } from "@/components/layout/sidebar";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { AppTopBar } from "@/components/layout/app-topbar";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { useNetworkStore } from "@/stores/network-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
@@ -21,6 +20,7 @@ import {
   setupTransferListeners,
   cleanupTransferListeners,
 } from "@/stores/transfer-store";
+import { isMac } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app")({
   component: AppLayout,
@@ -29,7 +29,6 @@ export const Route = createFileRoute("/_app")({
 function AppLayout() {
   const breakpoint = useBreakpoint();
   const isMobile = breakpoint === "mobile";
-  const isDesktop = breakpoint === "desktop";
 
   // 传输事件监听
   useEffect(() => {
@@ -50,7 +49,7 @@ function AppLayout() {
 
   const location = useLocation();
 
-  // send/receive/pairing 页面为独立全屏，不显示全局 header 和 bottom nav
+  // send/receive/pairing 页面为独立全屏，不显示全局 header
   const isFullScreenRoute =
     location.pathname.startsWith("/send") ||
     location.pathname.startsWith("/receive") ||
@@ -73,23 +72,23 @@ function AppLayout() {
     );
   }
 
+  // 桌面端:全局 AppTopBar(全屏路由除外)+ 主内容
+  // 全屏路由(send/receive/pairing)用自己的页头,Mac 需要给系统红绿灯让出顶部空间
   return (
-    <SidebarProvider
-      className="h-svh"
-      defaultOpen={isDesktop}
-      style={
-        {
-          "--sidebar-width": "220px",
-        } as React.CSSProperties
-      }
-    >
-      <AppSidebar />
-      <SidebarInset className="overflow-hidden">
+    <div className="flex h-svh flex-col">
+      {!isFullScreenRoute && <AppTopBar />}
+      {isFullScreenRoute && isMac && (
+        <div
+          data-tauri-drag-region
+          className="h-8 shrink-0 bg-background"
+        />
+      )}
+      <main className="flex-1 overflow-hidden">
         <Outlet />
-      </SidebarInset>
+      </main>
       <ConnectionRequestDialog />
       <TransferOfferDialog />
-    </SidebarProvider>
+    </div>
   );
 }
 

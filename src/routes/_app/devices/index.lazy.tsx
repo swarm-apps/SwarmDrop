@@ -1,7 +1,9 @@
 /**
  * Devices Page (Lazy)
  * 设备页面 - 懒加载组件
- * 根据断点渲染移动端/桌面端不同布局
+ * - 移动端:沿用原有"已配对 + 附近"双 section 布局 + 底部 nav
+ * - 桌面端:聚合主屏(拖放区 + 我的设备网格 + 最近传输);
+ *   附近未配对设备从主屏移除,改由 /pairing 流程承担(directPairing)
  */
 
 import { useMemo, useState } from "react";
@@ -15,9 +17,10 @@ import { usePairingStore } from "@/stores/pairing-store";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { removePairedDevice } from "@/commands/pairing";
-import { AddDeviceMenu } from "./-components/add-device-menu";
 import { NetworkStatusBar } from "./-components/network-status-bar";
 import { OfflineEmptyState } from "./-components/offline-empty-state";
+import { AddDeviceMenu } from "./-components/add-device-menu";
+import { HomeRecentTransfers } from "./-components/home-recent-transfers";
 import { StartNodeSheet } from "@/components/network/start-node-sheet";
 import { StopNodeSheet } from "@/components/network/stop-node-sheet";
 
@@ -103,13 +106,10 @@ function DevicesPage() {
         <DesktopDevicesView
           isOnline={isOnline}
           pairedDevices={pairedDevices}
-          nearbyDevices={filteredNearbyDevices}
           onSend={handleSend}
           onConnect={handleConnect}
           onUnpair={handleUnpair}
           onStartClick={() => setStartSheetOpen(true)}
-          onStopClick={() => setStopSheetOpen(true)}
-          onStatusClick={() => status === "running" ? setStopSheetOpen(true) : setStartSheetOpen(true)}
         />
       )}
 
@@ -219,49 +219,39 @@ function MobileDevicesView({
 
 /* ─────────────────── 桌面端视图 ─────────────────── */
 
+type DesktopDevicesViewProps = Omit<
+  DevicesViewProps,
+  "nearbyDevices" | "onStopClick" | "onStatusClick"
+>;
+
 function DesktopDevicesView({
   isOnline,
   pairedDevices,
-  nearbyDevices,
   onSend,
   onConnect,
   onUnpair,
   onStartClick,
-  onStopClick,
-  onStatusClick,
-}: DevicesViewProps) {
+}: DesktopDevicesViewProps) {
+  // 桌面端主屏:拖放区 / 我的设备网格 / 最近传输 —— 顶栏由全局 AppTopBar 承载
   return (
-    <main className="flex h-full flex-1 flex-col bg-background">
-      {/* Toolbar */}
-      <header className="flex h-13 items-center justify-between border-b border-border px-4 lg:px-5">
-        <div className="flex items-center gap-2">
-          <h1 className="text-[15px] font-medium text-foreground">
-            <Trans>设备</Trans>
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <AddDeviceMenu />
-        </div>
-      </header>
-
+    <main className="flex h-full flex-1 flex-col overflow-hidden bg-background">
       {isOnline ? (
-        /* Page Content */
-        <div className="flex-1 overflow-auto p-5 lg:p-6">
-          <div className="flex flex-col gap-6">
-            {/* 网络状态栏 */}
-            <NetworkStatusBar onStopClick={onStopClick} onStatusClick={onStatusClick} />
-
-            {/* Paired Devices Section */}
-            <section className="flex flex-col gap-4">
-              <div className="flex items-center gap-2">
+        <div className="flex-1 overflow-auto">
+          <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-7 px-8 py-8">
+            <section className="flex flex-col gap-3">
+              <div className="flex items-center gap-2 pb-1">
                 <h2 className="text-sm font-semibold text-foreground">
-                  <Trans>已配对设备</Trans>
+                  <Trans>我的设备</Trans>
                 </h2>
-                <span className="text-[13px] text-muted-foreground">
-                  ({pairedDevices.length})
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                  {pairedDevices.length}
                 </span>
+                <div className="ml-auto">
+                  <AddDeviceMenu variant="default" />
+                </div>
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
                 {pairedDevices.map((device) => (
                   <DeviceCard
                     key={device.peerId}
@@ -274,30 +264,7 @@ function DesktopDevicesView({
               </div>
             </section>
 
-            {/* Divider */}
-            <div className="h-px bg-border" />
-
-            {/* Nearby Devices Section */}
-            <section className="flex flex-col gap-4">
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-foreground">
-                  <Trans>附近设备</Trans>
-                </h2>
-                <span className="text-[13px] text-muted-foreground">
-                  ({nearbyDevices.length})
-                </span>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {nearbyDevices.map((device) => (
-                  <DeviceCard
-                    key={device.peerId}
-                    device={device}
-                    onSend={onSend}
-                    onConnect={onConnect}
-                  />
-                ))}
-              </div>
-            </section>
+            <HomeRecentTransfers />
           </div>
         </div>
       ) : (

@@ -47,14 +47,7 @@ function SettingsPage() {
 
   return (
     <main className="flex h-full min-h-0 flex-1 flex-col bg-background">
-      {/* Toolbar */}
-      <header className="flex h-13 items-center justify-between border-b border-border p-4 md:p-5 lg:p-6">
-        <h1 className="text-[15px] font-medium text-foreground">
-          <Trans>设置</Trans>
-        </h1>
-      </header>
-
-      {/* Page Content */}
+      {/* Page Content —— 标题由 AppTopBar 面包屑承担 */}
       <div className="flex-1 overflow-auto p-4 md:p-5 lg:p-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-6">
           {/* 关于 & 更新 */}

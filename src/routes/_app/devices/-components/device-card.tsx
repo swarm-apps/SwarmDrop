@@ -187,21 +187,48 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
   }
 
   // variant="card" — 桌面端纵向卡片样式
+  // 整张卡可点击:已配对+在线点击 = 发送;未配对点击 = 连接
+  const handleCardClick = () => {
+    if (device.isPaired) {
+      if (isOnline) onSend?.(device);
+    } else {
+      onConnect?.(device);
+    }
+  };
+
+  const isInteractive = device.isPaired ? isOnline : !!onConnect;
+
   return (
     <>
-      <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
+      <div
+        role={isInteractive ? "button" : undefined}
+        tabIndex={isInteractive ? 0 : -1}
+        onClick={isInteractive ? handleCardClick : undefined}
+        onKeyDown={(e) => {
+          if (isInteractive && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            handleCardClick();
+          }
+        }}
+        className={cn(
+          "flex flex-col gap-2.5 rounded-lg border border-border bg-card p-3 transition-all",
+          isInteractive
+            ? "cursor-pointer hover:border-blue-500/60 hover:shadow-sm"
+            : "opacity-70",
+        )}
+      >
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+        <div className="flex items-center gap-2.5">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
             <DeviceIcon
               className={cn(
-                "size-5",
+                "size-4.5",
                 isOnline ? "text-blue-600" : "text-muted-foreground"
               )}
             />
           </div>
-          <div className="flex flex-1 flex-col gap-1">
-            <span className="text-sm font-medium text-foreground">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="truncate text-sm font-medium text-foreground">
               {device.hostname}
             </span>
             <div className="flex items-center gap-1">
@@ -215,7 +242,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
                   />
                   <span
                     className={cn(
-                      "text-xs",
+                      "text-[11px]",
                       isOnline ? "text-green-500" : "text-muted-foreground"
                     )}
                   >
@@ -223,7 +250,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
                   </span>
                 </>
               ) : (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[11px] text-muted-foreground">
                   <Trans>未配对</Trans>
                 </span>
               )}
@@ -235,6 +262,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
+                  onClick={(e) => e.stopPropagation()}
                   className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted"
                 >
                   <MoreHorizontal className="size-4" />
@@ -281,7 +309,10 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
               size="sm"
               variant={isOnline ? "default" : "outline"}
               disabled={!isOnline}
-              onClick={() => onSend?.(device)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSend?.(device);
+              }}
               className={cn(
                 "h-auto gap-1.5 rounded-md px-3 py-1.5 text-xs",
                 isOnline
@@ -296,7 +327,10 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onConnect?.(device)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onConnect?.(device);
+              }}
               className="h-auto gap-1.5 rounded-md border-blue-600 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
             >
               <Link className="size-3.5" />

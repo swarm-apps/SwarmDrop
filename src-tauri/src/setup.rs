@@ -118,6 +118,15 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
         // tauri-specta events —— 当前未声明事件，为将来扩展预留 mount 钩子。
         specta.mount_events(app);
 
+        // 平台标题栏调整:macOS 由 tauri.conf.json 的 trafficLightPosition 控制红绿灯位置;
+        // Windows / Linux 需要运行时关装饰,改由前端自画最小化/最大化/关闭三按钮。
+        #[cfg(not(target_os = "macos"))]
+        {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(false);
+            }
+        }
+
         // updater plugin —— 移动端不支持时静默跳过
         if let Err(e) = app
             .handle()

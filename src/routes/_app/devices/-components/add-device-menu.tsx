@@ -14,15 +14,25 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Trans } from "@lingui/react/macro";
 
-export function AddDeviceMenu() {
+interface AddDeviceMenuProps {
+  /** trigger 样式变体:default = 顶栏主按钮,compact = 紧凑按钮 */
+  variant?: "default" | "compact";
+}
+
+export function AddDeviceMenu({ variant = "compact" }: AddDeviceMenuProps = {}) {
   const navigate = useNavigate();
+
+  const triggerClass =
+    variant === "default"
+      ? "h-9 gap-1.5 rounded-lg px-3.5 text-[13px] font-medium"
+      : "h-auto gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium";
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="sm" className="h-auto gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium">
+        <Button size="sm" className={triggerClass}>
           <Plus className="size-4" />
-          <Trans>连接设备</Trans>
+          <Trans>添加设备</Trans>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">

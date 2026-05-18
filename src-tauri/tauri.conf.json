@@ -12,11 +12,15 @@
   "app": {
     "windows": [
       {
-        "title": "swarmdrop",
-        "width": 800,
-        "height": 600,
+        "title": "SwarmDrop",
+        "width": 1000,
+        "height": 720,
         "minWidth": 360,
-        "minHeight": 480
+        "minHeight": 480,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 12, "y": 22 }
       }
     ],
     "security": {
