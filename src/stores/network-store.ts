@@ -165,6 +165,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
       await shutdown();
       await cleanupEventListeners();
       usePairingStore.getState().reset();
+      usePairingStore.getState().clearActiveCode();
       set({
         status: "stopped",
         devices: [],
