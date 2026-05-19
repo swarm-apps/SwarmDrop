@@ -16,9 +16,10 @@ import { Platform, Pressable, TextInput, View } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { applyDeviceName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
-import { truncateMiddle } from "@/lib/utils";
+import { errorMessage, truncateMiddle } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
@@ -39,12 +40,7 @@ export function DeviceInfoCard() {
         pairedDeviceCount: s.devices.filter((d) => d.isPaired).length,
       })),
     );
-  const { deviceName, setDeviceName } = usePreferencesStore(
-    useShallow((s) => ({
-      deviceName: s.deviceName,
-      setDeviceName: s.setDeviceName,
-    })),
-  );
+  const deviceName = usePreferencesStore((s) => s.deviceName);
 
   const systemHostname = Device.deviceName ?? Device.modelName ?? "SwarmDrop";
   const displayName = deviceName || systemHostname;
@@ -64,11 +60,16 @@ export function DeviceInfoCard() {
     if (!editing) setNameInput(displayName);
   }, [editing, displayName]);
 
-  const handleSaveName = () => {
+  const handleSaveName = async () => {
     const trimmed = nameInput.trim();
     if (trimmed && trimmed !== deviceName) {
-      setDeviceName(trimmed);
-      toast.success(t`设备名称已更新`);
+      try {
+        await applyDeviceName(trimmed);
+        toast.success(t`设备名称已更新`);
+      } catch (err) {
+        toast.error(errorMessage(err));
+        return;
+      }
     }
     setEditing(false);
   };

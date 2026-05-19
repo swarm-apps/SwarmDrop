@@ -24,6 +24,8 @@ pub struct MobilePairingCode {
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileRemoteDeviceInfo {
     pub peer_id: String,
+    /// 对端用户起的设备名；缺省时 UI 回退到 hostname。
+    pub name: Option<String>,
     pub hostname: String,
     pub os: String,
     pub platform: String,
@@ -37,6 +39,7 @@ impl MobileRemoteDeviceInfo {
     fn from_record(peer_id: PeerId, record: ShareCodeRecord) -> Self {
         Self {
             peer_id: peer_id.to_string(),
+            name: record.os_info.name,
             hostname: record.os_info.hostname,
             os: record.os_info.os,
             platform: record.os_info.platform,

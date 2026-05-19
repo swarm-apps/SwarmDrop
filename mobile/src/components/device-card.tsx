@@ -3,6 +3,7 @@ import { Pressable, View } from "react-native";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { deviceDisplayName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { cn } from "@/lib/utils";
 
@@ -18,12 +19,13 @@ export function DeviceCard({ device, onPress }: DeviceCardProps) {
   const colors = useThemeColors();
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
   const isOnline = device.status === "online";
+  const displayName = deviceDisplayName(device);
 
   return (
     <Pressable
       onPress={() => onPress?.(device)}
       accessibilityRole="button"
-      accessibilityLabel={device.hostname}
+      accessibilityLabel={displayName}
       className={cn(
         "flex-1 gap-3 rounded-xl border border-border bg-card p-3.5",
         "active:opacity-70",
@@ -57,7 +59,7 @@ export function DeviceCard({ device, onPress }: DeviceCardProps) {
           className="text-sm font-semibold text-foreground"
           numberOfLines={1}
         >
-          {device.hostname}
+          {displayName}
         </Text>
         <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
           {device.os} · {device.platform}

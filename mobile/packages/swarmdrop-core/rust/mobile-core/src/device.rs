@@ -9,6 +9,8 @@ use crate::error::{FfiError, FfiResult};
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileDevice {
     pub peer_id: String,
+    /// 用户起的设备名；缺省时 UI 回退到 hostname。
+    pub name: Option<String>,
     pub hostname: String,
     pub os: String,
     pub platform: String,
@@ -23,6 +25,7 @@ impl From<Device> for MobileDevice {
     fn from(device: Device) -> Self {
         Self {
             peer_id: device.peer_id.to_string(),
+            name: device.os_info.name,
             hostname: device.os_info.hostname,
             os: device.os_info.os,
             platform: device.os_info.platform,

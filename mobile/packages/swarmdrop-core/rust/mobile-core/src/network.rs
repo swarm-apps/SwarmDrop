@@ -52,7 +52,11 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl MobileCore {
-    pub async fn start_node(&self, custom_bootstrap_nodes: Vec<String>) -> FfiResult<()> {
+    pub async fn start_node(
+        &self,
+        device_name: Option<String>,
+        custom_bootstrap_nodes: Vec<String>,
+    ) -> FfiResult<()> {
         let keypair = self.ensure_keypair().await?;
         let paired_devices =
             swarmdrop_core::identity::load_paired_devices(self.keychain()).await?;
@@ -65,6 +69,7 @@ impl MobileCore {
 
         let started = swarmdrop_core::runtime::start_node(
             keypair,
+            device_name,
             paired_devices,
             custom_bootstrap_nodes,
             move |client| {

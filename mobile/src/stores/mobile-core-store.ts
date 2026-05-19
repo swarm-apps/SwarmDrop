@@ -17,6 +17,8 @@ export type IdentityStatus = "idle" | "loading" | "ready" | "failed";
 /** 已配对设备的骨架信息 —— 节点未启动时也能显示 */
 export interface PairedDeviceSummary {
   peerId: string;
+  /** 对端用户起的设备名；持久化里可能没有（老数据），UI 用 name ?? hostname */
+  name?: string | null;
   hostname: string;
   os: string;
   platform: string;
@@ -33,6 +35,7 @@ function toPairedSummaries(devices: DeviceInfo[]): PairedDeviceSummary[] {
     .filter((d) => d.isPaired)
     .map((d) => ({
       peerId: d.peerId,
+      name: d.name,
       hostname: d.hostname,
       os: d.os,
       platform: d.platform,
@@ -131,8 +134,10 @@ export const useMobileCoreStore = create<MobileCoreState>()(
         set({ runtimeState: "starting", error: null });
         try {
           const core = await initMobileCore();
+          const prefs = usePreferencesStore.getState();
           await core.startNode(
-            usePreferencesStore.getState().customBootstrapNodes,
+            prefs.deviceName?.trim() || undefined,
+            prefs.customBootstrapNodes,
           );
           const networkStatus = await core.networkStatus();
           const devices = await core.listDevices("all");
@@ -234,6 +239,7 @@ export function summariesToOfflineDevices(
 ): DeviceInfo[] {
   return summaries.map((s) => ({
     peerId: s.peerId,
+    name: s.name ?? undefined,
     hostname: s.hostname,
     os: s.os,
     platform: s.platform,

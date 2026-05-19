@@ -18,7 +18,7 @@ export default function Welcome() {
 
   const onNext = () => {
     nextStep();
-    router.push("/onboarding/setup" as never);
+    router.push("/onboarding/device-name" as never);
   };
 
   return (
@@ -54,6 +54,7 @@ export default function Welcome() {
         </Pressable>
         <View style={styles.dots}>
           <View style={[styles.dot, styles.dotActive]} />
+          <View style={styles.dot} />
           <View style={styles.dot} />
         </View>
       </View>

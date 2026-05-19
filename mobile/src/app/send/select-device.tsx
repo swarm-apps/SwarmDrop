@@ -15,6 +15,7 @@ import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { deviceDisplayName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { errorMessage } from "@/lib/utils";
@@ -130,7 +131,7 @@ export default function SelectDevice() {
               device={d}
               sending={sendingTo === d.peerId}
               disabled={sendingTo !== null || d.status !== "online"}
-              onPress={() => onSend(d.peerId, d.hostname)}
+              onPress={() => onSend(d.peerId, deviceDisplayName(d))}
             />
           ))
         )}
@@ -156,13 +157,14 @@ function DeviceRow({
   const colors = useThemeColors();
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
   const isOnline = device.status === "online";
+  const displayName = deviceDisplayName(device);
 
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
-      accessibilityLabel={device.hostname}
+      accessibilityLabel={displayName}
       className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-3.5 active:opacity-70 disabled:opacity-50"
     >
       <View className="size-9 items-center justify-center rounded-full bg-muted">
@@ -173,7 +175,7 @@ function DeviceRow({
           className="text-[14px] font-semibold text-foreground"
           numberOfLines={1}
         >
-          {device.hostname}
+          {displayName}
         </Text>
         <View className="flex-row items-center gap-1">
           <View

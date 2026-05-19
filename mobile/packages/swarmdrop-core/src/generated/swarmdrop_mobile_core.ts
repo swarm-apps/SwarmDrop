@@ -98,6 +98,10 @@ const uniffiIsDebug =
 
 export type MobileDevice = {
     peerId: string,
+    /**
+     * 用户起的设备名；缺省时 UI 回退到 hostname。
+     */
+    name?: string,
     hostname: string,
     os: string,
     platform: string,
@@ -131,6 +135,7 @@ const FfiConverterTypeMobileDevice = (() => {
         read(from: RustBuffer): TypeName {
             return {
                 peerId: FfiConverterString.read(from), 
+                name: FfiConverterOptionalString.read(from), 
                 hostname: FfiConverterString.read(from), 
                 os: FfiConverterString.read(from), 
                 platform: FfiConverterString.read(from), 
@@ -143,6 +148,7 @@ const FfiConverterTypeMobileDevice = (() => {
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterString.write(value.peerId, into);
+            FfiConverterOptionalString.write(value.name, into);
             FfiConverterString.write(value.hostname, into);
             FfiConverterString.write(value.os, into);
             FfiConverterString.write(value.platform, into);
@@ -154,6 +160,7 @@ const FfiConverterTypeMobileDevice = (() => {
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.peerId) + 
+            FfiConverterOptionalString.allocationSize(value.name) + 
             FfiConverterString.allocationSize(value.hostname) + 
             FfiConverterString.allocationSize(value.os) + 
             FfiConverterString.allocationSize(value.platform) + 
@@ -722,6 +729,10 @@ const FfiConverterTypeMobilePreparedTransfer = (() => {
 
 export type MobileRemoteDeviceInfo = {
     peerId: string,
+    /**
+     * 对端用户起的设备名；缺省时 UI 回退到 hostname。
+     */
+    name?: string,
     hostname: string,
     os: string,
     platform: string,
@@ -754,6 +765,7 @@ const FfiConverterTypeMobileRemoteDeviceInfo = (() => {
         read(from: RustBuffer): TypeName {
             return {
                 peerId: FfiConverterString.read(from), 
+                name: FfiConverterOptionalString.read(from), 
                 hostname: FfiConverterString.read(from), 
                 os: FfiConverterString.read(from), 
                 platform: FfiConverterString.read(from), 
@@ -765,6 +777,7 @@ const FfiConverterTypeMobileRemoteDeviceInfo = (() => {
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterString.write(value.peerId, into);
+            FfiConverterOptionalString.write(value.name, into);
             FfiConverterString.write(value.hostname, into);
             FfiConverterString.write(value.os, into);
             FfiConverterString.write(value.platform, into);
@@ -775,6 +788,7 @@ const FfiConverterTypeMobileRemoteDeviceInfo = (() => {
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.peerId) + 
+            FfiConverterOptionalString.allocationSize(value.name) + 
             FfiConverterString.allocationSize(value.hostname) + 
             FfiConverterString.allocationSize(value.os) + 
             FfiConverterString.allocationSize(value.platform) + 
@@ -3996,7 +4010,7 @@ export interface MobileCoreLike {
     initializeIdentity(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileIdentity>;
     networkStatus(asyncOpts_?: { signal: AbortSignal }) : Promise<MobileNetworkStatus>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
-    startNode(customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    startNode(deviceName: string | undefined, customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     generatePairingCode(expiresInSecs: /*u64*/bigint, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingCode>;
     lookupDeviceByCode(code: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileRemoteDeviceInfo>;
     requestPairing(peerId: string, code: string | undefined, addrs: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingResult>;
@@ -4173,7 +4187,7 @@ async  shutdownNode(asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throw
     }
     }
     
-async  startNode(customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+async  startNode(deviceName: string | undefined, customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
@@ -4181,7 +4195,7 @@ async  startNode(customBootstrapNodes: Array<string>, asyncOpts_?: { signal: Abo
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterArrayString.lower(customBootstrapNodes)
+                    FfiConverterOptionalString.lower(deviceName),FfiConverterArrayString.lower(customBootstrapNodes)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -4659,7 +4673,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node() !== 33806) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 40720) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 42404) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pairing_code() !== 17271) {

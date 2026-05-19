@@ -284,6 +284,7 @@ extern "C" {
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(
         /*handle*/ uint64_t ptr, 
+        RustBuffer device_name, 
         RustBuffer custom_bootstrap_nodes
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_generate_pairing_code(
@@ -4880,7 +4881,7 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node"),
-        2,
+        3,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(rt, thisVal, args, count);
         }
@@ -5965,7 +5966,7 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2])
         );
 
         

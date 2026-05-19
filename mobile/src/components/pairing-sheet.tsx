@@ -2,6 +2,7 @@ import {
   BottomSheetBackdrop,
   type BottomSheetBackdropProps,
   BottomSheetModal,
+  BottomSheetScrollView,
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -14,18 +15,23 @@ import {
   forwardRef,
   useCallback,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
+import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
 import { usePairingCodeGenerator } from "@/hooks/usePairingCodeGenerator";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { deviceDisplayName } from "@/lib/device-name";
+import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { errorMessage } from "@/lib/utils";
+import { useMobileCoreStore } from "@/stores/mobile-core-store";
 
 export interface PairingSheetRef {
   present: () => void;
@@ -81,18 +87,40 @@ export const PairingSheet = forwardRef<PairingSheetRef, object>(
 
 function PairingTabs({ onDismiss }: { onDismiss: () => void }) {
   const { t } = useLingui();
-  const [tab, setTab] = useState("generate");
+  const nearbyDevices = useMobileCoreStore((s) =>
+    s.devices.filter((d) => !d.isPaired && d.status === "online"),
+  );
+  const isOnline = useMobileCoreStore((s) => s.runtimeState === "running");
+
+  // 默认 tab：有附近设备 → nearby；否则 generate。仅在 mount 时取一次。
+  const [tab, setTab] = useState(() =>
+    isOnline && nearbyDevices.length > 0 ? "nearby" : "generate",
+  );
+
   return (
     <Tabs value={tab} onValueChange={setTab} className="gap-5">
       <TabsList className="w-full flex-row">
+        <TabsTrigger value="nearby" className="flex-1">
+          <Text>
+            {t`附近`}
+            {nearbyDevices.length > 0 ? ` (${nearbyDevices.length})` : ""}
+          </Text>
+        </TabsTrigger>
         <TabsTrigger value="generate" className="flex-1">
-          <Text>{t`生成配对码`}</Text>
+          <Text>{t`生成`}</Text>
         </TabsTrigger>
         <TabsTrigger value="input" className="flex-1">
-          <Text>{t`输入配对码`}</Text>
+          <Text>{t`输入`}</Text>
         </TabsTrigger>
       </TabsList>
 
+      <TabsContent value="nearby">
+        <NearbyTab
+          isOnline={isOnline}
+          devices={nearbyDevices}
+          onDismiss={onDismiss}
+        />
+      </TabsContent>
       <TabsContent value="generate">
         <GenerateTab />
       </TabsContent>
@@ -100,6 +128,127 @@ function PairingTabs({ onDismiss }: { onDismiss: () => void }) {
         <InputTab onDismiss={onDismiss} />
       </TabsContent>
     </Tabs>
+  );
+}
+
+function NearbyTab({
+  isOnline,
+  devices,
+  onDismiss,
+}: {
+  isOnline: boolean;
+  devices: DeviceInfo[];
+  onDismiss: () => void;
+}) {
+  const router = useRouter();
+  const colors = useThemeColors();
+  const [pairingPeer, setPairingPeer] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const onPair = async (d: DeviceInfo) => {
+    if (pairingPeer !== null) return;
+    setError(null);
+    setPairingPeer(d.peerId);
+    try {
+      // 不传 code → mobile-core 走 PairingMethod::Direct
+      const result = await getMobileCore().requestPairing(
+        d.peerId,
+        undefined,
+        [],
+      );
+      if (!result.accepted) {
+        setError(result.reason ?? "配对被拒绝");
+        return;
+      }
+      onDismiss();
+      router.push({
+        pathname: "/pairing/success",
+        params: {
+          peerId: d.peerId,
+          name: d.name ?? "",
+          hostname: d.hostname,
+          os: d.os,
+          platform: d.platform,
+          arch: d.arch,
+        },
+      });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setPairingPeer(null);
+    }
+  };
+
+  if (!isOnline) {
+    return (
+      <View className="gap-2 items-center py-6">
+        <Text className="text-center text-[13px] text-muted-foreground">
+          <Trans>节点未启动 · 启动后才能发现附近设备</Trans>
+        </Text>
+      </View>
+    );
+  }
+
+  if (devices.length === 0) {
+    return (
+      <View className="gap-2 items-center py-6">
+        <ActivityIndicator color={colors.mutedForeground} />
+        <Text className="text-center text-[13px] text-muted-foreground">
+          <Trans>暂未发现附近设备{"\n"}确保对端 SwarmDrop 已启动</Trans>
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <BottomSheetScrollView
+      contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+    >
+      {devices.map((d) => {
+        const Icon = devicePlatformIcon(`${d.os} ${d.platform}`);
+        const isThisPairing = pairingPeer === d.peerId;
+        const disabled = pairingPeer !== null;
+        return (
+          <Pressable
+            key={d.peerId}
+            onPress={() => onPair(d)}
+            disabled={disabled}
+            accessibilityRole="button"
+            className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-3 active:opacity-70 disabled:opacity-50"
+          >
+            <View className="size-9 items-center justify-center rounded-full bg-muted">
+              <Icon color={colors.foreground} size={16} />
+            </View>
+            <View className="flex-1 gap-0.5">
+              <Text
+                className="text-[14px] font-semibold text-foreground"
+                numberOfLines={1}
+              >
+                {deviceDisplayName(d)}
+              </Text>
+              <Text
+                className="text-[11px] text-muted-foreground"
+                numberOfLines={1}
+              >
+                {d.platform} · {d.os}
+              </Text>
+            </View>
+            {isThisPairing ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <Text className="rounded-md bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
+                <Trans>配对</Trans>
+              </Text>
+            )}
+          </Pressable>
+        );
+      })}
+      {error !== null ? (
+        <Text className="pt-1 text-center text-[12px] text-destructive">
+          {error}
+        </Text>
+      ) : null}
+    </BottomSheetScrollView>
   );
 }
 
@@ -209,6 +358,7 @@ function InputTab({ onDismiss }: { onDismiss: () => void }) {
         params: {
           peerId: remote.peerId,
           code: filled,
+          name: remote.name ?? "",
           hostname: remote.hostname,
           os: remote.os,
           platform: remote.platform,

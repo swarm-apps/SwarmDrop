@@ -18,11 +18,13 @@ export default function FoundDevice() {
   const params = useLocalSearchParams<{
     peerId: string;
     code: string;
+    name?: string;
     hostname: string;
     os: string;
     platform: string;
     arch: string;
   }>();
+  const displayName = params.name?.trim() || params.hostname;
 
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +48,7 @@ export default function FoundDevice() {
         pathname: "/pairing/success" as never,
         params: {
           peerId: params.peerId,
+          name: params.name ?? "",
           hostname: params.hostname,
           os: params.os,
           platform: params.platform,
@@ -88,7 +91,13 @@ export default function FoundDevice() {
         </Text>
 
         <View style={styles.card}>
-          <Row label={t`主机名`} value={params.hostname} />
+          <Row label={t`设备名`} value={displayName} />
+          {params.name && params.name !== params.hostname ? (
+            <>
+              <Divider />
+              <Row label={t`主机名`} value={params.hostname} />
+            </>
+          ) : null}
           <Divider />
           <Row label={t`系统`} value={`${params.os} · ${params.arch}`} />
           <Divider />

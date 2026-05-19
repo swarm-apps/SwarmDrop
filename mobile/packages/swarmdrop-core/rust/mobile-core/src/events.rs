@@ -202,7 +202,11 @@ fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
         CoreEvent::PairedDeviceAdded { device } => MobileCoreEvent::PairedDeviceAdded {
             device: MobilePairedDevice {
                 peer_id: device.peer_id.to_string(),
-                device_name: device.os_info.hostname,
+                device_name: device
+                    .os_info
+                    .name
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or(device.os_info.hostname),
             },
         },
         CoreEvent::TransferOfferReceived { offer } => MobileCoreEvent::TransferOfferReceived {

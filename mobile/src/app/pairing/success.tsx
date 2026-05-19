@@ -9,11 +9,13 @@ export default function PairingSuccess() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     peerId: string;
+    name?: string;
     hostname: string;
     os: string;
     platform: string;
     arch: string;
   }>();
+  const displayName = params.name?.trim() || params.hostname;
 
   const finish = () => {
     router.dismissAll();
@@ -29,11 +31,17 @@ export default function PairingSuccess() {
           <Trans>配对成功</Trans>
         </Text>
         <Text style={styles.subtitle}>
-          <Trans>已与 {params.hostname} 建立安全连接</Trans>
+          <Trans>已与 {displayName} 建立安全连接</Trans>
         </Text>
 
         <View style={styles.card}>
-          <Row label={t`主机名`} value={params.hostname} />
+          <Row label={t`设备名`} value={displayName} />
+          {params.name && params.name !== params.hostname ? (
+            <>
+              <Divider />
+              <Row label={t`主机名`} value={params.hostname} />
+            </>
+          ) : null}
           <Divider />
           <Row label={t`系统`} value={`${params.os} · ${params.arch}`} />
           <Divider />

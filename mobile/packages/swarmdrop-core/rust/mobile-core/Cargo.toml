@@ -15,14 +15,11 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 uniffi = { version = "0.31.0", features = ["bindgen", "build", "cli", "tokio"] }
 uuid = { version = "1", features = ["v4"] }
-# SwarmDrop 主仓三个 workspace member —— 用 git ssh + develop 分支引用，
-# 不再依赖 ../../../../../swarmdrop 平级目录硬连。要与本地未提交改动联调时，
-# 临时把这三行改回 path = "../../../../../swarmdrop/crates/{core,entity,migration}"
-# 或加 [patch."ssh://git@github.com/swarm-apps/SwarmDrop.git"] section 即可。
-#
-# swarm-p2p-core 通过 swarmdrop-core 传递引用——SwarmDrop 主仓的 libs/ 是 submodule，
-# cargo git deps 默认会 fetch submodules（1.94+），所以不需要在这里再单独 dep。
-# 一旦单独 dep，会和 SwarmDrop 仓内的 libs/core 版本冲突，编译报"multiple versions"。
+# SwarmDrop 主仓四个 workspace member —— 用 git ssh + develop 分支引用，
+# 不再依赖 ../../../../../SwarmDrop 平级目录硬连。要与本地未提交改动联调时，
+# 把这四行改回 path = "../../../../../SwarmDrop/crates/{core,entity,migration}"
+# 和 path = "../../../../../SwarmDrop/libs/core"，git 与 path 不能混用，否则
+# swarm-p2p-core 会撞 "multiple versions"。
 swarmdrop-core = { git = "ssh://git@github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
 entity = { git = "ssh://git@github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
 migration = { git = "ssh://git@github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
