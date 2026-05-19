@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { DrawerActions, useNavigation } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { FileUp, Menu, Plus, Power, Smartphone } from "lucide-react-native";
+import { Menu, Plus, Smartphone } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -14,10 +14,6 @@ import {
 } from "@/components/node-control-sheet";
 import { PairingSheet, type PairingSheetRef } from "@/components/pairing-sheet";
 import { RecentTransferRow } from "@/components/recent-transfer-row";
-import {
-  SendOptionsSheet,
-  type SendOptionsSheetRef,
-} from "@/components/send-options-sheet";
 import { StatusPill } from "@/components/status-pill";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -36,7 +32,6 @@ export default function HomeScreen() {
   const { t } = useLingui();
   const pairingSheetRef = useRef<PairingSheetRef>(null);
   const nodeSheetRef = useRef<NodeControlSheetRef>(null);
-  const sendSheetRef = useRef<SendOptionsSheetRef>(null);
 
   const {
     devices,
@@ -138,15 +133,6 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView contentContainerClassName="flex-grow gap-5 px-5 pb-8">
-        {runtimeState !== "running" ? (
-          <NodeNotRunningBanner
-            onStart={() => nodeSheetRef.current?.present()}
-            state={runtimeState}
-          />
-        ) : null}
-
-        <SendHero onPress={() => sendSheetRef.current?.present()} />
-
         <View className="gap-3">
           <View className="flex-row items-center justify-between">
             <Text className="text-sm font-semibold text-foreground">
@@ -208,7 +194,6 @@ export default function HomeScreen() {
 
       <PairingSheet ref={pairingSheetRef} />
       <NodeControlSheet ref={nodeSheetRef} />
-      <SendOptionsSheet ref={sendSheetRef} />
     </SafeAreaView>
   );
 }
@@ -268,83 +253,5 @@ function EmptyDevices({ onAdd }: { onAdd: () => void }) {
         </Text>
       </Pressable>
     </View>
-  );
-}
-
-function SendHero({ onPress }: { onPress: () => void }) {
-  const colors = useThemeColors();
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      className="flex-row items-center gap-3 rounded-2xl bg-primary px-4 py-4 active:opacity-80"
-    >
-      <View className="size-11 items-center justify-center rounded-xl bg-primary-foreground/15">
-        <FileUp color={colors.background} size={22} />
-      </View>
-      <View className="flex-1 gap-0.5">
-        <Text className="text-[15px] font-semibold text-primary-foreground">
-          <Trans>发送文件</Trans>
-        </Text>
-        <Text className="text-[11px] text-primary-foreground/80">
-          <Trans>从文件 / 相册 / 视频中选择</Trans>
-        </Text>
-      </View>
-    </Pressable>
-  );
-}
-
-function NodeNotRunningBanner({
-  onStart,
-  state,
-}: {
-  onStart: () => void;
-  state: ReturnType<typeof useMobileCoreStore.getState>["runtimeState"];
-}) {
-  const colors = useThemeColors();
-  const isError = state === "error";
-  const isStarting = state === "starting";
-
-  return (
-    <Pressable
-      onPress={onStart}
-      accessibilityRole="button"
-      className={
-        isError
-          ? "flex-row items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-3 active:opacity-70"
-          : "flex-row items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-3 active:opacity-70"
-      }
-    >
-      <Power color={isError ? colors.destructive : colors.warning} size={18} />
-      <View className="flex-1 gap-0.5">
-        <Text
-          className={
-            isError
-              ? "text-[13px] font-semibold text-destructive"
-              : "text-[13px] font-semibold text-warning"
-          }
-        >
-          {isError ? (
-            <Trans>节点出错</Trans>
-          ) : isStarting ? (
-            <Trans>节点启动中...</Trans>
-          ) : (
-            <Trans>节点未启动</Trans>
-          )}
-        </Text>
-        <Text className="text-[11px] text-muted-foreground">
-          <Trans>启动节点后才能与其他设备通讯</Trans>
-        </Text>
-      </View>
-      <Text
-        className={
-          isError
-            ? "text-[12px] font-semibold text-destructive"
-            : "text-[12px] font-semibold text-warning"
-        }
-      >
-        {isError ? <Trans>重新启动</Trans> : <Trans>启动</Trans>}
-      </Text>
-    </Pressable>
   );
 }

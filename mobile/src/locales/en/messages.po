@@ -82,10 +82,6 @@ msgstr "Hostname"
 msgid "主题已更新"
 msgstr "Theme updated"
 
-#: src/app/(main)/index.tsx:290
-msgid "从文件 / 相册 / 视频中选择"
-msgstr "From files / photos / videos"
-
 #: src/components/send-options-sheet.tsx:96
 msgid "从相册选择图片"
 msgstr "Pick images from library"
@@ -171,10 +167,6 @@ msgstr "What to send?"
 msgid "发送失败"
 msgstr "Send failed"
 
-#: src/app/(main)/index.tsx:287
-msgid "发送文件"
-msgstr "Send files"
-
 #: src/app/pairing/found-device.tsx:123
 #: src/app/settings/bootstrap-nodes.tsx:186
 #: src/components/node-control-sheet.tsx:212
@@ -189,7 +181,6 @@ msgstr "Another device is requesting to pair with you"
 msgid "后台下载"
 msgstr "Download in background"
 
-#: src/app/(main)/index.tsx:346
 #: src/app/send/select-device.tsx:112
 msgid "启动"
 msgstr "Start"
@@ -201,10 +192,6 @@ msgstr "Starting"
 #: src/components/node-control-sheet.tsx:241
 msgid "启动节点"
 msgstr "Start node"
-
-#: src/app/(main)/index.tsx:336
-msgid "启动节点后才能与其他设备通讯"
-msgstr "Start the node to communicate with other devices"
 
 #: src/components/node-control-sheet.tsx:195
 msgid "启动节点后才能发现和连接其他设备"
@@ -341,7 +328,7 @@ msgstr "Current status"
 msgid "必须更新"
 msgstr "Update required"
 
-#: src/app/(main)/index.tsx:153
+#: src/app/(main)/index.tsx:139
 msgid "我的设备"
 msgstr "My devices"
 
@@ -349,7 +336,7 @@ msgstr "My devices"
 msgid "所有设备都离线"
 msgstr "All devices are offline"
 
-#: src/app/(main)/index.tsx:126
+#: src/app/(main)/index.tsx:121
 msgid "打开侧栏"
 msgstr "Open drawer"
 
@@ -448,7 +435,7 @@ msgstr "This device"
 msgid "查看保存位置"
 msgstr "View save location"
 
-#: src/app/(main)/index.tsx:187
+#: src/app/(main)/index.tsx:173
 msgid "查看全部"
 msgstr "View all"
 
@@ -469,7 +456,7 @@ msgstr "Downloading new version"
 msgid "正在下载新版本 · {percent}%"
 msgstr "Downloading · {percent}%"
 
-#: src/app/(main)/index.tsx:179
+#: src/app/(main)/index.tsx:165
 msgid "正在传输"
 msgstr "In progress"
 
@@ -505,7 +492,7 @@ msgstr "Light"
 msgid "深色"
 msgstr "Dark"
 
-#: src/app/(main)/index.tsx:163
+#: src/app/(main)/index.tsx:149
 #: src/app/settings/bootstrap-nodes.tsx:195
 msgid "添加"
 msgstr "Add"
@@ -514,7 +501,7 @@ msgstr "Add"
 msgid "添加自定义引导节点"
 msgstr "Add custom bootstrap node"
 
-#: src/app/(main)/index.tsx:267
+#: src/app/(main)/index.tsx:252
 #: src/app/send/select-device.tsx:250
 msgid "添加设备"
 msgstr "Add device"
@@ -596,21 +583,9 @@ msgstr "Network node"
 msgid "自动启动节点"
 msgstr "Auto-start node"
 
-#: src/app/(main)/index.tsx:328
-msgid "节点出错"
-msgstr "Node error"
-
-#: src/app/(main)/index.tsx:330
-msgid "节点启动中..."
-msgstr "Starting node..."
-
 #: src/app/settings/bootstrap-nodes.tsx:96
 msgid "节点已重启"
 msgstr "Node restarted"
-
-#: src/app/(main)/index.tsx:332
-msgid "节点未启动"
-msgstr "Node stopped"
 
 #: src/app/send/select-device.tsx:109
 msgid "节点未启动,启动后才能发送"
@@ -638,7 +613,7 @@ msgstr "Device name"
 msgid "设备名称已更新"
 msgstr "Device name updated"
 
-#: src/app/(main)/index.tsx:100
+#: src/app/(main)/index.tsx:95
 msgid "设备离线,暂无法发送"
 msgstr "Device is offline, cannot send"
 
@@ -714,7 +689,7 @@ msgstr "Back"
 msgid "返回主页"
 msgstr "Back to home"
 
-#: src/app/(main)/index.tsx:254
+#: src/app/(main)/index.tsx:239
 #: src/app/send/select-device.tsx:227
 msgid "还没有配对设备"
 msgstr "No paired devices yet"
@@ -753,7 +728,7 @@ msgstr "Choose language"
 msgid "通用"
 msgstr "General"
 
-#: src/app/(main)/index.tsx:257
+#: src/app/(main)/index.tsx:242
 msgid "通过配对码连接你的第一台设备"
 msgstr "Pair your first device with a code"
 
@@ -798,10 +773,6 @@ msgstr "Restart node"
 #: src/app/settings/bootstrap-nodes.tsx:98
 msgid "重启节点失败"
 msgstr "Restart failed"
-
-#: src/app/(main)/index.tsx:346
-msgid "重新启动"
-msgstr "Restart"
 
 #: src/components/pairing-sheet.tsx:168
 msgid "重新生成"
