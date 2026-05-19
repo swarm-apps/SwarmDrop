@@ -8,6 +8,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { pickTransferFiles } from "@/core/file-access";
 import { initMobileCore } from "@/core/mobile-core";
+import { usePairingCodeStore } from "@/stores/pairing-code-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 export type RuntimeState = "stopped" | "starting" | "running" | "error";
@@ -120,6 +121,8 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             startedAt: null,
             devices: [],
           });
+          // 节点停了，配对码也无效（不能通过 DHT 被对端找到）—— 清掉
+          usePairingCodeStore.getState().clear();
         } catch (err) {
           console.warn("[mobile-core-store] shutdownNode failed:", err);
         }

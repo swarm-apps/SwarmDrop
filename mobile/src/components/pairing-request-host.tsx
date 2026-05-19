@@ -19,6 +19,7 @@ import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { truncateMiddle } from "@/lib/utils";
 import { useNotificationStore } from "@/stores/notification-store";
+import { usePairingCodeStore } from "@/stores/pairing-code-store";
 
 const REQUEST_TTL_SECS = 60;
 
@@ -51,6 +52,11 @@ export function PairingRequestHost() {
           payload.code ?? undefined,
           accept,
         );
+        // Code 模式 accept 后，后端已消耗 active_code（参考 SwarmDrop
+        // pairing/manager.rs:282）；通知 store 续生新码（reject 不消耗，不动）
+        if (accept && payload.code !== undefined) {
+          usePairingCodeStore.getState().markConsumed();
+        }
       } catch (err) {
         console.warn(
           `[pairing-host] ${accept ? "accept" : "reject"} failed:`,

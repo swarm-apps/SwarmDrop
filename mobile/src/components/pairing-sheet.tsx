@@ -14,8 +14,8 @@ import { Copy, RefreshCcw } from "lucide-react-native";
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -25,13 +25,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
-import { usePairingCodeGenerator } from "@/hooks/usePairingCodeGenerator";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { errorMessage } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
+import { usePairingCodeStore } from "@/stores/pairing-code-store";
 
 export interface PairingSheetRef {
   present: () => void;
@@ -255,13 +255,23 @@ function NearbyTab({
 function GenerateTab() {
   const { t } = useLingui();
   const colors = useThemeColors();
-  const { code, expiresAt, generating, error, generate, reset } =
-    usePairingCodeGenerator();
+  const codeInfo = usePairingCodeStore((s) => s.codeInfo);
+  const generating = usePairingCodeStore((s) => s.generating);
+  const error = usePairingCodeStore((s) => s.error);
+  const ensure = usePairingCodeStore((s) => s.ensure);
+  const regenerate = usePairingCodeStore((s) => s.regenerate);
 
+  // 进入 tab 时确保有活跃码（已有未过期就 no-op；store 自带过期前续生）
+  useEffect(() => {
+    void ensure();
+  }, [ensure]);
+
+  // 倒计时仅展示用；过期续生由 store timer 负责，UI 不需 onExpire 回调
   const remaining = useExpiresCountdown(
-    code ? (expiresAt ?? null) : null,
-    reset,
+    codeInfo ? Number(codeInfo.expiresAt) * 1000 : null,
   );
+
+  const code = codeInfo?.code ?? null;
 
   const handleCopy = async () => {
     if (!code) return;
@@ -277,7 +287,7 @@ function GenerateTab() {
           <Trans>生成一个 6 位配对码,让其他设备输入它建立配对</Trans>
         </Text>
         <Pressable
-          onPress={generate}
+          onPress={() => void regenerate()}
           disabled={generating}
           accessibilityRole="button"
           className="w-full h-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
@@ -308,7 +318,7 @@ function GenerateTab() {
       <Text className="text-[12px] text-muted-foreground">{expiryLabel}</Text>
       <View className="flex-row gap-2 w-full">
         <Pressable
-          onPress={generate}
+          onPress={() => void regenerate()}
           accessibilityRole="button"
           className="flex-1 h-10 flex-row items-center justify-center gap-1.5 rounded-xl border border-border bg-card active:opacity-70"
         >
