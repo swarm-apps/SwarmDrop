@@ -13,12 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { usePreferencesStore } from "@/stores/preferences-store";
-import {
-  getMcpStatus,
-  startMcpServer,
-  stopMcpServer,
-  type McpStatus,
-} from "@/commands/mcp";
+import { commands, type McpStatus } from "@/lib/bindings";
 
 export function McpSection() {
   const { t } = useLingui();
@@ -37,7 +32,7 @@ export function McpSection() {
 
   // 挂载时查询后端真实状态
   useEffect(() => {
-    getMcpStatus().then(setStatus).catch(() => {});
+    commands.getMcpStatus().then(setStatus).catch(() => {});
   }, []);
 
   // mcpPort 变更时同步 portInput（hydration 后）
@@ -49,7 +44,7 @@ export function McpSection() {
     setLoading(true);
     try {
       if (status.running) {
-        const result = await stopMcpServer();
+        const result = await commands.stopMcpServer();
         setStatus(result);
         toast.success(t`MCP Server 已停止`);
       } else {
@@ -60,7 +55,7 @@ export function McpSection() {
           return;
         }
         setMcpPort(port);
-        const result = await startMcpServer(port);
+        const result = await commands.startMcpServer(port);
         setStatus(result);
         toast.success(t`MCP Server 已启动`);
       }

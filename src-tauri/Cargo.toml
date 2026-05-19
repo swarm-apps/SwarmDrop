@@ -58,7 +58,7 @@ axum = "0.8"
 url = "2"
 specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "serde_json"] }
 specta-typescript = "=0.0.12"
-tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
+tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript", "derive"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = [

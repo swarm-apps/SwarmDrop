@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { Trans } from "@lingui/react/macro";
-import type { DeviceInfo } from "@/commands/pairing";
+import type { DeviceInfo } from "@/lib/bindings";
 import { usePairingStore } from "@/stores/pairing-store";
 import { deviceDisplayName } from "@/lib/device-name";
 

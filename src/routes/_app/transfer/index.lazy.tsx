@@ -12,11 +12,8 @@ import { t } from "@lingui/core/macro";
 import { useTransferStore } from "@/stores/transfer-store";
 import { TransferItem } from "./-transfer-item";
 import { HistoryItem } from "./-history-item";
-import type {
-  TransferHistoryItem,
-  HistorySessionStatus,
-} from "@/commands/transfer";
-import { clearTransferHistory } from "@/commands/transfer";
+import { commands, type TransferHistoryItem } from "@/lib/bindings";
+import type { HistorySessionStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -79,7 +76,7 @@ function TransferPage() {
 
   const handleClearHistory = async () => {
     try {
-      await clearTransferHistory();
+      await commands.clearTransferHistory();
       await loadHistory();
       toast.success(t`已清空传输历史`);
     } catch (err) {

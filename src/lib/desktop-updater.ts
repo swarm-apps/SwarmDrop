@@ -5,14 +5,14 @@
  * 让 [`upgrade-link-store`](../stores/upgrade-link-store.ts) 只关心状态字段，
  * 不必再关心进度限速 / 速度计算的实现细节。
  *
- * UpgradeLink 端点和升级策略解析仍走 [`commands/upgrade`](../commands/upgrade.ts)。
+ * UpgradeLink 端点和升级策略解析仍走 [`lib/upgrade`](./upgrade.ts)。
  */
 
 import {
   check as checkDesktopUpdate,
   type Update,
 } from "@tauri-apps/plugin-updater";
-import { executeDesktopUpdate } from "@/commands/upgrade";
+import { executeDesktopUpdate } from "@/lib/upgrade";
 
 /** 下载进度回调每次接收到 chunk 时的当前快照。 */
 export interface DownloadSnapshot {

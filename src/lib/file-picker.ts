@@ -5,7 +5,8 @@
 
 import { open } from "@tauri-apps/plugin-dialog";
 import { downloadDir, join } from "@tauri-apps/api/path";
-import type { FileSource, SaveLocation } from "@/commands/transfer";
+import type { FileSource } from "@/lib/bindings";
+import type { SaveLocation } from "@/lib/types";
 
 const SAVE_DIR_NAME = "SwarmDrop";
 

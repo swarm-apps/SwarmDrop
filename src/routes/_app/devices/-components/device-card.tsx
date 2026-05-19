@@ -32,7 +32,7 @@ import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 import { useLingui } from "@lingui/react/macro";
 import { Trans } from "@lingui/react/macro";
-import type { Device, ConnectionType } from "@/commands/network";
+import type { Device, ConnectionType } from "@/lib/bindings";
 
 const connectionConfig: Record<
   ConnectionType,

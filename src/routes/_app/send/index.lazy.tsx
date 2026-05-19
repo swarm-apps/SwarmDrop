@@ -9,12 +9,14 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
+import { Channel } from "@tauri-apps/api/core";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Trans } from "@lingui/react/macro";
-import type { Device } from "@/commands/network";
-import type { FileSource, PrepareProgress } from "@/commands/transfer";
-import { prepareSend, startSend } from "@/commands/transfer";
+import type { Device } from "@/lib/bindings";
+import type { FileSource } from "@/lib/bindings";
+import type { PrepareProgress } from "@/lib/types";
+import { commands } from "@/lib/bindings";
 import { useTransferStore } from "@/stores/transfer-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
@@ -79,10 +81,12 @@ function SendPage() {
     try {
       // 将扫描到的文件列表传给后端计算 hash
       const scannedFiles = fileSelection.getScannedFiles();
-      const prepared = await prepareSend(scannedFiles, setPrepareProgress);
+      const progressChannel = new Channel<PrepareProgress>();
+      progressChannel.onmessage = setPrepareProgress;
+      const prepared = await commands.prepareSend(scannedFiles, progressChannel);
       const fileIds = prepared.files.map((f) => f.fileId);
       const displayName = deviceDisplayName(device);
-      const result = await startSend(
+      const result = await commands.startSend(
         prepared.preparedId,
         device.peerId,
         displayName,

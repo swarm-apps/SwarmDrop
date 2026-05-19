@@ -9,8 +9,9 @@
 import { useCallback, useMemo, useState } from "react";
 import { buildTreeDataFromOffer } from "@/components/file-tree";
 import type { TreeDataLoader } from "@/components/file-tree";
-import type { FileSource, ScannedFile } from "@/commands/transfer";
-import { scanSources } from "@/commands/transfer";
+import type { FileSource } from "@/lib/bindings";
+import type { ScannedFile } from "@/lib/types";
+import { commands } from "@/lib/bindings";
 
 export interface FileSelection {
   /** headless-tree 数据加载器 */
@@ -62,7 +63,7 @@ export function useFileSelection(): FileSelection {
   const addSources = useCallback(async (sources: FileSource[]) => {
     if (sources.length === 0) return;
 
-    const results = await scanSources(sources);
+    const results = await commands.scanSources(sources);
 
     const newFiles: ScannedFile[] = [];
     for (const result of results) {

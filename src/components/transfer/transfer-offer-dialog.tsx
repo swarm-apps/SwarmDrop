@@ -12,11 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { Trans } from "@lingui/react/macro";
 import { useTransferStore } from "@/stores/transfer-store";
-import {
-  acceptReceive,
-  rejectReceive,
-  type SaveLocation,
-} from "@/commands/transfer";
+import { commands } from "@/lib/bindings";
+import type { SaveLocation } from "@/lib/types";
 import { FileTree } from "@/components/file-tree";
 import { buildTreeDataFromOffer } from "@/components/file-tree";
 import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
@@ -86,7 +83,7 @@ export function TransferOfferDialog() {
     try {
       const saveLocation: SaveLocation = { type: "path", path: savePath };
 
-      await acceptReceive(currentOffer.sessionId, saveLocation);
+      await commands.acceptReceive(currentOffer.sessionId, saveLocation);
 
       addSession({
         sessionId: currentOffer.sessionId,
@@ -120,7 +117,7 @@ export function TransferOfferDialog() {
     if (!currentOffer) return;
     setProcessing(true);
     try {
-      await rejectReceive(currentOffer.sessionId);
+      await commands.rejectReceive(currentOffer.sessionId);
       // 从队列移除
     } catch (err) {
       toast.error(getErrorMessage(err));

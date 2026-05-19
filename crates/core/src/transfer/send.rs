@@ -16,7 +16,7 @@ use crate::transfer::manager::{
     generate_id, PreparedFile, StartSendResult, TransferManager,
 };
 use crate::transfer::progress::{
-    TransferAcceptedEvent, TransferDbErrorEvent, TransferDirection, TransferFailedEvent,
+    TransferAcceptedEvent, TransferDbErrorEvent, RuntimeTransferDirection, TransferFailedEvent,
     TransferRejectedEvent,
 };
 use crate::transfer::sender::SendSession;
@@ -92,7 +92,7 @@ impl TransferManager {
                         .publish(CoreEvent::TransferFailed {
                             event: TransferFailedEvent {
                                 session_id,
-                                direction: TransferDirection::Send,
+                                direction: RuntimeTransferDirection::Send,
                                 error,
                             },
                         })

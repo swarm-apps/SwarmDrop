@@ -19,7 +19,7 @@ use crate::transfer::crypto::generate_key;
 use crate::transfer::incoming::TransferCompleteOutcome;
 use crate::transfer::manager::{PendingOffer, TransferManager};
 use crate::transfer::progress::{
-    TransferDbErrorEvent, TransferDirection, TransferFailedEvent,
+    TransferDbErrorEvent, RuntimeTransferDirection, TransferFailedEvent,
 };
 use crate::transfer::receiver::ReceiveSession;
 use crate::{AppError, AppResult};
@@ -285,7 +285,7 @@ impl TransferManager {
         Ok(TransferCompleteOutcome {
             event: crate::transfer::progress::TransferCompleteEvent {
                 session_id,
-                direction: TransferDirection::Send,
+                direction: RuntimeTransferDirection::Send,
                 total_bytes,
                 elapsed_ms,
                 save_location: None,
@@ -315,7 +315,7 @@ impl TransferManager {
         }
         Ok(TransferFailedEvent {
             session_id,
-            direction: TransferDirection::Unknown,
+            direction: RuntimeTransferDirection::Unknown,
             error: format!("对方取消: {reason}"),
         })
     }
@@ -331,13 +331,13 @@ impl TransferManager {
                     .await;
             session.cancel();
             self.remove_send_session(&session_id);
-            TransferDirection::Send
+            RuntimeTransferDirection::Send
         } else if let Some(session) = self.get_receive_session(&session_id) {
             self.remove_receive_session(&session_id);
             session.cancel_and_wait().await;
-            TransferDirection::Receive
+            RuntimeTransferDirection::Receive
         } else {
-            TransferDirection::Unknown
+            RuntimeTransferDirection::Unknown
         };
 
         if let Err(e) = crate::database::ops::mark_session_paused(&self.db, session_id).await {

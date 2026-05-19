@@ -7,13 +7,13 @@
 import { useMemo, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { DeviceCard } from "./-components/device-card";
-import type { Device } from "@/commands/network";
+import type { Device } from "@/lib/bindings";
 import { Trans } from "@lingui/react/macro";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { usePairingStore } from "@/stores/pairing-store";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
-import { removePairedDevice } from "@/commands/pairing";
+import { commands } from "@/lib/bindings";
 import { OfflineEmptyState } from "./-components/offline-empty-state";
 import { AddDeviceMenu } from "./-components/add-device-menu";
 import { HomeRecentTransfers } from "./-components/home-recent-transfers";
@@ -74,7 +74,7 @@ function DevicesPage() {
 
   const handleUnpair = (device: Device) => {
     // 同时更新后端运行时状态(节点未运行时静默成功)
-    removePairedDevice(device.peerId);
+    commands.removePairedDevice(device.peerId);
     useSecretStore.getState().removePairedDevice(device.peerId);
   };
 

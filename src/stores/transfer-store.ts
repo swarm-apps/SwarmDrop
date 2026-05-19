@@ -1,30 +1,14 @@
 import { create } from "zustand";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
-  TRANSFER_OFFER,
-  TRANSFER_PROGRESS,
-  TRANSFER_COMPLETE,
-  TRANSFER_FAILED,
-  TRANSFER_ACCEPTED,
-  TRANSFER_REJECTED,
-  TRANSFER_PAUSED,
-  TRANSFER_RESUMED,
-  TRANSFER_DB_ERROR,
-} from "@/constants/events";
-import type {
-  TransferSession,
-  TransferOfferEvent,
-  TransferProgressEvent,
-  TransferCompleteEvent,
-  TransferFailedEvent,
-  TransferAcceptedEvent,
-  TransferRejectedEvent,
-  TransferPausedEvent,
-  TransferResumedEvent,
-  TransferDbErrorEvent,
-  TransferHistoryItem,
-} from "@/commands/transfer";
-import { getTransferHistory } from "@/commands/transfer";
+  commands,
+  events,
+  type TransferOfferEvent,
+  type TransferProgressEvent,
+  type TransferCompleteEvent,
+  type TransferFailedEvent,
+  type TransferHistoryItem,
+} from "@/lib/bindings";
+import type { TransferSession } from "@/lib/types";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 
@@ -45,7 +29,7 @@ interface TransferState {
   loadHistory: () => Promise<void>;
 }
 
-let unlistenFns: UnlistenFn[] = [];
+let unlistenFns: Array<() => void> = [];
 
 export async function setupTransferListeners() {
   await cleanupTransferListeners();
@@ -53,32 +37,38 @@ export async function setupTransferListeners() {
   await useTransferStore.getState().loadHistory();
 
   const fns = await Promise.all([
-    listen<TransferOfferEvent>(TRANSFER_OFFER, (event) => {
+    events.transferOffer.listen((event) => {
       useTransferStore.getState().pushOffer(event.payload);
     }),
 
-    listen<TransferProgressEvent>(TRANSFER_PROGRESS, (event) => {
+    events.transferProgress.listen((event) => {
       useTransferStore.getState().updateProgress(event.payload);
     }),
 
-    listen<TransferCompleteEvent>(TRANSFER_COMPLETE, (event) => {
+    events.transferComplete.listen((event) => {
       useTransferStore.getState().completeSession(event.payload);
     }),
 
-    listen<TransferFailedEvent>(TRANSFER_FAILED, (event) => {
+    events.transferFailed.listen((event) => {
       useTransferStore.getState().failSession(event.payload);
     }),
 
-    listen<TransferPausedEvent>(TRANSFER_PAUSED, (event) => {
+    events.transferPaused.listen((event) => {
       // 对端暂停传输：移除活跃 session，刷新历史（DB 中已标记为 paused）
       removeAndRefresh(event.payload.sessionId);
       toast.info(t`对方已暂停传输`);
     }),
 
-    listen<TransferResumedEvent>(TRANSFER_RESUMED, (event) => {
+    events.transferResumed.listen((event) => {
       // 对端（发送方）发起恢复传输：添加到活跃 session，刷新历史
       const { sessionId, direction, peerId, peerName, files, totalSize } =
         event.payload;
+      // resume 路径只对已建立的 session 触发，方向必然是 send/receive；
+      // 收到 "unknown" 视为后端 bug，跳过避免污染 store。
+      if (direction === "unknown") {
+        console.warn(`[transferResumed] ignoring unknown direction: ${sessionId}`);
+        return;
+      }
       useTransferStore.getState().addSession({
         sessionId,
         direction,
@@ -95,7 +85,7 @@ export async function setupTransferListeners() {
       useTransferStore.getState().loadHistory();
     }),
 
-    listen<TransferAcceptedEvent>(TRANSFER_ACCEPTED, (event) => {
+    events.transferAccepted.listen((event) => {
       const { sessionId } = event.payload;
       useTransferStore.setState((state) => {
         const session = state.sessions[sessionId];
@@ -109,7 +99,7 @@ export async function setupTransferListeners() {
       });
     }),
 
-    listen<TransferRejectedEvent>(TRANSFER_REJECTED, (event) => {
+    events.transferRejected.listen((event) => {
       const { sessionId, reason } = event.payload;
       useTransferStore.setState((state) => {
         const { [sessionId]: _, ...rest } = state.sessions;
@@ -122,7 +112,7 @@ export async function setupTransferListeners() {
       }
     }),
 
-    listen<TransferDbErrorEvent>(TRANSFER_DB_ERROR, (event) => {
+    events.transferDbError.listen((event) => {
       const { message } = event.payload;
       toast.error(message);
     }),
@@ -219,7 +209,7 @@ export const useTransferStore = create<TransferState>()((set, get) => ({
 
   async loadHistory() {
     try {
-      const items = await getTransferHistory();
+      const items = await commands.getTransferHistory(null);
       set({ dbHistory: items });
     } catch (e) {
       console.error("加载传输历史失败:", e);

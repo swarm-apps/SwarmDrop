@@ -12,7 +12,7 @@ use super::calc_total_chunks;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]
-pub enum TransferDirection {
+pub enum RuntimeTransferDirection {
     Send,
     Receive,
     Unknown,
@@ -49,7 +49,7 @@ pub struct FileProgressInfo {
 #[serde(rename_all = "camelCase")]
 pub struct TransferProgressEvent {
     pub session_id: Uuid,
-    pub direction: TransferDirection,
+    pub direction: RuntimeTransferDirection,
     pub total_files: usize,
     pub completed_files: usize,
     pub total_bytes: u64,
@@ -64,7 +64,7 @@ pub struct TransferProgressEvent {
 #[serde(rename_all = "camelCase")]
 pub struct TransferCompleteEvent {
     pub session_id: Uuid,
-    pub direction: TransferDirection,
+    pub direction: RuntimeTransferDirection,
     pub total_bytes: u64,
     pub elapsed_ms: u64,
     pub save_location: Option<CoreSaveLocation>,
@@ -75,7 +75,7 @@ pub struct TransferCompleteEvent {
 #[serde(rename_all = "camelCase")]
 pub struct TransferFailedEvent {
     pub session_id: Uuid,
-    pub direction: TransferDirection,
+    pub direction: RuntimeTransferDirection,
     pub error: String,
 }
 
@@ -84,7 +84,7 @@ pub struct TransferFailedEvent {
 #[serde(rename_all = "camelCase")]
 pub struct TransferPausedEvent {
     pub session_id: Uuid,
-    pub direction: TransferDirection,
+    pub direction: RuntimeTransferDirection,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,7 +92,7 @@ pub struct TransferPausedEvent {
 #[serde(rename_all = "camelCase")]
 pub struct TransferResumedEvent {
     pub session_id: Uuid,
-    pub direction: TransferDirection,
+    pub direction: RuntimeTransferDirection,
     pub peer_id: String,
     pub peer_name: String,
     pub files: Vec<TransferResumedFileInfo>,
@@ -162,7 +162,7 @@ pub struct FileDesc {
 
 pub struct ProgressTracker {
     session_id: Uuid,
-    direction: TransferDirection,
+    direction: RuntimeTransferDirection,
     total_bytes: u64,
     transferred_bytes: u64,
     total_files: usize,
@@ -179,7 +179,7 @@ const SPEED_WINDOW: Duration = Duration::from_secs(3);
 impl ProgressTracker {
     pub fn new(
         session_id: Uuid,
-        direction: TransferDirection,
+        direction: RuntimeTransferDirection,
         total_bytes: u64,
         total_files: usize,
     ) -> Self {
@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn progress_event_should_include_file_and_byte_progress() {
         let session_id = Uuid::new_v4();
-        let mut tracker = ProgressTracker::new(session_id, TransferDirection::Send, 10, 1);
+        let mut tracker = ProgressTracker::new(session_id, RuntimeTransferDirection::Send, 10, 1);
         tracker.init_files_with_resume(
             &[FileDesc {
                 file_id: 1,
@@ -385,7 +385,7 @@ mod tests {
         let mut resume_state = HashMap::new();
         resume_state.insert(7, (1, 5));
 
-        let mut tracker = ProgressTracker::new(Uuid::new_v4(), TransferDirection::Receive, 5, 1);
+        let mut tracker = ProgressTracker::new(Uuid::new_v4(), RuntimeTransferDirection::Receive, 5, 1);
         tracker.init_files_with_resume(
             &[FileDesc {
                 file_id: 7,

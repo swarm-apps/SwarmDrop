@@ -6,17 +6,20 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
-import type { PairingCodeInfo, DeviceInfo, PairingResponse, PairingMethod, PairingRefuseReason } from "@/commands/pairing";
 import {
-  generatePairingCode,
-  getDeviceInfo,
-  requestPairing,
-  respondPairingRequest,
-} from "@/commands/pairing";
-import type { PeerId } from "@/commands/network";
+  commands,
+  type DeviceInfo,
+  type PairingCodeInfo,
+  type PairingRefuseReason,
+  type PairingRequestPayload,
+  type PairingResponse,
+} from "@/lib/bindings";
+import type { PeerId } from "@/lib/types";
 import { isErrorKind, getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { useNetworkStore } from "@/stores/network-store";
+
+export type { PairingRequestPayload };
 
 /** 请求超时时间（毫秒） */
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -69,23 +72,6 @@ export type PairingPhase =
   | { phase: "success"; peerId: string; deviceName: string }
   | { phase: "error"; message: string };
 
-/**
- * 入站配对请求 payload（对应后端 events.rs::PairingRequestPayload）。
- *
- * Tauri Event `PAIRING_REQUEST_RECEIVED` 的 payload 形态——network-store 收到事件后
- * 直接调 `usePairingStore.getState().handleInboundRequest(payload)`，避免 `as any`。
- */
-export interface PairingRequestPayload {
-  peerId: PeerId;
-  pendingId: number;
-  osInfo: { hostname: string; os: string; platform: string; arch: string };
-  timestamp: number;
-  method: PairingMethod;
-}
-
-/** @deprecated 使用 [`PairingRequestPayload`] 替代，名称已统一对齐后端类型 */
-type QueuedInboundRequest = PairingRequestPayload;
-
 interface PairingState {
   /** 当前出站配对阶段 */
   current: PairingPhase;
@@ -100,9 +86,9 @@ interface PairingState {
   /** 生成配对码时的错误（瞬时；下一次 generate 清空） */
   codeError: string | null;
   /** 当前展示的入站配对请求（独立于出站流程） */
-  incomingRequest: QueuedInboundRequest | null;
+  incomingRequest: PairingRequestPayload | null;
   /** 入站请求队列（当前已有入站请求展示时排队） */
-  inboundQueue: QueuedInboundRequest[];
+  inboundQueue: PairingRequestPayload[];
 
   // === Actions ===
 
@@ -121,7 +107,7 @@ interface PairingState {
   /** 发起配对请求（Code 模式） */
   sendPairingRequest: () => Promise<void>;
   /** 处理收到的入站配对请求 */
-  handleInboundRequest: (payload: QueuedInboundRequest) => void;
+  handleInboundRequest: (payload: PairingRequestPayload) => void;
   /** 接受配对请求，返回是否成功 */
   acceptRequest: () => Promise<boolean>;
   /** 拒绝配对请求 */
@@ -177,7 +163,7 @@ export const usePairingStore = create<PairingState>()(
     async generateCode() {
       set({ codeError: null });
       try {
-        const codeInfo = await generatePairingCode(300); // 5 分钟
+        const codeInfo = await commands.generatePairingCode(300); // 5 分钟
         set({
           activeCode: codeInfo,
           current: { phase: "generating", codeInfo },
@@ -215,7 +201,7 @@ export const usePairingStore = create<PairingState>()(
       set({ current: { phase: "searching", code } });
       try {
         const deviceInfo = await withTimeout(
-          getDeviceInfo(code),
+          commands.getDeviceInfo(code),
           SEARCH_TIMEOUT_MS,
           t`查找设备`,
         );
@@ -240,7 +226,7 @@ export const usePairingStore = create<PairingState>()(
 
       try {
         const response: PairingResponse = await withTimeout(
-          requestPairing(deviceInfo.peerId, { type: "code", code }, deviceInfo.codeRecord.listenAddrs),
+          commands.requestPairing(deviceInfo.peerId, { type: "code", code }, deviceInfo.codeRecord.listenAddrs ?? null),
           REQUEST_TIMEOUT_MS,
           t`配对请求`,
         );
@@ -269,7 +255,7 @@ export const usePairingStore = create<PairingState>()(
       }
     },
 
-    handleInboundRequest(payload: QueuedInboundRequest) {
+    handleInboundRequest(payload: PairingRequestPayload) {
       const { incomingRequest } = get();
 
       if (incomingRequest === null) {
@@ -289,7 +275,7 @@ export const usePairingStore = create<PairingState>()(
       // 立即清空，防止双击导致重复发送响应（pending channel 只能消费一次）
       set({ incomingRequest: null });
       try {
-        await respondPairingRequest(
+        await commands.respondPairingRequest(
           pendingId,
           method,
           { status: "success" },
@@ -329,7 +315,7 @@ export const usePairingStore = create<PairingState>()(
       // 立即清空，防止双击导致重复发送响应
       set({ incomingRequest: null });
       try {
-        await respondPairingRequest(
+        await commands.respondPairingRequest(
           pendingId,
           method,
           { status: "refused", reason: { type: "user_rejected" } },
@@ -350,7 +336,7 @@ export const usePairingStore = create<PairingState>()(
 
       try {
         const response: PairingResponse = await withTimeout(
-          requestPairing(peerId, { type: "direct" }),
+          commands.requestPairing(peerId, { type: "direct" }, null),
           REQUEST_TIMEOUT_MS,
           t`配对请求`,
         );

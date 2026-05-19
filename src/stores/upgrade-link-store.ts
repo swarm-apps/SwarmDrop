@@ -8,7 +8,7 @@
 import { create } from "zustand";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { checkForUpdate, type UpgradeType } from "@/commands/upgrade";
+import { checkForUpdate, type UpgradeType } from "@/lib/upgrade";
 import {
   fetchDesktopUpdate,
   runDesktopUpdate,

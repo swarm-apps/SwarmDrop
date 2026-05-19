@@ -9,25 +9,10 @@
  */
 
 import { create } from "zustand";
-import { initializeIdentity } from "@/commands/identity";
+import { commands, type PairedDeviceInfo } from "@/lib/bindings";
 
-/** 已配对设备信息（与后端 PairedDeviceInfo 对齐）。 */
-export interface PairedDevice {
-  /** PeerId */
-  peerId: string;
-  /** 用户起的设备名（onboarding / 设置里设的），缺省时回退到 hostname */
-  name?: string | null;
-  /** 设备主机名 */
-  hostname: string;
-  /** 操作系统类型 */
-  os: string;
-  /** 平台 */
-  platform: string;
-  /** 架构 */
-  arch: string;
-  /** 配对时间戳 */
-  pairedAt: number;
-}
+/** 已配对设备信息（直接复用后端 specta 生成类型）。 */
+export type PairedDevice = PairedDeviceInfo;
 
 interface SecretState {
   /** protobuf 编码的密钥对，仅作为运行时镜像 */
@@ -55,7 +40,7 @@ export const useSecretStore = create<SecretState>()((set, get) => ({
   setHasHydrated: (state) => set({ _hasHydrated: state }),
 
   async init() {
-    const identity = await initializeIdentity();
+    const identity = await commands.initializeIdentity();
     set({
       keypair: identity.keypair,
       deviceId: identity.deviceId,

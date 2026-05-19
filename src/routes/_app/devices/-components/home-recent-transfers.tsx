@@ -14,7 +14,7 @@ import {
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useTransferStore } from "@/stores/transfer-store";
 import { formatRelativeTime } from "@/lib/format";
-import type { TransferHistoryItem } from "@/commands/transfer";
+import type { TransferHistoryItem } from "@/lib/bindings";
 import { cn } from "@/lib/utils";
 
 const MAX_ROWS = 5;

@@ -1,11 +1,12 @@
-use crate::events;
+use crate::events::PairedDeviceAdded;
 use crate::network::NetManagerState;
 use crate::AppResult;
 use swarmdrop_core::pairing::code::{PairingCodeInfo, ShareCodeRecord};
 use swarmdrop_core::protocol::{PairingMethod, PairingResponse};
 use serde::{Deserialize, Serialize};
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
+use tauri_specta::Event as _;
 
 use crate::host::keychain::DesktopKeychainProvider;
 use crate::AppError;
@@ -83,7 +84,7 @@ pub async fn request_pairing(
 
     if let Some(info) = paired_info {
         persist_paired_device(info.clone()).await?;
-        let _ = app.emit(events::PAIRED_DEVICE_ADDED, &info);
+        let _ = PairedDeviceAdded(info).emit(&app);
     }
 
     Ok(response)
@@ -132,7 +133,7 @@ pub async fn respond_pairing_request(
 
     if let Some(info) = paired_info {
         persist_paired_device(info.clone()).await?;
-        let _ = app.emit(events::PAIRED_DEVICE_ADDED, &info);
+        let _ = PairedDeviceAdded(info).emit(&app);
     }
 
     Ok(())

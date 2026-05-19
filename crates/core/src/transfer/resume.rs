@@ -20,7 +20,7 @@ use crate::transfer::crypto::generate_key;
 use crate::transfer::manager::{
     PreparedFile, ResumeFileInfo, ResumeInfo, TransferManager,
 };
-use crate::transfer::progress::TransferDirection;
+use crate::transfer::progress::RuntimeTransferDirection;
 use crate::transfer::sender::SendSession;
 use crate::transfer::{calc_total_chunks, CHUNK_SIZE};
 use crate::{AppError, AppResult};
@@ -311,7 +311,7 @@ impl TransferManager {
             .publish(CoreEvent::TransferResumed {
                 event: crate::transfer::progress::TransferResumedEvent {
                     session_id,
-                    direction: TransferDirection::Receive,
+                    direction: RuntimeTransferDirection::Receive,
                     peer_id: peer_id_str,
                     peer_name,
                     files: resumed_files,

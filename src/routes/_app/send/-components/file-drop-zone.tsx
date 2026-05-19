@@ -8,7 +8,7 @@ import { CloudUpload } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { cn } from "@/lib/utils";
 import { pickFiles, pickFolderAsSource } from "@/lib/file-picker";
-import type { FileSource } from "@/commands/transfer";
+import type { FileSource } from "@/lib/bindings";
 
 interface FileDropZoneProps {
   onSourcesSelected: (sources: FileSource[]) => void;

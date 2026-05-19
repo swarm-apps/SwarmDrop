@@ -18,7 +18,7 @@ use crate::host::{EventBus, FileAccess};
 use crate::protocol::TransferResponse;
 use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::manager::PreparedFile;
-use crate::transfer::progress::{FileDesc, ProgressTracker, TransferDirection};
+use crate::transfer::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
 use crate::transfer::{calc_total_chunks, CHUNK_SIZE};
 use crate::{AppError, AppResult};
 
@@ -104,7 +104,7 @@ impl SendSession {
 
         let mut tracker = ProgressTracker::new(
             session_id,
-            TransferDirection::Send,
+            RuntimeTransferDirection::Send,
             total_bytes,
             total_files,
         );

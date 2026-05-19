@@ -3,16 +3,18 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use serde::Serialize;
-use swarm_p2p_core::libp2p::PeerId;
 use swarmdrop_core::host::{CoreEvent, EventBus};
-use swarmdrop_core::protocol::PairingRequest;
 use swarmdrop_core::transfer::progress::PrepareProgressEvent;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter};
+use tauri_specta::Event as _;
 use uuid::Uuid;
 
-use crate::events;
+use crate::events::{
+    DevicesChanged, NetworkStatusChanged, PairedDeviceAdded, PairingRequestPayload,
+    PairingRequestReceived, TransferAccepted, TransferComplete, TransferDbError, TransferFailed,
+    TransferOffer, TransferPaused, TransferProgress, TransferRejected, TransferResumed,
+};
 
 /// 把 core 的 [`CoreEvent`] 翻译为 Tauri `app.emit(...)`。
 ///
@@ -76,15 +78,6 @@ impl Drop for PrepareChannelGuard {
     }
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct PairingRequestPayload {
-    pub peer_id: PeerId,
-    pub pending_id: u64,
-    #[serde(flatten)]
-    pub request: PairingRequest,
-}
-
 #[async_trait::async_trait]
 impl EventBus for TauriEventBus {
     async fn publish(&self, event: CoreEvent) -> swarmdrop_core::AppResult<()> {
@@ -92,14 +85,10 @@ impl EventBus for TauriEventBus {
 
         match event {
             CoreEvent::NetworkStatusChanged { status } => {
-                self.app
-                    .emit(events::NETWORK_STATUS_CHANGED, &status)
-                    .map_err(map_err)?;
+                NetworkStatusChanged(status).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::DevicesChanged { devices } => {
-                self.app
-                    .emit(events::DEVICES_CHANGED, &devices)
-                    .map_err(map_err)?;
+                DevicesChanged(devices).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::PairingRequestReceived {
                 peer_id,
@@ -107,67 +96,47 @@ impl EventBus for TauriEventBus {
                 request,
             } => {
                 let payload = PairingRequestPayload {
-                    peer_id,
+                    peer_id: peer_id.to_string(),
                     pending_id,
                     request,
                 };
-                self.app
-                    .emit(events::PAIRING_REQUEST_RECEIVED, &payload)
+                PairingRequestReceived(payload)
+                    .emit(&self.app)
                     .map_err(map_err)?;
             }
             CoreEvent::PairingCompleted { .. } => {}
             CoreEvent::PairedDeviceAdded { device } => {
-                self.app
-                    .emit(events::PAIRED_DEVICE_ADDED, &device)
-                    .map_err(map_err)?;
+                PairedDeviceAdded(device).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::TransferOfferReceived { offer } => {
-                self.app
-                    .emit(events::TRANSFER_OFFER, &offer)
-                    .map_err(map_err)?;
+                TransferOffer(offer).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::TransferProgress { event } => {
-                self.app
-                    .emit(events::TRANSFER_PROGRESS, &event)
-                    .map_err(map_err)?;
+                TransferProgress(event).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::TransferAccepted { event } => {
-                self.app
-                    .emit(events::TRANSFER_ACCEPTED, &event)
-                    .map_err(map_err)?;
+                TransferAccepted(event).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::TransferRejected { event } => {
-                self.app
-                    .emit(events::TRANSFER_REJECTED, &event)
-                    .map_err(map_err)?;
+                TransferRejected(event).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::TransferCompleted { event } => {
-                self.app
-                    .emit(events::TRANSFER_COMPLETE, &event)
-                    .map_err(map_err)?;
+                TransferComplete(event).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::TransferFailed { event } => {
-                self.app
-                    .emit(events::TRANSFER_FAILED, &event)
-                    .map_err(map_err)?;
+                TransferFailed(event).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::TransferPaused { event } => {
-                self.app
-                    .emit(events::TRANSFER_PAUSED, &event)
-                    .map_err(map_err)?;
+                TransferPaused(event).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::TransferResumed { event } => {
-                self.app
-                    .emit(events::TRANSFER_RESUMED, &event)
-                    .map_err(map_err)?;
+                TransferResumed(event).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::TransferDbError { event } => {
-                self.app
-                    .emit(events::TRANSFER_DB_ERROR, &event)
-                    .map_err(map_err)?;
+                TransferDbError(event).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::PrepareProgress { event } => {
-                // 优先走 per-call channel；没有时退化为全局 emit
+                // 优先走 per-call channel；没有时退化为全局 emit（fallback 路径）
                 if let Some(channel) = self.prepare_channels.get(&event.prepared_id) {
                     let _ = channel.send(event);
                 } else {

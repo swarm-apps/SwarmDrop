@@ -4,27 +4,15 @@
  */
 
 import { create } from "zustand";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Device, NetworkStatus } from "@/commands/network";
 import {
-  start,
-  shutdown,
-  listDevices,
-  getNetworkStatus,
-} from "@/commands/network";
-import { startMcpServer } from "@/commands/mcp";
-import {
-  DEVICES_CHANGED,
-  NETWORK_STATUS_CHANGED,
-  PAIRING_REQUEST_RECEIVED,
-  PAIRED_DEVICE_ADDED,
-} from "@/constants/events";
+  commands,
+  events,
+  type Device,
+  type NetworkStatus,
+} from "@/lib/bindings";
 import { getErrorMessage } from "@/lib/errors";
-import { useSecretStore, type PairedDevice } from "@/stores/secret-store";
-import {
-  usePairingStore,
-  type PairingRequestPayload,
-} from "@/stores/pairing-store";
+import { useSecretStore } from "@/stores/secret-store";
+import { usePairingStore } from "@/stores/pairing-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 /** 节点状态（前端 UI 生命周期） */
@@ -60,8 +48,8 @@ interface NetworkState {
   clearError: () => void;
 }
 
-// Tauri Event 监听器清理函数
-let unlistenFns: UnlistenFn[] = [];
+// Tauri Event 监听器清理函数（events.xxx.listen 返回 () => void）
+let unlistenFns: Array<() => void> = [];
 
 /** 设置 Tauri Event 监听（直接接收后端推送的 payload） */
 async function setupEventListeners() {
@@ -70,12 +58,12 @@ async function setupEventListeners() {
 
   const fns = await Promise.all([
     // 设备列表变更（后端推送完整列表）
-    listen<Device[]>(DEVICES_CHANGED, (event) => {
+    events.devicesChanged.listen((event) => {
       useNetworkStore.setState({ devices: event.payload });
     }),
 
     // 网络状态变更（后端推送完整状态，同时判断节点是否已启动）
-    listen<NetworkStatus>(NETWORK_STATUS_CHANGED, (event) => {
+    events.networkStatusChanged.listen((event) => {
       const store = useNetworkStore.getState();
       const updates: Partial<NetworkState> = { networkStatus: event.payload };
       if (event.payload.status === "running" && store.status !== "running") {
@@ -86,12 +74,12 @@ async function setupEventListeners() {
     }),
 
     // 配对请求（转发给 pairing-store）
-    listen<PairingRequestPayload>(PAIRING_REQUEST_RECEIVED, (event) => {
+    events.pairingRequestReceived.listen((event) => {
       usePairingStore.getState().handleInboundRequest(event.payload);
     }),
 
     // 配对成功（后端已添加到运行时，并写入 host keychain 持久化）
-    listen<PairedDevice>(PAIRED_DEVICE_ADDED, (event) => {
+    events.pairedDeviceAdded.listen((event) => {
       useSecretStore.getState().addPairedDevice(event.payload);
     }),
   ]);
@@ -137,11 +125,11 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
       await setupEventListeners();
 
       const { customBootstrapNodes, mcp } = usePreferencesStore.getState();
-      await start(pairedDevices, customBootstrapNodes);
+      await commands.start(pairedDevices, customBootstrapNodes);
 
       // 如果启用了 MCP 自动启动，启动 MCP Server
       if (mcp.autoStart) {
-        startMcpServer(mcp.port).catch((err) => {
+        commands.startMcpServer(mcp.port).catch((err) => {
           console.error("Failed to auto-start MCP server:", err);
         });
       }
@@ -162,7 +150,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
     if (status !== "running") return;
 
     try {
-      await shutdown();
+      await commands.shutdown();
       await cleanupEventListeners();
       usePairingStore.getState().reset();
       usePairingStore.getState().clearActiveCode();
@@ -180,7 +168,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
 
   async fetchDevices(filter) {
     try {
-      const result = await listDevices(filter);
+      const result = await commands.listDevices(filter ?? null);
       set({ devices: result.devices });
     } catch (err) {
       console.error("Failed to fetch devices:", err);
@@ -189,7 +177,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
 
   async fetchNetworkStatus() {
     try {
-      const status = await getNetworkStatus();
+      const status = await commands.getNetworkStatus();
       set({ networkStatus: status });
     } catch (err) {
       console.error("Failed to fetch network status:", err);

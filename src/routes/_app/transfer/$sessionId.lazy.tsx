@@ -30,7 +30,8 @@ import { getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileTree } from "@/components/file-tree";
 import { buildTreeDataFromSession } from "@/components/file-tree";
-import type { TransferSession, TransferHistoryItem } from "@/commands/transfer";
+import type { TransferHistoryItem } from "@/lib/bindings";
+import type { TransferSession } from "@/lib/types";
 import {
   calcPercent,
   isActiveStatus,

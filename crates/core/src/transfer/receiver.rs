@@ -23,7 +23,7 @@ use crate::protocol::{
 };
 use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::progress::{
-    FileDesc, ProgressTracker, TransferDbErrorEvent, TransferDirection,
+    FileDesc, ProgressTracker, TransferDbErrorEvent, RuntimeTransferDirection,
 };
 use crate::transfer::{calc_total_chunks, CHUNK_SIZE};
 use crate::{AppError, AppResult};
@@ -146,7 +146,7 @@ impl ReceiveSession {
 
         let mut tracker = ProgressTracker::new(
             self.session_id,
-            TransferDirection::Receive,
+            RuntimeTransferDirection::Receive,
             self.total_size,
             self.files.len(),
         );
