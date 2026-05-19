@@ -19,8 +19,13 @@ where
 }
 
 /// 启动 P2P 节点并创建 core 网络管理器。
+///
+/// `device_name` 来自 host 持久化层（桌面端的 device_config.json / 移动端的 RN
+/// settings），节点启动时塞入 `OsInfo.name`，通过 libp2p Identify 的
+/// `agent_version` 字段广播给对端。Host 改名后需 stop + start 节点让新值上线。
 pub fn start_node<TTransfer, F>(
     keypair: Keypair,
+    device_name: Option<String>,
     paired_devices: Vec<PairedDeviceInfo>,
     custom_bootstrap_nodes: Vec<String>,
     create_transfer: F,
@@ -29,7 +34,9 @@ where
     TTransfer: TransferRuntime,
     F: FnOnce(AppNetClient) -> TTransfer,
 {
-    let agent_version = OsInfo::default().to_agent_version();
+    let mut os_info = OsInfo::default();
+    os_info.name = device_name;
+    let agent_version = os_info.to_agent_version();
     let config = create_node_config(agent_version, &custom_bootstrap_nodes);
 
     let peer_id = PeerId::from_public_key(&keypair.public());

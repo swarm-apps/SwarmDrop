@@ -11,11 +11,15 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as OnboardingRouteImport } from './routes/_onboarding'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppPairingRouteImport } from './routes/_app/pairing'
 import { Route as AppSendIndexRouteImport } from './routes/_app/send/index'
 
+const OnboardingDeviceNameLazyRouteImport = createFileRoute(
+  '/_onboarding/device-name',
+)()
 const AppTransferIndexLazyRouteImport = createFileRoute('/_app/transfer/')()
 const AppSettingsIndexLazyRouteImport = createFileRoute('/_app/settings/')()
 const AppReceiveIndexLazyRouteImport = createFileRoute('/_app/receive/')()
@@ -28,6 +32,10 @@ const AppPairingGenerateLazyRouteImport = createFileRoute(
   '/_app/pairing/generate',
 )()
 
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/_onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
@@ -37,6 +45,14 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingDeviceNameLazyRoute =
+  OnboardingDeviceNameLazyRouteImport.update({
+    id: '/device-name',
+    path: '/device-name',
+    getParentRoute: () => OnboardingRoute,
+  } as any).lazy(() =>
+    import('./routes/_onboarding/device-name.lazy').then((d) => d.Route),
+  )
 const AppPairingRoute = AppPairingRouteImport.update({
   id: '/pairing',
   path: '/pairing',
@@ -103,6 +119,7 @@ const AppPairingGenerateLazyRoute = AppPairingGenerateLazyRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/pairing': typeof AppPairingRouteWithChildren
+  '/device-name': typeof OnboardingDeviceNameLazyRoute
   '/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/pairing/input': typeof AppPairingInputLazyRoute
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
@@ -115,6 +132,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/pairing': typeof AppPairingRouteWithChildren
+  '/device-name': typeof OnboardingDeviceNameLazyRoute
   '/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/pairing/input': typeof AppPairingInputLazyRoute
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
@@ -128,7 +146,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/_onboarding': typeof OnboardingRouteWithChildren
   '/_app/pairing': typeof AppPairingRouteWithChildren
+  '/_onboarding/device-name': typeof OnboardingDeviceNameLazyRoute
   '/_app/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/_app/pairing/input': typeof AppPairingInputLazyRoute
   '/_app/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
@@ -143,6 +163,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/pairing'
+    | '/device-name'
     | '/pairing/generate'
     | '/pairing/input'
     | '/transfer/$sessionId'
@@ -155,6 +176,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/pairing'
+    | '/device-name'
     | '/pairing/generate'
     | '/pairing/input'
     | '/transfer/$sessionId'
@@ -167,7 +189,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_app'
+    | '/_onboarding'
     | '/_app/pairing'
+    | '/_onboarding/device-name'
     | '/_app/pairing/generate'
     | '/_app/pairing/input'
     | '/_app/transfer/$sessionId'
@@ -181,10 +205,18 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  OnboardingRoute: typeof OnboardingRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/_onboarding': {
+      id: '/_onboarding'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app': {
       id: '/_app'
       path: ''
@@ -198,6 +230,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_onboarding/device-name': {
+      id: '/_onboarding/device-name'
+      path: '/device-name'
+      fullPath: '/device-name'
+      preLoaderRoute: typeof OnboardingDeviceNameLazyRouteImport
+      parentRoute: typeof OnboardingRoute
     }
     '/_app/pairing': {
       id: '/_app/pairing'
@@ -301,9 +340,22 @@ const AppRouteChildren: AppRouteChildren = {
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
+interface OnboardingRouteChildren {
+  OnboardingDeviceNameLazyRoute: typeof OnboardingDeviceNameLazyRoute
+}
+
+const OnboardingRouteChildren: OnboardingRouteChildren = {
+  OnboardingDeviceNameLazyRoute: OnboardingDeviceNameLazyRoute,
+}
+
+const OnboardingRouteWithChildren = OnboardingRoute._addFileChildren(
+  OnboardingRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  OnboardingRoute: OnboardingRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

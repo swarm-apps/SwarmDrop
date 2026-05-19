@@ -18,6 +18,18 @@ export const commands = {
 	generateKeypair: () => __TAURI_INVOKE<number[]>("generate_keypair"),
 	/**  注册密钥对到 Tauri state，并在桌面端写入系统 keychain。 */
 	registerKeypair: (keypair: number[]) => __TAURI_INVOKE<string>("register_keypair", { keypair }),
+	/**  读取持久化的设备名（onboarding 完成前为 `None`）。 */
+	getDeviceName: () => __TAURI_INVOKE<string | null>("get_device_name"),
+	/**
+	 *  设置设备名并持久化。
+	 * 
+	 *  仅写入 `device_config.json`。要让新名字通过 libp2p Identify `agent_version`
+	 *  重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
+	 *  paired_devices + customBootstrapNodes 上下文）。
+	 * 
+	 *  `name = None`（或空串/纯空白）清空，回退到系统 hostname。
+	 */
+	setDeviceName: (name: string | null) => __TAURI_INVOKE<null>("set_device_name", { name }),
 	/**  生成配对码 */
 	generatePairingCode: (expiresInSecs: number | null) => __TAURI_INVOKE<PairingCodeInfo>("generate_pairing_code", { expiresInSecs }),
 	/**  通过配对码查询对端设备信息 */
@@ -178,8 +190,16 @@ export type NetworkStatus = {
 /**  节点运行状态。 */
 export type NodeStatus = "running" | "stopped";
 
-/**  设备操作系统信息。 */
+/**
+ *  设备操作系统信息。
+ * 
+ *  `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
+ *  `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+ *  `name.as_deref().unwrap_or(&hostname)` 回退。
+ */
 export type OsInfo = {
+	/**  用户起的设备名；缺省时回退到 `hostname`。 */
+	name?: string | null,
 	hostname: string,
 	os: string,
 	platform: string,

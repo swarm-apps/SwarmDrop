@@ -4,9 +4,16 @@ use serde::{Deserialize, Serialize};
 use swarm_p2p_core::libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
 
 /// 设备操作系统信息。
+///
+/// `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
+/// `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+/// `name.as_deref().unwrap_or(&hostname)` 回退。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct OsInfo {
+    /// 用户起的设备名；缺省时回退到 `hostname`。
+    #[serde(default)]
+    pub name: Option<String>,
     pub hostname: String,
     pub os: String,
     pub platform: String,
@@ -15,11 +22,13 @@ pub struct OsInfo {
 
 impl Default for OsInfo {
     fn default() -> Self {
+        // 移动端拿不到这两个环境变量，会落到 "Device" —— 此时 UI 走 name 字段。
         let hostname = std::env::var("COMPUTERNAME")
             .or_else(|_| std::env::var("HOSTNAME"))
-            .unwrap_or_else(|_| "unknown".to_string());
+            .unwrap_or_else(|_| "Device".to_string());
 
         Self {
+            name: None,
             hostname,
             os: std::env::consts::OS.to_string(),
             platform: std::env::consts::OS.to_string(),
@@ -45,10 +54,23 @@ impl OsInfo {
         agent_version.starts_with(Self::BOOTSTRAP_AGENT_PREFIX)
     }
 
+    /// Encode as `agent_version`.
+    ///
+    /// 带 name：`swarmdrop/{ver}; name={name}; os=...; platform=...; arch=...; host=...`
+    /// 不带：  `swarmdrop/{ver}; os=...; platform=...; arch=...; host=...`
+    ///
+    /// 仅当 `name` 与 `hostname` 不同时才写入 `name=` 槽位，避免冗余。
     pub fn to_agent_version(&self) -> String {
+        let name_part = self
+            .name
+            .as_deref()
+            .filter(|n| *n != self.hostname)
+            .map(|n| format!("; name={n}"))
+            .unwrap_or_default();
         format!(
-            "swarmdrop/{}; os={}; platform={}; arch={}; host={}",
+            "swarmdrop/{}{}; os={}; platform={}; arch={}; host={}",
             env!("CARGO_PKG_VERSION"),
+            name_part,
             self.os,
             self.platform,
             self.arch,
@@ -60,6 +82,7 @@ impl OsInfo {
     pub fn unknown_from_peer_id(peer_id: &PeerId) -> Self {
         let s = peer_id.to_string();
         Self {
+            name: None,
             hostname: s[s.len().saturating_sub(8)..].to_string(),
             os: "unknown".to_string(),
             platform: "unknown".to_string(),
@@ -69,13 +92,16 @@ impl OsInfo {
 
     /// 从 agent_version 字符串反解析出 OsInfo。
     pub fn from_agent_version(agent_version: &str) -> Option<Self> {
+        let mut name = None;
         let mut os = None;
         let mut platform = None;
         let mut arch = None;
         let mut hostname = None;
 
         for part in agent_version.split("; ") {
-            if let Some(v) = part.strip_prefix("os=") {
+            if let Some(v) = part.strip_prefix("name=") {
+                name = Some(v.to_string());
+            } else if let Some(v) = part.strip_prefix("os=") {
                 os = Some(v.to_string());
             } else if let Some(v) = part.strip_prefix("platform=") {
                 platform = Some(v.to_string());
@@ -87,6 +113,7 @@ impl OsInfo {
         }
 
         Some(Self {
+            name,
             hostname: hostname?,
             os: os?,
             platform: platform?,
@@ -195,4 +222,61 @@ fn has_public_ip(addr: &Multiaddr) -> bool {
     addr.iter().any(|p| {
         matches!(p, Protocol::Ip4(ip) if !ip.is_private() && !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OsInfo;
+
+    fn sample(name: Option<&str>, hostname: &str) -> OsInfo {
+        OsInfo {
+            name: name.map(str::to_string),
+            hostname: hostname.to_string(),
+            os: "macos".to_string(),
+            platform: "macos".to_string(),
+            arch: "aarch64".to_string(),
+        }
+    }
+
+    #[test]
+    fn agent_version_roundtrip_without_name() {
+        let info = sample(None, "MacBook-Pro");
+        let agent = info.to_agent_version();
+        assert!(!agent.contains("name="), "no name= when unset: {agent}");
+        let parsed = OsInfo::from_agent_version(&agent).unwrap();
+        assert_eq!(parsed.name, None);
+        assert_eq!(parsed.hostname, "MacBook-Pro");
+    }
+
+    #[test]
+    fn agent_version_roundtrip_with_name() {
+        let info = sample(Some("光印的 iPhone"), "Device");
+        let agent = info.to_agent_version();
+        assert!(agent.contains("name=光印的 iPhone"), "got: {agent}");
+        let parsed = OsInfo::from_agent_version(&agent).unwrap();
+        assert_eq!(parsed.name.as_deref(), Some("光印的 iPhone"));
+        assert_eq!(parsed.hostname, "Device");
+    }
+
+    #[test]
+    fn agent_version_skips_name_when_equals_hostname() {
+        // name == hostname 时不写 name= 槽位，避免冗余
+        let info = sample(Some("MacBook-Pro"), "MacBook-Pro");
+        let agent = info.to_agent_version();
+        assert!(!agent.contains("name="), "got: {agent}");
+    }
+
+    #[test]
+    fn default_no_name() {
+        assert_eq!(OsInfo::default().name, None);
+    }
+
+    #[test]
+    fn deserialize_legacy_payload_without_name_field() {
+        // 旧 paired_devices.json 没有 name 字段，应反序列化成 None
+        let json = r#"{"hostname":"old","os":"macos","platform":"macos","arch":"aarch64"}"#;
+        let info: OsInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.name, None);
+        assert_eq!(info.hostname, "old");
+    }
 }

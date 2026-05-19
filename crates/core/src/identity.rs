@@ -130,6 +130,7 @@ mod tests {
         PairedDeviceInfo {
             peer_id: PeerId::from_public_key(&keypair.public()),
             os_info: OsInfo {
+                name: None,
                 hostname: name.to_string(),
                 os: "test".to_string(),
                 platform: "test".to_string(),

@@ -20,6 +20,7 @@ import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
+import { deviceDisplayName } from "@/lib/device-name";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -50,6 +51,7 @@ function SendPage() {
     if (!stored) return null;
     return {
       peerId: stored.peerId,
+      name: stored.name,
       hostname: stored.hostname,
       os: stored.os,
       platform: stored.platform,
@@ -79,10 +81,11 @@ function SendPage() {
       const scannedFiles = fileSelection.getScannedFiles();
       const prepared = await prepareSend(scannedFiles, setPrepareProgress);
       const fileIds = prepared.files.map((f) => f.fileId);
+      const displayName = deviceDisplayName(device);
       const result = await startSend(
         prepared.preparedId,
         device.peerId,
-        device.hostname,
+        displayName,
         fileIds,
       );
 
@@ -91,7 +94,7 @@ function SendPage() {
         sessionId: result.sessionId,
         direction: "send",
         peerId: device.peerId,
-        deviceName: device.hostname,
+        deviceName: displayName,
         files: prepared.files,
         totalSize: prepared.totalSize,
         status: "waiting_accept",
@@ -182,7 +185,7 @@ function DesktopSendView({
           <ArrowLeft className="size-4" />
         </button>
         <h1 className="text-[15px] font-medium text-foreground">
-          <Trans>发送文件到 {device.hostname}</Trans>
+          <Trans>发送文件到 {deviceDisplayName(device)}</Trans>
         </h1>
       </header>
 

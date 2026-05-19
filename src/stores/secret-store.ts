@@ -15,6 +15,8 @@ import { initializeIdentity } from "@/commands/identity";
 export interface PairedDevice {
   /** PeerId */
   peerId: string;
+  /** 用户起的设备名（onboarding / 设置里设的），缺省时回退到 hostname */
+  name?: string | null;
   /** 设备主机名 */
   hostname: string;
   /** 操作系统类型 */

@@ -48,8 +48,11 @@ pub async fn start(
     let db_for_factory = db.clone();
     let file_access_for_factory = file_access.clone();
 
+    let device_name = crate::host::device_config::load_device_name(&app).await;
+
     let started = swarmdrop_core::runtime::start_node(
         (*keypair).clone(),
+        device_name,
         paired_devices,
         custom_bootstrap_nodes.unwrap_or_default(),
         move |client| {

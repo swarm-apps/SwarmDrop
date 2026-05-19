@@ -18,6 +18,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useNavigate } from "@tanstack/react-router";
 import { usePairingStore } from "@/stores/pairing-store";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
+import { deviceDisplayName } from "@/lib/device-name";
 
 export function ConnectionRequestDialog() {
   const navigate = useNavigate();
@@ -70,7 +71,7 @@ export function ConnectionRequestDialog() {
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-medium text-foreground">
-                  {incomingRequest.osInfo.hostname}
+                  {deviceDisplayName(incomingRequest.osInfo)}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {incomingRequest.osInfo.platform} · {incomingRequest.osInfo.os}

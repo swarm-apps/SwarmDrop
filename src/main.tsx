@@ -7,6 +7,7 @@ import { ThemeProvider } from "next-themes";
 import { routeTree } from "./routeTree.gen";
 import { waitForPreferencesHydration } from "@/stores/preferences-store";
 import { rehydrateSecretStore } from "@/stores/secret-store";
+import { syncDeviceNameFromBackend } from "@/lib/device-name";
 import { Toaster } from "@/components/ui/sonner";
 import "./index.css";
 
@@ -24,10 +25,11 @@ function App() {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    // 等待偏好设置 hydration 完成（主题和语言在 onRehydrateStorage 中自动应用）
-    Promise.all([waitForPreferencesHydration(), rehydrateSecretStore()]).then(() =>
-      setIsLoaded(true),
-    );
+    // 等待偏好设置 hydration 完成（主题和语言在 onRehydrateStorage 中自动应用），
+    // 然后用后端持久化的设备名覆盖前端缓存（后端 = source of truth）
+    Promise.all([waitForPreferencesHydration(), rehydrateSecretStore()])
+      .then(() => syncDeviceNameFromBackend())
+      .finally(() => setIsLoaded(true));
   }, []);
 
   if (!isLoaded) {

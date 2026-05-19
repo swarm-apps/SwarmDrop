@@ -536,6 +536,7 @@ mod tests {
 
     fn os_info(hostname: &str) -> OsInfo {
         OsInfo {
+            name: None,
             hostname: hostname.to_string(),
             os: "test".to_string(),
             platform: "test".to_string(),

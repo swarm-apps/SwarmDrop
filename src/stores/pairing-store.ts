@@ -15,6 +15,7 @@ import {
 } from "@/commands/pairing";
 import type { PeerId } from "@/commands/network";
 import { isErrorKind, getErrorMessage } from "@/lib/errors";
+import { deviceDisplayName } from "@/lib/device-name";
 import { useNetworkStore } from "@/stores/network-store";
 
 /** 请求超时时间（毫秒） */
@@ -182,14 +183,15 @@ export const usePairingStore = create<PairingState>()(
 
         if (response.status === "success") {
           // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
+          const displayName = deviceDisplayName(deviceInfo.codeRecord);
           set({
             current: {
               phase: "success",
               peerId: deviceInfo.peerId,
-              deviceName: deviceInfo.codeRecord.hostname,
+              deviceName: displayName,
             },
           });
-          toast.success(t`已与 ${deviceInfo.codeRecord.hostname} 配对成功`);
+          toast.success(t`已与 ${displayName} 配对成功`);
         } else {
           const message = getPairingRefuseMessage(response.reason);
           set({ current: { phase: "error", message } });
@@ -230,7 +232,7 @@ export const usePairingStore = create<PairingState>()(
         );
 
         // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
-        toast.success(t`已与 ${osInfo.hostname} 配对成功`);
+        toast.success(t`已与 ${deviceDisplayName(osInfo)} 配对成功`);
         // 处理队列中的下一个请求
         get().processNextInbound();
 
@@ -268,7 +270,7 @@ export const usePairingStore = create<PairingState>()(
           method,
           { status: "refused", reason: { type: "user_rejected" } },
         );
-        toast.success(t`已拒绝来自 ${osInfo.hostname} 的配对请求`);
+        toast.success(t`已拒绝来自 ${deviceDisplayName(osInfo)} 的配对请求`);
         // 处理队列中的下一个请求
         get().processNextInbound();
       } catch (err) {
@@ -292,7 +294,7 @@ export const usePairingStore = create<PairingState>()(
         if (response.status === "success") {
           // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
           const device = useNetworkStore.getState().devices.find(d => d.peerId === peerId);
-          const deviceName = device?.hostname ?? peerId.slice(-8);
+          const deviceName = device ? deviceDisplayName(device) : peerId.slice(-8);
 
           set({
             current: {

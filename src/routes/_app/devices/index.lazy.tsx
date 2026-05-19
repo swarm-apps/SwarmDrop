@@ -51,6 +51,7 @@ function DevicesPage() {
       // 节点未运行或设备离线,用 secret-store 数据显示为离线
       return {
         peerId: stored.peerId,
+        name: stored.name,
         hostname: stored.hostname,
         os: stored.os,
         platform: stored.platform,

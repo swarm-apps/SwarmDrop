@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { deviceDisplayName } from "@/lib/device-name";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   Link,
@@ -100,7 +101,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
           {/* Info */}
           <div className="flex flex-1 flex-col gap-1">
             <span className="text-[15px] font-medium text-foreground">
-              {device.hostname}
+              {deviceDisplayName(device)}
             </span>
             {device.isPaired ? (
               <div className="flex items-center gap-1.5">
@@ -179,7 +180,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
         <UnpairAlertDialog
           open={unpairOpen}
           onOpenChange={setUnpairOpen}
-          deviceName={device.hostname}
+          deviceName={deviceDisplayName(device)}
           onConfirm={() => onUnpair?.(device)}
         />
       </>
@@ -229,7 +230,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate text-sm font-medium text-foreground">
-              {device.hostname}
+              {deviceDisplayName(device)}
             </span>
             <div className="flex items-center gap-1">
               {device.isPaired ? (
@@ -344,7 +345,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
       <UnpairAlertDialog
         open={unpairOpen}
         onOpenChange={setUnpairOpen}
-        deviceName={device.hostname}
+        deviceName={deviceDisplayName(device)}
         onConfirm={() => onUnpair?.(device)}
       />
     </>

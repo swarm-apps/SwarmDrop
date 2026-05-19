@@ -49,6 +49,8 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
         commands::initialize_identity,
         commands::generate_keypair,
         commands::register_keypair,
+        commands::get_device_name,
+        commands::set_device_name,
         // pairing
         commands::generate_pairing_code,
         commands::get_device_info,

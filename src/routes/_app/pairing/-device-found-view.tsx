@@ -16,6 +16,7 @@ import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { Trans } from "@lingui/react/macro";
 import type { DeviceInfo } from "@/commands/pairing";
 import { usePairingStore } from "@/stores/pairing-store";
+import { deviceDisplayName } from "@/lib/device-name";
 
 function formatPlatformDisplay(platform: string): string {
   const map: Record<string, string> = {
@@ -185,7 +186,7 @@ export function MobileDeviceFoundView({
         {/* Device Card */}
         <div className="flex flex-col items-center gap-5 rounded-2xl border border-border p-8">
           <DeviceHeader
-            hostname={codeRecord.hostname}
+            hostname={deviceDisplayName(codeRecord)}
             platform={codeRecord.platform}
             arch={codeRecord.arch}
             size="lg"
@@ -247,7 +248,7 @@ export function DesktopDeviceFoundContent({
     <div className="flex w-95 flex-col gap-5">
       {/* Device Header */}
       <DeviceHeader
-        hostname={codeRecord.hostname}
+        hostname={deviceDisplayName(codeRecord)}
         platform={codeRecord.platform}
         arch={codeRecord.arch}
         size="md"
