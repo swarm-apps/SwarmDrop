@@ -143,7 +143,7 @@ msgstr "传输中"
 
 #: src/app/transfer/index.tsx:86
 #: src/app/transfer/index.tsx:121
-#: src/components/drawer-content.tsx:39
+#: src/components/drawer-content.tsx:41
 msgid "传输历史"
 msgstr "传输历史"
 
@@ -183,7 +183,7 @@ msgstr "共 {totalCount} 项 · {0}"
 
 #: src/app/settings/about.tsx:49
 #: src/app/settings/index.tsx:67
-#: src/components/drawer-content.tsx:41
+#: src/components/drawer-content.tsx:43
 msgid "关于"
 msgstr "关于"
 
@@ -375,7 +375,7 @@ msgid "已传 / 总量"
 msgstr "已传 / 总量"
 
 #. placeholder {0}: peerId.slice(0, 12)
-#: src/components/drawer-content.tsx:62
+#: src/components/drawer-content.tsx:64
 msgid "已加载身份 {0}..."
 msgstr "已加载身份 {0}..."
 
@@ -388,7 +388,7 @@ msgstr "已发现节点"
 msgid "已取消"
 msgstr "已取消"
 
-#: src/components/drawer-content.tsx:76
+#: src/components/drawer-content.tsx:78
 msgid "已复制 PeerID"
 msgstr "已复制 PeerID"
 
@@ -458,7 +458,7 @@ msgstr "已选的文件将被清空。"
 msgid "平台"
 msgstr "平台"
 
-#: src/app/settings/general.tsx:128
+#: src/app/settings/general.tsx:134
 msgid "应用私有目录（默认）"
 msgstr "应用私有目录（默认）"
 
@@ -510,12 +510,12 @@ msgstr "恢复"
 msgid "恢复失败"
 msgstr "恢复失败"
 
-#: src/app/settings/general.tsx:137
-#: src/app/settings/general.tsx:150
+#: src/app/settings/general.tsx:143
+#: src/app/settings/general.tsx:156
 msgid "恢复默认"
 msgstr "恢复默认"
 
-#: src/app/settings/general.tsx:148
+#: src/app/settings/general.tsx:154
 msgid "恢复默认接收位置"
 msgstr "恢复默认接收位置"
 
@@ -560,16 +560,16 @@ msgstr "接收中"
 msgid "接收中..."
 msgstr "接收中..."
 
-#: src/app/settings/general.tsx:114
-#: src/app/settings/general.tsx:122
+#: src/app/settings/general.tsx:120
+#: src/app/settings/general.tsx:128
 msgid "接收位置"
 msgstr "接收位置"
 
-#: src/app/settings/general.tsx:100
+#: src/app/settings/general.tsx:106
 msgid "接收位置已更新"
 msgstr "接收位置已更新"
 
-#: src/app/settings/general.tsx:149
+#: src/app/settings/general.tsx:155
 msgid "接收文件将保存到应用私有目录。"
 msgstr "接收文件将保存到应用私有目录。"
 
@@ -611,6 +611,10 @@ msgstr "无法打开链接"
 #: src/components/node-control-sheet.tsx:179
 msgid "映射成功"
 msgstr "映射成功"
+
+#: src/app/settings/general.tsx:91
+msgid "暂不支持系统目录"
+msgstr "暂不支持系统目录"
 
 #: src/app/transfer/[sessionId].tsx:374
 msgid "暂停"
@@ -664,7 +668,7 @@ msgstr "未知"
 msgid "未连接"
 msgstr "未连接"
 
-#: src/components/drawer-content.tsx:126
+#: src/components/drawer-content.tsx:128
 msgid "本机"
 msgstr "本机"
 
@@ -697,7 +701,7 @@ msgstr "正在传输"
 msgid "正在准备你的设备"
 msgstr "正在准备你的设备"
 
-#: src/components/drawer-content.tsx:58
+#: src/components/drawer-content.tsx:60
 msgid "正在初始化身份..."
 msgstr "正在初始化身份..."
 
@@ -719,7 +723,7 @@ msgstr "正在等待对端连接..."
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "正在计算校验和 ({0}/{1})"
 
-#: src/app/settings/general.tsx:96
+#: src/app/settings/general.tsx:102
 msgid "此目录不可读"
 msgstr "此目录不可读"
 
@@ -827,7 +831,7 @@ msgstr "立即更新"
 msgid "端到端加密,数据不经服务器"
 msgstr "端到端加密,数据不经服务器"
 
-#: src/components/drawer-content.tsx:63
+#: src/components/drawer-content.tsx:65
 msgid "等待初始化"
 msgstr "等待初始化"
 
@@ -933,7 +937,7 @@ msgid "设备身份本地保存,无需账号"
 msgstr "设备身份本地保存,无需账号"
 
 #: src/app/settings/index.tsx:27
-#: src/components/drawer-content.tsx:40
+#: src/components/drawer-content.tsx:42
 msgid "设置"
 msgstr "设置"
 
@@ -963,7 +967,7 @@ msgstr "请稍后重试,或检查存储权限"
 msgid "跟随系统"
 msgstr "跟随系统"
 
-#: src/components/drawer-content.tsx:60
+#: src/components/drawer-content.tsx:62
 msgid "身份加载失败"
 msgstr "身份加载失败"
 
@@ -1010,7 +1014,7 @@ msgid "选择外观"
 msgstr "选择外观"
 
 #: src/app/send/select-device.tsx:144
-#: src/app/settings/general.tsx:102
+#: src/app/settings/general.tsx:108
 #: src/components/send-options-sheet.tsx:85
 msgid "选择失败"
 msgstr "选择失败"

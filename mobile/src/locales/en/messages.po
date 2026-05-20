@@ -143,7 +143,7 @@ msgstr "Transferring"
 
 #: src/app/transfer/index.tsx:86
 #: src/app/transfer/index.tsx:121
-#: src/components/drawer-content.tsx:39
+#: src/components/drawer-content.tsx:41
 msgid "传输历史"
 msgstr "Transfer history"
 
@@ -183,7 +183,7 @@ msgstr "Total {totalCount} · {0}"
 
 #: src/app/settings/about.tsx:49
 #: src/app/settings/index.tsx:67
-#: src/components/drawer-content.tsx:41
+#: src/components/drawer-content.tsx:43
 msgid "关于"
 msgstr "About"
 
@@ -375,7 +375,7 @@ msgid "已传 / 总量"
 msgstr "Transferred / Total"
 
 #. placeholder {0}: peerId.slice(0, 12)
-#: src/components/drawer-content.tsx:62
+#: src/components/drawer-content.tsx:64
 msgid "已加载身份 {0}..."
 msgstr "Identity loaded {0}..."
 
@@ -388,7 +388,7 @@ msgstr "Discovered peers"
 msgid "已取消"
 msgstr "Cancelled"
 
-#: src/components/drawer-content.tsx:76
+#: src/components/drawer-content.tsx:78
 msgid "已复制 PeerID"
 msgstr "PeerID copied"
 
@@ -458,7 +458,7 @@ msgstr "The selected files will be cleared."
 msgid "平台"
 msgstr "Platform"
 
-#: src/app/settings/general.tsx:128
+#: src/app/settings/general.tsx:134
 msgid "应用私有目录（默认）"
 msgstr "App private directory (default)"
 
@@ -510,12 +510,12 @@ msgstr "Resume"
 msgid "恢复失败"
 msgstr "Resume failed"
 
-#: src/app/settings/general.tsx:137
-#: src/app/settings/general.tsx:150
+#: src/app/settings/general.tsx:143
+#: src/app/settings/general.tsx:156
 msgid "恢复默认"
 msgstr "Restore default"
 
-#: src/app/settings/general.tsx:148
+#: src/app/settings/general.tsx:154
 msgid "恢复默认接收位置"
 msgstr "Restore default receive location"
 
@@ -560,16 +560,16 @@ msgstr "Receiving"
 msgid "接收中..."
 msgstr "Receiving..."
 
-#: src/app/settings/general.tsx:114
-#: src/app/settings/general.tsx:122
+#: src/app/settings/general.tsx:120
+#: src/app/settings/general.tsx:128
 msgid "接收位置"
 msgstr "Receive location"
 
-#: src/app/settings/general.tsx:100
+#: src/app/settings/general.tsx:106
 msgid "接收位置已更新"
 msgstr "Receive location updated"
 
-#: src/app/settings/general.tsx:149
+#: src/app/settings/general.tsx:155
 msgid "接收文件将保存到应用私有目录。"
 msgstr "Incoming files will be saved to the app's private directory."
 
@@ -611,6 +611,10 @@ msgstr "Cannot open link"
 #: src/components/node-control-sheet.tsx:179
 msgid "映射成功"
 msgstr "Public"
+
+#: src/app/settings/general.tsx:91
+msgid "暂不支持系统目录"
+msgstr "System directories not supported yet"
 
 #: src/app/transfer/[sessionId].tsx:374
 msgid "暂停"
@@ -664,7 +668,7 @@ msgstr "Unknown"
 msgid "未连接"
 msgstr "Disconnected"
 
-#: src/components/drawer-content.tsx:126
+#: src/components/drawer-content.tsx:128
 msgid "本机"
 msgstr "This device"
 
@@ -697,7 +701,7 @@ msgstr "In progress"
 msgid "正在准备你的设备"
 msgstr "Preparing your device"
 
-#: src/components/drawer-content.tsx:58
+#: src/components/drawer-content.tsx:60
 msgid "正在初始化身份..."
 msgstr "Initializing identity..."
 
@@ -719,7 +723,7 @@ msgstr "Waiting for peer to connect..."
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "Hashing ({0}/{1})"
 
-#: src/app/settings/general.tsx:96
+#: src/app/settings/general.tsx:102
 msgid "此目录不可读"
 msgstr "This directory is not readable"
 
@@ -827,7 +831,7 @@ msgstr "Update now"
 msgid "端到端加密,数据不经服务器"
 msgstr "End-to-end encrypted, never via a server"
 
-#: src/components/drawer-content.tsx:63
+#: src/components/drawer-content.tsx:65
 msgid "等待初始化"
 msgstr "Waiting to initialize"
 
@@ -933,7 +937,7 @@ msgid "设备身份本地保存,无需账号"
 msgstr "Identity is stored locally, no account required"
 
 #: src/app/settings/index.tsx:27
-#: src/components/drawer-content.tsx:40
+#: src/components/drawer-content.tsx:42
 msgid "设置"
 msgstr "Settings"
 
@@ -963,7 +967,7 @@ msgstr "Please try again later, or check storage permissions"
 msgid "跟随系统"
 msgstr "Follow system"
 
-#: src/components/drawer-content.tsx:60
+#: src/components/drawer-content.tsx:62
 msgid "身份加载失败"
 msgstr "Failed to load identity"
 
@@ -1010,7 +1014,7 @@ msgid "选择外观"
 msgstr "Choose appearance"
 
 #: src/app/send/select-device.tsx:144
-#: src/app/settings/general.tsx:102
+#: src/app/settings/general.tsx:108
 #: src/components/send-options-sheet.tsx:85
 msgid "选择失败"
 msgstr "Pick failed"

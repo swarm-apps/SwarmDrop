@@ -1,9 +1,11 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import type { DrawerContentComponentProps } from "@react-navigation/drawer";
-import { DrawerActions } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
+// SDK 56：@react-navigation/drawer 的 DrawerContentComponentProps 通过 expo-router
+// 的 drawer 子模块重新暴露；expo-router 没用 package.json "exports"，deep path 可访问。
+import type { DrawerContentComponentProps } from "expo-router/build/react-navigation/drawer";
+import { DrawerActions } from "expo-router/react-navigation";
 import {
   History,
   Info,

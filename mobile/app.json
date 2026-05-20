@@ -46,7 +46,9 @@
         {
           "photosPermission": "允许 SwarmDrop 访问相册以选择要发送的照片和视频。"
         }
-      ]
+      ],
+      "expo-sharing",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,6 +1,6 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { DrawerActions, useNavigation } from "@react-navigation/native";
 import { useRouter } from "expo-router";
+import { DrawerActions, useNavigation } from "expo-router/react-navigation";
 import { Menu, Plus, Smartphone } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, ScrollView, View } from "react-native";
