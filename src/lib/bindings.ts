@@ -251,8 +251,8 @@ export type PairedDeviceInfo = {
 
 export type PairingCodeInfo = {
 	code: string,
-	createdAt: number,
-	expiresAt: number,
+	createdAt: string,
+	expiresAt: string,
 };
 
 export type PairingMethod = { type: "code"; code: string } | { type: "direct" };
@@ -322,6 +322,12 @@ export type ScannedSourceResult = {
 /**  传输会话状态 */
 export type SessionStatus = "transferring" | "paused" | "completed" | "failed" | "cancelled";
 
+/**
+ *  DHT 上跨设备共享的配对码记录。
+ * 
+ *  `created_at` / `expires_at` 保持 `i64`（Unix 秒）以稳定线路格式 +
+ *  控制 DHT record 体积；与 IPC 边界的 `PairingCodeInfo`（DateTime<Utc>）解耦。
+ */
 export type ShareCodeRecord = {
 	createdAt: number,
 	expiresAt: number,

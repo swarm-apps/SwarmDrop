@@ -131,7 +131,7 @@ function clearAutoRefreshTimer() {
 }
 
 /** 调度过期前的自动重生（提前 500ms 拿新码避免 UI 闪 expired） */
-function scheduleAutoRefresh(expiresAt: string | number | Date) {
+function scheduleAutoRefresh(expiresAt: string) {
   clearAutoRefreshTimer();
   const ms = Math.max(0, new Date(expiresAt).getTime() - Date.now() - 500);
   autoRefreshTimer = setTimeout(() => {

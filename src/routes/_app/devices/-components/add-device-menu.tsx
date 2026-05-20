@@ -12,6 +12,7 @@ import { Keyboard, Link, Plus, Radio } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Trans } from "@lingui/react/macro";
 import { useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -38,8 +39,10 @@ export function AddDeviceMenu({
   const isOnline = useNetworkStore(
     (s) => s.status === "running" || s.status === "starting",
   );
-  const nearbyDevices = useNetworkStore((s) =>
-    s.devices.filter((d) => !d.isPaired && d.status === "online"),
+  const nearbyDevices = useNetworkStore(
+    useShallow((s) =>
+      s.devices.filter((d) => !d.isPaired && d.status === "online"),
+    ),
   );
   const directPairing = usePairingStore((s) => s.directPairing);
 
