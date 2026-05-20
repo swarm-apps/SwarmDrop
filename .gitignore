@@ -25,6 +25,7 @@ dist-ssr
 *.sw?
 .claude/*
 !.claude/skills
+!.claude/settings.json
 .agents
 **/openspec
 **/.obsidian
