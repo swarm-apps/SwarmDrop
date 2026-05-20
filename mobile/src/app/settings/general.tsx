@@ -82,20 +82,9 @@ function ReceivePathRow() {
   const onPickDirectory = async () => {
     try {
       const dir = await Directory.pickDirectoryAsync();
-      // Android 上 picker 返回的是 SAF content:// URI。expo-file-system 55 的
-      // next API 对 SAF 写入支持很差：dot 前缀文件会被识别成 folder、嵌套子目录
-      // create 失败、接收时整体卡 0% 等等。直接拒绝，等后续改造（接收先写
-      // app 私有目录，完成后用 IntentLauncher 复制到用户选的 SAF 目录）。
-      if (dir.uri.startsWith("content://")) {
-        toast.error(
-          t`暂不支持系统目录`,
-          new Error(
-            "Android SAF (content://) write 在当前 expo-file-system 版本下不稳定，请先用默认目录",
-          ),
-        );
-        return;
-      }
-      // iOS file:// 上做一次只读探测，验证 URI 持久化权限可用
+      // 只读探测：调一次 list() 验证 URI 持久化权限可用。
+      // iOS file:// / Android SAF content:// 双平台都用同一套校验。
+      // SAF 写入由 ForeignFileAccess 适配（expo-file-system 56 起支持 chunk write）。
       try {
         dir.list();
       } catch (probeErr) {

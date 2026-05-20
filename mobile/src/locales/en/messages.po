@@ -458,7 +458,7 @@ msgstr "The selected files will be cleared."
 msgid "平台"
 msgstr "Platform"
 
-#: src/app/settings/general.tsx:134
+#: src/app/settings/general.tsx:123
 msgid "应用私有目录（默认）"
 msgstr "App private directory (default)"
 
@@ -510,12 +510,12 @@ msgstr "Resume"
 msgid "恢复失败"
 msgstr "Resume failed"
 
-#: src/app/settings/general.tsx:143
-#: src/app/settings/general.tsx:156
+#: src/app/settings/general.tsx:132
+#: src/app/settings/general.tsx:145
 msgid "恢复默认"
 msgstr "Restore default"
 
-#: src/app/settings/general.tsx:154
+#: src/app/settings/general.tsx:143
 msgid "恢复默认接收位置"
 msgstr "Restore default receive location"
 
@@ -560,16 +560,16 @@ msgstr "Receiving"
 msgid "接收中..."
 msgstr "Receiving..."
 
-#: src/app/settings/general.tsx:120
-#: src/app/settings/general.tsx:128
+#: src/app/settings/general.tsx:109
+#: src/app/settings/general.tsx:117
 msgid "接收位置"
 msgstr "Receive location"
 
-#: src/app/settings/general.tsx:106
+#: src/app/settings/general.tsx:95
 msgid "接收位置已更新"
 msgstr "Receive location updated"
 
-#: src/app/settings/general.tsx:155
+#: src/app/settings/general.tsx:144
 msgid "接收文件将保存到应用私有目录。"
 msgstr "Incoming files will be saved to the app's private directory."
 
@@ -611,10 +611,6 @@ msgstr "Cannot open link"
 #: src/components/node-control-sheet.tsx:179
 msgid "映射成功"
 msgstr "Public"
-
-#: src/app/settings/general.tsx:91
-msgid "暂不支持系统目录"
-msgstr "System directories not supported yet"
 
 #: src/app/transfer/[sessionId].tsx:374
 msgid "暂停"
@@ -723,7 +719,7 @@ msgstr "Waiting for peer to connect..."
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "Hashing ({0}/{1})"
 
-#: src/app/settings/general.tsx:102
+#: src/app/settings/general.tsx:91
 msgid "此目录不可读"
 msgstr "This directory is not readable"
 
@@ -1014,7 +1010,7 @@ msgid "选择外观"
 msgstr "Choose appearance"
 
 #: src/app/send/select-device.tsx:144
-#: src/app/settings/general.tsx:108
+#: src/app/settings/general.tsx:97
 #: src/components/send-options-sheet.tsx:85
 msgid "选择失败"
 msgstr "Pick failed"

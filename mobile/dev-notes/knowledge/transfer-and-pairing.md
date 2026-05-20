@@ -119,15 +119,33 @@ Documents/transfers）。
 `resolveReceiveLocation()`（在 [src/core/paths.ts](../../src/core/paths.ts)），不要再直接读
 `getMobilePaths().transfersInboxUri`——那样会绕过用户的配置。
 
-**为什么这么做**：桌面端 Tauri 用 `transfer.savePath`（任意绝对路径）；移动端受沙盒约束，只能
-用系统 picker 选的 URI。iOS picker 通常落在 App 容器或 iCloud Drive；Android SAF picker 选完
-expo-file-system 55 自动 takePersistableUriPermission，无需手动续期。Rust core 层不感知差异，
-`MobileFileMetadata.saveDir` 透传该 URI，`foreign-file-access.ts` 的 `ensureSinkFile` 用它拼
-`relativePath`。
-
 **相关文件**：
 
 - [src/stores/preferences-store.ts](../../src/stores/preferences-store.ts)
 - [src/core/paths.ts](../../src/core/paths.ts)
 - [src/components/transfer-offer-host.tsx](../../src/components/transfer-offer-host.tsx)
 - [src/app/settings/general.tsx](../../src/app/settings/general.tsx)
+
+### SAF (content://) chunk write —— 必须保持 FileHandle 打开
+
+Android 用户选「Downloads」「Movies」这类系统目录时，picker 返回的是 SAF
+`content://com.android.externalstorage.documents/tree/...`。expo-file-system 56 通过
+`ContentResolver.openFileDescriptor` 真正支持 SAF chunk write，但有两个硬约束：
+
+1. **SAF 不能用 `FileMode.ReadWrite`**：只允许 `WriteOnly / Append / Truncate / ReadOnly`
+2. **SAF "w" mode open 时大概率 truncate**：DocumentsProvider 实现普遍如此。
+   如果按 chunk 反复 open/close，每次都丢失之前内容 → 文件最终只剩最后一个 chunk
+
+**正确做法**：sink 生命周期内**保持 FileHandle 打开**，所有 chunk 复用同一个 handle。
+[src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts) 的 OpenSink
+在 createSink/openOrCreateSink 阶段 open，writeSinkChunk 复用 sink.handle 仅 seek + write，
+finalize/cleanup 才 close。file:// 路径也走同一逻辑（持久 handle 比每 chunk open/close 更快）。
+
+**SAF 路径不能拼 path**：`new File(dir, "a/b/c.txt")` 在 SAF tree 下不工作。要逐层
+`dir.createDirectory(name)` 建子目录，叶子用 `dir.createFile(name, null)`。`ensureSafSinkFile`
+实现了这个逻辑。
+
+**为什么这么做**：P2P 传输按 chunk + 任意 offset 写入（断点续传 / 并发），不是顺序追加。
+Append 模式 SAF 下不能 seek（文档明说），所以唯一能 work 的就是 WriteOnly + 持久 handle。
+
+**相关文件**：[src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts)
