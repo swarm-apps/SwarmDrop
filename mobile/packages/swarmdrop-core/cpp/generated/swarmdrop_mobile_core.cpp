@@ -269,9 +269,16 @@ extern "C" {
         RustBuffer data_dir, 
         RustCallStatus *uniffi_out_err
     );
+    RustBuffer uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(
+        /*handle*/ uint64_t ptr, 
+        RustCallStatus *uniffi_out_err
+    );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(
         /*handle*/ uint64_t ptr, 
         RustBuffer filter
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(
+        /*handle*/ uint64_t ptr
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity(
         /*handle*/ uint64_t ptr
@@ -619,7 +626,11 @@ extern "C" {
         /*handle*/ uint64_t handle, 
         RustCallStatus *uniffi_out_err
     );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(
+    );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity(
     );
@@ -4846,12 +4857,28 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_constructor_mobilecore_new(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic"),
+        1,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices"),
         2,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices"),
+        1,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity"] = jsi::Function::createFromHostFunction(
@@ -5526,12 +5553,28 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_ffi_swarmdrop_mobile_core_rust_future_complete_void(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices"),
         0,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity"] = jsi::Function::createFromHostFunction(
@@ -5937,8 +5980,25 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_constr
         
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        RustCallStatus status = uniffi::swarmdrop_mobile_core::Bridging<RustCallStatus>::rustSuccess(rt);
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), 
+            &status
+        );
+        uniffi::swarmdrop_mobile_core::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
+
+        
+        return uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0])
         );
 
         
@@ -6619,8 +6679,22 @@ jsi::Value NativeSwarmdropMobileCore::cpp_ffi_swarmdrop_mobile_core_rust_future_
         
         return jsi::Value::undefined();
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices(
         );
 
         

@@ -37,5 +37,6 @@ mod identity;
 mod keychain;
 mod network;
 mod pairing;
+mod panic_hook;
 mod transfer;
 mod utils;

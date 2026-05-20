@@ -21,11 +21,7 @@ export function deviceDisplayName(d: {
  * modelName（"iPhone 15 Pro" / "Pixel 8"）。最差给个 "我的设备" 兜底。
  */
 export function suggestedDeviceName(): string {
-  return (
-    Device.deviceName?.trim() ||
-    Device.modelName?.trim() ||
-    "我的设备"
-  );
+  return Device.deviceName?.trim() || Device.modelName?.trim() || "我的设备";
 }
 
 /**
@@ -38,7 +34,8 @@ export async function applyDeviceName(name: string): Promise<void> {
   const trimmed = name.trim();
   usePreferencesStore.getState().setDeviceName(trimmed);
 
-  const { runtimeState, shutdownNode, startNode } = useMobileCoreStore.getState();
+  const { runtimeState, shutdownNode, startNode } =
+    useMobileCoreStore.getState();
   if (runtimeState === "running") {
     await shutdownNode();
     await startNode();

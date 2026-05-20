@@ -21,7 +21,9 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_clone_mobilecore(handle: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_free_mobilecore(handle: bigint, uniffi_out_err: UniffiRustCallStatus): void;
     ubrn_uniffi_swarmdrop_mobile_core_fn_constructor_mobilecore_new(keychain: bigint, eventBus: bigint, fileAccess: bigint, dataDir: Uint8Array, uniffi_out_err: UniffiRustCallStatus): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(ptr: bigint, filter: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(ptr: bigint): bigint;
@@ -106,7 +108,9 @@ interface NativeModuleInterface {
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void(handle: bigint, uniffi_out_err: UniffiRustCallStatus): void;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node(): number;

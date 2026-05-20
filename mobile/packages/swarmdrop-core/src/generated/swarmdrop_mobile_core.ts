@@ -4006,7 +4006,18 @@ const uniffiCallbackInterfaceForeignKeychainProvider: { vtable: UniffiVTableCall
 
 export interface MobileCoreLike {
     
+    /**
+     * 取出最近一次 Rust panic 的详情(location + payload + 可选 backtrace)。
+     * 取过即清空 —— RN 端在 catch 到 uniffi `Rust panic` 错误后立即调一次,
+     * 把内容打到 console 便于定位。无 panic 时返回 None。
+     */
+    takeLastPanic() : string | undefined;
     listDevices(filter: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileDevice>>;
+    /**
+     * 直接读 keychain 里的已配对设备清单 —— 不依赖 NetManager,
+     * 节点未启动时也可调,用于 UI 离线兜底视图。
+     */
+    listPairedDevices(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileDevice>>;
     initializeIdentity(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileIdentity>;
     networkStatus(asyncOpts_?: { signal: AbortSignal }) : Promise<MobileNetworkStatus>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
@@ -4075,6 +4086,21 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     
 
     
+    /**
+     * 取出最近一次 Rust panic 的详情(location + payload + 可选 backtrace)。
+     * 取过即清空 —— RN 端在 catch 到 uniffi `Rust panic` 错误后立即调一次,
+     * 把内容打到 console 便于定位。无 panic 时返回 None。
+     */
+ takeLastPanic(): string | undefined {
+    return FfiConverterOptionalString.lift(uniffiCaller.rustCall(
+            /*caller:*/ (callStatus) => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(uniffiTypeMobileCoreObjectFactory.clonePointer(this), 
+                callStatus);
+            },
+            /*liftString:*/ FfiConverterString.lift,
+    ));
+    }
+    
 async  listDevices(filter: string, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileDevice>> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -4084,6 +4110,38 @@ async  listDevices(filter: string, asyncOpts_?: { signal: AbortSignal }): Promis
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
                     FfiConverterString.lower(filter)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterArrayTypeMobileDevice.lift.bind(FfiConverterArrayTypeMobileDevice),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 直接读 keychain 里的已配对设备清单 —— 不依赖 NetManager,
+     * 节点未启动时也可调,用于 UI 离线兜底视图。
+     */
+async  listPairedDevices(asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileDevice>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                    
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
@@ -4661,8 +4719,14 @@ function uniffiEnsureInitialized() {
     if (bindingsContractVersion !== scaffoldingContractVersion) {
         throw new UniffiInternalError.ContractVersionMismatch(scaffoldingContractVersion, bindingsContractVersion);
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic() !== 20022) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices() !== 31949) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices() !== 29003) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity() !== 64600) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity");

@@ -87,7 +87,9 @@ export default function DeviceName() {
             placeholderTextColor="#94A3B8"
             style={styles.input}
           />
-          {error !== null ? <Text style={styles.errorText}>{error}</Text> : null}
+          {error !== null ? (
+            <Text style={styles.errorText}>{error}</Text>
+          ) : null}
         </View>
       </View>
 
@@ -95,7 +97,10 @@ export default function DeviceName() {
         <Pressable
           onPress={onNext}
           disabled={disabled}
-          style={[styles.primaryButton, disabled && styles.primaryButtonDisabled]}
+          style={[
+            styles.primaryButton,
+            disabled && styles.primaryButtonDisabled,
+          ]}
           accessibilityRole="button"
           accessibilityLabel={t`继续`}
         >

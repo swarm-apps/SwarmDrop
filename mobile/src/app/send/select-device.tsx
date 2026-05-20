@@ -18,7 +18,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
-import { errorMessage } from "@/lib/utils";
+import { cn, errorMessage } from "@/lib/utils";
 import {
   summariesToOfflineDevices,
   useMobileCoreStore,
@@ -67,17 +67,26 @@ export default function SelectDevice() {
     setSendingTo(peerId);
     try {
       const prepared = await getMobileCore().prepareSend(selectedFiles);
+      // file_ids 是 prepared 文件的子集筛选 —— 空数组会被 core 当作"未选任何文件"
+      // 拒绝(send.rs:48)。这里没有子集 UI,默认全选。
       const result = await getMobileCore().sendPrepared(
         prepared.preparedId,
         peerId,
         peerName,
-        [],
+        prepared.files.map((f) => f.fileId),
       );
       registerSession(result.sessionId);
       clearSelectedFiles();
       router.back();
     } catch (err) {
-      toast.error(t`发送失败`, errorMessage(err));
+      // uniffi 把 Rust panic 包装成固定字符串 "Rust panic",拉一下详情
+      // (panic hook 缓存了 location + payload + backtrace)
+      let panicDetail: string | undefined;
+      try {
+        panicDetail = getMobileCore().takeLastPanic() ?? undefined;
+      } catch {}
+      console.error("[select-device] send failed:", err, panicDetail);
+      toast.error(t`发送失败`, panicDetail ?? errorMessage(err));
     } finally {
       setSendingTo(null);
     }
@@ -179,18 +188,16 @@ function DeviceRow({
         </Text>
         <View className="flex-row items-center gap-1">
           <View
-            className={
-              isOnline
-                ? "size-1.5 rounded-full bg-success"
-                : "size-1.5 rounded-full bg-muted-foreground"
-            }
+            className={cn(
+              "size-1.5 rounded-full",
+              isOnline ? "bg-success" : "bg-muted-foreground",
+            )}
           />
           <Text
-            className={
-              isOnline
-                ? "text-[11px] text-success"
-                : "text-[11px] text-muted-foreground"
-            }
+            className={cn(
+              "text-[11px]",
+              isOnline ? "text-success" : "text-muted-foreground",
+            )}
           >
             {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
           </Text>

@@ -4,11 +4,17 @@ import type { MobileTransferFile as TransferFile } from "react-native-swarmdrop-
 
 /**
  * 通用文件选择 —— 通过系统 DocumentPicker 选任意类型文件。
- * 注意：v2 接线后字段从 `fileId/uri` 改为 `sourceId`，core 内部会分配 file_id。
+ * 注意:v2 接线后字段从 `fileId/uri` 改为 `sourceId`,core 内部会分配 file_id。
+ *
+ * `copyToCacheDirectory: true` —— Android 上 SAF 返回的是 `content://...` URI,
+ * expo-file-system 的 `File.open()` 不支持 content URI(会抛 "This method cannot
+ * be used with content URIs"),进而把 Rust 拖到 panic。打开 copy 让 expo 帮我们
+ * 拷贝成 `file://` URI;iOS 上同样需要拷贝才能稳定流式读取(NSItemProvider 临时
+ * 授权过期问题)。
  */
 export async function pickTransferFiles(): Promise<TransferFile[]> {
   const result = await DocumentPicker.getDocumentAsync({
-    copyToCacheDirectory: false,
+    copyToCacheDirectory: true,
     multiple: true,
   });
 

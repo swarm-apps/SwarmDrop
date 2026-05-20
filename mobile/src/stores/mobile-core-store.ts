@@ -60,9 +60,12 @@ type MobileCoreState = {
   startedAt: number | null;
   /** 仅加载身份(获取 peerId),不启动 P2P 节点。第一次进入主屏调一次。 */
   loadIdentity: () => Promise<void>;
-  /** 关闭 NetManager 释放 P2P 资源（进入后台时调用） */
+  /** 直接从 Rust keychain 读已配对设备,刷新 cache。
+   *  不依赖 NetManager,节点未启动也能调,UI 离线视图的权威数据源。 */
+  loadPairedDevicesCache: () => Promise<void>;
+  /** 关闭 NetManager 释放 P2P 资源（用户手动停或 app 即将被杀时调用） */
   shutdownNode: () => Promise<void>;
-  /** 启动 NetManager（前台恢复时调用） */
+  /** 启动 NetManager */
   startNode: () => Promise<void>;
   refreshDevices: () => Promise<void>;
   refreshNetworkStatus: () => Promise<void>;
@@ -99,6 +102,9 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             identityStatus: "ready",
             initialized: true,
           });
+          // 身份就绪后立即拉一次 keychain paired 设备,
+          // 保证主屏/选择接收设备页冷启动就有离线视图(不依赖节点是否启动)。
+          await get().loadPairedDevicesCache();
           // 仅在用户开启「自动启动节点」时冷启动一次,后续用户手动停止不会被这里重启。
           if (usePreferencesStore.getState().autoStart) {
             await get().startNode();
@@ -108,6 +114,19 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             error: error instanceof Error ? error.message : String(error),
             identityStatus: "failed",
           });
+        }
+      },
+
+      async loadPairedDevicesCache() {
+        try {
+          const core = await initMobileCore();
+          const devices = await core.listPairedDevices();
+          set({ pairedDevicesCache: toPairedSummaries(devices) });
+        } catch (err) {
+          console.warn(
+            "[mobile-core-store] loadPairedDevicesCache failed:",
+            err,
+          );
         }
       },
 
@@ -148,7 +167,6 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           set({
             networkStatus,
             devices,
-            pairedDevicesCache: toPairedSummaries(devices),
             runtimeState: nextRuntimeState,
             startedAt: nextRuntimeState === "running" ? Date.now() : null,
           });
@@ -168,7 +186,6 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           const networkStatus = await core.networkStatus();
           set({
             devices,
-            pairedDevicesCache: toPairedSummaries(devices),
             networkStatus,
             runtimeState: toRuntimeState(networkStatus.status),
           });
@@ -215,10 +232,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
       },
 
       applyDevices(devices) {
-        set({
-          devices,
-          pairedDevicesCache: toPairedSummaries(devices),
-        });
+        set({ devices });
       },
 
       setError(error) {

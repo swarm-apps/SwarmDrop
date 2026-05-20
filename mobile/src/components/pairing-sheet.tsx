@@ -21,6 +21,7 @@ import {
 } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
+import { useShallow } from "zustand/react/shallow";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
@@ -87,8 +88,12 @@ export const PairingSheet = forwardRef<PairingSheetRef, object>(
 
 function PairingTabs({ onDismiss }: { onDismiss: () => void }) {
   const { t } = useLingui();
-  const nearbyDevices = useMobileCoreStore((s) =>
-    s.devices.filter((d) => !d.isPaired && d.status === "online"),
+  // selector 返回新数组会让 useSyncExternalStore 把 snapshot 判为不稳定 → 触发
+  // Maximum update depth。用 useShallow 做逐元素 === 比较即可（同桌面端做法）。
+  const nearbyDevices = useMobileCoreStore(
+    useShallow((s) =>
+      s.devices.filter((d) => !d.isPaired && d.status === "online"),
+    ),
   );
   const isOnline = useMobileCoreStore((s) => s.runtimeState === "running");
 

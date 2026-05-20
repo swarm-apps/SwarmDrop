@@ -6,11 +6,26 @@
  */
 
 import { Directory, File } from "expo-file-system";
-import type {
-  ForeignFileAccess,
-  MobileFileMetadata,
-  MobileSaveLocation,
+import {
+  FfiError,
+  type ForeignFileAccess,
+  type MobileFileMetadata,
+  type MobileSaveLocation,
 } from "react-native-swarmdrop-core";
+
+/**
+ * 任意 JS error → `FfiError.Io` —— 必须包成 uniffi enum 形状,否则 uniffi 在
+ * lift callback return 时认不出错误类型,会走 `handle_callback_unexpected_error`
+ * 触发 Rust panic(catch_unwind 后 abort,日志只有 "Rust panic" 没有源信息)。
+ */
+async function wrapFfi<T>(fn: () => Promise<T> | T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw FfiError.Io.new(message);
+  }
+}
 
 interface OpenSink {
   metadata: MobileFileMetadata;
@@ -21,72 +36,82 @@ export class ExpoFileAccess implements ForeignFileAccess {
   /** 已 create 但未 finalize 的 sink；不持有 FileHandle，写入时按需 open */
   private readonly sinks = new Map<string, OpenSink>();
 
-  async sourceMetadata(sourceId: string): Promise<MobileFileMetadata> {
-    const file = new File(sourceId);
-    if (!file.exists) {
-      throw new Error(`source 不存在: ${sourceId}`);
-    }
-    const name = decodeURIComponent(sourceId.split("/").pop() ?? sourceId);
-    return {
-      name,
-      relativePath: name,
-      size: BigInt(file.size ?? 0),
-      modifiedAt: undefined,
-      checksum: undefined,
-      saveDir: undefined,
-    };
+  sourceMetadata(sourceId: string): Promise<MobileFileMetadata> {
+    return wrapFfi(() => {
+      const file = new File(sourceId);
+      if (!file.exists) {
+        throw new Error(`source 不存在: ${sourceId}`);
+      }
+      const name = decodeURIComponent(sourceId.split("/").pop() ?? sourceId);
+      return {
+        name,
+        relativePath: name,
+        size: BigInt(file.size ?? 0),
+        modifiedAt: undefined,
+        checksum: undefined,
+        saveDir: undefined,
+      };
+    });
   }
 
-  async readSourceChunk(
+  readSourceChunk(
     sourceId: string,
     offset: bigint,
     length: bigint,
   ): Promise<ArrayBuffer> {
-    const handle = new File(sourceId).open();
-    try {
-      handle.offset = Number(offset);
-      // expo-fs readBytes 返回 Uint8Array；ubrn 期望 ArrayBuffer
-      const bytes = handle.readBytes(Number(length));
-      return bytes.buffer.slice(
-        bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength,
-      ) as ArrayBuffer;
-    } finally {
-      handle.close();
-    }
+    return wrapFfi(() => {
+      const handle = new File(sourceId).open();
+      try {
+        handle.offset = Number(offset);
+        // expo-fs readBytes 返回 Uint8Array；ubrn 期望 ArrayBuffer
+        const bytes = handle.readBytes(Number(length));
+        return bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ) as ArrayBuffer;
+      } finally {
+        handle.close();
+      }
+    });
   }
 
-  async createSink(metadata: MobileFileMetadata): Promise<string> {
-    const file = ensureSinkFile(metadata, /* truncate */ true);
-    const sinkId = file.uri;
-    this.sinks.set(sinkId, { metadata, file });
-    return sinkId;
+  createSink(metadata: MobileFileMetadata): Promise<string> {
+    return wrapFfi(() => {
+      const file = ensureSinkFile(metadata, /* truncate */ true);
+      const sinkId = file.uri;
+      this.sinks.set(sinkId, { metadata, file });
+      return sinkId;
+    });
   }
 
-  async openOrCreateSink(metadata: MobileFileMetadata): Promise<string> {
-    // 如果文件已存在则保留（断点续传），否则创建空文件
-    const file = ensureSinkFile(metadata, /* truncate */ false);
-    const sinkId = file.uri;
-    this.sinks.set(sinkId, { metadata, file });
-    return sinkId;
+  openOrCreateSink(metadata: MobileFileMetadata): Promise<string> {
+    return wrapFfi(() => {
+      // 如果文件已存在则保留（断点续传），否则创建空文件
+      const file = ensureSinkFile(metadata, /* truncate */ false);
+      const sinkId = file.uri;
+      this.sinks.set(sinkId, { metadata, file });
+      return sinkId;
+    });
   }
 
-  async writeSinkChunk(
+  writeSinkChunk(
     sinkId: string,
     offset: bigint,
     data: ArrayBuffer,
   ): Promise<void> {
-    const sink = this.sinks.get(sinkId);
-    if (!sink) {
-      throw new Error(`sink 不存在: ${sinkId}`);
-    }
-    const handle = sink.file.open();
-    try {
-      handle.offset = Number(offset);
-      handle.writeBytes(new Uint8Array(data));
-    } finally {
-      handle.close();
-    }
+    return wrapFfi(() => {
+      const sink = this.sinks.get(sinkId);
+      if (!sink) {
+        throw new Error(`sink 不存在: ${sinkId}`);
+      }
+      const handle = sink.file.open();
+      try {
+        handle.offset = Number(offset);
+        handle.writeBytes(new Uint8Array(data));
+      } finally {
+        handle.close();
+      }
+    });
   }
 
   async finalizeSink(sinkId: string): Promise<void> {
@@ -95,12 +120,14 @@ export class ExpoFileAccess implements ForeignFileAccess {
     this.sinks.delete(sinkId);
   }
 
-  async cleanupSink(sinkId: string): Promise<void> {
-    const sink = this.sinks.get(sinkId);
-    this.sinks.delete(sinkId);
-    if (sink && sink.file.exists) {
-      sink.file.delete();
-    }
+  cleanupSink(sinkId: string): Promise<void> {
+    return wrapFfi(() => {
+      const sink = this.sinks.get(sinkId);
+      this.sinks.delete(sinkId);
+      if (sink?.file.exists) {
+        sink.file.delete();
+      }
+    });
   }
 }
 

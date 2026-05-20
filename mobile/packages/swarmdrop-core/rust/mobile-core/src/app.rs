@@ -44,6 +44,8 @@ impl MobileCore {
         file_access: Arc<dyn ForeignFileAccess>,
         data_dir: String,
     ) -> Arc<Self> {
+        // 进程级 panic hook —— 只装一次,后续可用 take_last_panic() 取详情
+        crate::panic_hook::install();
         Arc::new(Self {
             keychain: Arc::new(MobileKeychainAdapter::new(keychain)),
             event_bus: Arc::new(MobileEventBusAdapter::new(event_bus)),
@@ -53,6 +55,13 @@ impl MobileCore {
             net_manager: Mutex::new(None),
             db: Mutex::new(None),
         })
+    }
+
+    /// 取出最近一次 Rust panic 的详情(location + payload + 可选 backtrace)。
+    /// 取过即清空 —— RN 端在 catch 到 uniffi `Rust panic` 错误后立即调一次,
+    /// 把内容打到 console 便于定位。无 panic 时返回 None。
+    pub fn take_last_panic(&self) -> Option<String> {
+        crate::panic_hook::take_last()
     }
 }
 

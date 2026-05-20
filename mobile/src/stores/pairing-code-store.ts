@@ -10,9 +10,9 @@
  * pairing/manager.rs:271-285）；本 store 仅在 accept 时触发 markConsumed。
  */
 
+import type { MobilePairingCode } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { getMobileCore } from "@/core/mobile-core";
-import type { MobilePairingCode } from "react-native-swarmdrop-core";
 
 const TTL_SECS = 600n;
 

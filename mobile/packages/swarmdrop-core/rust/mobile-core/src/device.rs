@@ -1,6 +1,6 @@
 //! 设备列表 —— discovered + paired 的统一视图,带连接状态/延迟/NAT 类型。
 
-use swarmdrop_core::device::{ConnectionType, Device, DeviceStatus};
+use swarmdrop_core::device::{ConnectionType, Device, DeviceStatus, PairedDeviceInfo};
 use swarmdrop_core::device_manager::DeviceFilter;
 
 use crate::app::MobileCore;
@@ -45,6 +45,23 @@ impl From<Device> for MobileDevice {
     }
 }
 
+impl From<PairedDeviceInfo> for MobileDevice {
+    fn from(info: PairedDeviceInfo) -> Self {
+        Self {
+            peer_id: info.peer_id.to_string(),
+            name: info.os_info.name,
+            hostname: info.os_info.hostname,
+            os: info.os_info.os,
+            platform: info.os_info.platform,
+            arch: info.os_info.arch,
+            status: "offline".to_string(),
+            connection: None,
+            latency_ms: None,
+            is_paired: true,
+        }
+    }
+}
+
 pub(crate) fn parse_device_filter(value: &str) -> FfiResult<DeviceFilter> {
     match value.trim().to_ascii_lowercase().as_str() {
         "" | "all" => Ok(DeviceFilter::All),
@@ -66,5 +83,14 @@ impl MobileCore {
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+
+    /// 直接读 keychain 里的已配对设备清单 —— 不依赖 NetManager,
+    /// 节点未启动时也可调,用于 UI 离线兜底视图。
+    pub async fn list_paired_devices(&self) -> FfiResult<Vec<MobileDevice>> {
+        let devices = swarmdrop_core::identity::load_paired_devices(self.keychain())
+            .await
+            .map_err(FfiError::from)?;
+        Ok(devices.into_iter().map(Into::into).collect())
     }
 }

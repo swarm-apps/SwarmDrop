@@ -63,6 +63,8 @@ function routeEventToStores(event: MobileCoreEvent): void {
 
     case MobileCoreEvent_Tags.PairingCompleted: {
       refreshDevices();
+      // 新配对设备已写入 keychain,同步刷新 UI 兜底 cache(不依赖节点状态)
+      void useMobileCoreStore.getState().loadPairedDevicesCache();
       break;
     }
 
