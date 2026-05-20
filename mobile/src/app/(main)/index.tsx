@@ -18,7 +18,6 @@ import { StatusPill } from "@/components/status-pill";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
-import { errorMessage } from "@/lib/utils";
 import {
   summariesToOfflineDevices,
   useMobileCoreStore,
@@ -38,7 +37,6 @@ export default function HomeScreen() {
     pairedDevicesCache,
     runtimeState,
     error,
-    chooseFiles,
     loadIdentity,
     initialized,
     setError,
@@ -48,15 +46,13 @@ export default function HomeScreen() {
       pairedDevicesCache: s.pairedDevicesCache,
       runtimeState: s.runtimeState,
       error: s.error,
-      chooseFiles: s.chooseFiles,
       loadIdentity: s.loadIdentity,
       initialized: s.initialized,
       setError: s.setError,
     })),
   );
 
-  const activeSessionIds = useTransferStore((s) => s.activeSessionIds);
-  const progress = useTransferStore((s) => s.progress);
+  const sessions = useTransferStore((s) => s.sessions);
 
   // 仅第一次进入主屏时加载身份(拿 peerId)。
   // 是否自动启动节点由 preferences.autoStart 决定,逻辑封装在 loadIdentity 内部。
@@ -83,31 +79,27 @@ export default function HomeScreen() {
 
   const activeSnapshots = useMemo(
     () =>
-      Array.from(activeSessionIds)
-        .map((sid) => progress[sid])
-        .filter((p): p is NonNullable<typeof p> => p !== undefined),
-    [activeSessionIds, progress],
+      Object.values(sessions)
+        .sort((a, b) => b.startedAt - a.startedAt)
+        .map((s) => s.progress)
+        .filter((p): p is NonNullable<typeof p> => p !== null),
+    [sessions],
   );
 
   const onDevicePress = useCallback(
-    async (device: DeviceInfo) => {
+    (device: DeviceInfo) => {
       if (device.status !== "online") {
         toast.info(t`设备离线,暂无法发送`);
         return;
       }
-      try {
-        await chooseFiles();
-        if (useMobileCoreStore.getState().selectedFiles.length > 0) {
-          router.push({
-            pathname: "/send/select-device",
-            params: { peerId: device.peerId },
-          });
-        }
-      } catch (err) {
-        toast.error(errorMessage(err));
-      }
+      // 直接跳「发送准备页」—— 用户在那里选文件 / 文件夹 / 照片 / 视频，
+      // 可多次累加 / 撤销，最后点发送。对齐桌面端「点设备 → 发送页」的流程。
+      router.push({
+        pathname: "/send/select-device",
+        params: { peerId: device.peerId },
+      });
     },
-    [chooseFiles, router, t],
+    [router, t],
   );
 
   const openDrawer = () => navigation.dispatch(DrawerActions.openDrawer());

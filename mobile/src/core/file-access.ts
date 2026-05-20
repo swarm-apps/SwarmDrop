@@ -1,4 +1,5 @@
 import * as DocumentPicker from "expo-document-picker";
+import { Directory, type File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import type { MobileTransferFile as TransferFile } from "react-native-swarmdrop-core";
 
@@ -80,4 +81,65 @@ export async function pickFromMediaLibrary(
       size: BigInt(asset.fileSize ?? 0),
     };
   });
+}
+
+/**
+ * 目录选择 —— 弹起系统目录选择器，递归扫描所有文件。
+ *
+ * 用 expo-file-system 55+ 的 `Directory.pickDirectoryAsync()`，iOS / Android
+ * 双平台都通过它统一处理（iOS DocumentPicker folder 模式 + Android SAF
+ * StorageAccessFramework，由 expo 内部桥接）。
+ *
+ * 返回的 TransferFile 数组里：
+ * - `relativePath` 形如 `<rootDirName>/<sub>/<file.ext>`，保留目录结构
+ * - `sourceId` 用 file:// URI（Rust core 端 ForeignFileAccess 用此打开源文件）
+ *
+ * 注意：core 层 prepareSend 已支持任意 `relativePath`（包含 "/" 的视为嵌套），
+ * RN 这里只负责拿到正确的相对路径串。文件 I/O 走 RN 的 ForeignFileAccess
+ * adapter，不在此函数中读取实际内容。
+ */
+export async function pickTransferDirectory(): Promise<TransferFile[]> {
+  const root = await Directory.pickDirectoryAsync();
+  const rootName = root.name || "directory";
+
+  const files: TransferFile[] = [];
+
+  // 迭代式 DFS（递归在 RN JS 引擎栈深度有限制，且目录可能很深）
+  const stack: { dir: Directory; prefix: string }[] = [
+    { dir: root, prefix: rootName },
+  ];
+
+  while (stack.length > 0) {
+    const top = stack.pop();
+    if (!top) break;
+    const { dir, prefix } = top;
+    let entries: (Directory | File)[];
+    try {
+      entries = dir.list();
+    } catch (err) {
+      console.warn(
+        "[pickTransferDirectory] list failed:",
+        dir.uri,
+        err instanceof Error ? err.message : err,
+      );
+      continue;
+    }
+    for (const entry of entries) {
+      const entryName = entry.name;
+      // 跳过常见无意义条目（系统元信息）
+      if (entryName === ".DS_Store" || entryName === "Thumbs.db") continue;
+      if (entry instanceof Directory) {
+        stack.push({ dir: entry, prefix: `${prefix}/${entryName}` });
+      } else {
+        files.push({
+          sourceId: entry.uri,
+          name: entryName,
+          relativePath: `${prefix}/${entryName}`,
+          size: BigInt(entry.size ?? 0),
+        });
+      }
+    }
+  }
+
+  return files;
 }

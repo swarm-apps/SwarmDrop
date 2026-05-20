@@ -27,6 +27,11 @@ class NativeSwarmdropMobileCore : public jsi::HostObject {
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_clear_transfer_history(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_transfer_session(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_session_detail(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_transfer_history(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_resume_transfer(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
@@ -114,6 +119,11 @@ class NativeSwarmdropMobileCore : public jsi::HostObject {
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_history(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_session(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_session_detail(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_transfer_history(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);

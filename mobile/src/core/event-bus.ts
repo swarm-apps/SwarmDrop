@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import type {
   ForeignEventBus as EventBusContract,
   MobileCoreEvent,
@@ -78,24 +79,42 @@ function routeEventToStores(event: MobileCoreEvent): void {
 
     case MobileCoreEvent_Tags.TransferProgress: {
       const { progress } = event.inner;
-      useTransferStore.getState().setProgress(progress.sessionId, progress);
+      useTransferStore.getState().updateProgress(progress);
+      break;
+    }
+
+    case MobileCoreEvent_Tags.TransferAccepted: {
+      useTransferStore.getState().markAccepted(event.inner.sessionId);
+      break;
+    }
+
+    case MobileCoreEvent_Tags.TransferRejected: {
+      useTransferStore.getState().markRejected(event.inner.sessionId);
+      useTransferStore.getState().setError(t`对方拒绝了传输请求`);
       break;
     }
 
     case MobileCoreEvent_Tags.TransferCompleted: {
-      const { sessionId } = event.inner;
-      useTransferStore.getState().removeSession(sessionId);
+      void useTransferStore.getState().removeAndRefresh(event.inner.sessionId);
       break;
     }
 
     case MobileCoreEvent_Tags.TransferFailed: {
       const { sessionId, error } = event.inner;
-      useTransferStore.getState().setError(`传输失败：${error}`);
-      useTransferStore.getState().removeSession(sessionId);
+      useTransferStore.getState().setError(t`传输失败：${error}`);
+      void useTransferStore.getState().removeAndRefresh(sessionId);
       break;
     }
 
     case MobileCoreEvent_Tags.TransferPaused: {
+      // 对端暂停：刷新历史（DB 已被 core 标记为 paused）再移除活跃
+      useTransferStore.getState().setError(t`对方已暂停传输`);
+      void useTransferStore.getState().removeAndRefresh(event.inner.sessionId);
+      break;
+    }
+
+    case MobileCoreEvent_Tags.TransferResumed: {
+      useTransferStore.getState().resumedSession(event.inner.event);
       break;
     }
 

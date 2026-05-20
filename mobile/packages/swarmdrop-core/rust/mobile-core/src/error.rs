@@ -66,3 +66,7 @@ impl From<FfiError> for AppError {
 }
 
 pub type FfiResult<T> = Result<T, FfiError>;
+
+/// `mark_session_failed` 在启动 reconcile 时使用的错误消息常量；
+/// RN 端按这个字面量做 i18n 映射（zh "上次未完成" / en "Interrupted"）。
+pub const ERROR_APP_INTERRUPTED: &str = "app_interrupted";

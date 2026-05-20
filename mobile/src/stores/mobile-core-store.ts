@@ -6,8 +6,9 @@ import type {
 } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { pickTransferFiles } from "@/core/file-access";
+import { pickTransferDirectory, pickTransferFiles } from "@/core/file-access";
 import { initMobileCore } from "@/core/mobile-core";
+import { errorMessage } from "@/lib/utils";
 import { usePairingCodeStore } from "@/stores/pairing-code-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
@@ -70,6 +71,12 @@ type MobileCoreState = {
   refreshDevices: () => Promise<void>;
   refreshNetworkStatus: () => Promise<void>;
   chooseFiles: () => Promise<void>;
+  /** 选择整个文件夹 —— 递归扫描其下全部文件，保留嵌套 relativePath */
+  chooseDirectory: () => Promise<void>;
+  /** 追加文件到当前选择（多次选择叠加，去重按 relativePath） */
+  appendFiles: (files: TransferFile[]) => void;
+  /** 移除选择中的某个 relativePath（目录以 / 结尾，会移除整个子树） */
+  removeSelectedByPath: (relativePath: string) => void;
   setSelectedFiles: (files: TransferFile[]) => void;
   clearSelectedFiles: () => void;
   applyNetworkStatus: (status: NetworkStatus) => void;
@@ -172,7 +179,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           });
         } catch (err) {
           set({
-            error: err instanceof Error ? err.message : String(err),
+            error: errorMessage(err),
             runtimeState: "error",
             startedAt: null,
           });
@@ -190,7 +197,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             runtimeState: toRuntimeState(networkStatus.status),
           });
         } catch (err) {
-          set({ error: err instanceof Error ? err.message : String(err) });
+          set({ error: errorMessage(err) });
         }
       },
 
@@ -203,7 +210,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             runtimeState: toRuntimeState(networkStatus.status),
           });
         } catch (err) {
-          set({ error: err instanceof Error ? err.message : String(err) });
+          set({ error: errorMessage(err) });
         }
       },
 
@@ -212,8 +219,42 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           const files = await pickTransferFiles();
           set({ selectedFiles: files });
         } catch (err) {
-          set({ error: err instanceof Error ? err.message : String(err) });
+          set({ error: errorMessage(err) });
         }
+      },
+
+      async chooseDirectory() {
+        try {
+          const files = await pickTransferDirectory();
+          set({ selectedFiles: files });
+        } catch (err) {
+          set({ error: errorMessage(err) });
+        }
+      },
+
+      appendFiles(files) {
+        if (files.length === 0) return;
+        const current = get().selectedFiles;
+        const seen = new Set(current.map((f) => f.relativePath));
+        const merged = [...current];
+        for (const f of files) {
+          if (!seen.has(f.relativePath)) {
+            merged.push(f);
+            seen.add(f.relativePath);
+          }
+        }
+        set({ selectedFiles: merged });
+      },
+
+      removeSelectedByPath(relativePath) {
+        // 目录形态：以 "/" 结尾，移除其下所有子文件
+        const isDir = relativePath.endsWith("/");
+        set((s) => ({
+          selectedFiles: s.selectedFiles.filter((f) => {
+            if (isDir) return !f.relativePath.startsWith(relativePath);
+            return f.relativePath !== relativePath;
+          }),
+        }));
       },
 
       setSelectedFiles(files) {

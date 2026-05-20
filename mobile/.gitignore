@@ -50,3 +50,10 @@ keys/
 
 expo-env.d.ts
 # @end expo-cli
+
+**/openspec
+
+.claude
+
+!.claude/skills/dev-workflow
+!.claude/settings.json

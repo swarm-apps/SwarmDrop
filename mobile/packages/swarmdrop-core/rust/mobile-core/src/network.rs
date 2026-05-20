@@ -63,6 +63,12 @@ impl MobileCore {
 
         // 启动前先确保 SQLite 已就绪（断点续传 / 历史记录都依赖它）
         let db = self.ensure_db().await?;
+
+        // 进程死亡时可能留下 status=Transferring 的脏会话，必须先 reconcile
+        // 否则历史列表会出现"永远在传"的幽灵条目。Paused 是用户主动暂停的合法
+        // 状态，不动；终态自然也不动。
+        crate::history::reconcile_stale_sessions(&db).await?;
+
         let event_bus = self.event_bus_arc()
             as std::sync::Arc<dyn swarmdrop_core::host::EventBus>;
         let file_access = self.file_access_arc();

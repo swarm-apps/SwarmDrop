@@ -1,4 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { useRouter } from "expo-router";
 import { Download, File as FileIcon } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import {
@@ -22,10 +23,11 @@ import { useTransferStore } from "@/stores/transfer-store";
 
 export function TransferOfferHost() {
   const { t } = useLingui();
+  const router = useRouter();
   const colors = useThemeColors();
   const current = useTransferStore((s) => s.currentOffer);
   const dismiss = useTransferStore((s) => s.dismissOffer);
-  const registerSession = useTransferStore((s) => s.registerSession);
+  const addSession = useTransferStore((s) => s.addSession);
   const setError = useTransferStore((s) => s.setError);
   const [busy, setBusy] = useState<"accepting" | "rejecting" | null>(null);
 
@@ -37,14 +39,34 @@ export function TransferOfferHost() {
     try {
       const { transfersInboxUri } = getMobilePaths();
       await getMobileCore().acceptReceive(current.id, transfersInboxUri);
-      registerSession(current.id);
-      dismiss(current.id);
+      addSession({
+        sessionId: current.id,
+        direction: "receive",
+        peerId: current.offer.peerId,
+        peerName: current.offer.deviceName,
+        files: current.offer.files.map((f) => ({
+          fileId: f.fileId,
+          name: f.name,
+          relativePath: f.relativePath ?? "",
+          size: f.size,
+          isDirectory: f.isDirectory,
+        })),
+        totalSize: current.offer.totalSize,
+      });
+      const sessionId = current.id;
+      dismiss(sessionId);
+      // 关闭 dialog 后进入详情页观察实时进度。push 而不是 replace：
+      // 用户可能在任意屏幕收到 offer，按返回应回原屏，不应破坏导航栈。
+      router.push({
+        pathname: "/transfer/[sessionId]",
+        params: { sessionId },
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
     }
-  }, [busy, current, dismiss, setError, registerSession]);
+  }, [busy, current, dismiss, setError, addSession, router]);
 
   const reject = useCallback(async () => {
     if (!current || busy !== null) return;

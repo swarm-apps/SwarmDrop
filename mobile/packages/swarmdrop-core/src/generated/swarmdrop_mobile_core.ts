@@ -803,6 +803,77 @@ const FfiConverterTypeMobileRemoteDeviceInfo = (() => {
 })();
 
 
+/**
+ * `resume_transfer` 的返回值
+ */
+export type MobileResumeTransferResult = {
+    sessionId: string,
+    /**
+     * "send" | "receive"
+     */
+    direction: string,
+    peerId: string,
+    peerName: string,
+    files: Array<MobileTransferResumedFile>,
+    totalSize: /*u64*/bigint,
+    transferredBytes: /*u64*/bigint
+}
+
+/**
+ * Generated factory for {@link MobileResumeTransferResult} record objects.
+ */
+export const MobileResumeTransferResult = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileResumeTransferResult, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileResumeTransferResult>,
+
+    });
+})();
+
+const FfiConverterTypeMobileResumeTransferResult = (() => {
+    type TypeName = MobileResumeTransferResult;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                sessionId: FfiConverterString.read(from), 
+                direction: FfiConverterString.read(from), 
+                peerId: FfiConverterString.read(from), 
+                peerName: FfiConverterString.read(from), 
+                files: FfiConverterArrayTypeMobileTransferResumedFile.read(from), 
+                totalSize: FfiConverterUInt64.read(from), 
+                transferredBytes: FfiConverterUInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.sessionId, into);
+            FfiConverterString.write(value.direction, into);
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterString.write(value.peerName, into);
+            FfiConverterArrayTypeMobileTransferResumedFile.write(value.files, into);
+            FfiConverterUInt64.write(value.totalSize, into);
+            FfiConverterUInt64.write(value.transferredBytes, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.sessionId) + 
+            FfiConverterString.allocationSize(value.direction) + 
+            FfiConverterString.allocationSize(value.peerId) + 
+            FfiConverterString.allocationSize(value.peerName) + 
+            FfiConverterArrayTypeMobileTransferResumedFile.allocationSize(value.files) + 
+            FfiConverterUInt64.allocationSize(value.totalSize) + 
+            FfiConverterUInt64.allocationSize(value.transferredBytes);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
 export type MobileSendResult = {
     sessionId: string
 }
@@ -896,6 +967,163 @@ const FfiConverterTypeMobileTransferFile = (() => {
             FfiConverterString.allocationSize(value.name) + 
             FfiConverterString.allocationSize(value.relativePath) + 
             FfiConverterUInt64.allocationSize(value.size);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+export type MobileTransferHistoryFile = {
+    fileId: /*u32*/number,
+    name: string,
+    relativePath: string,
+    size: /*u64*/bigint
+}
+
+/**
+ * Generated factory for {@link MobileTransferHistoryFile} record objects.
+ */
+export const MobileTransferHistoryFile = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileTransferHistoryFile, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileTransferHistoryFile>,
+
+    });
+})();
+
+const FfiConverterTypeMobileTransferHistoryFile = (() => {
+    type TypeName = MobileTransferHistoryFile;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                fileId: FfiConverterUInt32.read(from), 
+                name: FfiConverterString.read(from), 
+                relativePath: FfiConverterString.read(from), 
+                size: FfiConverterUInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterUInt32.write(value.fileId, into);
+            FfiConverterString.write(value.name, into);
+            FfiConverterString.write(value.relativePath, into);
+            FfiConverterUInt64.write(value.size, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterUInt32.allocationSize(value.fileId) + 
+            FfiConverterString.allocationSize(value.name) + 
+            FfiConverterString.allocationSize(value.relativePath) + 
+            FfiConverterUInt64.allocationSize(value.size);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+export type MobileTransferHistoryItem = {
+    sessionId: string,
+    /**
+     * "send" | "receive"
+     */
+    direction: string,
+    peerId: string,
+    peerName: string,
+    status: MobileSessionStatus,
+    files: Array<MobileTransferHistoryFile>,
+    totalSize: /*u64*/bigint,
+    transferredBytes: /*u64*/bigint,
+    errorMessage?: string,
+    /**
+     * 接收方的保存路径（CoreSaveLocation::Path 透传）；发送方为 None
+     */
+    savePath?: string,
+    /**
+     * Unix ms
+     */
+    startedAt: /*i64*/bigint,
+    /**
+     * Unix ms
+     */
+    updatedAt: /*i64*/bigint,
+    /**
+     * Unix ms；进行中为 None
+     */
+    finishedAt?: /*i64*/bigint
+}
+
+/**
+ * Generated factory for {@link MobileTransferHistoryItem} record objects.
+ */
+export const MobileTransferHistoryItem = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileTransferHistoryItem, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileTransferHistoryItem>,
+
+    });
+})();
+
+const FfiConverterTypeMobileTransferHistoryItem = (() => {
+    type TypeName = MobileTransferHistoryItem;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                sessionId: FfiConverterString.read(from), 
+                direction: FfiConverterString.read(from), 
+                peerId: FfiConverterString.read(from), 
+                peerName: FfiConverterString.read(from), 
+                status: FfiConverterTypeMobileSessionStatus.read(from), 
+                files: FfiConverterArrayTypeMobileTransferHistoryFile.read(from), 
+                totalSize: FfiConverterUInt64.read(from), 
+                transferredBytes: FfiConverterUInt64.read(from), 
+                errorMessage: FfiConverterOptionalString.read(from), 
+                savePath: FfiConverterOptionalString.read(from), 
+                startedAt: FfiConverterInt64.read(from), 
+                updatedAt: FfiConverterInt64.read(from), 
+                finishedAt: FfiConverterOptionalInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.sessionId, into);
+            FfiConverterString.write(value.direction, into);
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterString.write(value.peerName, into);
+            FfiConverterTypeMobileSessionStatus.write(value.status, into);
+            FfiConverterArrayTypeMobileTransferHistoryFile.write(value.files, into);
+            FfiConverterUInt64.write(value.totalSize, into);
+            FfiConverterUInt64.write(value.transferredBytes, into);
+            FfiConverterOptionalString.write(value.errorMessage, into);
+            FfiConverterOptionalString.write(value.savePath, into);
+            FfiConverterInt64.write(value.startedAt, into);
+            FfiConverterInt64.write(value.updatedAt, into);
+            FfiConverterOptionalInt64.write(value.finishedAt, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.sessionId) + 
+            FfiConverterString.allocationSize(value.direction) + 
+            FfiConverterString.allocationSize(value.peerId) + 
+            FfiConverterString.allocationSize(value.peerName) + 
+            FfiConverterTypeMobileSessionStatus.allocationSize(value.status) + 
+            FfiConverterArrayTypeMobileTransferHistoryFile.allocationSize(value.files) + 
+            FfiConverterUInt64.allocationSize(value.totalSize) + 
+            FfiConverterUInt64.allocationSize(value.transferredBytes) + 
+            FfiConverterOptionalString.allocationSize(value.errorMessage) + 
+            FfiConverterOptionalString.allocationSize(value.savePath) + 
+            FfiConverterInt64.allocationSize(value.startedAt) + 
+            FfiConverterInt64.allocationSize(value.updatedAt) + 
+            FfiConverterOptionalInt64.allocationSize(value.finishedAt);
             
         }
     };
@@ -2696,6 +2924,54 @@ const FfiConverterTypeMobileSaveLocation = (() => {
 
 
 
+/**
+ * DB 层会话状态镜像（5 个变种，对齐 `entity::SessionStatus`）。
+ *
+ * `pending` / `waiting_accept` 是 RN 活跃 session 的内存 UI 中间态，
+ * 不进 DB，也不在这层暴露。
+ */
+export enum MobileSessionStatus {
+    Transferring,
+    Paused,
+    Completed,
+    Failed,
+    Cancelled
+}
+
+const FfiConverterTypeMobileSessionStatus = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileSessionStatus;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileSessionStatus.Transferring;
+                case 2: return MobileSessionStatus.Paused;
+                case 3: return MobileSessionStatus.Completed;
+                case 4: return MobileSessionStatus.Failed;
+                case 5: return MobileSessionStatus.Cancelled;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileSessionStatus.Transferring: return ordinalConverter.write(1, into);
+                case MobileSessionStatus.Paused: return ordinalConverter.write(2, into);
+                case MobileSessionStatus.Completed: return ordinalConverter.write(3, into);
+                case MobileSessionStatus.Failed: return ordinalConverter.write(4, into);
+                case MobileSessionStatus.Cancelled: return ordinalConverter.write(5, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+
+
+
 export interface ForeignEventBus {
     
     emit(event: MobileCoreEvent) : void;
@@ -4018,6 +4294,29 @@ export interface MobileCoreLike {
      * 节点未启动时也可调,用于 UI 离线兜底视图。
      */
     listPairedDevices(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileDevice>>;
+    /**
+     * 清空全部历史（含文件子记录）。
+     */
+    clearTransferHistory(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    /**
+     * 删除单个会话（级联删除文件）；不存在时静默跳过。
+     */
+    deleteTransferSession(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    /**
+     * 查询单个会话详情；找不到时抛 `FfiError::Transfer("会话不存在")`。
+     */
+    getTransferSessionDetail(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileTransferHistoryItem>;
+    /**
+     * 查询传输历史列表（可选按状态过滤），按 started_at 降序。
+     */
+    listTransferHistory(statusFilter: MobileSessionStatus | undefined, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileTransferHistoryItem>>;
+    /**
+     * 恢复传输：根据 DB 中记录的方向分发到 sender/receiver resume 流程。
+     *
+     * 返回值包含新协商出的会话元信息；对端离线 / 文件被改动等失败由
+     * 共享 crate 的 `initiate_resume*` 自己负责，RN 端 catch FfiError toast。
+     */
+    resumeTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileResumeTransferResult>;
     initializeIdentity(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileIdentity>;
     networkStatus(asyncOpts_?: { signal: AbortSignal }) : Promise<MobileNetworkStatus>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
@@ -4149,6 +4448,164 @@ async  listPairedDevices(asyncOpts_?: { signal: AbortSignal }): Promise<Array<Mo
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
             /*liftFunc:*/ FfiConverterArrayTypeMobileDevice.lift.bind(FfiConverterArrayTypeMobileDevice),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 清空全部历史（含文件子记录）。
+     */
+async  clearTransferHistory(asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_clear_transfer_history(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                    
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 删除单个会话（级联删除文件）；不存在时静默跳过。
+     */
+async  deleteTransferSession(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_transfer_session(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sessionId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 查询单个会话详情；找不到时抛 `FfiError::Transfer("会话不存在")`。
+     */
+async  getTransferSessionDetail(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTransferHistoryItem> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_session_detail(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sessionId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterTypeMobileTransferHistoryItem.lift.bind(FfiConverterTypeMobileTransferHistoryItem),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 查询传输历史列表（可选按状态过滤），按 started_at 降序。
+     */
+async  listTransferHistory(statusFilter: MobileSessionStatus | undefined, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileTransferHistoryItem>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_transfer_history(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterOptionalTypeMobileSessionStatus.lower(statusFilter)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterArrayTypeMobileTransferHistoryItem.lift.bind(FfiConverterArrayTypeMobileTransferHistoryItem),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 恢复传输：根据 DB 中记录的方向分发到 sender/receiver resume 流程。
+     *
+     * 返回值包含新协商出的会话元信息；对端离线 / 文件被改动等失败由
+     * 共享 crate 的 `initiate_resume*` 自己负责，RN 端 catch FfiError toast。
+     */
+async  resumeTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileResumeTransferResult> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_resume_transfer(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sessionId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterTypeMobileResumeTransferResult.lift.bind(FfiConverterTypeMobileResumeTransferResult),
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -4682,6 +5139,14 @@ const FfiConverterArrayTypeMobilePreparedFile = new FfiConverterArray(FfiConvert
 const FfiConverterArrayTypeMobileTransferFile = new FfiConverterArray(FfiConverterTypeMobileTransferFile);
 
 
+// FfiConverter for Array<MobileTransferHistoryFile>
+const FfiConverterArrayTypeMobileTransferHistoryFile = new FfiConverterArray(FfiConverterTypeMobileTransferHistoryFile);
+
+
+// FfiConverter for Array<MobileTransferHistoryItem>
+const FfiConverterArrayTypeMobileTransferHistoryItem = new FfiConverterArray(FfiConverterTypeMobileTransferHistoryItem);
+
+
 // FfiConverter for Array<MobileTransferOfferFile>
 const FfiConverterArrayTypeMobileTransferOfferFile = new FfiConverterArray(FfiConverterTypeMobileTransferOfferFile);
 
@@ -4700,6 +5165,10 @@ const FfiConverterArrayUInt32 = new FfiConverterArray(FfiConverterUInt32);
 
 // FfiConverter for MobileSaveLocation | undefined
 const FfiConverterOptionalTypeMobileSaveLocation = new FfiConverterOptional(FfiConverterTypeMobileSaveLocation);
+
+
+// FfiConverter for MobileSessionStatus | undefined
+const FfiConverterOptionalTypeMobileSessionStatus = new FfiConverterOptional(FfiConverterTypeMobileSessionStatus);
 
 /**
  * This should be called before anything else.
@@ -4727,6 +5196,21 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices() !== 29003) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_history() !== 18038) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_history");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_session() !== 19671) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_session");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_session_detail() !== 31297) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_session_detail");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_transfer_history() !== 62552) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_transfer_history");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer() !== 26990) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity() !== 64600) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity");
@@ -4839,9 +5323,13 @@ export default Object.freeze({
     FfiConverterTypeMobilePreparedFile,
     FfiConverterTypeMobilePreparedTransfer,
     FfiConverterTypeMobileRemoteDeviceInfo,
+    FfiConverterTypeMobileResumeTransferResult,
     FfiConverterTypeMobileSaveLocation,
     FfiConverterTypeMobileSendResult,
+    FfiConverterTypeMobileSessionStatus,
     FfiConverterTypeMobileTransferFile,
+    FfiConverterTypeMobileTransferHistoryFile,
+    FfiConverterTypeMobileTransferHistoryItem,
     FfiConverterTypeMobileTransferOffer,
     FfiConverterTypeMobileTransferOfferFile,
     FfiConverterTypeMobileTransferProgress,

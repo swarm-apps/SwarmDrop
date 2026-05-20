@@ -33,6 +33,7 @@ mod device;
 mod error;
 mod events;
 mod file_access;
+mod history;
 mod identity;
 mod keychain;
 mod network;

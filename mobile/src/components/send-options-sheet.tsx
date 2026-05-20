@@ -8,6 +8,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import {
   FileText,
+  Folder,
   Image as ImageIcon,
   type LucideIcon,
   Video,
@@ -18,6 +19,7 @@ import { Text } from "@/components/ui/text";
 import {
   type MediaKind,
   pickFromMediaLibrary,
+  pickTransferDirectory,
   pickTransferFiles,
 } from "@/core/file-access";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -31,7 +33,7 @@ export interface SendOptionsSheetRef {
 }
 
 interface OptionDef {
-  key: "files" | "photos" | "videos";
+  key: "files" | "directory" | "photos" | "videos";
   icon: LucideIcon;
   label: React.ReactNode;
   description: React.ReactNode;
@@ -72,7 +74,9 @@ export const SendOptionsSheet = forwardRef<SendOptionsSheetRef, object>(
         const files =
           key === "files"
             ? await pickTransferFiles()
-            : await pickFromMediaLibrary(key as MediaKind);
+            : key === "directory"
+              ? await pickTransferDirectory()
+              : await pickFromMediaLibrary(key as MediaKind);
         if (files.length === 0) return;
         setSelectedFiles(files);
         sheetRef.current?.dismiss();
@@ -88,6 +92,12 @@ export const SendOptionsSheet = forwardRef<SendOptionsSheetRef, object>(
         icon: FileText,
         label: <Trans>选择文件</Trans>,
         description: <Trans>任意类型,支持多选</Trans>,
+      },
+      {
+        key: "directory",
+        icon: Folder,
+        label: <Trans>选择文件夹</Trans>,
+        description: <Trans>整个文件夹递归传输</Trans>,
       },
       {
         key: "photos",

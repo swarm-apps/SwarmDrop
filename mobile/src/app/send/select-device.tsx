@@ -1,18 +1,47 @@
+/**
+ * 发送准备页 —— 与桌面端 `/_app/send` 对齐。
+ *
+ * 入口：(main) 点击在线设备 → push 到这里（携带 peerId）。
+ * 流程：
+ *   1. 顶部 device header（不再让用户选设备，已经在主屏选过）
+ *   2. 「添加文件 / 添加文件夹 / 照片 / 视频」按钮组，多次点击累加
+ *   3. file-tree（mode=select）渲染已选；点 X 移除单个文件 / 子目录
+ *   4. 底部「取消 / 发送」操作栏；发送过程显示 prepareSend 进度条
+ *   5. 发送成功 → router.replace 到 `/transfer/[sessionId]` 看实时进度
+ */
+
 import { Trans, useLingui } from "@lingui/react/macro";
-import { useRouter } from "expo-router";
-import { Plus, Power, Send, Smartphone, WifiOff } from "lucide-react-native";
-import { useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
-import { useShallow } from "zustand/react/shallow";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  NodeControlSheet,
-  type NodeControlSheetRef,
-} from "@/components/node-control-sheet";
-import { PairingSheet, type PairingSheetRef } from "@/components/pairing-sheet";
+  FileText,
+  Folder,
+  Image as ImageIcon,
+  type LucideIcon,
+  Video,
+} from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import type {
+  MobileDevice as DeviceInfo,
+  MobilePrepareProgress,
+} from "react-native-swarmdrop-core";
+import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
+import { useShallow } from "zustand/react/shallow";
+import { buildTreeDataFromSelection, FileTree } from "@/components/file-tree";
 import { SettingsHeader } from "@/components/settings-header";
+import {
+  calcPercent,
+  formatBytes,
+  ProgressBar,
+} from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
+import { subscribeCoreEvents } from "@/core/event-bus";
+import {
+  pickFromMediaLibrary,
+  pickTransferDirectory,
+  pickTransferFiles,
+} from "@/core/file-access";
 import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
@@ -25,18 +54,19 @@ import {
 } from "@/stores/mobile-core-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
-export default function SelectDevice() {
+export default function SendPreparePage() {
   const { t } = useLingui();
   const router = useRouter();
   const colors = useThemeColors();
-  const pairingSheetRef = useRef<PairingSheetRef>(null);
-  const nodeSheetRef = useRef<NodeControlSheetRef>(null);
+  const { peerId } = useLocalSearchParams<{ peerId: string }>();
 
   const {
     devices,
     pairedDevicesCache,
     runtimeState,
     selectedFiles,
+    appendFiles,
+    removeSelectedByPath,
     clearSelectedFiles,
   } = useMobileCoreStore(
     useShallow((s) => ({
@@ -44,258 +74,361 @@ export default function SelectDevice() {
       pairedDevicesCache: s.pairedDevicesCache,
       runtimeState: s.runtimeState,
       selectedFiles: s.selectedFiles,
+      appendFiles: s.appendFiles,
+      removeSelectedByPath: s.removeSelectedByPath,
       clearSelectedFiles: s.clearSelectedFiles,
     })),
   );
-  const registerSession = useTransferStore((s) => s.registerSession);
+  const startSend = useTransferStore((s) => s.startSend);
 
-  const [sendingTo, setSendingTo] = useState<string | null>(null);
+  // 进入页面时清掉残留的旧选择（用户从主屏不同设备来回切换时不要带上次的）
+  useEffect(() => {
+    clearSelectedFiles();
+    return () => {
+      clearSelectedFiles();
+    };
+  }, [clearSelectedFiles]);
 
-  // 节点 running 时用实时 devices,否则 fallback cache(全离线)
-  const pairedDevices = useMemo<DeviceInfo[]>(() => {
-    if (runtimeState === "running") {
-      return devices.filter((d) => d.isPaired);
-    }
-    return summariesToOfflineDevices(pairedDevicesCache);
-  }, [runtimeState, devices, pairedDevicesCache]);
+  const device = useMemo<DeviceInfo | null>(() => {
+    if (!peerId) return null;
+    const online = devices.find((d) => d.peerId === peerId);
+    if (online) return online;
+    const fallback = summariesToOfflineDevices(pairedDevicesCache).find(
+      (d) => d.peerId === peerId,
+    );
+    return fallback ?? null;
+  }, [peerId, devices, pairedDevicesCache]);
 
-  const onlineCount = pairedDevices.filter((d) => d.status === "online").length;
+  const displayName = device ? deviceDisplayName(device) : "";
+
+  // ── 准备阶段进度（订阅 PrepareProgress 事件）─────────────────
+  const [sending, setSending] = useState(false);
+  const [prepareProgress, setPrepareProgress] =
+    useState<MobilePrepareProgress | null>(null);
+
+  useEffect(() => {
+    return subscribeCoreEvents((event) => {
+      if (event.tag === MobileCoreEvent_Tags.PrepareProgress) {
+        setPrepareProgress(event.inner.event);
+      }
+    });
+  }, []);
+
+  // ── 文件树数据 ─────────────────────────────────────────────
+  const treeData = useMemo(
+    () =>
+      buildTreeDataFromSelection(
+        selectedFiles.map((f) => ({
+          name: f.name,
+          relativePath: f.relativePath,
+          size: Number(f.size),
+        })),
+      ),
+    [selectedFiles],
+  );
+
   const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0n);
 
-  const onSend = async (peerId: string, peerName: string) => {
-    if (sendingTo !== null || selectedFiles.length === 0) return;
-    setSendingTo(peerId);
+  // ── 添加来源 handlers ──────────────────────────────────────
+  const handlePick = useCallback(
+    async (kind: "files" | "directory" | "photos" | "videos") => {
+      try {
+        const files =
+          kind === "files"
+            ? await pickTransferFiles()
+            : kind === "directory"
+              ? await pickTransferDirectory()
+              : await pickFromMediaLibrary(kind);
+        if (files.length > 0) appendFiles(files);
+      } catch (err) {
+        toast.error(t`选择失败`, errorMessage(err));
+      }
+    },
+    [appendFiles, t],
+  );
+
+  // ── 发送 ───────────────────────────────────────────────────
+  const onSend = useCallback(async () => {
+    if (!device || sending || selectedFiles.length === 0) return;
+    setSending(true);
+    setPrepareProgress(null);
     try {
-      const prepared = await getMobileCore().prepareSend(selectedFiles);
-      // file_ids 是 prepared 文件的子集筛选 —— 空数组会被 core 当作"未选任何文件"
-      // 拒绝(send.rs:48)。这里没有子集 UI,默认全选。
-      const result = await getMobileCore().sendPrepared(
-        prepared.preparedId,
-        peerId,
-        peerName,
-        prepared.files.map((f) => f.fileId),
-      );
-      registerSession(result.sessionId);
+      const sessionId = await startSend({
+        files: selectedFiles,
+        peerId: device.peerId,
+        peerName: displayName,
+      });
       clearSelectedFiles();
-      router.back();
+      router.replace({
+        pathname: "/transfer/[sessionId]",
+        params: { sessionId },
+      });
     } catch (err) {
-      // uniffi 把 Rust panic 包装成固定字符串 "Rust panic",拉一下详情
-      // (panic hook 缓存了 location + payload + backtrace)
+      // uniffi panic 被包装成固定字符串 "Rust panic"，take_last_panic 拉详情。
       let panicDetail: string | undefined;
       try {
         panicDetail = getMobileCore().takeLastPanic() ?? undefined;
       } catch {}
-      console.error("[select-device] send failed:", err, panicDetail);
+      console.error("[send-prepare] send failed:", err, panicDetail);
       toast.error(t`发送失败`, panicDetail ?? errorMessage(err));
     } finally {
-      setSendingTo(null);
+      setSending(false);
+      setPrepareProgress(null);
     }
-  };
+  }, [
+    device,
+    sending,
+    selectedFiles,
+    displayName,
+    startSend,
+    clearSelectedFiles,
+    router,
+    t,
+  ]);
 
-  return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader title={t`选择接收设备`} />
+  const onCancel = useCallback(() => {
+    if (selectedFiles.length > 0) {
+      Alert.alert(t`放弃选择？`, t`已选的文件将被清空。`, [
+        { text: t`继续选择`, style: "cancel" },
+        {
+          text: t`放弃`,
+          style: "destructive",
+          onPress: () => {
+            clearSelectedFiles();
+            router.back();
+          },
+        },
+      ]);
+    } else {
+      router.back();
+    }
+  }, [selectedFiles.length, clearSelectedFiles, router, t]);
 
-      <View className="px-5 pt-2">
-        <View className="rounded-xl bg-primary/10 p-3.5">
-          <Text className="text-[14px] font-semibold text-foreground">
-            <Trans>{selectedFiles.length} 个文件</Trans>
+  // ── 渲染 ───────────────────────────────────────────────────
+  if (!device) {
+    return (
+      <SafeAreaView
+        style={{ flex: 1 }}
+        className="bg-background"
+        edges={["top"]}
+      >
+        <SettingsHeader title={t`发送`} />
+        <View className="flex-1 items-center justify-center gap-3 px-6">
+          <Text className="text-sm text-muted-foreground">
+            <Trans>设备未找到</Trans>
           </Text>
-          <Text className="text-[12px] text-muted-foreground mt-0.5">
-            {formatBytes(totalSize)}
-          </Text>
-        </View>
-      </View>
-
-      {runtimeState !== "running" && pairedDevices.length > 0 ? (
-        <View className="px-5 pt-3">
           <Pressable
-            onPress={() => nodeSheetRef.current?.present()}
+            onPress={() => router.back()}
             accessibilityRole="button"
-            className="flex-row items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-2.5 active:opacity-70"
+            className="rounded-xl border border-border bg-card px-4 py-2 active:opacity-70"
           >
-            <Power color={colors.warning} size={16} />
-            <Text className="flex-1 text-[12px] font-medium text-warning">
-              <Trans>节点未启动,启动后才能发送</Trans>
-            </Text>
-            <Text className="text-[12px] font-semibold text-warning">
-              <Trans>启动</Trans>
+            <Text className="text-[13px] text-foreground">
+              <Trans>返回</Trans>
             </Text>
           </Pressable>
         </View>
-      ) : null}
+      </SafeAreaView>
+    );
+  }
 
-      <ScrollView contentContainerClassName="gap-2 px-5 pt-3 pb-6">
-        {pairedDevices.length === 0 ? (
-          <EmptyNoPaired
-            onAdd={() => pairingSheetRef.current?.present()}
-            onBack={() => router.back()}
+  const isOnline = device.status === "online";
+
+  return (
+    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
+      <SettingsHeader title={t`发送到 ${displayName}`} />
+
+      <View className="flex-1 gap-3 px-5 pt-2">
+        <DeviceHeader device={device} runtimeState={runtimeState} />
+
+        <AddSourceButtons disabled={sending} onPick={handlePick} />
+
+        {selectedFiles.length > 0 ? (
+          <FileTree
+            mode="select"
+            dataLoader={treeData.dataLoader}
+            rootChildren={treeData.rootChildren}
+            totalCount={selectedFiles.length}
+            totalSize={Number(totalSize)}
+            onRemove={removeSelectedByPath}
           />
-        ) : onlineCount === 0 && runtimeState === "running" ? (
-          <EmptyAllOffline onBack={() => router.back()} />
         ) : (
-          pairedDevices.map((d) => (
-            <DeviceRow
-              key={d.peerId}
-              device={d}
-              sending={sendingTo === d.peerId}
-              disabled={sendingTo !== null || d.status !== "online"}
-              onPress={() => onSend(d.peerId, deviceDisplayName(d))}
-            />
-          ))
+          <View className="flex-1 items-center justify-center gap-2 py-6">
+            <View className="size-14 items-center justify-center rounded-full bg-muted">
+              <FileText color={colors.mutedForeground} size={26} />
+            </View>
+            <Text className="text-[13px] text-muted-foreground">
+              <Trans>还没有选择任何文件</Trans>
+            </Text>
+            <Text className="text-[11px] text-muted-foreground">
+              <Trans>点击上方按钮添加文件或文件夹</Trans>
+            </Text>
+          </View>
         )}
-      </ScrollView>
+      </View>
 
-      <PairingSheet ref={pairingSheetRef} />
-      <NodeControlSheet ref={nodeSheetRef} />
+      {/* 底部操作栏 */}
+      <View className="gap-2 border-t border-border bg-card px-5 py-3">
+        {prepareProgress ? (
+          <PrepareProgressBar progress={prepareProgress} />
+        ) : (
+          <View className="flex-row items-center justify-between gap-3">
+            <Text className="text-[12px] text-muted-foreground">
+              {selectedFiles.length > 0 ? (
+                <Trans>
+                  {selectedFiles.length} 个文件 · {formatBytes(totalSize)}
+                </Trans>
+              ) : (
+                <Trans>选择要发送的内容</Trans>
+              )}
+            </Text>
+            <View className="flex-row gap-2">
+              <Pressable
+                onPress={onCancel}
+                accessibilityRole="button"
+                disabled={sending}
+                className={cn(
+                  "h-10 flex-row items-center justify-center rounded-xl border border-border bg-card px-4",
+                  "active:opacity-70 disabled:opacity-50",
+                )}
+              >
+                <Text className="text-[13px] text-foreground">
+                  <Trans>取消</Trans>
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={onSend}
+                accessibilityRole="button"
+                disabled={sending || selectedFiles.length === 0 || !isOnline}
+                className={cn(
+                  "h-10 min-w-25 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary px-4",
+                  "active:opacity-70 disabled:opacity-50",
+                )}
+              >
+                {sending ? (
+                  <ActivityIndicator color={colors.background} size="small" />
+                ) : null}
+                <Text className="text-[13px] font-semibold text-primary-foreground">
+                  {sending ? <Trans>准备中</Trans> : <Trans>发送</Trans>}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
 
-function DeviceRow({
+/* ─── 顶部 device header ─── */
+
+function DeviceHeader({
   device,
-  sending,
-  disabled,
-  onPress,
+  runtimeState,
 }: {
   device: DeviceInfo;
-  sending: boolean;
-  disabled: boolean;
-  onPress: () => void;
+  runtimeState: string;
 }) {
   const colors = useThemeColors();
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
   const isOnline = device.status === "online";
-  const displayName = deviceDisplayName(device);
 
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={displayName}
-      className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-3.5 active:opacity-70 disabled:opacity-50"
-    >
-      <View className="size-9 items-center justify-center rounded-full bg-muted">
-        <Icon color={colors.foreground} size={18} />
+    <View className="flex-row items-center gap-3 rounded-xl bg-primary/10 p-3.5">
+      <View className="size-10 items-center justify-center rounded-full bg-card">
+        <Icon color={colors.foreground} size={20} />
       </View>
       <View className="flex-1 gap-0.5">
         <Text
           className="text-[14px] font-semibold text-foreground"
           numberOfLines={1}
         >
-          {displayName}
+          {deviceDisplayName(device)}
         </Text>
-        <View className="flex-row items-center gap-1">
-          <View
-            className={cn(
-              "size-1.5 rounded-full",
-              isOnline ? "bg-success" : "bg-muted-foreground",
-            )}
-          />
-          <Text
-            className={cn(
-              "text-[11px]",
-              isOnline ? "text-success" : "text-muted-foreground",
-            )}
-          >
-            {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
-          </Text>
-          <Text className="text-[11px] text-muted-foreground">
-            · {device.platform}
-          </Text>
-        </View>
+        <Text className="text-[11px] text-muted-foreground">
+          {isOnline ? (
+            <Trans>在线 · 可接收</Trans>
+          ) : runtimeState !== "running" ? (
+            <Trans>节点未启动</Trans>
+          ) : (
+            <Trans>离线 · 等待对端上线</Trans>
+          )}
+        </Text>
       </View>
-      {sending ? (
-        <ActivityIndicator color={colors.primary} />
-      ) : (
-        <Send
-          color={isOnline ? colors.primary : colors.mutedForeground}
-          size={16}
-        />
-      )}
-    </Pressable>
+    </View>
   );
 }
 
-function EmptyNoPaired({
-  onAdd,
-  onBack,
+/* ─── 添加来源按钮组 ─── */
+
+interface SourceDef {
+  key: "files" | "directory" | "photos" | "videos";
+  icon: LucideIcon;
+  label: React.ReactNode;
+}
+
+function AddSourceButtons({
+  disabled,
+  onPick,
 }: {
-  onAdd: () => void;
-  onBack: () => void;
+  disabled: boolean;
+  onPick: (kind: SourceDef["key"]) => void;
 }) {
+  const sources: SourceDef[] = [
+    { key: "files", icon: FileText, label: <Trans>文件</Trans> },
+    { key: "directory", icon: Folder, label: <Trans>文件夹</Trans> },
+    { key: "photos", icon: ImageIcon, label: <Trans>照片</Trans> },
+    { key: "videos", icon: Video, label: <Trans>视频</Trans> },
+  ];
   const colors = useThemeColors();
   return (
-    <View className="items-center gap-4 py-16">
-      <View className="size-16 items-center justify-center rounded-full bg-muted">
-        <Smartphone color={colors.mutedForeground} size={32} />
-      </View>
-      <View className="gap-1 items-center px-6">
-        <Text className="text-[15px] font-semibold text-foreground">
-          <Trans>还没有配对设备</Trans>
-        </Text>
-        <Text className="text-center text-[13px] text-muted-foreground">
-          <Trans>添加设备后即可向其发送已选文件</Trans>
-        </Text>
-      </View>
-      <View className="flex-row gap-2.5">
+    <View className="flex-row gap-2">
+      {sources.map(({ key, icon: Icon, label }) => (
         <Pressable
-          onPress={onBack}
+          key={key}
+          onPress={() => onPick(key)}
+          disabled={disabled}
           accessibilityRole="button"
-          className="h-10 flex-row items-center justify-center rounded-xl border border-border bg-card px-4 active:opacity-70"
+          className="flex-1 items-center gap-1 rounded-xl border border-border bg-card py-2.5 active:opacity-70 disabled:opacity-50"
         >
-          <Text className="text-[13px] text-foreground">
-            <Trans>返回主页</Trans>
+          <View className="size-8 items-center justify-center rounded-full bg-primary/10">
+            <Icon color={colors.primary} size={16} />
+          </View>
+          <Text className="text-[11px] font-medium text-foreground">
+            {label}
           </Text>
         </Pressable>
-        <Pressable
-          onPress={onAdd}
-          accessibilityRole="button"
-          className="h-10 flex-row items-center gap-1.5 rounded-xl bg-primary px-4 active:opacity-70"
-        >
-          <Plus color={colors.background} size={14} />
-          <Text className="text-[13px] font-semibold text-primary-foreground">
-            <Trans>添加设备</Trans>
-          </Text>
-        </Pressable>
-      </View>
+      ))}
     </View>
   );
 }
 
-function EmptyAllOffline({ onBack }: { onBack: () => void }) {
-  const colors = useThemeColors();
+/* ─── 准备阶段进度条（订阅 PrepareProgress 事件） ─── */
+
+function PrepareProgressBar({ progress }: { progress: MobilePrepareProgress }) {
+  const total = Number(progress.totalBytes);
+  const hashed = Number(progress.bytesHashed);
   return (
-    <View className="items-center gap-4 py-16">
-      <View className="size-16 items-center justify-center rounded-full bg-muted">
-        <WifiOff color={colors.mutedForeground} size={32} />
+    <View className="gap-2">
+      <View className="flex-row items-center justify-between gap-3">
+        <Text
+          className="flex-1 text-[12px] text-muted-foreground"
+          numberOfLines={1}
+        >
+          <Trans>
+            正在计算校验和 ({progress.completedFiles.toString()}/
+            {progress.totalFiles.toString()})
+          </Trans>
+        </Text>
+        <Text className="text-[11px] text-muted-foreground">
+          {formatBytes(hashed)} / {formatBytes(total)}
+        </Text>
       </View>
-      <View className="gap-1 items-center px-6">
-        <Text className="text-[15px] font-semibold text-foreground">
-          <Trans>所有设备都离线</Trans>
+      <ProgressBar percent={calcPercent(hashed, total)} heightClass="h-1.5" />
+      {progress.currentFile ? (
+        <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+          {progress.currentFile}
         </Text>
-        <Text className="text-center text-[13px] text-muted-foreground">
-          <Trans>请确保对方设备已启动 SwarmDrop 并连入网络</Trans>
-        </Text>
-      </View>
-      <Pressable
-        onPress={onBack}
-        accessibilityRole="button"
-        className="h-10 flex-row items-center justify-center rounded-xl border border-border bg-card px-4 active:opacity-70"
-      >
-        <Text className="text-[13px] text-foreground">
-          <Trans>返回主页</Trans>
-        </Text>
-      </Pressable>
+      ) : null}
     </View>
   );
-}
-
-function formatBytes(bytes: bigint): string {
-  const n = Number(bytes);
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
