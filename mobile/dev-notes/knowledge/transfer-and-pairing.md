@@ -105,3 +105,29 @@ const result = await getMobileCore().sendPrepared(
 **正确做法**：UI 直接订阅 store，不要自己调 `generatePairingCode`，避免出现多份冲突的码。
 
 **相关文件**：[src/stores/pairing-code-store.ts](../../src/stores/pairing-code-store.ts)
+
+## 接收文件保存位置
+
+### `receivePath` 持久化 + `resolveReceiveLocation()` 单一入口
+
+接收方保存目录由用户在「设置 → 通用 → 传输 → 接收位置」配置：调用
+`Directory.pickDirectoryAsync()` 拿到目录 URI（iOS file://、Android SAF content://）持久化到
+`preferences-store.receivePath`。未配置时退到 `getMobilePaths().transfersInboxUri`（应用私有
+Documents/transfers）。
+
+**正确做法**：所有 `acceptReceive(sessionId, location)` 的 location 一律走
+`resolveReceiveLocation()`（在 [src/core/paths.ts](../../src/core/paths.ts)），不要再直接读
+`getMobilePaths().transfersInboxUri`——那样会绕过用户的配置。
+
+**为什么这么做**：桌面端 Tauri 用 `transfer.savePath`（任意绝对路径）；移动端受沙盒约束，只能
+用系统 picker 选的 URI。iOS picker 通常落在 App 容器或 iCloud Drive；Android SAF picker 选完
+expo-file-system 55 自动 takePersistableUriPermission，无需手动续期。Rust core 层不感知差异，
+`MobileFileMetadata.saveDir` 透传该 URI，`foreign-file-access.ts` 的 `ensureSinkFile` 用它拼
+`relativePath`。
+
+**相关文件**：
+
+- [src/stores/preferences-store.ts](../../src/stores/preferences-store.ts)
+- [src/core/paths.ts](../../src/core/paths.ts)
+- [src/components/transfer-offer-host.tsx](../../src/components/transfer-offer-host.tsx)
+- [src/app/settings/general.tsx](../../src/app/settings/general.tsx)

@@ -9,13 +9,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { Pause, Play, Send, Trash2, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  View,
-} from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type {
   MobileTransferHistoryItem,
@@ -39,6 +33,7 @@ import {
   StatusBadge,
   StatusLabel,
 } from "@/components/transfer/shared";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
 import type { TransferSession } from "@/core/transfer-types";
@@ -80,6 +75,8 @@ export default function TransferDetailScreen() {
   const [busy, setBusy] = useState<
     null | "pausing" | "cancelling" | "resuming" | "deleting" | "resending"
   >(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -130,26 +127,22 @@ export default function TransferDetailScreen() {
     }
   }, [sessionId, busy, t]);
 
-  const onCancel = useCallback(async () => {
+  const onCancel = useCallback(() => {
     if (!sessionId || busy) return;
-    Alert.alert(t`取消传输`, t`确定要中止这次传输吗？`, [
-      { text: t`继续`, style: "cancel" },
-      {
-        text: t`中止`,
-        style: "destructive",
-        onPress: async () => {
-          setBusy("cancelling");
-          try {
-            await getMobileCore().cancelTransfer(sessionId);
-          } catch (err) {
-            toast.error(t`取消失败`, errorMessage(err));
-          } finally {
-            setBusy(null);
-          }
-        },
-      },
-    ]);
-  }, [sessionId, busy, t]);
+    setCancelOpen(true);
+  }, [sessionId, busy]);
+
+  const performCancel = useCallback(async () => {
+    if (!sessionId) return;
+    setBusy("cancelling");
+    try {
+      await getMobileCore().cancelTransfer(sessionId);
+    } catch (err) {
+      toast.error(t`取消失败`, errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }, [sessionId, t]);
 
   const onResume = useCallback(async () => {
     if (!sessionId || busy) return;
@@ -170,26 +163,22 @@ export default function TransferDetailScreen() {
     }
   }, [sessionId, busy, resumeHistoryItem, router, t]);
 
-  const onDelete = useCallback(async () => {
+  const onDelete = useCallback(() => {
     if (!sessionId || busy) return;
-    Alert.alert(t`删除这条记录`, t`仅从本机历史中删除，不影响对端。`, [
-      { text: t`取消`, style: "cancel" },
-      {
-        text: t`删除`,
-        style: "destructive",
-        onPress: async () => {
-          setBusy("deleting");
-          try {
-            await deleteHistoryItem(sessionId);
-            router.back();
-          } catch (err) {
-            toast.error(t`删除失败`, errorMessage(err));
-            setBusy(null);
-          }
-        },
-      },
-    ]);
-  }, [sessionId, busy, deleteHistoryItem, router, t]);
+    setDeleteOpen(true);
+  }, [sessionId, busy]);
+
+  const performDelete = useCallback(async () => {
+    if (!sessionId) return;
+    setBusy("deleting");
+    try {
+      await deleteHistoryItem(sessionId);
+      router.back();
+    } catch (err) {
+      toast.error(t`删除失败`, errorMessage(err));
+      setBusy(null);
+    }
+  }, [sessionId, deleteHistoryItem, router, t]);
 
   const onResend = useCallback(async () => {
     if (view.kind !== "history" || busy) return;
@@ -285,6 +274,27 @@ export default function TransferDetailScreen() {
           />
         )}
       </ScrollView>
+
+      <ConfirmDialog
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        title={<Trans>取消传输</Trans>}
+        description={<Trans>确定要中止这次传输吗？</Trans>}
+        cancelLabel={<Trans>继续</Trans>}
+        actionLabel={<Trans>中止</Trans>}
+        destructive
+        onAction={performCancel}
+      />
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={<Trans>删除这条记录</Trans>}
+        description={<Trans>仅从本机历史中删除，不影响对端。</Trans>}
+        actionLabel={<Trans>删除</Trans>}
+        destructive
+        onAction={performDelete}
+      />
     </SafeAreaView>
   );
 }

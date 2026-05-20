@@ -9,10 +9,13 @@ interface PreferencesState {
   autoStart: boolean;
   /** 自定义引导节点(Multiaddr 字符串数组),与后端 DEFAULT_BOOTSTRAP_NODES 合并 */
   customBootstrapNodes: string[];
+  /** 用户自定义接收文件保存目录的 URI(file:// 或 content://);null 走默认 transfersInboxUri */
+  receivePath: string | null;
   setDeviceName: (name: string) => void;
   setAutoStart: (value: boolean) => void;
   addBootstrapNode: (addr: string) => void;
   removeBootstrapNode: (addr: string) => void;
+  setReceivePath: (uri: string | null) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -21,6 +24,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       deviceName: "",
       autoStart: false,
       customBootstrapNodes: [],
+      receivePath: null,
 
       setDeviceName(name) {
         set({ deviceName: name.trim() });
@@ -44,6 +48,10 @@ export const usePreferencesStore = create<PreferencesState>()(
             (a) => a !== addr,
           ),
         }));
+      },
+
+      setReceivePath(uri) {
+        set({ receivePath: uri && uri.length > 0 ? uri : null });
       },
     }),
     {

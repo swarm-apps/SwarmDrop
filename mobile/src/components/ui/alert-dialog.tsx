@@ -1,4 +1,5 @@
 import * as AlertDialogPrimitive from "@rn-primitives/alert-dialog";
+import type { VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { Platform, View, type ViewProps } from "react-native";
 import { FadeIn, FadeOut } from "react-native-reanimated";
@@ -137,12 +138,16 @@ function AlertDialogDescription({
 
 function AlertDialogAction({
   className,
+  variant,
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Action> &
+  Pick<VariantProps<typeof buttonVariants>, "variant">) {
   return (
-    <TextClassContext.Provider value={buttonTextVariants({ className })}>
+    <TextClassContext.Provider
+      value={buttonTextVariants({ variant, className })}
+    >
       <AlertDialogPrimitive.Action
-        className={cn(buttonVariants(), className)}
+        className={cn(buttonVariants({ variant }), className)}
         {...props}
       />
     </TextClassContext.Provider>

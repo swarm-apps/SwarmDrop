@@ -2,13 +2,14 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useFocusEffect, useRouter } from "expo-router";
 import { ArrowLeftRight, Trash2 } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MobileSessionStatus } from "react-native-swarmdrop-core";
 import { HistoryTransferRow } from "@/components/history-transfer-row";
 import { RecentTransferRow } from "@/components/recent-transfer-row";
 import { SettingsHeader } from "@/components/settings-header";
 import { StatusLabel } from "@/components/transfer/shared";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
@@ -35,6 +36,7 @@ export default function TransferHistoryScreen() {
   const clearAllHistory = useTransferStore((s) => s.clearAllHistory);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [clearOpen, setClearOpen] = useState(false);
 
   // 进入页面时刷新一次；从其他页面 focus 回来时也刷新（用户可能刚完成一笔传输）
   useFocusEffect(
@@ -62,22 +64,11 @@ export default function TransferHistoryScreen() {
 
   const hasContent = activeSnapshots.length > 0 || filteredHistory.length > 0;
 
-  const handleClear = useCallback(() => {
-    Alert.alert(
-      t`清空传输历史`,
-      t`这将删除全部已结束的传输记录，正在进行的传输不受影响。该操作不可撤销。`,
-      [
-        { text: t`取消`, style: "cancel" },
-        {
-          text: t`清空`,
-          style: "destructive",
-          onPress: async () => {
-            await clearAllHistory();
-            toast.success(t`已清空传输历史`);
-          },
-        },
-      ],
-    );
+  const handleClear = useCallback(() => setClearOpen(true), []);
+
+  const performClear = useCallback(async () => {
+    await clearAllHistory();
+    toast.success(t`已清空传输历史`);
   }, [clearAllHistory, t]);
 
   const goDetail = useCallback(
@@ -159,6 +150,20 @@ export default function TransferHistoryScreen() {
           </>
         )}
       </ScrollView>
+
+      <ConfirmDialog
+        open={clearOpen}
+        onOpenChange={setClearOpen}
+        title={<Trans>清空传输历史</Trans>}
+        description={
+          <Trans>
+            这将删除全部已结束的传输记录，正在进行的传输不受影响。该操作不可撤销。
+          </Trans>
+        }
+        actionLabel={<Trans>清空</Trans>}
+        destructive
+        onAction={performClear}
+      />
     </SafeAreaView>
   );
 }

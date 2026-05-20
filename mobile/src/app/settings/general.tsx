@@ -1,10 +1,18 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import * as Device from "expo-device";
-import { ScrollView, View } from "react-native";
+import { Directory } from "expo-file-system";
+import { Folder, RotateCcw } from "lucide-react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
+import { getMobilePaths } from "@/core/paths";
+import { useThemeColors } from "@/hooks/useThemeColors";
+import { toast } from "@/lib/toast";
+import { usePreferencesStore } from "@/stores/preferences-store";
 
 export default function GeneralScreen() {
   const { t } = useLingui();
@@ -55,7 +63,112 @@ export default function GeneralScreen() {
             </Text>
           </View>
         </SettingSection>
+
+        <SettingSection label={t`传输`}>
+          <ReceivePathRow />
+        </SettingSection>
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function ReceivePathRow() {
+  const { t } = useLingui();
+  const colors = useThemeColors();
+  const receivePath = usePreferencesStore((s) => s.receivePath);
+  const setReceivePath = usePreferencesStore((s) => s.setReceivePath);
+  const [resetOpen, setResetOpen] = useState(false);
+
+  const onPickDirectory = async () => {
+    try {
+      const dir = await Directory.pickDirectoryAsync();
+      // Android 上 picker 返回的是 SAF content:// URI。expo-file-system 55 的
+      // next API 对 SAF 写入支持很差：dot 前缀文件会被识别成 folder、嵌套子目录
+      // create 失败、接收时整体卡 0% 等等。直接拒绝，等后续改造（接收先写
+      // app 私有目录，完成后用 IntentLauncher 复制到用户选的 SAF 目录）。
+      if (dir.uri.startsWith("content://")) {
+        toast.error(
+          t`暂不支持系统目录`,
+          new Error(
+            "Android SAF (content://) write 在当前 expo-file-system 版本下不稳定，请先用默认目录",
+          ),
+        );
+        return;
+      }
+      // iOS file:// 上做一次只读探测，验证 URI 持久化权限可用
+      try {
+        dir.list();
+      } catch (probeErr) {
+        toast.error(t`此目录不可读`, probeErr);
+        return;
+      }
+      setReceivePath(dir.uri);
+      toast.success(t`接收位置已更新`);
+    } catch (err) {
+      toast.error(t`选择失败`, err);
+    }
+  };
+
+  const displayPath = receivePath ?? getMobilePaths().transfersInboxUri;
+  const isCustom = receivePath !== null;
+
+  return (
+    <>
+      <Pressable
+        onPress={onPickDirectory}
+        accessibilityRole="button"
+        accessibilityLabel={t`接收位置`}
+        className="flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
+      >
+        <View className="h-8 w-8 items-center justify-center rounded-lg bg-muted">
+          <Folder color={colors.mutedForeground} size={16} />
+        </View>
+        <View className="flex-1 gap-0.5">
+          <Text className="text-[14px] text-foreground">
+            <Trans>接收位置</Trans>
+          </Text>
+          <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+            {isCustom ? (
+              prettyPath(displayPath)
+            ) : (
+              <Trans>应用私有目录（默认）</Trans>
+            )}
+          </Text>
+        </View>
+        {isCustom ? (
+          <Pressable
+            onPress={() => setResetOpen(true)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t`恢复默认`}
+            className="rounded-full p-1.5 active:bg-destructive/15"
+          >
+            <RotateCcw size={14} color={colors.mutedForeground} />
+          </Pressable>
+        ) : null}
+      </Pressable>
+
+      <ConfirmDialog
+        open={resetOpen}
+        onOpenChange={setResetOpen}
+        title={<Trans>恢复默认接收位置</Trans>}
+        description={<Trans>接收文件将保存到应用私有目录。</Trans>}
+        actionLabel={<Trans>恢复默认</Trans>}
+        destructive
+        onAction={() => setReceivePath(null)}
+      />
+    </>
+  );
+}
+
+/** 把 file:// 或 content:// URI 截成更短的显示串：取最后一段路径。 */
+function prettyPath(uri: string): string {
+  try {
+    const decoded = decodeURIComponent(uri.replace(/\/$/, ""));
+    const segments = decoded.split("/");
+    const last = segments[segments.length - 1];
+    return last && last.length > 0 ? last : decoded;
+  } catch {
+    return uri;
+  }
 }

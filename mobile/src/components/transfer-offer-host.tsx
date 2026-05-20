@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
-import { getMobilePaths } from "@/core/paths";
+import { resolveReceiveLocation } from "@/core/paths";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useTransferStore } from "@/stores/transfer-store";
 
@@ -37,8 +37,7 @@ export function TransferOfferHost() {
     if (!current || busy !== null) return;
     setBusy("accepting");
     try {
-      const { transfersInboxUri } = getMobilePaths();
-      await getMobileCore().acceptReceive(current.id, transfersInboxUri);
+      await getMobileCore().acceptReceive(current.id, resolveReceiveLocation());
       addSession({
         sessionId: current.id,
         direction: "receive",

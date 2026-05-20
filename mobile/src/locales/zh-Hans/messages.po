@@ -13,7 +13,7 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/components/transfer-offer-host.tsx:145
+#: src/components/transfer-offer-host.tsx:144
 msgid "...还有 {remainingCount} 个文件"
 msgstr "...还有 {remainingCount} 个文件"
 
@@ -89,13 +89,13 @@ msgstr "下载完成后系统会引导你完成安装"
 msgid "下载或安装过程中出错,请稍后重试。"
 msgstr "下载或安装过程中出错,请稍后重试。"
 
-#: src/app/transfer/[sessionId].tsx:335
-#: src/app/transfer/[sessionId].tsx:464
-#: src/components/transfer-offer-host.tsx:120
+#: src/app/transfer/[sessionId].tsx:345
+#: src/app/transfer/[sessionId].tsx:474
+#: src/components/transfer-offer-host.tsx:119
 msgid "个文件"
 msgstr "个文件"
 
-#: src/app/transfer/[sessionId].tsx:138
+#: src/app/transfer/[sessionId].tsx:284
 msgid "中止"
 msgstr "中止"
 
@@ -113,7 +113,7 @@ msgstr "主机名"
 msgid "主题已更新"
 msgstr "主题已更新"
 
-#: src/app/transfer/[sessionId].tsx:175
+#: src/app/transfer/[sessionId].tsx:293
 msgid "仅从本机历史中删除，不影响对端。"
 msgstr "仅从本机历史中删除，不影响对端。"
 
@@ -129,16 +129,20 @@ msgstr "从相册选择视频"
 msgid "任意类型,支持多选"
 msgstr "任意类型,支持多选"
 
-#: src/app/transfer/[sessionId].tsx:266
+#: src/app/transfer/[sessionId].tsx:255
 msgid "会话不存在或已结束"
 msgstr "会话不存在或已结束"
+
+#: src/app/settings/general.tsx:67
+msgid "传输"
+msgstr "传输"
 
 #: src/components/transfer/shared.tsx:123
 msgid "传输中"
 msgstr "传输中"
 
-#: src/app/transfer/index.tsx:95
-#: src/app/transfer/index.tsx:130
+#: src/app/transfer/index.tsx:86
+#: src/app/transfer/index.tsx:121
 #: src/components/drawer-content.tsx:39
 msgid "传输历史"
 msgstr "传输历史"
@@ -147,11 +151,11 @@ msgstr "传输历史"
 msgid "传输失败：{error}"
 msgstr "传输失败：{error}"
 
-#: src/app/transfer/[sessionId].tsx:254
+#: src/app/transfer/[sessionId].tsx:243
 msgid "传输详情"
 msgstr "传输详情"
 
-#: src/app/transfer/[sessionId].tsx:495
+#: src/app/transfer/[sessionId].tsx:505
 msgid "保存位置"
 msgstr "保存位置"
 
@@ -168,7 +172,7 @@ msgstr "停止后将断开所有连接,其他设备将无法发现你"
 msgid "停止节点"
 msgstr "停止节点"
 
-#: src/app/transfer/index.tsx:194
+#: src/app/transfer/index.tsx:199
 msgid "全部"
 msgstr "全部"
 
@@ -208,20 +212,20 @@ msgid "初始化失败"
 msgstr "初始化失败"
 
 #: src/app/settings/bootstrap-nodes.tsx:152
-#: src/app/transfer/[sessionId].tsx:178
-#: src/app/transfer/[sessionId].tsx:537
+#: src/app/transfer/[sessionId].tsx:294
+#: src/app/transfer/[sessionId].tsx:547
 msgid "删除"
 msgstr "删除"
 
-#: src/app/transfer/[sessionId].tsx:186
+#: src/app/transfer/[sessionId].tsx:178
 msgid "删除失败"
 msgstr "删除失败"
 
-#: src/app/transfer/[sessionId].tsx:175
+#: src/app/transfer/[sessionId].tsx:292
 msgid "删除这条记录"
 msgstr "删除这条记录"
 
-#: src/app/transfer/[sessionId].tsx:260
+#: src/app/transfer/[sessionId].tsx:249
 msgid "加载中"
 msgstr "加载中"
 
@@ -269,18 +273,17 @@ msgstr "发送失败"
 #: src/app/pairing/found-device.tsx:132
 #: src/app/send/select-device.tsx:295
 #: src/app/settings/bootstrap-nodes.tsx:186
-#: src/app/transfer/[sessionId].tsx:176
-#: src/app/transfer/[sessionId].tsx:372
-#: src/app/transfer/index.tsx:70
+#: src/app/transfer/[sessionId].tsx:382
 #: src/components/node-control-sheet.tsx:212
+#: src/components/ui/confirm-dialog.tsx:55
 msgid "取消"
 msgstr "取消"
 
-#: src/app/transfer/[sessionId].tsx:135
+#: src/app/transfer/[sessionId].tsx:281
 msgid "取消传输"
 msgstr "取消传输"
 
-#: src/app/transfer/[sessionId].tsx:145
+#: src/app/transfer/[sessionId].tsx:141
 msgid "取消失败"
 msgstr "取消失败"
 
@@ -304,7 +307,7 @@ msgstr "启动节点"
 msgid "启动节点后才能发现和连接其他设备"
 msgstr "启动节点后才能发现和连接其他设备"
 
-#: src/app/transfer/index.tsx:106
+#: src/app/transfer/index.tsx:97
 msgid "在主屏选择已配对设备开始传输"
 msgstr "在主屏选择已配对设备开始传输"
 
@@ -320,7 +323,7 @@ msgstr "在线 · 可接收"
 msgid "地址格式无效,需以 / 开头且包含 /p2p/"
 msgstr "地址格式无效,需以 / 开头且包含 /p2p/"
 
-#: src/app/settings/general.tsx:36
+#: src/app/settings/general.tsx:44
 msgid "型号"
 msgstr "型号"
 
@@ -354,7 +357,7 @@ msgstr "对方已暂停传输"
 msgid "对方拒绝了传输请求"
 msgstr "对方拒绝了传输请求"
 
-#: src/app/transfer/[sessionId].tsx:485
+#: src/app/transfer/[sessionId].tsx:495
 msgid "对端"
 msgstr "对端"
 
@@ -367,7 +370,7 @@ msgstr "就绪"
 msgid "已与 {displayName} 建立安全连接"
 msgstr "已与 {displayName} 建立安全连接"
 
-#: src/app/transfer/[sessionId].tsx:482
+#: src/app/transfer/[sessionId].tsx:492
 msgid "已传 / 总量"
 msgstr "已传 / 总量"
 
@@ -389,8 +392,8 @@ msgstr "已取消"
 msgid "已复制 PeerID"
 msgstr "已复制 PeerID"
 
-#: src/app/transfer/[sessionId].tsx:228
-#: src/app/transfer/[sessionId].tsx:236
+#: src/app/transfer/[sessionId].tsx:217
+#: src/app/transfer/[sessionId].tsx:225
 msgid "已复制保存路径"
 msgstr "已复制保存路径"
 
@@ -398,7 +401,7 @@ msgstr "已复制保存路径"
 msgid "已复制到剪贴板"
 msgstr "已复制到剪贴板"
 
-#: src/app/transfer/[sessionId].tsx:245
+#: src/app/transfer/[sessionId].tsx:234
 msgid "已复制路径"
 msgstr "已复制路径"
 
@@ -418,7 +421,7 @@ msgstr "已是最新"
 msgid "已暂停"
 msgstr "已暂停"
 
-#: src/app/transfer/index.tsx:76
+#: src/app/transfer/index.tsx:71
 msgid "已清空传输历史"
 msgstr "已清空传输历史"
 
@@ -455,11 +458,15 @@ msgstr "已选的文件将被清空。"
 msgid "平台"
 msgstr "平台"
 
+#: src/app/settings/general.tsx:128
+msgid "应用私有目录（默认）"
+msgstr "应用私有目录（默认）"
+
 #: src/app/onboarding/welcome.tsx:52
 msgid "开始使用"
 msgstr "开始使用"
 
-#: src/app/transfer/[sessionId].tsx:472
+#: src/app/transfer/[sessionId].tsx:482
 msgid "开始时间"
 msgstr "开始时间"
 
@@ -495,13 +502,22 @@ msgstr "当前状态"
 msgid "必须更新"
 msgstr "必须更新"
 
-#: src/app/transfer/[sessionId].tsx:518
+#: src/app/transfer/[sessionId].tsx:528
 msgid "恢复"
 msgstr "恢复"
 
-#: src/app/transfer/[sessionId].tsx:167
+#: src/app/transfer/[sessionId].tsx:160
 msgid "恢复失败"
 msgstr "恢复失败"
+
+#: src/app/settings/general.tsx:137
+#: src/app/settings/general.tsx:150
+msgid "恢复默认"
+msgstr "恢复默认"
+
+#: src/app/settings/general.tsx:148
+msgid "恢复默认接收位置"
+msgstr "恢复默认接收位置"
 
 #: src/app/onboarding/device-name.tsx:86
 msgid "我的 iPhone"
@@ -521,8 +537,8 @@ msgstr "找到设备"
 
 #: src/components/pairing-request-host.tsx:150
 #: src/components/pairing-request-host.tsx:154
-#: src/components/transfer-offer-host.tsx:175
-#: src/components/transfer-offer-host.tsx:179
+#: src/components/transfer-offer-host.tsx:174
+#: src/components/transfer-offer-host.tsx:178
 msgid "拒绝"
 msgstr "拒绝"
 
@@ -531,8 +547,8 @@ msgstr "拒绝"
 msgid "接受"
 msgstr "接受"
 
-#: src/components/transfer-offer-host.tsx:155
-#: src/components/transfer-offer-host.tsx:167
+#: src/components/transfer-offer-host.tsx:154
+#: src/components/transfer-offer-host.tsx:166
 msgid "接收"
 msgstr "接收"
 
@@ -540,11 +556,24 @@ msgstr "接收"
 msgid "接收中"
 msgstr "接收中"
 
-#: src/components/transfer-offer-host.tsx:165
+#: src/components/transfer-offer-host.tsx:164
 msgid "接收中..."
 msgstr "接收中..."
 
-#: src/components/transfer-offer-host.tsx:116
+#: src/app/settings/general.tsx:114
+#: src/app/settings/general.tsx:122
+msgid "接收位置"
+msgstr "接收位置"
+
+#: src/app/settings/general.tsx:100
+msgid "接收位置已更新"
+msgstr "接收位置已更新"
+
+#: src/app/settings/general.tsx:149
+msgid "接收文件将保存到应用私有目录。"
+msgstr "接收文件将保存到应用私有目录。"
+
+#: src/components/transfer-offer-host.tsx:115
 msgid "收到文件"
 msgstr "收到文件"
 
@@ -583,15 +612,15 @@ msgstr "无法打开链接"
 msgid "映射成功"
 msgstr "映射成功"
 
-#: src/app/transfer/[sessionId].tsx:364
+#: src/app/transfer/[sessionId].tsx:374
 msgid "暂停"
 msgstr "暂停"
 
-#: src/app/transfer/[sessionId].tsx:127
+#: src/app/transfer/[sessionId].tsx:124
 msgid "暂停失败"
 msgstr "暂停失败"
 
-#: src/app/transfer/index.tsx:103
+#: src/app/transfer/index.tsx:94
 msgid "暂无传输记录"
 msgstr "暂无传输记录"
 
@@ -690,7 +719,11 @@ msgstr "正在等待对端连接..."
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "正在计算校验和 ({0}/{1})"
 
-#: src/app/transfer/index.tsx:114
+#: src/app/settings/general.tsx:96
+msgid "此目录不可读"
+msgstr "此目录不可读"
+
+#: src/app/transfer/index.tsx:105
 msgid "活跃传输"
 msgstr "活跃传输"
 
@@ -715,16 +748,16 @@ msgstr "添加自定义引导节点"
 msgid "添加设备"
 msgstr "添加设备"
 
-#: src/app/transfer/index.tsx:72
-#: src/app/transfer/index.tsx:141
+#: src/app/transfer/index.tsx:132
+#: src/app/transfer/index.tsx:163
 msgid "清空"
 msgstr "清空"
 
-#: src/app/transfer/index.tsx:67
+#: src/app/transfer/index.tsx:157
 msgid "清空传输历史"
 msgstr "清空传输历史"
 
-#: src/app/transfer/index.tsx:135
+#: src/app/transfer/index.tsx:126
 msgid "清空历史"
 msgstr "清空历史"
 
@@ -737,7 +770,7 @@ msgstr "点击上方按钮添加文件或文件夹"
 msgid "照片"
 msgstr "照片"
 
-#: src/app/transfer/[sessionId].tsx:345
+#: src/app/transfer/[sessionId].tsx:355
 msgid "状态"
 msgstr "状态"
 
@@ -753,7 +786,7 @@ msgstr "生成一个 6 位配对码,让其他设备输入它建立配对"
 msgid "生成配对码"
 msgstr "生成配对码"
 
-#: src/app/transfer/[sessionId].tsx:135
+#: src/app/transfer/[sessionId].tsx:282
 msgid "确定要中止这次传输吗？"
 msgstr "确定要中止这次传输吗？"
 
@@ -804,11 +837,11 @@ msgstr "等待响应"
 
 #: src/app/pairing/found-device.tsx:102
 #: src/app/pairing/success.tsx:46
-#: src/app/settings/general.tsx:48
+#: src/app/settings/general.tsx:56
 msgid "系统"
 msgstr "系统"
 
-#: src/app/transfer/[sessionId].tsx:477
+#: src/app/transfer/[sessionId].tsx:487
 msgid "结束时间"
 msgstr "结束时间"
 
@@ -818,7 +851,7 @@ msgstr "给设备取个名字"
 
 #: src/app/onboarding/device-name.tsx:105
 #: src/app/onboarding/device-name.tsx:111
-#: src/app/transfer/[sessionId].tsx:136
+#: src/app/transfer/[sessionId].tsx:283
 msgid "继续"
 msgstr "继续"
 
@@ -859,7 +892,7 @@ msgstr "节点未启动 · 启动后才能发现附近设备"
 msgid "节点状态"
 msgstr "节点状态"
 
-#: src/app/settings/general.tsx:21
+#: src/app/settings/general.tsx:29
 msgid "设备"
 msgstr "设备"
 
@@ -871,7 +904,7 @@ msgstr "设备 ID"
 
 #: src/app/pairing/found-device.tsx:94
 #: src/app/pairing/success.tsx:38
-#: src/app/settings/general.tsx:24
+#: src/app/settings/general.tsx:32
 msgid "设备名"
 msgstr "设备名"
 
@@ -964,7 +997,7 @@ msgstr "还没有选择任何文件"
 msgid "还没有配对设备"
 msgstr "还没有配对设备"
 
-#: src/app/transfer/index.tsx:68
+#: src/app/transfer/index.tsx:159
 msgid "这将删除全部已结束的传输记录，正在进行的传输不受影响。该操作不可撤销。"
 msgstr "这将删除全部已结束的传输记录，正在进行的传输不受影响。该操作不可撤销。"
 
@@ -977,6 +1010,7 @@ msgid "选择外观"
 msgstr "选择外观"
 
 #: src/app/send/select-device.tsx:144
+#: src/app/settings/general.tsx:102
 #: src/components/send-options-sheet.tsx:85
 msgid "选择失败"
 msgstr "选择失败"
@@ -997,7 +1031,7 @@ msgstr "选择要发送的内容"
 msgid "选择语言"
 msgstr "选择语言"
 
-#: src/app/settings/general.tsx:16
+#: src/app/settings/general.tsx:24
 #: src/app/settings/index.tsx:37
 #: src/app/settings/network.tsx:59
 msgid "通用"
@@ -1053,11 +1087,11 @@ msgstr "重启节点"
 msgid "重启节点失败"
 msgstr "重启节点失败"
 
-#: src/app/transfer/[sessionId].tsx:528
+#: src/app/transfer/[sessionId].tsx:538
 msgid "重新发送"
 msgstr "重新发送"
 
-#: src/app/transfer/[sessionId].tsx:216
+#: src/app/transfer/[sessionId].tsx:205
 msgid "重新发送失败"
 msgstr "重新发送失败"
 
@@ -1074,7 +1108,7 @@ msgstr "重试"
 msgid "错误"
 msgstr "错误"
 
-#: src/app/transfer/[sessionId].tsx:488
+#: src/app/transfer/[sessionId].tsx:498
 msgid "错误原因"
 msgstr "错误原因"
 
