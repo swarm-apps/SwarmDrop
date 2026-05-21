@@ -15,15 +15,15 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 uniffi = { version = "0.31.0", features = ["bindgen", "build", "cli", "tokio"] }
 uuid = { version = "1", features = ["v4"] }
-# SwarmDrop 主仓四个 workspace member —— 用 git ssh + develop 分支引用，
-# 不再依赖 ../../../../../SwarmDrop 平级目录硬连。要与本地未提交改动联调时，
+# SwarmDrop 主仓四个 workspace member —— 走 HTTPS 而非 ssh://，CI runner 无
+# SSH key 也能匿名 clone（SwarmDrop 仓是 public）。要与本地未提交改动联调时，
 # 把这四行改回 path = "../../../../../SwarmDrop/crates/{core,entity,migration}"
 # 和 path = "../../../../../SwarmDrop/libs/core"，git 与 path 不能混用，否则
 # swarm-p2p-core 会撞 "multiple versions"。
-swarmdrop-core = { git = "ssh://git@github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
-entity = { git = "ssh://git@github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
-migration = { git = "ssh://git@github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
-swarm-p2p-core = { git = "ssh://git@github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
+swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
+entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
+migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
+swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", branch = "develop" }
 sea-orm = { version = "2.0.0-rc", features = [
     "macros",
     "runtime-tokio-rustls",
