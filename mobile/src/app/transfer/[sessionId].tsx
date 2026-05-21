@@ -1,13 +1,26 @@
 /**
  * 会话详情页 —— 优先从 store.sessions（活跃）、再 store.dbHistory（历史快照），
  * 最后退到 native `getTransferSessionDetail` 兜底（deep link / 历史很久之前的会话）。
+ *
+ * UI 形态对齐桌面端 `routes/_app/transfer/$sessionId.lazy.tsx`。
  */
 
 import { Trans, useLingui } from "@lingui/react/macro";
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import { Pause, Play, Send, Trash2, X } from "lucide-react-native";
+import {
+  CheckCircle2,
+  FolderOpen,
+  Loader2,
+  type LucideIcon,
+  Pause,
+  Play,
+  Send,
+  Trash2,
+  X,
+  XCircle,
+} from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -28,23 +41,104 @@ import {
   canShareFile,
   DirectionIcon,
   formatBytes,
+  formatSpeed,
   LocalizedError,
   ProgressBar,
   StatusBadge,
   StatusLabel,
+  statusKey,
 } from "@/components/transfer/shared";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
-import type { TransferSession } from "@/core/transfer-types";
+import { openSafTreeUri } from "@/core/saf-intent";
+import type {
+  ActiveStatus,
+  TransferDirection,
+  TransferSession,
+} from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
 import { errorMessage } from "@/lib/utils";
 import { useTransferStore } from "@/stores/transfer-store";
 
-type View_ =
-  | { kind: "active"; session: TransferSession }
-  | { kind: "history"; item: MobileTransferHistoryItem }
+interface DetailViewModel {
+  sessionId: string;
+  direction: TransferDirection;
+  peerId: string;
+  peerName: string;
+  files: { fileId: number; name: string; relativePath: string; size: number }[];
+  totalSize: number;
+  transferredBytes: number;
+  status: ActiveStatus;
+  progress: MobileTransferProgress | null;
+  /** 字段名避开 lib/utils 同名工具 errorMessage 的 shadow */
+  error: string | null;
+  /** 接收方的保存路径（content:// / file://），发送方为 null */
+  savePath: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+  fromHistory: boolean;
+  /** 历史 item 原始对象；canShareFile/canResume/canResend 还在这里取 */
+  historyItem: MobileTransferHistoryItem | null;
+}
+
+function fromActiveSession(s: TransferSession): DetailViewModel {
+  return {
+    sessionId: s.sessionId,
+    direction: s.direction,
+    peerId: s.peerId,
+    peerName: s.peerName,
+    files: s.files.map((f) => ({
+      fileId: f.fileId,
+      name: f.name,
+      relativePath: f.relativePath || f.name,
+      size: Number(f.size),
+    })),
+    totalSize: Number(s.totalSize),
+    transferredBytes: s.progress ? Number(s.progress.transferredBytes) : 0,
+    status: s.status,
+    progress: s.progress,
+    error: s.error,
+    savePath: null,
+    startedAt: s.startedAt,
+    finishedAt: s.completedAt,
+    fromHistory: false,
+    historyItem: null,
+  };
+}
+
+function fromHistoryItem(h: MobileTransferHistoryItem): DetailViewModel {
+  // statusKey 把 native enum → 字面量；"unknown" 兜成 "transferring" 是安全默认。
+  const literal = statusKey(h.status);
+  const status: ActiveStatus =
+    literal === "unknown" ? "transferring" : (literal as ActiveStatus);
+  return {
+    sessionId: h.sessionId,
+    direction: h.direction === "send" ? "send" : "receive",
+    peerId: h.peerId,
+    peerName: h.peerName,
+    files: h.files.map((f) => ({
+      fileId: f.fileId,
+      name: f.name,
+      relativePath: f.relativePath || f.name,
+      size: Number(f.size),
+    })),
+    totalSize: Number(h.totalSize),
+    transferredBytes: Number(h.transferredBytes),
+    status,
+    progress: null,
+    error: h.errorMessage ?? null,
+    savePath: h.savePath ?? null,
+    startedAt: Number(h.startedAt),
+    finishedAt: h.finishedAt != null ? Number(h.finishedAt) : null,
+    fromHistory: true,
+    historyItem: h,
+  };
+}
+
+type Load =
+  | { kind: "view"; vm: DetailViewModel }
   | { kind: "loading" }
   | { kind: "not-found" };
 
@@ -68,9 +162,8 @@ export default function TransferDetailScreen() {
     [dbHistory, sessionId],
   );
 
-  // native 兜底查询：只在 sessionId 变更且既不在 sessions 也不在 dbHistory 时
-  // 拉一次；fetchedRef 防止 effect deps 变化导致重复请求。
-  const [fallback, setFallback] = useState<View_ | null>(null);
+  // native 兜底：只在 sessionId 变更且既不在 sessions 也不在 dbHistory 时拉一次。
+  const [fallback, setFallback] = useState<Load | null>(null);
   const fetchedForRef = useMemo(() => ({ id: null as string | null }), []);
   const [busy, setBusy] = useState<
     null | "pausing" | "cancelling" | "resuming" | "deleting" | "resending"
@@ -81,7 +174,6 @@ export default function TransferDetailScreen() {
   useEffect(() => {
     if (!sessionId) return;
     if (session || historyMatch) {
-      // 命中 store，无需 fallback
       if (fallback !== null) setFallback(null);
       fetchedForRef.id = null;
       return;
@@ -94,7 +186,9 @@ export default function TransferDetailScreen() {
     void (async () => {
       try {
         const item = await getMobileCore().getTransferSessionDetail(sessionId);
-        if (!cancelled) setFallback({ kind: "history", item });
+        if (!cancelled) {
+          setFallback({ kind: "view", vm: fromHistoryItem(item) });
+        }
       } catch (err) {
         if (!cancelled) {
           console.warn("[transfer-detail] fallback fetch failed:", err);
@@ -107,13 +201,18 @@ export default function TransferDetailScreen() {
     };
   }, [sessionId, session, historyMatch, fallback, fetchedForRef]);
 
-  const view: View_ = session
-    ? { kind: "active", session }
-    : historyMatch
-      ? { kind: "history", item: historyMatch }
-      : (fallback ?? { kind: "loading" });
-
-  /* ─── 操作 handlers ─── */
+  // 把 fromActiveSession/fromHistoryItem 包进 useMemo —— 它们每次都 .map 出
+  // 新 files 数组，没有 useMemo 的话下游 buildTreeDataFromOffer/useMemo 永远
+  // 不命中，每次 progress 事件都会重建整棵文件树。
+  const vm = useMemo<DetailViewModel | null>(() => {
+    if (session) return fromActiveSession(session);
+    if (historyMatch) return fromHistoryItem(historyMatch);
+    if (fallback?.kind === "view") return fallback.vm;
+    return null;
+  }, [session, historyMatch, fallback]);
+  const load: Load = vm
+    ? { kind: "view", vm }
+    : (fallback ?? { kind: "loading" });
 
   const onPause = useCallback(async () => {
     if (!sessionId || busy) return;
@@ -149,7 +248,6 @@ export default function TransferDetailScreen() {
     setBusy("resuming");
     try {
       const newId = await resumeHistoryItem(sessionId);
-      // 如果 native 给的是新 sessionId（极少见），切换路由
       if (newId !== sessionId) {
         router.replace({
           pathname: "/transfer/[sessionId]",
@@ -181,12 +279,10 @@ export default function TransferDetailScreen() {
   }, [sessionId, deleteHistoryItem, router, t]);
 
   const onResend = useCallback(async () => {
-    if (view.kind !== "history" || busy) return;
-    const item = view.item;
+    if (load.kind !== "view" || !load.vm.historyItem || busy) return;
+    const item = load.vm.historyItem;
     setBusy("resending");
     try {
-      // 历史里没有 source_path（DB 不暴露），用 relativePath 作 sourceId 占位。
-      // 实际能否 prepareSend 成功取决于原文件是否还在原位置。
       const newId = await startSend({
         files: item.files.map((f) => ({
           sourceId: f.relativePath,
@@ -206,9 +302,9 @@ export default function TransferDetailScreen() {
     } finally {
       setBusy(null);
     }
-  }, [view, busy, startSend, router, t]);
+  }, [load, busy, startSend, router, t]);
 
-  const onShare = useCallback(
+  const onShareFile = useCallback(
     async (uri: string, fileName: string) => {
       try {
         const available = await Sharing.isAvailableAsync();
@@ -219,7 +315,6 @@ export default function TransferDetailScreen() {
         }
         await Sharing.shareAsync(uri, { dialogTitle: fileName });
       } catch (err) {
-        // 用户取消分享不算错；其他错误降级到复制路径
         console.warn("[transfer-detail] share failed:", err);
         await Clipboard.setStringAsync(uri);
         toast.info(t`已复制保存路径`);
@@ -236,41 +331,48 @@ export default function TransferDetailScreen() {
     [t],
   );
 
-  /* ─── 渲染 ─── */
+  const onOpenFolder = useCallback(
+    async (savePath: string) => {
+      try {
+        await openSafTreeUri(savePath);
+      } catch (err) {
+        console.warn("[transfer-detail] open folder failed:", err);
+        await Clipboard.setStringAsync(savePath);
+        toast.info(t`已复制保存路径`);
+      }
+    },
+    [t],
+  );
 
   return (
     <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
       <SettingsHeader title={t`传输详情`} />
-      <ScrollView contentContainerClassName="gap-4 px-5 pt-2 pb-8">
-        {view.kind === "loading" ? (
+      <ScrollView contentContainerClassName="gap-5 px-5 pt-2 pb-8">
+        {load.kind === "loading" ? (
           <View className="items-center gap-3 py-20">
             <ActivityIndicator color={colors.mutedForeground} />
             <Text className="text-xs text-muted-foreground">
               <Trans>加载中</Trans>
             </Text>
           </View>
-        ) : view.kind === "not-found" ? (
+        ) : load.kind === "not-found" ? (
           <View className="items-center gap-2 py-20">
             <Text className="text-sm text-muted-foreground">
               <Trans>会话不存在或已结束</Trans>
             </Text>
           </View>
-        ) : view.kind === "active" ? (
-          <ActiveDetail
-            session={view.session}
+        ) : (
+          <TransferDetailContent
+            vm={load.vm}
+            busy={busy}
             onPause={onPause}
             onCancel={onCancel}
-            busy={busy}
-          />
-        ) : (
-          <HistoryDetail
-            item={view.item}
-            onShare={onShare}
-            onCopyPath={onCopyPath}
-            onResume={canResume(view.item) ? onResume : undefined}
-            onResend={canResend(view.item) ? onResend : undefined}
+            onResume={onResume}
+            onResend={onResend}
             onDelete={onDelete}
-            busy={busy}
+            onShareFile={onShareFile}
+            onCopyPath={onCopyPath}
+            onOpenFolder={onOpenFolder}
           />
         )}
       </ScrollView>
@@ -299,155 +401,59 @@ export default function TransferDetailScreen() {
   );
 }
 
-/* ─── 活跃 session 视图 ─── */
-
-function ActiveDetail({
-  session,
-  onPause,
-  onCancel,
-  busy,
-}: {
-  session: TransferSession;
+interface DetailContentProps {
+  vm: DetailViewModel;
+  busy: string | null;
   onPause: () => void;
   onCancel: () => void;
-  busy: string | null;
-}) {
-  const progress: MobileTransferProgress | null = session.progress;
-  const total = Number(session.totalSize);
-  const transferred = progress ? Number(progress.transferredBytes) : 0;
-  const percent = calcPercent(transferred, total);
-
-  const treeData = useMemo(
-    () =>
-      buildTreeDataFromOffer(
-        session.files.map((f) => ({
-          fileId: f.fileId,
-          name: f.name,
-          relativePath: f.relativePath || f.name,
-          size: Number(f.size),
-        })),
-      ),
-    [session.files],
-  );
-
-  return (
-    <>
-      <View className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-4">
-        <DirectionIcon direction={session.direction} />
-        <View className="flex-1 gap-0.5">
-          <Text
-            className="text-[14px] font-semibold text-foreground"
-            numberOfLines={1}
-          >
-            {session.peerName}
-          </Text>
-          <Text className="text-[11px] text-muted-foreground">
-            {session.files.length} <Trans>个文件</Trans> ·{" "}
-            {formatBytes(transferred)} / {formatBytes(total)}
-          </Text>
-        </View>
-        <Text className="text-base font-bold text-foreground">{percent}%</Text>
-      </View>
-
-      <View className="gap-2">
-        <View className="flex-row items-center justify-between">
-          <Text className="text-xs text-muted-foreground">
-            <Trans>状态</Trans>
-          </Text>
-          <StatusBadge status={session.status} />
-        </View>
-        <ProgressBar percent={percent} />
-      </View>
-
-      <FileTree
-        mode="transfer"
-        dataLoader={treeData.dataLoader}
-        rootChildren={treeData.rootChildren}
-        totalCount={session.files.length}
-        totalSize={total}
-        progress={progress}
-      />
-
-      <View className="flex-row gap-2 pt-2">
-        <ActionButton
-          icon={<Pause size={16} className="text-foreground" />}
-          label={<Trans>暂停</Trans>}
-          onPress={onPause}
-          disabled={busy === "pausing"}
-          variant="secondary"
-          loading={busy === "pausing"}
-        />
-        <ActionButton
-          icon={<X size={16} className="text-destructive" />}
-          label={<Trans>取消</Trans>}
-          onPress={onCancel}
-          disabled={busy === "cancelling"}
-          variant="destructive"
-          loading={busy === "cancelling"}
-        />
-      </View>
-    </>
-  );
+  onResume: () => void;
+  onResend: () => void;
+  onDelete: () => void;
+  onShareFile: (uri: string, fileName: string) => void;
+  onCopyPath: (uri: string) => void;
+  onOpenFolder: (savePath: string) => void;
 }
 
-/* ─── 历史 item 视图 ─── */
-
-function HistoryDetail({
-  item,
-  onShare,
-  onCopyPath,
+function TransferDetailContent({
+  vm,
+  busy,
+  onPause,
+  onCancel,
   onResume,
   onResend,
   onDelete,
-  busy,
-}: {
-  item: MobileTransferHistoryItem;
-  onShare: (uri: string, fileName: string) => void;
-  onCopyPath: (uri: string) => void;
-  onResume?: () => void;
-  onResend?: () => void;
-  onDelete: () => void;
-  busy: string | null;
-}) {
-  // item.direction 是 native 端的 string，需要 narrow 到 TransferDirection
-  const direction = item.direction === "send" ? "send" : "receive";
-  const transferred = Number(item.transferredBytes);
-  const total = Number(item.totalSize);
-  const percent = calcPercent(transferred, total);
-  const shareEnabled = canShareFile(item);
-  const savePath = item.savePath ?? undefined;
+  onShareFile,
+  onCopyPath,
+  onOpenFolder,
+}: DetailContentProps) {
+  const status = vm.status;
+  const isActive = status === "transferring" || status === "waiting_accept";
+
+  const fileTreeMode: "select" | "transfer" =
+    status === "transferring" ? "transfer" : "select";
+
+  const treeData = useMemo(() => buildTreeDataFromOffer(vm.files), [vm.files]);
 
   // 拼装单文件 URI：savePath 是会话级目录，file.relativePath / name 才是实际文件
   const fileUriOf = useCallback(
     (data: TreeNodeData): string | null => {
-      if (!savePath) return null;
-      const trimmed = savePath.replace(/\/$/, "");
+      if (!vm.savePath) return null;
+      const trimmed = vm.savePath.replace(/\/$/, "");
       const sub = data.path.replace(/^\/+/, "");
       return `${trimmed}/${sub || data.name}`;
     },
-    [savePath],
+    [vm.savePath],
   );
 
-  const treeData = useMemo(
-    () =>
-      buildTreeDataFromOffer(
-        item.files.map((f) => ({
-          fileId: f.fileId,
-          name: f.name,
-          relativePath: f.relativePath || f.name,
-          size: Number(f.size),
-        })),
-      ),
-    [item.files],
-  );
+  const shareEnabled = vm.historyItem ? canShareFile(vm.historyItem) : false;
 
   const handleFilePress = useCallback(
     (data: TreeNodeData) => {
       if (!shareEnabled) return;
       const uri = fileUriOf(data);
-      if (uri) onShare(uri, data.name);
+      if (uri) onShareFile(uri, data.name);
     },
-    [shareEnabled, fileUriOf, onShare],
+    [shareEnabled, fileUriOf, onShareFile],
   );
 
   const handleFileLongPress = useCallback(
@@ -460,102 +466,338 @@ function HistoryDetail({
 
   return (
     <>
-      <View className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-4">
-        <DirectionIcon direction={direction} />
-        <View className="flex-1 gap-0.5">
-          <Text
-            className="text-[14px] font-semibold text-foreground"
-            numberOfLines={1}
-          >
-            {item.peerName}
-          </Text>
-          <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
-            <StatusLabel status={item.status} /> · {item.files.length}{" "}
-            <Trans>个文件</Trans> · {formatBytes(total)}
-          </Text>
-        </View>
-        <StatusBadge status={item.status} />
+      <TransferStatusHeader vm={vm} />
+
+      <TransferProgressBlock vm={vm} />
+
+      {vm.fromHistory ? <HistoryMetaCard vm={vm} /> : null}
+
+      <View className="gap-2">
+        <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <Trans>传输详情</Trans>
+        </Text>
+        <FileTree
+          mode={fileTreeMode}
+          dataLoader={treeData.dataLoader}
+          rootChildren={treeData.rootChildren}
+          totalCount={vm.files.length}
+          totalSize={vm.totalSize}
+          progress={vm.progress}
+          onFilePress={shareEnabled ? handleFilePress : undefined}
+          onFileLongPress={vm.savePath ? handleFileLongPress : undefined}
+        />
       </View>
 
-      <View className="gap-3 rounded-xl border border-border bg-card p-4">
-        <DetailRow
-          label={<Trans>开始时间</Trans>}
-          value={new Date(Number(item.startedAt)).toLocaleString()}
-        />
-        {item.finishedAt ? (
-          <DetailRow
-            label={<Trans>结束时间</Trans>}
-            value={new Date(Number(item.finishedAt)).toLocaleString()}
-          />
-        ) : null}
-        <DetailRow
-          label={<Trans>已传 / 总量</Trans>}
-          value={`${formatBytes(transferred)} / ${formatBytes(total)} (${percent}%)`}
-        />
-        <DetailRow label={<Trans>对端</Trans>} value={item.peerId} mono />
-        {item.errorMessage ? (
-          <DetailRow
-            label={<Trans>错误原因</Trans>}
-            value={<LocalizedError message={item.errorMessage} />}
-            danger
-          />
-        ) : null}
-        {item.savePath ? (
-          <DetailRow
-            label={<Trans>保存位置</Trans>}
-            value={item.savePath}
-            mono
-          />
-        ) : null}
-      </View>
-
-      {/* 文件树（mode=transfer，按状态着色；可点击分享 / 长按复制） */}
-      <FileTree
-        mode="transfer"
-        dataLoader={treeData.dataLoader}
-        rootChildren={treeData.rootChildren}
-        totalCount={item.files.length}
-        totalSize={total}
-        onFilePress={shareEnabled ? handleFilePress : undefined}
-        onFileLongPress={savePath ? handleFileLongPress : undefined}
+      <ActionBar
+        vm={vm}
+        busy={busy}
+        isActive={isActive}
+        onPause={onPause}
+        onCancel={onCancel}
+        onResume={onResume}
+        onResend={onResend}
+        onDelete={onDelete}
+        onOpenFolder={onOpenFolder}
       />
-
-      {/* 操作按钮组 */}
-      <View className="flex-row flex-wrap gap-2 pt-2">
-        {onResume ? (
-          <ActionButton
-            icon={<Play size={16} className="text-primary-foreground" />}
-            label={<Trans>恢复</Trans>}
-            onPress={onResume}
-            disabled={busy === "resuming"}
-            variant="primary"
-            loading={busy === "resuming"}
-          />
-        ) : null}
-        {onResend ? (
-          <ActionButton
-            icon={<Send size={16} className="text-foreground" />}
-            label={<Trans>重新发送</Trans>}
-            onPress={onResend}
-            disabled={busy === "resending"}
-            variant="secondary"
-            loading={busy === "resending"}
-          />
-        ) : null}
-        <ActionButton
-          icon={<Trash2 size={16} className="text-destructive" />}
-          label={<Trans>删除</Trans>}
-          onPress={onDelete}
-          disabled={busy === "deleting"}
-          variant="destructive"
-          loading={busy === "deleting"}
-        />
-      </View>
     </>
   );
 }
 
-/* ─── 子组件 ─── */
+function TransferStatusHeader({ vm }: { vm: DetailViewModel }) {
+  const isSend = vm.direction === "send";
+  return (
+    <View className="flex-row items-center gap-3">
+      <DirectionIcon direction={vm.direction} />
+      <View className="min-w-0 flex-1">
+        <Text
+          className="text-base font-semibold text-foreground"
+          numberOfLines={1}
+        >
+          {vm.peerName}
+        </Text>
+        <Text className="text-[11px] text-muted-foreground">
+          {isSend ? <Trans>发送</Trans> : <Trans>接收</Trans>}
+          {" · "}
+          {vm.files.length} <Trans>个文件</Trans>
+          {" · "}
+          {formatBytes(vm.totalSize)}
+        </Text>
+      </View>
+      {vm.status === "transferring" || vm.status === "waiting_accept" ? (
+        <StatusBadge status={vm.status} />
+      ) : null}
+    </View>
+  );
+}
+
+function TransferProgressBlock({ vm }: { vm: DetailViewModel }) {
+  const status = vm.status;
+  const colors = useThemeColors();
+
+  if (status === "transferring" && vm.progress) {
+    const percent = calcPercent(
+      vm.progress.transferredBytes,
+      vm.progress.totalBytes,
+    );
+    return (
+      <View className="gap-2">
+        <View className="flex-row items-baseline justify-between">
+          <Text className="text-3xl font-bold tabular-nums text-foreground">
+            {percent}%
+          </Text>
+          <Text className="text-[11px] text-muted-foreground">
+            {formatSpeed(Number(vm.progress.speed))}
+          </Text>
+        </View>
+        <ProgressBar percent={percent} />
+        <View className="flex-row items-center justify-between">
+          <Text className="text-[11px] text-muted-foreground">
+            {formatBytes(vm.progress.transferredBytes)} /{" "}
+            {formatBytes(vm.progress.totalBytes)}
+          </Text>
+          {vm.progress.eta != null ? (
+            <Text className="text-[11px] text-muted-foreground">
+              <Trans>剩余 {formatDuration(Number(vm.progress.eta))}</Trans>
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
+
+  if (status === "paused") {
+    const percent = calcPercent(vm.transferredBytes, vm.totalSize);
+    return (
+      <View className="gap-2">
+        <View className="flex-row items-baseline justify-between">
+          <Text className="text-3xl font-bold tabular-nums text-foreground">
+            {percent}%
+          </Text>
+          <Text className="text-[11px] text-muted-foreground">
+            <Trans>已暂停</Trans>
+          </Text>
+        </View>
+        <ProgressBar percent={percent} />
+        <Text className="text-[11px] text-muted-foreground">
+          {formatBytes(vm.transferredBytes)} / {formatBytes(vm.totalSize)}
+        </Text>
+      </View>
+    );
+  }
+
+  if (status === "completed") {
+    const duration =
+      vm.finishedAt != null
+        ? Math.max(0, Math.round((vm.finishedAt - vm.startedAt) / 1000))
+        : 0;
+    return (
+      <View className="items-center gap-3 py-2">
+        <View className="size-14 items-center justify-center rounded-full bg-success/15">
+          <CheckCircle2 size={32} color={colors.success} strokeWidth={2} />
+        </View>
+        <Text className="text-base font-semibold text-foreground">
+          <Trans>所有文件传输完成！</Trans>
+        </Text>
+        <View className="w-full max-w-xs flex-row justify-around px-4">
+          <Stat value={String(vm.files.length)} label={<Trans>文件</Trans>} />
+          <Stat
+            value={formatBytes(vm.totalSize)}
+            label={<Trans>总大小</Trans>}
+          />
+          <Stat value={formatDuration(duration)} label={<Trans>用时</Trans>} />
+        </View>
+      </View>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <View className="items-center gap-3 py-2">
+        <View className="size-14 items-center justify-center rounded-full bg-destructive/15">
+          <XCircle size={32} color={colors.destructive} strokeWidth={2} />
+        </View>
+        <Text className="text-base font-semibold text-foreground">
+          <Trans>传输失败</Trans>
+        </Text>
+        {vm.error ? (
+          <Text className="max-w-xs text-center text-[11px] text-muted-foreground">
+            <LocalizedError message={vm.error} />
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  if (status === "cancelled") {
+    return (
+      <View className="items-center gap-2 py-2">
+        <Text className="text-sm text-muted-foreground">
+          <StatusLabel status={status} />
+        </Text>
+      </View>
+    );
+  }
+
+  if (status === "waiting_accept") {
+    return (
+      <View className="items-center gap-2 py-4">
+        <Loader2 size={24} color={colors.primary} />
+        <Text className="text-[11px] text-muted-foreground">
+          <Trans>等待对方确认...</Trans>
+        </Text>
+      </View>
+    );
+  }
+
+  return null;
+}
+
+function HistoryMetaCard({ vm }: { vm: DetailViewModel }) {
+  return (
+    <View className="gap-3 rounded-xl border border-border bg-card p-4">
+      <DetailRow
+        label={<Trans>开始时间</Trans>}
+        value={new Date(vm.startedAt).toLocaleString()}
+      />
+      {vm.finishedAt != null ? (
+        <DetailRow
+          label={<Trans>结束时间</Trans>}
+          value={new Date(vm.finishedAt).toLocaleString()}
+        />
+      ) : null}
+      <DetailRow label={<Trans>对端</Trans>} value={vm.peerId} mono />
+      {vm.savePath ? (
+        <DetailRow
+          label={<Trans>保存位置</Trans>}
+          value={decodeURIComponent(vm.savePath)}
+          mono
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function ActionBar({
+  vm,
+  busy,
+  isActive,
+  onPause,
+  onCancel,
+  onResume,
+  onResend,
+  onDelete,
+  onOpenFolder,
+}: {
+  vm: DetailViewModel;
+  busy: string | null;
+  isActive: boolean;
+  onPause: () => void;
+  onCancel: () => void;
+  onResume: () => void;
+  onResend: () => void;
+  onDelete: () => void;
+  onOpenFolder: (savePath: string) => void;
+}) {
+  const status = vm.status;
+  const buttons: React.ReactNode[] = [];
+
+  if (isActive) {
+    if (status === "transferring") {
+      buttons.push(
+        <ActionButton
+          key="pause"
+          Icon={Pause}
+          label={<Trans>暂停</Trans>}
+          onPress={onPause}
+          disabled={busy === "pausing"}
+          loading={busy === "pausing"}
+          variant="secondary"
+        />,
+      );
+    }
+    buttons.push(
+      <ActionButton
+        key="cancel"
+        Icon={X}
+        label={<Trans>取消</Trans>}
+        onPress={onCancel}
+        disabled={busy === "cancelling"}
+        loading={busy === "cancelling"}
+        variant="destructive"
+      />,
+    );
+    return <View className="flex-row gap-2 pt-1">{buttons}</View>;
+  }
+
+  // 已结束 / 历史
+  if (status === "completed" && vm.direction === "receive" && vm.savePath) {
+    buttons.push(
+      <ActionButton
+        key="open-folder"
+        Icon={FolderOpen}
+        label={<Trans>打开文件夹</Trans>}
+        onPress={() => onOpenFolder(vm.savePath as string)}
+        variant="primary"
+      />,
+    );
+  }
+
+  if (vm.historyItem && canResume(vm.historyItem)) {
+    buttons.push(
+      <ActionButton
+        key="resume"
+        Icon={Play}
+        label={<Trans>恢复</Trans>}
+        onPress={onResume}
+        disabled={busy === "resuming"}
+        loading={busy === "resuming"}
+        variant="primary"
+      />,
+    );
+  }
+
+  if (vm.historyItem && canResend(vm.historyItem)) {
+    buttons.push(
+      <ActionButton
+        key="resend"
+        Icon={Send}
+        label={<Trans>重新发送</Trans>}
+        onPress={onResend}
+        disabled={busy === "resending"}
+        loading={busy === "resending"}
+        variant="secondary"
+      />,
+    );
+  }
+
+  if (vm.fromHistory) {
+    buttons.push(
+      <ActionButton
+        key="delete"
+        Icon={Trash2}
+        label={<Trans>删除</Trans>}
+        onPress={onDelete}
+        disabled={busy === "deleting"}
+        loading={busy === "deleting"}
+        variant="destructive"
+      />,
+    );
+  }
+
+  if (buttons.length === 0) return null;
+  return <View className="flex-row flex-wrap gap-2 pt-1">{buttons}</View>;
+}
+
+function Stat({ value, label }: { value: string; label: React.ReactNode }) {
+  return (
+    <View className="items-center gap-0.5">
+      <Text className="text-lg font-bold tabular-nums text-foreground">
+        {value}
+      </Text>
+      <Text className="text-[10px] text-muted-foreground">{label}</Text>
+    </View>
+  );
+}
 
 function DetailRow({
   label,
@@ -584,7 +826,7 @@ function DetailRow({
 }
 
 interface ActionButtonProps {
-  icon: React.ReactNode;
+  Icon: LucideIcon;
   label: React.ReactNode;
   onPress: () => void;
   disabled?: boolean;
@@ -593,14 +835,15 @@ interface ActionButtonProps {
 }
 
 function ActionButton({
-  icon,
+  Icon,
   label,
   onPress,
   disabled,
   loading,
   variant,
 }: ActionButtonProps) {
-  const classes =
+  const colors = useThemeColors();
+  const bgClass =
     variant === "primary"
       ? "bg-primary"
       : variant === "destructive"
@@ -612,16 +855,39 @@ function ActionButton({
       : variant === "destructive"
         ? "text-destructive"
         : "text-foreground";
+  const iconColor =
+    variant === "primary"
+      ? colors.primaryForeground
+      : variant === "destructive"
+        ? colors.destructive
+        : colors.foreground;
 
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
-      className={`min-h-11 min-w-22 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 ${classes} active:opacity-70 disabled:opacity-50`}
+      className={`min-h-11 min-w-22 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 ${bgClass} active:opacity-70 disabled:opacity-50`}
     >
-      {loading ? <ActivityIndicator size="small" /> : icon}
+      {loading ? (
+        <ActivityIndicator size="small" color={iconColor} />
+      ) : (
+        <Icon size={16} color={iconColor} />
+      )}
       <Text className={`text-[13px] font-medium ${textClass}`}>{label}</Text>
     </Pressable>
   );
+}
+
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.ceil(seconds % 60);
+    return `${m}m ${s}s`;
+  }
+  const h = Math.floor(seconds / 3600);
+  const m = Math.ceil((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
 }

@@ -19,12 +19,15 @@ import {
   ERROR_APP_INTERRUPTED,
   type TransferDirection,
 } from "@/core/transfer-types";
+import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 
 /* ─── 方向图标 ─── */
 
 export function DirectionIcon({ direction }: { direction: TransferDirection }) {
   const isSend = direction === "send";
+  const colors = useThemeColors();
+  const iconColor = isSend ? colors.primary : colors.success;
   return (
     <View
       className={cn(
@@ -33,9 +36,9 @@ export function DirectionIcon({ direction }: { direction: TransferDirection }) {
       )}
     >
       {isSend ? (
-        <ArrowUpRight size={18} className="text-primary" strokeWidth={2.5} />
+        <ArrowUpRight size={18} color={iconColor} strokeWidth={2.5} />
       ) : (
-        <ArrowDownLeft size={18} className="text-success" strokeWidth={2.5} />
+        <ArrowDownLeft size={18} color={iconColor} strokeWidth={2.5} />
       )}
     </View>
   );
@@ -167,6 +170,14 @@ export function formatBytes(bytes: number | bigint): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+/** 速率：null / 非正数显示 "—"（与桌面 formatSpeed 行为一致）。 */
+export function formatSpeed(bytesPerSec: number | bigint | null): string {
+  if (bytesPerSec == null) return "—";
+  const n = typeof bytesPerSec === "bigint" ? Number(bytesPerSec) : bytesPerSec;
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return `${formatBytes(n)}/s`;
 }
 
 export function calcPercent(

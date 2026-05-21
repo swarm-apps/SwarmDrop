@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import { Download, File as FileIcon } from "lucide-react-native";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -19,6 +19,8 @@ import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
 import { resolveReceiveLocation } from "@/core/paths";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useMobileCoreStore } from "@/stores/mobile-core-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export function TransferOfferHost() {
@@ -29,6 +31,10 @@ export function TransferOfferHost() {
   const dismiss = useTransferStore((s) => s.dismissOffer);
   const addSession = useTransferStore((s) => s.addSession);
   const setError = useTransferStore((s) => s.setError);
+  const autoAccept = usePreferencesStore((s) => s.autoAccept);
+  // pairedDevicesCache 离线也保留 keychain 里的 paired peer 列表 ——
+  // 自动接收判定不需要 NetManager 在 running 状态。
+  const pairedPeerIds = useMobileCoreStore((s) => s.pairedDevicesCache);
   const [busy, setBusy] = useState<"accepting" | "rejecting" | null>(null);
 
   const open = current !== null;
@@ -79,6 +85,22 @@ export function TransferOfferHost() {
       setBusy(null);
     }
   }, [busy, current, dismiss]);
+
+  // 自动接收：autoAccept=true 且对端在已配对列表里时，直接触发 accept。
+  // 用 ref 记录已经自动接受过的 sessionId，避免 React StrictMode / 重渲染
+  // 导致同一个 offer 被 accept 多次（accept 是幂等的，但仍然会重复跳转）。
+  const autoAcceptedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!current || busy !== null) return;
+    if (!autoAccept) return;
+    if (autoAcceptedRef.current.has(current.id)) return;
+    const isPaired = pairedPeerIds.some(
+      (p) => p.peerId === current.offer.peerId,
+    );
+    if (!isPaired) return;
+    autoAcceptedRef.current.add(current.id);
+    void accept();
+  }, [current, busy, autoAccept, pairedPeerIds, accept]);
 
   if (!open || !current) return null;
 

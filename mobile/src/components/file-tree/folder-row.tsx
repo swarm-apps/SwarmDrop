@@ -15,7 +15,11 @@ import {
 import { Pressable, View } from "react-native";
 import { formatBytes } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
+import { useThemeColors } from "@/hooks/useThemeColors";
 import { RemoveButton } from "./file-tree-item";
+
+/** 文件夹图标色（amber-500），与桌面端 file-tree 一致。主题色之外的固定色不走 CSS 变量。 */
+const FOLDER_COLOR = "#f59e0b";
 
 interface FolderRowProps {
   name: string;
@@ -40,6 +44,7 @@ export function FolderRow({
 }: FolderRowProps) {
   const ChevronIcon = isExpanded ? ChevronDown : ChevronRight;
   const FolderIcon = isExpanded ? FolderOpen : Folder;
+  const colors = useThemeColors();
 
   return (
     <Pressable
@@ -51,8 +56,8 @@ export function FolderRow({
       style={{ paddingLeft: level * 22 + 8 }}
     >
       <View className="min-w-0 flex-1 flex-row items-center gap-2.5">
-        <ChevronIcon size={16} className="shrink-0 text-muted-foreground" />
-        <FolderIcon size={18} className="shrink-0 text-amber-500" />
+        <ChevronIcon size={16} color={colors.mutedForeground} />
+        <FolderIcon size={18} color={FOLDER_COLOR} />
         <Text
           className="min-w-0 flex-1 text-sm font-medium text-foreground"
           numberOfLines={1}

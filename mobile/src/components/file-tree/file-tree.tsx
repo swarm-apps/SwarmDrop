@@ -14,7 +14,7 @@ import { syncDataLoaderFeature } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
 import { Trans } from "@lingui/react/macro";
 import { FlashList } from "@shopify/flash-list";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { View } from "react-native";
 import type {
   MobileFileProgress,
@@ -95,6 +95,21 @@ export function FileTree({
     tree.rebuildTree();
   }, [wrappedDataLoader]);
 
+  // headless-tree 的 expand/collapse 通过 mutate 内部 state 对象后回调 React 的
+  // setState(state)。由于 state 引用未变，React 会 bail out（Object.is），导致
+  // 文件夹点击不展开。这里在 onToggle 后显式 forceUpdate 触发 re-render，重新
+  // 读取 tree.getItems() 的最新顺序。
+  const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
+
+  const handleToggle = useCallback((item: (typeof items)[number]) => {
+    if (item.isExpanded()) {
+      item.collapse();
+    } else {
+      item.expand();
+    }
+    forceUpdate();
+  }, []);
+
   // 一次性把 progress.files 转成 Map<fileId, FileProgress>，避免 renderRow 里
   // 每个文件 O(N) 线性查找两次（getFileStatus + getFileProgress）。
   const progressByFileId = useMemo(() => {
@@ -123,13 +138,7 @@ export function FileTree({
           totalSize={data.size}
           level={level}
           mode={mode}
-          onToggle={() => {
-            if (item.isExpanded()) {
-              item.collapse();
-            } else {
-              item.expand();
-            }
-          }}
+          onToggle={() => handleToggle(item)}
           onRemove={
             mode === "select" && onRemove ? () => onRemove(data.id) : undefined
           }

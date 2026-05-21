@@ -11,11 +11,14 @@ interface PreferencesState {
   customBootstrapNodes: string[];
   /** 用户自定义接收文件保存目录的 URI(file:// 或 content://);null 走默认 transfersInboxUri */
   receivePath: string | null;
+  /** 自动接受已配对设备的文件请求,默认 false(对齐桌面 transfer.autoAccept) */
+  autoAccept: boolean;
   setDeviceName: (name: string) => void;
   setAutoStart: (value: boolean) => void;
   addBootstrapNode: (addr: string) => void;
   removeBootstrapNode: (addr: string) => void;
   setReceivePath: (uri: string | null) => void;
+  setAutoAccept: (value: boolean) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -25,6 +28,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       autoStart: false,
       customBootstrapNodes: [],
       receivePath: null,
+      autoAccept: false,
 
       setDeviceName(name) {
         set({ deviceName: name.trim() });
@@ -52,6 +56,10 @@ export const usePreferencesStore = create<PreferencesState>()(
 
       setReceivePath(uri) {
         set({ receivePath: uri && uri.length > 0 ? uri : null });
+      },
+
+      setAutoAccept(value) {
+        set({ autoAccept: value });
       },
     }),
     {

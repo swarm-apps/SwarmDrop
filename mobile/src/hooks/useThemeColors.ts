@@ -20,6 +20,7 @@ export function useThemeColors() {
   const foreground = useUnstableNativeVariable("--foreground");
   const card = useUnstableNativeVariable("--card");
   const primary = useUnstableNativeVariable("--primary");
+  const primaryForeground = useUnstableNativeVariable("--primary-foreground");
   const destructive = useUnstableNativeVariable("--destructive");
   const success = useUnstableNativeVariable("--success");
   const warning = useUnstableNativeVariable("--warning");
@@ -35,6 +36,7 @@ export function useThemeColors() {
       foreground: hsl(foreground),
       card: hsl(card),
       primary: hsl(primary),
+      primaryForeground: hsl(primaryForeground),
       destructive: hsl(destructive),
       success: hsl(success),
       warning: hsl(warning),
@@ -49,6 +51,7 @@ export function useThemeColors() {
       foreground,
       card,
       primary,
+      primaryForeground,
       destructive,
       success,
       warning,

@@ -158,7 +158,7 @@ export class ExpoFileAccess implements ForeignFileAccess {
     const baseUri = saveLocationUri(metadata.saveDir);
     const saf = isSafUri(baseUri);
     const file = saf
-      ? ensureSafSinkFile(baseUri, metadata.relativePath, truncate)
+      ? ensureSafSinkFile(baseUri, metadata.relativePath)
       : ensureLocalSinkFile(baseUri, metadata.relativePath, truncate);
 
     // SAF 不支持 ReadWrite；走 WriteOnly。WriteOnly 模式 cursor 在头部，能 seek
@@ -205,11 +205,7 @@ function ensureLocalSinkFile(
  * relativePath 形如 "SwarmNote/sub/foo.txt"。在 SAF tree 下顺次寻找/创建
  * 「SwarmNote」「sub」目录，最后在 sub 下 createFile("foo.txt", null)。
  */
-function ensureSafSinkFile(
-  baseUri: string,
-  relativePath: string,
-  truncate: boolean,
-): File {
+function ensureSafSinkFile(baseUri: string, relativePath: string): File {
   const segments = relativePath.split("/").filter(Boolean);
   if (segments.length === 0) {
     throw new Error(`SAF sink relativePath 为空: ${relativePath}`);
@@ -224,13 +220,25 @@ function ensureSafSinkFile(
   }
 
   const existingFile = findChildFile(currentDir, fileName);
-  if (existingFile && truncate) {
-    existingFile.delete();
-  } else if (existingFile) {
+  if (existingFile) {
+    // 已存在时一律复用 —— 不论 truncate：
+    // - truncate=true：让 open(WriteOnly) 自己去 truncate-on-open（SAF "w" mode
+    //   的标准行为，expo 文档明说）。先 delete + 再 createFile 会触发 SAF
+    //   异步 delete 没生效就被 createFile 命中 race，生成 "foo (1).txt" 或者
+    //   返回不可写 fd，后续 writeBytes 报 "Bad file descriptor"。
+    // - truncate=false：断点续传场景，本来就要保留旧内容
     return existingFile;
   }
-  // mimeType 传 null 让 DocumentsProvider 按文件名后缀推断
-  return currentDir.createFile(fileName, null);
+  // mimeType 必须传 "application/octet-stream"。看似 null 等价，但 expo-file-system
+  // Android 端会把 null 兜底成 "text/plain"
+  // (FileSystemDirectory.kt:79 `file.createFile(mimeType ?: "text/plain", fileName)`)。
+  // 然后 DocumentsContract.createDocument(mimeType="text/plain", "foo.md") 会发现
+  // "foo.md" 的扩展名跟 text/plain 不匹配，按 splitFileName 规则强制追加 ".txt"
+  // (FileUtils#splitFileName)，导致 .md 落盘后变成 ".md.txt"。
+  // application/octet-stream 是 MIME_TYPE_DEFAULT，splitFileName 对它特判
+  // extFromMimeType=null，于是 displayName 原样保留 —— 这是 SAF 下「不要动我文件名」
+  // 的标准约定。
+  return currentDir.createFile(fileName, "application/octet-stream");
 }
 
 function findChildDirectory(parent: Directory, name: string): Directory | null {

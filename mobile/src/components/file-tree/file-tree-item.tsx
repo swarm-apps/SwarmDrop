@@ -21,8 +21,12 @@ import {
 import { Pressable, View } from "react-native";
 import { formatBytes, ProgressBar } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
+import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 import type { FileStatus } from "./data";
+
+/** transferring 蓝色（blue-500）固定值，与桌面端一致 */
+const TRANSFERRING_COLOR = "#3b82f6";
 
 interface FileTreeItemProps {
   name: string;
@@ -85,6 +89,7 @@ function getFileIcon(name: string): LucideIcon {
 /* ─── 共享移除按钮 ─── */
 
 export function RemoveButton({ onPress }: { onPress?: () => void }) {
+  const colors = useThemeColors();
   return (
     <Pressable
       onPress={onPress}
@@ -92,46 +97,53 @@ export function RemoveButton({ onPress }: { onPress?: () => void }) {
       accessibilityRole="button"
       className="rounded-full p-1 active:bg-destructive/15"
     >
-      <X size={13} className="text-muted-foreground" />
+      <X size={13} color={colors.mutedForeground} />
     </Pressable>
   );
 }
 
-/* ─── 变体样式 ─── */
+/**
+ * 变体样式表。`iconColor` 用「解析为颜色字符串」的回调，避免和外面
+ * 的 className 写法分裂成两套来源；新增 variant 只动这一处。
+ */
+type ThemeColors = ReturnType<typeof useThemeColors>;
+type VariantStyle = {
+  row: string;
+  nameColor: string;
+  infoColor: string;
+  iconColor: (c: ThemeColors) => string;
+};
 
-const variantStyles: Record<
-  FileStatus,
-  { row: string; iconColor: string; nameColor: string; infoColor: string }
-> = {
+const variantStyles: Record<FileStatus, VariantStyle> = {
   select: {
     row: "",
-    iconColor: "text-primary",
     nameColor: "text-foreground",
     infoColor: "text-muted-foreground",
+    iconColor: (c) => c.primary,
   },
   waiting: {
     row: "opacity-60",
-    iconColor: "text-muted-foreground",
     nameColor: "text-muted-foreground",
     infoColor: "text-muted-foreground",
+    iconColor: (c) => c.mutedForeground,
   },
   transferring: {
     row: "bg-blue-500/10",
-    iconColor: "text-blue-500",
     nameColor: "text-foreground",
     infoColor: "text-blue-500",
+    iconColor: () => TRANSFERRING_COLOR,
   },
   completed: {
     row: "bg-success/5",
-    iconColor: "text-success",
     nameColor: "text-foreground",
     infoColor: "text-muted-foreground",
+    iconColor: (c) => c.success,
   },
   error: {
     row: "bg-destructive/5",
-    iconColor: "text-destructive",
     nameColor: "text-foreground",
     infoColor: "text-destructive",
+    iconColor: (c) => c.destructive,
   },
 };
 
@@ -149,9 +161,11 @@ export function FileTreeItem({
   onLongPress,
 }: FileTreeItemProps) {
   const styles = variantStyles[variant];
+  const colors = useThemeColors();
   const Icon = getFileIcon(name);
   const isTransferring = variant === "transferring";
   const isPressable = onPress != null || onLongPress != null;
+  const iconColor = styles.iconColor(colors);
 
   return (
     <Pressable
@@ -168,7 +182,7 @@ export function FileTreeItem({
     >
       <View className="flex-row items-center gap-2.5">
         <View className="min-w-0 flex-1 flex-row items-center gap-2.5">
-          <Icon size={18} className={cn("shrink-0", styles.iconColor)} />
+          <Icon size={18} color={iconColor} />
           <Text
             className={cn("min-w-0 flex-1 text-sm", styles.nameColor)}
             numberOfLines={1}
@@ -197,14 +211,14 @@ export function FileTreeItem({
               accessibilityRole="button"
               className="rounded-full p-1 active:bg-destructive/15"
             >
-              <RotateCcw size={13} className="text-destructive" />
+              <RotateCcw size={13} color={colors.destructive} />
             </Pressable>
           ) : null}
           {variant === "completed" ? (
-            <Check size={13} className="text-success" />
+            <Check size={13} color={colors.success} />
           ) : null}
           {variant === "waiting" ? (
-            <Timer size={13} className="text-muted-foreground" />
+            <Timer size={13} color={colors.mutedForeground} />
           ) : null}
         </View>
       </View>

@@ -8,6 +8,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
 import { getMobilePaths } from "@/core/paths";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -66,9 +67,30 @@ export default function GeneralScreen() {
 
         <SettingSection label={t`传输`}>
           <ReceivePathRow />
+          <SettingDivider />
+          <AutoAcceptRow />
         </SettingSection>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function AutoAcceptRow() {
+  const autoAccept = usePreferencesStore((s) => s.autoAccept);
+  const setAutoAccept = usePreferencesStore((s) => s.setAutoAccept);
+
+  return (
+    <View className="flex-row items-center gap-3 px-3.5 py-3">
+      <View className="flex-1 gap-0.5">
+        <Text className="text-[14px] text-foreground">
+          <Trans>自动接收</Trans>
+        </Text>
+        <Text className="text-[11px] text-muted-foreground">
+          <Trans>自动接受已配对设备的文件</Trans>
+        </Text>
+      </View>
+      <Switch checked={autoAccept} onCheckedChange={setAutoAccept} />
+    </View>
   );
 }
 

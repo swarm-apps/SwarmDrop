@@ -10,11 +10,8 @@
 // 仅保留在 legacy 命名空间。新的 OOP File API 还没暴露进度回调和 content://
 // 帮手，所以这里继续用 legacy 导入。
 import * as FileSystem from "expo-file-system/legacy";
-import * as IntentLauncher from "expo-intent-launcher";
 import { Platform } from "react-native";
-
-const FLAG_GRANT_READ_URI_PERMISSION = 0x00000001;
-const FLAG_ACTIVITY_NEW_TASK = 0x10000000;
+import { startViewIntent } from "@/core/saf-intent";
 
 export interface DownloadProgress {
   downloaded: number;
@@ -84,10 +81,9 @@ export async function downloadAndInstallApk(
 
   const contentUri = await FileSystem.getContentUriAsync(result.uri);
 
-  await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+  await startViewIntent({
     data: contentUri,
     type: "application/vnd.android.package-archive",
-    flags: FLAG_GRANT_READ_URI_PERMISSION | FLAG_ACTIVITY_NEW_TASK,
   });
 
   return handle;
