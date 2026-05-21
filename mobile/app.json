@@ -48,7 +48,9 @@
         }
       ],
       "expo-sharing",
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/with-android-release-signing",
+      "./plugins/with-android-install-permission"
     ],
     "experiments": {
       "typedRoutes": true,
