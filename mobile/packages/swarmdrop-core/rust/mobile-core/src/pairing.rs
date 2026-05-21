@@ -49,6 +49,8 @@ impl MobileRemoteDeviceInfo {
                 .into_iter()
                 .map(|addr| addr.to_string())
                 .collect(),
+            // ShareCodeRecord.created_at / expires_at 仍是 i64 秒（DHT line format），
+            // 直接透传；前端 pairing-code-store 也按秒计算（× 1000 转毫秒）。
             created_at: record.created_at,
             expires_at: record.expires_at,
         }
@@ -87,8 +89,10 @@ impl MobileCore {
             .map_err(FfiError::from)?;
         Ok(MobilePairingCode {
             code: code.code,
-            created_at: code.created_at,
-            expires_at: code.expires_at,
+            // PairingCodeInfo.created_at / expires_at 是 chrono::DateTime<Utc>
+            // (desktop 8d298e5)；FFI 边界保持 i64 秒，与 ShareCodeRecord / 前端约定一致。
+            created_at: code.created_at.timestamp(),
+            expires_at: code.expires_at.timestamp(),
         })
     }
 
