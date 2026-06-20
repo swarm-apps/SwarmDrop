@@ -28,6 +28,7 @@
     "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@swarm-hive/sdk": "^0.1.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-router": "^1.157.16",
     "@tanstack/react-virtual": "^3.13.18",
