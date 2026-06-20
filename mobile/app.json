@@ -37,7 +37,8 @@
             "deploymentTarget": "17.0"
           },
           "android": {
-            "softwareKeyboardLayoutMode": "resize"
+            "softwareKeyboardLayoutMode": "resize",
+            "usesCleartextTraffic": true
           }
         }
       ],
