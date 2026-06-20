@@ -60,8 +60,6 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          VITE_UPGRADE_LINK_ACCESS_KEY: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-          VITE_UPGRADE_LINK_ACCESS_SECRET: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
         with:
           args: '--target universal-apple-darwin'
 
@@ -72,16 +70,18 @@ jobs:
           SWARMHIVE_TOKEN: ${{ secrets.SWARMHIVE_TOKEN }}
         run: |
           set -euo pipefail
-          BUNDLE="src-tauri/target/universal-apple-darwin/release/bundle"
-          APPTGZ=$(ls "$BUNDLE"/macos/*.app.tar.gz)
-          DMG=$(ls "$BUNDLE"/dmg/*.dmg)
+          # SwarmDrop 是 Cargo workspace，src-tauri 是成员 → bundle 落在「仓库根 target」，
+          # 不是 src-tauri/target（swarmhive-cli skill 示例假设非 workspace，对此型应用是错的）。
+          BUNDLE="target/universal-apple-darwin/release/bundle"
+          APPTGZ=$(ls "$BUNDLE"/macos/*.app.tar.gz | head -1)
           echo "updater bundle: $APPTGZ"
-          echo "installer dmg : $DMG"
+          ARTS=(--artifact "$APPTGZ")
+          DMG=$(ls "$BUNDLE"/dmg/*.dmg 2>/dev/null | head -1 || true)
+          if [ -n "$DMG" ]; then echo "installer dmg : $DMG"; ARTS+=(--artifact "$DMG"); fi
           npx --yes @swarm-hive/cli@0.2.0 publish tauri \
             --app swarmdrop \
             --target universal-apple-darwin \
-            --artifact "$APPTGZ" \
-            --artifact "$DMG" \
+            "${ARTS[@]}" \
             --channel "${{ inputs.channel || 'beta' }}" \
             --notes "Dogfood publish via GitHub Actions (universal-apple-darwin)" \
             --output json

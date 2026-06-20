@@ -95,8 +95,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          VITE_UPGRADE_LINK_ACCESS_KEY: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-          VITE_UPGRADE_LINK_ACCESS_SECRET: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
         with:
           tagName: v__VERSION__
           releaseName: 'SwarmDrop v__VERSION__'
@@ -185,46 +183,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "${{ steps.tag.outputs.tag }}" --draft=false
 
-  # === UpgradeLink Sync ===
-  # 参考: http://upgrade.toolsetlink.com/upgrade/example/tauri/tauri-action-example.html
-  #
-  # 需要配置的 GitHub Secrets:
-  # - UPGRADE_LINK_ACCESS_KEY
-  # - UPGRADE_LINK_ACCESS_SECRET
-  # - UPGRADE_LINK_TAURI_KEY
-  # 移动端 Android APK 同步已迁到 swarm-apps/SwarmDrop-RN release workflow。
-
-  upgradeLink-upload:
-    name: Sync to UpgradeLink
-    needs: [publish-release]
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Get release info
-        id: release
-        run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            TAG="${{ github.ref_name }}"
-          else
-            VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
-            TAG="v${VERSION}"
-          fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-
-      # 同步 Tauri 桌面端 (统一 endpoint，支持 Win/Mac/Linux)
-      - name: Sync Tauri to UpgradeLink
-        uses: toolsetlink/upgradelink-action@3.0.2
-        with:
-          access_key: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-          access_secret: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
-          config: |
-            {
-              "app_type": "tauri",
-              "request": {
-                "app_key": "${{ secrets.UPGRADE_LINK_TAURI_KEY }}",
-                "latest_json_url": "https://github.com/${{ github.repository }}/releases/download/${{ steps.release.outputs.tag }}/latest.json"
-              }
-            }
+  # === SwarmHive 发布 ===
+  # 已彻底移除 UpgradeLink（toolsetlink）同步。更新分发统一走自托管 SwarmHive：
+  # 桌面端更新检查 endpoint 见 src-tauri/tauri.conf.json。
+  # 本仓的 SwarmHive 发布当前由独立的 `.github/workflows/swarmhive-publish.yml`
+  # （workflow_dispatch / 构建 universal-apple-darwin → @swarm-hive/cli publish）承担；
+  # 待多 target（含 win/linux）从 release 资产发布的链路验证后，再 fold 进本 tag 发布线。
