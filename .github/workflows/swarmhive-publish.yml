@@ -6,10 +6,6 @@
 name: SwarmHive Publish (dogfood)
 
 on:
-  # push 触发绑定在 feature 分支上：推分支即自动跑，绕开 workflow_dispatch
-  # 要求文件先在默认分支才可派发的限制（dogfood 迭代期间用）。
-  push:
-    branches: [feat/swarmhive-integration]
   workflow_dispatch:
     inputs:
       channel:

@@ -41,14 +41,6 @@
     "notification:default",
     "updater:default",
     "process:allow-restart",
-    "dialog:default",
-    {
-      "identifier": "http:default",
-      "allow": [
-        {
-          "url": "https://api.upgrade.toolsetlink.com/*"
-        }
-      ]
-    }
+    "dialog:default"
   ]
 }

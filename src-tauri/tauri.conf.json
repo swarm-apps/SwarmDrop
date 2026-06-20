@@ -45,6 +45,7 @@
       "endpoints": [
         "http://47.115.172.218:3030/api/v1/updates/tauri/swarmdrop?current_version={{current_version}}&target={{target}}&arch={{arch}}"
       ],
+      "dangerousInsecureTransportProtocol": true,
       "windows": {
         "installMode": "passive"
       }
