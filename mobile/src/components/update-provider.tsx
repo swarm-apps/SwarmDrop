@@ -54,5 +54,9 @@ export function UpdateProvider({
 
   if (!engine) return <>{fallback}</>;
 
-  return <UpdateEngineContext.Provider value={engine}>{children}</UpdateEngineContext.Provider>;
+  return (
+    <UpdateEngineContext.Provider value={engine}>
+      {children}
+    </UpdateEngineContext.Provider>
+  );
 }

@@ -20,10 +20,15 @@ export interface ExpoDownloaderOptions {
  *   清理上次残留 → createDownloadResumable 下到 cacheDirectory → resolve 本地 file:// 路径。
  * 非 Android 抛 ApkDownloadNotSupportedOnIosError。
  */
-export function createExpoApkDownloader(opts: ExpoDownloaderOptions = {}): ApkDownloader {
+export function createExpoApkDownloader(
+  opts: ExpoDownloaderOptions = {},
+): ApkDownloader {
   const fileName = opts.fileName ?? "swarmhive-update.apk";
   return {
-    async download(url: string, onProgress: ApkProgressCallback): Promise<string> {
+    async download(
+      url: string,
+      onProgress: ApkProgressCallback,
+    ): Promise<string> {
       if (Platform.OS !== "android") {
         throw new ApkDownloadNotSupportedOnIosError();
       }
@@ -37,10 +42,15 @@ export function createExpoApkDownloader(opts: ExpoDownloaderOptions = {}): ApkDo
         await FileSystem.deleteAsync(target, { idempotent: true });
       }
 
-      const resumable = FileSystem.createDownloadResumable(url, target, {}, (p) => {
-        // 累计绝对值直接透传给 adapter 的 DownloadSpeedTracker(它负责节流 + percent)。
-        onProgress(p.totalBytesWritten, p.totalBytesExpectedToWrite);
-      });
+      const resumable = FileSystem.createDownloadResumable(
+        url,
+        target,
+        {},
+        (p) => {
+          // 累计绝对值直接透传给 adapter 的 DownloadSpeedTracker(它负责节流 + percent)。
+          onProgress(p.totalBytesWritten, p.totalBytesExpectedToWrite);
+        },
+      );
 
       const result = await resumable.downloadAsync();
       if (!result?.uri) {

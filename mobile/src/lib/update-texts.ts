@@ -52,7 +52,8 @@ export interface UpdateTexts {
 
 const en: UpdateTexts = {
   promptTitle: "Update available",
-  promptDescription: (latest, current) => `Version ${latest} is available (current ${current}).`,
+  promptDescription: (latest, current) =>
+    `Version ${latest} is available (current ${current}).`,
   releaseNotesLabel: "What's new",
   laterButton: "Later",
   updateButton: "Update now",
@@ -73,13 +74,15 @@ const en: UpdateTexts = {
 
   installButton: "Install",
   systemConfirmHint: "Waiting for the system installer…",
-  unknownSourceHint: "Allow installing from this app in Settings, then return to continue.",
+  unknownSourceHint:
+    "Allow installing from this app in Settings, then return to continue.",
   canceledRetry: "Installation canceled. You can try again.",
 };
 
 const zhCN: UpdateTexts = {
   promptTitle: "发现新版本",
-  promptDescription: (latest, current) => `新版本 ${latest} 可用，当前版本 ${current}`,
+  promptDescription: (latest, current) =>
+    `新版本 ${latest} 可用，当前版本 ${current}`,
   releaseNotesLabel: "更新内容",
   laterButton: "稍后提醒",
   updateButton: "立即更新",

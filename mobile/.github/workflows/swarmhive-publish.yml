@@ -4,8 +4,6 @@
 name: SwarmHive Publish (dogfood)
 
 on:
-  push:
-    branches: [feat/swarmhive-integration]
   workflow_dispatch:
     inputs:
       channel:

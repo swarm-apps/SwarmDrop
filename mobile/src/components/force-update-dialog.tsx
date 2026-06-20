@@ -13,7 +13,11 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Text } from "@/components/ui/text";
 import { useUpdate } from "@/hooks/use-update";
-import { resolveUpdateTexts, type UpdateLocale, type UpdateTexts } from "@/lib/update-texts";
+import {
+  resolveUpdateTexts,
+  type UpdateLocale,
+  type UpdateTexts,
+} from "@/lib/update-texts";
 
 export interface ForceUpdateDialogProps {
   locale?: UpdateLocale;
@@ -41,7 +45,9 @@ export function ForceUpdateDialog({
   }, [status, install]);
 
   const percent = progress ? Math.round(progress.percent * 100) : 0;
-  const speedMb = progress?.speed ? (progress.speed / 1024 / 1024).toFixed(1) : null;
+  const speedMb = progress?.speed
+    ? (progress.speed / 1024 / 1024).toFixed(1)
+    : null;
   const actionLabel = isDownloading
     ? t.downloadingButton
     : isReady
@@ -65,7 +71,10 @@ export function ForceUpdateDialog({
 
         {release?.notes ? (
           <View className="bg-muted rounded-lg p-3">
-            <ReleaseNotesView notes={release.notes} renderer={releaseNotesRenderer} />
+            <ReleaseNotesView
+              notes={release.notes}
+              renderer={releaseNotesRenderer}
+            />
           </View>
         ) : null}
 
@@ -75,13 +84,17 @@ export function ForceUpdateDialog({
             <View className="flex-row justify-between">
               <Text className="text-muted-foreground text-xs">{percent}%</Text>
               {speedMb ? (
-                <Text className="text-muted-foreground text-xs">{speedMb} MB/s</Text>
+                <Text className="text-muted-foreground text-xs">
+                  {speedMb} MB/s
+                </Text>
               ) : null}
             </View>
           </View>
         ) : null}
 
-        {isReady ? <Text className="text-primary text-sm">{t.systemConfirmHint}</Text> : null}
+        {isReady ? (
+          <Text className="text-primary text-sm">{t.systemConfirmHint}</Text>
+        ) : null}
 
         <AlertDialogFooter>
           {/* AlertDialogAction(RNR canonical)不像 Button 那样在 disabled 时自动加 opacity-50,

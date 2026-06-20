@@ -56,7 +56,8 @@ class DownloadSpeedTracker {
 
   private emit(percentOverride?: number): void {
     this.emitted = true;
-    const percent = percentOverride ?? (this.total > 0 ? this.downloaded / this.total : 0);
+    const percent =
+      percentOverride ?? (this.total > 0 ? this.downloaded / this.total : 0);
     this.onProgress({
       downloaded: this.downloaded,
       total: this.total,
@@ -120,9 +121,12 @@ export function createRnAdapter(opts: RnAdapterOptions): UpdateAdapter {
       onProgress: (p: Progress) => void,
     ): Promise<DownloadHandle> {
       const tracker = new DownloadSpeedTracker(onProgress);
-      const apkPath = await opts.downloader.download(release.url, (downloaded, total) => {
-        tracker.update(downloaded, total);
-      });
+      const apkPath = await opts.downloader.download(
+        release.url,
+        (downloaded, total) => {
+          tracker.update(downloaded, total);
+        },
+      );
       tracker.finish();
       // payload 必须 self-contained(engine install 前会清 pendingHandle):存本地 APK 路径。
       return { release, payload: apkPath };
@@ -131,7 +135,9 @@ export function createRnAdapter(opts: RnAdapterOptions): UpdateAdapter {
     async install(handle: DownloadHandle): Promise<void> {
       const apkPath = handle.payload;
       if (typeof apkPath !== "string" || !apkPath) {
-        throw new Error("no downloaded APK path — call download() before install()");
+        throw new Error(
+          "no downloaded APK path — call download() before install()",
+        );
       }
       // fire-and-forget handoff:交给系统 PackageInstaller,intent 派发即 resolve。
       // **绝不 relaunch** —— RN 由系统替换进程,用户确认后旧进程被新版本接管。

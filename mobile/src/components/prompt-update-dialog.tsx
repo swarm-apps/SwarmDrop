@@ -13,7 +13,11 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Text } from "@/components/ui/text";
 import { useUpdate } from "@/hooks/use-update";
-import { resolveUpdateTexts, type UpdateLocale, type UpdateTexts } from "@/lib/update-texts";
+import {
+  resolveUpdateTexts,
+  type UpdateLocale,
+  type UpdateTexts,
+} from "@/lib/update-texts";
 
 export interface PromptUpdateDialogProps {
   open: boolean;
@@ -34,7 +38,8 @@ export function PromptUpdateDialog({
   releaseNotesRenderer,
   currentVersion,
 }: PromptUpdateDialogProps) {
-  const { status, release, progress, download, install, postpone } = useUpdate();
+  const { status, release, progress, download, install, postpone } =
+    useUpdate();
   const t = resolveUpdateTexts(locale, texts);
 
   const isDownloading = status === "downloading";
@@ -55,7 +60,9 @@ export function PromptUpdateDialog({
   };
 
   const percent = progress ? Math.round(progress.percent * 100) : 0;
-  const speedMb = progress?.speed ? (progress.speed / 1024 / 1024).toFixed(1) : null;
+  const speedMb = progress?.speed
+    ? (progress.speed / 1024 / 1024).toFixed(1)
+    : null;
   const actionLabel = isDownloading
     ? t.downloadingButton
     : isReady
@@ -78,8 +85,13 @@ export function PromptUpdateDialog({
 
         {release?.notes ? (
           <View className="bg-muted gap-2 rounded-lg p-4">
-            <Text className="text-muted-foreground text-xs font-medium">{t.releaseNotesLabel}</Text>
-            <ReleaseNotesView notes={release.notes} renderer={releaseNotesRenderer} />
+            <Text className="text-muted-foreground text-xs font-medium">
+              {t.releaseNotesLabel}
+            </Text>
+            <ReleaseNotesView
+              notes={release.notes}
+              renderer={releaseNotesRenderer}
+            />
           </View>
         ) : null}
 
@@ -89,16 +101,24 @@ export function PromptUpdateDialog({
             <View className="flex-row justify-between">
               <Text className="text-muted-foreground text-xs">{percent}%</Text>
               {speedMb ? (
-                <Text className="text-muted-foreground text-xs">{speedMb} MB/s</Text>
+                <Text className="text-muted-foreground text-xs">
+                  {speedMb} MB/s
+                </Text>
               ) : null}
             </View>
           </View>
         ) : null}
 
-        {isReady ? <Text className="text-primary text-sm">{t.systemConfirmHint}</Text> : null}
+        {isReady ? (
+          <Text className="text-primary text-sm">{t.systemConfirmHint}</Text>
+        ) : null}
 
         <DialogFooter>
-          <Button variant="outline" onPress={() => handleOpenChange(false)} disabled={busy}>
+          <Button
+            variant="outline"
+            onPress={() => handleOpenChange(false)}
+            disabled={busy}
+          >
             <Text>{t.laterButton}</Text>
           </Button>
           <Button onPress={() => void download()} disabled={busy}>

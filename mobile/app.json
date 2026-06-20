@@ -12,6 +12,7 @@
     },
     "android": {
       "package": "com.yexiyue.swarmdrop",
+      "versionCode": 2,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",

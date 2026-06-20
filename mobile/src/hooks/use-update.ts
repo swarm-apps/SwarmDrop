@@ -66,7 +66,8 @@ export async function createSwarmHiveEngine(
     baseUrl: rest.baseUrl,
     appSlug: rest.appSlug,
     // Android: nativeApplicationVersion = versionName(显示用);缺省兜底 "0"。
-    currentVersionName: rest.currentVersionName ?? Application.nativeApplicationVersion ?? "0",
+    currentVersionName:
+      rest.currentVersionName ?? Application.nativeApplicationVersion ?? "0",
     abi: rest.abi,
     channel: rest.channel,
     downloader: rest.downloader ?? createExpoApkDownloader(),
@@ -76,7 +77,9 @@ export async function createSwarmHiveEngine(
   });
   // Android: nativeBuildVersion = versionCode;缺省兜底 "0"——让首次检查必判"有更新"而非崩。
   const version = currentVersion ?? Application.nativeBuildVersion ?? "0";
-  const clientId = await ensureClientId(adapter.storage, () => Crypto.randomUUID());
+  const clientId = await ensureClientId(adapter.storage, () =>
+    Crypto.randomUUID(),
+  );
   return createUpdateEngine(adapter, {
     currentVersion: version,
     clientId,

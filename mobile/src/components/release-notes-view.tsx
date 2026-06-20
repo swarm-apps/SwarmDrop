@@ -10,10 +10,18 @@ export interface ReleaseNotesViewProps {
   maxHeight?: number;
 }
 
-export function ReleaseNotesView({ notes, renderer, maxHeight = 220 }: ReleaseNotesViewProps) {
+export function ReleaseNotesView({
+  notes,
+  renderer,
+  maxHeight = 220,
+}: ReleaseNotesViewProps) {
   if (!notes) return null;
   return (
-    <ScrollView style={{ maxHeight }} contentContainerClassName="pr-1" showsVerticalScrollIndicator>
+    <ScrollView
+      style={{ maxHeight }}
+      contentContainerClassName="pr-1"
+      showsVerticalScrollIndicator
+    >
       {renderer ? (
         renderer(notes)
       ) : (

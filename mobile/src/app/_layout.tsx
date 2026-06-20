@@ -15,13 +15,13 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PairingRequestHost } from "@/components/pairing-request-host";
 import { TransferOfferHost } from "@/components/transfer-offer-host";
 import { UpdateHost } from "@/components/update-host";
+import { UpdateProvider } from "@/components/update-provider";
 import { initMobileCore } from "@/core/mobile-core";
 import { useNavTheme } from "@/hooks/useThemeColors";
 import { LinguiProvider } from "@/i18n/LinguiProvider";
 import { initI18n } from "@/i18n/lingui";
 import { restoreThemePreference } from "@/lib/theme-persistence";
 import { waitForOnboardingHydration } from "@/stores/onboarding-store";
-import { UpdateProvider } from "@/components/update-provider";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -84,42 +84,45 @@ export default function RootLayout() {
           <ThemeProvider value={navTheme}>
             <LinguiProvider>
               {/* SwarmHive 更新引擎（dogfood server）；engine 装配后再渲染子树。 */}
-              <UpdateProvider baseUrl="http://47.115.172.218:3030" appSlug="swarmdrop-rn">
-              <BottomSheetModalProvider>
-                <StatusBar style={isDark ? "light" : "dark"} />
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="onboarding" />
-                  <Stack.Screen name="(main)" />
-                  <Stack.Screen
-                    name="transfer"
-                    options={{ animation: "slide_from_right" }}
-                  />
-                  <Stack.Screen
-                    name="settings"
-                    options={{ animation: "slide_from_right" }}
-                  />
-                  <Stack.Screen
-                    name="pairing/found-device"
-                    options={{ animation: "slide_from_right" }}
-                  />
-                  <Stack.Screen
-                    name="pairing/success"
-                    options={{
-                      animation: "slide_from_right",
-                      gestureEnabled: false,
-                    }}
-                  />
-                  <Stack.Screen
-                    name="send/select-device"
-                    options={{ animation: "slide_from_right" }}
-                  />
-                </Stack>
-                <PairingRequestHost />
-                <TransferOfferHost />
-                <UpdateHost />
-                <PortalHost />
-              </BottomSheetModalProvider>
+              <UpdateProvider
+                baseUrl="http://47.115.172.218:3030"
+                appSlug="swarmdrop-rn"
+              >
+                <BottomSheetModalProvider>
+                  <StatusBar style={isDark ? "light" : "dark"} />
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="index" />
+                    <Stack.Screen name="onboarding" />
+                    <Stack.Screen name="(main)" />
+                    <Stack.Screen
+                      name="transfer"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                    <Stack.Screen
+                      name="settings"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                    <Stack.Screen
+                      name="pairing/found-device"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                    <Stack.Screen
+                      name="pairing/success"
+                      options={{
+                        animation: "slide_from_right",
+                        gestureEnabled: false,
+                      }}
+                    />
+                    <Stack.Screen
+                      name="send/select-device"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                  </Stack>
+                  <PairingRequestHost />
+                  <TransferOfferHost />
+                  <UpdateHost />
+                  <PortalHost />
+                </BottomSheetModalProvider>
               </UpdateProvider>
             </LinguiProvider>
           </ThemeProvider>
