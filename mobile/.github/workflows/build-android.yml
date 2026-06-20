@@ -24,10 +24,6 @@ jobs:
     name: Build Android (${{ inputs.build_type }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      EXPO_PUBLIC_UPGRADELINK_ACCESS_KEY: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-      EXPO_PUBLIC_UPGRADELINK_ACCESS_SECRET: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
-      EXPO_PUBLIC_UPGRADELINK_APK_KEY: ${{ secrets.UPGRADE_LINK_APK_KEY }}
 
     steps:
       - name: Checkout (with submodules)

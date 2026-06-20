@@ -45,10 +45,6 @@ jobs:
       tag: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
       apk_url: ${{ steps.stage.outputs.apk_url }}
-    env:
-      EXPO_PUBLIC_UPGRADELINK_ACCESS_KEY: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-      EXPO_PUBLIC_UPGRADELINK_ACCESS_SECRET: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
-      EXPO_PUBLIC_UPGRADELINK_APK_KEY: ${{ secrets.UPGRADE_LINK_APK_KEY }}
 
     steps:
       - name: Checkout (with submodules)
@@ -185,29 +181,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "${{ steps.tag.outputs.tag }}" --draft=false
-
-  upgradelink-upload:
-    name: Sync APK metadata to UpgradeLink
-    needs: [publish-release, build-android, generate-changelog]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Sync Android APK to UpgradeLink
-        uses: toolsetlink/upgradelink-action@3.0.2
-        with:
-          access_key: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-          access_secret: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
-          config: |
-            {
-              "app_type": "apk",
-              "request": {
-                "app_key": "${{ secrets.UPGRADE_LINK_APK_KEY }}",
-                "version": "${{ needs.build-android.outputs.version }}",
-                "url": "${{ needs.build-android.outputs.apk_url }}",
-                "prompt_upgrade_content": ${{ toJSON(needs.generate-changelog.outputs.changelog) }}
-              }
-            }
 
   update-changelog:
     name: Update CHANGELOG.md

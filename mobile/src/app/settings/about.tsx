@@ -12,21 +12,18 @@ import {
 } from "lucide-react-native";
 import { Linking, Platform, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useShallow } from "zustand/react/shallow";
 import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
-import { useUpdateStore } from "@/stores/update-store";
+import { useUpdate } from "@/hooks/use-update";
 
 const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
 
 export default function AboutScreen() {
   const colors = useThemeColors();
   const { t } = useLingui();
-  const { status, checkForUpdate } = useUpdateStore(
-    useShallow((s) => ({ status: s.status, checkForUpdate: s.checkForUpdate })),
-  );
+  const { status, check } = useUpdate();
 
   const isAndroid = Platform.OS === "android";
   const isChecking = status === "checking";
@@ -41,7 +38,7 @@ export default function AboutScreen() {
 
   const onCheckUpdate = () => {
     if (isChecking) return;
-    void checkForUpdate(true);
+    void check(true);
   };
 
   return (
