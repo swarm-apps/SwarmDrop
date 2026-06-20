@@ -15,13 +15,13 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PairingRequestHost } from "@/components/pairing-request-host";
 import { TransferOfferHost } from "@/components/transfer-offer-host";
 import { UpdateHost } from "@/components/update-host";
+import { UpdateProvider } from "@/components/update-provider";
 import { initMobileCore } from "@/core/mobile-core";
 import { useNavTheme } from "@/hooks/useThemeColors";
 import { LinguiProvider } from "@/i18n/LinguiProvider";
 import { initI18n } from "@/i18n/lingui";
 import { restoreThemePreference } from "@/lib/theme-persistence";
 import { waitForOnboardingHydration } from "@/stores/onboarding-store";
-import { useUpdateStore } from "@/stores/update-store";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -55,18 +55,8 @@ export default function RootLayout() {
   // 文件选择器等瞬间退台会反复重建 NetManager 打断传输,且 iOS/Android 后台本身
   // 就会挂起 socket。长传保活留给后续 Foreground Service / BGTask。
 
-  // 升级检查:启动 2s 后首次检查 + AppState 回前台时再检查
-  useEffect(() => {
-    if (!ready || bootError !== null) return;
-    const timer = setTimeout(() => {
-      void useUpdateStore.getState().checkForUpdate();
-    }, 2000);
-    const teardown = useUpdateStore.getState().setupAppStateListener();
-    return () => {
-      clearTimeout(timer);
-      teardown();
-    };
-  }, [ready, bootError]);
+  // 升级检查现由 <UpdateProvider>（registry-rn / SwarmHive 引擎）负责：
+  // checkOnMount 启动即查、recheckOnFocus 回前台（AppState active）再查（engine 内部节流）。
 
   if (!ready) {
     return (
@@ -93,41 +83,47 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <ThemeProvider value={navTheme}>
             <LinguiProvider>
-              <BottomSheetModalProvider>
-                <StatusBar style={isDark ? "light" : "dark"} />
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="onboarding" />
-                  <Stack.Screen name="(main)" />
-                  <Stack.Screen
-                    name="transfer"
-                    options={{ animation: "slide_from_right" }}
-                  />
-                  <Stack.Screen
-                    name="settings"
-                    options={{ animation: "slide_from_right" }}
-                  />
-                  <Stack.Screen
-                    name="pairing/found-device"
-                    options={{ animation: "slide_from_right" }}
-                  />
-                  <Stack.Screen
-                    name="pairing/success"
-                    options={{
-                      animation: "slide_from_right",
-                      gestureEnabled: false,
-                    }}
-                  />
-                  <Stack.Screen
-                    name="send/select-device"
-                    options={{ animation: "slide_from_right" }}
-                  />
-                </Stack>
-                <PairingRequestHost />
-                <TransferOfferHost />
-                <UpdateHost />
-                <PortalHost />
-              </BottomSheetModalProvider>
+              {/* SwarmHive 更新引擎（dogfood server）；engine 装配后再渲染子树。 */}
+              <UpdateProvider
+                baseUrl="http://47.115.172.218:3030"
+                appSlug="swarmdrop-rn"
+              >
+                <BottomSheetModalProvider>
+                  <StatusBar style={isDark ? "light" : "dark"} />
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="index" />
+                    <Stack.Screen name="onboarding" />
+                    <Stack.Screen name="(main)" />
+                    <Stack.Screen
+                      name="transfer"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                    <Stack.Screen
+                      name="settings"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                    <Stack.Screen
+                      name="pairing/found-device"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                    <Stack.Screen
+                      name="pairing/success"
+                      options={{
+                        animation: "slide_from_right",
+                        gestureEnabled: false,
+                      }}
+                    />
+                    <Stack.Screen
+                      name="send/select-device"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                  </Stack>
+                  <PairingRequestHost />
+                  <TransferOfferHost />
+                  <UpdateHost />
+                  <PortalHost />
+                </BottomSheetModalProvider>
+              </UpdateProvider>
             </LinguiProvider>
           </ThemeProvider>
           {/* NotifierRoot 放最后,iOS 走 RNScreens overlay 让 toast 浮在 modal 之上 */}

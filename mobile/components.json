@@ -15,5 +15,9 @@
     "ui": "@/components/ui",
     "lib": "@/lib",
     "hooks": "@/hooks"
+  },
+  "registries": {
+    "@swarmhive-rn": "https://raw.githubusercontent.com/swarm-apps/swarmhive/main/packages/registry-rn/public/r/{name}.json",
+    "@react-native-reusables": "https://reactnativereusables.com/r/nativewind/{name}.json"
   }
 }

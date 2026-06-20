@@ -12,6 +12,7 @@
     },
     "android": {
       "package": "com.yexiyue.swarmdrop",
+      "versionCode": 2,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -37,7 +38,8 @@
             "deploymentTarget": "17.0"
           },
           "android": {
-            "softwareKeyboardLayoutMode": "resize"
+            "softwareKeyboardLayoutMode": "resize",
+            "usesCleartextTraffic": true
           }
         }
       ],

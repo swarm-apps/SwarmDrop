@@ -12,24 +12,22 @@ import {
 } from "lucide-react-native";
 import { Linking, Platform, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useShallow } from "zustand/react/shallow";
 import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
+import { useUpdate } from "@/hooks/use-update";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
-import { useUpdateStore } from "@/stores/update-store";
 
 const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
 
 export default function AboutScreen() {
   const colors = useThemeColors();
   const { t } = useLingui();
-  const { status, checkForUpdate } = useUpdateStore(
-    useShallow((s) => ({ status: s.status, checkForUpdate: s.checkForUpdate })),
-  );
+  const { status, check } = useUpdate();
 
   const isAndroid = Platform.OS === "android";
   const isChecking = status === "checking";
+  const isError = status === "error";
   const hasUpdate = status === "available" || status === "force-required";
 
   const openUrl = (url: string) => {
@@ -41,7 +39,7 @@ export default function AboutScreen() {
 
   const onCheckUpdate = () => {
     if (isChecking) return;
-    void checkForUpdate(true);
+    void check(true);
   };
 
   return (
@@ -80,6 +78,16 @@ export default function AboutScreen() {
                       style={{ color: colors.mutedForeground }}
                     >
                       <Trans>正在检查...</Trans>
+                    </Text>
+                  </>
+                ) : isError ? (
+                  <>
+                    <RefreshCw color={colors.mutedForeground} size={12} />
+                    <Text
+                      className="text-[11px] font-medium"
+                      style={{ color: colors.mutedForeground }}
+                    >
+                      <Trans>检查失败</Trans>
                     </Text>
                   </>
                 ) : (
