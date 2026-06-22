@@ -6,6 +6,7 @@ use crate::mcp::server::{McpServerState, McpStatus};
 
 /// 查询 MCP Server 当前状态
 #[tauri::command]
+#[specta::specta]
 pub async fn get_mcp_status(
     state: tauri::State<'_, McpServerState>,
 ) -> crate::AppResult<McpStatus> {
@@ -26,6 +27,7 @@ pub async fn get_mcp_status(
 ///
 /// `port` 为可选参数，默认 19527。
 #[tauri::command]
+#[specta::specta]
 pub async fn start_mcp_server(
     app: AppHandle,
     state: tauri::State<'_, McpServerState>,
@@ -54,6 +56,7 @@ pub async fn start_mcp_server(
 
 /// 停止 MCP Server
 #[tauri::command]
+#[specta::specta]
 pub async fn stop_mcp_server(
     state: tauri::State<'_, McpServerState>,
 ) -> crate::AppResult<McpStatus> {

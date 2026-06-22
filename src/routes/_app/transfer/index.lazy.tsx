@@ -9,15 +9,11 @@ import { createLazyFileRoute } from "@tanstack/react-router";
 import { ArrowLeftRight, Trash2 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useTransferStore } from "@/stores/transfer-store";
 import { TransferItem } from "./-transfer-item";
 import { HistoryItem } from "./-history-item";
-import type {
-  TransferHistoryItem,
-  HistorySessionStatus,
-} from "@/commands/transfer";
-import { clearTransferHistory } from "@/commands/transfer";
+import { commands, type TransferHistoryItem } from "@/lib/bindings";
+import type { HistorySessionStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -28,16 +24,12 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
-import { cn } from "@/lib/utils";
 
 export const Route = createLazyFileRoute("/_app/transfer/")({
   component: TransferPage,
 });
 
 function TransferPage() {
-  const breakpoint = useBreakpoint();
-  const isMobile = breakpoint === "mobile";
-
   const sessions = useTransferStore((s) => s.sessions);
   const dbHistory = useTransferStore((s) => s.dbHistory);
   const loadHistory = useTransferStore((s) => s.loadHistory);
@@ -84,7 +76,7 @@ function TransferPage() {
 
   const handleClearHistory = async () => {
     try {
-      await clearTransferHistory();
+      await commands.clearTransferHistory();
       await loadHistory();
       toast.success(t`已清空传输历史`);
     } catch (err) {
@@ -92,17 +84,8 @@ function TransferPage() {
     }
   };
 
-  const content = !hasContent ? (
-    <EmptyState />
-  ) : (
-    <TransferList
-      activeSessionIds={activeSessionIds}
-      historyItems={filteredHistory}
-    />
-  );
-
-  // 工具栏右侧操作区
-  const toolbarActions = dbHistory.length > 0 && (
+  // 「传输历史」section 标题右侧的过滤 + 清空操作
+  const historyToolbar = dbHistory.length > 0 && (
     <div className="flex items-center gap-1.5 md:gap-2">
       {/* 状态过滤 */}
       <Select
@@ -133,21 +116,20 @@ function TransferPage() {
     </div>
   );
 
+  const content = !hasContent ? (
+    <EmptyState />
+  ) : (
+    <TransferList
+      activeSessionIds={activeSessionIds}
+      historyItems={filteredHistory}
+      historyToolbar={historyToolbar}
+    />
+  );
+
   return (
     <main className="flex h-full flex-1 flex-col bg-background">
-      {/* Header */}
-      <header className="flex h-13 items-center justify-between border-b border-border px-4 lg:px-5">
-        <h1 className="text-[15px] font-medium text-foreground">
-          <Trans>传输</Trans>
-        </h1>
-        {toolbarActions}
-      </header>
-
-      {/* Page Content */}
-      <div className={cn(
-        "flex-1 overflow-auto",
-        isMobile ? "px-3 py-3" : "p-5 lg:p-6",
-      )}>
+      {/* Page Content —— 页面标题由 AppTopBar 面包屑承担,无独立 header */}
+      <div className="flex-1 overflow-auto p-5 lg:p-6">
         {content}
       </div>
     </main>
@@ -159,9 +141,11 @@ function TransferPage() {
 function TransferList({
   activeSessionIds,
   historyItems,
+  historyToolbar,
 }: {
   activeSessionIds: string[];
   historyItems: TransferHistoryItem[];
+  historyToolbar: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -179,12 +163,15 @@ function TransferList({
         </section>
       )}
 
-      {/* 传输历史（从 DB 加载） */}
+      {/* 传输历史(从 DB 加载) —— 过滤 / 清空挂在 section 标题右侧 */}
       {historyItems.length > 0 && (
         <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-foreground">
-            <Trans>传输历史</Trans>
-          </h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">
+              <Trans>传输历史</Trans>
+            </h2>
+            {historyToolbar}
+          </div>
           <div className="flex flex-col gap-2.5">
             {historyItems.map((item) => (
               <HistoryItem key={item.sessionId} item={item} />

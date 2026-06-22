@@ -12,7 +12,7 @@ use tauri::Manager;
 
 use super::McpHandler;
 use crate::device::{DeviceFilter, DeviceStatus};
-use crate::file_source::{EnumeratedFile, FileSource};
+use crate::host::file_source::{EnumeratedFile, FileSource};
 use crate::network::NetManagerState;
 
 /// 辅助：构造 MCP 错误结果（isError: true）
@@ -56,7 +56,9 @@ struct McpNetworkStatus {
 #[tool_router(vis = "pub(super)")]
 impl McpHandler {
     /// 获取 P2P 网络状态
-    #[tool(description = "获取 SwarmDrop P2P 网络节点的运行状态，包括 PeerId、已连接节点数、NAT 类型等")]
+    #[tool(
+        description = "获取 SwarmDrop P2P 网络节点的运行状态，包括 PeerId、已连接节点数、NAT 类型等"
+    )]
     pub async fn get_network_status(&self) -> Result<CallToolResult, ErrorData> {
         let state = self.app.state::<NetManagerState>();
         let guard = state.lock().await;
@@ -110,7 +112,9 @@ impl McpHandler {
     }
 
     /// 向指定设备发送文件
-    #[tool(description = "向指定设备发送文件。需要提供目标设备的 peer_id（从 list_available_devices 获取）和文件的绝对路径列表")]
+    #[tool(
+        description = "向指定设备发送文件。需要提供目标设备的 peer_id（从 list_available_devices 获取）和文件的绝对路径列表"
+    )]
     pub async fn send_files(
         &self,
         Parameters(params): Parameters<SendFilesParams>,
@@ -159,15 +163,23 @@ impl McpHandler {
             return mcp_error("没有找到可发送的文件");
         }
 
-        // prepare：计算 BLAKE3 hash（no-op channel，MCP 不需要进度上报）
-        let on_progress = tauri::ipc::Channel::new(|_| Ok(()));
+        // prepare：计算 BLAKE3 hash
+        let host_entries: Vec<swarmdrop_core::transfer::HostEnumeratedFile> = entries
+            .into_iter()
+            .map(|e| swarmdrop_core::transfer::HostEnumeratedFile {
+                source_id: crate::host::file_source::source_id(&e.source),
+                name: e.name,
+                relative_path: e.relative_path,
+                size: e.size,
+            })
+            .collect();
+        let prepared_id = uuid::Uuid::new_v4();
         let prepared = manager
             .transfer()
-            .prepare(entries, &self.app, on_progress)
+            .prepare(prepared_id, host_entries)
             .await
             .map_err(|e| ErrorData::internal_error(format!("准备传输失败: {e}"), None))?;
 
-        let prepared_id = prepared.prepared_id;
         let all_file_ids: Vec<u32> = prepared.files.iter().map(|f| f.file_id).collect();
         let file_count = all_file_ids.len();
         let total_size = prepared.total_size;
@@ -184,7 +196,7 @@ impl McpHandler {
         // send_offer
         let result = manager
             .transfer_arc()
-            .send_offer(&prepared_id, &params.peer_id, &peer_name, &all_file_ids, self.app.clone())
+            .send_offer(&prepared_id, &params.peer_id, &peer_name, &all_file_ids)
             .map_err(|e| ErrorData::internal_error(format!("发送 Offer 失败: {e}"), None))?;
 
         let response = SendFilesResponse {

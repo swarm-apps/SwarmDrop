@@ -22,16 +22,16 @@ import { Progress } from "@/components/ui/progress";
 import { useTransferStore } from "@/stores/transfer-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { formatFileSize, formatSpeed, formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { openTransferResult } from "@/lib/file-picker";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
-import { FileTree } from "../send/-components/file-tree";
-import { buildTreeDataFromSession } from "../send/-file-tree";
-import type { TransferSession, TransferHistoryItem } from "@/commands/transfer";
+import { FileTree } from "@/components/file-tree";
+import { buildTreeDataFromSession } from "@/components/file-tree";
+import type { TransferHistoryItem } from "@/lib/bindings";
+import type { TransferSession } from "@/lib/types";
 import {
   calcPercent,
   isActiveStatus,
@@ -49,10 +49,8 @@ export const Route = createLazyFileRoute("/_app/transfer/$sessionId")({
 function TransferDetailPage() {
   const { sessionId } = Route.useParams();
   const navigate = useNavigate();
-  const breakpoint = useBreakpoint();
-  const isMobile = breakpoint === "mobile";
 
-  // 拆分 selector：分别订阅原始数据，避免 historyToSession 每次创建新对象
+  // 拆分 selector:分别订阅原始数据,避免 historyToSession 每次创建新对象
   const activeSession = useTransferStore(
     useCallback((s) => s.sessions[sessionId], [sessionId]),
   );
@@ -94,7 +92,6 @@ function TransferDetailPage() {
       session={session}
       historyItem={historyItem}
       onBack={handleBack}
-      isMobile={isMobile}
     />
   );
 }
@@ -416,12 +413,10 @@ const TransferDetailContent = memo(function TransferDetailContent({
   session,
   historyItem,
   onBack,
-  isMobile,
 }: {
   session: TransferSession;
   historyItem?: TransferHistoryItem;
   onBack: () => void;
-  isMobile: boolean;
 }) {
   const treeData = useMemo(() => {
     return buildTreeDataFromSession(session);
@@ -430,7 +425,7 @@ const TransferDetailContent = memo(function TransferDetailContent({
   return (
     <main className="flex h-full flex-1 flex-col bg-background">
       {/* 头部 */}
-      <header className="flex h-12 items-center gap-2 border-b border-border px-3 md:h-13 md:px-4 lg:px-5">
+      <header className="flex h-13 items-center gap-2 border-b border-border px-4 lg:px-5">
         <button
           type="button"
           onClick={onBack}
@@ -438,20 +433,20 @@ const TransferDetailContent = memo(function TransferDetailContent({
         >
           <ArrowLeft className="size-4" />
         </button>
-        <h1 className="min-w-0 truncate text-[13px] font-medium text-foreground md:text-sm">
+        <h1 className="min-w-0 truncate text-sm font-medium text-foreground">
           <Trans>传输详情</Trans>
         </h1>
       </header>
 
       {/* 内容 */}
-      <div className="flex-1 overflow-auto px-3 py-3 md:p-4 lg:p-5">
-        <div className="mx-auto flex max-w-2xl flex-col gap-3 md:gap-5">
+      <div className="flex-1 overflow-auto p-4 lg:p-5">
+        <div className="mx-auto flex max-w-2xl flex-col gap-5">
           <TransferStatusHeader session={session} />
 
           <TransferProgress session={session} historyItem={historyItem} />
 
-          <div className="flex flex-col gap-1.5 md:gap-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground md:text-xs">
+          <div className="flex flex-col gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <Trans>传输详情</Trans>
             </h3>
             <FileTree
@@ -464,20 +459,11 @@ const TransferDetailContent = memo(function TransferDetailContent({
             />
           </div>
 
-          {!isMobile && (
-            <div className="flex justify-end">
-              <TransferActions session={session} historyItem={historyItem} />
-            </div>
-          )}
+          <div className="flex justify-end">
+            <TransferActions session={session} historyItem={historyItem} />
+          </div>
         </div>
       </div>
-
-      {/* 移动端底部操作栏 */}
-      {isMobile && (
-        <div className="border-t border-border px-3 py-2">
-          <TransferActions session={session} historyItem={historyItem} />
-        </div>
-      )}
     </main>
   );
 });

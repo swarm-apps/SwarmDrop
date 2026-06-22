@@ -16,13 +16,17 @@ import { t } from "@lingui/core/macro";
 import { useNetworkStore } from "@/stores/network-store";
 
 export const Route = createFileRoute("/_app/pairing")({
-  beforeLoad: () => {
+  beforeLoad: ({ location }) => {
     const { status } = useNetworkStore.getState();
     if (status !== "running") {
       toast.error(t`请先启动节点`, {
         description: t`配对功能需要 P2P 节点处于运行状态`,
       });
       throw redirect({ to: "/devices" });
+    }
+    // 精确访问 /pairing 时默认走「生成配对码」(原 mobile index 已下线)
+    if (location.pathname === "/pairing" || location.pathname === "/pairing/") {
+      throw redirect({ to: "/pairing/generate" });
     }
   },
   component: () => <Outlet />,

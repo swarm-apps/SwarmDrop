@@ -11,8 +11,9 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-/** 格式化传输速度 */
-export function formatSpeed(bytesPerSec: number): string {
+/** 格式化传输速度（null 表示尚未估算出，显示 "—"） */
+export function formatSpeed(bytesPerSec: number | null): string {
+  if (bytesPerSec == null) return "—";
   return `${formatFileSize(bytesPerSec)}/s`;
 }
 

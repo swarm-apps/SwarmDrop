@@ -1,11 +1,13 @@
 /**
  * AboutSection
- * 设置页「关于」区域 — 应用信息 + 更新状态展示
+ * 设置页「关于」区域 — 应用信息 + 更新状态展示（接 registry-web / SwarmHive 更新引擎）
  */
 
-import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
-import { useEffect, useState } from "react";
+import { Trans } from "@lingui/react/macro";
+import type { Progress as UpdateProgress, UpdateStatus } from "@swarm-hive/sdk";
+import { getVersion } from "@tauri-apps/api/app";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Download,
   ExternalLink,
@@ -13,15 +15,10 @@ import {
   RefreshCw,
   Sparkles,
 } from "lucide-react";
-import { getVersion } from "@tauri-apps/api/app";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { useShallow } from "zustand/react/shallow";
-import {
-  useUpgradeLinkStore,
-  type UpgradeLinkStatus,
-} from "@/stores/upgrade-link-store";
+import { useEffect, useState } from "react";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 import { Progress } from "@/components/ui/progress";
+import { useUpdate } from "@/hooks/use-update";
 
 /** 格式化字节数为人类可读 */
 function formatBytes(bytes: number): string {
@@ -31,26 +28,12 @@ function formatBytes(bytes: number): string {
 }
 
 export function AboutSection() {
-  // 使用 useShallow 优化选择多个值的性能
-  const {
-    status,
-    currentVersion: storeVersion,
-    latestVersion,
-    releaseNotes,
-    progress,
-    checkForUpdate,
-    executeUpdate,
-  } = useUpgradeLinkStore(
-    useShallow((s) => ({
-      status: s.status,
-      currentVersion: s.currentVersion,
-      latestVersion: s.latestVersion,
-      releaseNotes: s.releaseNotes,
-      progress: s.progress,
-      checkForUpdate: s.checkForUpdate,
-      executeUpdate: s.executeUpdate,
-    })),
-  );
+  // 经 registry-web 的 useUpdate() 订阅 SwarmHive 更新引擎（与 __root 的 <UpdateProvider>
+  // 同一个 engine）。check(true) 手动检查绕过节流；download() 触发下载，ready 后由
+  // __root 常驻的 Prompt/Force 弹窗自动安装+重启。
+  const { status, release, progress, check, download } = useUpdate();
+  const latestVersion = release?.version ?? null;
+  const releaseNotes = release?.notes ?? null;
 
   // 独立获取版本号，不依赖更新检查
   const [appVersion, setAppVersion] = useState<string | null>(null);
@@ -58,7 +41,7 @@ export function AboutSection() {
     getVersion().then(setAppVersion);
   }, []);
 
-  const currentVersion = storeVersion ?? appVersion;
+  const currentVersion = appVersion;
 
   return (
     <section className="flex flex-col gap-3">
@@ -93,20 +76,20 @@ export function AboutSection() {
             <UpdateButton
               status={status}
               latestVersion={latestVersion}
-              onCheck={checkForUpdate}
-              onUpdate={executeUpdate}
+              onCheck={() => void check(true)}
+              onUpdate={() => void download()}
             />
           </div>
         </div>
 
         {/* Update Banner / Progress */}
-        {status === "available" && releaseNotes && (
+        {(status === "available" || status === "force-required") && releaseNotes && (
           <UpdateBanner
             latestVersion={latestVersion}
             releaseNotes={releaseNotes}
           />
         )}
-        {status === "downloading" && progress && (
+        {(status === "downloading" || status === "ready") && progress && (
           <DownloadProgressBanner
             latestVersion={latestVersion}
             progress={progress}
@@ -122,7 +105,7 @@ function VersionDescription({
   status,
   currentVersion,
 }: {
-  status: UpgradeLinkStatus;
+  status: UpdateStatus;
   currentVersion: string | null;
 }) {
   const ver = currentVersion ? `v${currentVersion}` : "";
@@ -130,8 +113,10 @@ function VersionDescription({
     case "checking":
       return <Trans>版本 {ver} · 检查中...</Trans>;
     case "available":
+    case "force-required":
       return <Trans>版本 {ver} · 有新版本可用</Trans>;
     case "downloading":
+    case "ready":
       return <Trans>版本 {ver} · 正在更新...</Trans>;
     case "up-to-date":
       return <Trans>版本 {ver} · 已是最新版本</Trans>;
@@ -163,7 +148,7 @@ function UpdateButton({
   onCheck,
   onUpdate,
 }: {
-  status: UpgradeLinkStatus;
+  status: UpdateStatus;
   latestVersion: string | null;
   onCheck: () => void;
   onUpdate: () => void;
@@ -182,6 +167,7 @@ function UpdateButton({
       );
 
     case "available":
+    case "force-required":
       return (
         <button
           type="button"
@@ -194,6 +180,7 @@ function UpdateButton({
       );
 
     case "downloading":
+    case "ready":
       return (
         <button
           type="button"
@@ -253,8 +240,10 @@ function DownloadProgressBanner({
   progress,
 }: {
   latestVersion: string | null;
-  progress: { downloaded: number; total: number; speed: number; percent: number };
+  progress: UpdateProgress;
 }) {
+  // registry Progress.percent 是 0~1 分数，UI 用 0~100。
+  const percent = Math.round(progress.percent * 100);
   return (
     <div className="flex flex-col gap-2.5 border-t border-border px-4 py-3.5">
       <div className="flex items-center justify-between">
@@ -262,17 +251,19 @@ function DownloadProgressBanner({
           {t`正在下载 v${latestVersion ?? "?"}`}
         </span>
         <span className="text-[13px] font-semibold text-primary">
-          {progress.percent}%
+          {percent}%
         </span>
       </div>
-      <Progress value={progress.percent} className="h-1.5" />
+      <Progress value={percent} className="h-1.5" />
       <div className="flex items-center justify-between">
         <span className="text-[11px] text-muted-foreground">
           {formatBytes(progress.downloaded)} / {formatBytes(progress.total)}
         </span>
-        <span className="text-[11px] text-muted-foreground">
-          {formatBytes(progress.speed)}/s
-        </span>
+        {progress.speed ? (
+          <span className="text-[11px] text-muted-foreground">
+            {formatBytes(progress.speed)}/s
+          </span>
+        ) : null}
       </div>
     </div>
   );

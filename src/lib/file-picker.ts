@@ -1,43 +1,17 @@
 /**
  * file-picker
- * 封装跨平台文件系统操作
- * Android 平台使用 tauri-plugin-android-fs-api
- * 其他平台使用标准 Tauri dialog / opener
+ * 桌面端文件系统操作封装（移动端已迁移到 RN，使用 expo-file-system）
  */
 
 import { open } from "@tauri-apps/plugin-dialog";
-import { type } from "@tauri-apps/plugin-os";
 import { downloadDir, join } from "@tauri-apps/api/path";
-import { t } from "@lingui/core/macro";
-import { toast } from "sonner";
-import type { AndroidFsUri } from "tauri-plugin-android-fs-api";
-import type { FileSource, SaveLocation } from "@/commands/transfer";
-
-// 动态导入 Android FS API（仅在 Android 平台）
-async function getAndroidFs() {
-  const { AndroidFs } = await import("tauri-plugin-android-fs-api");
-  return AndroidFs;
-}
-
-/**
- * 将 FsPath 转换为字符串
- */
-function fsPathToString(path: string | URL): string {
-  return typeof path === "string" ? path : path.href;
-}
-
-/**
- * 检测是否为 Android 平台
- */
-export function isAndroid(): boolean {
-  return type() === "android";
-}
+import type { FileSource } from "@/lib/bindings";
+import type { SaveLocation } from "@/lib/types";
 
 const SAVE_DIR_NAME = "SwarmDrop";
 
 /**
  * 获取默认保存路径
- * 所有平台统一使用 downloadDir()，Android 上是应用私有目录，Rust 可直接读写
  */
 export async function getDefaultSavePath(): Promise<string> {
   const dir = await downloadDir();
@@ -47,31 +21,8 @@ export async function getDefaultSavePath(): Promise<string> {
 /**
  * 选择文件
  * @param multiple 是否允许多选
- * @returns FileSource[] — 文件来源描述，不做文件复制或读取
- *
- * Android：使用 AndroidFs 原生选择器，直接返回 content:// URI（零拷贝）
- * 桌面端：使用标准 Tauri dialog，返回文件路径
  */
 export async function pickFiles(multiple = true): Promise<FileSource[]> {
-  if (isAndroid()) {
-    const { AndroidFs, AndroidPickerInitialLocation, AndroidPublicDir } =
-      await import("tauri-plugin-android-fs-api");
-    const uris = await AndroidFs.showOpenFilePicker({
-      mimeTypes: ["*/*"],
-      multiple,
-      initialLocation: AndroidPickerInitialLocation.PublicDir(
-        AndroidPublicDir.Download,
-      ),
-    });
-    if (uris.length === 0) return [];
-
-    // 直接返回 AndroidFsUri，与 Rust FileUri serde 格式一致
-    return uris.map((uri) => ({
-      type: "androidUri" as const,
-      ...uri,
-    }));
-  }
-
   const selected = await open({ multiple });
   if (!selected) return [];
   const paths = Array.isArray(selected) ? selected : [selected];
@@ -80,98 +31,40 @@ export async function pickFiles(multiple = true): Promise<FileSource[]> {
 
 /**
  * 选择文件夹
- * Android：使用 SAF 原生目录选择器（无需额外权限）
- * 桌面端：使用标准 Tauri dialog
- * @param defaultPath 默认路径（仅桌面端生效）
  */
 export async function pickFolder(
   defaultPath?: string,
 ): Promise<string | null> {
-  if (isAndroid()) {
-    const AndroidFs = await getAndroidFs();
-    // showOpenDirPicker 使用 SAF，不需要 MANAGE_EXTERNAL_STORAGE 权限
-    const uri = await AndroidFs.showOpenDirPicker({});
-    if (!uri) return null;
-
-    try {
-      const fsPath = await AndroidFs.getFsPath(uri);
-      return fsPathToString(fsPath);
-    } catch {
-      return uri.uri;
-    }
-  }
-
   return await open({ directory: true, defaultPath });
 }
 
 /**
  * 打开文件夹（在系统文件管理器中显示）
- * Android：使用 showViewDirDialog 打开目录（需要 readable content:// URI）
- * 桌面端：使用 opener 插件（使用文件路径）
- *
- * @param pathOrUri 桌面端传文件夹路径，Android 端传 AndroidFsUri
- * @returns Android 端返回是否成功打开（用于调用方判断是否需要回退）
  */
-export async function openFolder(pathOrUri: string | AndroidFsUri): Promise<boolean> {
-  if (isAndroid() && typeof pathOrUri !== "string") {
-    try {
-      const { AndroidFs } = await import("tauri-plugin-android-fs-api");
-      await AndroidFs.showViewDirDialog(pathOrUri);
-      return true;
-    } catch {
-      // resolve_initial_location 返回的 URI 仅供 picker 定位，不具备 readable 权限
-      // showViewDirDialog 需要 readable URI，对 PublicStorage 目录大概率失败
-      return false;
-    }
-  }
-
+export async function openFolder(path: string): Promise<boolean> {
   const { openPath } = await import("@tauri-apps/plugin-opener");
-  await openPath(pathOrUri as string);
+  await openPath(path);
   return true;
 }
 
 /**
  * 用系统默认应用打开文件
- * Android：使用 showViewFileDialog 打开（需要 content:// URI）
- * 桌面端：使用 opener 插件（使用文件路径）
- *
- * @param pathOrUri 桌面端传文件路径，Android 端传 AndroidFsUri
  */
-export async function openFile(pathOrUri: string | AndroidFsUri): Promise<void> {
-  if (isAndroid() && typeof pathOrUri !== "string") {
-    const { AndroidFs } = await import("tauri-plugin-android-fs-api");
-    await AndroidFs.showViewFileDialog(pathOrUri);
-    return;
-  }
-
+export async function openFile(path: string): Promise<void> {
   const { openPath } = await import("@tauri-apps/plugin-opener");
-  await openPath(pathOrUri as string);
+  await openPath(path);
 }
 
 /**
  * 在文件管理器中显示并选中文件
- * Android：使用 showViewFileDialog 打开文件
- * 桌面端：在文件管理器中高亮显示
- *
- * @param filePathOrUri 桌面端传文件路径，Android 端传 AndroidFsUri
  */
-export async function revealFile(
-  filePathOrUri: string | AndroidFsUri,
-): Promise<void> {
-  if (isAndroid() && typeof filePathOrUri !== "string") {
-    await openFile(filePathOrUri);
-    return;
-  }
-
+export async function revealFile(filePath: string): Promise<void> {
   const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
-  await revealItemInDir(filePathOrUri as string);
+  await revealItemInDir(filePath);
 }
 
 /**
  * 打开传输完成后的文件/文件夹
- * 根据 SaveLocation 类型分支处理：
- * - Path：桌面端，使用文件路径打开
- * - AndroidPublicDir：Android 端，通过 Rust 解析 content:// URI，调用 showViewDirDialog
  */
 export async function openTransferResult(session: {
   saveLocation?: SaveLocation;
@@ -180,65 +73,20 @@ export async function openTransferResult(session: {
   if (!session.saveLocation) return;
 
   const loc = session.saveLocation;
+  if (loc.type !== "path") return;
 
-  if (loc.type === "path") {
-    // 桌面端：使用文件系统路径
-    if (session.files.length === 1) {
-      const filePath = await join(loc.path, session.files[0].relativePath);
-      await revealFile(filePath);
-    } else {
-      await openFolder(loc.path);
-    }
-    return;
-  }
-
-  if (loc.type === "androidPublicDir") {
-    // Android 端：通过 Rust resolve_initial_location 获取 content:// URI
-    try {
-      const { resolveAndroidDirUri } = await import("@/commands/transfer");
-      const uri = await resolveAndroidDirUri(loc.subdir);
-      if (uri) {
-        const opened = await openFolder(uri);
-        if (opened) return;
-
-        // 回退：列出目录找到第一个文件，用 showViewFileDialog 打开
-        if (session.files.length > 0) {
-          const { AndroidFs } = await import("tauri-plugin-android-fs-api");
-          const entries = await AndroidFs.readDir(uri);
-          const target = session.files[0].relativePath.split("/").pop();
-          const match = entries.find((e) => e.name === target);
-          if (match) {
-            await openFile(match.uri);
-            return;
-          }
-        }
-      }
-    } catch {
-      toast.error(t`打开保存目录失败`);
-    }
+  if (session.files.length === 1) {
+    const filePath = await join(loc.path, session.files[0].relativePath);
+    await revealFile(filePath);
+  } else {
+    await openFolder(loc.path);
   }
 }
 
 /**
  * 选择文件夹（用于发送）
- * @returns FileSource — 文件夹来源描述
- *
- * Android：使用 SAF 目录选择器，返回 content:// URI
- * 桌面端：使用标准 Tauri dialog，返回文件夹路径
  */
 export async function pickFolderAsSource(): Promise<FileSource | null> {
-  if (isAndroid()) {
-    const { AndroidFs, AndroidPickerInitialLocation, AndroidPublicDir } =
-      await import("tauri-plugin-android-fs-api");
-    const uri = await AndroidFs.showOpenDirPicker({
-      initialLocation: AndroidPickerInitialLocation.PublicDir(
-        AndroidPublicDir.Download,
-      ),
-    });
-    if (!uri) return null;
-    return { type: "androidUri" as const, ...uri };
-  }
-
   const path = await open({ directory: true });
   if (!path) return null;
   return { type: "path" as const, path };

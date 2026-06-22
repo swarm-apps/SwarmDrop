@@ -11,24 +11,18 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AuthRouteImport } from './routes/_auth'
+import { Route as OnboardingRouteImport } from './routes/_onboarding'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppPairingRouteImport } from './routes/_app/pairing'
 import { Route as AppSendIndexRouteImport } from './routes/_app/send/index'
 
-const AuthWelcomeLazyRouteImport = createFileRoute('/_auth/welcome')()
-const AuthUnlockLazyRouteImport = createFileRoute('/_auth/unlock')()
-const AuthSetupPasswordLazyRouteImport = createFileRoute(
-  '/_auth/setup-password',
-)()
-const AuthEnableBiometricLazyRouteImport = createFileRoute(
-  '/_auth/enable-biometric',
+const OnboardingDeviceNameLazyRouteImport = createFileRoute(
+  '/_onboarding/device-name',
 )()
 const AppTransferIndexLazyRouteImport = createFileRoute('/_app/transfer/')()
 const AppSettingsIndexLazyRouteImport = createFileRoute('/_app/settings/')()
 const AppReceiveIndexLazyRouteImport = createFileRoute('/_app/receive/')()
-const AppPairingIndexLazyRouteImport = createFileRoute('/_app/pairing/')()
 const AppDevicesIndexLazyRouteImport = createFileRoute('/_app/devices/')()
 const AppTransferSessionIdLazyRouteImport = createFileRoute(
   '/_app/transfer/$sessionId',
@@ -38,8 +32,8 @@ const AppPairingGenerateLazyRouteImport = createFileRoute(
   '/_app/pairing/generate',
 )()
 
-const AuthRoute = AuthRouteImport.update({
-  id: '/_auth',
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/_onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRoute = AppRouteImport.update({
@@ -51,30 +45,14 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthWelcomeLazyRoute = AuthWelcomeLazyRouteImport.update({
-  id: '/welcome',
-  path: '/welcome',
-  getParentRoute: () => AuthRoute,
-} as any).lazy(() => import('./routes/_auth/welcome.lazy').then((d) => d.Route))
-const AuthUnlockLazyRoute = AuthUnlockLazyRouteImport.update({
-  id: '/unlock',
-  path: '/unlock',
-  getParentRoute: () => AuthRoute,
-} as any).lazy(() => import('./routes/_auth/unlock.lazy').then((d) => d.Route))
-const AuthSetupPasswordLazyRoute = AuthSetupPasswordLazyRouteImport.update({
-  id: '/setup-password',
-  path: '/setup-password',
-  getParentRoute: () => AuthRoute,
-} as any).lazy(() =>
-  import('./routes/_auth/setup-password.lazy').then((d) => d.Route),
-)
-const AuthEnableBiometricLazyRoute = AuthEnableBiometricLazyRouteImport.update({
-  id: '/enable-biometric',
-  path: '/enable-biometric',
-  getParentRoute: () => AuthRoute,
-} as any).lazy(() =>
-  import('./routes/_auth/enable-biometric.lazy').then((d) => d.Route),
-)
+const OnboardingDeviceNameLazyRoute =
+  OnboardingDeviceNameLazyRouteImport.update({
+    id: '/device-name',
+    path: '/device-name',
+    getParentRoute: () => OnboardingRoute,
+  } as any).lazy(() =>
+    import('./routes/_onboarding/device-name.lazy').then((d) => d.Route),
+  )
 const AppPairingRoute = AppPairingRouteImport.update({
   id: '/pairing',
   path: '/pairing',
@@ -100,13 +78,6 @@ const AppReceiveIndexLazyRoute = AppReceiveIndexLazyRouteImport.update({
   getParentRoute: () => AppRoute,
 } as any).lazy(() =>
   import('./routes/_app/receive/index.lazy').then((d) => d.Route),
-)
-const AppPairingIndexLazyRoute = AppPairingIndexLazyRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppPairingRoute,
-} as any).lazy(() =>
-  import('./routes/_app/pairing/index.lazy').then((d) => d.Route),
 )
 const AppDevicesIndexLazyRoute = AppDevicesIndexLazyRouteImport.update({
   id: '/devices/',
@@ -148,32 +119,25 @@ const AppPairingGenerateLazyRoute = AppPairingGenerateLazyRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/pairing': typeof AppPairingRouteWithChildren
-  '/enable-biometric': typeof AuthEnableBiometricLazyRoute
-  '/setup-password': typeof AuthSetupPasswordLazyRoute
-  '/unlock': typeof AuthUnlockLazyRoute
-  '/welcome': typeof AuthWelcomeLazyRoute
+  '/device-name': typeof OnboardingDeviceNameLazyRoute
   '/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/pairing/input': typeof AppPairingInputLazyRoute
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/send/': typeof AppSendIndexRoute
   '/devices/': typeof AppDevicesIndexLazyRoute
-  '/pairing/': typeof AppPairingIndexLazyRoute
   '/receive/': typeof AppReceiveIndexLazyRoute
   '/settings/': typeof AppSettingsIndexLazyRoute
   '/transfer/': typeof AppTransferIndexLazyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/enable-biometric': typeof AuthEnableBiometricLazyRoute
-  '/setup-password': typeof AuthSetupPasswordLazyRoute
-  '/unlock': typeof AuthUnlockLazyRoute
-  '/welcome': typeof AuthWelcomeLazyRoute
+  '/pairing': typeof AppPairingRouteWithChildren
+  '/device-name': typeof OnboardingDeviceNameLazyRoute
   '/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/pairing/input': typeof AppPairingInputLazyRoute
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/send': typeof AppSendIndexRoute
   '/devices': typeof AppDevicesIndexLazyRoute
-  '/pairing': typeof AppPairingIndexLazyRoute
   '/receive': typeof AppReceiveIndexLazyRoute
   '/settings': typeof AppSettingsIndexLazyRoute
   '/transfer': typeof AppTransferIndexLazyRoute
@@ -182,18 +146,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
-  '/_auth': typeof AuthRouteWithChildren
+  '/_onboarding': typeof OnboardingRouteWithChildren
   '/_app/pairing': typeof AppPairingRouteWithChildren
-  '/_auth/enable-biometric': typeof AuthEnableBiometricLazyRoute
-  '/_auth/setup-password': typeof AuthSetupPasswordLazyRoute
-  '/_auth/unlock': typeof AuthUnlockLazyRoute
-  '/_auth/welcome': typeof AuthWelcomeLazyRoute
+  '/_onboarding/device-name': typeof OnboardingDeviceNameLazyRoute
   '/_app/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/_app/pairing/input': typeof AppPairingInputLazyRoute
   '/_app/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/_app/send/': typeof AppSendIndexRoute
   '/_app/devices/': typeof AppDevicesIndexLazyRoute
-  '/_app/pairing/': typeof AppPairingIndexLazyRoute
   '/_app/receive/': typeof AppReceiveIndexLazyRoute
   '/_app/settings/': typeof AppSettingsIndexLazyRoute
   '/_app/transfer/': typeof AppTransferIndexLazyRoute
@@ -203,32 +163,25 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/pairing'
-    | '/enable-biometric'
-    | '/setup-password'
-    | '/unlock'
-    | '/welcome'
+    | '/device-name'
     | '/pairing/generate'
     | '/pairing/input'
     | '/transfer/$sessionId'
     | '/send/'
     | '/devices/'
-    | '/pairing/'
     | '/receive/'
     | '/settings/'
     | '/transfer/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/enable-biometric'
-    | '/setup-password'
-    | '/unlock'
-    | '/welcome'
+    | '/pairing'
+    | '/device-name'
     | '/pairing/generate'
     | '/pairing/input'
     | '/transfer/$sessionId'
     | '/send'
     | '/devices'
-    | '/pairing'
     | '/receive'
     | '/settings'
     | '/transfer'
@@ -236,18 +189,14 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_app'
-    | '/_auth'
+    | '/_onboarding'
     | '/_app/pairing'
-    | '/_auth/enable-biometric'
-    | '/_auth/setup-password'
-    | '/_auth/unlock'
-    | '/_auth/welcome'
+    | '/_onboarding/device-name'
     | '/_app/pairing/generate'
     | '/_app/pairing/input'
     | '/_app/transfer/$sessionId'
     | '/_app/send/'
     | '/_app/devices/'
-    | '/_app/pairing/'
     | '/_app/receive/'
     | '/_app/settings/'
     | '/_app/transfer/'
@@ -256,16 +205,16 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
-  AuthRoute: typeof AuthRouteWithChildren
+  OnboardingRoute: typeof OnboardingRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/_auth': {
-      id: '/_auth'
+    '/_onboarding': {
+      id: '/_onboarding'
       path: ''
       fullPath: '/'
-      preLoaderRoute: typeof AuthRouteImport
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app': {
@@ -282,33 +231,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_auth/welcome': {
-      id: '/_auth/welcome'
-      path: '/welcome'
-      fullPath: '/welcome'
-      preLoaderRoute: typeof AuthWelcomeLazyRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/unlock': {
-      id: '/_auth/unlock'
-      path: '/unlock'
-      fullPath: '/unlock'
-      preLoaderRoute: typeof AuthUnlockLazyRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/setup-password': {
-      id: '/_auth/setup-password'
-      path: '/setup-password'
-      fullPath: '/setup-password'
-      preLoaderRoute: typeof AuthSetupPasswordLazyRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/enable-biometric': {
-      id: '/_auth/enable-biometric'
-      path: '/enable-biometric'
-      fullPath: '/enable-biometric'
-      preLoaderRoute: typeof AuthEnableBiometricLazyRouteImport
-      parentRoute: typeof AuthRoute
+    '/_onboarding/device-name': {
+      id: '/_onboarding/device-name'
+      path: '/device-name'
+      fullPath: '/device-name'
+      preLoaderRoute: typeof OnboardingDeviceNameLazyRouteImport
+      parentRoute: typeof OnboardingRoute
     }
     '/_app/pairing': {
       id: '/_app/pairing'
@@ -337,13 +265,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/receive/'
       preLoaderRoute: typeof AppReceiveIndexLazyRouteImport
       parentRoute: typeof AppRoute
-    }
-    '/_app/pairing/': {
-      id: '/_app/pairing/'
-      path: '/'
-      fullPath: '/pairing/'
-      preLoaderRoute: typeof AppPairingIndexLazyRouteImport
-      parentRoute: typeof AppPairingRoute
     }
     '/_app/devices/': {
       id: '/_app/devices/'
@@ -386,13 +307,11 @@ declare module '@tanstack/react-router' {
 interface AppPairingRouteChildren {
   AppPairingGenerateLazyRoute: typeof AppPairingGenerateLazyRoute
   AppPairingInputLazyRoute: typeof AppPairingInputLazyRoute
-  AppPairingIndexLazyRoute: typeof AppPairingIndexLazyRoute
 }
 
 const AppPairingRouteChildren: AppPairingRouteChildren = {
   AppPairingGenerateLazyRoute: AppPairingGenerateLazyRoute,
   AppPairingInputLazyRoute: AppPairingInputLazyRoute,
-  AppPairingIndexLazyRoute: AppPairingIndexLazyRoute,
 }
 
 const AppPairingRouteWithChildren = AppPairingRoute._addFileChildren(
@@ -421,26 +340,22 @@ const AppRouteChildren: AppRouteChildren = {
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
-interface AuthRouteChildren {
-  AuthEnableBiometricLazyRoute: typeof AuthEnableBiometricLazyRoute
-  AuthSetupPasswordLazyRoute: typeof AuthSetupPasswordLazyRoute
-  AuthUnlockLazyRoute: typeof AuthUnlockLazyRoute
-  AuthWelcomeLazyRoute: typeof AuthWelcomeLazyRoute
+interface OnboardingRouteChildren {
+  OnboardingDeviceNameLazyRoute: typeof OnboardingDeviceNameLazyRoute
 }
 
-const AuthRouteChildren: AuthRouteChildren = {
-  AuthEnableBiometricLazyRoute: AuthEnableBiometricLazyRoute,
-  AuthSetupPasswordLazyRoute: AuthSetupPasswordLazyRoute,
-  AuthUnlockLazyRoute: AuthUnlockLazyRoute,
-  AuthWelcomeLazyRoute: AuthWelcomeLazyRoute,
+const OnboardingRouteChildren: OnboardingRouteChildren = {
+  OnboardingDeviceNameLazyRoute: OnboardingDeviceNameLazyRoute,
 }
 
-const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
+const OnboardingRouteWithChildren = OnboardingRoute._addFileChildren(
+  OnboardingRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
-  AuthRoute: AuthRouteWithChildren,
+  OnboardingRoute: OnboardingRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

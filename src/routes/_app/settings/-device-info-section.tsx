@@ -18,6 +18,8 @@ import { usePreferencesStore } from "@/stores/preferences-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
+import { applyDeviceName } from "@/lib/device-name";
+import { getErrorMessage } from "@/lib/errors";
 
 /** 截断 PeerId，显示前8位...后4位 */
 function truncatePeerId(id: string): string {
@@ -47,7 +49,6 @@ interface StatItem {
 export function DeviceInfoSection() {
   const { t } = useLingui();
   const deviceName = usePreferencesStore((s) => s.deviceName);
-  const setDeviceName = usePreferencesStore((s) => s.setDeviceName);
   const deviceId = useSecretStore((s) => s.deviceId);
   const pairedCount = useSecretStore((s) => s.pairedDevices.length);
   const nodeStatus = useNetworkStore((s) => s.status);
@@ -76,14 +77,19 @@ export function DeviceInfoSection() {
 
   const osLabel = `${getPlatformLabel(currentPlatform)} ${currentOsVersion} · ${currentArch}`;
 
-  const handleSaveName = useCallback(() => {
+  const handleSaveName = useCallback(async () => {
     const trimmed = nameInput.trim();
     if (trimmed && trimmed !== deviceName) {
-      setDeviceName(trimmed);
-      toast.success(t`设备名称已更新`);
+      try {
+        await applyDeviceName(trimmed);
+        toast.success(t`设备名称已更新`);
+      } catch (err) {
+        toast.error(getErrorMessage(err));
+        return;
+      }
     }
     setEditing(false);
-  }, [nameInput, deviceName, setDeviceName, t]);
+  }, [nameInput, deviceName, t]);
 
   const handleCopyPeerId = useCallback(() => {
     if (!deviceId) return;

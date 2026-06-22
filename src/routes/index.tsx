@@ -1,26 +1,20 @@
 /**
- * Index Route
- * 根据认证状态重定向
+ * Index Route —— 入口分流。
+ *
+ * 首次启动（device_name 未设置）跳 onboarding 让用户起名；之后直进 /devices。
+ * device_name 由 main.tsx 在路由 mount 前 `syncDeviceNameFromBackend()` 同步到
+ * preferences-store，所以这里读 store 缓存即可。
  */
 
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useAuthStore } from "@/stores/auth-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 
 export const Route = createFileRoute("/")({
   beforeLoad: () => {
-    const { isSetupComplete, isUnlocked } = useAuthStore.getState();
-
-    // 首次启动 → 欢迎页
-    if (!isSetupComplete) {
-      throw redirect({ to: "/welcome" });
+    const deviceName = usePreferencesStore.getState().deviceName.trim();
+    if (deviceName === "") {
+      throw redirect({ to: "/device-name" });
     }
-
-    // 未解锁 → 解锁页
-    if (!isUnlocked) {
-      throw redirect({ to: "/unlock" });
-    }
-
-    // 已解锁 → 设备页
     throw redirect({ to: "/devices" });
   },
 });

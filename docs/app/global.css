@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+
+/*
+ * SwarmDrop 品牌色：深蓝 #1E40AF（blue-800）+ 天蓝点缀，取自 app-icon.svg。
+ * 用 --brand / --brand-fg 暴露给首页与 nav，亮/暗双模各取一档保证对比度（WCAG AA）。
+ * Fumadocs 自带 --color-fd-* 前缀变量，两套互不冲突。
+ */
+:root {
+  --brand: #1e40af; /* blue-800：强调文字/图标/描边 */
+  --brand-strong: #1d4ed8; /* blue-700 */
+  --brand-solid: #2563eb; /* blue-600：实心按钮/面板底色，恒配白字，亮暗两模均过 AA */
+  --brand-soft: #dbeafe; /* blue-100 */
+  --sky: #0ea5e9; /* sky-500 */
+}
+
+.dark {
+  --brand: #60a5fa; /* blue-400：暗底上提亮，强调用 */
+  --brand-strong: #93c5fd; /* blue-300 */
+  --brand-solid: #2563eb; /* 实心底色保持 blue-600，白字对比 5.17:1 */
+  --brand-soft: #1e3a8a; /* blue-900 */
+  --sky: #38bdf8; /* sky-400 */
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+/* ── 首页动效：纯 CSS，尊重 prefers-reduced-motion ──────────────────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* 首屏载入：自下而上淡入，按 --d 延迟错峰 */
+  .anim-rise {
+    animation: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: var(--d, 0s);
+  }
+
+  /* 滚动进入时再揭示：用 scroll-driven animation，无 JS，老浏览器自动忽略并保持可见 */
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 28%;
+    }
+  }
+
+  /* 蜂群节点呼吸 + 传输脉冲 */
+  .node-pulse {
+    animation: pulse 3.2s ease-in-out infinite;
+    animation-delay: var(--d, 0s);
+  }
+  .packet {
+    animation: travel 3.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+    animation-delay: var(--d, 0s);
+  }
+  .link-flow {
+    stroke-dasharray: 4 8;
+    animation: flow 1.4s linear infinite;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes travel {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes flow {
+  to {
+    stroke-dashoffset: -12;
+  }
+}

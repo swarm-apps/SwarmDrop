@@ -6,16 +6,20 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
-import type { PairingCodeInfo, DeviceInfo, PairingResponse, PairingMethod, PairingRefuseReason } from "@/commands/pairing";
 import {
-  generatePairingCode,
-  getDeviceInfo,
-  requestPairing,
-  respondPairingRequest,
-} from "@/commands/pairing";
-import type { PeerId } from "@/commands/network";
+  commands,
+  type DeviceInfo,
+  type PairingCodeInfo,
+  type PairingRefuseReason,
+  type PairingRequestPayload,
+  type PairingResponse,
+} from "@/lib/bindings";
+import type { PeerId } from "@/lib/types";
 import { isErrorKind, getErrorMessage } from "@/lib/errors";
+import { deviceDisplayName } from "@/lib/device-name";
 import { useNetworkStore } from "@/stores/network-store";
+
+export type { PairingRequestPayload };
 
 /** 请求超时时间（毫秒） */
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -68,29 +72,34 @@ export type PairingPhase =
   | { phase: "success"; peerId: string; deviceName: string }
   | { phase: "error"; message: string };
 
-/** 入站配对请求（对应后端 PairingRequestPayload，flatten 了 PairingRequest） */
-interface QueuedInboundRequest {
-  peerId: PeerId;
-  pendingId: number;
-  osInfo: { hostname: string; os: string; platform: string; arch: string };
-  timestamp: number;
-  method: PairingMethod;
-}
-
 interface PairingState {
   /** 当前出站配对阶段 */
   current: PairingPhase;
+  /**
+   * 活跃配对码 —— 与 `current` 解耦，跨页面/弹窗持久化。
+   *
+   * 生命周期：generateCode → activeCode = codeInfo + 启动自动刷新 timer →
+   * 过期或被消耗（PAIRED_DEVICE_ADDED 事件）→ 自动 regenerate；节点停止 / 用户
+   * 主动 clearActiveCode → null。UI 仅消费此字段，不要再看 `current.phase`。
+   */
+  activeCode: PairingCodeInfo | null;
+  /** 生成配对码时的错误（瞬时；下一次 generate 清空） */
+  codeError: string | null;
   /** 当前展示的入站配对请求（独立于出站流程） */
-  incomingRequest: QueuedInboundRequest | null;
+  incomingRequest: PairingRequestPayload | null;
   /** 入站请求队列（当前已有入站请求展示时排队） */
-  inboundQueue: QueuedInboundRequest[];
+  inboundQueue: PairingRequestPayload[];
 
   // === Actions ===
 
-  /** 生成配对码 */
+  /** 确保活跃配对码存在（已有则 no-op；否则 generate） */
+  ensureActiveCode: () => Promise<void>;
+  /** 生成新配对码（强制覆盖现有） */
   generateCode: () => Promise<void>;
   /** 重新生成配对码 */
   regenerateCode: () => Promise<void>;
+  /** 清空活跃码（节点停止 / 用户主动 dismiss） */
+  clearActiveCode: () => void;
   /** 切换到输入配对码状态 */
   openInput: () => void;
   /** 提交配对码查找设备 */
@@ -98,7 +107,7 @@ interface PairingState {
   /** 发起配对请求（Code 模式） */
   sendPairingRequest: () => Promise<void>;
   /** 处理收到的入站配对请求 */
-  handleInboundRequest: (payload: QueuedInboundRequest) => void;
+  handleInboundRequest: (payload: PairingRequestPayload) => void;
   /** 接受配对请求，返回是否成功 */
   acceptRequest: () => Promise<boolean>;
   /** 拒绝配对请求 */
@@ -111,26 +120,76 @@ interface PairingState {
   reset: () => void;
 }
 
+/** 活跃码自动刷新 timer —— module-level（与 store 实例共生死） */
+let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearAutoRefreshTimer() {
+  if (autoRefreshTimer !== null) {
+    clearTimeout(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+}
+
+/** 调度过期前的自动重生（提前 500ms 拿新码避免 UI 闪 expired） */
+function scheduleAutoRefresh(expiresAt: string) {
+  clearAutoRefreshTimer();
+  const ms = Math.max(0, new Date(expiresAt).getTime() - Date.now() - 500);
+  autoRefreshTimer = setTimeout(() => {
+    autoRefreshTimer = null;
+    // 仅当还有活跃码时刷新（avoid 用户主动 clearActiveCode 后又被偷偷生成）
+    if (usePairingStore.getState().activeCode !== null) {
+      usePairingStore.getState().generateCode();
+    }
+  }, ms);
+}
+
 export const usePairingStore = create<PairingState>()(
   (set, get) => ({
     current: { phase: "idle" },
+    activeCode: null,
+    codeError: null,
     incomingRequest: null,
     inboundQueue: [],
 
+    async ensureActiveCode() {
+      const { activeCode } = get();
+      if (activeCode !== null) {
+        const expired = new Date(activeCode.expiresAt).getTime() <= Date.now();
+        if (!expired) return;
+      }
+      await get().generateCode();
+    },
+
     async generateCode() {
+      set({ codeError: null });
       try {
-        const codeInfo = await generatePairingCode(300); // 5 分钟
-        set({ current: { phase: "generating", codeInfo } });
+        const codeInfo = await commands.generatePairingCode(300); // 5 分钟
+        set({
+          activeCode: codeInfo,
+          current: { phase: "generating", codeInfo },
+          codeError: null,
+        });
+        scheduleAutoRefresh(codeInfo.expiresAt);
       } catch (err) {
         if (handleNodeNotStarted(err)) return;
         const message = getErrorMessage(err);
-        set({ current: { phase: "error", message } });
+        set({
+          activeCode: null,
+          codeError: message,
+          current: { phase: "error", message },
+        });
+        clearAutoRefreshTimer();
         toast.error(message);
       }
     },
 
     async regenerateCode() {
       return get().generateCode();
+    },
+
+    clearActiveCode() {
+      clearAutoRefreshTimer();
+      set({ activeCode: null, codeError: null });
     },
 
     openInput() {
@@ -142,7 +201,7 @@ export const usePairingStore = create<PairingState>()(
       set({ current: { phase: "searching", code } });
       try {
         const deviceInfo = await withTimeout(
-          getDeviceInfo(code),
+          commands.getDeviceInfo(code),
           SEARCH_TIMEOUT_MS,
           t`查找设备`,
         );
@@ -167,21 +226,22 @@ export const usePairingStore = create<PairingState>()(
 
       try {
         const response: PairingResponse = await withTimeout(
-          requestPairing(deviceInfo.peerId, { type: "code", code }, deviceInfo.codeRecord.listenAddrs),
+          commands.requestPairing(deviceInfo.peerId, { type: "code", code }, deviceInfo.codeRecord.listenAddrs ?? null),
           REQUEST_TIMEOUT_MS,
           t`配对请求`,
         );
 
         if (response.status === "success") {
-          // 已配对设备由后端通过 paired-device-added 事件同步到 Stronghold
+          // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
+          const displayName = deviceDisplayName(deviceInfo.codeRecord);
           set({
             current: {
               phase: "success",
               peerId: deviceInfo.peerId,
-              deviceName: deviceInfo.codeRecord.hostname,
+              deviceName: displayName,
             },
           });
-          toast.success(t`已与 ${deviceInfo.codeRecord.hostname} 配对成功`);
+          toast.success(t`已与 ${displayName} 配对成功`);
         } else {
           const message = getPairingRefuseMessage(response.reason);
           set({ current: { phase: "error", message } });
@@ -195,7 +255,7 @@ export const usePairingStore = create<PairingState>()(
       }
     },
 
-    handleInboundRequest(payload: QueuedInboundRequest) {
+    handleInboundRequest(payload: PairingRequestPayload) {
       const { incomingRequest } = get();
 
       if (incomingRequest === null) {
@@ -208,21 +268,21 @@ export const usePairingStore = create<PairingState>()(
     },
 
     async acceptRequest() {
-      const { incomingRequest, current } = get();
+      const { incomingRequest } = get();
       if (!incomingRequest) return false;
 
       const { pendingId, osInfo, method } = incomingRequest;
       // 立即清空，防止双击导致重复发送响应（pending channel 只能消费一次）
       set({ incomingRequest: null });
       try {
-        await respondPairingRequest(
+        await commands.respondPairingRequest(
           pendingId,
           method,
           { status: "success" },
         );
 
-        // 已配对设备由后端通过 paired-device-added 事件同步到 Stronghold
-        toast.success(t`已与 ${osInfo.hostname} 配对成功`);
+        // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
+        toast.success(t`已与 ${deviceDisplayName(osInfo)} 配对成功`);
         // 处理队列中的下一个请求
         get().processNextInbound();
 
@@ -232,8 +292,8 @@ export const usePairingStore = create<PairingState>()(
           set((state) => ({
             inboundQueue: state.inboundQueue.filter((r) => r.method.type !== "code"),
           }));
-          // 若当前仍在展示配对码，自动重新生成
-          if (current.phase === "generating") {
+          // 活跃码被消耗：立即重生新的，下次开 UI 直接是新码
+          if (get().activeCode !== null) {
             get().generateCode();
           }
         }
@@ -255,12 +315,12 @@ export const usePairingStore = create<PairingState>()(
       // 立即清空，防止双击导致重复发送响应
       set({ incomingRequest: null });
       try {
-        await respondPairingRequest(
+        await commands.respondPairingRequest(
           pendingId,
           method,
           { status: "refused", reason: { type: "user_rejected" } },
         );
-        toast.success(t`已拒绝来自 ${osInfo.hostname} 的配对请求`);
+        toast.success(t`已拒绝来自 ${deviceDisplayName(osInfo)} 的配对请求`);
         // 处理队列中的下一个请求
         get().processNextInbound();
       } catch (err) {
@@ -276,15 +336,15 @@ export const usePairingStore = create<PairingState>()(
 
       try {
         const response: PairingResponse = await withTimeout(
-          requestPairing(peerId, { type: "direct" }),
+          commands.requestPairing(peerId, { type: "direct" }, null),
           REQUEST_TIMEOUT_MS,
           t`配对请求`,
         );
 
         if (response.status === "success") {
-          // 已配对设备由后端通过 paired-device-added 事件同步到 Stronghold
+          // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
           const device = useNetworkStore.getState().devices.find(d => d.peerId === peerId);
-          const deviceName = device?.hostname ?? peerId.slice(-8);
+          const deviceName = device ? deviceDisplayName(device) : peerId.slice(-8);
 
           set({
             current: {
@@ -326,6 +386,8 @@ export const usePairingStore = create<PairingState>()(
         incomingRequest: null,
         inboundQueue: [],
       });
+      // 注意：不清 activeCode —— 配对码独立持久化，由 clearActiveCode 或
+      // 节点停止/paired-device-added 事件管理。
     },
 
   }),

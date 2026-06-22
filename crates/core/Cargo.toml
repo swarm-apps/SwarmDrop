@@ -1,0 +1,31 @@
+[package]
+name = "swarmdrop-core"
+version = "0.5.1"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_bytes = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+swarm-p2p-core = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+async-trait = { workspace = true }
+dashmap = { workspace = true }
+tracing = { workspace = true }
+sea-orm = { workspace = true }
+entity = { workspace = true }
+chacha20poly1305 = "0.10.1"
+blake3 = "1.8.3"
+specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "chrono", "serde_json"], optional = true }
+
+[features]
+default = []
+# 桌面 src-tauri 开启；移动 mobile-core 走 uniffi 不开。
+# 打开后所有跨前端的 struct/enum 会 derive specta::Type，可被 tauri-specta 收集。
+specta = ["dep:specta", "entity/specta"]

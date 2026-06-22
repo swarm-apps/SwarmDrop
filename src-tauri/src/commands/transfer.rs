@@ -1,47 +1,42 @@
-//! 文件传输相关 Tauri 命令
+//! 文件传输 Tauri 命令薄壳
 //!
-//! 薄层命令入口，所有业务逻辑委托给 [`transfer`](crate::transfer) 模块。
+//! 业务逻辑全部在 [`swarmdrop_core::transfer::manager::TransferManager`]，
+//! 这里只做：参数转换 + Tauri State / Channel 注册 + 调用 core。
 
 use std::sync::Arc;
 
+use sea_orm::EntityTrait;
 use serde::Serialize;
+use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
+use swarmdrop_core::transfer::progress::PrepareProgressEvent;
+use swarmdrop_core::transfer::HostEnumeratedFile;
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{Manager, State};
 use uuid::Uuid;
 
-use crate::file_source::{EnumeratedFile, FileSource};
+use crate::host::event_bus::PrepareChannelGuard;
+use crate::host::file_source::{source_id, EnumeratedFile, FileSource};
 use crate::network::NetManagerState;
-use crate::transfer::offer::{PrepareProgress, StartSendResult, TransferManager};
-use sea_orm::EntityTrait;
 
 // ============ scan_sources ============
 
-/// scan_sources 返回的单个来源扫描结果
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ScannedSourceResult {
-    /// 是否为目录
     pub is_directory: bool,
-    /// 包含的文件列表（每个文件带有 source 用于后续传给 prepare_send）
     pub files: Vec<EnumeratedFile>,
-    /// 此来源的总大小
     pub total_size: u64,
 }
 
-/// 扫描文件来源：遍历目录、收集元数据，不计算 hash
-///
-/// 用于用户选择文件/文件夹后在 UI 上展示文件树。
-/// 每个 FileSource 返回一个 ScannedSourceResult，包含扁平化的文件列表。
 #[tauri::command]
+#[specta::specta]
 pub async fn scan_sources(
     app: tauri::AppHandle,
     sources: Vec<FileSource>,
 ) -> crate::AppResult<Vec<ScannedSourceResult>> {
     let mut results = Vec::new();
-
     for source in sources {
         let meta = source.metadata(&app).await?;
-
         if meta.is_dir {
             let entries = source.enumerate_dir(&meta.name, &app).await?;
             let total_size: u64 = entries.iter().map(|e| e.size).sum();
@@ -63,14 +58,12 @@ pub async fn scan_sources(
             });
         }
     }
-
     Ok(results)
 }
 
 // ============ prepare_send ============
 
-/// 准备好的文件信息（返回给前端）
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferFileResult {
     pub file_id: u32,
@@ -80,8 +73,7 @@ pub struct TransferFileResult {
     pub is_directory: bool,
 }
 
-/// prepare_send 的返回类型
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedTransferResult {
     pub prepared_id: Uuid,
@@ -89,20 +81,32 @@ pub struct PreparedTransferResult {
     pub total_size: u64,
 }
 
-/// 准备发送：对预扫描的文件列表计算 BLAKE3 校验和、分配 fileId
-///
-/// 接收 `scan_sources` 返回的 `EnumeratedFile` 列表（前端可能已过滤掉用户移除的文件）。
-/// 不再做目录遍历，只计算 hash。通过 `on_progress` Channel 实时上报进度。
 #[tauri::command]
+#[specta::specta]
 pub async fn prepare_send(
     app: tauri::AppHandle,
     net: State<'_, NetManagerState>,
     files: Vec<EnumeratedFile>,
-    on_progress: Channel<PrepareProgress>,
+    on_progress: Channel<PrepareProgressEvent>,
 ) -> crate::AppResult<PreparedTransferResult> {
     let transfer = get_transfer(&net).await?;
-    let prepared = transfer.prepare(files, &app, on_progress).await?;
+    let prepared_id = Uuid::new_v4();
 
+    // RAII guard：无论 prepare 成功/失败/panic，drop 时自动 unregister channel
+    let event_bus = app.state::<crate::host::event_bus::TauriEventBus>();
+    let _channel_guard = PrepareChannelGuard::register(&event_bus, prepared_id, on_progress);
+
+    let host_files: Vec<HostEnumeratedFile> = files
+        .into_iter()
+        .map(|f| HostEnumeratedFile {
+            source_id: source_id(&f.source),
+            name: f.name,
+            relative_path: f.relative_path,
+            size: f.size,
+        })
+        .collect();
+
+    let prepared = transfer.prepare(prepared_id, host_files).await?;
     Ok(PreparedTransferResult {
         prepared_id: prepared.prepared_id,
         total_size: prepared.total_size,
@@ -120,10 +124,9 @@ pub async fn prepare_send(
     })
 }
 
-/// 开始发送：构造 Offer，发送到目标 peer（非阻塞，通过事件通知结果）
 #[tauri::command]
+#[specta::specta]
 pub async fn start_send(
-    app: tauri::AppHandle,
     net: State<'_, NetManagerState>,
     prepared_id: Uuid,
     peer_id: String,
@@ -131,125 +134,106 @@ pub async fn start_send(
     selected_file_ids: Vec<u32>,
 ) -> crate::AppResult<StartSendResult> {
     let transfer = get_transfer(&net).await?;
-    transfer.send_offer(&prepared_id, &peer_id, &peer_name, &selected_file_ids, app)
+    Ok(transfer.send_offer(&prepared_id, &peer_id, &peer_name, &selected_file_ids)?)
 }
 
-/// 确认接收：生成密钥，回复 OfferResult，启动后台拉取
 #[tauri::command]
+#[specta::specta]
 pub async fn accept_receive(
-    app: tauri::AppHandle,
     net: State<'_, NetManagerState>,
     session_id: Uuid,
-    save_location: entity::SaveLocation,
+    save_location: swarmdrop_core::host::CoreSaveLocation,
 ) -> crate::AppResult<()> {
     let transfer = get_transfer(&net).await?;
-    transfer
-        .accept_and_start_receive(&session_id, save_location, app)
-        .await
+    Ok(transfer
+        .accept_and_start_receive(&session_id, save_location)
+        .await?)
 }
 
-/// 拒绝接收：回复拒绝的 OfferResult
 #[tauri::command]
+#[specta::specta]
 pub async fn reject_receive(
     net: State<'_, NetManagerState>,
     session_id: Uuid,
 ) -> crate::AppResult<()> {
     let transfer = get_transfer(&net).await?;
-    transfer.reject_and_respond(&session_id).await
+    Ok(transfer.reject_and_respond(&session_id).await?)
 }
 
-/// 取消发送
 #[tauri::command]
+#[specta::specta]
 pub async fn cancel_send(
     net: State<'_, NetManagerState>,
     session_id: Uuid,
 ) -> crate::AppResult<()> {
     let transfer = get_transfer(&net).await?;
-    transfer.cancel_send(&session_id).await
+    Ok(transfer.cancel_send(&session_id).await?)
 }
 
-/// 取消接收
 #[tauri::command]
+#[specta::specta]
 pub async fn cancel_receive(
     db: State<'_, sea_orm::DatabaseConnection>,
     net: State<'_, NetManagerState>,
     session_id: Uuid,
 ) -> crate::AppResult<()> {
-    // 先取消运行时会话（确保 bitmap 已刷写），再标记 DB 状态
     let transfer = get_transfer(&net).await?;
     transfer.cancel_receive(&session_id).await?;
-
     crate::database::ops::mark_session_cancelled(&db, session_id).await?;
     Ok(())
 }
 
 // ============ 传输历史 API ============
 
-/// 查询传输历史列表（可选按状态过滤）
 #[tauri::command]
+#[specta::specta]
 pub async fn get_transfer_history(
     db: State<'_, sea_orm::DatabaseConnection>,
     status: Option<entity::SessionStatus>,
 ) -> crate::AppResult<Vec<crate::database::ops::TransferHistoryItem>> {
-    crate::database::ops::get_transfer_history(&db, status).await
+    Ok(crate::database::ops::get_transfer_history(&db, status).await?)
 }
 
-/// 查询单个传输会话详情
 #[tauri::command]
+#[specta::specta]
 pub async fn get_transfer_session(
     db: State<'_, sea_orm::DatabaseConnection>,
     session_id: Uuid,
 ) -> crate::AppResult<crate::database::ops::TransferHistoryItem> {
-    crate::database::ops::get_session_detail(&db, session_id).await
+    Ok(crate::database::ops::get_session_detail(&db, session_id).await?)
 }
 
-/// 删除单个传输会话
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_transfer_session(
     db: State<'_, sea_orm::DatabaseConnection>,
     session_id: Uuid,
 ) -> crate::AppResult<()> {
-    crate::database::ops::delete_session(&db, session_id).await
+    Ok(crate::database::ops::delete_session(&db, session_id).await?)
 }
 
-/// 清空所有传输历史
 #[tauri::command]
+#[specta::specta]
 pub async fn clear_transfer_history(
     db: State<'_, sea_orm::DatabaseConnection>,
 ) -> crate::AppResult<()> {
-    crate::database::ops::clear_all_history(&db).await
+    Ok(crate::database::ops::clear_all_history(&db).await?)
 }
 
-/// 暂停传输（自动检测发送/接收方向，通知对端）
 #[tauri::command]
+#[specta::specta]
 pub async fn pause_transfer(
-    app: tauri::AppHandle,
-    db: State<'_, sea_orm::DatabaseConnection>,
     net: State<'_, NetManagerState>,
     session_id: Uuid,
 ) -> crate::AppResult<()> {
     let transfer = get_transfer(&net).await?;
-
-    // 尝试暂停发送会话，如果不存在则尝试暂停接收会话
-    if transfer.pause_send(&session_id, &app).await.is_err() {
-        // 发送会话不存在，尝试接收会话（忽略不存在的错误——可能已被对端取消）
+    if transfer.pause_send(&session_id).await.is_err() {
         let _ = transfer.pause_receive(&session_id).await;
     }
-
-    crate::database::ops::mark_session_paused(&db, session_id).await?;
-
-    // 同步 session 级别的 transferred_bytes（从文件记录汇总）
-    if let Err(e) =
-        crate::database::ops::sync_session_transferred_bytes(&db, session_id).await
-    {
-        tracing::warn!("同步 session 字节数失败: {}", e);
-    }
-
     Ok(())
 }
 
-/// 恢复传输结果（返回给前端以创建运行时 session）
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ResumeTransferResult {
     pub session_id: Uuid,
@@ -261,33 +245,28 @@ pub struct ResumeTransferResult {
     pub transferred_bytes: u64,
 }
 
-/// 恢复传输（根据方向自动选择接收方或发送方恢复流程）
 #[tauri::command]
+#[specta::specta]
 pub async fn resume_transfer(
-    app: tauri::AppHandle,
     db: State<'_, sea_orm::DatabaseConnection>,
     net: State<'_, NetManagerState>,
     session_id: Uuid,
 ) -> crate::AppResult<ResumeTransferResult> {
     let transfer = get_transfer(&net).await?;
 
-    // 从 DB 读取会话方向
     let session = entity::TransferSession::find_by_id(session_id)
         .one(db.inner())
         .await?
-        .ok_or_else(|| crate::AppError::Transfer("会话不存在".into()))?;
+        .ok_or_else(|| crate::AppError::transfer("会话不存在"))?;
 
     let (resume_info, direction_str) = match session.direction {
         entity::TransferDirection::Receive => {
-            let info = transfer.initiate_resume(&db, session_id, app).await?;
-            (info, "receive")
+            (transfer.initiate_resume(session_id).await?, "receive")
         }
-        entity::TransferDirection::Send => {
-            let info = transfer
-                .initiate_resume_as_sender(&db, session_id, app)
-                .await?;
-            (info, "send")
-        }
+        entity::TransferDirection::Send => (
+            transfer.initiate_resume_as_sender(session_id).await?,
+            "send",
+        ),
     };
 
     Ok(ResumeTransferResult {
@@ -311,35 +290,10 @@ pub async fn resume_transfer(
     })
 }
 
-/// 解析 Android 公共目录的 content:// URI（仅 Android 平台）
-///
-/// 前端用于调用 `AndroidFs.showViewDirDialog(uri)` 打开保存目录。
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub async fn resolve_android_dir_uri(
-    app: tauri::AppHandle,
-    subdir: String,
-) -> crate::AppResult<Option<serde_json::Value>> {
-    let uri = crate::file_sink::android_ops::resolve_save_dir_uri(&subdir, &app).await;
-    Ok(uri.and_then(|u| serde_json::to_value(&u).ok()))
-}
-
-/// 桌面端 stub（始终返回 None）
-#[cfg(not(target_os = "android"))]
-#[tauri::command]
-pub async fn resolve_android_dir_uri(
-    _subdir: String,
-) -> crate::AppResult<Option<serde_json::Value>> {
-    Ok(None)
-}
-
 // ============ 辅助函数 ============
 
-/// 从 Tauri State 中获取 TransferManager（短暂持锁后立即释放）
 async fn get_transfer(net: &NetManagerState) -> crate::AppResult<Arc<TransferManager>> {
     let guard = net.lock().await;
-    let manager = guard
-        .as_ref()
-        .ok_or(crate::AppError::NodeNotStarted)?;
+    let manager = guard.as_ref().ok_or(crate::AppError::node_not_started())?;
     Ok(manager.transfer_arc())
 }

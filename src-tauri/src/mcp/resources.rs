@@ -3,8 +3,8 @@
 //! 提供 swarmdrop://guide 使用指南 Resource
 
 use rmcp::model::{
-    AnnotateAble, ListResourcesResult, RawResource, ReadResourceRequestParams,
-    ReadResourceResult, ResourceContents,
+    AnnotateAble, ListResourcesResult, RawResource, ReadResourceRequestParams, ReadResourceResult,
+    ResourceContents,
 };
 use rmcp::ErrorData;
 
@@ -14,9 +14,7 @@ const GUIDE: &str = include_str!("../../docs/mcp-guide.md");
 /// 返回可用 Resource 列表
 pub fn list() -> ListResourcesResult {
     let resource = RawResource::new("swarmdrop://guide", "SwarmDrop MCP 使用指南")
-        .with_description(
-            "SwarmDrop MCP Tool 的使用说明，包含前置条件、Tool 使用顺序和典型流程",
-        )
+        .with_description("SwarmDrop MCP Tool 的使用说明，包含前置条件、Tool 使用顺序和典型流程")
         .with_mime_type("text/markdown")
         .no_annotation();
 

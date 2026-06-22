@@ -8,32 +8,14 @@ import { Trans } from "@lingui/react/macro";
 import { useLingui } from "@lingui/react/macro";
 import { toast } from "sonner";
 import { Copy, Check } from "lucide-react";
-import { platform } from "@tauri-apps/plugin-os";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { usePreferencesStore } from "@/stores/preferences-store";
-import {
-  getMcpStatus,
-  startMcpServer,
-  stopMcpServer,
-  type McpStatus,
-} from "@/commands/mcp";
+import { commands, type McpStatus } from "@/lib/bindings";
 
 export function McpSection() {
-  // platform() 是同步函数，直接在顶层调用，避免违反 React Hooks 规则
-  const isMobile = platform() === "android" || platform() === "ios";
-
-  // 移动端不显示 MCP 配置（必须在所有 hooks 之前 return）
-  if (isMobile) {
-    return null;
-  }
-
-  return <McpSectionContent />;
-}
-
-function McpSectionContent() {
   const { t } = useLingui();
   const mcpPort = usePreferencesStore((s) => s.mcp.port);
   const setMcpPort = usePreferencesStore((s) => s.setMcpPort);
@@ -50,7 +32,7 @@ function McpSectionContent() {
 
   // 挂载时查询后端真实状态
   useEffect(() => {
-    getMcpStatus().then(setStatus).catch(() => {});
+    commands.getMcpStatus().then(setStatus).catch(() => {});
   }, []);
 
   // mcpPort 变更时同步 portInput（hydration 后）
@@ -62,7 +44,7 @@ function McpSectionContent() {
     setLoading(true);
     try {
       if (status.running) {
-        const result = await stopMcpServer();
+        const result = await commands.stopMcpServer();
         setStatus(result);
         toast.success(t`MCP Server 已停止`);
       } else {
@@ -73,7 +55,7 @@ function McpSectionContent() {
           return;
         }
         setMcpPort(port);
-        const result = await startMcpServer(port);
+        const result = await commands.startMcpServer(port);
         setStatus(result);
         toast.success(t`MCP Server 已启动`);
       }

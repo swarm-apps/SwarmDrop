@@ -1,0 +1,16 @@
+# swarmhive.toml —— SwarmHive 项目发布配置(由 `swarmhive init` 生成)。
+# 详见 docs/12-cli.md。
+
+server = "http://47.115.172.218:3030"
+
+[app]
+slug = "swarmdrop"
+
+[app.tauri]
+conf = "src-tauri/tauri.conf.json"   # release 版本从这里自动读取
+# 发布前填入实际产物(安装包 + updater bundle + .sig + latest.json):
+artifacts = [
+  # "src-tauri/target/release/bundle/msi/MyApp_0.1.0_x64_en-US.msi",
+  # "src-tauri/target/release/bundle/msi/MyApp_0.1.0_x64_en-US.msi.zip",
+  # "latest.json",
+]

@@ -3,23 +3,20 @@ import { Download, FolderOpen } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import {
-  ResponsiveDialog,
-  ResponsiveDialogContent,
-  ResponsiveDialogFooter,
-  ResponsiveDialogHeader,
-  ResponsiveDialogTitle,
-  ResponsiveDialogDescription,
-} from "@/components/responsive-dialog";
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Trans } from "@lingui/react/macro";
 import { useTransferStore } from "@/stores/transfer-store";
-import {
-  acceptReceive,
-  rejectReceive,
-  type SaveLocation,
-} from "@/commands/transfer";
-import { FileTree } from "@/routes/_app/send/-components/file-tree";
-import { buildTreeDataFromOffer } from "@/routes/_app/send/-file-tree";
-import { pickFolder, getDefaultSavePath, isAndroid } from "@/lib/file-picker";
+import { commands } from "@/lib/bindings";
+import type { SaveLocation } from "@/lib/types";
+import { FileTree } from "@/components/file-tree";
+import { buildTreeDataFromOffer } from "@/components/file-tree";
+import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -84,11 +81,9 @@ export function TransferOfferDialog() {
     if (!currentOffer) return;
     setProcessing(true);
     try {
-      const saveLocation: SaveLocation = isAndroid()
-        ? { type: "androidPublicDir", subdir: "SwarmDrop" }
-        : { type: "path", path: savePath };
+      const saveLocation: SaveLocation = { type: "path", path: savePath };
 
-      await acceptReceive(currentOffer.sessionId, saveLocation);
+      await commands.acceptReceive(currentOffer.sessionId, saveLocation);
 
       addSession({
         sessionId: currentOffer.sessionId,
@@ -122,7 +117,7 @@ export function TransferOfferDialog() {
     if (!currentOffer) return;
     setProcessing(true);
     try {
-      await rejectReceive(currentOffer.sessionId);
+      await commands.rejectReceive(currentOffer.sessionId);
       // 从队列移除
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -144,23 +139,23 @@ export function TransferOfferDialog() {
   if (!currentOffer || !treeData) return null;
 
   return (
-    <ResponsiveDialog open={true} onOpenChange={handleOpenChange} forceDialog>
-      <ResponsiveDialogContent
+    <Dialog open={true} onOpenChange={handleOpenChange}>
+      <DialogContent
         className="sm:max-w-lg"
         showCloseButton={false}
         onPointerDownOutside={(e) => e.preventDefault()}
       >
-        <ResponsiveDialogHeader className="flex flex-col items-center gap-2">
+        <DialogHeader className="flex flex-col items-center gap-2">
           <div className="flex size-14 items-center justify-center rounded-full bg-blue-100">
             <Download className="size-7 text-blue-600" />
           </div>
-          <ResponsiveDialogTitle className="text-center text-xl">
+          <DialogTitle className="text-center text-xl">
             <Trans>收到文件</Trans>
-          </ResponsiveDialogTitle>
-          <ResponsiveDialogDescription className="text-center">
+          </DialogTitle>
+          <DialogDescription className="text-center">
             <Trans>来自 {currentOffer.deviceName}</Trans>
-          </ResponsiveDialogDescription>
-        </ResponsiveDialogHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-4 sm:px-0">
           <div className="max-h-[40vh] min-h-30">
@@ -174,18 +169,16 @@ export function TransferOfferDialog() {
             />
           </div>
 
-          {!isAndroid() && (
-            <div className="mt-4">
-              <SavePathSelector
-                savePath={savePath}
-                onChangePath={handleChangePath}
-                disabled={processing}
-              />
-            </div>
-          )}
+          <div className="mt-4">
+            <SavePathSelector
+              savePath={savePath}
+              onChangePath={handleChangePath}
+              disabled={processing}
+            />
+          </div>
         </div>
 
-        <ResponsiveDialogFooter className="flex-row justify-center gap-3 sm:justify-center">
+        <DialogFooter className="flex-row justify-center gap-3 sm:justify-center">
           <Button
             variant="outline"
             onClick={handleReject}
@@ -201,9 +194,9 @@ export function TransferOfferDialog() {
           >
             {processing ? <Trans>处理中...</Trans> : <Trans>接收</Trans>}
           </Button>
-        </ResponsiveDialogFooter>
-      </ResponsiveDialogContent>
-    </ResponsiveDialog>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

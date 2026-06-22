@@ -14,8 +14,8 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { Trans, useLingui } from "@lingui/react/macro";
-import type { TransferHistoryItem } from "@/commands/transfer";
-import { deleteTransferSession } from "@/commands/transfer";
+import type { TransferHistoryItem } from "@/lib/bindings";
+import { commands } from "@/lib/bindings";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -96,7 +96,7 @@ export function HistoryItem({ item }: HistoryItemProps) {
   });
 
   const onDelete = withAction(async () => {
-    await deleteTransferSession(sessionId);
+    await commands.deleteTransferSession(sessionId);
     await loadHistory();
   });
 

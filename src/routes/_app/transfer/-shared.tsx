@@ -8,17 +8,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { useTransferStore } from "@/stores/transfer-store";
-import {
-  pauseTransfer,
-  cancelSend,
-  cancelReceive,
-  resumeTransfer,
-} from "@/commands/transfer";
-import type {
-  TransferStatus,
-  TransferSession,
-  TransferHistoryItem,
-} from "@/commands/transfer";
+import { commands, type TransferHistoryItem } from "@/lib/bindings";
+import type { TransferStatus, TransferSession } from "@/lib/types";
 
 export type { TransferStatus };
 
@@ -140,7 +131,7 @@ export function historyToSession(item: TransferHistoryItem): TransferSession {
 /** 暂停传输：调用后端 + 从活跃列表移除 */
 export async function doPauseTransfer(sessionId: string) {
   try {
-    await pauseTransfer(sessionId);
+    await commands.pauseTransfer(sessionId);
     useTransferStore.getState().cancelSession(sessionId);
   } catch (err) {
     toast.error(getErrorMessage(err));
@@ -156,9 +147,9 @@ export async function doCancelTransfer(
   useTransferStore.getState().cancelSession(sessionId);
   try {
     if (direction === "send") {
-      await cancelSend(sessionId);
+      await commands.cancelSend(sessionId);
     } else {
-      await cancelReceive(sessionId);
+      await commands.cancelReceive(sessionId);
     }
   } catch (err) {
     toast.error(getErrorMessage(err));
@@ -167,10 +158,15 @@ export async function doCancelTransfer(
 
 /** 恢复传输：调用后端 + 添加活跃会话 + 刷新历史，返回新 sessionId */
 export async function doResumeTransfer(sessionId: string): Promise<string> {
-  const result = await resumeTransfer(sessionId);
+  const result = await commands.resumeTransfer(sessionId);
+  if (result.direction !== "send" && result.direction !== "receive") {
+    throw new Error(
+      `resume_transfer returned invalid direction "${result.direction}" for ${sessionId}`,
+    );
+  }
   useTransferStore.getState().addSession({
     sessionId: result.sessionId,
-    direction: result.direction as "send" | "receive",
+    direction: result.direction,
     peerId: result.peerId,
     deviceName: result.peerName,
     files: result.files,

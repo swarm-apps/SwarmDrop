@@ -1,22 +1,83 @@
-//! Tauri 事件名常量
+//! Tauri 类型化事件
 //!
-//! 所有后端 → 前端的事件名集中定义，避免硬编码字符串散落各模块。
+//! 用 newtype + `#[serde(transparent)]` 包装 core payload：wire 形状不变，
+//! 同时让 tauri-specta 把 struct ident 自动转 kebab-case 作为事件名
+//! （`NetworkStatusChanged` → `"network-status-changed"`）。
+
+use serde::Serialize;
+use swarmdrop_core::device::{Device, PairedDeviceInfo};
+use swarmdrop_core::network::NetworkStatus;
+use swarmdrop_core::transfer::incoming::TransferOfferEvent;
+use swarmdrop_core::transfer::progress::{
+    TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent, TransferFailedEvent,
+    TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent, TransferResumedEvent,
+};
 
 // === 网络状态 ===
-pub const NETWORK_STATUS_CHANGED: &str = "network-status-changed";
-pub const DEVICES_CHANGED: &str = "devices-changed";
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct NetworkStatusChanged(pub NetworkStatus);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct DevicesChanged(pub Vec<Device>);
 
 // === 配对 ===
-pub const PAIRING_REQUEST_RECEIVED: &str = "pairing-request-received";
-pub const PAIRED_DEVICE_ADDED: &str = "paired-device-added";
+
+/// 配对请求 payload：原 core 事件含 PeerId（非 specta-friendly），在此 host 层
+/// 投影成 `String`，并把 `request` 字段 flatten 摊开（保持原 wire 形状）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingRequestPayload {
+    pub peer_id: String,
+    pub pending_id: u64,
+    #[serde(flatten)]
+    pub request: swarmdrop_core::protocol::PairingRequest,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct PairingRequestReceived(pub PairingRequestPayload);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct PairedDeviceAdded(pub PairedDeviceInfo);
 
 // === 传输 ===
-pub const TRANSFER_OFFER: &str = "transfer-offer";
-pub const TRANSFER_PROGRESS: &str = "transfer-progress";
-pub const TRANSFER_COMPLETE: &str = "transfer-complete";
-pub const TRANSFER_FAILED: &str = "transfer-failed";
-pub const TRANSFER_ACCEPTED: &str = "transfer-accepted";
-pub const TRANSFER_REJECTED: &str = "transfer-rejected";
-pub const TRANSFER_PAUSED: &str = "transfer-paused";
-pub const TRANSFER_RESUMED: &str = "transfer-resumed";
-pub const TRANSFER_DB_ERROR: &str = "transfer-db-error";
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferOffer(pub TransferOfferEvent);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferProgress(pub TransferProgressEvent);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferAccepted(pub TransferAcceptedEvent);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferRejected(pub TransferRejectedEvent);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferComplete(pub TransferCompleteEvent);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferFailed(pub TransferFailedEvent);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferPaused(pub TransferPausedEvent);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferResumed(pub TransferResumedEvent);
+
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferDbError(pub TransferDbErrorEvent);

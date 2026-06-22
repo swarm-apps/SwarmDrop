@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 开发工作流
+
+**IMPORTANT**：执行任何开发任务（编写代码、修改配置、添加依赖）前，必须先调用 `/dev-workflow` skill。它会加载项目知识库（`dev-notes/knowledge/`）中的最佳实践和踩坑记录，并在开发完成后引导更新知识库。
+
+知识库主题：
+
+- [`dev-notes/knowledge/theme-and-styling.md`](dev-notes/knowledge/theme-and-styling.md) — shadcn/ui、Tailwind、macOS Overlay 标题栏、Zustand selector 派生数组陷阱、Lingui 源 locale
+- [`dev-notes/knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md) — crates/core ↔ src-tauri 边界、specta + chrono、`#[expect]` 风格、IPC 时间类型选型
+- [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、Vite/Tauri 端口、submodule、Lingui 实际 locale、版本号三处同步
+
 ## Language
 
 Always respond in Chinese (简体中文). All output, including thinking, planning, commit messages, and comments, must be in Chinese.
@@ -34,10 +44,6 @@ cargo fmt
 
 # i18n — extract translation strings to .po files
 pnpm i18n:extract
-
-# Android
-pnpm android:dev        # Dev mode (sets SODIUM_LIB_DIR via scripts/android.mjs)
-pnpm android:build
 
 # Documentation site (run from docs/)
 pnpm dev                # Astro + Starlight dev server
@@ -110,49 +116,42 @@ Route guards use `beforeLoad` + `useAuthStore.getState()` to check auth state sy
 
 ### Backend Architecture
 
+`src-tauri` 现在是纯桌面壳。共享业务逻辑（network / pairing / device / protocol / database ops）
+全在 `crates/core`（`swarmdrop-core`），`src-tauri/src/lib.rs` 通过 `pub use swarmdrop_core::pairing;`
+等 alias 把命名空间桥接进来，所以代码里 `crate::pairing::*` / `crate::protocol::*` 路径仍然有效。
+
 ```
 src-tauri/src/
-├── lib.rs              # Tauri setup, plugin registration, command handler
+├── lib.rs              # Tauri setup, plugin & command 注册, swarmdrop_core 模块 alias
 ├── main.rs             # Binary entry point
-├── mobile.rs           # Mobile entry point (cfg(mobile))
-├── commands/
-│   ├── mod.rs          # start/shutdown, command exports
-│   ├── identity.rs     # generate_keypair, register_keypair
-│   └── pairing.rs      # generate_pairing_code, get_device_info, request/respond_pairing
+├── commands/           # Tauri IPC 命令薄壳，业务逻辑委托 swarmdrop-core / 本地 transfer 模块
+│   ├── mod.rs          #   start / shutdown / list_devices / install_update
+│   ├── identity.rs     #   initialize_identity / generate_keypair / register_keypair
+│   ├── pairing.rs      #   generate_pairing_code / request_pairing / respond_pairing_request / remove_paired_device
+│   ├── transfer.rs     #   scan_sources / prepare_send / start_send / accept_receive / 历史查询 / pause / resume
+│   └── mcp.rs          #   桌面专用 MCP server 控制命令
 ├── network/
-│   ├── mod.rs          # Module exports
-│   ├── config.rs       # NodeConfig builder (mDNS, relay, DCUtR, autonat, bootstrap)
-│   ├── manager.rs      # NetManager — wraps NetClient + PairingManager
-│   └── event_loop.rs   # NodeEvent forwarding to frontend via Tauri Channel
-├── pairing/
-│   ├── mod.rs          # Module exports
-│   ├── code.rs         # 6-digit share code generation
-│   ├── dht_key.rs      # SHA256→DHT key derivation
-│   └── manager.rs      # PairingManager — DHT publish/query, online/offline announce
-├── device/
-│   ├── mod.rs          # Module exports
-│   ├── manager.rs      # Device list management
-│   └── utils.rs        # OsInfo — hostname, platform, agent_version string
-├── transfer/
-│   ├── mod.rs          # 模块导出
-│   ├── session.rs      # TransferSession 状态管理
-│   ├── sender.rs       # 发送端逻辑
-│   ├── receiver.rs     # 接收端逻辑（含断点续传）
-│   ├── chunker.rs      # 文件分块读取（FileChunker）
-│   ├── assembler.rs    # 文件重组写入（FileAssembler）
-│   ├── crypto.rs       # XChaCha20-Poly1305 加密/解密
-│   ├── progress.rs     # 进度追踪 + 速度计算
-│   └── error.rs        # 传输错误类型
-├── database/
-│   ├── mod.rs          # SeaORM 连接初始化
-│   └── entity/         # SeaORM 2.0 实体（transfer_sessions, transfer_files, file_checkpoints）
-├── protocol.rs         # AppRequest/AppResponse — CBOR over libp2p Request-Response
-└── error.rs            # AppError (thiserror), AppResult
+│   ├── mod.rs          #   NetManager 类型别名 + TransferRuntime impl
+│   └── event_loop.rs   #   Tauri Channel 事件转发 + 持久化副作用
+├── transfer/           # 本 crate 唯一仍含业务逻辑的模块
+│   ├── mod.rs
+│   ├── offer.rs        #   TransferManager —— Offer / Send / Resume 总入口
+│   ├── sender.rs       #   发送端 chunk 推送
+│   ├── receiver.rs     #   接收端落盘 + 断点续传
+│   ├── crypto.rs       #   XChaCha20-Poly1305 加密/解密
+│   └── progress.rs     #   ProgressTracker 的 Tauri Emitter 扩展 trait
+├── file_source/        # 桌面文件读取（仅 Path::path_ops）
+├── file_sink/          # 桌面文件写入（仅 Path::path_ops）
+├── host/               # Desktop adapter：keychain / notifier / paths / update_installer / event_bus
+├── database/mod.rs     # SeaORM 连接初始化 + 启动清理；re-export swarmdrop_core::database::ops
+├── mcp/                # 桌面专用 MCP server
+├── events.rs           # Tauri 事件名常量
+└── error.rs            # AppError (thiserror) + AppResult
 ```
 
 **Plugin initialization order** (in `lib.rs`):
-1. Plugins registered in `Builder::default()`: store, os, fs, biometry, notification, opener, process, mobile
-2. In `setup()`: updater (with mobile fallback — silently skips if unsupported), then Stronghold (needs `salt_path` from app data dir)
+1. Plugins registered in `Builder::default()`: store, os, fs, biometry, notification, opener, dialog, http, process
+2. In `setup()`: updater is initialized after Builder; database (SeaORM + SQLite) is initialized then injected as Tauri state.
 
 **Network startup flow:**
 1. `commands::start()` creates `NodeConfig` with mDNS, relay, DCUtR, autonat, bootstrap peers
@@ -172,11 +171,8 @@ Git submodule containing `swarm-p2p-core` crate. Workspace at `libs/Cargo.toml`,
 
 Key exports: `NetClient`, `NodeConfig`, `NodeEvent`, `start()`, re-exported `libp2p`.
 
-Android-specific: DNS feature is disabled (`/etc/resolv.conf` doesn't exist on Android). Configured via conditional dependencies in `src-tauri/Cargo.toml`:
-```toml
-[target.'cfg(not(target_os = "android"))'.dependencies]
-swarm-p2p-core = { path = "../libs/core", features = ["dns"] }
-```
+> 本仓库现在仅承载桌面端。移动端 (iOS / Android) 已迁移到独立的 SwarmDrop-RN
+> 项目（React Native + Expo + uniffi），共享 `crates/core` + `libs/core` 业务核心。
 
 ### Auto-Update System
 
@@ -184,16 +180,18 @@ Dual-endpoint update checking:
 1. **UpgradeLink** — `https://api.upgrade.toolsetlink.com/v1/tauri/upgrade?tauriKey=...` (primary)
 2. **GitHub Releases** — `https://github.com/swarm-apps/SwarmDrop/releases/latest/download/latest.json` (fallback)
 
-The `latest.json` is patched in CI to include Android APK info (`mobile.android` field) and optional `min_version` for forced updates. Windows uses passive install mode.
+The `latest.json` is patched in CI with optional `min_version` for forced updates. Windows uses passive install mode.
+
+> Note: 现有 `release.yml` 仍保留 `build-android` / Android APK 上传步骤，对应代码已删除，
+> CI 这部分需要单独清理或在 Android 发布回到 SwarmDrop-RN 后整体重写。
 
 ### Release Process
 
 Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/release.yml`):
 1. **build-tauri** — Builds desktop apps (macOS aarch64/x86_64, Ubuntu, Windows) via `tauri-action`, creates draft release
-2. **build-android** — Builds Android APK (aarch64), uploads to the draft release
-3. **update-latest-json** — Patches `latest.json` with Android download URL and optional `min_version`
-4. **publish-release** — Converts draft to published release (required for UpgradeLink to access assets)
-5. **upgradeLink-upload** — Syncs desktop and Android builds to UpgradeLink service
+2. **update-latest-json** — Patches `latest.json` with optional `min_version`
+3. **publish-release** — Converts draft to published release (required for UpgradeLink to access assets)
+4. **upgradeLink-upload** — Syncs desktop builds to UpgradeLink service
 
 ## Important Conventions
 
@@ -238,7 +236,7 @@ Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/rel
 | Phase 1 — Networking | Done | libp2p Swarm, mDNS, DHT, Relay, DCUtR |
 | Phase 2 — Pairing | Done | Share codes, device identity, DHT Provider |
 | Phase 3 — File Transfer | In Progress | Request-Response, E2E encryption, SQLite history, pause/resume |
-| Phase 4 — Mobile | Pending | HTTP bridge or libp2p full-platform, QR code pairing |
+| Phase 4 — Mobile | Moved | 已迁移到独立的 SwarmDrop-RN 项目（React Native + Expo + uniffi）|
 
 Detailed per-phase specs: `dev-notes/roadmap/phase-*.md`
 

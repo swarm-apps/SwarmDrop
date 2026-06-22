@@ -1,49 +1,42 @@
-# Starlight Starter Kit: Basics
+# @swarmdrop/docs
 
-[![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)
+SwarmDrop 官网 + 文档站，基于 [Fumadocs](https://fumadocs.dev)（Next.js 静态导出）。
 
-```
-pnpm create astro@latest -- --template starlight
-```
+## 开发
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
-
-## 🚀 Project Structure
-
-Inside of your Astro + Starlight project, you'll see the following folders and files:
-
-```
-.
-├── public/
-├── src/
-│   ├── assets/
-│   ├── content/
-│   │   └── docs/
-│   └── content.config.ts
-├── astro.config.mjs
-├── package.json
-└── tsconfig.json
+```bash
+pnpm install
+pnpm dev        # http://localhost:3000
 ```
 
-Starlight looks for `.md` or `.mdx` files in the `src/content/docs/` directory. Each file is exposed as a route based on its file name.
+## 构建
 
-Images can be added to `src/assets/` and embedded in Markdown with a relative link.
+```bash
+pnpm build      # 静态导出到 out/
+pnpm start      # 本地预览 out/
+```
 
-Static assets, like favicons, can be placed in the `public/` directory.
+## 目录
 
-## 🧞 Commands
+```
+docs/
+├── app/
+│   ├── (home)/         # 官网首页
+│   ├── docs/           # 文档路由（fumadocs）
+│   ├── api/search/     # 静态搜索索引（mandarin 分词）
+│   └── global.css      # 品牌色 + 首页动效
+├── components/         # provider / search / mermaid / mdx / swarm-visual
+├── content/docs/       # 文档内容（.mdx + meta.json）
+├── lib/                # source / shared / site / layout.shared
+└── next.config.mjs     # output: export + basePath
+```
 
-All commands are run from the root of the project, from a terminal:
+## 部署
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `pnpm install`             | Installs dependencies                            |
-| `pnpm dev`             | Starts local dev server at `localhost:4321`      |
-| `pnpm build`           | Build your production site to `./dist/`          |
-| `pnpm preview`         | Preview your build locally, before deploying     |
-| `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `pnpm astro -- --help` | Get help using the Astro CLI                     |
+推送到 `main` 且改动 `docs/**` 时，`.github/workflows/docs.yml` 自动构建静态站点并发布到
+GitHub Pages（`PAGES_BASE_PATH=/SwarmDrop`）。线上地址：<https://swarm-apps.github.io/SwarmDrop>。
 
-## 👀 Want to learn more?
+## 写文档
 
-Check out [Starlight’s docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).
+在 `content/docs/` 下新增 `.mdx` 文件，并在所在目录的 `meta.json` 的 `pages` 数组里登记顺序。
+架构图用 Mermaid 组件（需在文件顶部 `import { Mermaid } from "@/components/mermaid"`）。

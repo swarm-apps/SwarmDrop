@@ -24,28 +24,24 @@ export const Route = createLazyFileRoute("/_app/pairing/generate")({
 function PairingGeneratePage() {
   const navigate = useNavigate();
 
-  const { generateCode, regenerateCode } = usePairingStore(
+  const { ensureActiveCode, regenerateCode } = usePairingStore(
     useShallow((state) => ({
-      generateCode: state.generateCode,
+      ensureActiveCode: state.ensureActiveCode,
       regenerateCode: state.regenerateCode,
     }))
   );
 
-  const current = usePairingStore((s) => s.current);
-
-  const codeInfo = current.phase === "generating" ? current.codeInfo : null;
-  const isLoading = current.phase === "idle";
-  const errorMessage = current.phase === "error" ? current.message : null;
+  const codeInfo = usePairingStore((s) => s.activeCode);
+  const errorMessage = usePairingStore((s) => s.codeError);
+  const isLoading = codeInfo === null && errorMessage === null;
 
   const [copied, setCopied] = useState(false);
 
-  // 进入页面时生成配对码
+  // 进入页面时确保有活跃码（store 内部自带过期自动重生 + paired-device-added
+  // 后 acceptRequest 触发的重生；离开页面不清状态，下次进来直接是新码）
   useEffect(() => {
-    generateCode();
-    return () => {
-      usePairingStore.getState().reset();
-    };
-  }, [generateCode]);
+    ensureActiveCode();
+  }, [ensureActiveCode]);
 
   // 配对成功后自动跳转到设备页面
   usePairingSuccess();

@@ -7,6 +7,12 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
     "opener:default",
     {
       "identifier": "opener:allow-open-url",
@@ -24,7 +30,6 @@
         }
       ]
     },
-    "stronghold:default",
     "fs:allow-exists",
     "fs:allow-remove",
     "fs:allow-app-read",
@@ -36,14 +41,6 @@
     "notification:default",
     "updater:default",
     "process:allow-restart",
-    "dialog:default",
-    {
-      "identifier": "http:default",
-      "allow": [
-        {
-          "url": "https://api.upgrade.toolsetlink.com/*"
-        }
-      ]
-    }
+    "dialog:default"
   ]
 }

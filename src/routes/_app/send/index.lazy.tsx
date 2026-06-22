@@ -9,23 +9,25 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
+import { Channel } from "@tauri-apps/api/core";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Trans } from "@lingui/react/macro";
-import type { Device } from "@/commands/network";
-import type { FileSource, PrepareProgress } from "@/commands/transfer";
-import { prepareSend, startSend } from "@/commands/transfer";
+import type { Device } from "@/lib/bindings";
+import type { FileSource } from "@/lib/bindings";
+import type { PrepareProgress } from "@/lib/types";
+import { commands } from "@/lib/bindings";
 import { useTransferStore } from "@/stores/transfer-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
+import { deviceDisplayName } from "@/lib/device-name";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { FileDropZone } from "./-components/file-drop-zone";
-import { FileTree } from "./-components/file-tree";
+import { FileTree } from "@/components/file-tree";
 
 export const Route = createLazyFileRoute("/_app/send/")({
   component: SendPage,
@@ -35,9 +37,6 @@ function SendPage() {
   const { peerId } = Route.useSearch();
   const navigate = useNavigate();
   const router = useRouter();
-  const breakpoint = useBreakpoint();
-  const isMobile = breakpoint === "mobile";
-
   const fileSelection = useFileSelection();
   const [sending, setSending] = useState(false);
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null);
@@ -54,11 +53,14 @@ function SendPage() {
     if (!stored) return null;
     return {
       peerId: stored.peerId,
+      name: stored.name,
       hostname: stored.hostname,
       os: stored.os,
       platform: stored.platform,
       arch: stored.arch,
       status: "offline" as const,
+      connection: null,
+      latency: null,
       isPaired: true,
     };
   }, [onlineDevice, pairedDevices, peerId]);
@@ -79,12 +81,15 @@ function SendPage() {
     try {
       // 将扫描到的文件列表传给后端计算 hash
       const scannedFiles = fileSelection.getScannedFiles();
-      const prepared = await prepareSend(scannedFiles, setPrepareProgress);
+      const progressChannel = new Channel<PrepareProgress>();
+      progressChannel.onmessage = setPrepareProgress;
+      const prepared = await commands.prepareSend(scannedFiles, progressChannel);
       const fileIds = prepared.files.map((f) => f.fileId);
-      const result = await startSend(
+      const displayName = deviceDisplayName(device);
+      const result = await commands.startSend(
         prepared.preparedId,
         device.peerId,
-        device.hostname,
+        displayName,
         fileIds,
       );
 
@@ -93,7 +98,7 @@ function SendPage() {
         sessionId: result.sessionId,
         direction: "send",
         peerId: device.peerId,
-        deviceName: device.hostname,
+        deviceName: displayName,
         files: prepared.files,
         totalSize: prepared.totalSize,
         status: "waiting_accept",
@@ -136,20 +141,6 @@ function SendPage() {
     );
   }
 
-  if (isMobile) {
-    return (
-      <MobileSendView
-        device={device}
-        fileSelection={fileSelection}
-        sending={sending}
-        prepareProgress={prepareProgress}
-        onSourcesSelected={handleSourcesSelected}
-        onSend={handleSend}
-        onBack={handleBack}
-      />
-    );
-  }
-
   return (
     <DesktopSendView
       device={device}
@@ -175,92 +166,6 @@ interface SendViewProps {
   onBack: () => void;
 }
 
-/* ─────────────────── 共享内容区 ─────────────────── */
-
-function SendContent({
-  fileSelection,
-  sending,
-  onSourcesSelected,
-}: Pick<SendViewProps, "fileSelection" | "sending" | "onSourcesSelected">) {
-  return (
-    <>
-      <FileDropZone onSourcesSelected={onSourcesSelected} disabled={sending} />
-      {fileSelection.hasFiles && (
-        <FileTree
-          mode="select"
-          dataLoader={fileSelection.dataLoader}
-          rootChildren={fileSelection.rootChildren}
-          totalCount={fileSelection.totalCount}
-          totalSize={fileSelection.totalSize}
-          onRemoveFile={fileSelection.removeFile}
-        />
-      )}
-    </>
-  );
-}
-
-/* ─────────────────── 移动端视图 ─────────────────── */
-
-function MobileSendView({
-  device,
-  fileSelection,
-  sending,
-  prepareProgress,
-  onSourcesSelected,
-  onSend,
-  onBack,
-}: SendViewProps) {
-  return (
-    <main className="flex h-full flex-col bg-background">
-      {/* 头部 */}
-      <header className="flex items-center gap-3 px-4 py-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex size-9 items-center justify-center rounded-full hover:bg-muted"
-        >
-          <ArrowLeft className="size-5" />
-        </button>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-semibold text-foreground">
-            <Trans>发送文件</Trans>
-          </h1>
-          <p className="truncate text-xs text-muted-foreground">
-            <Trans>到 {device.hostname}</Trans>
-          </p>
-        </div>
-      </header>
-
-      {/* 内容 */}
-      <div className="flex-1 overflow-auto px-4 pb-4">
-        <div className="flex flex-col gap-4">
-          <SendContent
-            fileSelection={fileSelection}
-            sending={sending}
-            onSourcesSelected={onSourcesSelected}
-          />
-        </div>
-      </div>
-
-      {/* 底部发送按钮 / 进度 */}
-      <div className="border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        {prepareProgress ? (
-          <PrepareProgressBar progress={prepareProgress} />
-        ) : (
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={onSend}
-            disabled={!fileSelection.hasFiles || sending}
-          >
-            {sending ? <Trans>发送中...</Trans> : <Trans>发送</Trans>}
-          </Button>
-        )}
-      </div>
-    </main>
-  );
-}
-
 /* ─────────────────── 桌面端视图 ─────────────────── */
 
 function DesktopSendView({
@@ -284,7 +189,7 @@ function DesktopSendView({
           <ArrowLeft className="size-4" />
         </button>
         <h1 className="text-[15px] font-medium text-foreground">
-          <Trans>发送文件到 {device.hostname}</Trans>
+          <Trans>发送文件到 {deviceDisplayName(device)}</Trans>
         </h1>
       </header>
 

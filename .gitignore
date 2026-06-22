@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+/target/
 *.local
 
 # Editor directories and files
@@ -24,6 +25,7 @@ dist-ssr
 *.sw?
 .claude/*
 !.claude/skills
+!.claude/settings.json
 .agents
 **/openspec
 **/.obsidian
@@ -37,3 +39,4 @@ dist-ssr
 # Signing keys
 keys/
 keystore.properties
+.codex

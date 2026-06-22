@@ -95,9 +95,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          VITE_UPGRADE_LINK_ACCESS_KEY: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-          VITE_UPGRADE_LINK_ACCESS_SECRET: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
-          VITE_UPGRADE_LINK_APK_KEY: ${{ secrets.UPGRADE_LINK_APK_KEY }}
         with:
           tagName: v__VERSION__
           releaseName: 'SwarmDrop v__VERSION__'
@@ -106,104 +103,12 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-  build-android:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libsodium-dev
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: 'pnpm'
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
-
-      - name: Install frontend dependencies
-        run: pnpm install
-
-      - name: Setup Android signing
-        run: |
-          cd src-tauri/gen/android
-          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" > keystore.properties
-          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
-          echo "storePassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
-          base64 -d <<< "${{ secrets.ANDROID_KEY_BASE64 }}" > $RUNNER_TEMP/keystore.jks
-          echo "storeFile=$RUNNER_TEMP/keystore.jks" >> keystore.properties
-
-      - name: Build Android APK
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_LATEST_HOME }}
-          SODIUM_LIB_DIR: ${{ github.workspace }}/src-tauri/vendor/prebuilt/android-aarch64
-          VITE_UPGRADE_LINK_ACCESS_KEY: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-          VITE_UPGRADE_LINK_ACCESS_SECRET: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
-          VITE_UPGRADE_LINK_APK_KEY: ${{ secrets.UPGRADE_LINK_APK_KEY }}
-        run: pnpm tauri android build --target aarch64
-
-      - name: Get version
-        id: version
-        run: |
-          VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Rename and upload APK
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          APK_PATH=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -type f | head -1)
-          if [[ -z "$APK_PATH" ]]; then
-            echo "::error::APK not found"
-            exit 1
-          fi
-          APK_NAME="swarmdrop_${VERSION}_aarch64.apk"
-          cp "$APK_PATH" "$APK_NAME"
-
-          TAG="v${VERSION}"
-          # Wait for draft release created by build-tauri
-          for i in $(seq 1 30); do
-            if gh release view "$TAG" &>/dev/null; then break; fi
-            echo "Waiting for release $TAG... ($i/30)"
-            sleep 10
-          done
-
-          gh release upload "$TAG" "$APK_NAME" --clobber
-
+  # 仅在 workflow_dispatch 指定 min_version 时打补丁；tag push 路径直接跳过。
+  # 旧版本同时还在 latest.json 里塞 mobile.android.{version,download_url}，
+  # 移动端拆到 swarm-apps/SwarmDrop-RN 之后这块已无意义。
   update-latest-json:
-    needs: [build-tauri, build-android]
+    if: ${{ github.event.inputs.min_version != '' }}
+    needs: [build-tauri]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -230,32 +135,14 @@ jobs:
             --dir . \
             --clobber || echo '{}' > latest.json
 
-      - name: Patch latest.json
+      - name: Patch min_version
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          VERSION="${TAG#v}"
           MIN_VERSION="${{ github.event.inputs.min_version }}"
-          REPO="${{ github.repository }}"
-          APK_URL="https://github.com/${REPO}/releases/download/${TAG}/swarmdrop_${VERSION}_aarch64.apk"
-
-          # Add mobile.android field
-          jq \
-            --arg ver "$VERSION" \
-            --arg url "$APK_URL" \
-            '.mobile.android = {version: $ver, download_url: $url}' \
-            latest.json > tmp.json && mv tmp.json latest.json
-
-          # Add min_version fields if provided
-          if [[ -n "$MIN_VERSION" ]]; then
-            jq \
-              --arg mv "$MIN_VERSION" \
-              '.min_version = $mv | .mobile.android.min_version = $mv' \
-              latest.json > tmp.json && mv tmp.json latest.json
-          fi
-
+          jq --arg mv "$MIN_VERSION" '.min_version = $mv' latest.json > tmp.json
+          mv tmp.json latest.json
           echo "=== Final latest.json ==="
           cat latest.json
 
@@ -271,7 +158,10 @@ jobs:
   # 必须在所有构建和 latest.json 更新完成后执行，
   # 这样 UpgradeLink 才能通过公开 URL 访问 release 资产
   publish-release:
-    needs: [build-tauri, build-android, update-latest-json]
+    needs: [build-tauri, update-latest-json]
+    # update-latest-json 走 if 条件 skip 时 needs 默认整个 publish-release 也会 skip；
+    # 用 always() 强制等任意 needs 状态完成，再用 result != failure 判断成功/跳过
+    if: ${{ always() && needs.build-tauri.result == 'success' && (needs.update-latest-json.result == 'success' || needs.update-latest-json.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -293,65 +183,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "${{ steps.tag.outputs.tag }}" --draft=false
 
-  # === UpgradeLink Sync Jobs ===
-  # 参考: http://upgrade.toolsetlink.com/upgrade/example/tauri/tauri-action-example.html
-  #
-  # 需要配置的 GitHub Secrets:
-  # - UPGRADE_LINK_ACCESS_KEY
-  # - UPGRADE_LINK_ACCESS_SECRET
-  # - UPGRADE_LINK_TAURI_KEY
-  # - UPGRADE_LINK_APK_KEY
-
-  upgradeLink-upload:
-    name: Sync to UpgradeLink
-    needs: [publish-release, generate-changelog]
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Get release info
-        id: release
-        run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            TAG="${{ github.ref_name }}"
-          else
-            VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
-            TAG="v${VERSION}"
-          fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-
-      # 同步 Tauri 桌面端 (统一 endpoint，支持 Win/Mac/Linux)
-      # 参考: http://upgrade.toolsetlink.com/upgrade/example/tauri/tauri-action-example.html
-      - name: Sync Tauri to UpgradeLink
-        uses: toolsetlink/upgradelink-action@3.0.2
-        with:
-          access_key: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-          access_secret: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
-          config: |
-            {
-              "app_type": "tauri",
-              "request": {
-                "app_key": "${{ secrets.UPGRADE_LINK_TAURI_KEY }}",
-                "latest_json_url": "https://github.com/${{ github.repository }}/releases/download/${{ steps.release.outputs.tag }}/latest.json"
-              }
-            }
-
-      # 同步 Android APK
-      - name: Sync Android to UpgradeLink
-        uses: toolsetlink/upgradelink-action@3.0.2
-        with:
-          access_key: ${{ secrets.UPGRADE_LINK_ACCESS_KEY }}
-          access_secret: ${{ secrets.UPGRADE_LINK_ACCESS_SECRET }}
-          config: |
-            {
-              "app_type": "apk",
-              "request": {
-                "app_key": "${{ secrets.UPGRADE_LINK_APK_KEY }}",
-                "version": "${{ steps.release.outputs.version }}",
-                "url": "https://github.com/${{ github.repository }}/releases/download/${{ steps.release.outputs.tag }}/swarmdrop_${{ steps.release.outputs.version }}_aarch64.apk",
-                "prompt_upgrade_content": ${{ toJSON(needs.generate-changelog.outputs.changelog) }}
-              }
-            }
+  # === SwarmHive 发布 ===
+  # 已彻底移除 UpgradeLink（toolsetlink）同步。更新分发统一走自托管 SwarmHive：
+  # 桌面端更新检查 endpoint 见 src-tauri/tauri.conf.json。
+  # 本仓的 SwarmHive 发布当前由独立的 `.github/workflows/swarmhive-publish.yml`
+  # （workflow_dispatch / 构建 universal-apple-darwin → @swarm-hive/cli publish）承担；
+  # 待多 target（含 win/linux）从 release 资产发布的链路验证后，再 fold 进本 tag 发布线。

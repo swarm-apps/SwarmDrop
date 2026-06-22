@@ -1,0 +1,68 @@
+---
+title: 核心概念
+description: 配对码、DHT 发现、NAT 穿透与自动选路的工作原理。
+---
+
+import { Mermaid } from "@/components/mermaid";
+
+理解这几个概念，就理解了 SwarmDrop 如何在没有中央服务器的情况下让两台设备相遇并直传。
+
+## 整体架构
+
+<Mermaid chart={`graph TB
+  subgraph Frontend["前端 UI"]
+    A["React 19 · TanStack Router · Zustand"]
+  end
+  subgraph Backend["业务层 · Rust + Tauri 2"]
+    B["分块加密 · 校验 · 进度调度"]
+  end
+  subgraph P2P["P2P 网络 · libp2p"]
+    C["Request-Response · 文件传输"]
+    D["mDNS · 局域网发现"]
+    E["Kademlia DHT · 跨网络发现"]
+    F["Relay + DCUtR · NAT 穿透"]
+  end
+  A -- "Tauri IPC (typed via specta)" --> B
+  B -- "libp2p Swarm" --> P2P
+`} />
+
+## 设备身份
+
+每台设备启动时生成一对 **Ed25519** 密钥。公钥派生出全网唯一的 `PeerId`，是设备在网络中的地址；
+私钥用于签名与加密协商，存放在 Stronghold 加密保险库里，由你的密码或生物识别守护。
+
+## 配对码与 DHT 发现
+
+跨网络场景下，两台设备彼此并不知道对方的 `PeerId`，这时用**分享码**牵线：
+
+- 分享码是 6 位字母数字（如 `AB12CD`），默认有效期 10 分钟。
+- 发送方把「分享码 → 自己的 PeerId」这条记录发布到 **Kademlia DHT**，DHT key = `SHA256(分享码)`。
+- 接收方输入同一分享码，在 DHT 查到对方 `PeerId`，随即发起连接。
+
+<Mermaid chart={`sequenceDiagram
+  participant A as 发送方
+  participant DHT as Kademlia DHT
+  participant B as 接收方
+  A->>DHT: publish SHA256(code) → PeerId_A
+  B->>DHT: query SHA256(code)
+  DHT-->>B: PeerId_A
+  B->>A: 发起连接
+`} />
+
+> SwarmDrop **不用 DHT 去枚举设备列表**：网络里设备太多，且无法预判连接质量。
+> DHT 只用来精确定位某个分享码背后的那一台设备。
+
+## NAT 穿透与自动选路
+
+知道对方 `PeerId` 后，连接按这个顺序推进，自动选最快可用路径：
+
+1. **直连**：双方都在公网时直接握手。
+2. **DCUtR 打洞**：借中继协调时序，在两侧 NAT 上同时打洞，成功则升级为直连。
+3. **Relay 中继**：打洞失败时，流量经中继节点转发。由于端到端加密，中继看不到明文。
+
+局域网内则完全不用 DHT：**mDNS** 直接发现同网设备，延迟最低。
+
+## 引导节点
+
+新节点要加入 DHT 网络，需要一个已知的入口，即**引导节点**。
+SwarmDrop 自带一个公共引导节点，你也可以[自建](/docs/self-host)，连发现层都不依赖第三方。
