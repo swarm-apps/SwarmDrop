@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <clipPath id="rounded-bg">
+      <rect width="1024" height="1024" rx="224" ry="224"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#rounded-bg)">
+    <!-- Background -->
+    <rect width="1024" height="1024" rx="224" ry="224" fill="#1E40AF"/>
+
+    <!-- Hexagons (Lucide hexagon icon) -->
+    <!-- Center hexagon (25% opacity) -->
+    <svg x="362" y="362" width="300" height="300" viewBox="0 0 24 24" fill="none" stroke="#93C5FD" stroke-opacity="0.25" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    </svg>
+
+    <!-- Outer hexagons (19% opacity) -->
+    <!-- NE -->
+    <svg x="492" y="137" width="300" height="300" viewBox="0 0 24 24" fill="none" stroke="#93C5FD" stroke-opacity="0.19" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    </svg>
+    <!-- E -->
+    <svg x="622" y="362" width="300" height="300" viewBox="0 0 24 24" fill="none" stroke="#93C5FD" stroke-opacity="0.19" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    </svg>
+    <!-- SE -->
+    <svg x="492" y="587" width="300" height="300" viewBox="0 0 24 24" fill="none" stroke="#93C5FD" stroke-opacity="0.19" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    </svg>
+    <!-- SW -->
+    <svg x="232" y="587" width="300" height="300" viewBox="0 0 24 24" fill="none" stroke="#93C5FD" stroke-opacity="0.19" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    </svg>
+    <!-- W -->
+    <svg x="102" y="362" width="300" height="300" viewBox="0 0 24 24" fill="none" stroke="#93C5FD" stroke-opacity="0.19" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    </svg>
+    <!-- NW -->
+    <svg x="232" y="137" width="300" height="300" viewBox="0 0 24 24" fill="none" stroke="#93C5FD" stroke-opacity="0.19" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    </svg>
+
+    <!-- Paper plane -->
+    <!-- Upper wing -->
+    <path d="M698 322 L258 476 L456 564 Z" fill="#E0F2FE"/>
+    <!-- Lower wing -->
+    <path d="M698 322 L456 564 L544 762 Z" fill="#7DD3FC"/>
+  </g>
+</svg>
