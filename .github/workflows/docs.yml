@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 从 docs/package.json 的 packageManager 字段读版本（若无则用最新），避免写死
+      # 从根 package.json 的 packageManager 字段读唯一版本，避免冲突
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
