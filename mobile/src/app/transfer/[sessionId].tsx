@@ -154,6 +154,7 @@ export default function TransferDetailScreen() {
   const dbHistory = useTransferStore((s) => s.dbHistory);
   const deleteHistoryItem = useTransferStore((s) => s.deleteHistoryItem);
   const resumeHistoryItem = useTransferStore((s) => s.resumeHistoryItem);
+  const removeAndRefresh = useTransferStore((s) => s.removeAndRefresh);
   const startSend = useTransferStore((s) => s.startSend);
 
   const historyMatch = useMemo(
@@ -219,12 +220,13 @@ export default function TransferDetailScreen() {
     setBusy("pausing");
     try {
       await getMobileCore().pauseTransfer(sessionId);
+      await removeAndRefresh(sessionId);
     } catch (err) {
       toast.error(t`暂停失败`, errorMessage(err));
     } finally {
       setBusy(null);
     }
-  }, [sessionId, busy, t]);
+  }, [sessionId, busy, removeAndRefresh, t]);
 
   const onCancel = useCallback(() => {
     if (!sessionId || busy) return;

@@ -7,8 +7,8 @@
 //! 业务逻辑（hash、加密、断点续传、DB checkpoint）全部在 core，
 //! 文件 I/O 通过 `ForeignFileAccess` callback 走 RN 的 expo-file-system。
 
-use swarmdrop_core::transfer::incoming::{TransferOfferEvent, TransferOfferFileEvent};
 use swarmdrop_core::transfer::HostEnumeratedFile;
+use swarmdrop_core::transfer::incoming::{TransferOfferEvent, TransferOfferFileEvent};
 use uuid::Uuid;
 
 use crate::app::MobileCore;
@@ -203,10 +203,15 @@ impl MobileCore {
     pub async fn pause_transfer(&self, session_id: String) -> FfiResult<()> {
         let session_uuid = parse_session_id(&session_id)?;
         let manager = self.transfer_manager_arc().await?;
-        if manager.pause_send(&session_uuid).await.is_err() {
-            let _ = manager.pause_receive(&session_uuid).await;
+        match manager.pause_send(&session_uuid).await {
+            Ok(()) => Ok(()),
+            Err(send_err) => match manager.pause_receive(&session_uuid).await {
+                Ok(()) => Ok(()),
+                Err(receive_err) => Err(FfiError::Transfer(format!(
+                    "暂停传输失败: {send_err}; {receive_err}"
+                ))),
+            },
         }
-        Ok(())
     }
 }
 
