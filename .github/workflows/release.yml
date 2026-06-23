@@ -117,17 +117,20 @@ jobs:
           ARTIFACT_PATHS: ${{ steps.tauri-action.outputs.artifactPaths }}
         run: |
           set -euo pipefail
+          # tauri-action 的 artifactPaths（JSON 数组）；windows 反斜杠 → 正斜杠后逐行处理。
+          paths="$(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | sed 's#\\#/#g')"
           updater=""
           while IFS= read -r f; do
             [ -z "$f" ] && continue
-            f="${f//\\//}"                       # windows 反斜杠 → 正斜杠
             case "$f" in *.sig) continue ;; esac # 跳过签名文件本身
-            [ -f "${f}.sig" ] || continue        # 只要有同名 .sig 的 updater bundle
+            # 「有同名 .sig」用产物清单内匹配判断，不用文件系统 test -f
+            # （windows 的 D:/ 盘符路径在 Git bash 下 test -f 不可靠，会漏选）。
+            grep -qxF "${f}.sig" <<< "$paths" || continue
             case "$f" in
-              *.nsis.zip) updater="$f"; break ;; # windows 同时产 nsis/msi 时优先 nsis
+              *.nsis.zip|*-setup.exe) updater="$f"; break ;; # windows updater 用 nsis(-setup.exe)
               *) [ -z "$updater" ] && updater="$f" ;;
             esac
-          done < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]')
+          done <<< "$paths"
           if [ -z "$updater" ]; then
             echo "::error::artifactPaths 里没有找到签名 updater bundle"
             printf '%s\n' "$ARTIFACT_PATHS"
