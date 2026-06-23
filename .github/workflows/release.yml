@@ -45,12 +45,16 @@ jobs:
         include:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
+            swarmhive_target: aarch64-apple-darwin
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
+            swarmhive_target: x86_64-apple-darwin
           - platform: ubuntu-22.04
             args: ''
+            swarmhive_target: x86_64-unknown-linux-gnu
           - platform: windows-latest
             args: ''
+            swarmhive_target: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -102,6 +106,61 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # === SwarmHive 发布(每个 target 各一次,append 进同一 version 的 release)===
+      # 从 tauri-action 输出的产物清单里挑出「有同名 .sig」的签名 updater bundle
+      # (.app.tar.gz / .nsis.zip / .AppImage.tar.gz);只发它,安装包(dmg/exe)留 GitHub Release。
+      # 不能传安装包:artifact 唯一键 (release,platform,target,arch,abi) 不含格式,同 target
+      # 多文件会互相覆盖。
+      - name: Pick SwarmHive updater bundle
+        id: shive
+        shell: bash
+        env:
+          ARTIFACT_PATHS: ${{ steps.tauri-action.outputs.artifactPaths }}
+        run: |
+          set -euo pipefail
+          updater=""
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            f="${f//\\//}"                       # windows 反斜杠 → 正斜杠
+            case "$f" in *.sig) continue ;; esac # 跳过签名文件本身
+            [ -f "${f}.sig" ] || continue        # 只要有同名 .sig 的 updater bundle
+            case "$f" in
+              *.nsis.zip) updater="$f"; break ;; # windows 同时产 nsis/msi 时优先 nsis
+              *) [ -z "$updater" ] && updater="$f" ;;
+            esac
+          done < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]')
+          if [ -z "$updater" ]; then
+            echo "::error::artifactPaths 里没有找到签名 updater bundle"
+            printf '%s\n' "$ARTIFACT_PATHS"
+            exit 1
+          fi
+          echo "updater bundle: $updater"
+          echo "updater=$updater" >> "$GITHUB_OUTPUT"
+
+      # 把本次版本的 changelog(与 GitHub Release body 同源)写成文件,注入 SwarmHive
+      # release notes。经 env 传值 + printf 避免多行内容破坏 YAML / shell。
+      - name: Write SwarmHive release notes
+        shell: bash
+        env:
+          RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
+        run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
+
+      - name: Publish ${{ matrix.swarmhive_target }} to SwarmHive
+        # SwarmHive 是自托管服务,其宕机不应阻断官方 GitHub Release(草稿转正式)。
+        # 失败时本步标红告警,可单独重跑(发布幂等:同 version+target append/upsert)。
+        continue-on-error: true
+        uses: swarm-apps/swarmhive-action@v1.1.0
+        with:
+          server: ${{ secrets.SWARMHIVE_SERVER }}
+          token: ${{ secrets.SWARMHIVE_TOKEN }}
+          platform: tauri
+          app: swarmdrop
+          target: ${{ matrix.swarmhive_target }}
+          channel: stable
+          cli-version: '0.2.0'
+          notes-file: swarmhive-notes.md
+          artifacts: ${{ steps.shive.outputs.updater }}
 
   # 仅在 workflow_dispatch 指定 min_version 时打补丁；tag push 路径直接跳过。
   # 旧版本同时还在 latest.json 里塞 mobile.android.{version,download_url}，
@@ -184,8 +243,7 @@ jobs:
         run: gh release edit "${{ steps.tag.outputs.tag }}" --draft=false
 
   # === SwarmHive 发布 ===
-  # 已彻底移除 UpgradeLink（toolsetlink）同步。更新分发统一走自托管 SwarmHive：
-  # 桌面端更新检查 endpoint 见 src-tauri/tauri.conf.json。
-  # 本仓的 SwarmHive 发布当前由独立的 `.github/workflows/swarmhive-publish.yml`
-  # （workflow_dispatch / 构建 universal-apple-darwin → @swarm-hive/cli publish）承担；
-  # 待多 target（含 win/linux）从 release 资产发布的链路验证后，再 fold 进本 tag 发布线。
+  # 已彻底移除 UpgradeLink（toolsetlink）同步。更新分发统一走自托管 SwarmHive。
+  # SwarmHive 发布现已折叠进上面的 build-tauri job：每个 target 构建完即用
+  # swarmhive-action 直发 stable（4 个 target append 进同一 version 的 release），
+  # 不再有独立的 swarmhive-publish.yml。桌面更新检查 endpoint 见 src-tauri/tauri.conf.json。
