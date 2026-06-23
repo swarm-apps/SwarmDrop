@@ -133,6 +133,44 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
 
+      # === SwarmHive 发布(Android arm64-v8a → stable)===
+      # version / versionCode 取自 app.json(= APK 内实际 versionName / versionCode),
+      # 与 prebuild 出来的 APK 一致;不用 git tag,避免 tag 与 app.json 不同步时错位。
+      - name: Resolve Android version + versionCode
+        id: vc
+        run: |
+          echo "name=$(jq -r '.expo.version' app.json)" >> "$GITHUB_OUTPUT"
+          echo "code=$(jq -r '.expo.android.versionCode // 1' app.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Locate release APK
+        id: apk
+        run: echo "path=$(ls android/app/build/outputs/apk/release/*.apk | head -1)" >> "$GITHUB_OUTPUT"
+
+      # 把本次版本的 changelog(与 GitHub Release body 同源)写成文件,注入 SwarmHive
+      # release notes。经 env 传值 + printf 避免多行内容破坏 YAML / shell。
+      - name: Write SwarmHive release notes
+        env:
+          RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
+        run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
+
+      - name: Publish to SwarmHive
+        # SwarmHive 是自托管服务,其宕机不应阻断 GitHub Release 与 APK 上传。
+        # 失败时本步标红告警,可单独重跑(发布幂等:同 version 重发 upsert)。
+        continue-on-error: true
+        uses: swarm-apps/swarmhive-action@v1.1.0
+        with:
+          server: ${{ secrets.SWARMHIVE_SERVER }}
+          token: ${{ secrets.SWARMHIVE_TOKEN }}
+          platform: android
+          app: swarmdrop-rn
+          version: ${{ steps.vc.outputs.name }}
+          version-code: ${{ steps.vc.outputs.code }}
+          abi: arm64-v8a
+          channel: stable
+          cli-version: '0.2.0'
+          notes-file: swarmhive-notes.md
+          artifacts: ${{ steps.apk.outputs.path }}
+
       - name: Stage APKs with versioned names
         id: stage
         run: |
