@@ -47,7 +47,9 @@ function handleNodeNotStarted(err: unknown): boolean {
     description: t`请先启动网络节点`,
     action: {
       label: t`启动`,
-      onClick: () => useNetworkStore.getState().startNetwork(),
+      onClick: () => {
+        void useNetworkStore.getState().startNetwork();
+      },
     },
   });
   return true;

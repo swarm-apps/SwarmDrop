@@ -138,9 +138,10 @@ impl TransferManager {
             .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
 
         session.cancel_and_wait().await;
+        crate::database::ops::pause_session(&self.db, *session_id).await?;
         self.receive_sessions.remove(session_id);
 
-        let _ = self
+        if let Err(e) = self
             .client
             .send_request(
                 session.peer_id,
@@ -148,7 +149,10 @@ impl TransferManager {
                     session_id: *session_id,
                 }),
             )
-            .await;
+            .await
+        {
+            warn!("通知对方暂停失败: session={}, {}", session_id, e);
+        }
 
         info!("Receive session paused: session={}", session_id);
         Ok(())
@@ -340,13 +344,8 @@ impl TransferManager {
             RuntimeTransferDirection::Unknown
         };
 
-        if let Err(e) = crate::database::ops::mark_session_paused(&self.db, session_id).await {
+        if let Err(e) = crate::database::ops::pause_session(&self.db, session_id).await {
             warn!("DB 标记暂停失败: {}", e);
-        }
-        if let Err(e) =
-            crate::database::ops::sync_session_transferred_bytes(&self.db, session_id).await
-        {
-            warn!("同步 session 字节数失败: {}", e);
         }
 
         Ok(crate::transfer::progress::TransferPausedEvent {

@@ -109,8 +109,6 @@ msgstr "A device is requesting to pair with you"
 #~ msgid "下载中"
 #~ msgstr "Downloading"
 
-#: src/components/upgrade/force-update-dialog.tsx
-#: src/components/upgrade/prompt-update-dialog.tsx
 #: src/routes/_app/settings/-about-section.tsx
 msgid "下载中..."
 msgstr "Downloading..."
@@ -209,6 +207,10 @@ msgstr "Transfer Details"
 #~ msgid "使用面容解锁"
 #~ msgstr "Use Face ID to unlock"
 
+#: src/routes/_onboarding/device-name.lazy.tsx
+msgid "例如：MacBook Pro"
+msgstr ""
+
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "保存位置"
 msgstr "Save Location"
@@ -270,6 +272,10 @@ msgstr "About"
 #: src/components/layout/app-topbar.tsx
 msgid "关闭"
 msgstr "Close"
+
+#: src/routes/_onboarding/device-name.lazy.tsx
+msgid "其他设备配对时会看到这个名称<0/>你可以随时在「设置」里修改"
+msgstr ""
 
 #: src/routes/_auth/setup-password.lazy.tsx
 #~ msgid "再次输入密码"
@@ -338,8 +344,8 @@ msgstr "{0} remaining"
 #~ msgstr "Pair Again"
 
 #: src/components/upgrade/prompt-update-dialog.tsx
-msgid "发现新版本"
-msgstr "New Version Available"
+#~ msgid "发现新版本"
+#~ msgstr "New Version Available"
 
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "发起配对"
@@ -368,7 +374,7 @@ msgstr "Sent to {0}"
 #~ msgid "发送文件"
 #~ msgstr "Send Files"
 
-#. placeholder {0}: device.hostname
+#. placeholder {0}: deviceDisplayName(device)
 #: src/routes/_app/send/index.lazy.tsx
 msgid "发送文件到 {0}"
 msgstr "Send files to {0}"
@@ -555,9 +561,7 @@ msgstr "LAN"
 #~ msgid "局域网和广域网无缝切换"
 #~ msgstr "Seamlessly switch between LAN and WAN"
 
-#. placeholder {0}: deviceInfo.codeRecord.hostname
-#. placeholder {0}: osInfo.hostname
-#: src/stores/pairing-store.ts
+#. placeholder {0}: deviceDisplayName(osInfo)
 #: src/stores/pairing-store.ts
 msgid "已与 {0} 配对成功"
 msgstr "Paired with {0} successfully"
@@ -565,6 +569,10 @@ msgstr "Paired with {0} successfully"
 #: src/stores/pairing-store.ts
 msgid "已与 {deviceName} 配对成功"
 msgstr "Paired with {deviceName} successfully"
+
+#: src/stores/pairing-store.ts
+msgid "已与 {displayName} 配对成功"
+msgstr ""
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已停止"
@@ -601,7 +609,7 @@ msgstr "Completed"
 msgid "已就绪"
 msgstr "Ready"
 
-#. placeholder {0}: osInfo.hostname
+#. placeholder {0}: deviceDisplayName(osInfo)
 #: src/stores/pairing-store.ts
 msgid "已拒绝来自 {0} 的配对请求"
 msgstr "Declined pairing request from {0}"
@@ -679,8 +687,8 @@ msgstr "Bootstrap nodes changed, restart required to take effect"
 #~ msgstr "Current Version"
 
 #: src/components/upgrade/force-update-dialog.tsx
-msgid "当前版本 {currentVersion} 已不再支持，请更新到最新版本 {latestVersion}"
-msgstr "Version {currentVersion} is no longer supported. Please update to the latest version {latestVersion}."
+#~ msgid "当前版本 {currentVersion} 已不再支持，请更新到最新版本 {latestVersion}"
+#~ msgstr "Version {currentVersion} is no longer supported. Please update to the latest version {latestVersion}."
 
 #: src/components/ForceUpdateDialog.tsx
 #~ msgid "当前版本过旧，无法正常使用"
@@ -789,8 +797,8 @@ msgstr "File Transfer"
 #~ msgstr "End-to-end encryption for file transfers"
 
 #: src/components/upgrade/prompt-update-dialog.tsx
-msgid "新版本 {latestVersion} 可用，当前版本 {currentVersion}"
-msgstr "Version {latestVersion} is available. Current version: {currentVersion}"
+#~ msgid "新版本 {latestVersion} 可用，当前版本 {currentVersion}"
+#~ msgstr "Version {latestVersion} is available. Current version: {currentVersion}"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "无效的 Multiaddr 地址"
@@ -818,13 +826,17 @@ msgstr "Pause Transfer"
 msgid "暂无传输记录"
 msgstr "No transfer history"
 
+#: src/routes/_app/devices/-components/add-device-menu.tsx
+msgid "暂未发现附近设备 · 确保对端 SwarmDrop 已启动"
+msgstr ""
+
 #: src/components/transfer/transfer-offer-dialog.tsx
 msgid "更改"
 msgstr "Change"
 
 #: src/components/upgrade/prompt-update-dialog.tsx
-msgid "更新内容"
-msgstr "What's New"
+#~ msgid "更新内容"
+#~ msgstr "What's New"
 
 #. placeholder {0}: latestVersion ?? "?"
 #: src/routes/_app/settings/-about-section.tsx
@@ -926,6 +938,10 @@ msgstr "Downloading v{0}"
 #~ msgid "正在下载最新版本，请勿关闭应用"
 #~ msgstr "Downloading the latest version, please don't close the app"
 
+#: src/routes/_onboarding/device-name.lazy.tsx
+msgid "正在保存..."
+msgstr ""
+
 #: src/lib/auth-messages.ts
 #~ msgid "正在初始化加密存储..."
 #~ msgstr "Initializing encrypted storage..."
@@ -958,8 +974,8 @@ msgstr "Computing checksums ({0}/{1})"
 
 #: src/components/upgrade/force-update-dialog.tsx
 #: src/components/upgrade/prompt-update-dialog.tsx
-msgid "正在重启..."
-msgstr "Restarting..."
+#~ msgid "正在重启..."
+#~ msgstr "Restarting..."
 
 #: src/routes/_auth/setup-password.lazy.tsx
 #~ msgid "此密码用于保护您的设备身份，请妥善保管"
@@ -1086,8 +1102,8 @@ msgid "离线"
 msgstr "Offline"
 
 #: src/components/upgrade/prompt-update-dialog.tsx
-msgid "稍后提醒"
-msgstr "Remind Me Later"
+#~ msgid "稍后提醒"
+#~ msgstr "Remind Me Later"
 
 #: src/routes/_auth/enable-biometric.lazy.tsx
 #~ msgid "稍后设置"
@@ -1095,8 +1111,8 @@ msgstr "Remind Me Later"
 
 #: src/components/upgrade/force-update-dialog.tsx
 #: src/components/upgrade/prompt-update-dialog.tsx
-msgid "立即更新"
-msgstr "Update Now"
+#~ msgid "立即更新"
+#~ msgstr "Update Now"
 
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "端到端加密"
@@ -1133,6 +1149,10 @@ msgstr "Waiting for confirmation"
 msgid "管理 P2P 网络节点的启动和连接状态"
 msgstr "Manage P2P network node startup and connection status"
 
+#: src/routes/_onboarding/device-name.lazy.tsx
+msgid "给设备取个名字"
+msgstr ""
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "网络"
 msgstr "Network"
@@ -1160,6 +1180,11 @@ msgstr "Auto Accept"
 #: src/routes/_app/devices/-components/network-status-bar.tsx
 #~ msgid "节点启动中..."
 #~ msgstr "Node starting..."
+
+#: src/stores/network-store.ts
+#: src/stores/network-store.ts
+msgid "节点启动失败"
+msgstr ""
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "节点已重启"
@@ -1206,13 +1231,17 @@ msgstr "Automatically start P2P network node after unlock"
 msgid "设备信息"
 msgstr "Device Info"
 
-#: src/routes/_app/settings/-device-info-section.tsx
-#~ msgid "设备名称"
-#~ msgstr ""
+#: src/routes/_onboarding/device-name.lazy.tsx
+msgid "设备名称"
+msgstr ""
 
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "设备名称已更新"
 msgstr "Device name updated"
+
+#: src/routes/_onboarding/device-name.lazy.tsx
+msgid "设备名称已设置"
+msgstr ""
 
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "设备在线，可以建立连接"
@@ -1305,6 +1334,10 @@ msgstr "Back"
 #~ msgid "返回主页"
 #~ msgstr ""
 
+#: src/routes/_onboarding/device-name.lazy.tsx
+msgid "进入 SwarmDrop"
+msgstr ""
+
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "连接"
@@ -1350,6 +1383,10 @@ msgstr "Select Files"
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "选择文件夹"
 msgstr "Select Folder"
+
+#: src/routes/_app/devices/-components/add-device-menu.tsx
+msgid "配对"
+msgstr ""
 
 #: src/routes/_app/pairing.tsx
 msgid "配对功能需要 P2P 节点处于运行状态"
@@ -1409,17 +1446,17 @@ msgstr "Retry transfer"
 msgid "错误"
 msgstr "Error"
 
-#: src/routes/_app/devices/index.lazy.tsx
-#~ msgid "附近设备"
-#~ msgstr "Nearby Devices"
+#: src/routes/_app/devices/-components/add-device-menu.tsx
+msgid "附近设备"
+msgstr "Nearby Devices"
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "随节点自动启动"
 msgstr "Auto-start with node"
 
 #: src/components/upgrade/force-update-dialog.tsx
-msgid "需要更新"
-msgstr "Update Required"
+#~ msgid "需要更新"
+#~ msgstr "Update Required"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "默认"

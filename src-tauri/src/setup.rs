@@ -115,7 +115,7 @@ pub fn build_app() -> Builder<Wry> {
 
 /// 注册所有官方 + 第三方 plugin。
 fn register_plugins(builder: Builder<Wry>) -> Builder<Wry> {
-    builder
+    let builder = builder
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
@@ -124,7 +124,14 @@ fn register_plugins(builder: Builder<Wry>) -> Builder<Wry> {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+
+    // MCP Bridge —— 仅 debug build 注册,供 @hypothesi/tauri-mcp-server 调试
+    // (读日志 / 调 IPC / 操作 WebView)。默认监听 0.0.0.0:9223;release 不注册。
+    #[cfg(debug_assertions)]
+    let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+
+    builder
 }
 
 /// `setup` hook：updater plugin 容错注册 + 数据库初始化 + MCP state 装配 +

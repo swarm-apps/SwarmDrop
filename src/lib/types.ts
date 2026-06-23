@@ -32,6 +32,7 @@ export type TransferStatus =
   | "pending"
   | "waiting_accept"
   | "transferring"
+  | "paused"
   | "completed"
   | "failed"
   | "cancelled";

@@ -35,8 +35,9 @@ export function StartNodeSheet({ open, onOpenChange }: StartNodeSheetProps) {
   const isStarting = status === "starting";
 
   const handleStart = async () => {
-    await startNetwork();
-    onOpenChange(false);
+    const ok = await startNetwork();
+    // 失败时保持弹窗打开，让用户看到错误状态与 toast 提示
+    if (ok) onOpenChange(false);
   };
 
   return (

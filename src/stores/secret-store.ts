@@ -10,6 +10,7 @@
 
 import { create } from "zustand";
 import { commands, type PairedDeviceInfo } from "@/lib/bindings";
+import { getErrorMessage } from "@/lib/errors";
 
 /** 已配对设备信息（直接复用后端 specta 生成类型）。 */
 export type PairedDevice = PairedDeviceInfo;
@@ -21,6 +22,8 @@ interface SecretState {
   deviceId: string | null;
   /** 已配对设备列表 */
   pairedDevices: PairedDevice[];
+  /** 身份初始化错误（如 keychain 访问被拒），null 表示成功 */
+  initError: string | null;
   /** 是否已完成 hydration */
   _hasHydrated: boolean;
 
@@ -35,17 +38,27 @@ export const useSecretStore = create<SecretState>()((set, get) => ({
   keypair: null,
   deviceId: null,
   pairedDevices: [],
+  initError: null,
   _hasHydrated: false,
 
   setHasHydrated: (state) => set({ _hasHydrated: state }),
 
   async init() {
-    const identity = await commands.initializeIdentity();
-    set({
-      keypair: identity.keypair,
-      deviceId: identity.deviceId,
-      pairedDevices: identity.pairedDevices,
-    });
+    try {
+      const identity = await commands.initializeIdentity();
+      set({
+        keypair: identity.keypair,
+        deviceId: identity.deviceId,
+        pairedDevices: identity.pairedDevices,
+        initError: null,
+      });
+    } catch (err) {
+      // 身份初始化失败（如 dev 二进制签名漂移导致 keychain 拒读）不应让整个应用
+      // 启动 reject 成静默 UNHANDLED_REJECTION——记录错误，供 startNetwork 等流程
+      // 给出明确提示，而不是表现为"点了没反应"。
+      console.error("Failed to initialize identity:", err);
+      set({ deviceId: null, initError: getErrorMessage(err) });
+    }
   },
 
   addPairedDevice(device) {

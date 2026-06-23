@@ -41,6 +41,7 @@
     "notification:default",
     "updater:default",
     "process:allow-restart",
-    "dialog:default"
+    "dialog:default",
+    "mcp-bridge:default"
   ]
 }

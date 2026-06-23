@@ -34,8 +34,10 @@ where
     TTransfer: TransferRuntime,
     F: FnOnce(AppNetClient) -> TTransfer,
 {
-    let mut os_info = OsInfo::default();
-    os_info.name = device_name;
+    let os_info = OsInfo {
+        name: device_name,
+        ..OsInfo::default()
+    };
     let agent_version = os_info.to_agent_version();
     let config = create_node_config(agent_version, &custom_bootstrap_nodes);
 

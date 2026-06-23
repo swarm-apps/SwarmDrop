@@ -29,7 +29,11 @@ export async function applyDeviceName(name: string): Promise<void> {
   const { status, stopNetwork, startNetwork } = useNetworkStore.getState();
   if (status === "running") {
     await stopNetwork();
-    await startNetwork();
+    const ok = await startNetwork();
+    if (!ok) {
+      // startNetwork 失败时内部已 toast 原因；这里仅记录，避免误判节点已恢复。
+      console.warn("[device-name] 改名后节点重启失败");
+    }
   }
 }
 

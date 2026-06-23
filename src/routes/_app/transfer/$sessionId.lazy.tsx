@@ -162,6 +162,7 @@ const StatusBadge = memo(function StatusBadge({
     pending: t`等待中`,
     waiting_accept: t`等待确认`,
     transferring: t`传输中`,
+    paused: t`已暂停`,
     completed: t`已完成`,
     failed: t`失败`,
     cancelled: t`已取消`,
@@ -193,8 +194,8 @@ const TransferProgress = memo(function TransferProgress({
       )
     : 0;
 
-  // 来自历史记录的暂停会话（status 运行时为 "paused"）
-  if ((session.status as string) === "paused" && historyItem) {
+  // 来自历史记录的暂停会话
+  if (session.status === "paused" && historyItem) {
     const pausedPercent = calcPercent(
       historyItem.transferredBytes,
       historyItem.totalSize,
@@ -332,7 +333,7 @@ const TransferActions = memo(function TransferActions({
 }) {
   const isSend = session.direction === "send";
   const isActive = isActiveStatus(session.status);
-  const isPaused = (session.status as string) === "paused";
+  const isPaused = session.status === "paused";
   const navigate = useNavigate();
 
   const handlePause = useCallback(async () => {

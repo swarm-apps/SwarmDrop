@@ -15,7 +15,6 @@ use tracing::{info, warn};
 
 use crate::device::{DeviceFilter, DeviceListResult, PairedDeviceInfo};
 use crate::host::event_bus::TauriEventBus;
-use crate::host::keychain::DesktopKeychainProvider;
 use crate::network::{NetManagerState, NetworkStatus};
 use crate::AppError;
 
@@ -27,7 +26,7 @@ pub async fn start(
     paired_devices: Vec<PairedDeviceInfo>,
     custom_bootstrap_nodes: Option<Vec<String>>,
 ) -> crate::AppResult<()> {
-    let paired_devices = load_host_paired_devices(paired_devices).await?;
+    let paired_devices = load_host_paired_devices(&app, paired_devices).await?;
 
     // 准备 host adapters（在 NetManager 构造前必须就绪）
     let event_bus_struct = TauriEventBus::new(app.clone());
@@ -100,10 +99,11 @@ pub async fn start(
 }
 
 async fn load_host_paired_devices(
+    app: &AppHandle,
     fallback: Vec<PairedDeviceInfo>,
 ) -> crate::AppResult<Vec<PairedDeviceInfo>> {
-    let provider = DesktopKeychainProvider::new()?;
-    let devices = swarmdrop_core::identity::load_paired_devices(&provider).await?;
+    let provider = crate::host::keychain_provider(app)?;
+    let devices = swarmdrop_core::identity::load_paired_devices(&*provider).await?;
     if devices.is_empty() {
         Ok(fallback)
     } else {

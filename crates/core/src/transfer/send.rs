@@ -208,20 +208,19 @@ impl TransferManager {
     }
 
     pub async fn pause_send(&self, session_id: &Uuid) -> AppResult<()> {
-        {
-            let session = self
-                .send_sessions
-                .get(session_id)
-                .ok_or_else(|| AppError::Transfer(format!("发送会话不存在: {session_id}")))?;
-            session.cancel();
-        }
-
-        let (_, session) = self
+        let session = self
             .send_sessions
-            .remove(session_id)
+            .get(session_id)
+            .map(|r| Arc::clone(r.value()))
             .ok_or_else(|| AppError::Transfer(format!("发送会话不存在: {session_id}")))?;
 
-        let _ = self
+        session.cancel();
+        let progress = session.get_file_progress();
+        crate::database::ops::save_sender_file_progress(&self.db, *session_id, &progress).await?;
+        crate::database::ops::pause_session(&self.db, *session_id).await?;
+        self.remove_send_session(session_id);
+
+        if let Err(e) = self
             .client
             .send_request(
                 session.peer_id,
@@ -229,11 +228,10 @@ impl TransferManager {
                     session_id: *session_id,
                 }),
             )
-            .await;
-
-        let progress = session.get_file_progress();
-        let _ =
-            crate::database::ops::save_sender_file_progress(&self.db, *session_id, &progress).await;
+            .await
+        {
+            warn!("通知对方暂停失败: session={}, {}", session_id, e);
+        }
 
         info!("Send session paused: session={}", session_id);
         Ok(())

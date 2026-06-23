@@ -10,6 +10,8 @@ import {
   type Device,
   type NetworkStatus,
 } from "@/lib/bindings";
+import { toast } from "sonner";
+import { t } from "@lingui/core/macro";
 import { getErrorMessage } from "@/lib/errors";
 import { useSecretStore } from "@/stores/secret-store";
 import { usePairingStore } from "@/stores/pairing-store";
@@ -33,7 +35,7 @@ interface NetworkState {
   // === Actions ===
 
   /** 启动网络 */
-  startNetwork: () => Promise<void>;
+  startNetwork: () => Promise<boolean>;
   /** 停止网络 */
   stopNetwork: () => Promise<void>;
   /** 从后端获取设备列表 */
@@ -104,13 +106,15 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
 
   async startNetwork() {
     const { status } = get();
-    if (status === "running" || status === "starting") return;
+    if (status === "running" || status === "starting") return true;
 
     // 检查 keypair 是否已初始化
-    const { deviceId, pairedDevices } = useSecretStore.getState();
+    const { deviceId, pairedDevices, initError } = useSecretStore.getState();
     if (!deviceId) {
-      set({ status: "error", error: "Keypair not initialized" });
-      return;
+      const reason = initError ?? "设备身份未初始化";
+      set({ status: "error", error: reason });
+      toast.error(t`节点启动失败`, { description: reason });
+      return false;
     }
 
     set({
@@ -135,13 +139,17 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
       }
 
       // status 会在收到 listening 事件后更新为 running
+      return true;
     } catch (err) {
       console.error("Failed to start node:", err);
       await cleanupEventListeners();
+      const message = getErrorMessage(err);
       set({
         status: "error",
-        error: getErrorMessage(err),
+        error: message,
       });
+      toast.error(t`节点启动失败`, { description: message });
+      return false;
     }
   },
 

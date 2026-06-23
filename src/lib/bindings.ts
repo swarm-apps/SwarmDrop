@@ -23,11 +23,11 @@ export const commands = {
 	getDeviceName: () => __TAURI_INVOKE<string | null>("get_device_name"),
 	/**
 	 *  设置设备名并持久化。
-	 *
+	 * 
 	 *  仅写入 `device_config.json`。要让新名字通过 libp2p Identify `agent_version`
 	 *  重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
 	 *  paired_devices + customBootstrapNodes 上下文）。
-	 *
+	 * 
 	 *  `name = None`（或空串/纯空白）清空，回退到系统 hostname。
 	 */
 	setDeviceName: (name: string | null) => __TAURI_INVOKE<null>("set_device_name", { name }),
@@ -37,9 +37,9 @@ export const commands = {
 	getDeviceInfo: (code: string) => __TAURI_INVOKE<DeviceInfo>("get_device_info", { code }),
 	/**
 	 *  向对端发起配对请求
-	 *
+	 * 
 	 *  配对成功后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
-	 *
+	 * 
 	 *  `peer_id` 为 base58 字符串，`addrs` 为 multiaddr 字符串列表，由命令内部解析为
 	 *  libp2p 类型，方便通过 specta 生成 TypeScript bindings（libp2p 类型本身不实现
 	 *  `specta::Type`）。
@@ -47,13 +47,13 @@ export const commands = {
 	requestPairing: (peerId: string, method: PairingMethod, addrs: string[] | null) => __TAURI_INVOKE<PairingResponse>("request_pairing", { peerId, method, addrs }),
 	/**
 	 *  处理收到的配对请求（接受/拒绝）
-	 *
+	 * 
 	 *  接受配对后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
 	 */
 	respondPairingRequest: (pendingId: number, method: PairingMethod, response: PairingResponse) => __TAURI_INVOKE<null>("respond_pairing_request", { pendingId, method, response }),
 	/**
 	 *  取消与指定设备的配对（同步更新运行时状态）
-	 *
+	 * 
 	 *  `peer_id` 为 base58 字符串，由命令内部解析为 libp2p `PeerId`。
 	 */
 	removePairedDevice: (peerId: string) => __TAURI_INVOKE<null>("remove_paired_device", { peerId }),
@@ -74,7 +74,7 @@ export const commands = {
 	getMcpStatus: () => __TAURI_INVOKE<McpStatus>("get_mcp_status"),
 	/**
 	 *  启动 MCP Server
-	 *
+	 * 
 	 *  `port` 为可选参数，默认 19527。
 	 */
 	startMcpServer: (port: number | null) => __TAURI_INVOKE<McpStatus>("start_mcp_server", { port }),
@@ -114,11 +114,11 @@ export type ConnectionType = "lan" | "dcutr" | "relay";
 
 /**
  *  接收端保存位置（host-agnostic）。
- *
+ * 
  *  core 内部统一用此类型，避免把 `entity::SaveLocation`（SeaORM 实体细节）
  *  暴露到公共 API 上。DB 边界用 [`From`] 与 `entity::SaveLocation` 双向转换。
  */
-export type CoreSaveLocation =
+export type CoreSaveLocation = 
 /**  文件系统绝对路径（桌面）或 `Paths.document` 子路径（移动端）。 */
 { type: "path"; path: string };
 
@@ -154,7 +154,7 @@ export type DevicesChanged = Device[];
 
 /**
  *  目录遍历后的扁平化文件条目
- *
+ * 
  *  同时用于 `scan_sources` 命令返回和 `prepare_send` 命令输入，
  *  因此同时派生 Serialize + Deserialize。
  */
@@ -178,7 +178,7 @@ export type FileProgressInfo = {
 };
 
 /**  文件来源：标准文件系统路径 */
-export type FileSource =
+export type FileSource = 
 /**  标准文件系统路径 */
 { type: "path"; path: string };
 
@@ -227,7 +227,7 @@ export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined"
 
 /**
  *  设备操作系统信息。
- *
+ * 
  *  `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
  *  `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
  *  `name.as_deref().unwrap_or(&hostname)` 回退。
@@ -324,7 +324,7 @@ export type SessionStatus = "transferring" | "paused" | "completed" | "failed" |
 
 /**
  *  DHT 上跨设备共享的配对码记录。
- *
+ * 
  *  `created_at` / `expires_at` 保持 `i64`（Unix 秒）以稳定线路格式 +
  *  控制 DHT record 体积；与 IPC 边界的 `PairingCodeInfo`（DateTime<Utc>）解耦。
  */
@@ -496,3 +496,4 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
     return Object.assign(fn, base);
 }
+

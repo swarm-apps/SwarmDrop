@@ -181,11 +181,6 @@ impl ReceiveSession {
 
         for file_info in &self.files {
             if self.cancel_token.is_cancelled() {
-                let event = progress.lock().await.failed_event("用户取消".into());
-                let _ = self
-                    .event_bus
-                    .publish(CoreEvent::TransferFailed { event })
-                    .await;
                 return Ok(false);
             }
 
@@ -202,18 +197,24 @@ impl ReceiveSession {
                 .map(|bm| count_completed_in_bitmap(bm, total_chunks) >= total_chunks)
                 .unwrap_or(false);
 
-            if !is_fully_complete {
-                let progress_event = {
-                    let mut p = progress.lock().await;
-                    p.set_file_transferring(file_info.file_id);
-                    p.progress_event()
-                };
-                if let Some(event) = progress_event {
-                    let _ = self
-                        .event_bus
-                        .publish(CoreEvent::TransferProgress { event })
-                        .await;
-                }
+            if is_fully_complete {
+                info!(
+                    "Skip completed file during resume: {} (file_id={})",
+                    file_info.name, file_info.file_id
+                );
+                continue;
+            }
+
+            let progress_event = {
+                let mut p = progress.lock().await;
+                p.set_file_transferring(file_info.file_id);
+                p.progress_event()
+            };
+            if let Some(event) = progress_event {
+                let _ = self
+                    .event_bus
+                    .publish(CoreEvent::TransferProgress { event })
+                    .await;
             }
 
             let metadata = HostFileMetadata {
@@ -232,10 +233,8 @@ impl ReceiveSession {
 
             self.created_sinks.lock().await.push(sink_id.clone());
 
-            let pull_result = if is_fully_complete {
-                Ok(())
-            } else {
-                self.pull_file_chunks(
+            match self
+                .pull_file_chunks(
                     file_info,
                     total_chunks,
                     &sink_id,
@@ -243,14 +242,21 @@ impl ReceiveSession {
                     effective_bitmap,
                 )
                 .await
-            };
-
-            if let Err(e) = pull_result {
-                // 不删除 .part 文件——bitmap 已刷写到 DB，保留 .part 以支持断点续传。
-                // .part 文件仅在用户主动取消（cancel_receive）时才清理。
-                self.remove_created_sink(&sink_id).await;
-                self.fail_session(&progress, e.to_string()).await;
-                return Err(e);
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    // 暂停/取消时不能 finalize 半截文件。
+                    // 这里保留 created_sinks 跟踪：暂停会丢弃 session 从而保留 .part；
+                    // 主动取消则由 cancel_receive 后续 cleanup_part_files 清理。
+                    return Ok(false);
+                }
+                Err(e) => {
+                    // 不删除 .part 文件——bitmap 已刷写到 DB，保留 .part 以支持断点续传。
+                    // .part 文件仅在用户主动取消（cancel_receive）时才清理。
+                    self.remove_created_sink(&sink_id).await;
+                    self.fail_session(&progress, e.to_string()).await;
+                    return Err(e);
+                }
             }
 
             match self.file_access.finalize_sink(&sink_id).await {
@@ -286,6 +292,18 @@ impl ReceiveSession {
                 "File verified and saved: {} (file_id={})",
                 file_info.name, file_info.file_id
             );
+
+            if let Err(e) = crate::database::ops::mark_file_completed(
+                &self.db,
+                self.session_id,
+                file_info.file_id as i32,
+                completed_bitmap(total_chunks),
+                file_info.size as i64,
+            )
+            .await
+            {
+                warn!("标记文件完成失败: file_id={}, {}", file_info.file_id, e);
+            }
         }
 
         let complete_result = self
@@ -350,7 +368,7 @@ impl ReceiveSession {
         sink_id: &FileSinkId,
         progress: &Arc<Mutex<ProgressTracker>>,
         initial_bitmap: Option<&Vec<u8>>,
-    ) -> AppResult<()> {
+    ) -> AppResult<bool> {
         let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CHUNKS));
         let has_error = Arc::new(AtomicBool::new(false));
         let first_error: Arc<tokio::sync::Mutex<Option<AppError>>> =
@@ -467,6 +485,9 @@ impl ReceiveSession {
                         }
                     }
                     Err(e) => {
+                        if cancel.is_cancelled() {
+                            return;
+                        }
                         has_error.store(true, Ordering::Relaxed);
                         let mut flag = first_error.lock().await;
                         if flag.is_none() {
@@ -506,7 +527,7 @@ impl ReceiveSession {
             return Err(e);
         }
 
-        Ok(())
+        Ok(!self.cancel_token.is_cancelled())
     }
 
     /// 拉取单个分块（含重试）
@@ -677,6 +698,15 @@ fn mark_chunk_completed(bitmap: &mut [u8], chunk_index: u32) {
     }
 }
 
+/// 构造仅包含有效 chunk 位的完整 bitmap
+fn completed_bitmap(total_chunks: u32) -> Vec<u8> {
+    let mut bitmap = vec![0u8; (total_chunks as usize).div_ceil(8)];
+    for chunk_index in 0..total_chunks {
+        mark_chunk_completed(&mut bitmap, chunk_index);
+    }
+    bitmap
+}
+
 /// 统计 bitmap 中已完成的 chunk 数（利用 popcount 加速）
 fn count_completed_in_bitmap(bitmap: &[u8], total_chunks: u32) -> u32 {
     let full_bytes = (total_chunks / 8) as usize;
@@ -710,4 +740,33 @@ fn bytes_from_bitmap(bitmap: &[u8], file_size: u64, total_chunks: u32) -> u64 {
     let last_chunk_done = is_chunk_completed(bitmap, total_chunks - 1);
 
     full_chunk_count as u64 * chunk_size + if last_chunk_done { last_chunk_size } else { 0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_bitmap_marks_only_valid_chunks() {
+        let bitmap = completed_bitmap(10);
+
+        assert_eq!(bitmap.len(), 2);
+        assert_eq!(count_completed_in_bitmap(&bitmap, 10), 10);
+        assert!(!is_chunk_completed(&bitmap, 10));
+    }
+
+    #[test]
+    fn bytes_from_bitmap_counts_partial_last_chunk_once() {
+        let file_size = CHUNK_SIZE as u64 * 2 + 7;
+        let total_chunks = calc_total_chunks(file_size);
+        let mut bitmap = vec![0u8; (total_chunks as usize).div_ceil(8)];
+
+        mark_chunk_completed(&mut bitmap, 0);
+        mark_chunk_completed(&mut bitmap, 2);
+
+        assert_eq!(
+            bytes_from_bitmap(&bitmap, file_size, total_chunks),
+            CHUNK_SIZE as u64 + 7
+        );
+    }
 }

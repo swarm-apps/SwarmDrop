@@ -1,9 +1,8 @@
 use swarm_p2p_core::libp2p::identity::Keypair;
 use swarmdrop_core::device::PairedDeviceInfo;
-use swarmdrop_core::host::{DeviceIdentityBytes, KeychainProvider};
+use swarmdrop_core::host::DeviceIdentityBytes;
 use tauri::{AppHandle, Manager};
 
-use crate::host::keychain::DesktopKeychainProvider;
 use crate::AppResult;
 
 #[derive(Debug, serde::Serialize, specta::Type)]
@@ -19,8 +18,8 @@ pub struct IdentityState {
 #[tauri::command]
 #[specta::specta]
 pub async fn initialize_identity(app: AppHandle) -> AppResult<IdentityState> {
-    let provider = DesktopKeychainProvider::new()?;
-    let identity = swarmdrop_core::identity::load_or_create_identity(&provider).await?;
+    let provider = crate::host::keychain_provider(&app)?;
+    let identity = swarmdrop_core::identity::load_or_create_identity(&*provider).await?;
     let paired_devices = provider.load_paired_devices().await?;
     let device_id = identity.peer_id.to_string();
 
@@ -77,7 +76,7 @@ pub async fn register_keypair(app: AppHandle, keypair: Vec<u8>) -> AppResult<Str
         .map_err(|e| crate::AppError::identity(e.to_string()))?;
     let peer_id = keypair.public().to_peer_id();
 
-    let provider = DesktopKeychainProvider::new()?;
+    let provider = crate::host::keychain_provider(&app)?;
     provider
         .save_identity(DeviceIdentityBytes {
             keypair: keypair

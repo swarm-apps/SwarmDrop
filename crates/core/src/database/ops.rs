@@ -95,6 +95,22 @@ pub async fn update_file_checkpoint(
     .await
 }
 
+/// 标记单个文件完成，并写入完整 checkpoint
+pub async fn mark_file_completed(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    file_id: i32,
+    completed_chunks: Vec<u8>,
+    transferred_bytes: i64,
+) -> AppResult<()> {
+    update_file(db, session_id, file_id, |model| {
+        model.status = Set(FileStatus::Completed);
+        model.completed_chunks = Set(completed_chunks);
+        model.transferred_bytes = Set(transferred_bytes);
+    })
+    .await
+}
+
 /// 重置文件的 checkpoint（bitmap 清零 + transferred_bytes 归零）
 ///
 /// 校验失败后调用——.part 文件已被删除，需要清除 DB 中的 bitmap，
@@ -261,6 +277,12 @@ pub async fn mark_session_paused(db: &DatabaseConnection, session_id: Uuid) -> A
         model.updated_at = Set(now);
     })
     .await
+}
+
+/// 标记暂停并同步 session 级别已传输字节数
+pub async fn pause_session(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
+    mark_session_paused(db, session_id).await?;
+    sync_session_transferred_bytes(db, session_id).await
 }
 
 /// 恢复传输：paused/failed → transferring

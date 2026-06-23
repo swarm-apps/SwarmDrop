@@ -92,7 +92,13 @@ export function BootstrapNodesSection() {
     try {
       const { stopNetwork, startNetwork } = useNetworkStore.getState();
       await stopNetwork();
-      await startNetwork();
+      const ok = await startNetwork();
+      if (!ok) {
+        // startNetwork 失败时内部已 toast 原因；保持 needsRestart 供用户重试，
+        // 不显示成功提示（避免把启动失败掩盖成"已重启"）。
+        setNeedsRestart(true);
+        return;
+      }
       setNeedsRestart(false);
       toast.success(t(msg`节点已重启`));
     } catch {

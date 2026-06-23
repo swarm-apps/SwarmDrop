@@ -35,7 +35,9 @@ function AppLayout() {
     const { autoStart } = usePreferencesStore.getState();
     const { status, startNetwork } = useNetworkStore.getState();
     if (autoStart && status === "stopped") {
-      startNetwork();
+      void startNetwork().then((ok) => {
+        if (!ok) console.warn("[auto-start] 节点自动启动失败");
+      });
     }
   }, []);
 

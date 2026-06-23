@@ -227,10 +227,15 @@ pub async fn pause_transfer(
     session_id: Uuid,
 ) -> crate::AppResult<()> {
     let transfer = get_transfer(&net).await?;
-    if transfer.pause_send(&session_id).await.is_err() {
-        let _ = transfer.pause_receive(&session_id).await;
+    match transfer.pause_send(&session_id).await {
+        Ok(()) => Ok(()),
+        Err(send_err) => match transfer.pause_receive(&session_id).await {
+            Ok(()) => Ok(()),
+            Err(receive_err) => Err(crate::AppError::transfer(format!(
+                "暂停传输失败: {send_err}; {receive_err}"
+            ))),
+        },
     }
-    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]

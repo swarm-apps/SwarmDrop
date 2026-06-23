@@ -8,7 +8,6 @@ use swarmdrop_core::protocol::{PairingMethod, PairingResponse};
 use tauri::{AppHandle, State};
 use tauri_specta::Event as _;
 
-use crate::host::keychain::DesktopKeychainProvider;
 use crate::AppError;
 
 /// 查询设备信息的返回类型
@@ -84,7 +83,7 @@ pub async fn request_pairing(
         .await)?;
 
     if let Some(info) = paired_info {
-        persist_paired_device(info.clone()).await?;
+        persist_paired_device(&app, info.clone()).await?;
         let _ = PairedDeviceAdded(info).emit(&app);
     }
 
@@ -97,6 +96,7 @@ pub async fn request_pairing(
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_paired_device(
+    app: AppHandle,
     net: State<'_, NetManagerState>,
     peer_id: String,
 ) -> AppResult<()> {
@@ -111,7 +111,7 @@ pub async fn remove_paired_device(
     if let Some(manager) = guard.as_ref() {
         manager.pairing().remove_paired_device(&peer_id);
     }
-    persist_paired_device_removal(&peer_id).await?;
+    persist_paired_device_removal(&app, &peer_id).await?;
     Ok(())
 }
 
@@ -134,21 +134,24 @@ pub async fn respond_pairing_request(
     })?;
 
     if let Some(info) = paired_info {
-        persist_paired_device(info.clone()).await?;
+        persist_paired_device(&app, info.clone()).await?;
         let _ = PairedDeviceAdded(info).emit(&app);
     }
 
     Ok(())
 }
 
-async fn persist_paired_device(info: crate::device::PairedDeviceInfo) -> AppResult<()> {
-    let provider = DesktopKeychainProvider::new()?;
-    swarmdrop_core::identity::upsert_paired_device(&provider, info).await?;
+async fn persist_paired_device(
+    app: &AppHandle,
+    info: crate::device::PairedDeviceInfo,
+) -> AppResult<()> {
+    let provider = crate::host::keychain_provider(app)?;
+    swarmdrop_core::identity::upsert_paired_device(&*provider, info).await?;
     Ok(())
 }
 
-async fn persist_paired_device_removal(peer_id: &PeerId) -> AppResult<()> {
-    let provider = DesktopKeychainProvider::new()?;
-    swarmdrop_core::identity::remove_paired_device(&provider, peer_id).await?;
+async fn persist_paired_device_removal(app: &AppHandle, peer_id: &PeerId) -> AppResult<()> {
+    let provider = crate::host::keychain_provider(app)?;
+    swarmdrop_core::identity::remove_paired_device(&*provider, peer_id).await?;
     Ok(())
 }
