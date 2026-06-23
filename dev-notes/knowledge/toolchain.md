@@ -98,3 +98,32 @@ cargo check --workspace
 cargo fmt --all
 cargo clippy --workspace -- -D warnings   # 项目期望零 warning
 ```
+
+## CI / Release
+
+两仓都由 push `v*` tag 触发 release CI（`.github/workflows/release.yml`）。发版 = bump 版本 + commit + tag + push tag。
+
+### pnpm/action-setup 不能与 packageManager 双指定
+
+`pnpm/action-setup` 的 `with: version:` 和 `package.json` 的 `packageManager` 字段**不能同时存在**，否则报 `Multiple versions of pnpm specified` / `ERR_PNPM_BAD_PM_VERSION`，CI 在 Setup pnpm 步骤直接失败。
+
+**正确做法**：SwarmDrop（有 `packageManager: "pnpm@9.0.0"`）的 workflow 里 `pnpm/action-setup@v4` **不要带 `with: version`**，让它读 packageManager。RN（无 packageManager 字段）靠 action 的 `version` 指定。别混用。
+
+### windows updater bundle 选取：用清单内匹配，别用 `[ -f ]`
+
+`release.yml` 的 "Pick SwarmHive updater bundle" 从 tauri-action 的 `artifactPaths` 里挑「有同名 `.sig`」的 updater bundle。两个坑：(1) **windows 的 `D:/...` 盘符路径在 Git bash 下 `[ -f "${f}.sig" ]` 不可靠**（漏判 → updater 选空 → exit 1）；(2) tauri v2 windows updater 产物是 `-setup.exe` + `.exe.sig`（**没有 `.nsis.zip`**）。
+
+**正确做法**：把清单 `jq -r '.[]' | sed 's#\\#/#g'` 转正斜杠存进 `paths`，用 `grep -qxF "${f}.sig" <<< "$paths"` 在清单内判断有无同名 sig；windows 优先选 `*-setup.exe`。
+
+### 双仓 core 依赖：本地 path / 发版 git
+
+RN 的 `packages/swarmdrop-core/rust/mobile-core/Cargo.toml` 依赖 SwarmDrop 的 `swarmdrop-core`/`entity`/`migration`/`swarm-p2p-core`：
+
+- **本地联调**：四个都用 `path = "../../../../../SwarmDrop/crates/*"`（+ `libs/core`），需平级 checkout。
+- **发版**：四个都换成 `git = "https://github.com/swarm-apps/SwarmDrop.git", tag = "vX.Y.Z"`。
+
+**不要做**：git 与 path 混用——`swarm-p2p-core` 会撞 `multiple versions`，四个必须统一来源。cargo 拉 git 依赖会自动递归拉 SwarmDrop 的 `libs` submodule（swarm-p2p）。
+
+**发版顺序**：先发 SwarmDrop（bump + tag `vX.Y.Z` + push tag），tag 在远端存在后，再把 RN 的 git 依赖 pin 到该 tag、发 RN，保证 RN core pin 到可复现的 release commit。
+
+**相关文件**：`.github/workflows/release.yml`（两仓）、`SwarmDrop-RN/packages/swarmdrop-core/rust/mobile-core/Cargo.toml`
