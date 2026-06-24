@@ -10,8 +10,15 @@ export const gitConfig = {
   branch: "main",
 };
 
+export const swarmhiveConfig = {
+  baseUrl: process.env.NEXT_PUBLIC_SWARMHIVE_URL ?? "http://47.115.172.218:3030",
+  appSlug: "swarmdrop",
+  channel: "stable",
+};
+
 /** 各平台下载与相关链接。 */
 export const links = {
+  downloads: "#download",
   releases: `https://github.com/${gitConfig.user}/${gitConfig.repo}/releases/latest`,
   repo: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   mobile: "https://github.com/swarm-apps/SwarmDrop-RN/releases",

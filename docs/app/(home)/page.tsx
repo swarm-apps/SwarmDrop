@@ -1,3 +1,4 @@
+import { getDownloadCatalog, type DownloadCatalog } from "@swarm-hive/sdk";
 import {
   ArrowRight,
   Fingerprint,
@@ -15,14 +16,38 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { DownloadPanel } from "@/components/download-panel";
 import { SwarmVisual } from "@/components/swarm-visual";
-import { appName, links } from "@/lib/shared";
+import { appName, links, swarmhiveConfig } from "@/lib/shared";
 
-export default function HomePage() {
+async function getInitialDownloadCatalog(): Promise<DownloadCatalog | null> {
+  try {
+    return await getDownloadCatalog({
+      baseUrl: swarmhiveConfig.baseUrl,
+      appSlug: swarmhiveConfig.appSlug,
+      channel: swarmhiveConfig.channel,
+      fetchImpl: fetch,
+    });
+  } catch {
+    return null;
+  }
+}
+
+export default async function HomePage() {
+  const initialCatalog = await getInitialDownloadCatalog();
+
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
       <Hero />
       <Stats />
+      <DownloadPanel
+        baseUrl={swarmhiveConfig.baseUrl}
+        appSlug={swarmhiveConfig.appSlug}
+        channel={swarmhiveConfig.channel}
+        fallbackUrl={links.releases}
+        initialCatalog={initialCatalog}
+        allowClientRefresh={swarmhiveConfig.baseUrl.startsWith("https://")}
+      />
       <Features />
       <HowItWorks />
       <Security />
@@ -75,7 +100,7 @@ function Hero() {
             style={{ "--d": "0.18s" } as React.CSSProperties}
           >
             <a
-              href={links.releases}
+              href={links.downloads}
               className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-white shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-[0.98]"
             >
               下载 {appName}
@@ -359,7 +384,7 @@ function FinalCta() {
         </p>
         <div className="relative mt-9 flex flex-wrap items-center justify-center gap-3">
           <a
-            href={links.releases}
+            href={links.downloads}
             className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-7 text-sm font-semibold text-[var(--brand-solid)] shadow-sm transition-transform hover:shadow-md active:scale-[0.98]"
           >
             下载 {appName}
@@ -391,7 +416,7 @@ function Footer() {
           <Link href="/docs" className="transition-colors hover:text-fd-foreground">
             文档
           </Link>
-          <a href={links.releases} className="transition-colors hover:text-fd-foreground">
+          <a href={links.downloads} className="transition-colors hover:text-fd-foreground">
             下载
           </a>
           <a
