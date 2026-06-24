@@ -142,10 +142,6 @@ jobs:
           echo "name=$(jq -r '.expo.version' app.json)" >> "$GITHUB_OUTPUT"
           echo "code=$(jq -r '.expo.android.versionCode // 1' app.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Locate release APK
-        id: apk
-        run: echo "path=$(ls android/app/build/outputs/apk/release/*.apk | head -1)" >> "$GITHUB_OUTPUT"
-
       # changelog(与 GitHub Release body 同源)注入 SwarmHive release notes。
       # CI token 已含 release:update,重发时 PATCH notes 不再 forbidden。
       - name: Write SwarmHive release notes
@@ -153,11 +149,10 @@ jobs:
           RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
         run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
 
-      - name: Publish to SwarmHive
-        # SwarmHive 是自托管服务,其宕机不应阻断 GitHub Release 与 APK 上传。
-        # 失败时本步标红告警,可单独重跑(发布幂等:同 version 重发 upsert)。
-        continue-on-error: true
-        uses: swarm-apps/swarmhive-action@v1.1.0
+      - name: Publish to SwarmHive (upload + finalize)
+        # 去掉旧的 continue-on-error:依赖 action 退出码红绿(权限/配置 exit 2 标红,不再被吞)。
+        # 单 target,一步上传到 draft + finalize + 把 stable 渠道指向它。
+        uses: swarm-apps/swarmhive-action@v2
         with:
           server: ${{ secrets.SWARMHIVE_SERVER }}
           token: ${{ secrets.SWARMHIVE_TOKEN }}
@@ -166,10 +161,11 @@ jobs:
           version: ${{ steps.vc.outputs.name }}
           version-code: ${{ steps.vc.outputs.code }}
           abi: arm64-v8a
+          finalize: "true"
           channel: stable
-          cli-version: '0.4.0'
           notes-file: swarmhive-notes.md
-          artifacts: ${{ steps.apk.outputs.path }}
+          # action v2 内置选取:给 glob 即可(android 白名单 .apk)。
+          artifact-paths: android/app/build/outputs/apk/release/*.apk
 
       - name: Stage APKs with versioned names
         id: stage
