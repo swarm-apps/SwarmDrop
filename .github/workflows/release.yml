@@ -140,10 +140,14 @@ jobs:
           echo "updater bundle: $updater"
           echo "updater=$updater" >> "$GITHUB_OUTPUT"
 
-      # 注:不再向 SwarmHive 注入 release notes。CLI 对「已存在的 release + 传 notes」
-      # 会走 PATCH 更新(需 release:update 权限),重发/补传 target 时 CI token 缺该权限会
-      # 在上传 artifact 前就失败。完整 changelog 仍在 GitHub Release;若要恢复 SwarmHive
-      # notes,给 CI token 加 release:update 权限后再传回 --notes-file 即可。
+      # 把本次版本的 changelog(与 GitHub Release body 同源)写成文件,注入 SwarmHive
+      # release notes。CI token 已含 release:update,重发时 PATCH notes 不再 forbidden。
+      - name: Write SwarmHive release notes
+        shell: bash
+        env:
+          RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
+        run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
+
       - name: Publish ${{ matrix.swarmhive_target }} to SwarmHive
         # SwarmHive 是自托管服务,其宕机不应阻断官方 GitHub Release(草稿转正式)。
         # 失败时本步标红告警,可单独重跑(发布幂等:同 version+target append/upsert)。
@@ -157,6 +161,7 @@ jobs:
           target: ${{ matrix.swarmhive_target }}
           channel: stable
           cli-version: '0.4.0'
+          notes-file: swarmhive-notes.md
           artifacts: ${{ steps.shive.outputs.updater }}
 
   # 仅在 workflow_dispatch 指定 min_version 时打补丁；tag push 路径直接跳过。
