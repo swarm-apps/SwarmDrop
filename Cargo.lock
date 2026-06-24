@@ -7589,7 +7589,7 @@ dependencies = [
 
 [[package]]
 name = "swarmdrop"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "async-trait",
  "axum",
@@ -7639,7 +7639,7 @@ dependencies = [
 
 [[package]]
 name = "swarmdrop-core"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "async-trait",
  "blake3",
