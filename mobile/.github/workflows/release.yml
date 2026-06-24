@@ -146,13 +146,8 @@ jobs:
         id: apk
         run: echo "path=$(ls android/app/build/outputs/apk/release/*.apk | head -1)" >> "$GITHUB_OUTPUT"
 
-      # 把本次版本的 changelog(与 GitHub Release body 同源)写成文件,注入 SwarmHive
-      # release notes。经 env 传值 + printf 避免多行内容破坏 YAML / shell。
-      - name: Write SwarmHive release notes
-        env:
-          RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
-        run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
-
+      # 注:不再注入 SwarmHive release notes —— 对已存在 release 传 notes 会走 PATCH
+      # (需 release:update 权限),重发时 CI token 缺该权限会失败。changelog 仍在 GitHub Release。
       - name: Publish to SwarmHive
         # SwarmHive 是自托管服务,其宕机不应阻断 GitHub Release 与 APK 上传。
         # 失败时本步标红告警,可单独重跑(发布幂等:同 version 重发 upsert)。
@@ -167,8 +162,7 @@ jobs:
           version-code: ${{ steps.vc.outputs.code }}
           abi: arm64-v8a
           channel: stable
-          cli-version: '0.2.0'
-          notes-file: swarmhive-notes.md
+          cli-version: '0.4.0'
           artifacts: ${{ steps.apk.outputs.path }}
 
       - name: Stage APKs with versioned names
