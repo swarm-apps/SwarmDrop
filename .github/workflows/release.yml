@@ -105,40 +105,10 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-      # === SwarmHive 发布(每个 target 各一次,append 进同一 version 的 release)===
-      # 从 tauri-action 输出的产物清单里挑出「有同名 .sig」的签名 updater bundle
-      # (.app.tar.gz / .nsis.zip / .AppImage.tar.gz);只发它,安装包(dmg/exe)留 GitHub Release。
-      # 不能传安装包:artifact 唯一键 (release,platform,target,arch,abi) 不含格式,同 target
-      # 多文件会互相覆盖。
-      - name: Pick SwarmHive updater bundle
-        id: shive
-        shell: bash
-        env:
-          ARTIFACT_PATHS: ${{ steps.tauri-action.outputs.artifactPaths }}
-        run: |
-          set -euo pipefail
-          # tauri-action 的 artifactPaths（JSON 数组）；windows 反斜杠 → 正斜杠后逐行处理。
-          paths="$(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | sed 's#\\#/#g')"
-          updater=""
-          while IFS= read -r f; do
-            [ -z "$f" ] && continue
-            case "$f" in *.sig) continue ;; esac # 跳过签名文件本身
-            # 「有同名 .sig」用产物清单内匹配判断，不用文件系统 test -f
-            # （windows 的 D:/ 盘符路径在 Git bash 下 test -f 不可靠，会漏选）。
-            grep -qxF "${f}.sig" <<< "$paths" || continue
-            case "$f" in
-              # 只选真 updater bundle，排除安装包(deb/rpm/dmg/msi 即便有同名 .sig)。
-              *.app.tar.gz|*.AppImage|*.AppImage.tar.gz|*.nsis.zip|*-setup.exe)
-                updater="$f"; break ;;
-            esac
-          done <<< "$paths"
-          if [ -z "$updater" ]; then
-            echo "::error::artifactPaths 里没有找到签名 updater bundle"
-            printf '%s\n' "$ARTIFACT_PATHS"
-            exit 1
-          fi
-          echo "updater bundle: $updater"
-          echo "updater=$updater" >> "$GITHUB_OUTPUT"
+      # === SwarmHive 发布:每个 target 上传到 draft(发布收尾在 finalize-swarmhive job)===
+      # updater bundle 选取已内置进 swarmhive-action@v2 —— 只给 artifact-paths(glob),
+      # action 自动挑真 updater bundle(.app.tar.gz/.AppImage(.tar.gz)/.nsis.zip/-setup.exe)、
+      # 排除安装包(.dmg/.msi/.deb/.rpm),不再手写 jq/grep/test -f 选取脚本。
 
       # 把本次版本的 changelog(与 GitHub Release body 同源)写成文件,注入 SwarmHive
       # release notes。CI token 已含 release:update,重发时 PATCH notes 不再 forbidden。
@@ -148,21 +118,39 @@ jobs:
           RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
         run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
 
-      - name: Publish ${{ matrix.swarmhive_target }} to SwarmHive
-        # SwarmHive 是自托管服务,其宕机不应阻断官方 GitHub Release(草稿转正式)。
-        # 失败时本步标红告警,可单独重跑(发布幂等:同 version+target append/upsert)。
-        continue-on-error: true
-        uses: swarm-apps/swarmhive-action@v1.1.0
+      - name: Upload ${{ matrix.swarmhive_target }} to SwarmHive (draft)
+        # 去掉旧的 continue-on-error:依赖 action 的退出码红绿(权限/配置 exit 2 标红,不再被
+        # 静默吞掉)。本步只上传到 draft,发布由末步 finalize-swarmhive 一次完成。
+        uses: swarm-apps/swarmhive-action@v2
         with:
           server: ${{ secrets.SWARMHIVE_SERVER }}
           token: ${{ secrets.SWARMHIVE_TOKEN }}
           platform: tauri
           app: swarmdrop
           target: ${{ matrix.swarmhive_target }}
-          channel: stable
-          cli-version: '0.4.0'
           notes-file: swarmhive-notes.md
-          artifacts: ${{ steps.shive.outputs.updater }}
+          # macOS 走 --target 子目录;linux/windows 无 --target 走 target/release —— 两条 glob
+          # 各匹配各的,不存在的目录自动跳过。
+          artifact-paths: |
+            src-tauri/target/${{ matrix.swarmhive_target }}/release/bundle/**/*
+            src-tauri/target/release/bundle/**/*
+
+  # === SwarmHive 发布收尾 ===
+  # 4 个 target 都上传到 draft 后,这里一次性 finalize(幂等发布)并把 stable 渠道指向它。
+  # 取代旧的「每个 target 各自 publish=true 抢发布」——配合 server 端原子 upsert + 唯一索引,
+  # 多 target 并发不再丢 artifact。发布失败(权限 exit 2 / 服务端 exit 1)会标红,不被吞。
+  finalize-swarmhive:
+    needs: [build-tauri]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: swarm-apps/swarmhive-action@v2
+        with:
+          server: ${{ secrets.SWARMHIVE_SERVER }}
+          token: ${{ secrets.SWARMHIVE_TOKEN }}
+          app: swarmdrop
+          version: ${{ needs.build-tauri.outputs.appVersion }}
+          finalize: "true"
+          channel: stable
 
   # 仅在 workflow_dispatch 指定 min_version 时打补丁；tag push 路径直接跳过。
   # 旧版本同时还在 latest.json 里塞 mobile.android.{version,download_url}，
@@ -246,6 +234,7 @@ jobs:
 
   # === SwarmHive 发布 ===
   # 已彻底移除 UpgradeLink（toolsetlink）同步。更新分发统一走自托管 SwarmHive。
-  # SwarmHive 发布现已折叠进上面的 build-tauri job：每个 target 构建完即用
-  # swarmhive-action 直发 stable（4 个 target append 进同一 version 的 release），
-  # 不再有独立的 swarmhive-publish.yml。桌面更新检查 endpoint 见 src-tauri/tauri.conf.json。
+  # 流程(harden-publish-flow):build-tauri 每个 target 构建完用 swarmhive-action@v2
+  # 上传到 **draft**(4 个 target append 进同一 version 的 release),最后 finalize-swarmhive
+  # job 一次性 finalize + 把 stable 渠道指向它。action v2 内置 updater bundle 选取、退出码红绿。
+  # 桌面更新检查 endpoint 见 src-tauri/tauri.conf.json。
