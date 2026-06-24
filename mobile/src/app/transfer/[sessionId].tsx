@@ -238,12 +238,16 @@ export default function TransferDetailScreen() {
     setBusy("cancelling");
     try {
       await getMobileCore().cancelTransfer(sessionId);
+      await removeAndRefresh(sessionId);
+      setCancelOpen(false);
+      toast.success(t`已取消传输`);
+      router.replace("/transfer" as never);
     } catch (err) {
       toast.error(t`取消失败`, errorMessage(err));
     } finally {
       setBusy(null);
     }
-  }, [sessionId, t]);
+  }, [sessionId, removeAndRefresh, router, t]);
 
   const onResume = useCallback(async () => {
     if (!sessionId || busy) return;

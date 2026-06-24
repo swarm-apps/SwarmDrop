@@ -193,10 +193,15 @@ impl MobileCore {
     pub async fn cancel_transfer(&self, session_id: String) -> FfiResult<()> {
         let session_uuid = parse_session_id(&session_id)?;
         let manager = self.transfer_manager_arc().await?;
-        if manager.cancel_send(&session_uuid).await.is_err() {
-            let _ = manager.cancel_receive(&session_uuid).await;
+        match manager.cancel_send(&session_uuid).await {
+            Ok(()) => Ok(()),
+            Err(send_err) => match manager.cancel_receive(&session_uuid).await {
+                Ok(()) => Ok(()),
+                Err(receive_err) => Err(FfiError::Transfer(format!(
+                    "取消传输失败: {send_err}; {receive_err}"
+                ))),
+            },
         }
-        Ok(())
     }
 
     /// 暂停传输（自动判断方向）

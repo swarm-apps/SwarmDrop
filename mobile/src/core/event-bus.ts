@@ -8,6 +8,7 @@ import {
   fireNotifyPairingRequest,
   fireNotifyTransferOffer,
 } from "@/core/notifier";
+import { toast } from "@/lib/toast";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { useNotificationStore } from "@/stores/notification-store";
 import { useTransferStore } from "@/stores/transfer-store";
@@ -101,14 +102,23 @@ function routeEventToStores(event: MobileCoreEvent): void {
 
     case MobileCoreEvent_Tags.TransferFailed: {
       const { sessionId, error } = event.inner;
-      useTransferStore.getState().setError(t`传输失败：${error}`);
+      if (error.startsWith("对方取消")) {
+        const message = t`对方已取消传输`;
+        toast.info(message);
+        useTransferStore.getState().setError(message);
+      } else {
+        toast.error(t`传输失败`, error);
+        useTransferStore.getState().setError(t`传输失败：${error}`);
+      }
       void useTransferStore.getState().removeAndRefresh(sessionId);
       break;
     }
 
     case MobileCoreEvent_Tags.TransferPaused: {
       // 对端暂停：刷新历史（DB 已被 core 标记为 paused）再移除活跃
-      useTransferStore.getState().setError(t`对方已暂停传输`);
+      const message = t`对方已暂停传输`;
+      toast.info(message);
+      useTransferStore.getState().setError(message);
       void useTransferStore.getState().removeAndRefresh(event.inner.sessionId);
       break;
     }
