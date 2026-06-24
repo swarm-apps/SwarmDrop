@@ -127,8 +127,9 @@ jobs:
             # （windows 的 D:/ 盘符路径在 Git bash 下 test -f 不可靠，会漏选）。
             grep -qxF "${f}.sig" <<< "$paths" || continue
             case "$f" in
-              *.nsis.zip|*-setup.exe) updater="$f"; break ;; # windows updater 用 nsis(-setup.exe)
-              *) [ -z "$updater" ] && updater="$f" ;;
+              # 只选真 updater bundle，排除安装包(deb/rpm/dmg/msi 即便有同名 .sig)。
+              *.app.tar.gz|*.AppImage|*.AppImage.tar.gz|*.nsis.zip|*-setup.exe)
+                updater="$f"; break ;;
             esac
           done <<< "$paths"
           if [ -z "$updater" ]; then
@@ -139,14 +140,10 @@ jobs:
           echo "updater bundle: $updater"
           echo "updater=$updater" >> "$GITHUB_OUTPUT"
 
-      # 把本次版本的 changelog(与 GitHub Release body 同源)写成文件,注入 SwarmHive
-      # release notes。经 env 传值 + printf 避免多行内容破坏 YAML / shell。
-      - name: Write SwarmHive release notes
-        shell: bash
-        env:
-          RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
-        run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
-
+      # 注:不再向 SwarmHive 注入 release notes。CLI 对「已存在的 release + 传 notes」
+      # 会走 PATCH 更新(需 release:update 权限),重发/补传 target 时 CI token 缺该权限会
+      # 在上传 artifact 前就失败。完整 changelog 仍在 GitHub Release;若要恢复 SwarmHive
+      # notes,给 CI token 加 release:update 权限后再传回 --notes-file 即可。
       - name: Publish ${{ matrix.swarmhive_target }} to SwarmHive
         # SwarmHive 是自托管服务,其宕机不应阻断官方 GitHub Release(草稿转正式)。
         # 失败时本步标红告警,可单独重跑(发布幂等:同 version+target append/upsert)。
@@ -159,8 +156,7 @@ jobs:
           app: swarmdrop
           target: ${{ matrix.swarmhive_target }}
           channel: stable
-          cli-version: '0.2.0'
-          notes-file: swarmhive-notes.md
+          cli-version: '0.4.0'
           artifacts: ${{ steps.shive.outputs.updater }}
 
   # 仅在 workflow_dispatch 指定 min_version 时打补丁；tag push 路径直接跳过。
