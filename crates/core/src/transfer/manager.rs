@@ -15,7 +15,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use swarm_p2p_core::libp2p::PeerId;
@@ -64,6 +64,12 @@ pub struct PendingOffer {
     pub created_at: Instant,
 }
 
+/// 发送方已发出、仍在等待对端 OfferResult 的请求。
+#[derive(Debug, Clone, Copy)]
+pub(super) struct PendingOutboundOffer {
+    pub prepared_id: Uuid,
+}
+
 /// `send_offer` 的返回类型
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -108,6 +114,10 @@ pub struct TransferManager {
 
     pub(super) prepared: DashMap<Uuid, PreparedTransfer>,
     pub(super) pending: DashMap<Uuid, PendingOffer>,
+    /// 本端发起、仍在等待对端接受/拒绝响应的 Offer。
+    pub(super) outbound_offers: DashMap<Uuid, PendingOutboundOffer>,
+    /// 用户已取消、但底层 request 还未返回的 outbound Offer。
+    pub(super) cancelled_outbound_offers: DashSet<Uuid>,
     pub(super) send_sessions: DashMap<Uuid, Arc<SendSession>>,
     pub(super) receive_sessions: Arc<DashMap<Uuid, Arc<ReceiveSession>>>,
 }
@@ -126,6 +136,8 @@ impl TransferManager {
             file_access,
             prepared: DashMap::new(),
             pending: DashMap::new(),
+            outbound_offers: DashMap::new(),
+            cancelled_outbound_offers: DashSet::new(),
             send_sessions: DashMap::new(),
             receive_sessions: Arc::new(DashMap::new()),
         }

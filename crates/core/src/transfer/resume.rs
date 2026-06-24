@@ -18,7 +18,9 @@ use crate::protocol::{
 };
 use crate::transfer::crypto::generate_key;
 use crate::transfer::manager::{PreparedFile, ResumeFileInfo, ResumeInfo, TransferManager};
-use crate::transfer::progress::RuntimeTransferDirection;
+use crate::transfer::progress::{
+    RuntimeTransferDirection, TransferResumedEvent, TransferResumedFileInfo,
+};
 use crate::transfer::sender::SendSession;
 use crate::transfer::{calc_total_chunks, CHUNK_SIZE};
 use crate::{AppError, AppResult};
@@ -243,6 +245,17 @@ impl TransferManager {
         ));
         self.insert_send_session(session_id, send_session);
 
+        let _ = self
+            .event_bus
+            .publish(CoreEvent::TransferResumed {
+                event: build_transfer_resumed_event(
+                    &ctx.session,
+                    &ctx.db_files,
+                    RuntimeTransferDirection::Send,
+                ),
+            })
+            .await;
+
         Ok(TransferResponse::ResumeResult {
             session_id,
             accepted: true,
@@ -269,6 +282,11 @@ impl TransferManager {
             }
         };
 
+        let resumed_event = build_transfer_resumed_event(
+            &ctx.session,
+            &ctx.db_files,
+            RuntimeTransferDirection::Receive,
+        );
         let (file_infos, initial_bitmaps) = build_file_infos_and_bitmaps(&ctx.db_files);
         let save_location = ctx
             .session
@@ -278,21 +296,6 @@ impl TransferManager {
                 path: String::new(),
             });
         let total_size = ctx.session.total_size as u64;
-        let peer_name = ctx.session.peer_name.clone();
-        let peer_id_str = ctx.session.peer_id.0.clone();
-
-        // 构造 resumed 文件信息事件
-        let resumed_files: Vec<crate::transfer::progress::TransferResumedFileInfo> = ctx
-            .db_files
-            .iter()
-            .map(|f| crate::transfer::progress::TransferResumedFileInfo {
-                file_id: f.file_id as u32,
-                name: f.name.clone(),
-                relative_path: f.relative_path.clone(),
-                size: f.size as u64,
-                is_directory: false,
-            })
-            .collect();
 
         self.start_receive_from_offer(
             session_id,
@@ -307,14 +310,7 @@ impl TransferManager {
         let _ = self
             .event_bus
             .publish(CoreEvent::TransferResumed {
-                event: crate::transfer::progress::TransferResumedEvent {
-                    session_id,
-                    direction: RuntimeTransferDirection::Receive,
-                    peer_id: peer_id_str,
-                    peer_name,
-                    files: resumed_files,
-                    total_size,
-                },
+                event: resumed_event,
             })
             .await;
 
@@ -426,6 +422,32 @@ pub(crate) async fn load_resumable_session(
     Ok((session, target_peer))
 }
 
+fn build_transfer_resumed_event(
+    session: &entity::transfer_session::Model,
+    files: &[entity::transfer_file::Model],
+    direction: RuntimeTransferDirection,
+) -> TransferResumedEvent {
+    let resumed_files = files
+        .iter()
+        .map(|f| TransferResumedFileInfo {
+            file_id: f.file_id as u32,
+            name: f.name.clone(),
+            relative_path: f.relative_path.clone(),
+            size: f.size as u64,
+            is_directory: false,
+        })
+        .collect();
+
+    TransferResumedEvent {
+        session_id: session.session_id,
+        direction,
+        peer_id: session.peer_id.0.clone(),
+        peer_name: session.peer_name.clone(),
+        files: resumed_files,
+        total_size: session.total_size as u64,
+    }
+}
+
 pub(crate) fn build_resume_file_infos(
     files: &[entity::transfer_file::Model],
 ) -> (Vec<ResumeFileInfo>, i64) {
@@ -487,4 +509,73 @@ pub(crate) fn build_prepared_files_from_db(
             checksum: f.checksum.clone(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(session_id: Uuid) -> entity::transfer_session::Model {
+        entity::transfer_session::Model {
+            session_id,
+            direction: entity::TransferDirection::Send,
+            peer_id: entity::PeerId("peer-123".to_string()),
+            peer_name: "测试设备".to_string(),
+            total_size: 42,
+            transferred_bytes: 7,
+            status: entity::SessionStatus::Paused,
+            started_at: 1,
+            updated_at: 2,
+            finished_at: None,
+            error_message: None,
+            save_path: None,
+        }
+    }
+
+    fn file(session_id: Uuid) -> entity::transfer_file::Model {
+        entity::transfer_file::Model {
+            id: 1,
+            session_id,
+            file_id: 7,
+            name: "resume.txt".to_string(),
+            relative_path: "nested/resume.txt".to_string(),
+            size: 42,
+            checksum: "checksum".to_string(),
+            status: entity::FileStatus::Pending,
+            transferred_bytes: 7,
+            total_chunks: 1,
+            completed_chunks: vec![1],
+            source_path: Some("/tmp/resume.txt".to_string()),
+        }
+    }
+
+    #[test]
+    fn resumed_event_should_mark_sender_active_when_receiver_initiates_resume() {
+        let session_id = Uuid::new_v4();
+        let session = session(session_id);
+        let files = vec![file(session_id)];
+
+        let event = build_transfer_resumed_event(&session, &files, RuntimeTransferDirection::Send);
+
+        assert_eq!(event.session_id, session_id);
+        assert_eq!(event.direction, RuntimeTransferDirection::Send);
+        assert_eq!(event.peer_id, "peer-123");
+        assert_eq!(event.peer_name, "测试设备");
+        assert_eq!(event.total_size, 42);
+        assert_eq!(event.files.len(), 1);
+        assert_eq!(event.files[0].file_id, 7);
+        assert_eq!(event.files[0].relative_path, "nested/resume.txt");
+    }
+
+    #[test]
+    fn resumed_event_should_mark_receiver_active_when_sender_initiates_resume() {
+        let session_id = Uuid::new_v4();
+        let session = session(session_id);
+        let files = vec![file(session_id)];
+
+        let event =
+            build_transfer_resumed_event(&session, &files, RuntimeTransferDirection::Receive);
+
+        assert_eq!(event.direction, RuntimeTransferDirection::Receive);
+    }
 }

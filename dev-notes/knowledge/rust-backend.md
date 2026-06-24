@@ -68,6 +68,31 @@ pub fn insert_session(...) { ... }
 
 **相关文件**：`src-tauri/src/setup.rs`、`src-tauri/src/lib.rs` 的 `start` 命令
 
+### 断点续传恢复必须双端发布 TransferResumed
+
+恢复协议有两条入口：接收方发起 `ResumeRequest`，发送方发起 `ResumeOffer`。无论哪一端被动收到恢复请求，只要本端重建了 live session，都必须发布 `CoreEvent::TransferResumed`，让 host 把 paused 历史重新提升为 active session。
+
+**正确做法**：
+- `handle_resume_request_impl` 重建 `SendSession` 后发布 `TransferResumed { direction: Send }`
+- `handle_resume_offer_impl` 重建 `ReceiveSession` 后发布 `TransferResumed { direction: Receive }`
+
+**不要做**：
+- 只标记 DB 为 `Transferring` 或只重建 core session；前端 store 不会自动从 history 推断 live session，另一端会停留在 paused 状态。
+
+**相关文件**：`crates/core/src/transfer/resume.rs`、`src/stores/transfer-store.ts`
+
+### 主动取消必须通知对端并写 cancelled
+
+取消不是本地停止任务：本端要取消 live session、通知对端 `TransferRequest::Cancel`、写入 DB `Cancelled`，对端收到后也要标记 cancelled 并发出友好的 UI 提示。
+
+**正确做法**：
+- 发送方 `cancel_send` 也要像接收方一样发送 `Cancel`，不能只 `session.cancel()`
+- 发送方 `waiting_accept` 还没有 `SendSession`，必须通过 `outbound_offers` 记录并在 Offer 异步返回后撤回，避免对端已接受后继续隐藏传输
+- 取消状态写入放在 `crates/core`，Tauri / RN host 只做薄命令封装
+- 前端收到 `TransferFailedEvent` 中的 `对方取消` 时按 info toast 展示，不按错误处理
+
+**相关文件**：`crates/core/src/transfer/send.rs`、`crates/core/src/transfer/receive.rs`、`src/stores/transfer-store.ts`
+
 ## 身份存储 (keychain)
 
 ### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）

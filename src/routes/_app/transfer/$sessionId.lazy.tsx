@@ -3,7 +3,7 @@
  * 传输详情页面 - 展示传输进度、文件树、统计信息
  */
 
-import { useMemo, memo, useCallback } from "react";
+import { useMemo, memo, useCallback, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -335,6 +335,7 @@ const TransferActions = memo(function TransferActions({
   const isActive = isActiveStatus(session.status);
   const isPaused = session.status === "paused";
   const navigate = useNavigate();
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const handlePause = useCallback(async () => {
     try {
@@ -346,8 +347,15 @@ const TransferActions = memo(function TransferActions({
   }, [session.sessionId, navigate]);
 
   const handleCancel = useCallback(async () => {
-    await doCancelTransfer(session.sessionId, isSend ? "send" : "receive");
-  }, [isSend, session.sessionId]);
+    if (isCancelling) return;
+    setIsCancelling(true);
+    try {
+      await doCancelTransfer(session.sessionId, isSend ? "send" : "receive");
+      navigate({ to: "/transfer" });
+    } catch {
+      setIsCancelling(false);
+    }
+  }, [isCancelling, isSend, navigate, session.sessionId]);
 
   const handleOpenFolder = useCallback(async () => {
     try {
@@ -388,9 +396,18 @@ const TransferActions = memo(function TransferActions({
             <Trans>暂停传输</Trans>
           </Button>
         )}
-        <Button variant="outline" onClick={handleCancel} className="flex-1">
-          <X className="mr-2 size-4" />
-          <Trans>取消传输</Trans>
+        <Button
+          variant="outline"
+          onClick={handleCancel}
+          className="flex-1"
+          disabled={isCancelling}
+        >
+          {isCancelling ? (
+            <Loader2 className="mr-2 size-4 animate-spin" />
+          ) : (
+            <X className="mr-2 size-4" />
+          )}
+          {isCancelling ? <Trans>取消中...</Trans> : <Trans>取消传输</Trans>}
         </Button>
       </div>
     );

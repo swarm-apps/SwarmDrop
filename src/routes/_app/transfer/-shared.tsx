@@ -6,6 +6,7 @@
 import { ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { t } from "@lingui/core/macro";
 import { getErrorMessage } from "@/lib/errors";
 import { useTransferStore } from "@/stores/transfer-store";
 import { commands, type TransferHistoryItem } from "@/lib/bindings";
@@ -146,15 +147,17 @@ export async function doCancelTransfer(
   sessionId: string,
   direction: "send" | "receive",
 ) {
-  useTransferStore.getState().cancelSession(sessionId);
   try {
     if (direction === "send") {
       await commands.cancelSend(sessionId);
     } else {
       await commands.cancelReceive(sessionId);
     }
+    useTransferStore.getState().cancelSession(sessionId);
+    toast.success(t`已取消传输`);
   } catch (err) {
     toast.error(getErrorMessage(err));
+    throw err;
   }
 }
 

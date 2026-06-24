@@ -173,14 +173,11 @@ pub async fn cancel_send(
 #[tauri::command]
 #[specta::specta]
 pub async fn cancel_receive(
-    db: State<'_, sea_orm::DatabaseConnection>,
     net: State<'_, NetManagerState>,
     session_id: Uuid,
 ) -> crate::AppResult<()> {
     let transfer = get_transfer(&net).await?;
-    transfer.cancel_receive(&session_id).await?;
-    crate::database::ops::mark_session_cancelled(&db, session_id).await?;
-    Ok(())
+    Ok(transfer.cancel_receive(&session_id).await?)
 }
 
 // ============ 传输历史 API ============

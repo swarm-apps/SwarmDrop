@@ -50,7 +50,13 @@ export async function setupTransferListeners() {
     }),
 
     events.transferFailed.listen((event) => {
+      const { error } = event.payload;
       useTransferStore.getState().failSession(event.payload);
+      if (error.startsWith("对方取消")) {
+        toast.info(t`对方已取消传输`);
+      } else {
+        toast.error(error || t`传输失败`);
+      }
     }),
 
     events.transferPaused.listen((event) => {

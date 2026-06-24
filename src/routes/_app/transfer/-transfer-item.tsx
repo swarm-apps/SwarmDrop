@@ -4,7 +4,7 @@
  * 通过 sessionId 独立订阅 store，避免父组件重渲染
  */
 
-import { memo, useCallback } from "react";
+import { memo, useCallback, useState } from "react";
 import {
   X,
   Pause,
@@ -50,6 +50,7 @@ export const TransferItem = memo(function TransferItem({
     useCallback((s) => s.sessions[sessionId], [sessionId]),
   );
   const navigate = useNavigate();
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const handleClick = useCallback(() => {
     navigate({
@@ -73,10 +74,15 @@ export const TransferItem = memo(function TransferItem({
   const handleCancel = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (!session) return;
-      await doCancelTransfer(sessionId, session.direction);
+      if (!session || isCancelling) return;
+      setIsCancelling(true);
+      try {
+        await doCancelTransfer(sessionId, session.direction);
+      } catch {
+        setIsCancelling(false);
+      }
     },
-    [sessionId, session?.direction],
+    [isCancelling, sessionId, session?.direction],
   );
 
   const handleOpenFolder = useCallback(
@@ -203,8 +209,19 @@ export const TransferItem = memo(function TransferItem({
           </Button>
         )}
         {isActive && (
-          <Button size="icon" variant="ghost" className={DESTRUCTIVE_BTN_CLASS} onClick={handleCancel} title={t`取消传输`}>
-            <X className="size-3.5 md:size-4" />
+          <Button
+            size="icon"
+            variant="ghost"
+            className={DESTRUCTIVE_BTN_CLASS}
+            onClick={handleCancel}
+            disabled={isCancelling}
+            title={isCancelling ? t`取消中...` : t`取消传输`}
+          >
+            {isCancelling ? (
+              <Loader2 className="size-3.5 animate-spin md:size-4" />
+            ) : (
+              <X className="size-3.5 md:size-4" />
+            )}
           </Button>
         )}
         {session.status === "completed" && session.saveLocation && (

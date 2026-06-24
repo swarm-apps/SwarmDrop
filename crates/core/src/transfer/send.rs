@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use crate::host::CoreEvent;
 use crate::protocol::{AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse};
-use crate::transfer::manager::{generate_id, PreparedFile, StartSendResult, TransferManager};
+use crate::transfer::manager::{
+    generate_id, PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager,
+};
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferAcceptedEvent, TransferDbErrorEvent, TransferFailedEvent,
     TransferRejectedEvent,
@@ -74,6 +76,13 @@ impl TransferManager {
             selected_files.len()
         );
 
+        self.outbound_offers.insert(
+            session_id,
+            PendingOutboundOffer {
+                prepared_id: *prepared_id,
+            },
+        );
+
         let client = self.client.clone();
         let this = Arc::clone(self);
         let prepared_id = *prepared_id;
@@ -114,6 +123,13 @@ impl TransferManager {
                     ..
                 })) => {
                     info!("Offer accepted for session {}, key received", session_id);
+                    if this.discard_cancelled_outbound_offer(session_id, prepared_id) {
+                        this.notify_cancel(target_peer, session_id).await;
+                        info!(
+                            "Offer accepted after local cancel, sent Cancel: session={session_id}"
+                        );
+                        return;
+                    }
 
                     if let Err(e) = crate::database::ops::create_session(
                         &this.db,
@@ -149,7 +165,23 @@ impl TransferManager {
                         this.event_bus.clone(),
                     ));
                     this.send_sessions.insert(session_id, send_session);
-                    this.prepared.remove(&prepared_id);
+                    this.close_accepted_outbound_offer(session_id, prepared_id);
+
+                    if this.cancelled_outbound_offers.remove(&session_id).is_some() {
+                        if let Some((_, session)) = this.send_sessions.remove(&session_id) {
+                            session.cancel();
+                        }
+                        if let Err(e) =
+                            crate::database::ops::mark_session_cancelled(&this.db, session_id).await
+                        {
+                            warn!("DB 标记已撤回发送失败: {}", e);
+                        }
+                        this.notify_cancel(target_peer, session_id).await;
+                        info!(
+                            "Send session cancelled immediately after accept: session={session_id}"
+                        );
+                        return;
+                    }
 
                     let _ = this
                         .event_bus
@@ -163,6 +195,9 @@ impl TransferManager {
                     reason,
                     ..
                 })) => {
+                    if this.finish_unaccepted_outbound_offer(session_id, prepared_id) {
+                        return;
+                    }
                     info!("Offer rejected for session {}: {:?}", session_id, reason);
                     let _ = this
                         .event_bus
@@ -176,14 +211,23 @@ impl TransferManager {
                     key: None,
                     ..
                 })) => {
+                    if this.finish_unaccepted_outbound_offer(session_id, prepared_id) {
+                        return;
+                    }
                     warn!("Offer accepted 但未收到密钥: session={}", session_id);
                     publish_failed("对方接受但未提供加密密钥".into()).await;
                 }
                 Ok(other) => {
+                    if this.finish_unaccepted_outbound_offer(session_id, prepared_id) {
+                        return;
+                    }
                     warn!("意外的响应类型: {:?}", other);
                     publish_failed(format!("意外的响应类型: {other:?}")).await;
                 }
                 Err(e) => {
+                    if this.finish_unaccepted_outbound_offer(session_id, prepared_id) {
+                        return;
+                    }
                     warn!("发送 Offer 失败: {}", e);
                     publish_failed(format!("发送 Offer 失败: {e}")).await;
                 }
@@ -238,13 +282,61 @@ impl TransferManager {
     }
 
     pub async fn cancel_send(&self, session_id: &Uuid) -> AppResult<()> {
-        let (_, session) = self
-            .send_sessions
-            .remove(session_id)
-            .ok_or_else(|| AppError::Transfer(format!("发送会话不存在: {session_id}")))?;
+        let Some((_, session)) = self.send_sessions.remove(session_id) else {
+            if let Some(prepared_id) = self.outbound_offers.get(session_id).map(|o| o.prepared_id) {
+                self.cancelled_outbound_offers.insert(*session_id);
+                self.prepared.remove(&prepared_id);
+                info!("Pending outbound offer cancelled: session={}", session_id);
+                return Ok(());
+            }
+
+            return Err(AppError::Transfer(format!("发送会话不存在: {session_id}")));
+        };
 
         session.cancel();
+        self.notify_cancel(session.peer_id, *session_id).await;
+
+        crate::database::ops::mark_session_cancelled(&self.db, *session_id).await?;
         info!("Send session cancelled: session={}", session_id);
         Ok(())
+    }
+
+    fn finish_unaccepted_outbound_offer(&self, session_id: Uuid, prepared_id: Uuid) -> bool {
+        let was_cancelled = self.cancelled_outbound_offers.remove(&session_id).is_some();
+        self.outbound_offers.remove(&session_id);
+        if was_cancelled {
+            self.prepared.remove(&prepared_id);
+        }
+        was_cancelled
+    }
+
+    fn discard_cancelled_outbound_offer(&self, session_id: Uuid, prepared_id: Uuid) -> bool {
+        let was_cancelled = self.cancelled_outbound_offers.remove(&session_id).is_some();
+        if was_cancelled {
+            self.outbound_offers.remove(&session_id);
+            self.prepared.remove(&prepared_id);
+        }
+        was_cancelled
+    }
+
+    fn close_accepted_outbound_offer(&self, session_id: Uuid, prepared_id: Uuid) {
+        self.outbound_offers.remove(&session_id);
+        self.prepared.remove(&prepared_id);
+    }
+
+    async fn notify_cancel(&self, peer_id: PeerId, session_id: Uuid) {
+        if let Err(e) = self
+            .client
+            .send_request(
+                peer_id,
+                AppRequest::Transfer(TransferRequest::Cancel {
+                    session_id,
+                    reason: "用户取消".into(),
+                }),
+            )
+            .await
+        {
+            warn!("通知对方取消失败: session={}, {}", session_id, e);
+        }
     }
 }

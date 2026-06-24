@@ -173,6 +173,7 @@ msgstr "傳輸歷史"
 #: src/routes/_app/transfer/-history-item.tsx
 #: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
+#: src/stores/transfer-store.ts
 msgid "传输失败"
 msgstr "傳輸失敗"
 
@@ -396,6 +397,11 @@ msgstr "取消"
 
 #: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
+msgid "取消中..."
+msgstr "取消中..."
+
+#: src/routes/_app/transfer/-transfer-item.tsx
+#: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "取消传输"
 msgstr "取消傳輸"
 
@@ -530,6 +536,10 @@ msgstr "用戶端設定"
 #~ msgstr "密碼錯誤"
 
 #: src/stores/transfer-store.ts
+msgid "对方已取消传输"
+msgstr "對方已取消傳輸"
+
+#: src/stores/transfer-store.ts
 msgid "对方已暂停传输"
 msgstr "對方已暫停傳輸"
 
@@ -590,6 +600,10 @@ msgstr "已發現節點"
 msgid "已取消"
 msgstr "已取消"
 
+#: src/routes/_app/transfer/-shared.tsx
+msgid "已取消传输"
+msgstr "已取消傳輸"
+
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已复制"
@@ -615,6 +629,7 @@ msgid "已拒绝来自 {0} 的配对请求"
 msgstr "已拒絕來自 {0} 的配對請求"
 
 #: src/routes/_app/transfer/-history-item.tsx
+#: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "已暂停"

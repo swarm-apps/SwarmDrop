@@ -168,6 +168,8 @@ impl TransferManager {
         session.cancel_and_wait().await;
         session.send_cancel().await;
         session.cleanup_part_files().await;
+        self.receive_sessions.remove(session_id);
+        crate::database::ops::mark_session_cancelled(&self.db, *session_id).await?;
         info!("Receive session cancelled: session={}", session_id);
         Ok(())
     }
