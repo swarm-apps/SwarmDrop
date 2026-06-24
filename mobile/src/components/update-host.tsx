@@ -9,12 +9,14 @@
  * iOS 直接返回 null，完整 iOS 升级路径走 TestFlight / App Store。
  * 必须挂在 <UpdateProvider> 内（useUpdate 依赖其 context）。
  */
+import { t } from "@lingui/core/macro";
 import { useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { ForceUpdateDialog } from "@/components/force-update-dialog";
 import { PromptUpdateDialog } from "@/components/prompt-update-dialog";
 import { UpdateProgressDialog } from "@/components/update-progress-dialog";
 import { useUpdate } from "@/hooks/use-update";
+import { toast } from "@/lib/toast";
 
 export function UpdateHost() {
   if (Platform.OS !== "android") return null;
@@ -22,9 +24,10 @@ export function UpdateHost() {
 }
 
 function AndroidUpdateHost() {
-  const { status } = useUpdate();
+  const { status, error } = useUpdate();
   const [promptOpen, setPromptOpen] = useState(false);
   const prevStatusRef = useRef(status);
+  const lastErrorRef = useRef<unknown>(null);
 
   useEffect(() => {
     // status 从其他态变为 "available" → 弹 prompt（强更走 ForceUpdateDialog 自管）。
@@ -37,6 +40,14 @@ function AndroidUpdateHost() {
     }
     prevStatusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    if (status !== "error" || !error || lastErrorRef.current === error) {
+      return;
+    }
+    lastErrorRef.current = error;
+    toast.error(t`更新失败`, error);
+  }, [status, error]);
 
   return (
     <>

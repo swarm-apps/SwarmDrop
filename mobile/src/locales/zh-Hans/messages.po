@@ -629,6 +629,10 @@ msgstr ""
 "暂未发现附近设备\n"
 "确保对端 SwarmDrop 已启动"
 
+#: src/components/update-host.tsx:49
+msgid "更新失败"
+msgstr "更新失败"
+
 #: src/app/settings/about.tsx:133
 #: src/app/settings/about.tsx:139
 msgid "更新日志"

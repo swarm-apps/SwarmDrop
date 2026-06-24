@@ -629,6 +629,10 @@ msgstr ""
 "No nearby devices found\n"
 "Make sure SwarmDrop is running on the other side"
 
+#: src/components/update-host.tsx:49
+msgid "更新失败"
+msgstr "Update failed"
+
 #: src/app/settings/about.tsx:133
 #: src/app/settings/about.tsx:139
 msgid "更新日志"

@@ -67,6 +67,27 @@ compiler 介入会破坏 ubrn 的 turbo-module 形状。
 
 **相关文件**：[lingui.config.ts](../../lingui.config.ts)
 
+## SwarmHive 更新
+
+### 下载 APK 后先校验 HTTP 与 ZIP magic
+
+Android 自动更新的安装入口只会告诉用户“安装包解析失败”，不会解释下载内容是否真是 APK。
+阿里云 OSS 原始 endpoint 会拦截 APK 公网分发并返回 XML：
+`ApkDownloadForbidden: The APK file is not allowed to be distributed in a public network using the OSS endpoint, please use CNAME instead.`
+
+**正确做法**：
+- `expo-downloader` 下载完成后必须检查 HTTP status、文件存在且非空、文件头是 ZIP/APK magic
+  (`PK...`)，失败时删除缓存文件并抛下载错误。
+- SwarmHive 服务端使用阿里云 OSS 分发 APK 时，不要把客户端重定向到
+  `*.oss-cn-*.aliyuncs.com/*.apk` 原始域名；应走 OSS CNAME 域名或服务端代理。
+
+**不要做**：
+- 不要把任意下载结果直接交给 PackageInstaller；XML/HTML 错误页也会被保存成 `.apk`，最后只剩
+  系统级“解析失败”。
+
+**相关文件**：[src/lib/expo-downloader.ts](../../src/lib/expo-downloader.ts),
+[src/components/update-host.tsx](../../src/components/update-host.tsx)
+
 ## Expo / Prebuild
 
 ### android/ 和 ios/ 在根目录是 prebuild 产物（已入 git）
