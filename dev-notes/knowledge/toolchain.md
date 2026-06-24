@@ -103,6 +103,19 @@ cargo clippy --workspace -- -D warnings   # 项目期望零 warning
 
 两仓都由 push `v*` tag 触发 release CI（`.github/workflows/release.yml`）。发版 = bump 版本 + commit + tag + push tag。
 
+### Tauri workspace 的 release bundle 在根 `target/`
+
+SwarmDrop 的 `src-tauri` 是 Cargo workspace member，不是独立 Cargo 项目。`tauri-action`
+打包后产物位于仓库根目录的 `target/.../release/bundle/`，不是 `src-tauri/target/...`。
+
+**正确做法**：
+- SwarmHive `artifact-paths` 同时扫 `target/${{ matrix.swarmhive_target }}/release/bundle/**/*`
+  和 `target/release/bundle/**/*`。
+- 不要写成 `src-tauri/target/...`，否则 `swarmhive-action@v2` 会选不到 updater bundle，
+  CI 在上传步报 `no updater bundles selected`。
+
+**相关文件**：`.github/workflows/release.yml`
+
 ### pnpm/action-setup 不能与 packageManager 双指定
 
 `pnpm/action-setup` 的 `with: version:` 和 `package.json` 的 `packageManager` 字段**不能同时存在**，否则报 `Multiple versions of pnpm specified` / `ERR_PNPM_BAD_PM_VERSION`，CI 在 Setup pnpm 步骤直接失败。

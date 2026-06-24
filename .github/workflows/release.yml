@@ -129,11 +129,11 @@ jobs:
           app: swarmdrop
           target: ${{ matrix.swarmhive_target }}
           notes-file: swarmhive-notes.md
-          # macOS 走 --target 子目录;linux/windows 无 --target 走 target/release —— 两条 glob
-          # 各匹配各的,不存在的目录自动跳过。
+          # src-tauri 是 Cargo workspace member,bundle 输出在仓库根 target/,
+          # macOS 走 --target 子目录;linux/windows 无 --target 走 target/release。
           artifact-paths: |
-            src-tauri/target/${{ matrix.swarmhive_target }}/release/bundle/**/*
-            src-tauri/target/release/bundle/**/*
+            target/${{ matrix.swarmhive_target }}/release/bundle/**/*
+            target/release/bundle/**/*
 
   # === SwarmHive 发布收尾 ===
   # 4 个 target 都上传到 draft 后,这里一次性 finalize(幂等发布)并把 stable 渠道指向它。
