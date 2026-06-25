@@ -93,7 +93,7 @@ export function McpSection() {
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold text-foreground">MCP Server</h2>
-      <div className="rounded-lg border border-border">
+      <div className="glass-card rounded-lg">
         {/* 状态 & 启停 */}
         <div className="flex items-center justify-between border-b border-border p-4">
           <div className="flex flex-col gap-0.5">

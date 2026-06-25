@@ -113,7 +113,7 @@ export function BootstrapNodesSection() {
       <h2 className="text-sm font-semibold text-foreground">
         <Trans>引导节点</Trans>
       </h2>
-      <div className="rounded-lg border border-border">
+      <div className="glass-card rounded-lg">
         {/* 默认节点 */}
         {DEFAULT_BOOTSTRAP_NODES.map((addr) => (
           <div

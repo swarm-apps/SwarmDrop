@@ -72,7 +72,7 @@ export function TransferSettingsSection() {
       <h2 className="text-sm font-semibold text-foreground">
         <Trans>文件传输</Trans>
       </h2>
-      <div className="rounded-lg border border-border">
+      <div className="glass-card rounded-lg">
         <button
           type="button"
           onClick={handleChangePath}

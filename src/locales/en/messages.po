@@ -318,6 +318,14 @@ msgstr "Minimize"
 msgid "准备中..."
 msgstr "Preparing..."
 
+#: src/components/layout/app-topbar.tsx
+msgid "切换到浅色主题"
+msgstr ""
+
+#: src/components/layout/app-topbar.tsx
+msgid "切换到深色主题"
+msgstr ""
+
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "切换过滤条件，或直接使用下方配对码连接。"
 msgstr ""
@@ -423,7 +431,6 @@ msgstr "Canceling..."
 msgid "取消传输"
 msgstr "Cancel Transfer"
 
-#: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "取消配对"
@@ -1388,6 +1395,11 @@ msgstr "Device online, ready to connect"
 #: src/stores/transfer-store.ts
 msgid "设备已取消配对"
 msgstr "Device has been unpaired"
+
+#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/device-card.tsx
+msgid "设备操作"
+msgstr ""
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "设备未找到"

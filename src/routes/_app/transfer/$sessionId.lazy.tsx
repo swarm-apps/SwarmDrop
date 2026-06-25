@@ -441,7 +441,7 @@ const TransferDetailContent = memo(function TransferDetailContent({
   }, [session]);
 
   return (
-    <main className="flex h-full flex-1 flex-col bg-background">
+    <main className="flex h-full flex-1 flex-col bg-transparent">
       {/* 头部 */}
       <header className="flex h-13 items-center gap-2 border-b border-border px-4 lg:px-5">
         <button

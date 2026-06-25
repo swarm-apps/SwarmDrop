@@ -38,7 +38,7 @@ const statusTone = {
   online:
     "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-500/12 dark:text-emerald-300 dark:ring-emerald-400/15",
   offline:
-    "bg-zinc-100 text-zinc-500 ring-black/[0.04] dark:bg-white/[0.055] dark:text-zinc-400 dark:ring-white/10",
+    "bg-zinc-100 text-zinc-500 ring-black/[0.04] dark:bg-secondary dark:text-muted-foreground dark:ring-border",
   unpaired:
     "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-500/12 dark:text-blue-300 dark:ring-blue-400/15",
 };
@@ -91,14 +91,14 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
   if (variant === "list") {
     return (
       <>
-        <div className="group flex items-center gap-3 rounded-[18px] bg-zinc-50/80 p-3.5 ring-1 ring-black/[0.04] transition-[background-color,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white hover:shadow-[0_10px_28px_rgba(15,23,42,0.06)] dark:bg-white/[0.04] dark:ring-white/10 dark:hover:bg-white/[0.07]">
+        <div className="glass-card group flex items-center gap-3 rounded-[18px] p-3.5 transition-[border-color,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-blue-400/25 hover:shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
           {/* Avatar */}
           <div
             className={cn(
-              "flex size-11 shrink-0 items-center justify-center rounded-[15px] ring-1",
+              "glass-control flex size-11 shrink-0 items-center justify-center rounded-[15px]",
               device.isPaired && isOnline
-                ? "bg-blue-50 ring-blue-100 dark:bg-blue-500/15 dark:ring-blue-400/10"
-                : "bg-white ring-black/[0.04] dark:bg-zinc-950/60 dark:ring-white/10",
+                ? "text-blue-600 dark:text-blue-400"
+                : "text-muted-foreground",
             )}
           >
             <DeviceIcon
@@ -149,31 +149,16 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
                   "flex size-10 items-center justify-center rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.96]",
                   isOnline
                     ? "bg-blue-600 text-white hover:bg-blue-700"
-                    : "bg-zinc-100 text-muted-foreground dark:bg-white/[0.06]",
+                    : "glass-control text-muted-foreground",
                 )}
               >
                 <Send className="size-4.5" />
               </button>
               {onUnpair && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white dark:hover:bg-white/[0.08]"
-                    >
-                      <MoreHorizontal className="size-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => setUnpairOpen(true)}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <Unlink className="size-4" />
-                      <Trans>取消配对</Trans>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <DeviceActionMenu
+                  onUnpairClick={() => setUnpairOpen(true)}
+                  label={t`设备操作`}
+                />
               )}
             </div>
           ) : (
@@ -223,13 +208,11 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
           }
         }}
         className={cn(
-          "group relative flex min-h-[132px] flex-col gap-2.5 overflow-hidden rounded-[22px] bg-zinc-50/80 p-3.5 ring-1 ring-black/[0.04] transition-[background-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] dark:bg-white/[0.04] dark:ring-white/10",
+          "group relative flex min-h-[132px] flex-col gap-2.5 overflow-hidden rounded-[22px] p-3.5 transition-[border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+          device.isPaired && isOnline ? "glass-accent" : "glass-card",
           isInteractive
-            ? "cursor-pointer hover:bg-white hover:shadow-[0_18px_42px_rgba(37,99,235,0.10)] active:scale-[0.99] dark:hover:bg-white/[0.07]"
+            ? "cursor-pointer hover:border-blue-400/25 hover:shadow-[0_18px_42px_rgba(37,99,235,0.10)] active:scale-[0.99]"
             : "opacity-72",
-          device.isPaired && isOnline
-            ? "bg-[linear-gradient(135deg,rgba(239,246,255,0.94),rgba(250,250,250,0.92))] dark:bg-[linear-gradient(135deg,rgba(37,99,235,0.12),rgba(255,255,255,0.04))]"
-            : "",
         )}
       >
         <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-white/90 dark:bg-white/15" />
@@ -237,10 +220,10 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
         <div className="flex items-center gap-2.5">
           <div
             className={cn(
-              "flex size-11 shrink-0 items-center justify-center rounded-[15px] ring-1 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105",
+              "glass-control flex size-11 shrink-0 items-center justify-center rounded-[15px] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105",
               isOnline
-                ? "bg-white text-blue-600 ring-blue-100 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-400/10"
-                : "bg-white/80 text-muted-foreground ring-black/[0.04] dark:bg-zinc-950/60 dark:ring-white/10",
+                ? "text-blue-600 dark:text-blue-400"
+                : "text-muted-foreground",
             )}
           >
             <DeviceIcon
@@ -281,33 +264,18 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
           </div>
           {/* More Menu (paired only) */}
           {device.isPaired && onUnpair && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white dark:hover:bg-white/[0.08]"
-                >
-                  <MoreHorizontal className="size-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => setUnpairOpen(true)}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Unlink className="size-4" />
-                  <Trans>取消配对</Trans>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <DeviceActionMenu
+              onUnpairClick={() => setUnpairOpen(true)}
+              onTriggerClick={(e) => e.stopPropagation()}
+              label={t`设备操作`}
+            />
           )}
         </div>
 
         {/* Footer */}
         <div className="mt-auto flex items-center justify-between gap-2">
           {/* Connection Badge */}
-          {connConfig && device.latency !== undefined ? (
+          {connConfig && device.latency != null ? (
             <div
               className={cn(
                 "flex items-center gap-1 rounded-full px-2.5 py-1 ring-1 ring-black/[0.03]",
@@ -340,7 +308,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
                 "h-auto shrink-0 gap-1.5 rounded-full px-3 py-1.5 text-xs transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]",
                 isOnline
                   ? "bg-blue-600 shadow-[0_8px_18px_rgba(37,99,235,0.18)] hover:bg-blue-700"
-                  : "border-transparent bg-white/70 text-muted-foreground ring-1 ring-black/[0.04] dark:bg-white/[0.05] dark:ring-white/10"
+                  : "glass-control border-transparent text-muted-foreground"
               )}
             >
               <Send className="size-3.5" />
@@ -354,7 +322,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
                 e.stopPropagation();
                 onConnect?.(device);
               }}
-              className="h-auto shrink-0 gap-1.5 rounded-full border-transparent bg-white px-3 py-1.5 text-xs text-blue-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-blue-600/10 transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-blue-50 active:scale-[0.97] dark:bg-zinc-950/70 dark:text-blue-400 dark:ring-blue-400/15 dark:hover:bg-blue-500/10"
+              className="glass-control h-auto shrink-0 gap-1.5 rounded-full border-transparent px-3 py-1.5 text-xs text-blue-600 transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97] dark:text-blue-300"
             >
               <Link className="size-3.5" />
               <Trans>连接</Trans>
@@ -371,6 +339,47 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
         onConfirm={() => onUnpair?.(device)}
       />
     </>
+  );
+}
+
+function DeviceActionMenu({
+  onUnpairClick,
+  onTriggerClick,
+  label,
+}: {
+  onUnpairClick: () => void;
+  onTriggerClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  label: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          onClick={onTriggerClick}
+          aria-label={label}
+          title={label}
+          className="glass-control flex size-8 items-center justify-center rounded-full text-muted-foreground transition-[color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground active:scale-[0.96]"
+        >
+          <MoreHorizontal className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="right"
+        align="start"
+        sideOffset={4}
+        className="glass-card min-w-[112px] rounded-[14px] p-1"
+      >
+        <DropdownMenuItem
+          variant="destructive"
+          onClick={onUnpairClick}
+          className="h-8 rounded-[10px] px-2.5 text-xs font-medium text-destructive/90 focus:bg-destructive/10 focus:text-destructive dark:focus:bg-destructive/15"
+        >
+          <Unlink className="size-3.5" />
+          <Trans>取消配对</Trans>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

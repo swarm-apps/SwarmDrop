@@ -48,7 +48,7 @@ export function AboutSection() {
       <h2 className="text-sm font-semibold text-foreground">
         <Trans>关于</Trans>
       </h2>
-      <div className="overflow-hidden rounded-lg border border-border">
+      <div className="glass-card overflow-hidden rounded-lg">
         {/* App Info Row - 桌面端 space-between，支持自动换行 */}
         <div className="flex flex-col gap-4 p-4 min-[480px]:flex-row min-[480px]:items-center min-[480px]:justify-between">
           {/* 应用信息 */}

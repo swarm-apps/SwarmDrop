@@ -146,7 +146,7 @@ export function DeviceInfoSection() {
       <h2 className="text-sm font-semibold text-foreground">
         <Trans>设备信息</Trans>
       </h2>
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="glass-card overflow-hidden rounded-xl">
         {/* 上半部分：身份识别区 */}
         <div className="flex items-center gap-4 p-4 sm:gap-5 sm:p-6">
           {/* 头像区域 */}

@@ -127,7 +127,7 @@ function TransferPage() {
   );
 
   return (
-    <main className="flex h-full flex-1 flex-col bg-background">
+    <main className="flex h-full flex-1 flex-col bg-transparent">
       {/* Page Content —— 页面标题由 AppTopBar 面包屑承担,无独立 header */}
       <div className="flex-1 overflow-auto p-5 lg:p-6">
         {content}

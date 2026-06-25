@@ -38,7 +38,7 @@ export function DirectionIcon({ isSend }: { isSend: boolean }) {
 /* ─── 卡片容器 ─── */
 
 const CARD_BASE =
-  "group relative flex cursor-pointer items-center gap-2.5 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-accent/40 hover:shadow-sm md:gap-3 md:p-3.5";
+  "glass-card group relative flex cursor-pointer items-center gap-2.5 rounded-xl p-3 transition-[border-color,box-shadow,transform] hover:border-blue-400/25 hover:shadow-sm active:scale-[0.995] md:gap-3 md:p-3.5";
 
 export function TransferCard({
   onClick,

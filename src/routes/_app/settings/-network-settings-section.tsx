@@ -16,7 +16,7 @@ export function NetworkSettingsSection() {
       <h2 className="text-sm font-semibold text-foreground">
         <Trans>网络</Trans>
       </h2>
-      <div className="rounded-lg border border-border">
+      <div className="glass-card rounded-lg">
         {/* 自动启动节点 */}
         <div className="flex items-center justify-between p-4">
           <div className="flex flex-col gap-0.5">

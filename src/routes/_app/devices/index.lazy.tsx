@@ -215,9 +215,9 @@ function DesktopDevicesView({
 }: DesktopDevicesViewProps) {
   // 桌面端主屏:设备发现 / 快速配对 / 已配对设备 / 活跃传输 —— 顶栏由全局 AppTopBar 承载
   return (
-    <main className="flex h-full flex-1 flex-col overflow-hidden bg-background">
+    <main className="flex h-full flex-1 flex-col overflow-hidden bg-transparent">
       {isOnline ? (
-        <div className="flex-1 overflow-auto bg-[radial-gradient(circle_at_18%_0%,rgba(37,99,235,0.08),transparent_30%),linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,1)_42%)] dark:bg-[radial-gradient(circle_at_18%_0%,rgba(59,130,246,0.12),transparent_30%),linear-gradient(180deg,rgba(24,24,27,0.98),rgba(9,9,11,1)_46%)]">
+        <div className="flex-1 overflow-auto bg-transparent">
           <div className="mx-auto grid w-full max-w-[1220px] gap-5 px-5 py-5 min-[920px]:grid-cols-[minmax(0,1fr)_360px] lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8 lg:py-7">
             <HomeOverview
               nearbyCount={nearbyDevices.length}
@@ -262,28 +262,26 @@ function HomeOverview({
 }) {
   return (
     <section className="min-[920px]:col-span-2">
-      <div className="overflow-hidden rounded-[24px] border border-black/[0.04] bg-white/70 p-1 shadow-[0_18px_60px_rgba(15,23,42,0.06)] ring-1 ring-white/80 dark:border-white/10 dark:bg-white/[0.035] dark:ring-white/10">
-        <div className="flex flex-col gap-4 rounded-[20px] bg-white px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.92)] dark:bg-zinc-950/80 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-medium text-blue-600 dark:text-blue-400">
-              <span className="flex size-7 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-500/15">
-                <MonitorSmartphone className="size-3.5" />
-              </span>
-              <Trans>设备中心</Trans>
-            </div>
-            <h1 className="mt-2 text-xl font-semibold tracking-tight text-foreground">
-              <Trans>发现设备，配对，然后发送文件</Trans>
-            </h1>
-            <p className="mt-1 max-w-[58ch] text-sm leading-6 text-muted-foreground">
-              <Trans>已配对设备优先展示，附近设备和配对入口收在右侧，打开应用就能开始操作。</Trans>
-            </p>
+      <div className="glass-panel flex flex-col gap-4 rounded-[24px] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs font-medium text-blue-600 dark:text-blue-400">
+            <span className="flex size-7 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-500/15">
+              <MonitorSmartphone className="size-3.5" />
+            </span>
+            <Trans>设备中心</Trans>
           </div>
+          <h1 className="mt-2 text-xl font-semibold tracking-tight text-foreground">
+            <Trans>发现设备，配对，然后发送文件</Trans>
+          </h1>
+          <p className="mt-1 max-w-[58ch] text-sm leading-6 text-muted-foreground">
+            <Trans>已配对设备优先展示，附近设备和配对入口收在右侧，打开应用就能开始操作。</Trans>
+          </p>
+        </div>
 
-          <div className="grid grid-cols-3 gap-2 sm:min-w-[300px]">
-            <OverviewStat label={<Trans>附近</Trans>} value={nearbyCount} />
-            <OverviewStat label={<Trans>已配对</Trans>} value={pairedCount} />
-            <OverviewStat label={<Trans>传输中</Trans>} value={activeCount} />
-          </div>
+        <div className="grid grid-cols-3 gap-2 sm:min-w-[300px]">
+          <OverviewStat label={<Trans>附近</Trans>} value={nearbyCount} />
+          <OverviewStat label={<Trans>已配对</Trans>} value={pairedCount} />
+          <OverviewStat label={<Trans>传输中</Trans>} value={activeCount} />
         </div>
       </div>
     </section>
@@ -298,7 +296,7 @@ function OverviewStat({
   value: number;
 }) {
   return (
-    <div className="rounded-[16px] bg-zinc-50 px-3 py-2.5 text-center ring-1 ring-black/[0.04] dark:bg-white/[0.04] dark:ring-white/10">
+    <div className="rounded-[16px] bg-white/40 px-3 py-2.5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-white/[0.055] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
       <div className="font-mono text-lg font-semibold text-foreground">
         {value}
       </div>
@@ -322,7 +320,7 @@ function SectionHeader({
     <div className="flex min-w-0 items-start justify-between gap-3">
       <div className="flex min-w-0 gap-2.5">
         {Icon && (
-          <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-muted-foreground dark:bg-white/[0.06]">
+          <span className="glass-control mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground">
             <Icon className="size-3.5" />
           </span>
         )}
@@ -338,7 +336,7 @@ function SectionHeader({
         </div>
       </div>
       {typeof count === "number" && (
-        <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground ring-1 ring-black/[0.03] dark:bg-white/[0.06] dark:ring-white/10">
+        <span className="rounded-full bg-foreground/[0.045] px-2.5 py-1 text-[11px] font-semibold text-muted-foreground dark:bg-white/[0.06]">
           {count}
         </span>
       )}
@@ -349,27 +347,18 @@ function SectionHeader({
 function SectionShell({
   children,
   className,
-  innerClassName,
 }: {
   children: React.ReactNode;
   className?: string;
-  innerClassName?: string;
 }) {
   return (
     <section
       className={cn(
-        "rounded-[24px] border border-black/[0.04] bg-white/65 p-1 shadow-[0_16px_50px_rgba(15,23,42,0.055)] ring-1 ring-white/80 dark:border-white/10 dark:bg-white/[0.035] dark:ring-white/10",
+        "glass-panel flex min-h-full flex-col gap-4 rounded-[24px] p-4",
         className,
       )}
     >
-      <div
-        className={cn(
-          "flex min-h-full flex-col gap-4 rounded-[20px] bg-white p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.92)] dark:bg-zinc-950/80 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
-          innerClassName,
-        )}
-      >
-        {children}
-      </div>
+      {children}
     </section>
   );
 }
@@ -386,7 +375,7 @@ function EmptyPanel({
   return (
     <div
       className={cn(
-        "rounded-[18px] border border-dashed border-zinc-200 bg-zinc-50/70 px-4 py-5 dark:border-white/10 dark:bg-white/[0.035]",
+        "rounded-[18px] bg-foreground/[0.035] px-4 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]",
         className,
       )}
     >
@@ -459,7 +448,7 @@ function AddDeviceSection({
     (isNodeRunning && codeInfo === null && errorMessage === null);
 
   return (
-    <SectionShell innerClassName="gap-3.5">
+    <SectionShell className="gap-3.5">
       <SectionHeader
         title={<Trans>添加设备</Trans>}
         count={devices.length}
@@ -467,7 +456,7 @@ function AddDeviceSection({
         description={<Trans>附近设备优先，已配对设备可直接发送。</Trans>}
       />
 
-      <div className="rounded-[18px] bg-zinc-50/80 p-3 ring-1 ring-black/[0.04] dark:bg-white/[0.04] dark:ring-white/10">
+      <div className="space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Radio className="size-3.5" />
@@ -480,7 +469,7 @@ function AddDeviceSection({
         </div>
 
         {filteredDevices.length === 0 ? (
-          <div className="mt-2 rounded-[15px] border border-dashed border-zinc-200 bg-white/70 px-3 py-3 dark:border-white/10 dark:bg-zinc-950/35">
+          <div className="rounded-[15px] bg-foreground/[0.035] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]">
             <p className="text-sm font-medium text-foreground">
               {isFilteredEmpty ? (
                 <Trans>没有符合条件的附近设备</Trans>
@@ -497,7 +486,7 @@ function AddDeviceSection({
             </p>
           </div>
         ) : (
-          <div className="mt-2 flex flex-col gap-2">
+          <div className="flex flex-col gap-2">
             {filteredDevices.map((device) => (
               <NearbyDeviceRow
                 key={device.peerId}
@@ -510,7 +499,9 @@ function AddDeviceSection({
         )}
       </div>
 
-      <div className="overflow-hidden rounded-[16px] bg-[linear-gradient(135deg,rgba(239,246,255,0.78),rgba(255,255,255,0.86))] p-2.5 ring-1 ring-blue-600/10 dark:bg-[linear-gradient(135deg,rgba(37,99,235,0.12),rgba(255,255,255,0.035))] dark:ring-blue-400/15">
+      <div className="h-px bg-foreground/[0.055] dark:bg-white/[0.075]" />
+
+      <div className="glass-accent overflow-hidden rounded-[16px] p-2.5">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[13px] font-medium text-foreground">
@@ -521,7 +512,7 @@ function AddDeviceSection({
             </p>
           </div>
           {codeInfo && (
-            <div className="flex shrink-0 items-center gap-1 rounded-full bg-white/75 px-2 py-0.5 text-[11px] text-muted-foreground ring-1 ring-black/[0.04] dark:bg-zinc-950/60 dark:ring-white/10">
+            <div className="glass-control flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted-foreground">
               <Clock className="size-3" />
               {isExpired ? (
                 <Trans>已过期</Trans>
@@ -533,7 +524,7 @@ function AddDeviceSection({
         </div>
 
         <div className="mt-2.5 grid grid-cols-[minmax(0,1fr)_40px_40px] gap-1.5">
-          <div className="flex h-10 min-w-0 items-center justify-center rounded-[12px] bg-white px-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-black/[0.04] dark:bg-zinc-950/70 dark:ring-white/10">
+          <div className="glass-control flex h-10 min-w-0 items-center justify-center rounded-[12px] px-2.5">
             {isNodeStarting ? (
               <span className="text-[11px] text-muted-foreground">
                 <Trans>等待节点启动</Trans>
@@ -556,7 +547,7 @@ function AddDeviceSection({
             disabled={!isNodeRunning || !codeInfo || isExpired}
             aria-label={copied ? t`已复制` : t`复制配对码`}
             title={copied ? t`已复制` : t`复制配对码`}
-            className="flex size-10 items-center justify-center rounded-[12px] bg-white text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-black/[0.05] transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-blue-50 hover:text-blue-600 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:bg-zinc-950/70 dark:ring-white/10 dark:hover:bg-blue-500/10 dark:hover:text-blue-400"
+            className="glass-control flex size-10 items-center justify-center rounded-[12px] text-muted-foreground transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-blue-600 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:hover:text-blue-300"
           >
             {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           </button>
@@ -570,7 +561,7 @@ function AddDeviceSection({
             disabled={!isNodeRunning}
             aria-label={t`重新生成`}
             title={t`重新生成`}
-            className="flex size-10 items-center justify-center rounded-[12px] bg-white text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-black/[0.05] transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-zinc-100 hover:text-foreground active:scale-[0.98] dark:bg-zinc-950/70 dark:ring-white/10 dark:hover:bg-white/[0.08]"
+            className="glass-control flex size-10 items-center justify-center rounded-[12px] text-muted-foreground transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground active:scale-[0.98]"
           >
             <RefreshCw className="size-3.5" />
           </button>
@@ -579,7 +570,7 @@ function AddDeviceSection({
         <button
           type="button"
           onClick={() => setInputOpen(true)}
-          className="group mt-2 flex w-full min-w-0 items-center gap-2 rounded-[12px] bg-white/75 px-2.5 py-2 text-left ring-1 ring-black/[0.04] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white active:scale-[0.99] dark:bg-zinc-950/50 dark:ring-white/10 dark:hover:bg-white/[0.06]"
+          className="group mt-2 flex w-full min-w-0 items-center gap-2 rounded-[12px] bg-white/38 px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/52 active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.065]"
         >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-blue-50 text-blue-600 ring-1 ring-blue-100 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-400/10">
             <Keyboard className="size-3.5" />
@@ -592,7 +583,7 @@ function AddDeviceSection({
               <Trans>输入另一台设备显示的 6 位数字</Trans>
             </span>
           </span>
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-muted-foreground transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground dark:bg-white/[0.06]">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground/[0.045] text-muted-foreground transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground dark:bg-white/[0.06]">
             <ArrowUpRight className="size-3" />
           </span>
         </button>
@@ -626,7 +617,7 @@ function NearbyDeviceRow({
     <button
       type="button"
       onClick={handleClick}
-      className="group flex min-w-0 items-center gap-3 rounded-[15px] bg-white/70 p-2.5 text-left ring-1 ring-black/[0.04] transition-[background-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white hover:shadow-[0_12px_32px_rgba(37,99,235,0.08)] active:scale-[0.99] dark:bg-zinc-950/45 dark:ring-white/10 dark:hover:bg-white/[0.07]"
+      className="group flex min-w-0 items-center gap-3 rounded-[15px] bg-white/35 p-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] transition-[background-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 hover:shadow-[0_12px_32px_rgba(37,99,235,0.07),inset_0_1px_0_rgba(255,255,255,0.5)] active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.07]"
     >
       <span className="flex size-9 shrink-0 items-center justify-center rounded-[13px] bg-blue-50 text-blue-600 ring-1 ring-blue-100 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-400/10">
         <DeviceIcon className="size-4.5" />
@@ -644,7 +635,7 @@ function NearbyDeviceRow({
         className={cn(
           "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium shadow-[0_8px_18px_rgba(37,99,235,0.18)]",
           isPaired
-            ? "bg-zinc-950 text-white dark:bg-white dark:text-zinc-950"
+            ? "bg-zinc-950 text-white dark:bg-blue-500/20 dark:text-blue-100 dark:ring-1 dark:ring-blue-400/20"
             : "bg-blue-600 text-white",
         )}
       >
@@ -662,7 +653,7 @@ function NearbyFilterControl({
   onChange: (value: NearbyFilter) => void;
 }) {
   return (
-    <div className="flex shrink-0 rounded-full bg-white/80 p-0.5 ring-1 ring-black/[0.04] dark:bg-zinc-950/55 dark:ring-white/10">
+    <div className="flex shrink-0 rounded-full bg-foreground/[0.045] p-0.5 dark:bg-white/[0.06]">
       {nearbyFilterOptions.map((option) => (
         <button
           key={option.value}
@@ -672,7 +663,7 @@ function NearbyFilterControl({
           className={cn(
             "rounded-full px-2 py-1 text-[11px] font-medium transition-[background-color,color] duration-200",
             value === option.value
-              ? "bg-zinc-950 text-white dark:bg-white dark:text-zinc-950"
+              ? "bg-zinc-950 text-white dark:bg-blue-500/20 dark:text-blue-100"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
