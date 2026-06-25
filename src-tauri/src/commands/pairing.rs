@@ -1,4 +1,5 @@
-use crate::events::PairedDeviceAdded;
+use crate::device::DeviceFilter;
+use crate::events::{DevicesChanged, PairedDeviceAdded};
 use crate::network::NetManagerState;
 use crate::AppResult;
 use serde::{Deserialize, Serialize};
@@ -85,6 +86,7 @@ pub async fn request_pairing(
     if let Some(info) = paired_info {
         persist_paired_device(&app, info.clone()).await?;
         let _ = PairedDeviceAdded(info).emit(&app);
+        publish_devices_changed(&app, &net).await;
     }
 
     Ok(response)
@@ -111,7 +113,9 @@ pub async fn remove_paired_device(
     if let Some(manager) = guard.as_ref() {
         manager.pairing().remove_paired_device(&peer_id);
     }
+    drop(guard);
     persist_paired_device_removal(&app, &peer_id).await?;
+    publish_devices_changed(&app, &net).await;
     Ok(())
 }
 
@@ -136,6 +140,7 @@ pub async fn respond_pairing_request(
     if let Some(info) = paired_info {
         persist_paired_device(&app, info.clone()).await?;
         let _ = PairedDeviceAdded(info).emit(&app);
+        publish_devices_changed(&app, &net).await;
     }
 
     Ok(())
@@ -154,4 +159,13 @@ async fn persist_paired_device_removal(app: &AppHandle, peer_id: &PeerId) -> App
     let provider = crate::host::keychain_provider(app)?;
     swarmdrop_core::identity::remove_paired_device(&*provider, peer_id).await?;
     Ok(())
+}
+
+async fn publish_devices_changed(app: &AppHandle, net: &State<'_, NetManagerState>) {
+    let guard = net.lock().await;
+    let Some(manager) = guard.as_ref() else {
+        return;
+    };
+    let devices = manager.devices().get_devices(DeviceFilter::All);
+    let _ = DevicesChanged(devices).emit(app);
 }

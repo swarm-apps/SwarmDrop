@@ -70,6 +70,7 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
 }
 
 export function AppTopBar() {
+  const { t } = useLingui();
   const status = useNetworkStore((s) => s.status);
   const location = useLocation();
   const [startOpen, setStartOpen] = useState(false);
@@ -152,7 +153,18 @@ export function AppTopBar() {
             size="icon"
             className="size-8 rounded-md"
           >
-            <Link to="/settings">
+            <Link to="/transfer" aria-label={t`传输历史`} title={t`传输历史`}>
+              <History className="size-4" />
+            </Link>
+          </Button>
+
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="size-8 rounded-md"
+          >
+            <Link to="/settings" aria-label={t`设置`} title={t`设置`}>
               <Settings className="size-4" />
             </Link>
           </Button>

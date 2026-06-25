@@ -1,6 +1,6 @@
 /**
  * OfflineEmptyState
- * 移动端节点离线时的空状态提示
+ * 桌面端节点离线时的空状态提示
  */
 
 import { WifiOff, Play } from "lucide-react";
@@ -20,7 +20,7 @@ export function OfflineEmptyState({ onStartClick }: OfflineEmptyStateProps) {
         <Trans>节点未启动</Trans>
       </h2>
       <p className="text-center text-sm text-muted-foreground">
-        <Trans>启动 P2P 节点后才能发现设备和传输文件</Trans>
+        <Trans>启动 P2P 节点后即可发现附近设备、接收文件并发起配对</Trans>
       </p>
       <button
         type="button"
