@@ -2,7 +2,7 @@
 
 ## 概览
 
-pnpm workspace（仅 `packages/swarmdrop-core` 一个子包）+ Expo SDK 55 + Metro + Biome + Lingui +
+pnpm workspace（仅 `packages/swarmdrop-core` 一个子包）+ Expo SDK 56 + Metro + Biome + Lingui +
 TypeScript。原生壳走 `expo prebuild`（android/ios 在仓库根，工作流见
 [dev-notes/native-build.md](../native-build.md)）。Rust 子包用 cargo + uniffi-bindgen-react-native。
 
@@ -27,6 +27,29 @@ Metro 不识别 pnpm 默认的 symlink node_modules 结构，找不到 transitiv
 Windows 路径 canonicalize）。升级这两个之前先验证 nativewind/ubrn 兼容性。
 
 **相关文件**：[package.json](../../package.json), [patches/](../../patches/)
+
+### UniFFI 接口变更后必须刷新 iOS xcframework
+
+`packages/swarmdrop-core/SwarmdropCoreFramework.xcframework/**/*.a` 被 `.gitignore` 忽略（静态库
+太大），所以 Rust / UniFFI 接口更新后，tracked 的 C++/TS 绑定可能已经变新，但本机 iOS 静态库仍
+是旧的。`pnpm ios` 链接阶段如果报 `Undefined symbols for architecture arm64`，且缺失符号形如
+`_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_*`，优先怀疑这个问题。Xcode 26 输出里的
+`SwiftUICore.tbd` / MetalToolchain search path warning 可能只是噪声，真正符号列表在
+`.expo/xcodebuild.log`。
+
+**正确做法**：
+- 改了 `packages/swarmdrop-core/rust/mobile-core` 的 UniFFI 暴露接口后，先跑
+  `pnpm --filter react-native-swarmdrop-core build:ios`，再跑 `pnpm ios`。
+- 需要确认时，用 `xcrun nm -gU packages/swarmdrop-core/SwarmdropCoreFramework.xcframework/.../libswarmdrop_mobile_core.a`
+  检查缺失的 `uniffi_swarmdrop_mobile_core_*` 符号是否已进入静态库。
+
+**不要做**：
+- 不要只看 `git status` 里 generated C++/TS 绑定是否有 diff；ignored `.a` 才是 iOS linker 实际需要的
+  Rust 产物。
+
+**相关文件**：`packages/swarmdrop-core/package.json`,
+`packages/swarmdrop-core/ubrn.config.yaml`,
+`packages/swarmdrop-core/SwarmdropCoreFramework.xcframework`
 
 ## Metro / Babel
 
@@ -66,6 +89,35 @@ compiler 介入会破坏 ubrn 的 turbo-module 形状。
 跑这一步，提交前自己做。
 
 **相关文件**：[lingui.config.ts](../../lingui.config.ts)
+
+## Maestro / E2E
+
+### iOS 26 + Expo SDK 56 / RN 0.85 Fabric 下暂缓 Maestro selector 测试
+
+截至 2026-06-25，iOS 26.x 模拟器上 `pnpm ios` 可以正常构建和运行 SwarmDrop，但 Maestro
+`2.6.1` 无法稳定看到 React Native 子树：截图里 UI 已渲染，XCUITest/Maestro hierarchy 里却只剩
+app root/window/native overlay，`testID`、可见文本、placeholder、`accessibilityLabel` 都可能匹配
+不到。这和上游 open issue 的复现一致：Expo SDK 56 / RN 0.85.3 / New Architecture(Fabric) /
+iOS 26.x 下 visible RN UI missing from Maestro/XCUITest accessibility tree。
+
+**正确做法**：
+- Android Maestro 仍作为当前可执行的移动 E2E smoke gate。
+- iOS 侧保留测试脚本和 testID，但 selector 型 Maestro flow 暂不作为必过 gate；需要 iOS 视觉确认时
+  只做临时 `takeScreenshot` / `assertScreenshot` 或人工检查。
+- 恢复 iOS Maestro 前，先确认
+  <https://github.com/mobile-dev-inc/Maestro/issues/3367> 和
+  <https://github.com/react/react-native/issues/57282> 已有官方修复或明确 workaround，再重跑
+  `pnpm ios` + `maestro --device <ios-udid> test .maestro/smoke/onboarding.yaml`。
+
+**不要做**：
+- 不要通过排除 `@expo/ui`、`expo-symbols`、`expo-glass-effect` 等原生模块来“修” Maestro hierarchy；
+  这只是绕开症状，还会改变真实 app surface。
+- 不要指望在 SDK 56 里设置 `newArchEnabled: false` 规避 Fabric；Expo SDK 55+ / RN 0.82+
+  已不支持关闭 New Architecture，该配置会被忽略。
+- 不要把 selector flow 全量改成坐标点击后当成稳定 E2E；坐标只能作为临时截图采样手段。
+
+**相关文件**：[.maestro/smoke/onboarding.yaml](../../.maestro/smoke/onboarding.yaml),
+[package.json](../../package.json)
 
 ## SwarmHive 更新
 

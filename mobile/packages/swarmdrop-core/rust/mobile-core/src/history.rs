@@ -152,11 +152,7 @@ pub(crate) async fn reconcile_stale_sessions(db: &DatabaseConnection) -> FfiResu
     for s in stale {
         let session_id = s.session_id;
         if let Err(err) = ops::mark_session_failed(db, session_id, ERROR_APP_INTERRUPTED).await {
-            tracing::warn!(
-                "reconcile: 标记 {} 为 failed 时出错: {}",
-                session_id,
-                err
-            );
+            tracing::warn!("reconcile: 标记 {} 为 failed 时出错: {}", session_id, err);
             continue;
         }
         tracing::warn!("reconciled stale session {} (was Transferring)", session_id);

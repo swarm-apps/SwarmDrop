@@ -80,6 +80,7 @@ export default function Setup() {
           <Pressable
             onPress={() => loadIdentity()}
             style={styles.primaryButton}
+            testID="onboarding-retry-button"
           >
             <Text style={styles.primaryButtonText}>
               <Trans>重试</Trans>
@@ -93,6 +94,7 @@ export default function Setup() {
               styles.primaryButton,
               !ready && styles.primaryButtonDisabled,
             ]}
+            testID="onboarding-enter-button"
           >
             <Text style={styles.primaryButtonText}>
               <Trans>进入 SwarmDrop</Trans>

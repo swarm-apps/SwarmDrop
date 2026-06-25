@@ -58,8 +58,7 @@ impl MobileCore {
         custom_bootstrap_nodes: Vec<String>,
     ) -> FfiResult<()> {
         let keypair = self.ensure_keypair().await?;
-        let paired_devices =
-            swarmdrop_core::identity::load_paired_devices(self.keychain()).await?;
+        let paired_devices = swarmdrop_core::identity::load_paired_devices(self.keychain()).await?;
 
         // 启动前先确保 SQLite 已就绪（断点续传 / 历史记录都依赖它）
         let db = self.ensure_db().await?;
@@ -69,8 +68,7 @@ impl MobileCore {
         // 状态，不动；终态自然也不动。
         crate::history::reconcile_stale_sessions(&db).await?;
 
-        let event_bus = self.event_bus_arc()
-            as std::sync::Arc<dyn swarmdrop_core::host::EventBus>;
+        let event_bus = self.event_bus_arc() as std::sync::Arc<dyn swarmdrop_core::host::EventBus>;
         let file_access = self.file_access_arc();
 
         let started = swarmdrop_core::runtime::start_node(

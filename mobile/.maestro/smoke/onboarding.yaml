@@ -1,0 +1,54 @@
+appId: com.yexiyue.swarmdrop
+name: SwarmDrop onboarding smoke
+---
+- clearState
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: onboarding-start-button
+    timeout: 30000
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+- tapOn:
+    id: onboarding-start-button
+- extendedWaitUntil:
+    visible:
+      id: onboarding-device-name-continue-button
+    timeout: 30000
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+- tapOn:
+    id: onboarding-device-name-continue-button
+- extendedWaitUntil:
+    visible:
+      id: onboarding-enter-button
+    timeout: 60000
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+- tapOn:
+    id: onboarding-enter-button
+- extendedWaitUntil:
+    visible:
+      id: home-screen
+    timeout: 30000
+- assertVisible:
+    id: home-empty-devices
+- takeScreenshot: onboarding-smoke-home

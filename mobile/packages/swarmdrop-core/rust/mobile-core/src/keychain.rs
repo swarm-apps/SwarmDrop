@@ -5,9 +5,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use swarmdrop_core::device::PairedDeviceInfo;
 use swarmdrop_core::host::{DeviceIdentityBytes, IdentityMigrationState, KeychainProvider};
 use swarmdrop_core::{AppError, AppResult};
-use swarmdrop_core::device::PairedDeviceInfo;
 
 use crate::error::FfiError;
 

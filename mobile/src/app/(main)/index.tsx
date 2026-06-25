@@ -105,7 +105,12 @@ export default function HomeScreen() {
   const openDrawer = () => navigation.dispatch(DrawerActions.openDrawer());
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
+    <SafeAreaView
+      style={{ flex: 1 }}
+      className="bg-background"
+      edges={["top"]}
+      testID="home-screen"
+    >
       <View className="flex-row items-center justify-between px-5 py-3">
         <Pressable
           onPress={openDrawer}
@@ -134,6 +139,7 @@ export default function HomeScreen() {
             <Pressable
               onPress={() => pairingSheetRef.current?.present()}
               accessibilityRole="button"
+              testID="home-add-device-button"
               className="flex-row items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 active:opacity-70"
             >
               <Plus color={colors.primary} size={14} />
@@ -222,7 +228,10 @@ function DeviceGrid({
 function EmptyDevices({ onAdd }: { onAdd: () => void }) {
   const colors = useThemeColors();
   return (
-    <View className="items-center gap-4 rounded-xl border border-dashed border-border bg-card py-10">
+    <View
+      className="items-center gap-4 rounded-xl border border-dashed border-border bg-card py-10"
+      testID="home-empty-devices"
+    >
       <View className="size-14 items-center justify-center rounded-full bg-muted">
         <Smartphone color={colors.mutedForeground} size={28} />
       </View>
@@ -237,6 +246,7 @@ function EmptyDevices({ onAdd }: { onAdd: () => void }) {
       <Pressable
         onPress={onAdd}
         accessibilityRole="button"
+        testID="home-empty-devices-add-button"
         className="flex-row items-center gap-1.5 rounded-full bg-primary px-4 py-2 active:opacity-70"
       >
         <Plus color={colors.background} size={14} />

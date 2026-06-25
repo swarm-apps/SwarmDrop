@@ -86,6 +86,7 @@ export default function DeviceName() {
             placeholder={t`我的 iPhone`}
             placeholderTextColor="#94A3B8"
             style={styles.input}
+            testID="onboarding-device-name-input"
           />
           {error !== null ? (
             <Text style={styles.errorText}>{error}</Text>
@@ -103,6 +104,7 @@ export default function DeviceName() {
           ]}
           accessibilityRole="button"
           accessibilityLabel={t`继续`}
+          testID="onboarding-device-name-continue-button"
         >
           {saving ? (
             <ActivityIndicator color="#FFFFFF" />

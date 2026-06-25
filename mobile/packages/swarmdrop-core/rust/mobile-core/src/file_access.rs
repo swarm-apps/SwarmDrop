@@ -108,10 +108,7 @@ pub trait ForeignFileAccess: Send + Sync {
     async fn create_sink(&self, metadata: MobileFileMetadata) -> Result<String, FfiError>;
 
     /// 打开已有 sink 或创建新 sink（断点续传用）
-    async fn open_or_create_sink(
-        &self,
-        metadata: MobileFileMetadata,
-    ) -> Result<String, FfiError>;
+    async fn open_or_create_sink(&self, metadata: MobileFileMetadata) -> Result<String, FfiError>;
 
     /// 写入指定偏移
     async fn write_sink_chunk(

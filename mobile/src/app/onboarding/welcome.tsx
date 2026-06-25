@@ -47,6 +47,7 @@ export default function Welcome() {
           onPress={onNext}
           style={styles.primaryButton}
           accessibilityRole="button"
+          testID="onboarding-start-button"
         >
           <Text style={styles.primaryButtonText}>
             <Trans>开始使用</Trans>

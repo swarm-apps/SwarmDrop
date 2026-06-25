@@ -9,12 +9,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use swarm_p2p_core::EventReceiver;
+use swarmdrop_core::AppResult;
 use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_core::network::SharedNetRefs;
 use swarmdrop_core::protocol::{AppRequest, PairingMethod};
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_core::transfer::progress::FileTransferStatus;
-use swarmdrop_core::AppResult;
 
 use crate::network::MobileNetworkStatus;
 use crate::transfer::MobileTransferOffer;

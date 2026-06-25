@@ -57,3 +57,4 @@ expo-env.d.ts
 
 !.claude/skills/dev-workflow
 !.claude/settings.json
+build

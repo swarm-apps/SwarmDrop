@@ -98,7 +98,10 @@ impl MobileCore {
 
     pub async fn lookup_device_by_code(&self, code: String) -> FfiResult<MobileRemoteDeviceInfo> {
         let pairing = self.pairing_manager().await?;
-        let (peer_id, record) = pairing.get_device_info(&code).await.map_err(FfiError::from)?;
+        let (peer_id, record) = pairing
+            .get_device_info(&code)
+            .await
+            .map_err(FfiError::from)?;
         Ok(MobileRemoteDeviceInfo::from_record(peer_id, record))
     }
 

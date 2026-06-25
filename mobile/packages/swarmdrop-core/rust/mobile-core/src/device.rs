@@ -67,7 +67,9 @@ pub(crate) fn parse_device_filter(value: &str) -> FfiResult<DeviceFilter> {
         "" | "all" => Ok(DeviceFilter::All),
         "connected" => Ok(DeviceFilter::Connected),
         "paired" => Ok(DeviceFilter::Paired),
-        other => Err(FfiError::Identity(format!("invalid device filter: {other}"))),
+        other => Err(FfiError::Identity(format!(
+            "invalid device filter: {other}"
+        ))),
     }
 }
 
