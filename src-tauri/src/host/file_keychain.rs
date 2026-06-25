@@ -70,9 +70,9 @@ impl FileKeychainProvider {
 
     async fn write(&self, file: &DevIdentityFile) -> CoreResult<()> {
         if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(|e| CoreError::Identity(format!("dev identity: create dir failed: {e}")))?;
+            fs::create_dir_all(parent).await.map_err(|e| {
+                CoreError::Identity(format!("dev identity: create dir failed: {e}"))
+            })?;
         }
         let text = serde_json::to_string_pretty(file).map_err(CoreError::Serialization)?;
         fs::write(&self.path, text)

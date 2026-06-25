@@ -41,6 +41,8 @@ pub fn keychain_provider(
     #[cfg(not(debug_assertions))]
     {
         let _ = app;
-        Ok(std::sync::Arc::new(keychain::DesktopKeychainProvider::new()?))
+        Ok(std::sync::Arc::new(
+            keychain::DesktopKeychainProvider::new()?
+        ))
     }
 }
