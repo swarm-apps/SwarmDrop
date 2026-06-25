@@ -66,6 +66,7 @@ const nearbyDevices = useNetworkStore(
 - 主应用高层级面板优先使用全局玻璃态工具类，弹窗 / 表单等 shadcn 基础组件仍使用语义色；`glass-panel` 与设置页常用的 `glass-card` 保持同一填充亮度，区别主要来自边界、阴影和布局角色
 - 亮色主题保持白色产品底和白色玻璃材质，SoftAurora 复用暗色主题的蓝 / 青环境光参数，但不叠前景 SideRays；不要把整套面板材质染成蓝绿色
 - 背景动效只放在 `app-shell` 的全局环境层；`AppAmbientBackground` 负责底层 SoftAurora，`AppAmbientLightOverlay` 负责暗色主题的 React Bits SideRays 角落光束，`app-shell` 不再叠加额外 CSS radial / beam 渐变；内容卡片不要各自动画
+- SoftAurora 不要再额外压整体 opacity 或用低 brightness 模拟氛围雾；保持接近 React Bits 默认的 `brightness: 1`，用颜色和玻璃层透明度控制强弱
 - SideRays 需要更高层级时，优先用独立 `pointer-events: none` overlay + shader 参数控制强度，不要给整层设置 `opacity`，否则 WebGL 光束会先被整体压淡，玻璃卡片下会显得没有效果
 - 背景动画必须支持 `prefers-reduced-motion: reduce`
 - React Bits 背景只引入 `ogl` 这类轻量 WebGL 依赖；不要为了主应用背景引入 three / react-three-fiber 级别的 3D 栈，除非页面本身需要 3D 场景

@@ -39,14 +39,17 @@ type Vec2 = [number, number];
 type Vec3 = [number, number, number];
 
 const AURORA_CONFIG = {
-  brightness: 0.86,
-  color1: "#2563eb",
+  brightness: 1,
+  color1: "#f7f7f7",
   color2: "#22d3ee",
-  speed: 0.36,
-  scale: 1.62,
-  bandHeight: 0.52,
-  bandSpread: 0.86,
-  noiseAmplitude: 0.82,
+  speed: 0.6,
+  scale: 1.5,
+  bandHeight: 0.5,
+  bandSpread: 1,
+  noiseAmplitude: 1,
+  octaveDecay: 0.1,
+  layerOffset: 0,
+  colorSpeed: 1,
 } as const;
 
 const SIDE_RAYS_CONFIG = {
