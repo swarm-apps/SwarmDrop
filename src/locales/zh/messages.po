@@ -934,8 +934,8 @@ msgid "暂无正在传输"
 msgstr "暂无正在传输"
 
 #: src/routes/_app/devices/index.lazy.tsx
-#~ msgid "暂无附近设备"
-#~ msgstr "暂无附近设备"
+msgid "暂无附近设备"
+msgstr "暂无附近设备"
 
 #: src/routes/_app/devices/-components/add-device-menu.tsx
 #~ msgid "暂未发现附近设备 · 确保对端 SwarmDrop 已启动"
@@ -1230,8 +1230,8 @@ msgstr "确认取消配对"
 #~ msgstr "确认对端 SwarmDrop 已启动，并与当前设备处于可发现网络中。"
 
 #: src/routes/_app/devices/index.lazy.tsx
-#~ msgid "确认对端已启动，或直接使用下方配对码连接。"
-#~ msgstr "确认对端已启动，或直接使用下方配对码连接。"
+msgid "确认对端已启动，或直接使用下方配对码连接。"
+msgstr "确认对端已启动，或直接使用下方配对码连接。"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
@@ -1282,6 +1282,11 @@ msgstr "等待对方确认..."
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "等待确认"
 msgstr "等待确认"
+
+#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
+msgid "等待节点启动"
+msgstr "等待节点启动"
 
 #: src/components/network/start-node-sheet.tsx
 msgid "管理 P2P 网络节点的启动和连接状态"
@@ -1424,6 +1429,7 @@ msgstr "该节点已存在"
 msgid "语言"
 msgstr "语言"
 
+#: src/routes/_app/pairing/generate.lazy.tsx
 #: src/stores/pairing-store.ts
 msgid "请先启动网络节点"
 msgstr "请先启动网络节点"

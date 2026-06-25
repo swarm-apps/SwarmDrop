@@ -411,6 +411,9 @@ function AddDeviceSection({
   const regenerateCode = usePairingStore((state) => state.regenerateCode);
   const codeInfo = usePairingStore((state) => state.activeCode);
   const errorMessage = usePairingStore((state) => state.codeError);
+  const nodeStatus = useNetworkStore((state) => state.status);
+  const isNodeRunning = nodeStatus === "running";
+  const isNodeStarting = nodeStatus === "starting";
   const { remainingSeconds, isExpired } = useCountdown(
     codeInfo?.expiresAt ?? null,
   );
@@ -427,10 +430,13 @@ function AddDeviceSection({
     }
     return devices;
   }, [devices, nearbyFilter]);
+  const isFilteredEmpty = devices.length > 0 && filteredDevices.length === 0;
 
   useEffect(() => {
-    ensureActiveCode();
-  }, [ensureActiveCode]);
+    if (isNodeRunning) {
+      ensureActiveCode();
+    }
+  }, [ensureActiveCode, isNodeRunning]);
 
   useEffect(() => {
     if (!copied) return;
@@ -448,7 +454,9 @@ function AddDeviceSection({
     }
   }, [codeInfo]);
 
-  const isLoading = codeInfo === null && errorMessage === null;
+  const isLoading =
+    isNodeStarting ||
+    (isNodeRunning && codeInfo === null && errorMessage === null);
 
   return (
     <SectionShell innerClassName="gap-3.5">
@@ -474,10 +482,18 @@ function AddDeviceSection({
         {filteredDevices.length === 0 ? (
           <div className="mt-2 rounded-[15px] border border-dashed border-zinc-200 bg-white/70 px-3 py-3 dark:border-white/10 dark:bg-zinc-950/35">
             <p className="text-sm font-medium text-foreground">
-              <Trans>没有符合条件的附近设备</Trans>
+              {isFilteredEmpty ? (
+                <Trans>没有符合条件的附近设备</Trans>
+              ) : (
+                <Trans>暂无附近设备</Trans>
+              )}
             </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              <Trans>切换过滤条件，或直接使用下方配对码连接。</Trans>
+              {isFilteredEmpty ? (
+                <Trans>切换过滤条件，或直接使用下方配对码连接。</Trans>
+              ) : (
+                <Trans>确认对端已启动，或直接使用下方配对码连接。</Trans>
+              )}
             </p>
           </div>
         ) : (
@@ -518,9 +534,13 @@ function AddDeviceSection({
 
         <div className="mt-2.5 grid grid-cols-[minmax(0,1fr)_40px_40px] gap-1.5">
           <div className="flex h-10 min-w-0 items-center justify-center rounded-[12px] bg-white px-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-black/[0.04] dark:bg-zinc-950/70 dark:ring-white/10">
-            {isLoading ? (
+            {isNodeStarting ? (
+              <span className="text-[11px] text-muted-foreground">
+                <Trans>等待节点启动</Trans>
+              </span>
+            ) : isLoading ? (
               <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
-            ) : errorMessage ? (
+            ) : isNodeRunning && errorMessage ? (
               <span className="truncate text-[11px] text-destructive">
                 {errorMessage}
               </span>
@@ -533,7 +553,7 @@ function AddDeviceSection({
           <button
             type="button"
             onClick={handleCopy}
-            disabled={!codeInfo || isExpired}
+            disabled={!isNodeRunning || !codeInfo || isExpired}
             aria-label={copied ? t`已复制` : t`复制配对码`}
             title={copied ? t`已复制` : t`复制配对码`}
             className="flex size-10 items-center justify-center rounded-[12px] bg-white text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-black/[0.05] transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-blue-50 hover:text-blue-600 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:bg-zinc-950/70 dark:ring-white/10 dark:hover:bg-blue-500/10 dark:hover:text-blue-400"
@@ -542,7 +562,12 @@ function AddDeviceSection({
           </button>
           <button
             type="button"
-            onClick={() => regenerateCode()}
+            onClick={() => {
+              if (isNodeRunning) {
+                regenerateCode();
+              }
+            }}
+            disabled={!isNodeRunning}
             aria-label={t`重新生成`}
             title={t`重新生成`}
             className="flex size-10 items-center justify-center rounded-[12px] bg-white text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-black/[0.05] transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-zinc-100 hover:text-foreground active:scale-[0.98] dark:bg-zinc-950/70 dark:ring-white/10 dark:hover:bg-white/[0.08]"

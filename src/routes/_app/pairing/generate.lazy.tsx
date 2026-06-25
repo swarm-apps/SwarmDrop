@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Trans } from "@lingui/react/macro";
 import { useShallow } from "zustand/react/shallow";
 import { usePairingStore } from "@/stores/pairing-store";
+import { useNetworkStore } from "@/stores/network-store";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { useCountdown } from "@/hooks/use-countdown";
 import { formatCountdown } from "@/lib/format";
@@ -33,15 +34,23 @@ function PairingGeneratePage() {
 
   const codeInfo = usePairingStore((s) => s.activeCode);
   const errorMessage = usePairingStore((s) => s.codeError);
-  const isLoading = codeInfo === null && errorMessage === null;
+  const nodeStatus = useNetworkStore((s) => s.status);
+  const isNodeRunning = nodeStatus === "running";
+  const isNodeStarting = nodeStatus === "starting";
+  const isNodeUnavailable = !isNodeRunning && !isNodeStarting;
+  const isLoading =
+    isNodeStarting ||
+    (isNodeRunning && codeInfo === null && errorMessage === null);
 
   const [copied, setCopied] = useState(false);
 
   // 进入页面时确保有活跃码（store 内部自带过期自动重生 + paired-device-added
   // 后 acceptRequest 触发的重生；离开页面不清状态，下次进来直接是新码）
   useEffect(() => {
-    ensureActiveCode();
-  }, [ensureActiveCode]);
+    if (isNodeRunning) {
+      ensureActiveCode();
+    }
+  }, [ensureActiveCode, isNodeRunning]);
 
   // 配对成功后自动跳转到设备页面
   usePairingSuccess();
@@ -105,7 +114,17 @@ function PairingGeneratePage() {
           </div>
 
           {/* 6 位配对码展示 / Loading / Error */}
-          {isLoading ? (
+          {isNodeUnavailable ? (
+            <div className="flex h-14 items-center gap-2 text-sm text-muted-foreground">
+              <AlertCircle className="size-5" />
+              <Trans>请先启动网络节点</Trans>
+            </div>
+          ) : isNodeStarting ? (
+            <div className="flex h-14 items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-5 animate-spin" />
+              <Trans>等待节点启动</Trans>
+            </div>
+          ) : isLoading ? (
             <div className="flex h-14 items-center justify-center">
               <Loader2 className="size-6 animate-spin text-muted-foreground" />
             </div>
@@ -157,7 +176,12 @@ function PairingGeneratePage() {
             </Button>
             {isExpired || errorMessage ? (
               <Button
-                onClick={() => regenerateCode()}
+                onClick={() => {
+                  if (isNodeRunning) {
+                    regenerateCode();
+                  }
+                }}
+                disabled={!isNodeRunning}
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 <RefreshCw className="size-4" />
@@ -166,7 +190,7 @@ function PairingGeneratePage() {
             ) : (
               <Button
                 onClick={() => handleCopy()}
-                disabled={isLoading || !codeInfo}
+                disabled={!isNodeRunning || isLoading || !codeInfo}
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 {copied ? <Check className="size-4" /> : <Copy className="size-4" />}

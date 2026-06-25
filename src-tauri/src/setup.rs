@@ -167,6 +167,10 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
         // MCP server 状态容器
         app.manage(crate::mcp::server::McpServerState::default());
 
+        // 网络运行时状态容器。启动节点前为 None，避免依赖 NetManagerState 的命令
+        // 在节点未启动时触发 Tauri 的 "state not managed" 注入错误。
+        app.manage(tokio::sync::Mutex::new(None::<crate::network::NetManager>));
+
         Ok(())
     })
 }
