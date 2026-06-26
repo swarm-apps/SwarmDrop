@@ -42,8 +42,12 @@ where
     let config = create_node_config(agent_version, &custom_bootstrap_nodes);
 
     let peer_id = PeerId::from_public_key(&keypair.public());
-    let (client, receiver) = swarm_p2p_core::start::<AppRequest, AppResponse>(keypair, config)
-        .map_err(|e| AppError::Network(e.to_string()))?;
+    // 第三个返回值是 data-channel 入站接收器（add-p2p-data-channel 能力）。
+    // 本 change 仅提供能力、不接线文件传输；redesign-transfer-lifecycle 的
+    // Phase B 会接管它。当前 config 未注册任何 data-channel 协议，drop 无副作用。
+    let (client, receiver, _dc_receiver) =
+        swarm_p2p_core::start::<AppRequest, AppResponse>(keypair, config)
+            .map_err(|e| AppError::Network(e.to_string()))?;
 
     let transfer = create_transfer(client.clone());
     let manager = NetManager::new(client, peer_id, paired_devices, transfer);

@@ -93,6 +93,29 @@ pub fn insert_session(...) { ... }
 
 **相关文件**：`crates/core/src/transfer/send.rs`、`crates/core/src/transfer/receive.rs`、`src/stores/transfer-store.ts`
 
+### libp2p-stream 数据通道：不在 stable facade，需直接依赖
+
+`swarm-p2p-core` 用 `libp2p::stream` 承载文件传输等数据面字节流，但 **libp2p 0.56 stable facade 没有 `stream` feature**（libp2p-stream 仍是 `0.4.0-alpha`）。必须直接依赖 `libp2p-stream = "0.4.0-alpha"`（与 libp2p 0.56 同期，对齐 libp2p-swarm 0.47.x，无 multiple-versions 冲突）。
+
+**正确做法**：
+- `Behaviour::new_control(&self)` 返回 `Control`（可 clone、跨任务共享）；`Control::accept(proto)` 返回 `IncomingStreams`（生命周期独立于临时 control），`Control::open_stream(peer, proto).await` 打开出站流。
+- `Stream` 是 `libp2p_swarm::Stream` re-export（`libp2p::Stream`，**非 feature-gated**），impl `futures::AsyncRead + AsyncWrite`；`DataChannel` 用 `stream_mut()` / `into_stream()` 暴露它，避免 Pin 投影。
+- `IncomingStreams` 必须持续 poll：放进 core 中央 `select!`（多协议用 `futures::stream::select_all` 合并 + protocol 标签 + `if !is_empty()` 守卫防 busy-loop），accept 出的流用 `try_send` 转交，**绝不阻塞 swarm 循环**（否则拖死 ping / kad）。
+- 开流级背压破损（yamux 静默丢流）：用 runtime 层计数登记表（`ChannelRegistry` + drop guard）显式 limit + 报 typed error，而非依赖底层丢弃。
+- `OpenStreamError` 是 `#[non_exhaustive]`（`UnsupportedProtocol(_)` / `Io(_)`），match 必须带 `_`。
+
+**不要做**：
+- 不要手写自定义 `NetworkBehaviour + ConnectionHandler`——薄封装 `libp2p-stream` 即可，poll 负担由 core event loop 吸收，对下游透明。
+- 不要把帧编解码放进 `libs/core`——它只传裸字节，帧协议在 `crates/core`（应用层）。
+
+**相关文件**：`libs/core/src/data_channel.rs`、`libs/core/src/runtime/{node,event_loop}.rs`、`libs/core/src/client/mod.rs`
+
+### swarm-p2p-core 测试需显式声明 tokio rt-multi-thread
+
+`#[tokio::test(flavor = "multi_thread")]` 需要 tokio `rt-multi-thread`，而 `swarm-p2p-core` 的 `[dependencies] tokio` 只有 `rt`。测试一直靠 workspace feature unification（其他成员带进来）才能编译——**单独 `cargo clippy -p swarm-p2p-core --all-targets` 或单独构建会报 `runtime flavor multi_thread requires rt-multi-thread`**。已在 `[dev-dependencies]` 显式声明 `rt-multi-thread + time`。RN 端单独复用 core 时同理。
+
+**相关文件**：`libs/core/Cargo.toml`
+
 ## 身份存储 (keychain)
 
 ### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）
