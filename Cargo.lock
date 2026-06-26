@@ -7674,6 +7674,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "entity",
+ "migration",
  "rand 0.10.1",
  "sea-orm",
  "serde",

@@ -133,6 +133,8 @@ pub fn insert_session(...) { ... }
 
 完整传输链路（offer→transfer→pause→resume→cancel）可在纯 `cargo test` 里跑通，**零生产代码改动**。调研结论：`libp2p-swarm-test` **不适用**——它测 raw `Swarm` + 自定义 `NetworkBehaviour`，和 SwarmDrop 的 `NetClient`/`EventReceiver` 封装层级对不上，且 `CoreBehaviour` 含只能 `with_relay_client` 造的 `relay::client::Behaviour`，传不进 swarm-test。正解是「两个真实 `start()` 节点 + 关 mDNS + 显式 dial」。
 
+**✅ 已落地实证**：`crates/core/tests/e2e_transfer.rs` 已实现并通过——连通性 smoke（`e2e_two_nodes_connect`）+ 完整单文件传输（`e2e_single_file_transfer`：prepare→send_offer→accept→拉取落盘→Complete→Ack→两侧 DB 都到 `Terminal/Completed` + 接收方 `sink_bytes` 等于源 + 两侧都发 `TransferCompleted`）。dev-deps 只需补 `tokio`（macros+rt-multi-thread）+ `migration`（其余 sea-orm/entity/uuid/swarm-p2p-core 已是普通 dep）。`tempfile` 暂未用到（内存库单连接钉死即可跨重启保活）。
+
 **正确做法**：
 - 现成资产：`MemoryHost::new(paths)`（`crates/core/src/host.rs`，实现全 6 个 host trait + `with_source()` 预载文件 + `events()` 取回 CoreEvent）；`Database::connect("sqlite::memory:")` + `migration::Migrator::up(&db, None)`；`swarm_p2p_core::start` + `TransferManager::new` + `NetManager::new` + `run_event_loop` 全 public，复刻 `runtime::start_node` 即可。
 - **关 mDNS + 显式 dial 消除时序**：`NodeConfig::new(...).with_mdns(false).with_relay_client(false).with_dcutr(false).with_autonat(false).with_listen_addrs(["/ip4/127.0.0.1/tcp/0"])`；建连用 `client.add_peer_addrs(peer, [listen_addr]) + client.dial(peer)`，不靠 mDNS `PeerDiscovered`（这也是 `data_channel.rs` 并行串扰的根治法）。
@@ -142,10 +144,13 @@ pub fn insert_session(...) { ... }
 
 **不要做**：
 - 不要 mock `AppNetClient`（= `NetClient<AppRequest,AppResponse>`，必须两个真实建连节点）。
-- 不要忘 `is_paired` 校验：Offer 要求已配对，`NetManager::new` 的 `paired_devices` 要互相塞 `PairedDeviceInfo`，否则 Offer 直接被拒。
+- 不要忘 `is_paired` 校验：Offer 要求已配对，`NetManager::new` 的 `paired_devices` 要互相塞 `PairedDeviceInfo`（双向），否则 Offer 直接被 `OfferRejectReason::NotPaired` 拒。`is_paired` 唯一运行时依据是 `PairingManager` 的内存 DashMap，不查 DB / keychain。
 - 不要等 mDNS 发现事件触发连接——改用 `dial()` 的精确 await。
+- **连接判定不要用 `connected_count()` / `get_network_status().connected_peers`**：它额外要求 identify 把 `agent_version` 分类成 SwarmDrop 客户端（`OsInfo::is_swarmdrop_agent`），测试给的 agent_version 不匹配会恒为 0。改用 `manager.devices().is_connected(&peer_id)`（只看裸 `PeerConnected`，与连通性/req_resp/配对都无关）。
+- **不要在同步谓词里 `block_on` async DB 查询**：`#[tokio::test]` 已在 runtime 上，再建嵌套 runtime block_on 会 panic（"Cannot start a runtime from within a runtime"）。DB 等待写原生 `async` 轮询循环（`loop { get_transfer_projection().await; sleep().await }`），连接/事件这类同步状态才用同步谓词轮询。
+- 端口用 `/ip4/127.0.0.1/tcp/0`（OS 分配），dial 前必须先轮询 `get_network_status().listen_addrs` 拿到实际绑定地址（`run_event_loop` 处理 `NodeEvent::Listening` 时回填）。
 
-**相关文件**：`crates/core/src/host.rs`（MemoryHost）、`crates/core/src/runtime.rs`（start_node 可复刻）、`crates/core/src/network/event_loop.rs`（run_event_loop）、`libs/core/tests/data_channel.rs`（现有双节点模式参考）
+**相关文件**：`crates/core/tests/e2e_transfer.rs`（**已实现的 harness，直接参照/扩展**）、`crates/core/src/host.rs`（MemoryHost）、`crates/core/src/runtime.rs`（start_node 可复刻）、`crates/core/src/network/event_loop.rs`（run_event_loop）、`libs/core/tests/data_channel.rs`（现有双节点模式参考）
 
 ## 身份存储 (keychain)
 

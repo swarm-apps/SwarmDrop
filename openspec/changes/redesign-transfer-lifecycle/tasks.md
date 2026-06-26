@@ -59,7 +59,7 @@
 ## 7. 验证
 
 - [ ] 7.1 添加 Coordinator reducer 单元测试，覆盖所有 phase/reason 转换
-- [ ] 7.2 添加双端集成测试：正常传输、用户暂停、网络中断、应用重启、恢复成功、取消后拒绝恢复
+- [~] 7.2 添加双端集成测试：正常传输（✅ `crates/core/tests/e2e_transfer.rs`：连通性 + 单文件传输 happy path 已落地通过）、用户暂停、网络中断、应用重启、恢复成功、取消后拒绝恢复（剩余场景待补，harness 已就绪）
 - [ ] 7.3 添加数据面测试：旧 epoch Hello 被拒绝、数据通道中断后 checkpoint 保留、Finish 后 completed
 - [ ] 7.4 运行 `cargo test` 覆盖 `crates/core`、`crates/entity`、`migration`、`src-tauri`
 - [ ] 7.5 运行前端类型检查和构建，确认新 bindings 与 UI 投影一致
@@ -111,7 +111,7 @@
 
 ### 轮 8 — 集成验证 + 清理 → task 7.1-7.5 / 2.4
 
-- 双端集成测试：正常/暂停/中断/重启/恢复/取消后拒绝恢复（task 7.2）——**纯 cargo test E2E harness**（两个真实 `start()` 节点 + 关 mDNS + 显式 dial + `MemoryHost` + `sqlite::memory:`，零生产代码改动、不需真机；方案见 dev-notes/knowledge/rust-backend.md「端到端集成测试」。中断=drop event_loop task，重启=同 db 重 spawn）
+- 双端集成测试：正常/暂停/中断/重启/恢复/取消后拒绝恢复（task 7.2）——**纯 cargo test E2E harness**（两个真实 `start()` 节点 + 关 mDNS + 显式 dial + `MemoryHost` + `sqlite::memory:`，零生产代码改动、不需真机；方案见 dev-notes/knowledge/rust-backend.md「端到端集成测试」。中断=drop event_loop task，重启=同 db 重 spawn）。**✅ harness 已落地** `crates/core/tests/e2e_transfer.rs`（连通性 + 单文件传输 happy path 通过），剩余场景（暂停/中断/重启/恢复/取消后拒绝）顺着接线进度逐个补——这张安全网让轮 4/5 的接线每改一处都能跑 E2E 验证不破坏端到端
 - 删除旧 `SessionStatus` 路径 + `legacy_status` 桥接 + `mark_session_*` 双写（迁移完成后回收）
 - 可选 2.4 transfer event log
 - `cargo test` 全覆盖 + 前端构建（task 7.4 / 7.5）
