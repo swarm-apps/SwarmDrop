@@ -138,7 +138,15 @@ impl TransferManager {
             .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
 
         session.cancel_and_wait().await;
-        crate::database::ops::pause_session(&self.db, *session_id).await?;
+        self.coordinator
+            .dispatch(
+                *session_id,
+                crate::transfer::coordinator::CoordinatorInput::User(
+                    crate::transfer::coordinator::UserCommand::Pause,
+                ),
+            )
+            .await?;
+        crate::database::ops::sync_session_transferred_bytes(&self.db, *session_id).await?;
         self.receive_sessions.remove(session_id);
 
         if let Err(e) = self
@@ -169,7 +177,15 @@ impl TransferManager {
         session.send_cancel().await;
         session.cleanup_part_files().await;
         self.receive_sessions.remove(session_id);
-        crate::database::ops::mark_session_cancelled(&self.db, *session_id).await?;
+        // 状态决策经 Coordinator：写 phase+status(桥接)+finished_at 并发 projection。
+        self.coordinator
+            .dispatch(
+                *session_id,
+                crate::transfer::coordinator::CoordinatorInput::User(
+                    crate::transfer::coordinator::UserCommand::Cancel,
+                ),
+            )
+            .await?;
         info!("Receive session cancelled: session={}", session_id);
         Ok(())
     }

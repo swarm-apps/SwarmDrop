@@ -111,6 +111,8 @@ pub struct TransferManager {
     pub(super) db: Arc<DatabaseConnection>,
     /// 默认文件访问 trait（用于发送方读源文件、接收方写入；host 在调用时也可针对单次会话覆盖）
     pub(super) file_access: Arc<dyn FileAccess>,
+    /// 传输生命周期协调器（状态变化的统一持久化 + projection 入口）。
+    pub(super) coordinator: Arc<crate::transfer::coordinator::TransferCoordinator>,
 
     pub(super) prepared: DashMap<Uuid, PreparedTransfer>,
     pub(super) pending: DashMap<Uuid, PendingOffer>,
@@ -129,11 +131,16 @@ impl TransferManager {
         db: Arc<DatabaseConnection>,
         file_access: Arc<dyn FileAccess>,
     ) -> Self {
+        let coordinator = Arc::new(crate::transfer::coordinator::TransferCoordinator::new(
+            db.clone(),
+            event_bus.clone(),
+        ));
         Self {
             client,
             event_bus,
             db,
             file_access,
+            coordinator,
             prepared: DashMap::new(),
             pending: DashMap::new(),
             outbound_offers: DashMap::new(),

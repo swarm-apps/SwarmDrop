@@ -261,7 +261,15 @@ impl TransferManager {
         session.cancel();
         let progress = session.get_file_progress();
         crate::database::ops::save_sender_file_progress(&self.db, *session_id, &progress).await?;
-        crate::database::ops::pause_session(&self.db, *session_id).await?;
+        self.coordinator
+            .dispatch(
+                *session_id,
+                crate::transfer::coordinator::CoordinatorInput::User(
+                    crate::transfer::coordinator::UserCommand::Pause,
+                ),
+            )
+            .await?;
+        crate::database::ops::sync_session_transferred_bytes(&self.db, *session_id).await?;
         self.remove_send_session(session_id);
 
         if let Err(e) = self
@@ -296,7 +304,14 @@ impl TransferManager {
         session.cancel();
         self.notify_cancel(session.peer_id, *session_id).await;
 
-        crate::database::ops::mark_session_cancelled(&self.db, *session_id).await?;
+        self.coordinator
+            .dispatch(
+                *session_id,
+                crate::transfer::coordinator::CoordinatorInput::User(
+                    crate::transfer::coordinator::UserCommand::Cancel,
+                ),
+            )
+            .await?;
         info!("Send session cancelled: session={}", session_id);
         Ok(())
     }
