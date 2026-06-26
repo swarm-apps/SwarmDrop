@@ -336,8 +336,16 @@ impl TransferManager {
                 session.cleanup_part_files().await;
             });
         }
-        if let Err(e) = crate::database::ops::mark_session_cancelled(&self.db, session_id).await {
-            warn!("DB 标记取消失败: {}", e);
+        // 对端取消 → 状态机 Network{RemoteCancelled}（写 terminal/cancelled + 发 projection）。
+        if let Err(e) = self
+            .coordinator
+            .dispatch_network_current(
+                session_id,
+                crate::transfer::coordinator::NetworkSignal::RemoteCancelled,
+            )
+            .await
+        {
+            warn!("dispatch 对端取消失败: {}", e);
         }
         Ok(TransferFailedEvent {
             session_id,
@@ -366,8 +374,17 @@ impl TransferManager {
             RuntimeTransferDirection::Unknown
         };
 
-        if let Err(e) = crate::database::ops::pause_session(&self.db, session_id).await {
-            warn!("DB 标记暂停失败: {}", e);
+        // 对端暂停 → 状态机 Network{RemotePaused}（写 suspended/RemotePaused + 发 projection），
+        // 与本地 pause 的 LocalPaused 区分开——这正是 3.3 要落实的本地/对端 reason 区分。
+        if let Err(e) = self
+            .coordinator
+            .dispatch_network_current(
+                session_id,
+                crate::transfer::coordinator::NetworkSignal::RemotePaused,
+            )
+            .await
+        {
+            warn!("dispatch 对端暂停失败: {}", e);
         }
 
         Ok(crate::transfer::progress::TransferPausedEvent {

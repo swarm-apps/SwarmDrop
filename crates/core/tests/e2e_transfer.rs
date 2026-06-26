@@ -30,7 +30,7 @@ use swarmdrop_core::host::{
 use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
-use swarmdrop_core::transfer::coordinator::TransferCoordinator;
+use swarmdrop_core::transfer::coordinator::{NetworkSignal, TransferCoordinator};
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::HostEnumeratedFile;
 
@@ -211,6 +211,32 @@ async fn connected_paired_pair(host_a: MemoryHost, host_b: MemoryHost) -> (TestN
     (node_a, node_b)
 }
 
+/// 预置一个 active 接收会话（create_session 直接写 phase=Active），供清理 / 信号测试复用。
+async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid) {
+    let files = vec![FileInfo {
+        file_id: 0,
+        name: "a.bin".to_string(),
+        relative_path: "a.bin".to_string(),
+        size: 1024,
+        checksum: "deadbeef".to_string(),
+    }];
+    ops::create_session(
+        db,
+        session_id,
+        TransferDirection::Receive,
+        "peer",
+        "peer-name",
+        &files,
+        1024,
+        Some(CoreSaveLocation::Path {
+            path: "/recv".to_string(),
+        }),
+        None,
+    )
+    .await
+    .expect("create_session");
+}
+
 /// 节点的 host 是否收到过某个 offer 的 TransferOfferReceived 事件。
 fn received_offer(node: &TestNode, session_id: Uuid) -> bool {
     node.host.events().iter().any(|e| {
@@ -367,28 +393,7 @@ async fn e2e_startup_cleanup_active_to_suspended() {
 
     // 预置一个 active 会话（create_session 直接写 phase=Active）。
     let session_id = Uuid::new_v4();
-    let files = vec![FileInfo {
-        file_id: 0,
-        name: "a.bin".to_string(),
-        relative_path: "a.bin".to_string(),
-        size: 1024,
-        checksum: "deadbeef".to_string(),
-    }];
-    ops::create_session(
-        db.as_ref(),
-        session_id,
-        TransferDirection::Receive,
-        "peer",
-        "peer-name",
-        &files,
-        1024,
-        Some(CoreSaveLocation::Path {
-            path: "/recv".to_string(),
-        }),
-        None,
-    )
-    .await
-    .expect("create_session");
+    seed_active_session(db.as_ref(), session_id).await;
 
     // 重启清理：active → recoverable suspended(AppRestarted)。
     let coordinator = TransferCoordinator::new(db.clone(), event_bus);
@@ -421,6 +426,53 @@ async fn e2e_startup_cleanup_active_to_suspended() {
         .await
         .expect("cleanup again");
     assert_eq!(again, 0, "第二次清理无 active 会话");
+}
+
+/// 轮 4 task 3.3：对端 Pause/Cancel 经 `dispatch_network_current` 写"对端"reason，
+/// 与本地 pause 的 LocalPaused 区分。这是 handle_pause_impl / handle_cancel_impl 接线的核心
+/// 逻辑（跨节点 mid-transfer 取消对小文件有竞态，故直接在 coordinator 层确定性验证）。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_remote_signals_write_remote_reason() {
+    let db = make_db().await;
+    let host = MemoryHost::new(test_paths());
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+
+    // 对端暂停：active → suspended/RemotePaused/recoverable。
+    let paused_id = Uuid::new_v4();
+    seed_active_session(db.as_ref(), paused_id).await;
+    coordinator
+        .dispatch_network_current(paused_id, NetworkSignal::RemotePaused)
+        .await
+        .expect("dispatch remote pause")
+        .expect("应发生转换");
+    let p = ops::get_transfer_projection(db.as_ref(), paused_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(p.phase, TransferPhase::Suspended);
+    assert_eq!(
+        p.suspended_reason,
+        Some(SuspendedReason::RemotePaused),
+        "对端暂停应写 RemotePaused（非 LocalPaused）"
+    );
+    assert!(p.recoverable);
+
+    // 对端取消：active → terminal/cancelled/不可恢复。
+    let cancelled_id = Uuid::new_v4();
+    seed_active_session(db.as_ref(), cancelled_id).await;
+    coordinator
+        .dispatch_network_current(cancelled_id, NetworkSignal::RemoteCancelled)
+        .await
+        .expect("dispatch remote cancel")
+        .expect("应发生转换");
+    let c = ops::get_transfer_projection(db.as_ref(), cancelled_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(c.phase, TransferPhase::Terminal);
+    assert_eq!(c.terminal_reason, Some(TerminalReason::Cancelled));
+    assert!(!c.recoverable);
 }
 
 /// 接收方拒绝 Offer：跨节点 reject 路径（确定性，不启动传输）。

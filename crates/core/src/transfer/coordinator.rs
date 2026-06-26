@@ -314,12 +314,38 @@ impl TransferCoordinator {
         let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
             return Ok(None);
         };
-        let current = TransferState::from(&session);
-        match reduce(&current, &input) {
+        self.apply_input(&session, session_id, &input).await
+    }
+
+    /// 入站网络信号（对端 Cancel/Pause）的便捷入口：当前 req_resp 控制消息不携带
+    /// epoch，用 session 当前 epoch dispatch（等价无 stale 保护——待数据面协议
+    /// 在帧里带 epoch 后收紧）。单次 load 后复用 [`apply_input`](Self::apply_input)。
+    pub async fn dispatch_network_current(
+        &self,
+        session_id: Uuid,
+        signal: NetworkSignal,
+    ) -> AppResult<Option<TransferState>> {
+        let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
+            return Ok(None);
+        };
+        let input = CoordinatorInput::Network {
+            epoch: session.epoch,
+            signal,
+        };
+        self.apply_input(&session, session_id, &input).await
+    }
+
+    /// reduce + 持久化 + 发 projection（dispatch 系列共用，session 已加载、不二次 SELECT）。
+    async fn apply_input(
+        &self,
+        session: &entity::transfer_session::Model,
+        session_id: Uuid,
+        input: &CoordinatorInput,
+    ) -> AppResult<Option<TransferState>> {
+        let current = TransferState::from(session);
+        match reduce(&current, input) {
             Some(new_state) => {
-                // 复用已加载的 session，apply_transition 直接更新、不再二次 SELECT。
-                crate::database::ops::apply_transition(&self.db, &session, &new_state).await?;
-                // 发前端投影（唯一状态源）。
+                crate::database::ops::apply_transition(&self.db, session, &new_state).await?;
                 if let Some(projection) =
                     crate::database::ops::get_transfer_projection(&self.db, session_id).await?
                 {
