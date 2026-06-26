@@ -149,6 +149,7 @@ pub fn insert_session(...) { ... }
 - **连接判定不要用 `connected_count()` / `get_network_status().connected_peers`**：它额外要求 identify 把 `agent_version` 分类成 SwarmDrop 客户端（`OsInfo::is_swarmdrop_agent`），测试给的 agent_version 不匹配会恒为 0。改用 `manager.devices().is_connected(&peer_id)`（只看裸 `PeerConnected`，与连通性/req_resp/配对都无关）。
 - **不要在同步谓词里 `block_on` async DB 查询**：`#[tokio::test]` 已在 runtime 上，再建嵌套 runtime block_on 会 panic（"Cannot start a runtime from within a runtime"）。DB 等待写原生 `async` 轮询循环（`loop { get_transfer_projection().await; sleep().await }`），连接/事件这类同步状态才用同步谓词轮询。
 - 端口用 `/ip4/127.0.0.1/tcp/0`（OS 分配），dial 前必须先轮询 `get_network_status().listen_addrs` 拿到实际绑定地址（`run_event_loop` 处理 `NodeEvent::Listening` 时回填）。
+- **`client.dial()` 在并行 `cargo test` 下会瞬时失败**：多个 `#[tokio::test(multi_thread)]` + 多组节点同跑抢 CPU 时，到 `127.0.0.1:port` 的连接尝试瞬时失败，`dial().expect()` 会 flaky（串行 `--test-threads=1` 不复现，但 CI 默认并行）。`connect` helper 要**重试 dial 直到 `devices().is_connected(&peer)` 双向为真**、忽略单次 dial 错误（已连接时再 dial 是廉价 no-op 错误）——连接才是目标，不是单次 dial 调用成功。
 
 **相关文件**：`crates/core/tests/e2e_transfer.rs`（**已实现的 harness，直接参照/扩展**）、`crates/core/src/host.rs`（MemoryHost）、`crates/core/src/runtime.rs`（start_node 可复刻）、`crates/core/src/network/event_loop.rs`（run_event_loop）、`libs/core/tests/data_channel.rs`（现有双节点模式参考）
 

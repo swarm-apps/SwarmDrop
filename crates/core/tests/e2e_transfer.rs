@@ -173,6 +173,12 @@ async fn wait_listen_addr(node: &TestNode) -> Multiaddr {
 }
 
 /// `from` 显式 dial `to`，等双方都报告已连接。
+///
+/// 用裸连接信号 `is_connected`（只看 PeerConnected），而非 connected_count——后者还要求
+/// identify 把 agent_version 分类成 SwarmDrop 客户端，与连通性无关。
+///
+/// dial 在并行高负载下（多 runtime + 多组节点同跑）可能瞬时失败，故重试 dial 直到双方
+/// 都连上，忽略单次 dial 错误（已连接时再 dial 是廉价 no-op 错误）——连接才是目标。
 async fn connect(from: &TestNode, to: &TestNode) {
     let addr = wait_listen_addr(to).await;
     from.manager
@@ -180,22 +186,18 @@ async fn connect(from: &TestNode, to: &TestNode) {
         .add_peer_addrs(to.peer_id, vec![addr])
         .await
         .expect("add_peer_addrs");
-    from.manager.client().dial(to.peer_id).await.expect("dial");
 
-    // 用裸连接信号 is_connected（只看 PeerConnected），而非 connected_count——后者还要求
-    // identify 把 agent_version 分类成 SwarmDrop 客户端，与连通性无关。
-    poll_until(
-        || from.manager.devices().is_connected(&to.peer_id),
-        Duration::from_secs(10),
-        "dial 方已连接",
-    )
-    .await;
-    poll_until(
-        || to.manager.devices().is_connected(&from.peer_id),
-        Duration::from_secs(10),
-        "被 dial 方已连接",
-    )
-    .await;
+    let connected = |a: &TestNode, b: &TestNode| {
+        a.manager.devices().is_connected(&b.peer_id) && b.manager.devices().is_connected(&a.peer_id)
+    };
+    for _ in 0..150 {
+        if connected(from, to) {
+            return;
+        }
+        let _ = from.manager.client().dial(to.peer_id).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("两节点未能在超时内建连");
 }
 
 /// 造一对互相已配对、已建连的节点（A=host_a、B=host_b，各自独立 sqlite::memory）。
