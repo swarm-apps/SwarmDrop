@@ -13,7 +13,8 @@ use uuid::Uuid;
 use crate::events::{
     DevicesChanged, NetworkStatusChanged, PairedDeviceAdded, PairingRequestPayload,
     PairingRequestReceived, TransferAccepted, TransferComplete, TransferDbError, TransferFailed,
-    TransferOffer, TransferPaused, TransferProgress, TransferRejected, TransferResumed,
+    TransferOffer, TransferPaused, TransferProgress, TransferProjectionUpdate, TransferRejected,
+    TransferResumed,
 };
 
 /// 把 core 的 [`CoreEvent`] 翻译为 Tauri `app.emit(...)`。
@@ -136,6 +137,11 @@ impl EventBus for TauriEventBus {
             }
             CoreEvent::TransferDbError { event } => {
                 TransferDbError(event).emit(&self.app).map_err(map_err)?;
+            }
+            CoreEvent::TransferProjection { projection } => {
+                TransferProjectionUpdate(projection)
+                    .emit(&self.app)
+                    .map_err(map_err)?;
             }
             CoreEvent::PrepareProgress { event } => {
                 // 优先走 per-call channel；没有时退化为全局 emit（fallback 路径）

@@ -106,6 +106,10 @@ pub enum CoreEvent {
     TransferDbError {
         event: TransferDbErrorEvent,
     },
+    /// 传输投影更新（redesign：前端唯一状态源，逐步替代分散的 Transfer* 事件）。
+    TransferProjection {
+        projection: crate::database::ops::TransferProjection,
+    },
     PrepareProgress {
         event: PrepareProgressEvent,
     },

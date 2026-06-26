@@ -5,6 +5,7 @@
 //! （`NetworkStatusChanged` → `"network-status-changed"`）。
 
 use serde::Serialize;
+use swarmdrop_core::database::ops::TransferProjection;
 use swarmdrop_core::device::{Device, PairedDeviceInfo};
 use swarmdrop_core::network::NetworkStatus;
 use swarmdrop_core::transfer::incoming::TransferOfferEvent;
@@ -81,3 +82,8 @@ pub struct TransferResumed(pub TransferResumedEvent);
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 #[serde(transparent)]
 pub struct TransferDbError(pub TransferDbErrorEvent);
+
+/// 传输投影更新（redesign：前端唯一状态源）。事件名 `"transfer-projection-update"`。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferProjectionUpdate(pub TransferProjection);

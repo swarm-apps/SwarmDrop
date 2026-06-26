@@ -90,6 +90,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::TransferPaused,
             events::TransferResumed,
             events::TransferDbError,
+            events::TransferProjectionUpdate,
         ])
 }
 

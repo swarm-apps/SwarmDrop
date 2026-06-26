@@ -538,6 +538,9 @@ pub async fn apply_transition(
     // 避免 phase 与 status 漂移、前端旧路径读到滞留状态。
     model.status = Set(state.phase.legacy_status(state.terminal_reason.as_ref()));
     model.updated_at = Set(now_ms());
+    if state.is_terminal() {
+        model.finished_at = Set(Some(now_ms()));
+    }
     model.update(db).await?;
     Ok(())
 }

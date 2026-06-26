@@ -13,6 +13,7 @@ use entity::{SuspendedReason, TerminalReason, TransferPhase};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
+use crate::host::{CoreEvent, EventBus};
 use crate::AppResult;
 
 /// 传输生命周期状态（镜像 entity 持久化字段）。
@@ -292,17 +293,19 @@ fn reduce_startup(state: &TransferState, sig: &StartupSignal) -> Option<Transfer
 /// dispatch 负责 I/O 副作用（DB 读写）。
 pub struct TransferCoordinator {
     db: Arc<DatabaseConnection>,
+    event_bus: Arc<dyn EventBus>,
 }
 
 impl TransferCoordinator {
-    pub fn new(db: Arc<DatabaseConnection>) -> Self {
-        Self { db }
+    pub fn new(db: Arc<DatabaseConnection>, event_bus: Arc<dyn EventBus>) -> Self {
+        Self { db, event_bus }
     }
 
-    /// 处理一个输入：load 当前状态 → reduce → 持久化新状态。
+    /// 处理一个输入：load 当前状态 → reduce → 持久化 → 发 projection 事件。
     ///
-    /// 返回 `Some(新状态)` 表示发生转换（调用方据此发 projection / 驱动 actor），
+    /// 返回 `Some(新状态)` 表示发生转换（调用方据此驱动 actor），
     /// `None` 表示输入被忽略（旧 epoch、terminal 后、非法转换）或 session 不存在。
+    /// 这是状态变化的唯一持久化 + 前端投影入口。
     pub async fn dispatch(
         &self,
         session_id: Uuid,
@@ -316,6 +319,14 @@ impl TransferCoordinator {
             Some(new_state) => {
                 // 复用已加载的 session，apply_transition 直接更新、不再二次 SELECT。
                 crate::database::ops::apply_transition(&self.db, &session, &new_state).await?;
+                // 发前端投影（唯一状态源）。
+                if let Some(projection) =
+                    crate::database::ops::get_transfer_projection(&self.db, session_id).await?
+                {
+                    self.event_bus
+                        .publish(CoreEvent::TransferProjection { projection })
+                        .await?;
+                }
                 Ok(Some(new_state))
             }
             None => Ok(None),
