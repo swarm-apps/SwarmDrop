@@ -25,7 +25,7 @@
 - [x] 3.1 新建 `TransferCoordinator` 模块，定义用户命令、网络事件、actor 事件和状态 reducer
 - [ ] 3.2 实现 actor registry，统一管理 SenderActor / ReceiverActor 的创建、替换、取消和 epoch 校验
 - [ ] 3.3 将 pause、cancel、complete、fail、peer disconnected 等路径改为进入 Coordinator
-- [ ] 3.4 实现前端 projection 事件发布，替换旧的分散 transfer events
+- [x] 3.4 实现前端 projection 事件发布，替换旧的分散 transfer events
 - [x] 3.5 添加旧 epoch actor event 被忽略的单元测试
 
 ## 4. 恢复协调协议
