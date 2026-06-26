@@ -222,6 +222,20 @@ pub async fn sync_session_transferred_bytes(
     update_session_transferred_bytes(db, session_id, total_transferred).await
 }
 
+/// 过渡期桥接（反向）：旧 `mark_session_*` 写 status 时，同步写新 phase/reason/recoverable，
+/// 保持 DB 两种表示一致。后续 Coordinator 接线后状态决策收归 `dispatch`，这些 `mark_*` 将被替换。
+fn set_session_lifecycle(
+    model: &mut entity::transfer_session::ActiveModel,
+    phase: TransferPhase,
+    suspended_reason: Option<SuspendedReason>,
+    terminal_reason: Option<TerminalReason>,
+) {
+    model.recoverable = Set(!matches!(phase, TransferPhase::Terminal));
+    model.phase = Set(phase);
+    model.suspended_reason = Set(suspended_reason);
+    model.terminal_reason = Set(terminal_reason);
+}
+
 /// 标记传输完成
 pub async fn mark_session_completed(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
     let now = now_ms();
@@ -241,6 +255,12 @@ pub async fn mark_session_completed(db: &DatabaseConnection, session_id: Uuid) -
     {
         let mut model = session.into_active_model();
         model.status = Set(SessionStatus::Completed);
+        set_session_lifecycle(
+            &mut model,
+            TransferPhase::Terminal,
+            None,
+            Some(TerminalReason::Completed),
+        );
         model.transferred_bytes = Set(*model.total_size.as_ref());
         model.finished_at = Set(Some(now));
         model.updated_at = Set(now);
@@ -258,6 +278,12 @@ pub async fn mark_session_failed(
 ) -> AppResult<()> {
     update_session_terminal(db, session_id, |model, now| {
         model.status = Set(SessionStatus::Failed);
+        set_session_lifecycle(
+            model,
+            TransferPhase::Terminal,
+            None,
+            Some(TerminalReason::FatalError),
+        );
         model.error_message = Set(Some(error_message.to_string()));
         model.finished_at = Set(Some(now));
         model.updated_at = Set(now);
@@ -269,6 +295,12 @@ pub async fn mark_session_failed(
 pub async fn mark_session_cancelled(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
     update_session_terminal(db, session_id, |model, now| {
         model.status = Set(SessionStatus::Cancelled);
+        set_session_lifecycle(
+            model,
+            TransferPhase::Terminal,
+            None,
+            Some(TerminalReason::Cancelled),
+        );
         model.finished_at = Set(Some(now));
         model.updated_at = Set(now);
     })
@@ -279,6 +311,13 @@ pub async fn mark_session_cancelled(db: &DatabaseConnection, session_id: Uuid) -
 pub async fn mark_session_paused(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
     update_session_terminal(db, session_id, |model, now| {
         model.status = Set(SessionStatus::Paused);
+        // 过渡期默认 LocalPaused；对端暂停的精确区分留待 Coordinator 接线（NetworkSignal::RemotePaused）。
+        set_session_lifecycle(
+            model,
+            TransferPhase::Suspended,
+            Some(SuspendedReason::LocalPaused),
+            None,
+        );
         model.updated_at = Set(now);
     })
     .await
@@ -294,6 +333,7 @@ pub async fn pause_session(db: &DatabaseConnection, session_id: Uuid) -> AppResu
 pub async fn mark_session_transferring(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
     update_session_terminal(db, session_id, |model, now| {
         model.status = Set(SessionStatus::Transferring);
+        set_session_lifecycle(model, TransferPhase::Active, None, None);
         model.updated_at = Set(now);
     })
     .await
