@@ -171,10 +171,19 @@ impl TransferManager {
                         if let Some((_, session)) = this.send_sessions.remove(&session_id) {
                             session.cancel();
                         }
-                        if let Err(e) =
-                            crate::database::ops::mark_session_cancelled(&this.db, session_id).await
+                        // 本地撤回 → 状态机 User{Cancel}（terminal/cancelled + projection），
+                        // 与 cancel_send 同一路径。
+                        if let Err(e) = this
+                            .coordinator
+                            .dispatch(
+                                session_id,
+                                crate::transfer::coordinator::CoordinatorInput::User(
+                                    crate::transfer::coordinator::UserCommand::Cancel,
+                                ),
+                            )
+                            .await
                         {
-                            warn!("DB 标记已撤回发送失败: {}", e);
+                            warn!("dispatch 已撤回发送失败: {}", e);
                         }
                         this.notify_cancel(target_peer, session_id).await;
                         info!(
