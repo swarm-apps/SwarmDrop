@@ -63,3 +63,57 @@
 - [ ] 7.3 添加数据面测试：旧 epoch Hello 被拒绝、数据通道中断后 checkpoint 保留、Finish 后 completed
 - [ ] 7.4 运行 `cargo test` 覆盖 `crates/core`、`crates/entity`、`migration`、`src-tauri`
 - [ ] 7.5 运行前端类型检查和构建，确认新 bindings 与 UI 投影一致
+
+---
+
+## 实施分轮路线图（增量过渡，后续接着做）
+
+> 后端状态机核心骨架已完成（commit `4935cb6` / `2ce4440` + simplify 审查）。剩余按下列分轮推进，
+> 每轮一个「编译 + 测试」checkpoint，参考 `add-p2p-data-channel` 的节奏：一轮一个 task 组、绿了再 commit。
+> Phase A（轮 4-6 + 8 大部分）不依赖数据通道；Phase B（轮 7）依赖已完成的 `add-p2p-data-channel`。
+
+### ✅ 已完成（轮 1-3）
+
+- **轮 1 — DB 层**：entity `phase/reason/epoch/recoverable/source_fingerprint` + 3 枚举 + `TransferPhase::legacy_status` 桥接 + migration（开发期清空旧史）。`create_session` 适配。→ task 1.1-1.4 / 2.1-2.2
+- **轮 2 — 状态机核心**：`coordinator.rs` 纯函数 reducer（epoch 校验 + terminal 不可逆，10 单元测试）+ `TransferCoordinator::dispatch` + `TransferProjection` DTO + repository（`apply_transition` / `get_transfer_projection(s)` / `load_sessions_with_files`）。→ task 3.1 / 3.5 / 1.3 / 2.3
+- **轮 3 — DB 接线准备**：`mark_session_*` 经 `set_session_lifecycle` 双写 phase/reason，DB 两种表示一致（不改调用点）。simplify 4-agent 审查应用 6 项修复。
+
+### 轮 4 — Coordinator 完整接线（后端）→ task 3.2 / 3.3 / 3.4 / 2.5
+
+- 3.2 Coordinator 持有 `db + event_bus + actor registry`（管理 Sender/ReceiverActor 创建/替换/取消/epoch 校验）
+- 3.3 把 17 个 `mark_session_*` 调用点（send/receiver/receive/resume/incoming）逐点映射为 `dispatch(session_id, CoordinatorInput)`：completed→`Actor{Completed}`、failed→`Actor{FatalError}`、本地 cancel→`User{Cancel}`、对端 cancel→`Network{RemoteCancelled}`、本地 pause→`User{Pause}`、对端 pause→`Network{RemotePaused}`、恢复→`Network{ResumeCommitted}`
+- 3.4 dispatch 转换成功后 `get_transfer_projection` + `publish(CoreEvent::TransferProjection)`；新增 `CoreEvent::TransferProjection`（host.rs 已 `#[non_exhaustive]`，桌面 `host/event_bus.rs` 加 emit `"transfer-projection"`）
+- 2.5 启动清理：遗留 active → `dispatch(Startup(FoundActiveSession))` → suspended/app_restarted
+- **风险**：17 点语义各异，逐点改 + 每点 `cargo test`；本地 vs 对端 pause 的 reason 区分在此落实
+- **验证**：`cargo test` + 现有传输流程不回归
+
+### 轮 5 — 恢复协议 → task 4.1-4.6
+
+- protocol.rs 新增 `ResumeProbe`/`ResumeStateReport`/`ResumeCommit`/`ResumeAck` + `FileRange`/`FileCheckpoint`/`ResumePhaseReport`
+- incoming.rs match arm + handler（ResumeProbe→报告本端 phase/epoch/checkpoint/fingerprint；ResumeCommit→校验 + `dispatch(ResumeCommitted)` 生成新 epoch）
+- 废弃 `ResumeRequest`/`ResumeOffer` 双入口（resume.rs ~580 行）
+- **验证**：恢复协议单元测试（正常/对端取消/源变更/旧 epoch/checkpoint 越界，task 4.6）
+
+### 轮 6 — 前端切换（需运行验证）→ task 6.1-6.5
+
+- 6.1 Tauri commands pause/resume/cancel/start 只调 Coordinator
+- 6.2 specta bindings 导出 TransferProjection/phase/reason（`pnpm tauri dev` 重新生成 `bindings.ts`，勿手改）
+- 6.3-6.5 `transfer-store` 弃 sessions+dbHistory 双源、改消费单一 projection 事件；列表/详情页文案（已暂停/对方暂停/已中断/对方离线/可恢复失败/已取消/不可恢复失败）
+- **跨仓**：RN 端 `src/stores/transfer-store.ts` + `mobile-core/transfer.rs` 平行同步（SwarmDrop-RN 仓，桌面稳定后）
+- **验证**：`pnpm exec tsc --noEmit` + `pnpm tauri dev` 实跑
+
+### 轮 7 — 数据面 Phase B（依赖 add-p2p-data-channel ✅）→ task 5.1-5.8
+
+- transfer-data 帧（Hello/BlockData/Ack/BlockRequest/Abort/Finish）over data channel（应用层 length-prefix 加帧）
+- SenderActor 按 fetch_plan 连续推 + ReceiverActor 稀疏 Ack + 读写分离 + 单流复用；checkpoint 改 ranges
+- QUIC 优先 / TCP 路径确保 yamux 自适应窗口
+- **验证**：旧 epoch Hello 拒绝、中断后 checkpoint 保留、Finish→completed（task 7.3）
+
+### 轮 8 — 集成验证 + 清理 → task 7.1-7.5 / 2.4
+
+- 双端集成测试：正常/暂停/中断/重启/恢复/取消后拒绝恢复（task 7.2，需两端运行）
+- 删除旧 `SessionStatus` 路径 + `legacy_status` 桥接 + `mark_session_*` 双写（迁移完成后回收）
+- 可选 2.4 transfer event log
+- `cargo test` 全覆盖 + 前端构建（task 7.4 / 7.5）
+
+> 注：task 7.1（reducer 单元测试）已在轮 2 以 10 个测试部分覆盖，轮 4 接线后补全 phase/reason 全转换。
