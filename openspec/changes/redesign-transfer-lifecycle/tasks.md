@@ -30,9 +30,9 @@
 
 ## 4. 恢复协调协议
 
-- [ ] 4.1 更新 `crates/core/src/protocol.rs`，新增 `ResumeProbe`、`ResumeStateReport`、`ResumeCommit`、`ResumeAck` 控制消息
+- [x] 4.1 更新 `crates/core/src/protocol.rs`，新增 `ResumeProbe`、`ResumeStateReport`、`ResumeCommit`、`ResumeAck` 控制消息
 - [ ] 4.2 移除或废弃旧 `ResumeRequest` / `ResumeOffer` 双入口恢复路径
-- [ ] 4.3 实现 ResumeProbe handler，返回本端 phase、epoch、manifest、checkpoint、source fingerprint 和 terminal marker
+- [x] 4.3 实现 ResumeProbe handler，返回本端 phase、epoch、manifest、checkpoint、source fingerprint 和 terminal marker
 - [ ] 4.4 实现 ResumeCommit handler，校验新 epoch、manifest、checkpoint 和 transfer key 信息
 - [ ] 4.5 实现恢复拒绝原因映射：cancelled、fatal error、source modified、checkpoint invalid、peer unavailable
 - [ ] 4.6 添加恢复协议测试：正常恢复、对端已取消、源文件变更、旧 epoch、checkpoint 越界
