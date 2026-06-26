@@ -198,6 +198,19 @@ async fn connect(from: &TestNode, to: &TestNode) {
     .await;
 }
 
+/// 造一对互相已配对、已建连的节点（A=host_a、B=host_b，各自独立 sqlite::memory）。
+async fn connected_paired_pair(host_a: MemoryHost, host_b: MemoryHost) -> (TestNode, TestNode) {
+    let kp_a = Keypair::generate_ed25519();
+    let kp_b = Keypair::generate_ed25519();
+    let id_a = PeerId::from_public_key(&kp_a.public());
+    let id_b = PeerId::from_public_key(&kp_b.public());
+
+    let node_a = spawn_node(kp_a, host_a, make_db().await, vec![paired_info(id_b)]).await;
+    let node_b = spawn_node(kp_b, host_b, make_db().await, vec![paired_info(id_a)]).await;
+    connect(&node_a, &node_b).await;
+    (node_a, node_b)
+}
+
 /// 节点的 host 是否收到过某个 offer 的 TransferOfferReceived 事件。
 fn received_offer(node: &TestNode, session_id: Uuid) -> bool {
     node.host.events().iter().any(|e| {
@@ -228,27 +241,8 @@ async fn wait_completed(db: &DatabaseConnection, session_id: Uuid, who: &str) {
 /// 连通性 smoke：两个真实节点关 mDNS + 显式 dial 能建连。坐实路径 B 的最小前提。
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_two_nodes_connect() {
-    let kp_a = Keypair::generate_ed25519();
-    let kp_b = Keypair::generate_ed25519();
-    let id_a = PeerId::from_public_key(&kp_a.public());
-    let id_b = PeerId::from_public_key(&kp_b.public());
-
-    let node_a = spawn_node(
-        kp_a,
-        MemoryHost::new(test_paths()),
-        make_db().await,
-        vec![paired_info(id_b)],
-    )
-    .await;
-    let node_b = spawn_node(
-        kp_b,
-        MemoryHost::new(test_paths()),
-        make_db().await,
-        vec![paired_info(id_a)],
-    )
-    .await;
-
-    connect(&node_a, &node_b).await;
+    let (node_a, node_b) =
+        connected_paired_pair(MemoryHost::new(test_paths()), MemoryHost::new(test_paths())).await;
 
     assert!(node_a.manager.devices().is_connected(&node_b.peer_id));
     assert!(node_b.manager.devices().is_connected(&node_a.peer_id));
@@ -271,19 +265,9 @@ async fn e2e_single_file_transfer() {
         save_dir: None,
     };
 
-    let kp_a = Keypair::generate_ed25519();
-    let kp_b = Keypair::generate_ed25519();
-    let id_a = PeerId::from_public_key(&kp_a.public());
-    let id_b = PeerId::from_public_key(&kp_b.public());
-
     // 发送方 host 预置源文件；接收方 host 空。
     let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let host_b = MemoryHost::new(test_paths());
-
-    let node_a = spawn_node(kp_a, host_a, make_db().await, vec![paired_info(id_b)]).await;
-    let node_b = spawn_node(kp_b, host_b, make_db().await, vec![paired_info(id_a)]).await;
-
-    connect(&node_a, &node_b).await;
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
 
     // A: 哈希准备 + 发 Offer。
     let prepared_id = Uuid::new_v4();
@@ -303,7 +287,7 @@ async fn e2e_single_file_transfer() {
 
     let StartSendResult { session_id } = node_a
         .transfer
-        .send_offer(&prepared_id, &id_b.to_string(), "node-a", &[0u32])
+        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
         .expect("send_offer");
 
     // B: 等 Offer 到达，accept 并开始拉取。
@@ -415,4 +399,90 @@ async fn e2e_startup_cleanup_active_to_suspended() {
         .await
         .expect("cleanup again");
     assert_eq!(again, 0, "第二次清理无 active 会话");
+}
+
+/// 接收方拒绝 Offer：跨节点 reject 路径（确定性，不启动传输）。
+///
+/// A 发 Offer → B `reject_and_respond` 回 `OfferResult{accepted:false, UserDeclined}`
+/// → A 发 `TransferRejected{reason: UserDeclined}`。两侧都不建 DB session。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_receiver_rejects_offer() {
+    let data = b"to be rejected".to_vec();
+    let source_id = FileSourceId("src-0".to_string());
+    let meta = HostFileMetadata {
+        name: "x.bin".to_string(),
+        relative_path: "x.bin".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+
+    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id,
+            vec![HostEnumeratedFile {
+                source_id: source_id.clone(),
+                name: "x.bin".to_string(),
+                relative_path: "x.bin".to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare");
+
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
+        .expect("send_offer");
+
+    poll_until(
+        || received_offer(&node_b, session_id),
+        Duration::from_secs(10),
+        "B 收到 Offer",
+    )
+    .await;
+
+    // B 拒绝。
+    node_b
+        .transfer
+        .reject_and_respond(&session_id)
+        .await
+        .expect("reject_and_respond");
+
+    // A 应发 TransferRejected（reason 透传 UserDeclined）。
+    poll_until(
+        || {
+            node_a.host.events().iter().any(|e| {
+                matches!(
+                    e,
+                    CoreEvent::TransferRejected { event } if event.session_id == session_id
+                )
+            })
+        },
+        Duration::from_secs(10),
+        "A 收到 TransferRejected",
+    )
+    .await;
+
+    // reject 不建 DB session（两侧都查不到投影）。
+    assert!(
+        ops::get_transfer_projection(node_a.db.as_ref(), session_id)
+            .await
+            .expect("query a")
+            .is_none(),
+        "拒绝的 Offer 不应在发送方建 session"
+    );
+    assert!(
+        ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+            .await
+            .expect("query b")
+            .is_none(),
+        "拒绝的 Offer 不应在接收方建 session"
+    );
 }

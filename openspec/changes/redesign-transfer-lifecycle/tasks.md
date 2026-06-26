@@ -59,7 +59,7 @@
 ## 7. 验证
 
 - [ ] 7.1 添加 Coordinator reducer 单元测试，覆盖所有 phase/reason 转换
-- [~] 7.2 添加双端集成测试：正常传输（✅ `crates/core/tests/e2e_transfer.rs`：连通性 + 单文件传输 happy path 已落地通过）、用户暂停、网络中断、应用重启、恢复成功、取消后拒绝恢复（剩余场景待补，harness 已就绪）
+- [~] 7.2 添加双端集成测试（✅ `crates/core/tests/e2e_transfer.rs`，4 个已过）：连通性 smoke、单文件传输 happy path、应用重启清理（active→suspended/AppRestarted）、接收方拒绝 Offer（跨节点 reject→TransferRejected）；待补：用户暂停、网络中断、恢复成功、取消后拒绝恢复（harness + connected_paired_pair helper 已就绪，顺接线进度补）
 - [ ] 7.3 添加数据面测试：旧 epoch Hello 被拒绝、数据通道中断后 checkpoint 保留、Finish 后 completed
 - [ ] 7.4 运行 `cargo test` 覆盖 `crates/core`、`crates/entity`、`migration`、`src-tauri`
 - [ ] 7.5 运行前端类型检查和构建，确认新 bindings 与 UI 投影一致
