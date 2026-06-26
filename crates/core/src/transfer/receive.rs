@@ -302,6 +302,9 @@ impl TransferManager {
                 session_id,
                 message: format!("保存完成状态失败: {e}"),
             });
+        } else {
+            // mark 已双写 phase=terminal/completed；额外发 projection（reduce 对 terminal 返回 None，故直发）。
+            let _ = self.coordinator.publish_projection(session_id).await;
         }
 
         Ok(TransferCompleteOutcome {

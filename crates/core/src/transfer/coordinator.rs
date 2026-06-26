@@ -332,6 +332,19 @@ impl TransferCoordinator {
             None => Ok(None),
         }
     }
+
+    /// 直接发当前 session 的 projection（用于已由 `mark_*` 写好 phase、不经 reduce
+    /// 的过渡路径，如带 file 副作用的 complete/failed）。
+    pub async fn publish_projection(&self, session_id: Uuid) -> AppResult<()> {
+        if let Some(projection) =
+            crate::database::ops::get_transfer_projection(&self.db, session_id).await?
+        {
+            self.event_bus
+                .publish(CoreEvent::TransferProjection { projection })
+                .await?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
