@@ -116,6 +116,19 @@ pub fn insert_session(...) { ... }
 
 **相关文件**：`libs/core/Cargo.toml`
 
+### 传输生命周期：Coordinator reducer + 增量过渡（phase/reason 与旧 SessionStatus 并存）
+
+`redesign-transfer-lifecycle` 把传输状态从扁平 `SessionStatus`（5 态）重构为 `phase`（offered/waiting_accept/active/suspended/terminal）+ `suspended_reason`/`terminal_reason` + `epoch` + `recoverable`。采用**增量过渡**：新字段与旧 `SessionStatus` 列并存、逐步迁移、最后删旧——每步编译通过、不破坏现有传输系统。
+
+**正确做法**：
+- 状态机核心是纯函数 reducer（`transfer/coordinator.rs::reduce`）：`(state, input) → Some(new)/None`，无 DB/网络依赖，可独立单元测试（epoch 校验、terminal 不可逆都 hoist 到这一层）。`TransferCoordinator::dispatch` 才做 I/O（load→reduce→persist）。
+- **过渡期 status 与 phase 必须同步**：`apply_transition` 写 phase 时经 `TransferPhase::legacy_status(terminal_reason)`（entity 单一映射来源）一并写旧 `status`，否则 coordinator 转换后前端旧路径读到滞留状态。这是 simplify altitude review 抓到的漂移坑。
+- `dispatch` 已 load 的 Model 直接传给 `apply_transition(&Model, ...)` 用 `into_active_model` 更新，**不要**在 apply 里二次 `find_by_id`（省一次 SELECT）。
+- migration 加列用 `ALTER TABLE ... ADD COLUMN ... NOT NULL DEFAULT ...`；开发期 `DELETE FROM transfer_files/transfer_sessions` 清空旧历史（design 允许），避免处理旧行默认值。
+- sea-orm 2.0 entity 用 `ActiveModel::builder().set_xxx()`；加 NOT NULL 字段后在 `create_session` 补 `.set_phase/.set_epoch/.set_recoverable`，未 set 字段走 DB default（builder 不强制）。
+
+**相关文件**：`crates/core/src/transfer/coordinator.rs`、`crates/core/src/database/ops.rs`（apply_transition/projection）、`crates/entity/src/lib.rs`（`TransferPhase::legacy_status`）
+
 ## 身份存储 (keychain)
 
 ### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）

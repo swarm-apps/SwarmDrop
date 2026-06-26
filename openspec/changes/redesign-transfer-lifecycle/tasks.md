@@ -7,26 +7,26 @@
 
 ## 1. 前置条件与模型设计
 
-- [ ] 1.1 仅 Phase B 依赖 `add-p2p-data-channel`；Phase A 在现有 req_resp 数据搬运上完成，可与 add 并行（无需等待 data channel 或 mock）
-- [ ] 1.2 定义新的 transfer phase、suspended reason、terminal reason、recoverable、epoch 等实体枚举
-- [ ] 1.3 设计 transfer projection DTO，覆盖列表页、详情页、进度和操作按钮所需字段
-- [ ] 1.4 设计旧状态迁移策略：开发期清理旧历史或提供一次性 migration
+- [x] 1.1 仅 Phase B 依赖 `add-p2p-data-channel`；Phase A 在现有 req_resp 数据搬运上完成，可与 add 并行（无需等待 data channel 或 mock）
+- [x] 1.2 定义新的 transfer phase、suspended reason、terminal reason、recoverable、epoch 等实体枚举
+- [x] 1.3 设计 transfer projection DTO，覆盖列表页、详情页、进度和操作按钮所需字段
+- [x] 1.4 设计旧状态迁移策略：开发期清理旧历史或提供一次性 migration
 
 ## 2. 数据库与持久化
 
-- [ ] 2.1 更新 `crates/entity` 中 transfer session/file 模型，加入 phase、reason、epoch、recoverable、source fingerprint 等字段
-- [ ] 2.2 新增或更新 migration，完成旧 schema 到新生命周期 schema 的迁移
-- [ ] 2.3 重构 database ops，提供按 Coordinator event 写入 session、file、checkpoint 和 projection 的 repository API
+- [x] 2.1 更新 `crates/entity` 中 transfer session/file 模型，加入 phase、reason、epoch、recoverable、source fingerprint 等字段
+- [x] 2.2 新增或更新 migration，完成旧 schema 到新生命周期 schema 的迁移
+- [x] 2.3 重构 database ops，提供按 Coordinator event 写入 session、file、checkpoint 和 projection 的 repository API
 - [ ] 2.4 可选新增 transfer event log，用于记录状态转换、epoch、错误和恢复协商证据
 - [ ] 2.5 更新启动清理逻辑，将遗留 active session 转为 recoverable suspended，而不是 paused/failed 混用
 
 ## 3. TransferCoordinator
 
-- [ ] 3.1 新建 `TransferCoordinator` 模块，定义用户命令、网络事件、actor 事件和状态 reducer
+- [x] 3.1 新建 `TransferCoordinator` 模块，定义用户命令、网络事件、actor 事件和状态 reducer
 - [ ] 3.2 实现 actor registry，统一管理 SenderActor / ReceiverActor 的创建、替换、取消和 epoch 校验
 - [ ] 3.3 将 pause、cancel、complete、fail、peer disconnected 等路径改为进入 Coordinator
 - [ ] 3.4 实现前端 projection 事件发布，替换旧的分散 transfer events
-- [ ] 3.5 添加旧 epoch actor event 被忽略的单元测试
+- [x] 3.5 添加旧 epoch actor event 被忽略的单元测试
 
 ## 4. 恢复协调协议
 

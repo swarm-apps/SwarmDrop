@@ -2,7 +2,9 @@
 //!
 //! 封装传输会话和文件记录的 CRUD 操作，供传输模块和命令层调用。
 
-use entity::{FileStatus, SessionStatus, TransferDirection};
+use entity::{
+    FileStatus, SessionStatus, SuspendedReason, TerminalReason, TransferDirection, TransferPhase,
+};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityLoaderTrait, EntityTrait,
     IntoActiveModel, QueryFilter, QueryOrder, Set,
@@ -44,6 +46,9 @@ pub async fn create_session(
         .set_total_size(total_size as i64)
         .set_transferred_bytes(0)
         .set_status(SessionStatus::Transferring)
+        .set_phase(TransferPhase::Active)
+        .set_epoch(0)
+        .set_recoverable(true)
         .set_started_at(now)
         .set_updated_at(now)
         .set_save_path(save_path.map(Into::into));
@@ -381,21 +386,153 @@ impl From<entity::transfer_session::ModelEx> for TransferHistoryItem {
     }
 }
 
+// ============ 生命周期投影（redesign-transfer-lifecycle）============
+
+/// 传输投影 DTO —— 前端唯一状态源（逐步替代旧的分散事件 + 扁平 `SessionStatus`）。
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferProjection {
+    pub session_id: Uuid,
+    pub direction: TransferDirection,
+    pub peer_id: String,
+    pub peer_name: String,
+    pub phase: TransferPhase,
+    pub suspended_reason: Option<SuspendedReason>,
+    pub terminal_reason: Option<TerminalReason>,
+    pub recoverable: bool,
+    pub epoch: i64,
+    pub total_size: i64,
+    pub transferred_bytes: i64,
+    pub started_at: i64,
+    pub updated_at: i64,
+    pub finished_at: Option<i64>,
+    pub error_message: Option<String>,
+    pub save_path: Option<CoreSaveLocation>,
+    pub files: Vec<TransferProjectionFile>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferProjectionFile {
+    pub file_id: i32,
+    pub name: String,
+    pub relative_path: String,
+    pub size: i64,
+    pub transferred_bytes: i64,
+}
+
+impl From<entity::transfer_file::ModelEx> for TransferProjectionFile {
+    fn from(f: entity::transfer_file::ModelEx) -> Self {
+        Self {
+            file_id: f.file_id,
+            name: f.name,
+            relative_path: f.relative_path,
+            size: f.size,
+            transferred_bytes: f.transferred_bytes,
+        }
+    }
+}
+
+impl From<entity::transfer_session::ModelEx> for TransferProjection {
+    fn from(s: entity::transfer_session::ModelEx) -> Self {
+        Self {
+            session_id: s.session_id,
+            direction: s.direction,
+            peer_id: s.peer_id.0,
+            peer_name: s.peer_name,
+            phase: s.phase,
+            suspended_reason: s.suspended_reason,
+            terminal_reason: s.terminal_reason,
+            recoverable: s.recoverable,
+            epoch: s.epoch,
+            total_size: s.total_size,
+            transferred_bytes: s.transferred_bytes,
+            started_at: s.started_at,
+            updated_at: s.updated_at,
+            finished_at: s.finished_at,
+            error_message: s.error_message,
+            save_path: s.save_path.map(Into::into),
+            files: s.files.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// 查询所有传输投影（前端列表唯一数据源，按开始时间倒序）。
+pub async fn get_transfer_projections(
+    db: &DatabaseConnection,
+) -> AppResult<Vec<TransferProjection>> {
+    let sessions = load_sessions_with_files(db, None).await?;
+    Ok(sessions.into_iter().map(Into::into).collect())
+}
+
+/// 查询单个 session 的投影（状态转换后给前端 emit，避免全表 load）。
+pub async fn get_transfer_projection(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+) -> AppResult<Option<TransferProjection>> {
+    let session = entity::TransferSession::load()
+        .filter_by_id(session_id)
+        .with(entity::TransferFile)
+        .one(db)
+        .await?;
+    Ok(session.map(Into::into))
+}
+
+/// 按 reducer 输出的新状态写入 session 的 phase / reason / epoch / recoverable。
+///
+/// 这是 Coordinator 唯一的状态持久化入口（D6：DB 是恢复事实来源）。
+pub async fn apply_transition(
+    db: &DatabaseConnection,
+    session: &entity::transfer_session::Model,
+    state: &crate::transfer::coordinator::TransferState,
+) -> AppResult<()> {
+    let mut model = session.clone().into_active_model();
+    model.phase = Set(state.phase.clone());
+    model.suspended_reason = Set(state.suspended_reason.clone());
+    model.terminal_reason = Set(state.terminal_reason.clone());
+    model.epoch = Set(state.epoch);
+    model.recoverable = Set(state.recoverable);
+    // 过渡期：同步旧扁平 status（单一映射来源 TransferPhase::legacy_status），
+    // 避免 phase 与 status 漂移、前端旧路径读到滞留状态。
+    model.status = Set(state.phase.legacy_status(state.terminal_reason.as_ref()));
+    model.updated_at = Set(now_ms());
+    model.update(db).await?;
+    Ok(())
+}
+
+/// 加载 session 原始 Model（供 Coordinator 读取当前生命周期状态）。
+pub async fn find_session(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+) -> AppResult<Option<entity::transfer_session::Model>> {
+    Ok(entity::TransferSession::find_by_id(session_id)
+        .one(db)
+        .await?)
+}
+
+/// 加载 session + files，按开始时间倒序（可选按旧 status 过滤）。
+/// `get_transfer_history` 与 `get_transfer_projections` 共用同一查询体。
+async fn load_sessions_with_files(
+    db: &DatabaseConnection,
+    status_filter: Option<SessionStatus>,
+) -> AppResult<Vec<entity::transfer_session::ModelEx>> {
+    let mut query = entity::TransferSession::load()
+        .with(entity::TransferFile)
+        .order_by_desc(entity::transfer_session::Column::StartedAt);
+    if let Some(status) = status_filter {
+        query = query.filter(entity::transfer_session::Column::Status.eq(status));
+    }
+    Ok(query.all(db).await?)
+}
+
 /// 查询传输历史列表（可选按状态过滤）
 pub async fn get_transfer_history(
     db: &DatabaseConnection,
     status_filter: Option<SessionStatus>,
 ) -> AppResult<Vec<TransferHistoryItem>> {
-    let mut query = entity::TransferSession::load()
-        .with(entity::TransferFile)
-        .order_by_desc(entity::transfer_session::Column::StartedAt);
-
-    if let Some(status) = status_filter {
-        query = query.filter(entity::transfer_session::Column::Status.eq(status));
-    }
-
-    let sessions = query.all(db).await?;
-
+    let sessions = load_sessions_with_files(db, status_filter).await?;
     Ok(sessions.into_iter().map(Into::into).collect())
 }
 

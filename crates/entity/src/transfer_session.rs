@@ -1,6 +1,9 @@
 use sea_orm::entity::prelude::*;
 
-use crate::{PeerId, SaveLocation, SessionStatus, TransferDirection};
+use crate::{
+    PeerId, SaveLocation, SessionStatus, SuspendedReason, TerminalReason, TransferDirection,
+    TransferPhase,
+};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -20,8 +23,20 @@ pub struct Model {
     pub total_size: i64,
     /// 已传输字节数（实时更新）
     pub transferred_bytes: i64,
-    /// 会话状态
+    /// 会话状态（旧扁平模型，过渡期保留，逐步由 phase + reason 替代）
     pub status: SessionStatus,
+    /// 生命周期大状态
+    pub phase: TransferPhase,
+    /// suspended 原因（phase=suspended 时有值）
+    pub suspended_reason: Option<SuspendedReason>,
+    /// terminal 原因（phase=terminal 时有值）
+    pub terminal_reason: Option<TerminalReason>,
+    /// 当前 epoch（每次开始 / 恢复递增，防旧消息污染）
+    pub epoch: i64,
+    /// 是否可恢复
+    pub recoverable: bool,
+    /// 源文件指纹（恢复校验用，JSON 编码）
+    pub source_fingerprint: Option<String>,
     /// 开始时间（Unix ms）
     pub started_at: i64,
     /// 最后更新时间（Unix ms），用于 paused 会话 7 天过期清理

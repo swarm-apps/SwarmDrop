@@ -1,5 +1,6 @@
 //! 文件传输共享常量和工具函数。
 
+pub mod coordinator;
 pub mod crypto;
 pub mod incoming;
 pub mod manager;
