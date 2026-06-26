@@ -13,8 +13,8 @@ use uuid::Uuid;
 
 use crate::host::{CoreEvent, FileSourceId};
 use crate::protocol::{
-    AppRequest, AppResponse, FileChecksum, FileInfo, ResumeRejectReason, TransferRequest,
-    TransferResponse,
+    AppRequest, AppResponse, FileCheckpoint, FileChecksum, FileInfo, ResumePhaseReport,
+    ResumeRejectReason, ResumeReport, TransferRequest, TransferResponse,
 };
 use crate::transfer::crypto::generate_key;
 use crate::transfer::manager::{PreparedFile, ResumeFileInfo, ResumeInfo, TransferManager};
@@ -320,9 +320,111 @@ impl TransferManager {
             reason: None,
         })
     }
+
+    /// 恢复探测应答：报告本端会话事实（phase/epoch/checkpoint/fingerprint/terminal）。
+    pub(super) async fn handle_resume_probe_impl(
+        &self,
+        session_id: Uuid,
+        local_epoch: i64,
+    ) -> AppResult<TransferResponse> {
+        let _ = local_epoch;
+        let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
+            return Ok(TransferResponse::ResumeStateReport {
+                session_id,
+                report: ResumeReport {
+                    phase: ResumePhaseReport::NotFound,
+                    epoch: 0,
+                    checkpoint: vec![],
+                    source_fingerprint: None,
+                    terminal: false,
+                },
+            });
+        };
+        let files = crate::database::ops::get_session_files(&self.db, session_id).await?;
+        Ok(TransferResponse::ResumeStateReport {
+            session_id,
+            report: ResumeReport {
+                phase: map_resume_phase(&session.phase),
+                epoch: session.epoch,
+                checkpoint: build_resume_checkpoint(&files),
+                source_fingerprint: session.source_fingerprint,
+                terminal: matches!(session.phase, entity::TransferPhase::Terminal),
+            },
+        })
+    }
+
+    /// 恢复提交应答：校验后经 Coordinator 转 active(new_epoch)，完成 epoch 递增。
+    /// 注：actor 重建 + 续传搬运在轮 7（数据面）接入；此处先做状态转换。
+    pub(super) async fn handle_resume_commit_impl(
+        &self,
+        session_id: Uuid,
+        new_epoch: i64,
+        key: [u8; 32],
+        fetch_plan: Vec<crate::protocol::FileRange>,
+    ) -> AppResult<TransferResponse> {
+        let _ = (key, fetch_plan);
+        let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
+            return Ok(TransferResponse::ResumeAck {
+                session_id,
+                new_epoch,
+                accepted: false,
+            });
+        };
+        if matches!(session.phase, entity::TransferPhase::Terminal) {
+            return Ok(TransferResponse::ResumeAck {
+                session_id,
+                new_epoch,
+                accepted: false,
+            });
+        }
+        let transitioned = self
+            .coordinator
+            .dispatch(
+                session_id,
+                crate::transfer::coordinator::CoordinatorInput::Network {
+                    epoch: session.epoch,
+                    signal: crate::transfer::coordinator::NetworkSignal::ResumeCommitted {
+                        new_epoch,
+                    },
+                },
+            )
+            .await?;
+        Ok(TransferResponse::ResumeAck {
+            session_id,
+            new_epoch,
+            accepted: transitioned.is_some(),
+        })
+    }
 }
 
 // ============ 续传共用的私有 helper ============
+
+/// entity phase → 恢复探测报告的简化 phase。
+fn map_resume_phase(phase: &entity::TransferPhase) -> ResumePhaseReport {
+    match phase {
+        entity::TransferPhase::Active
+        | entity::TransferPhase::Offered
+        | entity::TransferPhase::WaitingAccept => ResumePhaseReport::Active,
+        entity::TransferPhase::Suspended => ResumePhaseReport::Suspended,
+        entity::TransferPhase::Terminal => ResumePhaseReport::Terminal,
+    }
+}
+
+/// 从文件记录构造 checkpoint（过渡近似：transferred_bytes 作单个连续 range；
+/// 精确 bitmap→ranges 在轮 7 数据面落实）。
+fn build_resume_checkpoint(files: &[entity::transfer_file::Model]) -> Vec<FileCheckpoint> {
+    files
+        .iter()
+        .map(|f| FileCheckpoint {
+            file_id: f.file_id as u32,
+            completed_ranges: if f.transferred_bytes > 0 {
+                vec![(0, f.transferred_bytes as u64)]
+            } else {
+                vec![]
+            },
+        })
+        .collect()
+}
 
 /// 断点续传校验：DB 查询 → 状态检查 → 文件校验
 struct ResumeContext {

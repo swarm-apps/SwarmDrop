@@ -304,6 +304,25 @@ impl IncomingTransferRuntime for TransferManager {
         self.handle_resume_offer_impl(peer_id, session_id, key, file_checksums)
             .await
     }
+
+    async fn handle_resume_probe(
+        &self,
+        session_id: Uuid,
+        local_epoch: i64,
+    ) -> AppResult<TransferResponse> {
+        self.handle_resume_probe_impl(session_id, local_epoch).await
+    }
+
+    async fn handle_resume_commit(
+        &self,
+        session_id: Uuid,
+        new_epoch: i64,
+        key: [u8; 32],
+        fetch_plan: Vec<crate::protocol::FileRange>,
+    ) -> AppResult<TransferResponse> {
+        self.handle_resume_commit_impl(session_id, new_epoch, key, fetch_plan)
+            .await
+    }
 }
 
 fn remove_expired<V>(map: &DashMap<Uuid, V>, is_expired: impl Fn(&V) -> bool, label: &str) {

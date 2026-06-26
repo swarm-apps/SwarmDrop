@@ -112,6 +112,41 @@ pub trait IncomingTransferRuntime: Send + Sync {
             reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
         })
     }
+
+    /// 恢复探测应答（默认报告 NotFound；桌面端在 TransferManager 具体实现）。
+    async fn handle_resume_probe(
+        &self,
+        session_id: Uuid,
+        local_epoch: i64,
+    ) -> AppResult<TransferResponse> {
+        let _ = local_epoch;
+        Ok(TransferResponse::ResumeStateReport {
+            session_id,
+            report: crate::protocol::ResumeReport {
+                phase: crate::protocol::ResumePhaseReport::NotFound,
+                epoch: 0,
+                checkpoint: vec![],
+                source_fingerprint: None,
+                terminal: false,
+            },
+        })
+    }
+
+    /// 恢复提交应答（默认拒绝；桌面端在 TransferManager 具体实现）。
+    async fn handle_resume_commit(
+        &self,
+        session_id: Uuid,
+        new_epoch: i64,
+        key: [u8; 32],
+        fetch_plan: Vec<crate::protocol::FileRange>,
+    ) -> AppResult<TransferResponse> {
+        let _ = (key, fetch_plan);
+        Ok(TransferResponse::ResumeAck {
+            session_id,
+            new_epoch,
+            accepted: false,
+        })
+    }
 }
 
 pub async fn handle_incoming_transfer_request<R, B>(
@@ -268,6 +303,49 @@ where
                         session_id,
                         accepted: false,
                         reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
+                    }
+                });
+            send_transfer_response(client, pending_id, response).await?;
+            Ok(IncomingTransferDisposition::Handled)
+        }
+        TransferRequest::ResumeProbe {
+            session_id,
+            local_epoch,
+        } => {
+            let response = runtime
+                .handle_resume_probe(session_id, local_epoch)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!("ResumeProbe 处理失败: {}", e);
+                    TransferResponse::ResumeStateReport {
+                        session_id,
+                        report: crate::protocol::ResumeReport {
+                            phase: crate::protocol::ResumePhaseReport::NotFound,
+                            epoch: 0,
+                            checkpoint: vec![],
+                            source_fingerprint: None,
+                            terminal: false,
+                        },
+                    }
+                });
+            send_transfer_response(client, pending_id, response).await?;
+            Ok(IncomingTransferDisposition::Handled)
+        }
+        TransferRequest::ResumeCommit {
+            session_id,
+            new_epoch,
+            key,
+            fetch_plan,
+        } => {
+            let response = runtime
+                .handle_resume_commit(session_id, new_epoch, key, fetch_plan)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!("ResumeCommit 处理失败: {}", e);
+                    TransferResponse::ResumeAck {
+                        session_id,
+                        new_epoch,
+                        accepted: false,
                     }
                 });
             send_transfer_response(client, pending_id, response).await?;

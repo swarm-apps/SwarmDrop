@@ -70,6 +70,44 @@ pub enum ResumeRejectReason {
     SenderCancelled,
 }
 
+/// 待传 byte range（fetch_plan 元素，恢复探测协议用）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileRange {
+    pub file_id: u32,
+    pub offset: u64,
+    pub length: u64,
+}
+
+/// 单文件 checkpoint（已完成 byte range 列表）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileCheckpoint {
+    pub file_id: u32,
+    pub completed_ranges: Vec<(u64, u64)>,
+}
+
+/// 恢复探测时对端报告的 phase（简化映射）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum ResumePhaseReport {
+    NotFound,
+    Active,
+    Suspended,
+    Terminal,
+}
+
+/// 恢复状态报告内容（ResumeProbe 的应答体）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeReport {
+    pub phase: ResumePhaseReport,
+    pub epoch: i64,
+    pub checkpoint: Vec<FileCheckpoint>,
+    pub source_fingerprint: Option<String>,
+    pub terminal: bool,
+}
+
 /// 传输请求。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -103,6 +141,19 @@ pub enum TransferRequest {
         #[serde(serialize_with = "serialize_key", deserialize_with = "deserialize_key")]
         key: [u8; 32],
         file_checksums: Vec<FileChecksum>,
+    },
+    /// 恢复探测：发起方询问对端会话当前事实（探测式恢复，逐步替代 ResumeRequest/ResumeOffer）。
+    ResumeProbe {
+        session_id: Uuid,
+        local_epoch: i64,
+    },
+    /// 恢复提交：发起方确认恢复，携带新 epoch、传输密钥和 fetch_plan。
+    ResumeCommit {
+        session_id: Uuid,
+        new_epoch: i64,
+        #[serde(serialize_with = "serialize_key", deserialize_with = "deserialize_key")]
+        key: [u8; 32],
+        fetch_plan: Vec<FileRange>,
     },
 }
 
@@ -159,6 +210,17 @@ pub enum TransferResponse {
         session_id: Uuid,
         accepted: bool,
         reason: Option<ResumeRejectReason>,
+    },
+    /// 恢复状态报告（对 ResumeProbe 的应答）。
+    ResumeStateReport {
+        session_id: Uuid,
+        report: ResumeReport,
+    },
+    /// 恢复确认（对 ResumeCommit 的应答）。
+    ResumeAck {
+        session_id: Uuid,
+        new_epoch: i64,
+        accepted: bool,
     },
 }
 
