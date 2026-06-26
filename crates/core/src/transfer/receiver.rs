@@ -21,6 +21,7 @@ use crate::host::{
 use crate::protocol::{
     AppNetClient, AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse,
 };
+use crate::transfer::coordinator::TransferCoordinator;
 use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent,
@@ -56,6 +57,8 @@ pub struct ReceiveSession {
     event_bus: Arc<dyn EventBus>,
     /// 数据库连接（断点续传 checkpoint 持久化）
     db: Arc<DatabaseConnection>,
+    /// 生命周期协调器（接收方自身 complete/fail 后发 projection，消除收发不对称）
+    coordinator: Arc<TransferCoordinator>,
     /// 保存位置（用于完成事件 payload，host 自己定义语义）
     save_location: CoreSaveLocation,
     /// 加密器
@@ -82,6 +85,7 @@ impl ReceiveSession {
         file_access: Arc<dyn FileAccess>,
         event_bus: Arc<dyn EventBus>,
         db: Arc<DatabaseConnection>,
+        coordinator: Arc<TransferCoordinator>,
         save_location: CoreSaveLocation,
         key: &[u8; 32],
         client: AppNetClient,
@@ -96,6 +100,7 @@ impl ReceiveSession {
             file_access,
             event_bus,
             db,
+            coordinator,
             save_location,
             crypto: Arc::new(TransferCrypto::new(key)),
             client,
@@ -344,6 +349,9 @@ impl ReceiveSession {
                     },
                 })
                 .await;
+        } else {
+            // mark 已双写 phase=terminal/completed；接收方也发 projection，与发送方对称。
+            let _ = self.coordinator.publish_projection(self.session_id).await;
         }
 
         let complete_event = progress
@@ -666,6 +674,8 @@ impl ReceiveSession {
     /// 标记会话失败：写入 DB 失败记录 + 发射失败事件
     async fn fail_session(&self, progress: &Arc<Mutex<ProgressTracker>>, msg: String) {
         let _ = crate::database::ops::mark_session_failed(&self.db, self.session_id, &msg).await;
+        // mark 已双写 phase=terminal/failed；发 projection 与发送方对称。
+        let _ = self.coordinator.publish_projection(self.session_id).await;
         let event = progress.lock().await.failed_event(msg);
         let _ = self
             .event_bus

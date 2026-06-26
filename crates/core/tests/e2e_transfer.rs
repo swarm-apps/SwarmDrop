@@ -330,6 +330,28 @@ async fn e2e_single_file_transfer() {
     };
     assert!(completed(&node_a), "发送方应发 TransferCompleted");
     assert!(completed(&node_b), "接收方应发 TransferCompleted");
+
+    // 3.3 对称性：收发两侧都发 Terminal/Completed 的 TransferProjection
+    // （接收方此前不发 projection，本次接线 ReceiveSession 持 coordinator 后补齐）。
+    let emitted_terminal_projection = |node: &TestNode| {
+        node.host.events().iter().any(|e| {
+            matches!(
+                e,
+                CoreEvent::TransferProjection { projection }
+                    if projection.session_id == session_id
+                        && projection.phase == TransferPhase::Terminal
+                        && projection.terminal_reason == Some(TerminalReason::Completed)
+            )
+        })
+    };
+    assert!(
+        emitted_terminal_projection(&node_a),
+        "发送方应发 Terminal/Completed projection"
+    );
+    assert!(
+        emitted_terminal_projection(&node_b),
+        "接收方应发 Terminal/Completed projection（3.3 对称性）"
+    );
 }
 
 /// 轮 4 task 2.5：应用重启的启动清理。

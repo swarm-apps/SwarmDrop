@@ -248,6 +248,7 @@ impl TransferManager {
             self.file_access.clone(),
             self.event_bus.clone(),
             self.db.clone(),
+            self.coordinator.clone(),
             save_location,
             key,
             self.client.clone(),
