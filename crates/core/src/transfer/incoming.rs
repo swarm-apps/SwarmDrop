@@ -70,6 +70,12 @@ pub trait IncomingTransferRuntime: Send + Sync {
 
     fn paired_device_name(&self, peer_id: &PeerId) -> Option<String>;
 
+    /// 对端断连：把该 peer 当前所有 active 传输转为 recoverable suspended(Interrupted)。
+    /// 默认 no-op（mobile-core 占位）；桌面端 TransferManager 具体实现。
+    async fn handle_peer_disconnected(&self, peer_id: PeerId) {
+        let _ = peer_id;
+    }
+
     fn cache_inbound_offer(
         &self,
         pending_id: u64,

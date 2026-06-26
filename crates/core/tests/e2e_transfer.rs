@@ -31,6 +31,7 @@ use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
 use swarmdrop_core::transfer::coordinator::{NetworkSignal, TransferCoordinator};
+use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::HostEnumeratedFile;
 
@@ -213,8 +214,8 @@ async fn connected_paired_pair(host_a: MemoryHost, host_b: MemoryHost) -> (TestN
     (node_a, node_b)
 }
 
-/// 预置一个 active 接收会话（create_session 直接写 phase=Active），供清理 / 信号测试复用。
-async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid) {
+/// 预置一个 active 接收会话（create_session 直接写 phase=Active），供清理 / 信号 / 断连测试复用。
+async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id: &str) {
     let files = vec![FileInfo {
         file_id: 0,
         name: "a.bin".to_string(),
@@ -226,7 +227,7 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid) {
         db,
         session_id,
         TransferDirection::Receive,
-        "peer",
+        peer_id,
         "peer-name",
         &files,
         1024,
@@ -395,7 +396,7 @@ async fn e2e_startup_cleanup_active_to_suspended() {
 
     // 预置一个 active 会话（create_session 直接写 phase=Active）。
     let session_id = Uuid::new_v4();
-    seed_active_session(db.as_ref(), session_id).await;
+    seed_active_session(db.as_ref(), session_id, "peer").await;
 
     // 重启清理：active → recoverable suspended(AppRestarted)。
     let coordinator = TransferCoordinator::new(db.clone(), event_bus);
@@ -442,7 +443,7 @@ async fn e2e_remote_signals_write_remote_reason() {
 
     // 对端暂停：active → suspended/RemotePaused/recoverable。
     let paused_id = Uuid::new_v4();
-    seed_active_session(db.as_ref(), paused_id).await;
+    seed_active_session(db.as_ref(), paused_id, "peer").await;
     coordinator
         .dispatch_network_current(paused_id, NetworkSignal::RemotePaused)
         .await
@@ -462,7 +463,7 @@ async fn e2e_remote_signals_write_remote_reason() {
 
     // 对端取消：active → terminal/cancelled/不可恢复。
     let cancelled_id = Uuid::new_v4();
-    seed_active_session(db.as_ref(), cancelled_id).await;
+    seed_active_session(db.as_ref(), cancelled_id, "peer").await;
     coordinator
         .dispatch_network_current(cancelled_id, NetworkSignal::RemoteCancelled)
         .await
@@ -475,6 +476,58 @@ async fn e2e_remote_signals_write_remote_reason() {
     assert_eq!(c.phase, TransferPhase::Terminal);
     assert_eq!(c.terminal_reason, Some(TerminalReason::Cancelled));
     assert!(!c.recoverable);
+}
+
+/// 轮 4 task 3.3 收尾：对端断连 → 该 peer 的 active 传输转 recoverable suspended(Interrupted)。
+///
+/// `handle_peer_disconnected` 是 IncomingTransferRuntime trait 方法，event_loop 在
+/// `NodeEvent::PeerDisconnected` 时调它；这里直接调（模拟检测到断连）做确定性验证，
+/// 不依赖真实网络断连时序。预置一个无真实传输的 active 会话 → 调 handler → 验状态。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_peer_disconnect_interrupts_active() {
+    // 一个真实节点（拿 client 构 TransferManager）+ 一个仅取 PeerId 的"对端"。
+    let fake_peer = PeerId::from_public_key(&Keypair::generate_ed25519().public());
+    let node = spawn_node(
+        Keypair::generate_ed25519(),
+        MemoryHost::new(test_paths()),
+        make_db().await,
+        vec![paired_info(fake_peer)],
+    )
+    .await;
+
+    // 该 peer 的 active 会话 + 另一个不相干 peer 的会话（验证按 peer 精确过滤）。
+    let target = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    seed_active_session(node.db.as_ref(), target, &fake_peer.to_string()).await;
+    seed_active_session(node.db.as_ref(), other, "other-peer").await;
+
+    // 模拟 event_loop 检测到 fake_peer 断连。
+    node.transfer.handle_peer_disconnected(fake_peer).await;
+
+    // 目标会话 → suspended/Interrupted/recoverable + 发 projection。
+    let p = ops::get_transfer_projection(node.db.as_ref(), target)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(p.phase, TransferPhase::Suspended);
+    assert_eq!(p.suspended_reason, Some(SuspendedReason::Interrupted));
+    assert!(p.recoverable, "中断应可恢复");
+    assert!(
+        node.host.events().iter().any(|e| matches!(
+            e,
+            CoreEvent::TransferProjection { projection }
+                if projection.session_id == target
+                    && projection.suspended_reason == Some(SuspendedReason::Interrupted)
+        )),
+        "应发 Interrupted 的 TransferProjection"
+    );
+
+    // 不相干 peer 的会话不受影响，仍 active。
+    let o = ops::get_transfer_projection(node.db.as_ref(), other)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(o.phase, TransferPhase::Active, "其它 peer 的会话不应被中断");
 }
 
 /// 接收方拒绝 Offer：跨节点 reject 路径（确定性，不启动传输）。

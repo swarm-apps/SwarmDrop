@@ -254,6 +254,10 @@ impl IncomingTransferRuntime for TransferManager {
         self.handle_pause_impl(session_id).await
     }
 
+    async fn handle_peer_disconnected(&self, peer_id: PeerId) {
+        self.handle_peer_disconnected_impl(peer_id).await
+    }
+
     fn is_paired(&self, _peer_id: &PeerId) -> bool {
         // PairingManager 不在 TransferManager 持有；caller (event_loop) 在调用前已校验。
         // 默认返回 true，避免双重校验。

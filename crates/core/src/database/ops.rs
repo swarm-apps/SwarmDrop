@@ -561,11 +561,34 @@ pub async fn find_session(
 /// recoverable suspended(AppRestarted)，由 `TransferCoordinator::cleanup_recoverable_sessions`
 /// 经状态机驱动。
 pub async fn find_active_session_ids(db: &DatabaseConnection) -> AppResult<Vec<Uuid>> {
-    let sessions = entity::TransferSession::find()
-        .filter(entity::transfer_session::Column::Phase.eq(TransferPhase::Active))
+    active_session_ids(db, None).await
+}
+
+/// 对端断连用：查某个 peer 当前所有 `phase=Active` 的会话 id，转为
+/// recoverable suspended(Interrupted)。
+pub async fn find_active_session_ids_by_peer(
+    db: &DatabaseConnection,
+    peer_id: &str,
+) -> AppResult<Vec<Uuid>> {
+    active_session_ids(db, Some(peer_id)).await
+}
+
+async fn active_session_ids(
+    db: &DatabaseConnection,
+    peer_id: Option<&str>,
+) -> AppResult<Vec<Uuid>> {
+    let mut query = entity::TransferSession::find()
+        .filter(entity::transfer_session::Column::Phase.eq(TransferPhase::Active));
+    if let Some(peer) = peer_id {
+        query = query
+            .filter(entity::transfer_session::Column::PeerId.eq(entity::PeerId(peer.to_string())));
+    }
+    Ok(query
         .all(db)
-        .await?;
-    Ok(sessions.into_iter().map(|m| m.session_id).collect())
+        .await?
+        .into_iter()
+        .map(|m| m.session_id)
+        .collect())
 }
 
 /// 加载 session + files，按开始时间倒序（可选按旧 status 过滤）。

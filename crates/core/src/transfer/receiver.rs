@@ -531,11 +531,17 @@ impl ReceiveSession {
             }
         }
 
+        // 取消 / 中断优先于 error：被 cancel_token 取消的传输（用户取消或对端断连
+        // teardown）即使有 in-flight chunk 错误，也算"取消"返回 Ok(false)，不走
+        // fail_session（否则中断会被误判为 terminal/failed，盖掉 Interrupted/Cancelled）。
+        if self.cancel_token.is_cancelled() {
+            return Ok(false);
+        }
         if let Some(e) = first_error.lock().await.take() {
             return Err(e);
         }
 
-        Ok(!self.cancel_token.is_cancelled())
+        Ok(true)
     }
 
     /// 拉取单个分块（含重试）

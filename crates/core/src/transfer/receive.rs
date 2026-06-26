@@ -354,6 +354,43 @@ impl TransferManager {
         })
     }
 
+    /// 对端断连：把该 peer 当前所有 active 传输转为 recoverable suspended(Interrupted)。
+    ///
+    /// 先取消内存中的 send/receive 会话（cancel 优先于 error，pull 返回 Ok(false) 不 fail），
+    /// 再经状态机 `Network{Interrupted}` 写 suspended/Interrupted/recoverable + 发 projection。
+    /// 发送端会话本就 idle（只应答 ChunkRequest），靠此 hook 才能感知断连。
+    pub(super) async fn handle_peer_disconnected_impl(&self, peer_id: PeerId) {
+        let peer_str = peer_id.to_string();
+        let ids = match crate::database::ops::find_active_session_ids_by_peer(&self.db, &peer_str)
+            .await
+        {
+            Ok(ids) => ids,
+            Err(e) => {
+                warn!("查询 peer {} 的 active 会话失败: {}", peer_str, e);
+                return;
+            }
+        };
+        for session_id in ids {
+            if let Some((_, session)) = self.send_sessions.remove(&session_id) {
+                session.cancel();
+            }
+            if let Some(session) = self.get_receive_session(&session_id) {
+                self.remove_receive_session(&session_id);
+                session.cancel_and_wait().await;
+            }
+            if let Err(e) = self
+                .coordinator
+                .dispatch_network_current(
+                    session_id,
+                    crate::transfer::coordinator::NetworkSignal::Interrupted,
+                )
+                .await
+            {
+                warn!("dispatch 对端断连中断失败: session={}, {}", session_id, e);
+            }
+        }
+    }
+
     pub(super) async fn handle_pause_impl(
         &self,
         session_id: Uuid,

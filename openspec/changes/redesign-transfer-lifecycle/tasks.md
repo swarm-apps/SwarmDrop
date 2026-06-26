@@ -24,7 +24,7 @@
 
 - [x] 3.1 新建 `TransferCoordinator` 模块，定义用户命令、网络事件、actor 事件和状态 reducer
 - [ ] 3.2 实现 actor registry，统一管理 SenderActor / ReceiverActor 的创建、替换、取消和 epoch 校验
-- [~] 3.3 将 pause、cancel、complete、fail、peer disconnected 等路径改为进入 Coordinator（✅ 非 resume 的 mark_* 调用点全部接通：本地 pause/cancel→`User{Pause/Cancel}`、对端 pause/cancel→`Network{RemotePaused/RemoteCancelled}`（落实本地 vs 对端 reason 区分）、撤回 race→`User{Cancel}`、收发 complete/fail→`publish_projection`（ReceiveSession 持 coordinator 补齐收发对称）；剩 **peer disconnected→`Network{Interrupted}`**：需先把「连接丢失致拉取失败」与真正 fatal error 区分（否则 fail_session 会覆盖 Interrupted），属带错误分类的子特性，与轮 7 数据面 ConnectionLost 检测配套，单列后续。resume.rs 的 mark_* 属轮 5 废弃旧入口）
+- [x] 3.3 将 pause、cancel、complete、fail、peer disconnected 等路径改为进入 Coordinator（非 resume 的 mark_* 调用点全部接通：本地 pause/cancel→`User{Pause/Cancel}`、对端 pause/cancel→`Network{RemotePaused/RemoteCancelled}`（本地 vs 对端 reason 区分）、撤回 race→`User{Cancel}`、收发 complete/fail→`publish_projection`（ReceiveSession 持 coordinator 补齐对称）、**peer disconnected→`Network{Interrupted}`**（event_loop hook + `find_active_session_ids_by_peer` + 取消会话；为此把 `pull_file_chunks` 改成「取消优先于 error」，被中断/取消的传输返回 Ok(false) 不 fail，否则 fail_session 会盖掉 Interrupted——也顺手修了 cancel 时若 chunk 报错变 failed 的潜在 bug）。每点跑 E2E（6 个）。resume.rs 的 mark_* 属轮 5 废弃旧入口）
 - [x] 3.4 实现前端 projection 事件发布，替换旧的分散 transfer events
 - [x] 3.5 添加旧 epoch actor event 被忽略的单元测试
 
@@ -81,7 +81,7 @@
 ### 轮 4 — Coordinator 完整接线（后端）→ task 3.2 / 3.3 / 3.4 / 2.5
 
 - 3.2 Coordinator 持有 `db + event_bus + actor registry`（管理 Sender/ReceiverActor 创建/替换/取消/epoch 校验）
-- 3.3 把 `mark_session_*` 调用点逐点映射为 `dispatch(session_id, CoordinatorInput)`。**✅ 非 resume 点全部接通**（每点跑 E2E）：本地 cancel/pause→`User{Cancel/Pause}`、对端 cancel/pause→`Network{RemoteCancelled/RemotePaused}`（新增 `dispatch_network_current`：控制消息暂不带 epoch，用 session 当前 epoch）、撤回 race→`User{Cancel}`、收发 complete/fail→`mark_*`+`publish_projection`（ReceiveSession 线入 coordinator 补收发对称）。coordinator 抽 `apply_input` 共用、不二次 SELECT。剩 **peer disconnected→`Network{Interrupted}`** 需错误分类（连接丢失 vs fatal），与轮 7 ConnectionLost 配套，单列；resume.rs 的 mark_* 属轮 5。E2E 增至 5 个（+重启清理/reject/remote-reason）
+- 3.3 把 `mark_session_*` 调用点逐点映射为 `dispatch(session_id, CoordinatorInput)`。**✅ 完成**（每点跑 E2E）：本地 cancel/pause→`User{Cancel/Pause}`、对端 cancel/pause→`Network{RemoteCancelled/RemotePaused}`（新增 `dispatch_network_current`：控制消息暂不带 epoch，用 session 当前 epoch）、撤回 race→`User{Cancel}`、收发 complete/fail→`mark_*`+`publish_projection`（ReceiveSession 线入 coordinator 补收发对称）、**peer disconnected→`Network{Interrupted}`**（event_loop `PeerDisconnected` → `IncomingTransferRuntime::handle_peer_disconnected` → 按 peer 查 active + 取消会话 + dispatch；`pull_file_chunks` 改「取消优先于 error」防 fail_session 盖掉中断）。coordinator 抽 `apply_input` 共用、不二次 SELECT。resume.rs 的 mark_* 属轮 5。E2E 6 个（连通/单文件/重启清理/reject/remote-reason/peer-disconnect），并行下稳健
 - 3.4 dispatch 转换成功后 `get_transfer_projection` + `publish(CoreEvent::TransferProjection)`；新增 `CoreEvent::TransferProjection`（host.rs 已 `#[non_exhaustive]`，桌面 `host/event_bus.rs` 加 emit `"transfer-projection"`）
 - 2.5 启动清理：遗留 active → `dispatch(Startup(FoundActiveSession))` → suspended/app_restarted。**✅ core 原语已落地实证**（`TransferCoordinator::cleanup_recoverable_sessions` + `ops::find_active_session_ids` + E2E `e2e_startup_cleanup_active_to_suspended`）；桌面 `setup.rs:165` 旧 `cleanup_stale_sessions` 的替换待轮 6 app 验证（行为变更 + .part 磁盘清理需保留）
 - **风险**：17 点语义各异，逐点改 + 每点 `cargo test`；本地 vs 对端 pause 的 reason 区分在此落实

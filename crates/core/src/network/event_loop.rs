@@ -146,6 +146,13 @@ pub async fn run_event_loop<TTransfer>(
             warn!("core 节点事件处理失败: {}", e);
         }
 
+        // 对端断连：把该 peer 当前 active 传输转为 recoverable suspended(Interrupted)。
+        // 发送端会话本就 idle、靠此 hook 感知断连；接收端 pull 会因连接丢失失败，
+        // 但 handle_peer_disconnected 先取消会话（cancel 优先于 error）避免误判 failed。
+        if let NodeEvent::PeerDisconnected { peer_id } = &event {
+            shared.transfer.handle_peer_disconnected(*peer_id).await;
+        }
+
         // 通知：配对请求触发系统通知
         if let NodeEvent::InboundRequest {
             request: AppRequest::Pairing(req),

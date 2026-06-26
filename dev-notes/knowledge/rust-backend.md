@@ -129,6 +129,19 @@ pub fn insert_session(...) { ... }
 
 **相关文件**：`crates/core/src/transfer/coordinator.rs`、`crates/core/src/database/ops.rs`（apply_transition/projection）、`crates/entity/src/lib.rs`（`TransferPhase::legacy_status`）
 
+### 接线 mark_session_* → Coordinator：本地/对端 reason 区分 + 取消优先于 error
+
+把 17 个 `mark_session_*` 调用点接进状态机时，**两种入口按是否有文件副作用分**：纯状态转换（pause/cancel/对端信号）走 `dispatch(input)`；带文件副作用的 complete/fail 走 `mark_*` + `coordinator.publish_projection`（reduce 对 terminal 返回 None，故直发投影）。
+
+**正确做法**：
+- **本地 vs 对端 reason 必须区分**：本地操作→`User{Pause/Cancel}`（写 LocalPaused/Cancelled）；对端发来的 Pause/Cancel→`Network{RemotePaused/RemoteCancelled}`（写 RemotePaused）。直接 `mark_session_paused` 会把对端暂停误标 LocalPaused。
+- 入站控制消息（req_resp 的 Cancel/Pause）当前**不携带 epoch**，用 `dispatch_network_current`（读 session 当前 epoch 再 dispatch，等价无 stale 保护）；待数据面帧协议带 epoch 后收紧。
+- **`ReceiveSession` 要持 `Arc<TransferCoordinator>`**：否则接收方自身 complete/fail 只 `mark_*` 不发 projection（收发不对称坑——发送方 `handle_complete_impl` 发、接收方不发）。线进去后 complete/fail 都 `publish_projection`。
+- **对端断连 → `Network{Interrupted}`**：event_loop 在 `NodeEvent::PeerDisconnected` 调 `IncomingTransferRuntime::handle_peer_disconnected(peer)`（新 trait 方法，默认 no-op），impl 里 `find_active_session_ids_by_peer` + 取消内存会话 + dispatch。发送端会话本就 idle（只应答 ChunkRequest），**只能靠这个 hook 感知断连**。
+- **取消优先于 error**（`receiver.rs::pull_file_chunks` 收尾）：被 `cancel_token` 取消的传输即使有 in-flight chunk 错误也返回 `Ok(false)`（取消），**不能**先判 error 返回 Err——否则断连/取消 teardown 时的 chunk 错误会触发 `fail_session` 写 terminal/failed，盖掉 Interrupted/Cancelled。这也修了「主动取消时若 chunk 报错会变 failed」的潜在 bug。
+
+**相关文件**：`crates/core/src/transfer/{coordinator.rs,receive.rs,receiver.rs,send.rs}`、`crates/core/src/network/event_loop.rs`、`crates/core/tests/e2e_transfer.rs`（remote-reason / peer-disconnect 确定性测试）
+
 ### crates/core 端到端集成测试：两个真实节点 + MemoryHost + sqlite::memory（不需要 Tauri/真机）
 
 完整传输链路（offer→transfer→pause→resume→cancel）可在纯 `cargo test` 里跑通，**零生产代码改动**。调研结论：`libp2p-swarm-test` **不适用**——它测 raw `Swarm` + 自定义 `NetworkBehaviour`，和 SwarmDrop 的 `NetClient`/`EventReceiver` 封装层级对不上，且 `CoreBehaviour` 含只能 `with_relay_client` 造的 `relay::client::Behaviour`，传不进 swarm-test。正解是「两个真实 `start()` 节点 + 关 mDNS + 显式 dial」。
