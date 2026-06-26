@@ -111,7 +111,7 @@
 
 ### 轮 8 — 集成验证 + 清理 → task 7.1-7.5 / 2.4
 
-- 双端集成测试：正常/暂停/中断/重启/恢复/取消后拒绝恢复（task 7.2，需两端运行）
+- 双端集成测试：正常/暂停/中断/重启/恢复/取消后拒绝恢复（task 7.2）——**纯 cargo test E2E harness**（两个真实 `start()` 节点 + 关 mDNS + 显式 dial + `MemoryHost` + `sqlite::memory:`，零生产代码改动、不需真机；方案见 dev-notes/knowledge/rust-backend.md「端到端集成测试」。中断=drop event_loop task，重启=同 db 重 spawn）
 - 删除旧 `SessionStatus` 路径 + `legacy_status` 桥接 + `mark_session_*` 双写（迁移完成后回收）
 - 可选 2.4 transfer event log
 - `cargo test` 全覆盖 + 前端构建（task 7.4 / 7.5）

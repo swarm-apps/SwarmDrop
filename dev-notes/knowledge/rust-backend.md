@@ -129,6 +129,24 @@ pub fn insert_session(...) { ... }
 
 **相关文件**：`crates/core/src/transfer/coordinator.rs`、`crates/core/src/database/ops.rs`（apply_transition/projection）、`crates/entity/src/lib.rs`（`TransferPhase::legacy_status`）
 
+### crates/core 端到端集成测试：两个真实节点 + MemoryHost + sqlite::memory（不需要 Tauri/真机）
+
+完整传输链路（offer→transfer→pause→resume→cancel）可在纯 `cargo test` 里跑通，**零生产代码改动**。调研结论：`libp2p-swarm-test` **不适用**——它测 raw `Swarm` + 自定义 `NetworkBehaviour`，和 SwarmDrop 的 `NetClient`/`EventReceiver` 封装层级对不上，且 `CoreBehaviour` 含只能 `with_relay_client` 造的 `relay::client::Behaviour`，传不进 swarm-test。正解是「两个真实 `start()` 节点 + 关 mDNS + 显式 dial」。
+
+**正确做法**：
+- 现成资产：`MemoryHost::new(paths)`（`crates/core/src/host.rs`，实现全 6 个 host trait + `with_source()` 预载文件 + `events()` 取回 CoreEvent）；`Database::connect("sqlite::memory:")` + `migration::Migrator::up(&db, None)`；`swarm_p2p_core::start` + `TransferManager::new` + `NetManager::new` + `run_event_loop` 全 public，复刻 `runtime::start_node` 即可。
+- **关 mDNS + 显式 dial 消除时序**：`NodeConfig::new(...).with_mdns(false).with_relay_client(false).with_dcutr(false).with_autonat(false).with_listen_addrs(["/ip4/127.0.0.1/tcp/0"])`；建连用 `client.add_peer_addrs(peer, [listen_addr]) + client.dial(peer)`，不靠 mDNS `PeerDiscovered`（这也是 `data_channel.rs` 并行串扰的根治法）。
+- 每节点 `tokio::spawn(run_event_loop(receiver, mgr.shared_refs(), host, None))` 驱动接收方协议处理（IncomingTransferRuntime）。
+- 断言：`MemoryHost.events()` 查发出的 projection / Transfer* 事件；`db` 查 phase/epoch/checkpoint 验状态机。中断模拟 = drop 一侧 event_loop task；重启 = 用同一 `db` 重新 spawn 节点。
+- dev-deps：`migration`（workspace）、`sea-orm`、`tokio`（rt-multi-thread+macros）、`swarm-p2p-core`、`tempfile`。
+
+**不要做**：
+- 不要 mock `AppNetClient`（= `NetClient<AppRequest,AppResponse>`，必须两个真实建连节点）。
+- 不要忘 `is_paired` 校验：Offer 要求已配对，`NetManager::new` 的 `paired_devices` 要互相塞 `PairedDeviceInfo`，否则 Offer 直接被拒。
+- 不要等 mDNS 发现事件触发连接——改用 `dial()` 的精确 await。
+
+**相关文件**：`crates/core/src/host.rs`（MemoryHost）、`crates/core/src/runtime.rs`（start_node 可复刻）、`crates/core/src/network/event_loop.rs`（run_event_loop）、`libs/core/tests/data_channel.rs`（现有双节点模式参考）
+
 ## 身份存储 (keychain)
 
 ### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）
