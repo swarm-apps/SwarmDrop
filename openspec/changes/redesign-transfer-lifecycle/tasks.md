@@ -18,7 +18,7 @@
 - [x] 2.2 新增或更新 migration，完成旧 schema 到新生命周期 schema 的迁移
 - [x] 2.3 重构 database ops，提供按 Coordinator event 写入 session、file、checkpoint 和 projection 的 repository API
 - [ ] 2.4 可选新增 transfer event log，用于记录状态转换、epoch、错误和恢复协商证据
-- [ ] 2.5 更新启动清理逻辑，将遗留 active session 转为 recoverable suspended，而不是 paused/failed 混用
+- [~] 2.5 更新启动清理逻辑，将遗留 active session 转为 recoverable suspended，而不是 paused/failed 混用（✅ core 原语 `TransferCoordinator::cleanup_recoverable_sessions` + `ops::find_active_session_ids` 已落地，经状态机 dispatch `Startup(FoundActiveSession)`，E2E `e2e_startup_cleanup_active_to_suspended` 实证；待接：桌面 `setup.rs` 替换旧 `cleanup_stale_sessions`——属行为变更 + 含 .part 磁盘清理，绑轮 6 app 实跑验证）
 
 ## 3. TransferCoordinator
 
@@ -83,7 +83,7 @@
 - 3.2 Coordinator 持有 `db + event_bus + actor registry`（管理 Sender/ReceiverActor 创建/替换/取消/epoch 校验）
 - 3.3 把 17 个 `mark_session_*` 调用点（send/receiver/receive/resume/incoming）逐点映射为 `dispatch(session_id, CoordinatorInput)`：completed→`Actor{Completed}`、failed→`Actor{FatalError}`、本地 cancel→`User{Cancel}`、对端 cancel→`Network{RemoteCancelled}`、本地 pause→`User{Pause}`、对端 pause→`Network{RemotePaused}`、恢复→`Network{ResumeCommitted}`
 - 3.4 dispatch 转换成功后 `get_transfer_projection` + `publish(CoreEvent::TransferProjection)`；新增 `CoreEvent::TransferProjection`（host.rs 已 `#[non_exhaustive]`，桌面 `host/event_bus.rs` 加 emit `"transfer-projection"`）
-- 2.5 启动清理：遗留 active → `dispatch(Startup(FoundActiveSession))` → suspended/app_restarted
+- 2.5 启动清理：遗留 active → `dispatch(Startup(FoundActiveSession))` → suspended/app_restarted。**✅ core 原语已落地实证**（`TransferCoordinator::cleanup_recoverable_sessions` + `ops::find_active_session_ids` + E2E `e2e_startup_cleanup_active_to_suspended`）；桌面 `setup.rs:165` 旧 `cleanup_stale_sessions` 的替换待轮 6 app 验证（行为变更 + .part 磁盘清理需保留）
 - **风险**：17 点语义各异，逐点改 + 每点 `cargo test`；本地 vs 对端 pause 的 reason 区分在此落实
 - **验证**：`cargo test` + 现有传输流程不回归
 

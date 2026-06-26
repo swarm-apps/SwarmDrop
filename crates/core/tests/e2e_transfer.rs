@@ -19,7 +19,7 @@ use swarm_p2p_core::libp2p::identity::Keypair;
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use swarm_p2p_core::NodeConfig;
 
-use entity::{TerminalReason, TransferPhase};
+use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 
 use swarmdrop_core::database::ops;
 use swarmdrop_core::device::{OsInfo, PairedDeviceInfo};
@@ -29,7 +29,8 @@ use swarmdrop_core::host::{
 };
 use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::network::NetManager;
-use swarmdrop_core::protocol::{AppRequest, AppResponse};
+use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
+use swarmdrop_core::transfer::coordinator::TransferCoordinator;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::HostEnumeratedFile;
 
@@ -345,4 +346,73 @@ async fn e2e_single_file_transfer() {
     };
     assert!(completed(&node_a), "发送方应发 TransferCompleted");
     assert!(completed(&node_b), "接收方应发 TransferCompleted");
+}
+
+/// 轮 4 task 2.5：应用重启的启动清理。
+///
+/// 上次运行被强杀、留下一个停在传输中的 active 会话；重启时 `cleanup_recoverable_sessions`
+/// 应把它统一转为 recoverable suspended(AppRestarted)（而非 paused/failed 混用），并发
+/// projection 让前端刷成"可恢复中断"。纯 DB 路径，不需要节点。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_startup_cleanup_active_to_suspended() {
+    let db = make_db().await;
+    let host = MemoryHost::new(test_paths());
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+
+    // 预置一个 active 会话（create_session 直接写 phase=Active）。
+    let session_id = Uuid::new_v4();
+    let files = vec![FileInfo {
+        file_id: 0,
+        name: "a.bin".to_string(),
+        relative_path: "a.bin".to_string(),
+        size: 1024,
+        checksum: "deadbeef".to_string(),
+    }];
+    ops::create_session(
+        db.as_ref(),
+        session_id,
+        TransferDirection::Receive,
+        "peer",
+        "peer-name",
+        &files,
+        1024,
+        Some(CoreSaveLocation::Path {
+            path: "/recv".to_string(),
+        }),
+        None,
+    )
+    .await
+    .expect("create_session");
+
+    // 重启清理：active → recoverable suspended(AppRestarted)。
+    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+    let converted = coordinator
+        .cleanup_recoverable_sessions()
+        .await
+        .expect("cleanup");
+    assert_eq!(converted, 1, "应有 1 个遗留 active 会话被转换");
+
+    let p = ops::get_transfer_projection(db.as_ref(), session_id)
+        .await
+        .expect("projection query")
+        .expect("session exists");
+    assert_eq!(p.phase, TransferPhase::Suspended);
+    assert_eq!(p.suspended_reason, Some(SuspendedReason::AppRestarted));
+    assert!(p.recoverable, "重启遗留会话应可恢复");
+
+    // 清理经 dispatch 发了 projection 事件（前端据此刷新）。
+    assert!(
+        host.events().iter().any(|e| matches!(
+            e,
+            CoreEvent::TransferProjection { projection } if projection.session_id == session_id
+        )),
+        "应发 TransferProjection 事件"
+    );
+
+    // 幂等：再跑一次已无 active 会话可转。
+    let again = coordinator
+        .cleanup_recoverable_sessions()
+        .await
+        .expect("cleanup again");
+    assert_eq!(again, 0, "第二次清理无 active 会话");
 }

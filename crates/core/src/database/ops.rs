@@ -555,6 +555,19 @@ pub async fn find_session(
         .await?)
 }
 
+/// 启动清理用：查所有 `phase=Active` 的遗留会话 id。
+///
+/// 这些是上次运行被强杀 / 崩溃时停在传输中的会话，重启后应统一转为
+/// recoverable suspended(AppRestarted)，由 `TransferCoordinator::cleanup_recoverable_sessions`
+/// 经状态机驱动。
+pub async fn find_active_session_ids(db: &DatabaseConnection) -> AppResult<Vec<Uuid>> {
+    let sessions = entity::TransferSession::find()
+        .filter(entity::transfer_session::Column::Phase.eq(TransferPhase::Active))
+        .all(db)
+        .await?;
+    Ok(sessions.into_iter().map(|m| m.session_id).collect())
+}
+
 /// 加载 session + files，按开始时间倒序（可选按旧 status 过滤）。
 /// `get_transfer_history` 与 `get_transfer_projections` 共用同一查询体。
 async fn load_sessions_with_files(

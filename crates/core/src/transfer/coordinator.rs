@@ -333,6 +333,30 @@ impl TransferCoordinator {
         }
     }
 
+    /// 启动清理：把上次运行遗留的 active session 统一转为
+    /// recoverable suspended(AppRestarted)，而不是 paused / failed 混用（task 2.5）。
+    ///
+    /// 复用状态机：对每个遗留 active session dispatch `Startup(FoundActiveSession)`，
+    /// reducer 只把 active 转 suspended、其余 phase 自然 no-op，每次转换都经
+    /// [`dispatch`](Self::dispatch) 写 DB + 发 projection。返回被转换的会话数。
+    pub async fn cleanup_recoverable_sessions(&self) -> AppResult<usize> {
+        let ids = crate::database::ops::find_active_session_ids(&self.db).await?;
+        let mut converted = 0;
+        for id in ids {
+            let transitioned = self
+                .dispatch(
+                    id,
+                    CoordinatorInput::Startup(StartupSignal::FoundActiveSession),
+                )
+                .await?
+                .is_some();
+            if transitioned {
+                converted += 1;
+            }
+        }
+        Ok(converted)
+    }
+
     /// 直接发当前 session 的 projection（用于已由 `mark_*` 写好 phase、不经 reduce
     /// 的过渡路径，如带 file 副作用的 complete/failed）。
     pub async fn publish_projection(&self, session_id: Uuid) -> AppResult<()> {
