@@ -6,7 +6,7 @@ SwarmDrop 当前依赖 `swarm-p2p-core` 的通用 request-response API 承载所
 
 ## What Changes
 
-- 在 `swarm-p2p-core` 中新增通用数据通道能力，支持按 `StreamProtocol` 打开和接收入站字节通道。
+- 在 `swarm-p2p-core` 中基于 `libp2p::stream::Behaviour` 封装通用数据通道能力，支持按 `StreamProtocol` 打开和接收入站字节通道（core 内部吸收 `IncomingStreams` 的 poll，对下游透明）。
 - 新增 typed network failure / close reason，用于替代部分字符串错误。
 - 为 request-response 增加 per-call options，例如单次请求超时和关联元数据。
 - 新增数据通道生命周期事件：入站通道、出站打开失败、通道关闭、通道错误。
@@ -26,5 +26,6 @@ SwarmDrop 当前依赖 `swarm-p2p-core` 的通用 request-response API 承载所
 
 - 影响 crate：`libs/core` (`swarm-p2p-core`) 及其公开 API 调用方。
 - 影响模块：runtime behaviour 组合、event loop、command system、client API、配置、错误模型、测试和示例。
-- 可能新增或调整 libp2p feature，用于自定义数据通道 behaviour / connection handler。
+- 启用 `libp2p/stream` feature（封装 `libp2p::stream::Behaviour`，无需自定义 connection handler）。
 - 下游影响：`crates/core` 和 `src-tauri` 后续需要适配 typed error，并使用新的 data-channel API。
+- 跨仓影响（SwarmDrop-RN）：`libs/core` 公开 API 是双端共享底座，typed error 为 **BREAKING**；移动端经 `packages/swarmdrop-core/rust/mobile-core/` 用 uniffi 间接依赖同一 `NetClient`，需在桌面端稳定后同步适配并重新 `pnpm --filter react-native-swarmdrop-core build:ios/android` 生成 ubrn binding。按既定策略：桌面先改，RN 后续在 SwarmDrop-RN 仓单独跟进，不在本 change 范围内。

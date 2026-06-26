@@ -30,5 +30,6 @@
 
 - 影响 crates：`crates/core`、`crates/entity`、`crates/migration`、`src-tauri`、`src`。
 - 影响模块：transfer manager/sender/receiver/resume/progress、protocol、database ops、Tauri commands/events、Zustand transfer store、传输列表和详情页。
-- 依赖关系：本 change 依赖 `add-p2p-data-channel` 提供的通用 data-channel API。
+- 依赖关系：仅**数据面阶段（Phase B，transfer-data-plane）依赖 `add-p2p-data-channel`**；生命周期状态机与恢复协调（Phase A）不依赖，可与 `add-p2p-data-channel` 并行开发，详见 design.md Migration Plan。
 - 数据影响：现有 transfer session 表结构和历史状态语义会发生 breaking change，需要 migration 或开发期清理策略。
+- 跨仓影响（SwarmDrop-RN）：本 change 改的 `crates/core`（transfer / protocol / manager→Coordinator）、`crates/entity`（SessionStatus → phase+reason）、`crates/migration` 都是双端共享核心，对移动端 **BREAKING**。需同步改 `mobile-core/src/transfer.rs` 的 uniffi 镜像 Record/enum 与桥接函数签名、RN 的 `src/stores/transfer-store.ts` 投影，并重新生成 ubrn binding。按既定策略：桌面端先落地并稳定，移动端随后在 SwarmDrop-RN 仓单独适配，不在本 change 范围内。
