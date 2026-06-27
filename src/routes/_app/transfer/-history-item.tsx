@@ -11,8 +11,10 @@ import {
   Music,
   File,
   FolderOpen,
+  Shield,
 } from "lucide-react";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
 import type { TransferProjection } from "@/lib/bindings";
 import { commands } from "@/lib/bindings";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
@@ -198,6 +200,15 @@ export function HistoryItem({ item }: HistoryItemProps) {
               {statusLabel}
             </div>
           )}
+
+          {shouldShowPolicyReason(item) && (
+            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground md:text-[12px]">
+              <Shield className="size-3.5 shrink-0" />
+              <span className="truncate">
+                {policyActionLabel(item.policyAction)}：{item.policyReason}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -231,4 +242,17 @@ export function HistoryItem({ item }: HistoryItemProps) {
       </div>
     </TransferCard>
   );
+}
+
+function shouldShowPolicyReason(item: TransferProjection): boolean {
+  return (
+    !!item.policyReason &&
+    (item.policyAction === "auto_accept" || item.policyAction === "reject")
+  );
+}
+
+function policyActionLabel(policyAction: string | null): string {
+  if (policyAction === "auto_accept") return t`自动接收`;
+  if (policyAction === "reject") return t`策略拒绝`;
+  return t`接收策略`;
 }

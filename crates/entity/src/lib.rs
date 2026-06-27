@@ -1,9 +1,13 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub mod inbox_item;
+pub mod inbox_item_file;
 pub mod transfer_file;
 pub mod transfer_session;
 
+pub use inbox_item::Entity as InboxItem;
+pub use inbox_item_file::Entity as InboxItemFile;
 pub use transfer_file::Entity as TransferFile;
 pub use transfer_session::Entity as TransferSession;
 
@@ -159,6 +163,42 @@ pub enum TerminalReason {
     Cancelled,
     Rejected,
     FatalError,
+}
+
+/// 收件箱来源类型。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum InboxSourceKind {
+    PairedDevice,
+    ShareCode,
+    Mcp,
+    Unknown,
+}
+
+/// 收件箱内容类型。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum InboxContentKind {
+    Files,
+    Text,
+    Clipboard,
+    Bundle,
 }
 
 impl TransferPhase {

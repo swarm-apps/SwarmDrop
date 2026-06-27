@@ -47,6 +47,15 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::list_devices,
             commands::get_network_status,
             commands::install_update,
+            // inbox
+            commands::list_inbox_items,
+            commands::get_inbox_item_detail,
+            commands::repair_missing_inbox_items,
+            commands::open_inbox_item,
+            commands::show_inbox_item_in_folder,
+            commands::export_inbox_item,
+            commands::archive_inbox_item,
+            commands::delete_inbox_item,
             // identity
             commands::initialize_identity,
             commands::generate_keypair,
@@ -59,6 +68,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::request_pairing,
             commands::respond_pairing_request,
             commands::remove_paired_device,
+            commands::update_paired_device_policy,
             // transfer
             commands::scan_sources,
             commands::prepare_send,

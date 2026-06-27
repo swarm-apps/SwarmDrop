@@ -12,13 +12,13 @@
 
 use std::sync::Arc;
 
-use swarm_p2p_core::libp2p::{Multiaddr, multiaddr::Protocol};
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use swarm_p2p_core::{EventReceiver, InfrastructureRoles, NodeEvent};
 use tracing::{info, warn};
 
 use super::SharedNetRefs;
 use super::candidates::{BootstrapCandidateSource, CandidateRoles, CandidateScope};
-use crate::device::OsInfo;
+use crate::device::{ConnectionType, OsInfo};
 use crate::device_manager::DeviceFilter;
 use crate::error::AppResult;
 use crate::host::{CoreEvent, EventBus, Notifier};
@@ -332,8 +332,12 @@ pub async fn run_event_loop<TTransfer>(
                 crate::protocol::TransferRequest::Offer { .. }
             );
 
+            let paired_device = is_offer
+                .then(|| shared.pairing.get_paired_device(&peer_id))
+                .flatten();
+
             // Offer：先校验 pairing 状态，避免向未配对方泄露设备信息
-            if is_offer && !shared.pairing.is_paired(&peer_id) {
+            if is_offer && paired_device.is_none() {
                 warn!("Rejecting transfer offer from unpaired peer: {}", peer_id);
                 let response = crate::protocol::AppResponse::Transfer(
                     crate::protocol::TransferResponse::OfferResult {
@@ -348,15 +352,11 @@ pub async fn run_event_loop<TTransfer>(
 
             // Offer：用 paired_devices 中的真实设备名（hostname）覆盖 peer_id 短串
             let device_name_override = if is_offer {
-                shared
-                    .pairing
-                    .get_paired_devices()
-                    .into_iter()
-                    .find(|d| d.peer_id == peer_id)
-                    .map(|d| d.os_info.hostname)
+                paired_device.as_ref().map(display_device_name)
             } else {
                 None
             };
+            let via_relay = is_offer && is_peer_connected_via_relay(&shared, &peer_id);
 
             let result = handle_incoming_transfer_request(
                 &shared.client,
@@ -364,12 +364,17 @@ pub async fn run_event_loop<TTransfer>(
                 event_bus.as_ref(),
                 peer_id,
                 pending_id,
+                paired_device,
+                via_relay,
                 transfer_request,
             )
             .await;
 
             match result {
                 Ok(IncomingTransferDisposition::Handled) => {
+                    // 已自动接收或已策略拒绝的 Offer 只进入活动与恢复，不弹确认通知。
+                }
+                Ok(IncomingTransferDisposition::OfferRequiresConfirmation) => {
                     if is_offer
                         && let (Some(notifier), Some(name)) =
                             (notifier.as_ref(), device_name_override)
@@ -392,4 +397,25 @@ pub async fn run_event_loop<TTransfer>(
         }
     }
     info!("事件循环退出");
+}
+
+fn is_peer_connected_via_relay<TTransfer>(
+    shared: &SharedNetRefs<TTransfer>,
+    peer_id: &PeerId,
+) -> bool {
+    shared
+        .devices
+        .get_devices(DeviceFilter::All)
+        .into_iter()
+        .find(|device| &device.peer_id == peer_id)
+        .is_some_and(|device| device.connection == Some(ConnectionType::Relay))
+}
+
+fn display_device_name(device: &crate::device::PairedDeviceInfo) -> String {
+    device
+        .os_info
+        .name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| device.os_info.hostname.clone())
 }

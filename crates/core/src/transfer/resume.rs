@@ -842,6 +842,8 @@ mod tests {
             updated_at: 2,
             finished_at: None,
             error_message: None,
+            policy_action: None,
+            policy_reason: None,
             save_path: None,
         }
     }

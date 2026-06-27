@@ -96,11 +96,7 @@ async fn make_db() -> Arc<DatabaseConnection> {
 
 /// 预置一条已配对设备（is_paired 的唯一运行时依据是 PairingManager 的内存 DashMap）。
 fn paired_info(peer_id: PeerId) -> PairedDeviceInfo {
-    PairedDeviceInfo {
-        peer_id,
-        os_info: OsInfo::default(),
-        paired_at: 0,
-    }
+    PairedDeviceInfo::new(peer_id, OsInfo::default(), 0)
 }
 
 /// 复刻 `runtime::start_node` 的 body，但换成 [`test_config`]（关 mDNS）。

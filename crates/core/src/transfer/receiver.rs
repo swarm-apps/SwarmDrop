@@ -534,6 +534,7 @@ impl ReceiveSession {
 
         crate::database::ops::mark_session_completed(&self.db, self.session_id).await?;
         let _ = self.coordinator.publish_projection(self.session_id).await;
+        self.ensure_inbox_item_after_completion().await;
 
         let complete_event = progress
             .lock()
@@ -756,6 +757,7 @@ impl ReceiveSession {
         } else {
             // mark 已双写 phase=terminal/completed；接收方也发 projection，与发送方对称。
             let _ = self.coordinator.publish_projection(self.session_id).await;
+            self.ensure_inbox_item_after_completion().await;
         }
 
         let complete_event = progress
@@ -1091,6 +1093,27 @@ impl ReceiveSession {
             .event_bus
             .publish(CoreEvent::TransferFailed { event })
             .await;
+    }
+
+    /// 接收完成后创建收件箱索引；失败只作为 DB 附加错误上报，不回滚已完成传输。
+    async fn ensure_inbox_item_after_completion(&self) {
+        if let Err(e) = crate::database::inbox::ensure_inbox_item_for_completed_receive_session(
+            &self.db,
+            self.session_id,
+        )
+        .await
+        {
+            warn!("创建收件箱条目失败: session={}, {}", self.session_id, e);
+            let _ = self
+                .event_bus
+                .publish(CoreEvent::TransferDbError {
+                    event: TransferDbErrorEvent {
+                        session_id: self.session_id,
+                        message: format!("创建收件箱条目失败: {e}"),
+                    },
+                })
+                .await;
+        }
     }
 
     /// 从跟踪列表中移除指定的 FileSinkId

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ComponentType, type MouseEvent } from "react";
 import { cn } from "@/lib/utils";
 import { deviceDisplayName } from "@/lib/device-name";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   RadioTower,
   Send,
+  Settings2,
   Unlink,
   Wifi,
   Zap,
@@ -16,6 +17,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -32,7 +34,13 @@ import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 import { useLingui } from "@lingui/react/macro";
 import { Trans } from "@lingui/react/macro";
-import type { Device, ConnectionType } from "@/lib/bindings";
+import type {
+  Device,
+  ConnectionType,
+  DeviceReceivePolicy,
+  DeviceTrustLevel,
+} from "@/lib/bindings";
+import { TrustPolicyDialog, trustConfig } from "./trust-policy-dialog";
 
 const statusTone = {
   online:
@@ -46,7 +54,7 @@ const statusTone = {
 const connectionConfig: Record<
   ConnectionType,
   {
-    icon: React.ComponentType<{ className?: string }>;
+    icon: ComponentType<{ className?: string }>;
     label: MessageDescriptor;
     bgColor: string;
     textColor: string;
@@ -78,15 +86,28 @@ interface DeviceCardProps {
   onSend?: (device: Device) => void;
   onConnect?: (device: Device) => void;
   onUnpair?: (device: Device) => void;
+  onUpdatePolicy?: (
+    device: Device,
+    trustLevel: DeviceTrustLevel,
+    receivePolicy: DeviceReceivePolicy,
+  ) => Promise<void>;
 }
 
-export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpair }: DeviceCardProps) {
+export function DeviceCard({
+  device,
+  variant = "card",
+  onSend,
+  onConnect,
+  onUnpair,
+  onUpdatePolicy,
+}: DeviceCardProps) {
   const { t } = useLingui();
   const DeviceIcon = getDeviceIcon(device.os);
   const isOnline = device.status === "online";
   const connConfig = device.connection ? connectionConfig[device.connection] : null;
 
   const [unpairOpen, setUnpairOpen] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
 
   if (variant === "list") {
     return (
@@ -156,6 +177,9 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
               </button>
               {onUnpair && (
                 <DeviceActionMenu
+                  onPolicyClick={
+                    onUpdatePolicy ? () => setPolicyOpen(true) : undefined
+                  }
                   onUnpairClick={() => setUnpairOpen(true)}
                   label={t`设备操作`}
                 />
@@ -179,6 +203,14 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
           deviceName={deviceDisplayName(device)}
           onConfirm={() => onUnpair?.(device)}
         />
+        {onUpdatePolicy && (
+          <TrustPolicyDialog
+            open={policyOpen}
+            onOpenChange={setPolicyOpen}
+            device={device}
+            onSubmit={onUpdatePolicy}
+          />
+        )}
       </>
     );
   }
@@ -265,6 +297,9 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
           {/* More Menu (paired only) */}
           {device.isPaired && onUnpair && (
             <DeviceActionMenu
+              onPolicyClick={
+                onUpdatePolicy ? () => setPolicyOpen(true) : undefined
+              }
               onUnpairClick={() => setUnpairOpen(true)}
               onTriggerClick={(e) => e.stopPropagation()}
               label={t`设备操作`}
@@ -291,7 +326,7 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
               </span>
             </div>
           ) : (
-            <TrustBadge isPaired={device.isPaired} isOnline={isOnline} />
+            <TrustBadge device={device} />
           )}
 
           {/* Action Button */}
@@ -338,17 +373,27 @@ export function DeviceCard({ device, variant = "card", onSend, onConnect, onUnpa
         deviceName={deviceDisplayName(device)}
         onConfirm={() => onUnpair?.(device)}
       />
+      {onUpdatePolicy && (
+        <TrustPolicyDialog
+          open={policyOpen}
+          onOpenChange={setPolicyOpen}
+          device={device}
+          onSubmit={onUpdatePolicy}
+        />
+      )}
     </>
   );
 }
 
 function DeviceActionMenu({
+  onPolicyClick,
   onUnpairClick,
   onTriggerClick,
   label,
 }: {
+  onPolicyClick?: () => void;
   onUnpairClick: () => void;
-  onTriggerClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onTriggerClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   label: string;
 }) {
   return (
@@ -370,6 +415,18 @@ function DeviceActionMenu({
         sideOffset={4}
         className="glass-card min-w-[112px] rounded-[14px] p-1"
       >
+        {onPolicyClick && (
+          <>
+            <DropdownMenuItem
+              onClick={onPolicyClick}
+              className="h-8 rounded-[10px] px-2.5 text-xs font-medium"
+            >
+              <Settings2 className="size-3.5" />
+              <Trans>信任策略</Trans>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem
           variant="destructive"
           onClick={onUnpairClick}
@@ -383,14 +440,8 @@ function DeviceActionMenu({
   );
 }
 
-function TrustBadge({
-  isPaired,
-  isOnline,
-}: {
-  isPaired: boolean;
-  isOnline: boolean;
-}) {
-  if (!isPaired) {
+function TrustBadge({ device }: { device: Device }) {
+  if (!device.isPaired) {
     return (
       <span
         className={cn(
@@ -403,14 +454,21 @@ function TrustBadge({
     );
   }
 
+  const trust = trustConfig(device.trustLevel ?? "collaborator");
+  const Icon = trust.icon;
+
   return (
     <span
       className={cn(
-        "rounded-full px-2.5 py-1 text-[10px] font-medium ring-1",
-        isOnline ? statusTone.online : statusTone.offline,
+        "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium ring-1",
+        trust.className,
       )}
     >
-      {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
+      <Icon className="size-3" />
+      {trust.label}
+      {device.trustConfirmed === false && (
+        <span className="text-muted-foreground">· <Trans>待确认</Trans></span>
+      )}
     </span>
   );
 }

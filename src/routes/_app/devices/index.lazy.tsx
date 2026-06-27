@@ -8,7 +8,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { DeviceCard } from "./-components/device-card";
 import { TransferItem } from "../transfer/-transfer-item";
-import type { Device, TransferProjection } from "@/lib/bindings";
+import type {
+  Device,
+  DeviceReceivePolicy,
+  DeviceTrustLevel,
+  TransferProjection,
+} from "@/lib/bindings";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
@@ -79,6 +84,7 @@ function DevicesPage() {
 
   const devices = useNetworkStore((s) => s.devices);
   const status = useNetworkStore((s) => s.status);
+  const fetchDevices = useNetworkStore((s) => s.fetchDevices);
   const isOnline = status === "running" || status === "starting";
   const storedPairedDevices = useSecretStore((state) => state.pairedDevices);
   const directPairing = usePairingStore((state) => state.directPairing);
@@ -97,18 +103,21 @@ function DevicesPage() {
     [storedPairedDevices],
   );
 
-  const normalizedDevices = useMemo<Device[]>(
-    () =>
-      devices.map((device) =>
-        pairedPeerIds.has(device.peerId)
-          ? {
-              ...device,
-              isPaired: true,
-            }
-          : device,
-      ),
-    [devices, pairedPeerIds],
-  );
+  const normalizedDevices = useMemo<Device[]>(() => {
+    const storedMap = new Map(storedPairedDevices.map((d) => [d.peerId, d]));
+    return devices.map((device) => {
+      const stored = storedMap.get(device.peerId);
+      return stored || pairedPeerIds.has(device.peerId)
+        ? {
+            ...device,
+            isPaired: true,
+            trustLevel: device.trustLevel ?? stored?.trustLevel ?? "collaborator",
+            receivePolicy: device.receivePolicy ?? stored?.receivePolicy ?? null,
+            trustConfirmed: device.trustConfirmed ?? stored?.trustConfirmed ?? false,
+          }
+        : device;
+    });
+  }, [devices, pairedPeerIds, storedPairedDevices]);
 
   const pairedDevices = useMemo<Device[]>(() => {
     const deviceMap = new Map(normalizedDevices.map((d) => [d.peerId, d]));
@@ -129,10 +138,14 @@ function DevicesPage() {
           os: stored.os,
           platform: stored.platform,
           arch: stored.arch,
+          capabilities: stored.capabilities ?? [],
           status: "offline" as const,
           connection: null,
           latency: null,
           isPaired: true,
+          trustLevel: stored.trustLevel ?? "collaborator",
+          receivePolicy: stored.receivePolicy ?? null,
+          trustConfirmed: stored.trustConfirmed ?? false,
         };
       })
       .sort((a, b) => {
@@ -173,6 +186,24 @@ function DevicesPage() {
     useSecretStore.getState().removePairedDevice(device.peerId);
   };
 
+  const handleUpdatePolicy = useCallback(
+    async (
+      device: Device,
+      trustLevel: DeviceTrustLevel,
+      receivePolicy: DeviceReceivePolicy,
+    ) => {
+      const updated = await commands.updatePairedDevicePolicy(
+        device.peerId,
+        trustLevel,
+        receivePolicy,
+      );
+      useSecretStore.getState().upsertPairedDevice(updated);
+      await fetchDevices("all");
+      toast.success(t`已更新可信设备策略`);
+    },
+    [fetchDevices],
+  );
+
   return (
     <>
       <DesktopDevicesView
@@ -183,6 +214,7 @@ function DevicesPage() {
         onSend={handleSend}
         onConnect={handleConnect}
         onUnpair={handleUnpair}
+        onUpdatePolicy={handleUpdatePolicy}
         onStartClick={() => setStartSheetOpen(true)}
       />
 
@@ -201,6 +233,11 @@ interface DesktopDevicesViewProps {
   onSend: (device: Device) => void;
   onConnect: (device: Device) => void;
   onUnpair: (device: Device) => void;
+  onUpdatePolicy: (
+    device: Device,
+    trustLevel: DeviceTrustLevel,
+    receivePolicy: DeviceReceivePolicy,
+  ) => Promise<void>;
   onStartClick: () => void;
 }
 
@@ -212,6 +249,7 @@ function DesktopDevicesView({
   onSend,
   onConnect,
   onUnpair,
+  onUpdatePolicy,
   onStartClick,
 }: DesktopDevicesViewProps) {
   // 桌面端主屏:设备发现 / 快速配对 / 已配对设备 / 活跃传输 —— 顶栏由全局 AppTopBar 承载
@@ -232,6 +270,7 @@ function DesktopDevicesView({
                 onSend={onSend}
                 onConnect={onConnect}
                 onUnpair={onUnpair}
+                onUpdatePolicy={onUpdatePolicy}
               />
               <ActiveTransfersSection items={activeItems} />
             </div>
@@ -798,11 +837,17 @@ function PairedDevicesSection({
   onSend,
   onConnect,
   onUnpair,
+  onUpdatePolicy,
 }: {
   devices: Device[];
   onSend: (device: Device) => void;
   onConnect: (device: Device) => void;
   onUnpair: (device: Device) => void;
+  onUpdatePolicy: (
+    device: Device,
+    trustLevel: DeviceTrustLevel,
+    receivePolicy: DeviceReceivePolicy,
+  ) => Promise<void>;
 }) {
   return (
     <SectionShell>
@@ -825,6 +870,7 @@ function PairedDevicesSection({
               onSend={onSend}
               onConnect={onConnect}
               onUnpair={onUnpair}
+              onUpdatePolicy={onUpdatePolicy}
             />
           ))}
         </div>

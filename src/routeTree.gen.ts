@@ -23,6 +23,7 @@ const OnboardingDeviceNameLazyRouteImport = createFileRoute(
 const AppTransferIndexLazyRouteImport = createFileRoute('/_app/transfer/')()
 const AppSettingsIndexLazyRouteImport = createFileRoute('/_app/settings/')()
 const AppReceiveIndexLazyRouteImport = createFileRoute('/_app/receive/')()
+const AppInboxIndexLazyRouteImport = createFileRoute('/_app/inbox/')()
 const AppDevicesIndexLazyRouteImport = createFileRoute('/_app/devices/')()
 const AppTransferSessionIdLazyRouteImport = createFileRoute(
   '/_app/transfer/$sessionId',
@@ -79,6 +80,13 @@ const AppReceiveIndexLazyRoute = AppReceiveIndexLazyRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/receive/index.lazy').then((d) => d.Route),
 )
+const AppInboxIndexLazyRoute = AppInboxIndexLazyRouteImport.update({
+  id: '/inbox/',
+  path: '/inbox/',
+  getParentRoute: () => AppRoute,
+} as any).lazy(() =>
+  import('./routes/_app/inbox/index.lazy').then((d) => d.Route),
+)
 const AppDevicesIndexLazyRoute = AppDevicesIndexLazyRouteImport.update({
   id: '/devices/',
   path: '/devices/',
@@ -125,6 +133,7 @@ export interface FileRoutesByFullPath {
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/send/': typeof AppSendIndexRoute
   '/devices/': typeof AppDevicesIndexLazyRoute
+  '/inbox/': typeof AppInboxIndexLazyRoute
   '/receive/': typeof AppReceiveIndexLazyRoute
   '/settings/': typeof AppSettingsIndexLazyRoute
   '/transfer/': typeof AppTransferIndexLazyRoute
@@ -138,6 +147,7 @@ export interface FileRoutesByTo {
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/send': typeof AppSendIndexRoute
   '/devices': typeof AppDevicesIndexLazyRoute
+  '/inbox': typeof AppInboxIndexLazyRoute
   '/receive': typeof AppReceiveIndexLazyRoute
   '/settings': typeof AppSettingsIndexLazyRoute
   '/transfer': typeof AppTransferIndexLazyRoute
@@ -154,6 +164,7 @@ export interface FileRoutesById {
   '/_app/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/_app/send/': typeof AppSendIndexRoute
   '/_app/devices/': typeof AppDevicesIndexLazyRoute
+  '/_app/inbox/': typeof AppInboxIndexLazyRoute
   '/_app/receive/': typeof AppReceiveIndexLazyRoute
   '/_app/settings/': typeof AppSettingsIndexLazyRoute
   '/_app/transfer/': typeof AppTransferIndexLazyRoute
@@ -169,6 +180,7 @@ export interface FileRouteTypes {
     | '/transfer/$sessionId'
     | '/send/'
     | '/devices/'
+    | '/inbox/'
     | '/receive/'
     | '/settings/'
     | '/transfer/'
@@ -182,6 +194,7 @@ export interface FileRouteTypes {
     | '/transfer/$sessionId'
     | '/send'
     | '/devices'
+    | '/inbox'
     | '/receive'
     | '/settings'
     | '/transfer'
@@ -197,6 +210,7 @@ export interface FileRouteTypes {
     | '/_app/transfer/$sessionId'
     | '/_app/send/'
     | '/_app/devices/'
+    | '/_app/inbox/'
     | '/_app/receive/'
     | '/_app/settings/'
     | '/_app/transfer/'
@@ -266,6 +280,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReceiveIndexLazyRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/inbox/': {
+      id: '/_app/inbox/'
+      path: '/inbox'
+      fullPath: '/inbox/'
+      preLoaderRoute: typeof AppInboxIndexLazyRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/devices/': {
       id: '/_app/devices/'
       path: '/devices'
@@ -323,6 +344,7 @@ interface AppRouteChildren {
   AppTransferSessionIdLazyRoute: typeof AppTransferSessionIdLazyRoute
   AppSendIndexRoute: typeof AppSendIndexRoute
   AppDevicesIndexLazyRoute: typeof AppDevicesIndexLazyRoute
+  AppInboxIndexLazyRoute: typeof AppInboxIndexLazyRoute
   AppReceiveIndexLazyRoute: typeof AppReceiveIndexLazyRoute
   AppSettingsIndexLazyRoute: typeof AppSettingsIndexLazyRoute
   AppTransferIndexLazyRoute: typeof AppTransferIndexLazyRoute
@@ -333,6 +355,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTransferSessionIdLazyRoute: AppTransferSessionIdLazyRoute,
   AppSendIndexRoute: AppSendIndexRoute,
   AppDevicesIndexLazyRoute: AppDevicesIndexLazyRoute,
+  AppInboxIndexLazyRoute: AppInboxIndexLazyRoute,
   AppReceiveIndexLazyRoute: AppReceiveIndexLazyRoute,
   AppSettingsIndexLazyRoute: AppSettingsIndexLazyRoute,
   AppTransferIndexLazyRoute: AppTransferIndexLazyRoute,

@@ -19,6 +19,7 @@ use crate::transfer::coordinator::{CoordinatorInput, TransferState, UserCommand}
 use crate::transfer::crypto::generate_key;
 use crate::transfer::incoming::TransferCompleteOutcome;
 use crate::transfer::manager::{PendingOffer, TransferManager};
+use crate::transfer::policy::ReceivePolicyDecision;
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferDbErrorEvent, TransferFailedEvent,
 };
@@ -34,6 +35,7 @@ impl TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
         let peer_id_str = peer_id.to_string();
         crate::database::ops::create_session(
@@ -51,6 +53,13 @@ impl TransferManager {
             },
         )
         .await?;
+        crate::database::ops::set_session_policy_metadata(
+            &self.db,
+            session_id,
+            policy_decision.action_name(),
+            &policy_decision.reason,
+        )
+        .await?;
         self.coordinator.publish_projection(session_id).await?;
 
         self.pending.insert(
@@ -65,6 +74,50 @@ impl TransferManager {
                 created_at: Instant::now(),
             },
         );
+
+        Ok(())
+    }
+
+    /// 记录被策略拒绝的入站 Offer。该记录只进入活动与恢复，不会进入收件箱。
+    pub async fn record_rejected_inbound_offer(
+        &self,
+        peer_id: PeerId,
+        peer_name: String,
+        session_id: Uuid,
+        files: Vec<FileInfo>,
+        total_size: u64,
+        policy_decision: ReceivePolicyDecision,
+    ) -> AppResult<()> {
+        let peer_id_str = peer_id.to_string();
+        crate::database::ops::create_session(
+            &self.db,
+            CreateSessionInput {
+                session_id,
+                direction: entity::TransferDirection::Receive,
+                peer_id: &peer_id_str,
+                peer_name: &peer_name,
+                files: &files,
+                total_size,
+                save_path: None,
+                source_paths: None,
+                lifecycle: TransferState::offered(0),
+            },
+        )
+        .await?;
+        crate::database::ops::set_session_policy_metadata(
+            &self.db,
+            session_id,
+            policy_decision.action_name(),
+            &policy_decision.reason,
+        )
+        .await?;
+        crate::database::ops::mark_session_rejected(
+            &self.db,
+            session_id,
+            Some(&policy_decision.reason),
+        )
+        .await?;
+        self.coordinator.publish_projection(session_id).await?;
 
         Ok(())
     }

@@ -151,6 +151,7 @@ pub enum TransferRequest {
 pub enum OfferRejectReason {
     NotPaired,
     UserDeclined,
+    PolicyRejected,
 }
 
 /// 传输响应。

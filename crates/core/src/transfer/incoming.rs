@@ -6,11 +6,15 @@ use swarm_p2p_core::libp2p::PeerId;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::device::PairedDeviceInfo;
 use crate::error::{AppError, AppResult};
-use crate::host::{CoreEvent, EventBus};
+use crate::host::{CoreEvent, CoreSaveLocation, EventBus};
 use crate::protocol::{
     AppNetClient, AppResponse, FileInfo, OfferRejectReason, ResumeRejectReason, TransferRequest,
     TransferResponse,
+};
+use crate::transfer::policy::{
+    ReceivePolicyAction, ReceivePolicyContext, ReceivePolicyDecision, evaluate_receive_policy,
 };
 use crate::transfer::progress::{
     TransferCompleteEvent, TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent,
@@ -25,6 +29,8 @@ pub struct TransferOfferEvent {
     pub device_name: String,
     pub files: Vec<TransferOfferFileEvent>,
     pub total_size: u64,
+    pub policy_action: Option<String>,
+    pub policy_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,10 +72,6 @@ pub trait IncomingTransferRuntime: Send + Sync {
 
     async fn handle_pause(&self, session_id: Uuid) -> AppResult<TransferPausedEvent>;
 
-    fn is_paired(&self, peer_id: &PeerId) -> bool;
-
-    fn paired_device_name(&self, peer_id: &PeerId) -> Option<String>;
-
     /// 对端断连：把该 peer 当前所有 active 传输转为 recoverable suspended(Interrupted)。
     /// 默认 no-op（mobile-core 占位）；桌面端 TransferManager 具体实现。
     async fn handle_peer_disconnected(&self, peer_id: PeerId) {
@@ -84,6 +86,23 @@ pub trait IncomingTransferRuntime: Send + Sync {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        policy_decision: ReceivePolicyDecision,
+    ) -> AppResult<()>;
+
+    async fn accept_cached_inbound_offer(
+        &self,
+        session_id: Uuid,
+        save_location: CoreSaveLocation,
+    ) -> AppResult<()>;
+
+    async fn record_rejected_inbound_offer(
+        &self,
+        peer_id: PeerId,
+        peer_name: String,
+        session_id: Uuid,
+        files: Vec<FileInfo>,
+        total_size: u64,
+        policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()>;
 
     /// 恢复探测应答（默认报告 NotFound；桌面端在 TransferManager 具体实现）。
@@ -132,6 +151,8 @@ pub async fn handle_incoming_transfer_request<R, B>(
     event_bus: &B,
     peer_id: PeerId,
     pending_id: u64,
+    paired_device: Option<PairedDeviceInfo>,
+    via_relay: bool,
     request: TransferRequest,
 ) -> AppResult<IncomingTransferDisposition>
 where
@@ -198,7 +219,7 @@ where
             files,
             total_size,
         } => {
-            if !runtime.is_paired(&peer_id) {
+            if paired_device.is_none() {
                 send_transfer_response(
                     client,
                     pending_id,
@@ -212,10 +233,46 @@ where
                 return Ok(IncomingTransferDisposition::Handled);
             }
 
-            let device_name = runtime.paired_device_name(&peer_id).unwrap_or_else(|| {
-                let s = peer_id.to_string();
-                s[s.len().saturating_sub(8)..].to_string()
+            let policy_decision = evaluate_receive_policy(ReceivePolicyContext {
+                device: paired_device.as_ref(),
+                files: &files,
+                total_size,
+                via_relay,
+                now_ms: chrono::Utc::now().timestamp_millis(),
             });
+            let device_name = paired_device
+                .as_ref()
+                .map(display_device_name)
+                .unwrap_or_else(|| short_peer_id(&peer_id));
+
+            if policy_decision.action == ReceivePolicyAction::Reject {
+                let record_result = runtime
+                    .record_rejected_inbound_offer(
+                        peer_id,
+                        device_name,
+                        session_id,
+                        files,
+                        total_size,
+                        policy_decision,
+                    )
+                    .await;
+                send_transfer_response(
+                    client,
+                    pending_id,
+                    TransferResponse::OfferResult {
+                        accepted: false,
+                        key: None,
+                        reason: Some(OfferRejectReason::PolicyRejected),
+                    },
+                )
+                .await?;
+                record_result?;
+                return Ok(IncomingTransferDisposition::Handled);
+            }
+
+            let auto_save_location = policy_decision.save_location.clone();
+            let policy_action = Some(policy_decision.action_name().to_string());
+            let policy_reason = Some(policy_decision.reason.clone());
 
             runtime
                 .cache_inbound_offer(
@@ -225,8 +282,16 @@ where
                     session_id,
                     files.clone(),
                     total_size,
+                    policy_decision,
                 )
                 .await?;
+
+            if let Some(save_location) = auto_save_location {
+                runtime
+                    .accept_cached_inbound_offer(session_id, save_location)
+                    .await?;
+                return Ok(IncomingTransferDisposition::Handled);
+            }
 
             let offer = TransferOfferEvent {
                 session_id,
@@ -243,11 +308,13 @@ where
                     })
                     .collect(),
                 total_size,
+                policy_action,
+                policy_reason,
             };
             event_bus
                 .publish(CoreEvent::TransferOfferReceived { offer })
                 .await?;
-            Ok(IncomingTransferDisposition::Handled)
+            Ok(IncomingTransferDisposition::OfferRequiresConfirmation)
         }
         TransferRequest::ResumeProbe {
             session_id,
@@ -300,6 +367,7 @@ where
 
 pub enum IncomingTransferDisposition {
     Handled,
+    OfferRequiresConfirmation,
     Unhandled(TransferRequest),
 }
 
@@ -312,4 +380,18 @@ async fn send_transfer_response(
         .send_response(pending_id, AppResponse::Transfer(response))
         .await
         .map_err(AppError::from)
+}
+
+fn display_device_name(device: &PairedDeviceInfo) -> String {
+    device
+        .os_info
+        .name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| device.os_info.hostname.clone())
+}
+
+fn short_peer_id(peer_id: &PeerId) -> String {
+    let s = peer_id.to_string();
+    s[s.len().saturating_sub(8)..].to_string()
 }

@@ -572,11 +572,7 @@ mod tests {
             IdentityMigrationState::Completed
         );
 
-        let device = PairedDeviceInfo {
-            peer_id: peer_id(),
-            os_info: os_info("phone"),
-            paired_at: 42,
-        };
+        let device = PairedDeviceInfo::new(peer_id(), os_info("phone"), 42);
         host.save_paired_devices(vec![device.clone()])
             .await
             .unwrap();

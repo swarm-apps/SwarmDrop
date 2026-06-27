@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, memo } from "react";
-import { Download, FolderOpen } from "lucide-react";
+import { Download, FolderOpen, Shield } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import {
@@ -142,6 +142,12 @@ export function TransferOfferDialog() {
           <DialogDescription className="text-center">
             <Trans>来自 {currentOffer.deviceName}</Trans>
           </DialogDescription>
+          {currentOffer.policyReason && (
+            <div className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+              <Shield className="size-3.5 shrink-0" />
+              <span className="truncate">{currentOffer.policyReason}</span>
+            </div>
+          )}
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-4 sm:px-0">

@@ -240,11 +240,8 @@ impl PairingManager {
                     .map(|(_, info)| info)
                     .unwrap_or_else(|| OsInfo::unknown_from_peer_id(&peer_id));
 
-                let info = PairedDeviceInfo {
-                    peer_id,
-                    os_info,
-                    paired_at: chrono::Utc::now().timestamp_millis(),
-                };
+                let info =
+                    PairedDeviceInfo::new(peer_id, os_info, chrono::Utc::now().timestamp_millis());
                 self.paired_devices.insert(peer_id, info.clone());
 
                 Ok((PairingResponse::Success, Some(info)))
@@ -300,11 +297,11 @@ impl PairingManager {
         };
 
         // 接受配对 → 构造 PairedDeviceInfo 并存储
-        let info = PairedDeviceInfo {
-            peer_id: pending.peer_id,
-            os_info: pending.os_info,
-            paired_at: chrono::Utc::now().timestamp_millis(),
-        };
+        let info = PairedDeviceInfo::new(
+            pending.peer_id,
+            pending.os_info,
+            chrono::Utc::now().timestamp_millis(),
+        );
         self.paired_devices.insert(info.peer_id, info.clone());
         Ok(Some(info))
     }
@@ -333,6 +330,12 @@ impl PairingManager {
 
     pub fn is_paired(&self, peer_id: &PeerId) -> bool {
         self.paired_devices.contains_key(peer_id)
+    }
+
+    pub fn get_paired_device(&self, peer_id: &PeerId) -> Option<PairedDeviceInfo> {
+        self.paired_devices
+            .get(peer_id)
+            .map(|entry| entry.value().clone())
     }
 
     pub fn add_paired_device(&self, info: PairedDeviceInfo) {

@@ -3,6 +3,118 @@
 use serde::{Deserialize, Serialize};
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 
+/// 已配对设备信任等级。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceTrustLevel {
+    Owned,
+    Collaborator,
+    Temporary,
+    Blocked,
+}
+
+impl Default for DeviceTrustLevel {
+    fn default() -> Self {
+        Self::Collaborator
+    }
+}
+
+/// 自动接收时的保存行为。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiveSaveBehavior {
+    /// 使用策略里配置的默认保存位置，接收完成后进入收件箱。
+    InboxAndDefaultSaveLocation,
+}
+
+impl Default for ReceiveSaveBehavior {
+    fn default() -> Self {
+        Self::InboxAndDefaultSaveLocation
+    }
+}
+
+/// 可信设备接收策略。
+///
+/// 字段保持 host-neutral：保存位置使用字符串表达的 host 路径，桌面端解释为绝对路径，
+/// 移动端后续可解释为应用文档目录下的子路径。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceReceivePolicy {
+    pub auto_accept: bool,
+    pub require_confirmation: bool,
+    #[serde(default)]
+    pub max_transfer_bytes: Option<u64>,
+    pub allow_directories: bool,
+    pub allow_relay_auto_accept: bool,
+    #[serde(default)]
+    pub save_behavior: ReceiveSaveBehavior,
+    #[serde(default)]
+    pub default_save_location: Option<String>,
+    pub allow_mcp_send_to_device: bool,
+    #[serde(default)]
+    pub expires_at: Option<i64>,
+}
+
+impl Default for DeviceReceivePolicy {
+    fn default() -> Self {
+        Self::for_trust_level(DeviceTrustLevel::Collaborator)
+    }
+}
+
+impl DeviceReceivePolicy {
+    pub fn for_trust_level(level: DeviceTrustLevel) -> Self {
+        match level {
+            DeviceTrustLevel::Owned => Self {
+                auto_accept: true,
+                require_confirmation: false,
+                max_transfer_bytes: None,
+                allow_directories: true,
+                allow_relay_auto_accept: true,
+                save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
+                default_save_location: None,
+                allow_mcp_send_to_device: true,
+                expires_at: None,
+            },
+            DeviceTrustLevel::Collaborator => Self {
+                auto_accept: false,
+                require_confirmation: true,
+                max_transfer_bytes: None,
+                allow_directories: true,
+                allow_relay_auto_accept: false,
+                save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
+                default_save_location: None,
+                allow_mcp_send_to_device: false,
+                expires_at: None,
+            },
+            DeviceTrustLevel::Temporary => Self {
+                auto_accept: false,
+                require_confirmation: true,
+                max_transfer_bytes: Some(512 * 1024 * 1024),
+                allow_directories: false,
+                allow_relay_auto_accept: false,
+                save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
+                default_save_location: None,
+                allow_mcp_send_to_device: false,
+                expires_at: Some(chrono::Utc::now().timestamp_millis() + 24 * 60 * 60 * 1000),
+            },
+            DeviceTrustLevel::Blocked => Self {
+                auto_accept: false,
+                require_confirmation: false,
+                max_transfer_bytes: Some(0),
+                allow_directories: false,
+                allow_relay_auto_accept: false,
+                save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
+                default_save_location: None,
+                allow_mcp_send_to_device: false,
+                expires_at: None,
+            },
+        }
+    }
+}
+
 /// 设备操作系统信息。
 ///
 /// `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
@@ -166,6 +278,32 @@ pub struct PairedDeviceInfo {
     #[serde(flatten)]
     pub os_info: OsInfo,
     pub paired_at: i64,
+    #[serde(default)]
+    pub trust_level: DeviceTrustLevel,
+    #[serde(default)]
+    pub receive_policy: DeviceReceivePolicy,
+    #[serde(default)]
+    pub trust_confirmed: bool,
+}
+
+impl PairedDeviceInfo {
+    pub fn new(peer_id: PeerId, os_info: OsInfo, paired_at: i64) -> Self {
+        let trust_level = DeviceTrustLevel::Collaborator;
+        Self {
+            peer_id,
+            os_info,
+            paired_at,
+            trust_level,
+            receive_policy: DeviceReceivePolicy::for_trust_level(trust_level),
+            trust_confirmed: true,
+        }
+    }
+
+    pub fn apply_trust_level_defaults(&mut self, trust_level: DeviceTrustLevel) {
+        self.trust_level = trust_level;
+        self.receive_policy = DeviceReceivePolicy::for_trust_level(trust_level);
+        self.trust_confirmed = true;
+    }
 }
 
 /// 设备状态。
@@ -200,6 +338,9 @@ pub struct Device {
     pub connection: Option<ConnectionType>,
     pub latency: Option<u64>,
     pub is_paired: bool,
+    pub trust_level: Option<DeviceTrustLevel>,
+    pub receive_policy: Option<DeviceReceivePolicy>,
+    pub trust_confirmed: Option<bool>,
 }
 
 /// 设备列表查询结果。
@@ -260,7 +401,9 @@ fn has_public_ip(addr: &Multiaddr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::OsInfo;
+    use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
+
+    use super::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
 
     fn sample(name: Option<&str>, hostname: &str) -> OsInfo {
         OsInfo {
@@ -323,5 +466,26 @@ mod tests {
         assert_eq!(info.name, None);
         assert_eq!(info.hostname, "old");
         assert!(info.capabilities.is_empty());
+    }
+
+    #[test]
+    fn deserialize_legacy_paired_device_requires_trust_confirmation() {
+        let keypair = Keypair::generate_ed25519();
+        let peer_id = PeerId::from_public_key(&keypair.public());
+        let json = serde_json::json!({
+            "peerId": peer_id.to_string(),
+            "hostname": "old-phone",
+            "os": "ios",
+            "platform": "ios",
+            "arch": "aarch64",
+            "pairedAt": 42
+        });
+
+        let device: PairedDeviceInfo = serde_json::from_value(json).unwrap();
+
+        assert_eq!(device.trust_level, DeviceTrustLevel::Collaborator);
+        assert!(device.receive_policy.require_confirmation);
+        assert!(!device.receive_policy.auto_accept);
+        assert!(!device.trust_confirmed);
     }
 }

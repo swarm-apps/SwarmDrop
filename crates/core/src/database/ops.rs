@@ -384,6 +384,49 @@ pub async fn mark_session_cancelled(db: &DatabaseConnection, session_id: Uuid) -
     .await
 }
 
+/// 标记入站 Offer 被拒绝，并保留策略或用户拒绝原因。
+pub async fn mark_session_rejected(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    reason: Option<&str>,
+) -> AppResult<()> {
+    update_session_terminal(db, session_id, |model, now| {
+        model.status = Set(SessionStatus::Cancelled);
+        set_session_lifecycle(
+            model,
+            TransferPhase::Terminal,
+            None,
+            Some(TerminalReason::Rejected),
+        );
+        if let Some(reason) = reason {
+            model.error_message = Set(Some(reason.to_string()));
+        }
+        model.finished_at = Set(Some(now));
+        model.updated_at = Set(now);
+    })
+    .await
+}
+
+/// 写入入站 Offer 的接收策略快照。
+pub async fn set_session_policy_metadata(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    policy_action: &str,
+    policy_reason: &str,
+) -> AppResult<()> {
+    if let Some(session) = entity::TransferSession::find_by_id(session_id)
+        .one(db)
+        .await?
+    {
+        let mut model = session.into_active_model();
+        model.policy_action = Set(Some(policy_action.to_string()));
+        model.policy_reason = Set(Some(policy_reason.to_string()));
+        model.updated_at = Set(now_ms());
+        model.update(db).await?;
+    }
+    Ok(())
+}
+
 /// 标记传输暂停
 pub async fn mark_session_paused(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
     update_session_terminal(db, session_id, |model, now| {
@@ -460,6 +503,8 @@ pub struct TransferProjection {
     pub updated_at: i64,
     pub finished_at: Option<i64>,
     pub error_message: Option<String>,
+    pub policy_action: Option<String>,
+    pub policy_reason: Option<String>,
     pub save_path: Option<CoreSaveLocation>,
     pub files: Vec<TransferProjectionFile>,
 }
@@ -505,6 +550,8 @@ impl From<entity::transfer_session::ModelEx> for TransferProjection {
             updated_at: s.updated_at,
             finished_at: s.finished_at,
             error_message: s.error_message,
+            policy_action: s.policy_action,
+            policy_reason: s.policy_reason,
             save_path: s.save_path.map(Into::into),
             files: s.files.into_iter().map(Into::into).collect(),
         }

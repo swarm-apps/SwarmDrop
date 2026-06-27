@@ -2,7 +2,7 @@
 
 use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
 
-use crate::device::PairedDeviceInfo;
+use crate::device::{DeviceReceivePolicy, DeviceTrustLevel, PairedDeviceInfo};
 use crate::error::{AppError, AppResult};
 use crate::host::{DeviceIdentityBytes, IdentityMigrationState, KeychainProvider};
 
@@ -84,10 +84,35 @@ where
         .iter_mut()
         .find(|item| item.peer_id == device.peer_id)
     {
-        *existing = device;
+        existing.os_info = device.os_info;
+        existing.paired_at = device.paired_at;
     } else {
         devices.push(device);
     }
+    provider.save_paired_devices(devices.clone()).await?;
+    Ok(devices)
+}
+
+/// 更新已配对设备的可信策略，并返回更新后的列表。
+pub async fn update_paired_device_policy<P>(
+    provider: &P,
+    peer_id: &PeerId,
+    trust_level: DeviceTrustLevel,
+    receive_policy: Option<DeviceReceivePolicy>,
+) -> AppResult<Vec<PairedDeviceInfo>>
+where
+    P: KeychainProvider + ?Sized,
+{
+    let mut devices = provider.load_paired_devices().await?;
+    let Some(device) = devices.iter_mut().find(|item| &item.peer_id == peer_id) else {
+        return Err(AppError::Identity("未找到已配对设备".to_string()));
+    };
+
+    device.trust_level = trust_level;
+    device.receive_policy =
+        receive_policy.unwrap_or_else(|| DeviceReceivePolicy::for_trust_level(trust_level));
+    device.trust_confirmed = true;
+
     provider.save_paired_devices(devices.clone()).await?;
     Ok(devices)
 }
@@ -113,7 +138,7 @@ mod tests {
     use swarm_p2p_core::libp2p::PeerId;
     use swarm_p2p_core::libp2p::identity::Keypair;
 
-    use crate::device::{OsInfo, PairedDeviceInfo};
+    use crate::device::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
     use crate::host::{CoreAppPaths, KeychainProvider, MemoryHost};
 
     fn memory_host() -> MemoryHost {
@@ -127,9 +152,9 @@ mod tests {
 
     fn paired_device(name: &str) -> PairedDeviceInfo {
         let keypair = Keypair::generate_ed25519();
-        PairedDeviceInfo {
-            peer_id: PeerId::from_public_key(&keypair.public()),
-            os_info: OsInfo {
+        PairedDeviceInfo::new(
+            PeerId::from_public_key(&keypair.public()),
+            OsInfo {
                 name: None,
                 hostname: name.to_string(),
                 os: "test".to_string(),
@@ -137,8 +162,8 @@ mod tests {
                 arch: "test".to_string(),
                 capabilities: Vec::new(),
             },
-            paired_at: 1,
-        }
+            1,
+        )
     }
 
     #[tokio::test]
@@ -153,10 +178,29 @@ mod tests {
         assert_eq!(devices.len(), 1);
 
         device.os_info.hostname = "second".to_string();
+        device.trust_level = DeviceTrustLevel::Owned;
         let devices = super::upsert_paired_device(&host, device).await.unwrap();
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].peer_id, peer_id);
         assert_eq!(devices[0].os_info.hostname, "second");
+        assert_eq!(devices[0].trust_level, DeviceTrustLevel::Collaborator);
+    }
+
+    #[tokio::test]
+    async fn update_paired_device_policy_should_confirm_trust() {
+        let host = memory_host();
+        let device = paired_device("first");
+        let peer_id = device.peer_id;
+        host.save_paired_devices(vec![device]).await.unwrap();
+
+        let devices =
+            super::update_paired_device_policy(&host, &peer_id, DeviceTrustLevel::Owned, None)
+                .await
+                .unwrap();
+
+        assert_eq!(devices[0].trust_level, DeviceTrustLevel::Owned);
+        assert!(devices[0].receive_policy.auto_accept);
+        assert!(devices[0].trust_confirmed);
     }
 
     #[tokio::test]

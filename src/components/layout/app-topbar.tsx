@@ -17,8 +17,9 @@ import {
   Square,
   X,
   Home,
-  History,
+  Activity,
   FileText,
+  Inbox,
   Moon,
   Sun,
 } from "lucide-react";
@@ -44,7 +45,7 @@ interface CrumbSegment {
   icon: IconComp;
   label: React.ReactNode;
   /** 末段(当前页)不传 to */
-  to?: "/devices" | "/transfer";
+  to?: "/devices" | "/transfer" | "/inbox";
 }
 
 /** 根据当前路径生成面包屑层级(主页 + 当前位置链路) */
@@ -58,13 +59,16 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
   if (pathname.startsWith("/settings")) {
     return [home, { icon: Settings, label: <Trans>设置</Trans> }];
   }
+  if (pathname === "/inbox") {
+    return [home, { icon: Inbox, label: <Trans>收件箱</Trans> }];
+  }
   if (pathname === "/transfer") {
-    return [home, { icon: History, label: <Trans>传输历史</Trans> }];
+    return [home, { icon: Activity, label: <Trans>活动与恢复</Trans> }];
   }
   if (pathname.startsWith("/transfer/")) {
     return [
       home,
-      { icon: History, label: <Trans>传输历史</Trans>, to: "/transfer" },
+      { icon: Activity, label: <Trans>活动与恢复</Trans>, to: "/transfer" },
       { icon: FileText, label: <Trans>传输详情</Trans> },
     ];
   }
@@ -158,8 +162,19 @@ export function AppTopBar() {
             size="icon"
             className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
-            <Link to="/transfer" aria-label={t`传输历史`} title={t`传输历史`}>
-              <History className="size-4" />
+            <Link to="/inbox" aria-label={t`收件箱`} title={t`收件箱`}>
+              <Inbox className="size-4" />
+            </Link>
+          </Button>
+
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+          >
+            <Link to="/transfer" aria-label={t`活动与恢复`} title={t`活动与恢复`}>
+              <Activity className="size-4" />
             </Link>
           </Button>
 

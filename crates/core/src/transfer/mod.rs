@@ -7,6 +7,7 @@ pub mod data_frame;
 mod data_plane;
 pub mod incoming;
 pub mod manager;
+pub mod policy;
 mod prepare;
 pub mod progress;
 mod receive;

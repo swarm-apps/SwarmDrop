@@ -25,11 +25,12 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::AppResult;
-use crate::host::{EventBus, FileAccess, FileSourceId};
+use crate::host::{CoreSaveLocation, EventBus, FileAccess, FileSourceId};
 use crate::network::TransferRuntime;
 use crate::protocol::{AppNetClient, FileInfo, TransferResponse};
 use crate::transfer::actor_registry::ActorRegistry;
 use crate::transfer::incoming::{IncomingTransferRuntime, TransferCompleteOutcome};
+use crate::transfer::policy::ReceivePolicyDecision;
 use crate::transfer::progress::TransferFailedEvent;
 
 /// 发送方准备好的传输信息
@@ -264,16 +265,6 @@ impl IncomingTransferRuntime for TransferManager {
         self.handle_peer_disconnected_impl(peer_id).await
     }
 
-    fn is_paired(&self, _peer_id: &PeerId) -> bool {
-        // PairingManager 不在 TransferManager 持有；caller (event_loop) 在调用前已校验。
-        // 默认返回 true，避免双重校验。
-        true
-    }
-
-    fn paired_device_name(&self, _peer_id: &PeerId) -> Option<String> {
-        None
-    }
-
     async fn cache_inbound_offer(
         &self,
         pending_id: u64,
@@ -282,6 +273,7 @@ impl IncomingTransferRuntime for TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
         TransferManager::cache_inbound_offer(
             self,
@@ -291,6 +283,37 @@ impl IncomingTransferRuntime for TransferManager {
             session_id,
             files,
             total_size,
+            policy_decision,
+        )
+        .await
+    }
+
+    async fn accept_cached_inbound_offer(
+        &self,
+        session_id: Uuid,
+        save_location: CoreSaveLocation,
+    ) -> AppResult<()> {
+        self.accept_and_start_receive(&session_id, save_location)
+            .await
+    }
+
+    async fn record_rejected_inbound_offer(
+        &self,
+        peer_id: PeerId,
+        peer_name: String,
+        session_id: Uuid,
+        files: Vec<FileInfo>,
+        total_size: u64,
+        policy_decision: ReceivePolicyDecision,
+    ) -> AppResult<()> {
+        TransferManager::record_rejected_inbound_offer(
+            self,
+            peer_id,
+            peer_name,
+            session_id,
+            files,
+            total_size,
+            policy_decision,
         )
         .await
     }

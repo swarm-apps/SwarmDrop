@@ -58,10 +58,14 @@ function SendPage() {
       os: stored.os,
       platform: stored.platform,
       arch: stored.arch,
+      capabilities: stored.capabilities ?? [],
       status: "offline" as const,
       connection: null,
       latency: null,
       isPaired: true,
+      trustLevel: stored.trustLevel ?? "collaborator",
+      receivePolicy: stored.receivePolicy ?? null,
+      trustConfirmed: stored.trustConfirmed ?? false,
     };
   }, [onlineDevice, pairedDevices, peerId]);
 

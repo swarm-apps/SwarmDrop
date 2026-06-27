@@ -45,6 +45,10 @@ pub struct Model {
     pub finished_at: Option<i64>,
     /// 失败原因（status=failed 时有值）
     pub error_message: Option<String>,
+    /// 入站 Offer 的接收策略动作快照：auto_accept / require_confirmation / reject。
+    pub policy_action: Option<String>,
+    /// 入站 Offer 的接收策略原因快照，用于活动与恢复页解释自动接收或拒绝。
+    pub policy_reason: Option<String>,
     /// 接收方保存位置（direction=receive 时有值）
     /// JSON 序列化的 SaveLocation 枚举
     pub save_path: Option<SaveLocation>,
