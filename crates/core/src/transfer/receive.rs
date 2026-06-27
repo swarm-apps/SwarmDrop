@@ -11,10 +11,11 @@ use swarm_p2p_core::libp2p::PeerId;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::host::CoreEvent;
+use crate::database::ops::CreateSessionInput;
 use crate::protocol::{
     AppRequest, AppResponse, FileInfo, OfferRejectReason, TransferRequest, TransferResponse,
 };
+use crate::transfer::coordinator::{CoordinatorInput, TransferState, UserCommand};
 use crate::transfer::crypto::generate_key;
 use crate::transfer::incoming::TransferCompleteOutcome;
 use crate::transfer::manager::{PendingOffer, TransferManager};
@@ -25,7 +26,7 @@ use crate::transfer::receiver::ReceiveSession;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
-    pub fn cache_inbound_offer(
+    pub async fn cache_inbound_offer(
         &self,
         pending_id: u64,
         peer_id: PeerId,
@@ -33,7 +34,25 @@ impl TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
-    ) {
+    ) -> AppResult<()> {
+        let peer_id_str = peer_id.to_string();
+        crate::database::ops::create_session(
+            &self.db,
+            CreateSessionInput {
+                session_id,
+                direction: entity::TransferDirection::Receive,
+                peer_id: &peer_id_str,
+                peer_name: &peer_name,
+                files: &files,
+                total_size,
+                save_path: None,
+                source_paths: None,
+                lifecycle: TransferState::offered(0),
+            },
+        )
+        .await?;
+        self.coordinator.publish_projection(session_id).await?;
+
         self.pending.insert(
             session_id,
             PendingOffer {
@@ -46,6 +65,8 @@ impl TransferManager {
                 created_at: Instant::now(),
             },
         );
+
+        Ok(())
     }
 
     /// 接受传输并启动接收
@@ -72,33 +93,15 @@ impl TransferManager {
             .await
             .map_err(|e| AppError::Transfer(format!("回复 OfferResult 失败: {e}")))?;
 
-        let peer_id_str = offer.peer_id.to_string();
-        if let Err(e) = crate::database::ops::create_session(
+        crate::database::ops::update_session_save_path(
             &self.db,
             offer.session_id,
-            entity::TransferDirection::Receive,
-            &peer_id_str,
-            &offer.peer_name,
-            &offer.files,
-            offer.total_size,
-            Some(save_location.clone()),
-            None,
+            save_location.clone(),
         )
-        .await
-        {
-            warn!("接收方创建 DB 记录失败: {}", e);
-            let _ = self
-                .event_bus
-                .publish(CoreEvent::TransferDbError {
-                    event: TransferDbErrorEvent {
-                        session_id: offer.session_id,
-                        message: format!("保存传输记录失败: {e}"),
-                    },
-                })
-                .await;
-        }
+        .await?;
 
         self.start_receive_session(
+            0,
             offer.session_id,
             offer.peer_id,
             offer.files,
@@ -107,6 +110,13 @@ impl TransferManager {
             &key,
             HashMap::new(),
         );
+
+        self.coordinator
+            .dispatch(
+                offer.session_id,
+                CoordinatorInput::User(UserCommand::Accept),
+            )
+            .await?;
 
         Ok(())
     }
@@ -127,14 +137,19 @@ impl TransferManager {
         self.client
             .send_response(offer.pending_id, response)
             .await
-            .map_err(|e| AppError::Transfer(format!("回复拒绝 OfferResult 失败: {e}")))
+            .map_err(|e| AppError::Transfer(format!("回复拒绝 OfferResult 失败: {e}")))?;
+        self.coordinator
+            .dispatch(
+                offer.session_id,
+                CoordinatorInput::User(UserCommand::Reject),
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn pause_receive(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
-            .receive_sessions
-            .get(session_id)
-            .map(|r| Arc::clone(r.value()))
+            .get_receive_session(session_id)
             .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
 
         session.cancel_and_wait().await;
@@ -147,7 +162,7 @@ impl TransferManager {
             )
             .await?;
         crate::database::ops::sync_session_transferred_bytes(&self.db, *session_id).await?;
-        self.receive_sessions.remove(session_id);
+        self.remove_receive_session(session_id);
 
         if let Err(e) = self
             .client
@@ -168,15 +183,13 @@ impl TransferManager {
 
     pub async fn cancel_receive(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
-            .receive_sessions
-            .get(session_id)
-            .map(|r| Arc::clone(r.value()))
+            .get_receive_session(session_id)
             .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
 
         session.cancel_and_wait().await;
         session.send_cancel().await;
         session.cleanup_part_files().await;
-        self.receive_sessions.remove(session_id);
+        self.remove_receive_session(session_id);
         // 状态决策经 Coordinator：写 phase+status(桥接)+finished_at 并发 projection。
         self.coordinator
             .dispatch(
@@ -191,13 +204,11 @@ impl TransferManager {
     }
 
     pub fn get_receive_session(&self, session_id: &Uuid) -> Option<Arc<ReceiveSession>> {
-        self.receive_sessions
-            .get(session_id)
-            .map(|r| Arc::clone(r.value()))
+        self.actors.get_receive(session_id)
     }
 
-    pub fn remove_receive_session(&self, session_id: &Uuid) {
-        self.receive_sessions.remove(session_id);
+    pub fn remove_receive_session(&self, session_id: &Uuid) -> Option<Arc<ReceiveSession>> {
+        self.actors.remove_receive(session_id)
     }
 
     /// 公开接口：创建 ReceiveSession 并开始拉取
@@ -207,6 +218,7 @@ impl TransferManager {
     )]
     pub fn start_receive_from_offer(
         &self,
+        epoch: i64,
         session_id: Uuid,
         peer_id: PeerId,
         files: Vec<FileInfo>,
@@ -216,6 +228,7 @@ impl TransferManager {
         initial_bitmaps: HashMap<u32, Vec<u8>>,
     ) {
         self.start_receive_session(
+            epoch,
             session_id,
             peer_id,
             files,
@@ -232,6 +245,7 @@ impl TransferManager {
     )]
     pub(super) fn start_receive_session(
         &self,
+        epoch: i64,
         session_id: Uuid,
         peer_id: PeerId,
         files: Vec<FileInfo>,
@@ -254,12 +268,8 @@ impl TransferManager {
             self.client.clone(),
             initial_bitmaps,
         ));
-        self.receive_sessions
-            .insert(session_id, receive_session.clone());
-        let sessions_map = self.receive_sessions.clone();
-        receive_session.start_pulling(move |sid| {
-            sessions_map.remove(sid);
-        });
+        self.actors
+            .insert_receive(session_id, epoch, receive_session.clone());
     }
 }
 
@@ -371,7 +381,7 @@ impl TransferManager {
             }
         };
         for session_id in ids {
-            if let Some((_, session)) = self.send_sessions.remove(&session_id) {
+            if let Some(session) = self.remove_send_session(&session_id) {
                 session.cancel();
             }
             if let Some(session) = self.get_receive_session(&session_id) {

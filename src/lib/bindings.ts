@@ -69,8 +69,7 @@ export const commands = {
 	rejectReceive: (sessionId: string) => __TAURI_INVOKE<null>("reject_receive", { sessionId }),
 	cancelSend: (sessionId: string) => __TAURI_INVOKE<null>("cancel_send", { sessionId }),
 	cancelReceive: (sessionId: string) => __TAURI_INVOKE<null>("cancel_receive", { sessionId }),
-	getTransferHistory: (status: "transferring" | "paused" | "completed" | "failed" | "cancelled" | null) => __TAURI_INVOKE<TransferHistoryItem[]>("get_transfer_history", { status }),
-	getTransferSession: (sessionId: string) => __TAURI_INVOKE<TransferHistoryItem>("get_transfer_session", { sessionId }),
+	getTransferProjections: () => __TAURI_INVOKE<TransferProjection[]>("get_transfer_projections"),
 	deleteTransferSession: (sessionId: string) => __TAURI_INVOKE<null>("delete_transfer_session", { sessionId }),
 	clearTransferHistory: () => __TAURI_INVOKE<null>("clear_transfer_history"),
 	pauseTransfer: (sessionId: string) => __TAURI_INVOKE<null>("pause_transfer", { sessionId }),
@@ -196,9 +195,6 @@ export type FileProgressInfo = {
 export type FileSource = 
 /**  标准文件系统路径 */
 { type: "path"; path: string };
-
-/**  单文件传输状态 */
-export type FileStatus = "pending" | "completed" | "failed";
 
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 
@@ -362,9 +358,6 @@ export type ScannedSourceResult = {
 	totalSize: number,
 };
 
-/**  传输会话状态 */
-export type SessionStatus = "transferring" | "paused" | "completed" | "failed" | "cancelled";
-
 /**
  *  DHT 上跨设备共享的配对码记录。
  * 
@@ -430,32 +423,6 @@ export type TransferFileResult = {
 	relativePath: string,
 	size: number,
 	isDirectory: boolean,
-};
-
-export type TransferHistoryFile = {
-	fileId: number,
-	name: string,
-	relativePath: string,
-	size: number,
-	status: FileStatus,
-	transferredBytes: number,
-};
-
-/**  传输历史记录（session + files） */
-export type TransferHistoryItem = {
-	sessionId: string,
-	direction: TransferDirection,
-	peerId: string,
-	peerName: string,
-	totalSize: number,
-	transferredBytes: number,
-	status: SessionStatus,
-	startedAt: number,
-	updatedAt: number,
-	finishedAt: number | null,
-	errorMessage: string | null,
-	savePath: CoreSaveLocation | null,
-	files: TransferHistoryFile[],
 };
 
 export type TransferOffer = TransferOfferEvent;
@@ -584,3 +551,4 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
     return Object.assign(fn, base);
 }
+

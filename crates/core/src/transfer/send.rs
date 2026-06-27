@@ -8,21 +8,23 @@ use swarm_p2p_core::libp2p::PeerId;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::database::ops::CreateSessionInput;
 use crate::host::CoreEvent;
 use crate::protocol::{AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse};
+use crate::transfer::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferState};
+use crate::transfer::data_frame::full_fetch_plan;
 use crate::transfer::manager::{
     PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager, generate_id,
 };
 use crate::transfer::progress::{
-    RuntimeTransferDirection, TransferAcceptedEvent, TransferDbErrorEvent, TransferFailedEvent,
-    TransferRejectedEvent,
+    RuntimeTransferDirection, TransferAcceptedEvent, TransferFailedEvent, TransferRejectedEvent,
 };
 use crate::transfer::sender::SendSession;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
     /// 发送 Offer 到目标 peer（非阻塞）
-    pub fn send_offer(
+    pub async fn send_offer(
         self: &Arc<Self>,
         prepared_id: &Uuid,
         peer_id: &str,
@@ -68,6 +70,7 @@ impl TransferManager {
         let target_peer: PeerId = peer_id
             .parse()
             .map_err(|_| AppError::Transfer(format!("无效的 PeerId: {peer_id}")))?;
+        let peer_id_str = peer_id.to_string();
 
         info!(
             "Sending transfer offer to {}: session={}, files={}",
@@ -76,6 +79,22 @@ impl TransferManager {
             selected_files.len()
         );
 
+        crate::database::ops::create_session(
+            &self.db,
+            CreateSessionInput {
+                session_id,
+                direction: entity::TransferDirection::Send,
+                peer_id: &peer_id_str,
+                peer_name,
+                files: &selected_files,
+                total_size,
+                save_path: None,
+                source_paths: Some(&source_paths),
+                lifecycle: TransferState::waiting_accept(0),
+            },
+        )
+        .await?;
+        self.coordinator.publish_projection(session_id).await?;
         self.outbound_offers.insert(
             session_id,
             PendingOutboundOffer {
@@ -86,8 +105,6 @@ impl TransferManager {
         let client = self.client.clone();
         let this = Arc::clone(self);
         let prepared_id = *prepared_id;
-        let peer_id_str = peer_id.to_string();
-        let peer_name = peer_name.to_string();
         tokio::spawn(async move {
             let bus = this.event_bus.clone();
             let publish_failed = |error: String| {
@@ -131,31 +148,6 @@ impl TransferManager {
                         return;
                     }
 
-                    if let Err(e) = crate::database::ops::create_session(
-                        &this.db,
-                        session_id,
-                        entity::TransferDirection::Send,
-                        &peer_id_str,
-                        &peer_name,
-                        &selected_files,
-                        total_size,
-                        None,
-                        Some(&source_paths),
-                    )
-                    .await
-                    {
-                        warn!("发送方创建 DB 记录失败: {}", e);
-                        let _ = this
-                            .event_bus
-                            .publish(CoreEvent::TransferDbError {
-                                event: TransferDbErrorEvent {
-                                    session_id,
-                                    message: format!("保存传输记录失败: {e}"),
-                                },
-                            })
-                            .await;
-                    }
-
                     let send_session = Arc::new(SendSession::new(
                         session_id,
                         target_peer,
@@ -164,11 +156,11 @@ impl TransferManager {
                         this.file_access.clone(),
                         this.event_bus.clone(),
                     ));
-                    this.send_sessions.insert(session_id, send_session);
+                    this.insert_send_session(session_id, 0, send_session);
                     this.close_accepted_outbound_offer(session_id, prepared_id);
 
                     if this.cancelled_outbound_offers.remove(&session_id).is_some() {
-                        if let Some((_, session)) = this.send_sessions.remove(&session_id) {
+                        if let Some(session) = this.remove_send_session(&session_id) {
                             session.cancel();
                         }
                         // 本地撤回 → 状态机 User{Cancel}（terminal/cancelled + projection），
@@ -192,12 +184,27 @@ impl TransferManager {
                         return;
                     }
 
+                    if let Err(e) = this
+                        .coordinator
+                        .dispatch(
+                            session_id,
+                            CoordinatorInput::Network {
+                                epoch: 0,
+                                signal: NetworkSignal::OfferAccepted,
+                            },
+                        )
+                        .await
+                    {
+                        warn!("dispatch OfferAccepted 失败: {}", e);
+                    }
+
                     let _ = this
                         .event_bus
                         .publish(CoreEvent::TransferAccepted {
                             event: TransferAcceptedEvent { session_id },
                         })
                         .await;
+                    this.spawn_send_data_channel(session_id, 0, full_fetch_plan(&selected_files));
                 }
                 Ok(AppResponse::Transfer(TransferResponse::OfferResult {
                     accepted: false,
@@ -208,6 +215,19 @@ impl TransferManager {
                         return;
                     }
                     info!("Offer rejected for session {}: {:?}", session_id, reason);
+                    if let Err(e) = this
+                        .coordinator
+                        .dispatch(
+                            session_id,
+                            CoordinatorInput::Network {
+                                epoch: 0,
+                                signal: NetworkSignal::OfferRejected,
+                            },
+                        )
+                        .await
+                    {
+                        warn!("dispatch OfferRejected 失败: {}", e);
+                    }
                     let _ = this
                         .event_bus
                         .publish(CoreEvent::TransferRejected {
@@ -224,6 +244,8 @@ impl TransferManager {
                         return;
                     }
                     warn!("Offer accepted 但未收到密钥: session={}", session_id);
+                    this.mark_offer_fatal(session_id, "对方接受但未提供加密密钥")
+                        .await;
                     publish_failed("对方接受但未提供加密密钥".into()).await;
                 }
                 Ok(other) => {
@@ -231,6 +253,7 @@ impl TransferManager {
                         return;
                     }
                     warn!("意外的响应类型: {:?}", other);
+                    this.mark_offer_fatal(session_id, "意外的响应类型").await;
                     publish_failed(format!("意外的响应类型: {other:?}")).await;
                 }
                 Err(e) => {
@@ -238,6 +261,7 @@ impl TransferManager {
                         return;
                     }
                     warn!("发送 Offer 失败: {}", e);
+                    this.mark_offer_fatal(session_id, "发送 Offer 失败").await;
                     publish_failed(format!("发送 Offer 失败: {e}")).await;
                 }
             }
@@ -247,24 +271,20 @@ impl TransferManager {
     }
 
     pub fn get_send_session(&self, session_id: &Uuid) -> Option<Arc<SendSession>> {
-        self.send_sessions
-            .get(session_id)
-            .map(|r| Arc::clone(r.value()))
+        self.actors.get_send(session_id)
     }
 
-    pub fn insert_send_session(&self, session_id: Uuid, session: Arc<SendSession>) {
-        self.send_sessions.insert(session_id, session);
+    pub fn insert_send_session(&self, session_id: Uuid, epoch: i64, session: Arc<SendSession>) {
+        self.actors.insert_send(session_id, epoch, session);
     }
 
-    pub fn remove_send_session(&self, session_id: &Uuid) {
-        self.send_sessions.remove(session_id);
+    pub fn remove_send_session(&self, session_id: &Uuid) -> Option<Arc<SendSession>> {
+        self.actors.remove_send(session_id)
     }
 
     pub async fn pause_send(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
-            .send_sessions
-            .get(session_id)
-            .map(|r| Arc::clone(r.value()))
+            .get_send_session(session_id)
             .ok_or_else(|| AppError::Transfer(format!("发送会话不存在: {session_id}")))?;
 
         session.cancel();
@@ -299,11 +319,19 @@ impl TransferManager {
     }
 
     pub async fn cancel_send(&self, session_id: &Uuid) -> AppResult<()> {
-        let Some((_, session)) = self.send_sessions.remove(session_id) else {
+        let Some(session) = self.remove_send_session(session_id) else {
             if let Some(prepared_id) = self.outbound_offers.get(session_id).map(|o| o.prepared_id) {
                 self.cancelled_outbound_offers.insert(*session_id);
                 self.prepared.remove(&prepared_id);
                 info!("Pending outbound offer cancelled: session={}", session_id);
+                self.coordinator
+                    .dispatch(
+                        *session_id,
+                        crate::transfer::coordinator::CoordinatorInput::User(
+                            crate::transfer::coordinator::UserCommand::Cancel,
+                        ),
+                    )
+                    .await?;
                 return Ok(());
             }
 
@@ -361,6 +389,22 @@ impl TransferManager {
             .await
         {
             warn!("通知对方取消失败: session={}, {}", session_id, e);
+        }
+    }
+
+    async fn mark_offer_fatal(&self, session_id: Uuid, message: &str) {
+        if let Err(e) = self
+            .coordinator
+            .dispatch(
+                session_id,
+                CoordinatorInput::Actor {
+                    epoch: 0,
+                    report: ActorReport::FatalError(message.into()),
+                },
+            )
+            .await
+        {
+            warn!("dispatch Offer fatal 失败: session={}, {}", session_id, e);
         }
     }
 }

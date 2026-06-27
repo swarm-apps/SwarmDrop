@@ -12,12 +12,13 @@
 //! - [`super::receive`] —— 接收方 accept / reject / 暂停 / 取消 + IncomingTransferRuntime 接收 helper
 //! - [`super::resume`]  —— 双侧断点续传 + IncomingTransferRuntime 续传 helper
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use dashmap::{DashMap, DashSet};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
+use swarm_p2p_core::DataChannelReceiver;
 use swarm_p2p_core::libp2p::PeerId;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -26,11 +27,10 @@ use uuid::Uuid;
 use crate::AppResult;
 use crate::host::{EventBus, FileAccess, FileSourceId};
 use crate::network::TransferRuntime;
-use crate::protocol::{AppNetClient, FileChecksum, FileInfo, TransferResponse};
+use crate::protocol::{AppNetClient, FileInfo, TransferResponse};
+use crate::transfer::actor_registry::ActorRegistry;
 use crate::transfer::incoming::{IncomingTransferRuntime, TransferCompleteOutcome};
 use crate::transfer::progress::TransferFailedEvent;
-use crate::transfer::receiver::ReceiveSession;
-use crate::transfer::sender::SendSession;
 
 /// 发送方准备好的传输信息
 #[derive(Debug, Clone)]
@@ -120,8 +120,9 @@ pub struct TransferManager {
     pub(super) outbound_offers: DashMap<Uuid, PendingOutboundOffer>,
     /// 用户已取消、但底层 request 还未返回的 outbound Offer。
     pub(super) cancelled_outbound_offers: DashSet<Uuid>,
-    pub(super) send_sessions: DashMap<Uuid, Arc<SendSession>>,
-    pub(super) receive_sessions: Arc<DashMap<Uuid, Arc<ReceiveSession>>>,
+    pub(super) actors: ActorRegistry,
+    /// 入站 data-channel 接收器。只在后台任务启动时取出一次。
+    data_channel_rx: Mutex<Option<DataChannelReceiver>>,
 }
 
 impl TransferManager {
@@ -130,6 +131,7 @@ impl TransferManager {
         event_bus: Arc<dyn EventBus>,
         db: Arc<DatabaseConnection>,
         file_access: Arc<dyn FileAccess>,
+        data_channel_rx: DataChannelReceiver,
     ) -> Self {
         let coordinator = Arc::new(crate::transfer::coordinator::TransferCoordinator::new(
             db.clone(),
@@ -145,13 +147,22 @@ impl TransferManager {
             pending: DashMap::new(),
             outbound_offers: DashMap::new(),
             cancelled_outbound_offers: DashSet::new(),
-            send_sessions: DashMap::new(),
-            receive_sessions: Arc::new(DashMap::new()),
+            actors: ActorRegistry::new(),
+            data_channel_rx: Mutex::new(Some(data_channel_rx)),
         }
     }
 
     /// 启动后台定时清理任务
     pub fn spawn_cleanup_task(self: &Arc<Self>, cancel_token: CancellationToken) {
+        match self.data_channel_rx.lock() {
+            Ok(mut rx) => {
+                if let Some(rx) = rx.take() {
+                    self.spawn_data_channel_task(rx, cancel_token.clone());
+                }
+            }
+            Err(e) => warn!("data-channel receiver lock poisoned: {}", e),
+        }
+
         let this = Arc::clone(self);
         tokio::spawn(async move {
             let mut interval =
@@ -182,14 +193,9 @@ impl TransferManager {
             |v| now.duration_since(v.created_at).as_secs() > PENDING_OFFER_TIMEOUT_SECS,
             "pending offers",
         );
-        let idle_ids: Vec<Uuid> = self
-            .send_sessions
-            .iter()
-            .filter(|r| r.value().idle_ms() > SEND_SESSION_IDLE_TIMEOUT_MS)
-            .map(|r| *r.key())
-            .collect();
+        let idle_ids = self.actors.idle_send_ids(SEND_SESSION_IDLE_TIMEOUT_MS);
         for id in &idle_ids {
-            if let Some((_, session)) = self.send_sessions.remove(id) {
+            if let Some(session) = self.actors.remove_send(id) {
                 session.cancel();
                 warn!("清理空闲超时的 send session: {}", id);
             }
@@ -268,7 +274,7 @@ impl IncomingTransferRuntime for TransferManager {
         None
     }
 
-    fn cache_inbound_offer(
+    async fn cache_inbound_offer(
         &self,
         pending_id: u64,
         peer_id: PeerId,
@@ -276,7 +282,7 @@ impl IncomingTransferRuntime for TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
-    ) {
+    ) -> AppResult<()> {
         TransferManager::cache_inbound_offer(
             self,
             pending_id,
@@ -285,28 +291,8 @@ impl IncomingTransferRuntime for TransferManager {
             session_id,
             files,
             total_size,
-        );
-    }
-
-    async fn handle_resume_request(
-        &self,
-        peer_id: PeerId,
-        session_id: Uuid,
-        file_checksums: Vec<FileChecksum>,
-    ) -> AppResult<TransferResponse> {
-        self.handle_resume_request_impl(peer_id, session_id, file_checksums)
-            .await
-    }
-
-    async fn handle_resume_offer(
-        &self,
-        peer_id: PeerId,
-        session_id: Uuid,
-        key: [u8; 32],
-        file_checksums: Vec<FileChecksum>,
-    ) -> AppResult<TransferResponse> {
-        self.handle_resume_offer_impl(peer_id, session_id, key, file_checksums)
-            .await
+        )
+        .await
     }
 
     async fn handle_resume_probe(
@@ -319,12 +305,13 @@ impl IncomingTransferRuntime for TransferManager {
 
     async fn handle_resume_commit(
         &self,
+        peer_id: PeerId,
         session_id: Uuid,
         new_epoch: i64,
         key: [u8; 32],
         fetch_plan: Vec<crate::protocol::FileRange>,
     ) -> AppResult<TransferResponse> {
-        self.handle_resume_commit_impl(session_id, new_epoch, key, fetch_plan)
+        self.handle_resume_commit_impl(peer_id, session_id, new_epoch, key, fetch_plan)
             .await
     }
 }

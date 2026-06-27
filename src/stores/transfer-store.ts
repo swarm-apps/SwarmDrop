@@ -2,22 +2,25 @@ import { create } from "zustand";
 import {
   commands,
   events,
-  type TransferOfferEvent,
-  type TransferProgressEvent,
   type TransferCompleteEvent,
   type TransferFailedEvent,
-  type TransferHistoryItem,
+  type TransferOfferEvent,
+  type TransferProgressEvent,
+  type TransferProjection,
 } from "@/lib/bindings";
-import type { TransferSession } from "@/lib/types";
+import {
+  applyProgressToProjection,
+  isProjectionActive,
+} from "@/lib/transfer-projection";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 
 interface TransferState {
-  sessions: Record<string, TransferSession>;
-  dbHistory: TransferHistoryItem[];
+  projections: Record<string, TransferProjection>;
+  progressBySession: Record<string, TransferProgressEvent>;
   pendingOffers: TransferOfferEvent[];
 
-  addSession: (session: TransferSession) => void;
+  applyProjection: (projection: TransferProjection) => void;
   updateProgress: (event: TransferProgressEvent) => void;
   completeSession: (event: TransferCompleteEvent) => void;
   failSession: (event: TransferFailedEvent) => void;
@@ -26,7 +29,7 @@ interface TransferState {
   pushOffer: (offer: TransferOfferEvent) => void;
   shiftOffer: () => TransferOfferEvent | undefined;
   getActiveCount: () => number;
-  loadHistory: () => Promise<void>;
+  loadProjections: () => Promise<void>;
 }
 
 let unlistenFns: Array<() => void> = [];
@@ -34,9 +37,13 @@ let unlistenFns: Array<() => void> = [];
 export async function setupTransferListeners() {
   await cleanupTransferListeners();
 
-  await useTransferStore.getState().loadHistory();
+  await useTransferStore.getState().loadProjections();
 
   const fns = await Promise.all([
+    events.transferProjectionUpdate.listen((event) => {
+      useTransferStore.getState().applyProjection(event.payload);
+    }),
+
     events.transferOffer.listen((event) => {
       useTransferStore.getState().pushOffer(event.payload);
     }),
@@ -59,58 +66,23 @@ export async function setupTransferListeners() {
       }
     }),
 
-    events.transferPaused.listen((event) => {
-      // 对端暂停传输：移除活跃 session，刷新历史（DB 中已标记为 paused）
-      removeAndRefresh(event.payload.sessionId);
+    events.transferPaused.listen(() => {
+      void useTransferStore.getState().loadProjections();
       toast.info(t`对方已暂停传输`);
     }),
 
-    events.transferResumed.listen((event) => {
-      // 对端（发送方）发起恢复传输：添加到活跃 session，刷新历史
-      const { sessionId, direction, peerId, peerName, files, totalSize } =
-        event.payload;
-      // resume 路径只对已建立的 session 触发，方向必然是 send/receive；
-      // 收到 "unknown" 视为后端 bug，跳过避免污染 store。
-      if (direction === "unknown") {
-        console.warn(`[transferResumed] ignoring unknown direction: ${sessionId}`);
-        return;
-      }
-      useTransferStore.getState().addSession({
-        sessionId,
-        direction,
-        peerId,
-        deviceName: peerName,
-        files,
-        totalSize,
-        status: "transferring",
-        progress: null,
-        error: null,
-        startedAt: Date.now(),
-        completedAt: null,
-      });
-      useTransferStore.getState().loadHistory();
+    events.transferResumed.listen(() => {
+      void useTransferStore.getState().loadProjections();
     }),
 
-    events.transferAccepted.listen((event) => {
-      const { sessionId } = event.payload;
-      useTransferStore.setState((state) => {
-        const session = state.sessions[sessionId];
-        if (!session) return state;
-        return {
-          sessions: {
-            ...state.sessions,
-            [sessionId]: { ...session, status: "transferring" },
-          },
-        };
-      });
+    events.transferAccepted.listen(() => {
+      void useTransferStore.getState().loadProjections();
     }),
 
     events.transferRejected.listen((event) => {
       const { sessionId, reason } = event.payload;
-      useTransferStore.setState((state) => {
-        const { [sessionId]: _, ...rest } = state.sessions;
-        return { sessions: rest };
-      });
+      useTransferStore.getState().removeSession(sessionId);
+      void useTransferStore.getState().loadProjections();
       if (reason?.type === "not_paired") {
         toast.error(t`设备已取消配对`);
       } else {
@@ -119,8 +91,7 @@ export async function setupTransferListeners() {
     }),
 
     events.transferDbError.listen((event) => {
-      const { message } = event.payload;
-      toast.error(message);
+      toast.error(event.payload.message);
     }),
   ]);
 
@@ -134,64 +105,56 @@ export async function cleanupTransferListeners() {
   unlistenFns = [];
 }
 
-/** 从活跃 sessions 中移除指定 session，并刷新 DB 历史 */
-function removeAndRefresh(sessionId: string) {
-  // 先刷新历史，再移除活跃 session，避免出现空状态闪烁
-  useTransferStore
-    .getState()
-    .loadHistory()
-    .finally(() => {
-      useTransferStore.setState((state) => {
-        const { [sessionId]: _, ...rest } = state.sessions;
-        return { sessions: rest };
-      });
-    });
-}
-
 export const useTransferStore = create<TransferState>()((set, get) => ({
-  sessions: {},
-  dbHistory: [],
+  projections: {},
+  progressBySession: {},
   pendingOffers: [],
 
-  addSession(session) {
+  applyProjection(projection) {
     set((state) => ({
-      sessions: { ...state.sessions, [session.sessionId]: session },
+      projections: {
+        ...state.projections,
+        [projection.sessionId]: projection,
+      },
     }));
   },
 
   updateProgress(event) {
     set((state) => {
-      const session = state.sessions[event.sessionId];
-      if (!session) return state;
-      return {
-        sessions: {
-          ...state.sessions,
-          [event.sessionId]: {
-            ...session,
-            status: "transferring",
-            progress: event,
-          },
-        },
+      const progressBySession = {
+        ...state.progressBySession,
+        [event.sessionId]: event,
       };
+      const projection = state.projections[event.sessionId];
+      const projections = projection
+        ? {
+            ...state.projections,
+            [event.sessionId]: applyProgressToProjection(projection, event),
+          }
+        : state.projections;
+
+      return { projections, progressBySession };
     });
   },
 
-  completeSession(event) {
-    removeAndRefresh(event.sessionId);
+  completeSession() {
+    void get().loadProjections();
   },
 
-  failSession(event) {
-    removeAndRefresh(event.sessionId);
+  failSession() {
+    void get().loadProjections();
   },
 
-  cancelSession(sessionId) {
-    removeAndRefresh(sessionId);
+  cancelSession() {
+    void get().loadProjections();
   },
 
   removeSession(sessionId) {
     set((state) => {
-      const { [sessionId]: _, ...rest } = state.sessions;
-      return { sessions: rest };
+      const { [sessionId]: _projection, ...projections } = state.projections;
+      const { [sessionId]: _progress, ...progressBySession } =
+        state.progressBySession;
+      return { projections, progressBySession };
     });
   },
 
@@ -210,15 +173,19 @@ export const useTransferStore = create<TransferState>()((set, get) => ({
   },
 
   getActiveCount() {
-    return Object.keys(get().sessions).length;
+    return Object.values(get().projections).filter(isProjectionActive).length;
   },
 
-  async loadHistory() {
+  async loadProjections() {
     try {
-      const items = await commands.getTransferHistory(null);
-      set({ dbHistory: items });
+      const items = await commands.getTransferProjections();
+      set({
+        projections: Object.fromEntries(
+          items.map((item) => [item.sessionId, item]),
+        ),
+      });
     } catch (e) {
-      console.error("加载传输历史失败:", e);
+      console.error("加载传输投影失败:", e);
     }
   },
 }));

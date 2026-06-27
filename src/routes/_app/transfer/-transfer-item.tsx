@@ -28,6 +28,8 @@ import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { openTransferResult } from "@/lib/file-picker";
 import { useNavigate } from "@tanstack/react-router";
+import type { TransferProjection } from "@/lib/bindings";
+import { projectionStatusLabel, projectionToSession } from "@/lib/transfer-projection";
 import {
   DirectionIcon,
   TransferCard,
@@ -40,15 +42,20 @@ import {
 } from "./-shared";
 
 interface TransferItemProps {
-  sessionId: string;
+  projection: TransferProjection;
 }
 
 export const TransferItem = memo(function TransferItem({
-  sessionId,
+  projection,
 }: TransferItemProps) {
-  const session = useTransferStore(
-    useCallback((s) => s.sessions[sessionId], [sessionId]),
+  const progress = useTransferStore(
+    useCallback(
+      (s) => s.progressBySession[projection.sessionId] ?? null,
+      [projection.sessionId],
+    ),
   );
+  const session = projectionToSession(projection, progress);
+  const sessionId = projection.sessionId;
   const navigate = useNavigate();
   const [isCancelling, setIsCancelling] = useState(false);
 
@@ -88,18 +95,14 @@ export const TransferItem = memo(function TransferItem({
   const handleOpenFolder = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
-      const currentSession = useTransferStore.getState().sessions[sessionId];
-      if (!currentSession) return;
       try {
-        await openTransferResult(currentSession);
+        await openTransferResult(session);
       } catch (err) {
         toast.error(getErrorMessage(err));
       }
     },
-    [sessionId],
+    [session],
   );
-
-  if (!session) return null;
 
   const isSend = session.direction === "send";
   const isActive = isActiveStatus(session.status);
@@ -185,14 +188,16 @@ export const TransferItem = memo(function TransferItem({
           {session.status === "failed" && (
             <div className="flex items-center gap-1.5 text-[12px] text-destructive md:text-[13px]">
               <XCircle className="size-3.5 shrink-0 md:size-4" />
-              <span className="truncate">{session.error || t`传输失败`}</span>
+              <span className="truncate">
+                {session.error || projectionStatusLabel(projection)}
+              </span>
             </div>
           )}
 
           {session.status === "cancelled" && (
             <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground md:text-[13px]">
               <XCircle className="size-3.5 md:size-4" />
-              <Trans>已取消</Trans>
+              {projectionStatusLabel(projection)}
               {session.completedAt && (
                 <span className="hidden md:inline">— {formatRelativeTime(session.completedAt)}</span>
               )}

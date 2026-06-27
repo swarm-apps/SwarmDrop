@@ -27,6 +27,17 @@ pub struct TransferState {
 }
 
 impl TransferState {
+    /// 收到对端 Offer、等待本地用户接受或拒绝。
+    pub fn offered(epoch: i64) -> Self {
+        Self {
+            phase: TransferPhase::Offered,
+            suspended_reason: None,
+            terminal_reason: None,
+            epoch,
+            recoverable: true,
+        }
+    }
+
     /// 发送方 Offer 已发出、等待对端接受。
     pub fn waiting_accept(epoch: i64) -> Self {
         Self {
@@ -193,8 +204,13 @@ fn reduce_user(state: &TransferState, cmd: &UserCommand) -> Option<TransferState
             state.epoch,
             TerminalReason::Cancelled,
         )),
-        // 接受 Offer：waiting_accept → active。
-        UserCommand::Accept if state.phase == TransferPhase::WaitingAccept => {
+        // 接受 Offer：offered / waiting_accept → active。
+        UserCommand::Accept
+            if matches!(
+                state.phase,
+                TransferPhase::Offered | TransferPhase::WaitingAccept
+            ) =>
+        {
             Some(TransferState::active(state.epoch))
         }
         // 拒绝 Offer：offered / waiting_accept → rejected。
@@ -266,7 +282,7 @@ fn reduce_network(state: &TransferState, signal: &NetworkSignal) -> Option<Trans
         }
         // 恢复提交：suspended + recoverable → active with new epoch。
         NetworkSignal::ResumeCommitted { new_epoch }
-            if state.is_suspended() && state.recoverable =>
+            if state.is_suspended() && state.recoverable && *new_epoch > state.epoch =>
         {
             Some(TransferState::active(*new_epoch))
         }
@@ -507,6 +523,19 @@ mod tests {
     }
 
     #[test]
+    fn resume_commit_must_advance_epoch() {
+        let suspended = TransferState::suspended(2, SuspendedReason::Interrupted);
+        let out = reduce(
+            &suspended,
+            &CoordinatorInput::Network {
+                epoch: 2,
+                signal: NetworkSignal::ResumeCommitted { new_epoch: 2 },
+            },
+        );
+        assert!(out.is_none(), "恢复提交必须推进到更大的 epoch");
+    }
+
+    #[test]
     fn pause_only_affects_active() {
         // suspended 状态再 pause 应忽略
         let suspended = TransferState::suspended(1, SuspendedReason::Interrupted);
@@ -521,5 +550,102 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.phase, TransferPhase::Active);
+    }
+
+    #[test]
+    fn accept_offered_to_active() {
+        let s = reduce(
+            &TransferState::offered(1),
+            &CoordinatorInput::User(UserCommand::Accept),
+        )
+        .unwrap();
+        assert_eq!(s.phase, TransferPhase::Active);
+    }
+
+    #[test]
+    fn reject_offer_states_to_terminal_rejected() {
+        for state in [TransferState::offered(1), TransferState::waiting_accept(1)] {
+            let s = reduce(&state, &CoordinatorInput::User(UserCommand::Reject)).unwrap();
+            assert_eq!(s.phase, TransferPhase::Terminal);
+            assert_eq!(s.terminal_reason, Some(TerminalReason::Rejected));
+            assert!(!s.recoverable);
+        }
+    }
+
+    #[test]
+    fn network_offer_result_updates_waiting_accept() {
+        let accepted = reduce(
+            &TransferState::waiting_accept(1),
+            &CoordinatorInput::Network {
+                epoch: 1,
+                signal: NetworkSignal::OfferAccepted,
+            },
+        )
+        .unwrap();
+        assert_eq!(accepted.phase, TransferPhase::Active);
+
+        let rejected = reduce(
+            &TransferState::waiting_accept(1),
+            &CoordinatorInput::Network {
+                epoch: 1,
+                signal: NetworkSignal::OfferRejected,
+            },
+        )
+        .unwrap();
+        assert_eq!(rejected.phase, TransferPhase::Terminal);
+        assert_eq!(rejected.terminal_reason, Some(TerminalReason::Rejected));
+    }
+
+    #[test]
+    fn remote_pause_and_peer_offline_are_recoverable_suspended() {
+        let remote_paused = reduce(
+            &active(1),
+            &CoordinatorInput::Network {
+                epoch: 1,
+                signal: NetworkSignal::RemotePaused,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            remote_paused.suspended_reason,
+            Some(SuspendedReason::RemotePaused)
+        );
+        assert!(remote_paused.recoverable);
+
+        let peer_offline = reduce(
+            &active(1),
+            &CoordinatorInput::Network {
+                epoch: 1,
+                signal: NetworkSignal::PeerOffline,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            peer_offline.suspended_reason,
+            Some(SuspendedReason::PeerOffline)
+        );
+        assert!(peer_offline.recoverable);
+    }
+
+    #[test]
+    fn remote_cancel_is_terminal_cancelled_from_non_terminal_states() {
+        for state in [
+            TransferState::offered(1),
+            TransferState::waiting_accept(1),
+            TransferState::active(1),
+            TransferState::suspended(1, SuspendedReason::Interrupted),
+        ] {
+            let s = reduce(
+                &state,
+                &CoordinatorInput::Network {
+                    epoch: 1,
+                    signal: NetworkSignal::RemoteCancelled,
+                },
+            )
+            .unwrap();
+            assert_eq!(s.phase, TransferPhase::Terminal);
+            assert_eq!(s.terminal_reason, Some(TerminalReason::Cancelled));
+            assert!(!s.recoverable);
+        }
     }
 }

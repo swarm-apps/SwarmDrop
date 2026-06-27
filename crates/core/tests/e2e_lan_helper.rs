@@ -12,7 +12,7 @@ use migration::MigratorTrait;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use swarm_p2p_core::libp2p::identity::Keypair;
 use swarm_p2p_core::libp2p::kad::{Record, RecordKey};
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId, StreamProtocol};
 use swarm_p2p_core::{LanHelperConfig, NodeConfig, NodeEvent};
 use uuid::Uuid;
 
@@ -22,6 +22,7 @@ use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_man
 use swarmdrop_core::network::event_loop::{handle_core_node_event, run_event_loop};
 use swarmdrop_core::network::{BootstrapCandidateSource, DiscoveryMode, NetManager};
 use swarmdrop_core::protocol::{AppRequest, AppResponse};
+use swarmdrop_core::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::manager::TransferManager;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -70,6 +71,7 @@ fn ordinary_config(ip: Ipv4Addr, agent_version: String) -> NodeConfig {
         .with_relay_client(true)
         .with_dcutr(false)
         .with_autonat(false)
+        .with_data_channel_protocols(vec![StreamProtocol::new(TRANSFER_DATA_PROTOCOL)])
         .with_kad_server_mode(false)
         .with_req_resp_timeout(Duration::from_secs(30))
 }
@@ -98,11 +100,17 @@ async fn spawn_node(
     let host = MemoryHost::new(test_paths());
     let db = make_db().await;
 
-    let (client, receiver, _dc) =
+    let (client, receiver, dc_receiver) =
         swarm_p2p_core::start::<AppRequest, AppResponse>(keypair, node_config).expect("start node");
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
-    let transfer = TransferManager::new(client.clone(), event_bus.clone(), db.clone(), file_access);
+    let transfer = TransferManager::new(
+        client.clone(),
+        event_bus.clone(),
+        db.clone(),
+        file_access,
+        dc_receiver,
+    );
     let candidate_manager = create_candidate_manager(&network_config);
     let manager = NetManager::new(
         client,

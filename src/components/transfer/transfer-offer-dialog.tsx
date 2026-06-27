@@ -29,11 +29,11 @@ export function TransferOfferDialog() {
     null,
   );
 
-  const { shiftOffer, pendingOffers, addSession } = useTransferStore(
+  const { shiftOffer, pendingOffers, loadProjections } = useTransferStore(
     useShallow((s) => ({
       shiftOffer: s.shiftOffer,
       pendingOffers: s.pendingOffers,
-      addSession: s.addSession,
+      loadProjections: s.loadProjections,
     })),
   );
 
@@ -84,21 +84,7 @@ export function TransferOfferDialog() {
       const saveLocation: SaveLocation = { type: "path", path: savePath };
 
       await commands.acceptReceive(currentOffer.sessionId, saveLocation);
-
-      addSession({
-        sessionId: currentOffer.sessionId,
-        direction: "receive",
-        peerId: currentOffer.peerId,
-        deviceName: currentOffer.deviceName,
-        files: currentOffer.files,
-        totalSize: currentOffer.totalSize,
-        status: "transferring",
-        progress: null,
-        error: null,
-        startedAt: Date.now(),
-        completedAt: null,
-        saveLocation,
-      });
+      await loadProjections();
 
       // 从队列移除并跳转到详情页
       navigate({
@@ -111,13 +97,14 @@ export function TransferOfferDialog() {
       setProcessing(false);
       shiftOffer();
     }
-  }, [currentOffer, savePath, addSession, navigate, shiftOffer]);
+  }, [currentOffer, savePath, loadProjections, navigate, shiftOffer]);
 
   const handleReject = useCallback(async () => {
     if (!currentOffer) return;
     setProcessing(true);
     try {
       await commands.rejectReceive(currentOffer.sessionId);
+      await loadProjections();
       // 从队列移除
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -125,7 +112,7 @@ export function TransferOfferDialog() {
       setProcessing(false);
       shiftOffer();
     }
-  }, [currentOffer, shiftOffer]);
+  }, [currentOffer, loadProjections, shiftOffer]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {

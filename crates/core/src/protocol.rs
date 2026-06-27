@@ -5,6 +5,7 @@ use swarm_p2p_core::NetClient;
 use uuid::Uuid;
 
 use crate::device::OsInfo;
+use entity::TerminalReason;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -51,27 +52,21 @@ pub struct FileInfo {
     pub checksum: String,
 }
 
-/// 文件校验和。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct FileChecksum {
-    pub file_id: u32,
-    pub checksum: String,
-}
-
 /// 断点续传被拒绝的原因。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum ResumeRejectReason {
-    FileModified,
+    Cancelled,
+    FatalError,
+    SourceModified,
+    CheckpointInvalid,
+    PeerUnavailable,
     SessionNotFound,
-    SenderCancelled,
 }
 
 /// 待传 byte range（fetch_plan 元素，恢复探测协议用）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileRange {
     pub file_id: u32,
@@ -80,7 +75,7 @@ pub struct FileRange {
 }
 
 /// 单文件 checkpoint（已完成 byte range 列表）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileCheckpoint {
     pub file_id: u32,
@@ -103,9 +98,11 @@ pub enum ResumePhaseReport {
 pub struct ResumeReport {
     pub phase: ResumePhaseReport,
     pub epoch: i64,
+    pub files: Vec<FileInfo>,
     pub checkpoint: Vec<FileCheckpoint>,
     pub source_fingerprint: Option<String>,
     pub terminal: bool,
+    pub terminal_reason: Option<TerminalReason>,
 }
 
 /// 传输请求。
@@ -132,17 +129,7 @@ pub enum TransferRequest {
     Pause {
         session_id: Uuid,
     },
-    ResumeRequest {
-        session_id: Uuid,
-        file_checksums: Vec<FileChecksum>,
-    },
-    ResumeOffer {
-        session_id: Uuid,
-        #[serde(serialize_with = "serialize_key", deserialize_with = "deserialize_key")]
-        key: [u8; 32],
-        file_checksums: Vec<FileChecksum>,
-    },
-    /// 恢复探测：发起方询问对端会话当前事实（探测式恢复，逐步替代 ResumeRequest/ResumeOffer）。
+    /// 恢复探测：发起方询问对端会话当前事实。
     ResumeProbe {
         session_id: Uuid,
         local_epoch: i64,
@@ -196,21 +183,6 @@ pub enum TransferResponse {
         chunk_index: u32,
         error: String,
     },
-    ResumeResult {
-        session_id: Uuid,
-        accepted: bool,
-        reason: Option<ResumeRejectReason>,
-        #[serde(
-            serialize_with = "serialize_opt_key",
-            deserialize_with = "deserialize_opt_key"
-        )]
-        key: Option<[u8; 32]>,
-    },
-    ResumeOfferResult {
-        session_id: Uuid,
-        accepted: bool,
-        reason: Option<ResumeRejectReason>,
-    },
     /// 恢复状态报告（对 ResumeProbe 的应答）。
     ResumeStateReport {
         session_id: Uuid,
@@ -221,6 +193,7 @@ pub enum TransferResponse {
         session_id: Uuid,
         new_epoch: i64,
         accepted: bool,
+        reason: Option<ResumeRejectReason>,
     },
 }
 

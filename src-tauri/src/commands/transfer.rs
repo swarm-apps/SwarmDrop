@@ -134,7 +134,9 @@ pub async fn start_send(
     selected_file_ids: Vec<u32>,
 ) -> crate::AppResult<StartSendResult> {
     let transfer = get_transfer(&net).await?;
-    Ok(transfer.send_offer(&prepared_id, &peer_id, &peer_name, &selected_file_ids)?)
+    Ok(transfer
+        .send_offer(&prepared_id, &peer_id, &peer_name, &selected_file_ids)
+        .await?)
 }
 
 #[tauri::command]
@@ -180,24 +182,14 @@ pub async fn cancel_receive(
     Ok(transfer.cancel_receive(&session_id).await?)
 }
 
-// ============ 传输历史 API ============
+// ============ 传输投影 API ============
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_transfer_history(
+pub async fn get_transfer_projections(
     db: State<'_, sea_orm::DatabaseConnection>,
-    status: Option<entity::SessionStatus>,
-) -> crate::AppResult<Vec<crate::database::ops::TransferHistoryItem>> {
-    Ok(crate::database::ops::get_transfer_history(&db, status).await?)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn get_transfer_session(
-    db: State<'_, sea_orm::DatabaseConnection>,
-    session_id: Uuid,
-) -> crate::AppResult<crate::database::ops::TransferHistoryItem> {
-    Ok(crate::database::ops::get_session_detail(&db, session_id).await?)
+) -> crate::AppResult<Vec<crate::database::ops::TransferProjection>> {
+    Ok(crate::database::ops::get_transfer_projections(&db).await?)
 }
 
 #[tauri::command]

@@ -197,6 +197,7 @@ impl McpHandler {
         let result = manager
             .transfer_arc()
             .send_offer(&prepared_id, &params.peer_id, &peer_name, &all_file_ids)
+            .await
             .map_err(|e| ErrorData::internal_error(format!("发送 Offer 失败: {e}"), None))?;
 
         let response = SendFilesResponse {

@@ -6,6 +6,8 @@
 //! 命令通过 [`tauri-specta`] 收集，debug build 会同时把 TypeScript bindings
 //! 导出到 `src/lib/bindings.ts`，供前端 typesafe 调用。
 
+use std::sync::Arc;
+
 use tauri::{Builder, Manager, Wry};
 use tauri_specta::{Builder as SpectaBuilder, ErrorHandlingMode, collect_commands, collect_events};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
@@ -65,8 +67,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::reject_receive,
             commands::cancel_send,
             commands::cancel_receive,
-            commands::get_transfer_history,
-            commands::get_transfer_session,
+            commands::get_transfer_projections,
             commands::delete_transfer_session,
             commands::clear_transfer_history,
             commands::pause_transfer,
@@ -159,10 +160,18 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
             tracing::warn!("Failed to initialize updater plugin: {e}");
         }
 
+        // 事件总线提前注入：启动清理也会经 Coordinator 发布 TransferProjection。
+        let event_bus = crate::host::event_bus::TauriEventBus::new(app.handle().clone());
+        app.manage(event_bus.clone());
+
         // 数据库（SeaORM + SQLite）—— 同步执行 + 启动清理过期会话
         let handle = app.handle().clone();
         let db = tauri::async_runtime::block_on(crate::database::init_database(&handle))?;
-        tauri::async_runtime::block_on(crate::database::cleanup_stale_sessions(&db))?;
+        let cleanup_event_bus: Arc<dyn swarmdrop_core::host::EventBus> = Arc::new(event_bus);
+        tauri::async_runtime::block_on(crate::database::cleanup_stale_sessions(
+            &db,
+            cleanup_event_bus,
+        ))?;
         app.manage(db);
 
         // MCP server 状态容器

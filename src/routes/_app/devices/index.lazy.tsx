@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { DeviceCard } from "./-components/device-card";
 import { TransferItem } from "../transfer/-transfer-item";
-import type { Device } from "@/lib/bindings";
+import type { Device, TransferProjection } from "@/lib/bindings";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { usePairingStore } from "@/stores/pairing-store";
 import { useTransferStore } from "@/stores/transfer-store";
+import { isProjectionActive } from "@/lib/transfer-projection";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { useCountdown } from "@/hooks/use-countdown";
 import { commands } from "@/lib/bindings";
@@ -81,7 +82,7 @@ function DevicesPage() {
   const isOnline = status === "running" || status === "starting";
   const storedPairedDevices = useSecretStore((state) => state.pairedDevices);
   const directPairing = usePairingStore((state) => state.directPairing);
-  const sessions = useTransferStore((s) => s.sessions);
+  const projections = useTransferStore((s) => s.projections);
 
   // directPairing 成功后自动跳转到设备页面(刷新列表)
   usePairingSuccess();
@@ -150,12 +151,12 @@ function DevicesPage() {
     [normalizedDevices],
   );
 
-  const activeSessionIds = useMemo(
+  const activeItems = useMemo(
     () =>
-      Object.values(sessions)
-        .sort((a, b) => b.startedAt - a.startedAt)
-        .map((session) => session.sessionId),
-    [sessions],
+      Object.values(projections)
+        .filter(isProjectionActive)
+        .sort((a, b) => b.startedAt - a.startedAt),
+    [projections],
   );
 
   const handleSend = (device: Device) => {
@@ -178,7 +179,7 @@ function DevicesPage() {
         isOnline={isOnline}
         nearbyDevices={nearbyDevices}
         pairedDevices={pairedDevices}
-        activeSessionIds={activeSessionIds}
+        activeItems={activeItems}
         onSend={handleSend}
         onConnect={handleConnect}
         onUnpair={handleUnpair}
@@ -196,7 +197,7 @@ interface DesktopDevicesViewProps {
   isOnline: boolean;
   nearbyDevices: Device[];
   pairedDevices: Device[];
-  activeSessionIds: string[];
+  activeItems: TransferProjection[];
   onSend: (device: Device) => void;
   onConnect: (device: Device) => void;
   onUnpair: (device: Device) => void;
@@ -207,7 +208,7 @@ function DesktopDevicesView({
   isOnline,
   nearbyDevices,
   pairedDevices,
-  activeSessionIds,
+  activeItems,
   onSend,
   onConnect,
   onUnpair,
@@ -222,7 +223,7 @@ function DesktopDevicesView({
             <HomeOverview
               nearbyCount={nearbyDevices.length}
               pairedCount={pairedDevices.length}
-              activeCount={activeSessionIds.length}
+              activeCount={activeItems.length}
             />
 
             <div className="flex min-w-0 flex-col gap-5">
@@ -232,7 +233,7 @@ function DesktopDevicesView({
                 onConnect={onConnect}
                 onUnpair={onUnpair}
               />
-              <ActiveTransfersSection sessionIds={activeSessionIds} />
+              <ActiveTransfersSection items={activeItems} />
             </div>
 
             <aside className="flex min-w-0 flex-col gap-5">
@@ -832,16 +833,16 @@ function PairedDevicesSection({
   );
 }
 
-function ActiveTransfersSection({ sessionIds }: { sessionIds: string[] }) {
+function ActiveTransfersSection({ items }: { items: TransferProjection[] }) {
   return (
     <SectionShell>
       <SectionHeader
         title={<Trans>正在传输</Trans>}
-        count={sessionIds.length}
+        count={items.length}
         icon={Send}
         description={<Trans>当前会话完成后会进入历史记录。</Trans>}
       />
-      {sessionIds.length === 0 ? (
+      {items.length === 0 ? (
         <EmptyPanel
           title={<Trans>暂无正在传输</Trans>}
           description={<Trans>开始发送或接收文件后，当前任务会显示在这里。</Trans>}
@@ -849,8 +850,8 @@ function ActiveTransfersSection({ sessionIds }: { sessionIds: string[] }) {
         />
       ) : (
         <div className="flex flex-col gap-2.5">
-          {sessionIds.map((sessionId) => (
-            <TransferItem key={sessionId} sessionId={sessionId} />
+          {items.map((item) => (
+            <TransferItem key={item.sessionId} projection={item} />
           ))}
         </div>
       )}

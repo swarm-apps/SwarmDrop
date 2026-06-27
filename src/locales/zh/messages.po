@@ -122,6 +122,12 @@ msgstr "下载中..."
 #~ msgid "下载完成后将自动安装并重启"
 #~ msgstr "下载完成后将自动安装并重启"
 
+#: src/lib/transfer-projection.ts
+#: src/lib/transfer-projection.ts
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "不可恢复失败"
+msgstr "不可恢复失败"
+
 #: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "个文件"
@@ -176,6 +182,7 @@ msgstr "从附近设备发起配对，或使用配对码连接另一台设备。
 #~ msgid "传输"
 #~ msgstr "传输"
 
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
@@ -190,8 +197,6 @@ msgstr "传输中"
 msgid "传输历史"
 msgstr "传输历史"
 
-#: src/routes/_app/transfer/-history-item.tsx
-#: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/stores/transfer-store.ts
 msgid "传输失败"
@@ -462,6 +467,14 @@ msgstr "取消传输"
 msgid "取消配对"
 msgstr "取消配对"
 
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "可恢复"
+msgstr "可恢复"
+
+#: src/lib/transfer-projection.ts
+msgid "可恢复失败"
+msgstr "可恢复失败"
+
 #: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "可配对"
@@ -579,7 +592,6 @@ msgstr "外观"
 
 #: src/components/file-tree/file-tree-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
 msgid "失败"
 msgstr "失败"
 
@@ -619,6 +631,10 @@ msgstr "对方已取消传输"
 msgid "对方已暂停传输"
 msgstr "对方已暂停传输"
 
+#: src/lib/transfer-projection.ts
+msgid "对方拒绝"
+msgstr "对方拒绝"
+
 #: src/stores/transfer-store.ts
 msgid "对方拒绝了请求"
 msgstr "对方拒绝了请求"
@@ -626,6 +642,14 @@ msgstr "对方拒绝了请求"
 #: src/stores/pairing-store.ts
 msgid "对方拒绝了配对请求"
 msgstr "对方拒绝了配对请求"
+
+#: src/lib/transfer-projection.ts
+msgid "对方暂停"
+msgstr "对方暂停"
+
+#: src/lib/transfer-projection.ts
+msgid "对方离线"
+msgstr "对方离线"
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
@@ -665,6 +689,10 @@ msgstr "已与 {deviceName} 配对成功"
 msgid "已与 {displayName} 配对成功"
 msgstr "已与 {displayName} 配对成功"
 
+#: src/lib/transfer-projection.ts
+msgid "已中断"
+msgstr "已中断"
+
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已停止"
 msgstr "已停止"
@@ -674,8 +702,7 @@ msgstr "已停止"
 msgid "已发现节点"
 msgstr "已发现节点"
 
-#: src/routes/_app/transfer/-history-item.tsx
-#: src/routes/_app/transfer/-transfer-item.tsx
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "已取消"
@@ -697,6 +724,7 @@ msgstr "已复制"
 msgid "已复制到剪贴板"
 msgstr "已复制到剪贴板"
 
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "已完成"
@@ -711,10 +739,9 @@ msgstr "已就绪"
 msgid "已拒绝来自 {0} 的配对请求"
 msgstr "已拒绝来自 {0} 的配对请求"
 
-#: src/routes/_app/transfer/-history-item.tsx
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
 msgid "已暂停"
 msgstr "已暂停"
 
@@ -760,6 +787,10 @@ msgstr "已配对设备"
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "已配对设备优先展示，附近设备和配对入口收在右侧，打开应用就能开始操作。"
 msgstr "已配对设备优先展示，附近设备和配对入口收在右侧，打开应用就能开始操作。"
+
+#: src/lib/transfer-projection.ts
+msgid "应用重启后中断"
+msgstr "应用重启后中断"
 
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "开始使用"
@@ -1310,6 +1341,7 @@ msgid "端口号需在 1024 ~ 65535 之间"
 msgstr "端口号需在 1024 ~ 65535 之间"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "等待中"
 msgstr "等待中"
@@ -1329,6 +1361,7 @@ msgstr "等待对方发送文件"
 msgid "等待对方确认..."
 msgstr "等待对方确认..."
 
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "等待确认"
 msgstr "等待确认"
@@ -1697,8 +1730,8 @@ msgid "重新生成"
 msgstr "重新生成"
 
 #: src/routes/_app/transfer/-history-item.tsx
-msgid "重试传输"
-msgstr "重试传输"
+#~ msgid "重试传输"
+#~ msgstr "重试传输"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "错误"

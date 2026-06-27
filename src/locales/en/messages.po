@@ -117,6 +117,12 @@ msgstr "Downloading..."
 #~ msgid "下载完成后将自动安装并重启"
 #~ msgstr "Will auto-install and restart after download"
 
+#: src/lib/transfer-projection.ts
+#: src/lib/transfer-projection.ts
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "不可恢复失败"
+msgstr ""
+
 #: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "个文件"
@@ -171,6 +177,7 @@ msgstr ""
 #~ msgid "传输"
 #~ msgstr "Transfer"
 
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
@@ -185,8 +192,6 @@ msgstr "Transferring"
 msgid "传输历史"
 msgstr "Transfer History"
 
-#: src/routes/_app/transfer/-history-item.tsx
-#: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/stores/transfer-store.ts
 msgid "传输失败"
@@ -457,6 +462,14 @@ msgstr "Cancel Transfer"
 msgid "取消配对"
 msgstr "Unpair"
 
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "可恢复"
+msgstr ""
+
+#: src/lib/transfer-projection.ts
+msgid "可恢复失败"
+msgstr ""
+
 #: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "可配对"
@@ -574,7 +587,6 @@ msgstr "Appearance"
 
 #: src/components/file-tree/file-tree-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
 msgid "失败"
 msgstr "Failed"
 
@@ -614,6 +626,10 @@ msgstr "Peer canceled transfer"
 msgid "对方已暂停传输"
 msgstr "The peer has paused the transfer"
 
+#: src/lib/transfer-projection.ts
+msgid "对方拒绝"
+msgstr ""
+
 #: src/stores/transfer-store.ts
 msgid "对方拒绝了请求"
 msgstr "Request was declined"
@@ -621,6 +637,14 @@ msgstr "Request was declined"
 #: src/stores/pairing-store.ts
 msgid "对方拒绝了配对请求"
 msgstr "Pairing request was declined"
+
+#: src/lib/transfer-projection.ts
+msgid "对方暂停"
+msgstr ""
+
+#: src/lib/transfer-projection.ts
+msgid "对方离线"
+msgstr ""
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
@@ -660,6 +684,10 @@ msgstr "Paired with {deviceName} successfully"
 msgid "已与 {displayName} 配对成功"
 msgstr ""
 
+#: src/lib/transfer-projection.ts
+msgid "已中断"
+msgstr ""
+
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已停止"
 msgstr "Stopped"
@@ -669,8 +697,7 @@ msgstr "Stopped"
 msgid "已发现节点"
 msgstr "Discovered Peers"
 
-#: src/routes/_app/transfer/-history-item.tsx
-#: src/routes/_app/transfer/-transfer-item.tsx
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "已取消"
@@ -692,6 +719,7 @@ msgstr "Copied"
 msgid "已复制到剪贴板"
 msgstr "Copied to clipboard"
 
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "已完成"
@@ -706,10 +734,9 @@ msgstr "Ready"
 msgid "已拒绝来自 {0} 的配对请求"
 msgstr "Declined pairing request from {0}"
 
-#: src/routes/_app/transfer/-history-item.tsx
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
 msgid "已暂停"
 msgstr "Paused"
 
@@ -754,6 +781,10 @@ msgstr "Paired Devices"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "已配对设备优先展示，附近设备和配对入口收在右侧，打开应用就能开始操作。"
+msgstr ""
+
+#: src/lib/transfer-projection.ts
+msgid "应用重启后中断"
 msgstr ""
 
 #: src/routes/_auth/welcome.lazy.tsx
@@ -1293,6 +1324,7 @@ msgid "端口号需在 1024 ~ 65535 之间"
 msgstr "Port must be between 1024 and 65535"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "等待中"
 msgstr "Waiting"
@@ -1312,6 +1344,7 @@ msgstr "Waiting for sender to send files"
 msgid "等待对方确认..."
 msgstr "Waiting for confirmation..."
 
+#: src/lib/transfer-projection.ts
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "等待确认"
 msgstr "Waiting for confirmation"
@@ -1680,8 +1713,8 @@ msgid "重新生成"
 msgstr "Regenerate"
 
 #: src/routes/_app/transfer/-history-item.tsx
-msgid "重试传输"
-msgstr "Retry transfer"
+#~ msgid "重试传输"
+#~ msgstr "Retry transfer"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "错误"

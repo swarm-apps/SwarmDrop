@@ -9,14 +9,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use futures::io::AsyncReadExt;
+use swarm_p2p_core::DataChannel;
 use swarm_p2p_core::libp2p::PeerId;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::host::{EventBus, FileAccess};
-use crate::protocol::TransferResponse;
+use crate::protocol::{FileInfo, FileRange, TransferResponse};
 use crate::transfer::crypto::TransferCrypto;
+use crate::transfer::data_frame::{
+    TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
+};
 use crate::transfer::manager::PreparedFile;
 use crate::transfer::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
 use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
@@ -250,6 +255,195 @@ impl SendSession {
     /// 主动取消
     pub fn cancel(&self) {
         self.cancel_token.cancel();
+    }
+
+    /// 将本发送会话绑定到一条 data channel，并按 fetch_plan 连续推送数据。
+    pub async fn run_data_channel(
+        &self,
+        epoch: i64,
+        channel: DataChannel,
+        fetch_plan: Vec<FileRange>,
+    ) -> AppResult<()> {
+        let manifest = self.file_manifest();
+        let plan = fetch_plan;
+        let (mut reader, mut writer) = channel.into_stream().split();
+
+        let writer_task = async {
+            write_frame(
+                &mut writer,
+                &TransferDataFrame::Hello {
+                    session_id: self.session_id,
+                    epoch,
+                    role: TransferDataRole::Sender,
+                    manifest_digest: manifest_digest(&manifest),
+                    fetch_plan: plan.clone(),
+                },
+            )
+            .await?;
+
+            for range in plan {
+                self.write_range(&mut writer, epoch, range).await?;
+            }
+
+            write_frame(
+                &mut writer,
+                &TransferDataFrame::Finish {
+                    session_id: self.session_id,
+                    epoch,
+                },
+            )
+            .await
+        };
+
+        let reader_task = async {
+            loop {
+                if self.cancel_token.is_cancelled() {
+                    return Err(AppError::Transfer("传输已取消".into()));
+                }
+
+                match read_frame(&mut reader).await? {
+                    Some(TransferDataFrame::Ack {
+                        session_id,
+                        epoch: ack_epoch,
+                        ..
+                    }) if session_id == self.session_id && ack_epoch == epoch => {}
+                    Some(TransferDataFrame::Finish {
+                        session_id,
+                        epoch: finish_epoch,
+                    }) if session_id == self.session_id && finish_epoch == epoch => return Ok(()),
+                    Some(TransferDataFrame::BlockRequest { .. }) => {
+                        return Err(AppError::Transfer(
+                            "当前 transfer-data 流不支持 BlockRequest 重传".into(),
+                        ));
+                    }
+                    Some(TransferDataFrame::Abort { reason, .. }) => {
+                        return Err(AppError::Transfer(format!("对端中止传输: {reason}")));
+                    }
+                    Some(other) => {
+                        return Err(AppError::Transfer(format!(
+                            "发送方收到意外 data frame: {other:?}"
+                        )));
+                    }
+                    None => return Err(AppError::Transfer("data channel 在完成前关闭".into())),
+                }
+            }
+        };
+
+        tokio::try_join!(writer_task, reader_task)?;
+        Ok(())
+    }
+
+    fn file_manifest(&self) -> Vec<FileInfo> {
+        self.files
+            .iter()
+            .map(|f| FileInfo {
+                file_id: f.file_id,
+                name: f.name.clone(),
+                relative_path: f.relative_path.clone(),
+                size: f.size,
+                checksum: f.checksum.clone(),
+            })
+            .collect()
+    }
+
+    async fn write_range<W>(&self, stream: &mut W, epoch: i64, range: FileRange) -> AppResult<()>
+    where
+        W: futures::io::AsyncWrite + Unpin,
+    {
+        let file = self
+            .files
+            .iter()
+            .find(|f| f.file_id == range.file_id)
+            .ok_or_else(|| AppError::Transfer(format!("文件不存在: file_id={}", range.file_id)))?;
+
+        let end = range
+            .offset
+            .checked_add(range.length)
+            .ok_or_else(|| AppError::Transfer("fetch range 溢出".into()))?;
+        if end > file.size {
+            return Err(AppError::Transfer(format!(
+                "fetch range 超出文件大小: file_id={}, end={}, size={}",
+                range.file_id, end, file.size
+            )));
+        }
+
+        if file.size == 0 && range.offset == 0 && range.length == 0 {
+            self.write_block(stream, epoch, file, 0, 0).await?;
+            return Ok(());
+        }
+
+        let mut offset = range.offset;
+        while offset < end {
+            if self.cancel_token.is_cancelled() {
+                return Err(AppError::Transfer("传输已取消".into()));
+            }
+            let len = ((end - offset) as usize).min(CHUNK_SIZE);
+            self.write_block(stream, epoch, file, offset, len).await?;
+            offset += len as u64;
+        }
+
+        Ok(())
+    }
+
+    async fn write_block<W>(
+        &self,
+        stream: &mut W,
+        epoch: i64,
+        file: &PreparedFile,
+        offset: u64,
+        length: usize,
+    ) -> AppResult<()>
+    where
+        W: futures::io::AsyncWrite + Unpin,
+    {
+        let plaintext = self
+            .file_access
+            .read_source_chunk(&file.source_id, offset, length)
+            .await?;
+        let plaintext_len = plaintext.len() as u64;
+        let chunk_index = (offset / CHUNK_SIZE as u64) as u32;
+        let ciphertext = self
+            .crypto
+            .encrypt_chunk(&self.session_id, file.file_id, chunk_index, &plaintext)
+            .map_err(|e| AppError::Transfer(format!("加密失败: {e}")))?;
+
+        write_frame(
+            stream,
+            &TransferDataFrame::BlockData {
+                session_id: self.session_id,
+                epoch,
+                range: FileRange {
+                    file_id: file.file_id,
+                    offset,
+                    length: plaintext_len,
+                },
+                ciphertext,
+            },
+        )
+        .await?;
+
+        self.last_activity_ms.store(
+            self.created_at.elapsed().as_millis() as u64,
+            Ordering::Relaxed,
+        );
+
+        let progress_event = {
+            let mut p = self
+                .progress
+                .lock()
+                .map_err(|_| AppError::Transfer("ProgressTracker 锁中毒".into()))?;
+            p.add_bytes(plaintext_len);
+            p.update_file_chunk(file.file_id, plaintext_len);
+            p.progress_event()
+        };
+        if let Some(event) = progress_event {
+            let _ = self
+                .event_bus
+                .publish(crate::host::CoreEvent::TransferProgress { event })
+                .await;
+        }
+
+        Ok(())
     }
 
     /// 返回自上次活动以来的空闲时间（毫秒）

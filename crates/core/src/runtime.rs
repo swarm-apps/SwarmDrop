@@ -1,7 +1,7 @@
 //! Core runtime 入口。
 
-use swarm_p2p_core::EventReceiver;
 use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
+use swarm_p2p_core::{DataChannelReceiver, EventReceiver};
 
 use crate::device::{OsInfo, PairedDeviceInfo};
 use crate::error::{AppError, AppResult};
@@ -32,7 +32,7 @@ pub fn start_node<TTransfer, F>(
 ) -> AppResult<StartedNode<TTransfer>>
 where
     TTransfer: TransferRuntime,
-    F: FnOnce(AppNetClient) -> TTransfer,
+    F: FnOnce(AppNetClient, DataChannelReceiver) -> TTransfer,
 {
     let os_info = OsInfo {
         name: device_name,
@@ -48,14 +48,11 @@ where
     let candidate_manager = create_candidate_manager(&network_config);
 
     let peer_id = PeerId::from_public_key(&keypair.public());
-    // 第三个返回值是 data-channel 入站接收器（add-p2p-data-channel 能力）。
-    // 本 change 仅提供能力、不接线文件传输；redesign-transfer-lifecycle 的
-    // Phase B 会接管它。当前 config 未注册任何 data-channel 协议，drop 无副作用。
-    let (client, receiver, _dc_receiver) =
+    let (client, receiver, dc_receiver) =
         swarm_p2p_core::start::<AppRequest, AppResponse>(keypair, config)
             .map_err(|e| AppError::Network(e.to_string()))?;
 
-    let transfer = create_transfer(client.clone());
+    let transfer = create_transfer(client.clone(), dc_receiver);
     let manager = NetManager::new(
         client,
         peer_id,

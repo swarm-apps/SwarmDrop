@@ -4,7 +4,6 @@ import {
   Pause,
   Play,
   Trash2,
-  RotateCcw,
   FileText,
   FileArchive,
   Image as ImageIcon,
@@ -14,7 +13,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { Trans, useLingui } from "@lingui/react/macro";
-import type { TransferHistoryItem } from "@/lib/bindings";
+import type { TransferProjection } from "@/lib/bindings";
 import { commands } from "@/lib/bindings";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -28,13 +27,16 @@ import {
   DirectionIcon,
   TransferCard,
   calcPercent,
+  projectionStatusLabel,
+  projectionToSession,
   doResumeTransfer,
   ACTION_BTN_CLASS,
   DESTRUCTIVE_BTN_CLASS,
 } from "./-shared";
+import { canResumeProjection } from "@/lib/transfer-projection";
 
 interface HistoryItemProps {
-  item: TransferHistoryItem;
+  item: TransferProjection;
 }
 
 /** 辅助函数：截断 PeerId 以美化显示 */
@@ -60,7 +62,7 @@ function getFileIcon(fileName: string, count: number) {
 export function HistoryItem({ item }: HistoryItemProps) {
   const { t } = useLingui();
   const navigate = useNavigate();
-  const { loadHistory } = useTransferStore();
+  const { loadProjections } = useTransferStore();
 
   const {
     sessionId,
@@ -69,12 +71,14 @@ export function HistoryItem({ item }: HistoryItemProps) {
     peerName,
     files,
     totalSize,
-    status,
     errorMessage,
     startedAt,
     finishedAt,
     transferredBytes,
   } = item;
+  const session = projectionToSession(item);
+  const status = session.status;
+  const statusLabel = projectionStatusLabel(item);
 
   // 事件处理
   const withAction =
@@ -97,7 +101,7 @@ export function HistoryItem({ item }: HistoryItemProps) {
 
   const onDelete = withAction(async () => {
     await commands.deleteTransferSession(sessionId);
-    await loadHistory();
+    await loadProjections();
   });
 
   const onOpenFolder = withAction(async () => {
@@ -122,7 +126,7 @@ export function HistoryItem({ item }: HistoryItemProps) {
   const displayFileName =
     fileCount > 1 ? t`${firstFileName} 等 ${fileCount} 个文件` : firstFileName;
   const progressPercent = calcPercent(transferredBytes, totalSize);
-  const canResume = status === "failed" || status === "paused";
+  const canResume = canResumeProjection(item);
 
   return (
     <TransferCard onClick={handleClick}>
@@ -171,7 +175,7 @@ export function HistoryItem({ item }: HistoryItemProps) {
               <div className="flex items-center justify-between text-[11px] md:text-[12px]">
                 <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
                   <Pause className="size-3 md:size-3.5" />
-                  <Trans>已暂停</Trans>
+                  {statusLabel}
                 </span>
                 <span className="text-muted-foreground">
                   {formatFileSize(transferredBytes)} /{" "}
@@ -184,14 +188,14 @@ export function HistoryItem({ item }: HistoryItemProps) {
           {status === "failed" && (
             <div className="flex items-center gap-1.5 text-[12px] text-destructive md:text-[13px]">
               <XCircle className="size-3.5 shrink-0 md:size-4" />
-              <span className="truncate">{errorMessage || t`传输失败`}</span>
+              <span className="truncate">{errorMessage || statusLabel}</span>
             </div>
           )}
 
           {status === "cancelled" && (
             <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground md:text-[13px]">
               <XCircle className="size-3.5 md:size-4" />
-              <Trans>已取消</Trans>
+              {statusLabel}
             </div>
           )}
         </div>
@@ -210,13 +214,9 @@ export function HistoryItem({ item }: HistoryItemProps) {
               variant="ghost"
               className={ACTION_BTN_CLASS}
               onClick={onResume}
-              title={status === "paused" ? t`恢复传输` : t`重试传输`}
+              title={t`恢复传输`}
             >
-              {status === "paused" ? (
-                <Play className="size-3.5 md:size-4" />
-              ) : (
-                <RotateCcw className="size-3.5 md:size-4" />
-              )}
+              <Play className="size-3.5 md:size-4" />
             </Button>
           )}
           {status === "completed" && item.savePath && (

@@ -29,6 +29,10 @@ pub struct Model {
     /// 长度 = ceil(total_chunks / 8) 字节。
     /// 仅接收方使用，发送方为空 vec。
     pub completed_chunks: Vec<u8>,
+    /// 已完成 byte ranges（JSON）。
+    ///
+    /// 新数据面以 range 为 checkpoint 事实源；bitmap 仅作为旧拉取实现和过渡适配。
+    pub completed_ranges: String,
     /// 发送方源文件路径（direction=send 时有值）。
     /// 桌面端为绝对路径字符串，用于断点续传时重建 FileSource。
     pub source_path: Option<String>,

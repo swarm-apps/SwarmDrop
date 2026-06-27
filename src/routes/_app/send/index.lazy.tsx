@@ -93,20 +93,7 @@ function SendPage() {
         fileIds,
       );
 
-      // startSend 立即返回 session_id，后续通过事件通知结果
-      useTransferStore.getState().addSession({
-        sessionId: result.sessionId,
-        direction: "send",
-        peerId: device.peerId,
-        deviceName: displayName,
-        files: prepared.files,
-        totalSize: prepared.totalSize,
-        status: "waiting_accept",
-        progress: null,
-        error: null,
-        startedAt: Date.now(),
-        completedAt: null,
-      });
+      await useTransferStore.getState().loadProjections();
 
       navigate({
         to: "/transfer/$sessionId",

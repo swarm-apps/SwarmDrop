@@ -12,8 +12,12 @@ import { t } from "@lingui/core/macro";
 import { useTransferStore } from "@/stores/transfer-store";
 import { TransferItem } from "./-transfer-item";
 import { HistoryItem } from "./-history-item";
-import { commands, type TransferHistoryItem } from "@/lib/bindings";
-import type { HistorySessionStatus } from "@/lib/types";
+import { commands, type TransferProjection } from "@/lib/bindings";
+import {
+  isProjectionActive,
+  projectionMatchesFilter,
+  type ProjectionStatusFilter,
+} from "@/lib/transfer-projection";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -30,54 +34,61 @@ export const Route = createLazyFileRoute("/_app/transfer/")({
 });
 
 function TransferPage() {
-  const sessions = useTransferStore((s) => s.sessions);
-  const dbHistory = useTransferStore((s) => s.dbHistory);
-  const loadHistory = useTransferStore((s) => s.loadHistory);
+  const projections = useTransferStore((s) => s.projections);
+  const loadProjections = useTransferStore((s) => s.loadProjections);
 
-  // 进入传输列表页时主动刷新 DB 历史
+  // 进入传输列表页时主动刷新后端 projection
   useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+    loadProjections();
+  }, [loadProjections]);
 
-  const [statusFilter, setStatusFilter] = useState<
-    HistorySessionStatus | "all"
-  >("all");
+  const [statusFilter, setStatusFilter] =
+    useState<ProjectionStatusFilter>("all");
 
-  const statusFilters: { value: HistorySessionStatus | "all"; label: string }[] = useMemo(
+  const statusFilters: { value: ProjectionStatusFilter; label: string }[] = useMemo(
     () => [
       { value: "all", label: t`全部` },
       { value: "completed", label: t`已完成` },
-      { value: "failed", label: t`失败` },
-      { value: "paused", label: t`已暂停` },
+      { value: "suspended", label: t`可恢复` },
+      { value: "failed", label: t`不可恢复失败` },
       { value: "cancelled", label: t`已取消` },
     ],
     [],
   );
 
-  // 活跃传输 sessionId 列表（按开始时间倒序）
-  const activeSessionIds = useMemo(
+  const projectionItems = useMemo(
     () =>
-      Object.values(sessions)
-        .sort((a, b) => b.startedAt - a.startedAt)
-        .map((s) => s.sessionId),
-    [sessions],
+      Object.values(projections).sort((a, b) => b.startedAt - a.startedAt),
+    [projections],
   );
 
-  // 过滤 DB 历史
+  const activeItems = useMemo(
+    () => projectionItems.filter(isProjectionActive),
+    [projectionItems],
+  );
+
+  const activeIdSet = useMemo(
+    () => new Set(activeItems.map((item) => item.sessionId)),
+    [activeItems],
+  );
+
+  // 过滤历史投影：活跃列表已经展示的 session 不再重复出现在历史区
   const filteredHistory = useMemo(
     () =>
-      statusFilter === "all"
-        ? dbHistory
-        : dbHistory.filter((item) => item.status === statusFilter),
-    [dbHistory, statusFilter],
+      projectionItems.filter(
+        (item) =>
+          !activeIdSet.has(item.sessionId) &&
+          projectionMatchesFilter(item, statusFilter),
+      ),
+    [activeIdSet, projectionItems, statusFilter],
   );
 
-  const hasContent = activeSessionIds.length > 0 || filteredHistory.length > 0;
+  const hasContent = activeItems.length > 0 || filteredHistory.length > 0;
 
   const handleClearHistory = async () => {
     try {
       await commands.clearTransferHistory();
-      await loadHistory();
+      await loadProjections();
       toast.success(t`已清空传输历史`);
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -85,12 +96,12 @@ function TransferPage() {
   };
 
   // 「传输历史」section 标题右侧的过滤 + 清空操作
-  const historyToolbar = dbHistory.length > 0 && (
+  const historyToolbar = projectionItems.length > 0 && (
     <div className="flex items-center gap-1.5 md:gap-2">
       {/* 状态过滤 */}
       <Select
         value={statusFilter}
-        onValueChange={(v) => setStatusFilter(v as HistorySessionStatus | "all")}
+        onValueChange={(v) => setStatusFilter(v as ProjectionStatusFilter)}
       >
         <SelectTrigger className="h-7 w-auto gap-1 px-2 text-xs md:gap-1.5 md:px-2.5">
           <SelectValue />
@@ -120,7 +131,7 @@ function TransferPage() {
     <EmptyState />
   ) : (
     <TransferList
-      activeSessionIds={activeSessionIds}
+      activeItems={activeItems}
       historyItems={filteredHistory}
       historyToolbar={historyToolbar}
     />
@@ -139,25 +150,25 @@ function TransferPage() {
 /* ─────────────────── 传输列表 ─────────────────── */
 
 function TransferList({
-  activeSessionIds,
+  activeItems,
   historyItems,
   historyToolbar,
 }: {
-  activeSessionIds: string[];
-  historyItems: TransferHistoryItem[];
+  activeItems: TransferProjection[];
+  historyItems: TransferProjection[];
   historyToolbar: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-5">
       {/* 活跃传输 */}
-      {activeSessionIds.length > 0 && (
+      {activeItems.length > 0 && (
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-semibold text-foreground">
             <Trans>活跃传输</Trans>
           </h2>
           <div className="flex flex-col gap-2.5">
-            {activeSessionIds.map((id) => (
-              <TransferItem key={id} sessionId={id} />
+            {activeItems.map((item) => (
+              <TransferItem key={item.sessionId} projection={item} />
             ))}
           </div>
         </section>

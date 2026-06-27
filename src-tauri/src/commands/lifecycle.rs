@@ -31,10 +31,13 @@ pub async fn start(
     let paired_devices = load_host_paired_devices(&app, paired_devices).await?;
 
     // 准备 host adapters（在 NetManager 构造前必须就绪）
-    let event_bus_struct = TauriEventBus::new(app.clone());
-    if app.try_state::<TauriEventBus>().is_none() {
-        app.manage(event_bus_struct.clone());
-    }
+    let event_bus_struct = if let Some(bus) = app.try_state::<TauriEventBus>() {
+        bus.inner().clone()
+    } else {
+        let bus = TauriEventBus::new(app.clone());
+        app.manage(bus.clone());
+        bus
+    };
     let event_bus: Arc<dyn EventBus> = Arc::new(event_bus_struct);
 
     let db: Arc<DatabaseConnection> = app
@@ -61,12 +64,13 @@ pub async fn start(
         device_name,
         paired_devices,
         network_config,
-        move |client| {
+        move |client, dc_receiver| {
             TransferManager::new(
                 client,
                 event_bus_for_factory,
                 db_for_factory,
                 file_access_for_factory,
+                dc_receiver,
             )
         },
     )?;

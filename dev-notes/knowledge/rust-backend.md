@@ -68,18 +68,23 @@ pub fn insert_session(...) { ... }
 
 **相关文件**：`src-tauri/src/setup.rs`、`src-tauri/src/lib.rs` 的 `start` 命令
 
-### 断点续传恢复必须双端发布 TransferResumed
+### 断点续传恢复走 Probe → Commit → Ack
 
-恢复协议有两条入口：接收方发起 `ResumeRequest`，发送方发起 `ResumeOffer`。无论哪一端被动收到恢复请求，只要本端重建了 live session，都必须发布 `CoreEvent::TransferResumed`，让 host 把 paused 历史重新提升为 active session。
+`redesign-transfer-lifecycle` 已废弃旧的 `ResumeRequest` / `ResumeOffer` 双入口恢复路径。恢复统一走：
+`ResumeProbe` 获取对端 phase / epoch / manifest / checkpoint / source fingerprint，再由发起方发送
+`ResumeCommit { new_epoch, key, fetch_plan }`，对端校验后返回 `ResumeAck`。
 
 **正确做法**：
-- `handle_resume_request_impl` 重建 `SendSession` 后发布 `TransferResumed { direction: Send }`
-- `handle_resume_offer_impl` 重建 `ReceiveSession` 后发布 `TransferResumed { direction: Receive }`
+- `new_epoch = max(local_epoch, peer_epoch) + 1`；Coordinator 只接受 `new_epoch > current_epoch`
+- `ResumeReport` 必须携带 manifest 与 terminal_reason，才能区分 cancelled / fatal_error / source_modified
+- 被动端 `ResumeCommit` 校验通过后按本端 direction 重建 `SendSession` 或 `ReceiveSession`，再经 `NetworkSignal::ResumeCommitted` 转 active
+- `ResumeRejectReason::PeerUnavailable` 不改本地状态，保留 suspended 供稍后重试；cancelled/source/checkpoint/session 缺失按语义转 terminal
 
 **不要做**：
-- 只标记 DB 为 `Transferring` 或只重建 core session；前端 store 不会自动从 history 推断 live session，另一端会停留在 paused 状态。
+- 不要再新增 `ResumeRequest` / `ResumeOffer` 分支，旧路径会绕过 probe 阶段导致两端恢复事实不一致。
+- 不要直接调用 `mark_session_transferring` 恢复；phase/epoch 必须由 Coordinator 写入并发布 projection。
 
-**相关文件**：`crates/core/src/transfer/resume.rs`、`src/stores/transfer-store.ts`
+**相关文件**：`crates/core/src/transfer/resume.rs`、`crates/core/src/protocol.rs`、`crates/core/tests/e2e_transfer.rs`
 
 ### 主动取消必须通知对端并写 cancelled
 
@@ -109,6 +114,20 @@ pub fn insert_session(...) { ... }
 - 不要把帧编解码放进 `libs/core`——它只传裸字节，帧协议在 `crates/core`（应用层）。
 
 **相关文件**：`libs/core/src/data_channel.rs`、`libs/core/src/runtime/{node,event_loop}.rs`、`libs/core/src/client/mod.rs`
+
+### transfer-data Finish 只是信号，完成事实必须由接收端证明
+
+`TransferDataFrame::Finish` 只能表示发送端认为 fetch_plan 已写完，不能直接驱动本地
+`Completed`。接收端必须用初始 checkpoint bitmap + 本次收到的 `BlockData` bitmap 证明所有非零文件
+都完整后，才允许 finalize sink、`mark_file_completed`、`mark_session_completed` 并发布 projection。
+
+**正确做法**：
+- 首次传输调用处显式传 `full_fetch_plan(...)`；`SendSession::run_data_channel` 把传入的 `fetch_plan` 当精确计划，不把空计划隐式扩展成全量。
+- data-channel 接收端收到 `Finish` 后先跑完整性校验；缺块/缺 bitmap 走 `Interrupted`，不能把 bitmap 补成全完成。
+- 零字节文件可在完成阶段创建空 sink 并标记完成；非零文件没有 live sink 时只能依赖已完整的恢复 checkpoint，不能创建空文件冒充完成。
+- 当前 libp2p stream 是可靠有序流，`BlockRequest` 只保留协议帧位；生产路径不要假装支持同流重传，解密/范围错误应中断。
+
+**相关文件**：`crates/core/src/transfer/{sender.rs,receiver.rs,data_frame.rs}`
 
 ### swarm-p2p-core 测试需显式声明 tokio rt-multi-thread
 
@@ -141,6 +160,57 @@ pub fn insert_session(...) { ... }
 - **取消优先于 error**（`receiver.rs::pull_file_chunks` 收尾）：被 `cancel_token` 取消的传输即使有 in-flight chunk 错误也返回 `Ok(false)`（取消），**不能**先判 error 返回 Err——否则断连/取消 teardown 时的 chunk 错误会触发 `fail_session` 写 terminal/failed，盖掉 Interrupted/Cancelled。这也修了「主动取消时若 chunk 报错会变 failed」的潜在 bug。
 
 **相关文件**：`crates/core/src/transfer/{coordinator.rs,receive.rs,receiver.rs,send.rs}`、`crates/core/src/network/event_loop.rs`、`crates/core/tests/e2e_transfer.rs`（remote-reason / peer-disconnect 确定性测试）
+
+### 桌面启动清理只保留过期文件清理，active 统一交给 Coordinator
+
+`src-tauri` 启动时不再把 sender/receiver transferring 会话直接改成 failed/paused。`setup.rs` 先注入
+`TauriEventBus`，再调用 `cleanup_stale_sessions(db, event_bus)`；该函数用
+`TransferCoordinator::cleanup_recoverable_sessions` 把所有 `phase=active` 会话转为
+`suspended/app_restarted` 并发布 projection。
+
+**正确做法**：
+- `cleanup_stale_sessions` 的 active 清理只经 Coordinator，不直接写 `status`
+- 桌面特有的 `.part` 文件清理仅用于过期 receiver suspended 会话，清理后调用 `mark_session_failed`
+- `start` 命令复用 managed `TauriEventBus`，不要在 setup 已注入后再创建一个不共享 prepare channel 的 bus
+
+**相关文件**：`src-tauri/src/{setup.rs,database.rs,commands/lifecycle.rs}`
+
+### 前端传输列表只消费 TransferProjection
+
+`redesign-transfer-lifecycle` 中，前端传输列表、详情页和设备页不再读取
+`get_transfer_history` / `get_transfer_session`，也不再维护 `sessions + dbHistory`
+双状态源。后端提供 `get_transfer_projections` 和 `"transfer-projection-update"` 事件，
+前端 store 只保存 `projections`、`progressBySession`、`pendingOffers`。
+
+**正确做法**：
+- 发送方 `start_send` 时就在 core 内创建 `phase=WaitingAccept` projection；接收方收到 Offer 时创建 `phase=Offered` projection
+- 用户接受/拒绝、对端接受/拒绝、暂停/取消/恢复都经 Coordinator 转换 phase/reason 并发布 projection
+- `transfer-progress` 事件只允许更新 projection 的进度字段，不允许前端据此推断 completed/failed/suspended
+- UI 文案统一从 `TransferProjection.phase + reason` 派生，避免列表、详情和两端设备各自解释旧 `SessionStatus`
+
+**不要做**：
+- 不要在前端重新拼接 active sessions 与 DB history
+- 不要在发送/接收页面手工构造 transient transfer session；如果缺等待态，优先让后端补 projection
+
+**相关文件**：`crates/core/src/transfer/{send.rs,receive.rs,coordinator.rs}`、`crates/core/src/database/ops.rs`、`src/stores/transfer-store.ts`、`src/lib/transfer-projection.ts`
+
+### ActorRegistry 是运行时 actor 唯一入口
+
+SenderActor / ReceiverActor 的内存生命周期不再散落在 `TransferManager` 的裸
+DashMap 操作里。`ActorRegistry` 统一管理创建、替换、移除、取消和 epoch 准入；
+Coordinator 负责 DB 状态，ActorRegistry 负责内存 actor 唯一性。
+
+**正确做法**：
+- 插入 actor 必须带 session epoch：首传 epoch=0，ResumeCommit 后使用 `new_epoch`
+- 同 epoch 或旧 epoch 的 actor 插入会被拒绝并取消；更高 epoch actor 会取消并替换旧 actor
+- ReceiverActor 后台任务结束时按 `(session_id, epoch)` 移除，不能只按 session_id 移除，避免旧任务结束误删恢复后的新 actor
+- 业务代码通过 `TransferManager::{get,insert,remove}_{send,receive}_session` helper 访问 actor，不直接碰 registry 内部 map
+
+**不要做**：
+- 不要新增 `send_sessions` / `receive_sessions` 裸 map 操作
+- 不要在 resume/data-channel 路径创建 actor 时漏传 new_epoch
+
+**相关文件**：`crates/core/src/transfer/actor_registry.rs`、`crates/core/src/transfer/{manager.rs,send.rs,receive.rs,resume.rs}`
 
 ### crates/core 端到端集成测试：两个真实节点 + MemoryHost + sqlite::memory（不需要 Tauri/真机）
 

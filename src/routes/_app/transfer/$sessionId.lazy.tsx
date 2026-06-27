@@ -30,17 +30,19 @@ import { getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileTree } from "@/components/file-tree";
 import { buildTreeDataFromSession } from "@/components/file-tree";
-import type { TransferHistoryItem } from "@/lib/bindings";
+import type { TransferProjection } from "@/lib/bindings";
 import type { TransferSession } from "@/lib/types";
 import {
   calcPercent,
   isActiveStatus,
   STATUS_CLASSNAMES,
-  historyToSession,
+  projectionStatusLabel,
+  projectionToSession,
   doPauseTransfer,
   doCancelTransfer,
   doResumeTransfer,
 } from "./-shared";
+import { canResumeProjection } from "@/lib/transfer-projection";
 
 export const Route = createLazyFileRoute("/_app/transfer/$sessionId")({
   component: TransferDetailPage,
@@ -50,24 +52,15 @@ function TransferDetailPage() {
   const { sessionId } = Route.useParams();
   const navigate = useNavigate();
 
-  // 拆分 selector:分别订阅原始数据,避免 historyToSession 每次创建新对象
-  const activeSession = useTransferStore(
-    useCallback((s) => s.sessions[sessionId], [sessionId]),
+  const projection = useTransferStore(
+    useCallback((s) => s.projections[sessionId], [sessionId]),
   );
-  const historyItem = useTransferStore(
-    useCallback(
-      (s) =>
-        s.sessions[sessionId]
-          ? undefined
-          : s.dbHistory.find((h) => h.sessionId === sessionId),
-      [sessionId],
-    ),
+  const progress = useTransferStore(
+    useCallback((s) => s.progressBySession[sessionId] ?? null, [sessionId]),
   );
   const session = useMemo(
-    () =>
-      activeSession ??
-      (historyItem ? historyToSession(historyItem) : undefined),
-    [activeSession, historyItem],
+    () => (projection ? projectionToSession(projection, progress) : undefined),
+    [progress, projection],
   );
 
   const handleBack = useCallback(() => {
@@ -90,7 +83,7 @@ function TransferDetailPage() {
   return (
     <TransferDetailContent
       session={session}
-      historyItem={historyItem}
+      projection={projection}
       onBack={handleBack}
     />
   );
@@ -100,8 +93,10 @@ function TransferDetailPage() {
 
 const TransferStatusHeader = memo(function TransferStatusHeader({
   session,
+  projection,
 }: {
   session: TransferSession;
+  projection?: TransferProjection;
 }) {
   const isSend = session.direction === "send";
   const isActive = isActiveStatus(session.status);
@@ -148,15 +143,17 @@ const TransferStatusHeader = memo(function TransferStatusHeader({
           {formatFileSize(session.totalSize)}
         </p>
       </div>
-      {isActive && <StatusBadge status={session.status} />}
+      {isActive && <StatusBadge status={session.status} projection={projection} />}
     </div>
   );
 });
 
 const StatusBadge = memo(function StatusBadge({
   status,
+  projection,
 }: {
   status: TransferSession["status"];
+  projection?: TransferProjection;
 }) {
   const labels: Record<TransferSession["status"], string> = {
     pending: t`等待中`,
@@ -175,17 +172,17 @@ const StatusBadge = memo(function StatusBadge({
         STATUS_CLASSNAMES[status],
       )}
     >
-      {labels[status]}
+      {projection ? projectionStatusLabel(projection) : labels[status]}
     </span>
   );
 });
 
 const TransferProgress = memo(function TransferProgress({
   session,
-  historyItem,
+  projection,
 }: {
   session: TransferSession;
-  historyItem?: TransferHistoryItem;
+  projection?: TransferProjection;
 }) {
   const progressPercent = session.progress
     ? calcPercent(
@@ -194,11 +191,11 @@ const TransferProgress = memo(function TransferProgress({
       )
     : 0;
 
-  // 来自历史记录的暂停会话
-  if (session.status === "paused" && historyItem) {
+  // 来自投影的可恢复 suspended 会话
+  if (session.status === "paused") {
     const pausedPercent = calcPercent(
-      historyItem.transferredBytes,
-      historyItem.totalSize,
+      session.transferredBytes ?? 0,
+      session.totalSize,
     );
     return (
       <div className="flex flex-col gap-2 md:gap-2.5">
@@ -207,14 +204,14 @@ const TransferProgress = memo(function TransferProgress({
             {pausedPercent}%
           </span>
           <span className="text-[11px] text-muted-foreground md:text-xs">
-            <Trans>已暂停</Trans>
+            {projection ? projectionStatusLabel(projection) : t`已暂停`}
           </span>
         </div>
         <Progress value={pausedPercent} className="h-1.5 md:h-2" />
         <div className="flex items-center justify-between text-[11px] text-muted-foreground md:text-xs">
           <span>
-            {formatFileSize(historyItem.transferredBytes)} /{" "}
-            {formatFileSize(historyItem.totalSize)}
+            {formatFileSize(session.transferredBytes ?? 0)} /{" "}
+            {formatFileSize(session.totalSize)}
           </span>
         </div>
       </div>
@@ -299,7 +296,7 @@ const TransferProgress = memo(function TransferProgress({
           <XCircle className="size-7 text-red-600 dark:text-red-400 md:size-8" />
         </div>
         <h3 className="text-base font-semibold text-foreground md:text-lg">
-          <Trans>传输失败</Trans>
+          {projection ? projectionStatusLabel(projection) : <Trans>传输失败</Trans>}
         </h3>
         {session.error && (
           <p className="max-w-xs text-center text-[11px] text-muted-foreground md:max-w-sm md:text-xs">
@@ -326,10 +323,10 @@ const TransferProgress = memo(function TransferProgress({
 
 const TransferActions = memo(function TransferActions({
   session,
-  historyItem,
+  projection,
 }: {
   session: TransferSession;
-  historyItem?: TransferHistoryItem;
+  projection?: TransferProjection;
 }) {
   const isSend = session.direction === "send";
   const isActive = isActiveStatus(session.status);
@@ -366,9 +363,9 @@ const TransferActions = memo(function TransferActions({
   }, [session]);
 
   const handleResume = useCallback(async () => {
-    if (!historyItem) return;
+    if (!projection) return;
     try {
-      const newSessionId = await doResumeTransfer(historyItem.sessionId);
+      const newSessionId = await doResumeTransfer(projection.sessionId);
       navigate({
         to: "/transfer/$sessionId",
         params: { sessionId: newSessionId },
@@ -376,9 +373,9 @@ const TransferActions = memo(function TransferActions({
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
-  }, [historyItem, navigate]);
+  }, [navigate, projection]);
 
-  if (isPaused && historyItem) {
+  if (isPaused && projection && canResumeProjection(projection)) {
     return (
       <Button onClick={handleResume} className="w-full">
         <Play className="mr-2 size-4" />
@@ -429,11 +426,11 @@ const TransferActions = memo(function TransferActions({
 
 const TransferDetailContent = memo(function TransferDetailContent({
   session,
-  historyItem,
+  projection,
   onBack,
 }: {
   session: TransferSession;
-  historyItem?: TransferHistoryItem;
+  projection?: TransferProjection;
   onBack: () => void;
 }) {
   const treeData = useMemo(() => {
@@ -459,9 +456,9 @@ const TransferDetailContent = memo(function TransferDetailContent({
       {/* 内容 */}
       <div className="flex-1 overflow-auto p-4 lg:p-5">
         <div className="mx-auto flex max-w-2xl flex-col gap-5">
-          <TransferStatusHeader session={session} />
+          <TransferStatusHeader session={session} projection={projection} />
 
-          <TransferProgress session={session} historyItem={historyItem} />
+          <TransferProgress session={session} projection={projection} />
 
           <div className="flex flex-col gap-2">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -478,7 +475,7 @@ const TransferDetailContent = memo(function TransferDetailContent({
           </div>
 
           <div className="flex justify-end">
-            <TransferActions session={session} historyItem={historyItem} />
+            <TransferActions session={session} projection={projection} />
           </div>
         </div>
       </div>

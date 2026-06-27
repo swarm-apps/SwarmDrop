@@ -8,7 +8,9 @@ import type {
   CoreSaveLocation,
   EnumeratedFile,
   PrepareProgressEvent,
-  SessionStatus,
+  SuspendedReason,
+  TerminalReason,
+  TransferPhase,
   TransferFileResult,
   TransferProgressEvent,
 } from "@/lib/bindings";
@@ -18,7 +20,6 @@ import type {
 export type SaveLocation = CoreSaveLocation;
 export type ScannedFile = EnumeratedFile;
 export type PrepareProgress = PrepareProgressEvent;
-export type HistorySessionStatus = SessionStatus;
 
 // ── 协议层 string ────────────────────────────────────────────────────
 
@@ -46,9 +47,16 @@ export interface TransferSession {
   files: TransferFileResult[];
   totalSize: number;
   status: TransferStatus;
+  phase?: TransferPhase;
+  suspendedReason?: SuspendedReason | null;
+  terminalReason?: TerminalReason | null;
+  recoverable?: boolean;
+  epoch?: number;
   progress: TransferProgressEvent | null;
+  transferredBytes?: number;
   error: string | null;
   startedAt: number;
+  updatedAt?: number;
   completedAt: number | null;
   saveLocation?: SaveLocation;
 }

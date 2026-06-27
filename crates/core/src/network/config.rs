@@ -3,11 +3,12 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use swarm_p2p_core::{
     InfrastructureMode, LanHelperConfig, NodeConfig,
-    libp2p::{Multiaddr, PeerId, multiaddr::Protocol},
+    libp2p::{Multiaddr, PeerId, StreamProtocol, multiaddr::Protocol},
 };
 
 use super::candidates::{BootstrapCandidateSource, CandidateRoles, CandidateScope};
 use super::{BootstrapCandidateManager, DiscoveryMode};
+use crate::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
 
 /// SwarmDrop 引导+中继节点
 ///
@@ -83,6 +84,7 @@ pub fn create_node_config(agent_version: String, config: &NetworkRuntimeConfig) 
         .with_dcutr(true)
         .with_autonat(true)
         .with_req_resp_timeout(Duration::from_secs(180))
+        .with_data_channel_protocols(vec![StreamProtocol::new(TRANSFER_DATA_PROTOCOL)])
         .with_bootstrap_peers(bootstrap_peers);
 
     if config.provide_lan_helper {

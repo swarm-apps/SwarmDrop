@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::host::{CoreEvent, EventBus};
 use crate::protocol::{
-    AppNetClient, AppResponse, FileChecksum, FileInfo, OfferRejectReason, TransferRequest,
+    AppNetClient, AppResponse, FileInfo, OfferRejectReason, ResumeRejectReason, TransferRequest,
     TransferResponse,
 };
 use crate::transfer::progress::{
@@ -76,7 +76,7 @@ pub trait IncomingTransferRuntime: Send + Sync {
         let _ = peer_id;
     }
 
-    fn cache_inbound_offer(
+    async fn cache_inbound_offer(
         &self,
         pending_id: u64,
         peer_id: PeerId,
@@ -84,40 +84,7 @@ pub trait IncomingTransferRuntime: Send + Sync {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
-    );
-
-    /// 接收方发起的断点续传：发送方一侧验证文件 + 重建 SendSession，回复 ResumeResult。
-    /// 默认拒绝（mobile-core 占位实现可继承），桌面端在 TransferManager 中具体实现。
-    async fn handle_resume_request(
-        &self,
-        peer_id: PeerId,
-        session_id: Uuid,
-        file_checksums: Vec<FileChecksum>,
-    ) -> AppResult<TransferResponse> {
-        let _ = (peer_id, file_checksums);
-        Ok(TransferResponse::ResumeResult {
-            session_id,
-            accepted: false,
-            reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
-            key: None,
-        })
-    }
-
-    /// 发送方发起的断点续传：接收方一侧验证文件 + 重建 ReceiveSession，回复 ResumeOfferResult。
-    async fn handle_resume_offer(
-        &self,
-        peer_id: PeerId,
-        session_id: Uuid,
-        key: [u8; 32],
-        file_checksums: Vec<FileChecksum>,
-    ) -> AppResult<TransferResponse> {
-        let _ = (peer_id, key, file_checksums);
-        Ok(TransferResponse::ResumeOfferResult {
-            session_id,
-            accepted: false,
-            reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
-        })
-    }
+    ) -> AppResult<()>;
 
     /// 恢复探测应答（默认报告 NotFound；桌面端在 TransferManager 具体实现）。
     async fn handle_resume_probe(
@@ -131,9 +98,11 @@ pub trait IncomingTransferRuntime: Send + Sync {
             report: crate::protocol::ResumeReport {
                 phase: crate::protocol::ResumePhaseReport::NotFound,
                 epoch: 0,
+                files: vec![],
                 checkpoint: vec![],
                 source_fingerprint: None,
                 terminal: false,
+                terminal_reason: None,
             },
         })
     }
@@ -141,16 +110,18 @@ pub trait IncomingTransferRuntime: Send + Sync {
     /// 恢复提交应答（默认拒绝；桌面端在 TransferManager 具体实现）。
     async fn handle_resume_commit(
         &self,
+        peer_id: PeerId,
         session_id: Uuid,
         new_epoch: i64,
         key: [u8; 32],
         fetch_plan: Vec<crate::protocol::FileRange>,
     ) -> AppResult<TransferResponse> {
-        let _ = (key, fetch_plan);
+        let _ = (peer_id, key, fetch_plan);
         Ok(TransferResponse::ResumeAck {
             session_id,
             new_epoch,
             accepted: false,
+            reason: Some(ResumeRejectReason::SessionNotFound),
         })
     }
 }
@@ -246,14 +217,16 @@ where
                 s[s.len().saturating_sub(8)..].to_string()
             });
 
-            runtime.cache_inbound_offer(
-                pending_id,
-                peer_id,
-                device_name.clone(),
-                session_id,
-                files.clone(),
-                total_size,
-            );
+            runtime
+                .cache_inbound_offer(
+                    pending_id,
+                    peer_id,
+                    device_name.clone(),
+                    session_id,
+                    files.clone(),
+                    total_size,
+                )
+                .await?;
 
             let offer = TransferOfferEvent {
                 session_id,
@@ -276,44 +249,6 @@ where
                 .await?;
             Ok(IncomingTransferDisposition::Handled)
         }
-        TransferRequest::ResumeRequest {
-            session_id,
-            file_checksums,
-        } => {
-            let response = runtime
-                .handle_resume_request(peer_id, session_id, file_checksums)
-                .await
-                .unwrap_or_else(|e| {
-                    warn!("ResumeRequest 处理失败: {}", e);
-                    TransferResponse::ResumeResult {
-                        session_id,
-                        accepted: false,
-                        reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
-                        key: None,
-                    }
-                });
-            send_transfer_response(client, pending_id, response).await?;
-            Ok(IncomingTransferDisposition::Handled)
-        }
-        TransferRequest::ResumeOffer {
-            session_id,
-            key,
-            file_checksums,
-        } => {
-            let response = runtime
-                .handle_resume_offer(peer_id, session_id, key, file_checksums)
-                .await
-                .unwrap_or_else(|e| {
-                    warn!("ResumeOffer 处理失败: {}", e);
-                    TransferResponse::ResumeOfferResult {
-                        session_id,
-                        accepted: false,
-                        reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
-                    }
-                });
-            send_transfer_response(client, pending_id, response).await?;
-            Ok(IncomingTransferDisposition::Handled)
-        }
         TransferRequest::ResumeProbe {
             session_id,
             local_epoch,
@@ -328,9 +263,11 @@ where
                         report: crate::protocol::ResumeReport {
                             phase: crate::protocol::ResumePhaseReport::NotFound,
                             epoch: 0,
+                            files: vec![],
                             checkpoint: vec![],
                             source_fingerprint: None,
                             terminal: false,
+                            terminal_reason: None,
                         },
                     }
                 });
@@ -344,7 +281,7 @@ where
             fetch_plan,
         } => {
             let response = runtime
-                .handle_resume_commit(session_id, new_epoch, key, fetch_plan)
+                .handle_resume_commit(peer_id, session_id, new_epoch, key, fetch_plan)
                 .await
                 .unwrap_or_else(|e| {
                     warn!("ResumeCommit 处理失败: {}", e);
@@ -352,6 +289,7 @@ where
                         session_id,
                         new_epoch,
                         accepted: false,
+                        reason: Some(ResumeRejectReason::SessionNotFound),
                     }
                 });
             send_transfer_response(client, pending_id, response).await?;

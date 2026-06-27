@@ -5,12 +5,15 @@
 //! 使用 Semaphore 控制并发度（8 并发），CancellationToken 支持取消。
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
+use futures::io::AsyncReadExt;
 use sea_orm::DatabaseConnection;
 use swarm_p2p_core::libp2p::PeerId;
-use tokio::sync::{Mutex, Semaphore, watch};
+use swarm_p2p_core::libp2p::Stream;
+use tokio::sync::{Mutex, Semaphore, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -19,10 +22,11 @@ use crate::host::{
     CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, HostFileMetadata,
 };
 use crate::protocol::{
-    AppNetClient, AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse,
+    AppNetClient, AppRequest, AppResponse, FileInfo, FileRange, TransferRequest, TransferResponse,
 };
 use crate::transfer::coordinator::TransferCoordinator;
 use crate::transfer::crypto::TransferCrypto;
+use crate::transfer::data_frame::{TransferDataFrame, manifest_digest, read_frame, write_frame};
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent,
 };
@@ -143,6 +147,406 @@ impl ReceiveSession {
                 break;
             }
         }
+    }
+
+    pub fn expected_manifest_digest(&self) -> [u8; 32] {
+        manifest_digest(&self.files)
+    }
+
+    pub fn validate_fetch_plan(&self, fetch_plan: &[FileRange]) -> AppResult<()> {
+        for range in fetch_plan {
+            let file = self
+                .files
+                .iter()
+                .find(|file| file.file_id == range.file_id)
+                .ok_or_else(|| {
+                    AppError::Transfer(format!("fetch_plan 引用未知文件: {}", range.file_id))
+                })?;
+            let end = range
+                .offset
+                .checked_add(range.length)
+                .ok_or_else(|| AppError::Transfer("fetch_plan range 溢出".into()))?;
+            if end > file.size {
+                return Err(AppError::Transfer(format!(
+                    "fetch_plan range 超出文件大小: file_id={}, end={}, size={}",
+                    range.file_id, end, file.size
+                )));
+            }
+            if file.size > 0 && range.length == 0 {
+                return Err(AppError::Transfer(format!(
+                    "非空文件的 fetch_plan range 长度为 0: file_id={}",
+                    range.file_id
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// 启动 data-channel 接收任务。
+    ///
+    /// Hello 已由 `TransferManager` 入站路由读取和校验；这里从 BlockData / Finish 开始读。
+    pub fn start_data_channel<F>(
+        self: Arc<Self>,
+        epoch: i64,
+        stream: Stream,
+        fetch_plan: Vec<FileRange>,
+        on_finish: F,
+    ) where
+        F: FnOnce(&Uuid) + Send + 'static,
+    {
+        tokio::spawn(async move {
+            let outcome = self.run_data_channel(epoch, stream, fetch_plan).await;
+            match &outcome {
+                Ok(true) => info!(
+                    "Data-channel receive completed: session={}",
+                    self.session_id
+                ),
+                Ok(false) => info!(
+                    "Data-channel receive cancelled: session={}",
+                    self.session_id
+                ),
+                Err(e) => {
+                    if self.cancel_token.is_cancelled() {
+                        info!(
+                            "Data-channel receive stopped after cancellation: session={}",
+                            self.session_id
+                        );
+                    } else {
+                        warn!(
+                            "Data-channel receive interrupted: session={}, error={}",
+                            self.session_id, e
+                        );
+                        let _ = self
+                            .coordinator
+                            .dispatch(
+                                self.session_id,
+                                crate::transfer::coordinator::CoordinatorInput::Network {
+                                    epoch,
+                                    signal:
+                                        crate::transfer::coordinator::NetworkSignal::Interrupted,
+                                },
+                            )
+                            .await;
+                    }
+                }
+            }
+
+            let _ = self.finished_tx.send(true);
+            on_finish(&self.session_id);
+        });
+    }
+
+    async fn run_data_channel(
+        self: &Arc<Self>,
+        epoch: i64,
+        stream: Stream,
+        fetch_plan: Vec<FileRange>,
+    ) -> AppResult<bool> {
+        self.validate_fetch_plan(&fetch_plan)?;
+        let is_resume = !self.initial_bitmaps.is_empty();
+
+        let mut tracker = ProgressTracker::new(
+            self.session_id,
+            RuntimeTransferDirection::Receive,
+            self.total_size,
+            self.files.len(),
+        );
+        let file_descs: Vec<FileDesc> = self
+            .files
+            .iter()
+            .map(|f| FileDesc {
+                file_id: f.file_id,
+                name: f.name.clone(),
+                size: f.size,
+            })
+            .collect();
+
+        let mut bitmaps: HashMap<u32, Vec<u8>> = HashMap::new();
+        let mut resume_state = HashMap::new();
+        for file in &self.files {
+            let total_chunks = calc_total_chunks(file.size);
+            let bitmap_len = (total_chunks as usize).div_ceil(8);
+            let bitmap = self
+                .initial_bitmaps
+                .get(&file.file_id)
+                .filter(|bm| bm.len() == bitmap_len)
+                .cloned()
+                .unwrap_or_else(|| vec![0u8; bitmap_len]);
+            let completed = count_completed_in_bitmap(&bitmap, total_chunks);
+            let bytes = bytes_from_bitmap(&bitmap, file.size, total_chunks);
+            if completed > 0 || bytes > 0 {
+                resume_state.insert(file.file_id, (completed, bytes));
+            }
+            bitmaps.insert(file.file_id, bitmap);
+        }
+        tracker.init_files_with_resume(&file_descs, &resume_state);
+
+        let progress = Arc::new(Mutex::new(tracker));
+        let mut sinks: HashMap<u32, FileSinkId> = HashMap::new();
+        let mut started_files = HashSet::new();
+        let (mut reader, mut writer) = stream.split();
+        let (frame_tx, mut frame_rx) = mpsc::channel::<TransferDataFrame>(16);
+
+        let writer_task = async {
+            while let Some(frame) = frame_rx.recv().await {
+                let is_terminal = matches!(
+                    frame,
+                    TransferDataFrame::Abort { .. } | TransferDataFrame::Finish { .. }
+                );
+                write_frame(&mut writer, &frame).await?;
+                if is_terminal {
+                    break;
+                }
+            }
+            Ok::<(), AppError>(())
+        };
+
+        let reader_task = async {
+            loop {
+                if self.cancel_token.is_cancelled() {
+                    return Ok(false);
+                }
+
+                match read_frame(&mut reader).await? {
+                    Some(TransferDataFrame::BlockData {
+                        session_id,
+                        epoch: frame_epoch,
+                        range,
+                        ciphertext,
+                    }) if session_id == self.session_id && frame_epoch == epoch => {
+                        self.handle_block_data(
+                            &frame_tx,
+                            &progress,
+                            &mut sinks,
+                            &mut started_files,
+                            &mut bitmaps,
+                            is_resume,
+                            epoch,
+                            range,
+                            ciphertext,
+                        )
+                        .await?;
+                    }
+                    Some(TransferDataFrame::Finish {
+                        session_id,
+                        epoch: frame_epoch,
+                    }) if session_id == self.session_id && frame_epoch == epoch => {
+                        ensure_files_complete(&self.files, &bitmaps)?;
+                        self.finish_data_channel(&progress, sinks, bitmaps).await?;
+                        frame_tx
+                            .send(TransferDataFrame::Finish {
+                                session_id: self.session_id,
+                                epoch,
+                            })
+                            .await
+                            .map_err(|_| AppError::Transfer("data-channel writer 已关闭".into()))?;
+                        return Ok(true);
+                    }
+                    Some(TransferDataFrame::Abort { reason, .. }) => {
+                        return Err(AppError::Transfer(format!("对端中止传输: {reason}")));
+                    }
+                    Some(other) => {
+                        return Err(AppError::Transfer(format!(
+                            "接收方收到意外 data frame: {other:?}"
+                        )));
+                    }
+                    None => return Err(AppError::Transfer("data channel 在完成前关闭".into())),
+                }
+            }
+        };
+
+        let (received, _) = tokio::try_join!(reader_task, writer_task)?;
+        Ok(received)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "单个 BlockData 处理需要传入运行时上下文"
+    )]
+    async fn handle_block_data(
+        &self,
+        frame_tx: &mpsc::Sender<TransferDataFrame>,
+        progress: &Arc<Mutex<ProgressTracker>>,
+        sinks: &mut HashMap<u32, FileSinkId>,
+        started_files: &mut HashSet<u32>,
+        bitmaps: &mut HashMap<u32, Vec<u8>>,
+        is_resume: bool,
+        epoch: i64,
+        range: FileRange,
+        ciphertext: Vec<u8>,
+    ) -> AppResult<()> {
+        let file_info = self
+            .files
+            .iter()
+            .find(|file| file.file_id == range.file_id)
+            .cloned()
+            .ok_or_else(|| AppError::Transfer(format!("文件不存在: {}", range.file_id)))?;
+        validate_block_range(&file_info, &range)?;
+
+        let chunk_index = (range.offset / CHUNK_SIZE as u64) as u32;
+        let plaintext = self
+            .crypto
+            .decrypt_chunk(&self.session_id, range.file_id, chunk_index, &ciphertext)
+            .map_err(|e| AppError::Transfer(format!("解密失败: {e}")))?;
+        if plaintext.len() as u64 != range.length {
+            return Err(AppError::Transfer(format!(
+                "BlockData 明文长度不匹配: expected={}, actual={}",
+                range.length,
+                plaintext.len()
+            )));
+        }
+
+        let sink_id = match sinks.get(&range.file_id).cloned() {
+            Some(sink_id) => sink_id,
+            None => {
+                let metadata = HostFileMetadata {
+                    name: file_info.name.clone(),
+                    relative_path: file_info.relative_path.clone(),
+                    size: file_info.size,
+                    modified_at: None,
+                    checksum: Some(file_info.checksum.clone()),
+                    save_dir: Some(self.save_location.clone()),
+                };
+                let sink_id = if is_resume {
+                    self.file_access.open_or_create_sink(metadata).await
+                } else {
+                    self.file_access.create_sink(metadata).await
+                }?;
+                self.created_sinks.lock().await.push(sink_id.clone());
+                sinks.insert(range.file_id, sink_id.clone());
+                sink_id
+            }
+        };
+
+        if started_files.insert(range.file_id) {
+            let progress_event = {
+                let mut p = progress.lock().await;
+                p.set_file_transferring(range.file_id);
+                p.progress_event()
+            };
+            if let Some(event) = progress_event {
+                let _ = self
+                    .event_bus
+                    .publish(CoreEvent::TransferProgress { event })
+                    .await;
+            }
+        }
+
+        self.file_access
+            .write_sink_chunk(&sink_id, range.offset, plaintext)
+            .await?;
+
+        let transferred = {
+            let bitmap = bitmaps
+                .get_mut(&range.file_id)
+                .ok_or_else(|| AppError::Transfer("checkpoint bitmap 不存在".into()))?;
+            mark_chunk_completed(bitmap, chunk_index);
+            bytes_from_bitmap(bitmap, file_info.size, calc_total_chunks(file_info.size))
+        };
+        let checkpoint_bitmap = bitmaps
+            .get(&range.file_id)
+            .cloned()
+            .ok_or_else(|| AppError::Transfer("checkpoint bitmap 不存在".into()))?;
+        let completed_ranges = ranges_from_bitmap(
+            &checkpoint_bitmap,
+            file_info.size,
+            calc_total_chunks(file_info.size),
+        );
+        crate::database::ops::update_file_checkpoint_ranges(
+            &self.db,
+            self.session_id,
+            range.file_id as i32,
+            checkpoint_bitmap,
+            &completed_ranges,
+            transferred as i64,
+        )
+        .await?;
+
+        let progress_event = {
+            let mut p = progress.lock().await;
+            p.add_bytes(range.length);
+            p.update_file_chunk(range.file_id, range.length);
+            p.progress_event()
+        };
+        if let Some(event) = progress_event {
+            let _ = self
+                .event_bus
+                .publish(CoreEvent::TransferProgress { event })
+                .await;
+        }
+
+        frame_tx
+            .send(TransferDataFrame::Ack {
+                session_id: self.session_id,
+                epoch,
+                file_id: range.file_id,
+                checkpoint_offset: range.offset + range.length,
+            })
+            .await
+            .map_err(|_| AppError::Transfer("data-channel writer 已关闭".into()))?;
+
+        Ok(())
+    }
+
+    async fn finish_data_channel(
+        &self,
+        progress: &Arc<Mutex<ProgressTracker>>,
+        mut sinks: HashMap<u32, FileSinkId>,
+        mut bitmaps: HashMap<u32, Vec<u8>>,
+    ) -> AppResult<()> {
+        for file_info in &self.files {
+            let sink_id = match sinks.get(&file_info.file_id).cloned() {
+                Some(sink_id) => Some(sink_id),
+                None if file_info.size == 0 => {
+                    let metadata = HostFileMetadata {
+                        name: file_info.name.clone(),
+                        relative_path: file_info.relative_path.clone(),
+                        size: file_info.size,
+                        modified_at: None,
+                        checksum: Some(file_info.checksum.clone()),
+                        save_dir: Some(self.save_location.clone()),
+                    };
+                    let sink_id = self.file_access.create_sink(metadata).await?;
+                    self.created_sinks.lock().await.push(sink_id.clone());
+                    sinks.insert(file_info.file_id, sink_id.clone());
+                    Some(sink_id)
+                }
+                None => None,
+            };
+
+            if let Some(sink_id) = sink_id {
+                self.file_access.finalize_sink(&sink_id).await?;
+                self.remove_created_sink(&sink_id).await;
+            }
+
+            let bitmap = bitmaps
+                .remove(&file_info.file_id)
+                .ok_or_else(|| AppError::Transfer("完成 bitmap 不存在".into()))?;
+            crate::database::ops::mark_file_completed(
+                &self.db,
+                self.session_id,
+                file_info.file_id as i32,
+                bitmap,
+                file_info.size as i64,
+            )
+            .await?;
+        }
+
+        crate::database::ops::mark_session_completed(&self.db, self.session_id).await?;
+        let _ = self.coordinator.publish_projection(self.session_id).await;
+
+        let complete_event = progress
+            .lock()
+            .await
+            .complete_event(Some(self.save_location.clone()));
+        let _ = self
+            .event_bus
+            .publish(CoreEvent::TransferCompleted {
+                event: complete_event,
+            })
+            .await;
+
+        Ok(())
     }
 
     /// 主传输逻辑，返回 true 表示正常完成，false 表示被取消
@@ -698,6 +1102,74 @@ impl ReceiveSession {
 
 // ============ Bitmap 辅助函数 ============
 
+fn ensure_files_complete(files: &[FileInfo], bitmaps: &HashMap<u32, Vec<u8>>) -> AppResult<()> {
+    if let Some(range) = first_missing_range(files, bitmaps) {
+        return Err(AppError::Transfer(format!(
+            "Finish 前仍有未完成数据: file_id={}, offset={}, length={}",
+            range.file_id, range.offset, range.length
+        )));
+    }
+    Ok(())
+}
+
+fn first_missing_range(files: &[FileInfo], bitmaps: &HashMap<u32, Vec<u8>>) -> Option<FileRange> {
+    for file in files {
+        if file.size == 0 {
+            continue;
+        }
+
+        let total_chunks = calc_total_chunks(file.size);
+        let bitmap = bitmaps.get(&file.file_id);
+        for chunk_index in 0..total_chunks {
+            if bitmap
+                .map(|bm| !is_chunk_completed(bm, chunk_index))
+                .unwrap_or(true)
+            {
+                return Some(chunk_range(file, chunk_index));
+            }
+        }
+    }
+    None
+}
+
+fn chunk_range(file: &FileInfo, chunk_index: u32) -> FileRange {
+    let offset = chunk_index as u64 * CHUNK_SIZE as u64;
+    FileRange {
+        file_id: file.file_id,
+        offset,
+        length: (file.size - offset).min(CHUNK_SIZE as u64),
+    }
+}
+
+fn validate_block_range(file: &FileInfo, range: &FileRange) -> AppResult<()> {
+    let end = range
+        .offset
+        .checked_add(range.length)
+        .ok_or_else(|| AppError::Transfer("BlockData range 溢出".into()))?;
+    if end > file.size {
+        return Err(AppError::Transfer(format!(
+            "BlockData range 超出文件大小: file_id={}, end={}, size={}",
+            range.file_id, end, file.size
+        )));
+    }
+    if range.length > CHUNK_SIZE as u64 {
+        return Err(AppError::Transfer(format!(
+            "BlockData range 超出 chunk 大小: {} > {}",
+            range.length, CHUNK_SIZE
+        )));
+    }
+    if file.size > 0 && !range.offset.is_multiple_of(CHUNK_SIZE as u64) {
+        return Err(AppError::Transfer(format!(
+            "BlockData offset 未按 chunk 对齐: {}",
+            range.offset
+        )));
+    }
+    if file.size > 0 && range.length == 0 {
+        return Err(AppError::Transfer("非空文件收到空 BlockData".into()));
+    }
+    Ok(())
+}
+
 /// 检查指定 chunk 是否已完成
 fn is_chunk_completed(bitmap: &[u8], chunk_index: u32) -> bool {
     let byte_idx = (chunk_index / 8) as usize;
@@ -758,6 +1230,35 @@ fn bytes_from_bitmap(bitmap: &[u8], file_size: u64, total_chunks: u32) -> u64 {
     full_chunk_count as u64 * chunk_size + if last_chunk_done { last_chunk_size } else { 0 }
 }
 
+fn ranges_from_bitmap(bitmap: &[u8], file_size: u64, total_chunks: u32) -> Vec<(u64, u64)> {
+    let mut ranges = Vec::new();
+    let mut current: Option<(u64, u64)> = None;
+
+    for chunk_index in 0..total_chunks {
+        if !is_chunk_completed(bitmap, chunk_index) {
+            if let Some(range) = current.take() {
+                ranges.push(range);
+            }
+            continue;
+        }
+
+        let offset = chunk_index as u64 * CHUNK_SIZE as u64;
+        let length = (file_size.saturating_sub(offset)).min(CHUNK_SIZE as u64);
+        if length == 0 {
+            continue;
+        }
+        match current.as_mut() {
+            Some((_, len)) => *len += length,
+            None => current = Some((offset, length)),
+        }
+    }
+
+    if let Some(range) = current {
+        ranges.push(range);
+    }
+    ranges
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -784,5 +1285,70 @@ mod tests {
             bytes_from_bitmap(&bitmap, file_size, total_chunks),
             CHUNK_SIZE as u64 + 7
         );
+    }
+
+    #[test]
+    fn ranges_from_bitmap_merges_contiguous_chunks() {
+        let file_size = CHUNK_SIZE as u64 * 3 + 9;
+        let total_chunks = calc_total_chunks(file_size);
+        let mut bitmap = vec![0u8; (total_chunks as usize).div_ceil(8)];
+        mark_chunk_completed(&mut bitmap, 0);
+        mark_chunk_completed(&mut bitmap, 1);
+        mark_chunk_completed(&mut bitmap, 3);
+
+        assert_eq!(
+            ranges_from_bitmap(&bitmap, file_size, total_chunks),
+            vec![(0, CHUNK_SIZE as u64 * 2), (CHUNK_SIZE as u64 * 3, 9)]
+        );
+    }
+
+    #[test]
+    fn ensure_files_complete_rejects_missing_nonzero_chunk() {
+        let file = FileInfo {
+            file_id: 7,
+            name: "demo.bin".into(),
+            relative_path: "demo.bin".into(),
+            size: CHUNK_SIZE as u64 + 1,
+            checksum: "hash".into(),
+        };
+        let mut bitmaps = HashMap::new();
+        let mut bitmap = vec![0u8; (calc_total_chunks(file.size) as usize).div_ceil(8)];
+        mark_chunk_completed(&mut bitmap, 0);
+        bitmaps.insert(file.file_id, bitmap);
+
+        let err = ensure_files_complete(&[file], &bitmaps).unwrap_err();
+
+        assert!(
+            err.to_string().contains("Finish 前仍有未完成数据"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn ensure_files_complete_accepts_complete_bitmap() {
+        let file = FileInfo {
+            file_id: 8,
+            name: "complete.bin".into(),
+            relative_path: "complete.bin".into(),
+            size: CHUNK_SIZE as u64 + 1,
+            checksum: "hash".into(),
+        };
+        let mut bitmaps = HashMap::new();
+        bitmaps.insert(file.file_id, completed_bitmap(calc_total_chunks(file.size)));
+
+        assert!(ensure_files_complete(&[file], &bitmaps).is_ok());
+    }
+
+    #[test]
+    fn ensure_files_complete_treats_zero_size_file_as_complete() {
+        let file = FileInfo {
+            file_id: 9,
+            name: "empty.txt".into(),
+            relative_path: "empty.txt".into(),
+            size: 0,
+            checksum: "hash".into(),
+        };
+
+        assert!(ensure_files_complete(&[file], &HashMap::new()).is_ok());
     }
 }

@@ -9,10 +9,15 @@ import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { getErrorMessage } from "@/lib/errors";
 import { useTransferStore } from "@/stores/transfer-store";
-import { commands, type TransferHistoryItem } from "@/lib/bindings";
+import { commands } from "@/lib/bindings";
+import {
+  projectionStatusLabel,
+  projectionToSession,
+} from "@/lib/transfer-projection";
 import type { TransferStatus, TransferSession } from "@/lib/types";
 
 export type { TransferStatus };
+export { projectionStatusLabel, projectionToSession };
 
 /* ─── 方向图标 ─── */
 
@@ -103,46 +108,20 @@ export const STATUS_CLASSNAMES: Record<TransferSession["status"], string> = {
     "bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400",
 };
 
-/* ─── 数据转换 ─── */
-
-/** 将 DB 历史记录映射为 TransferSession 形状 */
-export function historyToSession(item: TransferHistoryItem): TransferSession {
-  return {
-    sessionId: item.sessionId,
-    direction: item.direction,
-    peerId: item.peerId,
-    deviceName: item.peerName,
-    files: item.files.map((f) => ({
-      fileId: f.fileId,
-      name: f.name,
-      relativePath: f.relativePath,
-      size: f.size,
-      isDirectory: false,
-    })),
-    totalSize: item.totalSize,
-    status: item.status as TransferSession["status"],
-    progress: null,
-    error: item.errorMessage,
-    startedAt: item.startedAt,
-    completedAt: item.finishedAt,
-    saveLocation: item.savePath ?? undefined,
-  };
-}
-
 /* ─── 传输操作（核心逻辑） ─── */
 
-/** 暂停传输：调用后端 + 从活跃列表移除 */
+/** 暂停传输：状态由后端 projection 事件/刷新接管 */
 export async function doPauseTransfer(sessionId: string) {
   try {
     await commands.pauseTransfer(sessionId);
-    useTransferStore.getState().cancelSession(sessionId);
+    await useTransferStore.getState().loadProjections();
   } catch (err) {
     toast.error(getErrorMessage(err));
     throw err;
   }
 }
 
-/** 取消传输：从活跃列表移除 + 调用后端 */
+/** 取消传输：状态由后端 projection 事件/刷新接管 */
 export async function doCancelTransfer(
   sessionId: string,
   direction: "send" | "receive",
@@ -153,7 +132,7 @@ export async function doCancelTransfer(
     } else {
       await commands.cancelReceive(sessionId);
     }
-    useTransferStore.getState().cancelSession(sessionId);
+    await useTransferStore.getState().loadProjections();
     toast.success(t`已取消传输`);
   } catch (err) {
     toast.error(getErrorMessage(err));
@@ -161,7 +140,7 @@ export async function doCancelTransfer(
   }
 }
 
-/** 恢复传输：调用后端 + 添加活跃会话 + 刷新历史，返回新 sessionId */
+/** 恢复传输：调用后端，状态由后端 projection 事件/刷新接管 */
 export async function doResumeTransfer(sessionId: string): Promise<string> {
   const result = await commands.resumeTransfer(sessionId);
   if (result.direction !== "send" && result.direction !== "receive") {
@@ -169,19 +148,6 @@ export async function doResumeTransfer(sessionId: string): Promise<string> {
       `resume_transfer returned invalid direction "${result.direction}" for ${sessionId}`,
     );
   }
-  useTransferStore.getState().addSession({
-    sessionId: result.sessionId,
-    direction: result.direction,
-    peerId: result.peerId,
-    deviceName: result.peerName,
-    files: result.files,
-    totalSize: result.totalSize,
-    status: "transferring",
-    progress: null,
-    error: null,
-    startedAt: Date.now(),
-    completedAt: null,
-  });
-  await useTransferStore.getState().loadHistory();
+  await useTransferStore.getState().loadProjections();
   return result.sessionId;
 }

@@ -15,28 +15,43 @@ use crate::AppResult;
 use crate::host::CoreSaveLocation;
 use crate::protocol::FileInfo;
 use crate::transfer::calc_total_chunks;
+use crate::transfer::coordinator::TransferState;
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// 创建传输会话 + 关联的文件记录
-///
-/// `source_paths`：发送方传入每个文件的绝对路径（与 `files` 一一对应），
-/// 接收方传 `None`。用于断点续传时重建 `FileSource`。
-#[expect(clippy::too_many_arguments, reason = "DB 写入需要完整上下文")]
+/// 新建传输会话所需的完整事实。
+pub struct CreateSessionInput<'a> {
+    pub session_id: Uuid,
+    pub direction: TransferDirection,
+    pub peer_id: &'a str,
+    pub peer_name: &'a str,
+    pub files: &'a [FileInfo],
+    pub total_size: u64,
+    pub save_path: Option<CoreSaveLocation>,
+    /// 发送方传入每个文件的绝对路径（与 `files` 一一对应），接收方传 `None`。
+    pub source_paths: Option<&'a [String]>,
+    pub lifecycle: TransferState,
+}
+
+/// 创建传输会话 + 关联的文件记录。
 pub async fn create_session(
     db: &DatabaseConnection,
-    session_id: Uuid,
-    direction: TransferDirection,
-    peer_id: &str,
-    peer_name: &str,
-    files: &[FileInfo],
-    total_size: u64,
-    save_path: Option<CoreSaveLocation>,
-    source_paths: Option<&[String]>,
+    input: CreateSessionInput<'_>,
 ) -> AppResult<()> {
     let now = now_ms();
+    let CreateSessionInput {
+        session_id,
+        direction,
+        peer_id,
+        peer_name,
+        files,
+        total_size,
+        save_path,
+        source_paths,
+        lifecycle,
+    } = input;
 
     let mut session = entity::transfer_session::ActiveModel::builder()
         .set_session_id(session_id)
@@ -45,10 +60,16 @@ pub async fn create_session(
         .set_peer_name(peer_name.to_string())
         .set_total_size(total_size as i64)
         .set_transferred_bytes(0)
-        .set_status(SessionStatus::Transferring)
-        .set_phase(TransferPhase::Active)
-        .set_epoch(0)
-        .set_recoverable(true)
+        .set_status(
+            lifecycle
+                .phase
+                .legacy_status(lifecycle.terminal_reason.as_ref()),
+        )
+        .set_phase(lifecycle.phase.clone())
+        .set_suspended_reason(lifecycle.suspended_reason.clone())
+        .set_terminal_reason(lifecycle.terminal_reason.clone())
+        .set_epoch(lifecycle.epoch)
+        .set_recoverable(lifecycle.recoverable)
         .set_started_at(now)
         .set_updated_at(now)
         .set_save_path(save_path.map(Into::into));
@@ -76,12 +97,33 @@ pub async fn create_session(
                 .set_transferred_bytes(0)
                 .set_total_chunks(total_chunks)
                 .set_completed_chunks(completed_chunks)
+                .set_completed_ranges("[]".to_string())
                 .set_source_path(source_path),
         );
     }
 
     session.insert(db).await?;
 
+    Ok(())
+}
+
+/// 接收方用户选择保存位置后，把 offered session 补齐为可启动接收的事实。
+pub async fn update_session_save_path(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    save_path: CoreSaveLocation,
+) -> AppResult<()> {
+    let Some(session) = entity::TransferSession::find_by_id(session_id)
+        .one(db)
+        .await?
+    else {
+        return Err(crate::AppError::Transfer("会话不存在".into()));
+    };
+
+    let mut model = session.into_active_model();
+    model.save_path = Set(Some(save_path.into()));
+    model.updated_at = Set(now_ms());
+    model.update(db).await?;
     Ok(())
 }
 
@@ -95,6 +137,24 @@ pub async fn update_file_checkpoint(
 ) -> AppResult<()> {
     update_file(db, session_id, file_id, |model| {
         model.completed_chunks = Set(completed_chunks);
+        model.transferred_bytes = Set(transferred_bytes);
+        model.completed_ranges = Set(ranges_json(&prefix_range(transferred_bytes)));
+    })
+    .await
+}
+
+/// 更新文件 range checkpoint 和已传输字节数（新 data-channel 数据面使用）。
+pub async fn update_file_checkpoint_ranges(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    file_id: i32,
+    completed_chunks: Vec<u8>,
+    completed_ranges: &[(u64, u64)],
+    transferred_bytes: i64,
+) -> AppResult<()> {
+    update_file(db, session_id, file_id, |model| {
+        model.completed_chunks = Set(completed_chunks);
+        model.completed_ranges = Set(ranges_json(completed_ranges));
         model.transferred_bytes = Set(transferred_bytes);
     })
     .await
@@ -112,6 +172,7 @@ pub async fn mark_file_completed(
         model.status = Set(FileStatus::Completed);
         model.completed_chunks = Set(completed_chunks);
         model.transferred_bytes = Set(transferred_bytes);
+        model.completed_ranges = Set(ranges_json(&prefix_range(transferred_bytes)));
     })
     .await
 }
@@ -127,9 +188,26 @@ pub async fn reset_file_checkpoint(
 ) -> AppResult<()> {
     update_file(db, session_id, file_id, |model| {
         model.completed_chunks = Set(vec![]);
+        model.completed_ranges = Set("[]".to_string());
         model.transferred_bytes = Set(0);
     })
     .await
+}
+
+pub fn parse_completed_ranges(value: &str) -> Vec<(u64, u64)> {
+    serde_json::from_str(value).unwrap_or_default()
+}
+
+fn ranges_json(ranges: &[(u64, u64)]) -> String {
+    serde_json::to_string(ranges).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn prefix_range(transferred_bytes: i64) -> Vec<(u64, u64)> {
+    if transferred_bytes > 0 {
+        vec![(0, transferred_bytes as u64)]
+    } else {
+        Vec::new()
+    }
 }
 
 /// 更新发送方文件的已传输字节数（不修改 bitmap，发送方不使用 bitmap）
@@ -360,71 +438,6 @@ where
 
 // ============ 查询 API ============
 
-/// 传输历史记录（session + files）
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct TransferHistoryItem {
-    pub session_id: Uuid,
-    pub direction: TransferDirection,
-    pub peer_id: String,
-    pub peer_name: String,
-    pub total_size: i64,
-    pub transferred_bytes: i64,
-    pub status: SessionStatus,
-    pub started_at: i64,
-    pub updated_at: i64,
-    pub finished_at: Option<i64>,
-    pub error_message: Option<String>,
-    pub save_path: Option<CoreSaveLocation>,
-    pub files: Vec<TransferHistoryFile>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct TransferHistoryFile {
-    pub file_id: i32,
-    pub name: String,
-    pub relative_path: String,
-    pub size: i64,
-    pub status: FileStatus,
-    pub transferred_bytes: i64,
-}
-
-impl From<entity::transfer_file::ModelEx> for TransferHistoryFile {
-    fn from(f: entity::transfer_file::ModelEx) -> Self {
-        Self {
-            file_id: f.file_id,
-            name: f.name,
-            relative_path: f.relative_path,
-            size: f.size,
-            status: f.status,
-            transferred_bytes: f.transferred_bytes,
-        }
-    }
-}
-
-impl From<entity::transfer_session::ModelEx> for TransferHistoryItem {
-    fn from(session: entity::transfer_session::ModelEx) -> Self {
-        Self {
-            session_id: session.session_id,
-            direction: session.direction,
-            peer_id: session.peer_id.0,
-            peer_name: session.peer_name,
-            total_size: session.total_size,
-            transferred_bytes: session.transferred_bytes,
-            status: session.status,
-            started_at: session.started_at,
-            updated_at: session.updated_at,
-            finished_at: session.finished_at,
-            error_message: session.error_message,
-            save_path: session.save_path.map(Into::into),
-            files: session.files.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
 // ============ 生命周期投影（redesign-transfer-lifecycle）============
 
 /// 传输投影 DTO —— 前端唯一状态源（逐步替代旧的分散事件 + 扁平 `SessionStatus`）。
@@ -502,7 +515,7 @@ impl From<entity::transfer_session::ModelEx> for TransferProjection {
 pub async fn get_transfer_projections(
     db: &DatabaseConnection,
 ) -> AppResult<Vec<TransferProjection>> {
-    let sessions = load_sessions_with_files(db, None).await?;
+    let sessions = load_sessions_with_files(db).await?;
     Ok(sessions.into_iter().map(Into::into).collect())
 }
 
@@ -590,43 +603,14 @@ async fn active_session_ids(
         .collect())
 }
 
-/// 加载 session + files，按开始时间倒序（可选按旧 status 过滤）。
-/// `get_transfer_history` 与 `get_transfer_projections` 共用同一查询体。
+/// 加载 session + files，按开始时间倒序。
 async fn load_sessions_with_files(
     db: &DatabaseConnection,
-    status_filter: Option<SessionStatus>,
 ) -> AppResult<Vec<entity::transfer_session::ModelEx>> {
-    let mut query = entity::TransferSession::load()
+    let query = entity::TransferSession::load()
         .with(entity::TransferFile)
         .order_by_desc(entity::transfer_session::Column::StartedAt);
-    if let Some(status) = status_filter {
-        query = query.filter(entity::transfer_session::Column::Status.eq(status));
-    }
     Ok(query.all(db).await?)
-}
-
-/// 查询传输历史列表（可选按状态过滤）
-pub async fn get_transfer_history(
-    db: &DatabaseConnection,
-    status_filter: Option<SessionStatus>,
-) -> AppResult<Vec<TransferHistoryItem>> {
-    let sessions = load_sessions_with_files(db, status_filter).await?;
-    Ok(sessions.into_iter().map(Into::into).collect())
-}
-
-/// 查询单个传输会话详情
-pub async fn get_session_detail(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-) -> AppResult<TransferHistoryItem> {
-    let session = entity::TransferSession::load()
-        .filter_by_id(session_id)
-        .with(entity::TransferFile)
-        .one(db)
-        .await?
-        .ok_or_else(|| crate::AppError::Transfer("会话不存在".into()))?;
-
-    Ok(session.into())
 }
 
 /// 删除单个传输会话及关联文件（级联删除）

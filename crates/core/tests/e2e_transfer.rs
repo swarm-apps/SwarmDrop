@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use swarm_p2p_core::NodeConfig;
 use swarm_p2p_core::libp2p::identity::Keypair;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId, StreamProtocol};
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 
@@ -32,7 +32,8 @@ use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_man
 use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
 use swarmdrop_core::transfer::HostEnumeratedFile;
-use swarmdrop_core::transfer::coordinator::{NetworkSignal, TransferCoordinator};
+use swarmdrop_core::transfer::coordinator::{NetworkSignal, TransferCoordinator, TransferState};
+use swarmdrop_core::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 
@@ -71,6 +72,7 @@ fn test_config() -> NodeConfig {
         .with_relay_client(false)
         .with_dcutr(false)
         .with_autonat(false)
+        .with_data_channel_protocols(vec![StreamProtocol::new(TRANSFER_DATA_PROTOCOL)])
         .with_listen_addrs(vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()])
 }
 
@@ -112,7 +114,7 @@ async fn spawn_node(
 ) -> TestNode {
     let peer_id = PeerId::from_public_key(&keypair.public());
 
-    let (client, receiver, _dc) =
+    let (client, receiver, dc_receiver) =
         swarm_p2p_core::start::<AppRequest, AppResponse>(keypair, test_config())
             .expect("start node");
 
@@ -121,7 +123,13 @@ async fn spawn_node(
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
 
-    let transfer = TransferManager::new(client.clone(), event_bus.clone(), db.clone(), file_access);
+    let transfer = TransferManager::new(
+        client.clone(),
+        event_bus.clone(),
+        db.clone(),
+        file_access,
+        dc_receiver,
+    );
     let network_config = NetworkRuntimeConfig::default();
     let candidate_manager = create_candidate_manager(&network_config);
     let manager = NetManager::new(
@@ -235,19 +243,54 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id:
     }];
     ops::create_session(
         db,
-        session_id,
-        TransferDirection::Receive,
-        peer_id,
-        "peer-name",
-        &files,
-        1024,
-        Some(CoreSaveLocation::Path {
-            path: "/recv".to_string(),
-        }),
-        None,
+        ops::CreateSessionInput {
+            session_id,
+            direction: TransferDirection::Receive,
+            peer_id,
+            peer_name: "peer-name",
+            files: &files,
+            total_size: 1024,
+            save_path: Some(CoreSaveLocation::Path {
+                path: "/recv".to_string(),
+            }),
+            source_paths: None,
+            lifecycle: TransferState::active(0),
+        },
     )
     .await
     .expect("create_session");
+}
+
+async fn seed_suspended_session(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    direction: TransferDirection,
+    peer_id: &str,
+    peer_name: &str,
+    files: &[FileInfo],
+    total_size: u64,
+    save_path: Option<CoreSaveLocation>,
+    source_paths: Option<&[String]>,
+) {
+    ops::create_session(
+        db,
+        ops::CreateSessionInput {
+            session_id,
+            direction,
+            peer_id,
+            peer_name,
+            files,
+            total_size,
+            save_path,
+            source_paths,
+            lifecycle: TransferState::active(0),
+        },
+    )
+    .await
+    .expect("create resume session");
+    ops::mark_session_paused(db, session_id)
+        .await
+        .expect("seed suspended session");
 }
 
 /// 节点的 host 是否收到过某个 offer 的 TransferOfferReceived 事件。
@@ -327,6 +370,7 @@ async fn e2e_single_file_transfer() {
     let StartSendResult { session_id } = node_a
         .transfer
         .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
+        .await
         .expect("send_offer");
 
     // B: 等 Offer 到达，accept 并开始拉取。
@@ -540,10 +584,107 @@ async fn e2e_peer_disconnect_interrupts_active() {
     assert_eq!(o.phase, TransferPhase::Active, "其它 peer 的会话不应被中断");
 }
 
+/// 轮 5 task 4.6：接收方点击恢复走新探测式协议。
+///
+/// 两端预置同一个 suspended session：A 是发送方、B 是接收方。B 调用 `initiate_resume`
+/// 后必须先 ResumeProbe 获取 A 的 manifest/epoch，再 ResumeCommit 让 A 重建 SendSession，
+/// 最后 B 重建 ReceiveSession 拉块并完成。这个测试覆盖旧 `ResumeRequest/ResumeOffer`
+/// 被移除后的核心用户路径。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_receiver_initiated_resume_probe_commit_completes() {
+    let data = b"resume through probe commit".to_vec();
+    let checksum = blake3::hash(&data).to_hex().to_string();
+    let source_id = FileSourceId("resume-src".to_string());
+    let meta = HostFileMetadata {
+        name: "resume.txt".to_string(),
+        relative_path: "resume.txt".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+
+    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    let session_id = Uuid::new_v4();
+    let files = vec![FileInfo {
+        file_id: 0,
+        name: "resume.txt".to_string(),
+        relative_path: "resume.txt".to_string(),
+        size: data.len() as u64,
+        checksum,
+    }];
+    let source_paths = vec![source_id.0.clone()];
+
+    seed_suspended_session(
+        node_a.db.as_ref(),
+        session_id,
+        TransferDirection::Send,
+        &node_b.peer_id.to_string(),
+        "node-b",
+        &files,
+        data.len() as u64,
+        None,
+        Some(&source_paths),
+    )
+    .await;
+    seed_suspended_session(
+        node_b.db.as_ref(),
+        session_id,
+        TransferDirection::Receive,
+        &node_a.peer_id.to_string(),
+        "node-a",
+        &files,
+        data.len() as u64,
+        Some(CoreSaveLocation::Path {
+            path: "/recv".to_string(),
+        }),
+        None,
+    )
+    .await;
+
+    let resumed = node_b
+        .transfer
+        .initiate_resume(session_id)
+        .await
+        .expect("receiver resume");
+    assert_eq!(resumed.transferred_bytes, 0);
+
+    wait_completed(node_a.db.as_ref(), session_id, "恢复发送方").await;
+    wait_completed(node_b.db.as_ref(), session_id, "恢复接收方").await;
+
+    assert_eq!(
+        node_b
+            .host
+            .sink_bytes(&FileSinkId("resume.txt".to_string())),
+        Some(data),
+        "恢复后接收方落盘内容应与源文件一致"
+    );
+
+    let sender = ops::get_transfer_projection(node_a.db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let receiver = ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(sender.epoch, 1);
+    assert_eq!(receiver.epoch, 1);
+    assert!(node_a.host.events().iter().any(|e| matches!(
+        e,
+        CoreEvent::TransferResumed { event }
+            if event.session_id == session_id
+                && event.direction == swarmdrop_core::transfer::progress::RuntimeTransferDirection::Send
+    )));
+}
+
 /// 接收方拒绝 Offer：跨节点 reject 路径（确定性，不启动传输）。
 ///
 /// A 发 Offer → B `reject_and_respond` 回 `OfferResult{accepted:false, UserDeclined}`
-/// → A 发 `TransferRejected{reason: UserDeclined}`。两侧都不建 DB session。
+/// → A 发 `TransferRejected{reason: UserDeclined}`。两侧 projection 均进入
+/// terminal/rejected，前端不再需要用临时 session 猜测等待/拒绝态。
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_receiver_rejects_offer() {
     let data = b"to be rejected".to_vec();
@@ -578,6 +719,7 @@ async fn e2e_receiver_rejects_offer() {
     let StartSendResult { session_id } = node_a
         .transfer
         .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
+        .await
         .expect("send_offer");
 
     poll_until(
@@ -609,19 +751,23 @@ async fn e2e_receiver_rejects_offer() {
     )
     .await;
 
-    // reject 不建 DB session（两侧都查不到投影）。
-    assert!(
-        ops::get_transfer_projection(node_a.db.as_ref(), session_id)
-            .await
-            .expect("query a")
-            .is_none(),
-        "拒绝的 Offer 不应在发送方建 session"
+    let sender_projection = ops::get_transfer_projection(node_a.db.as_ref(), session_id)
+        .await
+        .expect("query a")
+        .expect("sender projection");
+    assert_eq!(sender_projection.phase, TransferPhase::Terminal);
+    assert_eq!(
+        sender_projection.terminal_reason,
+        Some(TerminalReason::Rejected)
     );
-    assert!(
-        ops::get_transfer_projection(node_b.db.as_ref(), session_id)
-            .await
-            .expect("query b")
-            .is_none(),
-        "拒绝的 Offer 不应在接收方建 session"
+
+    let receiver_projection = ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+        .await
+        .expect("query b")
+        .expect("receiver projection");
+    assert_eq!(receiver_projection.phase, TransferPhase::Terminal);
+    assert_eq!(
+        receiver_projection.terminal_reason,
+        Some(TerminalReason::Rejected)
     );
 }
