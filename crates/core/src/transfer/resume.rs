@@ -22,7 +22,7 @@ use crate::transfer::progress::{
     RuntimeTransferDirection, TransferResumedEvent, TransferResumedFileInfo,
 };
 use crate::transfer::sender::SendSession;
-use crate::transfer::{calc_total_chunks, CHUNK_SIZE};
+use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
 use crate::{AppError, AppResult};
 
 impl TransferManager {

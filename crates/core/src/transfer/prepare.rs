@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::host::CoreEvent;
 use crate::transfer::manager::{PreparedFile, PreparedTransfer, TransferManager};
 use crate::transfer::progress::PrepareProgressEvent;
-use crate::transfer::{calc_total_chunks, HostEnumeratedFile, CHUNK_SIZE};
+use crate::transfer::{CHUNK_SIZE, HostEnumeratedFile, calc_total_chunks};
 use crate::{AppError, AppResult};
 
 impl TransferManager {

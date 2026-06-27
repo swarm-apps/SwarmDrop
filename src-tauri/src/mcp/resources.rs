@@ -2,11 +2,11 @@
 //!
 //! 提供 swarmdrop://guide 使用指南 Resource
 
+use rmcp::ErrorData;
 use rmcp::model::{
     AnnotateAble, ListResourcesResult, RawResource, ReadResourceRequestParams, ReadResourceResult,
     ResourceContents,
 };
-use rmcp::ErrorData;
 
 /// 使用指南文档（编译时嵌入）
 const GUIDE: &str = include_str!("../../docs/mcp-guide.md");

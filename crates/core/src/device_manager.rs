@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use swarm_p2p_core::NodeEvent;
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 
 use crate::device::{
-    infer_connection_type, ConnectionType, Device, DeviceStatus, OsInfo, PairedDeviceInfo,
+    ConnectionType, Device, DeviceStatus, OsInfo, PairedDeviceInfo, infer_connection_type,
 };
 use crate::protocol::AppRequest;
 

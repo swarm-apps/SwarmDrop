@@ -146,6 +146,10 @@ msgstr "中繼"
 msgid "中继节点"
 msgstr "中繼節點"
 
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "为同网段设备提供受限发现与中继能力"
+msgstr ""
+
 #: src/components/layout/app-topbar.tsx
 msgid "主页"
 msgstr "首頁"
@@ -153,6 +157,10 @@ msgstr "首頁"
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "主题"
 msgstr "主題"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "仅局域网"
+msgstr ""
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "从附近设备发起配对，或使用配对码连接另一台设备。"
@@ -199,6 +207,10 @@ msgstr "傳輸記錄不存在"
 msgid "传输详情"
 msgstr "傳輸詳情"
 
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "使用同网段已开启协助能力的桌面端"
+msgstr ""
+
 #: src/routes/_auth/unlock.lazy.tsx
 #~ msgid "使用密码解锁"
 #~ msgstr "使用密碼解鎖"
@@ -226,6 +238,10 @@ msgstr "儲存位置"
 #: src/components/transfer/transfer-offer-dialog.tsx
 msgid "保存到"
 msgstr "儲存到"
+
+#: src/components/network/stop-node-sheet.tsx
+msgid "候选来源"
+msgstr ""
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "停止"
@@ -256,9 +272,9 @@ msgstr "停止節點"
 msgid "全部"
 msgstr "全部"
 
-#: src/routes/_app/settings/-device-info-section.tsx
-#~ msgid "公网"
-#~ msgstr ""
+#: src/components/network/stop-node-sheet.tsx
+msgid "公网"
+msgstr ""
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "公网地址"
@@ -367,6 +383,11 @@ msgstr "剩餘 {0}"
 #: src/components/upgrade/prompt-update-dialog.tsx
 #~ msgid "发现新版本"
 #~ msgstr "發現新版本"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "发现模式"
+msgstr ""
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "发现设备，配对，然后发送文件"
@@ -617,6 +638,11 @@ msgstr "將以下 JSON 加入 AI 用戶端（如 Claude Desktop、Cursor）的 M
 msgid "局域网"
 msgstr "區域網路"
 
+#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/stop-node-sheet.tsx
+msgid "局域网协助"
+msgstr ""
+
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "局域网和广域网无缝切换"
 #~ msgstr "區域網路和廣域網路無縫切換"
@@ -751,7 +777,6 @@ msgstr ""
 #~ msgstr ""
 
 #: src/components/network/stop-node-sheet.tsx
-#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点"
 msgstr "引導節點"
 
@@ -868,6 +893,10 @@ msgstr "接收檔案"
 msgid "接收文件的默认保存位置"
 msgstr "接收檔案的預設儲存位置"
 
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "控制是否连接公网引导节点"
+msgstr ""
+
 #: src/routes/_auth/setup-password.lazy.tsx
 #~ msgid "推荐包含特殊字符"
 #~ msgstr "建議包含特殊字元"
@@ -971,6 +1000,10 @@ msgstr "未啟動"
 #~ msgstr "未找到儲存的密碼"
 
 #: src/components/network/stop-node-sheet.tsx
+msgid "未提供"
+msgstr ""
+
+#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "未知"
 msgstr "未知"
@@ -994,8 +1027,17 @@ msgstr "未連線"
 msgid "未配对"
 msgstr "未配對"
 
+#: src/components/network/stop-node-sheet.tsx
+msgid "本机协助中"
+msgstr ""
+
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "本机配对码"
+msgstr ""
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "本设备作为局域网协助节点"
 msgstr ""
 
 #: src/routes/_app/transfer/-history-item.tsx
@@ -1250,6 +1292,7 @@ msgstr "離線"
 msgid "端口号需在 1024 ~ 65535 之间"
 msgstr "埠號需在 1024 ~ 65535 之間"
 
+#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "等待中"
 msgstr "等待中"
@@ -1290,10 +1333,24 @@ msgstr ""
 msgid "网络"
 msgstr "網路"
 
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "网络发现设置已变更，需重启节点生效"
+msgstr ""
+
 #: src/components/network/start-node-sheet.tsx
 msgid "网络节点"
 msgstr "網路節點"
 
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "自动"
+msgstr ""
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "自动发现局域网协助节点"
+msgstr ""
+
+#: src/routes/_app/settings/-network-settings-section.tsx
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "自动启动节点"
 msgstr "自動啟動節點"
@@ -1305,6 +1362,10 @@ msgstr "自動接受已配對裝置的檔案"
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "自动接收"
 msgstr "自動接收"
+
+#: src/components/network/stop-node-sheet.tsx
+msgid "自定义"
+msgstr ""
 
 #: src/routes/_auth/setup-password.lazy.tsx
 #~ msgid "至少 8 个字符"
@@ -1320,6 +1381,7 @@ msgid "节点启动失败"
 msgstr ""
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/settings/-network-settings-section.tsx
 msgid "节点已重启"
 msgstr "節點已重新啟動"
 
@@ -1597,14 +1659,17 @@ msgid "配对请求"
 msgstr "配對請求"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/settings/-network-settings-section.tsx
 msgid "重启中..."
 msgstr "重新啟動中..."
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/settings/-network-settings-section.tsx
 msgid "重启节点"
 msgstr "重新啟動節點"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/settings/-network-settings-section.tsx
 msgid "重启节点失败"
 msgstr "重新啟動節點失敗"
 
@@ -1653,6 +1718,10 @@ msgstr "隨節點自動啟動"
 #: src/components/upgrade/force-update-dialog.tsx
 #~ msgid "需要更新"
 #~ msgstr "需要更新"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "高级引导节点"
+msgstr ""
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "默认"

@@ -15,9 +15,9 @@ use migration::MigratorTrait;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use uuid::Uuid;
 
+use swarm_p2p_core::NodeConfig;
 use swarm_p2p_core::libp2p::identity::Keypair;
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
-use swarm_p2p_core::NodeConfig;
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 
@@ -27,13 +27,14 @@ use swarmdrop_core::host::{
     CoreAppPaths, CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, FileSourceId,
     HostFileMetadata, MemoryHost,
 };
-use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::network::NetManager;
+use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
+use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
+use swarmdrop_core::transfer::HostEnumeratedFile;
 use swarmdrop_core::transfer::coordinator::{NetworkSignal, TransferCoordinator};
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
-use swarmdrop_core::transfer::HostEnumeratedFile;
 
 // ===== harness =====
 
@@ -121,7 +122,16 @@ async fn spawn_node(
     let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
 
     let transfer = TransferManager::new(client.clone(), event_bus.clone(), db.clone(), file_access);
-    let manager = NetManager::new(client, peer_id, paired, transfer);
+    let network_config = NetworkRuntimeConfig::default();
+    let candidate_manager = create_candidate_manager(&network_config);
+    let manager = NetManager::new(
+        client,
+        peer_id,
+        paired,
+        transfer,
+        network_config,
+        candidate_manager,
+    );
     let transfer = manager.transfer_arc();
 
     // event_loop 驱动接收侧协议（IncomingTransferRuntime）+ 回填 listen_addrs。

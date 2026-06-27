@@ -513,7 +513,7 @@ impl UpdateInstaller for MemoryHost {
 mod tests {
     use std::path::PathBuf;
 
-    use swarm_p2p_core::libp2p::{identity::Keypair, PeerId};
+    use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
 
     use super::{
         AppPaths, CoreAppPaths, CoreEvent, CoreSaveLocation, DeviceIdentityBytes, EventBus,
@@ -545,6 +545,7 @@ mod tests {
             os: "test".to_string(),
             platform: "test".to_string(),
             arch: "test".to_string(),
+            capabilities: Vec::new(),
         }
     }
 

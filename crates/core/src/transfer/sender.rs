@@ -19,7 +19,7 @@ use crate::protocol::TransferResponse;
 use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::manager::PreparedFile;
 use crate::transfer::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
-use crate::transfer::{calc_total_chunks, CHUNK_SIZE};
+use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
 use crate::{AppError, AppResult};
 
 /// 发送方会话

@@ -166,6 +166,20 @@ pub fn insert_session(...) { ... }
 
 **相关文件**：`crates/core/tests/e2e_transfer.rs`（**已实现的 harness，直接参照/扩展**）、`crates/core/src/host.rs`（MemoryHost）、`crates/core/src/runtime.rs`（start_node 可复刻）、`crates/core/src/network/event_loop.rs`（run_event_loop）、`libs/core/tests/data_channel.rs`（现有双节点模式参考）
 
+### LAN Helper 三节点测试需要真实私有网卡地址
+
+`auto-discover-lan-helper-nodes` 的三节点集成测试会启动 A/B 普通节点和 C LAN Helper，
+用 mDNS + Identify 事件把 C 注册为 infrastructure peer，再通过 Kad record 验证 A 写、B 读。
+由于生产逻辑会过滤 loopback 和 link-local，测试不能只监听 `127.0.0.1`，否则无法覆盖真实
+LAN Helper 路径。
+
+**正确做法**：
+- 测试用 `if-addrs` 枚举 operational up、非 loopback、非 p2p 的私有 IPv4 网卡并绑定 `/ip4/<private>/tcp/0`
+- 找不到可绑定私有 IPv4 时打印说明并跳过真实 LAN 流程，避免无网卡 CI 假失败
+- LAN Only 测试要额外断言 `NetworkStatus.candidate_sources` 不包含 `BuiltInPublic`
+
+**相关文件**：`crates/core/tests/e2e_lan_helper.rs`、`crates/core/Cargo.toml`
+
 ## 身份存储 (keychain)
 
 ### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）

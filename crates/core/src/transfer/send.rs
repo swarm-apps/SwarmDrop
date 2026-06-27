@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::host::CoreEvent;
 use crate::protocol::{AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse};
 use crate::transfer::manager::{
-    generate_id, PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager,
+    PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager, generate_id,
 };
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferAcceptedEvent, TransferDbErrorEvent, TransferFailedEvent,

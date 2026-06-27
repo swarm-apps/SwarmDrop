@@ -7,8 +7,8 @@
 //! 导出到 `src/lib/bindings.ts`，供前端 typesafe 调用。
 
 use tauri::{Builder, Manager, Wry};
-use tauri_specta::{collect_commands, collect_events, Builder as SpectaBuilder, ErrorHandlingMode};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tauri_specta::{Builder as SpectaBuilder, ErrorHandlingMode, collect_commands, collect_events};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use crate::{commands, events};
 

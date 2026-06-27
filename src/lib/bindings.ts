@@ -7,7 +7,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	start: (pairedDevices: PairedDeviceInfo[], customBootstrapNodes: string[] | null) => __TAURI_INVOKE<null>("start", { pairedDevices, customBootstrapNodes }),
+	start: (pairedDevices: PairedDeviceInfo[], customBootstrapNodes: string[] | null, networkOptions: {
+	customBootstrapNodes?: string[],
+	discoveryMode?: DiscoveryMode,
+	autoDiscoverLanHelpers?: boolean,
+	provideLanHelper?: boolean,
+} | null) => __TAURI_INVOKE<null>("start", { pairedDevices, customBootstrapNodes, networkOptions }),
 	shutdown: () => __TAURI_INVOKE<null>("shutdown"),
 	listDevices: (filter: "all" | "connected" | "paired" | null) => __TAURI_INVOKE<DeviceListResult>("list_devices", { filter }),
 	getNetworkStatus: () => __TAURI_INVOKE<NetworkStatus>("get_network_status"),
@@ -95,6 +100,7 @@ export const events = {
 	transferOffer: makeEvent<TransferOffer>("transfer-offer"),
 	transferPaused: makeEvent<TransferPaused>("transfer-paused"),
 	transferProgress: makeEvent<TransferProgress>("transfer-progress"),
+	transferProjectionUpdate: makeEvent<TransferProjectionUpdate>("transfer-projection-update"),
 	transferRejected: makeEvent<TransferRejected>("transfer-rejected"),
 	transferResumed: makeEvent<TransferResumed>("transfer-resumed"),
 };
@@ -107,6 +113,13 @@ export const events = {
 export type AppErrorPayload = {
 	kind: string,
 	message: string,
+};
+
+export type BootstrapCandidateSource = "builtInPublic" | "userCustom" | "mdnsLanHelper";
+
+export type CandidateSourceStatus = {
+	source: BootstrapCandidateSource,
+	count: number,
 };
 
 /**  连接类型。 */
@@ -151,6 +164,8 @@ export type DeviceListResult = {
 export type DeviceStatus = "online" | "offline";
 
 export type DevicesChanged = Device[];
+
+export type DiscoveryMode = "auto" | "lanOnly";
 
 /**
  *  目录遍历后的扁平化文件条目
@@ -200,6 +215,13 @@ export type McpStatus = {
 	addr: string | null,
 };
 
+export type NetworkRuntimeConfig = {
+	customBootstrapNodes?: string[],
+	discoveryMode?: DiscoveryMode,
+	autoDiscoverLanHelpers?: boolean,
+	provideLanHelper?: boolean,
+};
+
 /**  网络状态快照。 */
 export type NetworkStatus = {
 	status: NodeStatus,
@@ -215,6 +237,26 @@ export type NetworkStatus = {
 	relayPeers: string[],
 	/**  是否至少有一个引导节点已连接。 */
 	bootstrapConnected: boolean,
+	/**  当前发现模式。 */
+	discoveryMode: DiscoveryMode,
+	/**  是否自动发现局域网协助节点。 */
+	autoDiscoverLanHelpers: boolean,
+	/**  本设备是否配置为提供局域网协助能力。 */
+	localLanHelperEnabled: boolean,
+	/**  本设备当前是否正在作为局域网协助节点运行。 */
+	localLanHelperRunning: boolean,
+	/**  Relay Server 是否启用。 */
+	relayServerEnabled: boolean,
+	/**  LAN Helper 可公告地址。 */
+	lanHelperAdvertisedAddrs: string[],
+	/**  已发现的局域网协助节点数量。 */
+	lanHelperCount: number,
+	/**  候选总数。 */
+	bootstrapCandidateCount: number,
+	/**  按来源聚合的候选数量。 */
+	candidateSources: CandidateSourceStatus[],
+	/**  当前 relay peer 的候选来源。 */
+	relaySource: BootstrapCandidateSource | null,
 };
 
 export type NetworkStatusChanged = NetworkStatus;
@@ -239,6 +281,7 @@ export type OsInfo = {
 	os: string,
 	platform: string,
 	arch: string,
+	capabilities?: string[],
 };
 
 export type PairedDeviceAdded = PairedDeviceInfo;
@@ -340,6 +383,12 @@ export type StartSendResult = {
 	sessionId: string,
 };
 
+/**  suspended 原因（phase=Suspended 时有值）。 */
+export type SuspendedReason = "local_paused" | "remote_paused" | "interrupted" | "peer_offline" | "app_restarted";
+
+/**  terminal 原因（phase=Terminal 时有值）。 */
+export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_error";
+
 export type TransferAccepted = TransferAcceptedEvent;
 
 /**  对方接受 Offer 的事件 payload */
@@ -434,6 +483,13 @@ export type TransferPausedEvent = {
 	direction: RuntimeTransferDirection,
 };
 
+/**
+ *  传输生命周期大状态（phase）。
+ *  替代旧的扁平 [`SessionStatus`]（过渡期并存）：phase 表达大状态，
+ *  具体原因由 [`SuspendedReason`] / [`TerminalReason`] 表达。
+ */
+export type TransferPhase = "offered" | "waiting_accept" | "active" | "suspended" | "terminal";
+
 export type TransferProgress = TransferProgressEvent;
 
 export type TransferProgressEvent = {
@@ -447,6 +503,38 @@ export type TransferProgressEvent = {
 	eta: number | null,
 	files: FileProgressInfo[],
 };
+
+/**  传输投影 DTO —— 前端唯一状态源（逐步替代旧的分散事件 + 扁平 `SessionStatus`）。 */
+export type TransferProjection = {
+	sessionId: string,
+	direction: TransferDirection,
+	peerId: string,
+	peerName: string,
+	phase: TransferPhase,
+	suspendedReason: SuspendedReason | null,
+	terminalReason: TerminalReason | null,
+	recoverable: boolean,
+	epoch: number,
+	totalSize: number,
+	transferredBytes: number,
+	startedAt: number,
+	updatedAt: number,
+	finishedAt: number | null,
+	errorMessage: string | null,
+	savePath: CoreSaveLocation | null,
+	files: TransferProjectionFile[],
+};
+
+export type TransferProjectionFile = {
+	fileId: number,
+	name: string,
+	relativePath: string,
+	size: number,
+	transferredBytes: number,
+};
+
+/**  传输投影更新（redesign：前端唯一状态源）。事件名 `"transfer-projection-update"`。 */
+export type TransferProjectionUpdate = TransferProjection;
 
 export type TransferRejected = TransferRejectedEvent;
 
@@ -496,4 +584,3 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
     return Object.assign(fn, base);
 }
-

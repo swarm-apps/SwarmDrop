@@ -11,10 +11,10 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
+use crate::AppResult;
 use crate::host::CoreSaveLocation;
 use crate::protocol::FileInfo;
 use crate::transfer::calc_total_chunks;
-use crate::AppResult;
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -182,13 +182,12 @@ pub async fn save_sender_file_progress(
     progress: &[(u32, u32, u64)],
 ) -> AppResult<()> {
     for &(file_id, _chunks_done, transferred) in progress {
-        if transferred > 0 {
-            if let Err(e) =
+        if transferred > 0
+            && let Err(e) =
                 update_sender_file_progress(db, session_id, file_id as i32, transferred as i64)
                     .await
-            {
-                tracing::warn!("保存发送方文件进度失败: file_id={}, {}", file_id, e);
-            }
+        {
+            tracing::warn!("保存发送方文件进度失败: file_id={}, {}", file_id, e);
         }
     }
     Ok(())

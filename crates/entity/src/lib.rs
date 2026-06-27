@@ -104,7 +104,6 @@ pub enum SaveLocation {
 }
 
 /// 传输生命周期大状态（phase）。
-///
 /// 替代旧的扁平 [`SessionStatus`]（过渡期并存）：phase 表达大状态，
 /// 具体原因由 [`SuspendedReason`] / [`TerminalReason`] 表达。
 #[derive(

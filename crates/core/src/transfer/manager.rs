@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::AppResult;
 use crate::host::{EventBus, FileAccess, FileSourceId};
 use crate::network::TransferRuntime;
 use crate::protocol::{AppNetClient, FileChecksum, FileInfo, TransferResponse};
@@ -30,7 +31,6 @@ use crate::transfer::incoming::{IncomingTransferRuntime, TransferCompleteOutcome
 use crate::transfer::progress::TransferFailedEvent;
 use crate::transfer::receiver::ReceiveSession;
 use crate::transfer::sender::SendSession;
-use crate::AppResult;
 
 /// 发送方准备好的传输信息
 #[derive(Debug, Clone)]

@@ -1,7 +1,7 @@
 [package]
 name = "swarmdrop-core"
 version = "0.5.3"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 serde = { workspace = true }
@@ -35,3 +35,4 @@ specta = ["dep:specta", "entity/specta"]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # migration 不是普通依赖，端到端 harness 要 Migrator::up 建 sqlite::memory schema。
 migration = { workspace = true }
+if-addrs = "0.15.0"

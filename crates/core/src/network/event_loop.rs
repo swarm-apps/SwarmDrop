@@ -12,16 +12,19 @@
 
 use std::sync::Arc;
 
-use swarm_p2p_core::{EventReceiver, NodeEvent};
+use swarm_p2p_core::libp2p::{Multiaddr, multiaddr::Protocol};
+use swarm_p2p_core::{EventReceiver, InfrastructureRoles, NodeEvent};
 use tracing::{info, warn};
 
 use super::SharedNetRefs;
+use super::candidates::{BootstrapCandidateSource, CandidateRoles, CandidateScope};
+use crate::device::OsInfo;
 use crate::device_manager::DeviceFilter;
 use crate::error::AppResult;
 use crate::host::{CoreEvent, EventBus, Notifier};
 use crate::protocol::AppRequest;
 use crate::transfer::incoming::{
-    handle_incoming_transfer_request, IncomingTransferDisposition, IncomingTransferRuntime,
+    IncomingTransferDisposition, IncomingTransferRuntime, handle_incoming_transfer_request,
 };
 
 /// 处理一个 NodeEvent —— 网络/设备/配对事件部分
@@ -35,13 +38,14 @@ pub async fn handle_core_node_event<TTransfer>(
 ) -> AppResult<()> {
     // 让 DeviceManager 自己处理 PeerConnected/Disconnected/Identify/Ping/HolePunch/Discovered
     shared.devices.handle_event(event);
+    maybe_register_lan_helper(shared, event, event_bus).await;
 
     match event {
         NodeEvent::Listening { addr } => {
-            if let Ok(mut listen) = shared.listen_addrs.write() {
-                if !listen.contains(addr) {
-                    listen.push(addr.clone());
-                }
+            if let Ok(mut listen) = shared.listen_addrs.write()
+                && !listen.contains(addr)
+            {
+                listen.push(addr.clone());
             }
             publish_network_status(shared, event_bus).await;
         }
@@ -61,13 +65,39 @@ pub async fn handle_core_node_event<TTransfer>(
             if let Ok(mut rp) = shared.relay_peers.write() {
                 rp.insert(*relay_peer_id);
             }
+            if let Ok(mut candidates) = shared.candidates.write() {
+                candidates.mark_relay_ready(*relay_peer_id);
+            }
+            publish_network_status(shared, event_bus).await;
+        }
+        NodeEvent::LanHelperStatusChanged {
+            relay_server_enabled,
+            advertised_addrs,
+        } => {
+            if let Ok(mut enabled) = shared.relay_server_enabled.write() {
+                *enabled = *relay_server_enabled;
+            }
+            if let Ok(mut addrs) = shared.lan_helper_advertised_addrs.write() {
+                *addrs = advertised_addrs.clone();
+            }
             publish_network_status(shared, event_bus).await;
         }
         NodeEvent::PeerConnected { .. }
         | NodeEvent::IdentifyReceived { .. }
         | NodeEvent::PeersDiscovered { .. }
         | NodeEvent::PingSuccess { .. }
-        | NodeEvent::HolePunchSucceeded { .. } => {
+        | NodeEvent::HolePunchSucceeded { .. }
+        | NodeEvent::RelayServerReservationAccepted { .. }
+        | NodeEvent::RelayServerReservationDenied { .. }
+        | NodeEvent::RelayServerReservationClosed { .. }
+        | NodeEvent::RelayServerCircuitAccepted { .. }
+        | NodeEvent::RelayServerCircuitDenied { .. }
+        | NodeEvent::RelayServerCircuitClosed { .. } => {
+            if let NodeEvent::PeerConnected { peer_id } = event
+                && let Ok(mut candidates) = shared.candidates.write()
+            {
+                candidates.mark_connected(*peer_id);
+            }
             publish_devices_and_status(shared, event_bus).await;
         }
         NodeEvent::PeerDisconnected { peer_id } => {
@@ -104,6 +134,128 @@ pub async fn handle_core_node_event<TTransfer>(
         }
     }
     Ok(())
+}
+
+async fn maybe_register_lan_helper<TTransfer>(
+    shared: &SharedNetRefs<TTransfer>,
+    event: &NodeEvent<AppRequest>,
+    event_bus: &dyn EventBus,
+) {
+    let NodeEvent::IdentifyReceived {
+        peer_id,
+        agent_version,
+        protocol_version,
+        listen_addrs,
+        ..
+    } = event
+    else {
+        return;
+    };
+
+    if !shared.network_config.auto_discover_lan_helpers
+        || protocol_version != "/swarmdrop/1.0.0"
+        || !OsInfo::is_swarmdrop_agent(agent_version)
+    {
+        return;
+    }
+    let Some(os_info) = OsInfo::from_agent_version(agent_version) else {
+        return;
+    };
+    if !os_info.has_capability(OsInfo::LAN_HELPER_CAPABILITY) {
+        return;
+    }
+
+    let addrs = usable_lan_candidate_addrs(listen_addrs);
+    if addrs.is_empty() {
+        publish_network_status(shared, event_bus).await;
+        return;
+    }
+
+    let changed = shared
+        .candidates
+        .write()
+        .map(|mut candidates| {
+            candidates.upsert(
+                *peer_id,
+                addrs.clone(),
+                BootstrapCandidateSource::MdnsLanHelper,
+                CandidateRoles::kad_and_relay(),
+                CandidateScope::Lan,
+            )
+        })
+        .unwrap_or(false);
+
+    if changed {
+        let client = shared.client.clone();
+        let candidates = shared.candidates.clone();
+        let peer_id = *peer_id;
+        tokio::spawn(async move {
+            if let Err(err) = client
+                .add_infrastructure_peer(peer_id, addrs, InfrastructureRoles::kad_and_relay())
+                .await
+            {
+                warn!("注册 LAN Helper 候选失败 {}: {}", peer_id, err);
+                if let Ok(mut candidates) = candidates.write() {
+                    candidates.mark_failed(peer_id);
+                }
+                return;
+            }
+            if let Err(err) = client.bootstrap().await {
+                warn!("LAN Helper 候选触发 bootstrap 失败 {}: {}", peer_id, err);
+            }
+        });
+    }
+
+    publish_network_status(shared, event_bus).await;
+}
+
+fn usable_lan_candidate_addrs(addrs: &[Multiaddr]) -> Vec<Multiaddr> {
+    addrs
+        .iter()
+        .filter(|addr| {
+            addr.iter().any(|protocol| match protocol {
+                Protocol::Ip4(ip) => {
+                    ip.is_private()
+                        && !ip.is_loopback()
+                        && !ip.is_link_local()
+                        && !ip.is_unspecified()
+                }
+                Protocol::Ip6(ip) => {
+                    (ip.segments()[0] & 0xfe00) == 0xfc00
+                        && !ip.is_loopback()
+                        && !ip.is_unspecified()
+                }
+                _ => false,
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::usable_lan_candidate_addrs;
+    use swarm_p2p_core::libp2p::Multiaddr;
+
+    #[test]
+    fn lan_helper_candidates_filter_unusable_addresses() {
+        let addrs: Vec<Multiaddr> = [
+            "/ip4/192.168.1.20/tcp/4001",
+            "/ip4/127.0.0.1/tcp/4001",
+            "/ip4/0.0.0.0/tcp/4001",
+            "/ip4/8.8.8.8/tcp/4001",
+            "/ip6/fd00::1/tcp/4001",
+        ]
+        .into_iter()
+        .map(|addr| addr.parse().unwrap())
+        .collect();
+
+        let usable = usable_lan_candidate_addrs(&addrs);
+
+        assert_eq!(usable.len(), 2);
+        assert_eq!(usable[0].to_string(), "/ip4/192.168.1.20/tcp/4001");
+        assert_eq!(usable[1].to_string(), "/ip6/fd00::1/tcp/4001");
+    }
 }
 
 async fn publish_devices_and_status<TTransfer>(
@@ -158,15 +310,14 @@ pub async fn run_event_loop<TTransfer>(
             request: AppRequest::Pairing(req),
             ..
         } = &event
+            && let Some(notifier) = notifier.as_ref()
         {
-            if let Some(notifier) = notifier.as_ref() {
-                let _ = notifier
-                    .notify_if_unfocused(crate::host::NotificationRequest {
-                        title: "配对请求".to_string(),
-                        body: format!("{} 请求与您配对", req.os_info.hostname),
-                    })
-                    .await;
-            }
+            let _ = notifier
+                .notify_if_unfocused(crate::host::NotificationRequest {
+                    title: "配对请求".to_string(),
+                    body: format!("{} 请求与您配对", req.os_info.hostname),
+                })
+                .await;
         }
 
         // 处理传输请求
@@ -219,17 +370,16 @@ pub async fn run_event_loop<TTransfer>(
 
             match result {
                 Ok(IncomingTransferDisposition::Handled) => {
-                    if is_offer {
-                        if let (Some(notifier), Some(name)) =
+                    if is_offer
+                        && let (Some(notifier), Some(name)) =
                             (notifier.as_ref(), device_name_override)
-                        {
-                            let _ = notifier
-                                .notify_if_unfocused(crate::host::NotificationRequest {
-                                    title: "收到文件传输请求".to_string(),
-                                    body: format!("{name} 想要向您发送文件"),
-                                })
-                                .await;
-                        }
+                    {
+                        let _ = notifier
+                            .notify_if_unfocused(crate::host::NotificationRequest {
+                                title: "收到文件传输请求".to_string(),
+                                body: format!("{name} 想要向您发送文件"),
+                            })
+                            .await;
                     }
                 }
                 Ok(IncomingTransferDisposition::Unhandled(_)) => {

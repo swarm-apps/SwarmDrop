@@ -160,10 +160,10 @@ pub async fn cleanup_stale_sessions(db: &DatabaseConnection) -> AppResult<()> {
             if let Some(entity::SaveLocation::Path { ref path }) = session.save_path {
                 let final_path = std::path::Path::new(path).join(&file.relative_path);
                 let part_path = crate::host::file_sink::compute_part_path(&final_path);
-                if let Err(e) = tokio::fs::remove_file(&part_path).await {
-                    if e.kind() != std::io::ErrorKind::NotFound {
-                        tracing::warn!("清理 .part 文件失败（已忽略）: {e}");
-                    }
+                if let Err(e) = tokio::fs::remove_file(&part_path).await
+                    && e.kind() != std::io::ErrorKind::NotFound
+                {
+                    tracing::warn!("清理 .part 文件失败（已忽略）: {e}");
                 }
             }
 

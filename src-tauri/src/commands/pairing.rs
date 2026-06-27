@@ -1,7 +1,7 @@
+use crate::AppResult;
 use crate::device::DeviceFilter;
 use crate::events::{DevicesChanged, PairedDeviceAdded};
 use crate::network::NetManagerState;
-use crate::AppResult;
 use serde::{Deserialize, Serialize};
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use swarmdrop_core::pairing::code::{PairingCodeInfo, ShareCodeRecord};

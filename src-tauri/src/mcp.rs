@@ -12,7 +12,7 @@ use rmcp::model::{
     Implementation, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
     ReadResourceResult, ServerCapabilities, ServerInfo,
 };
-use rmcp::{tool_handler, ErrorData, RoleServer, ServerHandler};
+use rmcp::{ErrorData, RoleServer, ServerHandler, tool_handler};
 use tauri::AppHandle;
 
 /// MCP Handler：持有 AppHandle，通过 Tauri 状态树访问所有后端能力

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use swarm_p2p_core::libp2p::{kad::Record, Multiaddr, PeerId};
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId, kad::Record};
 
 use super::code::{OnlineRecord, PairingCodeInfo, ShareCodeRecord};
 use super::dht_key;
@@ -180,10 +180,10 @@ impl PairingManager {
             .await?
             .record;
 
-        if let Some(expires) = record.expires {
-            if expires < Instant::now() {
-                return Err(AppError::ExpiredCode);
-            }
+        if let Some(expires) = record.expires
+            && expires < Instant::now()
+        {
+            return Err(AppError::ExpiredCode);
         }
 
         let peer_id = record.publisher.ok_or(AppError::InvalidCode)?;
@@ -269,19 +269,19 @@ impl PairingManager {
         response: PairingResponse,
     ) -> AppResult<Option<PairedDeviceInfo>> {
         // 仅在接受时验证并消耗配对码；拒绝时直接发响应，无需验证
-        if let PairingMethod::Code { code } = method {
-            if matches!(response, PairingResponse::Success) {
-                let mut guard = self.active_code.lock().unwrap();
-                let info = guard.as_ref().ok_or(AppError::InvalidCode)?;
-                if &info.code != code {
-                    return Err(AppError::InvalidCode);
-                }
-                if info.is_expired() {
-                    return Err(AppError::ExpiredCode);
-                }
-                *guard = None;
-                // guard 在此处 drop，锁在 await 之前释放
+        if let PairingMethod::Code { code } = method
+            && matches!(response, PairingResponse::Success)
+        {
+            let mut guard = self.active_code.lock().unwrap();
+            let info = guard.as_ref().ok_or(AppError::InvalidCode)?;
+            if &info.code != code {
+                return Err(AppError::InvalidCode);
             }
+            if info.is_expired() {
+                return Err(AppError::ExpiredCode);
+            }
+            *guard = None;
+            // guard 在此处 drop，锁在 await 之前释放
         }
 
         let accepted = matches!(response, PairingResponse::Success);

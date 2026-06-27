@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
-use rmcp::{schemars, tool, tool_router, ErrorData};
+use rmcp::{ErrorData, schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 

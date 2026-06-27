@@ -5,12 +5,12 @@
 //! 使用 Semaphore 控制并发度（8 并发），CancellationToken 支持取消。
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use sea_orm::DatabaseConnection;
 use swarm_p2p_core::libp2p::PeerId;
-use tokio::sync::{watch, Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -26,7 +26,7 @@ use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent,
 };
-use crate::transfer::{calc_total_chunks, CHUNK_SIZE};
+use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
 use crate::{AppError, AppResult};
 
 /// 最大并发拉取数
@@ -412,10 +412,10 @@ impl ReceiveSession {
 
         for chunk_index in 0..total_chunks {
             // 跳过已完成的 chunk（断点续传）
-            if let Some(bm) = valid_bitmap {
-                if is_chunk_completed(bm, chunk_index) {
-                    continue;
-                }
+            if let Some(bm) = valid_bitmap
+                && is_chunk_completed(bm, chunk_index)
+            {
+                continue;
             }
             // 等待 permit 时同时监听取消，避免取消后仍阻塞在 acquire
             let permit = tokio::select! {
@@ -731,11 +731,11 @@ fn count_completed_in_bitmap(bitmap: &[u8], total_chunks: u32) -> u32 {
     let mut count: u32 = bitmap.iter().take(full_bytes).map(|b| b.count_ones()).sum();
 
     // 尾部不完整字节：仅统计有效位
-    if remainder_bits > 0 {
-        if let Some(&last_byte) = bitmap.get(full_bytes) {
-            let mask = (1u8 << remainder_bits) - 1;
-            count += (last_byte & mask).count_ones();
-        }
+    if remainder_bits > 0
+        && let Some(&last_byte) = bitmap.get(full_bytes)
+    {
+        let mask = (1u8 << remainder_bits) - 1;
+        count += (last_byte & mask).count_ones();
     }
 
     count

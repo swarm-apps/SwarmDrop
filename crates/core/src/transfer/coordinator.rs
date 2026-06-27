@@ -13,8 +13,8 @@ use entity::{SuspendedReason, TerminalReason, TransferPhase};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use crate::host::{CoreEvent, EventBus};
 use crate::AppResult;
+use crate::host::{CoreEvent, EventBus};
 
 /// 传输生命周期状态（镜像 entity 持久化字段）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -478,14 +478,16 @@ mod tests {
         let terminal = TransferState::terminal(1, TerminalReason::Cancelled);
         // terminal 后任何输入都不转换
         assert!(reduce(&terminal, &CoordinatorInput::User(UserCommand::Resume)).is_none());
-        assert!(reduce(
-            &terminal,
-            &CoordinatorInput::Network {
-                epoch: 1,
-                signal: NetworkSignal::ResumeCommitted { new_epoch: 2 }
-            }
-        )
-        .is_none());
+        assert!(
+            reduce(
+                &terminal,
+                &CoordinatorInput::Network {
+                    epoch: 1,
+                    signal: NetworkSignal::ResumeCommitted { new_epoch: 2 }
+                }
+            )
+            .is_none()
+        );
     }
 
     #[test]

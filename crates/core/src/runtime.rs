@@ -1,11 +1,11 @@
 //! Core runtime 入口。
 
-use swarm_p2p_core::libp2p::{identity::Keypair, PeerId};
 use swarm_p2p_core::EventReceiver;
+use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
 
 use crate::device::{OsInfo, PairedDeviceInfo};
 use crate::error::{AppError, AppResult};
-use crate::network::config::create_node_config;
+use crate::network::config::{NetworkRuntimeConfig, create_candidate_manager, create_node_config};
 use crate::network::{NetManager, TransferRuntime};
 use crate::protocol::{AppNetClient, AppRequest, AppResponse};
 
@@ -27,7 +27,7 @@ pub fn start_node<TTransfer, F>(
     keypair: Keypair,
     device_name: Option<String>,
     paired_devices: Vec<PairedDeviceInfo>,
-    custom_bootstrap_nodes: Vec<String>,
+    network_config: NetworkRuntimeConfig,
     create_transfer: F,
 ) -> AppResult<StartedNode<TTransfer>>
 where
@@ -38,8 +38,14 @@ where
         name: device_name,
         ..OsInfo::default()
     };
+    let os_info = if network_config.provide_lan_helper {
+        os_info.with_capability(OsInfo::LAN_HELPER_CAPABILITY)
+    } else {
+        os_info
+    };
     let agent_version = os_info.to_agent_version();
-    let config = create_node_config(agent_version, &custom_bootstrap_nodes);
+    let config = create_node_config(agent_version, &network_config);
+    let candidate_manager = create_candidate_manager(&network_config);
 
     let peer_id = PeerId::from_public_key(&keypair.public());
     // 第三个返回值是 data-channel 入站接收器（add-p2p-data-channel 能力）。
@@ -50,7 +56,14 @@ where
             .map_err(|e| AppError::Network(e.to_string()))?;
 
     let transfer = create_transfer(client.clone());
-    let manager = NetManager::new(client, peer_id, paired_devices, transfer);
+    let manager = NetManager::new(
+        client,
+        peer_id,
+        paired_devices,
+        transfer,
+        network_config,
+        candidate_manager,
+    );
 
     Ok(StartedNode { manager, receiver })
 }

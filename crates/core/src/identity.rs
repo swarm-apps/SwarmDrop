@@ -1,6 +1,6 @@
 //! 身份和已配对设备持久化逻辑。
 
-use swarm_p2p_core::libp2p::{identity::Keypair, PeerId};
+use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
 
 use crate::device::PairedDeviceInfo;
 use crate::error::{AppError, AppResult};
@@ -110,8 +110,8 @@ where
 mod tests {
     use std::path::PathBuf;
 
-    use swarm_p2p_core::libp2p::identity::Keypair;
     use swarm_p2p_core::libp2p::PeerId;
+    use swarm_p2p_core::libp2p::identity::Keypair;
 
     use crate::device::{OsInfo, PairedDeviceInfo};
     use crate::host::{CoreAppPaths, KeychainProvider, MemoryHost};
@@ -135,6 +135,7 @@ mod tests {
                 os: "test".to_string(),
                 platform: "test".to_string(),
                 arch: "test".to_string(),
+                capabilities: Vec::new(),
             },
             paired_at: 1,
         }

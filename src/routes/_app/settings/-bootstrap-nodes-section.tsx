@@ -1,6 +1,6 @@
 /**
  * BootstrapNodesSection
- * 设置页「引导节点」区域 — 管理默认 + 自定义引导节点
+ * 设置页「高级引导节点」区域 — 管理默认 + 自定义引导节点
  */
 
 import { useState, useCallback } from "react";
@@ -111,7 +111,7 @@ export function BootstrapNodesSection() {
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold text-foreground">
-        <Trans>引导节点</Trans>
+        <Trans>高级引导节点</Trans>
       </h2>
       <div className="glass-card rounded-lg">
         {/* 默认节点 */}

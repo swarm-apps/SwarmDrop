@@ -7,15 +7,15 @@ use std::sync::Arc;
 
 use sea_orm::EntityTrait;
 use serde::Serialize;
+use swarmdrop_core::transfer::HostEnumeratedFile;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::progress::PrepareProgressEvent;
-use swarmdrop_core::transfer::HostEnumeratedFile;
 use tauri::ipc::Channel;
 use tauri::{Manager, State};
 use uuid::Uuid;
 
 use crate::host::event_bus::PrepareChannelGuard;
-use crate::host::file_source::{source_id, EnumeratedFile, FileSource};
+use crate::host::file_source::{EnumeratedFile, FileSource, source_id};
 use crate::network::NetManagerState;
 
 // ============ scan_sources ============
