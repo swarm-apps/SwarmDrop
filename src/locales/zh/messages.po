@@ -1686,11 +1686,10 @@ msgid "自动启动节点"
 msgstr "自动启动节点"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
-msgid "自动接受已配对设备的文件"
-msgstr "自动接受已配对设备的文件"
+#~ msgid "自动接受已配对设备的文件"
+#~ msgstr "自动接受已配对设备的文件"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
-#: src/routes/_app/settings/-transfer-settings-section.tsx
 #: src/routes/_app/transfer/-history-item.tsx
 msgid "自动接收"
 msgstr "自动接收"

@@ -30,8 +30,6 @@ interface PreferencesState {
   transfer: {
     /** 接收文件的默认保存路径 */
     savePath: string;
-    /** 是否自动接受已配对设备的文件 */
-    autoAccept: boolean;
   };
   /** MCP Server 设置 */
   mcp: {
@@ -61,8 +59,6 @@ interface PreferencesState {
   setProvideLanHelper: (enabled: boolean) => void;
   /** 设置传输保存路径 */
   setTransferSavePath: (path: string) => void;
-  /** 设置自动接收 */
-  setTransferAutoAccept: (autoAccept: boolean) => void;
   /** 设置 MCP 端口 */
   setMcpPort: (port: number) => void;
   /** 设置 MCP 自动启动 */
@@ -95,7 +91,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       provideLanHelper: false,
       transfer: {
         savePath: "",
-        autoAccept: false,
       },
       mcp: {
         port: 19527,
@@ -142,12 +137,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       setTransferSavePath(path: string) {
         set((state) => ({
           transfer: { ...state.transfer, savePath: path },
-        }));
-      },
-
-      setTransferAutoAccept(autoAccept: boolean) {
-        set((state) => ({
-          transfer: { ...state.transfer, autoAccept },
         }));
       },
 

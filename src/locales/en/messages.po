@@ -1669,11 +1669,10 @@ msgid "自动启动节点"
 msgstr "Auto-start Node"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
-msgid "自动接受已配对设备的文件"
-msgstr "Auto-accept files from paired devices"
+#~ msgid "自动接受已配对设备的文件"
+#~ msgstr "Auto-accept files from paired devices"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
-#: src/routes/_app/settings/-transfer-settings-section.tsx
 #: src/routes/_app/transfer/-history-item.tsx
 msgid "自动接收"
 msgstr "Auto Accept"

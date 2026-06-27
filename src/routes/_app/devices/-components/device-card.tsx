@@ -1,4 +1,4 @@
-import { useState, type ComponentType, type MouseEvent } from "react";
+import { useState, type ComponentType } from "react";
 import { cn } from "@/lib/utils";
 import { deviceDisplayName } from "@/lib/device-name";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
@@ -234,6 +234,7 @@ export function DeviceCard({
         tabIndex={isInteractive ? 0 : -1}
         onClick={isInteractive ? handleCardClick : undefined}
         onKeyDown={(e) => {
+          if (e.currentTarget !== e.target) return;
           if (isInteractive && (e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
             handleCardClick();
@@ -301,7 +302,6 @@ export function DeviceCard({
                 onUpdatePolicy ? () => setPolicyOpen(true) : undefined
               }
               onUnpairClick={() => setUnpairOpen(true)}
-              onTriggerClick={(e) => e.stopPropagation()}
               label={t`设备操作`}
             />
           )}
@@ -388,12 +388,10 @@ export function DeviceCard({
 function DeviceActionMenu({
   onPolicyClick,
   onUnpairClick,
-  onTriggerClick,
   label,
 }: {
   onPolicyClick?: () => void;
   onUnpairClick: () => void;
-  onTriggerClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   label: string;
 }) {
   return (
@@ -401,7 +399,8 @@ function DeviceActionMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          onClick={onTriggerClick}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
           aria-label={label}
           title={label}
           className="glass-control flex size-8 items-center justify-center rounded-full text-muted-foreground transition-[color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground active:scale-[0.96]"
@@ -414,11 +413,15 @@ function DeviceActionMenu({
         align="start"
         sideOffset={4}
         className="glass-card min-w-[112px] rounded-[14px] p-1"
+        onClick={(event) => event.stopPropagation()}
       >
         {onPolicyClick && (
           <>
             <DropdownMenuItem
-              onClick={onPolicyClick}
+              onSelect={(event) => {
+                event.stopPropagation();
+                onPolicyClick();
+              }}
               className="h-8 rounded-[10px] px-2.5 text-xs font-medium"
             >
               <Settings2 className="size-3.5" />
@@ -429,7 +432,10 @@ function DeviceActionMenu({
         )}
         <DropdownMenuItem
           variant="destructive"
-          onClick={onUnpairClick}
+          onSelect={(event) => {
+            event.stopPropagation();
+            onUnpairClick();
+          }}
           className="h-8 rounded-[10px] px-2.5 text-xs font-medium text-destructive/90 focus:bg-destructive/10 focus:text-destructive dark:focus:bg-destructive/15"
         >
           <Unlink className="size-3.5" />

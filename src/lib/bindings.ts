@@ -39,11 +39,11 @@ export const commands = {
 	getDeviceName: () => __TAURI_INVOKE<string | null>("get_device_name"),
 	/**
 	 *  设置设备名并持久化。
-		 *
+	 *
 	 *  仅写入 `device_config.json`。要让新名字通过 libp2p Identify `agent_version`
 	 *  重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
 	 *  paired_devices + customBootstrapNodes 上下文）。
-		 *
+	 *
 	 *  `name = None`（或空串/纯空白）清空，回退到系统 hostname。
 	 */
 	setDeviceName: (name: string | null) => __TAURI_INVOKE<null>("set_device_name", { name }),
@@ -53,9 +53,9 @@ export const commands = {
 	getDeviceInfo: (code: string) => __TAURI_INVOKE<DeviceInfo>("get_device_info", { code }),
 	/**
 	 *  向对端发起配对请求
-		 *
+	 *
 	 *  配对成功后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
-		 *
+	 *
 	 *  `peer_id` 为 base58 字符串，`addrs` 为 multiaddr 字符串列表，由命令内部解析为
 	 *  libp2p 类型，方便通过 specta 生成 TypeScript bindings（libp2p 类型本身不实现
 	 *  `specta::Type`）。
@@ -63,13 +63,13 @@ export const commands = {
 	requestPairing: (peerId: string, method: PairingMethod, addrs: string[] | null) => __TAURI_INVOKE<PairingResponse>("request_pairing", { peerId, method, addrs }),
 	/**
 	 *  处理收到的配对请求（接受/拒绝）
-		 *
+	 *
 	 *  接受配对后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
 	 */
 	respondPairingRequest: (pendingId: number, method: PairingMethod, response: PairingResponse) => __TAURI_INVOKE<null>("respond_pairing_request", { pendingId, method, response }),
 	/**
 	 *  取消与指定设备的配对（同步更新运行时状态）
-		 *
+	 *
 	 *  `peer_id` 为 base58 字符串，由命令内部解析为 libp2p `PeerId`。
 	 */
 	removePairedDevice: (peerId: string) => __TAURI_INVOKE<null>("remove_paired_device", { peerId }),
@@ -187,7 +187,7 @@ export type DeviceListResult = {
 
 /**
  *  可信设备接收策略。
-	 *
+ *
  *  字段保持 host-neutral：保存位置使用字符串表达的 host 路径，桌面端解释为绝对路径，
  *  移动端后续可解释为应用文档目录下的子路径。
  */

@@ -6,7 +6,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Trans } from "@lingui/react/macro";
 import { FolderOpen } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import { useShallow } from "zustand/react/shallow";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { homeDir } from "@tauri-apps/api/path";
@@ -14,15 +13,12 @@ import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
 import { toast } from "sonner";
 
 export function TransferSettingsSection() {
-  const { savePath, autoAccept, setTransferSavePath, setTransferAutoAccept } =
-    usePreferencesStore(
-      useShallow((state) => ({
-        savePath: state.transfer.savePath,
-        autoAccept: state.transfer.autoAccept,
-        setTransferSavePath: state.setTransferSavePath,
-        setTransferAutoAccept: state.setTransferAutoAccept,
-      })),
-    );
+  const { savePath, setTransferSavePath } = usePreferencesStore(
+    useShallow((state) => ({
+      savePath: state.transfer.savePath,
+      setTransferSavePath: state.setTransferSavePath,
+    })),
+  );
 
   const [displayPath, setDisplayPath] = useState("<未设置>");
 
@@ -60,13 +56,6 @@ export function TransferSettingsSection() {
     }
   }, [savePath, setTransferSavePath]);
 
-  const handleAutoAcceptChange = useCallback(
-    (checked: boolean) => {
-      setTransferAutoAccept(checked);
-    },
-    [setTransferAutoAccept],
-  );
-
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold text-foreground">
@@ -76,7 +65,7 @@ export function TransferSettingsSection() {
         <button
           type="button"
           onClick={handleChangePath}
-          className="flex w-full items-center justify-between border-b border-border p-4 text-left hover:bg-accent/50"
+          className="flex w-full items-center justify-between p-4 text-left hover:bg-accent/50"
         >
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium text-foreground">
@@ -93,19 +82,6 @@ export function TransferSettingsSection() {
             </span>
           </div>
         </button>
-
-        {/* 自动接收 */}
-        <div className="flex items-center justify-between p-4">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-foreground">
-              <Trans>自动接收</Trans>
-            </span>
-            <span className="text-xs text-muted-foreground">
-              <Trans>自动接受已配对设备的文件</Trans>
-            </span>
-          </div>
-          <Switch checked={autoAccept} onCheckedChange={handleAutoAcceptChange} />
-        </div>
       </div>
     </section>
   );
