@@ -61,6 +61,8 @@ pub struct MobileTransferOffer {
     pub device_name: String,
     pub files: Vec<MobileTransferOfferFile>,
     pub total_size: u64,
+    pub policy_action: Option<String>,
+    pub policy_reason: Option<String>,
 }
 
 impl From<TransferOfferEvent> for MobileTransferOffer {
@@ -71,6 +73,8 @@ impl From<TransferOfferEvent> for MobileTransferOffer {
             device_name: offer.device_name,
             files: offer.files.into_iter().map(Into::into).collect(),
             total_size: offer.total_size,
+            policy_action: offer.policy_action,
+            policy_reason: offer.policy_reason,
         }
     }
 }

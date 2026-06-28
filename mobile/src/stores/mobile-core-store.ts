@@ -1,6 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
   MobileDevice as DeviceInfo,
+  MobileDeviceReceivePolicy,
+  MobileDeviceTrustLevel,
   MobileNetworkStatus as NetworkStatus,
   MobileTransferFile as TransferFile,
 } from "react-native-swarmdrop-core";
@@ -25,6 +27,9 @@ export interface PairedDeviceSummary {
   os: string;
   platform: string;
   arch: string;
+  trustLevel?: DeviceInfo["trustLevel"] | null;
+  receivePolicy?: DeviceInfo["receivePolicy"] | null;
+  trustConfirmed?: boolean | null;
 }
 
 // Rust 端 networkStatus.status 是任意字符串,RN 用 union 类型,需要收敛
@@ -42,6 +47,9 @@ function toPairedSummaries(devices: DeviceInfo[]): PairedDeviceSummary[] {
       os: d.os,
       platform: d.platform,
       arch: d.arch,
+      trustLevel: d.trustLevel,
+      receivePolicy: d.receivePolicy,
+      trustConfirmed: d.trustConfirmed,
     }));
 }
 
@@ -70,6 +78,12 @@ type MobileCoreState = {
   startNode: () => Promise<void>;
   refreshDevices: () => Promise<void>;
   refreshNetworkStatus: () => Promise<void>;
+  updatePairedDevicePolicy: (
+    peerId: string,
+    trustLevel: MobileDeviceTrustLevel,
+    receivePolicy?: MobileDeviceReceivePolicy,
+  ) => Promise<DeviceInfo>;
+  removePairedDevice: (peerId: string) => Promise<void>;
   chooseFiles: () => Promise<void>;
   /** 选择整个文件夹 —— 递归扫描其下全部文件，保留嵌套 relativePath */
   chooseDirectory: () => Promise<void>;
@@ -214,6 +228,41 @@ export const useMobileCoreStore = create<MobileCoreState>()(
         }
       },
 
+      async updatePairedDevicePolicy(peerId, trustLevel, receivePolicy) {
+        try {
+          const core = await initMobileCore();
+          const updated = await core.updatePairedDevicePolicy(
+            peerId,
+            trustLevel,
+            receivePolicy,
+          );
+          set((state) => ({
+            devices: state.devices.map((device) =>
+              device.peerId === peerId ? { ...device, ...updated } : device,
+            ),
+          }));
+          await get().loadPairedDevicesCache();
+          return updated;
+        } catch (err) {
+          set({ error: errorMessage(err) });
+          throw err;
+        }
+      },
+
+      async removePairedDevice(peerId) {
+        try {
+          const core = await initMobileCore();
+          const devices = await core.removePairedDevice(peerId);
+          set((state) => ({
+            pairedDevicesCache: toPairedSummaries(devices),
+            devices: state.devices.filter((device) => device.peerId !== peerId),
+          }));
+        } catch (err) {
+          set({ error: errorMessage(err) });
+          throw err;
+        }
+      },
+
       async chooseFiles() {
         try {
           const files = await pickTransferFiles();
@@ -306,5 +355,8 @@ export function summariesToOfflineDevices(
     connection: undefined,
     latencyMs: undefined,
     isPaired: true,
+    trustLevel: s.trustLevel ?? undefined,
+    receivePolicy: s.receivePolicy ?? undefined,
+    trustConfirmed: s.trustConfirmed ?? undefined,
   }));
 }

@@ -109,7 +109,10 @@ export type MobileDevice = {
     status: string,
     connection?: string,
     latencyMs?: /*u64*/bigint,
-    isPaired: boolean
+    isPaired: boolean,
+    trustLevel?: MobileDeviceTrustLevel,
+    receivePolicy?: MobileDeviceReceivePolicy,
+    trustConfirmed?: boolean
 }
 
 /**
@@ -143,7 +146,10 @@ const FfiConverterTypeMobileDevice = (() => {
                 status: FfiConverterString.read(from),
                 connection: FfiConverterOptionalString.read(from),
                 latencyMs: FfiConverterOptionalUInt64.read(from),
-                isPaired: FfiConverterBool.read(from)
+                isPaired: FfiConverterBool.read(from),
+                trustLevel: FfiConverterOptionalTypeMobileDeviceTrustLevel.read(from),
+                receivePolicy: FfiConverterOptionalTypeMobileDeviceReceivePolicy.read(from),
+                trustConfirmed: FfiConverterOptionalBool.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
@@ -157,6 +163,9 @@ const FfiConverterTypeMobileDevice = (() => {
             FfiConverterOptionalString.write(value.connection, into);
             FfiConverterOptionalUInt64.write(value.latencyMs, into);
             FfiConverterBool.write(value.isPaired, into);
+            FfiConverterOptionalTypeMobileDeviceTrustLevel.write(value.trustLevel, into);
+            FfiConverterOptionalTypeMobileDeviceReceivePolicy.write(value.receivePolicy, into);
+            FfiConverterOptionalBool.write(value.trustConfirmed, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.peerId) +
@@ -168,7 +177,83 @@ const FfiConverterTypeMobileDevice = (() => {
             FfiConverterString.allocationSize(value.status) +
             FfiConverterOptionalString.allocationSize(value.connection) +
             FfiConverterOptionalUInt64.allocationSize(value.latencyMs) +
-            FfiConverterBool.allocationSize(value.isPaired);
+            FfiConverterBool.allocationSize(value.isPaired) +
+            FfiConverterOptionalTypeMobileDeviceTrustLevel.allocationSize(value.trustLevel) +
+            FfiConverterOptionalTypeMobileDeviceReceivePolicy.allocationSize(value.receivePolicy) +
+            FfiConverterOptionalBool.allocationSize(value.trustConfirmed);
+
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+export type MobileDeviceReceivePolicy = {
+    autoAccept: boolean,
+    requireConfirmation: boolean,
+    maxTransferBytes?: /*u64*/bigint,
+    allowDirectories: boolean,
+    allowRelayAutoAccept: boolean,
+    saveBehavior: MobileReceiveSaveBehavior,
+    defaultSaveLocation?: string,
+    allowMcpSendToDevice: boolean,
+    expiresAt?: /*i64*/bigint
+}
+
+/**
+ * Generated factory for {@link MobileDeviceReceivePolicy} record objects.
+ */
+export const MobileDeviceReceivePolicy = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileDeviceReceivePolicy, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileDeviceReceivePolicy>,
+
+    });
+})();
+
+const FfiConverterTypeMobileDeviceReceivePolicy = (() => {
+    type TypeName = MobileDeviceReceivePolicy;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                autoAccept: FfiConverterBool.read(from),
+                requireConfirmation: FfiConverterBool.read(from),
+                maxTransferBytes: FfiConverterOptionalUInt64.read(from),
+                allowDirectories: FfiConverterBool.read(from),
+                allowRelayAutoAccept: FfiConverterBool.read(from),
+                saveBehavior: FfiConverterTypeMobileReceiveSaveBehavior.read(from),
+                defaultSaveLocation: FfiConverterOptionalString.read(from),
+                allowMcpSendToDevice: FfiConverterBool.read(from),
+                expiresAt: FfiConverterOptionalInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterBool.write(value.autoAccept, into);
+            FfiConverterBool.write(value.requireConfirmation, into);
+            FfiConverterOptionalUInt64.write(value.maxTransferBytes, into);
+            FfiConverterBool.write(value.allowDirectories, into);
+            FfiConverterBool.write(value.allowRelayAutoAccept, into);
+            FfiConverterTypeMobileReceiveSaveBehavior.write(value.saveBehavior, into);
+            FfiConverterOptionalString.write(value.defaultSaveLocation, into);
+            FfiConverterBool.write(value.allowMcpSendToDevice, into);
+            FfiConverterOptionalInt64.write(value.expiresAt, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterBool.allocationSize(value.autoAccept) +
+            FfiConverterBool.allocationSize(value.requireConfirmation) +
+            FfiConverterOptionalUInt64.allocationSize(value.maxTransferBytes) +
+            FfiConverterBool.allocationSize(value.allowDirectories) +
+            FfiConverterBool.allocationSize(value.allowRelayAutoAccept) +
+            FfiConverterTypeMobileReceiveSaveBehavior.allocationSize(value.saveBehavior) +
+            FfiConverterOptionalString.allocationSize(value.defaultSaveLocation) +
+            FfiConverterBool.allocationSize(value.allowMcpSendToDevice) +
+            FfiConverterOptionalInt64.allocationSize(value.expiresAt);
 
         }
     };
@@ -1127,7 +1212,9 @@ export type MobileTransferOffer = {
     peerId: string,
     deviceName: string,
     files: Array<MobileTransferOfferFile>,
-    totalSize: /*u64*/bigint
+    totalSize: /*u64*/bigint,
+    policyAction?: string,
+    policyReason?: string
 }
 
 /**
@@ -1156,7 +1243,9 @@ const FfiConverterTypeMobileTransferOffer = (() => {
                 peerId: FfiConverterString.read(from),
                 deviceName: FfiConverterString.read(from),
                 files: FfiConverterArrayTypeMobileTransferOfferFile.read(from),
-                totalSize: FfiConverterUInt64.read(from)
+                totalSize: FfiConverterUInt64.read(from),
+                policyAction: FfiConverterOptionalString.read(from),
+                policyReason: FfiConverterOptionalString.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
@@ -1165,13 +1254,17 @@ const FfiConverterTypeMobileTransferOffer = (() => {
             FfiConverterString.write(value.deviceName, into);
             FfiConverterArrayTypeMobileTransferOfferFile.write(value.files, into);
             FfiConverterUInt64.write(value.totalSize, into);
+            FfiConverterOptionalString.write(value.policyAction, into);
+            FfiConverterOptionalString.write(value.policyReason, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.sessionId) +
             FfiConverterString.allocationSize(value.peerId) +
             FfiConverterString.allocationSize(value.deviceName) +
             FfiConverterArrayTypeMobileTransferOfferFile.allocationSize(value.files) +
-            FfiConverterUInt64.allocationSize(value.totalSize);
+            FfiConverterUInt64.allocationSize(value.totalSize) +
+            FfiConverterOptionalString.allocationSize(value.policyAction) +
+            FfiConverterOptionalString.allocationSize(value.policyReason);
 
         }
     };
@@ -3027,6 +3120,45 @@ const FfiConverterTypeMobileCoreEvent = (() => {
 
 
 
+export enum MobileDeviceTrustLevel {
+    Owned,
+    Collaborator,
+    Temporary,
+    Blocked
+}
+
+const FfiConverterTypeMobileDeviceTrustLevel = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileDeviceTrustLevel;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileDeviceTrustLevel.Owned;
+                case 2: return MobileDeviceTrustLevel.Collaborator;
+                case 3: return MobileDeviceTrustLevel.Temporary;
+                case 4: return MobileDeviceTrustLevel.Blocked;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileDeviceTrustLevel.Owned: return ordinalConverter.write(1, into);
+                case MobileDeviceTrustLevel.Collaborator: return ordinalConverter.write(2, into);
+                case MobileDeviceTrustLevel.Temporary: return ordinalConverter.write(3, into);
+                case MobileDeviceTrustLevel.Blocked: return ordinalConverter.write(4, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+
+
+
 export enum MobileInboxContentKind {
     Files,
     Text,
@@ -3092,6 +3224,36 @@ const FfiConverterTypeMobileInboxSourceKind = (() => {
                 case MobileInboxSourceKind.ShareCode: return ordinalConverter.write(2, into);
                 case MobileInboxSourceKind.Mcp: return ordinalConverter.write(3, into);
                 case MobileInboxSourceKind.Unknown: return ordinalConverter.write(4, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+
+
+
+export enum MobileReceiveSaveBehavior {
+    InboxAndDefaultSaveLocation
+}
+
+const FfiConverterTypeMobileReceiveSaveBehavior = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileReceiveSaveBehavior;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileReceiveSaveBehavior.InboxAndDefaultSaveLocation;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileReceiveSaveBehavior.InboxAndDefaultSaveLocation: return ordinalConverter.write(1, into);
             }
         }
         allocationSize(value: TypeName): number {
@@ -4689,6 +4851,8 @@ export interface MobileCoreLike {
      * 节点未启动时也可调,用于 UI 离线兜底视图。
      */
     listPairedDevices(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileDevice>>;
+    removePairedDevice(peerId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileDevice>>;
+    updatePairedDevicePolicy(peerId: string, trustLevel: MobileDeviceTrustLevel, receivePolicy: MobileDeviceReceivePolicy | undefined, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileDevice>;
     clearTransferActivity(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     deleteTransferRecord(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     getTransferProjection(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileTransferProjection | undefined>;
@@ -4832,6 +4996,62 @@ async  listPairedDevices(asyncOpts_?: { signal: AbortSignal }): Promise<Array<Mo
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
             /*liftFunc:*/ FfiConverterArrayTypeMobileDevice.lift.bind(FfiConverterArrayTypeMobileDevice),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
+async  removePairedDevice(peerId: string, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileDevice>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_paired_device(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(peerId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterArrayTypeMobileDevice.lift.bind(FfiConverterArrayTypeMobileDevice),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
+async  updatePairedDevicePolicy(peerId: string, trustLevel: MobileDeviceTrustLevel, receivePolicy: MobileDeviceReceivePolicy | undefined, asyncOpts_?: { signal: AbortSignal }): Promise<MobileDevice> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_update_paired_device_policy(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(peerId),FfiConverterTypeMobileDeviceTrustLevel.lower(trustLevel),FfiConverterOptionalTypeMobileDeviceReceivePolicy.lower(receivePolicy)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterTypeMobileDevice.lift.bind(FfiConverterTypeMobileDevice),
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -5665,6 +5885,10 @@ const uniffiTypeMobileCoreObjectFactory: UniffiObjectFactory<MobileCoreLike> = (
 const FfiConverterTypeMobileCore =  new FfiConverterObject(uniffiTypeMobileCoreObjectFactory);
 
 
+// FfiConverter for boolean | undefined
+const FfiConverterOptionalBool = new FfiConverterOptional(FfiConverterBool);
+
+
 // FfiConverter for ArrayBuffer | undefined
 const FfiConverterOptionalArrayBuffer = new FfiConverterOptional(FfiConverterArrayBuffer);
 
@@ -5675,6 +5899,10 @@ const FfiConverterOptionalFloat64 = new FfiConverterOptional(FfiConverterFloat64
 
 // FfiConverter for /*i64*/bigint | undefined
 const FfiConverterOptionalInt64 = new FfiConverterOptional(FfiConverterInt64);
+
+
+// FfiConverter for MobileDeviceReceivePolicy | undefined
+const FfiConverterOptionalTypeMobileDeviceReceivePolicy = new FfiConverterOptional(FfiConverterTypeMobileDeviceReceivePolicy);
 
 
 // FfiConverter for MobileInboxItemDetail | undefined
@@ -5749,6 +5977,10 @@ const FfiConverterArrayString = new FfiConverterArray(FfiConverterString);
 const FfiConverterArrayUInt32 = new FfiConverterArray(FfiConverterUInt32);
 
 
+// FfiConverter for MobileDeviceTrustLevel | undefined
+const FfiConverterOptionalTypeMobileDeviceTrustLevel = new FfiConverterOptional(FfiConverterTypeMobileDeviceTrustLevel);
+
+
 // FfiConverter for MobileSaveLocation | undefined
 const FfiConverterOptionalTypeMobileSaveLocation = new FfiConverterOptional(FfiConverterTypeMobileSaveLocation);
 
@@ -5786,6 +6018,12 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices() !== 29003) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device() !== 10087) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy() !== 38720) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity() !== 63110) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity");
@@ -5923,6 +6161,8 @@ export default Object.freeze({
     FfiConverterTypeMobileCore,
     FfiConverterTypeMobileCoreEvent,
     FfiConverterTypeMobileDevice,
+    FfiConverterTypeMobileDeviceReceivePolicy,
+    FfiConverterTypeMobileDeviceTrustLevel,
     FfiConverterTypeMobileFileMetadata,
     FfiConverterTypeMobileFileProgress,
     FfiConverterTypeMobileIdentity,
@@ -5938,6 +6178,7 @@ export default Object.freeze({
     FfiConverterTypeMobilePrepareProgress,
     FfiConverterTypeMobilePreparedFile,
     FfiConverterTypeMobilePreparedTransfer,
+    FfiConverterTypeMobileReceiveSaveBehavior,
     FfiConverterTypeMobileRemoteDeviceInfo,
     FfiConverterTypeMobileSaveLocation,
     FfiConverterTypeMobileSendResult,

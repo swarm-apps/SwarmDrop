@@ -39,6 +39,7 @@ import { getMobileCore } from "@/core/mobile-core";
 import { openSafTreeUri } from "@/core/saf-intent";
 import {
   projectionDirection,
+  projectionPolicyNote,
   projectionStatus,
   projectionTotalBytes,
   projectionTransferredBytes,
@@ -289,10 +290,10 @@ function TransferDetailContent({
             mono
           />
         ) : null}
-        {projection.policyReason ? (
+        {projectionPolicyNote(projection) ? (
           <DetailRow
-            label={<Trans>策略原因</Trans>}
-            value={projection.policyReason}
+            label={<Trans>设备策略</Trans>}
+            value={projectionPolicyNote(projection)}
           />
         ) : null}
       </View>

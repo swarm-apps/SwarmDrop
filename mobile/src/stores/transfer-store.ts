@@ -77,6 +77,8 @@ export const useTransferStore = create<TransferState & TransferActions>()(
           deviceName: offer.deviceName,
           totalSize: offer.totalSize,
           files: offer.files,
+          policyAction: offer.policyAction,
+          policyReason: offer.policyReason,
         },
         receivedAt: Date.now(),
       };

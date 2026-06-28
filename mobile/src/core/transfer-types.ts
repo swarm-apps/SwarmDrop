@@ -41,6 +41,8 @@ export interface TransferOfferQueueItem {
     deviceName: string;
     totalSize: bigint;
     files: MobileTransferOfferFile[];
+    policyAction?: string;
+    policyReason?: string;
   };
   receivedAt: number;
 }
@@ -178,10 +180,25 @@ export function projectionPolicyNote(
 ): string | null {
   if (projection.policyReason) {
     return projection.policyAction
-      ? `${projection.policyAction}: ${projection.policyReason}`
+      ? `${policyActionLabel(projection.policyAction)}：${projection.policyReason}`
       : projection.policyReason;
   }
-  return projection.policyAction ?? null;
+  return projection.policyAction
+    ? policyActionLabel(projection.policyAction)
+    : null;
+}
+
+export function policyActionLabel(action: string): string {
+  switch (action) {
+    case "auto_accept":
+      return "设备策略自动接收";
+    case "require_confirmation":
+      return "设备策略要求确认";
+    case "reject":
+      return "设备策略已拒绝";
+    default:
+      return action;
+  }
 }
 
 export function projectionTransferredBytes(

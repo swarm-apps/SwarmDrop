@@ -1,15 +1,31 @@
 import {
   BottomSheetBackdrop,
   type BottomSheetBackdropProps,
+  BottomSheetFooter,
+  type BottomSheetFooterProps,
   BottomSheetModal,
-  BottomSheetView,
+  BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { SendHorizontal, Shield, SlidersHorizontal } from "lucide-react-native";
-import { useCallback, useMemo, useRef } from "react";
-import { Pressable, View } from "react-native";
-import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
+import {
+  Ban,
+  Clock,
+  SendHorizontal,
+  Shield,
+  ShieldCheck,
+  ShieldX,
+  SlidersHorizontal,
+  Trash2,
+  UserCheck,
+  Users,
+} from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, View } from "react-native";
+import type {
+  MobileDevice as DeviceInfo,
+  MobileDeviceReceivePolicy,
+} from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import {
   AppScreen,
@@ -17,21 +33,35 @@ import {
   Surface,
 } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
-import { TrustBadge } from "@/components/trust-badge";
+import { formatBytes } from "@/components/transfer/shared";
+import { TrustBadge, TrustLabel } from "@/components/trust-badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
 import {
   canSendToDevice,
+  defaultReceivePolicy,
+  normalizePolicyForTrustLevel,
+  policyForDevice,
   policySummaryForDevice,
+  policyWithTrustDefaults,
   resolveTrustLevel,
+  type TrustLevel,
+  trustLevelToNative,
 } from "@/core/device-trust";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
+import { cn, errorMessage } from "@/lib/utils";
 import {
   summariesToOfflineDevices,
   useMobileCoreStore,
 } from "@/stores/mobile-core-store";
+
+const POLICY_SHEET_SNAP_POINTS = ["72%", "90%"];
+
+type SavingAction = "save" | "block" | "unblock" | "unpair" | null;
 
 export default function DeviceDetailScreen() {
   const { t } = useLingui();
@@ -39,11 +69,24 @@ export default function DeviceDetailScreen() {
   const colors = useThemeColors();
   const { peerId } = useLocalSearchParams<{ peerId: string }>();
   const policySheetRef = useRef<BottomSheetModal>(null);
+  const [draftLevel, setDraftLevel] = useState<TrustLevel>("collaborator");
+  const [draftPolicy, setDraftPolicy] = useState<MobileDeviceReceivePolicy>(
+    () => defaultReceivePolicy("collaborator"),
+  );
+  const [savingAction, setSavingAction] = useState<SavingAction>(null);
+  const [unpairOpen, setUnpairOpen] = useState(false);
 
-  const { devices, pairedDevicesCache } = useMobileCoreStore(
+  const {
+    devices,
+    pairedDevicesCache,
+    updatePairedDevicePolicy,
+    removePairedDevice,
+  } = useMobileCoreStore(
     useShallow((s) => ({
       devices: s.devices,
       pairedDevicesCache: s.pairedDevicesCache,
+      updatePairedDevicePolicy: s.updatePairedDevicePolicy,
+      removePairedDevice: s.removePairedDevice,
     })),
   );
 
@@ -58,6 +101,12 @@ export default function DeviceDetailScreen() {
     );
   }, [peerId, devices, pairedDevicesCache]);
 
+  useEffect(() => {
+    if (!device) return;
+    setDraftLevel(resolveTrustLevel(device));
+    setDraftPolicy(policyForDevice(device));
+  }, [device]);
+
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
       <BottomSheetBackdrop
@@ -69,6 +118,103 @@ export default function DeviceDetailScreen() {
       />
     ),
     [],
+  );
+
+  const openPolicySheet = useCallback(() => {
+    if (!device) return;
+    setDraftLevel(resolveTrustLevel(device));
+    setDraftPolicy(policyForDevice(device));
+    policySheetRef.current?.present();
+  }, [device]);
+
+  const savePolicy = useCallback(
+    async (
+      nextLevel: TrustLevel,
+      nextPolicy: MobileDeviceReceivePolicy,
+      action: Exclude<SavingAction, null>,
+    ) => {
+      if (!device || savingAction !== null) return;
+      setSavingAction(action);
+      try {
+        const normalizedPolicy = normalizePolicyForTrustLevel(
+          nextLevel,
+          nextPolicy,
+        );
+        await updatePairedDevicePolicy(
+          device.peerId,
+          trustLevelToNative(nextLevel),
+          normalizedPolicy,
+        );
+        setDraftLevel(nextLevel);
+        setDraftPolicy(normalizedPolicy);
+        toast.success(t`设备策略已更新`);
+        policySheetRef.current?.dismiss();
+      } catch (err) {
+        toast.error(t`策略保存失败`, errorMessage(err));
+      } finally {
+        setSavingAction(null);
+      }
+    },
+    [device, savingAction, t, updatePairedDevicePolicy],
+  );
+
+  const handleSave = useCallback(() => {
+    void savePolicy(draftLevel, draftPolicy, "save");
+  }, [draftLevel, draftPolicy, savePolicy]);
+
+  const handleBlock = useCallback(() => {
+    void savePolicy("blocked", defaultReceivePolicy("blocked"), "block");
+  }, [savePolicy]);
+
+  const handleUnblock = useCallback(() => {
+    void savePolicy(
+      "collaborator",
+      defaultReceivePolicy("collaborator"),
+      "unblock",
+    );
+  }, [savePolicy]);
+
+  const handleUnpair = useCallback(async () => {
+    if (!device || savingAction !== null) return;
+    setSavingAction("unpair");
+    try {
+      await removePairedDevice(device.peerId);
+      setUnpairOpen(false);
+      policySheetRef.current?.dismiss();
+      toast.success(t`已取消配对`);
+      router.back();
+    } catch (err) {
+      toast.error(t`取消配对失败`, errorMessage(err));
+    } finally {
+      setSavingAction(null);
+    }
+  }, [device, removePairedDevice, router, savingAction, t]);
+
+  const renderPolicyFooter = useCallback(
+    (props: BottomSheetFooterProps) => (
+      <BottomSheetFooter
+        {...props}
+        bottomInset={0}
+        style={{ backgroundColor: colors.card }}
+      >
+        <PolicyActionFooter
+          draftLevel={draftLevel}
+          savingAction={savingAction}
+          onSave={handleSave}
+          onBlock={handleBlock}
+          onUnblock={handleUnblock}
+          onUnpair={() => setUnpairOpen(true)}
+        />
+      </BottomSheetFooter>
+    ),
+    [
+      colors.card,
+      draftLevel,
+      handleBlock,
+      handleSave,
+      handleUnblock,
+      savingAction,
+    ],
   );
 
   if (!device) {
@@ -126,7 +272,7 @@ export default function DeviceDetailScreen() {
             <TrustBadge level={trustLevel} />
           </View>
 
-          <View className="grid gap-2">
+          <View className="gap-2">
             <InfoRow
               label={<Trans>连接状态</Trans>}
               value={
@@ -157,16 +303,30 @@ export default function DeviceDetailScreen() {
             </Text>
           </View>
           <Text className="text-[12px] text-muted-foreground">
-            {policy.note === "blocked" ? (
-              <Trans>该设备当前被阻止，不能发起传输。</Trans>
-            ) : (
-              <Trans>
-                该设备暂按协作设备处理。自动接收、询问和阻止策略会在后续同步。
-              </Trans>
-            )}
+            <PolicyHeadline level={trustLevel} policy={policy.policy} />
           </Text>
+          <View className="gap-2 rounded-lg bg-muted px-3.5 py-3">
+            <InfoRow
+              label={<Trans>接收方式</Trans>}
+              value={<PolicyModeLabel level={trustLevel} />}
+            />
+            <InfoRow
+              label={<Trans>文件夹</Trans>}
+              value={
+                policy.policy.allowDirectories ? (
+                  <Trans>允许</Trans>
+                ) : (
+                  <Trans>不允许</Trans>
+                )
+              }
+            />
+            <InfoRow
+              label={<Trans>保存位置</Trans>}
+              value={formatSaveLocation(policy.policy.defaultSaveLocation)}
+            />
+          </View>
           <Pressable
-            onPress={() => policySheetRef.current?.present()}
+            onPress={openPolicySheet}
             accessibilityRole="button"
             testID="device-policy-entry"
             className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border active:opacity-70"
@@ -192,6 +352,7 @@ export default function DeviceDetailScreen() {
             } as never);
           }}
           accessibilityRole="button"
+          testID="device-detail-send-button"
           disabled={!sendable}
           className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
@@ -213,39 +374,417 @@ export default function DeviceDetailScreen() {
 
       <BottomSheetModal
         ref={policySheetRef}
-        enableDynamicSizing
+        snapPoints={POLICY_SHEET_SNAP_POINTS}
+        enableDynamicSizing={false}
         enablePanDownToClose
         backdropComponent={renderBackdrop}
+        footerComponent={renderPolicyFooter}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.border }}
       >
-        <BottomSheetView>
-          <View className="gap-4 px-5 pt-2 pb-6" testID="device-policy-sheet">
-            <View className="items-center gap-2">
-              <View className="size-12 items-center justify-center rounded-full bg-primary/10">
-                <Shield color={colors.primary} size={23} />
-              </View>
-              <Text className="text-[16px] font-semibold text-foreground">
-                <Trans>设备策略</Trans>
-              </Text>
-              <Text className="text-center text-[12px] text-muted-foreground">
-                <Trans>
-                  这里会承载自动接收、询问、阻止和信任模板。当前版本先保留入口和容器。
-                </Trans>
-              </Text>
-            </View>
-            <View className="rounded-lg bg-muted px-3.5 py-3">
-              <Text className="text-[12px] text-muted-foreground">
-                <Trans>
-                  持久化策略编辑将在 add-mobile-device-trust-policies 中接入。
-                </Trans>
-              </Text>
-            </View>
-          </View>
-        </BottomSheetView>
+        <BottomSheetScrollView
+          testID="device-policy-sheet"
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingTop: 8,
+            paddingBottom: 142,
+          }}
+        >
+          <PolicyEditor
+            deviceName={displayName}
+            draftLevel={draftLevel}
+            draftPolicy={draftPolicy}
+            onLevelChange={(level) => {
+              setDraftLevel(level);
+              setDraftPolicy((current) =>
+                policyWithTrustDefaults(level, current),
+              );
+            }}
+            onPolicyChange={setDraftPolicy}
+          />
+        </BottomSheetScrollView>
       </BottomSheetModal>
+
+      <ConfirmDialog
+        open={unpairOpen}
+        onOpenChange={setUnpairOpen}
+        title={<Trans>取消配对</Trans>}
+        description={
+          <Trans>取消后需要重新配对，才能再次向这台设备发送或接收文件。</Trans>
+        }
+        actionLabel={<Trans>取消配对</Trans>}
+        destructive
+        onAction={handleUnpair}
+        contentTestID="device-unpair-dialog"
+        actionTestID="device-unpair-confirm-button"
+      />
     </AppScreen>
   );
+}
+
+function PolicyEditor({
+  deviceName,
+  draftLevel,
+  draftPolicy,
+  onLevelChange,
+  onPolicyChange,
+}: {
+  deviceName: string;
+  draftLevel: TrustLevel;
+  draftPolicy: MobileDeviceReceivePolicy;
+  onLevelChange: (level: TrustLevel) => void;
+  onPolicyChange: (policy: MobileDeviceReceivePolicy) => void;
+}) {
+  const colors = useThemeColors();
+  const blocked = draftLevel === "blocked";
+
+  const patchPolicy = (patch: Partial<MobileDeviceReceivePolicy>) => {
+    onPolicyChange({ ...draftPolicy, ...patch });
+  };
+
+  return (
+    <View className="gap-5">
+      <View className="items-center gap-2">
+        <View className="size-12 items-center justify-center rounded-full bg-primary/10">
+          <Shield color={colors.primary} size={23} />
+        </View>
+        <View className="items-center gap-1">
+          <Text className="text-[16px] font-semibold text-foreground">
+            <Trans>设备策略</Trans>
+          </Text>
+          <Text
+            className="max-w-[280px] text-center text-[12px] text-muted-foreground"
+            numberOfLines={2}
+          >
+            {deviceName}
+          </Text>
+        </View>
+      </View>
+
+      <View className="gap-2">
+        <Text className="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <Trans>信任级别</Trans>
+        </Text>
+        <View className="gap-2">
+          {(["owned", "collaborator", "temporary", "blocked"] as const).map(
+            (level) => (
+              <TrustOption
+                key={level}
+                level={level}
+                selected={draftLevel === level}
+                onPress={() => onLevelChange(level)}
+              />
+            ),
+          )}
+        </View>
+      </View>
+
+      <View className="gap-2">
+        <Text className="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <Trans>接收策略</Trans>
+        </Text>
+        <View className="overflow-hidden rounded-xl border border-border bg-card">
+          <PolicySwitch
+            label={<Trans>自动接收</Trans>}
+            description={<Trans>本人设备可直接进入收件箱和默认保存位置</Trans>}
+            checked={draftPolicy.autoAccept && !draftPolicy.requireConfirmation}
+            disabled={blocked}
+            testID="device-policy-auto-accept-switch"
+            onCheckedChange={(checked) =>
+              patchPolicy({
+                autoAccept: checked,
+                requireConfirmation: checked
+                  ? false
+                  : draftPolicy.requireConfirmation,
+              })
+            }
+          />
+          <Divider />
+          <PolicySwitch
+            label={<Trans>需要确认</Trans>}
+            description={<Trans>收到文件时先弹出确认，不直接接收</Trans>}
+            checked={draftPolicy.requireConfirmation}
+            disabled={blocked}
+            testID="device-policy-confirm-switch"
+            onCheckedChange={(checked) =>
+              patchPolicy({
+                requireConfirmation: checked,
+                autoAccept: checked ? false : draftPolicy.autoAccept,
+              })
+            }
+          />
+          <Divider />
+          <PolicySwitch
+            label={<Trans>允许文件夹</Trans>}
+            description={<Trans>关闭后只接收单个文件或文件集合</Trans>}
+            checked={draftPolicy.allowDirectories}
+            disabled={blocked}
+            testID="device-policy-directories-switch"
+            onCheckedChange={(checked) =>
+              patchPolicy({ allowDirectories: checked })
+            }
+          />
+          <Divider />
+          <PolicySwitch
+            label={<Trans>允许中继自动接收</Trans>}
+            description={<Trans>仅在自动接收开启时生效</Trans>}
+            checked={draftPolicy.allowRelayAutoAccept}
+            disabled={blocked || !draftPolicy.autoAccept}
+            testID="device-policy-relay-switch"
+            onCheckedChange={(checked) =>
+              patchPolicy({ allowRelayAutoAccept: checked })
+            }
+          />
+        </View>
+      </View>
+
+      <View className="gap-2 rounded-xl bg-muted px-3.5 py-3">
+        <InfoRow
+          label={<Trans>最大大小</Trans>}
+          value={
+            draftPolicy.maxTransferBytes != null ? (
+              formatBytes(draftPolicy.maxTransferBytes)
+            ) : (
+              <Trans>不限制</Trans>
+            )
+          }
+        />
+        <InfoRow
+          label={<Trans>有效期</Trans>}
+          value={formatExpiresAt(draftPolicy.expiresAt)}
+        />
+        <InfoRow
+          label={<Trans>保存位置</Trans>}
+          value={formatSaveLocation(draftPolicy.defaultSaveLocation)}
+        />
+      </View>
+    </View>
+  );
+}
+
+function PolicyActionFooter({
+  draftLevel,
+  savingAction,
+  onSave,
+  onBlock,
+  onUnblock,
+  onUnpair,
+}: {
+  draftLevel: TrustLevel;
+  savingAction: SavingAction;
+  onSave: () => void;
+  onBlock: () => void;
+  onUnblock: () => void;
+  onUnpair: () => void;
+}) {
+  const colors = useThemeColors();
+  const blocked = draftLevel === "blocked";
+
+  return (
+    <View className="gap-2.5 border-t border-border bg-card px-5 pt-3 pb-4">
+      <Pressable
+        onPress={onSave}
+        accessibilityRole="button"
+        testID="device-policy-save-button"
+        disabled={savingAction !== null}
+        className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
+      >
+        {savingAction === "save" ? (
+          <ActivityIndicator color={colors.background} size="small" />
+        ) : (
+          <ShieldCheck color={colors.background} size={17} />
+        )}
+        <Text className="text-[14px] font-semibold text-primary-foreground">
+          <Trans>保存策略</Trans>
+        </Text>
+      </Pressable>
+
+      <View className="flex-row gap-2.5">
+        {blocked ? (
+          <Pressable
+            onPress={onUnblock}
+            accessibilityRole="button"
+            testID="device-policy-unblock-button"
+            disabled={savingAction !== null}
+            className="min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
+          >
+            {savingAction === "unblock" ? (
+              <ActivityIndicator color={colors.foreground} size="small" />
+            ) : (
+              <Users color={colors.foreground} size={16} />
+            )}
+            <Text className="text-[13px] font-semibold text-foreground">
+              <Trans>解除阻止</Trans>
+            </Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={onBlock}
+            accessibilityRole="button"
+            testID="device-policy-block-button"
+            disabled={savingAction !== null}
+            className="min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-card active:opacity-70 disabled:opacity-50"
+          >
+            {savingAction === "block" ? (
+              <ActivityIndicator color={colors.destructive} size="small" />
+            ) : (
+              <Ban color={colors.destructive} size={16} />
+            )}
+            <Text className="text-[13px] font-semibold text-destructive">
+              <Trans>阻止设备</Trans>
+            </Text>
+          </Pressable>
+        )}
+
+        <Pressable
+          onPress={onUnpair}
+          accessibilityRole="button"
+          testID="device-policy-unpair-button"
+          disabled={savingAction !== null}
+          className="min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
+        >
+          <Trash2 color={colors.mutedForeground} size={16} />
+          <Text className="text-[13px] font-semibold text-foreground">
+            <Trans>取消配对</Trans>
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function TrustOption({
+  level,
+  selected,
+  onPress,
+}: {
+  level: TrustLevel;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+  const Icon = trustIcon(level);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      testID={`device-policy-trust-${level}`}
+      className={cn(
+        "min-h-14 flex-row items-center gap-3 rounded-xl border px-3.5 py-3 active:opacity-70",
+        selected ? "border-primary bg-primary/10" : "border-border bg-card",
+      )}
+    >
+      <View
+        className={cn(
+          "size-9 items-center justify-center rounded-full",
+          selected ? "bg-primary/15" : "bg-muted",
+        )}
+      >
+        <Icon
+          color={selected ? colors.primary : colors.mutedForeground}
+          size={18}
+        />
+      </View>
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="text-[14px] font-semibold text-foreground">
+          <TrustLabel level={level} />
+        </Text>
+        <Text className="text-[11px] text-muted-foreground" numberOfLines={2}>
+          <TrustDescription level={level} />
+        </Text>
+      </View>
+      {selected ? <ShieldCheck color={colors.primary} size={18} /> : null}
+    </Pressable>
+  );
+}
+
+function PolicySwitch({
+  label,
+  description,
+  checked,
+  disabled,
+  testID,
+  onCheckedChange,
+}: {
+  label: React.ReactNode;
+  description: React.ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  testID: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <View className="min-h-16 flex-row items-center gap-3 px-3.5 py-3">
+      <View className="flex-1 gap-0.5">
+        <Text className="text-[14px] text-foreground">{label}</Text>
+        <Text className="text-[11px] text-muted-foreground">{description}</Text>
+      </View>
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+        testID={testID}
+      />
+    </View>
+  );
+}
+
+function PolicyHeadline({
+  level,
+  policy,
+}: {
+  level: TrustLevel;
+  policy: MobileDeviceReceivePolicy;
+}) {
+  if (level === "blocked") {
+    return <Trans>该设备已被阻止，发送入口和自动接收都会关闭。</Trans>;
+  }
+  if (level === "temporary") {
+    return <Trans>临时设备默认需要确认，并限制文件夹和自动接收。</Trans>;
+  }
+  if (policy.autoAccept && !policy.requireConfirmation) {
+    return <Trans>本人设备会自动接收，并保存到收件箱和默认位置。</Trans>;
+  }
+  return <Trans>协作设备收到文件前需要手动确认。</Trans>;
+}
+
+function PolicyModeLabel({ level }: { level: TrustLevel }) {
+  switch (level) {
+    case "owned":
+      return <Trans>自动接收</Trans>;
+    case "temporary":
+      return <Trans>临时确认</Trans>;
+    case "blocked":
+      return <Trans>已阻止</Trans>;
+    default:
+      return <Trans>手动确认</Trans>;
+  }
+}
+
+function TrustDescription({ level }: { level: TrustLevel }) {
+  switch (level) {
+    case "owned":
+      return <Trans>自己的设备，可自动接收入站文件。</Trans>;
+    case "temporary":
+      return <Trans>短期授权，默认一天后过期。</Trans>;
+    case "blocked":
+      return <Trans>阻止发送和入站接收。</Trans>;
+    default:
+      return <Trans>默认级别，收到文件前需要确认。</Trans>;
+  }
+}
+
+function trustIcon(level: TrustLevel) {
+  switch (level) {
+    case "owned":
+      return UserCheck;
+    case "temporary":
+      return Clock;
+    case "blocked":
+      return ShieldX;
+    default:
+      return Users;
+  }
 }
 
 function InfoRow({
@@ -272,4 +811,26 @@ function InfoRow({
       </Text>
     </View>
   );
+}
+
+function Divider() {
+  return <View className="h-px bg-border" />;
+}
+
+function formatSaveLocation(uri?: string | null): React.ReactNode {
+  if (!uri) return <Trans>收件箱</Trans>;
+  try {
+    const decoded = decodeURIComponent(uri.replace(/\/$/, ""));
+    const segments = decoded.split("/");
+    return segments[segments.length - 1] || <Trans>默认位置</Trans>;
+  } catch {
+    return uri;
+  }
+}
+
+function formatExpiresAt(expiresAt?: bigint | null): React.ReactNode {
+  if (expiresAt == null) return <Trans>不限制</Trans>;
+  const ms = Number(expiresAt);
+  if (!Number.isFinite(ms) || ms <= 0) return <Trans>不限制</Trans>;
+  return new Date(ms).toLocaleString();
 }

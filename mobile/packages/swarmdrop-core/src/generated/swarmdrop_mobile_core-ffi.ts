@@ -24,6 +24,8 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(ptr: bigint, filter: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(ptr: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_paired_device(ptr: bigint, peerId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_update_paired_device_policy(ptr: bigint, peerId: Uint8Array, trustLevel: Uint8Array, receivePolicy: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_clear_transfer_activity(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_transfer_record(ptr: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_projection(ptr: bigint, sessionId: Uint8Array): bigint;
@@ -123,6 +125,8 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_record(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_projection(): number;

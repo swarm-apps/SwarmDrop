@@ -14,12 +14,18 @@ interface DeviceCardProps {
   device: DeviceInfo;
   onPress?: (device: DeviceInfo) => void;
   onSend?: (device: DeviceInfo) => void;
+  testID?: string;
 }
 
 /**
  * 主屏 2 列 grid 设备卡片。整张进入详情;发送是独立操作。
  */
-export function DeviceCard({ device, onPress, onSend }: DeviceCardProps) {
+export function DeviceCard({
+  device,
+  onPress,
+  onSend,
+  testID,
+}: DeviceCardProps) {
   const colors = useThemeColors();
   const { t } = useLingui();
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
@@ -33,6 +39,7 @@ export function DeviceCard({ device, onPress, onSend }: DeviceCardProps) {
       onPress={() => onPress?.(device)}
       accessibilityRole="button"
       accessibilityLabel={displayName}
+      testID={testID}
       className={cn(
         "flex-1 gap-3 rounded-lg border border-border bg-card p-3.5",
         "active:opacity-70",

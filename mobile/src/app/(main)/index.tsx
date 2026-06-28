@@ -265,10 +265,11 @@ function DeviceGrid({
     <View className="gap-2.5">
       {rows.map((row, idx) => (
         <View key={String(idx)} className="flex-row gap-2.5">
-          {row.map((device) => (
+          {row.map((device, colIdx) => (
             <DeviceCard
               key={device.peerId}
               device={device}
+              testID={`device-card-${idx * 2 + colIdx}`}
               onPress={onPress}
               onSend={onSend}
             />

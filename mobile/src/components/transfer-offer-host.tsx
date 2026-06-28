@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import { Download, File as FileIcon } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -10,17 +10,23 @@ import {
   ScrollView,
   View,
 } from "react-native";
+import { useShallow } from "zustand/react/shallow";
+import { TrustBadge } from "@/components/trust-badge";
 import {
   AlertDialog,
   AlertDialogContent,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Text } from "@/components/ui/text";
+import { resolveTrustLevel } from "@/core/device-trust";
 import { getMobileCore } from "@/core/mobile-core";
 import { resolveReceiveLocation } from "@/core/paths";
+import { policyActionLabel } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { useMobileCoreStore } from "@/stores/mobile-core-store";
-import { usePreferencesStore } from "@/stores/preferences-store";
+import {
+  summariesToOfflineDevices,
+  useMobileCoreStore,
+} from "@/stores/mobile-core-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export function TransferOfferHost() {
@@ -31,13 +37,26 @@ export function TransferOfferHost() {
   const dismiss = useTransferStore((s) => s.dismissOffer);
   const loadProjection = useTransferStore((s) => s.loadProjection);
   const setError = useTransferStore((s) => s.setError);
-  const autoAccept = usePreferencesStore((s) => s.autoAccept);
-  // pairedDevicesCache 离线也保留 keychain 里的 paired peer 列表 ——
-  // 自动接收判定不需要 NetManager 在 running 状态。
-  const pairedPeerIds = useMobileCoreStore((s) => s.pairedDevicesCache);
+  const { devices, pairedDevicesCache } = useMobileCoreStore(
+    useShallow((s) => ({
+      devices: s.devices,
+      pairedDevicesCache: s.pairedDevicesCache,
+    })),
+  );
   const [busy, setBusy] = useState<"accepting" | "rejecting" | null>(null);
 
   const open = current !== null;
+
+  const pairedDevice = useMemo(() => {
+    if (!current) return null;
+    return (
+      devices.find((device) => device.peerId === current.offer.peerId) ??
+      summariesToOfflineDevices(pairedDevicesCache).find(
+        (device) => device.peerId === current.offer.peerId,
+      ) ??
+      null
+    );
+  }, [current, devices, pairedDevicesCache]);
 
   const accept = useCallback(async () => {
     if (!current || busy !== null) return;
@@ -73,27 +92,17 @@ export function TransferOfferHost() {
     }
   }, [busy, current, dismiss]);
 
-  // 自动接收：autoAccept=true 且对端在已配对列表里时，直接触发 accept。
-  // 用 ref 记录已经自动接受过的 sessionId，避免 React StrictMode / 重渲染
-  // 导致同一个 offer 被 accept 多次（accept 是幂等的，但仍然会重复跳转）。
-  const autoAcceptedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!current || busy !== null) return;
-    if (!autoAccept) return;
-    if (autoAcceptedRef.current.has(current.id)) return;
-    const isPaired = pairedPeerIds.some(
-      (p) => p.peerId === current.offer.peerId,
-    );
-    if (!isPaired) return;
-    autoAcceptedRef.current.add(current.id);
-    void accept();
-  }, [current, busy, autoAccept, pairedPeerIds, accept]);
-
   if (!open || !current) return null;
 
   const totalLabel = formatBytes(Number(current.offer.totalSize));
   const previewFiles = current.offer.files.slice(0, 5);
   const remainingCount = current.offer.files.length - previewFiles.length;
+  const trustLevel = pairedDevice ? resolveTrustLevel(pairedDevice) : null;
+  const policyNote = offerPolicyNote(
+    current.offer.policyAction,
+    current.offer.policyReason,
+  );
+  const rejectedByPolicy = current.offer.policyAction === "reject";
 
   return (
     <AlertDialog open={open}>
@@ -121,13 +130,35 @@ export function TransferOfferHost() {
           </View>
           <View className="flex-1 gap-0.5">
             <AlertDialogTitle className="text-foreground text-base font-bold">
-              <Trans>收到文件</Trans>
+              {rejectedByPolicy ? (
+                <Trans>已拒绝文件</Trans>
+              ) : (
+                <Trans>收到文件</Trans>
+              )}
             </AlertDialogTitle>
             <Text className="text-xs text-muted-foreground" numberOfLines={1}>
               {current.offer.deviceName} · {current.offer.files.length}{" "}
               <Trans>个文件</Trans> · {totalLabel}
             </Text>
           </View>
+        </View>
+
+        <View className="gap-2 rounded-xl bg-muted px-3.5 py-3">
+          <View className="flex-row items-center justify-between gap-3">
+            <Text className="text-[12px] font-semibold text-foreground">
+              <Trans>设备策略</Trans>
+            </Text>
+            {trustLevel ? (
+              <TrustBadge level={trustLevel} compact />
+            ) : (
+              <Text className="text-[11px] text-muted-foreground">
+                <Trans>未配对</Trans>
+              </Text>
+            )}
+          </View>
+          <Text className="text-[12px] text-muted-foreground">
+            {policyNote ?? <Trans>此设备需要手动确认后才会开始接收。</Trans>}
+          </Text>
         </View>
 
         <ScrollView
@@ -156,41 +187,66 @@ export function TransferOfferHost() {
         </ScrollView>
 
         <View className="gap-2.5">
-          <Pressable
-            onPress={accept}
-            disabled={busy !== null}
-            accessibilityRole="button"
-            accessibilityLabel={t`接收`}
-            className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-80 disabled:opacity-50"
-          >
-            {busy === "accepting" ? (
-              <ActivityIndicator color={colors.background} />
-            ) : (
-              <Download color={colors.background} size={16} />
-            )}
-            <Text className="text-base font-semibold text-primary-foreground">
-              {busy === "accepting" ? (
-                <Trans>接收中...</Trans>
-              ) : (
-                <Trans>接收</Trans>
-              )}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={reject}
-            disabled={busy !== null}
-            accessibilityRole="button"
-            accessibilityLabel={t`拒绝`}
-            className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-80 disabled:opacity-50"
-          >
-            <Text className="text-base font-medium text-foreground">
-              <Trans>拒绝</Trans>
-            </Text>
-          </Pressable>
+          {rejectedByPolicy ? (
+            <Pressable
+              onPress={() => dismiss(current.id)}
+              accessibilityRole="button"
+              accessibilityLabel={t`知道了`}
+              className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-80"
+            >
+              <Text className="text-base font-medium text-foreground">
+                <Trans>知道了</Trans>
+              </Text>
+            </Pressable>
+          ) : (
+            <>
+              <Pressable
+                onPress={accept}
+                disabled={busy !== null}
+                accessibilityRole="button"
+                accessibilityLabel={t`接收`}
+                className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-80 disabled:opacity-50"
+              >
+                {busy === "accepting" ? (
+                  <ActivityIndicator color={colors.background} />
+                ) : (
+                  <Download color={colors.background} size={16} />
+                )}
+                <Text className="text-base font-semibold text-primary-foreground">
+                  {busy === "accepting" ? (
+                    <Trans>接收中...</Trans>
+                  ) : (
+                    <Trans>接收</Trans>
+                  )}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={reject}
+                disabled={busy !== null}
+                accessibilityRole="button"
+                accessibilityLabel={t`拒绝`}
+                className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-80 disabled:opacity-50"
+              >
+                <Text className="text-base font-medium text-foreground">
+                  <Trans>拒绝</Trans>
+                </Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </AlertDialogContent>
     </AlertDialog>
   );
+}
+
+function offerPolicyNote(
+  action?: string | null,
+  reason?: string | null,
+): string | null {
+  if (reason) {
+    return action ? `${policyActionLabel(action)}：${reason}` : reason;
+  }
+  return action ? policyActionLabel(action) : null;
 }
 
 function formatBytes(bytes: number): string {

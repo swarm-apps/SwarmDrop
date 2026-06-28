@@ -36,6 +36,7 @@ import {
   ProgressBar,
 } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
+import { canSendToDevice, resolveTrustLevel } from "@/core/device-trust";
 import { subscribeCoreEvents } from "@/core/event-bus";
 import {
   pickFromMediaLibrary,
@@ -231,7 +232,7 @@ export default function SendPreparePage() {
     );
   }
 
-  const isOnline = device.status === "online";
+  const sendable = canSendToDevice(device);
 
   return (
     <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
@@ -298,7 +299,7 @@ export default function SendPreparePage() {
               <Pressable
                 onPress={onSend}
                 accessibilityRole="button"
-                disabled={sending || selectedFiles.length === 0 || !isOnline}
+                disabled={sending || selectedFiles.length === 0 || !sendable}
                 className={cn(
                   "h-10 min-w-25 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary px-4",
                   "active:opacity-70 disabled:opacity-50",
@@ -331,6 +332,7 @@ function DeviceHeader({
   const colors = useThemeColors();
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
   const isOnline = device.status === "online";
+  const trustLevel = resolveTrustLevel(device);
 
   return (
     <View className="flex-row items-center gap-3 rounded-xl bg-primary/10 p-3.5">
@@ -345,7 +347,9 @@ function DeviceHeader({
           {deviceDisplayName(device)}
         </Text>
         <Text className="text-[11px] text-muted-foreground">
-          {isOnline ? (
+          {trustLevel === "blocked" ? (
+            <Trans>已阻止 · 不可发送</Trans>
+          ) : isOnline ? (
             <Trans>在线 · 可接收</Trans>
           ) : runtimeState !== "running" ? (
             <Trans>节点未启动</Trans>

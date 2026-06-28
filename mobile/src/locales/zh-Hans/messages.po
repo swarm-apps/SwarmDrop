@@ -13,18 +13,18 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/components/transfer-offer-host.tsx:153
+#: src/components/transfer-offer-host.tsx:184
 msgid "...还有 {remainingCount} 个文件"
 msgstr "...还有 {remainingCount} 个文件"
 
 #. placeholder {0}: selectedFiles.length
 #. placeholder {1}: formatBytes(totalSize)
-#: src/app/send/select-device.tsx:277
+#: src/app/send/select-device.tsx:278
 msgid "{0} 个文件 · {1}"
 msgstr "{0} 个文件 · {1}"
 
 #. placeholder {0}: formatMmss(remaining)
-#: src/components/pairing-sheet.tsx:336
+#: src/components/pairing-sheet.tsx:339
 msgid "{0} 后过期"
 msgstr "{0} 后过期"
 
@@ -77,7 +77,7 @@ msgstr "NAT 状态"
 msgid "P2P 直连,跨网络也能传输"
 msgstr "P2P 直连,跨网络也能传输"
 
-#: src/app/device/[peerId].tsx:145
+#: src/app/device/[peerId].tsx:258
 #: src/components/node-control-sheet.tsx:156
 msgid "Peer ID"
 msgstr "Peer ID"
@@ -90,18 +90,28 @@ msgstr "一切就绪"
 msgid "上次打开"
 msgstr "上次打开"
 
+#: src/app/device/[peerId].tsx:286
+msgid "不允许"
+msgstr "不允许"
+
+#: src/app/device/[peerId].tsx:529
+#: src/app/device/[peerId].tsx:792
+#: src/app/device/[peerId].tsx:794
+msgid "不限制"
+msgstr "不限制"
+
 #: src/app/(main)/inbox.tsx:109
 msgid "与传输活动分开保存"
 msgstr "与传输活动分开保存"
 
 #: src/app/(main)/inbox.tsx:234
 #: src/app/inbox/[itemId].tsx:220
-#: src/app/transfer/[sessionId].tsx:263
-#: src/components/transfer-offer-host.tsx:128
+#: src/app/transfer/[sessionId].tsx:264
+#: src/components/transfer-offer-host.tsx:141
 msgid "个文件"
 msgstr "个文件"
 
-#: src/app/transfer/[sessionId].tsx:184
+#: src/app/transfer/[sessionId].tsx:185
 msgid "中止"
 msgstr "中止"
 
@@ -110,9 +120,17 @@ msgstr "中止"
 msgid "中继"
 msgstr "中继"
 
+#: src/app/device/[peerId].tsx:716
+msgid "临时确认"
+msgstr "临时确认"
+
 #: src/components/trust-badge.tsx:40
 msgid "临时设备"
 msgstr "临时设备"
+
+#: src/app/device/[peerId].tsx:703
+msgid "临时设备默认需要确认，并限制文件夹和自动接收。"
+msgstr "临时设备默认需要确认，并限制文件夹和自动接收。"
 
 #: src/app/pairing/found-device.tsx:98
 #: src/app/pairing/success.tsx:42
@@ -123,13 +141,17 @@ msgstr "主机名"
 msgid "主题已更新"
 msgstr "主题已更新"
 
-#: src/app/transfer/[sessionId].tsx:193
+#: src/app/transfer/[sessionId].tsx:194
 msgid "仅从本机活动记录中删除，不影响对端。"
 msgstr "仅从本机活动记录中删除，不影响对端。"
 
 #: src/app/inbox/[itemId].tsx:314
 msgid "仅删除记录"
 msgstr "仅删除记录"
+
+#: src/app/device/[peerId].tsx:511
+msgid "仅在自动接收开启时生效"
+msgstr "仅在自动接收开启时生效"
 
 #: src/components/send-options-sheet.tsx:106
 msgid "从相册选择图片"
@@ -151,11 +173,11 @@ msgstr "任意类型,支持多选"
 msgid "优先使用本地网络、引导节点和中继发现可用设备"
 msgstr "优先使用本地网络、引导节点和中继发现可用设备"
 
-#: src/app/transfer/[sessionId].tsx:159
+#: src/app/transfer/[sessionId].tsx:160
 msgid "会话不存在或已结束"
 msgstr "会话不存在或已结束"
 
-#: src/app/settings/general.tsx:68
+#: src/app/settings/general.tsx:67
 msgid "传输"
 msgstr "传输"
 
@@ -163,7 +185,7 @@ msgstr "传输"
 msgid "传输中"
 msgstr "传输中"
 
-#: src/app/transfer/[sessionId].tsx:406
+#: src/app/transfer/[sessionId].tsx:407
 #: src/components/transfer/shared.tsx:281
 #: src/core/event-bus.ts:116
 msgid "传输失败"
@@ -177,7 +199,7 @@ msgstr "传输失败：{error}"
 msgid "传输已取消"
 msgstr "传输已取消"
 
-#: src/app/transfer/[sessionId].tsx:150
+#: src/app/transfer/[sessionId].tsx:151
 msgid "传输详情"
 msgstr "传输详情"
 
@@ -185,8 +207,10 @@ msgstr "传输详情"
 msgid "传输过程、恢复入口和诊断记录"
 msgstr "传输过程、恢复入口和诊断记录"
 
+#: src/app/device/[peerId].tsx:291
+#: src/app/device/[peerId].tsx:538
 #: src/app/inbox/[itemId].tsx:253
-#: src/app/transfer/[sessionId].tsx:287
+#: src/app/transfer/[sessionId].tsx:288
 msgid "保存位置"
 msgstr "保存位置"
 
@@ -195,13 +219,21 @@ msgstr "保存位置"
 msgid "保存失败"
 msgstr "保存失败"
 
+#: src/app/device/[peerId].tsx:557
+msgid "保存策略"
+msgstr "保存策略"
+
 #: src/app/settings/network.tsx:162
 msgid "保留为高级兜底，不作为默认发现路径。"
 msgstr "保留为高级兜底，不作为默认发现路径。"
 
-#: src/app/device/[peerId].tsx:156
+#: src/app/device/[peerId].tsx:269
 msgid "信任与接收策略"
 msgstr "信任与接收策略"
+
+#: src/app/device/[peerId].tsx:447
+msgid "信任级别"
+msgstr "信任级别"
 
 #: src/app/(main)/inbox.tsx:88
 msgid "修复收件箱"
@@ -223,6 +255,18 @@ msgstr "停止后将断开所有连接,其他设备将无法发现你"
 msgid "停止节点"
 msgstr "停止节点"
 
+#: src/app/device/[peerId].tsx:284
+msgid "允许"
+msgstr "允许"
+
+#: src/app/device/[peerId].tsx:510
+msgid "允许中继自动接收"
+msgstr "允许中继自动接收"
+
+#: src/app/device/[peerId].tsx:499
+msgid "允许文件夹"
+msgstr "允许文件夹"
+
 #. placeholder {0}: formatBytes(totalSize)
 #: src/components/file-tree/file-tree.tsx:188
 msgid "共 {totalCount} 项 · {0}"
@@ -233,6 +277,10 @@ msgstr "共 {totalCount} 项 · {0}"
 #: src/app/settings/index.tsx:67
 msgid "关于"
 msgstr "关于"
+
+#: src/app/device/[peerId].tsx:500
+msgid "关闭后只接收单个文件或文件集合"
+msgstr "关闭后只接收单个文件或文件集合"
 
 #: src/app/onboarding/device-name.tsx:71
 msgid ""
@@ -250,7 +298,11 @@ msgstr "内容索引"
 msgid "内容边界"
 msgstr "内容边界"
 
-#: src/app/send/select-device.tsx:311
+#: src/app/device/[peerId].tsx:524
+msgid "最大大小"
+msgstr "最大大小"
+
+#: src/app/send/select-device.tsx:312
 msgid "准备中"
 msgstr "准备中"
 
@@ -264,13 +316,13 @@ msgstr "初始化失败"
 
 #: src/app/inbox/[itemId].tsx:346
 #: src/app/settings/bootstrap-nodes.tsx:152
-#: src/app/transfer/[sessionId].tsx:194
-#: src/app/transfer/[sessionId].tsx:508
+#: src/app/transfer/[sessionId].tsx:195
+#: src/app/transfer/[sessionId].tsx:509
 msgid "删除"
 msgstr "删除"
 
 #: src/app/inbox/[itemId].tsx:105
-#: src/app/transfer/[sessionId].tsx:142
+#: src/app/transfer/[sessionId].tsx:143
 msgid "删除失败"
 msgstr "删除失败"
 
@@ -283,7 +335,7 @@ msgstr "删除记录和本地文件"
 msgid "删除这条收件箱记录"
 msgstr "删除这条收件箱记录"
 
-#: src/app/transfer/[sessionId].tsx:192
+#: src/app/transfer/[sessionId].tsx:193
 msgid "删除这条记录"
 msgstr "删除这条记录"
 
@@ -297,11 +349,11 @@ msgid "剪贴板"
 msgstr "剪贴板"
 
 #: src/app/inbox/[itemId].tsx:189
-#: src/app/transfer/[sessionId].tsx:161
+#: src/app/transfer/[sessionId].tsx:162
 msgid "加载中"
 msgstr "加载中"
 
-#: src/stores/transfer-store.ts:137
+#: src/stores/transfer-store.ts:139
 msgid "加载传输活动失败"
 msgstr "加载传输活动失败"
 
@@ -309,6 +361,10 @@ msgstr "加载传输活动失败"
 #: src/components/trust-badge.tsx:46
 msgid "协作设备"
 msgstr "协作设备"
+
+#: src/app/device/[peerId].tsx:708
+msgid "协作设备收到文件前需要手动确认。"
+msgstr "协作设备收到文件前需要手动确认。"
 
 #: src/app/settings/about.tsx:110
 msgid "去中心化、跨网络、端到端加密文件传输"
@@ -326,9 +382,9 @@ msgstr "反馈"
 msgid "发现方式"
 msgstr "发现方式"
 
-#: src/app/send/select-device.tsx:215
-#: src/app/send/select-device.tsx:311
-#: src/app/transfer/[sessionId].tsx:261
+#: src/app/send/select-device.tsx:216
+#: src/app/send/select-device.tsx:312
+#: src/app/transfer/[sessionId].tsx:262
 msgid "发送"
 msgstr "发送"
 
@@ -340,16 +396,16 @@ msgstr "发送中"
 msgid "发送什么?"
 msgstr "发送什么?"
 
-#: src/app/send/select-device.tsx:238
+#: src/app/send/select-device.tsx:239
 msgid "发送到 {displayName}"
 msgstr "发送到 {displayName}"
 
-#: src/app/send/select-device.tsx:173
+#: src/app/send/select-device.tsx:174
 msgid "发送失败"
 msgstr "发送失败"
 
-#: src/app/device/[peerId].tsx:209
-#: src/components/device-card.tsx:85
+#: src/app/device/[peerId].tsx:337
+#: src/components/device-card.tsx:92
 msgid "发送文件"
 msgstr "发送文件"
 
@@ -358,19 +414,23 @@ msgid "发送文件、配对设备，并查看连接状态"
 msgstr "发送文件、配对设备，并查看连接状态"
 
 #: src/app/pairing/found-device.tsx:132
-#: src/app/send/select-device.tsx:295
+#: src/app/send/select-device.tsx:296
 #: src/app/settings/bootstrap-nodes.tsx:186
-#: src/app/transfer/[sessionId].tsx:468
+#: src/app/transfer/[sessionId].tsx:469
 #: src/components/node-control-sheet.tsx:212
 #: src/components/ui/confirm-dialog.tsx:61
 msgid "取消"
 msgstr "取消"
 
-#: src/app/transfer/[sessionId].tsx:181
+#: src/app/transfer/[sessionId].tsx:182
 msgid "取消传输"
 msgstr "取消传输"
 
-#: src/app/transfer/[sessionId].tsx:111
+#: src/app/device/[peerId].tsx:384
+msgid "取消后需要重新配对，才能再次向这台设备发送或接收文件。"
+msgstr "取消后需要重新配对，才能再次向这台设备发送或接收文件。"
+
+#: src/app/transfer/[sessionId].tsx:112
 msgid "取消失败"
 msgstr "取消失败"
 
@@ -378,6 +438,16 @@ msgstr "取消失败"
 #: src/app/inbox/[itemId].tsx:306
 msgid "取消归档"
 msgstr "取消归档"
+
+#: src/app/device/[peerId].tsx:382
+#: src/app/device/[peerId].tsx:386
+#: src/app/device/[peerId].tsx:607
+msgid "取消配对"
+msgstr "取消配对"
+
+#: src/app/device/[peerId].tsx:181
+msgid "取消配对失败"
+msgstr "取消配对失败"
 
 #: src/components/pairing-request-host.tsx:108
 msgid "另一台设备请求与你建立配对"
@@ -407,12 +477,12 @@ msgstr "启动节点后才能发现和连接其他设备"
 msgid "启动节点后才能发现和连接设备"
 msgstr "启动节点后才能发现和连接设备"
 
-#: src/app/device/[peerId].tsx:134
-#: src/components/device-card.tsx:59
+#: src/app/device/[peerId].tsx:247
+#: src/components/device-card.tsx:66
 msgid "在线"
 msgstr "在线"
 
-#: src/app/send/select-device.tsx:349
+#: src/app/send/select-device.tsx:353
 msgid "在线 · 可接收"
 msgstr "在线 · 可接收"
 
@@ -420,11 +490,11 @@ msgstr "在线 · 可接收"
 msgid "地址格式无效,需以 / 开头且包含 /p2p/"
 msgstr "地址格式无效,需以 / 开头且包含 /p2p/"
 
-#: src/app/settings/general.tsx:45
+#: src/app/settings/general.tsx:44
 msgid "型号"
 msgstr "型号"
 
-#: src/components/pairing-sheet.tsx:362
+#: src/components/pairing-sheet.tsx:365
 msgid "复制"
 msgstr "复制"
 
@@ -479,7 +549,7 @@ msgstr "对方已暂停传输"
 msgid "对方拒绝了传输请求"
 msgstr "对方拒绝了传输请求"
 
-#: src/app/transfer/[sessionId].tsx:284
+#: src/app/transfer/[sessionId].tsx:285
 msgid "对端"
 msgstr "对端"
 
@@ -522,13 +592,17 @@ msgstr "已发现节点"
 msgid "已取消"
 msgstr "已取消"
 
-#: src/app/transfer/[sessionId].tsx:108
+#: src/app/transfer/[sessionId].tsx:109
 msgid "已取消传输"
 msgstr "已取消传输"
 
 #: src/app/inbox/[itemId].tsx:88
 msgid "已取消归档"
 msgstr "已取消归档"
+
+#: src/app/device/[peerId].tsx:178
+msgid "已取消配对"
+msgstr "已取消配对"
 
 #: src/components/device-info-card.tsx:82
 msgid "已复制到剪贴板"
@@ -560,6 +634,10 @@ msgstr "已归档"
 msgid "已拒绝"
 msgstr "已拒绝"
 
+#: src/components/transfer-offer-host.tsx:134
+msgid "已拒绝文件"
+msgstr "已拒绝文件"
+
 #: src/app/(main)/inbox.tsx:82
 msgid "已接收内容会在这里归档"
 msgstr "已接收内容会在这里归档"
@@ -580,7 +658,7 @@ msgstr "已清空传输活动"
 msgid "已过期"
 msgstr "已过期"
 
-#: src/components/pairing-sheet.tsx:336
+#: src/components/pairing-sheet.tsx:339
 msgid "已过期,请重新生成"
 msgstr "已过期,请重新生成"
 
@@ -602,7 +680,7 @@ msgstr "已连节点"
 msgid "已选文件"
 msgstr "已选文件"
 
-#: src/app/send/select-device.tsx:191
+#: src/app/send/select-device.tsx:192
 msgid "已选的文件将被清空。"
 msgstr "已选的文件将被清空。"
 
@@ -610,9 +688,14 @@ msgstr "已选的文件将被清空。"
 msgid "已配对设备"
 msgstr "已配对设备"
 
+#: src/app/device/[peerId].tsx:718
 #: src/components/trust-badge.tsx:42
 msgid "已阻止"
 msgstr "已阻止"
+
+#: src/app/send/select-device.tsx:351
+msgid "已阻止 · 不可发送"
+msgstr "已阻止 · 不可发送"
 
 #: src/app/pairing/found-device.tsx:104
 msgid "平台"
@@ -622,7 +705,7 @@ msgstr "平台"
 msgid "应用、网络、外观和设备信息"
 msgstr "应用、网络、外观和设备信息"
 
-#: src/app/settings/general.tsx:145
+#: src/app/settings/general.tsx:123
 msgid "应用私有目录（默认）"
 msgstr "应用私有目录（默认）"
 
@@ -638,7 +721,7 @@ msgstr "应用重启后可恢复"
 msgid "开始使用"
 msgstr "开始使用"
 
-#: src/app/transfer/[sessionId].tsx:275
+#: src/app/transfer/[sessionId].tsx:276
 msgid "开始时间"
 msgstr "开始时间"
 
@@ -678,11 +761,11 @@ msgstr "当前状态"
 msgid "待确认"
 msgstr "待确认"
 
-#: src/app/transfer/[sessionId].tsx:391
+#: src/app/transfer/[sessionId].tsx:392
 msgid "总大小"
 msgstr "总大小"
 
-#: src/app/transfer/[sessionId].tsx:482
+#: src/app/transfer/[sessionId].tsx:483
 msgid "恢复"
 msgstr "恢复"
 
@@ -691,16 +774,16 @@ msgid "恢复传输"
 msgstr "恢复传输"
 
 #: src/app/activity.tsx:61
-#: src/app/transfer/[sessionId].tsx:129
+#: src/app/transfer/[sessionId].tsx:130
 msgid "恢复失败"
 msgstr "恢复失败"
 
-#: src/app/settings/general.tsx:154
-#: src/app/settings/general.tsx:167
+#: src/app/settings/general.tsx:132
+#: src/app/settings/general.tsx:145
 msgid "恢复默认"
 msgstr "恢复默认"
 
-#: src/app/settings/general.tsx:165
+#: src/app/settings/general.tsx:143
 msgid "恢复默认接收位置"
 msgstr "恢复默认接收位置"
 
@@ -708,13 +791,17 @@ msgstr "恢复默认接收位置"
 msgid "我的 iPhone"
 msgstr "我的 iPhone"
 
-#: src/app/transfer/[sessionId].tsx:382
+#: src/app/transfer/[sessionId].tsx:383
 msgid "所有文件传输完成！"
 msgstr "所有文件传输完成！"
 
 #: src/app/settings/network.tsx:115
 msgid "手动发现模式会在后续网络同步中接入"
 msgstr "手动发现模式会在后续网络同步中接入"
+
+#: src/app/device/[peerId].tsx:720
+msgid "手动确认"
+msgstr "手动确认"
 
 #: src/app/settings/network.tsx:126
 msgid "手机不会默认作为 Helper；后续版本会放在高级设置中。"
@@ -732,7 +819,7 @@ msgstr "打开失败"
 msgid "打开或分享文件"
 msgstr "打开或分享文件"
 
-#: src/app/transfer/[sessionId].tsx:496
+#: src/app/transfer/[sessionId].tsx:497
 msgid "打开文件夹"
 msgstr "打开文件夹"
 
@@ -742,23 +829,19 @@ msgstr "找到设备"
 
 #: src/components/pairing-request-host.tsx:150
 #: src/components/pairing-request-host.tsx:154
-#: src/components/transfer-offer-host.tsx:183
-#: src/components/transfer-offer-host.tsx:187
+#: src/components/transfer-offer-host.tsx:227
+#: src/components/transfer-offer-host.tsx:231
 msgid "拒绝"
 msgstr "拒绝"
-
-#: src/app/device/[peerId].tsx:239
-msgid "持久化策略编辑将在 add-mobile-device-trust-policies 中接入。"
-msgstr "持久化策略编辑将在 add-mobile-device-trust-policies 中接入。"
 
 #: src/components/pairing-request-host.tsx:135
 #: src/components/pairing-request-host.tsx:142
 msgid "接受"
 msgstr "接受"
 
-#: src/app/transfer/[sessionId].tsx:261
-#: src/components/transfer-offer-host.tsx:163
-#: src/components/transfer-offer-host.tsx:175
+#: src/app/transfer/[sessionId].tsx:262
+#: src/components/transfer-offer-host.tsx:207
+#: src/components/transfer-offer-host.tsx:219
 msgid "接收"
 msgstr "接收"
 
@@ -766,29 +849,38 @@ msgstr "接收"
 msgid "接收中"
 msgstr "接收中"
 
-#: src/components/transfer-offer-host.tsx:173
+#: src/components/transfer-offer-host.tsx:217
 msgid "接收中..."
 msgstr "接收中..."
 
-#: src/app/settings/general.tsx:131
-#: src/app/settings/general.tsx:139
+#: src/app/settings/general.tsx:109
+#: src/app/settings/general.tsx:117
 msgid "接收位置"
 msgstr "接收位置"
 
-#: src/app/settings/general.tsx:117
+#: src/app/settings/general.tsx:95
 msgid "接收位置已更新"
 msgstr "接收位置已更新"
 
-#: src/app/settings/general.tsx:166
+#: src/app/settings/general.tsx:144
 msgid "接收文件将保存到应用私有目录。"
 msgstr "接收文件将保存到应用私有目录。"
+
+#: src/app/device/[peerId].tsx:277
+msgid "接收方式"
+msgstr "接收方式"
 
 #: src/app/inbox/[itemId].tsx:241
 msgid "接收时间"
 msgstr "接收时间"
 
+#: src/app/device/[peerId].tsx:465
+msgid "接收策略"
+msgstr "接收策略"
+
 #: src/app/(main)/_layout.tsx:41
 #: src/app/(main)/inbox.tsx:81
+#: src/app/device/[peerId].tsx:781
 msgid "收件箱"
 msgstr "收件箱"
 
@@ -813,15 +905,19 @@ msgstr "收件箱负责回答“我收到了什么”；活动页负责回答“
 msgid "收件箱还是空的"
 msgstr "收件箱还是空的"
 
-#: src/components/transfer-offer-host.tsx:124
+#: src/components/transfer-offer-host.tsx:136
 msgid "收到文件"
 msgstr "收到文件"
 
-#: src/app/send/select-device.tsx:194
+#: src/app/device/[peerId].tsx:486
+msgid "收到文件时先弹出确认，不直接接收"
+msgstr "收到文件时先弹出确认，不直接接收"
+
+#: src/app/send/select-device.tsx:195
 msgid "放弃"
 msgstr "放弃"
 
-#: src/app/send/select-device.tsx:191
+#: src/app/send/select-device.tsx:192
 msgid "放弃选择？"
 msgstr "放弃选择？"
 
@@ -831,16 +927,17 @@ msgstr "整个文件夹递归传输"
 
 #: src/app/inbox/[itemId].tsx:290
 #: src/app/inbox/[itemId].tsx:421
-#: src/app/send/select-device.tsx:377
-#: src/app/transfer/[sessionId].tsx:302
-#: src/app/transfer/[sessionId].tsx:387
+#: src/app/send/select-device.tsx:381
+#: src/app/transfer/[sessionId].tsx:303
+#: src/app/transfer/[sessionId].tsx:388
 #: src/components/activity-projection-card.tsx:70
 #: src/components/file-tree/file-tree.tsx:184
 #: src/components/recent-transfer-row.tsx:70
 msgid "文件"
 msgstr "文件"
 
-#: src/app/send/select-device.tsx:378
+#: src/app/device/[peerId].tsx:281
+#: src/app/send/select-device.tsx:382
 msgid "文件夹"
 msgstr "文件夹"
 
@@ -873,11 +970,11 @@ msgstr "映射成功"
 msgid "显示已归档"
 msgstr "显示已归档"
 
-#: src/app/transfer/[sessionId].tsx:456
+#: src/app/transfer/[sessionId].tsx:457
 msgid "暂停"
 msgstr "暂停"
 
-#: src/app/transfer/[sessionId].tsx:95
+#: src/app/transfer/[sessionId].tsx:96
 msgid "暂停失败"
 msgstr "暂停失败"
 
@@ -906,6 +1003,10 @@ msgstr "更新归档状态失败"
 msgid "更新日志"
 msgstr "更新日志"
 
+#: src/app/device/[peerId].tsx:534
+msgid "有效期"
+msgstr "有效期"
+
 #: src/app/settings/about.tsx:70
 msgid "有新版可用"
 msgstr "有新版可用"
@@ -930,9 +1031,21 @@ msgstr "未知"
 msgid "未连接"
 msgstr "未连接"
 
+#: src/components/transfer-offer-host.tsx:155
+msgid "未配对"
+msgstr "未配对"
+
 #: src/components/trust-badge.tsx:38
 msgid "本人设备"
 msgstr "本人设备"
+
+#: src/app/device/[peerId].tsx:706
+msgid "本人设备会自动接收，并保存到收件箱和默认位置。"
+msgstr "本人设备会自动接收，并保存到收件箱和默认位置。"
+
+#: src/app/device/[peerId].tsx:470
+msgid "本人设备可直接进入收件箱和默认保存位置"
+msgstr "本人设备可直接进入收件箱和默认保存位置"
 
 #: src/components/transfer/shared.tsx:260
 msgid "本机暂停"
@@ -975,13 +1088,13 @@ msgstr "正在检查..."
 msgid "正在生成本地身份..."
 msgstr "正在生成本地身份..."
 
-#: src/components/pairing-sheet.tsx:367
+#: src/components/pairing-sheet.tsx:370
 msgid "正在等待对端连接..."
 msgstr "正在等待对端连接..."
 
 #. placeholder {0}: progress.completedFiles.toString()
 #. placeholder {1}: progress.totalFiles.toString()
-#: src/app/send/select-device.tsx:417
+#: src/app/send/select-device.tsx:421
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "正在计算校验和 ({0}/{1})"
 
@@ -989,9 +1102,13 @@ msgstr "正在计算校验和 ({0}/{1})"
 msgid "正在进行"
 msgstr "正在进行"
 
-#: src/app/settings/general.tsx:113
+#: src/app/settings/general.tsx:91
 msgid "此目录不可读"
 msgstr "此目录不可读"
+
+#: src/components/transfer-offer-host.tsx:160
+msgid "此设备需要手动确认后才会开始接收。"
+msgstr "此设备需要手动确认后才会开始接收。"
 
 #: src/app/activity.tsx:98
 msgid "没有正在传输的项目"
@@ -1050,11 +1167,11 @@ msgstr "清空传输活动"
 msgid "清空活动"
 msgstr "清空活动"
 
-#: src/app/send/select-device.tsx:263
+#: src/app/send/select-device.tsx:264
 msgid "点击上方按钮添加文件或文件夹"
 msgstr "点击上方按钮添加文件或文件夹"
 
-#: src/app/send/select-device.tsx:379
+#: src/app/send/select-device.tsx:383
 #: src/components/send-options-sheet.tsx:105
 msgid "照片"
 msgstr "照片"
@@ -1063,19 +1180,28 @@ msgstr "照片"
 msgid "生成"
 msgstr "生成"
 
-#: src/components/pairing-sheet.tsx:312
+#: src/components/pairing-sheet.tsx:315
 msgid "生成一个 6 位配对码,让其他设备输入它建立配对"
 msgstr "生成一个 6 位配对码,让其他设备输入它建立配对"
 
-#: src/components/pairing-sheet.tsx:324
+#: src/components/pairing-sheet.tsx:327
 msgid "生成配对码"
 msgstr "生成配对码"
 
-#: src/app/transfer/[sessionId].tsx:393
+#: src/app/transfer/[sessionId].tsx:394
 msgid "用时"
 msgstr "用时"
 
-#: src/app/transfer/[sessionId].tsx:182
+#: src/components/transfer-offer-host.tsx:194
+#: src/components/transfer-offer-host.tsx:198
+msgid "知道了"
+msgstr "知道了"
+
+#: src/app/device/[peerId].tsx:729
+msgid "短期授权，默认一天后过期。"
+msgstr "短期授权，默认一天后过期。"
+
+#: src/app/transfer/[sessionId].tsx:183
 msgid "确定要中止这次传输吗？"
 msgstr "确定要中止这次传输吗？"
 
@@ -1091,17 +1217,17 @@ msgstr "确认这是你要配对的设备?"
 msgid "确认配对"
 msgstr "确认配对"
 
-#: src/app/send/select-device.tsx:380
+#: src/app/send/select-device.tsx:384
 #: src/components/send-options-sheet.tsx:111
 msgid "视频"
 msgstr "视频"
 
-#: src/app/device/[peerId].tsx:136
-#: src/components/device-card.tsx:59
+#: src/app/device/[peerId].tsx:249
+#: src/components/device-card.tsx:66
 msgid "离线"
 msgstr "离线"
 
-#: src/app/send/select-device.tsx:353
+#: src/app/send/select-device.tsx:357
 msgid "离线 · 等待对端上线"
 msgstr "离线 · 等待对端上线"
 
@@ -1113,7 +1239,7 @@ msgstr "移动节点"
 msgid "端到端加密,数据不经服务器"
 msgstr "端到端加密,数据不经服务器"
 
-#: src/app/device/[peerId].tsx:142
+#: src/app/device/[peerId].tsx:255
 msgid "等待发现"
 msgstr "等待发现"
 
@@ -1126,11 +1252,11 @@ msgstr "等待同步"
 msgid "等待响应"
 msgstr "等待响应"
 
-#: src/app/transfer/[sessionId].tsx:294
-msgid "策略原因"
-msgstr "策略原因"
+#: src/app/device/[peerId].tsx:147
+msgid "策略保存失败"
+msgstr "策略保存失败"
 
-#: src/app/device/[peerId].tsx:176
+#: src/app/device/[peerId].tsx:303
 msgid "策略设置"
 msgstr "策略设置"
 
@@ -1140,7 +1266,7 @@ msgstr "管理"
 
 #: src/app/pairing/found-device.tsx:102
 #: src/app/pairing/success.tsx:46
-#: src/app/settings/general.tsx:57
+#: src/app/settings/general.tsx:56
 msgid "系统"
 msgstr "系统"
 
@@ -1152,7 +1278,7 @@ msgstr "系统分享不可用，已复制路径"
 msgid "组合内容"
 msgstr "组合内容"
 
-#: src/app/transfer/[sessionId].tsx:280
+#: src/app/transfer/[sessionId].tsx:281
 msgid "结束时间"
 msgstr "结束时间"
 
@@ -1162,11 +1288,11 @@ msgstr "给设备取个名字"
 
 #: src/app/onboarding/device-name.tsx:106
 #: src/app/onboarding/device-name.tsx:113
-#: src/app/transfer/[sessionId].tsx:183
+#: src/app/transfer/[sessionId].tsx:184
 msgid "继续"
 msgstr "继续"
 
-#: src/app/send/select-device.tsx:192
+#: src/app/send/select-device.tsx:193
 msgid "继续选择"
 msgstr "继续选择"
 
@@ -1201,11 +1327,8 @@ msgstr "自动发现"
 msgid "自动启动节点"
 msgstr "自动启动节点"
 
-#: src/app/settings/general.tsx:89
-msgid "自动接受已配对设备的文件"
-msgstr "自动接受已配对设备的文件"
-
-#: src/app/settings/general.tsx:86
+#: src/app/device/[peerId].tsx:469
+#: src/app/device/[peerId].tsx:714
 msgid "自动接收"
 msgstr "自动接收"
 
@@ -1213,11 +1336,15 @@ msgstr "自动接收"
 msgid "自定义引导节点"
 msgstr "自定义引导节点"
 
+#: src/app/device/[peerId].tsx:727
+msgid "自己的设备，可自动接收入站文件。"
+msgstr "自己的设备，可自动接收入站文件。"
+
 #: src/app/settings/bootstrap-nodes.tsx:96
 msgid "节点已重启"
 msgstr "节点已重启"
 
-#: src/app/send/select-device.tsx:351
+#: src/app/send/select-device.tsx:355
 msgid "节点未启动"
 msgstr "节点未启动"
 
@@ -1229,9 +1356,13 @@ msgstr "节点未启动 · 启动后才能发现附近设备"
 msgid "节点状态"
 msgstr "节点状态"
 
+#: src/app/device/[peerId].tsx:576
+msgid "解除阻止"
+msgstr "解除阻止"
+
 #: src/app/(main)/_layout.tsx:32
 #: src/app/(main)/index.tsx:124
-#: src/app/settings/general.tsx:30
+#: src/app/settings/general.tsx:29
 msgid "设备"
 msgstr "设备"
 
@@ -1243,7 +1374,7 @@ msgstr "设备 ID"
 
 #: src/app/pairing/found-device.tsx:94
 #: src/app/pairing/success.tsx:38
-#: src/app/settings/general.tsx:33
+#: src/app/settings/general.tsx:32
 msgid "设备名"
 msgstr "设备名"
 
@@ -1256,21 +1387,27 @@ msgid "设备名称已更新"
 msgstr "设备名称已更新"
 
 #: src/app/(main)/index.tsx:110
-#: src/app/device/[peerId].tsx:186
+#: src/app/device/[peerId].tsx:313
 msgid "设备当前不可发送"
 msgstr "设备当前不可发送"
 
-#: src/app/device/[peerId].tsx:80
-#: src/app/send/select-device.tsx:218
+#: src/app/device/[peerId].tsx:193
+#: src/app/send/select-device.tsx:219
 msgid "设备未找到"
 msgstr "设备未找到"
 
-#: src/app/device/[peerId].tsx:229
+#: src/app/device/[peerId].tsx:434
+#: src/app/transfer/[sessionId].tsx:295
+#: src/components/transfer-offer-host.tsx:149
 msgid "设备策略"
 msgstr "设备策略"
 
-#: src/app/device/[peerId].tsx:77
-#: src/app/device/[peerId].tsx:104
+#: src/app/device/[peerId].tsx:144
+msgid "设备策略已更新"
+msgstr "设备策略已更新"
+
+#: src/app/device/[peerId].tsx:190
+#: src/app/device/[peerId].tsx:217
 msgid "设备详情"
 msgstr "设备详情"
 
@@ -1292,13 +1429,9 @@ msgstr "设置"
 msgid "该节点已存在"
 msgstr "该节点已存在"
 
-#: src/app/device/[peerId].tsx:161
-msgid "该设备当前被阻止，不能发起传输。"
-msgstr "该设备当前被阻止，不能发起传输。"
-
-#: src/app/device/[peerId].tsx:163
-msgid "该设备暂按协作设备处理。自动接收、询问和阻止策略会在后续同步。"
-msgstr "该设备暂按协作设备处理。自动接收、询问和阻止策略会在后续同步。"
+#: src/app/device/[peerId].tsx:700
+msgid "该设备已被阻止，发送入口和自动接收都会关闭。"
+msgstr "该设备已被阻止，发送入口和自动接收都会关闭。"
 
 #: src/app/settings/network.tsx:139
 msgid "详细信息"
@@ -1335,7 +1468,7 @@ msgstr "跳转到活动详情"
 msgid "输入"
 msgstr "输入"
 
-#: src/components/pairing-sheet.tsx:419
+#: src/components/pairing-sheet.tsx:422
 msgid "输入对方设备上显示的 6 位配对码"
 msgstr "输入对方设备上显示的 6 位配对码"
 
@@ -1347,14 +1480,14 @@ msgstr "运行中"
 msgid "运行时长"
 msgstr "运行时长"
 
-#: src/app/device/[peerId].tsx:88
+#: src/app/device/[peerId].tsx:201
 #: src/app/onboarding/device-name.tsx:56
-#: src/app/send/select-device.tsx:226
+#: src/app/send/select-device.tsx:227
 #: src/components/settings-header.tsx:25
 msgid "返回"
 msgstr "返回"
 
-#: src/app/send/select-device.tsx:260
+#: src/app/send/select-device.tsx:261
 msgid "还没有选择任何文件"
 msgstr "还没有选择任何文件"
 
@@ -1374,19 +1507,15 @@ msgstr "这会删除收件箱记录，并尝试删除本机保存的文件。"
 msgid "这只删除收件箱索引，不会删除本地文件。"
 msgstr "这只删除收件箱索引，不会删除本地文件。"
 
-#: src/app/device/[peerId].tsx:232
-msgid "这里会承载自动接收、询问、阻止和信任模板。当前版本先保留入口和容器。"
-msgstr "这里会承载自动接收、询问、阻止和信任模板。当前版本先保留入口和容器。"
-
 #: src/app/onboarding/setup.tsx:100
 msgid "进入 SwarmDrop"
 msgstr "进入 SwarmDrop"
 
-#: src/app/device/[peerId].tsx:131
+#: src/app/device/[peerId].tsx:244
 msgid "连接状态"
 msgstr "连接状态"
 
-#: src/app/device/[peerId].tsx:141
+#: src/app/device/[peerId].tsx:254
 msgid "连接路径"
 msgstr "连接路径"
 
@@ -1394,8 +1523,8 @@ msgstr "连接路径"
 msgid "选择外观"
 msgstr "选择外观"
 
-#: src/app/send/select-device.tsx:144
-#: src/app/settings/general.tsx:119
+#: src/app/send/select-device.tsx:145
+#: src/app/settings/general.tsx:97
 #: src/components/send-options-sheet.tsx:85
 msgid "选择失败"
 msgstr "选择失败"
@@ -1408,7 +1537,7 @@ msgstr "选择文件"
 msgid "选择文件夹"
 msgstr "选择文件夹"
 
-#: src/app/send/select-device.tsx:281
+#: src/app/send/select-device.tsx:282
 msgid "选择要发送的内容"
 msgstr "选择要发送的内容"
 
@@ -1417,7 +1546,7 @@ msgid "选择语言"
 msgstr "选择语言"
 
 #: src/app/(main)/settings.tsx:37
-#: src/app/settings/general.tsx:25
+#: src/app/settings/general.tsx:24
 #: src/app/settings/index.tsx:37
 #: src/app/settings/network.tsx:83
 msgid "通用"
@@ -1440,7 +1569,7 @@ msgstr "配对成功"
 msgid "配对码 {0}"
 msgstr "配对码 {0}"
 
-#: src/components/pairing-sheet.tsx:404
+#: src/components/pairing-sheet.tsx:407
 msgid "配对码无效或已过期"
 msgstr "配对码无效或已过期"
 
@@ -1473,7 +1602,7 @@ msgstr "重启节点"
 msgid "重启节点失败"
 msgstr "重启节点失败"
 
-#: src/components/pairing-sheet.tsx:352
+#: src/components/pairing-sheet.tsx:355
 msgid "重新生成"
 msgstr "重新生成"
 
@@ -1484,6 +1613,14 @@ msgstr "重试"
 #: src/components/status-pill.tsx:59
 msgid "错误"
 msgstr "错误"
+
+#: src/app/device/[peerId].tsx:731
+msgid "阻止发送和入站接收。"
+msgstr "阻止发送和入站接收。"
+
+#: src/app/device/[peerId].tsx:593
+msgid "阻止设备"
+msgstr "阻止设备"
 
 #: src/components/pairing-sheet.tsx:124
 msgid "附近"
@@ -1497,6 +1634,10 @@ msgstr "附近设备可以发现这台手机"
 msgid "需要注意"
 msgstr "需要注意"
 
+#: src/app/device/[peerId].tsx:485
+msgid "需要确认"
+msgstr "需要确认"
+
 #: src/app/settings/network.tsx:156
 msgid "高级"
 msgstr "高级"
@@ -1504,3 +1645,11 @@ msgstr "高级"
 #: src/app/settings/bootstrap-nodes.tsx:127
 msgid "默认"
 msgstr "默认"
+
+#: src/app/device/[peerId].tsx:785
+msgid "默认位置"
+msgstr "默认位置"
+
+#: src/app/device/[peerId].tsx:733
+msgid "默认级别，收到文件前需要确认。"
+msgstr "默认级别，收到文件前需要确认。"
