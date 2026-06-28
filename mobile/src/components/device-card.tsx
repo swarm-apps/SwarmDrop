@@ -1,7 +1,10 @@
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { SendHorizontal } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
+import { TrustBadge } from "@/components/trust-badge";
 import { Text } from "@/components/ui/text";
+import { canSendToDevice, resolveTrustLevel } from "@/core/device-trust";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
@@ -10,16 +13,20 @@ import { cn } from "@/lib/utils";
 interface DeviceCardProps {
   device: DeviceInfo;
   onPress?: (device: DeviceInfo) => void;
+  onSend?: (device: DeviceInfo) => void;
 }
 
 /**
- * 主屏 2 列 grid 设备卡片。整张可点击;离线设备置灰但仍可点(详情)。
+ * 主屏 2 列 grid 设备卡片。整张进入详情;发送是独立操作。
  */
-export function DeviceCard({ device, onPress }: DeviceCardProps) {
+export function DeviceCard({ device, onPress, onSend }: DeviceCardProps) {
   const colors = useThemeColors();
+  const { t } = useLingui();
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
   const isOnline = device.status === "online";
   const displayName = deviceDisplayName(device);
+  const trustLevel = resolveTrustLevel(device);
+  const sendable = canSendToDevice(device);
 
   return (
     <Pressable
@@ -27,7 +34,7 @@ export function DeviceCard({ device, onPress }: DeviceCardProps) {
       accessibilityRole="button"
       accessibilityLabel={displayName}
       className={cn(
-        "flex-1 gap-3 rounded-xl border border-border bg-card p-3.5",
+        "flex-1 gap-3 rounded-lg border border-border bg-card p-3.5",
         "active:opacity-70",
         !isOnline && "opacity-60",
       )}
@@ -64,6 +71,25 @@ export function DeviceCard({ device, onPress }: DeviceCardProps) {
         <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
           {device.os} · {device.platform}
         </Text>
+      </View>
+
+      <View className="flex-row items-center justify-between gap-2">
+        <TrustBadge level={trustLevel} compact />
+        <Pressable
+          onPress={(event) => {
+            event.stopPropagation();
+            onSend?.(device);
+          }}
+          disabled={!sendable}
+          accessibilityRole="button"
+          accessibilityLabel={t`发送文件`}
+          className="size-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
+        >
+          <SendHorizontal
+            color={sendable ? colors.background : colors.mutedForeground}
+            size={17}
+          />
+        </Pressable>
       </View>
     </Pressable>
   );

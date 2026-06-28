@@ -1,5 +1,5 @@
 /**
- * 历史卡片 —— 在「传输历史」section 渲染一条 MobileTransferHistoryItem。
+ * 活动卡片 —— 在「传输活动」section 渲染一条 MobileTransferProjection。
  *
  * 与活跃卡片 [recent-transfer-row.tsx] 分开实现：数据形态不同
  * （history 含 finishedAt / errorMessage，active 含 speed / eta）。
@@ -7,29 +7,29 @@
 
 import { Trans } from "@lingui/react/macro";
 import { Pressable, View } from "react-native";
-import {
-  MobileSessionStatus,
-  type MobileTransferHistoryItem,
-} from "react-native-swarmdrop-core";
+import type { MobileTransferProjection } from "react-native-swarmdrop-core";
 import {
   DirectionIcon,
   formatBytes,
   formatRelativeTime,
   LocalizedError,
+  projectionReasonLabel,
   StatusBadge,
 } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
+import { projectionDirection, projectionStatus } from "@/core/transfer-types";
 
 interface Props {
-  item: MobileTransferHistoryItem;
+  item: MobileTransferProjection;
   onPress?: (sessionId: string) => void;
 }
 
 export function HistoryTransferRow({ item, onPress }: Props) {
-  const direction = item.direction === "send" ? "send" : "receive";
+  const direction = projectionDirection(item);
+  const status = projectionStatus(item);
   const filesCount = item.files.length;
-  const failedAndHasMessage =
-    item.status === MobileSessionStatus.Failed && !!item.errorMessage;
+  const failedAndHasMessage = status === "failed" && !!item.errorMessage;
+  const reason = projectionReasonLabel(item);
 
   return (
     <Pressable
@@ -47,7 +47,7 @@ export function HistoryTransferRow({ item, onPress }: Props) {
           >
             {item.peerName}
           </Text>
-          <StatusBadge status={item.status} />
+          <StatusBadge status={status} />
         </View>
 
         <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
@@ -57,6 +57,12 @@ export function HistoryTransferRow({ item, onPress }: Props) {
           {" · "}
           {formatRelativeTime(item.startedAt)}
         </Text>
+
+        {reason ? (
+          <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+            {reason}
+          </Text>
+        ) : null}
 
         {failedAndHasMessage ? (
           <Text className="text-[11px] text-destructive" numberOfLines={1}>

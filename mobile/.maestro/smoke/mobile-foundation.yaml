@@ -1,0 +1,53 @@
+appId: com.yexiyue.swarmdrop
+name: SwarmDrop mobile foundation smoke
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 30000
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+- assertVisible:
+    id: tab-devices
+- assertVisible:
+    id: tab-inbox
+- assertVisible:
+    id: tab-settings
+- tapOn:
+    id: tab-inbox
+- extendedWaitUntil:
+    visible:
+      id: inbox-screen
+    timeout: 15000
+- assertVisible:
+    id: inbox-empty-state
+- tapOn:
+    id: tab-settings
+- extendedWaitUntil:
+    visible:
+      id: settings-screen
+    timeout: 15000
+- tapOn:
+    id: tab-devices
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 15000
+- tapOn:
+    id: devices-open-activity-button
+- extendedWaitUntil:
+    visible:
+      id: activity-screen
+    timeout: 15000
+- back
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 15000
+- takeScreenshot: mobile-foundation-smoke

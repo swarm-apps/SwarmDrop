@@ -9,6 +9,7 @@ import { StatusPill } from "@/components/status-pill";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
+import { useNetworkDiscoveryStore } from "@/stores/network-discovery-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 export default function NetworkScreen() {
@@ -25,6 +26,14 @@ export default function NetworkScreen() {
       setAutoStart: s.setAutoStart,
     })),
   );
+  const { discoveryMode, lanHelperEnabled, setLanHelperEnabled } =
+    useNetworkDiscoveryStore(
+      useShallow((s) => ({
+        discoveryMode: s.discoveryMode,
+        lanHelperEnabled: s.lanHelperEnabled,
+        setLanHelperEnabled: s.setLanHelperEnabled,
+      })),
+    );
 
   const rows: Array<{ key: string; label: React.ReactNode; value: string }> = [
     {
@@ -46,6 +55,21 @@ export default function NetworkScreen() {
       key: "relay",
       label: <Trans>中继</Trans>,
       value: networkStatus?.relayReady ? t`就绪` : t`未启用`,
+    },
+    {
+      key: "bootstrap",
+      label: <Trans>引导就绪</Trans>,
+      value: networkStatus?.bootstrapConnected ? t`已连接` : t`未连接`,
+    },
+    {
+      key: "lan-helper",
+      label: <Trans>LAN Helper</Trans>,
+      value: t`等待同步`,
+    },
+    {
+      key: "candidate-source",
+      label: <Trans>候选来源</Trans>,
+      value: t`等待同步`,
     },
   ];
 
@@ -79,6 +103,39 @@ export default function NetworkScreen() {
           </View>
         </SettingSection>
 
+        <SettingSection label={t`发现方式`}>
+          <View className="px-3.5 py-3 gap-1">
+            <Text className="text-[14px] text-foreground">
+              <Trans>自动发现</Trans>
+            </Text>
+            <Text className="text-[11px] text-muted-foreground">
+              {discoveryMode === "automatic" ? (
+                <Trans>优先使用本地网络、引导节点和中继发现可用设备</Trans>
+              ) : (
+                <Trans>手动发现模式会在后续网络同步中接入</Trans>
+              )}
+            </Text>
+          </View>
+          <SettingDivider />
+          <View className="flex-row items-center justify-between px-3.5 py-3 gap-3">
+            <View className="flex-1">
+              <Text className="text-[14px] text-foreground">
+                <Trans>LAN Helper 托管</Trans>
+              </Text>
+              <Text className="mt-0.5 text-[11px] text-muted-foreground">
+                <Trans>
+                  手机不会默认作为 Helper；后续版本会放在高级设置中。
+                </Trans>
+              </Text>
+            </View>
+            <Switch
+              checked={lanHelperEnabled}
+              onCheckedChange={setLanHelperEnabled}
+              disabled
+            />
+          </View>
+        </SettingSection>
+
         <SettingSection label={t`详细信息`}>
           {rows.map((row, idx) => (
             <Fragment key={row.key}>
@@ -94,6 +151,17 @@ export default function NetworkScreen() {
               {idx < rows.length - 1 ? <SettingDivider /> : null}
             </Fragment>
           ))}
+        </SettingSection>
+
+        <SettingSection label={t`高级`}>
+          <View className="px-3.5 py-3 gap-1">
+            <Text className="text-[14px] text-foreground">
+              <Trans>自定义引导节点</Trans>
+            </Text>
+            <Text className="text-[11px] text-muted-foreground">
+              <Trans>保留为高级兜底，不作为默认发现路径。</Trans>
+            </Text>
+          </View>
         </SettingSection>
       </ScrollView>
     </SafeAreaView>

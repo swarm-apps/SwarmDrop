@@ -1,11 +1,26 @@
 import { Trans } from "@lingui/react/macro";
 import { Download, Upload } from "lucide-react-native";
 import { Pressable, View } from "react-native";
-import type { MobileTransferProgress } from "react-native-swarmdrop-core";
+import type {
+  MobileTransferProgress,
+  MobileTransferProjection,
+} from "react-native-swarmdrop-core";
+import {
+  calcPercent,
+  formatBytes,
+  StatusBadge,
+} from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
+import {
+  projectionDirection,
+  projectionStatus,
+  projectionTotalBytes,
+  projectionTransferredBytes,
+} from "@/core/transfer-types";
 
 interface RecentTransferRowProps {
-  snapshot: MobileTransferProgress;
+  projection: MobileTransferProjection;
+  progress?: MobileTransferProgress;
   onPress?: (sessionId: string) => void;
 }
 
@@ -13,18 +28,20 @@ interface RecentTransferRowProps {
  * 最近传输行 —— 主屏单行,展示方向 / 进度 / 文件计数。
  */
 export function RecentTransferRow({
-  snapshot,
+  projection,
+  progress,
   onPress,
 }: RecentTransferRowProps) {
-  const isOutgoing = snapshot.direction === "send";
-  const total = Number(snapshot.totalBytes);
-  const transferred = Number(snapshot.transferredBytes);
-  const percent =
-    total > 0 ? Math.min(100, Math.round((transferred / total) * 100)) : 0;
+  const direction = projectionDirection(projection);
+  const isOutgoing = direction === "send";
+  const total = projectionTotalBytes(projection, progress);
+  const transferred = projectionTransferredBytes(projection, progress);
+  const percent = calcPercent(transferred, total);
+  const status = projectionStatus(projection);
 
   return (
     <Pressable
-      onPress={() => onPress?.(snapshot.sessionId)}
+      onPress={() => onPress?.(projection.sessionId)}
       accessibilityRole="button"
       className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-3 active:opacity-70"
     >
@@ -50,12 +67,9 @@ export function RecentTransferRow({
           >
             {isOutgoing ? <Trans>发送中</Trans> : <Trans>接收中</Trans>}
             {" · "}
-            {snapshot.completedFiles.toString()}/
-            {snapshot.totalFiles.toString()} <Trans>文件</Trans>
+            {projection.files.length} <Trans>文件</Trans>
           </Text>
-          <Text className="text-xs font-semibold text-muted-foreground">
-            {percent}%
-          </Text>
+          <StatusBadge status={status} />
         </View>
         <View className="h-1 overflow-hidden rounded-full bg-muted">
           <View
@@ -63,6 +77,9 @@ export function RecentTransferRow({
             style={{ width: `${percent}%` }}
           />
         </View>
+        <Text className="text-[11px] text-muted-foreground">
+          {formatBytes(transferred)} / {formatBytes(total)}
+        </Text>
       </View>
     </Pressable>
   );

@@ -16,6 +16,7 @@ use swarmdrop_core::protocol::{AppRequest, PairingMethod};
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_core::transfer::progress::FileTransferStatus;
 
+use crate::history::MobileTransferProjection;
 use crate::network::MobileNetworkStatus;
 use crate::transfer::MobileTransferOffer;
 
@@ -140,6 +141,9 @@ pub enum MobileCoreEvent {
     TransferResumed {
         event: MobileTransferResumed,
     },
+    TransferProjectionUpdate {
+        projection: MobileTransferProjection,
+    },
     TransferDbError {
         session_id: String,
         message: String,
@@ -261,6 +265,9 @@ fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
                     .collect(),
                 total_size: event.total_size,
             },
+        },
+        CoreEvent::TransferProjection { projection } => MobileCoreEvent::TransferProjectionUpdate {
+            projection: projection.into(),
         },
         CoreEvent::TransferDbError { event } => MobileCoreEvent::TransferDbError {
             session_id: event.session_id.to_string(),

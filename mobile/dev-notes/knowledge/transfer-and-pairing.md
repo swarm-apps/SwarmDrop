@@ -9,6 +9,42 @@ SwarmDrop-RN 的核心业务是 P2P 文件传输 + 设备配对。状态层在
 
 下面记录的都是"从代码看不出来的约束"——FFI 边界、core 端的语义、zustand 订阅的坑。
 
+## 传输活动状态源
+
+### RN 端只消费 TransferProjection，不再维护旧 history/status 模型
+
+移动端传输列表、详情页和恢复入口统一走 shared core 的投影 API：
+
+- `getTransferProjections()`
+- `getTransferProjection(sessionId)`
+- `clearTransferActivity()`
+- `deleteTransferRecord(sessionId)`
+- `resumeTransfer(sessionId)`
+
+Rust bridge 的 [history.rs](../../packages/swarmdrop-core/rust/mobile-core/src/history.rs)
+只负责把 `swarmdrop_core::database::ops::TransferProjection` 镜像成
+`MobileTransferProjection`。RN 端状态集中在
+[src/stores/transfer-store.ts](../../src/stores/transfer-store.ts)，UI 只用
+[src/core/transfer-types.ts](../../src/core/transfer-types.ts) 把 projection 映射成移动端展示状态。
+
+旧的 `MobileSessionStatus` / `MobileTransferHistoryItem` / `listTransferHistory()` 不是新 UI 的状态源。
+新增收件箱、设备信任策略或传输活动视图时，不要再从 RN 侧拼 history model；应该先让 core 发
+`TransferProjectionUpdate`，再由 store 合并 projection。
+
+### App 重启后的活跃传输标记为 AppRestarted
+
+`reconcile_stale_sessions()` 在 mobile-core 初始化时会把 DB 里遗留的活跃会话统一过渡到
+`Suspended/AppRestarted`。这比旧的 host-only `ERROR_APP_INTERRUPTED` 更适合移动端：
+projection 自带 `recoverable`、`suspendedReason`、`policyAction/policyReason` 和保存位置，UI
+可以直接决定是否显示「恢复」或后续策略提示。
+
+**相关文件**：
+
+- [packages/swarmdrop-core/rust/mobile-core/src/history.rs](../../packages/swarmdrop-core/rust/mobile-core/src/history.rs)
+- [packages/swarmdrop-core/rust/mobile-core/src/events.rs](../../packages/swarmdrop-core/rust/mobile-core/src/events.rs)
+- [src/stores/transfer-store.ts](../../src/stores/transfer-store.ts)
+- [src/core/event-bus.ts](../../src/core/event-bus.ts)
+
 ## Zustand selector
 
 ### 返回新对象/数组的 selector 必须包 useShallow

@@ -29,7 +29,7 @@ export function TransferOfferHost() {
   const colors = useThemeColors();
   const current = useTransferStore((s) => s.currentOffer);
   const dismiss = useTransferStore((s) => s.dismissOffer);
-  const addSession = useTransferStore((s) => s.addSession);
+  const loadProjection = useTransferStore((s) => s.loadProjection);
   const setError = useTransferStore((s) => s.setError);
   const autoAccept = usePreferencesStore((s) => s.autoAccept);
   // pairedDevicesCache 离线也保留 keychain 里的 paired peer 列表 ——
@@ -44,21 +44,8 @@ export function TransferOfferHost() {
     setBusy("accepting");
     try {
       await getMobileCore().acceptReceive(current.id, resolveReceiveLocation());
-      addSession({
-        sessionId: current.id,
-        direction: "receive",
-        peerId: current.offer.peerId,
-        peerName: current.offer.deviceName,
-        files: current.offer.files.map((f) => ({
-          fileId: f.fileId,
-          name: f.name,
-          relativePath: f.relativePath ?? "",
-          size: f.size,
-          isDirectory: f.isDirectory,
-        })),
-        totalSize: current.offer.totalSize,
-      });
       const sessionId = current.id;
+      await loadProjection(sessionId);
       dismiss(sessionId);
       // 关闭 dialog 后进入详情页观察实时进度。push 而不是 replace：
       // 用户可能在任意屏幕收到 offer，按返回应回原屏，不应破坏导航栈。
@@ -71,7 +58,7 @@ export function TransferOfferHost() {
     } finally {
       setBusy(null);
     }
-  }, [busy, current, dismiss, setError, addSession, router]);
+  }, [busy, current, dismiss, setError, loadProjection, router]);
 
   const reject = useCallback(async () => {
     if (!current || busy !== null) return;

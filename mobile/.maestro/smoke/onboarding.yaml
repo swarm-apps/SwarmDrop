@@ -47,8 +47,8 @@ name: SwarmDrop onboarding smoke
     id: onboarding-enter-button
 - extendedWaitUntil:
     visible:
-      id: home-screen
+      id: devices-screen
     timeout: 30000
 - assertVisible:
-    id: home-empty-devices
-- takeScreenshot: onboarding-smoke-home
+    id: devices-empty-state
+- takeScreenshot: onboarding-smoke-devices

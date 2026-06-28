@@ -10,13 +10,15 @@ import { ArrowDownLeft, ArrowUpRight } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import {
-  MobileSessionStatus,
-  type MobileTransferHistoryItem,
+  MobileSuspendedReason,
+  MobileTerminalReason,
+  MobileTransferDirection,
+  type MobileTransferProjection,
 } from "react-native-swarmdrop-core";
 import { Text } from "@/components/ui/text";
 import {
-  type ActiveStatus,
-  ERROR_APP_INTERRUPTED,
+  type ProjectionStatus,
+  projectionStatus,
   type TransferDirection,
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -46,7 +48,7 @@ export function DirectionIcon({ direction }: { direction: TransferDirection }) {
 
 /* ─── 状态徽章 ─── */
 
-export type AnyStatus = MobileSessionStatus | ActiveStatus;
+export type AnyStatus = ProjectionStatus;
 
 interface StatusMeta {
   key: string;
@@ -77,6 +79,31 @@ const STATUS_META: Record<string, StatusMeta> = {
     bg: "bg-yellow-500/15",
     text: "text-yellow-600 dark:text-yellow-400",
   },
+  offered: {
+    key: "offered",
+    bg: "bg-yellow-500/15",
+    text: "text-yellow-600 dark:text-yellow-400",
+  },
+  interrupted: {
+    key: "interrupted",
+    bg: "bg-orange-500/15",
+    text: "text-orange-600 dark:text-orange-400",
+  },
+  peer_offline: {
+    key: "peer_offline",
+    bg: "bg-orange-500/15",
+    text: "text-orange-600 dark:text-orange-400",
+  },
+  app_restarted: {
+    key: "app_restarted",
+    bg: "bg-orange-500/15",
+    text: "text-orange-600 dark:text-orange-400",
+  },
+  rejected: {
+    key: "rejected",
+    bg: "bg-muted",
+    text: "text-muted-foreground",
+  },
 };
 
 const FALLBACK_META: StatusMeta = {
@@ -90,23 +117,8 @@ function statusMetaOf(status: AnyStatus): StatusMeta {
   return STATUS_META[key] ?? FALLBACK_META;
 }
 
-/** 把 native enum 或 active 字符串统一归约成一个 string key */
 export function statusKey(status: AnyStatus): string {
-  if (typeof status === "string") return status;
-  switch (status) {
-    case MobileSessionStatus.Transferring:
-      return "transferring";
-    case MobileSessionStatus.Paused:
-      return "paused";
-    case MobileSessionStatus.Completed:
-      return "completed";
-    case MobileSessionStatus.Failed:
-      return "failed";
-    case MobileSessionStatus.Cancelled:
-      return "cancelled";
-    default:
-      return "unknown";
-  }
+  return status;
 }
 
 export function StatusBadge({ status }: { status: AnyStatus }) {
@@ -122,6 +134,8 @@ export function StatusBadge({ status }: { status: AnyStatus }) {
 
 export function StatusLabel({ status }: { status: AnyStatus }) {
   switch (statusKey(status)) {
+    case "offered":
+      return <Trans>待确认</Trans>;
     case "transferring":
       return <Trans>传输中</Trans>;
     case "paused":
@@ -132,8 +146,16 @@ export function StatusLabel({ status }: { status: AnyStatus }) {
       return <Trans>失败</Trans>;
     case "cancelled":
       return <Trans>已取消</Trans>;
+    case "rejected":
+      return <Trans>已拒绝</Trans>;
     case "waiting_accept":
       return <Trans>等待响应</Trans>;
+    case "interrupted":
+      return <Trans>可恢复中断</Trans>;
+    case "peer_offline":
+      return <Trans>对端离线</Trans>;
+    case "app_restarted":
+      return <Trans>应用重启</Trans>;
     default:
       return <Trans>未知</Trans>;
   }
@@ -220,7 +242,7 @@ function pad(n: number) {
   return n.toString().padStart(2, "0");
 }
 
-/* ─── 错误消息 i18n 映射 ─── */
+/* ─── 错误/原因 i18n 映射 ─── */
 
 export function LocalizedError({
   message,
@@ -228,29 +250,53 @@ export function LocalizedError({
   message: string | null | undefined;
 }) {
   if (!message) return null;
-  if (message === ERROR_APP_INTERRUPTED) {
-    return <Trans>上次未完成</Trans>;
-  }
   return <Text>{message}</Text>;
 }
 
-/* ─── 历史 item 判定辅助 ─── */
+export function projectionReasonLabel(
+  projection: MobileTransferProjection,
+): ReactNode {
+  if (projection.suspendedReason === MobileSuspendedReason.LocalPaused) {
+    return <Trans>本机暂停</Trans>;
+  }
+  if (projection.suspendedReason === MobileSuspendedReason.RemotePaused) {
+    return <Trans>对端暂停</Trans>;
+  }
+  if (projection.suspendedReason === MobileSuspendedReason.Interrupted) {
+    return <Trans>网络中断</Trans>;
+  }
+  if (projection.suspendedReason === MobileSuspendedReason.PeerOffline) {
+    return <Trans>对端离线</Trans>;
+  }
+  if (projection.suspendedReason === MobileSuspendedReason.AppRestarted) {
+    return <Trans>应用重启后可恢复</Trans>;
+  }
+  if (projection.terminalReason === MobileTerminalReason.Rejected) {
+    return <Trans>请求被拒绝</Trans>;
+  }
+  if (projection.terminalReason === MobileTerminalReason.Cancelled) {
+    return <Trans>传输已取消</Trans>;
+  }
+  if (projection.terminalReason === MobileTerminalReason.FatalError) {
+    return <Trans>传输失败</Trans>;
+  }
+  return null;
+}
 
-export function canShareFile(item: MobileTransferHistoryItem): boolean {
+export function canShareFile(projection: MobileTransferProjection): boolean {
   return (
-    item.direction === "receive" &&
-    item.status === MobileSessionStatus.Completed &&
-    !!item.savePath
+    projection.direction === MobileTransferDirection.Receive &&
+    projection.terminalReason === MobileTerminalReason.Completed &&
+    !!projection.saveLocation
   );
 }
 
-export function canResume(item: MobileTransferHistoryItem): boolean {
+export function canResume(projection: MobileTransferProjection): boolean {
   return (
-    item.status === MobileSessionStatus.Paused ||
-    item.status === MobileSessionStatus.Failed
+    projection.recoverable && projectionStatus(projection) !== "transferring"
   );
 }
 
-export function canResend(item: MobileTransferHistoryItem): boolean {
-  return item.direction === "send";
+export function canResend(projection: MobileTransferProjection): boolean {
+  return projection.direction === MobileTransferDirection.Send;
 }

@@ -84,6 +84,11 @@ function routeEventToStores(event: MobileCoreEvent): void {
       break;
     }
 
+    case MobileCoreEvent_Tags.TransferProjectionUpdate: {
+      useTransferStore.getState().applyProjection(event.inner.projection);
+      break;
+    }
+
     case MobileCoreEvent_Tags.TransferAccepted: {
       useTransferStore.getState().markAccepted(event.inner.sessionId);
       break;
@@ -124,7 +129,7 @@ function routeEventToStores(event: MobileCoreEvent): void {
     }
 
     case MobileCoreEvent_Tags.TransferResumed: {
-      useTransferStore.getState().resumedSession(event.inner.event);
+      useTransferStore.getState().resumedSession();
       break;
     }
 

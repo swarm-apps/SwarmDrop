@@ -10,7 +10,7 @@
 
 ## 一、双仓 + 三层结构
 
-SwarmDrop 整体是双仓布局。**共享业务核心在桌面仓**，移动端通过 git path 引用：
+SwarmDrop 整体是双仓布局。**共享业务核心在桌面仓**，移动端通过 Cargo git `rev` 引用：
 
 | 仓库 | 角色 | 跑在 |
 |---|---|---|
@@ -23,7 +23,7 @@ SwarmDrop-RN (本仓)
    ├─ src/             ← uniffi-bindgen-rn 生成的 TS bindings
    └─ rust/mobile-core/ ← FFI wrap 层（uniffi）
                           ↓ git path
-                       swarmdrop-core (跨平台业务核心)
+                       swarmdrop-core (跨平台业务核心，git rev 固定)
                           ↓
                        swarm-p2p-core (libp2p)
 ```
@@ -217,9 +217,9 @@ pnpm --filter react-native-swarmdrop-core build:ios     # 或 build:android
 pnpm ios   # 或 pnpm android
 ```
 
-修改 mobile-core Rust 代码后必须重 build native pod / aar，同时清掉
-`packages/swarmdrop-core/lib/typescript/` 的 ubrn 缓存（重跑
-`pnpm prepare`）。
+修改 mobile-core Rust 代码或 UniFFI 类型后必须重 build native artifacts（Android/iOS）并重跑
+`pnpm --filter react-native-swarmdrop-core prepare`，否则 app 侧会继续读到旧的
+`lib/typescript` package 类型。
 
 ---
 

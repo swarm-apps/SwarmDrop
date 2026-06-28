@@ -20,10 +20,13 @@ uuid = { version = "1", features = ["v4"] }
 # 把这四行改回 path = "../../../../../SwarmDrop/crates/{core,entity,migration}"
 # 和 path = "../../../../../SwarmDrop/libs/core"，git 与 path 不能混用，否则
 # swarm-p2p-core 会撞 "multiple versions"。
-swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", tag = "v0.5.3" }
-entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", tag = "v0.5.3" }
-migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", tag = "v0.5.3" }
-swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", tag = "v0.5.3" }
+#
+# sync-mobile-core-runtime target:
+# /Volumes/yexiyue/SwarmDrop develop c6adf4dc80de251fc4635a4f2d109b39001c3154
+swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "c6adf4dc80de251fc4635a4f2d109b39001c3154" }
+entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "c6adf4dc80de251fc4635a4f2d109b39001c3154" }
+migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "c6adf4dc80de251fc4635a4f2d109b39001c3154" }
+swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "c6adf4dc80de251fc4635a4f2d109b39001c3154" }
 sea-orm = { version = "2.0.0-rc", features = [
     "macros",
     "runtime-tokio-rustls",

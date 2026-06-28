@@ -10,6 +10,25 @@
 
 主要约束都跟"FFI 类型形状"和"panic / 错误的可见性"相关，列在下面。
 
+## Core revision and generated artifacts
+
+### 更新 shared core 后必须同步 ubrn + Bob 两层产物
+
+`packages/swarmdrop-core/rust/mobile-core/Cargo.toml` 通过 git `rev` 引用桌面仓的 shared core
+crate。同步桌面端 API 时先记录目标 commit，再把 `swarmdrop-core` / `entity` / `migration` /
+`swarm-p2p-core` 固定到同一个 rev，避免 Cargo 拉出两份 `swarm-p2p-core`。
+
+UniFFI 接口变化后至少跑：
+
+```bash
+pnpm --filter react-native-swarmdrop-core build:android
+pnpm --filter react-native-swarmdrop-core build:ios
+pnpm --filter react-native-swarmdrop-core prepare
+```
+
+前两步刷新 Rust 静态库、TS bindings 和 C++ bridge；最后一步刷新 package `exports.types` 指向的
+`lib/typescript`，否则 app 的 `react-native-swarmdrop-core` 类型解析会继续看到旧 API。
+
 ## Callback 错误必须包成 uniffi enum 形状
 
 ### 抛错前用 `FfiError.Variant.new(msg)` 包装
@@ -95,11 +114,12 @@ await DocumentPicker.getDocumentAsync({
 
 **相关文件**：[src/core/file-access.ts](../../src/core/file-access.ts)
 
-### Sink 写入时按需 open FileHandle，不要长期持有
+### Sink 写入时保持 FileHandle 打开，直到 finalize/cleanup
 
-`ExpoFileAccess.sinks` Map 只存 `metadata + File` 引用，不缓存 `FileHandle`。每次
-`writeSinkChunk` 临时 open → seek offset → write → finally close。这样跨 chunk 不会泄漏 fd，
-也能容忍 app 进入后台后系统回收 handle。
+`ExpoFileAccess.sinks` Map 必须保存打开的 `FileHandle`。尤其是 Android SAF 的 `content://`
+tree，`openFileDescriptor("w")` 在不少 DocumentsProvider 上会 truncate；如果每个 chunk 都
+open/close，同一个文件会被反复截断，最后只剩尾块。正确生命周期是 create/open 阶段拿 handle，
+`writeSinkChunk` 只做 seek + write，`finalizeSink` / `cleanupSink` 再 close。
 
 **相关文件**：[src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts)
 

@@ -2,15 +2,19 @@
 
 ### Requirement: Bottom-tab primary shell
 
-The mobile app SHALL expose Devices, Inbox, and Activity as the primary authenticated navigation surfaces. Settings SHALL be reachable as a secondary action and SHALL NOT be a primary tab.
+The mobile app SHALL expose Devices, Inbox, and Settings as the primary authenticated navigation surfaces. Activity SHALL be a secondary transfer process page rather than a primary tab.
 
 #### Scenario: Returning user opens app
 - **WHEN** a user has completed onboarding and opens the app
-- **THEN** the app SHALL show the primary mobile shell with Devices, Inbox, and Activity navigation visible.
+- **THEN** the app SHALL show the primary mobile shell with Devices, Inbox, and Settings navigation visible.
 
 #### Scenario: User switches between primary tasks
-- **WHEN** the user taps Devices, Inbox, or Activity
+- **WHEN** the user taps Devices, Inbox, or Settings
 - **THEN** the app SHALL switch surfaces without opening a drawer or modal.
+
+#### Scenario: User opens transfer activity
+- **WHEN** the user opens Activity from Devices or an existing transfer route
+- **THEN** the app SHALL show Activity as a secondary page with transfer process, recovery, and diagnostics sections.
 
 ### Requirement: Devices tab is the sending and pairing home
 
@@ -36,10 +40,10 @@ The app shell SHALL use consistent mobile primitives for headers, bottom tabs, c
 - **WHEN** a primary surface has no data
 - **THEN** it SHALL show an icon, concise title, helpful secondary text, and a direct next action when one exists.
 
-### Requirement: Android Maestro navigation hooks
+### Requirement: Android navigation hooks
 
-Primary navigation elements and top-level screens SHALL expose stable Android test IDs for Maestro validation.
+Primary navigation elements and top-level screens SHALL expose stable Android test IDs for the foundation smoke flow.
 
-#### Scenario: Maestro opens each tab
-- **WHEN** an Android Maestro flow taps each primary tab by test ID
+#### Scenario: Smoke flow opens each tab
+- **WHEN** an Android smoke flow taps each primary tab by test ID
 - **THEN** each corresponding screen SHALL become visible with a stable screen test ID.

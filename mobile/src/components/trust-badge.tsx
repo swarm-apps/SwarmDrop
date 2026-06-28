@@ -1,0 +1,58 @@
+import { Trans } from "@lingui/react/macro";
+import { View } from "react-native";
+import { Text } from "@/components/ui/text";
+import type { TrustLevel } from "@/core/device-trust";
+import { cn } from "@/lib/utils";
+
+interface TrustBadgeProps {
+  level: TrustLevel;
+  compact?: boolean;
+}
+
+export function TrustBadge({ level, compact }: TrustBadgeProps) {
+  const meta = TRUST_META[level];
+  return (
+    <View
+      className={cn(
+        "self-start rounded-full",
+        compact ? "px-2 py-0.5" : "px-2.5 py-1",
+        meta.bg,
+      )}
+    >
+      <Text
+        className={cn(
+          "font-medium",
+          compact ? "text-[10px]" : "text-[11px]",
+          meta.text,
+        )}
+      >
+        <TrustLabel level={level} />
+      </Text>
+    </View>
+  );
+}
+
+export function TrustLabel({ level }: { level: TrustLevel }) {
+  switch (level) {
+    case "owned":
+      return <Trans>本人设备</Trans>;
+    case "temporary":
+      return <Trans>临时设备</Trans>;
+    case "blocked":
+      return <Trans>已阻止</Trans>;
+    case "collaborator":
+      return <Trans>协作设备</Trans>;
+    default:
+      return <Trans>协作设备</Trans>;
+  }
+}
+
+const TRUST_META: Record<TrustLevel, { bg: string; text: string }> = {
+  owned: { bg: "bg-primary/10", text: "text-primary" },
+  collaborator: { bg: "bg-success/10", text: "text-success" },
+  temporary: {
+    bg: "bg-yellow-500/15",
+    text: "text-yellow-600 dark:text-yellow-400",
+  },
+  blocked: { bg: "bg-destructive/15", text: "text-destructive" },
+};

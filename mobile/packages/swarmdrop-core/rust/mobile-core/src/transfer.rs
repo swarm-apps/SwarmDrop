@@ -152,6 +152,7 @@ impl MobileCore {
         let manager = self.transfer_manager_arc().await?;
         let result = manager
             .send_offer(&prepared_uuid, &peer_id, &peer_name, &file_ids)
+            .await
             .map_err(FfiError::from)?;
         Ok(MobileSendResult {
             session_id: result.session_id.to_string(),

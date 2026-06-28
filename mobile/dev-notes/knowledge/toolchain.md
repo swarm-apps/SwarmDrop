@@ -102,6 +102,11 @@ iOS 26.x 下 visible RN UI missing from Maestro/XCUITest accessibility tree。
 
 **正确做法**：
 - Android Maestro 仍作为当前可执行的移动 E2E smoke gate。
+- UI foundation 的最小 Android gate 是
+  `maestro --device emulator-5554 test .maestro/smoke/mobile-foundation.yaml`：
+  覆盖设备 / 收件箱 / 设置三 tab、收件箱空态，以及从设备页进入二级活动页。
+  这个 flow 只验证导航壳和空态边界；完整设备信任策略、Inbox 详情/删除、网络发现运行态、接收 offer
+  等业务 E2E 归后续 OpenSpec changes 增量补齐。
 - iOS 侧保留测试脚本和 testID，但 selector 型 Maestro flow 暂不作为必过 gate；需要 iOS 视觉确认时
   只做临时 `takeScreenshot` / `assertScreenshot` 或人工检查。
 - 恢复 iOS Maestro 前，先确认
@@ -117,6 +122,7 @@ iOS 26.x 下 visible RN UI missing from Maestro/XCUITest accessibility tree。
 - 不要把 selector flow 全量改成坐标点击后当成稳定 E2E；坐标只能作为临时截图采样手段。
 
 **相关文件**：[.maestro/smoke/onboarding.yaml](../../.maestro/smoke/onboarding.yaml),
+[.maestro/smoke/mobile-foundation.yaml](../../.maestro/smoke/mobile-foundation.yaml),
 [package.json](../../package.json)
 
 ## SwarmHive 更新

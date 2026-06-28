@@ -1,17 +1,57 @@
-import { Drawer } from "expo-router/drawer";
-import { DrawerContent } from "@/components/drawer-content";
+import { Trans } from "@lingui/react/macro";
+import { Tabs } from "expo-router";
+import { Inbox, Settings, Smartphone } from "lucide-react-native";
+import { useThemeColors } from "@/hooks/useThemeColors";
 
-/**
- * (main) 层只承载主屏一个 Screen。Drawer 用作主屏左侧的全局入口面板。
- * 传输历史 / 设置 / 关于 等都是 root Stack 的同级路由,由 Drawer 项 router.push 跳转。
- */
 export default function MainLayout() {
+  const colors = useThemeColors();
+
   return (
-    <Drawer
-      drawerContent={(props) => <DrawerContent {...props} />}
-      screenOptions={{ headerShown: false, drawerType: "front" }}
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.mutedForeground,
+        tabBarStyle: {
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
+          height: 64,
+          paddingBottom: 8,
+          paddingTop: 7,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "600",
+        },
+      }}
     >
-      <Drawer.Screen name="index" />
-    </Drawer>
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Devices",
+          tabBarLabel: () => <Trans>设备</Trans>,
+          tabBarIcon: ({ color }) => <Smartphone color={color} size={20} />,
+          tabBarButtonTestID: "tab-devices",
+        }}
+      />
+      <Tabs.Screen
+        name="inbox"
+        options={{
+          title: "Inbox",
+          tabBarLabel: () => <Trans>收件箱</Trans>,
+          tabBarIcon: ({ color }) => <Inbox color={color} size={20} />,
+          tabBarButtonTestID: "tab-inbox",
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: "Settings",
+          tabBarLabel: () => <Trans>设置</Trans>,
+          tabBarIcon: ({ color }) => <Settings color={color} size={20} />,
+          tabBarButtonTestID: "tab-settings",
+        }}
+      />
+    </Tabs>
   );
 }

@@ -99,7 +99,15 @@ export default function RootLayout() {
                       options={{ animation: "slide_from_right" }}
                     />
                     <Stack.Screen
+                      name="activity"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                    <Stack.Screen
                       name="settings"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                    <Stack.Screen
+                      name="device/[peerId]"
                       options={{ animation: "slide_from_right" }}
                     />
                     <Stack.Screen

@@ -1,13 +1,17 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
-import { DrawerActions, useNavigation } from "expo-router/react-navigation";
-import { Menu, Plus, Smartphone } from "lucide-react-native";
+import { Plus, Smartphone } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, View } from "react-native";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { DeviceCard } from "@/components/device-card";
+import {
+  AppHeader,
+  AppScreen,
+  EmptyState,
+  Surface,
+} from "@/components/mobile/screen";
 import {
   NodeControlSheet,
   type NodeControlSheetRef,
@@ -16,6 +20,8 @@ import { PairingSheet, type PairingSheetRef } from "@/components/pairing-sheet";
 import { RecentTransferRow } from "@/components/recent-transfer-row";
 import { StatusPill } from "@/components/status-pill";
 import { Text } from "@/components/ui/text";
+import { canSendToDevice } from "@/core/device-trust";
+import { isProjectionActive } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
 import {
@@ -24,9 +30,8 @@ import {
 } from "@/stores/mobile-core-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
-export default function HomeScreen() {
+export default function DevicesScreen() {
   const router = useRouter();
-  const navigation = useNavigation();
   const colors = useThemeColors();
   const { t } = useLingui();
   const pairingSheetRef = useRef<PairingSheetRef>(null);
@@ -52,15 +57,19 @@ export default function HomeScreen() {
     })),
   );
 
-  const sessions = useTransferStore((s) => s.sessions);
+  const projections = useTransferStore((s) => s.projections);
+  const progressBySession = useTransferStore((s) => s.progressBySession);
+  const loadProjections = useTransferStore((s) => s.loadProjections);
 
-  // 仅第一次进入主屏时加载身份(拿 peerId)。
-  // 是否自动启动节点由 preferences.autoStart 决定,逻辑封装在 loadIdentity 内部。
   useEffect(() => {
     if (!initialized) {
       void loadIdentity();
     }
   }, [initialized, loadIdentity]);
+
+  useEffect(() => {
+    void loadProjections();
+  }, [loadProjections]);
 
   useEffect(() => {
     if (error !== null) {
@@ -69,7 +78,6 @@ export default function HomeScreen() {
     }
   }, [error, setError]);
 
-  // 节点 running 时用实时 devices;否则 fallback 到持久化的 paired 骨架(显示离线)
   const pairedDevices = useMemo(() => {
     if (runtimeState === "running") {
       return devices.filter((d) => d.isPaired);
@@ -77,131 +85,173 @@ export default function HomeScreen() {
     return summariesToOfflineDevices(pairedDevicesCache);
   }, [runtimeState, devices, pairedDevicesCache]);
 
-  const activeSnapshots = useMemo(
+  const activeProjections = useMemo(
     () =>
-      Object.values(sessions)
-        .sort((a, b) => b.startedAt - a.startedAt)
-        .map((s) => s.progress)
-        .filter((p): p is NonNullable<typeof p> => p !== null),
-    [sessions],
+      Object.values(projections)
+        .filter(isProjectionActive)
+        .sort((a, b) => Number(b.updatedAt - a.updatedAt))
+        .slice(0, 3),
+    [projections],
   );
 
-  const onDevicePress = useCallback(
+  const openDeviceDetail = useCallback(
     (device: DeviceInfo) => {
-      if (device.status !== "online") {
-        toast.info(t`设备离线,暂无法发送`);
+      router.push({
+        pathname: "/device/[peerId]",
+        params: { peerId: device.peerId },
+      } as never);
+    },
+    [router],
+  );
+
+  const sendToDevice = useCallback(
+    (device: DeviceInfo) => {
+      if (!canSendToDevice(device)) {
+        toast.info(t`设备当前不可发送`);
         return;
       }
-      // 直接跳「发送准备页」—— 用户在那里选文件 / 文件夹 / 照片 / 视频，
-      // 可多次累加 / 撤销，最后点发送。对齐桌面端「点设备 → 发送页」的流程。
       router.push({
         pathname: "/send/select-device",
         params: { peerId: device.peerId },
-      });
+      } as never);
     },
     [router, t],
   );
 
-  const openDrawer = () => navigation.dispatch(DrawerActions.openDrawer());
-
   return (
-    <SafeAreaView
-      style={{ flex: 1 }}
-      className="bg-background"
-      edges={["top"]}
-      testID="home-screen"
-    >
-      <View className="flex-row items-center justify-between px-5 py-3">
-        <Pressable
-          onPress={openDrawer}
-          hitSlop={12}
-          accessibilityLabel={t`打开侧栏`}
-          accessibilityRole="button"
-        >
-          <Menu color={colors.foreground} size={22} />
-        </Pressable>
-        <Text className="text-base font-semibold text-foreground">
-          SwarmDrop
-        </Text>
-        <StatusPill
-          state={runtimeState}
-          onPress={() => nodeSheetRef.current?.present()}
-        />
-      </View>
-
-      <ScrollView contentContainerClassName="flex-grow gap-5 px-5 pb-8">
-        <View className="gap-3">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-sm font-semibold text-foreground">
-              <Trans>我的设备</Trans>
-              {pairedDevices.length > 0 ? ` (${pairedDevices.length})` : ""}
-            </Text>
-            <Pressable
-              onPress={() => pairingSheetRef.current?.present()}
-              accessibilityRole="button"
-              testID="home-add-device-button"
-              className="flex-row items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 active:opacity-70"
-            >
-              <Plus color={colors.primary} size={14} />
-              <Text className="text-xs font-semibold text-primary">
-                <Trans>添加</Trans>
-              </Text>
-            </Pressable>
+    <AppScreen scroll testID="devices-screen" contentClassName="gap-5 pt-1">
+      <AppHeader
+        title={<Trans>设备</Trans>}
+        subtitle={<Trans>发送文件、配对设备，并查看连接状态</Trans>}
+        right={
+          <View className="flex-row items-center gap-2">
+            <StatusPill
+              state={runtimeState}
+              onPress={() => nodeSheetRef.current?.present()}
+            />
           </View>
+        }
+        testID="devices-header"
+      />
 
-          {pairedDevices.length === 0 ? (
-            <EmptyDevices onAdd={() => pairingSheetRef.current?.present()} />
-          ) : (
-            <DeviceGrid devices={pairedDevices} onPress={onDevicePress} />
-          )}
+      <Surface className="gap-3" testID="devices-node-summary">
+        <View className="flex-row items-center justify-between gap-3">
+          <View className="min-w-0 flex-1">
+            <Text className="text-[14px] font-semibold text-foreground">
+              <Trans>移动节点</Trans>
+            </Text>
+            <Text className="mt-0.5 text-[12px] text-muted-foreground">
+              {runtimeState === "running" ? (
+                <Trans>附近设备可以发现这台手机</Trans>
+              ) : (
+                <Trans>启动节点后才能发现和连接设备</Trans>
+              )}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => nodeSheetRef.current?.present()}
+            accessibilityRole="button"
+            className="min-h-11 items-center justify-center rounded-xl border border-border px-3 active:opacity-70"
+          >
+            <Text className="text-[12px] font-semibold text-foreground">
+              <Trans>管理</Trans>
+            </Text>
+          </Pressable>
+        </View>
+      </Surface>
+
+      <View className="gap-3">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-[15px] font-semibold text-foreground">
+            <Trans>已配对设备</Trans>
+            {pairedDevices.length > 0 ? ` (${pairedDevices.length})` : ""}
+          </Text>
+          <Pressable
+            onPress={() => pairingSheetRef.current?.present()}
+            accessibilityRole="button"
+            testID="devices-add-device-button"
+            className="min-h-11 flex-row items-center gap-1.5 rounded-xl bg-primary/10 px-3 active:opacity-70"
+          >
+            <Plus color={colors.primary} size={15} />
+            <Text className="text-[12px] font-semibold text-primary">
+              <Trans>添加</Trans>
+            </Text>
+          </Pressable>
         </View>
 
-        {activeSnapshots.length > 0 ? (
-          <View className="gap-3">
-            <View className="flex-row items-center justify-between">
-              <Text className="text-sm font-semibold text-foreground">
-                <Trans>正在传输</Trans>
-              </Text>
-              <Pressable
-                onPress={() => router.push("/transfer" as never)}
-                accessibilityRole="button"
-                hitSlop={6}
-              >
-                <Text className="text-xs font-medium text-primary">
-                  <Trans>查看全部</Trans>
-                </Text>
-              </Pressable>
-            </View>
-            <View className="gap-2">
-              {activeSnapshots.map((snap) => (
-                <RecentTransferRow
-                  key={snap.sessionId}
-                  snapshot={snap}
-                  onPress={(sid) =>
-                    router.push({
-                      pathname: "/transfer/[sessionId]",
-                      params: { sessionId: sid },
-                    } as never)
-                  }
-                />
-              ))}
-            </View>
+        {pairedDevices.length === 0 ? (
+          <EmptyState
+            icon={Smartphone}
+            title={<Trans>还没有配对设备</Trans>}
+            description={<Trans>通过附近发现或配对码连接你的第一台设备</Trans>}
+            actionLabel={<Trans>添加设备</Trans>}
+            onAction={() => pairingSheetRef.current?.present()}
+            testID="devices-empty-state"
+          />
+        ) : (
+          <DeviceGrid
+            devices={pairedDevices}
+            onPress={openDeviceDetail}
+            onSend={sendToDevice}
+          />
+        )}
+      </View>
+
+      <View className="gap-3">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-[15px] font-semibold text-foreground">
+            <Trans>活跃传输</Trans>
+          </Text>
+          <Pressable
+            onPress={() => router.push("/activity" as never)}
+            accessibilityRole="button"
+            hitSlop={8}
+            testID="devices-open-activity-button"
+          >
+            <Text className="text-[12px] font-semibold text-primary">
+              <Trans>查看活动</Trans>
+            </Text>
+          </Pressable>
+        </View>
+        {activeProjections.length > 0 ? (
+          <View className="gap-2">
+            {activeProjections.map((projection) => (
+              <RecentTransferRow
+                key={projection.sessionId}
+                projection={projection}
+                progress={progressBySession[projection.sessionId]}
+                onPress={(sessionId) =>
+                  router.push({
+                    pathname: "/transfer/[sessionId]",
+                    params: { sessionId },
+                  } as never)
+                }
+              />
+            ))}
           </View>
-        ) : null}
-      </ScrollView>
+        ) : (
+          <Surface className="py-5" testID="devices-empty-active-transfers">
+            <Text className="text-center text-[12px] text-muted-foreground">
+              <Trans>没有正在进行的传输</Trans>
+            </Text>
+          </Surface>
+        )}
+      </View>
 
       <PairingSheet ref={pairingSheetRef} />
       <NodeControlSheet ref={nodeSheetRef} />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
 function DeviceGrid({
   devices,
   onPress,
+  onSend,
 }: {
   devices: DeviceInfo[];
   onPress: (d: DeviceInfo) => void;
+  onSend: (d: DeviceInfo) => void;
 }) {
   const rows = useMemo(() => {
     const result: DeviceInfo[][] = [];
@@ -215,45 +265,17 @@ function DeviceGrid({
     <View className="gap-2.5">
       {rows.map((row, idx) => (
         <View key={String(idx)} className="flex-row gap-2.5">
-          {row.map((d) => (
-            <DeviceCard key={d.peerId} device={d} onPress={onPress} />
+          {row.map((device) => (
+            <DeviceCard
+              key={device.peerId}
+              device={device}
+              onPress={onPress}
+              onSend={onSend}
+            />
           ))}
           {row.length === 1 ? <View className="flex-1" /> : null}
         </View>
       ))}
-    </View>
-  );
-}
-
-function EmptyDevices({ onAdd }: { onAdd: () => void }) {
-  const colors = useThemeColors();
-  return (
-    <View
-      className="items-center gap-4 rounded-xl border border-dashed border-border bg-card py-10"
-      testID="home-empty-devices"
-    >
-      <View className="size-14 items-center justify-center rounded-full bg-muted">
-        <Smartphone color={colors.mutedForeground} size={28} />
-      </View>
-      <View className="gap-1 items-center">
-        <Text className="text-sm font-semibold text-foreground">
-          <Trans>还没有配对设备</Trans>
-        </Text>
-        <Text className="text-xs text-muted-foreground">
-          <Trans>通过配对码连接你的第一台设备</Trans>
-        </Text>
-      </View>
-      <Pressable
-        onPress={onAdd}
-        accessibilityRole="button"
-        testID="home-empty-devices-add-button"
-        className="flex-row items-center gap-1.5 rounded-full bg-primary px-4 py-2 active:opacity-70"
-      >
-        <Plus color={colors.background} size={14} />
-        <Text className="text-xs font-semibold text-primary-foreground">
-          <Trans>添加设备</Trans>
-        </Text>
-      </Pressable>
     </View>
   );
 }

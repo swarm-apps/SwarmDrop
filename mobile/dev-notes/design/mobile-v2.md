@@ -1,5 +1,9 @@
 # SwarmDrop-RN UI v2 设计说明
 
+> Superseded: 该文档记录的是 2026-06 早期 Drawer-first 方案。当前实现以
+> `redesign-mobile-foundation` 为准：底部三 tab 为设备 / 收件箱 / 设置，传输活动为二级页面。
+> 本文仅作为历史设计参考，不再作为新 UI 开发依据。
+
 > 与桌面端 v2(`SwarmDrop/dev-notes/design/design-2.pen`)对齐的移动端重构方案。
 > 蓝本:`SwarmNote-RN` 的技术栈与组件模式(NativeWind v5 + Lingui 6 + Bottom Sheet)。
 

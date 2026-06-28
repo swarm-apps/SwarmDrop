@@ -2,7 +2,9 @@
 //!
 //! host 必须在前台主动调 `start_node`,后台时调 `shutdown_node`。core 不自动管。
 
-use swarmdrop_core::network::{NetworkStatus as CoreNetworkStatus, NodeStatus};
+use swarmdrop_core::network::{
+    NetworkRuntimeConfig, NetworkStatus as CoreNetworkStatus, NodeStatus,
+};
 
 use crate::app::MobileCore;
 use crate::error::{FfiError, FfiResult};
@@ -75,13 +77,17 @@ impl MobileCore {
             keypair,
             device_name,
             paired_devices,
-            custom_bootstrap_nodes,
-            move |client| {
+            NetworkRuntimeConfig {
+                custom_bootstrap_nodes,
+                ..Default::default()
+            },
+            move |client, data_channel_rx| {
                 swarmdrop_core::transfer::manager::TransferManager::new(
                     client,
                     event_bus,
                     db,
                     file_access,
+                    data_channel_rx,
                 )
             },
         )?;

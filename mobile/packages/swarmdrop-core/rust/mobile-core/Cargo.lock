@@ -1261,7 +1261,7 @@ dependencies = [
 [[package]]
 name = "entity"
 version = "0.1.0"
-source = "git+https://github.com/swarm-apps/SwarmDrop.git?tag=v0.5.3#c1030df05500aa1cbd878c242533874f93e45d6e"
+source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=c6adf4dc80de251fc4635a4f2d109b39001c3154#c6adf4dc80de251fc4635a4f2d109b39001c3154"
 dependencies = [
  "sea-orm",
  "serde",
@@ -2644,6 +2644,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-stream"
+version = "0.4.0-alpha"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d6bd8025c80205ec2810cfb28b02f362ab48a01bee32c50ab5f12761e033464"
+dependencies = [
+ "futures",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-swarm",
+ "rand 0.8.6",
+ "tracing",
+]
+
+[[package]]
 name = "libp2p-swarm"
 version = "0.47.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2856,7 +2870,7 @@ dependencies = [
 [[package]]
 name = "migration"
 version = "0.1.0"
-source = "git+https://github.com/swarm-apps/SwarmDrop.git?tag=v0.5.3#c1030df05500aa1cbd878c242533874f93e45d6e"
+source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=c6adf4dc80de251fc4635a4f2d109b39001c3154#c6adf4dc80de251fc4635a4f2d109b39001c3154"
 dependencies = [
  "sea-orm",
  "sea-orm-migration",
@@ -4628,13 +4642,14 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "swarm-p2p-core"
 version = "0.1.0"
-source = "git+https://github.com/swarm-apps/SwarmDrop.git?tag=v0.5.3#c1030df05500aa1cbd878c242533874f93e45d6e"
+source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=c6adf4dc80de251fc4635a4f2d109b39001c3154#c6adf4dc80de251fc4635a4f2d109b39001c3154"
 dependencies = [
  "anyhow",
  "async-trait",
  "dashmap",
  "futures",
  "libp2p",
+ "libp2p-stream",
  "parking_lot",
  "serde",
  "serde_json",
@@ -4646,7 +4661,7 @@ dependencies = [
 [[package]]
 name = "swarmdrop-core"
 version = "0.5.3"
-source = "git+https://github.com/swarm-apps/SwarmDrop.git?tag=v0.5.3#c1030df05500aa1cbd878c242533874f93e45d6e"
+source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=c6adf4dc80de251fc4635a4f2d109b39001c3154#c6adf4dc80de251fc4635a4f2d109b39001c3154"
 dependencies = [
  "async-trait",
  "blake3",
@@ -4654,6 +4669,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "entity",
+ "futures",
  "rand 0.10.1",
  "sea-orm",
  "serde",
@@ -4665,6 +4681,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "unsigned-varint 0.8.0",
  "uuid",
 ]
 
@@ -5264,6 +5281,10 @@ name = "unsigned-varint"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb066959b24b5196ae73cb057f45598450d2c5f71460e98c49b738086eff9c06"
+dependencies = [
+ "futures-io",
+ "futures-util",
+]
 
 [[package]]
 name = "untrusted"

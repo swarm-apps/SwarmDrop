@@ -13,7 +13,7 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/components/transfer-offer-host.tsx:166
+#: src/components/transfer-offer-host.tsx:153
 msgid "...还有 {remainingCount} 个文件"
 msgstr "...and {remainingCount} more files"
 
@@ -28,7 +28,7 @@ msgstr "{0} files · {1}"
 msgid "{0} 后过期"
 msgstr "Expires in {0}"
 
-#: src/components/transfer/shared.tsx:213
+#: src/components/transfer/shared.tsx:235
 msgid "{d} 天前"
 msgstr "{d} days ago"
 
@@ -40,11 +40,11 @@ msgstr "{fileCount} items"
 msgid "{filesCount} 个文件"
 msgstr "{filesCount} files"
 
-#: src/components/transfer/shared.tsx:209
+#: src/components/transfer/shared.tsx:231
 msgid "{h} 小时前"
 msgstr "{h} hours ago"
 
-#: src/components/transfer/shared.tsx:205
+#: src/components/transfer/shared.tsx:227
 msgid "{m} 分钟前"
 msgstr "{m} minutes ago"
 
@@ -52,15 +52,23 @@ msgstr "{m} minutes ago"
 msgid "/ip4/.../tcp/.../p2p/..."
 msgstr "/ip4/.../tcp/.../p2p/..."
 
-#: src/app/settings/network.tsx:66
+#: src/app/settings/network.tsx:90
 msgid "App 启动后自动启动 P2P 节点"
 msgstr "Automatically start the P2P node when the app launches"
+
+#: src/app/settings/network.tsx:66
+msgid "LAN Helper"
+msgstr "LAN Helper"
+
+#: src/app/settings/network.tsx:123
+msgid "LAN Helper 托管"
+msgstr "LAN Helper Hosting"
 
 #: src/components/device-info-card.tsx:200
 msgid "NAT"
 msgstr "NAT"
 
-#: src/app/settings/network.tsx:42
+#: src/app/settings/network.tsx:51
 #: src/components/node-control-sheet.tsx:177
 msgid "NAT 状态"
 msgstr "NAT status"
@@ -69,6 +77,7 @@ msgstr "NAT status"
 msgid "P2P 直连,跨网络也能传输"
 msgstr "P2P direct, works across networks"
 
+#: src/app/device/[peerId].tsx:145
 #: src/components/node-control-sheet.tsx:156
 msgid "Peer ID"
 msgstr "Peer ID"
@@ -77,23 +86,23 @@ msgstr "Peer ID"
 msgid "一切就绪"
 msgstr "All set"
 
-#: src/components/transfer/shared.tsx:232
-msgid "上次未完成"
-msgstr "Interrupted"
-
-#: src/app/transfer/[sessionId].tsx:527
-#: src/components/transfer-offer-host.tsx:141
+#: src/app/transfer/[sessionId].tsx:263
+#: src/components/transfer-offer-host.tsx:128
 msgid "个文件"
 msgstr "files"
 
-#: src/app/transfer/[sessionId].tsx:392
+#: src/app/transfer/[sessionId].tsx:184
 msgid "中止"
 msgstr "Abort"
 
-#: src/app/settings/network.tsx:47
+#: src/app/settings/network.tsx:56
 #: src/components/node-control-sheet.tsx:184
 msgid "中继"
 msgstr "Relay"
+
+#: src/components/trust-badge.tsx:40
+msgid "临时设备"
+msgstr "Temporary device"
 
 #: src/app/pairing/found-device.tsx:98
 #: src/app/pairing/success.tsx:42
@@ -104,9 +113,9 @@ msgstr "Hostname"
 msgid "主题已更新"
 msgstr "Theme updated"
 
-#: src/app/transfer/[sessionId].tsx:401
-msgid "仅从本机历史中删除，不影响对端。"
-msgstr "Only removes from this device's history; the other side is unaffected."
+#: src/app/transfer/[sessionId].tsx:193
+msgid "仅从本机活动记录中删除，不影响对端。"
+msgstr "Only removes this local activity record. The other device is not affected."
 
 #: src/components/send-options-sheet.tsx:106
 msgid "从相册选择图片"
@@ -116,11 +125,19 @@ msgstr "Pick images from library"
 msgid "从相册选择视频"
 msgstr "Pick videos from library"
 
+#: src/app/activity.tsx:131
+msgid "从设备页发送文件，或接收其他设备发来的内容。"
+msgstr "Send files from Devices, or receive content from another device."
+
 #: src/components/send-options-sheet.tsx:94
 msgid "任意类型,支持多选"
 msgstr "Any type, multiple supported"
 
-#: src/app/transfer/[sessionId].tsx:367
+#: src/app/settings/network.tsx:113
+msgid "优先使用本地网络、引导节点和中继发现可用设备"
+msgstr "Prefer local network, bootstrap nodes, and relays to discover available devices."
+
+#: src/app/transfer/[sessionId].tsx:159
 msgid "会话不存在或已结束"
 msgstr "Session does not exist or has ended"
 
@@ -128,31 +145,33 @@ msgstr "Session does not exist or has ended"
 msgid "传输"
 msgstr "Transfer"
 
-#: src/components/transfer/shared.tsx:126
+#: src/components/transfer/shared.tsx:140
 msgid "传输中"
 msgstr "Transferring"
 
-#: src/app/transfer/index.tsx:86
-#: src/app/transfer/index.tsx:121
-#: src/components/drawer-content.tsx:41
-msgid "传输历史"
-msgstr "Transfer history"
-
-#: src/app/transfer/[sessionId].tsx:626
-#: src/core/event-bus.ts:110
+#: src/app/transfer/[sessionId].tsx:406
+#: src/components/transfer/shared.tsx:281
+#: src/core/event-bus.ts:115
 msgid "传输失败"
 msgstr "Transfer failed"
 
-#: src/core/event-bus.ts:111
+#: src/core/event-bus.ts:116
 msgid "传输失败：{error}"
 msgstr "Transfer failed: {error}"
 
-#: src/app/transfer/[sessionId].tsx:355
-#: src/app/transfer/[sessionId].tsx:483
+#: src/components/transfer/shared.tsx:278
+msgid "传输已取消"
+msgstr "Transfer cancelled"
+
+#: src/app/transfer/[sessionId].tsx:150
 msgid "传输详情"
 msgstr "Transfer details"
 
-#: src/app/transfer/[sessionId].tsx:677
+#: src/app/activity.tsx:91
+msgid "传输过程、恢复入口和诊断记录"
+msgstr "Transfer process, recovery entries, and diagnostics"
+
+#: src/app/transfer/[sessionId].tsx:287
 msgid "保存位置"
 msgstr "Save location"
 
@@ -160,6 +179,18 @@ msgstr "Save location"
 #: src/app/settings/theme.tsx:51
 msgid "保存失败"
 msgstr "Save failed"
+
+#: src/app/settings/network.tsx:162
+msgid "保留为高级兜底，不作为默认发现路径。"
+msgstr "Kept as an advanced fallback, not the default discovery path."
+
+#: src/app/device/[peerId].tsx:156
+msgid "信任与接收策略"
+msgstr "Trust and receive policy"
+
+#: src/app/settings/network.tsx:71
+msgid "候选来源"
+msgstr "Candidate source"
 
 #: src/components/node-control-sheet.tsx:201
 msgid "停止后将断开所有连接,其他设备将无法发现你"
@@ -169,18 +200,14 @@ msgstr "Stopping disconnects all peers and makes you undiscoverable"
 msgid "停止节点"
 msgstr "Stop node"
 
-#: src/app/transfer/index.tsx:199
-msgid "全部"
-msgstr "All"
-
 #. placeholder {0}: formatBytes(totalSize)
 #: src/components/file-tree/file-tree.tsx:188
 msgid "共 {totalCount} 项 · {0}"
 msgstr "Total {totalCount} · {0}"
 
+#: src/app/(main)/settings.tsx:67
 #: src/app/settings/about.tsx:47
 #: src/app/settings/index.tsx:67
-#: src/components/drawer-content.tsx:43
 msgid "关于"
 msgstr "About"
 
@@ -192,11 +219,15 @@ msgstr ""
 "Other devices will see this name when pairing\n"
 "You can change it anytime in Settings"
 
+#: src/app/(main)/inbox.tsx:65
+msgid "内容边界"
+msgstr "Content boundary"
+
 #: src/app/send/select-device.tsx:311
 msgid "准备中"
 msgstr "Preparing"
 
-#: src/components/transfer/shared.tsx:202
+#: src/components/transfer/shared.tsx:224
 msgid "刚刚"
 msgstr "Just now"
 
@@ -205,31 +236,35 @@ msgid "初始化失败"
 msgstr "Initialization failed"
 
 #: src/app/settings/bootstrap-nodes.tsx:152
-#: src/app/transfer/[sessionId].tsx:402
-#: src/app/transfer/[sessionId].tsx:784
+#: src/app/transfer/[sessionId].tsx:194
+#: src/app/transfer/[sessionId].tsx:508
 msgid "删除"
 msgstr "Delete"
 
-#: src/app/transfer/[sessionId].tsx:282
+#: src/app/transfer/[sessionId].tsx:142
 msgid "删除失败"
 msgstr "Delete failed"
 
-#: src/app/transfer/[sessionId].tsx:400
+#: src/app/transfer/[sessionId].tsx:192
 msgid "删除这条记录"
 msgstr "Delete this record"
 
-#. placeholder {0}: formatDuration(Number(vm.progress.eta))
-#: src/app/transfer/[sessionId].tsx:566
-msgid "剩余 {0}"
-msgstr "{0} remaining"
+#: src/app/(main)/inbox.tsx:51
+msgid "刷新"
+msgstr "Refresh"
 
-#: src/app/transfer/[sessionId].tsx:361
+#: src/app/transfer/[sessionId].tsx:161
 msgid "加载中"
 msgstr "Loading"
 
-#: src/stores/transfer-store.ts:255
-msgid "加载传输历史失败"
-msgstr "Failed to load transfer history"
+#: src/stores/transfer-store.ts:137
+msgid "加载传输活动失败"
+msgstr "Failed to load transfer activity"
+
+#: src/components/trust-badge.tsx:44
+#: src/components/trust-badge.tsx:46
+msgid "协作设备"
+msgstr "Collaborator device"
 
 #: src/app/settings/about.tsx:110
 msgid "去中心化、跨网络、端到端加密文件传输"
@@ -243,13 +278,17 @@ msgstr "Decentralized cross-network file transfer"
 msgid "反馈"
 msgstr "Feedback"
 
+#: src/app/settings/network.tsx:106
+msgid "发现方式"
+msgstr "Discovery mode"
+
 #: src/app/send/select-device.tsx:215
 #: src/app/send/select-device.tsx:311
-#: src/app/transfer/[sessionId].tsx:525
+#: src/app/transfer/[sessionId].tsx:261
 msgid "发送"
 msgstr "Send"
 
-#: src/components/recent-transfer-row.tsx:51
+#: src/components/recent-transfer-row.tsx:68
 msgid "发送中"
 msgstr "Sending"
 
@@ -265,26 +304,43 @@ msgstr "Send to {displayName}"
 msgid "发送失败"
 msgstr "Send failed"
 
+#: src/app/device/[peerId].tsx:209
+#: src/components/device-card.tsx:85
+msgid "发送文件"
+msgstr "Send files"
+
+#: src/app/(main)/index.tsx:125
+msgid "发送文件、配对设备，并查看连接状态"
+msgstr "Send files, pair devices, and check connection status"
+
 #: src/app/pairing/found-device.tsx:132
 #: src/app/send/select-device.tsx:295
 #: src/app/settings/bootstrap-nodes.tsx:186
-#: src/app/transfer/[sessionId].tsx:728
+#: src/app/transfer/[sessionId].tsx:468
 #: src/components/node-control-sheet.tsx:212
 #: src/components/ui/confirm-dialog.tsx:55
 msgid "取消"
 msgstr "Cancel"
 
-#: src/app/transfer/[sessionId].tsx:389
+#: src/app/transfer/[sessionId].tsx:181
 msgid "取消传输"
 msgstr "Cancel transfer"
 
-#: src/app/transfer/[sessionId].tsx:246
+#: src/app/transfer/[sessionId].tsx:111
 msgid "取消失败"
 msgstr "Cancel failed"
 
 #: src/components/pairing-request-host.tsx:108
 msgid "另一台设备请求与你建立配对"
 msgstr "Another device is requesting to pair with you"
+
+#: src/app/activity.tsx:104
+msgid "可恢复"
+msgstr "Recoverable"
+
+#: src/components/transfer/shared.tsx:154
+msgid "可恢复中断"
+msgstr "Recoverable interruption"
 
 #: src/components/status-pill.tsx:57
 msgid "启动中"
@@ -298,11 +354,12 @@ msgstr "Start node"
 msgid "启动节点后才能发现和连接其他设备"
 msgstr "Start the node to discover and connect to other devices"
 
-#: src/app/transfer/index.tsx:97
-msgid "在主屏选择已配对设备开始传输"
-msgstr "Select a paired device on home screen to start transfer"
+#: src/app/(main)/index.tsx:147
+msgid "启动节点后才能发现和连接设备"
+msgstr "Start the node to discover and connect devices"
 
-#: src/components/device-card.tsx:52
+#: src/app/device/[peerId].tsx:134
+#: src/components/device-card.tsx:59
 msgid "在线"
 msgstr "Online"
 
@@ -326,13 +383,14 @@ msgstr "Copy"
 msgid "复制 PeerID"
 msgstr "Copy PeerID"
 
+#: src/app/(main)/settings.tsx:49
 #: src/app/settings/index.tsx:49
 #: src/app/settings/theme.tsx:63
 msgid "外观"
 msgstr "Appearance"
 
 #: src/components/file-tree/file-tree-item.tsx:199
-#: src/components/transfer/shared.tsx:132
+#: src/components/transfer/shared.tsx:146
 msgid "失败"
 msgstr "Failed"
 
@@ -340,23 +398,44 @@ msgstr "Failed"
 msgid "完成"
 msgstr "Done"
 
-#: src/core/event-bus.ts:106
+#: src/app/activity.tsx:120
+msgid "完成和取消记录会出现在这里"
+msgstr "Completed and cancelled records appear here"
+
+#: src/app/(main)/inbox.tsx:47
+msgid "完成的接收内容会在这里出现；传输过程和恢复入口在活动页查看。"
+msgstr "Completed received content appears here; transfer process and recovery live in Activity."
+
+#: src/app/activity.tsx:119
+msgid "完成诊断"
+msgstr "Completed diagnostics"
+
+#: src/core/event-bus.ts:111
 msgid "对方已取消传输"
 msgstr "Peer canceled transfer"
 
-#: src/core/event-bus.ts:119
+#: src/core/event-bus.ts:124
 msgid "对方已暂停传输"
 msgstr "The other side paused the transfer"
 
-#: src/core/event-bus.ts:94
+#: src/core/event-bus.ts:99
 msgid "对方拒绝了传输请求"
 msgstr "The other side rejected the transfer request"
 
-#: src/app/transfer/[sessionId].tsx:674
+#: src/app/transfer/[sessionId].tsx:284
 msgid "对端"
 msgstr "Peer"
 
-#: src/app/settings/network.tsx:48
+#: src/components/transfer/shared.tsx:263
+msgid "对端暂停"
+msgstr "Paused by peer"
+
+#: src/components/transfer/shared.tsx:156
+#: src/components/transfer/shared.tsx:269
+msgid "对端离线"
+msgstr "Peer offline"
+
+#: src/app/settings/network.tsx:57
 #: src/components/node-control-sheet.tsx:185
 msgid "就绪"
 msgstr "Ready"
@@ -365,62 +444,58 @@ msgstr "Ready"
 msgid "已与 {displayName} 建立安全连接"
 msgstr "Securely connected with {displayName}"
 
-#. placeholder {0}: peerId.slice(0, 12)
-#: src/components/drawer-content.tsx:64
-msgid "已加载身份 {0}..."
-msgstr "Identity loaded {0}..."
-
-#: src/app/settings/network.tsx:37
+#: src/app/settings/network.tsx:46
 #: src/components/node-control-sheet.tsx:172
 msgid "已发现节点"
 msgstr "Discovered peers"
 
-#: src/components/transfer/shared.tsx:134
+#: src/components/transfer/shared.tsx:148
 msgid "已取消"
 msgstr "Cancelled"
 
-#: src/app/transfer/[sessionId].tsx:243
+#: src/app/transfer/[sessionId].tsx:108
 msgid "已取消传输"
 msgstr "Transfer canceled"
-
-#: src/components/drawer-content.tsx:78
-msgid "已复制 PeerID"
-msgstr "PeerID copied"
-
-#: src/app/transfer/[sessionId].tsx:319
-#: src/app/transfer/[sessionId].tsx:326
-#: src/app/transfer/[sessionId].tsx:347
-msgid "已复制保存路径"
-msgstr "Save path copied"
 
 #: src/components/device-info-card.tsx:82
 msgid "已复制到剪贴板"
 msgstr "Copied to clipboard"
 
-#: src/app/transfer/[sessionId].tsx:335
-msgid "已复制路径"
-msgstr "Path copied"
-
 #: src/components/pairing-sheet.tsx:285
 msgid "已复制配对码"
 msgstr "Pairing code copied"
 
-#: src/components/transfer/shared.tsx:130
+#: src/components/transfer/shared.tsx:144
 msgid "已完成"
 msgstr "Completed"
+
+#: src/app/activity.tsx:57
+msgid "已开始恢复传输"
+msgstr "Transfer recovery started"
+
+#: src/app/(main)/inbox.tsx:101
+msgid "已归档"
+msgstr "Archived"
+
+#: src/components/transfer/shared.tsx:150
+msgid "已拒绝"
+msgstr "Rejected"
+
+#: src/app/(main)/inbox.tsx:28
+msgid "已接收内容会在这里归档"
+msgstr "Received content is archived here"
 
 #: src/app/settings/about.tsx:100
 msgid "已是最新"
 msgstr "Up to date"
 
-#: src/app/transfer/[sessionId].tsx:583
-#: src/components/transfer/shared.tsx:128
+#: src/components/transfer/shared.tsx:142
 msgid "已暂停"
 msgstr "Paused"
 
-#: src/app/transfer/index.tsx:71
-msgid "已清空传输历史"
-msgstr "Transfer history cleared"
+#: src/app/activity.tsx:71
+msgid "已清空传输活动"
+msgstr "Transfer activity cleared"
 
 #: src/components/pairing-request-host.tsx:103
 msgid "已过期"
@@ -430,11 +505,12 @@ msgstr "Expired"
 msgid "已过期,请重新生成"
 msgstr "Expired, please regenerate"
 
+#: src/app/settings/network.tsx:62
 #: src/components/node-control-sheet.tsx:190
 msgid "已连接"
 msgstr "Connected"
 
-#: src/app/settings/network.tsx:32
+#: src/app/settings/network.tsx:41
 #: src/components/node-control-sheet.tsx:167
 msgid "已连接节点"
 msgstr "Connected peers"
@@ -451,22 +527,47 @@ msgstr "Selected files"
 msgid "已选的文件将被清空。"
 msgstr "The selected files will be cleared."
 
+#: src/app/(main)/index.tsx:166
+msgid "已配对设备"
+msgstr "Paired devices"
+
+#: src/components/trust-badge.tsx:42
+msgid "已阻止"
+msgstr "Blocked"
+
 #: src/app/pairing/found-device.tsx:104
 msgid "平台"
 msgstr "Platform"
+
+#: src/app/(main)/settings.tsx:28
+msgid "应用、网络、外观和设备信息"
+msgstr "App, network, appearance, and device information"
 
 #: src/app/settings/general.tsx:145
 msgid "应用私有目录（默认）"
 msgstr "App private directory (default)"
 
-#: src/app/onboarding/welcome.tsx:52
+#: src/components/transfer/shared.tsx:158
+msgid "应用重启"
+msgstr "App restarted"
+
+#: src/components/transfer/shared.tsx:272
+msgid "应用重启后可恢复"
+msgstr "Recoverable after app restart"
+
+#: src/app/onboarding/welcome.tsx:53
 msgid "开始使用"
 msgstr "Get started"
 
-#: src/app/transfer/[sessionId].tsx:665
+#: src/app/transfer/[sessionId].tsx:275
 msgid "开始时间"
 msgstr "Started"
 
+#: src/app/settings/network.tsx:61
+msgid "引导就绪"
+msgstr "Bootstrap ready"
+
+#: src/app/(main)/settings.tsx:61
 #: src/app/settings/bootstrap-nodes.tsx:106
 #: src/app/settings/index.tsx:61
 #: src/components/node-control-sheet.tsx:189
@@ -481,19 +582,28 @@ msgstr "Bootstrap nodes changed. Restart node to apply."
 msgid "引导节点用于发现 P2P 网络。修改后需重启节点生效。"
 msgstr "Bootstrap nodes are used for P2P discovery. Changes require restart."
 
-#: src/app/settings/network.tsx:76
+#: src/app/settings/network.tsx:100
 msgid "当前状态"
 msgstr "Current status"
 
-#: src/app/transfer/[sessionId].tsx:611
+#: src/components/transfer/shared.tsx:138
+msgid "待确认"
+msgstr "Pending confirmation"
+
+#: src/app/transfer/[sessionId].tsx:391
 msgid "总大小"
 msgstr "Total size"
 
-#: src/app/transfer/[sessionId].tsx:756
+#: src/app/transfer/[sessionId].tsx:482
 msgid "恢复"
 msgstr "Resume"
 
-#: src/app/transfer/[sessionId].tsx:264
+#: src/components/activity-projection-card.tsx:121
+msgid "恢复传输"
+msgstr "Resume transfer"
+
+#: src/app/activity.tsx:61
+#: src/app/transfer/[sessionId].tsx:129
 msgid "恢复失败"
 msgstr "Resume failed"
 
@@ -510,19 +620,19 @@ msgstr "Restore default receive location"
 msgid "我的 iPhone"
 msgstr "My iPhone"
 
-#: src/app/(main)/index.tsx:131
-msgid "我的设备"
-msgstr "My devices"
-
-#: src/app/transfer/[sessionId].tsx:605
+#: src/app/transfer/[sessionId].tsx:382
 msgid "所有文件传输完成！"
 msgstr "All files transferred!"
 
-#: src/app/(main)/index.tsx:113
-msgid "打开侧栏"
-msgstr "Open drawer"
+#: src/app/settings/network.tsx:115
+msgid "手动发现模式会在后续网络同步中接入"
+msgstr "Manual discovery mode will be connected in the network sync change."
 
-#: src/app/transfer/[sessionId].tsx:744
+#: src/app/settings/network.tsx:126
+msgid "手机不会默认作为 Helper；后续版本会放在高级设置中。"
+msgstr "This phone will not act as a Helper by default; future versions will keep this in advanced settings."
+
+#: src/app/transfer/[sessionId].tsx:496
 msgid "打开文件夹"
 msgstr "Open folder"
 
@@ -532,27 +642,31 @@ msgstr "Device found"
 
 #: src/components/pairing-request-host.tsx:150
 #: src/components/pairing-request-host.tsx:154
-#: src/components/transfer-offer-host.tsx:196
-#: src/components/transfer-offer-host.tsx:200
+#: src/components/transfer-offer-host.tsx:183
+#: src/components/transfer-offer-host.tsx:187
 msgid "拒绝"
 msgstr "Reject"
+
+#: src/app/device/[peerId].tsx:239
+msgid "持久化策略编辑将在 add-mobile-device-trust-policies 中接入。"
+msgstr "Persistent policy editing will be connected by add-mobile-device-trust-policies."
 
 #: src/components/pairing-request-host.tsx:135
 #: src/components/pairing-request-host.tsx:142
 msgid "接受"
 msgstr "Accept"
 
-#: src/app/transfer/[sessionId].tsx:525
-#: src/components/transfer-offer-host.tsx:176
-#: src/components/transfer-offer-host.tsx:188
+#: src/app/transfer/[sessionId].tsx:261
+#: src/components/transfer-offer-host.tsx:163
+#: src/components/transfer-offer-host.tsx:175
 msgid "接收"
 msgstr "Receive"
 
-#: src/components/recent-transfer-row.tsx:51
+#: src/components/recent-transfer-row.tsx:68
 msgid "接收中"
 msgstr "Receiving"
 
-#: src/components/transfer-offer-host.tsx:186
+#: src/components/transfer-offer-host.tsx:173
 msgid "接收中..."
 msgstr "Receiving..."
 
@@ -569,7 +683,20 @@ msgstr "Receive location updated"
 msgid "接收文件将保存到应用私有目录。"
 msgstr "Incoming files will be saved to the app's private directory."
 
-#: src/components/transfer-offer-host.tsx:137
+#: src/app/(main)/_layout.tsx:41
+#: src/app/(main)/inbox.tsx:27
+msgid "收件箱"
+msgstr "Inbox"
+
+#: src/app/(main)/inbox.tsx:68
+msgid "收件箱负责回答“我收到了什么”；活动页负责回答“传输发生了什么”。"
+msgstr "Inbox answers “what did I receive”; Activity answers “what happened to the transfer.”"
+
+#: src/app/(main)/inbox.tsx:45
+msgid "收件箱还是空的"
+msgstr "Inbox is empty"
+
+#: src/components/transfer-offer-host.tsx:124
 msgid "收到文件"
 msgstr "Incoming files"
 
@@ -586,9 +713,11 @@ msgid "整个文件夹递归传输"
 msgstr "Send the entire folder recursively"
 
 #: src/app/send/select-device.tsx:377
-#: src/app/transfer/[sessionId].tsx:608
+#: src/app/transfer/[sessionId].tsx:302
+#: src/app/transfer/[sessionId].tsx:387
+#: src/components/activity-projection-card.tsx:70
 #: src/components/file-tree/file-tree.tsx:184
-#: src/components/recent-transfer-row.tsx:54
+#: src/components/recent-transfer-row.tsx:70
 msgid "文件"
 msgstr "files"
 
@@ -609,17 +738,17 @@ msgstr "Cannot open link"
 msgid "映射成功"
 msgstr "Public"
 
-#: src/app/transfer/[sessionId].tsx:716
+#: src/app/transfer/[sessionId].tsx:456
 msgid "暂停"
 msgstr "Pause"
 
-#: src/app/transfer/[sessionId].tsx:225
+#: src/app/transfer/[sessionId].tsx:95
 msgid "暂停失败"
 msgstr "Pause failed"
 
-#: src/app/transfer/index.tsx:94
-msgid "暂无传输记录"
-msgstr "No transfers yet"
+#: src/app/activity.tsx:129
+msgid "暂无传输活动"
+msgstr "No transfer activity"
 
 #: src/components/pairing-sheet.tsx:202
 msgid ""
@@ -646,28 +775,33 @@ msgstr "Update available"
 msgid "未启动"
 msgstr "Stopped"
 
-#: src/app/settings/network.tsx:48
+#: src/app/settings/network.tsx:57
 #: src/components/node-control-sheet.tsx:185
 msgid "未启用"
 msgstr "Disabled"
 
 #: src/components/device-info-card.tsx:201
 #: src/components/node-control-sheet.tsx:179
-#: src/components/transfer/shared.tsx:138
+#: src/components/transfer/shared.tsx:160
 msgid "未知"
 msgstr "Unknown"
 
+#: src/app/settings/network.tsx:62
 #: src/components/node-control-sheet.tsx:190
 msgid "未连接"
 msgstr "Disconnected"
 
-#: src/components/drawer-content.tsx:128
-msgid "本机"
-msgstr "This device"
+#: src/components/trust-badge.tsx:38
+msgid "本人设备"
+msgstr "Own device"
 
-#: src/app/(main)/index.tsx:165
-msgid "查看全部"
-msgstr "View all"
+#: src/components/transfer/shared.tsx:260
+msgid "本机暂停"
+msgstr "Paused locally"
+
+#: src/app/(main)/index.tsx:212
+msgid "查看活动"
+msgstr "View activity"
 
 #: src/app/settings/about.tsx:90
 msgid "检查失败"
@@ -678,17 +812,13 @@ msgstr "Check failed"
 msgid "检查更新"
 msgstr "Check for updates"
 
-#: src/app/(main)/index.tsx:157
-msgid "正在传输"
-msgstr "In progress"
-
 #: src/app/onboarding/setup.tsx:46
 msgid "正在准备你的设备"
 msgstr "Preparing your device"
 
-#: src/components/drawer-content.tsx:60
-msgid "正在初始化身份..."
-msgstr "Initializing identity..."
+#: src/app/(main)/inbox.tsx:39
+msgid "正在刷新收件箱"
+msgstr "Refreshing Inbox"
 
 #: src/app/settings/about.tsx:80
 msgid "正在检查..."
@@ -708,11 +838,35 @@ msgstr "Waiting for peer to connect..."
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "Hashing ({0}/{1})"
 
+#: src/app/activity.tsx:97
+msgid "正在进行"
+msgstr "In progress"
+
 #: src/app/settings/general.tsx:113
 msgid "此目录不可读"
 msgstr "This directory is not readable"
 
-#: src/app/transfer/index.tsx:105
+#: src/app/activity.tsx:98
+msgid "没有正在传输的项目"
+msgstr "No transfers in progress"
+
+#: src/app/(main)/index.tsx:235
+msgid "没有正在进行的传输"
+msgstr "No active transfers"
+
+#: src/app/activity.tsx:105
+msgid "没有等待恢复的传输"
+msgstr "No transfers waiting for recovery"
+
+#: src/app/activity.tsx:113
+msgid "没有需要处理的问题"
+msgstr "No issues need attention"
+
+#: src/app/activity.tsx:77
+msgid "活动"
+msgstr "Activity"
+
+#: src/app/(main)/index.tsx:203
 msgid "活跃传输"
 msgstr "Active transfers"
 
@@ -724,7 +878,7 @@ msgstr "Light"
 msgid "深色"
 msgstr "Dark"
 
-#: src/app/(main)/index.tsx:141
+#: src/app/(main)/index.tsx:177
 #: src/app/settings/bootstrap-nodes.tsx:195
 msgid "添加"
 msgstr "Add"
@@ -733,22 +887,21 @@ msgstr "Add"
 msgid "添加自定义引导节点"
 msgstr "Add custom bootstrap node"
 
-#: src/app/(main)/index.tsx:244
+#: src/app/(main)/index.tsx:187
 msgid "添加设备"
 msgstr "Add device"
 
-#: src/app/transfer/index.tsx:132
-#: src/app/transfer/index.tsx:163
+#: src/app/activity.tsx:146
 msgid "清空"
 msgstr "Clear"
 
-#: src/app/transfer/index.tsx:157
-msgid "清空传输历史"
-msgstr "Clear transfer history"
+#: src/app/activity.tsx:140
+msgid "清空传输活动"
+msgstr "Clear transfer activity"
 
-#: src/app/transfer/index.tsx:126
-msgid "清空历史"
-msgstr "Clear history"
+#: src/app/activity.tsx:82
+msgid "清空活动"
+msgstr "Clear activity"
 
 #: src/app/send/select-device.tsx:263
 msgid "点击上方按钮添加文件或文件夹"
@@ -771,11 +924,11 @@ msgstr "Generate a 6-digit pairing code for another device to enter and pair"
 msgid "生成配对码"
 msgstr "Generate code"
 
-#: src/app/transfer/[sessionId].tsx:613
+#: src/app/transfer/[sessionId].tsx:393
 msgid "用时"
 msgstr "Duration"
 
-#: src/app/transfer/[sessionId].tsx:390
+#: src/app/transfer/[sessionId].tsx:182
 msgid "确定要中止这次传输吗？"
 msgstr "Abort this transfer?"
 
@@ -796,7 +949,8 @@ msgstr "Confirm pairing"
 msgid "视频"
 msgstr "Videos"
 
-#: src/components/device-card.tsx:52
+#: src/app/device/[peerId].tsx:136
+#: src/components/device-card.tsx:59
 msgid "离线"
 msgstr "Offline"
 
@@ -804,21 +958,38 @@ msgstr "Offline"
 msgid "离线 · 等待对端上线"
 msgstr "Offline · waiting for peer"
 
+#: src/app/(main)/index.tsx:141
+msgid "移动节点"
+msgstr "Mobile node"
+
 #: src/app/onboarding/welcome.tsx:14
 msgid "端到端加密,数据不经服务器"
 msgstr "End-to-end encrypted, never via a server"
 
-#: src/components/drawer-content.tsx:65
-msgid "等待初始化"
-msgstr "Waiting to initialize"
+#: src/app/device/[peerId].tsx:142
+msgid "等待发现"
+msgstr "Waiting for discovery"
 
-#: src/components/transfer/shared.tsx:136
+#: src/app/settings/network.tsx:67
+#: src/app/settings/network.tsx:72
+msgid "等待同步"
+msgstr "Pending sync"
+
+#: src/components/transfer/shared.tsx:152
 msgid "等待响应"
 msgstr "Waiting for response"
 
-#: src/app/transfer/[sessionId].tsx:652
-msgid "等待对方确认..."
-msgstr "Waiting for confirmation..."
+#: src/app/transfer/[sessionId].tsx:294
+msgid "策略原因"
+msgstr "Policy reason"
+
+#: src/app/device/[peerId].tsx:176
+msgid "策略设置"
+msgstr "Policy settings"
+
+#: src/app/(main)/index.tsx:157
+msgid "管理"
+msgstr "Manage"
 
 #: src/app/pairing/found-device.tsx:102
 #: src/app/pairing/success.tsx:46
@@ -826,7 +997,7 @@ msgstr "Waiting for confirmation..."
 msgid "系统"
 msgstr "System"
 
-#: src/app/transfer/[sessionId].tsx:670
+#: src/app/transfer/[sessionId].tsx:280
 msgid "结束时间"
 msgstr "Finished"
 
@@ -834,9 +1005,9 @@ msgstr "Finished"
 msgid "给设备取个名字"
 msgstr "Name this device"
 
-#: src/app/onboarding/device-name.tsx:105
-#: src/app/onboarding/device-name.tsx:111
-#: src/app/transfer/[sessionId].tsx:391
+#: src/app/onboarding/device-name.tsx:106
+#: src/app/onboarding/device-name.tsx:113
+#: src/app/transfer/[sessionId].tsx:183
 msgid "继续"
 msgstr "Continue"
 
@@ -848,16 +1019,29 @@ msgstr "Keep selecting"
 msgid "编辑设备名"
 msgstr "Edit device name"
 
+#: src/app/(main)/inbox.tsx:101
+msgid "缺失"
+msgstr "Missing"
+
+#: src/app/(main)/settings.tsx:55
 #: src/app/settings/index.tsx:55
-#: src/app/settings/network.tsx:54
+#: src/app/settings/network.tsx:78
 msgid "网络"
 msgstr "Network"
+
+#: src/components/transfer/shared.tsx:266
+msgid "网络中断"
+msgstr "Network interrupted"
 
 #: src/components/node-control-sheet.tsx:148
 msgid "网络节点"
 msgstr "Network node"
 
-#: src/app/settings/network.tsx:63
+#: src/app/settings/network.tsx:109
+msgid "自动发现"
+msgstr "Automatic discovery"
+
+#: src/app/settings/network.tsx:87
 msgid "自动启动节点"
 msgstr "Auto-start node"
 
@@ -868,6 +1052,10 @@ msgstr "Automatically accept files from paired devices"
 #: src/app/settings/general.tsx:86
 msgid "自动接收"
 msgstr "Auto receive"
+
+#: src/app/settings/network.tsx:159
+msgid "自定义引导节点"
+msgstr "Custom bootstrap nodes"
 
 #: src/app/settings/bootstrap-nodes.tsx:96
 msgid "节点已重启"
@@ -881,13 +1069,15 @@ msgstr "Node not running"
 msgid "节点未启动 · 启动后才能发现附近设备"
 msgstr "Node not running · start it to discover nearby devices"
 
-#: src/app/settings/network.tsx:73
+#: src/app/settings/network.tsx:97
 msgid "节点状态"
 msgstr "Node status"
 
+#: src/app/(main)/_layout.tsx:32
+#: src/app/(main)/index.tsx:124
 #: src/app/settings/general.tsx:30
 msgid "设备"
-msgstr "Device"
+msgstr "Devices"
 
 #: src/app/onboarding/setup.tsx:67
 #: src/app/pairing/found-device.tsx:106
@@ -909,13 +1099,24 @@ msgstr "Device name"
 msgid "设备名称已更新"
 msgstr "Device name updated"
 
+#: src/app/(main)/index.tsx:110
+#: src/app/device/[peerId].tsx:186
+msgid "设备当前不可发送"
+msgstr "This device cannot receive sends right now"
+
+#: src/app/device/[peerId].tsx:80
 #: src/app/send/select-device.tsx:218
 msgid "设备未找到"
 msgstr "Device not found"
 
-#: src/app/(main)/index.tsx:92
-msgid "设备离线,暂无法发送"
-msgstr "Device is offline, cannot send"
+#: src/app/device/[peerId].tsx:229
+msgid "设备策略"
+msgstr "Device policy"
+
+#: src/app/device/[peerId].tsx:77
+#: src/app/device/[peerId].tsx:104
+msgid "设备详情"
+msgstr "Device details"
 
 #: src/app/onboarding/setup.tsx:50
 msgid "设备身份已就绪,可以开始配对和传输文件了"
@@ -925,8 +1126,9 @@ msgstr "Identity is ready. You can pair and transfer files now."
 msgid "设备身份本地保存,无需账号"
 msgstr "Identity is stored locally, no account required"
 
+#: src/app/(main)/_layout.tsx:50
+#: src/app/(main)/settings.tsx:27
 #: src/app/settings/index.tsx:27
-#: src/components/drawer-content.tsx:42
 msgid "设置"
 msgstr "Settings"
 
@@ -934,10 +1136,19 @@ msgstr "Settings"
 msgid "该节点已存在"
 msgstr "Node already exists"
 
-#: src/app/settings/network.tsx:82
+#: src/app/device/[peerId].tsx:161
+msgid "该设备当前被阻止，不能发起传输。"
+msgstr "This device is currently blocked and cannot start transfers."
+
+#: src/app/device/[peerId].tsx:163
+msgid "该设备暂按协作设备处理。自动接收、询问和阻止策略会在后续同步。"
+msgstr "This device is treated as a collaborator for now. Auto-receive, ask, and block policies will sync later."
+
+#: src/app/settings/network.tsx:139
 msgid "详细信息"
 msgstr "Details"
 
+#: src/app/(main)/settings.tsx:43
 #: src/app/settings/index.tsx:43
 #: src/app/settings/language.tsx:57
 msgid "语言"
@@ -947,6 +1158,10 @@ msgstr "Language"
 msgid "语言已更新"
 msgstr "Language updated"
 
+#: src/components/transfer/shared.tsx:275
+msgid "请求被拒绝"
+msgstr "Request rejected"
+
 #: src/app/onboarding/setup.tsx:52
 msgid "请稍后重试,或检查存储权限"
 msgstr "Please try again later, or check storage permissions"
@@ -955,10 +1170,6 @@ msgstr "Please try again later, or check storage permissions"
 #: src/app/settings/theme.tsx:56
 msgid "跟随系统"
 msgstr "Follow system"
-
-#: src/components/drawer-content.tsx:62
-msgid "身份加载失败"
-msgstr "Failed to load identity"
 
 #: src/components/pairing-sheet.tsx:118
 msgid "输入"
@@ -976,6 +1187,7 @@ msgstr "Running"
 msgid "运行时长"
 msgstr "Uptime"
 
+#: src/app/device/[peerId].tsx:88
 #: src/app/onboarding/device-name.tsx:56
 #: src/app/send/select-device.tsx:226
 #: src/components/settings-header.tsx:25
@@ -986,17 +1198,29 @@ msgstr "Back"
 msgid "还没有选择任何文件"
 msgstr "No files chosen yet"
 
-#: src/app/(main)/index.tsx:231
+#: src/app/(main)/index.tsx:185
 msgid "还没有配对设备"
 msgstr "No paired devices yet"
 
-#: src/app/transfer/index.tsx:159
-msgid "这将删除全部已结束的传输记录，正在进行的传输不受影响。该操作不可撤销。"
-msgstr "This deletes all finished transfer records; ongoing transfers are unaffected. The action cannot be undone."
+#: src/app/activity.tsx:142
+msgid "这会删除传输过程记录，不会作为收件箱内容删除入口。该操作不可撤销。"
+msgstr "This deletes transfer process records. It is not the Inbox content deletion entry. This cannot be undone."
 
-#: src/app/onboarding/setup.tsx:98
+#: src/app/device/[peerId].tsx:232
+msgid "这里会承载自动接收、询问、阻止和信任模板。当前版本先保留入口和容器。"
+msgstr "This will host auto-receive, ask, block, and trust templates. This version keeps the entry and container ready."
+
+#: src/app/onboarding/setup.tsx:100
 msgid "进入 SwarmDrop"
 msgstr "Enter SwarmDrop"
+
+#: src/app/device/[peerId].tsx:131
+msgid "连接状态"
+msgstr "Connection status"
+
+#: src/app/device/[peerId].tsx:141
+msgid "连接路径"
+msgstr "Connection path"
 
 #: src/app/settings/theme.tsx:68
 msgid "选择外观"
@@ -1024,15 +1248,16 @@ msgstr "Choose what to send"
 msgid "选择语言"
 msgstr "Choose language"
 
+#: src/app/(main)/settings.tsx:37
 #: src/app/settings/general.tsx:25
 #: src/app/settings/index.tsx:37
-#: src/app/settings/network.tsx:59
+#: src/app/settings/network.tsx:83
 msgid "通用"
 msgstr "General"
 
-#: src/app/(main)/index.tsx:234
-msgid "通过配对码连接你的第一台设备"
-msgstr "Pair your first device with a code"
+#: src/app/(main)/index.tsx:186
+msgid "通过附近发现或配对码连接你的第一台设备"
+msgstr "Connect your first device via nearby discovery or a pairing code"
 
 #: src/components/pairing-sheet.tsx:245
 msgid "配对"
@@ -1080,19 +1305,11 @@ msgstr "Restart node"
 msgid "重启节点失败"
 msgstr "Restart failed"
 
-#: src/app/transfer/[sessionId].tsx:770
-msgid "重新发送"
-msgstr "Resend"
-
-#: src/app/transfer/[sessionId].tsx:307
-msgid "重新发送失败"
-msgstr "Resend failed"
-
 #: src/components/pairing-sheet.tsx:332
 msgid "重新生成"
 msgstr "Regenerate"
 
-#: src/app/onboarding/setup.tsx:85
+#: src/app/onboarding/setup.tsx:86
 msgid "重试"
 msgstr "Retry"
 
@@ -1103,6 +1320,18 @@ msgstr "Error"
 #: src/components/pairing-sheet.tsx:110
 msgid "附近"
 msgstr "Nearby"
+
+#: src/app/(main)/index.tsx:145
+msgid "附近设备可以发现这台手机"
+msgstr "Nearby devices can discover this phone"
+
+#: src/app/activity.tsx:112
+msgid "需要注意"
+msgstr "Needs attention"
+
+#: src/app/settings/network.tsx:156
+msgid "高级"
+msgstr "Advanced"
 
 #: src/app/settings/bootstrap-nodes.tsx:127
 msgid "默认"

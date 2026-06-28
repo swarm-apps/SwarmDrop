@@ -1,169 +1,198 @@
-//! 传输历史 —— 暴露共享 `swarmdrop_core::database::ops` 的查询/清理/恢复能力。
+//! 传输活动投影 —— 暴露共享 `swarmdrop_core::database::ops::TransferProjection`。
 //!
-//! 本文件包含：
-//! - uniffi Record / Enum 镜像（`MobileSessionStatus` / `MobileTransferHistoryItem` / ...）
-//! - `entity::transfer_session::ModelEx` → mobile 类型的 `From` 转换
-//! - `MobileCore` 上的 5 个查询/清理/恢复方法
-//! - `reconcile_stale_sessions` —— 启动时把残留 `Transferring` 状态标记为 failed
-//!
-//! 业务逻辑全部在共享 crate，本文件只做 ABI 桥接。
+//! 旧的 `MobileSessionStatus`/history item 模型已经不再是移动端状态源。本文件只保留
+//! Activity/Recovery 所需的 projection 查询、删除、清空和恢复命令。
 
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::EntityTrait;
 use uuid::Uuid;
 
-use entity::SessionStatus;
+use entity::{
+    SuspendedReason, TerminalReason, TransferDirection, TransferPhase,
+    transfer_session::Model as TransferSessionModel,
+};
 use swarmdrop_core::database::ops;
+use swarmdrop_core::transfer::coordinator::TransferState;
 
 use crate::app::MobileCore;
-use crate::error::{ERROR_APP_INTERRUPTED, FfiError, FfiResult};
-use crate::events::MobileTransferResumedFile;
+use crate::error::{FfiError, FfiResult};
+use crate::file_access::MobileSaveLocation;
 
-// ─────────────── uniffi 类型 ───────────────
-
-/// DB 层会话状态镜像（5 个变种，对齐 `entity::SessionStatus`）。
-///
-/// `pending` / `waiting_accept` 是 RN 活跃 session 的内存 UI 中间态，
-/// 不进 DB，也不在这层暴露。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum MobileSessionStatus {
-    Transferring,
-    Paused,
-    Completed,
-    Failed,
-    Cancelled,
+pub enum MobileTransferDirection {
+    Send,
+    Receive,
 }
 
-impl From<SessionStatus> for MobileSessionStatus {
-    fn from(s: SessionStatus) -> Self {
-        match s {
-            SessionStatus::Transferring => Self::Transferring,
-            SessionStatus::Paused => Self::Paused,
-            SessionStatus::Completed => Self::Completed,
-            SessionStatus::Failed => Self::Failed,
-            SessionStatus::Cancelled => Self::Cancelled,
+impl From<TransferDirection> for MobileTransferDirection {
+    fn from(direction: TransferDirection) -> Self {
+        match direction {
+            TransferDirection::Send => Self::Send,
+            TransferDirection::Receive => Self::Receive,
         }
     }
 }
 
-impl From<MobileSessionStatus> for SessionStatus {
-    fn from(s: MobileSessionStatus) -> Self {
-        match s {
-            MobileSessionStatus::Transferring => Self::Transferring,
-            MobileSessionStatus::Paused => Self::Paused,
-            MobileSessionStatus::Completed => Self::Completed,
-            MobileSessionStatus::Failed => Self::Failed,
-            MobileSessionStatus::Cancelled => Self::Cancelled,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MobileTransferPhase {
+    Offered,
+    WaitingAccept,
+    Active,
+    Suspended,
+    Terminal,
+}
+
+impl From<TransferPhase> for MobileTransferPhase {
+    fn from(phase: TransferPhase) -> Self {
+        match phase {
+            TransferPhase::Offered => Self::Offered,
+            TransferPhase::WaitingAccept => Self::WaitingAccept,
+            TransferPhase::Active => Self::Active,
+            TransferPhase::Suspended => Self::Suspended,
+            TransferPhase::Terminal => Self::Terminal,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MobileSuspendedReason {
+    LocalPaused,
+    RemotePaused,
+    Interrupted,
+    PeerOffline,
+    AppRestarted,
+}
+
+impl From<SuspendedReason> for MobileSuspendedReason {
+    fn from(reason: SuspendedReason) -> Self {
+        match reason {
+            SuspendedReason::LocalPaused => Self::LocalPaused,
+            SuspendedReason::RemotePaused => Self::RemotePaused,
+            SuspendedReason::Interrupted => Self::Interrupted,
+            SuspendedReason::PeerOffline => Self::PeerOffline,
+            SuspendedReason::AppRestarted => Self::AppRestarted,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MobileTerminalReason {
+    Completed,
+    Cancelled,
+    Rejected,
+    FatalError,
+}
+
+impl From<TerminalReason> for MobileTerminalReason {
+    fn from(reason: TerminalReason) -> Self {
+        match reason {
+            TerminalReason::Completed => Self::Completed,
+            TerminalReason::Cancelled => Self::Cancelled,
+            TerminalReason::Rejected => Self::Rejected,
+            TerminalReason::FatalError => Self::FatalError,
         }
     }
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
-pub struct MobileTransferHistoryFile {
+pub struct MobileTransferProjectionFile {
     pub file_id: u32,
     pub name: String,
     pub relative_path: String,
     pub size: u64,
+    pub transferred_bytes: u64,
+}
+
+impl From<ops::TransferProjectionFile> for MobileTransferProjectionFile {
+    fn from(file: ops::TransferProjectionFile) -> Self {
+        Self {
+            file_id: file.file_id.max(0) as u32,
+            name: file.name,
+            relative_path: file.relative_path,
+            size: file.size.max(0) as u64,
+            transferred_bytes: file.transferred_bytes.max(0) as u64,
+        }
+    }
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
-pub struct MobileTransferHistoryItem {
+pub struct MobileTransferProjection {
     pub session_id: String,
-    /// "send" | "receive"
-    pub direction: String,
+    pub direction: MobileTransferDirection,
     pub peer_id: String,
     pub peer_name: String,
-    pub status: MobileSessionStatus,
-    pub files: Vec<MobileTransferHistoryFile>,
+    pub phase: MobileTransferPhase,
+    pub suspended_reason: Option<MobileSuspendedReason>,
+    pub terminal_reason: Option<MobileTerminalReason>,
+    pub recoverable: bool,
+    pub epoch: i64,
     pub total_size: u64,
     pub transferred_bytes: u64,
-    pub error_message: Option<String>,
-    /// 接收方的保存路径（CoreSaveLocation::Path 透传）；发送方为 None
-    pub save_path: Option<String>,
-    /// Unix ms
     pub started_at: i64,
-    /// Unix ms
     pub updated_at: i64,
-    /// Unix ms；进行中为 None
     pub finished_at: Option<i64>,
+    pub error_message: Option<String>,
+    pub policy_action: Option<String>,
+    pub policy_reason: Option<String>,
+    pub save_location: Option<MobileSaveLocation>,
+    pub files: Vec<MobileTransferProjectionFile>,
 }
 
-impl From<ops::TransferHistoryFile> for MobileTransferHistoryFile {
-    fn from(f: ops::TransferHistoryFile) -> Self {
+impl From<ops::TransferProjection> for MobileTransferProjection {
+    fn from(projection: ops::TransferProjection) -> Self {
         Self {
-            file_id: f.file_id.max(0) as u32,
-            name: f.name,
-            relative_path: f.relative_path,
-            size: f.size.max(0) as u64,
+            session_id: projection.session_id.to_string(),
+            direction: projection.direction.into(),
+            peer_id: projection.peer_id,
+            peer_name: projection.peer_name,
+            phase: projection.phase.into(),
+            suspended_reason: projection.suspended_reason.map(Into::into),
+            terminal_reason: projection.terminal_reason.map(Into::into),
+            recoverable: projection.recoverable,
+            epoch: projection.epoch,
+            total_size: projection.total_size.max(0) as u64,
+            transferred_bytes: projection.transferred_bytes.max(0) as u64,
+            started_at: projection.started_at,
+            updated_at: projection.updated_at,
+            finished_at: projection.finished_at,
+            error_message: projection.error_message,
+            policy_action: projection.policy_action,
+            policy_reason: projection.policy_reason,
+            save_location: projection.save_path.map(Into::into),
+            files: projection.files.into_iter().map(Into::into).collect(),
         }
     }
 }
 
-impl From<ops::TransferHistoryItem> for MobileTransferHistoryItem {
-    fn from(item: ops::TransferHistoryItem) -> Self {
-        use swarmdrop_core::host::CoreSaveLocation;
-        Self {
-            session_id: item.session_id.to_string(),
-            direction: format!("{:?}", item.direction).to_lowercase(),
-            peer_id: item.peer_id,
-            peer_name: item.peer_name,
-            status: item.status.into(),
-            files: item.files.into_iter().map(Into::into).collect(),
-            total_size: item.total_size.max(0) as u64,
-            transferred_bytes: item.transferred_bytes.max(0) as u64,
-            error_message: item.error_message,
-            save_path: item.save_path.map(|loc| match loc {
-                CoreSaveLocation::Path { path } => path,
-            }),
-            started_at: item.started_at,
-            updated_at: item.updated_at,
-            finished_at: item.finished_at,
-        }
-    }
-}
-
-/// `resume_transfer` 的返回值
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct MobileResumeTransferResult {
-    pub session_id: String,
-    /// "send" | "receive"
-    pub direction: String,
-    pub peer_id: String,
-    pub peer_name: String,
-    pub files: Vec<MobileTransferResumedFile>,
-    pub total_size: u64,
-    pub transferred_bytes: u64,
-}
-
-// ─────────────── reconcile（启动时清理脏状态） ───────────────
-
-/// 启动节点时调用：把 DB 中残留为 `Transferring` 状态的会话（进程死亡留下的）
-/// 标记为 failed，错误消息为 `app_interrupted`。
-///
-/// `Paused` 是用户主动暂停的合法状态，**不**参与 reconcile。
-/// 终态 Completed/Failed/Cancelled 自然也不动。
-pub(crate) async fn reconcile_stale_sessions(db: &DatabaseConnection) -> FfiResult<()> {
-    let stale = entity::TransferSession::find()
-        .filter(entity::transfer_session::Column::Status.eq(SessionStatus::Transferring))
-        .all(db)
+pub(crate) async fn reconcile_stale_sessions(db: &sea_orm::DatabaseConnection) -> FfiResult<usize> {
+    let active_ids = ops::find_active_session_ids(db)
         .await
-        .map_err(|e| FfiError::Database(e.to_string()))?;
-
-    let count = stale.len();
-    for s in stale {
-        let session_id = s.session_id;
-        if let Err(err) = ops::mark_session_failed(db, session_id, ERROR_APP_INTERRUPTED).await {
-            tracing::warn!("reconcile: 标记 {} 为 failed 时出错: {}", session_id, err);
+        .map_err(FfiError::from)?;
+    let mut converted = 0;
+    for session_id in active_ids {
+        let Some(session) = ops::find_session(db, session_id)
+            .await
+            .map_err(FfiError::from)?
+        else {
             continue;
-        }
-        tracing::warn!("reconciled stale session {} (was Transferring)", session_id);
+        };
+        let next = app_restarted_state(&session);
+        ops::apply_transition(db, &session, &next)
+            .await
+            .map_err(FfiError::from)?;
+        converted += 1;
     }
-    if count > 0 {
-        tracing::info!("启动 reconcile 完成，清理 {} 条脏 session", count);
-    }
-    Ok(())
+    Ok(converted)
 }
 
-// ─────────────── MobileCore 方法 ───────────────
+fn app_restarted_state(session: &TransferSessionModel) -> TransferState {
+    TransferState {
+        phase: TransferPhase::Suspended,
+        suspended_reason: Some(SuspendedReason::AppRestarted),
+        terminal_reason: None,
+        epoch: session.epoch,
+        recoverable: true,
+    }
+}
 
 fn parse_session_id(s: &str) -> FfiResult<Uuid> {
     Uuid::parse_str(s).map_err(|_| FfiError::Transfer(format!("invalid session_id: {s}")))
@@ -171,34 +200,27 @@ fn parse_session_id(s: &str) -> FfiResult<Uuid> {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl MobileCore {
-    /// 查询传输历史列表（可选按状态过滤），按 started_at 降序。
-    pub async fn list_transfer_history(
-        &self,
-        status_filter: Option<MobileSessionStatus>,
-    ) -> FfiResult<Vec<MobileTransferHistoryItem>> {
+    pub async fn get_transfer_projections(&self) -> FfiResult<Vec<MobileTransferProjection>> {
         let db = self.ensure_db().await?;
-        let filter: Option<SessionStatus> = status_filter.map(Into::into);
-        let items = ops::get_transfer_history(&db, filter)
+        let items = ops::get_transfer_projections(&db)
             .await
             .map_err(FfiError::from)?;
         Ok(items.into_iter().map(Into::into).collect())
     }
 
-    /// 查询单个会话详情；找不到时抛 `FfiError::Transfer("会话不存在")`。
-    pub async fn get_transfer_session_detail(
+    pub async fn get_transfer_projection(
         &self,
         session_id: String,
-    ) -> FfiResult<MobileTransferHistoryItem> {
+    ) -> FfiResult<Option<MobileTransferProjection>> {
         let session_uuid = parse_session_id(&session_id)?;
         let db = self.ensure_db().await?;
-        let item = ops::get_session_detail(&db, session_uuid)
+        let item = ops::get_transfer_projection(&db, session_uuid)
             .await
             .map_err(FfiError::from)?;
-        Ok(item.into())
+        Ok(item.map(Into::into))
     }
 
-    /// 删除单个会话（级联删除文件）；不存在时静默跳过。
-    pub async fn delete_transfer_session(&self, session_id: String) -> FfiResult<()> {
+    pub async fn delete_transfer_record(&self, session_id: String) -> FfiResult<()> {
         let session_uuid = parse_session_id(&session_id)?;
         let db = self.ensure_db().await?;
         ops::delete_session(&db, session_uuid)
@@ -206,23 +228,14 @@ impl MobileCore {
             .map_err(FfiError::from)
     }
 
-    /// 清空全部历史（含文件子记录）。
-    pub async fn clear_transfer_history(&self) -> FfiResult<()> {
+    pub async fn clear_transfer_activity(&self) -> FfiResult<()> {
         let db = self.ensure_db().await?;
         ops::clear_all_history(&db).await.map_err(FfiError::from)
     }
 
-    /// 恢复传输：根据 DB 中记录的方向分发到 sender/receiver resume 流程。
-    ///
-    /// 返回值包含新协商出的会话元信息；对端离线 / 文件被改动等失败由
-    /// 共享 crate 的 `initiate_resume*` 自己负责，RN 端 catch FfiError toast。
-    pub async fn resume_transfer(
-        &self,
-        session_id: String,
-    ) -> FfiResult<MobileResumeTransferResult> {
+    pub async fn resume_transfer(&self, session_id: String) -> FfiResult<MobileTransferProjection> {
         let session_uuid = parse_session_id(&session_id)?;
         let db = self.ensure_db().await?;
-
         let session = entity::TransferSession::find_by_id(session_uuid)
             .one(&*db)
             .await
@@ -230,42 +243,25 @@ impl MobileCore {
             .ok_or_else(|| FfiError::Transfer("会话不存在".into()))?;
 
         let manager = self.transfer_manager_arc().await?;
-
-        let (resume_info, direction_str) = match session.direction {
-            entity::TransferDirection::Send => (
+        match session.direction {
+            TransferDirection::Send => {
                 manager
                     .initiate_resume_as_sender(session_uuid)
                     .await
-                    .map_err(FfiError::from)?,
-                "send",
-            ),
-            entity::TransferDirection::Receive => (
+                    .map_err(FfiError::from)?;
+            }
+            TransferDirection::Receive => {
                 manager
                     .initiate_resume(session_uuid)
                     .await
-                    .map_err(FfiError::from)?,
-                "receive",
-            ),
-        };
+                    .map_err(FfiError::from)?;
+            }
+        }
 
-        Ok(MobileResumeTransferResult {
-            session_id: session_uuid.to_string(),
-            direction: direction_str.to_string(),
-            peer_id: resume_info.peer_id,
-            peer_name: resume_info.peer_name,
-            files: resume_info
-                .files
-                .into_iter()
-                .map(|f| MobileTransferResumedFile {
-                    file_id: f.file_id.max(0) as u32,
-                    name: f.name,
-                    relative_path: f.relative_path,
-                    size: f.size.max(0) as u64,
-                    is_directory: false,
-                })
-                .collect(),
-            total_size: resume_info.total_size.max(0) as u64,
-            transferred_bytes: resume_info.transferred_bytes.max(0) as u64,
-        })
+        let projection = ops::get_transfer_projection(&db, session_uuid)
+            .await
+            .map_err(FfiError::from)?
+            .ok_or_else(|| FfiError::Transfer("会话不存在".into()))?;
+        Ok(projection.into())
     }
 }
