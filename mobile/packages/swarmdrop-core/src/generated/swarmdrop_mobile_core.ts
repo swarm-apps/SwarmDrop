@@ -345,6 +345,225 @@ const FfiConverterTypeMobileIdentity = (() => {
 })();
 
 
+export type MobileInboxFileEntry = {
+    id: /*u32*/number,
+    transferFileId?: /*u32*/number,
+    relativePath: string,
+    name: string,
+    size: /*u64*/bigint,
+    checksum: string,
+    localPath: string,
+    missing: boolean
+}
+
+/**
+ * Generated factory for {@link MobileInboxFileEntry} record objects.
+ */
+export const MobileInboxFileEntry = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInboxFileEntry, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInboxFileEntry>,
+
+    });
+})();
+
+const FfiConverterTypeMobileInboxFileEntry = (() => {
+    type TypeName = MobileInboxFileEntry;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                id: FfiConverterUInt32.read(from),
+                transferFileId: FfiConverterOptionalUInt32.read(from),
+                relativePath: FfiConverterString.read(from),
+                name: FfiConverterString.read(from),
+                size: FfiConverterUInt64.read(from),
+                checksum: FfiConverterString.read(from),
+                localPath: FfiConverterString.read(from),
+                missing: FfiConverterBool.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterUInt32.write(value.id, into);
+            FfiConverterOptionalUInt32.write(value.transferFileId, into);
+            FfiConverterString.write(value.relativePath, into);
+            FfiConverterString.write(value.name, into);
+            FfiConverterUInt64.write(value.size, into);
+            FfiConverterString.write(value.checksum, into);
+            FfiConverterString.write(value.localPath, into);
+            FfiConverterBool.write(value.missing, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterUInt32.allocationSize(value.id) +
+            FfiConverterOptionalUInt32.allocationSize(value.transferFileId) +
+            FfiConverterString.allocationSize(value.relativePath) +
+            FfiConverterString.allocationSize(value.name) +
+            FfiConverterUInt64.allocationSize(value.size) +
+            FfiConverterString.allocationSize(value.checksum) +
+            FfiConverterString.allocationSize(value.localPath) +
+            FfiConverterBool.allocationSize(value.missing);
+
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+export type MobileInboxItemDetail = {
+    item: MobileInboxItemSummary,
+    files: Array<MobileInboxFileEntry>,
+    transfer?: MobileTransferProjection
+}
+
+/**
+ * Generated factory for {@link MobileInboxItemDetail} record objects.
+ */
+export const MobileInboxItemDetail = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInboxItemDetail, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInboxItemDetail>,
+
+    });
+})();
+
+const FfiConverterTypeMobileInboxItemDetail = (() => {
+    type TypeName = MobileInboxItemDetail;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                item: FfiConverterTypeMobileInboxItemSummary.read(from),
+                files: FfiConverterArrayTypeMobileInboxFileEntry.read(from),
+                transfer: FfiConverterOptionalTypeMobileTransferProjection.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterTypeMobileInboxItemSummary.write(value.item, into);
+            FfiConverterArrayTypeMobileInboxFileEntry.write(value.files, into);
+            FfiConverterOptionalTypeMobileTransferProjection.write(value.transfer, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterTypeMobileInboxItemSummary.allocationSize(value.item) +
+            FfiConverterArrayTypeMobileInboxFileEntry.allocationSize(value.files) +
+            FfiConverterOptionalTypeMobileTransferProjection.allocationSize(value.transfer);
+
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+export type MobileInboxItemSummary = {
+    id: string,
+    transferSessionId?: string,
+    sourcePeerId: string,
+    sourceName: string,
+    sourceKind: MobileInboxSourceKind,
+    contentKind: MobileInboxContentKind,
+    title: string,
+    itemCount: /*u32*/number,
+    totalSize: /*u64*/bigint,
+    rootPath?: string,
+    contentHash?: string,
+    receivedAt: /*i64*/bigint,
+    lastOpenedAt?: /*i64*/bigint,
+    archivedAt?: /*i64*/bigint,
+    deletedAt?: /*i64*/bigint,
+    missing: boolean
+}
+
+/**
+ * Generated factory for {@link MobileInboxItemSummary} record objects.
+ */
+export const MobileInboxItemSummary = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInboxItemSummary, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInboxItemSummary>,
+
+    });
+})();
+
+const FfiConverterTypeMobileInboxItemSummary = (() => {
+    type TypeName = MobileInboxItemSummary;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                id: FfiConverterString.read(from),
+                transferSessionId: FfiConverterOptionalString.read(from),
+                sourcePeerId: FfiConverterString.read(from),
+                sourceName: FfiConverterString.read(from),
+                sourceKind: FfiConverterTypeMobileInboxSourceKind.read(from),
+                contentKind: FfiConverterTypeMobileInboxContentKind.read(from),
+                title: FfiConverterString.read(from),
+                itemCount: FfiConverterUInt32.read(from),
+                totalSize: FfiConverterUInt64.read(from),
+                rootPath: FfiConverterOptionalString.read(from),
+                contentHash: FfiConverterOptionalString.read(from),
+                receivedAt: FfiConverterInt64.read(from),
+                lastOpenedAt: FfiConverterOptionalInt64.read(from),
+                archivedAt: FfiConverterOptionalInt64.read(from),
+                deletedAt: FfiConverterOptionalInt64.read(from),
+                missing: FfiConverterBool.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.id, into);
+            FfiConverterOptionalString.write(value.transferSessionId, into);
+            FfiConverterString.write(value.sourcePeerId, into);
+            FfiConverterString.write(value.sourceName, into);
+            FfiConverterTypeMobileInboxSourceKind.write(value.sourceKind, into);
+            FfiConverterTypeMobileInboxContentKind.write(value.contentKind, into);
+            FfiConverterString.write(value.title, into);
+            FfiConverterUInt32.write(value.itemCount, into);
+            FfiConverterUInt64.write(value.totalSize, into);
+            FfiConverterOptionalString.write(value.rootPath, into);
+            FfiConverterOptionalString.write(value.contentHash, into);
+            FfiConverterInt64.write(value.receivedAt, into);
+            FfiConverterOptionalInt64.write(value.lastOpenedAt, into);
+            FfiConverterOptionalInt64.write(value.archivedAt, into);
+            FfiConverterOptionalInt64.write(value.deletedAt, into);
+            FfiConverterBool.write(value.missing, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.id) +
+            FfiConverterOptionalString.allocationSize(value.transferSessionId) +
+            FfiConverterString.allocationSize(value.sourcePeerId) +
+            FfiConverterString.allocationSize(value.sourceName) +
+            FfiConverterTypeMobileInboxSourceKind.allocationSize(value.sourceKind) +
+            FfiConverterTypeMobileInboxContentKind.allocationSize(value.contentKind) +
+            FfiConverterString.allocationSize(value.title) +
+            FfiConverterUInt32.allocationSize(value.itemCount) +
+            FfiConverterUInt64.allocationSize(value.totalSize) +
+            FfiConverterOptionalString.allocationSize(value.rootPath) +
+            FfiConverterOptionalString.allocationSize(value.contentHash) +
+            FfiConverterInt64.allocationSize(value.receivedAt) +
+            FfiConverterOptionalInt64.allocationSize(value.lastOpenedAt) +
+            FfiConverterOptionalInt64.allocationSize(value.archivedAt) +
+            FfiConverterOptionalInt64.allocationSize(value.deletedAt) +
+            FfiConverterBool.allocationSize(value.missing);
+
+        }
+    };
+    return new FFIConverter();
+})();
+
+
 export type MobileNetworkStatus = {
     status: string,
     peerId?: string,
@@ -2808,6 +3027,84 @@ const FfiConverterTypeMobileCoreEvent = (() => {
 
 
 
+export enum MobileInboxContentKind {
+    Files,
+    Text,
+    Clipboard,
+    Bundle
+}
+
+const FfiConverterTypeMobileInboxContentKind = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileInboxContentKind;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileInboxContentKind.Files;
+                case 2: return MobileInboxContentKind.Text;
+                case 3: return MobileInboxContentKind.Clipboard;
+                case 4: return MobileInboxContentKind.Bundle;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileInboxContentKind.Files: return ordinalConverter.write(1, into);
+                case MobileInboxContentKind.Text: return ordinalConverter.write(2, into);
+                case MobileInboxContentKind.Clipboard: return ordinalConverter.write(3, into);
+                case MobileInboxContentKind.Bundle: return ordinalConverter.write(4, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+
+
+
+export enum MobileInboxSourceKind {
+    PairedDevice,
+    ShareCode,
+    Mcp,
+    Unknown
+}
+
+const FfiConverterTypeMobileInboxSourceKind = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileInboxSourceKind;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileInboxSourceKind.PairedDevice;
+                case 2: return MobileInboxSourceKind.ShareCode;
+                case 3: return MobileInboxSourceKind.Mcp;
+                case 4: return MobileInboxSourceKind.Unknown;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileInboxSourceKind.PairedDevice: return ordinalConverter.write(1, into);
+                case MobileInboxSourceKind.ShareCode: return ordinalConverter.write(2, into);
+                case MobileInboxSourceKind.Mcp: return ordinalConverter.write(3, into);
+                case MobileInboxSourceKind.Unknown: return ordinalConverter.write(4, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+
+
+
 // Enum: MobileSaveLocation
 export enum MobileSaveLocation_Tags {
     Path = "Path"
@@ -4398,6 +4695,13 @@ export interface MobileCoreLike {
     getTransferProjections(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileTransferProjection>>;
     resumeTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileTransferProjection>;
     initializeIdentity(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileIdentity>;
+    archiveInboxItem(itemId: string, archived: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    deleteInboxItemRecord(itemId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    getInboxItem(itemId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileInboxItemDetail | undefined>;
+    listInboxItems(includeArchived: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileInboxItemSummary>>;
+    markInboxFileMissing(itemId: string, fileId: /*u32*/number, missing: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    markInboxItemOpened(itemId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    repairMissingInboxItems(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileInboxItemDetail>>;
     networkStatus(asyncOpts_?: { signal: AbortSignal }) : Promise<MobileNetworkStatus>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     startNode(deviceName: string | undefined, customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
@@ -4696,6 +5000,202 @@ async  initializeIdentity(asyncOpts_?: { signal: AbortSignal }): Promise<MobileI
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
             /*liftFunc:*/ FfiConverterTypeMobileIdentity.lift.bind(FfiConverterTypeMobileIdentity),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
+async  archiveInboxItem(itemId: string, archived: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_archive_inbox_item(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(itemId),FfiConverterBool.lower(archived)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
+async  deleteInboxItemRecord(itemId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(itemId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
+async  getInboxItem(itemId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileInboxItemDetail | undefined> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(itemId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterOptionalTypeMobileInboxItemDetail.lift.bind(FfiConverterOptionalTypeMobileInboxItemDetail),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
+async  listInboxItems(includeArchived: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileInboxItemSummary>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_inbox_items(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterBool.lower(includeArchived)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterArrayTypeMobileInboxItemSummary.lift.bind(FfiConverterArrayTypeMobileInboxItemSummary),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
+async  markInboxFileMissing(itemId: string, fileId: /*u32*/number, missing: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_file_missing(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(itemId),FfiConverterUInt32.lower(fileId),FfiConverterBool.lower(missing)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
+async  markInboxItemOpened(itemId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_item_opened(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(itemId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
+async  repairMissingInboxItems(asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileInboxItemDetail>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterArrayTypeMobileInboxItemDetail.lift.bind(FfiConverterArrayTypeMobileInboxItemDetail),
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -5177,12 +5677,20 @@ const FfiConverterOptionalFloat64 = new FfiConverterOptional(FfiConverterFloat64
 const FfiConverterOptionalInt64 = new FfiConverterOptional(FfiConverterInt64);
 
 
+// FfiConverter for MobileInboxItemDetail | undefined
+const FfiConverterOptionalTypeMobileInboxItemDetail = new FfiConverterOptional(FfiConverterTypeMobileInboxItemDetail);
+
+
 // FfiConverter for MobileTransferProjection | undefined
 const FfiConverterOptionalTypeMobileTransferProjection = new FfiConverterOptional(FfiConverterTypeMobileTransferProjection);
 
 
 // FfiConverter for string | undefined
 const FfiConverterOptionalString = new FfiConverterOptional(FfiConverterString);
+
+
+// FfiConverter for /*u32*/number | undefined
+const FfiConverterOptionalUInt32 = new FfiConverterOptional(FfiConverterUInt32);
 
 
 // FfiConverter for /*u64*/bigint | undefined
@@ -5195,6 +5703,18 @@ const FfiConverterArrayTypeMobileDevice = new FfiConverterArray(FfiConverterType
 
 // FfiConverter for Array<MobileFileProgress>
 const FfiConverterArrayTypeMobileFileProgress = new FfiConverterArray(FfiConverterTypeMobileFileProgress);
+
+
+// FfiConverter for Array<MobileInboxFileEntry>
+const FfiConverterArrayTypeMobileInboxFileEntry = new FfiConverterArray(FfiConverterTypeMobileInboxFileEntry);
+
+
+// FfiConverter for Array<MobileInboxItemDetail>
+const FfiConverterArrayTypeMobileInboxItemDetail = new FfiConverterArray(FfiConverterTypeMobileInboxItemDetail);
+
+
+// FfiConverter for Array<MobileInboxItemSummary>
+const FfiConverterArrayTypeMobileInboxItemSummary = new FfiConverterArray(FfiConverterTypeMobileInboxItemSummary);
 
 
 // FfiConverter for Array<MobilePreparedFile>
@@ -5284,6 +5804,27 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity() !== 64600) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item() !== 6529) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record() !== 43916) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item() !== 20504) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items() !== 59837) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing() !== 29289) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_item_opened() !== 59356) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_item_opened");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items() !== 47796) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status() !== 47248) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status");
@@ -5385,6 +5926,11 @@ export default Object.freeze({
     FfiConverterTypeMobileFileMetadata,
     FfiConverterTypeMobileFileProgress,
     FfiConverterTypeMobileIdentity,
+    FfiConverterTypeMobileInboxContentKind,
+    FfiConverterTypeMobileInboxFileEntry,
+    FfiConverterTypeMobileInboxItemDetail,
+    FfiConverterTypeMobileInboxItemSummary,
+    FfiConverterTypeMobileInboxSourceKind,
     FfiConverterTypeMobileNetworkStatus,
     FfiConverterTypeMobilePairedDevice,
     FfiConverterTypeMobilePairingCode,

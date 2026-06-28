@@ -1,0 +1,51 @@
+appId: com.yexiyue.swarmdrop
+name: SwarmDrop inbox smoke
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 30000
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+- tapOn:
+    id: tab-inbox
+- extendedWaitUntil:
+    visible:
+      id: inbox-screen
+    timeout: 15000
+- assertVisible:
+    id: inbox-summary
+- runFlow:
+    when:
+      visible:
+        id: inbox-empty-state
+    commands:
+      - assertVisible:
+          id: inbox-empty-state
+- runFlow:
+    when:
+      visible:
+        id: inbox-list
+    commands:
+      - tapOn:
+          id: inbox-row-0
+      - extendedWaitUntil:
+          visible:
+            id: inbox-detail-screen
+          timeout: 15000
+      - assertVisible:
+          id: inbox-detail-summary
+      - assertVisible:
+          id: inbox-detail-files
+      - back
+      - extendedWaitUntil:
+          visible:
+            id: inbox-screen
+          timeout: 15000
+- takeScreenshot: inbox-smoke

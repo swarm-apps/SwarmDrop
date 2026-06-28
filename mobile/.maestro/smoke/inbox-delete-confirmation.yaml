@@ -1,0 +1,55 @@
+appId: com.yexiyue.swarmdrop
+name: SwarmDrop inbox delete confirmation smoke
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 30000
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+- tapOn:
+    id: tab-inbox
+- extendedWaitUntil:
+    visible:
+      id: inbox-screen
+    timeout: 15000
+- runFlow:
+    when:
+      visible:
+        id: inbox-list
+    commands:
+      - tapOn:
+          id: inbox-row-0
+      - extendedWaitUntil:
+          visible:
+            id: inbox-detail-screen
+          timeout: 15000
+      - tapOn:
+          id: inbox-detail-delete-record-button
+      - extendedWaitUntil:
+          visible:
+            id: inbox-delete-confirmation
+          timeout: 15000
+      - assertVisible:
+          id: inbox-delete-confirm-button
+      - tapOn:
+          id: inbox-delete-cancel-button
+      - extendedWaitUntil:
+          visible:
+            id: inbox-detail-screen
+          timeout: 15000
+      - back
+- runFlow:
+    when:
+      visible:
+        id: inbox-empty-state
+    commands:
+      - assertVisible:
+          id: inbox-empty-state
+- takeScreenshot: inbox-delete-confirmation-smoke

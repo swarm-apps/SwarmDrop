@@ -20,13 +20,45 @@ name: SwarmDrop mobile foundation smoke
 - assertVisible:
     id: tab-settings
 - tapOn:
+    id: devices-add-device-button
+- extendedWaitUntil:
+    visible:
+      id: pairing-sheet-content
+    timeout: 15000
+- tapOn:
+    id: pairing-generate-tab
+- assertVisible:
+    id: pairing-generate-content
+- tapOn:
+    id: pairing-input-tab
+- assertVisible:
+    id: pairing-input-content
+- tapOn:
+    point: "50%,20%"
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 15000
+- tapOn:
     id: tab-inbox
 - extendedWaitUntil:
     visible:
       id: inbox-screen
     timeout: 15000
-- assertVisible:
-    id: inbox-empty-state
+- runFlow:
+    when:
+      visible:
+        id: inbox-empty-state
+    commands:
+      - assertVisible:
+          id: inbox-empty-state
+- runFlow:
+    when:
+      visible:
+        id: inbox-list
+    commands:
+      - assertVisible:
+          id: inbox-row-0
 - tapOn:
     id: tab-settings
 - extendedWaitUntil:

@@ -102,6 +102,7 @@ function routeEventToStores(event: MobileCoreEvent): void {
 
     case MobileCoreEvent_Tags.TransferCompleted: {
       void useTransferStore.getState().removeAndRefresh(event.inner.sessionId);
+      void refreshInbox();
       break;
     }
 
@@ -165,6 +166,15 @@ async function refreshDevices(): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("NodeNotStarted")) return;
     console.warn("[event-bus] listDevices failed:", err);
+  }
+}
+
+async function refreshInbox(): Promise<void> {
+  try {
+    const { useInboxStore } = await import("@/stores/inbox-store");
+    await useInboxStore.getState().refresh();
+  } catch (err) {
+    console.warn("[event-bus] refreshInbox failed:", err);
   }
 }
 

@@ -35,6 +35,7 @@ mod events;
 mod file_access;
 mod history;
 mod identity;
+mod inbox;
 mod keychain;
 mod network;
 mod pairing;

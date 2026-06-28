@@ -30,6 +30,13 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_projections(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_resume_transfer(ptr: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity(ptr: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_archive_inbox_item(ptr: bigint, itemId: Uint8Array, archived: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record(ptr: bigint, itemId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item(ptr: bigint, itemId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_inbox_items(ptr: bigint, includeArchived: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_file_missing(ptr: bigint, itemId: Uint8Array, fileId: number, missing: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_item_opened(ptr: bigint, itemId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(ptr: bigint, deviceName: Uint8Array, customBootstrapNodes: Uint8Array): bigint;
@@ -122,6 +129,13 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_projections(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_item_opened(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node(): number;

@@ -3,7 +3,6 @@ import {
   type BottomSheetBackdropProps,
   BottomSheetModal,
   BottomSheetScrollView,
-  BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
 import * as Clipboard from "expo-clipboard";
@@ -39,6 +38,8 @@ export interface PairingSheetRef {
   dismiss: () => void;
 }
 
+const PAIRING_SHEET_SNAP_POINTS = ["58%", "84%"];
+
 /**
  * 配对 BottomSheet —— 双 tab:生成码 / 输入码。
  * - 生成 tab:展示 6 位码 + 倒计时 + 复制 + 重新生成。
@@ -70,17 +71,26 @@ export const PairingSheet = forwardRef<PairingSheetRef, object>(
     return (
       <BottomSheetModal
         ref={sheetRef}
-        enableDynamicSizing
+        snapPoints={PAIRING_SHEET_SNAP_POINTS}
+        enableDynamicSizing={false}
         enablePanDownToClose
+        keyboardBehavior="extend"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
         backdropComponent={renderBackdrop}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.border }}
       >
-        <BottomSheetView>
-          <View className="px-5 pt-2 pb-6">
-            <PairingTabs onDismiss={() => sheetRef.current?.dismiss()} />
-          </View>
-        </BottomSheetView>
+        <BottomSheetScrollView
+          testID="pairing-sheet-content"
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingTop: 8,
+            paddingBottom: 24,
+          }}
+        >
+          <PairingTabs onDismiss={() => sheetRef.current?.dismiss()} />
+        </BottomSheetScrollView>
       </BottomSheetModal>
     );
   },
@@ -105,16 +115,28 @@ function PairingTabs({ onDismiss }: { onDismiss: () => void }) {
   return (
     <Tabs value={tab} onValueChange={setTab} className="gap-5">
       <TabsList className="w-full flex-row">
-        <TabsTrigger value="nearby" className="flex-1">
+        <TabsTrigger
+          value="nearby"
+          className="flex-1"
+          testID="pairing-nearby-tab"
+        >
           <Text>
             {t`附近`}
             {nearbyDevices.length > 0 ? ` (${nearbyDevices.length})` : ""}
           </Text>
         </TabsTrigger>
-        <TabsTrigger value="generate" className="flex-1">
+        <TabsTrigger
+          value="generate"
+          className="flex-1"
+          testID="pairing-generate-tab"
+        >
           <Text>{t`生成`}</Text>
         </TabsTrigger>
-        <TabsTrigger value="input" className="flex-1">
+        <TabsTrigger
+          value="input"
+          className="flex-1"
+          testID="pairing-input-tab"
+        >
           <Text>{t`输入`}</Text>
         </TabsTrigger>
       </TabsList>
@@ -186,7 +208,7 @@ function NearbyTab({
 
   if (!isOnline) {
     return (
-      <View className="gap-2 items-center py-6">
+      <View className="gap-2 items-center py-6" testID="pairing-nearby-content">
         <Text className="text-center text-[13px] text-muted-foreground">
           <Trans>节点未启动 · 启动后才能发现附近设备</Trans>
         </Text>
@@ -196,7 +218,7 @@ function NearbyTab({
 
   if (devices.length === 0) {
     return (
-      <View className="gap-2 items-center py-6">
+      <View className="gap-2 items-center py-6" testID="pairing-nearby-content">
         <ActivityIndicator color={colors.mutedForeground} />
         <Text className="text-center text-[13px] text-muted-foreground">
           <Trans>暂未发现附近设备{"\n"}确保对端 SwarmDrop 已启动</Trans>
@@ -206,9 +228,7 @@ function NearbyTab({
   }
 
   return (
-    <BottomSheetScrollView
-      contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
-    >
+    <View className="gap-2 py-1" testID="pairing-nearby-content">
       {devices.map((d) => {
         const Icon = devicePlatformIcon(`${d.os} ${d.platform}`);
         const isThisPairing = pairingPeer === d.peerId;
@@ -253,7 +273,7 @@ function NearbyTab({
           {error}
         </Text>
       ) : null}
-    </BottomSheetScrollView>
+    </View>
   );
 }
 
@@ -287,7 +307,10 @@ function GenerateTab() {
 
   if (!code) {
     return (
-      <View className="gap-4 items-center py-2">
+      <View
+        className="gap-4 items-center py-2"
+        testID="pairing-generate-content"
+      >
         <Text className="text-center text-[13px] text-muted-foreground">
           <Trans>生成一个 6 位配对码,让其他设备输入它建立配对</Trans>
         </Text>
@@ -316,7 +339,7 @@ function GenerateTab() {
     remaining > 0 ? t`${formatMmss(remaining)} 后过期` : t`已过期,请重新生成`;
 
   return (
-    <View className="gap-4 items-center py-2">
+    <View className="gap-4 items-center py-2" testID="pairing-generate-content">
       <Text className="text-[36px] font-extrabold tracking-[8px] text-foreground">
         {code}
       </Text>
@@ -394,7 +417,7 @@ function InputTab({ onDismiss }: { onDismiss: () => void }) {
   };
 
   return (
-    <View className="gap-4 items-center py-2">
+    <View className="gap-4 items-center py-2" testID="pairing-input-content">
       <Text className="text-center text-[13px] text-muted-foreground">
         <Trans>输入对方设备上显示的 6 位配对码</Trans>
       </Text>

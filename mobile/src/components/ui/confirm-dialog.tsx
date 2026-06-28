@@ -29,6 +29,9 @@ interface ConfirmDialogProps {
   /** true 时确认按钮渲染为红色 destructive variant */
   destructive?: boolean;
   onAction: () => void;
+  contentTestID?: string;
+  cancelTestID?: string;
+  actionTestID?: string;
 }
 
 export function ConfirmDialog({
@@ -40,10 +43,13 @@ export function ConfirmDialog({
   actionLabel,
   destructive,
   onAction,
+  contentTestID,
+  cancelTestID,
+  actionTestID,
 }: ConfirmDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent testID={contentTestID}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description ? (
@@ -51,12 +57,13 @@ export function ConfirmDialog({
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>
+          <AlertDialogCancel testID={cancelTestID}>
             <Text>{cancelLabel ?? <Trans>取消</Trans>}</Text>
           </AlertDialogCancel>
           <AlertDialogAction
             variant={destructive ? "destructive" : undefined}
             onPress={onAction}
+            testID={actionTestID}
           >
             <Text>{actionLabel}</Text>
           </AlertDialogAction>
