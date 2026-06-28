@@ -10,6 +10,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { pickTransferDirectory, pickTransferFiles } from "@/core/file-access";
 import { initMobileCore } from "@/core/mobile-core";
+import { buildNetworkRuntimeConfig } from "@/core/network-discovery";
 import { errorMessage } from "@/lib/utils";
 import { usePairingCodeStore } from "@/stores/pairing-code-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
@@ -180,7 +181,12 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           const prefs = usePreferencesStore.getState();
           await core.startNode(
             prefs.deviceName?.trim() || undefined,
-            prefs.customBootstrapNodes,
+            buildNetworkRuntimeConfig({
+              customBootstrapNodes: prefs.customBootstrapNodes,
+              discoveryMode: prefs.discoveryMode,
+              autoDiscoverLanHelpers: prefs.autoDiscoverLanHelpers,
+              provideLanHelper: prefs.provideLanHelper,
+            }),
           );
           const networkStatus = await core.networkStatus();
           const devices = await core.listDevices("all");

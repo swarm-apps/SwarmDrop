@@ -3,12 +3,88 @@
 //! host 必须在前台主动调 `start_node`,后台时调 `shutdown_node`。core 不自动管。
 
 use swarmdrop_core::network::{
-    NetworkRuntimeConfig, NetworkStatus as CoreNetworkStatus, NodeStatus,
+    BootstrapCandidateSource, CandidateSourceStatus, DiscoveryMode, NetworkRuntimeConfig,
+    NetworkStatus as CoreNetworkStatus, NodeStatus,
 };
 
 use crate::app::MobileCore;
 use crate::error::{FfiError, FfiResult};
 use crate::events::spawn_event_loop;
+
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum MobileDiscoveryMode {
+    Auto,
+    LanOnly,
+}
+
+impl From<DiscoveryMode> for MobileDiscoveryMode {
+    fn from(mode: DiscoveryMode) -> Self {
+        match mode {
+            DiscoveryMode::Auto => Self::Auto,
+            DiscoveryMode::LanOnly => Self::LanOnly,
+        }
+    }
+}
+
+impl From<MobileDiscoveryMode> for DiscoveryMode {
+    fn from(mode: MobileDiscoveryMode) -> Self {
+        match mode {
+            MobileDiscoveryMode::Auto => Self::Auto,
+            MobileDiscoveryMode::LanOnly => Self::LanOnly,
+        }
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileNetworkRuntimeConfig {
+    pub custom_bootstrap_nodes: Vec<String>,
+    pub discovery_mode: MobileDiscoveryMode,
+    pub auto_discover_lan_helpers: bool,
+    pub provide_lan_helper: bool,
+}
+
+impl From<MobileNetworkRuntimeConfig> for NetworkRuntimeConfig {
+    fn from(config: MobileNetworkRuntimeConfig) -> Self {
+        Self {
+            custom_bootstrap_nodes: config.custom_bootstrap_nodes,
+            discovery_mode: config.discovery_mode.into(),
+            auto_discover_lan_helpers: config.auto_discover_lan_helpers,
+            provide_lan_helper: config.provide_lan_helper,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum MobileBootstrapCandidateSource {
+    BuiltInPublic,
+    UserCustom,
+    MdnsLanHelper,
+}
+
+impl From<BootstrapCandidateSource> for MobileBootstrapCandidateSource {
+    fn from(source: BootstrapCandidateSource) -> Self {
+        match source {
+            BootstrapCandidateSource::BuiltInPublic => Self::BuiltInPublic,
+            BootstrapCandidateSource::UserCustom => Self::UserCustom,
+            BootstrapCandidateSource::MdnsLanHelper => Self::MdnsLanHelper,
+        }
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileCandidateSourceStatus {
+    pub source: MobileBootstrapCandidateSource,
+    pub count: u64,
+}
+
+impl From<CandidateSourceStatus> for MobileCandidateSourceStatus {
+    fn from(status: CandidateSourceStatus) -> Self {
+        Self {
+            source: status.source.into(),
+            count: status.count as u64,
+        }
+    }
+}
 
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileNetworkStatus {
@@ -22,6 +98,16 @@ pub struct MobileNetworkStatus {
     pub relay_ready: bool,
     pub relay_peers: Vec<String>,
     pub bootstrap_connected: bool,
+    pub discovery_mode: MobileDiscoveryMode,
+    pub auto_discover_lan_helpers: bool,
+    pub local_lan_helper_enabled: bool,
+    pub local_lan_helper_running: bool,
+    pub relay_server_enabled: bool,
+    pub lan_helper_advertised_addrs: Vec<String>,
+    pub lan_helper_count: u64,
+    pub bootstrap_candidate_count: u64,
+    pub candidate_sources: Vec<MobileCandidateSourceStatus>,
+    pub relay_source: Option<MobileBootstrapCandidateSource>,
 }
 
 impl From<CoreNetworkStatus> for MobileNetworkStatus {
@@ -48,6 +134,24 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
                 .map(|peer_id| peer_id.to_string())
                 .collect(),
             bootstrap_connected: status.bootstrap_connected,
+            discovery_mode: status.discovery_mode.into(),
+            auto_discover_lan_helpers: status.auto_discover_lan_helpers,
+            local_lan_helper_enabled: status.local_lan_helper_enabled,
+            local_lan_helper_running: status.local_lan_helper_running,
+            relay_server_enabled: status.relay_server_enabled,
+            lan_helper_advertised_addrs: status
+                .lan_helper_advertised_addrs
+                .into_iter()
+                .map(|addr| addr.to_string())
+                .collect(),
+            lan_helper_count: status.lan_helper_count as u64,
+            bootstrap_candidate_count: status.bootstrap_candidate_count as u64,
+            candidate_sources: status
+                .candidate_sources
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            relay_source: status.relay_source.map(Into::into),
         }
     }
 }
@@ -57,7 +161,7 @@ impl MobileCore {
     pub async fn start_node(
         &self,
         device_name: Option<String>,
-        custom_bootstrap_nodes: Vec<String>,
+        network_config: MobileNetworkRuntimeConfig,
     ) -> FfiResult<()> {
         let keypair = self.ensure_keypair().await?;
         let paired_devices = swarmdrop_core::identity::load_paired_devices(self.keychain()).await?;
@@ -77,10 +181,7 @@ impl MobileCore {
             keypair,
             device_name,
             paired_devices,
-            NetworkRuntimeConfig {
-                custom_bootstrap_nodes,
-                ..Default::default()
-            },
+            network_config.into(),
             move |client, data_channel_rx| {
                 swarmdrop_core::transfer::manager::TransferManager::new(
                     client,

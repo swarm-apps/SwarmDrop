@@ -350,7 +350,7 @@ extern "C" {
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(
         /*handle*/ uint64_t ptr,
         RustBuffer device_name,
-        RustBuffer custom_bootstrap_nodes
+        RustBuffer network_config
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_generate_pairing_code(
         /*handle*/ uint64_t ptr,

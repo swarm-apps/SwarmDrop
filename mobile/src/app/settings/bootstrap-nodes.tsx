@@ -102,7 +102,12 @@ export default function BootstrapNodesScreen() {
   }, [shutdownNode, startNode, t]);
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
+    <SafeAreaView
+      style={{ flex: 1 }}
+      className="bg-background"
+      edges={["top"]}
+      testID="bootstrap-nodes-screen"
+    >
       <SettingsHeader title={t`引导节点`} />
       <ScrollView
         contentContainerClassName="gap-3 px-5 pt-2 pb-8"
@@ -201,6 +206,7 @@ export default function BootstrapNodesScreen() {
             <Pressable
               onPress={() => setShowInput(true)}
               accessibilityRole="button"
+              testID="bootstrap-add-custom-node-button"
               className="flex-row items-center gap-2 p-3.5 active:bg-muted"
             >
               <Plus color={colors.mutedForeground} size={14} />

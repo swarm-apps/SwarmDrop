@@ -1,6 +1,15 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Fragment } from "react";
-import { ScrollView, View } from "react-native";
+import { useRouter } from "expo-router";
+import {
+  ChevronRight,
+  Globe2,
+  RadioTower,
+  RotateCw,
+  ServerCog,
+  Wifi,
+} from "lucide-react-native";
+import { Fragment, useCallback, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
@@ -8,34 +17,87 @@ import { SettingsHeader } from "@/components/settings-header";
 import { StatusPill } from "@/components/status-pill";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
+import {
+  candidateSourceKey,
+  type DiscoveryModePreference,
+  discoveryModeFromNative,
+} from "@/core/network-discovery";
+import { useThemeColors } from "@/hooks/useThemeColors";
+import { toast } from "@/lib/toast";
+import { cn, errorMessage } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
-import { useNetworkDiscoveryStore } from "@/stores/network-discovery-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 export default function NetworkScreen() {
   const { t } = useLingui();
-  const { networkStatus, runtimeState } = useMobileCoreStore(
-    useShallow((s) => ({
-      networkStatus: s.networkStatus,
-      runtimeState: s.runtimeState,
-    })),
-  );
-  const { autoStart, setAutoStart } = usePreferencesStore(
-    useShallow((s) => ({
-      autoStart: s.autoStart,
-      setAutoStart: s.setAutoStart,
-    })),
-  );
-  const { discoveryMode, lanHelperEnabled, setLanHelperEnabled } =
-    useNetworkDiscoveryStore(
+  const router = useRouter();
+  const colors = useThemeColors();
+  const [restarting, setRestarting] = useState(false);
+
+  const { networkStatus, runtimeState, shutdownNode, startNode } =
+    useMobileCoreStore(
       useShallow((s) => ({
-        discoveryMode: s.discoveryMode,
-        lanHelperEnabled: s.lanHelperEnabled,
-        setLanHelperEnabled: s.setLanHelperEnabled,
+        networkStatus: s.networkStatus,
+        runtimeState: s.runtimeState,
+        shutdownNode: s.shutdownNode,
+        startNode: s.startNode,
       })),
     );
+  const {
+    autoStart,
+    discoveryMode,
+    autoDiscoverLanHelpers,
+    provideLanHelper,
+    customBootstrapNodes,
+    setAutoStart,
+    setDiscoveryMode,
+    setAutoDiscoverLanHelpers,
+  } = usePreferencesStore(
+    useShallow((s) => ({
+      autoStart: s.autoStart,
+      discoveryMode: s.discoveryMode,
+      autoDiscoverLanHelpers: s.autoDiscoverLanHelpers,
+      provideLanHelper: s.provideLanHelper,
+      customBootstrapNodes: s.customBootstrapNodes,
+      setAutoStart: s.setAutoStart,
+      setDiscoveryMode: s.setDiscoveryMode,
+      setAutoDiscoverLanHelpers: s.setAutoDiscoverLanHelpers,
+    })),
+  );
 
-  const rows: Array<{ key: string; label: React.ReactNode; value: string }> = [
+  const runtimeConfigChanged = useMemo(() => {
+    if (runtimeState !== "running" || !networkStatus) return false;
+    return (
+      discoveryModeFromNative(networkStatus.discoveryMode) !== discoveryMode ||
+      networkStatus.autoDiscoverLanHelpers !== autoDiscoverLanHelpers ||
+      networkStatus.localLanHelperEnabled !== provideLanHelper
+    );
+  }, [
+    autoDiscoverLanHelpers,
+    discoveryMode,
+    networkStatus,
+    provideLanHelper,
+    runtimeState,
+  ]);
+
+  const restartNode = useCallback(async () => {
+    setRestarting(true);
+    try {
+      await shutdownNode();
+      await startNode();
+      toast.success(t`节点已按新发现设置重启`);
+    } catch (err) {
+      toast.error(t`重启节点失败`, errorMessage(err));
+    } finally {
+      setRestarting(false);
+    }
+  }, [shutdownNode, startNode, t]);
+
+  const rows: Array<{
+    key: string;
+    label: React.ReactNode;
+    value: React.ReactNode;
+  }> = [
     {
       key: "connected",
       label: <Trans>已连接节点</Trans>,
@@ -47,52 +109,112 @@ export default function NetworkScreen() {
       value: String(networkStatus?.discoveredPeers ?? 0),
     },
     {
-      key: "nat",
-      label: <Trans>NAT 状态</Trans>,
-      value: networkStatus?.natStatus ?? "—",
-    },
-    {
-      key: "relay",
-      label: <Trans>中继</Trans>,
-      value: networkStatus?.relayReady ? t`就绪` : t`未启用`,
-    },
-    {
-      key: "bootstrap",
-      label: <Trans>引导就绪</Trans>,
-      value: networkStatus?.bootstrapConnected ? t`已连接` : t`未连接`,
+      key: "candidates",
+      label: <Trans>候选节点</Trans>,
+      value: String(networkStatus?.bootstrapCandidateCount ?? 0),
     },
     {
       key: "lan-helper",
       label: <Trans>LAN Helper</Trans>,
-      value: t`等待同步`,
+      value: String(networkStatus?.lanHelperCount ?? 0),
     },
     {
-      key: "candidate-source",
-      label: <Trans>候选来源</Trans>,
-      value: t`等待同步`,
+      key: "relay",
+      label: <Trans>中继</Trans>,
+      value: (
+        <RelayStatusLabel
+          ready={networkStatus?.relayReady ?? false}
+          source={networkStatus?.relaySource}
+        />
+      ),
+    },
+    {
+      key: "bootstrap",
+      label: <Trans>公网引导</Trans>,
+      value: networkStatus?.bootstrapConnected ? t`已连接` : t`未连接`,
     },
   ];
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
+    <SafeAreaView
+      style={{ flex: 1 }}
+      className="bg-background"
+      edges={["top"]}
+      testID="network-settings-screen"
+    >
       <SettingsHeader title={t`网络`} />
       <ScrollView
         contentContainerClassName="gap-5 px-5 pt-2 pb-8"
         showsVerticalScrollIndicator={false}
       >
-        <SettingSection label={t`通用`}>
-          <View className="flex-row items-center justify-between px-3.5 py-3 gap-3">
-            <View className="flex-1">
+        <SettingSection label={t`发现方式`}>
+          <View className="gap-3 px-3.5 py-3">
+            <View className="flex-row gap-2">
+              <DiscoveryModeOption
+                mode="auto"
+                selected={discoveryMode === "auto"}
+                onPress={() => setDiscoveryMode("auto")}
+              />
+              <DiscoveryModeOption
+                mode="lanOnly"
+                selected={discoveryMode === "lanOnly"}
+                onPress={() => setDiscoveryMode("lanOnly")}
+              />
+            </View>
+            <Text className="text-[11px] text-muted-foreground">
+              {discoveryMode === "auto" ? (
+                <Trans>自动模式会使用公网引导、中继和局域网协助节点。</Trans>
+              ) : (
+                <Trans>
+                  LAN-only 只依赖局域网协助和自定义节点，跨网络可达性会受限。
+                </Trans>
+              )}
+            </Text>
+          </View>
+          <SettingDivider />
+          <View className="flex-row items-center gap-3 px-3.5 py-3">
+            <View className="flex-1 gap-0.5">
               <Text className="text-[14px] text-foreground">
-                <Trans>自动启动节点</Trans>
+                <Trans>自动发现 LAN Helper</Trans>
               </Text>
-              <Text className="mt-0.5 text-[11px] text-muted-foreground">
-                <Trans>App 启动后自动启动 P2P 节点</Trans>
+              <Text className="text-[11px] text-muted-foreground">
+                <Trans>在本地网络发现可协助连接的节点。</Trans>
               </Text>
             </View>
-            <Switch checked={autoStart} onCheckedChange={setAutoStart} />
+            <Switch
+              checked={autoDiscoverLanHelpers}
+              onCheckedChange={setAutoDiscoverLanHelpers}
+              testID="network-auto-lan-helper-switch"
+            />
           </View>
         </SettingSection>
+
+        {runtimeConfigChanged ? (
+          <View
+            className="gap-3 rounded-xl border border-warning/30 bg-warning/10 p-3.5"
+            testID="network-restart-required"
+          >
+            <Text className="text-[12px] text-warning">
+              <Trans>发现设置已变更，重启节点后生效。</Trans>
+            </Text>
+            <Pressable
+              onPress={restartNode}
+              disabled={restarting}
+              accessibilityRole="button"
+              testID="network-restart-button"
+              className="min-h-10 flex-row items-center justify-center gap-2 rounded-xl bg-card active:opacity-70 disabled:opacity-50"
+            >
+              {restarting ? (
+                <ActivityIndicator color={colors.foreground} size="small" />
+              ) : (
+                <RotateCw color={colors.foreground} size={14} />
+              )}
+              <Text className="text-[13px] font-semibold text-foreground">
+                {restarting ? <Trans>重启中</Trans> : <Trans>重启节点</Trans>}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <SettingSection label={t`节点状态`}>
           <View className="flex-row items-center justify-between px-3.5 py-3">
@@ -101,48 +223,13 @@ export default function NetworkScreen() {
             </Text>
             <StatusPill state={runtimeState} />
           </View>
-        </SettingSection>
-
-        <SettingSection label={t`发现方式`}>
-          <View className="px-3.5 py-3 gap-1">
-            <Text className="text-[14px] text-foreground">
-              <Trans>自动发现</Trans>
-            </Text>
-            <Text className="text-[11px] text-muted-foreground">
-              {discoveryMode === "automatic" ? (
-                <Trans>优先使用本地网络、引导节点和中继发现可用设备</Trans>
-              ) : (
-                <Trans>手动发现模式会在后续网络同步中接入</Trans>
-              )}
-            </Text>
-          </View>
           <SettingDivider />
-          <View className="flex-row items-center justify-between px-3.5 py-3 gap-3">
-            <View className="flex-1">
-              <Text className="text-[14px] text-foreground">
-                <Trans>LAN Helper 托管</Trans>
-              </Text>
-              <Text className="mt-0.5 text-[11px] text-muted-foreground">
-                <Trans>
-                  手机不会默认作为 Helper；后续版本会放在高级设置中。
-                </Trans>
-              </Text>
-            </View>
-            <Switch
-              checked={lanHelperEnabled}
-              onCheckedChange={setLanHelperEnabled}
-              disabled
-            />
-          </View>
-        </SettingSection>
-
-        <SettingSection label={t`详细信息`}>
           {rows.map((row, idx) => (
             <Fragment key={row.key}>
-              <View className="flex-row items-center justify-between px-3.5 py-3">
+              <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
                 <Text className="text-[14px] text-foreground">{row.label}</Text>
                 <Text
-                  className="text-[13px] text-muted-foreground"
+                  className="flex-1 text-right text-[13px] text-muted-foreground"
                   numberOfLines={1}
                 >
                   {row.value}
@@ -151,19 +238,210 @@ export default function NetworkScreen() {
               {idx < rows.length - 1 ? <SettingDivider /> : null}
             </Fragment>
           ))}
+          <CandidateSourceList status={networkStatus} />
+        </SettingSection>
+
+        <NetworkHint
+          bootstrapReady={networkStatus?.bootstrapConnected ?? false}
+          relayReady={networkStatus?.relayReady ?? false}
+          discoveryMode={discoveryMode}
+        />
+
+        <SettingSection label={t`通用`}>
+          <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
+            <View className="flex-1 gap-0.5">
+              <Text className="text-[14px] text-foreground">
+                <Trans>自动启动节点</Trans>
+              </Text>
+              <Text className="text-[11px] text-muted-foreground">
+                <Trans>App 启动后自动启动 P2P 节点。</Trans>
+              </Text>
+            </View>
+            <Switch checked={autoStart} onCheckedChange={setAutoStart} />
+          </View>
         </SettingSection>
 
         <SettingSection label={t`高级`}>
-          <View className="px-3.5 py-3 gap-1">
+          <Pressable
+            onPress={() => router.push("/settings/bootstrap-nodes" as never)}
+            accessibilityRole="button"
+            testID="network-bootstrap-advanced-entry"
+            className="min-h-13 flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
+          >
+            <View className="size-8 items-center justify-center rounded-lg bg-muted">
+              <ServerCog color={colors.mutedForeground} size={16} />
+            </View>
+            <View className="min-w-0 flex-1 gap-0.5">
+              <Text className="text-[14px] text-foreground">
+                <Trans>自定义引导节点</Trans>
+              </Text>
+              <Text className="text-[11px] text-muted-foreground">
+                {customBootstrapNodes.length > 0 ? (
+                  <Trans>{customBootstrapNodes.length} 个自定义节点</Trans>
+                ) : (
+                  <Trans>作为自动发现失败时的兜底路径。</Trans>
+                )}
+              </Text>
+            </View>
+            <ChevronRight color={colors.mutedForeground} size={16} />
+          </Pressable>
+          <SettingDivider />
+          <View className="gap-1 px-3.5 py-3">
             <Text className="text-[14px] text-foreground">
-              <Trans>自定义引导节点</Trans>
+              <Trans>本机 LAN Helper</Trans>
             </Text>
             <Text className="text-[11px] text-muted-foreground">
-              <Trans>保留为高级兜底，不作为默认发现路径。</Trans>
+              <Trans>
+                移动端默认不提供协助节点能力，以避免后台和电量风险。
+              </Trans>
             </Text>
           </View>
         </SettingSection>
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function DiscoveryModeOption({
+  mode,
+  selected,
+  onPress,
+}: {
+  mode: DiscoveryModePreference;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+  const Icon = mode === "auto" ? Globe2 : Wifi;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      testID={
+        mode === "auto"
+          ? "network-discovery-auto"
+          : "network-discovery-lan-only"
+      }
+      className={cn(
+        "min-h-20 flex-1 gap-2 rounded-xl border px-3 py-3 active:opacity-70",
+        selected ? "border-primary bg-primary/10" : "border-border bg-card",
+      )}
+    >
+      <View className="flex-row items-center justify-between">
+        <Icon
+          color={selected ? colors.primary : colors.mutedForeground}
+          size={18}
+        />
+        <View
+          className={cn(
+            "size-2 rounded-full",
+            selected ? "bg-primary" : "bg-muted-foreground/40",
+          )}
+        />
+      </View>
+      <View className="gap-0.5">
+        <Text className="text-[13px] font-semibold text-foreground">
+          {mode === "auto" ? <Trans>自动</Trans> : <Trans>LAN-only</Trans>}
+        </Text>
+        <Text className="text-[10px] text-muted-foreground" numberOfLines={2}>
+          {mode === "auto" ? (
+            <Trans>公网 + 局域网</Trans>
+          ) : (
+            <Trans>仅本地网络</Trans>
+          )}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function CandidateSourceList({
+  status,
+}: {
+  status: ReturnType<typeof useMobileCoreStore.getState>["networkStatus"];
+}) {
+  if (!status || status.candidateSources.length === 0) return null;
+  return (
+    <>
+      <SettingDivider />
+      <View className="gap-2 px-3.5 py-3">
+        <Text className="text-[13px] font-semibold text-foreground">
+          <Trans>候选来源</Trans>
+        </Text>
+        <View className="flex-row flex-wrap gap-2">
+          {status.candidateSources.map((item) => (
+            <View
+              key={candidateSourceKey(item.source)}
+              className="rounded-full bg-muted px-2.5 py-1"
+            >
+              <Text className="text-[11px] text-muted-foreground">
+                <CandidateSourceLabel source={item.source} /> ·{" "}
+                {String(item.count)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    </>
+  );
+}
+
+function NetworkHint({
+  bootstrapReady,
+  relayReady,
+  discoveryMode,
+}: {
+  bootstrapReady: boolean;
+  relayReady: boolean;
+  discoveryMode: DiscoveryModePreference;
+}) {
+  if (bootstrapReady && relayReady) return null;
+  return (
+    <View className="flex-row gap-3 rounded-xl border border-border bg-card p-3.5">
+      <RadioTower size={17} color="#f59e0b" />
+      <Text className="flex-1 text-[12px] text-muted-foreground">
+        {!bootstrapReady && discoveryMode === "auto" ? (
+          <Trans>公网引导尚未连接，跨网络发现可能暂时不可用。</Trans>
+        ) : !relayReady ? (
+          <Trans>中继尚未就绪，非同一网络的设备可能无法直连。</Trans>
+        ) : (
+          <Trans>当前发现能力受限。</Trans>
+        )}
+      </Text>
+    </View>
+  );
+}
+
+function RelayStatusLabel({
+  ready,
+  source,
+}: {
+  ready: boolean;
+  source?: Parameters<typeof CandidateSourceLabel>[0]["source"];
+}) {
+  if (!ready) return <Trans>未就绪</Trans>;
+  return source ? (
+    <>
+      <Trans>就绪</Trans> · <CandidateSourceLabel source={source} />
+    </>
+  ) : (
+    <Trans>就绪</Trans>
+  );
+}
+
+function CandidateSourceLabel({
+  source,
+}: {
+  source: NonNullable<
+    ReturnType<typeof useMobileCoreStore.getState>["networkStatus"]
+  >["candidateSources"][number]["source"];
+}) {
+  switch (candidateSourceKey(source)) {
+    case "userCustom":
+      return <Trans>自定义</Trans>;
+    case "mdnsLanHelper":
+      return <Trans>LAN Helper</Trans>;
+    default:
+      return <Trans>公网</Trans>;
+  }
 }

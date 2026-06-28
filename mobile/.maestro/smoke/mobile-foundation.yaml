@@ -20,6 +20,18 @@ name: SwarmDrop mobile foundation smoke
 - assertVisible:
     id: tab-settings
 - tapOn:
+    id: devices-manage-node-button
+- extendedWaitUntil:
+    visible:
+      id: node-control-sheet-content
+    timeout: 15000
+- tapOn:
+    id: node-control-cancel-button
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 15000
+- tapOn:
     id: devices-add-device-button
 - extendedWaitUntil:
     visible:

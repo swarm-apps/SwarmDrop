@@ -18,6 +18,10 @@ import { ActivityIndicator, Pressable, View } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import { StatusPill } from "@/components/status-pill";
 import { Text } from "@/components/ui/text";
+import {
+  candidateSourceKey,
+  discoveryModeFromNative,
+} from "@/core/network-discovery";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { formatUptime } from "@/lib/format-uptime";
 import { truncateMiddle } from "@/lib/utils";
@@ -27,6 +31,8 @@ export interface NodeControlSheetRef {
   present: () => void;
   dismiss: () => void;
 }
+
+const NODE_CONTROL_SHEET_SNAP_POINTS = ["62%", "88%"];
 
 /**
  * 节点控制 BottomSheet —— 对齐桌面 StopNodeSheet/StartNodeSheet。
@@ -60,13 +66,14 @@ export const NodeControlSheet = forwardRef<NodeControlSheetRef, object>(
     return (
       <BottomSheetModal
         ref={sheetRef}
-        enableDynamicSizing
+        snapPoints={NODE_CONTROL_SHEET_SNAP_POINTS}
+        enableDynamicSizing={false}
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.border }}
       >
-        <BottomSheetScrollView>
+        <BottomSheetScrollView testID="node-control-sheet-content">
           <NodeControlContent onDismiss={() => sheetRef.current?.dismiss()} />
         </BottomSheetScrollView>
       </BottomSheetModal>
@@ -174,6 +181,25 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
           />
           <Divider />
           <Row
+            label={<Trans>发现方式</Trans>}
+            value={
+              discoveryModeFromNative(networkStatus?.discoveryMode) === "auto"
+                ? t`自动`
+                : t`LAN-only`
+            }
+          />
+          <Divider />
+          <Row
+            label={<Trans>候选节点</Trans>}
+            value={String(networkStatus?.bootstrapCandidateCount ?? 0)}
+          />
+          <Divider />
+          <Row
+            label={<Trans>LAN Helper</Trans>}
+            value={String(networkStatus?.lanHelperCount ?? 0)}
+          />
+          <Divider />
+          <Row
             label={<Trans>NAT 状态</Trans>}
             value={
               networkStatus?.natStatus === "public" ? t`映射成功` : t`未知`
@@ -182,12 +208,23 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
           <Divider />
           <Row
             label={<Trans>中继</Trans>}
-            value={networkStatus?.relayReady ? t`就绪` : t`未启用`}
+            value={
+              networkStatus?.relayReady ? (
+                <RelayReadyLabel source={networkStatus.relaySource} />
+              ) : (
+                t`未就绪`
+              )
+            }
           />
           <Divider />
           <Row
             label={<Trans>引导节点</Trans>}
             value={networkStatus?.bootstrapConnected ? t`已连接` : t`未连接`}
+          />
+          <Divider />
+          <Row
+            label={<Trans>本机 Helper</Trans>}
+            value={networkStatus?.localLanHelperRunning ? t`运行中` : t`未启用`}
           />
         </View>
       ) : (
@@ -206,6 +243,7 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
         <Pressable
           onPress={onDismiss}
           accessibilityRole="button"
+          testID="node-control-cancel-button"
           className="flex-1 h-11 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
         >
           <Text className="text-[14px] font-medium text-foreground">
@@ -217,6 +255,7 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
             onPress={handleStop}
             disabled={working || isStarting}
             accessibilityRole="button"
+            testID="node-control-stop-button"
             className="flex-1 h-11 items-center justify-center rounded-xl bg-destructive active:opacity-70 disabled:opacity-50"
           >
             {working ? (
@@ -232,6 +271,7 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
             onPress={handleStart}
             disabled={working || isStarting}
             accessibilityRole="button"
+            testID="node-control-start-button"
             className="flex-1 h-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
           >
             {working || isStarting ? (
@@ -254,7 +294,7 @@ function Row({
   mono,
 }: {
   label: React.ReactNode;
-  value: string;
+  value: React.ReactNode;
   mono?: boolean;
 }) {
   return (
@@ -272,6 +312,28 @@ function Row({
       </Text>
     </View>
   );
+}
+
+function RelayReadyLabel({
+  source,
+}: {
+  source:
+    | NonNullable<
+        NonNullable<
+          ReturnType<typeof useMobileCoreStore.getState>["networkStatus"]
+        >["relaySource"]
+      >
+    | undefined;
+}) {
+  if (!source) return <Trans>就绪</Trans>;
+  switch (candidateSourceKey(source)) {
+    case "userCustom":
+      return <Trans>就绪 · 自定义</Trans>;
+    case "mdnsLanHelper":
+      return <Trans>就绪 · LAN Helper</Trans>;
+    default:
+      return <Trans>就绪 · 公网</Trans>;
+  }
 }
 
 function Divider() {

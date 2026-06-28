@@ -96,6 +96,51 @@ const uniffiIsDebug =
 
 
 
+export type MobileCandidateSourceStatus = {
+    source: MobileBootstrapCandidateSource,
+    count: /*u64*/bigint
+}
+
+/**
+ * Generated factory for {@link MobileCandidateSourceStatus} record objects.
+ */
+export const MobileCandidateSourceStatus = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileCandidateSourceStatus, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileCandidateSourceStatus>,
+
+    });
+})();
+
+const FfiConverterTypeMobileCandidateSourceStatus = (() => {
+    type TypeName = MobileCandidateSourceStatus;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                source: FfiConverterTypeMobileBootstrapCandidateSource.read(from),
+                count: FfiConverterUInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterTypeMobileBootstrapCandidateSource.write(value.source, into);
+            FfiConverterUInt64.write(value.count, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterTypeMobileBootstrapCandidateSource.allocationSize(value.source) +
+            FfiConverterUInt64.allocationSize(value.count);
+
+        }
+    };
+    return new FFIConverter();
+})();
+
+
 export type MobileDevice = {
     peerId: string,
     /**
@@ -649,6 +694,59 @@ const FfiConverterTypeMobileInboxItemSummary = (() => {
 })();
 
 
+export type MobileNetworkRuntimeConfig = {
+    customBootstrapNodes: Array<string>,
+    discoveryMode: MobileDiscoveryMode,
+    autoDiscoverLanHelpers: boolean,
+    provideLanHelper: boolean
+}
+
+/**
+ * Generated factory for {@link MobileNetworkRuntimeConfig} record objects.
+ */
+export const MobileNetworkRuntimeConfig = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileNetworkRuntimeConfig, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileNetworkRuntimeConfig>,
+
+    });
+})();
+
+const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
+    type TypeName = MobileNetworkRuntimeConfig;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                customBootstrapNodes: FfiConverterArrayString.read(from),
+                discoveryMode: FfiConverterTypeMobileDiscoveryMode.read(from),
+                autoDiscoverLanHelpers: FfiConverterBool.read(from),
+                provideLanHelper: FfiConverterBool.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterArrayString.write(value.customBootstrapNodes, into);
+            FfiConverterTypeMobileDiscoveryMode.write(value.discoveryMode, into);
+            FfiConverterBool.write(value.autoDiscoverLanHelpers, into);
+            FfiConverterBool.write(value.provideLanHelper, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterArrayString.allocationSize(value.customBootstrapNodes) +
+            FfiConverterTypeMobileDiscoveryMode.allocationSize(value.discoveryMode) +
+            FfiConverterBool.allocationSize(value.autoDiscoverLanHelpers) +
+            FfiConverterBool.allocationSize(value.provideLanHelper);
+
+        }
+    };
+    return new FFIConverter();
+})();
+
+
 export type MobileNetworkStatus = {
     status: string,
     peerId?: string,
@@ -659,7 +757,17 @@ export type MobileNetworkStatus = {
     discoveredPeers: /*u64*/bigint,
     relayReady: boolean,
     relayPeers: Array<string>,
-    bootstrapConnected: boolean
+    bootstrapConnected: boolean,
+    discoveryMode: MobileDiscoveryMode,
+    autoDiscoverLanHelpers: boolean,
+    localLanHelperEnabled: boolean,
+    localLanHelperRunning: boolean,
+    relayServerEnabled: boolean,
+    lanHelperAdvertisedAddrs: Array<string>,
+    lanHelperCount: /*u64*/bigint,
+    bootstrapCandidateCount: /*u64*/bigint,
+    candidateSources: Array<MobileCandidateSourceStatus>,
+    relaySource?: MobileBootstrapCandidateSource
 }
 
 /**
@@ -693,7 +801,17 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
                 discoveredPeers: FfiConverterUInt64.read(from),
                 relayReady: FfiConverterBool.read(from),
                 relayPeers: FfiConverterArrayString.read(from),
-                bootstrapConnected: FfiConverterBool.read(from)
+                bootstrapConnected: FfiConverterBool.read(from),
+                discoveryMode: FfiConverterTypeMobileDiscoveryMode.read(from),
+                autoDiscoverLanHelpers: FfiConverterBool.read(from),
+                localLanHelperEnabled: FfiConverterBool.read(from),
+                localLanHelperRunning: FfiConverterBool.read(from),
+                relayServerEnabled: FfiConverterBool.read(from),
+                lanHelperAdvertisedAddrs: FfiConverterArrayString.read(from),
+                lanHelperCount: FfiConverterUInt64.read(from),
+                bootstrapCandidateCount: FfiConverterUInt64.read(from),
+                candidateSources: FfiConverterArrayTypeMobileCandidateSourceStatus.read(from),
+                relaySource: FfiConverterOptionalTypeMobileBootstrapCandidateSource.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
@@ -707,6 +825,16 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
             FfiConverterBool.write(value.relayReady, into);
             FfiConverterArrayString.write(value.relayPeers, into);
             FfiConverterBool.write(value.bootstrapConnected, into);
+            FfiConverterTypeMobileDiscoveryMode.write(value.discoveryMode, into);
+            FfiConverterBool.write(value.autoDiscoverLanHelpers, into);
+            FfiConverterBool.write(value.localLanHelperEnabled, into);
+            FfiConverterBool.write(value.localLanHelperRunning, into);
+            FfiConverterBool.write(value.relayServerEnabled, into);
+            FfiConverterArrayString.write(value.lanHelperAdvertisedAddrs, into);
+            FfiConverterUInt64.write(value.lanHelperCount, into);
+            FfiConverterUInt64.write(value.bootstrapCandidateCount, into);
+            FfiConverterArrayTypeMobileCandidateSourceStatus.write(value.candidateSources, into);
+            FfiConverterOptionalTypeMobileBootstrapCandidateSource.write(value.relaySource, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.status) +
@@ -718,7 +846,17 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
             FfiConverterUInt64.allocationSize(value.discoveredPeers) +
             FfiConverterBool.allocationSize(value.relayReady) +
             FfiConverterArrayString.allocationSize(value.relayPeers) +
-            FfiConverterBool.allocationSize(value.bootstrapConnected);
+            FfiConverterBool.allocationSize(value.bootstrapConnected) +
+            FfiConverterTypeMobileDiscoveryMode.allocationSize(value.discoveryMode) +
+            FfiConverterBool.allocationSize(value.autoDiscoverLanHelpers) +
+            FfiConverterBool.allocationSize(value.localLanHelperEnabled) +
+            FfiConverterBool.allocationSize(value.localLanHelperRunning) +
+            FfiConverterBool.allocationSize(value.relayServerEnabled) +
+            FfiConverterArrayString.allocationSize(value.lanHelperAdvertisedAddrs) +
+            FfiConverterUInt64.allocationSize(value.lanHelperCount) +
+            FfiConverterUInt64.allocationSize(value.bootstrapCandidateCount) +
+            FfiConverterArrayTypeMobileCandidateSourceStatus.allocationSize(value.candidateSources) +
+            FfiConverterOptionalTypeMobileBootstrapCandidateSource.allocationSize(value.relaySource);
 
         }
     };
@@ -2253,6 +2391,42 @@ const FfiConverterTypeFfiError = (() => {
 })();
 
 
+export enum MobileBootstrapCandidateSource {
+    BuiltInPublic,
+    UserCustom,
+    MdnsLanHelper
+}
+
+const FfiConverterTypeMobileBootstrapCandidateSource = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileBootstrapCandidateSource;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileBootstrapCandidateSource.BuiltInPublic;
+                case 2: return MobileBootstrapCandidateSource.UserCustom;
+                case 3: return MobileBootstrapCandidateSource.MdnsLanHelper;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileBootstrapCandidateSource.BuiltInPublic: return ordinalConverter.write(1, into);
+                case MobileBootstrapCandidateSource.UserCustom: return ordinalConverter.write(2, into);
+                case MobileBootstrapCandidateSource.MdnsLanHelper: return ordinalConverter.write(3, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+
+
+
 // Enum: MobileCoreEvent
 export enum MobileCoreEvent_Tags {
     NetworkStatusChanged = "NetworkStatusChanged",
@@ -3146,6 +3320,39 @@ const FfiConverterTypeMobileDeviceTrustLevel = (() => {
                 case MobileDeviceTrustLevel.Collaborator: return ordinalConverter.write(2, into);
                 case MobileDeviceTrustLevel.Temporary: return ordinalConverter.write(3, into);
                 case MobileDeviceTrustLevel.Blocked: return ordinalConverter.write(4, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+
+
+
+export enum MobileDiscoveryMode {
+    Auto,
+    LanOnly
+}
+
+const FfiConverterTypeMobileDiscoveryMode = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileDiscoveryMode;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileDiscoveryMode.Auto;
+                case 2: return MobileDiscoveryMode.LanOnly;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileDiscoveryMode.Auto: return ordinalConverter.write(1, into);
+                case MobileDiscoveryMode.LanOnly: return ordinalConverter.write(2, into);
             }
         }
         allocationSize(value: TypeName): number {
@@ -4868,7 +5075,7 @@ export interface MobileCoreLike {
     repairMissingInboxItems(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileInboxItemDetail>>;
     networkStatus(asyncOpts_?: { signal: AbortSignal }) : Promise<MobileNetworkStatus>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
-    startNode(deviceName: string | undefined, customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    startNode(deviceName: string | undefined, networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     generatePairingCode(expiresInSecs: /*u64*/bigint, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingCode>;
     lookupDeviceByCode(code: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileRemoteDeviceInfo>;
     requestPairing(peerId: string, code: string | undefined, addrs: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingResult>;
@@ -5484,7 +5691,7 @@ async  shutdownNode(asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throw
     }
     }
 
-async  startNode(deviceName: string | undefined, customBootstrapNodes: Array<string>, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+async  startNode(deviceName: string | undefined, networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
@@ -5492,7 +5699,7 @@ async  startNode(deviceName: string | undefined, customBootstrapNodes: Array<str
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterOptionalString.lower(deviceName),FfiConverterArrayString.lower(customBootstrapNodes)
+                    FfiConverterOptionalString.lower(deviceName),FfiConverterTypeMobileNetworkRuntimeConfig.lower(networkConfig)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -5925,6 +6132,10 @@ const FfiConverterOptionalUInt32 = new FfiConverterOptional(FfiConverterUInt32);
 const FfiConverterOptionalUInt64 = new FfiConverterOptional(FfiConverterUInt64);
 
 
+// FfiConverter for Array<MobileCandidateSourceStatus>
+const FfiConverterArrayTypeMobileCandidateSourceStatus = new FfiConverterArray(FfiConverterTypeMobileCandidateSourceStatus);
+
+
 // FfiConverter for Array<MobileDevice>
 const FfiConverterArrayTypeMobileDevice = new FfiConverterArray(FfiConverterTypeMobileDevice);
 
@@ -5975,6 +6186,10 @@ const FfiConverterArrayString = new FfiConverterArray(FfiConverterString);
 
 // FfiConverter for Array</*u32*/number>
 const FfiConverterArrayUInt32 = new FfiConverterArray(FfiConverterUInt32);
+
+
+// FfiConverter for MobileBootstrapCandidateSource | undefined
+const FfiConverterOptionalTypeMobileBootstrapCandidateSource = new FfiConverterOptional(FfiConverterTypeMobileBootstrapCandidateSource);
 
 
 // FfiConverter for MobileDeviceTrustLevel | undefined
@@ -6070,7 +6285,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node() !== 33806) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 42404) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 2279) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pairing_code() !== 17271) {
@@ -6158,11 +6373,14 @@ export default Object.freeze({
     FfiConverterTypeForeignEventBus,
     FfiConverterTypeForeignFileAccess,
     FfiConverterTypeForeignKeychainProvider,
+    FfiConverterTypeMobileBootstrapCandidateSource,
+    FfiConverterTypeMobileCandidateSourceStatus,
     FfiConverterTypeMobileCore,
     FfiConverterTypeMobileCoreEvent,
     FfiConverterTypeMobileDevice,
     FfiConverterTypeMobileDeviceReceivePolicy,
     FfiConverterTypeMobileDeviceTrustLevel,
+    FfiConverterTypeMobileDiscoveryMode,
     FfiConverterTypeMobileFileMetadata,
     FfiConverterTypeMobileFileProgress,
     FfiConverterTypeMobileIdentity,
@@ -6171,6 +6389,7 @@ export default Object.freeze({
     FfiConverterTypeMobileInboxItemDetail,
     FfiConverterTypeMobileInboxItemSummary,
     FfiConverterTypeMobileInboxSourceKind,
+    FfiConverterTypeMobileNetworkRuntimeConfig,
     FfiConverterTypeMobileNetworkStatus,
     FfiConverterTypeMobilePairedDevice,
     FfiConverterTypeMobilePairingCode,

@@ -151,6 +151,7 @@ export default function DevicesScreen() {
           <Pressable
             onPress={() => nodeSheetRef.current?.present()}
             accessibilityRole="button"
+            testID="devices-manage-node-button"
             className="min-h-11 items-center justify-center rounded-xl border border-border px-3 active:opacity-70"
           >
             <Text className="text-[12px] font-semibold text-foreground">

@@ -6,7 +6,6 @@ import {
   Info,
   Languages,
   type LucideIcon,
-  Network,
   Palette,
   Settings as SettingsIcon,
 } from "lucide-react-native";
@@ -53,13 +52,8 @@ export default function SettingsIndex() {
           <NavRow
             icon={Globe}
             label={t`网络`}
+            testID="settings-network-row"
             onPress={() => router.push("/settings/network" as never)}
-          />
-          <SettingDivider />
-          <NavRow
-            icon={Network}
-            label={t`引导节点`}
-            onPress={() => router.push("/settings/bootstrap-nodes" as never)}
           />
           <SettingDivider />
           <NavRow
@@ -76,10 +70,12 @@ export default function SettingsIndex() {
 function NavRow({
   icon: Icon,
   label,
+  testID,
   onPress,
 }: {
   icon: LucideIcon;
   label: string;
+  testID?: string;
   onPress: () => void;
 }) {
   const colors = useThemeColors();
@@ -88,6 +84,7 @@ function NavRow({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
+      testID={testID}
       className="h-12 flex-row items-center px-3.5 gap-3 active:bg-muted"
     >
       <View className="h-8 w-8 items-center justify-center rounded-lg bg-muted">

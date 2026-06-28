@@ -41,7 +41,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(ptr: bigint, deviceName: Uint8Array, customBootstrapNodes: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(ptr: bigint, deviceName: Uint8Array, networkConfig: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_generate_pairing_code(ptr: bigint, expiresInSecs: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_lookup_device_by_code(ptr: bigint, code: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_request_pairing(ptr: bigint, peerId: Uint8Array, code: Uint8Array, addrs: Uint8Array): bigint;
