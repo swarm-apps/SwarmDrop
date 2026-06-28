@@ -51,7 +51,6 @@ keys/
 expo-env.d.ts
 # @end expo-cli
 
-**/openspec
 
 .claude
 
