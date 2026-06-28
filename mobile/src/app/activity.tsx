@@ -80,6 +80,7 @@ export default function ActivityScreen() {
             onPress={() => setClearOpen(true)}
             accessibilityRole="button"
             accessibilityLabel={t`清空活动`}
+            testID="activity-clear-button"
             className="size-11 items-center justify-center rounded-xl bg-muted active:opacity-70"
           >
             <Trash2 color={colors.mutedForeground} size={19} />
@@ -95,6 +96,7 @@ export default function ActivityScreen() {
         <>
           <ProjectionSection
             title={<Trans>正在进行</Trans>}
+            testID="activity-section-active"
             empty={<Trans>没有正在传输的项目</Trans>}
             projections={grouped.active}
             progressBySession={progressBySession}
@@ -102,6 +104,7 @@ export default function ActivityScreen() {
           />
           <ProjectionSection
             title={<Trans>可恢复</Trans>}
+            testID="activity-section-recoverable"
             empty={<Trans>没有等待恢复的传输</Trans>}
             projections={grouped.recoverable}
             progressBySession={progressBySession}
@@ -110,6 +113,7 @@ export default function ActivityScreen() {
           />
           <ProjectionSection
             title={<Trans>需要注意</Trans>}
+            testID="activity-section-attention"
             empty={<Trans>没有需要处理的问题</Trans>}
             projections={grouped.attention}
             progressBySession={progressBySession}
@@ -117,6 +121,7 @@ export default function ActivityScreen() {
           />
           <ProjectionSection
             title={<Trans>完成诊断</Trans>}
+            testID="activity-section-completed"
             empty={<Trans>完成和取消记录会出现在这里</Trans>}
             projections={grouped.completed}
             progressBySession={progressBySession}
@@ -146,6 +151,9 @@ export default function ActivityScreen() {
         actionLabel={<Trans>清空</Trans>}
         destructive
         onAction={performClear}
+        contentTestID="activity-clear-confirmation"
+        cancelTestID="activity-clear-cancel-button"
+        actionTestID="activity-clear-confirm-button"
       />
     </AppScreen>
   );
@@ -153,6 +161,7 @@ export default function ActivityScreen() {
 
 function ProjectionSection({
   title,
+  testID,
   empty,
   projections,
   progressBySession,
@@ -160,6 +169,7 @@ function ProjectionSection({
   onResume,
 }: {
   title: React.ReactNode;
+  testID: string;
   empty: React.ReactNode;
   projections: MobileTransferProjection[];
   progressBySession: Record<string, MobileTransferProgress>;
@@ -167,7 +177,7 @@ function ProjectionSection({
   onResume?: (sessionId: string) => void;
 }) {
   return (
-    <View className="gap-2.5">
+    <View className="gap-2.5" testID={testID}>
       <Text className="text-[15px] font-semibold text-foreground">{title}</Text>
       {projections.length > 0 ? (
         <View className="gap-2">

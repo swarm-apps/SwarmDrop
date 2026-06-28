@@ -107,6 +107,7 @@ export function TransferOfferHost() {
   return (
     <AlertDialog open={open}>
       <AlertDialogContent
+        testID="transfer-offer-dialog"
         style={[
           {
             borderRadius: 20,
@@ -164,6 +165,7 @@ export function TransferOfferHost() {
         <ScrollView
           className="max-h-[220px] rounded-xl bg-muted"
           contentContainerClassName="p-3 gap-2"
+          testID="transfer-offer-file-list"
         >
           {previewFiles.map((f) => (
             <View key={f.fileId} className="flex-row items-center gap-2.5">
@@ -192,6 +194,7 @@ export function TransferOfferHost() {
               onPress={() => dismiss(current.id)}
               accessibilityRole="button"
               accessibilityLabel={t`知道了`}
+              testID="transfer-offer-dismiss-button"
               className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-80"
             >
               <Text className="text-base font-medium text-foreground">
@@ -205,6 +208,7 @@ export function TransferOfferHost() {
                 disabled={busy !== null}
                 accessibilityRole="button"
                 accessibilityLabel={t`接收`}
+                testID="transfer-offer-accept-button"
                 className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-80 disabled:opacity-50"
               >
                 {busy === "accepting" ? (
@@ -225,6 +229,7 @@ export function TransferOfferHost() {
                 disabled={busy !== null}
                 accessibilityRole="button"
                 accessibilityLabel={t`拒绝`}
+                testID="transfer-offer-reject-button"
                 className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-80 disabled:opacity-50"
               >
                 <Text className="text-base font-medium text-foreground">

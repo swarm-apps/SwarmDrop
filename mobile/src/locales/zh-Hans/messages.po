@@ -13,7 +13,7 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/components/transfer-offer-host.tsx:184
+#: src/components/transfer-offer-host.tsx:186
 msgid "...还有 {remainingCount} 个文件"
 msgstr "...还有 {remainingCount} 个文件"
 
@@ -118,7 +118,7 @@ msgstr "与传输活动分开保存"
 #: src/app/(main)/inbox.tsx:234
 #: src/app/inbox/[itemId].tsx:220
 #: src/app/transfer/[sessionId].tsx:264
-#: src/components/transfer-offer-host.tsx:141
+#: src/components/transfer-offer-host.tsx:142
 msgid "个文件"
 msgstr "个文件"
 
@@ -180,7 +180,7 @@ msgstr "从相册选择图片"
 msgid "从相册选择视频"
 msgstr "从相册选择视频"
 
-#: src/app/activity.tsx:131
+#: src/app/activity.tsx:136
 msgid "从设备页发送文件，或接收其他设备发来的内容。"
 msgstr "从设备页发送文件，或接收其他设备发来的内容。"
 
@@ -218,7 +218,7 @@ msgstr "传输已取消"
 msgid "传输详情"
 msgstr "传输详情"
 
-#: src/app/activity.tsx:91
+#: src/app/activity.tsx:92
 msgid "传输过程、恢复入口和诊断记录"
 msgstr "传输过程、恢复入口和诊断记录"
 
@@ -494,7 +494,7 @@ msgstr "取消配对失败"
 msgid "另一台设备请求与你建立配对"
 msgstr "另一台设备请求与你建立配对"
 
-#: src/app/activity.tsx:104
+#: src/app/activity.tsx:106
 msgid "可恢复"
 msgstr "可恢复"
 
@@ -570,7 +570,7 @@ msgstr "它可能已经被删除或归档隐藏。"
 msgid "完成"
 msgstr "完成"
 
-#: src/app/activity.tsx:120
+#: src/app/activity.tsx:125
 msgid "完成和取消记录会出现在这里"
 msgstr "完成和取消记录会出现在这里"
 
@@ -578,7 +578,7 @@ msgstr "完成和取消记录会出现在这里"
 msgid "完成的接收内容会在这里出现；传输过程和恢复入口在活动页查看。"
 msgstr "完成的接收内容会在这里出现；传输过程和恢复入口在活动页查看。"
 
-#: src/app/activity.tsx:119
+#: src/app/activity.tsx:123
 msgid "完成诊断"
 msgstr "完成诊断"
 
@@ -692,7 +692,7 @@ msgstr "已归档"
 msgid "已拒绝"
 msgstr "已拒绝"
 
-#: src/components/transfer-offer-host.tsx:134
+#: src/components/transfer-offer-host.tsx:135
 msgid "已拒绝文件"
 msgstr "已拒绝文件"
 
@@ -877,8 +877,8 @@ msgstr "找到设备"
 
 #: src/components/pairing-request-host.tsx:150
 #: src/components/pairing-request-host.tsx:154
-#: src/components/transfer-offer-host.tsx:227
 #: src/components/transfer-offer-host.tsx:231
+#: src/components/transfer-offer-host.tsx:236
 msgid "拒绝"
 msgstr "拒绝"
 
@@ -888,8 +888,8 @@ msgid "接受"
 msgstr "接受"
 
 #: src/app/transfer/[sessionId].tsx:262
-#: src/components/transfer-offer-host.tsx:207
-#: src/components/transfer-offer-host.tsx:219
+#: src/components/transfer-offer-host.tsx:210
+#: src/components/transfer-offer-host.tsx:223
 msgid "接收"
 msgstr "接收"
 
@@ -897,7 +897,7 @@ msgstr "接收"
 msgid "接收中"
 msgstr "接收中"
 
-#: src/components/transfer-offer-host.tsx:217
+#: src/components/transfer-offer-host.tsx:221
 msgid "接收中..."
 msgstr "接收中..."
 
@@ -953,7 +953,7 @@ msgstr "收件箱负责回答“我收到了什么”；活动页负责回答“
 msgid "收件箱还是空的"
 msgstr "收件箱还是空的"
 
-#: src/components/transfer-offer-host.tsx:136
+#: src/components/transfer-offer-host.tsx:137
 msgid "收到文件"
 msgstr "收到文件"
 
@@ -1026,7 +1026,7 @@ msgstr "暂停"
 msgid "暂停失败"
 msgstr "暂停失败"
 
-#: src/app/activity.tsx:129
+#: src/app/activity.tsx:134
 msgid "暂无传输活动"
 msgstr "暂无传输活动"
 
@@ -1083,7 +1083,7 @@ msgstr "未知"
 msgid "未连接"
 msgstr "未连接"
 
-#: src/components/transfer-offer-host.tsx:155
+#: src/components/transfer-offer-host.tsx:156
 msgid "未配对"
 msgstr "未配对"
 
@@ -1158,7 +1158,7 @@ msgstr "正在等待对端连接..."
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "正在计算校验和 ({0}/{1})"
 
-#: src/app/activity.tsx:97
+#: src/app/activity.tsx:98
 msgid "正在进行"
 msgstr "正在进行"
 
@@ -1166,11 +1166,11 @@ msgstr "正在进行"
 msgid "此目录不可读"
 msgstr "此目录不可读"
 
-#: src/components/transfer-offer-host.tsx:160
+#: src/components/transfer-offer-host.tsx:161
 msgid "此设备需要手动确认后才会开始接收。"
 msgstr "此设备需要手动确认后才会开始接收。"
 
-#: src/app/activity.tsx:98
+#: src/app/activity.tsx:100
 msgid "没有正在传输的项目"
 msgstr "没有正在传输的项目"
 
@@ -1178,11 +1178,11 @@ msgstr "没有正在传输的项目"
 msgid "没有正在进行的传输"
 msgstr "没有正在进行的传输"
 
-#: src/app/activity.tsx:105
+#: src/app/activity.tsx:108
 msgid "没有等待恢复的传输"
 msgstr "没有等待恢复的传输"
 
-#: src/app/activity.tsx:113
+#: src/app/activity.tsx:117
 msgid "没有需要处理的问题"
 msgstr "没有需要处理的问题"
 
@@ -1215,11 +1215,11 @@ msgstr "添加自定义引导节点"
 msgid "添加设备"
 msgstr "添加设备"
 
-#: src/app/activity.tsx:146
+#: src/app/activity.tsx:151
 msgid "清空"
 msgstr "清空"
 
-#: src/app/activity.tsx:140
+#: src/app/activity.tsx:145
 msgid "清空传输活动"
 msgstr "清空传输活动"
 
@@ -1252,8 +1252,8 @@ msgstr "生成配对码"
 msgid "用时"
 msgstr "用时"
 
-#: src/components/transfer-offer-host.tsx:194
-#: src/components/transfer-offer-host.tsx:198
+#: src/components/transfer-offer-host.tsx:196
+#: src/components/transfer-offer-host.tsx:201
 msgid "知道了"
 msgstr "知道了"
 
@@ -1474,7 +1474,7 @@ msgstr "设备未找到"
 
 #: src/app/device/[peerId].tsx:453
 #: src/app/transfer/[sessionId].tsx:295
-#: src/components/transfer-offer-host.tsx:149
+#: src/components/transfer-offer-host.tsx:150
 msgid "设备策略"
 msgstr "设备策略"
 
@@ -1568,7 +1568,7 @@ msgstr "还没有选择任何文件"
 msgid "还没有配对设备"
 msgstr "还没有配对设备"
 
-#: src/app/activity.tsx:142
+#: src/app/activity.tsx:147
 msgid "这会删除传输过程记录，不会作为收件箱内容删除入口。该操作不可撤销。"
 msgstr "这会删除传输过程记录，不会作为收件箱内容删除入口。该操作不可撤销。"
 
@@ -1706,7 +1706,7 @@ msgstr "附近"
 msgid "附近设备可以发现这台手机"
 msgstr "附近设备可以发现这台手机"
 
-#: src/app/activity.tsx:112
+#: src/app/activity.tsx:115
 msgid "需要注意"
 msgstr "需要注意"
 

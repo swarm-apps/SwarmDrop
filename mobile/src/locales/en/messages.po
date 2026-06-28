@@ -13,7 +13,7 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/components/transfer-offer-host.tsx:184
+#: src/components/transfer-offer-host.tsx:186
 msgid "...还有 {remainingCount} 个文件"
 msgstr "...and {remainingCount} more files"
 
@@ -118,7 +118,7 @@ msgstr "Stored separately from transfer activity"
 #: src/app/(main)/inbox.tsx:234
 #: src/app/inbox/[itemId].tsx:220
 #: src/app/transfer/[sessionId].tsx:264
-#: src/components/transfer-offer-host.tsx:141
+#: src/components/transfer-offer-host.tsx:142
 msgid "个文件"
 msgstr "files"
 
@@ -180,7 +180,7 @@ msgstr "Pick images from library"
 msgid "从相册选择视频"
 msgstr "Pick videos from library"
 
-#: src/app/activity.tsx:131
+#: src/app/activity.tsx:136
 msgid "从设备页发送文件，或接收其他设备发来的内容。"
 msgstr "Send files from Devices, or receive content from another device."
 
@@ -218,7 +218,7 @@ msgstr "Transfer cancelled"
 msgid "传输详情"
 msgstr "Transfer details"
 
-#: src/app/activity.tsx:91
+#: src/app/activity.tsx:92
 msgid "传输过程、恢复入口和诊断记录"
 msgstr "Transfer process, recovery entries, and diagnostics"
 
@@ -494,7 +494,7 @@ msgstr ""
 msgid "另一台设备请求与你建立配对"
 msgstr "Another device is requesting to pair with you"
 
-#: src/app/activity.tsx:104
+#: src/app/activity.tsx:106
 msgid "可恢复"
 msgstr "Recoverable"
 
@@ -570,7 +570,7 @@ msgstr "It may have been deleted or hidden by archiving."
 msgid "完成"
 msgstr "Done"
 
-#: src/app/activity.tsx:120
+#: src/app/activity.tsx:125
 msgid "完成和取消记录会出现在这里"
 msgstr "Completed and cancelled records appear here"
 
@@ -578,7 +578,7 @@ msgstr "Completed and cancelled records appear here"
 msgid "完成的接收内容会在这里出现；传输过程和恢复入口在活动页查看。"
 msgstr "Completed received content appears here; transfer process and recovery live in Activity."
 
-#: src/app/activity.tsx:119
+#: src/app/activity.tsx:123
 msgid "完成诊断"
 msgstr "Completed diagnostics"
 
@@ -692,7 +692,7 @@ msgstr "Archived"
 msgid "已拒绝"
 msgstr "Rejected"
 
-#: src/components/transfer-offer-host.tsx:134
+#: src/components/transfer-offer-host.tsx:135
 msgid "已拒绝文件"
 msgstr ""
 
@@ -877,8 +877,8 @@ msgstr "Device found"
 
 #: src/components/pairing-request-host.tsx:150
 #: src/components/pairing-request-host.tsx:154
-#: src/components/transfer-offer-host.tsx:227
 #: src/components/transfer-offer-host.tsx:231
+#: src/components/transfer-offer-host.tsx:236
 msgid "拒绝"
 msgstr "Reject"
 
@@ -888,8 +888,8 @@ msgid "接受"
 msgstr "Accept"
 
 #: src/app/transfer/[sessionId].tsx:262
-#: src/components/transfer-offer-host.tsx:207
-#: src/components/transfer-offer-host.tsx:219
+#: src/components/transfer-offer-host.tsx:210
+#: src/components/transfer-offer-host.tsx:223
 msgid "接收"
 msgstr "Receive"
 
@@ -897,7 +897,7 @@ msgstr "Receive"
 msgid "接收中"
 msgstr "Receiving"
 
-#: src/components/transfer-offer-host.tsx:217
+#: src/components/transfer-offer-host.tsx:221
 msgid "接收中..."
 msgstr "Receiving..."
 
@@ -953,7 +953,7 @@ msgstr "Inbox answers “what did I receive”; Activity answers “what happene
 msgid "收件箱还是空的"
 msgstr "Inbox is empty"
 
-#: src/components/transfer-offer-host.tsx:136
+#: src/components/transfer-offer-host.tsx:137
 msgid "收到文件"
 msgstr "Incoming files"
 
@@ -1026,7 +1026,7 @@ msgstr "Pause"
 msgid "暂停失败"
 msgstr "Pause failed"
 
-#: src/app/activity.tsx:129
+#: src/app/activity.tsx:134
 msgid "暂无传输活动"
 msgstr "No transfer activity"
 
@@ -1083,7 +1083,7 @@ msgstr "Unknown"
 msgid "未连接"
 msgstr "Disconnected"
 
-#: src/components/transfer-offer-host.tsx:155
+#: src/components/transfer-offer-host.tsx:156
 msgid "未配对"
 msgstr ""
 
@@ -1158,7 +1158,7 @@ msgstr "Waiting for peer to connect..."
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "Hashing ({0}/{1})"
 
-#: src/app/activity.tsx:97
+#: src/app/activity.tsx:98
 msgid "正在进行"
 msgstr "In progress"
 
@@ -1166,11 +1166,11 @@ msgstr "In progress"
 msgid "此目录不可读"
 msgstr "This directory is not readable"
 
-#: src/components/transfer-offer-host.tsx:160
+#: src/components/transfer-offer-host.tsx:161
 msgid "此设备需要手动确认后才会开始接收。"
 msgstr ""
 
-#: src/app/activity.tsx:98
+#: src/app/activity.tsx:100
 msgid "没有正在传输的项目"
 msgstr "No transfers in progress"
 
@@ -1178,11 +1178,11 @@ msgstr "No transfers in progress"
 msgid "没有正在进行的传输"
 msgstr "No active transfers"
 
-#: src/app/activity.tsx:105
+#: src/app/activity.tsx:108
 msgid "没有等待恢复的传输"
 msgstr "No transfers waiting for recovery"
 
-#: src/app/activity.tsx:113
+#: src/app/activity.tsx:117
 msgid "没有需要处理的问题"
 msgstr "No issues need attention"
 
@@ -1215,11 +1215,11 @@ msgstr "Add custom bootstrap node"
 msgid "添加设备"
 msgstr "Add device"
 
-#: src/app/activity.tsx:146
+#: src/app/activity.tsx:151
 msgid "清空"
 msgstr "Clear"
 
-#: src/app/activity.tsx:140
+#: src/app/activity.tsx:145
 msgid "清空传输活动"
 msgstr "Clear transfer activity"
 
@@ -1252,8 +1252,8 @@ msgstr "Generate code"
 msgid "用时"
 msgstr "Duration"
 
-#: src/components/transfer-offer-host.tsx:194
-#: src/components/transfer-offer-host.tsx:198
+#: src/components/transfer-offer-host.tsx:196
+#: src/components/transfer-offer-host.tsx:201
 msgid "知道了"
 msgstr ""
 
@@ -1474,7 +1474,7 @@ msgstr "Device not found"
 
 #: src/app/device/[peerId].tsx:453
 #: src/app/transfer/[sessionId].tsx:295
-#: src/components/transfer-offer-host.tsx:149
+#: src/components/transfer-offer-host.tsx:150
 msgid "设备策略"
 msgstr "Device policy"
 
@@ -1568,7 +1568,7 @@ msgstr "No files chosen yet"
 msgid "还没有配对设备"
 msgstr "No paired devices yet"
 
-#: src/app/activity.tsx:142
+#: src/app/activity.tsx:147
 msgid "这会删除传输过程记录，不会作为收件箱内容删除入口。该操作不可撤销。"
 msgstr "This deletes transfer process records. It is not the Inbox content deletion entry. This cannot be undone."
 
@@ -1706,7 +1706,7 @@ msgstr "Nearby"
 msgid "附近设备可以发现这台手机"
 msgstr "Nearby devices can discover this phone"
 
-#: src/app/activity.tsx:112
+#: src/app/activity.tsx:115
 msgid "需要注意"
 msgstr "Needs attention"
 
