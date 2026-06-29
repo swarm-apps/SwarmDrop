@@ -103,6 +103,10 @@ export default function RootLayout() {
                       options={{ animation: "slide_from_right" }}
                     />
                     <Stack.Screen
+                      name="inbox/search"
+                      options={{ animation: "slide_from_right" }}
+                    />
+                    <Stack.Screen
                       name="inbox/[itemId]"
                       options={{ animation: "slide_from_right" }}
                     />

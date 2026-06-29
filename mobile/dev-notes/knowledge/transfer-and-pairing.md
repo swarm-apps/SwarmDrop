@@ -45,6 +45,30 @@ projection 自带 `recoverable`、`suspendedReason`、`policyAction/policyReason
 - [src/stores/transfer-store.ts](../../src/stores/transfer-store.ts)
 - [src/core/event-bus.ts](../../src/core/event-bus.ts)
 
+## 收件箱
+
+### 设备收件箱是内容库，不是状态说明页
+
+移动端收件箱首页要优先支持“快速扫最近收到的内容”：顶部使用内容库概览，下方用横向滚动的快捷 chip
+（全部/文件/图片/视频/文本/异常/已归档）收窄列表。`全部` 必须符合用户直觉，显示包含归档在内的所有内容；
+`已归档` 只是同层快捷过滤入口，不要再做“当前/含归档”的二级范围开关。搜索是独立模式，入口放在首页顶部 icon，
+进入 `/inbox/search` 后自动聚焦搜索框，并复用快捷分类 chip 和列表行。不要把搜索框常驻在首页。
+归档显示不要做成设置项式大开关；“内容边界”这类产品说明不要作为页面底部卡片展示。
+
+刷新时必须保持当前列表或空状态原位，只显示轻量 loading 反馈，不要切到整块“正在刷新”占位，避免页面闪烁。
+
+**相关文件**：[src/app/(main)/inbox.tsx](../../src/app/(main)/inbox.tsx)
+
+### 收件箱详情页优先呈现内容本体
+
+详情页不是记录表单页。第一屏应优先展示收到的内容本体：单文件用预览 / 大图标作为主视觉，
+文件名、来源、时间和状态紧随其后；多文件才展示“包含内容”列表。打开/分享、复制路径这类高频动作
+放在底部拇指区；归档、查看传输诊断、删除记录和删除本地文件收进“更多”底部操作面板。
+删除类操作要先关闭操作面板，再打开确认弹窗，不要堆叠多个 bottom sheet / dialog。
+来源 peer id、完整保存路径、内容指纹等低频元信息放进可展开的“详情”，默认不要铺满第一屏。
+
+**相关文件**：[src/app/inbox/[itemId].tsx](../../src/app/inbox/[itemId].tsx)
+
 ## Zustand selector
 
 ### 返回新对象/数组的 selector 必须包 useShallow
@@ -75,25 +99,43 @@ const nearbyDevices = useMobileCoreStore((s) =>
 
 ## 已配对设备视图
 
-### 离线兜底视图走 keychain，不依赖 NetManager
+### 设备首页只放有业务闭环的快捷入口
 
-NetManager（Rust 端 P2P 节点）未启动时，`listDevices` 返回空。已配对设备的"离线视图"靠
-Rust `list_paired_devices()` FFI 直接读 keychain，独立于节点状态。zustand 存 cache 字段
-`pairedDevicesCache`，在 `loadIdentity` 完成时立即拉一次，PairingCompleted 事件再刷新。
+运行态第一块应展示当前节点可用性、附近/配对/活跃传输的轻量概览，并只提供收件箱、活动这类已有
+业务闭环的高频入口。不要在首页放全局“发送文件”入口，除非后续已经有完整的发送业务承接；发送仍应
+从具体设备行或已配对设备详情这类有目标设备的上下文进入。随后直接展示附近设备、本机配对码和输入配对码入口。
+未启动时第一块承担空状态和快捷启动，不再额外展示不可用的添加设备面板。
 
-**正确做法**：组件渲染时按 `runtimeState === "running"` 切换数据源：
+**相关文件**：[src/app/(main)/index.tsx](../../src/app/(main)/index.tsx)
+
+### 已配对设备视图合并 keychain 和实时发现结果
+
+NetManager（Rust 端 P2P 节点）的 `listDevices("all")` 是实时发现视图，不保证包含所有已配对设备；
+节点运行时，如果某台已配对设备当前没有被发现，它不会出现在 `devices` 里。移动端要对齐桌面端
+`storedPairedDevices + normalizedDevices` 的语义：已配对设备列表必须把 Rust `list_paired_devices()`
+FFI 读到的 keychain cache 和实时发现结果合并。cache 提供完整离线清单；实时 `devices` 只负责覆盖
+在线状态和最新运行时字段；如果某个实时设备 peerId 命中 cache，即使实时字段还没标 `isPaired`，
+也要强制视为已配对并继承 cache 里的 trust/policy。zustand 存 cache 字段 `pairedDevicesCache`，
+在 `loadIdentity` 完成时立即拉一次，PairingCompleted 事件再刷新。
+
+**正确做法**：组件渲染时使用合并 helper，不要按运行态切换为纯实时列表：
 
 ```tsx
 const pairedDevices = useMemo(() => {
-  if (runtimeState === "running") return devices.filter((d) => d.isPaired);
-  return summariesToOfflineDevices(pairedDevicesCache);
-}, [runtimeState, devices, pairedDevicesCache]);
+  return mergePairedDevicesWithCache(devices, pairedDevicesCache).sort((a, b) => {
+    if (a.status !== b.status) return a.status === "online" ? -1 : 1;
+    return deviceDisplayName(a).localeCompare(deviceDisplayName(b));
+  });
+}, [devices, pairedDevicesCache]);
 ```
 
-**不要做**：在 `applyDevices` / `refreshDevices` 里把 `pairedDevicesCache` 跟 `devices` 一起
-覆盖——NetManager 还没发现的 paired 设备会被空覆盖，UI 闪烁。
+**不要做**：
+- 不要在运行态只用 `devices.filter((d) => d.isPaired)`，否则启动节点后未被实时发现的已配对设备会消失
+- 不要在 `applyDevices` / `refreshDevices` 里把 `pairedDevicesCache` 跟 `devices` 一起覆盖——
+  NetManager 还没发现的 paired 设备会被空覆盖，UI 闪烁
 
 **相关文件**：[src/stores/mobile-core-store.ts](../../src/stores/mobile-core-store.ts),
+[src/app/(main)/index.tsx](../../src/app/(main)/index.tsx),
 [src/app/send/select-device.tsx](../../src/app/send/select-device.tsx)
 
 ## 节点生命周期
@@ -131,6 +173,19 @@ const result = await getMobileCore().sendPrepared(
 **相关文件**：[src/app/send/select-device.tsx](../../src/app/send/select-device.tsx)
 
 ## 配对码
+
+### 设备首页直接暴露附近设备和本机配对码
+
+移动端设备首页应跟桌面端设备中心的信息架构一致：`添加设备` 是首页常驻区块，里面直接展示
+附近设备、本机配对码和输入配对码入口。入口要直出，但不要把 6 位输入框内嵌在卡片里；点击
+`输入配对码` 后用 bottom sheet 承载输入、校验和跳转，避免首页卡片被表单状态撑开。sheet 也适合
+设备确认、节点控制这类二级流程。
+
+节点控制不要再做首页独立卡片。右上角 `StatusPill` 已经承担节点状态和入口；未启动时，添加设备区
+退化为空状态卡片，只保留“节点未启动”、启动节点快捷按钮，以及启动后会显示附近设备/本机配对码的说明。
+首页其他空状态也应保持模块感：使用图标、标题、描述和稳定高度，不要退化成一行短提示。
+
+**相关文件**：[src/app/(main)/index.tsx](../../src/app/(main)/index.tsx)
 
 ### 配对码全局单例 + 持久化 + 过期/被消耗自动续生
 

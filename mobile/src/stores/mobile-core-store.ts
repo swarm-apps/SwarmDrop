@@ -8,7 +8,6 @@ import type {
 } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { pickTransferDirectory, pickTransferFiles } from "@/core/file-access";
 import { initMobileCore } from "@/core/mobile-core";
 import { buildNetworkRuntimeConfig } from "@/core/network-discovery";
 import { errorMessage } from "@/lib/utils";
@@ -85,14 +84,10 @@ type MobileCoreState = {
     receivePolicy?: MobileDeviceReceivePolicy,
   ) => Promise<DeviceInfo>;
   removePairedDevice: (peerId: string) => Promise<void>;
-  chooseFiles: () => Promise<void>;
-  /** 选择整个文件夹 —— 递归扫描其下全部文件，保留嵌套 relativePath */
-  chooseDirectory: () => Promise<void>;
   /** 追加文件到当前选择（多次选择叠加，去重按 relativePath） */
   appendFiles: (files: TransferFile[]) => void;
   /** 移除选择中的某个 relativePath（目录以 / 结尾，会移除整个子树） */
   removeSelectedByPath: (relativePath: string) => void;
-  setSelectedFiles: (files: TransferFile[]) => void;
   clearSelectedFiles: () => void;
   applyNetworkStatus: (status: NetworkStatus) => void;
   applyDevices: (devices: DeviceInfo[]) => void;
@@ -269,24 +264,6 @@ export const useMobileCoreStore = create<MobileCoreState>()(
         }
       },
 
-      async chooseFiles() {
-        try {
-          const files = await pickTransferFiles();
-          set({ selectedFiles: files });
-        } catch (err) {
-          set({ error: errorMessage(err) });
-        }
-      },
-
-      async chooseDirectory() {
-        try {
-          const files = await pickTransferDirectory();
-          set({ selectedFiles: files });
-        } catch (err) {
-          set({ error: errorMessage(err) });
-        }
-      },
-
       appendFiles(files) {
         if (files.length === 0) return;
         const current = get().selectedFiles;
@@ -310,10 +287,6 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             return f.relativePath !== relativePath;
           }),
         }));
-      },
-
-      setSelectedFiles(files) {
-        set({ selectedFiles: files });
       },
 
       clearSelectedFiles() {
@@ -365,4 +338,33 @@ export function summariesToOfflineDevices(
     receivePolicy: s.receivePolicy ?? undefined,
     trustConfirmed: s.trustConfirmed ?? undefined,
   }));
+}
+
+/** 已配对设备列表 = keychain 持久化清单 + 实时发现结果；实时结果覆盖离线骨架。 */
+export function mergePairedDevicesWithCache(
+  devices: DeviceInfo[],
+  summaries: PairedDeviceSummary[],
+): DeviceInfo[] {
+  const summaryMap = new Map(
+    summaries.map((summary) => [summary.peerId, summary]),
+  );
+  const merged = new Map<string, DeviceInfo>();
+  for (const device of summariesToOfflineDevices(summaries)) {
+    merged.set(device.peerId, device);
+  }
+  for (const device of devices) {
+    const summary = summaryMap.get(device.peerId);
+    if (summary || device.isPaired) {
+      merged.set(device.peerId, {
+        ...device,
+        isPaired: true,
+        trustLevel: device.trustLevel ?? summary?.trustLevel ?? undefined,
+        receivePolicy:
+          device.receivePolicy ?? summary?.receivePolicy ?? undefined,
+        trustConfirmed:
+          device.trustConfirmed ?? summary?.trustConfirmed ?? undefined,
+      });
+    }
+  }
+  return Array.from(merged.values());
 }

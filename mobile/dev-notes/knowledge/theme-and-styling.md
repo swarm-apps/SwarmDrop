@@ -83,6 +83,24 @@ const styles = variantStyles[variant];
 
 ## 安全区域 / 导航
 
+### 主底部导航使用 NativeTabs，不再用 JS Tabs 自绘高度
+
+主入口 `src/app/(main)/_layout.tsx` 使用 `expo-router/unstable-native-tabs`。底部栏交给系统
+tab bar 处理安全区、按压反馈和切换动画，避免 `expo-router` JS `<Tabs>` + 手动
+`height/paddingBottom` 造成的动画和布局观感不自然。
+
+**正确做法**：
+- Label 传字符串，不能传 `<Trans>`；用 `useLingui().t` 得到翻译后的字符串
+- Icon 使用 native tabs 支持的 SF Symbols / Android Material Symbols，例如 `sf="tray"`、`md="inbox"`
+- 主题色通过 `backgroundColor`、`iconColor`、`labelStyle`、`shadowColor` 注入
+- Android ripple 设为 `transparent`，主底栏不展示 Material 波纹动画
+
+**不要做**：
+- 不要在主底栏继续用 `useSafeAreaInsets()` 手动叠加高度和 padding
+- 不要把 `lucide-react-native` 组件直接塞进 NativeTabs icon，native tabs 需要系统图标、drawable 或图片源
+
+**相关文件**：`src/app/(main)/_layout.tsx`
+
 ### NotifierRoot 用 useRNScreensOverlay 才能浮在 modal 上
 
 `react-native-notifier` 默认渲染层在 Stack 下，bottom-sheet / 全屏 modal 弹起后 toast 会被挡住。

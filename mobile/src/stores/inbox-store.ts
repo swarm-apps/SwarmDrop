@@ -22,7 +22,6 @@ interface DeleteInboxOptions {
 interface InboxState {
   loading: boolean;
   detailLoading: boolean;
-  includeArchived: boolean;
   items: MobileInboxItemSummary[];
   selectedDetail: MobileInboxItemDetail | null;
   selectedItemId: string | null;
@@ -32,7 +31,6 @@ interface InboxState {
 }
 
 interface InboxActions {
-  setIncludeArchived(includeArchived: boolean): void;
   refresh(): Promise<void>;
   repairMissingItems(): Promise<number>;
   loadDetail(itemId: string): Promise<MobileInboxItemDetail | null>;
@@ -59,7 +57,6 @@ let refreshSeq = 0;
 export const useInboxStore = create<InboxStore>()((set, get) => ({
   loading: false,
   detailLoading: false,
-  includeArchived: false,
   items: [],
   selectedDetail: null,
   selectedItemId: null,
@@ -67,16 +64,11 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
   lastError: null,
   lastRefreshedAt: null,
 
-  setIncludeArchived(includeArchived) {
-    set({ includeArchived });
-    void get().refresh();
-  },
-
   async refresh() {
     const seq = ++refreshSeq;
     set({ loading: true, lastError: null });
     try {
-      const items = await getMobileCore().listInboxItems(get().includeArchived);
+      const items = await getMobileCore().listInboxItems(true);
       // 丢弃过期响应：focus / 归档 / 删除 / 事件等并发触发时，旧响应不得覆盖新结果。
       if (seq !== refreshSeq) return;
       set({ items, lastRefreshedAt: Date.now() });
@@ -135,16 +127,14 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
     try {
       await getMobileCore().archiveInboxItem(itemId, archived);
       set((state) => ({
-        items: state.includeArchived
-          ? state.items.map((item) =>
-              item.id === itemId
-                ? {
-                    ...item,
-                    archivedAt: archived ? BigInt(Date.now()) : undefined,
-                  }
-                : item,
-            )
-          : state.items.filter((item) => item.id !== itemId),
+        items: state.items.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                archivedAt: archived ? BigInt(Date.now()) : undefined,
+              }
+            : item,
+        ),
         selectedDetail:
           state.selectedDetail?.item.id === itemId
             ? {
@@ -228,7 +218,6 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
     set({
       loading: false,
       detailLoading: false,
-      includeArchived: false,
       items: [],
       selectedDetail: null,
       selectedItemId: null,

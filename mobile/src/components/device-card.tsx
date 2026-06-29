@@ -14,16 +14,18 @@ interface DeviceCardProps {
   device: DeviceInfo;
   onPress?: (device: DeviceInfo) => void;
   onSend?: (device: DeviceInfo) => void;
+  variant?: "card" | "row";
   testID?: string;
 }
 
 /**
- * 主屏 2 列 grid 设备卡片。整张进入详情;发送是独立操作。
+ * 主屏设备入口。row 用于手机首页列表,card 保留给更宽的分组布局。
  */
 export function DeviceCard({
   device,
   onPress,
   onSend,
+  variant = "card",
   testID,
 }: DeviceCardProps) {
   const colors = useThemeColors();
@@ -33,6 +35,78 @@ export function DeviceCard({
   const displayName = deviceDisplayName(device);
   const trustLevel = resolveTrustLevel(device);
   const sendable = canSendToDevice(device);
+
+  if (variant === "row") {
+    return (
+      <Pressable
+        onPress={() => onPress?.(device)}
+        accessibilityRole="button"
+        accessibilityLabel={displayName}
+        testID={testID}
+        className={cn(
+          "min-h-[76px] flex-row items-center gap-3 rounded-lg border border-border bg-card p-3.5",
+          "active:opacity-70",
+          !isOnline && "opacity-65",
+        )}
+      >
+        <View className="size-11 items-center justify-center rounded-full bg-muted">
+          <Icon color={colors.foreground} size={20} />
+        </View>
+
+        <View className="min-w-0 flex-1 gap-1">
+          <View className="min-w-0 flex-row items-center gap-2">
+            <Text
+              className="min-w-0 flex-1 text-[15px] font-semibold text-foreground"
+              numberOfLines={1}
+            >
+              {displayName}
+            </Text>
+            <View className="flex-row items-center gap-1">
+              <View
+                className={cn(
+                  "size-1.5 rounded-full",
+                  isOnline ? "bg-success" : "bg-muted-foreground",
+                )}
+              />
+              <Text
+                className={cn(
+                  "text-[11px]",
+                  isOnline ? "text-success" : "text-muted-foreground",
+                )}
+              >
+                {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
+              </Text>
+            </View>
+          </View>
+          <View className="flex-row items-center gap-2">
+            <Text
+              className="min-w-0 flex-1 text-[11px] text-muted-foreground"
+              numberOfLines={1}
+            >
+              {device.os} · {device.platform}
+            </Text>
+            <TrustBadge level={trustLevel} compact />
+          </View>
+        </View>
+
+        <Pressable
+          onPress={(event) => {
+            event.stopPropagation();
+            onSend?.(device);
+          }}
+          disabled={!sendable}
+          accessibilityRole="button"
+          accessibilityLabel={t`发送文件`}
+          className="size-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
+        >
+          <SendHorizontal
+            color={sendable ? colors.primaryForeground : colors.mutedForeground}
+            size={17}
+          />
+        </Pressable>
+      </Pressable>
+    );
+  }
 
   return (
     <Pressable
@@ -93,7 +167,7 @@ export function DeviceCard({
           className="size-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
           <SendHorizontal
-            color={sendable ? colors.background : colors.mutedForeground}
+            color={sendable ? colors.primaryForeground : colors.mutedForeground}
             size={17}
           />
         </Pressable>

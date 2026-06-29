@@ -1,60 +1,58 @@
-import { Trans } from "@lingui/react/macro";
-import { Tabs } from "expo-router";
-import { Inbox, Settings, Smartphone } from "lucide-react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLingui } from "@lingui/react/macro";
+import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
 export default function MainLayout() {
+  const { t } = useLingui();
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.mutedForeground,
-        tabBarStyle: {
-          backgroundColor: colors.card,
-          borderTopColor: colors.border,
-          // 叠加底部安全区，避免全面屏 home indicator 压住图标/文字。
-          height: 64 + insets.bottom,
-          paddingBottom: 8 + insets.bottom,
-          paddingTop: 7,
+    <NativeTabs
+      backgroundColor={colors.card}
+      disableIndicator
+      disableTransparentOnScrollEdge
+      iconColor={{
+        default: colors.mutedForeground,
+        selected: colors.primary,
+      }}
+      indicatorColor={colors.primary}
+      labelStyle={{
+        default: {
+          color: colors.mutedForeground,
+          fontSize: 11,
+          fontWeight: "600",
         },
-        tabBarLabelStyle: {
+        selected: {
+          color: colors.primary,
           fontSize: 11,
           fontWeight: "600",
         },
       }}
+      labelVisibilityMode="labeled"
+      rippleColor="transparent"
+      shadowColor={colors.border}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Devices",
-          tabBarLabel: () => <Trans>设备</Trans>,
-          tabBarIcon: ({ color }) => <Smartphone color={color} size={20} />,
-          tabBarButtonTestID: "tab-devices",
-        }}
-      />
-      <Tabs.Screen
-        name="inbox"
-        options={{
-          title: "Inbox",
-          tabBarLabel: () => <Trans>收件箱</Trans>,
-          tabBarIcon: ({ color }) => <Inbox color={color} size={20} />,
-          tabBarButtonTestID: "tab-inbox",
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "Settings",
-          tabBarLabel: () => <Trans>设置</Trans>,
-          tabBarIcon: ({ color }) => <Settings color={color} size={20} />,
-          tabBarButtonTestID: "tab-settings",
-        }}
-      />
-    </Tabs>
+      <NativeTabs.Trigger name="index">
+        <NativeTabs.Trigger.Label>{t`设备`}</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          md={{ default: "smartphone", selected: "smartphone" }}
+          sf={{ default: "iphone", selected: "iphone" }}
+        />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="inbox">
+        <NativeTabs.Trigger.Label>{t`收件箱`}</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          md={{ default: "inbox", selected: "inbox" }}
+          sf={{ default: "tray", selected: "tray.fill" }}
+        />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="settings">
+        <NativeTabs.Trigger.Label>{t`设置`}</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          md={{ default: "settings", selected: "settings" }}
+          sf={{ default: "gearshape", selected: "gearshape.fill" }}
+        />
+      </NativeTabs.Trigger>
+    </NativeTabs>
   );
 }

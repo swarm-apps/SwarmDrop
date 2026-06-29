@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react-native";
 import type { ReactNode } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -143,7 +143,10 @@ interface EmptyStateProps {
   description: ReactNode;
   actionLabel?: ReactNode;
   onAction?: () => void;
+  actionLoading?: boolean;
+  actionDisabled?: boolean;
   testID?: string;
+  className?: string;
 }
 
 export function EmptyState({
@@ -152,12 +155,18 @@ export function EmptyState({
   description,
   actionLabel,
   onAction,
+  actionLoading,
+  actionDisabled,
   testID,
+  className,
 }: EmptyStateProps) {
   const colors = useThemeColors();
   return (
     <View
-      className="items-center gap-4 rounded-lg border border-dashed border-border bg-card px-5 py-10"
+      className={cn(
+        "min-h-44 items-center justify-center gap-4 rounded-lg border border-dashed border-border bg-card px-5 py-10",
+        className,
+      )}
       testID={testID}
     >
       <View className="size-14 items-center justify-center rounded-full bg-muted">
@@ -171,15 +180,20 @@ export function EmptyState({
           {description}
         </Text>
       </View>
-      {actionLabel && onAction ? (
+      {actionLabel != null && onAction != null ? (
         <Pressable
           onPress={onAction}
+          disabled={actionDisabled || actionLoading}
           accessibilityRole="button"
-          className="min-h-11 items-center justify-center rounded-xl bg-primary px-4 active:opacity-70"
+          className="min-h-11 min-w-24 items-center justify-center rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-55"
         >
-          <Text className="text-[13px] font-semibold text-primary-foreground">
-            {actionLabel}
-          </Text>
+          {actionLoading ? (
+            <ActivityIndicator color={colors.primaryForeground} />
+          ) : (
+            <Text className="text-[13px] font-semibold text-primary-foreground">
+              {actionLabel}
+            </Text>
+          )}
         </Pressable>
       ) : null}
     </View>
