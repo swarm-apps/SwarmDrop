@@ -91,12 +91,21 @@ export function TrustPolicyDialog({
     }
   };
 
+  // 解析大小上限：非空但非正数/非法 → 视为非法输入，不静默兜底成 0（0 在 core 表示
+  // “拒收一切”）。仅合法非空才换算字节，空或非法都按 null（不限制）。
+  const trimmedLimit = limitMb.trim();
+  const parsedLimit = Number(trimmedLimit);
+  const limitInvalid =
+    trimmedLimit !== "" && (!Number.isFinite(parsedLimit) || parsedLimit <= 0);
+  const maxTransferBytes =
+    trimmedLimit !== "" && Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.floor(parsedLimit) * 1024 * 1024
+      : null;
+
   const handleSubmit = async () => {
+    if (limitInvalid) return;
     setSaving(true);
     try {
-      const maxTransferBytes = limitMb.trim()
-        ? Math.max(0, Number(limitMb) || 0) * 1024 * 1024
-        : null;
       await onSubmit(device, trustLevel, {
         ...policy,
         maxTransferBytes,
@@ -200,11 +209,17 @@ export function TrustPolicyDialog({
                 inputMode="numeric"
                 value={limitMb}
                 placeholder={t`不限制`}
+                aria-invalid={limitInvalid}
                 disabled={trustLevel === "blocked"}
                 onChange={(event) => setLimitMb(event.target.value)}
               />
               <span className="shrink-0 text-xs text-muted-foreground">MB</span>
             </div>
+            {limitInvalid ? (
+              <span className="text-xs text-destructive">
+                <Trans>请输入大于 0 的数字，留空表示不限制</Trans>
+              </span>
+            ) : null}
           </div>
 
           <div className="grid gap-2">
@@ -237,7 +252,7 @@ export function TrustPolicyDialog({
           >
             <Trans>取消</Trans>
           </Button>
-          <Button onClick={handleSubmit} disabled={saving}>
+          <Button onClick={handleSubmit} disabled={saving || limitInvalid}>
             {saving ? <Trans>保存中...</Trans> : <Trans>保存策略</Trans>}
           </Button>
         </DialogFooter>

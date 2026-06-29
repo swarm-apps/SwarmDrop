@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { getErrorMessage } from "@/lib/errors";
-import { useTransferStore } from "@/stores/transfer-store";
 import { commands } from "@/lib/bindings";
 import {
   projectionStatusLabel,
@@ -110,18 +109,20 @@ export const STATUS_CLASSNAMES: Record<TransferSession["status"], string> = {
 
 /* ─── 传输操作（核心逻辑） ─── */
 
-/** 暂停传输：状态由后端 projection 事件/刷新接管 */
+// 这些操作的状态变化由后端 projection-update 事件回流（applyProjection），
+// 不再各自 loadProjections——避免冗余全量往返与乱序覆盖。
+
+/** 暂停传输 */
 export async function doPauseTransfer(sessionId: string) {
   try {
     await commands.pauseTransfer(sessionId);
-    await useTransferStore.getState().loadProjections();
   } catch (err) {
     toast.error(getErrorMessage(err));
     throw err;
   }
 }
 
-/** 取消传输：状态由后端 projection 事件/刷新接管 */
+/** 取消传输 */
 export async function doCancelTransfer(
   sessionId: string,
   direction: "send" | "receive",
@@ -132,7 +133,6 @@ export async function doCancelTransfer(
     } else {
       await commands.cancelReceive(sessionId);
     }
-    await useTransferStore.getState().loadProjections();
     toast.success(t`已取消传输`);
   } catch (err) {
     toast.error(getErrorMessage(err));
@@ -140,7 +140,7 @@ export async function doCancelTransfer(
   }
 }
 
-/** 恢复传输：调用后端，状态由后端 projection 事件/刷新接管 */
+/** 恢复传输 */
 export async function doResumeTransfer(sessionId: string): Promise<string> {
   const result = await commands.resumeTransfer(sessionId);
   if (result.direction !== "send" && result.direction !== "receive") {
@@ -148,6 +148,5 @@ export async function doResumeTransfer(sessionId: string): Promise<string> {
       `resume_transfer returned invalid direction "${result.direction}" for ${sessionId}`,
     );
   }
-  await useTransferStore.getState().loadProjections();
   return result.sessionId;
 }

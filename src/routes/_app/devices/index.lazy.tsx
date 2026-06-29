@@ -97,27 +97,23 @@ function DevicesPage() {
   const [startSheetOpen, setStartSheetOpen] = useState(false);
   const [stopSheetOpen, setStopSheetOpen] = useState(false);
 
-  // 已配对设备:后端在线数据优先,离线回退到 secret-store
-  const pairedPeerIds = useMemo(
-    () => new Set(storedPairedDevices.map((device) => device.peerId)),
-    [storedPairedDevices],
-  );
-
+  // 已配对设备:后端在线数据优先,离线回退到 secret-store。
+  // stored(来自 storedPairedDevices)存在即等价于"已配对",无需再单独维护 pairedPeerIds 集。
   const normalizedDevices = useMemo<Device[]>(() => {
     const storedMap = new Map(storedPairedDevices.map((d) => [d.peerId, d]));
     return devices.map((device) => {
       const stored = storedMap.get(device.peerId);
-      return stored || pairedPeerIds.has(device.peerId)
+      return stored
         ? {
             ...device,
             isPaired: true,
-            trustLevel: device.trustLevel ?? stored?.trustLevel ?? "collaborator",
-            receivePolicy: device.receivePolicy ?? stored?.receivePolicy ?? null,
-            trustConfirmed: device.trustConfirmed ?? stored?.trustConfirmed ?? false,
+            trustLevel: device.trustLevel ?? stored.trustLevel ?? "collaborator",
+            receivePolicy: device.receivePolicy ?? stored.receivePolicy ?? null,
+            trustConfirmed: device.trustConfirmed ?? stored.trustConfirmed ?? false,
           }
         : device;
     });
-  }, [devices, pairedPeerIds, storedPairedDevices]);
+  }, [devices, storedPairedDevices]);
 
   const pairedDevices = useMemo<Device[]>(() => {
     const deviceMap = new Map(normalizedDevices.map((d) => [d.peerId, d]));
@@ -728,8 +724,18 @@ function PairingInputDialog({
   const isSearching = usePairingStore(
     (state) => state.current.phase === "searching",
   );
+  const phase = usePairingStore((state) => state.current.phase);
   const { showDeviceFound, deviceInfo, isRequesting } = useDeviceFoundState();
   const [code, setCode] = useState("");
+
+  // 配对成功后由 usePairingSuccess 统一 navigate+reset；这里只负责关闭本地内联弹窗并
+  // 清掉已被消费的验证码，否则成功后弹窗会停在已失效的 OTP 输入界面（再次确认会报错）。
+  useEffect(() => {
+    if (phase === "success") {
+      setCode("");
+      onOpenChange(false);
+    }
+  }, [phase, onOpenChange]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {

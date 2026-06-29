@@ -268,14 +268,6 @@
     pointer-events: none;
   }
 
-  .app-ambient-background canvas {
-    mix-blend-mode: normal;
-  }
-
-  .app-ambient-light-overlay canvas {
-    mix-blend-mode: normal;
-  }
-
   .app-ambient-layer {
     position: absolute;
     inset: 0;

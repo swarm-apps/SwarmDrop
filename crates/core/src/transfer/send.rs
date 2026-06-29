@@ -290,6 +290,8 @@ impl TransferManager {
         session.cancel();
         let progress = session.get_file_progress();
         crate::database::ops::save_sender_file_progress(&self.db, *session_id, &progress).await?;
+        // 先汇总 session 级 transferredBytes，再 dispatch，使暂停帧 projection 进度正确。
+        crate::database::ops::sync_session_transferred_bytes(&self.db, *session_id).await?;
         self.coordinator
             .dispatch(
                 *session_id,
@@ -298,7 +300,6 @@ impl TransferManager {
                 ),
             )
             .await?;
-        crate::database::ops::sync_session_transferred_bytes(&self.db, *session_id).await?;
         self.remove_send_session(session_id);
 
         if let Err(e) = self

@@ -3,7 +3,7 @@
  * 收件箱 —— 展示已经成功接收的内容，和活动/恢复过程账本分离。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createLazyFileRoute } from "@tanstack/react-router";
 import {
   Archive,
@@ -43,6 +43,7 @@ import { cn } from "@/lib/utils";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
 import { getErrorMessage } from "@/lib/errors";
 import { pickFolder } from "@/lib/file-picker";
+import { projectionStatusLabel } from "@/lib/transfer-projection";
 
 export const Route = createLazyFileRoute("/_app/inbox/")({
   component: InboxPage,
@@ -62,17 +63,29 @@ function InboxPage() {
     [items, selectedId],
   );
 
-  const loadItems = useCallback(async () => {
+  // 始终持有最新选中 id，供 loadItems 在 setState 时序之外计算「保留还是改选」。
+  const selectedIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  // 返回刷新后真正生效的 selectedId，避免调用方用闭包里的陈旧 id 去 loadDetail。
+  const loadItems = useCallback(async (): Promise<string | null> => {
     setLoading(true);
     try {
       const next = await commands.listInboxItems(showArchived);
+      const current = selectedIdRef.current;
+      const resolved =
+        current && next.some((item) => item.id === current)
+          ? current
+          : (next[0]?.id ?? null);
       setItems(next);
-      setSelectedId((current) => {
-        if (current && next.some((item) => item.id === current)) return current;
-        return next[0]?.id ?? null;
-      });
+      setSelectedId(resolved);
+      selectedIdRef.current = resolved;
+      return resolved;
     } catch (err) {
       toast.error(getErrorMessage(err));
+      return null;
     } finally {
       setLoading(false);
     }
@@ -103,15 +116,14 @@ function InboxPage() {
       try {
         await action();
         if (success) toast.success(success);
-        await loadItems();
-        await loadDetail(selectedId);
       } catch (err) {
         toast.error(getErrorMessage(err));
-        await loadItems();
-        await loadDetail(selectedId);
       }
+      // 用刷新后真正生效的 selectedId 重取详情，避免取到刚被删除/归档隐藏的失效条目。
+      const resolved = await loadItems();
+      await loadDetail(resolved);
     },
-    [loadDetail, loadItems, selectedId],
+    [loadDetail, loadItems],
   );
 
   const handleRepair = () =>
@@ -164,8 +176,7 @@ function InboxPage() {
     );
     setDeleteLocalFiles(false);
     setDeleteOpen(false);
-    setSelectedId(null);
-    setDetail(null);
+    // selectedId/detail 由 runAndRefresh 内 loadItems 自动改选到下一条，不在此手动置空。
   };
 
   return (
@@ -395,7 +406,7 @@ function InboxDetail({
               {" · "}
               {formatFileSize(item.totalSize)}
               {" · "}
-              {new Date(item.receivedAt).toLocaleString("zh-CN")}
+              {new Date(item.receivedAt).toLocaleString()}
             </p>
           </div>
           {item.missing && (
@@ -509,7 +520,7 @@ function InboxDetail({
             {detail.transfer && (
               <MetaRow
                 label={t`活动状态`}
-                value={`${detail.transfer.phase} / ${detail.transfer.terminalReason ?? detail.transfer.suspendedReason ?? "-"}`}
+                value={projectionStatusLabel(detail.transfer)}
               />
             )}
           </dl>

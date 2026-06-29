@@ -143,25 +143,6 @@ export function projectionToSession(
   };
 }
 
-export function applyProgressToProjection(
-  projection: TransferProjection,
-  progress: TransferProgressEvent,
-): TransferProjection {
-  const transferredByFile = new Map(
-    progress.files.map((file) => [file.fileId, file.transferred]),
-  );
-
-  return {
-    ...projection,
-    transferredBytes: progress.transferredBytes,
-    files: projection.files.map((file) => ({
-      ...file,
-      transferredBytes:
-        transferredByFile.get(file.fileId) ?? file.transferredBytes,
-    })),
-  };
-}
-
 function projectionFileToTransferFile(file: TransferProjectionFile) {
   return {
     fileId: file.fileId,

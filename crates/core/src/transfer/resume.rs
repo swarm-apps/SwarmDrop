@@ -39,8 +39,7 @@ impl TransferManager {
 
         let report = self
             .request_resume_probe(target_peer, session_id, session.epoch)
-            .await
-            .map_err(|e| AppError::Transfer(format!("ResumeProbe 发送失败: {e}")))?;
+            .await?;
         if let Err(reason) = validate_resume_report(&session, &files, &report) {
             self.apply_resume_reject(&session, session_id, reason)
                 .await?;
@@ -127,8 +126,7 @@ impl TransferManager {
 
         let report = self
             .request_resume_probe(target_peer, session_id, session.epoch)
-            .await
-            .map_err(|e| AppError::Transfer(format!("ResumeProbe 发送失败: {e}")))?;
+            .await?;
         if let Err(reason) = validate_resume_report(&session, &files, &report) {
             self.apply_resume_reject(&session, session_id, reason)
                 .await?;
@@ -262,11 +260,14 @@ impl TransferManager {
             )
             .await?;
         if transitioned.is_none() {
+            // 走到这里说明本端非 suspended（多为对端探测后我方仍 Active 未感知中断），
+            // reduce 拒绝转换。回 PeerUnavailable（发起方 apply_resume_reject no-op，保持
+            // 可重试）而非 CheckpointInvalid（会被发起方归入 FatalError 永久打死会话）。
             return Ok(TransferResponse::ResumeAck {
                 session_id,
                 new_epoch,
                 accepted: false,
-                reason: Some(ResumeRejectReason::CheckpointInvalid),
+                reason: Some(ResumeRejectReason::PeerUnavailable),
             });
         }
 
@@ -526,7 +527,12 @@ fn validate_resume_report(
                 _ => Err(ResumeRejectReason::FatalError),
             };
         }
-        ResumePhaseReport::Active | ResumePhaseReport::Suspended => {}
+        // 对端仍在传输中（Active/Offered/WaitingAccept），尚未感知中断、无法接受
+        // ResumeCommit（应答侧 reduce 受 is_suspended 守卫）。视为暂时不可用而非致命：
+        // apply_resume_reject 对 PeerUnavailable no-op，保持本端 suspended/recoverable，
+        // 待对端也转入 suspended 后重试即可——避免把可恢复会话误打成永久 FatalError。
+        ResumePhaseReport::Active => return Err(ResumeRejectReason::PeerUnavailable),
+        ResumePhaseReport::Suspended => {}
     }
 
     let local_manifest = build_resume_manifest(local_files);

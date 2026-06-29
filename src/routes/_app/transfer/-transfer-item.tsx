@@ -81,7 +81,7 @@ export const TransferItem = memo(function TransferItem({
   const handleCancel = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (!session || isCancelling) return;
+      if (isCancelling) return;
       setIsCancelling(true);
       try {
         await doCancelTransfer(sessionId, session.direction);
@@ -89,7 +89,7 @@ export const TransferItem = memo(function TransferItem({
         setIsCancelling(false);
       }
     },
-    [isCancelling, sessionId, session?.direction],
+    [isCancelling, sessionId, session.direction],
   );
 
   const handleOpenFolder = useCallback(

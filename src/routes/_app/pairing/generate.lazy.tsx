@@ -176,11 +176,7 @@ function PairingGeneratePage() {
             </Button>
             {isExpired || errorMessage ? (
               <Button
-                onClick={() => {
-                  if (isNodeRunning) {
-                    regenerateCode();
-                  }
-                }}
+                onClick={() => regenerateCode()}
                 disabled={!isNodeRunning}
                 className="bg-blue-600 hover:bg-blue-700"
               >
