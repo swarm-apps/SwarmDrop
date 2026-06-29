@@ -19,6 +19,8 @@ name: SwarmDrop inbox delete confirmation smoke
     visible:
       id: inbox-screen
     timeout: 15000
+# 条件覆盖：仅当收件箱有数据（inbox-list）时才真正执行删除确认流程。
+# 默认 CI 无预置收件箱数据时整段跳过，不计为有效覆盖（需预置收件箱数据夹具方可常驻执行）。
 - runFlow:
     when:
       visible:
@@ -45,11 +47,4 @@ name: SwarmDrop inbox delete confirmation smoke
             id: inbox-detail-screen
           timeout: 15000
       - back
-- runFlow:
-    when:
-      visible:
-        id: inbox-empty-state
-    commands:
-      - assertVisible:
-          id: inbox-empty-state
 - takeScreenshot: inbox-delete-confirmation-smoke
