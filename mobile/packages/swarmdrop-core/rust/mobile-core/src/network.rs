@@ -171,12 +171,14 @@ impl MobileCore {
         let event_bus =
             self.event_bus_arc() as std::sync::Arc<dyn swarmdrop_core::host::EventBus>;
 
+        let file_access = self.file_access_arc();
+
         // 进程死亡时可能留下 status=Transferring 的脏会话，必须先 reconcile
         // 否则历史列表会出现"永远在传"的幽灵条目。Paused 是用户主动暂停的合法
         // 状态，不动；终态自然也不动。复用 core coordinator，转换会发 projection 事件。
-        crate::history::reconcile_stale_sessions(db.clone(), event_bus.clone()).await?;
-
-        let file_access = self.file_access_arc();
+        // 同时回收超期未恢复的 suspended 接收会话并清理其 .part（与桌面端对称）。
+        crate::history::reconcile_stale_sessions(db.clone(), event_bus.clone(), &file_access)
+            .await?;
 
         let started = swarmdrop_core::runtime::start_node(
             keypair,

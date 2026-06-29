@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 use swarmdrop_core::database::ops;
-use swarmdrop_core::host::EventBus;
+use swarmdrop_core::host::{EventBus, FileAccess};
 use swarmdrop_core::transfer::coordinator::TransferCoordinator;
 
 use crate::app::MobileCore;
@@ -163,18 +163,30 @@ impl From<ops::TransferProjection> for MobileTransferProjection {
     }
 }
 
-/// 启动清理：遗留 active 会话经 core 状态机转 recoverable suspended(AppRestarted)，
-/// 每次转换都经 coordinator dispatch 写 DB + 发 projection（与桌面端 cleanup_recoverable_sessions
-/// 对称）。此前手抄一遍 apply_transition 但漏发 projection，导致 RN 收不到这些转换、
-/// 活动列表出现"永远在传"的幽灵条目。
+/// 启动清理（与桌面端 `cleanup_stale_sessions` 对称）：
+/// 1. 遗留 active 会话经 core 状态机转 recoverable suspended(AppRestarted)，每次转换都经
+///    coordinator dispatch 写 DB + 发 projection（漏发 projection 会让活动列表出现"永远在传"的幽灵条目）；
+/// 2. 超过保留期仍未恢复的 recoverable suspended 接收会话经共享 core 原语转 terminal，
+///    并用本端 FileAccess 尽力清理遗留 `.part`，防止活动列表与磁盘无限堆积。
 pub(crate) async fn reconcile_stale_sessions(
     db: Arc<sea_orm::DatabaseConnection>,
     event_bus: Arc<dyn EventBus>,
+    file_access: &Arc<dyn FileAccess>,
 ) -> FfiResult<usize> {
-    TransferCoordinator::new(db, event_bus)
+    let converted = TransferCoordinator::new(db.clone(), event_bus)
         .cleanup_recoverable_sessions()
         .await
-        .map_err(FfiError::from)
+        .map_err(FfiError::from)?;
+
+    let reaped = ops::reap_expired_suspended_receives(
+        &db,
+        swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS,
+    )
+    .await
+    .map_err(FfiError::from)?;
+    swarmdrop_core::transfer::cleanup_expired_part_files(file_access, &reaped).await;
+
+    Ok(converted)
 }
 
 fn parse_session_id(s: &str) -> FfiResult<Uuid> {
