@@ -435,6 +435,19 @@ impl FileAccess for MemoryHost {
         Ok(sink)
     }
 
+    /// 续传/恢复语义：已存在的 sink 保留其字节（对应真实 host 打开既有 `.part`），
+    /// 不存在才新建空 buffer。默认实现会调 `create_sink` 清空，会破坏断点续传保真度。
+    async fn open_or_create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
+        let sink = FileSinkId(metadata.relative_path);
+        self.inner
+            .lock()
+            .expect("memory host poisoned")
+            .sinks
+            .entry(sink.clone())
+            .or_default();
+        Ok(sink)
+    }
+
     async fn write_sink_chunk(
         &self,
         sink: &FileSinkId,

@@ -12,7 +12,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use migration::MigratorTrait;
-use sea_orm::{ConnectOptions, Database, DatabaseConnection};
+use sea_orm::{
+    ActiveModelTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait, IntoActiveModel,
+    Set,
+};
 use uuid::Uuid;
 
 use swarm_p2p_core::NodeConfig;
@@ -31,7 +34,7 @@ use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
-use swarmdrop_core::transfer::HostEnumeratedFile;
+use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
 use swarmdrop_core::transfer::coordinator::{NetworkSignal, TransferCoordinator, TransferState};
 use swarmdrop_core::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
@@ -765,5 +768,288 @@ async fn e2e_receiver_rejects_offer() {
     assert_eq!(
         receiver_projection.terminal_reason,
         Some(TerminalReason::Rejected)
+    );
+}
+
+/// 多文件 + 多块 + 空文件 happy path：data-channel Ack 移除后的数据面回归网。
+///
+/// A 一并 Offer 三个文件——多块且末块不满 / 零字节 / 单块——B accept 落盘。源用位置
+/// 相关字节模式构造，任何块乱序/错位都会让 finalize 的 blake3 校验失败 → 收不到
+/// Completed（wait_completed 超时）。断言三个 sink 落盘与源逐字节一致。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_multichunk_multifile_transfer() {
+    let patterned = |n: usize| -> Vec<u8> { (0..n).map(|i| (i % 251) as u8).collect() };
+    let specs = [
+        ("big.bin", patterned(4 * CHUNK_SIZE + 777)), // 5 块，末块不满
+        ("empty.bin", Vec::<u8>::new()),              // 零字节文件
+        ("small.bin", patterned(123)),                // 单块小文件
+    ];
+
+    let mut host_a = MemoryHost::new(test_paths());
+    let mut enumerated = Vec::new();
+    for (idx, (name, data)) in specs.iter().enumerate() {
+        let sid = FileSourceId(format!("src-{idx}"));
+        host_a = host_a.with_source(
+            sid.clone(),
+            HostFileMetadata {
+                name: (*name).to_string(),
+                relative_path: (*name).to_string(),
+                size: data.len() as u64,
+                modified_at: None,
+                checksum: None,
+                save_dir: None,
+            },
+            data.clone(),
+        );
+        enumerated.push(HostEnumeratedFile {
+            source_id: sid,
+            name: (*name).to_string(),
+            relative_path: (*name).to_string(),
+            size: data.len() as u64,
+        });
+    }
+
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(prepared_id, enumerated)
+        .await
+        .expect("prepare");
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0, 1, 2])
+        .await
+        .expect("send_offer");
+
+    poll_until(
+        || received_offer(&node_b, session_id),
+        Duration::from_secs(10),
+        "B 收到 Offer",
+    )
+    .await;
+    node_b
+        .transfer
+        .accept_and_start_receive(
+            &session_id,
+            CoreSaveLocation::Path {
+                path: "/recv".to_string(),
+            },
+        )
+        .await
+        .expect("accept");
+
+    wait_completed(node_a.db.as_ref(), session_id, "发送方").await;
+    wait_completed(node_b.db.as_ref(), session_id, "接收方").await;
+
+    for (name, data) in specs.iter() {
+        assert_eq!(
+            node_b.host.sink_bytes(&FileSinkId((*name).to_string())).as_ref(),
+            Some(data),
+            "{name} 落盘应逐字节等于源"
+        );
+    }
+}
+
+/// 真实断点续传：接收方已落盘前 2 块 + DB checkpoint 标记前 2 块完成，恢复后只补传
+/// 剩余块并校验落盘 == 完整源。覆盖 fetch_plan 跳过已完成前缀 + open_or_create 续写
+/// 既有 .part（而非从头重传）。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_resume_with_partial_checkpoint_completes() {
+    let total_chunks = 4usize;
+    let done_chunks = 2usize;
+    let done_bytes = done_chunks * CHUNK_SIZE;
+    let data: Vec<u8> = (0..total_chunks * CHUNK_SIZE).map(|i| (i % 251) as u8).collect();
+    let checksum = blake3::hash(&data).to_hex().to_string();
+    let source_id = FileSourceId("partial-src".to_string());
+    let meta = HostFileMetadata {
+        name: "partial.bin".to_string(),
+        relative_path: "partial.bin".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+
+    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    let session_id = Uuid::new_v4();
+    let files = vec![FileInfo {
+        file_id: 0,
+        name: "partial.bin".to_string(),
+        relative_path: "partial.bin".to_string(),
+        size: data.len() as u64,
+        checksum: checksum.clone(),
+    }];
+    let source_paths = vec![source_id.0.clone()];
+
+    seed_suspended_session(
+        node_a.db.as_ref(),
+        session_id,
+        TransferDirection::Send,
+        &node_b.peer_id.to_string(),
+        "node-b",
+        &files,
+        data.len() as u64,
+        None,
+        Some(&source_paths),
+    )
+    .await;
+    seed_suspended_session(
+        node_b.db.as_ref(),
+        session_id,
+        TransferDirection::Receive,
+        &node_a.peer_id.to_string(),
+        "node-a",
+        &files,
+        data.len() as u64,
+        Some(CoreSaveLocation::Path {
+            path: "/recv".to_string(),
+        }),
+        None,
+    )
+    .await;
+
+    // 预写前 done_chunks 块到 B 的 sink（模拟上次已落盘的 .part 前缀）。
+    let b_fa: Arc<dyn FileAccess> = Arc::new(node_b.host.clone());
+    let sink = b_fa
+        .create_sink(HostFileMetadata {
+            name: "partial.bin".to_string(),
+            relative_path: "partial.bin".to_string(),
+            size: data.len() as u64,
+            modified_at: None,
+            checksum: Some(checksum),
+            save_dir: Some(CoreSaveLocation::Path {
+                path: "/recv".to_string(),
+            }),
+        })
+        .await
+        .expect("seed sink");
+    b_fa
+        .write_sink_chunk(&sink, 0, data[..done_bytes].to_vec())
+        .await
+        .expect("seed partial bytes");
+
+    // 设 B 的 DB checkpoint：前 done_chunks 块完成。
+    let mut bitmap = vec![0u8; total_chunks.div_ceil(8)];
+    for i in 0..done_chunks {
+        bitmap[i / 8] |= 1 << (i % 8);
+    }
+    ops::update_file_checkpoint_ranges(
+        node_b.db.as_ref(),
+        session_id,
+        0,
+        bitmap,
+        &[(0u64, done_bytes as u64)],
+        done_bytes as i64,
+    )
+    .await
+    .expect("seed checkpoint");
+
+    // B 发起恢复：只应补传剩余块。
+    let resumed = node_b
+        .transfer
+        .initiate_resume(session_id)
+        .await
+        .expect("resume");
+    assert_eq!(
+        resumed.transferred_bytes, done_bytes as i64,
+        "恢复起点应从已完成的 checkpoint 续起"
+    );
+
+    wait_completed(node_a.db.as_ref(), session_id, "恢复发送方").await;
+    wait_completed(node_b.db.as_ref(), session_id, "恢复接收方").await;
+
+    assert_eq!(
+        node_b
+            .host
+            .sink_bytes(&FileSinkId("partial.bin".to_string())),
+        Some(data),
+        "断点续传后落盘应等于完整源（保留前缀 + 补传剩余）"
+    );
+}
+
+/// 过期回收 e2e：8 天前的 recoverable suspended 接收会话 + 其 sink 有遗留字节，
+/// 经共享 core 原语 `reap_expired_suspended_receives` + 助手 `cleanup_expired_part_files`
+/// 后会话转 terminal/不可恢复、sink 被清。验证两端复用的回收链路在真实 FileAccess 上生效。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_reap_expired_receive_cleans_part() {
+    let db = make_db().await;
+    let host = MemoryHost::new(test_paths());
+    let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
+
+    let session_id = Uuid::new_v4();
+    let files = vec![FileInfo {
+        file_id: 0,
+        name: "old.bin".to_string(),
+        relative_path: "old.bin".to_string(),
+        size: 1024,
+        checksum: "x".to_string(),
+    }];
+    seed_suspended_session(
+        db.as_ref(),
+        session_id,
+        TransferDirection::Receive,
+        "peer",
+        "peer",
+        &files,
+        1024,
+        Some(CoreSaveLocation::Path {
+            path: "/recv".to_string(),
+        }),
+        None,
+    )
+    .await;
+
+    // 把 updated_at 推到 8 天前（超过 7 天保留期）。
+    let mut m = entity::TransferSession::find_by_id(session_id)
+        .one(db.as_ref())
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    m.updated_at = Set(ops::now_ms() - 8 * 24 * 60 * 60 * 1000);
+    m.update(db.as_ref()).await.expect("backdate updated_at");
+
+    // 造一个有字节的遗留 sink（.part）。
+    let sink = file_access
+        .create_sink(HostFileMetadata {
+            name: "old.bin".to_string(),
+            relative_path: "old.bin".to_string(),
+            size: 1024,
+            modified_at: None,
+            checksum: Some("x".to_string()),
+            save_dir: Some(CoreSaveLocation::Path {
+                path: "/recv".to_string(),
+            }),
+        })
+        .await
+        .expect("seed sink");
+    file_access
+        .write_sink_chunk(&sink, 0, vec![1u8; 512])
+        .await
+        .expect("seed bytes");
+    assert!(host.sink_bytes(&sink).is_some(), "回收前 sink 应存在");
+
+    let reaped = ops::reap_expired_suspended_receives(
+        db.as_ref(),
+        swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS,
+    )
+    .await
+    .expect("reap");
+    assert_eq!(reaped.len(), 1, "应回收 1 个过期接收会话");
+    swarmdrop_core::transfer::cleanup_expired_part_files(&file_access, &reaped).await;
+
+    let p = ops::get_transfer_projection(db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(p.phase, TransferPhase::Terminal);
+    assert!(!p.recoverable, "回收后不可恢复");
+    assert!(
+        host.sink_bytes(&FileSinkId("old.bin".to_string())).is_none(),
+        "过期会话的遗留 .part 应被清理"
     );
 }
