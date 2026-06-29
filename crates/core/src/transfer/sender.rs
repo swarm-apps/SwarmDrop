@@ -1,6 +1,6 @@
 //! 发送方会话
 //!
-//! 管理单个发送传输的生命周期：响应 ChunkRequest、处理 Complete/Cancel。
+//! 管理单个发送传输的生命周期：经 data-channel 推送文件块、处理 Cancel。
 //! 文件读取通过 [`FileAccess`] trait 完成，加密使用 [`TransferCrypto`]。
 //! 使用 `Arc<std::sync::Mutex<ProgressTracker>>` 实现并发安全的进度追踪。
 
@@ -13,18 +13,18 @@ use futures::io::AsyncReadExt;
 use swarm_p2p_core::DataChannel;
 use swarm_p2p_core::libp2p::PeerId;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::host::{EventBus, FileAccess};
-use crate::protocol::{FileInfo, FileRange, TransferResponse};
+use crate::protocol::{FileInfo, FileRange};
 use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::data_frame::{
     TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
 };
 use crate::transfer::manager::PreparedFile;
 use crate::transfer::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
-use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
+use crate::transfer::CHUNK_SIZE;
 use crate::{AppError, AppResult};
 
 /// 发送方会话
@@ -41,7 +41,7 @@ pub struct SendSession {
     file_access: Arc<dyn FileAccess>,
     /// 事件总线（推送进度等给 host）
     event_bus: Arc<dyn EventBus>,
-    /// 进度追踪器（Arc<Mutex> 供并发 ChunkRequest 任务共享）
+    /// 进度追踪器（Arc<Mutex> 供 data-channel 推送任务共享）
     progress: Arc<Mutex<ProgressTracker>>,
     /// 取消令牌
     cancel_token: CancellationToken,
@@ -158,89 +158,6 @@ impl SendSession {
             .unwrap_or_default()
     }
 
-    /// 处理 ChunkRequest：读取文件分块 → 加密 → 上报进度 → 返回 Chunk 响应
-    pub async fn handle_chunk_request(
-        &self,
-        file_id: u32,
-        chunk_index: u32,
-    ) -> AppResult<TransferResponse> {
-        if self.cancel_token.is_cancelled() {
-            return Err(AppError::Transfer("传输已取消".into()));
-        }
-
-        let file = self
-            .files
-            .iter()
-            .find(|f| f.file_id == file_id)
-            .ok_or_else(|| AppError::Transfer(format!("文件不存在: file_id={file_id}")))?;
-
-        // 通过 FileAccess 异步读取分块
-        let offset = chunk_index as u64 * CHUNK_SIZE as u64;
-        let remaining = file.size.saturating_sub(offset);
-        if remaining == 0 && file.size != 0 {
-            return Err(AppError::Transfer(format!(
-                "chunk_index 超出范围: offset={offset}, file_size={}",
-                file.size
-            )));
-        }
-        let length = (remaining as usize).min(CHUNK_SIZE);
-        let plaintext = self
-            .file_access
-            .read_source_chunk(&file.source_id, offset, length)
-            .await?;
-
-        let plaintext_len = plaintext.len() as u64;
-
-        // 加密
-        let data = self
-            .crypto
-            .encrypt_chunk(&self.session_id, file_id, chunk_index, &plaintext)
-            .map_err(|e| AppError::Transfer(format!("加密失败: {e}")))?;
-
-        // 更新最后活动时间戳
-        self.last_activity_ms.store(
-            self.created_at.elapsed().as_millis() as u64,
-            Ordering::Relaxed,
-        );
-
-        // 累加进度（在锁内做最少操作，拿到事件再 publish）
-        let progress_event = {
-            let mut p = self
-                .progress
-                .lock()
-                .map_err(|_| AppError::Transfer("ProgressTracker 锁中毒".into()))?;
-            p.add_bytes(plaintext_len);
-            p.update_file_chunk(file_id, plaintext_len);
-            p.progress_event()
-        };
-        if let Some(event) = progress_event {
-            let _ = self
-                .event_bus
-                .publish(crate::host::CoreEvent::TransferProgress { event })
-                .await;
-        }
-
-        // 计算 is_last
-        let total_chunks = calc_total_chunks(file.size);
-        let is_last = chunk_index + 1 >= total_chunks;
-
-        Ok(TransferResponse::Chunk {
-            session_id: self.session_id,
-            file_id,
-            chunk_index,
-            data,
-            is_last,
-        })
-    }
-
-    /// 处理 Complete：记录日志，会话将由 TransferManager 清理
-    pub fn handle_complete(&self) {
-        info!(
-            "Transfer complete acknowledged: session={}",
-            self.session_id
-        );
-    }
-
     /// 处理 Cancel：取消所有进行中的操作
     pub fn handle_cancel(&self) {
         warn!("Transfer cancelled by peer: session={}", self.session_id);
@@ -296,36 +213,29 @@ impl SendSession {
         };
 
         let reader_task = async {
-            loop {
-                if self.cancel_token.is_cancelled() {
+            // 接收方收完并 finalize 后回一帧 Finish 作为完成确认（已无逐块 Ack），读到它即完成。
+            // 空闲等待时响应取消，避免 cancel 后干等到对端 Finish 或超时。
+            let frame = tokio::select! {
+                _ = self.cancel_token.cancelled() => {
                     return Err(AppError::Transfer("传输已取消".into()));
                 }
-
-                match read_frame(&mut reader).await? {
-                    Some(TransferDataFrame::Ack {
-                        session_id,
-                        epoch: ack_epoch,
-                        ..
-                    }) if session_id == self.session_id && ack_epoch == epoch => {}
-                    Some(TransferDataFrame::Finish {
-                        session_id,
-                        epoch: finish_epoch,
-                    }) if session_id == self.session_id && finish_epoch == epoch => return Ok(()),
-                    Some(TransferDataFrame::BlockRequest { .. }) => {
-                        return Err(AppError::Transfer(
-                            "当前 transfer-data 流不支持 BlockRequest 重传".into(),
-                        ));
-                    }
-                    Some(TransferDataFrame::Abort { reason, .. }) => {
-                        return Err(AppError::Transfer(format!("对端中止传输: {reason}")));
-                    }
-                    Some(other) => {
-                        return Err(AppError::Transfer(format!(
-                            "发送方收到意外 data frame: {other:?}"
-                        )));
-                    }
-                    None => return Err(AppError::Transfer("data channel 在完成前关闭".into())),
+                frame = read_frame(&mut reader) => frame?,
+            };
+            match frame {
+                Some(TransferDataFrame::Finish {
+                    session_id,
+                    epoch: finish_epoch,
+                }) if session_id == self.session_id && finish_epoch == epoch => Ok(()),
+                Some(TransferDataFrame::BlockRequest { .. }) => Err(AppError::Transfer(
+                    "当前 transfer-data 流不支持 BlockRequest 重传".into(),
+                )),
+                Some(TransferDataFrame::Abort { reason, .. }) => {
+                    Err(AppError::Transfer(format!("对端中止传输: {reason}")))
                 }
+                Some(other) => Err(AppError::Transfer(format!(
+                    "发送方收到意外 data frame: {other:?}"
+                ))),
+                None => Err(AppError::Transfer("data channel 在完成前关闭".into())),
             }
         };
 

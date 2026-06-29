@@ -17,11 +17,10 @@ use crate::protocol::{
 };
 use crate::transfer::coordinator::{CoordinatorInput, TransferState, UserCommand};
 use crate::transfer::crypto::generate_key;
-use crate::transfer::incoming::TransferCompleteOutcome;
 use crate::transfer::manager::{PendingOffer, TransferManager};
 use crate::transfer::policy::ReceivePolicyDecision;
 use crate::transfer::progress::{
-    RuntimeTransferDirection, TransferDbErrorEvent, TransferFailedEvent,
+    RuntimeTransferDirection, TransferFailedEvent,
 };
 use crate::transfer::receiver::ReceiveSession;
 use crate::{AppError, AppResult};
@@ -331,60 +330,6 @@ impl TransferManager {
 // ============ IncomingTransferRuntime 接收侧 helper（被 manager.rs 中 trait impl 调用） ============
 
 impl TransferManager {
-    pub(super) async fn handle_chunk_request_impl(
-        &self,
-        session_id: Uuid,
-        file_id: u32,
-        chunk_index: u32,
-    ) -> AppResult<TransferResponse> {
-        match self.get_send_session(&session_id) {
-            Some(session) => session.handle_chunk_request(file_id, chunk_index).await,
-            None => Ok(TransferResponse::ChunkError {
-                session_id,
-                file_id,
-                chunk_index,
-                error: "发送会话不存在".into(),
-            }),
-        }
-    }
-
-    pub(super) async fn handle_complete_impl(
-        &self,
-        session_id: Uuid,
-    ) -> AppResult<TransferCompleteOutcome> {
-        let (total_bytes, elapsed_ms) = self
-            .get_send_session(&session_id)
-            .map(|session| {
-                session.handle_complete();
-                (session.total_bytes_sent(), session.elapsed_ms())
-            })
-            .unwrap_or((0, 0));
-        self.remove_send_session(&session_id);
-
-        let mut db_error = None;
-        if let Err(e) = crate::database::ops::mark_session_completed(&self.db, session_id).await {
-            warn!("DB 标记发送完成失败: {}", e);
-            db_error = Some(TransferDbErrorEvent {
-                session_id,
-                message: format!("保存完成状态失败: {e}"),
-            });
-        } else {
-            // mark 已双写 phase=terminal/completed；额外发 projection（reduce 对 terminal 返回 None，故直发）。
-            let _ = self.coordinator.publish_projection(session_id).await;
-        }
-
-        Ok(TransferCompleteOutcome {
-            event: crate::transfer::progress::TransferCompleteEvent {
-                session_id,
-                direction: RuntimeTransferDirection::Send,
-                total_bytes,
-                elapsed_ms,
-                save_location: None,
-            },
-            db_error,
-        })
-    }
-
     pub(super) async fn handle_cancel_impl(
         &self,
         session_id: Uuid,
@@ -423,7 +368,7 @@ impl TransferManager {
     ///
     /// 先取消内存中的 send/receive 会话（cancel 优先于 error，pull 返回 Ok(false) 不 fail），
     /// 再经状态机 `Network{Interrupted}` 写 suspended/Interrupted/recoverable + 发 projection。
-    /// 发送端会话本就 idle（只应答 ChunkRequest），靠此 hook 才能感知断连。
+    /// 发送端会话由 data-channel 推送驱动、自身不轮询，靠此 hook 才能感知断连。
     pub(super) async fn handle_peer_disconnected_impl(&self, peer_id: PeerId) {
         let peer_str = peer_id.to_string();
         let ids = match crate::database::ops::find_active_session_ids_by_peer(&self.db, &peer_str)

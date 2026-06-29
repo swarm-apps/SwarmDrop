@@ -114,14 +114,6 @@ pub enum TransferRequest {
         files: Vec<FileInfo>,
         total_size: u64,
     },
-    ChunkRequest {
-        session_id: Uuid,
-        file_id: u32,
-        chunk_index: u32,
-    },
-    Complete {
-        session_id: Uuid,
-    },
     Cancel {
         session_id: Uuid,
         reason: String,
@@ -132,7 +124,6 @@ pub enum TransferRequest {
     /// 恢复探测：发起方询问对端会话当前事实。
     ResumeProbe {
         session_id: Uuid,
-        local_epoch: i64,
     },
     /// 恢复提交：发起方确认恢复，携带新 epoch、传输密钥和 fetch_plan。
     ResumeCommit {
@@ -167,22 +158,8 @@ pub enum TransferResponse {
         key: Option<[u8; 32]>,
         reason: Option<OfferRejectReason>,
     },
-    Chunk {
-        session_id: Uuid,
-        file_id: u32,
-        chunk_index: u32,
-        #[serde(with = "serde_bytes")]
-        data: Vec<u8>,
-        is_last: bool,
-    },
     Ack {
         session_id: Uuid,
-    },
-    ChunkError {
-        session_id: Uuid,
-        file_id: u32,
-        chunk_index: u32,
-        error: String,
     },
     /// 恢复状态报告（对 ResumeProbe 的应答）。
     ResumeStateReport {

@@ -12,7 +12,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::AppResult;
-use crate::host::CoreSaveLocation;
+use crate::host::{CoreSaveLocation, HostFileMetadata};
 use crate::protocol::FileInfo;
 use crate::transfer::calc_total_chunks;
 use crate::transfer::coordinator::TransferState;
@@ -688,4 +688,176 @@ pub async fn get_session_files(
         .filter(entity::transfer_file::Column::SessionId.eq(session_id))
         .all(db)
         .await?)
+}
+
+/// 被过期回收的接收会话及其文件元数据（供 host 尽力清理遗留 `.part`）。
+pub struct ExpiredReceiveSession {
+    pub session_id: Uuid,
+    /// 重建 sink 所需的文件元数据（已带 `save_dir`）。
+    pub files: Vec<HostFileMetadata>,
+}
+
+/// 启动清理：回收超过保留期仍未恢复的 recoverable suspended **接收**会话。
+///
+/// 命中条件：`phase=Suspended` + `recoverable` + `direction=Receive` 且 `updated_at`
+/// 早于 `now - retention_secs`。命中会话转 `Terminal`/`FatalError`（带过期说明），
+/// 并返回其文件元数据，供调用方用本端 `FileAccess` 尽力清理 `.part`。
+///
+/// 保留期内的会话、发送会话、已 terminal 的会话都不受影响——正常断点续传不被打断。
+pub async fn reap_expired_suspended_receives(
+    db: &DatabaseConnection,
+    retention_secs: u64,
+) -> AppResult<Vec<ExpiredReceiveSession>> {
+    let threshold = now_ms() - (retention_secs as i64) * 1000;
+    let sessions = entity::TransferSession::find()
+        .filter(entity::transfer_session::Column::Phase.eq(TransferPhase::Suspended))
+        .filter(entity::transfer_session::Column::Recoverable.eq(true))
+        .filter(entity::transfer_session::Column::Direction.eq(TransferDirection::Receive))
+        .filter(entity::transfer_session::Column::UpdatedAt.lt(threshold))
+        .all(db)
+        .await?;
+
+    let retention_days = retention_secs / 86_400;
+    let mut reaped = Vec::with_capacity(sessions.len());
+    for session in sessions {
+        let session_id = session.session_id;
+        let save_dir = session.save_path.clone().map(CoreSaveLocation::from);
+        let files = get_session_files(db, session_id)
+            .await?
+            .into_iter()
+            .map(|f| HostFileMetadata {
+                name: f.name,
+                relative_path: f.relative_path,
+                size: f.size as u64,
+                modified_at: None,
+                checksum: Some(f.checksum),
+                save_dir: save_dir.clone(),
+            })
+            .collect();
+
+        let now = now_ms();
+        let mut model = session.into_active_model();
+        model.status = Set(SessionStatus::Failed);
+        set_session_lifecycle(
+            &mut model,
+            TransferPhase::Terminal,
+            None,
+            Some(TerminalReason::FatalError),
+        );
+        model.error_message =
+            Set(Some(format!("会话超过 {retention_days} 天未恢复，已过期回收")));
+        model.finished_at = Set(Some(now));
+        model.updated_at = Set(now);
+        model.update(db).await?;
+
+        reaped.push(ExpiredReceiveSession { session_id, files });
+    }
+    Ok(reaped)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transfer::coordinator::TransferState;
+    use migration::MigratorTrait;
+    use sea_orm::{ConnectOptions, Database};
+
+    async fn test_db() -> DatabaseConnection {
+        // `:memory:` 每条物理连接是独立空库，钉死单连接保证 migration 与查询同库。
+        let mut opt = ConnectOptions::new("sqlite::memory:");
+        opt.max_connections(1).min_connections(1);
+        let db = Database::connect(opt).await.expect("connect sqlite::memory:");
+        migration::Migrator::up(&db, None).await.expect("migrate");
+        db
+    }
+
+    async fn seed(
+        db: &DatabaseConnection,
+        id: Uuid,
+        direction: TransferDirection,
+        updated_at: i64,
+        terminal: bool,
+    ) {
+        let files = vec![FileInfo {
+            file_id: 0,
+            name: "a.bin".into(),
+            relative_path: "a.bin".into(),
+            size: 1024,
+            checksum: "deadbeef".into(),
+        }];
+        create_session(
+            db,
+            CreateSessionInput {
+                session_id: id,
+                direction,
+                peer_id: "peer",
+                peer_name: "name",
+                files: &files,
+                total_size: 1024,
+                save_path: Some(CoreSaveLocation::Path {
+                    path: "/recv".into(),
+                }),
+                source_paths: None,
+                lifecycle: TransferState::active(0),
+            },
+        )
+        .await
+        .expect("create_session");
+        if terminal {
+            mark_session_completed(db, id).await.expect("complete");
+        } else {
+            mark_session_paused(db, id).await.expect("pause");
+        }
+        // 覆盖 updated_at 到指定时间点（create/mark 都会写成 now）。
+        let mut m = find_session(db, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .into_active_model();
+        m.updated_at = Set(updated_at);
+        m.update(db).await.expect("set updated_at");
+    }
+
+    #[tokio::test]
+    async fn reaps_only_expired_recoverable_receives() {
+        let db = test_db().await;
+        let now = now_ms();
+        let day = 24 * 60 * 60 * 1000;
+        let expired_recv = Uuid::from_u128(1);
+        let fresh_recv = Uuid::from_u128(2);
+        let expired_send = Uuid::from_u128(3);
+        let terminal_recv = Uuid::from_u128(4);
+
+        seed(&db, expired_recv, TransferDirection::Receive, now - 8 * day, false).await;
+        seed(&db, fresh_recv, TransferDirection::Receive, now - 3 * day, false).await;
+        seed(&db, expired_send, TransferDirection::Send, now - 8 * day, false).await;
+        seed(&db, terminal_recv, TransferDirection::Receive, now - 30 * day, true).await;
+
+        let retention = 7 * 24 * 60 * 60; // 7 天（秒）
+        let reaped = reap_expired_suspended_receives(&db, retention)
+            .await
+            .expect("reap");
+
+        // 只回收过期的 recoverable suspended receive。
+        assert_eq!(reaped.len(), 1);
+        assert_eq!(reaped[0].session_id, expired_recv);
+        assert_eq!(reaped[0].files.len(), 1);
+        assert_eq!(reaped[0].files[0].relative_path, "a.bin");
+        assert!(reaped[0].files[0].save_dir.is_some());
+
+        // 过期会话转 terminal、不可恢复、带过期 reason。
+        let m = find_session(&db, expired_recv).await.unwrap().unwrap();
+        assert_eq!(m.phase, TransferPhase::Terminal);
+        assert!(!m.recoverable);
+        assert_eq!(m.terminal_reason, Some(TerminalReason::FatalError));
+
+        // 保留期内 / 发送会话 / 已 terminal 均不受影响。
+        let fresh = find_session(&db, fresh_recv).await.unwrap().unwrap();
+        assert_eq!(fresh.phase, TransferPhase::Suspended);
+        assert!(fresh.recoverable);
+        let send = find_session(&db, expired_send).await.unwrap().unwrap();
+        assert_eq!(send.phase, TransferPhase::Suspended);
+        let term = find_session(&db, terminal_recv).await.unwrap().unwrap();
+        assert_eq!(term.terminal_reason, Some(TerminalReason::Completed));
+    }
 }

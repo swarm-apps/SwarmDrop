@@ -8,13 +8,10 @@ pub use swarmdrop_core::database::ops;
 
 use std::sync::Arc;
 
-use entity::{TransferDirection, TransferPhase};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, IntoActiveModel,
-    QueryFilter, Set,
-};
+use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, IntoActiveModel, Set};
 use sea_orm_migration::MigratorTrait;
-use swarmdrop_core::host::EventBus;
+use swarmdrop_core::host::{CoreSaveLocation, EventBus};
+use swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS;
 use swarmdrop_core::transfer::coordinator::TransferCoordinator;
 use tauri::{AppHandle, Manager};
 
@@ -40,47 +37,27 @@ pub async fn init_database(app: &AppHandle) -> AppResult<DatabaseConnection> {
     Ok(db)
 }
 
-/// 7 天过期阈值（毫秒）
-const EXPIRE_DAYS_MS: i64 = 7 * 24 * 60 * 60 * 1000;
-
 /// 启动时清理中断的传输会话
 ///
 /// - phase=active → 交给 core Coordinator 转 recoverable suspended(app_restarted)
-/// - receiver + suspended 超过 7 天 → failed，并清理 `.part`
+/// - recoverable suspended 接收会话超过保留期未恢复 → 由共享 core 原语转 terminal，
+///   再按本端真实路径尽力清理遗留 `.part`
 pub async fn cleanup_stale_sessions(
     db: &DatabaseConnection,
     event_bus: Arc<dyn EventBus>,
 ) -> AppResult<()> {
-    use entity::transfer_session::Column;
-
     let coordinator = TransferCoordinator::new(Arc::new(db.clone()), event_bus);
     let converted = coordinator.cleanup_recoverable_sessions().await?;
     tracing::info!("启动清理: {converted} 个 active session 转为 suspended(app_restarted)");
 
-    // receiver + suspended 超过 7 天 → failed，并清理过期 .part
-    let expired_threshold = ops::now_ms() - EXPIRE_DAYS_MS;
-    let expired_sessions = entity::TransferSession::find()
-        .filter(Column::Direction.eq(TransferDirection::Receive))
-        .filter(Column::Phase.eq(TransferPhase::Suspended))
-        .filter(Column::UpdatedAt.lt(expired_threshold))
-        .all(db)
-        .await?;
-
-    for session in expired_sessions {
-        tracing::info!(
-            "启动清理: receiver session {} → failed（paused 超过 7 天）",
-            session.session_id
-        );
-
-        // 清空文件 bitmap + 删除 .part 临时文件
-        let files = entity::TransferFile::find()
-            .filter(entity::transfer_file::Column::SessionId.eq(session.session_id))
-            .all(db)
-            .await?;
-
-        for file in files {
-            if let Some(entity::SaveLocation::Path { ref path }) = session.save_path {
-                let final_path = std::path::Path::new(path).join(&file.relative_path);
+    // 过期回收（DB 判定 + 转 terminal）走共享 core 原语，两端一致；返回的文件元数据
+    // 由桌面端按真实路径删除遗留 .part（直接 fs，不经 FileAccess 的 create-then-delete）。
+    let reaped = ops::reap_expired_suspended_receives(db, SUSPENDED_RECEIVE_RETENTION_SECS).await?;
+    for session in &reaped {
+        tracing::info!("启动清理: 过期 suspended 接收会话 {} 已回收", session.session_id);
+        for meta in &session.files {
+            if let Some(CoreSaveLocation::Path { path }) = &meta.save_dir {
+                let final_path = std::path::Path::new(path).join(&meta.relative_path);
                 let part_path = crate::host::file_sink::compute_part_path(&final_path);
                 if let Err(e) = tokio::fs::remove_file(&part_path).await
                     && e.kind() != std::io::ErrorKind::NotFound
@@ -88,15 +65,7 @@ pub async fn cleanup_stale_sessions(
                     tracing::warn!("清理 .part 文件失败（已忽略）: {e}");
                 }
             }
-
-            let mut fmodel = file.into_active_model();
-            fmodel.completed_chunks = Set(vec![]);
-            fmodel.transferred_bytes = Set(0);
-            fmodel.status = Set(entity::FileStatus::Failed);
-            fmodel.update(db).await?;
         }
-
-        ops::mark_session_failed(db, session.session_id, "传输已过期（超过 7 天）").await?;
     }
 
     tracing::info!("启动会话清理完成");
@@ -107,6 +76,7 @@ pub async fn cleanup_stale_sessions(
 mod tests {
     use super::*;
 
+    use entity::TransferDirection;
     use sea_orm::{ConnectOptions, EntityTrait};
     use swarmdrop_core::host::{CoreAppPaths, CoreSaveLocation, MemoryHost};
     use swarmdrop_core::transfer::coordinator::TransferState;
@@ -232,7 +202,7 @@ mod tests {
                 .unwrap()
                 .unwrap();
             let mut model = session.into_active_model();
-            model.updated_at = Set(ops::now_ms() - EXPIRE_DAYS_MS - 1);
+            model.updated_at = Set(ops::now_ms() - (SUSPENDED_RECEIVE_RETENTION_SECS as i64) * 1000 - 1);
             model.update(&db).await.unwrap();
 
             cleanup_stale_sessions(&db, Arc::new(MemoryHost::new(test_paths())))

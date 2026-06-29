@@ -29,7 +29,7 @@ use crate::host::{CoreSaveLocation, EventBus, FileAccess, FileSourceId};
 use crate::network::TransferRuntime;
 use crate::protocol::{AppNetClient, FileInfo, TransferResponse};
 use crate::transfer::actor_registry::ActorRegistry;
-use crate::transfer::incoming::{IncomingTransferRuntime, TransferCompleteOutcome};
+use crate::transfer::incoming::IncomingTransferRuntime;
 use crate::transfer::policy::ReceivePolicyDecision;
 use crate::transfer::progress::TransferFailedEvent;
 
@@ -232,20 +232,6 @@ impl TransferRuntime for TransferManager {
 
 #[async_trait::async_trait]
 impl IncomingTransferRuntime for TransferManager {
-    async fn handle_chunk_request(
-        &self,
-        session_id: Uuid,
-        file_id: u32,
-        chunk_index: u32,
-    ) -> AppResult<TransferResponse> {
-        self.handle_chunk_request_impl(session_id, file_id, chunk_index)
-            .await
-    }
-
-    async fn handle_complete(&self, session_id: Uuid) -> AppResult<TransferCompleteOutcome> {
-        self.handle_complete_impl(session_id).await
-    }
-
     async fn handle_cancel(
         &self,
         session_id: Uuid,
@@ -318,12 +304,8 @@ impl IncomingTransferRuntime for TransferManager {
         .await
     }
 
-    async fn handle_resume_probe(
-        &self,
-        session_id: Uuid,
-        local_epoch: i64,
-    ) -> AppResult<TransferResponse> {
-        self.handle_resume_probe_impl(session_id, local_epoch).await
+    async fn handle_resume_probe(&self, session_id: Uuid) -> AppResult<TransferResponse> {
+        self.handle_resume_probe_impl(session_id).await
     }
 
     async fn handle_resume_commit(

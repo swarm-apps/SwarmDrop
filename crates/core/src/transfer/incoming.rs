@@ -16,9 +16,7 @@ use crate::protocol::{
 use crate::transfer::policy::{
     ReceivePolicyAction, ReceivePolicyContext, ReceivePolicyDecision, evaluate_receive_policy,
 };
-use crate::transfer::progress::{
-    TransferCompleteEvent, TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent,
-};
+use crate::transfer::progress::{TransferFailedEvent, TransferPausedEvent};
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -44,26 +42,12 @@ pub struct TransferOfferFileEvent {
     pub is_directory: bool,
 }
 
-pub struct TransferCompleteOutcome {
-    pub event: TransferCompleteEvent,
-    pub db_error: Option<TransferDbErrorEvent>,
-}
-
 /// 宿主侧传输运行时。
 ///
 /// Core 负责协议分发、响应和标准事件发布；具体的文件会话、DB 和宿主清理
 /// 由桌面端或 RN 端在这个 trait 中适配。
 #[async_trait]
 pub trait IncomingTransferRuntime: Send + Sync {
-    async fn handle_chunk_request(
-        &self,
-        session_id: Uuid,
-        file_id: u32,
-        chunk_index: u32,
-    ) -> AppResult<TransferResponse>;
-
-    async fn handle_complete(&self, session_id: Uuid) -> AppResult<TransferCompleteOutcome>;
-
     async fn handle_cancel(
         &self,
         session_id: Uuid,
@@ -106,12 +90,7 @@ pub trait IncomingTransferRuntime: Send + Sync {
     ) -> AppResult<()>;
 
     /// 恢复探测应答（默认报告 NotFound；桌面端在 TransferManager 具体实现）。
-    async fn handle_resume_probe(
-        &self,
-        session_id: Uuid,
-        local_epoch: i64,
-    ) -> AppResult<TransferResponse> {
-        let _ = local_epoch;
+    async fn handle_resume_probe(&self, session_id: Uuid) -> AppResult<TransferResponse> {
         Ok(TransferResponse::ResumeStateReport {
             session_id,
             report: crate::protocol::ResumeReport {
@@ -160,42 +139,6 @@ where
     B: EventBus + ?Sized,
 {
     match request {
-        TransferRequest::ChunkRequest {
-            session_id,
-            file_id,
-            chunk_index,
-        } => {
-            let response = runtime
-                .handle_chunk_request(session_id, file_id, chunk_index)
-                .await
-                .unwrap_or_else(|e| {
-                    warn!("ChunkRequest 处理失败: {}", e);
-                    TransferResponse::ChunkError {
-                        session_id,
-                        file_id,
-                        chunk_index,
-                        error: e.to_string(),
-                    }
-                });
-            send_transfer_response(client, pending_id, response).await?;
-            Ok(IncomingTransferDisposition::Handled)
-        }
-        TransferRequest::Complete { session_id } => {
-            let outcome = runtime.handle_complete(session_id).await?;
-            send_transfer_response(client, pending_id, TransferResponse::Ack { session_id })
-                .await?;
-            if let Some(event) = outcome.db_error {
-                event_bus
-                    .publish(CoreEvent::TransferDbError { event })
-                    .await?;
-            }
-            event_bus
-                .publish(CoreEvent::TransferCompleted {
-                    event: outcome.event,
-                })
-                .await?;
-            Ok(IncomingTransferDisposition::Handled)
-        }
         TransferRequest::Cancel { session_id, reason } => {
             let event = runtime.handle_cancel(session_id, reason).await?;
             send_transfer_response(client, pending_id, TransferResponse::Ack { session_id })
@@ -316,12 +259,9 @@ where
                 .await?;
             Ok(IncomingTransferDisposition::OfferRequiresConfirmation)
         }
-        TransferRequest::ResumeProbe {
-            session_id,
-            local_epoch,
-        } => {
+        TransferRequest::ResumeProbe { session_id } => {
             let response = runtime
-                .handle_resume_probe(session_id, local_epoch)
+                .handle_resume_probe(session_id)
                 .await
                 .unwrap_or_else(|e| {
                     warn!("ResumeProbe 处理失败: {}", e);

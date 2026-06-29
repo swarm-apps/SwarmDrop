@@ -292,13 +292,11 @@ impl ReceiveSession {
                         ciphertext,
                     }) if session_id == self.session_id && frame_epoch == epoch => {
                         self.handle_block_data(
-                            &frame_tx,
                             &progress,
                             &mut sinks,
                             &mut started_files,
                             &mut bitmaps,
                             is_resume,
-                            epoch,
                             range,
                             ciphertext,
                         )
@@ -342,13 +340,11 @@ impl ReceiveSession {
     )]
     async fn handle_block_data(
         &self,
-        frame_tx: &mpsc::Sender<TransferDataFrame>,
         progress: &Arc<Mutex<ProgressTracker>>,
         sinks: &mut HashMap<u32, FileSinkId>,
         started_files: &mut HashSet<u32>,
         bitmaps: &mut HashMap<u32, Vec<u8>>,
         is_resume: bool,
-        epoch: i64,
         range: FileRange,
         ciphertext: Vec<u8>,
     ) -> AppResult<()> {
@@ -455,16 +451,6 @@ impl ReceiveSession {
                 .publish(CoreEvent::TransferProgress { event })
                 .await;
         }
-
-        frame_tx
-            .send(TransferDataFrame::Ack {
-                session_id: self.session_id,
-                epoch,
-                file_id: range.file_id,
-                checkpoint_offset: range.offset + range.length,
-            })
-            .await
-            .map_err(|_| AppError::Transfer("data-channel writer 已关闭".into()))?;
 
         Ok(())
     }

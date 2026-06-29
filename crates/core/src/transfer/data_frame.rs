@@ -22,7 +22,6 @@ pub const MAX_FRAME_LEN: usize = 8 * 1024 * 1024;
 
 const TAG_HELLO: u8 = 1;
 const TAG_BLOCK_DATA: u8 = 2;
-const TAG_ACK: u8 = 3;
 const TAG_BLOCK_REQUEST: u8 = 4;
 const TAG_ABORT: u8 = 5;
 const TAG_FINISH: u8 = 6;
@@ -67,12 +66,6 @@ pub enum TransferDataFrame {
         range: FileRange,
         ciphertext: Vec<u8>,
     },
-    Ack {
-        session_id: Uuid,
-        epoch: i64,
-        file_id: u32,
-        checkpoint_offset: u64,
-    },
     BlockRequest {
         session_id: Uuid,
         epoch: i64,
@@ -94,7 +87,6 @@ impl TransferDataFrame {
         match self {
             Self::Hello { session_id, .. }
             | Self::BlockData { session_id, .. }
-            | Self::Ack { session_id, .. }
             | Self::BlockRequest { session_id, .. }
             | Self::Abort { session_id, .. }
             | Self::Finish { session_id, .. } => *session_id,
@@ -105,7 +97,6 @@ impl TransferDataFrame {
         match self {
             Self::Hello { epoch, .. }
             | Self::BlockData { epoch, .. }
-            | Self::Ack { epoch, .. }
             | Self::BlockRequest { epoch, .. }
             | Self::Abort { epoch, .. }
             | Self::Finish { epoch, .. } => *epoch,
@@ -213,16 +204,6 @@ fn encode_frame(frame: &TransferDataFrame) -> AppResult<Vec<u8>> {
             push_range(&mut buf, range);
             push_bytes(&mut buf, ciphertext)?;
         }
-        TransferDataFrame::Ack {
-            session_id,
-            epoch,
-            file_id,
-            checkpoint_offset,
-        } => {
-            push_context(&mut buf, TAG_ACK, *session_id, *epoch);
-            push_u32(&mut buf, *file_id);
-            push_u64(&mut buf, *checkpoint_offset);
-        }
         TransferDataFrame::BlockRequest {
             session_id,
             epoch,
@@ -280,12 +261,6 @@ fn decode_frame(payload: &[u8]) -> AppResult<TransferDataFrame> {
                 ciphertext,
             }
         }
-        TAG_ACK => TransferDataFrame::Ack {
-            session_id,
-            epoch,
-            file_id: cursor.take_u32()?,
-            checkpoint_offset: cursor.take_u64()?,
-        },
         TAG_BLOCK_REQUEST => TransferDataFrame::BlockRequest {
             session_id,
             epoch,

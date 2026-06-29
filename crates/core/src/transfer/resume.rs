@@ -38,7 +38,7 @@ impl TransferManager {
         );
 
         let report = self
-            .request_resume_probe(target_peer, session_id, session.epoch)
+            .request_resume_probe(target_peer, session_id)
             .await?;
         if let Err(reason) = validate_resume_report(&session, &files, &report) {
             self.apply_resume_reject(&session, session_id, reason)
@@ -125,7 +125,7 @@ impl TransferManager {
         );
 
         let report = self
-            .request_resume_probe(target_peer, session_id, session.epoch)
+            .request_resume_probe(target_peer, session_id)
             .await?;
         if let Err(reason) = validate_resume_report(&session, &files, &report) {
             self.apply_resume_reject(&session, session_id, reason)
@@ -187,9 +187,7 @@ impl TransferManager {
     pub(super) async fn handle_resume_probe_impl(
         &self,
         session_id: Uuid,
-        local_epoch: i64,
     ) -> AppResult<TransferResponse> {
-        let _ = local_epoch;
         let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
             return Ok(TransferResponse::ResumeStateReport {
                 session_id,
@@ -300,16 +298,12 @@ impl TransferManager {
         &self,
         target_peer: PeerId,
         session_id: Uuid,
-        local_epoch: i64,
     ) -> AppResult<ResumeReport> {
         let response = self
             .client
             .send_request(
                 target_peer,
-                AppRequest::Transfer(TransferRequest::ResumeProbe {
-                    session_id,
-                    local_epoch,
-                }),
+                AppRequest::Transfer(TransferRequest::ResumeProbe { session_id }),
             )
             .await
             .map_err(|e| AppError::Transfer(format!("ResumeProbe 发送失败: {e}")))?;
