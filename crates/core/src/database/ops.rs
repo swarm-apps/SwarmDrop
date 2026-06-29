@@ -600,6 +600,10 @@ pub async fn apply_transition(
     if state.is_terminal() {
         model.finished_at = Set(Some(now_ms()));
     }
+    // 仅在状态携带失败原因时落库（FatalError 路径）；非 fatal 转换不清空既有 error_message。
+    if let Some(message) = &state.error_message {
+        model.error_message = Set(Some(message.clone()));
+    }
     model.update(db).await?;
     Ok(())
 }

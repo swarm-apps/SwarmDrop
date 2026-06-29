@@ -261,7 +261,8 @@ impl TransferManager {
                         return;
                     }
                     warn!("发送 Offer 失败: {}", e);
-                    this.mark_offer_fatal(session_id, "发送 Offer 失败").await;
+                    this.mark_offer_fatal(session_id, &format!("发送 Offer 失败: {e}"))
+                        .await;
                     publish_failed(format!("发送 Offer 失败: {e}")).await;
                 }
             }

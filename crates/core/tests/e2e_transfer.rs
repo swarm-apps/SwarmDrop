@@ -35,7 +35,9 @@ use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_man
 use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
 use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
-use swarmdrop_core::transfer::coordinator::{NetworkSignal, TransferCoordinator, TransferState};
+use swarmdrop_core::transfer::coordinator::{
+    ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState,
+};
 use swarmdrop_core::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
@@ -1051,5 +1053,45 @@ async fn e2e_reap_expired_receive_cleans_part() {
     assert!(
         host.sink_bytes(&FileSinkId("old.bin".to_string())).is_none(),
         "过期会话的遗留 .part 应被清理"
+    );
+}
+
+/// 回归：coordinator 驱动的 fatal_error 必须把失败原因持久化到 DB `error_message`。
+///
+/// 此前 `ActorReport::FatalError(msg)` 在 reduce 丢弃 msg、`apply_transition` 不写
+/// `error_message`，导致发送到不可达 peer 等失败在活动详情里没有任何可见原因
+/// （DB error_message=NULL）。修复后失败原因应落库。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_fatal_error_persists_message() {
+    let db = make_db().await;
+    let host = MemoryHost::new(test_paths());
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+
+    let session_id = Uuid::new_v4();
+    seed_active_session(db.as_ref(), session_id, "peer").await;
+
+    coordinator
+        .dispatch(
+            session_id,
+            CoordinatorInput::Actor {
+                epoch: 0,
+                report: ActorReport::FatalError("发送 Offer 失败: 对端不可达".into()),
+            },
+        )
+        .await
+        .expect("dispatch fatal")
+        .expect("应发生转换");
+
+    let model = ops::find_session(db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(model.phase, TransferPhase::Terminal);
+    assert_eq!(model.terminal_reason, Some(TerminalReason::FatalError));
+    assert_eq!(
+        model.error_message.as_deref(),
+        Some("发送 Offer 失败: 对端不可达"),
+        "fatal_error 应把失败原因持久化到 error_message"
     );
 }

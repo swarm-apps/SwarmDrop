@@ -24,6 +24,8 @@ pub struct TransferState {
     pub terminal_reason: Option<TerminalReason>,
     pub epoch: i64,
     pub recoverable: bool,
+    /// terminal/fatal_error 的人类可读原因（仅 FatalError 携带，持久化到 DB 供活动详情展示）。
+    pub error_message: Option<String>,
 }
 
 impl TransferState {
@@ -35,6 +37,7 @@ impl TransferState {
             terminal_reason: None,
             epoch,
             recoverable: true,
+            error_message: None,
         }
     }
 
@@ -46,6 +49,7 @@ impl TransferState {
             terminal_reason: None,
             epoch,
             recoverable: true,
+            error_message: None,
         }
     }
 
@@ -57,6 +61,7 @@ impl TransferState {
             terminal_reason: None,
             epoch,
             recoverable: true,
+            error_message: None,
         }
     }
 
@@ -79,6 +84,7 @@ impl TransferState {
             terminal_reason: None,
             epoch,
             recoverable: true,
+            error_message: None,
         }
     }
 
@@ -89,6 +95,19 @@ impl TransferState {
             terminal_reason: Some(reason),
             epoch,
             recoverable: false,
+            error_message: None,
+        }
+    }
+
+    /// terminal/fatal_error 且携带失败原因（持久化到 DB error_message）。
+    fn terminal_failed(epoch: i64, error: String) -> Self {
+        Self {
+            phase: TransferPhase::Terminal,
+            suspended_reason: None,
+            terminal_reason: Some(TerminalReason::FatalError),
+            epoch,
+            recoverable: false,
+            error_message: Some(error),
         }
     }
 }
@@ -101,6 +120,7 @@ impl From<&entity::transfer_session::Model> for TransferState {
             terminal_reason: m.terminal_reason.clone(),
             epoch: m.epoch,
             recoverable: m.recoverable,
+            error_message: m.error_message.clone(),
         }
     }
 }
@@ -240,11 +260,10 @@ fn reduce_actor(state: &TransferState, report: &ActorReport) -> Option<TransferS
             TerminalReason::Completed,
         )),
         ActorReport::Completed => None,
-        // 不可恢复错误：任何非 terminal → fatal_error。
-        ActorReport::FatalError(_) => Some(TransferState::terminal(
-            state.epoch,
-            TerminalReason::FatalError,
-        )),
+        // 不可恢复错误：任何非 terminal → fatal_error，并持久化失败原因。
+        ActorReport::FatalError(message) => {
+            Some(TransferState::terminal_failed(state.epoch, message.clone()))
+        }
     }
 }
 
