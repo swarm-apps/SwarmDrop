@@ -7,12 +7,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	start: (pairedDevices: PairedDeviceInfo[], customBootstrapNodes: string[] | null, networkOptions: {
+	start: (pairedDevices: PairedDeviceInfo[], networkOptions: {
 	customBootstrapNodes?: string[],
 	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
-} | null) => __TAURI_INVOKE<null>("start", { pairedDevices, customBootstrapNodes, networkOptions }),
+} | null) => __TAURI_INVOKE<null>("start", { pairedDevices, networkOptions }),
 	shutdown: () => __TAURI_INVOKE<null>("shutdown"),
 	listDevices: (filter: "all" | "connected" | "paired" | null) => __TAURI_INVOKE<DeviceListResult>("list_devices", { filter }),
 	getNetworkStatus: () => __TAURI_INVOKE<NetworkStatus>("get_network_status"),
@@ -42,7 +42,7 @@ export const commands = {
 	 *
 	 *  仅写入 `device_config.json`。要让新名字通过 libp2p Identify `agent_version`
 	 *  重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
-	 *  paired_devices + customBootstrapNodes 上下文）。
+	 *  paired_devices + network_options 上下文）。
 	 *
 	 *  `name = None`（或空串/纯空白）清空，回退到系统 hostname。
 	 */

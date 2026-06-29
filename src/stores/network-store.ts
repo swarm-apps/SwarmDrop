@@ -142,7 +142,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
         autoDiscoverLanHelpers,
         provideLanHelper,
       };
-      await commands.start(pairedDevices, customBootstrapNodes, networkOptions);
+      await commands.start(pairedDevices, networkOptions);
 
       // 如果启用了 MCP 自动启动，启动 MCP Server
       if (mcp.autoStart) {

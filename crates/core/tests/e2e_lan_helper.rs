@@ -287,9 +287,14 @@ fn routable_private_ipv4() -> Option<Ipv4Addr> {
 }
 
 async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
+    // 这两个用例已用 `#[ignore]` 标注，默认不计入测试结果，需手动 `--ignored` 运行。
+    // 在 `--ignored` 上下文下若仍无可绑定私有 IPv4，直接 panic 显式失败，而不是静默
+    // return 伪装通过——后者会在缺私网 IP 的环境里给出虚假的“覆盖通过”信号。
     let Some(ip) = routable_private_ipv4() else {
-        eprintln!("跳过 LAN Helper 真实三节点测试：未检测到可绑定的私有 IPv4 地址");
-        return;
+        panic!(
+            "LAN Helper 真实三节点测试需要可绑定的私有 IPv4 地址，但当前环境未检测到；\
+             请在具备局域网网卡的机器上运行（cargo test -- --ignored）"
+        );
     };
 
     let helper_key = Keypair::generate_ed25519();
@@ -351,11 +356,16 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
     );
 }
 
+// 整个测试体依赖可绑定的私有 IPv4（绑定真实网卡的三节点真实 P2P 流程），CI 默认
+// 环境通常拿不到，故 `#[ignore]`：默认不跑、不计入“通过”，需在有局域网的机器上用
+// `cargo test -p swarmdrop-core --test e2e_lan_helper -- --ignored` 手动运行。
+#[ignore = "需要可绑定的私有 IPv4 / 真实局域网，手动用 --ignored 运行"]
 #[tokio::test(flavor = "multi_thread")]
 async fn three_node_auto_discovered_lan_helper_supports_kad_roundtrip() {
     run_three_node_lan_helper_flow(DiscoveryMode::Auto).await;
 }
 
+#[ignore = "需要可绑定的私有 IPv4 / 真实局域网，手动用 --ignored 运行"]
 #[tokio::test(flavor = "multi_thread")]
 async fn lan_only_uses_mdns_lan_helper_without_builtin_public_candidates() {
     run_three_node_lan_helper_flow(DiscoveryMode::LanOnly).await;

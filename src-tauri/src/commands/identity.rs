@@ -54,7 +54,7 @@ pub async fn get_device_name(app: AppHandle) -> AppResult<Option<String>> {
 ///
 /// 仅写入 `device_config.json`。要让新名字通过 libp2p Identify `agent_version`
 /// 重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
-/// paired_devices + customBootstrapNodes 上下文）。
+/// paired_devices + network_options 上下文）。
 ///
 /// `name = None`（或空串/纯空白）清空，回退到系统 hostname。
 #[tauri::command]

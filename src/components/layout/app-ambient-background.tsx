@@ -2,63 +2,50 @@ import { useEffect, useRef, useState } from "react";
 import { Mesh, Program, Renderer, Triangle } from "ogl";
 import { useTheme } from "next-themes";
 
+type SideRaysOrigin = "top-right" | "top-left" | "bottom-right" | "bottom-left";
+
+// 主题相关的可覆盖项（颜色 + animate）。其余着色器参数为单一真相，统一来自下方
+// 的 *_CONFIG 常量，不再在组件签名上重复一套默认值。
 interface SoftAuroraProps {
   animate?: boolean;
-  speed?: number;
-  scale?: number;
-  brightness?: number;
   color1?: string;
   color2?: string;
-  noiseFrequency?: number;
-  noiseAmplitude?: number;
-  bandHeight?: number;
-  bandSpread?: number;
-  octaveDecay?: number;
-  layerOffset?: number;
-  colorSpeed?: number;
 }
-
-type SideRaysOrigin = "top-right" | "top-left" | "bottom-right" | "bottom-left";
 
 interface SideRaysProps {
   animate?: boolean;
-  speed?: number;
   rayColor1?: string;
   rayColor2?: string;
-  intensity?: number;
-  spread?: number;
-  origin?: SideRaysOrigin;
-  tilt?: number;
-  saturation?: number;
-  blend?: number;
-  falloff?: number;
-  opacity?: number;
 }
 
 type Vec2 = [number, number];
 type Vec3 = [number, number, number];
 
+// 单一配置来源：SoftAurora 的全部着色器参数（含此前由组件签名默认值提供的
+// noiseFrequency），组件内部直接读取，颜色可由 props 覆盖。
 const AURORA_CONFIG = {
+  speed: 0.6,
+  scale: 1.5,
   brightness: 1,
   color1: "#f7f7f7",
   color2: "#22d3ee",
-  speed: 0.6,
-  scale: 1.5,
+  noiseFrequency: 2.35,
+  noiseAmplitude: 1,
   bandHeight: 0.5,
   bandSpread: 1,
-  noiseAmplitude: 1,
   octaveDecay: 0.1,
   layerOffset: 0,
   colorSpeed: 1,
 } as const;
 
+// 单一配置来源：SideRays 的全部着色器参数，颜色可由 props 覆盖。
 const SIDE_RAYS_CONFIG = {
   speed: 2.5,
   rayColor1: "#eab308",
   rayColor2: "#96c8ff",
   intensity: 2,
   spread: 2,
-  origin: "top-right",
+  origin: "top-right" as SideRaysOrigin,
   tilt: 0,
   saturation: 1.5,
   blend: 0.75,
@@ -308,20 +295,84 @@ void main() {
 }
 `;
 
+/**
+ * 仅在容器进入视口（IntersectionObserver）且标签页可见（visibilitychange）时运行
+ * RAF 渲染循环，不可见时暂停以省电；恢复时续跑。两个触发都需要：单靠
+ * visibilitychange 漏掉“标签页仍可见但组件被其他面板覆盖/移出视口”的场景。
+ *
+ * `renderFrame` 接收已扣除暂停时长的动画时间（毫秒），因此恢复时动画相位连续、不跳变。
+ * 返回清理函数：停止循环并移除监听。
+ */
+function runVisibilityGatedLoop(
+  container: HTMLElement,
+  renderFrame: (animationTimeMs: number) => void,
+): () => void {
+  let frameId = 0;
+  let running = false;
+  // 累计暂停时长，从 RAF 时间戳中扣除，避免恢复时 uTime 跳变造成闪烁。
+  let pausedAccumMs = 0;
+  let pauseStartMs = 0;
+  let inViewport = true;
+  let tabVisible = !document.hidden;
+
+  const loop = (timestamp: number) => {
+    renderFrame(timestamp - pausedAccumMs);
+    frameId = requestAnimationFrame(loop);
+  };
+
+  const start = () => {
+    if (running) return;
+    running = true;
+    if (pauseStartMs !== 0) {
+      pausedAccumMs += performance.now() - pauseStartMs;
+      pauseStartMs = 0;
+    }
+    frameId = requestAnimationFrame(loop);
+  };
+
+  const stop = () => {
+    if (!running) return;
+    running = false;
+    pauseStartMs = performance.now();
+    if (frameId) {
+      cancelAnimationFrame(frameId);
+      frameId = 0;
+    }
+  };
+
+  const evaluate = () => {
+    if (inViewport && tabVisible) {
+      start();
+    } else {
+      stop();
+    }
+  };
+
+  const intersectionObserver = new IntersectionObserver((entries) => {
+    inViewport = entries.some((entry) => entry.isIntersecting);
+    evaluate();
+  });
+  intersectionObserver.observe(container);
+
+  const handleVisibility = () => {
+    tabVisible = !document.hidden;
+    evaluate();
+  };
+  document.addEventListener("visibilitychange", handleVisibility);
+
+  evaluate();
+
+  return () => {
+    stop();
+    intersectionObserver.disconnect();
+    document.removeEventListener("visibilitychange", handleVisibility);
+  };
+}
+
 function SoftAurora({
   animate = true,
-  speed = 0.42,
-  scale = 1.65,
-  brightness = 0.72,
-  color1 = "#3b82f6",
-  color2 = "#22d3ee",
-  noiseFrequency = 2.35,
-  noiseAmplitude = 0.82,
-  bandHeight = 0.56,
-  bandSpread = 0.92,
-  octaveDecay = 0.18,
-  layerOffset = 0.34,
-  colorSpeed = 0.62,
+  color1 = AURORA_CONFIG.color1,
+  color2 = AURORA_CONFIG.color2,
 }: SoftAuroraProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -348,23 +399,22 @@ function SoftAurora({
       uniforms: {
         uTime: { value: 0 },
         uResolution: { value: [gl.canvas.width, gl.canvas.height, 1] },
-        uSpeed: { value: speed },
-        uScale: { value: scale },
-        uBrightness: { value: brightness },
+        uSpeed: { value: AURORA_CONFIG.speed },
+        uScale: { value: AURORA_CONFIG.scale },
+        uBrightness: { value: AURORA_CONFIG.brightness },
         uColor1: { value: hexToRgb(color1) },
         uColor2: { value: hexToRgb(color2) },
-        uNoiseFreq: { value: noiseFrequency },
-        uNoiseAmp: { value: noiseAmplitude },
-        uBandHeight: { value: bandHeight },
-        uBandSpread: { value: bandSpread },
-        uOctaveDecay: { value: octaveDecay },
-        uLayerOffset: { value: layerOffset },
-        uColorSpeed: { value: colorSpeed },
+        uNoiseFreq: { value: AURORA_CONFIG.noiseFrequency },
+        uNoiseAmp: { value: AURORA_CONFIG.noiseAmplitude },
+        uBandHeight: { value: AURORA_CONFIG.bandHeight },
+        uBandSpread: { value: AURORA_CONFIG.bandSpread },
+        uOctaveDecay: { value: AURORA_CONFIG.octaveDecay },
+        uLayerOffset: { value: AURORA_CONFIG.layerOffset },
+        uColorSpeed: { value: AURORA_CONFIG.colorSpeed },
       },
     });
 
     const mesh = new Mesh(gl, { geometry, program });
-    let animationFrameId = 0;
 
     const resize = () => {
       const width = Math.max(container.offsetWidth, 1);
@@ -387,57 +437,30 @@ function SoftAurora({
       renderer.render({ scene: mesh });
     };
 
-    const update = (time: number) => {
-      render(time);
-      animationFrameId = requestAnimationFrame(update);
-    };
-
+    let stopLoop: (() => void) | null = null;
     if (animate) {
-      animationFrameId = requestAnimationFrame(update);
+      stopLoop = runVisibilityGatedLoop(container, render);
     } else {
       render(0);
     }
 
     return () => {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      stopLoop?.();
       resizeObserver.disconnect();
       if (container.contains(gl.canvas)) {
         container.removeChild(gl.canvas);
       }
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
-  }, [
-    animate,
-    speed,
-    scale,
-    brightness,
-    color1,
-    color2,
-    noiseFrequency,
-    noiseAmplitude,
-    bandHeight,
-    bandSpread,
-    octaveDecay,
-    layerOffset,
-    colorSpeed,
-  ]);
+  }, [animate, color1, color2]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
 
 function SideRays({
   animate = true,
-  speed = 2.5,
-  rayColor1 = "#eab308",
-  rayColor2 = "#96c8ff",
-  intensity = 2,
-  spread = 2,
-  origin = "top-right",
-  tilt = 0,
-  saturation = 1.5,
-  blend = 0.75,
-  falloff = 2,
-  opacity = 1,
+  rayColor1 = SIDE_RAYS_CONFIG.rayColor1,
+  rayColor2 = SIDE_RAYS_CONFIG.rayColor2,
 }: SideRaysProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -457,22 +480,22 @@ function SideRays({
     gl.canvas.className = "block h-full w-full";
     gl.canvas.style.backgroundColor = "transparent";
 
-    const [flipX, flipY] = originToFlip(origin);
+    const [flipX, flipY] = originToFlip(SIDE_RAYS_CONFIG.origin);
     const uniforms: SideRaysUniforms = {
       iTime: { value: 0 },
       iResolution: { value: [1, 1] },
-      iSpeed: { value: speed },
+      iSpeed: { value: SIDE_RAYS_CONFIG.speed },
       iRayColor1: { value: hexToRgb(rayColor1) },
       iRayColor2: { value: hexToRgb(rayColor2) },
-      iIntensity: { value: intensity },
-      iSpread: { value: spread },
+      iIntensity: { value: SIDE_RAYS_CONFIG.intensity },
+      iSpread: { value: SIDE_RAYS_CONFIG.spread },
       iFlipX: { value: flipX },
       iFlipY: { value: flipY },
-      iTilt: { value: tilt },
-      iSaturation: { value: saturation },
-      iBlend: { value: blend },
-      iFalloff: { value: falloff },
-      iOpacity: { value: opacity },
+      iTilt: { value: SIDE_RAYS_CONFIG.tilt },
+      iSaturation: { value: SIDE_RAYS_CONFIG.saturation },
+      iBlend: { value: SIDE_RAYS_CONFIG.blend },
+      iFalloff: { value: SIDE_RAYS_CONFIG.falloff },
+      iOpacity: { value: SIDE_RAYS_CONFIG.opacity },
     };
 
     const geometry = new Triangle(gl);
@@ -482,7 +505,6 @@ function SideRays({
       uniforms,
     });
     const mesh = new Mesh(gl, { geometry, program });
-    let animationFrameId = 0;
 
     const resize = () => {
       const width = Math.max(container.clientWidth, 1);
@@ -505,39 +527,22 @@ function SideRays({
       renderer.render({ scene: mesh });
     };
 
-    const update = (time: number) => {
-      render(time);
-      animationFrameId = requestAnimationFrame(update);
-    };
-
+    let stopLoop: (() => void) | null = null;
     if (animate) {
-      animationFrameId = requestAnimationFrame(update);
+      stopLoop = runVisibilityGatedLoop(container, render);
     } else {
       render(0);
     }
 
     return () => {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      stopLoop?.();
       resizeObserver.disconnect();
       if (container.contains(gl.canvas)) {
         container.removeChild(gl.canvas);
       }
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
-  }, [
-    animate,
-    speed,
-    rayColor1,
-    rayColor2,
-    intensity,
-    spread,
-    origin,
-    tilt,
-    saturation,
-    blend,
-    falloff,
-    opacity,
-  ]);
+  }, [animate, rayColor1, rayColor2]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
@@ -562,7 +567,7 @@ export function AppAmbientBackground() {
   return (
     <div className="app-ambient-background" aria-hidden="true">
       <div className="app-ambient-layer app-ambient-aurora">
-        <SoftAurora animate={!reducedMotion} {...AURORA_CONFIG} />
+        <SoftAurora animate={!reducedMotion} />
       </div>
     </div>
   );
@@ -577,11 +582,7 @@ export function AppAmbientLightOverlay() {
 
   return (
     <div className="app-ambient-light-overlay" aria-hidden="true">
-      <SideRays
-        key="dark-side-rays-overlay"
-        animate={!reducedMotion}
-        {...SIDE_RAYS_CONFIG}
-      />
+      <SideRays key="dark-side-rays-overlay" animate={!reducedMotion} />
     </div>
   );
 }

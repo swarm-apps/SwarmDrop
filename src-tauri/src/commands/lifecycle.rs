@@ -25,7 +25,6 @@ pub async fn start(
     app: AppHandle,
     keypair: State<'_, Keypair>,
     paired_devices: Vec<PairedDeviceInfo>,
-    custom_bootstrap_nodes: Option<Vec<String>>,
     network_options: Option<NetworkRuntimeConfig>,
 ) -> crate::AppResult<()> {
     let paired_devices = load_host_paired_devices(&app, paired_devices).await?;
@@ -53,11 +52,9 @@ pub async fn start(
     let file_access_for_factory = file_access.clone();
 
     let device_name = crate::host::device_config::load_device_name(&app).await;
-    let mut network_config = network_options.unwrap_or_default();
-    let legacy_custom_bootstrap_nodes = custom_bootstrap_nodes.unwrap_or_default();
-    if network_config.custom_bootstrap_nodes.is_empty() {
-        network_config.custom_bootstrap_nodes = legacy_custom_bootstrap_nodes;
-    }
+    // custom_bootstrap_nodes 现统一由 network_options 携带（前端 NetworkRuntimeConfig），
+    // 不再有独立的 legacy 位置参与合并。
+    let network_config = network_options.unwrap_or_default();
 
     let started = swarmdrop_core::runtime::start_node(
         (*keypair).clone(),

@@ -94,7 +94,6 @@ describe("network-store", () => {
     expect(ok).toBe(true);
     expect(mocks.start).toHaveBeenCalledWith(
       useSecretStore.getState().pairedDevices,
-      ["/ip4/192.168.1.10/tcp/4001/p2p/12D3KooWBootstrap"],
       {
         customBootstrapNodes: [
           "/ip4/192.168.1.10/tcp/4001/p2p/12D3KooWBootstrap",
