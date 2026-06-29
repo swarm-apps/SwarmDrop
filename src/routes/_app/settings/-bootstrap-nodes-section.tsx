@@ -7,13 +7,14 @@ import { useState, useCallback } from "react";
 import { Trans } from "@lingui/react/macro";
 import { useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
-import { Plus, Trash2, RotateCw } from "lucide-react";
+import { Plus, Trash2, RotateCw, RadioTower, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { toast } from "sonner";
+import { SettingsCard, SettingsSection } from "./-settings-primitives";
 
 /** 默认引导节点（与后端 BOOTSTRAP_NODES 对应，只读展示） */
 const DEFAULT_BOOTSTRAP_NODES = [
@@ -38,6 +39,12 @@ function truncateAddr(addr: string): string {
     ? `${peerId.slice(0, 6)}...${peerId.slice(-6)}`
     : peerId;
   return `${prefix}/p2p/${shortPeerId}`;
+}
+
+function getTransportLabel(addr: string): string {
+  if (addr.includes("/quic")) return "QUIC";
+  if (addr.includes("/tcp/")) return "TCP";
+  return "P2P";
 }
 
 export function BootstrapNodesSection() {
@@ -109,56 +116,99 @@ export function BootstrapNodesSection() {
   }, [t]);
 
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold text-foreground">
-        <Trans>高级引导节点</Trans>
-      </h2>
-      <div className="glass-card rounded-lg">
+    <SettingsSection title={<Trans>高级引导节点</Trans>} icon={RadioTower}>
+      <SettingsCard>
         {/* 默认节点 */}
-        {DEFAULT_BOOTSTRAP_NODES.map((addr) => (
-          <div
-            key={addr}
-            className="flex items-center justify-between border-b border-border p-4 last:border-b-0"
-          >
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <span className="truncate font-mono text-xs text-muted-foreground">
-                {truncateAddr(addr)}
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <span className="text-sm font-semibold text-foreground">
+                <Trans>默认入口</Trans>
               </span>
-              <Badge variant="secondary" className="shrink-0 text-[10px]">
-                <Trans>默认</Trans>
-              </Badge>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                <Trans>内置节点用于首次发现网络，通常无需调整。</Trans>
+              </span>
             </div>
+            <Badge variant="secondary" className="shrink-0 rounded-full text-[10px]">
+              <Trans>只读</Trans>
+            </Badge>
           </div>
-        ))}
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {DEFAULT_BOOTSTRAP_NODES.map((addr) => (
+              <div
+                key={addr}
+                className="min-w-0 rounded-[16px] border border-border/70 bg-background/55 p-3 dark:bg-white/[0.035]"
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                    <ShieldCheck className="size-3.5 text-blue-600 dark:text-blue-300" />
+                    <Trans>默认</Trans>
+                  </span>
+                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-200">
+                    {getTransportLabel(addr)}
+                  </span>
+                </div>
+                <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                  {truncateAddr(addr)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* 自定义节点 */}
-        {customBootstrapNodes.map((addr) => (
-          <div
-            key={addr}
-            className="flex items-center justify-between border-b border-border p-4 last:border-b-0"
-          >
-            <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
-              {truncateAddr(addr)}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
-              onClick={() => handleRemove(addr)}
-            >
-              <Trash2 className="size-4" />
-            </Button>
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <span className="text-sm font-semibold text-foreground">
+                <Trans>自定义节点</Trans>
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                <Trans>仅在需要接入私有或备用网络时添加。</Trans>
+              </span>
+            </div>
+            <Badge variant="outline" className="shrink-0 rounded-full text-[10px]">
+              {customBootstrapNodes.length}
+            </Badge>
           </div>
-        ))}
+
+          {customBootstrapNodes.length > 0 ? (
+            <div className="mt-3 grid gap-2">
+              {customBootstrapNodes.map((addr) => (
+                <div
+                  key={addr}
+                  className="flex min-w-0 items-center justify-between gap-3 rounded-[16px] border border-border/70 bg-background/55 p-3 dark:bg-white/[0.035]"
+                >
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
+                    {truncateAddr(addr)}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 shrink-0 rounded-full text-muted-foreground hover:text-destructive"
+                    onClick={() => handleRemove(addr)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-[16px] border border-dashed border-border/80 bg-background/35 px-3 py-4 text-xs leading-5 text-muted-foreground dark:bg-white/[0.025]">
+              <Trans>当前使用内置引导节点。</Trans>
+            </div>
+          )}
+        </div>
 
         {/* 添加输入框 */}
         {showInput ? (
-          <div className="flex items-center gap-2 border-t border-border p-4">
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
             <Input
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={t(msg`输入 Multiaddr 地址，如 /ip4/.../p2p/...`)}
-              className="flex-1 font-mono text-xs"
+              className="h-10 flex-1 rounded-[14px] font-mono text-xs"
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleAdd();
                 if (e.key === "Escape") {
@@ -168,31 +218,39 @@ export function BootstrapNodesSection() {
               }}
               autoFocus
             />
-            <Button size="sm" onClick={handleAdd}>
-              <Trans>添加</Trans>
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setShowInput(false);
-                setInputValue("");
-              }}
-            >
-              <Trans>取消</Trans>
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button size="sm" className="rounded-full" onClick={handleAdd}>
+                <Trans>添加</Trans>
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => {
+                  setShowInput(false);
+                  setInputValue("");
+                }}
+              >
+                <Trans>取消</Trans>
+              </Button>
+            </div>
           </div>
         ) : (
           <button
             type="button"
             onClick={() => setShowInput(true)}
-            className="flex w-full items-center gap-2 border-t border-border p-4 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+            className="flex w-full items-center justify-between gap-3 p-4 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
           >
-            <Plus className="size-4" />
-            <Trans>添加自定义引导节点</Trans>
+            <span className="flex min-w-0 items-center gap-2">
+              <Plus className="size-4" />
+              <Trans>添加自定义引导节点</Trans>
+            </span>
+            <span className="rounded-full bg-foreground px-2.5 py-1 text-[11px] font-medium text-background">
+              Multiaddr
+            </span>
           </button>
         )}
-      </div>
+      </SettingsCard>
 
       {/* 需要重启提示 */}
       {needsRestart && nodeStatus === "running" && (
@@ -212,6 +270,6 @@ export function BootstrapNodesSection() {
           </Button>
         </div>
       )}
-    </section>
+    </SettingsSection>
   );
 }

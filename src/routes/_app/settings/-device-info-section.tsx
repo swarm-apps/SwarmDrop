@@ -3,7 +3,16 @@ import { Trans } from "@lingui/react/macro";
 import { useLingui } from "@lingui/react/macro";
 import { msg, type MacroMessageDescriptor } from "@lingui/core/macro";
 import { toast } from "sonner";
-import { Copy, Check, Pencil, Cpu, Activity, Zap, ShieldCheck } from "lucide-react";
+import {
+  Activity,
+  Check,
+  Copy,
+  Cpu,
+  MonitorSmartphone,
+  Pencil,
+  ShieldCheck,
+  Zap,
+} from "lucide-react";
 import {
   platform,
   arch,
@@ -143,9 +152,12 @@ export function DeviceInfoSection() {
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold text-foreground">
-        <Trans>设备信息</Trans>
-      </h2>
+      <div className="flex items-center gap-2">
+        <MonitorSmartphone className="size-4 text-blue-600 dark:text-blue-300" />
+        <h2 className="text-sm font-semibold text-foreground">
+          <Trans>设备信息</Trans>
+        </h2>
+      </div>
       <div className="glass-card overflow-hidden rounded-xl">
         {/* 上半部分：身份识别区 */}
         <div className="flex items-center gap-4 p-4 sm:gap-5 sm:p-6">

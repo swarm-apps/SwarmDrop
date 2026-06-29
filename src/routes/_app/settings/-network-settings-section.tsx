@@ -7,7 +7,7 @@ import { useCallback, useState } from "react";
 import { Trans } from "@lingui/react/macro";
 import { useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
-import { RotateCw } from "lucide-react";
+import { Network, RotateCw } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,11 @@ import {
 import { usePreferencesStore, type DiscoveryMode } from "@/stores/preferences-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { toast } from "sonner";
+import {
+  SettingsCard,
+  SettingsRow,
+  SettingsSection,
+} from "./-settings-primitives";
 
 export function NetworkSettingsSection() {
   const { t } = useLingui();
@@ -61,92 +66,72 @@ export function NetworkSettingsSection() {
   }, [t]);
 
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold text-foreground">
-        <Trans>网络</Trans>
-      </h2>
-      <div className="glass-card rounded-lg">
-        {/* 自动启动节点 */}
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-foreground">
-              <Trans>自动启动节点</Trans>
-            </span>
-            <span className="text-xs text-muted-foreground">
-              <Trans>解锁后自动启动 P2P 网络节点</Trans>
-            </span>
-          </div>
-          <Switch
-            aria-label={t(msg`自动启动节点`)}
-            checked={autoStart}
-            onCheckedChange={setAutoStart}
-          />
-        </div>
+    <SettingsSection title={<Trans>网络</Trans>} icon={Network}>
+      <SettingsCard>
+        <SettingsRow
+          title={<Trans>自动启动节点</Trans>}
+          description={<Trans>解锁后自动启动 P2P 网络节点</Trans>}
+          action={
+            <Switch
+              aria-label={t(msg`自动启动节点`)}
+              checked={autoStart}
+              onCheckedChange={setAutoStart}
+            />
+          }
+        />
 
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-foreground">
-              <Trans>发现模式</Trans>
-            </span>
-            <span className="text-xs text-muted-foreground">
-              <Trans>控制是否连接公网引导节点</Trans>
-            </span>
-          </div>
-          <Select
-            value={discoveryMode}
-            onValueChange={(value) => {
-              setDiscoveryMode(value as DiscoveryMode);
-              markRestartNeeded();
-            }}
-          >
-            <SelectTrigger aria-label={t(msg`发现模式`)} className="w-34 sm:w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">{t(msg`自动`)}</SelectItem>
-              <SelectItem value="lanOnly">{t(msg`仅局域网`)}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <SettingsRow
+          title={<Trans>发现模式</Trans>}
+          description={<Trans>控制是否连接公网引导节点</Trans>}
+          action={
+            <Select
+              value={discoveryMode}
+              onValueChange={(value) => {
+                setDiscoveryMode(value as DiscoveryMode);
+                markRestartNeeded();
+              }}
+            >
+              <SelectTrigger aria-label={t(msg`发现模式`)} className="w-34 sm:w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t(msg`自动`)}</SelectItem>
+                <SelectItem value="lanOnly">{t(msg`仅局域网`)}</SelectItem>
+              </SelectContent>
+            </Select>
+          }
+        />
 
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-foreground">
-              <Trans>自动发现局域网协助节点</Trans>
-            </span>
-            <span className="text-xs text-muted-foreground">
-              <Trans>使用同网段已开启协助能力的桌面端</Trans>
-            </span>
-          </div>
-          <Switch
-            aria-label={t(msg`自动发现局域网协助节点`)}
-            checked={autoDiscoverLanHelpers}
-            onCheckedChange={(enabled) => {
-              setAutoDiscoverLanHelpers(enabled);
-              markRestartNeeded();
-            }}
-          />
-        </div>
+        <SettingsRow
+          title={<Trans>自动发现局域网协助节点</Trans>}
+          description={<Trans>使用同网段已开启协助能力的桌面端</Trans>}
+          action={
+            <Switch
+              aria-label={t(msg`自动发现局域网协助节点`)}
+              checked={autoDiscoverLanHelpers}
+              onCheckedChange={(enabled) => {
+                setAutoDiscoverLanHelpers(enabled);
+                markRestartNeeded();
+              }}
+            />
+          }
+        />
 
-        <div className="flex items-center justify-between p-4">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-foreground">
-              <Trans>本设备作为局域网协助节点</Trans>
-            </span>
-            <span className="text-xs text-muted-foreground">
-              <Trans>为同网段设备提供受限发现与中继能力</Trans>
-            </span>
-          </div>
-          <Switch
-            aria-label={t(msg`本设备作为局域网协助节点`)}
-            checked={provideLanHelper}
-            onCheckedChange={(enabled) => {
-              setProvideLanHelper(enabled);
-              markRestartNeeded();
-            }}
-          />
-        </div>
-      </div>
+        <SettingsRow
+          title={<Trans>本设备作为局域网协助节点</Trans>}
+          description={<Trans>为同网段设备提供受限发现与中继能力</Trans>}
+          action={
+            <Switch
+              aria-label={t(msg`本设备作为局域网协助节点`)}
+              checked={provideLanHelper}
+              onCheckedChange={(enabled) => {
+                setProvideLanHelper(enabled);
+                markRestartNeeded();
+              }}
+            />
+          }
+        />
+      </SettingsCard>
 
       {needsRestart && nodeStatus === "running" && (
         <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
@@ -165,6 +150,6 @@ export function NetworkSettingsSection() {
           </Button>
         </div>
       )}
-    </section>
+    </SettingsSection>
   );
 }

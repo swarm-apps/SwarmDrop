@@ -179,7 +179,7 @@ export const TransferItem = memo(function TransferItem({
               <Trans>传输完成</Trans>
               {session.completedAt && (
                 <span className="text-muted-foreground">
-                  — {formatRelativeTime(session.completedAt)}
+                  / {formatRelativeTime(session.completedAt)}
                 </span>
               )}
             </div>
@@ -199,7 +199,9 @@ export const TransferItem = memo(function TransferItem({
               <XCircle className="size-3.5 md:size-4" />
               {projectionStatusLabel(projection)}
               {session.completedAt && (
-                <span className="hidden md:inline">— {formatRelativeTime(session.completedAt)}</span>
+                <span className="hidden md:inline">
+                  / {formatRelativeTime(session.completedAt)}
+                </span>
               )}
             </div>
           )}

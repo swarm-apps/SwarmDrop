@@ -9,15 +9,19 @@
 
 import { Trans, useLingui } from "@lingui/react/macro";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, MonitorSmartphone } from "lucide-react";
+import { ArrowRight, MonitorSmartphone, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { hostname as readHostname } from "@tauri-apps/plugin-os";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { applyDeviceName } from "@/lib/device-name";
 import { getErrorMessage } from "@/lib/errors";
 import { usePreferencesStore } from "@/stores/preferences-store";
+import {
+  GlassPanel,
+  InfoTile,
+  TaskButton,
+} from "@/components/layout/task-surface";
 
 export const Route = createLazyFileRoute("/_onboarding/device-name")({
   component: DeviceNameStep,
@@ -61,66 +65,83 @@ function DeviceNameStep() {
   };
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-md flex-col gap-8 px-8 py-12">
-      <div className="flex flex-col items-center gap-4">
-        <div className="flex size-20 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-900/20">
-          <MonitorSmartphone className="size-9 text-blue-600 dark:text-blue-400" />
-        </div>
-        <div className="flex flex-col items-center gap-2 text-center">
-          <h1 className="text-2xl font-bold text-foreground">
-            <Trans>给设备取个名字</Trans>
-          </h1>
-          <p className="text-sm leading-6 text-muted-foreground">
-            <Trans>
-              其他设备配对时会看到这个名称
-              <br />
-              你可以随时在「设置」里修改
-            </Trans>
-          </p>
-        </div>
-      </div>
+    <div className="flex h-full items-center justify-center p-5">
+      <GlassPanel className="w-full max-w-[720px]">
+        <div className="grid gap-6 p-6 md:grid-cols-[260px_minmax(0,1fr)] md:p-7">
+          <div className="flex flex-col justify-between gap-6">
+            <div className="flex flex-col gap-4">
+              <div className="glass-accent flex size-18 items-center justify-center rounded-[28px] text-blue-600 dark:text-blue-300">
+                <MonitorSmartphone className="size-8" />
+              </div>
+              <div>
+                <p className="text-[12px] font-medium text-blue-600 dark:text-blue-300">
+                  SwarmDrop
+                </p>
+                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
+                  <Trans>给设备取个名字</Trans>
+                </h1>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  <Trans>其他设备配对时会看到这个名称，你可以随时在设置中修改。</Trans>
+                </p>
+              </div>
+            </div>
 
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="device-name-input"
-          className="text-sm font-medium text-foreground"
-        >
-          <Trans>设备名称</Trans>
-        </label>
-        <Input
-          id="device-name-input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !disabled) onConfirm();
-          }}
-          autoFocus
-          maxLength={40}
-          placeholder={t`例如：MacBook Pro`}
-          className="h-11 rounded-lg text-base"
-        />
-        {error !== null ? (
-          <p className="text-xs text-destructive">{error}</p>
-        ) : null}
-      </div>
+            <InfoTile
+              icon={ShieldCheck}
+              label={<Trans>设备身份</Trans>}
+              value={<Trans>仅用于本地展示和配对确认</Trans>}
+            />
+          </div>
 
-      <div className="mt-auto flex flex-col gap-3">
-        <Button
-          onClick={onConfirm}
-          disabled={disabled}
-          size="lg"
-          className="h-11 rounded-lg gap-2"
-        >
-          {saving ? (
-            <Trans>正在保存...</Trans>
-          ) : (
-            <>
-              <Trans>进入 SwarmDrop</Trans>
-              <ArrowRight className="size-4" />
-            </>
-          )}
-        </Button>
-      </div>
+          <div className="flex flex-col justify-between gap-6">
+            <div className="glass-control rounded-[22px] p-4">
+              <label
+                htmlFor="device-name-input"
+                className="text-sm font-medium text-foreground"
+              >
+                <Trans>设备名称</Trans>
+              </label>
+              <Input
+                id="device-name-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !disabled) onConfirm();
+                }}
+                autoFocus
+                maxLength={40}
+                placeholder={t`例如：MacBook Pro`}
+                className="mt-2 h-12 rounded-[16px] bg-white/55 text-base dark:bg-white/[0.06]"
+              />
+              {error !== null ? (
+                <p className="mt-2 text-xs text-destructive">{error}</p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  <Trans>建议使用你能在设备列表中快速识别的名称。</Trans>
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-end">
+              <TaskButton
+                onClick={onConfirm}
+                disabled={disabled}
+                size="lg"
+                className="h-11"
+              >
+                {saving ? (
+                  <Trans>正在保存...</Trans>
+                ) : (
+                  <>
+                    <Trans>进入 SwarmDrop</Trans>
+                    <ArrowRight className="size-4" />
+                  </>
+                )}
+              </TaskButton>
+            </div>
+          </div>
+        </div>
+      </GlassPanel>
     </div>
   );
 }

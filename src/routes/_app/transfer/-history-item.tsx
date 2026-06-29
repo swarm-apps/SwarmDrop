@@ -166,7 +166,7 @@ export function HistoryItem({ item }: HistoryItemProps) {
               <CheckCircle2 className="size-3.5 md:size-4" />
               <Trans>传输完成</Trans>
               <span className="text-muted-foreground">
-                — {formatFileSize(transferredBytes)}
+                / {formatFileSize(transferredBytes)}
               </span>
             </div>
           )}

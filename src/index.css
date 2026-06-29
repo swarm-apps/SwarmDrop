@@ -203,6 +203,172 @@
       -webkit-backdrop-filter: none;
     }
   }
+
+  .settings-workbench {
+    --settings-row-bg: rgb(255 255 255 / 0.42);
+    --settings-row-border: rgb(15 23 42 / 0.06);
+  }
+
+  .dark .settings-workbench {
+    --settings-row-bg: rgb(255 255 255 / 0.045);
+    --settings-row-border: rgb(255 255 255 / 0.085);
+  }
+
+  .settings-workbench .settings-mosaic {
+    min-width: 0;
+    container-type: inline-size;
+  }
+
+  .settings-workbench .settings-board {
+    column-count: 1;
+    column-fill: balance;
+    column-gap: 1.25rem;
+    margin-top: 1.25rem;
+  }
+
+  .settings-workbench .settings-board > * {
+    display: inline-block;
+    width: 100%;
+    min-width: 0;
+    margin: 0 0 1.25rem;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    vertical-align: top;
+  }
+
+  .settings-workbench .settings-hero-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    align-items: stretch;
+  }
+
+  .settings-workbench .settings-hero-summary-grid > * {
+    min-width: 0;
+  }
+
+  .settings-workbench .settings-hero-content-rail {
+    display: flex;
+    width: min(100%, 760px);
+    flex-direction: column;
+    gap: 1rem;
+    align-self: center;
+  }
+
+  .settings-workbench .settings-hero-about-stack {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+  }
+
+  .settings-workbench .settings-hero-about-stack > .settings-hero-about-card {
+    width: 100%;
+  }
+
+  @container (min-width: 760px) {
+    .settings-workbench .settings-hero-summary-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .settings-workbench .settings-hero-about-card {
+      grid-column: 1 / -1;
+    }
+
+    .settings-workbench .settings-board {
+      column-count: 2;
+    }
+  }
+
+  @container (min-width: 1040px) {
+    .settings-workbench .settings-hero-summary-grid {
+      grid-template-columns: minmax(18rem, 1.25fr) repeat(3, minmax(0, 1fr));
+    }
+
+    .settings-workbench .settings-hero-about-card {
+      grid-column: auto;
+    }
+  }
+
+  @container (min-width: 1120px) {
+    .settings-workbench .settings-board {
+      column-count: 3;
+      column-gap: 1.35rem;
+    }
+  }
+
+  .settings-workbench .settings-hero,
+  .settings-workbench .glass-card {
+    border: 1px solid rgb(255 255 255 / 0.42);
+  }
+
+  .dark .settings-workbench .settings-hero,
+  .dark .settings-workbench .glass-card {
+    border-color: rgb(255 255 255 / 0.095);
+  }
+
+  .settings-workbench .glass-card {
+    overflow: hidden;
+    border-radius: 28px;
+    padding: 0.4rem;
+  }
+
+  .settings-workbench .settings-hero-about-card {
+    border-radius: 24px;
+  }
+
+  .settings-workbench .settings-about-panel-hero {
+    min-width: 0;
+  }
+
+  .settings-workbench section > h2 {
+    padding-left: 0.35rem;
+    letter-spacing: 0;
+  }
+
+  .settings-workbench .glass-card > :is(div, button) {
+    margin: 0.32rem;
+    border: 1px solid var(--settings-row-border);
+    border-radius: 20px;
+    background: var(--settings-row-bg);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.34),
+      0 10px 24px rgb(15 23 42 / 0.035);
+    transition:
+      border-color 300ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 300ms cubic-bezier(0.32, 0.72, 0, 1),
+      transform 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .dark .settings-workbench .glass-card > :is(div, button) {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.06),
+      0 14px 30px rgb(0 0 0 / 0.16);
+  }
+
+  .settings-workbench .glass-card > button:hover {
+    border-color: rgb(37 99 235 / 0.22);
+    background: rgb(255 255 255 / 0.58);
+  }
+
+  .dark .settings-workbench .glass-card > button:hover {
+    background: rgb(255 255 255 / 0.07);
+  }
+
+  .settings-workbench .glass-card > button:active {
+    transform: scale(0.995);
+  }
+
+  .settings-workbench .settings-signal-panel {
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 0.72), rgb(255 255 255 / 0.44));
+  }
+
+  .dark .settings-workbench .settings-signal-panel {
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 0.075), rgb(255 255 255 / 0.04));
+  }
 }
 
 @layer base {

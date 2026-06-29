@@ -6,7 +6,6 @@
 import { useMemo, memo, useCallback, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import {
-  ArrowLeft,
   CheckCircle2,
   XCircle,
   FolderOpen,
@@ -43,6 +42,13 @@ import {
   doResumeTransfer,
 } from "./-shared";
 import { canResumeProjection } from "@/lib/transfer-projection";
+import {
+  CommandDock,
+  GlassPanel,
+  TaskContent,
+  TaskPageShell,
+  TaskToolbar,
+} from "@/components/layout/task-surface";
 
 export const Route = createLazyFileRoute("/_app/transfer/$sessionId")({
   component: TransferDetailPage,
@@ -377,7 +383,7 @@ const TransferActions = memo(function TransferActions({
 
   if (isPaused && projection && canResumeProjection(projection)) {
     return (
-      <Button onClick={handleResume} className="w-full">
+      <Button onClick={handleResume} className="rounded-full bg-blue-600 px-5 text-white shadow-[0_10px_22px_rgba(37,99,235,0.18)] hover:bg-blue-700">
         <Play className="mr-2 size-4" />
         <Trans>恢复传输</Trans>
       </Button>
@@ -386,9 +392,9 @@ const TransferActions = memo(function TransferActions({
 
   if (isActive) {
     return (
-      <div className="flex w-full gap-2">
+      <div className="flex gap-2">
         {session.status === "transferring" && (
-          <Button variant="secondary" onClick={handlePause} className="flex-1">
+          <Button variant="secondary" onClick={handlePause} className="rounded-full px-5">
             <Pause className="mr-2 size-4" />
             <Trans>暂停传输</Trans>
           </Button>
@@ -396,7 +402,7 @@ const TransferActions = memo(function TransferActions({
         <Button
           variant="outline"
           onClick={handleCancel}
-          className="flex-1"
+          className="rounded-full px-5"
           disabled={isCancelling}
         >
           {isCancelling ? (
@@ -412,7 +418,7 @@ const TransferActions = memo(function TransferActions({
 
   if (session.status === "completed" && session.saveLocation) {
     return (
-      <Button onClick={handleOpenFolder} className="w-full">
+      <Button onClick={handleOpenFolder} className="rounded-full bg-blue-600 px-5 text-white shadow-[0_10px_22px_rgba(37,99,235,0.18)] hover:bg-blue-700">
         <FolderOpen className="mr-2 size-4" />
         <Trans>打开文件夹</Trans>
       </Button>
@@ -438,32 +444,27 @@ const TransferDetailContent = memo(function TransferDetailContent({
   }, [session]);
 
   return (
-    <main className="flex h-full flex-1 flex-col bg-transparent">
-      {/* 头部 */}
-      <header className="flex h-13 items-center gap-2 border-b border-border px-4 lg:px-5">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex size-8 items-center justify-center rounded-md hover:bg-muted"
-        >
-          <ArrowLeft className="size-4" />
-        </button>
-        <h1 className="min-w-0 truncate text-sm font-medium text-foreground">
-          <Trans>传输详情</Trans>
-        </h1>
-      </header>
+    <TaskPageShell>
+      <TaskToolbar title={<Trans>传输详情</Trans>} onBack={onBack} />
 
-      {/* 内容 */}
-      <div className="flex-1 overflow-auto p-4 lg:p-5">
-        <div className="mx-auto flex max-w-2xl flex-col gap-5">
-          <TransferStatusHeader session={session} projection={projection} />
+      <TaskContent className="flex min-h-0 flex-col gap-5">
+        <GlassPanel>
+          <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:p-6">
+            <TransferStatusHeader session={session} projection={projection} />
+            <TransferProgress session={session} projection={projection} />
+          </div>
+        </GlassPanel>
 
-          <TransferProgress session={session} projection={projection} />
-
-          <div className="flex flex-col gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              <Trans>传输详情</Trans>
-            </h3>
+        <GlassPanel className="min-h-0 flex-1">
+          <div className="flex h-full min-h-0 flex-col gap-3 p-4 lg:p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-foreground">
+                <Trans>文件明细</Trans>
+              </h2>
+              <span className="text-xs text-muted-foreground">
+                {session.files.length} <Trans>个文件</Trans>
+              </span>
+            </div>
             <FileTree
               mode={session.status === "transferring" ? "transfer" : "select"}
               dataLoader={treeData.dataLoader}
@@ -471,14 +472,15 @@ const TransferDetailContent = memo(function TransferDetailContent({
               totalCount={session.files.length}
               totalSize={session.totalSize}
               progress={session.progress}
+              showHeader={false}
             />
           </div>
+        </GlassPanel>
 
-          <div className="flex justify-end">
-            <TransferActions session={session} projection={projection} />
-          </div>
-        </div>
-      </div>
-    </main>
+        <CommandDock>
+          <TransferActions session={session} projection={projection} />
+        </CommandDock>
+      </TaskContent>
+    </TaskPageShell>
   );
 });
