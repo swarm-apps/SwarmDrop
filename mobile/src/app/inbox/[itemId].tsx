@@ -14,7 +14,7 @@ import {
   Share2,
   Trash2,
 } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { MobileInboxContentKind } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
@@ -25,7 +25,6 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
-import { errorMessage } from "@/lib/utils";
 import { type InboxFileEntry, useInboxStore } from "@/stores/inbox-store";
 
 export default function InboxDetailScreen() {
@@ -72,10 +71,16 @@ export default function InboxDetailScreen() {
       })();
       return () => {
         cancelled = true;
-        clearDetail();
       };
-    }, [itemId, loadDetail, markOpened, clearDetail]),
+    }, [itemId, loadDetail, markOpened]),
   );
+
+  // 仅在真正离开详情页（卸载）时清空，而非失焦——否则跳转「传输诊断」再返回会因
+  // selectedDetail 被清空而触发整屏「加载中」reload 闪烁。重新聚焦会刷新数据，但旧详情
+  // 仍在，不会闪烁。
+  useEffect(() => {
+    return () => clearDetail();
+  }, [clearDetail]);
 
   const archived = detail?.item.archivedAt != null;
   const title = detail?.item.title ?? t`收件箱详情`;
@@ -121,7 +126,7 @@ export default function InboxDetailScreen() {
           dialogTitle: t`打开或分享文件`,
         });
       } catch (err) {
-        if (isMissingFileError(err)) {
+        if (isMissingFileError(err, file)) {
           await markFileMissing(itemId, file.id, true);
           toast.error(t`文件已不在原位置`, file.localPath);
           return;
@@ -572,7 +577,13 @@ class MissingFileError extends Error {
   }
 }
 
-function isMissingFileError(err: unknown): boolean {
+function isMissingFileError(err: unknown, file: InboxFileEntry): boolean {
   if (err instanceof MissingFileError) return true;
-  return errorMessage(err).toLowerCase().includes("not found");
+  // 不靠错误文案判断（本地化 / 不同平台下英文子串会漏判）：直接复查文件是否还在原位。
+  if (!file.localPath.startsWith("file://")) return false;
+  try {
+    return !new File(file.localPath).exists;
+  } catch {
+    return false;
+  }
 }

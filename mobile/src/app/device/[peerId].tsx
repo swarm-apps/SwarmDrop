@@ -42,6 +42,7 @@ import {
   canSendToDevice,
   defaultReceivePolicy,
   normalizePolicyForTrustLevel,
+  type PolicyNote,
   policyForDevice,
   policySummaryForDevice,
   policyWithTrustDefaults,
@@ -101,8 +102,12 @@ export default function DeviceDetailScreen() {
     );
   }, [peerId, devices, pairedDevicesCache]);
 
+  // 仅在首次加载或切换 peerId 时初始化草稿；后台 DevicesChanged 刷新会换出新的 device
+  // 引用，但只要还是同一台设备就不重置，避免抹掉用户正在编辑的未保存策略。
+  const seededPeerIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!device) return;
+    if (!device || seededPeerIdRef.current === device.peerId) return;
+    seededPeerIdRef.current = device.peerId;
     setDraftLevel(resolveTrustLevel(device));
     setDraftPolicy(policyForDevice(device));
   }, [device]);
@@ -303,12 +308,12 @@ export default function DeviceDetailScreen() {
             </Text>
           </View>
           <Text className="text-[12px] text-muted-foreground">
-            <PolicyHeadline level={trustLevel} policy={policy.policy} />
+            <PolicyHeadline note={policy.note} />
           </Text>
           <View className="gap-2 rounded-lg bg-muted px-3.5 py-3">
             <InfoRow
               label={<Trans>接收方式</Trans>}
-              value={<PolicyModeLabel level={trustLevel} />}
+              value={<PolicyModeLabel note={policy.note} />}
             />
             <InfoRow
               label={<Trans>文件夹</Trans>}
@@ -342,10 +347,6 @@ export default function DeviceDetailScreen() {
       <BottomActionArea>
         <Pressable
           onPress={() => {
-            if (!sendable) {
-              toast.info(t`设备当前不可发送`);
-              return;
-            }
             router.push({
               pathname: "/send/select-device",
               params: { peerId: device.peerId },
@@ -729,28 +730,22 @@ function PolicySwitch({
   );
 }
 
-function PolicyHeadline({
-  level,
-  policy,
-}: {
-  level: TrustLevel;
-  policy: MobileDeviceReceivePolicy;
-}) {
-  if (level === "blocked") {
-    return <Trans>该设备已被阻止，发送入口和自动接收都会关闭。</Trans>;
+function PolicyHeadline({ note }: { note: PolicyNote }) {
+  switch (note) {
+    case "blocked":
+      return <Trans>该设备已被阻止，发送入口和自动接收都会关闭。</Trans>;
+    case "temporary":
+      return <Trans>临时设备默认需要确认，并限制文件夹和自动接收。</Trans>;
+    case "auto_accept":
+      return <Trans>该设备会自动接收，并保存到收件箱和默认位置。</Trans>;
+    default:
+      return <Trans>收到文件前需要手动确认。</Trans>;
   }
-  if (level === "temporary") {
-    return <Trans>临时设备默认需要确认，并限制文件夹和自动接收。</Trans>;
-  }
-  if (policy.autoAccept && !policy.requireConfirmation) {
-    return <Trans>本人设备会自动接收，并保存到收件箱和默认位置。</Trans>;
-  }
-  return <Trans>协作设备收到文件前需要手动确认。</Trans>;
 }
 
-function PolicyModeLabel({ level }: { level: TrustLevel }) {
-  switch (level) {
-    case "owned":
+function PolicyModeLabel({ note }: { note: PolicyNote }) {
+  switch (note) {
+    case "auto_accept":
       return <Trans>自动接收</Trans>;
     case "temporary":
       return <Trans>临时确认</Trans>;

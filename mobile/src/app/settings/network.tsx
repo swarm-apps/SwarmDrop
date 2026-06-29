@@ -85,7 +85,16 @@ export default function NetworkScreen() {
     try {
       await shutdownNode();
       await startNode();
-      toast.success(t`节点已按新发现设置重启`);
+      // startNode/shutdownNode 内部吞错并把失败写进 store（runtimeState=error）而不抛出，
+      // 这里读回最新状态判断真实结果，避免重启失败仍弹「成功」。
+      const { runtimeState: state, error } = useMobileCoreStore.getState();
+      if (state === "running") {
+        toast.success(t`节点已按新发现设置重启`);
+      } else {
+        toast.error(t`重启节点失败`, error ?? undefined);
+        // 错误已就地反馈，清掉全局 error 避免又延迟泄漏到设备页（重复提示）。
+        useMobileCoreStore.getState().setError(null);
+      }
     } catch (err) {
       toast.error(t`重启节点失败`, errorMessage(err));
     } finally {

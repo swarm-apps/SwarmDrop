@@ -3,15 +3,15 @@
 //! 旧的 `MobileSessionStatus`/history item 模型已经不再是移动端状态源。本文件只保留
 //! Activity/Recovery 所需的 projection 查询、删除、清空和恢复命令。
 
+use std::sync::Arc;
+
 use sea_orm::EntityTrait;
 use uuid::Uuid;
 
-use entity::{
-    SuspendedReason, TerminalReason, TransferDirection, TransferPhase,
-    transfer_session::Model as TransferSessionModel,
-};
+use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 use swarmdrop_core::database::ops;
-use swarmdrop_core::transfer::coordinator::TransferState;
+use swarmdrop_core::host::EventBus;
+use swarmdrop_core::transfer::coordinator::TransferCoordinator;
 
 use crate::app::MobileCore;
 use crate::error::{FfiError, FfiResult};
@@ -163,35 +163,18 @@ impl From<ops::TransferProjection> for MobileTransferProjection {
     }
 }
 
-pub(crate) async fn reconcile_stale_sessions(db: &sea_orm::DatabaseConnection) -> FfiResult<usize> {
-    let active_ids = ops::find_active_session_ids(db)
+/// 启动清理：遗留 active 会话经 core 状态机转 recoverable suspended(AppRestarted)，
+/// 每次转换都经 coordinator dispatch 写 DB + 发 projection（与桌面端 cleanup_recoverable_sessions
+/// 对称）。此前手抄一遍 apply_transition 但漏发 projection，导致 RN 收不到这些转换、
+/// 活动列表出现"永远在传"的幽灵条目。
+pub(crate) async fn reconcile_stale_sessions(
+    db: Arc<sea_orm::DatabaseConnection>,
+    event_bus: Arc<dyn EventBus>,
+) -> FfiResult<usize> {
+    TransferCoordinator::new(db, event_bus)
+        .cleanup_recoverable_sessions()
         .await
-        .map_err(FfiError::from)?;
-    let mut converted = 0;
-    for session_id in active_ids {
-        let Some(session) = ops::find_session(db, session_id)
-            .await
-            .map_err(FfiError::from)?
-        else {
-            continue;
-        };
-        let next = app_restarted_state(&session);
-        ops::apply_transition(db, &session, &next)
-            .await
-            .map_err(FfiError::from)?;
-        converted += 1;
-    }
-    Ok(converted)
-}
-
-fn app_restarted_state(session: &TransferSessionModel) -> TransferState {
-    TransferState {
-        phase: TransferPhase::Suspended,
-        suspended_reason: Some(SuspendedReason::AppRestarted),
-        terminal_reason: None,
-        epoch: session.epoch,
-        recoverable: true,
-    }
+        .map_err(FfiError::from)
 }
 
 fn parse_session_id(s: &str) -> FfiResult<Uuid> {

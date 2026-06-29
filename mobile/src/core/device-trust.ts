@@ -8,13 +8,6 @@ import { resolveReceiveLocation } from "@/core/paths";
 
 export type TrustLevel = "owned" | "collaborator" | "temporary" | "blocked";
 
-export const TRUST_LEVELS: TrustLevel[] = [
-  "owned",
-  "collaborator",
-  "temporary",
-  "blocked",
-];
-
 export type PolicyNote =
   | "auto_accept"
   | "manual_confirmation"
@@ -199,10 +192,4 @@ export function policyNoteFor(
   if (level === "temporary") return "temporary";
   if (policy.autoAccept && !policy.requireConfirmation) return "auto_accept";
   return "manual_confirmation";
-}
-
-export function policyAllowsAutoAccept(
-  policy: MobileDeviceReceivePolicy,
-): boolean {
-  return policy.autoAccept && !policy.requireConfirmation;
 }

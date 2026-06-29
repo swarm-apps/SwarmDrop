@@ -348,7 +348,7 @@ function TransferProgressBlock({
             {percent}%
           </Text>
           <Text className="text-[11px] text-muted-foreground">
-            {progress ? (
+            {status === "transferring" && progress ? (
               formatSpeed(Number(progress.speed))
             ) : (
               <StatusLabel status={status} />

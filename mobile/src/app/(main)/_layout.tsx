@@ -1,10 +1,12 @@
 import { Trans } from "@lingui/react/macro";
 import { Tabs } from "expo-router";
 import { Inbox, Settings, Smartphone } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
 export default function MainLayout() {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -15,8 +17,9 @@ export default function MainLayout() {
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
-          height: 64,
-          paddingBottom: 8,
+          // 叠加底部安全区，避免全面屏 home indicator 压住图标/文字。
+          height: 64 + insets.bottom,
+          paddingBottom: 8 + insets.bottom,
           paddingTop: 7,
         },
         tabBarLabelStyle: {

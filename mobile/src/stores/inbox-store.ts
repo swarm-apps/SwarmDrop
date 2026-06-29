@@ -53,6 +53,9 @@ export type InboxPreviewItem = MobileInboxItemSummary;
 export type InboxDetailItem = MobileInboxItemDetail;
 export type InboxFileEntry = MobileInboxFileEntry;
 
+// 并发 refresh 的单调序号：多触发源下迟到的旧响应不得覆盖新结果。
+let refreshSeq = 0;
+
 export const useInboxStore = create<InboxStore>()((set, get) => ({
   loading: false,
   detailLoading: false,
@@ -70,18 +73,19 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
   },
 
   async refresh() {
+    const seq = ++refreshSeq;
     set({ loading: true, lastError: null });
     try {
       const items = await getMobileCore().listInboxItems(get().includeArchived);
-      set({
-        items,
-        lastRefreshedAt: Date.now(),
-      });
+      // 丢弃过期响应：focus / 归档 / 删除 / 事件等并发触发时，旧响应不得覆盖新结果。
+      if (seq !== refreshSeq) return;
+      set({ items, lastRefreshedAt: Date.now() });
     } catch (err) {
+      if (seq !== refreshSeq) return;
       set({ lastError: errorMessage(err) });
       console.warn("[inbox-store] refresh failed:", errorMessage(err));
     } finally {
-      set({ loading: false });
+      if (seq === refreshSeq) set({ loading: false });
     }
   },
 

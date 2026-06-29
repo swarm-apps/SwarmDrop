@@ -90,24 +90,29 @@ function routeEventToStores(event: MobileCoreEvent): void {
     }
 
     case MobileCoreEvent_Tags.TransferAccepted: {
-      useTransferStore.getState().markAccepted(event.inner.sessionId);
+      // 状态由 TransferProjectionUpdate 接管，无需额外处理。
       break;
     }
 
     case MobileCoreEvent_Tags.TransferRejected: {
-      useTransferStore.getState().markRejected(event.inner.sessionId);
-      useTransferStore.getState().setError(t`对方拒绝了传输请求`);
+      // core 已携带拒绝原因(策略拒绝/未配对等),透传出来而非只显示通用文案。
+      const { reason } = event.inner;
+      useTransferStore
+        .getState()
+        .setError(
+          reason ? t`对方拒绝了传输请求：${reason}` : t`对方拒绝了传输请求`,
+        );
       break;
     }
 
     case MobileCoreEvent_Tags.TransferCompleted: {
-      void useTransferStore.getState().removeAndRefresh(event.inner.sessionId);
+      // 传输状态由 TransferProjectionUpdate 接管；这里只刷新收件箱。
       void refreshInbox();
       break;
     }
 
     case MobileCoreEvent_Tags.TransferFailed: {
-      const { sessionId, error } = event.inner;
+      const { error } = event.inner;
       if (error.startsWith("对方取消")) {
         const message = t`对方已取消传输`;
         toast.info(message);
@@ -116,21 +121,19 @@ function routeEventToStores(event: MobileCoreEvent): void {
         toast.error(t`传输失败`, error);
         useTransferStore.getState().setError(t`传输失败：${error}`);
       }
-      void useTransferStore.getState().removeAndRefresh(sessionId);
       break;
     }
 
     case MobileCoreEvent_Tags.TransferPaused: {
-      // 对端暂停：刷新历史（DB 已被 core 标记为 paused）再移除活跃
+      // 对端暂停：状态由 TransferProjectionUpdate 接管，这里只提示。
       const message = t`对方已暂停传输`;
       toast.info(message);
       useTransferStore.getState().setError(message);
-      void useTransferStore.getState().removeAndRefresh(event.inner.sessionId);
       break;
     }
 
     case MobileCoreEvent_Tags.TransferResumed: {
-      useTransferStore.getState().resumedSession();
+      // 状态由 TransferProjectionUpdate 接管，无需额外处理。
       break;
     }
 
