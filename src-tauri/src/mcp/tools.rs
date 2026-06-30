@@ -139,6 +139,7 @@ impl McpHandler {
     pub async fn send_files(
         &self,
         Parameters(params): Parameters<SendFilesParams>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         get_net_manager!(self, _state2, guard);
         let manager = guard.as_ref().unwrap();
@@ -227,7 +228,11 @@ impl McpHandler {
             .map(|d| d.os_info.hostname)
             .unwrap_or_else(|| params.peer_id.clone());
 
-        // send_offer
+        // send_offer：MCP 来源，尽力带上 initialize 握手报告的客户端名（如 claude-desktop）。
+        let client = context
+            .peer
+            .peer_info()
+            .map(|info| info.client_info.name.clone());
         let result = manager
             .transfer_arc()
             .send_offer(
@@ -235,7 +240,7 @@ impl McpHandler {
                 &params.peer_id,
                 &peer_name,
                 &all_file_ids,
-                swarmdrop_core::protocol::TransferOrigin::Mcp { client: None },
+                swarmdrop_core::protocol::TransferOrigin::Mcp { client },
             )
             .await
             .map_err(|e| ErrorData::internal_error(format!("发送 Offer 失败: {e}"), None))?;

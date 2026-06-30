@@ -19,8 +19,8 @@
 
 ## 4. MCP 客户端身份捕获
 
-- [ ] 4.1 `McpHandler`（`src-tauri/src/mcp.rs`）捕获连接客户端 `Implementation`：实现 `ServerHandler::initialize` 存入 handler，或工具调用时从 rmcp `RequestContext` 的 peer info 读取（择 rmcp 2.0 可行者；拿不到则 `client: None`）
-- [ ] 4.2 `send_files` 据此构造 `Mcp { client }`
+- [x] 4.1 客户端身份捕获：`send_files` 注入 `rmcp::service::RequestContext<RoleServer>` 参数，从 `context.peer.peer_info().client_info.name` 取连接客户端名（rmcp 默认 `initialize` 已把握手 client_info 存到 Peer 上，无需自定义 handler 状态——更干净）；拿不到则 `None`
+- [x] 4.2 `send_files` 据此构造 `Mcp { client }`（不再硬编码 None）
 
 ## 5. 接收端：透传 origin
 
