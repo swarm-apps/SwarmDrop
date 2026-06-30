@@ -57,7 +57,7 @@
 
 ## 6. 收尾验证
 
-- [ ] 6.1 `cargo test --workspace` + `cargo clippy --workspace -- -D warnings` 全绿
-- [ ] 6.2 `pnpm exec tsc --noEmit` + 前端构建通过
-- [ ] 6.3 `/simplify` 复审本次累积 diff，确认无新增重复/死代码
-- [ ] 6.4 更新 `dev-notes/knowledge/rust-backend.md`：把「终态统一经 dispatch、禁止 mark_* 直写终态」沉淀为约定，删除已过时的「mark_* 过渡桥接」条目
+- [x] 6.1 `cargo test --workspace`（80 单元 + 13 E2E + libs/entity/migration）+ `cargo clippy --workspace --all-targets -- -D warnings` 全绿
+- [x] 6.2 `pnpm exec tsc --noEmit` 0 error + `pnpm build`（tsc+vite）通过 + `pnpm i18n:extract` 同步 catalog
+- [x] 6.3 `/simplify` 4 路并行复审累积 diff（reuse/simplification/efficiency/altitude），应用 8 项 clear-win（registry cancel_actor/remove_if、on_completed 复用 complete_event、3 帧 epoch 走 EpochGuard::matches、resume rollback if_epoch + fetch_plan 省克隆、删死的 projectionMatchesFilter、监听器并发），跳过 3 项（删 session 列=schema 改、R2 会并掉不同错误消息、F4 微优化）
+- [x] 6.4 更新 `dev-notes/knowledge/rust-backend.md`：新增「transfer/ 按 actor/flow/wire 分层 + EpochGuard + 跨层绝对路径」条目、修全部失效路径、补 transferred_bytes projection 派生约定；dispatch 终态收口约定轮1 已沉淀（保留）
