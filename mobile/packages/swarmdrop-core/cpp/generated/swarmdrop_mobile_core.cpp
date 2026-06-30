@@ -341,6 +341,12 @@ extern "C" {
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(
         /*handle*/ uint64_t ptr
     );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer query, 
+        uint32_t limit, 
+        int8_t include_archived
+    );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(
         /*handle*/ uint64_t ptr
     );
@@ -381,6 +387,9 @@ extern "C" {
         /*handle*/ uint64_t ptr, 
         RustBuffer session_id
     );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(
+        /*handle*/ uint64_t ptr
+    );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer(
         /*handle*/ uint64_t ptr, 
         RustBuffer session_id
@@ -399,6 +408,10 @@ extern "C" {
         RustBuffer peer_id, 
         RustBuffer peer_name, 
         RustBuffer file_ids
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(
+        /*handle*/ uint64_t ptr, 
+        int8_t paused
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_clone_foreigneventbus(
         /*handle*/ uint64_t handle, 
@@ -720,6 +733,8 @@ extern "C" {
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items(
     );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(
+    );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node(
@@ -738,6 +753,8 @@ extern "C" {
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer(
     );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused(
+    );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send(
@@ -745,6 +762,8 @@ extern "C" {
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit(
     );
@@ -5087,6 +5106,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox"),
+        4,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status"),
@@ -5159,6 +5186,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_transfer(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused"),
+        1,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer"),
@@ -5189,6 +5224,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
         5,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreigneventbus"] = jsi::Function::createFromHostFunction(
@@ -5895,6 +5938,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status"),
@@ -5967,6 +6018,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer"),
@@ -5997,6 +6056,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
         0,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit"] = jsi::Function::createFromHostFunction(
@@ -6419,6 +6486,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
         
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging<uint32_t>::fromJs(rt, callInvoker, args[2]), uniffi_jsi::Bridging<int8_t>::fromJs(rt, callInvoker, args[3])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0])
         );
@@ -6482,6 +6556,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
         
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
         );
@@ -6505,6 +6586,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[3]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[4])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi_jsi::Bridging<int8_t>::fromJs(rt, callInvoker, args[1])
         );
 
         
@@ -7213,6 +7301,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
         
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(
         );
@@ -7276,6 +7371,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
         
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer(
         );
@@ -7299,6 +7401,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(
         );
 
         

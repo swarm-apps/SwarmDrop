@@ -39,6 +39,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_file_missing(ptr: bigint, itemId: Uint8Array, fileId: number, missing: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_item_opened(ptr: bigint, itemId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(ptr: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(ptr: bigint, query: Uint8Array, limit: number, includeArchived: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(ptr: bigint, deviceName: Uint8Array, networkConfig: Uint8Array): bigint;
@@ -48,10 +49,12 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_respond_pairing_request(ptr: bigint, pendingId: bigint, code: Uint8Array, accept: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive(ptr: bigint, sessionId: Uint8Array, saveLocationUri: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_transfer(ptr: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(ptr: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer(ptr: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_prepare_send(ptr: bigint, files: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_reject_receive(ptr: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(ptr: bigint, preparedId: Uint8Array, peerId: Uint8Array, peerName: Uint8Array, fileIds: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(ptr: bigint, paused: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreigneventbus(handle: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_free_foreigneventbus(handle: bigint, uniffi_out_err: UniffiRustCallStatus): void;
     ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreigneventbus(vtable: UniffiVTableCallbackInterfaceForeignEventBus): void;
@@ -140,6 +143,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_item_opened(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node(): number;
@@ -149,10 +153,12 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_source_metadata(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk(): number;
