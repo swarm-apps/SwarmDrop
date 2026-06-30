@@ -32,7 +32,7 @@
 - [x] 3.5 拆 `receiver.rs` god-module：`handle_block_data`（~115 行）拆成 `decrypt_and_validate`/`ensure_sink`/`persist_chunk`/`emit_chunk_progress` 四段 + 瘦编排；bitmap 纯函数已随 3.1 移 `checkpoint.rs`。**剩已做**：receiver writer 的 mpsc 桥（frame_tx/frame_rx + writer_task + try_join）仅为末尾回写一帧 Finish，改为单读循环 + 收 Finish 后直写确认帧（与 sender 单 reader/writer 对称），删 is_terminal 里从不触发的 Abort 死分支
 - [x] 3.6 `data_plane`↔actor 终态边界归一：发送终态副作用下沉 `SendSession::on_completed/on_interrupted`，`data_plane.rs` 回归纯路由（与接收 `finish_data_channel` 对称）。**偏差批注**：coordinator/db/event_bus 以方法参数传入而非作 SendSession 字段——发送终态触发点在 `run_data_channel` 返回后的 data_plane 顶层（非接收方读循环深处），传参更省且不必让 `actor_registry` 的同步 epoch 准入测试 block_on 建 async db+coordinator
 - [x] 3.7 后端去重收尾：`cache_inbound_offer` vs `record_rejected_inbound_offer` 抽共享 `create_offered_inbound_session`；`policy(action,reason)` 纳入 `CreateSessionInput` 随建会话写入，删 `set_session_policy_metadata` 二次 update；其余 7 处 CreateSessionInput 站点补 `policy: None`
-- [ ] 3.8 `cargo test` + clippy 全绿
+- [x] 3.8 `cargo test`（78 单元 + 13 E2E）+ clippy（core+桌面壳）全绿；含模块功能分层后全量重编译通过
 
 ## 4. 后端一致性与命名收口（P1）
 
