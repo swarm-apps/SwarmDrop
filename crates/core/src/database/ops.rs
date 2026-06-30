@@ -593,7 +593,7 @@ pub async fn get_session_files(
 }
 
 /// 被过期回收的接收会话及其文件元数据（供 host 尽力清理遗留 `.part`）。
-pub struct ExpiredReceiveSession {
+pub struct ExpiredReceiverActor {
     pub session_id: Uuid,
     /// 重建 sink 所需的文件元数据（已带 `save_dir`）。
     pub files: Vec<HostFileMetadata>,
@@ -609,7 +609,7 @@ pub struct ExpiredReceiveSession {
 pub async fn reap_expired_suspended_receives(
     db: &DatabaseConnection,
     retention_secs: u64,
-) -> AppResult<Vec<ExpiredReceiveSession>> {
+) -> AppResult<Vec<ExpiredReceiverActor>> {
     let threshold = now_ms() - (retention_secs as i64) * 1000;
     let sessions = entity::TransferSession::find()
         .filter(entity::transfer_session::Column::Phase.eq(TransferPhase::Suspended))
@@ -653,7 +653,7 @@ pub async fn reap_expired_suspended_receives(
         model.updated_at = Set(now);
         model.update(db).await?;
 
-        reaped.push(ExpiredReceiveSession { session_id, files });
+        reaped.push(ExpiredReceiverActor { session_id, files });
     }
     Ok(reaped)
 }

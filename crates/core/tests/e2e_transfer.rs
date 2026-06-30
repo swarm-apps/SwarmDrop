@@ -37,9 +37,9 @@ use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
 use swarmdrop_core::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState, UserCommand,
 };
-use swarmdrop_core::transfer::wire::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
+use swarmdrop_core::transfer::wire::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
 
 // ===== harness =====
@@ -421,7 +421,7 @@ async fn e2e_single_file_transfer() {
     assert!(completed(&node_b), "接收方应发 TransferCompleted");
 
     // 3.3 对称性：收发两侧都发 Terminal/Completed 的 TransferProjection
-    // （接收方此前不发 projection，本次接线 ReceiveSession 持 coordinator 后补齐）。
+    // （接收方此前不发 projection，本次接线 ReceiverActor 持 coordinator 后补齐）。
     let emitted_terminal_projection = |node: &TestNode| {
         node.host.events().iter().any(|e| {
             matches!(
@@ -593,8 +593,8 @@ async fn e2e_peer_disconnect_interrupts_active() {
 /// 轮 5 task 4.6：接收方点击恢复走新探测式协议。
 ///
 /// 两端预置同一个 suspended session：A 是发送方、B 是接收方。B 调用 `initiate_resume`
-/// 后必须先 ResumeProbe 获取 A 的 manifest/epoch，再 ResumeCommit 让 A 重建 SendSession，
-/// 最后 B 重建 ReceiveSession 拉块并完成。这个测试覆盖旧 `ResumeRequest/ResumeOffer`
+/// 后必须先 ResumeProbe 获取 A 的 manifest/epoch，再 ResumeCommit 让 A 重建 SenderActor，
+/// 最后 B 重建 ReceiverActor 拉块并完成。这个测试覆盖旧 `ResumeRequest/ResumeOffer`
 /// 被移除后的核心用户路径。
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_receiver_initiated_resume_probe_commit_completes() {
@@ -689,7 +689,7 @@ async fn e2e_receiver_initiated_resume_probe_commit_completes() {
 /// 发送方发起恢复：补齐 `initiate_resume` 的 Send 方向路径 E2E 覆盖（此前零覆盖）。
 ///
 /// A=Send 主动发起（probe → validate → build_fetch_plan_from_report → 先重建本地
-/// SendSession 再 commit → dispatch → spawn 数据面推送），B=Receive 应答侧
+/// SenderActor 再 commit → dispatch → spawn 数据面推送），B=Receive 应答侧
 /// `handle_resume_commit_impl` 重建 receiver actor 并发 `TransferResumed{Receive}`。
 /// 两侧 epoch 升到 1、传输跑完落盘正确。
 #[tokio::test(flavor = "multi_thread")]

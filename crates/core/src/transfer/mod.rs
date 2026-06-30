@@ -14,7 +14,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::database::ops::ExpiredReceiveSession;
+use crate::database::ops::ExpiredReceiverActor;
 use crate::host::{FileAccess, FileSourceId};
 
 /// 传输分块大小：256 KiB。
@@ -36,12 +36,12 @@ pub fn calc_total_chunks(file_size: u64) -> u32 {
 
 /// 尽力清理过期回收会话遗留的 `.part` 文件。
 ///
-/// 重启后原 `ReceiveSession`（及其 `created_sinks`）已不存在，故按 DB 文件元数据
+/// 重启后原 `ReceiverActor`（及其 `created_sinks`）已不存在，故按 DB 文件元数据
 /// 重建 sink（`open_or_create_sink`）再删除（`cleanup_sink`）。两端各传本端
 /// `FileAccess`。失败仅告警不阻断——文件可能已被用户删除或路径不可达。
 pub async fn cleanup_expired_part_files(
     file_access: &Arc<dyn FileAccess>,
-    reaped: &[ExpiredReceiveSession],
+    reaped: &[ExpiredReceiverActor],
 ) {
     for session in reaped {
         for meta in &session.files {

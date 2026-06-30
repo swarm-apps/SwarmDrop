@@ -9,8 +9,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use uuid::Uuid;
 
-use crate::transfer::actor::receiver::ReceiveSession;
-use crate::transfer::actor::sender::SendSession;
+use crate::transfer::actor::receiver::ReceiverActor;
+use crate::transfer::actor::sender::SenderActor;
 
 #[derive(Clone)]
 pub struct ActorRegistry {
@@ -21,13 +21,13 @@ pub struct ActorRegistry {
 #[derive(Clone)]
 struct RegisteredSendActor {
     epoch: i64,
-    actor: Arc<SendSession>,
+    actor: Arc<SenderActor>,
 }
 
 #[derive(Clone)]
 struct RegisteredReceiveActor {
     epoch: i64,
-    actor: Arc<ReceiveSession>,
+    actor: Arc<ReceiverActor>,
 }
 
 impl ActorRegistry {
@@ -38,7 +38,7 @@ impl ActorRegistry {
         }
     }
 
-    pub fn insert_send(&self, session_id: Uuid, epoch: i64, actor: Arc<SendSession>) -> bool {
+    pub fn insert_send(&self, session_id: Uuid, epoch: i64, actor: Arc<SenderActor>) -> bool {
         if let Some(existing) = self.send.get(&session_id)
             && existing.epoch >= epoch
         {
@@ -53,7 +53,7 @@ impl ActorRegistry {
         true
     }
 
-    pub fn insert_receive(&self, session_id: Uuid, epoch: i64, actor: Arc<ReceiveSession>) -> bool {
+    pub fn insert_receive(&self, session_id: Uuid, epoch: i64, actor: Arc<ReceiverActor>) -> bool {
         if let Some(existing) = self.receive.get(&session_id)
             && existing.epoch >= epoch
         {
@@ -68,11 +68,11 @@ impl ActorRegistry {
         true
     }
 
-    pub fn get_send(&self, session_id: &Uuid) -> Option<Arc<SendSession>> {
+    pub fn get_send(&self, session_id: &Uuid) -> Option<Arc<SenderActor>> {
         self.send.get(session_id).map(|r| Arc::clone(&r.actor))
     }
 
-    pub fn get_receive(&self, session_id: &Uuid) -> Option<Arc<ReceiveSession>> {
+    pub fn get_receive(&self, session_id: &Uuid) -> Option<Arc<ReceiverActor>> {
         self.receive.get(session_id).map(|r| Arc::clone(&r.actor))
     }
 
@@ -80,11 +80,11 @@ impl ActorRegistry {
         self.receive.get(session_id).map(|r| r.epoch)
     }
 
-    pub fn remove_send(&self, session_id: &Uuid) -> Option<Arc<SendSession>> {
+    pub fn remove_send(&self, session_id: &Uuid) -> Option<Arc<SenderActor>> {
         self.send.remove(session_id).map(|(_, entry)| entry.actor)
     }
 
-    pub fn remove_receive(&self, session_id: &Uuid) -> Option<Arc<ReceiveSession>> {
+    pub fn remove_receive(&self, session_id: &Uuid) -> Option<Arc<ReceiverActor>> {
         self.receive
             .remove(session_id)
             .map(|(_, entry)| entry.actor)
@@ -94,7 +94,7 @@ impl ActorRegistry {
         &self,
         session_id: &Uuid,
         epoch: i64,
-    ) -> Option<Arc<ReceiveSession>> {
+    ) -> Option<Arc<ReceiverActor>> {
         let current_epoch = self.receive.get(session_id).map(|entry| entry.epoch)?;
         if current_epoch != epoch {
             return None;
@@ -127,7 +127,7 @@ mod tests {
     use crate::host::{CoreAppPaths, MemoryHost};
     use crate::transfer::manager::PreparedFile;
 
-    fn send_actor() -> Arc<SendSession> {
+    fn send_actor() -> Arc<SenderActor> {
         let peer_id = Keypair::generate_ed25519().public().to_peer_id();
         let base = std::env::temp_dir();
         let host = Arc::new(MemoryHost::new(CoreAppPaths {
@@ -136,7 +136,7 @@ mod tests {
             temp_dir: base.clone(),
             log_dir: base,
         }));
-        Arc::new(SendSession::new(
+        Arc::new(SenderActor::new(
             Uuid::new_v4(),
             peer_id,
             Vec::<PreparedFile>::new(),

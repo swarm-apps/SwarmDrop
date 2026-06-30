@@ -1,4 +1,4 @@
-//! 发送方生命周期：发起 Offer / 暂停 / 取消 / send_session 访问。
+//! 发送方生命周期：发起 Offer / 暂停 / 取消 / send_actor 访问。
 //!
 //! 与 `receive` 模块对称；公共结构体定义仍在 [`crate::transfer::manager`]。
 
@@ -11,16 +11,16 @@ use uuid::Uuid;
 use crate::database::ops::CreateSessionInput;
 use crate::host::CoreEvent;
 use crate::protocol::{AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse};
+use crate::transfer::actor::sender::SenderActor;
 use crate::transfer::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferState};
-use crate::transfer::wire::data_frame::full_fetch_plan;
+use crate::transfer::flow::resume::parse_peer_id;
 use crate::transfer::manager::{
     PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager, generate_id,
 };
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferAcceptedEvent, TransferFailedEvent, TransferRejectedEvent,
 };
-use crate::transfer::flow::resume::parse_peer_id;
-use crate::transfer::actor::sender::SendSession;
+use crate::transfer::wire::data_frame::full_fetch_plan;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
@@ -139,7 +139,7 @@ impl TransferManager {
                         return;
                     }
 
-                    let send_session = Arc::new(SendSession::new(
+                    let send_actor = Arc::new(SenderActor::new(
                         session_id,
                         target_peer,
                         selected_prepared,
@@ -147,11 +147,11 @@ impl TransferManager {
                         this.file_access.clone(),
                         this.event_bus.clone(),
                     ));
-                    this.insert_send_session(session_id, 0, send_session);
+                    this.insert_send_actor(session_id, 0, send_actor);
                     this.close_accepted_outbound_offer(session_id, prepared_id);
 
                     if this.cancelled_outbound_offers.remove(&session_id).is_some() {
-                        if let Some(session) = this.remove_send_session(&session_id) {
+                        if let Some(session) = this.remove_send_actor(&session_id) {
                             session.cancel();
                         }
                         // 本地撤回 → 状态机 User{Cancel}（terminal/cancelled + projection），
@@ -262,21 +262,21 @@ impl TransferManager {
         Ok(StartSendResult { session_id })
     }
 
-    pub fn get_send_session(&self, session_id: &Uuid) -> Option<Arc<SendSession>> {
+    pub fn get_send_actor(&self, session_id: &Uuid) -> Option<Arc<SenderActor>> {
         self.actors.get_send(session_id)
     }
 
-    pub fn insert_send_session(&self, session_id: Uuid, epoch: i64, session: Arc<SendSession>) {
+    pub fn insert_send_actor(&self, session_id: Uuid, epoch: i64, session: Arc<SenderActor>) {
         self.actors.insert_send(session_id, epoch, session);
     }
 
-    pub fn remove_send_session(&self, session_id: &Uuid) -> Option<Arc<SendSession>> {
+    pub fn remove_send_actor(&self, session_id: &Uuid) -> Option<Arc<SenderActor>> {
         self.actors.remove_send(session_id)
     }
 
     pub async fn pause_send(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
-            .get_send_session(session_id)
+            .get_send_actor(session_id)
             .ok_or_else(|| AppError::Transfer(format!("发送会话不存在: {session_id}")))?;
 
         session.cancel();
@@ -292,7 +292,7 @@ impl TransferManager {
                 ),
             )
             .await?;
-        self.remove_send_session(session_id);
+        self.remove_send_actor(session_id);
 
         if let Err(e) = self
             .client
@@ -312,7 +312,7 @@ impl TransferManager {
     }
 
     pub async fn cancel_send(&self, session_id: &Uuid) -> AppResult<()> {
-        let Some(session) = self.remove_send_session(session_id) else {
+        let Some(session) = self.remove_send_actor(session_id) else {
             if let Some(prepared_id) = self.outbound_offers.get(session_id).map(|o| o.prepared_id) {
                 self.cancelled_outbound_offers.insert(*session_id);
                 self.prepared.remove(&prepared_id);

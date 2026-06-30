@@ -17,7 +17,7 @@ use crate::protocol::{
     AppRequest, AppResponse, FileRange, ResumePhaseReport, ResumeRejectReason, ResumeReport,
     TransferRequest, TransferResponse,
 };
-use crate::transfer::actor::sender::SendSession;
+use crate::transfer::actor::sender::SenderActor;
 use crate::transfer::manager::{ResumeInfo, TransferManager};
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferResumedEvent, TransferResumedFileInfo,
@@ -350,16 +350,16 @@ impl TransferManager {
         Ok(())
     }
 
-    fn build_send_session_for_resume(
+    fn build_sender_actor_for_resume(
         &self,
         session_id: Uuid,
         peer_id: PeerId,
         files: &[entity::transfer_file::Model],
         key: &[u8; 32],
-    ) -> Arc<SendSession> {
+    ) -> Arc<SenderActor> {
         let prepared_files = build_prepared_files_from_db(files);
         let resume_state = build_sender_resume_state(files);
-        Arc::new(SendSession::new_with_resume(
+        Arc::new(SenderActor::new_with_resume(
             session_id,
             peer_id,
             prepared_files,
@@ -386,14 +386,14 @@ impl TransferManager {
     ) {
         match session.direction {
             TransferDirection::Send => {
-                let send_session =
-                    self.build_send_session_for_resume(session.session_id, peer_id, files, key);
-                self.insert_send_session(session.session_id, new_epoch, send_session);
+                let send_actor =
+                    self.build_sender_actor_for_resume(session.session_id, peer_id, files, key);
+                self.insert_send_actor(session.session_id, new_epoch, send_actor);
             }
             TransferDirection::Receive => {
                 let (file_infos, initial_bitmaps) = build_file_infos_and_bitmaps(files);
                 let save_location = build_save_location(session);
-                self.start_receive_session(
+                self.start_receive_actor(
                     new_epoch,
                     session.session_id,
                     peer_id,
@@ -411,12 +411,12 @@ impl TransferManager {
     fn rollback_resume_actor(&self, session: &entity::transfer_session::Model, session_id: Uuid) {
         match session.direction {
             TransferDirection::Send => {
-                if let Some(actor) = self.remove_send_session(&session_id) {
+                if let Some(actor) = self.remove_send_actor(&session_id) {
                     actor.cancel();
                 }
             }
             TransferDirection::Receive => {
-                if let Some(actor) = self.remove_receive_session(&session_id) {
+                if let Some(actor) = self.remove_receive_actor(&session_id) {
                     actor.cancel();
                 }
             }

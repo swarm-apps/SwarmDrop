@@ -5,5 +5,5 @@
 //! - [`crypto`]     —— XChaCha20-Poly1305 分块加密
 
 pub mod crypto;
-pub(crate) mod data_plane;
 pub mod data_frame;
+pub(crate) mod data_plane;

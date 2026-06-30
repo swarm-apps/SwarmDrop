@@ -1,7 +1,7 @@
 //! transfer-data 数据面接线。
 //!
 //! `libs/core` 暴露通用 data channel；本模块把它路由到 SwarmDrop 的
-//! SendSession / ReceiveSession 并做注册表簿记。终态副作用（完成 / 中断
+//! SenderActor / ReceiverActor 并做注册表簿记。终态副作用（完成 / 中断
 //! 映射回 DB/projection）下沉到 actor 自身的 `on_completed`/`on_interrupted`
 //! 与 `finish_data_channel`/`fail_session`，本模块只做纯路由。
 
@@ -14,10 +14,10 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::protocol::FileRange;
+use crate::transfer::manager::TransferManager;
 use crate::transfer::wire::data_frame::{
     TRANSFER_DATA_PROTOCOL, TransferDataFrame, TransferDataRole, read_frame, write_frame,
 };
-use crate::transfer::manager::TransferManager;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
@@ -57,7 +57,7 @@ impl TransferManager {
         epoch: i64,
         fetch_plan: Vec<FileRange>,
     ) {
-        let Some(session) = self.get_send_session(&session_id) else {
+        let Some(session) = self.get_send_actor(&session_id) else {
             warn!("启动 transfer-data 发送失败：send session 不存在: {session_id}");
             return;
         };
@@ -80,7 +80,7 @@ impl TransferManager {
             .await;
 
             // data_plane 只做路由 + 注册表簿记；终态副作用（dispatch / 落库 / 完成事件）
-            // 下沉到 SendSession::on_completed / on_interrupted（与接收方对称）。
+            // 下沉到 SenderActor::on_completed / on_interrupted（与接收方对称）。
             actors.remove_send(&session_id);
             match result {
                 Ok(()) => {
@@ -93,7 +93,9 @@ impl TransferManager {
                 }
                 Err(e) => {
                     warn!("transfer-data 发送中断: session={session_id}, {e}");
-                    session.on_interrupted(epoch, coordinator.as_ref(), &db).await;
+                    session
+                        .on_interrupted(epoch, coordinator.as_ref(), &db)
+                        .await;
                 }
             }
         });
@@ -124,7 +126,7 @@ impl TransferManager {
         else {
             return Err(AppError::Transfer("data channel 首帧不是 Hello".into()));
         };
-        let Some(receive) = self.get_receive_session(&session_id) else {
+        let Some(receive) = self.get_receive_actor(&session_id) else {
             write_frame(
                 &mut stream,
                 &TransferDataFrame::Abort {

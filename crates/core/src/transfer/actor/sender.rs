@@ -1,4 +1,4 @@
-//! 发送方会话
+//! 发送方 actor（SenderActor）
 //!
 //! 管理单个发送传输的生命周期：经 data-channel 推送文件块、处理 Cancel。
 //! 文件读取通过 [`FileAccess`] trait 完成，加密使用 [`TransferCrypto`]。
@@ -23,18 +23,18 @@ use crate::transfer::CHUNK_SIZE;
 use crate::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator,
 };
-use crate::transfer::wire::crypto::TransferCrypto;
-use crate::transfer::wire::data_frame::{
-    TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
-};
 use crate::transfer::manager::PreparedFile;
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferCompleteEvent,
 };
+use crate::transfer::wire::crypto::TransferCrypto;
+use crate::transfer::wire::data_frame::{
+    TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
+};
 use crate::{AppError, AppResult};
 
-/// 发送方会话
-pub struct SendSession {
+/// 发送方 actor（SenderActor）
+pub struct SenderActor {
     /// 传输会话 ID
     pub session_id: Uuid,
     /// 对端 PeerId（暂停时需要通知对端）
@@ -57,7 +57,7 @@ pub struct SendSession {
     last_activity_ms: Arc<AtomicU64>,
 }
 
-impl SendSession {
+impl SenderActor {
     pub fn new(
         session_id: Uuid,
         peer_id: PeerId,

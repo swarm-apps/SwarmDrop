@@ -1,4 +1,4 @@
-//! 接收方生命周期：缓存入站 Offer / 接受 / 拒绝 / 暂停 / 取消 / receive_session 访问。
+//! 接收方生命周期：缓存入站 Offer / 接受 / 拒绝 / 暂停 / 取消 / receive_actor 访问。
 //!
 //! 这里同时承载 `IncomingTransferRuntime` 的接收侧 helper（`*_impl`），由 manager.rs
 //! 中的 trait impl 1-line delegate 调用。
@@ -15,12 +15,12 @@ use crate::database::ops::CreateSessionInput;
 use crate::protocol::{
     AppRequest, AppResponse, FileInfo, OfferRejectReason, TransferRequest, TransferResponse,
 };
+use crate::transfer::actor::receiver::ReceiverActor;
 use crate::transfer::coordinator::{CoordinatorInput, TransferState, UserCommand};
-use crate::transfer::wire::crypto::generate_key;
 use crate::transfer::manager::{PendingOffer, TransferManager};
 use crate::transfer::policy::ReceivePolicyDecision;
 use crate::transfer::progress::{RuntimeTransferDirection, TransferFailedEvent};
-use crate::transfer::actor::receiver::ReceiveSession;
+use crate::transfer::wire::crypto::generate_key;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
@@ -154,7 +154,7 @@ impl TransferManager {
         )
         .await?;
 
-        self.start_receive_session(
+        self.start_receive_actor(
             0,
             offer.session_id,
             offer.peer_id,
@@ -203,7 +203,7 @@ impl TransferManager {
 
     pub async fn pause_receive(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
-            .get_receive_session(session_id)
+            .get_receive_actor(session_id)
             .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
 
         session.cancel_and_wait().await;
@@ -218,7 +218,7 @@ impl TransferManager {
                 ),
             )
             .await?;
-        self.remove_receive_session(session_id);
+        self.remove_receive_actor(session_id);
 
         if let Err(e) = self
             .client
@@ -239,13 +239,13 @@ impl TransferManager {
 
     pub async fn cancel_receive(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
-            .get_receive_session(session_id)
+            .get_receive_actor(session_id)
             .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
 
         session.cancel_and_wait().await;
         session.send_cancel().await;
         session.cleanup_part_files().await;
-        self.remove_receive_session(session_id);
+        self.remove_receive_actor(session_id);
         // 状态决策经 Coordinator：写 phase+status(桥接)+finished_at 并发 projection。
         self.coordinator
             .dispatch(
@@ -259,20 +259,20 @@ impl TransferManager {
         Ok(())
     }
 
-    pub fn get_receive_session(&self, session_id: &Uuid) -> Option<Arc<ReceiveSession>> {
+    pub fn get_receive_actor(&self, session_id: &Uuid) -> Option<Arc<ReceiverActor>> {
         self.actors.get_receive(session_id)
     }
 
-    pub fn remove_receive_session(&self, session_id: &Uuid) -> Option<Arc<ReceiveSession>> {
+    pub fn remove_receive_actor(&self, session_id: &Uuid) -> Option<Arc<ReceiverActor>> {
         self.actors.remove_receive(session_id)
     }
 
-    /// 创建 ReceiveSession 并注册到 ActorRegistry（接受 Offer / 恢复重建共用）。
+    /// 创建 ReceiverActor 并注册到 ActorRegistry（接受 Offer / 恢复重建共用）。
     #[expect(
         clippy::too_many_arguments,
         reason = "传输会话初始化必须接收完整上下文（session_id / peer / files / 元信息 / 加密密钥 / 续传位图），无更小的有意义子集"
     )]
-    pub(crate) fn start_receive_session(
+    pub(crate) fn start_receive_actor(
         &self,
         epoch: i64,
         session_id: Uuid,
@@ -283,7 +283,7 @@ impl TransferManager {
         key: &[u8; 32],
         initial_bitmaps: HashMap<u32, Vec<u8>>,
     ) {
-        let receive_session = Arc::new(ReceiveSession::new(
+        let receive_actor = Arc::new(ReceiverActor::new(
             session_id,
             peer_id,
             files,
@@ -298,7 +298,7 @@ impl TransferManager {
             initial_bitmaps,
         ));
         self.actors
-            .insert_receive(session_id, epoch, receive_session.clone());
+            .insert_receive(session_id, epoch, receive_actor.clone());
     }
 }
 
@@ -310,12 +310,12 @@ impl TransferManager {
         session_id: Uuid,
         reason: String,
     ) -> AppResult<TransferFailedEvent> {
-        if let Some(session) = self.get_send_session(&session_id) {
+        if let Some(session) = self.get_send_actor(&session_id) {
             session.handle_cancel();
-            self.remove_send_session(&session_id);
+            self.remove_send_actor(&session_id);
         }
-        if let Some(session) = self.get_receive_session(&session_id) {
-            self.remove_receive_session(&session_id);
+        if let Some(session) = self.get_receive_actor(&session_id) {
+            self.remove_receive_actor(&session_id);
             tokio::spawn(async move {
                 session.cancel_and_wait().await;
                 session.cleanup_part_files().await;
@@ -356,11 +356,11 @@ impl TransferManager {
             }
         };
         for session_id in ids {
-            if let Some(session) = self.remove_send_session(&session_id) {
+            if let Some(session) = self.remove_send_actor(&session_id) {
                 session.cancel();
             }
-            if let Some(session) = self.get_receive_session(&session_id) {
-                self.remove_receive_session(&session_id);
+            if let Some(session) = self.get_receive_actor(&session_id) {
+                self.remove_receive_actor(&session_id);
                 session.cancel_and_wait().await;
             }
             // 先汇总 session 级 transferredBytes，使中断帧 projection 进度正确（否则显示 0%）。
@@ -389,16 +389,16 @@ impl TransferManager {
         &self,
         session_id: Uuid,
     ) -> AppResult<crate::transfer::progress::TransferPausedEvent> {
-        let direction = if let Some(session) = self.get_send_session(&session_id) {
+        let direction = if let Some(session) = self.get_send_actor(&session_id) {
             let progress = session.get_file_progress();
             let _ =
                 crate::database::ops::save_sender_file_progress(&self.db, session_id, &progress)
                     .await;
             session.cancel();
-            self.remove_send_session(&session_id);
+            self.remove_send_actor(&session_id);
             RuntimeTransferDirection::Send
-        } else if let Some(session) = self.get_receive_session(&session_id) {
-            self.remove_receive_session(&session_id);
+        } else if let Some(session) = self.get_receive_actor(&session_id) {
+            self.remove_receive_actor(&session_id);
             session.cancel_and_wait().await;
             RuntimeTransferDirection::Receive
         } else {

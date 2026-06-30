@@ -1,4 +1,4 @@
-//! 接收方会话
+//! 接收方 actor（ReceiverActor）
 //!
 //! 管理单个接收传输的生命周期：读取 data-channel 推送的分块、解密写入、校验、最终化。
 //! 文件 I/O 全部通过 [`FileAccess`] trait 完成，加密使用 [`TransferCrypto`]。
@@ -26,10 +26,12 @@ use crate::transfer::actor::checkpoint::{
     ranges_from_bitmap, validate_block_range,
 };
 use crate::transfer::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
-use crate::transfer::wire::crypto::TransferCrypto;
-use crate::transfer::wire::data_frame::{TransferDataFrame, manifest_digest, read_frame, write_frame};
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent,
+};
+use crate::transfer::wire::crypto::TransferCrypto;
+use crate::transfer::wire::data_frame::{
+    TransferDataFrame, manifest_digest, read_frame, write_frame,
 };
 use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
 use crate::{AppError, AppResult};
@@ -37,8 +39,8 @@ use crate::{AppError, AppResult};
 /// 每完成多少个 chunk 刷写一次 bitmap checkpoint 到 DB
 const CHECKPOINT_INTERVAL: u32 = 10;
 
-/// 接收方会话
-pub struct ReceiveSession {
+/// 接收方 actor（ReceiverActor）
+pub struct ReceiverActor {
     /// 传输会话 ID
     pub session_id: Uuid,
     /// 发送方 PeerId
@@ -71,7 +73,7 @@ pub struct ReceiveSession {
     finished_tx: watch::Sender<bool>,
 }
 
-impl ReceiveSession {
+impl ReceiverActor {
     #[expect(clippy::too_many_arguments, reason = "传输会话初始化需要完整上下文")]
     pub fn new(
         session_id: Uuid,
