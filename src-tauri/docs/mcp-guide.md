@@ -174,14 +174,36 @@ get_inbox_file(item_id=<id>, relative_path=<relativePath>)
 - **传输结果**：对方接受/拒绝会在 SwarmDrop 应用 UI 中显示
 - **网络检查**：每次发送前建议先确认网络状态和设备在线状态
 
-## 可用的 5 个 Tool
+## 跟踪与控制传输
+
+发起 `send_files` 后，传输是异步的。用下面的工具跟踪与干预：
+
+- `list_transfers` — 列出进行中与最近的传输会话（按更新时间倒序，可选 `limit`）。每个会话含 `sessionId`、`direction`（send/receive）、对端、`phase`、进度、文件数。
+- `get_transfer_status` — 按 `sessionId` 查单个会话的 phase、整体进度与分文件状态。
+- `cancel_transfer` — 按 `sessionId` 取消进行中的传输（会通知对端，**破坏性**操作）。
+- `pause_transfer` / `resume_transfer` — 按 `sessionId` 暂停 / 恢复。恢复时若对端不在线，会话会保留为 suspended 供稍后重试。
+
+```
+send_files → 返回 sessionId
+  → list_transfers / get_transfer_status 看进度
+  → 需要时 pause_transfer / resume_transfer / cancel_transfer
+```
+
+## 可用的 12 个 Tool
 
 | Tool                     | 作用                       | 前置条件                 |
 | ------------------------ | -------------------------- | ------------------------ |
 | `get_network_status`     | 获取 P2P 节点运行状态      | 无                       |
 | `list_available_devices` | 列出已配对且在线的设备     | 节点运行中               |
 | `send_files`             | 向指定设备发送文件         | 节点运行中，目标设备在线 |
-| `search_inbox`           | 检索本机已接收文件（收件箱） | 无                       |
+| `list_transfers`         | 列出进行中/最近的传输会话  | 无                       |
+| `get_transfer_status`    | 查单个传输会话的状态       | 无                       |
+| `cancel_transfer`        | 取消进行中的传输（破坏性） | 节点运行中               |
+| `pause_transfer`         | 暂停进行中的传输           | 节点运行中               |
+| `resume_transfer`        | 恢复已暂停的传输           | 节点运行中               |
+| `search_inbox`           | 按关键词检索本机收件箱     | 无                       |
+| `list_inbox`             | 列出收件箱条目（无需关键词） | 无                       |
+| `get_inbox_item`         | 取某收件箱条目的完整详情   | 先检索/列举定位          |
 | `get_inbox_file`         | 取收件箱内某文件的本地路径 | 先 `search_inbox` 定位   |
 
 ## 安全说明
