@@ -411,6 +411,7 @@ mod tests {
                 }),
                 source_paths: None,
                 lifecycle,
+                policy: None,
             },
         )
         .await

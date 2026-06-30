@@ -136,6 +136,7 @@ mod tests {
                     }),
                     source_paths: None,
                     lifecycle: TransferState::active(0),
+                    policy: None,
                 },
             )
             .await
@@ -191,6 +192,7 @@ mod tests {
                     }),
                     source_paths: None,
                     lifecycle: TransferState::active(0),
+                    policy: None,
                 },
             )
             .await

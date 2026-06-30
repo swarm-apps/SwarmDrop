@@ -33,6 +33,9 @@ pub struct CreateSessionInput<'a> {
     /// 发送方传入每个文件的绝对路径（与 `files` 一一对应），接收方传 `None`。
     pub source_paths: Option<&'a [String]>,
     pub lifecycle: TransferState,
+    /// 入站 Offer 的接收策略快照 `(action_name, reason)`；非策略场景传 `None`。
+    /// 随建会话一次写入，避免建后再 update 二次写。
+    pub policy: Option<(&'a str, &'a str)>,
 }
 
 /// 创建传输会话 + 关联的文件记录。
@@ -51,7 +54,12 @@ pub async fn create_session(
         save_path,
         source_paths,
         lifecycle,
+        policy,
     } = input;
+    let (policy_action, policy_reason) = match policy {
+        Some((action, reason)) => (Some(action.to_string()), Some(reason.to_string())),
+        None => (None, None),
+    };
 
     let mut session = entity::transfer_session::ActiveModel::builder()
         .set_session_id(session_id)
@@ -72,7 +80,9 @@ pub async fn create_session(
         .set_recoverable(lifecycle.recoverable)
         .set_started_at(now)
         .set_updated_at(now)
-        .set_save_path(save_path.map(Into::into));
+        .set_save_path(save_path.map(Into::into))
+        .set_policy_action(policy_action)
+        .set_policy_reason(policy_reason);
 
     for (idx, file) in files.iter().enumerate() {
         let total_chunks = calc_total_chunks(file.size) as i32;
@@ -328,26 +338,6 @@ pub async fn mark_session_completed(db: &DatabaseConnection, session_id: Uuid) -
         model.update(db).await?;
     }
 
-    Ok(())
-}
-
-/// 写入入站 Offer 的接收策略快照。
-pub async fn set_session_policy_metadata(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    policy_action: &str,
-    policy_reason: &str,
-) -> AppResult<()> {
-    if let Some(session) = entity::TransferSession::find_by_id(session_id)
-        .one(db)
-        .await?
-    {
-        let mut model = session.into_active_model();
-        model.policy_action = Set(Some(policy_action.to_string()));
-        model.policy_reason = Set(Some(policy_reason.to_string()));
-        model.updated_at = Set(now_ms());
-        model.update(db).await?;
-    }
     Ok(())
 }
 
@@ -714,6 +704,7 @@ mod tests {
                 }),
                 source_paths: None,
                 lifecycle: TransferState::active(0),
+                policy: None,
             },
         )
         .await

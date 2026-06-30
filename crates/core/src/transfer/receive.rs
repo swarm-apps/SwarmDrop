@@ -24,6 +24,36 @@ use crate::transfer::receiver::ReceiveSession;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
+    /// 落库一条 `offered` 入站接收会话，并把策略快照随建会话一次写入。
+    /// `cache_inbound_offer`（待用户决定）与 `record_rejected_inbound_offer`（策略直拒）共用。
+    async fn create_offered_inbound_session(
+        &self,
+        peer_id: &PeerId,
+        peer_name: &str,
+        session_id: Uuid,
+        files: &[FileInfo],
+        total_size: u64,
+        policy_decision: &ReceivePolicyDecision,
+    ) -> AppResult<()> {
+        let peer_id_str = peer_id.to_string();
+        crate::database::ops::create_session(
+            &self.db,
+            CreateSessionInput {
+                session_id,
+                direction: entity::TransferDirection::Receive,
+                peer_id: &peer_id_str,
+                peer_name,
+                files,
+                total_size,
+                save_path: None,
+                source_paths: None,
+                lifecycle: TransferState::offered(0),
+                policy: Some((policy_decision.action_name(), &policy_decision.reason)),
+            },
+        )
+        .await
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "缓存入站 offer 需要完整的对端与会话上下文"
@@ -38,27 +68,13 @@ impl TransferManager {
         total_size: u64,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
-        let peer_id_str = peer_id.to_string();
-        crate::database::ops::create_session(
-            &self.db,
-            CreateSessionInput {
-                session_id,
-                direction: entity::TransferDirection::Receive,
-                peer_id: &peer_id_str,
-                peer_name: &peer_name,
-                files: &files,
-                total_size,
-                save_path: None,
-                source_paths: None,
-                lifecycle: TransferState::offered(0),
-            },
-        )
-        .await?;
-        crate::database::ops::set_session_policy_metadata(
-            &self.db,
+        self.create_offered_inbound_session(
+            &peer_id,
+            &peer_name,
             session_id,
-            policy_decision.action_name(),
-            &policy_decision.reason,
+            &files,
+            total_size,
+            &policy_decision,
         )
         .await?;
         self.coordinator.publish_projection(session_id).await?;
@@ -89,31 +105,17 @@ impl TransferManager {
         total_size: u64,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
-        let peer_id_str = peer_id.to_string();
-        crate::database::ops::create_session(
-            &self.db,
-            CreateSessionInput {
-                session_id,
-                direction: entity::TransferDirection::Receive,
-                peer_id: &peer_id_str,
-                peer_name: &peer_name,
-                files: &files,
-                total_size,
-                save_path: None,
-                source_paths: None,
-                lifecycle: TransferState::offered(0),
-            },
-        )
-        .await?;
-        crate::database::ops::set_session_policy_metadata(
-            &self.db,
+        self.create_offered_inbound_session(
+            &peer_id,
+            &peer_name,
             session_id,
-            policy_decision.action_name(),
-            &policy_decision.reason,
+            &files,
+            total_size,
+            &policy_decision,
         )
         .await?;
-        // 终态经状态机：offered → terminal/rejected（policy reason 已由
-        // set_session_policy_metadata 持久化到 policy_reason，前端据此展示）。
+        // 终态经状态机：offered → terminal/rejected（policy reason 已随建会话写入
+        // policy_reason，前端据此展示）。
         self.coordinator
             .dispatch(session_id, CoordinatorInput::User(UserCommand::Reject))
             .await?;

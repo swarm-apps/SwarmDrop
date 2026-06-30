@@ -82,6 +82,7 @@ impl TransferManager {
                 save_path: None,
                 source_paths: Some(&source_paths),
                 lifecycle: TransferState::waiting_accept(0),
+                policy: None,
             },
         )
         .await?;

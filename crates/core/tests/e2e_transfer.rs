@@ -256,6 +256,7 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id:
             }),
             source_paths: None,
             lifecycle: TransferState::active(0),
+            policy: None,
         },
     )
     .await
@@ -289,6 +290,7 @@ async fn seed_suspended_session(
             save_path,
             source_paths,
             lifecycle: TransferState::active(0),
+            policy: None,
         },
     )
     .await
