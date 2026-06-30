@@ -7,6 +7,7 @@ mod m20260627_000001_transfer_range_checkpoint;
 mod m20260627_000002_drop_inbox;
 mod m20260627_000003_trusted_device_policies;
 mod m20260630_000001_inbox_fts;
+mod m20260630_000002_add_transfer_origin;
 
 pub struct Migrator;
 
@@ -21,6 +22,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260627_000002_drop_inbox::Migration),
             Box::new(m20260627_000003_trusted_device_policies::Migration),
             Box::new(m20260630_000001_inbox_fts::Migration),
+            Box::new(m20260630_000002_add_transfer_origin::Migration),
         ]
     }
 }

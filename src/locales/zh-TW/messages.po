@@ -44,6 +44,14 @@ msgid "{label}超时（{0}s）"
 msgstr "{label}逾時（{0}s）"
 
 #: src/routes/_app/inbox/index.lazy.tsx
+msgid "AI 代理"
+msgstr ""
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "AI 代理 (MCP)"
+msgstr ""
+
+#: src/routes/_app/inbox/index.lazy.tsx
 msgid "Bundle"
 msgstr ""
 
@@ -52,8 +60,8 @@ msgid "CPU 架构"
 msgstr "CPU 架構"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "MCP"
-msgstr ""
+#~ msgid "MCP"
+#~ msgstr ""
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "MCP Server 已停止"
@@ -1567,6 +1575,15 @@ msgstr "用時"
 #: src/routes/_app/devices/-components/add-device-grid-card.tsx
 #~ msgid "用配对码连接"
 #~ msgstr ""
+
+#: src/components/transfer/transfer-offer-dialog.tsx
+msgid "由 AI 代理发起"
+msgstr ""
+
+#. placeholder {0}: currentOffer.origin.client
+#: src/components/transfer/transfer-offer-dialog.tsx
+msgid "由 AI 代理发起（{0}）"
+msgstr ""
 
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx

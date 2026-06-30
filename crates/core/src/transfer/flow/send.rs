@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use crate::database::ops::CreateSessionInput;
 use crate::host::CoreEvent;
-use crate::protocol::{AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse};
+use crate::protocol::{
+    AppRequest, AppResponse, FileInfo, TransferOrigin, TransferRequest, TransferResponse,
+};
 use crate::transfer::actor::sender::SenderActor;
 use crate::transfer::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferState};
 use crate::transfer::flow::resume::parse_peer_id;
@@ -31,6 +33,7 @@ impl TransferManager {
         peer_id: &str,
         peer_name: &str,
         selected_file_ids: &[u32],
+        origin: TransferOrigin,
     ) -> AppResult<StartSendResult> {
         let prepared = self
             .prepared
@@ -82,6 +85,7 @@ impl TransferManager {
                 source_paths: Some(&source_paths),
                 lifecycle: TransferState::waiting_accept(0),
                 policy: None,
+                origin: Some(origin.clone()),
             },
         )
         .await?;
@@ -120,6 +124,7 @@ impl TransferManager {
                         session_id,
                         files: selected_files.clone(),
                         total_size,
+                        origin,
                     }),
                 )
                 .await;

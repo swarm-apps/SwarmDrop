@@ -33,7 +33,9 @@ use swarmdrop_core::host::{
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::run_event_loop;
-use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo, OfferRejectReason};
+use swarmdrop_core::protocol::{
+    AppRequest, AppResponse, FileInfo, OfferRejectReason, TransferOrigin,
+};
 use swarmdrop_core::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState, UserCommand,
 };
@@ -257,6 +259,7 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id:
             source_paths: None,
             lifecycle: TransferState::active(0),
             policy: None,
+            origin: None,
         },
     )
     .await
@@ -291,6 +294,7 @@ async fn seed_suspended_session(
             source_paths,
             lifecycle: TransferState::active(0),
             policy: None,
+            origin: None,
         },
     )
     .await
@@ -375,7 +379,13 @@ async fn e2e_single_file_transfer() {
 
     let StartSendResult { session_id } = node_a
         .transfer
-        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Human,
+        )
         .await
         .expect("send_offer");
 
@@ -821,7 +831,13 @@ async fn e2e_receiver_rejects_offer() {
 
     let StartSendResult { session_id } = node_a
         .transfer
-        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Human,
+        )
         .await
         .expect("send_offer");
 
@@ -928,6 +944,7 @@ async fn e2e_multichunk_multifile_transfer() {
             &node_b.peer_id.to_string(),
             "node-a",
             &[0, 1, 2],
+            TransferOrigin::Human,
         )
         .await
         .expect("send_offer");
@@ -1325,7 +1342,13 @@ async fn e2e_paused_offer_declined_then_resumes_on_resume() {
 
     let StartSendResult { session_id } = node_a
         .transfer
-        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Human,
+        )
         .await
         .expect("send_offer");
 
@@ -1397,6 +1420,7 @@ async fn e2e_paused_offer_declined_then_resumes_on_resume() {
             &node_b.peer_id.to_string(),
             "node-a",
             &[0u32],
+            TransferOrigin::Human,
         )
         .await
         .expect("send_offer 2");

@@ -295,6 +295,7 @@ impl IncomingTransferRuntime for TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: crate::protocol::TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
         TransferManager::cache_inbound_offer(
@@ -305,6 +306,7 @@ impl IncomingTransferRuntime for TransferManager {
             session_id,
             files,
             total_size,
+            origin,
             policy_decision,
         )
         .await
@@ -326,6 +328,7 @@ impl IncomingTransferRuntime for TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: crate::protocol::TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
         TransferManager::record_rejected_inbound_offer(
@@ -335,6 +338,7 @@ impl IncomingTransferRuntime for TransferManager {
             session_id,
             files,
             total_size,
+            origin,
             policy_decision,
         )
         .await

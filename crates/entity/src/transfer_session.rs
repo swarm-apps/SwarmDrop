@@ -49,6 +49,8 @@ pub struct Model {
     pub policy_action: Option<String>,
     /// 入站 Offer 的接收策略原因快照，用于活动与恢复页解释自动接收或拒绝。
     pub policy_reason: Option<String>,
+    /// 传输发起来源（紧凑字符串：human / mcp / mcp:<client>），收发双方各自记录。
+    pub origin: Option<String>,
     /// 接收方保存位置（direction=receive 时有值）
     /// JSON 序列化的 SaveLocation 枚举
     pub save_path: Option<SaveLocation>,

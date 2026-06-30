@@ -545,6 +545,7 @@ mod tests {
             error_message: None,
             policy_action: None,
             policy_reason: None,
+            origin: None,
             save_path: None,
         }
     }

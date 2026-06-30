@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, memo } from "react";
-import { Download, FolderOpen } from "lucide-react";
+import { Download, FolderOpen, Bot } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import type { SaveLocation } from "@/lib/types";
 import { FileTree } from "@/components/file-tree";
 import { buildTreeDataFromOffer } from "@/components/file-tree";
 import { PolicyReasonBadge } from "@/components/transfer/policy-reason-badge";
+import { Badge } from "@/components/ui/badge";
 import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -143,6 +144,16 @@ export function TransferOfferDialog() {
           <DialogDescription className="text-center">
             <Trans>来自 {currentOffer.deviceName}</Trans>
           </DialogDescription>
+          {currentOffer.origin.type === "mcp" && (
+            <Badge variant="secondary" className="gap-1">
+              <Bot className="size-3.5" />
+              {currentOffer.origin.client ? (
+                <Trans>由 AI 代理发起（{currentOffer.origin.client}）</Trans>
+              ) : (
+                <Trans>由 AI 代理发起</Trans>
+              )}
+            </Badge>
+          )}
           <PolicyReasonBadge
             variant="offer"
             policyAction={currentOffer.policyAction}

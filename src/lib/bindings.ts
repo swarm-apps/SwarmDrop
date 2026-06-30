@@ -585,9 +585,12 @@ export type TransferOfferEvent = {
 	deviceName: string,
 	files: TransferOfferFileEvent[],
 	totalSize: number,
+	origin: TransferOrigin,
 	policyAction: string | null,
 	policyReason: string | null,
 };
+
+export type TransferOrigin = { type: "human" } | { type: "mcp"; client: string | null };
 
 export type TransferOfferFileEvent = {
 	fileId: number,

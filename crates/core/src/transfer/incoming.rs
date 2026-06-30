@@ -10,8 +10,8 @@ use crate::device::PairedDeviceInfo;
 use crate::error::{AppError, AppResult};
 use crate::host::{CoreEvent, CoreSaveLocation, EventBus};
 use crate::protocol::{
-    AppNetClient, AppResponse, FileInfo, OfferRejectReason, ResumeRejectReason, TransferRequest,
-    TransferResponse,
+    AppNetClient, AppResponse, FileInfo, OfferRejectReason, ResumeRejectReason, TransferOrigin,
+    TransferRequest, TransferResponse,
 };
 use crate::transfer::policy::{
     ReceivePolicyAction, ReceivePolicyContext, ReceivePolicyDecision, evaluate_receive_policy,
@@ -27,6 +27,8 @@ pub struct TransferOfferEvent {
     pub device_name: String,
     pub files: Vec<TransferOfferFileEvent>,
     pub total_size: u64,
+    /// 发起来源（人工 / MCP 代理），供接收端 UI 标识。
+    pub origin: TransferOrigin,
     pub policy_action: Option<String>,
     pub policy_reason: Option<String>,
 }
@@ -82,6 +84,7 @@ pub trait IncomingTransferRuntime: Send + Sync {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()>;
 
@@ -98,6 +101,7 @@ pub trait IncomingTransferRuntime: Send + Sync {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()>;
 
@@ -177,6 +181,7 @@ where
             session_id,
             files,
             total_size,
+            origin,
         } => {
             if paired_device.is_none() {
                 send_transfer_response(
@@ -228,6 +233,7 @@ where
                         session_id,
                         files,
                         total_size,
+                        origin,
                         policy_decision,
                     )
                     .await;
@@ -257,6 +263,7 @@ where
                     session_id,
                     files.clone(),
                     total_size,
+                    origin.clone(),
                     policy_decision,
                 )
                 .await?;
@@ -283,6 +290,7 @@ where
                     })
                     .collect(),
                 total_size,
+                origin,
                 policy_action,
                 policy_reason,
             };

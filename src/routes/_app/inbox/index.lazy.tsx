@@ -357,6 +357,11 @@ function InboxListItem({
               <Trans>已归档</Trans>
             </span>
           )}
+          {item.sourceKind === "mcp" && (
+            <span className="shrink-0 rounded-full bg-blue-500/12 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+              <Trans>AI 代理</Trans>
+            </span>
+          )}
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
           <Trans>来自 {item.sourceName}</Trans>
@@ -572,7 +577,7 @@ function sourceKindLabel(kind: InboxItemSummary["sourceKind"]): string {
   const labels: Record<InboxItemSummary["sourceKind"], string> = {
     paired_device: t`已配对设备`,
     share_code: t`配对码`,
-    mcp: t`MCP`,
+    mcp: t`AI 代理 (MCP)`,
     unknown: t`未知`,
   };
   return labels[kind];

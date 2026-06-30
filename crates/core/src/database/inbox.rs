@@ -192,6 +192,9 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         .collect::<Vec<_>>()
         .join(" ");
 
+    // 由会话发起来源派生：MCP/代理来源记为 Mcp，否则 PairedDevice。
+    let source_kind = source_kind_for_origin(session.origin.as_deref());
+
     let txn = db.begin().await?;
 
     entity::inbox_item::ActiveModel::builder()
@@ -199,7 +202,7 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         .set_transfer_session_id(Some(session.session_id))
         .set_source_peer_id(session.peer_id.clone())
         .set_source_name(session.peer_name.clone())
-        .set_source_kind(InboxSourceKind::PairedDevice)
+        .set_source_kind(source_kind)
         .set_content_kind(InboxContentKind::Files)
         .set_title(title.clone())
         .set_item_count(item_count)
@@ -483,6 +486,15 @@ fn resolve_local_path(save_path: &CoreSaveLocation, relative_path: &str) -> Stri
     }
 }
 
+/// 由接收会话的 `origin` 列派生收件箱 `source_kind`：MCP/代理来源 → `Mcp`，否则 `PairedDevice`。
+/// 历史 NULL / 未知值经 `TransferOrigin::from_db_string` 回退 `Human` → `PairedDevice`。
+fn source_kind_for_origin(origin: Option<&str>) -> InboxSourceKind {
+    match crate::protocol::TransferOrigin::from_db_string(origin.unwrap_or("human")) {
+        crate::protocol::TransferOrigin::Mcp { .. } => InboxSourceKind::Mcp,
+        crate::protocol::TransferOrigin::Human => InboxSourceKind::PairedDevice,
+    }
+}
+
 /// 转义 LIKE 通配符（`\` `%` `_`），避免用户输入被当成通配模式（配合 SQL 的 `ESCAPE '\'`）。
 fn escape_like(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
@@ -565,6 +577,26 @@ mod tests {
     use crate::protocol::FileInfo;
     use crate::transfer::coordinator::TransferState;
 
+    #[test]
+    fn source_kind_derived_from_origin() {
+        assert!(matches!(
+            source_kind_for_origin(None),
+            InboxSourceKind::PairedDevice
+        ));
+        assert!(matches!(
+            source_kind_for_origin(Some("human")),
+            InboxSourceKind::PairedDevice
+        ));
+        assert!(matches!(
+            source_kind_for_origin(Some("mcp")),
+            InboxSourceKind::Mcp
+        ));
+        assert!(matches!(
+            source_kind_for_origin(Some("mcp:claude-desktop")),
+            InboxSourceKind::Mcp
+        ));
+    }
+
     async fn make_db() -> DatabaseConnection {
         let mut opt = ConnectOptions::new("sqlite::memory:");
         opt.max_connections(1)
@@ -613,6 +645,7 @@ mod tests {
                 source_paths: None,
                 lifecycle,
                 policy: None,
+                origin: None,
             },
         )
         .await
@@ -707,6 +740,7 @@ mod tests {
                 source_paths: None,
                 lifecycle: TransferState::active(0),
                 policy: None,
+                origin: None,
             },
         )
         .await

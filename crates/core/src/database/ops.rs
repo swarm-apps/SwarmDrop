@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::AppResult;
 use crate::host::{CoreSaveLocation, HostFileMetadata};
-use crate::protocol::FileInfo;
+use crate::protocol::{FileInfo, TransferOrigin};
 use crate::transfer::calc_total_chunks;
 use crate::transfer::coordinator::TransferState;
 
@@ -36,6 +36,8 @@ pub struct CreateSessionInput<'a> {
     /// 入站 Offer 的接收策略快照 `(action_name, reason)`；非策略场景传 `None`。
     /// 随建会话一次写入，避免建后再 update 二次写。
     pub policy: Option<(&'a str, &'a str)>,
+    /// 传输发起来源（人工 / MCP 代理），与 policy 正交；非传输场景（测试/seed）传 `None`。
+    pub origin: Option<TransferOrigin>,
 }
 
 /// 创建传输会话 + 关联的文件记录。
@@ -55,6 +57,7 @@ pub async fn create_session(
         source_paths,
         lifecycle,
         policy,
+        origin,
     } = input;
     let (policy_action, policy_reason) = match policy {
         Some((action, reason)) => (Some(action.to_string()), Some(reason.to_string())),
@@ -82,7 +85,8 @@ pub async fn create_session(
         .set_updated_at(now)
         .set_save_path(save_path.map(Into::into))
         .set_policy_action(policy_action)
-        .set_policy_reason(policy_reason);
+        .set_policy_reason(policy_reason)
+        .set_origin(origin.map(|o| o.to_db_string()));
 
     for (idx, file) in files.iter().enumerate() {
         let total_chunks = calc_total_chunks(file.size) as i32;
@@ -681,6 +685,7 @@ mod tests {
                 source_paths: None,
                 lifecycle: TransferState::active(0),
                 policy: None,
+                origin: None,
             },
         )
         .await

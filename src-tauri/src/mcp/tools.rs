@@ -143,6 +143,19 @@ impl McpHandler {
         get_net_manager!(self, _state2, guard);
         let manager = guard.as_ref().unwrap();
 
+        // 发送端门控：MCP 来源需目标设备策略放行（allow_mcp_send_to_device）。
+        // 这是真正的发送侧安全控制——防止 agent 静默把文件外传到未授权设备。
+        if let Ok(target_peer) = params.peer_id.parse::<swarm_p2p_core::libp2p::PeerId>() {
+            if let Some(device) = manager.pairing().get_paired_device(&target_peer) {
+                if !device.receive_policy.allow_mcp_send_to_device {
+                    return mcp_error(format!(
+                        "目标设备「{}」的策略不允许 MCP/AI 发送；请在 SwarmDrop 的设备策略中开启「允许 MCP 发送」",
+                        device.os_info.hostname
+                    ));
+                }
+            }
+        }
+
         // 验证文件路径存在并构造 EnumeratedFile 列表
         let mut entries = Vec::new();
         for path_str in &params.file_paths {
@@ -217,7 +230,13 @@ impl McpHandler {
         // send_offer
         let result = manager
             .transfer_arc()
-            .send_offer(&prepared_id, &params.peer_id, &peer_name, &all_file_ids)
+            .send_offer(
+                &prepared_id,
+                &params.peer_id,
+                &peer_name,
+                &all_file_ids,
+                swarmdrop_core::protocol::TransferOrigin::Mcp { client: None },
+            )
             .await
             .map_err(|e| ErrorData::internal_error(format!("发送 Offer 失败: {e}"), None))?;
 

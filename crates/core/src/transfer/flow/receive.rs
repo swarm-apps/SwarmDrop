@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 use crate::database::ops::CreateSessionInput;
 use crate::protocol::{
-    AppRequest, AppResponse, FileInfo, OfferRejectReason, TransferRequest, TransferResponse,
+    AppRequest, AppResponse, FileInfo, OfferRejectReason, TransferOrigin, TransferRequest,
+    TransferResponse,
 };
 use crate::transfer::actor::receiver::ReceiverActor;
 use crate::transfer::coordinator::{CoordinatorInput, TransferState, UserCommand};
@@ -33,6 +34,7 @@ impl TransferManager {
         session_id: Uuid,
         files: &[FileInfo],
         total_size: u64,
+        origin: TransferOrigin,
         policy_decision: &ReceivePolicyDecision,
     ) -> AppResult<()> {
         let peer_id_str = peer_id.to_string();
@@ -49,6 +51,7 @@ impl TransferManager {
                 source_paths: None,
                 lifecycle: TransferState::offered(0),
                 policy: Some((policy_decision.action_name(), &policy_decision.reason)),
+                origin: Some(origin),
             },
         )
         .await
@@ -66,6 +69,7 @@ impl TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
         self.create_offered_inbound_session(
@@ -74,6 +78,7 @@ impl TransferManager {
             session_id,
             &files,
             total_size,
+            origin,
             &policy_decision,
         )
         .await?;
@@ -103,6 +108,7 @@ impl TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
         self.create_offered_inbound_session(
@@ -111,6 +117,7 @@ impl TransferManager {
             session_id,
             &files,
             total_size,
+            origin,
             &policy_decision,
         )
         .await?;

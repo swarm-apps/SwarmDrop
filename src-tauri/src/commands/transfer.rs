@@ -135,7 +135,13 @@ pub async fn start_send(
 ) -> crate::AppResult<StartSendResult> {
     let transfer = get_transfer(&net).await?;
     Ok(transfer
-        .send_offer(&prepared_id, &peer_id, &peer_name, &selected_file_ids)
+        .send_offer(
+            &prepared_id,
+            &peer_id,
+            &peer_name,
+            &selected_file_ids,
+            swarmdrop_core::protocol::TransferOrigin::Human,
+        )
         .await?)
 }
 
