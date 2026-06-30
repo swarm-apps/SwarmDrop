@@ -39,9 +39,9 @@
 
 ## 8. 移动端（SwarmDrop-RN 仓库）
 
-- [~] 8.1 `mobile-core` 带上 origin：✅ Rust 已完成并 `cargo check` 通过（bump core rev→5b39fb4 + `MobileTransferOrigin` enum + `MobileTransferOffer.origin` + `send_prepared` 传 `Human`）；附带把全部 struct `From` 改为穷尽解构 drift guard（约定记入 RN `rust-bridge.md`）。⏳ 待跑 `pnpm --filter react-native-swarmdrop-core build:android/ios` + `ubrn:fix` + `bob prepare` 重生成 TS 绑定/原生产物（需移动端构建环境）
-- [ ] 8.2 `src/components/transfer-offer-host.tsx` offer 对话框展示"AI 代理发起"标记（依赖 8.1 重生成的绑定含 origin）
-- [ ] 8.3 inbox 展示 `source_kind=Mcp` 标记（依赖 8.1）
+- [x] 8.1 `mobile-core` 带上 origin：bump core rev→5b39fb4 + `MobileTransferOrigin` enum + `MobileTransferOffer.origin` + `send_prepared` 传 `Human`；附带把全部 struct `From` 改为穷尽解构 drift guard（约定记入 RN `rust-bridge.md`）。已跑 `ubrn build android --and-generate`（arm64-v8a）+ `ubrn:fix` + `bob prepare` 重生成 TS/C++ 绑定 + jniLibs
+- [x] 8.2 `src/components/transfer-offer-host.tsx`：`origin.tag===Mcp` 时显示「🤖 由 AI 代理发起（client）」徽章（store/transfer-types 透传 origin）
+- [x] 8.3 `inbox-list.tsx`：`sourceKind===Mcp` 显示「AI 代理」徽章
 
 ## 9. 验证
 
