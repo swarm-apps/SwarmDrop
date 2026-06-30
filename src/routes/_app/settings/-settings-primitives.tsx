@@ -17,6 +17,8 @@ type SettingsSectionProps = {
   aside?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** bento 等高：撑满父高度，让同一行的卡片高度一致（搭配 grid items-stretch + SettingsCard fill） */
+  fill?: boolean;
 };
 
 export function SettingsSection({
@@ -25,9 +27,12 @@ export function SettingsSection({
   aside,
   children,
   className,
+  fill,
 }: SettingsSectionProps) {
   return (
-    <section className={cn("flex flex-col gap-2.5", className)}>
+    <section
+      className={cn("flex flex-col gap-2.5", fill && "h-full", className)}
+    >
       <div className="flex items-center gap-2 px-1">
         {Icon ? (
           <Icon className="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
@@ -37,7 +42,11 @@ export function SettingsSection({
         </h2>
         {aside ? <div className="ml-auto">{aside}</div> : null}
       </div>
-      {children}
+      {fill ? (
+        <div className="flex flex-1 flex-col gap-2.5">{children}</div>
+      ) : (
+        children
+      )}
     </section>
   );
 }
@@ -45,12 +54,20 @@ export function SettingsSection({
 type SettingsCardProps = {
   children: ReactNode;
   className?: string;
+  /** bento 等高：在 fill 的 Section 内撑满剩余高度（内容靠上，底部由玻璃底色延伸） */
+  fill?: boolean;
 };
 
 /** 分组卡：一张玻璃卡，内部用 SettingsRow 的分隔线划分，不做卡片套卡片 */
-export function SettingsCard({ children, className }: SettingsCardProps) {
+export function SettingsCard({ children, className, fill }: SettingsCardProps) {
   return (
-    <div className={cn("glass-card overflow-hidden rounded-[20px]", className)}>
+    <div
+      className={cn(
+        "glass-card overflow-hidden rounded-[20px]",
+        fill && "flex flex-1 flex-col",
+        className,
+      )}
+    >
       {children}
     </div>
   );

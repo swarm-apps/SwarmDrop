@@ -204,26 +204,8 @@
     }
   }
 
-  /* 设置页固定双列：左/右各一条 flex 列，窄屏退化为单列 */
-  .settings-workbench .settings-board {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.25rem;
-    align-items: start;
-  }
-
-  .settings-workbench .settings-column {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-
-  @media (min-width: 768px) {
-    .settings-workbench .settings-board {
-      grid-template-columns: 1fr 1fr;
-    }
-  }
+  /* 设置页 bento 网格直接用 index.lazy.tsx 内的 Tailwind grid utility，
+     不再需要 .settings-board / .settings-column 自定义类。 */
 }
 
 @layer base {

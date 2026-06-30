@@ -104,8 +104,9 @@ export function BootstrapNodesSection() {
           )}
         </Badge>
       }
+      fill
     >
-      <SettingsCard>
+      <SettingsCard fill>
         {/* 默认节点 */}
         <div className="border-b border-border/60 p-4">
           <div className="flex items-start justify-between gap-4">

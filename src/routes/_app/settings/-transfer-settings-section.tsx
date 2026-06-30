@@ -60,12 +60,12 @@ export function TransferSettingsSection() {
   }, [savePath, setTransferSavePath, t]);
 
   return (
-    <SettingsSection title={<Trans>文件传输</Trans>} icon={HardDrive}>
-      <SettingsCard>
+    <SettingsSection title={<Trans>文件传输</Trans>} icon={HardDrive} fill>
+      <SettingsCard fill>
         <button
           type="button"
           onClick={handleChangePath}
-          className="group flex w-full flex-col gap-3 p-4 text-left transition-colors hover:bg-accent/40"
+          className="group flex w-full flex-1 flex-col gap-3 p-4 text-left transition-colors hover:bg-accent/40"
         >
           <div className="flex w-full items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">

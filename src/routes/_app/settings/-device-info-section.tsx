@@ -154,109 +154,111 @@ export function DeviceInfoSection() {
   return (
     <SettingsSection title={<Trans>设备信息</Trans>} icon={MonitorSmartphone}>
       <SettingsCard>
-        {/* 上半部分：身份识别区 */}
-        <div className="flex items-center gap-4 p-4 sm:gap-5 sm:p-5">
-          {/* 头像区域 */}
-          <div className="relative shrink-0">
-            <div
-              className={`absolute -left-1 -top-1 z-10 size-3.5 rounded-full border-2 border-background ${
-                isOnline ? "bg-green-500" : "bg-muted-foreground/40"
-              }`}
-            />
-            <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-500/10 sm:size-16">
-              <span className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400 sm:text-2xl">
-                {avatarInitials}
-              </span>
-            </div>
-            <div className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-lg border border-border bg-background shadow-sm sm:size-6">
-              <DeviceIcon className="size-3 text-muted-foreground sm:size-3.5" />
-            </div>
-          </div>
-
-          {/* 设备信息区 */}
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            {/* 设备名称 */}
-            <div className="group flex items-center gap-2">
-              {editing ? (
-                <Input
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  onBlur={handleSaveName}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSaveName();
-                    if (e.key === "Escape") {
-                      setNameInput(deviceName);
-                      setEditing(false);
-                    }
-                  }}
-                  className="h-7 w-full max-w-50 px-1 py-0 text-base font-bold sm:text-lg"
-                  autoFocus
-                />
-              ) : (
-                <>
-                  <h3 className="truncate text-base font-bold text-foreground sm:text-lg">
-                    {displayName}
-                  </h3>
-                  {isOnline && (
-                    <span className="shrink-0 rounded-full border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-400 sm:px-2 sm:text-[11px]">
-                      {t`在线`}
-                    </span>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                    onClick={() => {
-                      setNameInput(deviceName || systemHostname);
-                      setEditing(true);
-                    }}
-                  >
-                    <Pencil className="size-3 text-muted-foreground" />
-                  </Button>
-                </>
-              )}
-            </div>
-
-            {/* 系统版本 */}
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Cpu className="size-3.5 shrink-0" />
-              <span className="truncate">{osLabel}</span>
-            </div>
-
-            {/* Peer ID */}
-            <div
-              className="group flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
-              onClick={handleCopyPeerId}
-            >
-              <Activity className="size-3.5 shrink-0" />
-              <span className="truncate font-mono text-[13px]">
-                {truncatePeerId(deviceId ?? "")}
-              </span>
-              {copied ? (
-                <Check className="size-3.5 shrink-0 text-green-500" />
-              ) : (
-                <Copy className="size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* 下半部分：网络指标区 */}
-        <div className="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60">
-          {stats.map((stat, i) => (
-            <div
-              key={i}
-              className="flex flex-col items-center justify-center px-2 py-4 transition-colors hover:bg-muted/30"
-            >
-              <div className="mb-1.5 flex items-center gap-1 text-muted-foreground sm:gap-1.5">
-                <stat.icon className="size-3.5 text-muted-foreground" />
-                <span className="text-[11px] font-medium sm:text-xs">
-                  {t(stat.label)}
+        <div className="flex flex-col lg:flex-row lg:items-stretch">
+          {/* 身份识别区 */}
+          <div className="flex flex-1 items-center gap-4 p-4 sm:gap-5 sm:p-5">
+            {/* 头像区域 */}
+            <div className="relative shrink-0">
+              <div
+                className={`absolute -left-1 -top-1 z-10 size-3.5 rounded-full border-2 border-background ${
+                  isOnline ? "bg-green-500" : "bg-muted-foreground/40"
+                }`}
+              />
+              <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-500/10 sm:size-16">
+                <span className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400 sm:text-2xl">
+                  {avatarInitials}
                 </span>
               </div>
-              {stat.value}
+              <div className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-lg border border-border bg-background shadow-sm sm:size-6">
+                <DeviceIcon className="size-3 text-muted-foreground sm:size-3.5" />
+              </div>
             </div>
-          ))}
+
+            {/* 设备信息区 */}
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              {/* 设备名称 */}
+              <div className="group flex items-center gap-2">
+                {editing ? (
+                  <Input
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onBlur={handleSaveName}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveName();
+                      if (e.key === "Escape") {
+                        setNameInput(deviceName);
+                        setEditing(false);
+                      }
+                    }}
+                    className="h-7 w-full max-w-50 px-1 py-0 text-base font-bold sm:text-lg"
+                    autoFocus
+                  />
+                ) : (
+                  <>
+                    <h3 className="truncate text-base font-bold text-foreground sm:text-lg">
+                      {displayName}
+                    </h3>
+                    {isOnline && (
+                      <span className="shrink-0 rounded-full border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-400 sm:px-2 sm:text-[11px]">
+                        {t`在线`}
+                      </span>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                      onClick={() => {
+                        setNameInput(deviceName || systemHostname);
+                        setEditing(true);
+                      }}
+                    >
+                      <Pencil className="size-3 text-muted-foreground" />
+                    </Button>
+                  </>
+                )}
+              </div>
+
+              {/* 系统版本 */}
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Cpu className="size-3.5 shrink-0" />
+                <span className="truncate">{osLabel}</span>
+              </div>
+
+              {/* Peer ID */}
+              <div
+                className="group flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
+                onClick={handleCopyPeerId}
+              >
+                <Activity className="size-3.5 shrink-0" />
+                <span className="truncate font-mono text-[13px]">
+                  {truncatePeerId(deviceId ?? "")}
+                </span>
+                {copied ? (
+                  <Check className="size-3.5 shrink-0 text-green-500" />
+                ) : (
+                  <Copy className="size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 网络指标区：窄屏沉底，宽屏移到右侧并用左分隔 */}
+          <div className="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60 lg:w-[360px] lg:shrink-0 lg:border-l lg:border-t-0">
+            {stats.map((stat, i) => (
+              <div
+                key={i}
+                className="flex flex-col items-center justify-center px-2 py-4 transition-colors hover:bg-muted/30"
+              >
+                <div className="mb-1.5 flex items-center gap-1 text-muted-foreground sm:gap-1.5">
+                  <stat.icon className="size-3.5 text-muted-foreground" />
+                  <span className="text-[11px] font-medium sm:text-xs">
+                    {t(stat.label)}
+                  </span>
+                </div>
+                {stat.value}
+              </div>
+            ))}
+          </div>
         </div>
       </SettingsCard>
     </SettingsSection>

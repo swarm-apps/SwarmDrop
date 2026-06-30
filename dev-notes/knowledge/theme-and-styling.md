@@ -103,7 +103,7 @@ const nearbyDevices = useNetworkStore(
 
 ## 设置页（settings）布局与基元
 
-### 设置页统一走「Section → Card → Row」基元 + 固定双列
+### 设置页统一走「Section → Card → Row」基元 + bento 卡片网格
 
 设置页所有分区一律用 `src/routes/_app/settings/-settings-primitives.tsx` 的三件套，不要每个 section 各自手绘卡片：
 
@@ -112,8 +112,12 @@ const nearbyDevices = useNetworkStore(
 - `SettingsRow`：行内 `border-b border-border/60 last:border-b-0` 分隔，靠分隔线而非「每行独立浮块」
 
 **正确做法**：
-- 布局是固定双列（`.settings-board` grid + 两条 `.settings-column` flex 列），`md` 以下退化单列；不要用 `column-count` 瀑布流（阅读顺序会跳列、逻辑分组被打散）
-- 低频的「关于 / 更新」沉到页面底部，不要占顶部 Hero 黄金位
+- 布局是 bento 不规则卡片网格（`index.lazy.tsx` 内直接用 Tailwind grid utility：`grid-cols-1 md:grid-cols-2 lg:grid-cols-6` + `items-stretch`，各卡用 `col-span-*` 定宽）。行顺序：row1 满宽英雄（设备信息，宽屏身份左 / 指标右）→ row2 关于产品介绍（满宽）→ row3 外观｜通用+传输竖叠｜网络（各 `col-span-2`，三栏等高）→ row4 引导节点(3)｜MCP(3)
+- 同一行卡片内容高度不齐会留透明空洞 → grid 用 `items-stretch`，并给该行的 `SettingsSection` / `SettingsCard` 传 `fill`（section `h-full` + card `flex-1` flex-col），矮卡底部由玻璃底色延伸而非透明空洞；竖叠列（通用+传输）让其中一张卡（传输）`flex-1` 撑满列剩余高度。满宽单卡行（设备信息英雄 / 关于）不传 `fill`
+- DOM 顺序＝阅读顺序（设备→偏好→网络→引导→MCP→关于），不会像 `column-count` 瀑布流那样跳列
+- 不要用 `column-count` 瀑布流，也不要回退成呆板的等宽双列；"不规则"靠 `col-span` 变化 + 自然高度实现
+- 外观的主题选择用可视化迷你预览卡（`ThemeOption` / `ThemePreview`：系统＝左右半屏、浅/深＝迷你窗口缩略图 + 选中蓝边），不要用朴素 Select；让内容少的卡在 bento 里也够"充实"
+- 「关于」做成产品介绍卡（slogan + 一句话定位 + 核心特性标签 `FeatureTag` + 官网 / GitHub / 更新日志 / 检查更新按钮，文案对齐 README），置于 row2 设备信息下方作为产品展示；更新检查 / 下载 banner 仍挂在此卡底部
 - 圆角 scale 收敛：卡片 `rounded-[20px]`、内部小块/控件 `rounded-xl`、胶囊 `rounded-full`
 - 蓝色强调统一 `text-blue-600 dark:text-blue-400` / `bg-blue-500/10`，不要混用 `blue-200/300/400` 各种暗色变体
 - 节点设置「改了要重启」的逻辑用 `useNodeRestart()` hook + `NodeRestartBanner`，网络 / 引导节点共用，不要各抄一份
@@ -122,4 +126,4 @@ const nearbyDevices = useNetworkStore(
 - 设置页用 CSS 多列瀑布流；不要给 `.settings-workbench .glass-card > div` 这类规则把每行做成独立浮块
 - 同一类设置项一会儿规整 Row、一会儿大色块图标卡，视觉权重不统一
 
-**相关文件**：`src/routes/_app/settings/-settings-primitives.tsx`、`src/routes/_app/settings/index.lazy.tsx`、`src/hooks/use-node-restart.ts`、`src/index.css`（`.settings-workbench`）
+**相关文件**：`src/routes/_app/settings/-settings-primitives.tsx`、`src/routes/_app/settings/index.lazy.tsx`（bento grid + `ThemeOption` / `ThemePreview`）、`src/routes/_app/settings/-device-info-section.tsx`（英雄横卡 `lg:flex-row`）、`src/hooks/use-node-restart.ts`

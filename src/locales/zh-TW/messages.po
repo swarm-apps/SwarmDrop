@@ -64,6 +64,10 @@ msgstr "AI 代理"
 msgid "AI 代理 (MCP)"
 msgstr "AI 代理 (MCP)"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "AI 原生 · MCP"
+msgstr "AI 原生 · MCP"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "Bundle"
 msgstr "Bundle"
@@ -148,6 +152,10 @@ msgstr "下載中..."
 #: src/lib/transfer-projection.ts
 msgid "不可恢复失败"
 msgstr "不可恢復失敗"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "不止于局域网：在任意网络间端到端加密地收发文件，连 AI 代理也能经 MCP 调用。"
+msgstr "不只限於區域網路：在任意網路間端到端加密地收發檔案，連 AI 代理也能透過 MCP 調用。"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "不限制"
@@ -503,6 +511,9 @@ msgstr "剩餘 {0}"
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "协作者"
 msgstr "協作者"
+
+#~ msgid "去中心化、跨网络、端到端加密的文件传输：无需账户、没有中心服务器， 只有发送方和接收方能解密。还内置本地 MCP Server，让 AI 代理也能在你的设备之间投递文件、检索收件箱。"
+#~ msgstr "去中心化、跨網路、端到端加密的檔案傳輸：無需帳號、沒有中心伺服器，只有傳送方和接收方能解密。還內建本機 MCP Server，讓 AI 代理也能在你的裝置之間投遞檔案、檢索收件匣。"
 
 #~ msgid "去配对"
 #~ msgstr "重新配對"
@@ -1239,6 +1250,10 @@ msgstr "檔案明細"
 msgid "文本"
 msgstr "文字"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "断点续传"
+msgstr "中斷續傳"
+
 #~ msgid "新版本 {latestVersion} 可用，当前版本 {currentVersion}"
 #~ msgstr "新版本 {latestVersion} 可用，目前版本 {currentVersion}"
 
@@ -1252,6 +1267,10 @@ msgstr "無法開啟資料夾選擇器，請檢查儲存權限"
 
 #~ msgid "无法获取密码"
 #~ msgstr "無法取得密碼"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "无账户 · 无服务器"
+msgstr "無帳號 · 無伺服器"
 
 #~ msgid "无需服务器"
 #~ msgstr "無需伺服器"
@@ -1589,29 +1608,23 @@ msgstr "清空活動記錄"
 msgid "点窗口关闭按钮（✕）后的行为"
 msgstr "點視窗關閉按鈕（✕）後的行為"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver}"
-msgstr "版本 {ver}"
+#~ msgid "版本 {ver}"
+#~ msgstr "版本 {ver}"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 已是最新版本"
-msgstr "版本 {ver} · 已是最新版本"
+#~ msgid "版本 {ver} · 已是最新版本"
+#~ msgstr "版本 {ver} · 已是最新版本"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 有新版本可用"
-msgstr "版本 {ver} · 有新版本可用"
+#~ msgid "版本 {ver} · 有新版本可用"
+#~ msgstr "版本 {ver} · 有新版本可用"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 检查中..."
-msgstr "版本 {ver} · 檢查中..."
+#~ msgid "版本 {ver} · 检查中..."
+#~ msgstr "版本 {ver} · 檢查中..."
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 检查失败"
-msgstr "版本 {ver} · 檢查失敗"
+#~ msgid "版本 {ver} · 检查失败"
+#~ msgstr "版本 {ver} · 檢查失敗"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 正在更新..."
-msgstr "版本 {ver} · 正在更新..."
+#~ msgid "版本 {ver} · 正在更新..."
+#~ msgstr "版本 {ver} · 正在更新..."
 
 #~ msgid "生成配对码"
 #~ msgstr "產生配對碼"
@@ -1700,8 +1713,9 @@ msgstr "離線"
 #~ msgid "立即更新"
 #~ msgstr "立即更新"
 
-#~ msgid "端到端加密"
-#~ msgstr "端對端加密"
+#: src/routes/_app/settings/-about-section.tsx
+msgid "端到端加密"
+msgstr "端對端加密"
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "端到端加密直连"
@@ -1893,6 +1907,10 @@ msgstr "記住我的選擇（之後可在「設定」中修改）"
 msgid "设备中心"
 msgstr "裝置中心"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "设备之间的数据通道 —— 人与 AI 代理皆可用"
+msgstr "裝置之間的資料通道 —— 人與 AI 代理皆適用"
+
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "设备信息"
 msgstr "裝置資訊"
@@ -1971,6 +1989,10 @@ msgstr "請輸入大於 0 的數字，留空表示不限制"
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "跟随系统"
 msgstr "跟隨系統"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "跨网络"
+msgstr "跨網路"
 
 #~ msgid "跨网络传输"
 #~ msgstr "跨網路傳輸"

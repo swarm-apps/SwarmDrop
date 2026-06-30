@@ -9,13 +9,16 @@ import type { Progress as UpdateProgress, UpdateStatus } from "@swarm-hive/sdk";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
+  Bot,
   Download,
   ExternalLink,
   Github,
   Globe2,
   Info,
+  KeyRound,
   Loader2,
   RefreshCw,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
@@ -53,43 +56,61 @@ export function AboutPanel({ className }: { className?: string }) {
     getVersion().then(setAppVersion);
   }, []);
 
-  const currentVersion = appVersion;
-
   return (
     <SettingsCard className={className}>
-      {/* App Info Row - 桌面端 space-between，窄屏垂直堆叠 */}
-      <div className="flex flex-col gap-4 p-4 min-[520px]:flex-row min-[520px]:items-center min-[520px]:justify-between">
-        {/* 应用信息 */}
-        <div className="flex items-center gap-3">
-          <img
-            src="/app-icon.svg"
-            alt="SwarmDrop"
-            className="size-10 rounded-xl"
-          />
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[15px] font-semibold text-foreground">
-              SwarmDrop
-            </span>
-            <span className="text-xs text-muted-foreground">
-              <VersionDescription
-                status={status}
-                currentVersion={currentVersion}
-              />
-            </span>
+      <div className="flex flex-col gap-5 p-4 sm:p-5">
+        {/* 品牌信息 + 操作按钮 */}
+        <div className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
+          <div className="flex gap-3.5">
+            <img
+              src="/app-icon.svg"
+              alt="SwarmDrop"
+              className="size-12 shrink-0 rounded-2xl"
+            />
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-base font-semibold text-foreground">
+                  SwarmDrop
+                </span>
+                {appVersion ? (
+                  <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                    v{appVersion}
+                  </span>
+                ) : null}
+              </div>
+              <p className="text-[13px] font-medium text-foreground/90">
+                <Trans>设备之间的数据通道 —— 人与 AI 代理皆可用</Trans>
+              </p>
+              <p className="hidden max-w-md text-xs leading-5 text-muted-foreground min-[480px]:block">
+                <Trans>
+                  不止于局域网：在任意网络间端到端加密地收发文件，连 AI 代理也能经
+                  MCP 调用。
+                </Trans>
+              </p>
+            </div>
+          </div>
+
+          {/* 按钮组 */}
+          <div className="flex flex-wrap items-center gap-2 min-[640px]:shrink-0 min-[640px]:justify-end">
+            <OfficialWebsiteButton />
+            <GithubButton />
+            <ReleaseNotesButton />
+            <UpdateButton
+              status={status}
+              latestVersion={latestVersion}
+              onCheck={() => void check(true)}
+              onUpdate={() => void download()}
+            />
           </div>
         </div>
 
-        {/* 按钮组 */}
-        <div className="flex flex-wrap items-center gap-2 max-[519px]:justify-start min-[520px]:justify-end">
-          <OfficialWebsiteButton />
-          <GithubButton />
-          <ReleaseNotesButton />
-          <UpdateButton
-            status={status}
-            latestVersion={latestVersion}
-            onCheck={() => void check(true)}
-            onUpdate={() => void download()}
-          />
+        {/* 核心特性 */}
+        <div className="flex flex-wrap gap-1.5">
+          <FeatureTag icon={Globe2} label={<Trans>跨网络</Trans>} />
+          <FeatureTag icon={ShieldCheck} label={<Trans>端到端加密</Trans>} />
+          <FeatureTag icon={KeyRound} label={<Trans>无账户 · 无服务器</Trans>} />
+          <FeatureTag icon={Bot} label={<Trans>AI 原生 · MCP</Trans>} />
+          <FeatureTag icon={RefreshCw} label={<Trans>断点续传</Trans>} />
         </div>
       </div>
 
@@ -109,31 +130,21 @@ export function AboutPanel({ className }: { className?: string }) {
     </SettingsCard>
   );
 }
-/** 版本描述文字 */
-function VersionDescription({
-  status,
-  currentVersion,
+
+/** 核心特性小标签 */
+function FeatureTag({
+  icon: Icon,
+  label,
 }: {
-  status: UpdateStatus;
-  currentVersion: string | null;
+  icon: ComponentType<{ className?: string }>;
+  label: ReactNode;
 }) {
-  const ver = currentVersion ? `v${currentVersion}` : "";
-  switch (status) {
-    case "checking":
-      return <Trans>版本 {ver} · 检查中...</Trans>;
-    case "available":
-    case "force-required":
-      return <Trans>版本 {ver} · 有新版本可用</Trans>;
-    case "downloading":
-    case "ready":
-      return <Trans>版本 {ver} · 正在更新...</Trans>;
-    case "up-to-date":
-      return <Trans>版本 {ver} · 已是最新版本</Trans>;
-    case "error":
-      return <Trans>版本 {ver} · 检查失败</Trans>;
-    default:
-      return <Trans>版本 {ver}</Trans>;
-  }
+  return (
+    <span className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/50 px-2.5 py-1 text-[11px] font-medium text-muted-foreground dark:bg-white/[0.03]">
+      <Icon className="size-3.5 text-blue-600 dark:text-blue-400" />
+      {label}
+    </span>
+  );
 }
 
 /** 桌面端：官方网站按钮 */

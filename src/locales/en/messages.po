@@ -64,6 +64,10 @@ msgstr "AI Agent"
 msgid "AI 代理 (MCP)"
 msgstr "AI Agent (MCP)"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "AI 原生 · MCP"
+msgstr "AI-Native · MCP"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "Bundle"
 msgstr "Bundle"
@@ -148,6 +152,10 @@ msgstr "Downloading..."
 #: src/lib/transfer-projection.ts
 msgid "不可恢复失败"
 msgstr "Unrecoverable failure"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "不止于局域网：在任意网络间端到端加密地收发文件，连 AI 代理也能经 MCP 调用。"
+msgstr "Beyond the local network — send files end-to-end encrypted across any network, and let AI agents drive it over MCP."
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "不限制"
@@ -503,6 +511,9 @@ msgstr "{0} remaining"
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "协作者"
 msgstr "Collaborator"
+
+#~ msgid "去中心化、跨网络、端到端加密的文件传输：无需账户、没有中心服务器， 只有发送方和接收方能解密。还内置本地 MCP Server，让 AI 代理也能在你的设备之间投递文件、检索收件箱。"
+#~ msgstr "Decentralized, cross-network, end-to-end encrypted file transfer — no account, no central server, and only the sender and receiver can decrypt. A built-in local MCP Server also lets AI agents deliver files across your devices and search your inbox."
 
 #~ msgid "去配对"
 #~ msgstr "Pair Again"
@@ -1239,6 +1250,10 @@ msgstr "File details"
 msgid "文本"
 msgstr "Text"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "断点续传"
+msgstr "Resumable Transfers"
+
 #~ msgid "新版本 {latestVersion} 可用，当前版本 {currentVersion}"
 #~ msgstr "Version {latestVersion} is available. Current version: {currentVersion}"
 
@@ -1252,6 +1267,10 @@ msgstr "Couldn't open the folder picker. Please check storage permissions."
 
 #~ msgid "无法获取密码"
 #~ msgstr "Cannot retrieve password"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "无账户 · 无服务器"
+msgstr "No Accounts · No Servers"
 
 #~ msgid "无需服务器"
 #~ msgstr "No server required"
@@ -1589,29 +1608,23 @@ msgstr "Clear activity"
 msgid "点窗口关闭按钮（✕）后的行为"
 msgstr "What clicking the window close button (✕) does"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver}"
-msgstr "Version {ver}"
+#~ msgid "版本 {ver}"
+#~ msgstr "Version {ver}"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 已是最新版本"
-msgstr "Version {ver} · Up to date"
+#~ msgid "版本 {ver} · 已是最新版本"
+#~ msgstr "Version {ver} · Up to date"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 有新版本可用"
-msgstr "Version {ver} · Update available"
+#~ msgid "版本 {ver} · 有新版本可用"
+#~ msgstr "Version {ver} · Update available"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 检查中..."
-msgstr "Version {ver} · Checking..."
+#~ msgid "版本 {ver} · 检查中..."
+#~ msgstr "Version {ver} · Checking..."
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 检查失败"
-msgstr "Version {ver} · Check failed"
+#~ msgid "版本 {ver} · 检查失败"
+#~ msgstr "Version {ver} · Check failed"
 
-#: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 正在更新..."
-msgstr "Version {ver} · Updating..."
+#~ msgid "版本 {ver} · 正在更新..."
+#~ msgstr "Version {ver} · Updating..."
 
 #~ msgid "生成配对码"
 #~ msgstr "Generate Code"
@@ -1700,8 +1713,9 @@ msgstr "Offline"
 #~ msgid "立即更新"
 #~ msgstr "Update Now"
 
-#~ msgid "端到端加密"
-#~ msgstr "End-to-End Encryption"
+#: src/routes/_app/settings/-about-section.tsx
+msgid "端到端加密"
+msgstr "End-to-End Encryption"
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "端到端加密直连"
@@ -1893,6 +1907,10 @@ msgstr "Remember my choice (can be changed in Settings)"
 msgid "设备中心"
 msgstr "Device Hub"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "设备之间的数据通道 —— 人与 AI 代理皆可用"
+msgstr "The data channel between your devices — for humans and AI agents alike."
+
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "设备信息"
 msgstr "Device Info"
@@ -1971,6 +1989,10 @@ msgstr "Enter a number greater than 0, or leave blank for no limit"
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "跟随系统"
 msgstr "System"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "跨网络"
+msgstr "Cross-Network"
 
 #~ msgid "跨网络传输"
 #~ msgstr "Cross-Network Transfer"

@@ -96,8 +96,8 @@ export function McpSection() {
   }, [mcpConfig, t]);
 
   return (
-    <SettingsSection title="MCP Server" icon={Bot}>
-      <SettingsCard>
+    <SettingsSection title="MCP Server" icon={Bot} fill>
+      <SettingsCard fill>
         <SettingsRow
           title={
             <span className="flex items-center gap-2">

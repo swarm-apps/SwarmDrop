@@ -37,8 +37,8 @@ export function NetworkSettingsSection() {
   const { restarting, markRestartNeeded, restart, showBanner } = useNodeRestart();
 
   return (
-    <SettingsSection title={<Trans>网络</Trans>} icon={Network}>
-      <SettingsCard>
+    <SettingsSection title={<Trans>网络</Trans>} icon={Network} fill>
+      <SettingsCard fill>
         <SettingsRow
           title={<Trans>自动启动节点</Trans>}
           description={<Trans>解锁后自动启动 P2P 网络节点</Trans>}

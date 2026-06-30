@@ -71,6 +71,10 @@ msgstr "AI 代理"
 msgid "AI 代理 (MCP)"
 msgstr "AI 代理 (MCP)"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "AI 原生 · MCP"
+msgstr "AI 原生 · MCP"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "Bundle"
 msgstr "Bundle"
@@ -165,6 +169,10 @@ msgstr "下载中..."
 #: src/lib/transfer-projection.ts
 msgid "不可恢复失败"
 msgstr "不可恢复失败"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "不止于局域网：在任意网络间端到端加密地收发文件，连 AI 代理也能经 MCP 调用。"
+msgstr "不止于局域网：在任意网络间端到端加密地收发文件，连 AI 代理也能经 MCP 调用。"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "不限制"
@@ -551,6 +559,10 @@ msgstr "剩余 {0}"
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "协作者"
 msgstr "协作者"
+
+#: src/routes/_app/settings/-about-section.tsx
+#~ msgid "去中心化、跨网络、端到端加密的文件传输：无需账户、没有中心服务器， 只有发送方和接收方能解密。还内置本地 MCP Server，让 AI 代理也能在你的设备之间投递文件、检索收件箱。"
+#~ msgstr "去中心化、跨网络、端到端加密的文件传输：无需账户、没有中心服务器， 只有发送方和接收方能解密。还内置本地 MCP Server，让 AI 代理也能在你的设备之间投递文件、检索收件箱。"
 
 #: src/routes/_app/send/index.lazy.tsx
 #~ msgid "去配对"
@@ -1341,6 +1353,10 @@ msgstr "文件明细"
 msgid "文本"
 msgstr "文本"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "断点续传"
+msgstr "断点续传"
+
 #: src/components/upgrade/prompt-update-dialog.tsx
 #~ msgid "新版本 {latestVersion} 可用，当前版本 {currentVersion}"
 #~ msgstr "新版本 {latestVersion} 可用，当前版本 {currentVersion}"
@@ -1356,6 +1372,10 @@ msgstr "无法打开文件夹选择器，请检查存储权限"
 #: src/lib/auth-messages.ts
 #~ msgid "无法获取密码"
 #~ msgstr "无法获取密码"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "无账户 · 无服务器"
+msgstr "无账户 · 无服务器"
 
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "无需服务器"
@@ -1722,28 +1742,28 @@ msgid "点窗口关闭按钮（✕）后的行为"
 msgstr "点窗口关闭按钮（✕）后的行为"
 
 #: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver}"
-msgstr "版本 {ver}"
+#~ msgid "版本 {ver}"
+#~ msgstr "版本 {ver}"
 
 #: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 已是最新版本"
-msgstr "版本 {ver} · 已是最新版本"
+#~ msgid "版本 {ver} · 已是最新版本"
+#~ msgstr "版本 {ver} · 已是最新版本"
 
 #: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 有新版本可用"
-msgstr "版本 {ver} · 有新版本可用"
+#~ msgid "版本 {ver} · 有新版本可用"
+#~ msgstr "版本 {ver} · 有新版本可用"
 
 #: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 检查中..."
-msgstr "版本 {ver} · 检查中..."
+#~ msgid "版本 {ver} · 检查中..."
+#~ msgstr "版本 {ver} · 检查中..."
 
 #: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 检查失败"
-msgstr "版本 {ver} · 检查失败"
+#~ msgid "版本 {ver} · 检查失败"
+#~ msgstr "版本 {ver} · 检查失败"
 
 #: src/routes/_app/settings/-about-section.tsx
-msgid "版本 {ver} · 正在更新..."
-msgstr "版本 {ver} · 正在更新..."
+#~ msgid "版本 {ver} · 正在更新..."
+#~ msgstr "版本 {ver} · 正在更新..."
 
 #: src/routes/_app/devices/-components/add-device-menu.tsx
 #~ msgid "生成配对码"
@@ -1842,9 +1862,9 @@ msgstr "离线"
 #~ msgid "立即更新"
 #~ msgstr "立即更新"
 
-#: src/routes/_auth/welcome.lazy.tsx
-#~ msgid "端到端加密"
-#~ msgstr "端到端加密"
+#: src/routes/_app/settings/-about-section.tsx
+msgid "端到端加密"
+msgstr "端到端加密"
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "端到端加密直连"
@@ -2047,6 +2067,10 @@ msgstr "记住我的选择（之后可在「设置」中修改）"
 msgid "设备中心"
 msgstr "设备中心"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "设备之间的数据通道 —— 人与 AI 代理皆可用"
+msgstr "设备之间的数据通道 —— 人与 AI 代理皆可用"
+
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "设备信息"
 msgstr "设备信息"
@@ -2126,6 +2150,10 @@ msgstr "请输入大于 0 的数字，留空表示不限制"
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "跟随系统"
 msgstr "跟随系统"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "跨网络"
+msgstr "跨网络"
 
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "跨网络传输"
