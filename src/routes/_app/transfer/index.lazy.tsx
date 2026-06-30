@@ -13,7 +13,13 @@ import { useTransferStore } from "@/stores/transfer-store";
 import { TransferItem } from "./-transfer-item";
 import { HistoryItem } from "./-history-item";
 import { commands, type TransferProjection } from "@/lib/bindings";
-import { canResumeProjection, isProjectionActive } from "@/lib/transfer-projection";
+import {
+  canResumeProjection,
+  isProjectionActive,
+  isProjectionCancelled,
+  isProjectionCompleted,
+  isProjectionFailed,
+} from "@/lib/transfer-projection";
 import { Button } from "@/components/ui/button";
 import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import { toast } from "sonner";
@@ -63,10 +69,7 @@ function TransferPage() {
           return false;
         }
         if (item.phase === "suspended") return true;
-        return (
-          item.phase === "terminal" &&
-          item.terminalReason !== "completed"
-        );
+        return isProjectionFailed(item) || isProjectionCancelled(item);
       }),
     [activeIdSet, projectionItems],
   );
@@ -75,9 +78,7 @@ function TransferPage() {
     () =>
       projectionItems.filter(
         (item) =>
-          !activeIdSet.has(item.sessionId) &&
-          item.phase === "terminal" &&
-          item.terminalReason === "completed",
+          !activeIdSet.has(item.sessionId) && isProjectionCompleted(item),
       ),
     [activeIdSet, projectionItems],
   );

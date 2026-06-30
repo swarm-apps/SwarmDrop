@@ -32,21 +32,23 @@ export async function setupTransferListeners() {
   // loadProjections 仅用于初始化、进入列表页、以及删除路径（增量事件无法表达删除）。
   // 纯 toast 副作用（failed/paused/rejected/dbError）拆到 setupTransferNotifications，
   // 这里只保留 projection / progress / offer 的状态同步订阅。
-  const fns = await Promise.all([
-    events.transferProjectionUpdate.listen((event) => {
-      useTransferStore.getState().applyProjection(event.payload);
-    }),
+  // 状态同步订阅与 toast 通知订阅一起并发注册（都是独立 IPC listen，无先后依赖）。
+  const [fns, unlistenNotifications] = await Promise.all([
+    Promise.all([
+      events.transferProjectionUpdate.listen((event) => {
+        useTransferStore.getState().applyProjection(event.payload);
+      }),
 
-    events.transferOffer.listen((event) => {
-      useTransferStore.getState().pushOffer(event.payload);
-    }),
+      events.transferOffer.listen((event) => {
+        useTransferStore.getState().pushOffer(event.payload);
+      }),
 
-    events.transferProgress.listen((event) => {
-      useTransferStore.getState().updateProgress(event.payload);
-    }),
+      events.transferProgress.listen((event) => {
+        useTransferStore.getState().updateProgress(event.payload);
+      }),
+    ]),
+    setupTransferNotifications(),
   ]);
-
-  const unlistenNotifications = await setupTransferNotifications();
 
   unlistenFns = [...fns, unlistenNotifications];
 }

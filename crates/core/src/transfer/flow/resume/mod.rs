@@ -85,12 +85,17 @@ impl TransferManager {
         // ▼ B 注册新 epoch actor（commit 前，不含 spawn）
         self.register_resume_actor(&session, &files, &key, new_epoch, target_peer);
 
+        // ▼ D 仅 Send 在 dispatch 后 spawn 复用 fetch_plan；Receive 无 spawn，故把
+        // fetch_plan 直接 move 进 commit（不克隆），只有 Send 才提前克隆一份留给 spawn。
+        let send_plan =
+            matches!(session.direction, TransferDirection::Send).then(|| fetch_plan.clone());
+
         if let Err(reason) = self
-            .request_resume_commit(target_peer, session_id, new_epoch, key, fetch_plan.clone())
+            .request_resume_commit(target_peer, session_id, new_epoch, key, fetch_plan)
             .await
         {
-            // ▼ C 回滚：按方向 remove + cancel，再 apply_resume_reject
-            self.rollback_resume_actor(&session, session_id);
+            // ▼ C 回滚：按 new_epoch 守卫 remove + cancel（与 teardown 路径一致），再 reject
+            self.rollback_resume_actor(&session, session_id, new_epoch);
             info!(
                 "ResumeCommit rejected: session={}, reason={:?}",
                 session_id, reason
@@ -113,8 +118,8 @@ impl TransferManager {
             .await?;
 
         // ▼ D 激活后 spawn（仅 Send，必须在 dispatch 之后）
-        if matches!(session.direction, TransferDirection::Send) {
-            self.spawn_send_data_channel(session_id, new_epoch, fetch_plan);
+        if let Some(send_plan) = send_plan {
+            self.spawn_send_data_channel(session_id, new_epoch, send_plan);
         }
 
         // transferred_bytes 两端恒等（均为 sum(f.transferred_bytes)）：统一取元组第二元素。
@@ -407,16 +412,24 @@ impl TransferManager {
         }
     }
 
-    /// commit 失败时回滚已注册的新 epoch actor（按方向 remove + cancel）。
-    fn rollback_resume_actor(&self, session: &entity::transfer_session::Model, session_id: Uuid) {
+    /// commit 失败时回滚刚注册的新 epoch actor（按方向 + new_epoch 守卫 remove + cancel）。
+    ///
+    /// 用 `remove_*_if_epoch(new_epoch)` 而非无条件 remove：register→commit(await)→rollback
+    /// 之间若有更高 epoch 的并发 resume 抢注，这里不会误删它（与 teardown 路径同纪律）。
+    fn rollback_resume_actor(
+        &self,
+        session: &entity::transfer_session::Model,
+        session_id: Uuid,
+        new_epoch: i64,
+    ) {
         match session.direction {
             TransferDirection::Send => {
-                if let Some(actor) = self.remove_send_actor(&session_id) {
+                if let Some(actor) = self.actors.remove_send_if_epoch(&session_id, new_epoch) {
                     actor.cancel();
                 }
             }
             TransferDirection::Receive => {
-                if let Some(actor) = self.remove_receive_actor(&session_id) {
+                if let Some(actor) = self.actors.remove_receive_if_epoch(&session_id, new_epoch) {
                     actor.cancel();
                 }
             }

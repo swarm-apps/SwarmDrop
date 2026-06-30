@@ -18,19 +18,20 @@ use crate::transfer::actor::sender::SenderActor;
 use crate::transfer::epoch::EpochGuard;
 
 /// 可被注册表取消的 actor（epoch 替换 / 移除时调用）。
+///
+/// 方法名 `cancel_actor` 刻意与 actor 的固有 `cancel` 区分，避免同名解析歧义。
 pub trait Cancellable {
-    fn cancel(&self);
+    fn cancel_actor(&self);
 }
 
 impl Cancellable for SenderActor {
-    fn cancel(&self) {
-        // inherent `cancel` 优先于 trait 方法（Rust 方法解析规则），不会递归。
+    fn cancel_actor(&self) {
         self.cancel();
     }
 }
 
 impl Cancellable for ReceiverActor {
-    fn cancel(&self) {
+    fn cancel_actor(&self) {
         self.cancel();
     }
 }
@@ -117,11 +118,11 @@ fn insert_actor<A: Cancellable>(
         && !EpochGuard::is_newer(epoch, existing.epoch)
     {
         // 同 / 旧 epoch（非严格更新）拒绝并取消传入 actor。
-        actor.cancel();
+        actor.cancel_actor();
         return false;
     }
     if let Some((_, old)) = map.remove(&session_id) {
-        old.actor.cancel();
+        old.actor.cancel_actor();
     }
     map.insert(session_id, Registered { epoch, actor });
     true
@@ -135,16 +136,17 @@ fn remove_actor<A>(map: &DashMap<Uuid, Registered<A>>, session_id: &Uuid) -> Opt
     map.remove(session_id).map(|(_, entry)| entry.actor)
 }
 
+/// 原子地「仅当 epoch 匹配才移除」（`remove_if` 持分片锁单次完成，无 get→remove 的
+/// TOCTOU 窗口与二次查找）。
 fn remove_actor_if_epoch<A>(
     map: &DashMap<Uuid, Registered<A>>,
     session_id: &Uuid,
     epoch: i64,
 ) -> Option<Arc<A>> {
-    let current_epoch = map.get(session_id).map(|entry| entry.epoch)?;
-    if current_epoch != epoch {
-        return None;
-    }
-    remove_actor(map, session_id)
+    map.remove_if(session_id, |_, entry| {
+        EpochGuard::matches(entry.epoch, epoch)
+    })
+    .map(|(_, entry)| entry.actor)
 }
 
 impl Default for ActorRegistry {
@@ -224,7 +226,9 @@ mod tests {
         assert!(registry.get_send(&session_id).is_some());
 
         // 匹配 epoch 才真正移除。
-        let removed = registry.remove_send_if_epoch(&session_id, 2).expect("removed");
+        let removed = registry
+            .remove_send_if_epoch(&session_id, 2)
+            .expect("removed");
         assert!(Arc::ptr_eq(&removed, &new));
         assert!(registry.get_send(&session_id).is_none());
     }

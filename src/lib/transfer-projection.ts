@@ -1,13 +1,6 @@
 import { t } from "@lingui/core/macro";
 import type { TransferProjection } from "@/lib/bindings";
 
-export type ProjectionStatusFilter =
-  | "all"
-  | "completed"
-  | "suspended"
-  | "cancelled"
-  | "failed";
-
 export function isProjectionActive(projection: TransferProjection): boolean {
   return (
     projection.phase === "offered" ||
@@ -88,29 +81,4 @@ export function projectionStatusLabel(
 
 export function canResumeProjection(projection: TransferProjection): boolean {
   return projection.phase === "suspended" && projection.recoverable;
-}
-
-export function projectionMatchesFilter(
-  projection: TransferProjection,
-  filter: ProjectionStatusFilter,
-): boolean {
-  if (filter === "all") return true;
-  if (filter === "completed") {
-    return (
-      projection.phase === "terminal" &&
-      projection.terminalReason === "completed"
-    );
-  }
-  if (filter === "suspended") return projection.phase === "suspended";
-  if (filter === "cancelled") {
-    return (
-      projection.phase === "terminal" &&
-      (projection.terminalReason === "cancelled" ||
-        projection.terminalReason === "rejected")
-    );
-  }
-  return (
-    projection.phase === "terminal" &&
-    projection.terminalReason === "fatal_error"
-  );
 }

@@ -23,6 +23,7 @@ use crate::transfer::CHUNK_SIZE;
 use crate::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator,
 };
+use crate::transfer::epoch::EpochGuard;
 use crate::transfer::manager::PreparedFile;
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferCompleteEvent,
@@ -231,7 +232,9 @@ impl SenderActor {
                 Some(TransferDataFrame::Finish {
                     session_id,
                     epoch: finish_epoch,
-                }) if session_id == self.session_id && finish_epoch == epoch => Ok(()),
+                }) if session_id == self.session_id && EpochGuard::matches(finish_epoch, epoch) => {
+                    Ok(())
+                }
                 Some(TransferDataFrame::Abort { reason, .. }) => {
                     Err(AppError::Transfer(format!("对端中止传输: {reason}")))
                 }
@@ -268,17 +271,14 @@ impl SenderActor {
             .await
         {
             Ok(Some(_)) => {
-                let _ = event_bus
-                    .publish(CoreEvent::TransferCompleted {
-                        event: TransferCompleteEvent {
-                            session_id: self.session_id,
-                            direction: RuntimeTransferDirection::Send,
-                            total_bytes: self.total_bytes_sent(),
-                            elapsed_ms: self.elapsed_ms(),
-                            save_location: None,
-                        },
-                    })
-                    .await;
+                // 复用 ProgressTracker::complete_event（与接收方 finish_data_channel 对称），
+                // 不再手搓 TransferCompleteEvent。锁中毒（极罕见）则跳过完成事件。
+                let event = self.progress.lock().ok().map(|p| p.complete_event(None));
+                if let Some(event) = event {
+                    let _ = event_bus
+                        .publish(CoreEvent::TransferCompleted { event })
+                        .await;
+                }
             }
             Ok(None) => info!(
                 "发送完成被状态机忽略（已 terminal / 旧 epoch）: session={}",

@@ -26,6 +26,7 @@ use crate::transfer::actor::checkpoint::{
     ranges_from_bitmap, validate_block_range,
 };
 use crate::transfer::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
+use crate::transfer::epoch::EpochGuard;
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent,
 };
@@ -275,7 +276,7 @@ impl ReceiverActor {
                     epoch: frame_epoch,
                     range,
                     ciphertext,
-                }) if session_id == self.session_id && frame_epoch == epoch => {
+                }) if session_id == self.session_id && EpochGuard::matches(frame_epoch, epoch) => {
                     self.handle_block_data(
                         &progress,
                         &mut sinks,
@@ -290,7 +291,7 @@ impl ReceiverActor {
                 Some(TransferDataFrame::Finish {
                     session_id,
                     epoch: frame_epoch,
-                }) if session_id == self.session_id && frame_epoch == epoch => {
+                }) if session_id == self.session_id && EpochGuard::matches(frame_epoch, epoch) => {
                     ensure_files_complete(&self.files, &bitmaps)?;
                     self.finish_data_channel(epoch, &progress, sinks, bitmaps)
                         .await?;
