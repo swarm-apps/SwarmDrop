@@ -253,14 +253,11 @@ pub async fn resume_transfer(
         .await?
         .ok_or_else(|| crate::AppError::transfer("会话不存在"))?;
 
-    let (resume_info, direction_str) = match session.direction {
-        entity::TransferDirection::Receive => {
-            (transfer.initiate_resume(session_id).await?, "receive")
-        }
-        entity::TransferDirection::Send => (
-            transfer.initiate_resume_as_sender(session_id).await?,
-            "send",
-        ),
+    // 发送方/接收方发起恢复已统一为单入口 `initiate_resume`（内部按 session.direction 派生）。
+    let resume_info = transfer.initiate_resume(session_id).await?;
+    let direction_str = match session.direction {
+        entity::TransferDirection::Receive => "receive",
+        entity::TransferDirection::Send => "send",
     };
 
     Ok(ResumeTransferResult {

@@ -27,12 +27,30 @@ use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
 use crate::{AppError, AppResult};
 
 impl TransferManager {
+    /// 断点续传统一入口（发送方 / 接收方发起共用模板）。
+    ///
+    /// 公共流程：load → probe → validate（失败 apply_resume_reject 后返回）→ key/epoch →
+    /// 构造 fetch_plan → 注册新 epoch actor → commit（失败回滚）→ dispatch(ResumeCommitted)
+    /// →（仅 Send）spawn 数据面 → 返回 ResumeInfo。方向差异仅 5 点，全由 `session.direction`
+    /// 派生（见各 ▼ 注释）。
+    ///
+    /// **安全序**（两 agent 审查确认，勿动）：
+    /// - 注册 actor 必须在 `request_resume_commit` **之前**——否则对端 sender 在 Ack 返回前
+    ///   打开 data channel 时本端尚无 actor → Hello 被拒；commit 失败再 `rollback_resume_actor`。
+    /// - `spawn_send_data_channel` 必须在 `dispatch(ResumeCommitted)` **之后**（dispatch 把
+    ///   phase 转 active）。
+    /// - `dispatch` 用**旧** `session.epoch`，actor 注册 / spawn 用 `new_epoch`，勿混。
     pub async fn initiate_resume(&self, session_id: Uuid) -> AppResult<ResumeInfo> {
         let (session, target_peer) = load_resumable_session(&self.db, session_id).await?;
         let files = crate::database::ops::get_session_files(&self.db, session_id).await?;
 
+        // ▼ D0 日志文案
+        let role = match session.direction {
+            TransferDirection::Send => "发送方",
+            TransferDirection::Receive => "接收方",
+        };
         info!(
-            "接收方发起探测式恢复: session={}, files={}",
+            "{role}发起探测式恢复: session={}, files={}",
             session_id,
             files.len()
         );
@@ -46,40 +64,22 @@ impl TransferManager {
 
         let key = generate_key();
         let new_epoch = next_resume_epoch(session.epoch, report.epoch);
-        let fetch_plan = build_fetch_plan_from_files(&files)?;
-        let total_size = session.total_size;
-        let save_location = session
-            .save_path
-            .clone()
-            .map(crate::host::CoreSaveLocation::from)
-            .unwrap_or(crate::host::CoreSaveLocation::Path {
-                path: String::new(),
-            });
-        let peer_id = session.peer_id.0.clone();
-        let peer_name = session.peer_name.clone();
 
-        let (file_infos, initial_bitmaps) = build_file_infos_and_bitmaps(&files);
-        let (resume_file_infos, transferred_bytes) = build_resume_file_infos(&files);
+        // ▼ A fetch_plan 来源：接收方用本端 DB 推算，发送方用对端 report 推算
+        let fetch_plan = match session.direction {
+            TransferDirection::Receive => build_fetch_plan_from_files(&files)?,
+            TransferDirection::Send => build_fetch_plan_from_report(&report)?,
+        };
 
-        // 先注册新 epoch receiver，再提交 ResumeCommit，避免对端 sender 在 Ack 返回前
-        // 已打开 data channel，而本端尚无 actor 导致 Hello 被拒。
-        self.start_receive_session(
-            new_epoch,
-            session_id,
-            target_peer,
-            file_infos,
-            total_size as u64,
-            save_location,
-            &key,
-            initial_bitmaps,
-        );
+        // ▼ B 注册新 epoch actor（commit 前，不含 spawn）
+        self.register_resume_actor(&session, &files, &key, new_epoch, target_peer);
+
         if let Err(reason) = self
-            .request_resume_commit(target_peer, session_id, new_epoch, key, fetch_plan)
+            .request_resume_commit(target_peer, session_id, new_epoch, key, fetch_plan.clone())
             .await
         {
-            if let Some(session) = self.remove_receive_session(&session_id) {
-                session.cancel();
-            }
+            // ▼ C 回滚：按方向 remove + cancel，再 apply_resume_reject
+            self.rollback_resume_actor(&session, session_id);
             info!(
                 "ResumeCommit rejected: session={}, reason={:?}",
                 session_id, reason
@@ -101,71 +101,13 @@ impl TransferManager {
             )
             .await?;
 
-        Ok(ResumeInfo {
-            peer_id,
-            peer_name,
-            files: resume_file_infos,
-            total_size,
-            transferred_bytes,
-        })
-    }
-
-    pub async fn initiate_resume_as_sender(&self, session_id: Uuid) -> AppResult<ResumeInfo> {
-        let (session, target_peer) = load_resumable_session(&self.db, session_id).await?;
-        let files = crate::database::ops::get_session_files(&self.db, session_id).await?;
-
-        let (resume_file_infos, _) = build_resume_file_infos(&files);
-
-        info!(
-            "发送方发起探测式恢复: session={}, files={}",
-            session_id,
-            files.len()
-        );
-
-        let report = self.request_resume_probe(target_peer, session_id).await?;
-        if let Err(reason) = validate_resume_report(&session, &files, &report) {
-            self.apply_resume_reject(&session, session_id, reason)
-                .await?;
-            return Err(AppError::Transfer(resume_reject_message(&reason).into()));
+        // ▼ D 激活后 spawn（仅 Send，必须在 dispatch 之后）
+        if matches!(session.direction, TransferDirection::Send) {
+            self.spawn_send_data_channel(session_id, new_epoch, fetch_plan);
         }
 
-        let key = generate_key();
-        let new_epoch = next_resume_epoch(session.epoch, report.epoch);
-        let fetch_plan = build_fetch_plan_from_report(&report)?;
-
-        // 发送方必须先恢复本地 SendSession，再提交给接收方；接收方收到 commit 后可能立即拉块。
-        let send_session =
-            self.build_send_session_for_resume(session_id, target_peer, &files, &key);
-        self.insert_send_session(session_id, new_epoch, send_session);
-
-        if let Err(reason) = self
-            .request_resume_commit(target_peer, session_id, new_epoch, key, fetch_plan.clone())
-            .await
-        {
-            if let Some(session) = self.remove_send_session(&session_id) {
-                session.cancel();
-            }
-            self.apply_resume_reject(&session, session_id, reason)
-                .await?;
-            return Err(AppError::Transfer(resume_reject_message(&reason).into()));
-        }
-
-        self.coordinator
-            .dispatch(
-                session_id,
-                crate::transfer::coordinator::CoordinatorInput::Network {
-                    epoch: session.epoch,
-                    signal: crate::transfer::coordinator::NetworkSignal::ResumeCommitted {
-                        new_epoch,
-                    },
-                },
-            )
-            .await?;
-
-        self.spawn_send_data_channel(session_id, new_epoch, fetch_plan);
-
-        let transferred_bytes: i64 = files.iter().map(|f| f.transferred_bytes).sum();
-
+        // transferred_bytes 两端恒等（均为 sum(f.transferred_bytes)）：统一取元组第二元素。
+        let (resume_file_infos, transferred_bytes) = build_resume_file_infos(&files);
         Ok(ResumeInfo {
             peer_id: session.peer_id.0,
             peer_name: session.peer_name,
@@ -417,32 +359,30 @@ impl TransferManager {
         ))
     }
 
-    fn start_local_resume_actor(
+    /// 按方向重建并注册新 epoch actor（**仅构造 + insert，不 spawn**）。
+    ///
+    /// 主动侧 [`initiate_resume`](Self::initiate_resume)（commit 前）与被动应答侧
+    /// [`start_local_resume_actor`](Self::start_local_resume_actor)（transition 后）共用；
+    /// `spawn_send_data_channel` 在两侧都作为独立的「激活后」步骤，满足「spawn 在 active
+    /// 之后」时序——绝不塞进本 helper，否则主动侧会在 commit/dispatch 前就推送数据面。
+    fn register_resume_actor(
         &self,
-        peer_id: PeerId,
         session: &entity::transfer_session::Model,
         files: &[entity::transfer_file::Model],
         key: &[u8; 32],
         new_epoch: i64,
-        fetch_plan: Vec<FileRange>,
+        peer_id: PeerId,
     ) {
         match session.direction {
             TransferDirection::Send => {
                 let send_session =
                     self.build_send_session_for_resume(session.session_id, peer_id, files, key);
                 self.insert_send_session(session.session_id, new_epoch, send_session);
-                self.spawn_send_data_channel(session.session_id, new_epoch, fetch_plan);
             }
             TransferDirection::Receive => {
                 let (file_infos, initial_bitmaps) = build_file_infos_and_bitmaps(files);
-                let save_location = session
-                    .save_path
-                    .clone()
-                    .map(crate::host::CoreSaveLocation::from)
-                    .unwrap_or(crate::host::CoreSaveLocation::Path {
-                        path: String::new(),
-                    });
-                self.start_receive_from_offer(
+                let save_location = build_save_location(session);
+                self.start_receive_session(
                     new_epoch,
                     session.session_id,
                     peer_id,
@@ -453,6 +393,43 @@ impl TransferManager {
                     initial_bitmaps,
                 );
             }
+        }
+    }
+
+    /// commit 失败时回滚已注册的新 epoch actor（按方向 remove + cancel）。
+    fn rollback_resume_actor(
+        &self,
+        session: &entity::transfer_session::Model,
+        session_id: Uuid,
+    ) {
+        match session.direction {
+            TransferDirection::Send => {
+                if let Some(actor) = self.remove_send_session(&session_id) {
+                    actor.cancel();
+                }
+            }
+            TransferDirection::Receive => {
+                if let Some(actor) = self.remove_receive_session(&session_id) {
+                    actor.cancel();
+                }
+            }
+        }
+    }
+
+    /// 被动应答侧（`handle_resume_commit_impl` transition 成功后）重建 actor。
+    /// transition 已先行，故注册后立即 spawn（仅 Send）满足「spawn 在 active 之后」。
+    fn start_local_resume_actor(
+        &self,
+        peer_id: PeerId,
+        session: &entity::transfer_session::Model,
+        files: &[entity::transfer_file::Model],
+        key: &[u8; 32],
+        new_epoch: i64,
+        fetch_plan: Vec<FileRange>,
+    ) {
+        self.register_resume_actor(session, files, key, new_epoch, peer_id);
+        if matches!(session.direction, TransferDirection::Send) {
+            self.spawn_send_data_channel(session.session_id, new_epoch, fetch_plan);
         }
     }
 }
@@ -705,6 +682,19 @@ pub(crate) fn build_sender_resume_state(
 pub(crate) fn parse_peer_id(s: &str) -> AppResult<PeerId> {
     s.parse()
         .map_err(|_| AppError::Transfer(format!("无效的 PeerId: {s}")))
+}
+
+/// `session.save_path` → `CoreSaveLocation`，缺省回退空路径（host 自行兜底语义）。
+fn build_save_location(
+    session: &entity::transfer_session::Model,
+) -> crate::host::CoreSaveLocation {
+    session
+        .save_path
+        .clone()
+        .map(crate::host::CoreSaveLocation::from)
+        .unwrap_or(crate::host::CoreSaveLocation::Path {
+            path: String::new(),
+        })
 }
 
 pub(crate) async fn load_resumable_session(

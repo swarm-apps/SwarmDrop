@@ -19,6 +19,7 @@ use crate::transfer::manager::{
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferAcceptedEvent, TransferFailedEvent, TransferRejectedEvent,
 };
+use crate::transfer::resume::parse_peer_id;
 use crate::transfer::sender::SendSession;
 use crate::{AppError, AppResult};
 
@@ -58,9 +59,7 @@ impl TransferManager {
             .collect();
         let session_id = generate_id();
 
-        let target_peer: PeerId = peer_id
-            .parse()
-            .map_err(|_| AppError::Transfer(format!("无效的 PeerId: {peer_id}")))?;
+        let target_peer = parse_peer_id(peer_id)?;
         let peer_id_str = peer_id.to_string();
 
         info!(

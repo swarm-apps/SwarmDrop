@@ -267,37 +267,10 @@ impl TransferManager {
         self.actors.remove_receive(session_id)
     }
 
-    /// 公开接口：创建 ReceiveSession 并开始拉取
+    /// 创建 ReceiveSession 并注册到 ActorRegistry（接受 Offer / 恢复重建共用）。
     #[expect(
         clippy::too_many_arguments,
         reason = "传输会话初始化必须接收完整上下文（session_id / peer / files / 元信息 / 加密密钥 / 续传位图），无更小的有意义子集"
-    )]
-    pub fn start_receive_from_offer(
-        &self,
-        epoch: i64,
-        session_id: Uuid,
-        peer_id: PeerId,
-        files: Vec<FileInfo>,
-        total_size: u64,
-        save_location: crate::host::CoreSaveLocation,
-        key: &[u8; 32],
-        initial_bitmaps: HashMap<u32, Vec<u8>>,
-    ) {
-        self.start_receive_session(
-            epoch,
-            session_id,
-            peer_id,
-            files,
-            total_size,
-            save_location,
-            key,
-            initial_bitmaps,
-        );
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "同 start_receive_from_offer：传输会话初始化必须接收完整上下文"
     )]
     pub(super) fn start_receive_session(
         &self,

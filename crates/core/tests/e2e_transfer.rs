@@ -686,7 +686,7 @@ async fn e2e_receiver_initiated_resume_probe_commit_completes() {
     )));
 }
 
-/// 发送方发起恢复：补齐 `initiate_resume_as_sender` 路径的 E2E 覆盖（此前零覆盖）。
+/// 发送方发起恢复：补齐 `initiate_resume` 的 Send 方向路径 E2E 覆盖（此前零覆盖）。
 ///
 /// A=Send 主动发起（probe → validate → build_fetch_plan_from_report → 先重建本地
 /// SendSession 再 commit → dispatch → spawn 数据面推送），B=Receive 应答侧
@@ -748,7 +748,7 @@ async fn e2e_sender_initiated_resume_probe_commit_completes() {
 
     let resumed = node_a
         .transfer
-        .initiate_resume_as_sender(session_id)
+        .initiate_resume(session_id)
         .await
         .expect("sender resume");
     assert_eq!(resumed.transferred_bytes, 0);
