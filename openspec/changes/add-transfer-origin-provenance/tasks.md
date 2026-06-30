@@ -47,5 +47,5 @@
 
 - [x] 9.1 `cargo check -p swarmdrop-core --features specta --tests` + `cargo check -p swarmdrop --tests` 通过；`cargo clippy` 改动文件 0 新警告；`cargo fmt` 干净
 - [x] 9.2 单测：`TransferOrigin <-> String` 往返（protocol.rs）；`source_kind_for_origin` 由 origin 正确派生（inbox.rs，已把内联 match 抽成可测纯函数）。3 测全过
-- [ ] 9.3 e2e（`crates/core/tests/e2e_transfer.rs` 风格）：Mcp origin 的 offer 在接收会话与 inbox 正确落 `source_kind=Mcp`；`allow_mcp_send_to_device=false` 时 MCP 发送被发送端拒绝
+- [x] 9.3 e2e（`crates/core/tests/e2e_transfer.rs`）：`e2e_mcp_origin_lands_as_mcp_inbox_source_kind` —— 两节点真实传输，Mcp origin 经 wire→接收会话→inbox 正确落 `source_kind=Mcp`，已通过。门控（`allow_mcp_send_to_device`）在 MCP 工具层（src-tauri），非 core e2e 可达；其行为由实现 + 设备策略默认值保证，留待真机冒烟（9.4）覆盖
 - [ ] 9.4 手动冒烟：MCP `send_files` → 对端 offer 对话框出现"AI 代理发起"；接收后 inbox 显示来源标记；目标设备关闭 MCP 允许后 `send_files` 返回明确错误

@@ -453,6 +453,92 @@ async fn e2e_single_file_transfer() {
     );
 }
 
+/// MCP 来源的传输完成后，接收端 inbox 应记为 `source_kind = Mcp`。
+///
+/// 覆盖 origin 全链：发送方以 `Mcp{client}` 发起 → origin 经 wire 序列化到 Offer →
+/// 接收方写入接收会话的 `origin` 列 → 传输完成 → `ensure_inbox_item` 由 origin 派生
+/// `source_kind = Mcp`。`Human` 路径由其余 e2e 用例（默认 PairedDevice）覆盖。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
+    let data = b"agent-delivered report".to_vec();
+    let source_id = FileSourceId("src-mcp".to_string());
+    let meta = HostFileMetadata {
+        name: "report.pdf".to_string(),
+        relative_path: "report.pdf".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id,
+            vec![HostEnumeratedFile {
+                source_id: source_id.clone(),
+                name: "report.pdf".to_string(),
+                relative_path: "report.pdf".to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare");
+
+    // 关键：以 MCP 来源（带客户端名）发起。
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Mcp {
+                client: Some("claude-desktop".to_string()),
+            },
+        )
+        .await
+        .expect("send_offer");
+
+    poll_until(
+        || received_offer(&node_b, session_id),
+        Duration::from_secs(10),
+        "B 收到 Offer",
+    )
+    .await;
+
+    node_b
+        .transfer
+        .accept_and_start_receive(
+            &session_id,
+            CoreSaveLocation::Path {
+                path: "/recv".to_string(),
+            },
+        )
+        .await
+        .expect("accept_and_start_receive");
+
+    wait_completed(node_a.db.as_ref(), session_id, "发送方").await;
+    wait_completed(node_b.db.as_ref(), session_id, "接收方").await;
+
+    // 接收端：完成会话落 inbox，source_kind 应由 origin(mcp) 派生为 Mcp。
+    let detail = swarmdrop_core::database::inbox::ensure_inbox_item_for_completed_receive_session(
+        node_b.db.as_ref(),
+        session_id,
+    )
+    .await
+    .expect("ensure inbox item")
+    .expect("inbox item created");
+    assert!(
+        matches!(detail.item.source_kind, entity::InboxSourceKind::Mcp),
+        "MCP 来源传输应在 inbox 记为 Mcp，实际 {:?}",
+        detail.item.source_kind
+    );
+}
+
 /// 轮 4 task 2.5：应用重启的启动清理。
 ///
 /// 上次运行被强杀、留下一个停在传输中的 active 会话；重启时 `cleanup_recoverable_sessions`
