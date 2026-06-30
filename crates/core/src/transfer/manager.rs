@@ -53,6 +53,32 @@ pub struct PreparedFile {
     pub checksum: String,
 }
 
+/// 协议 `FileInfo` 的两个唯一构造来源（发送方准备表 / DB 行），集中转换避免逐字段
+/// 复制散落（send / sender / resume 多处）。
+impl From<&PreparedFile> for FileInfo {
+    fn from(f: &PreparedFile) -> Self {
+        Self {
+            file_id: f.file_id,
+            name: f.name.clone(),
+            relative_path: f.relative_path.clone(),
+            size: f.size,
+            checksum: f.checksum.clone(),
+        }
+    }
+}
+
+impl From<&entity::transfer_file::Model> for FileInfo {
+    fn from(f: &entity::transfer_file::Model) -> Self {
+        Self {
+            file_id: f.file_id as u32,
+            name: f.name.clone(),
+            relative_path: f.relative_path.clone(),
+            size: f.size as u64,
+            checksum: f.checksum.clone(),
+        }
+    }
+}
+
 /// 接收方缓存的入站 Offer
 #[derive(Debug)]
 pub struct PendingOffer {

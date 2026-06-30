@@ -492,16 +492,7 @@ fn build_resume_checkpoint(files: &[entity::transfer_file::Model]) -> Vec<FileCh
 }
 
 fn build_resume_manifest(files: &[entity::transfer_file::Model]) -> Vec<FileInfo> {
-    files
-        .iter()
-        .map(|f| FileInfo {
-            file_id: f.file_id as u32,
-            name: f.name.clone(),
-            relative_path: f.relative_path.clone(),
-            size: f.size as u64,
-            checksum: f.checksum.clone(),
-        })
-        .collect()
+    files.iter().map(FileInfo::from).collect()
 }
 
 fn validate_resume_report(
@@ -786,13 +777,7 @@ pub(crate) fn build_file_infos_and_bitmaps(
     let mut bitmaps = HashMap::with_capacity(files.len());
     for f in files {
         let fid = f.file_id as u32;
-        file_infos.push(FileInfo {
-            file_id: fid,
-            name: f.name.clone(),
-            relative_path: f.relative_path.clone(),
-            size: f.size as u64,
-            checksum: f.checksum.clone(),
-        });
+        file_infos.push(FileInfo::from(f));
         bitmaps.insert(fid, f.completed_chunks.clone());
     }
     (file_infos, bitmaps)

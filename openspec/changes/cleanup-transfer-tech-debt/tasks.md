@@ -24,8 +24,8 @@
 ## 3. 后端抽公共 + 拆 god-module（P1）
 
 - [ ] 3.1 新建 `transfer/checkpoint.rs`：把 `receiver.rs:627-785` 的 bitmap/ranges 纯函数 + resume 的 `build_fetch_plan`/`validate_checkpoint` 收一处共用（消同源重复，纯函数可独立单测）
-- [ ] 3.2 `range_within_file(file_size, range) -> Result<(), RangeError>` 单点边界数学，4 处校验（`receiver.rs:120/668`、`resume.rs:606`、`sender.rs:269`）改用，各映射到 AppError/ResumeRejectReason
-- [ ] 3.3 `From<&PreparedFile> for FileInfo` + `From<&transfer_file::Model> for FileInfo`，5 处逐字段构造（`sender.rs:246`、`send.rs:52`、`resume.rs:494/789`、incoming）改 `.map(FileInfo::from)`
+- [ ] 3.2 range 校验 dedup（**精化/降级**）：复审发现 4 处（`receiver.rs` validate_fetch_plan/validate_block_range、`resume.rs` validate_fetch_plan、`sender.rs` write_range）的 length==0/empty-file/chunk 对齐规则**各有意义不同**（resume 无条件拒 length 0、sender 特判 size==0、receiver 叠 chunk 对齐），真正共享的只有「`offset+length` 溢出 + `end>file_size`」薄核心。全量共享 validator 会改行为；价值有限，仅在做 3.5 receiver 拆分时顺手抽 `range_end_within(file_size, range)->Result<u64,_>` 薄核心，各处保留自己的 length-0 规则
+- [x] 3.3 `From<&PreparedFile> for FileInfo` + `From<&transfer_file::Model> for FileInfo`（manager.rs，集中 FileInfo 两个唯一构造来源）；4 处生产构造（`send.rs`、`sender.rs::file_manifest`、`resume.rs::build_resume_manifest`、`resume.rs` build_file_infos）改 `.map(FileInfo::from)`。测试 fixture 不动
 - [ ] 3.4 拆 `resume.rs`：`negotiate_resume(direction)` 模板方法消两个 `initiate_*` 80% 重复（`resume.rs:30/113`）+ 与 `start_local_resume_actor` 统一 actor 重建；拆 `resume/{validation,plan}.rs`；复用 `parse_peer_id`（删 `send.rs:71` 内联）+ `save_location` helper（消 `resume.rs:51/438` 重复）
 - [ ] 3.5 拆 `receiver.rs` god-module：`handle_block_data` 拆 `decrypt_and_validate`/`persist_chunk`/`emit_progress` 三段；bitmap 纯函数移 `checkpoint.rs`（随 3.1）；receiver writer 的 mpsc 桥简化为与 sender 对称的单 reader/单 writer 直写（删 `is_terminal` Abort 死分支）
 - [ ] 3.6 `data_plane`↔actor 终态边界归一：发送终态副作用下沉 `SenderActor::finish/on_interrupted`，`data_plane.rs` 回归纯路由（与接收 `finish_data_channel` 对称）

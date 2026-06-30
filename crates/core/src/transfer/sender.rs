@@ -241,16 +241,7 @@ impl SendSession {
     }
 
     fn file_manifest(&self) -> Vec<FileInfo> {
-        self.files
-            .iter()
-            .map(|f| FileInfo {
-                file_id: f.file_id,
-                name: f.name.clone(),
-                relative_path: f.relative_path.clone(),
-                size: f.size,
-                checksum: f.checksum.clone(),
-            })
-            .collect()
+        self.files.iter().map(FileInfo::from).collect()
     }
 
     async fn write_range<W>(&self, stream: &mut W, epoch: i64, range: FileRange) -> AppResult<()>

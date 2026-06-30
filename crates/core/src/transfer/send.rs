@@ -49,16 +49,7 @@ impl TransferManager {
             return Err(AppError::Transfer("未选择任何文件".into()));
         }
 
-        let selected_files: Vec<FileInfo> = selected_prepared
-            .iter()
-            .map(|f| FileInfo {
-                file_id: f.file_id,
-                name: f.name.clone(),
-                relative_path: f.relative_path.clone(),
-                size: f.size,
-                checksum: f.checksum.clone(),
-            })
-            .collect();
+        let selected_files: Vec<FileInfo> = selected_prepared.iter().map(FileInfo::from).collect();
 
         let total_size: u64 = selected_files.iter().map(|f| f.size).sum();
         let source_paths: Vec<String> = selected_prepared
