@@ -86,7 +86,8 @@ export function TransferOfferDialog() {
       await commands.acceptReceive(currentOffer.sessionId, saveLocation);
       await loadProjections();
 
-      // 从队列移除并跳转到详情页
+      // 成功后才出队 + 跳转详情；失败时保留 offer 供重试（不在 finally 出队）。
+      shiftOffer();
       navigate({
         to: "/transfer/$sessionId",
         params: { sessionId: currentOffer.sessionId },
@@ -95,7 +96,6 @@ export function TransferOfferDialog() {
       toast.error(getErrorMessage(err));
     } finally {
       setProcessing(false);
-      shiftOffer();
     }
   }, [currentOffer, savePath, loadProjections, navigate, shiftOffer]);
 
@@ -105,12 +105,12 @@ export function TransferOfferDialog() {
     try {
       await commands.rejectReceive(currentOffer.sessionId);
       await loadProjections();
-      // 从队列移除
+      // 成功后才出队；失败时保留 offer 供重试（不在 finally 出队）。
+      shiftOffer();
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
       setProcessing(false);
-      shiftOffer();
     }
   }, [currentOffer, loadProjections, shiftOffer]);
 
