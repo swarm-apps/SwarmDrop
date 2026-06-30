@@ -1,30 +1,41 @@
-//! 断点续传：发送方/接收方双侧发起 + IncomingTransferRuntime 续传 helper。
+//! 断点续传编排：双侧发起模板 `initiate_resume` + IncomingTransferRuntime 续传 helper。
 //!
-//! 私有 `validate_resume_session` + `ResumeContext` 集中在这里；
-//! 通用辅助函数（build_*）也下沉到本文件，因为它们仅服务于 resume 流程。
+//! 本文件保留依赖 `self` / `TransferManager` 的编排逻辑；纯函数下沉到两个子模块：
+//! - [`validation`] —— 探测报告 / commit / checkpoint 校验 + reject reason 文案
+//! - [`plan`] —— manifest / checkpoint / fetch_plan / 续传 state 的派生构造
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use entity::{TerminalReason, TransferDirection, TransferPhase};
+use entity::{TransferDirection, TransferPhase};
 use sea_orm::{DatabaseConnection, EntityTrait};
 use swarm_p2p_core::libp2p::PeerId;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::host::{CoreEvent, FileSourceId};
+use crate::host::CoreEvent;
 use crate::protocol::{
-    AppRequest, AppResponse, FileCheckpoint, FileInfo, FileRange, ResumePhaseReport,
-    ResumeRejectReason, ResumeReport, TransferRequest, TransferResponse,
+    AppRequest, AppResponse, FileRange, ResumePhaseReport, ResumeRejectReason, ResumeReport,
+    TransferRequest, TransferResponse,
 };
-use crate::transfer::wire::crypto::generate_key;
-use crate::transfer::manager::{PreparedFile, ResumeFileInfo, ResumeInfo, TransferManager};
+use crate::transfer::actor::sender::SendSession;
+use crate::transfer::manager::{ResumeInfo, TransferManager};
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferResumedEvent, TransferResumedFileInfo,
 };
-use crate::transfer::actor::sender::SendSession;
-use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
+use crate::transfer::wire::crypto::generate_key;
 use crate::{AppError, AppResult};
+
+mod plan;
+mod validation;
+
+use plan::{
+    build_fetch_plan_from_files, build_fetch_plan_from_report, build_file_infos_and_bitmaps,
+    build_prepared_files_from_db, build_resume_checkpoint, build_resume_file_infos,
+    build_resume_manifest, build_sender_resume_state, next_resume_epoch,
+};
+use validation::{
+    map_resume_phase, resume_reject_message, validate_resume_commit, validate_resume_report,
+};
 
 impl TransferManager {
     /// 断点续传统一入口（发送方 / 接收方发起共用模板）。
@@ -397,11 +408,7 @@ impl TransferManager {
     }
 
     /// commit 失败时回滚已注册的新 epoch actor（按方向 remove + cancel）。
-    fn rollback_resume_actor(
-        &self,
-        session: &entity::transfer_session::Model,
-        session_id: Uuid,
-    ) {
+    fn rollback_resume_actor(&self, session: &entity::transfer_session::Model, session_id: Uuid) {
         match session.direction {
             TransferDirection::Send => {
                 if let Some(actor) = self.remove_send_session(&session_id) {
@@ -434,250 +441,7 @@ impl TransferManager {
     }
 }
 
-// ============ 续传共用的私有 helper ============
-
-/// entity phase → 恢复探测报告的简化 phase。
-fn map_resume_phase(phase: &entity::TransferPhase) -> ResumePhaseReport {
-    match phase {
-        entity::TransferPhase::Active
-        | entity::TransferPhase::Offered
-        | entity::TransferPhase::WaitingAccept => ResumePhaseReport::Active,
-        entity::TransferPhase::Suspended => ResumePhaseReport::Suspended,
-        entity::TransferPhase::Terminal => ResumePhaseReport::Terminal,
-    }
-}
-
-/// 从文件记录构造 checkpoint（过渡近似：transferred_bytes 作单个连续 range；
-/// 精确 bitmap→ranges 在轮 7 数据面落实）。
-fn build_resume_checkpoint(files: &[entity::transfer_file::Model]) -> Vec<FileCheckpoint> {
-    files
-        .iter()
-        .map(|f| FileCheckpoint {
-            file_id: f.file_id as u32,
-            completed_ranges: {
-                let ranges = crate::database::ops::parse_completed_ranges(&f.completed_ranges);
-                if !ranges.is_empty() {
-                    ranges
-                } else if f.transferred_bytes > 0 {
-                    vec![(0, f.transferred_bytes as u64)]
-                } else {
-                    vec![]
-                }
-            },
-        })
-        .collect()
-}
-
-fn build_resume_manifest(files: &[entity::transfer_file::Model]) -> Vec<FileInfo> {
-    files.iter().map(FileInfo::from).collect()
-}
-
-fn validate_resume_report(
-    session: &entity::transfer_session::Model,
-    local_files: &[entity::transfer_file::Model],
-    report: &ResumeReport,
-) -> Result<(), ResumeRejectReason> {
-    match report.phase {
-        ResumePhaseReport::NotFound => return Err(ResumeRejectReason::SessionNotFound),
-        ResumePhaseReport::Terminal => {
-            return match report.terminal_reason {
-                Some(TerminalReason::Cancelled) => Err(ResumeRejectReason::Cancelled),
-                _ => Err(ResumeRejectReason::FatalError),
-            };
-        }
-        // 对端仍在传输中（Active/Offered/WaitingAccept），尚未感知中断、无法接受
-        // ResumeCommit（应答侧 reduce 受 is_suspended 守卫）。视为暂时不可用而非致命：
-        // apply_resume_reject 对 PeerUnavailable no-op，保持本端 suspended/recoverable，
-        // 待对端也转入 suspended 后重试即可——避免把可恢复会话误打成永久 FatalError。
-        ResumePhaseReport::Active => return Err(ResumeRejectReason::PeerUnavailable),
-        ResumePhaseReport::Suspended => {}
-    }
-
-    let local_manifest = build_resume_manifest(local_files);
-    validate_manifest_match(&local_manifest, &report.files)?;
-    validate_checkpoint(&report.files, &report.checkpoint)?;
-
-    if let (Some(local), Some(remote)) = (
-        session.source_fingerprint.as_ref(),
-        report.source_fingerprint.as_ref(),
-    ) && local != remote
-    {
-        return Err(ResumeRejectReason::SourceModified);
-    }
-
-    Ok(())
-}
-
-fn validate_resume_commit(
-    session: &entity::transfer_session::Model,
-    files: &[entity::transfer_file::Model],
-    new_epoch: i64,
-    fetch_plan: &[FileRange],
-) -> Result<(), ResumeRejectReason> {
-    if matches!(session.terminal_reason, Some(TerminalReason::Cancelled)) {
-        return Err(ResumeRejectReason::Cancelled);
-    }
-    if matches!(session.phase, TransferPhase::Terminal) || !session.recoverable {
-        return Err(ResumeRejectReason::FatalError);
-    }
-    if new_epoch <= session.epoch {
-        return Err(ResumeRejectReason::CheckpointInvalid);
-    }
-
-    let manifest = build_resume_manifest(files);
-    validate_fetch_plan(&manifest, fetch_plan)
-}
-
-fn validate_manifest_match(
-    local: &[FileInfo],
-    remote: &[FileInfo],
-) -> Result<(), ResumeRejectReason> {
-    if local.len() != remote.len() {
-        return Err(ResumeRejectReason::SourceModified);
-    }
-    for file in local {
-        let Some(peer_file) = remote.iter().find(|f| f.file_id == file.file_id) else {
-            return Err(ResumeRejectReason::SourceModified);
-        };
-        if peer_file.size != file.size
-            || peer_file.checksum != file.checksum
-            || peer_file.relative_path != file.relative_path
-        {
-            return Err(ResumeRejectReason::SourceModified);
-        }
-    }
-    Ok(())
-}
-
-fn validate_checkpoint(
-    manifest: &[FileInfo],
-    checkpoint: &[FileCheckpoint],
-) -> Result<(), ResumeRejectReason> {
-    for item in checkpoint {
-        let Some(file) = manifest.iter().find(|f| f.file_id == item.file_id) else {
-            return Err(ResumeRejectReason::CheckpointInvalid);
-        };
-        let mut previous_end = 0u64;
-        for &(offset, length) in &item.completed_ranges {
-            let end = offset
-                .checked_add(length)
-                .ok_or(ResumeRejectReason::CheckpointInvalid)?;
-            if length == 0 || offset < previous_end || end > file.size {
-                return Err(ResumeRejectReason::CheckpointInvalid);
-            }
-            previous_end = end;
-        }
-    }
-    Ok(())
-}
-
-fn validate_fetch_plan(
-    manifest: &[FileInfo],
-    fetch_plan: &[FileRange],
-) -> Result<(), ResumeRejectReason> {
-    for range in fetch_plan {
-        let Some(file) = manifest.iter().find(|f| f.file_id == range.file_id) else {
-            return Err(ResumeRejectReason::CheckpointInvalid);
-        };
-        let end = range
-            .offset
-            .checked_add(range.length)
-            .ok_or(ResumeRejectReason::CheckpointInvalid)?;
-        if range.length == 0 || end > file.size {
-            return Err(ResumeRejectReason::CheckpointInvalid);
-        }
-    }
-    Ok(())
-}
-
-fn build_fetch_plan_from_files(
-    files: &[entity::transfer_file::Model],
-) -> AppResult<Vec<FileRange>> {
-    let manifest = build_resume_manifest(files);
-    let checkpoint = build_resume_checkpoint(files);
-    build_fetch_plan(&manifest, &checkpoint)
-}
-
-fn build_fetch_plan_from_report(report: &ResumeReport) -> AppResult<Vec<FileRange>> {
-    build_fetch_plan(&report.files, &report.checkpoint)
-}
-
-fn build_fetch_plan(
-    manifest: &[FileInfo],
-    checkpoint: &[FileCheckpoint],
-) -> AppResult<Vec<FileRange>> {
-    validate_checkpoint(manifest, checkpoint).map_err(|_| {
-        AppError::Transfer(resume_reject_message(&ResumeRejectReason::CheckpointInvalid).into())
-    })?;
-
-    let mut plan = Vec::new();
-    for file in manifest {
-        let mut cursor = 0u64;
-        if let Some(cp) = checkpoint.iter().find(|item| item.file_id == file.file_id) {
-            for &(offset, length) in &cp.completed_ranges {
-                if cursor < offset {
-                    plan.push(FileRange {
-                        file_id: file.file_id,
-                        offset: cursor,
-                        length: offset - cursor,
-                    });
-                }
-                cursor = offset + length;
-            }
-        }
-        if cursor < file.size {
-            plan.push(FileRange {
-                file_id: file.file_id,
-                offset: cursor,
-                length: file.size - cursor,
-            });
-        }
-    }
-    Ok(plan)
-}
-
-fn next_resume_epoch(local_epoch: i64, peer_epoch: i64) -> i64 {
-    local_epoch.max(peer_epoch) + 1
-}
-
-fn resume_reject_message(reason: &ResumeRejectReason) -> &'static str {
-    match reason {
-        ResumeRejectReason::Cancelled => "对端已取消传输，无法恢复",
-        ResumeRejectReason::FatalError => "对端报告不可恢复错误",
-        ResumeRejectReason::SourceModified => "源文件或传输清单已变更，无法恢复",
-        ResumeRejectReason::CheckpointInvalid => "断点续传进度无效，无法恢复",
-        ResumeRejectReason::PeerUnavailable => "对端不可用，请稍后再试",
-        ResumeRejectReason::SessionNotFound => "对端找不到对应会话",
-    }
-}
-
 // ============ 断点续传辅助函数 ============
-
-pub(crate) fn build_sender_resume_state(
-    files: &[entity::transfer_file::Model],
-) -> HashMap<u32, (u32, u64)> {
-    files
-        .iter()
-        .filter_map(|f| {
-            let transferred = f.transferred_bytes as u64;
-            if transferred == 0 {
-                return None;
-            }
-            let file_id = f.file_id as u32;
-            let file_size = f.size as u64;
-            let total_chunks = calc_total_chunks(file_size);
-            let chunk_size = CHUNK_SIZE as u64;
-
-            let chunks_done = if transferred >= file_size {
-                total_chunks
-            } else {
-                (transferred.div_ceil(chunk_size)) as u32
-            };
-
-            Some((file_id, (chunks_done, transferred)))
-        })
-        .collect()
-}
 
 pub(crate) fn parse_peer_id(s: &str) -> AppResult<PeerId> {
     s.parse()
@@ -685,9 +449,7 @@ pub(crate) fn parse_peer_id(s: &str) -> AppResult<PeerId> {
 }
 
 /// `session.save_path` → `CoreSaveLocation`，缺省回退空路径（host 自行兜底语义）。
-fn build_save_location(
-    session: &entity::transfer_session::Model,
-) -> crate::host::CoreSaveLocation {
+fn build_save_location(session: &entity::transfer_session::Model) -> crate::host::CoreSaveLocation {
     session
         .save_path
         .clone()
@@ -743,55 +505,10 @@ fn build_transfer_resumed_event(
     }
 }
 
-pub(crate) fn build_resume_file_infos(
-    files: &[entity::transfer_file::Model],
-) -> (Vec<ResumeFileInfo>, i64) {
-    let mut infos = Vec::with_capacity(files.len());
-    let mut transferred_bytes: i64 = 0;
-    for f in files {
-        infos.push(ResumeFileInfo {
-            file_id: f.file_id,
-            name: f.name.clone(),
-            relative_path: f.relative_path.clone(),
-            size: f.size,
-        });
-        transferred_bytes += f.transferred_bytes;
-    }
-    (infos, transferred_bytes)
-}
-
-pub(crate) fn build_file_infos_and_bitmaps(
-    files: &[entity::transfer_file::Model],
-) -> (Vec<FileInfo>, HashMap<u32, Vec<u8>>) {
-    let mut file_infos = Vec::with_capacity(files.len());
-    let mut bitmaps = HashMap::with_capacity(files.len());
-    for f in files {
-        let fid = f.file_id as u32;
-        file_infos.push(FileInfo::from(f));
-        bitmaps.insert(fid, f.completed_chunks.clone());
-    }
-    (file_infos, bitmaps)
-}
-
-/// 从 DB 重建 PreparedFile，不做 fs 探测（让 sender 端推送时读取源文件失败再报错）
-pub(crate) fn build_prepared_files_from_db(
-    files: &[entity::transfer_file::Model],
-) -> Vec<PreparedFile> {
-    files
-        .iter()
-        .map(|f| PreparedFile {
-            file_id: f.file_id as u32,
-            name: f.name.clone(),
-            relative_path: f.relative_path.clone(),
-            source_id: FileSourceId(f.source_path.clone().unwrap_or_default()),
-            size: f.size as u64,
-            checksum: f.checksum.clone(),
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
+    use entity::TerminalReason;
+
     use super::*;
 
     fn session(session_id: Uuid) -> entity::transfer_session::Model {
