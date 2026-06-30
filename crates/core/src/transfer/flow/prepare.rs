@@ -1,7 +1,7 @@
 //! 发送方 prepare 阶段：流式 BLAKE3 hash + 进度事件推送。
 //!
 //! 这里只挂载 `TransferManager::prepare` 一个方法，结构体定义和其他生命周期方法
-//! 仍在 [`super::manager`]。
+//! 仍在 [`crate::transfer::manager`]。
 
 use std::time::Instant;
 

@@ -9,8 +9,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use uuid::Uuid;
 
-use crate::transfer::receiver::ReceiveSession;
-use crate::transfer::sender::SendSession;
+use crate::transfer::actor::receiver::ReceiveSession;
+use crate::transfer::actor::sender::SendSession;
 
 #[derive(Clone)]
 pub struct ActorRegistry {

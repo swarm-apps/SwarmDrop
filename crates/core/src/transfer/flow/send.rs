@@ -1,6 +1,6 @@
 //! 发送方生命周期：发起 Offer / 暂停 / 取消 / send_session 访问。
 //!
-//! 与 `receive` 模块对称；公共结构体定义仍在 [`super::manager`]。
+//! 与 `receive` 模块对称；公共结构体定义仍在 [`crate::transfer::manager`]。
 
 use std::sync::Arc;
 
@@ -12,15 +12,15 @@ use crate::database::ops::CreateSessionInput;
 use crate::host::CoreEvent;
 use crate::protocol::{AppRequest, AppResponse, FileInfo, TransferRequest, TransferResponse};
 use crate::transfer::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferState};
-use crate::transfer::data_frame::full_fetch_plan;
+use crate::transfer::wire::data_frame::full_fetch_plan;
 use crate::transfer::manager::{
     PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager, generate_id,
 };
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferAcceptedEvent, TransferFailedEvent, TransferRejectedEvent,
 };
-use crate::transfer::resume::parse_peer_id;
-use crate::transfer::sender::SendSession;
+use crate::transfer::flow::resume::parse_peer_id;
+use crate::transfer::actor::sender::SendSession;
 use crate::{AppError, AppResult};
 
 impl TransferManager {

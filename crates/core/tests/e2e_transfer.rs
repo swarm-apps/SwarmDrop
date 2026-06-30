@@ -37,7 +37,7 @@ use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
 use swarmdrop_core::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState, UserCommand,
 };
-use swarmdrop_core::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
+use swarmdrop_core::transfer::wire::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};

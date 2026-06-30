@@ -14,14 +14,14 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::protocol::FileRange;
-use crate::transfer::data_frame::{
+use crate::transfer::wire::data_frame::{
     TRANSFER_DATA_PROTOCOL, TransferDataFrame, TransferDataRole, read_frame, write_frame,
 };
 use crate::transfer::manager::TransferManager;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
-    pub(super) fn spawn_data_channel_task(
+    pub(crate) fn spawn_data_channel_task(
         self: &Arc<Self>,
         mut rx: DataChannelReceiver,
         cancel_token: CancellationToken,
@@ -51,7 +51,7 @@ impl TransferManager {
         });
     }
 
-    pub(super) fn spawn_send_data_channel(
+    pub(crate) fn spawn_send_data_channel(
         &self,
         session_id: Uuid,
         epoch: i64,
@@ -195,7 +195,7 @@ fn validate_inbound_hello(
 #[cfg(test)]
 mod tests {
     use crate::protocol::FileInfo;
-    use crate::transfer::data_frame::{full_fetch_plan, manifest_digest};
+    use crate::transfer::wire::data_frame::{full_fetch_plan, manifest_digest};
 
     use super::*;
 

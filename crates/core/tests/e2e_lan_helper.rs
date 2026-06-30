@@ -22,7 +22,7 @@ use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_man
 use swarmdrop_core::network::event_loop::{handle_core_node_event, run_event_loop};
 use swarmdrop_core::network::{BootstrapCandidateSource, DiscoveryMode, NetManager};
 use swarmdrop_core::protocol::{AppRequest, AppResponse};
-use swarmdrop_core::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
+use swarmdrop_core::transfer::wire::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::manager::TransferManager;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);

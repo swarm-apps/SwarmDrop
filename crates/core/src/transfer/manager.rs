@@ -7,10 +7,10 @@
 //! 顶层 trait impl（`TransferRuntime` / `IncomingTransferRuntime`）。具体业务方法
 //! 按生命周期阶段拆分到兄弟模块：
 //!
-//! - [`super::prepare`] —— 发送方哈希准备
-//! - [`super::send`]    —— 发送方 Offer / 暂停 / 取消
-//! - [`super::receive`] —— 接收方 accept / reject / 暂停 / 取消 + IncomingTransferRuntime 接收 helper
-//! - [`super::resume`]  —— 双侧断点续传 + IncomingTransferRuntime 续传 helper
+//! - [`super::flow::prepare`] —— 发送方哈希准备
+//! - [`super::flow::send`]    —— 发送方 Offer / 暂停 / 取消
+//! - [`super::flow::receive`] —— 接收方 accept / reject / 暂停 / 取消 + IncomingTransferRuntime 接收 helper
+//! - [`super::flow::resume`]  —— 双侧断点续传 + IncomingTransferRuntime 续传 helper
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -28,7 +28,7 @@ use crate::AppResult;
 use crate::host::{CoreSaveLocation, EventBus, FileAccess, FileSourceId};
 use crate::network::TransferRuntime;
 use crate::protocol::{AppNetClient, FileInfo, TransferResponse};
-use crate::transfer::actor_registry::ActorRegistry;
+use crate::transfer::actor::registry::ActorRegistry;
 use crate::transfer::incoming::IncomingTransferRuntime;
 use crate::transfer::policy::ReceivePolicyDecision;
 use crate::transfer::progress::TransferFailedEvent;
@@ -93,7 +93,7 @@ pub struct PendingOffer {
 
 /// 发送方已发出、仍在等待对端 OfferResult 的请求。
 #[derive(Debug, Clone, Copy)]
-pub(super) struct PendingOutboundOffer {
+pub(crate) struct PendingOutboundOffer {
     pub prepared_id: Uuid,
 }
 
@@ -130,24 +130,24 @@ const CLEANUP_INTERVAL_SECS: u64 = 60;
 
 /// 传输管理器
 ///
-/// 字段对兄弟模块（`prepare` / `send` / `receive` / `resume`）开放（`pub(super)`），
+/// 字段对兄弟模块（`prepare` / `send` / `receive` / `resume`）开放（`pub(crate)`），
 /// 这样它们可以挂载额外的 `impl TransferManager { ... }` 块直接访问字段。
 pub struct TransferManager {
-    pub(super) client: AppNetClient,
-    pub(super) event_bus: Arc<dyn EventBus>,
-    pub(super) db: Arc<DatabaseConnection>,
+    pub(crate) client: AppNetClient,
+    pub(crate) event_bus: Arc<dyn EventBus>,
+    pub(crate) db: Arc<DatabaseConnection>,
     /// 默认文件访问 trait（用于发送方读源文件、接收方写入；host 在调用时也可针对单次会话覆盖）
-    pub(super) file_access: Arc<dyn FileAccess>,
+    pub(crate) file_access: Arc<dyn FileAccess>,
     /// 传输生命周期协调器（状态变化的统一持久化 + projection 入口）。
-    pub(super) coordinator: Arc<crate::transfer::coordinator::TransferCoordinator>,
+    pub(crate) coordinator: Arc<crate::transfer::coordinator::TransferCoordinator>,
 
-    pub(super) prepared: DashMap<Uuid, PreparedTransfer>,
-    pub(super) pending: DashMap<Uuid, PendingOffer>,
+    pub(crate) prepared: DashMap<Uuid, PreparedTransfer>,
+    pub(crate) pending: DashMap<Uuid, PendingOffer>,
     /// 本端发起、仍在等待对端接受/拒绝响应的 Offer。
-    pub(super) outbound_offers: DashMap<Uuid, PendingOutboundOffer>,
+    pub(crate) outbound_offers: DashMap<Uuid, PendingOutboundOffer>,
     /// 用户已取消、但底层 request 还未返回的 outbound Offer。
-    pub(super) cancelled_outbound_offers: DashSet<Uuid>,
-    pub(super) actors: ActorRegistry,
+    pub(crate) cancelled_outbound_offers: DashSet<Uuid>,
+    pub(crate) actors: ActorRegistry,
     /// 入站 data-channel 接收器。只在后台任务启动时取出一次。
     data_channel_rx: Mutex<Option<DataChannelReceiver>>,
 }

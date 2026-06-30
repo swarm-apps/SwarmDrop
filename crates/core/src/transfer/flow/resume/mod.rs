@@ -17,12 +17,12 @@ use crate::protocol::{
     AppRequest, AppResponse, FileCheckpoint, FileInfo, FileRange, ResumePhaseReport,
     ResumeRejectReason, ResumeReport, TransferRequest, TransferResponse,
 };
-use crate::transfer::crypto::generate_key;
+use crate::transfer::wire::crypto::generate_key;
 use crate::transfer::manager::{PreparedFile, ResumeFileInfo, ResumeInfo, TransferManager};
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferResumedEvent, TransferResumedFileInfo,
 };
-use crate::transfer::sender::SendSession;
+use crate::transfer::actor::sender::SendSession;
 use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
 use crate::{AppError, AppResult};
 
@@ -122,7 +122,7 @@ impl TransferManager {
 
 impl TransferManager {
     /// 恢复探测应答：报告本端会话事实（phase/epoch/checkpoint/fingerprint/terminal）。
-    pub(super) async fn handle_resume_probe_impl(
+    pub(crate) async fn handle_resume_probe_impl(
         &self,
         session_id: Uuid,
     ) -> AppResult<TransferResponse> {
@@ -157,7 +157,7 @@ impl TransferManager {
 
     /// 恢复提交应答：校验后经 Coordinator 转 active(new_epoch)，完成 epoch 递增。
     /// 注：actor 重建 + 续传搬运在轮 7（数据面）接入；此处先做状态转换。
-    pub(super) async fn handle_resume_commit_impl(
+    pub(crate) async fn handle_resume_commit_impl(
         &self,
         peer_id: PeerId,
         session_id: Uuid,

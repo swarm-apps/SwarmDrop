@@ -23,8 +23,8 @@ use crate::transfer::CHUNK_SIZE;
 use crate::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator,
 };
-use crate::transfer::crypto::TransferCrypto;
-use crate::transfer::data_frame::{
+use crate::transfer::wire::crypto::TransferCrypto;
+use crate::transfer::wire::data_frame::{
     TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
 };
 use crate::transfer::manager::PreparedFile;

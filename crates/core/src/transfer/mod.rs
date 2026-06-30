@@ -1,21 +1,13 @@
 //! 文件传输共享常量和工具函数。
 
-mod actor_registry;
-mod checkpoint;
+pub mod actor;
 pub mod coordinator;
-pub mod crypto;
-pub mod data_frame;
-mod data_plane;
+pub mod flow;
 pub mod incoming;
 pub mod manager;
 pub mod policy;
-mod prepare;
 pub mod progress;
-mod receive;
-pub mod receiver;
-mod resume;
-mod send;
-pub mod sender;
+pub mod wire;
 
 use std::sync::Arc;
 

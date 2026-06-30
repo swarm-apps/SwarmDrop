@@ -16,11 +16,11 @@ use crate::protocol::{
     AppRequest, AppResponse, FileInfo, OfferRejectReason, TransferRequest, TransferResponse,
 };
 use crate::transfer::coordinator::{CoordinatorInput, TransferState, UserCommand};
-use crate::transfer::crypto::generate_key;
+use crate::transfer::wire::crypto::generate_key;
 use crate::transfer::manager::{PendingOffer, TransferManager};
 use crate::transfer::policy::ReceivePolicyDecision;
 use crate::transfer::progress::{RuntimeTransferDirection, TransferFailedEvent};
-use crate::transfer::receiver::ReceiveSession;
+use crate::transfer::actor::receiver::ReceiveSession;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
@@ -272,7 +272,7 @@ impl TransferManager {
         clippy::too_many_arguments,
         reason = "传输会话初始化必须接收完整上下文（session_id / peer / files / 元信息 / 加密密钥 / 续传位图），无更小的有意义子集"
     )]
-    pub(super) fn start_receive_session(
+    pub(crate) fn start_receive_session(
         &self,
         epoch: i64,
         session_id: Uuid,
@@ -305,7 +305,7 @@ impl TransferManager {
 // ============ IncomingTransferRuntime 接收侧 helper（被 manager.rs 中 trait impl 调用） ============
 
 impl TransferManager {
-    pub(super) async fn handle_cancel_impl(
+    pub(crate) async fn handle_cancel_impl(
         &self,
         session_id: Uuid,
         reason: String,
@@ -344,7 +344,7 @@ impl TransferManager {
     /// 先取消内存中的 send/receive 会话（cancel 优先于 error，run_data_channel 返回 Ok(false) 不 fail），
     /// 再经状态机 `Network{Interrupted}` 写 suspended/Interrupted/recoverable + 发 projection。
     /// 发送端会话由 data-channel 推送驱动、自身不轮询，靠此 hook 才能感知断连。
-    pub(super) async fn handle_peer_disconnected_impl(&self, peer_id: PeerId) {
+    pub(crate) async fn handle_peer_disconnected_impl(&self, peer_id: PeerId) {
         let peer_str = peer_id.to_string();
         let ids = match crate::database::ops::find_active_session_ids_by_peer(&self.db, &peer_str)
             .await
@@ -385,7 +385,7 @@ impl TransferManager {
         }
     }
 
-    pub(super) async fn handle_pause_impl(
+    pub(crate) async fn handle_pause_impl(
         &self,
         session_id: Uuid,
     ) -> AppResult<crate::transfer::progress::TransferPausedEvent> {

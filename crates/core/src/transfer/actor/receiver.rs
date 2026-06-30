@@ -21,13 +21,13 @@ use crate::host::{
     CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, HostFileMetadata,
 };
 use crate::protocol::{AppNetClient, AppRequest, FileInfo, FileRange, TransferRequest};
-use crate::transfer::checkpoint::{
+use crate::transfer::actor::checkpoint::{
     bytes_from_bitmap, count_completed_in_bitmap, ensure_files_complete, mark_chunk_completed,
     ranges_from_bitmap, validate_block_range,
 };
 use crate::transfer::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
-use crate::transfer::crypto::TransferCrypto;
-use crate::transfer::data_frame::{TransferDataFrame, manifest_digest, read_frame, write_frame};
+use crate::transfer::wire::crypto::TransferCrypto;
+use crate::transfer::wire::data_frame::{TransferDataFrame, manifest_digest, read_frame, write_frame};
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent,
 };
