@@ -1,0 +1,51 @@
+appId: com.yexiyue.swarmdrop
+name: UI parity - inbox detail provenance
+# #1:收件箱详情新增「来源类型」标签(展开「详情」可见)+ 文件行每文件 checksum。
+# 依赖本机收件箱已有 1 条记录(1000022660.mp4)。
+---
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 30000
+- runFlow:
+    when:
+      visible: "Later"
+    commands:
+      - tapOn: "Later"
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+- tapOn: "收件箱"
+- extendedWaitUntil:
+    visible:
+      id: inbox-screen
+    timeout: 15000
+- assertVisible:
+    id: inbox-list
+- tapOn:
+    id: inbox-row-0
+- extendedWaitUntil:
+    visible:
+      id: inbox-detail-screen
+    timeout: 15000
+- assertVisible:
+    id: inbox-detail-summary
+# 展开「详情」面板,验证新增的「来源类型」行
+- tapOn: "详情"
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      text: "来源类型"
+    direction: DOWN
+    timeout: 15000
+- assertVisible: "来源类型"
+- takeScreenshot: ui-parity-inbox-detail-provenance
+# 注:本机收件箱仅有 1 条单文件(mp4)记录,走预览+操作栏布局,不渲染多文件清单
+# (inbox-detail-files),故每文件 checksum 行(代码中 {file.checksum ? ...} 条件渲染)
+# 在此数据下不可达,由 typecheck 覆盖。

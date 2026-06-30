@@ -5,12 +5,15 @@ import {
   type BottomSheetFooterProps,
   BottomSheetModal,
   BottomSheetScrollView,
+  BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { Directory } from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Ban,
   Clock,
+  RotateCcw,
   SendHorizontal,
   Shield,
   ShieldCheck,
@@ -28,12 +31,15 @@ import type {
 } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import {
+  ConnectionBadge,
+  normalizeConnectionKind,
+} from "@/components/connection-badge";
+import {
   AppScreen,
   BottomActionArea,
   Surface,
 } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
-import { formatBytes } from "@/components/transfer/shared";
 import { TrustBadge, TrustLabel } from "@/components/trust-badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Switch } from "@/components/ui/switch";
@@ -76,6 +82,8 @@ export default function DeviceDetailScreen() {
   );
   const [savingAction, setSavingAction] = useState<SavingAction>(null);
   const [unpairOpen, setUnpairOpen] = useState(false);
+  // 策略草稿是否合法(大小上限输入校验);非法时禁用保存按钮。
+  const [policyValid, setPolicyValid] = useState(true);
 
   const {
     devices,
@@ -129,6 +137,7 @@ export default function DeviceDetailScreen() {
     if (!device) return;
     setDraftLevel(resolveTrustLevel(device));
     setDraftPolicy(policyForDevice(device));
+    setPolicyValid(true);
     policySheetRef.current?.present();
   }, [device]);
 
@@ -205,6 +214,7 @@ export default function DeviceDetailScreen() {
         <PolicyActionFooter
           draftLevel={draftLevel}
           savingAction={savingAction}
+          saveDisabled={!policyValid}
           onSave={handleSave}
           onBlock={handleBlock}
           onUnblock={handleUnblock}
@@ -218,6 +228,7 @@ export default function DeviceDetailScreen() {
       handleBlock,
       handleSave,
       handleUnblock,
+      policyValid,
       savingAction,
     ],
   );
@@ -274,7 +285,7 @@ export default function DeviceDetailScreen() {
                 {device.os} · {device.platform}
               </Text>
             </View>
-            <TrustBadge level={trustLevel} />
+            <TrustBadge level={trustLevel} confirmed={device.trustConfirmed} />
           </View>
 
           <View className="gap-2">
@@ -290,8 +301,25 @@ export default function DeviceDetailScreen() {
             />
             <InfoRow
               label={<Trans>连接路径</Trans>}
-              value={device.connection ?? <Trans>等待发现</Trans>}
+              value={
+                normalizeConnectionKind(device.connection) ? (
+                  <View className="flex-row justify-end">
+                    <ConnectionBadge
+                      connection={device.connection}
+                      latencyMs={device.latencyMs}
+                    />
+                  </View>
+                ) : (
+                  <Trans>等待发现</Trans>
+                )
+              }
             />
+            {device.latencyMs != null ? (
+              <InfoRow
+                label={<Trans>延迟</Trans>}
+                value={`${Number(device.latencyMs)}ms`}
+              />
+            ) : null}
             <InfoRow
               label={<Trans>Peer ID</Trans>}
               value={device.peerId}
@@ -402,6 +430,7 @@ export default function DeviceDetailScreen() {
               );
             }}
             onPolicyChange={setDraftPolicy}
+            onValidityChange={setPolicyValid}
           />
         </BottomSheetScrollView>
       </BottomSheetModal>
@@ -429,18 +458,71 @@ function PolicyEditor({
   draftPolicy,
   onLevelChange,
   onPolicyChange,
+  onValidityChange,
 }: {
   deviceName: string;
   draftLevel: TrustLevel;
   draftPolicy: MobileDeviceReceivePolicy;
   onLevelChange: (level: TrustLevel) => void;
   onPolicyChange: (policy: MobileDeviceReceivePolicy) => void;
+  onValidityChange: (valid: boolean) => void;
 }) {
+  const { t } = useLingui();
   const colors = useThemeColors();
   const blocked = draftLevel === "blocked";
 
   const patchPolicy = (patch: Partial<MobileDeviceReceivePolicy>) => {
     onPolicyChange({ ...draftPolicy, ...patch });
+  };
+
+  // 大小上限以 MB 文本编辑;非法输入时不回写 draftPolicy(保留上次有效值)并标记草稿无效。
+  const [sizeText, setSizeText] = useState(() =>
+    bytesToMbText(draftPolicy.maxTransferBytes),
+  );
+  const [sizeError, setSizeError] = useState(false);
+
+  // 当 maxTransferBytes 变化(切换信任级别会带动默认值)时,把输入框重新校准回有效值。
+  useEffect(() => {
+    setSizeText(bytesToMbText(draftPolicy.maxTransferBytes));
+    setSizeError(false);
+    onValidityChange(true);
+  }, [draftPolicy.maxTransferBytes, onValidityChange]);
+
+  const onSizeChange = (text: string) => {
+    setSizeText(text);
+    const trimmed = text.trim();
+    if (trimmed === "") {
+      setSizeError(false);
+      onValidityChange(true);
+      patchPolicy({ maxTransferBytes: undefined });
+      return;
+    }
+    const mb = Number(trimmed);
+    if (!Number.isFinite(mb) || mb <= 0) {
+      setSizeError(true);
+      onValidityChange(false);
+      return;
+    }
+    setSizeError(false);
+    onValidityChange(true);
+    patchPolicy({
+      maxTransferBytes: BigInt(Math.floor(mb)) * 1024n * 1024n,
+    });
+  };
+
+  const onPickSaveLocation = async () => {
+    try {
+      const dir = await Directory.pickDirectoryAsync();
+      try {
+        dir.list();
+      } catch (probeErr) {
+        toast.error(t`此目录不可读`, errorMessage(probeErr));
+        return;
+      }
+      patchPolicy({ defaultSaveLocation: dir.uri });
+    } catch (err) {
+      toast.error(t`选择失败`, errorMessage(err));
+    }
   };
 
   return (
@@ -539,33 +621,106 @@ function PolicyEditor({
         </View>
       </View>
 
-      <View className="gap-2 rounded-xl bg-muted px-3.5 py-3">
-        <InfoRow
-          label={<Trans>最大大小</Trans>}
-          value={
-            draftPolicy.maxTransferBytes != null ? (
-              formatBytes(draftPolicy.maxTransferBytes)
-            ) : (
-              <Trans>不限制</Trans>
-            )
-          }
-        />
+      <View className="gap-3 rounded-xl bg-muted px-3.5 py-3">
+        <View className="gap-1.5">
+          <View className="flex-row items-center justify-between gap-3">
+            <Text className="text-[12px] text-muted-foreground">
+              <Trans>最大大小</Trans>
+            </Text>
+            <View className="flex-row items-center gap-2">
+              <BottomSheetTextInput
+                value={sizeText}
+                onChangeText={onSizeChange}
+                editable={!blocked}
+                keyboardType="number-pad"
+                placeholder={t`不限制`}
+                placeholderTextColor={colors.mutedForeground}
+                testID="device-policy-max-size-input"
+                style={{
+                  minWidth: 96,
+                  borderWidth: 1,
+                  borderColor: sizeError ? colors.destructive : colors.border,
+                  backgroundColor: colors.card,
+                  borderRadius: 8,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  textAlign: "right",
+                  fontSize: 13,
+                  color: colors.foreground,
+                  opacity: blocked ? 0.5 : 1,
+                }}
+              />
+              <Text className="text-[12px] text-muted-foreground">MB</Text>
+            </View>
+          </View>
+          {sizeError ? (
+            <Text
+              className="text-right text-[11px] text-destructive"
+              testID="device-policy-max-size-error"
+            >
+              <Trans>请输入大于 0 的数字，留空表示不限制</Trans>
+            </Text>
+          ) : null}
+        </View>
+
         <InfoRow
           label={<Trans>有效期</Trans>}
           value={formatExpiresAt(draftPolicy.expiresAt)}
         />
-        <InfoRow
-          label={<Trans>保存位置</Trans>}
-          value={formatSaveLocation(draftPolicy.defaultSaveLocation)}
-        />
+
+        <View className="flex-row items-center justify-between gap-3">
+          <Text className="text-[12px] text-muted-foreground">
+            <Trans>保存位置</Trans>
+          </Text>
+          <View className="min-w-0 flex-1 flex-row items-center justify-end gap-2">
+            <Text
+              className="shrink text-right text-[12px] text-foreground"
+              numberOfLines={1}
+            >
+              {formatSaveLocation(draftPolicy.defaultSaveLocation)}
+            </Text>
+            {draftPolicy.defaultSaveLocation ? (
+              <Pressable
+                onPress={() => patchPolicy({ defaultSaveLocation: undefined })}
+                disabled={blocked}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={t`恢复默认保存位置`}
+                testID="device-policy-save-location-reset"
+                className="rounded-full p-1 active:opacity-60 disabled:opacity-40"
+              >
+                <RotateCcw color={colors.mutedForeground} size={13} />
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={onPickSaveLocation}
+              disabled={blocked}
+              accessibilityRole="button"
+              testID="device-policy-save-location-button"
+              className="rounded-lg border border-border px-2.5 py-1.5 active:opacity-70 disabled:opacity-40"
+            >
+              <Text className="text-[12px] font-semibold text-foreground">
+                <Trans>选择</Trans>
+              </Text>
+            </Pressable>
+          </View>
+        </View>
       </View>
     </View>
   );
 }
 
+/** 把 maxTransferBytes(字节,bigint)转成可编辑的 MB 文本;null/未设 → 空串(不限制)。 */
+function bytesToMbText(bytes?: bigint | null): string {
+  if (bytes == null) return "";
+  const mb = Math.ceil(Number(bytes) / (1024 * 1024));
+  return mb > 0 ? String(mb) : "";
+}
+
 function PolicyActionFooter({
   draftLevel,
   savingAction,
+  saveDisabled,
   onSave,
   onBlock,
   onUnblock,
@@ -573,6 +728,7 @@ function PolicyActionFooter({
 }: {
   draftLevel: TrustLevel;
   savingAction: SavingAction;
+  saveDisabled?: boolean;
   onSave: () => void;
   onBlock: () => void;
   onUnblock: () => void;
@@ -587,7 +743,7 @@ function PolicyActionFooter({
         onPress={onSave}
         accessibilityRole="button"
         testID="device-policy-save-button"
-        disabled={savingAction !== null}
+        disabled={savingAction !== null || saveDisabled}
         className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
       >
         {savingAction === "save" ? (

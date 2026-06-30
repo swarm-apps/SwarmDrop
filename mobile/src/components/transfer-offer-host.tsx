@@ -1,8 +1,8 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { Directory } from "expo-file-system";
 import { useRouter } from "expo-router";
-import { Bot, Download, File as FileIcon } from "lucide-react-native";
-import { MobileTransferOrigin_Tags } from "react-native-swarmdrop-core";
-import { useCallback, useMemo, useState } from "react";
+import { Bot, Download, FolderOpen } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -11,7 +11,9 @@ import {
   ScrollView,
   View,
 } from "react-native";
+import { MobileTransferOrigin_Tags } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
+import { buildTreeDataFromOffer, FileTree } from "@/components/file-tree";
 import { TrustBadge } from "@/components/trust-badge";
 import {
   AlertDialog,
@@ -24,6 +26,7 @@ import { getMobileCore } from "@/core/mobile-core";
 import { resolveReceiveLocation } from "@/core/paths";
 import { policyActionLabel } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { toast } from "@/lib/toast";
 import {
   summariesToOfflineDevices,
   useMobileCoreStore,
@@ -45,8 +48,16 @@ export function TransferOfferHost() {
     })),
   );
   const [busy, setBusy] = useState<"accepting" | "rejecting" | null>(null);
+  // 本次 offer 的保存目标覆盖;null 表示走全局默认接收位置。
+  const [saveDir, setSaveDir] = useState<string | null>(null);
 
   const open = current !== null;
+
+  // 切换到新 offer 时清掉上一次的目标覆盖。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只需在 offer id 变化时重置。
+  useEffect(() => {
+    setSaveDir(null);
+  }, [current?.id]);
 
   const pairedDevice = useMemo(() => {
     if (!current) return null;
@@ -59,11 +70,44 @@ export function TransferOfferHost() {
     );
   }, [current, devices, pairedDevicesCache]);
 
+  const treeData = useMemo(
+    () =>
+      current
+        ? buildTreeDataFromOffer(
+            current.offer.files.map((file) => ({
+              fileId: file.fileId,
+              name: file.name,
+              relativePath: file.relativePath || file.name,
+              size: Number(file.size),
+            })),
+          )
+        : null,
+    [current],
+  );
+
+  const pickSaveDir = useCallback(async () => {
+    try {
+      const dir = await Directory.pickDirectoryAsync();
+      try {
+        dir.list();
+      } catch (probeErr) {
+        toast.error(t`此目录不可读`, probeErr);
+        return;
+      }
+      setSaveDir(dir.uri);
+    } catch (err) {
+      toast.error(t`选择失败`, err);
+    }
+  }, [t]);
+
   const accept = useCallback(async () => {
     if (!current || busy !== null) return;
     setBusy("accepting");
     try {
-      await getMobileCore().acceptReceive(current.id, resolveReceiveLocation());
+      await getMobileCore().acceptReceive(
+        current.id,
+        saveDir ?? resolveReceiveLocation(),
+      );
       const sessionId = current.id;
       await loadProjection(sessionId);
       dismiss(sessionId);
@@ -78,7 +122,7 @@ export function TransferOfferHost() {
     } finally {
       setBusy(null);
     }
-  }, [busy, current, dismiss, setError, loadProjection, router]);
+  }, [busy, current, dismiss, setError, loadProjection, router, saveDir]);
 
   const reject = useCallback(async () => {
     if (!current || busy !== null) return;
@@ -96,8 +140,6 @@ export function TransferOfferHost() {
   if (!open || !current) return null;
 
   const totalLabel = formatBytes(Number(current.offer.totalSize));
-  const previewFiles = current.offer.files.slice(0, 5);
-  const remainingCount = current.offer.files.length - previewFiles.length;
   const trustLevel = pairedDevice ? resolveTrustLevel(pairedDevice) : null;
   const policyNote = offerPolicyNote(
     current.offer.policyAction,
@@ -177,29 +219,56 @@ export function TransferOfferHost() {
           </Text>
         </View>
 
+        {!rejectedByPolicy ? (
+          <View className="flex-row items-center justify-between gap-3 rounded-xl bg-muted px-3.5 py-3">
+            <View className="min-w-0 flex-1 flex-row items-center gap-2">
+              <FolderOpen color={colors.mutedForeground} size={15} />
+              <View className="min-w-0 flex-1">
+                <Text className="text-[11px] text-muted-foreground">
+                  <Trans>保存到</Trans>
+                </Text>
+                <Text
+                  className="text-[12px] text-foreground"
+                  numberOfLines={1}
+                  testID="transfer-offer-save-destination"
+                >
+                  {saveDir ? (
+                    prettyDestination(saveDir)
+                  ) : (
+                    <Trans>默认接收位置</Trans>
+                  )}
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={pickSaveDir}
+              accessibilityRole="button"
+              accessibilityLabel={t`更改保存位置`}
+              testID="transfer-offer-change-save-dir"
+              className="rounded-lg border border-border px-2.5 py-1.5 active:opacity-70"
+            >
+              <Text className="text-[12px] font-semibold text-foreground">
+                <Trans>更改</Trans>
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <ScrollView
           className="max-h-[220px] rounded-xl bg-muted"
-          contentContainerClassName="p-3 gap-2"
+          contentContainerClassName="p-3"
           testID="transfer-offer-file-list"
         >
-          {previewFiles.map((f) => (
-            <View key={f.fileId} className="flex-row items-center gap-2.5">
-              <FileIcon color={colors.mutedForeground} size={14} />
-              <Text
-                className="flex-1 text-[13px] text-foreground"
-                numberOfLines={1}
-              >
-                {f.name}
-              </Text>
-              <Text className="text-[11px] text-muted-foreground">
-                {formatBytes(Number(f.size))}
-              </Text>
-            </View>
-          ))}
-          {remainingCount > 0 ? (
-            <Text className="text-center text-[11px] italic text-muted-foreground">
-              <Trans>...还有 {remainingCount} 个文件</Trans>
-            </Text>
+          {treeData ? (
+            <FileTree
+              mode="select"
+              dataLoader={treeData.dataLoader}
+              rootChildren={treeData.rootChildren}
+              totalCount={current.offer.files.length}
+              totalSize={Number(current.offer.totalSize)}
+              progress={null}
+              showHeader={false}
+            />
           ) : null}
         </ScrollView>
 
@@ -267,6 +336,18 @@ function offerPolicyNote(
     return action ? `${policyActionLabel(action)}：${reason}` : reason;
   }
   return action ? policyActionLabel(action) : null;
+}
+
+/** 把 file:// / content:// URI 截成更短的显示串:取最后一段路径。 */
+function prettyDestination(uri: string): string {
+  try {
+    const decoded = decodeURIComponent(uri.replace(/\/$/, ""));
+    const segments = decoded.split("/");
+    const last = segments[segments.length - 1];
+    return last && last.length > 0 ? last : decoded;
+  } catch {
+    return uri;
+  }
 }
 
 function formatBytes(bytes: number): string {

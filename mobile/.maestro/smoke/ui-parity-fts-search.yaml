@@ -1,0 +1,45 @@
+appId: com.yexiyue.swarmdrop
+name: UI parity - inbox FTS search
+# #10(核心A):收件箱服务端 FTS 检索,可按文件名命中(客户端过滤做不到)。
+# 本机收件箱有 1 条 1000022660.mp4,搜 "mp4" 应命中(含已归档,runSearch 传 includeArchived=true)。
+# 依赖 mobile-core 的 searchInbox 绑定(需原生重编后才可用)。
+---
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 30000
+- runFlow:
+    when:
+      visible: "Later"
+    commands:
+      - tapOn: "Later"
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+- tapOn: "收件箱"
+- extendedWaitUntil:
+    visible:
+      id: inbox-screen
+    timeout: 15000
+- tapOn:
+    id: inbox-open-search-button
+- extendedWaitUntil:
+    visible:
+      id: inbox-search-screen
+    timeout: 15000
+- tapOn:
+    id: inbox-search-input
+- inputText: "mp4"
+- extendedWaitUntil:
+    visible:
+      id: inbox-search-hit-0
+    timeout: 15000
+- assertVisible:
+    id: inbox-search-hit-0
+- takeScreenshot: ui-parity-fts-search

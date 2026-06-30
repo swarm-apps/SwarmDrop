@@ -52,6 +52,7 @@ export default function NetworkScreen() {
     setAutoStart,
     setDiscoveryMode,
     setAutoDiscoverLanHelpers,
+    setProvideLanHelper,
   } = usePreferencesStore(
     useShallow((s) => ({
       autoStart: s.autoStart,
@@ -62,6 +63,7 @@ export default function NetworkScreen() {
       setAutoStart: s.setAutoStart,
       setDiscoveryMode: s.setDiscoveryMode,
       setAutoDiscoverLanHelpers: s.setAutoDiscoverLanHelpers,
+      setProvideLanHelper: s.setProvideLanHelper,
     })),
   );
 
@@ -295,15 +297,22 @@ export default function NetworkScreen() {
             <ChevronRight color={colors.mutedForeground} size={16} />
           </Pressable>
           <SettingDivider />
-          <View className="gap-1 px-3.5 py-3">
-            <Text className="text-[14px] text-foreground">
-              <Trans>本机 LAN Helper</Trans>
-            </Text>
-            <Text className="text-[11px] text-muted-foreground">
-              <Trans>
-                移动端默认不提供协助节点能力，以避免后台和电量风险。
-              </Trans>
-            </Text>
+          <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
+            <View className="flex-1 gap-0.5">
+              <Text className="text-[14px] text-foreground">
+                <Trans>本机 LAN Helper</Trans>
+              </Text>
+              <Text className="text-[11px] text-muted-foreground">
+                <Trans>
+                  让本机作为局域网协助节点。默认关闭，以避免后台和电量风险。
+                </Trans>
+              </Text>
+            </View>
+            <Switch
+              checked={provideLanHelper}
+              onCheckedChange={setProvideLanHelper}
+              testID="network-provide-lan-helper-switch"
+            />
           </View>
         </SettingSection>
       </ScrollView>

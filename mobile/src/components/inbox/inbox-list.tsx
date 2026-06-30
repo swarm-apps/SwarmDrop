@@ -175,10 +175,13 @@ export function InboxRow({
   item,
   index,
   onPress,
+  highlight,
 }: {
   item: InboxPreviewItem;
   index: number;
   onPress: (itemId: string) => void;
+  /** 命中关键词:非空时在标题/来源里高亮匹配子串(大小写不敏感)。 */
+  highlight?: string;
 }) {
   const colors = useThemeColors();
   const Icon = contentIcon(item);
@@ -195,12 +198,12 @@ export function InboxRow({
       </View>
       <View className="min-w-0 flex-1 gap-1">
         <View className="flex-row items-center gap-2">
-          <Text
+          <HighlightedText
+            text={item.title}
+            query={highlight}
             className="min-w-0 flex-1 text-[14px] font-semibold text-foreground"
             numberOfLines={1}
-          >
-            {item.title}
-          </Text>
+          />
           {item.missing || archived ? (
             <StatePill missing={item.missing} archived={archived} />
           ) : null}
@@ -218,12 +221,12 @@ export function InboxRow({
             {contentLabel(item)}
           </Text>
           <Text className="text-[11px] text-muted-foreground">·</Text>
-          <Text
+          <HighlightedText
+            text={item.sourceName}
+            query={highlight}
             className="min-w-0 flex-1 text-[11px] text-muted-foreground"
             numberOfLines={1}
-          >
-            {item.sourceName}
-          </Text>
+          />
         </View>
         <View className="flex-row items-center gap-1.5">
           <Text className="text-[11px] text-muted-foreground">
@@ -241,6 +244,51 @@ export function InboxRow({
       </View>
       <ChevronRight color={colors.mutedForeground} size={17} />
     </Pressable>
+  );
+}
+
+/** 在 text 中高亮匹配 query 的子串(大小写不敏感),query 为空时退化为普通文本。 */
+export function HighlightedText({
+  text,
+  query,
+  className,
+  numberOfLines,
+}: {
+  text: string;
+  query?: string;
+  className?: string;
+  numberOfLines?: number;
+}) {
+  const needle = query?.trim().toLowerCase();
+  if (!needle) {
+    return (
+      <Text className={className} numberOfLines={numberOfLines}>
+        {text}
+      </Text>
+    );
+  }
+  const lower = text.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let idx = lower.indexOf(needle);
+  while (idx !== -1) {
+    if (idx > cursor) parts.push(text.slice(cursor, idx));
+    parts.push(
+      <Text
+        key={`${cursor}-${idx}`}
+        className="rounded-sm bg-primary/25 font-semibold text-foreground"
+      >
+        {text.slice(idx, idx + needle.length)}
+      </Text>,
+    );
+    cursor = idx + needle.length;
+    idx = lower.indexOf(needle, cursor);
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return (
+    <Text className={className} numberOfLines={numberOfLines}>
+      {parts}
+    </Text>
   );
 }
 
