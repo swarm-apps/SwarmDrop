@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::transfer::actor::receiver::ReceiverActor;
 use crate::transfer::actor::sender::SenderActor;
+use crate::transfer::epoch::EpochGuard;
 
 /// 可被注册表取消的 actor（epoch 替换 / 移除时调用）。
 pub trait Cancellable {
@@ -113,8 +114,9 @@ fn insert_actor<A: Cancellable>(
     actor: Arc<A>,
 ) -> bool {
     if let Some(existing) = map.get(&session_id)
-        && existing.epoch >= epoch
+        && !EpochGuard::is_newer(epoch, existing.epoch)
     {
+        // 同 / 旧 epoch（非严格更新）拒绝并取消传入 actor。
         actor.cancel();
         return false;
     }

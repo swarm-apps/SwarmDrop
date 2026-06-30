@@ -14,6 +14,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::protocol::FileRange;
+use crate::transfer::epoch::EpochGuard;
 use crate::transfer::manager::TransferManager;
 use crate::transfer::wire::data_frame::{
     TRANSFER_DATA_PROTOCOL, TransferDataFrame, TransferDataRole, read_frame, write_frame,
@@ -185,9 +186,9 @@ fn validate_inbound_hello(
     if role != TransferDataRole::Sender {
         return Err("接收方只接受 Sender Hello".into());
     }
-    if current_epoch != incoming_epoch {
+    if !EpochGuard::matches(incoming_epoch, current_epoch) {
         return Err(format!(
-            "旧 epoch: current={current_epoch}, incoming={incoming_epoch}"
+            "epoch 不匹配: current={current_epoch}, incoming={incoming_epoch}"
         ));
     }
     if expected_manifest_digest != incoming_manifest_digest {
@@ -229,7 +230,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(err.contains("旧 epoch"));
+        assert!(err.contains("epoch 不匹配"));
     }
 
     #[test]

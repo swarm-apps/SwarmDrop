@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::AppResult;
 use crate::host::{CoreEvent, EventBus};
+use crate::transfer::epoch::EpochGuard;
 
 /// 传输生命周期状态（镜像 entity 持久化字段）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,10 +194,10 @@ pub enum CoordinatorInput {
 /// 返回 `Some(新状态)` 表示发生转换（调用方据此写 DB + 发 projection），
 /// `None` 表示忽略输入：旧 epoch 迟到消息、terminal 后的事件、当前 phase 下的非法转换。
 pub fn reduce(state: &TransferState, input: &CoordinatorInput) -> Option<TransferState> {
-    // epoch 校验：actor / network 事件 epoch < current 一律忽略（D3 防旧消息）。
+    // epoch 校验：迟到的 actor / network 事件（epoch 早于 current）一律忽略（D3 防旧消息）。
     match input {
         CoordinatorInput::Actor { epoch, .. } | CoordinatorInput::Network { epoch, .. }
-            if *epoch < state.epoch =>
+            if EpochGuard::is_stale(*epoch, state.epoch) =>
         {
             return None;
         }
@@ -299,7 +300,9 @@ fn reduce_network(state: &TransferState, signal: &NetworkSignal) -> Option<Trans
         }
         // 恢复提交：suspended + recoverable → active with new epoch。
         NetworkSignal::ResumeCommitted { new_epoch }
-            if state.is_suspended() && state.recoverable && *new_epoch > state.epoch =>
+            if state.is_suspended()
+                && state.recoverable
+                && EpochGuard::is_newer(*new_epoch, state.epoch) =>
         {
             Some(TransferState::active(*new_epoch))
         }
@@ -351,8 +354,9 @@ impl TransferCoordinator {
     }
 
     /// 入站网络信号（对端 Cancel/Pause）的便捷入口：当前 req_resp 控制消息不携带
-    /// epoch，用 session 当前 epoch dispatch（等价无 stale 保护——待数据面协议
-    /// 在帧里带 epoch 后收紧）。单次 load 后复用 [`apply_input`](Self::apply_input)。
+    /// epoch，用 session 当前 epoch dispatch。**已知缺口**：这是唯一没有 [`EpochGuard`]
+    /// 把关的入口（用 current 当 incoming，`is_stale` 恒 false）——待数据面控制帧也带
+    /// epoch 后收紧。单次 load 后复用 [`apply_input`](Self::apply_input)。
     pub async fn dispatch_network_current(
         &self,
         session_id: Uuid,

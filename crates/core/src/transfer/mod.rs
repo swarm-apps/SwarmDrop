@@ -2,6 +2,7 @@
 
 pub mod actor;
 pub mod coordinator;
+pub mod epoch;
 pub mod flow;
 pub mod incoming;
 pub mod manager;

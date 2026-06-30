@@ -8,6 +8,7 @@ use entity::{TerminalReason, TransferPhase};
 use crate::protocol::{
     FileCheckpoint, FileInfo, FileRange, ResumePhaseReport, ResumeRejectReason, ResumeReport,
 };
+use crate::transfer::epoch::EpochGuard;
 
 use super::plan::build_resume_manifest;
 
@@ -70,7 +71,7 @@ pub(crate) fn validate_resume_commit(
     if matches!(session.phase, TransferPhase::Terminal) || !session.recoverable {
         return Err(ResumeRejectReason::FatalError);
     }
-    if new_epoch <= session.epoch {
+    if !EpochGuard::is_newer(new_epoch, session.epoch) {
         return Err(ResumeRejectReason::CheckpointInvalid);
     }
 
