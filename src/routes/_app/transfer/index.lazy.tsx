@@ -15,6 +15,7 @@ import { HistoryItem } from "./-history-item";
 import { commands, type TransferProjection } from "@/lib/bindings";
 import { canResumeProjection, isProjectionActive } from "@/lib/transfer-projection";
 import { Button } from "@/components/ui/button";
+import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 
@@ -230,18 +231,12 @@ function ActivitySection({
 
 function EmptyState() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-      <div className="flex size-14 items-center justify-center rounded-full bg-muted">
-        <ArrowLeftRight className="size-7 text-muted-foreground" />
-      </div>
-      <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium text-foreground">
-          <Trans>暂无活动记录</Trans>
-        </p>
-        <p className="text-xs text-muted-foreground">
-          <Trans>成功接收的文件会进入收件箱，暂停或失败的任务会在这里恢复</Trans>
-        </p>
-      </div>
-    </div>
+    <CenteredEmptyState
+      icon={ArrowLeftRight}
+      title={<Trans>暂无活动记录</Trans>}
+      description={
+        <Trans>成功接收的文件会进入收件箱，暂停或失败的任务会在这里恢复</Trans>
+      }
+    />
   );
 }

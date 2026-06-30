@@ -8,11 +8,6 @@ import type {
   CoreSaveLocation,
   EnumeratedFile,
   PrepareProgressEvent,
-  SuspendedReason,
-  TerminalReason,
-  TransferPhase,
-  TransferFileResult,
-  TransferProgressEvent,
 } from "@/lib/bindings";
 
 // ── 业务别名 ──────────────────────────────────────────────────────────
@@ -25,38 +20,3 @@ export type PrepareProgress = PrepareProgressEvent;
 
 /** Peer ID (libp2p 节点标识) */
 export type PeerId = string;
-
-// ── 前端聚合类型 ─────────────────────────────────────────────────────
-
-/** 传输状态（前端运行时聚合，包含 waiting_accept 等过渡态） */
-export type TransferStatus =
-  | "pending"
-  | "waiting_accept"
-  | "transferring"
-  | "paused"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-/** 传输会话（前端聚合：DB 历史 + 实时进度 + UI 过渡状态） */
-export interface TransferSession {
-  sessionId: string;
-  direction: "send" | "receive";
-  peerId: string;
-  deviceName: string;
-  files: TransferFileResult[];
-  totalSize: number;
-  status: TransferStatus;
-  phase?: TransferPhase;
-  suspendedReason?: SuspendedReason | null;
-  terminalReason?: TerminalReason | null;
-  recoverable?: boolean;
-  epoch?: number;
-  progress: TransferProgressEvent | null;
-  transferredBytes?: number;
-  error: string | null;
-  startedAt: number;
-  updatedAt?: number;
-  completedAt: number | null;
-  saveLocation?: SaveLocation;
-}

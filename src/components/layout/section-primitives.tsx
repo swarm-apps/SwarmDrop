@@ -1,6 +1,6 @@
 /**
- * 设备页区块布局原语
- * 由设备页主文件与 add-device-section 共用，避免主文件与子组件互相导入造成循环依赖。
+ * 通用区块布局原语
+ * 玻璃面板外壳、区块标题、内嵌空态面板、居中空态——跨页面（设备 / 收件箱 / 传输）复用。
  */
 
 import { cn } from "@/lib/utils";
@@ -83,6 +83,50 @@ export function EmptyPanel({
       <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
         {description}
       </p>
+    </div>
+  );
+}
+
+/**
+ * 居中空态：圆形图标徽章 + 标题 + 说明，整体垂直水平居中。
+ * 封装收件箱 / 传输页此前各自手搓的空态结构。
+ */
+export function CenteredEmptyState({
+  icon: Icon,
+  title,
+  description,
+  className,
+  descriptionClassName,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  className?: string;
+  descriptionClassName?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex h-full flex-col items-center justify-center gap-3 text-center",
+        className,
+      )}
+    >
+      <div className="flex size-14 items-center justify-center rounded-full bg-muted">
+        <Icon className="size-7 text-muted-foreground" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-medium text-foreground">{title}</p>
+        {description && (
+          <p
+            className={cn(
+              "text-xs leading-5 text-muted-foreground",
+              descriptionClassName,
+            )}
+          >
+            {description}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

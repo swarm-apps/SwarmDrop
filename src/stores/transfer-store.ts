@@ -6,8 +6,7 @@ import {
   type TransferProgressEvent,
   type TransferProjection,
 } from "@/lib/bindings";
-import { toast } from "sonner";
-import { t } from "@lingui/core/macro";
+import { setupTransferNotifications } from "@/lib/transfer-notifications";
 
 interface TransferState {
   projections: Record<string, TransferProjection>;
@@ -30,9 +29,9 @@ export async function setupTransferListeners() {
 
   // 后端在每次状态迁移都发 transferProjectionUpdate（accept/pause/resume/complete/
   // fail/cancel/reject），它是唯一权威状态源，由 applyProjection 增量合并进 store。
-  // 其余生命周期事件只保留必要副作用（toast），不再各自 loadProjections——那会造成
-  // 冗余全量往返 + 乱序覆盖（迟到的旧快照盖掉新状态）。loadProjections 仅用于初始化、
-  // 进入列表页、以及删除路径（增量事件无法表达删除）。
+  // loadProjections 仅用于初始化、进入列表页、以及删除路径（增量事件无法表达删除）。
+  // 纯 toast 副作用（failed/paused/rejected/dbError）拆到 setupTransferNotifications，
+  // 这里只保留 projection / progress / offer 的状态同步订阅。
   const fns = await Promise.all([
     events.transferProjectionUpdate.listen((event) => {
       useTransferStore.getState().applyProjection(event.payload);
@@ -45,35 +44,11 @@ export async function setupTransferListeners() {
     events.transferProgress.listen((event) => {
       useTransferStore.getState().updateProgress(event.payload);
     }),
-
-    events.transferFailed.listen((event) => {
-      const { error } = event.payload;
-      if (error.startsWith("对方取消")) {
-        toast.info(t`对方已取消传输`);
-      } else {
-        toast.error(error || t`传输失败`);
-      }
-    }),
-
-    events.transferPaused.listen(() => {
-      toast.info(t`对方已暂停传输`);
-    }),
-
-    events.transferRejected.listen((event) => {
-      const { reason } = event.payload;
-      if (reason?.type === "not_paired") {
-        toast.error(t`设备已取消配对`);
-      } else {
-        toast.error(t`对方拒绝了请求`);
-      }
-    }),
-
-    events.transferDbError.listen((event) => {
-      toast.error(event.payload.message);
-    }),
   ]);
 
-  unlistenFns = fns;
+  const unlistenNotifications = await setupTransferNotifications();
+
+  unlistenFns = [...fns, unlistenNotifications];
 }
 
 export async function cleanupTransferListeners() {
