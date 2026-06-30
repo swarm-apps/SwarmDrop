@@ -150,12 +150,14 @@ pub fn insert_session(...) { ... }
 
 ### 接线 mark_session_* → Coordinator：本地/对端 reason 区分 + 取消优先于 error
 
-把 17 个 `mark_session_*` 调用点接进状态机时，**两种入口按是否有文件副作用分**：纯状态转换（pause/cancel/对端信号）走 `dispatch(input)`；带文件副作用的 complete/fail 走 `mark_*` + `coordinator.publish_projection`（reduce 对 terminal 返回 None，故直发投影）。
+**所有 session 级 phase 转换一律走 `coordinator.dispatch` → `reduce` → `apply_transition`，禁止 `mark_session_*` 直写终态**（`cleanup-transfer-tech-debt` 轮1 收口）。文件级副作用（`mark_file_completed`/finalize/checkpoint/inbox 索引）在 dispatch **之前**完成，但 session 终态由 reducer 统一写。早期「complete/fail 走 mark_* + `publish_projection`」是迁移没收口的过渡写法，已废弃。
 
 **正确做法**：
-- **本地 vs 对端 reason 必须区分**：本地操作→`User{Pause/Cancel}`（写 LocalPaused/Cancelled）；对端发来的 Pause/Cancel→`Network{RemotePaused/RemoteCancelled}`（写 RemotePaused）。直接 `mark_session_paused` 会把对端暂停误标 LocalPaused。
+- **完成/失败/拒绝走 dispatch**：收发完成→`dispatch(Actor{epoch, Completed})`；接收方校验失败→`dispatch(Actor{epoch, FatalError(msg)})`；策略拒绝→`create_session(offered)` 后 `dispatch(User{Reject})`。`epoch` 用 actor 自己的 epoch——旧 epoch actor 在 resume 后才完成会被 epoch 守卫忽略。
+- **完成事件/收件箱索引 gate 在 dispatch 返回 `Some`**：`is_terminal` 守卫让先到的终态获胜、迟到的被拒（reduce 返回 None），所以被取消/旧 epoch 抢先时不发 `TransferCompleted`/不建 inbox。这修了「取消后并发完成把 cancelled 覆盖成 completed」的竞态 bug（回归测试 `e2e_terminal_irreversible_under_concurrent_complete_cancel`）。
+- **本地 vs 对端 reason 必须区分**：本地操作→`User{Pause/Cancel}`（写 LocalPaused/Cancelled）；对端发来的 Pause/Cancel→`Network{RemotePaused/RemoteCancelled}`（写 RemotePaused）。
 - 入站控制消息（req_resp 的 Cancel/Pause）当前**不携带 epoch**，用 `dispatch_network_current`（读 session 当前 epoch 再 dispatch，等价无 stale 保护）；待数据面帧协议带 epoch 后收紧。
-- **`ReceiveSession` 要持 `Arc<TransferCoordinator>`**：否则接收方自身 complete/fail 只 `mark_*` 不发 projection（收发不对称坑——发送方 `handle_complete_impl` 发、接收方不发）。线进去后 complete/fail 都 `publish_projection`。
+- **`publish_projection` 只剩「新建会话首投影」一个合法用途**（offered/waiting_accept，创建不是 reduce 输入、没有 from-state）；状态转换的 projection 由 dispatch 在 reduce 成功后自动发，别再用它给终态补投影。
 - **对端断连 → `Network{Interrupted}`**：event_loop 在 `NodeEvent::PeerDisconnected` 调 `IncomingTransferRuntime::handle_peer_disconnected(peer)`（新 trait 方法，默认 no-op），impl 里 `find_active_session_ids_by_peer` + 取消内存会话 + dispatch。发送端会话本就 idle（只应答 ChunkRequest），**只能靠这个 hook 感知断连**。
 - **取消优先于 error**（`receiver.rs::pull_file_chunks` 收尾）：被 `cancel_token` 取消的传输即使有 in-flight chunk 错误也返回 `Ok(false)`（取消），**不能**先判 error 返回 Err——否则断连/取消 teardown 时的 chunk 错误会触发 `fail_session` 写 terminal/failed，盖掉 Interrupted/Cancelled。这也修了「主动取消时若 chunk 报错会变 failed」的潜在 bug。
 

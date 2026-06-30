@@ -3,14 +3,14 @@
 > 安全网：`crates/core/tests/e2e_transfer.rs`（连通/单文件传输/重启清理/reject/remote-reason/peer-disconnect 共 6 个）+ 38 单元测试。
 > 节奏参考已归档的 `harden-transfer-lifecycle`。轮 1-2 是 P0（病根 + 死代码），轮 3-5 是 P1（重复/拆分/一致性/前端）。
 
-## 1. 病根：终态写入收口到 Coordinator（P0，含竞态 bug 修复）
+## 1. 病根：终态写入收口到 Coordinator（P0，含竞态 bug 修复）✅
 
-- [ ] 1.1 收发完成改 dispatch：`data_plane.rs:87`（发送）与 `receiver.rs:525`（接收）的 `mark_session_completed` → `coordinator.dispatch(Actor{epoch, Completed})`；文件级 `mark_file_completed`/finalize 保留在 actor 内、在 dispatch 之前
-- [ ] 1.2 接收方失败改 dispatch：`receiver.rs:589` 的 `mark_session_failed` → `dispatch(Actor{epoch, FatalError(msg)})`（与发送方 `send.rs:404` 对称）
-- [ ] 1.3 策略拒绝改 dispatch：`receive.rs:115` 的 `mark_session_rejected` → `create_session(offered)` 后 `dispatch(User{Reject})`（`reduce_user` 的 Reject arm 已支持 offered→rejected）
-- [ ] 1.4 删除 `coordinator.publish_projection`（`coordinator.rs:423`）公开入口及全部调用点（`receive.rs:121`、`send.rs:97`、`receiver.rs:526/591`、`data_plane.rs:91`）；projection 只作为 `apply_input` 内 reduce 成功后的副作用
-- [ ] 1.5 **竞态回归测试**：`e2e_transfer.rs` 新增「seed active 会话 → 并发 dispatch(User{Cancel}) 与 dispatch(Actor{Completed}) / 模拟完成回调 → 断言终态为 cancelled（terminal 不可逆，completed 被 reduce 拒绝）」
-- [ ] 1.6 `cargo test -p swarmdrop-core`（38+6 + 新增）+ clippy 全绿；现有「收发对称 Terminal/Completed projection」断言仍通过（证明完成仍发 projection）
+- [x] 1.1 收发完成改 dispatch：`data_plane.rs`（发送）与 `receiver.rs::finish_data_channel`（接收）的 `mark_session_completed` → `dispatch(Actor{epoch, Completed})`；文件级 `mark_file_completed`/finalize 保留在 actor 内、在 dispatch 之前；完成事件 + 收件箱索引 gate 在 dispatch 返回 Some（被取消/旧 epoch 抢先则不发）
+- [x] 1.2 接收方失败改 dispatch：`receiver.rs::fail_session` 的 `mark_session_failed` → `dispatch(Actor{epoch, FatalError(msg)})`（与发送方对称）；`finish_data_channel`/`fail_session` 线入 epoch
+- [x] 1.3 策略拒绝改 dispatch：`receive.rs::record_rejected_inbound_offer` 的 `mark_session_rejected` → `dispatch(User{Reject})`（policy reason 已由 `set_session_policy_metadata` 持久化）
+- [x] 1.4 终态 backfill 的 `publish_projection`（receiver.rs ×2 / data_plane / receive.rs reject）随 1.1-1.3 消失；`publish_projection` 保留并 **rescope** 为「新建会话首投影」（offered/waiting_accept，创建非 reduce 输入，合法不走 dispatch），doc 去掉逃生口表述。剩 2 个合法 creation 调用点
+- [x] 1.5 **竞态回归测试** `e2e_terminal_irreversible_under_concurrent_complete_cancel`：两种到达顺序（cancel→complete / complete→cancel）下迟到的终态都被 `is_terminal` 守卫拒绝（reduce 返回 None），终态不被覆盖
+- [x] 1.6 `cargo test -p swarmdrop-core`（78 单元 + 12 E2E）+ clippy（core+桌面壳）全绿；收发对称 Terminal/Completed projection 断言仍通过；`ActorReport::Completed` 分支由此变活
 
 ## 2. 清除迁移残留死代码（P0，低风险）
 

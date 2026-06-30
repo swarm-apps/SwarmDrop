@@ -21,7 +21,7 @@ use crate::host::{
     CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, HostFileMetadata,
 };
 use crate::protocol::{AppNetClient, AppRequest, FileInfo, FileRange, TransferRequest};
-use crate::transfer::coordinator::TransferCoordinator;
+use crate::transfer::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
 use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::data_frame::{TransferDataFrame, manifest_digest, read_frame, write_frame};
 use crate::transfer::progress::{
@@ -307,7 +307,8 @@ impl ReceiveSession {
                         epoch: frame_epoch,
                     }) if session_id == self.session_id && frame_epoch == epoch => {
                         ensure_files_complete(&self.files, &bitmaps)?;
-                        self.finish_data_channel(&progress, sinks, bitmaps).await?;
+                        self.finish_data_channel(epoch, &progress, sinks, bitmaps)
+                            .await?;
                         frame_tx
                             .send(TransferDataFrame::Finish {
                                 session_id: self.session_id,
@@ -457,6 +458,7 @@ impl ReceiveSession {
 
     async fn finish_data_channel(
         &self,
+        epoch: i64,
         progress: &Arc<Mutex<ProgressTracker>>,
         mut sinks: HashMap<u32, FileSinkId>,
         mut bitmaps: HashMap<u32, Vec<u8>>,
@@ -504,7 +506,7 @@ impl ReceiveSession {
                     "文件校验失败: {} (file_id={})",
                     file_info.name, file_info.file_id
                 );
-                self.fail_session(progress, msg).await;
+                self.fail_session(epoch, progress, msg).await;
                 return Err(e);
             }
             self.remove_created_sink(&sink_id).await;
@@ -522,20 +524,32 @@ impl ReceiveSession {
             .await?;
         }
 
-        crate::database::ops::mark_session_completed(&self.db, self.session_id).await?;
-        let _ = self.coordinator.publish_projection(self.session_id).await;
-        self.ensure_inbox_item_after_completion().await;
-
-        let complete_event = progress
-            .lock()
-            .await
-            .complete_event(Some(self.save_location.clone()));
-        let _ = self
-            .event_bus
-            .publish(CoreEvent::TransferCompleted {
-                event: complete_event,
-            })
-            .await;
+        // 终态经状态机：文件级 mark_file_completed 已在上面完成，session 终态由
+        // dispatch(Actor{epoch, Completed}) 统一写（带 epoch + terminal 不可逆守卫）。
+        // 仅真正转入 completed 才建收件箱索引 + 发完成事件（被取消/旧 epoch 抢先则不发）。
+        let transitioned = self
+            .coordinator
+            .dispatch(
+                self.session_id,
+                CoordinatorInput::Actor {
+                    epoch,
+                    report: ActorReport::Completed,
+                },
+            )
+            .await?;
+        if transitioned.is_some() {
+            self.ensure_inbox_item_after_completion().await;
+            let complete_event = progress
+                .lock()
+                .await
+                .complete_event(Some(self.save_location.clone()));
+            let _ = self
+                .event_bus
+                .publish(CoreEvent::TransferCompleted {
+                    event: complete_event,
+                })
+                .await;
+        }
 
         Ok(())
     }
@@ -584,16 +598,26 @@ impl ReceiveSession {
         self.created_sinks.lock().await.clear();
     }
 
-    /// 标记会话失败：写入 DB 失败记录 + 发射失败事件
-    async fn fail_session(&self, progress: &Arc<Mutex<ProgressTracker>>, msg: String) {
-        let _ = crate::database::ops::mark_session_failed(&self.db, self.session_id, &msg).await;
-        // mark 已双写 phase=terminal/failed；发 projection 与发送方对称。
-        let _ = self.coordinator.publish_projection(self.session_id).await;
-        let event = progress.lock().await.failed_event(msg);
-        let _ = self
-            .event_bus
-            .publish(CoreEvent::TransferFailed { event })
+    /// 标记会话失败：终态经状态机 dispatch(Actor{FatalError}) 写 terminal/failed + 发 projection。
+    /// 仅真正转入 failed 才发失败事件（被取消/旧 epoch 抢先则不发）。
+    async fn fail_session(&self, epoch: i64, progress: &Arc<Mutex<ProgressTracker>>, msg: String) {
+        let transitioned = self
+            .coordinator
+            .dispatch(
+                self.session_id,
+                CoordinatorInput::Actor {
+                    epoch,
+                    report: ActorReport::FatalError(msg.clone()),
+                },
+            )
             .await;
+        if matches!(transitioned, Ok(Some(_))) {
+            let event = progress.lock().await.failed_event(msg);
+            let _ = self
+                .event_bus
+                .publish(CoreEvent::TransferFailed { event })
+                .await;
+        }
     }
 
     /// 接收完成后创建收件箱索引；失败只作为 DB 附加错误上报，不回滚已完成传输。

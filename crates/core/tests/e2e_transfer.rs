@@ -35,7 +35,7 @@ use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_man
 use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
 use swarmdrop_core::transfer::coordinator::{
-    ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState,
+    ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState, UserCommand,
 };
 use swarmdrop_core::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
@@ -1107,4 +1107,80 @@ async fn e2e_fatal_error_persists_message() {
         Some("发送 Offer 失败: 对端不可达"),
         "fatal_error 应把失败原因持久化到 error_message"
     );
+}
+
+/// 回归（cleanup 轮1 病根）：终态收口 dispatch 后，已 terminal 的会话在并发完成/取消下不被覆盖。
+///
+/// 此前完成走 `mark_session_completed` 直写 phase=terminal/completed，绕过 reduce 的
+/// `is_terminal` 守卫——对端取消（dispatch terminal/cancelled）与并发的 finish（mark_completed）
+/// 会互相覆盖（正是状态机要消灭的 bug）。改走 `dispatch(Actor{Completed})` 后，`is_terminal`
+/// 守卫让先到的终态获胜、迟到的被拒绝（reduce 返回 None），与到达顺序无关。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_terminal_irreversible_under_concurrent_complete_cancel() {
+    let db = make_db().await;
+    let host = MemoryHost::new(test_paths());
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+
+    // 顺序 A：取消先到 → 迟到的完成被拒，终态保持 cancelled。
+    let cancelled_first = Uuid::new_v4();
+    seed_active_session(db.as_ref(), cancelled_first, "peer").await;
+    coordinator
+        .dispatch(cancelled_first, CoordinatorInput::User(UserCommand::Cancel))
+        .await
+        .expect("dispatch cancel")
+        .expect("active→cancelled");
+    let late_complete = coordinator
+        .dispatch(
+            cancelled_first,
+            CoordinatorInput::Actor {
+                epoch: 0,
+                report: ActorReport::Completed,
+            },
+        )
+        .await
+        .expect("dispatch late complete");
+    assert!(
+        late_complete.is_none(),
+        "已 cancelled 的会话不应再接受完成转换"
+    );
+    let m = ops::find_session(db.as_ref(), cancelled_first)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.phase, TransferPhase::Terminal);
+    assert_eq!(
+        m.terminal_reason,
+        Some(TerminalReason::Cancelled),
+        "cancelled 不应被并发完成覆盖成 completed"
+    );
+
+    // 顺序 B：完成先到 → 迟到的取消被拒，终态保持 completed。
+    let completed_first = Uuid::new_v4();
+    seed_active_session(db.as_ref(), completed_first, "peer").await;
+    coordinator
+        .dispatch(
+            completed_first,
+            CoordinatorInput::Actor {
+                epoch: 0,
+                report: ActorReport::Completed,
+            },
+        )
+        .await
+        .expect("dispatch complete")
+        .expect("active→completed");
+    let late_cancel = coordinator
+        .dispatch(completed_first, CoordinatorInput::User(UserCommand::Cancel))
+        .await
+        .expect("dispatch late cancel");
+    assert!(
+        late_cancel.is_none(),
+        "已 completed 的会话不应再接受取消转换"
+    );
+    let m = ops::find_session(db.as_ref(), completed_first)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.phase, TransferPhase::Terminal);
+    assert_eq!(m.terminal_reason, Some(TerminalReason::Completed));
 }

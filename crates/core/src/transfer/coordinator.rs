@@ -418,8 +418,11 @@ impl TransferCoordinator {
         Ok(converted)
     }
 
-    /// 直接发当前 session 的 projection（用于已由 `mark_*` 写好 phase、不经 reduce
-    /// 的过渡路径，如带 file 副作用的 complete/failed）。
+    /// 为刚 `create_session` 的会话发首次 projection（offered / waiting_accept）。
+    ///
+    /// 状态**转换**的 projection 由 [`dispatch`](Self::dispatch) 在 reduce 成功后自动发出；
+    /// 本方法只用于「新建会话首投影」这一非转换场景（创建不是 reduce 输入，没有 from-state）。
+    /// 终态（complete/fail/reject）已统一走 dispatch，不再经此旁路。
     pub async fn publish_projection(&self, session_id: Uuid) -> AppResult<()> {
         if let Some(projection) =
             crate::database::ops::get_transfer_projection(&self.db, session_id).await?

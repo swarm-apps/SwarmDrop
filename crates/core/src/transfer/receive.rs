@@ -112,13 +112,11 @@ impl TransferManager {
             &policy_decision.reason,
         )
         .await?;
-        crate::database::ops::mark_session_rejected(
-            &self.db,
-            session_id,
-            Some(&policy_decision.reason),
-        )
-        .await?;
-        self.coordinator.publish_projection(session_id).await?;
+        // 终态经状态机：offered → terminal/rejected（policy reason 已由
+        // set_session_policy_metadata 持久化到 policy_reason，前端据此展示）。
+        self.coordinator
+            .dispatch(session_id, CoordinatorInput::User(UserCommand::Reject))
+            .await?;
 
         Ok(())
     }

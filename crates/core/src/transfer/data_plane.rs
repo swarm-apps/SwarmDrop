@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::host::CoreEvent;
 use crate::protocol::FileRange;
-use crate::transfer::coordinator::{CoordinatorInput, NetworkSignal};
+use crate::transfer::coordinator::{ActorReport, CoordinatorInput, NetworkSignal};
 use crate::transfer::data_frame::{
     TRANSFER_DATA_PROTOCOL, TransferDataFrame, TransferDataRole, read_frame, write_frame,
 };
@@ -83,24 +83,37 @@ impl TransferManager {
             match result {
                 Ok(()) => {
                     actors.remove_send(&session_id);
-                    if let Err(e) =
-                        crate::database::ops::mark_session_completed(&db, session_id).await
-                    {
-                        warn!("DB 标记发送完成失败: {}", e);
-                    } else {
-                        let _ = coordinator.publish_projection(session_id).await;
-                    }
-                    let _ = event_bus
-                        .publish(CoreEvent::TransferCompleted {
-                            event: TransferCompleteEvent {
-                                session_id,
-                                direction: RuntimeTransferDirection::Send,
-                                total_bytes: session.total_bytes_sent(),
-                                elapsed_ms: session.elapsed_ms(),
-                                save_location: None,
+                    // 终态经状态机：dispatch(Actor{epoch, Completed}) 写 terminal/completed + 发
+                    // projection，享受 epoch + terminal 不可逆守卫（旧 epoch / 已取消的会话不被覆盖）。
+                    // 仅真正转入 completed 才发完成事件（被取消/旧 epoch 抢先则不发）。
+                    match coordinator
+                        .dispatch(
+                            session_id,
+                            CoordinatorInput::Actor {
+                                epoch,
+                                report: ActorReport::Completed,
                             },
-                        })
-                        .await;
+                        )
+                        .await
+                    {
+                        Ok(Some(_)) => {
+                            let _ = event_bus
+                                .publish(CoreEvent::TransferCompleted {
+                                    event: TransferCompleteEvent {
+                                        session_id,
+                                        direction: RuntimeTransferDirection::Send,
+                                        total_bytes: session.total_bytes_sent(),
+                                        elapsed_ms: session.elapsed_ms(),
+                                        save_location: None,
+                                    },
+                                })
+                                .await;
+                        }
+                        Ok(None) => info!(
+                            "发送完成被状态机忽略（已 terminal / 旧 epoch）: session={session_id}"
+                        ),
+                        Err(e) => warn!("dispatch 发送完成失败: session={session_id}, {e}"),
+                    }
                 }
                 Err(e) if session.cancel_token().is_cancelled() => {
                     actors.remove_send(&session_id);
