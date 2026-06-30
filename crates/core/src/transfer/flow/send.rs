@@ -15,7 +15,7 @@ use crate::transfer::actor::sender::SenderActor;
 use crate::transfer::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferState};
 use crate::transfer::flow::resume::parse_peer_id;
 use crate::transfer::manager::{
-    PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager, generate_id,
+    PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager,
 };
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferAcceptedEvent, TransferFailedEvent, TransferRejectedEvent,
@@ -57,7 +57,7 @@ impl TransferManager {
             .iter()
             .map(|f| f.source_id.0.clone())
             .collect();
-        let session_id = generate_id();
+        let session_id = Uuid::new_v4();
 
         let target_peer = parse_peer_id(peer_id)?;
         let peer_id_str = peer_id.to_string();

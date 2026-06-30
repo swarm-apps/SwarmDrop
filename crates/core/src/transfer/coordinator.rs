@@ -129,6 +129,12 @@ impl From<&entity::transfer_session::Model> for TransferState {
 ///
 /// 恢复（resume）不在此列：它走 `ResumeProbe`/`ResumeCommit` 探测协议，
 /// 由 [`NetworkSignal::ResumeCommitted`] 转 active，不经用户命令直转状态。
+///
+/// **pause / suspend / paused 术语固定映射**（贯穿全栈，勿混用）：
+/// 用户动作 **pause**（本命令）/ 对端 [`NetworkSignal::RemotePaused`]
+/// → phase **Suspended** + reason **LocalPaused / RemotePaused**
+/// → 旧扁平 status **Paused**（`TransferPhase::legacy_status` 单一映射）。
+/// 即 *pause* 是动作、*suspended* 是 phase、*paused* 是 legacy status。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserCommand {
     Pause,

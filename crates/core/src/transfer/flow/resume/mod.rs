@@ -459,7 +459,7 @@ fn build_save_location(session: &entity::transfer_session::Model) -> crate::host
         })
 }
 
-pub(crate) async fn load_resumable_session(
+async fn load_resumable_session(
     db: &DatabaseConnection,
     session_id: Uuid,
 ) -> AppResult<(entity::transfer_session::Model, PeerId)> {

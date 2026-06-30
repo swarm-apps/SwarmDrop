@@ -246,10 +246,6 @@ impl TransferManager {
     }
 }
 
-pub fn generate_id() -> Uuid {
-    Uuid::new_v4()
-}
-
 impl TransferRuntime for TransferManager {
     fn spawn_cleanup_task(transfer: &Arc<Self>, cancel_token: CancellationToken) {
         transfer.spawn_cleanup_task(cancel_token);
