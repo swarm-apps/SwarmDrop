@@ -12,7 +12,7 @@ use futures::io::AsyncReadExt;
 use sea_orm::DatabaseConnection;
 use swarm_p2p_core::libp2p::PeerId;
 use swarm_p2p_core::libp2p::Stream;
-use tokio::sync::{Mutex, mpsc, watch};
+use tokio::sync::{Mutex, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -253,90 +253,67 @@ impl ReceiveSession {
         let mut sinks: HashMap<u32, FileSinkId> = HashMap::new();
         let mut started_files = HashSet::new();
         let (mut reader, mut writer) = stream.split();
-        let (frame_tx, mut frame_rx) = mpsc::channel::<TransferDataFrame>(16);
 
-        let writer_task = async {
-            loop {
-                tokio::select! {
-                    // 本地取消时也要让 writer 退出：否则 frame_rx 永远 pending、
-                    // try_join 永不 resolve，cancel_and_wait 吃满超时并泄漏 task/stream/会话。
-                    _ = self.cancel_token.cancelled() => break,
-                    maybe_frame = frame_rx.recv() => {
-                        let Some(frame) = maybe_frame else { break };
-                        let is_terminal = matches!(
-                            frame,
-                            TransferDataFrame::Abort { .. } | TransferDataFrame::Finish { .. }
-                        );
-                        write_frame(&mut writer, &frame).await?;
-                        if is_terminal {
-                            break;
-                        }
-                    }
-                }
+        // 接收方在数据面上只顺序读 BlockData 流，收到 Finish 后回写单帧 Finish 确认。
+        // 不再用 mpsc writer 桥：读循环天然顺序、仅末尾写一帧，与发送方单 reader/writer 对称
+        // （取消由读循环的 select! 直接响应，无需独立 writer task 兜底）。
+        loop {
+            if self.cancel_token.is_cancelled() {
+                return Ok(false);
             }
-            Ok::<(), AppError>(())
-        };
 
-        let reader_task = async {
-            loop {
-                if self.cancel_token.is_cancelled() {
-                    return Ok(false);
-                }
-
-                // 空闲等待下一帧时也响应取消，避免 cancel 后干等到下一帧或超时。
-                let frame = tokio::select! {
-                    _ = self.cancel_token.cancelled() => return Ok(false),
-                    frame = read_frame(&mut reader) => frame?,
-                };
-                match frame {
-                    Some(TransferDataFrame::BlockData {
-                        session_id,
-                        epoch: frame_epoch,
+            // 空闲等待下一帧时也响应取消，避免 cancel 后干等到下一帧或超时。
+            let frame = tokio::select! {
+                _ = self.cancel_token.cancelled() => return Ok(false),
+                frame = read_frame(&mut reader) => frame?,
+            };
+            match frame {
+                Some(TransferDataFrame::BlockData {
+                    session_id,
+                    epoch: frame_epoch,
+                    range,
+                    ciphertext,
+                }) if session_id == self.session_id && frame_epoch == epoch => {
+                    self.handle_block_data(
+                        &progress,
+                        &mut sinks,
+                        &mut started_files,
+                        &mut bitmaps,
+                        is_resume,
                         range,
                         ciphertext,
-                    }) if session_id == self.session_id && frame_epoch == epoch => {
-                        self.handle_block_data(
-                            &progress,
-                            &mut sinks,
-                            &mut started_files,
-                            &mut bitmaps,
-                            is_resume,
-                            range,
-                            ciphertext,
-                        )
-                        .await?;
-                    }
-                    Some(TransferDataFrame::Finish {
-                        session_id,
-                        epoch: frame_epoch,
-                    }) if session_id == self.session_id && frame_epoch == epoch => {
-                        ensure_files_complete(&self.files, &bitmaps)?;
-                        self.finish_data_channel(epoch, &progress, sinks, bitmaps)
-                            .await?;
-                        frame_tx
-                            .send(TransferDataFrame::Finish {
-                                session_id: self.session_id,
-                                epoch,
-                            })
-                            .await
-                            .map_err(|_| AppError::Transfer("data-channel writer 已关闭".into()))?;
-                        return Ok(true);
-                    }
-                    Some(TransferDataFrame::Abort { reason, .. }) => {
-                        return Err(AppError::Transfer(format!("对端中止传输: {reason}")));
-                    }
-                    Some(other) => {
-                        return Err(AppError::Transfer(format!(
-                            "接收方收到意外 data frame: {other:?}"
-                        )));
-                    }
-                    None => return Err(AppError::Transfer("data channel 在完成前关闭".into())),
+                    )
+                    .await?;
                 }
+                Some(TransferDataFrame::Finish {
+                    session_id,
+                    epoch: frame_epoch,
+                }) if session_id == self.session_id && frame_epoch == epoch => {
+                    ensure_files_complete(&self.files, &bitmaps)?;
+                    self.finish_data_channel(epoch, &progress, sinks, bitmaps)
+                        .await?;
+                    // 回写 Finish 确认：发送方读到它即视为完成（已无逐块 Ack）。
+                    write_frame(
+                        &mut writer,
+                        &TransferDataFrame::Finish {
+                            session_id: self.session_id,
+                            epoch,
+                        },
+                    )
+                    .await?;
+                    return Ok(true);
+                }
+                Some(TransferDataFrame::Abort { reason, .. }) => {
+                    return Err(AppError::Transfer(format!("对端中止传输: {reason}")));
+                }
+                Some(other) => {
+                    return Err(AppError::Transfer(format!(
+                        "接收方收到意外 data frame: {other:?}"
+                    )));
+                }
+                None => return Err(AppError::Transfer("data channel 在完成前关闭".into())),
             }
-        };
-
-        let (received, _) = tokio::try_join!(reader_task, writer_task)?;
-        Ok(received)
+        }
     }
 
     #[expect(
