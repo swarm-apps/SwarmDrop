@@ -343,6 +343,8 @@ impl ReceiveSession {
         clippy::too_many_arguments,
         reason = "单个 BlockData 处理需要传入运行时上下文"
     )]
+    /// 处理一个入站 BlockData：解密校验 → 落盘 → 节流刷 checkpoint → 发进度。
+    /// 各步拆成聚焦的小方法，避免协议/密码学/持久化三层揉在一个 async fn。
     async fn handle_block_data(
         &self,
         progress: &Arc<Mutex<ProgressTracker>>,
@@ -353,18 +355,34 @@ impl ReceiveSession {
         range: FileRange,
         ciphertext: Vec<u8>,
     ) -> AppResult<()> {
+        let (file_info, plaintext) = self.decrypt_and_validate(&range, &ciphertext)?;
+        let sink_id = self
+            .ensure_sink(&file_info, sinks, started_files, progress, is_resume)
+            .await?;
+        self.persist_chunk(&file_info, &sink_id, &range, plaintext, bitmaps)
+            .await?;
+        self.emit_chunk_progress(progress, &range).await;
+        Ok(())
+    }
+
+    /// 找到文件 → 校验 range → 解密 → 校验明文长度，返回 (file_info, plaintext)。
+    fn decrypt_and_validate(
+        &self,
+        range: &FileRange,
+        ciphertext: &[u8],
+    ) -> AppResult<(FileInfo, Vec<u8>)> {
         let file_info = self
             .files
             .iter()
             .find(|file| file.file_id == range.file_id)
             .cloned()
             .ok_or_else(|| AppError::Transfer(format!("文件不存在: {}", range.file_id)))?;
-        validate_block_range(&file_info, &range)?;
+        validate_block_range(&file_info, range)?;
 
         let chunk_index = (range.offset / CHUNK_SIZE as u64) as u32;
         let plaintext = self
             .crypto
-            .decrypt_chunk(&self.session_id, range.file_id, chunk_index, &ciphertext)
+            .decrypt_chunk(&self.session_id, range.file_id, chunk_index, ciphertext)
             .map_err(|e| AppError::Transfer(format!("解密失败: {e}")))?;
         if plaintext.len() as u64 != range.length {
             return Err(AppError::Transfer(format!(
@@ -373,8 +391,19 @@ impl ReceiveSession {
                 plaintext.len()
             )));
         }
+        Ok((file_info, plaintext))
+    }
 
-        let sink_id = match sinks.get(&range.file_id).cloned() {
+    /// 拿到（或首块时创建）该文件的 sink，并在文件首块发"开始传输"进度事件。
+    async fn ensure_sink(
+        &self,
+        file_info: &FileInfo,
+        sinks: &mut HashMap<u32, FileSinkId>,
+        started_files: &mut HashSet<u32>,
+        progress: &Arc<Mutex<ProgressTracker>>,
+        is_resume: bool,
+    ) -> AppResult<FileSinkId> {
+        let sink_id = match sinks.get(&file_info.file_id).cloned() {
             Some(sink_id) => sink_id,
             None => {
                 let metadata = HostFileMetadata {
@@ -391,15 +420,15 @@ impl ReceiveSession {
                     self.file_access.create_sink(metadata).await
                 }?;
                 self.created_sinks.lock().await.push(sink_id.clone());
-                sinks.insert(range.file_id, sink_id.clone());
+                sinks.insert(file_info.file_id, sink_id.clone());
                 sink_id
             }
         };
 
-        if started_files.insert(range.file_id) {
+        if started_files.insert(file_info.file_id) {
             let progress_event = {
                 let mut p = progress.lock().await;
-                p.set_file_transferring(range.file_id);
+                p.set_file_transferring(file_info.file_id);
                 p.progress_event()
             };
             if let Some(event) = progress_event {
@@ -409,11 +438,23 @@ impl ReceiveSession {
                     .await;
             }
         }
+        Ok(sink_id)
+    }
 
+    /// 落盘明文 → 标记 bitmap → 节流刷 DB checkpoint（每 N 块或末块）。
+    async fn persist_chunk(
+        &self,
+        file_info: &FileInfo,
+        sink_id: &FileSinkId,
+        range: &FileRange,
+        plaintext: Vec<u8>,
+        bitmaps: &mut HashMap<u32, Vec<u8>>,
+    ) -> AppResult<()> {
         self.file_access
-            .write_sink_chunk(&sink_id, range.offset, plaintext)
+            .write_sink_chunk(sink_id, range.offset, plaintext)
             .await?;
 
+        let chunk_index = (range.offset / CHUNK_SIZE as u64) as u32;
         let total_chunks = calc_total_chunks(file_info.size);
         let (transferred, checkpoint_bitmap) = {
             let bitmap = bitmaps
@@ -443,7 +484,11 @@ impl ReceiveSession {
             )
             .await?;
         }
+        Ok(())
+    }
 
+    /// 累计已传输字节并发进度事件。
+    async fn emit_chunk_progress(&self, progress: &Arc<Mutex<ProgressTracker>>, range: &FileRange) {
         let progress_event = {
             let mut p = progress.lock().await;
             p.add_bytes(range.length);
@@ -456,8 +501,6 @@ impl ReceiveSession {
                 .publish(CoreEvent::TransferProgress { event })
                 .await;
         }
-
-        Ok(())
     }
 
     async fn finish_data_channel(
