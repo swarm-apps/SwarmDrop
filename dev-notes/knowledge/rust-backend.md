@@ -271,3 +271,66 @@ LAN Helper 路径。
 - 给新增 `#[tauri::command]` 透传 `app: AppHandle` 改变了命令签名（如 `remove_paired_device` 补 app），但 Tauri 按类型注入、不占前端参数位，前端 invoke 不变；改后跑一次 `pnpm tauri dev` 重新导出 bindings 即可。
 
 **相关文件**：`src-tauri/src/host/file_keychain.rs`、`src-tauri/src/host.rs`（`keychain_provider` 工厂）、`crates/core/src/identity.rs`、`src-tauri/src/host/keychain.rs`
+
+## 依赖升级
+
+### 判断"是否真落后"看 Cargo.lock 解析版本，不看 requirement 字面
+
+很多依赖写宽松约束（`tauri = "2"` / `axum = "0.8"` / `tokio = "1.49"`），`cargo update` 早把它们解析到最新。真正需要动手的只有被版本号**卡住**的（major / 0.x 跨段）。审计方法：`Cargo.lock` 实测解析版本 + crates.io max_stable 对比，再用 `cargo tree -i <crate>@<ver>` 看旧版来源。
+
+**正确做法**：
+- 区分"直接依赖解析到最新"（无需动）与"requirement 上限低于最新"（要改 Cargo.toml）。
+- 多版本并存常见且无害：`sha2 0.10` / `chacha20poly1305 0.10` 等旧版由 `libp2p → ed25519-dalek` 等传递依赖钉住，**无法与我们直接依赖的 0.11 统一**，只增编译体积、不冲突。`cargo update -p sha2 --precise X` 会因多版本报 `ambiguous`，属正常。
+
+### RustCrypto 0.11 波（chacha20poly1305 / sha2）：aead::OsRng 移除 → Generate trait
+
+升级 chacha20poly1305 0.10→0.11（aead 0.5→0.6）时**唯一硬编译错误**是 `chacha20poly1305::aead::OsRng` 不再 re-export（rand_core 升 0.10，OS 随机改走 getrandom）。
+
+**正确做法**：
+- 随机 key 生成改用 `Generate` trait（无 rng 参数、getrandom 后端）：
+  ```rust
+  use chacha20poly1305::aead::{Generate, Key};
+  Key::<XChaCha20Poly1305>::generate().into()  // -> [u8; 32]
+  ```
+- `XNonce::from_slice(&nonce)` 在 hybrid-array 下已 deprecated，`-D warnings` 会变硬错误 → 改 `&XNonce::from(nonce)`（`[u8;24]` 走 `From<[u8;N]>`）。
+- `XChaCha20Poly1305::new(key.into())`、`Sha256::digest(...).to_vec()` **无需改**：hybrid-array `Array` 仍 `Deref<[u8]>` + 提供 `From<&[u8;N]>`。SHA256 摘要值逐字节不变 → DHT key 兼容旧节点。
+- 这俩同属 RustCrypto 协调波，**一起升**避免 generic-array/hybrid-array 长期并存。需 edition 2024 / MSRV 1.85（本仓已满足）。
+
+**相关文件**：`crates/core/src/transfer/crypto.rs`、`crates/core/src/pairing/dht_key.rs`
+
+### rmcp 1.x→2.0：类型改名 + streamable-HTTP 新增 Host/Origin 白名单
+
+src-tauri 是 rmcp 唯一直接依赖方（`tauri-plugin-mcp-bridge` **不**依赖 rmcp），升 2.0 无传递冲突。编译期改动仅两处机械改名：
+
+**正确做法**：
+- `rmcp::model::Content::text(..)` → `ContentBlock::text(..)`（v2 把 `Content` 改名 `ContentBlock`）。
+- `RawResource::new(..).…​.no_annotation()` → 直建 `Resource::new(..).with_description(..).with_mime_type(..)`（v2 删除 `Annotated<T>`/`AnnotateAble`/`RawResource`）。
+- 宏 `#[tool]`/`#[tool_router]`/`#[tool_handler]`、`ServerHandler` trait、`StreamableHttpService`、`Parameters<T>`、axum 0.8 兼容性**均不变**。
+
+**注意（运行时、非编译）**：v2 给 streamable-HTTP 加了 DNS-rebinding 防护，`StreamableHttpServerConfig` 新增 `allowed_hosts`（默认含 `127.0.0.1`/`localhost`/`::1`）和 `allowed_origins`。本地绑定通常无碍，但升级后需冒烟连一次 MCP client；被拒就显式放行。v2 还含 streamable-HTTP session leak 安全修复（#934）。
+
+**相关文件**：`src-tauri/src/mcp/{tools,resources,server}.rs`
+
+### keyring 3.x→4.x：feature 体系重构为 v1 facade（旧 feature 全删）+ 仅 release 可验证
+
+keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立 store crate，默认 `v1` feature 按 target 自动 set_default_store。**旧 feature（apple-native/windows-native/linux-native-sync-persistent/crypto-rust/vendored）全部移除**，保留会编译失败。
+
+**正确做法**：
+- 删掉三个 `[target.'cfg(...)'.dependencies]` keyring 块，合并为 `[dependencies]` 单行 `keyring = "4.1.2"`（不要再写 default-features=false 或旧 feature 名）。
+- `keychain.rs` 源码**零改动**：`Entry::new` / `set_secret`/`get_secret` / `set_password`/`get_password` / `delete_credential` / `KeyringError::NoEntry` / `{error}` Display 全兼容。`pub mod keychain` 无条件编译，故 debug `cargo check` 即可覆盖；release cfg 工厂分支用 `cargo check --release` 坐实。
+- Linux 后端由 dbus-secret-service 换纯 Rust zbus，不再链接 libdbus/OpenSSL；`release.yml` 无 keyring 专属 apt 依赖、无需改。
+
+**验证盲区（务必真机）**：keyring 仅 release build 生效（debug 走 `file_keychain`）+ macOS ad-hoc 签名进程被 Keychain 拒读 → `cargo test`/`pnpm tauri dev` **覆盖不到真实路径**，编译通过≠功能正确。必须出签名 release 包在三平台手测身份读写 + 重启 PeerId 稳定。跨版本 store 实现全换，老用户旧条目可能读不到 → 走"找不到即重建"（[见上 keychain 段]）→ PeerId 重置需重新配对，release note 要提示。
+
+**相关文件**：`src-tauri/src/host/keychain.rs`、`src-tauri/src/host.rs`
+
+### develop 基线可能带 clippy/fmt 漂移（clippy/rustfmt 版本更新所致）
+
+工具链升级（如 clippy/rustfmt 1.95）会新增/收紧 lint，使**之前干净**的已提交代码在全量重建时冒出警告（too_many_arguments、derivable_impls、items_after_test_module、collapsible_if、unused_imports 等）和 fmt 漂移。它们不是本次改动引入的。
+
+**正确做法**：
+- 证明"本次改动 0 新警告"：`git stash` 前后各跑一次 `cargo clippy --workspace`，比对计数。
+- too_many_arguments 按本仓约定加 `#[expect(clippy::too_many_arguments, reason = "...")]`（async_trait 方法上的 `#[expect]` 会随宏展开保留、能命中）。
+- 只在 test 用到的 import 移进 `#[cfg(test)] mod tests` 局部，别留在模块顶层（否则 lib 构建报 unused，即便 test mod 有 `use super::*`）。
+
+**相关文件**：`crates/core/src/{device.rs,network/event_loop.rs,transfer/incoming.rs,transfer/receive.rs}`、`src-tauri/src/database.rs`
