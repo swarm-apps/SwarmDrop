@@ -5,7 +5,6 @@
 
 use std::sync::Arc;
 
-use sea_orm::EntityTrait;
 use uuid::Uuid;
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
@@ -231,27 +230,13 @@ impl MobileCore {
     pub async fn resume_transfer(&self, session_id: String) -> FfiResult<MobileTransferProjection> {
         let session_uuid = parse_session_id(&session_id)?;
         let db = self.ensure_db().await?;
-        let session = entity::TransferSession::find_by_id(session_uuid)
-            .one(&*db)
-            .await
-            .map_err(|e| FfiError::Database(e.to_string()))?
-            .ok_or_else(|| FfiError::Transfer("会话不存在".into()))?;
-
+        // initiate_resume 已统一收发双向（内部按 session.direction 派生）+ 不存在 / 不可恢复
+        // 校验（load_resumable_session），无需在此预加载 session 仅为取 direction。
         let manager = self.transfer_manager_arc().await?;
-        match session.direction {
-            TransferDirection::Send => {
-                manager
-                    .initiate_resume_as_sender(session_uuid)
-                    .await
-                    .map_err(FfiError::from)?;
-            }
-            TransferDirection::Receive => {
-                manager
-                    .initiate_resume(session_uuid)
-                    .await
-                    .map_err(FfiError::from)?;
-            }
-        }
+        manager
+            .initiate_resume(session_uuid)
+            .await
+            .map_err(FfiError::from)?;
 
         let projection = ops::get_transfer_projection(&db, session_uuid)
             .await
