@@ -10,21 +10,27 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use futures::io::AsyncReadExt;
+use sea_orm::DatabaseConnection;
 use swarm_p2p_core::DataChannel;
 use swarm_p2p_core::libp2p::PeerId;
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::host::{EventBus, FileAccess};
+use crate::host::{CoreEvent, EventBus, FileAccess};
 use crate::protocol::{FileInfo, FileRange};
 use crate::transfer::CHUNK_SIZE;
+use crate::transfer::coordinator::{
+    ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator,
+};
 use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::data_frame::{
     TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
 };
 use crate::transfer::manager::PreparedFile;
-use crate::transfer::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
+use crate::transfer::progress::{
+    FileDesc, ProgressTracker, RuntimeTransferDirection, TransferCompleteEvent,
+};
 use crate::{AppError, AppResult};
 
 /// 发送方会话
@@ -238,6 +244,70 @@ impl SendSession {
 
         tokio::try_join!(writer_task, reader_task)?;
         Ok(())
+    }
+
+    /// 发送数据面正常结束的终态副作用（与接收方 `finish_data_channel` 对称）。
+    ///
+    /// session 终态经状态机 `dispatch(Actor{epoch, Completed})`，享受 epoch + terminal
+    /// 不可逆守卫（旧 epoch / 已取消的会话不被覆盖）；仅真正转入 completed 才发完成事件。
+    /// coordinator/event_bus 由 data_plane 传入（actor 自身只在完成回调点用一次，不持有）。
+    pub async fn on_completed(
+        &self,
+        epoch: i64,
+        coordinator: &TransferCoordinator,
+        event_bus: &dyn EventBus,
+    ) {
+        match coordinator
+            .dispatch(
+                self.session_id,
+                CoordinatorInput::Actor {
+                    epoch,
+                    report: ActorReport::Completed,
+                },
+            )
+            .await
+        {
+            Ok(Some(_)) => {
+                let _ = event_bus
+                    .publish(CoreEvent::TransferCompleted {
+                        event: TransferCompleteEvent {
+                            session_id: self.session_id,
+                            direction: RuntimeTransferDirection::Send,
+                            total_bytes: self.total_bytes_sent(),
+                            elapsed_ms: self.elapsed_ms(),
+                            save_location: None,
+                        },
+                    })
+                    .await;
+            }
+            Ok(None) => info!(
+                "发送完成被状态机忽略（已 terminal / 旧 epoch）: session={}",
+                self.session_id
+            ),
+            Err(e) => warn!("dispatch 发送完成失败: session={}, {e}", self.session_id),
+        }
+    }
+
+    /// 发送数据面因非取消错误中断的终态副作用：先持久化已发进度（供续传），
+    /// 再经状态机 `dispatch(Network{epoch, Interrupted})` 转 suspended/recoverable。
+    pub async fn on_interrupted(
+        &self,
+        epoch: i64,
+        coordinator: &TransferCoordinator,
+        db: &DatabaseConnection,
+    ) {
+        let progress = self.get_file_progress();
+        let _ =
+            crate::database::ops::save_sender_file_progress(db, self.session_id, &progress).await;
+        let _ = coordinator
+            .dispatch(
+                self.session_id,
+                CoordinatorInput::Network {
+                    epoch,
+                    signal: NetworkSignal::Interrupted,
+                },
+            )
+            .await;
     }
 
     fn file_manifest(&self) -> Vec<FileInfo> {

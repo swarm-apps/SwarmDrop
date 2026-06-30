@@ -1,7 +1,9 @@
 //! transfer-data 数据面接线。
 //!
 //! `libs/core` 暴露通用 data channel；本模块把它路由到 SwarmDrop 的
-//! SendSession / ReceiveSession，并把完成、中断映射回 DB/projection。
+//! SendSession / ReceiveSession 并做注册表簿记。终态副作用（完成 / 中断
+//! 映射回 DB/projection）下沉到 actor 自身的 `on_completed`/`on_interrupted`
+//! 与 `finish_data_channel`/`fail_session`，本模块只做纯路由。
 
 use std::sync::Arc;
 
@@ -11,14 +13,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::host::CoreEvent;
 use crate::protocol::FileRange;
-use crate::transfer::coordinator::{ActorReport, CoordinatorInput, NetworkSignal};
 use crate::transfer::data_frame::{
     TRANSFER_DATA_PROTOCOL, TransferDataFrame, TransferDataRole, read_frame, write_frame,
 };
 use crate::transfer::manager::TransferManager;
-use crate::transfer::progress::{RuntimeTransferDirection, TransferCompleteEvent};
 use crate::{AppError, AppResult};
 
 impl TransferManager {
@@ -80,61 +79,21 @@ impl TransferManager {
             }
             .await;
 
+            // data_plane 只做路由 + 注册表簿记；终态副作用（dispatch / 落库 / 完成事件）
+            // 下沉到 SendSession::on_completed / on_interrupted（与接收方对称）。
+            actors.remove_send(&session_id);
             match result {
                 Ok(()) => {
-                    actors.remove_send(&session_id);
-                    // 终态经状态机：dispatch(Actor{epoch, Completed}) 写 terminal/completed + 发
-                    // projection，享受 epoch + terminal 不可逆守卫（旧 epoch / 已取消的会话不被覆盖）。
-                    // 仅真正转入 completed 才发完成事件（被取消/旧 epoch 抢先则不发）。
-                    match coordinator
-                        .dispatch(
-                            session_id,
-                            CoordinatorInput::Actor {
-                                epoch,
-                                report: ActorReport::Completed,
-                            },
-                        )
-                        .await
-                    {
-                        Ok(Some(_)) => {
-                            let _ = event_bus
-                                .publish(CoreEvent::TransferCompleted {
-                                    event: TransferCompleteEvent {
-                                        session_id,
-                                        direction: RuntimeTransferDirection::Send,
-                                        total_bytes: session.total_bytes_sent(),
-                                        elapsed_ms: session.elapsed_ms(),
-                                        save_location: None,
-                                    },
-                                })
-                                .await;
-                        }
-                        Ok(None) => info!(
-                            "发送完成被状态机忽略（已 terminal / 旧 epoch）: session={session_id}"
-                        ),
-                        Err(e) => warn!("dispatch 发送完成失败: session={session_id}, {e}"),
-                    }
+                    session
+                        .on_completed(epoch, coordinator.as_ref(), event_bus.as_ref())
+                        .await;
                 }
                 Err(e) if session.cancel_token().is_cancelled() => {
-                    actors.remove_send(&session_id);
                     info!("transfer-data 发送任务已取消: session={session_id}, {e}");
                 }
                 Err(e) => {
-                    let progress = session.get_file_progress();
-                    let _ =
-                        crate::database::ops::save_sender_file_progress(&db, session_id, &progress)
-                            .await;
-                    actors.remove_send(&session_id);
                     warn!("transfer-data 发送中断: session={session_id}, {e}");
-                    let _ = coordinator
-                        .dispatch(
-                            session_id,
-                            CoordinatorInput::Network {
-                                epoch,
-                                signal: NetworkSignal::Interrupted,
-                            },
-                        )
-                        .await;
+                    session.on_interrupted(epoch, coordinator.as_ref(), &db).await;
                 }
             }
         });
