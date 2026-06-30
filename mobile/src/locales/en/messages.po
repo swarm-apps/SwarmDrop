@@ -13,7 +13,7 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/components/transfer-offer-host.tsx:186
+#: src/components/transfer-offer-host.tsx:201
 msgid "...还有 {remainingCount} 个文件"
 msgstr "...and {remainingCount} more files"
 
@@ -57,6 +57,10 @@ msgstr "{m} minutes ago"
 #: src/app/settings/bootstrap-nodes.tsx:174
 msgid "/ip4/.../tcp/.../p2p/..."
 msgstr "/ip4/.../tcp/.../p2p/..."
+
+#: src/components/inbox/inbox-list.tsx:211
+msgid "AI 代理"
+msgstr ""
 
 #: src/app/settings/network.tsx:266
 msgid "App 启动后自动启动 P2P 节点。"
@@ -113,7 +117,7 @@ msgid "不限制"
 msgstr ""
 
 #: src/app/transfer/[sessionId].tsx:264
-#: src/components/transfer-offer-host.tsx:142
+#: src/components/transfer-offer-host.tsx:143
 msgid "个文件"
 msgstr "files"
 
@@ -279,7 +283,7 @@ msgstr ""
 msgid "允许文件夹"
 msgstr ""
 
-#: src/components/inbox/inbox-list.tsx:92
+#: src/components/inbox/inbox-list.tsx:96
 msgid "全部"
 msgstr ""
 
@@ -394,7 +398,7 @@ msgstr ""
 
 #: src/app/inbox/[itemId].tsx:892
 #: src/app/inbox/[itemId].tsx:1100
-#: src/components/inbox/inbox-list.tsx:341
+#: src/components/inbox/inbox-list.tsx:353
 msgid "剪贴板"
 msgstr "Clipboard"
 
@@ -407,7 +411,7 @@ msgstr ""
 msgid "加载中"
 msgstr "Loading"
 
-#: src/stores/transfer-store.ts:154
+#: src/stores/transfer-store.ts:155
 msgid "加载传输活动失败"
 msgstr "Failed to load transfer activity"
 
@@ -529,7 +533,7 @@ msgstr "Recoverable interruption"
 msgid "可配对"
 msgstr ""
 
-#: src/components/inbox/inbox-list.tsx:343
+#: src/components/inbox/inbox-list.tsx:355
 msgid "合集"
 msgstr ""
 
@@ -556,8 +560,8 @@ msgid "启动节点失败"
 msgstr ""
 
 #: src/app/inbox/[itemId].tsx:1097
-#: src/components/inbox/inbox-list.tsx:104
-#: src/components/inbox/inbox-list.tsx:335
+#: src/components/inbox/inbox-list.tsx:108
+#: src/components/inbox/inbox-list.tsx:347
 msgid "图片"
 msgstr ""
 
@@ -750,8 +754,8 @@ msgstr "Transfer recovery started"
 
 #: src/app/inbox/[itemId].tsx:128
 #: src/app/inbox/[itemId].tsx:281
-#: src/components/inbox/inbox-list.tsx:128
-#: src/components/inbox/inbox-list.tsx:260
+#: src/components/inbox/inbox-list.tsx:132
+#: src/components/inbox/inbox-list.tsx:272
 msgid "已归档"
 msgstr "Archived"
 
@@ -759,7 +763,7 @@ msgstr "Archived"
 msgid "已拒绝"
 msgstr "Rejected"
 
-#: src/components/transfer-offer-host.tsx:135
+#: src/components/transfer-offer-host.tsx:136
 msgid "已拒绝文件"
 msgstr ""
 
@@ -863,7 +867,7 @@ msgstr ""
 msgid "开始时间"
 msgstr "Started"
 
-#: src/components/inbox/inbox-list.tsx:122
+#: src/components/inbox/inbox-list.tsx:126
 msgid "异常"
 msgstr ""
 
@@ -960,8 +964,8 @@ msgstr "Device found"
 
 #: src/components/pairing-request-host.tsx:150
 #: src/components/pairing-request-host.tsx:154
-#: src/components/transfer-offer-host.tsx:231
-#: src/components/transfer-offer-host.tsx:236
+#: src/components/transfer-offer-host.tsx:246
+#: src/components/transfer-offer-host.tsx:251
 msgid "拒绝"
 msgstr "Reject"
 
@@ -975,8 +979,8 @@ msgid "接受"
 msgstr "Accept"
 
 #: src/app/transfer/[sessionId].tsx:262
-#: src/components/transfer-offer-host.tsx:210
-#: src/components/transfer-offer-host.tsx:223
+#: src/components/transfer-offer-host.tsx:225
+#: src/components/transfer-offer-host.tsx:238
 msgid "接收"
 msgstr "Receive"
 
@@ -984,7 +988,7 @@ msgstr "Receive"
 msgid "接收中"
 msgstr "Receiving"
 
-#: src/components/transfer-offer-host.tsx:221
+#: src/components/transfer-offer-host.tsx:236
 msgid "接收中..."
 msgstr "Receiving..."
 
@@ -1058,7 +1062,7 @@ msgstr "Inbox details"
 msgid "收件箱还是空的"
 msgstr "Inbox is empty"
 
-#: src/components/transfer-offer-host.tsx:137
+#: src/components/transfer-offer-host.tsx:138
 msgid "收到文件"
 msgstr "Incoming files"
 
@@ -1089,8 +1093,8 @@ msgstr "Discard selection?"
 #: src/app/transfer/[sessionId].tsx:388
 #: src/components/activity-projection-card.tsx:70
 #: src/components/file-tree/file-tree.tsx:184
-#: src/components/inbox/inbox-list.tsx:98
-#: src/components/inbox/inbox-list.tsx:345
+#: src/components/inbox/inbox-list.tsx:102
+#: src/components/inbox/inbox-list.tsx:357
 #: src/components/recent-transfer-row.tsx:70
 msgid "文件"
 msgstr "files"
@@ -1111,8 +1115,8 @@ msgstr "File missing"
 
 #: src/app/inbox/[itemId].tsx:890
 #: src/app/inbox/[itemId].tsx:1099
-#: src/components/inbox/inbox-list.tsx:116
-#: src/components/inbox/inbox-list.tsx:339
+#: src/components/inbox/inbox-list.tsx:120
+#: src/components/inbox/inbox-list.tsx:351
 msgid "文本"
 msgstr "Text"
 
@@ -1218,7 +1222,7 @@ msgstr ""
 msgid "未连接"
 msgstr "Disconnected"
 
-#: src/components/transfer-offer-host.tsx:156
+#: src/components/transfer-offer-host.tsx:171
 msgid "未配对"
 msgstr ""
 
@@ -1322,7 +1326,7 @@ msgstr "In progress"
 msgid "此目录不可读"
 msgstr "This directory is not readable"
 
-#: src/components/transfer-offer-host.tsx:161
+#: src/components/transfer-offer-host.tsx:176
 msgid "此设备需要手动确认后才会开始接收。"
 msgstr ""
 
@@ -1424,8 +1428,17 @@ msgstr "Generate code"
 msgid "用时"
 msgstr "Duration"
 
-#: src/components/transfer-offer-host.tsx:196
-#: src/components/transfer-offer-host.tsx:201
+#: src/components/transfer-offer-host.tsx:154
+msgid "由 AI 代理发起"
+msgstr ""
+
+#. placeholder {0}: current.offer.origin.inner.client
+#: src/components/transfer-offer-host.tsx:150
+msgid "由 AI 代理发起（{0}）"
+msgstr ""
+
+#: src/components/transfer-offer-host.tsx:211
+#: src/components/transfer-offer-host.tsx:216
 msgid "知道了"
 msgstr ""
 
@@ -1451,8 +1464,8 @@ msgstr "Confirm pairing"
 
 #: src/app/inbox/[itemId].tsx:1098
 #: src/app/send/select-device.tsx:384
-#: src/components/inbox/inbox-list.tsx:110
-#: src/components/inbox/inbox-list.tsx:336
+#: src/components/inbox/inbox-list.tsx:114
+#: src/components/inbox/inbox-list.tsx:348
 msgid "视频"
 msgstr "Videos"
 
@@ -1532,7 +1545,7 @@ msgid "编辑设备名"
 msgstr "Edit device name"
 
 #: src/app/inbox/[itemId].tsx:760
-#: src/components/inbox/inbox-list.tsx:258
+#: src/components/inbox/inbox-list.tsx:270
 msgid "缺失"
 msgstr "Missing"
 
@@ -1656,7 +1669,7 @@ msgstr "Device not found"
 
 #: src/app/device/[peerId].tsx:454
 #: src/app/transfer/[sessionId].tsx:295
-#: src/components/transfer-offer-host.tsx:150
+#: src/components/transfer-offer-host.tsx:165
 msgid "设备策略"
 msgstr "Device policy"
 
@@ -1927,7 +1940,7 @@ msgstr ""
 
 #: src/app/inbox/[itemId].tsx:290
 #: src/app/inbox/[itemId].tsx:702
-#: src/components/inbox/inbox-list.tsx:218
+#: src/components/inbox/inbox-list.tsx:230
 msgid "项"
 msgstr ""
 

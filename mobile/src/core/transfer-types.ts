@@ -7,6 +7,7 @@ import {
   MobileTerminalReason,
   MobileTransferDirection,
   type MobileTransferOfferFile,
+  type MobileTransferOrigin,
   MobileTransferPhase,
   type MobileTransferProgress,
   type MobileTransferProjection,
@@ -41,6 +42,7 @@ export interface TransferOfferQueueItem {
     deviceName: string;
     totalSize: bigint;
     files: MobileTransferOfferFile[];
+    origin: MobileTransferOrigin;
     policyAction?: string;
     policyReason?: string;
   };

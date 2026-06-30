@@ -1,6 +1,7 @@
 import { Trans } from "@lingui/react/macro";
 import {
   Archive,
+  Bot,
   ChevronRight,
   ClipboardList,
   FileText,
@@ -10,7 +11,10 @@ import {
 } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { MobileInboxContentKind } from "react-native-swarmdrop-core";
+import {
+  MobileInboxContentKind,
+  MobileInboxSourceKind,
+} from "react-native-swarmdrop-core";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -199,6 +203,14 @@ export function InboxRow({
           </Text>
           {item.missing || archived ? (
             <StatePill missing={item.missing} archived={archived} />
+          ) : null}
+          {item.sourceKind === MobileInboxSourceKind.Mcp ? (
+            <View className="flex-row items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5">
+              <Bot color={colors.primary} size={11} />
+              <Text className="text-[10px] font-medium text-primary">
+                <Trans>AI 代理</Trans>
+              </Text>
+            </View>
           ) : null}
         </View>
         <View className="flex-row items-center gap-1.5">

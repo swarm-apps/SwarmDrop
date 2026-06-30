@@ -1,6 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
-import { Download, File as FileIcon } from "lucide-react-native";
+import { Bot, Download, File as FileIcon } from "lucide-react-native";
+import { MobileTransferOrigin_Tags } from "react-native-swarmdrop-core";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -141,6 +142,20 @@ export function TransferOfferHost() {
               {current.offer.deviceName} · {current.offer.files.length}{" "}
               <Trans>个文件</Trans> · {totalLabel}
             </Text>
+            {current.offer.origin.tag === MobileTransferOrigin_Tags.Mcp && (
+              <View className="mt-1 flex-row items-center gap-1 self-start rounded-full bg-primary/10 px-2 py-0.5">
+                <Bot color={colors.primary} size={12} />
+                <Text className="text-[11px] font-medium text-primary">
+                  {current.offer.origin.inner.client ? (
+                    <Trans>
+                      由 AI 代理发起（{current.offer.origin.inner.client}）
+                    </Trans>
+                  ) : (
+                    <Trans>由 AI 代理发起</Trans>
+                  )}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
