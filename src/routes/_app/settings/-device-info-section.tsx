@@ -29,6 +29,7 @@ import { useNetworkStore } from "@/stores/network-store";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { applyDeviceName } from "@/lib/device-name";
 import { getErrorMessage } from "@/lib/errors";
+import { SettingsCard, SettingsSection } from "./-settings-primitives";
 
 /** 截断 PeerId，显示前8位...后4位 */
 function truncatePeerId(id: string): string {
@@ -140,7 +141,7 @@ export function DeviceInfoSection() {
           variant="outline"
           className={`rounded-md border-transparent px-2 py-0.5 text-[11px] font-medium sm:px-3 sm:py-1 sm:text-xs ${
             natStatus === "public"
-              ? "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
+              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
               : "bg-muted text-muted-foreground"
           }`}
         >
@@ -151,24 +152,18 @@ export function DeviceInfoSection() {
   ];
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <MonitorSmartphone className="size-4 text-blue-600 dark:text-blue-300" />
-        <h2 className="text-sm font-semibold text-foreground">
-          <Trans>设备信息</Trans>
-        </h2>
-      </div>
-      <div className="glass-card overflow-hidden rounded-xl">
+    <SettingsSection title={<Trans>设备信息</Trans>} icon={MonitorSmartphone}>
+      <SettingsCard>
         {/* 上半部分：身份识别区 */}
-        <div className="flex items-center gap-4 p-4 sm:gap-5 sm:p-6">
+        <div className="flex items-center gap-4 p-4 sm:gap-5 sm:p-5">
           {/* 头像区域 */}
           <div className="relative shrink-0">
             <div
               className={`absolute -left-1 -top-1 z-10 size-3.5 rounded-full border-2 border-background ${
-                isOnline ? "bg-green-500" : "bg-slate-300"
+                isOnline ? "bg-green-500" : "bg-muted-foreground/40"
               }`}
             />
-            <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-50/80 dark:bg-blue-900/20 sm:size-16">
+            <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-500/10 sm:size-16">
               <span className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400 sm:text-2xl">
                 {avatarInitials}
               </span>
@@ -247,14 +242,14 @@ export function DeviceInfoSection() {
         </div>
 
         {/* 下半部分：网络指标区 */}
-        <div className="grid grid-cols-3 divide-x divide-border border-t border-border">
+        <div className="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60">
           {stats.map((stat, i) => (
             <div
               key={i}
-              className="flex flex-col items-center justify-center px-2 py-4 transition-colors hover:bg-muted/30 sm:py-5"
+              className="flex flex-col items-center justify-center px-2 py-4 transition-colors hover:bg-muted/30"
             >
               <div className="mb-1.5 flex items-center gap-1 text-muted-foreground sm:gap-1.5">
-                <stat.icon className="size-3.5 text-slate-400" />
+                <stat.icon className="size-3.5 text-muted-foreground" />
                 <span className="text-[11px] font-medium sm:text-xs">
                   {t(stat.label)}
                 </span>
@@ -263,7 +258,7 @@ export function DeviceInfoSection() {
             </div>
           ))}
         </div>
-      </div>
-    </section>
+      </SettingsCard>
+    </SettingsSection>
   );
 }

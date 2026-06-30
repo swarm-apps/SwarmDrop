@@ -100,3 +100,26 @@ const nearbyDevices = useNetworkStore(
 - 用明显边框区分所有层级；这会在暗色主题里显得很灰、很累
 
 **相关文件**：`src/index.css`、`src/routes/_app/devices/index.lazy.tsx`、`src/routes/_app/devices/-components/device-card.tsx`
+
+## 设置页（settings）布局与基元
+
+### 设置页统一走「Section → Card → Row」基元 + 固定双列
+
+设置页所有分区一律用 `src/routes/_app/settings/-settings-primitives.tsx` 的三件套，不要每个 section 各自手绘卡片：
+
+- `SettingsSection`：分组标题（蓝色图标 `text-blue-600 dark:text-blue-400` + 标题，可选右侧 `aside`）
+- `SettingsCard`：单层 `glass-card`，`overflow-hidden rounded-[20px]`，**不在内部再套 glass-card**
+- `SettingsRow`：行内 `border-b border-border/60 last:border-b-0` 分隔，靠分隔线而非「每行独立浮块」
+
+**正确做法**：
+- 布局是固定双列（`.settings-board` grid + 两条 `.settings-column` flex 列），`md` 以下退化单列；不要用 `column-count` 瀑布流（阅读顺序会跳列、逻辑分组被打散）
+- 低频的「关于 / 更新」沉到页面底部，不要占顶部 Hero 黄金位
+- 圆角 scale 收敛：卡片 `rounded-[20px]`、内部小块/控件 `rounded-xl`、胶囊 `rounded-full`
+- 蓝色强调统一 `text-blue-600 dark:text-blue-400` / `bg-blue-500/10`，不要混用 `blue-200/300/400` 各种暗色变体
+- 节点设置「改了要重启」的逻辑用 `useNodeRestart()` hook + `NodeRestartBanner`，网络 / 引导节点共用，不要各抄一份
+
+**不要做**：
+- 设置页用 CSS 多列瀑布流；不要给 `.settings-workbench .glass-card > div` 这类规则把每行做成独立浮块
+- 同一类设置项一会儿规整 Row、一会儿大色块图标卡，视觉权重不统一
+
+**相关文件**：`src/routes/_app/settings/-settings-primitives.tsx`、`src/routes/_app/settings/index.lazy.tsx`、`src/hooks/use-node-restart.ts`、`src/index.css`（`.settings-workbench`）

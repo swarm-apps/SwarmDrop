@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Trans } from "@lingui/react/macro";
+import { useLingui } from "@lingui/react/macro";
 import { FolderOpen, HardDrive, Pencil } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { usePreferencesStore } from "@/stores/preferences-store";
@@ -14,6 +15,7 @@ import { toast } from "sonner";
 import { SettingsCard, SettingsSection } from "./-settings-primitives";
 
 export function TransferSettingsSection() {
+  const { t } = useLingui();
   const { savePath, setTransferSavePath } = usePreferencesStore(
     useShallow((state) => ({
       savePath: state.transfer.savePath,
@@ -21,7 +23,7 @@ export function TransferSettingsSection() {
     })),
   );
 
-  const [displayPath, setDisplayPath] = useState("<未设置>");
+  const [displayPath, setDisplayPath] = useState(() => t`<未设置>`);
 
   // 初始化默认保存路径
   useEffect(() => {
@@ -53,9 +55,9 @@ export function TransferSettingsSection() {
       }
     } catch (err) {
       console.error("Failed to pick folder:", err);
-      toast.error("无法打开文件夹选择器，请检查存储权限");
+      toast.error(t`无法打开文件夹选择器，请检查存储权限`);
     }
-  }, [savePath, setTransferSavePath]);
+  }, [savePath, setTransferSavePath, t]);
 
   return (
     <SettingsSection title={<Trans>文件传输</Trans>} icon={HardDrive}>
@@ -63,27 +65,29 @@ export function TransferSettingsSection() {
         <button
           type="button"
           onClick={handleChangePath}
-          className="group flex w-full flex-col gap-3.5 p-4 text-left hover:bg-accent/50"
+          className="group flex w-full flex-col gap-3 p-4 text-left transition-colors hover:bg-accent/40"
         >
-          <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-[17px] bg-blue-50 text-blue-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-blue-500/10 dark:text-blue-200">
-              <FolderOpen className="size-5" />
-            </span>
-            <div className="min-w-0">
-              <span className="text-sm font-semibold text-foreground">
-                <Trans>保存位置</Trans>
+          <div className="flex w-full items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                <FolderOpen className="size-5" />
               </span>
-              <span className="mt-1 block max-w-[34ch] text-xs leading-5 text-muted-foreground">
-                <Trans>接收文件会默认保存到这里，可随时更改。</Trans>
-              </span>
+              <div className="min-w-0">
+                <span className="text-sm font-medium text-foreground">
+                  <Trans>保存位置</Trans>
+                </span>
+                <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                  <Trans>接收文件会默认保存到这里，可随时更改。</Trans>
+                </span>
+              </div>
             </div>
-            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-foreground px-2.5 py-1 text-[11px] font-medium text-background transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-0.5">
+            <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-background/70 px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors group-hover:border-blue-500/30 group-hover:text-blue-600 dark:bg-white/[0.04] dark:group-hover:text-blue-400">
               <Pencil className="size-3" />
               <Trans>更改</Trans>
             </span>
           </div>
 
-          <div className="flex w-full min-w-0 items-center gap-2.5 rounded-[18px] border border-border/70 bg-background/55 px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] dark:bg-white/[0.035]">
+          <div className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-border/70 bg-background/55 px-3 py-2.5 dark:bg-white/[0.035]">
             <span className="size-1.5 shrink-0 rounded-full bg-blue-500/70" />
             <span className="min-w-0 truncate font-mono text-xs text-foreground">
               {displayPath}

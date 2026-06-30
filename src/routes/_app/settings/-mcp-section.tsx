@@ -184,7 +184,7 @@ export function McpSection() {
               配置中
             </Trans>
           </span>
-          <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed text-muted-foreground">
+          <pre className="overflow-x-auto rounded-xl bg-muted p-3 font-mono text-xs leading-relaxed text-muted-foreground">
             {mcpConfig}
           </pre>
         </div>

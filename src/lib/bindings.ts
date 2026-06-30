@@ -585,12 +585,11 @@ export type TransferOfferEvent = {
 	deviceName: string,
 	files: TransferOfferFileEvent[],
 	totalSize: number,
+	/**  发起来源（人工 / MCP 代理），供接收端 UI 标识。 */
 	origin: TransferOrigin,
 	policyAction: string | null,
 	policyReason: string | null,
 };
-
-export type TransferOrigin = { type: "human" } | { type: "mcp"; client: string | null };
 
 export type TransferOfferFileEvent = {
 	fileId: number,
@@ -599,6 +598,18 @@ export type TransferOfferFileEvent = {
 	size: number,
 	isDirectory: boolean,
 };
+
+/**
+ *  传输发起来源：人在应用内发起，或 AI 代理经 MCP 发起。
+ * 
+ *  由发送方自报、承载于 Offer，供接收端展示与 inbox 来源派生——是信息性/UX 信号，
+ *  不作接收端安全边界（真正的控制是发送端 `allow_mcp_send_to_device` 门控）。
+ */
+export type TransferOrigin = 
+/**  用户在应用内手动发起。 */
+{ type: "human" } | 
+/**  AI 代理经 MCP 发起；`client` 为 MCP 客户端名（如 claude-desktop），不可得时为 None。 */
+{ type: "mcp"; client: string | null };
 
 export type TransferPaused = TransferPausedEvent;
 

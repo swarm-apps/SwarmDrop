@@ -3,13 +3,11 @@
  * 设置页「网络」区域 — P2P 网络相关设置
  */
 
-import { useCallback, useState } from "react";
 import { Trans } from "@lingui/react/macro";
 import { useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
-import { Network, RotateCw } from "lucide-react";
+import { Network } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -18,9 +16,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { usePreferencesStore, type DiscoveryMode } from "@/stores/preferences-store";
-import { useNetworkStore } from "@/stores/network-store";
-import { toast } from "sonner";
+import { useNodeRestart } from "@/hooks/use-node-restart";
 import {
+  NodeRestartBanner,
   SettingsCard,
   SettingsRow,
   SettingsSection,
@@ -36,34 +34,7 @@ export function NetworkSettingsSection() {
   const setAutoDiscoverLanHelpers = usePreferencesStore((state) => state.setAutoDiscoverLanHelpers);
   const provideLanHelper = usePreferencesStore((state) => state.provideLanHelper);
   const setProvideLanHelper = usePreferencesStore((state) => state.setProvideLanHelper);
-  const nodeStatus = useNetworkStore((state) => state.status);
-  const [needsRestart, setNeedsRestart] = useState(false);
-  const [restarting, setRestarting] = useState(false);
-
-  function markRestartNeeded() {
-    if (nodeStatus === "running") {
-      setNeedsRestart(true);
-    }
-  }
-
-  const handleRestart = useCallback(async () => {
-    setRestarting(true);
-    try {
-      const { stopNetwork, startNetwork } = useNetworkStore.getState();
-      await stopNetwork();
-      const ok = await startNetwork();
-      if (!ok) {
-        setNeedsRestart(true);
-        return;
-      }
-      setNeedsRestart(false);
-      toast.success(t(msg`节点已重启`));
-    } catch {
-      toast.error(t(msg`重启节点失败`));
-    } finally {
-      setRestarting(false);
-    }
-  }, [t]);
+  const { restarting, markRestartNeeded, restart, showBanner } = useNodeRestart();
 
   return (
     <SettingsSection title={<Trans>网络</Trans>} icon={Network}>
@@ -133,22 +104,12 @@ export function NetworkSettingsSection() {
         />
       </SettingsCard>
 
-      {needsRestart && nodeStatus === "running" && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
-          <span className="text-xs text-amber-800 dark:text-amber-200">
-            <Trans>网络发现设置已变更，需重启节点生效</Trans>
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            onClick={handleRestart}
-            disabled={restarting}
-          >
-            <RotateCw className={`mr-1 size-3 ${restarting ? "animate-spin" : ""}`} />
-            {restarting ? <Trans>重启中...</Trans> : <Trans>重启节点</Trans>}
-          </Button>
-        </div>
+      {showBanner && (
+        <NodeRestartBanner
+          message={<Trans>网络发现设置已变更，需重启节点生效</Trans>}
+          restarting={restarting}
+          onRestart={restart}
+        />
       )}
     </SettingsSection>
   );

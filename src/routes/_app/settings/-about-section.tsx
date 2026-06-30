@@ -22,7 +22,7 @@ import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 import { Progress } from "@/components/ui/progress";
 import { useUpdate } from "@/hooks/use-update";
-import { cn } from "@/lib/utils";
+import { SettingsCard, SettingsSection } from "./-settings-primitives";
 
 /** 格式化字节数为人类可读 */
 function formatBytes(bytes: number): string {
@@ -33,25 +33,13 @@ function formatBytes(bytes: number): string {
 
 export function AboutSection() {
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <Info className="size-4 text-blue-600 dark:text-blue-300" />
-        <h2 className="text-sm font-semibold text-foreground">
-          <Trans>关于</Trans>
-        </h2>
-      </div>
+    <SettingsSection title={<Trans>关于</Trans>} icon={Info}>
       <AboutPanel />
-    </section>
+    </SettingsSection>
   );
 }
 
-export function AboutPanel({
-  className,
-  variant = "card",
-}: {
-  className?: string;
-  variant?: "card" | "hero";
-}) {
+export function AboutPanel({ className }: { className?: string }) {
   // 经 registry-web 的 useUpdate() 订阅 SwarmHive 更新引擎（与 __root 的 <UpdateProvider>
   // 同一个 engine）。check(true) 手动检查绕过节流；download() 触发下载，ready 后由
   // __root 常驻的 Prompt/Force 弹窗自动安装+重启。
@@ -66,35 +54,18 @@ export function AboutPanel({
   }, []);
 
   const currentVersion = appVersion;
-  const isHero = variant === "hero";
 
   return (
-    <div
-      className={cn(
-        isHero
-          ? "settings-about-panel-hero"
-          : "glass-card overflow-hidden rounded-lg",
-        className
-      )}
-    >
-      {/* App Info Row - 桌面端 space-between，支持自动换行 */}
-      <div
-        className={cn(
-          "flex flex-col",
-          isHero
-            ? "gap-3 px-1 py-2 min-[560px]:flex-row min-[560px]:items-center min-[560px]:justify-between"
-            : "gap-4 p-4 min-[480px]:flex-row min-[480px]:items-center min-[480px]:justify-between"
-        )}
-      >
+    <SettingsCard className={className}>
+      {/* App Info Row - 桌面端 space-between，窄屏垂直堆叠 */}
+      <div className="flex flex-col gap-4 p-4 min-[520px]:flex-row min-[520px]:items-center min-[520px]:justify-between">
         {/* 应用信息 */}
         <div className="flex items-center gap-3">
-          {!isHero ? (
-            <img
-              src="/app-icon.svg"
-              alt="SwarmDrop"
-              className="size-10 rounded-lg"
-            />
-          ) : null}
+          <img
+            src="/app-icon.svg"
+            alt="SwarmDrop"
+            className="size-10 rounded-xl"
+          />
           <div className="flex flex-col gap-0.5">
             <span className="text-[15px] font-semibold text-foreground">
               SwarmDrop
@@ -108,25 +79,8 @@ export function AboutPanel({
           </div>
         </div>
 
-        {/* 分隔线 - 仅小屏幕显示，占满容器宽度 */}
-        <div
-          className={cn(
-            "relative block border-t border-border",
-            isHero
-              ? "w-full min-[560px]:hidden"
-              : "left-[-1rem] w-[calc(100%+2rem)] min-[480px]:hidden"
-          )}
-        />
-
         {/* 按钮组 */}
-        <div
-          className={cn(
-            "flex flex-wrap items-center gap-2",
-            isHero
-              ? "justify-start min-[560px]:justify-end"
-              : "justify-around min-[480px]:justify-end"
-          )}
-        >
+        <div className="flex flex-wrap items-center gap-2 max-[519px]:justify-start min-[520px]:justify-end">
           <OfficialWebsiteButton />
           <GithubButton />
           <ReleaseNotesButton />
@@ -152,7 +106,7 @@ export function AboutPanel({
           progress={progress}
         />
       )}
-    </div>
+    </SettingsCard>
   );
 }
 /** 版本描述文字 */
@@ -228,7 +182,7 @@ function ExternalLinkButton({
     <button
       type="button"
       onClick={() => openUrl(url)}
-      className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+      className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
     >
       <Icon className="size-3.5" />
       {label}
@@ -254,7 +208,7 @@ function UpdateButton({
         <button
           type="button"
           disabled
-          className="flex items-center gap-1.5 rounded-md bg-primary/50 px-3 py-1.5 text-xs font-medium text-primary-foreground"
+          className="flex items-center gap-1.5 rounded-lg bg-primary/50 px-3 py-1.5 text-xs font-medium text-primary-foreground"
         >
           <Loader2 className="size-3.5 animate-spin" />
           <Trans>检查中...</Trans>
@@ -267,7 +221,7 @@ function UpdateButton({
         <button
           type="button"
           onClick={onUpdate}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           <Download className="size-3.5" />
           {t`更新到 v${latestVersion ?? "?"}`}
@@ -280,7 +234,7 @@ function UpdateButton({
         <button
           type="button"
           disabled
-          className="flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground"
+          className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground"
         >
           <Loader2 className="size-3.5 animate-spin" />
           <Trans>下载中...</Trans>
@@ -292,7 +246,7 @@ function UpdateButton({
         <button
           type="button"
           onClick={onCheck}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           <RefreshCw className="size-3.5" />
           <Trans>检查更新</Trans>
