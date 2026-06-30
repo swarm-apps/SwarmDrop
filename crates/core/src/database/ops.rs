@@ -265,7 +265,6 @@ pub async fn save_sender_file_progress(
     Ok(())
 }
 
-
 /// 过渡期桥接（反向）：旧 `mark_session_*` 写 status 时，同步写新 phase/reason/recoverable，
 /// 保持 DB 两种表示一致。后续 Coordinator 接线后状态决策收归 `dispatch`，这些 `mark_*` 将被替换。
 fn set_session_lifecycle(
