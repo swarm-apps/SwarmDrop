@@ -18,7 +18,7 @@
 - [x] 2.2 收敛 `CoordinatorInput`（判断结论：**全删**）：`ActorReport::Completed` 经轮1变活；其余 4 个变体零生产 dispatch caller，故删：`ActorReport::Progress`/`CheckpointFlushed`（进度按设计绕过状态机走 `transfer-progress` 事件直更 projection，reduce 恒 None，接通无意义）、`NetworkSignal::PeerOffline`（对端断连走 `Network{Interrupted}`）、`UserCommand::Resume`（恢复走 ResumeProbe/Commit 探测协议）。同步删 reduce arm + 改 2 处单测（`terminal_is_irreversible` 用 Pause、`remote_pause_is_recoverable_suspended` 去 peer_offline 块）。**偏差批注**：`SuspendedReason::PeerOffline`（entity 枚举）+ 前端 `transfer-projection.ts` `case "peer_offline"` 现已不可达，但 entity 按 design 边界「不动 entity/migration」保留；前端那条留待轮5 顺手删
 - [x] 2.3 删半成品死协议 `TransferDataFrame::BlockRequest` + `TAG_BLOCK_REQUEST` + encode/decode/2 个 match 臂 + `sender.rs` 拒绝分支；TAG 3/4 空洞处加注释说明已废弃、不复用
 - [x] 2.4 改 5 处误导性注释：`receiver.rs`(start_pulling/run_transfer)、`receive.rs`(pull)、`resume.rs`(chunk_request)、`event_loop.rs`(pull) → 推送式语义（run_data_channel/push）
-- [ ] 2.5 前端死代码（**待后续**，归入轮5 前端清理一并做）：`DeviceCard variant="list"` ~104 行 + 重复弹窗、`StatusBadge` labels + 三元死兜底、`statusTone.online/offline`、`projectionToSession` 6 死字段
+- [x] 2.5 前端死代码（随轮5 完成）：删 `DeviceCard variant="list"` ~104 行 + variant prop + 重复弹窗（5.6 commit）、`StatusBadge` labels + 三元死兜底（5.1）、`statusTone.online/offline`（5.6 commit）、`projectionToSession` 6 死字段（随适配层整体删除，5.1）
 - [x] 2.6 backend 部分：`cargo test`（78 单元 + 12 E2E）+ clippy（core+桌面壳）全绿（前端 2.5 随轮5）
 
 ## 3. 后端抽公共 + 拆 god-module（P1）
@@ -45,13 +45,15 @@
 
 ## 5. 前端清理与一致性（P1）
 
-- [ ] 5.1 删 `TransferSession`/`projectionToSession` 适配层，组件直消费 `TransferProjection` + 实时 progress；派生值（百分比/isActive/文案）走以 projection 为入参的纯函数
-- [ ] 5.2 状态→文案单源：phase/reason→文案只留 `projectionStatusLabel`（`transfer-projection.ts:50`），删各组件内联文案（`传输完成`/`传输失败`/`已暂停`/`准备中` 等）；`isActiveStatus`→`isProjectionActive`
-- [ ] 5.3 `inbox` 接入 store（`inbox-store` 或 `useInboxList/useInboxDetail` hook），消除 `selectedIdRef` + `loadItems` 返回值时序 workaround（`inbox/index.lazy.tsx:52`）
-- [ ] 5.4 `section-primitives`（SectionShell/EmptyPanel + 补 CenteredEmptyState）提为通用布局原语（移到 `components/layout` 或 `components/ui`），inbox/add-device-section 复用，删 4+ 处手搓 glass-panel/空态
-- [ ] 5.5 共享小工具：`PolicyReasonBadge`（offer 弹窗 + history-item 复用，统一文案/门槛）；`getFileIcon`/`EXT_ICON_MAP` 提 `lib/file-icon.ts`（inbox ItemIcon 复用）；`getDeviceIcon` 统一喂 `device.os`；inbox 详情时间改 `formatRelativeTime`；store 的 event→toast 副作用拆 `transfer-notifications.ts`
-- [ ] 5.6 offer 弹窗 `shiftOffer` 移出 finally（accept/reject 成功后再出队，失败保留供重试）
-- [ ] 5.7 `pnpm exec tsc --noEmit` + `pnpm i18n:extract`（如改文案）+ 构建通过
+> 轮5 用并行 opus agent 摸清前端调用面（projection 适配层+死代码 / inbox+原语+共享工具）后委托实现 + 主线复核（含恢复逐类图标配色这一偏差修正）。
+
+- [x] 5.1 删 `TransferSession`/`TransferStatus`/`projectionToSession`/`projectionToStatus`，`-transfer-item`/`-history-item`/`$sessionId` 直消费 `TransferProjection` + store 实时 progress（peerName/finishedAt/errorMessage/savePath）；新增 `isProjectionCompleted/Cancelled/Failed` phase-native 派生
+- [x] 5.2 状态→文案单源 `projectionStatusLabel`，删各组件内联文案（准备中→等待中、等待对方确认→等待确认、传输完成→已完成 等）；`isActiveStatus`→`isProjectionActive`；StatusBadge 删 labels 死兜底→`projectionStatusClassName`
+- [x] 5.3 `inbox` 接入 `inbox-store`（Zustand），消除 `selectedIdRef` + `loadItems` 返回值时序 workaround（保留/改选逻辑放进 store action 基于 `get().selectedId` 算）。**偏差**：列表/选中/归档过滤改模块级 store 后跨页切换保留（与原每次 mount 重置略不同，与 network/transfer store 风格一致）
+- [x] 5.4 `section-primitives`（SectionHeader/SectionShell/EmptyPanel + 补 `CenteredEmptyState`）迁 `components/layout/`，inbox/transfer/devices 空态复用
+- [x] 5.5 `PolicyReasonBadge`（offer+history 复用 `variant`）；`getFileIcon`+`getFileIconColor` 单源化 `lib/file-icon.ts`（file-tree/history/inbox 三处共用，**配色单源**恢复逐类色 image绿/video紫/audio粉/archive琥珀/doc蓝）；`transfer-notifications.ts` 拆 toast 副作用；`getDeviceIcon` 参数归一 doc；`formatRelativeTime` 已集中无需动
+- [x] 5.6 offer 弹窗 `shiftOffer` 移出 finally（成功后出队，失败保留供重试）
+- [x] 5.7 `pnpm exec tsc --noEmit` 0 error + `pnpm build` ✓（tsc+vite）+ `pnpm i18n:extract` 同步 catalog
 
 ## 6. 收尾验证
 
