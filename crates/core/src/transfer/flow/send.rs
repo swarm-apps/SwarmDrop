@@ -281,9 +281,9 @@ impl TransferManager {
 
         session.cancel();
         let progress = session.get_file_progress();
+        // 落库文件级进度即可：projection 的 transferredBytes 直接 SUM 文件级，无需再
+        // 手工 sync 到 session 列。
         crate::database::ops::save_sender_file_progress(&self.db, *session_id, &progress).await?;
-        // 先汇总 session 级 transferredBytes，再 dispatch，使暂停帧 projection 进度正确。
-        crate::database::ops::sync_session_transferred_bytes(&self.db, *session_id).await?;
         self.coordinator
             .dispatch(
                 *session_id,

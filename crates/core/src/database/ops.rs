@@ -265,33 +265,6 @@ pub async fn save_sender_file_progress(
     Ok(())
 }
 
-/// 更新 session 的已传输字节数
-pub async fn update_session_transferred_bytes(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    transferred_bytes: i64,
-) -> AppResult<()> {
-    if let Some(session) = entity::TransferSession::find_by_id(session_id)
-        .one(db)
-        .await?
-    {
-        let mut model = session.into_active_model();
-        model.transferred_bytes = Set(transferred_bytes);
-        model.updated_at = Set(now_ms());
-        model.update(db).await?;
-    }
-    Ok(())
-}
-
-/// 从文件记录汇总已传输字节数，同步到 session 级别
-pub async fn sync_session_transferred_bytes(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-) -> AppResult<()> {
-    let files = get_session_files(db, session_id).await?;
-    let total_transferred: i64 = files.iter().map(|f| f.transferred_bytes).sum();
-    update_session_transferred_bytes(db, session_id, total_transferred).await
-}
 
 /// 过渡期桥接（反向）：旧 `mark_session_*` 写 status 时，同步写新 phase/reason/recoverable，
 /// 保持 DB 两种表示一致。后续 Coordinator 接线后状态决策收归 `dispatch`，这些 `mark_*` 将被替换。
@@ -432,6 +405,10 @@ impl From<entity::transfer_file::ModelEx> for TransferProjectionFile {
 
 impl From<entity::transfer_session::ModelEx> for TransferProjection {
     fn from(s: entity::transfer_session::ModelEx) -> Self {
+        // transferred_bytes 派生自文件级求和（单一事实来源）：文件进度由 persist_chunk /
+        // save_sender_file_progress 增量落库，projection 直接 SUM，省掉各生命周期转换前
+        // 手工 sync_session_transferred_bytes 的二次写与漂移风险。
+        let transferred_bytes = s.files.iter().map(|f| f.transferred_bytes).sum();
         Self {
             session_id: s.session_id,
             direction: s.direction,
@@ -443,7 +420,7 @@ impl From<entity::transfer_session::ModelEx> for TransferProjection {
             recoverable: s.recoverable,
             epoch: s.epoch,
             total_size: s.total_size,
-            transferred_bytes: s.transferred_bytes,
+            transferred_bytes,
             started_at: s.started_at,
             updated_at: s.updated_at,
             finished_at: s.finished_at,

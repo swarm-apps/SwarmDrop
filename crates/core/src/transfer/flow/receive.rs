@@ -207,9 +207,8 @@ impl TransferManager {
             .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
 
         session.cancel_and_wait().await;
-        // 先把文件级进度汇总到 session 级，再 dispatch：dispatch 当帧 emit 的 projection
-        // 才带正确的 transferredBytes，避免挂起态在前端显示 0%。
-        crate::database::ops::sync_session_transferred_bytes(&self.db, *session_id).await?;
+        // projection 的 transferredBytes 直接 SUM 文件级（文件进度已增量落库），
+        // 无需在 dispatch 前手工 sync session 级。
         self.coordinator
             .dispatch(
                 *session_id,
@@ -363,15 +362,6 @@ impl TransferManager {
                 self.remove_receive_actor(&session_id);
                 session.cancel_and_wait().await;
             }
-            // 先汇总 session 级 transferredBytes，使中断帧 projection 进度正确（否则显示 0%）。
-            if let Err(e) =
-                crate::database::ops::sync_session_transferred_bytes(&self.db, session_id).await
-            {
-                warn!(
-                    "sync session transferred_bytes 失败: session={}, {}",
-                    session_id, e
-                );
-            }
             if let Err(e) = self
                 .coordinator
                 .dispatch_network_current(
@@ -407,15 +397,6 @@ impl TransferManager {
 
         // 对端暂停 → 状态机 Network{RemotePaused}（写 suspended/RemotePaused + 发 projection），
         // 与本地 pause 的 LocalPaused 区分开——这正是 3.3 要落实的本地/对端 reason 区分。
-        // 先汇总 session 级 transferredBytes，否则 dispatch emit 的挂起 projection 进度为 0。
-        if let Err(e) =
-            crate::database::ops::sync_session_transferred_bytes(&self.db, session_id).await
-        {
-            warn!(
-                "sync session transferred_bytes 失败: session={}, {}",
-                session_id, e
-            );
-        }
         if let Err(e) = self
             .coordinator
             .dispatch_network_current(
