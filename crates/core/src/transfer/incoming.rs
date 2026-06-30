@@ -62,6 +62,10 @@ pub trait IncomingTransferRuntime: Send + Sync {
         let _ = peer_id;
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "缓存入站 offer 需要完整的对端与会话上下文"
+    )]
     async fn cache_inbound_offer(
         &self,
         pending_id: u64,
@@ -124,6 +128,10 @@ pub trait IncomingTransferRuntime: Send + Sync {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "入站请求分发需要 client/runtime/event_bus 与完整请求上下文"
+)]
 pub async fn handle_incoming_transfer_request<R, B>(
     client: &AppNetClient,
     runtime: &R,

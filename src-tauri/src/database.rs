@@ -8,7 +8,7 @@ pub use swarmdrop_core::database::ops;
 
 use std::sync::Arc;
 
-use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, IntoActiveModel, Set};
+use sea_orm::{Database, DatabaseConnection};
 use sea_orm_migration::MigratorTrait;
 use swarmdrop_core::host::{CoreSaveLocation, EventBus};
 use swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS;
@@ -54,7 +54,10 @@ pub async fn cleanup_stale_sessions(
     // 由桌面端按真实路径删除遗留 .part（直接 fs，不经 FileAccess 的 create-then-delete）。
     let reaped = ops::reap_expired_suspended_receives(db, SUSPENDED_RECEIVE_RETENTION_SECS).await?;
     for session in &reaped {
-        tracing::info!("启动清理: 过期 suspended 接收会话 {} 已回收", session.session_id);
+        tracing::info!(
+            "启动清理: 过期 suspended 接收会话 {} 已回收",
+            session.session_id
+        );
         for meta in &session.files {
             if let Some(CoreSaveLocation::Path { path }) = &meta.save_dir {
                 let final_path = std::path::Path::new(path).join(&meta.relative_path);
@@ -77,7 +80,7 @@ mod tests {
     use super::*;
 
     use entity::TransferDirection;
-    use sea_orm::{ConnectOptions, EntityTrait};
+    use sea_orm::{ActiveModelTrait, ConnectOptions, EntityTrait, IntoActiveModel, Set};
     use swarmdrop_core::host::{CoreAppPaths, CoreSaveLocation, MemoryHost};
     use swarmdrop_core::transfer::coordinator::TransferState;
     use uuid::Uuid;
@@ -202,7 +205,8 @@ mod tests {
                 .unwrap()
                 .unwrap();
             let mut model = session.into_active_model();
-            model.updated_at = Set(ops::now_ms() - (SUSPENDED_RECEIVE_RETENTION_SECS as i64) * 1000 - 1);
+            model.updated_at =
+                Set(ops::now_ms() - (SUSPENDED_RECEIVE_RETENTION_SECS as i64) * 1000 - 1);
             model.update(&db).await.unwrap();
 
             cleanup_stale_sessions(&db, Arc::new(MemoryHost::new(test_paths())))

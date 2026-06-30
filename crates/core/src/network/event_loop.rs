@@ -232,32 +232,6 @@ fn usable_lan_candidate_addrs(addrs: &[Multiaddr]) -> Vec<Multiaddr> {
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::usable_lan_candidate_addrs;
-    use swarm_p2p_core::libp2p::Multiaddr;
-
-    #[test]
-    fn lan_helper_candidates_filter_unusable_addresses() {
-        let addrs: Vec<Multiaddr> = [
-            "/ip4/192.168.1.20/tcp/4001",
-            "/ip4/127.0.0.1/tcp/4001",
-            "/ip4/0.0.0.0/tcp/4001",
-            "/ip4/8.8.8.8/tcp/4001",
-            "/ip6/fd00::1/tcp/4001",
-        ]
-        .into_iter()
-        .map(|addr| addr.parse().unwrap())
-        .collect();
-
-        let usable = usable_lan_candidate_addrs(&addrs);
-
-        assert_eq!(usable.len(), 2);
-        assert_eq!(usable[0].to_string(), "/ip4/192.168.1.20/tcp/4001");
-        assert_eq!(usable[1].to_string(), "/ip6/fd00::1/tcp/4001");
-    }
-}
-
 async fn publish_devices_and_status<TTransfer>(
     shared: &SharedNetRefs<TTransfer>,
     event_bus: &dyn EventBus,
@@ -418,4 +392,30 @@ fn display_device_name(device: &crate::device::PairedDeviceInfo) -> String {
         .clone()
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| device.os_info.hostname.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::usable_lan_candidate_addrs;
+    use swarm_p2p_core::libp2p::Multiaddr;
+
+    #[test]
+    fn lan_helper_candidates_filter_unusable_addresses() {
+        let addrs: Vec<Multiaddr> = [
+            "/ip4/192.168.1.20/tcp/4001",
+            "/ip4/127.0.0.1/tcp/4001",
+            "/ip4/0.0.0.0/tcp/4001",
+            "/ip4/8.8.8.8/tcp/4001",
+            "/ip6/fd00::1/tcp/4001",
+        ]
+        .into_iter()
+        .map(|addr| addr.parse().unwrap())
+        .collect();
+
+        let usable = usable_lan_candidate_addrs(&addrs);
+
+        assert_eq!(usable.len(), 2);
+        assert_eq!(usable[0].to_string(), "/ip4/192.168.1.20/tcp/4001");
+        assert_eq!(usable[1].to_string(), "/ip6/fd00::1/tcp/4001");
+    }
 }

@@ -37,9 +37,7 @@ impl TransferManager {
             files.len()
         );
 
-        let report = self
-            .request_resume_probe(target_peer, session_id)
-            .await?;
+        let report = self.request_resume_probe(target_peer, session_id).await?;
         if let Err(reason) = validate_resume_report(&session, &files, &report) {
             self.apply_resume_reject(&session, session_id, reason)
                 .await?;
@@ -124,9 +122,7 @@ impl TransferManager {
             files.len()
         );
 
-        let report = self
-            .request_resume_probe(target_peer, session_id)
-            .await?;
+        let report = self.request_resume_probe(target_peer, session_id).await?;
         if let Err(reason) = validate_resume_report(&session, &files, &report) {
             self.apply_resume_reject(&session, session_id, reason)
                 .await?;

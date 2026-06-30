@@ -19,13 +19,15 @@ use crate::transfer::coordinator::{CoordinatorInput, TransferState, UserCommand}
 use crate::transfer::crypto::generate_key;
 use crate::transfer::manager::{PendingOffer, TransferManager};
 use crate::transfer::policy::ReceivePolicyDecision;
-use crate::transfer::progress::{
-    RuntimeTransferDirection, TransferFailedEvent,
-};
+use crate::transfer::progress::{RuntimeTransferDirection, TransferFailedEvent};
 use crate::transfer::receiver::ReceiveSession;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "缓存入站 offer 需要完整的对端与会话上下文"
+    )]
     pub async fn cache_inbound_offer(
         &self,
         pending_id: u64,

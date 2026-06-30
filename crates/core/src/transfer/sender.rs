@@ -18,13 +18,13 @@ use uuid::Uuid;
 
 use crate::host::{EventBus, FileAccess};
 use crate::protocol::{FileInfo, FileRange};
+use crate::transfer::CHUNK_SIZE;
 use crate::transfer::crypto::TransferCrypto;
 use crate::transfer::data_frame::{
     TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
 };
 use crate::transfer::manager::PreparedFile;
 use crate::transfer::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
-use crate::transfer::CHUNK_SIZE;
 use crate::{AppError, AppResult};
 
 /// 发送方会话

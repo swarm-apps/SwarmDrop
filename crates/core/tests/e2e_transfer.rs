@@ -34,13 +34,13 @@ use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
-use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
 use swarmdrop_core::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState,
 };
 use swarmdrop_core::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
+use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
 
 // ===== harness =====
 
@@ -262,6 +262,10 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id:
     .expect("create_session");
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "测试辅助：构造 suspended 会话需要完整字段"
+)]
 async fn seed_suspended_session(
     db: &DatabaseConnection,
     session_id: Uuid,
@@ -307,12 +311,11 @@ fn received_offer(node: &TestNode, session_id: Uuid) -> bool {
 /// 这里直接写原生 async 轮询循环。
 async fn wait_completed(db: &DatabaseConnection, session_id: Uuid, who: &str) {
     for _ in 0..400 {
-        if let Ok(Some(p)) = ops::get_transfer_projection(db, session_id).await {
-            if p.phase == TransferPhase::Terminal
-                && p.terminal_reason == Some(TerminalReason::Completed)
-            {
-                return;
-            }
+        if let Ok(Some(p)) = ops::get_transfer_projection(db, session_id).await
+            && p.phase == TransferPhase::Terminal
+            && p.terminal_reason == Some(TerminalReason::Completed)
+        {
+            return;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -821,7 +824,12 @@ async fn e2e_multichunk_multifile_transfer() {
         .expect("prepare");
     let StartSendResult { session_id } = node_a
         .transfer
-        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0, 1, 2])
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0, 1, 2],
+        )
         .await
         .expect("send_offer");
 
@@ -847,7 +855,10 @@ async fn e2e_multichunk_multifile_transfer() {
 
     for (name, data) in specs.iter() {
         assert_eq!(
-            node_b.host.sink_bytes(&FileSinkId((*name).to_string())).as_ref(),
+            node_b
+                .host
+                .sink_bytes(&FileSinkId((*name).to_string()))
+                .as_ref(),
             Some(data),
             "{name} 落盘应逐字节等于源"
         );
@@ -862,7 +873,9 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
     let total_chunks = 4usize;
     let done_chunks = 2usize;
     let done_bytes = done_chunks * CHUNK_SIZE;
-    let data: Vec<u8> = (0..total_chunks * CHUNK_SIZE).map(|i| (i % 251) as u8).collect();
+    let data: Vec<u8> = (0..total_chunks * CHUNK_SIZE)
+        .map(|i| (i % 251) as u8)
+        .collect();
     let checksum = blake3::hash(&data).to_hex().to_string();
     let source_id = FileSourceId("partial-src".to_string());
     let meta = HostFileMetadata {
@@ -929,8 +942,7 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
         })
         .await
         .expect("seed sink");
-    b_fa
-        .write_sink_chunk(&sink, 0, data[..done_bytes].to_vec())
+    b_fa.write_sink_chunk(&sink, 0, data[..done_bytes].to_vec())
         .await
         .expect("seed partial bytes");
 
@@ -1051,7 +1063,8 @@ async fn e2e_reap_expired_receive_cleans_part() {
     assert_eq!(p.phase, TransferPhase::Terminal);
     assert!(!p.recoverable, "回收后不可恢复");
     assert!(
-        host.sink_bytes(&FileSinkId("old.bin".to_string())).is_none(),
+        host.sink_bytes(&FileSinkId("old.bin".to_string()))
+            .is_none(),
         "过期会话的遗留 .part 应被清理"
     );
 }

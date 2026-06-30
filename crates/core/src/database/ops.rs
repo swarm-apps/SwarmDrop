@@ -748,8 +748,9 @@ pub async fn reap_expired_suspended_receives(
             None,
             Some(TerminalReason::FatalError),
         );
-        model.error_message =
-            Set(Some(format!("会话超过 {retention_days} 天未恢复，已过期回收")));
+        model.error_message = Set(Some(format!(
+            "会话超过 {retention_days} 天未恢复，已过期回收"
+        )));
         model.finished_at = Set(Some(now));
         model.updated_at = Set(now);
         model.update(db).await?;
@@ -770,7 +771,9 @@ mod tests {
         // `:memory:` 每条物理连接是独立空库，钉死单连接保证 migration 与查询同库。
         let mut opt = ConnectOptions::new("sqlite::memory:");
         opt.max_connections(1).min_connections(1);
-        let db = Database::connect(opt).await.expect("connect sqlite::memory:");
+        let db = Database::connect(opt)
+            .await
+            .expect("connect sqlite::memory:");
         migration::Migrator::up(&db, None).await.expect("migrate");
         db
     }
@@ -832,10 +835,38 @@ mod tests {
         let expired_send = Uuid::from_u128(3);
         let terminal_recv = Uuid::from_u128(4);
 
-        seed(&db, expired_recv, TransferDirection::Receive, now - 8 * day, false).await;
-        seed(&db, fresh_recv, TransferDirection::Receive, now - 3 * day, false).await;
-        seed(&db, expired_send, TransferDirection::Send, now - 8 * day, false).await;
-        seed(&db, terminal_recv, TransferDirection::Receive, now - 30 * day, true).await;
+        seed(
+            &db,
+            expired_recv,
+            TransferDirection::Receive,
+            now - 8 * day,
+            false,
+        )
+        .await;
+        seed(
+            &db,
+            fresh_recv,
+            TransferDirection::Receive,
+            now - 3 * day,
+            false,
+        )
+        .await;
+        seed(
+            &db,
+            expired_send,
+            TransferDirection::Send,
+            now - 8 * day,
+            false,
+        )
+        .await;
+        seed(
+            &db,
+            terminal_recv,
+            TransferDirection::Receive,
+            now - 30 * day,
+            true,
+        )
+        .await;
 
         let retention = 7 * 24 * 60 * 60; // 7 天（秒）
         let reaped = reap_expired_suspended_receives(&db, retention)
