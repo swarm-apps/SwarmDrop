@@ -289,15 +289,25 @@ mod tests {
             },
         ] {
             let s = origin.to_db_string();
-            assert_eq!(TransferOrigin::from_db_string(&s), origin, "roundtrip via {s}");
+            assert_eq!(
+                TransferOrigin::from_db_string(&s),
+                origin,
+                "roundtrip via {s}"
+            );
         }
     }
 
     #[test]
     fn transfer_origin_from_db_string_fallback() {
-        assert_eq!(TransferOrigin::from_db_string("human"), TransferOrigin::Human);
+        assert_eq!(
+            TransferOrigin::from_db_string("human"),
+            TransferOrigin::Human
+        );
         // 未知 / 历史 NULL→"" 一律回退 Human，绝不 panic。
-        assert_eq!(TransferOrigin::from_db_string("unknown"), TransferOrigin::Human);
+        assert_eq!(
+            TransferOrigin::from_db_string("unknown"),
+            TransferOrigin::Human
+        );
         assert_eq!(TransferOrigin::from_db_string(""), TransferOrigin::Human);
         assert_eq!(
             TransferOrigin::from_db_string("mcp"),
