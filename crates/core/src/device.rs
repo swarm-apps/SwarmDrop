@@ -4,35 +4,25 @@ use serde::{Deserialize, Serialize};
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 
 /// 已配对设备信任等级。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceTrustLevel {
     Owned,
+    #[default]
     Collaborator,
     Temporary,
     Blocked,
 }
 
-impl Default for DeviceTrustLevel {
-    fn default() -> Self {
-        Self::Collaborator
-    }
-}
-
 /// 自动接收时的保存行为。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "snake_case")]
 pub enum ReceiveSaveBehavior {
     /// 使用策略里配置的默认保存位置，接收完成后进入收件箱。
+    #[default]
     InboxAndDefaultSaveLocation,
-}
-
-impl Default for ReceiveSaveBehavior {
-    fn default() -> Self {
-        Self::InboxAndDefaultSaveLocation
-    }
 }
 
 /// 可信设备接收策略。

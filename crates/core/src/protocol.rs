@@ -52,6 +52,49 @@ pub struct FileInfo {
     pub checksum: String,
 }
 
+/// 传输发起来源：人在应用内发起，或 AI 代理经 MCP 发起。
+///
+/// 由发送方自报、承载于 Offer，供接收端展示与 inbox 来源派生——是信息性/UX 信号，
+/// 不作接收端安全边界（真正的控制是发送端 `allow_mcp_send_to_device` 门控）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum TransferOrigin {
+    /// 用户在应用内手动发起。
+    Human,
+    /// AI 代理经 MCP 发起；`client` 为 MCP 客户端名（如 claude-desktop），不可得时为 None。
+    Mcp { client: Option<String> },
+}
+
+impl TransferOrigin {
+    /// 序列化为 DB 列存储的紧凑字符串：`human` / `mcp` / `mcp:<client>`。
+    pub fn to_db_string(&self) -> String {
+        match self {
+            TransferOrigin::Human => "human".to_string(),
+            TransferOrigin::Mcp { client: Some(c) } => format!("mcp:{c}"),
+            TransferOrigin::Mcp { client: None } => "mcp".to_string(),
+        }
+    }
+
+    /// 从 DB 列字符串解析；无法识别（含历史 NULL→`"human"`）时回退 `Human`。
+    pub fn from_db_string(s: &str) -> Self {
+        match s {
+            "mcp" => TransferOrigin::Mcp { client: None },
+            other => match other.strip_prefix("mcp:") {
+                Some(client) => TransferOrigin::Mcp {
+                    client: Some(client.to_string()),
+                },
+                None => TransferOrigin::Human,
+            },
+        }
+    }
+
+    /// 是否为 MCP / AI 代理来源。
+    pub fn is_mcp(&self) -> bool {
+        matches!(self, TransferOrigin::Mcp { .. })
+    }
+}
+
 /// 断点续传被拒绝的原因。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -113,6 +156,8 @@ pub enum TransferRequest {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        /// 发起来源（人工 / MCP 代理），由发送方自报。
+        origin: TransferOrigin,
     },
     Cancel {
         session_id: Uuid,
@@ -143,6 +188,8 @@ pub enum OfferRejectReason {
     NotPaired,
     UserDeclined,
     PolicyRejected,
+    /// 接收方处于全局「暂停接收」状态，婉拒新 offer。
+    ReceivingPaused,
 }
 
 /// 传输响应。
@@ -227,3 +274,50 @@ pub enum AppResponse {
 }
 
 pub type AppNetClient = NetClient<AppRequest, AppResponse>;
+
+#[cfg(test)]
+mod tests {
+    use super::TransferOrigin;
+
+    #[test]
+    fn transfer_origin_db_string_roundtrip() {
+        for origin in [
+            TransferOrigin::Human,
+            TransferOrigin::Mcp { client: None },
+            TransferOrigin::Mcp {
+                client: Some("claude-desktop".to_string()),
+            },
+        ] {
+            let s = origin.to_db_string();
+            assert_eq!(
+                TransferOrigin::from_db_string(&s),
+                origin,
+                "roundtrip via {s}"
+            );
+        }
+    }
+
+    #[test]
+    fn transfer_origin_from_db_string_fallback() {
+        assert_eq!(
+            TransferOrigin::from_db_string("human"),
+            TransferOrigin::Human
+        );
+        // 未知 / 历史 NULL→"" 一律回退 Human，绝不 panic。
+        assert_eq!(
+            TransferOrigin::from_db_string("unknown"),
+            TransferOrigin::Human
+        );
+        assert_eq!(TransferOrigin::from_db_string(""), TransferOrigin::Human);
+        assert_eq!(
+            TransferOrigin::from_db_string("mcp"),
+            TransferOrigin::Mcp { client: None }
+        );
+        assert_eq!(
+            TransferOrigin::from_db_string("mcp:cursor"),
+            TransferOrigin::Mcp {
+                client: Some("cursor".to_string())
+            }
+        );
+    }
+}

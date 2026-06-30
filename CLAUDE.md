@@ -20,7 +20,7 @@ Always respond in Chinese (简体中文). All output, including thinking, planni
 
 SwarmDrop is a decentralized, cross-network, end-to-end encrypted file transfer tool built with Tauri v2. It aims to be a "cross-network version of LocalSend" — no accounts, no servers, supporting both LAN and cross-network peer-to-peer file transfers.
 
-**Current Status:** Phase 3 (File Transfer) — pairing complete, file transfer + database integration in progress (v0.3.2).
+**Current Status:** Phase 3 (File Transfer) — transfer + resume + SQLite inbox in place; a local MCP server has shipped (AI agents can send files and search the received inbox). Current release: v0.6.0.
 
 ## Build and Development Commands
 
@@ -176,22 +176,22 @@ Key exports: `NetClient`, `NodeConfig`, `NodeEvent`, `start()`, re-exported `lib
 
 ### Auto-Update System
 
-Dual-endpoint update checking:
-1. **UpgradeLink** — `https://api.upgrade.toolsetlink.com/v1/tauri/upgrade?tauriKey=...` (primary)
-2. **GitHub Releases** — `https://github.com/swarm-apps/SwarmDrop/releases/latest/download/latest.json` (fallback)
+Updates are delivered by **[SwarmHive](https://github.com/swarm-apps/SwarmHive)** — a self-hosted, open-source release & update server (same swarm-apps family). UpgradeLink has been **fully removed** (see `release.yml` header note).
 
-The `latest.json` is patched in CI with optional `min_version` for forced updates. Windows uses passive install mode.
-
-> Note: 现有 `release.yml` 仍保留 `build-android` / Android APK 上传步骤，对应代码已删除，
-> CI 这部分需要单独清理或在 Android 发布回到 SwarmDrop-RN 后整体重写。
+- **Desktop** — the Tauri updater polls SwarmHive directly. Endpoint in `tauri.conf.json`:
+  `http://47.115.172.218:3030/api/v1/updates/tauri/swarmdrop?current_version={{current_version}}&target={{target}}&arch={{arch}}`.
+  The dogfood server is plain HTTP, so `dangerousInsecureTransportProtocol: true` is set; Windows uses `installMode: "passive"`.
+- **Mobile** — SwarmDrop-RN checks updates against the same SwarmHive server.
+- Publishing config lives in `swarmhive.toml` (server URL + app slug `swarmdrop`).
 
 ### Release Process
 
-Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/release.yml`):
-1. **build-tauri** — Builds desktop apps (macOS aarch64/x86_64, Ubuntu, Windows) via `tauri-action`, creates draft release
-2. **update-latest-json** — Patches `latest.json` with optional `min_version`
-3. **publish-release** — Converts draft to published release (required for UpgradeLink to access assets)
-4. **upgradeLink-upload** — Syncs desktop builds to UpgradeLink service
+Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/release.yml`), publishing via `swarm-apps/swarmhive-action@v2`:
+1. **generate-changelog** — derives release notes (shared by the GitHub Release body and SwarmHive notes)
+2. **build-tauri** — builds desktop apps (macOS aarch64/x86_64, Ubuntu, Windows) via `tauri-action` (creates a GitHub draft release) and uploads each target's bundle to SwarmHive as a **draft**
+3. **finalize-swarmhive** — after all targets upload, finalizes the SwarmHive release once (idempotent) and points the `stable` channel at it
+4. **update-latest-json** — only on manual `workflow_dispatch` with `min_version` (forced updates); skipped on plain tag pushes
+5. **publish-release** — converts the GitHub draft release to published
 
 ## Important Conventions
 

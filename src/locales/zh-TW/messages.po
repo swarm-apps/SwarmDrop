@@ -44,6 +44,14 @@ msgid "{label}超时（{0}s）"
 msgstr "{label}逾時（{0}s）"
 
 #: src/routes/_app/inbox/index.lazy.tsx
+msgid "AI 代理"
+msgstr ""
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "AI 代理 (MCP)"
+msgstr ""
+
+#: src/routes/_app/inbox/index.lazy.tsx
 msgid "Bundle"
 msgstr ""
 
@@ -52,8 +60,8 @@ msgid "CPU 架构"
 msgstr "CPU 架構"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "MCP"
-msgstr ""
+#~ msgid "MCP"
+#~ msgstr ""
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "MCP Server 已停止"
@@ -100,6 +108,14 @@ msgstr "SwarmDrop v{0} 已發佈"
 #: src/components/settings/AboutSection.tsx
 #~ msgid "SwarmDrop v{latestVersion} 已发布"
 #~ msgstr "SwarmDrop v{latestVersion} 已發佈"
+
+#: src/components/close-behavior-manager.tsx
+msgid "SwarmDrop 仍在后台运行"
+msgstr "SwarmDrop 仍在背景執行"
+
+#: src/components/close-behavior-manager.tsx
+msgid "SwarmDrop 需要在后台保持在线，才能接收已配对设备发来的文件。可以让它继续在{trayWord}后台运行，或彻底退出。退出后将无法被发现，也不会收到任何文件。"
+msgstr "SwarmDrop 需要在背景保持在線，才能接收已配對裝置傳來的檔案。可以讓它繼續在{trayWord}背景執行，或徹底退出。退出後將無法被發現，也不會收到任何檔案。"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "一台设备正在请求与您配对"
@@ -209,7 +225,6 @@ msgstr ""
 #: src/lib/transfer-projection.ts
 #: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/transfer/-transfer-item.tsx
-#: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "传输中"
 msgstr "傳輸中"
 
@@ -225,13 +240,11 @@ msgstr ""
 #~ msgid "传输历史"
 #~ msgstr "傳輸歷史"
 
-#: src/routes/_app/transfer/$sessionId.lazy.tsx
-#: src/stores/transfer-store.ts
+#: src/lib/transfer-notifications.ts
 msgid "传输失败"
 msgstr "傳輸失敗"
 
 #: src/routes/_app/transfer/-history-item.tsx
-#: src/routes/_app/transfer/-transfer-item.tsx
 msgid "传输完成"
 msgstr "傳輸完成"
 
@@ -330,7 +343,7 @@ msgstr ""
 msgid "允许文件夹"
 msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "全部"
 msgstr "全部"
 
@@ -359,6 +372,14 @@ msgstr "關於"
 #: src/components/layout/app-topbar.tsx
 msgid "关闭"
 msgstr "關閉"
+
+#: src/components/close-behavior-manager.tsx
+msgid "关闭 SwarmDrop 窗口？"
+msgstr "關閉 SwarmDrop 視窗？"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "关闭主窗口时"
+msgstr "關閉主視窗時"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "关闭后，包含子路径的传输会被策略拒绝"
@@ -392,6 +413,14 @@ msgstr "最大化"
 msgid "最小化"
 msgstr "最小化"
 
+#: src/components/close-behavior-manager.tsx
+msgid "最小化到{trayWord}"
+msgstr "最小化到{trayWord}"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "最小化到托盘"
+msgstr "最小化到系統匣"
+
 #: src/components/ForceUpdateDialog.tsx
 #~ msgid "最新版本"
 #~ msgstr "最新版本"
@@ -405,8 +434,8 @@ msgstr "最小化"
 #~ msgstr "最近完成"
 
 #: src/routes/_app/transfer/-transfer-item.tsx
-msgid "准备中..."
-msgstr "準備中..."
+#~ msgid "准备中..."
+#~ msgstr "準備中..."
 
 #: src/components/layout/app-topbar.tsx
 msgid "切换到浅色主题"
@@ -416,7 +445,7 @@ msgstr ""
 msgid "切换到深色主题"
 msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "切换过滤条件，或直接使用下方配对码连接。"
 msgstr ""
 
@@ -456,7 +485,7 @@ msgstr ""
 msgid "剪贴板"
 msgstr ""
 
-#. placeholder {0}: formatDuration(session.progress.eta)
+#. placeholder {0}: formatDuration(progress.eta)
 #: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "剩余 {0}"
@@ -492,8 +521,8 @@ msgstr ""
 msgid "发起配对"
 msgstr "發起配對"
 
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
-#: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "发送"
@@ -507,7 +536,7 @@ msgstr "傳送中..."
 msgid "发送到"
 msgstr "傳送至"
 
-#. placeholder {0}: session.deviceName
+#. placeholder {0}: projection.peerName
 #: src/routes/_app/transfer/-transfer-item.tsx
 msgid "发送到 {0}"
 msgstr "傳送到 {0}"
@@ -526,9 +555,9 @@ msgid "发送配对请求"
 msgstr "傳送配對請求"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
-#: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/pairing/-device-found-view.tsx
 #: src/routes/_app/pairing/-device-found-view.tsx
@@ -566,8 +595,8 @@ msgstr ""
 msgid "可恢复失败"
 msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "可配对"
 msgstr ""
 
@@ -643,7 +672,6 @@ msgstr "在另一台裝置上輸入以下配對碼"
 #~ msgstr ""
 
 #: src/routes/_app/devices/-components/device-card.tsx
-#: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "在线"
 msgstr "在線"
@@ -673,13 +701,13 @@ msgstr "處理中..."
 msgid "复制"
 msgstr "複製"
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制失败，请手动复制配对码"
 msgstr "複製失敗,請手動複製配對碼"
 
-#: src/routes/_app/devices/index.lazy.tsx
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制配对码"
 msgstr "複製配對碼"
@@ -693,7 +721,6 @@ msgid "大小上限"
 msgstr ""
 
 #: src/components/file-tree/file-tree-item.tsx
-#: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "失败"
 msgstr "失敗"
 
@@ -729,11 +756,11 @@ msgstr "用戶端設定"
 #~ msgid "密码错误"
 #~ msgstr "密碼錯誤"
 
-#: src/stores/transfer-store.ts
+#: src/lib/transfer-notifications.ts
 msgid "对方已取消传输"
 msgstr "對方已取消傳輸"
 
-#: src/stores/transfer-store.ts
+#: src/lib/transfer-notifications.ts
 msgid "对方已暂停传输"
 msgstr "對方已暫停傳輸"
 
@@ -741,7 +768,7 @@ msgstr "對方已暫停傳輸"
 msgid "对方拒绝"
 msgstr ""
 
-#: src/stores/transfer-store.ts
+#: src/lib/transfer-notifications.ts
 msgid "对方拒绝了请求"
 msgstr "對方拒絕了請求"
 
@@ -821,7 +848,6 @@ msgid "已发现节点"
 msgstr "已發現節點"
 
 #: src/lib/transfer-projection.ts
-#: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "已取消"
 msgstr "已取消"
 
@@ -833,8 +859,8 @@ msgstr "已取消傳輸"
 msgid "已取消归档"
 msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已复制"
@@ -846,7 +872,6 @@ msgid "已复制到剪贴板"
 msgstr "已複製到剪貼簿"
 
 #: src/lib/transfer-projection.ts
-#: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "已完成"
 msgstr "已完成"
 
@@ -876,8 +901,6 @@ msgid "已接收内容"
 msgstr ""
 
 #: src/lib/transfer-projection.ts
-#: src/routes/_app/transfer/$sessionId.lazy.tsx
-#: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "已暂停"
 msgstr "已暫停"
 
@@ -901,7 +924,7 @@ msgstr ""
 msgid "已清空活动记录"
 msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "已过期"
 msgstr ""
 
@@ -926,8 +949,8 @@ msgstr "已連線節點"
 msgid "已选文件"
 msgstr "已選檔案"
 
-#: src/routes/_app/devices/index.lazy.tsx
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "已配对"
 msgstr ""
@@ -945,6 +968,10 @@ msgstr ""
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "已阻止"
 msgstr ""
+
+#: src/components/close-behavior-manager.tsx
+msgid "应用已最小化到{trayWord}，仍可接收文件。退出请在{trayWord}图标的菜单中选择「退出」。"
+msgstr "應用已最小化到{trayWord}，仍可接收檔案。退出請在{trayWord}圖示的選單中選擇「退出」。"
 
 #: src/lib/transfer-projection.ts
 msgid "应用重启后中断"
@@ -1079,6 +1106,10 @@ msgstr "開啟資料夾"
 msgid "打洞"
 msgstr "直連"
 
+#: src/components/close-behavior-manager.tsx
+msgid "托盘"
+msgstr "系統匣"
+
 #: src/routes/_app/devices/-components/home-drop-zone.tsx
 #~ msgid "把文件拖到这里发送"
 #~ msgstr ""
@@ -1109,7 +1140,7 @@ msgstr "接收檔案"
 msgid "接收文件的默认保存位置"
 msgstr "接收檔案的預設儲存位置"
 
-#: src/routes/_app/transfer/-history-item.tsx
+#: src/components/transfer/policy-reason-badge.tsx
 msgid "接收策略"
 msgstr ""
 
@@ -1120,6 +1151,10 @@ msgstr ""
 #: src/routes/_auth/setup-password.lazy.tsx
 #~ msgid "推荐包含特殊字符"
 #~ msgstr "建議包含特殊字元"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "搜索标题、来源、文件名…"
+msgstr ""
 
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "操作系统"
@@ -1202,7 +1237,7 @@ msgstr ""
 msgid "暂无活动记录"
 msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "暂无附近设备"
 msgstr ""
 
@@ -1241,6 +1276,10 @@ msgstr "服務狀態"
 msgid "未启动"
 msgstr "未啟動"
 
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "未找到匹配项"
+msgstr ""
+
 #: src/lib/auth-messages.ts
 #~ msgid "未找到存储的密码"
 #~ msgstr "未找到儲存的密碼"
@@ -1275,7 +1314,6 @@ msgstr "未連線"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
-#: src/routes/_app/devices/-components/device-card.tsx
 msgid "未配对"
 msgstr "未配對"
 
@@ -1300,7 +1338,7 @@ msgstr ""
 msgid "本机协助中"
 msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "本机配对码"
 msgstr ""
 
@@ -1326,9 +1364,10 @@ msgid "来自"
 msgstr "來自"
 
 #. placeholder {0}: currentOffer.deviceName
+#. placeholder {0}: hit.sourceName
 #. placeholder {0}: item.sourceName
-#. placeholder {0}: session.deviceName
 #: src/components/transfer/transfer-offer-dialog.tsx
+#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/transfer/-transfer-item.tsx
@@ -1393,7 +1432,7 @@ msgstr ""
 #~ msgid "正在更新"
 #~ msgstr "正在更新"
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "正在查找设备..."
 msgstr "正在尋找裝置..."
@@ -1421,7 +1460,11 @@ msgstr "正在計算校驗碼 ({0}/{1})"
 #~ msgid "此密码用于保护您的设备身份，请妥善保管"
 #~ msgstr "此密碼用於保護您的裝置身份，請妥善保管"
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "每次询问"
+msgstr "每次詢問"
+
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
 msgstr ""
 
@@ -1465,7 +1508,7 @@ msgstr "新增裝置"
 msgid "添加自定义引导节点"
 msgstr "新增自訂引導節點"
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "添加设备"
 msgstr "新增裝置"
 
@@ -1484,6 +1527,10 @@ msgstr ""
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "点对点直连，无需注册账号"
 #~ msgstr "點對點直連，無需註冊帳號"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "点窗口关闭按钮（✕）后的行为"
+msgstr "點視窗關閉按鈕（✕）後的行為"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "版本 {ver}"
@@ -1529,6 +1576,15 @@ msgstr "用時"
 #~ msgid "用配对码连接"
 #~ msgstr ""
 
+#: src/components/transfer/transfer-offer-dialog.tsx
+msgid "由 AI 代理发起"
+msgstr ""
+
+#. placeholder {0}: currentOffer.origin.client
+#: src/components/transfer/transfer-offer-dialog.tsx
+msgid "由 AI 代理发起（{0}）"
+msgstr ""
+
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
 msgid "监听地址"
@@ -1547,7 +1603,7 @@ msgstr "監聽埠號"
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"
 msgstr "確定要取消與「{deviceName}」的配對嗎？取消後需要重新配對才能傳輸檔案。"
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "确认"
 msgstr "確認"
@@ -1564,11 +1620,10 @@ msgstr "確認取消配對"
 #~ msgid "确认对端 SwarmDrop 已启动，并与当前设备处于可发现网络中。"
 #~ msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "确认对端已启动，或直接使用下方配对码连接。"
 msgstr ""
 
-#: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "离线"
 msgstr "離線"
@@ -1596,7 +1651,6 @@ msgstr "埠號需在 1024 ~ 65535 之間"
 
 #: src/components/network/stop-node-sheet.tsx
 #: src/lib/transfer-projection.ts
-#: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "等待中"
 msgstr "等待中"
 
@@ -1610,22 +1664,20 @@ msgstr "等待對方傳送檔案"
 
 #: src/routes/_app/pairing/-device-found-view.tsx
 #: src/routes/_app/pairing/-device-found-view.tsx
-#: src/routes/_app/transfer/-transfer-item.tsx
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "等待对方确认..."
 msgstr "等待對方確認..."
 
 #: src/lib/transfer-projection.ts
-#: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "等待确认"
 msgstr "等待確認"
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "等待节点启动"
 msgstr ""
 
-#: src/routes/_app/transfer/-history-item.tsx
+#: src/components/transfer/policy-reason-badge.tsx
 msgid "策略拒绝"
 msgstr ""
 
@@ -1672,8 +1724,8 @@ msgstr "自動啟動節點"
 #~ msgid "自动接受已配对设备的文件"
 #~ msgstr "自動接受已配對裝置的檔案"
 
+#: src/components/transfer/policy-reason-badge.tsx
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
-#: src/routes/_app/transfer/-history-item.tsx
 msgid "自动接收"
 msgstr "自動接收"
 
@@ -1718,6 +1770,10 @@ msgstr "節點狀態"
 msgid "节点错误"
 msgstr "節點錯誤"
 
+#: src/components/close-behavior-manager.tsx
+msgid "菜单栏"
+msgstr "選單列"
+
 #. placeholder {0}: repaired.length
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "补建了 {0} 条收件箱记录"
@@ -1741,13 +1797,17 @@ msgstr ""
 msgid "解锁后自动启动 P2P 网络节点"
 msgstr "解鎖後自動啟動 P2P 網路節點"
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "让另一台设备输入这组 6 位数字"
 msgstr ""
 
 #: src/routes/_app/devices/index.lazy.tsx
 #~ msgid "让另一台设备输入这组配对码"
 #~ msgstr ""
+
+#: src/components/close-behavior-manager.tsx
+msgid "记住我的选择（之后可在「设置」中修改）"
+msgstr "記住我的選擇（之後可在「設定」中修改）"
 
 #: src/components/layout/nav-items.ts
 #~ msgid "设备"
@@ -1781,11 +1841,10 @@ msgstr ""
 msgid "设备在线，可以建立连接"
 msgstr "裝置在線，可以建立連線"
 
-#: src/stores/transfer-store.ts
+#: src/lib/transfer-notifications.ts
 msgid "设备已取消配对"
 msgstr "裝置已取消配對"
 
-#: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "设备操作"
 msgstr ""
@@ -1804,6 +1863,10 @@ msgstr "裝置詳情"
 #: src/components/layout/app-topbar.tsx
 msgid "设置"
 msgstr "設定"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "试试更短的关键词，或检查是否包含已归档内容。"
+msgstr ""
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "该节点已存在"
@@ -1826,6 +1889,10 @@ msgstr "請先啟動節點"
 #~ msgid "请先在下方选择目标设备"
 #~ msgstr ""
 
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+msgid "请输入大于 0 的数字，留空表示不限制"
+msgstr ""
+
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "跟随系统"
 msgstr "跟隨系統"
@@ -1842,7 +1909,7 @@ msgstr "跟隨系統"
 msgid "输入 Multiaddr 地址，如 /ip4/.../p2p/..."
 msgstr "輸入 Multiaddr 位址，如 /ip4/.../p2p/..."
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "输入另一台设备上显示的 6 位数字配对码。"
 msgstr ""
 
@@ -1854,7 +1921,7 @@ msgstr "輸入另一台裝置上顯示的配對碼"
 #~ msgid "输入另一台设备上的配对码"
 #~ msgstr "輸入另一台裝置上的配對碼"
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "输入另一台设备显示的 6 位数字"
 msgstr ""
 
@@ -1866,8 +1933,8 @@ msgstr ""
 #~ msgid "输入至少 8 位密码"
 #~ msgstr "輸入至少 8 位密碼"
 
-#: src/routes/_app/devices/index.lazy.tsx
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "输入配对码"
 msgstr "輸入配對碼"
 
@@ -1898,7 +1965,6 @@ msgid "进入 SwarmDrop"
 msgstr ""
 
 #: src/routes/_app/devices/-components/device-card.tsx
-#: src/routes/_app/devices/-components/device-card.tsx
 msgid "连接"
 msgstr "連線"
 
@@ -1922,6 +1988,14 @@ msgstr "連接已有裝置"
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "连接请求"
 msgstr "連線請求"
+
+#: src/components/close-behavior-manager.tsx
+msgid "退出 SwarmDrop"
+msgstr "退出 SwarmDrop"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "退出应用"
+msgstr "退出應用"
 
 #: src/routes/_app/devices/-components/home-drop-zone.tsx
 #~ msgid "选定目标设备 → 选择文件 / 文件夹 → 一键发送"
@@ -1955,7 +2029,11 @@ msgstr "選擇檔案"
 msgid "选择文件夹"
 msgstr "選擇資料夾"
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "通用"
+msgstr "一般"
+
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "配对"
 msgstr ""
 
@@ -2009,8 +2087,8 @@ msgstr "重新啟動節點"
 msgid "重启节点失败"
 msgstr "重新啟動節點失敗"
 
-#: src/routes/_app/devices/index.lazy.tsx
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "重新生成"
 msgstr "重新產生"
@@ -2031,7 +2109,7 @@ msgstr ""
 #~ msgid "附近可配对"
 #~ msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "附近设备"
 msgstr "附近裝置"
 
@@ -2039,7 +2117,7 @@ msgstr "附近裝置"
 #~ msgid "附近设备、可信设备和当前传输集中在这里，打开应用就能开始操作。"
 #~ msgstr ""
 
-#: src/routes/_app/devices/index.lazy.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "附近设备优先，已配对设备可直接发送。"
 msgstr ""
 
@@ -2059,6 +2137,7 @@ msgstr ""
 #~ msgid "需要更新"
 #~ msgstr "需要更新"
 
+#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "项"
 msgstr ""

@@ -8,15 +8,10 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { getErrorMessage } from "@/lib/errors";
-import { commands } from "@/lib/bindings";
-import {
-  projectionStatusLabel,
-  projectionToSession,
-} from "@/lib/transfer-projection";
-import type { TransferStatus, TransferSession } from "@/lib/types";
+import { commands, type TransferProjection } from "@/lib/bindings";
+import { projectionStatusLabel } from "@/lib/transfer-projection";
 
-export type { TransferStatus };
-export { projectionStatusLabel, projectionToSession };
+export { projectionStatusLabel };
 
 /* ─── 方向图标 ─── */
 
@@ -75,15 +70,6 @@ export function calcPercent(transferred: number, total: number): number {
   return total > 0 ? Math.round((transferred / total) * 100) : 0;
 }
 
-/** 判断传输是否处于活跃状态 */
-export function isActiveStatus(status: TransferStatus): boolean {
-  return (
-    status === "pending" ||
-    status === "waiting_accept" ||
-    status === "transferring"
-  );
-}
-
 /** 操作按钮通用样式 */
 export const ACTION_BTN_CLASS =
   "size-7 text-muted-foreground hover:bg-accent hover:text-foreground md:size-8";
@@ -92,7 +78,7 @@ export const DESTRUCTIVE_BTN_CLASS =
 
 /* ─── 状态徽章样式 ─── */
 
-export const STATUS_CLASSNAMES: Record<TransferSession["status"], string> = {
+const STATUS_CLASSNAMES = {
   pending: "bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400",
   waiting_accept:
     "bg-yellow-100 text-yellow-600 dark:bg-yellow-500/15 dark:text-yellow-400",
@@ -105,7 +91,33 @@ export const STATUS_CLASSNAMES: Record<TransferSession["status"], string> = {
   failed: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400",
   cancelled:
     "bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400",
-};
+} as const;
+
+/** 由 projection 派生状态徽章的配色类名（与 projectionStatusLabel 同一套 phase 语义）。 */
+export function projectionStatusClassName(
+  projection: TransferProjection,
+): string {
+  switch (projection.phase) {
+    case "offered":
+      return STATUS_CLASSNAMES.pending;
+    case "waiting_accept":
+      return STATUS_CLASSNAMES.waiting_accept;
+    case "active":
+      return STATUS_CLASSNAMES.transferring;
+    case "suspended":
+      return STATUS_CLASSNAMES.paused;
+    case "terminal":
+      switch (projection.terminalReason) {
+        case "completed":
+          return STATUS_CLASSNAMES.completed;
+        case "cancelled":
+        case "rejected":
+          return STATUS_CLASSNAMES.cancelled;
+        default:
+          return STATUS_CLASSNAMES.failed;
+      }
+  }
+}
 
 /* ─── 传输操作（核心逻辑） ─── */
 

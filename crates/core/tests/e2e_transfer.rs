@@ -33,14 +33,16 @@ use swarmdrop_core::host::{
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::run_event_loop;
-use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
-use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
-use swarmdrop_core::transfer::coordinator::{
-    ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState,
+use swarmdrop_core::protocol::{
+    AppRequest, AppResponse, FileInfo, OfferRejectReason, TransferOrigin,
 };
-use swarmdrop_core::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
+use swarmdrop_core::transfer::coordinator::{
+    ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState, UserCommand,
+};
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
+use swarmdrop_core::transfer::wire::data_frame::TRANSFER_DATA_PROTOCOL;
+use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
 
 // ===== harness =====
 
@@ -256,12 +258,18 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id:
             }),
             source_paths: None,
             lifecycle: TransferState::active(0),
+            policy: None,
+            origin: None,
         },
     )
     .await
     .expect("create_session");
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "测试辅助：构造 suspended 会话需要完整字段"
+)]
 async fn seed_suspended_session(
     db: &DatabaseConnection,
     session_id: Uuid,
@@ -285,6 +293,8 @@ async fn seed_suspended_session(
             save_path,
             source_paths,
             lifecycle: TransferState::active(0),
+            policy: None,
+            origin: None,
         },
     )
     .await
@@ -307,12 +317,11 @@ fn received_offer(node: &TestNode, session_id: Uuid) -> bool {
 /// 这里直接写原生 async 轮询循环。
 async fn wait_completed(db: &DatabaseConnection, session_id: Uuid, who: &str) {
     for _ in 0..400 {
-        if let Ok(Some(p)) = ops::get_transfer_projection(db, session_id).await {
-            if p.phase == TransferPhase::Terminal
-                && p.terminal_reason == Some(TerminalReason::Completed)
-            {
-                return;
-            }
+        if let Ok(Some(p)) = ops::get_transfer_projection(db, session_id).await
+            && p.phase == TransferPhase::Terminal
+            && p.terminal_reason == Some(TerminalReason::Completed)
+        {
+            return;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -370,7 +379,13 @@ async fn e2e_single_file_transfer() {
 
     let StartSendResult { session_id } = node_a
         .transfer
-        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Human,
+        )
         .await
         .expect("send_offer");
 
@@ -416,7 +431,7 @@ async fn e2e_single_file_transfer() {
     assert!(completed(&node_b), "接收方应发 TransferCompleted");
 
     // 3.3 对称性：收发两侧都发 Terminal/Completed 的 TransferProjection
-    // （接收方此前不发 projection，本次接线 ReceiveSession 持 coordinator 后补齐）。
+    // （接收方此前不发 projection，本次接线 ReceiverActor 持 coordinator 后补齐）。
     let emitted_terminal_projection = |node: &TestNode| {
         node.host.events().iter().any(|e| {
             matches!(
@@ -435,6 +450,92 @@ async fn e2e_single_file_transfer() {
     assert!(
         emitted_terminal_projection(&node_b),
         "接收方应发 Terminal/Completed projection（3.3 对称性）"
+    );
+}
+
+/// MCP 来源的传输完成后，接收端 inbox 应记为 `source_kind = Mcp`。
+///
+/// 覆盖 origin 全链：发送方以 `Mcp{client}` 发起 → origin 经 wire 序列化到 Offer →
+/// 接收方写入接收会话的 `origin` 列 → 传输完成 → `ensure_inbox_item` 由 origin 派生
+/// `source_kind = Mcp`。`Human` 路径由其余 e2e 用例（默认 PairedDevice）覆盖。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
+    let data = b"agent-delivered report".to_vec();
+    let source_id = FileSourceId("src-mcp".to_string());
+    let meta = HostFileMetadata {
+        name: "report.pdf".to_string(),
+        relative_path: "report.pdf".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id,
+            vec![HostEnumeratedFile {
+                source_id: source_id.clone(),
+                name: "report.pdf".to_string(),
+                relative_path: "report.pdf".to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare");
+
+    // 关键：以 MCP 来源（带客户端名）发起。
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Mcp {
+                client: Some("claude-desktop".to_string()),
+            },
+        )
+        .await
+        .expect("send_offer");
+
+    poll_until(
+        || received_offer(&node_b, session_id),
+        Duration::from_secs(10),
+        "B 收到 Offer",
+    )
+    .await;
+
+    node_b
+        .transfer
+        .accept_and_start_receive(
+            &session_id,
+            CoreSaveLocation::Path {
+                path: "/recv".to_string(),
+            },
+        )
+        .await
+        .expect("accept_and_start_receive");
+
+    wait_completed(node_a.db.as_ref(), session_id, "发送方").await;
+    wait_completed(node_b.db.as_ref(), session_id, "接收方").await;
+
+    // 接收端：完成会话落 inbox，source_kind 应由 origin(mcp) 派生为 Mcp。
+    let detail = swarmdrop_core::database::inbox::ensure_inbox_item_for_completed_receive_session(
+        node_b.db.as_ref(),
+        session_id,
+    )
+    .await
+    .expect("ensure inbox item")
+    .expect("inbox item created");
+    assert!(
+        matches!(detail.item.source_kind, entity::InboxSourceKind::Mcp),
+        "MCP 来源传输应在 inbox 记为 Mcp，实际 {:?}",
+        detail.item.source_kind
     );
 }
 
@@ -588,8 +689,8 @@ async fn e2e_peer_disconnect_interrupts_active() {
 /// 轮 5 task 4.6：接收方点击恢复走新探测式协议。
 ///
 /// 两端预置同一个 suspended session：A 是发送方、B 是接收方。B 调用 `initiate_resume`
-/// 后必须先 ResumeProbe 获取 A 的 manifest/epoch，再 ResumeCommit 让 A 重建 SendSession，
-/// 最后 B 重建 ReceiveSession 拉块并完成。这个测试覆盖旧 `ResumeRequest/ResumeOffer`
+/// 后必须先 ResumeProbe 获取 A 的 manifest/epoch，再 ResumeCommit 让 A 重建 SenderActor，
+/// 最后 B 重建 ReceiverActor 拉块并完成。这个测试覆盖旧 `ResumeRequest/ResumeOffer`
 /// 被移除后的核心用户路径。
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_receiver_initiated_resume_probe_commit_completes() {
@@ -681,6 +782,103 @@ async fn e2e_receiver_initiated_resume_probe_commit_completes() {
     )));
 }
 
+/// 发送方发起恢复：补齐 `initiate_resume` 的 Send 方向路径 E2E 覆盖（此前零覆盖）。
+///
+/// A=Send 主动发起（probe → validate → build_fetch_plan_from_report → 先重建本地
+/// SenderActor 再 commit → dispatch → spawn 数据面推送），B=Receive 应答侧
+/// `handle_resume_commit_impl` 重建 receiver actor 并发 `TransferResumed{Receive}`。
+/// 两侧 epoch 升到 1、传输跑完落盘正确。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_sender_initiated_resume_probe_commit_completes() {
+    let data = b"resume initiated by sender side".to_vec();
+    let checksum = blake3::hash(&data).to_hex().to_string();
+    let source_id = FileSourceId("resume-sender-src".to_string());
+    let meta = HostFileMetadata {
+        name: "resume.txt".to_string(),
+        relative_path: "resume.txt".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+
+    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    let session_id = Uuid::new_v4();
+    let files = vec![FileInfo {
+        file_id: 0,
+        name: "resume.txt".to_string(),
+        relative_path: "resume.txt".to_string(),
+        size: data.len() as u64,
+        checksum,
+    }];
+    let source_paths = vec![source_id.0.clone()];
+
+    seed_suspended_session(
+        node_a.db.as_ref(),
+        session_id,
+        TransferDirection::Send,
+        &node_b.peer_id.to_string(),
+        "node-b",
+        &files,
+        data.len() as u64,
+        None,
+        Some(&source_paths),
+    )
+    .await;
+    seed_suspended_session(
+        node_b.db.as_ref(),
+        session_id,
+        TransferDirection::Receive,
+        &node_a.peer_id.to_string(),
+        "node-a",
+        &files,
+        data.len() as u64,
+        Some(CoreSaveLocation::Path {
+            path: "/recv".to_string(),
+        }),
+        None,
+    )
+    .await;
+
+    let resumed = node_a
+        .transfer
+        .initiate_resume(session_id)
+        .await
+        .expect("sender resume");
+    assert_eq!(resumed.transferred_bytes, 0);
+
+    wait_completed(node_a.db.as_ref(), session_id, "恢复发送方").await;
+    wait_completed(node_b.db.as_ref(), session_id, "恢复接收方").await;
+
+    assert_eq!(
+        node_b
+            .host
+            .sink_bytes(&FileSinkId("resume.txt".to_string())),
+        Some(data),
+        "恢复后接收方落盘内容应与源文件一致"
+    );
+
+    let sender = ops::get_transfer_projection(node_a.db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let receiver = ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(sender.epoch, 1);
+    assert_eq!(receiver.epoch, 1);
+    // 应答侧（接收方 node_b）发 TransferResumed{Receive}。
+    assert!(node_b.host.events().iter().any(|e| matches!(
+        e,
+        CoreEvent::TransferResumed { event }
+            if event.session_id == session_id
+                && event.direction == swarmdrop_core::transfer::progress::RuntimeTransferDirection::Receive
+    )));
+}
+
 /// 接收方拒绝 Offer：跨节点 reject 路径（确定性，不启动传输）。
 ///
 /// A 发 Offer → B `reject_and_respond` 回 `OfferResult{accepted:false, UserDeclined}`
@@ -719,7 +917,13 @@ async fn e2e_receiver_rejects_offer() {
 
     let StartSendResult { session_id } = node_a
         .transfer
-        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Human,
+        )
         .await
         .expect("send_offer");
 
@@ -821,7 +1025,13 @@ async fn e2e_multichunk_multifile_transfer() {
         .expect("prepare");
     let StartSendResult { session_id } = node_a
         .transfer
-        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0, 1, 2])
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0, 1, 2],
+            TransferOrigin::Human,
+        )
         .await
         .expect("send_offer");
 
@@ -847,7 +1057,10 @@ async fn e2e_multichunk_multifile_transfer() {
 
     for (name, data) in specs.iter() {
         assert_eq!(
-            node_b.host.sink_bytes(&FileSinkId((*name).to_string())).as_ref(),
+            node_b
+                .host
+                .sink_bytes(&FileSinkId((*name).to_string()))
+                .as_ref(),
             Some(data),
             "{name} 落盘应逐字节等于源"
         );
@@ -862,7 +1075,9 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
     let total_chunks = 4usize;
     let done_chunks = 2usize;
     let done_bytes = done_chunks * CHUNK_SIZE;
-    let data: Vec<u8> = (0..total_chunks * CHUNK_SIZE).map(|i| (i % 251) as u8).collect();
+    let data: Vec<u8> = (0..total_chunks * CHUNK_SIZE)
+        .map(|i| (i % 251) as u8)
+        .collect();
     let checksum = blake3::hash(&data).to_hex().to_string();
     let source_id = FileSourceId("partial-src".to_string());
     let meta = HostFileMetadata {
@@ -929,8 +1144,7 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
         })
         .await
         .expect("seed sink");
-    b_fa
-        .write_sink_chunk(&sink, 0, data[..done_bytes].to_vec())
+    b_fa.write_sink_chunk(&sink, 0, data[..done_bytes].to_vec())
         .await
         .expect("seed partial bytes");
 
@@ -1051,7 +1265,8 @@ async fn e2e_reap_expired_receive_cleans_part() {
     assert_eq!(p.phase, TransferPhase::Terminal);
     assert!(!p.recoverable, "回收后不可恢复");
     assert!(
-        host.sink_bytes(&FileSinkId("old.bin".to_string())).is_none(),
+        host.sink_bytes(&FileSinkId("old.bin".to_string()))
+            .is_none(),
         "过期会话的遗留 .part 应被清理"
     );
 }
@@ -1094,4 +1309,213 @@ async fn e2e_fatal_error_persists_message() {
         Some("发送 Offer 失败: 对端不可达"),
         "fatal_error 应把失败原因持久化到 error_message"
     );
+}
+
+/// 回归（cleanup 轮1 病根）：终态收口 dispatch 后，已 terminal 的会话在并发完成/取消下不被覆盖。
+///
+/// 此前完成走 `mark_session_completed` 直写 phase=terminal/completed，绕过 reduce 的
+/// `is_terminal` 守卫——对端取消（dispatch terminal/cancelled）与并发的 finish（mark_completed）
+/// 会互相覆盖（正是状态机要消灭的 bug）。改走 `dispatch(Actor{Completed})` 后，`is_terminal`
+/// 守卫让先到的终态获胜、迟到的被拒绝（reduce 返回 None），与到达顺序无关。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_terminal_irreversible_under_concurrent_complete_cancel() {
+    let db = make_db().await;
+    let host = MemoryHost::new(test_paths());
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+
+    // 顺序 A：取消先到 → 迟到的完成被拒，终态保持 cancelled。
+    let cancelled_first = Uuid::new_v4();
+    seed_active_session(db.as_ref(), cancelled_first, "peer").await;
+    coordinator
+        .dispatch(cancelled_first, CoordinatorInput::User(UserCommand::Cancel))
+        .await
+        .expect("dispatch cancel")
+        .expect("active→cancelled");
+    let late_complete = coordinator
+        .dispatch(
+            cancelled_first,
+            CoordinatorInput::Actor {
+                epoch: 0,
+                report: ActorReport::Completed,
+            },
+        )
+        .await
+        .expect("dispatch late complete");
+    assert!(
+        late_complete.is_none(),
+        "已 cancelled 的会话不应再接受完成转换"
+    );
+    let m = ops::find_session(db.as_ref(), cancelled_first)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.phase, TransferPhase::Terminal);
+    assert_eq!(
+        m.terminal_reason,
+        Some(TerminalReason::Cancelled),
+        "cancelled 不应被并发完成覆盖成 completed"
+    );
+
+    // 顺序 B：完成先到 → 迟到的取消被拒，终态保持 completed。
+    let completed_first = Uuid::new_v4();
+    seed_active_session(db.as_ref(), completed_first, "peer").await;
+    coordinator
+        .dispatch(
+            completed_first,
+            CoordinatorInput::Actor {
+                epoch: 0,
+                report: ActorReport::Completed,
+            },
+        )
+        .await
+        .expect("dispatch complete")
+        .expect("active→completed");
+    let late_cancel = coordinator
+        .dispatch(completed_first, CoordinatorInput::User(UserCommand::Cancel))
+        .await
+        .expect("dispatch late cancel");
+    assert!(
+        late_cancel.is_none(),
+        "已 completed 的会话不应再接受取消转换"
+    );
+    let m = ops::find_session(db.as_ref(), completed_first)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.phase, TransferPhase::Terminal);
+    assert_eq!(m.terminal_reason, Some(TerminalReason::Completed));
+}
+
+/// 全局「暂停接收」：B 暂停后，A 的 Offer 被自动婉拒（reason=ReceivingPaused），
+/// B 不收 Offer 事件、不建会话；B 恢复后，新的 Offer 照常到达 B。
+/// 这覆盖 pause-receiving spec 的「暂停期间婉拒」与「恢复后正常接收」。
+/// （默认未暂停不破坏既有路径，由本文件其余全部 e2e 测试通过即证。）
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_paused_offer_declined_then_resumes_on_resume() {
+    let data = b"paused payload".to_vec();
+    let source_id = FileSourceId("src-0".to_string());
+    let meta = HostFileMetadata {
+        name: "p.bin".to_string(),
+        relative_path: "p.bin".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+
+    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    // —— 暂停接收 ——
+    node_b.transfer.set_receiving_paused(true);
+    assert!(node_b.transfer.is_receiving_paused());
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id,
+            vec![HostEnumeratedFile {
+                source_id: source_id.clone(),
+                name: "p.bin".to_string(),
+                relative_path: "p.bin".to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare");
+
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Human,
+        )
+        .await
+        .expect("send_offer");
+
+    // A 应收到 TransferRejected，且 reason 透传 ReceivingPaused。
+    poll_until(
+        || {
+            node_a.host.events().iter().any(|e| {
+                matches!(
+                    e,
+                    CoreEvent::TransferRejected { event } if event.session_id == session_id
+                )
+            })
+        },
+        Duration::from_secs(10),
+        "A 收到 TransferRejected(ReceivingPaused)",
+    )
+    .await;
+
+    let rejected_reason = node_a.host.events().iter().find_map(|e| match e {
+        CoreEvent::TransferRejected { event } if event.session_id == session_id => {
+            Some(event.reason.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(
+        rejected_reason,
+        Some(Some(OfferRejectReason::ReceivingPaused)),
+        "暂停期间婉拒的 reason 必须是 ReceivingPaused"
+    );
+
+    // B 不应收到 Offer 事件、也不应为该会话建任何 projection（未缓存、未落盘）。
+    assert!(
+        !received_offer(&node_b, session_id),
+        "暂停期间不得向用户弹出 Offer"
+    );
+    assert!(
+        ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+            .await
+            .expect("query b")
+            .is_none(),
+        "暂停期间不得为被婉拒的 offer 建会话"
+    );
+
+    // —— 恢复接收 ——
+    node_b.transfer.set_receiving_paused(false);
+    assert!(!node_b.transfer.is_receiving_paused());
+
+    let prepared_id2 = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id2,
+            vec![HostEnumeratedFile {
+                source_id: source_id.clone(),
+                name: "p.bin".to_string(),
+                relative_path: "p.bin".to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare 2");
+
+    let StartSendResult {
+        session_id: session_id2,
+    } = node_a
+        .transfer
+        .send_offer(
+            &prepared_id2,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Human,
+        )
+        .await
+        .expect("send_offer 2");
+
+    // 恢复后，新 Offer 应照常到达 B（要求用户确认 → received_offer 为真）。
+    poll_until(
+        || received_offer(&node_b, session_id2),
+        Duration::from_secs(10),
+        "恢复后 B 收到新 Offer",
+    )
+    .await;
 }

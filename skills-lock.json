@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "sea-orm-2": {
+      "source": "yexiyue/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sea-orm-2/SKILL.md",
+      "computedHash": "c0480a0d788deabfd1282e01c479daf0577a07eb14729083901e80227fd4c1b2"
+    }
+  }
+}

@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::AppResult;
 use crate::host::{CoreEvent, EventBus};
+use crate::transfer::epoch::EpochGuard;
 
 /// 传输生命周期状态（镜像 entity 持久化字段）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,23 +127,29 @@ impl From<&entity::transfer_session::Model> for TransferState {
 }
 
 /// 用户发起的命令。
+///
+/// 恢复（resume）不在此列：它走 `ResumeProbe`/`ResumeCommit` 探测协议，
+/// 由 [`NetworkSignal::ResumeCommitted`] 转 active，不经用户命令直转状态。
+///
+/// **pause / suspend / paused 术语固定映射**（贯穿全栈，勿混用）：
+/// 用户动作 **pause**（本命令）/ 对端 [`NetworkSignal::RemotePaused`]
+/// → phase **Suspended** + reason **LocalPaused / RemotePaused**
+/// → 旧扁平 status **Paused**（`TransferPhase::legacy_status` 单一映射）。
+/// 即 *pause* 是动作、*suspended* 是 phase、*paused* 是 legacy status。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserCommand {
     Pause,
     Cancel,
-    /// 触发恢复探测（不直接转状态，由后续 [`NetworkSignal::ResumeCommitted`] 转 active）。
-    Resume,
     Accept,
     Reject,
 }
 
 /// actor（sender/receiver）报告的事件。
+///
+/// 进度 / checkpoint 不进状态机：进度走 `transfer-progress` 事件直更 projection 进度字段，
+/// 不改 phase（见 `redesign-transfer-lifecycle`）。这里只保留会改 phase 的终态报告。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorReport {
-    /// 进度更新（不改 phase，进度字段单独处理）。
-    Progress,
-    /// checkpoint 已 flush（不改 phase）。
-    CheckpointFlushed,
     /// 所有文件传输完成。
     Completed,
     /// 不可恢复错误（源文件变更、校验失败、协议不兼容）。
@@ -156,8 +163,6 @@ pub enum NetworkSignal {
     RemotePaused,
     /// 数据请求因连接丢失失败 / 底层连接断开。
     Interrupted,
-    /// 对端离线。
-    PeerOffline,
     /// 对端取消。
     RemoteCancelled,
     /// 对端接受 Offer。
@@ -189,10 +194,10 @@ pub enum CoordinatorInput {
 /// 返回 `Some(新状态)` 表示发生转换（调用方据此写 DB + 发 projection），
 /// `None` 表示忽略输入：旧 epoch 迟到消息、terminal 后的事件、当前 phase 下的非法转换。
 pub fn reduce(state: &TransferState, input: &CoordinatorInput) -> Option<TransferState> {
-    // epoch 校验：actor / network 事件 epoch < current 一律忽略（D3 防旧消息）。
+    // epoch 校验：迟到的 actor / network 事件（epoch 早于 current）一律忽略（D3 防旧消息）。
     match input {
         CoordinatorInput::Actor { epoch, .. } | CoordinatorInput::Network { epoch, .. }
-            if *epoch < state.epoch =>
+            if EpochGuard::is_stale(*epoch, state.epoch) =>
         {
             return None;
         }
@@ -245,15 +250,13 @@ fn reduce_user(state: &TransferState, cmd: &UserCommand) -> Option<TransferState
                 TerminalReason::Rejected,
             ))
         }
-        // 恢复走探测协议，不在 reducer 直接转状态（由 ResumeCommitted 转 active）。
+        // 其余忽略（guard 不满足：非 active 时 Pause、非 offered/waiting 时 Accept/Reject）。
         _ => None,
     }
 }
 
 fn reduce_actor(state: &TransferState, report: &ActorReport) -> Option<TransferState> {
     match report {
-        // 进度 / checkpoint 不改 phase。
-        ActorReport::Progress | ActorReport::CheckpointFlushed => None,
         // 完成：active → completed。
         ActorReport::Completed if state.is_active() => Some(TransferState::terminal(
             state.epoch,
@@ -277,10 +280,6 @@ fn reduce_network(state: &TransferState, signal: &NetworkSignal) -> Option<Trans
             state.epoch,
             SuspendedReason::Interrupted,
         )),
-        NetworkSignal::PeerOffline if state.is_active() => Some(TransferState::suspended(
-            state.epoch,
-            SuspendedReason::PeerOffline,
-        )),
         NetworkSignal::RemoteCancelled => Some(TransferState::terminal(
             state.epoch,
             TerminalReason::Cancelled,
@@ -301,7 +300,9 @@ fn reduce_network(state: &TransferState, signal: &NetworkSignal) -> Option<Trans
         }
         // 恢复提交：suspended + recoverable → active with new epoch。
         NetworkSignal::ResumeCommitted { new_epoch }
-            if state.is_suspended() && state.recoverable && *new_epoch > state.epoch =>
+            if state.is_suspended()
+                && state.recoverable
+                && EpochGuard::is_newer(*new_epoch, state.epoch) =>
         {
             Some(TransferState::active(*new_epoch))
         }
@@ -353,8 +354,9 @@ impl TransferCoordinator {
     }
 
     /// 入站网络信号（对端 Cancel/Pause）的便捷入口：当前 req_resp 控制消息不携带
-    /// epoch，用 session 当前 epoch dispatch（等价无 stale 保护——待数据面协议
-    /// 在帧里带 epoch 后收紧）。单次 load 后复用 [`apply_input`](Self::apply_input)。
+    /// epoch，用 session 当前 epoch dispatch。**已知缺口**：这是唯一没有 [`EpochGuard`]
+    /// 把关的入口（用 current 当 incoming，`is_stale` 恒 false）——待数据面控制帧也带
+    /// epoch 后收紧。单次 load 后复用 [`apply_input`](Self::apply_input)。
     pub async fn dispatch_network_current(
         &self,
         session_id: Uuid,
@@ -418,8 +420,11 @@ impl TransferCoordinator {
         Ok(converted)
     }
 
-    /// 直接发当前 session 的 projection（用于已由 `mark_*` 写好 phase、不经 reduce
-    /// 的过渡路径，如带 file 副作用的 complete/failed）。
+    /// 为刚 `create_session` 的会话发首次 projection（offered / waiting_accept）。
+    ///
+    /// 状态**转换**的 projection 由 [`dispatch`](Self::dispatch) 在 reduce 成功后自动发出；
+    /// 本方法只用于「新建会话首投影」这一非转换场景（创建不是 reduce 输入，没有 from-state）。
+    /// 终态（complete/fail/reject）已统一走 dispatch，不再经此旁路。
     pub async fn publish_projection(&self, session_id: Uuid) -> AppResult<()> {
         if let Some(projection) =
             crate::database::ops::get_transfer_projection(&self.db, session_id).await?
@@ -512,7 +517,7 @@ mod tests {
     fn terminal_is_irreversible() {
         let terminal = TransferState::terminal(1, TerminalReason::Cancelled);
         // terminal 后任何输入都不转换
-        assert!(reduce(&terminal, &CoordinatorInput::User(UserCommand::Resume)).is_none());
+        assert!(reduce(&terminal, &CoordinatorInput::User(UserCommand::Pause)).is_none());
         assert!(
             reduce(
                 &terminal,
@@ -616,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_pause_and_peer_offline_are_recoverable_suspended() {
+    fn remote_pause_is_recoverable_suspended() {
         let remote_paused = reduce(
             &active(1),
             &CoordinatorInput::Network {
@@ -630,20 +635,6 @@ mod tests {
             Some(SuspendedReason::RemotePaused)
         );
         assert!(remote_paused.recoverable);
-
-        let peer_offline = reduce(
-            &active(1),
-            &CoordinatorInput::Network {
-                epoch: 1,
-                signal: NetworkSignal::PeerOffline,
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            peer_offline.suspended_reason,
-            Some(SuspendedReason::PeerOffline)
-        );
-        assert!(peer_offline.recoverable);
     }
 
     #[test]

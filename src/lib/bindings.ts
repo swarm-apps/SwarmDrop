@@ -19,6 +19,12 @@ export const commands = {
 	/**  下载并安装应用更新（桌面端） */
 	installUpdate: (url: string, isForce: boolean) => __TAURI_INVOKE<null>("install_update", { url, isForce }),
 	listInboxItems: (includeArchived: boolean) => __TAURI_INVOKE<InboxItemSummary[]>("list_inbox_items", { includeArchived }),
+	/**
+	 *  检索收件箱。`limit` 默认 20，`include_archived` 默认 false。
+	 * 
+	 *  数据库未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
+	 */
+	searchInbox: (query: string, limit: number | null, includeArchived: boolean | null) => __TAURI_INVOKE<InboxSearchHit[]>("search_inbox", { query, limit, includeArchived }),
 	getInboxItemDetail: (itemId: string) => __TAURI_INVOKE<({
 	files: InboxItemFileEntry[],
 	transfer: TransferProjection | null,
@@ -39,11 +45,11 @@ export const commands = {
 	getDeviceName: () => __TAURI_INVOKE<string | null>("get_device_name"),
 	/**
 	 *  设置设备名并持久化。
-	 *
+	 * 
 	 *  仅写入 `device_config.json`。要让新名字通过 libp2p Identify `agent_version`
 	 *  重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
 	 *  paired_devices + network_options 上下文）。
-	 *
+	 * 
 	 *  `name = None`（或空串/纯空白）清空，回退到系统 hostname。
 	 */
 	setDeviceName: (name: string | null) => __TAURI_INVOKE<null>("set_device_name", { name }),
@@ -53,9 +59,9 @@ export const commands = {
 	getDeviceInfo: (code: string) => __TAURI_INVOKE<DeviceInfo>("get_device_info", { code }),
 	/**
 	 *  向对端发起配对请求
-	 *
+	 * 
 	 *  配对成功后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
-	 *
+	 * 
 	 *  `peer_id` 为 base58 字符串，`addrs` 为 multiaddr 字符串列表，由命令内部解析为
 	 *  libp2p 类型，方便通过 specta 生成 TypeScript bindings（libp2p 类型本身不实现
 	 *  `specta::Type`）。
@@ -63,13 +69,13 @@ export const commands = {
 	requestPairing: (peerId: string, method: PairingMethod, addrs: string[] | null) => __TAURI_INVOKE<PairingResponse>("request_pairing", { peerId, method, addrs }),
 	/**
 	 *  处理收到的配对请求（接受/拒绝）
-	 *
+	 * 
 	 *  接受配对后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
 	 */
 	respondPairingRequest: (pendingId: number, method: PairingMethod, response: PairingResponse) => __TAURI_INVOKE<null>("respond_pairing_request", { pendingId, method, response }),
 	/**
 	 *  取消与指定设备的配对（同步更新运行时状态）
-	 *
+	 * 
 	 *  `peer_id` 为 base58 字符串，由命令内部解析为 libp2p `PeerId`。
 	 */
 	removePairedDevice: (peerId: string) => __TAURI_INVOKE<null>("remove_paired_device", { peerId }),
@@ -97,11 +103,27 @@ export const commands = {
 	clearTransferHistory: () => __TAURI_INVOKE<null>("clear_transfer_history"),
 	pauseTransfer: (sessionId: string) => __TAURI_INVOKE<null>("pause_transfer", { sessionId }),
 	resumeTransfer: (sessionId: string) => __TAURI_INVOKE<ResumeTransferResult>("resume_transfer", { sessionId }),
+	/**
+	 *  设置全局「暂停接收」。`true`=暂停：节点保持在线可发现、配对不受影响，但对新 offer
+	 *  自动婉拒；`false`=恢复：新 offer 照常按既有策略处理。同步托盘文案并广播
+	 *  `receiving-paused-changed` 事件。
+	 */
+	setReceivingPaused: (paused: boolean) => __TAURI_INVOKE<null>("set_receiving_paused", { paused }),
+	/**  查询当前是否暂停接收（节点未启动视为未暂停）。 */
+	isReceivingPaused: () => __TAURI_INVOKE<boolean>("is_receiving_paused"),
+	/**
+	 *  真正退出应用。
+	 * 
+	 *  关闭语义由前端 `onCloseRequested` 拦截：`closeBehavior=quit` 或首次对话框选「退出」
+	 *  时由前端显式调用本命令，确保进程退出（仅 `hide()` 不退出；macOS 关最后一个窗口默认
+	 *  也不退出）。托盘「退出」走 Rust 侧 `app.exit(0)`，不经本命令。
+	 */
+	quitApp: () => __TAURI_INVOKE<void>("quit_app"),
 	/**  查询 MCP Server 当前状态 */
 	getMcpStatus: () => __TAURI_INVOKE<McpStatus>("get_mcp_status"),
 	/**
 	 *  启动 MCP Server
-	 *
+	 * 
 	 *  `port` 为可选参数，默认 19527。
 	 */
 	startMcpServer: (port: number | null) => __TAURI_INVOKE<McpStatus>("start_mcp_server", { port }),
@@ -115,6 +137,7 @@ export const events = {
 	networkStatusChanged: makeEvent<NetworkStatusChanged>("network-status-changed"),
 	pairedDeviceAdded: makeEvent<PairedDeviceAdded>("paired-device-added"),
 	pairingRequestReceived: makeEvent<PairingRequestReceived>("pairing-request-received"),
+	receivingPausedChanged: makeEvent<ReceivingPausedChanged>("receiving-paused-changed"),
 	transferAccepted: makeEvent<TransferAccepted>("transfer-accepted"),
 	transferComplete: makeEvent<TransferComplete>("transfer-complete"),
 	transferDbError: makeEvent<TransferDbError>("transfer-db-error"),
@@ -125,6 +148,8 @@ export const events = {
 	transferProjectionUpdate: makeEvent<TransferProjectionUpdate>("transfer-projection-update"),
 	transferRejected: makeEvent<TransferRejected>("transfer-rejected"),
 	transferResumed: makeEvent<TransferResumed>("transfer-resumed"),
+	trayOpenReceiveFolder: makeEvent<TrayOpenReceiveFolder>("tray-open-receive-folder"),
+	trayOpenSettings: makeEvent<TrayOpenSettings>("tray-open-settings"),
 };
 
 /* Types */
@@ -149,11 +174,11 @@ export type ConnectionType = "lan" | "dcutr" | "relay";
 
 /**
  *  接收端保存位置（host-agnostic）。
- *
+ * 
  *  core 内部统一用此类型，避免把 `entity::SaveLocation`（SeaORM 实体细节）
  *  暴露到公共 API 上。DB 边界用 [`From`] 与 `entity::SaveLocation` 双向转换。
  */
-export type CoreSaveLocation =
+export type CoreSaveLocation = 
 /**  文件系统绝对路径（桌面）或 `Paths.document` 子路径（移动端）。 */
 { type: "path"; path: string };
 
@@ -187,7 +212,7 @@ export type DeviceListResult = {
 
 /**
  *  可信设备接收策略。
- *
+ * 
  *  字段保持 host-neutral：保存位置使用字符串表达的 host 路径，桌面端解释为绝对路径，
  *  移动端后续可解释为应用文档目录下的子路径。
  */
@@ -215,7 +240,7 @@ export type DiscoveryMode = "auto" | "lanOnly";
 
 /**
  *  目录遍历后的扁平化文件条目
- *
+ * 
  *  同时用于 `scan_sources` 命令返回和 `prepare_send` 命令输入，
  *  因此同时派生 Serialize + Deserialize。
  */
@@ -239,7 +264,7 @@ export type FileProgressInfo = {
 };
 
 /**  文件来源：标准文件系统路径 */
-export type FileSource =
+export type FileSource = 
 /**  标准文件系统路径 */
 { type: "path"; path: string };
 
@@ -254,6 +279,12 @@ export type IdentityState = {
 
 /**  收件箱内容类型。 */
 export type InboxContentKind = "files" | "text" | "clipboard" | "bundle";
+
+/**  搜索命中条目下的文件标识（供下钻定位）。 */
+export type InboxHitFile = {
+	name: string,
+	relativePath: string,
+};
 
 /**  收件箱详情 DTO。 */
 export type InboxItemDetail = {
@@ -291,6 +322,20 @@ export type InboxItemSummary = {
 	archivedAt: number | null,
 	deletedAt: number | null,
 	missing: boolean,
+};
+
+/**  收件箱搜索命中（item 粒度）。 */
+export type InboxSearchHit = {
+	id: string,
+	title: string,
+	sourceName: string,
+	itemCount: number,
+	rootPath: string | null,
+	receivedAt: number,
+	/**  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。 */
+	snippet: string,
+	/**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
+	files: InboxHitFile[],
 };
 
 /**  收件箱来源类型。 */
@@ -352,11 +397,13 @@ export type NetworkStatusChanged = NetworkStatus;
 export type NodeStatus = "running" | "stopped";
 
 /**  Offer 被拒绝的原因。 */
-export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined" } | { type: "policy_rejected" };
+export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined" } | { type: "policy_rejected" } | 
+/**  接收方处于全局「暂停接收」状态，婉拒新 offer。 */
+{ type: "receiving_paused" };
 
 /**
  *  设备操作系统信息。
- *
+ * 
  *  `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
  *  `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
  *  `name.as_deref().unwrap_or(&hostname)` 回退。
@@ -435,9 +482,15 @@ export type PreparedTransferResult = {
 };
 
 /**  自动接收时的保存行为。 */
-export type ReceiveSaveBehavior =
+export type ReceiveSaveBehavior = 
 /**  使用策略里配置的默认保存位置，接收完成后进入收件箱。 */
 "inbox_and_default_save_location";
+
+/**
+ *  全局「暂停接收」状态变更（托盘 / 命令切换后广播，供 UI 与托盘同步）。
+ *  事件名 `"receiving-paused-changed"`，payload 为 `true`=已暂停。
+ */
+export type ReceivingPausedChanged = boolean;
 
 export type ResumeTransferResult = {
 	sessionId: string,
@@ -459,7 +512,7 @@ export type ScannedSourceResult = {
 
 /**
  *  DHT 上跨设备共享的配对码记录。
- *
+ * 
  *  `created_at` / `expires_at` 保持 `i64`（Unix 秒）以稳定线路格式 +
  *  控制 DHT record 体积；与 IPC 边界的 `PairingCodeInfo`（DateTime<Utc>）解耦。
  */
@@ -532,9 +585,12 @@ export type TransferOfferEvent = {
 	deviceName: string,
 	files: TransferOfferFileEvent[],
 	totalSize: number,
+	origin: TransferOrigin,
 	policyAction: string | null,
 	policyReason: string | null,
 };
+
+export type TransferOrigin = { type: "human" } | { type: "mcp"; client: string | null };
 
 export type TransferOfferFileEvent = {
 	fileId: number,
@@ -633,6 +689,15 @@ export type TransferResumedFileInfo = {
 	isDirectory: boolean,
 };
 
+/**
+ *  托盘「打开接收文件夹」：路径由前端 `savePath` 拥有，故由前端打开。
+ *  事件名 `"tray-open-receive-folder"`。
+ */
+export type TrayOpenReceiveFolder = null;
+
+/**  托盘「设置」：由前端路由跳转到设置页。事件名 `"tray-open-settings"`。 */
+export type TrayOpenSettings = null;
+
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;
 
@@ -654,3 +719,4 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
     return Object.assign(fn, base);
 }
+

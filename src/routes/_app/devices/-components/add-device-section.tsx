@@ -46,7 +46,7 @@ import {
   InputOTPSeparator,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
-import { SectionHeader, SectionShell } from "./section-primitives";
+import { SectionHeader, SectionShell } from "@/components/layout/section-primitives";
 
 type NearbyFilter = "all" | "unpaired" | "paired";
 

@@ -101,6 +101,9 @@ pub async fn start(
         app.manage(Mutex::new(Some(net_manager)));
     }
 
+    // 节点已启动 → 托盘进入在线态（新 TransferManager 默认未暂停）。
+    crate::tray::refresh_tray(&app, true, false);
+
     crate::network::spawn_event_loop(receiver, app, shared, event_bus);
 
     Ok(())
@@ -132,7 +135,20 @@ pub async fn shutdown(app: AppHandle) -> crate::AppResult<()> {
         }
         guard.take();
     }
+    // 节点已停止 → 托盘进入离线态。
+    crate::tray::refresh_tray(&app, false, false);
     Ok(())
+}
+
+/// 真正退出应用。
+///
+/// 关闭语义由前端 `onCloseRequested` 拦截：`closeBehavior=quit` 或首次对话框选「退出」
+/// 时由前端显式调用本命令，确保进程退出（仅 `hide()` 不退出；macOS 关最后一个窗口默认
+/// 也不退出）。托盘「退出」走 Rust 侧 `app.exit(0)`，不经本命令。
+#[tauri::command]
+#[specta::specta]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[tauri::command]

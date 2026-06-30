@@ -22,7 +22,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useShallow } from "zustand/react/shallow";
-import { usePreferencesStore } from "@/stores/preferences-store";
+import {
+  usePreferencesStore,
+  type CloseBehavior,
+} from "@/stores/preferences-store";
 import { locales, type LocaleKey } from "@/lib/i18n";
 import { AboutPanel } from "./-about-section";
 import { DeviceInfoSection } from "./-device-info-section";
@@ -48,15 +51,24 @@ const themeOptions = [
 
 const showHeroSummaryPills = false;
 
+const closeBehaviorOptions = [
+  { value: "ask", label: msg`每次询问` },
+  { value: "tray", label: msg`最小化到托盘` },
+  { value: "quit", label: msg`退出应用` },
+];
+
 function SettingsPage() {
   const { t } = useLingui();
   const { theme, setTheme } = useTheme();
-  const { locale, setLocale } = usePreferencesStore(
-    useShallow((state) => ({
-      locale: state.locale,
-      setLocale: state.setLocale,
-    }))
-  );
+  const { locale, setLocale, closeBehavior, setCloseBehavior } =
+    usePreferencesStore(
+      useShallow((state) => ({
+        locale: state.locale,
+        setLocale: state.setLocale,
+        closeBehavior: state.closeBehavior,
+        setCloseBehavior: state.setCloseBehavior,
+      }))
+    );
 
   return (
     <main className="settings-workbench flex h-full min-h-0 flex-1 flex-col bg-transparent">
@@ -110,6 +122,37 @@ function SettingsPage() {
                             {Object.entries(locales).map(([key, label]) => (
                               <SelectItem key={key} value={key}>
                                 {label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      }
+                    />
+                  </SettingsCard>
+                </SettingsSection>
+              </div>
+
+              {/* 通用 */}
+              <div id="general" className="scroll-mt-6">
+                <SettingsSection title={<Trans>通用</Trans>} icon={MonitorSmartphone}>
+                  <SettingsCard>
+                    <SettingsRow
+                      title={<Trans>关闭主窗口时</Trans>}
+                      description={<Trans>点窗口关闭按钮（✕）后的行为</Trans>}
+                      action={
+                        <Select
+                          value={closeBehavior}
+                          onValueChange={(value) =>
+                            setCloseBehavior(value as CloseBehavior)
+                          }
+                        >
+                          <SelectTrigger className="w-30 shrink-0 sm:w-35">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {closeBehaviorOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {t(option.label)}
                               </SelectItem>
                             ))}
                           </SelectContent>

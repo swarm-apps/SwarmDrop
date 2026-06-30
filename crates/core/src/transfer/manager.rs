@@ -7,11 +7,12 @@
 //! 顶层 trait impl（`TransferRuntime` / `IncomingTransferRuntime`）。具体业务方法
 //! 按生命周期阶段拆分到兄弟模块：
 //!
-//! - [`super::prepare`] —— 发送方哈希准备
-//! - [`super::send`]    —— 发送方 Offer / 暂停 / 取消
-//! - [`super::receive`] —— 接收方 accept / reject / 暂停 / 取消 + IncomingTransferRuntime 接收 helper
-//! - [`super::resume`]  —— 双侧断点续传 + IncomingTransferRuntime 续传 helper
+//! - [`super::flow::prepare`] —— 发送方哈希准备
+//! - [`super::flow::send`]    —— 发送方 Offer / 暂停 / 取消
+//! - [`super::flow::receive`] —— 接收方 accept / reject / 暂停 / 取消 + IncomingTransferRuntime 接收 helper
+//! - [`super::flow::resume`]  —— 双侧断点续传 + IncomingTransferRuntime 续传 helper
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -28,7 +29,7 @@ use crate::AppResult;
 use crate::host::{CoreSaveLocation, EventBus, FileAccess, FileSourceId};
 use crate::network::TransferRuntime;
 use crate::protocol::{AppNetClient, FileInfo, TransferResponse};
-use crate::transfer::actor_registry::ActorRegistry;
+use crate::transfer::actor::registry::ActorRegistry;
 use crate::transfer::incoming::IncomingTransferRuntime;
 use crate::transfer::policy::ReceivePolicyDecision;
 use crate::transfer::progress::TransferFailedEvent;
@@ -53,6 +54,32 @@ pub struct PreparedFile {
     pub checksum: String,
 }
 
+/// 协议 `FileInfo` 的两个唯一构造来源（发送方准备表 / DB 行），集中转换避免逐字段
+/// 复制散落（send / sender / resume 多处）。
+impl From<&PreparedFile> for FileInfo {
+    fn from(f: &PreparedFile) -> Self {
+        Self {
+            file_id: f.file_id,
+            name: f.name.clone(),
+            relative_path: f.relative_path.clone(),
+            size: f.size,
+            checksum: f.checksum.clone(),
+        }
+    }
+}
+
+impl From<&entity::transfer_file::Model> for FileInfo {
+    fn from(f: &entity::transfer_file::Model) -> Self {
+        Self {
+            file_id: f.file_id as u32,
+            name: f.name.clone(),
+            relative_path: f.relative_path.clone(),
+            size: f.size as u64,
+            checksum: f.checksum.clone(),
+        }
+    }
+}
+
 /// 接收方缓存的入站 Offer
 #[derive(Debug)]
 pub struct PendingOffer {
@@ -67,7 +94,7 @@ pub struct PendingOffer {
 
 /// 发送方已发出、仍在等待对端 OfferResult 的请求。
 #[derive(Debug, Clone, Copy)]
-pub(super) struct PendingOutboundOffer {
+pub(crate) struct PendingOutboundOffer {
     pub prepared_id: Uuid,
 }
 
@@ -104,26 +131,29 @@ const CLEANUP_INTERVAL_SECS: u64 = 60;
 
 /// 传输管理器
 ///
-/// 字段对兄弟模块（`prepare` / `send` / `receive` / `resume`）开放（`pub(super)`），
+/// 字段对兄弟模块（`prepare` / `send` / `receive` / `resume`）开放（`pub(crate)`），
 /// 这样它们可以挂载额外的 `impl TransferManager { ... }` 块直接访问字段。
 pub struct TransferManager {
-    pub(super) client: AppNetClient,
-    pub(super) event_bus: Arc<dyn EventBus>,
-    pub(super) db: Arc<DatabaseConnection>,
+    pub(crate) client: AppNetClient,
+    pub(crate) event_bus: Arc<dyn EventBus>,
+    pub(crate) db: Arc<DatabaseConnection>,
     /// 默认文件访问 trait（用于发送方读源文件、接收方写入；host 在调用时也可针对单次会话覆盖）
-    pub(super) file_access: Arc<dyn FileAccess>,
+    pub(crate) file_access: Arc<dyn FileAccess>,
     /// 传输生命周期协调器（状态变化的统一持久化 + projection 入口）。
-    pub(super) coordinator: Arc<crate::transfer::coordinator::TransferCoordinator>,
+    pub(crate) coordinator: Arc<crate::transfer::coordinator::TransferCoordinator>,
 
-    pub(super) prepared: DashMap<Uuid, PreparedTransfer>,
-    pub(super) pending: DashMap<Uuid, PendingOffer>,
+    pub(crate) prepared: DashMap<Uuid, PreparedTransfer>,
+    pub(crate) pending: DashMap<Uuid, PendingOffer>,
     /// 本端发起、仍在等待对端接受/拒绝响应的 Offer。
-    pub(super) outbound_offers: DashMap<Uuid, PendingOutboundOffer>,
+    pub(crate) outbound_offers: DashMap<Uuid, PendingOutboundOffer>,
     /// 用户已取消、但底层 request 还未返回的 outbound Offer。
-    pub(super) cancelled_outbound_offers: DashSet<Uuid>,
-    pub(super) actors: ActorRegistry,
+    pub(crate) cancelled_outbound_offers: DashSet<Uuid>,
+    pub(crate) actors: ActorRegistry,
     /// 入站 data-channel 接收器。只在后台任务启动时取出一次。
     data_channel_rx: Mutex<Option<DataChannelReceiver>>,
+    /// 全局「暂停接收」开关。运行时态、不持久化（重启回到「接收中」）。
+    /// 暂停期间节点仍在线可发现、配对不受影响，仅对新 offer 婉拒（见 `incoming.rs`）。
+    receiving_paused: AtomicBool,
 }
 
 impl TransferManager {
@@ -150,7 +180,13 @@ impl TransferManager {
             cancelled_outbound_offers: DashSet::new(),
             actors: ActorRegistry::new(),
             data_channel_rx: Mutex::new(Some(data_channel_rx)),
+            receiving_paused: AtomicBool::new(false),
         }
+    }
+
+    /// 设置「暂停接收」状态。
+    pub fn set_receiving_paused(&self, paused: bool) {
+        self.receiving_paused.store(paused, Ordering::Relaxed);
     }
 
     /// 启动后台定时清理任务
@@ -220,10 +256,6 @@ impl TransferManager {
     }
 }
 
-pub fn generate_id() -> Uuid {
-    Uuid::new_v4()
-}
-
 impl TransferRuntime for TransferManager {
     fn spawn_cleanup_task(transfer: &Arc<Self>, cancel_token: CancellationToken) {
         transfer.spawn_cleanup_task(cancel_token);
@@ -232,6 +264,10 @@ impl TransferRuntime for TransferManager {
 
 #[async_trait::async_trait]
 impl IncomingTransferRuntime for TransferManager {
+    fn is_receiving_paused(&self) -> bool {
+        self.receiving_paused.load(Ordering::Relaxed)
+    }
+
     async fn handle_cancel(
         &self,
         session_id: Uuid,
@@ -259,6 +295,7 @@ impl IncomingTransferRuntime for TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: crate::protocol::TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
         TransferManager::cache_inbound_offer(
@@ -269,6 +306,7 @@ impl IncomingTransferRuntime for TransferManager {
             session_id,
             files,
             total_size,
+            origin,
             policy_decision,
         )
         .await
@@ -290,6 +328,7 @@ impl IncomingTransferRuntime for TransferManager {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: crate::protocol::TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()> {
         TransferManager::record_rejected_inbound_offer(
@@ -299,6 +338,7 @@ impl IncomingTransferRuntime for TransferManager {
             session_id,
             files,
             total_size,
+            origin,
             policy_decision,
         )
         .await

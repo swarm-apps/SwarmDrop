@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, memo } from "react";
-import { Download, FolderOpen, Shield } from "lucide-react";
+import { Download, FolderOpen, Bot } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,8 @@ import { commands } from "@/lib/bindings";
 import type { SaveLocation } from "@/lib/types";
 import { FileTree } from "@/components/file-tree";
 import { buildTreeDataFromOffer } from "@/components/file-tree";
+import { PolicyReasonBadge } from "@/components/transfer/policy-reason-badge";
+import { Badge } from "@/components/ui/badge";
 import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -86,7 +88,8 @@ export function TransferOfferDialog() {
       await commands.acceptReceive(currentOffer.sessionId, saveLocation);
       await loadProjections();
 
-      // 从队列移除并跳转到详情页
+      // 成功后才出队 + 跳转详情；失败时保留 offer 供重试（不在 finally 出队）。
+      shiftOffer();
       navigate({
         to: "/transfer/$sessionId",
         params: { sessionId: currentOffer.sessionId },
@@ -95,7 +98,6 @@ export function TransferOfferDialog() {
       toast.error(getErrorMessage(err));
     } finally {
       setProcessing(false);
-      shiftOffer();
     }
   }, [currentOffer, savePath, loadProjections, navigate, shiftOffer]);
 
@@ -105,12 +107,12 @@ export function TransferOfferDialog() {
     try {
       await commands.rejectReceive(currentOffer.sessionId);
       await loadProjections();
-      // 从队列移除
+      // 成功后才出队；失败时保留 offer 供重试（不在 finally 出队）。
+      shiftOffer();
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
       setProcessing(false);
-      shiftOffer();
     }
   }, [currentOffer, loadProjections, shiftOffer]);
 
@@ -142,12 +144,21 @@ export function TransferOfferDialog() {
           <DialogDescription className="text-center">
             <Trans>来自 {currentOffer.deviceName}</Trans>
           </DialogDescription>
-          {currentOffer.policyReason && (
-            <div className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-              <Shield className="size-3.5 shrink-0" />
-              <span className="truncate">{currentOffer.policyReason}</span>
-            </div>
+          {currentOffer.origin.type === "mcp" && (
+            <Badge variant="secondary" className="gap-1">
+              <Bot className="size-3.5" />
+              {currentOffer.origin.client ? (
+                <Trans>由 AI 代理发起（{currentOffer.origin.client}）</Trans>
+              ) : (
+                <Trans>由 AI 代理发起</Trans>
+              )}
+            </Badge>
           )}
+          <PolicyReasonBadge
+            variant="offer"
+            policyAction={currentOffer.policyAction}
+            policyReason={currentOffer.policyReason}
+          />
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-4 sm:px-0">

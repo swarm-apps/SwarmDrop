@@ -5,8 +5,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_core::transfer::progress::PrepareProgressEvent;
+use tauri::AppHandle;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter};
 use tauri_specta::Event as _;
 use uuid::Uuid;
 
@@ -144,11 +144,11 @@ impl EventBus for TauriEventBus {
                     .map_err(map_err)?;
             }
             CoreEvent::PrepareProgress { event } => {
-                // 优先走 per-call channel；没有时退化为全局 emit（fallback 路径）
+                // prepare 进度只走 per-call Channel（前端 `new Channel<PrepareProgress>()` 消费）；
+                // 无对应 channel（prepared_id 已结束 / 无人监听）则丢弃。
+                // 旧的全局 `app.emit("prepare-progress")` fallback 前端从不 listen，已移除。
                 if let Some(channel) = self.prepare_channels.get(&event.prepared_id) {
                     let _ = channel.send(event);
-                } else {
-                    let _ = self.app.emit("prepare-progress", &event);
                 }
             }
             CoreEvent::Error { .. } => {}

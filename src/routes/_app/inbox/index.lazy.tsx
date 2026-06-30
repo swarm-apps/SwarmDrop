@@ -3,30 +3,37 @@
  * 收件箱 —— 展示已经成功接收的内容，和活动/恢复过程账本分离。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createLazyFileRoute } from "@tanstack/react-router";
 import {
   Archive,
   ArchiveRestore,
   Download,
   ExternalLink,
-  File,
   FileArchive,
-  FileText,
   FolderOpen,
-  Image as ImageIcon,
   Inbox,
   Loader2,
   MapPin,
   RefreshCw,
+  Search,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
-import { commands, type InboxItemDetail, type InboxItemSummary } from "@/lib/bindings";
+import {
+  commands,
+  type InboxItemDetail,
+  type InboxItemSummary,
+  type InboxSearchHit,
+} from "@/lib/bindings";
+import { getFileIcon, getFileIconColor } from "@/lib/file-icon";
+import { useInboxStore } from "@/stores/inbox-store";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -41,7 +48,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
-import { getErrorMessage } from "@/lib/errors";
 import { pickFolder } from "@/lib/file-picker";
 import { projectionStatusLabel } from "@/lib/transfer-projection";
 
@@ -50,11 +56,22 @@ export const Route = createLazyFileRoute("/_app/inbox/")({
 });
 
 function InboxPage() {
-  const [items, setItems] = useState<InboxItemSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<InboxItemDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [showArchived, setShowArchived] = useState(false);
+  const items = useInboxStore((s) => s.items);
+  const selectedId = useInboxStore((s) => s.selectedId);
+  const detail = useInboxStore((s) => s.detail);
+  const loading = useInboxStore((s) => s.loading);
+  const showArchived = useInboxStore((s) => s.showArchived);
+  const loadItems = useInboxStore((s) => s.loadItems);
+  const loadDetail = useInboxStore((s) => s.loadDetail);
+  const selectItem = useInboxStore((s) => s.selectItem);
+  const setShowArchived = useInboxStore((s) => s.setShowArchived);
+  const runAndRefresh = useInboxStore((s) => s.runAndRefresh);
+  const query = useInboxStore((s) => s.query);
+  const searching = useInboxStore((s) => s.searching);
+  const searchResults = useInboxStore((s) => s.searchResults);
+  const setQuery = useInboxStore((s) => s.setQuery);
+  const runSearch = useInboxStore((s) => s.runSearch);
+
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
 
@@ -63,68 +80,24 @@ function InboxPage() {
     [items, selectedId],
   );
 
-  // 始终持有最新选中 id，供 loadItems 在 setState 时序之外计算「保留还是改选」。
-  const selectedIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    selectedIdRef.current = selectedId;
-  }, [selectedId]);
-
-  // 返回刷新后真正生效的 selectedId，避免调用方用闭包里的陈旧 id 去 loadDetail。
-  const loadItems = useCallback(async (): Promise<string | null> => {
-    setLoading(true);
-    try {
-      const next = await commands.listInboxItems(showArchived);
-      const current = selectedIdRef.current;
-      const resolved =
-        current && next.some((item) => item.id === current)
-          ? current
-          : (next[0]?.id ?? null);
-      setItems(next);
-      setSelectedId(resolved);
-      selectedIdRef.current = resolved;
-      return resolved;
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, [showArchived]);
-
-  const loadDetail = useCallback(async (itemId: string | null) => {
-    if (!itemId) {
-      setDetail(null);
-      return;
-    }
-    try {
-      setDetail(await commands.getInboxItemDetail(itemId));
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    }
-  }, []);
-
+  // 进入页面 / 切换归档过滤时重新加载列表
   useEffect(() => {
     void loadItems();
-  }, [loadItems]);
+  }, [loadItems, showArchived]);
 
+  // 选中项变化时加载详情
   useEffect(() => {
     void loadDetail(selectedId);
   }, [loadDetail, selectedId]);
 
-  const runAndRefresh = useCallback(
-    async (action: () => Promise<unknown>, success?: string) => {
-      try {
-        await action();
-        if (success) toast.success(success);
-      } catch (err) {
-        toast.error(getErrorMessage(err));
-      }
-      // 用刷新后真正生效的 selectedId 重取详情，避免取到刚被删除/归档隐藏的失效条目。
-      const resolved = await loadItems();
-      await loadDetail(resolved);
-    },
-    [loadDetail, loadItems],
-  );
+  const isSearching = query.trim() !== "";
+
+  // 搜索词 / 归档过滤变化 → 防抖触发检索（清空由 setQuery 即时退出搜索态）。
+  useEffect(() => {
+    if (query.trim() === "") return;
+    const id = setTimeout(() => void runSearch(), 250);
+    return () => clearTimeout(id);
+  }, [query, showArchived, runSearch]);
 
   const handleRepair = () =>
     runAndRefresh(
@@ -211,7 +184,7 @@ function InboxPage() {
                 variant={showArchived ? "secondary" : "ghost"}
                 size="sm"
                 className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => setShowArchived((value) => !value)}
+                onClick={() => setShowArchived(!showArchived)}
               >
                 <Archive className="size-3.5" />
                 <Trans>归档</Trans>
@@ -219,11 +192,38 @@ function InboxPage() {
             </div>
           </div>
 
-          <div className="mt-4 min-h-0 flex-1 overflow-auto">
-            {loading ? (
-              <div className="flex h-full items-center justify-center">
-                <Loader2 className="size-5 animate-spin text-muted-foreground" />
-              </div>
+          <div className="relative mt-4">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t`搜索标题、来源、文件名…`}
+              className="h-9 rounded-[14px] border-transparent bg-foreground/[0.045] pl-9 text-sm dark:bg-white/[0.05]"
+            />
+          </div>
+
+          <div className="mt-3 min-h-0 flex-1 overflow-auto">
+            {isSearching ? (
+              searching ? (
+                <ListLoading />
+              ) : searchResults && searchResults.length > 0 ? (
+                <div className="flex flex-col gap-2.5">
+                  {searchResults.map((hit) => (
+                    <SearchResultItem
+                      key={hit.id}
+                      hit={hit}
+                      query={query}
+                      selected={hit.id === selectedId}
+                      onClick={() => selectItem(hit.id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <SearchEmptyState />
+              )
+            ) : loading ? (
+              <ListLoading />
             ) : items.length === 0 ? (
               <InboxEmptyState />
             ) : (
@@ -233,7 +233,7 @@ function InboxPage() {
                     key={item.id}
                     item={item}
                     selected={item.id === selectedId}
-                    onClick={() => setSelectedId(item.id)}
+                    onClick={() => selectItem(item.id)}
                   />
                 ))}
               </div>
@@ -355,6 +355,11 @@ function InboxListItem({
           {item.archivedAt && (
             <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
               <Trans>已归档</Trans>
+            </span>
+          )}
+          {item.sourceKind === "mcp" && (
+            <span className="shrink-0 rounded-full bg-blue-500/12 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+              <Trans>AI 代理</Trans>
             </span>
           )}
         </div>
@@ -557,38 +562,28 @@ function MetaRow({
 
 function InboxEmptyState() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-      <div className="glass-control flex size-14 items-center justify-center rounded-[20px]">
-        <Inbox className="size-7 text-muted-foreground" />
-      </div>
-      <div>
-        <p className="text-sm font-medium text-foreground">
-          <Trans>暂无已接收内容</Trans>
-        </p>
-        <p className="mt-1 max-w-[26ch] text-xs leading-5 text-muted-foreground">
-          <Trans>成功接收的文件会出现在这里；暂停或失败的传输会留在活动与恢复。</Trans>
-        </p>
-      </div>
-    </div>
+    <CenteredEmptyState
+      icon={Inbox}
+      title={<Trans>暂无已接收内容</Trans>}
+      description={
+        <Trans>成功接收的文件会出现在这里；暂停或失败的传输会留在活动与恢复。</Trans>
+      }
+      descriptionClassName="max-w-[26ch]"
+    />
   );
 }
 
 function ItemIcon({ title, count }: { title: string; count: number }) {
   if (count > 1) return <FileArchive className="size-4.5 text-amber-500" />;
-  if (/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(title)) {
-    return <ImageIcon className="size-4.5 text-green-500" />;
-  }
-  if (/\.(pdf|docx?|xlsx?|pptx?|txt|md)$/i.test(title)) {
-    return <FileText className="size-4.5 text-blue-500" />;
-  }
-  return <File className="size-4.5 text-muted-foreground" />;
+  const Icon = getFileIcon(title);
+  return <Icon className={`size-4.5 ${getFileIconColor(title)}`} />;
 }
 
 function sourceKindLabel(kind: InboxItemSummary["sourceKind"]): string {
   const labels: Record<InboxItemSummary["sourceKind"], string> = {
     paired_device: t`已配对设备`,
     share_code: t`配对码`,
-    mcp: t`MCP`,
+    mcp: t`AI 代理 (MCP)`,
     unknown: t`未知`,
   };
   return labels[kind];
@@ -602,4 +597,96 @@ function contentKindLabel(kind: InboxItemSummary["contentKind"]): string {
     bundle: t`Bundle`,
   };
   return labels[kind];
+}
+
+function ListLoading() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+function SearchResultItem({
+  hit,
+  query,
+  selected,
+  onClick,
+}: {
+  hit: InboxSearchHit;
+  query: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full min-w-0 items-center gap-3 rounded-[18px] p-3 text-left transition-[background-color,border-color,transform] active:scale-[0.995]",
+        selected
+          ? "bg-blue-500/10 ring-1 ring-blue-500/20"
+          : "bg-foreground/[0.035] hover:bg-foreground/[0.055] dark:bg-white/[0.045] dark:hover:bg-white/[0.065]",
+      )}
+    >
+      <div className="glass-control flex size-10 shrink-0 items-center justify-center rounded-[14px] text-blue-600 dark:text-blue-300">
+        <ItemIcon title={hit.title} count={hit.itemCount} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-sm font-medium text-foreground">
+          {hit.title}
+        </h3>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          <Trans>来自 {hit.sourceName}</Trans>
+          {" · "}
+          {hit.itemCount} <Trans>项</Trans>
+        </p>
+        {hit.snippet && (
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            <HighlightedSnippet text={hit.snippet} query={query} />
+          </p>
+        )}
+      </div>
+      <span className="shrink-0 text-[11px] text-muted-foreground">
+        {formatRelativeTime(hit.receivedAt)}
+      </span>
+    </button>
+  );
+}
+
+/** 把 snippet 里匹配查询词的部分高亮（大小写不敏感）。 */
+function HighlightedSnippet({ text, query }: { text: string; query: string }) {
+  const q = query.trim();
+  if (!q) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const needle = q.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let idx = lower.indexOf(needle);
+  while (idx !== -1) {
+    if (idx > cursor) parts.push(text.slice(cursor, idx));
+    parts.push(
+      <mark
+        key={cursor}
+        className="rounded-[3px] bg-blue-500/20 px-0.5 text-foreground"
+      >
+        {text.slice(idx, idx + q.length)}
+      </mark>,
+    );
+    cursor = idx + q.length;
+    idx = lower.indexOf(needle, cursor);
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
+
+function SearchEmptyState() {
+  return (
+    <CenteredEmptyState
+      icon={Search}
+      title={<Trans>未找到匹配项</Trans>}
+      description={<Trans>试试更短的关键词，或检查是否包含已归档内容。</Trans>}
+      descriptionClassName="max-w-[26ch]"
+    />
+  );
 }

@@ -145,6 +145,59 @@ CREATE TABLE "character" (
 
 新增 `mariadb-use-returning` feature 支持 RETURNING 语法。
 
+## 行为变更（非纯 API）
+
+### 错误代替 panic
+
+`PrimaryKeyNotSet`、`BackendNotSupported` 等新 `DbErr` 变体取代原来的 panic 路径。
+
+```rust
+// 旧：主键未设置 save → panic
+// 新：返回 Err(DbErr::PrimaryKeyNotSet)
+match active.save(db).await {
+    Err(DbErr::PrimaryKeyNotSet) => { /* 处理 */ }
+    _ => {}
+}
+```
+
+### Nested Select 无需 `from_query_result`
+
+```rust
+// 1.0：嵌套结构体需要单独的 from_query_result 派生
+// 2.0：直接用 Model 或 PartialModel 嵌套
+#[derive(DerivePartialModel)]
+#[sea_orm(entity = "cake::Entity")]
+struct Cake {
+    id: i32,
+    #[sea_orm(nested)]
+    bakery: Option<bakery::Model>,  // 直接用 Model
+}
+```
+
+### ActiveModel::from_json 容错
+
+字段缺失不再报错，而是设为 `NotSet`（可与现有记录 merge）。
+
+## 数据科学 / 新后端选项
+
+| feature flag | 用途 |
+|--------------|------|
+| `sqlx-mssql` | SQL Server 支持 |
+| `clickhouse` | ClickHouse 支持 |
+| `with-arrow` | Apache Arrow 输出 |
+| `with-parquet` | Parquet 文件输出 |
+| `mariadb-use-returning` | MariaDB RETURNING 支持 |
+| `option-postgres-use-serial` | PG 恢复 `serial` 旧行为 |
+
+## 生态变更
+
+| 项目 | 状态 |
+|------|------|
+| Loco 框架 | 主线尚未迁移，使用 `SeaQL/loco` fork |
+| Seaography | 已发布 2.0，兼容新 Entity 格式 |
+| SeaORM Pro | 2.0 发布，内置 RBAC |
+| 1.1.x | 继续维护，最后一版 1.1.20（2026-03） |
+
 ## 废弃项
 
 | 项目 | 变更 |
@@ -154,6 +207,8 @@ CREATE TABLE "character" (
 | `exec_with_returning_many` | 改用 `exec_with_returning` |
 | `ConditionExpression` | 已移除，用 `From/Into` |
 | `IntoCondition` | 改用 `.into()` |
+| `on_empty_do_nothing()` | 已移除，`insert_many` 自动处理空集合 |
+| `Alias::new("x")` | 优先使用 `&str` 字面量（旧写法仍可用） |
 
 ## 迁移检查清单
 

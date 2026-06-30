@@ -9,7 +9,9 @@ use sea_orm::DatabaseConnection;
 use tauri::State;
 use uuid::Uuid;
 
-use crate::database::inbox::{InboxItemDetail, InboxItemFileEntry, InboxItemSummary};
+use crate::database::inbox::{
+    InboxItemDetail, InboxItemFileEntry, InboxItemSummary, InboxSearchHit,
+};
 
 #[tauri::command]
 #[specta::specta]
@@ -27,6 +29,24 @@ pub async fn get_inbox_item_detail(
     item_id: Uuid,
 ) -> crate::AppResult<Option<InboxItemDetail>> {
     Ok(crate::database::inbox::get_inbox_item_detail(&db, item_id).await?)
+}
+
+/// 检索收件箱。`limit` 默认 20，`include_archived` 默认 false。
+///
+/// 数据库未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
+#[tauri::command]
+#[specta::specta]
+pub async fn search_inbox(
+    db: State<'_, DatabaseConnection>,
+    query: String,
+    limit: Option<u32>,
+    include_archived: Option<bool>,
+) -> crate::AppResult<Vec<InboxSearchHit>> {
+    let limit = limit.unwrap_or(20) as usize;
+    Ok(
+        crate::database::inbox::search_inbox(&db, &query, limit, include_archived.unwrap_or(false))
+            .await?,
+    )
 }
 
 #[tauri::command]

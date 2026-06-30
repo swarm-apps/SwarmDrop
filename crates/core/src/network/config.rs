@@ -8,7 +8,7 @@ use swarm_p2p_core::{
 
 use super::candidates::{BootstrapCandidateSource, CandidateRoles, CandidateScope};
 use super::{BootstrapCandidateManager, DiscoveryMode};
-use crate::transfer::data_frame::TRANSFER_DATA_PROTOCOL;
+use crate::transfer::wire::data_frame::TRANSFER_DATA_PROTOCOL;
 
 /// SwarmDrop 引导+中继节点
 ///

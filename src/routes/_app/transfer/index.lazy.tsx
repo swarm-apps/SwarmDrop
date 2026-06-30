@@ -13,8 +13,15 @@ import { useTransferStore } from "@/stores/transfer-store";
 import { TransferItem } from "./-transfer-item";
 import { HistoryItem } from "./-history-item";
 import { commands, type TransferProjection } from "@/lib/bindings";
-import { canResumeProjection, isProjectionActive } from "@/lib/transfer-projection";
+import {
+  canResumeProjection,
+  isProjectionActive,
+  isProjectionCancelled,
+  isProjectionCompleted,
+  isProjectionFailed,
+} from "@/lib/transfer-projection";
 import { Button } from "@/components/ui/button";
+import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -63,10 +70,7 @@ function TransferPage() {
           return false;
         }
         if (item.phase === "suspended") return true;
-        return (
-          item.phase === "terminal" &&
-          item.terminalReason !== "completed"
-        );
+        return isProjectionFailed(item) || isProjectionCancelled(item);
       }),
     [activeIdSet, projectionItems],
   );
@@ -75,9 +79,7 @@ function TransferPage() {
     () =>
       projectionItems.filter(
         (item) =>
-          !activeIdSet.has(item.sessionId) &&
-          item.phase === "terminal" &&
-          item.terminalReason === "completed",
+          !activeIdSet.has(item.sessionId) && isProjectionCompleted(item),
       ),
     [activeIdSet, projectionItems],
   );
@@ -298,22 +300,12 @@ function ActivitySection({
 
 function EmptyState() {
   return (
-    <div className="flex min-h-[420px] items-center justify-center">
-      <div className="glass-panel rounded-[28px] p-2">
-        <div className="flex w-full max-w-md flex-col items-center justify-center gap-3 rounded-[22px] bg-white/32 px-10 py-12 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-          <div className="glass-control flex size-14 items-center justify-center rounded-[20px]">
-            <ArrowLeftRight className="size-7 text-muted-foreground" />
-          </div>
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium text-foreground">
-              <Trans>暂无活动记录</Trans>
-            </p>
-            <p className="text-xs leading-5 text-muted-foreground">
-              <Trans>成功接收的文件会进入收件箱，暂停或失败的任务会在这里恢复</Trans>
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
+    <CenteredEmptyState
+      icon={ArrowLeftRight}
+      title={<Trans>暂无活动记录</Trans>}
+      description={
+        <Trans>成功接收的文件会进入收件箱，暂停或失败的任务会在这里恢复</Trans>
+      }
+    />
   );
 }

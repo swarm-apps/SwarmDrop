@@ -14,6 +14,7 @@ pub mod host;
 pub(crate) mod mcp;
 pub(crate) mod network;
 pub mod setup;
+pub mod tray;
 
 pub use error::{AppError, AppResult};
 pub use setup::specta_builder;

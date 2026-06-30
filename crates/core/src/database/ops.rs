@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::AppResult;
 use crate::host::{CoreSaveLocation, HostFileMetadata};
-use crate::protocol::FileInfo;
+use crate::protocol::{FileInfo, TransferOrigin};
 use crate::transfer::calc_total_chunks;
 use crate::transfer::coordinator::TransferState;
 
@@ -33,6 +33,11 @@ pub struct CreateSessionInput<'a> {
     /// 发送方传入每个文件的绝对路径（与 `files` 一一对应），接收方传 `None`。
     pub source_paths: Option<&'a [String]>,
     pub lifecycle: TransferState,
+    /// 入站 Offer 的接收策略快照 `(action_name, reason)`；非策略场景传 `None`。
+    /// 随建会话一次写入，避免建后再 update 二次写。
+    pub policy: Option<(&'a str, &'a str)>,
+    /// 传输发起来源（人工 / MCP 代理），与 policy 正交；非传输场景（测试/seed）传 `None`。
+    pub origin: Option<TransferOrigin>,
 }
 
 /// 创建传输会话 + 关联的文件记录。
@@ -51,7 +56,13 @@ pub async fn create_session(
         save_path,
         source_paths,
         lifecycle,
+        policy,
+        origin,
     } = input;
+    let (policy_action, policy_reason) = match policy {
+        Some((action, reason)) => (Some(action.to_string()), Some(reason.to_string())),
+        None => (None, None),
+    };
 
     let mut session = entity::transfer_session::ActiveModel::builder()
         .set_session_id(session_id)
@@ -72,7 +83,10 @@ pub async fn create_session(
         .set_recoverable(lifecycle.recoverable)
         .set_started_at(now)
         .set_updated_at(now)
-        .set_save_path(save_path.map(Into::into));
+        .set_save_path(save_path.map(Into::into))
+        .set_policy_action(policy_action)
+        .set_policy_reason(policy_reason)
+        .set_origin(origin.map(|o| o.to_db_string()));
 
     for (idx, file) in files.iter().enumerate() {
         let total_chunks = calc_total_chunks(file.size) as i32;
@@ -125,22 +139,6 @@ pub async fn update_session_save_path(
     model.updated_at = Set(now_ms());
     model.update(db).await?;
     Ok(())
-}
-
-/// 更新文件的 bitmap 和已传输字节数（断点续传 checkpoint）
-pub async fn update_file_checkpoint(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    file_id: i32,
-    completed_chunks: Vec<u8>,
-    transferred_bytes: i64,
-) -> AppResult<()> {
-    update_file(db, session_id, file_id, |model| {
-        model.completed_chunks = Set(completed_chunks);
-        model.transferred_bytes = Set(transferred_bytes);
-        model.completed_ranges = Set(ranges_json(&prefix_range(transferred_bytes)));
-    })
-    .await
 }
 
 /// 更新文件 range checkpoint 和已传输字节数（新 data-channel 数据面使用）。
@@ -271,34 +269,6 @@ pub async fn save_sender_file_progress(
     Ok(())
 }
 
-/// 更新 session 的已传输字节数
-pub async fn update_session_transferred_bytes(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    transferred_bytes: i64,
-) -> AppResult<()> {
-    if let Some(session) = entity::TransferSession::find_by_id(session_id)
-        .one(db)
-        .await?
-    {
-        let mut model = session.into_active_model();
-        model.transferred_bytes = Set(transferred_bytes);
-        model.updated_at = Set(now_ms());
-        model.update(db).await?;
-    }
-    Ok(())
-}
-
-/// 从文件记录汇总已传输字节数，同步到 session 级别
-pub async fn sync_session_transferred_bytes(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-) -> AppResult<()> {
-    let files = get_session_files(db, session_id).await?;
-    let total_transferred: i64 = files.iter().map(|f| f.transferred_bytes).sum();
-    update_session_transferred_bytes(db, session_id, total_transferred).await
-}
-
 /// 过渡期桥接（反向）：旧 `mark_session_*` 写 status 时，同步写新 phase/reason/recoverable，
 /// 保持 DB 两种表示一致。后续 Coordinator 接线后状态决策收归 `dispatch`，这些 `mark_*` 将被替换。
 fn set_session_lifecycle(
@@ -347,86 +317,6 @@ pub async fn mark_session_completed(db: &DatabaseConnection, session_id: Uuid) -
     Ok(())
 }
 
-/// 标记传输失败
-pub async fn mark_session_failed(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    error_message: &str,
-) -> AppResult<()> {
-    update_session_terminal(db, session_id, |model, now| {
-        model.status = Set(SessionStatus::Failed);
-        set_session_lifecycle(
-            model,
-            TransferPhase::Terminal,
-            None,
-            Some(TerminalReason::FatalError),
-        );
-        model.error_message = Set(Some(error_message.to_string()));
-        model.finished_at = Set(Some(now));
-        model.updated_at = Set(now);
-    })
-    .await
-}
-
-/// 标记传输取消
-pub async fn mark_session_cancelled(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
-    update_session_terminal(db, session_id, |model, now| {
-        model.status = Set(SessionStatus::Cancelled);
-        set_session_lifecycle(
-            model,
-            TransferPhase::Terminal,
-            None,
-            Some(TerminalReason::Cancelled),
-        );
-        model.finished_at = Set(Some(now));
-        model.updated_at = Set(now);
-    })
-    .await
-}
-
-/// 标记入站 Offer 被拒绝，并保留策略或用户拒绝原因。
-pub async fn mark_session_rejected(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    reason: Option<&str>,
-) -> AppResult<()> {
-    update_session_terminal(db, session_id, |model, now| {
-        model.status = Set(SessionStatus::Cancelled);
-        set_session_lifecycle(
-            model,
-            TransferPhase::Terminal,
-            None,
-            Some(TerminalReason::Rejected),
-        );
-        if let Some(reason) = reason {
-            model.error_message = Set(Some(reason.to_string()));
-        }
-        model.finished_at = Set(Some(now));
-        model.updated_at = Set(now);
-    })
-    .await
-}
-
-/// 写入入站 Offer 的接收策略快照。
-pub async fn set_session_policy_metadata(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    policy_action: &str,
-    policy_reason: &str,
-) -> AppResult<()> {
-    if let Some(session) = entity::TransferSession::find_by_id(session_id)
-        .one(db)
-        .await?
-    {
-        let mut model = session.into_active_model();
-        model.policy_action = Set(Some(policy_action.to_string()));
-        model.policy_reason = Set(Some(policy_reason.to_string()));
-        model.updated_at = Set(now_ms());
-        model.update(db).await?;
-    }
-    Ok(())
-}
-
 /// 标记传输暂停
 pub async fn mark_session_paused(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
     update_session_terminal(db, session_id, |model, now| {
@@ -438,22 +328,6 @@ pub async fn mark_session_paused(db: &DatabaseConnection, session_id: Uuid) -> A
             Some(SuspendedReason::LocalPaused),
             None,
         );
-        model.updated_at = Set(now);
-    })
-    .await
-}
-
-/// 标记暂停并同步 session 级别已传输字节数
-pub async fn pause_session(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
-    mark_session_paused(db, session_id).await?;
-    sync_session_transferred_bytes(db, session_id).await
-}
-
-/// 恢复传输：paused/failed → transferring
-pub async fn mark_session_transferring(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
-    update_session_terminal(db, session_id, |model, now| {
-        model.status = Set(SessionStatus::Transferring);
-        set_session_lifecycle(model, TransferPhase::Active, None, None);
         model.updated_at = Set(now);
     })
     .await
@@ -534,6 +408,10 @@ impl From<entity::transfer_file::ModelEx> for TransferProjectionFile {
 
 impl From<entity::transfer_session::ModelEx> for TransferProjection {
     fn from(s: entity::transfer_session::ModelEx) -> Self {
+        // transferred_bytes 派生自文件级求和（单一事实来源）：文件进度由 persist_chunk /
+        // save_sender_file_progress 增量落库，projection 直接 SUM，省掉各生命周期转换前
+        // 手工 sync_session_transferred_bytes 的二次写与漂移风险。
+        let transferred_bytes = s.files.iter().map(|f| f.transferred_bytes).sum();
         Self {
             session_id: s.session_id,
             direction: s.direction,
@@ -545,7 +423,7 @@ impl From<entity::transfer_session::ModelEx> for TransferProjection {
             recoverable: s.recoverable,
             epoch: s.epoch,
             total_size: s.total_size,
-            transferred_bytes: s.transferred_bytes,
+            transferred_bytes,
             started_at: s.started_at,
             updated_at: s.updated_at,
             finished_at: s.finished_at,
@@ -695,7 +573,7 @@ pub async fn get_session_files(
 }
 
 /// 被过期回收的接收会话及其文件元数据（供 host 尽力清理遗留 `.part`）。
-pub struct ExpiredReceiveSession {
+pub struct ExpiredReceiverActor {
     pub session_id: Uuid,
     /// 重建 sink 所需的文件元数据（已带 `save_dir`）。
     pub files: Vec<HostFileMetadata>,
@@ -711,7 +589,7 @@ pub struct ExpiredReceiveSession {
 pub async fn reap_expired_suspended_receives(
     db: &DatabaseConnection,
     retention_secs: u64,
-) -> AppResult<Vec<ExpiredReceiveSession>> {
+) -> AppResult<Vec<ExpiredReceiverActor>> {
     let threshold = now_ms() - (retention_secs as i64) * 1000;
     let sessions = entity::TransferSession::find()
         .filter(entity::transfer_session::Column::Phase.eq(TransferPhase::Suspended))
@@ -748,13 +626,14 @@ pub async fn reap_expired_suspended_receives(
             None,
             Some(TerminalReason::FatalError),
         );
-        model.error_message =
-            Set(Some(format!("会话超过 {retention_days} 天未恢复，已过期回收")));
+        model.error_message = Set(Some(format!(
+            "会话超过 {retention_days} 天未恢复，已过期回收"
+        )));
         model.finished_at = Set(Some(now));
         model.updated_at = Set(now);
         model.update(db).await?;
 
-        reaped.push(ExpiredReceiveSession { session_id, files });
+        reaped.push(ExpiredReceiverActor { session_id, files });
     }
     Ok(reaped)
 }
@@ -770,7 +649,9 @@ mod tests {
         // `:memory:` 每条物理连接是独立空库，钉死单连接保证 migration 与查询同库。
         let mut opt = ConnectOptions::new("sqlite::memory:");
         opt.max_connections(1).min_connections(1);
-        let db = Database::connect(opt).await.expect("connect sqlite::memory:");
+        let db = Database::connect(opt)
+            .await
+            .expect("connect sqlite::memory:");
         migration::Migrator::up(&db, None).await.expect("migrate");
         db
     }
@@ -803,6 +684,8 @@ mod tests {
                 }),
                 source_paths: None,
                 lifecycle: TransferState::active(0),
+                policy: None,
+                origin: None,
             },
         )
         .await
@@ -832,10 +715,38 @@ mod tests {
         let expired_send = Uuid::from_u128(3);
         let terminal_recv = Uuid::from_u128(4);
 
-        seed(&db, expired_recv, TransferDirection::Receive, now - 8 * day, false).await;
-        seed(&db, fresh_recv, TransferDirection::Receive, now - 3 * day, false).await;
-        seed(&db, expired_send, TransferDirection::Send, now - 8 * day, false).await;
-        seed(&db, terminal_recv, TransferDirection::Receive, now - 30 * day, true).await;
+        seed(
+            &db,
+            expired_recv,
+            TransferDirection::Receive,
+            now - 8 * day,
+            false,
+        )
+        .await;
+        seed(
+            &db,
+            fresh_recv,
+            TransferDirection::Receive,
+            now - 3 * day,
+            false,
+        )
+        .await;
+        seed(
+            &db,
+            expired_send,
+            TransferDirection::Send,
+            now - 8 * day,
+            false,
+        )
+        .await;
+        seed(
+            &db,
+            terminal_recv,
+            TransferDirection::Receive,
+            now - 30 * day,
+            true,
+        )
+        .await;
 
         let retention = 7 * 24 * 60 * 60; // 7 天（秒）
         let reaped = reap_expired_suspended_receives(&db, retention)

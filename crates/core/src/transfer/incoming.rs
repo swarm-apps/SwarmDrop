@@ -10,8 +10,8 @@ use crate::device::PairedDeviceInfo;
 use crate::error::{AppError, AppResult};
 use crate::host::{CoreEvent, CoreSaveLocation, EventBus};
 use crate::protocol::{
-    AppNetClient, AppResponse, FileInfo, OfferRejectReason, ResumeRejectReason, TransferRequest,
-    TransferResponse,
+    AppNetClient, AppResponse, FileInfo, OfferRejectReason, ResumeRejectReason, TransferOrigin,
+    TransferRequest, TransferResponse,
 };
 use crate::transfer::policy::{
     ReceivePolicyAction, ReceivePolicyContext, ReceivePolicyDecision, evaluate_receive_policy,
@@ -27,6 +27,8 @@ pub struct TransferOfferEvent {
     pub device_name: String,
     pub files: Vec<TransferOfferFileEvent>,
     pub total_size: u64,
+    /// 发起来源（人工 / MCP 代理），供接收端 UI 标识。
+    pub origin: TransferOrigin,
     pub policy_action: Option<String>,
     pub policy_reason: Option<String>,
 }
@@ -62,6 +64,18 @@ pub trait IncomingTransferRuntime: Send + Sync {
         let _ = peer_id;
     }
 
+    /// 是否处于全局「暂停接收」状态。
+    ///
+    /// 默认 `false`：未实现该开关的平台（如 mobile-core）行为与引入本能力前完全一致。
+    /// 暂停**仅**作用于是否接受新的传入文件传输，不影响节点在线 / 配对 / 发现。
+    fn is_receiving_paused(&self) -> bool {
+        false
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "缓存入站 offer 需要完整的对端与会话上下文"
+    )]
     async fn cache_inbound_offer(
         &self,
         pending_id: u64,
@@ -70,6 +84,7 @@ pub trait IncomingTransferRuntime: Send + Sync {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()>;
 
@@ -86,6 +101,7 @@ pub trait IncomingTransferRuntime: Send + Sync {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
+        origin: TransferOrigin,
         policy_decision: ReceivePolicyDecision,
     ) -> AppResult<()>;
 
@@ -124,6 +140,10 @@ pub trait IncomingTransferRuntime: Send + Sync {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "入站请求分发需要 client/runtime/event_bus 与完整请求上下文"
+)]
 pub async fn handle_incoming_transfer_request<R, B>(
     client: &AppNetClient,
     runtime: &R,
@@ -161,6 +181,7 @@ where
             session_id,
             files,
             total_size,
+            origin,
         } => {
             if paired_device.is_none() {
                 send_transfer_response(
@@ -170,6 +191,22 @@ where
                         accepted: false,
                         key: None,
                         reason: Some(OfferRejectReason::NotPaired),
+                    },
+                )
+                .await?;
+                return Ok(IncomingTransferDisposition::Handled);
+            }
+
+            // 全局「暂停接收」：节点保持在线可发现，但对新 offer 自动婉拒——
+            // 不缓存、不落盘、不发 TransferOffer 事件、不打扰本机用户。恢复后照常处理。
+            if runtime.is_receiving_paused() {
+                send_transfer_response(
+                    client,
+                    pending_id,
+                    TransferResponse::OfferResult {
+                        accepted: false,
+                        key: None,
+                        reason: Some(OfferRejectReason::ReceivingPaused),
                     },
                 )
                 .await?;
@@ -196,6 +233,7 @@ where
                         session_id,
                         files,
                         total_size,
+                        origin,
                         policy_decision,
                     )
                     .await;
@@ -225,6 +263,7 @@ where
                     session_id,
                     files.clone(),
                     total_size,
+                    origin.clone(),
                     policy_decision,
                 )
                 .await?;
@@ -251,6 +290,7 @@ where
                     })
                     .collect(),
                 total_size,
+                origin,
                 policy_action,
                 policy_reason,
             };

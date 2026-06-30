@@ -1,17 +1,5 @@
 import { t } from "@lingui/core/macro";
-import type {
-  TransferProgressEvent,
-  TransferProjection,
-  TransferProjectionFile,
-} from "@/lib/bindings";
-import type { TransferSession, TransferStatus } from "@/lib/types";
-
-export type ProjectionStatusFilter =
-  | "all"
-  | "completed"
-  | "suspended"
-  | "cancelled"
-  | "failed";
+import type { TransferProjection } from "@/lib/bindings";
 
 export function isProjectionActive(projection: TransferProjection): boolean {
   return (
@@ -21,30 +9,34 @@ export function isProjectionActive(projection: TransferProjection): boolean {
   );
 }
 
-export function projectionToStatus(
+/** 终态且成功完成。 */
+export function isProjectionCompleted(
   projection: TransferProjection,
-): TransferStatus {
-  switch (projection.phase) {
-    case "offered":
-      return "pending";
-    case "waiting_accept":
-      return "waiting_accept";
-    case "active":
-      return "transferring";
-    case "suspended":
-      return "paused";
-    case "terminal":
-      switch (projection.terminalReason) {
-        case "completed":
-          return "completed";
-        case "cancelled":
-        case "rejected":
-          return "cancelled";
-        case "fatal_error":
-        default:
-          return "failed";
-      }
-  }
+): boolean {
+  return (
+    projection.phase === "terminal" &&
+    projection.terminalReason === "completed"
+  );
+}
+
+/** 终态且被取消（本端取消或对方拒绝）。 */
+export function isProjectionCancelled(
+  projection: TransferProjection,
+): boolean {
+  return (
+    projection.phase === "terminal" &&
+    (projection.terminalReason === "cancelled" ||
+      projection.terminalReason === "rejected")
+  );
+}
+
+/** 终态且失败（既非完成也非取消，对应 fatal_error 等）。 */
+export function isProjectionFailed(projection: TransferProjection): boolean {
+  return (
+    projection.phase === "terminal" &&
+    !isProjectionCompleted(projection) &&
+    !isProjectionCancelled(projection)
+  );
 }
 
 export function projectionStatusLabel(
@@ -89,66 +81,4 @@ export function projectionStatusLabel(
 
 export function canResumeProjection(projection: TransferProjection): boolean {
   return projection.phase === "suspended" && projection.recoverable;
-}
-
-export function projectionMatchesFilter(
-  projection: TransferProjection,
-  filter: ProjectionStatusFilter,
-): boolean {
-  if (filter === "all") return true;
-  if (filter === "completed") {
-    return (
-      projection.phase === "terminal" &&
-      projection.terminalReason === "completed"
-    );
-  }
-  if (filter === "suspended") return projection.phase === "suspended";
-  if (filter === "cancelled") {
-    return (
-      projection.phase === "terminal" &&
-      (projection.terminalReason === "cancelled" ||
-        projection.terminalReason === "rejected")
-    );
-  }
-  return (
-    projection.phase === "terminal" &&
-    projection.terminalReason === "fatal_error"
-  );
-}
-
-export function projectionToSession(
-  projection: TransferProjection,
-  progress: TransferProgressEvent | null = null,
-): TransferSession {
-  return {
-    sessionId: projection.sessionId,
-    direction: projection.direction,
-    peerId: projection.peerId,
-    deviceName: projection.peerName,
-    files: projection.files.map(projectionFileToTransferFile),
-    totalSize: projection.totalSize,
-    status: projectionToStatus(projection),
-    phase: projection.phase,
-    suspendedReason: projection.suspendedReason,
-    terminalReason: projection.terminalReason,
-    recoverable: projection.recoverable,
-    epoch: projection.epoch,
-    progress,
-    transferredBytes: projection.transferredBytes,
-    error: projection.errorMessage,
-    startedAt: projection.startedAt,
-    updatedAt: projection.updatedAt,
-    completedAt: projection.finishedAt,
-    saveLocation: projection.savePath ?? undefined,
-  };
-}
-
-function projectionFileToTransferFile(file: TransferProjectionFile) {
-  return {
-    fileId: file.fileId,
-    name: file.name,
-    relativePath: file.relativePath,
-    size: file.size,
-    isDirectory: false,
-  };
 }

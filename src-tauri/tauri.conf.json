@@ -38,7 +38,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1"]
+      }
+    }
   },
   "plugins": {
     "updater": {

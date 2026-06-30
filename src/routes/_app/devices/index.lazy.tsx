@@ -12,7 +12,7 @@ import {
   EmptyPanel,
   SectionHeader,
   SectionShell,
-} from "./-components/section-primitives";
+} from "@/components/layout/section-primitives";
 import { TransferItem } from "../transfer/-transfer-item";
 import type {
   Device,
