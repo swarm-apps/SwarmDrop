@@ -7,9 +7,11 @@ import { cn } from "@/lib/utils";
 interface TrustBadgeProps {
   level: TrustLevel;
   compact?: boolean;
+  /** 信任是否已双向确认。`false` 时追加「· 待确认」标记;`undefined/null/true` 不显示。 */
+  confirmed?: boolean | null;
 }
 
-export function TrustBadge({ level, compact }: TrustBadgeProps) {
+export function TrustBadge({ level, compact, confirmed }: TrustBadgeProps) {
   const meta = TRUST_META[level];
   return (
     <View
@@ -27,6 +29,12 @@ export function TrustBadge({ level, compact }: TrustBadgeProps) {
         )}
       >
         <TrustLabel level={level} />
+        {confirmed === false ? (
+          <>
+            {" · "}
+            <Trans>待确认</Trans>
+          </>
+        ) : null}
       </Text>
     </View>
   );

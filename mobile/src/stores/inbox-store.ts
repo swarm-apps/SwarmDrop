@@ -3,10 +3,18 @@ import type {
   MobileInboxFileEntry,
   MobileInboxItemDetail,
   MobileInboxItemSummary,
+  MobileInboxSearchHit,
 } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { getMobileCore } from "@/core/mobile-core";
 import { errorMessage } from "@/lib/utils";
+
+/** mobile-core 是否导出了服务端 FTS 检索(旧原生无此绑定时回退客户端过滤)。 */
+export function supportsServerInboxSearch(): boolean {
+  return typeof getMobileCore().searchInbox === "function";
+}
+
+const SEARCH_LIMIT = 100;
 
 type InboxAction =
   | "archive"
@@ -28,6 +36,9 @@ interface InboxState {
   action: InboxAction | null;
   lastError: string | null;
   lastRefreshedAt: number | null;
+  /** 服务端 FTS 检索命中;null = 尚未检索 / 不支持(回退客户端过滤)。 */
+  searchResults: MobileInboxSearchHit[] | null;
+  searching: boolean;
 }
 
 interface InboxActions {
@@ -43,6 +54,9 @@ interface InboxActions {
     fileId: number,
     missing?: boolean,
   ): Promise<void>;
+  /** 服务端 FTS 检索(标题 / 来源 / 文件名+路径 / 文档正文)。需 mobile-core 绑定支持。 */
+  runSearch(query: string, includeArchived: boolean): Promise<void>;
+  clearSearch(): void;
   reset(): void;
 }
 
@@ -50,9 +64,12 @@ export type InboxStore = InboxState & InboxActions;
 export type InboxPreviewItem = MobileInboxItemSummary;
 export type InboxDetailItem = MobileInboxItemDetail;
 export type InboxFileEntry = MobileInboxFileEntry;
+export type InboxSearchHit = MobileInboxSearchHit;
 
 // 并发 refresh 的单调序号：多触发源下迟到的旧响应不得覆盖新结果。
 let refreshSeq = 0;
+// 并发 search 的单调序号：防抖 / 快速输入下迟到的旧检索结果不得覆盖新结果。
+let searchSeq = 0;
 
 export const useInboxStore = create<InboxStore>()((set, get) => ({
   loading: false,
@@ -63,6 +80,40 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
   action: null,
   lastError: null,
   lastRefreshedAt: null,
+  searchResults: null,
+  searching: false,
+
+  async runSearch(query, includeArchived) {
+    const trimmed = query.trim();
+    if (!supportsServerInboxSearch() || trimmed.length === 0) {
+      // 不支持服务端检索或查询为空：清掉结果,交回客户端过滤路径。
+      searchSeq++;
+      set({ searchResults: null, searching: false });
+      return;
+    }
+    const seq = ++searchSeq;
+    set({ searching: true, lastError: null });
+    try {
+      const hits = await getMobileCore().searchInbox(
+        trimmed,
+        SEARCH_LIMIT,
+        includeArchived,
+      );
+      if (seq !== searchSeq) return; // 丢弃过期检索响应
+      set({ searchResults: hits });
+    } catch (err) {
+      if (seq !== searchSeq) return;
+      set({ searchResults: null, lastError: errorMessage(err) });
+      console.warn("[inbox-store] search failed:", errorMessage(err));
+    } finally {
+      if (seq === searchSeq) set({ searching: false });
+    }
+  },
+
+  clearSearch() {
+    searchSeq++;
+    set({ searchResults: null, searching: false });
+  },
 
   async refresh() {
     const seq = ++refreshSeq;
@@ -224,6 +275,8 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
       action: null,
       lastError: null,
       lastRefreshedAt: null,
+      searchResults: null,
+      searching: false,
     });
   },
 }));

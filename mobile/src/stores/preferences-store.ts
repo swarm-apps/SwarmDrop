@@ -24,6 +24,7 @@ interface PreferencesState {
   setAutoStart: (value: boolean) => void;
   setDiscoveryMode: (mode: DiscoveryModePreference) => void;
   setAutoDiscoverLanHelpers: (value: boolean) => void;
+  setProvideLanHelper: (value: boolean) => void;
   addBootstrapNode: (addr: string) => void;
   removeBootstrapNode: (addr: string) => void;
   setReceivePath: (uri: string | null) => void;
@@ -56,6 +57,10 @@ export const usePreferencesStore = create<PreferencesState>()(
 
       setAutoDiscoverLanHelpers(value) {
         set({ autoDiscoverLanHelpers: value });
+      },
+
+      setProvideLanHelper(value) {
+        set({ provideLanHelper: value });
       },
 
       addBootstrapNode(addr) {

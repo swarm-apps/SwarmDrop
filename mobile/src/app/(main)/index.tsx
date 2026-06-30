@@ -434,6 +434,21 @@ function HomeShortcut({
   );
 }
 
+type NearbyFilter = "all" | "unpaired" | "paired";
+
+const NEARBY_COLLAPSED_COUNT = 4;
+
+function NearbyFilterLabel({ value }: { value: NearbyFilter }) {
+  switch (value) {
+    case "unpaired":
+      return <Trans>可配对</Trans>;
+    case "paired":
+      return <Trans>已配对</Trans>;
+    default:
+      return <Trans>全部</Trans>;
+  }
+}
+
 function AddDevicePanel({
   nearbyDevices,
   onSend,
@@ -487,6 +502,24 @@ function AddDevicePanel({
     [onSend, pairingPeer, router, t],
   );
 
+  const [nearbyFilter, setNearbyFilter] = useState<NearbyFilter>("all");
+  const [showAllNearby, setShowAllNearby] = useState(false);
+
+  const filteredNearby = useMemo(() => {
+    if (nearbyFilter === "unpaired") {
+      return nearbyDevices.filter((device) => !device.isPaired);
+    }
+    if (nearbyFilter === "paired") {
+      return nearbyDevices.filter((device) => device.isPaired);
+    }
+    return nearbyDevices;
+  }, [nearbyDevices, nearbyFilter]);
+
+  const visibleNearby = showAllNearby
+    ? filteredNearby
+    : filteredNearby.slice(0, NEARBY_COLLAPSED_COUNT);
+  const hiddenNearbyCount = filteredNearby.length - visibleNearby.length;
+
   return (
     <>
       <Surface className="gap-4" testID="devices-add-panel">
@@ -518,24 +551,80 @@ function AddDevicePanel({
               </Trans>
             </InlineEmptyText>
           ) : (
-            <View className="gap-2">
-              {nearbyDevices.slice(0, 4).map((device) => (
-                <NearbyDeviceRow
-                  key={device.peerId}
-                  device={device}
-                  pairing={pairingPeer === device.peerId}
-                  disabled={pairingPeer !== null}
-                  onPress={handlePair}
-                />
-              ))}
-              {nearbyDevices.length > 4 ? (
-                <Text className="text-center text-[11px] text-muted-foreground">
-                  <Trans>
-                    还有 {nearbyDevices.length - 4} 台设备，可在配对完成后查看。
-                  </Trans>
-                </Text>
-              ) : null}
-            </View>
+            <>
+              <View
+                className="flex-row gap-1 rounded-lg bg-muted p-0.5"
+                testID="nearby-filter-control"
+              >
+                {(["all", "unpaired", "paired"] as const).map((key) => (
+                  <Pressable
+                    key={key}
+                    onPress={() => {
+                      setNearbyFilter(key);
+                      setShowAllNearby(false);
+                    }}
+                    accessibilityRole="button"
+                    testID={`nearby-filter-${key}`}
+                    className={cn(
+                      "flex-1 items-center rounded-md px-2 py-1.5 active:opacity-70",
+                      nearbyFilter === key ? "bg-card" : "",
+                    )}
+                  >
+                    <Text
+                      className={cn(
+                        "text-[11px] font-medium",
+                        nearbyFilter === key
+                          ? "text-foreground"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      <NearbyFilterLabel value={key} />
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {filteredNearby.length === 0 ? (
+                <InlineEmptyText>
+                  <Trans>没有符合条件的附近设备，换一个筛选条件试试。</Trans>
+                </InlineEmptyText>
+              ) : (
+                <View className="gap-2">
+                  {visibleNearby.map((device) => (
+                    <NearbyDeviceRow
+                      key={device.peerId}
+                      device={device}
+                      pairing={pairingPeer === device.peerId}
+                      disabled={pairingPeer !== null}
+                      onPress={handlePair}
+                    />
+                  ))}
+                  {hiddenNearbyCount > 0 ? (
+                    <Pressable
+                      onPress={() => setShowAllNearby(true)}
+                      accessibilityRole="button"
+                      testID="nearby-show-all-button"
+                      className="min-h-9 items-center justify-center rounded-lg active:opacity-70"
+                    >
+                      <Text className="text-[12px] font-semibold text-primary">
+                        <Trans>查看全部 ({filteredNearby.length})</Trans>
+                      </Text>
+                    </Pressable>
+                  ) : showAllNearby &&
+                    filteredNearby.length > NEARBY_COLLAPSED_COUNT ? (
+                    <Pressable
+                      onPress={() => setShowAllNearby(false)}
+                      accessibilityRole="button"
+                      testID="nearby-collapse-button"
+                      className="min-h-9 items-center justify-center rounded-lg active:opacity-70"
+                    >
+                      <Text className="text-[12px] font-semibold text-muted-foreground">
+                        <Trans>收起</Trans>
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              )}
+            </>
           )}
           {pairingError !== null ? (
             <Text className="text-[12px] text-destructive">{pairingError}</Text>

@@ -2,6 +2,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { SendHorizontal } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
+import { ConnectionBadge } from "@/components/connection-badge";
 import { TrustBadge } from "@/components/trust-badge";
 import { Text } from "@/components/ui/text";
 import { canSendToDevice, resolveTrustLevel } from "@/core/device-trust";
@@ -85,7 +86,18 @@ export function DeviceCard({
             >
               {device.os} · {device.platform}
             </Text>
-            <TrustBadge level={trustLevel} compact />
+            {isOnline ? (
+              <ConnectionBadge
+                connection={device.connection}
+                latencyMs={device.latencyMs}
+                compact
+              />
+            ) : null}
+            <TrustBadge
+              level={trustLevel}
+              compact
+              confirmed={device.trustConfirmed}
+            />
           </View>
         </View>
 
@@ -155,7 +167,20 @@ export function DeviceCard({
       </View>
 
       <View className="flex-row items-center justify-between gap-2">
-        <TrustBadge level={trustLevel} compact />
+        <View className="min-w-0 flex-1 flex-row flex-wrap items-center gap-1.5">
+          <TrustBadge
+            level={trustLevel}
+            compact
+            confirmed={device.trustConfirmed}
+          />
+          {isOnline ? (
+            <ConnectionBadge
+              connection={device.connection}
+              latencyMs={device.latencyMs}
+              compact
+            />
+          ) : null}
+        </View>
         <Pressable
           onPress={(event) => {
             event.stopPropagation();

@@ -173,6 +173,67 @@ impl From<inbox_ops::InboxItemDetail> for MobileInboxItemDetail {
     }
 }
 
+/// 收件箱全文检索命中条目下的单个文件（文件名 + 相对路径），供下钻展示。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileInboxHitFile {
+    pub name: String,
+    pub relative_path: String,
+}
+
+impl From<inbox_ops::InboxHitFile> for MobileInboxHitFile {
+    fn from(file: inbox_ops::InboxHitFile) -> Self {
+        // 穷尽解构（drift guard）：上游 InboxHitFile 新增字段时此处会编译失败。
+        let inbox_ops::InboxHitFile {
+            name,
+            relative_path,
+        } = file;
+        Self {
+            name,
+            relative_path,
+        }
+    }
+}
+
+/// 收件箱全文检索（FTS）命中项，镜像 core `InboxSearchHit`。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileInboxSearchHit {
+    pub id: String,
+    pub title: String,
+    pub source_name: String,
+    pub item_count: u32,
+    pub root_path: Option<String>,
+    pub received_at: i64,
+    /// 命中所在文本的片段（core 端按子串位置切窗口生成）。
+    pub snippet: String,
+    pub files: Vec<MobileInboxHitFile>,
+}
+
+impl From<inbox_ops::InboxSearchHit> for MobileInboxSearchHit {
+    fn from(hit: inbox_ops::InboxSearchHit) -> Self {
+        // 穷尽解构（drift guard）：上游 InboxSearchHit 新增字段时此处会编译失败。
+        let inbox_ops::InboxSearchHit {
+            id,
+            title,
+            source_name,
+            item_count,
+            root_path,
+            received_at,
+            snippet,
+            files,
+        } = hit;
+        Self {
+            id: id.to_string(),
+            title,
+            source_name,
+            item_count: item_count.max(0) as u32,
+            root_path,
+            received_at,
+            snippet,
+            files: files.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 fn parse_item_id(s: &str) -> FfiResult<Uuid> {
     Uuid::parse_str(s).map_err(|_| FfiError::Transfer(format!("invalid inbox item id: {s}")))
 }
@@ -260,5 +321,20 @@ impl MobileCore {
             .await
             .map_err(FfiError::from)?;
         Ok(repaired.into_iter().map(Into::into).collect())
+    }
+
+    /// 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
+    /// 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
+    pub async fn search_inbox(
+        &self,
+        query: String,
+        limit: u32,
+        include_archived: bool,
+    ) -> FfiResult<Vec<MobileInboxSearchHit>> {
+        let db = self.ensure_db().await?;
+        let hits = inbox_ops::search_inbox(&db, &query, limit as usize, include_archived)
+            .await
+            .map_err(FfiError::from)?;
+        Ok(hits.into_iter().map(Into::into).collect())
     }
 }

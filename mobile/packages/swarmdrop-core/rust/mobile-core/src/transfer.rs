@@ -8,7 +8,9 @@
 //! 文件 I/O 通过 `ForeignFileAccess` callback 走 RN 的 expo-file-system。
 
 use swarmdrop_core::transfer::HostEnumeratedFile;
-use swarmdrop_core::transfer::incoming::{TransferOfferEvent, TransferOfferFileEvent};
+use swarmdrop_core::transfer::incoming::{
+    IncomingTransferRuntime, TransferOfferEvent, TransferOfferFileEvent,
+};
 use uuid::Uuid;
 
 use crate::app::MobileCore;
@@ -265,6 +267,24 @@ impl MobileCore {
                     "暂停传输失败: {send_err}; {receive_err}"
                 ))),
             },
+        }
+    }
+
+    /// 设置全局「暂停接收」。暂停期间节点仍在线可发现、配对不受影响，但对新 offer
+    /// 以 ReceivingPaused 婉拒。镜像桌面托盘的「暂停接收」开关（core 3d2d764）。
+    pub async fn set_receiving_paused(&self, paused: bool) -> FfiResult<()> {
+        let manager = self.transfer_manager_arc().await?;
+        manager.set_receiving_paused(paused);
+        Ok(())
+    }
+
+    /// 查询当前是否暂停接收。节点未启动视为「未暂停」（对齐桌面语义），
+    /// 这样 RN 侧在节点未运行时也能安全读取初始状态。
+    pub async fn is_receiving_paused(&self) -> FfiResult<bool> {
+        match self.transfer_manager_arc().await {
+            Ok(manager) => Ok(manager.is_receiving_paused()),
+            Err(FfiError::NodeNotStarted) => Ok(false),
+            Err(err) => Err(err),
         }
     }
 }

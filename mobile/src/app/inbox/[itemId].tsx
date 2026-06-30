@@ -30,6 +30,7 @@ import {
   Package,
   Share2,
   Smartphone,
+  Tag,
   Trash2,
   Video,
 } from "lucide-react-native";
@@ -46,6 +47,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   MobileInboxContentKind,
   type MobileInboxItemDetail,
+  MobileInboxSourceKind,
 } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { AppScreen, Surface } from "@/components/mobile/screen";
@@ -766,6 +768,14 @@ function FileRow({
         <Text className="text-[11px] text-muted-foreground">
           {formatBytes(file.size)}
         </Text>
+        {file.checksum ? (
+          <Text
+            className="font-mono text-[10px] text-muted-foreground"
+            numberOfLines={1}
+          >
+            {file.checksum}
+          </Text>
+        ) : null}
       </View>
       <Pressable
         accessibilityRole="button"
@@ -846,6 +856,11 @@ function DetailsPanel({
         {expanded ? (
           <>
             <DetailLine
+              icon={Tag}
+              label={<Trans>来源类型</Trans>}
+              value={<SourceKindLabel kind={detail.item.sourceKind} />}
+            />
+            <DetailLine
               icon={Smartphone}
               label={<Trans>来源设备</Trans>}
               value={detail.item.sourcePeerId}
@@ -894,6 +909,20 @@ function ContentKindPill({
     <Trans>组合内容</Trans>
   );
   return <StatePill tone="muted" label={label} />;
+}
+
+/** 收件箱来源类型:已配对设备 / 配对码 / AI 代理(MCP) / 未知,镜像桌面 sourceKindLabel。 */
+function SourceKindLabel({ kind }: { kind: MobileInboxSourceKind }) {
+  switch (kind) {
+    case MobileInboxSourceKind.PairedDevice:
+      return <Trans>已配对设备</Trans>;
+    case MobileInboxSourceKind.ShareCode:
+      return <Trans>配对码</Trans>;
+    case MobileInboxSourceKind.Mcp:
+      return <Trans>AI 代理 (MCP)</Trans>;
+    default:
+      return <Trans>未知</Trans>;
+  }
 }
 
 function StatePill({

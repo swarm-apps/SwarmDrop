@@ -2,16 +2,20 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import * as Device from "expo-device";
 import { Directory } from "expo-file-system";
 import { Folder, RotateCcw } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
+import { getMobileCore } from "@/core/mobile-core";
 import { getMobilePaths } from "@/core/paths";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
+import { errorMessage } from "@/lib/utils";
+import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 export default function GeneralScreen() {
@@ -65,10 +69,91 @@ export default function GeneralScreen() {
         </SettingSection>
 
         <SettingSection label={t`传输`}>
+          <PauseReceivingRow />
+          <SettingDivider />
           <ReceivePathRow />
         </SettingSection>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * 全局「暂停接收」开关。暂停期间节点保持在线可发现、配对不受影响,但对新 offer 自动婉拒。
+ * 依赖 mobile-core 的 set/isReceivingPaused 绑定;旧原生(无该绑定)时整行隐藏,避免误导。
+ */
+function PauseReceivingRow() {
+  const { t } = useLingui();
+  const runtimeState = useMobileCoreStore((s) => s.runtimeState);
+  const nodeRunning = runtimeState === "running";
+  const [paused, setPaused] = useState(false);
+  const [available, setAvailable] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // 节点状态变化(如刚启动/关闭)时重读真实暂停态。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runtimeState 仅作为重读触发器。
+  useEffect(() => {
+    const core = getMobileCore();
+    if (typeof core.isReceivingPaused !== "function") {
+      setAvailable(false);
+      return;
+    }
+    setAvailable(true);
+    let cancelled = false;
+    core
+      .isReceivingPaused()
+      .then((value) => {
+        if (!cancelled) setPaused(value);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [runtimeState]);
+
+  const onToggle = async (next: boolean) => {
+    const core = getMobileCore();
+    if (typeof core.setReceivingPaused !== "function" || busy || !nodeRunning) {
+      return;
+    }
+    setBusy(true);
+    setPaused(next); // 乐观更新
+    try {
+      await core.setReceivingPaused(next);
+    } catch (err) {
+      setPaused(!next); // 失败回滚
+      toast.error(t`操作失败`, errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 旧原生未导出该能力时不渲染(graceful degradation)。
+  if (!available) return null;
+
+  return (
+    <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
+      <View className="flex-1 gap-0.5">
+        <Text className="text-[14px] text-foreground">
+          <Trans>暂停接收</Trans>
+        </Text>
+        <Text className="text-[11px] text-muted-foreground">
+          {nodeRunning ? (
+            <Trans>
+              暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。
+            </Trans>
+          ) : (
+            <Trans>节点未启动，启动节点后即可暂停接收。</Trans>
+          )}
+        </Text>
+      </View>
+      <Switch
+        checked={paused}
+        disabled={busy}
+        onCheckedChange={onToggle}
+        testID="settings-pause-receiving-switch"
+      />
+    </View>
   );
 }
 

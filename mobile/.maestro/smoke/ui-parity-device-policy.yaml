@@ -1,0 +1,55 @@
+appId: com.yexiyue.swarmdrop
+name: UI parity - device policy editor
+# #2/#4/#5/#12:进入已配对设备详情 → 策略编辑器,验证新增的「最大大小」可编辑输入框
+# 与「保存位置」选择按钮(此前只读),并确认信任徽标 / 连接路径行正常渲染(离线设备)。
+---
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 30000
+- runFlow:
+    when:
+      visible: "Later"
+    commands:
+      - tapOn: "Later"
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+- assertVisible:
+    id: device-card-0
+- tapOn:
+    id: device-card-0
+- extendedWaitUntil:
+    visible:
+      id: device-detail-screen
+    timeout: 15000
+- takeScreenshot: ui-parity-device-detail
+- tapOn:
+    id: device-policy-entry
+- extendedWaitUntil:
+    visible:
+      id: device-policy-sheet
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: device-policy-max-size-input
+    direction: DOWN
+    timeout: 15000
+- assertVisible:
+    id: device-policy-max-size-input
+- assertVisible:
+    id: device-policy-save-location-button
+- assertVisible:
+    id: device-policy-save-button
+- tapOn:
+    id: device-policy-max-size-input
+- inputText: "256"
+- hideKeyboard
+- waitForAnimationToEnd
+- takeScreenshot: ui-parity-policy-editor

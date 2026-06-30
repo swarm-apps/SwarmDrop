@@ -1,0 +1,54 @@
+appId: com.yexiyue.swarmdrop
+name: UI parity - pause receiving toggle
+# #10(核心A):设置 > 通用 > 传输 新增的「暂停接收」全局开关。
+# 先启动节点(开关仅在节点运行时可用),再切换 → 应成功、不报 NodeNotStarted。
+# 依赖 mobile-core 的 set/isReceivingPaused 绑定(原生重编后才出现)。
+---
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: devices-screen
+    timeout: 30000
+- runFlow:
+    when:
+      visible: "Later"
+    commands:
+      - tapOn: "Later"
+- runFlow:
+    when:
+      visible: "Open debugger to view warnings."
+    commands:
+      - tapOn:
+          point: "92%,92%"
+- waitForAnimationToEnd
+# 启动节点(开关仅在节点运行时可用)
+- tapOn:
+    id: devices-start-node-button
+- extendedWaitUntil:
+    visible:
+      id: devices-add-panel
+    timeout: 40000
+- tapOn: "设置"
+- extendedWaitUntil:
+    visible:
+      id: settings-screen
+    timeout: 15000
+- tapOn: "通用"
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      id: settings-pause-receiving-switch
+    direction: DOWN
+    timeout: 15000
+- assertVisible:
+    id: settings-pause-receiving-switch
+- takeScreenshot: ui-parity-pause-before
+- tapOn:
+    id: settings-pause-receiving-switch
+- waitForAnimationToEnd
+- assertNotVisible: "操作失败"
+- takeScreenshot: ui-parity-pause-after
+- tapOn:
+    id: settings-pause-receiving-switch
+- waitForAnimationToEnd

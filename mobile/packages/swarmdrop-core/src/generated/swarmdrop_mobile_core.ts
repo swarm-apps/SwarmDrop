@@ -544,6 +544,54 @@ const FfiConverterTypeMobileInboxFileEntry = (() => {
 })();
 
 
+/**
+ * 收件箱全文检索命中条目下的单个文件（文件名 + 相对路径），供下钻展示。
+ */
+export type MobileInboxHitFile = {
+    name: string,
+    relativePath: string
+}
+
+/**
+ * Generated factory for {@link MobileInboxHitFile} record objects.
+ */
+export const MobileInboxHitFile = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInboxHitFile, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInboxHitFile>,
+
+    });
+})();
+
+const FfiConverterTypeMobileInboxHitFile = (() => {
+    type TypeName = MobileInboxHitFile;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                name: FfiConverterString.read(from), 
+                relativePath: FfiConverterString.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.name, into);
+            FfiConverterString.write(value.relativePath, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.name) + 
+            FfiConverterString.allocationSize(value.relativePath);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
 export type MobileInboxItemDetail = {
     item: MobileInboxItemSummary,
     files: Array<MobileInboxFileEntry>,
@@ -687,6 +735,81 @@ const FfiConverterTypeMobileInboxItemSummary = (() => {
             FfiConverterOptionalInt64.allocationSize(value.archivedAt) + 
             FfiConverterOptionalInt64.allocationSize(value.deletedAt) + 
             FfiConverterBool.allocationSize(value.missing);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
+/**
+ * 收件箱全文检索（FTS）命中项，镜像 core `InboxSearchHit`。
+ */
+export type MobileInboxSearchHit = {
+    id: string,
+    title: string,
+    sourceName: string,
+    itemCount: /*u32*/number,
+    rootPath?: string,
+    receivedAt: /*i64*/bigint,
+    /**
+     * 命中所在文本的片段（core 端按子串位置切窗口生成）。
+     */
+    snippet: string,
+    files: Array<MobileInboxHitFile>
+}
+
+/**
+ * Generated factory for {@link MobileInboxSearchHit} record objects.
+ */
+export const MobileInboxSearchHit = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInboxSearchHit, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInboxSearchHit>,
+
+    });
+})();
+
+const FfiConverterTypeMobileInboxSearchHit = (() => {
+    type TypeName = MobileInboxSearchHit;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                id: FfiConverterString.read(from), 
+                title: FfiConverterString.read(from), 
+                sourceName: FfiConverterString.read(from), 
+                itemCount: FfiConverterUInt32.read(from), 
+                rootPath: FfiConverterOptionalString.read(from), 
+                receivedAt: FfiConverterInt64.read(from), 
+                snippet: FfiConverterString.read(from), 
+                files: FfiConverterArrayTypeMobileInboxHitFile.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.id, into);
+            FfiConverterString.write(value.title, into);
+            FfiConverterString.write(value.sourceName, into);
+            FfiConverterUInt32.write(value.itemCount, into);
+            FfiConverterOptionalString.write(value.rootPath, into);
+            FfiConverterInt64.write(value.receivedAt, into);
+            FfiConverterString.write(value.snippet, into);
+            FfiConverterArrayTypeMobileInboxHitFile.write(value.files, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.id) + 
+            FfiConverterString.allocationSize(value.title) + 
+            FfiConverterString.allocationSize(value.sourceName) + 
+            FfiConverterUInt32.allocationSize(value.itemCount) + 
+            FfiConverterOptionalString.allocationSize(value.rootPath) + 
+            FfiConverterInt64.allocationSize(value.receivedAt) + 
+            FfiConverterString.allocationSize(value.snippet) + 
+            FfiConverterArrayTypeMobileInboxHitFile.allocationSize(value.files);
             
         }
     };
@@ -5220,6 +5343,11 @@ export interface MobileCoreLike {
     markInboxFileMissing(itemId: string, fileId: /*u32*/number, missing: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     markInboxItemOpened(itemId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     repairMissingInboxItems(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileInboxItemDetail>>;
+    /**
+     * 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
+     * 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
+     */
+    searchInbox(query: string, limit: /*u32*/number, includeArchived: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileInboxSearchHit>>;
     networkStatus(asyncOpts_?: { signal: AbortSignal }) : Promise<MobileNetworkStatus>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     startNode(deviceName: string | undefined, networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
@@ -5239,6 +5367,11 @@ export interface MobileCoreLike {
      */
     cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     /**
+     * 查询当前是否暂停接收。节点未启动视为「未暂停」（对齐桌面语义），
+     * 这样 RN 侧在节点未运行时也能安全读取初始状态。
+     */
+    isReceivingPaused(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<boolean>;
+    /**
      * 暂停传输（自动判断方向）
      */
     pauseTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
@@ -5251,6 +5384,11 @@ export interface MobileCoreLike {
      * 发送：构造 Offer 给对端（异步，结果通过 TransferAccepted/Rejected/Failed 事件回报）
      */
     sendPrepared(preparedId: string, peerId: string, peerName: string, fileIds: Array</*u32*/number>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileSendResult>;
+    /**
+     * 设置全局「暂停接收」。暂停期间节点仍在线可发现、配对不受影响，但对新 offer
+     * 以 ReceivingPaused 婉拒。镜像桌面托盘的「暂停接收」开关（core 3d2d764）。
+     */
+    setReceivingPaused(paused: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
 }
 /**
  * @deprecated Use `MobileCoreLike` instead.
@@ -5782,6 +5920,38 @@ async  repairMissingInboxItems(asyncOpts_?: { signal: AbortSignal }): Promise<Ar
     }
     }
     
+    /**
+     * 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
+     * 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
+     */
+async  searchInbox(query: string, limit: /*u32*/number, includeArchived: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileInboxSearchHit>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(query),FfiConverterUInt32.lower(limit),FfiConverterBool.lower(includeArchived)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterArrayTypeMobileInboxSearchHit.lift.bind(FfiConverterArrayTypeMobileInboxSearchHit),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
 async  networkStatus(asyncOpts_?: { signal: AbortSignal }): Promise<MobileNetworkStatus> {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -6044,6 +6214,38 @@ async  cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): 
     }
     
     /**
+     * 查询当前是否暂停接收。节点未启动视为「未暂停」（对齐桌面语义），
+     * 这样 RN 侧在节点未运行时也能安全读取初始状态。
+     */
+async  isReceivingPaused(asyncOpts_?: { signal: AbortSignal }): Promise<boolean> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                    
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_i8,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_i8,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_i8,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i8,
+            /*liftFunc:*/ FfiConverterBool.lift.bind(FfiConverterBool),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
      * 暂停传输（自动判断方向）
      */
 async  pauseTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
@@ -6152,6 +6354,38 @@ async  sendPrepared(preparedId: string, peerId: string, peerName: string, fileId
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
             /*liftFunc:*/ FfiConverterTypeMobileSendResult.lift.bind(FfiConverterTypeMobileSendResult),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 设置全局「暂停接收」。暂停期间节点仍在线可发现、配对不受影响，但对新 offer
+     * 以 ReceivingPaused 婉拒。镜像桌面托盘的「暂停接收」开关（core 3d2d764）。
+     */
+async  setReceivingPaused(paused: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterBool.lower(paused)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -6295,12 +6529,20 @@ const FfiConverterArrayTypeMobileFileProgress = new FfiConverterArray(FfiConvert
 const FfiConverterArrayTypeMobileInboxFileEntry = new FfiConverterArray(FfiConverterTypeMobileInboxFileEntry);
 
 
+// FfiConverter for Array<MobileInboxHitFile>
+const FfiConverterArrayTypeMobileInboxHitFile = new FfiConverterArray(FfiConverterTypeMobileInboxHitFile);
+
+
 // FfiConverter for Array<MobileInboxItemDetail>
 const FfiConverterArrayTypeMobileInboxItemDetail = new FfiConverterArray(FfiConverterTypeMobileInboxItemDetail);
 
 
 // FfiConverter for Array<MobileInboxItemSummary>
 const FfiConverterArrayTypeMobileInboxItemSummary = new FfiConverterArray(FfiConverterTypeMobileInboxItemSummary);
+
+
+// FfiConverter for Array<MobileInboxSearchHit>
+const FfiConverterArrayTypeMobileInboxSearchHit = new FfiConverterArray(FfiConverterTypeMobileInboxSearchHit);
 
 
 // FfiConverter for Array<MobilePreparedFile>
@@ -6426,6 +6668,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items() !== 47796) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox() !== 7065) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status() !== 47248) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status");
     }
@@ -6453,6 +6698,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer() !== 8390) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused() !== 45427) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer() !== 55790) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer");
     }
@@ -6464,6 +6712,9 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared() !== 28705) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused() !== 14427) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit() !== 40391) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit");
@@ -6533,8 +6784,10 @@ export default Object.freeze({
     FfiConverterTypeMobileIdentity,
     FfiConverterTypeMobileInboxContentKind,
     FfiConverterTypeMobileInboxFileEntry,
+    FfiConverterTypeMobileInboxHitFile,
     FfiConverterTypeMobileInboxItemDetail,
     FfiConverterTypeMobileInboxItemSummary,
+    FfiConverterTypeMobileInboxSearchHit,
     FfiConverterTypeMobileInboxSourceKind,
     FfiConverterTypeMobileNetworkRuntimeConfig,
     FfiConverterTypeMobileNetworkStatus,
