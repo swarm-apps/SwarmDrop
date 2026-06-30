@@ -1,6 +1,7 @@
 //! 文件传输共享常量和工具函数。
 
 mod actor_registry;
+mod checkpoint;
 pub mod coordinator;
 pub mod crypto;
 pub mod data_frame;

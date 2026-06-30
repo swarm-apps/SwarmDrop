@@ -23,7 +23,7 @@
 
 ## 3. 后端抽公共 + 拆 god-module（P1）
 
-- [ ] 3.1 新建 `transfer/checkpoint.rs`：把 `receiver.rs:627-785` 的 bitmap/ranges 纯函数 + resume 的 `build_fetch_plan`/`validate_checkpoint` 收一处共用（消同源重复，纯函数可独立单测）
+- [x] 3.1 新建 `transfer/checkpoint.rs`：把 receiver 的 10 个 bitmap/range 纯函数（ensure_files_complete/first_missing_range/chunk_range/validate_block_range/is/mark_chunk/count/bytes/ranges_from_bitmap）+ 其测试移出共用，receiver.rs 903→654 行。注：复核发现 resume 的 sender checkpoint 用 transferred_bytes（非 bitmap），与 bitmap 数学不同源、无重复可消，review「同源」是概念相似
 - [ ] 3.2 range 校验 dedup（**精化/降级**）：复审发现 4 处（`receiver.rs` validate_fetch_plan/validate_block_range、`resume.rs` validate_fetch_plan、`sender.rs` write_range）的 length==0/empty-file/chunk 对齐规则**各有意义不同**（resume 无条件拒 length 0、sender 特判 size==0、receiver 叠 chunk 对齐），真正共享的只有「`offset+length` 溢出 + `end>file_size`」薄核心。全量共享 validator 会改行为；价值有限，仅在做 3.5 receiver 拆分时顺手抽 `range_end_within(file_size, range)->Result<u64,_>` 薄核心，各处保留自己的 length-0 规则
 - [x] 3.3 `From<&PreparedFile> for FileInfo` + `From<&transfer_file::Model> for FileInfo`（manager.rs，集中 FileInfo 两个唯一构造来源）；4 处生产构造（`send.rs`、`sender.rs::file_manifest`、`resume.rs::build_resume_manifest`、`resume.rs` build_file_infos）改 `.map(FileInfo::from)`。测试 fixture 不动
 - [ ] 3.4 拆 `resume.rs`：`negotiate_resume(direction)` 模板方法消两个 `initiate_*` 80% 重复（`resume.rs:30/113`）+ 与 `start_local_resume_actor` 统一 actor 重建；拆 `resume/{validation,plan}.rs`；复用 `parse_peer_id`（删 `send.rs:71` 内联）+ `save_location` helper（消 `resume.rs:51/438` 重复）
