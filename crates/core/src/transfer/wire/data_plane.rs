@@ -81,7 +81,9 @@ impl TransferManager {
 
             // data_plane 只做路由 + 注册表簿记；终态副作用（dispatch / 落库 / 完成事件）
             // 下沉到 SenderActor::on_completed / on_interrupted（与接收方对称）。
-            actors.remove_send(&session_id);
+            // 按 epoch 移除：旧 epoch 的收尾任务不得误删 resume 后注册的新 epoch sender
+            // （与接收方 start_data_channel 的 remove_receive_if_epoch 对称）。
+            actors.remove_send_if_epoch(&session_id, epoch);
             match result {
                 Ok(()) => {
                     session
