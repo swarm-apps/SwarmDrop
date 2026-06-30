@@ -686,6 +686,103 @@ async fn e2e_receiver_initiated_resume_probe_commit_completes() {
     )));
 }
 
+/// 发送方发起恢复：补齐 `initiate_resume_as_sender` 路径的 E2E 覆盖（此前零覆盖）。
+///
+/// A=Send 主动发起（probe → validate → build_fetch_plan_from_report → 先重建本地
+/// SendSession 再 commit → dispatch → spawn 数据面推送），B=Receive 应答侧
+/// `handle_resume_commit_impl` 重建 receiver actor 并发 `TransferResumed{Receive}`。
+/// 两侧 epoch 升到 1、传输跑完落盘正确。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_sender_initiated_resume_probe_commit_completes() {
+    let data = b"resume initiated by sender side".to_vec();
+    let checksum = blake3::hash(&data).to_hex().to_string();
+    let source_id = FileSourceId("resume-sender-src".to_string());
+    let meta = HostFileMetadata {
+        name: "resume.txt".to_string(),
+        relative_path: "resume.txt".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+
+    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    let session_id = Uuid::new_v4();
+    let files = vec![FileInfo {
+        file_id: 0,
+        name: "resume.txt".to_string(),
+        relative_path: "resume.txt".to_string(),
+        size: data.len() as u64,
+        checksum,
+    }];
+    let source_paths = vec![source_id.0.clone()];
+
+    seed_suspended_session(
+        node_a.db.as_ref(),
+        session_id,
+        TransferDirection::Send,
+        &node_b.peer_id.to_string(),
+        "node-b",
+        &files,
+        data.len() as u64,
+        None,
+        Some(&source_paths),
+    )
+    .await;
+    seed_suspended_session(
+        node_b.db.as_ref(),
+        session_id,
+        TransferDirection::Receive,
+        &node_a.peer_id.to_string(),
+        "node-a",
+        &files,
+        data.len() as u64,
+        Some(CoreSaveLocation::Path {
+            path: "/recv".to_string(),
+        }),
+        None,
+    )
+    .await;
+
+    let resumed = node_a
+        .transfer
+        .initiate_resume_as_sender(session_id)
+        .await
+        .expect("sender resume");
+    assert_eq!(resumed.transferred_bytes, 0);
+
+    wait_completed(node_a.db.as_ref(), session_id, "恢复发送方").await;
+    wait_completed(node_b.db.as_ref(), session_id, "恢复接收方").await;
+
+    assert_eq!(
+        node_b
+            .host
+            .sink_bytes(&FileSinkId("resume.txt".to_string())),
+        Some(data),
+        "恢复后接收方落盘内容应与源文件一致"
+    );
+
+    let sender = ops::get_transfer_projection(node_a.db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let receiver = ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(sender.epoch, 1);
+    assert_eq!(receiver.epoch, 1);
+    // 应答侧（接收方 node_b）发 TransferResumed{Receive}。
+    assert!(node_b.host.events().iter().any(|e| matches!(
+        e,
+        CoreEvent::TransferResumed { event }
+            if event.session_id == session_id
+                && event.direction == swarmdrop_core::transfer::progress::RuntimeTransferDirection::Receive
+    )));
+}
+
 /// 接收方拒绝 Offer：跨节点 reject 路径（确定性，不启动传输）。
 ///
 /// A 发 Offer → B `reject_and_respond` 回 `OfferResult{accepted:false, UserDeclined}`
