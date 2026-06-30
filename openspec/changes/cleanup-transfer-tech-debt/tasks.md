@@ -36,12 +36,12 @@
 
 ## 4. 后端一致性与命名收口（P1）
 
-- [ ] 4.1 `EpochGuard` 单点封装 epoch 比较，显式命名「准入 `>=`」「迟到 `<`」；reducer/actor_registry/data_plane/帧过滤改引用；`dispatch_network_current` 的 stale 缺口文档化为已知项
-- [ ] 4.2 `SendSession`→`SenderActor`、`ReceiveSession`→`ReceiverActor`，访问器 `get/insert/remove_send_session`→`*_actor`；`session` 收敛为「逻辑 id / DB 行」
-- [ ] 4.3 ActorRegistry 泛型 `Registered<A: Cancellable>` 消 send/receive 复制（`actor_registry.rs:41/56`），补 `remove_send_if_epoch` 对称；发送完成路径改用它（修 `data_plane.rs:85` 无 epoch 守卫误删风险）；access 入口统一
-- [ ] 4.4 `sync_session_transferred_bytes` 下沉为 projection 派生（`get_transfer_projection` 时 SUM files），删 4 处手工 sync（`receive.rs:212/395/439`、`send.rs:295`）+ 雷同 workaround 注释
-- [ ] 4.5 命名/可见性收口：pause/suspend/paused 术语在类型注释固定映射；resume.rs 6 个仅本文件用的 `pub(crate)` helper 降私有；删只用一次的 `generate_id()` 包装
-- [ ] 4.6 `cargo test` + clippy + workspace check（含桌面壳）全绿
+- [x] 4.1 新建 `transfer/epoch.rs`：`EpochGuard` 命名化三种语义（`is_stale` 迟到 `<` / `is_newer` 更新 `>` / `matches` 精确 `==`）；接入 coordinator(reduce + ResumeCommitted)、actor/registry(insert)、wire/data_plane(Hello)、flow/resume/validation(commit)；`dispatch_network_current` 文档化为唯一无 EpochGuard 把关的已知缺口
+- [x] 4.2 `SendSession`→`SenderActor`、`ReceiveSession`→`ReceiverActor`，访问器 `*_send_session`→`*_send_actor` 等；`build_send_session_for_resume`→`build_sender_actor_for_resume` + 局部变量 + doc。inbox 的 `ensure_inbox_item_for_completed_receive_session`/`create_receive_session` 保留（语义是会话 DB 行非 actor）
+- [x] 4.3 ActorRegistry 泛型 `Registered<A: Cancellable>` + 自由 helper（insert/get/remove/remove_if_epoch_actor）消 send/receive 复制；补 `remove_send_if_epoch` 对称；data_plane 发送完成改 `remove_send_if_epoch(epoch)` 修旧 epoch 收尾误删新 epoch sender 风险 + 单测
+- [x] 4.4 `transferred_bytes` 下沉为 projection 派生（`get_transfer_projection` 直接 SUM files），删 4 处手工 sync（receive 暂停/断连/对端暂停、send 暂停）+ 雷同注释 + 删零调用的 `sync_session_transferred_bytes`/`update_session_transferred_bytes`
+- [x] 4.5 命名/可见性收口：UserCommand 加 pause/suspend/paused 术语固定映射 doc；`load_resumable_session` `pub(crate)`→私有；删只用一次的 `generate_id()` 包装（注：resume 纯函数已随 3.4b 拆 plan/validation 时按需 pub(crate)/private）
+- [x] 4.6 `cargo test`（80 单元 + 13 E2E）+ `cargo clippy --workspace --tests -- -D warnings`（含桌面壳）全绿
 
 ## 5. 前端清理与一致性（P1）
 
