@@ -61,20 +61,7 @@ url = "2"
 specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "chrono", "serde_json"] }
 specta-typescript = "=0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript", "derive"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-keyring = { version = "3.6.3", default-features = false, features = [
-    "windows-native",
-] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-keyring = { version = "3.6.3", default-features = false, features = [
-    "apple-native",
-] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3.6.3", default-features = false, features = [
-    "linux-native-sync-persistent",
-    "crypto-rust",
-    "vendored",
-] }
+# keyring 4.x：默认 v1 feature 按平台自动选后端（macOS=apple-native / Windows=windows-native /
+# Linux=zbus-secret-service + crypto-rust）。4.x 已移除 apple-native/windows-native/
+# linux-native-sync-persistent/crypto-rust/vendored 等旧 feature，故不再按 target 分别声明。
+keyring = "4.1.2"
