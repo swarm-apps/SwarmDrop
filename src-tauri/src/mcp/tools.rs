@@ -17,16 +17,16 @@ use crate::network::NetManagerState;
 
 /// 辅助：构造 MCP 错误结果（isError: true）
 fn mcp_error(msg: impl std::fmt::Display) -> Result<CallToolResult, ErrorData> {
-    Ok(CallToolResult::error(vec![rmcp::model::Content::text(
-        msg.to_string(),
-    )]))
+    Ok(CallToolResult::error(vec![
+        rmcp::model::ContentBlock::text(msg.to_string()),
+    ]))
 }
 
 /// 辅助：构造 MCP 成功结果
 fn mcp_ok(json: String) -> Result<CallToolResult, ErrorData> {
-    Ok(CallToolResult::success(vec![rmcp::model::Content::text(
-        json,
-    )]))
+    Ok(CallToolResult::success(vec![
+        rmcp::model::ContentBlock::text(json),
+    ]))
 }
 
 /// 辅助：获取 NetManager 锁，未启动时返回 MCP 错误

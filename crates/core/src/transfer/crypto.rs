@@ -41,7 +41,7 @@ impl TransferCrypto {
         plaintext: &[u8],
     ) -> aead::Result<Vec<u8>> {
         let nonce = derive_nonce(session_id, file_id, chunk_index);
-        self.cipher.encrypt(XNonce::from_slice(&nonce), plaintext)
+        self.cipher.encrypt(&XNonce::from(nonce), plaintext)
     }
 
     /// 解密分块（接收方调用）
@@ -56,7 +56,7 @@ impl TransferCrypto {
         ciphertext: &[u8],
     ) -> aead::Result<Vec<u8>> {
         let nonce = derive_nonce(session_id, file_id, chunk_index);
-        self.cipher.decrypt(XNonce::from_slice(&nonce), ciphertext)
+        self.cipher.decrypt(&XNonce::from(nonce), ciphertext)
     }
 }
 
@@ -81,8 +81,9 @@ fn derive_nonce(session_id: &Uuid, file_id: u32, chunk_index: u32) -> [u8; 24] {
 
 /// 生成随机 256-bit 加密密钥
 pub fn generate_key() -> [u8; 32] {
-    use chacha20poly1305::aead::OsRng;
-    XChaCha20Poly1305::generate_key(&mut OsRng).into()
+    use chacha20poly1305::aead::{Generate, Key};
+    // aead 0.6 移除了 OsRng re-export，改用 Generate trait（getrandom 后端，无 rng 参数）
+    Key::<XChaCha20Poly1305>::generate().into()
 }
 
 #[cfg(test)]
