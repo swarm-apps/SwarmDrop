@@ -25,9 +25,7 @@ use crate::transfer::coordinator::{
 };
 use crate::transfer::epoch::EpochGuard;
 use crate::transfer::manager::PreparedFile;
-use crate::transfer::progress::{
-    FileDesc, ProgressTracker, RuntimeTransferDirection, TransferCompleteEvent,
-};
+use crate::transfer::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
 use crate::transfer::wire::crypto::TransferCrypto;
 use crate::transfer::wire::data_frame::{
     TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
