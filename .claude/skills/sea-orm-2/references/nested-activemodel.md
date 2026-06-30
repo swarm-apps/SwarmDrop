@@ -38,6 +38,54 @@ let user = user::ActiveModel::builder()
     .save(db).await?;
 ```
 
+### save / insert / update 差异
+
+| 方法 | 行为 | 何时用 |
+|------|------|--------|
+| `save(db)` | 自动按主键状态选 INSERT 或 UPDATE（推荐默认） | 大部分场景 |
+| `insert(db)` | 强制 INSERT，主键 `Set` 也会冲突 | 明确创建新记录 |
+| `update(db)` | 强制 UPDATE，主键必须 `Set` | 明确更新 |
+| `delete(db)` | 客户端级联删除（详见下方） | 删除带子记录的实体 |
+
+### 取出嵌套 Model 并修改
+
+```rust
+// 1. 用 .take() 取出 HasOne，转为 ActiveModel 修改
+bob.profile
+    .take()              // Option<Model> → Option，原字段置空
+    .unwrap()
+    .into_active_model()
+    .set_picture("Landscape")
+    .save(db).await?;
+
+// 2. 直接 in-place 改 HasOne 字段
+let mut bob = bob.into_active_model();
+bob.profile.as_mut().unwrap().picture = Set("Hiking.jpg".into());
+bob.save(db).await?;
+```
+
+### HasMany 字段操作
+
+```rust
+let mut bob = bob.into_active_model();
+
+// push — 追加（默认 append 语义）
+bob.posts.push(post::ActiveModel::builder().set_title("Post A"));
+
+// 链式 push
+bob.posts
+    .push(post::ActiveModel::builder().set_title("Post A"))
+    .push(post::ActiveModel::builder().set_title("Post B"));
+
+// take + as_mut_vec — 取出 Vec 进行任意操作
+let mut tags = post.tags.take();
+tags.as_mut_vec().remove(0);    // 移除第 0 项
+post.tags.replace_all(tags);    // 切换为 replace 语义
+
+// replace_all — 指定精确集合（删除不在列表中的）
+bob.posts.replace_all([post_1, post_2]);
+```
+
 等价于手动执行：
 
 ```rust

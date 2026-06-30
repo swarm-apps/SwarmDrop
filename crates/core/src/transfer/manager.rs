@@ -12,6 +12,7 @@
 //! - [`super::flow::receive`] —— 接收方 accept / reject / 暂停 / 取消 + IncomingTransferRuntime 接收 helper
 //! - [`super::flow::resume`]  —— 双侧断点续传 + IncomingTransferRuntime 续传 helper
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -150,6 +151,9 @@ pub struct TransferManager {
     pub(crate) actors: ActorRegistry,
     /// 入站 data-channel 接收器。只在后台任务启动时取出一次。
     data_channel_rx: Mutex<Option<DataChannelReceiver>>,
+    /// 全局「暂停接收」开关。运行时态、不持久化（重启回到「接收中」）。
+    /// 暂停期间节点仍在线可发现、配对不受影响，仅对新 offer 婉拒（见 `incoming.rs`）。
+    receiving_paused: AtomicBool,
 }
 
 impl TransferManager {
@@ -176,7 +180,13 @@ impl TransferManager {
             cancelled_outbound_offers: DashSet::new(),
             actors: ActorRegistry::new(),
             data_channel_rx: Mutex::new(Some(data_channel_rx)),
+            receiving_paused: AtomicBool::new(false),
         }
+    }
+
+    /// 设置「暂停接收」状态。
+    pub fn set_receiving_paused(&self, paused: bool) {
+        self.receiving_paused.store(paused, Ordering::Relaxed);
     }
 
     /// 启动后台定时清理任务
@@ -254,6 +264,10 @@ impl TransferRuntime for TransferManager {
 
 #[async_trait::async_trait]
 impl IncomingTransferRuntime for TransferManager {
+    fn is_receiving_paused(&self) -> bool {
+        self.receiving_paused.load(Ordering::Relaxed)
+    }
+
     async fn handle_cancel(
         &self,
         session_id: Uuid,

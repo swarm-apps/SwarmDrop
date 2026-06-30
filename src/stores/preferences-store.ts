@@ -11,6 +11,9 @@ import { dynamicActivate, defaultLocale, type LocaleKey } from "@/lib/i18n";
 
 export type DiscoveryMode = "auto" | "lanOnly";
 
+/** 点窗口 ✕ 时的行为：每次询问 / 最小化到托盘 / 退出应用。 */
+export type CloseBehavior = "ask" | "tray" | "quit";
+
 interface PreferencesState {
   /** 语言 */
   locale: LocaleKey;
@@ -38,6 +41,10 @@ interface PreferencesState {
     /** 是否随节点启动自动启动 MCP Server */
     autoStart: boolean;
   };
+  /** 点窗口 ✕ 的行为。默认 `ask`：首次询问、可记住。 */
+  closeBehavior: CloseBehavior;
+  /** 是否已展示过「已最小化到托盘」的首次通知（仅提示一次）。 */
+  hasShownTrayHint: boolean;
 
   // === Actions ===
 
@@ -63,6 +70,10 @@ interface PreferencesState {
   setMcpPort: (port: number) => void;
   /** 设置 MCP 自动启动 */
   setMcpAutoStart: (autoStart: boolean) => void;
+  /** 设置关闭行为 */
+  setCloseBehavior: (behavior: CloseBehavior) => void;
+  /** 标记已展示过托盘首次通知 */
+  setHasShownTrayHint: (value: boolean) => void;
 }
 
 /**
@@ -96,6 +107,8 @@ export const usePreferencesStore = create<PreferencesState>()(
         port: 19527,
         autoStart: false,
       },
+      closeBehavior: "ask",
+      hasShownTrayHint: false,
 
       async setLocale(locale: LocaleKey) {
         await dynamicActivate(locale);
@@ -151,6 +164,14 @@ export const usePreferencesStore = create<PreferencesState>()(
           mcp: { ...state.mcp, autoStart },
         }));
       },
+
+      setCloseBehavior(behavior: CloseBehavior) {
+        set({ closeBehavior: behavior });
+      },
+
+      setHasShownTrayHint(value: boolean) {
+        set({ hasShownTrayHint: value });
+      },
     }),
     {
       name: "preferences-store",
@@ -165,6 +186,8 @@ export const usePreferencesStore = create<PreferencesState>()(
         provideLanHelper: state.provideLanHelper,
         transfer: state.transfer,
         mcp: state.mcp,
+        closeBehavior: state.closeBehavior,
+        hasShownTrayHint: state.hasShownTrayHint,
       }),
       onRehydrateStorage: () => {
         return (state) => {

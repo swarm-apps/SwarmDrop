@@ -213,6 +213,54 @@ pub right_id: i32,
 pub a: Option<super::composite_a::Entity>,
 ```
 
+## 外键 ON UPDATE / ON DELETE
+
+`belongs_to` 支持显式指定外键行为（codegen 默认会生成）：
+
+```rust
+#[sea_orm(
+    belongs_to,
+    from = "cake_id",
+    to = "id",
+    on_update = "Cascade",
+    on_delete = "Cascade"
+)]
+pub cake: HasOne<super::cake::Entity>,
+```
+
+取值：`Cascade`、`Restrict`、`NoAction`、`SetNull`、`SetDefault`。SQLite 不支持后加外键，但定义在 CREATE TABLE 时仍生效。
+
+## REVERSE 常量（自引用 M-N）
+
+自引用 M-N 关系会自动生成 `Entity::REVERSE` 常量，用于在 Entity Loader 中加载反向：
+
+```rust
+let user = user::Entity::load()
+    .filter_by_email("alice@rust-lang.org")
+    .with(profile::Entity)
+    .with(user_follower::Entity)            // followers（正向）
+    .with(user_follower::Entity::REVERSE)   // following（反向）
+    .one(db).await?;
+```
+
+## 关系生成的便捷方法
+
+`#[sea_orm::model]` 根据关系字段名自动生成 builder 方法：
+
+```rust
+// has_one / belongs_to → set_xxx(...)
+.set_profile(profile::ActiveModel::builder().set_picture("Tennis"))
+.set_user(user::ActiveModel::builder().set_name("Alice"))
+
+// has_many → add_xxx(...) / push(...)
+.add_post(post::ActiveModel::builder().set_title("..."))
+.add_tag(tag::ActiveModel::builder().set_tag("sunny"))
+
+// 自引用 M-N → add_follower / add_following
+alice.add_follower(bob).save(db).await?;
+sam.add_following(alice).save(db).await?;
+```
+
 ## 关系注解速查
 
 | 场景 | 注解 |
@@ -221,6 +269,7 @@ pub a: Option<super::composite_a::Entity>,
 | 一对多正向 | `#[sea_orm(has_many)]` |
 | 多对多 | `#[sea_orm(has_many, via = "junction_table")]` |
 | 反向（外键方） | `#[sea_orm(belongs_to, from = "fk", to = "pk")]` |
+| 反向+级联 | `belongs_to, ..., on_update = "Cascade", on_delete = "Cascade"` |
 | 自引用 | `#[sea_orm(self_ref, relation_enum = "...", from = "fk", to = "pk")]` |
 | 自引用反转 | `#[sea_orm(self_ref, via = "junction", reverse)]` |
 | 菱形/多路径 | `relation_enum = "..."` + `via_rel = "..."` |

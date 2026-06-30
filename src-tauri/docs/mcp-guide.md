@@ -133,6 +133,38 @@ send_files(peer_id, [转换后的绝对路径])
   → 返回 session_id
 ```
 
+## 查找已接收的文件（收件箱检索）
+
+除了发送，MCP 还能检索本机**已接收**的文件（收件箱）。推荐顺序：先 `search_inbox` 定位条目，再 `get_inbox_file` 取本地路径。检索仅覆盖**本机已接收内容，不跨设备**。
+
+### 1. 检索条目
+
+调用 `search_inbox` 按关键词查找：
+
+- `query`：关键词，支持中文（含"合同""发票"这类 2 字词）
+- `limit`（可选）：返回条数上限，默认 20
+- 返回命中条目：`id`（条目 id）、`title`、`sourceName`（来源设备）、`receivedAt`（接收时间）、`snippet`（匹配片段）、`files[]`（含 `name` 与 `relativePath`）
+- 按接收时间倒序返回
+
+### 2. 取文件本地路径
+
+拿到命中后，调用 `get_inbox_file` 定位单个文件：
+
+- `item_id`：来自 `search_inbox` 命中的 `id`
+- `relative_path` 或 `file_id`：二选一，推荐用命中里的 `files[].relativePath`
+- 返回 `localPath`（绝对路径）、`name`、`size`、`missing`
+- 若文件已被移动/删除（`missing: true`），返回缺失标识、不返回无效路径
+
+**典型流程：**
+
+```
+search_inbox(query="合同")
+  → 命中条目，记住 id 与 files[].relativePath
+
+get_inbox_file(item_id=<id>, relative_path=<relativePath>)
+  → 返回 localPath，可据此进一步处理（如再用 send_files 转发）
+```
+
 ## 注意事项
 
 - **文件路径**：最终发送给 `send_files` 的必须是绝对路径
@@ -142,13 +174,15 @@ send_files(peer_id, [转换后的绝对路径])
 - **传输结果**：对方接受/拒绝会在 SwarmDrop 应用 UI 中显示
 - **网络检查**：每次发送前建议先确认网络状态和设备在线状态
 
-## 可用的 3 个 Tool
+## 可用的 5 个 Tool
 
-| Tool                     | 作用                     | 前置条件                 |
-| ------------------------ | ------------------------ | ------------------------ |
-| `get_network_status`     | 获取 P2P 节点运行状态    | 无                       |
-| `list_available_devices` | 列出已配对且在线的设备   | 节点运行中               |
-| `send_files`             | 向指定设备发送文件       | 节点运行中，目标设备在线 |
+| Tool                     | 作用                       | 前置条件                 |
+| ------------------------ | -------------------------- | ------------------------ |
+| `get_network_status`     | 获取 P2P 节点运行状态      | 无                       |
+| `list_available_devices` | 列出已配对且在线的设备     | 节点运行中               |
+| `send_files`             | 向指定设备发送文件         | 节点运行中，目标设备在线 |
+| `search_inbox`           | 检索本机已接收文件（收件箱） | 无                       |
+| `get_inbox_file`         | 取收件箱内某文件的本地路径 | 先 `search_inbox` 定位   |
 
 ## 安全说明
 

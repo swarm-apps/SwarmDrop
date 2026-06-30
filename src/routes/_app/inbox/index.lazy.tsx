@@ -3,7 +3,7 @@
  * 收件箱 —— 展示已经成功接收的内容，和活动/恢复过程账本分离。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createLazyFileRoute } from "@tanstack/react-router";
 import {
   Archive,
@@ -16,16 +16,23 @@ import {
   Loader2,
   MapPin,
   RefreshCw,
+  Search,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
-import { commands, type InboxItemDetail, type InboxItemSummary } from "@/lib/bindings";
+import {
+  commands,
+  type InboxItemDetail,
+  type InboxItemSummary,
+  type InboxSearchHit,
+} from "@/lib/bindings";
 import { getFileIcon, getFileIconColor } from "@/lib/file-icon";
 import { useInboxStore } from "@/stores/inbox-store";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -59,6 +66,11 @@ function InboxPage() {
   const selectItem = useInboxStore((s) => s.selectItem);
   const setShowArchived = useInboxStore((s) => s.setShowArchived);
   const runAndRefresh = useInboxStore((s) => s.runAndRefresh);
+  const query = useInboxStore((s) => s.query);
+  const searching = useInboxStore((s) => s.searching);
+  const searchResults = useInboxStore((s) => s.searchResults);
+  const setQuery = useInboxStore((s) => s.setQuery);
+  const runSearch = useInboxStore((s) => s.runSearch);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
@@ -77,6 +89,15 @@ function InboxPage() {
   useEffect(() => {
     void loadDetail(selectedId);
   }, [loadDetail, selectedId]);
+
+  const isSearching = query.trim() !== "";
+
+  // 搜索词 / 归档过滤变化 → 防抖触发检索（清空由 setQuery 即时退出搜索态）。
+  useEffect(() => {
+    if (query.trim() === "") return;
+    const id = setTimeout(() => void runSearch(), 250);
+    return () => clearTimeout(id);
+  }, [query, showArchived, runSearch]);
 
   const handleRepair = () =>
     runAndRefresh(
@@ -171,11 +192,38 @@ function InboxPage() {
             </div>
           </div>
 
-          <div className="mt-4 min-h-0 flex-1 overflow-auto">
-            {loading ? (
-              <div className="flex h-full items-center justify-center">
-                <Loader2 className="size-5 animate-spin text-muted-foreground" />
-              </div>
+          <div className="relative mt-4">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t`搜索标题、来源、文件名…`}
+              className="h-9 rounded-[14px] border-transparent bg-foreground/[0.045] pl-9 text-sm dark:bg-white/[0.05]"
+            />
+          </div>
+
+          <div className="mt-3 min-h-0 flex-1 overflow-auto">
+            {isSearching ? (
+              searching ? (
+                <ListLoading />
+              ) : searchResults && searchResults.length > 0 ? (
+                <div className="flex flex-col gap-2.5">
+                  {searchResults.map((hit) => (
+                    <SearchResultItem
+                      key={hit.id}
+                      hit={hit}
+                      query={query}
+                      selected={hit.id === selectedId}
+                      onClick={() => selectItem(hit.id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <SearchEmptyState />
+              )
+            ) : loading ? (
+              <ListLoading />
             ) : items.length === 0 ? (
               <InboxEmptyState />
             ) : (
@@ -538,4 +586,96 @@ function contentKindLabel(kind: InboxItemSummary["contentKind"]): string {
     bundle: t`Bundle`,
   };
   return labels[kind];
+}
+
+function ListLoading() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+function SearchResultItem({
+  hit,
+  query,
+  selected,
+  onClick,
+}: {
+  hit: InboxSearchHit;
+  query: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full min-w-0 items-center gap-3 rounded-[18px] p-3 text-left transition-[background-color,border-color,transform] active:scale-[0.995]",
+        selected
+          ? "bg-blue-500/10 ring-1 ring-blue-500/20"
+          : "bg-foreground/[0.035] hover:bg-foreground/[0.055] dark:bg-white/[0.045] dark:hover:bg-white/[0.065]",
+      )}
+    >
+      <div className="glass-control flex size-10 shrink-0 items-center justify-center rounded-[14px] text-blue-600 dark:text-blue-300">
+        <ItemIcon title={hit.title} count={hit.itemCount} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-sm font-medium text-foreground">
+          {hit.title}
+        </h3>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          <Trans>来自 {hit.sourceName}</Trans>
+          {" · "}
+          {hit.itemCount} <Trans>项</Trans>
+        </p>
+        {hit.snippet && (
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            <HighlightedSnippet text={hit.snippet} query={query} />
+          </p>
+        )}
+      </div>
+      <span className="shrink-0 text-[11px] text-muted-foreground">
+        {formatRelativeTime(hit.receivedAt)}
+      </span>
+    </button>
+  );
+}
+
+/** 把 snippet 里匹配查询词的部分高亮（大小写不敏感）。 */
+function HighlightedSnippet({ text, query }: { text: string; query: string }) {
+  const q = query.trim();
+  if (!q) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const needle = q.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let idx = lower.indexOf(needle);
+  while (idx !== -1) {
+    if (idx > cursor) parts.push(text.slice(cursor, idx));
+    parts.push(
+      <mark
+        key={cursor}
+        className="rounded-[3px] bg-blue-500/20 px-0.5 text-foreground"
+      >
+        {text.slice(idx, idx + q.length)}
+      </mark>,
+    );
+    cursor = idx + q.length;
+    idx = lower.indexOf(needle, cursor);
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
+
+function SearchEmptyState() {
+  return (
+    <CenteredEmptyState
+      icon={Search}
+      title={<Trans>未找到匹配项</Trans>}
+      description={<Trans>试试更短的关键词，或检查是否包含已归档内容。</Trans>}
+      descriptionClassName="max-w-[26ch]"
+    />
+  );
 }

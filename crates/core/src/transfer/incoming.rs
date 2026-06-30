@@ -62,6 +62,14 @@ pub trait IncomingTransferRuntime: Send + Sync {
         let _ = peer_id;
     }
 
+    /// 是否处于全局「暂停接收」状态。
+    ///
+    /// 默认 `false`：未实现该开关的平台（如 mobile-core）行为与引入本能力前完全一致。
+    /// 暂停**仅**作用于是否接受新的传入文件传输，不影响节点在线 / 配对 / 发现。
+    fn is_receiving_paused(&self) -> bool {
+        false
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "缓存入站 offer 需要完整的对端与会话上下文"
@@ -178,6 +186,22 @@ where
                         accepted: false,
                         key: None,
                         reason: Some(OfferRejectReason::NotPaired),
+                    },
+                )
+                .await?;
+                return Ok(IncomingTransferDisposition::Handled);
+            }
+
+            // 全局「暂停接收」：节点保持在线可发现，但对新 offer 自动婉拒——
+            // 不缓存、不落盘、不发 TransferOffer 事件、不打扰本机用户。恢复后照常处理。
+            if runtime.is_receiving_paused() {
+                send_transfer_response(
+                    client,
+                    pending_id,
+                    TransferResponse::OfferResult {
+                        accepted: false,
+                        key: None,
+                        reason: Some(OfferRejectReason::ReceivingPaused),
                     },
                 )
                 .await?;

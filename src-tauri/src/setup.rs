@@ -49,6 +49,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::install_update,
             // inbox
             commands::list_inbox_items,
+            commands::search_inbox,
             commands::get_inbox_item_detail,
             commands::repair_missing_inbox_items,
             commands::open_inbox_item,
@@ -82,6 +83,10 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::clear_transfer_history,
             commands::pause_transfer,
             commands::resume_transfer,
+            commands::set_receiving_paused,
+            commands::is_receiving_paused,
+            // 应用窗口 / 托盘
+            commands::quit_app,
             // mcp
             commands::get_mcp_status,
             commands::start_mcp_server,
@@ -102,6 +107,9 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::TransferResumed,
             events::TransferDbError,
             events::TransferProjectionUpdate,
+            events::ReceivingPausedChanged,
+            events::TrayOpenReceiveFolder,
+            events::TrayOpenSettings,
         ])
 }
 
@@ -128,6 +136,11 @@ pub fn build_app() -> Builder<Wry> {
 /// 注册所有官方 + 第三方 plugin。
 fn register_plugins(builder: Builder<Wry>) -> Builder<Wry> {
     let builder = builder
+        // single-instance 必须最先注册：常驻后台 app 二次启动时唤出已有窗口而非再起进程，
+        // 避免出现两个托盘图标 / 状态错乱。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            crate::tray::show_main_window(app);
+        }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
@@ -152,6 +165,9 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
     builder.setup(move |app| {
         // tauri-specta events —— 当前未声明事件，为将来扩展预留 mount 钩子。
         specta.mount_events(app);
+
+        // 系统托盘：常驻图标 + 菜单。句柄存入 state 长存（被 drop 图标会消失）。
+        crate::tray::build_tray(app.handle())?;
 
         // 平台标题栏调整:macOS 由 tauri.conf.json 的 trafficLightPosition 控制红绿灯位置;
         // Windows / Linux 需要运行时关装饰,改由前端自画最小化/最大化/关闭三按钮。

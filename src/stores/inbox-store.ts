@@ -12,6 +12,7 @@ import {
   commands,
   type InboxItemDetail,
   type InboxItemSummary,
+  type InboxSearchHit,
 } from "@/lib/bindings";
 import { getErrorMessage } from "@/lib/errors";
 
@@ -32,6 +33,18 @@ interface InboxState {
     action: () => Promise<unknown>,
     success?: string,
   ) => Promise<void>;
+
+  // —— 搜索 ——
+  /** 当前搜索词。 */
+  query: string;
+  /** 是否正在请求搜索。 */
+  searching: boolean;
+  /** 搜索命中；`null` 表示未处于搜索态（展示原列表）。 */
+  searchResults: InboxSearchHit[] | null;
+  /** 设置搜索词；清空时退出搜索态。实际请求由组件防抖后调用 [`runSearch`]。 */
+  setQuery: (q: string) => void;
+  /** 按当前搜索词执行检索（尊重归档过滤）。 */
+  runSearch: () => Promise<void>;
 }
 
 export const useInboxStore = create<InboxState>()((set, get) => ({
@@ -40,6 +53,9 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
   detail: null,
   loading: true,
   showArchived: false,
+  query: "",
+  searching: false,
+  searchResults: null,
 
   async loadItems() {
     set({ loading: true });
@@ -81,6 +97,32 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
     set({ showArchived: value });
   },
 
+  setQuery(q) {
+    set({ query: q });
+    // 清空即退出搜索态，立即恢复原列表（不必等防抖）。
+    if (q.trim() === "") {
+      set({ searchResults: null, searching: false });
+    }
+  },
+
+  async runSearch() {
+    const { query, showArchived } = get();
+    const trimmed = query.trim();
+    if (trimmed === "") {
+      set({ searchResults: null, searching: false });
+      return;
+    }
+    set({ searching: true });
+    try {
+      const hits = await commands.searchInbox(trimmed, null, showArchived);
+      set({ searchResults: hits });
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      set({ searching: false });
+    }
+  },
+
   async runAndRefresh(action, success) {
     try {
       await action();
@@ -91,5 +133,9 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
     // 用刷新后真正生效的 selectedId 重取详情，避免取到刚被删除/归档隐藏的失效条目。
     const resolved = await get().loadItems();
     await get().loadDetail(resolved);
+    // 搜索态下，删除/归档后同步重搜，使结果列表不残留失效条目。
+    if (get().searchResults !== null) {
+      await get().runSearch();
+    }
   },
 }));

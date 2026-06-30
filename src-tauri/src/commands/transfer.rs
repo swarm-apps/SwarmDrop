@@ -11,7 +11,7 @@ use swarmdrop_core::transfer::HostEnumeratedFile;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::progress::PrepareProgressEvent;
 use tauri::ipc::Channel;
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
 use crate::host::event_bus::PrepareChannelGuard;
@@ -279,6 +279,24 @@ pub async fn resume_transfer(
         total_size: resume_info.total_size as u64,
         transferred_bytes: resume_info.transferred_bytes as u64,
     })
+}
+
+// ============ 暂停接收 ============
+
+/// 设置全局「暂停接收」。`true`=暂停：节点保持在线可发现、配对不受影响，但对新 offer
+/// 自动婉拒；`false`=恢复：新 offer 照常按既有策略处理。同步托盘文案并广播
+/// `receiving-paused-changed` 事件。
+#[tauri::command]
+#[specta::specta]
+pub async fn set_receiving_paused(app: AppHandle, paused: bool) -> crate::AppResult<()> {
+    crate::tray::apply_receiving_paused(&app, paused).await
+}
+
+/// 查询当前是否暂停接收（节点未启动视为未暂停）。
+#[tauri::command]
+#[specta::specta]
+pub async fn is_receiving_paused(app: AppHandle) -> crate::AppResult<bool> {
+    Ok(crate::tray::current_receiving_paused(&app).await)
 }
 
 // ============ 辅助函数 ============

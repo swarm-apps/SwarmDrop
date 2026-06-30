@@ -101,6 +101,14 @@ msgstr "SwarmDrop v{0} released"
 #~ msgid "SwarmDrop v{latestVersion} 已发布"
 #~ msgstr "SwarmDrop v{latestVersion} released"
 
+#: src/components/close-behavior-manager.tsx
+msgid "SwarmDrop 仍在后台运行"
+msgstr "SwarmDrop is still running in the background"
+
+#: src/components/close-behavior-manager.tsx
+msgid "SwarmDrop 需要在后台保持在线，才能接收已配对设备发来的文件。可以让它继续在{trayWord}后台运行，或彻底退出。退出后将无法被发现，也不会收到任何文件。"
+msgstr "SwarmDrop needs to stay online in the background to receive files from paired devices. You can keep it running in the {trayWord}, or quit entirely. Once you quit, it can't be discovered and won't receive any files."
+
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "一台设备正在请求与您配对"
 msgstr "A device is requesting to pair with you"
@@ -357,6 +365,14 @@ msgstr "About"
 msgid "关闭"
 msgstr "Close"
 
+#: src/components/close-behavior-manager.tsx
+msgid "关闭 SwarmDrop 窗口？"
+msgstr "Close the SwarmDrop window?"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "关闭主窗口时"
+msgstr "When closing the main window"
+
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "关闭后，包含子路径的传输会被策略拒绝"
 msgstr ""
@@ -388,6 +404,14 @@ msgstr "Maximize"
 #: src/components/layout/app-topbar.tsx
 msgid "最小化"
 msgstr "Minimize"
+
+#: src/components/close-behavior-manager.tsx
+msgid "最小化到{trayWord}"
+msgstr "Minimize to {trayWord}"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "最小化到托盘"
+msgstr "Minimize to tray"
 
 #: src/components/ForceUpdateDialog.tsx
 #~ msgid "最新版本"
@@ -937,6 +961,10 @@ msgstr ""
 msgid "已阻止"
 msgstr ""
 
+#: src/components/close-behavior-manager.tsx
+msgid "应用已最小化到{trayWord}，仍可接收文件。退出请在{trayWord}图标的菜单中选择「退出」。"
+msgstr "App minimized to the {trayWord}; it can still receive files. To quit, choose \"Quit\" from the {trayWord} icon's menu."
+
 #: src/lib/transfer-projection.ts
 msgid "应用重启后中断"
 msgstr ""
@@ -1070,6 +1098,10 @@ msgstr "Open Folder"
 msgid "打洞"
 msgstr "Direct"
 
+#: src/components/close-behavior-manager.tsx
+msgid "托盘"
+msgstr "tray"
+
 #: src/routes/_app/devices/-components/home-drop-zone.tsx
 #~ msgid "把文件拖到这里发送"
 #~ msgstr ""
@@ -1111,6 +1143,10 @@ msgstr ""
 #: src/routes/_auth/setup-password.lazy.tsx
 #~ msgid "推荐包含特殊字符"
 #~ msgstr "Recommended to include special characters"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "搜索标题、来源、文件名…"
+msgstr ""
 
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "操作系统"
@@ -1232,6 +1268,10 @@ msgstr "Service Status"
 msgid "未启动"
 msgstr "Stopped"
 
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "未找到匹配项"
+msgstr ""
+
 #: src/lib/auth-messages.ts
 #~ msgid "未找到存储的密码"
 #~ msgstr "Stored password not found"
@@ -1316,9 +1356,10 @@ msgid "来自"
 msgstr "From"
 
 #. placeholder {0}: currentOffer.deviceName
+#. placeholder {0}: hit.sourceName
 #. placeholder {0}: item.sourceName
-#. placeholder {0}: projection.peerName
 #: src/components/transfer/transfer-offer-dialog.tsx
+#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/transfer/-transfer-item.tsx
@@ -1411,6 +1452,10 @@ msgstr "Computing checksums ({0}/{1})"
 #~ msgid "此密码用于保护您的设备身份，请妥善保管"
 #~ msgstr "This password protects your device identity. Please keep it safe"
 
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "每次询问"
+msgstr "Ask every time"
+
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
 msgstr ""
@@ -1474,6 +1519,10 @@ msgstr ""
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "点对点直连，无需注册账号"
 #~ msgstr "Peer-to-peer connection, no account required"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "点窗口关闭按钮（✕）后的行为"
+msgstr "What clicking the window close button (✕) does"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "版本 {ver}"
@@ -1704,6 +1753,10 @@ msgstr "Node Status"
 msgid "节点错误"
 msgstr "Node error"
 
+#: src/components/close-behavior-manager.tsx
+msgid "菜单栏"
+msgstr "menu bar"
+
 #. placeholder {0}: repaired.length
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "补建了 {0} 条收件箱记录"
@@ -1734,6 +1787,10 @@ msgstr ""
 #: src/routes/_app/devices/index.lazy.tsx
 #~ msgid "让另一台设备输入这组配对码"
 #~ msgstr ""
+
+#: src/components/close-behavior-manager.tsx
+msgid "记住我的选择（之后可在「设置」中修改）"
+msgstr "Remember my choice (can be changed in Settings)"
 
 #: src/components/layout/nav-items.ts
 #~ msgid "设备"
@@ -1789,6 +1846,10 @@ msgstr "Device Details"
 #: src/components/layout/app-topbar.tsx
 msgid "设置"
 msgstr "Settings"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "试试更短的关键词，或检查是否包含已归档内容。"
+msgstr ""
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "该节点已存在"
@@ -1911,6 +1972,14 @@ msgstr "Connect Existing Device"
 msgid "连接请求"
 msgstr "Connection Request"
 
+#: src/components/close-behavior-manager.tsx
+msgid "退出 SwarmDrop"
+msgstr "Quit SwarmDrop"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "退出应用"
+msgstr "Quit app"
+
 #: src/routes/_app/devices/-components/home-drop-zone.tsx
 #~ msgid "选定目标设备 → 选择文件 / 文件夹 → 一键发送"
 #~ msgstr ""
@@ -1942,6 +2011,10 @@ msgstr "Select Files"
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "选择文件夹"
 msgstr "Select Folder"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "通用"
+msgstr "General"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "配对"
@@ -2047,6 +2120,7 @@ msgstr ""
 #~ msgid "需要更新"
 #~ msgstr "Update Required"
 
+#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "项"
 msgstr ""

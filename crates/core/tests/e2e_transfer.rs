@@ -33,7 +33,7 @@ use swarmdrop_core::host::{
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::run_event_loop;
-use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo};
+use swarmdrop_core::protocol::{AppRequest, AppResponse, FileInfo, OfferRejectReason};
 use swarmdrop_core::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState, UserCommand,
 };
@@ -1282,4 +1282,130 @@ async fn e2e_terminal_irreversible_under_concurrent_complete_cancel() {
         .unwrap();
     assert_eq!(m.phase, TransferPhase::Terminal);
     assert_eq!(m.terminal_reason, Some(TerminalReason::Completed));
+}
+
+/// 全局「暂停接收」：B 暂停后，A 的 Offer 被自动婉拒（reason=ReceivingPaused），
+/// B 不收 Offer 事件、不建会话；B 恢复后，新的 Offer 照常到达 B。
+/// 这覆盖 pause-receiving spec 的「暂停期间婉拒」与「恢复后正常接收」。
+/// （默认未暂停不破坏既有路径，由本文件其余全部 e2e 测试通过即证。）
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_paused_offer_declined_then_resumes_on_resume() {
+    let data = b"paused payload".to_vec();
+    let source_id = FileSourceId("src-0".to_string());
+    let meta = HostFileMetadata {
+        name: "p.bin".to_string(),
+        relative_path: "p.bin".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+
+    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+
+    // —— 暂停接收 ——
+    node_b.transfer.set_receiving_paused(true);
+    assert!(node_b.transfer.is_receiving_paused());
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id,
+            vec![HostEnumeratedFile {
+                source_id: source_id.clone(),
+                name: "p.bin".to_string(),
+                relative_path: "p.bin".to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare");
+
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(&prepared_id, &node_b.peer_id.to_string(), "node-a", &[0u32])
+        .await
+        .expect("send_offer");
+
+    // A 应收到 TransferRejected，且 reason 透传 ReceivingPaused。
+    poll_until(
+        || {
+            node_a.host.events().iter().any(|e| {
+                matches!(
+                    e,
+                    CoreEvent::TransferRejected { event } if event.session_id == session_id
+                )
+            })
+        },
+        Duration::from_secs(10),
+        "A 收到 TransferRejected(ReceivingPaused)",
+    )
+    .await;
+
+    let rejected_reason = node_a.host.events().iter().find_map(|e| match e {
+        CoreEvent::TransferRejected { event } if event.session_id == session_id => {
+            Some(event.reason.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(
+        rejected_reason,
+        Some(Some(OfferRejectReason::ReceivingPaused)),
+        "暂停期间婉拒的 reason 必须是 ReceivingPaused"
+    );
+
+    // B 不应收到 Offer 事件、也不应为该会话建任何 projection（未缓存、未落盘）。
+    assert!(
+        !received_offer(&node_b, session_id),
+        "暂停期间不得向用户弹出 Offer"
+    );
+    assert!(
+        ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+            .await
+            .expect("query b")
+            .is_none(),
+        "暂停期间不得为被婉拒的 offer 建会话"
+    );
+
+    // —— 恢复接收 ——
+    node_b.transfer.set_receiving_paused(false);
+    assert!(!node_b.transfer.is_receiving_paused());
+
+    let prepared_id2 = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id2,
+            vec![HostEnumeratedFile {
+                source_id: source_id.clone(),
+                name: "p.bin".to_string(),
+                relative_path: "p.bin".to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare 2");
+
+    let StartSendResult {
+        session_id: session_id2,
+    } = node_a
+        .transfer
+        .send_offer(
+            &prepared_id2,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+        )
+        .await
+        .expect("send_offer 2");
+
+    // 恢复后，新 Offer 应照常到达 B（要求用户确认 → received_offer 为真）。
+    poll_until(
+        || received_offer(&node_b, session_id2),
+        Duration::from_secs(10),
+        "恢复后 B 收到新 Offer",
+    )
+    .await;
 }

@@ -7,8 +7,10 @@ use std::path::PathBuf;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::{ErrorData, schemars, tool, tool_router};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
+use uuid::Uuid;
 
 use super::McpHandler;
 use crate::device::{DeviceFilter, DeviceStatus};
@@ -210,6 +212,72 @@ impl McpHandler {
         let json = serde_json::to_string_pretty(&response).unwrap_or_default();
         mcp_ok(json)
     }
+
+    /// 检索收件箱（已接收文件）
+    #[tool(
+        description = "按关键词检索本机已接收的收件箱内容，返回命中条目（标题、来源设备、文件列表含相对路径、接收时间、匹配片段）。先用它定位条目，再用 get_inbox_file 取本地路径。仅覆盖本机 inbox，不跨设备。支持中文（含'合同'这类 2 字词）。"
+    )]
+    pub async fn search_inbox(
+        &self,
+        Parameters(params): Parameters<SearchInboxParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+            return mcp_error("数据库尚未就绪，检索暂不可用");
+        };
+        let limit = params.limit.unwrap_or(20) as usize;
+        let hits =
+            match crate::database::inbox::search_inbox(&db, &params.query, limit, false).await {
+                Ok(hits) => hits,
+                Err(e) => return mcp_error(format!("检索失败: {e}")),
+            };
+        if hits.is_empty() {
+            return mcp_ok("未找到匹配项".to_string());
+        }
+        let out: Vec<McpInboxHit> = hits.into_iter().map(McpInboxHit::from).collect();
+        let json = serde_json::to_string_pretty(&out).unwrap_or_default();
+        mcp_ok(json)
+    }
+
+    /// 定位收件箱中某个文件的本地路径
+    #[tool(
+        description = "在检索命中后定位收件箱条目内单个文件的本地路径。需提供 item_id（条目 id）与文件标识：relative_path 或 file_id 二选一（推荐用 search_inbox 命中里的 files[].relativePath）。文件缺失或路径不可达时明确报告，不返回无效路径。"
+    )]
+    pub async fn get_inbox_file(
+        &self,
+        Parameters(params): Parameters<GetInboxFileParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+            return mcp_error("数据库尚未就绪，暂不可用");
+        };
+        let Ok(item_id) = Uuid::parse_str(&params.item_id) else {
+            return mcp_error(format!("无效的条目 id: {}", params.item_id));
+        };
+        let detail = match crate::database::inbox::get_inbox_item_detail(&db, item_id).await {
+            Ok(Some(detail)) => detail,
+            Ok(None) => return mcp_error(format!("未找到收件箱条目: {item_id}")),
+            Err(e) => return mcp_error(format!("查询失败: {e}")),
+        };
+        let file = detail.files.iter().find(|file| {
+            match (params.relative_path.as_deref(), params.file_id) {
+                (Some(rp), _) => file.relative_path == rp,
+                (None, Some(fid)) => file.id == fid,
+                (None, None) => false,
+            }
+        });
+        let Some(file) = file else {
+            return mcp_error("未找到对应文件：请提供有效的 relative_path 或 file_id");
+        };
+        let missing = file.missing || !std::path::Path::new(&file.local_path).exists();
+        let result = McpInboxFile {
+            name: file.name.clone(),
+            relative_path: file.relative_path.clone(),
+            local_path: (!missing).then(|| file.local_path.clone()),
+            size: file.size,
+            missing,
+        };
+        let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+        mcp_ok(json)
+    }
 }
 
 /// send_files 的输入参数
@@ -241,4 +309,77 @@ struct McpDevice {
     platform: String,
     connection: Option<String>,
     latency_ms: Option<u64>,
+}
+
+/// search_inbox 的输入参数
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SearchInboxParams {
+    /// 检索关键词（支持中文，含 2 字词如"合同"）
+    pub query: String,
+    /// 返回条数上限，默认 20
+    pub limit: Option<u32>,
+}
+
+/// get_inbox_file 的输入参数
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetInboxFileParams {
+    /// 收件箱条目 id（来自 search_inbox 命中的 id）
+    pub item_id: String,
+    /// 文件相对路径（来自 search_inbox 命中的 files[].relativePath）
+    pub relative_path: Option<String>,
+    /// 文件 id（与 relative_path 二选一）
+    pub file_id: Option<i32>,
+}
+
+/// search_inbox 命中（MCP 输出）
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpInboxHit {
+    id: String,
+    title: String,
+    source_name: String,
+    item_count: i32,
+    received_at: i64,
+    snippet: String,
+    files: Vec<McpInboxHitFile>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpInboxHitFile {
+    name: String,
+    relative_path: String,
+}
+
+impl From<crate::database::inbox::InboxSearchHit> for McpInboxHit {
+    fn from(hit: crate::database::inbox::InboxSearchHit) -> Self {
+        Self {
+            id: hit.id.to_string(),
+            title: hit.title,
+            source_name: hit.source_name,
+            item_count: hit.item_count,
+            received_at: hit.received_at,
+            snippet: hit.snippet,
+            files: hit
+                .files
+                .into_iter()
+                .map(|file| McpInboxHitFile {
+                    name: file.name,
+                    relative_path: file.relative_path,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// get_inbox_file 返回（MCP 输出）
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpInboxFile {
+    name: String,
+    relative_path: String,
+    /// 文件存在时的本地绝对路径；缺失时为 null
+    local_path: Option<String>,
+    size: i64,
+    missing: bool,
 }

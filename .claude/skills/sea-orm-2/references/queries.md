@@ -68,6 +68,34 @@ let users = user::Entity::load()
     .all(db).await?;
 ```
 
+### M-N 自引用：单层加载（无 profile 嵌套）
+
+```rust
+let alice = user::Entity::load()
+    .filter_by_email("alice@rust-lang.org")
+    .with(profile::Entity)
+    .with(user_follower::Entity)            // followers
+    .with(user_follower::Entity::REVERSE)   // following
+    .one(db).await?
+    .unwrap();
+assert_eq!(alice.followers.len(), 2);
+```
+
+### filter_by_xxx（唯一键快捷查询）
+
+`#[sea_orm::model]` 对 `#[sea_orm(unique)]` 的字段自动生成 `filter_by_xxx`：
+
+```rust
+user::Entity::load()
+    .filter_by_email("bob@sea-ql.org")   // 由 unique email 自动生成
+    .with(profile::Entity)
+    .one(db).await?;
+
+user::Entity::load()
+    .filter_by_id(42)                    // 由主键自动生成
+    .one(db).await?;
+```
+
 ### 内部机制
 
 - 1-1 关系：使用 LEFT JOIN（单条 SQL）

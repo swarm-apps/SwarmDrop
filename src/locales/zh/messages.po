@@ -106,6 +106,14 @@ msgstr "SwarmDrop v{0} 已发布"
 #~ msgid "SwarmDrop v{latestVersion} 已发布"
 #~ msgstr "SwarmDrop v{latestVersion} 已发布"
 
+#: src/components/close-behavior-manager.tsx
+msgid "SwarmDrop 仍在后台运行"
+msgstr "SwarmDrop 仍在后台运行"
+
+#: src/components/close-behavior-manager.tsx
+msgid "SwarmDrop 需要在后台保持在线，才能接收已配对设备发来的文件。可以让它继续在{trayWord}后台运行，或彻底退出。退出后将无法被发现，也不会收到任何文件。"
+msgstr "SwarmDrop 需要在后台保持在线，才能接收已配对设备发来的文件。可以让它继续在{trayWord}后台运行，或彻底退出。退出后将无法被发现，也不会收到任何文件。"
+
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "一台设备正在请求与您配对"
 msgstr "一台设备正在请求与您配对"
@@ -362,6 +370,14 @@ msgstr "关于"
 msgid "关闭"
 msgstr "关闭"
 
+#: src/components/close-behavior-manager.tsx
+msgid "关闭 SwarmDrop 窗口？"
+msgstr "关闭 SwarmDrop 窗口？"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "关闭主窗口时"
+msgstr "关闭主窗口时"
+
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "关闭后，包含子路径的传输会被策略拒绝"
 msgstr "关闭后，包含子路径的传输会被策略拒绝"
@@ -393,6 +409,14 @@ msgstr "最大化"
 #: src/components/layout/app-topbar.tsx
 msgid "最小化"
 msgstr "最小化"
+
+#: src/components/close-behavior-manager.tsx
+msgid "最小化到{trayWord}"
+msgstr "最小化到{trayWord}"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "最小化到托盘"
+msgstr "最小化到托盘"
 
 #: src/components/ForceUpdateDialog.tsx
 #~ msgid "最新版本"
@@ -942,6 +966,10 @@ msgstr "已配对设备优先展示，附近设备和配对入口收在右侧，
 msgid "已阻止"
 msgstr "已阻止"
 
+#: src/components/close-behavior-manager.tsx
+msgid "应用已最小化到{trayWord}，仍可接收文件。退出请在{trayWord}图标的菜单中选择「退出」。"
+msgstr "应用已最小化到{trayWord}，仍可接收文件。退出请在{trayWord}图标的菜单中选择「退出」。"
+
 #: src/lib/transfer-projection.ts
 msgid "应用重启后中断"
 msgstr "应用重启后中断"
@@ -1083,6 +1111,10 @@ msgstr "打开文件夹"
 msgid "打洞"
 msgstr "打洞"
 
+#: src/components/close-behavior-manager.tsx
+msgid "托盘"
+msgstr "托盘"
+
 #: src/routes/_app/devices/-components/home-drop-zone.tsx
 #~ msgid "把文件拖到这里发送"
 #~ msgstr "把文件拖到这里发送"
@@ -1124,6 +1156,10 @@ msgstr "控制是否连接公网引导节点"
 #: src/routes/_auth/setup-password.lazy.tsx
 #~ msgid "推荐包含特殊字符"
 #~ msgstr "推荐包含特殊字符"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "搜索标题、来源、文件名…"
+msgstr "搜索标题、来源、文件名…"
 
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "操作系统"
@@ -1245,6 +1281,10 @@ msgstr "服务状态"
 msgid "未启动"
 msgstr "未启动"
 
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "未找到匹配项"
+msgstr "未找到匹配项"
+
 #: src/lib/auth-messages.ts
 #~ msgid "未找到存储的密码"
 #~ msgstr "未找到存储的密码"
@@ -1329,9 +1369,10 @@ msgid "来自"
 msgstr "来自"
 
 #. placeholder {0}: currentOffer.deviceName
+#. placeholder {0}: hit.sourceName
 #. placeholder {0}: item.sourceName
-#. placeholder {0}: projection.peerName
 #: src/components/transfer/transfer-offer-dialog.tsx
+#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/transfer/-transfer-item.tsx
@@ -1424,6 +1465,10 @@ msgstr "正在计算校验和 ({0}/{1})"
 #~ msgid "此密码用于保护您的设备身份，请妥善保管"
 #~ msgstr "此密码用于保护您的设备身份，请妥善保管"
 
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "每次询问"
+msgstr "每次询问"
+
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
 msgstr "没有符合条件的附近设备"
@@ -1491,6 +1536,10 @@ msgstr "清空活动记录"
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "点对点直连，无需注册账号"
 #~ msgstr "点对点直连，无需注册账号"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "点窗口关闭按钮（✕）后的行为"
+msgstr "点窗口关闭按钮（✕）后的行为"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "版本 {ver}"
@@ -1721,6 +1770,10 @@ msgstr "节点状态"
 msgid "节点错误"
 msgstr "节点错误"
 
+#: src/components/close-behavior-manager.tsx
+msgid "菜单栏"
+msgstr "菜单栏"
+
 #. placeholder {0}: repaired.length
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "补建了 {0} 条收件箱记录"
@@ -1751,6 +1804,10 @@ msgstr "让另一台设备输入这组 6 位数字"
 #: src/routes/_app/devices/index.lazy.tsx
 #~ msgid "让另一台设备输入这组配对码"
 #~ msgstr "让另一台设备输入这组配对码"
+
+#: src/components/close-behavior-manager.tsx
+msgid "记住我的选择（之后可在「设置」中修改）"
+msgstr "记住我的选择（之后可在「设置」中修改）"
 
 #: src/components/layout/nav-items.ts
 #~ msgid "设备"
@@ -1806,6 +1863,10 @@ msgstr "设备详情"
 #: src/components/layout/app-topbar.tsx
 msgid "设置"
 msgstr "设置"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "试试更短的关键词，或检查是否包含已归档内容。"
+msgstr "试试更短的关键词，或检查是否包含已归档内容。"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "该节点已存在"
@@ -1928,6 +1989,14 @@ msgstr "连接已有设备"
 msgid "连接请求"
 msgstr "连接请求"
 
+#: src/components/close-behavior-manager.tsx
+msgid "退出 SwarmDrop"
+msgstr "退出 SwarmDrop"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "退出应用"
+msgstr "退出应用"
+
 #: src/routes/_app/devices/-components/home-drop-zone.tsx
 #~ msgid "选定目标设备 → 选择文件 / 文件夹 → 一键发送"
 #~ msgstr "选定目标设备 → 选择文件 / 文件夹 → 一键发送"
@@ -1959,6 +2028,10 @@ msgstr "选择文件"
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "选择文件夹"
 msgstr "选择文件夹"
+
+#: src/routes/_app/settings/index.lazy.tsx
+msgid "通用"
+msgstr "通用"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "配对"
@@ -2064,6 +2137,7 @@ msgstr "需要关注"
 #~ msgid "需要更新"
 #~ msgstr "需要更新"
 
+#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "项"
 msgstr "项"

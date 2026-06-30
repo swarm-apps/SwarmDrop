@@ -143,6 +143,8 @@ pub enum OfferRejectReason {
     NotPaired,
     UserDeclined,
     PolicyRejected,
+    /// 接收方处于全局「暂停接收」状态，婉拒新 offer。
+    ReceivingPaused,
 }
 
 /// 传输响应。

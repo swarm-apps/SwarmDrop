@@ -1,32 +1,32 @@
 ## ADDED Requirements
 
-### Requirement: inbox 全文索引
+### Requirement: inbox 检索索引
 
-共享 core SHALL 在 SQLite 中维护一个对 inbox 内容的 FTS5 全文索引。索引 SHALL 覆盖条目标题（`inbox_items.title`）、来源设备名（`inbox_items.source_name`）、以及该条目下所有文件的文件名（`inbox_item_files.name`）与相对路径（`inbox_item_files.relative_path`）。索引 SHALL 通过数据库触发器在 `inbox_items` 与 `inbox_item_files` 发生 INSERT / UPDATE / DELETE 时自动保持同步，调用方无需手动维护。
+共享 core SHALL 在 SQLite 中维护一张 standalone FTS5（trigram tokenizer）虚拟表，索引 inbox 内容。索引 SHALL 覆盖条目标题（`inbox_items.title`）、来源设备名（`inbox_items.source_name`）、以及该条目下所有文件的文件名（`inbox_item_files.name`）与相对路径（`inbox_item_files.relative_path`），以 inbox 条目（item）为粒度聚合为一行。索引 SHALL 在收件箱写入条目时维护、并由迁移对存量数据一次性回填；维护机制对调用方透明，调用方无需手动维护。索引内容 SHALL 与当前 inbox 保持一致。
 
 #### Scenario: 新收到的条目进入索引
 
 - **WHEN** 一次传输完成、新的 `inbox_items` 及其 `inbox_item_files` 写入数据库
-- **THEN** 系统 SHALL 自动把该条目的标题、来源名、文件名、相对路径写入 FTS 索引，使其立即可被检索
+- **THEN** 系统 SHALL 在同一写入路径把该条目的标题、来源名、文件名、相对路径写入索引，使其立即可被检索
 
-#### Scenario: 条目文件变化时索引同步
+#### Scenario: 索引与收件箱内容保持一致
 
-- **WHEN** 某 `inbox_item_files` 行被更新或删除
-- **THEN** 系统 SHALL 通过触发器同步更新 FTS 索引，使索引内容与当前数据库一致
+- **WHEN** 检索任一已存在条目（无论是本版本新写入的，还是升级前由回填导入的存量条目）
+- **THEN** 检索结果 SHALL 与当前 inbox 内容一致，调用方无需手动重建或维护索引
 
-#### Scenario: 中文与多语关键词分词
+#### Scenario: 中文与两字词检索
 
-- **WHEN** 检索包含中文或混合语言关键词
-- **THEN** FTS 配置 SHALL 能对中文内容产生可用的匹配（采用对 CJK 友好的 tokenizer，如 unicode61 配合按字切分或 trigram），不得因纯按空格分词而对中文整体失配
+- **WHEN** 检索包含中文关键词，特别是 2 个汉字的常见词（如"合同""发票"）
+- **THEN** 系统 SHALL 能对中文内容产生匹配；实现 SHALL 通过子串匹配兜底少于 3 个字符的查询，不得因 trigram 的 3-gram 下限或纯空格分词而对中文短词整体失配
 
 ### Requirement: search_inbox 查询 API
 
-共享 core SHALL 暴露 `search_inbox(query: &str, limit: usize) -> Vec<InboxSearchHit>` 查询接口。结果 SHALL 以 inbox 条目（item）为粒度，按相关度（FTS rank）降序排序，并截断到 `limit`。每个 `InboxSearchHit` SHALL 至少包含：条目 id、标题、来源设备名、接收时间、文件数、根路径，以及命中所在的字段或匹配片段（snippet）。查询 SHALL 排除 `deleted_at` 非空的条目；默认 SHALL 排除 `archived_at` 非空的条目，除非调用方显式要求包含已归档项。
+共享 core SHALL 暴露 `search_inbox(query, limit, include_archived) -> Vec<InboxSearchHit>` 查询接口。结果 SHALL 以 inbox 条目（item）为粒度，按接收时间（`received_at`）倒序排序，并截断到 `limit`。检索 SHALL 采用子串匹配（对索引文本列做 `LIKE`，≥3 个字符的查询可经 trigram 索引加速、更短的查询退化为全表扫描但结果正确），不依赖 FTS bm25 排序。每个 `InboxSearchHit` SHALL 至少包含：条目 id、标题、来源设备名、接收时间、文件数、根路径，以及命中所在字段的匹配片段（snippet，由实现生成）。查询 SHALL 排除 `deleted_at` 非空的条目；默认 SHALL 排除 `archived_at` 非空的条目，除非 `include_archived` 显式要求包含已归档项。
 
-#### Scenario: 关键词命中标题或文件名
+#### Scenario: 两字中文词命中标题或文件名
 
-- **WHEN** 调用 `search_inbox("合同", 20)` 且存在标题或文件名包含"合同"的未删除条目
-- **THEN** 系统 SHALL 返回这些条目，按相关度排序，每个结果带匹配片段，总数不超过 20
+- **WHEN** 调用 `search_inbox("合同", 20, false)` 且存在标题或文件名包含"合同"的未删除条目
+- **THEN** 系统 SHALL 返回这些条目（不得因"合同"仅 2 个字而返回空），按接收时间倒序，每个结果带匹配片段，总数不超过 20
 
 #### Scenario: 空查询或无命中
 
@@ -40,8 +40,8 @@
 
 #### Scenario: 默认排除已归档项
 
-- **WHEN** 调用方未要求包含已归档项，且某命中条目 `archived_at` 非空
-- **THEN** 系统 SHALL NOT 默认返回该条目
+- **WHEN** `include_archived` 为 false，且某命中条目 `archived_at` 非空
+- **THEN** 系统 SHALL NOT 返回该条目
 
 ### Requirement: 桌面端 search_inbox 命令
 
@@ -59,7 +59,7 @@
 
 ### Requirement: 存量索引回填
 
-引入 FTS 索引的迁移 SHALL 在首次升级时对已存在的 inbox 数据做一次性回填（rebuild），使升级前收到的历史条目同样可被检索。回填 SHALL 是幂等的：重复执行不产生重复索引行。
+引入索引的迁移 SHALL 在首次升级时对已存在的 inbox 数据做一次性回填（以 `INSERT … SELECT` 从 `inbox_items` 与 `inbox_item_files` 聚合写入索引），使升级前收到的历史条目同样可被检索。回填 SHALL 是幂等的：重复执行不产生重复索引行。
 
 #### Scenario: 升级后历史条目可搜
 
