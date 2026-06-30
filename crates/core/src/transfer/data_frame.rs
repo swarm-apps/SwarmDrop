@@ -20,9 +20,9 @@ pub const TRANSFER_DATA_VERSION: u16 = 1;
 /// 单帧最大 payload。256KiB 明文加密后约 256KiB+tag，8MiB 给协议扩展和测试留余量。
 pub const MAX_FRAME_LEN: usize = 8 * 1024 * 1024;
 
+// TAG 3（旧逐块 Ack）与 4（旧 BlockRequest 重传）已废弃；编号留空洞不复用，避免与历史帧混淆。
 const TAG_HELLO: u8 = 1;
 const TAG_BLOCK_DATA: u8 = 2;
-const TAG_BLOCK_REQUEST: u8 = 4;
 const TAG_ABORT: u8 = 5;
 const TAG_FINISH: u8 = 6;
 
@@ -66,11 +66,6 @@ pub enum TransferDataFrame {
         range: FileRange,
         ciphertext: Vec<u8>,
     },
-    BlockRequest {
-        session_id: Uuid,
-        epoch: i64,
-        range: FileRange,
-    },
     Abort {
         session_id: Uuid,
         epoch: i64,
@@ -87,7 +82,6 @@ impl TransferDataFrame {
         match self {
             Self::Hello { session_id, .. }
             | Self::BlockData { session_id, .. }
-            | Self::BlockRequest { session_id, .. }
             | Self::Abort { session_id, .. }
             | Self::Finish { session_id, .. } => *session_id,
         }
@@ -97,7 +91,6 @@ impl TransferDataFrame {
         match self {
             Self::Hello { epoch, .. }
             | Self::BlockData { epoch, .. }
-            | Self::BlockRequest { epoch, .. }
             | Self::Abort { epoch, .. }
             | Self::Finish { epoch, .. } => *epoch,
         }
@@ -204,14 +197,6 @@ fn encode_frame(frame: &TransferDataFrame) -> AppResult<Vec<u8>> {
             push_range(&mut buf, range);
             push_bytes(&mut buf, ciphertext)?;
         }
-        TransferDataFrame::BlockRequest {
-            session_id,
-            epoch,
-            range,
-        } => {
-            push_context(&mut buf, TAG_BLOCK_REQUEST, *session_id, *epoch);
-            push_range(&mut buf, range);
-        }
         TransferDataFrame::Abort {
             session_id,
             epoch,
@@ -261,11 +246,6 @@ fn decode_frame(payload: &[u8]) -> AppResult<TransferDataFrame> {
                 ciphertext,
             }
         }
-        TAG_BLOCK_REQUEST => TransferDataFrame::BlockRequest {
-            session_id,
-            epoch,
-            range: cursor.take_range()?,
-        },
         TAG_ABORT => TransferDataFrame::Abort {
             session_id,
             epoch,

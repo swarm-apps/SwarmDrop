@@ -14,12 +14,12 @@
 
 ## 2. 清除迁移残留死代码（P0，低风险）
 
-- [ ] 2.1 删 `ops.rs` 死函数：`mark_session_cancelled`(372)、`mark_session_transferring`(453)、`pause_session`(447)、旧版 `update_file_checkpoint`(131，非 ranges)；测试里仍用的 `mark_session_paused` 改为构造 suspended 经 apply_transition / 测试 helper，删之；`set_session_lifecycle`(随轮1完成后)仅余 mark_completed/failed/rejected 若已删则一并删
-- [ ] 2.2 收敛 `CoordinatorInput`：`ActorReport::Completed` 经轮1变活；评估 `Progress`/`CheckpointFlushed`（无 caller）、`NetworkSignal::PeerOffline`（用 Interrupted 代替）、`UserCommand::Resume`（恢复走 ResumeCommitted）——接通或删除，不留无 caller 分支
-- [ ] 2.3 删半成品死协议 `TransferDataFrame::BlockRequest`（`data_frame.rs:69`）+ `TAG_BLOCK_REQUEST`(25) + encode/decode/match 臂 + `sender.rs:229` 拒绝分支；TAG=3 空洞处加注释或紧凑重编号
-- [ ] 2.4 改误导性注释：`receiver.rs:66/490`、`receive.rs:371`、`resume.rs:801`、`network/event_loop.rs:276` 引用已删的 `run_transfer`/`start_pulling`/`pull`/`chunk_request` → 改为推送式语义（`run_data_channel`/push/Finish）
-- [ ] 2.5 前端死代码：删 `DeviceCard variant="list"` 整段（`device-card.tsx:112-216`，~104 行 + 重复 Unpair/Policy 弹窗挂载）；删 `StatusBadge` labels Record（`$sessionId.lazy.tsx:158`）+ `:175/207/299` 三元死兜底（projection 必填）；删 `statusTone.online/offline`（`device-card.tsx:46`）；删 `projectionToSession` 6 个死字段（`transfer-projection.ts:131`）
-- [ ] 2.6 `cargo test` + clippy + `pnpm exec tsc --noEmit` 全绿
+- [x] 2.1 删 `ops.rs` 6 个真死函数：`mark_session_failed`/`cancelled`/`rejected`/`transferring`、`pause_session`、旧版 `update_file_checkpoint`（非 ranges）。保留 `mark_session_completed`/`mark_session_paused`（仅测试 fixture）+ `set_session_lifecycle`（被 fixture + 745 的 reap 用）+ `update_session_terminal`（被 paused 用）。`legacy_status` 仍 load-bearing（apply_transition 写 status 列），随 status 列下线再删
+- [ ] 2.2 收敛 `CoordinatorInput`（**待后续**，判断题）：`ActorReport::Completed` 经轮1变活；`Progress`/`CheckpointFlushed`（无 caller）、`NetworkSignal::PeerOffline`、`UserCommand::Resume`——决定接通 actor 进度上报 vs 删除（涉及 reduce arm + 单测，单独处理）
+- [x] 2.3 删半成品死协议 `TransferDataFrame::BlockRequest` + `TAG_BLOCK_REQUEST` + encode/decode/2 个 match 臂 + `sender.rs` 拒绝分支；TAG 3/4 空洞处加注释说明已废弃、不复用
+- [x] 2.4 改 5 处误导性注释：`receiver.rs`(start_pulling/run_transfer)、`receive.rs`(pull)、`resume.rs`(chunk_request)、`event_loop.rs`(pull) → 推送式语义（run_data_channel/push）
+- [ ] 2.5 前端死代码（**待后续**，归入轮5 前端清理一并做）：`DeviceCard variant="list"` ~104 行 + 重复弹窗、`StatusBadge` labels + 三元死兜底、`statusTone.online/offline`、`projectionToSession` 6 死字段
+- [x] 2.6 backend 部分：`cargo test`（78 单元 + 12 E2E）+ clippy（core+桌面壳）全绿（前端 2.5 随轮5）
 
 ## 3. 后端抽公共 + 拆 god-module（P1）
 

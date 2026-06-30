@@ -63,7 +63,7 @@ pub struct ReceiveSession {
     created_sinks: Mutex<Vec<FileSinkId>>,
     /// 断点续传初始 bitmap（file_id → completed_chunks bitmap），首次传输为空
     initial_bitmaps: HashMap<u32, Vec<u8>>,
-    /// 传输完成信号（start_pulling 结束后发送 true）
+    /// 传输完成信号（start_data_channel 的接收循环结束后发送 true）
     finished_tx: watch::Sender<bool>,
 }
 
@@ -489,7 +489,7 @@ impl ReceiveSession {
             if let Err(e) = self.file_access.finalize_sink(&sink_id).await {
                 self.remove_created_sink(&sink_id).await;
                 // 校验失败时 .part 已被删除，但 DB bitmap 仍完整：必须 reset，否则续传/完成
-                // 路径会把该文件当作已完成跳过→丢数据。与拉取式 run_transfer 一致转 terminal/failed。
+                // 路径会把该文件当作已完成跳过→丢数据。校验失败经 fail_session 转 terminal/failed。
                 if let Err(e2) = crate::database::ops::reset_file_checkpoint(
                     &self.db,
                     self.session_id,

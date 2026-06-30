@@ -226,9 +226,6 @@ impl SendSession {
                     session_id,
                     epoch: finish_epoch,
                 }) if session_id == self.session_id && finish_epoch == epoch => Ok(()),
-                Some(TransferDataFrame::BlockRequest { .. }) => Err(AppError::Transfer(
-                    "当前 transfer-data 流不支持 BlockRequest 重传".into(),
-                )),
                 Some(TransferDataFrame::Abort { reason, .. }) => {
                     Err(AppError::Transfer(format!("对端中止传输: {reason}")))
                 }

@@ -127,22 +127,6 @@ pub async fn update_session_save_path(
     Ok(())
 }
 
-/// 更新文件的 bitmap 和已传输字节数（断点续传 checkpoint）
-pub async fn update_file_checkpoint(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    file_id: i32,
-    completed_chunks: Vec<u8>,
-    transferred_bytes: i64,
-) -> AppResult<()> {
-    update_file(db, session_id, file_id, |model| {
-        model.completed_chunks = Set(completed_chunks);
-        model.transferred_bytes = Set(transferred_bytes);
-        model.completed_ranges = Set(ranges_json(&prefix_range(transferred_bytes)));
-    })
-    .await
-}
-
 /// 更新文件 range checkpoint 和已传输字节数（新 data-channel 数据面使用）。
 pub async fn update_file_checkpoint_ranges(
     db: &DatabaseConnection,
@@ -347,66 +331,6 @@ pub async fn mark_session_completed(db: &DatabaseConnection, session_id: Uuid) -
     Ok(())
 }
 
-/// 标记传输失败
-pub async fn mark_session_failed(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    error_message: &str,
-) -> AppResult<()> {
-    update_session_terminal(db, session_id, |model, now| {
-        model.status = Set(SessionStatus::Failed);
-        set_session_lifecycle(
-            model,
-            TransferPhase::Terminal,
-            None,
-            Some(TerminalReason::FatalError),
-        );
-        model.error_message = Set(Some(error_message.to_string()));
-        model.finished_at = Set(Some(now));
-        model.updated_at = Set(now);
-    })
-    .await
-}
-
-/// 标记传输取消
-pub async fn mark_session_cancelled(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
-    update_session_terminal(db, session_id, |model, now| {
-        model.status = Set(SessionStatus::Cancelled);
-        set_session_lifecycle(
-            model,
-            TransferPhase::Terminal,
-            None,
-            Some(TerminalReason::Cancelled),
-        );
-        model.finished_at = Set(Some(now));
-        model.updated_at = Set(now);
-    })
-    .await
-}
-
-/// 标记入站 Offer 被拒绝，并保留策略或用户拒绝原因。
-pub async fn mark_session_rejected(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    reason: Option<&str>,
-) -> AppResult<()> {
-    update_session_terminal(db, session_id, |model, now| {
-        model.status = Set(SessionStatus::Cancelled);
-        set_session_lifecycle(
-            model,
-            TransferPhase::Terminal,
-            None,
-            Some(TerminalReason::Rejected),
-        );
-        if let Some(reason) = reason {
-            model.error_message = Set(Some(reason.to_string()));
-        }
-        model.finished_at = Set(Some(now));
-        model.updated_at = Set(now);
-    })
-    .await
-}
-
 /// 写入入站 Offer 的接收策略快照。
 pub async fn set_session_policy_metadata(
     db: &DatabaseConnection,
@@ -438,22 +362,6 @@ pub async fn mark_session_paused(db: &DatabaseConnection, session_id: Uuid) -> A
             Some(SuspendedReason::LocalPaused),
             None,
         );
-        model.updated_at = Set(now);
-    })
-    .await
-}
-
-/// 标记暂停并同步 session 级别已传输字节数
-pub async fn pause_session(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
-    mark_session_paused(db, session_id).await?;
-    sync_session_transferred_bytes(db, session_id).await
-}
-
-/// 恢复传输：paused/failed → transferring
-pub async fn mark_session_transferring(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
-    update_session_terminal(db, session_id, |model, now| {
-        model.status = Set(SessionStatus::Transferring);
-        set_session_lifecycle(model, TransferPhase::Active, None, None);
         model.updated_at = Set(now);
     })
     .await

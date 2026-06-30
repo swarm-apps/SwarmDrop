@@ -366,7 +366,7 @@ impl TransferManager {
 
     /// 对端断连：把该 peer 当前所有 active 传输转为 recoverable suspended(Interrupted)。
     ///
-    /// 先取消内存中的 send/receive 会话（cancel 优先于 error，pull 返回 Ok(false) 不 fail），
+    /// 先取消内存中的 send/receive 会话（cancel 优先于 error，run_data_channel 返回 Ok(false) 不 fail），
     /// 再经状态机 `Network{Interrupted}` 写 suspended/Interrupted/recoverable + 发 projection。
     /// 发送端会话由 data-channel 推送驱动、自身不轮询，靠此 hook 才能感知断连。
     pub(super) async fn handle_peer_disconnected_impl(&self, peer_id: PeerId) {

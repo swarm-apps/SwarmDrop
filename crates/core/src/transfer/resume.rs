@@ -798,7 +798,7 @@ pub(crate) fn build_file_infos_and_bitmaps(
     (file_infos, bitmaps)
 }
 
-/// 从 DB 重建 PreparedFile，不做 fs 探测（让 sender 端 chunk_request 失败时报错）
+/// 从 DB 重建 PreparedFile，不做 fs 探测（让 sender 端推送时读取源文件失败再报错）
 pub(crate) fn build_prepared_files_from_db(
     files: &[entity::transfer_file::Model],
 ) -> Vec<PreparedFile> {
