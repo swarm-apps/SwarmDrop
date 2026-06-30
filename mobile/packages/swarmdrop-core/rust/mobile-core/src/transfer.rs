@@ -39,17 +39,41 @@ pub struct MobileTransferOfferFile {
 
 impl From<TransferOfferFileEvent> for MobileTransferOfferFile {
     fn from(file: TransferOfferFileEvent) -> Self {
+        // 穷尽解构（drift guard）：core 给 TransferOfferFileEvent 加字段时这里会编译失败。
+        let TransferOfferFileEvent {
+            file_id,
+            name,
+            relative_path,
+            size,
+            is_directory,
+        } = file;
         Self {
-            file_id: file.file_id,
-            name: file.name,
+            file_id,
+            name,
             // core 用空字符串表示根目录文件；FFI 收敛到 Option
-            relative_path: if file.relative_path.is_empty() {
+            relative_path: if relative_path.is_empty() {
                 None
             } else {
-                Some(file.relative_path)
+                Some(relative_path)
             },
-            size: file.size,
-            is_directory: file.is_directory,
+            size,
+            is_directory,
+        }
+    }
+}
+
+/// 传输发起来源（人工 / MCP 代理），镜像 core `TransferOrigin`。
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum MobileTransferOrigin {
+    Human,
+    Mcp { client: Option<String> },
+}
+
+impl From<swarmdrop_core::protocol::TransferOrigin> for MobileTransferOrigin {
+    fn from(origin: swarmdrop_core::protocol::TransferOrigin) -> Self {
+        match origin {
+            swarmdrop_core::protocol::TransferOrigin::Human => Self::Human,
+            swarmdrop_core::protocol::TransferOrigin::Mcp { client } => Self::Mcp { client },
         }
     }
 }
@@ -61,20 +85,33 @@ pub struct MobileTransferOffer {
     pub device_name: String,
     pub files: Vec<MobileTransferOfferFile>,
     pub total_size: u64,
+    pub origin: MobileTransferOrigin,
     pub policy_action: Option<String>,
     pub policy_reason: Option<String>,
 }
 
 impl From<TransferOfferEvent> for MobileTransferOffer {
     fn from(offer: TransferOfferEvent) -> Self {
+        // 穷尽解构（drift guard）：core 给 TransferOfferEvent 加字段时这里会编译失败。
+        let TransferOfferEvent {
+            session_id,
+            peer_id,
+            device_name,
+            files,
+            total_size,
+            origin,
+            policy_action,
+            policy_reason,
+        } = offer;
         Self {
-            session_id: offer.session_id.to_string(),
-            peer_id: offer.peer_id,
-            device_name: offer.device_name,
-            files: offer.files.into_iter().map(Into::into).collect(),
-            total_size: offer.total_size,
-            policy_action: offer.policy_action,
-            policy_reason: offer.policy_reason,
+            session_id: session_id.to_string(),
+            peer_id,
+            device_name,
+            files: files.into_iter().map(Into::into).collect(),
+            total_size,
+            origin: origin.into(),
+            policy_action,
+            policy_reason,
         }
     }
 }
@@ -155,7 +192,14 @@ impl MobileCore {
             .map_err(|_| FfiError::Transfer(format!("invalid prepared_id: {prepared_id}")))?;
         let manager = self.transfer_manager_arc().await?;
         let result = manager
-            .send_offer(&prepared_uuid, &peer_id, &peer_name, &file_ids)
+            .send_offer(
+                &prepared_uuid,
+                &peer_id,
+                &peer_name,
+                &file_ids,
+                // 移动端发送由用户在 App 内手动发起。
+                swarmdrop_core::protocol::TransferOrigin::Human,
+            )
             .await
             .map_err(FfiError::from)?;
         Ok(MobileSendResult {

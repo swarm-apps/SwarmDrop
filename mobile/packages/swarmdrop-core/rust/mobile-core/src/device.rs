@@ -78,16 +78,28 @@ pub struct MobileDeviceReceivePolicy {
 
 impl From<DeviceReceivePolicy> for MobileDeviceReceivePolicy {
     fn from(policy: DeviceReceivePolicy) -> Self {
+        // 穷尽解构：上游加字段时这里会编译失败，强制同步。
+        let DeviceReceivePolicy {
+            auto_accept,
+            require_confirmation,
+            max_transfer_bytes,
+            allow_directories,
+            allow_relay_auto_accept,
+            save_behavior,
+            default_save_location,
+            allow_mcp_send_to_device,
+            expires_at,
+        } = policy;
         Self {
-            auto_accept: policy.auto_accept,
-            require_confirmation: policy.require_confirmation,
-            max_transfer_bytes: policy.max_transfer_bytes,
-            allow_directories: policy.allow_directories,
-            allow_relay_auto_accept: policy.allow_relay_auto_accept,
-            save_behavior: policy.save_behavior.into(),
-            default_save_location: policy.default_save_location,
-            allow_mcp_send_to_device: policy.allow_mcp_send_to_device,
-            expires_at: policy.expires_at,
+            auto_accept,
+            require_confirmation,
+            max_transfer_bytes,
+            allow_directories,
+            allow_relay_auto_accept,
+            save_behavior: save_behavior.into(),
+            default_save_location,
+            allow_mcp_send_to_device,
+            expires_at,
         }
     }
 }
@@ -128,47 +140,68 @@ pub struct MobileDevice {
 
 impl From<Device> for MobileDevice {
     fn from(device: Device) -> Self {
+        // 穷尽解构：上游加字段时这里会编译失败，强制同步。
+        let Device {
+            peer_id,
+            os_info,
+            status,
+            connection,
+            latency,
+            is_paired,
+            trust_level,
+            receive_policy,
+            trust_confirmed,
+        } = device;
         Self {
-            peer_id: device.peer_id.to_string(),
-            name: device.os_info.name,
-            hostname: device.os_info.hostname,
-            os: device.os_info.os,
-            platform: device.os_info.platform,
-            arch: device.os_info.arch,
-            status: match device.status {
+            peer_id: peer_id.to_string(),
+            name: os_info.name,
+            hostname: os_info.hostname,
+            os: os_info.os,
+            platform: os_info.platform,
+            arch: os_info.arch,
+            status: match status {
                 DeviceStatus::Online => "online".to_string(),
                 DeviceStatus::Offline => "offline".to_string(),
             },
-            connection: device.connection.map(|connection| match connection {
+            connection: connection.map(|connection| match connection {
                 ConnectionType::Lan => "lan".to_string(),
                 ConnectionType::Dcutr => "dcutr".to_string(),
                 ConnectionType::Relay => "relay".to_string(),
             }),
-            latency_ms: device.latency,
-            is_paired: device.is_paired,
-            trust_level: device.trust_level.map(Into::into),
-            receive_policy: device.receive_policy.map(Into::into),
-            trust_confirmed: device.trust_confirmed,
+            latency_ms: latency,
+            is_paired,
+            trust_level: trust_level.map(Into::into),
+            receive_policy: receive_policy.map(Into::into),
+            trust_confirmed,
         }
     }
 }
 
 impl From<PairedDeviceInfo> for MobileDevice {
     fn from(info: PairedDeviceInfo) -> Self {
+        // 穷尽解构：上游加字段时这里会编译失败，强制同步。
+        let PairedDeviceInfo {
+            peer_id,
+            os_info,
+            paired_at: _,
+            trust_level,
+            receive_policy,
+            trust_confirmed,
+        } = info;
         Self {
-            peer_id: info.peer_id.to_string(),
-            name: info.os_info.name,
-            hostname: info.os_info.hostname,
-            os: info.os_info.os,
-            platform: info.os_info.platform,
-            arch: info.os_info.arch,
+            peer_id: peer_id.to_string(),
+            name: os_info.name,
+            hostname: os_info.hostname,
+            os: os_info.os,
+            platform: os_info.platform,
+            arch: os_info.arch,
             status: "offline".to_string(),
             connection: None,
             latency_ms: None,
             is_paired: true,
-            trust_level: Some(info.trust_level.into()),
-            receive_policy: Some(info.receive_policy.into()),
-            trust_confirmed: Some(info.trust_confirmed),
+            trust_level: Some(trust_level.into()),
+            receive_policy: Some(receive_policy.into()),
+            trust_confirmed: Some(trust_confirmed),
         }
     }
 }

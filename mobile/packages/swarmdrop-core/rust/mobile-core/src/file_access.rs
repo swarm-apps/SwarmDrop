@@ -62,13 +62,22 @@ pub struct MobileFileMetadata {
 
 impl From<HostFileMetadata> for MobileFileMetadata {
     fn from(m: HostFileMetadata) -> Self {
+        // 穷尽解构作为 drift guard：上游给 HostFileMetadata 加字段时这里会编译失败。
+        let HostFileMetadata {
+            name,
+            relative_path,
+            size,
+            modified_at,
+            checksum,
+            save_dir,
+        } = m;
         Self {
-            name: m.name,
-            relative_path: m.relative_path,
-            size: m.size,
-            modified_at: m.modified_at,
-            checksum: m.checksum,
-            save_dir: m.save_dir.map(Into::into),
+            name,
+            relative_path,
+            size,
+            modified_at,
+            checksum,
+            save_dir: save_dir.map(Into::into),
         }
     }
 }

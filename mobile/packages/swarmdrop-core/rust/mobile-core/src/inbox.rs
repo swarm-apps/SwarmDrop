@@ -72,23 +72,42 @@ pub struct MobileInboxItemSummary {
 
 impl From<inbox_ops::InboxItemSummary> for MobileInboxItemSummary {
     fn from(item: inbox_ops::InboxItemSummary) -> Self {
+        // 穷尽解构：上游 InboxItemSummary 新增字段时此处会编译失败（drift guard）。
+        let inbox_ops::InboxItemSummary {
+            id,
+            transfer_session_id,
+            source_peer_id,
+            source_name,
+            source_kind,
+            content_kind,
+            title,
+            item_count,
+            total_size,
+            root_path,
+            content_hash,
+            received_at,
+            last_opened_at,
+            archived_at,
+            deleted_at,
+            missing,
+        } = item;
         Self {
-            id: item.id.to_string(),
-            transfer_session_id: item.transfer_session_id.map(|id| id.to_string()),
-            source_peer_id: item.source_peer_id,
-            source_name: item.source_name,
-            source_kind: item.source_kind.into(),
-            content_kind: item.content_kind.into(),
-            title: item.title,
-            item_count: item.item_count.max(0) as u32,
-            total_size: item.total_size.max(0) as u64,
-            root_path: item.root_path,
-            content_hash: item.content_hash,
-            received_at: item.received_at,
-            last_opened_at: item.last_opened_at,
-            archived_at: item.archived_at,
-            deleted_at: item.deleted_at,
-            missing: item.missing,
+            id: id.to_string(),
+            transfer_session_id: transfer_session_id.map(|id| id.to_string()),
+            source_peer_id,
+            source_name,
+            source_kind: source_kind.into(),
+            content_kind: content_kind.into(),
+            title,
+            item_count: item_count.max(0) as u32,
+            total_size: total_size.max(0) as u64,
+            root_path,
+            content_hash,
+            received_at,
+            last_opened_at,
+            archived_at,
+            deleted_at,
+            missing,
         }
     }
 }
@@ -107,15 +126,26 @@ pub struct MobileInboxFileEntry {
 
 impl From<inbox_ops::InboxItemFileEntry> for MobileInboxFileEntry {
     fn from(file: inbox_ops::InboxItemFileEntry) -> Self {
+        // 穷尽解构：上游 InboxItemFileEntry 新增字段时此处会编译失败（drift guard）。
+        let inbox_ops::InboxItemFileEntry {
+            id,
+            transfer_file_id,
+            relative_path,
+            name,
+            size,
+            checksum,
+            local_path,
+            missing,
+        } = file;
         Self {
-            id: file.id.max(0) as u32,
-            transfer_file_id: file.transfer_file_id.map(|id| id.max(0) as u32),
-            relative_path: file.relative_path,
-            name: file.name,
-            size: file.size.max(0) as u64,
-            checksum: file.checksum,
-            local_path: file.local_path,
-            missing: file.missing,
+            id: id.max(0) as u32,
+            transfer_file_id: transfer_file_id.map(|id| id.max(0) as u32),
+            relative_path,
+            name,
+            size: size.max(0) as u64,
+            checksum,
+            local_path,
+            missing,
         }
     }
 }
@@ -129,10 +159,16 @@ pub struct MobileInboxItemDetail {
 
 impl From<inbox_ops::InboxItemDetail> for MobileInboxItemDetail {
     fn from(detail: inbox_ops::InboxItemDetail) -> Self {
+        // 穷尽解构：上游 InboxItemDetail 新增字段时此处会编译失败（drift guard）。
+        let inbox_ops::InboxItemDetail {
+            item,
+            files,
+            transfer,
+        } = detail;
         Self {
-            item: detail.item.into(),
-            files: detail.files.into_iter().map(Into::into).collect(),
-            transfer: detail.transfer.map(Into::into),
+            item: item.into(),
+            files: files.into_iter().map(Into::into).collect(),
+            transfer: transfer.map(Into::into),
         }
     }
 }

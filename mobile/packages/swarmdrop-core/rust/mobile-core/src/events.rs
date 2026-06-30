@@ -33,12 +33,22 @@ pub struct MobileFileProgress {
 
 impl From<swarmdrop_core::transfer::progress::FileProgressInfo> for MobileFileProgress {
     fn from(f: swarmdrop_core::transfer::progress::FileProgressInfo) -> Self {
+        // 穷尽解构（不带 `..`）作为 drift guard：上游 FileProgressInfo 加字段时此处编译失败
+        let swarmdrop_core::transfer::progress::FileProgressInfo {
+            file_id,
+            name,
+            size,
+            transferred,
+            status,
+            chunks_done: _,
+            total_chunks: _,
+        } = f;
         Self {
-            file_id: f.file_id,
-            name: f.name,
-            size: f.size,
-            transferred: f.transferred,
-            status: match f.status {
+            file_id,
+            name,
+            size,
+            transferred,
+            status: match status {
                 FileTransferStatus::Pending => "pending",
                 FileTransferStatus::Transferring => "transferring",
                 FileTransferStatus::Completed => "completed",

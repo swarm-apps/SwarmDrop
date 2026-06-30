@@ -103,12 +103,20 @@ pub struct MobileTransferProjectionFile {
 
 impl From<ops::TransferProjectionFile> for MobileTransferProjectionFile {
     fn from(file: ops::TransferProjectionFile) -> Self {
+        // 穷尽解构 drift guard：上游给 `TransferProjectionFile` 加字段时这里会编译失败。
+        let ops::TransferProjectionFile {
+            file_id,
+            name,
+            relative_path,
+            size,
+            transferred_bytes,
+        } = file;
         Self {
-            file_id: file.file_id.max(0) as u32,
-            name: file.name,
-            relative_path: file.relative_path,
-            size: file.size.max(0) as u64,
-            transferred_bytes: file.transferred_bytes.max(0) as u64,
+            file_id: file_id.max(0) as u32,
+            name,
+            relative_path,
+            size: size.max(0) as u64,
+            transferred_bytes: transferred_bytes.max(0) as u64,
         }
     }
 }
@@ -138,26 +146,48 @@ pub struct MobileTransferProjection {
 
 impl From<ops::TransferProjection> for MobileTransferProjection {
     fn from(projection: ops::TransferProjection) -> Self {
+        // 穷尽解构 drift guard：上游给 `TransferProjection` 加字段时这里会编译失败。
+        let ops::TransferProjection {
+            session_id,
+            direction,
+            peer_id,
+            peer_name,
+            phase,
+            suspended_reason,
+            terminal_reason,
+            recoverable,
+            epoch,
+            total_size,
+            transferred_bytes,
+            started_at,
+            updated_at,
+            finished_at,
+            error_message,
+            policy_action,
+            policy_reason,
+            save_path,
+            files,
+        } = projection;
         Self {
-            session_id: projection.session_id.to_string(),
-            direction: projection.direction.into(),
-            peer_id: projection.peer_id,
-            peer_name: projection.peer_name,
-            phase: projection.phase.into(),
-            suspended_reason: projection.suspended_reason.map(Into::into),
-            terminal_reason: projection.terminal_reason.map(Into::into),
-            recoverable: projection.recoverable,
-            epoch: projection.epoch,
-            total_size: projection.total_size.max(0) as u64,
-            transferred_bytes: projection.transferred_bytes.max(0) as u64,
-            started_at: projection.started_at,
-            updated_at: projection.updated_at,
-            finished_at: projection.finished_at,
-            error_message: projection.error_message,
-            policy_action: projection.policy_action,
-            policy_reason: projection.policy_reason,
-            save_location: projection.save_path.map(Into::into),
-            files: projection.files.into_iter().map(Into::into).collect(),
+            session_id: session_id.to_string(),
+            direction: direction.into(),
+            peer_id,
+            peer_name,
+            phase: phase.into(),
+            suspended_reason: suspended_reason.map(Into::into),
+            terminal_reason: terminal_reason.map(Into::into),
+            recoverable,
+            epoch,
+            total_size: total_size.max(0) as u64,
+            transferred_bytes: transferred_bytes.max(0) as u64,
+            started_at,
+            updated_at,
+            finished_at,
+            error_message,
+            policy_action,
+            policy_reason,
+            save_location: save_path.map(Into::into),
+            files: files.into_iter().map(Into::into).collect(),
         }
     }
 }

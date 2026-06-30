@@ -29,6 +29,32 @@ pnpm --filter react-native-swarmdrop-core prepare
 前两步刷新 Rust 静态库、TS bindings 和 C++ bridge；最后一步刷新 package `exports.types` 指向的
 `lib/typescript`，否则 app 的 `react-native-swarmdrop-core` 类型解析会继续看到旧 API。
 
+### 镜像 core struct 的 `From` impl 必须用穷尽解构（drift guard）
+
+mobile-core 给每个跨 FFI 的 core 类型手写一个 `Mobile*` uniffi 镜像——这是 uniffi 官方推荐的
+wrap 层模式：core 保持平台中立（可同时被 Tauri / RN / WASM / CLI 复用）、FFI 类型按端调优
+（`PeerId/Uuid → String`、`"" → Option`）。**不要**反过来给 core 加 uniffi feature/derive：
+uniffi 无法 derive `PeerId` / SeaORM `Model` / `chrono::DateTime`（仍要投影），还会污染
+megazord 的类型名空间。
+
+代价是镜像会和 core 漂移。约定：**镜像的 `From<CoreStruct>` 一律先穷尽解构再构造**，禁止用字段
+访问（`offer.field`）——这样 core 给该 struct 加字段时，mobile-core 会**编译失败**而非静默漏字段：
+
+```rust
+// ✅ 穷尽解构（无 `..`）：core 加字段 → 这里编译报错，逼你处理
+impl From<TransferOfferEvent> for MobileTransferOffer {
+    fn from(offer: TransferOfferEvent) -> Self {
+        let TransferOfferEvent { session_id, peer_id, /* …列全… */, origin } = offer;
+        Self { session_id: session_id.to_string(), origin: origin.into(), /* … */ }
+    }
+}
+```
+
+- **enum 的 `From` 不用改**：`match` 已天然穷尽，core 加变体即编译失败。
+- 只用不到的字段绑 `_`（如 `paired_at: _`），保持穷尽的同时不触发 unused 警告。
+
+**相关文件**：`packages/swarmdrop-core/rust/mobile-core/src/{transfer,events,network,history,device,inbox,file_access}.rs`
+
 ## Callback 错误必须包成 uniffi enum 形状
 
 ### 抛错前用 `FfiError.Variant.new(msg)` 包装

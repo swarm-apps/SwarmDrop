@@ -79,9 +79,11 @@ pub struct MobileCandidateSourceStatus {
 
 impl From<CandidateSourceStatus> for MobileCandidateSourceStatus {
     fn from(status: CandidateSourceStatus) -> Self {
+        // 穷尽解构 drift guard：core 给 CandidateSourceStatus 加字段时这里会编译失败。
+        let CandidateSourceStatus { source, count } = status;
         Self {
-            source: status.source.into(),
-            count: status.count as u64,
+            source: source.into(),
+            count: count as u64,
         }
     }
 }
@@ -112,46 +114,62 @@ pub struct MobileNetworkStatus {
 
 impl From<CoreNetworkStatus> for MobileNetworkStatus {
     fn from(status: CoreNetworkStatus) -> Self {
+        // 穷尽解构 drift guard：core 给 NetworkStatus 加字段时这里会编译失败。
+        let CoreNetworkStatus {
+            status,
+            peer_id,
+            listen_addrs,
+            nat_status,
+            public_addr,
+            connected_peers,
+            discovered_peers,
+            relay_ready,
+            relay_peers,
+            bootstrap_connected,
+            discovery_mode,
+            auto_discover_lan_helpers,
+            local_lan_helper_enabled,
+            local_lan_helper_running,
+            relay_server_enabled,
+            lan_helper_advertised_addrs,
+            lan_helper_count,
+            bootstrap_candidate_count,
+            candidate_sources,
+            relay_source,
+        } = status;
         Self {
-            status: match status.status {
+            status: match status {
                 NodeStatus::Running => "running".to_string(),
                 NodeStatus::Stopped => "stopped".to_string(),
             },
-            peer_id: status.peer_id.map(|peer_id| peer_id.to_string()),
-            listen_addrs: status
-                .listen_addrs
+            peer_id: peer_id.map(|peer_id| peer_id.to_string()),
+            listen_addrs: listen_addrs
                 .into_iter()
                 .map(|addr| addr.to_string())
                 .collect(),
-            nat_status: format!("{:?}", status.nat_status),
-            public_addr: status.public_addr.map(|addr| addr.to_string()),
-            connected_peers: status.connected_peers as u64,
-            discovered_peers: status.discovered_peers as u64,
-            relay_ready: status.relay_ready,
-            relay_peers: status
-                .relay_peers
+            nat_status: format!("{nat_status:?}"),
+            public_addr: public_addr.map(|addr| addr.to_string()),
+            connected_peers: connected_peers as u64,
+            discovered_peers: discovered_peers as u64,
+            relay_ready,
+            relay_peers: relay_peers
                 .into_iter()
                 .map(|peer_id| peer_id.to_string())
                 .collect(),
-            bootstrap_connected: status.bootstrap_connected,
-            discovery_mode: status.discovery_mode.into(),
-            auto_discover_lan_helpers: status.auto_discover_lan_helpers,
-            local_lan_helper_enabled: status.local_lan_helper_enabled,
-            local_lan_helper_running: status.local_lan_helper_running,
-            relay_server_enabled: status.relay_server_enabled,
-            lan_helper_advertised_addrs: status
-                .lan_helper_advertised_addrs
+            bootstrap_connected,
+            discovery_mode: discovery_mode.into(),
+            auto_discover_lan_helpers,
+            local_lan_helper_enabled,
+            local_lan_helper_running,
+            relay_server_enabled,
+            lan_helper_advertised_addrs: lan_helper_advertised_addrs
                 .into_iter()
                 .map(|addr| addr.to_string())
                 .collect(),
-            lan_helper_count: status.lan_helper_count as u64,
-            bootstrap_candidate_count: status.bootstrap_candidate_count as u64,
-            candidate_sources: status
-                .candidate_sources
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            relay_source: status.relay_source.map(Into::into),
+            lan_helper_count: lan_helper_count as u64,
+            bootstrap_candidate_count: bootstrap_candidate_count as u64,
+            candidate_sources: candidate_sources.into_iter().map(Into::into).collect(),
+            relay_source: relay_source.map(Into::into),
         }
     }
 }
@@ -168,8 +186,7 @@ impl MobileCore {
 
         // 启动前先确保 SQLite 已就绪（断点续传 / 历史记录都依赖它）
         let db = self.ensure_db().await?;
-        let event_bus =
-            self.event_bus_arc() as std::sync::Arc<dyn swarmdrop_core::host::EventBus>;
+        let event_bus = self.event_bus_arc() as std::sync::Arc<dyn swarmdrop_core::host::EventBus>;
 
         let file_access = self.file_access_arc();
 
