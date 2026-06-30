@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use crate::protocol::{FileInfo, FileRange};
-use crate::transfer::{calc_total_chunks, CHUNK_SIZE};
+use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
 use crate::{AppError, AppResult};
 
 /// Finish 前校验所有文件的 bitmap 都已收满（空文件视为已完成）。
@@ -139,7 +139,11 @@ pub(crate) fn bytes_from_bitmap(bitmap: &[u8], file_size: u64, total_chunks: u32
 }
 
 /// 把 bitmap 转成已落盘的连续 (offset, length) ranges（相邻块合并）。
-pub(crate) fn ranges_from_bitmap(bitmap: &[u8], file_size: u64, total_chunks: u32) -> Vec<(u64, u64)> {
+pub(crate) fn ranges_from_bitmap(
+    bitmap: &[u8],
+    file_size: u64,
+    total_chunks: u32,
+) -> Vec<(u64, u64)> {
     let mut ranges = Vec::new();
     let mut current: Option<(u64, u64)> = None;
 

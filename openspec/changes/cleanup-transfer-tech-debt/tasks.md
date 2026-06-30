@@ -15,7 +15,7 @@
 ## 2. 清除迁移残留死代码（P0，低风险）
 
 - [x] 2.1 删 `ops.rs` 6 个真死函数：`mark_session_failed`/`cancelled`/`rejected`/`transferring`、`pause_session`、旧版 `update_file_checkpoint`（非 ranges）。保留 `mark_session_completed`/`mark_session_paused`（仅测试 fixture）+ `set_session_lifecycle`（被 fixture + 745 的 reap 用）+ `update_session_terminal`（被 paused 用）。`legacy_status` 仍 load-bearing（apply_transition 写 status 列），随 status 列下线再删
-- [ ] 2.2 收敛 `CoordinatorInput`（**待后续**，判断题）：`ActorReport::Completed` 经轮1变活；`Progress`/`CheckpointFlushed`（无 caller）、`NetworkSignal::PeerOffline`、`UserCommand::Resume`——决定接通 actor 进度上报 vs 删除（涉及 reduce arm + 单测，单独处理）
+- [x] 2.2 收敛 `CoordinatorInput`（判断结论：**全删**）：`ActorReport::Completed` 经轮1变活；其余 4 个变体零生产 dispatch caller，故删：`ActorReport::Progress`/`CheckpointFlushed`（进度按设计绕过状态机走 `transfer-progress` 事件直更 projection，reduce 恒 None，接通无意义）、`NetworkSignal::PeerOffline`（对端断连走 `Network{Interrupted}`）、`UserCommand::Resume`（恢复走 ResumeProbe/Commit 探测协议）。同步删 reduce arm + 改 2 处单测（`terminal_is_irreversible` 用 Pause、`remote_pause_is_recoverable_suspended` 去 peer_offline 块）。**偏差批注**：`SuspendedReason::PeerOffline`（entity 枚举）+ 前端 `transfer-projection.ts` `case "peer_offline"` 现已不可达，但 entity 按 design 边界「不动 entity/migration」保留；前端那条留待轮5 顺手删
 - [x] 2.3 删半成品死协议 `TransferDataFrame::BlockRequest` + `TAG_BLOCK_REQUEST` + encode/decode/2 个 match 臂 + `sender.rs` 拒绝分支；TAG 3/4 空洞处加注释说明已废弃、不复用
 - [x] 2.4 改 5 处误导性注释：`receiver.rs`(start_pulling/run_transfer)、`receive.rs`(pull)、`resume.rs`(chunk_request)、`event_loop.rs`(pull) → 推送式语义（run_data_channel/push）
 - [ ] 2.5 前端死代码（**待后续**，归入轮5 前端清理一并做）：`DeviceCard variant="list"` ~104 行 + 重复弹窗、`StatusBadge` labels + 三元死兜底、`statusTone.online/offline`、`projectionToSession` 6 死字段
