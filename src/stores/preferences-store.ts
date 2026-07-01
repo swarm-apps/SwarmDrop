@@ -9,6 +9,11 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { createTauriStorage } from "@/lib/tauri-store";
 import { dynamicActivate, defaultLocale, type LocaleKey } from "@/lib/i18n";
 
+export type DiscoveryMode = "auto" | "lanOnly";
+
+/** 点窗口 ✕ 时的行为：每次询问 / 最小化到托盘 / 退出应用。 */
+export type CloseBehavior = "ask" | "tray" | "quit";
+
 interface PreferencesState {
   /** 语言 */
   locale: LocaleKey;
@@ -18,12 +23,16 @@ interface PreferencesState {
   autoStart: boolean;
   /** 自定义引导节点地址列表（Multiaddr 格式） */
   customBootstrapNodes: string[];
+  /** 网络发现模式 */
+  discoveryMode: DiscoveryMode;
+  /** 自动发现局域网协助节点 */
+  autoDiscoverLanHelpers: boolean;
+  /** 本设备提供局域网协助能力 */
+  provideLanHelper: boolean;
   /** 文件传输设置 */
   transfer: {
     /** 接收文件的默认保存路径 */
     savePath: string;
-    /** 是否自动接受已配对设备的文件 */
-    autoAccept: boolean;
   };
   /** MCP Server 设置 */
   mcp: {
@@ -32,6 +41,10 @@ interface PreferencesState {
     /** 是否随节点启动自动启动 MCP Server */
     autoStart: boolean;
   };
+  /** 点窗口 ✕ 的行为。默认 `ask`：首次询问、可记住。 */
+  closeBehavior: CloseBehavior;
+  /** 是否已展示过「已最小化到托盘」的首次通知（仅提示一次）。 */
+  hasShownTrayHint: boolean;
 
   // === Actions ===
 
@@ -45,14 +58,22 @@ interface PreferencesState {
   addBootstrapNode: (addr: string) => void;
   /** 删除自定义引导节点 */
   removeBootstrapNode: (addr: string) => void;
+  /** 设置网络发现模式 */
+  setDiscoveryMode: (mode: DiscoveryMode) => void;
+  /** 设置是否自动发现局域网协助节点 */
+  setAutoDiscoverLanHelpers: (enabled: boolean) => void;
+  /** 设置本设备是否提供局域网协助能力 */
+  setProvideLanHelper: (enabled: boolean) => void;
   /** 设置传输保存路径 */
   setTransferSavePath: (path: string) => void;
-  /** 设置自动接收 */
-  setTransferAutoAccept: (autoAccept: boolean) => void;
   /** 设置 MCP 端口 */
   setMcpPort: (port: number) => void;
   /** 设置 MCP 自动启动 */
   setMcpAutoStart: (autoStart: boolean) => void;
+  /** 设置关闭行为 */
+  setCloseBehavior: (behavior: CloseBehavior) => void;
+  /** 标记已展示过托盘首次通知 */
+  setHasShownTrayHint: (value: boolean) => void;
 }
 
 /**
@@ -76,14 +97,18 @@ export const usePreferencesStore = create<PreferencesState>()(
       deviceName: "",
       autoStart: false,
       customBootstrapNodes: [],
+      discoveryMode: "auto",
+      autoDiscoverLanHelpers: true,
+      provideLanHelper: false,
       transfer: {
         savePath: "",
-        autoAccept: false,
       },
       mcp: {
         port: 19527,
         autoStart: false,
       },
+      closeBehavior: "ask",
+      hasShownTrayHint: false,
 
       async setLocale(locale: LocaleKey) {
         await dynamicActivate(locale);
@@ -110,15 +135,21 @@ export const usePreferencesStore = create<PreferencesState>()(
         }));
       },
 
+      setDiscoveryMode(discoveryMode: DiscoveryMode) {
+        set({ discoveryMode });
+      },
+
+      setAutoDiscoverLanHelpers(autoDiscoverLanHelpers: boolean) {
+        set({ autoDiscoverLanHelpers });
+      },
+
+      setProvideLanHelper(provideLanHelper: boolean) {
+        set({ provideLanHelper });
+      },
+
       setTransferSavePath(path: string) {
         set((state) => ({
           transfer: { ...state.transfer, savePath: path },
-        }));
-      },
-
-      setTransferAutoAccept(autoAccept: boolean) {
-        set((state) => ({
-          transfer: { ...state.transfer, autoAccept },
         }));
       },
 
@@ -133,6 +164,14 @@ export const usePreferencesStore = create<PreferencesState>()(
           mcp: { ...state.mcp, autoStart },
         }));
       },
+
+      setCloseBehavior(behavior: CloseBehavior) {
+        set({ closeBehavior: behavior });
+      },
+
+      setHasShownTrayHint(value: boolean) {
+        set({ hasShownTrayHint: value });
+      },
     }),
     {
       name: "preferences-store",
@@ -142,8 +181,13 @@ export const usePreferencesStore = create<PreferencesState>()(
         deviceName: state.deviceName,
         autoStart: state.autoStart,
         customBootstrapNodes: state.customBootstrapNodes,
+        discoveryMode: state.discoveryMode,
+        autoDiscoverLanHelpers: state.autoDiscoverLanHelpers,
+        provideLanHelper: state.provideLanHelper,
         transfer: state.transfer,
         mcp: state.mcp,
+        closeBehavior: state.closeBehavior,
+        hasShownTrayHint: state.hasShownTrayHint,
       }),
       onRehydrateStorage: () => {
         return (state) => {

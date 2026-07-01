@@ -106,6 +106,10 @@ pub enum CoreEvent {
     TransferDbError {
         event: TransferDbErrorEvent,
     },
+    /// 传输投影更新（redesign：前端唯一状态源，逐步替代分散的 Transfer* 事件）。
+    TransferProjection {
+        projection: crate::database::ops::TransferProjection,
+    },
     PrepareProgress {
         event: PrepareProgressEvent,
     },
@@ -431,6 +435,19 @@ impl FileAccess for MemoryHost {
         Ok(sink)
     }
 
+    /// 续传/恢复语义：已存在的 sink 保留其字节（对应真实 host 打开既有 `.part`），
+    /// 不存在才新建空 buffer。默认实现会调 `create_sink` 清空，会破坏断点续传保真度。
+    async fn open_or_create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
+        let sink = FileSinkId(metadata.relative_path);
+        self.inner
+            .lock()
+            .expect("memory host poisoned")
+            .sinks
+            .entry(sink.clone())
+            .or_default();
+        Ok(sink)
+    }
+
     async fn write_sink_chunk(
         &self,
         sink: &FileSinkId,
@@ -509,7 +526,7 @@ impl UpdateInstaller for MemoryHost {
 mod tests {
     use std::path::PathBuf;
 
-    use swarm_p2p_core::libp2p::{identity::Keypair, PeerId};
+    use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
 
     use super::{
         AppPaths, CoreAppPaths, CoreEvent, CoreSaveLocation, DeviceIdentityBytes, EventBus,
@@ -541,6 +558,7 @@ mod tests {
             os: "test".to_string(),
             platform: "test".to_string(),
             arch: "test".to_string(),
+            capabilities: Vec::new(),
         }
     }
 
@@ -567,11 +585,7 @@ mod tests {
             IdentityMigrationState::Completed
         );
 
-        let device = PairedDeviceInfo {
-            peer_id: peer_id(),
-            os_info: os_info("phone"),
-            paired_at: 42,
-        };
+        let device = PairedDeviceInfo::new(peer_id(), os_info("phone"), 42);
         host.save_paired_devices(vec![device.clone()])
             .await
             .unwrap();

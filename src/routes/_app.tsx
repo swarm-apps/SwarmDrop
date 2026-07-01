@@ -6,6 +6,10 @@
 
 import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect } from "react";
+import {
+  AppAmbientBackground,
+  AppAmbientLightOverlay,
+} from "@/components/layout/app-ambient-background";
 import { AppTopBar } from "@/components/layout/app-topbar";
 import { useNetworkStore } from "@/stores/network-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
@@ -50,7 +54,8 @@ function AppLayout() {
     location.pathname.startsWith("/pairing");
 
   return (
-    <div className="flex h-svh flex-col">
+    <div className="app-shell flex h-svh flex-col">
+      <AppAmbientBackground />
       {!isFullScreenRoute && <AppTopBar />}
       {isFullScreenRoute && isMac && (
         <div
@@ -61,6 +66,7 @@ function AppLayout() {
       <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>
+      <AppAmbientLightOverlay />
       <ConnectionRequestDialog />
       <TransferOfferDialog />
     </div>

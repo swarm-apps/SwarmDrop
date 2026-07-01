@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use swarm_p2p_core::libp2p::{kad::Record, Multiaddr, PeerId};
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId, kad::Record};
 
 use super::code::{OnlineRecord, PairingCodeInfo, ShareCodeRecord};
 use super::dht_key;
@@ -180,10 +180,10 @@ impl PairingManager {
             .await?
             .record;
 
-        if let Some(expires) = record.expires {
-            if expires < Instant::now() {
-                return Err(AppError::ExpiredCode);
-            }
+        if let Some(expires) = record.expires
+            && expires < Instant::now()
+        {
+            return Err(AppError::ExpiredCode);
         }
 
         let peer_id = record.publisher.ok_or(AppError::InvalidCode)?;
@@ -240,11 +240,8 @@ impl PairingManager {
                     .map(|(_, info)| info)
                     .unwrap_or_else(|| OsInfo::unknown_from_peer_id(&peer_id));
 
-                let info = PairedDeviceInfo {
-                    peer_id,
-                    os_info,
-                    paired_at: chrono::Utc::now().timestamp_millis(),
-                };
+                let info =
+                    PairedDeviceInfo::new(peer_id, os_info, chrono::Utc::now().timestamp_millis());
                 self.paired_devices.insert(peer_id, info.clone());
 
                 Ok((PairingResponse::Success, Some(info)))
@@ -269,19 +266,19 @@ impl PairingManager {
         response: PairingResponse,
     ) -> AppResult<Option<PairedDeviceInfo>> {
         // 仅在接受时验证并消耗配对码；拒绝时直接发响应，无需验证
-        if let PairingMethod::Code { code } = method {
-            if matches!(response, PairingResponse::Success) {
-                let mut guard = self.active_code.lock().unwrap();
-                let info = guard.as_ref().ok_or(AppError::InvalidCode)?;
-                if &info.code != code {
-                    return Err(AppError::InvalidCode);
-                }
-                if info.is_expired() {
-                    return Err(AppError::ExpiredCode);
-                }
-                *guard = None;
-                // guard 在此处 drop，锁在 await 之前释放
+        if let PairingMethod::Code { code } = method
+            && matches!(response, PairingResponse::Success)
+        {
+            let mut guard = self.active_code.lock().unwrap();
+            let info = guard.as_ref().ok_or(AppError::InvalidCode)?;
+            if &info.code != code {
+                return Err(AppError::InvalidCode);
             }
+            if info.is_expired() {
+                return Err(AppError::ExpiredCode);
+            }
+            *guard = None;
+            // guard 在此处 drop，锁在 await 之前释放
         }
 
         let accepted = matches!(response, PairingResponse::Success);
@@ -300,11 +297,11 @@ impl PairingManager {
         };
 
         // 接受配对 → 构造 PairedDeviceInfo 并存储
-        let info = PairedDeviceInfo {
-            peer_id: pending.peer_id,
-            os_info: pending.os_info,
-            paired_at: chrono::Utc::now().timestamp_millis(),
-        };
+        let info = PairedDeviceInfo::new(
+            pending.peer_id,
+            pending.os_info,
+            chrono::Utc::now().timestamp_millis(),
+        );
         self.paired_devices.insert(info.peer_id, info.clone());
         Ok(Some(info))
     }
@@ -333,6 +330,12 @@ impl PairingManager {
 
     pub fn is_paired(&self, peer_id: &PeerId) -> bool {
         self.paired_devices.contains_key(peer_id)
+    }
+
+    pub fn get_paired_device(&self, peer_id: &PeerId) -> Option<PairedDeviceInfo> {
+        self.paired_devices
+            .get(peer_id)
+            .map(|entry| entry.value().clone())
     }
 
     pub fn add_paired_device(&self, info: PairedDeviceInfo) {

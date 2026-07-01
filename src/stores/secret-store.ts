@@ -30,6 +30,7 @@ interface SecretState {
   setHasHydrated: (state: boolean) => void;
   init: () => Promise<void>;
   addPairedDevice: (device: Omit<PairedDevice, "pairedAt">) => void;
+  upsertPairedDevice: (device: PairedDevice) => void;
   removePairedDevice: (peerId: string) => void;
   updatePairedDeviceHostname: (peerId: string, hostname: string) => void;
 }
@@ -71,6 +72,16 @@ export const useSecretStore = create<SecretState>()((set, get) => ({
         ...pairedDevices,
         { ...device, pairedAt: Date.now() },
       ],
+    });
+  },
+
+  upsertPairedDevice(device) {
+    const pairedDevices = get().pairedDevices;
+    const exists = pairedDevices.some((d) => d.peerId === device.peerId);
+    set({
+      pairedDevices: exists
+        ? pairedDevices.map((d) => (d.peerId === device.peerId ? device : d))
+        : [...pairedDevices, device],
     });
   },
 

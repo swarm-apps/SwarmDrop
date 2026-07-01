@@ -1,7 +1,109 @@
 //! 设备模型和连接类型推断。
 
 use serde::{Deserialize, Serialize};
-use swarm_p2p_core::libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
+
+/// 已配对设备信任等级。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceTrustLevel {
+    Owned,
+    #[default]
+    Collaborator,
+    Temporary,
+    Blocked,
+}
+
+/// 自动接收时的保存行为。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiveSaveBehavior {
+    /// 使用策略里配置的默认保存位置，接收完成后进入收件箱。
+    #[default]
+    InboxAndDefaultSaveLocation,
+}
+
+/// 可信设备接收策略。
+///
+/// 字段保持 host-neutral：保存位置使用字符串表达的 host 路径，桌面端解释为绝对路径，
+/// 移动端后续可解释为应用文档目录下的子路径。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceReceivePolicy {
+    pub auto_accept: bool,
+    pub require_confirmation: bool,
+    #[serde(default)]
+    pub max_transfer_bytes: Option<u64>,
+    pub allow_directories: bool,
+    pub allow_relay_auto_accept: bool,
+    #[serde(default)]
+    pub save_behavior: ReceiveSaveBehavior,
+    #[serde(default)]
+    pub default_save_location: Option<String>,
+    pub allow_mcp_send_to_device: bool,
+    #[serde(default)]
+    pub expires_at: Option<i64>,
+}
+
+impl Default for DeviceReceivePolicy {
+    fn default() -> Self {
+        Self::for_trust_level(DeviceTrustLevel::Collaborator)
+    }
+}
+
+impl DeviceReceivePolicy {
+    pub fn for_trust_level(level: DeviceTrustLevel) -> Self {
+        match level {
+            DeviceTrustLevel::Owned => Self {
+                auto_accept: true,
+                require_confirmation: false,
+                max_transfer_bytes: None,
+                allow_directories: true,
+                allow_relay_auto_accept: true,
+                save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
+                default_save_location: None,
+                allow_mcp_send_to_device: true,
+                expires_at: None,
+            },
+            DeviceTrustLevel::Collaborator => Self {
+                auto_accept: false,
+                require_confirmation: true,
+                max_transfer_bytes: None,
+                allow_directories: true,
+                allow_relay_auto_accept: false,
+                save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
+                default_save_location: None,
+                allow_mcp_send_to_device: false,
+                expires_at: None,
+            },
+            DeviceTrustLevel::Temporary => Self {
+                auto_accept: false,
+                require_confirmation: true,
+                max_transfer_bytes: Some(512 * 1024 * 1024),
+                allow_directories: false,
+                allow_relay_auto_accept: false,
+                save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
+                default_save_location: None,
+                allow_mcp_send_to_device: false,
+                expires_at: Some(chrono::Utc::now().timestamp_millis() + 24 * 60 * 60 * 1000),
+            },
+            DeviceTrustLevel::Blocked => Self {
+                auto_accept: false,
+                require_confirmation: false,
+                max_transfer_bytes: Some(0),
+                allow_directories: false,
+                allow_relay_auto_accept: false,
+                save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
+                default_save_location: None,
+                allow_mcp_send_to_device: false,
+                expires_at: None,
+            },
+        }
+    }
+}
 
 /// 设备操作系统信息。
 ///
@@ -18,6 +120,8 @@ pub struct OsInfo {
     pub os: String,
     pub platform: String,
     pub arch: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 impl Default for OsInfo {
@@ -33,6 +137,7 @@ impl Default for OsInfo {
             os: std::env::consts::OS.to_string(),
             platform: std::env::consts::OS.to_string(),
             arch: std::env::consts::ARCH.to_string(),
+            capabilities: Vec::new(),
         }
     }
 }
@@ -44,6 +149,9 @@ impl OsInfo {
     /// 引导/中继节点 agent_version 前缀（swarm-bootstrap）。
     pub const BOOTSTRAP_AGENT_PREFIX: &str = "swarm-bootstrap/";
 
+    /// 局域网协助节点 capability。
+    pub const LAN_HELPER_CAPABILITY: &str = "lan-helper";
+
     /// 检查 agent_version 是否属于 SwarmDrop 客户端。
     pub fn is_swarmdrop_agent(agent_version: &str) -> bool {
         agent_version.starts_with(Self::AGENT_PREFIX)
@@ -52,6 +160,18 @@ impl OsInfo {
     /// 检查 agent_version 是否属于引导/中继节点。
     pub fn is_bootstrap_agent(agent_version: &str) -> bool {
         agent_version.starts_with(Self::BOOTSTRAP_AGENT_PREFIX)
+    }
+
+    pub fn has_capability(&self, capability: &str) -> bool {
+        self.capabilities.iter().any(|cap| cap == capability)
+    }
+
+    pub fn with_capability(mut self, capability: impl Into<String>) -> Self {
+        let capability = capability.into();
+        if !self.capabilities.contains(&capability) {
+            self.capabilities.push(capability);
+        }
+        self
     }
 
     /// Encode as `agent_version`.
@@ -67,10 +187,16 @@ impl OsInfo {
             .filter(|n| *n != self.hostname)
             .map(|n| format!("; name={n}"))
             .unwrap_or_default();
+        let caps_part = if self.capabilities.is_empty() {
+            String::new()
+        } else {
+            format!("; caps={}", self.capabilities.join(","))
+        };
         format!(
-            "swarmdrop/{}{}; os={}; platform={}; arch={}; host={}",
+            "swarmdrop/{}{}{}; os={}; platform={}; arch={}; host={}",
             env!("CARGO_PKG_VERSION"),
             name_part,
+            caps_part,
             self.os,
             self.platform,
             self.arch,
@@ -87,6 +213,7 @@ impl OsInfo {
             os: "unknown".to_string(),
             platform: "unknown".to_string(),
             arch: "unknown".to_string(),
+            capabilities: Vec::new(),
         }
     }
 
@@ -97,10 +224,18 @@ impl OsInfo {
         let mut platform = None;
         let mut arch = None;
         let mut hostname = None;
+        let mut capabilities = Vec::new();
 
         for part in agent_version.split("; ") {
             if let Some(v) = part.strip_prefix("name=") {
                 name = Some(v.to_string());
+            } else if let Some(v) = part.strip_prefix("caps=") {
+                capabilities.extend(
+                    v.split(',')
+                        .map(str::trim)
+                        .filter(|cap| !cap.is_empty())
+                        .map(str::to_string),
+                );
             } else if let Some(v) = part.strip_prefix("os=") {
                 os = Some(v.to_string());
             } else if let Some(v) = part.strip_prefix("platform=") {
@@ -118,6 +253,7 @@ impl OsInfo {
             os: os?,
             platform: platform?,
             arch: arch?,
+            capabilities,
         })
     }
 }
@@ -132,6 +268,32 @@ pub struct PairedDeviceInfo {
     #[serde(flatten)]
     pub os_info: OsInfo,
     pub paired_at: i64,
+    #[serde(default)]
+    pub trust_level: DeviceTrustLevel,
+    #[serde(default)]
+    pub receive_policy: DeviceReceivePolicy,
+    #[serde(default)]
+    pub trust_confirmed: bool,
+}
+
+impl PairedDeviceInfo {
+    pub fn new(peer_id: PeerId, os_info: OsInfo, paired_at: i64) -> Self {
+        let trust_level = DeviceTrustLevel::Collaborator;
+        Self {
+            peer_id,
+            os_info,
+            paired_at,
+            trust_level,
+            receive_policy: DeviceReceivePolicy::for_trust_level(trust_level),
+            trust_confirmed: true,
+        }
+    }
+
+    pub fn apply_trust_level_defaults(&mut self, trust_level: DeviceTrustLevel) {
+        self.trust_level = trust_level;
+        self.receive_policy = DeviceReceivePolicy::for_trust_level(trust_level);
+        self.trust_confirmed = true;
+    }
 }
 
 /// 设备状态。
@@ -166,6 +328,9 @@ pub struct Device {
     pub connection: Option<ConnectionType>,
     pub latency: Option<u64>,
     pub is_paired: bool,
+    pub trust_level: Option<DeviceTrustLevel>,
+    pub receive_policy: Option<DeviceReceivePolicy>,
+    pub trust_confirmed: Option<bool>,
 }
 
 /// 设备列表查询结果。
@@ -226,7 +391,9 @@ fn has_public_ip(addr: &Multiaddr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::OsInfo;
+    use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
+
+    use super::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
 
     fn sample(name: Option<&str>, hostname: &str) -> OsInfo {
         OsInfo {
@@ -235,6 +402,7 @@ mod tests {
             os: "macos".to_string(),
             platform: "macos".to_string(),
             arch: "aarch64".to_string(),
+            capabilities: Vec::new(),
         }
     }
 
@@ -259,6 +427,15 @@ mod tests {
     }
 
     #[test]
+    fn agent_version_roundtrip_with_capability() {
+        let info = sample(Some("桌面端"), "Desktop").with_capability(OsInfo::LAN_HELPER_CAPABILITY);
+        let agent = info.to_agent_version();
+        assert!(agent.contains("caps=lan-helper"), "got: {agent}");
+        let parsed = OsInfo::from_agent_version(&agent).unwrap();
+        assert!(parsed.has_capability(OsInfo::LAN_HELPER_CAPABILITY));
+    }
+
+    #[test]
     fn agent_version_skips_name_when_equals_hostname() {
         // name == hostname 时不写 name= 槽位，避免冗余
         let info = sample(Some("MacBook-Pro"), "MacBook-Pro");
@@ -278,5 +455,27 @@ mod tests {
         let info: OsInfo = serde_json::from_str(json).unwrap();
         assert_eq!(info.name, None);
         assert_eq!(info.hostname, "old");
+        assert!(info.capabilities.is_empty());
+    }
+
+    #[test]
+    fn deserialize_legacy_paired_device_requires_trust_confirmation() {
+        let keypair = Keypair::generate_ed25519();
+        let peer_id = PeerId::from_public_key(&keypair.public());
+        let json = serde_json::json!({
+            "peerId": peer_id.to_string(),
+            "hostname": "old-phone",
+            "os": "ios",
+            "platform": "ios",
+            "arch": "aarch64",
+            "pairedAt": 42
+        });
+
+        let device: PairedDeviceInfo = serde_json::from_value(json).unwrap();
+
+        assert_eq!(device.trust_level, DeviceTrustLevel::Collaborator);
+        assert!(device.receive_policy.require_confirmation);
+        assert!(!device.receive_policy.auto_accept);
+        assert!(!device.trust_confirmed);
     }
 }

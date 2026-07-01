@@ -3,20 +3,11 @@
  * 文件树中的文件行组件，支持 5 种状态变体
  */
 
-import {
-  File,
-  FileImage,
-  FileText,
-  FileCode,
-  FileArchive,
-  Check,
-  Timer,
-  X,
-  RotateCcw,
-} from "lucide-react";
+import { Check, Timer, X, RotateCcw } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { cn } from "@/lib/utils";
 import { formatFileSize } from "@/lib/format";
+import { getFileIcon } from "@/lib/file-icon";
 import { Progress } from "@/components/ui/progress";
 import type { FileStatus } from "./data";
 
@@ -32,29 +23,6 @@ interface FileTreeItemProps {
   onRemove?: () => void;
   /** 重试回调（error 模式） */
   onRetry?: () => void;
-}
-
-/* ─── 文件图标映射（数据驱动） ─── */
-
-const EXT_ICON_MAP: [ReadonlySet<string>, typeof File][] = [
-  [new Set(["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "ico"]), FileImage],
-  [new Set(["md", "txt", "doc", "docx", "pdf"]), FileText],
-  [
-    new Set([
-      "ts", "tsx", "js", "jsx", "json", "css", "html",
-      "rs", "py", "go", "java", "toml", "yaml", "yml",
-    ]),
-    FileCode,
-  ],
-  [new Set(["zip", "tar", "gz", "rar", "7z"]), FileArchive],
-];
-
-function getFileIcon(name: string) {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  for (const [exts, Icon] of EXT_ICON_MAP) {
-    if (exts.has(ext)) return Icon;
-  }
-  return File;
 }
 
 /* ─── 共享删除按钮 ─── */

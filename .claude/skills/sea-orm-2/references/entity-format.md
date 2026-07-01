@@ -85,24 +85,66 @@ impl ActiveModelBehavior for ActiveModel {}
 
 ## Model 宏
 
-`#[sea_orm::model]` 支持的字段注解：
+### Entity 级注解（写在 `Model` 结构体上）
+
+| 注解 | 说明 |
+|------|------|
+| `#[sea_orm(table_name = "user")]` | 表名 |
+| `#[sea_orm(schema_name = "public")]` | 数据库 schema 名（PG / SQL Server） |
+| `#[sea_orm(rename_all = "camelCase")]` | 批量列名重命名规则。可选：`camelCase`、`kebab-case`、`PascalCase`、`snake_case`、`SCREAMING_SNAKE_CASE`、`lowercase`、`UPPERCASE` |
+
+### 字段级注解
 
 | 注解 | 说明 |
 |------|------|
 | `#[sea_orm(primary_key)]` | 主键，默认自增 |
-| `#[sea_orm(primary_key, auto_increment = false)]` | 主键，不自增 |
+| `#[sea_orm(primary_key, auto_increment = false)]` | 主键，不自增（复合主键也用此） |
 | `#[sea_orm(unique)]` | 唯一约束 |
 | `#[sea_orm(unique_key = "pair")]` | 复合唯一约束，同名的字段构成一组 |
+| `#[sea_orm(indexed)]` | 非唯一索引 |
+| `#[sea_orm(nullable)]` | 显式可空（`Option<T>` 字段自动推断） |
 | `#[sea_orm(column_name = "xxx")]` | 自定义列名 |
-| `#[sea_orm(column_type = "Text")]` | 指定列类型 |
-| `#[sea_orm(default_value = 0)]` | 默认值（用于 Entity First） |
+| `#[sea_orm(column_type = "Text")]` | 指定列类型，复杂类型如 `"Decimal(Some((16, 4)))"` |
+| `#[sea_orm(default_value = 0)]` | 默认值（Entity First 建表时使用） |
 | `#[sea_orm(default_expr = "Expr::current_timestamp()")]` | 默认表达式 |
-| `#[sea_orm(renamed_from = "old_name")]` | 从旧列名重命名（用于 Schema Sync） |
+| `#[sea_orm(renamed_from = "old_name")]` | 从旧列名重命名（Schema Sync 检测到则发 `ALTER TABLE RENAME`） |
+| `#[sea_orm(select_as = "TEXT")]` | SELECT 时强制类型转换 |
+| `#[sea_orm(save_as = "JSONB")]` | INSERT/UPDATE 时强制类型转换 |
+| `#[sea_orm(ignore)]` | 该字段不映射到数据库列 |
+
+### 关系字段注解
+
+| 注解 | 说明 |
+|------|------|
 | `#[sea_orm(has_one)]` | 一对一正向关系 |
 | `#[sea_orm(has_many)]` | 一对多正向关系 |
 | `#[sea_orm(has_many, via = "junction_table")]` | 多对多关系，指定中间表 |
 | `#[sea_orm(belongs_to, from = "fk_col", to = "pk_col")]` | 反向关系（外键方） |
-| `#[sea_orm(self_ref, ...)]` | 自引用关系 |
+| `#[sea_orm(belongs_to, ..., on_update = "Cascade")]` | 外键的 ON UPDATE 行为 |
+| `#[sea_orm(belongs_to, ..., on_delete = "Cascade")]` | 外键的 ON DELETE 行为 |
+| `#[sea_orm(self_ref, relation_enum = "...", from = "fk", to = "pk")]` | 自引用关系 |
+| `#[sea_orm(self_ref, via = "junction", reverse)]` | 自引用 M-N 反向 |
+| 菱形/多路径 | `relation_enum = "..."` + `via_rel = "..."` |
+
+`on_update` / `on_delete` 取值：`Cascade`、`Restrict`、`NoAction`、`SetNull`、`SetDefault`。
+
+### 复合主键限制
+
+最多支持 **12** 个字段作为复合主键。超出需自己设计代理主键 + `unique_key` 复合唯一约束。
+
+### junction 表两种写法
+
+```rust
+// 写法 A（quickstart 中用）—— 推荐手写
+pub cake: Option<super::cake::Entity>,
+
+// 写法 B（codegen 生成）—— 启用 cascade 行为时清晰
+#[sea_orm(belongs_to, from = "cake_id", to = "id",
+          on_update = "Cascade", on_delete = "Cascade")]
+pub cake: HasOne<super::cake::Entity>,
+```
+
+两者等价，`Option<E>` 适合简洁手写，`HasOne<E>` 适合显式标注外键行为。
 
 ## compact_model 过渡宏
 

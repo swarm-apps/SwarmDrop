@@ -5,6 +5,7 @@
 
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { CloseBehaviorManager } from "@/components/close-behavior-manager";
 import { ForceUpdateDialog } from "@/components/force-update-dialog";
 import { PromptUpdateDialog } from "@/components/prompt-update-dialog";
 import { UpdateProvider } from "@/components/update-provider";
@@ -41,6 +42,7 @@ function UpdateGate() {
   return (
     <>
       <Outlet />
+      <CloseBehaviorManager />
       <ForceUpdateDialog />
       <PromptUpdateDialog open={promptOpen} onOpenChange={setPromptOpen} />
       {/* {import.meta.env.DEV && <TanStackRouterDevtools />} */}

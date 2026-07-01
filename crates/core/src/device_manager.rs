@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use swarm_p2p_core::NodeEvent;
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 
 use crate::device::{
-    infer_connection_type, ConnectionType, Device, DeviceStatus, OsInfo, PairedDeviceInfo,
+    ConnectionType, Device, DeviceStatus, OsInfo, PairedDeviceInfo, infer_connection_type,
 };
 use crate::protocol::AppRequest;
 
@@ -184,6 +184,9 @@ impl DeviceManager {
                         connection,
                         latency,
                         is_paired: true,
+                        trust_level: Some(info.trust_level),
+                        receive_policy: Some(info.receive_policy.clone()),
+                        trust_confirmed: Some(info.trust_confirmed),
                     }
                 })
                 .collect(),
@@ -204,13 +207,17 @@ impl DeviceManager {
             (DeviceStatus::Offline, None, None)
         };
 
+        let paired = self.paired_devices.get(&peer.peer_id);
         Device {
             peer_id: peer.peer_id,
             os_info,
             status,
             connection,
             latency,
-            is_paired: self.paired_devices.contains_key(&peer.peer_id),
+            is_paired: paired.is_some(),
+            trust_level: paired.as_ref().map(|info| info.trust_level),
+            receive_policy: paired.as_ref().map(|info| info.receive_policy.clone()),
+            trust_confirmed: paired.as_ref().map(|info| info.trust_confirmed),
         }
     }
 

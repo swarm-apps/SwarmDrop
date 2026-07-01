@@ -13,10 +13,11 @@ use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
+use crate::AppError;
 use crate::device::{DeviceFilter, DeviceListResult, PairedDeviceInfo};
 use crate::host::event_bus::TauriEventBus;
 use crate::network::{NetManagerState, NetworkStatus};
-use crate::AppError;
+use swarmdrop_core::network::NetworkRuntimeConfig;
 
 #[tauri::command]
 #[specta::specta]
@@ -24,15 +25,18 @@ pub async fn start(
     app: AppHandle,
     keypair: State<'_, Keypair>,
     paired_devices: Vec<PairedDeviceInfo>,
-    custom_bootstrap_nodes: Option<Vec<String>>,
+    network_options: Option<NetworkRuntimeConfig>,
 ) -> crate::AppResult<()> {
     let paired_devices = load_host_paired_devices(&app, paired_devices).await?;
 
     // 准备 host adapters（在 NetManager 构造前必须就绪）
-    let event_bus_struct = TauriEventBus::new(app.clone());
-    if app.try_state::<TauriEventBus>().is_none() {
-        app.manage(event_bus_struct.clone());
-    }
+    let event_bus_struct = if let Some(bus) = app.try_state::<TauriEventBus>() {
+        bus.inner().clone()
+    } else {
+        let bus = TauriEventBus::new(app.clone());
+        app.manage(bus.clone());
+        bus
+    };
     let event_bus: Arc<dyn EventBus> = Arc::new(event_bus_struct);
 
     let db: Arc<DatabaseConnection> = app
@@ -48,18 +52,22 @@ pub async fn start(
     let file_access_for_factory = file_access.clone();
 
     let device_name = crate::host::device_config::load_device_name(&app).await;
+    // custom_bootstrap_nodes 现统一由 network_options 携带（前端 NetworkRuntimeConfig），
+    // 不再有独立的 legacy 位置参与合并。
+    let network_config = network_options.unwrap_or_default();
 
     let started = swarmdrop_core::runtime::start_node(
         (*keypair).clone(),
         device_name,
         paired_devices,
-        custom_bootstrap_nodes.unwrap_or_default(),
-        move |client| {
+        network_config,
+        move |client, dc_receiver| {
             TransferManager::new(
                 client,
                 event_bus_for_factory,
                 db_for_factory,
                 file_access_for_factory,
+                dc_receiver,
             )
         },
     )?;
@@ -93,6 +101,9 @@ pub async fn start(
         app.manage(Mutex::new(Some(net_manager)));
     }
 
+    // 节点已启动 → 托盘进入在线态（新 TransferManager 默认未暂停）。
+    crate::tray::refresh_tray(&app, true, false);
+
     crate::network::spawn_event_loop(receiver, app, shared, event_bus);
 
     Ok(())
@@ -124,7 +135,20 @@ pub async fn shutdown(app: AppHandle) -> crate::AppResult<()> {
         }
         guard.take();
     }
+    // 节点已停止 → 托盘进入离线态。
+    crate::tray::refresh_tray(&app, false, false);
     Ok(())
+}
+
+/// 真正退出应用。
+///
+/// 关闭语义由前端 `onCloseRequested` 拦截：`closeBehavior=quit` 或首次对话框选「退出」
+/// 时由前端显式调用本命令，确保进程退出（仅 `hide()` 不退出；macOS 关最后一个窗口默认
+/// 也不退出）。托盘「退出」走 Rust 侧 `app.exit(0)`，不经本命令。
+#[tauri::command]
+#[specta::specta]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[tauri::command]

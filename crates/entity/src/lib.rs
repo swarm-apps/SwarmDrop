@@ -1,9 +1,13 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub mod inbox_item;
+pub mod inbox_item_file;
 pub mod transfer_file;
 pub mod transfer_session;
 
+pub use inbox_item::Entity as InboxItem;
+pub use inbox_item_file::Entity as InboxItemFile;
 pub use transfer_file::Entity as TransferFile;
 pub use transfer_session::Entity as TransferSession;
 
@@ -101,4 +105,121 @@ pub enum FileStatus {
 pub enum SaveLocation {
     /// 桌面端：文件系统绝对路径
     Path { path: String },
+}
+
+/// 传输生命周期大状态（phase）。
+/// 替代旧的扁平 [`SessionStatus`]（过渡期并存）：phase 表达大状态，
+/// 具体原因由 [`SuspendedReason`] / [`TerminalReason`] 表达。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum TransferPhase {
+    Offered,
+    WaitingAccept,
+    Active,
+    Suspended,
+    Terminal,
+}
+
+/// suspended 原因（phase=Suspended 时有值）。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum SuspendedReason {
+    LocalPaused,
+    RemotePaused,
+    Interrupted,
+    PeerOffline,
+    AppRestarted,
+}
+
+/// terminal 原因（phase=Terminal 时有值）。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum TerminalReason {
+    Completed,
+    Cancelled,
+    Rejected,
+    FatalError,
+}
+
+/// 收件箱来源类型。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum InboxSourceKind {
+    PairedDevice,
+    ShareCode,
+    Mcp,
+    Unknown,
+}
+
+/// 收件箱内容类型。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum InboxContentKind {
+    Files,
+    Text,
+    Clipboard,
+    Bundle,
+}
+
+impl TransferPhase {
+    /// 过渡期桥接：把新 phase + reason 映射回旧扁平 [`SessionStatus`]。
+    ///
+    /// 前端旧路径与未迁移代码仍读 `status` 列，Coordinator 写 phase 时必须经此
+    /// 同步 `status`，避免两种表示漂移（单一映射来源）。迁移完成后随 `SessionStatus`
+    /// 一并移除。
+    pub fn legacy_status(&self, terminal_reason: Option<&TerminalReason>) -> SessionStatus {
+        match self {
+            TransferPhase::Offered | TransferPhase::WaitingAccept | TransferPhase::Active => {
+                SessionStatus::Transferring
+            }
+            TransferPhase::Suspended => SessionStatus::Paused,
+            TransferPhase::Terminal => match terminal_reason {
+                Some(TerminalReason::Completed) => SessionStatus::Completed,
+                Some(TerminalReason::Cancelled) | Some(TerminalReason::Rejected) => {
+                    SessionStatus::Cancelled
+                }
+                Some(TerminalReason::FatalError) | None => SessionStatus::Failed,
+            },
+        }
+    }
 }

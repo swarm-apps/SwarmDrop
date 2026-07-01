@@ -1,8 +1,10 @@
-use crate::events::PairedDeviceAdded;
-use crate::network::NetManagerState;
 use crate::AppResult;
+use crate::device::DeviceFilter;
+use crate::events::{DevicesChanged, PairedDeviceAdded};
+use crate::network::NetManagerState;
 use serde::{Deserialize, Serialize};
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
+use swarmdrop_core::device::{DeviceReceivePolicy, DeviceTrustLevel, PairedDeviceInfo};
 use swarmdrop_core::pairing::code::{PairingCodeInfo, ShareCodeRecord};
 use swarmdrop_core::protocol::{PairingMethod, PairingResponse};
 use tauri::{AppHandle, State};
@@ -85,6 +87,7 @@ pub async fn request_pairing(
     if let Some(info) = paired_info {
         persist_paired_device(&app, info.clone()).await?;
         let _ = PairedDeviceAdded(info).emit(&app);
+        publish_devices_changed(&app, &net).await;
     }
 
     Ok(response)
@@ -111,8 +114,49 @@ pub async fn remove_paired_device(
     if let Some(manager) = guard.as_ref() {
         manager.pairing().remove_paired_device(&peer_id);
     }
+    drop(guard);
     persist_paired_device_removal(&app, &peer_id).await?;
+    publish_devices_changed(&app, &net).await;
     Ok(())
+}
+
+/// 更新已配对设备的可信策略。
+#[tauri::command]
+#[specta::specta]
+pub async fn update_paired_device_policy(
+    app: AppHandle,
+    net: State<'_, NetManagerState>,
+    peer_id: String,
+    trust_level: DeviceTrustLevel,
+    receive_policy: Option<DeviceReceivePolicy>,
+) -> AppResult<PairedDeviceInfo> {
+    let peer_id: PeerId =
+        peer_id
+            .parse()
+            .map_err(|e: swarm_p2p_core::libp2p::identity::ParseError| {
+                AppError::identity(format!("invalid peer_id: {e}"))
+            })?;
+    let provider = crate::host::keychain_provider(&app)?;
+    let devices = swarmdrop_core::identity::update_paired_device_policy(
+        &*provider,
+        &peer_id,
+        trust_level,
+        receive_policy,
+    )
+    .await?;
+    let updated = devices
+        .into_iter()
+        .find(|device| device.peer_id == peer_id)
+        .ok_or_else(|| AppError::identity("未找到已配对设备".to_string()))?;
+
+    let guard = net.lock().await;
+    if let Some(manager) = guard.as_ref() {
+        manager.pairing().add_paired_device(updated.clone());
+    }
+    drop(guard);
+
+    publish_devices_changed(&app, &net).await;
+    Ok(updated)
 }
 
 /// 处理收到的配对请求（接受/拒绝）
@@ -136,6 +180,7 @@ pub async fn respond_pairing_request(
     if let Some(info) = paired_info {
         persist_paired_device(&app, info.clone()).await?;
         let _ = PairedDeviceAdded(info).emit(&app);
+        publish_devices_changed(&app, &net).await;
     }
 
     Ok(())
@@ -154,4 +199,13 @@ async fn persist_paired_device_removal(app: &AppHandle, peer_id: &PeerId) -> App
     let provider = crate::host::keychain_provider(app)?;
     swarmdrop_core::identity::remove_paired_device(&*provider, peer_id).await?;
     Ok(())
+}
+
+async fn publish_devices_changed(app: &AppHandle, net: &State<'_, NetManagerState>) {
+    let guard = net.lock().await;
+    let Some(manager) = guard.as_ref() else {
+        return;
+    };
+    let devices = manager.devices().get_devices(DeviceFilter::All);
+    let _ = DevicesChanged(devices).emit(app);
 }

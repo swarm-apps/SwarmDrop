@@ -1,136 +1,122 @@
 /**
  * Transfer Page (Lazy)
- * 传输页面 - 懒加载组件
- * 展示活跃传输和持久化历史记录
+ * 活动与恢复页面 - 懒加载组件
+ * 展示活跃传输、可恢复任务和过程账本诊断
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useMemo, type ComponentType, type ReactNode } from "react";
 import { createLazyFileRoute } from "@tanstack/react-router";
-import { ArrowLeftRight, Trash2 } from "lucide-react";
+import { Activity, ArrowLeftRight, CheckCircle2, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useTransferStore } from "@/stores/transfer-store";
 import { TransferItem } from "./-transfer-item";
 import { HistoryItem } from "./-history-item";
-import { commands, type TransferHistoryItem } from "@/lib/bindings";
-import type { HistorySessionStatus } from "@/lib/types";
-import { Button } from "@/components/ui/button";
+import { commands, type TransferProjection } from "@/lib/bindings";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  canResumeProjection,
+  isProjectionActive,
+  isProjectionCancelled,
+  isProjectionCompleted,
+  isProjectionFailed,
+} from "@/lib/transfer-projection";
+import { Button } from "@/components/ui/button";
+import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 
 export const Route = createLazyFileRoute("/_app/transfer/")({
   component: TransferPage,
 });
 
 function TransferPage() {
-  const sessions = useTransferStore((s) => s.sessions);
-  const dbHistory = useTransferStore((s) => s.dbHistory);
-  const loadHistory = useTransferStore((s) => s.loadHistory);
+  const projections = useTransferStore((s) => s.projections);
+  const loadProjections = useTransferStore((s) => s.loadProjections);
 
-  // 进入传输列表页时主动刷新 DB 历史
+  // 进入传输列表页时主动刷新后端 projection
   useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+    loadProjections();
+  }, [loadProjections]);
 
-  const [statusFilter, setStatusFilter] = useState<
-    HistorySessionStatus | "all"
-  >("all");
-
-  const statusFilters: { value: HistorySessionStatus | "all"; label: string }[] = useMemo(
-    () => [
-      { value: "all", label: t`全部` },
-      { value: "completed", label: t`已完成` },
-      { value: "failed", label: t`失败` },
-      { value: "paused", label: t`已暂停` },
-      { value: "cancelled", label: t`已取消` },
-    ],
-    [],
-  );
-
-  // 活跃传输 sessionId 列表（按开始时间倒序）
-  const activeSessionIds = useMemo(
+  const projectionItems = useMemo(
     () =>
-      Object.values(sessions)
-        .sort((a, b) => b.startedAt - a.startedAt)
-        .map((s) => s.sessionId),
-    [sessions],
+      Object.values(projections).sort((a, b) => b.startedAt - a.startedAt),
+    [projections],
   );
 
-  // 过滤 DB 历史
-  const filteredHistory = useMemo(
+  const activeItems = useMemo(
+    () => projectionItems.filter(isProjectionActive),
+    [projectionItems],
+  );
+
+  const activeIdSet = useMemo(
+    () => new Set(activeItems.map((item) => item.sessionId)),
+    [activeItems],
+  );
+
+  const recoveryItems = useMemo(
     () =>
-      statusFilter === "all"
-        ? dbHistory
-        : dbHistory.filter((item) => item.status === statusFilter),
-    [dbHistory, statusFilter],
+      projectionItems.filter(
+        (item) => !activeIdSet.has(item.sessionId) && canResumeProjection(item),
+      ),
+    [activeIdSet, projectionItems],
   );
 
-  const hasContent = activeSessionIds.length > 0 || filteredHistory.length > 0;
+  const attentionItems = useMemo(
+    () =>
+      projectionItems.filter((item) => {
+        if (activeIdSet.has(item.sessionId) || canResumeProjection(item)) {
+          return false;
+        }
+        if (item.phase === "suspended") return true;
+        return isProjectionFailed(item) || isProjectionCancelled(item);
+      }),
+    [activeIdSet, projectionItems],
+  );
+
+  const completedItems = useMemo(
+    () =>
+      projectionItems.filter(
+        (item) =>
+          !activeIdSet.has(item.sessionId) && isProjectionCompleted(item),
+      ),
+    [activeIdSet, projectionItems],
+  );
+
+  const hasContent =
+    activeItems.length > 0 ||
+    recoveryItems.length > 0 ||
+    attentionItems.length > 0 ||
+    completedItems.length > 0;
 
   const handleClearHistory = async () => {
     try {
       await commands.clearTransferHistory();
-      await loadHistory();
-      toast.success(t`已清空传输历史`);
+      await loadProjections();
+      toast.success(t`已清空活动记录`);
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   };
 
-  // 「传输历史」section 标题右侧的过滤 + 清空操作
-  const historyToolbar = dbHistory.length > 0 && (
-    <div className="flex items-center gap-1.5 md:gap-2">
-      {/* 状态过滤 */}
-      <Select
-        value={statusFilter}
-        onValueChange={(v) => setStatusFilter(v as HistorySessionStatus | "all")}
-      >
-        <SelectTrigger className="h-7 w-auto gap-1 px-2 text-xs md:gap-1.5 md:px-2.5">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {statusFilters.map((f) => (
-            <SelectItem key={f.value} value={f.value} className="text-xs">
-              {f.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {/* 清空历史 */}
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-destructive"
-        onClick={handleClearHistory}
-      >
-        <Trash2 className="size-3" />
-        <span className="hidden md:inline"><Trans>清空</Trans></span>
-      </Button>
-    </div>
-  );
-
   const content = !hasContent ? (
     <EmptyState />
   ) : (
     <TransferList
-      activeSessionIds={activeSessionIds}
-      historyItems={filteredHistory}
-      historyToolbar={historyToolbar}
+      activeItems={activeItems}
+      recoveryItems={recoveryItems}
+      attentionItems={attentionItems}
+      completedItems={completedItems}
+      onClearActivity={projectionItems.length > 0 ? handleClearHistory : null}
     />
   );
 
   return (
-    <main className="flex h-full flex-1 flex-col bg-background">
+    <main className="flex h-full flex-1 flex-col bg-transparent">
       {/* Page Content —— 页面标题由 AppTopBar 面包屑承担,无独立 header */}
       <div className="flex-1 overflow-auto p-5 lg:p-6">
-        {content}
+        <div className="mx-auto max-w-[1040px]">{content}</div>
       </div>
     </main>
   );
@@ -139,47 +125,174 @@ function TransferPage() {
 /* ─────────────────── 传输列表 ─────────────────── */
 
 function TransferList({
-  activeSessionIds,
-  historyItems,
-  historyToolbar,
+  activeItems,
+  recoveryItems,
+  attentionItems,
+  completedItems,
+  onClearActivity,
 }: {
-  activeSessionIds: string[];
-  historyItems: TransferHistoryItem[];
-  historyToolbar: React.ReactNode;
+  activeItems: TransferProjection[];
+  recoveryItems: TransferProjection[];
+  attentionItems: TransferProjection[];
+  completedItems: TransferProjection[];
+  onClearActivity: (() => Promise<void>) | null;
 }) {
   return (
     <div className="flex flex-col gap-5">
+      <div className="glass-panel rounded-[26px] p-2">
+        <div className="grid gap-2 rounded-[20px] bg-white/30 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:grid-cols-2 lg:grid-cols-4">
+          <ActivityMetric
+            icon={ArrowLeftRight}
+            label={<Trans>活跃传输</Trans>}
+            value={activeItems.length}
+            tone="blue"
+          />
+          <ActivityMetric
+            icon={RotateCcw}
+            label={<Trans>可恢复</Trans>}
+            value={recoveryItems.length}
+            tone="green"
+          />
+          <ActivityMetric
+            icon={TriangleAlert}
+            label={<Trans>需要关注</Trans>}
+            value={attentionItems.length}
+            tone="amber"
+          />
+          <ActivityMetric
+            icon={CheckCircle2}
+            label={<Trans>已完成</Trans>}
+            value={completedItems.length}
+            tone="muted"
+          />
+        </div>
+      </div>
+
       {/* 活跃传输 */}
-      {activeSessionIds.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-foreground">
-            <Trans>活跃传输</Trans>
-          </h2>
+      {activeItems.length > 0 && (
+        <ActivitySection
+          title={<Trans>活跃传输</Trans>}
+          icon={<ArrowLeftRight className="size-4" />}
+        >
           <div className="flex flex-col gap-2.5">
-            {activeSessionIds.map((id) => (
-              <TransferItem key={id} sessionId={id} />
+            {activeItems.map((item) => (
+              <TransferItem key={item.sessionId} projection={item} />
             ))}
           </div>
-        </section>
+        </ActivitySection>
       )}
 
-      {/* 传输历史(从 DB 加载) —— 过滤 / 清空挂在 section 标题右侧 */}
-      {historyItems.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-foreground">
-              <Trans>传输历史</Trans>
-            </h2>
-            {historyToolbar}
-          </div>
+      {recoveryItems.length > 0 && (
+        <ActivitySection
+          title={<Trans>可恢复</Trans>}
+          icon={<RotateCcw className="size-4" />}
+        >
           <div className="flex flex-col gap-2.5">
-            {historyItems.map((item) => (
+            {recoveryItems.map((item) => (
               <HistoryItem key={item.sessionId} item={item} />
             ))}
           </div>
-        </section>
+        </ActivitySection>
+      )}
+
+      {attentionItems.length > 0 && (
+        <ActivitySection
+          title={<Trans>需要关注</Trans>}
+          icon={<TriangleAlert className="size-4" />}
+        >
+          <div className="flex flex-col gap-2.5">
+            {attentionItems.map((item) => (
+              <HistoryItem key={item.sessionId} item={item} />
+            ))}
+          </div>
+        </ActivitySection>
+      )}
+
+      {completedItems.length > 0 && (
+        <ActivitySection
+          title={<Trans>完成诊断</Trans>}
+          icon={<Activity className="size-4" />}
+        >
+          <div className="flex flex-col gap-2.5">
+            {completedItems.map((item) => (
+              <HistoryItem key={item.sessionId} item={item} />
+            ))}
+          </div>
+        </ActivitySection>
+      )}
+
+      {onClearActivity && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 gap-1.5 rounded-full px-3 text-xs text-muted-foreground transition-[color,background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-destructive/10 hover:text-destructive active:scale-[0.98]"
+            onClick={onClearActivity}
+          >
+            <Trash2 className="size-3.5" />
+            <Trans>清空活动记录</Trans>
+          </Button>
+        </div>
       )}
     </div>
+  );
+}
+
+function ActivityMetric({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: ReactNode;
+  value: number;
+  tone: "blue" | "green" | "amber" | "muted";
+}) {
+  return (
+    <div className="glass-control rounded-[18px] px-3.5 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span
+          className={cn(
+            "flex size-8 items-center justify-center rounded-[12px]",
+            tone === "blue" && "bg-blue-500/10 text-blue-600 dark:text-blue-300",
+            tone === "green" && "bg-green-500/10 text-green-700 dark:text-green-300",
+            tone === "amber" && "bg-amber-500/12 text-amber-700 dark:text-amber-300",
+            tone === "muted" && "bg-foreground/[0.045] text-muted-foreground dark:bg-white/[0.06]",
+          )}
+        >
+          <Icon className="size-4" />
+        </span>
+        <span className="font-mono text-2xl font-semibold tracking-tight text-foreground">
+          {value}
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function ActivitySection({
+  title,
+  icon,
+  children,
+}: {
+  title: React.ReactNode;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="glass-panel rounded-[24px] p-2">
+      <div className="rounded-[18px] bg-white/28 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] dark:bg-white/[0.03] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        <div className="mb-3 flex items-center gap-2 text-muted-foreground">
+          <span className="glass-control flex size-8 items-center justify-center rounded-full">
+            {icon}
+          </span>
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        </div>
+        {children}
+      </div>
+    </section>
   );
 }
 
@@ -187,18 +300,12 @@ function TransferList({
 
 function EmptyState() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-      <div className="flex size-14 items-center justify-center rounded-full bg-muted">
-        <ArrowLeftRight className="size-7 text-muted-foreground" />
-      </div>
-      <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium text-foreground">
-          <Trans>暂无传输记录</Trans>
-        </p>
-        <p className="text-xs text-muted-foreground">
-          <Trans>在设备页面选择已配对设备发送文件</Trans>
-        </p>
-      </div>
-    </div>
+    <CenteredEmptyState
+      icon={ArrowLeftRight}
+      title={<Trans>暂无活动记录</Trans>}
+      description={
+        <Trans>成功接收的文件会进入收件箱，暂停或失败的任务会在这里恢复</Trans>
+      }
+    />
   );
 }

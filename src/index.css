@@ -44,56 +44,74 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  --app-shell-background: oklch(0.99 0.001 210);
+  --glass-panel-bg: rgb(255 255 255 / 0.58);
+  --glass-card-bg: rgb(255 255 255 / 0.58);
+  --glass-control-bg: rgb(255 255 255 / 0.64);
+  --glass-accent-bg:
+    linear-gradient(135deg, rgb(240 253 250 / 0.72), rgb(255 255 255 / 0.56));
+  --glass-card-border: rgb(255 255 255 / 0.34);
+  --glass-control-border: rgb(15 23 42 / 0.055);
+  --glass-accent-border: rgb(20 184 166 / 0.12);
+  --glass-highlight: rgb(255 255 255 / 0.84);
+  --glass-shadow: 0 18px 56px rgb(15 23 42 / 0.07);
+  --glass-card-shadow: 0 12px 32px rgb(15 23 42 / 0.045);
+  --scrollbar-thumb: rgb(15 23 42 / 0.22);
+  --scrollbar-thumb-hover: rgb(15 23 42 / 0.34);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
+  --background: oklch(0.18 0.01 260);
+  --foreground: oklch(0.965 0.002 260);
+  --card: oklch(0.27 0.008 260);
+  --card-foreground: oklch(0.965 0.002 260);
+  --popover: oklch(0.25 0.008 260);
+  --popover-foreground: oklch(0.965 0.002 260);
   --primary: oklch(0.546 0.245 262.881);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
+  --primary-foreground: oklch(0.985 0.002 260);
+  --secondary: oklch(0.32 0.009 260);
+  --secondary-foreground: oklch(0.955 0.002 260);
+  --muted: oklch(0.32 0.009 260);
+  --muted-foreground: oklch(0.79 0.007 260);
+  --accent: oklch(0.34 0.01 260);
+  --accent-foreground: oklch(0.955 0.002 260);
+  --destructive: oklch(0.67 0.19 25.723);
+  --destructive-foreground: oklch(0.985 0.002 260);
+  --border: oklch(0.39 0.01 260);
+  --input: oklch(0.39 0.01 260);
+  --ring: oklch(0.64 0.018 260);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar: oklch(0.22 0.008 260);
+  --sidebar-foreground: oklch(0.965 0.002 260);
   --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0.002 260);
+  --sidebar-accent: oklch(0.32 0.01 260);
+  --sidebar-accent-foreground: oklch(0.955 0.002 260);
+  --sidebar-border: oklch(0.39 0.01 260);
+  --sidebar-ring: oklch(0.64 0.018 260);
+
+  --app-shell-background: oklch(0.145 0.012 260);
+  --glass-panel-bg: oklch(0.31 0.01 260 / 0.56);
+  --glass-card-bg: oklch(0.31 0.01 260 / 0.56);
+  --glass-control-bg: oklch(0.34 0.01 260 / 0.58);
+  --glass-accent-bg:
+    linear-gradient(135deg, oklch(0.39 0.08 255 / 0.64), oklch(0.25 0.01 260 / 0.54));
+  --glass-card-border: oklch(1 0 0 / 0.1);
+  --glass-control-border: oklch(1 0 0 / 0.12);
+  --glass-accent-border: oklch(0.7 0.12 255 / 0.16);
+  --glass-highlight: oklch(1 0 0 / 0.12);
+  --glass-shadow: 0 24px 84px rgb(0 0 0 / 0.28);
+  --glass-card-shadow: 0 16px 40px rgb(0 0 0 / 0.18);
+  --scrollbar-thumb: rgb(255 255 255 / 0.26);
+  --scrollbar-thumb-hover: rgb(255 255 255 / 0.38);
 }
 
 @theme inline {
-  /* Aurora animation */
-  --animate-aurora: aurora 60s linear infinite;
-
-  @keyframes aurora {
-    from {
-      background-position: 50% 50%, 50% 50%;
-    }
-    to {
-      background-position: 350% 50%, 350% 50%;
-    }
-  }
-
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -132,13 +150,62 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-@layer base {
-  * {
-    @apply border-border;
+@layer components {
+  .glass-panel,
+  .glass-card,
+  .glass-control,
+  .glass-accent {
+    backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
   }
-  body {
-    @apply bg-background text-foreground;
+
+  .glass-panel {
+    --glass-blur: 20px;
+    background: var(--glass-panel-bg);
+    box-shadow:
+      var(--glass-shadow),
+      inset 0 1px 0 var(--glass-highlight);
   }
+
+  .glass-card {
+    --glass-blur: 16px;
+    border: 1px solid var(--glass-card-border);
+    background: var(--glass-card-bg);
+    box-shadow:
+      var(--glass-card-shadow),
+      inset 0 1px 0 var(--glass-highlight);
+  }
+
+  .glass-control {
+    --glass-blur: 12px;
+    border: 1px solid var(--glass-control-border);
+    background: var(--glass-control-bg);
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight);
+  }
+
+  .glass-accent {
+    --glass-blur: 18px;
+    border: 1px solid var(--glass-accent-border);
+    background: var(--glass-accent-bg);
+    box-shadow:
+      var(--glass-card-shadow),
+      inset 0 1px 0 var(--glass-highlight);
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-panel,
+    .glass-card,
+    .glass-control,
+    .glass-accent {
+      background: var(--card);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+
+  /* 设置页 bento 网格直接用 index.lazy.tsx 内的 Tailwind grid utility，
+     不再需要 .settings-board / .settings-column 自定义类。 */
 }
 
 @layer base {
@@ -147,5 +214,93 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  * {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+    scrollbar-width: thin;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-color: var(--scrollbar-thumb);
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+
+  .app-shell {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background: var(--app-shell-background);
+  }
+
+  .app-shell > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .app-shell > .app-ambient-background {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .app-shell > .app-ambient-light-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .app-ambient-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .app-ambient-aurora {
+    z-index: 0;
+  }
+
+  .app-ambient-light-overlay {
+    transform: translate3d(4%, -5%, 0) scale(1.08);
+    transform-origin: top right;
+  }
+
+  .app-topbar {
+    isolation: isolate;
+  }
+
+  .app-topbar::after {
+    position: absolute;
+    inset: auto 0 0;
+    z-index: 1;
+    height: 1px;
+    background: rgb(255 255 255 / 0.34);
+    content: "";
+    pointer-events: none;
+  }
+
+  .dark .app-topbar::after {
+    background: rgb(255 255 255 / 0.08);
   }
 }

@@ -4,21 +4,17 @@ import {
   Pause,
   Play,
   Trash2,
-  RotateCcw,
-  FileText,
   FileArchive,
-  Image as ImageIcon,
-  Video,
-  Music,
-  File,
   FolderOpen,
 } from "lucide-react";
 import { Trans, useLingui } from "@lingui/react/macro";
-import type { TransferHistoryItem } from "@/lib/bindings";
+import type { TransferProjection } from "@/lib/bindings";
 import { commands } from "@/lib/bindings";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
+import { getFileIcon, getFileIconColor } from "@/lib/file-icon";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { PolicyReasonBadge } from "@/components/transfer/policy-reason-badge";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { useTransferStore } from "@/stores/transfer-store";
@@ -28,39 +24,37 @@ import {
   DirectionIcon,
   TransferCard,
   calcPercent,
+  projectionStatusLabel,
   doResumeTransfer,
   ACTION_BTN_CLASS,
   DESTRUCTIVE_BTN_CLASS,
 } from "./-shared";
+import {
+  canResumeProjection,
+  isProjectionCompleted,
+  isProjectionCancelled,
+  isProjectionFailed,
+} from "@/lib/transfer-projection";
 
 interface HistoryItemProps {
-  item: TransferHistoryItem;
+  item: TransferProjection;
 }
 
 /** 辅助函数：截断 PeerId 以美化显示 */
 const truncatePeerId = (id?: string) =>
   !id ? "" : id.length <= 16 ? id : `${id.slice(0, 8)}...${id.slice(-4)}`;
 
-/** 根据文件名后缀获取图标 */
-function getFileIcon(fileName: string, count: number) {
+/** 文件类型图标（多文件聚合成压缩包图标，否则按扩展名取图标） */
+function FileTypeIcon({ name, count }: { name: string; count: number }) {
   if (count > 1) return <FileArchive className="size-5 text-amber-500" />;
-  if (/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(fileName))
-    return <ImageIcon className="size-5 text-green-500" />;
-  if (/\.(mp4|mov|avi|mkv|webm|flv)$/i.test(fileName))
-    return <Video className="size-5 text-purple-500" />;
-  if (/\.(mp3|wav|flac|aac|ogg|wma)$/i.test(fileName))
-    return <Music className="size-5 text-pink-500" />;
-  if (/\.(zip|rar|7z|tar|gz|bz2)$/i.test(fileName))
-    return <FileArchive className="size-5 text-amber-500" />;
-  if (/\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|md)$/i.test(fileName))
-    return <FileText className="size-5 text-blue-500" />;
-  return <File className="size-5 text-muted-foreground" />;
+  const Icon = getFileIcon(name);
+  return <Icon className={`size-5 ${getFileIconColor(name)}`} />;
 }
 
 export function HistoryItem({ item }: HistoryItemProps) {
   const { t } = useLingui();
   const navigate = useNavigate();
-  const { loadHistory } = useTransferStore();
+  const { loadProjections } = useTransferStore();
 
   const {
     sessionId,
@@ -69,12 +63,16 @@ export function HistoryItem({ item }: HistoryItemProps) {
     peerName,
     files,
     totalSize,
-    status,
     errorMessage,
     startedAt,
     finishedAt,
     transferredBytes,
   } = item;
+  const statusLabel = projectionStatusLabel(item);
+  const isCompleted = isProjectionCompleted(item);
+  const isSuspended = item.phase === "suspended";
+  const isFailed = isProjectionFailed(item);
+  const isCancelled = isProjectionCancelled(item);
 
   // 事件处理
   const withAction =
@@ -97,7 +95,7 @@ export function HistoryItem({ item }: HistoryItemProps) {
 
   const onDelete = withAction(async () => {
     await commands.deleteTransferSession(sessionId);
-    await loadHistory();
+    await loadProjections();
   });
 
   const onOpenFolder = withAction(async () => {
@@ -122,7 +120,7 @@ export function HistoryItem({ item }: HistoryItemProps) {
   const displayFileName =
     fileCount > 1 ? t`${firstFileName} 等 ${fileCount} 个文件` : firstFileName;
   const progressPercent = calcPercent(transferredBytes, totalSize);
-  const canResume = status === "failed" || status === "paused";
+  const canResume = canResumeProjection(item);
 
   return (
     <TransferCard onClick={handleClick}>
@@ -132,7 +130,7 @@ export function HistoryItem({ item }: HistoryItemProps) {
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 md:gap-1">
         <div className="flex items-center gap-1.5 md:gap-2">
           <span className="hidden md:inline-flex">
-            {getFileIcon(firstFileName, fileCount)}
+            <FileTypeIcon name={firstFileName} count={fileCount} />
           </span>
           <h3
             className="truncate text-[13px] font-medium text-foreground md:text-sm"
@@ -155,23 +153,23 @@ export function HistoryItem({ item }: HistoryItemProps) {
 
         {/* 状态栏 */}
         <div className="mt-0.5">
-          {status === "completed" && (
+          {isCompleted && (
             <div className="flex items-center gap-1.5 text-[12px] text-green-600 dark:text-green-400 md:text-[13px]">
               <CheckCircle2 className="size-3.5 md:size-4" />
               <Trans>传输完成</Trans>
               <span className="text-muted-foreground">
-                — {formatFileSize(transferredBytes)}
+                / {formatFileSize(transferredBytes)}
               </span>
             </div>
           )}
 
-          {status === "paused" && (
+          {isSuspended && (
             <div className="flex flex-col gap-1.5 mt-0.5">
               <Progress value={progressPercent} className="h-1.5" />
               <div className="flex items-center justify-between text-[11px] md:text-[12px]">
                 <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
                   <Pause className="size-3 md:size-3.5" />
-                  <Trans>已暂停</Trans>
+                  {statusLabel}
                 </span>
                 <span className="text-muted-foreground">
                   {formatFileSize(transferredBytes)} /{" "}
@@ -181,19 +179,24 @@ export function HistoryItem({ item }: HistoryItemProps) {
             </div>
           )}
 
-          {status === "failed" && (
+          {isFailed && (
             <div className="flex items-center gap-1.5 text-[12px] text-destructive md:text-[13px]">
               <XCircle className="size-3.5 shrink-0 md:size-4" />
-              <span className="truncate">{errorMessage || t`传输失败`}</span>
+              <span className="truncate">{errorMessage || statusLabel}</span>
             </div>
           )}
 
-          {status === "cancelled" && (
+          {isCancelled && (
             <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground md:text-[13px]">
               <XCircle className="size-3.5 md:size-4" />
-              <Trans>已取消</Trans>
+              {statusLabel}
             </div>
           )}
+
+          <PolicyReasonBadge
+            policyAction={item.policyAction}
+            policyReason={item.policyReason}
+          />
         </div>
       </div>
 
@@ -210,16 +213,12 @@ export function HistoryItem({ item }: HistoryItemProps) {
               variant="ghost"
               className={ACTION_BTN_CLASS}
               onClick={onResume}
-              title={status === "paused" ? t`恢复传输` : t`重试传输`}
+              title={t`恢复传输`}
             >
-              {status === "paused" ? (
-                <Play className="size-3.5 md:size-4" />
-              ) : (
-                <RotateCcw className="size-3.5 md:size-4" />
-              )}
+              <Play className="size-3.5 md:size-4" />
             </Button>
           )}
-          {status === "completed" && item.savePath && (
+          {isCompleted && item.savePath && (
             <Button size="icon" variant="ghost" className={ACTION_BTN_CLASS} onClick={onOpenFolder} title={t`打开文件夹`}>
               <FolderOpen className="size-3.5 md:size-4" />
             </Button>

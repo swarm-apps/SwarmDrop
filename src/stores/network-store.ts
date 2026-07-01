@@ -8,6 +8,7 @@ import {
   commands,
   events,
   type Device,
+  type NetworkRuntimeConfig,
   type NetworkStatus,
 } from "@/lib/bindings";
 import { toast } from "sonner";
@@ -128,8 +129,20 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
       // 设置 Tauri Event 监听（在启动前设置，避免丢失早期事件）
       await setupEventListeners();
 
-      const { customBootstrapNodes, mcp } = usePreferencesStore.getState();
-      await commands.start(pairedDevices, customBootstrapNodes);
+      const {
+        customBootstrapNodes,
+        discoveryMode,
+        autoDiscoverLanHelpers,
+        provideLanHelper,
+        mcp,
+      } = usePreferencesStore.getState();
+      const networkOptions: NetworkRuntimeConfig = {
+        customBootstrapNodes,
+        discoveryMode,
+        autoDiscoverLanHelpers,
+        provideLanHelper,
+      };
+      await commands.start(pairedDevices, networkOptions);
 
       // 如果启用了 MCP 自动启动，启动 MCP Server
       if (mcp.autoStart) {

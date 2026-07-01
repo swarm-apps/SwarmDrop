@@ -17,9 +17,13 @@ import {
   Square,
   X,
   Home,
-  History,
+  Activity,
   FileText,
+  Inbox,
+  Moon,
+  Sun,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { cn, isMac } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -41,7 +45,7 @@ interface CrumbSegment {
   icon: IconComp;
   label: React.ReactNode;
   /** 末段(当前页)不传 to */
-  to?: "/devices" | "/transfer";
+  to?: "/devices" | "/transfer" | "/inbox";
 }
 
 /** 根据当前路径生成面包屑层级(主页 + 当前位置链路) */
@@ -55,13 +59,16 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
   if (pathname.startsWith("/settings")) {
     return [home, { icon: Settings, label: <Trans>设置</Trans> }];
   }
+  if (pathname === "/inbox") {
+    return [home, { icon: Inbox, label: <Trans>收件箱</Trans> }];
+  }
   if (pathname === "/transfer") {
-    return [home, { icon: History, label: <Trans>传输历史</Trans> }];
+    return [home, { icon: Activity, label: <Trans>活动与恢复</Trans> }];
   }
   if (pathname.startsWith("/transfer/")) {
     return [
       home,
-      { icon: History, label: <Trans>传输历史</Trans>, to: "/transfer" },
+      { icon: Activity, label: <Trans>活动与恢复</Trans>, to: "/transfer" },
       { icon: FileText, label: <Trans>传输详情</Trans> },
     ];
   }
@@ -70,6 +77,7 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
 }
 
 export function AppTopBar() {
+  const { t } = useLingui();
   const status = useNetworkStore((s) => s.status);
   const location = useLocation();
   const [startOpen, setStartOpen] = useState(false);
@@ -85,7 +93,7 @@ export function AppTopBar() {
       <header
         data-tauri-drag-region
         className={cn(
-          "flex h-11 shrink-0 items-center justify-between border-b border-border bg-background px-4 lg:px-5",
+          "app-topbar relative z-20 flex h-11 shrink-0 items-center justify-between overflow-hidden border-b border-white/[0.30] bg-white/[0.18] px-4 shadow-[0_1px_0_rgba(255,255,255,0.34),0_16px_42px_rgba(15,23,42,0.05)] backdrop-blur-xl dark:border-white/[0.07] dark:bg-slate-950/[0.08] dark:shadow-[0_1px_0_rgba(255,255,255,0.05),0_16px_42px_rgba(0,0,0,0.10)] lg:px-5",
           // macOS 左侧给系统红绿灯按钮留出位置
           isMac && "pl-20",
         )}
@@ -93,7 +101,7 @@ export function AppTopBar() {
         {/* 左:Logo(纯图标) + 状态 pill + 面包屑 */}
         <div
           data-tauri-drag-region
-          className="flex items-center gap-2.5"
+          className="relative z-10 flex items-center gap-2.5"
         >
           <img
             src="/app-icon.svg"
@@ -144,15 +152,39 @@ export function AppTopBar() {
         {/* 右:设置 + (非 Mac)窗口控制 */}
         <div
           data-tauri-drag-region
-          className="flex items-center gap-1"
+          className="relative z-10 flex items-center gap-1"
         >
+          <ThemeShortcut />
+
           <Button
             asChild
             variant="ghost"
             size="icon"
-            className="size-8 rounded-md"
+            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
-            <Link to="/settings">
+            <Link to="/inbox" aria-label={t`收件箱`} title={t`收件箱`}>
+              <Inbox className="size-4" />
+            </Link>
+          </Button>
+
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+          >
+            <Link to="/transfer" aria-label={t`活动与恢复`} title={t`活动与恢复`}>
+              <Activity className="size-4" />
+            </Link>
+          </Button>
+
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+          >
+            <Link to="/settings" aria-label={t`设置`} title={t`设置`}>
               <Settings className="size-4" />
             </Link>
           </Button>
@@ -167,6 +199,29 @@ export function AppTopBar() {
   );
 }
 
+/** 顶栏快捷主题切换:完整的跟随系统选项仍保留在设置页 */
+function ThemeShortcut() {
+  const { t } = useLingui();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const label = isDark ? t`切换到浅色主题` : t`切换到深色主题`;
+  const Icon = isDark ? Sun : Moon;
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      aria-label={label}
+      title={label}
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+    >
+      <Icon className="size-4" />
+    </Button>
+  );
+}
+
 /** Windows / Linux 自画窗口控制按钮(最小化 / 最大化 / 关闭) */
 function WindowControls() {
   const { t } = useLingui();
@@ -174,12 +229,12 @@ function WindowControls() {
 
   return (
     <>
-      <div className="ml-1 h-5 w-px bg-border" />
+      <div className="ml-1 h-5 w-px bg-foreground/10 dark:bg-white/10" />
       <button
         type="button"
         onClick={() => appWindow.minimize()}
         aria-label={t`最小化`}
-        className="flex h-8 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted"
+        className="flex h-8 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
       >
         <Minus className="size-4" />
       </button>
@@ -187,7 +242,7 @@ function WindowControls() {
         type="button"
         onClick={() => appWindow.toggleMaximize()}
         aria-label={t`最大化`}
-        className="flex h-8 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted"
+        className="flex h-8 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
       >
         <Square className="size-3.5" />
       </button>
@@ -212,8 +267,8 @@ interface StatusPillConfig {
 
 const pillStyles: Record<NodeStatus, StatusPillConfig> = {
   running: {
-    bg: "bg-green-100 dark:bg-green-900/30",
-    text: "text-green-700 dark:text-green-300",
+    bg: "bg-green-100 dark:bg-emerald-500/15",
+    text: "text-green-700 dark:text-emerald-300",
     dot: "bg-green-600",
     label: <Trans>在线 · 可接收</Trans>,
   },
@@ -224,8 +279,8 @@ const pillStyles: Record<NodeStatus, StatusPillConfig> = {
     label: <Trans>启动中</Trans>,
   },
   stopped: {
-    bg: "bg-zinc-100 dark:bg-zinc-800",
-    text: "text-zinc-600 dark:text-zinc-400",
+    bg: "bg-zinc-100 dark:bg-secondary",
+    text: "text-zinc-600 dark:text-muted-foreground",
     dot: "bg-zinc-400",
     label: <Trans>未启动</Trans>,
   },

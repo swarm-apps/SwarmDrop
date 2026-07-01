@@ -12,7 +12,7 @@ use rmcp::model::{
     Implementation, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
     ReadResourceResult, ServerCapabilities, ServerInfo,
 };
-use rmcp::{tool_handler, ErrorData, RoleServer, ServerHandler};
+use rmcp::{ErrorData, RoleServer, ServerHandler, tool_handler};
 use tauri::AppHandle;
 
 /// MCP Handler：持有 AppHandle，通过 Tauri 状态树访问所有后端能力
@@ -38,10 +38,13 @@ impl ServerHandler for McpHandler {
                 .with_title("SwarmDrop MCP Server"),
         )
         .with_instructions(
-            "SwarmDrop P2P 文件传输 MCP 服务。\
-             请先调用 get_network_status 确认节点已启动，\
-             再调用 list_available_devices 查看可用设备，\
-             最后调用 send_files 发送文件。",
+            "SwarmDrop P2P 文件传输 MCP 服务（端到端加密、无服务器，仅监听本地）。\n\n\
+             发送文件：先 get_network_status 确认节点已启动，再 list_available_devices \
+             查看在线的已配对设备，最后 send_files 发送（对方需在 SwarmDrop 中接受）。\n\n\
+             跟踪与控制传输：list_transfers 列出进行中/最近会话，get_transfer_status 查单个会话，\
+             cancel_transfer / pause_transfer / resume_transfer 控制传输。\n\n\
+             查找已接收文件：search_inbox 按关键词检索或 list_inbox 列出收件箱，\
+             get_inbox_item 取条目详情，get_inbox_file 取单个文件本地路径。检索仅覆盖本机 inbox，不跨设备。",
         )
     }
 

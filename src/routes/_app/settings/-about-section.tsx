@@ -9,16 +9,23 @@ import type { Progress as UpdateProgress, UpdateStatus } from "@swarm-hive/sdk";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
+  Bot,
   Download,
   ExternalLink,
+  Github,
+  Globe2,
+  Info,
+  KeyRound,
   Loader2,
   RefreshCw,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 import { Progress } from "@/components/ui/progress";
 import { useUpdate } from "@/hooks/use-update";
+import { SettingsCard, SettingsSection } from "./-settings-primitives";
 
 /** 格式化字节数为人类可读 */
 function formatBytes(bytes: number): string {
@@ -28,6 +35,14 @@ function formatBytes(bytes: number): string {
 }
 
 export function AboutSection() {
+  return (
+    <SettingsSection title={<Trans>关于</Trans>} icon={Info}>
+      <AboutPanel />
+    </SettingsSection>
+  );
+}
+
+export function AboutPanel({ className }: { className?: string }) {
   // 经 registry-web 的 useUpdate() 订阅 SwarmHive 更新引擎（与 __root 的 <UpdateProvider>
   // 同一个 engine）。check(true) 手动检查绕过节流；download() 触发下载，ready 后由
   // __root 常驻的 Prompt/Force 弹窗自动安装+重启。
@@ -41,37 +56,44 @@ export function AboutSection() {
     getVersion().then(setAppVersion);
   }, []);
 
-  const currentVersion = appVersion;
-
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold text-foreground">
-        <Trans>关于</Trans>
-      </h2>
-      <div className="overflow-hidden rounded-lg border border-border">
-        {/* App Info Row - 桌面端 space-between，支持自动换行 */}
-        <div className="flex flex-col gap-4 p-4 min-[480px]:flex-row min-[480px]:items-center min-[480px]:justify-between">
-          {/* 应用信息 */}
-          <div className="flex items-center gap-3">
-            <img src="/app-icon.svg" alt="SwarmDrop" className="size-10 rounded-lg" />
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[15px] font-semibold text-foreground">
-                SwarmDrop
-              </span>
-              <span className="text-xs text-muted-foreground">
-                <VersionDescription
-                  status={status}
-                  currentVersion={currentVersion}
-                />
-              </span>
+    <SettingsCard className={className}>
+      <div className="flex flex-col gap-5 p-4 sm:p-5">
+        {/* 品牌信息 + 操作按钮 */}
+        <div className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
+          <div className="flex gap-3.5">
+            <img
+              src="/app-icon.svg"
+              alt="SwarmDrop"
+              className="size-12 shrink-0 rounded-2xl"
+            />
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-base font-semibold text-foreground">
+                  SwarmDrop
+                </span>
+                {appVersion ? (
+                  <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                    v{appVersion}
+                  </span>
+                ) : null}
+              </div>
+              <p className="text-[13px] font-medium text-foreground/90">
+                <Trans>设备之间的数据通道 —— 人与 AI 代理皆可用</Trans>
+              </p>
+              <p className="hidden max-w-md text-xs leading-5 text-muted-foreground min-[480px]:block">
+                <Trans>
+                  不止于局域网：在任意网络间端到端加密地收发文件，连 AI 代理也能经
+                  MCP 调用。
+                </Trans>
+              </p>
             </div>
           </div>
 
-          {/* 分隔线 - 仅小屏幕显示，占满容器宽度 */}
-          <div className="relative left-[-1rem] block w-[calc(100%+2rem)] border-t border-border min-[480px]:hidden" />
-
           {/* 按钮组 */}
-          <div className="flex flex-wrap items-center justify-around gap-2 min-[480px]:justify-end">
+          <div className="flex flex-wrap items-center gap-2 min-[640px]:shrink-0 min-[640px]:justify-end">
+            <OfficialWebsiteButton />
+            <GithubButton />
             <ReleaseNotesButton />
             <UpdateButton
               status={status}
@@ -82,61 +104,99 @@ export function AboutSection() {
           </div>
         </div>
 
-        {/* Update Banner / Progress */}
-        {(status === "available" || status === "force-required") && releaseNotes && (
-          <UpdateBanner
-            latestVersion={latestVersion}
-            releaseNotes={releaseNotes}
-          />
-        )}
-        {(status === "downloading" || status === "ready") && progress && (
-          <DownloadProgressBanner
-            latestVersion={latestVersion}
-            progress={progress}
-          />
-        )}
+        {/* 核心特性 */}
+        <div className="flex flex-wrap gap-1.5">
+          <FeatureTag icon={Globe2} label={<Trans>跨网络</Trans>} />
+          <FeatureTag icon={ShieldCheck} label={<Trans>端到端加密</Trans>} />
+          <FeatureTag icon={KeyRound} label={<Trans>无账户 · 无服务器</Trans>} />
+          <FeatureTag icon={Bot} label={<Trans>AI 原生 · MCP</Trans>} />
+          <FeatureTag icon={RefreshCw} label={<Trans>断点续传</Trans>} />
+        </div>
       </div>
-    </section>
+
+      {/* Update Banner / Progress */}
+      {(status === "available" || status === "force-required") && releaseNotes && (
+        <UpdateBanner
+          latestVersion={latestVersion}
+          releaseNotes={releaseNotes}
+        />
+      )}
+      {(status === "downloading" || status === "ready") && progress && (
+        <DownloadProgressBanner
+          latestVersion={latestVersion}
+          progress={progress}
+        />
+      )}
+    </SettingsCard>
   );
 }
 
-/** 版本描述文字 */
-function VersionDescription({
-  status,
-  currentVersion,
+/** 核心特性小标签 */
+function FeatureTag({
+  icon: Icon,
+  label,
 }: {
-  status: UpdateStatus;
-  currentVersion: string | null;
+  icon: ComponentType<{ className?: string }>;
+  label: ReactNode;
 }) {
-  const ver = currentVersion ? `v${currentVersion}` : "";
-  switch (status) {
-    case "checking":
-      return <Trans>版本 {ver} · 检查中...</Trans>;
-    case "available":
-    case "force-required":
-      return <Trans>版本 {ver} · 有新版本可用</Trans>;
-    case "downloading":
-    case "ready":
-      return <Trans>版本 {ver} · 正在更新...</Trans>;
-    case "up-to-date":
-      return <Trans>版本 {ver} · 已是最新版本</Trans>;
-    case "error":
-      return <Trans>版本 {ver} · 检查失败</Trans>;
-    default:
-      return <Trans>版本 {ver}</Trans>;
-  }
+  return (
+    <span className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/50 px-2.5 py-1 text-[11px] font-medium text-muted-foreground dark:bg-white/[0.03]">
+      <Icon className="size-3.5 text-blue-600 dark:text-blue-400" />
+      {label}
+    </span>
+  );
+}
+
+/** 桌面端：官方网站按钮 */
+function OfficialWebsiteButton() {
+  return (
+    <ExternalLinkButton
+      icon={Globe2}
+      label={<Trans>官网</Trans>}
+      url="https://swarm-apps.github.io/SwarmDrop/"
+    />
+  );
+}
+
+/** 桌面端：GitHub 仓库按钮 */
+function GithubButton() {
+  return (
+    <ExternalLinkButton
+      icon={Github}
+      label="GitHub"
+      url="https://github.com/swarm-apps/SwarmDrop"
+    />
+  );
 }
 
 /** 桌面端：更新日志按钮 */
 function ReleaseNotesButton() {
   return (
+    <ExternalLinkButton
+      icon={ExternalLink}
+      label={<Trans>更新日志</Trans>}
+      url="https://github.com/swarm-apps/SwarmDrop/blob/main/CHANGELOG.md"
+    />
+  );
+}
+
+function ExternalLinkButton({
+  icon: Icon,
+  label,
+  url,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: ReactNode;
+  url: string;
+}) {
+  return (
     <button
       type="button"
-      onClick={() => openUrl("https://github.com/swarm-apps/SwarmDrop/blob/main/CHANGELOG.md")}
-      className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+      onClick={() => openUrl(url)}
+      className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
     >
-      <ExternalLink className="size-3.5" />
-      <Trans>更新日志</Trans>
+      <Icon className="size-3.5" />
+      {label}
     </button>
   );
 }
@@ -159,7 +219,7 @@ function UpdateButton({
         <button
           type="button"
           disabled
-          className="flex items-center gap-1.5 rounded-md bg-primary/50 px-3 py-1.5 text-xs font-medium text-primary-foreground"
+          className="flex items-center gap-1.5 rounded-lg bg-primary/50 px-3 py-1.5 text-xs font-medium text-primary-foreground"
         >
           <Loader2 className="size-3.5 animate-spin" />
           <Trans>检查中...</Trans>
@@ -172,7 +232,7 @@ function UpdateButton({
         <button
           type="button"
           onClick={onUpdate}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           <Download className="size-3.5" />
           {t`更新到 v${latestVersion ?? "?"}`}
@@ -185,7 +245,7 @@ function UpdateButton({
         <button
           type="button"
           disabled
-          className="flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground"
+          className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground"
         >
           <Loader2 className="size-3.5 animate-spin" />
           <Trans>下载中...</Trans>
@@ -197,7 +257,7 @@ function UpdateButton({
         <button
           type="button"
           onClick={onCheck}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           <RefreshCw className="size-3.5" />
           <Trans>检查更新</Trans>

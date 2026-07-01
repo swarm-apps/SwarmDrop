@@ -4,6 +4,10 @@
  */
 
 import { createFileRoute, Outlet } from "@tanstack/react-router";
+import {
+  AppAmbientBackground,
+  AppAmbientLightOverlay,
+} from "@/components/layout/app-ambient-background";
 import { isMac } from "@/lib/utils";
 
 export const Route = createFileRoute("/_onboarding")({
@@ -12,13 +16,18 @@ export const Route = createFileRoute("/_onboarding")({
 
 function OnboardingLayout() {
   return (
-    <div className="flex h-svh flex-col bg-background">
+    <div className="app-shell flex h-svh flex-col">
+      <AppAmbientBackground />
       {isMac && (
-        <div data-tauri-drag-region className="h-8 shrink-0 bg-background" />
+        <div
+          data-tauri-drag-region
+          className="h-8 shrink-0 bg-transparent"
+        />
       )}
       <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>
+      <AppAmbientLightOverlay />
     </div>
   );
 }

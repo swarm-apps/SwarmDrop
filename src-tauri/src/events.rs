@@ -5,6 +5,7 @@
 //! （`NetworkStatusChanged` → `"network-status-changed"`）。
 
 use serde::Serialize;
+use swarmdrop_core::database::ops::TransferProjection;
 use swarmdrop_core::device::{Device, PairedDeviceInfo};
 use swarmdrop_core::network::NetworkStatus;
 use swarmdrop_core::transfer::incoming::TransferOfferEvent;
@@ -81,3 +82,27 @@ pub struct TransferResumed(pub TransferResumedEvent);
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 #[serde(transparent)]
 pub struct TransferDbError(pub TransferDbErrorEvent);
+
+/// 传输投影更新（redesign：前端唯一状态源）。事件名 `"transfer-projection-update"`。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TransferProjectionUpdate(pub TransferProjection);
+
+// === 接收暂停 ===
+
+/// 全局「暂停接收」状态变更（托盘 / 命令切换后广播，供 UI 与托盘同步）。
+/// 事件名 `"receiving-paused-changed"`，payload 为 `true`=已暂停。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct ReceivingPausedChanged(pub bool);
+
+// === 托盘信号（Rust 托盘 → 前端执行依赖前端状态的动作）===
+
+/// 托盘「打开接收文件夹」：路径由前端 `savePath` 拥有，故由前端打开。
+/// 事件名 `"tray-open-receive-folder"`。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+pub struct TrayOpenReceiveFolder;
+
+/// 托盘「设置」：由前端路由跳转到设置页。事件名 `"tray-open-settings"`。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+pub struct TrayOpenSettings;

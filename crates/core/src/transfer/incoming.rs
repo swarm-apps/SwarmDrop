@@ -6,15 +6,17 @@ use swarm_p2p_core::libp2p::PeerId;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::device::PairedDeviceInfo;
 use crate::error::{AppError, AppResult};
-use crate::host::{CoreEvent, EventBus};
+use crate::host::{CoreEvent, CoreSaveLocation, EventBus};
 use crate::protocol::{
-    AppNetClient, AppResponse, FileChecksum, FileInfo, OfferRejectReason, TransferRequest,
-    TransferResponse,
+    AppNetClient, AppResponse, FileInfo, OfferRejectReason, ResumeRejectReason, TransferOrigin,
+    TransferRequest, TransferResponse,
 };
-use crate::transfer::progress::{
-    TransferCompleteEvent, TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent,
+use crate::transfer::policy::{
+    ReceivePolicyAction, ReceivePolicyContext, ReceivePolicyDecision, evaluate_receive_policy,
 };
+use crate::transfer::progress::{TransferFailedEvent, TransferPausedEvent};
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -25,6 +27,10 @@ pub struct TransferOfferEvent {
     pub device_name: String,
     pub files: Vec<TransferOfferFileEvent>,
     pub total_size: u64,
+    /// 发起来源（人工 / MCP 代理），供接收端 UI 标识。
+    pub origin: TransferOrigin,
+    pub policy_action: Option<String>,
+    pub policy_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -38,26 +44,12 @@ pub struct TransferOfferFileEvent {
     pub is_directory: bool,
 }
 
-pub struct TransferCompleteOutcome {
-    pub event: TransferCompleteEvent,
-    pub db_error: Option<TransferDbErrorEvent>,
-}
-
 /// 宿主侧传输运行时。
 ///
 /// Core 负责协议分发、响应和标准事件发布；具体的文件会话、DB 和宿主清理
 /// 由桌面端或 RN 端在这个 trait 中适配。
 #[async_trait]
 pub trait IncomingTransferRuntime: Send + Sync {
-    async fn handle_chunk_request(
-        &self,
-        session_id: Uuid,
-        file_id: u32,
-        chunk_index: u32,
-    ) -> AppResult<TransferResponse>;
-
-    async fn handle_complete(&self, session_id: Uuid) -> AppResult<TransferCompleteOutcome>;
-
     async fn handle_cancel(
         &self,
         session_id: Uuid,
@@ -66,11 +58,25 @@ pub trait IncomingTransferRuntime: Send + Sync {
 
     async fn handle_pause(&self, session_id: Uuid) -> AppResult<TransferPausedEvent>;
 
-    fn is_paired(&self, peer_id: &PeerId) -> bool;
+    /// 对端断连：把该 peer 当前所有 active 传输转为 recoverable suspended(Interrupted)。
+    /// 默认 no-op（mobile-core 占位）；桌面端 TransferManager 具体实现。
+    async fn handle_peer_disconnected(&self, peer_id: PeerId) {
+        let _ = peer_id;
+    }
 
-    fn paired_device_name(&self, peer_id: &PeerId) -> Option<String>;
+    /// 是否处于全局「暂停接收」状态。
+    ///
+    /// 默认 `false`：未实现该开关的平台（如 mobile-core）行为与引入本能力前完全一致。
+    /// 暂停**仅**作用于是否接受新的传入文件传输，不影响节点在线 / 配对 / 发现。
+    fn is_receiving_paused(&self) -> bool {
+        false
+    }
 
-    fn cache_inbound_offer(
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "缓存入站 offer 需要完整的对端与会话上下文"
+    )]
+    async fn cache_inbound_offer(
         &self,
         pending_id: u64,
         peer_id: PeerId,
@@ -78,48 +84,74 @@ pub trait IncomingTransferRuntime: Send + Sync {
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
-    );
+        origin: TransferOrigin,
+        policy_decision: ReceivePolicyDecision,
+    ) -> AppResult<()>;
 
-    /// 接收方发起的断点续传：发送方一侧验证文件 + 重建 SendSession，回复 ResumeResult。
-    /// 默认拒绝（mobile-core 占位实现可继承），桌面端在 TransferManager 中具体实现。
-    async fn handle_resume_request(
+    async fn accept_cached_inbound_offer(
+        &self,
+        session_id: Uuid,
+        save_location: CoreSaveLocation,
+    ) -> AppResult<()>;
+
+    async fn record_rejected_inbound_offer(
         &self,
         peer_id: PeerId,
+        peer_name: String,
         session_id: Uuid,
-        file_checksums: Vec<FileChecksum>,
-    ) -> AppResult<TransferResponse> {
-        let _ = (peer_id, file_checksums);
-        Ok(TransferResponse::ResumeResult {
+        files: Vec<FileInfo>,
+        total_size: u64,
+        origin: TransferOrigin,
+        policy_decision: ReceivePolicyDecision,
+    ) -> AppResult<()>;
+
+    /// 恢复探测应答（默认报告 NotFound；桌面端在 TransferManager 具体实现）。
+    async fn handle_resume_probe(&self, session_id: Uuid) -> AppResult<TransferResponse> {
+        Ok(TransferResponse::ResumeStateReport {
             session_id,
-            accepted: false,
-            reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
-            key: None,
+            report: crate::protocol::ResumeReport {
+                phase: crate::protocol::ResumePhaseReport::NotFound,
+                epoch: 0,
+                files: vec![],
+                checkpoint: vec![],
+                source_fingerprint: None,
+                terminal: false,
+                terminal_reason: None,
+            },
         })
     }
 
-    /// 发送方发起的断点续传：接收方一侧验证文件 + 重建 ReceiveSession，回复 ResumeOfferResult。
-    async fn handle_resume_offer(
+    /// 恢复提交应答（默认拒绝；桌面端在 TransferManager 具体实现）。
+    async fn handle_resume_commit(
         &self,
         peer_id: PeerId,
         session_id: Uuid,
+        new_epoch: i64,
         key: [u8; 32],
-        file_checksums: Vec<FileChecksum>,
+        fetch_plan: Vec<crate::protocol::FileRange>,
     ) -> AppResult<TransferResponse> {
-        let _ = (peer_id, key, file_checksums);
-        Ok(TransferResponse::ResumeOfferResult {
+        let _ = (peer_id, key, fetch_plan);
+        Ok(TransferResponse::ResumeAck {
             session_id,
+            new_epoch,
             accepted: false,
-            reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
+            reason: Some(ResumeRejectReason::SessionNotFound),
         })
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "入站请求分发需要 client/runtime/event_bus 与完整请求上下文"
+)]
 pub async fn handle_incoming_transfer_request<R, B>(
     client: &AppNetClient,
     runtime: &R,
     event_bus: &B,
     peer_id: PeerId,
     pending_id: u64,
+    paired_device: Option<PairedDeviceInfo>,
+    via_relay: bool,
     request: TransferRequest,
 ) -> AppResult<IncomingTransferDisposition>
 where
@@ -127,42 +159,6 @@ where
     B: EventBus + ?Sized,
 {
     match request {
-        TransferRequest::ChunkRequest {
-            session_id,
-            file_id,
-            chunk_index,
-        } => {
-            let response = runtime
-                .handle_chunk_request(session_id, file_id, chunk_index)
-                .await
-                .unwrap_or_else(|e| {
-                    warn!("ChunkRequest 处理失败: {}", e);
-                    TransferResponse::ChunkError {
-                        session_id,
-                        file_id,
-                        chunk_index,
-                        error: e.to_string(),
-                    }
-                });
-            send_transfer_response(client, pending_id, response).await?;
-            Ok(IncomingTransferDisposition::Handled)
-        }
-        TransferRequest::Complete { session_id } => {
-            let outcome = runtime.handle_complete(session_id).await?;
-            send_transfer_response(client, pending_id, TransferResponse::Ack { session_id })
-                .await?;
-            if let Some(event) = outcome.db_error {
-                event_bus
-                    .publish(CoreEvent::TransferDbError { event })
-                    .await?;
-            }
-            event_bus
-                .publish(CoreEvent::TransferCompleted {
-                    event: outcome.event,
-                })
-                .await?;
-            Ok(IncomingTransferDisposition::Handled)
-        }
         TransferRequest::Cancel { session_id, reason } => {
             let event = runtime.handle_cancel(session_id, reason).await?;
             send_transfer_response(client, pending_id, TransferResponse::Ack { session_id })
@@ -185,8 +181,9 @@ where
             session_id,
             files,
             total_size,
+            origin,
         } => {
-            if !runtime.is_paired(&peer_id) {
+            if paired_device.is_none() {
                 send_transfer_response(
                     client,
                     pending_id,
@@ -200,19 +197,83 @@ where
                 return Ok(IncomingTransferDisposition::Handled);
             }
 
-            let device_name = runtime.paired_device_name(&peer_id).unwrap_or_else(|| {
-                let s = peer_id.to_string();
-                s[s.len().saturating_sub(8)..].to_string()
-            });
+            // 全局「暂停接收」：节点保持在线可发现，但对新 offer 自动婉拒——
+            // 不缓存、不落盘、不发 TransferOffer 事件、不打扰本机用户。恢复后照常处理。
+            if runtime.is_receiving_paused() {
+                send_transfer_response(
+                    client,
+                    pending_id,
+                    TransferResponse::OfferResult {
+                        accepted: false,
+                        key: None,
+                        reason: Some(OfferRejectReason::ReceivingPaused),
+                    },
+                )
+                .await?;
+                return Ok(IncomingTransferDisposition::Handled);
+            }
 
-            runtime.cache_inbound_offer(
-                pending_id,
-                peer_id,
-                device_name.clone(),
-                session_id,
-                files.clone(),
+            let policy_decision = evaluate_receive_policy(ReceivePolicyContext {
+                device: paired_device.as_ref(),
+                files: &files,
                 total_size,
-            );
+                via_relay,
+                now_ms: chrono::Utc::now().timestamp_millis(),
+            });
+            let device_name = paired_device
+                .as_ref()
+                .map(display_device_name)
+                .unwrap_or_else(|| short_peer_id(&peer_id));
+
+            if policy_decision.action == ReceivePolicyAction::Reject {
+                let record_result = runtime
+                    .record_rejected_inbound_offer(
+                        peer_id,
+                        device_name,
+                        session_id,
+                        files,
+                        total_size,
+                        origin,
+                        policy_decision,
+                    )
+                    .await;
+                send_transfer_response(
+                    client,
+                    pending_id,
+                    TransferResponse::OfferResult {
+                        accepted: false,
+                        key: None,
+                        reason: Some(OfferRejectReason::PolicyRejected),
+                    },
+                )
+                .await?;
+                record_result?;
+                return Ok(IncomingTransferDisposition::Handled);
+            }
+
+            let auto_save_location = policy_decision.save_location.clone();
+            let policy_action = Some(policy_decision.action_name().to_string());
+            let policy_reason = Some(policy_decision.reason.clone());
+
+            runtime
+                .cache_inbound_offer(
+                    pending_id,
+                    peer_id,
+                    device_name.clone(),
+                    session_id,
+                    files.clone(),
+                    total_size,
+                    origin.clone(),
+                    policy_decision,
+                )
+                .await?;
+
+            if let Some(save_location) = auto_save_location {
+                runtime
+                    .accept_cached_inbound_offer(session_id, save_location)
+                    .await?;
+                return Ok(IncomingTransferDisposition::Handled);
+            }
 
             let offer = TransferOfferEvent {
                 session_id,
@@ -229,45 +290,53 @@ where
                     })
                     .collect(),
                 total_size,
+                origin,
+                policy_action,
+                policy_reason,
             };
             event_bus
                 .publish(CoreEvent::TransferOfferReceived { offer })
                 .await?;
-            Ok(IncomingTransferDisposition::Handled)
+            Ok(IncomingTransferDisposition::OfferRequiresConfirmation)
         }
-        TransferRequest::ResumeRequest {
-            session_id,
-            file_checksums,
-        } => {
+        TransferRequest::ResumeProbe { session_id } => {
             let response = runtime
-                .handle_resume_request(peer_id, session_id, file_checksums)
+                .handle_resume_probe(session_id)
                 .await
                 .unwrap_or_else(|e| {
-                    warn!("ResumeRequest 处理失败: {}", e);
-                    TransferResponse::ResumeResult {
+                    warn!("ResumeProbe 处理失败: {}", e);
+                    TransferResponse::ResumeStateReport {
                         session_id,
-                        accepted: false,
-                        reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
-                        key: None,
+                        report: crate::protocol::ResumeReport {
+                            phase: crate::protocol::ResumePhaseReport::NotFound,
+                            epoch: 0,
+                            files: vec![],
+                            checkpoint: vec![],
+                            source_fingerprint: None,
+                            terminal: false,
+                            terminal_reason: None,
+                        },
                     }
                 });
             send_transfer_response(client, pending_id, response).await?;
             Ok(IncomingTransferDisposition::Handled)
         }
-        TransferRequest::ResumeOffer {
+        TransferRequest::ResumeCommit {
             session_id,
+            new_epoch,
             key,
-            file_checksums,
+            fetch_plan,
         } => {
             let response = runtime
-                .handle_resume_offer(peer_id, session_id, key, file_checksums)
+                .handle_resume_commit(peer_id, session_id, new_epoch, key, fetch_plan)
                 .await
                 .unwrap_or_else(|e| {
-                    warn!("ResumeOffer 处理失败: {}", e);
-                    TransferResponse::ResumeOfferResult {
+                    warn!("ResumeCommit 处理失败: {}", e);
+                    TransferResponse::ResumeAck {
                         session_id,
+                        new_epoch,
                         accepted: false,
-                        reason: Some(crate::protocol::ResumeRejectReason::SessionNotFound),
+                        reason: Some(ResumeRejectReason::SessionNotFound),
                     }
                 });
             send_transfer_response(client, pending_id, response).await?;
@@ -278,6 +347,7 @@ where
 
 pub enum IncomingTransferDisposition {
     Handled,
+    OfferRequiresConfirmation,
     Unhandled(TransferRequest),
 }
 
@@ -290,4 +360,18 @@ async fn send_transfer_response(
         .send_response(pending_id, AppResponse::Transfer(response))
         .await
         .map_err(AppError::from)
+}
+
+fn display_device_name(device: &PairedDeviceInfo) -> String {
+    device
+        .os_info
+        .name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| device.os_info.hostname.clone())
+}
+
+fn short_peer_id(peer_id: &PeerId) -> String {
+    let s = peer_id.to_string();
+    s[s.len().saturating_sub(8)..].to_string()
 }

@@ -27,7 +27,6 @@ dist-ssr
 !.claude/skills
 !.claude/settings.json
 .agents
-**/openspec
 **/.obsidian
 .tanstack
 

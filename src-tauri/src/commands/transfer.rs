@@ -7,15 +7,15 @@ use std::sync::Arc;
 
 use sea_orm::EntityTrait;
 use serde::Serialize;
+use swarmdrop_core::transfer::HostEnumeratedFile;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::progress::PrepareProgressEvent;
-use swarmdrop_core::transfer::HostEnumeratedFile;
 use tauri::ipc::Channel;
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
 use crate::host::event_bus::PrepareChannelGuard;
-use crate::host::file_source::{source_id, EnumeratedFile, FileSource};
+use crate::host::file_source::{EnumeratedFile, FileSource, source_id};
 use crate::network::NetManagerState;
 
 // ============ scan_sources ============
@@ -134,7 +134,15 @@ pub async fn start_send(
     selected_file_ids: Vec<u32>,
 ) -> crate::AppResult<StartSendResult> {
     let transfer = get_transfer(&net).await?;
-    Ok(transfer.send_offer(&prepared_id, &peer_id, &peer_name, &selected_file_ids)?)
+    Ok(transfer
+        .send_offer(
+            &prepared_id,
+            &peer_id,
+            &peer_name,
+            &selected_file_ids,
+            swarmdrop_core::protocol::TransferOrigin::Human,
+        )
+        .await?)
 }
 
 #[tauri::command]
@@ -180,24 +188,14 @@ pub async fn cancel_receive(
     Ok(transfer.cancel_receive(&session_id).await?)
 }
 
-// ============ 传输历史 API ============
+// ============ 传输投影 API ============
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_transfer_history(
+pub async fn get_transfer_projections(
     db: State<'_, sea_orm::DatabaseConnection>,
-    status: Option<entity::SessionStatus>,
-) -> crate::AppResult<Vec<crate::database::ops::TransferHistoryItem>> {
-    Ok(crate::database::ops::get_transfer_history(&db, status).await?)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn get_transfer_session(
-    db: State<'_, sea_orm::DatabaseConnection>,
-    session_id: Uuid,
-) -> crate::AppResult<crate::database::ops::TransferHistoryItem> {
-    Ok(crate::database::ops::get_session_detail(&db, session_id).await?)
+) -> crate::AppResult<Vec<crate::database::ops::TransferProjection>> {
+    Ok(crate::database::ops::get_transfer_projections(&db).await?)
 }
 
 #[tauri::command]
@@ -261,14 +259,11 @@ pub async fn resume_transfer(
         .await?
         .ok_or_else(|| crate::AppError::transfer("会话不存在"))?;
 
-    let (resume_info, direction_str) = match session.direction {
-        entity::TransferDirection::Receive => {
-            (transfer.initiate_resume(session_id).await?, "receive")
-        }
-        entity::TransferDirection::Send => (
-            transfer.initiate_resume_as_sender(session_id).await?,
-            "send",
-        ),
+    // 发送方/接收方发起恢复已统一为单入口 `initiate_resume`（内部按 session.direction 派生）。
+    let resume_info = transfer.initiate_resume(session_id).await?;
+    let direction_str = match session.direction {
+        entity::TransferDirection::Receive => "receive",
+        entity::TransferDirection::Send => "send",
     };
 
     Ok(ResumeTransferResult {
@@ -290,6 +285,24 @@ pub async fn resume_transfer(
         total_size: resume_info.total_size as u64,
         transferred_bytes: resume_info.transferred_bytes as u64,
     })
+}
+
+// ============ 暂停接收 ============
+
+/// 设置全局「暂停接收」。`true`=暂停：节点保持在线可发现、配对不受影响，但对新 offer
+/// 自动婉拒；`false`=恢复：新 offer 照常按既有策略处理。同步托盘文案并广播
+/// `receiving-paused-changed` 事件。
+#[tauri::command]
+#[specta::specta]
+pub async fn set_receiving_paused(app: AppHandle, paused: bool) -> crate::AppResult<()> {
+    crate::tray::apply_receiving_paused(&app, paused).await
+}
+
+/// 查询当前是否暂停接收（节点未启动视为未暂停）。
+#[tauri::command]
+#[specta::specta]
+pub async fn is_receiving_paused(app: AppHandle) -> crate::AppResult<bool> {
+    Ok(crate::tray::current_receiving_paused(&app).await)
 }
 
 // ============ 辅助函数 ============

@@ -254,10 +254,10 @@ impl ProgressTracker {
     }
 
     pub fn set_file_transferring(&mut self, file_id: u32) {
-        if let Some(f) = self.files.iter_mut().find(|f| f.file_id == file_id) {
-            if f.status == FileTransferStatus::Pending {
-                f.status = FileTransferStatus::Transferring;
-            }
+        if let Some(f) = self.files.iter_mut().find(|f| f.file_id == file_id)
+            && f.status == FileTransferStatus::Pending
+        {
+            f.status = FileTransferStatus::Transferring;
         }
     }
 

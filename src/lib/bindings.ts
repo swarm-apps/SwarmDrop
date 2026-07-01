@@ -7,12 +7,34 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	start: (pairedDevices: PairedDeviceInfo[], customBootstrapNodes: string[] | null) => __TAURI_INVOKE<null>("start", { pairedDevices, customBootstrapNodes }),
+	start: (pairedDevices: PairedDeviceInfo[], networkOptions: {
+	customBootstrapNodes?: string[],
+	discoveryMode?: DiscoveryMode,
+	autoDiscoverLanHelpers?: boolean,
+	provideLanHelper?: boolean,
+} | null) => __TAURI_INVOKE<null>("start", { pairedDevices, networkOptions }),
 	shutdown: () => __TAURI_INVOKE<null>("shutdown"),
 	listDevices: (filter: "all" | "connected" | "paired" | null) => __TAURI_INVOKE<DeviceListResult>("list_devices", { filter }),
 	getNetworkStatus: () => __TAURI_INVOKE<NetworkStatus>("get_network_status"),
 	/**  下载并安装应用更新（桌面端） */
 	installUpdate: (url: string, isForce: boolean) => __TAURI_INVOKE<null>("install_update", { url, isForce }),
+	listInboxItems: (includeArchived: boolean) => __TAURI_INVOKE<InboxItemSummary[]>("list_inbox_items", { includeArchived }),
+	/**
+	 *  检索收件箱。`limit` 默认 20，`include_archived` 默认 false。
+	 * 
+	 *  数据库未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
+	 */
+	searchInbox: (query: string, limit: number | null, includeArchived: boolean | null) => __TAURI_INVOKE<InboxSearchHit[]>("search_inbox", { query, limit, includeArchived }),
+	getInboxItemDetail: (itemId: string) => __TAURI_INVOKE<({
+	files: InboxItemFileEntry[],
+	transfer: TransferProjection | null,
+}) & (InboxItemSummary) | null>("get_inbox_item_detail", { itemId }),
+	repairMissingInboxItems: () => __TAURI_INVOKE<InboxItemDetail[]>("repair_missing_inbox_items"),
+	openInboxItem: (itemId: string, fileId: number | null) => __TAURI_INVOKE<null>("open_inbox_item", { itemId, fileId }),
+	showInboxItemInFolder: (itemId: string, fileId: number | null) => __TAURI_INVOKE<null>("show_inbox_item_in_folder", { itemId, fileId }),
+	exportInboxItem: (itemId: string, destinationDir: string) => __TAURI_INVOKE<null>("export_inbox_item", { itemId, destinationDir }),
+	archiveInboxItem: (itemId: string, archived: boolean) => __TAURI_INVOKE<null>("archive_inbox_item", { itemId, archived }),
+	deleteInboxItem: (itemId: string, deleteLocalFiles: boolean) => __TAURI_INVOKE<null>("delete_inbox_item", { itemId, deleteLocalFiles }),
 	/**  从系统 keychain 初始化设备身份，不再要求用户输入 Stronghold 密码。 */
 	initializeIdentity: () => __TAURI_INVOKE<IdentityState>("initialize_identity"),
 	/**  生成新的 Ed25519 密钥对。 */
@@ -26,7 +48,7 @@ export const commands = {
 	 * 
 	 *  仅写入 `device_config.json`。要让新名字通过 libp2p Identify `agent_version`
 	 *  重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
-	 *  paired_devices + customBootstrapNodes 上下文）。
+	 *  paired_devices + network_options 上下文）。
 	 * 
 	 *  `name = None`（或空串/纯空白）清空，回退到系统 hostname。
 	 */
@@ -57,6 +79,18 @@ export const commands = {
 	 *  `peer_id` 为 base58 字符串，由命令内部解析为 libp2p `PeerId`。
 	 */
 	removePairedDevice: (peerId: string) => __TAURI_INVOKE<null>("remove_paired_device", { peerId }),
+	/**  更新已配对设备的可信策略。 */
+	updatePairedDevicePolicy: (peerId: string, trustLevel: DeviceTrustLevel, receivePolicy: {
+	autoAccept: boolean,
+	requireConfirmation: boolean,
+	maxTransferBytes?: number | null,
+	allowDirectories: boolean,
+	allowRelayAutoAccept: boolean,
+	saveBehavior?: ReceiveSaveBehavior,
+	defaultSaveLocation?: string | null,
+	allowMcpSendToDevice: boolean,
+	expiresAt?: number | null,
+} | null) => __TAURI_INVOKE<PairedDeviceInfo>("update_paired_device_policy", { peerId, trustLevel, receivePolicy }),
 	scanSources: (sources: FileSource[]) => __TAURI_INVOKE<ScannedSourceResult[]>("scan_sources", { sources }),
 	prepareSend: (files: EnumeratedFile[], onProgress: Channel<PrepareProgressEvent>) => __TAURI_INVOKE<PreparedTransferResult>("prepare_send", { files, onProgress }),
 	startSend: (preparedId: string, peerId: string, peerName: string, selectedFileIds: number[]) => __TAURI_INVOKE<StartSendResult>("start_send", { preparedId, peerId, peerName, selectedFileIds }),
@@ -64,12 +98,27 @@ export const commands = {
 	rejectReceive: (sessionId: string) => __TAURI_INVOKE<null>("reject_receive", { sessionId }),
 	cancelSend: (sessionId: string) => __TAURI_INVOKE<null>("cancel_send", { sessionId }),
 	cancelReceive: (sessionId: string) => __TAURI_INVOKE<null>("cancel_receive", { sessionId }),
-	getTransferHistory: (status: "transferring" | "paused" | "completed" | "failed" | "cancelled" | null) => __TAURI_INVOKE<TransferHistoryItem[]>("get_transfer_history", { status }),
-	getTransferSession: (sessionId: string) => __TAURI_INVOKE<TransferHistoryItem>("get_transfer_session", { sessionId }),
+	getTransferProjections: () => __TAURI_INVOKE<TransferProjection[]>("get_transfer_projections"),
 	deleteTransferSession: (sessionId: string) => __TAURI_INVOKE<null>("delete_transfer_session", { sessionId }),
 	clearTransferHistory: () => __TAURI_INVOKE<null>("clear_transfer_history"),
 	pauseTransfer: (sessionId: string) => __TAURI_INVOKE<null>("pause_transfer", { sessionId }),
 	resumeTransfer: (sessionId: string) => __TAURI_INVOKE<ResumeTransferResult>("resume_transfer", { sessionId }),
+	/**
+	 *  设置全局「暂停接收」。`true`=暂停：节点保持在线可发现、配对不受影响，但对新 offer
+	 *  自动婉拒；`false`=恢复：新 offer 照常按既有策略处理。同步托盘文案并广播
+	 *  `receiving-paused-changed` 事件。
+	 */
+	setReceivingPaused: (paused: boolean) => __TAURI_INVOKE<null>("set_receiving_paused", { paused }),
+	/**  查询当前是否暂停接收（节点未启动视为未暂停）。 */
+	isReceivingPaused: () => __TAURI_INVOKE<boolean>("is_receiving_paused"),
+	/**
+	 *  真正退出应用。
+	 * 
+	 *  关闭语义由前端 `onCloseRequested` 拦截：`closeBehavior=quit` 或首次对话框选「退出」
+	 *  时由前端显式调用本命令，确保进程退出（仅 `hide()` 不退出；macOS 关最后一个窗口默认
+	 *  也不退出）。托盘「退出」走 Rust 侧 `app.exit(0)`，不经本命令。
+	 */
+	quitApp: () => __TAURI_INVOKE<void>("quit_app"),
 	/**  查询 MCP Server 当前状态 */
 	getMcpStatus: () => __TAURI_INVOKE<McpStatus>("get_mcp_status"),
 	/**
@@ -88,6 +137,7 @@ export const events = {
 	networkStatusChanged: makeEvent<NetworkStatusChanged>("network-status-changed"),
 	pairedDeviceAdded: makeEvent<PairedDeviceAdded>("paired-device-added"),
 	pairingRequestReceived: makeEvent<PairingRequestReceived>("pairing-request-received"),
+	receivingPausedChanged: makeEvent<ReceivingPausedChanged>("receiving-paused-changed"),
 	transferAccepted: makeEvent<TransferAccepted>("transfer-accepted"),
 	transferComplete: makeEvent<TransferComplete>("transfer-complete"),
 	transferDbError: makeEvent<TransferDbError>("transfer-db-error"),
@@ -95,8 +145,11 @@ export const events = {
 	transferOffer: makeEvent<TransferOffer>("transfer-offer"),
 	transferPaused: makeEvent<TransferPaused>("transfer-paused"),
 	transferProgress: makeEvent<TransferProgress>("transfer-progress"),
+	transferProjectionUpdate: makeEvent<TransferProjectionUpdate>("transfer-projection-update"),
 	transferRejected: makeEvent<TransferRejected>("transfer-rejected"),
 	transferResumed: makeEvent<TransferResumed>("transfer-resumed"),
+	trayOpenReceiveFolder: makeEvent<TrayOpenReceiveFolder>("tray-open-receive-folder"),
+	trayOpenSettings: makeEvent<TrayOpenSettings>("tray-open-settings"),
 };
 
 /* Types */
@@ -107,6 +160,13 @@ export const events = {
 export type AppErrorPayload = {
 	kind: string,
 	message: string,
+};
+
+export type BootstrapCandidateSource = "builtInPublic" | "userCustom" | "mdnsLanHelper";
+
+export type CandidateSourceStatus = {
+	source: BootstrapCandidateSource,
+	count: number,
 };
 
 /**  连接类型。 */
@@ -129,6 +189,9 @@ export type Device = {
 	connection: ConnectionType | null,
 	latency: number | null,
 	isPaired: boolean,
+	trustLevel: DeviceTrustLevel | null,
+	receivePolicy: DeviceReceivePolicy | null,
+	trustConfirmed: boolean | null,
 } & OsInfo;
 
 /**  设备过滤器 */
@@ -147,10 +210,33 @@ export type DeviceListResult = {
 	total: number,
 };
 
+/**
+ *  可信设备接收策略。
+ * 
+ *  字段保持 host-neutral：保存位置使用字符串表达的 host 路径，桌面端解释为绝对路径，
+ *  移动端后续可解释为应用文档目录下的子路径。
+ */
+export type DeviceReceivePolicy = {
+	autoAccept: boolean,
+	requireConfirmation: boolean,
+	maxTransferBytes?: number | null,
+	allowDirectories: boolean,
+	allowRelayAutoAccept: boolean,
+	saveBehavior?: ReceiveSaveBehavior,
+	defaultSaveLocation?: string | null,
+	allowMcpSendToDevice: boolean,
+	expiresAt?: number | null,
+};
+
 /**  设备状态。 */
 export type DeviceStatus = "online" | "offline";
 
+/**  已配对设备信任等级。 */
+export type DeviceTrustLevel = "owned" | "collaborator" | "temporary" | "blocked";
+
 export type DevicesChanged = Device[];
+
+export type DiscoveryMode = "auto" | "lanOnly";
 
 /**
  *  目录遍历后的扁平化文件条目
@@ -182,9 +268,6 @@ export type FileSource =
 /**  标准文件系统路径 */
 { type: "path"; path: string };
 
-/**  单文件传输状态 */
-export type FileStatus = "pending" | "completed" | "failed";
-
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 
 export type IdentityState = {
@@ -194,10 +277,81 @@ export type IdentityState = {
 	created: boolean,
 };
 
+/**  收件箱内容类型。 */
+export type InboxContentKind = "files" | "text" | "clipboard" | "bundle";
+
+/**  搜索命中条目下的文件标识（供下钻定位）。 */
+export type InboxHitFile = {
+	name: string,
+	relativePath: string,
+};
+
+/**  收件箱详情 DTO。 */
+export type InboxItemDetail = {
+	files: InboxItemFileEntry[],
+	transfer: TransferProjection | null,
+} & InboxItemSummary;
+
+/**  收件箱文件 DTO。 */
+export type InboxItemFileEntry = {
+	id: number,
+	transferFileId: number | null,
+	relativePath: string,
+	name: string,
+	size: number,
+	checksum: string,
+	localPath: string,
+	missing: boolean,
+};
+
+/**  收件箱列表条目 DTO。 */
+export type InboxItemSummary = {
+	id: string,
+	transferSessionId: string | null,
+	sourcePeerId: string,
+	sourceName: string,
+	sourceKind: InboxSourceKind,
+	contentKind: InboxContentKind,
+	title: string,
+	itemCount: number,
+	totalSize: number,
+	rootPath: string | null,
+	contentHash: string | null,
+	receivedAt: number,
+	lastOpenedAt: number | null,
+	archivedAt: number | null,
+	deletedAt: number | null,
+	missing: boolean,
+};
+
+/**  收件箱搜索命中（item 粒度）。 */
+export type InboxSearchHit = {
+	id: string,
+	title: string,
+	sourceName: string,
+	itemCount: number,
+	rootPath: string | null,
+	receivedAt: number,
+	/**  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。 */
+	snippet: string,
+	/**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
+	files: InboxHitFile[],
+};
+
+/**  收件箱来源类型。 */
+export type InboxSourceKind = "paired_device" | "share_code" | "mcp" | "unknown";
+
 /**  MCP Server 状态返回值 */
 export type McpStatus = {
 	running: boolean,
 	addr: string | null,
+};
+
+export type NetworkRuntimeConfig = {
+	customBootstrapNodes?: string[],
+	discoveryMode?: DiscoveryMode,
+	autoDiscoverLanHelpers?: boolean,
+	provideLanHelper?: boolean,
 };
 
 /**  网络状态快照。 */
@@ -215,6 +369,26 @@ export type NetworkStatus = {
 	relayPeers: string[],
 	/**  是否至少有一个引导节点已连接。 */
 	bootstrapConnected: boolean,
+	/**  当前发现模式。 */
+	discoveryMode: DiscoveryMode,
+	/**  是否自动发现局域网协助节点。 */
+	autoDiscoverLanHelpers: boolean,
+	/**  本设备是否配置为提供局域网协助能力。 */
+	localLanHelperEnabled: boolean,
+	/**  本设备当前是否正在作为局域网协助节点运行。 */
+	localLanHelperRunning: boolean,
+	/**  Relay Server 是否启用。 */
+	relayServerEnabled: boolean,
+	/**  LAN Helper 可公告地址。 */
+	lanHelperAdvertisedAddrs: string[],
+	/**  已发现的局域网协助节点数量。 */
+	lanHelperCount: number,
+	/**  候选总数。 */
+	bootstrapCandidateCount: number,
+	/**  按来源聚合的候选数量。 */
+	candidateSources: CandidateSourceStatus[],
+	/**  当前 relay peer 的候选来源。 */
+	relaySource: BootstrapCandidateSource | null,
 };
 
 export type NetworkStatusChanged = NetworkStatus;
@@ -223,7 +397,9 @@ export type NetworkStatusChanged = NetworkStatus;
 export type NodeStatus = "running" | "stopped";
 
 /**  Offer 被拒绝的原因。 */
-export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined" };
+export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined" } | { type: "policy_rejected" } | 
+/**  接收方处于全局「暂停接收」状态，婉拒新 offer。 */
+{ type: "receiving_paused" };
 
 /**
  *  设备操作系统信息。
@@ -239,6 +415,7 @@ export type OsInfo = {
 	os: string,
 	platform: string,
 	arch: string,
+	capabilities?: string[],
 };
 
 export type PairedDeviceAdded = PairedDeviceInfo;
@@ -247,6 +424,9 @@ export type PairedDeviceAdded = PairedDeviceInfo;
 export type PairedDeviceInfo = {
 	peerId: string,
 	pairedAt: number,
+	trustLevel?: DeviceTrustLevel,
+	receivePolicy?: DeviceReceivePolicy,
+	trustConfirmed?: boolean,
 } & OsInfo;
 
 export type PairingCodeInfo = {
@@ -301,6 +481,17 @@ export type PreparedTransferResult = {
 	totalSize: number,
 };
 
+/**  自动接收时的保存行为。 */
+export type ReceiveSaveBehavior = 
+/**  使用策略里配置的默认保存位置，接收完成后进入收件箱。 */
+"inbox_and_default_save_location";
+
+/**
+ *  全局「暂停接收」状态变更（托盘 / 命令切换后广播，供 UI 与托盘同步）。
+ *  事件名 `"receiving-paused-changed"`，payload 为 `true`=已暂停。
+ */
+export type ReceivingPausedChanged = boolean;
+
 export type ResumeTransferResult = {
 	sessionId: string,
 	direction: string,
@@ -319,9 +510,6 @@ export type ScannedSourceResult = {
 	totalSize: number,
 };
 
-/**  传输会话状态 */
-export type SessionStatus = "transferring" | "paused" | "completed" | "failed" | "cancelled";
-
 /**
  *  DHT 上跨设备共享的配对码记录。
  * 
@@ -339,6 +527,12 @@ export type ShareCodeRecord = {
 export type StartSendResult = {
 	sessionId: string,
 };
+
+/**  suspended 原因（phase=Suspended 时有值）。 */
+export type SuspendedReason = "local_paused" | "remote_paused" | "interrupted" | "peer_offline" | "app_restarted";
+
+/**  terminal 原因（phase=Terminal 时有值）。 */
+export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_error";
 
 export type TransferAccepted = TransferAcceptedEvent;
 
@@ -383,32 +577,6 @@ export type TransferFileResult = {
 	isDirectory: boolean,
 };
 
-export type TransferHistoryFile = {
-	fileId: number,
-	name: string,
-	relativePath: string,
-	size: number,
-	status: FileStatus,
-	transferredBytes: number,
-};
-
-/**  传输历史记录（session + files） */
-export type TransferHistoryItem = {
-	sessionId: string,
-	direction: TransferDirection,
-	peerId: string,
-	peerName: string,
-	totalSize: number,
-	transferredBytes: number,
-	status: SessionStatus,
-	startedAt: number,
-	updatedAt: number,
-	finishedAt: number | null,
-	errorMessage: string | null,
-	savePath: CoreSaveLocation | null,
-	files: TransferHistoryFile[],
-};
-
 export type TransferOffer = TransferOfferEvent;
 
 export type TransferOfferEvent = {
@@ -417,6 +585,10 @@ export type TransferOfferEvent = {
 	deviceName: string,
 	files: TransferOfferFileEvent[],
 	totalSize: number,
+	/**  发起来源（人工 / MCP 代理），供接收端 UI 标识。 */
+	origin: TransferOrigin,
+	policyAction: string | null,
+	policyReason: string | null,
 };
 
 export type TransferOfferFileEvent = {
@@ -427,12 +599,31 @@ export type TransferOfferFileEvent = {
 	isDirectory: boolean,
 };
 
+/**
+ *  传输发起来源：人在应用内发起，或 AI 代理经 MCP 发起。
+ * 
+ *  由发送方自报、承载于 Offer，供接收端展示与 inbox 来源派生——是信息性/UX 信号，
+ *  不作接收端安全边界（真正的控制是发送端 `allow_mcp_send_to_device` 门控）。
+ */
+export type TransferOrigin = 
+/**  用户在应用内手动发起。 */
+{ type: "human" } | 
+/**  AI 代理经 MCP 发起；`client` 为 MCP 客户端名（如 claude-desktop），不可得时为 None。 */
+{ type: "mcp"; client: string | null };
+
 export type TransferPaused = TransferPausedEvent;
 
 export type TransferPausedEvent = {
 	sessionId: string,
 	direction: RuntimeTransferDirection,
 };
+
+/**
+ *  传输生命周期大状态（phase）。
+ *  替代旧的扁平 [`SessionStatus`]（过渡期并存）：phase 表达大状态，
+ *  具体原因由 [`SuspendedReason`] / [`TerminalReason`] 表达。
+ */
+export type TransferPhase = "offered" | "waiting_accept" | "active" | "suspended" | "terminal";
 
 export type TransferProgress = TransferProgressEvent;
 
@@ -447,6 +638,40 @@ export type TransferProgressEvent = {
 	eta: number | null,
 	files: FileProgressInfo[],
 };
+
+/**  传输投影 DTO —— 前端唯一状态源（逐步替代旧的分散事件 + 扁平 `SessionStatus`）。 */
+export type TransferProjection = {
+	sessionId: string,
+	direction: TransferDirection,
+	peerId: string,
+	peerName: string,
+	phase: TransferPhase,
+	suspendedReason: SuspendedReason | null,
+	terminalReason: TerminalReason | null,
+	recoverable: boolean,
+	epoch: number,
+	totalSize: number,
+	transferredBytes: number,
+	startedAt: number,
+	updatedAt: number,
+	finishedAt: number | null,
+	errorMessage: string | null,
+	policyAction: string | null,
+	policyReason: string | null,
+	savePath: CoreSaveLocation | null,
+	files: TransferProjectionFile[],
+};
+
+export type TransferProjectionFile = {
+	fileId: number,
+	name: string,
+	relativePath: string,
+	size: number,
+	transferredBytes: number,
+};
+
+/**  传输投影更新（redesign：前端唯一状态源）。事件名 `"transfer-projection-update"`。 */
+export type TransferProjectionUpdate = TransferProjection;
 
 export type TransferRejected = TransferRejectedEvent;
 
@@ -474,6 +699,15 @@ export type TransferResumedFileInfo = {
 	size: number,
 	isDirectory: boolean,
 };
+
+/**
+ *  托盘「打开接收文件夹」：路径由前端 `savePath` 拥有，故由前端打开。
+ *  事件名 `"tray-open-receive-folder"`。
+ */
+export type TrayOpenReceiveFolder = null;
+
+/**  托盘「设置」：由前端路由跳转到设置页。事件名 `"tray-open-settings"`。 */
+export type TrayOpenSettings = null;
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

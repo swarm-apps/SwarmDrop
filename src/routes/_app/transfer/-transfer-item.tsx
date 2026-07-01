@@ -28,11 +28,18 @@ import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { openTransferResult } from "@/lib/file-picker";
 import { useNavigate } from "@tanstack/react-router";
+import type { TransferProjection } from "@/lib/bindings";
+import {
+  projectionStatusLabel,
+  isProjectionActive,
+  isProjectionCompleted,
+  isProjectionCancelled,
+  isProjectionFailed,
+} from "@/lib/transfer-projection";
 import {
   DirectionIcon,
   TransferCard,
   calcPercent,
-  isActiveStatus,
   doPauseTransfer,
   doCancelTransfer,
   ACTION_BTN_CLASS,
@@ -40,15 +47,19 @@ import {
 } from "./-shared";
 
 interface TransferItemProps {
-  sessionId: string;
+  projection: TransferProjection;
 }
 
 export const TransferItem = memo(function TransferItem({
-  sessionId,
+  projection,
 }: TransferItemProps) {
-  const session = useTransferStore(
-    useCallback((s) => s.sessions[sessionId], [sessionId]),
+  const progress = useTransferStore(
+    useCallback(
+      (s) => s.progressBySession[projection.sessionId] ?? null,
+      [projection.sessionId],
+    ),
   );
+  const sessionId = projection.sessionId;
   const navigate = useNavigate();
   const [isCancelling, setIsCancelling] = useState(false);
 
@@ -74,39 +85,39 @@ export const TransferItem = memo(function TransferItem({
   const handleCancel = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (!session || isCancelling) return;
+      if (isCancelling) return;
       setIsCancelling(true);
       try {
-        await doCancelTransfer(sessionId, session.direction);
+        await doCancelTransfer(sessionId, projection.direction);
       } catch {
         setIsCancelling(false);
       }
     },
-    [isCancelling, sessionId, session?.direction],
+    [isCancelling, sessionId, projection.direction],
   );
 
   const handleOpenFolder = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
-      const currentSession = useTransferStore.getState().sessions[sessionId];
-      if (!currentSession) return;
       try {
-        await openTransferResult(currentSession);
+        await openTransferResult({
+          saveLocation: projection.savePath ?? undefined,
+          files: projection.files,
+        });
       } catch (err) {
         toast.error(getErrorMessage(err));
       }
     },
-    [sessionId],
+    [projection.savePath, projection.files],
   );
 
-  if (!session) return null;
-
-  const isSend = session.direction === "send";
-  const isActive = isActiveStatus(session.status);
-  const progressPercent = session.progress
-    ? calcPercent(session.progress.transferredBytes, session.progress.totalBytes)
+  const isSend = projection.direction === "send";
+  const isActive = isProjectionActive(projection);
+  const isCompleted = isProjectionCompleted(projection);
+  const progressPercent = progress
+    ? calcPercent(progress.transferredBytes, progress.totalBytes)
     : 0;
-  const activeFileName = session.progress?.files?.find(
+  const activeFileName = progress?.files?.find(
     (f) => f.status === "transferring",
   )?.name;
 
@@ -118,23 +129,23 @@ export const TransferItem = memo(function TransferItem({
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 md:gap-1">
         <h3 className="truncate text-[13px] font-medium text-foreground md:text-sm">
           {isSend ? (
-            <Trans>发送到 {session.deviceName}</Trans>
+            <Trans>发送到 {projection.peerName}</Trans>
           ) : (
-            <Trans>来自 {session.deviceName}</Trans>
+            <Trans>来自 {projection.peerName}</Trans>
           )}
         </h3>
 
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground md:text-xs">
           <span>
-            {session.files.length} <Trans>个文件</Trans>
+            {projection.files.length} <Trans>个文件</Trans>
           </span>
           <span className="text-muted-foreground/40">·</span>
-          <span>{formatFileSize(session.totalSize)}</span>
+          <span>{formatFileSize(projection.totalSize)}</span>
         </div>
 
         {/* 状态区域 */}
         <div className="mt-0.5">
-          {session.status === "transferring" && session.progress && (
+          {projection.phase === "active" && progress && (
             <div className="flex flex-col gap-1.5 mt-0.5">
               <Progress value={progressPercent} className="h-1.5" />
               <div className="flex items-center justify-between text-[11px] md:text-[12px]">
@@ -145,10 +156,10 @@ export const TransferItem = memo(function TransferItem({
                   </span>
                 </span>
                 <span className="text-muted-foreground">
-                  {formatSpeed(session.progress.speed)} · {progressPercent}%
-                  {session.progress.eta != null && (
+                  {formatSpeed(progress.speed)} · {progressPercent}%
+                  {progress.eta != null && (
                     <span className="hidden md:inline">
-                      {" "}· <Trans>剩余 {formatDuration(session.progress.eta)}</Trans>
+                      {" "}· <Trans>剩余 {formatDuration(progress.eta)}</Trans>
                     </span>
                   )}
                 </span>
@@ -156,45 +167,51 @@ export const TransferItem = memo(function TransferItem({
             </div>
           )}
 
-          {session.status === "waiting_accept" && (
+          {projection.phase === "waiting_accept" && (
             <div className="flex items-center gap-1.5 text-[12px] text-amber-600 dark:text-amber-400 md:text-[13px]">
               <Loader2 className="size-3 animate-spin md:size-3.5" />
-              <Trans>等待对方确认...</Trans>
+              {projectionStatusLabel(projection)}
             </div>
           )}
 
-          {session.status === "pending" && (
+          {projection.phase === "offered" && (
             <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground md:text-[13px]">
               <Loader2 className="size-3 animate-spin md:size-3.5" />
-              <Trans>准备中...</Trans>
+              {projectionStatusLabel(projection)}
             </div>
           )}
 
-          {session.status === "completed" && (
+          {isCompleted && (
             <div className="flex items-center gap-1.5 text-[12px] text-green-600 dark:text-green-400 md:text-[13px]">
               <CheckCircle2 className="size-3.5 md:size-4" />
-              <Trans>传输完成</Trans>
-              {session.completedAt && (
+              {projectionStatusLabel(projection)}
+              {projection.finishedAt && (
                 <span className="text-muted-foreground">
-                  — {formatRelativeTime(session.completedAt)}
+                  {" · "}
+                  {formatRelativeTime(projection.finishedAt)}
                 </span>
               )}
             </div>
           )}
 
-          {session.status === "failed" && (
+          {isProjectionFailed(projection) && (
             <div className="flex items-center gap-1.5 text-[12px] text-destructive md:text-[13px]">
               <XCircle className="size-3.5 shrink-0 md:size-4" />
-              <span className="truncate">{session.error || t`传输失败`}</span>
+              <span className="truncate">
+                {projection.errorMessage || projectionStatusLabel(projection)}
+              </span>
             </div>
           )}
 
-          {session.status === "cancelled" && (
+          {isProjectionCancelled(projection) && (
             <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground md:text-[13px]">
               <XCircle className="size-3.5 md:size-4" />
-              <Trans>已取消</Trans>
-              {session.completedAt && (
-                <span className="hidden md:inline">— {formatRelativeTime(session.completedAt)}</span>
+              {projectionStatusLabel(projection)}
+              {projection.finishedAt && (
+                <span className="hidden md:inline">
+                  {" · "}
+                  {formatRelativeTime(projection.finishedAt)}
+                </span>
               )}
             </div>
           )}
@@ -203,7 +220,7 @@ export const TransferItem = memo(function TransferItem({
 
       {/* 右侧：操作按钮 */}
       <div className="flex shrink-0 items-start gap-0.5 -mr-1 md:-mr-1.5">
-        {session.status === "transferring" && (
+        {projection.phase === "active" && (
           <Button size="icon" variant="ghost" className={ACTION_BTN_CLASS} onClick={handlePause} title={t`暂停传输`}>
             <Pause className="size-3.5 md:size-4" />
           </Button>
@@ -224,7 +241,7 @@ export const TransferItem = memo(function TransferItem({
             )}
           </Button>
         )}
-        {session.status === "completed" && session.saveLocation && (
+        {isCompleted && projection.savePath && (
           <Button size="icon" variant="ghost" className={ACTION_BTN_CLASS} onClick={handleOpenFolder} title={t`打开文件夹`}>
             <FolderOpen className="size-3.5 md:size-4" />
           </Button>

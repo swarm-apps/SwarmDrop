@@ -8,11 +8,10 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { getErrorMessage } from "@/lib/errors";
-import { useTransferStore } from "@/stores/transfer-store";
-import { commands, type TransferHistoryItem } from "@/lib/bindings";
-import type { TransferStatus, TransferSession } from "@/lib/types";
+import { commands, type TransferProjection } from "@/lib/bindings";
+import { projectionStatusLabel } from "@/lib/transfer-projection";
 
-export type { TransferStatus };
+export { projectionStatusLabel };
 
 /* ─── 方向图标 ─── */
 
@@ -38,7 +37,7 @@ export function DirectionIcon({ isSend }: { isSend: boolean }) {
 /* ─── 卡片容器 ─── */
 
 const CARD_BASE =
-  "group relative flex cursor-pointer items-center gap-2.5 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-accent/40 hover:shadow-sm md:gap-3 md:p-3.5";
+  "glass-card group relative flex cursor-pointer items-center gap-2.5 rounded-xl p-3 transition-[border-color,box-shadow,transform] hover:border-blue-400/25 hover:shadow-sm active:scale-[0.995] md:gap-3 md:p-3.5";
 
 export function TransferCard({
   onClick,
@@ -71,15 +70,6 @@ export function calcPercent(transferred: number, total: number): number {
   return total > 0 ? Math.round((transferred / total) * 100) : 0;
 }
 
-/** 判断传输是否处于活跃状态 */
-export function isActiveStatus(status: TransferStatus): boolean {
-  return (
-    status === "pending" ||
-    status === "waiting_accept" ||
-    status === "transferring"
-  );
-}
-
 /** 操作按钮通用样式 */
 export const ACTION_BTN_CLASS =
   "size-7 text-muted-foreground hover:bg-accent hover:text-foreground md:size-8";
@@ -88,7 +78,7 @@ export const DESTRUCTIVE_BTN_CLASS =
 
 /* ─── 状态徽章样式 ─── */
 
-export const STATUS_CLASSNAMES: Record<TransferSession["status"], string> = {
+const STATUS_CLASSNAMES = {
   pending: "bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400",
   waiting_accept:
     "bg-yellow-100 text-yellow-600 dark:bg-yellow-500/15 dark:text-yellow-400",
@@ -101,48 +91,50 @@ export const STATUS_CLASSNAMES: Record<TransferSession["status"], string> = {
   failed: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400",
   cancelled:
     "bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400",
-};
+} as const;
 
-/* ─── 数据转换 ─── */
-
-/** 将 DB 历史记录映射为 TransferSession 形状 */
-export function historyToSession(item: TransferHistoryItem): TransferSession {
-  return {
-    sessionId: item.sessionId,
-    direction: item.direction,
-    peerId: item.peerId,
-    deviceName: item.peerName,
-    files: item.files.map((f) => ({
-      fileId: f.fileId,
-      name: f.name,
-      relativePath: f.relativePath,
-      size: f.size,
-      isDirectory: false,
-    })),
-    totalSize: item.totalSize,
-    status: item.status as TransferSession["status"],
-    progress: null,
-    error: item.errorMessage,
-    startedAt: item.startedAt,
-    completedAt: item.finishedAt,
-    saveLocation: item.savePath ?? undefined,
-  };
+/** 由 projection 派生状态徽章的配色类名（与 projectionStatusLabel 同一套 phase 语义）。 */
+export function projectionStatusClassName(
+  projection: TransferProjection,
+): string {
+  switch (projection.phase) {
+    case "offered":
+      return STATUS_CLASSNAMES.pending;
+    case "waiting_accept":
+      return STATUS_CLASSNAMES.waiting_accept;
+    case "active":
+      return STATUS_CLASSNAMES.transferring;
+    case "suspended":
+      return STATUS_CLASSNAMES.paused;
+    case "terminal":
+      switch (projection.terminalReason) {
+        case "completed":
+          return STATUS_CLASSNAMES.completed;
+        case "cancelled":
+        case "rejected":
+          return STATUS_CLASSNAMES.cancelled;
+        default:
+          return STATUS_CLASSNAMES.failed;
+      }
+  }
 }
 
 /* ─── 传输操作（核心逻辑） ─── */
 
-/** 暂停传输：调用后端 + 从活跃列表移除 */
+// 这些操作的状态变化由后端 projection-update 事件回流（applyProjection），
+// 不再各自 loadProjections——避免冗余全量往返与乱序覆盖。
+
+/** 暂停传输 */
 export async function doPauseTransfer(sessionId: string) {
   try {
     await commands.pauseTransfer(sessionId);
-    useTransferStore.getState().cancelSession(sessionId);
   } catch (err) {
     toast.error(getErrorMessage(err));
     throw err;
   }
 }
 
-/** 取消传输：从活跃列表移除 + 调用后端 */
+/** 取消传输 */
 export async function doCancelTransfer(
   sessionId: string,
   direction: "send" | "receive",
@@ -153,7 +145,6 @@ export async function doCancelTransfer(
     } else {
       await commands.cancelReceive(sessionId);
     }
-    useTransferStore.getState().cancelSession(sessionId);
     toast.success(t`已取消传输`);
   } catch (err) {
     toast.error(getErrorMessage(err));
@@ -161,7 +152,7 @@ export async function doCancelTransfer(
   }
 }
 
-/** 恢复传输：调用后端 + 添加活跃会话 + 刷新历史，返回新 sessionId */
+/** 恢复传输 */
 export async function doResumeTransfer(sessionId: string): Promise<string> {
   const result = await commands.resumeTransfer(sessionId);
   if (result.direction !== "send" && result.direction !== "receive") {
@@ -169,19 +160,5 @@ export async function doResumeTransfer(sessionId: string): Promise<string> {
       `resume_transfer returned invalid direction "${result.direction}" for ${sessionId}`,
     );
   }
-  useTransferStore.getState().addSession({
-    sessionId: result.sessionId,
-    direction: result.direction,
-    peerId: result.peerId,
-    deviceName: result.peerName,
-    files: result.files,
-    totalSize: result.totalSize,
-    status: "transferring",
-    progress: null,
-    error: null,
-    startedAt: Date.now(),
-    completedAt: null,
-  });
-  await useTransferStore.getState().loadHistory();
   return result.sessionId;
 }

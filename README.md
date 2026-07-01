@@ -1,170 +1,254 @@
+<a name="readme-top"></a>
+
 <div align="center">
 
-<img src="public/app-icon.svg" width="120" alt="SwarmDrop">
+<img src="public/app-icon.svg" width="180" alt="SwarmDrop logo">
 
 # SwarmDrop
 
-**去中心化、跨网络、端到端加密的文件传输工具**
+### The data channel between your devices — for humans and AI agents alike.
 
-*Drop files anywhere. No cloud. No limits.*
+Decentralized, cross-network, end-to-end encrypted file transfer.
+No accounts. No servers. No cloud.
+
+<!-- Badges — line 1: project · line 2: tech (kept deliberately minimal & grouped) -->
 
 [![Release](https://img.shields.io/github/v/release/swarm-apps/SwarmDrop?style=flat-square)](https://github.com/swarm-apps/SwarmDrop/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Tauri](https://img.shields.io/badge/Tauri-v2-FFC131?style=flat-square&logo=tauri)](https://tauri.app)
-[![libp2p](https://img.shields.io/badge/libp2p-0.56-blue?style=flat-square)](https://libp2p.io)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-lightgrey?style=flat-square)](#-download)
+[![Stars](https://img.shields.io/github/stars/swarm-apps/SwarmDrop?style=flat-square)](https://github.com/swarm-apps/SwarmDrop/stargazers)
 
-[下载](#下载) · [快速开始](#快速开始) · [构建](#从源码构建) · [移动端](https://github.com/swarm-apps/SwarmDrop-RN)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-FFC131?style=flat-square&logo=tauri)](https://tauri.app)
+[![Powered by libp2p](https://img.shields.io/badge/powered%20by-libp2p-3c5dd6?style=flat-square)](https://libp2p.io)
+
+**English** · [简体中文](README.zh-CN.md)
+
+[Website](https://swarm-apps.github.io/SwarmDrop/) · [Features](#-features) · [AI & MCP](#-built-for-ai-agents-mcp) · [Download](#-download) · [Mobile](https://github.com/swarm-apps/SwarmDrop-RN)
 
 </div>
 
+<!-- TODO(assets): add a hero demo GIF here — "drop files → pick device → delivered", ~12s, light + dark.
+     Recommended path: docs/screenshots/hero-demo.gif  (drop the file and uncomment the block below)
+<p align="center">
+  <img src="docs/screenshots/hero-demo.gif" width="720" alt="SwarmDrop in action">
+</p>
+-->
+
 ---
 
-SwarmDrop 是基于 libp2p 的 **P2P 文件传输应用**，把 LocalSend 的体验扩展到任意网络环境——
-不限局域网、不要服务器、传输内容**只有收发双方能解密**。
+## About
 
-<table>
-<tr>
-<td width="25%" align="center"><sub>🌐</sub><br><b>跨网络</b><br><sub>mDNS + DHT + DCUtR 自动选路</sub></td>
-<td width="25%" align="center"><sub>🔒</sub><br><b>端到端加密</b><br><sub>XChaCha20-Poly1305<br>中继也不能解密</sub></td>
-<td width="25%" align="center"><sub>🚀</sub><br><b>零配置</b><br><sub>不要账号<br>不要中央服务器</sub></td>
-<td width="25%" align="center"><sub>📱</sub><br><b>全平台</b><br><sub>Win · macOS · Linux<br>Android (RN)</sub></td>
-</tr>
-</table>
+**SwarmDrop** takes the LocalSend experience and frees it from the local network: send files securely between **any** of your devices, across any network, with **only the sender and receiver able to decrypt** them. No account to create, no central server in the middle.
 
-### 与同类工具对比
+And because the AI era runs on agents that constantly produce files on one machine and need them on another, SwarmDrop ships a **built-in local MCP Server** — so AI agents can deliver files across your devices and search your inbox, turning device-to-device transfer into **programmable infrastructure** for humans and agents alike.
 
-| | LocalSend | Send Anywhere | **SwarmDrop** |
-|---|---|---|---|
-| 网络范围 | 仅局域网 | 跨网络（中转） | **跨网络（P2P）** |
-| 服务器 | 无 | 有 | **无**（可自建引导节点） |
-| 端到端加密 | — | — | **✓** |
-| 开源 / 自托管 | ✓ / — | — / — | **✓ / ✓** |
+## ✨ Features
 
-## 下载
-
-到 [Releases](https://github.com/swarm-apps/SwarmDrop/releases/latest) 选最新版：
-
-| 平台 | 格式 |
-|---|---|
-| **Windows** | `.msi` · `.exe` (x64) |
-| **macOS** | `.dmg` (Apple Silicon · Intel) |
-| **Linux** | `.deb` · `.rpm` · `.AppImage` (x64) |
-| **Android** | 见 [SwarmDrop-RN](https://github.com/swarm-apps/SwarmDrop-RN/releases) |
-
-## 快速开始
-
-```
-1. 启动应用 → 设置安全密码 → 启动 P2P 节点
-2. 添加设备 → 6 位配对码 / 局域网自动发现
-3. 选择设备 → 拖拽文件发送
-```
-
-**配对方式**
-- **配对码**：跨网络场景，一方生成 6 位数字码，对方输入即可
-- **局域网**：同 Wi-Fi 自动发现对方，点击配对
-
-**传输路径**（自动选优）
-
-| 路径 | 延迟 | 触发条件 |
+| | | |
 |---|---|---|
-| 局域网直连 | ~2ms | 同一网络 |
-| NAT 打洞 (DCUtR) | 10–100ms | 不同网络，打洞成功 |
-| 中继转发 | 100–500ms | 打洞失败兜底 |
+| 🌐 **Cross-Network** | Works on LAN or across the public internet. mDNS + Kademlia DHT + Relay + DCUtR pick the best route automatically. | <sub>same Wi-Fi, different networks, behind NAT — it just connects</sub> |
+| 🔒 **End-to-End Encrypted** | XChaCha20-Poly1305 with a fresh per-transfer key. Relays and bootstrap nodes only ever see ciphertext. | <sub>not a privacy *policy* — a cryptographic *fact*</sub> |
+| 🪪 **No Accounts, No Servers** | Connect with a 6-digit pairing code or LAN auto-discovery. Decentralized Ed25519 device identity. | <sub>self-host the bootstrap node if you want</sub> |
+| 🤖 **AI-Native** | A local MCP Server lets AI agents drive transfers and search your received files. | <sub>the part no AirDrop or LocalSend can do</sub> |
+| ⏯️ **Resumable & Reliable** | Resumable transfers with BLAKE3 integrity, plus a local SQLite history and inbox. | <sub>survives drops, restarts, and flaky links</sub> |
 
-## 安全模型
+<div align="right"><a href="#readme-top">↑ back to top</a></div>
 
-- **设备身份**：Ed25519 密钥对，私钥落 [Stronghold](https://docs.rs/iota-stronghold) 加密保险库
-- **传输密钥**：每次传输独立生成 256-bit 对称密钥，XChaCha20-Poly1305
-- **零信任**：引导节点、中继节点都看不到明文
-- **生物识别解锁**：TouchID / FaceID / Windows Hello
-- **无遥测**：不收集任何用户数据
+## 🤖 Built for AI Agents (MCP)
 
-## 技术架构
+Most local tools can only be *read* by an AI. SwarmDrop can be *driven* by one.
+
+It runs an embedded [Model Context Protocol](https://modelcontextprotocol.io) server — bound strictly to `127.0.0.1`, opt-in, off by default — that any local MCP client (Claude Desktop, Cursor, Claude Code, VS Code …) can connect to. Through it, an agent can:
+
+- **Check the network** — is the P2P node up, who's connected.
+- **List devices** — your paired, online devices.
+- **Deliver files** — send files to a device by natural-language request; the recipient still approves in-app.
+- **Search the inbox** — find what you've received by keyword, then resolve the local file path.
+
+Everything happens on-device and end-to-end encrypted — the agent's reasoning can live in the cloud, but your files and their contents never leave your machines.
+
+> 📖 See the [**MCP usage guide**](src-tauri/docs/mcp-guide.md) to wire it into your agent.
+
+<!-- TODO(assets): add an AI/MCP demo GIF here — an agent triggering a cross-device delivery via MCP.
+     This is the single highest-signal visual for the new positioning.
+     Recommended path: docs/screenshots/mcp-demo.gif -->
+
+<div align="right"><a href="#readme-top">↑ back to top</a></div>
+
+## 📦 Download
+
+**[Get SwarmDrop from the official website →](https://swarm-apps.github.io/SwarmDrop/)** — desktop and mobile, every platform in one place.
+
+| Platform | Format |
+|---|---|
+| **macOS** | `.dmg` (Apple Silicon · Intel) |
+| **Windows** | `.msi` · `.exe` (x64) |
+| **Linux** | `.deb` · `.rpm` · `.AppImage` (x64) |
+| **Android** | `.apk` |
+| **iOS** | build from source |
+
+> 🔄 Downloads and **automatic updates** — for both desktop *and* mobile — are served by [**SwarmHive**](https://github.com/swarm-apps/SwarmHive), our own open-source, self-hostable release server. No proprietary update SaaS in the loop.
+
+> 📱 **Mobile** — SwarmDrop also runs on **Android & iOS** via [**SwarmDrop-RN**](https://github.com/swarm-apps/SwarmDrop-RN), a React Native app that shares the very same Rust core (`crates/core`) and encrypted protocol as the desktop app.
+
+## 🚀 Getting Started
+
+```
+1. Launch the app → set a security password → start the P2P node
+2. Add a device → 6-digit pairing code  /  LAN auto-discovery
+3. Pick a device → drag & drop files to send
+```
+
+**Pairing**
+- **Pairing code** — for cross-network: one side generates a 6-digit code, the other enters it.
+- **LAN** — on the same Wi-Fi, devices discover each other automatically; click to pair.
+
+**Transfer paths** *(auto-selected, best first)*
+
+| Route | Latency | When |
+|---|---|---|
+| Direct LAN | ~2 ms | same network |
+| NAT hole-punch (DCUtR) | 10–100 ms | different networks, punch succeeds |
+| Relay fallback | 100–500 ms | when hole-punching fails |
+
+<div align="right"><a href="#readme-top">↑ back to top</a></div>
+
+## 🆚 Comparison
+
+| | **SwarmDrop** | LocalSend | Syncthing |
+|---|:---:|:---:|:---:|
+| LAN transfer | ✅ | ✅ | ✅ |
+| Cross-network (no shared network) | ✅ | ❌ | ✅ <sub>(setup)</sub> |
+| End-to-end encrypted | ✅ | ✅ | ✅ |
+| No account / no server | ✅ | ✅ | ✅ |
+| One-shot delivery (not continuous sync) | ✅ | ✅ | ❌ |
+| **AI agent-drivable (MCP)** | ✅ | ❌ | ❌ |
+| Open source | ✅ | ✅ | ✅ |
+
+## 🔒 How It Works
 
 ```mermaid
 graph TB
-    subgraph Frontend["前端 UI"]
-        A["React 19 · TypeScript · Vite 7<br/>TanStack Router · Zustand · Lingui"]
+    subgraph Frontend["Frontend — React 19 · TypeScript · Vite"]
+        A["TanStack Router · Zustand · Lingui"]
     end
-    subgraph Backend["业务层 — Rust + Tauri 2"]
-        B["分块加密 · 校验 · 进度调度"]
+    subgraph Backend["Core — Rust + Tauri 2"]
+        B["chunked encryption · integrity · progress · resume"]
     end
-    subgraph P2P["P2P 网络 — libp2p"]
-        C["Request-Response · 文件传输"]
-        D["mDNS · 局域网发现"]
-        E["Kademlia DHT · 跨网络发现"]
-        F["Relay + DCUtR · NAT 穿透"]
+    subgraph P2P["P2P network — libp2p"]
+        C["Request-Response · file transfer"]
+        D["mDNS · LAN discovery"]
+        E["Kademlia DHT · cross-network discovery"]
+        F["Relay + DCUtR · NAT traversal"]
     end
     Frontend -- "Tauri IPC (typed via specta)" --> Backend
     Backend -- "libp2p Swarm" --> P2P
 ```
 
-<details>
-<summary><b>技术栈</b></summary>
+**Security model**
 
-| 层 | 技术 |
-|---|---|
-| 前端 | React 19 · TypeScript 5.8 · Vite 7 · Tailwind CSS 4 · shadcn/ui |
-| 状态 / 路由 | Zustand 5 · TanStack Router |
-| i18n | Lingui 5 (zh · en · zh-TW) |
-| 后端 | Rust 2024 · Tauri 2 · sea-orm |
-| P2P | libp2p 0.56（mDNS · Kademlia · Relay · DCUtR · request-response） |
-| 加密 | Stronghold · Ed25519 · XChaCha20-Poly1305 · BLAKE3 |
-| IPC 类型 | tauri-specta（命令 / 事件双向 typed） |
+- **Device identity** — Ed25519 keypair; the private key lives in an encrypted [Stronghold](https://docs.rs/iota-stronghold) vault.
+- **Transfer keys** — a fresh 256-bit symmetric key per transfer (XChaCha20-Poly1305), held only in memory.
+- **Zero trust** — bootstrap and relay nodes never see plaintext.
+- **Biometric unlock** — Touch ID / Face ID / Windows Hello.
+- **No telemetry** — no data collection, ever.
+
+<details>
+<summary><b>Privacy &amp; telemetry</b></summary>
+
+<br>
+
+SwarmDrop collects **nothing**. There is no analytics, no account, and no central server that handles your files. File contents are encrypted end-to-end and only ever exist in plaintext on the sending and receiving devices. The optional MCP server binds to `127.0.0.1` only and is off by default. The only infrastructure involved is bootstrap/relay nodes that help peers find each other and relay **ciphertext** when direct connection fails — you can self-host your own.
 
 </details>
 
 <details>
-<summary><b>仓库结构</b></summary>
+<summary><b>Tech stack</b></summary>
+
+<br>
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 · TypeScript 5.8 · Vite 7 · Tailwind CSS 4 · shadcn/ui |
+| State / Routing | Zustand 5 · TanStack Router |
+| i18n | Lingui 5 (zh · zh-TW · en …) |
+| Backend | Rust · Tauri 2 · SeaORM + SQLite |
+| P2P | libp2p 0.56 (mDNS · Kademlia · Relay · DCUtR · request-response) |
+| Security | Stronghold · Ed25519 · XChaCha20-Poly1305 · BLAKE3 |
+| AI | embedded MCP server (rmcp + axum, `127.0.0.1` only) |
+| IPC types | tauri-specta (commands & events, fully typed) |
+
+</details>
+
+<details>
+<summary><b>Repository layout</b></summary>
+
+<br>
 
 ```
 SwarmDrop/
-├── src/              # 前端（React + Vite）
-├── src-tauri/        # 桌面 shell（Tauri command / event 路由）
+├── src/              # frontend (React + Vite)
+├── src-tauri/        # desktop shell (Tauri command/event routing, MCP server)
 ├── crates/
-│   ├── core/         # 双端共享：网络 / 配对 / 设备 / 传输 / 协议
-│   ├── entity/       # SeaORM 实体
-│   └── migration/    # SeaORM 迁移
-├── libs/core/        # swarm-p2p-core（git submodule）
-└── docs/             # Astro + Starlight 文档站
+│   ├── core/         # shared core: network / pairing / device / transfer / protocol / db
+│   ├── entity/       # SeaORM entities
+│   └── migration/    # SeaORM migrations
+├── libs/core/        # swarm-p2p-core (git submodule)
+└── docs/             # Astro + Starlight documentation site
 ```
 
-`crates/core` 同时被桌面 (`src-tauri`) 和移动端 ([SwarmDrop-RN](https://github.com/swarm-apps/SwarmDrop-RN))
-通过 uniffi-bindgen-react-native 复用。
+`crates/core` is shared by both the desktop app (`src-tauri`) and the mobile app
+([SwarmDrop-RN](https://github.com/swarm-apps/SwarmDrop-RN)) via uniffi-bindgen-react-native.
 
 </details>
 
-## 从源码构建
+<div align="right"><a href="#readme-top">↑ back to top</a></div>
 
-需要 Node 18+ · pnpm 9+ · Rust 1.80+。
+## 🛠 Building from Source
+
+Requires **Node 18+**, **pnpm 9+**, and a recent stable **Rust** toolchain (1.85+).
 
 ```bash
 git clone --recurse-submodules git@github.com:swarm-apps/SwarmDrop.git
 cd SwarmDrop
 pnpm install
 
-pnpm tauri dev      # 开发
-pnpm tauri build    # 打包
+pnpm tauri dev      # develop
+pnpm tauri build    # package
 ```
 
-## 路线图
+> If you already cloned without submodules: `git submodule update --init --recursive`.
 
-- [x] P2P 网络（libp2p · mDNS · DHT · Relay · DCUtR）
-- [x] 设备配对（配对码 · 局域网直连 · 生物识别）
-- [x] 文件传输（端到端加密 · 实时进度 · 历史记录）
-- [ ] 断点续传
-- [ ] MCP 集成（AI 助手发文件）
+## 🗺 Roadmap
 
-## 贡献
+- [x] P2P networking (libp2p · mDNS · DHT · Relay · DCUtR)
+- [x] Device pairing (pairing code · LAN direct · biometric unlock)
+- [x] File transfer (E2E encryption · live progress · history · resume)
+- [x] MCP server — AI agents can send files & search the inbox
+- [ ] Expanded agent toolset — full transfer lifecycle (status / cancel / pause / resume) over MCP
+- [ ] On-device content extraction for richer inbox search
 
-Issue / PR 欢迎。一些约定：
+## 🤝 Contributing
 
-- Conventional Commits（`feat:` / `fix:` / `chore:` 等）
-- 改完跑 `pnpm lint && pnpm typecheck`，Rust 部分 `cargo fmt && cargo clippy`
-- 改了 IPC 命令 / 事件后跑测试自动生成 bindings.ts（`pnpm test`）
+Issues and PRs welcome. A few conventions:
 
-## License
+- [Conventional Commits](https://www.conventionalcommits.org) (`feat:` / `fix:` / `chore:` …).
+- Before committing: `cargo fmt && cargo clippy` for Rust, `pnpm exec tsc --noEmit` for the frontend.
+- IPC bindings (`src/lib/bindings.ts`) are **auto-generated** — don't hand-edit; run `pnpm tauri dev` to regenerate.
+- **Translations** are managed with [Lingui](https://lingui.dev) (`pnpm i18n:extract`). New-language README contributions are welcome too — see [README.zh-CN.md](README.zh-CN.md) for the format.
 
-[MIT](LICENSE) &copy; SwarmDrop Contributors
+## ❤️ The swarm-apps family
+
+SwarmDrop is part of a family of decentralized, local-first, end-to-end encrypted tools:
+
+- **SwarmDrop** — device-to-device file transfer. [Desktop](https://github.com/swarm-apps/SwarmDrop) · [Mobile](https://github.com/swarm-apps/SwarmDrop-RN)
+- **SwarmNote** — decentralized, encrypted notes. [Desktop](https://github.com/swarm-apps/SwarmNote) · [Mobile](https://github.com/swarm-apps/SwarmNote-RN)
+- **SwarmHive** — self-hostable, open-source release & auto-update server for Tauri and React Native apps. SwarmDrop ships every update through it — and so can you. [Repo](https://github.com/swarm-apps/SwarmHive)
+
+## 📄 License
+
+[MIT](LICENSE) © SwarmDrop Contributors
 
 <div align="center"><sub>Built with <a href="https://tauri.app">Tauri</a> · <a href="https://libp2p.io">libp2p</a></sub></div>
+
+<div align="right"><a href="#readme-top">↑ back to top</a></div>

@@ -6,9 +6,11 @@
 //! 命令通过 [`tauri-specta`] 收集，debug build 会同时把 TypeScript bindings
 //! 导出到 `src/lib/bindings.ts`，供前端 typesafe 调用。
 
+use std::sync::Arc;
+
 use tauri::{Builder, Manager, Wry};
-use tauri_specta::{collect_commands, collect_events, Builder as SpectaBuilder, ErrorHandlingMode};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tauri_specta::{Builder as SpectaBuilder, ErrorHandlingMode, collect_commands, collect_events};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use crate::{commands, events};
 
@@ -45,6 +47,16 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::list_devices,
             commands::get_network_status,
             commands::install_update,
+            // inbox
+            commands::list_inbox_items,
+            commands::search_inbox,
+            commands::get_inbox_item_detail,
+            commands::repair_missing_inbox_items,
+            commands::open_inbox_item,
+            commands::show_inbox_item_in_folder,
+            commands::export_inbox_item,
+            commands::archive_inbox_item,
+            commands::delete_inbox_item,
             // identity
             commands::initialize_identity,
             commands::generate_keypair,
@@ -57,6 +69,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::request_pairing,
             commands::respond_pairing_request,
             commands::remove_paired_device,
+            commands::update_paired_device_policy,
             // transfer
             commands::scan_sources,
             commands::prepare_send,
@@ -65,12 +78,15 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::reject_receive,
             commands::cancel_send,
             commands::cancel_receive,
-            commands::get_transfer_history,
-            commands::get_transfer_session,
+            commands::get_transfer_projections,
             commands::delete_transfer_session,
             commands::clear_transfer_history,
             commands::pause_transfer,
             commands::resume_transfer,
+            commands::set_receiving_paused,
+            commands::is_receiving_paused,
+            // 应用窗口 / 托盘
+            commands::quit_app,
             // mcp
             commands::get_mcp_status,
             commands::start_mcp_server,
@@ -90,6 +106,10 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::TransferPaused,
             events::TransferResumed,
             events::TransferDbError,
+            events::TransferProjectionUpdate,
+            events::ReceivingPausedChanged,
+            events::TrayOpenReceiveFolder,
+            events::TrayOpenSettings,
         ])
 }
 
@@ -116,6 +136,11 @@ pub fn build_app() -> Builder<Wry> {
 /// 注册所有官方 + 第三方 plugin。
 fn register_plugins(builder: Builder<Wry>) -> Builder<Wry> {
     let builder = builder
+        // single-instance 必须最先注册：常驻后台 app 二次启动时唤出已有窗口而非再起进程，
+        // 避免出现两个托盘图标 / 状态错乱。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            crate::tray::show_main_window(app);
+        }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
@@ -141,6 +166,9 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
         // tauri-specta events —— 当前未声明事件，为将来扩展预留 mount 钩子。
         specta.mount_events(app);
 
+        // 系统托盘：常驻图标 + 菜单。句柄存入 state 长存（被 drop 图标会消失）。
+        crate::tray::build_tray(app.handle())?;
+
         // 平台标题栏调整:macOS 由 tauri.conf.json 的 trafficLightPosition 控制红绿灯位置;
         // Windows / Linux 需要运行时关装饰,改由前端自画最小化/最大化/关闭三按钮。
         #[cfg(not(target_os = "macos"))]
@@ -158,14 +186,26 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
             tracing::warn!("Failed to initialize updater plugin: {e}");
         }
 
+        // 事件总线提前注入：启动清理也会经 Coordinator 发布 TransferProjection。
+        let event_bus = crate::host::event_bus::TauriEventBus::new(app.handle().clone());
+        app.manage(event_bus.clone());
+
         // 数据库（SeaORM + SQLite）—— 同步执行 + 启动清理过期会话
         let handle = app.handle().clone();
         let db = tauri::async_runtime::block_on(crate::database::init_database(&handle))?;
-        tauri::async_runtime::block_on(crate::database::cleanup_stale_sessions(&db))?;
+        let cleanup_event_bus: Arc<dyn swarmdrop_core::host::EventBus> = Arc::new(event_bus);
+        tauri::async_runtime::block_on(crate::database::cleanup_stale_sessions(
+            &db,
+            cleanup_event_bus,
+        ))?;
         app.manage(db);
 
         // MCP server 状态容器
         app.manage(crate::mcp::server::McpServerState::default());
+
+        // 网络运行时状态容器。启动节点前为 None，避免依赖 NetManagerState 的命令
+        // 在节点未启动时触发 Tauri 的 "state not managed" 注入错误。
+        app.manage(tokio::sync::Mutex::new(None::<crate::network::NetManager>));
 
         Ok(())
     })

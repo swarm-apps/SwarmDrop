@@ -27,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { NodeStatus } from "@/stores/network-store";
+import type { BootstrapCandidateSource } from "@/lib/bindings";
 
 interface StopNodeSheetProps {
   open: boolean;
@@ -78,6 +79,10 @@ export function StopNodeSheet({ open, onOpenChange }: StopNodeSheetProps) {
   const publicAddr = networkStatus?.publicAddr ?? null;
   const relayPeers = networkStatus?.relayPeers ?? [];
   const bootstrapConnected = networkStatus?.bootstrapConnected ?? false;
+  const lanHelperCount = networkStatus?.lanHelperCount ?? 0;
+  const bootstrapCandidateCount = networkStatus?.bootstrapCandidateCount ?? 0;
+  const localLanHelperRunning = networkStatus?.localLanHelperRunning ?? false;
+  const relaySource = networkStatus?.relaySource ?? null;
 
   const deviceId = useSecretStore((s) => s.deviceId);
   const deviceName = usePreferencesStore((s) => s.deviceName);
@@ -117,6 +122,10 @@ export function StopNodeSheet({ open, onOpenChange }: StopNodeSheetProps) {
           publicAddr={publicAddr}
           relayPeers={relayPeers}
           bootstrapConnected={bootstrapConnected}
+          lanHelperCount={lanHelperCount}
+          bootstrapCandidateCount={bootstrapCandidateCount}
+          localLanHelperRunning={localLanHelperRunning}
+          relaySource={relaySource}
         />
       </DialogContent>
     </Dialog>
@@ -141,6 +150,10 @@ function StopNodeContent({
   publicAddr,
   relayPeers,
   bootstrapConnected,
+  lanHelperCount,
+  bootstrapCandidateCount,
+  localLanHelperRunning,
+  relaySource,
 }: {
   onStop: () => void;
   onCancel: () => void;
@@ -159,6 +172,10 @@ function StopNodeContent({
   publicAddr: string | null;
   relayPeers: string[];
   bootstrapConnected: boolean;
+  lanHelperCount: number;
+  bootstrapCandidateCount: number;
+  localLanHelperRunning: boolean;
+  relaySource: BootstrapCandidateSource | null;
 }) {
   const { t } = useLingui();
   const config = statusConfig[status];
@@ -187,6 +204,14 @@ function StopNodeContent({
     android: "Android",
     ios: "iOS",
   };
+  const relaySourceLabel =
+    relaySource === "mdnsLanHelper"
+      ? t`局域网协助`
+      : relaySource === "userCustom"
+        ? t`自定义`
+        : relaySource === "builtInPublic"
+          ? t`公网`
+          : null;
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -321,6 +346,44 @@ function StopNodeContent({
               >
                 {bootstrapConnected ? t`已连接` : t`未连接`}
               </Badge>
+            </div>
+          )}
+          {showExtra && (
+            <div className="flex items-center justify-between border-t border-border px-4 py-3">
+              <span className="text-sm text-muted-foreground">
+                <Trans>局域网协助</Trans>
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {lanHelperCount}
+                </span>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "border-transparent text-xs",
+                    localLanHelperRunning
+                      ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {localLanHelperRunning ? t`本机协助中` : t`未提供`}
+                </Badge>
+              </div>
+            </div>
+          )}
+          {showExtra && (
+            <div className="flex items-center justify-between border-t border-border px-4 py-3">
+              <span className="text-sm text-muted-foreground">
+                <Trans>候选来源</Trans>
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {bootstrapCandidateCount}
+                </span>
+                <Badge variant="outline" className="border-transparent bg-muted text-xs text-muted-foreground">
+                  {relaySourceLabel ?? t`等待中`}
+                </Badge>
+              </div>
             </div>
           )}
           {/* 公网地址 — 高度不足时隐藏 */}
