@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Provider } from "@/components/provider";
 import { appIconPath, appName, appTagline } from "@/lib/shared";
-import { SITE_ORIGIN } from "@/lib/site";
+import { BASE_PATH, SITE_ORIGIN } from "@/lib/site";
 import "./global.css";
 
 export const metadata: Metadata = {
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: appIconPath, type: "image/svg+xml" },
-      { url: "/favicon.ico", sizes: "any" },
+      { url: `${BASE_PATH}/favicon.ico`, sizes: "any" },
     ],
   },
 };
