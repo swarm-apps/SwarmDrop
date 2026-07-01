@@ -203,6 +203,9 @@
       -webkit-backdrop-filter: none;
     }
   }
+
+  /* 设置页 bento 网格直接用 index.lazy.tsx 内的 Tailwind grid utility，
+     不再需要 .settings-board / .settings-column 自定义类。 */
 }
 
 @layer base {

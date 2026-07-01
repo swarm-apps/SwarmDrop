@@ -364,11 +364,15 @@ function InboxListItem({
           )}
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          <Trans>来自 {item.sourceName}</Trans>
-          {" · "}
-          {item.itemCount} <Trans>项</Trans>
-          {" · "}
-          {formatFileSize(item.totalSize)}
+          <span>
+            <Trans>来自 {item.sourceName}</Trans>
+          </span>
+          <span className="mx-1.5 text-foreground/25">/</span>
+          <span>
+            {item.itemCount} <Trans>项</Trans>
+          </span>
+          <span className="mx-1.5 text-foreground/25">/</span>
+          <span>{formatFileSize(item.totalSize)}</span>
         </p>
       </div>
       <span className="shrink-0 text-[11px] text-muted-foreground">
@@ -407,11 +411,13 @@ function InboxDetail({
               {item.title}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              <Trans>来自 {item.sourceName}</Trans>
-              {" · "}
-              {formatFileSize(item.totalSize)}
-              {" · "}
-              {new Date(item.receivedAt).toLocaleString()}
+              <span>
+                <Trans>来自 {item.sourceName}</Trans>
+              </span>
+              <span className="mx-2 text-foreground/25">/</span>
+              <span>{formatFileSize(item.totalSize)}</span>
+              <span className="mx-2 text-foreground/25">/</span>
+              <span>{new Date(item.receivedAt).toLocaleString()}</span>
             </p>
           </div>
           {item.missing && (
@@ -512,7 +518,7 @@ function InboxDetail({
           </div>
         </div>
 
-        <aside className="rounded-[18px] bg-foreground/[0.035] p-4 dark:bg-white/[0.045]">
+        <aside className="glass-control rounded-[18px] p-4">
           <h3 className="text-sm font-semibold text-foreground">
             <Trans>来源与过程</Trans>
           </h3>

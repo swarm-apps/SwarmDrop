@@ -7,13 +7,18 @@ import { useState, useCallback, useEffect } from "react";
 import { Trans } from "@lingui/react/macro";
 import { useLingui } from "@lingui/react/macro";
 import { toast } from "sonner";
-import { Copy, Check } from "lucide-react";
+import { Bot, Copy, Check } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { commands, type McpStatus } from "@/lib/bindings";
+import {
+  SettingsCard,
+  SettingsRow,
+  SettingsSection,
+} from "./-settings-primitives";
 
 export function McpSection() {
   const { t } = useLingui();
@@ -91,77 +96,67 @@ export function McpSection() {
   }, [mcpConfig, t]);
 
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold text-foreground">MCP Server</h2>
-      <div className="glass-card rounded-lg">
-        {/* 状态 & 启停 */}
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2">
+    <SettingsSection title="MCP Server" icon={Bot} fill>
+      <SettingsCard fill>
+        <SettingsRow
+          title={
+            <span className="flex items-center gap-2">
               <span className="text-sm font-medium text-foreground">
                 <Trans>服务状态</Trans>
               </span>
               <Badge variant={status.running ? "default" : "secondary"}>
                 {status.running ? t`运行中` : t`已停止`}
               </Badge>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {status.running && status.addr ? (
-                <Trans>监听地址: {status.addr}</Trans>
-              ) : (
-                <Trans>启动后可供 AI 助手通过 MCP 协议操控文件传输</Trans>
-              )}
             </span>
-          </div>
-          <Button
-            size="sm"
-            variant={status.running ? "destructive" : "default"}
-            onClick={handleToggle}
-            disabled={loading}
-          >
-            {loading ? (
-              <Trans>处理中...</Trans>
-            ) : status.running ? (
-              <Trans>停止</Trans>
+          }
+          description={
+            status.running && status.addr ? (
+              <Trans>监听地址: {status.addr}</Trans>
             ) : (
-              <Trans>启动</Trans>
-            )}
-          </Button>
-        </div>
+              <Trans>启动后可供 AI 助手通过 MCP 协议操控文件传输</Trans>
+            )
+          }
+          action={
+            <Button
+              size="sm"
+              variant={status.running ? "destructive" : "default"}
+              onClick={handleToggle}
+              disabled={loading}
+            >
+              {loading ? (
+                <Trans>处理中...</Trans>
+              ) : status.running ? (
+                <Trans>停止</Trans>
+              ) : (
+                <Trans>启动</Trans>
+              )}
+            </Button>
+          }
+        />
 
-        {/* 端口设置 */}
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-foreground">
-              <Trans>监听端口</Trans>
-            </span>
-            <span className="text-xs text-muted-foreground">
-              <Trans>MCP Server 的 HTTP 端口号</Trans>
-            </span>
-          </div>
-          <Input
-            type="number"
-            min={1024}
-            max={65535}
-            className="w-28 text-center"
-            value={portInput}
-            onChange={(e) => setPortInput(e.target.value)}
-            disabled={status.running}
-          />
-        </div>
+        <SettingsRow
+          title={<Trans>监听端口</Trans>}
+          description={<Trans>MCP Server 的 HTTP 端口号</Trans>}
+          action={
+            <Input
+              type="number"
+              min={1024}
+              max={65535}
+              className="w-28 text-center"
+              value={portInput}
+              onChange={(e) => setPortInput(e.target.value)}
+              disabled={status.running}
+            />
+          }
+        />
 
-        {/* 自动启动 */}
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-foreground">
-              <Trans>随节点自动启动</Trans>
-            </span>
-            <span className="text-xs text-muted-foreground">
-              <Trans>P2P 节点启动时自动启动 MCP Server</Trans>
-            </span>
-          </div>
-          <Switch checked={mcpAutoStart} onCheckedChange={setMcpAutoStart} />
-        </div>
+        <SettingsRow
+          title={<Trans>随节点自动启动</Trans>}
+          description={<Trans>P2P 节点启动时自动启动 MCP Server</Trans>}
+          action={
+            <Switch checked={mcpAutoStart} onCheckedChange={setMcpAutoStart} />
+          }
+        />
 
         {/* 客户端配置 */}
         <div className="flex flex-col gap-2 p-4">
@@ -189,11 +184,11 @@ export function McpSection() {
               配置中
             </Trans>
           </span>
-          <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed text-muted-foreground">
+          <pre className="overflow-x-auto rounded-xl bg-muted p-3 font-mono text-xs leading-relaxed text-muted-foreground">
             {mcpConfig}
           </pre>
         </div>
-      </div>
-    </section>
+      </SettingsCard>
+    </SettingsSection>
   );
 }

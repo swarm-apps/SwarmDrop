@@ -10,7 +10,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { Channel } from "@tauri-apps/api/core";
-import { ArrowLeft } from "lucide-react";
+import { FileStack, HardDrive, MonitorSmartphone, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Trans } from "@lingui/react/macro";
 import type { Device } from "@/lib/bindings";
@@ -28,6 +28,17 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { FileDropZone } from "./-components/file-drop-zone";
 import { FileTree } from "@/components/file-tree";
+import { getDeviceIcon } from "@/components/pairing/device-icon";
+import {
+  CommandDock,
+  GlassPanel,
+  InfoTile,
+  TaskButton,
+  TaskContent,
+  TaskHeroPanel,
+  TaskPageShell,
+  TaskToolbar,
+} from "@/components/layout/task-surface";
 
 export const Route = createLazyFileRoute("/_app/send/")({
   component: SendPage,
@@ -168,59 +179,109 @@ function DesktopSendView({
   onSend,
   onBack,
 }: SendViewProps) {
-  return (
-    <main className="flex h-full flex-1 flex-col bg-background">
-      {/* Toolbar */}
-      <header className="flex h-13 items-center gap-2 border-b border-border px-4 lg:px-5">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex size-8 items-center justify-center rounded-md hover:bg-muted"
-        >
-          <ArrowLeft className="size-4" />
-        </button>
-        <h1 className="text-[15px] font-medium text-foreground">
-          <Trans>发送文件到 {deviceDisplayName(device)}</Trans>
-        </h1>
-      </header>
+  const DeviceIcon = getDeviceIcon(device.os || device.platform || "");
 
-      {/* Content */}
-      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-5 overflow-hidden p-5 lg:p-6">
-        {/* 可滚动区域：拖放区 + 文件树 */}
-        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-auto">
-          <FileDropZone onSourcesSelected={onSourcesSelected} disabled={sending} />
-          {fileSelection.hasFiles && (
-            <FileTree
-              mode="select"
-              dataLoader={fileSelection.dataLoader}
-              rootChildren={fileSelection.rootChildren}
-              totalCount={fileSelection.totalCount}
-              totalSize={fileSelection.totalSize}
-              onRemoveFile={fileSelection.removeFile}
-            />
-          )}
+  return (
+    <TaskPageShell>
+      <TaskToolbar
+        title={<Trans>发送文件到 {deviceDisplayName(device)}</Trans>}
+        onBack={onBack}
+      />
+
+      <TaskContent className="flex min-h-0 flex-col gap-5">
+        <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <TaskHeroPanel
+            icon={MonitorSmartphone}
+            label={<Trans>目标设备</Trans>}
+            title={deviceDisplayName(device)}
+            description={<Trans>确认目标设备在线后，将文件或文件夹拖到右侧面板。</Trans>}
+            className="min-h-[320px]"
+          >
+            <div className="flex h-full flex-col justify-between gap-5">
+              <div className="glass-accent flex items-center gap-3 rounded-[22px] p-4">
+                <span className="glass-control flex size-13 shrink-0 items-center justify-center rounded-[19px] text-blue-600 dark:text-blue-300">
+                  <DeviceIcon className="size-6" />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-foreground">
+                    {deviceDisplayName(device)}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {device.hostname || device.peerId}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <InfoTile
+                  icon={FileStack}
+                  label={<Trans>已选内容</Trans>}
+                  value={
+                    fileSelection.hasFiles ? (
+                      <Trans>
+                        {fileSelection.totalCount} 项，{formatFileSize(fileSelection.totalSize)}
+                      </Trans>
+                    ) : (
+                      <Trans>等待选择</Trans>
+                    )
+                  }
+                />
+                <InfoTile
+                  icon={HardDrive}
+                  label={<Trans>传输方式</Trans>}
+                  value={<Trans>端到端加密直连</Trans>}
+                />
+              </div>
+            </div>
+          </TaskHeroPanel>
+
+          <GlassPanel className="min-h-0">
+            <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-5">
+              <FileDropZone onSourcesSelected={onSourcesSelected} disabled={sending} />
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {fileSelection.hasFiles ? (
+                  <FileTree
+                    mode="select"
+                    dataLoader={fileSelection.dataLoader}
+                    rootChildren={fileSelection.rootChildren}
+                    totalCount={fileSelection.totalCount}
+                    totalSize={fileSelection.totalSize}
+                    onRemoveFile={fileSelection.removeFile}
+                  />
+                ) : (
+                  <div className="flex h-full min-h-[180px] items-center justify-center rounded-[20px] bg-foreground/[0.025] text-center dark:bg-white/[0.035]">
+                    <p className="max-w-[28ch] text-sm leading-6 text-muted-foreground">
+                      <Trans>选择内容后，文件结构和总大小会在这里确认。</Trans>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </GlassPanel>
         </div>
 
-        {/* 操作栏：固定在底部 */}
         {prepareProgress ? (
-          <div className="shrink-0">
-            <PrepareProgressBar progress={prepareProgress} />
-          </div>
+          <CommandDock className="justify-stretch">
+            <div className="min-w-0 flex-1 px-2">
+              <PrepareProgressBar progress={prepareProgress} />
+            </div>
+          </CommandDock>
         ) : (
-          <div className="flex shrink-0 justify-end gap-3">
-            <Button variant="outline" onClick={onBack} disabled={sending}>
+          <CommandDock>
+            <TaskButton variant="outline" onClick={onBack} disabled={sending}>
               <Trans>取消</Trans>
-            </Button>
-            <Button
+            </TaskButton>
+            <TaskButton
               onClick={onSend}
               disabled={!fileSelection.hasFiles || sending}
             >
+              <Send className="size-4" />
               {sending ? <Trans>发送中...</Trans> : <Trans>发送</Trans>}
-            </Button>
-          </div>
+            </TaskButton>
+          </CommandDock>
         )}
-      </div>
-    </main>
+      </TaskContent>
+    </TaskPageShell>
   );
 }
 

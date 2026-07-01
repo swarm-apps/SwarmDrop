@@ -7,8 +7,7 @@
 
 import { useState, useEffect } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Link, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Keyboard, Link, Loader2, ShieldCheck } from "lucide-react";
 import {
   InputOTP,
   InputOTPGroup,
@@ -23,6 +22,16 @@ import {
   DesktopDeviceFoundContent,
   useDeviceFoundState,
 } from "@/routes/_app/pairing/-device-found-view";
+import {
+  CommandDock,
+  GlassPanel,
+  InfoTile,
+  TaskButton,
+  TaskContent,
+  TaskHeroPanel,
+  TaskPageShell,
+  TaskToolbar,
+} from "@/components/layout/task-surface";
 
 export const Route = createLazyFileRoute("/_app/pairing/input")({
   component: PairingInputPage,
@@ -77,108 +86,108 @@ function PairingInputPage() {
   // ─── 设备详情视图 ───
   if (showDeviceFound && deviceInfo) {
     return (
-      <main className="flex h-full flex-1 flex-col bg-background">
-        <header className="flex h-13 items-center border-b border-border px-4 lg:px-5">
-          <button
-            type="button"
-            onClick={reset}
-            className="flex items-center gap-1.5 text-[15px] font-medium text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            <Trans>设备详情</Trans>
-          </button>
-        </header>
-
-        <div className="flex flex-1 items-center justify-center">
-          <DesktopDeviceFoundContent
-            deviceInfo={deviceInfo}
-            isRequesting={isRequesting}
-            onSendRequest={() => sendPairingRequest()}
-            onCancel={reset}
-          />
-        </div>
-      </main>
+      <TaskPageShell>
+        <TaskToolbar title={<Trans>设备详情</Trans>} onBack={reset} />
+        <TaskContent className="flex items-center justify-center">
+          <GlassPanel className="w-full max-w-md">
+            <div className="p-6">
+              <DesktopDeviceFoundContent
+                deviceInfo={deviceInfo}
+                isRequesting={isRequesting}
+                onSendRequest={() => sendPairingRequest()}
+                onCancel={reset}
+              />
+            </div>
+          </GlassPanel>
+        </TaskContent>
+      </TaskPageShell>
     );
   }
 
   // ─── 输入配对码视图 ───
   return (
-    <main className="flex h-full flex-1 flex-col bg-background">
-      {/* Toolbar */}
-      <header className="flex h-13 items-center border-b border-border px-4 lg:px-5">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="flex items-center gap-1.5 text-[15px] font-medium text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          <Trans>连接已有设备</Trans>
-        </button>
-      </header>
+    <TaskPageShell>
+      <TaskToolbar title={<Trans>连接已有设备</Trans>} onBack={handleBack} />
 
-      {/* 居中内容 */}
-      <div className="flex flex-1 items-center justify-center">
-        <div className="flex flex-col items-center gap-6">
-          {/* Link 图标 */}
-          <div className="flex size-16 items-center justify-center rounded-full bg-blue-50">
-            <Link className="size-7 text-blue-600" />
-          </div>
+      <TaskContent className="flex min-h-0 flex-col gap-5">
+        <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <GlassPanel className="min-h-[420px]">
+            <div className="flex h-full flex-col items-center justify-center gap-7 p-6 text-center">
+              <div className="glass-control flex size-16 items-center justify-center rounded-[24px] text-blue-600 dark:text-blue-300">
+                <Link className="size-7" />
+              </div>
 
-          {/* 标题 */}
-          <div className="flex flex-col items-center gap-2">
-            <h2 className="text-xl font-semibold text-foreground">
-              <Trans>连接已有设备</Trans>
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              <Trans>输入另一台设备上显示的配对码</Trans>
-            </p>
-          </div>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  <Trans>输入另一台设备的配对码</Trans>
+                </h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  <Trans>找到设备后，你可以确认系统信息再发送配对请求。</Trans>
+                </p>
+              </div>
 
-          {/* OTP 输入框 */}
-          <InputOTP
-            maxLength={6}
-            value={code}
-            onChange={setCode}
-            onComplete={handleCodeComplete}
-            disabled={isSearching}
-            autoFocus
-          >
-            <InputOTPGroup>
-              <InputOTPSlot index={0} className="h-14 w-12 text-2xl font-semibold" />
-              <InputOTPSlot index={1} className="h-14 w-12 text-2xl font-semibold" />
-              <InputOTPSlot index={2} className="h-14 w-12 text-2xl font-semibold" />
-            </InputOTPGroup>
-            <InputOTPSeparator />
-            <InputOTPGroup>
-              <InputOTPSlot index={3} className="h-14 w-12 text-2xl font-semibold" />
-              <InputOTPSlot index={4} className="h-14 w-12 text-2xl font-semibold" />
-              <InputOTPSlot index={5} className="h-14 w-12 text-2xl font-semibold" />
-            </InputOTPGroup>
-          </InputOTP>
+              <InputOTP
+                maxLength={6}
+                value={code}
+                onChange={setCode}
+                onComplete={handleCodeComplete}
+                disabled={isSearching}
+                autoFocus
+              >
+                <InputOTPGroup>
+                  <InputOTPSlot index={0} className="h-16 w-13 rounded-[16px] text-2xl font-semibold" />
+                  <InputOTPSlot index={1} className="h-16 w-13 rounded-[16px] text-2xl font-semibold" />
+                  <InputOTPSlot index={2} className="h-16 w-13 rounded-[16px] text-2xl font-semibold" />
+                </InputOTPGroup>
+                <InputOTPSeparator />
+                <InputOTPGroup>
+                  <InputOTPSlot index={3} className="h-16 w-13 rounded-[16px] text-2xl font-semibold" />
+                  <InputOTPSlot index={4} className="h-16 w-13 rounded-[16px] text-2xl font-semibold" />
+                  <InputOTPSlot index={5} className="h-16 w-13 rounded-[16px] text-2xl font-semibold" />
+                </InputOTPGroup>
+              </InputOTP>
 
-          {/* 状态提示 */}
-          {isSearching && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              <Trans>正在查找设备...</Trans>
+              {isSearching && (
+                <div className="glass-control flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  <Trans>正在查找设备...</Trans>
+                </div>
+              )}
             </div>
-          )}
+          </GlassPanel>
 
-          {/* 底部按钮 */}
-          <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={handleBack}>
-              <Trans>取消</Trans>
-            </Button>
-            <Button
-              onClick={handleConfirm}
-              disabled={code.length < 6 || isSearching}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <Trans>确认</Trans>
-            </Button>
-          </div>
+          <TaskHeroPanel
+            icon={ShieldCheck}
+            label={<Trans>配对确认</Trans>}
+            title={<Trans>先查找，再确认</Trans>}
+            description={<Trans>配对码只用于定位设备，真正建立信任仍需要双方确认。</Trans>}
+          >
+            <div className="grid content-end gap-2">
+              <InfoTile
+                icon={Keyboard}
+                label={<Trans>输入进度</Trans>}
+                value={<Trans>{code.length}/6 位</Trans>}
+              />
+              <InfoTile
+                label={<Trans>当前状态</Trans>}
+                value={isSearching ? <Trans>查找中</Trans> : <Trans>等待输入</Trans>}
+              />
+            </div>
+          </TaskHeroPanel>
         </div>
-      </div>
-    </main>
+
+        <CommandDock>
+          <TaskButton variant="outline" onClick={handleBack}>
+            <Trans>取消</Trans>
+          </TaskButton>
+          <TaskButton
+            onClick={handleConfirm}
+            disabled={code.length < 6 || isSearching}
+          >
+            <Trans>确认</Trans>
+          </TaskButton>
+        </CommandDock>
+      </TaskContent>
+    </TaskPageShell>
   );
 }

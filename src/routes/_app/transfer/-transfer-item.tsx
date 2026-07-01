@@ -187,7 +187,8 @@ export const TransferItem = memo(function TransferItem({
               {projectionStatusLabel(projection)}
               {projection.finishedAt && (
                 <span className="text-muted-foreground">
-                  — {formatRelativeTime(projection.finishedAt)}
+                  {" · "}
+                  {formatRelativeTime(projection.finishedAt)}
                 </span>
               )}
             </div>
@@ -207,7 +208,10 @@ export const TransferItem = memo(function TransferItem({
               <XCircle className="size-3.5 md:size-4" />
               {projectionStatusLabel(projection)}
               {projection.finishedAt && (
-                <span className="hidden md:inline">— {formatRelativeTime(projection.finishedAt)}</span>
+                <span className="hidden md:inline">
+                  {" · "}
+                  {formatRelativeTime(projection.finishedAt)}
+                </span>
               )}
             </div>
           )}

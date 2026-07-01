@@ -79,12 +79,12 @@ function DeviceHeader({
       <div
         className={
           size === "lg"
-            ? "flex size-[72px] items-center justify-center rounded-[20px] bg-blue-600/8"
-            : "flex size-16 items-center justify-center rounded-full bg-blue-50"
+            ? "glass-control flex size-[72px] items-center justify-center rounded-[24px] bg-blue-600/8"
+            : "glass-control flex size-16 items-center justify-center rounded-[22px] text-blue-600 dark:text-blue-300"
         }
       >
         <DeviceIcon
-          className={size === "lg" ? "size-8 text-blue-600" : "size-7 text-blue-600"}
+          className={size === "lg" ? "size-8 text-blue-600 dark:text-blue-300" : "size-7"}
         />
       </div>
       <div className="flex flex-col items-center gap-1">
@@ -110,8 +110,8 @@ function InfoList({ platform, arch }: { platform: string; arch: string }) {
   const osDisplay = formatPlatformDisplay(platform);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border text-[13px]">
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+    <div className="glass-control overflow-hidden rounded-[18px] text-[13px]">
+      <div className="flex items-center justify-between border-b border-white/25 px-4 py-3 dark:border-white/10">
         <span className="text-muted-foreground">
           <Trans>配对方式</Trans>
         </span>
@@ -122,7 +122,7 @@ function InfoList({ platform, arch }: { platform: string; arch: string }) {
           </span>
         </div>
       </div>
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="flex items-center justify-between border-b border-white/25 px-4 py-3 dark:border-white/10">
         <span className="text-muted-foreground">
           <Trans>操作系统</Trans>
         </span>
@@ -141,7 +141,7 @@ function InfoList({ platform, arch }: { platform: string; arch: string }) {
 /** 在线状态条 */
 function OnlineStatus() {
   return (
-    <div className="flex items-center justify-center gap-2 rounded-lg bg-green-50 px-4 py-2 dark:bg-green-500/10">
+    <div className="flex items-center justify-center gap-2 rounded-full bg-green-50 px-4 py-2 dark:bg-green-500/10">
       <span className="size-2 rounded-full bg-green-600 dark:bg-green-400" />
       <span className="text-[13px] font-medium text-green-800 dark:text-green-400">
         <Trans>设备在线，可以建立连接</Trans>
@@ -245,7 +245,7 @@ export function DesktopDeviceFoundContent({
   const { codeRecord } = deviceInfo;
 
   return (
-    <div className="flex w-95 flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       {/* Device Header */}
       <DeviceHeader
         hostname={deviceDisplayName(codeRecord)}
@@ -262,13 +262,18 @@ export function DesktopDeviceFoundContent({
 
       {/* Actions */}
       <div className="flex items-center justify-center gap-3 pt-1">
-        <Button variant="outline" onClick={onCancel} disabled={isRequesting}>
+        <Button
+          variant="outline"
+          onClick={onCancel}
+          disabled={isRequesting}
+          className="rounded-full"
+        >
           <Trans>取消</Trans>
         </Button>
         <Button
           onClick={onSendRequest}
           disabled={isRequesting}
-          className="bg-blue-600 hover:bg-blue-700"
+          className="rounded-full bg-blue-600 shadow-[0_10px_22px_rgba(37,99,235,0.18)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-blue-700 active:scale-[0.98]"
         >
           {isRequesting && <Loader2 className="size-4 animate-spin" />}
           {isRequesting ? <Trans>等待对方确认...</Trans> : <Trans>发送配对请求</Trans>}

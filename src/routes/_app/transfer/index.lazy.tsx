@@ -4,9 +4,9 @@
  * 展示活跃传输、可恢复任务和过程账本诊断
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type ComponentType, type ReactNode } from "react";
 import { createLazyFileRoute } from "@tanstack/react-router";
-import { Activity, ArrowLeftRight, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
+import { Activity, ArrowLeftRight, CheckCircle2, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useTransferStore } from "@/stores/transfer-store";
@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 
 export const Route = createLazyFileRoute("/_app/transfer/")({
   component: TransferPage,
@@ -115,7 +116,7 @@ function TransferPage() {
     <main className="flex h-full flex-1 flex-col bg-transparent">
       {/* Page Content —— 页面标题由 AppTopBar 面包屑承担,无独立 header */}
       <div className="flex-1 overflow-auto p-5 lg:p-6">
-        {content}
+        <div className="mx-auto max-w-[1040px]">{content}</div>
       </div>
     </main>
   );
@@ -138,18 +139,33 @@ function TransferList({
 }) {
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-end">
-        {onClearActivity && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-destructive"
-            onClick={onClearActivity}
-          >
-            <Trash2 className="size-3.5" />
-            <Trans>清空活动记录</Trans>
-          </Button>
-        )}
+      <div className="glass-panel rounded-[26px] p-2">
+        <div className="grid gap-2 rounded-[20px] bg-white/30 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:grid-cols-2 lg:grid-cols-4">
+          <ActivityMetric
+            icon={ArrowLeftRight}
+            label={<Trans>活跃传输</Trans>}
+            value={activeItems.length}
+            tone="blue"
+          />
+          <ActivityMetric
+            icon={RotateCcw}
+            label={<Trans>可恢复</Trans>}
+            value={recoveryItems.length}
+            tone="green"
+          />
+          <ActivityMetric
+            icon={TriangleAlert}
+            label={<Trans>需要关注</Trans>}
+            value={attentionItems.length}
+            tone="amber"
+          />
+          <ActivityMetric
+            icon={CheckCircle2}
+            label={<Trans>已完成</Trans>}
+            value={completedItems.length}
+            tone="muted"
+          />
+        </div>
       </div>
 
       {/* 活跃传输 */}
@@ -204,6 +220,54 @@ function TransferList({
           </div>
         </ActivitySection>
       )}
+
+      {onClearActivity && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 gap-1.5 rounded-full px-3 text-xs text-muted-foreground transition-[color,background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-destructive/10 hover:text-destructive active:scale-[0.98]"
+            onClick={onClearActivity}
+          >
+            <Trash2 className="size-3.5" />
+            <Trans>清空活动记录</Trans>
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActivityMetric({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: ReactNode;
+  value: number;
+  tone: "blue" | "green" | "amber" | "muted";
+}) {
+  return (
+    <div className="glass-control rounded-[18px] px-3.5 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span
+          className={cn(
+            "flex size-8 items-center justify-center rounded-[12px]",
+            tone === "blue" && "bg-blue-500/10 text-blue-600 dark:text-blue-300",
+            tone === "green" && "bg-green-500/10 text-green-700 dark:text-green-300",
+            tone === "amber" && "bg-amber-500/12 text-amber-700 dark:text-amber-300",
+            tone === "muted" && "bg-foreground/[0.045] text-muted-foreground dark:bg-white/[0.06]",
+          )}
+        >
+          <Icon className="size-4" />
+        </span>
+        <span className="font-mono text-2xl font-semibold tracking-tight text-foreground">
+          {value}
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">{label}</p>
     </div>
   );
 }
@@ -218,12 +282,16 @@ function ActivitySection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        {icon}
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+    <section className="glass-panel rounded-[24px] p-2">
+      <div className="rounded-[18px] bg-white/28 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] dark:bg-white/[0.03] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        <div className="mb-3 flex items-center gap-2 text-muted-foreground">
+          <span className="glass-control flex size-8 items-center justify-center rounded-full">
+            {icon}
+          </span>
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        </div>
+        {children}
       </div>
-      {children}
     </section>
   );
 }
