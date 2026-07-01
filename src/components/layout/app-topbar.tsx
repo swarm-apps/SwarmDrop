@@ -93,9 +93,12 @@ export function AppTopBar() {
       <header
         data-tauri-drag-region
         className={cn(
-          "app-topbar relative z-20 flex h-11 shrink-0 items-center justify-between overflow-hidden border-b border-white/[0.30] bg-white/[0.18] px-4 shadow-[0_1px_0_rgba(255,255,255,0.34),0_16px_42px_rgba(15,23,42,0.05)] backdrop-blur-xl dark:border-white/[0.07] dark:bg-slate-950/[0.08] dark:shadow-[0_1px_0_rgba(255,255,255,0.05),0_16px_42px_rgba(0,0,0,0.10)] lg:px-5",
-          // macOS 左侧给系统红绿灯按钮留出位置
-          isMac && "pl-20",
+          "app-topbar relative z-20 flex h-11 shrink-0 items-center justify-between overflow-hidden border-b border-white/[0.30] bg-white/[0.18] pr-4 shadow-[0_1px_0_rgba(255,255,255,0.34),0_16px_42px_rgba(15,23,42,0.05)] backdrop-blur-xl dark:border-white/[0.07] dark:bg-slate-950/[0.08] dark:shadow-[0_1px_0_rgba(255,255,255,0.05),0_16px_42px_rgba(0,0,0,0.10)] lg:pr-5",
+          // macOS 左侧给系统红绿灯按钮留出位置：pl 和 pr 分开写，
+          // 避免 lg:px-5 这类同时设置左右内边距的响应式工具类
+          // 在 ≥1024px 时把这里覆盖回 20px（此前 pl-20 在大屏下被 lg:px-5 顶掉，
+          // 小屏下 lg: 不生效反而是对的，看起来像"只在大屏出问题"）
+          isMac ? "pl-20" : "pl-4 lg:pl-5",
         )}
       >
         {/* 左:Logo(纯图标) + 状态 pill + 面包屑 */}
