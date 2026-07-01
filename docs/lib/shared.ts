@@ -1,5 +1,6 @@
 export const appName = "SwarmDrop";
 export const appTagline = "Drop files anywhere. No cloud. No limits.";
+export const appIconPath = "/app-icon.svg";
 export const docsRoute = "/docs";
 export const docsImageRoute = "/og/docs";
 export const docsContentRoute = "/llms.mdx/docs";

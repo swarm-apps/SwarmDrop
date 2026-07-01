@@ -43,22 +43,22 @@ TBD - created by archiving change add-tray-and-close-behavior. Update Purpose af
 
 ### Requirement: 托盘状态展现
 
-托盘 SHALL 通过**菜单首行文字**反映运行状态（在线 / 暂停 / 离线），使状态在不依赖 tooltip 的环境（如 GNOME 不显示 tooltip）下仍可感知；状态 SHALL 由桌面壳依据「节点是否启动 + 暂停态」派生并更新，前端不直接操作托盘。托盘图标 SHOULD 额外以**形状区分**的三态独立图标（macOS 用 template 单色自适配深浅色）强化状态——该独立图标资产为后续增量，未就绪时三态共用应用图标、状态由文字层承载。
+托盘 SHALL 通过**菜单首行文字**反映运行状态（在线 / 暂停 / 离线），使状态在不依赖 tooltip 的环境（如 GNOME 不显示 tooltip）下仍可感知；状态 SHALL 由桌面壳依据「节点是否启动 + 暂停态」派生并更新，前端不直接操作托盘。托盘图标 SHALL 额外以**颜色区分**的三态独立图标强化状态：复用品牌 logo「身体+头部」双色剪影结构，离线态用灰调、在线态用品牌靛蓝+青绿、暂停态用琥珀调，形状保持一致——不使用 macOS template 单色模式（template 图标会被系统强制去色，无法承载颜色区分）。
 
 #### Scenario: 在线态
 
 - **WHEN** P2P 节点已启动且未暂停接收
-- **THEN** 托盘菜单首行 SHALL 复述类似「在线 · 可接收文件」的状态文字
+- **THEN** 托盘菜单首行 SHALL 复述类似「在线 · 可接收文件」的状态文字，托盘图标 SHALL 切为品牌色（靛蓝+青绿）
 
 #### Scenario: 暂停态
 
 - **WHEN** 接收被暂停
-- **THEN** 托盘菜单首行 SHALL 复述「已暂停接收」，且暂停项文案 SHALL 切为「恢复接收」
+- **THEN** 托盘菜单首行 SHALL 复述「已暂停接收」，且暂停项文案 SHALL 切为「恢复接收」，托盘图标 SHALL 切为琥珀色调
 
 #### Scenario: 离线态
 
 - **WHEN** P2P 节点未启动或网络不可用
-- **THEN** 托盘菜单首行 SHALL 复述「未连接」
+- **THEN** 托盘菜单首行 SHALL 复述「未连接」，托盘图标 SHALL 切为灰色调
 
 ### Requirement: 托盘左右键交互
 

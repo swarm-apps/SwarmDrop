@@ -293,6 +293,33 @@ LAN Helper 路径。
 
 **相关文件**：`src-tauri/src/host/file_keychain.rs`、`src-tauri/src/host.rs`（`keychain_provider` 工厂）、`crates/core/src/identity.rs`、`src-tauri/src/host/keychain.rs`
 
+## 系统托盘
+
+### 三态托盘图标要拿到 `TrayIconBuilder::build()` 的返回值，且不能用 `icon_as_template`
+
+`TrayIconBuilder::build(app)` 返回 `tauri::Result<TrayIcon<R>>`——早期实现里这个返回值被直接丢弃（`builder.build(app)?;`），导致后续没有句柄可以调 `set_icon` 动态换图标，只能在创建时定死一次。要支持运行时切换图标，必须把这个返回值存进长期持有的状态（本项目是 `TrayState`），否则和 `MenuItem` 句柄一样会因为没人持有导致效果消失。
+
+另外，`icon_as_template(true)`（macOS 的单色模板图标，跟随系统深浅色自动着色）和"用颜色区分状态"是互斥的——template 图标会被系统强制去色成单色轮廓，图标本身的颜色信息不会显示。如果三态要靠颜色区分（而不是纯形状区分），三个平台都不能用 template 模式，直接传全彩 PNG。
+
+**正确做法**：
+```rust
+let tray_icon = builder.build(app)?;  // 存返回值，不要丢弃
+app.manage(TrayState { status_item, pause_item, tray_icon });
+
+// 运行时切换：
+match tauri::image::Image::from_bytes(png_bytes) {
+    Ok(icon) => { let _ = state.tray_icon.set_icon(Some(icon)); }
+    Err(e) => warn!("托盘图标解码失败，保留上一次的图标: {e}"),
+}
+```
+- `Image::from_bytes` 需要 `image-png`（或 `image-ico`）feature，本项目 `Cargo.toml` 已开。
+- 三态图标用 `include_bytes!` 编译期嵌入（避免运行时文件路径依赖），放 `src-tauri/icons/tray/`。
+- 状态图标设计手法：复用品牌 logo 本身的双色剪影结构（不额外加徽章/角标、不整体去色），每个状态只换配色（比如离线态灰调、正常态品牌色、警示态琥珀色），形状不变——比在图标上叠加小圆点更耐小尺寸（22×22 菜单栏图标叠角标很容易糊）。
+- 状态→(文案, 图标) 的派生只写一处：用一个 `TrayStatus` 枚举 + `from_flags(online, paused)` 做唯一的三分支匹配，`text()`/`icon_bytes()` 挂在枚举上；不要在 `status_text` 之外再单独写一个结构相同的 `match (online, paused)` 去选图标字节，两份独立的三分支匹配迟早会在加新状态时漏改一处。
+- 图标解码失败的处理分两种场合：`build_tray` 里的初始图标字节是编译期常量，解码失败只可能是资产本身损坏，属于构建期 bug，应该让它经 `?` 直接让托盘创建失败、快速暴露问题；`refresh_tray` 没有 `Result` 可传播，退化成 `warn!` 日志 + 保留上一次图标，不要用 `if let Ok(..)` 静默吞掉（本文件其它地方对真正无害的操作才用 `let _ = ...`，图标解码失败不算无害）。
+
+**相关文件**：`src-tauri/src/tray.rs`、`src-tauri/icons/tray/{online,offline,paused}.png`
+
 ## 依赖升级
 
 ### 判断"是否真落后"看 Cargo.lock 解析版本，不看 requirement 字面

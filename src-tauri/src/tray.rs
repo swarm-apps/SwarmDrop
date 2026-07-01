@@ -7,10 +7,11 @@
 //! 关闭语义（✕ → 缩盘 / 退出）由**前端** `onCloseRequested` 权威拦截，本模块只负责
 //! 托盘本身与「暂停接收」的托盘侧切换；二者通过 [`ReceivingPausedChanged`] 事件保持同步。
 
+use tauri::image::Image;
 use tauri::menu::{MenuBuilder, MenuEvent, MenuItem};
-use tauri::tray::TrayIconBuilder;
 #[cfg(not(target_os = "macos"))]
-use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Manager, Wry};
 use tauri_specta::Event as _;
 use tracing::warn;
@@ -28,10 +29,54 @@ const ID_OPEN_FOLDER: &str = "tray-open-folder";
 const ID_SETTINGS: &str = "tray-settings";
 const ID_QUIT: &str = "tray-quit";
 
-/// 托盘可变句柄：状态首行 + 暂停项。状态变化时改其文案 / 启用态。
+// 三态托盘图标：复用品牌 logo 的「S=身体+D=头部」双色结构，离线/在线/暂停各自
+// 换一套配色（灰调 / 品牌靛蓝+青绿 / 琥珀调），形状不变。不用 macOS template 模式
+// ——template 图标会被系统强制去色成单色，没法用颜色区分三态。
+const ICON_OFFLINE: &[u8] = include_bytes!("../icons/tray/offline.png");
+const ICON_ONLINE: &[u8] = include_bytes!("../icons/tray/online.png");
+const ICON_PAUSED: &[u8] = include_bytes!("../icons/tray/paused.png");
+
+/// 托盘三态：离线 / 在线 / 暂停接收。状态首行文字与图标的唯一状态来源——以后
+/// 加新消费者（比如 tooltip）时只在这里加方法，不要在别处再对 `(online, paused)`
+/// 单独 match，否则新增状态容易漏改其中一处。
+#[derive(Clone, Copy)]
+enum TrayStatus {
+    Offline,
+    Online,
+    Paused,
+}
+
+impl TrayStatus {
+    fn from_flags(online: bool, paused: bool) -> Self {
+        match (online, paused) {
+            (false, _) => Self::Offline,
+            (true, true) => Self::Paused,
+            (true, false) => Self::Online,
+        }
+    }
+
+    fn text(self) -> &'static str {
+        match self {
+            Self::Offline => "○ 未连接",
+            Self::Paused => "⏸ 已暂停接收",
+            Self::Online => "● 在线 · 可接收文件",
+        }
+    }
+
+    fn icon_bytes(self) -> &'static [u8] {
+        match self {
+            Self::Offline => ICON_OFFLINE,
+            Self::Paused => ICON_PAUSED,
+            Self::Online => ICON_ONLINE,
+        }
+    }
+}
+
+/// 托盘可变句柄：状态首行 + 暂停项 + 图标本身。状态变化时改其文案 / 启用态 / 图标。
 pub struct TrayState {
     status_item: MenuItem<Wry>,
     pause_item: MenuItem<Wry>,
+    tray_icon: TrayIcon<Wry>,
 }
 
 /// 在 `setup` 阶段创建托盘。`MenuItem` 句柄存入 [`TrayState`] 长存。
@@ -39,7 +84,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let status_item = MenuItem::with_id(
         app,
         "tray-status",
-        status_text(false, false),
+        TrayStatus::Offline.text(),
         false,
         None::<&str>,
     )?;
@@ -80,27 +125,35 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             .on_tray_icon_event(on_tray_icon_event);
     }
 
-    // 三态独立图标资源待补（见 tasks 7.1）；先用应用图标 + macOS template 自适应深浅色，
-    // 状态全靠状态首行文字 + 暂停项文案表达（两层冗余里的文字层，GNOME 无 tooltip 也可读）。
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone()).icon_as_template(true);
-    }
-    builder.build(app)?;
+    // 初始态节点未启动 = 离线图标；状态文字层（status_item）已经反映同样的初始态。
+    // 图标字节是编译期 include_bytes! 常量，解码失败只可能是资产本身损坏（构建期
+    // bug），不是运行时瞬时状况，所以让它经 `?` 直接让托盘创建失败、快速暴露问题
+    // ——而不是像 refresh_tray 那样静默保留旧图标。
+    builder = builder.icon(Image::from_bytes(TrayStatus::Offline.icon_bytes())?);
+    let tray_icon = builder.build(app)?;
 
     app.manage(TrayState {
         status_item,
         pause_item,
+        tray_icon,
     });
     Ok(())
 }
 
-/// 刷新托盘状态首行 + 暂停项（`online`=节点已启动，`paused`=已暂停接收）。
+/// 刷新托盘状态首行 + 暂停项 + 图标（`online`=节点已启动，`paused`=已暂停接收）。
 pub fn refresh_tray(app: &AppHandle, online: bool, paused: bool) {
     if let Some(state) = app.try_state::<TrayState>() {
-        let _ = state.status_item.set_text(status_text(online, paused));
+        let status = TrayStatus::from_flags(online, paused);
+        let _ = state.status_item.set_text(status.text());
         let _ = state.pause_item.set_text(pause_label(paused));
         // 节点未启动时无从暂停，禁用暂停项。
         let _ = state.pause_item.set_enabled(online);
+        match Image::from_bytes(status.icon_bytes()) {
+            Ok(icon) => {
+                let _ = state.tray_icon.set_icon(Some(icon));
+            }
+            Err(e) => warn!("托盘图标解码失败，保留上一次的图标: {e}"),
+        }
     }
 }
 
@@ -196,14 +249,6 @@ pub fn show_main_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
-    }
-}
-
-fn status_text(online: bool, paused: bool) -> &'static str {
-    match (online, paused) {
-        (false, _) => "○ 未连接",
-        (true, true) => "⏸ 已暂停接收",
-        (true, false) => "● 在线 · 可接收文件",
     }
 }
 
