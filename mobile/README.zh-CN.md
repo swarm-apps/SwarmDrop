@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="assets/images/icon.png" width="180" alt="SwarmDrop Mobile logo">
+<img src="assets/images/logo.svg" width="180" alt="SwarmDrop Mobile logo">
 
 # SwarmDrop Mobile
 

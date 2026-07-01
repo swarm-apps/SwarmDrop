@@ -16,7 +16,7 @@
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#0F172A"
+        "backgroundColor": "#F8FAFC"
       }
     },
     "plugins": [
@@ -26,7 +26,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0F172A",
+          "backgroundColor": "#F8FAFC",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200
         }
