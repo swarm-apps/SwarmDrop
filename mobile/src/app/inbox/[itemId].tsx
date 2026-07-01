@@ -75,6 +75,7 @@ export default function InboxDetailScreen() {
     detail,
     detailLoading,
     action,
+    lastError,
     loadDetail,
     clearDetail,
     markOpened,
@@ -86,6 +87,7 @@ export default function InboxDetailScreen() {
       detail: s.selectedDetail,
       detailLoading: s.detailLoading,
       action: s.action,
+      lastError: s.lastError,
       loadDetail: s.loadDetail,
       clearDetail: s.clearDetail,
       markOpened: s.markOpened,
@@ -110,6 +112,19 @@ export default function InboxDetailScreen() {
       };
     }, [itemId, loadDetail, markOpened]),
   );
+
+  // 加载失败(抛异常,如网络/DB 瞬时问题)与"合法 not-found"(getInboxItem 正常返回
+  // undefined)在 store 里已经可区分——前者会带 lastError,后者不会。重试只重新调用同一
+  // 次 loadDetail,不做额外假设。
+  const retryLoadDetail = useCallback(() => {
+    if (!itemId) return;
+    void (async () => {
+      const loaded = await loadDetail(itemId);
+      if (loaded) {
+        void markOpened(itemId);
+      }
+    })();
+  }, [itemId, loadDetail, markOpened]);
 
   // 仅在真正离开详情页（卸载）时清空，而非失焦——否则跳转「传输诊断」再返回会因
   // selectedDetail 被清空而触发整屏「加载中」reload 闪烁。重新聚焦会刷新数据，但旧详情
@@ -236,9 +251,40 @@ export default function InboxDetailScreen() {
             <Trans>加载中</Trans>
           </Text>
         </View>
-      ) : !detail ? (
+      ) : !detail && lastError ? (
+        // 加载调用抛出了异常(瞬时问题),不是后端确认的"记录不存在"——不能断言"可能已删除",
+        // 只能如实说明加载失败,并给出重试入口。
         <View className="flex-1 px-5 pt-6">
-          <Surface className="items-center gap-3 py-12">
+          <Surface
+            className="items-center gap-3 py-12"
+            testID="inbox-detail-error-state"
+          >
+            <FileWarning color={colors.destructive} size={30} />
+            <Text className="text-[14px] font-semibold text-foreground">
+              <Trans>暂时无法打开，请重试</Trans>
+            </Text>
+            <Text className="text-center text-[12px] text-muted-foreground">
+              {lastError}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={retryLoadDetail}
+              testID="inbox-detail-retry-button"
+              className="min-h-11 min-w-24 items-center justify-center rounded-xl bg-primary px-4 active:opacity-70"
+            >
+              <Text className="text-[13px] font-semibold text-primary-foreground">
+                <Trans>重试</Trans>
+              </Text>
+            </Pressable>
+          </Surface>
+        </View>
+      ) : !detail ? (
+        // getInboxItem 正常返回了 undefined——后端已确认这条记录真的不存在,不提供重试。
+        <View className="flex-1 px-5 pt-6">
+          <Surface
+            className="items-center gap-3 py-12"
+            testID="inbox-detail-missing-state"
+          >
             <FileArchive color={colors.mutedForeground} size={30} />
             <Text className="text-[14px] font-semibold text-foreground">
               <Trans>收件箱记录不存在</Trans>
@@ -260,7 +306,7 @@ export default function InboxDetailScreen() {
             <View className="gap-3" testID="inbox-detail-summary">
               <View className="gap-1.5">
                 <Text
-                  className="text-[22px] font-bold leading-7 text-foreground"
+                  className="text-[24px] font-semibold leading-8 tracking-tight text-foreground"
                   numberOfLines={3}
                 >
                   {title}
@@ -585,6 +631,15 @@ function Divider({ destructive = false }: { destructive?: boolean }) {
   );
 }
 
+/** 文本/剪贴板正文摘录的最大展示字符数(超出截断并加省略号)。 */
+const TEXT_EXCERPT_MAX_CHARS = 400;
+
+function truncateExcerpt(text: string): string {
+  const collapsed = text.trim();
+  if (collapsed.length <= TEXT_EXCERPT_MAX_CHARS) return collapsed;
+  return `${collapsed.slice(0, TEXT_EXCERPT_MAX_CHARS)}…`;
+}
+
 function ContentPreview({
   detail,
   primaryFile,
@@ -600,10 +655,59 @@ function ContentPreview({
     primaryFile.localPath.startsWith("file://") &&
     isImageFile(primaryFile.name);
 
+  const isMissing = detail.item.missing || primaryFile?.missing === true;
+  // 多文件合集:内联展示实际文件名列表,而不是纯装饰性 Package 图标(与 previewMeta 的
+  // 分支优先级保持一致:files.length > 1 优先于 contentKind 判断)。
+  const isMultiFileExcerpt =
+    !isMissing && !canPreviewImage && detail.files.length > 1;
+  // 文本/剪贴板:内联展示真实收到的正文,而不是纯装饰性图标留白。
+  const isTextExcerptKind =
+    !isMissing &&
+    !canPreviewImage &&
+    !isMultiFileExcerpt &&
+    (detail.item.contentKind === MobileInboxContentKind.Text ||
+      detail.item.contentKind === MobileInboxContentKind.Clipboard);
+
+  const [textExcerpt, setTextExcerpt] = useState<string | null>(null);
+  const [textReadFailed, setTextReadFailed] = useState(false);
+
+  useEffect(() => {
+    setTextExcerpt(null);
+    setTextReadFailed(false);
+    if (!isTextExcerptKind) return;
+    if (
+      !primaryFile ||
+      primaryFile.missing ||
+      !primaryFile.localPath.startsWith("file://")
+    ) {
+      setTextReadFailed(true);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const file = new File(primaryFile.localPath);
+        if (!file.exists) {
+          if (!cancelled) setTextReadFailed(true);
+          return;
+        }
+        const content = await file.text();
+        if (!cancelled) setTextExcerpt(content);
+      } catch {
+        if (!cancelled) setTextReadFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTextExcerptKind, primaryFile]);
+
+  const showExcerpt = isTextExcerptKind || isMultiFileExcerpt;
+
   return (
     <View
       className="overflow-hidden rounded-[28px] border border-border bg-card"
-      style={detailStyles.previewFrame}
+      style={showExcerpt ? undefined : detailStyles.previewFrame}
       testID="inbox-detail-preview"
     >
       {canPreviewImage ? (
@@ -612,6 +716,48 @@ function ContentPreview({
           resizeMode="cover"
           className="h-full w-full"
         />
+      ) : isTextExcerptKind ? (
+        <View
+          className="w-full gap-2.5 bg-primary/5 px-5 py-5"
+          testID="inbox-detail-text-excerpt"
+        >
+          <View className="flex-row items-center gap-2">
+            <preview.icon color={preview.color(colors)} size={18} />
+            <Text className="text-[13px] font-semibold text-foreground">
+              {preview.title}
+            </Text>
+          </View>
+          <Text
+            className="text-[13px] leading-5 text-foreground"
+            numberOfLines={8}
+          >
+            {textExcerpt != null ? (
+              truncateExcerpt(textExcerpt)
+            ) : textReadFailed ? (
+              <Trans>暂时无法读取正文内容。</Trans>
+            ) : (
+              <Trans>正在加载内容…</Trans>
+            )}
+          </Text>
+        </View>
+      ) : isMultiFileExcerpt ? (
+        <View
+          className="w-full gap-2.5 bg-primary/5 px-5 py-5"
+          testID="inbox-detail-files-excerpt"
+        >
+          <View className="flex-row items-center gap-2">
+            <preview.icon color={preview.color(colors)} size={18} />
+            <Text className="text-[13px] font-semibold text-foreground">
+              {preview.title}
+            </Text>
+          </View>
+          <Text
+            className="text-[12px] leading-5 text-muted-foreground"
+            numberOfLines={4}
+          >
+            {detail.files.map((file) => file.name).join("、")}
+          </Text>
+        </View>
       ) : (
         <View className="h-full w-full items-center justify-center gap-5 bg-primary/5 px-8">
           <View className="size-24 items-center justify-center rounded-[28px] bg-background">

@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
 import { SettingsHeader } from "@/components/settings-header";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
@@ -61,6 +62,7 @@ export default function BootstrapNodesScreen() {
   const [showInput, setShowInput] = useState(false);
   const [needsRestart, setNeedsRestart] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<string | null>(null);
 
   const handleAdd = () => {
     const addr = inputValue.trim();
@@ -85,6 +87,12 @@ export default function BootstrapNodesScreen() {
   const handleRemove = (addr: string) => {
     removeBootstrapNode(addr);
     if (runtimeState === "running") setNeedsRestart(true);
+    toast.success(t`引导节点已删除`);
+  };
+
+  const confirmRemove = () => {
+    if (pendingRemove) handleRemove(pendingRemove);
+    setPendingRemove(null);
   };
 
   const handleRestart = useCallback(async () => {
@@ -117,7 +125,7 @@ export default function BootstrapNodesScreen() {
           <Trans>引导节点用于发现 P2P 网络。修改后需重启节点生效。</Trans>
         </Text>
 
-        <View className="rounded-xl border border-border bg-card overflow-hidden">
+        <View className="rounded-lg border border-border bg-card overflow-hidden">
           {DEFAULT_BOOTSTRAP_NODES.map((addr, idx) => (
             <Fragment key={addr}>
               <View className="flex-row items-center justify-between gap-2 p-3.5">
@@ -151,7 +159,7 @@ export default function BootstrapNodesScreen() {
                   {truncateAddr(addr)}
                 </Text>
                 <Pressable
-                  onPress={() => handleRemove(addr)}
+                  onPress={() => setPendingRemove(addr)}
                   hitSlop={8}
                   accessibilityRole="button"
                   accessibilityLabel={t`删除`}
@@ -240,6 +248,21 @@ export default function BootstrapNodesScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemove(null);
+        }}
+        title={<Trans>删除引导节点</Trans>}
+        description={
+          <Trans>
+            该节点将不再作为自动发现的兜底路径，可能影响连通性。之后可随时重新添加。
+          </Trans>
+        }
+        actionLabel={<Trans>删除</Trans>}
+        onAction={confirmRemove}
+      />
     </SafeAreaView>
   );
 }

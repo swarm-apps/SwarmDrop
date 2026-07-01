@@ -1,6 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   FileArchive,
@@ -17,35 +18,69 @@ import {
   HighlightedText,
   type InboxFilter,
   InboxRow,
+  InboxStatusBadges,
+  matchesInboxFilter,
 } from "@/components/inbox/inbox-list";
 import { AppScreen, EmptyState } from "@/components/mobile/screen";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import {
+  type InboxPreviewItem,
   type InboxSearchHit,
   supportsServerInboxSearch,
   useInboxStore,
 } from "@/stores/inbox-store";
 
+const VALID_FILTERS: readonly InboxFilter[] = [
+  "all",
+  "files",
+  "images",
+  "videos",
+  "text",
+  "attention",
+  "archived",
+];
+
+/** 校验从上一屏(收件箱列表)带入的筛选参数,非法值一律回退到"全部"。 */
+function parseInboxFilter(value: string | undefined): InboxFilter {
+  return (VALID_FILTERS as readonly string[]).includes(value ?? "")
+    ? (value as InboxFilter)
+    : "all";
+}
+
 export default function InboxSearchScreen() {
   const { t } = useLingui();
   const router = useRouter();
   const colors = useThemeColors();
+  const { filter: initialFilter } = useLocalSearchParams<{
+    filter?: string;
+  }>();
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<InboxFilter>("all");
+  // 从收件箱列表带入之前选好的筛选,而不是每次进入搜索都静默重置为"全部"。
+  const [filter, setFilter] = useState<InboxFilter>(() =>
+    parseInboxFilter(initialFilter),
+  );
   // 服务端 FTS 是否可用(取决于 mobile-core 绑定);不可用则退回客户端过滤。
   const serverSearch = useMemo(() => supportsServerInboxSearch(), []);
-  const { items, refresh, runSearch, clearSearch, searchResults, searching } =
-    useInboxStore(
-      useShallow((s) => ({
-        items: s.items,
-        refresh: s.refresh,
-        runSearch: s.runSearch,
-        clearSearch: s.clearSearch,
-        searchResults: s.searchResults,
-        searching: s.searching,
-      })),
-    );
+  const {
+    items,
+    refresh,
+    runSearch,
+    clearSearch,
+    searchResults,
+    searching,
+    lastError,
+  } = useInboxStore(
+    useShallow((s) => ({
+      items: s.items,
+      refresh: s.refresh,
+      runSearch: s.runSearch,
+      clearSearch: s.clearSearch,
+      searchResults: s.searchResults,
+      searching: s.searching,
+      lastError: s.lastError,
+    })),
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -90,8 +125,23 @@ export default function InboxSearchScreen() {
     [filter, items, query, serverSearch],
   );
 
-  // FTS 模式且有查询时,内容筛选不适用于命中项,隐藏 FilterRail。
-  const showFilterRail = items.length > 0 && (!hasQuery || !serverSearch);
+  // FTS 命中不带 contentKind/missing/archivedAt 字段,借助已加载的 items 按 id 反查,
+  // 既用来给命中行补状态徽标,也用来在客户端把命中结果收敛到当前筛选范围。
+  const itemById = useMemo(
+    () => new Map(items.map((item) => [item.id, item] as const)),
+    [items],
+  );
+  const scopedSearchResults = useMemo(() => {
+    if (!searchResults) return [];
+    if (filter === "all") return searchResults;
+    return searchResults.filter((hit) => {
+      const summary = itemById.get(hit.id);
+      return summary ? matchesInboxFilter(summary, filter) : true;
+    });
+  }, [searchResults, filter, itemById]);
+
+  // 筛选一直可见(含 FTS 检索态),让用户能看到并调整当前生效的筛选范围。
+  const showFilterRail = items.length > 0;
 
   return (
     <AppScreen
@@ -151,8 +201,12 @@ export default function InboxSearchScreen() {
         serverSearch={serverSearch}
         searching={searching}
         searchResults={searchResults}
+        scopedSearchResults={scopedSearchResults}
+        itemById={itemById}
+        lastError={lastError}
         clientItems={clientItems}
         onOpenDetail={openDetail}
+        onRetrySearch={() => void runSearch(query, true)}
         onClear={() => {
           setQuery("");
           setFilter("all");
@@ -169,8 +223,12 @@ function SearchBody({
   serverSearch,
   searching,
   searchResults,
+  scopedSearchResults,
+  itemById,
+  lastError,
   clientItems,
   onOpenDetail,
+  onRetrySearch,
   onClear,
 }: {
   items: unknown[];
@@ -179,14 +237,18 @@ function SearchBody({
   serverSearch: boolean;
   searching: boolean;
   searchResults: InboxSearchHit[] | null;
+  /** searchResults 按当前内容筛选收敛后的结果(用于计数与渲染)。 */
+  scopedSearchResults: InboxSearchHit[];
+  /** 命中 id -> 收件箱摘要,供命中行补状态徽标。 */
+  itemById: Map<string, InboxPreviewItem>;
+  lastError: string | null;
   clientItems: React.ComponentProps<typeof InboxRow>["item"][];
   onOpenDetail: (itemId: string) => void;
+  onRetrySearch: () => void;
   onClear: () => void;
 }) {
   const useFts = serverSearch && hasQuery;
-  const resultCount = useFts
-    ? (searchResults?.length ?? 0)
-    : clientItems.length;
+  const resultCount = useFts ? scopedSearchResults.length : clientItems.length;
 
   return (
     <>
@@ -216,14 +278,25 @@ function SearchBody({
           >
             <ActivityIndicator size="small" />
           </View>
-        ) : searchResults && searchResults.length > 0 ? (
+        ) : lastError && searchResults === null ? (
+          <EmptyState
+            icon={AlertTriangle}
+            title={<Trans>搜索失败</Trans>}
+            description={lastError}
+            actionLabel={<Trans>重试</Trans>}
+            onAction={onRetrySearch}
+            className="min-h-48"
+            testID="inbox-search-error-state"
+          />
+        ) : scopedSearchResults.length > 0 ? (
           <View className="gap-2.5" testID="inbox-search-results">
-            {searchResults.map((hit, index) => (
+            {scopedSearchResults.map((hit, index) => (
               <InboxHitRow
                 key={hit.id}
                 hit={hit}
                 index={index}
                 query={query}
+                item={itemById.get(hit.id)}
                 onPress={onOpenDetail}
               />
             ))}
@@ -264,16 +337,22 @@ function SearchBody({
   );
 }
 
-/** FTS 命中行:展示标题 / 来源 / 命中片段(均按 query 高亮)。 */
+/**
+ * FTS 命中行:展示标题 / 来源 / 命中片段(均按 query 高亮)。
+ * 状态徽标(缺失/已归档/AI 代理)通过 `item`(按 id 从已加载的收件箱列表反查)与
+ * 浏览态 InboxRow 保持一致——FTS 命中本身不带这些字段。
+ */
 function InboxHitRow({
   hit,
   index,
   query,
+  item,
   onPress,
 }: {
   hit: InboxSearchHit;
   index: number;
   query: string;
+  item?: InboxPreviewItem;
   onPress: (itemId: string) => void;
 }) {
   const colors = useThemeColors();
@@ -288,12 +367,15 @@ function InboxHitRow({
         <FileArchive color={colors.primary} size={20} />
       </View>
       <View className="min-w-0 flex-1 gap-1">
-        <HighlightedText
-          text={hit.title}
-          query={query}
-          className="text-[14px] font-semibold text-foreground"
-          numberOfLines={1}
-        />
+        <View className="flex-row items-center gap-2">
+          <HighlightedText
+            text={hit.title}
+            query={query}
+            className="min-w-0 flex-1 text-[14px] font-semibold text-foreground"
+            numberOfLines={1}
+          />
+          {item ? <InboxStatusBadges item={item} /> : null}
+        </View>
         <View className="flex-row items-center gap-1.5">
           <HighlightedText
             text={hit.sourceName}

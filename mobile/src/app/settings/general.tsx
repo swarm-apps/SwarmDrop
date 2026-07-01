@@ -228,7 +228,6 @@ function ReceivePathRow() {
         title={<Trans>恢复默认接收位置</Trans>}
         description={<Trans>接收文件将保存到应用私有目录。</Trans>}
         actionLabel={<Trans>恢复默认</Trans>}
-        destructive
         onAction={() => setReceivePath(null)}
       />
     </>

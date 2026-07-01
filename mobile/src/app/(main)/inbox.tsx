@@ -1,6 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
+  AlertTriangle,
   ArchiveRestore,
   FileArchive,
   HardDrive,
@@ -35,15 +36,17 @@ export default function InboxScreen() {
   const { t } = useLingui();
   const router = useRouter();
   const [filter, setFilter] = useState<InboxFilter>("all");
-  const { loading, items, action, refresh, repairMissingItems } = useInboxStore(
-    useShallow((s) => ({
-      loading: s.loading,
-      items: s.items,
-      action: s.action,
-      refresh: s.refresh,
-      repairMissingItems: s.repairMissingItems,
-    })),
-  );
+  const { loading, items, action, lastError, refresh, repairMissingItems } =
+    useInboxStore(
+      useShallow((s) => ({
+        loading: s.loading,
+        items: s.items,
+        action: s.action,
+        lastError: s.lastError,
+        refresh: s.refresh,
+        repairMissingItems: s.repairMissingItems,
+      })),
+    );
 
   useFocusEffect(
     useCallback(() => {
@@ -62,8 +65,12 @@ export default function InboxScreen() {
   );
 
   const openSearch = useCallback(() => {
-    router.push("/inbox/search" as never);
-  }, [router]);
+    // 带上当前筛选,避免进入关键词搜索后之前选好的类型筛选被静默丢弃。
+    router.push({
+      pathname: "/inbox/search",
+      params: { filter },
+    } as never);
+  }, [router, filter]);
 
   const repair = useCallback(async () => {
     try {
@@ -116,6 +123,10 @@ export default function InboxScreen() {
           </View>
         }
       />
+
+      {lastError ? (
+        <InboxErrorBanner message={lastError} onRetry={refresh} />
+      ) : null}
 
       <InboxToolbar
         count={items.length}
@@ -174,6 +185,38 @@ export default function InboxScreen() {
   );
 }
 
+/** 把 store 的 lastError 实际渲染出来,而不是只 console.warn(镜像 Requirement: Store Errors Surfaced to the User)。 */
+function InboxErrorBanner({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  const colors = useThemeColors();
+  return (
+    <View
+      className="flex-row items-center gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 p-3"
+      testID="inbox-refresh-error"
+    >
+      <AlertTriangle color={colors.destructive} size={16} />
+      <Text className="flex-1 text-[12px] text-destructive" numberOfLines={2}>
+        {message}
+      </Text>
+      <Pressable
+        onPress={onRetry}
+        accessibilityRole="button"
+        testID="inbox-refresh-error-retry"
+        className="h-8 items-center justify-center rounded-lg border border-border bg-card px-3 active:opacity-70"
+      >
+        <Text className="text-[12px] font-semibold text-foreground">
+          <Trans>重试</Trans>
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function InboxToolbar({
   count,
   totalBytes,
@@ -212,7 +255,7 @@ function InboxToolbar({
         <View className="items-end gap-1">
           <View className="flex-row items-center gap-1.5">
             {loading ? <ActivityIndicator color={colors.primary} /> : null}
-            <Text className="text-[26px] font-bold tabular-nums text-foreground">
+            <Text className="text-[15px] font-semibold tabular-nums text-primary">
               {count}
             </Text>
           </View>

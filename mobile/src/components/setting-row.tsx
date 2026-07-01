@@ -63,7 +63,7 @@ export function SettingSection({
           {label}
         </Text>
       ) : null}
-      <View className="rounded-xl border border-border bg-card overflow-hidden">
+      <View className="rounded-lg border border-border bg-card overflow-hidden">
         {children}
       </View>
     </View>

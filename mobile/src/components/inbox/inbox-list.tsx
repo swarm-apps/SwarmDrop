@@ -7,9 +7,10 @@ import {
   FileText,
   Image,
   Package,
+  SlidersHorizontal,
   Video,
 } from "lucide-react-native";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import {
   MobileInboxContentKind,
@@ -46,6 +47,23 @@ export function getInboxFilterCounts(
   };
 }
 
+/** 单条记录是否满足某个筛选维度,供列表过滤与 FTS 命中结果的客户端二次筛选共用。 */
+export function matchesInboxFilter(
+  item: InboxPreviewItem,
+  filter: InboxFilter,
+): boolean {
+  const archived = item.archivedAt != null;
+  return (
+    filter === "all" ||
+    (filter === "files" && isFileLike(item)) ||
+    (filter === "images" && isImageLike(item)) ||
+    (filter === "videos" && isVideoLike(item)) ||
+    (filter === "text" && isTextLike(item)) ||
+    (filter === "attention" && item.missing) ||
+    (filter === "archived" && archived)
+  );
+}
+
 export function filterInboxItems(
   items: InboxPreviewItem[],
   {
@@ -58,21 +76,36 @@ export function filterInboxItems(
 ): InboxPreviewItem[] {
   const trimmedQuery = query.trim().toLowerCase();
   return items.filter((item) => {
-    const archived = item.archivedAt != null;
-    const matchesFilter =
-      filter === "all" ||
-      (filter === "files" && isFileLike(item)) ||
-      (filter === "images" && isImageLike(item)) ||
-      (filter === "videos" && isVideoLike(item)) ||
-      (filter === "text" && isTextLike(item)) ||
-      (filter === "attention" && item.missing) ||
-      (filter === "archived" && archived);
-    if (!matchesFilter) return false;
+    if (!matchesInboxFilter(item, filter)) return false;
     if (!trimmedQuery) return true;
     const haystack = `${item.title} ${item.sourceName}`.toLowerCase();
     return haystack.includes(trimmedQuery);
   });
 }
+
+/** 主行最多展示的筛选 chip(≤4 个),其余次级筛选收进"更多筛选"入口。 */
+const PRIMARY_FILTERS: readonly InboxFilter[] = [
+  "all",
+  "files",
+  "images",
+  "text",
+];
+/** 收进"更多筛选"的次级筛选:异常/已归档是救援性筛选,视频是文件的子集,三者使用频率都更低。 */
+const SECONDARY_FILTERS: readonly InboxFilter[] = [
+  "videos",
+  "attention",
+  "archived",
+];
+
+const FILTER_LABELS: Record<InboxFilter, ReactNode> = {
+  all: <Trans>全部</Trans>,
+  files: <Trans>文件</Trans>,
+  images: <Trans>图片</Trans>,
+  videos: <Trans>视频</Trans>,
+  text: <Trans>文本</Trans>,
+  attention: <Trans>异常</Trans>,
+  archived: <Trans>已归档</Trans>,
+};
 
 export function FilterRail({
   value,
@@ -83,6 +116,21 @@ export function FilterRail({
   counts: InboxFilterCounts;
   onChange: (value: InboxFilter) => void;
 }) {
+  const [showMore, setShowMore] = useState(false);
+  const isSecondaryActive = SECONDARY_FILTERS.includes(value);
+  // 若当前选中的是一个次级筛选(如通过搜索页带入),即使未手动展开也要保持可见,
+  // 否则用户会看到一个"生效中但找不到"的筛选。
+  const expanded = showMore || isSecondaryActive;
+
+  const toggleMore = () => {
+    if (expanded) {
+      setShowMore(false);
+      if (isSecondaryActive) onChange("all");
+    } else {
+      setShowMore(true);
+    }
+  };
+
   return (
     <ScrollView
       horizontal
@@ -91,49 +139,55 @@ export function FilterRail({
       contentContainerClassName="gap-2 px-5"
       testID="inbox-filter-rail"
     >
-      <FilterChip
-        active={value === "all"}
-        label={<Trans>全部</Trans>}
-        count={counts.all}
-        onPress={() => onChange("all")}
-      />
-      <FilterChip
-        active={value === "files"}
-        label={<Trans>文件</Trans>}
-        count={counts.files}
-        onPress={() => onChange("files")}
-      />
-      <FilterChip
-        active={value === "images"}
-        label={<Trans>图片</Trans>}
-        count={counts.images}
-        onPress={() => onChange("images")}
-      />
-      <FilterChip
-        active={value === "videos"}
-        label={<Trans>视频</Trans>}
-        count={counts.videos}
-        onPress={() => onChange("videos")}
-      />
-      <FilterChip
-        active={value === "text"}
-        label={<Trans>文本</Trans>}
-        count={counts.text}
-        onPress={() => onChange("text")}
-      />
-      <FilterChip
-        active={value === "attention"}
-        label={<Trans>异常</Trans>}
-        count={counts.attention}
-        onPress={() => onChange("attention")}
-      />
-      <FilterChip
-        active={value === "archived"}
-        label={<Trans>已归档</Trans>}
-        count={counts.archived}
-        onPress={() => onChange("archived")}
-      />
+      {PRIMARY_FILTERS.map((filter) => (
+        <FilterChip
+          key={filter}
+          active={value === filter}
+          label={FILTER_LABELS[filter]}
+          count={counts[filter]}
+          onPress={() => onChange(filter)}
+        />
+      ))}
+      {expanded
+        ? SECONDARY_FILTERS.map((filter) => (
+            <FilterChip
+              key={filter}
+              active={value === filter}
+              label={FILTER_LABELS[filter]}
+              count={counts[filter]}
+              onPress={() => onChange(filter)}
+            />
+          ))
+        : null}
+      <MoreFiltersChip expanded={expanded} onPress={toggleMore} />
     </ScrollView>
+  );
+}
+
+function MoreFiltersChip({
+  expanded,
+  onPress,
+}: {
+  expanded: boolean;
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      testID="inbox-filter-more-button"
+      className="h-9 min-w-16 flex-row items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 active:opacity-70"
+    >
+      <SlidersHorizontal color={colors.mutedForeground} size={13} />
+      <Text
+        className="text-[12px] font-semibold text-foreground"
+        numberOfLines={1}
+      >
+        {expanded ? <Trans>收起</Trans> : <Trans>更多筛选</Trans>}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -185,7 +239,6 @@ export function InboxRow({
 }) {
   const colors = useThemeColors();
   const Icon = contentIcon(item);
-  const archived = item.archivedAt != null;
   return (
     <Pressable
       accessibilityRole="button"
@@ -204,17 +257,7 @@ export function InboxRow({
             className="min-w-0 flex-1 text-[14px] font-semibold text-foreground"
             numberOfLines={1}
           />
-          {item.missing || archived ? (
-            <StatePill missing={item.missing} archived={archived} />
-          ) : null}
-          {item.sourceKind === MobileInboxSourceKind.Mcp ? (
-            <View className="flex-row items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5">
-              <Bot color={colors.primary} size={11} />
-              <Text className="text-[10px] font-medium text-primary">
-                <Trans>AI 代理</Trans>
-              </Text>
-            </View>
-          ) : null}
+          <InboxStatusBadges item={item} />
         </View>
         <View className="flex-row items-center gap-1.5">
           <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
@@ -244,6 +287,30 @@ export function InboxRow({
       </View>
       <ChevronRight color={colors.mutedForeground} size={17} />
     </Pressable>
+  );
+}
+
+/**
+ * 缺失/已归档/AI 代理来源徽标——浏览态 InboxRow 与搜索命中态 InboxHitRow 共用同一份逻辑,
+ * 保证同一条记录在两处渲染的状态一致(镜像 Requirement: Filter Consistency Across Search)。
+ */
+export function InboxStatusBadges({ item }: { item: InboxPreviewItem }) {
+  const colors = useThemeColors();
+  const archived = item.archivedAt != null;
+  return (
+    <>
+      {item.missing || archived ? (
+        <StatePill missing={item.missing} archived={archived} />
+      ) : null}
+      {item.sourceKind === MobileInboxSourceKind.Mcp ? (
+        <View className="flex-row items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5">
+          <Bot color={colors.primary} size={11} />
+          <Text className="text-[10px] font-medium text-primary">
+            <Trans>AI 代理</Trans>
+          </Text>
+        </View>
+      ) : null}
+    </>
   );
 }
 

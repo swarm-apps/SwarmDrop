@@ -108,7 +108,7 @@ export function DeviceCard({
           }}
           disabled={!sendable}
           accessibilityRole="button"
-          accessibilityLabel={t`发送文件`}
+          accessibilityLabel={t`发送文件给 ${displayName}`}
           className="size-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
           <SendHorizontal
@@ -188,7 +188,7 @@ export function DeviceCard({
           }}
           disabled={!sendable}
           accessibilityRole="button"
-          accessibilityLabel={t`发送文件`}
+          accessibilityLabel={t`发送文件给 ${displayName}`}
           className="size-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
           <SendHorizontal

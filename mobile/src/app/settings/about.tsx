@@ -6,11 +6,16 @@ import {
   Code,
   Download,
   FileText,
-  Loader,
   MessageSquare,
   RefreshCw,
 } from "lucide-react-native";
-import { Linking, Platform, Pressable, View } from "react-native";
+import {
+  ActivityIndicator,
+  Linking,
+  Platform,
+  Pressable,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
@@ -72,7 +77,10 @@ export default function AboutScreen() {
                   </>
                 ) : isChecking ? (
                   <>
-                    <Loader color={colors.mutedForeground} size={12} />
+                    <ActivityIndicator
+                      color={colors.mutedForeground}
+                      size="small"
+                    />
                     <Text
                       className="text-[11px] font-medium"
                       style={{ color: colors.mutedForeground }}

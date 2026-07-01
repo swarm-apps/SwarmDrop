@@ -1,7 +1,9 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import {
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Globe2,
   RadioTower,
   RotateCw,
@@ -33,6 +35,7 @@ export default function NetworkScreen() {
   const router = useRouter();
   const colors = useThemeColors();
   const [restarting, setRestarting] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
   const { networkStatus, runtimeState, shutdownNode, startNode } =
     useMobileCoreStore(
@@ -82,6 +85,23 @@ export default function NetworkScreen() {
     runtimeState,
   ]);
 
+  // 「网络状况:良好/受限」合成状态 —— 不引入新的原生字段,只从已有 networkStatus/
+  // discoveryMode 派生:
+  // - 节点未运行 → 受限(没有可用连接)。
+  // - 已经有至少一个已连接节点 → 良好(已实际证明连通性,是最直接的信号)。
+  // - 没有已连接节点时,看发现路径是否健康:auto 模式要求公网引导 + 中继都就绪;
+  //   lanOnly 模式要求至少发现一个 LAN Helper。都不满足则视为受限。
+  const networkQuality = useMemo<"good" | "limited">(() => {
+    if (runtimeState !== "running" || !networkStatus) return "limited";
+    if (networkStatus.connectedPeers > 0) return "good";
+    if (discoveryMode === "lanOnly") {
+      return networkStatus.lanHelperCount > 0 ? "good" : "limited";
+    }
+    return networkStatus.bootstrapConnected && networkStatus.relayReady
+      ? "good"
+      : "limited";
+  }, [runtimeState, networkStatus, discoveryMode]);
+
   const restartNode = useCallback(async () => {
     setRestarting(true);
     try {
@@ -109,6 +129,11 @@ export default function NetworkScreen() {
     label: React.ReactNode;
     value: React.ReactNode;
   }> = [
+    {
+      key: "nat",
+      label: <Trans>NAT 状态</Trans>,
+      value: networkStatus?.natStatus === "public" ? t`映射成功` : t`未知`,
+    },
     {
       key: "connected",
       label: <Trans>已连接节点</Trans>,
@@ -235,21 +260,83 @@ export default function NetworkScreen() {
             <StatusPill state={runtimeState} />
           </View>
           <SettingDivider />
-          {rows.map((row, idx) => (
-            <Fragment key={row.key}>
-              <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
-                <Text className="text-[14px] text-foreground">{row.label}</Text>
-                <Text
-                  className="flex-1 text-right text-[13px] text-muted-foreground"
-                  numberOfLines={1}
-                >
-                  {row.value}
-                </Text>
-              </View>
-              {idx < rows.length - 1 ? <SettingDivider /> : null}
-            </Fragment>
-          ))}
-          <CandidateSourceList status={networkStatus} />
+          <View className="flex-row items-center justify-between px-3.5 py-3">
+            <Text className="text-[14px] text-foreground">
+              <Trans>网络状况</Trans>
+            </Text>
+            <View
+              className={cn(
+                "flex-row items-center gap-1.5 rounded-full px-2.5 py-1",
+                networkQuality === "good" ? "bg-success/10" : "bg-warning/10",
+              )}
+            >
+              <View
+                className={cn(
+                  "size-2 rounded-full",
+                  networkQuality === "good" ? "bg-success" : "bg-warning",
+                )}
+              />
+              <Text
+                className={cn(
+                  "text-xs font-medium",
+                  networkQuality === "good" ? "text-success" : "text-warning",
+                )}
+              >
+                {networkQuality === "good" ? (
+                  <Trans>良好</Trans>
+                ) : (
+                  <Trans>受限</Trans>
+                )}
+              </Text>
+            </View>
+          </View>
+          <SettingDivider />
+          <Pressable
+            onPress={() => setDiagnosticsOpen((value) => !value)}
+            accessibilityRole="button"
+            testID="network-diagnostics-toggle"
+            className="flex-row items-center justify-between px-3.5 py-3 active:bg-muted"
+          >
+            <Text
+              className={cn(
+                "text-[13px] font-medium",
+                diagnosticsOpen ? "text-muted-foreground" : "text-primary",
+              )}
+            >
+              {diagnosticsOpen ? (
+                <Trans>收起诊断详情</Trans>
+              ) : (
+                <Trans>查看诊断详情</Trans>
+              )}
+            </Text>
+            {diagnosticsOpen ? (
+              <ChevronUp color={colors.mutedForeground} size={16} />
+            ) : (
+              <ChevronDown color={colors.primary} size={16} />
+            )}
+          </Pressable>
+          {diagnosticsOpen ? (
+            <>
+              <SettingDivider />
+              {rows.map((row, idx) => (
+                <Fragment key={row.key}>
+                  <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
+                    <Text className="text-[14px] text-foreground">
+                      {row.label}
+                    </Text>
+                    <Text
+                      className="flex-1 text-right text-[13px] text-muted-foreground"
+                      numberOfLines={1}
+                    >
+                      {row.value}
+                    </Text>
+                  </View>
+                  {idx < rows.length - 1 ? <SettingDivider /> : null}
+                </Fragment>
+              ))}
+              <CandidateSourceList status={networkStatus} />
+            </>
+          ) : null}
         </SettingSection>
 
         <NetworkHint
@@ -413,10 +500,11 @@ function NetworkHint({
   relayReady: boolean;
   discoveryMode: DiscoveryModePreference;
 }) {
+  const colors = useThemeColors();
   if (bootstrapReady && relayReady) return null;
   return (
     <View className="flex-row gap-3 rounded-xl border border-border bg-card p-3.5">
-      <RadioTower size={17} color="#f59e0b" />
+      <RadioTower size={17} color={colors.warning} />
       <Text className="flex-1 text-[12px] text-muted-foreground">
         {!bootstrapReady && discoveryMode === "auto" ? (
           <Trans>公网引导尚未连接，跨网络发现可能暂时不可用。</Trans>

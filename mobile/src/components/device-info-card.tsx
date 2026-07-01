@@ -84,7 +84,7 @@ export function DeviceInfoCard() {
   };
 
   return (
-    <View className="overflow-hidden rounded-xl border border-border bg-card">
+    <View className="overflow-hidden rounded-lg border border-border bg-card">
       <View className="flex-row items-center gap-4 p-4">
         {/* 头像 + 在线点 + 平台角标 */}
         <View className="relative">
