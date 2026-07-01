@@ -12,6 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md) — crates/core ↔ src-tauri 边界、specta + chrono、`#[expect]` 风格、IPC 时间类型选型
 - [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、Vite/Tauri 端口、submodule、Lingui 实际 locale、版本号三处同步
 
+## Design Context
+
+做任何 UI/视觉相关工作前，先读根目录的 `PRODUCT.md`（产品定位、目标用户、反面参考、设计原则）和 `DESIGN.md`（配色/字体/组件/elevation 等视觉令牌，含 `.impeccable/design.json` sidecar）。两者由 `/impeccable` 系列命令维护。
+
 ## Language
 
 Always respond in Chinese (简体中文). All output, including thinking, planning, commit messages, and comments, must be in Chinese.
