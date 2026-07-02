@@ -131,10 +131,10 @@ export function BootstrapNodesSection() {
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                    <ShieldCheck className="size-3.5 text-blue-600 dark:text-blue-400" />
+                    <ShieldCheck className="size-3.5 text-brand" />
                     <Trans>默认</Trans>
                   </span>
-                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-brand dark:bg-primary/10">
                     {getTransportLabel(addr)}
                   </span>
                 </div>

@@ -70,11 +70,11 @@ function DeviceNameStep() {
         <div className="grid gap-6 p-6 md:grid-cols-[260px_minmax(0,1fr)] md:p-7">
           <div className="flex flex-col justify-between gap-6">
             <div className="flex flex-col gap-4">
-              <div className="glass-accent flex size-18 items-center justify-center rounded-[28px] text-blue-600 dark:text-blue-300">
+              <div className="glass-accent flex size-18 items-center justify-center rounded-[28px] text-brand">
                 <MonitorSmartphone className="size-8" />
               </div>
               <div>
-                <p className="text-[12px] font-medium text-blue-600 dark:text-blue-300">
+                <p className="text-[12px] font-medium text-brand">
                   SwarmDrop
                 </p>
                 <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">

@@ -149,7 +149,7 @@ export const TransferItem = memo(function TransferItem({
             <div className="flex flex-col gap-1.5 mt-0.5">
               <Progress value={progressPercent} className="h-1.5" />
               <div className="flex items-center justify-between text-[11px] md:text-[12px]">
-                <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                <span className="flex items-center gap-1 text-brand">
                   <Loader2 className="size-3 animate-spin md:size-3.5" />
                   <span className="max-w-[8em] truncate md:max-w-[12em]">
                     {activeFileName || t`传输中`}

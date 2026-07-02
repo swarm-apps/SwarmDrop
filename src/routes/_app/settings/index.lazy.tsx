@@ -233,7 +233,7 @@ function ThemeOption({
       className={cn(
         "flex flex-col items-center gap-2 rounded-xl border p-2 transition-colors",
         active
-          ? "border-blue-500/60 bg-blue-500/5"
+          ? "border-primary/60 bg-primary/5"
           : "border-border/70 bg-background/40 hover:border-border hover:bg-accent/40",
       )}
     >
@@ -241,7 +241,7 @@ function ThemeOption({
       <span
         className={cn(
           "text-xs font-medium",
-          active ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground",
+          active ? "text-brand" : "text-muted-foreground",
         )}
       >
         {label}

@@ -21,7 +21,7 @@ export function DirectionIcon({ isSend }: { isSend: boolean }) {
       className={cn(
         "flex size-9 shrink-0 items-center justify-center rounded-lg md:size-10 md:rounded-xl",
         isSend
-          ? "bg-blue-50 text-blue-500 dark:bg-blue-500/15 dark:text-blue-400"
+          ? "bg-primary/10 text-brand dark:bg-primary/15"
           : "bg-green-50 text-green-500 dark:bg-green-500/15 dark:text-green-400",
       )}
     >
@@ -37,7 +37,7 @@ export function DirectionIcon({ isSend }: { isSend: boolean }) {
 /* ─── 卡片容器 ─── */
 
 const CARD_BASE =
-  "glass-card group relative flex cursor-pointer items-center gap-2.5 rounded-xl p-3 transition-[border-color,box-shadow,transform] hover:border-blue-400/25 hover:shadow-sm active:scale-[0.995] md:gap-3 md:p-3.5";
+  "glass-card group relative flex cursor-pointer items-center gap-2.5 rounded-xl p-3 transition-[border-color,box-shadow,transform] hover:border-primary/25 hover:shadow-sm active:scale-[0.995] md:gap-3 md:p-3.5";
 
 export function TransferCard({
   onClick,
@@ -83,7 +83,7 @@ const STATUS_CLASSNAMES = {
   waiting_accept:
     "bg-yellow-100 text-yellow-600 dark:bg-yellow-500/15 dark:text-yellow-400",
   transferring:
-    "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400",
+    "bg-primary/15 text-brand dark:bg-primary/15",
   paused:
     "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   completed:

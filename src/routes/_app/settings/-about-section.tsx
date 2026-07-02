@@ -73,7 +73,7 @@ export function AboutPanel({ className }: { className?: string }) {
                   SwarmDrop
                 </span>
                 {appVersion ? (
-                  <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-brand">
                     v{appVersion}
                   </span>
                 ) : null}
@@ -141,7 +141,7 @@ function FeatureTag({
 }) {
   return (
     <span className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/50 px-2.5 py-1 text-[11px] font-medium text-muted-foreground dark:bg-white/[0.03]">
-      <Icon className="size-3.5 text-blue-600 dark:text-blue-400" />
+      <Icon className="size-3.5 text-brand" />
       {label}
     </span>
   );
@@ -275,10 +275,10 @@ function UpdateBanner({
   releaseNotes: string | null;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 border-t border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-900 dark:bg-blue-950/50">
+    <div className="flex flex-col gap-1.5 border-t border-primary/25 bg-primary/10 px-4 py-3 dark:border-primary/25 dark:bg-primary/10">
       <div className="flex items-center gap-2">
-        <Sparkles className="size-3.5 text-blue-600 dark:text-blue-400" />
-        <span className="text-[13px] font-semibold text-blue-700 dark:text-blue-300">
+        <Sparkles className="size-3.5 text-brand" />
+        <span className="text-[13px] font-semibold text-brand">
           {t`SwarmDrop v${latestVersion ?? "?"} 已发布`}
         </span>
       </div>
@@ -286,7 +286,7 @@ function UpdateBanner({
         <div className="max-h-48 overflow-y-auto">
           <MarkdownContent
             content={releaseNotes}
-            className="prose-headings:text-blue-700 dark:prose-headings:text-blue-300 text-blue-600 dark:text-blue-400"
+            className="prose-headings:text-brand dark:prose-headings:text-brand text-brand"
           />
         </div>
       )}
@@ -310,7 +310,7 @@ function DownloadProgressBanner({
         <span className="text-[13px] font-medium text-foreground">
           {t`正在下载 v${latestVersion ?? "?"}`}
         </span>
-        <span className="text-[13px] font-semibold text-primary">
+        <span className="text-[13px] font-semibold text-brand">
           {percent}%
         </span>
       </div>

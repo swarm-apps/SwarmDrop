@@ -261,8 +261,8 @@ function HomeOverview({
     <section className="min-[920px]:col-span-2">
       <div className="glass-panel flex flex-col gap-4 rounded-[24px] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs font-medium text-blue-600 dark:text-blue-400">
-            <span className="flex size-7 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-500/15">
+          <div className="flex items-center gap-2 text-xs font-medium text-brand">
+            <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 dark:bg-primary/15">
               <MonitorSmartphone className="size-3.5" />
             </span>
             <Trans>设备中心</Trans>

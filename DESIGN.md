@@ -2,9 +2,10 @@
 name: SwarmDrop
 description: The data channel between your devices — for humans and AI agents alike.
 colors:
-  signal-blue: "oklch(0.288 0.082 260.7)"
-  signal-blue-dark: "oklch(0.54 0.1 260.7)"
-  signal-blue-foreground: "oklch(0.985 0 0)"
+  hive-gold: "oklch(0.75 0.13 78)"
+  hive-gold-dark: "oklch(0.78 0.123 78)"
+  hive-gold-foreground: "oklch(0.25 0.05 78)"
+  brand-text: "oklch(0.569 0.125 70)"
   paper-white: "oklch(1 0 0)"
   graphite-ink: "oklch(0.145 0 0)"
   fog-secondary: "oklch(0.97 0 0)"
@@ -18,7 +19,7 @@ colors:
   glass-control-surface: "rgb(255 255 255 / 0.64)"
   glass-card-rim: "rgb(255 255 255 / 0.34)"
   glass-control-rim: "rgb(15 23 42 / 0.055)"
-  glass-teal-rim: "rgb(20 184 166 / 0.12)"
+  glass-gold-rim: "rgb(219 163 65 / 0.16)"
   aurora-mist: "#f7f7f7"
   aurora-cyan: "#22d3ee"
 typography:
@@ -64,13 +65,13 @@ spacing:
   lg: "24px"
 components:
   button-primary:
-    backgroundColor: "{colors.signal-blue}"
-    textColor: "{colors.signal-blue-foreground}"
+    backgroundColor: "{colors.hive-gold}"
+    textColor: "{colors.hive-gold-foreground}"
     rounded: "{rounded.md}"
     height: "36px"
     padding: "0 16px"
   button-primary-hover:
-    backgroundColor: "{colors.signal-blue}"
+    backgroundColor: "{colors.hive-gold}"
   button-outline:
     backgroundColor: "{colors.paper-white}"
     textColor: "{colors.graphite-ink}"
@@ -88,8 +89,8 @@ components:
     rounded: "{rounded.xl}"
     padding: "24px"
   badge-default:
-    backgroundColor: "{colors.signal-blue}"
-    textColor: "{colors.signal-blue-foreground}"
+    backgroundColor: "{colors.hive-gold}"
+    textColor: "{colors.hive-gold-foreground}"
     rounded: "{rounded.full}"
     padding: "2px 10px"
 ---
@@ -113,10 +114,12 @@ This rejects the two anti-references named in PRODUCT.md directly: it is not a *
 
 ## 2. Colors
 
-The palette is almost monochrome by design — near-white/near-black neutrals doing most of the work — with a single blue accent and a translucent glass layer that borrows warmth from whatever color sits underneath it.
+The palette is almost monochrome by design — near-white/near-black neutrals doing most of the work — with a single warm gold accent and a translucent glass layer that borrows warmth from whatever color sits underneath it.
 
 ### Primary
-- **Signal Blue** — light mode `oklch(0.288 0.082 260.7)` / `#112953` (this is the brand's Deep Indigo Navy hex, exactly); dark mode `oklch(0.54 0.1 260.7)` / ≈ `#4C6EA9` (same hue, lifted lightness so it still clears 3:1 against the near-black dark-mode canvas). The one saturated color in the system. Used only for primary buttons, active/checked control states (switches, badges), links, and focus selection — never as a background fill or decorative wash.
+- **Hive Gold** — light mode `oklch(0.75 0.13 78)` / ≈ `#DBA341`; dark mode `oklch(0.78 0.123 78)` / ≈ `#E2AD54` (same hue, slightly lifted so it glows against the near-black canvas). Sourced directly from the logo's gold mark (`#DDAE6E` family), tuned up in chroma for UI energy. The one saturated color in the system. Used only for primary buttons, active/checked control states (switches, badges), and focus selection — never as a background fill or decorative wash. **Because gold is a light color, fills always pair with Bronze Ink text, never white.**
+- **Bronze Ink** (`oklch(0.25 0.05 78)` / ≈ `#2F1E01`): the foreground on every Hive Gold fill — a warm near-black in the gold's own hue (7.1:1 on light-mode gold, 7.9:1 on dark-mode gold).
+- **Brand Text Gold** (`--brand`, light `oklch(0.569 0.125 70)` / ≈ `#A56800`, dark = Hive Gold dark): the *text-and-icon* form of the accent. Raw Hive Gold fails contrast as text on white (2.8:1), so links, accent icons, and colored labels use `text-brand`, which resolves to a darkened gold in light mode (4.6:1 on white) and bright gold in dark mode (9.2:1 on the canvas).
 
 ### Neutral
 - **Paper White** (`oklch(1 0 0)` / `#FFFFFF`): default light-mode background and card surface.
@@ -132,15 +135,15 @@ The palette is almost monochrome by design — near-white/near-black neutrals do
 ### Glass Chrome (signature layer)
 - **Glass Panel Surface** (`rgb(255 255 255 / 0.58)`, blur 20px, saturate 145%): the background for full section shells (`SectionShell`).
 - **Glass Control Surface** (`rgb(255 255 255 / 0.64)`, blur 12px): small chip-scale containers — icon badges, pairing-code cells.
-- **Glass Teal Rim** (`rgb(20 184 166 / 0.12)`): the border on `glass-accent` surfaces — the one place a teal-leaning hue already exists in the live UI, distinct from the primary blue.
+- **Glass Gold Rim** (`rgb(219 163 65 / 0.16)`): the border on `glass-accent` surfaces — a translucent rim of the brand gold that marks emphasized glass areas (pairing code, active device card).
 - **Aurora Mist / Aurora Cyan** (`#f7f7f7` / `#22d3ee`): the two colors driving the ambient WebGL background gradient; decorative only, never used in foreground UI.
 
-Dark mode remaps every neutral (background → `oklch(0.18 0.01 260)` ≈ `#0F1216`, foreground → `oklch(0.965 0.002 260)` ≈ `#F3F3F5`, border → `oklch(0.39 0.01 260)` ≈ `#42454B`) and **lifts Signal Blue's lightness (0.288 → 0.54) while holding its hue and chroma constant** — the accent's identity doesn't shift with theme, only how bright it needs to be to clear contrast against the canvas around it.
+Dark mode remaps every neutral (background → `oklch(0.18 0.01 260)` ≈ `#0F1216`, foreground → `oklch(0.965 0.002 260)` ≈ `#F3F3F5`, border → `oklch(0.39 0.01 260)` ≈ `#42454B`) and **nudges Hive Gold's lightness (0.75 → 0.78) while holding its hue constant** — the accent's identity doesn't shift with theme. The cool navy-tinted dark neutrals deliberately stay: dark navy canvas + gold accent is the brand's core pairing (the app icon is the inverse — an ink mark on a solid Hive Gold tile), so dark mode is where the brand reads most literally.
 
 ### Named Rules
-**The One Accent Rule.** Signal Blue is the only saturated color allowed outside the ambient background layer. If a screen needs a second "pop" of color, that's a sign it should be an icon or the WebGL background doing the work, not a second UI accent.
+**The One Accent Rule.** Hive Gold is the only saturated color allowed outside the ambient background layer. If a screen needs a second "pop" of color, that's a sign it should be an icon or the WebGL background doing the work, not a second UI accent. (Connection-type badges — green LAN / sky hole-punch / amber relay — are semantic state coding, not decorative accents, and sit outside this rule.)
 
-**The Brand Fidelity Rule.** ✅ Resolved via `/impeccable colorize`: Signal Blue is now the project's own Deep Indigo Navy (`#112953`, converted losslessly to `oklch(0.288 0.082 260.7)`) rather than the shadcn "new-york" default it silently drifted to before. Warm Teal (`#25AEA0` / `oklch(0.679 0.112 184.34)`) was checked against the existing Glass Teal Rim (`oklch(0.704 0.123 182.5)`) and found close enough to already count as on-brand — left untouched. Contrast verified: light-mode button text 13.7:1, dark-mode button text 4.9:1 (white on `#4C6EA9`), dark-mode button-vs-page-background 3.7:1 — all clear WCAG AA. Any further palette work should treat this hex as the fixed anchor, not something to re-derive.
+**The Brand Fidelity Rule.** ✅ Re-anchored via `/impeccable colorize` (2026-07): the primary migrated from Deep Indigo Navy `#112953` (user verdict: too dark, too heavy) to **Hive Gold**, sourced from the new interlocked-hexagon logo's gold mark. The fixed anchors are now `oklch(0.75 0.13 78)` (light fill) / `oklch(0.78 0.123 78)` (dark fill) / `oklch(0.569 0.125 70)` (light text form). Contrast verified: Bronze Ink on gold 7.1:1 (light) and 7.9:1 (dark), `text-brand` on white 4.6:1, on dark canvas 9.2:1 — all clear WCAG AA. **The two-token split (fill vs. text) is load-bearing: never use the fill gold as text on white, and never re-derive either value from scratch.**
 
 ## 3. Typography
 
@@ -177,12 +180,12 @@ The system runs two elevation languages side by side, and the split is deliberat
 
 ### Buttons
 - **Shape:** `rounded-md` (8px).
-- **Primary:** Signal Blue background, white text, `h-9` (36px) default height, `hover:bg-primary/90` — the only hover treatment is a 10% opacity darken, no shadow or transform change.
+- **Primary:** Hive Gold background, Bronze Ink text, `h-9` (36px) default height, `hover:bg-primary/90` — the only hover treatment is a 10% opacity darken, no shadow or transform change.
 - **Outline / Secondary / Ghost:** flat backgrounds (`background`, `secondary`, transparent respectively), same 8px radius and height family; outline is the only variant carrying `shadow-xs`.
 - **Sizes:** a full scale from `xs` (24px) to `lg` (40px), plus matching icon-only squares — built for dense toolbar rows, not just one hero CTA per screen.
 
 ### Badges
-- **Style:** `rounded-full`, 2px/10px padding, 12px text. Default variant uses Signal Blue fill; outline/ghost variants exist for lower-emphasis tags (network status, transfer state).
+- **Style:** `rounded-full`, 2px/10px padding, 12px text. Default variant uses Hive Gold fill with Bronze Ink text; outline/ghost variants exist for lower-emphasis tags (network status, transfer state).
 
 ### Cards / Panels
 - **Corner Style:** two distinct radii by role — `14px` (`rounded-xl`) for shadcn `Card` (dialogs, settings tiles), `24px` for glass `SectionShell` (full-page panel chrome), `18px` for glass sub-panels (`EmptyPanel`, pairing-code cells).
@@ -211,7 +214,7 @@ Individual pairing-code digits render as `glass-control` chips (`18px` radius, `
 - **Do** keep every interactive control (button, input, switch, badge) flat with `shadow-xs` only — glass/blur is reserved for structural chrome (`SectionShell`, `EmptyPanel`, control chips).
 - **Do** render every literal machine value — peer ID, pairing code, hash, transfer speed, MCP config — in monospace with tabular-nums (The Mono Truth Rule).
 - **Do** ship a `prefers-reduced-transparency` flat fallback and a `prefers-reduced-motion` freeze-frame fallback with any new glass or WebGL surface, in the same change.
-- **Do** treat Signal Blue as the only saturated UI accent; let the ambient WebGL background carry additional "alive" feeling instead of adding a second UI color.
+- **Do** treat Hive Gold as the only saturated UI accent; let the ambient WebGL background carry additional "alive" feeling instead of adding a second UI color.
 - **Do** use the two-radius system deliberately: 6–14px for anything clickable, 18–24px for panel-level chrome.
 
 ### Don't:
@@ -219,5 +222,5 @@ Individual pairing-code digits render as `glass-control` chips (`18px` radius, `
 - **Don't** build a heavy enterprise back-office: no dense grey-on-grey tables, no Windows-style management-panel density (PRODUCT.md anti-reference).
 - **Don't** apply `backdrop-filter` to a button, input, or any control someone clicks or types into — glass is for containers, not controls.
 - **Don't** add a second saturated accent color to the static UI chrome; if a screen feels flat, that's a signal to lean on the ambient background or an icon, not a new hex.
-- **Don't** re-derive Signal Blue from scratch or swap it for a different hue — `#112953` (light) / `#4C6EA9` (dark) is the brand's actual hex, already migrated; treat it as fixed (The Brand Fidelity Rule).
+- **Don't** re-derive Hive Gold from scratch or swap it for a different hue — `oklch(0.75 0.13 78)` (light fill) / `oklch(0.78 0.123 78)` (dark fill) / `text-brand` for text form; treat these as fixed (The Brand Fidelity Rule). And never use the fill gold as text on white — that's what `text-brand` exists for.
 - **Don't** add a persistent sidebar nav rail without checking against the current breadcrumb-only pattern first — it's a deliberate simplification, not an oversight.

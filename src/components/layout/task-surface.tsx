@@ -102,13 +102,13 @@ export function TaskHeroPanel({
       <div className="flex h-full flex-col gap-5 p-5 lg:p-6">
         <div className="flex min-w-0 items-start gap-3.5">
           {Icon ? (
-            <span className="glass-control flex size-11 shrink-0 items-center justify-center rounded-[17px] text-blue-600 dark:text-blue-300">
+            <span className="glass-control flex size-11 shrink-0 items-center justify-center rounded-[17px] text-brand">
               <Icon className="size-5" />
             </span>
           ) : null}
           <div className="min-w-0">
             {label ? (
-              <p className="text-[12px] font-medium text-blue-600 dark:text-blue-300">
+              <p className="text-[12px] font-medium text-brand">
                 {label}
               </p>
             ) : null}
@@ -159,7 +159,7 @@ export function TaskButton({
       className={cn(
         "rounded-full px-5 transition-[background-color,color,transform,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]",
         variant === "default" &&
-          "bg-blue-600 text-white shadow-[0_10px_22px_rgba(37,99,235,0.18)] hover:bg-blue-700",
+          "bg-primary text-primary-foreground shadow-[0_10px_22px_rgba(219,163,65,0.18)] hover:bg-primary/90",
         variant === "outline" &&
           "glass-control border-transparent bg-transparent shadow-none hover:bg-white/50 dark:hover:bg-white/[0.06]",
         variant === "secondary" &&

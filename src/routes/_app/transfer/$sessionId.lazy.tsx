@@ -119,7 +119,7 @@ const TransferStatusHeader = memo(function TransferStatusHeader({
         className={cn(
           "flex size-11 shrink-0 items-center justify-center rounded-full md:size-12",
           isSend
-            ? "bg-blue-50 dark:bg-blue-500/15"
+            ? "bg-primary/10 dark:bg-primary/15"
             : "bg-green-50 dark:bg-green-500/15",
         )}
       >
@@ -127,7 +127,7 @@ const TransferStatusHeader = memo(function TransferStatusHeader({
           className={cn(
             "size-5.5 md:size-6",
             isSend
-              ? "text-blue-600 dark:text-blue-400"
+              ? "text-brand"
               : "text-green-600 dark:text-green-400",
           )}
         />
@@ -296,7 +296,7 @@ const TransferProgress = memo(function TransferProgress({
   if (projection.phase === "waiting_accept") {
     return (
       <div className="flex flex-col items-center gap-2 py-2 md:py-4">
-        <Loader2 className="size-6 animate-spin text-primary md:size-7" />
+        <Loader2 className="size-6 animate-spin text-brand md:size-7" />
         <p className="text-[11px] text-muted-foreground md:text-xs">
           <Trans>等待对方确认...</Trans>
         </p>
@@ -363,7 +363,7 @@ const TransferActions = memo(function TransferActions({
 
   if (isPaused && canResumeProjection(projection)) {
     return (
-      <Button onClick={handleResume} className="rounded-full bg-blue-600 px-5 text-white shadow-[0_10px_22px_rgba(37,99,235,0.18)] hover:bg-blue-700">
+      <Button onClick={handleResume} className="rounded-full px-5 shadow-[0_10px_22px_rgba(219,163,65,0.18)]">
         <Play className="mr-2 size-4" />
         <Trans>恢复传输</Trans>
       </Button>
@@ -398,7 +398,7 @@ const TransferActions = memo(function TransferActions({
 
   if (isProjectionCompleted(projection) && projection.savePath) {
     return (
-      <Button onClick={handleOpenFolder} className="rounded-full bg-blue-600 px-5 text-white shadow-[0_10px_22px_rgba(37,99,235,0.18)] hover:bg-blue-700">
+      <Button onClick={handleOpenFolder} className="rounded-full px-5 shadow-[0_10px_22px_rgba(219,163,65,0.18)]">
         <FolderOpen className="mr-2 size-4" />
         <Trans>打开文件夹</Trans>
       </Button>

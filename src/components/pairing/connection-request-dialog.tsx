@@ -52,7 +52,7 @@ export function ConnectionRequestDialog() {
       <DialogContent className="sm:max-w-md" showCloseButton={false}>
         <DialogHeader className="flex flex-col items-center gap-2">
           <div className="flex size-12 items-center justify-center rounded-full bg-primary/10">
-            <ShieldCheck className="size-6 text-primary" />
+            <ShieldCheck className="size-6 text-brand" />
           </div>
           <DialogTitle className="text-center text-xl">
             <Trans>连接请求</Trans>
@@ -67,7 +67,7 @@ export function ConnectionRequestDialog() {
             {/* 设备信息 */}
             <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
               <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-                <DeviceIcon className="size-5 text-primary" />
+                <DeviceIcon className="size-5 text-brand" />
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-medium text-foreground">

@@ -47,7 +47,7 @@ const variantStyles: Record<
 > = {
   select: {
     row: "hover:bg-muted/50",
-    icon: "text-blue-500",
+    icon: "text-brand",
     name: "text-foreground",
     info: "text-muted-foreground",
   },
@@ -58,10 +58,10 @@ const variantStyles: Record<
     info: "text-muted-foreground",
   },
   transferring: {
-    row: "bg-blue-50/70 border border-blue-200 dark:bg-blue-500/10 dark:border-blue-500/25",
-    icon: "text-blue-500",
+    row: "bg-primary/8 border border-primary/25 dark:bg-primary/10 dark:border-primary/25",
+    icon: "text-brand",
     name: "text-foreground",
-    info: "text-blue-600 dark:text-blue-400 font-medium",
+    info: "text-brand font-medium",
   },
   completed: {
     row: "bg-green-50/40 dark:bg-green-500/5",

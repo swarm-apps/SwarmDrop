@@ -4,22 +4,30 @@
   "title": "Design System: SwarmDrop",
   "extensions": {
     "colorMeta": {
-      "signal-blue": {
+      "hive-gold": {
         "role": "primary",
-        "displayName": "Signal Blue (Deep Indigo Navy)",
-        "canonical": "oklch(0.288 0.082 260.7)",
-        "canonicalDark": "oklch(0.54 0.1 260.7)",
-        "note": "Migrated via /impeccable colorize from the shadcn default oklch(0.546 0.245 262.881) to the brand's actual Deep Indigo Navy hex #112953. Same hue family as before (~260-263), so the drift was lightness/chroma, not hue.",
+        "displayName": "Hive Gold",
+        "canonical": "oklch(0.75 0.13 78)",
+        "canonicalDark": "oklch(0.78 0.123 78)",
+        "note": "Re-anchored via /impeccable colorize 2026-07 from Deep Indigo Navy #112953 (user verdict: too dark). Sourced from the interlocked-hexagon logo's gold mark (#DDAE6E family), chroma lifted for UI energy. Fills always pair with Bronze Ink oklch(0.25 0.05 78) text, never white. Text/icon form is the separate brand-text token.",
         "tonalRamp": [
-          "oklch(0.15 0.082 260.7)",
-          "oklch(0.27 0.082 260.7)",
-          "oklch(0.39 0.082 260.7)",
-          "oklch(0.50 0.082 260.7)",
-          "oklch(0.62 0.082 260.7)",
-          "oklch(0.74 0.082 260.7)",
-          "oklch(0.85 0.082 260.7)",
-          "oklch(0.95 0.082 260.7)"
+          "oklch(0.15 0.06 78)",
+          "oklch(0.27 0.08 78)",
+          "oklch(0.39 0.10 78)",
+          "oklch(0.50 0.12 78)",
+          "oklch(0.62 0.13 78)",
+          "oklch(0.75 0.13 78)",
+          "oklch(0.85 0.10 78)",
+          "oklch(0.95 0.05 78)"
         ]
+      },
+      "brand-text": {
+        "role": "primary-text",
+        "displayName": "Brand Text Gold",
+        "canonical": "oklch(0.569 0.125 70)",
+        "canonicalDark": "oklch(0.78 0.123 78)",
+        "note": "The text-and-icon form of Hive Gold (--brand / text-brand). Raw fill gold fails contrast as text on white (2.8:1); this darkened form clears 4.6:1 on white and resolves to bright gold (9.2:1) in dark mode.",
+        "tonalRamp": []
       },
       "graphite-ink": {
         "role": "neutral",
@@ -51,10 +59,10 @@
           "oklch(0.95 0.22 27.325)"
         ]
       },
-      "glass-teal-rim": {
+      "glass-gold-rim": {
         "role": "accent-latent",
-        "displayName": "Glass Teal Rim",
-        "canonical": "rgb(20 184 166 / 0.12)",
+        "displayName": "Glass Gold Rim",
+        "canonical": "rgb(219 163 65 / 0.16)",
         "tonalRamp": []
       }
     },
@@ -88,9 +96,9 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Default call-to-action button — Signal Blue fill, used sparingly per screen.",
+      "description": "Default call-to-action button — Hive Gold fill with Bronze Ink text, used sparingly per screen.",
       "html": "<button class=\"ds-btn-primary\">连接设备</button>",
-      "css": ".ds-btn-primary { background: oklch(0.288 0.082 260.7); color: oklch(0.985 0 0); border: none; border-radius: 8px; height: 36px; padding: 0 16px; font-size: 14px; font-weight: 500; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); cursor: pointer; transition: background-color 0.15s ease; } .ds-btn-primary:hover { background: color-mix(in oklab, oklch(0.288 0.082 260.7) 90%, white); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgb(112 112 112 / 0.5); }"
+      "css": ".ds-btn-primary { background: oklch(0.75 0.13 78); color: oklch(0.25 0.05 78); border: none; border-radius: 8px; height: 36px; padding: 0 16px; font-size: 14px; font-weight: 500; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); cursor: pointer; transition: background-color 0.15s ease; } .ds-btn-primary:hover { background: color-mix(in oklab, oklch(0.75 0.13 78) 90%, white); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgb(219 163 65 / 0.5); }"
     },
     {
       "name": "Outline Button",
@@ -114,7 +122,7 @@
       "refersTo": "badge-default",
       "description": "Pill-shaped state indicator — connection status, transfer state.",
       "html": "<span class=\"ds-badge\">已连接</span>",
-      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 4px; background: oklch(0.288 0.082 260.7); color: oklch(0.985 0 0); border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 500; white-space: nowrap; }"
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 4px; background: oklch(0.75 0.13 78); color: oklch(0.25 0.05 78); border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 500; white-space: nowrap; }"
     },
     {
       "name": "Glass Section Shell",
@@ -136,9 +144,9 @@
       "name": "Switch",
       "kind": "input",
       "refersTo": "switch-checked",
-      "description": "Toggle control — pill track, checked state fills Signal Blue.",
+      "description": "Toggle control — pill track, checked state fills Hive Gold.",
       "html": "<button class=\"ds-switch\" data-checked=\"true\"><span class=\"ds-switch-thumb\"></span></button>",
-      "css": ".ds-switch { display: inline-flex; align-items: center; width: 32px; height: 18.4px; border-radius: 9999px; border: 1px solid transparent; background: oklch(0.97 0 0); padding: 0; cursor: pointer; transition: background-color 0.15s ease; } .ds-switch[data-checked='true'] { background: oklch(0.288 0.082 260.7); } .ds-switch-thumb { display: block; width: 16px; height: 16px; border-radius: 9999px; background: oklch(1 0 0); transform: translateX(2px); transition: transform 0.15s ease; } .ds-switch[data-checked='true'] .ds-switch-thumb { transform: translateX(15.6px); }"
+      "css": ".ds-switch { display: inline-flex; align-items: center; width: 32px; height: 18.4px; border-radius: 9999px; border: 1px solid transparent; background: oklch(0.97 0 0); padding: 0; cursor: pointer; transition: background-color 0.15s ease; } .ds-switch[data-checked='true'] { background: oklch(0.75 0.13 78); } .ds-switch-thumb { display: block; width: 16px; height: 16px; border-radius: 9999px; background: oklch(1 0 0); transform: translateX(2px); transition: transform 0.15s ease; } .ds-switch[data-checked='true'] .ds-switch-thumb { transform: translateX(15.6px); }"
     }
   ],
   "narrative": {
@@ -152,8 +160,8 @@
       "Two distinct radius vocabularies: 6-14px for controls, 18-24px for panel chrome."
     ],
     "rules": [
-      { "name": "The One Accent Rule", "body": "Signal Blue is the only saturated color allowed outside the ambient background layer.", "section": "colors" },
-      { "name": "The Brand Fidelity Rule", "body": "Signal Blue is now the project's actual Deep Indigo Navy (#112953 / oklch(0.288 0.082 260.7), lifted to oklch(0.54 0.1 260.7) in dark mode for contrast). Migrated via /impeccable colorize from the shadcn default #155DFC. Treat this hex as the fixed brand anchor going forward.", "section": "colors" },
+      { "name": "The One Accent Rule", "body": "Hive Gold is the only saturated color allowed outside the ambient background layer. Connection-type badges (green/sky/amber) are semantic state coding, not accents.", "section": "colors" },
+      { "name": "The Brand Fidelity Rule", "body": "Primary is Hive Gold, sourced from the logo's gold mark: oklch(0.75 0.13 78) light fill / oklch(0.78 0.123 78) dark fill / oklch(0.569 0.125 70) light text form (--brand). Fills pair with Bronze Ink oklch(0.25 0.05 78), never white text. The fill/text two-token split is load-bearing — never use fill gold as text on white.", "section": "colors" },
       { "name": "The Mono Truth Rule", "body": "Anything that is a copy-able, verifiable, literal value renders in monospace with tabular-nums.", "section": "typography" },
       { "name": "The Flat-Control, Glass-Chrome Rule", "body": "Clickable/typeable controls stay flat with shadow-xs; containers that hold other things get the glass treatment.", "section": "elevation" },
       { "name": "The Reduced-Transparency Fallback", "body": "Every glass surface ships a prefers-reduced-transparency fallback to a flat card background in the same commit it's introduced.", "section": "elevation" }
@@ -162,7 +170,7 @@
       "Do keep every interactive control flat with shadow-xs only.",
       "Do render every literal machine value in monospace with tabular-nums.",
       "Do ship reduced-transparency and reduced-motion fallbacks alongside any new glass or WebGL surface.",
-      "Do treat Signal Blue as the only saturated UI accent.",
+      "Do treat Hive Gold as the only saturated UI accent.",
       "Do use the two-radius system deliberately: 6-14px for controls, 18-24px for panel chrome."
     ],
     "donts": [
@@ -170,7 +178,7 @@
       "Don't build a heavy enterprise back-office: no dense grey-on-grey tables, no Windows-panel density.",
       "Don't apply backdrop-filter to a button, input, or any control someone clicks or types into.",
       "Don't add a second saturated accent color to the static UI chrome.",
-      "Don't re-derive or swap Signal Blue's hue — #112953 (light) / #4C6EA9 (dark) is the brand's actual hex, already migrated.",
+      "Don't re-derive or swap Hive Gold's hue, and never use the fill gold as text on white — text-brand exists for that.",
       "Don't add a persistent sidebar nav rail without checking against the current breadcrumb-only pattern first."
     ]
   }

@@ -141,7 +141,7 @@ export function DeviceInfoSection() {
           variant="outline"
           className={`rounded-md border-transparent px-2 py-0.5 text-[11px] font-medium sm:px-3 sm:py-1 sm:text-xs ${
             natStatus === "public"
-              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+              ? "bg-primary/10 text-brand"
               : "bg-muted text-muted-foreground"
           }`}
         >
@@ -164,8 +164,8 @@ export function DeviceInfoSection() {
                   isOnline ? "bg-green-500" : "bg-muted-foreground/40"
                 }`}
               />
-              <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-500/10 sm:size-16">
-                <span className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400 sm:text-2xl">
+              <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 sm:size-16">
+                <span className="text-xl font-bold tracking-tight text-brand sm:text-2xl">
                   {avatarInitials}
                 </span>
               </div>
@@ -226,7 +226,7 @@ export function DeviceInfoSection() {
 
               {/* Peer ID */}
               <div
-                className="group flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
+                className="group flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-brand"
                 onClick={handleCopyPeerId}
               >
                 <Activity className="size-3.5 shrink-0" />

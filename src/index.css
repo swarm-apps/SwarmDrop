@@ -17,8 +17,9 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.288 0.082 260.7);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.75 0.13 78);
+  --primary-foreground: oklch(0.25 0.05 78);
+  --brand: oklch(0.569 0.125 70);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -29,7 +30,7 @@
   --destructive-foreground: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.64 0.12 75);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -38,22 +39,22 @@
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.75 0.13 78);
+  --sidebar-primary-foreground: oklch(0.25 0.05 78);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-ring: oklch(0.64 0.12 75);
 
   --app-shell-background: oklch(0.99 0.001 210);
   --glass-panel-bg: rgb(255 255 255 / 0.58);
   --glass-card-bg: rgb(255 255 255 / 0.58);
   --glass-control-bg: rgb(255 255 255 / 0.64);
   --glass-accent-bg:
-    linear-gradient(135deg, rgb(240 253 250 / 0.72), rgb(255 255 255 / 0.56));
+    linear-gradient(135deg, rgb(254 249 238 / 0.72), rgb(255 255 255 / 0.56));
   --glass-card-border: rgb(255 255 255 / 0.34);
   --glass-control-border: rgb(15 23 42 / 0.055);
-  --glass-accent-border: rgb(20 184 166 / 0.12);
+  --glass-accent-border: rgb(219 163 65 / 0.16);
   --glass-highlight: rgb(255 255 255 / 0.84);
   --glass-shadow: 0 18px 56px rgb(15 23 42 / 0.07);
   --glass-card-shadow: 0 12px 32px rgb(15 23 42 / 0.045);
@@ -68,8 +69,9 @@
   --card-foreground: oklch(0.965 0.002 260);
   --popover: oklch(0.25 0.008 260);
   --popover-foreground: oklch(0.965 0.002 260);
-  --primary: oklch(0.54 0.1 260.7);
-  --primary-foreground: oklch(0.985 0.002 260);
+  --primary: oklch(0.78 0.123 78);
+  --primary-foreground: oklch(0.25 0.05 78);
+  --brand: oklch(0.78 0.123 78);
   --secondary: oklch(0.32 0.009 260);
   --secondary-foreground: oklch(0.955 0.002 260);
   --muted: oklch(0.32 0.009 260);
@@ -80,7 +82,7 @@
   --destructive-foreground: oklch(0.985 0.002 260);
   --border: oklch(0.39 0.01 260);
   --input: oklch(0.39 0.01 260);
-  --ring: oklch(0.64 0.018 260);
+  --ring: oklch(0.7 0.1 78);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -88,22 +90,22 @@
   --chart-5: oklch(0.645 0.246 16.439);
   --sidebar: oklch(0.22 0.008 260);
   --sidebar-foreground: oklch(0.965 0.002 260);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0.002 260);
+  --sidebar-primary: oklch(0.78 0.123 78);
+  --sidebar-primary-foreground: oklch(0.25 0.05 78);
   --sidebar-accent: oklch(0.32 0.01 260);
   --sidebar-accent-foreground: oklch(0.955 0.002 260);
   --sidebar-border: oklch(0.39 0.01 260);
-  --sidebar-ring: oklch(0.64 0.018 260);
+  --sidebar-ring: oklch(0.7 0.1 78);
 
   --app-shell-background: oklch(0.145 0.012 260);
   --glass-panel-bg: oklch(0.31 0.01 260 / 0.56);
   --glass-card-bg: oklch(0.31 0.01 260 / 0.56);
   --glass-control-bg: oklch(0.34 0.01 260 / 0.58);
   --glass-accent-bg:
-    linear-gradient(135deg, oklch(0.39 0.08 255 / 0.64), oklch(0.25 0.01 260 / 0.54));
+    linear-gradient(135deg, oklch(0.42 0.06 78 / 0.56), oklch(0.25 0.01 260 / 0.54));
   --glass-card-border: oklch(1 0 0 / 0.1);
   --glass-control-border: oklch(1 0 0 / 0.12);
-  --glass-accent-border: oklch(0.7 0.12 255 / 0.16);
+  --glass-accent-border: oklch(0.78 0.12 78 / 0.18);
   --glass-highlight: oklch(1 0 0 / 0.12);
   --glass-shadow: 0 24px 84px rgb(0 0 0 / 0.28);
   --glass-card-shadow: 0 16px 40px rgb(0 0 0 / 0.18);
@@ -120,6 +122,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--brand);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);

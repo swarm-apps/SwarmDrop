@@ -98,7 +98,7 @@ function PairingGeneratePage() {
         <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <GlassPanel className="min-h-[420px]">
             <div className="flex h-full flex-col items-center justify-center gap-7 p-6 text-center">
-              <div className="glass-control flex size-16 items-center justify-center rounded-[24px] text-blue-600 dark:text-blue-300">
+              <div className="glass-control flex size-16 items-center justify-center rounded-[24px] text-brand">
                 <Link className="size-7" />
               </div>
 

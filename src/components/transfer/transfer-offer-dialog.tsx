@@ -135,8 +135,8 @@ export function TransferOfferDialog() {
         onPointerDownOutside={(e) => e.preventDefault()}
       >
         <DialogHeader className="flex flex-col items-center gap-2">
-          <div className="flex size-14 items-center justify-center rounded-full bg-blue-100">
-            <Download className="size-7 text-blue-600" />
+          <div className="flex size-14 items-center justify-center rounded-full bg-primary/15">
+            <Download className="size-7 text-brand" />
           </div>
           <DialogTitle className="text-center text-xl">
             <Trans>收到文件</Trans>
