@@ -153,15 +153,21 @@ tab bar 处理安全区、按压反馈和切换动画，避免 `expo-router` JS 
 **相关文件**:[src/components/onboarding/onboarding-scaffold.tsx](../../src/components/onboarding/onboarding-scaffold.tsx)、
 [src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)
 
-### NotifierRoot 用 useRNScreensOverlay 才能浮在 modal 上
+### Toast 走 burnt(各平台原生机制),门面在 lib/toast.ts
 
-`react-native-notifier` 默认渲染层在 Stack 下，bottom-sheet / 全屏 modal 弹起后 toast 会被挡住。
-启用 `useRNScreensOverlay` 走 RNScreens 的 overlay 层，跨 modal 显示。
+toast 底层是 `burnt`——**用各平台的系统原生机制**,不是自绘的 JS 横条:
+- **iOS**：SPIndicator 胶囊(顶部,`from: "top"`),支持 title + message 两行 + `preset`(done/error/none)图标。是**原生模块**。
+- **Android**：系统 `ToastAndroid`(底部,`from: "bottom"`)。burnt 的 Android 侧是**纯 JS**(直接包 RN 内置
+  `ToastAndroid`,不调原生);**只显示 `title`、丢弃 `message`**,所以门面在 Android 上把 description 折进 title。
 
-**正确做法**：
+门面 [src/lib/toast.ts](../../src/lib/toast.ts)(`toast.success/info/error/loading/promise/dismiss`)封装了平台差异,
+调用点只依赖门面。burnt 是命令式的(`Burnt.toast()` 直接弹),**不需要 `<Toaster>` 宿主组件**。
 
-```tsx
-<NotifierRoot useRNScreensOverlay />
-```
+**为什么不是自绘横条**：瞬时提示应贴平台习惯——iOS 是顶部胶囊(SPIndicator),Android 是底部系统 toast。
+先前试过 sonner-native 自绘 card,观感在两端都"不像原生",故换 burnt 用系统机制。
 
-**相关文件**：[src/app/_layout.tsx](../../src/app/_layout.tsx)
+**重编要求(重要)**：burnt iOS = 原生模块(SPIndicator),**新增/改动后 iOS 必须 `expo prebuild` + 重编**才生效
+(autolinking 自动接,无需手写 config plugin);**Android 无需重编**(纯 ToastAndroid JS,Metro 热更即可)。
+burnt 的 iOS `BurntModule` 在 import 时 `requireNativeModule('Burnt')`,未重编的 iOS app 加载会崩——验证 iOS 前务必先重编。
+
+**相关文件**：[src/lib/toast.ts](../../src/lib/toast.ts),[src/app/_layout.tsx](../../src/app/_layout.tsx)(已移除 toast 宿主)

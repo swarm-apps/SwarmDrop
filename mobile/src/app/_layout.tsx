@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, useColorScheme, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { NotifierRoot } from "react-native-notifier";
 import { ReducedMotionConfig, ReduceMotion } from "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PairingRequestHost } from "@/components/pairing-request-host";
@@ -147,8 +146,7 @@ export default function RootLayout() {
               </UpdateProvider>
             </LinguiProvider>
           </ThemeProvider>
-          {/* NotifierRoot 放最后,iOS 走 RNScreens overlay 让 toast 浮在 modal 之上 */}
-          <NotifierRoot useRNScreensOverlay />
+          {/* toast 走 burnt(命令式原生:iOS SPIndicator / Android ToastAndroid),无需宿主组件 */}
         </SafeAreaProvider>
       </KeyboardProvider>
     </GestureHandlerRootView>
