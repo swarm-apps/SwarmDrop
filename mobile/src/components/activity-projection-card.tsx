@@ -28,6 +28,12 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 interface ActivityProjectionCardProps {
   projection: MobileTransferProjection;
   progress?: MobileTransferProgress;
+  /**
+   * 是否显示进度条 —— 仅进行中(active)/可续传(recoverable)才为真。
+   * 终态(已完成/已取消/已拒绝)与卡住(attention)不画进度条:进度条是"进行中"
+   * 的语言,给终态配一根满格或半截的条会被误读成"仍在传输/暂停中"。
+   */
+  showProgress?: boolean;
   onPress: (sessionId: string) => void;
   onResume?: (sessionId: string) => void;
 }
@@ -35,6 +41,7 @@ interface ActivityProjectionCardProps {
 export function ActivityProjectionCard({
   projection,
   progress,
+  showProgress = false,
   onPress,
   onResume,
 }: ActivityProjectionCardProps) {
@@ -76,12 +83,14 @@ export function ActivityProjectionCard({
         </View>
       </View>
 
-      <View className="gap-1.5">
-        <ProgressBar percent={percent} heightClass="h-1.5" />
-        <Text className="text-[11px] text-muted-foreground">
-          {formatBytes(transferred)} / {formatBytes(total)}
-        </Text>
-      </View>
+      {showProgress ? (
+        <View className="gap-1.5">
+          <ProgressBar percent={percent} heightClass="h-1.5" />
+          <Text className="text-[11px] text-muted-foreground">
+            {formatBytes(transferred)} / {formatBytes(total)}
+          </Text>
+        </View>
+      ) : null}
 
       {reason || projection.errorMessage || policyNote ? (
         <View className="gap-1 rounded-lg bg-muted px-3 py-2">

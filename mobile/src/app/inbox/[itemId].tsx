@@ -1,9 +1,3 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
 import * as Clipboard from "expo-clipboard";
 import { File } from "expo-file-system";
@@ -53,6 +47,10 @@ import { useShallow } from "zustand/react/shallow";
 import { AppScreen, Surface } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
+import {
+  AppBottomSheet,
+  type AppBottomSheetRef,
+} from "@/components/ui/app-bottom-sheet";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -65,7 +63,7 @@ export default function InboxDetailScreen() {
   const router = useRouter();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const actionsSheetRef = useRef<BottomSheetModal>(null);
+  const actionsSheetRef = useRef<AppBottomSheetRef>(null);
   const { itemId } = useLocalSearchParams<{ itemId: string }>();
   const [deleteMode, setDeleteMode] = useState<"record" | "content" | null>(
     null,
@@ -471,7 +469,7 @@ function InboxActionsSheet({
   onDeleteRecord,
   onDeleteContent,
 }: {
-  sheetRef: React.RefObject<BottomSheetModal | null>;
+  sheetRef: React.RefObject<AppBottomSheetRef | null>;
   title: string;
   archived: boolean;
   action: string | null;
@@ -483,93 +481,67 @@ function InboxActionsSheet({
   onDeleteRecord: () => void;
   onDeleteContent: () => void;
 }) {
-  const colors = useThemeColors();
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        opacity={0.38}
-        appearsOnIndex={0}
-        disappearsOnIndex={-1}
-        pressBehavior="close"
-      />
-    ),
-    [],
-  );
-
   return (
-    <BottomSheetModal
-      ref={sheetRef}
-      enableDynamicSizing
-      enablePanDownToClose
-      backdropComponent={renderBackdrop}
-      backgroundStyle={{ backgroundColor: colors.card }}
-      handleIndicatorStyle={{ backgroundColor: colors.border }}
-    >
-      <BottomSheetView>
-        <View className="gap-3 px-5 pb-6 pt-2" testID="inbox-actions-sheet">
-          <View className="gap-1 px-1 pb-1">
-            <Text className="text-[17px] font-bold text-foreground">
-              <Trans>更多操作</Trans>
-            </Text>
-            <Text
-              className="text-[12px] text-muted-foreground"
-              numberOfLines={1}
-            >
-              {title}
-            </Text>
-          </View>
-
-          <View className="overflow-hidden rounded-2xl border border-border bg-background">
-            <SheetActionRow
-              icon={archived ? ArchiveRestore : Archive}
-              label={archived ? <Trans>取消归档</Trans> : <Trans>归档</Trans>}
-              onPress={onArchive}
-              disabled={action === "archive"}
-              testID="inbox-detail-archive-action"
-            />
-            <Divider />
-            <SheetActionRow
-              icon={Copy}
-              label={<Trans>复制保存位置</Trans>}
-              onPress={onCopyLocation}
-              disabled={!canCopyLocation}
-              testID="inbox-detail-copy-location-action"
-            />
-            {hasTransfer ? (
-              <>
-                <Divider />
-                <SheetActionRow
-                  icon={ExternalLink}
-                  label={<Trans>查看传输诊断</Trans>}
-                  onPress={onOpenTransfer}
-                />
-              </>
-            ) : null}
-          </View>
-
-          <View className="overflow-hidden rounded-2xl border border-border bg-background">
-            <SheetActionRow
-              icon={Trash2}
-              label={<Trans>仅删除记录</Trans>}
-              onPress={onDeleteRecord}
-              disabled={action != null}
-              destructive
-              testID="inbox-detail-delete-record-button"
-            />
-            <Divider destructive />
-            <SheetActionRow
-              icon={Trash2}
-              label={<Trans>删除记录和本地文件</Trans>}
-              onPress={onDeleteContent}
-              disabled={action != null}
-              destructive
-              testID="inbox-detail-delete-content-button"
-            />
-          </View>
+    <AppBottomSheet ref={sheetRef}>
+      <View className="gap-3 px-5 pb-6 pt-2" testID="inbox-actions-sheet">
+        <View className="gap-1 px-1 pb-1">
+          <Text className="text-[17px] font-bold text-foreground">
+            <Trans>更多操作</Trans>
+          </Text>
+          <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
+            {title}
+          </Text>
         </View>
-      </BottomSheetView>
-    </BottomSheetModal>
+
+        <View className="overflow-hidden rounded-2xl border border-border bg-background">
+          <SheetActionRow
+            icon={archived ? ArchiveRestore : Archive}
+            label={archived ? <Trans>取消归档</Trans> : <Trans>归档</Trans>}
+            onPress={onArchive}
+            disabled={action === "archive"}
+            testID="inbox-detail-archive-action"
+          />
+          <Divider />
+          <SheetActionRow
+            icon={Copy}
+            label={<Trans>复制保存位置</Trans>}
+            onPress={onCopyLocation}
+            disabled={!canCopyLocation}
+            testID="inbox-detail-copy-location-action"
+          />
+          {hasTransfer ? (
+            <>
+              <Divider />
+              <SheetActionRow
+                icon={ExternalLink}
+                label={<Trans>查看传输诊断</Trans>}
+                onPress={onOpenTransfer}
+              />
+            </>
+          ) : null}
+        </View>
+
+        <View className="overflow-hidden rounded-2xl border border-border bg-background">
+          <SheetActionRow
+            icon={Trash2}
+            label={<Trans>仅删除记录</Trans>}
+            onPress={onDeleteRecord}
+            disabled={action != null}
+            destructive
+            testID="inbox-detail-delete-record-button"
+          />
+          <Divider destructive />
+          <SheetActionRow
+            icon={Trash2}
+            label={<Trans>删除记录和本地文件</Trans>}
+            onPress={onDeleteContent}
+            disabled={action != null}
+            destructive
+            testID="inbox-detail-delete-content-button"
+          />
+        </View>
+      </View>
+    </AppBottomSheet>
   );
 }
 

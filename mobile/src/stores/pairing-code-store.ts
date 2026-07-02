@@ -2,7 +2,7 @@
  * Pairing Code Store
  *
  * 全局单例的配对码管理：
- *   - 跨 PairingSheet 关闭/重开持久化（不再是组件 local state）
+ *   - 跨界面挂载/重渲染持久化（首页配对码卡片共享，不再是组件 local state）
  *   - 过期前自动续生（5min TTL，提前 500ms 拿新码避免 UI 闪 "已过期"）
  *   - 被消耗后（accept 入站 code 请求）自动续生（caller 调用 markConsumed）
  *

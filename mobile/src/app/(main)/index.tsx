@@ -1,9 +1,3 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
@@ -50,6 +44,10 @@ import {
 } from "@/components/node-control-sheet";
 import { RecentTransferRow } from "@/components/recent-transfer-row";
 import { StatusPill } from "@/components/status-pill";
+import {
+  AppBottomSheet,
+  type AppBottomSheetRef,
+} from "@/components/ui/app-bottom-sheet";
 import { Text } from "@/components/ui/text";
 import { canSendToDevice } from "@/core/device-trust";
 import { getMobileCore } from "@/core/mobile-core";
@@ -954,7 +952,7 @@ interface PairingCodeSheetRef {
 
 const PairingCodeSheet = forwardRef<PairingCodeSheetRef, object>(
   function PairingCodeSheet(_props, ref) {
-    const sheetRef = useRef<BottomSheetModal>(null);
+    const sheetRef = useRef<AppBottomSheetRef>(null);
     const colors = useThemeColors();
     const [focusToken, setFocusToken] = useState(0);
 
@@ -966,51 +964,29 @@ const PairingCodeSheet = forwardRef<PairingCodeSheetRef, object>(
       dismiss: () => sheetRef.current?.dismiss(),
     }));
 
-    const renderBackdrop = useCallback(
-      (props: BottomSheetBackdropProps) => (
-        <BottomSheetBackdrop
-          {...props}
-          opacity={0.4}
-          appearsOnIndex={0}
-          disappearsOnIndex={-1}
-          pressBehavior="close"
-        />
-      ),
-      [],
-    );
-
     return (
-      <BottomSheetModal
-        ref={sheetRef}
-        enableDynamicSizing
-        enablePanDownToClose
-        backdropComponent={renderBackdrop}
-        backgroundStyle={{ backgroundColor: colors.card }}
-        handleIndicatorStyle={{ backgroundColor: colors.border }}
-      >
-        <BottomSheetView>
-          <View className="gap-4 px-5 pt-2 pb-6">
-            <View className="items-center gap-2">
-              <View className="size-12 items-center justify-center rounded-full bg-primary/10">
-                <Keyboard color={colors.primary} size={22} />
-              </View>
-              <View className="items-center gap-1">
-                <Text className="text-base font-bold text-foreground">
-                  <Trans>输入配对码</Trans>
-                </Text>
-                <Text className="text-center text-[12px] leading-5 text-muted-foreground">
-                  <Trans>输入另一台设备显示的 6 位数字</Trans>
-                </Text>
-              </View>
+      <AppBottomSheet ref={sheetRef}>
+        <View className="gap-4 px-5 pt-2 pb-6">
+          <View className="items-center gap-2">
+            <View className="size-12 items-center justify-center rounded-full bg-primary/10">
+              <Keyboard color={colors.primary} size={22} />
             </View>
-
-            <PairingCodeInput
-              focusToken={focusToken}
-              onResolved={() => sheetRef.current?.dismiss()}
-            />
+            <View className="items-center gap-1">
+              <Text className="text-base font-bold text-foreground">
+                <Trans>输入配对码</Trans>
+              </Text>
+              <Text className="text-center text-[12px] leading-5 text-muted-foreground">
+                <Trans>输入另一台设备显示的 6 位数字</Trans>
+              </Text>
+            </View>
           </View>
-        </BottomSheetView>
-      </BottomSheetModal>
+
+          <PairingCodeInput
+            focusToken={focusToken}
+            onResolved={() => sheetRef.current?.dismiss()}
+          />
+        </View>
+      </AppBottomSheet>
     );
   },
 );

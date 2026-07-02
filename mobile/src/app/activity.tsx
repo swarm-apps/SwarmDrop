@@ -89,7 +89,7 @@ export default function ActivityScreen() {
       />
 
       <Text className="px-1 text-[12px] text-muted-foreground">
-        <Trans>查看进行中、可恢复,以及已完成的传输</Trans>
+        <Trans>每一笔传输的实时进度与历史记录都在这里</Trans>
       </Text>
 
       {hasContent ? (
@@ -99,15 +99,8 @@ export default function ActivityScreen() {
             testID="activity-section-active"
             projections={grouped.active}
             progressBySession={progressBySession}
+            showProgress
             onPress={goDetail}
-          />
-          <ProjectionSection
-            title={<Trans>可恢复</Trans>}
-            testID="activity-section-recoverable"
-            projections={grouped.recoverable}
-            progressBySession={progressBySession}
-            onPress={goDetail}
-            onResume={resume}
           />
           <ProjectionSection
             title={<Trans>需要注意</Trans>}
@@ -115,6 +108,15 @@ export default function ActivityScreen() {
             projections={grouped.attention}
             progressBySession={progressBySession}
             onPress={goDetail}
+          />
+          <ProjectionSection
+            title={<Trans>可恢复</Trans>}
+            testID="activity-section-recoverable"
+            projections={grouped.recoverable}
+            progressBySession={progressBySession}
+            showProgress
+            onPress={goDetail}
+            onResume={resume}
           />
           <ProjectionSection
             title={<Trans>已完成</Trans>}
@@ -160,6 +162,7 @@ function ProjectionSection({
   testID,
   projections,
   progressBySession,
+  showProgress,
   onPress,
   onResume,
 }: {
@@ -167,6 +170,7 @@ function ProjectionSection({
   testID: string;
   projections: MobileTransferProjection[];
   progressBySession: Record<string, MobileTransferProgress>;
+  showProgress?: boolean;
   onPress: (sessionId: string) => void;
   onResume?: (sessionId: string) => void;
 }) {
@@ -181,6 +185,7 @@ function ProjectionSection({
             key={projection.sessionId}
             projection={projection}
             progress={progressBySession[projection.sessionId]}
+            showProgress={showProgress}
             onPress={onPress}
             onResume={onResume}
           />

@@ -1,10 +1,6 @@
 import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
   BottomSheetFooter,
   type BottomSheetFooterProps,
-  BottomSheetModal,
-  BottomSheetScrollView,
   BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -43,6 +39,10 @@ import {
 } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { TrustBadge, TrustLabel } from "@/components/trust-badge";
+import {
+  AppBottomSheet,
+  type AppBottomSheetRef,
+} from "@/components/ui/app-bottom-sheet";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
@@ -68,8 +68,6 @@ import {
   useMobileCoreStore,
 } from "@/stores/mobile-core-store";
 
-const POLICY_SHEET_SNAP_POINTS = ["72%", "90%"];
-
 type SavingAction = "save" | "block" | "unblock" | "unpair" | null;
 
 export default function DeviceDetailScreen() {
@@ -77,7 +75,7 @@ export default function DeviceDetailScreen() {
   const router = useRouter();
   const colors = useThemeColors();
   const { peerId } = useLocalSearchParams<{ peerId: string }>();
-  const policySheetRef = useRef<BottomSheetModal>(null);
+  const policySheetRef = useRef<AppBottomSheetRef>(null);
   const [draftLevel, setDraftLevel] = useState<TrustLevel>("collaborator");
   const [draftPolicy, setDraftPolicy] = useState<MobileDeviceReceivePolicy>(
     () => defaultReceivePolicy("collaborator"),
@@ -122,19 +120,6 @@ export default function DeviceDetailScreen() {
     setDraftLevel(resolveTrustLevel(device));
     setDraftPolicy(policyForDevice(device));
   }, [device]);
-
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        opacity={0.4}
-        appearsOnIndex={0}
-        disappearsOnIndex={-1}
-        pressBehavior="close"
-      />
-    ),
-    [],
-  );
 
   const openPolicySheet = useCallback(() => {
     if (!device) return;
@@ -414,39 +399,34 @@ export default function DeviceDetailScreen() {
         </Pressable>
       </BottomActionArea>
 
-      <BottomSheetModal
+      <AppBottomSheet
         ref={policySheetRef}
-        snapPoints={POLICY_SHEET_SNAP_POINTS}
-        enableDynamicSizing={false}
-        enablePanDownToClose
-        backdropComponent={renderBackdrop}
+        scrollable
+        contentTestID="device-policy-sheet"
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: 8,
+          paddingBottom: 142,
+        }}
         footerComponent={renderPolicyFooter}
-        backgroundStyle={{ backgroundColor: colors.card }}
-        handleIndicatorStyle={{ backgroundColor: colors.border }}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        androidKeyboardInputMode="adjustResize"
       >
-        <BottomSheetScrollView
-          testID="device-policy-sheet"
-          contentContainerStyle={{
-            paddingHorizontal: 20,
-            paddingTop: 8,
-            paddingBottom: 142,
+        <PolicyEditor
+          deviceName={displayName}
+          draftLevel={draftLevel}
+          draftPolicy={draftPolicy}
+          onLevelChange={(level) => {
+            setDraftLevel(level);
+            setDraftPolicy((current) =>
+              policyWithTrustDefaults(level, current),
+            );
           }}
-        >
-          <PolicyEditor
-            deviceName={displayName}
-            draftLevel={draftLevel}
-            draftPolicy={draftPolicy}
-            onLevelChange={(level) => {
-              setDraftLevel(level);
-              setDraftPolicy((current) =>
-                policyWithTrustDefaults(level, current),
-              );
-            }}
-            onPolicyChange={setDraftPolicy}
-            onValidityChange={setPolicyValid}
-          />
-        </BottomSheetScrollView>
-      </BottomSheetModal>
+          onPolicyChange={setDraftPolicy}
+          onValidityChange={setPolicyValid}
+        />
+      </AppBottomSheet>
 
       <ConfirmDialog
         open={unpairOpen}
