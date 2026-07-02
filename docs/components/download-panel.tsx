@@ -198,7 +198,7 @@ function DownloadPanelBody({
           {primary ? (
             <a
               href={primary.download_url}
-              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-5 text-sm font-semibold text-white shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-[0.98]"
+              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-5 text-sm font-semibold text-[var(--brand-ink)] shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-[0.98]"
             >
               下载推荐版本
               <ArrowRight className="size-4" />
@@ -249,7 +249,7 @@ function FallbackLink({ href }: { href: string }) {
   return (
     <a
       href={href}
-      className="inline-flex h-10 w-fit items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-4 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
+      className="inline-flex h-10 w-fit items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-4 text-sm font-semibold text-[var(--brand-ink)] transition-all hover:opacity-90 active:scale-[0.98]"
     >
       {FALLBACK_TEXT}
       <ExternalLink className="size-4" />

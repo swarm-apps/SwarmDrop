@@ -29,8 +29,9 @@ const ID_OPEN_FOLDER: &str = "tray-open-folder";
 const ID_SETTINGS: &str = "tray-settings";
 const ID_QUIT: &str = "tray-quit";
 
-// 三态托盘图标：复用品牌 logo 的「S=身体+D=头部」双色结构，离线/在线/暂停各自
-// 换一套配色（灰调 / 品牌靛蓝+青绿 / 琥珀调），形状不变。不用 macOS template 模式
+// 三态托盘图标：复用品牌 logo 的双六边形互扣 mark。离线=灰调、在线=品牌金；
+// 暂停=橙调且中心节点簇换成暂停双杠——品牌色迁到金色后，暂停态如果只换成琥珀色
+// 会和在线态的金拉不开距离，所以用色相+形状双重区分。不用 macOS template 模式
 // ——template 图标会被系统强制去色成单色，没法用颜色区分三态。
 const ICON_OFFLINE: &[u8] = include_bytes!("../icons/tray/offline.png");
 const ICON_ONLINE: &[u8] = include_bytes!("../icons/tray/online.png");

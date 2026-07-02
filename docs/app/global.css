@@ -3,24 +3,30 @@
 @import "fumadocs-ui/css/preset.css";
 
 /*
- * SwarmDrop 品牌色：深蓝 #1E40AF（blue-800）+ 天蓝点缀，取自 app-icon.svg。
- * 用 --brand / --brand-fg 暴露给首页与 nav，亮/暗双模各取一档保证对比度（WCAG AA）。
+ * SwarmDrop 品牌色：蜂巢蜜金（取自新 logo 的金色 mark），与桌面应用主题同源。
+ * 金色是浅色——实心底 --brand-solid 恒配 --brand-ink 墨字（7:1+），绝不配白字；
+ * 强调文字/图标用 --brand（亮模式加深到白底 4.6:1，暗模式切亮金）。
+ * --tile 是应用暗色画布的深藏蓝，用于 CTA 等「深底金图形」品牌场景，两种模式不变。
  * Fumadocs 自带 --color-fd-* 前缀变量，两套互不冲突。
  */
 :root {
-  --brand: #1e40af; /* blue-800：强调文字/图标/描边 */
-  --brand-strong: #1d4ed8; /* blue-700 */
-  --brand-solid: #2563eb; /* blue-600：实心按钮/面板底色，恒配白字，亮暗两模均过 AA */
-  --brand-soft: #dbeafe; /* blue-100 */
-  --sky: #0ea5e9; /* sky-500 */
+  --brand: #a56800; /* 强调文字/图标/描边，白底 4.6:1 */
+  --brand-strong: #8a5700;
+  --brand-solid: #dba341; /* 实心按钮/面板底色，恒配 --brand-ink */
+  --brand-ink: #2f1e01; /* 金底上的文字 */
+  --brand-soft: #f6ebd2;
+  --sky: #0ea5e9; /* sky-500：天蓝点缀保留 */
+  --tile: #0d111a; /* 应用暗色画布深藏蓝 */
 }
 
 .dark {
-  --brand: #60a5fa; /* blue-400：暗底上提亮，强调用 */
-  --brand-strong: #93c5fd; /* blue-300 */
-  --brand-solid: #2563eb; /* 实心底色保持 blue-600，白字对比 5.17:1 */
-  --brand-soft: #1e3a8a; /* blue-900 */
+  --brand: #e2ad54; /* 暗底亮金 9.2:1 */
+  --brand-strong: #ebc078;
+  --brand-solid: #dba341; /* 实心底色不随模式变，墨字对比恒定 */
+  --brand-ink: #2f1e01;
+  --brand-soft: #4a3410;
   --sky: #38bdf8; /* sky-400 */
+  --tile: #0d111a;
 }
 
 html {

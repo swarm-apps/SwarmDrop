@@ -1,38 +1,29 @@
-<a name="readme-top"></a>
-
 <div align="center">
 
-<img src="public/app-icon.svg" width="180" alt="SwarmDrop logo">
+<img src="public/app-icon.svg" width="140" alt="SwarmDrop logo">
 
 # SwarmDrop
 
-### The data channel between your devices — for humans and AI agents alike.
+**The data channel between your devices — for humans and AI agents alike.**
 
 Decentralized, cross-network, end-to-end encrypted file transfer.
 No accounts. No servers. No cloud.
 
-<!-- Badges — line 1: project · line 2: tech (kept deliberately minimal & grouped) -->
-
 [![Release](https://img.shields.io/github/v/release/swarm-apps/SwarmDrop?style=flat-square)](https://github.com/swarm-apps/SwarmDrop/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-lightgrey?style=flat-square)](#-download)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-lightgrey?style=flat-square)](#download)
 [![Stars](https://img.shields.io/github/stars/swarm-apps/SwarmDrop?style=flat-square)](https://github.com/swarm-apps/SwarmDrop/stargazers)
-
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-FFC131?style=flat-square&logo=tauri)](https://tauri.app)
 [![Powered by libp2p](https://img.shields.io/badge/powered%20by-libp2p-3c5dd6?style=flat-square)](https://libp2p.io)
 
-**English** · [简体中文](README.zh-CN.md)
-
-[Website](https://swarm-apps.github.io/SwarmDrop/) · [Features](#-features) · [AI & MCP](#-built-for-ai-agents-mcp) · [Download](#-download) · [Mobile](https://github.com/swarm-apps/SwarmDrop-RN)
+**[Website](https://swarm-apps.github.io/SwarmDrop/)** ·
+**[Features](#features)** ·
+**[AI & MCP](#built-for-ai-agents-mcp)** ·
+**[Download](#download)** ·
+**[Mobile](https://github.com/swarm-apps/SwarmDrop-RN)** ·
+**[简体中文](README.zh-CN.md)**
 
 </div>
-
-<!-- TODO(assets): add a hero demo GIF here — "drop files → pick device → delivered", ~12s, light + dark.
-     Recommended path: docs/screenshots/hero-demo.gif  (drop the file and uncomment the block below)
-<p align="center">
-  <img src="docs/screenshots/hero-demo.gif" width="720" alt="SwarmDrop in action">
-</p>
--->
 
 ---
 
@@ -42,19 +33,17 @@ No accounts. No servers. No cloud.
 
 And because the AI era runs on agents that constantly produce files on one machine and need them on another, SwarmDrop ships a **built-in local MCP Server** — so AI agents can deliver files across your devices and search your inbox, turning device-to-device transfer into **programmable infrastructure** for humans and agents alike.
 
-## ✨ Features
+## Features
 
-| | | |
-|---|---|---|
-| 🌐 **Cross-Network** | Works on LAN or across the public internet. mDNS + Kademlia DHT + Relay + DCUtR pick the best route automatically. | <sub>same Wi-Fi, different networks, behind NAT — it just connects</sub> |
-| 🔒 **End-to-End Encrypted** | XChaCha20-Poly1305 with a fresh per-transfer key. Relays and bootstrap nodes only ever see ciphertext. | <sub>not a privacy *policy* — a cryptographic *fact*</sub> |
-| 🪪 **No Accounts, No Servers** | Connect with a 6-digit pairing code or LAN auto-discovery. Decentralized Ed25519 device identity. | <sub>self-host the bootstrap node if you want</sub> |
-| 🤖 **AI-Native** | A local MCP Server lets AI agents drive transfers and search your received files. | <sub>the part no AirDrop or LocalSend can do</sub> |
-| ⏯️ **Resumable & Reliable** | Resumable transfers with BLAKE3 integrity, plus a local SQLite history and inbox. | <sub>survives drops, restarts, and flaky links</sub> |
+| | |
+|---|---|
+| **Cross-Network** | Works on LAN or across the public internet. mDNS + Kademlia DHT + Relay + DCUtR pick the best route automatically — same Wi-Fi, different networks, behind NAT. |
+| **End-to-End Encrypted** | XChaCha20-Poly1305 with a fresh per-transfer key. Relays and bootstrap nodes only ever see ciphertext. Not a privacy *policy* — a cryptographic *fact*. |
+| **No Accounts, No Servers** | Connect with a 6-digit pairing code or LAN auto-discovery. Decentralized Ed25519 device identity. Self-host the bootstrap node if you want. |
+| **AI-Native** | A local MCP Server lets AI agents drive transfers and search your received files — the part no AirDrop or LocalSend can do. |
+| **Resumable & Reliable** | Resumable transfers with BLAKE3 integrity, plus a local SQLite history and inbox. Survives drops, restarts, and flaky links. |
 
-<div align="right"><a href="#readme-top">↑ back to top</a></div>
-
-## 🤖 Built for AI Agents (MCP)
+## Built for AI Agents (MCP)
 
 Most local tools can only be *read* by an AI. SwarmDrop can be *driven* by one.
 
@@ -67,17 +56,11 @@ It runs an embedded [Model Context Protocol](https://modelcontextprotocol.io) se
 
 Everything happens on-device and end-to-end encrypted — the agent's reasoning can live in the cloud, but your files and their contents never leave your machines.
 
-> 📖 See the [**MCP usage guide**](src-tauri/docs/mcp-guide.md) to wire it into your agent.
+> See the [MCP usage guide](src-tauri/docs/mcp-guide.md) to wire it into your agent.
 
-<!-- TODO(assets): add an AI/MCP demo GIF here — an agent triggering a cross-device delivery via MCP.
-     This is the single highest-signal visual for the new positioning.
-     Recommended path: docs/screenshots/mcp-demo.gif -->
+## Download
 
-<div align="right"><a href="#readme-top">↑ back to top</a></div>
-
-## 📦 Download
-
-**[Get SwarmDrop from the official website →](https://swarm-apps.github.io/SwarmDrop/)** — desktop and mobile, every platform in one place.
+**[Get SwarmDrop from the official website](https://swarm-apps.github.io/SwarmDrop/)** — desktop and mobile, every platform in one place.
 
 | Platform | Format |
 |---|---|
@@ -87,11 +70,11 @@ Everything happens on-device and end-to-end encrypted — the agent's reasoning 
 | **Android** | `.apk` |
 | **iOS** | build from source |
 
-> 🔄 Downloads and **automatic updates** — for both desktop *and* mobile — are served by [**SwarmHive**](https://github.com/swarm-apps/SwarmHive), our own open-source, self-hostable release server. No proprietary update SaaS in the loop.
+> Downloads and **automatic updates** — for both desktop *and* mobile — are served by [SwarmHive](https://github.com/swarm-apps/SwarmHive), our own open-source, self-hostable release server. No proprietary update SaaS in the loop.
 
-> 📱 **Mobile** — SwarmDrop also runs on **Android & iOS** via [**SwarmDrop-RN**](https://github.com/swarm-apps/SwarmDrop-RN), a React Native app that shares the very same Rust core (`crates/core`) and encrypted protocol as the desktop app.
+> **Mobile** — SwarmDrop also runs on **Android & iOS** via [SwarmDrop-RN](https://github.com/swarm-apps/SwarmDrop-RN), a React Native app that shares the very same Rust core (`crates/core`) and encrypted protocol as the desktop app.
 
-## 🚀 Getting Started
+## Getting Started
 
 ```
 1. Launch the app → set a security password → start the P2P node
@@ -100,6 +83,7 @@ Everything happens on-device and end-to-end encrypted — the agent's reasoning 
 ```
 
 **Pairing**
+
 - **Pairing code** — for cross-network: one side generates a 6-digit code, the other enters it.
 - **LAN** — on the same Wi-Fi, devices discover each other automatically; click to pair.
 
@@ -111,21 +95,19 @@ Everything happens on-device and end-to-end encrypted — the agent's reasoning 
 | NAT hole-punch (DCUtR) | 10–100 ms | different networks, punch succeeds |
 | Relay fallback | 100–500 ms | when hole-punching fails |
 
-<div align="right"><a href="#readme-top">↑ back to top</a></div>
-
-## 🆚 Comparison
+## Comparison
 
 | | **SwarmDrop** | LocalSend | Syncthing |
 |---|:---:|:---:|:---:|
-| LAN transfer | ✅ | ✅ | ✅ |
-| Cross-network (no shared network) | ✅ | ❌ | ✅ <sub>(setup)</sub> |
-| End-to-end encrypted | ✅ | ✅ | ✅ |
-| No account / no server | ✅ | ✅ | ✅ |
-| One-shot delivery (not continuous sync) | ✅ | ✅ | ❌ |
-| **AI agent-drivable (MCP)** | ✅ | ❌ | ❌ |
-| Open source | ✅ | ✅ | ✅ |
+| LAN transfer | ✓ | ✓ | ✓ |
+| Cross-network (no shared network) | ✓ | — | ✓ <sub>(setup)</sub> |
+| End-to-end encrypted | ✓ | ✓ | ✓ |
+| No account / no server | ✓ | ✓ | ✓ |
+| One-shot delivery (not continuous sync) | ✓ | ✓ | — |
+| **AI agent-drivable (MCP)** | ✓ | — | — |
+| Open source | ✓ | ✓ | ✓ |
 
-## 🔒 How It Works
+## How It Works
 
 ```mermaid
 graph TB
@@ -194,7 +176,7 @@ SwarmDrop/
 │   ├── entity/       # SeaORM entities
 │   └── migration/    # SeaORM migrations
 ├── libs/core/        # swarm-p2p-core (git submodule)
-└── docs/             # Astro + Starlight documentation site
+└── docs/             # documentation site (Next.js + Fumadocs)
 ```
 
 `crates/core` is shared by both the desktop app (`src-tauri`) and the mobile app
@@ -202,9 +184,7 @@ SwarmDrop/
 
 </details>
 
-<div align="right"><a href="#readme-top">↑ back to top</a></div>
-
-## 🛠 Building from Source
+## Building from Source
 
 Requires **Node 18+**, **pnpm 9+**, and a recent stable **Rust** toolchain (1.85+).
 
@@ -219,7 +199,7 @@ pnpm tauri build    # package
 
 > If you already cloned without submodules: `git submodule update --init --recursive`.
 
-## 🗺 Roadmap
+## Roadmap
 
 - [x] P2P networking (libp2p · mDNS · DHT · Relay · DCUtR)
 - [x] Device pairing (pairing code · LAN direct · biometric unlock)
@@ -228,7 +208,7 @@ pnpm tauri build    # package
 - [ ] Expanded agent toolset — full transfer lifecycle (status / cancel / pause / resume) over MCP
 - [ ] On-device content extraction for richer inbox search
 
-## 🤝 Contributing
+## Contributing
 
 Issues and PRs welcome. A few conventions:
 
@@ -237,7 +217,7 @@ Issues and PRs welcome. A few conventions:
 - IPC bindings (`src/lib/bindings.ts`) are **auto-generated** — don't hand-edit; run `pnpm tauri dev` to regenerate.
 - **Translations** are managed with [Lingui](https://lingui.dev) (`pnpm i18n:extract`). New-language README contributions are welcome too — see [README.zh-CN.md](README.zh-CN.md) for the format.
 
-## ❤️ The swarm-apps family
+## The swarm-apps Family
 
 SwarmDrop is part of a family of decentralized, local-first, end-to-end encrypted tools:
 
@@ -245,10 +225,8 @@ SwarmDrop is part of a family of decentralized, local-first, end-to-end encrypte
 - **SwarmNote** — decentralized, encrypted notes. [Desktop](https://github.com/swarm-apps/SwarmNote) · [Mobile](https://github.com/swarm-apps/SwarmNote-RN)
 - **SwarmHive** — self-hostable, open-source release & auto-update server for Tauri and React Native apps. SwarmDrop ships every update through it — and so can you. [Repo](https://github.com/swarm-apps/SwarmHive)
 
-## 📄 License
+## License
 
 [MIT](LICENSE) © SwarmDrop Contributors
 
 <div align="center"><sub>Built with <a href="https://tauri.app">Tauri</a> · <a href="https://libp2p.io">libp2p</a></sub></div>
-
-<div align="right"><a href="#readme-top">↑ back to top</a></div>
