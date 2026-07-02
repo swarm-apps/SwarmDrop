@@ -5,7 +5,7 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Power } from "lucide-react-native";
+import { ChevronDown, Power } from "lucide-react-native";
 import {
   forwardRef,
   useCallback,
@@ -14,7 +14,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, View } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { useShallow } from "zustand/react/shallow";
 import { StatusPill } from "@/components/status-pill";
 import { Text } from "@/components/ui/text";
@@ -103,6 +104,9 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
   );
 
   const [working, setWorking] = useState(false);
+  // 网络诊断默认收起 —— 消费级弹窗只默认展示"在线/已连接/运行时长",
+  // libp2p 细节(Peer ID / NAT / 中继 / 引导节点…)藏进渐进披露。
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   // 每秒重渲染让运行时长更新
   const [tick, setTick] = useState(0);
@@ -123,7 +127,7 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
     }
   };
 
-  const handleStop = async () => {
+  const performStop = async () => {
     setWorking(true);
     try {
       await shutdownNode();
@@ -131,6 +135,25 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
     } finally {
       setWorking(false);
     }
+  };
+
+  // 停止节点会断开所有连接、让别人发现不了你 —— 破坏性程度高于"取消传输",
+  // 所以补一层二次确认,和其它破坏性操作的安全网对齐。
+  const handleStop = () => {
+    Alert.alert(
+      t`停止网络节点？`,
+      t`停止后将断开所有连接,其他设备将无法发现你。`,
+      [
+        { text: t`取消`, style: "cancel" },
+        {
+          text: t`停止节点`,
+          style: "destructive",
+          onPress: () => {
+            void performStop();
+          },
+        },
+      ],
+    );
   };
 
   const isRunning = runtimeState === "running";
@@ -158,74 +181,111 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
       </View>
 
       {isRunning ? (
-        <View className="overflow-hidden rounded-xl border border-border">
-          <Row
-            label={<Trans>Peer ID</Trans>}
-            value={peerId ? truncateMiddle(peerId, 6, 4) : "—"}
-            mono
-          />
-          <Divider />
-          <Row
-            label={<Trans>运行时长</Trans>}
-            value={startedAt ? formatUptime(startedAt) : "—"}
-          />
-          <Divider />
-          <Row
-            label={<Trans>已连接节点</Trans>}
-            value={String(networkStatus?.connectedPeers ?? 0)}
-          />
-          <Divider />
-          <Row
-            label={<Trans>已发现节点</Trans>}
-            value={String(networkStatus?.discoveredPeers ?? 0)}
-          />
-          <Divider />
-          <Row
-            label={<Trans>发现方式</Trans>}
-            value={
-              discoveryModeFromNative(networkStatus?.discoveryMode) === "auto"
-                ? t`自动`
-                : t`LAN-only`
-            }
-          />
-          <Divider />
-          <Row
-            label={<Trans>候选节点</Trans>}
-            value={String(networkStatus?.bootstrapCandidateCount ?? 0)}
-          />
-          <Divider />
-          <Row
-            label={<Trans>LAN Helper</Trans>}
-            value={String(networkStatus?.lanHelperCount ?? 0)}
-          />
-          <Divider />
-          <Row
-            label={<Trans>NAT 状态</Trans>}
-            value={
-              networkStatus?.natStatus === "public" ? t`映射成功` : t`未知`
-            }
-          />
-          <Divider />
-          <Row
-            label={<Trans>中继</Trans>}
-            value={
-              networkStatus?.relayReady ? (
-                <RelayReadyLabel source={networkStatus.relaySource} />
-              ) : (
-                t`未就绪`
-              )
-            }
-          />
-          <Divider />
-          <Row
-            label={<Trans>引导节点</Trans>}
-            value={networkStatus?.bootstrapConnected ? t`已连接` : t`未连接`}
-          />
-          <Divider />
-          <Row
-            label={<Trans>本机 Helper</Trans>}
-            value={networkStatus?.localLanHelperRunning ? t`运行中` : t`未启用`}
-          />
+        <View className="gap-3">
+          {/* 消费级摘要 —— 始终可见,只回答"有几台设备连得上""开了多久" */}
+          <View className="overflow-hidden rounded-xl border border-border">
+            <Row
+              label={<Trans>已连接设备</Trans>}
+              value={String(networkStatus?.connectedPeers ?? 0)}
+            />
+            <Divider />
+            <Row
+              label={<Trans>已发现设备</Trans>}
+              value={String(networkStatus?.discoveredPeers ?? 0)}
+            />
+            <Divider />
+            <Row
+              label={<Trans>运行时长</Trans>}
+              value={startedAt ? formatUptime(startedAt) : "—"}
+            />
+          </View>
+
+          {/* 网络诊断 —— 渐进披露,默认收起,libp2p 细节留给需要的人 */}
+          <View className="overflow-hidden rounded-xl border border-border">
+            <Pressable
+              onPress={() => setShowDiagnostics((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={t`网络诊断`}
+              accessibilityState={{ expanded: showDiagnostics }}
+              testID="node-control-diagnostics-toggle"
+              className="min-h-11 flex-row items-center justify-between px-3.5 py-2.5 active:opacity-70"
+            >
+              <Text className="text-[13px] font-medium text-foreground">
+                <Trans>网络诊断</Trans>
+              </Text>
+              <ChevronDown
+                size={16}
+                color={colors.mutedForeground}
+                style={{
+                  transform: [{ rotate: showDiagnostics ? "180deg" : "0deg" }],
+                }}
+              />
+            </Pressable>
+            {showDiagnostics ? (
+              <Animated.View entering={FadeIn.duration(160)}>
+                <Divider />
+                <Row
+                  label={<Trans>Peer ID</Trans>}
+                  value={peerId ? truncateMiddle(peerId, 6, 4) : "—"}
+                  mono
+                />
+                <Divider />
+                <Row
+                  label={<Trans>发现方式</Trans>}
+                  value={
+                    discoveryModeFromNative(networkStatus?.discoveryMode) ===
+                    "auto"
+                      ? t`自动`
+                      : t`LAN-only`
+                  }
+                />
+                <Divider />
+                <Row
+                  label={<Trans>候选节点</Trans>}
+                  value={String(networkStatus?.bootstrapCandidateCount ?? 0)}
+                />
+                <Divider />
+                <Row
+                  label={<Trans>LAN Helper</Trans>}
+                  value={String(networkStatus?.lanHelperCount ?? 0)}
+                />
+                <Divider />
+                <Row
+                  label={<Trans>NAT 状态</Trans>}
+                  value={
+                    networkStatus?.natStatus === "public"
+                      ? t`映射成功`
+                      : t`未知`
+                  }
+                />
+                <Divider />
+                <Row
+                  label={<Trans>中继</Trans>}
+                  value={
+                    networkStatus?.relayReady ? (
+                      <RelayReadyLabel source={networkStatus.relaySource} />
+                    ) : (
+                      t`未就绪`
+                    )
+                  }
+                />
+                <Divider />
+                <Row
+                  label={<Trans>引导节点</Trans>}
+                  value={
+                    networkStatus?.bootstrapConnected ? t`已连接` : t`未连接`
+                  }
+                />
+                <Divider />
+                <Row
+                  label={<Trans>本机 Helper</Trans>}
+                  value={
+                    networkStatus?.localLanHelperRunning ? t`运行中` : t`未启用`
+                  }
+                />
+              </Animated.View>
+            ) : null}
+          </View>
         </View>
       ) : (
         <Text className="text-center text-[13px] text-muted-foreground px-4">
@@ -255,11 +315,12 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
             onPress={handleStop}
             disabled={working || isStarting}
             accessibilityRole="button"
+            accessibilityLabel={t`停止节点`}
             testID="node-control-stop-button"
             className="flex-1 h-11 items-center justify-center rounded-xl bg-destructive active:opacity-70 disabled:opacity-50"
           >
             {working ? (
-              <ActivityIndicator color={colors.background} />
+              <ActivityIndicator color={colors.destructiveForeground} />
             ) : (
               <Text className="text-[14px] font-semibold text-destructive-foreground">
                 <Trans>停止节点</Trans>
@@ -271,11 +332,12 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
             onPress={handleStart}
             disabled={working || isStarting}
             accessibilityRole="button"
+            accessibilityLabel={t`启动节点`}
             testID="node-control-start-button"
             className="flex-1 h-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
           >
             {working || isStarting ? (
-              <ActivityIndicator color={colors.background} />
+              <ActivityIndicator color={colors.primaryForeground} />
             ) : (
               <Text className="text-[14px] font-semibold text-primary-foreground">
                 <Trans>启动节点</Trans>

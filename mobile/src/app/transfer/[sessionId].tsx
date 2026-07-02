@@ -7,6 +7,7 @@ import {
   type LucideIcon,
   Pause,
   Play,
+  Send,
   Trash2,
   X,
   XCircle,
@@ -23,6 +24,7 @@ import { buildTreeDataFromOffer, FileTree } from "@/components/file-tree";
 import { SettingsHeader } from "@/components/settings-header";
 import {
   calcPercent,
+  canResend,
   canResume,
   DirectionIcon,
   formatBytes,
@@ -46,7 +48,7 @@ import {
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
-import { errorMessage } from "@/lib/utils";
+import { errorMessage, truncateMiddle } from "@/lib/utils";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export default function TransferDetailScreen() {
@@ -146,6 +148,17 @@ export default function TransferDetailScreen() {
     }
   }, [sessionId, deleteHistoryItem, router, t]);
 
+  // 重新发送:失败的发送在核心里没有 resend API、投影也不含文件句柄,
+  // 只能诚实地回到发送流程(预选好该设备)让用户重新挑文件,而不是假装能一键重发。
+  const onResend = useCallback(() => {
+    const peerId = projection?.peerId;
+    if (!peerId) return;
+    router.push({
+      pathname: "/send/select-device",
+      params: { peerId },
+    } as never);
+  }, [router, projection?.peerId]);
+
   return (
     <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
       <SettingsHeader title={t`传输详情`} />
@@ -171,6 +184,7 @@ export default function TransferDetailScreen() {
             onPause={onPause}
             onCancel={() => setCancelOpen(true)}
             onResume={onResume}
+            onResend={onResend}
             onDelete={() => setDeleteOpen(true)}
           />
         )}
@@ -207,6 +221,7 @@ function TransferDetailContent({
   onPause,
   onCancel,
   onResume,
+  onResend,
   onDelete,
 }: {
   projection: MobileTransferProjection;
@@ -215,6 +230,7 @@ function TransferDetailContent({
   onPause: () => void;
   onCancel: () => void;
   onResume: () => void;
+  onResend: () => void;
   onDelete: () => void;
 }) {
   const status = projectionStatus(projection);
@@ -282,7 +298,11 @@ function TransferDetailContent({
             value={new Date(Number(projection.finishedAt)).toLocaleString()}
           />
         ) : null}
-        <DetailRow label={<Trans>对端</Trans>} value={projection.peerId} mono />
+        <DetailRow
+          label={<Trans>对端</Trans>}
+          value={truncateMiddle(projection.peerId, 6, 4)}
+          mono
+        />
         {savePath ? (
           <DetailRow
             label={<Trans>保存位置</Trans>}
@@ -320,6 +340,7 @@ function TransferDetailContent({
         onPause={onPause}
         onCancel={onCancel}
         onResume={onResume}
+        onResend={onResend}
         onDelete={onDelete}
         onOpenFolder={openFolder}
       />
@@ -432,6 +453,7 @@ function ActionBar({
   onPause,
   onCancel,
   onResume,
+  onResend,
   onDelete,
   onOpenFolder,
 }: {
@@ -442,15 +464,19 @@ function ActionBar({
   onPause: () => void;
   onCancel: () => void;
   onResume: () => void;
+  onResend: () => void;
   onDelete: () => void;
   onOpenFolder: () => void;
 }) {
-  const buttons: React.ReactNode[] = [];
+  // 两级层级:主操作(恢复/打开文件夹/暂停)全宽实心占主导;
+  // 破坏性操作(取消/删除)降权为窄、居中、无填充,永不撑满成红色 hero。
+  const prominent: React.ReactNode[] = [];
+  const destructive: React.ReactNode[] = [];
   const status = projectionStatus(projection);
 
   if (isActive) {
     if (status === "transferring") {
-      buttons.push(
+      prominent.push(
         <ActionButton
           key="pause"
           Icon={Pause}
@@ -462,7 +488,7 @@ function ActionBar({
         />,
       );
     }
-    buttons.push(
+    destructive.push(
       <ActionButton
         key="cancel"
         Icon={X}
@@ -476,7 +502,7 @@ function ActionBar({
   }
 
   if (canResume(projection)) {
-    buttons.push(
+    prominent.push(
       <ActionButton
         key="resume"
         Icon={Play}
@@ -490,7 +516,7 @@ function ActionBar({
   }
 
   if (savePath && status === "completed") {
-    buttons.push(
+    prominent.push(
       <ActionButton
         key="open-folder"
         Icon={FolderOpen}
@@ -501,8 +527,26 @@ function ActionBar({
     );
   }
 
+  // 失败且不可续传的发送:给一条明确的向前出路(重新发送),而不是只剩"删除"死胡同。
+  if (
+    !isActive &&
+    !canResume(projection) &&
+    canResend(projection) &&
+    status === "failed"
+  ) {
+    prominent.push(
+      <ActionButton
+        key="resend"
+        Icon={Send}
+        label={<Trans>重新发送</Trans>}
+        onPress={onResend}
+        variant="primary"
+      />,
+    );
+  }
+
   if (!isActive) {
-    buttons.push(
+    destructive.push(
       <ActionButton
         key="delete"
         Icon={Trash2}
@@ -515,8 +559,17 @@ function ActionBar({
     );
   }
 
-  if (buttons.length === 0) return null;
-  return <View className="flex-row flex-wrap gap-2 pt-1">{buttons}</View>;
+  if (prominent.length === 0 && destructive.length === 0) return null;
+  return (
+    <View className="gap-2 pt-1">
+      {prominent.length > 0 ? <View className="gap-2">{prominent}</View> : null}
+      {destructive.length > 0 ? (
+        <View className="flex-row flex-wrap items-center justify-center gap-x-4 gap-y-1">
+          {destructive}
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 function DetailRow({
@@ -570,31 +623,36 @@ function ActionButton({
   variant,
 }: ActionButtonProps) {
   const colors = useThemeColors();
+  const isDestructive = variant === "destructive";
   const bgClass =
     variant === "primary"
       ? "bg-primary"
-      : variant === "destructive"
-        ? "border border-destructive/40 bg-destructive/10"
-        : "border border-border bg-card";
+      : variant === "secondary"
+        ? "border border-border bg-card"
+        : "active:bg-destructive/10"; // destructive: 无填充,降权
   const textClass =
     variant === "primary"
       ? "text-primary-foreground"
-      : variant === "destructive"
-        ? "text-destructive"
-        : "text-foreground";
+      : variant === "secondary"
+        ? "text-foreground"
+        : "text-destructive";
   const iconColor =
     variant === "primary"
       ? colors.primaryForeground
-      : variant === "destructive"
-        ? colors.destructive
-        : colors.foreground;
+      : variant === "secondary"
+        ? colors.foreground
+        : colors.destructive;
+  // 主/次操作:全宽实心,占主导;破坏性:窄、内容自适应宽度,让位于主操作
+  const layoutClass = isDestructive
+    ? "min-h-11 px-4 py-2"
+    : "min-h-12 w-full py-3";
 
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
-      className={`min-h-11 min-w-22 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 ${bgClass} active:opacity-70 disabled:opacity-50`}
+      className={`flex-row items-center justify-center gap-1.5 rounded-xl ${layoutClass} ${bgClass} active:opacity-70 disabled:opacity-50`}
     >
       {loading ? (
         <ActivityIndicator size="small" color={iconColor} />

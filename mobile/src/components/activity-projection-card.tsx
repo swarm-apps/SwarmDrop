@@ -116,7 +116,7 @@ export function ActivityProjectionCard({
           accessibilityRole="button"
           className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70"
         >
-          <RotateCcw color={colors.background} size={15} />
+          <RotateCcw color={colors.primaryForeground} size={15} />
           <Text className="text-[13px] font-semibold text-primary-foreground">
             <Trans>恢复传输</Trans>
           </Text>

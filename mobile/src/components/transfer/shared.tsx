@@ -56,17 +56,20 @@ interface StatusMeta {
   text: string;
 }
 
+/**
+ * 状态色只用设计系统的 4 个语义 token(primary/success/warning/destructive)+ muted。
+ * 与 `status-pill.tsx` 共用同一套色彩语汇,不引入 Tailwind 原生调色板(blue/yellow/orange)。
+ * - 进行中 → primary(与进度条填充、实时 % 的蓝一致)
+ * - 各类"待处理/暂停/可恢复中断" → warning(具体差异由 StatusLabel 文案承载,不靠色相区分)
+ * - 完成 → success,失败 → destructive,已取消/已拒绝 → muted
+ */
 const STATUS_META: Record<string, StatusMeta> = {
   transferring: {
     key: "transferring",
-    bg: "bg-blue-500/15",
-    text: "text-blue-500",
+    bg: "bg-primary/15",
+    text: "text-primary",
   },
-  paused: {
-    key: "paused",
-    bg: "bg-yellow-500/15",
-    text: "text-yellow-600 dark:text-yellow-400",
-  },
+  paused: { key: "paused", bg: "bg-warning/15", text: "text-warning" },
   completed: { key: "completed", bg: "bg-success/15", text: "text-success" },
   failed: { key: "failed", bg: "bg-destructive/15", text: "text-destructive" },
   cancelled: {
@@ -76,28 +79,24 @@ const STATUS_META: Record<string, StatusMeta> = {
   },
   waiting_accept: {
     key: "waiting_accept",
-    bg: "bg-yellow-500/15",
-    text: "text-yellow-600 dark:text-yellow-400",
+    bg: "bg-warning/15",
+    text: "text-warning",
   },
-  offered: {
-    key: "offered",
-    bg: "bg-yellow-500/15",
-    text: "text-yellow-600 dark:text-yellow-400",
-  },
+  offered: { key: "offered", bg: "bg-warning/15", text: "text-warning" },
   interrupted: {
     key: "interrupted",
-    bg: "bg-orange-500/15",
-    text: "text-orange-600 dark:text-orange-400",
+    bg: "bg-warning/15",
+    text: "text-warning",
   },
   peer_offline: {
     key: "peer_offline",
-    bg: "bg-orange-500/15",
-    text: "text-orange-600 dark:text-orange-400",
+    bg: "bg-warning/15",
+    text: "text-warning",
   },
   app_restarted: {
     key: "app_restarted",
-    bg: "bg-orange-500/15",
-    text: "text-orange-600 dark:text-orange-400",
+    bg: "bg-warning/15",
+    text: "text-warning",
   },
   rejected: {
     key: "rejected",
@@ -244,13 +243,45 @@ function pad(n: number) {
 
 /* ─── 错误/原因 i18n 映射 ─── */
 
+/**
+ * 把后端(Rust FfiError:io/network/transfer/database error…)抛出的技术错误串
+ * 映射成"友好房东"口吻的中文。核心错误多为英文自由文本、无法穷举,所以用关键词
+ * 启发式命中常见失败类别,未命中时降级到通用兜底 —— 绝不把原始英文直接甩给用户。
+ */
+export function friendlyTransferError(
+  message: string | null | undefined,
+): ReactNode {
+  if (!message) return null;
+  const m = message.toLowerCase();
+
+  if (/reject/.test(m)) return <Trans>对方拒绝了这次传输</Trans>;
+  if (/(cancel|abort)/.test(m)) return <Trans>传输已取消</Trans>;
+  if (/(timeout|timed out|deadline)/.test(m))
+    return <Trans>连接超时,请确认对方设备在线后重试</Trans>;
+  if (/(offline|disconnect|not connected|peer.*(gone|left|closed))/.test(m))
+    return <Trans>对方设备已离线,重新上线后可继续</Trans>;
+  if (/(network|connection|connect|reset|broken pipe|unreachable|dial)/.test(m))
+    return <Trans>网络连接中断,请确认两端在线后重试</Trans>;
+  if (/(no space|disk full|enospc|quota)/.test(m))
+    return <Trans>存储空间不足,清理后重试</Trans>;
+  if (/(permission|denied|eacces|forbidden|unauthor)/.test(m))
+    return <Trans>没有写入权限,请检查保存位置</Trans>;
+  if (/(not found|enoent|no such file|missing file)/.test(m))
+    return <Trans>找不到要传输的文件,可能已被移动或删除</Trans>;
+  if (/(io error|read|write)/.test(m))
+    return <Trans>读写文件时出错,请重试</Trans>;
+
+  return <Trans>传输过程中出错了,请重试</Trans>;
+}
+
 export function LocalizedError({
   message,
 }: {
   message: string | null | undefined;
 }) {
-  if (!message) return null;
-  return <Text>{message}</Text>;
+  const friendly = friendlyTransferError(message);
+  if (!friendly) return null;
+  return <Text>{friendly}</Text>;
 }
 
 export function projectionReasonLabel(

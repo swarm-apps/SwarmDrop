@@ -89,7 +89,7 @@ export default function ActivityScreen() {
       />
 
       <Text className="px-1 text-[12px] text-muted-foreground">
-        <Trans>传输过程、恢复入口和诊断记录</Trans>
+        <Trans>查看进行中、可恢复,以及已完成的传输</Trans>
       </Text>
 
       {hasContent ? (
@@ -97,7 +97,6 @@ export default function ActivityScreen() {
           <ProjectionSection
             title={<Trans>正在进行</Trans>}
             testID="activity-section-active"
-            empty={<Trans>没有正在传输的项目</Trans>}
             projections={grouped.active}
             progressBySession={progressBySession}
             onPress={goDetail}
@@ -105,7 +104,6 @@ export default function ActivityScreen() {
           <ProjectionSection
             title={<Trans>可恢复</Trans>}
             testID="activity-section-recoverable"
-            empty={<Trans>没有等待恢复的传输</Trans>}
             projections={grouped.recoverable}
             progressBySession={progressBySession}
             onPress={goDetail}
@@ -114,15 +112,13 @@ export default function ActivityScreen() {
           <ProjectionSection
             title={<Trans>需要注意</Trans>}
             testID="activity-section-attention"
-            empty={<Trans>没有需要处理的问题</Trans>}
             projections={grouped.attention}
             progressBySession={progressBySession}
             onPress={goDetail}
           />
           <ProjectionSection
-            title={<Trans>完成诊断</Trans>}
+            title={<Trans>已完成</Trans>}
             testID="activity-section-completed"
-            empty={<Trans>完成和取消记录会出现在这里</Trans>}
             projections={grouped.completed}
             progressBySession={progressBySession}
             onPress={goDetail}
@@ -162,7 +158,6 @@ export default function ActivityScreen() {
 function ProjectionSection({
   title,
   testID,
-  empty,
   projections,
   progressBySession,
   onPress,
@@ -170,34 +165,27 @@ function ProjectionSection({
 }: {
   title: React.ReactNode;
   testID: string;
-  empty: React.ReactNode;
   projections: MobileTransferProjection[];
   progressBySession: Record<string, MobileTransferProgress>;
   onPress: (sessionId: string) => void;
   onResume?: (sessionId: string) => void;
 }) {
+  // 空分组直接不渲染 —— 不再为"展示 1 条记录"先铺几张空占位卡。
+  if (projections.length === 0) return null;
   return (
     <View className="gap-2.5" testID={testID}>
       <Text className="text-[15px] font-semibold text-foreground">{title}</Text>
-      {projections.length > 0 ? (
-        <View className="gap-2">
-          {projections.map((projection) => (
-            <ActivityProjectionCard
-              key={projection.sessionId}
-              projection={projection}
-              progress={progressBySession[projection.sessionId]}
-              onPress={onPress}
-              onResume={onResume}
-            />
-          ))}
-        </View>
-      ) : (
-        <View className="rounded-lg border border-border bg-card px-3.5 py-4">
-          <Text className="text-center text-[12px] text-muted-foreground">
-            {empty}
-          </Text>
-        </View>
-      )}
+      <View className="gap-2">
+        {projections.map((projection) => (
+          <ActivityProjectionCard
+            key={projection.sessionId}
+            projection={projection}
+            progress={progressBySession[projection.sessionId]}
+            onPress={onPress}
+            onResume={onResume}
+          />
+        ))}
+      </View>
     </View>
   );
 }

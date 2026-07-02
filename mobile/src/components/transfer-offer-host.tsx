@@ -14,6 +14,7 @@ import {
 import { MobileTransferOrigin_Tags } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { buildTreeDataFromOffer, FileTree } from "@/components/file-tree";
+import { formatBytes } from "@/components/transfer/shared";
 import { TrustBadge } from "@/components/trust-badge";
 import {
   AlertDialog,
@@ -245,7 +246,7 @@ export function TransferOfferHost() {
               accessibilityRole="button"
               accessibilityLabel={t`更改保存位置`}
               testID="transfer-offer-change-save-dir"
-              className="rounded-lg border border-border px-2.5 py-1.5 active:opacity-70"
+              className="min-h-11 items-center justify-center rounded-lg border border-border px-3.5 active:opacity-70"
             >
               <Text className="text-[12px] font-semibold text-foreground">
                 <Trans>更改</Trans>
@@ -296,9 +297,9 @@ export function TransferOfferHost() {
                 className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-80 disabled:opacity-50"
               >
                 {busy === "accepting" ? (
-                  <ActivityIndicator color={colors.background} />
+                  <ActivityIndicator color={colors.primaryForeground} />
                 ) : (
-                  <Download color={colors.background} size={16} />
+                  <Download color={colors.primaryForeground} size={16} />
                 )}
                 <Text className="text-base font-semibold text-primary-foreground">
                   {busy === "accepting" ? (
@@ -348,12 +349,4 @@ function prettyDestination(uri: string): string {
   } catch {
     return uri;
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }

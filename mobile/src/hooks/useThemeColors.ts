@@ -22,6 +22,9 @@ export function useThemeColors() {
   const primary = useUnstableNativeVariable("--primary");
   const primaryForeground = useUnstableNativeVariable("--primary-foreground");
   const destructive = useUnstableNativeVariable("--destructive");
+  const destructiveForeground = useUnstableNativeVariable(
+    "--destructive-foreground",
+  );
   const success = useUnstableNativeVariable("--success");
   const warning = useUnstableNativeVariable("--warning");
   const border = useUnstableNativeVariable("--border");
@@ -38,6 +41,7 @@ export function useThemeColors() {
       primary: hsl(primary),
       primaryForeground: hsl(primaryForeground),
       destructive: hsl(destructive),
+      destructiveForeground: hsl(destructiveForeground),
       success: hsl(success),
       warning: hsl(warning),
       border: hsl(border),
@@ -53,6 +57,7 @@ export function useThemeColors() {
       primary,
       primaryForeground,
       destructive,
+      destructiveForeground,
       success,
       warning,
       border,
