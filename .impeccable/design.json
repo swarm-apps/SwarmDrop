@@ -9,7 +9,7 @@
         "displayName": "Hive Gold",
         "canonical": "oklch(0.75 0.13 78)",
         "canonicalDark": "oklch(0.78 0.123 78)",
-        "note": "Re-anchored via /impeccable colorize 2026-07 from Deep Indigo Navy #112953 (user verdict: too dark). Sourced from the interlocked-hexagon logo's gold mark (#DDAE6E family), chroma lifted for UI energy. Fills always pair with Bronze Ink oklch(0.25 0.05 78) text, never white. Text/icon form is the separate brand-text token.",
+        "note": "Re-anchored via /impeccable colorize 2026-07 from Deep Indigo Navy #112953 (user verdict: too dark). Literally the color of the golden acorn-shield in the squirrel logo (#DBA341) — the payload the mascot guards. Fills always pair with Bronze Ink oklch(0.25 0.05 78) text, never white. Text/icon form is the separate brand-text token.",
         "tonalRamp": [
           "oklch(0.15 0.06 78)",
           "oklch(0.27 0.08 78)",
