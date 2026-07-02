@@ -101,6 +101,29 @@ tab bar 处理安全区、按压反馈和切换动画，避免 `expo-router` JS 
 
 **相关文件**：`src/app/(main)/_layout.tsx`
 
+### SafeAreaView 上的 className `paddingHorizontal` 会被 inset padding 覆盖 → 内容贴边
+
+`react-native-safe-area-context` 的 `<SafeAreaView>` 会把它算出的 safe-area inset 写成自身的
+`padding`,**覆盖掉 NativeWind className 里的 `px-*`(左右会变 0,内容贴屏幕边)**。`bg-*` 这类
+非 padding 的 className 仍生效,所以现象是"背景色对了、但左右没有内边距"。
+
+**正确做法**:SafeAreaView 只放 `bg-*` + flex + `edges`,把水平/垂直内边距放到**内层 View**。
+这也是 `AppScreen`([src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx))一直
+在用的约定。
+
+```tsx
+<SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top", "bottom"]}>
+  <View className="flex-1 px-7 pt-4">{children}</View>
+  <View className="gap-4 px-7 pb-4 pt-4">{footer}</View>
+</SafeAreaView>
+```
+
+**不要做**:`<SafeAreaView className="bg-background px-6 py-4">` —— `px-6`/`py-4` 会被 inset
+覆盖,onboarding 三屏最初就是这样导致卖点和按钮贴边。
+
+**相关文件**:[src/components/onboarding/onboarding-scaffold.tsx](../../src/components/onboarding/onboarding-scaffold.tsx)、
+[src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)
+
 ### NotifierRoot 用 useRNScreensOverlay 才能浮在 modal 上
 
 `react-native-notifier` 默认渲染层在 Stack 下，bottom-sheet / 全屏 modal 弹起后 toast 会被挡住。

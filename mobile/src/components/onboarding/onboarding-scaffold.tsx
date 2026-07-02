@@ -19,13 +19,15 @@ export function OnboardingScreen({
   footer: ReactNode;
 }) {
   return (
+    // 水平内边距放在内层 View —— safe-area-context 的 SafeAreaView 会用自身 inset padding
+    // 覆盖 className 的 paddingHorizontal(左右会变 0、内容贴边),与 AppScreen 同一约定。
     <SafeAreaView
       style={{ flex: 1 }}
-      className="bg-background px-6 py-4"
+      className="bg-background"
       edges={["top", "bottom"]}
     >
-      <View className="flex-1">{children}</View>
-      <View className="gap-4 pt-4">{footer}</View>
+      <View className="flex-1 px-7 pt-4">{children}</View>
+      <View className="gap-4 px-7 pb-4 pt-4">{footer}</View>
     </SafeAreaView>
   );
 }

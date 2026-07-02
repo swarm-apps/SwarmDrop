@@ -36,6 +36,20 @@ name: UI parity - device policy editor
     visible:
       id: device-policy-sheet
     timeout: 15000
+# 「保存位置」选择按钮在基础区,始终可见
+- assertVisible:
+    id: device-policy-save-location-button
+- assertVisible:
+    id: device-policy-save-button
+# 「最大大小」已收进「高级」渐进披露(默认收起),先滚到并展开「高级」
+- scrollUntilVisible:
+    element:
+      id: device-policy-advanced-toggle
+    direction: DOWN
+    timeout: 15000
+- tapOn:
+    id: device-policy-advanced-toggle
+- waitForAnimationToEnd
 - scrollUntilVisible:
     element:
       id: device-policy-max-size-input
@@ -43,10 +57,6 @@ name: UI parity - device policy editor
     timeout: 15000
 - assertVisible:
     id: device-policy-max-size-input
-- assertVisible:
-    id: device-policy-save-location-button
-- assertVisible:
-    id: device-policy-save-button
 - tapOn:
     id: device-policy-max-size-input
 - inputText: "256"

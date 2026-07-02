@@ -59,7 +59,7 @@ export default function Welcome() {
           </View>
         </View>
 
-        <View className="gap-3.5 px-1">
+        <View className="gap-3.5">
           {features.map(({ Icon, text }) => (
             <View key={text} className="flex-row items-center gap-3">
               <View className="size-9 items-center justify-center rounded-full bg-primary/10">
