@@ -101,7 +101,7 @@ function Hero() {
           >
             <a
               href={links.downloads}
-              className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-white shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-[0.98]"
+              className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-[var(--brand-ink)] shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-[0.98]"
             >
               下载 {appName}
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
@@ -285,7 +285,7 @@ function HowItWorks() {
           {STEPS.map((s, i) => (
             <li key={s.title} className="reveal relative flex flex-col">
               <div className="mb-4 flex items-center gap-3">
-                <span className="inline-flex size-9 items-center justify-center rounded-full bg-[var(--brand-solid)] font-mono text-sm font-bold text-white">
+                <span className="inline-flex size-9 items-center justify-center rounded-full bg-[var(--brand-solid)] font-mono text-sm font-bold text-[var(--brand-ink)]">
                   {i + 1}
                 </span>
                 {i < STEPS.length - 1 && (
@@ -367,7 +367,7 @@ function Security() {
 function FinalCta() {
   return (
     <section className="mx-auto w-full max-w-6xl px-6 pb-20">
-      <div className="relative overflow-hidden rounded-3xl border border-fd-border bg-[var(--brand-solid)] px-8 py-16 text-center">
+      <div className="relative overflow-hidden rounded-3xl border border-fd-border bg-[var(--tile)] px-8 py-16 text-center">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-40"
@@ -385,7 +385,7 @@ function FinalCta() {
         <div className="relative mt-9 flex flex-wrap items-center justify-center gap-3">
           <a
             href={links.downloads}
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-7 text-sm font-semibold text-[var(--brand-solid)] shadow-sm transition-transform hover:shadow-md active:scale-[0.98]"
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-[var(--brand-ink)] shadow-sm transition-transform hover:shadow-md active:scale-[0.98]"
           >
             下载 {appName}
             <ArrowRight className="size-4" />

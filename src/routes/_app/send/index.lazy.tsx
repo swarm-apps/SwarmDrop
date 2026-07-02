@@ -199,7 +199,7 @@ function DesktopSendView({
           >
             <div className="flex h-full flex-col justify-between gap-5">
               <div className="glass-accent flex items-center gap-3 rounded-[22px] p-4">
-                <span className="glass-control flex size-13 shrink-0 items-center justify-center rounded-[19px] text-blue-600 dark:text-blue-300">
+                <span className="glass-control flex size-13 shrink-0 items-center justify-center rounded-[19px] text-brand">
                   <DeviceIcon className="size-6" />
                 </span>
                 <div className="min-w-0">

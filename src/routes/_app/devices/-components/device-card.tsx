@@ -44,7 +44,7 @@ import { TrustPolicyDialog, trustConfig } from "./trust-policy-dialog";
 
 const statusTone = {
   unpaired:
-    "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-500/12 dark:text-blue-300 dark:ring-blue-400/15",
+    "bg-primary/10 text-brand ring-primary/10 dark:bg-primary/12 dark:ring-primary/15",
 };
 
 const connectionConfig: Record<
@@ -65,8 +65,8 @@ const connectionConfig: Record<
   dcutr: {
     icon: Zap,
     label: msg`打洞`,
-    bgColor: "bg-blue-100",
-    textColor: "text-blue-600",
+    bgColor: "bg-sky-100",
+    textColor: "text-sky-600",
   },
   relay: {
     icon: RadioTower,
@@ -132,7 +132,7 @@ export function DeviceCard({
           "group relative flex min-h-[132px] flex-col gap-2.5 overflow-hidden rounded-[22px] p-3.5 transition-[border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
           device.isPaired && isOnline ? "glass-accent" : "glass-card",
           isInteractive
-            ? "cursor-pointer hover:border-blue-400/25 hover:shadow-[0_18px_42px_rgba(37,99,235,0.10)] active:scale-[0.99]"
+            ? "cursor-pointer hover:border-primary/25 hover:shadow-[0_18px_42px_rgba(219,163,65,0.10)] active:scale-[0.99]"
             : "opacity-72",
         )}
       >
@@ -143,14 +143,14 @@ export function DeviceCard({
             className={cn(
               "glass-control flex size-11 shrink-0 items-center justify-center rounded-[15px] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105",
               isOnline
-                ? "text-blue-600 dark:text-blue-400"
+                ? "text-brand"
                 : "text-muted-foreground",
             )}
           >
             <DeviceIcon
               className={cn(
                 "size-5",
-                isOnline ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"
+                isOnline ? "text-brand" : "text-muted-foreground"
               )}
             />
           </div>
@@ -230,7 +230,7 @@ export function DeviceCard({
               className={cn(
                 "h-auto shrink-0 gap-1.5 rounded-full px-3 py-1.5 text-xs transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]",
                 isOnline
-                  ? "bg-blue-600 shadow-[0_8px_18px_rgba(37,99,235,0.18)] hover:bg-blue-700"
+                  ? "shadow-[0_8px_18px_rgba(219,163,65,0.18)]"
                   : "glass-control border-transparent text-muted-foreground"
               )}
             >
@@ -245,7 +245,7 @@ export function DeviceCard({
                 e.stopPropagation();
                 onConnect?.(device);
               }}
-              className="glass-control h-auto shrink-0 gap-1.5 rounded-full border-transparent px-3 py-1.5 text-xs text-blue-600 transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97] dark:text-blue-300"
+              className="glass-control h-auto shrink-0 gap-1.5 rounded-full border-transparent px-3 py-1.5 text-xs text-brand transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]"
             >
               <Link className="size-3.5" />
               <Trans>连接</Trans>

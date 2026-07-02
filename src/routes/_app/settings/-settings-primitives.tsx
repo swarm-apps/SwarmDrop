@@ -35,7 +35,7 @@ export function SettingsSection({
     >
       <div className="flex items-center gap-2 px-1">
         {Icon ? (
-          <Icon className="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
+          <Icon className="size-4 shrink-0 text-brand" />
         ) : null}
         <h2 className="text-sm font-semibold tracking-tight text-foreground">
           {title}

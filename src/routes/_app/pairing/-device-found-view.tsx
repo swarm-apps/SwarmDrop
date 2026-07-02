@@ -79,12 +79,12 @@ function DeviceHeader({
       <div
         className={
           size === "lg"
-            ? "glass-control flex size-[72px] items-center justify-center rounded-[24px] bg-blue-600/8"
-            : "glass-control flex size-16 items-center justify-center rounded-[22px] text-blue-600 dark:text-blue-300"
+            ? "glass-control flex size-[72px] items-center justify-center rounded-[24px] bg-primary/8"
+            : "glass-control flex size-16 items-center justify-center rounded-[22px] text-brand"
         }
       >
         <DeviceIcon
-          className={size === "lg" ? "size-8 text-blue-600 dark:text-blue-300" : "size-7"}
+          className={size === "lg" ? "size-8 text-brand" : "size-7"}
         />
       </div>
       <div className="flex flex-col items-center gap-1">
@@ -116,7 +116,7 @@ function InfoList({ platform, arch }: { platform: string; arch: string }) {
           <Trans>配对方式</Trans>
         </span>
         <div className="flex items-center gap-1.5">
-          <Hash className="size-3.5 text-blue-600" />
+          <Hash className="size-3.5 text-brand" />
           <span className="font-medium text-foreground">
             <Trans>配对码</Trans>
           </span>
@@ -204,7 +204,7 @@ export function MobileDeviceFoundView({
           <Button
             onClick={onSendRequest}
             disabled={isRequesting}
-            className="h-11 w-full bg-blue-600 hover:bg-blue-700"
+            className="h-11 w-full"
             size="lg"
           >
             {isRequesting ? (
@@ -273,7 +273,7 @@ export function DesktopDeviceFoundContent({
         <Button
           onClick={onSendRequest}
           disabled={isRequesting}
-          className="rounded-full bg-blue-600 shadow-[0_10px_22px_rgba(37,99,235,0.18)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-blue-700 active:scale-[0.98]"
+          className="rounded-full shadow-[0_10px_22px_rgba(219,163,65,0.18)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]"
         >
           {isRequesting && <Loader2 className="size-4 animate-spin" />}
           {isRequesting ? <Trans>等待对方确认...</Trans> : <Trans>发送配对请求</Trans>}

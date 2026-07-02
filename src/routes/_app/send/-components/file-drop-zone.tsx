@@ -73,14 +73,14 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
       className={cn(
         "group flex flex-col items-center justify-center gap-3.5 rounded-[24px] p-2 transition-[background-color,transform,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
         isDragging
-          ? "glass-accent scale-[0.995] shadow-[0_18px_46px_rgba(37,99,235,0.12)]"
+          ? "glass-accent scale-[0.995] shadow-[0_18px_46px_rgba(219,163,65,0.12)]"
           : "glass-card hover:shadow-[0_16px_42px_rgba(15,23,42,0.06)]",
         disabled && "pointer-events-none opacity-50",
       )}
       style={{ height: 164 }}
     >
       <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-[18px] bg-white/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-        <div className="glass-control flex size-12 items-center justify-center rounded-[18px] text-blue-600 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-0.5 dark:text-blue-300">
+        <div className="glass-control flex size-12 items-center justify-center rounded-[18px] text-brand transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-0.5">
           <CloudUpload className="size-5.5" />
         </div>
 
@@ -93,7 +93,7 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
             type="button"
             onClick={handleSelectFiles}
             disabled={disabled}
-            className="rounded-full bg-blue-600 px-5 py-2 text-[13px] font-medium text-white shadow-[0_10px_22px_rgba(37,99,235,0.18)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50"
+            className="rounded-full bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground shadow-[0_10px_22px_rgba(219,163,65,0.18)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50"
           >
             <Trans>选择文件</Trans>
           </button>
@@ -101,7 +101,7 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
             type="button"
             onClick={handleSelectFolder}
             disabled={disabled}
-            className="glass-control rounded-full px-5 py-2 text-[13px] font-medium text-blue-600 transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 active:scale-[0.98] disabled:opacity-50 dark:text-blue-300 dark:hover:bg-white/[0.07]"
+            className="glass-control rounded-full px-5 py-2 text-[13px] font-medium text-brand transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 active:scale-[0.98] disabled:opacity-50 dark:hover:bg-white/[0.07]"
           >
             <Trans>选择文件夹</Trans>
           </button>

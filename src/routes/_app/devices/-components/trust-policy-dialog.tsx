@@ -383,7 +383,7 @@ export function trustConfig(trustLevel: DeviceTrustLevel) {
         icon: Shield,
         label: <Trans>协作者</Trans>,
         className:
-          "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-500/12 dark:text-blue-300 dark:ring-blue-400/15",
+          "bg-primary/10 text-brand ring-primary/10 dark:bg-primary/12 dark:ring-primary/15",
       };
   }
 }

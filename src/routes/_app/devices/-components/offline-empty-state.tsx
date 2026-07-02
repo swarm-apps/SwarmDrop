@@ -25,7 +25,7 @@ export function OfflineEmptyState({ onStartClick }: OfflineEmptyStateProps) {
       <button
         type="button"
         onClick={onStartClick}
-        className="flex items-center gap-2 rounded-xl bg-blue-600 px-8 py-3 text-base font-semibold text-white transition-colors hover:bg-blue-700"
+        className="flex items-center gap-2 rounded-xl bg-primary px-8 py-3 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <Play className="size-[18px]" />
         <Trans>启动节点</Trans>

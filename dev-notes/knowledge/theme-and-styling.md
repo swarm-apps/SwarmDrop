@@ -4,6 +4,30 @@
 
 桌面端 UI 层的项目特有约束：shadcn/ui new-york 风格、Tailwind v4 token、macOS 自定义标题栏、Aurora 背景。本主题只记录"看代码看不出来 / 容易踩坑"的部分，常规 utility 用法直接查 `/tailwind-css-patterns` 或 `/tailwind-design-system`。
 
+## 主题色：蜂巢蜜金双 token 体系
+
+### 金色 primary 不能直接当文字色用（--brand 存在的原因）
+
+2026-07 起 primary 是蜂巢蜜金（light `oklch(0.75 0.13 78)` / dark `oklch(0.78 0.123 78)`，源自 logo 金色）。金色系是浅色，与旧的深藏蓝 primary 有两个根本差异：
+
+**正确做法**：
+- **填充场景**（按钮底、badge 底、开关轨道）：用 `bg-primary` + `text-primary-foreground`（暖调墨色 `oklch(0.25 0.05 78)`，对金底 7:1+）。**不是白字**——白字在金底上只有 ~1.9:1
+- **文字/图标场景**（链接、accent 图标、彩色标签）：用 `text-brand`（light 深金 `#A56800` 白底 4.6:1；dark 自动切亮金）。`text-primary` 在白底上只有 2.8:1，会挂 WCAG AA
+- 半透明 wash 用 `bg-primary/10`、`ring-primary/15` 这类 opacity modifier，light/dark 各自微调档位（dark 通常高一档）
+
+**不要做**：
+- `text-primary` 当文字色（亮色模式必挂对比度）
+- 金色填充配 `text-white`
+- 新代码再写死 `text-blue-600` / `bg-blue-500/10` 之类蓝色 utility——蓝色 accent 已于主题迁移时全量清除
+
+**相关文件**：`src/index.css`（`--brand` 定义 + `@theme inline` 注册）、`DESIGN.md`（Brand Fidelity Rule）
+
+### 连接类型徽章三色保持语义可辨
+
+设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=green、打洞=sky、中继=amber。主题迁移时曾把打洞扫成品牌金，和中继的 amber 撞色，已改回 sky。品牌金与 amber 色相接近（78 vs ~70），任何新的琥珀/黄色语义用法都要先确认与品牌金拉得开距离。
+
+**相关文件**：`src/routes/_app/devices/-components/device-card.tsx`（`connectionConfig`）
+
 ## 窗口装饰 (macOS)
 
 ### macOS 标题栏走 Overlay 模式
@@ -107,7 +131,7 @@ const nearbyDevices = useNetworkStore(
 
 设置页所有分区一律用 `src/routes/_app/settings/-settings-primitives.tsx` 的三件套，不要每个 section 各自手绘卡片：
 
-- `SettingsSection`：分组标题（蓝色图标 `text-blue-600 dark:text-blue-400` + 标题，可选右侧 `aside`）
+- `SettingsSection`：分组标题（品牌色图标 `text-brand` + 标题，可选右侧 `aside`）
 - `SettingsCard`：单层 `glass-card`，`overflow-hidden rounded-[20px]`，**不在内部再套 glass-card**
 - `SettingsRow`：行内 `border-b border-border/60 last:border-b-0` 分隔，靠分隔线而非「每行独立浮块」
 
@@ -119,7 +143,7 @@ const nearbyDevices = useNetworkStore(
 - 外观的主题选择用可视化迷你预览卡（`ThemeOption` / `ThemePreview`：系统＝左右半屏、浅/深＝迷你窗口缩略图 + 选中蓝边），不要用朴素 Select；让内容少的卡在 bento 里也够"充实"
 - 「关于」做成产品介绍卡（slogan + 一句话定位 + 核心特性标签 `FeatureTag` + 官网 / GitHub / 更新日志 / 检查更新按钮，文案对齐 README），置于 row2 设备信息下方作为产品展示；更新检查 / 下载 banner 仍挂在此卡底部
 - 圆角 scale 收敛：卡片 `rounded-[20px]`、内部小块/控件 `rounded-xl`、胶囊 `rounded-full`
-- 蓝色强调统一 `text-blue-600 dark:text-blue-400` / `bg-blue-500/10`，不要混用 `blue-200/300/400` 各种暗色变体
+- 强调色统一 `text-brand` / `bg-primary/10`（2026-07 由 `text-blue-600 dark:text-blue-400` 全量迁移而来），不要写死任何 blue/amber 色阶 utility
 - 节点设置「改了要重启」的逻辑用 `useNodeRestart()` hook + `NodeRestartBanner`，网络 / 引导节点共用，不要各抄一份
 
 **不要做**：

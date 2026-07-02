@@ -255,7 +255,7 @@ function ActivityMetric({
         <span
           className={cn(
             "flex size-8 items-center justify-center rounded-[12px]",
-            tone === "blue" && "bg-blue-500/10 text-blue-600 dark:text-blue-300",
+            tone === "blue" && "bg-primary/10 text-brand",
             tone === "green" && "bg-green-500/10 text-green-700 dark:text-green-300",
             tone === "amber" && "bg-amber-500/12 text-amber-700 dark:text-amber-300",
             tone === "muted" && "bg-foreground/[0.045] text-muted-foreground dark:bg-white/[0.06]",

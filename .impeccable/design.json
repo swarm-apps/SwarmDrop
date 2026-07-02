@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-01T00:00:00.000Z",
+  "title": "Design System: SwarmDrop",
+  "extensions": {
+    "colorMeta": {
+      "hive-gold": {
+        "role": "primary",
+        "displayName": "Hive Gold",
+        "canonical": "oklch(0.75 0.13 78)",
+        "canonicalDark": "oklch(0.78 0.123 78)",
+        "note": "Re-anchored via /impeccable colorize 2026-07 from Deep Indigo Navy #112953 (user verdict: too dark). Literally the color of the golden acorn-shield in the squirrel logo (#DBA341) — the payload the mascot guards. Fills always pair with Bronze Ink oklch(0.25 0.05 78) text, never white. Text/icon form is the separate brand-text token.",
+        "tonalRamp": [
+          "oklch(0.15 0.06 78)",
+          "oklch(0.27 0.08 78)",
+          "oklch(0.39 0.10 78)",
+          "oklch(0.50 0.12 78)",
+          "oklch(0.62 0.13 78)",
+          "oklch(0.75 0.13 78)",
+          "oklch(0.85 0.10 78)",
+          "oklch(0.95 0.05 78)"
+        ]
+      },
+      "brand-text": {
+        "role": "primary-text",
+        "displayName": "Brand Text Gold",
+        "canonical": "oklch(0.569 0.125 70)",
+        "canonicalDark": "oklch(0.78 0.123 78)",
+        "note": "The text-and-icon form of Hive Gold (--brand / text-brand). Raw fill gold fails contrast as text on white (2.8:1); this darkened form clears 4.6:1 on white and resolves to bright gold (9.2:1) in dark mode.",
+        "tonalRamp": []
+      },
+      "graphite-ink": {
+        "role": "neutral",
+        "displayName": "Graphite Ink",
+        "canonical": "oklch(0.145 0 0)",
+        "tonalRamp": [
+          "oklch(0.15 0 0)",
+          "oklch(0.27 0 0)",
+          "oklch(0.39 0 0)",
+          "oklch(0.50 0 0)",
+          "oklch(0.62 0 0)",
+          "oklch(0.74 0 0)",
+          "oklch(0.85 0 0)",
+          "oklch(0.95 0 0)"
+        ]
+      },
+      "alert-red": {
+        "role": "semantic-destructive",
+        "displayName": "Alert Red",
+        "canonical": "oklch(0.577 0.245 27.325)",
+        "tonalRamp": [
+          "oklch(0.15 0.22 27.325)",
+          "oklch(0.27 0.22 27.325)",
+          "oklch(0.39 0.22 27.325)",
+          "oklch(0.50 0.22 27.325)",
+          "oklch(0.62 0.22 27.325)",
+          "oklch(0.74 0.22 27.325)",
+          "oklch(0.85 0.22 27.325)",
+          "oklch(0.95 0.22 27.325)"
+        ]
+      },
+      "glass-gold-rim": {
+        "role": "accent-latent",
+        "displayName": "Glass Gold Rim",
+        "canonical": "rgb(219 163 65 / 0.16)",
+        "tonalRamp": []
+      }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Headline", "purpose": "SectionHeader titles atop a panel (e.g. 设备, 收件箱)." },
+      "title": { "displayName": "Title", "purpose": "Card/dialog titles, list-item primary labels." },
+      "body": { "displayName": "Body", "purpose": "Default UI text, descriptions, dialog copy." },
+      "label": { "displayName": "Label", "purpose": "Counts, helper captions, badge text." },
+      "mono": { "displayName": "Mono", "purpose": "Peer IDs, pairing codes, hashes, transfer speeds — any literal machine value." }
+    },
+    "shadows": [
+      { "name": "control-flat", "value": "0 1px 2px rgb(0 0 0 / 0.05)", "purpose": "Default resting shadow for buttons, inputs, outline variants." },
+      { "name": "glass-panel-shadow-light", "value": "0 18px 56px rgb(15 23 42 / 0.07)", "purpose": "Ambient shadow for full glass section shells, light mode." },
+      { "name": "glass-panel-shadow-dark", "value": "0 24px 84px rgb(0 0 0 / 0.28)", "purpose": "Ambient shadow for full glass section shells, dark mode." },
+      { "name": "glass-card-shadow-light", "value": "0 12px 32px rgb(15 23 42 / 0.045)", "purpose": "Lighter ambient shadow for nested glass cards/accents, light mode." },
+      { "name": "glass-highlight-rim", "value": "inset 0 1px 0 rgb(255 255 255 / 0.84)", "purpose": "Top-edge rim light simulating glass catching light, light mode." }
+    ],
+    "motion": [
+      { "name": "aurora-drift", "value": "requestAnimationFrame loop, Perlin-noise driven, ~0.6 speed", "purpose": "Ambient WebGL background gradient; runs continuously, gated by IntersectionObserver + visibilitychange." },
+      { "name": "reduced-motion-freeze", "value": "renders a single static frame instead of looping", "purpose": "prefers-reduced-motion fallback for the ambient background — texture stays, animation stops." },
+      { "name": "control-transition", "value": "transition-all (Tailwind default duration/easing)", "purpose": "Default hover/focus transition for buttons, inputs, switches." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "<768px" },
+      { "name": "tablet", "value": "768px-1023px" },
+      { "name": "desktop", "value": ">=1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Default call-to-action button — Hive Gold fill with Bronze Ink text, used sparingly per screen.",
+      "html": "<button class=\"ds-btn-primary\">连接设备</button>",
+      "css": ".ds-btn-primary { background: oklch(0.75 0.13 78); color: oklch(0.25 0.05 78); border: none; border-radius: 8px; height: 36px; padding: 0 16px; font-size: 14px; font-weight: 500; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); cursor: pointer; transition: background-color 0.15s ease; } .ds-btn-primary:hover { background: color-mix(in oklab, oklch(0.75 0.13 78) 90%, white); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgb(219 163 65 / 0.5); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action — flat, bordered, the most-used non-primary button variant.",
+      "html": "<button class=\"ds-btn-outline\">取消</button>",
+      "css": ".ds-btn-outline { background: oklch(1 0 0); color: oklch(0.145 0 0); border: 1px solid oklch(0.922 0 0); border-radius: 8px; height: 36px; padding: 0 16px; font-size: 14px; font-weight: 500; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); cursor: pointer; transition: background-color 0.15s ease; } .ds-btn-outline:hover { background: oklch(0.97 0 0); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Default text field — hairline border, subtle focus ring, no glow.",
+      "html": "<input class=\"ds-input\" placeholder=\"设备名称\" />",
+      "css": ".ds-input { background: transparent; color: oklch(0.145 0 0); border: 1px solid oklch(0.922 0 0); border-radius: 8px; height: 36px; padding: 4px 12px; font-size: 14px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); outline: none; transition: box-shadow 0.15s ease, border-color 0.15s ease; } .ds-input::placeholder { color: oklch(0.556 0 0); } .ds-input:focus-visible { border-color: oklch(0.708 0 0); box-shadow: 0 0 0 3px rgb(112 112 112 / 0.5); }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-default",
+      "description": "Pill-shaped state indicator — connection status, transfer state.",
+      "html": "<span class=\"ds-badge\">已连接</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 4px; background: oklch(0.75 0.13 78); color: oklch(0.25 0.05 78); border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 500; white-space: nowrap; }"
+    },
+    {
+      "name": "Glass Section Shell",
+      "kind": "card",
+      "refersTo": "glass-panel",
+      "description": "Signature structural container — the outer chrome for every page section (devices, inbox, transfer, settings tiles).",
+      "html": "<section class=\"ds-glass-panel\"><div class=\"ds-glass-panel-inner\">设备列表</div></section>",
+      "css": ".ds-glass-panel { background: rgb(255 255 255 / 0.58); backdrop-filter: blur(20px) saturate(145%); -webkit-backdrop-filter: blur(20px) saturate(145%); border-radius: 24px; padding: 16px; box-shadow: 0 18px 56px rgb(15 23 42 / 0.07), inset 0 1px 0 rgb(255 255 255 / 0.84); } .ds-glass-panel-inner { color: oklch(0.145 0 0); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }"
+    },
+    {
+      "name": "Pairing Code Cell",
+      "kind": "custom",
+      "refersTo": "glass-control",
+      "description": "Single-digit chip for the 6-digit pairing code — the one place glass chrome and mono type meet directly.",
+      "html": "<div class=\"ds-pairing-cell\">7</div>",
+      "css": ".ds-pairing-cell { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 72px; background: rgb(255 255 255 / 0.64); backdrop-filter: blur(12px) saturate(145%); -webkit-backdrop-filter: blur(12px) saturate(145%); border: 1px solid rgb(15 23 42 / 0.055); border-radius: 18px; box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.58); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 30px; font-weight: 600; color: oklch(0.145 0 0); }"
+    },
+    {
+      "name": "Switch",
+      "kind": "input",
+      "refersTo": "switch-checked",
+      "description": "Toggle control — pill track, checked state fills Hive Gold.",
+      "html": "<button class=\"ds-switch\" data-checked=\"true\"><span class=\"ds-switch-thumb\"></span></button>",
+      "css": ".ds-switch { display: inline-flex; align-items: center; width: 32px; height: 18.4px; border-radius: 9999px; border: 1px solid transparent; background: oklch(0.97 0 0); padding: 0; cursor: pointer; transition: background-color 0.15s ease; } .ds-switch[data-checked='true'] { background: oklch(0.75 0.13 78); } .ds-switch-thumb { display: block; width: 16px; height: 16px; border-radius: 9999px; background: oklch(1 0 0); transform: translateX(2px); transition: transform 0.15s ease; } .ds-switch[data-checked='true'] .ds-switch-thumb { transform: translateX(15.6px); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Encrypted Workbench",
+    "overview": "SwarmDrop reads like a tool a developer would trust with their own files, not a consumer app trying to look friendly. The surface language is quiet by default — flat, restrained shadcn primitives (buttons, inputs, badges) with no bold color, no oversized type, no cheerful mascots — and it earns its personality from two deliberate layers on top: a glass chrome system that gives structural containers a soft, blurred depth without ever looking decorative, and a WebGL ambient background that gives the whole app a sense of a live network breathing behind the UI. Every piece of machine-truth renders in monospace with tabular numerals, never in the body sans.",
+    "keyCharacteristics": [
+      "Flat, quiet shadcn primitives at the control level — restraint over decoration.",
+      "A separate glass-chrome vocabulary reserved for structural containers, never for buttons or inputs.",
+      "A single accent color used sparingly; the WebGL ambient background carries most of the 'alive' feeling.",
+      "Monospace + tabular-nums for every literal machine value — the honesty tell of the system.",
+      "Two distinct radius vocabularies: 6-14px for controls, 18-24px for panel chrome."
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Hive Gold is the only saturated color allowed outside the ambient background layer. Connection-type badges (green/sky/amber) are semantic state coding, not accents.", "section": "colors" },
+      { "name": "The Brand Fidelity Rule", "body": "Primary is Hive Gold, sourced from the logo's gold mark: oklch(0.75 0.13 78) light fill / oklch(0.78 0.123 78) dark fill / oklch(0.569 0.125 70) light text form (--brand). Fills pair with Bronze Ink oklch(0.25 0.05 78), never white text. The fill/text two-token split is load-bearing — never use fill gold as text on white.", "section": "colors" },
+      { "name": "The Mono Truth Rule", "body": "Anything that is a copy-able, verifiable, literal value renders in monospace with tabular-nums.", "section": "typography" },
+      { "name": "The Flat-Control, Glass-Chrome Rule", "body": "Clickable/typeable controls stay flat with shadow-xs; containers that hold other things get the glass treatment.", "section": "elevation" },
+      { "name": "The Reduced-Transparency Fallback", "body": "Every glass surface ships a prefers-reduced-transparency fallback to a flat card background in the same commit it's introduced.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep every interactive control flat with shadow-xs only.",
+      "Do render every literal machine value in monospace with tabular-nums.",
+      "Do ship reduced-transparency and reduced-motion fallbacks alongside any new glass or WebGL surface.",
+      "Do treat Hive Gold as the only saturated UI accent.",
+      "Do use the two-radius system deliberately: 6-14px for controls, 18-24px for panel chrome."
+    ],
+    "donts": [
+      "Don't build a generic SaaS dashboard: no gradient hero blocks, no identical repeated card grids.",
+      "Don't build a heavy enterprise back-office: no dense grey-on-grey tables, no Windows-panel density.",
+      "Don't apply backdrop-filter to a button, input, or any control someone clicks or types into.",
+      "Don't add a second saturated accent color to the static UI chrome.",
+      "Don't re-derive or swap Hive Gold's hue, and never use the fill gold as text on white — text-brand exists for that.",
+      "Don't add a persistent sidebar nav rail without checking against the current breadcrumb-only pattern first."
+    ]
+  }
+}

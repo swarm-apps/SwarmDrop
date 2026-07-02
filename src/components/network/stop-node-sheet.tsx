@@ -218,8 +218,8 @@ function StopNodeContent({
       <DialogHeader className="items-center text-center">
         {/* 设备身份卡片 */}
         <div className="relative">
-          <div className="flex size-16 items-center justify-center rounded-2xl bg-blue-50 dark:bg-blue-900/20">
-            <span className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 dark:bg-primary/12">
+            <span className="text-xl font-bold tracking-tight text-brand">
               {avatarInitials}
             </span>
           </div>
@@ -296,7 +296,7 @@ function StopNodeContent({
               className={cn(
                 "border-transparent text-xs",
                 natStatus === "public"
-                  ? "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
+                  ? "bg-primary/10 text-brand dark:bg-primary/15"
                   : "bg-muted text-muted-foreground",
               )}
             >

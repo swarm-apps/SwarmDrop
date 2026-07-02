@@ -39,7 +39,7 @@ function ReceivePage() {
         <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <GlassPanel className="min-h-[420px]">
             <div className="flex h-full flex-col items-center justify-center gap-6 p-6 text-center">
-              <div className="glass-accent flex size-18 items-center justify-center rounded-[28px] text-blue-600 dark:text-blue-300">
+              <div className="glass-accent flex size-18 items-center justify-center rounded-[28px] text-brand">
                 <Download className="size-8" />
               </div>
               <div>

@@ -219,7 +219,7 @@ export function AddDeviceSection({
             disabled={!isNodeRunning || !codeInfo || isExpired}
             aria-label={copied ? t`已复制` : t`复制配对码`}
             title={copied ? t`已复制` : t`复制配对码`}
-            className="glass-control flex size-10 items-center justify-center rounded-[12px] text-muted-foreground transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-blue-600 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:hover:text-blue-300"
+            className="glass-control flex size-10 items-center justify-center rounded-[12px] text-muted-foreground transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-brand active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:hover:text-brand"
           >
             {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           </button>
@@ -244,7 +244,7 @@ export function AddDeviceSection({
           onClick={() => setInputOpen(true)}
           className="group mt-2 flex w-full min-w-0 items-center gap-2 rounded-[12px] bg-white/38 px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/52 active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.065]"
         >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-blue-50 text-blue-600 ring-1 ring-blue-100 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-400/10">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-brand ring-1 ring-primary/15 dark:bg-primary/15 dark:ring-primary/10">
             <Keyboard className="size-3.5" />
           </span>
           <span className="min-w-0 flex-1">
@@ -289,9 +289,9 @@ function NearbyDeviceRow({
     <button
       type="button"
       onClick={handleClick}
-      className="group flex min-w-0 items-center gap-3 rounded-[15px] bg-white/35 p-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] transition-[background-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 hover:shadow-[0_12px_32px_rgba(37,99,235,0.07),inset_0_1px_0_rgba(255,255,255,0.5)] active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.07]"
+      className="group flex min-w-0 items-center gap-3 rounded-[15px] bg-white/35 p-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] transition-[background-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 hover:shadow-[0_12px_32px_rgba(219,163,65,0.07),inset_0_1px_0_rgba(255,255,255,0.5)] active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.07]"
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-[13px] bg-blue-50 text-blue-600 ring-1 ring-blue-100 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-400/10">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-[13px] bg-primary/10 text-brand ring-1 ring-primary/15 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105 dark:bg-primary/15 dark:ring-primary/10">
         <DeviceIcon className="size-4.5" />
       </span>
       <span className="min-w-0 flex-1">
@@ -305,10 +305,10 @@ function NearbyDeviceRow({
       </span>
       <span
         className={cn(
-          "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium shadow-[0_8px_18px_rgba(37,99,235,0.18)]",
+          "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium shadow-[0_8px_18px_rgba(219,163,65,0.18)]",
           isPaired
-            ? "bg-zinc-950 text-white dark:bg-blue-500/20 dark:text-blue-100 dark:ring-1 dark:ring-blue-400/20"
-            : "bg-blue-600 text-white",
+            ? "bg-zinc-950 text-white dark:bg-primary/20 dark:text-brand dark:ring-1 dark:ring-primary/20"
+            : "bg-primary text-primary-foreground",
         )}
       >
         {isPaired ? <Trans>发送</Trans> : <Trans>配对</Trans>}
@@ -335,7 +335,7 @@ function NearbyFilterControl({
           className={cn(
             "rounded-full px-2 py-1 text-[11px] font-medium transition-[background-color,color] duration-200",
             value === option.value
-              ? "bg-zinc-950 text-white dark:bg-blue-500/20 dark:text-blue-100"
+              ? "bg-zinc-950 text-white dark:bg-primary/20 dark:text-brand"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
@@ -462,7 +462,7 @@ function PairingInputDialog({
                 type="button"
                 onClick={handleConfirm}
                 disabled={code.length < 6 || isSearching}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:pointer-events-none disabled:opacity-50"
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
               >
                 <Trans>确认</Trans>
               </button>

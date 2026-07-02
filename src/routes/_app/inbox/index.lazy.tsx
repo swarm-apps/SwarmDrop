@@ -158,7 +158,7 @@ function InboxPage() {
         <section className="glass-panel flex min-h-0 flex-col rounded-[24px] p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="flex items-center gap-2 text-xs font-medium text-blue-600 dark:text-blue-400">
+              <div className="flex items-center gap-2 text-xs font-medium text-brand">
                 <span className="glass-control flex size-7 items-center justify-center rounded-full">
                   <Inbox className="size-3.5" />
                 </span>
@@ -335,11 +335,11 @@ function InboxListItem({
       className={cn(
         "flex w-full min-w-0 items-center gap-3 rounded-[18px] p-3 text-left transition-[background-color,border-color,transform] active:scale-[0.995]",
         selected
-          ? "bg-blue-500/10 ring-1 ring-blue-500/20"
+          ? "bg-primary/10 ring-1 ring-primary/20"
           : "bg-foreground/[0.035] hover:bg-foreground/[0.055] dark:bg-white/[0.045] dark:hover:bg-white/[0.065]",
       )}
     >
-      <div className="glass-control flex size-10 shrink-0 items-center justify-center rounded-[14px] text-blue-600 dark:text-blue-300">
+      <div className="glass-control flex size-10 shrink-0 items-center justify-center rounded-[14px] text-brand">
         <ItemIcon title={item.title} count={item.itemCount} />
       </div>
       <div className="min-w-0 flex-1">
@@ -358,7 +358,7 @@ function InboxListItem({
             </span>
           )}
           {item.sourceKind === "mcp" && (
-            <span className="shrink-0 rounded-full bg-blue-500/12 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+            <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-brand">
               <Trans>AI 代理</Trans>
             </span>
           )}
@@ -625,11 +625,11 @@ function SearchResultItem({
       className={cn(
         "flex w-full min-w-0 items-center gap-3 rounded-[18px] p-3 text-left transition-[background-color,border-color,transform] active:scale-[0.995]",
         selected
-          ? "bg-blue-500/10 ring-1 ring-blue-500/20"
+          ? "bg-primary/10 ring-1 ring-primary/20"
           : "bg-foreground/[0.035] hover:bg-foreground/[0.055] dark:bg-white/[0.045] dark:hover:bg-white/[0.065]",
       )}
     >
-      <div className="glass-control flex size-10 shrink-0 items-center justify-center rounded-[14px] text-blue-600 dark:text-blue-300">
+      <div className="glass-control flex size-10 shrink-0 items-center justify-center rounded-[14px] text-brand">
         <ItemIcon title={hit.title} count={hit.itemCount} />
       </div>
       <div className="min-w-0 flex-1">
@@ -668,7 +668,7 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
     parts.push(
       <mark
         key={cursor}
-        className="rounded-[3px] bg-blue-500/20 px-0.5 text-foreground"
+        className="rounded-[3px] bg-primary/20 px-0.5 text-foreground"
       >
         {text.slice(idx, idx + q.length)}
       </mark>,
