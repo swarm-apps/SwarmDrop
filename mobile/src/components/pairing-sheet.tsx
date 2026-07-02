@@ -321,7 +321,7 @@ function GenerateTab() {
           className="w-full h-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
         >
           {generating ? (
-            <ActivityIndicator color={colors.background} />
+            <ActivityIndicator color={colors.primaryForeground} />
           ) : (
             <Text className="text-[15px] font-semibold text-primary-foreground">
               <Trans>生成配对码</Trans>
@@ -360,7 +360,7 @@ function GenerateTab() {
           accessibilityRole="button"
           className="flex-1 h-10 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-70"
         >
-          <Copy color={colors.background} size={14} />
+          <Copy color={colors.primaryForeground} size={14} />
           <Text className="text-[13px] font-semibold text-primary-foreground">
             <Trans>复制</Trans>
           </Text>

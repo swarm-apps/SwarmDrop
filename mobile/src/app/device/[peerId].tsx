@@ -12,6 +12,7 @@ import { Directory } from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Ban,
+  ChevronDown,
   Clock,
   RotateCcw,
   SendHorizontal,
@@ -25,6 +26,7 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import type {
   MobileDevice as DeviceInfo,
   MobileDeviceReceivePolicy,
@@ -82,6 +84,7 @@ export default function DeviceDetailScreen() {
   );
   const [savingAction, setSavingAction] = useState<SavingAction>(null);
   const [unpairOpen, setUnpairOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
   // 策略草稿是否合法(大小上限输入校验);非法时禁用保存按钮。
   const [policyValid, setPolicyValid] = useState(true);
 
@@ -161,7 +164,14 @@ export default function DeviceDetailScreen() {
         );
         setDraftLevel(nextLevel);
         setDraftPolicy(normalizedPolicy);
-        toast.success(t`设备策略已更新`);
+        // 针对性反馈:阻止/解除有专属文案,别一律"设备策略已更新"含糊带过。
+        toast.success(
+          action === "block"
+            ? t`已阻止 ${deviceDisplayName(device)}`
+            : action === "unblock"
+              ? t`已解除阻止`
+              : t`设备策略已更新`,
+        );
         policySheetRef.current?.dismiss();
       } catch (err) {
         toast.error(t`策略保存失败`, errorMessage(err));
@@ -179,6 +189,9 @@ export default function DeviceDetailScreen() {
   const handleBlock = useCallback(() => {
     void savePolicy("blocked", defaultReceivePolicy("blocked"), "block");
   }, [savePolicy]);
+
+  // 阻止是敏感信任动作(断对方发送 + 关自动接收),与"取消配对"同级,补二次确认。
+  const openBlockConfirm = useCallback(() => setBlockOpen(true), []);
 
   const handleUnblock = useCallback(() => {
     void savePolicy(
@@ -216,7 +229,7 @@ export default function DeviceDetailScreen() {
           savingAction={savingAction}
           saveDisabled={!policyValid}
           onSave={handleSave}
-          onBlock={handleBlock}
+          onBlock={openBlockConfirm}
           onUnblock={handleUnblock}
           onUnpair={() => setUnpairOpen(true)}
         />
@@ -225,9 +238,9 @@ export default function DeviceDetailScreen() {
     [
       colors.card,
       draftLevel,
-      handleBlock,
       handleSave,
       handleUnblock,
+      openBlockConfirm,
       policyValid,
       savingAction,
     ],
@@ -386,7 +399,7 @@ export default function DeviceDetailScreen() {
           className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
           <SendHorizontal
-            color={sendable ? colors.background : colors.mutedForeground}
+            color={sendable ? colors.primaryForeground : colors.mutedForeground}
             size={17}
           />
           <Text
@@ -448,6 +461,25 @@ export default function DeviceDetailScreen() {
         contentTestID="device-unpair-dialog"
         actionTestID="device-unpair-confirm-button"
       />
+
+      <ConfirmDialog
+        open={blockOpen}
+        onOpenChange={setBlockOpen}
+        title={<Trans>阻止这台设备</Trans>}
+        description={
+          <Trans>
+            阻止后对方无法向你发送文件,自动接收也会关闭。你可以随时解除阻止。
+          </Trans>
+        }
+        actionLabel={<Trans>阻止设备</Trans>}
+        destructive
+        onAction={() => {
+          setBlockOpen(false);
+          handleBlock();
+        }}
+        contentTestID="device-block-dialog"
+        actionTestID="device-block-confirm-button"
+      />
     </AppScreen>
   );
 }
@@ -470,9 +502,25 @@ function PolicyEditor({
   const { t } = useLingui();
   const colors = useThemeColors();
   const blocked = draftLevel === "blocked";
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const patchPolicy = (patch: Partial<MobileDeviceReceivePolicy>) => {
     onPolicyChange({ ...draftPolicy, ...patch });
+  };
+
+  // 接收方式只有两个真实状态:自动接收(autoAccept) vs 需要确认。用二选一分段显式表达,
+  // 取代原先两个会互相静默关闭的开关(both-false 只属于 blocked,不作为用户可选项)。
+  const autoMode = draftPolicy.autoAccept && !draftPolicy.requireConfirmation;
+  const setReceiveMode = (mode: "auto" | "confirm") => {
+    if (mode === "auto") {
+      patchPolicy({ autoAccept: true, requireConfirmation: false });
+    } else {
+      patchPolicy({
+        autoAccept: false,
+        requireConfirmation: true,
+        allowRelayAutoAccept: false,
+      });
+    }
   };
 
   // 大小上限以 MB 文本编辑;非法输入时不回写 draftPolicy(保留上次有效值)并标记草稿无效。
@@ -545,7 +593,7 @@ function PolicyEditor({
       </View>
 
       <View className="gap-2">
-        <Text className="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <Text className="px-1 text-[13px] font-semibold text-foreground">
           <Trans>信任级别</Trans>
         </Text>
         <View className="gap-2">
@@ -562,112 +610,41 @@ function PolicyEditor({
         </View>
       </View>
 
+      {/* 接收方式:二选一分段,取代两个会静默互斥的开关 —— 选择本身即可见、可互斥 */}
       <View className="gap-2">
-        <Text className="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <Trans>接收策略</Trans>
+        <Text className="px-1 text-[13px] font-semibold text-foreground">
+          <Trans>接收方式</Trans>
         </Text>
-        <View className="overflow-hidden rounded-xl border border-border bg-card">
-          <PolicySwitch
-            label={<Trans>自动接收</Trans>}
-            description={<Trans>本人设备可直接进入收件箱和默认保存位置</Trans>}
-            checked={draftPolicy.autoAccept && !draftPolicy.requireConfirmation}
-            disabled={blocked}
-            testID="device-policy-auto-accept-switch"
-            onCheckedChange={(checked) =>
-              patchPolicy({
-                autoAccept: checked,
-                requireConfirmation: checked
-                  ? false
-                  : draftPolicy.requireConfirmation,
-              })
-            }
-          />
-          <Divider />
-          <PolicySwitch
-            label={<Trans>需要确认</Trans>}
-            description={<Trans>收到文件时先弹出确认，不直接接收</Trans>}
-            checked={draftPolicy.requireConfirmation}
-            disabled={blocked}
-            testID="device-policy-confirm-switch"
-            onCheckedChange={(checked) =>
-              patchPolicy({
-                requireConfirmation: checked,
-                autoAccept: checked ? false : draftPolicy.autoAccept,
-              })
-            }
-          />
-          <Divider />
-          <PolicySwitch
-            label={<Trans>允许文件夹</Trans>}
-            description={<Trans>关闭后只接收单个文件或文件集合</Trans>}
-            checked={draftPolicy.allowDirectories}
-            disabled={blocked}
-            testID="device-policy-directories-switch"
-            onCheckedChange={(checked) =>
-              patchPolicy({ allowDirectories: checked })
-            }
-          />
-          <Divider />
-          <PolicySwitch
-            label={<Trans>允许中继自动接收</Trans>}
-            description={<Trans>仅在自动接收开启时生效</Trans>}
-            checked={draftPolicy.allowRelayAutoAccept}
-            disabled={blocked || !draftPolicy.autoAccept}
-            testID="device-policy-relay-switch"
-            onCheckedChange={(checked) =>
-              patchPolicy({ allowRelayAutoAccept: checked })
-            }
-          />
-        </View>
+        <ReceiveModeSegment
+          mode={autoMode ? "auto" : "confirm"}
+          disabled={blocked}
+          onChange={setReceiveMode}
+        />
+        <Text className="px-1 text-[11px] text-muted-foreground">
+          {autoMode ? (
+            <Trans>文件直接进入收件箱和默认保存位置</Trans>
+          ) : (
+            <Trans>收到文件时先弹出确认,不直接接收</Trans>
+          )}
+        </Text>
       </View>
 
-      <View className="gap-3 rounded-xl bg-muted px-3.5 py-3">
-        <View className="gap-1.5">
-          <View className="flex-row items-center justify-between gap-3">
-            <Text className="text-[12px] text-muted-foreground">
-              <Trans>最大大小</Trans>
-            </Text>
-            <View className="flex-row items-center gap-2">
-              <BottomSheetTextInput
-                value={sizeText}
-                onChangeText={onSizeChange}
-                editable={!blocked}
-                keyboardType="number-pad"
-                placeholder={t`不限制`}
-                placeholderTextColor={colors.mutedForeground}
-                testID="device-policy-max-size-input"
-                style={{
-                  minWidth: 96,
-                  borderWidth: 1,
-                  borderColor: sizeError ? colors.destructive : colors.border,
-                  backgroundColor: colors.card,
-                  borderRadius: 8,
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  textAlign: "right",
-                  fontSize: 13,
-                  color: colors.foreground,
-                  opacity: blocked ? 0.5 : 1,
-                }}
-              />
-              <Text className="text-[12px] text-muted-foreground">MB</Text>
-            </View>
-          </View>
-          {sizeError ? (
-            <Text
-              className="text-right text-[11px] text-destructive"
-              testID="device-policy-max-size-error"
-            >
-              <Trans>请输入大于 0 的数字，留空表示不限制</Trans>
-            </Text>
-          ) : null}
-        </View>
-
-        <InfoRow
-          label={<Trans>有效期</Trans>}
-          value={formatExpiresAt(draftPolicy.expiresAt)}
+      {/* 允许文件夹 —— 基础项 */}
+      <View className="overflow-hidden rounded-xl border border-border bg-card">
+        <PolicySwitch
+          label={<Trans>允许文件夹</Trans>}
+          description={<Trans>关闭后只接收单个文件或文件集合</Trans>}
+          checked={draftPolicy.allowDirectories}
+          disabled={blocked}
+          testID="device-policy-directories-switch"
+          onCheckedChange={(checked) =>
+            patchPolicy({ allowDirectories: checked })
+          }
         />
+      </View>
 
+      {/* 保存位置 —— 基础项 */}
+      <View className="rounded-xl bg-muted px-3.5 py-3">
         <View className="flex-row items-center justify-between gap-3">
           <Text className="text-[12px] text-muted-foreground">
             <Trans>保存位置</Trans>
@@ -683,13 +660,13 @@ function PolicyEditor({
               <Pressable
                 onPress={() => patchPolicy({ defaultSaveLocation: undefined })}
                 disabled={blocked}
-                hitSlop={6}
+                hitSlop={10}
                 accessibilityRole="button"
                 accessibilityLabel={t`恢复默认保存位置`}
                 testID="device-policy-save-location-reset"
-                className="rounded-full p-1 active:opacity-60 disabled:opacity-40"
+                className="min-h-11 min-w-11 items-center justify-center rounded-full active:opacity-60 disabled:opacity-40"
               >
-                <RotateCcw color={colors.mutedForeground} size={13} />
+                <RotateCcw color={colors.mutedForeground} size={15} />
               </Pressable>
             ) : null}
             <Pressable
@@ -697,7 +674,7 @@ function PolicyEditor({
               disabled={blocked}
               accessibilityRole="button"
               testID="device-policy-save-location-button"
-              className="rounded-lg border border-border px-2.5 py-1.5 active:opacity-70 disabled:opacity-40"
+              className="min-h-11 items-center justify-center rounded-lg border border-border px-3.5 active:opacity-70 disabled:opacity-40"
             >
               <Text className="text-[12px] font-semibold text-foreground">
                 <Trans>选择</Trans>
@@ -706,6 +683,146 @@ function PolicyEditor({
           </View>
         </View>
       </View>
+
+      {/* 高级:渐进披露,默认收起 —— 中继/大小上限/有效期这些限制项留给需要的人 */}
+      <View className="overflow-hidden rounded-xl border border-border bg-card">
+        <Pressable
+          onPress={() => setShowAdvanced((v) => !v)}
+          accessibilityRole="button"
+          accessibilityLabel={t`高级`}
+          accessibilityState={{ expanded: showAdvanced }}
+          testID="device-policy-advanced-toggle"
+          className="min-h-11 flex-row items-center justify-between px-3.5 py-2.5 active:opacity-70"
+        >
+          <Text className="text-[13px] font-medium text-foreground">
+            <Trans>高级</Trans>
+          </Text>
+          <ChevronDown
+            size={16}
+            color={colors.mutedForeground}
+            style={{
+              transform: [{ rotate: showAdvanced ? "180deg" : "0deg" }],
+            }}
+          />
+        </Pressable>
+        {showAdvanced ? (
+          <Animated.View entering={FadeIn.duration(160)}>
+            <Divider />
+            <PolicySwitch
+              label={<Trans>允许中继自动接收</Trans>}
+              description={<Trans>仅在自动接收开启时生效</Trans>}
+              checked={draftPolicy.allowRelayAutoAccept}
+              disabled={blocked || !autoMode}
+              testID="device-policy-relay-switch"
+              onCheckedChange={(checked) =>
+                patchPolicy({ allowRelayAutoAccept: checked })
+              }
+            />
+            <Divider />
+            <View className="gap-1.5 px-3.5 py-3">
+              <View className="flex-row items-center justify-between gap-3">
+                <Text className="text-[12px] text-muted-foreground">
+                  <Trans>最大大小</Trans>
+                </Text>
+                <View className="flex-row items-center gap-2">
+                  <BottomSheetTextInput
+                    value={sizeText}
+                    onChangeText={onSizeChange}
+                    editable={!blocked}
+                    keyboardType="number-pad"
+                    placeholder={t`不限制`}
+                    placeholderTextColor={colors.mutedForeground}
+                    testID="device-policy-max-size-input"
+                    style={{
+                      minWidth: 96,
+                      borderWidth: 1,
+                      borderColor: sizeError
+                        ? colors.destructive
+                        : colors.border,
+                      backgroundColor: colors.card,
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 8,
+                      textAlign: "right",
+                      fontSize: 13,
+                      color: colors.foreground,
+                      opacity: blocked ? 0.5 : 1,
+                    }}
+                  />
+                  <Text className="text-[12px] text-muted-foreground">MB</Text>
+                </View>
+              </View>
+              {sizeError ? (
+                <Text
+                  className="text-right text-[11px] text-destructive"
+                  testID="device-policy-max-size-error"
+                >
+                  <Trans>请输入大于 0 的数字，留空表示不限制</Trans>
+                </Text>
+              ) : null}
+            </View>
+            <Divider />
+            <View className="px-3.5 py-3">
+              <InfoRow
+                label={<Trans>有效期</Trans>}
+                value={formatExpiresAt(draftPolicy.expiresAt)}
+              />
+            </View>
+          </Animated.View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function ReceiveModeSegment({
+  mode,
+  disabled,
+  onChange,
+}: {
+  mode: "auto" | "confirm";
+  disabled?: boolean;
+  onChange: (mode: "auto" | "confirm") => void;
+}) {
+  const options = [
+    { key: "auto", label: <Trans>自动接收</Trans> },
+    { key: "confirm", label: <Trans>需要确认</Trans> },
+  ] as const;
+  return (
+    <View
+      className={cn(
+        "flex-row gap-1 rounded-xl border border-border bg-muted p-1",
+        disabled && "opacity-50",
+      )}
+    >
+      {options.map((opt) => {
+        const active = mode === opt.key;
+        return (
+          <Pressable
+            key={opt.key}
+            onPress={() => onChange(opt.key)}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            testID={`device-policy-mode-${opt.key}`}
+            className={cn(
+              "min-h-11 flex-1 items-center justify-center rounded-lg active:opacity-70",
+              active && "bg-card",
+            )}
+          >
+            <Text
+              className={cn(
+                "text-[13px]",
+                active
+                  ? "font-semibold text-foreground"
+                  : "text-muted-foreground",
+              )}
+            >
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -747,9 +864,9 @@ function PolicyActionFooter({
         className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
       >
         {savingAction === "save" ? (
-          <ActivityIndicator color={colors.background} size="small" />
+          <ActivityIndicator color={colors.primaryForeground} size="small" />
         ) : (
-          <ShieldCheck color={colors.background} size={17} />
+          <ShieldCheck color={colors.primaryForeground} size={17} />
         )}
         <Text className="text-[14px] font-semibold text-primary-foreground">
           <Trans>保存策略</Trans>

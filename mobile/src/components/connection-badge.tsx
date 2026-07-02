@@ -2,15 +2,17 @@ import { Trans } from "@lingui/react/macro";
 import { RadioTower, Wifi, Zap } from "lucide-react-native";
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
+import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 
 type ConnectionKind = "lan" | "dcutr" | "relay";
 
+/** tone 对应设计系统语义 token,图标色在组件内从 useThemeColors 取(随暗色切换,不硬编码 hex)。 */
 const CONNECTION_META: Record<
   ConnectionKind,
   {
     icon: typeof Wifi;
-    iconColor: string;
+    tone: "success" | "primary" | "warning";
     bg: string;
     text: string;
     label: () => React.ReactNode;
@@ -18,23 +20,23 @@ const CONNECTION_META: Record<
 > = {
   lan: {
     icon: Wifi,
-    iconColor: "#22c55e",
+    tone: "success",
     bg: "bg-success/10",
     text: "text-success",
     label: () => <Trans>局域网</Trans>,
   },
   dcutr: {
     icon: Zap,
-    iconColor: "#3b82f6",
+    tone: "primary",
     bg: "bg-primary/10",
     text: "text-primary",
     label: () => <Trans>打洞</Trans>,
   },
   relay: {
     icon: RadioTower,
-    iconColor: "#f59e0b",
-    bg: "bg-yellow-500/15",
-    text: "text-yellow-600 dark:text-yellow-400",
+    tone: "warning",
+    bg: "bg-warning/15",
+    text: "text-warning",
     label: () => <Trans>中继</Trans>,
   },
 };
@@ -67,6 +69,7 @@ export function ConnectionBadge({
   latencyMs?: bigint | null;
   compact?: boolean;
 }) {
+  const colors = useThemeColors();
   const kind = normalizeConnectionKind(connection);
   if (!kind) return null;
   const meta = CONNECTION_META[kind];
@@ -82,7 +85,7 @@ export function ConnectionBadge({
         meta.bg,
       )}
     >
-      <Icon size={compact ? 11 : 12} color={meta.iconColor} />
+      <Icon size={compact ? 11 : 12} color={colors[meta.tone]} />
       <Text className={cn("text-[10px] font-medium", meta.text)}>
         <Label />
       </Text>

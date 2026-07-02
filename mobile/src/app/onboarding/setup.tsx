@@ -2,20 +2,22 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import { CheckCircle2, KeyRound } from "lucide-react-native";
 import { useEffect } from "react";
+import { ActivityIndicator, View } from "react-native";
 import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+  OnboardingButton,
+  OnboardingDots,
+  OnboardingScreen,
+} from "@/components/onboarding/onboarding-scaffold";
+import { Text } from "@/components/ui/text";
+import { useThemeColors } from "@/hooks/useThemeColors";
+import { truncateMiddle } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 
 export default function Setup() {
   const { t } = useLingui();
   const router = useRouter();
+  const colors = useThemeColors();
   const markCompleted = useOnboardingStore((s) => s.markCompleted);
   const { loadIdentity, peerId, error } = useMobileCoreStore();
 
@@ -32,20 +34,40 @@ export default function Setup() {
   };
 
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-      <View style={styles.content}>
-        <View style={styles.iconWrap}>
-          {ready ? (
-            <CheckCircle2 color="#16A34A" size={64} strokeWidth={2} />
+    <OnboardingScreen
+      footer={
+        <>
+          {failed ? (
+            <OnboardingButton
+              label={<Trans>重试</Trans>}
+              onPress={() => loadIdentity()}
+              testID="onboarding-retry-button"
+            />
           ) : (
-            <KeyRound color="#2563EB" size={56} strokeWidth={2} />
+            <OnboardingButton
+              label={<Trans>进入 SwarmDrop</Trans>}
+              onPress={onEnter}
+              disabled={!ready}
+              testID="onboarding-enter-button"
+            />
+          )}
+          <OnboardingDots step={2} />
+        </>
+      }
+    >
+      <View className="flex-1 items-center justify-center gap-4">
+        <View className="size-24 items-center justify-center rounded-full bg-primary/10">
+          {ready ? (
+            <CheckCircle2 color={colors.success} size={64} strokeWidth={2} />
+          ) : (
+            <KeyRound color={colors.primary} size={56} strokeWidth={2} />
           )}
         </View>
 
-        <Text style={styles.title}>
+        <Text className="text-center text-[22px] font-bold text-foreground">
           {ready ? t`一切就绪` : failed ? t`初始化失败` : t`正在准备你的设备`}
         </Text>
-        <Text style={styles.subtitle}>
+        <Text className="max-w-[300px] text-center text-[15px] leading-[22px] text-muted-foreground">
           {ready
             ? t`设备身份已就绪,可以开始配对和传输文件了`
             : failed
@@ -55,156 +77,32 @@ export default function Setup() {
 
         {!ready && !failed ? (
           <ActivityIndicator
-            color="#2563EB"
+            color={colors.primary}
             size="large"
-            style={styles.spinner}
+            className="my-4"
           />
         ) : null}
 
         {peerId !== null ? (
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>
+          <View className="mt-3 w-full rounded-lg border border-border bg-card p-3.5">
+            <Text className="mb-1 text-[12px] text-muted-foreground">
               <Trans>设备 ID</Trans>
             </Text>
-            <Text style={styles.infoValue} numberOfLines={1}>
-              {`${peerId.slice(0, 16)}...${peerId.slice(-6)}`}
+            <Text
+              className="font-mono text-[13px] text-foreground"
+              numberOfLines={1}
+            >
+              {truncateMiddle(peerId, 16, 6)}
             </Text>
           </View>
         ) : null}
 
-        {error !== null ? <Text style={styles.errorText}>{error}</Text> : null}
+        {error !== null ? (
+          <Text className="text-center text-[13px] text-destructive">
+            {error}
+          </Text>
+        ) : null}
       </View>
-
-      <View style={styles.footer}>
-        {failed ? (
-          <Pressable
-            onPress={() => loadIdentity()}
-            style={styles.primaryButton}
-            testID="onboarding-retry-button"
-          >
-            <Text style={styles.primaryButtonText}>
-              <Trans>重试</Trans>
-            </Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={onEnter}
-            disabled={!ready}
-            style={[
-              styles.primaryButton,
-              !ready && styles.primaryButtonDisabled,
-            ]}
-            testID="onboarding-enter-button"
-          >
-            <Text style={styles.primaryButtonText}>
-              <Trans>进入 SwarmDrop</Trans>
-            </Text>
-          </Pressable>
-        )}
-        <View style={styles.dots}>
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-          <View style={[styles.dot, styles.dotActive]} />
-        </View>
-      </View>
-    </SafeAreaView>
+    </OnboardingScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-  },
-  content: {
-    flex: 1,
-    gap: 16,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  iconWrap: {
-    alignItems: "center",
-    backgroundColor: "#EFF6FF",
-    borderRadius: 999,
-    height: 96,
-    justifyContent: "center",
-    marginBottom: 12,
-    width: 96,
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 26,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  subtitle: {
-    color: "#475569",
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
-  },
-  spinner: {
-    marginVertical: 16,
-  },
-  infoCard: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 10,
-    borderWidth: 1,
-    marginTop: 12,
-    padding: 14,
-    width: "100%",
-  },
-  infoLabel: {
-    color: "#64748B",
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  infoValue: {
-    color: "#0F172A",
-    fontFamily: "monospace",
-    fontSize: 13,
-  },
-  errorText: {
-    color: "#B91C1C",
-    fontSize: 13,
-    textAlign: "center",
-  },
-  footer: {
-    gap: 16,
-  },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: "#2563EB",
-    borderRadius: 12,
-    justifyContent: "center",
-    minHeight: 52,
-  },
-  primaryButtonDisabled: {
-    backgroundColor: "#94A3B8",
-  },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  dots: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-  },
-  dot: {
-    backgroundColor: "#CBD5E1",
-    borderRadius: 999,
-    height: 8,
-    width: 8,
-  },
-  dotActive: {
-    backgroundColor: "#2563EB",
-    height: 10,
-    width: 10,
-  },
-});
