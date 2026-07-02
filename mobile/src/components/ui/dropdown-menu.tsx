@@ -167,7 +167,7 @@ function DropdownMenuItem({
       value={cn(
         "select-none text-sm text-popover-foreground group-active:text-popover-foreground",
         variant === "destructive" &&
-          "text-destructive group-active:text-destructive",
+          "text-destructive-ink group-active:text-destructive-ink",
       )}
     >
       <DropdownMenuPrimitive.Item

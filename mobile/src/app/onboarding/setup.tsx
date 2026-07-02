@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { CheckCircle2, KeyRound } from "lucide-react-native";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
+import { useShallow } from "zustand/react/shallow";
 import {
   OnboardingButton,
   OnboardingDots,
@@ -19,7 +20,13 @@ export default function Setup() {
   const router = useRouter();
   const colors = useThemeColors();
   const markCompleted = useOnboardingStore((s) => s.markCompleted);
-  const { loadIdentity, peerId, error } = useMobileCoreStore();
+  const { loadIdentity, peerId, error } = useMobileCoreStore(
+    useShallow((s) => ({
+      loadIdentity: s.loadIdentity,
+      peerId: s.peerId,
+      error: s.error,
+    })),
+  );
 
   useEffect(() => {
     void loadIdentity();
@@ -98,7 +105,7 @@ export default function Setup() {
         ) : null}
 
         {error !== null ? (
-          <Text className="text-center text-[13px] text-destructive">
+          <Text className="text-center text-[13px] text-destructive-ink">
             {error}
           </Text>
         ) : null}

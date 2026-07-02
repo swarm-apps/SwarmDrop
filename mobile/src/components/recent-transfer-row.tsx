@@ -1,5 +1,6 @@
 import { Trans } from "@lingui/react/macro";
 import { Download, Upload } from "lucide-react-native";
+import { memo } from "react";
 import { Pressable, View } from "react-native";
 import type {
   MobileTransferProgress,
@@ -17,6 +18,8 @@ import {
   projectionTotalBytes,
   projectionTransferredBytes,
 } from "@/core/transfer-types";
+import { useThemeColors } from "@/hooks/useThemeColors";
+import { cn } from "@/lib/utils";
 
 interface RecentTransferRowProps {
   projection: MobileTransferProjection;
@@ -27,7 +30,7 @@ interface RecentTransferRowProps {
 /**
  * 最近传输行 —— 主屏单行,展示方向 / 进度 / 文件计数。
  */
-export function RecentTransferRow({
+function RecentTransferRowComponent({
   projection,
   progress,
   onPress,
@@ -38,6 +41,7 @@ export function RecentTransferRow({
   const transferred = projectionTransferredBytes(projection, progress);
   const percent = calcPercent(transferred, total);
   const status = projectionStatus(projection);
+  const colors = useThemeColors();
 
   return (
     <Pressable
@@ -46,16 +50,15 @@ export function RecentTransferRow({
       className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-3 active:opacity-70"
     >
       <View
-        className={
-          isOutgoing
-            ? "size-9 items-center justify-center rounded-full bg-primary/10"
-            : "size-9 items-center justify-center rounded-full bg-success/10"
-        }
+        className={cn(
+          "size-9 items-center justify-center rounded-full",
+          isOutgoing ? "bg-primary/10" : "bg-success/10",
+        )}
       >
         {isOutgoing ? (
-          <Upload size={16} className="text-primary" />
+          <Upload size={16} color={colors.primary} />
         ) : (
-          <Download size={16} className="text-success" />
+          <Download size={16} color={colors.success} />
         )}
       </View>
 
@@ -84,3 +87,6 @@ export function RecentTransferRow({
     </Pressable>
   );
 }
+
+/** 高频进度行:memo 让未变会话在每个 progress tick 跳过重渲染。 */
+export const RecentTransferRow = memo(RecentTransferRowComponent);

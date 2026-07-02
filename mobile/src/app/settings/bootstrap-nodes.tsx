@@ -179,6 +179,7 @@ export default function BootstrapNodesScreen() {
               <TextInput
                 value={inputValue}
                 onChangeText={setInputValue}
+                accessibilityLabel={t`引导节点地址`}
                 placeholder={t`/ip4/.../tcp/.../p2p/...`}
                 placeholderTextColor={colors.mutedForeground}
                 autoFocus
@@ -193,7 +194,7 @@ export default function BootstrapNodesScreen() {
                     setInputValue("");
                   }}
                   accessibilityRole="button"
-                  className="flex-1 h-10 items-center justify-center rounded-lg border border-border bg-card active:opacity-70"
+                  className="flex-1 h-10 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
                 >
                   <Text className="text-[13px] text-foreground">
                     <Trans>取消</Trans>
@@ -202,7 +203,7 @@ export default function BootstrapNodesScreen() {
                 <Pressable
                   onPress={handleAdd}
                   accessibilityRole="button"
-                  className="flex-1 h-10 items-center justify-center rounded-lg bg-primary active:opacity-70"
+                  className="flex-1 h-10 items-center justify-center rounded-xl bg-primary active:opacity-70"
                 >
                   <Text className="text-[13px] font-semibold text-primary-foreground">
                     <Trans>添加</Trans>
@@ -227,7 +228,7 @@ export default function BootstrapNodesScreen() {
 
         {needsRestart && runtimeState === "running" ? (
           <View className="flex-row items-center justify-between gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3">
-            <Text className="flex-1 text-[12px] text-warning">
+            <Text className="flex-1 text-[12px] text-warning-ink">
               <Trans>引导节点已变更,需重启节点生效</Trans>
             </Text>
             <Pressable

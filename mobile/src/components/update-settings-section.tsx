@@ -93,7 +93,7 @@ export function UpdateSettingsSection({
       ) : null}
 
       {isReady ? (
-        <Text className="text-primary text-sm">{t.systemConfirmHint}</Text>
+        <Text className="text-primary-ink text-sm">{t.systemConfirmHint}</Text>
       ) : null}
 
       {isDownloading && progress ? (
@@ -112,7 +112,7 @@ export function UpdateSettingsSection({
 
       {status === "error" ? (
         <View className="border-destructive/40 flex-row items-center justify-between gap-3 rounded-lg border p-3">
-          <Text className="text-destructive flex-1 text-sm">
+          <Text className="text-destructive-ink flex-1 text-sm">
             {error?.message ?? t.checkFailed}
           </Text>
           <Button variant="outline" size="sm" onPress={() => void retry()}>

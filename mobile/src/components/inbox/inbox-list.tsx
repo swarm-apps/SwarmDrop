@@ -10,7 +10,7 @@ import {
   SlidersHorizontal,
   Video,
 } from "lucide-react-native";
-import { type ReactNode, useState } from "react";
+import { memo, type ReactNode, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import {
   MobileInboxContentKind,
@@ -225,7 +225,7 @@ function FilterChip({
   );
 }
 
-export function InboxRow({
+function InboxRowComponent({
   item,
   index,
   onPress,
@@ -290,6 +290,9 @@ export function InboxRow({
   );
 }
 
+/** 收件箱行:memo 让列表在筛选/刷新以外的父重渲染时跳过未变行。 */
+export const InboxRow = memo(InboxRowComponent);
+
 /**
  * 缺失/已归档/AI 代理来源徽标——浏览态 InboxRow 与搜索命中态 InboxHitRow 共用同一份逻辑,
  * 保证同一条记录在两处渲染的状态一致(镜像 Requirement: Filter Consistency Across Search)。
@@ -305,7 +308,7 @@ export function InboxStatusBadges({ item }: { item: InboxPreviewItem }) {
       {item.sourceKind === MobileInboxSourceKind.Mcp ? (
         <View className="flex-row items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5">
           <Bot color={colors.primary} size={11} />
-          <Text className="text-[10px] font-medium text-primary">
+          <Text className="text-[10px] font-medium text-primary-ink">
             <Trans>AI 代理</Trans>
           </Text>
         </View>
@@ -377,7 +380,7 @@ function StatePill({
       <Text
         className={
           missing
-            ? "text-[10px] font-medium text-destructive"
+            ? "text-[10px] font-medium text-destructive-ink"
             : "text-[10px] font-medium text-muted-foreground"
         }
       >

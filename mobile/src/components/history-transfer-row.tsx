@@ -6,6 +6,7 @@
  */
 
 import { Trans } from "@lingui/react/macro";
+import { memo } from "react";
 import { Pressable, View } from "react-native";
 import type { MobileTransferProjection } from "react-native-swarmdrop-core";
 import {
@@ -24,7 +25,7 @@ interface Props {
   onPress?: (sessionId: string) => void;
 }
 
-export function HistoryTransferRow({ item, onPress }: Props) {
+function HistoryTransferRowComponent({ item, onPress }: Props) {
   const direction = projectionDirection(item);
   const status = projectionStatus(item);
   const filesCount = item.files.length;
@@ -65,7 +66,7 @@ export function HistoryTransferRow({ item, onPress }: Props) {
         ) : null}
 
         {failedAndHasMessage ? (
-          <Text className="text-[11px] text-destructive" numberOfLines={1}>
+          <Text className="text-[11px] text-destructive-ink" numberOfLines={1}>
             <LocalizedError message={item.errorMessage} />
           </Text>
         ) : null}
@@ -73,3 +74,5 @@ export function HistoryTransferRow({ item, onPress }: Props) {
     </Pressable>
   );
 }
+
+export const HistoryTransferRow = memo(HistoryTransferRowComponent);

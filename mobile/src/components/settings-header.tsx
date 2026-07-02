@@ -22,6 +22,7 @@ export function SettingsHeader({ title, right }: SettingsHeaderProps) {
         <Pressable
           onPress={() => router.back()}
           hitSlop={12}
+          accessibilityRole="button"
           accessibilityLabel={t`返回`}
         >
           <ArrowLeft color={colors.foreground} size={22} />

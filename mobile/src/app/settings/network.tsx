@@ -220,6 +220,7 @@ export default function NetworkScreen() {
             <Switch
               checked={autoDiscoverLanHelpers}
               onCheckedChange={setAutoDiscoverLanHelpers}
+              accessibilityLabel={t`自动发现 LAN Helper`}
               testID="network-auto-lan-helper-switch"
             />
           </View>
@@ -230,7 +231,7 @@ export default function NetworkScreen() {
             className="gap-3 rounded-xl border border-warning/30 bg-warning/10 p-3.5"
             testID="network-restart-required"
           >
-            <Text className="text-[12px] text-warning">
+            <Text className="text-[12px] text-warning-ink">
               <Trans>发现设置已变更，重启节点后生效。</Trans>
             </Text>
             <Pressable
@@ -279,7 +280,9 @@ export default function NetworkScreen() {
               <Text
                 className={cn(
                   "text-xs font-medium",
-                  networkQuality === "good" ? "text-success" : "text-warning",
+                  networkQuality === "good"
+                    ? "text-success-ink"
+                    : "text-warning-ink",
                 )}
               >
                 {networkQuality === "good" ? (
@@ -355,7 +358,11 @@ export default function NetworkScreen() {
                 <Trans>App 启动后自动启动 P2P 节点。</Trans>
               </Text>
             </View>
-            <Switch checked={autoStart} onCheckedChange={setAutoStart} />
+            <Switch
+              checked={autoStart}
+              onCheckedChange={setAutoStart}
+              accessibilityLabel={t`自动启动节点`}
+            />
           </View>
         </SettingSection>
 
@@ -398,6 +405,7 @@ export default function NetworkScreen() {
             <Switch
               checked={provideLanHelper}
               onCheckedChange={setProvideLanHelper}
+              accessibilityLabel={t`本机 LAN Helper`}
               testID="network-provide-lan-helper-switch"
             />
           </View>

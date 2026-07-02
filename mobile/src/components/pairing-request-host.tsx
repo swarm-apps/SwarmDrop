@@ -133,7 +133,7 @@ export function PairingRequestHost() {
             disabled={responding || remaining === 0}
             accessibilityRole="button"
             accessibilityLabel={t`接受`}
-            className="h-12 items-center justify-center rounded-xl bg-primary active:opacity-80 disabled:opacity-50"
+            className="h-12 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
           >
             {responding ? (
               <ActivityIndicator color={colors.background} />
@@ -148,7 +148,7 @@ export function PairingRequestHost() {
             disabled={responding}
             accessibilityRole="button"
             accessibilityLabel={t`拒绝`}
-            className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-80 disabled:opacity-50"
+            className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
           >
             <Text className="text-base font-medium text-foreground">
               <Trans>拒绝</Trans>

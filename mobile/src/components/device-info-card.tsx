@@ -119,7 +119,7 @@ export function DeviceInfoCard() {
               }}
               accessibilityRole="button"
               accessibilityLabel={t`编辑设备名`}
-              hitSlop={4}
+              hitSlop={12}
               className="flex-row items-center gap-1.5"
             >
               <Text
@@ -148,7 +148,7 @@ export function DeviceInfoCard() {
             onPress={handleCopyPeerId}
             accessibilityRole="button"
             accessibilityLabel={t`复制 PeerID`}
-            hitSlop={4}
+            hitSlop={12}
             className="flex-row items-center gap-1.5"
           >
             <Activity color={colors.mutedForeground} size={12} />

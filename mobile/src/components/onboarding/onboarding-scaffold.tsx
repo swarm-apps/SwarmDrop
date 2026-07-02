@@ -56,7 +56,7 @@ export function OnboardingButton({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       testID={testID}
-      className="min-h-[52px] flex-row items-center justify-center rounded-xl bg-primary active:opacity-90 disabled:opacity-50"
+      className="min-h-[52px] flex-row items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
     >
       {loading ? (
         <ActivityIndicator color={colors.primaryForeground} />

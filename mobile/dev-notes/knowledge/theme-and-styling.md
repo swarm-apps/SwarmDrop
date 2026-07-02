@@ -81,6 +81,35 @@ const styles = variantStyles[variant];
 [src/components/file-tree/file-tree-item.tsx](../../src/components/file-tree/file-tree-item.tsx)
 （variantStyles + iconColor resolver 模板）
 
+### 状态语义色当「文字」必须用 `-ink` 变体（State Ink Rule）
+
+`--success` / `--warning` / `--destructive` / `--primary` 这几个饱和色是给**填充 / 圆点 / 图标**
+调过的，当**小字**压在浅底或同色 `/10`~`/15` tint 上时对比度全不达 WCAG AA（amber 只有 ~2:1，
+green ~3.3:1，red ~3.5:1，blue ~3.4:1）。所以 `global.css` 另有一套高对比文字变体
+`--success-ink` / `--warning-ink` / `--destructive-ink` / `--primary-ink`（亮=深一档、暗=亮一档，
+均 ≥4.5:1）。
+
+**规则**：状态色作**圆点 / 填充 / 图标** → 用基础 token（`bg-success`、`color={colors.success}`）；
+作**文字** → 用 ink 变体（`text-success-ink`、`text-destructive-ink`…）。集中映射处
+（`status-pill` TEXT_CLASS、`trust-badge` TRUST_META、`connection-badge` CONNECTION_META、
+`transfer/shared` STATUS_META、`file-tree-item` variantStyles）都已遵循；新写状态文案时别再用
+`text-destructive` 这类基础色（会渲染成低对比）。完整说明见 DESIGN.md 的「State Ink Rule」。
+
+**相关文件**：[src/global.css](../../src/global.css)，[DESIGN.md](../../DESIGN.md)
+
+### FlatList / SectionList 用 `contentContainerStyle`，不要用 `contentContainerClassName`
+
+NativeWind 5 preview 给 `ScrollView` 注册了 `contentContainerClassName`（`AppScreen` 在用），
+但**没有确认为 `FlatList` / `SectionList` 注册**。把可增长列表从 `AppScreen`（ScrollView）切到
+虚拟化容器时，内容内边距要走 `contentContainerStyle` 数值，不要赌 `contentContainerClassName`
+生效。共享常量 `LIST_CONTENT_PADDING`（[src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)）
+= AppScreen 的 `px-5 pb-8 pt-1`（20/32/4），inbox + activity 两处虚拟化列表复用它，避免魔数漂移。
+列表**内层** View / 行组件的 className 照常生效（NativeWind 只对内置组件的 `contentContainerStyle`
+这类间接 prop 有注册盲区）。
+
+**相关文件**：[src/app/(main)/inbox.tsx](../../src/app/(main)/inbox.tsx)（FlatList），
+[src/app/activity.tsx](../../src/app/activity.tsx)（SectionList）
+
 ## 安全区域 / 导航
 
 ### 主底部导航使用 NativeTabs，不再用 JS Tabs 自绘高度

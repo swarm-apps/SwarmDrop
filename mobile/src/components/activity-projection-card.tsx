@@ -1,5 +1,6 @@
 import { Trans } from "@lingui/react/macro";
 import { AlertCircle, RotateCcw } from "lucide-react-native";
+import { memo } from "react";
 import { Pressable, View } from "react-native";
 import type {
   MobileTransferProgress,
@@ -38,7 +39,7 @@ interface ActivityProjectionCardProps {
   onResume?: (sessionId: string) => void;
 }
 
-export function ActivityProjectionCard({
+function ActivityProjectionCardComponent({
   projection,
   progress,
   showProgress = false,
@@ -109,7 +110,10 @@ export function ActivityProjectionCard({
             </View>
           ) : null}
           {projection.errorMessage ? (
-            <Text className="text-[11px] text-destructive" numberOfLines={2}>
+            <Text
+              className="text-[11px] text-destructive-ink"
+              numberOfLines={2}
+            >
               <LocalizedError message={projection.errorMessage} />
             </Text>
           ) : null}
@@ -134,3 +138,6 @@ export function ActivityProjectionCard({
     </Pressable>
   );
 }
+
+/** 活动卡片:memo 让未变会话在每个 progress tick 跳过重渲染(progressBySession 只换更新会话的内层对象)。 */
+export const ActivityProjectionCard = memo(ActivityProjectionCardComponent);

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
   cn(
-    "group shrink-0 flex-row items-center justify-center gap-2 rounded-md shadow-none",
+    "group shrink-0 flex-row items-center justify-center gap-2 rounded-xl shadow-none",
     Platform.select({
       web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive whitespace-nowrap outline-none transition-all focus-visible:ring-[3px] disabled:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
     }),
@@ -45,11 +45,11 @@ const buttonVariants = cva(
           Platform.select({ web: "has-[>svg]:px-3" }),
         ),
         sm: cn(
-          "h-9 gap-1.5 rounded-md px-3 sm:h-8",
+          "h-9 gap-1.5 rounded-xl px-3 sm:h-8",
           Platform.select({ web: "has-[>svg]:px-2.5" }),
         ),
         lg: cn(
-          "h-11 rounded-md px-6 sm:h-10",
+          "h-11 rounded-xl px-6 sm:h-10",
           Platform.select({ web: "has-[>svg]:px-4" }),
         ),
         icon: "h-10 w-10 sm:h-9 sm:w-9",
@@ -79,7 +79,7 @@ const buttonTextVariants = cva(
         secondary: "text-secondary-foreground",
         ghost: "group-active:text-accent-foreground",
         link: cn(
-          "text-primary group-active:underline",
+          "text-primary-ink group-active:underline",
           Platform.select({
             web: "underline-offset-4 hover:underline group-hover:underline",
           }),

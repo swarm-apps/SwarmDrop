@@ -734,7 +734,7 @@ function PolicyEditor({
               </View>
               {sizeError ? (
                 <Text
-                  className="text-right text-[11px] text-destructive"
+                  className="text-right text-[11px] text-destructive-ink"
                   testID="device-policy-max-size-error"
                 >
                   <Trans>请输入大于 0 的数字，留空表示不限制</Trans>
@@ -839,6 +839,10 @@ function PolicyActionFooter({
       <Pressable
         onPress={onSave}
         accessibilityRole="button"
+        accessibilityState={{
+          busy: savingAction === "save",
+          disabled: savingAction !== null || saveDisabled,
+        }}
         testID="device-policy-save-button"
         disabled={savingAction !== null || saveDisabled}
         className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
@@ -858,6 +862,10 @@ function PolicyActionFooter({
           <Pressable
             onPress={onUnblock}
             accessibilityRole="button"
+            accessibilityState={{
+              busy: savingAction === "unblock",
+              disabled: savingAction !== null,
+            }}
             testID="device-policy-unblock-button"
             disabled={savingAction !== null}
             className="min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
@@ -875,6 +883,10 @@ function PolicyActionFooter({
           <Pressable
             onPress={onBlock}
             accessibilityRole="button"
+            accessibilityState={{
+              busy: savingAction === "block",
+              disabled: savingAction !== null,
+            }}
             testID="device-policy-block-button"
             disabled={savingAction !== null}
             className="min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-card active:opacity-70 disabled:opacity-50"
@@ -884,7 +896,7 @@ function PolicyActionFooter({
             ) : (
               <Ban color={colors.destructive} size={16} />
             )}
-            <Text className="text-[13px] font-semibold text-destructive">
+            <Text className="text-[13px] font-semibold text-destructive-ink">
               <Trans>阻止设备</Trans>
             </Text>
           </Pressable>

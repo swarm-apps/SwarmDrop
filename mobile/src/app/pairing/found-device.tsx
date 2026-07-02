@@ -2,19 +2,17 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, MonitorSmartphone } from "lucide-react-native";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { PeerSummaryCard } from "@/components/pairing/peer-summary-card";
+import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
+import { useThemeColors } from "@/hooks/useThemeColors";
 
 export default function FoundDevice() {
   const { t } = useLingui();
   const router = useRouter();
+  const colors = useThemeColors();
   const params = useLocalSearchParams<{
     peerId: string;
     code: string;
@@ -24,8 +22,6 @@ export default function FoundDevice() {
     platform: string;
     arch: string;
   }>();
-  const displayName = params.name?.trim() || params.hostname;
-
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,62 +59,69 @@ export default function FoundDevice() {
   };
 
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-      <View style={styles.header}>
+    <SafeAreaView
+      style={{ flex: 1 }}
+      className="bg-background"
+      edges={["top", "bottom"]}
+    >
+      <View className="flex-row items-center justify-between px-4 pt-2">
         <Pressable
           onPress={() => router.back()}
           hitSlop={12}
           disabled={confirming}
-          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel={t`返回`}
+          className="size-10 items-center justify-center active:opacity-70 disabled:opacity-50"
         >
-          <ArrowLeft color="#0F172A" size={22} />
+          <ArrowLeft color={colors.foreground} size={22} />
         </Pressable>
-        <Text style={styles.headerTitle}>
+        <Text className="text-[17px] font-bold text-foreground">
           <Trans>确认设备</Trans>
         </Text>
-        <View style={styles.backButton} />
+        <View className="size-10" />
       </View>
 
-      <View style={styles.body}>
-        <View style={styles.heroIcon}>
-          <MonitorSmartphone color="#2563EB" size={36} />
+      <View className="flex-1 items-center justify-center gap-3 px-6">
+        <View className="mb-2 size-[72px] items-center justify-center rounded-full bg-primary/10">
+          <MonitorSmartphone color={colors.primary} size={36} />
         </View>
-        <Text style={styles.title}>
+        <Text className="text-[22px] font-extrabold text-foreground">
           <Trans>找到设备</Trans>
         </Text>
-        <Text style={styles.subtitle}>
+        <Text className="mb-2 text-center text-sm text-muted-foreground">
           <Trans>确认这是你要配对的设备?</Trans>
         </Text>
 
-        <View style={styles.card}>
-          <Row label={t`设备名`} value={displayName} />
-          {params.name && params.name !== params.hostname ? (
-            <>
-              <Divider />
-              <Row label={t`主机名`} value={params.hostname} />
-            </>
-          ) : null}
-          <Divider />
-          <Row label={t`系统`} value={`${params.os} · ${params.arch}`} />
-          <Divider />
-          <Row label={t`平台`} value={params.platform} />
-          <Divider />
-          <Row label={t`设备 ID`} value={truncatePeerId(params.peerId)} mono />
-        </View>
+        <PeerSummaryCard
+          name={params.name}
+          hostname={params.hostname}
+          os={params.os}
+          platform={params.platform}
+          arch={params.arch}
+          peerId={params.peerId}
+          showPlatform
+        />
 
-        {error !== null ? <Text style={styles.error}>{error}</Text> : null}
+        {error !== null ? (
+          <Text className="mt-3 text-center text-[13px] text-destructive-ink">
+            {error}
+          </Text>
+        ) : null}
       </View>
 
-      <View style={styles.footer}>
+      <View className="gap-2.5 px-6 pb-6">
         <Pressable
           onPress={onConfirm}
           disabled={confirming}
-          style={[styles.primaryButton, confirming && styles.disabled]}
+          accessibilityRole="button"
+          accessibilityLabel={t`确认配对`}
+          accessibilityState={{ busy: confirming, disabled: confirming }}
+          className="min-h-[52px] items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
         >
           {confirming ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={colors.primaryForeground} />
           ) : (
-            <Text style={styles.primaryButtonText}>
+            <Text className="text-[17px] font-bold text-primary-foreground">
               <Trans>确认配对</Trans>
             </Text>
           )}
@@ -126,9 +129,11 @@ export default function FoundDevice() {
         <Pressable
           onPress={() => router.back()}
           disabled={confirming}
-          style={styles.secondaryButton}
+          accessibilityRole="button"
+          accessibilityLabel={t`取消`}
+          className="min-h-[52px] items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
         >
-          <Text style={styles.secondaryButtonText}>
+          <Text className="text-base font-semibold text-foreground">
             <Trans>取消</Trans>
           </Text>
         </Pressable>
@@ -136,155 +141,3 @@ export default function FoundDevice() {
     </SafeAreaView>
   );
 }
-
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={[styles.rowValue, mono && styles.mono]} numberOfLines={1}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function Divider() {
-  return <View style={styles.divider} />;
-}
-
-function truncatePeerId(peerId: string): string {
-  if (peerId.length <= 16) return peerId;
-  return `${peerId.slice(0, 8)}...${peerId.slice(-6)}`;
-}
-
-const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: "#F8FAFC",
-    flex: 1,
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  backButton: {
-    alignItems: "center",
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  headerTitle: {
-    color: "#0F172A",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  body: {
-    alignItems: "center",
-    flex: 1,
-    gap: 12,
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  heroIcon: {
-    alignItems: "center",
-    backgroundColor: "#EFF6FF",
-    borderRadius: 999,
-    height: 72,
-    justifyContent: "center",
-    marginBottom: 8,
-    width: 72,
-  },
-  title: {
-    color: "#0F172A",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  subtitle: {
-    color: "#64748B",
-    fontSize: 14,
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 0,
-    padding: 16,
-    width: "100%",
-  },
-  row: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-  },
-  rowLabel: {
-    color: "#64748B",
-    fontSize: 13,
-  },
-  rowValue: {
-    color: "#0F172A",
-    fontSize: 13,
-    fontWeight: "600",
-    maxWidth: "60%",
-  },
-  mono: {
-    fontFamily: "monospace",
-  },
-  divider: {
-    backgroundColor: "#E2E8F0",
-    height: 1,
-  },
-  error: {
-    color: "#B91C1C",
-    fontSize: 13,
-    marginTop: 12,
-    textAlign: "center",
-  },
-  footer: {
-    gap: 10,
-    paddingBottom: 24,
-    paddingHorizontal: 24,
-  },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: "#2563EB",
-    borderRadius: 12,
-    justifyContent: "center",
-    minHeight: 52,
-  },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  secondaryButton: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 12,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 52,
-  },
-  secondaryButtonText: {
-    color: "#0F172A",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  disabled: {
-    opacity: 0.6,
-  },
-});

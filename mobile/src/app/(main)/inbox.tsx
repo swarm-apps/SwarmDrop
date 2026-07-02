@@ -10,7 +10,8 @@ import {
   Search,
 } from "lucide-react-native";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
 import {
   FilterRail,
@@ -21,16 +22,16 @@ import {
 } from "@/components/inbox/inbox-list";
 import {
   AppHeader,
-  AppScreen,
   EmptyState,
   HeaderIconButton,
+  LIST_CONTENT_PADDING,
   Surface,
 } from "@/components/mobile/screen";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
-import { useInboxStore } from "@/stores/inbox-store";
+import { type InboxPreviewItem, useInboxStore } from "@/stores/inbox-store";
 
 export default function InboxScreen() {
   const { t } = useLingui();
@@ -100,8 +101,17 @@ export default function InboxScreen() {
     [filter, items],
   );
 
-  return (
-    <AppScreen scroll testID="inbox-screen" contentClassName="gap-5 pt-1">
+  const renderInboxItem = useCallback(
+    ({ item, index }: { item: InboxPreviewItem; index: number }) => (
+      <InboxRow item={item} index={index} onPress={openDetail} />
+    ),
+    [openDetail],
+  );
+
+  // 头部(标题栏 + 工具栏 + 筛选栏)作为 FlatList 的 ListHeaderComponent 一起滚动,
+  // 列表主体走虚拟化,避免收件箱增长后整屏 .map 全量挂载。
+  const listHeader = (
+    <View className="gap-5 pb-5">
       <AppHeader
         title={<Trans>收件箱</Trans>}
         subtitle={<Trans>已接收内容会在这里归档</Trans>}
@@ -141,48 +151,65 @@ export default function InboxScreen() {
       {items.length > 0 ? (
         <FilterRail value={filter} counts={filterCounts} onChange={setFilter} />
       ) : null}
-
-      {items.length === 0 ? (
-        <EmptyState
-          icon={FileArchive}
-          title={<Trans>收件箱还是空的</Trans>}
-          description={
-            <Trans>
-              完成的接收内容会在这里出现；传输过程和恢复入口在活动页查看。
-            </Trans>
-          }
-          actionLabel={loading ? <Trans>刷新中</Trans> : <Trans>刷新</Trans>}
-          onAction={refresh}
-          actionLoading={loading}
-          actionDisabled={loading}
-          testID="inbox-empty-state"
-        />
-      ) : visibleItems.length === 0 ? (
-        <EmptyState
-          icon={FileArchive}
-          title={<Trans>当前筛选下没有内容</Trans>}
-          description={
-            <Trans>切换上方筛选范围，或进入搜索页查找历史内容。</Trans>
-          }
-          actionLabel={<Trans>搜索</Trans>}
-          onAction={openSearch}
-          className="min-h-48"
-          testID="inbox-filter-empty-state"
-        />
-      ) : (
-        <View className="gap-2.5" testID="inbox-list">
-          {visibleItems.map((item, index) => (
-            <InboxRow
-              key={item.id}
-              item={item}
-              index={index}
-              onPress={openDetail}
-            />
-          ))}
-        </View>
-      )}
-    </AppScreen>
+    </View>
   );
+
+  const emptyComponent =
+    items.length === 0 ? (
+      <EmptyState
+        icon={FileArchive}
+        title={<Trans>收件箱还是空的</Trans>}
+        description={
+          <Trans>
+            完成的接收内容会在这里出现；传输过程和恢复入口在活动页查看。
+          </Trans>
+        }
+        actionLabel={loading ? <Trans>刷新中</Trans> : <Trans>刷新</Trans>}
+        onAction={refresh}
+        actionLoading={loading}
+        actionDisabled={loading}
+        testID="inbox-empty-state"
+      />
+    ) : (
+      <EmptyState
+        icon={FileArchive}
+        title={<Trans>当前筛选下没有内容</Trans>}
+        description={
+          <Trans>切换上方筛选范围，或进入搜索页查找历史内容。</Trans>
+        }
+        actionLabel={<Trans>搜索</Trans>}
+        onAction={openSearch}
+        className="min-h-48"
+        testID="inbox-filter-empty-state"
+      />
+    );
+
+  return (
+    <SafeAreaView
+      style={{ flex: 1 }}
+      className="bg-background"
+      edges={["top"]}
+      testID="inbox-screen"
+    >
+      <FlatList
+        data={visibleItems}
+        keyExtractor={inboxKeyExtractor}
+        renderItem={renderInboxItem}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={LIST_CONTENT_PADDING}
+        ListHeaderComponent={listHeader}
+        ItemSeparatorComponent={InboxItemGap}
+        ListEmptyComponent={emptyComponent}
+        testID="inbox-list"
+      />
+    </SafeAreaView>
+  );
+}
+
+const inboxKeyExtractor = (item: InboxPreviewItem) => item.id;
+
+function InboxItemGap() {
+  return <View className="h-2.5" />;
 }
 
 /** 把 store 的 lastError 实际渲染出来,而不是只 console.warn(镜像 Requirement: Store Errors Surfaced to the User)。 */
@@ -200,14 +227,17 @@ function InboxErrorBanner({
       testID="inbox-refresh-error"
     >
       <AlertTriangle color={colors.destructive} size={16} />
-      <Text className="flex-1 text-[12px] text-destructive" numberOfLines={2}>
+      <Text
+        className="flex-1 text-[12px] text-destructive-ink"
+        numberOfLines={2}
+      >
         {message}
       </Text>
       <Pressable
         onPress={onRetry}
         accessibilityRole="button"
         testID="inbox-refresh-error-retry"
-        className="h-8 items-center justify-center rounded-lg border border-border bg-card px-3 active:opacity-70"
+        className="h-8 items-center justify-center rounded-xl border border-border bg-card px-3 active:opacity-70"
       >
         <Text className="text-[12px] font-semibold text-foreground">
           <Trans>重试</Trans>
@@ -255,7 +285,7 @@ function InboxToolbar({
         <View className="items-end gap-1">
           <View className="flex-row items-center gap-1.5">
             {loading ? <ActivityIndicator color={colors.primary} /> : null}
-            <Text className="text-[15px] font-semibold tabular-nums text-primary">
+            <Text className="text-[15px] font-semibold tabular-nums text-primary-ink">
               {count}
             </Text>
           </View>
@@ -286,10 +316,10 @@ function InboxToolbar({
           disabled={repairing}
           accessibilityRole="button"
           testID="inbox-repair-button"
-          className="min-h-11 flex-row items-center justify-between rounded-xl bg-destructive/10 px-3 active:opacity-70 disabled:opacity-55"
+          className="min-h-11 flex-row items-center justify-between rounded-xl bg-destructive/10 px-3 active:opacity-70 disabled:opacity-50"
         >
           <View className="min-w-0 flex-1">
-            <Text className="text-[12px] font-semibold text-destructive">
+            <Text className="text-[12px] font-semibold text-destructive-ink">
               <Trans>发现 {attentionCount} 条异常内容</Trans>
             </Text>
             <Text className="mt-0.5 text-[11px] text-muted-foreground">

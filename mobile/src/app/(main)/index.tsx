@@ -178,6 +178,16 @@ export default function DevicesScreen() {
     router.push("/activity" as never);
   }, [router]);
 
+  const openTransfer = useCallback(
+    (sessionId: string) => {
+      router.push({
+        pathname: "/transfer/[sessionId]",
+        params: { sessionId },
+      } as never);
+    },
+    [router],
+  );
+
   const handleStartNode = useCallback(async () => {
     try {
       await startNode();
@@ -254,7 +264,7 @@ export default function DevicesScreen() {
             hitSlop={8}
             testID="devices-open-activity-button"
           >
-            <Text className="text-[12px] font-semibold text-primary">
+            <Text className="text-[12px] font-semibold text-primary-ink">
               <Trans>查看活动</Trans>
             </Text>
           </Pressable>
@@ -266,12 +276,7 @@ export default function DevicesScreen() {
                 key={projection.sessionId}
                 projection={projection}
                 progress={progressBySession[projection.sessionId]}
-                onPress={(sessionId) =>
-                  router.push({
-                    pathname: "/transfer/[sessionId]",
-                    params: { sessionId },
-                  } as never)
-                }
+                onPress={openTransfer}
               />
             ))}
           </View>
@@ -392,7 +397,7 @@ function HomeTransferPanel({
                 ? "devices-retry-node-button"
                 : "devices-start-node-button"
             }
-            className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-55"
+            className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
           >
             {isStarting ? (
               <ActivityIndicator color={colors.primaryForeground} />
@@ -625,7 +630,7 @@ function AddDevicePanel({
           <View className="flex-row items-center gap-2">
             <View className="flex-row items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1">
               <Radio color={colors.primary} size={13} />
-              <Text className="text-[11px] font-medium text-primary">
+              <Text className="text-[11px] font-medium text-primary-ink">
                 {nearbyDevices.length}
               </Text>
             </View>
@@ -663,6 +668,7 @@ function AddDevicePanel({
                           setShowAllNearby(false);
                         }}
                         accessibilityRole="button"
+                        accessibilityState={{ selected: nearbyFilter === key }}
                         testID={`nearby-filter-${key}`}
                         className={cn(
                           "flex-1 items-center rounded-md px-2 py-1.5 active:opacity-70",
@@ -707,7 +713,7 @@ function AddDevicePanel({
                           testID="nearby-show-all-button"
                           className="min-h-9 items-center justify-center rounded-lg active:opacity-70"
                         >
-                          <Text className="text-[12px] font-semibold text-primary">
+                          <Text className="text-[12px] font-semibold text-primary-ink">
                             <Trans>查看全部 ({filteredNearby.length})</Trans>
                           </Text>
                         </Pressable>
@@ -729,7 +735,7 @@ function AddDevicePanel({
                 </>
               )}
               {pairingError !== null ? (
-                <Text className="text-[12px] text-destructive">
+                <Text className="text-[12px] text-destructive-ink">
                   {pairingError}
                 </Text>
               ) : null}
@@ -791,7 +797,7 @@ function NearbyDeviceRow({
       onPress={() => onPress(device)}
       disabled={pairing ? false : disabled}
       accessibilityRole="button"
-      className="min-h-14 flex-row items-center gap-3 rounded-lg bg-muted px-3 py-2.5 active:opacity-70 disabled:opacity-55"
+      className="min-h-14 flex-row items-center gap-3 rounded-lg bg-muted px-3 py-2.5 active:opacity-70 disabled:opacity-50"
     >
       <View className="size-10 items-center justify-center rounded-full bg-card">
         <Icon color={colors.foreground} size={18} />
@@ -1066,7 +1072,7 @@ function PairingCodeInput({
         )}
       />
       {error !== null ? (
-        <Text className="text-[12px] text-destructive">{error}</Text>
+        <Text className="text-[12px] text-destructive-ink">{error}</Text>
       ) : looking ? (
         <ActivityIndicator color={colors.mutedForeground} />
       ) : null}

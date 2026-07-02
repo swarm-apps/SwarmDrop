@@ -96,13 +96,14 @@ export default function DeviceName() {
             onChangeText={setName}
             autoFocus
             maxLength={40}
+            accessibilityLabel={t`设备名称`}
             placeholder={t`我的 iPhone`}
             placeholderTextColor={colors.mutedForeground}
             className="h-12 rounded-xl border border-border bg-card px-3.5 text-[16px] text-foreground"
             testID="onboarding-device-name-input"
           />
           {error !== null ? (
-            <Text className="text-[13px] text-destructive">{error}</Text>
+            <Text className="text-[13px] text-destructive-ink">{error}</Text>
           ) : null}
         </View>
       </View>

@@ -1,5 +1,6 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { SendHorizontal } from "lucide-react-native";
+import { memo } from "react";
 import { Pressable, View } from "react-native";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { ConnectionBadge } from "@/components/connection-badge";
@@ -22,7 +23,7 @@ interface DeviceCardProps {
 /**
  * 主屏设备入口。row 用于手机首页列表,card 保留给更宽的分组布局。
  */
-export function DeviceCard({
+function DeviceCardComponent({
   device,
   onPress,
   onSend,
@@ -200,3 +201,6 @@ export function DeviceCard({
     </Pressable>
   );
 }
+
+/** 主屏设备列表项:memo 避免父屏(含高频 progressBySession 订阅)重渲染时全表重算。 */
+export const DeviceCard = memo(DeviceCardComponent);

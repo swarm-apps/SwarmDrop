@@ -151,6 +151,7 @@ function PauseReceivingRow() {
         checked={paused}
         disabled={busy}
         onCheckedChange={onToggle}
+        accessibilityLabel={t`暂停接收`}
         testID="settings-pause-receiving-switch"
       />
     </View>

@@ -41,6 +41,7 @@ rounded:
   sm: "6px"
   md: "8px"
   lg: "10px"
+  xl: "12px"
   full: "9999px"
 spacing:
   xs: "2px"
@@ -50,16 +51,16 @@ spacing:
 components:
   button-primary:
     backgroundColor: "{colors.trust-blue}"
-    textColor: "#F8FAFC"
+    textColor: "{colors.quiet-ink}"
     typography: "{typography.body}"
-    rounded: "{rounded.md}"
+    rounded: "{rounded.xl}"
     padding: "10px 16px"
     height: "40px"
   button-outline:
     backgroundColor: "{colors.porch-white}"
     textColor: "{colors.doorway-ink}"
     typography: "{typography.body}"
-    rounded: "{rounded.md}"
+    rounded: "{rounded.xl}"
     padding: "10px 16px"
     height: "40px"
   card:
@@ -131,6 +132,8 @@ Dark mode swaps background/foreground (Porch White ↔ Doorway Ink) and deepens 
 
 **The Unified Ink Rule.** `--primary-foreground` is dark ink (`#0F172A`) in both light and dark mode, even though `--primary` itself (`#3B82F6`) never changes. This used to flip (light text in light mode, dark text in dark mode) until an audit found the light-mode pairing cleared only ~3.5:1 contrast against Trust Blue — below the 4.5:1 AA floor. Dark ink clears ~4.9:1 in both modes, so the token is now one value, not two. Don't reintroduce a lighter light-mode variant without re-verifying contrast first.
 
+**The State Ink Rule.** The saturated state colors (`--success` / `--warning` / `--destructive` / `--primary`) are calibrated for **fills, dots, and icons**, not for text. As *small text* on a light surface or a same-hue 10–15% tint they clear only ~2:1 (amber), ~3.3:1 (green), ~3.5:1 (red), ~3.4:1 (blue) — all below AA. So there is a dedicated **ink** token per state for text use: `--success-ink` / `--warning-ink` / `--destructive-ink` / `--primary-ink` (light = a darker shade, e.g. amber-700 / green-700 / red-700 / blue-600; dark = a lighter shade for text on dark tint). All clear ≥4.5:1 on both white and the `/10`–`/15` tint. **Rule:** state color as a *dot / fill / icon* → the base token; state color as *text* → the `-ink` token. `StatusPill`, `TrustBadge`, `ConnectionBadge`, and `transfer/shared`'s `StatusBadge` all follow this; new state text must too.
+
 ## 3. Typography
 
 **Font:** System default — SF Pro on iOS, Roboto on Android. No custom font is loaded anywhere in the app; this is deliberate neutrality, not an oversight.
@@ -161,8 +164,9 @@ Two-tier, deliberately flat-first. Resting surfaces (buttons, cards, inputs, dev
 ## 5. Components
 
 ### Buttons
-- **Shape:** `rounded-md` (8px) at every size.
-- **Primary:** Trust Blue fill, `#F8FAFC` text, `h-10` (40px, `sm:h-9`), `px-4 py-2`. Active state darkens to 90% opacity (`active:bg-primary/90`), never a hover-only affordance — this is touch-first.
+- **Shape:** `rounded-xl` (12px) — the app's canonical action-button radius. The shadcn `<Button>` primitive and all hand-rolled `Pressable` buttons now agree on it; cards/surfaces stay `rounded-lg` (10px). (This was reconciled from an earlier `rounded-md`/`lg`/`xl`/`2xl` spread that made the same action look different screen-to-screen.)
+- **Primary:** Trust Blue fill, **dark-ink text** (`--primary-foreground`, `#0F172A`, per the Unified Ink Rule — not white), `h-10` (40px, `sm:h-9`), `px-4 py-2`. Active feedback is either the variant fill (`active:bg-primary/90`, shadcn `<Button>`) or `active:opacity-70` (hand-rolled Pressable) — never a hover-only affordance, this is touch-first.
+- **Interaction consistency:** hand-rolled action buttons standardize on `active:opacity-70` + `disabled:opacity-50` (never `active:opacity-80/90` or `disabled:opacity-55`).
 - **Outline:** Porch White fill with a Threshold Line border; active state fills to Quiet Surface (`active:bg-accent`).
 - **Ghost:** no fill or border at rest; active state fills to Quiet Surface at half strength.
 - **Destructive:** Alert Red fill, white text; used sparingly (block device, delete history).
@@ -203,4 +207,4 @@ Two-tier, deliberately flat-first. Resting surfaces (buttons, cards, inputs, dev
 - **Don't** build enterprise-SaaS-style dense data tables or dashboard-stacking layouts. Per PRODUCT.md, this is explicitly rejected.
 - **Don't** add a second border/divider gray — every edge in this app is Threshold Line (`#E2E8F0` / `#1E293B` dark); reach for opacity variants of existing state colors instead.
 - **Don't** revert `--primary-foreground` back to a lighter light-mode value — the unified dark-ink value (see the Unified Ink Rule) is what clears WCAG AA; a lighter value only cleared ~3.5:1.
-- **Don't** add decorative gradients, glassmorphism, or gradient text anywhere — none exist today and none fit a doorstep that's supposed to feel calm and legible, not flashy.
+- **Don't** add decorative gradients, glassmorphism, or gradient text anywhere — none fit a doorstep that's supposed to feel calm and legible, not flashy. (The single exception is `ios-toast`'s `BlurView`: a floating, transient, iOS-native toast surface — glass on a momentary overlay, never on resting content.)

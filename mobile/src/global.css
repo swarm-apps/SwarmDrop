@@ -18,10 +18,14 @@
   --color-accent-foreground: hsl(var(--accent-foreground));
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-ink: hsl(var(--destructive-ink));
   --color-success: hsl(var(--success));
   --color-success-foreground: hsl(var(--success-foreground));
+  --color-success-ink: hsl(var(--success-ink));
   --color-warning: hsl(var(--warning));
   --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-warning-ink: hsl(var(--warning-ink));
+  --color-primary-ink: hsl(var(--primary-ink));
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
@@ -54,6 +58,14 @@
   --success-foreground: 355.7 100% 97.3%;
   --warning: 38 92% 50%;
   --warning-foreground: 48 96% 89%;
+  /* State "ink": 高对比文字变体,用于把状态色当**文字**压在浅底/同色 10-15% tint 上时。
+     状态色本身(--success/--warning/--destructive)当文字都低于 WCAG AA 4.5:1
+     (amber 尤甚,~2:1),这些 ink 值经手算在白底与 /10~/15 tint 上均 ≥4.5:1。
+     仅用于文字;圆点/填充/图标仍用原状态色。见 DESIGN.md「State Ink Rule」。 */
+  --success-ink: 142.4 71.8% 29.2%;
+  --warning-ink: 26 90% 37%;
+  --destructive-ink: 0 74% 42%;
+  --primary-ink: 221.2 83.2% 53.3%;
   --border: 214.3 31.8% 91.4%;
   --input: 214.3 31.8% 91.4%;
   --ring: 217.2 91.2% 59.8%;
@@ -82,6 +94,12 @@
     --success-foreground: 144.9 80.4% 10%;
     --warning: 48 96% 53%;
     --warning-foreground: 38 92% 10%;
+    /* 暗色下状态色当文字压在**深色** tint 上,需要更亮的变体(尤其 --destructive
+       暗色是深红 30.6%,当文字在深底上不可读)。这些亮变体在深底 tint 上均 ≥4.5:1。 */
+    --success-ink: 141.9 69.2% 58%;
+    --warning-ink: 43 96% 56%;
+    --destructive-ink: 0 90.6% 70.8%;
+    --primary-ink: 213.1 93.9% 67.8%;
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 224.3 76.3% 48%;

@@ -88,15 +88,6 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
   // libp2p 细节(Peer ID / NAT / 中继 / 引导节点…)藏进渐进披露。
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-  // 每秒重渲染让运行时长更新
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (runtimeState !== "running" || !startedAt) return;
-    const id = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, [runtimeState, startedAt]);
-  void tick;
-
   const handleStart = async () => {
     setWorking(true);
     try {
@@ -165,7 +156,7 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
               <Divider />
               <Row
                 label={<Trans>运行时长</Trans>}
-                value={startedAt ? formatUptime(startedAt) : "—"}
+                value={<UptimeValue startedAt={startedAt} />}
               />
             </View>
 
@@ -403,6 +394,20 @@ function RelayReadyLabel({
     default:
       return <Trans>就绪 · 公网</Trans>;
   }
+}
+
+/**
+ * 运行时长每秒自增 —— 独立叶子组件,只让这一行每秒重渲染,
+ * 不再带动整个 sheet(含诊断表)每秒重算。
+ */
+function UptimeValue({ startedAt }: { startedAt: number | null }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!startedAt) return;
+    const id = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return <>{startedAt ? formatUptime(startedAt) : "—"}</>;
 }
 
 function Divider() {

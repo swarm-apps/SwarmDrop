@@ -5,7 +5,7 @@
  * 5 种状态变体（select / waiting / transferring / completed / error）。
  */
 
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import {
   Check,
   FileArchive,
@@ -18,15 +18,13 @@ import {
   Timer,
   X,
 } from "lucide-react-native";
+import { memo } from "react";
 import { Pressable, View } from "react-native";
 import { formatBytes, ProgressBar } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 import type { FileStatus } from "./data";
-
-/** transferring 蓝色（blue-500）固定值，与桌面端一致 */
-const TRANSFERRING_COLOR = "#3b82f6";
 
 interface FileTreeItemProps {
   name: string;
@@ -90,11 +88,13 @@ function getFileIcon(name: string): LucideIcon {
 
 export function RemoveButton({ onPress }: { onPress?: () => void }) {
   const colors = useThemeColors();
+  const { t } = useLingui();
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={6}
+      hitSlop={10}
       accessibilityRole="button"
+      accessibilityLabel={t`移除`}
       className="rounded-full p-1 active:bg-destructive/15"
     >
       <X size={13} color={colors.mutedForeground} />
@@ -128,10 +128,10 @@ const variantStyles: Record<FileStatus, VariantStyle> = {
     iconColor: (c) => c.mutedForeground,
   },
   transferring: {
-    row: "bg-blue-500/10",
+    row: "bg-primary/10",
     nameColor: "text-foreground",
-    infoColor: "text-blue-500",
-    iconColor: () => TRANSFERRING_COLOR,
+    infoColor: "text-primary-ink",
+    iconColor: (c) => c.primary,
   },
   completed: {
     row: "bg-success/5",
@@ -142,14 +142,14 @@ const variantStyles: Record<FileStatus, VariantStyle> = {
   error: {
     row: "bg-destructive/5",
     nameColor: "text-foreground",
-    infoColor: "text-destructive",
+    infoColor: "text-destructive-ink",
     iconColor: (c) => c.destructive,
   },
 };
 
 /* ─── 主组件 ─── */
 
-export function FileTreeItem({
+function FileTreeItemComponent({
   name,
   size,
   variant,
@@ -162,6 +162,7 @@ export function FileTreeItem({
 }: FileTreeItemProps) {
   const styles = variantStyles[variant];
   const colors = useThemeColors();
+  const { t } = useLingui();
   const Icon = getFileIcon(name);
   const isTransferring = variant === "transferring";
   const isPressable = onPress != null || onLongPress != null;
@@ -207,8 +208,9 @@ export function FileTreeItem({
           {variant === "error" && onRetry ? (
             <Pressable
               onPress={onRetry}
-              hitSlop={6}
+              hitSlop={10}
               accessibilityRole="button"
+              accessibilityLabel={t`重试`}
               className="rounded-full p-1 active:bg-destructive/15"
             >
               <RotateCcw size={13} color={colors.destructive} />
@@ -227,9 +229,11 @@ export function FileTreeItem({
         <ProgressBar
           percent={progress}
           heightClass="h-1"
-          fillClass="bg-blue-500"
+          fillClass="bg-primary"
         />
       ) : null}
     </Pressable>
   );
 }
+
+export const FileTreeItem = memo(FileTreeItemComponent);

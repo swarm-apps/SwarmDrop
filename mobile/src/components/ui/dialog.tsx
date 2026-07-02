@@ -1,3 +1,4 @@
+import { useLingui } from "@lingui/react/macro";
 import * as DialogPrimitive from "@rn-primitives/dialog";
 import { X } from "lucide-react-native";
 import * as React from "react";
@@ -77,6 +78,7 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   portalHost?: string;
 }) {
+  const { t } = useLingui();
   return (
     <DialogPortal hostName={portalHost}>
       <DialogOverlay>
@@ -92,6 +94,8 @@ function DialogContent({
         >
           {children}
           <DialogPrimitive.Close
+            accessibilityRole="button"
+            accessibilityLabel={t`关闭`}
             className={cn(
               "absolute right-4 top-4 rounded opacity-70 active:opacity-100",
               Platform.select({

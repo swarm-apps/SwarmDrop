@@ -67,11 +67,19 @@ const STATUS_META: Record<string, StatusMeta> = {
   transferring: {
     key: "transferring",
     bg: "bg-primary/15",
-    text: "text-primary",
+    text: "text-primary-ink",
   },
-  paused: { key: "paused", bg: "bg-warning/15", text: "text-warning" },
-  completed: { key: "completed", bg: "bg-success/15", text: "text-success" },
-  failed: { key: "failed", bg: "bg-destructive/15", text: "text-destructive" },
+  paused: { key: "paused", bg: "bg-warning/15", text: "text-warning-ink" },
+  completed: {
+    key: "completed",
+    bg: "bg-success/15",
+    text: "text-success-ink",
+  },
+  failed: {
+    key: "failed",
+    bg: "bg-destructive/15",
+    text: "text-destructive-ink",
+  },
   cancelled: {
     key: "cancelled",
     bg: "bg-muted",
@@ -80,23 +88,23 @@ const STATUS_META: Record<string, StatusMeta> = {
   waiting_accept: {
     key: "waiting_accept",
     bg: "bg-warning/15",
-    text: "text-warning",
+    text: "text-warning-ink",
   },
-  offered: { key: "offered", bg: "bg-warning/15", text: "text-warning" },
+  offered: { key: "offered", bg: "bg-warning/15", text: "text-warning-ink" },
   interrupted: {
     key: "interrupted",
     bg: "bg-warning/15",
-    text: "text-warning",
+    text: "text-warning-ink",
   },
   peer_offline: {
     key: "peer_offline",
     bg: "bg-warning/15",
-    text: "text-warning",
+    text: "text-warning-ink",
   },
   app_restarted: {
     key: "app_restarted",
     bg: "bg-warning/15",
-    text: "text-warning",
+    text: "text-warning-ink",
   },
   rejected: {
     key: "rejected",

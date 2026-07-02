@@ -100,6 +100,7 @@ function Row({ label, selected, onPress, checkColor }: RowProps) {
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ selected }}
       className="flex-row items-center justify-between px-3.5 py-3 gap-3 active:bg-muted"
     >
       <Text className="flex-1 text-[14px] text-foreground">{label}</Text>

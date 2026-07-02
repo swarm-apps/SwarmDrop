@@ -75,6 +75,7 @@ export default function ThemeScreen() {
                   onPress={() => handleSelect(opt.value)}
                   accessibilityRole="button"
                   accessibilityLabel={opt.label}
+                  accessibilityState={{ selected }}
                   className="flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
                 >
                   <Icon color={colors.mutedForeground} size={18} />

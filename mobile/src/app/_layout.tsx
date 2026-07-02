@@ -11,6 +11,7 @@ import { ActivityIndicator, Text, useColorScheme, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { NotifierRoot } from "react-native-notifier";
+import { ReducedMotionConfig, ReduceMotion } from "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PairingRequestHost } from "@/components/pairing-request-host";
 import { TransferOfferHost } from "@/components/transfer-offer-host";
@@ -69,7 +70,9 @@ export default function RootLayout() {
   if (bootError !== null) {
     return (
       <View className="flex-1 items-center justify-center gap-3 bg-background p-6">
-        <Text className="text-base font-bold text-destructive">启动失败</Text>
+        <Text className="text-base font-bold text-destructive-ink">
+          启动失败
+        </Text>
         <Text className="text-center text-sm text-muted-foreground">
           {bootError}
         </Text>
@@ -79,6 +82,8 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* 所有 Reanimated 动画尊重系统「减弱动效」设置(无障碍),显式固定为 System。 */}
+      <ReducedMotionConfig mode={ReduceMotion.System} />
       <KeyboardProvider>
         <SafeAreaProvider>
           <ThemeProvider value={navTheme}>

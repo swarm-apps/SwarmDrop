@@ -25,6 +25,7 @@ export function StatusPill({ state, onPress, size = "sm" }: StatusPillProps) {
     <Wrapper
       onPress={onPress}
       accessibilityRole={onPress ? "button" : undefined}
+      {...(onPress ? { hitSlop: 10 } : {})}
       className={cn(
         "flex-row items-center self-start rounded-full",
         size === "sm" ? "gap-1.5 px-2.5 py-1" : "gap-2 px-3 py-1.5",
@@ -67,10 +68,10 @@ const DOT_CLASS: Record<RuntimeState, string> = {
 };
 
 const TEXT_CLASS: Record<RuntimeState, string> = {
-  running: "text-success",
-  starting: "text-warning",
+  running: "text-success-ink",
+  starting: "text-warning-ink",
   stopped: "text-muted-foreground",
-  error: "text-destructive",
+  error: "text-destructive-ink",
 };
 
 const BG_CLASS: Record<RuntimeState, string> = {

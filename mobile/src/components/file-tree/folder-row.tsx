@@ -12,14 +12,19 @@ import {
   Folder,
   FolderOpen,
 } from "lucide-react-native";
-import { Pressable, View } from "react-native";
+import { memo } from "react";
+import { Pressable, useColorScheme, View } from "react-native";
 import { formatBytes } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { RemoveButton } from "./file-tree-item";
 
-/** 文件夹图标色（amber-500），与桌面端 file-tree 一致。主题色之外的固定色不走 CSS 变量。 */
-const FOLDER_COLOR = "#f59e0b";
+/**
+ * 文件夹图标色（Caution Amber）—— 是"文件夹"这一装饰性图形语义，而非 warning 状态，
+ * 故不映射到 --warning token；但按 DESIGN.md 的 amber 亮/暗值随外观切换，暗色下提亮。
+ */
+const FOLDER_COLOR_LIGHT = "#F59E0B";
+const FOLDER_COLOR_DARK = "#FACC15";
 
 interface FolderRowProps {
   name: string;
@@ -32,7 +37,7 @@ interface FolderRowProps {
   onRemove?: () => void;
 }
 
-export function FolderRow({
+function FolderRowComponent({
   name,
   isExpanded,
   fileCount,
@@ -45,6 +50,8 @@ export function FolderRow({
   const ChevronIcon = isExpanded ? ChevronDown : ChevronRight;
   const FolderIcon = isExpanded ? FolderOpen : Folder;
   const colors = useThemeColors();
+  const folderColor =
+    useColorScheme() === "dark" ? FOLDER_COLOR_DARK : FOLDER_COLOR_LIGHT;
 
   return (
     <Pressable
@@ -57,7 +64,7 @@ export function FolderRow({
     >
       <View className="min-w-0 flex-1 flex-row items-center gap-2.5">
         <ChevronIcon size={16} color={colors.mutedForeground} />
-        <FolderIcon size={18} color={FOLDER_COLOR} />
+        <FolderIcon size={18} color={folderColor} />
         <Text
           className="min-w-0 flex-1 text-sm font-medium text-foreground"
           numberOfLines={1}
@@ -80,3 +87,5 @@ export function FolderRow({
     </Pressable>
   );
 }
+
+export const FolderRow = memo(FolderRowComponent);

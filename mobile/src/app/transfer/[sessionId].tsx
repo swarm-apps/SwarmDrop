@@ -319,7 +319,7 @@ function TransferDetailContent({
       </View>
 
       <View className="gap-2">
-        <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <Text className="text-[13px] font-semibold text-muted-foreground">
           <Trans>文件</Trans>
         </Text>
         <FileTree
@@ -635,7 +635,7 @@ function ActionButton({
       ? "text-primary-foreground"
       : variant === "secondary"
         ? "text-foreground"
-        : "text-destructive";
+        : "text-destructive-ink";
   const iconColor =
     variant === "primary"
       ? colors.primaryForeground

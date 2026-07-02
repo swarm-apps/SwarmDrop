@@ -442,11 +442,12 @@ export default function InboxDetailScreen() {
 }
 
 function MoreButton({ onPress }: { onPress: () => void }) {
+  const { t } = useLingui();
   const colors = useThemeColors();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="更多"
+      accessibilityLabel={t`更多`}
       onPress={onPress}
       testID="inbox-detail-more-button"
       className="size-11 items-center justify-center rounded-xl bg-muted active:opacity-70"
@@ -687,6 +688,7 @@ function ContentPreview({
           source={{ uri: primaryFile.localPath }}
           resizeMode="cover"
           className="h-full w-full"
+          accessibilityLabel={primaryFile.name}
         />
       ) : isTextExcerptKind ? (
         <View
@@ -762,6 +764,7 @@ function DetailActionBar({
   onOpen: () => void;
   onCopy: () => void;
 }) {
+  const { t } = useLingui();
   const colors = useThemeColors();
   const canOpen = primaryFile != null && !primaryFile.missing;
   return (
@@ -775,7 +778,7 @@ function DetailActionBar({
         onPress={primaryFile ? onOpen : onCopy}
         disabled={primaryFile ? !canOpen : !hasLocation}
         testID={primaryFile ? "inbox-file-share-0" : "inbox-copy-location"}
-        className="min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-2xl bg-primary px-4 active:opacity-80 disabled:opacity-50"
+        className="min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
       >
         {primaryFile ? (
           <Share2 color={colors.primaryForeground} size={18} />
@@ -789,7 +792,7 @@ function DetailActionBar({
       {primaryFile ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="复制路径"
+          accessibilityLabel={t`复制路径`}
           onPress={onCopy}
           disabled={!hasLocation}
           hitSlop={8}
@@ -851,6 +854,7 @@ function FileRow({
   onCopy: (path: string) => void;
   separated?: boolean;
 }) {
+  const { t } = useLingui();
   const colors = useThemeColors();
   const Icon = fileIcon(file.name);
   return (
@@ -897,7 +901,7 @@ function FileRow({
       </View>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="打开或分享"
+        accessibilityLabel={t`打开或分享`}
         onPress={() => onOpenShare(file)}
         disabled={file.missing}
         hitSlop={8}
@@ -907,7 +911,7 @@ function FileRow({
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="复制路径"
+        accessibilityLabel={t`复制路径`}
         onPress={(event) => {
           event.stopPropagation();
           onCopy(file.localPath);
@@ -1061,7 +1065,7 @@ function StatePill({
       <Text
         className={
           tone === "missing"
-            ? "text-[10px] font-medium text-destructive"
+            ? "text-[10px] font-medium text-destructive-ink"
             : "text-[10px] font-medium text-muted-foreground"
         }
       >

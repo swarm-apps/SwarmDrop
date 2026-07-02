@@ -93,7 +93,9 @@ export function ForceUpdateDialog({
         ) : null}
 
         {isReady ? (
-          <Text className="text-primary text-sm">{t.systemConfirmHint}</Text>
+          <Text className="text-primary-ink text-sm">
+            {t.systemConfirmHint}
+          </Text>
         ) : null}
 
         <AlertDialogFooter>

@@ -54,7 +54,7 @@ export default function AboutScreen() {
       <View className="flex-1 items-center justify-center px-8 -mt-10">
         <View className="flex-row items-center gap-4">
           <View className="h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-            <Text className="text-[22px] font-bold text-primary">SD</Text>
+            <Text className="text-[22px] font-bold text-primary-ink">SD</Text>
           </View>
           <View>
             <Text className="text-[19px] font-semibold tracking-tight text-foreground">

@@ -165,6 +165,7 @@ export default function InboxSearchScreen() {
             autoFocus
             value={query}
             onChangeText={setQuery}
+            accessibilityLabel={t`搜索收件箱`}
             placeholder={
               serverSearch ? t`搜索标题、来源、文件名…` : t`搜索标题或来源`
             }

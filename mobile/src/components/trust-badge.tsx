@@ -56,8 +56,8 @@ export function TrustLabel({ level }: { level: TrustLevel }) {
 }
 
 const TRUST_META: Record<TrustLevel, { bg: string; text: string }> = {
-  owned: { bg: "bg-primary/10", text: "text-primary" },
-  collaborator: { bg: "bg-success/10", text: "text-success" },
-  temporary: { bg: "bg-warning/15", text: "text-warning" },
-  blocked: { bg: "bg-destructive/15", text: "text-destructive" },
+  owned: { bg: "bg-primary/10", text: "text-primary-ink" },
+  collaborator: { bg: "bg-success/10", text: "text-success-ink" },
+  temporary: { bg: "bg-warning/15", text: "text-warning-ink" },
+  blocked: { bg: "bg-destructive/15", text: "text-destructive-ink" },
 };

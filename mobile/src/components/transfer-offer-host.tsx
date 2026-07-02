@@ -188,7 +188,7 @@ export function TransferOfferHost() {
             {current.offer.origin.tag === MobileTransferOrigin_Tags.Mcp && (
               <View className="mt-1 flex-row items-center gap-1 self-start rounded-full bg-primary/10 px-2 py-0.5">
                 <Bot color={colors.primary} size={12} />
-                <Text className="text-[11px] font-medium text-primary">
+                <Text className="text-[11px] font-medium text-primary-ink">
                   {current.offer.origin.inner.client ? (
                     <Trans>
                       由 AI 代理发起（{current.offer.origin.inner.client}）
@@ -280,7 +280,7 @@ export function TransferOfferHost() {
               accessibilityRole="button"
               accessibilityLabel={t`知道了`}
               testID="transfer-offer-dismiss-button"
-              className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-80"
+              className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
             >
               <Text className="text-base font-medium text-foreground">
                 <Trans>知道了</Trans>
@@ -294,7 +294,7 @@ export function TransferOfferHost() {
                 accessibilityRole="button"
                 accessibilityLabel={t`接收`}
                 testID="transfer-offer-accept-button"
-                className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-80 disabled:opacity-50"
+                className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
               >
                 {busy === "accepting" ? (
                   <ActivityIndicator color={colors.primaryForeground} />
@@ -315,7 +315,7 @@ export function TransferOfferHost() {
                 accessibilityRole="button"
                 accessibilityLabel={t`拒绝`}
                 testID="transfer-offer-reject-button"
-                className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-80 disabled:opacity-50"
+                className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
               >
                 <Text className="text-base font-medium text-foreground">
                   <Trans>拒绝</Trans>

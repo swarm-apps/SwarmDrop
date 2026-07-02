@@ -6,6 +6,17 @@ import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 
+/**
+ * FlatList / SectionList 的内容内边距 —— 与 `AppScreen` 的 `px-5 pb-8`(20/32) + `pt-1`(4)
+ * 对齐。列表页从 `AppScreen` 切到虚拟化容器时复用此常量:既避免魔数在多屏漂移,
+ * 又给 `contentContainerStyle` 一个稳定引用(每次渲染不新建对象)。
+ */
+export const LIST_CONTENT_PADDING = {
+  paddingHorizontal: 20,
+  paddingTop: 4,
+  paddingBottom: 32,
+} as const;
+
 interface AppScreenProps {
   children: ReactNode;
   scroll?: boolean;
@@ -185,7 +196,11 @@ export function EmptyState({
           onPress={onAction}
           disabled={actionDisabled || actionLoading}
           accessibilityRole="button"
-          className="min-h-11 min-w-24 items-center justify-center rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-55"
+          accessibilityState={{
+            busy: !!actionLoading,
+            disabled: !!(actionDisabled || actionLoading),
+          }}
+          className="min-h-11 min-w-24 items-center justify-center rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
         >
           {actionLoading ? (
             <ActivityIndicator color={colors.primaryForeground} />
