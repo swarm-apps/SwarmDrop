@@ -1,9 +1,11 @@
 import "../global.css";
 
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { useLingui } from "@lingui/react/macro";
 import { PortalHost } from "@rn-primitives/portal";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { ThemeProvider } from "expo-router/react-navigation";
+import { ShareIntentProvider, useShareIntentContext } from "expo-share-intent";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
@@ -17,11 +19,17 @@ import { TransferOfferHost } from "@/components/transfer-offer-host";
 import { UpdateHost } from "@/components/update-host";
 import { UpdateProvider } from "@/components/update-provider";
 import { initMobileCore } from "@/core/mobile-core";
+import { shareFilesToTransferFiles } from "@/core/share-intent";
 import { useNavTheme } from "@/hooks/useThemeColors";
 import { LinguiProvider } from "@/i18n/LinguiProvider";
 import { initI18n } from "@/i18n/lingui";
 import { restoreThemePreference } from "@/lib/theme-persistence";
-import { waitForOnboardingHydration } from "@/stores/onboarding-store";
+import { toast } from "@/lib/toast";
+import {
+  useOnboardingStore,
+  waitForOnboardingHydration,
+} from "@/stores/onboarding-store";
+import { useShareStore } from "@/stores/share-store";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -92,57 +100,65 @@ export default function RootLayout() {
                 baseUrl="http://47.115.172.218:3030"
                 appSlug="swarmdrop-rn"
               >
-                <BottomSheetModalProvider>
-                  <StatusBar style={isDark ? "light" : "dark"} />
-                  <Stack screenOptions={{ headerShown: false }}>
-                    <Stack.Screen name="index" />
-                    <Stack.Screen name="onboarding" />
-                    <Stack.Screen name="(main)" />
-                    <Stack.Screen
-                      name="transfer"
-                      options={{ animation: "slide_from_right" }}
-                    />
-                    <Stack.Screen
-                      name="activity"
-                      options={{ animation: "slide_from_right" }}
-                    />
-                    <Stack.Screen
-                      name="inbox/search"
-                      options={{ animation: "slide_from_right" }}
-                    />
-                    <Stack.Screen
-                      name="inbox/[itemId]"
-                      options={{ animation: "slide_from_right" }}
-                    />
-                    <Stack.Screen
-                      name="settings"
-                      options={{ animation: "slide_from_right" }}
-                    />
-                    <Stack.Screen
-                      name="device/[peerId]"
-                      options={{ animation: "slide_from_right" }}
-                    />
-                    <Stack.Screen
-                      name="pairing/found-device"
-                      options={{ animation: "slide_from_right" }}
-                    />
-                    <Stack.Screen
-                      name="pairing/success"
-                      options={{
-                        animation: "slide_from_right",
-                        gestureEnabled: false,
-                      }}
-                    />
-                    <Stack.Screen
-                      name="send/select-device"
-                      options={{ animation: "slide_from_right" }}
-                    />
-                  </Stack>
-                  <PairingRequestHost />
-                  <TransferOfferHost />
-                  <UpdateHost />
-                  <PortalHost />
-                </BottomSheetModalProvider>
+                <ShareIntentProvider options={{ debug: __DEV__ }}>
+                  <BottomSheetModalProvider>
+                    <StatusBar style={isDark ? "light" : "dark"} />
+                    <Stack screenOptions={{ headerShown: false }}>
+                      <Stack.Screen name="index" />
+                      <Stack.Screen name="onboarding" />
+                      <Stack.Screen name="(main)" />
+                      <Stack.Screen
+                        name="transfer"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen
+                        name="activity"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen
+                        name="inbox/search"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen
+                        name="inbox/[itemId]"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen
+                        name="settings"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen
+                        name="device/[peerId]"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen
+                        name="pairing/found-device"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen
+                        name="pairing/success"
+                        options={{
+                          animation: "slide_from_right",
+                          gestureEnabled: false,
+                        }}
+                      />
+                      <Stack.Screen
+                        name="send/select-device"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen
+                        name="send/share-target"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                    </Stack>
+                    <PairingRequestHost />
+                    <TransferOfferHost />
+                    <UpdateHost />
+                    <PortalHost />
+                    {/* 入站分享(expo-share-intent):映射文件 → 选设备屏。命令式,无常驻 UI。 */}
+                    <ShareIntentHandler />
+                  </BottomSheetModalProvider>
+                </ShareIntentProvider>
               </UpdateProvider>
             </LinguiProvider>
           </ThemeProvider>
@@ -151,4 +167,48 @@ export default function RootLayout() {
       </KeyboardProvider>
     </GestureHandlerRootView>
   );
+}
+
+/**
+ * 入站分享处理:收到系统分享 → 映射成 TransferFile[] → 塞进 share-store → 跳选设备屏。
+ * - 无文件(纯文本 / URL 分享)→ 提示 v1 只支持文件,放弃本次。
+ * - 未过引导 → 提示先完成设置,放弃本次(v1 不暂存)。
+ * 仅在 App ready 后渲染(RootLayout 的 !ready 早返回),故此处不再重复 ready 门控。
+ */
+function ShareIntentHandler() {
+  const { isReady, hasShareIntent, shareIntent, resetShareIntent } =
+    useShareIntentContext();
+  const router = useRouter();
+  const { t } = useLingui();
+  const hasOnboarded = useOnboardingStore((s) => s.hasOnboarded);
+  const setSharedFiles = useShareStore((s) => s.setSharedFiles);
+
+  useEffect(() => {
+    if (!isReady || !hasShareIntent) return;
+    const files = shareFilesToTransferFiles(shareIntent.files);
+    if (files.length === 0) {
+      toast.info(t`暂只支持发送文件、图片和视频`);
+      resetShareIntent();
+      return;
+    }
+    if (!hasOnboarded) {
+      toast.info(t`请先完成 SwarmDrop 设置`);
+      resetShareIntent();
+      return;
+    }
+    setSharedFiles(files);
+    router.push("/send/share-target" as never);
+    resetShareIntent();
+  }, [
+    isReady,
+    hasShareIntent,
+    shareIntent,
+    hasOnboarded,
+    router,
+    setSharedFiles,
+    resetShareIntent,
+    t,
+  ]);
+
+  return null;
 }

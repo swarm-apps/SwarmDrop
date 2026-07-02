@@ -150,6 +150,44 @@ const pairedDevices = useMemo(() => {
 
 **相关文件**：[src/app/_layout.tsx](../../src/app/_layout.tsx)
 
+## 分享到 SwarmDrop（入站 share intent）
+
+### 从别的 App 分享文件进来走 expo-share-intent + 现有 startSend
+
+系统分享(iOS Share Extension / Android `ACTION_SEND`)由 `expo-share-intent` 接管:根布局
+[src/app/_layout.tsx](../../src/app/_layout.tsx) 包 `ShareIntentProvider`,`ShareIntentHandler`
+把 `shareIntent.files` 映射成 `TransferFile[]`([src/core/share-intent.ts](../../src/core/share-intent.ts))
+塞进**非持久化**的 [share-store](../../src/stores/share-store.ts) → push
+[src/app/send/share-target.tsx](../../src/app/send/share-target.tsx)(选设备屏)→ 复用
+`transfer-store.startSend({ files, peerId, peerName })`。
+
+**关键约束/坑**：
+
+- **必须有 `src/app/+native-intent.tsx`(否则 Unmatched Route 404)** —— iOS Share Extension 用
+  `swarmdrop://dataUrl=<getShareExtensionKey()>?nonce=…` 拉起主 App,这个 URL **不是路由**;不拦截的话
+  expo-router 会当页面路径解析 → 白屏 "Unmatched Route"。`redirectSystemPath` 识别到 `dataUrl=<key>`
+  就 `return "/"`(其余原样放行,不破坏 `swarmdrop://` 深链),分享数据由原生模块 keyed 保存,交给
+  `ShareIntentHandler` 的 `hasShareIntent` 再 push。**iOS 模拟器 Maestro E2E 实测抓到的坑**。
+- **库给的是 `file://` path,不是 content://** —— `expo-share-intent` 已把分享项拷成 App 拥有的
+  `file://`(Android content:// 读权限是临时的、不能 `takePersistableUriPermission`,撑不过长传;
+  iOS 经 App Group 容器)。正好等于 `TransferFile.sourceId` 形态,直接喂 `prepareSend`,**core 零改动**。
+- **不要在发送后删这份拷贝** —— `startSend` 返回时传输才启动,`ForeignFileAccess.readSourceChunk`
+  后续还在读;删了会毁传输。v1 靠 OS cache 清理,主动清理须挂「传输完成」事件。
+- **Android `androidIntentFilters` 只能 `text/*|image/*|video/*|*/*`** —— 要接通用文件必须 `*/*`,
+  但这会让 SwarmDrop 也出现在**文本分享**里。所以 handler 对「无文件的分享」(纯文本/URL)直接
+  `toast` 提示 + `resetShareIntent()`,不进发送流。iOS 侧靠 `iosActivationRules`(不含 text)精确排除。
+- **iOS 需 App Group** `group.com.yexiyue.swarmdrop`(插件 `iosAppGroupIdentifier`),要在 Apple
+  账号注册 + provisioning;Share Extension 有内存/时限,超大文件拷入 App Group 有被杀风险(已知限制)。
+- **原生**:`expo-share-intent` 是 config plugin + 原生模块 → 改动后须 `prebuild` + 重建原生桥
+  (`build:ios/android`)+ app build。未 build 的包 import 它会崩(iOS 尤甚)。未过引导时 v1 直接
+  toast「先完成设置」+ 放弃本次分享(不暂存)。
+
+**相关文件**：[src/app/_layout.tsx](../../src/app/_layout.tsx),
+[src/app/+native-intent.tsx](../../src/app/+native-intent.tsx),
+[src/app/send/share-target.tsx](../../src/app/send/share-target.tsx),
+[src/core/share-intent.ts](../../src/core/share-intent.ts),
+[src/stores/share-store.ts](../../src/stores/share-store.ts),[app.json](../../app.json)
+
 ## 发送流程
 
 ### sendPrepared 的 file_ids 必须传 prepared 的全量（除非 UI 提供子集选择）

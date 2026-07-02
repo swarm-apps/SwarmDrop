@@ -51,6 +51,19 @@
       ],
       "expo-sharing",
       "expo-web-browser",
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsFileWithMaxCount": 20,
+            "NSExtensionActivationSupportsImageWithMaxCount": 20,
+            "NSExtensionActivationSupportsMovieWithMaxCount": 20
+          },
+          "iosAppGroupIdentifier": "group.com.yexiyue.swarmdrop",
+          "androidIntentFilters": ["*/*"],
+          "androidMultiIntentFilters": ["*/*"]
+        }
+      ],
       "./plugins/with-android-release-signing",
       "./plugins/with-android-install-permission"
     ],
