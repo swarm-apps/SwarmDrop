@@ -22,11 +22,11 @@ uuid = { version = "1", features = ["v4"] }
 # swarm-p2p-core 会撞 "multiple versions"。
 #
 # sync-mobile-core-runtime target:
-# /Volumes/yexiyue/SwarmDrop develop 5b39fb44403cbef9a82737bca03703da1badec36
-swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "5b39fb44403cbef9a82737bca03703da1badec36" }
-entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "5b39fb44403cbef9a82737bca03703da1badec36" }
-migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "5b39fb44403cbef9a82737bca03703da1badec36" }
-swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "5b39fb44403cbef9a82737bca03703da1badec36" }
+# /Volumes/yexiyue/SwarmDrop develop 5dcec00c0d34e741da13cf6b3a0b443e9dae8dbf
+swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "5dcec00c0d34e741da13cf6b3a0b443e9dae8dbf" }
+entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "5dcec00c0d34e741da13cf6b3a0b443e9dae8dbf" }
+migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "5dcec00c0d34e741da13cf6b3a0b443e9dae8dbf" }
+swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "5dcec00c0d34e741da13cf6b3a0b443e9dae8dbf" }
 sea-orm = { version = "2.0.0-rc", features = [
     "macros",
     "runtime-tokio-rustls",

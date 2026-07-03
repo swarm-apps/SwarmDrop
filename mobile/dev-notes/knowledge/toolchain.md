@@ -20,6 +20,32 @@ Metro 不识别 pnpm 默认的 symlink node_modules 结构，找不到 transitiv
 
 **相关文件**：[.npmrc](../../.npmrc)
 
+### 更新 SwarmDrop core rev 用定向 cargo update,别全量
+
+把 `mobile-core/Cargo.toml` 里四个 git 依赖(swarmdrop-core/entity/migration/swarm-p2p-core)的
+`rev` 指到 develop 新 SHA 后,**只跑定向更新**:
+
+**正确做法**：
+```bash
+# 1. 改 Cargo.toml 四处 rev(develop 最新 SHA:git ls-remote <repo> develop)
+cargo update -p swarmdrop-core -p entity -p migration -p swarm-p2p-core \
+  --manifest-path packages/swarmdrop-core/rust/mobile-core/Cargo.lock 所在目录
+cargo check --manifest-path .../mobile-core/Cargo.toml   # 验证 Rust 侧兼容
+```
+
+**不要做**：直接跑无参 `cargo update` —— 它会贪婪升级**整棵依赖树**,把 `sea-orm`(Cargo.toml 用
+`"2.0.0-rc"` 松范围)从可编译的 `rc.38` 顶到 `rc.41`,后者 `query_all_raw` 的 trait 签名不兼容
+(`E0053: expected Send future, found non-Send`)直接编译失败。踩到就 `git checkout -- Cargo.lock`
+还原再定向更新。
+
+**core 加字段会触发 drift guard**：`device.rs` / `events.rs` 用穷尽解构做 drift guard,develop 加了
+新字段(如 `DeviceReceivePolicy.allow_mcp_accept_from_device`)会让 `cargo check` 报 `E0027/E0063`。
+移动端不需要的字段:解构侧 `field: _` 忽略、反向构造侧给安全默认 —— 这样**不改 uniffi Record、不用
+重生成 bindings**;要在移动端暴露该字段才需镜像 + `build:ios/android`(见下条 bindings 刷新)。
+
+**相关文件**：[packages/swarmdrop-core/rust/mobile-core/Cargo.toml](../../packages/swarmdrop-core/rust/mobile-core/Cargo.toml),
+[packages/swarmdrop-core/rust/mobile-core/src/device.rs](../../packages/swarmdrop-core/rust/mobile-core/src/device.rs)
+
 ### lightningcss / uniffi-bindgen-react-native 锁版本
 
 `package.json` 用 `pnpm.overrides` 锁 `lightningcss: 1.30.1`（NativeWind v5 preview 的 ABI

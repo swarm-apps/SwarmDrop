@@ -88,6 +88,8 @@ impl From<DeviceReceivePolicy> for MobileDeviceReceivePolicy {
             save_behavior,
             default_save_location,
             allow_mcp_send_to_device,
+            // 移动端暂不管理 MCP「接收方接受」策略(桌面侧功能),不镜像到 RN。
+            allow_mcp_accept_from_device: _,
             expires_at,
         } = policy;
         Self {
@@ -115,6 +117,9 @@ impl From<MobileDeviceReceivePolicy> for DeviceReceivePolicy {
             save_behavior: policy.save_behavior.into(),
             default_save_location: policy.default_save_location,
             allow_mcp_send_to_device: policy.allow_mcp_send_to_device,
+            // 移动端不携带该字段 → 回写时 fail-closed 为 false(安全默认)。
+            // 若后续要在移动端管理 MCP 接受策略,需镜像字段并重生成 bindings。
+            allow_mcp_accept_from_device: false,
             expires_at: policy.expires_at,
         }
     }
