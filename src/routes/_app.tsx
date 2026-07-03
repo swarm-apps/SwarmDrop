@@ -15,6 +15,7 @@ import { useNetworkStore } from "@/stores/network-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { ConnectionRequestDialog } from "@/components/pairing/connection-request-dialog";
 import { TransferOfferDialog } from "@/components/transfer/transfer-offer-dialog";
+import { ExternalOpenHandler } from "@/components/external-open-handler";
 import {
   setupTransferListeners,
   cleanupTransferListeners,
@@ -69,6 +70,8 @@ function AppLayout() {
       <AppAmbientLightOverlay />
       <ConnectionRequestDialog />
       <TransferOfferDialog />
+      {/* 入站「用 SwarmDrop 打开」：映射文件 → 选设备屏。命令式，无常驻 UI。 */}
+      <ExternalOpenHandler />
     </div>
   );
 }

@@ -91,6 +91,8 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::get_mcp_status,
             commands::start_mcp_server,
             commands::stop_mcp_server,
+            // 外部文件打开（Open With → share-target）
+            commands::take_pending_external_open,
         ])
         .events(collect_events![
             events::NetworkStatusChanged,
@@ -108,6 +110,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::TransferDbError,
             events::TransferProjectionUpdate,
             events::ReceivingPausedChanged,
+            events::ExternalFileOpen,
             events::TrayOpenReceiveFolder,
             events::TrayOpenSettings,
         ])
@@ -138,8 +141,11 @@ fn register_plugins(builder: Builder<Wry>) -> Builder<Wry> {
     let builder = builder
         // single-instance 必须最先注册：常驻后台 app 二次启动时唤出已有窗口而非再起进程，
         // 避免出现两个托盘图标 / 状态错乱。
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // 无文件的二次启动：唤出主窗口。带文件的「用本应用打开」由 handle_second_instance
+            // 处理（Windows/Linux 从 argv 取路径，macOS 走 RunEvent::Opened、此调用 no-op）。
             crate::tray::show_main_window(app);
+            crate::external_open::handle_second_instance(app, args);
         }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
@@ -206,6 +212,12 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
         // 网络运行时状态容器。启动节点前为 None，避免依赖 NetManagerState 的命令
         // 在节点未启动时触发 Tauri 的 "state not managed" 注入错误。
         app.manage(tokio::sync::Mutex::new(None::<crate::network::NetManager>));
+
+        // 外部「用 SwarmDrop 打开」：后台注册处理器 + 冷启动参数解析。缓冲用模块内全局
+        // OnceLock（不依赖此处时序：macOS 冷启动 Opened 可能早于本 setup）。
+        // 平台差异（macOS 走 RunEvent::Opened、其余走 argv）封装在 external_open 内部。
+        crate::external_open::register_open_with();
+        crate::external_open::handle_launch_args(app.handle());
 
         Ok(())
     })

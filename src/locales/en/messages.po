@@ -14,6 +14,10 @@ msgstr ""
 "Plural-Forms: \n"
 "X-Generator: @lingui/cli\n"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "—"
+msgstr ""
+
 #~ msgid "{0}"
 #~ msgstr "{0}"
 
@@ -22,6 +26,11 @@ msgstr ""
 #: src/routes/_app/send/index.lazy.tsx
 msgid "{0} 项，{1}"
 msgstr "{0} items, {1}"
+
+#. placeholder {0}: fileSelection.totalCount
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "{0} 项内容"
+msgstr ""
 
 #. placeholder {0}: progress?.completedFiles ?? 0
 #: src/components/file-tree/file-tree.tsx
@@ -171,6 +180,7 @@ msgstr " files"
 #~ msgstr "Good"
 
 #: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 msgid "中继"
 msgstr "Relay"
 
@@ -451,8 +461,16 @@ msgstr "Minimize to tray"
 #~ msgid "最近完成"
 #~ msgstr "Recently Completed"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "准备中"
+msgstr ""
+
 #~ msgid "准备中..."
 #~ msgstr "Preparing..."
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "准备中…"
+msgstr ""
 
 #: src/components/layout/app-topbar.tsx
 msgid "切换到浅色主题"
@@ -541,6 +559,11 @@ msgstr "Pair"
 msgid "发送"
 msgstr "Send"
 
+#. placeholder {0}: fileSelection.totalCount
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "发送 {0} 个文件"
+msgstr ""
+
 #: src/routes/_app/send/index.lazy.tsx
 msgid "发送中..."
 msgstr "Sending..."
@@ -562,6 +585,11 @@ msgstr "Sent to {0}"
 msgid "发送文件到 {0}"
 msgstr "Send files to {0}"
 
+#. placeholder {0}: deviceDisplayName(selectedDevice)
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "发送给 {0}"
+msgstr ""
+
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "发送配对请求"
 msgstr "Send Pairing Request"
@@ -576,6 +604,7 @@ msgstr "Send Pairing Request"
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/input.lazy.tsx
 #: src/routes/_app/send/index.lazy.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "取消"
 msgstr "Cancel"
@@ -629,6 +658,10 @@ msgstr "Recoverable failure"
 msgid "可配对"
 msgstr "Pairable"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "合计"
+msgstr ""
+
 #~ msgid "同一网络中可直接发起配对的设备。"
 #~ msgstr ""
 
@@ -665,6 +698,10 @@ msgstr "Starting..."
 msgid "启动后可供 AI 助手通过 MCP 协议操控文件传输"
 msgstr "Once started, AI assistants can control file transfers via the MCP protocol"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "启动后显示可发送的设备"
+msgstr ""
+
 #: src/components/network/start-node-sheet.tsx
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
 msgid "启动节点"
@@ -693,6 +730,7 @@ msgstr "When enabled, inbound files matching the policy go straight to the Inbox
 #~ msgstr ""
 
 #: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "在线"
 msgstr "Online"
@@ -831,6 +869,7 @@ msgstr "Expires in {0}"
 #~ "Other devices will be able to find you and send files."
 
 #: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 msgid "局域网"
 msgstr "LAN"
 
@@ -1080,6 +1119,10 @@ msgstr "Current status"
 #~ msgid "当有设备向你发送文件时，会弹出确认对话框"
 #~ msgstr "A confirmation dialog will appear when a device sends you files"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "待发送"
+msgstr ""
+
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "待生成"
 msgstr "Not generated"
@@ -1087,6 +1130,10 @@ msgstr "Not generated"
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "待确认"
 msgstr "Pending confirmation"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "快捷发送"
+msgstr ""
 
 #~ msgid "快速配对"
 #~ msgstr ""
@@ -1143,6 +1190,7 @@ msgid "打开文件夹"
 msgstr "Open Folder"
 
 #: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 msgid "打洞"
 msgstr "Direct"
 
@@ -1241,6 +1289,10 @@ msgstr "File Transfer"
 
 #~ msgid "文件传输全程加密保护"
 #~ msgstr "End-to-end encryption for file transfers"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "文件已全部移除，返回重新分享。"
+msgstr ""
 
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "文件明细"
@@ -1505,6 +1557,10 @@ msgstr "Saving..."
 #~ msgid "正在加载设备密钥..."
 #~ msgstr "Loading device key..."
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "正在启动节点…"
+msgstr ""
+
 #~ msgid "正在更新"
 #~ msgstr "Updating"
 
@@ -1525,7 +1581,7 @@ msgstr "Generating pairing code"
 
 #. placeholder {0}: progress.completedFiles
 #. placeholder {1}: progress.totalFiles
-#: src/routes/_app/send/index.lazy.tsx
+#: src/routes/_app/send/-components/prepare-progress-bar.tsx
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "Computing checksums ({0}/{1})"
 
@@ -1542,6 +1598,10 @@ msgstr "Running"
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "每次询问"
 msgstr "Ask every time"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "没有在线设备"
+msgstr ""
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
@@ -1893,6 +1953,10 @@ msgstr "Have the other device enter these 6 digits"
 msgid "让对方输入这组配对码"
 msgstr "Have the other device enter this pairing code"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "让目标设备打开 SwarmDrop 并保持在线，或先配对一台设备。"
+msgstr ""
+
 #: src/components/close-behavior-manager.tsx
 msgid "记住我的选择（之后可在「设置」中修改）"
 msgstr "Remember my choice (can be changed in Settings)"
@@ -1981,6 +2045,10 @@ msgstr "Please start the node first"
 
 #~ msgid "请先在下方选择目标设备"
 #~ msgstr ""
+
+#: src/components/external-open-handler.tsx
+msgid "请先完成 SwarmDrop 设置"
+msgstr ""
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "请输入大于 0 的数字，留空表示不限制"
@@ -2105,6 +2173,10 @@ msgstr "Quit app"
 msgid "选择"
 msgstr "Select"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "选择一个设备"
+msgstr ""
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "选择一条收件箱记录查看详情"
 msgstr "Select an inbox record to view details"
@@ -2112,6 +2184,10 @@ msgstr "Select an inbox record to view details"
 #: src/routes/_app/send/index.lazy.tsx
 msgid "选择内容后，文件结构和总大小会在这里确认。"
 msgstr "After you select content, its file structure and total size are confirmed here."
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "选择右侧一台在线设备，端到端加密直接送达。"
+msgstr ""
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "选择应用显示语言"
@@ -2128,6 +2204,10 @@ msgstr "Select Files"
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "选择文件夹"
 msgstr "Select Folder"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "选择设备"
+msgstr ""
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "通用"

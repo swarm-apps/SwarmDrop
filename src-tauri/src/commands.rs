@@ -27,6 +27,7 @@ macro_rules! with_manager {
     }};
 }
 
+mod external_open;
 mod identity;
 mod inbox;
 mod lifecycle;
@@ -36,6 +37,7 @@ mod transfer;
 
 // glob re-export：Tauri 的 #[tauri::command] 宏会生成 __cmd__* 隐藏符号，
 // generate_handler! 需要通过模块路径访问这些符号，显式导出无法覆盖。
+pub use external_open::*;
 pub use identity::*;
 pub use inbox::*;
 pub use lifecycle::*;

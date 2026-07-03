@@ -25,8 +25,8 @@ import { getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { FileDropZone } from "./-components/file-drop-zone";
+import { PrepareProgressBar } from "./-components/prepare-progress-bar";
 import { FileTree } from "@/components/file-tree";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
@@ -285,33 +285,3 @@ function DesktopSendView({
   );
 }
 
-/* ─────────────────── 准备进度条 ─────────────────── */
-
-function PrepareProgressBar({ progress }: { progress: PrepareProgress }) {
-  const percent =
-    progress.totalBytes > 0
-      ? Math.round((progress.bytesHashed / progress.totalBytes) * 100)
-      : 0;
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span className="truncate">
-          <Trans>
-            正在计算校验和 ({progress.completedFiles}/{progress.totalFiles})
-          </Trans>
-        </span>
-        <span className="ml-2 shrink-0">
-          {formatFileSize(progress.bytesHashed)} /{" "}
-          {formatFileSize(progress.totalBytes)}
-        </span>
-      </div>
-      <Progress value={percent} className="h-2" />
-      {progress.currentFile && (
-        <p className="truncate text-xs text-muted-foreground">
-          {progress.currentFile}
-        </p>
-      )}
-    </div>
-  );
-}

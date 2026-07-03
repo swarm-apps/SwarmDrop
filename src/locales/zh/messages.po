@@ -18,6 +18,10 @@ msgstr ""
 #~ msgid "/+Z5u4"
 #~ msgstr "/+Z5u4"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "—"
+msgstr "—"
+
 #: src/components/network/start-node-sheet.tsx
 #~ msgid "{0}"
 #~ msgstr "{0}"
@@ -27,6 +31,11 @@ msgstr ""
 #: src/routes/_app/send/index.lazy.tsx
 msgid "{0} 项，{1}"
 msgstr "{0} 项，{1}"
+
+#. placeholder {0}: fileSelection.totalCount
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "{0} 项内容"
+msgstr "{0} 项内容"
 
 #. placeholder {0}: progress?.completedFiles ?? 0
 #: src/components/file-tree/file-tree.tsx
@@ -189,6 +198,7 @@ msgstr "个文件"
 #~ msgstr "中等"
 
 #: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 msgid "中继"
 msgstr "中继"
 
@@ -493,9 +503,17 @@ msgstr "最小化到托盘"
 #~ msgid "最近完成"
 #~ msgstr "最近完成"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "准备中"
+msgstr "准备中"
+
 #: src/routes/_app/transfer/-transfer-item.tsx
 #~ msgid "准备中..."
 #~ msgstr "准备中..."
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "准备中…"
+msgstr "准备中…"
 
 #: src/components/layout/app-topbar.tsx
 msgid "切换到浅色主题"
@@ -592,6 +610,11 @@ msgstr "发起配对"
 msgid "发送"
 msgstr "发送"
 
+#. placeholder {0}: fileSelection.totalCount
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "发送 {0} 个文件"
+msgstr "发送 {0} 个文件"
+
 #: src/routes/_app/send/index.lazy.tsx
 msgid "发送中..."
 msgstr "发送中..."
@@ -614,6 +637,11 @@ msgstr "发送到 {0}"
 msgid "发送文件到 {0}"
 msgstr "发送文件到 {0}"
 
+#. placeholder {0}: deviceDisplayName(selectedDevice)
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "发送给 {0}"
+msgstr "发送给 {0}"
+
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "发送配对请求"
 msgstr "发送配对请求"
@@ -628,6 +656,7 @@ msgstr "发送配对请求"
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/input.lazy.tsx
 #: src/routes/_app/send/index.lazy.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "取消"
 msgstr "取消"
@@ -681,6 +710,10 @@ msgstr "可恢复失败"
 msgid "可配对"
 msgstr "可配对"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "合计"
+msgstr "合计"
+
 #: src/routes/_app/devices/index.lazy.tsx
 #~ msgid "同一网络中可直接发起配对的设备。"
 #~ msgstr "同一网络中可直接发起配对的设备。"
@@ -720,6 +753,10 @@ msgstr "启动中..."
 msgid "启动后可供 AI 助手通过 MCP 协议操控文件传输"
 msgstr "启动后可供 AI 助手通过 MCP 协议操控文件传输"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "启动后显示可发送的设备"
+msgstr "启动后显示可发送的设备"
+
 #: src/components/network/start-node-sheet.tsx
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
 msgid "启动节点"
@@ -754,6 +791,7 @@ msgstr "启用后，符合策略的入站文件会直接进入收件箱"
 #~ msgstr "在弹窗中输入另一台设备显示的 6 位数字"
 
 #: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "在线"
 msgstr "在线"
@@ -900,6 +938,7 @@ msgstr "将在 {0} 后过期"
 #~ "其他设备将能够发现你并发送文件。"
 
 #: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 msgid "局域网"
 msgstr "局域网"
 
@@ -1163,6 +1202,10 @@ msgstr "当前状态"
 #~ msgid "当有设备向你发送文件时，会弹出确认对话框"
 #~ msgstr "当有设备向你发送文件时，会弹出确认对话框"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "待发送"
+msgstr "待发送"
+
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "待生成"
 msgstr "待生成"
@@ -1170,6 +1213,10 @@ msgstr "待生成"
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "待确认"
 msgstr "待确认"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "快捷发送"
+msgstr "快捷发送"
 
 #: src/routes/_app/devices/index.lazy.tsx
 #~ msgid "快速配对"
@@ -1240,6 +1287,7 @@ msgid "打开文件夹"
 msgstr "打开文件夹"
 
 #: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 msgid "打洞"
 msgstr "打洞"
 
@@ -1344,6 +1392,10 @@ msgstr "文件传输"
 #: src/routes/_auth/welcome.lazy.tsx
 #~ msgid "文件传输全程加密保护"
 #~ msgstr "文件传输全程加密保护"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "文件已全部移除，返回重新分享。"
+msgstr "文件已全部移除，返回重新分享。"
 
 #: src/routes/_app/transfer/$sessionId.lazy.tsx
 msgid "文件明细"
@@ -1625,6 +1677,10 @@ msgstr "正在保存..."
 #~ msgid "正在加载设备密钥..."
 #~ msgstr "正在加载设备密钥..."
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "正在启动节点…"
+msgstr "正在启动节点…"
+
 #: src/components/ForceUpdateDialog.tsx
 #~ msgid "正在更新"
 #~ msgstr "正在更新"
@@ -1648,7 +1704,7 @@ msgstr "正在生成配对码"
 
 #. placeholder {0}: progress.completedFiles
 #. placeholder {1}: progress.totalFiles
-#: src/routes/_app/send/index.lazy.tsx
+#: src/routes/_app/send/-components/prepare-progress-bar.tsx
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "正在计算校验和 ({0}/{1})"
 
@@ -1668,6 +1724,10 @@ msgstr "正在运行"
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "每次询问"
 msgstr "每次询问"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "没有在线设备"
+msgstr "没有在线设备"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
@@ -2051,6 +2111,10 @@ msgstr "让另一台设备输入这组 6 位数字"
 msgid "让对方输入这组配对码"
 msgstr "让对方输入这组配对码"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "让目标设备打开 SwarmDrop 并保持在线，或先配对一台设备。"
+msgstr "让目标设备打开 SwarmDrop 并保持在线，或先配对一台设备。"
+
 #: src/components/close-behavior-manager.tsx
 msgid "记住我的选择（之后可在「设置」中修改）"
 msgstr "记住我的选择（之后可在「设置」中修改）"
@@ -2142,6 +2206,10 @@ msgstr "请先启动节点"
 #: src/routes/_app/devices/-components/home-drop-zone.tsx
 #~ msgid "请先在下方选择目标设备"
 #~ msgstr "请先在下方选择目标设备"
+
+#: src/components/external-open-handler.tsx
+msgid "请先完成 SwarmDrop 设置"
+msgstr "请先完成 SwarmDrop 设置"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "请输入大于 0 的数字，留空表示不限制"
@@ -2278,6 +2346,10 @@ msgstr "退出应用"
 msgid "选择"
 msgstr "选择"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "选择一个设备"
+msgstr "选择一个设备"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "选择一条收件箱记录查看详情"
 msgstr "选择一条收件箱记录查看详情"
@@ -2285,6 +2357,10 @@ msgstr "选择一条收件箱记录查看详情"
 #: src/routes/_app/send/index.lazy.tsx
 msgid "选择内容后，文件结构和总大小会在这里确认。"
 msgstr "选择内容后，文件结构和总大小会在这里确认。"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "选择右侧一台在线设备，端到端加密直接送达。"
+msgstr "选择右侧一台在线设备，端到端加密直接送达。"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "选择应用显示语言"
@@ -2301,6 +2377,10 @@ msgstr "选择文件"
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "选择文件夹"
 msgstr "选择文件夹"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "选择设备"
+msgstr "选择设备"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "通用"

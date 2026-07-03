@@ -129,11 +129,14 @@ export const commands = {
 	startMcpServer: (port: number | null) => __TAURI_INVOKE<McpStatus>("start_mcp_server", { port }),
 	/**  停止 MCP Server */
 	stopMcpServer: () => __TAURI_INVOKE<McpStatus>("stop_mcp_server"),
+	/**  前端根处理器 mount 时调用：标记就绪并取走冷启动期间缓冲的外部打开路径。 */
+	takePendingExternalOpen: () => __TAURI_INVOKE<string[]>("take_pending_external_open"),
 };
 
 /** Events */
 export const events = {
 	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
+	externalFileOpen: makeEvent<ExternalFileOpen>("external-file-open"),
 	networkStatusChanged: makeEvent<NetworkStatusChanged>("network-status-changed"),
 	pairedDeviceAdded: makeEvent<PairedDeviceAdded>("paired-device-added"),
 	pairingRequestReceived: makeEvent<PairingRequestReceived>("pairing-request-received"),
@@ -253,6 +256,14 @@ export type EnumeratedFile = {
 	source: FileSource,
 	/**  文件大小 */
 	size: number,
+};
+
+/**
+ *  外部「用 SwarmDrop 打开」文件/文件夹后归一化的本地绝对路径列表。
+ *  事件名 `"external-file-open"`，前端根处理器据此扫描并跳转选设备屏。
+ */
+export type ExternalFileOpen = {
+	paths: string[],
 };
 
 export type FileProgressInfo = {

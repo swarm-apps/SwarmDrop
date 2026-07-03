@@ -171,7 +171,7 @@ src-tauri/src/
 
 ### P2P Library (libs/)
 
-Git submodule containing `swarm-p2p-core` crate. Workspace at `libs/Cargo.toml`, core code at `libs/core/`. Uses **Rust 2024 edition** (different from the main app's 2021 edition).
+Git submodule containing `swarm-p2p-core` crate. Workspace at `libs/Cargo.toml`, core code at `libs/core/`. Uses **Rust 2024 edition** — same as the main workspace (both `[workspace.package] edition = "2024"`; all member crates inherit via `edition.workspace = true`).
 
 Key exports: `NetClient`, `NodeConfig`, `NodeEvent`, `start()`, re-exported `libp2p`.
 

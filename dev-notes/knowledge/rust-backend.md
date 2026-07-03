@@ -372,6 +372,26 @@ keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立
 
 **相关文件**：`src-tauri/src/host/keychain.rs`、`src-tauri/src/host.rs`
 
+### 桌面「用本应用打开文件」（share-target 入口）：fileAssociations 表达不了通配，三平台各走原生机制
+
+要把 app 注册成「任意文件 + 文件夹」的非默认「打开方式」处理器时，**Tauri 的 `bundle.fileAssociations` 用不了**——它是按扩展名列表（`ext`）注册的，表达不了「任意文件」，更管不了「文件夹」。三平台必须各走各的原生机制，且**都只能打包安装后在各自系统上验证**：
+
+- **macOS**：自定义 `src-tauri/Info.plist`（Tauri v2 按文件名约定自动 merge），用 `CFBundleDocumentTypes` + `LSItemContentTypes=public.data`（任意文件）`+ public.folder`（文件夹）。**坑**：`CFBundleTypeRole` 要用 `Viewer`——用 `None` 反而让 app 不作为 opener 出现在「打开方式」里（与目标相反）；配 `LSHandlerRank=Alternate` 才是"出现但不抢默认"。
+- **Windows**：`fileAssociations` 完全覆盖不到通配 + 文件夹 → 运行时写 HKCU 注册表 shell verb：`Software\Classes\*\shell\<Verb>\command`（任意文件）+ `Directory\shell\<Verb>\command`（文件夹），command = `"<exe>" "%1"`。用 `winreg`（`[target.'cfg(windows)'.dependencies]`）。写同名键幂等，首启注册即可。
+- **Linux**：运行时写 `~/.local/share/applications/*.desktop`（`MimeType=application/octet-stream;inode/directory;`）+ `update-desktop-database`。`NoDisplay=true` 避免应用菜单里多一个入口，但仍作为「打开方式」候选（个别桌面环境可能因此隐藏，需真机调）。
+
+**路径送达机制三平台也不同**（`external_open::ingest_paths` 统一入口 + ~200ms 去抖合并）：
+- macOS 走 `RunEvent::Opened { urls }`——**必须把 `lib.rs` 的 `.run(generate_context!())` 改成 `.build(ctx)?.run(|handle, event| ...)`** 才能接到；冷启动不经 argv。
+- Windows/Linux 冷启动读 `std::env::args()`；热启动读 `single_instance` 回调的 `args`（原本被 `_args` 丢弃，是天然挂载点）。
+- **冷启动竞态**：`RunEvent::Opened`/argv 可能早于前端订阅 → Rust 侧缓冲 + 前端 mount 时调 `take_pending_external_open()` 拉取（取走即清空、标记就绪）。前端务必**先挂事件监听、再拉 pending**，否则 take 标记就绪后、订阅前到达的路径会丢。
+- **⚠️ 缓冲必须用进程级全局（`OnceLock`），不能用 Tauri 托管 state**：macOS「退出 app 后用『打开方式』打开文件」是冷启动 + 窗口状态恢复，`application:openURLs:`（→`RunEvent::Opened`）可能**早于 `setup()` 的 `app.manage(...)`** 到达。此时若在 Opened handler 里 `app.state::<T>()`，会 panic「state not managed」；而该 handler 在 ObjC `extern "C"` 边界上、panic 不可 unwind → 直接 `SIGABRT`（崩溃栈：`tao::...application_open_urls` → `panic_cannot_unwind` → `abort`，release 下我们的帧被内联，看着像 tao 自崩）。Tauri 官方 Opened 示例用托管 state 只在「app 已运行」场景成立。解法：缓冲放模块内 `OnceLock<Mutex<..>>`，Opened 冷路径完全不碰 `AppHandle`；并给 Opened handler 外包一层 `std::panic::catch_unwind(AssertUnwindSafe(..))` 兜底。
+- **唤窗只在前端就绪（热态/托盘隐藏）时做**：常驻托盘、窗口隐藏时来了外部打开要 `show_main_window` 否则用户啥都看不到；但**别在冷启动 Opened 早期路径调 AppKit 窗口操作**（状态恢复中，有风险），且冷启动窗口本就默认显示。用「缓冲里的 `frontend_ready` 标志」区分冷/热，仅热态唤窗。
+- app 自定义命令/事件走 `core:default`，**不需要**在 `capabilities/default.json` 加权限（只有 plugin 命令才要）。
+
+**验证盲区（务必真机、逐平台）**：文件关联注册 + 路径送达全部**只能打包安装后在对应系统手测**，`cargo check`/`pnpm tauri dev` 覆盖不到；且 Windows 注册表代码在 mac 上因 `cfg(windows)` **连编译都不过**（Linux 同理）。macOS 侧还要注意 ad-hoc 签名/未公证的 dev 包在 Finder「打开方式」里的行为可能与正式包不同。
+
+**相关文件**：`src-tauri/src/external_open.rs`、`src-tauri/Info.plist`、`src-tauri/src/{lib,setup}.rs`、`src-tauri/Cargo.toml`（winreg）、前端 `src/components/external-open-handler.tsx`
+
 ### develop 基线可能带 clippy/fmt 漂移（clippy/rustfmt 版本更新所致）
 
 工具链升级（如 clippy/rustfmt 1.95）会新增/收紧 lint，使**之前干净**的已提交代码在全量重建时冒出警告（too_many_arguments、derivable_impls、items_after_test_module、collapsible_if、unused_imports 等）和 fmt 漂移。它们不是本次改动引入的。

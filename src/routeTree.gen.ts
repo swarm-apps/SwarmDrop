@@ -28,6 +28,9 @@ const AppDevicesIndexLazyRouteImport = createFileRoute('/_app/devices/')()
 const AppTransferSessionIdLazyRouteImport = createFileRoute(
   '/_app/transfer/$sessionId',
 )()
+const AppSendShareTargetLazyRouteImport = createFileRoute(
+  '/_app/send/share-target',
+)()
 const AppPairingInputLazyRouteImport = createFileRoute('/_app/pairing/input')()
 const AppPairingGenerateLazyRouteImport = createFileRoute(
   '/_app/pairing/generate',
@@ -109,6 +112,13 @@ const AppTransferSessionIdLazyRoute =
   } as any).lazy(() =>
     import('./routes/_app/transfer/$sessionId.lazy').then((d) => d.Route),
   )
+const AppSendShareTargetLazyRoute = AppSendShareTargetLazyRouteImport.update({
+  id: '/send/share-target',
+  path: '/send/share-target',
+  getParentRoute: () => AppRoute,
+} as any).lazy(() =>
+  import('./routes/_app/send/share-target.lazy').then((d) => d.Route),
+)
 const AppPairingInputLazyRoute = AppPairingInputLazyRouteImport.update({
   id: '/input',
   path: '/input',
@@ -130,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/device-name': typeof OnboardingDeviceNameLazyRoute
   '/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/pairing/input': typeof AppPairingInputLazyRoute
+  '/send/share-target': typeof AppSendShareTargetLazyRoute
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/send/': typeof AppSendIndexRoute
   '/devices/': typeof AppDevicesIndexLazyRoute
@@ -144,6 +155,7 @@ export interface FileRoutesByTo {
   '/device-name': typeof OnboardingDeviceNameLazyRoute
   '/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/pairing/input': typeof AppPairingInputLazyRoute
+  '/send/share-target': typeof AppSendShareTargetLazyRoute
   '/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/send': typeof AppSendIndexRoute
   '/devices': typeof AppDevicesIndexLazyRoute
@@ -161,6 +173,7 @@ export interface FileRoutesById {
   '/_onboarding/device-name': typeof OnboardingDeviceNameLazyRoute
   '/_app/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/_app/pairing/input': typeof AppPairingInputLazyRoute
+  '/_app/send/share-target': typeof AppSendShareTargetLazyRoute
   '/_app/transfer/$sessionId': typeof AppTransferSessionIdLazyRoute
   '/_app/send/': typeof AppSendIndexRoute
   '/_app/devices/': typeof AppDevicesIndexLazyRoute
@@ -177,6 +190,7 @@ export interface FileRouteTypes {
     | '/device-name'
     | '/pairing/generate'
     | '/pairing/input'
+    | '/send/share-target'
     | '/transfer/$sessionId'
     | '/send/'
     | '/devices/'
@@ -191,6 +205,7 @@ export interface FileRouteTypes {
     | '/device-name'
     | '/pairing/generate'
     | '/pairing/input'
+    | '/send/share-target'
     | '/transfer/$sessionId'
     | '/send'
     | '/devices'
@@ -207,6 +222,7 @@ export interface FileRouteTypes {
     | '/_onboarding/device-name'
     | '/_app/pairing/generate'
     | '/_app/pairing/input'
+    | '/_app/send/share-target'
     | '/_app/transfer/$sessionId'
     | '/_app/send/'
     | '/_app/devices/'
@@ -308,6 +324,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTransferSessionIdLazyRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/send/share-target': {
+      id: '/_app/send/share-target'
+      path: '/send/share-target'
+      fullPath: '/send/share-target'
+      preLoaderRoute: typeof AppSendShareTargetLazyRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/pairing/input': {
       id: '/_app/pairing/input'
       path: '/input'
@@ -341,6 +364,7 @@ const AppPairingRouteWithChildren = AppPairingRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppPairingRoute: typeof AppPairingRouteWithChildren
+  AppSendShareTargetLazyRoute: typeof AppSendShareTargetLazyRoute
   AppTransferSessionIdLazyRoute: typeof AppTransferSessionIdLazyRoute
   AppSendIndexRoute: typeof AppSendIndexRoute
   AppDevicesIndexLazyRoute: typeof AppDevicesIndexLazyRoute
@@ -352,6 +376,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppPairingRoute: AppPairingRouteWithChildren,
+  AppSendShareTargetLazyRoute: AppSendShareTargetLazyRoute,
   AppTransferSessionIdLazyRoute: AppTransferSessionIdLazyRoute,
   AppSendIndexRoute: AppSendIndexRoute,
   AppDevicesIndexLazyRoute: AppDevicesIndexLazyRoute,
