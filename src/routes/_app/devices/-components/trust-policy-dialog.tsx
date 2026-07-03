@@ -199,6 +199,19 @@ export function TrustPolicyDialog({
             }
           />
 
+          <PolicySwitch
+            label={t`允许 MCP/AI 代收`}
+            description={t`允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响`}
+            checked={policy.allowMcpAcceptFromDevice ?? false}
+            disabled={trustLevel === "blocked"}
+            onCheckedChange={(checked) =>
+              setPolicy((current) => ({
+                ...current,
+                allowMcpAcceptFromDevice: checked,
+              }))
+            }
+          />
+
           <div className="grid gap-2">
             <Label htmlFor="trust-policy-limit">
               <Trans>大小上限</Trans>
@@ -302,6 +315,8 @@ function defaultPolicyForTrust(
   previous?: DeviceReceivePolicy,
 ): DeviceReceivePolicy {
   const defaultSaveLocation = previous?.defaultSaveLocation ?? null;
+  // 代收授权是用户显式动作，切换信任级别时保留上次的选择（阻止级别强制关）。
+  const allowMcpAcceptFromDevice = previous?.allowMcpAcceptFromDevice ?? false;
   if (trustLevel === "owned") {
     return {
       autoAccept: true,
@@ -312,6 +327,7 @@ function defaultPolicyForTrust(
       saveBehavior: "inbox_and_default_save_location",
       defaultSaveLocation,
       allowMcpSendToDevice: true,
+      allowMcpAcceptFromDevice,
       expiresAt: null,
     };
   }
@@ -325,6 +341,7 @@ function defaultPolicyForTrust(
       saveBehavior: "inbox_and_default_save_location",
       defaultSaveLocation,
       allowMcpSendToDevice: false,
+      allowMcpAcceptFromDevice,
       expiresAt: Date.now() + 24 * 60 * 60 * 1000,
     };
   }
@@ -338,6 +355,7 @@ function defaultPolicyForTrust(
       saveBehavior: "inbox_and_default_save_location",
       defaultSaveLocation: null,
       allowMcpSendToDevice: false,
+      allowMcpAcceptFromDevice: false,
       expiresAt: null,
     };
   }
@@ -350,6 +368,7 @@ function defaultPolicyForTrust(
     saveBehavior: "inbox_and_default_save_location",
     defaultSaveLocation,
     allowMcpSendToDevice: false,
+    allowMcpAcceptFromDevice,
     expiresAt: null,
   };
 }

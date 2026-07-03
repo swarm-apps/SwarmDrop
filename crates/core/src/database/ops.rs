@@ -141,6 +141,28 @@ pub async fn update_session_save_path(
     Ok(())
 }
 
+/// 更新会话的 `origin`（provenance）。agent 代收接受入站 offer 后把 origin 标成 `Mcp`，
+/// 使完成后建的收件箱条目 `source_kind=mcp`（UI 显示「AI 代理」）——与落盘位置无关，
+/// 让代收文件既落在与手动一致的接收文件夹、又能在收件箱区分来源。
+pub async fn update_session_origin(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    origin: crate::protocol::TransferOrigin,
+) -> AppResult<()> {
+    let Some(session) = entity::TransferSession::find_by_id(session_id)
+        .one(db)
+        .await?
+    else {
+        return Err(crate::AppError::Transfer("会话不存在".into()));
+    };
+
+    let mut model = session.into_active_model();
+    model.origin = Set(Some(origin.to_db_string()));
+    model.updated_at = Set(now_ms());
+    model.update(db).await?;
+    Ok(())
+}
+
 /// 更新文件 range checkpoint 和已传输字节数（新 data-channel 数据面使用）。
 pub async fn update_file_checkpoint_ranges(
     db: &DatabaseConnection,

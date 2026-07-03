@@ -3,10 +3,22 @@
 //! 与 `receive` 模块对称；公共结构体定义仍在 [`crate::transfer::manager`]。
 
 use std::sync::Arc;
+use std::time::Duration;
 
+use swarm_p2p_core::RequestOptions;
 use swarm_p2p_core::libp2p::PeerId;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+/// Offer 请求的响应等待窗口。
+///
+/// 接收端 `RequireConfirmation` 的 offer 需要人 / MCP agent 做决定。理想上想给更长窗口，
+/// 但 `RequestOptions::with_timeout` 只是 client 侧 `tokio::timeout` 包装——它只能让调用方
+/// 比协议**更早**放弃，**无法突破** libp2p 全局协议超时 `req_resp_timeout`（本应用在
+/// `network/config.rs` 设为 **180s**）。故这条 Offer 的**有效窗口封顶 ≈ 180s（约 3 分钟）**，
+/// 此处取与该协议上限一致、不做无谓的"更长"承诺。接收端 `PENDING_OFFER_TIMEOUT_SECS`
+/// 须**小于**它，保证 pending 先于发送端放弃被清理，避免"接收端刚接受、发送端已超时"竞态。
+const OFFER_RESPONSE_TIMEOUT_SECS: u64 = 180;
 
 use crate::database::ops::CreateSessionInput;
 use crate::host::CoreEvent;
@@ -118,7 +130,7 @@ impl TransferManager {
             };
 
             let result = client
-                .send_request(
+                .send_request_with_options(
                     target_peer,
                     AppRequest::Transfer(TransferRequest::Offer {
                         session_id,
@@ -126,6 +138,8 @@ impl TransferManager {
                         total_size,
                         origin,
                     }),
+                    RequestOptions::new()
+                        .with_timeout(Duration::from_secs(OFFER_RESPONSE_TIMEOUT_SECS)),
                 )
                 .await;
 

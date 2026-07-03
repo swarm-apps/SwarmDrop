@@ -1,9 +1,12 @@
 //! MCP Tool 实现
 //!
-//! 提供 12 个 Tool：
+//! 提供 20 个 Tool：
 //! - 网络/发送：get_network_status、list_available_devices、send_files
+//! - 节点/接收生命周期：ensure_node_running、get_receiving_paused、set_receiving_paused
 //! - 传输生命周期：list_transfers、get_transfer_status、cancel_transfer、pause_transfer、resume_transfer
-//! - 收件箱：search_inbox、list_inbox、get_inbox_item、get_inbox_file
+//! - 入站代收：accept_transfer、reject_transfer
+//! - 设备（只读）：list_paired_devices
+//! - 收件箱：search_inbox、list_inbox、get_inbox_item、get_inbox_file、archive_inbox_item、export_inbox_item
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,6 +46,87 @@ async fn resolve_transfer(app: &tauri::AppHandle) -> Option<Arc<TransferManager>
     let state = app.state::<NetManagerState>();
     let guard = state.lock().await;
     guard.as_ref().map(|m| m.transfer_arc())
+}
+
+/// 辅助：定位挂起入站 offer 并校验 MCP 代收门控（accept_transfer / reject_transfer 共用）。
+///
+/// 成功返回 `(transfer Arc, 来源设备名)`；失败返回**已构造好**的 MCP 错误结果供调用方直接 `return`。
+/// 取完所需信息即释放 NetManager 锁，不持锁跨调用方后续的落盘 / 回复 await。
+async fn gate_pending_offer(
+    app: &tauri::AppHandle,
+    session_id: &Uuid,
+) -> Result<(Arc<TransferManager>, String), Result<CallToolResult, ErrorData>> {
+    let state = app.state::<NetManagerState>();
+    let guard = state.lock().await;
+    let Some(manager) = guard.as_ref() else {
+        return Err(mcp_error(
+            "P2P 网络节点未启动，请先在 SwarmDrop 应用中启动网络",
+        ));
+    };
+    let transfer = manager.transfer_arc();
+    let Some(peer_id) = transfer.pending_offer_peer(session_id) else {
+        return Err(mcp_error(
+            "传输会话不存在或已过期：可能已被处理，或已超过约 3 分钟的确认窗口",
+        ));
+    };
+    // 门控：来源设备须开启 allow_mcp_accept_from_device（镜像发送侧 allow_mcp_send_to_device）。
+    let device = manager.pairing().get_paired_device(&peer_id);
+    let allowed = device
+        .as_ref()
+        .map(|d| d.receive_policy.allow_mcp_accept_from_device)
+        .unwrap_or(false);
+    let source_name = device
+        .map(|d| d.os_info.hostname)
+        .unwrap_or_else(|| peer_id.to_string());
+    if !allowed {
+        return Err(mcp_error(format!(
+            "来源设备「{source_name}」未开启「允许 MCP 代收」；请在 SwarmDrop 的设备策略中开启后重试"
+        )));
+    }
+    Ok((transfer, source_name))
+}
+
+/// 辅助：解析 agent 代收的默认收件目录。**与手动接收共用同一个「接收文件夹」**——优先读用户
+/// 在设置里配的 `preferences.transfer.savePath`，未配则回退 `<下载目录>/SwarmDrop`（与前端
+/// `getDefaultSavePath` 一致）。不搞独立 agent 子目录：代收文件落在同一处，靠收件箱的
+/// `origin=mcp`「AI 代理」标记区分来源（见 `accept_transfer`）。不存在则创建，返回绝对路径。
+fn mcp_default_receive_dir(app: &tauri::AppHandle) -> Result<String, String> {
+    let dir = match read_persisted_save_path(app) {
+        Some(configured) => std::path::PathBuf::from(configured),
+        None => app
+            .path()
+            .download_dir()
+            .map_err(|e| format!("下载目录不可用: {e}"))?
+            .join("SwarmDrop"),
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {e}"))?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+/// 读前端持久化的接收文件夹（`preferences.transfer.savePath`）。zustand persist 把整个 state
+/// `JSON.stringify` 后再 `store.set`，故取出是字符串、需再 `from_str` 一次（与 i18n locale
+/// 读取同源）。空串视为未配置。
+fn read_persisted_save_path(app: &tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app.store("preferences.json").ok()?;
+    let raw = store.get("preferences-store")?;
+    let parsed: serde_json::Value = serde_json::from_str(raw.as_str()?).ok()?;
+    let path = parsed
+        .get("state")?
+        .get("transfer")?
+        .get("savePath")?
+        .as_str()?;
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+/// `ensure_node_running` 的启动互斥。
+///
+/// MCP 是无人值守的并发调用方：两个 `ensure_node_running` 若同时看到「未运行」会双双调
+/// `start`，后者覆盖前者、泄漏首个节点的后台任务 / event loop。用进程级互斥串行化「检查是否
+/// 运行 + 启动」这段临界区——第二个调用者拿锁后已能看到运行中，直接走幂等返回。
+fn node_start_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
 /// 辅助：获取 NetManager 锁，未启动时返回 MCP 错误
@@ -146,15 +230,14 @@ impl McpHandler {
 
         // 发送端门控：MCP 来源需目标设备策略放行（allow_mcp_send_to_device）。
         // 这是真正的发送侧安全控制——防止 agent 静默把文件外传到未授权设备。
-        if let Ok(target_peer) = params.peer_id.parse::<swarm_p2p_core::libp2p::PeerId>() {
-            if let Some(device) = manager.pairing().get_paired_device(&target_peer) {
-                if !device.receive_policy.allow_mcp_send_to_device {
-                    return mcp_error(format!(
-                        "目标设备「{}」的策略不允许 MCP/AI 发送；请在 SwarmDrop 的设备策略中开启「允许 MCP 发送」",
-                        device.os_info.hostname
-                    ));
-                }
-            }
+        if let Ok(target_peer) = params.peer_id.parse::<swarm_p2p_core::libp2p::PeerId>()
+            && let Some(device) = manager.pairing().get_paired_device(&target_peer)
+            && !device.receive_policy.allow_mcp_send_to_device
+        {
+            return mcp_error(format!(
+                "目标设备「{}」的策略不允许 MCP/AI 发送；请在 SwarmDrop 的设备策略中开启「允许 MCP 发送」",
+                device.os_info.hostname
+            ));
         }
 
         // 验证文件路径存在并构造 EnumeratedFile 列表
@@ -346,7 +429,7 @@ impl McpHandler {
             Ok(p) => p,
             Err(e) => return mcp_error(format!("查询失败: {e}")),
         };
-        projections.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        projections.sort_by_key(|p| std::cmp::Reverse(p.updated_at));
         let limit = params.limit.unwrap_or(20) as usize;
         let out: Vec<McpTransfer> = projections
             .into_iter()
@@ -513,6 +596,243 @@ impl McpHandler {
             serde_json::to_string_pretty(&McpInboxItemDetail::from(detail)).unwrap_or_default();
         mcp_ok(json)
     }
+
+    /// 接受一个挂起的入站文件 offer（代收）
+    #[tool(
+        description = "接受一个处于 RequireConfirmation 挂起态的入站文件 offer——这类会话在 list_transfers 里表现为 direction=receive、phase=Offered，先用它发现待审 offer 再取 sessionId。需来源设备已在 SwarmDrop 设备策略中开启「允许 MCP 代收」，否则被门控拒绝。可选 save_path（绝对目录）指定落盘位置；缺省落到与手动接收一致的接收文件夹（设置里的接收位置，未配则 <下载目录>/SwarmDrop）。代收的文件会在收件箱标记为「AI 代理」来源，便于与手动接收区分。注意：挂起 offer 的有效决策窗口约 3 分钟（受 libp2p 协议超时封顶），要可靠代收需让 agent 处于活跃轮询循环，别指望被动唤醒。",
+        annotations(read_only_hint = false, open_world_hint = true)
+    )]
+    pub async fn accept_transfer(
+        &self,
+        Parameters(params): Parameters<AcceptTransferParams>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let Ok(session_id) = Uuid::parse_str(&params.session_id) else {
+            return mcp_error(format!("无效的 session_id: {}", params.session_id));
+        };
+
+        // 定位挂起 offer + 校验代收门控（内部取完即释放 NetManager 锁，不持锁跨 await）
+        let (transfer, _source) = match gate_pending_offer(&self.app, &session_id).await {
+            Ok(v) => v,
+            Err(err) => return err,
+        };
+
+        // 解析保存位置：显式 save_path 或 MCP 默认收件目录
+        let save_location = match params.save_path.as_deref() {
+            Some(path) => swarmdrop_core::host::CoreSaveLocation::Path {
+                path: path.to_string(),
+            },
+            None => match mcp_default_receive_dir(&self.app) {
+                Ok(dir) => swarmdrop_core::host::CoreSaveLocation::Path { path: dir },
+                Err(e) => return mcp_error(format!("无法解析 MCP 默认收件目录: {e}")),
+            },
+        };
+        let swarmdrop_core::host::CoreSaveLocation::Path { path: save_path } =
+            save_location.clone();
+
+        match transfer
+            .accept_and_start_receive(&session_id, save_location)
+            .await
+        {
+            Ok(()) => {
+                // 标记为 MCP 代收：把 session origin 更新为 Mcp{client}，使完成后建的收件箱
+                // 条目 source_kind=mcp（UI 显示「AI 代理」）。与落盘位置无关——文件仍落在与手动
+                // 一致的接收文件夹，靠此标记区分。尽力带上 initialize 握手报告的客户端名。
+                let client = context
+                    .peer
+                    .peer_info()
+                    .map(|info| info.client_info.name.clone());
+                if let Some(db) = self.app.try_state::<DatabaseConnection>() {
+                    let _ = swarmdrop_core::database::ops::update_session_origin(
+                        &db,
+                        session_id,
+                        swarmdrop_core::protocol::TransferOrigin::Mcp { client },
+                    )
+                    .await;
+                }
+                let response = serde_json::json!({
+                    "sessionId": session_id.to_string(),
+                    "savePath": save_path,
+                    "message": "已接受入站传输，开始接收",
+                });
+                mcp_ok(serde_json::to_string_pretty(&response).unwrap_or_default())
+            }
+            Err(e) => mcp_error(format!("接受传输失败: {e}")),
+        }
+    }
+
+    /// 拒绝一个挂起的入站文件 offer（代收）
+    #[tool(
+        description = "拒绝一个处于 RequireConfirmation 挂起态的入站文件 offer（direction=receive、phase=Offered，用 list_transfers 发现）。需来源设备已开启「允许 MCP 代收」。会通知对端并婉拒该传输。",
+        annotations(destructive_hint = true)
+    )]
+    pub async fn reject_transfer(
+        &self,
+        Parameters(params): Parameters<TransferSessionParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let Ok(session_id) = Uuid::parse_str(&params.session_id) else {
+            return mcp_error(format!("无效的 session_id: {}", params.session_id));
+        };
+        let (transfer, _source) = match gate_pending_offer(&self.app, &session_id).await {
+            Ok(v) => v,
+            Err(err) => return err,
+        };
+        match transfer.reject_and_respond(&session_id).await {
+            Ok(()) => mcp_ok(format!("已拒绝入站传输 {session_id}")),
+            Err(e) => mcp_error(format!("拒绝失败: {e}")),
+        }
+    }
+
+    /// 查询全局「暂停接收」状态
+    #[tool(
+        description = "查询本机是否处于全局「暂停接收」状态。暂停时新入站 offer 会被自动婉拒——若你发现不到入站 offer，先用它确认是否被暂停。",
+        annotations(read_only_hint = true)
+    )]
+    pub async fn get_receiving_paused(&self) -> Result<CallToolResult, ErrorData> {
+        let paused = crate::tray::current_receiving_paused(&self.app).await;
+        mcp_ok(serde_json::json!({ "paused": paused }).to_string())
+    }
+
+    /// 设置全局「暂停接收」
+    #[tool(
+        description = "开关本机全局「暂停接收」。暂停仅对新入站 offer 自动婉拒，不影响节点在线/配对/发现。典型用途：批量处理前先静音、处理完恢复。",
+        annotations(read_only_hint = false)
+    )]
+    pub async fn set_receiving_paused(
+        &self,
+        Parameters(params): Parameters<SetReceivingPausedParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match crate::tray::apply_receiving_paused(&self.app, params.paused).await {
+            Ok(()) => mcp_ok(serde_json::json!({ "paused": params.paused }).to_string()),
+            Err(e) => mcp_error(format!("设置暂停接收失败: {e}")),
+        }
+    }
+
+    /// 列出全部已配对设备（只读，含策略标志）
+    #[tool(
+        description = "只读列出全部已配对设备（含离线），带在线态、信任级别与 MCP 策略标志（allowMcpSendToDevice / allowMcpAcceptFromDevice / autoAccept）。用于解释某设备为何发不出 / 收不了。与 list_available_devices（仅在线可发送）互补。",
+        annotations(read_only_hint = true)
+    )]
+    pub async fn list_paired_devices(&self) -> Result<CallToolResult, ErrorData> {
+        get_net_manager!(self, _state, guard);
+        let manager = guard.as_ref().unwrap();
+        let devices = manager.devices().get_devices(DeviceFilter::Paired);
+        let out: Vec<McpPairedDevice> = devices.into_iter().map(McpPairedDevice::from).collect();
+        mcp_ok(serde_json::to_string_pretty(&out).unwrap_or_default())
+    }
+
+    /// 归档 / 取消归档收件箱条目
+    #[tool(
+        description = "归档或取消归档一个收件箱条目（可逆）。archived=true 归档、false 取消归档。",
+        annotations(read_only_hint = false)
+    )]
+    pub async fn archive_inbox_item(
+        &self,
+        Parameters(params): Parameters<ArchiveInboxItemParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+            return mcp_error("数据库尚未就绪，暂不可用");
+        };
+        let Ok(item_id) = Uuid::parse_str(&params.item_id) else {
+            return mcp_error(format!("无效的条目 id: {}", params.item_id));
+        };
+        match crate::database::inbox::archive_inbox_item(&db, item_id, params.archived).await {
+            Ok(()) => mcp_ok(format!(
+                "已{}收件箱条目 {item_id}",
+                if params.archived {
+                    "归档"
+                } else {
+                    "取消归档"
+                }
+            )),
+            Err(e) => mcp_error(format!("操作失败: {e}")),
+        }
+    }
+
+    /// 导出收件箱条目到指定目录
+    #[tool(
+        description = "把一个收件箱条目的文件复制导出到指定目录（destination_dir，绝对路径，不存在则创建）。用于把收到的内容投递到目标位置。",
+        annotations(read_only_hint = false, open_world_hint = true)
+    )]
+    pub async fn export_inbox_item(
+        &self,
+        Parameters(params): Parameters<ExportInboxItemParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+            return mcp_error("数据库尚未就绪，暂不可用");
+        };
+        let Ok(item_id) = Uuid::parse_str(&params.item_id) else {
+            return mcp_error(format!("无效的条目 id: {}", params.item_id));
+        };
+        // 委托既有命令，别在此内联重写导出逻辑：命令经 `ensure_file_exists`，文件缺失时会
+        // 回写 DB 的 missing 标志、保持 DB 与磁盘一致——内联版漏了这个副作用。
+        match crate::commands::export_inbox_item(db, item_id, params.destination_dir.clone()).await
+        {
+            Ok(()) => mcp_ok(
+                serde_json::json!({
+                    "itemId": item_id.to_string(),
+                    "destinationDir": params.destination_dir,
+                })
+                .to_string(),
+            ),
+            Err(e) => mcp_error(format!("导出失败: {e}")),
+        }
+    }
+
+    /// 确保本机 P2P 节点已上线
+    #[tool(
+        description = "确保本机 P2P 节点已上线：已运行则幂等返回当前网络状态；未运行则自动启动（从 keychain 自取已配对设备 + 默认网络设置）。需设备身份已在 SwarmDrop 中解锁——身份未就绪时报错提示到 app 解锁。不提供停止节点的能力（下线是用户级操作）。",
+        annotations(read_only_hint = false, open_world_hint = true)
+    )]
+    pub async fn ensure_node_running(&self) -> Result<CallToolResult, ErrorData> {
+        // 串行化「检查是否运行 + 启动」临界区，避免并发调用双双启动（见 node_start_lock）。
+        let _start_guard = node_start_lock().lock().await;
+
+        // 幂等：已运行直接返回状态（取完即释放锁）
+        {
+            let state = self.app.state::<NetManagerState>();
+            let guard = state.lock().await;
+            if let Some(manager) = guard.as_ref() {
+                let status = manager.get_network_status();
+                return mcp_ok(
+                    serde_json::json!({
+                        "status": "running",
+                        "alreadyRunning": true,
+                        "peerId": status.peer_id.map(|p| p.to_string()),
+                        "connectedPeers": status.connected_peers,
+                    })
+                    .to_string(),
+                );
+            }
+        }
+
+        // 门控：身份已解锁（keypair 已 manage 进 state）才允许 agent 拉起节点。
+        let Some(keypair) = self
+            .app
+            .try_state::<swarm_p2p_core::libp2p::identity::Keypair>()
+        else {
+            return mcp_error("设备身份未解锁，请先在 SwarmDrop 应用中解锁后重试");
+        };
+
+        // 复用既有 start：内部从 keychain 自取已配对设备；network_options=None 走默认设置。
+        match crate::commands::start(self.app.clone(), keypair, Vec::new(), None).await {
+            Ok(()) => {
+                let state = self.app.state::<NetManagerState>();
+                let guard = state.lock().await;
+                let status = guard.as_ref().map(|m| m.get_network_status());
+                mcp_ok(
+                    serde_json::json!({
+                        "status": "running",
+                        "alreadyRunning": false,
+                        "peerId": status.and_then(|s| s.peer_id).map(|p| p.to_string()),
+                        "message": "已启动 P2P 节点",
+                    })
+                    .to_string(),
+                )
+            }
+            Err(e) => mcp_error(format!("启动节点失败: {e}")),
+        }
+    }
 }
 
 /// send_files 的输入参数
@@ -522,6 +842,78 @@ pub struct SendFilesParams {
     pub peer_id: String,
     /// 要发送的文件/目录的绝对路径列表
     pub file_paths: Vec<String>,
+}
+
+/// accept_transfer 的输入参数
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AcceptTransferParams {
+    /// 待接受的传输会话 id（来自 list_transfers 中 direction=receive、phase=Offered 的会话）
+    pub session_id: String,
+    /// 可选：文件落盘的绝对目录路径。缺省时落到 MCP 专用默认收件目录（下载目录下的 SwarmDrop）
+    pub save_path: Option<String>,
+}
+
+/// set_receiving_paused 的输入参数
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetReceivingPausedParams {
+    /// true=暂停接收，false=恢复接收
+    pub paused: bool,
+}
+
+/// archive_inbox_item 的输入参数
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ArchiveInboxItemParams {
+    /// 收件箱条目 id
+    pub item_id: String,
+    /// true=归档，false=取消归档
+    pub archived: bool,
+}
+
+/// export_inbox_item 的输入参数
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ExportInboxItemParams {
+    /// 收件箱条目 id
+    pub item_id: String,
+    /// 导出目标目录（绝对路径，不存在则创建）
+    pub destination_dir: String,
+}
+
+/// 已配对设备（MCP 只读输出，含策略标志）
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpPairedDevice {
+    peer_id: String,
+    hostname: String,
+    os: String,
+    platform: String,
+    online: bool,
+    trust_level: Option<String>,
+    allow_mcp_send_to_device: bool,
+    allow_mcp_accept_from_device: bool,
+    auto_accept: bool,
+}
+
+impl From<crate::device::Device> for McpPairedDevice {
+    fn from(d: crate::device::Device) -> Self {
+        let policy = d.receive_policy;
+        Self {
+            peer_id: d.peer_id.to_string(),
+            hostname: d.os_info.hostname,
+            os: d.os_info.os,
+            platform: d.os_info.platform,
+            online: matches!(d.status, DeviceStatus::Online),
+            trust_level: d.trust_level.map(|t| format!("{t:?}")),
+            allow_mcp_send_to_device: policy
+                .as_ref()
+                .map(|p| p.allow_mcp_send_to_device)
+                .unwrap_or(false),
+            allow_mcp_accept_from_device: policy
+                .as_ref()
+                .map(|p| p.allow_mcp_accept_from_device)
+                .unwrap_or(false),
+            auto_accept: policy.as_ref().map(|p| p.auto_accept).unwrap_or(false),
+        }
+    }
 }
 
 /// send_files 的返回值

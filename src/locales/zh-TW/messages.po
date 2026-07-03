@@ -368,8 +368,12 @@ msgid "允许文件夹"
 msgstr "允許資料夾"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
-msgid "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
-msgstr "允許本機 AI 助手代為接受或拒絕該裝置的入站檔案；關閉則入站仍需你手動確認"
+msgid "允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响"
+msgstr "允許本機 AI 助手代為處置該裝置需你確認的入站檔案（接受或拒絕）；關閉則仍需你手動確認。已自動接收的入站不受此影響"
+
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+#~ msgid "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
+#~ msgstr "允許本機 AI 助手代為接受或拒絕該裝置的入站檔案；關閉則入站仍需你手動確認"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先查找，再确认"

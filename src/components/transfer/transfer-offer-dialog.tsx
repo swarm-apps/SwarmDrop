@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Trans } from "@lingui/react/macro";
 import { useTransferStore } from "@/stores/transfer-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { commands } from "@/lib/bindings";
 import type { SaveLocation } from "@/lib/types";
 import { FileTree } from "@/components/file-tree";
@@ -49,9 +50,16 @@ export function TransferOfferDialog() {
 
   useEffect(() => {
     let cancelled = false;
-    getDefaultSavePath().then((path) => {
-      if (!cancelled) setSavePath(path);
-    });
+    // 默认落盘位置 = 设置里配的接收文件夹（preferences.transfer.savePath）；未配则回退
+    // getDefaultSavePath（<下载>/SwarmDrop）。agent 代收也读同一个 pref，二者一致。
+    const configured = usePreferencesStore.getState().transfer.savePath;
+    if (configured) {
+      setSavePath(configured);
+    } else {
+      getDefaultSavePath().then((path) => {
+        if (!cancelled) setSavePath(path);
+      });
+    }
     return () => {
       cancelled = true;
     };

@@ -189,11 +189,58 @@ send_files → 返回 sessionId
   → 需要时 pause_transfer / resume_transfer / cancel_transfer
 ```
 
-## 可用的 12 个 Tool
+## 代收入站文件（接受 / 拒绝）
+
+除了发送，MCP 还能代为处置**入站**文件请求。当别的设备给本机发文件、且对应策略为「需确认」时，会产生一个**挂起的 offer** 等待决定。
+
+### 1. 发现待审 offer
+
+调用 `list_transfers`，其中 `direction=receive` 且 `phase=Offered` 的会话就是等待确认的入站 offer。记住它的 `sessionId`。
+
+### 2. 接受或拒绝
+
+- `accept_transfer` — 接受该 offer 并开始接收。
+  - `session_id`：来自 `list_transfers` 的待审会话 id
+  - `save_path`（可选）：文件落盘的绝对目录路径；缺省落到**与手动接收一致的接收文件夹**（设置里配的接收位置，未配则下载目录下的 `SwarmDrop`）。代收的文件会在收件箱标记为「AI 代理」来源，便于与手动接收区分
+- `reject_transfer` — 婉拒该 offer（通知对端）。
+
+### 前置与约束（重要）
+
+- **需授权**：来源设备必须在 SwarmDrop 的设备策略中开启「允许 MCP 代收」（`allow_mcp_accept_from_device`）。未开启时 accept/reject 都会被门控拒绝——这是防止 AI 静默代收的安全边界，只能由用户在 app 内开启。
+- **约 3 分钟窗口**：挂起 offer 的有效决策窗口约 3 分钟（受 libp2p 全局协议超时 ~180s 封顶），超时后 `accept_transfer` 会返回「会话已过期」。
+- **需活跃轮询**：MCP 不会主动把新 offer 推给你。要可靠代收，agent 应处于**活跃 watch 循环**（周期性 `list_transfers` 查 `phase=Offered`），别指望被动唤醒。
+- 已配置「自动接收」的可信设备本就会自动落盘、无需代收；代收只针对「需确认」的挂起 offer。
+
+```
+（watch 循环）
+list_transfers → 发现 direction=receive & phase=Offered 的会话
+  → accept_transfer(session_id[, save_path])  # 接受并落盘
+  或 reject_transfer(session_id)               # 婉拒
+```
+
+## 节点与接收控制
+
+- `ensure_node_running` — 确保本机 P2P 节点已上线。已运行则幂等返回状态；未运行则自动启动（需设备身份已在 app 内解锁，否则报错提示去解锁）。**这是很多工具的前置**——发文件 / 代收前可先调它。不提供停止节点的能力。
+- `get_receiving_paused` / `set_receiving_paused` — 查询 / 开关全局「暂停接收」。暂停仅对新入站 offer 自动婉拒，不影响在线 / 配对 / 发现。批量处理前可先 `set_receiving_paused(true)` 静音、完事再恢复；发现不到入站 offer 时先用 `get_receiving_paused` 排查。
+
+## 解释设备可达性
+
+- `list_paired_devices` — 只读列出**全部**已配对设备（含离线），带在线态、信任级别与策略标志（`allowMcpSendToDevice` / `allowMcpAcceptFromDevice` / `autoAccept`）。当某设备发不出（离线或没开允许 MCP 发送）或收不了（没开允许 MCP 代收）时，用它解释原因、提示用户去设备策略里开对应开关。与 `list_available_devices`（仅在线可发送子集）互补。
+
+## 整理与导出收件箱
+
+- `archive_inbox_item(item_id, archived)` — 归档 / 取消归档条目（可逆）。
+- `export_inbox_item(item_id, destination_dir)` — 把条目文件复制导出到指定目录（不存在则创建），用于把收到的内容投递到目标位置。
+
+## 可用的 20 个 Tool
 
 | Tool                     | 作用                       | 前置条件                 |
 | ------------------------ | -------------------------- | ------------------------ |
 | `get_network_status`     | 获取 P2P 节点运行状态      | 无                       |
+| `ensure_node_running`    | 确保本机节点已上线（幂等） | 设备身份已解锁           |
+| `get_receiving_paused`   | 查询是否全局暂停接收       | 无                       |
+| `set_receiving_paused`   | 开关全局暂停接收           | 无                       |
+| `list_paired_devices`    | 只读列出全部已配对设备     | 节点运行中               |
 | `list_available_devices` | 列出已配对且在线的设备     | 节点运行中               |
 | `send_files`             | 向指定设备发送文件         | 节点运行中，目标设备在线 |
 | `list_transfers`         | 列出进行中/最近的传输会话  | 无                       |
@@ -201,10 +248,14 @@ send_files → 返回 sessionId
 | `cancel_transfer`        | 取消进行中的传输（破坏性） | 节点运行中               |
 | `pause_transfer`         | 暂停进行中的传输           | 节点运行中               |
 | `resume_transfer`        | 恢复已暂停的传输           | 节点运行中               |
+| `accept_transfer`        | 接受挂起的入站文件 offer   | 来源设备开启「允许 MCP 代收」 |
+| `reject_transfer`        | 拒绝挂起的入站文件 offer   | 来源设备开启「允许 MCP 代收」 |
 | `search_inbox`           | 按关键词检索本机收件箱     | 无                       |
 | `list_inbox`             | 列出收件箱条目（无需关键词） | 无                       |
 | `get_inbox_item`         | 取某收件箱条目的完整详情   | 先检索/列举定位          |
 | `get_inbox_file`         | 取收件箱内某文件的本地路径 | 先 `search_inbox` 定位   |
+| `archive_inbox_item`     | 归档/取消归档收件箱条目    | 无                       |
+| `export_inbox_item`      | 导出条目文件到指定目录     | 无                       |
 
 ## 安全说明
 

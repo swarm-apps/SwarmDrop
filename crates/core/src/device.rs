@@ -44,6 +44,13 @@ pub struct DeviceReceivePolicy {
     #[serde(default)]
     pub default_save_location: Option<String>,
     pub allow_mcp_send_to_device: bool,
+    /// 允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
+    ///
+    /// 默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
+    /// 风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+    /// 只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
+    #[serde(default)]
+    pub allow_mcp_accept_from_device: bool,
     #[serde(default)]
     pub expires_at: Option<i64>,
 }
@@ -66,6 +73,7 @@ impl DeviceReceivePolicy {
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
                 default_save_location: None,
                 allow_mcp_send_to_device: true,
+                allow_mcp_accept_from_device: false,
                 expires_at: None,
             },
             DeviceTrustLevel::Collaborator => Self {
@@ -77,6 +85,7 @@ impl DeviceReceivePolicy {
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
                 default_save_location: None,
                 allow_mcp_send_to_device: false,
+                allow_mcp_accept_from_device: false,
                 expires_at: None,
             },
             DeviceTrustLevel::Temporary => Self {
@@ -88,6 +97,7 @@ impl DeviceReceivePolicy {
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
                 default_save_location: None,
                 allow_mcp_send_to_device: false,
+                allow_mcp_accept_from_device: false,
                 expires_at: Some(chrono::Utc::now().timestamp_millis() + 24 * 60 * 60 * 1000),
             },
             DeviceTrustLevel::Blocked => Self {
@@ -99,6 +109,7 @@ impl DeviceReceivePolicy {
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
                 default_save_location: None,
                 allow_mcp_send_to_device: false,
+                allow_mcp_accept_from_device: false,
                 expires_at: None,
             },
         }
@@ -477,5 +488,36 @@ mod tests {
         assert!(device.receive_policy.require_confirmation);
         assert!(!device.receive_policy.auto_accept);
         assert!(!device.trust_confirmed);
+    }
+
+    #[test]
+    fn allow_mcp_accept_defaults_false_all_trust_levels() {
+        // 代收是显式授权：任何信任级别（含本人设备）默认都不开。
+        for level in [
+            DeviceTrustLevel::Owned,
+            DeviceTrustLevel::Collaborator,
+            DeviceTrustLevel::Temporary,
+            DeviceTrustLevel::Blocked,
+        ] {
+            let policy = super::DeviceReceivePolicy::for_trust_level(level);
+            assert!(
+                !policy.allow_mcp_accept_from_device,
+                "代收默认应关闭: {level:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_policy_without_allow_mcp_accept_deserializes_false() {
+        // 旧持久化的 receive_policy 没有 allowMcpAcceptFromDevice 字段，应回落 false。
+        let json = serde_json::json!({
+            "autoAccept": true,
+            "requireConfirmation": false,
+            "allowDirectories": true,
+            "allowRelayAutoAccept": true,
+            "allowMcpSendToDevice": true,
+        });
+        let policy: super::DeviceReceivePolicy = serde_json::from_value(json).unwrap();
+        assert!(!policy.allow_mcp_accept_from_device);
     }
 }

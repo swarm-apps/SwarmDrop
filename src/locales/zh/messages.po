@@ -402,8 +402,12 @@ msgid "允许文件夹"
 msgstr "允许文件夹"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
-msgid "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
-msgstr "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
+msgid "允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响"
+msgstr "允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响"
+
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+#~ msgid "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
+#~ msgstr "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先查找，再确认"

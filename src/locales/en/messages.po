@@ -368,8 +368,12 @@ msgid "允许文件夹"
 msgstr "Allow folders"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
-msgid "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
-msgstr "Let your local AI assistant accept or reject inbound files from this device; when off, inbound files still need your manual confirmation"
+msgid "允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响"
+msgstr "Let your local AI assistant handle inbound files from this device that need your confirmation (accept or reject); when off, they still need your manual confirmation. Inbound files already set to auto-accept are unaffected"
+
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+#~ msgid "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
+#~ msgstr "Let your local AI assistant accept or reject inbound files from this device; when off, inbound files still need your manual confirmation"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先查找，再确认"
