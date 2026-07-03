@@ -1,72 +1,113 @@
-import * as Notifications from "expo-notifications";
+import { t } from "@lingui/core/macro";
+import notifee, {
+  AndroidImportance,
+  AuthorizationStatus,
+} from "react-native-notify-kit";
 
-export async function ensureNotificationPermission(): Promise<boolean> {
-  const current = await Notifications.getPermissionsAsync();
-  if (current.granted) {
-    return true;
+/**
+ * 配对 / 传输告警的专用高优先级渠道(heads-up 抬头)。
+ * 前台服务保活 / 传输进度通知使用独立渠道(foreground-service.ts),不复用此渠道。
+ */
+const ALERT_CHANNEL_ID = "pairing-transfer-alerts";
+
+let channelReady: Promise<void> | null = null;
+
+/** 幂等创建 Android 告警渠道;iOS 无渠道概念,createChannel 直接 resolve。 */
+function ensureAlertChannel(): Promise<void> {
+  if (channelReady === null) {
+    channelReady = notifee
+      .createChannel({
+        id: ALERT_CHANNEL_ID,
+        name: t`配对与传输请求`,
+        importance: AndroidImportance.HIGH,
+      })
+      .then(() => undefined)
+      .catch((err) => {
+        console.warn("[notifier] createChannel failed:", err);
+        channelReady = null; // 失败后允许下次重试
+      });
   }
-  const requested = await Notifications.requestPermissionsAsync();
-  return requested.granted;
+  return channelReady;
 }
 
-export async function notifyTransferOffer(
+export async function ensureNotificationPermission(): Promise<boolean> {
+  const settings = await notifee.requestPermission();
+  return (
+    settings.authorizationStatus === AuthorizationStatus.AUTHORIZED ||
+    settings.authorizationStatus === AuthorizationStatus.PROVISIONAL
+  );
+}
+
+/** 权限被拒后的回退:跳系统通知设置让用户手动开启。 */
+export function openNotificationSettings(): Promise<void> {
+  return notifee.openNotificationSettings();
+}
+
+async function notifyTransferOffer(
+  sessionId: string,
   deviceName: string,
   fileCount: number,
 ): Promise<void> {
-  const granted = await ensureNotificationPermission();
-  if (!granted) {
+  if (!(await ensureNotificationPermission())) {
     return;
   }
-
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: "收到文件传输请求",
-      body: `${deviceName} 想发送 ${fileCount} 个文件`,
+  await ensureAlertChannel();
+  await notifee.displayNotification({
+    title: t`收到文件传输请求`,
+    body: t`${deviceName} 想发送 ${fileCount} 个文件`,
+    data: { kind: "transfer-offer", sessionId },
+    android: {
+      channelId: ALERT_CHANNEL_ID,
+      pressAction: { id: "default" },
     },
-    trigger: null,
   });
 }
 
-export async function notifyPairingRequest(
+async function notifyPairingRequest(
   peerId: string,
+  pendingId: bigint,
   code: string | undefined,
 ): Promise<void> {
-  const granted = await ensureNotificationPermission();
-  if (!granted) {
+  if (!(await ensureNotificationPermission())) {
     return;
   }
+  await ensureAlertChannel();
 
-  // 配对时还不知道对方 hostname（要等用户接受后才进 device 列表），
+  // 配对时还不知道对方 hostname(要等用户接受后才进 device 列表),
   // 用 PeerId 前 10 位 + 配对码做副标题。
   const peerHint = peerId.slice(0, 10);
-  const codeHint = code ? `配对码 ${code}` : "扫码配对";
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: "新设备请求配对",
-      body: `${peerHint}... · ${codeHint}`,
+  const codeHint = code ? t`配对码 ${code}` : t`扫码配对`;
+  await notifee.displayNotification({
+    title: t`新设备请求配对`,
+    body: `${peerHint}... · ${codeHint}`,
+    data: { kind: "pairing-request", pendingId: pendingId.toString(), peerId },
+    android: {
+      channelId: ALERT_CHANNEL_ID,
+      pressAction: { id: "default" },
     },
-    trigger: null,
   });
 }
 
 /**
- * Fire-and-forget 包装：EventBus.emit 来自 Rust 线程，不能 await，
+ * Fire-and-forget 包装:EventBus.emit 来自 Rust 线程,不能 await,
  * 把 notification 投递异常吞掉避免影响事件分发。
  */
 export function fireNotifyTransferOffer(
+  sessionId: string,
   deviceName: string,
   fileCount: number,
 ): void {
-  notifyTransferOffer(deviceName, fileCount).catch((err) => {
+  notifyTransferOffer(sessionId, deviceName, fileCount).catch((err) => {
     console.warn("[notifier] notifyTransferOffer failed:", err);
   });
 }
 
 export function fireNotifyPairingRequest(
   peerId: string,
+  pendingId: bigint,
   code: string | undefined,
 ): void {
-  notifyPairingRequest(peerId, code).catch((err) => {
+  notifyPairingRequest(peerId, pendingId, code).catch((err) => {
     console.warn("[notifier] notifyPairingRequest failed:", err);
   });
 }

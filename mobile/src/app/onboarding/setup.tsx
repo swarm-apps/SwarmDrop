@@ -10,6 +10,7 @@ import {
   OnboardingScreen,
 } from "@/components/onboarding/onboarding-scaffold";
 import { Text } from "@/components/ui/text";
+import { ensureNotificationPermission } from "@/core/notifier";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { truncateMiddle } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
@@ -36,6 +37,10 @@ export default function Setup() {
   const failed = error !== null;
 
   const onEnter = () => {
+    // 在“进入 SwarmDrop”这一刻申请通知权限:用户刚配好设备、决定使用,
+    // 是有上下文的最佳时机(优于冷启动裸弹;iOS 只有一次机会)。fire-and-forget,
+    // 系统弹窗独立于 RN 导航,不阻塞进入。被拒后可在设置页「通知」重新开启。
+    void ensureNotificationPermission();
     markCompleted();
     router.replace("/(main)" as never);
   };

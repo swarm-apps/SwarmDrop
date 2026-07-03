@@ -8,8 +8,13 @@ import type {
 } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import {
+  startForegroundKeepAlive,
+  stopForegroundKeepAlive,
+} from "@/core/foreground-service";
 import { initMobileCore } from "@/core/mobile-core";
 import { buildNetworkRuntimeConfig } from "@/core/network-discovery";
+import { ensureNotificationPermission } from "@/core/notifier";
 import { errorMessage } from "@/lib/utils";
 import { usePairingCodeStore } from "@/stores/pairing-code-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
@@ -151,6 +156,8 @@ export const useMobileCoreStore = create<MobileCoreState>()(
         try {
           const core = await initMobileCore();
           await core.shutdownNode();
+          // 节点停 → 拆前台服务(node running ⇔ FGS up)
+          void stopForegroundKeepAlive();
           set({
             runtimeState: "stopped",
             networkStatus: null,
@@ -192,6 +199,12 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             runtimeState: nextRuntimeState,
             startedAt: nextRuntimeState === "running" ? Date.now() : null,
           });
+          if (nextRuntimeState === "running") {
+            // 上线即预热通知权限(比事件到达时惰性申请更早,不打断配对当下),
+            // 并拉起前台服务保活(Android;iOS 内部 no-op)。
+            void ensureNotificationPermission();
+            void startForegroundKeepAlive();
+          }
         } catch (err) {
           set({
             error: errorMessage(err),

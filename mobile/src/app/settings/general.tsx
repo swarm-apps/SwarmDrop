@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import * as Device from "expo-device";
 import { Directory } from "expo-file-system";
-import { Folder, RotateCcw } from "lucide-react-native";
+import { Bell, Folder, RotateCcw } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -11,6 +11,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
+import {
+  ensureNotificationPermission,
+  openNotificationSettings,
+} from "@/core/notifier";
 import { getMobilePaths } from "@/core/paths";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
@@ -72,6 +76,10 @@ export default function GeneralScreen() {
           <PauseReceivingRow />
           <SettingDivider />
           <ReceivePathRow />
+        </SettingSection>
+
+        <SettingSection label={t`通知`}>
+          <NotificationRow />
         </SettingSection>
       </ScrollView>
     </SafeAreaView>
@@ -155,6 +163,50 @@ function PauseReceivingRow() {
         testID="settings-pause-receiving-switch"
       />
     </View>
+  );
+}
+
+/**
+ * 通知提醒入口:先尝试请求权限,已被拒则深链到系统通知设置让用户手动开启
+ *（权限被拒后 requestPermission 不再弹窗,故落到 openSettings 兜底)。
+ */
+function NotificationRow() {
+  const { t } = useLingui();
+  const colors = useThemeColors();
+
+  const onPress = async () => {
+    try {
+      const granted = await ensureNotificationPermission();
+      if (!granted) {
+        await openNotificationSettings();
+      } else {
+        toast.success(t`通知已开启`);
+      }
+    } catch (err) {
+      toast.error(t`操作失败`, errorMessage(err));
+    }
+  };
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={t`通知提醒`}
+      className="flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
+      testID="settings-notification-row"
+    >
+      <View className="h-8 w-8 items-center justify-center rounded-lg bg-muted">
+        <Bell color={colors.mutedForeground} size={16} />
+      </View>
+      <View className="flex-1 gap-0.5">
+        <Text className="text-[14px] text-foreground">
+          <Trans>通知提醒</Trans>
+        </Text>
+        <Text className="text-[11px] text-muted-foreground">
+          <Trans>接收配对与文件传输请求的系统通知</Trans>
+        </Text>
+      </View>
+    </Pressable>
   );
 }
 

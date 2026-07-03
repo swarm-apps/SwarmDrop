@@ -65,7 +65,8 @@
         }
       ],
       "./plugins/with-android-release-signing",
-      "./plugins/with-android-install-permission"
+      "./plugins/with-android-install-permission",
+      "./plugins/with-android-foreground-service"
     ],
     "experiments": {
       "typedRoutes": true,

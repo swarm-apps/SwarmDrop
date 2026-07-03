@@ -5,6 +5,10 @@ import type {
 } from "react-native-swarmdrop-core";
 import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
 import {
+  clearTransferProgress,
+  updateTransferProgress,
+} from "@/core/foreground-service";
+import {
   fireNotifyPairingRequest,
   fireNotifyTransferOffer,
 } from "@/core/notifier";
@@ -59,7 +63,7 @@ function routeEventToStores(event: MobileCoreEvent): void {
         },
         timestamp: Date.now(),
       });
-      fireNotifyPairingRequest(peerId, code ?? undefined);
+      fireNotifyPairingRequest(peerId, pendingId, code ?? undefined);
       break;
     }
 
@@ -74,13 +78,19 @@ function routeEventToStores(event: MobileCoreEvent): void {
       // offer 已经是 ubrn 生成的 MobileTransferOffer,store 类型也对齐它,直接透传
       const offer = event.inner.offer;
       useTransferStore.getState().pushOffer(offer);
-      fireNotifyTransferOffer(offer.deviceName, offer.files.length);
+      fireNotifyTransferOffer(
+        offer.sessionId,
+        offer.deviceName,
+        offer.files.length,
+      );
       break;
     }
 
     case MobileCoreEvent_Tags.TransferProgress: {
       const { progress } = event.inner;
       useTransferStore.getState().updateProgress(progress);
+      // 前台服务进度通知(Android;iOS 内部 no-op,进度仅应用内)
+      void updateTransferProgress(progress);
       break;
     }
 
@@ -108,6 +118,8 @@ function routeEventToStores(event: MobileCoreEvent): void {
     case MobileCoreEvent_Tags.TransferCompleted: {
       // 传输状态由 TransferProjectionUpdate 接管；这里只刷新收件箱。
       void refreshInbox();
+      // 传输结束 → 前台服务通知回到 idle 保活文案
+      void clearTransferProgress();
       break;
     }
 
@@ -121,6 +133,8 @@ function routeEventToStores(event: MobileCoreEvent): void {
         toast.error(t`传输失败`, error);
         useTransferStore.getState().setError(t`传输失败：${error}`);
       }
+      // 传输失败 / 被取消 → 前台服务通知回到 idle 保活文案
+      void clearTransferProgress();
       break;
     }
 

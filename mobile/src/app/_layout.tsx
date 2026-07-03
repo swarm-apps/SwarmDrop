@@ -19,6 +19,7 @@ import { TransferOfferHost } from "@/components/transfer-offer-host";
 import { UpdateHost } from "@/components/update-host";
 import { UpdateProvider } from "@/components/update-provider";
 import { initMobileCore } from "@/core/mobile-core";
+import { initNotifications } from "@/core/notifications";
 import { shareFilesToTransferFiles } from "@/core/share-intent";
 import { useNavTheme } from "@/hooks/useThemeColors";
 import { LinguiProvider } from "@/i18n/LinguiProvider";
@@ -49,6 +50,9 @@ export default function RootLayout() {
           initMobileCore(),
           initI18n(),
         ]);
+        // 通知系统初始化(前台服务 runner + 前后台事件 + 冷启动初始通知)。
+        // 放在 core 就绪后,保证 action 事件里能安全调 getMobileCore()。
+        initNotifications();
       } catch (err) {
         console.error("[boot] init failed:", err);
         setBootError(err instanceof Error ? err.message : String(err));

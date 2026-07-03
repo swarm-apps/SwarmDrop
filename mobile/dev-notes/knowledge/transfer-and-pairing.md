@@ -146,9 +146,43 @@ const pairedDevices = useMemo(() => {
 的窗口期。节点开关由用户在 `NodeControlSheet` 显式控制；iOS 后台会自然挂起 socket，Android
 由 Doze 限制，无需主动关。
 
-**未来工作**：大文件长传保活靠 Android Foreground Service / iOS BGTask，跟 AppState 监听解耦。
-
 **相关文件**：[src/app/_layout.tsx](../../src/app/_layout.tsx)
+
+## 通知与后台保活
+
+### 通知栈用 react-native-notify-kit,不是 expo-notifications
+
+`expo-notifications` 不支持进度条 / ongoing / 前台服务,且 Notifee 已于 2026-04 archive;统一用
+其官方钦点的社区维护 fork **`react-native-notify-kit`**(API 与 Notifee 一致,`import notifee` 用法不变)。
+所有本地通知走这一条栈:告警(配对/传输 offer)、Android 前台服务保活、传输进度通知。
+
+**关键约束/坑**：
+
+- **前台展示不需要 handler**:notify-kit 的 `displayNotification` 前台直接展示(不像 expo-notifications
+  必须 `setNotificationHandler` 否则前台被抑制)。
+- **FGS 保活靠"空转 JS runner"**:`registerForegroundService(() => new Promise(() => {}))` —— runner
+  永不 resolve,保活由 `stopForegroundService()` 显式拆除。FGS 是**进程级**构造,进程被钉在前台优先级即让
+  native tokio/libp2p 线程继续跑,JS 不需要在后台干活。**服务必须同进程**(无 `android:process=":remote"`),
+  否则看不到主进程堆里的 `net_manager`,退化成保活空壳。
+- **FGS 类型用 `connectedDevice`**:规避 Android 15 对 `dataSync` 的 ~6h/24h 累计运行上限。notify-kit 库
+  自带的 `app.notifee.core.ForegroundService` 声明未带 `foregroundServiceType`、也没声明
+  `FOREGROUND_SERVICE_CONNECTED_DEVICE` 权限,由本地 config plugin
+  [plugins/with-android-foreground-service.js](../../plugins/with-android-foreground-service.js) 补上
+  (Android 14+ 必须显式声明,否则 `MissingForegroundServiceTypeException`)。
+- **FGS 生命周期绑 `runtimeState`**:`mobile-core-store` 的 `startNode` running 后 `startForegroundKeepAlive`、
+  `shutdownNode` 时 `stopForegroundKeepAlive`(node running ⇔ FGS up)。同一条 FGS 通知在 active transfer
+  期间由 `event-bus` 的 `TransferProgress` 驱动更新进度(进度条 + pause/cancel action),结束回 idle 文案。
+- **iOS 深后台收不到,是平台边界不是 bug**:进程挂起后 libp2p relay 预约掉线、无 store-and-forward,对端寻址
+  不到;不引服务器 APNs。iOS 只保证前台/刚退台;传输进度 iOS 仅应用内(Live Activities 另立项)。所有
+  foreground-service 调用都 `Platform.OS === "android"` 守卫。
+- **权限申请时机**:onboarding 完成「进入」时申请(主,有上下文,优于冷启动裸弹;iOS 只有一次机会)+ 节点
+  启动兜底 + 设置页「通知」深链系统设置。不要在 app 冷启动第一帧裸弹。
+
+**相关文件**：[src/core/notifier.ts](../../src/core/notifier.ts),
+[src/core/foreground-service.ts](../../src/core/foreground-service.ts),
+[src/core/notifications.ts](../../src/core/notifications.ts),
+[src/core/notification-router.ts](../../src/core/notification-router.ts),
+[src/stores/mobile-core-store.ts](../../src/stores/mobile-core-store.ts)
 
 ## 分享到 SwarmDrop（入站 share intent）
 
