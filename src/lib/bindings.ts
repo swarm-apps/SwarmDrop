@@ -92,8 +92,9 @@ export const commands = {
 	/**
 	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
 	 * 
-	 *  默认 false，与 `allow_mcp_send_to_device`（发送侧门控）对称。只能由用户在 app 的
-	 *  设备信任策略中开启，agent 无任何写权限——防止 agent 自我提权、静默代收。
+	 *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
+	 *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+	 *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
 	 */
 	allowMcpAcceptFromDevice?: boolean,
 	expiresAt?: number | null,
@@ -240,8 +241,9 @@ export type DeviceReceivePolicy = {
 	/**
 	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
 	 * 
-	 *  默认 false，与 `allow_mcp_send_to_device`（发送侧门控）对称。只能由用户在 app 的
-	 *  设备信任策略中开启，agent 无任何写权限——防止 agent 自我提权、静默代收。
+	 *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
+	 *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+	 *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
 	 */
 	allowMcpAcceptFromDevice?: boolean,
 	expiresAt?: number | null,
