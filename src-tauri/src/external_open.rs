@@ -152,14 +152,17 @@ fn path_to_string(p: PathBuf) -> String {
 
 // ============ OS 「打开方式」自注册 ============
 
-/// 把本应用注册为「任意文件 / 文件夹」的非默认「打开方式」处理器。放到后台线程，不占启动
-/// 关键路径；各平台机制不同、均为非致命（失败仅告警）：
-/// - macOS：由 `src-tauri/Info.plist` 的 `CFBundleDocumentTypes`（`public.data` +
-///   `public.folder`，Viewer/Alternate）在打包时声明，无运行时代码。
-/// - Windows：写 HKCU 注册表 shell verb（`*\shell` 任意文件 + `Directory\shell` 文件夹）。
-/// - Linux：写 `~/.local/share/applications` 下一个通配 `MimeType` 的 `.desktop`。
+/// **文件**关联由 `tauri.conf.json` 的 `bundle.fileAssociations`（按扩展名）在打包时统一
+/// 生成三平台注册——这是 macOS「打开方式」唯一可靠显示的方式（通用 `public.data` 会被
+/// 归属抑制）。这里只补 **文件夹**：Tauri fileAssociations 按扩展名，表达不了目录。
 ///
-/// 两平台实现都做幂等短路：已注册且指向当前 exe 时跳过写入（Linux 连带跳过 update-desktop-database）。
+/// 放后台线程、不占启动关键路径、非致命（失败仅告警）：
+/// - Windows：写 HKCU 注册表 `Directory\shell` verb。
+/// - Linux：写 `~/.local/share/applications` 下 `MimeType=inode/directory` 的 `.desktop`。
+/// - macOS：本轮不做文件夹「打开方式」（加自定义 plist 会与 Tauri 生成的 CFBundleDocumentTypes
+///   合并冲突，且 macOS 文件夹 Open With 本就少见），register_platform 无 macOS 分支。
+///
+/// 两平台实现都做幂等短路：已注册且指向当前 exe 时跳过写入。
 pub fn register_open_with() {
     #[cfg(any(target_os = "windows", all(unix, not(target_os = "macos"))))]
     std::thread::spawn(|| match register_platform() {
@@ -179,28 +182,24 @@ fn register_platform() -> std::io::Result<()> {
     let label = "Send with SwarmDrop".to_string();
     let icon = format!("\"{exe}\"");
 
+    // 只补文件夹右键（`Directory\shell`）——任意扩展名的文件由 Tauri fileAssociations 注册。
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    // `*` = 任意文件；`Directory` = 文件夹。各建一个 shell verb + command 子键。
-    for base in [
-        r"Software\Classes\*\shell\SwarmDrop",
-        r"Software\Classes\Directory\shell\SwarmDrop",
-    ] {
-        let cmd_path = format!(r"{base}\command");
-        // 幂等短路：command 键已是目标值就跳过整组写入。
-        let already = hkcu
-            .open_subkey(&cmd_path)
-            .and_then(|k| k.get_value::<String, _>(""))
-            .map(|v| v == command)
-            .unwrap_or(false);
-        if already {
-            continue;
-        }
-        let (verb, _) = hkcu.create_subkey(base)?;
-        verb.set_value("", &label)?;
-        verb.set_value("Icon", &icon)?;
-        let (cmd, _) = hkcu.create_subkey(&cmd_path)?;
-        cmd.set_value("", &command)?;
+    let base = r"Software\Classes\Directory\shell\SwarmDrop";
+    let cmd_path = format!(r"{base}\command");
+    // 幂等短路：command 键已是目标值就跳过写入。
+    let already = hkcu
+        .open_subkey(&cmd_path)
+        .and_then(|k| k.get_value::<String, _>(""))
+        .map(|v| v == command)
+        .unwrap_or(false);
+    if already {
+        return Ok(());
     }
+    let (verb, _) = hkcu.create_subkey(base)?;
+    verb.set_value("", &label)?;
+    verb.set_value("Icon", &icon)?;
+    let (cmd, _) = hkcu.create_subkey(&cmd_path)?;
+    cmd.set_value("", &command)?;
     Ok(())
 }
 
@@ -213,17 +212,18 @@ fn register_platform() -> std::io::Result<()> {
     let home = std::env::var_os("HOME")
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "HOME not set"))?;
     let apps_dir = std::path::Path::new(&home).join(".local/share/applications");
-    let desktop_path = apps_dir.join("swarmdrop-open-with.desktop");
+    let desktop_path = apps_dir.join("swarmdrop-open-with-folder.desktop");
 
-    // NoDisplay=true：不在应用菜单里另立入口，但仍作为文件管理器「打开方式」候选。
-    // 若某桌面环境下因此从「打开方式」消失，去掉该行即可。
+    // 只补文件夹（inode/directory）——文件的 MimeType 由 Tauri fileAssociations 生成的
+    // .desktop 承载。NoDisplay=true：不在应用菜单里另立入口，但仍作为文件管理器「打开方式」
+    // 候选；若某桌面环境下因此从「打开方式」消失，去掉该行即可。
     let content = format!(
         "[Desktop Entry]\n\
          Type=Application\n\
          Name=Send with SwarmDrop\n\
          Exec=\"{exe}\" %F\n\
          NoDisplay=true\n\
-         MimeType=application/octet-stream;inode/directory;\n"
+         MimeType=inode/directory;\n"
     );
 
     // 幂等短路：.desktop 已存在且内容一致 → 跳过写入 + 跳过 update-desktop-database。

@@ -372,13 +372,18 @@ keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立
 
 **相关文件**：`src-tauri/src/host/keychain.rs`、`src-tauri/src/host.rs`
 
-### 桌面「用本应用打开文件」（share-target 入口）：fileAssociations 表达不了通配，三平台各走原生机制
+### 桌面「用本应用打开文件」（share-target 入口）：文件用 Tauri fileAssociations（按扩展名），别用 public.data 通配
 
-要把 app 注册成「任意文件 + 文件夹」的非默认「打开方式」处理器时，**Tauri 的 `bundle.fileAssociations` 用不了**——它是按扩展名列表（`ext`）注册的，表达不了「任意文件」，更管不了「文件夹」。三平台必须各走各的原生机制，且**都只能打包安装后在各自系统上验证**：
+**macOS「打开方式」只显示声明了「与该文件 UTI 具体匹配」的 app，不显示只声明通用 `public.data`/`public.item` 的 app**（Apple 论坛 + 实测：xlsx/md/sql 都被"归属抑制"压掉，只有无归属的随机文件才偶尔显示）。macOS 15.4+ 里 `public.data` 单条目还行、多加几条 UTI 还会触发 Gatekeeper。所以**「声明 public.data 覆盖任意文件」在 Open With 上根本走不通**——这是 macOS 设计、不是实现问题。真·任意文件只能走原生 Share Extension（Tauri 不脚手架，重活，单独立项）。
 
-- **macOS**：自定义 `src-tauri/Info.plist`（Tauri v2 按文件名约定自动 merge），用 `CFBundleDocumentTypes` + `LSItemContentTypes=public.data`（任意文件）`+ public.folder`（文件夹）。**坑**：`CFBundleTypeRole` 要用 `Viewer`——用 `None` 反而让 app 不作为 opener 出现在「打开方式」里（与目标相反）；配 `LSHandlerRank=Alternate` 才是"出现但不抢默认"。
-- **Windows**：`fileAssociations` 完全覆盖不到通配 + 文件夹 → 运行时写 HKCU 注册表 shell verb：`Software\Classes\*\shell\<Verb>\command`（任意文件）+ `Directory\shell\<Verb>\command`（文件夹），command = `"<exe>" "%1"`。用 `winreg`（`[target.'cfg(windows)'.dependencies]`）。写同名键幂等，首启注册即可。
-- **Linux**：运行时写 `~/.local/share/applications/*.desktop`（`MimeType=application/octet-stream;inode/directory;`）+ `update-desktop-database`。`NoDisplay=true` 避免应用菜单里多一个入口，但仍作为「打开方式」候选（个别桌面环境可能因此隐藏，需真机调）。
+**正解：文件用 Tauri 官方 `bundle.fileAssociations`（按 `ext` 扩展名列表）**——为每个扩展名生成具体 UTI 声明，Open With 可靠显示，且三平台注册由 Tauri 统一生成（macOS CFBundleDocumentTypes+LSHandlerRank / Windows 注册表 / Linux .desktop MimeType）。用 `role=Viewer`+`rank=Alternate`（出现但不抢默认）。代价：只覆盖列举的扩展名（列一批广的即可：Office/文档/图片/视频/音频/压缩/代码…），极冷门/无扩展名文件不显示。
+- ⚠️ Tauri 曾漏生成 `LSHandlerRank`（issue #13159）导致 macOS 不进 Open With，需 **tauri ≥ 2.6 左右**（本仓 2.11.3 已含修复）。
+- **别再自定义 `src-tauri/Info.plist` 塞 CFBundleDocumentTypes**：会与 Tauri 生成的合并/覆盖冲突。
+
+**文件夹**（fileAssociations 按扩展名，表达不了目录）走 `external_open::register_open_with` 后台线程单独最小注册：
+- **Windows**：HKCU 注册表 `Software\Classes\Directory\shell\<Verb>\command`（`winreg`，`[target.'cfg(windows)'.dependencies]`，幂等短路）。文件不用手写注册表了，交给 Tauri。
+- **Linux**：`~/.local/share/applications/*.desktop` 的 `MimeType=inode/directory;` + `update-desktop-database`（best-effort、`.spawn()` 不等子进程）。文件的 MimeType 由 Tauri 生成的 .desktop 承载。
+- **macOS**：本轮不做文件夹 Open With（自定义 plist 有合并冲突风险，且 macOS 文件夹 Open With 本就少见）。
 
 **路径送达机制三平台也不同**（`external_open::ingest_paths` 统一入口 + ~200ms 去抖合并）：
 - macOS 走 `RunEvent::Opened { urls }`——**必须把 `lib.rs` 的 `.run(generate_context!())` 改成 `.build(ctx)?.run(|handle, event| ...)`** 才能接到；冷启动不经 argv。
@@ -390,7 +395,7 @@ keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立
 
 **验证盲区（务必真机、逐平台）**：文件关联注册 + 路径送达全部**只能打包安装后在对应系统手测**，`cargo check`/`pnpm tauri dev` 覆盖不到；且 Windows 注册表代码在 mac 上因 `cfg(windows)` **连编译都不过**（Linux 同理）。macOS 侧还要注意 ad-hoc 签名/未公证的 dev 包在 Finder「打开方式」里的行为可能与正式包不同。
 
-**相关文件**：`src-tauri/src/external_open.rs`、`src-tauri/Info.plist`、`src-tauri/src/{lib,setup}.rs`、`src-tauri/Cargo.toml`（winreg）、前端 `src/components/external-open-handler.tsx`
+**相关文件**：`src-tauri/tauri.conf.json`（`bundle.fileAssociations` 扩展名列表）、`src-tauri/src/external_open.rs`（文件夹注册 + 路径入口/缓冲）、`src-tauri/src/{lib,setup}.rs`、`src-tauri/Cargo.toml`（winreg）、前端 `src/components/external-open-handler.tsx`
 
 ### develop 基线可能带 clippy/fmt 漂移（clippy/rustfmt 版本更新所致）
 
