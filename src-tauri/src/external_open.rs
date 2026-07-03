@@ -152,17 +152,17 @@ fn path_to_string(p: PathBuf) -> String {
 
 // ============ OS 「打开方式」自注册 ============
 
-/// **文件**关联由 `tauri.conf.json` 的 `bundle.fileAssociations`（按扩展名）在打包时统一
-/// 生成三平台注册——这是 macOS「打开方式」唯一可靠显示的方式（通用 `public.data` 会被
-/// 归属抑制）。这里只补 **文件夹**：Tauri fileAssociations 按扩展名，表达不了目录。
+/// 注册系统右键入口。「打开方式」子菜单 vs 顶层菜单项是两种不同机制，分开处理：
+/// - **macOS / Linux 的「打开方式」**：由 `tauri.conf.json` 的 `bundle.fileAssociations`
+///   （按扩展名）在打包时生成——macOS 通用 `public.data` 会被归属抑制，只能按扩展名列举。
+/// - **Windows 顶层右键菜单**（像「通过 Code 打开」「通过 QQ 发送」那样直接显示）：本函数写
+///   HKCU 注册表 shell verb（`*\shell` 任意文件 + `Directory\shell` 文件夹），比「打开方式」
+///   更直接、且覆盖**所有**文件（Windows 无 macOS 那种 UTI 抑制）。
+/// - **Linux 文件夹**：本函数写 `MimeType=inode/directory` 的 `.desktop`（fileAssociations
+///   按扩展名表达不了目录）。
+/// - **macOS 顶层菜单 / 文件夹**：需原生 Finder Sync Extension（Tauri 不脚手架），本轮不做。
 ///
-/// 放后台线程、不占启动关键路径、非致命（失败仅告警）：
-/// - Windows：写 HKCU 注册表 `Directory\shell` verb。
-/// - Linux：写 `~/.local/share/applications` 下 `MimeType=inode/directory` 的 `.desktop`。
-/// - macOS：本轮不做文件夹「打开方式」（加自定义 plist 会与 Tauri 生成的 CFBundleDocumentTypes
-///   合并冲突，且 macOS 文件夹 Open With 本就少见），register_platform 无 macOS 分支。
-///
-/// 两平台实现都做幂等短路：已注册且指向当前 exe 时跳过写入。
+/// 放后台线程、不占启动关键路径、非致命（失败仅告警）；各实现幂等短路（已指向当前 exe 则跳过）。
 pub fn register_open_with() {
     #[cfg(any(target_os = "windows", all(unix, not(target_os = "macos"))))]
     std::thread::spawn(|| match register_platform() {
@@ -182,24 +182,30 @@ fn register_platform() -> std::io::Result<()> {
     let label = "Send with SwarmDrop".to_string();
     let icon = format!("\"{exe}\"");
 
-    // 只补文件夹右键（`Directory\shell`）——任意扩展名的文件由 Tauri fileAssociations 注册。
+    // 顶层右键菜单项（像「通过 Code 打开」「通过 QQ 发送」那样直接显示，而非埋进「打开方式」）：
+    // `*\shell` = 任意文件、`Directory\shell` = 文件夹。用简单 command verb（非 COM 扩展），
+    // Win11 新版菜单也会直接展示、不落到「显示更多选项」。HKCU 无需管理员。
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let base = r"Software\Classes\Directory\shell\SwarmDrop";
-    let cmd_path = format!(r"{base}\command");
-    // 幂等短路：command 键已是目标值就跳过写入。
-    let already = hkcu
-        .open_subkey(&cmd_path)
-        .and_then(|k| k.get_value::<String, _>(""))
-        .map(|v| v == command)
-        .unwrap_or(false);
-    if already {
-        return Ok(());
+    for base in [
+        r"Software\Classes\*\shell\SwarmDrop",
+        r"Software\Classes\Directory\shell\SwarmDrop",
+    ] {
+        let cmd_path = format!(r"{base}\command");
+        // 幂等短路：command 键已是目标值就跳过整组写入。
+        let already = hkcu
+            .open_subkey(&cmd_path)
+            .and_then(|k| k.get_value::<String, _>(""))
+            .map(|v| v == command)
+            .unwrap_or(false);
+        if already {
+            continue;
+        }
+        let (verb, _) = hkcu.create_subkey(base)?;
+        verb.set_value("", &label)?;
+        verb.set_value("Icon", &icon)?;
+        let (cmd, _) = hkcu.create_subkey(&cmd_path)?;
+        cmd.set_value("", &command)?;
     }
-    let (verb, _) = hkcu.create_subkey(base)?;
-    verb.set_value("", &label)?;
-    verb.set_value("Icon", &icon)?;
-    let (cmd, _) = hkcu.create_subkey(&cmd_path)?;
-    cmd.set_value("", &command)?;
     Ok(())
 }
 

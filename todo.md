@@ -34,3 +34,4 @@
 - [ ] 整体UI需要重构优化
 - [ ] 移动端需要支持后台传输
 - [ ] 支持发送队列，等待对方在线后立即发送
+- [ ] macOS 右键顶层「发送到 SwarmDrop」（现只在「打开方式」子菜单里）——需原生 Finder Sync Extension（`.appex` + app-group IPC）或 NSServices（「服务」子菜单）；Tauri 无现成插件、不脚手架，优先级低。Windows 已用注册表 shell verb 做到顶层（像 QQ/Code）；本轮先收在 Windows 顶层 + macOS/Linux「打开方式」
