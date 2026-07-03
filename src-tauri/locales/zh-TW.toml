@@ -1,0 +1,22 @@
+# 桌面殼原生字串（托盤 + 系統通知）—— 繁體中文。
+
+[tray]
+open = "開啟 SwarmDrop"
+open_folder = "開啟接收資料夾"
+settings = "設定…"
+quit = "結束 SwarmDrop"
+pause = "暫停接收"
+resume = "恢復接收"
+
+[tray.status]
+offline = "○ 未連線"
+online = "● 線上 · 可接收檔案"
+paused = "⏸ 已暫停接收"
+
+[notif.pairing]
+title = "配對請求"
+body = "%{hostname} 請求與您配對"
+
+[notif.incoming_transfer]
+title = "收到檔案傳輸請求"
+body = "%{name} 想要向您傳送檔案"

@@ -89,6 +89,13 @@ export const commands = {
 	saveBehavior?: ReceiveSaveBehavior,
 	defaultSaveLocation?: string | null,
 	allowMcpSendToDevice: boolean,
+	/**
+	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
+	 * 
+	 *  默认 false，与 `allow_mcp_send_to_device`（发送侧门控）对称。只能由用户在 app 的
+	 *  设备信任策略中开启，agent 无任何写权限——防止 agent 自我提权、静默代收。
+	 */
+	allowMcpAcceptFromDevice?: boolean,
 	expiresAt?: number | null,
 } | null) => __TAURI_INVOKE<PairedDeviceInfo>("update_paired_device_policy", { peerId, trustLevel, receivePolicy }),
 	scanSources: (sources: FileSource[]) => __TAURI_INVOKE<ScannedSourceResult[]>("scan_sources", { sources }),
@@ -119,6 +126,8 @@ export const commands = {
 	 *  也不退出）。托盘「退出」走 Rust 侧 `app.exit(0)`，不经本命令。
 	 */
 	quitApp: () => __TAURI_INVOKE<void>("quit_app"),
+	/**  应用当前 locale：更新 rust-i18n 全局 locale 并即时重绘托盘菜单文案。 */
+	setLocale: (locale: string) => __TAURI_INVOKE<null>("set_locale", { locale }),
 	/**  查询 MCP Server 当前状态 */
 	getMcpStatus: () => __TAURI_INVOKE<McpStatus>("get_mcp_status"),
 	/**
@@ -228,6 +237,13 @@ export type DeviceReceivePolicy = {
 	saveBehavior?: ReceiveSaveBehavior,
 	defaultSaveLocation?: string | null,
 	allowMcpSendToDevice: boolean,
+	/**
+	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
+	 * 
+	 *  默认 false，与 `allow_mcp_send_to_device`（发送侧门控）对称。只能由用户在 app 的
+	 *  设备信任策略中开启，agent 无任何写权限——防止 agent 自我提权、静默代收。
+	 */
+	allowMcpAcceptFromDevice?: boolean,
 	expiresAt?: number | null,
 };
 

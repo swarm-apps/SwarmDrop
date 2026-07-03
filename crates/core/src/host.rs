@@ -225,25 +225,28 @@ pub trait FileAccess: Send + Sync {
     }
 }
 
-/// 通知请求。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct NotificationRequest {
-    pub title: String,
-    pub body: String,
+/// 语义通知：core 只表达「发生了什么」，不含任何语言的标题 / 正文散文。由 host 在展示
+/// 时按当前 locale 翻译（桌面端走 rust-i18n；移动端目前传 `None` 不弹通知，未来可自行
+/// 本地化）。与错误 `kind` 同构——core 保持语言中立，翻译发生在呈现边缘。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Notification {
+    /// 收到配对请求。`hostname` = 请求方设备名。
+    PairingRequest { hostname: String },
+    /// 收到文件传输请求（需用户确认）。`device_name` = 发送方设备名。
+    IncomingTransfer { device_name: String },
 }
 
 /// 宿主通知能力。
 ///
+/// 入参是语义 [`Notification`]，host 侧负责翻译成当前语言的标题 / 正文再展示。
 /// `notify_if_unfocused` 用于桌面端：仅当窗口未聚焦时才推送通知。
 /// 默认实现 fallback 到 `notify`，移动端无窗口聚焦概念时无需 override。
 #[async_trait]
 pub trait Notifier: Send + Sync {
-    async fn notify(&self, request: NotificationRequest) -> AppResult<()>;
+    async fn notify(&self, notification: Notification) -> AppResult<()>;
 
-    async fn notify_if_unfocused(&self, request: NotificationRequest) -> AppResult<()> {
-        self.notify(request).await
+    async fn notify_if_unfocused(&self, notification: Notification) -> AppResult<()> {
+        self.notify(notification).await
     }
 }
 
@@ -277,7 +280,7 @@ struct MemoryHostInner {
     events: Vec<CoreEvent>,
     sources: HashMap<FileSourceId, (HostFileMetadata, Vec<u8>)>,
     sinks: HashMap<FileSinkId, Vec<u8>>,
-    notifications: Vec<NotificationRequest>,
+    notifications: Vec<Notification>,
     updates: Vec<UpdateInstallRequest>,
 }
 
@@ -500,12 +503,12 @@ impl FileAccess for MemoryHost {
 
 #[async_trait]
 impl Notifier for MemoryHost {
-    async fn notify(&self, request: NotificationRequest) -> AppResult<()> {
+    async fn notify(&self, notification: Notification) -> AppResult<()> {
         self.inner
             .lock()
             .expect("memory host poisoned")
             .notifications
-            .push(request);
+            .push(notification);
         Ok(())
     }
 }

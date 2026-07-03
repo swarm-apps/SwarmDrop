@@ -12,6 +12,7 @@ pub mod error;
 pub mod events;
 pub mod external_open;
 pub mod host;
+pub mod i18n;
 pub(crate) mod mcp;
 pub(crate) mod network;
 pub mod setup;
@@ -19,6 +20,12 @@ pub mod tray;
 
 pub use error::{AppError, AppResult};
 pub use setup::specta_builder;
+
+// 桌面壳原生字符串（托盘 + 系统通知）本地化：locale 目录在 `src-tauri/locales/`
+// （编译期内嵌），缺项回退源 locale zh。当前 locale 由 [`i18n`] 模块从前端偏好读取 /
+// 经 `set_locale` 命令更新；`t!` 宏在 tray / notifier 处取词。前端 Lingui 负责 App 内
+// 文案，二者不重叠。
+rust_i18n::i18n!("locales", fallback = "zh");
 
 /// 应用入口（main.rs 调用）。
 #[doc(alias = "main")]

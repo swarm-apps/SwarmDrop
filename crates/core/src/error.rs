@@ -30,12 +30,12 @@ pub enum AppError {
     #[error("Node not started")]
     NodeNotStarted,
 
-    /// 配对码已过期
-    #[error("配对码已过期")]
+    /// 配对码已过期（面向用户的文案由前端按 `kind` 渲染，此处仅作语言无关技术描述）
+    #[error("pairing code expired")]
     ExpiredCode,
 
-    /// 无效的配对码
-    #[error("无效的配对码")]
+    /// 无效的配对码（面向用户的文案由前端按 `kind` 渲染，此处仅作语言无关技术描述）
+    #[error("invalid pairing code")]
     InvalidCode,
 
     /// tokio 任务错误

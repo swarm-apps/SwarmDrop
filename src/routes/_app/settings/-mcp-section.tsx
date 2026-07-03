@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { commands, type McpStatus } from "@/lib/bindings";
+import { getErrorMessage } from "@/lib/errors";
 import {
   SettingsCard,
   SettingsRow,
@@ -65,7 +66,7 @@ export function McpSection() {
         toast.success(t`MCP Server 已启动`);
       }
     } catch (e) {
-      toast.error(String(e));
+      toast.error(getErrorMessage(e));
     } finally {
       setLoading(false);
     }

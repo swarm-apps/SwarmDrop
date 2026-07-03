@@ -8,6 +8,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createTauriStorage } from "@/lib/tauri-store";
 import { dynamicActivate, defaultLocale, type LocaleKey } from "@/lib/i18n";
+import { commands } from "@/lib/bindings";
 
 export type DiscoveryMode = "auto" | "lanOnly";
 
@@ -113,6 +114,13 @@ export const usePreferencesStore = create<PreferencesState>()(
       async setLocale(locale: LocaleKey) {
         await dynamicActivate(locale);
         set({ locale });
+        // 同步给后端：托盘菜单 / 系统通知等原生字符串随之切换语言并即时重绘托盘。
+        // best-effort——后端未就绪 / IPC 失败不影响前端语言已切换。
+        try {
+          await commands.setLocale(locale);
+        } catch {
+          // 忽略：前端语言已切换，后端原生字符串下次会话或下次切换时对齐。
+        }
       },
 
       setDeviceName(name: string) {

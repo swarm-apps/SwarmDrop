@@ -287,9 +287,8 @@ pub async fn run_event_loop<TTransfer>(
             && let Some(notifier) = notifier.as_ref()
         {
             let _ = notifier
-                .notify_if_unfocused(crate::host::NotificationRequest {
-                    title: "配对请求".to_string(),
-                    body: format!("{} 请求与您配对", req.os_info.hostname),
+                .notify_if_unfocused(crate::host::Notification::PairingRequest {
+                    hostname: req.os_info.hostname.clone(),
                 })
                 .await;
         }
@@ -354,9 +353,8 @@ pub async fn run_event_loop<TTransfer>(
                             (notifier.as_ref(), device_name_override)
                     {
                         let _ = notifier
-                            .notify_if_unfocused(crate::host::NotificationRequest {
-                                title: "收到文件传输请求".to_string(),
-                                body: format!("{name} 想要向您发送文件"),
+                            .notify_if_unfocused(crate::host::Notification::IncomingTransfer {
+                                device_name: name,
                             })
                             .await;
                     }

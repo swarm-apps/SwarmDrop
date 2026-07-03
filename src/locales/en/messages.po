@@ -356,12 +356,20 @@ msgid "停止节点"
 msgstr "Stop Node"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+msgid "允许 MCP/AI 代收"
+msgstr "Allow MCP/AI to accept on your behalf"
+
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "允许中继自动接收"
 msgstr "Allow auto-accept over relay"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "允许文件夹"
 msgstr "Allow folders"
+
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+msgid "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
+msgstr "Let your local AI assistant accept or reject inbound files from this device; when off, inbound files still need your manual confirmation"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先查找，再确认"
@@ -471,6 +479,10 @@ msgstr ""
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "准备中…"
 msgstr ""
+
+#: src/lib/errors.ts
+msgid "出错了，请重试"
+msgstr "Something went wrong, please try again"
 
 #: src/components/layout/app-topbar.tsx
 msgid "切换到浅色主题"
@@ -1290,6 +1302,10 @@ msgstr "File Transfer"
 #~ msgid "文件传输全程加密保护"
 #~ msgstr "End-to-end encryption for file transfers"
 
+#: src/lib/errors.ts
+msgid "文件传输失败，请重试"
+msgstr "File transfer failed, please try again"
+
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "文件已全部移除，返回重新分享。"
 msgstr ""
@@ -1312,6 +1328,10 @@ msgstr "Resumable Transfers"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "无效的 Multiaddr 地址"
 msgstr "Invalid Multiaddr address"
+
+#: src/lib/errors.ts
+msgid "无效的配对码"
+msgstr "Invalid pairing code"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "无法打开文件夹选择器，请检查存储权限"
@@ -1849,6 +1869,10 @@ msgstr "Network discovery settings changed, restart required to take effect"
 msgid "网络节点"
 msgstr "Network Node"
 
+#: src/lib/errors.ts
+msgid "网络连接出现问题，请稍后重试"
+msgstr "A network problem occurred, please try again later"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "自动"
 msgstr "Auto"
@@ -1904,6 +1928,7 @@ msgid "节点已重启"
 msgstr "Node restarted"
 
 #: src/components/network/start-node-sheet.tsx
+#: src/lib/errors.ts
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
 #: src/stores/pairing-store.ts
 msgid "节点未启动"
@@ -2015,6 +2040,10 @@ msgstr "Device Details"
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "设备身份"
 msgstr "Device identity"
+
+#: src/lib/errors.ts
+msgid "设备身份初始化失败"
+msgstr "Failed to initialize device identity"
 
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
@@ -2245,6 +2274,7 @@ msgstr "The pairing code only locates the device; establishing trust still requi
 #~ msgid "配对码将在 {0} 后过期"
 #~ msgstr "Code expires in {0}"
 
+#: src/lib/errors.ts
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "配对码已过期"
 msgstr "Code expired"

@@ -87,6 +87,8 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::is_receiving_paused,
             // 应用窗口 / 托盘
             commands::quit_app,
+            // 语言（托盘 + 系统通知等原生字符串本地化）
+            commands::set_locale,
             // mcp
             commands::get_mcp_status,
             commands::start_mcp_server,
@@ -171,6 +173,10 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
     builder.setup(move |app| {
         // tauri-specta events —— 当前未声明事件，为将来扩展预留 mount 钩子。
         specta.mount_events(app);
+
+        // 原生字符串（托盘 / 系统通知）locale：前端 preferences-store 为权威源，此处读
+        // 持久化值应用到 rust-i18n，保证托盘首帧即正确语言（必须在 build_tray 之前）。
+        crate::i18n::init_locale_from_store(app.handle());
 
         // 系统托盘：常驻图标 + 菜单。句柄存入 state 长存（被 drop 图标会消失）。
         crate::tray::build_tray(app.handle())?;

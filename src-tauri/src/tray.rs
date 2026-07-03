@@ -7,6 +7,9 @@
 //! 关闭语义（✕ → 缩盘 / 退出）由**前端** `onCloseRequested` 权威拦截，本模块只负责
 //! 托盘本身与「暂停接收」的托盘侧切换；二者通过 [`ReceivingPausedChanged`] 事件保持同步。
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use rust_i18n::t;
 use tauri::image::Image;
 use tauri::menu::{MenuBuilder, MenuEvent, MenuItem};
 #[cfg(not(target_os = "macos"))]
@@ -56,12 +59,13 @@ impl TrayStatus {
         }
     }
 
-    fn text(self) -> &'static str {
+    fn text(self) -> String {
         match self {
-            Self::Offline => "○ 未连接",
-            Self::Paused => "⏸ 已暂停接收",
-            Self::Online => "● 在线 · 可接收文件",
+            Self::Offline => t!("tray.status.offline"),
+            Self::Paused => t!("tray.status.paused"),
+            Self::Online => t!("tray.status.online"),
         }
+        .to_string()
     }
 
     fn icon_bytes(self) -> &'static [u8] {
@@ -73,11 +77,20 @@ impl TrayStatus {
     }
 }
 
-/// 托盘可变句柄：状态首行 + 暂停项 + 图标本身。状态变化时改其文案 / 启用态 / 图标。
+/// 托盘可变句柄：状态首行 + 全部菜单项 + 图标本身。状态变化时改文案 / 启用态 / 图标；
+/// 语言切换时经 [`relocalize_tray`] 重设全部文案——所以除 status/pause 外的静态项句柄
+/// 也要长存，否则切语言时换不了词。`online`/`paused` 缓存当前状态，供语言切换时重新
+/// 派生状态行 / 暂停项文案（这两项文案依赖当前状态，不能只靠静态 key）。
 pub struct TrayState {
     status_item: MenuItem<Wry>,
+    open_item: MenuItem<Wry>,
     pause_item: MenuItem<Wry>,
+    open_folder_item: MenuItem<Wry>,
+    settings_item: MenuItem<Wry>,
+    quit_item: MenuItem<Wry>,
     tray_icon: TrayIcon<Wry>,
+    online: AtomicBool,
+    paused: AtomicBool,
 }
 
 /// 在 `setup` 阶段创建托盘。`MenuItem` 句柄存入 [`TrayState`] 长存。
@@ -89,12 +102,18 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         false,
         None::<&str>,
     )?;
-    let open_item = MenuItem::with_id(app, ID_OPEN, "打开 SwarmDrop", true, None::<&str>)?;
+    let open_item = MenuItem::with_id(app, ID_OPEN, t!("tray.open"), true, None::<&str>)?;
     let pause_item = MenuItem::with_id(app, ID_PAUSE, pause_label(false), false, None::<&str>)?;
-    let open_folder_item =
-        MenuItem::with_id(app, ID_OPEN_FOLDER, "打开接收文件夹", true, None::<&str>)?;
-    let settings_item = MenuItem::with_id(app, ID_SETTINGS, "设置…", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, ID_QUIT, "退出 SwarmDrop", true, None::<&str>)?;
+    let open_folder_item = MenuItem::with_id(
+        app,
+        ID_OPEN_FOLDER,
+        t!("tray.open_folder"),
+        true,
+        None::<&str>,
+    )?;
+    let settings_item =
+        MenuItem::with_id(app, ID_SETTINGS, t!("tray.settings"), true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, ID_QUIT, t!("tray.quit"), true, None::<&str>)?;
 
     let menu = MenuBuilder::new(app)
         .item(&status_item)
@@ -135,8 +154,15 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
     app.manage(TrayState {
         status_item,
+        open_item,
         pause_item,
+        open_folder_item,
+        settings_item,
+        quit_item,
         tray_icon,
+        // 初始态 = 离线 / 未暂停，与 status_item / 图标的初始态一致。
+        online: AtomicBool::new(false),
+        paused: AtomicBool::new(false),
     });
     Ok(())
 }
@@ -144,6 +170,9 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 /// 刷新托盘状态首行 + 暂停项 + 图标（`online`=节点已启动，`paused`=已暂停接收）。
 pub fn refresh_tray(app: &AppHandle, online: bool, paused: bool) {
     if let Some(state) = app.try_state::<TrayState>() {
+        // 缓存当前状态，供语言切换时（relocalize_tray）重新派生状态行 / 暂停项文案。
+        state.online.store(online, Ordering::Relaxed);
+        state.paused.store(paused, Ordering::Relaxed);
         let status = TrayStatus::from_flags(online, paused);
         let _ = state.status_item.set_text(status.text());
         let _ = state.pause_item.set_text(pause_label(paused));
@@ -155,6 +184,23 @@ pub fn refresh_tray(app: &AppHandle, online: bool, paused: bool) {
             }
             Err(e) => warn!("托盘图标解码失败，保留上一次的图标: {e}"),
         }
+    }
+}
+
+/// 语言切换时重设托盘全部菜单项文案（由 `set_locale` 命令调用）。状态行 / 暂停项文案依赖
+/// 当前状态，从缓存的 `online`/`paused` 重新派生；静态项直接取当前 locale 词条。图标不随
+/// 语言变，不动。
+pub fn relocalize_tray(app: &AppHandle) {
+    if let Some(state) = app.try_state::<TrayState>() {
+        let online = state.online.load(Ordering::Relaxed);
+        let paused = state.paused.load(Ordering::Relaxed);
+        let status = TrayStatus::from_flags(online, paused);
+        let _ = state.status_item.set_text(status.text());
+        let _ = state.open_item.set_text(t!("tray.open"));
+        let _ = state.pause_item.set_text(pause_label(paused));
+        let _ = state.open_folder_item.set_text(t!("tray.open_folder"));
+        let _ = state.settings_item.set_text(t!("tray.settings"));
+        let _ = state.quit_item.set_text(t!("tray.quit"));
     }
 }
 
@@ -253,10 +299,11 @@ pub fn show_main_window(app: &AppHandle) {
     }
 }
 
-fn pause_label(paused: bool) -> &'static str {
+fn pause_label(paused: bool) -> String {
     if paused {
-        "恢复接收"
+        t!("tray.resume")
     } else {
-        "暂停接收"
+        t!("tray.pause")
     }
+    .to_string()
 }

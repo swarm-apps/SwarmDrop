@@ -407,3 +407,58 @@ keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立
 - 只在 test 用到的 import 移进 `#[cfg(test)] mod tests` 局部，别留在模块顶层（否则 lib 构建报 unused，即便 test mod 有 `use super::*`）。
 
 **相关文件**：`crates/core/src/{device.rs,network/event_loop.rs,transfer/incoming.rs,transfer/flow/receive.rs}`、`src-tauri/src/database.rs`
+
+## 国际化 (i18n)
+
+### 后端字符串本地化：分两桶——「前端渲染」走 Lingui、「Rust 渲染」走 rust-i18n
+
+后端面向用户的字符串按**谁渲染**分两桶，不要用一套解法：
+
+- **① 错误 / 一切经 IPC 让前端展示的文本** → 前端 Lingui 翻译。后端只发稳定 `kind`（+ 结构化参数），**永不返回预翻译散文**。前端 `src/lib/errors.ts` 的 `getErrorMessage` 按 `err.kind` 查 Lingui 描述符表（`msg\`...\``），技术类 kind（Io/Serialization/Database/TaskJoin/P2p/Tauri）统一「出错了，请重试」，后端 `message` 降级为日志/详情用技术细节。core 错误的 `#[error("...")]` 一律写**语言无关英文**（曾有 `ExpiredCode`/`InvalidCode` 塞中文散文，已改掉——那是「翻译发生在错误的层」的反例）。
+- **② 托盘菜单 / 系统通知等 Rust/OS 直接渲染、前端够不着的** → 桌面壳侧 rust-i18n 翻译（下条）。
+
+原则一句话：**后端发码、边缘翻译**。错误 `kind` 与通知语义枚举同构。
+
+**相关文件**：`src/lib/errors.ts`、`crates/core/src/error.rs`、`src-tauri/locales/`、`src-tauri/src/i18n.rs`
+
+### rust-i18n 集成：`i18n!` 在 lib.rs 根、per-locale TOML、`%{var}` 插值
+
+托盘 + 通知用 `rust-i18n = "4"`。**只覆盖 Rust 直接渲染的 ~20 条字符串**，不与前端 Lingui 重叠。
+
+**正确做法**：
+- `rust_i18n::i18n!("locales", fallback = "zh")` **必须在 crate 根**（`src-tauri/src/lib.rs`）调用一次——`t!` 展开成 `crate::_rust_i18n_translate(...)`，放子模块里路径解析不到。目录相对 `CARGO_MANIFEST_DIR`（= `src-tauri/`）。
+- per-locale 文件 `src-tauri/locales/{zh,zh-TW,en}.toml`，文件名即 locale code（`zh-TW.toml` → locale `zh-TW`，与前端 `LocaleKey` 对齐）。嵌套表 `[tray]` / `[tray.status]` / `[notif.pairing]` 自动扁平成点分键 `tray.status.offline`。
+- 插值：消息里 `%{name}`，调用 `t!("notif.pairing.body", hostname = value)`（named-arg 用 `=`；也支持 `"name" => value`）。
+- `t!` 返回 `Cow<'static, str>`，`set_text` / `MenuItem::with_id` 收 `AsRef<str>` 直接吃；要 `String` 时 `.to_string()`（比 `.into_owned()` 稳，对 Cow/String/&str 都成立）。
+- **locale 只有 3 个**（zh/zh-TW/en，见 `lingui.config.ts`），Rust 目录照 3 个来，别按 CLAUDE.md 顶部的「8 locale」。
+
+**不要做**：
+- 别在 core 里做 rust-i18n / 塞语言散文——core 平台中立，通知走语义枚举交给 host 译（下条）。
+
+**相关文件**：`src-tauri/src/lib.rs`（`i18n!`）、`src-tauri/locales/*.toml`、`src-tauri/src/{tray.rs,host/notifier.rs}`
+
+### locale 交付：Rust 启动读 tauri-store 的「双层编码」JSON 字符串，必须在 build_tray 之前
+
+前端 `preferences-store` 是 locale 权威源。Rust 两个时机拿 locale：启动读持久化、切换经命令。
+
+**正确做法**：
+- 启动：`crate::i18n::init_locale_from_store` 用 `app.store("preferences.json")` 读 key `"preferences-store"`。⚠️ **该值是 zustand persist 经 JSONStorage 序列化后的 JSON 字符串**（`store.get` 拿到的是 `Value::String("{...}")`，不是对象）——要 `.as_str()` 再 `serde_json::from_str` 一次，才能取 `["state"]["locale"]`。读不到回退 `i18n!` 的 fallback zh。**必须在 `build_tray` 之前调用**（setup.rs），否则托盘首帧闪一下默认语言。
+- 切换：前端 `preferences-store.setLocale` 在 `dynamicActivate` 后 `commands.setLocale(locale)`（try/catch best-effort）；后端 `set_locale` 命令 = `rust_i18n::set_locale` + `crate::tray::relocalize_tray`。
+- 托盘要「切语言即时重绘」：**全部** `MenuItem` 句柄（open/pause/open_folder/settings/quit + status）都要存进 `TrayState`，否则换不了词；状态行/暂停项文案依赖当前 `(online,paused)`，用 `TrayState` 里的 `AtomicBool` 缓存这俩，`relocalize_tray` 才能重新派生。
+
+**相关文件**：`src-tauri/src/i18n.rs`、`src-tauri/src/setup.rs`、`src-tauri/src/tray.rs`、`src/stores/preferences-store.ts`
+
+### 通知语义枚举：core 发 `Notification` 码、host 译；改 `Notifier` 签名不破 RN
+
+core 的系统通知从 `NotificationRequest{title,body}`（拼好的中文散文）改成语义枚举
+`Notification::{PairingRequest{hostname}, IncomingTransfer{device_name}}`，desktop `DesktopNotifier`
+`match` + `t!()` 译成当前 locale。core 彻底不碰语言。
+
+**关键（曾误判为跨仓破坏点）**：改 `Notifier` trait 的方法签名**不会破 SwarmDrop-RN**。核实：RN
+`mobile-core/src/events.rs` 对 `run_event_loop(..., Option<Arc<dyn Notifier>>)` 传 `None`（「移动端无
+窗口聚焦概念，不需要 Notifier」），**RN 根本不实现 `Notifier`、不引用 `NotificationRequest`**（后者
+无 uniffi 导出，只有 desktop-only specta derive）。trait 名与 `run_event_loop` 签名都没变 → RN 的
+`None` 调用不受影响。且 RN `Cargo.toml` 通常 pin 在 `swarmdrop-core` 的 **git rev**（非本地 path），本地
+改动对 RN 零即时影响。**动 core 的 host trait 前，先确认 RN 到底实不实现它、是不是传 None——别默认「改 core trait 必炸 RN」**。
+
+**相关文件**：`crates/core/src/host.rs`（`Notification` + `Notifier`）、`crates/core/src/network/event_loop.rs`、`src-tauri/src/host/notifier.rs`、`../SwarmDrop-RN/packages/swarmdrop-core/rust/mobile-core/src/events.rs`

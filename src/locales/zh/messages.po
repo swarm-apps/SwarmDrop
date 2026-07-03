@@ -390,12 +390,20 @@ msgid "停止节点"
 msgstr "停止节点"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+msgid "允许 MCP/AI 代收"
+msgstr "允许 MCP/AI 代收"
+
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "允许中继自动接收"
 msgstr "允许中继自动接收"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "允许文件夹"
 msgstr "允许文件夹"
+
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+msgid "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
+msgstr "允许本机 AI 助手代为接受或拒绝该设备的入站文件；关闭则入站仍需你手动确认"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先查找，再确认"
@@ -514,6 +522,10 @@ msgstr "准备中"
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "准备中…"
 msgstr "准备中…"
+
+#: src/lib/errors.ts
+msgid "出错了，请重试"
+msgstr "出错了，请重试"
 
 #: src/components/layout/app-topbar.tsx
 msgid "切换到浅色主题"
@@ -1393,6 +1405,10 @@ msgstr "文件传输"
 #~ msgid "文件传输全程加密保护"
 #~ msgstr "文件传输全程加密保护"
 
+#: src/lib/errors.ts
+msgid "文件传输失败，请重试"
+msgstr "文件传输失败，请重试"
+
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "文件已全部移除，返回重新分享。"
 msgstr "文件已全部移除，返回重新分享。"
@@ -1416,6 +1432,10 @@ msgstr "断点续传"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "无效的 Multiaddr 地址"
 msgstr "无效的 Multiaddr 地址"
+
+#: src/lib/errors.ts
+msgid "无效的配对码"
+msgstr "无效的配对码"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "无法打开文件夹选择器，请检查存储权限"
@@ -1999,6 +2019,10 @@ msgstr "网络发现设置已变更，需重启节点生效"
 msgid "网络节点"
 msgstr "网络节点"
 
+#: src/lib/errors.ts
+msgid "网络连接出现问题，请稍后重试"
+msgstr "网络连接出现问题，请稍后重试"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "自动"
 msgstr "自动"
@@ -2057,6 +2081,7 @@ msgid "节点已重启"
 msgstr "节点已重启"
 
 #: src/components/network/start-node-sheet.tsx
+#: src/lib/errors.ts
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
 #: src/stores/pairing-store.ts
 msgid "节点未启动"
@@ -2175,6 +2200,10 @@ msgstr "设备详情"
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "设备身份"
 msgstr "设备身份"
+
+#: src/lib/errors.ts
+msgid "设备身份初始化失败"
+msgstr "设备身份初始化失败"
 
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
@@ -2419,6 +2448,7 @@ msgstr "配对码只用于定位设备，真正建立信任仍需要双方确认
 #~ msgid "配对码将在 {0} 后过期"
 #~ msgstr "配对码将在 {0} 后过期"
 
+#: src/lib/errors.ts
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "配对码已过期"
 msgstr "配对码已过期"
