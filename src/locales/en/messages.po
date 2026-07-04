@@ -27,16 +27,13 @@ msgstr "—"
 msgid "{0, plural, other {# 项}}"
 msgstr "{0, plural, one {# item} other {# items}}"
 
-#. placeholder {0}: fileSelection.totalCount
-#. placeholder {1}: formatFileSize(fileSelection.totalSize)
 #: src/routes/_app/send/index.lazy.tsx
-msgid "{0} 项，{1}"
-msgstr "{0} items, {1}"
+#~ msgid "{0} 项，{1}"
+#~ msgstr "{0} items, {1}"
 
-#. placeholder {0}: fileSelection.totalCount
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "{0} 项内容"
-msgstr "{0} items"
+#~ msgid "{0} 项内容"
+#~ msgstr "{0} items"
 
 #. placeholder {0}: progress?.completedFiles ?? 0
 #: src/components/file-tree/file-tree.tsx
@@ -232,8 +229,8 @@ msgid "传输失败"
 msgstr "Transfer Failed"
 
 #: src/routes/_app/send/index.lazy.tsx
-msgid "传输方式"
-msgstr "Transfer method"
+#~ msgid "传输方式"
+#~ msgstr "Transfer method"
 
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
@@ -571,8 +568,8 @@ msgid "可配对"
 msgstr "Pairable"
 
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "合计"
-msgstr "Total"
+#~ msgid "合计"
+#~ msgstr "Total"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "同时删除本地文件"
@@ -939,8 +936,13 @@ msgid "当前状态"
 msgstr "Current status"
 
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "待发送"
-msgstr "To Send"
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "待发文件"
+msgstr "Files to send"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+#~ msgid "待发送"
+#~ msgstr "To Send"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "待生成"
@@ -972,8 +974,8 @@ msgid "所有文件传输完成！"
 msgstr "All files transferred successfully!"
 
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "所有文件已被移除。返回后重新选择要发送的内容。"
-msgstr "All files have been removed. Go back and pick what to send again."
+#~ msgid "所有文件已被移除。返回后重新选择要发送的内容。"
+#~ msgstr "All files have been removed. Go back and pick what to send again."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "打开"
@@ -1358,8 +1360,8 @@ msgid "没有在线设备"
 msgstr "No devices online"
 
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "没有待发送的文件"
-msgstr "No files to send"
+#~ msgid "没有待发送的文件"
+#~ msgstr "No files to send"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
@@ -1445,8 +1447,8 @@ msgid "监听端口"
 msgstr "Listening Port"
 
 #: src/routes/_app/send/index.lazy.tsx
-msgid "目标设备"
-msgstr "Target device"
+#~ msgid "目标设备"
+#~ msgstr "Target device"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"
@@ -1466,8 +1468,8 @@ msgid "确认对端已启动，或直接使用下方配对码连接。"
 msgstr "Make sure the other device is running, or use the pairing code below to connect."
 
 #: src/routes/_app/send/index.lazy.tsx
-msgid "确认目标设备在线后，将文件或文件夹拖到右侧面板。"
-msgstr "Once the target device is online, drag files or folders to the right panel."
+#~ msgid "确认目标设备在线后，将文件或文件夹拖到右侧面板。"
+#~ msgstr "Once the target device is online, drag files or folders to the right panel."
 
 #: src/routes/_app/send/-components/send-progress-view.tsx
 msgid "离开此页不会中断传输，可在「传输活动」中继续查看。"
@@ -1842,8 +1844,8 @@ msgid "选择内容后，文件结构和总大小会在这里确认。"
 msgstr "After you select content, its file structure and total size are confirmed here."
 
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "选择右侧一台在线设备，端到端加密直接送达。"
-msgstr "Pick an online device on the right for end-to-end encrypted direct delivery."
+#~ msgid "选择右侧一台在线设备，端到端加密直接送达。"
+#~ msgstr "Pick an online device on the right for end-to-end encrypted direct delivery."
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "选择应用显示语言"
@@ -1957,6 +1959,10 @@ msgstr "Nearby devices come first; paired devices can send directly."
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "随节点自动启动"
 msgstr "Auto-start with node"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "项"
+msgstr "items"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx

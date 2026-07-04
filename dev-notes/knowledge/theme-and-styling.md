@@ -141,7 +141,13 @@ const nearbyDevices = useNetworkStore(
 
 **选中态放 URL search param**（如 `/transfer?session=xxx`），旧的 `$id` 详情路由用 `beforeLoad` + `redirect` 兜住深链；列表内点击用 `replace: true` 避免堆历史。
 
-**相关文件**：`src/components/layout/master-detail-shell.tsx`、`src/routes/_app/inbox/index.lazy.tsx`、`src/routes/_app/transfer/index.lazy.tsx`、`src/hooks/use-media-query.ts`
+**带 chrome 的页面用 `<SlideDrawer>` 而非整个 shell**：发送流（`/send/share-target`）有 TaskToolbar + CommandDock，不是纯 master-detail 页，不能直接套 MasterDetailShell。改用从 shell 导出的 `<SlideDrawer open onClose label>`（左滑、遮罩、Esc、inert、焦点，与 shell 内部同一实现），配 `useIsWideLayout()` 自己组双栏/单栏。**抽屉的定位上下文**：SlideDrawer 用 `absolute inset-0`，外层必须有一个 `relative` 且**非 overflow-auto** 的祖先（否则被裁剪/随滚动漂移），并让它作为抽屉的兄弟节点、与滚动内容平级。
+
+**发送流两页的语义**：`/send`（点设备卡进来，设备已定）主任务是选文件 → 设备收成顶部 mini 摘要条、文件选择占满单栏带滚动；`/send/share-target`（外部打开进来，文件已定）主任务是选设备 → 选设备占主屏、「待发文件」进左抽屉。发送流断点也用 920（同一 `useIsWideLayout`）。
+
+**shadcn Dialog 内要限高滚动**：`DialogContent` 基础是 `grid gap-4`，加 `flex max-h-[85vh] flex-col`（tailwind-merge 会让 flex 覆盖 grid），header/footer `shrink-0`，中间滚动区必须是 **flex-col 容器**（不能只给 `flex-1`），否则内部 FileTree 的 `md:flex-1` 拿不到 flex 父级、按自然高撑破；DialogContent 本身 `overflow:visible` 不裁剪，靠内部滚动收口。
+
+**相关文件**：`src/components/layout/master-detail-shell.tsx`（含 `SlideDrawer`）、`src/routes/_app/inbox/index.lazy.tsx`、`src/routes/_app/transfer/index.lazy.tsx`、`src/routes/_app/send/index.lazy.tsx`、`src/routes/_app/send/share-target.lazy.tsx`、`src/components/transfer/transfer-offer-dialog.tsx`、`src/hooks/use-media-query.ts`
 
 ## 设置页（settings）布局与基元
 

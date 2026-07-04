@@ -13,7 +13,6 @@ import { Channel } from "@tauri-apps/api/core";
 import {
   Check,
   FileStack,
-  HardDrive,
   Inbox,
   Loader2,
   MonitorSmartphone,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
 import type { Device } from "@/lib/bindings";
 import type { PrepareProgress } from "@/lib/types";
 import { commands } from "@/lib/bindings";
@@ -37,13 +37,13 @@ import { FileTree } from "@/components/file-tree";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
 import { SendProgressView } from "./-components/send-progress-view";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useIsWideLayout } from "@/hooks/use-media-query";
+import { SlideDrawer } from "@/components/layout/master-detail-shell";
 import {
   CommandDock,
   GlassPanel,
-  InfoTile,
   TaskButton,
-  TaskContent,
-  TaskHeroPanel,
   TaskPageShell,
   TaskToolbar,
 } from "@/components/layout/task-surface";
@@ -63,6 +63,9 @@ function ShareTargetPage() {
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null);
   // startSend 成功后就地转进度视图（右键快捷发送全程单界面，发完即可关窗）
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // 主任务是选设备（文件已定）。窄屏（<920）选设备占主屏，「待发文件」收进左抽屉。
+  const isWide = useIsWideLayout();
+  const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
 
   const status = useNetworkStore((s) => s.status);
   const devices = useNetworkStore((s) => s.devices);
@@ -153,6 +156,119 @@ function ShareTargetPage() {
     );
   }
 
+  // 待发文件面板内容（宽屏左栏 / 窄屏抽屉共用）
+  const filesBody = (
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
+          <FileStack className="size-4" />
+          <Trans>待发文件</Trans>
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {fileSelection.hasFiles ? (
+            <span className="font-mono tabular-nums">
+              {fileSelection.totalCount} 项 · {formatFileSize(fileSelection.totalSize)}
+            </span>
+          ) : (
+            <Trans>—</Trans>
+          )}
+        </span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {fileSelection.hasFiles ? (
+          <FileTree
+            mode="select"
+            dataLoader={fileSelection.dataLoader}
+            rootChildren={fileSelection.rootChildren}
+            totalCount={fileSelection.totalCount}
+            totalSize={fileSelection.totalSize}
+            onRemoveFile={fileSelection.removeFile}
+          />
+        ) : (
+          <div className="flex h-full min-h-[160px] items-center justify-center rounded-[20px] bg-foreground/[0.025] px-4 text-center dark:bg-white/[0.035]">
+            <p className="max-w-[26ch] text-sm leading-6 text-muted-foreground">
+              <Trans>文件已全部移除，返回重新分享。</Trans>
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // 选设备面板内容（主任务）。窄屏传入 openFiles 渲染「查看待发文件」按钮。
+  const devicesBody = (openFiles: (() => void) | null) => (
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
+          <MonitorSmartphone className="size-4" />
+          <Trans>选择设备</Trans>
+        </span>
+        {openFiles && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={openFiles}
+            className="h-7 gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <FileStack className="size-3.5" />
+            <span className="font-mono tabular-nums">{fileSelection.totalCount}</span>
+            <Trans>项</Trans>
+          </Button>
+        )}
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {!nodeRunning ? (
+          <StartingNodePlaceholder />
+        ) : targetDevices.length === 0 ? (
+          <EmptyDevices />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {targetDevices.map((device) => (
+              <DeviceOption
+                key={device.peerId}
+                device={device}
+                selected={device.peerId === selectedPeerId}
+                onSelect={() => setSelectedPeerId(device.peerId)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const commandDock =
+    sending && prepareProgress ? (
+      <CommandDock className="justify-stretch">
+        <div className="min-w-0 flex-1 px-2">
+          <PrepareProgressBar progress={prepareProgress} />
+        </div>
+      </CommandDock>
+    ) : !fileSelection.hasFiles ? (
+      // 空载荷：发送无从谈起，只留一个明确的出口
+      <CommandDock>
+        <TaskButton onClick={handleBack}>
+          <Trans>返回</Trans>
+        </TaskButton>
+      </CommandDock>
+    ) : (
+      <CommandDock>
+        <TaskButton variant="outline" onClick={handleBack} disabled={sending}>
+          <Trans>取消</Trans>
+        </TaskButton>
+        <TaskButton onClick={handleSend} disabled={!canSend}>
+          <Send className="size-4" />
+          {sending ? (
+            <Trans>准备中…</Trans>
+          ) : selectedDevice ? (
+            <Trans>发送给 {deviceDisplayName(selectedDevice)}</Trans>
+          ) : (
+            <Trans>选择一个设备</Trans>
+          )}
+        </TaskButton>
+      </CommandDock>
+    );
+
   return (
     <TaskPageShell>
       <TaskToolbar
@@ -166,124 +282,46 @@ function ShareTargetPage() {
         onBack={handleBack}
       />
 
-      <TaskContent className="flex min-h-0 flex-col gap-5">
-        <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
-          {/* 左：待发文件 */}
-          <TaskHeroPanel
-            icon={FileStack}
-            label={<Trans>待发送</Trans>}
-            title={
-              fileSelection.hasFiles ? (
-                <Trans>{fileSelection.totalCount} 项内容</Trans>
-              ) : (
-                <Trans>没有待发送的文件</Trans>
-              )
-            }
-            description={
-              fileSelection.hasFiles ? (
-                <Trans>选择右侧一台在线设备，端到端加密直接送达。</Trans>
-              ) : (
-                <Trans>所有文件已被移除。返回后重新选择要发送的内容。</Trans>
-              )
-            }
-            className="min-h-[320px]"
-          >
-            <div className="flex h-full min-h-0 flex-col gap-4">
-              <InfoTile
-                icon={HardDrive}
-                label={<Trans>合计</Trans>}
-                value={
-                  fileSelection.hasFiles ? (
-                    <span className="font-mono tabular-nums">
-                      {formatFileSize(fileSelection.totalSize)}
-                    </span>
-                  ) : (
-                    <Trans>—</Trans>
-                  )
-                }
-              />
-              <div className="min-h-0 flex-1 overflow-hidden">
-                {fileSelection.hasFiles ? (
-                  <FileTree
-                    mode="select"
-                    dataLoader={fileSelection.dataLoader}
-                    rootChildren={fileSelection.rootChildren}
-                    totalCount={fileSelection.totalCount}
-                    totalSize={fileSelection.totalSize}
-                    onRemoveFile={fileSelection.removeFile}
-                  />
-                ) : (
-                  <div className="flex h-full min-h-[160px] items-center justify-center rounded-[20px] bg-foreground/[0.025] px-4 text-center dark:bg-white/[0.035]">
-                    <p className="max-w-[26ch] text-sm leading-6 text-muted-foreground">
-                      <Trans>文件已全部移除，返回重新分享。</Trans>
-                    </p>
-                  </div>
+      {/* relative 容器：作为待发文件抽屉的定位上下文（仅窄屏） */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1180px] flex-1 flex-col gap-5 p-5 lg:p-7">
+          {isWide ? (
+            <div
+              className="grid min-h-0 flex-1 gap-5"
+              style={{ gridTemplateColumns: "360px minmax(0, 1fr)" }}
+            >
+              <GlassPanel className="min-h-0">
+                <div className="h-full p-4 lg:p-5">{filesBody}</div>
+              </GlassPanel>
+              <GlassPanel className="min-h-0">
+                <div className="h-full p-4 lg:p-5">{devicesBody(null)}</div>
+              </GlassPanel>
+            </div>
+          ) : (
+            <GlassPanel className="min-h-0 flex-1">
+              <div className="h-full p-4 lg:p-5">
+                {devicesBody(
+                  fileSelection.hasFiles
+                    ? () => setFilesDrawerOpen(true)
+                    : null,
                 )}
               </div>
-            </div>
-          </TaskHeroPanel>
+            </GlassPanel>
+          )}
 
-          {/* 右：选设备 */}
-          <GlassPanel className="min-h-0">
-            <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-5">
-              <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
-                <MonitorSmartphone className="size-4" />
-                <Trans>选择设备</Trans>
-              </div>
-              <div className="min-h-0 flex-1 overflow-auto">
-                {!nodeRunning ? (
-                  <StartingNodePlaceholder />
-                ) : targetDevices.length === 0 ? (
-                  <EmptyDevices />
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {targetDevices.map((device) => (
-                      <DeviceOption
-                        key={device.peerId}
-                        device={device}
-                        selected={device.peerId === selectedPeerId}
-                        onSelect={() => setSelectedPeerId(device.peerId)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </GlassPanel>
+          {commandDock}
         </div>
 
-        {/* 底部命令栏 */}
-        {sending && prepareProgress ? (
-          <CommandDock className="justify-stretch">
-            <div className="min-w-0 flex-1 px-2">
-              <PrepareProgressBar progress={prepareProgress} />
-            </div>
-          </CommandDock>
-        ) : !fileSelection.hasFiles ? (
-          // 空载荷：发送无从谈起，只留一个明确的出口
-          <CommandDock>
-            <TaskButton onClick={handleBack}>
-              <Trans>返回</Trans>
-            </TaskButton>
-          </CommandDock>
-        ) : (
-          <CommandDock>
-            <TaskButton variant="outline" onClick={handleBack} disabled={sending}>
-              <Trans>取消</Trans>
-            </TaskButton>
-            <TaskButton onClick={handleSend} disabled={!canSend}>
-              <Send className="size-4" />
-              {sending ? (
-                <Trans>准备中…</Trans>
-              ) : selectedDevice ? (
-                <Trans>发送给 {deviceDisplayName(selectedDevice)}</Trans>
-              ) : (
-                <Trans>选择一个设备</Trans>
-              )}
-            </TaskButton>
-          </CommandDock>
+        {!isWide && (
+          <SlideDrawer
+            open={filesDrawerOpen}
+            onClose={() => setFilesDrawerOpen(false)}
+            label={t`待发文件`}
+          >
+            <div className="flex h-full min-h-0 flex-col p-4">{filesBody}</div>
+          </SlideDrawer>
         )}
-      </TaskContent>
+      </div>
     </TaskPageShell>
   );
 }

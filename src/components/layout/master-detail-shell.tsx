@@ -15,6 +15,63 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useIsWideLayout } from "@/hooks/use-media-query";
 
+/**
+ * SlideDrawer
+ * 从左侧滑出的内容抽屉（遮罩只暗内容区、不盖全局顶栏，Esc / 点遮罩关闭，
+ * 面板 inert + 焦点移入）。收件箱/传输活动的列表抽屉、发送流的待发文件抽屉共用。
+ */
+export function SlideDrawer({
+  open,
+  onClose,
+  label,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  label: string;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const raf = requestAnimationFrame(() => panelRef.current?.focus());
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      cancelAnimationFrame(raf);
+    };
+  }, [open, onClose]);
+
+  return (
+    <div className={cn("absolute inset-0 z-30", !open && "pointer-events-none")}>
+      <div
+        onClick={onClose}
+        className={cn(
+          "absolute inset-0 bg-black/40 transition-opacity duration-300 motion-reduce:transition-none",
+          open ? "opacity-100" : "opacity-0",
+        )}
+      />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        inert={!open}
+        className={cn(
+          "absolute inset-y-0 left-0 flex w-[86%] max-w-[344px] flex-col rounded-r-[24px] border-r border-[color:var(--glass-control-border)] bg-background shadow-2xl outline-hidden transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+          open ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 interface DetailContext {
   /** 窄屏下打开列表抽屉；宽屏为 null（列表常驻左栏，无需按钮）。 */
   openList: (() => void) | null;
@@ -47,22 +104,6 @@ export function MasterDetailShell({
     if (isWide) setDrawerOpen(false);
   }, [isWide]);
 
-  // 窄屏抽屉：Esc 关闭 + 焦点移入面板
-  const drawerPanelRef = useRef<HTMLDivElement>(null);
-  const open = !isWide && drawerOpen;
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    const raf = requestAnimationFrame(() => drawerPanelRef.current?.focus());
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      cancelAnimationFrame(raf);
-    };
-  }, [open]);
-
   if (isWide) {
     return (
       <main className="relative flex h-full flex-1 flex-col bg-transparent">
@@ -86,31 +127,13 @@ export function MasterDetailShell({
       <div className="mx-auto flex h-full w-full max-w-[880px] flex-col overflow-y-auto p-4 sm:p-5">
         {detail({ openList: () => setDrawerOpen(true), isCompact: true })}
       </div>
-
-      {/* 列表抽屉：限定在顶栏下方的内容区滑出，遮罩只暗内容、不盖全局顶栏 */}
-      <div className={cn("absolute inset-0 z-30", !drawerOpen && "pointer-events-none")}>
-        <div
-          onClick={() => setDrawerOpen(false)}
-          className={cn(
-            "absolute inset-0 bg-black/40 transition-opacity duration-300 motion-reduce:transition-none",
-            drawerOpen ? "opacity-100" : "opacity-0",
-          )}
-        />
-        <div
-          ref={drawerPanelRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label={drawerLabel}
-          tabIndex={-1}
-          inert={!drawerOpen}
-          className={cn(
-            "absolute inset-y-0 left-0 flex w-[86%] max-w-[344px] flex-col rounded-r-[24px] border-r border-[color:var(--glass-control-border)] bg-background shadow-2xl outline-hidden transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-            drawerOpen ? "translate-x-0" : "-translate-x-full",
-          )}
-        >
-          {list({ closeDrawer: () => setDrawerOpen(false) })}
-        </div>
-      </div>
+      <SlideDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        label={drawerLabel}
+      >
+        {list({ closeDrawer: () => setDrawerOpen(false) })}
+      </SlideDrawer>
     </main>
   );
 }

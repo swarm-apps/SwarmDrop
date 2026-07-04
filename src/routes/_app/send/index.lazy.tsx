@@ -10,7 +10,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { Channel } from "@tauri-apps/api/core";
-import { FileStack, HardDrive, MonitorSmartphone, Send } from "lucide-react";
+import { Send, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Trans } from "@lingui/react/macro";
 import type { Device } from "@/lib/bindings";
@@ -33,10 +33,8 @@ import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   CommandDock,
   GlassPanel,
-  InfoTile,
   TaskButton,
   TaskContent,
-  TaskHeroPanel,
   TaskPageShell,
   TaskToolbar,
 } from "@/components/layout/task-surface";
@@ -202,77 +200,61 @@ function DesktopSendView({
         onBack={onBack}
       />
 
-      <TaskContent className="flex min-h-0 flex-col gap-5">
-        <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
-          <TaskHeroPanel
-            icon={MonitorSmartphone}
-            label={<Trans>目标设备</Trans>}
-            title={deviceDisplayName(device)}
-            description={<Trans>确认目标设备在线后，将文件或文件夹拖到右侧面板。</Trans>}
-            className="min-h-[320px]"
-          >
-            <div className="flex h-full flex-col justify-between gap-5">
-              <div className="glass-accent flex items-center gap-3 rounded-[22px] p-4">
-                <span className="glass-control flex size-13 shrink-0 items-center justify-center rounded-[19px] text-brand">
-                  <DeviceIcon className="size-6" />
+      <TaskContent className="flex min-h-0 flex-col gap-4">
+        {/* 目标设备 mini 摘要条：设备只是信息，让位给文件选择这个主任务 */}
+        <div className="glass-panel flex shrink-0 items-center gap-3 rounded-[20px] px-4 py-3">
+          <span className="glass-control flex size-11 shrink-0 items-center justify-center rounded-[16px] text-brand">
+            <DeviceIcon className="size-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-foreground">
+              {deviceDisplayName(device)}
+            </p>
+            <p className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-muted-foreground">
+              <ShieldCheck className="size-3 shrink-0 text-brand/80" />
+              <Trans>端到端加密直连</Trans>
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-[11px] text-muted-foreground">
+              <Trans>已选内容</Trans>
+            </p>
+            <p className="mt-0.5 text-sm font-semibold text-foreground">
+              {fileSelection.hasFiles ? (
+                <span className="font-mono tabular-nums">
+                  {fileSelection.totalCount} 项 · {formatFileSize(fileSelection.totalSize)}
                 </span>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-foreground">
-                    {deviceDisplayName(device)}
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {device.hostname || device.peerId}
+              ) : (
+                <span className="text-muted-foreground"><Trans>等待选择</Trans></span>
+              )}
+            </p>
+          </div>
+        </div>
+
+        {/* 文件选择：占满剩余高度，文件树在面板内滚动 */}
+        <GlassPanel className="min-h-0 flex-1">
+          <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-5">
+            <FileDropZone onSourcesSelected={onSourcesSelected} disabled={sending} />
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {fileSelection.hasFiles ? (
+                <FileTree
+                  mode="select"
+                  dataLoader={fileSelection.dataLoader}
+                  rootChildren={fileSelection.rootChildren}
+                  totalCount={fileSelection.totalCount}
+                  totalSize={fileSelection.totalSize}
+                  onRemoveFile={fileSelection.removeFile}
+                />
+              ) : (
+                <div className="flex h-full min-h-[180px] items-center justify-center rounded-[20px] bg-foreground/[0.025] text-center dark:bg-white/[0.035]">
+                  <p className="max-w-[28ch] text-sm leading-6 text-muted-foreground">
+                    <Trans>选择内容后，文件结构和总大小会在这里确认。</Trans>
                   </p>
                 </div>
-              </div>
-
-              <div className="grid gap-2">
-                <InfoTile
-                  icon={FileStack}
-                  label={<Trans>已选内容</Trans>}
-                  value={
-                    fileSelection.hasFiles ? (
-                      <Trans>
-                        {fileSelection.totalCount} 项，{formatFileSize(fileSelection.totalSize)}
-                      </Trans>
-                    ) : (
-                      <Trans>等待选择</Trans>
-                    )
-                  }
-                />
-                <InfoTile
-                  icon={HardDrive}
-                  label={<Trans>传输方式</Trans>}
-                  value={<Trans>端到端加密直连</Trans>}
-                />
-              </div>
+              )}
             </div>
-          </TaskHeroPanel>
-
-          <GlassPanel className="min-h-0">
-            <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-5">
-              <FileDropZone onSourcesSelected={onSourcesSelected} disabled={sending} />
-              <div className="min-h-0 flex-1 overflow-hidden">
-                {fileSelection.hasFiles ? (
-                  <FileTree
-                    mode="select"
-                    dataLoader={fileSelection.dataLoader}
-                    rootChildren={fileSelection.rootChildren}
-                    totalCount={fileSelection.totalCount}
-                    totalSize={fileSelection.totalSize}
-                    onRemoveFile={fileSelection.removeFile}
-                  />
-                ) : (
-                  <div className="flex h-full min-h-[180px] items-center justify-center rounded-[20px] bg-foreground/[0.025] text-center dark:bg-white/[0.035]">
-                    <p className="max-w-[28ch] text-sm leading-6 text-muted-foreground">
-                      <Trans>选择内容后，文件结构和总大小会在这里确认。</Trans>
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </GlassPanel>
-        </div>
+          </div>
+        </GlassPanel>
 
         {prepareProgress ? (
           <CommandDock className="justify-stretch">

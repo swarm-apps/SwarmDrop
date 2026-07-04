@@ -138,11 +138,11 @@ export function TransferOfferDialog() {
   return (
     <Dialog open={true} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-lg"
+        className="flex max-h-[85vh] flex-col sm:max-w-lg"
         showCloseButton={false}
         onPointerDownOutside={(e) => e.preventDefault()}
       >
-        <DialogHeader className="flex flex-col items-center gap-2">
+        <DialogHeader className="shrink-0 flex flex-col items-center gap-2">
           <div className="flex size-14 items-center justify-center rounded-full bg-primary/15">
             <Download className="size-7 text-brand" />
           </div>
@@ -169,8 +169,8 @@ export function TransferOfferDialog() {
           />
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 sm:px-0">
-          <div className="max-h-[40vh] min-h-30">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 sm:px-0">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <FileTree
               mode="select"
               dataLoader={treeData.dataLoader}
@@ -181,16 +181,14 @@ export function TransferOfferDialog() {
             />
           </div>
 
-          <div className="mt-4">
-            <SavePathSelector
-              savePath={savePath}
-              onChangePath={handleChangePath}
-              disabled={processing}
-            />
-          </div>
+          <SavePathSelector
+            savePath={savePath}
+            onChangePath={handleChangePath}
+            disabled={processing}
+          />
         </div>
 
-        <DialogFooter className="flex-row justify-center gap-3 sm:justify-center">
+        <DialogFooter className="shrink-0 flex-row justify-center gap-3 sm:justify-center">
           <Button
             variant="outline"
             onClick={handleReject}
