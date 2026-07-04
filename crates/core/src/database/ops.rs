@@ -188,6 +188,7 @@ pub async fn mark_file_completed(
     completed_chunks: Vec<u8>,
     transferred_bytes: i64,
     local_path: String,
+    local_dir: String,
 ) -> AppResult<()> {
     update_file(db, session_id, file_id, |model| {
         model.status = Set(FileStatus::Completed);
@@ -195,6 +196,7 @@ pub async fn mark_file_completed(
         model.transferred_bytes = Set(transferred_bytes);
         model.completed_ranges = Set(ranges_json(&prefix_range(transferred_bytes)));
         model.local_path = Set(Some(local_path));
+        model.local_dir = Set(Some(local_dir));
     })
     .await
 }
@@ -404,6 +406,10 @@ pub struct TransferProjection {
     pub policy_action: Option<String>,
     pub policy_reason: Option<String>,
     pub save_path: Option<CoreSaveLocation>,
+    /// 「打开文件夹」应定位的真实容器目录 URI(收到内容实际所在的文件夹)——**纯事实**:
+    /// 各文件 `local_dir` 全部同一目录 → 该目录;否则(跨多目录 / 缺 local_dir 的历史
+    /// 或发送会话)→ `None`。前端在 None 时回退 `save_path`(存储根)。
+    pub content_root: Option<String>,
     pub files: Vec<TransferProjectionFile>,
 }
 
@@ -430,12 +436,26 @@ impl From<entity::transfer_file::ModelEx> for TransferProjectionFile {
     }
 }
 
+/// 「打开文件夹」的真实容器目录**纯事实**(投影与收件箱共用):所有已完成接收文件的
+/// `local_dir` 若唯一一致 → `Some(该目录)`;否则(跨多个不同父目录 / 缺 local_dir 的
+/// 历史或发送会话)→ `None`。不烤兜底 —— None 时由各消费方自行回退到存储根
+/// (投影前端有 saveLocation、收件箱建条目处有 save_path)。绝不做「保存目录 + 相对
+/// 路径」字符串拼接推导。
+pub(crate) fn content_root_of<'a>(
+    files: impl IntoIterator<Item = &'a entity::transfer_file::ModelEx>,
+) -> Option<String> {
+    let mut dirs = files.into_iter().filter_map(|f| f.local_dir.as_deref());
+    let first = dirs.next()?;
+    dirs.all(|d| d == first).then(|| first.to_string())
+}
+
 impl From<entity::transfer_session::ModelEx> for TransferProjection {
     fn from(s: entity::transfer_session::ModelEx) -> Self {
         // transferred_bytes 派生自文件级求和（单一事实来源）：文件进度由 persist_chunk /
         // save_sender_file_progress 增量落库，projection 直接 SUM，省掉各生命周期转换前
         // 手工 sync_session_transferred_bytes 的二次写与漂移风险。
         let transferred_bytes = s.files.iter().map(|f| f.transferred_bytes).sum();
+        let content_root = content_root_of(s.files.iter());
         Self {
             session_id: s.session_id,
             direction: s.direction,
@@ -455,6 +475,7 @@ impl From<entity::transfer_session::ModelEx> for TransferProjection {
             policy_action: s.policy_action,
             policy_reason: s.policy_reason,
             save_path: s.save_path.map(Into::into),
+            content_root,
             files: s.files.into_iter().map(Into::into).collect(),
         }
     }

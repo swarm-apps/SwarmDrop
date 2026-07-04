@@ -11,7 +11,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use swarmdrop_core::host::{
-    CoreSaveLocation, FileAccess, FileSinkId, FileSourceId, HostFileMetadata,
+    CoreSaveLocation, FileAccess, FileSinkId, FileSourceId, FinalizedSink, HostFileMetadata,
 };
 
 use crate::host::file_sink::{FileSink, PartFile};
@@ -251,18 +251,26 @@ impl FileAccess for TauriFileAccess {
         active.part_file.write_chunk(chunk_index, &data).await
     }
 
-    async fn finalize_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<String> {
+    async fn finalize_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<FinalizedSink> {
         let (_, active) = self.active_sinks.remove(sink).ok_or_else(|| {
             swarmdrop_core::AppError::Transfer(format!("file sink not found: {}", sink.0))
         })?;
         let checksum = active.checksum.ok_or_else(|| {
             swarmdrop_core::AppError::Transfer(format!("file sink checksum missing: {}", sink.0))
         })?;
-        active
+        let path = active
             .part_file
             .verify_and_finalize(&checksum, &self.app)
-            .await
-            .map(|path| path.to_string_lossy().into_owned())
+            .await?;
+        // 父目录 = 落盘绝对路径的 dirname(桌面文件系统语义,直接可打开)。
+        let dir = path
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Ok(FinalizedSink {
+            uri: path.to_string_lossy().into_owned(),
+            dir,
+        })
     }
 
     async fn cleanup_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<()> {

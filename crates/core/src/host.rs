@@ -152,6 +152,17 @@ pub struct FileSourceId(pub String);
 #[serde(rename_all = "camelCase")]
 pub struct FileSinkId(pub String);
 
+/// `finalize_sink` 的返回：文件最终落盘位置 + 其父目录 —— 都是 host 侧唯一诚实的
+/// 事实源（保存目录 + 相对路径拼接推导不出:SAF document URI 有独立编码,重名冲突
+/// 还会被改写成 "foo (1).txt"）。`dir` 供「打开文件夹」定位真实容器目录。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinalizedSink {
+    /// 文件最终 URI（桌面绝对路径 / 移动 file:// 或 SAF document URI）。
+    pub uri: String,
+    /// 文件父目录 URI（桌面父目录绝对路径 / 移动 file:// 目录或 SAF 目录 document URI）。
+    pub dir: String,
+}
+
 /// 接收端保存位置（host-agnostic）。
 ///
 /// core 内部统一用此类型，避免把 `entity::SaveLocation`（SeaORM 实体细节）
@@ -219,13 +230,14 @@ pub trait FileAccess: Send + Sync {
         offset: u64,
         data: Vec<u8>,
     ) -> AppResult<()>;
-    /// 校验并最终化 sink，返回文件的**最终落盘位置**（桌面端为 .part 重命名后的
-    /// 绝对路径，移动端为 expo-file-system 的 file:// / SAF document URI）。
+    /// 校验并最终化 sink，返回文件的**最终落盘位置及其父目录**（桌面端为 .part
+    /// 重命名后的绝对路径 + 其 dirname，移动端为 expo-file-system 的 file:// /
+    /// SAF document URI + 对应目录 URI）。
     ///
     /// 返回值是 host 对「文件实际在哪」唯一诚实的事实源——保存目录 + 相对路径的
     /// 字符串拼接推导不出它（SAF URI 有独立的 document 段编码，重名冲突还会被
-    /// host 改写成 "foo (1).txt"），core 必须原样落库供收件箱等后续消费。
-    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<String>;
+    /// host 改写成 "foo (1).txt"），core 必须原样落库供收件箱 / 「打开文件夹」消费。
+    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<FinalizedSink>;
     async fn cleanup_sink(&self, _sink: &FileSinkId) -> AppResult<()> {
         Ok(())
     }
@@ -480,7 +492,7 @@ impl FileAccess for MemoryHost {
         Ok(())
     }
 
-    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<String> {
+    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<FinalizedSink> {
         if self
             .inner
             .lock()
@@ -488,7 +500,13 @@ impl FileAccess for MemoryHost {
             .sinks
             .contains_key(sink)
         {
-            Ok(sink.0.clone())
+            // 内存 host 的 sink id 即 relative_path;父目录 = 去掉末段(平铺文件为空串)。
+            let uri = sink.0.clone();
+            let dir = uri
+                .rsplit_once('/')
+                .map(|(d, _)| d.to_string())
+                .unwrap_or_default();
+            Ok(FinalizedSink { uri, dir })
         } else {
             Err(crate::AppError::Transfer(format!(
                 "file sink not found: {}",
@@ -680,7 +698,10 @@ mod tests {
         host.write_sink_chunk(&sink, 0, b"swarm".to_vec())
             .await
             .unwrap();
-        host.finalize_sink(&sink).await.unwrap();
+        let finalized = host.finalize_sink(&sink).await.unwrap();
+        // 内存 host:sink id 即 relative_path;平铺文件("out.bin")父目录为空串。
+        assert_eq!(finalized.uri, "out.bin");
+        assert_eq!(finalized.dir, "");
         assert_eq!(host.sink_bytes(&sink).unwrap(), b"swarmrop".to_vec());
 
         host.cleanup_sink(&sink).await.unwrap();

@@ -12,7 +12,6 @@ use uuid::Uuid;
 
 use crate::AppResult;
 use crate::database::ops::{TransferProjection, get_transfer_projection, now_ms};
-use crate::host::CoreSaveLocation;
 
 /// 收件箱列表条目 DTO。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -170,7 +169,9 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         return Ok(None);
     }
 
-    let Some(save_path) = session.save_path.clone().map(CoreSaveLocation::from) else {
+    // 已完成接收必有保存位置(不变量);缺失是数据异常,显式报错。save_root 仅作
+    // content_root_of 返回 None(跨多目录)时的回退根。
+    let Some(entity::SaveLocation::Path { path: save_root }) = session.save_path.as_ref() else {
         return Err(crate::AppError::Transfer(
             "已完成接收会话缺少保存位置，无法创建收件箱条目".into(),
         ));
@@ -181,7 +182,10 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
     let item_count = i32::try_from(files.len())
         .map_err(|_| crate::AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
     let title = inbox_title(&files);
-    let root_path = save_location_root(&save_path);
+    // root_path = 真实容器目录(与传输投影 content_root 同一纯事实计算),None(跨多目录)
+    // 时回退存储根 —— 收件箱前端只拿得到 rootPath、拿不到 saveLocation,兜底落 core 这侧。
+    let root_path = crate::database::ops::content_root_of(session.files.iter())
+        .or_else(|| Some(save_root.clone()));
     let content_hash = inbox_content_hash(&files);
     let now = now_ms();
 
@@ -490,12 +494,6 @@ fn inbox_content_hash(files: &[&entity::transfer_file::ModelEx]) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
-fn save_location_root(save_path: &CoreSaveLocation) -> Option<String> {
-    match save_path {
-        CoreSaveLocation::Path { path } => Some(path.clone()),
-    }
-}
-
 /// 由接收会话的 `origin` 列派生收件箱 `source_kind`：MCP/代理来源 → `Mcp`，否则 `PairedDevice`。
 /// 历史 NULL / 未知值经 `TransferOrigin::from_db_string` 回退 `Human` → `PairedDevice`。
 fn source_kind_for_origin(origin: Option<&str>) -> InboxSourceKind {
@@ -585,6 +583,7 @@ mod tests {
         CreateSessionInput, clear_all_history, create_session, mark_file_completed,
         mark_session_completed,
     };
+    use crate::host::CoreSaveLocation;
     use crate::protocol::FileInfo;
     use crate::transfer::coordinator::TransferState;
 
@@ -592,13 +591,20 @@ mod tests {
     /// `mark_file_completed` 写入 local_path，收件箱落库依赖它。
     async fn mark_files_completed(db: &DatabaseConnection, session_id: Uuid, files: &[FileInfo]) {
         for file in files {
+            let local_path = format!("/tmp/swarmdrop-inbox-test/{}", file.relative_path);
+            // 父目录 = local_path 的 dirname(模拟 finalize_sink 的 dir 返回)。
+            let local_dir = local_path
+                .rsplit_once('/')
+                .map(|(d, _)| d.to_string())
+                .unwrap_or_default();
             mark_file_completed(
                 db,
                 session_id,
                 file.file_id as i32,
                 vec![],
                 file.size as i64,
-                format!("/tmp/swarmdrop-inbox-test/{}", file.relative_path),
+                local_path,
+                local_dir,
             )
             .await
             .expect("mark file completed");

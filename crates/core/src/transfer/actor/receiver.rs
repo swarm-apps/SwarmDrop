@@ -513,8 +513,8 @@ impl ReceiverActor {
                 }
             };
 
-            let local_path = match self.file_access.finalize_sink(&sink_id).await {
-                Ok(local_path) => local_path,
+            let finalized = match self.file_access.finalize_sink(&sink_id).await {
+                Ok(finalized) => finalized,
                 Err(e) => {
                     self.remove_created_sink(&sink_id).await;
                     // 校验失败时 .part 已被删除，但 DB bitmap 仍完整：必须 reset，否则续传/完成
@@ -550,7 +550,8 @@ impl ReceiverActor {
                 file_info.file_id as i32,
                 bitmap,
                 file_info.size as i64,
-                local_path,
+                finalized.uri,
+                finalized.dir,
             )
             .await?;
         }

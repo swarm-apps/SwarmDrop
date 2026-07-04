@@ -40,6 +40,10 @@ pub struct Model {
     /// `finalize_sink` 返回：桌面端为绝对路径，移动端为 file:// 或 SAF
     /// document URI。历史行为 NULL——收件箱落库时回退目录拼接推导。
     pub local_path: Option<String>,
+    /// 接收方文件最终落盘位置的**父目录 URI**（direction=receive 且已完成时有值），
+    /// 同由 `finalize_sink` 返回。是「打开文件夹」定位真实容器目录的事实源——SAF
+    /// 下无法由 `local_path` 字符串推导父目录。历史行为 NULL——消费方回退会话保存目录。
+    pub local_dir: Option<String>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
