@@ -214,6 +214,16 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         .await?;
 
     for file in files {
+        // finalize_sink 记录的最终落盘位置是唯一事实源（SAF document URI /
+        // 重名冲突改写都无法由「目录 + 相对路径」拼接推导）。已完成接收会话的
+        // 文件必然写过它——缺失即数据异常（如旧版本残留库），显式报错不做推导。
+        let Some(local_path) = file.local_path.clone() else {
+            txn.rollback().await?;
+            return Err(crate::AppError::Transfer(format!(
+                "已完成接收文件缺少落盘路径记录: {}（旧版本数据，请清除应用数据后重试）",
+                file.name
+            )));
+        };
         entity::inbox_item_file::ActiveModel::builder()
             .set_inbox_item_id(inbox_id)
             .set_transfer_file_id(Some(file.id))
@@ -221,7 +231,7 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
             .set_name(file.name.clone())
             .set_size(file.size)
             .set_checksum(file.checksum.clone())
-            .set_local_path(resolve_local_path(&save_path, &file.relative_path))
+            .set_local_path(local_path)
             .set_missing(false)
             .insert(&txn)
             .await?;
@@ -477,15 +487,6 @@ fn save_location_root(save_path: &CoreSaveLocation) -> Option<String> {
     }
 }
 
-fn resolve_local_path(save_path: &CoreSaveLocation, relative_path: &str) -> String {
-    match save_path {
-        CoreSaveLocation::Path { path } => std::path::Path::new(path)
-            .join(relative_path)
-            .to_string_lossy()
-            .into_owned(),
-    }
-}
-
 /// 由接收会话的 `origin` 列派生收件箱 `source_kind`：MCP/代理来源 → `Mcp`，否则 `PairedDevice`。
 /// 历史 NULL / 未知值经 `TransferOrigin::from_db_string` 回退 `Human` → `PairedDevice`。
 fn source_kind_for_origin(origin: Option<&str>) -> InboxSourceKind {
@@ -572,10 +573,28 @@ mod tests {
     use sea_orm::{ConnectOptions, Database};
 
     use crate::database::ops::{
-        CreateSessionInput, clear_all_history, create_session, mark_session_completed,
+        CreateSessionInput, clear_all_history, create_session, mark_file_completed,
+        mark_session_completed,
     };
     use crate::protocol::FileInfo;
     use crate::transfer::coordinator::TransferState;
+
+    /// 模拟 receiver 的文件级完成：真实链路里 finalize_sink 的返回值经
+    /// `mark_file_completed` 写入 local_path，收件箱落库依赖它。
+    async fn mark_files_completed(db: &DatabaseConnection, session_id: Uuid, files: &[FileInfo]) {
+        for file in files {
+            mark_file_completed(
+                db,
+                session_id,
+                file.file_id as i32,
+                vec![],
+                file.size as i64,
+                format!("/tmp/swarmdrop-inbox-test/{}", file.relative_path),
+            )
+            .await
+            .expect("mark file completed");
+        }
+    }
 
     #[test]
     fn source_kind_derived_from_origin() {
@@ -650,6 +669,7 @@ mod tests {
         )
         .await
         .expect("create receive session");
+        mark_files_completed(db, session_id, &files).await;
     }
 
     #[tokio::test]
@@ -745,6 +765,7 @@ mod tests {
         )
         .await
         .expect("create receive session");
+        mark_files_completed(db, session_id, files).await;
         mark_session_completed(db, session_id)
             .await
             .expect("mark completed");

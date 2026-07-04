@@ -180,19 +180,21 @@ pub async fn update_file_checkpoint_ranges(
     .await
 }
 
-/// 标记单个文件完成，并写入完整 checkpoint
+/// 标记单个文件完成，写入完整 checkpoint 与最终落盘位置（finalize_sink 返回值）
 pub async fn mark_file_completed(
     db: &DatabaseConnection,
     session_id: Uuid,
     file_id: i32,
     completed_chunks: Vec<u8>,
     transferred_bytes: i64,
+    local_path: String,
 ) -> AppResult<()> {
     update_file(db, session_id, file_id, |model| {
         model.status = Set(FileStatus::Completed);
         model.completed_chunks = Set(completed_chunks);
         model.transferred_bytes = Set(transferred_bytes);
         model.completed_ranges = Set(ranges_json(&prefix_range(transferred_bytes)));
+        model.local_path = Set(Some(local_path));
     })
     .await
 }

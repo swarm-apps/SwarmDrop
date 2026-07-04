@@ -513,29 +513,32 @@ impl ReceiverActor {
                 }
             };
 
-            if let Err(e) = self.file_access.finalize_sink(&sink_id).await {
-                self.remove_created_sink(&sink_id).await;
-                // 校验失败时 .part 已被删除，但 DB bitmap 仍完整：必须 reset，否则续传/完成
-                // 路径会把该文件当作已完成跳过→丢数据。校验失败经 fail_session 转 terminal/failed。
-                if let Err(e2) = crate::database::ops::reset_file_checkpoint(
-                    &self.db,
-                    self.session_id,
-                    file_info.file_id as i32,
-                )
-                .await
-                {
-                    warn!(
-                        "重置文件 checkpoint 失败: file_id={}, {}",
-                        file_info.file_id, e2
+            let local_path = match self.file_access.finalize_sink(&sink_id).await {
+                Ok(local_path) => local_path,
+                Err(e) => {
+                    self.remove_created_sink(&sink_id).await;
+                    // 校验失败时 .part 已被删除，但 DB bitmap 仍完整：必须 reset，否则续传/完成
+                    // 路径会把该文件当作已完成跳过→丢数据。校验失败经 fail_session 转 terminal/failed。
+                    if let Err(e2) = crate::database::ops::reset_file_checkpoint(
+                        &self.db,
+                        self.session_id,
+                        file_info.file_id as i32,
+                    )
+                    .await
+                    {
+                        warn!(
+                            "重置文件 checkpoint 失败: file_id={}, {}",
+                            file_info.file_id, e2
+                        );
+                    }
+                    let msg = format!(
+                        "文件校验失败: {} (file_id={})",
+                        file_info.name, file_info.file_id
                     );
+                    self.fail_session(epoch, progress, msg).await;
+                    return Err(e);
                 }
-                let msg = format!(
-                    "文件校验失败: {} (file_id={})",
-                    file_info.name, file_info.file_id
-                );
-                self.fail_session(epoch, progress, msg).await;
-                return Err(e);
-            }
+            };
             self.remove_created_sink(&sink_id).await;
 
             let bitmap = bitmaps
@@ -547,6 +550,7 @@ impl ReceiverActor {
                 file_info.file_id as i32,
                 bitmap,
                 file_info.size as i64,
+                local_path,
             )
             .await?;
         }

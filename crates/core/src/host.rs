@@ -219,7 +219,13 @@ pub trait FileAccess: Send + Sync {
         offset: u64,
         data: Vec<u8>,
     ) -> AppResult<()>;
-    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<()>;
+    /// 校验并最终化 sink，返回文件的**最终落盘位置**（桌面端为 .part 重命名后的
+    /// 绝对路径，移动端为 expo-file-system 的 file:// / SAF document URI）。
+    ///
+    /// 返回值是 host 对「文件实际在哪」唯一诚实的事实源——保存目录 + 相对路径的
+    /// 字符串拼接推导不出它（SAF URI 有独立的 document 段编码，重名冲突还会被
+    /// host 改写成 "foo (1).txt"），core 必须原样落库供收件箱等后续消费。
+    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<String>;
     async fn cleanup_sink(&self, _sink: &FileSinkId) -> AppResult<()> {
         Ok(())
     }
@@ -474,7 +480,7 @@ impl FileAccess for MemoryHost {
         Ok(())
     }
 
-    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<()> {
+    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<String> {
         if self
             .inner
             .lock()
@@ -482,7 +488,7 @@ impl FileAccess for MemoryHost {
             .sinks
             .contains_key(sink)
         {
-            Ok(())
+            Ok(sink.0.clone())
         } else {
             Err(crate::AppError::Transfer(format!(
                 "file sink not found: {}",

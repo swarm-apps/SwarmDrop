@@ -36,6 +36,10 @@ pub struct Model {
     /// 发送方源文件路径（direction=send 时有值）。
     /// 桌面端为绝对路径字符串，用于断点续传时重建 FileSource。
     pub source_path: Option<String>,
+    /// 接收方文件的最终落盘位置（direction=receive 且已完成时有值），由
+    /// `finalize_sink` 返回：桌面端为绝对路径，移动端为 file:// 或 SAF
+    /// document URI。历史行为 NULL——收件箱落库时回退目录拼接推导。
+    pub local_path: Option<String>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -114,12 +114,12 @@ mod tests {
             .await
             .expect("connect sqlite memory");
 
-        Migrator::up(&db, None).await.expect("run migrations");
+        crate::up_through(&db, "m20260627_000002_drop_inbox").await;
         assert!(table_exists(&db, "inbox_items").await);
         assert!(table_exists(&db, "inbox_item_files").await);
         assert!(index_exists(&db, "idx_inbox_items_transfer_session").await);
 
-        Migrator::down(&db, Some(2))
+        Migrator::down(&db, Some(1))
             .await
             .expect("rollback inbox migration");
         assert!(!table_exists(&db, "inbox_item_files").await);

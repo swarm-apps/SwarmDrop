@@ -251,7 +251,7 @@ impl FileAccess for TauriFileAccess {
         active.part_file.write_chunk(chunk_index, &data).await
     }
 
-    async fn finalize_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<()> {
+    async fn finalize_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<String> {
         let (_, active) = self.active_sinks.remove(sink).ok_or_else(|| {
             swarmdrop_core::AppError::Transfer(format!("file sink not found: {}", sink.0))
         })?;
@@ -262,7 +262,7 @@ impl FileAccess for TauriFileAccess {
             .part_file
             .verify_and_finalize(&checksum, &self.app)
             .await
-            .map(|_| ())
+            .map(|path| path.to_string_lossy().into_owned())
     }
 
     async fn cleanup_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<()> {
