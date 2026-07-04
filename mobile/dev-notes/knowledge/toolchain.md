@@ -193,3 +193,27 @@ android/ios 目录在 git 跟踪下）—— `packages/*/android` 和 `packages/
 桥接代码，必须入 git。详细原生构建流程见 [dev-notes/native-build.md](../native-build.md)。
 
 **相关文件**：[.gitignore](../../.gitignore), [dev-notes/native-build.md](../native-build.md)
+
+### 文件预览的原生依赖选型（RN 0.85 new-arch 实测）
+
+收件箱「打开」走系统预览：iOS 用 `react-native-file-viewer`（QLPreviewController），
+Android 不用它——自拼 `ACTION_VIEW`（SAF `content://` 直接用，`file://` 经
+`expo-file-system/legacy` 的 `getContentUriAsync` 转 content://）。
+
+**实测结论**：
+- RNFV 2.1.5 是 old-arch 模块，在 RN 0.85 / Expo SDK 56（new arch）经 interop 层
+  **编译与运行都正常**（QuickLook 正常弹出）。若未来升级挂掉，兜底方案是
+  `modules/quick-look/` 本地 expo-module（~50 行 Swift 直呈 QLPreviewController），
+  接口保持 `open(path)`。
+- RNFV 需要**解码后的绝对路径**：`decodeURIComponent(uri.replace(/^file:\/\//, ""))`，
+  中文文件名在 file:// URI 里是 percent-encoded 的，直接传会找不到文件。
+- `getContentUriAsync` 只在 `expo-file-system/legacy` 子路径（新 API 无等价物），
+  调用集中在 `src/lib/open-file.ts` 单点，SDK 移除时换新 API。
+- 图片全屏用 `react-native-image-viewing`（纯 JS，零原生成本）；视频内联用官方
+  `expo-video`（SDK 配套版本，config plugin 自动加入 app.json）。
+
+**不要做**：不要用 RNFV 的 Android 端（不认 SAF content://）；ACTION_VIEW 不要显式
+setType（resolver 会向 provider 查 MIME，type+data 同设有兼容坑）。
+
+**相关文件**：[src/lib/open-file.ts](../../src/lib/open-file.ts),
+[openspec/changes/inbox-file-preview/design.md](../../openspec/changes/inbox-file-preview/design.md)

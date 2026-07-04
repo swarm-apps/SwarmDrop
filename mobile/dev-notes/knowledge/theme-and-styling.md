@@ -280,9 +280,14 @@ burnt 的 iOS `BurntModule` 在 import 时 `requireNativeModule('Burnt')`,未重
 大小。进行中/暂停态保留大 % Display 数字块(那是 DESIGN.md 钦定的唯一 Display 用法)。
 
 **2. 大预览框只给「真的有内容可看」的形态。**
-收件箱详情只有图片(真预览)和文本/剪贴板(真正文摘录)配大预览卡;通用文件/多文件/缺失态改为标题区
-行首 `size-14 rounded-xl bg-muted` 类型图标 chip——大而空的占位框(小图标+filler 描述句)是廉价感的
-最大来源。多文件的文件名摘录卡也删了:下方「包含内容」列表已是全量信息,摘录卡纯重复。
+收件箱详情只有图片(真预览)、视频(内联播放器)和文本/剪贴板(真正文摘录)配大预览卡;通用文件/
+多文件/缺失态改为标题区行首 `size-14 rounded-xl bg-muted` 类型图标 chip——大而空的占位框
+(小图标+filler 描述句)是廉价感的最大来源。多文件的文件名摘录卡也删了:下方「包含内容」列表
+已是全量信息,摘录卡纯重复。(2026-07 inbox-file-preview 补充)预览卡的交互:图片点击进应用内
+全屏查看器(react-native-image-viewing,捏合缩放);视频 expo-video 原生控制条、不自动播放;
+判定都是 file:// only(SAF content:// 走「打开」交系统)。「打开」主动作 = 系统预览
+(iOS QuickLook / Android ACTION_VIEW),「分享」是更多操作 sheet 里的显式次级动作——
+主按钮弹分享面板是语义错位。
 
 **3. 协议细节不上一级界面(产品原则的 UI 落地)。**
 - 文件行 checksum:直接删除(极客需求后续再议);

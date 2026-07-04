@@ -60,13 +60,18 @@
             "NSExtensionActivationSupportsMovieWithMaxCount": 20
           },
           "iosAppGroupIdentifier": "group.com.yexiyue.swarmdrop",
-          "androidIntentFilters": ["*/*"],
-          "androidMultiIntentFilters": ["*/*"]
+          "androidIntentFilters": [
+            "*/*"
+          ],
+          "androidMultiIntentFilters": [
+            "*/*"
+          ]
         }
       ],
       "./plugins/with-android-release-signing",
       "./plugins/with-android-install-permission",
-      "./plugins/with-android-foreground-service"
+      "./plugins/with-android-foreground-service",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -2,6 +2,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { File } from "expo-file-system";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
+import { useVideoPlayer, VideoView } from "expo-video";
 import {
   Archive,
   ArchiveRestore,
@@ -11,6 +12,7 @@ import {
   ClipboardList,
   Database,
   ExternalLink,
+  Eye,
   FileArchive,
   FileText,
   FileWarning,
@@ -27,6 +29,7 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import ImageViewing from "react-native-image-viewing";
 import {
   MobileInboxContentKind,
   type MobileInboxItemDetail,
@@ -49,6 +52,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { canOpenSaveFolder } from "@/core/saf-intent";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { openFileWithSystem } from "@/lib/open-file";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
 import { cn, parentDirOf } from "@/lib/utils";
@@ -143,14 +147,24 @@ export default function InboxDetailScreen() {
     isImageFile(primaryFile.name)
       ? primaryFile
       : null;
+  // 视频与图片镜像判定(file:// only,SAF content:// 走「打开」交系统播放器,见 design R5)
+  const previewVideoFile =
+    primaryFile != null &&
+    !primaryFile.missing &&
+    primaryFile.localPath.startsWith("file://") &&
+    isVideoFile(primaryFile.name)
+      ? primaryFile
+      : null;
   const excerptFile =
     !itemMissing &&
     previewImageFile == null &&
+    previewVideoFile == null &&
     (contentKind === MobileInboxContentKind.Text ||
       contentKind === MobileInboxContentKind.Clipboard)
       ? primaryFile
       : null;
-  const hasRichPreview = previewImageFile != null || excerptFile != null;
+  const hasRichPreview =
+    previewImageFile != null || previewVideoFile != null || excerptFile != null;
 
   const performArchive = useCallback(async () => {
     if (!itemId || !detail) return;
@@ -176,25 +190,53 @@ export default function InboxDetailScreen() {
     }
   }, [itemId, deleteMode, deleteItem, router, t]);
 
-  const openOrShareFile = useCallback(
+  const shareFile = useCallback(
     async (file: InboxFileEntry) => {
       if (!itemId) return;
       try {
         await ensureAvailable(file);
         const available = await Sharing.isAvailableAsync();
         if (!available) {
-          // 系统分享不可用(罕见):能打开保存目录就带用户去文件管理器,否则如实提示
-          const dir = parentDirOf(file.localPath);
-          if (canOpenSaveFolder(dir)) {
-            await openSaveFolderOrToast(dir);
-          } else {
-            toast.error(t`系统分享不可用`);
-          }
+          toast.error(t`系统分享不可用`);
           return;
         }
         await Sharing.shareAsync(file.localPath, {
-          dialogTitle: t`打开或分享文件`,
+          dialogTitle: t`分享文件`,
         });
+      } catch (err) {
+        if (isMissingFileError(err, file)) {
+          await markFileMissing(itemId, file.id, true);
+          toast.error(t`文件已不在原位置`, file.localPath);
+          return;
+        }
+        toast.error(t`分享失败`, err);
+      }
+    },
+    [itemId, markFileMissing, t],
+  );
+
+  // 「打开」= 让用户看到内容:iOS QuickLook / Android 系统应用。
+  // 打不开(无处理应用)降级到分享面板 —— 至少能把文件带去别的应用,
+  // 这也是分享路径仍然保留的原因(design R4)。
+  const openFile = useCallback(
+    async (file: InboxFileEntry) => {
+      if (!itemId) return;
+      try {
+        await ensureAvailable(file);
+        try {
+          await openFileWithSystem(file.localPath);
+          return;
+        } catch (openErr) {
+          if (isMissingFileError(openErr, file)) throw openErr;
+          const available = await Sharing.isAvailableAsync();
+          if (!available) {
+            toast.error(t`没有应用能打开这个文件`);
+            return;
+          }
+          await Sharing.shareAsync(file.localPath, {
+            dialogTitle: t`分享文件`,
+          });
+        }
       } catch (err) {
         if (isMissingFileError(err, file)) {
           await markFileMissing(itemId, file.id, true);
@@ -235,8 +277,14 @@ export default function InboxDetailScreen() {
 
   const openPrimaryFile = useCallback(() => {
     if (!primaryFile) return;
-    void openOrShareFile(primaryFile);
-  }, [openOrShareFile, primaryFile]);
+    void openFile(primaryFile);
+  }, [openFile, primaryFile]);
+
+  const canShare = primaryFile != null && !primaryFile.missing;
+  const sharePrimaryFile = useCallback(() => {
+    if (!primaryFile) return;
+    void shareFile(primaryFile);
+  }, [shareFile, primaryFile]);
 
   const openActionsSheet = useCallback(() => {
     actionsSheetRef.current?.present();
@@ -345,6 +393,8 @@ export default function InboxDetailScreen() {
           >
             {previewImageFile ? (
               <ImagePreview file={previewImageFile} />
+            ) : previewVideoFile ? (
+              <VideoPreview file={previewVideoFile} />
             ) : excerptFile ? (
               <TextExcerptCard
                 kind={detail.item.contentKind}
@@ -399,10 +449,7 @@ export default function InboxDetailScreen() {
             </View>
 
             {detail.files.length > 1 ? (
-              <IncludedFiles
-                files={detail.files}
-                onOpenShare={openOrShareFile}
-              />
+              <IncludedFiles files={detail.files} onOpenFile={openFile} />
             ) : null}
 
             <DetailsPanel
@@ -464,6 +511,12 @@ export default function InboxDetailScreen() {
           action={action}
           hasTransfer={transferSessionId != null}
           canOpenFolder={canOpenFolder}
+          canShare={canShare}
+          onShare={() =>
+            runAfterSheetDismiss(() => {
+              sharePrimaryFile();
+            })
+          }
           onArchive={() =>
             runAfterSheetDismiss(() => {
               void performArchive();
@@ -510,6 +563,8 @@ function InboxActionsSheet({
   action,
   hasTransfer,
   canOpenFolder,
+  canShare,
+  onShare,
   onArchive,
   onOpenFolder,
   onOpenTransfer,
@@ -522,6 +577,8 @@ function InboxActionsSheet({
   action: string | null;
   hasTransfer: boolean;
   canOpenFolder: boolean;
+  canShare: boolean;
+  onShare: () => void;
   onArchive: () => void;
   onOpenFolder: () => void;
   onOpenTransfer: () => void;
@@ -541,6 +598,17 @@ function InboxActionsSheet({
         </View>
 
         <View className="overflow-hidden rounded-lg border border-border bg-background">
+          {canShare ? (
+            <>
+              <SheetActionRow
+                icon={Share2}
+                label={<Trans>分享</Trans>}
+                onPress={onShare}
+                testID="inbox-detail-share-action"
+              />
+              <Divider />
+            </>
+          ) : null}
           <SheetActionRow
             icon={archived ? ArchiveRestore : Archive}
             label={archived ? <Trans>取消归档</Trans> : <Trans>归档</Trans>}
@@ -662,18 +730,58 @@ function truncateExcerpt(text: string): string {
   return `${collapsed.slice(0, TEXT_EXCERPT_MAX_CHARS)}…`;
 }
 
-/** 图片:唯一保留大预览框的形态 —— 真的有内容可看,大面积才花得值。 */
+/** 图片:真的有内容可看,大面积才花得值 —— 点击进应用内全屏查看(缩放/手势关闭)。 */
 function ImagePreview({ file }: { file: InboxFileEntry }) {
+  const { t } = useLingui();
+  const [viewerVisible, setViewerVisible] = useState(false);
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t`全屏查看 ${file.name}`}
+        onPress={() => setViewerVisible(true)}
+        className="overflow-hidden rounded-lg border border-border bg-card active:opacity-90"
+        style={detailStyles.previewFrame}
+        testID="inbox-detail-preview"
+      >
+        <Image
+          source={{ uri: file.localPath }}
+          resizeMode="cover"
+          className="h-full w-full"
+          accessibilityLabel={file.name}
+        />
+      </Pressable>
+      <ImageViewing
+        images={[{ uri: file.localPath }]}
+        imageIndex={0}
+        visible={viewerVisible}
+        onRequestClose={() => setViewerVisible(false)}
+      />
+    </>
+  );
+}
+
+/** 视频:同图片占大预览位,内联原生控制条,不自动播放(spec: Inline video playback)。 */
+function VideoPreview({ file }: { file: InboxFileEntry }) {
+  const player = useVideoPlayer(file.localPath);
+  // 路由失焦即暂停:expo-video 只在 app 退后台自动停,app 内导航跳走后
+  // 本屏仍挂载,不暂停的话音频会跟到别的页面。
+  useFocusEffect(
+    useCallback(() => {
+      return () => player.pause();
+    }, [player]),
+  );
   return (
     <View
       className="overflow-hidden rounded-lg border border-border bg-card"
       style={detailStyles.previewFrame}
-      testID="inbox-detail-preview"
+      testID="inbox-detail-video-preview"
     >
-      <Image
-        source={{ uri: file.localPath }}
-        resizeMode="cover"
-        className="h-full w-full"
+      <VideoView
+        player={player}
+        style={detailStyles.videoSurface}
+        contentFit="contain"
+        nativeControls
         accessibilityLabel={file.name}
       />
     </View>
@@ -808,12 +916,12 @@ function DetailActionBar({
         className="min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
       >
         {primaryFile ? (
-          <Share2 color={colors.primaryForeground} size={18} />
+          <Eye color={colors.primaryForeground} size={18} />
         ) : (
           <FolderOpen color={colors.primaryForeground} size={18} />
         )}
         <Text className="text-[14px] font-semibold text-primary-foreground">
-          {primaryFile ? <Trans>打开/分享</Trans> : <Trans>打开文件夹</Trans>}
+          {primaryFile ? <Trans>打开</Trans> : <Trans>打开文件夹</Trans>}
         </Text>
       </Pressable>
       {primaryFile && hasFolder ? (
@@ -834,10 +942,10 @@ function DetailActionBar({
 
 function IncludedFiles({
   files,
-  onOpenShare,
+  onOpenFile,
 }: {
   files: InboxFileEntry[];
-  onOpenShare: (file: InboxFileEntry) => void;
+  onOpenFile: (file: InboxFileEntry) => void;
 }) {
   return (
     <View className="gap-2.5" testID="inbox-detail-files">
@@ -851,7 +959,7 @@ function IncludedFiles({
             key={file.id}
             file={file}
             index={index}
-            onOpenShare={onOpenShare}
+            onOpenFile={onOpenFile}
             separated={index > 0}
           />
         ))}
@@ -863,12 +971,12 @@ function IncludedFiles({
 function FileRow({
   file,
   index,
-  onOpenShare,
+  onOpenFile,
   separated = false,
 }: {
   file: InboxFileEntry;
   index: number;
-  onOpenShare: (file: InboxFileEntry) => void;
+  onOpenFile: (file: InboxFileEntry) => void;
   separated?: boolean;
 }) {
   const { t } = useLingui();
@@ -880,8 +988,8 @@ function FileRow({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={t`打开或分享`}
-      onPress={() => onOpenShare(file)}
+      accessibilityLabel={t`打开 ${file.name}`}
+      onPress={() => onOpenFile(file)}
       disabled={file.missing}
       testID={`inbox-file-share-${index}`}
       className={cn(
@@ -1150,5 +1258,9 @@ const VIDEO_EXTENSIONS = [
 const detailStyles = StyleSheet.create({
   previewFrame: {
     aspectRatio: 1.08,
+  },
+  videoSurface: {
+    width: "100%",
+    height: "100%",
   },
 });
