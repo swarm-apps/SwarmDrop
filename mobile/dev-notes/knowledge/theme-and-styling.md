@@ -81,6 +81,24 @@ const styles = variantStyles[variant];
 [src/components/file-tree/file-tree-item.tsx](../../src/components/file-tree/file-tree-item.tsx)
 （variantStyles + iconColor resolver 模板）
 
+### 按钮类原语的 `className` 不能漏进 `buttonTextVariants`（否则文案左对齐）
+
+shadcn-rn 的按钮包裹会把子 `<Text>` 的 class 塞进 `TextClassContext`。若把调用方传的
+**布局** `className`（如 ConfirmDialog 给双键传的 `flex-1`）**同时**喂给 `buttonTextVariants`，
+Text 会被撑成 `flex-1` 铺满按钮宽，RN Text 默认 `textAlign:left` → 文案贴左（看着「没居中」）。
+`buttonVariants` 基类已 `items-center justify-center`，Text 只要**不**被撑开就会居中。
+
+**正确做法**：`className` 只进按钮容器（`cn(buttonVariants(...), className)`），
+`TextClassContext` 只传 `buttonTextVariants({ variant })`——不带 `className`。规范 `Button`
+（button.tsx）本就是这样。
+
+**不要做**：`buttonTextVariants({ variant, className })` —— `alert-dialog.tsx` 曾这样，导致
+所有 ConfirmDialog 双键文案左对齐；已修。**`toggle.tsx:54` 目前仍有同款泄漏**（Toggle 暂无
+引用，潜伏 bug），后续复用 Toggle 前先照此修。
+
+**相关文件**：[src/components/ui/alert-dialog.tsx](../../src/components/ui/alert-dialog.tsx)，
+[src/components/ui/button.tsx](../../src/components/ui/button.tsx)，[src/components/ui/toggle.tsx](../../src/components/ui/toggle.tsx)
+
 ### 状态语义色当「文字」必须用 `-ink` 变体（State Ink Rule）
 
 `--success` / `--warning` / `--destructive` / `--primary` 这几个饱和色是给**填充 / 圆点 / 图标**

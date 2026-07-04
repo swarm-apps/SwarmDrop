@@ -265,6 +265,41 @@ build:android`（都带 `--and-generate`）会把 podspec/gradle 引用的手写
   重编确认。bindings 产物在 `cpp/generated`、`src/generated`（不在 ios/android/），
   checkout 脚手架不会丢它们。
 
+### 只刷 bindings、不碰原生脚手架的更轻路径（接口变更时首选）
+
+接口变了要重生成 bindings，但**不必**跑 `ubrn build --and-generate`（它会冲刷脚手架，见上条）。
+把「重生成 bindings」与「重编原生」拆开：
+
+**正确做法**：
+```bash
+# 1. 先 build 出 host dylib（供 uniffi 提取元数据，本机 target，快）
+cd packages/swarmdrop-core/rust/mobile-core && cargo build
+# 2. 只生成 TS + C++ bindings（library 模式，从 dylib 提取；CWD 需有 Cargo.toml）
+npx ubrn generate jsi bindings --library \
+  --ts-dir ../../src/generated --cpp-dir ../../cpp/generated \
+  --crate swarmdrop_mobile_core target/debug/libswarmdrop_mobile_core.dylib
+cd ../.. && pnpm ubrn:fix
+# 3. 需要能真机跑时，再 npx ubrn build ios / android -t arm64-v8a（无 --and-generate，
+#    只重编 Rust + 拷 xcframework/jniLibs，不重生成、不碰脚手架）
+```
+- 纯新增 uniffi `Record`（如 `MobileFinalizedSink`）时 `cpp/generated` **无变化**（C++ 侧走通用
+  RustBuffer 序列化），只有 `src/generated` 的 TS 类型变。diff 应干净、无杂散 churn。
+- `ubrn generate jsi bindings` 在 CWD 跑 `cargo metadata`，必须在 `rust/mobile-core` 目录下跑，
+  输出路径写成相对该目录的 `../../{src,cpp}/generated`。
+
+**相关文件**：[packages/swarmdrop-core/ubrn.config.yaml](../../packages/swarmdrop-core/ubrn.config.yaml)
+
+### 改了 generated bindings 后，app 侧 typecheck 要先 `pnpm prepare`（bob build）
+
+`react-native-swarmdrop-core` 的 `package.json` 里 `types` 指向 **built** 的
+`lib/typescript/...`（不是 `src/`），而 `exports.source` 才指 `src/`。于是：
+- **Metro（运行时）** 走 `source` → 直接吃新改的 `src/generated`，无需 build。
+- **tsc（app typecheck）** 走 `types` → 吃 `lib/typescript/` 的**旧**声明。改完 `src/generated`
+  必须 `cd packages/swarmdrop-core && pnpm prepare`（bob build 重建 lib）后，app 的 `tsc` 才看得到
+  新字段（如 `MobileTransferProjection.contentRoot`），否则报「属性不存在」。
+
+**相关文件**：[packages/swarmdrop-core/package.json](../../packages/swarmdrop-core/package.json)
+
 **相关文件**：[src/lib/open-file.ts](../../src/lib/open-file.ts),
 [modules/content-share/](../../modules/content-share/),
 [src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts)
