@@ -893,7 +893,7 @@ function PolicyActionFooter({
             }}
             testID="device-policy-block-button"
             disabled={savingAction !== null}
-            className="min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-card active:opacity-70 disabled:opacity-50"
+            className="min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
           >
             {savingAction === "block" ? (
               <ActivityIndicator color={colors.destructive} size="small" />

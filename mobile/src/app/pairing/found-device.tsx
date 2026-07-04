@@ -109,33 +109,34 @@ export default function FoundDevice() {
         ) : null}
       </View>
 
-      <View className="gap-2.5 px-6 pb-6">
+      {/* 移动端惯例:双键横排,取消(次要)在左、确认配对(主要)在右 */}
+      <View className="flex-row gap-2.5 px-6 pb-6">
+        <Pressable
+          onPress={() => router.back()}
+          disabled={confirming}
+          accessibilityRole="button"
+          accessibilityLabel={t`取消`}
+          className="min-h-[52px] flex-1 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
+        >
+          <Text className="text-base font-medium text-foreground">
+            <Trans>取消</Trans>
+          </Text>
+        </Pressable>
         <Pressable
           onPress={onConfirm}
           disabled={confirming}
           accessibilityRole="button"
           accessibilityLabel={t`确认配对`}
           accessibilityState={{ busy: confirming, disabled: confirming }}
-          className="min-h-[52px] items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
+          className="min-h-[52px] flex-1 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
         >
           {confirming ? (
             <ActivityIndicator color={colors.primaryForeground} />
           ) : (
-            <Text className="text-[17px] font-bold text-primary-foreground">
+            <Text className="text-base font-semibold text-primary-foreground">
               <Trans>确认配对</Trans>
             </Text>
           )}
-        </Pressable>
-        <Pressable
-          onPress={() => router.back()}
-          disabled={confirming}
-          accessibilityRole="button"
-          accessibilityLabel={t`取消`}
-          className="min-h-[52px] items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
-        >
-          <Text className="text-base font-semibold text-foreground">
-            <Trans>取消</Trans>
-          </Text>
         </Pressable>
       </View>
     </SafeAreaView>

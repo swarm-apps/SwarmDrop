@@ -280,14 +280,15 @@ export function TransferOfferHost() {
           </EncryptionNote>
         ) : null}
 
-        <View className="gap-2.5">
+        {/* 移动端惯例:双键横排,拒绝(次要)在左、接收(主要)在右 */}
+        <View className="flex-row gap-2.5">
           {rejectedByPolicy ? (
             <Pressable
               onPress={() => dismiss(current.id)}
               accessibilityRole="button"
               accessibilityLabel={t`知道了`}
               testID="transfer-offer-dismiss-button"
-              className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
+              className="h-12 flex-1 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
             >
               <Text className="text-base font-medium text-foreground">
                 <Trans>知道了</Trans>
@@ -296,12 +297,24 @@ export function TransferOfferHost() {
           ) : (
             <>
               <Pressable
+                onPress={reject}
+                disabled={busy !== null}
+                accessibilityRole="button"
+                accessibilityLabel={t`拒绝`}
+                testID="transfer-offer-reject-button"
+                className="h-12 flex-1 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
+              >
+                <Text className="text-base font-medium text-foreground">
+                  <Trans>拒绝</Trans>
+                </Text>
+              </Pressable>
+              <Pressable
                 onPress={accept}
                 disabled={busy !== null}
                 accessibilityRole="button"
                 accessibilityLabel={t`接收`}
                 testID="transfer-offer-accept-button"
-                className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
+                className="h-12 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
               >
                 {busy === "accepting" ? (
                   <ActivityIndicator color={colors.primaryForeground} />
@@ -314,18 +327,6 @@ export function TransferOfferHost() {
                   ) : (
                     <Trans>接收</Trans>
                   )}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={reject}
-                disabled={busy !== null}
-                accessibilityRole="button"
-                accessibilityLabel={t`拒绝`}
-                testID="transfer-offer-reject-button"
-                className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
-              >
-                <Text className="text-base font-medium text-foreground">
-                  <Trans>拒绝</Trans>
                 </Text>
               </Pressable>
             </>

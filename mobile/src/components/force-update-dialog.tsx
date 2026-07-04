@@ -102,7 +102,7 @@ export function ForceUpdateDialog({
           {/* AlertDialogAction(RNR canonical)不像 Button 那样在 disabled 时自动加 opacity-50,
               故 busy 时在调用处补 opacity-50,保持禁用态的视觉反馈(不改 vendored 原语)。 */}
           <AlertDialogAction
-            className={busy ? "opacity-50" : undefined}
+            className={busy ? "flex-1 opacity-50" : "flex-1"}
             onPress={() => void download()}
             disabled={busy}
           >

@@ -57,10 +57,11 @@ export function ConfirmDialog({
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel testID={cancelTestID}>
+          <AlertDialogCancel className="flex-1" testID={cancelTestID}>
             <Text>{cancelLabel ?? <Trans>取消</Trans>}</Text>
           </AlertDialogCancel>
           <AlertDialogAction
+            className="flex-1"
             variant={destructive ? "destructive" : undefined}
             onPress={onAction}
             testID={actionTestID}

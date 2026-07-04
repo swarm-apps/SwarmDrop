@@ -130,13 +130,25 @@ export function PairingRequestHost() {
           </View>
         </View>
 
-        <View className="gap-2.5">
+        {/* 移动端惯例:双键横排,拒绝(次要)在左、接受(主要)在右 */}
+        <View className="flex-row gap-2.5">
+          <Pressable
+            onPress={() => respondToRequest(false)}
+            disabled={responding}
+            accessibilityRole="button"
+            accessibilityLabel={t`拒绝`}
+            className="h-12 flex-1 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
+          >
+            <Text className="text-base font-medium text-foreground">
+              <Trans>拒绝</Trans>
+            </Text>
+          </Pressable>
           <Pressable
             onPress={() => respondToRequest(true)}
             disabled={responding || remaining === 0}
             accessibilityRole="button"
             accessibilityLabel={t`接受`}
-            className="h-12 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
+            className="h-12 flex-1 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
           >
             {responding ? (
               <ActivityIndicator color={colors.primaryForeground} />
@@ -145,17 +157,6 @@ export function PairingRequestHost() {
                 <Trans>接受</Trans>
               </Text>
             )}
-          </Pressable>
-          <Pressable
-            onPress={() => respondToRequest(false)}
-            disabled={responding}
-            accessibilityRole="button"
-            accessibilityLabel={t`拒绝`}
-            className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
-          >
-            <Text className="text-base font-medium text-foreground">
-              <Trans>拒绝</Trans>
-            </Text>
           </Pressable>
         </View>
       </AlertDialogContent>

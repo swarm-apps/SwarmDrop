@@ -117,13 +117,18 @@ export function PromptUpdateDialog({
 
         <DialogFooter>
           <Button
+            className="flex-1"
             variant="outline"
             onPress={() => handleOpenChange(false)}
             disabled={busy}
           >
             <Text>{t.laterButton}</Text>
           </Button>
-          <Button onPress={() => void download()} disabled={busy}>
+          <Button
+            className="flex-1"
+            onPress={() => void download()}
+            disabled={busy}
+          >
             <Text>{actionLabel}</Text>
           </Button>
         </DialogFooter>

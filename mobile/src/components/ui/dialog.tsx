@@ -128,15 +128,9 @@ function DialogHeader({ className, ...props }: ViewProps) {
 }
 
 function DialogFooter({ className, ...props }: ViewProps) {
-  return (
-    <View
-      className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
-        className,
-      )}
-      {...props}
-    />
-  );
+  // 同 AlertDialogFooter:上游 web 响应式在手机上永远竖排,
+  // 改为移动端惯例的横排(取消左、确认右,调用方按钮加 flex-1)。
+  return <View className={cn("flex flex-row gap-2.5", className)} {...props} />;
 }
 
 function DialogTitle({
