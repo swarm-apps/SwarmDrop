@@ -71,6 +71,7 @@
       "./plugins/with-android-release-signing",
       "./plugins/with-android-install-permission",
       "./plugins/with-android-foreground-service",
+      "./plugins/with-android-gradle-memory",
       "expo-video"
     ],
     "experiments": {
