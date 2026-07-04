@@ -127,15 +127,29 @@ const nearbyDevices = useNetworkStore(
 
 ## master-detail 页面（收件箱 / 传输活动）
 
-### 双栏 + 抽屉的响应式模式已有现成骨架，别再各自手搓
+### 统一走 MasterDetailShell，断点、抽屉方向、自动选首项全局一个标准
 
-收件箱与传输活动共用同一套 master-detail 模式：`≥1024px` 用 `grid-cols-[minmax(300px,~370px)_minmax(0,1fr)]` 双栏 + 各自内部滚动；`<1024px` 单栏 + 抽屉（`absolute inset-0` 遮罩限定在内容区、不盖全局顶栏，面板 `inert` + Esc 关闭 + 焦点移入）。断点判断用共享 hook `useMediaQuery("(min-width: 1024px)")`（`src/hooks/use-media-query.ts`），不要再内联手写。
+收件箱与传输活动共用 `src/components/layout/master-detail-shell.tsx`，不要各页手写响应式/抽屉：
+- **宽屏（≥920px）**：`minmax(300px, listMaxWidth)` 列表 + `minmax(0,1fr)` 详情双栏。
+- **窄屏（<920px）**：**详情占满 + 列表从左侧抽屉滑出**（遮罩限定内容区、不盖顶栏，面板 `inert` + Esc + 焦点移入）。两页都从左开，方向统一。
 
-**语义决定谁进抽屉**：收件箱的核心是"读一条记录"→ 阅读区全宽、列表收进左抽屉；传输活动的核心是"扫所有会话状态"（列表行自带进度条）→ 列表全宽、详情从右抽屉滑出。新 master-detail 页面先想清楚哪半边是核心任务。
+**断点单一来源**：`MASTER_DETAIL_QUERY = "(min-width: 920px)"`（`src/hooks/use-media-query.ts`，配 `useIsWideLayout()`）。920 对齐首页设备页的 `min-[920px]` 主分栏——首页收栏时两页同步进抽屉。新 master-detail 页面复用这个常量，不要各写各的断点（曾经 inbox/transfer 各写 1024px，且抽屉一左一右不统一，已收敛）。
+
+**shell 用法**：`list`/`detail` 是 render prop。`list({ closeDrawer })`（选中后关抽屉）；`detail({ openList, isCompact })`——`openList` 窄屏非 null（用 `<OpenListButton>` 唤出列表）、宽屏 null；`isCompact` 决定详情内部滚动 vs 随页面滚动（对应旧 `contained`）。详情组件自包裹 `glass-panel`。
+
+**render prop 里的回调别现场包，会打穿列表行 memo**：`list({ closeDrawer })` 的 `closeDrawer` 是 shell 内 `useCallback` 稳定引用。若在 render prop 里把它和 `selectSession` 现场拼成 `(id) => { selectSession(id); closeDrawer(); }` 再透传给 **memo 化的行组件**（transfer 的 `SessionRow`），这个闭包每帧换引用 → 行 memo 全失效、任一交互（选中/筛选/进度迁移）全量重渲染整列。正确做法：把稳定的 `onSelect` + `onAfterSelect` **分别**传进列表组件，由列表组件内部 `useCallback` 合成后再下发。同理，`SlideDrawer` 的 `onClose` 各调用点都是内联箭头，其 keydown/focus effect 必须用 ref 读最新值、**只依赖 `[open]`**，否则抽屉打开期间父级每渲染一次就解绑重绑监听 + 强制 focus（收件箱窄屏搜索框在抽屉内，等于每敲一字空转一轮）。inbox 的行组件未 memo 化，故只有 transfer 会踩前半条，但两条都以 render prop 传闭包为根因。
+
+**自动选首项**：两页有内容时自动选中首项（详情区默认有内容），仅零条目才显示空态。规则：无有效选中（未选 / 选中项已删除或不在可见列表）且有内容 → 选首个可见项；**不在筛选/搜索切换时强制重选**已有的有效选中，避免选中态跳动。transfer 用 `shown = 选中 ?? items[0]` 派生，避免自动选中 URL 更新前的空窗闪烁。
 
 **选中态放 URL search param**（如 `/transfer?session=xxx`），旧的 `$id` 详情路由用 `beforeLoad` + `redirect` 兜住深链；列表内点击用 `replace: true` 避免堆历史。
 
-**相关文件**：`src/routes/_app/inbox/index.lazy.tsx`、`src/routes/_app/transfer/index.lazy.tsx`、`src/routes/_app/transfer/$sessionId.tsx`、`src/hooks/use-media-query.ts`
+**带 chrome 的页面用 `<SlideDrawer>` 而非整个 shell**：发送流（`/send/share-target`）有 TaskToolbar + CommandDock，不是纯 master-detail 页，不能直接套 MasterDetailShell。改用从 shell 导出的 `<SlideDrawer open onClose label>`（左滑、遮罩、Esc、inert、焦点，与 shell 内部同一实现），配 `useIsWideLayout()` 自己组双栏/单栏。**抽屉的定位上下文**：SlideDrawer 用 `absolute inset-0`，外层必须有一个 `relative` 且**非 overflow-auto** 的祖先（否则被裁剪/随滚动漂移），并让它作为抽屉的兄弟节点、与滚动内容平级。
+
+**发送流两页的语义**：`/send`（点设备卡进来，设备已定）主任务是选文件 → 设备收成顶部 mini 摘要条、文件选择占满单栏带滚动；`/send/share-target`（外部打开进来，文件已定）主任务是选设备 → 选设备占主屏、「待发文件」进左抽屉。发送流断点也用 920（同一 `useIsWideLayout`）。
+
+**shadcn Dialog 内要限高滚动**：`DialogContent` 基础是 `grid gap-4`，加 `flex max-h-[85vh] flex-col`（tailwind-merge 会让 flex 覆盖 grid），header/footer `shrink-0`，中间滚动区必须是 **flex-col 容器**（不能只给 `flex-1`），否则内部 FileTree 的 `md:flex-1` 拿不到 flex 父级、按自然高撑破；DialogContent 本身 `overflow:visible` 不裁剪，靠内部滚动收口。
+
+**相关文件**：`src/components/layout/master-detail-shell.tsx`（含 `SlideDrawer`）、`src/routes/_app/inbox/index.lazy.tsx`、`src/routes/_app/transfer/index.lazy.tsx`、`src/routes/_app/send/index.lazy.tsx`、`src/routes/_app/send/share-target.lazy.tsx`、`src/components/transfer/transfer-offer-dialog.tsx`、`src/hooks/use-media-query.ts`
 
 ## 设置页（settings）布局与基元
 

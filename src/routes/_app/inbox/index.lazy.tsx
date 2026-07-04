@@ -2,11 +2,10 @@
  * Drop Inbox Page (Lazy)
  * 收件箱 —— 展示已经成功接收的内容，和活动/恢复过程账本分离。
  *
- * 响应式：
- * - 桌面（≥1024px）：左「时间分组导航栏」+ 右「阅读区」两栏并排，各自内部滚动。
- * - 窄屏（<1024px）：阅读区占满整宽 + 整页滚动；列表收成左侧抽屉（Sheet），
- *   顶部「收件箱」按钮唤出，选中即收起，避免上下堆叠 / 双滚动。
- * 「来源与过程」用容器查询按阅读区自身宽度决定单列/双列。
+ * 响应式（与传输活动共用 MasterDetailShell，见 MASTER_DETAIL_QUERY）：
+ * - 宽屏（≥920px）：左「时间分组导航栏」+ 右「阅读区」两栏并排，各自内部滚动。
+ * - 窄屏（<920px）：阅读区占满整宽 + 整页滚动；列表收进左侧抽屉（SlideDrawer），
+ *   详情头部「打开列表」按钮唤出，选中即收起，避免上下堆叠 / 双滚动。
  */
 
 import {
@@ -18,17 +17,15 @@ import {
   type ReactNode,
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { createLazyFileRoute } from "@tanstack/react-router";
+import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
   ArchiveRestore,
+  ArrowRightLeft,
   Bot,
-  Download,
-  ExternalLink,
   FileArchive,
   FolderOpen,
   Inbox,
-  MapPin,
   PanelLeft,
   RefreshCw,
   Search,
@@ -44,11 +41,11 @@ import {
   type InboxItemFileEntry,
   type InboxItemSummary,
   type InboxSearchHit,
-  type TransferProjection,
 } from "@/lib/bindings";
 import { getFileIcon, getFileIconColor } from "@/lib/file-icon";
 import { useInboxStore } from "@/stores/inbox-store";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CenteredEmptyState } from "@/components/layout/section-primitives";
@@ -66,9 +63,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
-import { pickFolder } from "@/lib/file-picker";
 import { projectionStatusLabel } from "@/lib/transfer-projection";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import {
+  MasterDetailShell,
+  OpenListButton,
+} from "@/components/layout/master-detail-shell";
 
 export const Route = createLazyFileRoute("/_app/inbox/")({
   component: InboxPage,
@@ -89,11 +88,11 @@ function InboxPage() {
   const runAndRefresh = useInboxStore((s) => s.runAndRefresh);
   const runSearch = useInboxStore((s) => s.runSearch);
 
-  const isDesktop = useMediaQuery("(min-width: 1024px)");
-  const [listOpen, setListOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
 
+  const navigate = useNavigate();
+  const selectItem = useInboxStore((s) => s.selectItem);
   const isSearching = query.trim() !== "";
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) ?? null,
@@ -109,9 +108,11 @@ function InboxPage() {
   const selectionVisible =
     selectedId !== null && (!isSearching || visibleIds.includes(selectedId));
 
+  // keep-previous：切换条目时保留上一份详情直到新详情到达，避免旧 detail.id ≠ selectedId
+  // 的那一帧掉到骨架屏造成闪烁。骨架屏只在首次、完全无详情时出现。
   const readerStatus: ReaderStatus = !selectionVisible
     ? "empty"
-    : detail && detail.id === selectedId
+    : detail
       ? "ready"
       : detailForId === selectedId
         ? "error"
@@ -134,42 +135,25 @@ function InboxPage() {
     return () => clearTimeout(id);
   }, [query, showArchived, runSearch]);
 
-  // 切到桌面（两栏）时收起抽屉，避免状态残留
+  // 自动选首项：有内容且无有效选中（未选 / 选中项已不在可见列表）→ 选首个可见项；
+  // 零内容不选（走空态）。搜索态下 visibleIds = 搜索结果，即自动选中首个命中。
   useEffect(() => {
-    if (isDesktop) setListOpen(false);
-  }, [isDesktop]);
+    if (visibleIds.length === 0) return;
+    if (selectedId === null || !visibleIds.includes(selectedId)) {
+      selectItem(visibleIds[0]);
+    }
+  }, [visibleIds, selectedId, selectItem]);
 
-  // 抽屉打开：Esc 关闭 + 焦点移入面板
-  const drawerPanelRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (isDesktop || !listOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setListOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    const raf = requestAnimationFrame(() => drawerPanelRef.current?.focus());
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      cancelAnimationFrame(raf);
-    };
-  }, [isDesktop, listOpen]);
-
-  const handleOpen = () => {
-    if (!selectedId) return;
-    void runAndRefresh(() => commands.openInboxItem(selectedId, null));
-  };
   const handleReveal = () => {
     if (!selectedId) return;
     void runAndRefresh(() => commands.showInboxItemInFolder(selectedId, null));
   };
-  const handleExport = async () => {
-    if (!selectedId) return;
-    const destination = await pickFolder();
-    if (!destination) return;
-    void runAndRefresh(
-      () => commands.exportInboxItem(selectedId, destination),
-      t`已导出到所选位置`,
-    );
+  const handleOpenTransfer = () => {
+    if (!selectedItem?.transferSessionId) return;
+    void navigate({
+      to: "/transfer",
+      search: { session: selectedItem.transferSessionId },
+    });
   };
   const handleArchive = () => {
     if (!selectedItem) return;
@@ -189,68 +173,37 @@ function InboxPage() {
     setDeleteOpen(false);
   };
 
-  const reader = (
-    <InboxReader
-      status={readerStatus}
-      detail={detail}
-      contained={isDesktop}
-      onOpenList={isDesktop ? undefined : () => setListOpen(true)}
-      onOpen={handleOpen}
-      onReveal={handleReveal}
-      onExport={handleExport}
-      onArchive={handleArchive}
-      onDelete={() => setDeleteOpen(true)}
-      onFileOpen={(fileId) =>
-        detail && runAndRefresh(() => commands.openInboxItem(detail.id, fileId))
-      }
-      onFileReveal={(fileId) =>
-        detail &&
-        runAndRefresh(() => commands.showInboxItemInFolder(detail.id, fileId))
-      }
-    />
-  );
-
   return (
-    <main className="relative flex h-full flex-1 flex-col bg-transparent">
-      {isDesktop ? (
-        <div className="mx-auto grid h-full w-full max-w-[1240px] grid-cols-[minmax(300px,360px)_minmax(0,1fr)] grid-rows-1 gap-6 overflow-hidden p-6">
-          <section className="glass-panel flex min-h-0 flex-col overflow-hidden rounded-[24px]">
-            <InboxRail />
-          </section>
-          {reader}
-        </div>
-      ) : (
-        <>
-          <div className="mx-auto flex h-full w-full max-w-[880px] flex-col overflow-y-auto p-4 sm:p-5">
-            {reader}
-          </div>
-
-          {/* 列表抽屉：限定在顶栏下方的内容区滑出，遮罩只暗内容、不盖全局顶栏 */}
-          <div className={cn("absolute inset-0 z-30", !listOpen && "pointer-events-none")}>
-            <div
-              onClick={() => setListOpen(false)}
-              className={cn(
-                "absolute inset-0 bg-black/40 transition-opacity duration-300 motion-reduce:transition-none",
-                listOpen ? "opacity-100" : "opacity-0",
-              )}
-            />
-            <div
-              ref={drawerPanelRef}
-              role="dialog"
-              aria-modal="true"
-              aria-label={t`收件箱`}
-              tabIndex={-1}
-              inert={!listOpen}
-              className={cn(
-                "absolute inset-y-0 left-0 flex w-[86%] max-w-[344px] flex-col rounded-r-[24px] border-r border-[color:var(--glass-control-border)] bg-background shadow-2xl outline-hidden transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-                listOpen ? "translate-x-0" : "-translate-x-full",
-              )}
-            >
-              <InboxRail onAfterSelect={() => setListOpen(false)} />
-            </div>
-          </div>
-        </>
-      )}
+    <>
+      <MasterDetailShell
+        drawerLabel={t`收件箱`}
+        listMaxWidth={360}
+        list={({ closeDrawer }) => <InboxRail onAfterSelect={closeDrawer} />}
+        detail={({ openList, isCompact }) => (
+          <InboxReader
+            status={readerStatus}
+            detail={detail}
+            contained={!isCompact}
+            onOpenList={openList ?? undefined}
+            onReveal={handleReveal}
+            onOpenTransfer={
+              selectedItem?.transferSessionId ? handleOpenTransfer : null
+            }
+            onArchive={handleArchive}
+            onDelete={() => setDeleteOpen(true)}
+            onFileOpen={(fileId) =>
+              detail &&
+              runAndRefresh(() => commands.openInboxItem(detail.id, fileId))
+            }
+            onFileReveal={(fileId) =>
+              detail &&
+              runAndRefresh(() =>
+                commands.showInboxItemInFolder(detail.id, fileId),
+              )
+            }
+          />
+        )}
+      />
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
@@ -297,7 +250,7 @@ function InboxPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </main>
+    </>
   );
 }
 
@@ -644,9 +597,8 @@ function InboxReader({
   detail,
   contained,
   onOpenList,
-  onOpen,
   onReveal,
-  onExport,
+  onOpenTransfer,
   onArchive,
   onDelete,
   onFileOpen,
@@ -655,27 +607,17 @@ function InboxReader({
   status: ReaderStatus;
   detail: InboxItemDetail | null;
   contained: boolean;
-  /** 窄屏（<1024）传入即渲染详情头部前导「打开列表」按钮；桌面双栏不传。 */
+  /** 窄屏传入即渲染详情头部前导「打开列表」按钮；宽屏双栏不传。 */
   onOpenList?: () => void;
-  onOpen: () => void;
   onReveal: () => void;
-  onExport: () => void;
+  onOpenTransfer: (() => void) | null;
   onArchive: () => void;
   onDelete: () => void;
   onFileOpen: (fileId: number) => void;
   onFileReveal: (fileId: number) => void;
 }) {
   const toggle = onOpenList ? (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="-ml-1 size-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-      onClick={onOpenList}
-      aria-label={t`打开收件箱列表`}
-      title={t`打开收件箱列表`}
-    >
-      <PanelLeft className="size-4" />
-    </Button>
+    <OpenListButton openList={onOpenList} label={t`打开收件箱列表`} />
   ) : null;
 
   const sectionClass = cn(
@@ -690,9 +632,8 @@ function InboxReader({
           detail={detail}
           contained={contained}
           leading={toggle}
-          onOpen={onOpen}
           onReveal={onReveal}
-          onExport={onExport}
+          onOpenTransfer={onOpenTransfer}
           onArchive={onArchive}
           onDelete={onDelete}
           onFileOpen={onFileOpen}
@@ -727,9 +668,8 @@ function ReaderContent({
   detail,
   contained,
   leading,
-  onOpen,
   onReveal,
-  onExport,
+  onOpenTransfer,
   onArchive,
   onDelete,
   onFileOpen,
@@ -738,9 +678,9 @@ function ReaderContent({
   detail: InboxItemDetail;
   contained: boolean;
   leading?: ReactNode;
-  onOpen: () => void;
   onReveal: () => void;
-  onExport: () => void;
+  /** 跳到该条目对应的传输记录；无关联传输时为 null（不渲染按钮）。 */
+  onOpenTransfer: (() => void) | null;
   onArchive: () => void;
   onDelete: () => void;
   onFileOpen: (fileId: number) => void;
@@ -771,27 +711,43 @@ function ReaderContent({
               </span>
             </p>
           </div>
-          {detail.missing && (
-            <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-800 dark:text-amber-300">
-              <TriangleAlert className="size-3.5" />
-              <Trans>本地内容缺失</Trans>
-            </span>
-          )}
+          {/* 右上角精简来源信息：来源类型 + 内容类型·状态（技术细节/路径靠按钮到达，不暴露） */}
+          <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
+            <Badge variant="secondary" className="gap-1">
+              {detail.sourceKind === "mcp" ? (
+                <Bot className="size-3.5 text-brand" />
+              ) : null}
+              {sourceKindLabel(detail.sourceKind)}
+            </Badge>
+            <p className="text-xs text-muted-foreground">
+              {contentKindLabel(detail.contentKind)}
+              {detail.transfer ? ` · ${projectionStatusLabel(detail.transfer)}` : ""}
+            </p>
+            {detail.missing && (
+              <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-800 dark:text-amber-300">
+                <TriangleAlert className="size-3.5" />
+                <Trans>本地内容缺失</Trans>
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
-          <Button size="sm" className="gap-1.5" onClick={onOpen}>
-            <ExternalLink className="size-4" />
-            <Trans>打开</Trans>
+          <Button size="sm" className="gap-1.5" onClick={onReveal}>
+            <FolderOpen className="size-4" />
+            <Trans>在文件夹中显示</Trans>
           </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={onReveal}>
-            <MapPin className="size-4" />
-            <Trans>显示位置</Trans>
-          </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={onExport}>
-            <Download className="size-4" />
-            <Trans>导出</Trans>
-          </Button>
+          {onOpenTransfer && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={onOpenTransfer}
+            >
+              <ArrowRightLeft className="size-4" />
+              <Trans>打开传输记录</Trans>
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="gap-1.5" onClick={onArchive}>
             {detail.archivedAt ? (
               <ArchiveRestore className="size-4" />
@@ -831,8 +787,6 @@ function ReaderContent({
             />
           ))}
         </div>
-
-        <MetaSection item={detail} transfer={detail.transfer} />
       </div>
     </>
   );
@@ -904,61 +858,6 @@ function FileCard({
           <FolderOpen className="size-3.5" />
         </Button>
       </div>
-    </div>
-  );
-}
-
-function MetaSection({
-  item,
-  transfer,
-}: {
-  item: InboxItemSummary;
-  transfer: TransferProjection | null;
-}) {
-  return (
-    <section className="mt-9 border-t border-black/[0.06] pt-7 dark:border-white/10">
-      <h3 className="text-sm font-semibold text-foreground">
-        <Trans>来源与过程</Trans>
-      </h3>
-      <dl className="mt-5 grid grid-cols-1 gap-x-12 gap-y-5 @xl:grid-cols-2">
-        <MetaRow label={t`来源设备`} value={item.sourceName} />
-        <MetaRow label={t`来源类型`} value={sourceKindLabel(item.sourceKind)} />
-        <MetaRow label={t`内容类型`} value={contentKindLabel(item.contentKind)} />
-        <MetaRow label={t`接收时间`} value={new Date(item.receivedAt).toLocaleString()} />
-        <MetaRow
-          label={t`传输会话`}
-          value={item.transferSessionId ?? t`已清理`}
-          mono
-        />
-        <MetaRow label={t`本地位置`} value={item.rootPath ?? t`未知`} mono />
-        {transfer && (
-          <MetaRow label={t`活动状态`} value={projectionStatusLabel(transfer)} />
-        )}
-      </dl>
-    </section>
-  );
-}
-
-function MetaRow({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd
-        className={cn(
-          "mt-1.5 text-sm text-foreground",
-          mono ? "break-all font-mono text-[12px]" : "break-words",
-        )}
-      >
-        {value}
-      </dd>
     </div>
   );
 }
@@ -1243,3 +1142,4 @@ function contentKindLabel(kind: InboxItemSummary["contentKind"]): string {
   };
   return labels[kind];
 }
+
