@@ -1,6 +1,7 @@
 import { useState, type ComponentType } from "react";
 import { cn } from "@/lib/utils";
 import { deviceDisplayName } from "@/lib/device-name";
+import { formatLatency } from "@/lib/format";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   Link,
@@ -209,9 +210,11 @@ export function DeviceCard({
               <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
                 {t(connConfig.label)}
               </span>
-              <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
-                {device.latency}ms
-              </span>
+              {formatLatency(device.latency) && (
+                <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
+                  {formatLatency(device.latency)}
+                </span>
+              )}
             </div>
           ) : (
             <TrustBadge device={device} />

@@ -4,6 +4,21 @@
 
 Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC 类型映射、SeaORM/SQLite、libp2p P2P。常规 Rust 风格查 `/rust-best-practices`，async 模式查 `/rust-async-patterns`，Tauri IPC 查 `/tauri-v2`，SeaORM 查 `/sea-orm-2`。
 
+## 外部打开（share-target 反向流）
+
+### macOS 下 dev 进程与 release .app 并存时，「用 SwarmDrop 打开」会静默丢失文件路径
+
+现象：双击文件 /「打开方式」后窗口只是被聚焦、停在当前页，不进选设备屏，且 dev 日志里没有 `external open: ingest paths`。
+
+机制：macOS 的文件打开走 Apple Event（`RunEvent::Opened`）而非 argv。Launch Services 把 dev 裸二进制（`target/debug/swarmdrop`）和 release .app 视为不同 app → 启动一个新的 release 实例并把 Apple Event 发给它 → 新实例的 single-instance 插件发现已有实例（相同 identifier 的 dev 进程）就转发 argv 并退出——但 macOS 下路径在 Apple Event 里、argv 里没有（`external_open.rs` 的 `handle_second_instance` 在 macOS 是显式 no-op）→ 路径随退出的进程丢失。
+
+**正确做法**：
+- 测试「打开方式 / 右键发送」链路时确保只跑一个实例；release 单独运行（冷启动或已运行）链路都正常
+- 调试该链路不必真右键：在 dev 里 emit `external-file-open` 事件即可全链路模拟（见 toolchain.md）
+- 从终端直接跑 `swarmdrop.app/Contents/MacOS/swarmdrop` 可以看到 release 的 tracing stdout，且 LS 能正常把 Apple Event 发给它
+
+**相关文件**：`src-tauri/src/external_open.rs`、`src-tauri/src/setup.rs`（single-instance 注册）
+
 ## 模块边界
 
 ### 业务逻辑放 crates/core，src-tauri 是薄壳

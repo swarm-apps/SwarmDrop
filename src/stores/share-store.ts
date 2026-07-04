@@ -16,17 +16,21 @@ import type { FileSource } from "@/lib/bindings";
 interface ShareState {
   /** 待 share-target 屏消费的在途来源（外部打开的本地路径）。 */
   sources: FileSource[];
-  setSources: (sources: FileSource[]) => void;
+  /** 预选目标设备（「重新发送」携带原目标；外部打开不设置）。 */
+  presetPeerId: string | null;
+  setSources: (sources: FileSource[], presetPeerId?: string) => void;
   /** 原子取用：返回当前来源并清空。「读一次即丢弃」的语义收在这里，消费方无需自己 clear。 */
-  consume: () => FileSource[];
+  consume: () => { sources: FileSource[]; presetPeerId: string | null };
 }
 
 export const useShareStore = create<ShareState>((set, get) => ({
   sources: [],
-  setSources: (sources) => set({ sources }),
+  presetPeerId: null,
+  setSources: (sources, presetPeerId) =>
+    set({ sources, presetPeerId: presetPeerId ?? null }),
   consume: () => {
-    const { sources } = get();
-    if (sources.length > 0) set({ sources: [] });
-    return sources;
+    const { sources, presetPeerId } = get();
+    if (sources.length > 0) set({ sources: [], presetPeerId: null });
+    return { sources, presetPeerId };
   },
 }));

@@ -31,10 +31,11 @@ import { useTransferStore } from "@/stores/transfer-store";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
-import { formatFileSize } from "@/lib/format";
+import { formatFileSize, formatLatency } from "@/lib/format";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileTree } from "@/components/file-tree";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
+import { SendProgressView } from "./-components/send-progress-view";
 import { cn } from "@/lib/utils";
 import {
   CommandDock,
@@ -55,24 +56,33 @@ function ShareTargetPage() {
   const navigate = useNavigate();
   const router = useRouter();
   const fileSelection = useFileSelection();
-  const { addSources } = fileSelection;
+  const { addSources, clear } = fileSelection;
 
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null);
+  // startSend 成功后就地转进度视图（右键快捷发送全程单界面，发完即可关窗）
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   const status = useNetworkStore((s) => s.status);
   const devices = useNetworkStore((s) => s.devices);
   const pairedDevices = useSecretStore((s) => s.pairedDevices);
 
-  // 消费在途来源：mount 时一次性 consume（取走即清空）→ 扫描。addSources 稳定
-  // （useCallback []），consume 清空后即便重入也自然 no-op，无需额外 guard。
+  // 消费在途来源：订阅 store 而非只在 mount 时 consume——页面已挂载时用户再次
+  // 「用 SwarmDrop 打开」不会 remount（navigate 同路由 no-op），必须靠订阅感知新批次。
+  // 新一批 = 用户最新意图：覆盖旧选择（clear 而非追加），并退出可能停留的进度视图。
+  // consume 取走即清空 → sources 归空触发的下一轮 effect 拿到空数组自然 no-op。
+  const pendingSources = useShareStore((s) => s.sources);
   useEffect(() => {
-    const sources = useShareStore.getState().consume();
-    if (sources.length > 0) {
-      void addSources(sources).catch((err) => toast.error(getErrorMessage(err)));
-    }
-  }, [addSources]);
+    if (pendingSources.length === 0) return;
+    const { sources, presetPeerId } = useShareStore.getState().consume();
+    if (sources.length === 0) return;
+    setActiveSessionId(null);
+    clear();
+    // 「重新发送」携带原目标设备；设备当前离线时 selectedDevice 派生为 null，自动回落选设备
+    if (presetPeerId) setSelectedPeerId(presetPeerId);
+    void addSources(sources).catch((err) => toast.error(getErrorMessage(err)));
+  }, [pendingSources, addSources, clear]);
 
   // 节点未启动时自动启动一次（外部打开常处于冷启动、节点还没起）。
   const startedRef = useRef(false);
@@ -116,7 +126,7 @@ function ShareTargetPage() {
         fileIds,
       );
       await useTransferStore.getState().loadProjections();
-      navigate({ to: "/transfer/$sessionId", params: { sessionId: result.sessionId } });
+      setActiveSessionId(result.sessionId);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -132,6 +142,16 @@ function ShareTargetPage() {
       navigate({ to: "/devices" });
     }
   };
+
+  if (activeSessionId) {
+    return (
+      <SendProgressView
+        sessionId={activeSessionId}
+        onBack={handleBack}
+        onSessionChange={setActiveSessionId}
+      />
+    );
+  }
 
   return (
     <TaskPageShell>
@@ -156,10 +176,16 @@ function ShareTargetPage() {
               fileSelection.hasFiles ? (
                 <Trans>{fileSelection.totalCount} 项内容</Trans>
               ) : (
-                <Trans>准备中</Trans>
+                <Trans>没有待发送的文件</Trans>
               )
             }
-            description={<Trans>选择右侧一台在线设备，端到端加密直接送达。</Trans>}
+            description={
+              fileSelection.hasFiles ? (
+                <Trans>选择右侧一台在线设备，端到端加密直接送达。</Trans>
+              ) : (
+                <Trans>所有文件已被移除。返回后重新选择要发送的内容。</Trans>
+              )
+            }
             className="min-h-[320px]"
           >
             <div className="flex h-full min-h-0 flex-col gap-4">
@@ -232,6 +258,13 @@ function ShareTargetPage() {
             <div className="min-w-0 flex-1 px-2">
               <PrepareProgressBar progress={prepareProgress} />
             </div>
+          </CommandDock>
+        ) : !fileSelection.hasFiles ? (
+          // 空载荷：发送无从谈起，只留一个明确的出口
+          <CommandDock>
+            <TaskButton onClick={handleBack}>
+              <Trans>返回</Trans>
+            </TaskButton>
           </CommandDock>
         ) : (
           <CommandDock>
@@ -321,11 +354,12 @@ function ConnectionHint({ device }: { device: Device }) {
     ) : (
       <Trans>中继</Trans>
     );
+  const latency = formatLatency(device.latency);
   return (
     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
       <span aria-hidden>·</span>
       {label}
-      <span className="font-mono tabular-nums">{device.latency}ms</span>
+      {latency && <span className="font-mono tabular-nums">{latency}</span>}
     </span>
   );
 }

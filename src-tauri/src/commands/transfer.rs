@@ -215,6 +215,16 @@ pub async fn clear_transfer_history(
     Ok(crate::database::ops::clear_all_history(&db).await?)
 }
 
+/// 发送方向会话的源文件绝对路径（「重新发送」重建载荷用；接收方向返回空列表）。
+#[tauri::command]
+#[specta::specta]
+pub async fn get_transfer_source_paths(
+    db: State<'_, sea_orm::DatabaseConnection>,
+    session_id: Uuid,
+) -> crate::AppResult<Vec<String>> {
+    Ok(crate::database::ops::get_session_source_paths(&db, session_id).await?)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn pause_transfer(

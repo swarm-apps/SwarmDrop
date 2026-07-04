@@ -7,7 +7,7 @@ use entity::{
 };
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityLoaderTrait, EntityTrait,
-    IntoActiveModel, QueryFilter, QueryOrder, Set,
+    IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use uuid::Uuid;
 
@@ -592,6 +592,22 @@ pub async fn get_session_files(
 ) -> AppResult<Vec<entity::transfer_file::Model>> {
     Ok(entity::TransferFile::find()
         .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .all(db)
+        .await?)
+}
+
+/// 获取 session 内有源路径的文件绝对路径（发送方向；「重新发送」重建载荷用）。
+/// 只查 source_path 一列并把 NULL 过滤下推到 SQL，避免物化 bitmap BLOB 等无关列。
+pub async fn get_session_source_paths(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+) -> AppResult<Vec<String>> {
+    Ok(entity::TransferFile::find()
+        .select_only()
+        .column(entity::transfer_file::Column::SourcePath)
+        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .filter(entity::transfer_file::Column::SourcePath.is_not_null())
+        .into_tuple::<String>()
         .all(db)
         .await?)
 }

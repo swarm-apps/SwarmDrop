@@ -107,6 +107,8 @@ export const commands = {
 	cancelSend: (sessionId: string) => __TAURI_INVOKE<null>("cancel_send", { sessionId }),
 	cancelReceive: (sessionId: string) => __TAURI_INVOKE<null>("cancel_receive", { sessionId }),
 	getTransferProjections: () => __TAURI_INVOKE<TransferProjection[]>("get_transfer_projections"),
+	/**  发送方向会话的源文件绝对路径（「重新发送」重建载荷用；接收方向返回空列表）。 */
+	getTransferSourcePaths: (sessionId: string) => __TAURI_INVOKE<string[]>("get_transfer_source_paths", { sessionId }),
 	deleteTransferSession: (sessionId: string) => __TAURI_INVOKE<null>("delete_transfer_session", { sessionId }),
 	clearTransferHistory: () => __TAURI_INVOKE<null>("clear_transfer_history"),
 	pauseTransfer: (sessionId: string) => __TAURI_INVOKE<null>("pause_transfer", { sessionId }),

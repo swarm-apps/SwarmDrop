@@ -32,8 +32,8 @@ interface FileTreeProps {
   completedFileIds?: Set<number>;
   /** 失败的 fileId 集合（transfer 模式） */
   errorFileIds?: Set<number>;
-  /** 删除文件回调（select 模式） */
-  onRemoveFile?: (absolutePath: string) => void;
+  /** 删除文件回调（select 模式）；入参为 relativePath（目录为带尾斜杠的前缀）。 */
+  onRemoveFile?: (relativePath: string) => void;
   /** 重试文件回调（transfer 模式） */
   onRetryFile?: (fileId: number) => void;
   /** 是否显示头部（默认 true） */
@@ -122,10 +122,11 @@ export function FileTree({
         </div>
       )}
 
-      {/* 树列表（虚拟滚动） */}
+      {/* 树列表（虚拟滚动）。半透明 tint + 顶部内高光，透出全局环境光，
+          与玻璃面板一体；不用不透明 bg-card（暗色下近黑、和背景割裂）。 */}
       <div
         ref={scrollRef}
-        className="max-h-64 overflow-auto rounded-lg border bg-card p-1.5 md:max-h-none md:min-h-0 md:flex-1"
+        className="max-h-64 overflow-auto rounded-[14px] bg-foreground/[0.03] p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] md:max-h-none md:min-h-0 md:flex-1 dark:bg-white/[0.04] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
       >
         <div
           className="relative w-full"
@@ -155,10 +156,12 @@ export function FileTree({
                 ? getFileStatus(data, mode, progress, completedFileIds, errorFileIds)
                 : undefined;
 
-            // 共享的 onRemove 回调
+            // 共享的 onRemove 回调。用 data.path（文件=relativePath，目录=带尾斜杠的
+            // 目录前缀）而非 absolutePath：扫描来源（buildTreeDataFromOffer）不带
+            // absolutePath，且 removeFile 本就按 relativePath 精确/前缀匹配。
             const onRemove =
-              mode === "select" && onRemoveFile && data.absolutePath
-                ? () => onRemoveFile(data.absolutePath!)
+              mode === "select" && onRemoveFile
+                ? () => onRemoveFile(data.path)
                 : undefined;
 
             return (
