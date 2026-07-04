@@ -138,9 +138,9 @@ function AlertDialogAction({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Action> &
   Pick<VariantProps<typeof buttonVariants>, "variant">) {
   return (
-    <TextClassContext.Provider
-      value={buttonTextVariants({ variant, className })}
-    >
+    // className 只作用于按钮容器,不能进 buttonTextVariants —— 调用方传的 flex-1
+    // (双键等宽)若漏进文字上下文,会把 Text 撑成 flex-1、文字左对齐(失去居中)。
+    <TextClassContext.Provider value={buttonTextVariants({ variant })}>
       <AlertDialogPrimitive.Action
         className={cn(buttonVariants({ variant }), className)}
         {...props}
@@ -154,8 +154,9 @@ function AlertDialogCancel({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
   return (
+    // 同 Action:className 只给按钮容器,勿漏进文字变体(否则 flex-1 令文案左对齐)。
     <TextClassContext.Provider
-      value={buttonTextVariants({ className, variant: "outline" })}
+      value={buttonTextVariants({ variant: "outline" })}
     >
       <AlertDialogPrimitive.Cancel
         className={cn(buttonVariants({ variant: "outline" }), className)}

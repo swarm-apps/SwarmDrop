@@ -34,9 +34,14 @@ export default function MainLayout() {
     >
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>{t`设备`}</NativeTabs.Trigger.Label>
+        {/* 互联节点(P2P 设备互连)—— 方正均衡,替换又高又窄的单台竖手机。
+            选中态靠 iconColor 变色区分,故 default/selected 同一字形(与旧手机 tab 一致)。 */}
         <NativeTabs.Trigger.Icon
-          md={{ default: "smartphone", selected: "smartphone" }}
-          sf={{ default: "iphone", selected: "iphone" }}
+          md={{ default: "device_hub", selected: "device_hub" }}
+          sf={{
+            default: "point.3.connected.trianglepath.dotted",
+            selected: "point.3.connected.trianglepath.dotted",
+          }}
         />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="inbox">
