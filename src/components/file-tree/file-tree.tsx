@@ -122,10 +122,11 @@ export function FileTree({
         </div>
       )}
 
-      {/* 树列表（虚拟滚动） */}
+      {/* 树列表（虚拟滚动）。半透明 tint + 顶部内高光，透出全局环境光，
+          与玻璃面板一体；不用不透明 bg-card（暗色下近黑、和背景割裂）。 */}
       <div
         ref={scrollRef}
-        className="max-h-64 overflow-auto rounded-lg border bg-card p-1.5 md:max-h-none md:min-h-0 md:flex-1"
+        className="max-h-64 overflow-auto rounded-[14px] bg-foreground/[0.03] p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] md:max-h-none md:min-h-0 md:flex-1 dark:bg-white/[0.04] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
       >
         <div
           className="relative w-full"
