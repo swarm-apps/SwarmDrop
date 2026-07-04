@@ -2,6 +2,8 @@
  * 移动端传输领域类型 —— RN 侧只消费 projection，不再维护旧 history/status 模型。
  */
 
+import { i18n } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import {
   MobileSuspendedReason,
   MobileTerminalReason,
@@ -182,7 +184,7 @@ export function projectionPolicyNote(
 ): string | null {
   if (projection.policyReason) {
     return projection.policyAction
-      ? `${policyActionLabel(projection.policyAction)}：${projection.policyReason}`
+      ? `${policyActionLabel(projection.policyAction)}: ${projection.policyReason}`
       : projection.policyReason;
   }
   return projection.policyAction
@@ -190,17 +192,17 @@ export function projectionPolicyNote(
     : null;
 }
 
+const POLICY_ACTION_MESSAGES = {
+  auto_accept: msg`设备策略自动接收`,
+  require_confirmation: msg`设备策略要求确认`,
+  reject: msg`设备策略已拒绝`,
+} as const;
+
+// 按当前 locale 即时解析;调用组件需自行持有 useLingui() 订阅才能随 locale 切换重算。
 export function policyActionLabel(action: string): string {
-  switch (action) {
-    case "auto_accept":
-      return "设备策略自动接收";
-    case "require_confirmation":
-      return "设备策略要求确认";
-    case "reject":
-      return "设备策略已拒绝";
-    default:
-      return action;
-  }
+  const message =
+    POLICY_ACTION_MESSAGES[action as keyof typeof POLICY_ACTION_MESSAGES];
+  return message ? i18n._(message) : action;
 }
 
 export function projectionTransferredBytes(

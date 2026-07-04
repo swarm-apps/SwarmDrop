@@ -1,6 +1,7 @@
 import "../global.css";
 
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react/macro";
 import { PortalHost } from "@rn-primitives/portal";
 import { Stack, useRouter } from "expo-router";
@@ -23,7 +24,7 @@ import { initNotifications } from "@/core/notifications";
 import { shareFilesToTransferFiles } from "@/core/share-intent";
 import { useNavTheme } from "@/hooks/useThemeColors";
 import { LinguiProvider } from "@/i18n/LinguiProvider";
-import { initI18n } from "@/i18n/lingui";
+import { i18n, initI18n } from "@/i18n/lingui";
 import { restoreThemePreference } from "@/lib/theme-persistence";
 import { toast } from "@/lib/toast";
 import {
@@ -33,6 +34,8 @@ import {
 import { useShareStore } from "@/stores/share-store";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+const BOOT_FAILED_TITLE = msg`启动失败`;
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -82,7 +85,7 @@ export default function RootLayout() {
     return (
       <View className="flex-1 items-center justify-center gap-3 bg-background p-6">
         <Text className="text-base font-bold text-destructive-ink">
-          启动失败
+          {i18n._(BOOT_FAILED_TITLE)}
         </Text>
         <Text className="text-center text-sm text-muted-foreground">
           {bootError}

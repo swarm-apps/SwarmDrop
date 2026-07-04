@@ -23,7 +23,7 @@ export const DEFAULT_LANGUAGE: SupportedLanguage = "zh-Hans";
 
 const STORAGE_KEY = "language-preference";
 
-function isSupportedLanguage(code: string): code is SupportedLanguage {
+export function isSupportedLanguage(code: string): code is SupportedLanguage {
   return (SUPPORTED_LANGUAGE_CODES as readonly string[]).includes(code);
 }
 

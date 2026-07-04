@@ -18,10 +18,11 @@ export function deviceDisplayName(d: {
 /**
  * 给 onboarding 输入框的默认值 —— 优先 expo-device 的 deviceName（Android 一般
  * 拿得到用户起的蓝牙/设备名；iOS 16+ 上多半是 "iPhone" 字符串），缺省时回退到
- * modelName（"iPhone 15 Pro" / "Pixel 8"）。最差给个 "我的设备" 兜底。
+ * modelName（"iPhone 15 Pro" / "Pixel 8"）。最差用调用方传入的本地化兜底
+ * （必填,由调用方负责本地化——lib 层保持 i18n-free）。
  */
-export function suggestedDeviceName(): string {
-  return Device.deviceName?.trim() || Device.modelName?.trim() || "我的设备";
+export function suggestedDeviceName(fallbackName: string): string {
+  return Device.deviceName?.trim() || Device.modelName?.trim() || fallbackName;
 }
 
 /**

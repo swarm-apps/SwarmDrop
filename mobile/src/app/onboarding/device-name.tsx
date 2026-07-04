@@ -27,8 +27,8 @@ export default function DeviceName() {
 
   // 首次进入:用 expo-device 给一个合理的默认值(之前存过名字就用旧的)
   useEffect(() => {
-    setName(existing?.trim() || suggestedDeviceName());
-  }, [existing]);
+    setName(existing?.trim() || suggestedDeviceName(t`我的设备`));
+  }, [existing, t]);
 
   const trimmed = name.trim();
   const disabled = saving || trimmed.length === 0;

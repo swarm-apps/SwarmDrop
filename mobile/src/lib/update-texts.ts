@@ -1,4 +1,11 @@
-export type UpdateLocale = "en" | "zh-CN";
+import {
+  DEFAULT_LANGUAGE,
+  isSupportedLanguage,
+  type SupportedLanguage,
+} from "@/i18n/languageDetector";
+import { i18n } from "@/i18n/lingui";
+
+export type UpdateLocale = SupportedLanguage;
 
 export interface UpdateTexts {
   /** 提示弹窗标题。 */
@@ -79,7 +86,7 @@ const en: UpdateTexts = {
   canceledRetry: "Installation canceled. You can try again.",
 };
 
-const zhCN: UpdateTexts = {
+const zhHans: UpdateTexts = {
   promptTitle: "发现新版本",
   promptDescription: (latest, current) =>
     `新版本 ${latest} 可用，当前版本 ${current}`,
@@ -109,12 +116,16 @@ const zhCN: UpdateTexts = {
 
 export const updateTextPresets: Record<UpdateLocale, UpdateTexts> = {
   en,
-  "zh-CN": zhCN,
+  "zh-Hans": zhHans,
 };
+
+function currentUpdateLocale(): UpdateLocale {
+  return isSupportedLanguage(i18n.locale) ? i18n.locale : DEFAULT_LANGUAGE;
+}
 
 /** 取某 locale 的预设并叠加覆盖项。 */
 export function resolveUpdateTexts(
-  locale: UpdateLocale = "en",
+  locale: UpdateLocale = currentUpdateLocale(),
   overrides?: Partial<UpdateTexts>,
 ): UpdateTexts {
   return { ...updateTextPresets[locale], ...overrides };

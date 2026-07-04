@@ -63,7 +63,7 @@ export class ExpoFileAccess implements ForeignFileAccess {
     return wrapFfi(() => {
       const file = new File(sourceId);
       if (!file.exists) {
-        throw new Error(`source 不存在: ${sourceId}`);
+        throw new Error(`source does not exist: ${sourceId}`);
       }
       const name = decodeURIComponent(sourceId.split("/").pop() ?? sourceId);
       return {
@@ -117,7 +117,7 @@ export class ExpoFileAccess implements ForeignFileAccess {
     return wrapFfi(() => {
       const sink = this.sinks.get(sinkId);
       if (!sink) {
-        throw new Error(`sink 不存在: ${sinkId}`);
+        throw new Error(`sink does not exist: ${sinkId}`);
       }
       sink.handle.offset = Number(offset);
       sink.handle.writeBytes(new Uint8Array(data));
@@ -208,7 +208,7 @@ function ensureLocalSinkFile(
 function ensureSafSinkFile(baseUri: string, relativePath: string): File {
   const segments = relativePath.split("/").filter(Boolean);
   if (segments.length === 0) {
-    throw new Error(`SAF sink relativePath 为空: ${relativePath}`);
+    throw new Error(`SAF sink relativePath is empty: ${relativePath}`);
   }
   const fileName = segments[segments.length - 1];
   const dirSegments = segments.slice(0, -1);
@@ -262,7 +262,7 @@ function findChildFile(parent: Directory, name: string): File | null {
 function saveLocationUri(saveDir: MobileSaveLocation | undefined): string {
   if (!saveDir) {
     throw new Error(
-      "MobileFileMetadata.saveDir 缺失：core 未注入用户选择的保存目录",
+      "MobileFileMetadata.saveDir is missing: core did not provide the selected save directory",
     );
   }
   return saveDir.inner.path;
