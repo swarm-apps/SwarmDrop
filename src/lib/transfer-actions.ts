@@ -8,7 +8,8 @@
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { getErrorMessage } from "@/lib/errors";
-import { commands } from "@/lib/bindings";
+import { commands, type TransferProjection } from "@/lib/bindings";
+import { useShareStore } from "@/stores/share-store";
 
 /** 暂停传输 */
 export async function doPauseTransfer(sessionId: string) {
@@ -47,4 +48,23 @@ export async function doResumeTransfer(sessionId: string): Promise<string> {
     );
   }
   return result.sessionId;
+}
+
+/**
+ * 重新发送：取回源文件绝对路径 → 塞进 share-store（携带原目标设备）供 share-target
+ * 快捷发送流消费。与 [ExternalOpenHandler] 同一「发起快捷发送」入口；调用方在成功后
+ * 自行 navigate 到 `/send/share-target`（与 doResumeTransfer 一样，导航留给组件）。
+ * 找不到源路径时抛错，交调用方 toast。
+ */
+export async function doResendTransfer(
+  projection: TransferProjection,
+): Promise<void> {
+  const paths = await commands.getTransferSourcePaths(projection.sessionId);
+  if (paths.length === 0) {
+    throw new Error(t`找不到原始文件路径，请重新选择文件发送`);
+  }
+  useShareStore.getState().setSources(
+    paths.map((path) => ({ type: "path", path })),
+    projection.peerId,
+  );
 }

@@ -29,16 +29,7 @@ import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PolicyReasonBadge } from "@/components/transfer/policy-reason-badge";
 import { DirectionIcon } from "@/components/transfer/session-panel";
 import {
@@ -82,14 +73,18 @@ export const SessionRow = memo(function SessionRow({
   const [isCancelling, setIsCancelling] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  // 统一的错误捕获 + toast，行内动作与弹窗确认共用（弹窗确认没有 MouseEvent）。
+  const runSafe = async (action: () => Promise<void>) => {
+    try {
+      await action();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
   const withAction =
-    (action: () => Promise<void>) => async (e: React.MouseEvent) => {
+    (action: () => Promise<void>) => (e: React.MouseEvent) => {
       e.stopPropagation();
-      try {
-        await action();
-      } catch (err) {
-        toast.error(getErrorMessage(err));
-      }
+      void runSafe(action);
     };
 
   const onPause = withAction(() => doPauseTransfer(sessionId));
@@ -97,14 +92,12 @@ export const SessionRow = memo(function SessionRow({
     const newSessionId = await doResumeTransfer(sessionId);
     onSessionChange(newSessionId);
   });
-  const handleDeleteConfirm = async () => {
+  const handleDeleteConfirm = () => {
     setDeleteOpen(false);
-    try {
+    void runSafe(async () => {
       await commands.deleteTransferSession(sessionId);
       await loadProjections();
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    }
+    });
   };
   const onCancel = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -319,35 +312,26 @@ export const SessionRow = memo(function SessionRow({
         </div>
       </div>
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <Trans>删除「{displayFileName}」的传输记录？</Trans>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {canResume ? (
-                <Trans>
-                  删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。
-                </Trans>
-              ) : (
-                <Trans>记录删除后无法恢复；已传输的文件不受影响。</Trans>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>
-              <Trans>取消</Trans>
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              <Trans>删除记录</Trans>
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* 条件挂载：不常驻在高频进度重渲染的行子树里 */}
+      {deleteOpen && (
+        <ConfirmDialog
+          open
+          onOpenChange={setDeleteOpen}
+          stopPropagation
+          title={<Trans>删除「{displayFileName}」的传输记录？</Trans>}
+          description={
+            canResume ? (
+              <Trans>
+                删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。
+              </Trans>
+            ) : (
+              <Trans>记录删除后无法恢复；已传输的文件不受影响。</Trans>
+            )
+          }
+          confirmLabel={<Trans>删除记录</Trans>}
+          onConfirm={handleDeleteConfirm}
+        />
+      )}
     </div>
   );
 });

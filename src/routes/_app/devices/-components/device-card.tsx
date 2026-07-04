@@ -1,6 +1,7 @@
 import { useState, type ComponentType } from "react";
 import { cn } from "@/lib/utils";
 import { deviceDisplayName } from "@/lib/device-name";
+import { formatLatency } from "@/lib/format";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   Link,
@@ -209,10 +210,9 @@ export function DeviceCard({
               <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
                 {t(connConfig.label)}
               </span>
-              {/* 0ms 是取整后的占位值，看起来像 bug；<1ms 时只显示连接类型 */}
-              {device.latency > 0 && (
+              {formatLatency(device.latency) && (
                 <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
-                  {device.latency}ms
+                  {formatLatency(device.latency)}
                 </span>
               )}
             </div>

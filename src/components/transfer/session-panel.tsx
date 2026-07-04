@@ -22,7 +22,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
-import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -39,18 +38,18 @@ import { openTransferResult } from "@/lib/file-picker";
 import { getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileTree, buildTreeDataFromSession } from "@/components/file-tree";
-import { useShareStore } from "@/stores/share-store";
-import {
-  commands,
-  type TransferProjection,
-  type TransferProgressEvent,
+import type {
+  TransferProjection,
+  TransferProgressEvent,
 } from "@/lib/bindings";
 import {
   doPauseTransfer,
   doCancelTransfer,
+  doResendTransfer,
   doResumeTransfer,
 } from "@/lib/transfer-actions";
 import {
+  canResendProjection,
   canResumeProjection,
   isProjectionActive,
   isProjectionCompleted,
@@ -394,12 +393,6 @@ export const SessionActions = memo(function SessionActions({
   const [isCancelling, setIsCancelling] = useState(false);
   const [isResending, setIsResending] = useState(false);
 
-  // 发送方向的非完成终态（失败/取消/被拒）：源文件仍在本机，给一键重发的出口
-  const canResend =
-    projection.direction === "send" &&
-    projection.phase === "terminal" &&
-    projection.terminalReason !== "completed";
-
   const handlePause = useCallback(async () => {
     try {
       await doPauseTransfer(projection.sessionId);
@@ -440,30 +433,19 @@ export const SessionActions = memo(function SessionActions({
     }
   }, [onSessionChange, projection.sessionId]);
 
-  // 重新发送：取回源文件绝对路径 → 塞进 share-store（携带原目标设备）→ 走快捷发送流。
-  // 若已在 share-target 页，store 订阅会以新载荷覆盖旧选择，无需特判。
+  // 重新发送：doResendTransfer 取回源路径塞进 share-store（携带原目标设备），
+  // 成功后导航到快捷发送流（导航留在组件，与 handleResume 同）。
   const handleResend = useCallback(async () => {
-    if (isResending) return;
     setIsResending(true);
     try {
-      const paths = await commands.getTransferSourcePaths(projection.sessionId);
-      if (paths.length === 0) {
-        toast.error(t`找不到原始文件路径，请重新选择文件发送`);
-        return;
-      }
-      useShareStore
-        .getState()
-        .setSources(
-          paths.map((path) => ({ type: "path", path })),
-          projection.peerId,
-        );
+      await doResendTransfer(projection);
       void navigate({ to: "/send/share-target" });
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
       setIsResending(false);
     }
-  }, [isResending, navigate, projection.peerId, projection.sessionId]);
+  }, [navigate, projection]);
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -515,7 +497,7 @@ export const SessionActions = memo(function SessionActions({
         </Button>
       )}
 
-      {canResend && (
+      {canResendProjection(projection) && (
         <Button
           onClick={handleResend}
           disabled={isResending}

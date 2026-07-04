@@ -32,16 +32,7 @@ import {
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import {
   SessionActions,
@@ -260,31 +251,20 @@ function TransferPage() {
         </>
       )}
 
-      <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <Trans>清空全部传输记录？</Trans>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              <Trans>
-                将删除全部 {counts.all} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。
-              </Trans>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>
-              <Trans>取消</Trans>
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleClearConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              <Trans>清空记录</Trans>
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {clearOpen && (
+        <ConfirmDialog
+          open
+          onOpenChange={setClearOpen}
+          title={<Trans>清空全部传输记录？</Trans>}
+          description={
+            <Trans>
+              将删除全部 {counts.all} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。
+            </Trans>
+          }
+          confirmLabel={<Trans>清空记录</Trans>}
+          onConfirm={handleClearConfirm}
+        />
+      )}
     </main>
   );
 }

@@ -31,7 +31,7 @@ import { useTransferStore } from "@/stores/transfer-store";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
-import { formatFileSize } from "@/lib/format";
+import { formatFileSize, formatLatency } from "@/lib/format";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileTree } from "@/components/file-tree";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
@@ -354,14 +354,12 @@ function ConnectionHint({ device }: { device: Device }) {
     ) : (
       <Trans>中继</Trans>
     );
+  const latency = formatLatency(device.latency);
   return (
     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
       <span aria-hidden>·</span>
       {label}
-      {/* 0ms 是取整后的占位值，看起来像 bug；<1ms 时只显示连接类型 */}
-      {device.latency > 0 && (
-        <span className="font-mono tabular-nums">{device.latency}ms</span>
-      )}
+      {latency && <span className="font-mono tabular-nums">{latency}</span>}
     </span>
   );
 }

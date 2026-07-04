@@ -8,6 +8,14 @@ export function calcPercent(transferred: number, total: number): number {
   return total > 0 ? Math.round((transferred / total) * 100) : 0;
 }
 
+/**
+ * 格式化连接延迟。0ms 是取整后的占位值（<1ms 直连），看起来像 bug，
+ * 故 ≤0 返回 null，由调用方决定只显示连接类型。
+ */
+export function formatLatency(ms: number | null | undefined): string | null {
+  return ms != null && ms > 0 ? `${ms}ms` : null;
+}
+
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

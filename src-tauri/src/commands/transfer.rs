@@ -222,8 +222,7 @@ pub async fn get_transfer_source_paths(
     db: State<'_, sea_orm::DatabaseConnection>,
     session_id: Uuid,
 ) -> crate::AppResult<Vec<String>> {
-    let files = crate::database::ops::get_session_files(&db, session_id).await?;
-    Ok(files.into_iter().filter_map(|f| f.source_path).collect())
+    Ok(crate::database::ops::get_session_source_paths(&db, session_id).await?)
 }
 
 #[tauri::command]

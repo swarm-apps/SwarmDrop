@@ -83,6 +83,18 @@ export function canResumeProjection(projection: TransferProjection): boolean {
   return projection.phase === "suspended" && projection.recoverable;
 }
 
+/**
+ * 可重新发送：发送方向、已终态、非成功完成（失败/取消/被拒）。
+ * 源文件仍在发送端本机，可原样再发一次。
+ */
+export function canResendProjection(projection: TransferProjection): boolean {
+  return (
+    projection.direction === "send" &&
+    projection.phase === "terminal" &&
+    projection.terminalReason !== "completed"
+  );
+}
+
 /** 已结束：终态，或中断且不可恢复。 */
 export function isProjectionEnded(projection: TransferProjection): boolean {
   return (
