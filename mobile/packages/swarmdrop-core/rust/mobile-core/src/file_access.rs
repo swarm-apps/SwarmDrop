@@ -127,8 +127,11 @@ pub trait ForeignFileAccess: Send + Sync {
         data: Vec<u8>,
     ) -> Result<(), FfiError>;
 
-    /// 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）
-    async fn finalize_sink(&self, sink_id: String) -> Result<(), FfiError>;
+    /// 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
+    /// 返回文件的最终落盘 URI（file:// 或 SAF document URI）——core 会原样落库，
+    /// 收件箱「打开/分享/删除」都依赖它，**不能**用目录 + 相对路径拼接代替
+    /// （SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
+    async fn finalize_sink(&self, sink_id: String) -> Result<String, FfiError>;
 
     /// 取消时清理临时文件
     async fn cleanup_sink(&self, sink_id: String) -> Result<(), FfiError>;
@@ -202,7 +205,7 @@ impl FileAccess for MobileFileAccessAdapter {
             .map_err(to_app_error)
     }
 
-    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<()> {
+    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<String> {
         self.foreign
             .finalize_sink(sink.0.clone())
             .await

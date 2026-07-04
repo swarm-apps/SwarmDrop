@@ -217,3 +217,54 @@ setType（resolver 会向 provider 查 MIME，type+data 同设有兼容坑）。
 
 **相关文件**：[src/lib/open-file.ts](../../src/lib/open-file.ts),
 [openspec/changes/inbox-file-preview/design.md](../../openspec/changes/inbox-file-preview/design.md)
+
+### SAF localPath 必须来自 finalize_sink 返回值，不能拼接推导（vivo 真机实证）
+
+v0.7.3 真机暴雷：SAF 目录下收件箱「打开」跳浏览器、「分享」直接 reject。根因是 core
+落库的 `local_path` 用 `Path::join(saveDir, relativePath)` 字符串拼接——SAF 下拼出
+`content://…/tree/<treeId>/<相对路径>` 的**伪 URI**（缺 `/document/<docId>` 段，
+docId 有独立的 percent 编码），ContentResolver 解析不了：ACTION_VIEW 查不到 MIME
+被浏览器兜底，openFileDescriptor 直接报错。重名冲突被系统改写成 "foo (1).jpg" 时
+拼接推导同样失真（桌面端同理）。
+
+**治本契约**：`FileAccess::finalize_sink -> AppResult<String>` 返回最终落盘位置
+（桌面 = .part rename 后绝对路径；移动 = expo-fs `createFile` 返回的 `file.uri`），
+receiver 经 `mark_file_completed` 写入 `transfer_files.local_path`，收件箱落库只认
+它——NULL 显式报错，不做拼接推导回退。**不留历史数据兼容层**（用户拍板：当下没有
+存量用户，旧库卸载重装即可），前端拿到的 localPath 保证合法可直接用。
+
+**分享的平台边界**：expo-sharing 只接受 `file://`（SharingModule.kt 硬检查），SAF
+文件走它必须整份 copy 进 cache（慢 + 膨胀）→ 弃用。expo-intent-launcher 的 extra
+只能放基本类型，塞不进 `EXTRA_STREAM` 要的 Parcelable Uri。零拷贝方案 =
+`modules/content-share/` 本地 expo-module（~30 行 Kotlin）：ACTION_SEND +
+EXTRA_STREAM + `FLAG_GRANT_READ_URI_PERMISSION`，framework 的
+migrateExtraStreamToClipData 负责把权限带给目标应用。MIME 从**原始文件名的扩展名**
+经 `MimeTypeMap.getMimeTypeFromExtension` 查（**不要**用
+`URLConnection.guessContentTypeFromName`：对含 `#` 的文件名如 "C#笔记.pdf" 有 AOSP
+`StringIndexOutOfBoundsException` 崩溃 bug）。
+
+**missing 是单向持久标记**：`markInboxFileMissing(...,true)` 落库且**无解除路径**
+（`repairMissingInboxItems` 只补建丢失的收件箱条目，不清文件级 missing）。所以打开/
+分享的存在性检查必须区分「明确查到不存在」(exists===false→判缺失) 与「查询本身抛错」
+(provider 瞬时故障/授权未知→不判缺失，当普通错误让用户重试)——否则一次 SAF 抖动会
+永久锁死好文件。`fileExists` 返回 `boolean | null` 表达三态。
+
+**ubrn build --and-generate 会冲刷两端原生脚手架**：`pnpm build:ios` / `pnpm
+build:android`（都带 `--and-generate`）会把 podspec/gradle 引用的手写模块源删掉、
+生成一套示例 app 脚手架 —— iOS 删 `ios/SwarmdropCore.h/.mm` 生成 `ios/Podfile`+
+`ios/reactnativeswarmdropcore*`；Android 把 `android/build.gradle` 换成 root-project
+版、删 `CMakeLists.txt`/`cpp-adapter.cpp`/`AndroidManifest.xml`/`com/swarmdropcore/
+*.kt`、生成 `android/app/` 示例 app。**坑**：被冲刷后本地构建可能因 gradle/pods 缓存
+仍能装上（假绿），但干净构建 / CI release 必挂。
+- **接口没变时**（如只改内部 Rust 实现、bump 依赖 rev）：用 `npx ubrn build
+  android -t arm64-v8a` / `npx ubrn build ios`（**去掉 `--and-generate`**）——只重编
+  Rust + 拷 jniLibs/xcframework，不碰脚手架、不重生成 bindings。这是首选。
+- **接口变了必须 `--and-generate`**：跑完立刻 `git checkout -- packages/swarmdrop-core/
+  {ios,android}/` + 删掉未跟踪的 `ios/Podfile*` `ios/reactnativeswarmdropcore*`
+  `android/.gitignore` `android/app/`，然后 `rm -rf android/build android/.cxx` 干净
+  重编确认。bindings 产物在 `cpp/generated`、`src/generated`（不在 ios/android/），
+  checkout 脚手架不会丢它们。
+
+**相关文件**：[src/lib/open-file.ts](../../src/lib/open-file.ts),
+[modules/content-share/](../../modules/content-share/),
+[src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts)

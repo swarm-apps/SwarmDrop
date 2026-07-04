@@ -1,7 +1,6 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { File } from "expo-file-system";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import * as Sharing from "expo-sharing";
 import { useVideoPlayer, VideoView } from "expo-video";
 import {
   Archive,
@@ -52,7 +51,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { canOpenSaveFolder } from "@/core/saf-intent";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { openFileWithSystem } from "@/lib/open-file";
+import { openFileWithSystem, shareFileWithSystem } from "@/lib/open-file";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
 import { cn, parentDirOf } from "@/lib/utils";
@@ -195,14 +194,7 @@ export default function InboxDetailScreen() {
       if (!itemId) return;
       try {
         await ensureAvailable(file);
-        const available = await Sharing.isAvailableAsync();
-        if (!available) {
-          toast.error(t`系统分享不可用`);
-          return;
-        }
-        await Sharing.shareAsync(file.localPath, {
-          dialogTitle: t`分享文件`,
-        });
+        await shareFileWithSystem(file.localPath, file.name, t`分享文件`);
       } catch (err) {
         if (isMissingFileError(err, file)) {
           await markFileMissing(itemId, file.id, true);
@@ -228,14 +220,7 @@ export default function InboxDetailScreen() {
           return;
         } catch (openErr) {
           if (isMissingFileError(openErr, file)) throw openErr;
-          const available = await Sharing.isAvailableAsync();
-          if (!available) {
-            toast.error(t`没有应用能打开这个文件`);
-            return;
-          }
-          await Sharing.shareAsync(file.localPath, {
-            dialogTitle: t`分享文件`,
-          });
+          await shareFileWithSystem(file.localPath, file.name, t`分享文件`);
         }
       } catch (err) {
         if (isMissingFileError(err, file)) {
@@ -1185,12 +1170,23 @@ function ensureAvailable(file: InboxFileEntry): void {
   if (file.missing) {
     throw new MissingFileError();
   }
-  if (!file.localPath.startsWith("file://")) {
-    return;
-  }
-  const localFile = new File(file.localPath);
-  if (!localFile.exists) {
+  // file:// 与 SAF content:// 都先查存在性：文件被删时在这里拦下并给「文件已
+  // 不在原位置」，而不是把死 URI 交给系统（打开失败我们拿不到信号）。
+  // 只有**明确查到不存在**才判缺失；查询本身抛错(provider 瞬时故障、授权状态
+  // 未知)不算——missing 是持久化且无解除路径的单向标记，一次抖动误判会永久锁死
+  // 好文件，宁可当普通错误让用户重试。
+  if (fileExists(file.localPath) === false) {
     throw new MissingFileError();
+  }
+}
+
+/** expo-fs File 对 file:// 与 SAF document URI 都能查 exists。
+ *  true=存在 / false=确定不存在 / null=查询失败(未知，不可判缺失)。 */
+function fileExists(localPath: string): boolean | null {
+  try {
+    return new File(localPath).exists;
+  } catch {
+    return null;
   }
 }
 
@@ -1202,13 +1198,9 @@ class MissingFileError extends Error {
 
 function isMissingFileError(err: unknown, file: InboxFileEntry): boolean {
   if (err instanceof MissingFileError) return true;
-  // 不靠错误文案判断（本地化 / 不同平台下英文子串会漏判）：直接复查文件是否还在原位。
-  if (!file.localPath.startsWith("file://")) return false;
-  try {
-    return !new File(file.localPath).exists;
-  } catch {
-    return false;
-  }
+  // 不靠错误文案判断（本地化 / 不同平台下英文子串会漏判）：复查文件是否还在原位。
+  // 同样只认「明确不存在」，查询失败不判缺失。
+  return fileExists(file.localPath) === false;
 }
 
 function fileIcon(name: string): LucideIcon {

@@ -4187,9 +4187,12 @@ export interface ForeignFileAccess {
      */
     writeSinkChunk(sinkId: string, offset: /*u64*/bigint, data: ArrayBuffer, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     /**
-     * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）
+     * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
+     * 返回文件的最终落盘 URI（file:// 或 SAF document URI）——core 会原样落库，
+     * 收件箱「打开/分享/删除」都依赖它，**不能**用目录 + 相对路径拼接代替
+     * （SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
      */
-    finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<string>;
     /**
      * 取消时清理临时文件
      */
@@ -4374,9 +4377,12 @@ async  writeSinkChunk(sinkId: string, offset: /*u64*/bigint, data: ArrayBuffer, 
     }
     
     /**
-     * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）
+     * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
+     * 返回文件的最终落盘 URI（file:// 或 SAF document URI）——core 会原样落库，
+     * 收件箱「打开/分享/删除」都依赖它，**不能**用目录 + 相对路径拼接代替
+     * （SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
      */
-async  finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+async  finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
@@ -4387,11 +4393,11 @@ async  finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promi
                     FfiConverterString.lower(sinkId)
                 );
             },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
-            /*liftFunc:*/ (_v) => {},
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -4746,21 +4752,22 @@ const uniffiCallbackInterfaceForeignFileAccess: { vtable: UniffiVTableCallbackIn
         finalizeSink: (
             uniffiHandle: bigint,
             sinkId: Uint8Array,
-            uniffiFutureCallback: UniffiForeignFutureCompleteVoid,
+            uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer,
             uniffiCallbackData: bigint) => {
             const uniffiMakeCall = 
             async (signal: AbortSignal)
-            : Promise<void> => {
+            : Promise<string> => {
                 const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
                 return await jsCallback.finalizeSink(
                     FfiConverterString.lift(sinkId), { signal }
                 )
             };
-            const uniffiHandleSuccess = (returnValue: void) => {
+            const uniffiHandleSuccess = (returnValue: string) => {
                 uniffiFutureCallback.call(
                     uniffiFutureCallback,
                     uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: FfiConverterString.lower(returnValue),
                         callStatus: uniffiCaller.createCallStatus()
                     }
                 );
@@ -4769,7 +4776,8 @@ const uniffiCallbackInterfaceForeignFileAccess: { vtable: UniffiVTableCallbackIn
                 uniffiFutureCallback.call(
                     uniffiFutureCallback,
                     uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
+                    /* UniffiForeignFutureResultRustBuffer */{
+                        returnValue: /*empty*/ new Uint8Array(0),
                         // TODO create callstatus with error.
                         callStatus: uniffiCaller.createErrorStatus(code, errorBuf),
                     }
@@ -6734,7 +6742,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk() !== 54574) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink() !== 7894) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink() !== 30636) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink() !== 36565) {

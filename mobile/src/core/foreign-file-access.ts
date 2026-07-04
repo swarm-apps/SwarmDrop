@@ -124,9 +124,11 @@ export class ExpoFileAccess implements ForeignFileAccess {
     });
   }
 
-  async finalizeSink(sinkId: string): Promise<void> {
+  async finalizeSink(sinkId: string): Promise<string> {
     // host 已按 chunk 写入完整文件；core 端通过 BLAKE3 校验，
     // 若失败会调 cleanup_sink。这里关掉 handle + 清掉内存引用。
+    // 返回最终落盘 URI 供 core 落库：sinkId 即 createFile 返回的 file.uri
+    // （SAF 下是真实 document URI，含系统对重名的 "foo (1)" 改写）。
     const sink = this.sinks.get(sinkId);
     if (sink) {
       this.sinks.delete(sinkId);
@@ -136,6 +138,7 @@ export class ExpoFileAccess implements ForeignFileAccess {
         // best-effort：handle 可能已被系统回收，忽略
       }
     }
+    return sinkId;
   }
 
   cleanupSink(sinkId: string): Promise<void> {

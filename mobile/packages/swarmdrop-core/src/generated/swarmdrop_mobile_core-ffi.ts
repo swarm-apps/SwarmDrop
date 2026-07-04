@@ -269,7 +269,7 @@ type UniffiCallbackInterfaceForeignFileAccessMethod3 = (uniffiHandle: bigint, me
 ;
 type UniffiCallbackInterfaceForeignFileAccessMethod4 = (uniffiHandle: bigint, sinkId: Uint8Array, offset: bigint, data: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteVoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
 ;
-type UniffiCallbackInterfaceForeignFileAccessMethod5 = (uniffiHandle: bigint, sinkId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteVoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
+type UniffiCallbackInterfaceForeignFileAccessMethod5 = (uniffiHandle: bigint, sinkId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
 ;
 type UniffiCallbackInterfaceForeignFileAccessMethod6 = (uniffiHandle: bigint, sinkId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteVoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
 ;

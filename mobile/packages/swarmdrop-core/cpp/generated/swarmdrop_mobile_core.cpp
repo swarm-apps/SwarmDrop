@@ -183,7 +183,7 @@ extern "C" {
     (*UniffiCallbackInterfaceForeignFileAccessMethod5)(
     uint64_t uniffi_handle, 
     RustBuffer sink_id, 
-    UniffiForeignFutureCompleteVoid uniffi_future_callback, 
+    UniffiForeignFutureCompleteRustBuffer uniffi_future_callback, 
     uint64_t uniffi_callback_data, 
     UniffiForeignFutureDroppedCallbackStruct * uniffi_out_dropped_callback
     );
@@ -3689,7 +3689,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
 
     // We need to store a lambda in a global so we can call it from
     // a function pointer. The function pointer is passed to Rust.
-    static std::function<void(uint64_t, RustBuffer, UniffiForeignFutureCompleteVoid, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
+    static std::function<void(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
 
     // This is the main body of the callback. It's called from the lambda,
     // which itself is called from the callback function which is passed to Rust.
@@ -3698,7 +3698,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
                      std::shared_ptr<jsi::Value> callbackValue
             ,uint64_t rs_uniffiHandle
             ,RustBuffer rs_sinkId
-            ,UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback
+            ,UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback
             ,uint64_t rs_uniffiCallbackData
             ,UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
 
@@ -3706,7 +3706,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         // We'll use the Bridging class to do this…
         auto js_uniffiHandle = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiHandle);
         auto js_sinkId = uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, rs_sinkId);
-        auto js_uniffiFutureCallback = uniffi::swarmdrop_mobile_core::Bridging<UniffiForeignFutureCompleteVoid>::toJs(rt, callInvoker, rs_uniffiFutureCallback);
+        auto js_uniffiFutureCallback = uniffi::swarmdrop_mobile_core::Bridging<UniffiForeignFutureCompleteRustBuffer>::toJs(rt, callInvoker, rs_uniffiFutureCallback);
         auto js_uniffiCallbackData = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiCallbackData);
 
         // Now we are ready to call the callback.
@@ -3736,7 +3736,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         }
     }
 
-    static void callback(uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+    static void callback(uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
         // If the runtime has shutdown, then there is no point in trying to
         // call into Javascript. BUT how do we tell if the runtime has shutdown?
         //
@@ -3779,7 +3779,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         }
         auto callbackFunction = value.asObject(rt).asFunction(rt);
         auto callbackValue = std::make_shared<jsi::Value>(rt, callbackFunction);
-        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
                 // We immediately make a lambda which will do the work of transforming the
                 // arguments into JSI values and calling the callback.
                 uniffi_runtime::UniffiCallFunc jsLambda = [
