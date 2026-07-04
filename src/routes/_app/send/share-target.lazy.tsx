@@ -75,10 +75,12 @@ function ShareTargetPage() {
   const pendingSources = useShareStore((s) => s.sources);
   useEffect(() => {
     if (pendingSources.length === 0) return;
-    const sources = useShareStore.getState().consume();
+    const { sources, presetPeerId } = useShareStore.getState().consume();
     if (sources.length === 0) return;
     setActiveSessionId(null);
     clear();
+    // 「重新发送」携带原目标设备；设备当前离线时 selectedDevice 派生为 null，自动回落选设备
+    if (presetPeerId) setSelectedPeerId(presetPeerId);
     void addSources(sources).catch((err) => toast.error(getErrorMessage(err)));
   }, [pendingSources, addSources, clear]);
 
@@ -174,10 +176,16 @@ function ShareTargetPage() {
               fileSelection.hasFiles ? (
                 <Trans>{fileSelection.totalCount} 项内容</Trans>
               ) : (
-                <Trans>准备中</Trans>
+                <Trans>没有待发送的文件</Trans>
               )
             }
-            description={<Trans>选择右侧一台在线设备，端到端加密直接送达。</Trans>}
+            description={
+              fileSelection.hasFiles ? (
+                <Trans>选择右侧一台在线设备，端到端加密直接送达。</Trans>
+              ) : (
+                <Trans>所有文件已被移除。返回后重新选择要发送的内容。</Trans>
+              )
+            }
             className="min-h-[320px]"
           >
             <div className="flex h-full min-h-0 flex-col gap-4">
@@ -250,6 +258,13 @@ function ShareTargetPage() {
             <div className="min-w-0 flex-1 px-2">
               <PrepareProgressBar progress={prepareProgress} />
             </div>
+          </CommandDock>
+        ) : !fileSelection.hasFiles ? (
+          // 空载荷：发送无从谈起，只留一个明确的出口
+          <CommandDock>
+            <TaskButton onClick={handleBack}>
+              <Trans>返回</Trans>
+            </TaskButton>
           </CommandDock>
         ) : (
           <CommandDock>
@@ -343,7 +358,10 @@ function ConnectionHint({ device }: { device: Device }) {
     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
       <span aria-hidden>·</span>
       {label}
-      <span className="font-mono tabular-nums">{device.latency}ms</span>
+      {/* 0ms 是取整后的占位值，看起来像 bug；<1ms 时只显示连接类型 */}
+      {device.latency > 0 && (
+        <span className="font-mono tabular-nums">{device.latency}ms</span>
+      )}
     </span>
   );
 }

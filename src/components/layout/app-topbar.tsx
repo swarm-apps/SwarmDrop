@@ -153,22 +153,24 @@ export function AppTopBar() {
         >
           <ThemeShortcut />
 
+          {/* ≥1280px 图标带文字标签（识别而非回忆），窄窗口回落 icon-only（title/aria 兜底） */}
           <Button
             asChild
             variant="ghost"
-            size="icon"
-            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+            className="h-8 gap-1.5 rounded-md px-2 hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
             <Link to="/inbox" aria-label={t`收件箱`} title={t`收件箱`}>
               <Inbox className="size-4" />
+              <span className="hidden text-xs font-medium xl:inline">
+                <Trans>收件箱</Trans>
+              </span>
             </Link>
           </Button>
 
           <Button
             asChild
             variant="ghost"
-            size="icon"
-            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+            className="h-8 gap-1.5 rounded-md px-2 hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
             <Link
               to="/transfer"
@@ -177,6 +179,9 @@ export function AppTopBar() {
               className="relative"
             >
               <Activity className="size-4" />
+              <span className="hidden text-xs font-medium xl:inline">
+                <Trans>传输</Trans>
+              </span>
               <ActiveTransferBadge />
             </Link>
           </Button>
@@ -184,11 +189,13 @@ export function AppTopBar() {
           <Button
             asChild
             variant="ghost"
-            size="icon"
-            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+            className="h-8 gap-1.5 rounded-md px-2 hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
             <Link to="/settings" aria-label={t`设置`} title={t`设置`}>
               <Settings className="size-4" />
+              <span className="hidden text-xs font-medium xl:inline">
+                <Trans>设置</Trans>
+              </span>
             </Link>
           </Button>
 

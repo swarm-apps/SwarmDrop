@@ -209,9 +209,12 @@ export function DeviceCard({
               <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
                 {t(connConfig.label)}
               </span>
-              <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
-                {device.latency}ms
-              </span>
+              {/* 0ms 是取整后的占位值，看起来像 bug；<1ms 时只显示连接类型 */}
+              {device.latency > 0 && (
+                <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
+                  {device.latency}ms
+                </span>
+              )}
             </div>
           ) : (
             <TrustBadge device={device} />

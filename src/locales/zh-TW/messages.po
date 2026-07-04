@@ -259,8 +259,9 @@ msgstr "從左側列表選擇工作階段，檢視進度、檔案明細和操作
 msgid "从附近设备发起配对，或使用配对码连接另一台设备。"
 msgstr "從附近裝置發起配對，或使用配對碼連線另一台裝置。"
 
-#~ msgid "传输"
-#~ msgstr "傳輸"
+#: src/components/layout/app-topbar.tsx
+msgid "传输"
+msgstr "傳輸"
 
 #: src/lib/transfer-projection.ts
 #: src/routes/_app/devices/index.lazy.tsx
@@ -275,6 +276,7 @@ msgstr "傳輸工作階段"
 #~ msgid "传输历史"
 #~ msgstr "傳輸歷史"
 
+#: src/components/transfer/session-panel.tsx
 #: src/lib/transfer-notifications.ts
 msgid "传输失败"
 msgstr "傳輸失敗"
@@ -499,8 +501,8 @@ msgstr "最小化到系統匣"
 #~ msgstr "最近完成"
 
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "准备中"
-msgstr ""
+#~ msgid "准备中"
+#~ msgstr ""
 
 #~ msgid "准备中..."
 #~ msgstr "準備中..."
@@ -535,10 +537,19 @@ msgstr "切換過濾條件，或直接使用下方配對碼連線。"
 msgid "删除"
 msgstr "刪除"
 
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "删除「{displayFileName}」的传输记录？"
+msgstr "刪除「{displayFileName}」的傳輸記錄？"
+
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
+msgstr "刪除後該任務的斷點資訊將一併清除，無法再繼續續傳；已傳輸的檔案不受影響。"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "删除收件箱记录"
 msgstr "刪除收件匣記錄"
 
+#: src/routes/_app/transfer/-session-row.tsx
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "删除记录"
 msgstr "刪除記錄"
@@ -655,6 +666,8 @@ msgstr "傳送配對請求"
 #: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/transfer/-session-row.tsx
+#: src/routes/_app/transfer/index.lazy.tsx
 msgid "取消"
 msgstr "取消"
 
@@ -915,6 +928,15 @@ msgstr "匯出"
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
 msgstr "將以下 JSON 加入 AI 用戶端（如 Claude Desktop、Cursor）的 MCP 設定中"
+
+#. placeholder {0}: counts.all
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
+msgstr "將刪除全部 {0} 條記錄，包括可恢復任務的斷點資訊，此操作無法復原；已傳輸的檔案不受影響。"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+#~ msgid "将删除全部 {0}条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
+#~ msgstr ""
 
 #. placeholder {0}: formatCountdown(remainingSeconds)
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -1228,6 +1250,10 @@ msgstr "成功接收的檔案會出現在這裡；暫停或失敗的傳輸會留
 msgid "所有文件传输完成！"
 msgstr "所有檔案傳輸完成！"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "所有文件已被移除。返回后重新选择要发送的内容。"
+msgstr "所有檔案已被移除。返回後重新選擇要傳送的內容。"
+
 #~ msgid "所有活跃连接将被断开"
 #~ msgstr "所有活躍連線將被斷開"
 
@@ -1267,6 +1293,10 @@ msgstr "直連"
 #: src/components/close-behavior-manager.tsx
 msgid "托盘"
 msgstr "系統匣"
+
+#: src/components/transfer/session-panel.tsx
+msgid "找不到原始文件路径，请重新选择文件发送"
+msgstr "找不到原始檔案路徑，請重新選擇檔案傳送"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "找到设备后，你可以确认系统信息再发送配对请求。"
@@ -1315,6 +1345,10 @@ msgstr "接收檔案會預設儲存到這裡，可隨時變更。"
 msgid "接收时间"
 msgstr ""
 
+#: src/components/transfer/session-panel.tsx
+msgid "接收未完成，请让对方重新发起传输。"
+msgstr "接收未完成，請讓對方重新發起傳輸。"
+
 #: src/components/transfer/policy-reason-badge.tsx
 msgid "接收策略"
 msgstr "接收策略"
@@ -1341,6 +1375,7 @@ msgstr "作業系統"
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
+#: src/components/layout/app-topbar.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "收件箱"
@@ -1360,6 +1395,10 @@ msgstr "收到檔案"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "文件"
 msgstr "檔案"
+
+#: src/components/transfer/session-panel.tsx
+msgid "文件仍在本机，可以直接重新发送。"
+msgstr "檔案仍在本機，可以直接重新傳送。"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "文件传输"
@@ -1715,6 +1754,10 @@ msgstr "每次詢問"
 msgid "没有在线设备"
 msgstr ""
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "没有待发送的文件"
+msgstr "沒有待傳送的檔案"
+
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
 msgstr "沒有符合條件的附近裝置"
@@ -1771,8 +1814,16 @@ msgstr "新增裝置"
 #~ msgstr "清空"
 
 #: src/routes/_app/transfer/index.lazy.tsx
+msgid "清空全部传输记录？"
+msgstr "清空全部傳輸記錄？"
+
+#: src/routes/_app/transfer/index.lazy.tsx
 msgid "清空活动记录"
 msgstr "清空活動記錄"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "清空记录"
+msgstr "清空記錄"
 
 #~ msgid "点击设备 → 选文件 → 发送"
 #~ msgstr ""
@@ -2086,6 +2137,10 @@ msgstr ""
 msgid "记住我的选择（之后可在「设置」中修改）"
 msgstr "記住我的選擇（之後可在「設定」中修改）"
 
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "记录删除后无法恢复；已传输的文件不受影响。"
+msgstr "記錄刪除後無法復原；已傳輸的檔案不受影響。"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "记录可能已被移除，或详情加载失败。请选择其它记录，或刷新收件箱。"
 msgstr ""
@@ -2149,6 +2204,7 @@ msgstr "裝置身分"
 msgid "设备身份初始化失败"
 msgstr "裝置身分初始化失敗"
 
+#: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
@@ -2248,6 +2304,7 @@ msgid "运行时长"
 msgstr "執行時間"
 
 #: src/routes/_app/send/index.lazy.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 msgid "返回"
 msgstr "返回"
 
@@ -2414,6 +2471,10 @@ msgstr "重新啟動節點"
 #: src/hooks/use-node-restart.ts
 msgid "重启节点失败"
 msgstr "重新啟動節點失敗"
+
+#: src/components/transfer/session-panel.tsx
+msgid "重新发送"
+msgstr "重新傳送"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx

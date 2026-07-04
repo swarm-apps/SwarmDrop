@@ -8,6 +8,7 @@
  */
 
 import { memo, useCallback, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -16,10 +17,12 @@ import {
   Loader2,
   Pause,
   Play,
+  RotateCcw,
   X,
   XCircle,
 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -36,7 +39,12 @@ import { openTransferResult } from "@/lib/file-picker";
 import { getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileTree, buildTreeDataFromSession } from "@/components/file-tree";
-import type { TransferProjection, TransferProgressEvent } from "@/lib/bindings";
+import { useShareStore } from "@/stores/share-store";
+import {
+  commands,
+  type TransferProjection,
+  type TransferProgressEvent,
+} from "@/lib/bindings";
 import {
   doPauseTransfer,
   doCancelTransfer,
@@ -284,19 +292,28 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
   }
 
   if (isProjectionFailed(projection)) {
+    // 顶部徽章已显示具体状态（如「不可恢复失败」），这里给通用标题 + 人话原因 + 下一步，
+    // 避免同一标签在面板里出现两次，也不把用户留在死胡同。
     return (
       <div className="flex flex-col items-center gap-2.5 py-2 md:gap-3 md:py-4">
         <div className="flex size-14 items-center justify-center rounded-full bg-red-100 dark:bg-red-500/15 md:size-16">
           <XCircle className="size-7 text-red-600 dark:text-red-400 md:size-8" />
         </div>
         <h3 className="text-base font-semibold text-foreground md:text-lg">
-          {projectionStatusLabel(projection)}
+          <Trans>传输失败</Trans>
         </h3>
         {projection.errorMessage && (
-          <p className="max-w-xs text-center text-[11px] text-muted-foreground md:max-w-sm md:text-xs">
+          <p className="max-w-xs text-center text-xs leading-5 text-foreground/80 md:max-w-sm">
             {projection.errorMessage}
           </p>
         )}
+        <p className="max-w-xs text-center text-[11px] text-muted-foreground md:max-w-sm md:text-xs">
+          {projection.direction === "send" ? (
+            <Trans>文件仍在本机，可以直接重新发送。</Trans>
+          ) : (
+            <Trans>接收未完成，请让对方重新发起传输。</Trans>
+          )}
+        </p>
       </div>
     );
   }
@@ -371,9 +388,17 @@ export const SessionActions = memo(function SessionActions({
   /** 使用方追加的按钮（如发送流完成态的「继续发送」） */
   trailing?: React.ReactNode;
 }) {
+  const navigate = useNavigate();
   const isActive = isProjectionActive(projection);
   const isPaused = projection.phase === "suspended";
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+
+  // 发送方向的非完成终态（失败/取消/被拒）：源文件仍在本机，给一键重发的出口
+  const canResend =
+    projection.direction === "send" &&
+    projection.phase === "terminal" &&
+    projection.terminalReason !== "completed";
 
   const handlePause = useCallback(async () => {
     try {
@@ -414,6 +439,31 @@ export const SessionActions = memo(function SessionActions({
       toast.error(getErrorMessage(err));
     }
   }, [onSessionChange, projection.sessionId]);
+
+  // 重新发送：取回源文件绝对路径 → 塞进 share-store（携带原目标设备）→ 走快捷发送流。
+  // 若已在 share-target 页，store 订阅会以新载荷覆盖旧选择，无需特判。
+  const handleResend = useCallback(async () => {
+    if (isResending) return;
+    setIsResending(true);
+    try {
+      const paths = await commands.getTransferSourcePaths(projection.sessionId);
+      if (paths.length === 0) {
+        toast.error(t`找不到原始文件路径，请重新选择文件发送`);
+        return;
+      }
+      useShareStore
+        .getState()
+        .setSources(
+          paths.map((path) => ({ type: "path", path })),
+          projection.peerId,
+        );
+      void navigate({ to: "/send/share-target" });
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setIsResending(false);
+    }
+  }, [isResending, navigate, projection.peerId, projection.sessionId]);
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -462,6 +512,21 @@ export const SessionActions = memo(function SessionActions({
         >
           <FolderOpen className="mr-2 size-4" />
           <Trans>打开文件夹</Trans>
+        </Button>
+      )}
+
+      {canResend && (
+        <Button
+          onClick={handleResend}
+          disabled={isResending}
+          className="rounded-full px-5 shadow-[0_10px_22px_rgba(219,163,65,0.18)]"
+        >
+          {isResending ? (
+            <Loader2 className="mr-2 size-4 animate-spin" />
+          ) : (
+            <RotateCcw className="mr-2 size-4" />
+          )}
+          <Trans>重新发送</Trans>
         </Button>
       )}
 

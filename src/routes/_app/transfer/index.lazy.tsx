@@ -32,6 +32,16 @@ import {
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import {
   SessionActions,
@@ -132,7 +142,9 @@ function TransferPage() {
     }
   }, [selectedId, projections, selectSession]);
 
-  const handleClearHistory = async () => {
+  const [clearOpen, setClearOpen] = useState(false);
+  const handleClearConfirm = async () => {
+    setClearOpen(false);
     try {
       await commands.clearTransferHistory();
       await loadProjections();
@@ -167,7 +179,7 @@ function TransferPage() {
       onFilterChange={setFilter}
       selectedId={selectedId ?? null}
       onSelect={selectSession}
-      onClear={items.length > 0 ? handleClearHistory : null}
+      onClear={items.length > 0 ? () => setClearOpen(true) : null}
     />
   );
 
@@ -247,6 +259,32 @@ function TransferPage() {
           </div>
         </>
       )}
+
+      <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              <Trans>清空全部传输记录？</Trans>
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <Trans>
+                将删除全部 {counts.all} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。
+              </Trans>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              <Trans>取消</Trans>
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleClearConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <Trans>清空记录</Trans>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }
@@ -270,7 +308,7 @@ function SessionRail({
   onFilterChange: (filter: FilterKey) => void;
   selectedId: string | null;
   onSelect: (sessionId: string) => void;
-  onClear: (() => Promise<void>) | null;
+  onClear: (() => void) | null;
 }) {
   const filters: { key: FilterKey; label: ReactNode }[] = [
     { key: "all", label: <Trans>全部</Trans> },

@@ -29,6 +29,16 @@ import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { PolicyReasonBadge } from "@/components/transfer/policy-reason-badge";
 import { DirectionIcon } from "@/components/transfer/session-panel";
 import {
@@ -70,6 +80,7 @@ export const SessionRow = memo(function SessionRow({
   const progress = useSessionProgress(sessionId);
   const loadProjections = useTransferStore((s) => s.loadProjections);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const withAction =
     (action: () => Promise<void>) => async (e: React.MouseEvent) => {
@@ -86,10 +97,15 @@ export const SessionRow = memo(function SessionRow({
     const newSessionId = await doResumeTransfer(sessionId);
     onSessionChange(newSessionId);
   });
-  const onDelete = withAction(async () => {
-    await commands.deleteTransferSession(sessionId);
-    await loadProjections();
-  });
+  const handleDeleteConfirm = async () => {
+    setDeleteOpen(false);
+    try {
+      await commands.deleteTransferSession(sessionId);
+      await loadProjections();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
   const onCancel = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isCancelling) return;
@@ -291,7 +307,10 @@ export const SessionRow = memo(function SessionRow({
               size="icon"
               variant="ghost"
               className={DESTRUCTIVE_BTN_CLASS}
-              onClick={onDelete}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteOpen(true);
+              }}
               title={t`删除记录`}
             >
               <Trash2 className="size-3.5" />
@@ -299,6 +318,36 @@ export const SessionRow = memo(function SessionRow({
           )}
         </div>
       </div>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              <Trans>删除「{displayFileName}」的传输记录？</Trans>
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {canResume ? (
+                <Trans>
+                  删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。
+                </Trans>
+              ) : (
+                <Trans>记录删除后无法恢复；已传输的文件不受影响。</Trans>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              <Trans>取消</Trans>
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <Trans>删除记录</Trans>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 });

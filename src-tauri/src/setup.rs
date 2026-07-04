@@ -79,6 +79,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::cancel_send,
             commands::cancel_receive,
             commands::get_transfer_projections,
+            commands::get_transfer_source_paths,
             commands::delete_transfer_session,
             commands::clear_transfer_history,
             commands::pause_transfer,

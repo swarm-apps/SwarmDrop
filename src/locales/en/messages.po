@@ -259,8 +259,9 @@ msgstr "Select a session from the list to view progress, file details, and actio
 msgid "从附近设备发起配对，或使用配对码连接另一台设备。"
 msgstr "Pair with a nearby device, or use a pairing code to connect another device."
 
-#~ msgid "传输"
-#~ msgstr "Transfer"
+#: src/components/layout/app-topbar.tsx
+msgid "传输"
+msgstr "Transfer"
 
 #: src/lib/transfer-projection.ts
 #: src/routes/_app/devices/index.lazy.tsx
@@ -275,6 +276,7 @@ msgstr "Transfer session"
 #~ msgid "传输历史"
 #~ msgstr "Transfer History"
 
+#: src/components/transfer/session-panel.tsx
 #: src/lib/transfer-notifications.ts
 msgid "传输失败"
 msgstr "Transfer Failed"
@@ -499,8 +501,8 @@ msgstr "Minimize to tray"
 #~ msgstr "Recently Completed"
 
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "准备中"
-msgstr ""
+#~ msgid "准备中"
+#~ msgstr ""
 
 #~ msgid "准备中..."
 #~ msgstr "Preparing..."
@@ -535,10 +537,19 @@ msgstr "Switch the filter, or use the pairing code below to connect."
 msgid "删除"
 msgstr "Delete"
 
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "删除「{displayFileName}」的传输记录？"
+msgstr "Delete the transfer record for \"{displayFileName}\"?"
+
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
+msgstr "Deleting will also clear this task's checkpoint, so it can no longer be resumed. Files already transferred are not affected."
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "删除收件箱记录"
 msgstr "Delete inbox record"
 
+#: src/routes/_app/transfer/-session-row.tsx
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "删除记录"
 msgstr "Delete record"
@@ -655,6 +666,8 @@ msgstr "Send Pairing Request"
 #: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/transfer/-session-row.tsx
+#: src/routes/_app/transfer/index.lazy.tsx
 msgid "取消"
 msgstr "Cancel"
 
@@ -915,6 +928,15 @@ msgstr "Export"
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
 msgstr "Add the following JSON to your AI client's MCP configuration (e.g. Claude Desktop, Cursor)"
+
+#. placeholder {0}: counts.all
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
+msgstr "This will delete all {0} records, including checkpoints of resumable tasks. This cannot be undone; transferred files are not affected."
+
+#: src/routes/_app/transfer/index.lazy.tsx
+#~ msgid "将删除全部 {0}条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
+#~ msgstr ""
 
 #. placeholder {0}: formatCountdown(remainingSeconds)
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -1228,6 +1250,10 @@ msgstr "Successfully received files appear here; paused or failed transfers stay
 msgid "所有文件传输完成！"
 msgstr "All files transferred successfully!"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "所有文件已被移除。返回后重新选择要发送的内容。"
+msgstr "All files have been removed. Go back and pick what to send again."
+
 #~ msgid "所有活跃连接将被断开"
 #~ msgstr "All active connections will be disconnected"
 
@@ -1267,6 +1293,10 @@ msgstr "Direct"
 #: src/components/close-behavior-manager.tsx
 msgid "托盘"
 msgstr "tray"
+
+#: src/components/transfer/session-panel.tsx
+msgid "找不到原始文件路径，请重新选择文件发送"
+msgstr "Original file paths not found. Please pick the files again to send."
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "找到设备后，你可以确认系统信息再发送配对请求。"
@@ -1315,6 +1345,10 @@ msgstr "Received files are saved here by default. You can change this anytime."
 msgid "接收时间"
 msgstr ""
 
+#: src/components/transfer/session-panel.tsx
+msgid "接收未完成，请让对方重新发起传输。"
+msgstr "The transfer didn't finish. Ask the sender to send it again."
+
 #: src/components/transfer/policy-reason-badge.tsx
 msgid "接收策略"
 msgstr "Receive policy"
@@ -1341,6 +1375,7 @@ msgstr "OS"
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
+#: src/components/layout/app-topbar.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "收件箱"
@@ -1360,6 +1395,10 @@ msgstr "Files Received"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "文件"
 msgstr "Files"
+
+#: src/components/transfer/session-panel.tsx
+msgid "文件仍在本机，可以直接重新发送。"
+msgstr "Your files are still on this device. You can resend them right away."
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "文件传输"
@@ -1715,6 +1754,10 @@ msgstr "Ask every time"
 msgid "没有在线设备"
 msgstr ""
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "没有待发送的文件"
+msgstr "No files to send"
+
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
 msgstr "No matching nearby devices"
@@ -1771,8 +1814,16 @@ msgstr "Add Device"
 #~ msgstr "Clear"
 
 #: src/routes/_app/transfer/index.lazy.tsx
+msgid "清空全部传输记录？"
+msgstr "Clear all transfer records?"
+
+#: src/routes/_app/transfer/index.lazy.tsx
 msgid "清空活动记录"
 msgstr "Clear activity"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "清空记录"
+msgstr "Clear records"
 
 #~ msgid "点击设备 → 选文件 → 发送"
 #~ msgstr ""
@@ -2086,6 +2137,10 @@ msgstr ""
 msgid "记住我的选择（之后可在「设置」中修改）"
 msgstr "Remember my choice (can be changed in Settings)"
 
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "记录删除后无法恢复；已传输的文件不受影响。"
+msgstr "The record cannot be recovered after deletion; transferred files are not affected."
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "记录可能已被移除，或详情加载失败。请选择其它记录，或刷新收件箱。"
 msgstr ""
@@ -2149,6 +2204,7 @@ msgstr "Device identity"
 msgid "设备身份初始化失败"
 msgstr "Failed to initialize device identity"
 
+#: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
@@ -2248,6 +2304,7 @@ msgid "运行时长"
 msgstr "Uptime"
 
 #: src/routes/_app/send/index.lazy.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
 msgid "返回"
 msgstr "Back"
 
@@ -2414,6 +2471,10 @@ msgstr "Restart Node"
 #: src/hooks/use-node-restart.ts
 msgid "重启节点失败"
 msgstr "Failed to restart node"
+
+#: src/components/transfer/session-panel.tsx
+msgid "重新发送"
+msgstr "Resend"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
