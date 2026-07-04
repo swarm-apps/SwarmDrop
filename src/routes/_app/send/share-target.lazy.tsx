@@ -56,7 +56,7 @@ function ShareTargetPage() {
   const navigate = useNavigate();
   const router = useRouter();
   const fileSelection = useFileSelection();
-  const { addSources } = fileSelection;
+  const { addSources, clear } = fileSelection;
 
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -68,14 +68,19 @@ function ShareTargetPage() {
   const devices = useNetworkStore((s) => s.devices);
   const pairedDevices = useSecretStore((s) => s.pairedDevices);
 
-  // 消费在途来源：mount 时一次性 consume（取走即清空）→ 扫描。addSources 稳定
-  // （useCallback []），consume 清空后即便重入也自然 no-op，无需额外 guard。
+  // 消费在途来源：订阅 store 而非只在 mount 时 consume——页面已挂载时用户再次
+  // 「用 SwarmDrop 打开」不会 remount（navigate 同路由 no-op），必须靠订阅感知新批次。
+  // 新一批 = 用户最新意图：覆盖旧选择（clear 而非追加），并退出可能停留的进度视图。
+  // consume 取走即清空 → sources 归空触发的下一轮 effect 拿到空数组自然 no-op。
+  const pendingSources = useShareStore((s) => s.sources);
   useEffect(() => {
+    if (pendingSources.length === 0) return;
     const sources = useShareStore.getState().consume();
-    if (sources.length > 0) {
-      void addSources(sources).catch((err) => toast.error(getErrorMessage(err)));
-    }
-  }, [addSources]);
+    if (sources.length === 0) return;
+    setActiveSessionId(null);
+    clear();
+    void addSources(sources).catch((err) => toast.error(getErrorMessage(err)));
+  }, [pendingSources, addSources, clear]);
 
   // 节点未启动时自动启动一次（外部打开常处于冷启动、节点还没起）。
   const startedRef = useRef(false);
