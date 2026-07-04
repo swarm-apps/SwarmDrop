@@ -251,8 +251,9 @@ function ThemeShortcut() {
   );
 }
 
-/** Windows / Linux 自画窗口控制按钮(最小化 / 最大化 / 关闭) */
-function WindowControls() {
+/** Windows / Linux 自画窗口控制按钮(最小化 / 最大化 / 关闭)。
+ *  全屏路由（发送 / 配对）隐藏 AppTopBar 时，需在页面自己的顶栏复用它。 */
+export function WindowControls() {
   const { t } = useLingui();
   const appWindow = getCurrentWindow();
 

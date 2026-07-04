@@ -10,7 +10,7 @@ import {
   AppAmbientBackground,
   AppAmbientLightOverlay,
 } from "@/components/layout/app-ambient-background";
-import { AppTopBar } from "@/components/layout/app-topbar";
+import { AppTopBar, WindowControls } from "@/components/layout/app-topbar";
 import { useNetworkStore } from "@/stores/network-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { ConnectionRequestDialog } from "@/components/pairing/connection-request-dialog";
@@ -57,12 +57,20 @@ function AppLayout() {
     <div className="app-shell flex h-svh flex-col">
       <AppAmbientBackground />
       {!isFullScreenRoute && <AppTopBar />}
-      {isFullScreenRoute && isMac && (
-        <div
-          data-tauri-drag-region
-          className="h-8 shrink-0 bg-background"
-        />
-      )}
+      {/* 全屏路由无 AppTopBar：Windows/Linux 是无边框自绘窗口
+          (setup.rs set_decorations(false))，需补一条可拖拽、带窗口控制的玻璃顶条；
+          macOS 走系统 Overlay 红绿灯，只留等高拖拽占位。 */}
+      {isFullScreenRoute &&
+        (isMac ? (
+          <div data-tauri-drag-region className="h-8 shrink-0 bg-background" />
+        ) : (
+          <div
+            data-tauri-drag-region
+            className="flex h-9 shrink-0 items-center justify-end bg-white/[0.16] pr-2 backdrop-blur-xl dark:bg-slate-950/[0.10]"
+          >
+            <WindowControls />
+          </div>
+        ))}
       <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>
