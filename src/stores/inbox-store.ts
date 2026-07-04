@@ -20,6 +20,8 @@ interface InboxState {
   items: InboxItemSummary[];
   selectedId: string | null;
   detail: InboxItemDetail | null;
+  /** detail 当前对应的条目 id（含“已加载但为空/失败”的判定）。用于区分“加载中”与“加载完成但无详情”，避免详情失败时无限骨架。 */
+  detailForId: string | null;
   loading: boolean;
   showArchived: boolean;
 
@@ -51,6 +53,7 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
   items: [],
   selectedId: null,
   detail: null,
+  detailForId: null,
   loading: true,
   showArchived: false,
   query: "",
@@ -79,12 +82,15 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
 
   async loadDetail(itemId) {
     if (!itemId) {
-      set({ detail: null });
+      set({ detail: null, detailForId: null });
       return;
     }
     try {
-      set({ detail: await commands.getInboxItemDetail(itemId) });
+      const next = await commands.getInboxItemDetail(itemId);
+      set({ detail: next, detailForId: itemId });
     } catch (err) {
+      // 加载失败：清掉旧详情并标记该 id 已“尝试完成”，让 UI 走失败态而非无限骨架。
+      set({ detail: null, detailForId: itemId });
       toast.error(getErrorMessage(err));
     }
   },
@@ -131,8 +137,12 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
       toast.error(getErrorMessage(err));
     }
     // 用刷新后真正生效的 selectedId 重取详情，避免取到刚被删除/归档隐藏的失效条目。
+    const prev = get().selectedId;
     const resolved = await get().loadItems();
-    await get().loadDetail(resolved);
+    // selectedId 变化时组件 effect 会自行 loadDetail；仅在选中未变（同一条目刷新）时手动补一次，避免重复请求。
+    if (resolved === prev) {
+      await get().loadDetail(resolved);
+    }
     // 搜索态下，删除/归档后同步重搜，使结果列表不残留失效条目。
     if (get().searchResults !== null) {
       await get().runSearch();

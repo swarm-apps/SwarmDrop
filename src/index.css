@@ -207,6 +207,22 @@
     }
   }
 
+  /* 收件箱时间分组的吸顶小标题：与所在玻璃面板同底色 + 二次磨砂，
+     滚动时把行内容柔化遮住；reduced-transparency 下退化为纯色。 */
+  .inbox-sticky-heading {
+    background: var(--glass-panel-bg);
+    backdrop-filter: blur(16px) saturate(145%);
+    -webkit-backdrop-filter: blur(16px) saturate(145%);
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .inbox-sticky-heading {
+      background: var(--card);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+
   /* 设置页 bento 网格直接用 index.lazy.tsx 内的 Tailwind grid utility，
      不再需要 .settings-board / .settings-column 自定义类。 */
 }
