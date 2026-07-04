@@ -51,7 +51,8 @@ function Toggle({
         props.pressed
           ? "text-accent-foreground"
           : Platform.select({ web: "group-hover:text-muted-foreground" }),
-        className,
+        // className 只作用于按钮容器(下方 Root),不能漏进文字上下文 —— 否则调用方
+        // 传的布局类(如 flex-1)会撑开 Text、令文案左对齐。与 alert-dialog/button 一致。
       )}
     >
       <TogglePrimitive.Root
