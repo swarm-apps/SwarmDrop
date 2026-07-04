@@ -29,14 +29,7 @@ import {
   Video,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   MobileInboxContentKind,
@@ -52,6 +45,7 @@ import {
   type AppBottomSheetRef,
 } from "@/components/ui/app-bottom-sheet";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
@@ -243,11 +237,43 @@ export default function InboxDetailScreen() {
       />
 
       {detailLoading && !detail ? (
-        <View className="flex-1 items-center justify-center gap-3 px-5">
-          <ActivityIndicator color={colors.mutedForeground} />
-          <Text className="text-[12px] text-muted-foreground">
-            <Trans>加载中</Trans>
-          </Text>
+        // 骨架屏镜像正常分支布局:预览大框 → 标题块 → InfoPill 行 → 文件行
+        <View
+          accessible
+          accessibilityLabel={t`加载中`}
+          className="flex-1 gap-5 px-5 pt-3"
+        >
+          <Skeleton
+            className="w-full rounded-lg"
+            style={detailStyles.previewFrame}
+          />
+          <View className="gap-3">
+            <View className="gap-1.5">
+              <Skeleton className="h-6 w-2/3" />
+              <Skeleton className="h-3 w-1/2" />
+            </View>
+            <View className="flex-row gap-2">
+              <Skeleton className="h-14 flex-1 rounded-lg" />
+              <Skeleton className="h-14 flex-1 rounded-lg" />
+            </View>
+          </View>
+          <View className="overflow-hidden rounded-lg border border-border bg-card">
+            {[0, 1].map((row) => (
+              <View
+                key={row}
+                className={cn(
+                  "min-h-16 flex-row items-center gap-3 p-3",
+                  row > 0 ? "border-t border-border" : "",
+                )}
+              >
+                <Skeleton className="size-11 rounded-full" />
+                <View className="min-w-0 flex-1 gap-1.5">
+                  <Skeleton className="h-3.5 w-1/2" />
+                  <Skeleton className="h-3 w-1/3" />
+                </View>
+              </View>
+            ))}
+          </View>
         </View>
       ) : !detail && lastError ? (
         // 加载调用抛出了异常(瞬时问题),不是后端确认的"记录不存在"——不能断言"可能已删除",
@@ -368,10 +394,10 @@ export default function InboxDetailScreen() {
               >
                 <View className="min-w-0 flex-1">
                   <Text className="text-[13px] font-semibold text-foreground">
-                    <Trans>查看传输诊断</Trans>
+                    <Trans>查看传输过程</Trans>
                   </Text>
                   <Text className="text-[11px] text-muted-foreground">
-                    <Trans>跳转到活动详情</Trans>
+                    <Trans>跳转到传输详情</Trans>
                   </Text>
                 </View>
                 <ExternalLink color={colors.mutedForeground} size={17} />
@@ -494,7 +520,7 @@ function InboxActionsSheet({
           </Text>
         </View>
 
-        <View className="overflow-hidden rounded-2xl border border-border bg-background">
+        <View className="overflow-hidden rounded-lg border border-border bg-background">
           <SheetActionRow
             icon={archived ? ArchiveRestore : Archive}
             label={archived ? <Trans>取消归档</Trans> : <Trans>归档</Trans>}
@@ -515,14 +541,14 @@ function InboxActionsSheet({
               <Divider />
               <SheetActionRow
                 icon={ExternalLink}
-                label={<Trans>查看传输诊断</Trans>}
+                label={<Trans>查看传输过程</Trans>}
                 onPress={onOpenTransfer}
               />
             </>
           ) : null}
         </View>
 
-        <View className="overflow-hidden rounded-2xl border border-border bg-background">
+        <View className="overflow-hidden rounded-lg border border-border bg-background">
           <SheetActionRow
             icon={Trash2}
             label={<Trans>仅删除记录</Trans>}
@@ -584,7 +610,7 @@ function SheetActionRow({
       <Text
         className={cn(
           "min-w-0 flex-1 text-[14px] font-semibold",
-          destructive ? "text-destructive" : "text-foreground",
+          destructive ? "text-destructive-ink" : "text-foreground",
         )}
       >
         {label}
@@ -679,7 +705,7 @@ function ContentPreview({
 
   return (
     <View
-      className="overflow-hidden rounded-[28px] border border-border bg-card"
+      className="overflow-hidden rounded-lg border border-border bg-card"
       style={showExcerpt ? undefined : detailStyles.previewFrame}
       testID="inbox-detail-preview"
     >
@@ -734,7 +760,7 @@ function ContentPreview({
         </View>
       ) : (
         <View className="h-full w-full items-center justify-center gap-5 bg-primary/5 px-8">
-          <View className="size-24 items-center justify-center rounded-[28px] bg-background">
+          <View className="size-24 items-center justify-center rounded-full bg-background">
             <preview.icon color={preview.color(colors)} size={42} />
           </View>
           <View className="items-center gap-1.5">
@@ -797,7 +823,7 @@ function DetailActionBar({
           disabled={!hasLocation}
           hitSlop={8}
           testID="inbox-file-copy-0"
-          className="size-12 items-center justify-center rounded-2xl border border-border bg-card active:opacity-70 disabled:opacity-50"
+          className="size-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
         >
           <Copy color={colors.foreground} size={18} />
         </Pressable>
@@ -825,7 +851,7 @@ function IncludedFiles({
           {files.length} <Trans>项</Trans>
         </Text>
       </View>
-      <View className="overflow-hidden rounded-2xl border border-border bg-card">
+      <View className="overflow-hidden rounded-lg border border-border bg-card">
         {files.map((file, index) => (
           <FileRow
             key={file.id}
@@ -937,7 +963,7 @@ function DetailsPanel({
 }) {
   const colors = useThemeColors();
   return (
-    <View className="overflow-hidden rounded-2xl border border-border bg-card">
+    <View className="overflow-hidden rounded-lg border border-border bg-card">
       <Pressable
         accessibilityRole="button"
         onPress={onToggle}
@@ -1086,7 +1112,7 @@ function InfoPill({
 }) {
   const colors = useThemeColors();
   return (
-    <View className="min-h-14 flex-1 flex-row items-center gap-2 rounded-2xl bg-primary/5 px-3">
+    <View className="min-h-14 flex-1 flex-row items-center gap-2 rounded-lg bg-primary/5 px-3">
       <Icon color={colors.primary} size={15} />
       <View className="min-w-0 flex-1">
         <Text className="text-[10px] text-muted-foreground">{label}</Text>

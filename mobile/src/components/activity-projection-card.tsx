@@ -1,3 +1,4 @@
+import { useLingui } from "@lingui/react";
 import { Trans } from "@lingui/react/macro";
 import { AlertCircle, RotateCcw } from "lucide-react-native";
 import { memo } from "react";
@@ -37,6 +38,12 @@ interface ActivityProjectionCardProps {
   showProgress?: boolean;
   onPress: (sessionId: string) => void;
   onResume?: (sessionId: string) => void;
+  /**
+   * 反查命中的收件箱记录 id —— 仅"接收且已完成"且该会话已落库时由父级传入。
+   * 用于在卡片尾部渲染「在收件箱查看」深链;未命中(冷启动 / 非接收 / 未落库)时缺席。
+   */
+  inboxItemId?: string;
+  onOpenInbox?: (itemId: string) => void;
 }
 
 function ActivityProjectionCardComponent({
@@ -45,7 +52,11 @@ function ActivityProjectionCardComponent({
   showProgress = false,
   onPress,
   onResume,
+  inboxItemId,
+  onOpenInbox,
 }: ActivityProjectionCardProps) {
+  // 只为订阅 locale:policyNote 经全局 i18n 即时解析,memo 组件靠这个订阅在切换语言时重算。
+  useLingui();
   const colors = useThemeColors();
   const direction = projectionDirection(projection);
   const status = projectionStatus(projection);
@@ -132,6 +143,22 @@ function ActivityProjectionCardComponent({
           <RotateCcw color={colors.primaryForeground} size={15} />
           <Text className="text-[13px] font-semibold text-primary-foreground">
             <Trans>恢复传输</Trans>
+          </Text>
+        </Pressable>
+      ) : null}
+
+      {inboxItemId && onOpenInbox ? (
+        <Pressable
+          onPress={(event) => {
+            event.stopPropagation();
+            onOpenInbox(inboxItemId);
+          }}
+          accessibilityRole="link"
+          hitSlop={8}
+          className="self-start active:opacity-70"
+        >
+          <Text className="text-[12px] font-semibold text-primary-ink">
+            <Trans>在收件箱查看</Trans>
           </Text>
         </Pressable>
       ) : null}

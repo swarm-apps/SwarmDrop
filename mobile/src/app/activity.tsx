@@ -13,6 +13,7 @@ import { Text } from "@/components/ui/text";
 import { groupTransferProjections } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
+import { useInboxStore } from "@/stores/inbox-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export default function ActivityScreen() {
@@ -24,6 +25,7 @@ export default function ActivityScreen() {
   const loadProjections = useTransferStore((s) => s.loadProjections);
   const clearAllHistory = useTransferStore((s) => s.clearAllHistory);
   const resumeHistoryItem = useTransferStore((s) => s.resumeHistoryItem);
+  const inboxItems = useInboxStore((s) => s.items);
   const [clearOpen, setClearOpen] = useState(false);
 
   useFocusEffect(
@@ -36,6 +38,18 @@ export default function ActivityScreen() {
     () => groupTransferProjections(Object.values(projections)),
     [projections],
   );
+
+  // 会话 → 收件箱记录 反查:只有"接收且已落库"的会话能命中,用于已完成接收卡片的
+  // 「在收件箱查看」深链。冷启动 inbox 尚未加载时 map 为空,深链自然缺席(防御式)。
+  const inboxItemIdBySession = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const inboxItem of inboxItems) {
+      if (inboxItem.transferSessionId) {
+        map.set(inboxItem.transferSessionId, inboxItem.id);
+      }
+    }
+    return map;
+  }, [inboxItems]);
 
   // 4 个分组 → SectionList sections;数据只依赖 grouped(不含每 tick 变化的 progress),
   // 进度经 extraData 注入、按会话 memo 的卡片只重渲染真正变化的那一条。
@@ -87,6 +101,16 @@ export default function ActivityScreen() {
     [router],
   );
 
+  const openInboxItem = useCallback(
+    (itemId: string) => {
+      router.push({
+        pathname: "/inbox/[itemId]",
+        params: { itemId },
+      } as never);
+    },
+    [router],
+  );
+
   const resume = useCallback(
     async (sessionId: string) => {
       try {
@@ -105,7 +129,7 @@ export default function ActivityScreen() {
 
   const performClear = useCallback(async () => {
     await clearAllHistory();
-    toast.success(t`已清空传输活动`);
+    toast.success(t`已清空传输记录`);
   }, [clearAllHistory, t]);
 
   return (
@@ -125,12 +149,12 @@ export default function ActivityScreen() {
         ListHeaderComponent={
           <View className="gap-5">
             <SettingsHeader
-              title={t`活动`}
+              title={t`传输记录`}
               right={
                 <Pressable
                   onPress={() => setClearOpen(true)}
                   accessibilityRole="button"
-                  accessibilityLabel={t`清空活动`}
+                  accessibilityLabel={t`清空传输记录`}
                   testID="activity-clear-button"
                   className="size-11 items-center justify-center rounded-xl bg-muted active:opacity-70"
                 >
@@ -139,7 +163,7 @@ export default function ActivityScreen() {
               }
             />
             <Text className="px-1 text-[12px] text-muted-foreground">
-              <Trans>每一笔传输的实时进度与历史记录都在这里</Trans>
+              <Trans>每一笔传输的过程都记在这里；收好的东西请到收件箱找</Trans>
             </Text>
           </View>
         }
@@ -148,6 +172,11 @@ export default function ActivityScreen() {
             <Text className="text-[15px] font-semibold text-foreground">
               {section.title}
             </Text>
+            {section.key === "completed" ? (
+              <Text className="mt-1 text-[11px] text-muted-foreground">
+                <Trans>收到的内容已放进收件箱</Trans>
+              </Text>
+            ) : null}
           </View>
         )}
         renderItem={({ item, section }) => (
@@ -157,6 +186,12 @@ export default function ActivityScreen() {
             showProgress={section.showProgress}
             onPress={goDetail}
             onResume={section.resume ? resume : undefined}
+            inboxItemId={
+              section.key === "completed"
+                ? inboxItemIdBySession.get(item.sessionId)
+                : undefined
+            }
+            onOpenInbox={openInboxItem}
           />
         )}
         ItemSeparatorComponent={ActivityItemGap}
@@ -164,7 +199,7 @@ export default function ActivityScreen() {
           <View className="pt-5">
             <EmptyState
               icon={Activity}
-              title={<Trans>暂无传输活动</Trans>}
+              title={<Trans>暂无传输记录</Trans>}
               description={
                 <Trans>从设备页发送文件，或接收其他设备发来的内容。</Trans>
               }
@@ -177,10 +212,10 @@ export default function ActivityScreen() {
       <ConfirmDialog
         open={clearOpen}
         onOpenChange={setClearOpen}
-        title={<Trans>清空传输活动</Trans>}
+        title={<Trans>清空传输记录</Trans>}
         description={
           <Trans>
-            这会删除传输过程记录，不会作为收件箱内容删除入口。该操作不可撤销。
+            只清空传输过程记录；收件箱里已收到的内容不受影响。该操作不可撤销。
           </Trans>
         }
         actionLabel={<Trans>清空</Trans>}

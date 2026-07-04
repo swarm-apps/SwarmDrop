@@ -32,6 +32,7 @@ import {
   ConnectionBadge,
   normalizeConnectionKind,
 } from "@/components/connection-badge";
+import { EncryptionNote } from "@/components/encryption-note";
 import {
   AppScreen,
   BottomActionArea,
@@ -266,7 +267,7 @@ export default function DeviceDetailScreen() {
       <View className="flex-1 gap-4 px-5">
         <Surface className="gap-4">
           <View className="flex-row items-center gap-3">
-            <View className="size-14 items-center justify-center rounded-2xl bg-muted">
+            <View className="size-14 items-center justify-center rounded-full bg-muted">
               <Icon color={colors.foreground} size={25} />
             </View>
             <View className="min-w-0 flex-1 gap-1">
@@ -323,6 +324,9 @@ export default function DeviceDetailScreen() {
               value={device.peerId}
               mono
             />
+            <EncryptionNote>
+              <Trans>这串 ID 由它的加密密钥生成，像指纹一样独一无二</Trans>
+            </EncryptionNote>
           </View>
         </Surface>
 

@@ -23,6 +23,8 @@ interface AppScreenProps {
   testID?: string;
   className?: string;
   contentClassName?: string;
+  /** 常驻底部停靠区(拇指区),渲染在滚动内容之外,如主屏的 HomeDock。 */
+  footer?: ReactNode;
 }
 
 export function AppScreen({
@@ -31,6 +33,7 @@ export function AppScreen({
   testID,
   className,
   contentClassName,
+  footer,
 }: AppScreenProps) {
   return (
     <SafeAreaView
@@ -54,6 +57,7 @@ export function AppScreen({
           {children}
         </View>
       )}
+      {footer}
     </SafeAreaView>
   );
 }
@@ -75,7 +79,7 @@ export function AppHeader({
 }: AppHeaderProps) {
   return (
     <View
-      className="min-h-14 flex-row items-center justify-between gap-3 px-5 py-3"
+      className="min-h-14 flex-row items-center justify-between gap-3 py-3"
       testID={testID}
     >
       <View className="min-w-0 flex-1 flex-row items-center gap-3">

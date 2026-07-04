@@ -17,6 +17,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { KeyValueRow } from "@/components/key-value-row";
+import { Surface } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
 import { useUpdate } from "@/hooks/use-update";
@@ -68,10 +70,7 @@ export default function AboutScreen() {
                 {hasUpdate ? (
                   <>
                     <Download color={colors.primary} size={12} />
-                    <Text
-                      className="text-[11px] font-medium"
-                      style={{ color: colors.primary }}
-                    >
+                    <Text className="text-[11px] font-medium text-primary-ink">
                       <Trans>有新版可用</Trans>
                     </Text>
                   </>
@@ -101,10 +100,7 @@ export default function AboutScreen() {
                 ) : (
                   <>
                     <BadgeCheck color={colors.success} size={12} />
-                    <Text
-                      className="text-[11px] font-medium"
-                      style={{ color: colors.success }}
-                    >
+                    <Text className="text-[11px] font-medium text-success-ink">
                       <Trans>已是最新</Trans>
                     </Text>
                   </>
@@ -117,6 +113,22 @@ export default function AboutScreen() {
         <Text className="mt-5 text-center text-[13px] text-muted-foreground">
           <Trans>去中心化、跨网络、端到端加密文件传输</Trans>
         </Text>
+
+        {/* 安全与加密:加密是常量不是状态,协议名只在这里出现一次 */}
+        <Surface className="mt-6 w-full gap-2.5">
+          <KeyValueRow
+            label={<Trans>加密方式</Trans>}
+            value={<Trans>端到端加密（XChaCha20-Poly1305）</Trans>}
+          />
+          <KeyValueRow
+            label={<Trans>密钥</Trans>}
+            value={<Trans>每次传输临时生成，用完即弃</Trans>}
+          />
+          <KeyValueRow
+            label={<Trans>传输路径</Trans>}
+            value={<Trans>设备点对点直连，明文不经过任何服务器</Trans>}
+          />
+        </Surface>
 
         <View className="mt-6 flex-row items-center gap-3">
           {isAndroid && (

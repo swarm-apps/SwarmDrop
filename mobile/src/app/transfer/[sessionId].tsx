@@ -21,6 +21,7 @@ import {
   type MobileTransferProjection,
 } from "react-native-swarmdrop-core";
 import { buildTreeDataFromOffer, FileTree } from "@/components/file-tree";
+import { KeyValueRow } from "@/components/key-value-row";
 import { SettingsHeader } from "@/components/settings-header";
 import {
   calcPercent,
@@ -36,6 +37,7 @@ import {
   StatusLabel,
 } from "@/components/transfer/shared";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
 import { openSafTreeUri } from "@/core/saf-intent";
@@ -53,7 +55,6 @@ import { useTransferStore } from "@/stores/transfer-store";
 
 export default function TransferDetailScreen() {
   const { t } = useLingui();
-  const colors = useThemeColors();
   const router = useRouter();
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
   const projection = useTransferStore((s) =>
@@ -164,18 +165,15 @@ export default function TransferDetailScreen() {
       <SettingsHeader title={t`传输详情`} />
       <ScrollView contentContainerClassName="gap-5 px-5 pt-2 pb-8">
         {!projection ? (
-          <View className="items-center gap-3 py-20">
-            {loaded ? null : (
-              <ActivityIndicator color={colors.mutedForeground} />
-            )}
-            <Text className="text-xs text-muted-foreground">
-              {loaded ? (
+          loaded ? (
+            <View className="items-center gap-3 py-20">
+              <Text className="text-xs text-muted-foreground">
                 <Trans>会话不存在或已结束</Trans>
-              ) : (
-                <Trans>加载中</Trans>
-              )}
-            </Text>
-          </View>
+              </Text>
+            </View>
+          ) : (
+            <TransferDetailSkeleton label={t`加载中`} />
+          )
         ) : (
           <TransferDetailContent
             projection={projection}
@@ -211,6 +209,68 @@ export default function TransferDetailScreen() {
         onAction={performDelete}
       />
     </SafeAreaView>
+  );
+}
+
+// 加载骨架:镜像 TransferDetailContent 的主要区块(状态头/进度块/信息卡/文件列表)
+function TransferDetailSkeleton({ label }: { label: string }) {
+  return (
+    <View className="gap-5" accessible accessibilityLabel={label}>
+      {/* 状态头:方向图标 chip + 两行文本 + 状态徽章 */}
+      <View className="flex-row items-center gap-3">
+        <Skeleton className="size-10 rounded-xl" />
+        <View className="min-w-0 flex-1 gap-1.5">
+          <Skeleton className="h-3.5 w-1/2" />
+          <Skeleton className="h-3 w-2/3" />
+        </View>
+        <Skeleton className="h-5 w-14 rounded-full" />
+      </View>
+
+      {/* 进度块:大百分比数字 + 进度条 + 字节数 */}
+      <View className="gap-2">
+        <View className="flex-row items-end justify-between">
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-3 w-1/4" />
+        </View>
+        <Skeleton className="h-2 w-full rounded-full" />
+        <Skeleton className="h-3 w-1/3" />
+      </View>
+
+      {/* 信息卡:与真实卡片相同 chrome */}
+      <View className="gap-3 rounded-xl border border-border bg-card p-4">
+        <View className="flex-row items-center justify-between gap-3">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3 w-1/2" />
+        </View>
+        <View className="flex-row items-center justify-between gap-3">
+          <Skeleton className="h-3 w-12" />
+          <Skeleton className="h-3 w-1/3" />
+        </View>
+        <View className="flex-row items-center justify-between gap-3">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3 w-2/3" />
+        </View>
+      </View>
+
+      {/* 文件列表 */}
+      <View className="gap-2">
+        <Skeleton className="h-3.5 w-16" />
+        <View className="gap-2">
+          <View className="flex-row items-center gap-2.5">
+            <Skeleton className="size-5" />
+            <Skeleton className="h-3 w-2/3" />
+          </View>
+          <View className="flex-row items-center gap-2.5">
+            <Skeleton className="size-5" />
+            <Skeleton className="h-3 w-1/2" />
+          </View>
+          <View className="flex-row items-center gap-2.5">
+            <Skeleton className="size-5" />
+            <Skeleton className="h-3 w-1/3" />
+          </View>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -288,30 +348,34 @@ function TransferDetailContent({
       <TransferProgressBlock projection={projection} progress={progress} />
 
       <View className="gap-3 rounded-xl border border-border bg-card p-4">
-        <DetailRow
+        <KeyValueRow
           label={<Trans>开始时间</Trans>}
           value={new Date(Number(projection.startedAt)).toLocaleString()}
         />
         {projection.finishedAt != null ? (
-          <DetailRow
+          <KeyValueRow
             label={<Trans>结束时间</Trans>}
             value={new Date(Number(projection.finishedAt)).toLocaleString()}
           />
         ) : null}
-        <DetailRow
+        <KeyValueRow
           label={<Trans>对端</Trans>}
           value={truncateMiddle(projection.peerId, 6, 4)}
           mono
         />
+        <KeyValueRow
+          label={<Trans>加密</Trans>}
+          value={<Trans>端到端 · 本次传输专用密钥</Trans>}
+        />
         {savePath ? (
-          <DetailRow
+          <KeyValueRow
             label={<Trans>保存位置</Trans>}
             value={decodeURIComponent(savePath)}
             mono
           />
         ) : null}
         {projectionPolicyNote(projection) ? (
-          <DetailRow
+          <KeyValueRow
             label={<Trans>设备策略</Trans>}
             value={projectionPolicyNote(projection)}
           />
@@ -568,28 +632,6 @@ function ActionBar({
           {destructive}
         </View>
       ) : null}
-    </View>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: React.ReactNode;
-  value: React.ReactNode;
-  mono?: boolean;
-}) {
-  return (
-    <View className="flex-row items-start justify-between gap-3">
-      <Text className="text-[12px] text-muted-foreground">{label}</Text>
-      <Text
-        className={`flex-1 text-right text-[12px] text-foreground ${mono ? "font-mono" : ""}`}
-        numberOfLines={3}
-      >
-        {value}
-      </Text>
     </View>
   );
 }

@@ -110,6 +110,30 @@ NativeWind 5 preview 给 `ScrollView` 注册了 `contentContainerClassName`（`A
 **相关文件**：[src/app/(main)/inbox.tsx](../../src/app/(main)/inbox.tsx)（FlatList），
 [src/app/activity.tsx](../../src/app/activity.tsx)（SectionList）
 
+### 内容区加载态用骨架屏镜像真实布局,spinner 只留给按钮/行内
+
+内容区(列表初载、详情初载、搜索检索中)的加载态用 `Skeleton`(`src/components/ui/skeleton.tsx`)
+拼出与加载完成后**相同结构**的占位——真实卡片 chrome(边框/圆角/内边距)照写,文字/图标位置
+放 Skeleton 块;按钮内、输入框内的行内 spinner 仍用 `ActivityIndicator`(蓝底按钮内颜色必须
+`colors.primaryForeground`,不要 `colors.background`,那是 Unified Ink Rule 修过的低对比坑)。
+
+**要点**:
+- 列表骨架 3-5 行,行间距与真实列表一致;文本行宽度错落(w-1/2 / w-2/3 / w-1/3)避免呆板
+- 骨架容器加 `accessible accessibilityLabel={t`加载中`}`;保留原加载容器的 testID
+- 初载与"假空态"要区分:`loading && items.length === 0` 走骨架,别闪 EmptyState((main)/inbox 曾踩)
+- `animate-pulse` 在原生端可能不动画(NativeWind 5 preview),静态灰块可接受,不要自己写动画
+- 静态占位行用 index 作 key 时加 `// biome-ignore lint/suspicious/noArrayIndexKey: 静态占位行,无重排`
+
+**相关文件**:[src/app/transfer/[sessionId].tsx](../../src/app/transfer/[sessionId].tsx)、
+[src/app/inbox/[itemId].tsx](../../src/app/inbox/[itemId].tsx)、[src/app/(main)/inbox.tsx](../../src/app/(main)/inbox.tsx)、
+[src/app/inbox/search.tsx](../../src/app/inbox/search.tsx)
+
+### 圆角只用 Radius Vocabulary 里的五种语义
+
+按钮=`rounded-xl`;surface/卡/成组容器/输入槽=`rounded-lg`;身份类图标 chip(设备平台/弹窗头/空态)=
+`rounded-full`;行首内容类型 chip(收件箱行/文件行/sheet 行)=`rounded-xl`;徽标/pill=`rounded-full`。
+不要写字面量圆角(`rounded-[28px]` 这类);完整规则与已知豁免见 DESIGN.md「The Radius Vocabulary Rule」。
+
 ## 安全区域 / 导航
 
 ### 主底部导航使用 NativeTabs，不再用 JS Tabs 自绘高度

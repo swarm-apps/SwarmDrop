@@ -73,7 +73,7 @@ function DeviceCardComponent({
               <Text
                 className={cn(
                   "text-[11px]",
-                  isOnline ? "text-success" : "text-muted-foreground",
+                  isOnline ? "text-success-ink" : "text-muted-foreground",
                 )}
               >
                 {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
@@ -147,7 +147,7 @@ function DeviceCardComponent({
           <Text
             className={cn(
               "text-[11px]",
-              isOnline ? "text-success" : "text-muted-foreground",
+              isOnline ? "text-success-ink" : "text-muted-foreground",
             )}
           >
             {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}

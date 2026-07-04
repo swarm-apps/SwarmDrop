@@ -17,6 +17,7 @@ import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { toast } from "@/lib/toast";
 import { truncateMiddle } from "@/lib/utils";
 import { useNotificationStore } from "@/stores/notification-store";
 import { usePairingCodeStore } from "@/stores/pairing-code-store";
@@ -62,12 +63,14 @@ export function PairingRequestHost() {
           `[pairing-host] ${accept ? "accept" : "reject"} failed:`,
           err,
         );
+        // 弹窗随即关闭,失败必须先说出来,否则用户会以为操作已生效。
+        toast.error(accept ? t`接受配对失败` : t`拒绝配对失败`, err);
       } finally {
         respondStore(current.id);
         setResponding(false);
       }
     },
-    [current, payload, respondStore, responding],
+    [current, payload, respondStore, responding, t],
   );
 
   if (!open || !payload) return null;
@@ -136,7 +139,7 @@ export function PairingRequestHost() {
             className="h-12 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
           >
             {responding ? (
-              <ActivityIndicator color={colors.background} />
+              <ActivityIndicator color={colors.primaryForeground} />
             ) : (
               <Text className="text-base font-semibold text-primary-foreground">
                 <Trans>接受</Trans>

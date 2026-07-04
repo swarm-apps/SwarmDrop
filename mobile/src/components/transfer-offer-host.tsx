@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { MobileTransferOrigin_Tags } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
+import { EncryptionNote } from "@/components/encryption-note";
 import { buildTreeDataFromOffer, FileTree } from "@/components/file-tree";
 import { formatBytes } from "@/components/transfer/shared";
 import { TrustBadge } from "@/components/trust-badge";
@@ -132,11 +133,13 @@ export function TransferOfferHost() {
       await getMobileCore().rejectReceive(current.id);
     } catch (err) {
       console.warn("[transfer-offer-host] reject failed:", err);
+      // 弹窗随即被 dismiss,失败必须先说出来,否则用户会以为已拒绝而对方仍在等待。
+      toast.error(t`拒绝接收失败`, err);
     } finally {
       dismiss(current.id);
       setBusy(null);
     }
-  }, [busy, current, dismiss]);
+  }, [busy, current, dismiss, t]);
 
   if (!open || !current) return null;
 
@@ -273,6 +276,12 @@ export function TransferOfferHost() {
           ) : null}
         </ScrollView>
 
+        {!rejectedByPolicy ? (
+          <EncryptionNote className="justify-center">
+            <Trans>全程端到端加密，路上没人能看到内容</Trans>
+          </EncryptionNote>
+        ) : null}
+
         <View className="gap-2.5">
           {rejectedByPolicy ? (
             <Pressable
@@ -334,7 +343,7 @@ function offerPolicyNote(
   reason?: string | null,
 ): string | null {
   if (reason) {
-    return action ? `${policyActionLabel(action)}：${reason}` : reason;
+    return action ? `${policyActionLabel(action)}: ${reason}` : reason;
   }
   return action ? policyActionLabel(action) : null;
 }

@@ -28,6 +28,7 @@ import {
   Surface,
 } from "@/components/mobile/screen";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
@@ -114,7 +115,7 @@ export default function InboxScreen() {
     <View className="gap-5 pb-5">
       <AppHeader
         title={<Trans>收件箱</Trans>}
-        subtitle={<Trans>已接收内容会在这里归档</Trans>}
+        subtitle={<Trans>收到的内容都替你放在这儿</Trans>}
         testID="inbox-header"
         right={
           <View className="flex-row gap-2">
@@ -155,19 +156,20 @@ export default function InboxScreen() {
   );
 
   const emptyComponent =
-    items.length === 0 ? (
+    loading && items.length === 0 ? (
+      // 首次加载尚无数据:渲染骨架列表,避免闪一下"收件箱还是空的"假空态。
+      <InboxListSkeleton />
+    ) : items.length === 0 ? (
       <EmptyState
         icon={FileArchive}
         title={<Trans>收件箱还是空的</Trans>}
         description={
           <Trans>
-            完成的接收内容会在这里出现；传输过程和恢复入口在活动页查看。
+            收到的东西会出现在这里；传输过程和续传入口在传输记录里。
           </Trans>
         }
-        actionLabel={loading ? <Trans>刷新中</Trans> : <Trans>刷新</Trans>}
+        actionLabel={<Trans>刷新</Trans>}
         onAction={refresh}
-        actionLoading={loading}
-        actionDisabled={loading}
         testID="inbox-empty-state"
       />
     ) : (
@@ -210,6 +212,34 @@ const inboxKeyExtractor = (item: InboxPreviewItem) => item.id;
 
 function InboxItemGap() {
   return <View className="h-2.5" />;
+}
+
+/** 首次加载(尚无缓存数据)时的收件箱骨架列表,镜像 InboxRow 布局:图标 chip + 标题行 + 元信息行。 */
+function InboxListSkeleton() {
+  const { t } = useLingui();
+  return (
+    <View
+      className="gap-2.5"
+      accessible
+      accessibilityLabel={t`加载中`}
+      testID="inbox-loading-skeleton"
+    >
+      {Array.from({ length: 4 }, (_, index) => (
+        <View
+          // biome-ignore lint/suspicious/noArrayIndexKey: 静态占位行,无重排
+          key={index}
+          className="min-h-20 flex-row items-center gap-3 rounded-lg border border-border bg-card p-3.5"
+        >
+          <Skeleton className="size-12 rounded-xl" />
+          <View className="min-w-0 flex-1 gap-1">
+            <Skeleton className="h-3.5 w-1/2" />
+            <Skeleton className="h-3 w-2/3" />
+            <Skeleton className="h-3 w-1/3" />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 /** 把 store 的 lastError 实际渲染出来,而不是只 console.warn(镜像 Requirement: Store Errors Surfaced to the User)。 */

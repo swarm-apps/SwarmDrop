@@ -4,19 +4,14 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { OTPInput, type OTPInputRef, type SlotProps } from "input-otp-native";
 import {
-  Activity as ActivityIcon,
-  ChevronDown,
   ChevronRight,
-  ChevronUp,
   Copy,
-  Inbox,
   Keyboard,
-  type LucideIcon,
   OctagonAlert,
+  Plus,
   Power,
   Radio,
   RefreshCcw,
-  Send,
   Smartphone,
 } from "lucide-react-native";
 import {
@@ -35,6 +30,7 @@ import { DeviceCard } from "@/components/device-card";
 import {
   AppHeader,
   AppScreen,
+  BottomActionArea,
   EmptyState,
   Surface,
 } from "@/components/mobile/screen";
@@ -48,6 +44,7 @@ import {
   AppBottomSheet,
   type AppBottomSheetRef,
 } from "@/components/ui/app-bottom-sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { canSendToDevice } from "@/core/device-trust";
 import { getMobileCore } from "@/core/mobile-core";
@@ -70,6 +67,7 @@ export default function DevicesScreen() {
   const router = useRouter();
   const { t } = useLingui();
   const nodeSheetRef = useRef<NodeControlSheetRef>(null);
+  const addDeviceSheetRef = useRef<AddDeviceSheetRef>(null);
 
   const {
     devices,
@@ -170,9 +168,10 @@ export default function DevicesScreen() {
     [router, t],
   );
 
-  const openInbox = useCallback(() => {
-    router.push("/inbox" as never);
-  }, [router]);
+  const unpairedNearbyCount = useMemo(
+    () => nearbyDevices.filter((device) => !device.isPaired).length,
+    [nearbyDevices],
+  );
 
   const openActivity = useCallback(() => {
     router.push("/activity" as never);
@@ -197,34 +196,37 @@ export default function DevicesScreen() {
   }, [startNode, t]);
 
   return (
-    <AppScreen scroll testID="devices-screen" contentClassName="gap-5 pt-1">
+    <AppScreen
+      scroll
+      testID="devices-screen"
+      contentClassName="gap-5 pt-1"
+      footer={
+        <HomeDock
+          runtimeState={runtimeState}
+          unpairedNearbyCount={unpairedNearbyCount}
+          onStart={() => void handleStartNode()}
+          onAddDevice={() => addDeviceSheetRef.current?.present()}
+        />
+      }
+    >
       <AppHeader
         title={<Trans>设备中心</Trans>}
-        subtitle={<Trans>连接附近设备，查看收件箱和活动</Trans>}
+        subtitle={<Trans>自家设备都在这儿，东西到了会自动收下</Trans>}
         right={
-          <View className="flex-row items-center gap-2">
-            <StatusPill
-              state={runtimeState}
-              onPress={() => nodeSheetRef.current?.present()}
-            />
-          </View>
+          <StatusPill
+            state={runtimeState}
+            onPress={() => nodeSheetRef.current?.present()}
+            testID="devices-manage-node-button"
+          />
         }
         testID="devices-header"
       />
 
-      <HomeTransferPanel
-        runtimeState={runtimeState}
-        pairedCount={pairedDevices.length}
-        nearbyCount={nearbyDevices.length}
-        activeCount={activeProjections.length}
-        errorSummary={lastNodeError}
-        onStart={() => void handleStartNode()}
-        onOpenInbox={openInbox}
-        onOpenActivity={openActivity}
-      />
-
-      {runtimeState === "running" ? (
-        <AddDevicePanel nearbyDevices={nearbyDevices} onSend={sendToDevice} />
+      {runtimeState !== "running" ? (
+        <NodeStatePanel
+          runtimeState={runtimeState}
+          errorSummary={lastNodeError}
+        />
       ) : null}
 
       <View className="gap-3">
@@ -240,7 +242,7 @@ export default function DevicesScreen() {
             icon={Smartphone}
             title={<Trans>还没有配对设备</Trans>}
             description={
-              <Trans>从上方附近设备发起配对，或让对方输入本机配对码。</Trans>
+              <Trans>点下方「添加设备」，把你的电脑或另一台手机接进来。</Trans>
             }
             testID="devices-empty-state"
           />
@@ -265,7 +267,7 @@ export default function DevicesScreen() {
             testID="devices-open-activity-button"
           >
             <Text className="text-[12px] font-semibold text-primary-ink">
-              <Trans>查看活动</Trans>
+              <Trans>查看全部</Trans>
             </Text>
           </Pressable>
         </View>
@@ -281,203 +283,150 @@ export default function DevicesScreen() {
             ))}
           </View>
         ) : (
-          <EmptyState
-            icon={Send}
-            title={<Trans>没有正在进行的传输</Trans>}
-            description={
-              <Trans>开始发送或接收文件后，进度会显示在这里。</Trans>
-            }
-            className="min-h-48"
-            testID="devices-empty-active-transfers"
-          />
+          <View testID="devices-empty-active-transfers">
+            <InlineEmptyText>
+              <Trans>
+                现在没有正在进行的传输，收到文件会第一时间出现在这儿。
+              </Trans>
+            </InlineEmptyText>
+          </View>
         )}
       </View>
 
       <NodeControlSheet ref={nodeSheetRef} />
+      <AddDeviceSheet
+        ref={addDeviceSheetRef}
+        nearbyDevices={nearbyDevices}
+        onSend={sendToDevice}
+      />
     </AppScreen>
   );
 }
 
-function HomeTransferPanel({
+/**
+ * 非运行态说明面板:只解释状态,不放操作——启动/重试都在底部 HomeDock,
+ * 运行态整块不渲染(设备列表即主屏主体)。
+ */
+function NodeStatePanel({
   runtimeState,
-  pairedCount,
-  nearbyCount,
-  activeCount,
   errorSummary,
-  onStart,
-  onOpenInbox,
-  onOpenActivity,
 }: {
   runtimeState: RuntimeState;
-  pairedCount: number;
-  nearbyCount: number;
-  activeCount: number;
   errorSummary: string | null;
-  onStart: () => void;
-  onOpenInbox: () => void;
-  onOpenActivity: () => void;
 }) {
   const colors = useThemeColors();
-  const isRunning = runtimeState === "running";
   const isStarting = runtimeState === "starting";
   const isError = runtimeState === "error";
-  const HeroIcon = isRunning ? Radio : isError ? OctagonAlert : Power;
+  const Icon = isError ? OctagonAlert : isStarting ? Radio : Power;
 
   return (
-    <Surface className="gap-4 rounded-2xl p-4" testID="devices-overview-panel">
+    <Surface className="gap-3" testID="devices-overview-panel">
       <View className="flex-row items-start gap-3">
         <View
           className={cn(
-            "size-12 items-center justify-center rounded-2xl",
-            isRunning
-              ? "bg-primary/10"
-              : isError
-                ? "bg-destructive/10"
-                : "bg-muted",
+            "size-12 items-center justify-center rounded-full",
+            isError ? "bg-destructive/10" : "bg-muted",
           )}
         >
-          <HeroIcon
-            color={
-              isRunning
-                ? colors.primary
-                : isError
-                  ? colors.destructive
-                  : colors.mutedForeground
-            }
+          <Icon
+            color={isError ? colors.destructive : colors.mutedForeground}
             size={22}
           />
         </View>
         <View className="min-w-0 flex-1 gap-1">
-          <Text className="text-[17px] font-semibold text-foreground">
-            {isRunning ? (
-              <Trans>节点运行中</Trans>
-            ) : isStarting ? (
-              <Trans>正在启动节点</Trans>
+          <Text className="text-[15px] font-semibold text-foreground">
+            {isStarting ? (
+              <Trans>正在启动</Trans>
             ) : isError ? (
-              <Trans>节点出错</Trans>
+              <Trans>刚才没能启动</Trans>
             ) : (
-              <Trans>节点未启动</Trans>
+              <Trans>SwarmDrop 还没上线</Trans>
             )}
           </Text>
           <Text
             className={cn(
               "text-[12px] leading-5",
-              isError ? "text-destructive" : "text-muted-foreground",
+              isError ? "text-destructive-ink" : "text-muted-foreground",
             )}
             numberOfLines={isError ? 3 : undefined}
           >
-            {isRunning ? (
-              <Trans>本机保持可发现，附近设备和配对码会持续更新。</Trans>
+            {isStarting ? (
+              <Trans>马上就好，正在让附近设备能找到你。</Trans>
             ) : isError ? (
-              (errorSummary ?? <Trans>节点异常停止，请重试启动。</Trans>)
+              (errorSummary ?? <Trans>出了点问题，点下方「再试一次」。</Trans>)
             ) : (
-              <Trans>启动后会显示附近设备、本机配对码和输入配对码入口。</Trans>
+              <Trans>启动后，你的其他设备才能找到这台手机。</Trans>
             )}
           </Text>
         </View>
-      </View>
-
-      <View className="flex-row flex-wrap gap-x-4 gap-y-1">
-        <InlineMetric value={pairedCount} label={<Trans>已配对</Trans>} />
-        <InlineMetric
-          value={isRunning ? nearbyCount : 0}
-          label={<Trans>附近</Trans>}
-        />
-        <InlineMetric value={activeCount} label={<Trans>传输中</Trans>} />
-      </View>
-
-      <View className="flex-row items-center gap-2">
-        {isRunning ? null : (
-          <Pressable
-            onPress={onStart}
-            disabled={isStarting}
-            accessibilityRole="button"
-            testID={
-              isError
-                ? "devices-retry-node-button"
-                : "devices-start-node-button"
-            }
-            className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
-          >
-            {isStarting ? (
-              <ActivityIndicator color={colors.primaryForeground} />
-            ) : isError ? (
-              <RefreshCcw color={colors.primaryForeground} size={17} />
-            ) : (
-              <Power color={colors.primaryForeground} size={17} />
-            )}
-            <Text className="text-[14px] font-semibold text-primary-foreground">
-              {isStarting ? (
-                <Trans>启动中</Trans>
-              ) : isError ? (
-                <Trans>重试</Trans>
-              ) : (
-                <Trans>启动节点</Trans>
-              )}
-            </Text>
-          </Pressable>
-        )}
-        <HomeShortcut
-          icon={Inbox}
-          label={<Trans>收件箱</Trans>}
-          onPress={onOpenInbox}
-          testID="devices-open-inbox-button"
-          className={isRunning ? "flex-1" : undefined}
-        />
-        <HomeShortcut
-          icon={ActivityIcon}
-          label={<Trans>活动</Trans>}
-          onPress={onOpenActivity}
-          testID="devices-open-activity-shortcut"
-          className={isRunning ? "flex-1" : undefined}
-        />
       </View>
     </Surface>
   );
 }
 
-function InlineMetric({
-  value,
-  label,
+/**
+ * 底部常驻操作条:任一时刻只有一个主动作(启动/再试一次/添加设备),全部落在拇指区。
+ * testID 沿用旧的启动/重试值以保持 Maestro 流程;运行态对齐 mobile-foundation 的
+ * devices-add-device-button。
+ */
+function HomeDock({
+  runtimeState,
+  unpairedNearbyCount,
+  onStart,
+  onAddDevice,
 }: {
-  value: number;
-  label: React.ReactNode;
-}) {
-  return (
-    <View className="flex-row items-baseline gap-1">
-      <Text className="text-[13px] font-semibold text-foreground">{value}</Text>
-      <Text className="text-[11px] text-muted-foreground">{label}</Text>
-    </View>
-  );
-}
-
-function HomeShortcut({
-  icon: Icon,
-  label,
-  onPress,
-  testID,
-  className,
-}: {
-  icon: LucideIcon;
-  label: React.ReactNode;
-  onPress: () => void;
-  testID: string;
-  className?: string;
+  runtimeState: RuntimeState;
+  unpairedNearbyCount: number;
+  onStart: () => void;
+  onAddDevice: () => void;
 }) {
   const colors = useThemeColors();
+  const isRunning = runtimeState === "running";
+  const isStarting = runtimeState === "starting";
+  const isError = runtimeState === "error";
+
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      testID={testID}
-      className={cn(
-        "h-12 min-w-[70px] flex-row items-center justify-center gap-1.5 rounded-xl border border-border px-2.5 active:opacity-70",
-        className,
-      )}
-    >
-      <Icon color={colors.foreground} size={15} />
-      <Text className="text-[12px] font-semibold text-foreground">{label}</Text>
-    </Pressable>
+    <BottomActionArea>
+      <Pressable
+        onPress={isRunning ? onAddDevice : onStart}
+        disabled={isStarting}
+        accessibilityRole="button"
+        testID={
+          isRunning
+            ? "devices-add-device-button"
+            : isError
+              ? "devices-retry-node-button"
+              : "devices-start-node-button"
+        }
+        className="h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
+      >
+        {isStarting ? (
+          <ActivityIndicator color={colors.primaryForeground} />
+        ) : isRunning ? (
+          <Plus color={colors.primaryForeground} size={17} />
+        ) : isError ? (
+          <RefreshCcw color={colors.primaryForeground} size={17} />
+        ) : (
+          <Power color={colors.primaryForeground} size={17} />
+        )}
+        <Text className="text-[14px] font-semibold text-primary-foreground">
+          {isStarting ? (
+            <Trans>正在启动…</Trans>
+          ) : isRunning ? (
+            <Trans>添加设备</Trans>
+          ) : isError ? (
+            <Trans>再试一次</Trans>
+          ) : (
+            <Trans>启动</Trans>
+          )}
+        </Text>
+        {isRunning && unpairedNearbyCount > 0 ? (
+          <Text className="text-[11px] font-medium text-primary-foreground">
+            <Trans>· 附近发现 {unpairedNearbyCount} 台</Trans>
+          </Text>
+        ) : null}
+      </Pressable>
+    </BottomActionArea>
   );
 }
 
@@ -499,20 +448,32 @@ function NearbyFilterLabel({ value }: { value: NearbyFilter }) {
   }
 }
 
-function AddDevicePanel({
-  nearbyDevices,
-  onSend,
-}: {
-  nearbyDevices: DeviceInfo[];
-  onSend: (device: DeviceInfo) => void;
-}) {
+interface AddDeviceSheetRef {
+  present: () => void;
+}
+
+/**
+ * 「添加设备」bottom sheet:附近设备 + 本机配对码 + 输入配对码,配对全流程发生在拇指区。
+ * 原主屏 AddDevicePanel 的展开态内容原样搬入;配对状态机(attempt 计数器防迟到结果)不变。
+ */
+const AddDeviceSheet = forwardRef<
+  AddDeviceSheetRef,
+  {
+    nearbyDevices: DeviceInfo[];
+    onSend: (device: DeviceInfo) => void;
+  }
+>(function AddDeviceSheet({ nearbyDevices, onSend }, ref) {
   const router = useRouter();
   const { t } = useLingui();
   const colors = useThemeColors();
+  const sheetRef = useRef<AppBottomSheetRef>(null);
   const pairingCodeSheetRef = useRef<PairingCodeSheetRef>(null);
-  const [expanded, setExpanded] = useState(false);
   const [pairingPeer, setPairingPeer] = useState<string | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    present: () => sheetRef.current?.present(),
+  }));
 
   // "当前尝试" 计数器 + 超时定时器：取消/超时都只推进这个计数器让旧结果失效,
   // 不会二次调用原生取消,也不会让迟到的 resolve/reject 覆盖新一轮配对状态。
@@ -566,6 +527,8 @@ function AddDevicePanel({
           setPairingError(result.reason ?? t`配对被拒绝`);
           return;
         }
+        // 成功先收起 sheet 再跳成功页,返回时不残留半开的 sheet
+        sheetRef.current?.dismiss();
         router.push({
           pathname: "/pairing/success",
           params: {
@@ -590,6 +553,21 @@ function AddDevicePanel({
   const [nearbyFilter, setNearbyFilter] = useState<NearbyFilter>("all");
   const [showAllNearby, setShowAllNearby] = useState(false);
 
+  // 「输入配对码」要等本 sheet 收起动画结束再唤起,避免两个 modal 叠加——
+  // 收起完成的时机由 onDismiss 给出,不硬编码动画时长。
+  const pendingInputCodeRef = useRef(false);
+
+  const openInputCodeSheet = useCallback(() => {
+    pendingInputCodeRef.current = true;
+    sheetRef.current?.dismiss();
+  }, []);
+
+  const handleSheetDismiss = useCallback(() => {
+    if (!pendingInputCodeRef.current) return;
+    pendingInputCodeRef.current = false;
+    pairingCodeSheetRef.current?.present();
+  }, []);
+
   const filteredNearby = useMemo(() => {
     if (nearbyFilter === "unpaired") {
       return nearbyDevices.filter((device) => !device.isPaired);
@@ -607,173 +585,154 @@ function AddDevicePanel({
 
   return (
     <>
-      <Surface className="gap-4" testID="devices-add-panel">
-        <Pressable
-          onPress={() => setExpanded((value) => !value)}
-          accessibilityRole="button"
-          accessibilityState={{ expanded }}
-          testID="devices-add-panel-toggle"
-          className="flex-row items-start justify-between gap-3 active:opacity-70"
-        >
-          <View className="min-w-0 flex-1">
-            <Text className="text-[15px] font-semibold text-foreground">
-              <Trans>添加设备</Trans>
-            </Text>
-            <Text className="mt-0.5 text-[12px] text-muted-foreground">
-              {expanded ? (
-                <Trans>附近设备和本机配对码会保持可见</Trans>
-              ) : (
-                <Trans>展开查看附近设备、本机配对码和输入配对码</Trans>
-              )}
-            </Text>
-          </View>
-          <View className="flex-row items-center gap-2">
-            <View className="flex-row items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1">
-              <Radio color={colors.primary} size={13} />
-              <Text className="text-[11px] font-medium text-primary-ink">
-                {nearbyDevices.length}
+      <AppBottomSheet
+        ref={sheetRef}
+        scrollable
+        contentTestID="pairing-sheet-content"
+        onDismiss={handleSheetDismiss}
+      >
+        <View className="gap-4 px-5 pt-2 pb-8">
+          <View className="items-center gap-2">
+            <View className="size-12 items-center justify-center rounded-full bg-primary/10">
+              <Radio color={colors.primary} size={22} />
+            </View>
+            <View className="items-center gap-1">
+              <Text className="text-base font-bold text-foreground">
+                <Trans>添加设备</Trans>
+              </Text>
+              <Text className="text-center text-[12px] leading-5 text-muted-foreground">
+                <Trans>附近的设备会自动出现；也可以用 6 位配对码互相认识</Trans>
               </Text>
             </View>
-            {expanded ? (
-              <ChevronUp color={colors.mutedForeground} size={18} />
-            ) : (
-              <ChevronDown color={colors.mutedForeground} size={18} />
-            )}
           </View>
-        </Pressable>
 
-        {expanded ? (
-          <>
-            <View className="gap-2.5">
-              <Text className="text-[12px] font-semibold text-muted-foreground">
-                <Trans>附近设备</Trans>
-              </Text>
-              {nearbyDevices.length === 0 ? (
-                <InlineEmptyText>
-                  <Trans>
-                    暂无附近设备。确认对端 SwarmDrop 已启动，或使用下方配对码。
-                  </Trans>
-                </InlineEmptyText>
-              ) : (
-                <>
-                  <View
-                    className="flex-row gap-1 rounded-lg bg-muted p-0.5"
-                    testID="nearby-filter-control"
-                  >
-                    {(["all", "unpaired", "paired"] as const).map((key) => (
-                      <Pressable
-                        key={key}
-                        onPress={() => {
-                          setNearbyFilter(key);
-                          setShowAllNearby(false);
-                        }}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: nearbyFilter === key }}
-                        testID={`nearby-filter-${key}`}
+          <View className="gap-2.5">
+            <Text className="text-[12px] font-semibold text-muted-foreground">
+              <Trans>附近设备</Trans>
+            </Text>
+            {nearbyDevices.length === 0 ? (
+              <InlineEmptyText>
+                <Trans>
+                  暂无附近设备。确认对端 SwarmDrop 已启动，或使用下方配对码。
+                </Trans>
+              </InlineEmptyText>
+            ) : (
+              <>
+                <View
+                  className="flex-row gap-1 rounded-lg bg-muted p-0.5"
+                  testID="nearby-filter-control"
+                >
+                  {(["all", "unpaired", "paired"] as const).map((key) => (
+                    <Pressable
+                      key={key}
+                      onPress={() => {
+                        setNearbyFilter(key);
+                        setShowAllNearby(false);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: nearbyFilter === key }}
+                      testID={`nearby-filter-${key}`}
+                      className={cn(
+                        "flex-1 items-center rounded-md px-2 py-1.5 active:opacity-70",
+                        nearbyFilter === key ? "bg-card" : "",
+                      )}
+                    >
+                      <Text
                         className={cn(
-                          "flex-1 items-center rounded-md px-2 py-1.5 active:opacity-70",
-                          nearbyFilter === key ? "bg-card" : "",
+                          "text-[11px] font-medium",
+                          nearbyFilter === key
+                            ? "text-foreground"
+                            : "text-muted-foreground",
                         )}
                       >
-                        <Text
-                          className={cn(
-                            "text-[11px] font-medium",
-                            nearbyFilter === key
-                              ? "text-foreground"
-                              : "text-muted-foreground",
-                          )}
-                        >
-                          <NearbyFilterLabel value={key} />
+                        <NearbyFilterLabel value={key} />
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {filteredNearby.length === 0 ? (
+                  <InlineEmptyText>
+                    <Trans>没有符合条件的附近设备，换一个筛选条件试试。</Trans>
+                  </InlineEmptyText>
+                ) : (
+                  <View className="gap-2">
+                    {visibleNearby.map((device) => (
+                      <NearbyDeviceRow
+                        key={device.peerId}
+                        device={device}
+                        pairing={pairingPeer === device.peerId}
+                        disabled={pairingPeer !== null}
+                        onPress={handlePair}
+                        onCancel={handleCancelPairing}
+                      />
+                    ))}
+                    {hiddenNearbyCount > 0 ? (
+                      <Pressable
+                        onPress={() => setShowAllNearby(true)}
+                        accessibilityRole="button"
+                        testID="nearby-show-all-button"
+                        className="min-h-9 items-center justify-center rounded-lg active:opacity-70"
+                      >
+                        <Text className="text-[12px] font-semibold text-primary-ink">
+                          <Trans>查看全部 ({filteredNearby.length})</Trans>
                         </Text>
                       </Pressable>
-                    ))}
+                    ) : showAllNearby &&
+                      filteredNearby.length > NEARBY_COLLAPSED_COUNT ? (
+                      <Pressable
+                        onPress={() => setShowAllNearby(false)}
+                        accessibilityRole="button"
+                        testID="nearby-collapse-button"
+                        className="min-h-9 items-center justify-center rounded-lg active:opacity-70"
+                      >
+                        <Text className="text-[12px] font-semibold text-muted-foreground">
+                          <Trans>收起</Trans>
+                        </Text>
+                      </Pressable>
+                    ) : null}
                   </View>
-                  {filteredNearby.length === 0 ? (
-                    <InlineEmptyText>
-                      <Trans>
-                        没有符合条件的附近设备，换一个筛选条件试试。
-                      </Trans>
-                    </InlineEmptyText>
-                  ) : (
-                    <View className="gap-2">
-                      {visibleNearby.map((device) => (
-                        <NearbyDeviceRow
-                          key={device.peerId}
-                          device={device}
-                          pairing={pairingPeer === device.peerId}
-                          disabled={pairingPeer !== null}
-                          onPress={handlePair}
-                          onCancel={handleCancelPairing}
-                        />
-                      ))}
-                      {hiddenNearbyCount > 0 ? (
-                        <Pressable
-                          onPress={() => setShowAllNearby(true)}
-                          accessibilityRole="button"
-                          testID="nearby-show-all-button"
-                          className="min-h-9 items-center justify-center rounded-lg active:opacity-70"
-                        >
-                          <Text className="text-[12px] font-semibold text-primary-ink">
-                            <Trans>查看全部 ({filteredNearby.length})</Trans>
-                          </Text>
-                        </Pressable>
-                      ) : showAllNearby &&
-                        filteredNearby.length > NEARBY_COLLAPSED_COUNT ? (
-                        <Pressable
-                          onPress={() => setShowAllNearby(false)}
-                          accessibilityRole="button"
-                          testID="nearby-collapse-button"
-                          className="min-h-9 items-center justify-center rounded-lg active:opacity-70"
-                        >
-                          <Text className="text-[12px] font-semibold text-muted-foreground">
-                            <Trans>收起</Trans>
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  )}
-                </>
-              )}
-              {pairingError !== null ? (
-                <Text className="text-[12px] text-destructive-ink">
-                  {pairingError}
-                </Text>
-              ) : null}
+                )}
+              </>
+            )}
+            {pairingError !== null ? (
+              <Text className="text-[12px] text-destructive-ink">
+                {pairingError}
+              </Text>
+            ) : null}
+          </View>
+
+          <View className="h-px bg-border" />
+
+          <PairingCodeCard />
+
+          <Pressable
+            onPress={openInputCodeSheet}
+            accessibilityRole="button"
+            testID="devices-open-input-code-sheet-button"
+            className="min-h-[64px] flex-row items-center gap-3 rounded-xl border border-border bg-muted px-4 py-3 active:opacity-70"
+          >
+            <View className="size-11 items-center justify-center rounded-xl bg-card">
+              <Keyboard color={colors.foreground} size={18} />
             </View>
-
-            <View className="h-px bg-border" />
-
-            <PairingCodeCard />
-
-            <Pressable
-              onPress={() => pairingCodeSheetRef.current?.present()}
-              accessibilityRole="button"
-              testID="devices-open-input-code-sheet-button"
-              className="min-h-[64px] flex-row items-center gap-3 rounded-xl border border-border bg-muted px-4 py-3 active:opacity-70"
-            >
-              <View className="size-11 items-center justify-center rounded-xl bg-card">
-                <Keyboard color={colors.foreground} size={18} />
-              </View>
-              <View className="min-w-0 flex-1">
-                <Text className="text-[14px] font-semibold text-foreground">
-                  <Trans>输入配对码</Trans>
-                </Text>
-                <Text
-                  className="mt-0.5 text-[12px] text-muted-foreground"
-                  numberOfLines={1}
-                >
-                  <Trans>输入另一台设备显示的 6 位数字</Trans>
-                </Text>
-              </View>
-              <ChevronRight color={colors.mutedForeground} size={18} />
-            </Pressable>
-          </>
-        ) : null}
-      </Surface>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[14px] font-semibold text-foreground">
+                <Trans>输入配对码</Trans>
+              </Text>
+              <Text
+                className="mt-0.5 text-[12px] text-muted-foreground"
+                numberOfLines={1}
+              >
+                <Trans>输入另一台设备显示的 6 位数字</Trans>
+              </Text>
+            </View>
+            <ChevronRight color={colors.mutedForeground} size={18} />
+          </Pressable>
+        </View>
+      </AppBottomSheet>
       <PairingCodeSheet ref={pairingCodeSheetRef} />
     </>
   );
-}
+});
 
 function NearbyDeviceRow({
   device,
@@ -900,7 +859,8 @@ function PairingCodeCard() {
 
       <View className="min-h-14 items-center justify-center rounded-lg border border-border bg-card px-3">
         {generating ? (
-          <ActivityIndicator color={colors.primary} />
+          // 骨架条镜像 6 位配对码的占位形状,避免生成时框内闪 spinner
+          <Skeleton className="h-8 w-44" />
         ) : code !== null ? (
           <Text className="font-mono text-[28px] font-bold tracking-[7px] text-foreground">
             {code}
@@ -1085,8 +1045,8 @@ function OtpSlot({ char, isActive }: SlotProps) {
     <View
       className={
         isActive
-          ? "h-12 w-10 items-center justify-center rounded-[10px] border-2 border-primary bg-muted"
-          : "h-12 w-10 items-center justify-center rounded-[10px] border border-border bg-muted"
+          ? "h-12 w-10 items-center justify-center rounded-lg border-2 border-primary bg-muted"
+          : "h-12 w-10 items-center justify-center rounded-lg border border-border bg-muted"
       }
     >
       {char !== null ? (

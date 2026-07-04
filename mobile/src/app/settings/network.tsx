@@ -303,7 +303,7 @@ export default function NetworkScreen() {
             <Text
               className={cn(
                 "text-[13px] font-medium",
-                diagnosticsOpen ? "text-muted-foreground" : "text-primary",
+                diagnosticsOpen ? "text-muted-foreground" : "text-primary-ink",
               )}
             >
               {diagnosticsOpen ? (

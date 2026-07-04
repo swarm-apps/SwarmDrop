@@ -82,11 +82,11 @@ export function DeviceInfoCard() {
           <View
             className={
               isOnline
-                ? "absolute -left-1 -top-1 z-10 size-3.5 rounded-full border-2 border-background bg-success"
-                : "absolute -left-1 -top-1 z-10 size-3.5 rounded-full border-2 border-background bg-muted-foreground"
+                ? "absolute -left-0.5 -top-0.5 z-10 size-3.5 rounded-full border-2 border-background bg-success"
+                : "absolute -left-0.5 -top-0.5 z-10 size-3.5 rounded-full border-2 border-background bg-muted-foreground"
             }
           />
-          <View className="size-14 items-center justify-center rounded-2xl bg-muted">
+          <View className="size-14 items-center justify-center rounded-full bg-muted">
             <Icon color={colors.foreground} size={26} />
           </View>
         </View>

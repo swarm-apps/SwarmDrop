@@ -8,13 +8,19 @@ interface StatusPillProps {
   state: RuntimeState;
   onPress?: () => void;
   size?: "sm" | "md";
+  testID?: string;
 }
 
 /**
  * 节点运行状态 pill(running/starting/stopped/error)。
  * 点击可启停节点(由父组件接入 onPress)。
  */
-export function StatusPill({ state, onPress, size = "sm" }: StatusPillProps) {
+export function StatusPill({
+  state,
+  onPress,
+  size = "sm",
+  testID,
+}: StatusPillProps) {
   const dotClass = DOT_CLASS[state];
   const textClass = TEXT_CLASS[state];
   const bgClass = BG_CLASS[state];
@@ -24,6 +30,7 @@ export function StatusPill({ state, onPress, size = "sm" }: StatusPillProps) {
   return (
     <Wrapper
       onPress={onPress}
+      testID={testID}
       accessibilityRole={onPress ? "button" : undefined}
       {...(onPress ? { hitSlop: 10 } : {})}
       className={cn(

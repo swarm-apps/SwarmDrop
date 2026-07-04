@@ -193,6 +193,16 @@ Two-tier, deliberately flat-first. Resting surfaces (buttons, cards, inputs, dev
 ### Navigation
 - Bottom tabs use `expo-router`'s native tab bar (system-rendered, not a JS-drawn bar) — system handles safe-area, ripple, and transition; theme color is injected via `backgroundColor`/`iconColor`/`labelStyle` rather than custom-drawn chrome.
 
+### Named Rules
+**The Radius Vocabulary Rule.** 全 app 的圆角语义,别再发明新的:
+- **动作按钮**(含图标方钮如 `HeaderIconButton`、行内小方钮)→ `rounded-xl`(12px);
+- **Surface / 卡片 / 成组列表容器 / 信息 pill / 输入槽**(含 OTP 槽)→ `rounded-lg`(10px)为标准;
+- **身份类图标 chip**(设备平台图标、弹窗头图标、空态大图标——"这是谁/这是什么东西")→ `rounded-full`;
+- **内容类型 / 行首图标 chip**(收件箱行、文件行、操作 sheet 行的行首小方块——"这行是什么类型")→ `rounded-xl`(既有一致模式,保持);
+- **徽标 / 状态 pill / 状态点** → `rounded-full`。
+
+例外与已知漂移:① 关于页的 "SD" 标志块保留 `rounded-2xl`——模仿系统 App 图标的 squircle,是身份图形不是 chip;② shadcn `ui/card` 原语、传输详情/设备详情的部分成组容器、弹窗内衬 muted 块仍是 `rounded-xl`——与 Surface 的 `rounded-lg` 存在 10/12px 分裂,视觉差极小,留待专门一轮收敛;**新写 surface 一律 `rounded-lg`**。(2026-07 已收敛掉真正扎眼的 `rounded-2xl` / `rounded-[28px]` / 字面量 `rounded-[10px]` 漂移;新代码不要再写字面量圆角。)
+
 ## 6. Do's and Don'ts
 
 ### Do:

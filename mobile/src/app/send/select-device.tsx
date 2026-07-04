@@ -306,7 +306,10 @@ export default function SendPreparePage() {
                 )}
               >
                 {sending ? (
-                  <ActivityIndicator color={colors.background} size="small" />
+                  <ActivityIndicator
+                    color={colors.primaryForeground}
+                    size="small"
+                  />
                 ) : null}
                 <Text className="text-[13px] font-semibold text-primary-foreground">
                   {sending ? <Trans>准备中</Trans> : <Trans>发送</Trans>}

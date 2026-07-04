@@ -22,6 +22,7 @@ import {
   matchesInboxFilter,
 } from "@/components/inbox/inbox-list";
 import { AppScreen, EmptyState } from "@/components/mobile/screen";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import {
@@ -248,6 +249,7 @@ function SearchBody({
   onRetrySearch: () => void;
   onClear: () => void;
 }) {
+  const { t } = useLingui();
   const useFts = serverSearch && hasQuery;
   const resultCount = useFts ? scopedSearchResults.length : clientItems.length;
 
@@ -273,11 +275,33 @@ function SearchBody({
         />
       ) : useFts ? (
         searching && (searchResults === null || searchResults.length === 0) ? (
+          // 检索中骨架:镜像 InboxHitRow 卡片布局,宽度错落避免呆板。
           <View
-            className="min-h-48 items-center justify-center"
+            className="gap-2.5"
             testID="inbox-search-loading"
+            accessible
+            accessibilityLabel={t`加载中`}
           >
-            <ActivityIndicator size="small" />
+            {(
+              [
+                ["w-1/2", "w-1/3"],
+                ["w-2/3", "w-2/5"],
+                ["w-1/2", "w-1/3"],
+                ["w-3/5", "w-2/5"],
+              ] as const
+            ).map(([titleWidth, metaWidth], index) => (
+              <View
+                // biome-ignore lint/suspicious/noArrayIndexKey: 静态占位行,无重排
+                key={index}
+                className="min-h-20 flex-row items-center gap-3 rounded-lg border border-border bg-card p-3.5"
+              >
+                <Skeleton className="size-12 rounded-full" />
+                <View className="min-w-0 flex-1 gap-2">
+                  <Skeleton className={`h-3.5 ${titleWidth}`} />
+                  <Skeleton className={`h-3 ${metaWidth}`} />
+                </View>
+              </View>
+            ))}
           </View>
         ) : lastError && searchResults === null ? (
           <EmptyState
