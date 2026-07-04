@@ -75,6 +75,19 @@ Tauri dev 期间硬编码连这两个端口。改 `vite.config.ts` 端口会让 
 
 **相关文件**：`.impeccable/live/config.json`（`files: ["index.html"]`）、`src-tauri/Cargo.toml`（`tauri-plugin-mcp-bridge`）
 
+### Tauri MCP 事件模拟：payload 必须是对象，快捷发送链路可整段模拟
+
+用 tauri MCP 验证 UI 时两个实测经验：
+
+**正确做法**：
+- 模拟「右键用 SwarmDrop 发送」全链路不需要真实右键：emit `external-file-open` 事件（payload `{ paths: ["/abs/path", ...] }`）即可触发 ExternalOpenHandler → share-store → `/send/share-target` 完整前端链路
+- emit 事件时 payload 必须是 **JSON 对象**。`mcp__tauri__ipc_emit_event` 的 payload 参数如果传了字符串化 JSON，前端 `event.payload` 收到的是 string，`payload.paths` 为 undefined，listener 静默失败、页面毫无反应。保险做法是用 `webview_execute_js` 执行 `window.__TAURI__.event.emit("external-file-open", { paths })`
+
+**不要做**：
+- 通过 `window.location.href = "/xxx"` 验证路由 redirect——整页刷新会丢内存态（解锁状态），app 会弹回 unlock 屏
+
+**相关文件**：`src/components/external-open-handler.tsx`、`src/lib/bindings.ts`（`events.externalFileOpen`）
+
 ## Git submodule
 
 ### libs/ 是 swarm-p2p submodule

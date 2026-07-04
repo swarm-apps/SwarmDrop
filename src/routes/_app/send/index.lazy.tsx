@@ -27,6 +27,7 @@ import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { FileDropZone } from "./-components/file-drop-zone";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
+import { SendProgressView } from "./-components/send-progress-view";
 import { FileTree } from "@/components/file-tree";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
@@ -51,6 +52,8 @@ function SendPage() {
   const fileSelection = useFileSelection();
   const [sending, setSending] = useState(false);
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null);
+  // startSend 成功后就地转进度视图（不再跳独立详情页）
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   // 从 network-store / secret-store 查找目标设备
   const onlineDevice = useNetworkStore(
@@ -110,10 +113,7 @@ function SendPage() {
 
       await useTransferStore.getState().loadProjections();
 
-      navigate({
-        to: "/transfer/$sessionId",
-        params: { sessionId: result.sessionId },
-      });
+      setActiveSessionId(result.sessionId);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -140,6 +140,20 @@ function SendPage() {
           <Trans>返回</Trans>
         </Button>
       </main>
+    );
+  }
+
+  if (activeSessionId) {
+    return (
+      <SendProgressView
+        sessionId={activeSessionId}
+        onBack={handleBack}
+        onSessionChange={setActiveSessionId}
+        onSendMore={() => {
+          fileSelection.clear();
+          setActiveSessionId(null);
+        }}
+      />
     );
   }
 

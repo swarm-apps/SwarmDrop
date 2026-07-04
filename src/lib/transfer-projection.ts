@@ -82,3 +82,11 @@ export function projectionStatusLabel(
 export function canResumeProjection(projection: TransferProjection): boolean {
   return projection.phase === "suspended" && projection.recoverable;
 }
+
+/** 已结束：终态，或中断且不可恢复。 */
+export function isProjectionEnded(projection: TransferProjection): boolean {
+  return (
+    projection.phase === "terminal" ||
+    (projection.phase === "suspended" && !projection.recoverable)
+  );
+}

@@ -13,7 +13,7 @@ import {
   SectionHeader,
   SectionShell,
 } from "@/components/layout/section-primitives";
-import { TransferItem } from "../transfer/-transfer-item";
+import { SessionRow } from "../transfer/-session-row";
 import type {
   Device,
   DeviceReceivePolicy,
@@ -350,6 +350,14 @@ function PairedDevicesSection({
 }
 
 function ActiveTransfersSection({ items }: { items: TransferProjection[] }) {
+  const navigate = useNavigate();
+  const openSession = useCallback(
+    (sessionId: string) => {
+      void navigate({ to: "/transfer", search: { session: sessionId } });
+    },
+    [navigate],
+  );
+
   return (
     <SectionShell>
       <SectionHeader
@@ -367,7 +375,13 @@ function ActiveTransfersSection({ items }: { items: TransferProjection[] }) {
       ) : (
         <div className="flex flex-col gap-2.5">
           {items.map((item) => (
-            <TransferItem key={item.sessionId} projection={item} />
+            <SessionRow
+              key={item.sessionId}
+              projection={item}
+              selected={false}
+              onSelect={openSession}
+              onSessionChange={openSession}
+            />
           ))}
         </div>
       )}

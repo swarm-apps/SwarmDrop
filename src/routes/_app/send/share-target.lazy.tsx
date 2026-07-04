@@ -35,6 +35,7 @@ import { formatFileSize } from "@/lib/format";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileTree } from "@/components/file-tree";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
+import { SendProgressView } from "./-components/send-progress-view";
 import { cn } from "@/lib/utils";
 import {
   CommandDock,
@@ -60,6 +61,8 @@ function ShareTargetPage() {
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null);
+  // startSend 成功后就地转进度视图（右键快捷发送全程单界面，发完即可关窗）
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   const status = useNetworkStore((s) => s.status);
   const devices = useNetworkStore((s) => s.devices);
@@ -116,7 +119,7 @@ function ShareTargetPage() {
         fileIds,
       );
       await useTransferStore.getState().loadProjections();
-      navigate({ to: "/transfer/$sessionId", params: { sessionId: result.sessionId } });
+      setActiveSessionId(result.sessionId);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -132,6 +135,16 @@ function ShareTargetPage() {
       navigate({ to: "/devices" });
     }
   };
+
+  if (activeSessionId) {
+    return (
+      <SendProgressView
+        sessionId={activeSessionId}
+        onBack={handleBack}
+        onSessionChange={setActiveSessionId}
+      />
+    );
+  }
 
   return (
     <TaskPageShell>

@@ -48,10 +48,9 @@ function AppLayout() {
 
   const location = useLocation();
 
-  // send/receive/pairing 页面为独立全屏,不显示全局 header
+  // send/pairing 页面为独立全屏,不显示全局 header
   const isFullScreenRoute =
     location.pathname.startsWith("/send") ||
-    location.pathname.startsWith("/receive") ||
     location.pathname.startsWith("/pairing");
 
   return (

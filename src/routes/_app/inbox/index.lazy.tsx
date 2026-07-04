@@ -68,27 +68,13 @@ import { cn } from "@/lib/utils";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
 import { pickFolder } from "@/lib/file-picker";
 import { projectionStatusLabel } from "@/lib/transfer-projection";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 export const Route = createLazyFileRoute("/_app/inbox/")({
   component: InboxPage,
 });
 
 type ReaderStatus = "empty" | "loading" | "error" | "ready";
-
-/** 订阅一个 media query，SSR/首帧同步取值避免闪烁。 */
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(
-    () => typeof window !== "undefined" && window.matchMedia(query).matches,
-  );
-  useEffect(() => {
-    const m = window.matchMedia(query);
-    const onChange = () => setMatches(m.matches);
-    onChange();
-    m.addEventListener("change", onChange);
-    return () => m.removeEventListener("change", onChange);
-  }, [query]);
-  return matches;
-}
 
 function InboxPage() {
   const detail = useInboxStore((s) => s.detail);

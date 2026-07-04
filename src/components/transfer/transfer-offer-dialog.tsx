@@ -96,11 +96,11 @@ export function TransferOfferDialog() {
       await commands.acceptReceive(currentOffer.sessionId, saveLocation);
       await loadProjections();
 
-      // 成功后才出队 + 跳转详情；失败时保留 offer 供重试（不在 finally 出队）。
+      // 成功后才出队 + 跳转活动中心并选中该会话；失败时保留 offer 供重试（不在 finally 出队）。
       shiftOffer();
       navigate({
-        to: "/transfer/$sessionId",
-        params: { sessionId: currentOffer.sessionId },
+        to: "/transfer",
+        search: { session: currentOffer.sessionId },
       });
     } catch (err) {
       toast.error(getErrorMessage(err));

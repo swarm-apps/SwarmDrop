@@ -60,6 +60,16 @@ export async function cleanupTransferListeners() {
   unlistenFns = [];
 }
 
+/**
+ * 按 sessionId 订阅单个会话的进度快照（无则 null）。
+ * 进度事件高频回流，统一走这个入口把重渲染隔离到单个组件。
+ */
+export function useSessionProgress(
+  sessionId: string,
+): TransferProgressEvent | null {
+  return useTransferStore((s) => s.progressBySession[sessionId] ?? null);
+}
+
 // 并发 loadProjections 的单调序号：迟到的旧快照不得覆盖新结果。
 let loadSeq = 0;
 

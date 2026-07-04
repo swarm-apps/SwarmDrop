@@ -3,6 +3,11 @@
  */
 
 /** 格式化文件大小 */
+/** 计算传输进度百分比（0-100 取整） */
+export function calcPercent(transferred: number, total: number): number {
+  return total > 0 ? Math.round((transferred / total) * 100) : 0;
+}
+
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
