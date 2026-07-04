@@ -1,4 +1,5 @@
 import { t } from "@lingui/core/macro";
+import { AppState } from "react-native";
 import notifee, {
   AndroidImportance,
   AuthorizationStatus,
@@ -32,10 +33,32 @@ function ensureAlertChannel(): Promise<void> {
 
 export async function ensureNotificationPermission(): Promise<boolean> {
   const settings = await notifee.requestPermission();
+  return isAuthorized(settings.authorizationStatus);
+}
+
+/**
+ * 只检查、不请求 —— 事件驱动的通知发送路径用这个:app 在后台时没有 Activity,
+ * requestPermission 无法弹授权窗,会静默失败。请求权限的时机在前台
+ * (onboarding / 节点启动预热 / 设置页手动)。
+ */
+async function hasNotificationPermission(): Promise<boolean> {
+  const settings = await notifee.getNotificationSettings();
+  return isAuthorized(settings.authorizationStatus);
+}
+
+function isAuthorized(status: AuthorizationStatus): boolean {
   return (
-    settings.authorizationStatus === AuthorizationStatus.AUTHORIZED ||
-    settings.authorizationStatus === AuthorizationStatus.PROVISIONAL
+    status === AuthorizationStatus.AUTHORIZED ||
+    status === AuthorizationStatus.PROVISIONAL
   );
+}
+
+/**
+ * 与桌面端同一策略:app 在前台时不发系统通知 —— 应用内已有 offer 弹窗 /
+ * 通知中心承接;只有退到后台(或被覆盖)才用系统通知把用户拉回来。
+ */
+function isAppInForeground(): boolean {
+  return AppState.currentState === "active";
 }
 
 /** 权限被拒后的回退:跳系统通知设置让用户手动开启。 */
@@ -48,7 +71,8 @@ async function notifyTransferOffer(
   deviceName: string,
   fileCount: number,
 ): Promise<void> {
-  if (!(await ensureNotificationPermission())) {
+  if (isAppInForeground()) return;
+  if (!(await hasNotificationPermission())) {
     return;
   }
   await ensureAlertChannel();
@@ -68,7 +92,8 @@ async function notifyPairingRequest(
   pendingId: bigint,
   code: string | undefined,
 ): Promise<void> {
-  if (!(await ensureNotificationPermission())) {
+  if (isAppInForeground()) return;
+  if (!(await hasNotificationPermission())) {
     return;
   }
   await ensureAlertChannel();
