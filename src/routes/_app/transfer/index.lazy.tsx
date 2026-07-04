@@ -159,10 +159,8 @@ function TransferPage() {
             filter={filter}
             onFilterChange={setFilter}
             selectedId={shown?.sessionId ?? null}
-            onSelect={(id) => {
-              selectSession(id);
-              closeDrawer();
-            }}
+            onSelect={selectSession}
+            onAfterSelect={closeDrawer}
             onClear={items.length > 0 ? () => setClearOpen(true) : null}
           />
         )}
@@ -208,6 +206,7 @@ function SessionRail({
   onFilterChange,
   selectedId,
   onSelect,
+  onAfterSelect,
   onClear,
 }: {
   items: TransferProjection[];
@@ -217,8 +216,19 @@ function SessionRail({
   onFilterChange: (filter: FilterKey) => void;
   selectedId: string | null;
   onSelect: (sessionId: string) => void;
+  /** 选中后关抽屉（窄屏）。与 onSelect 均为稳定引用，合成的 handleSelect 才能保住 SessionRow memo。 */
+  onAfterSelect: () => void;
   onClear: (() => void) | null;
 }) {
+  // 合成稳定回调下发给 memo 化的 SessionRow：onSelect / onAfterSelect 均稳定 → 引用不变。
+  const handleSelect = useCallback(
+    (id: string) => {
+      onSelect(id);
+      onAfterSelect();
+    },
+    [onSelect, onAfterSelect],
+  );
+
   const filters: { key: FilterKey; label: ReactNode }[] = [
     { key: "all", label: <Trans>全部</Trans> },
     { key: "active", label: <Trans>进行中</Trans> },
@@ -280,8 +290,8 @@ function SessionRail({
               key={item.sessionId}
               projection={item}
               selected={item.sessionId === selectedId}
-              onSelect={onSelect}
-              onSessionChange={onSelect}
+              onSelect={handleSelect}
+              onSessionChange={handleSelect}
             />
           ))
         )}
@@ -290,7 +300,7 @@ function SessionRail({
   );
 }
 
-function RailEmptyState() {
+function DetailEmptyState() {
   return (
     <CenteredEmptyState
       icon={ArrowRightLeft}
@@ -372,7 +382,7 @@ function SessionDetail({
   );
 }
 
-/** 零会话时的详情空态（列表也同步显示 RailEmptyState）。 */
+/** 零会话时的详情空态；列表侧同时显示精简的「暂无传输活动」提示。 */
 function TransferDetailEmpty({
   openList,
   isCompact,
@@ -383,7 +393,7 @@ function TransferDetailEmpty({
   return (
     <DetailShell openList={openList} isCompact={isCompact}>
       <div className={cn("flex flex-col", isCompact ? "flex-1" : "min-h-0 flex-1")}>
-        <RailEmptyState />
+        <DetailEmptyState />
       </div>
     </DetailShell>
   );

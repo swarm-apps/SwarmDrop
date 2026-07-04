@@ -9,7 +9,13 @@
  * 保证「什么时候进断点、往哪边开」全局一个标准，而非各页手抄。
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { PanelLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -32,10 +38,15 @@ export function SlideDrawer({
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  // onClose 各调用点都是内联箭头，随父级重渲染换引用；用 ref 读最新值，让 effect 只
+  // 依赖 open。否则抽屉打开期间父级每渲染一次就解绑重绑监听 + 强制 focus——收件箱窄屏
+  // 搜索框位于抽屉内，等于每敲一个字空转一轮（还会把焦点从输入框抢回面板）。
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     const raf = requestAnimationFrame(() => panelRef.current?.focus());
@@ -43,7 +54,7 @@ export function SlideDrawer({
       document.removeEventListener("keydown", onKey);
       cancelAnimationFrame(raf);
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <div className={cn("absolute inset-0 z-30", !open && "pointer-events-none")}>
@@ -99,6 +110,10 @@ export function MasterDetailShell({
   const isWide = useIsWideLayout();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // 稳定引用：list() 会把它透传到 memo 化的列表行（如 transfer 的 SessionRow），
+  // 每帧新建的闭包会打穿 memo。宽屏下抽屉不存在，closeDrawer 是无害 no-op。
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+
   // 切到宽屏时收起抽屉，避免状态残留
   useEffect(() => {
     if (isWide) setDrawerOpen(false);
@@ -114,7 +129,7 @@ export function MasterDetailShell({
           }}
         >
           <section className="glass-panel flex min-h-0 flex-col overflow-hidden rounded-[24px]">
-            {list({ closeDrawer: () => {} })}
+            {list({ closeDrawer })}
           </section>
           {detail({ openList: null, isCompact: false })}
         </div>
@@ -127,12 +142,8 @@ export function MasterDetailShell({
       <div className="mx-auto flex h-full w-full max-w-[880px] flex-col overflow-y-auto p-4 sm:p-5">
         {detail({ openList: () => setDrawerOpen(true), isCompact: true })}
       </div>
-      <SlideDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        label={drawerLabel}
-      >
-        {list({ closeDrawer: () => setDrawerOpen(false) })}
+      <SlideDrawer open={drawerOpen} onClose={closeDrawer} label={drawerLabel}>
+        {list({ closeDrawer })}
       </SlideDrawer>
     </main>
   );

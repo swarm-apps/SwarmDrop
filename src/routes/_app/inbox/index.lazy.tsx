@@ -2,11 +2,10 @@
  * Drop Inbox Page (Lazy)
  * 收件箱 —— 展示已经成功接收的内容，和活动/恢复过程账本分离。
  *
- * 响应式：
- * - 桌面（≥1024px）：左「时间分组导航栏」+ 右「阅读区」两栏并排，各自内部滚动。
- * - 窄屏（<1024px）：阅读区占满整宽 + 整页滚动；列表收成左侧抽屉（Sheet），
- *   顶部「收件箱」按钮唤出，选中即收起，避免上下堆叠 / 双滚动。
- * 「来源与过程」用容器查询按阅读区自身宽度决定单列/双列。
+ * 响应式（与传输活动共用 MasterDetailShell，见 MASTER_DETAIL_QUERY）：
+ * - 宽屏（≥920px）：左「时间分组导航栏」+ 右「阅读区」两栏并排，各自内部滚动。
+ * - 窄屏（<920px）：阅读区占满整宽 + 整页滚动；列表收进左侧抽屉（SlideDrawer），
+ *   详情头部「打开列表」按钮唤出，选中即收起，避免上下堆叠 / 双滚动。
  */
 
 import {
@@ -65,7 +64,10 @@ import {
 import { cn } from "@/lib/utils";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
 import { projectionStatusLabel } from "@/lib/transfer-projection";
-import { MasterDetailShell } from "@/components/layout/master-detail-shell";
+import {
+  MasterDetailShell,
+  OpenListButton,
+} from "@/components/layout/master-detail-shell";
 
 export const Route = createLazyFileRoute("/_app/inbox/")({
   component: InboxPage,
@@ -615,16 +617,7 @@ function InboxReader({
   onFileReveal: (fileId: number) => void;
 }) {
   const toggle = onOpenList ? (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="-ml-1 size-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-      onClick={onOpenList}
-      aria-label={t`打开收件箱列表`}
-      title={t`打开收件箱列表`}
-    >
-      <PanelLeft className="size-4" />
-    </Button>
+    <OpenListButton openList={onOpenList} label={t`打开收件箱列表`} />
   ) : null;
 
   const sectionClass = cn(
