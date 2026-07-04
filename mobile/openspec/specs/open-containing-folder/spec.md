@@ -1,7 +1,8 @@
 # open-containing-folder Specification
 
 ## Purpose
-TBD - created by archiving change fix-open-real-content-folder. Update Purpose after archive.
+「打开文件夹」定位到收到内容真实所在的容器目录(而非配置的存储根),以 host `finalize_sink` 返回的文件父目录 URI 为事实源,SAF 与 file:// 皆正确;覆盖传输详情页与收件箱详情页。
+
 ## Requirements
 ### Requirement: 打开文件夹定位到真实容器目录
 
@@ -24,7 +25,7 @@ TBD - created by archiving change fix-open-real-content-folder. Update Purpose a
 
 ### Requirement: 容器目录事实源贯穿并落库
 
-`FileAccess::finalize_sink` SHALL 返回文件的最终 URI 及其**父目录 URI**;core SHALL 将该父目录 URI 落库到 `transfer_files.local_dir`。容器目录计算 `content_root_of(files)` SHALL 是**纯事实**:所有文件 `local_dir` 唯一一致 → 该目录;否则(跨多个不同父目录 / 缺 `local_dir`)→ 无(None)。兜底到会话保存目录由消费方各自决定,MUST NOT 从相对路径拼接推导。
+`FileAccess::finalize_sink` SHALL 返回文件的最终 URI 及其**父目录 URI**;core SHALL 将该父目录 URI 落库到 `transfer_files.local_dir`。容器目录 `content_root_of(files, save_path)` SHALL **在 core 内解析成可直接打开的目录**:所有文件 `local_dir` 唯一一致 → 该目录;否则(跨多个不同父目录 / 缺 `local_dir` 的历史)→ 回退存储根 `save_path`。传输投影 `content_root` 与收件箱 `root_path` 均取此解析结果,消费方直读、不再各自兜底,MUST NOT 从相对路径拼接推导。
 
 #### Scenario: 接收完成时记录父目录
 
@@ -36,14 +37,8 @@ TBD - created by archiving change fix-open-real-content-folder. Update Purpose a
 - **WHEN** 一次已完成接收的所有文件 `local_dir` 相同(单文件 / 平铺同一文件夹)
 - **THEN** 传输投影 `content_root` 与收件箱 `root_path` SHALL 均为该目录
 
-#### Scenario: 跨多目录 → 投影为空、收件箱兜底存储根
+#### Scenario: 跨多目录 / 缺 local_dir → core 回退存储根
 
-- **WHEN** 一次已完成接收的文件分布在多个不同父目录(无唯一容器)
-- **THEN** 传输投影 `content_root` SHALL 为 None(前端持有 saveLocation,自行回退存储根)
-- **AND** 收件箱 `root_path` SHALL 回退到会话保存目录(收件箱前端无 saveLocation,兜底落 core)
-
-#### Scenario: 历史数据缺少 local_dir
-
-- **WHEN** 一个已完成接收会话的文件 `local_dir` 为 NULL(旧版本落库)
-- **THEN** `content_root` 为 None、收件箱 `root_path` 回退保存目录,不报错、不做相对路径推导
+- **WHEN** 一次已完成接收的文件分布在多个不同父目录(无唯一容器),或文件 `local_dir` 为 NULL(旧版本落库)
+- **THEN** `content_root_of` SHALL 在 core 内回退到会话保存目录,传输投影 `content_root` 与收件箱 `root_path` 均为存储根;不报错、不做相对路径推导
 

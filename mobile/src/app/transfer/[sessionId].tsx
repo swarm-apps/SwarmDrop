@@ -14,10 +14,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-  MobileSaveLocation_Tags,
-  type MobileTransferProjection,
-} from "react-native-swarmdrop-core";
+import type { MobileTransferProjection } from "react-native-swarmdrop-core";
 import { buildTreeDataFromOffer, FileTree } from "@/components/file-tree";
 import { KeyValueRow } from "@/components/key-value-row";
 import {
@@ -736,19 +733,12 @@ function ActionButton({
 }
 
 /**
- * 「打开文件夹」/「保存位置」定位的目标目录:优先用 core 给的真实容器目录
- * `contentRoot`(收到内容实际所在文件夹,SAF/file:// 皆为合法可打开目录 URI);
- * 缺失(旧数据 / 发送会话 / 异常)回退配置的存储根 `saveLocation`。
- * 绝不用 saveLocation + relativePath 拼接推导(SAF/重名下失真)。
+ * 「打开文件夹」/「保存位置」定位的目标目录 —— core 已把 `contentRoot` 解析成真实
+ * 容器目录(收到内容实际所在文件夹,SAF/file:// 皆为合法可打开目录 URI;缺唯一容器
+ * 时回退存储根),前端直读。绝不用 saveLocation + relativePath 拼接推导(SAF/重名下失真)。
  */
 function savePathOf(projection: MobileTransferProjection): string | null {
-  if (projection.contentRoot) {
-    return projection.contentRoot;
-  }
-  if (projection.saveLocation?.tag !== MobileSaveLocation_Tags.Path) {
-    return null;
-  }
-  return projection.saveLocation.inner.path;
+  return projection.contentRoot ?? null;
 }
 
 function formatDuration(seconds: number): string {
