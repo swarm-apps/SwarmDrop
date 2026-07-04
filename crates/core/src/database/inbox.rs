@@ -273,10 +273,19 @@ pub async fn repair_missing_inbox_items_for_completed_receives(
         if find_inbox_item_by_session(db, session.session_id)
             .await?
             .is_none()
-            && let Some(detail) =
-                ensure_inbox_item_for_completed_receive_session(db, session.session_id).await?
         {
-            repaired.push(detail);
+            // 尽力补建：单个会话失败（如 local_path 为 NULL 的旧数据）只跳过，
+            // 不掐断整批——否则一个坏会话会让其后所有可补会话永远建不出来。
+            match ensure_inbox_item_for_completed_receive_session(db, session.session_id).await {
+                Ok(Some(detail)) => repaired.push(detail),
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        "补建收件箱条目失败，跳过: session={}, {e}",
+                        session.session_id
+                    );
+                }
+            }
         }
     }
     Ok(repaired)
