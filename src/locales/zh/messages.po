@@ -704,6 +704,7 @@ msgid "发送配对请求"
 msgstr "发送配对请求"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/components/ui/confirm-dialog.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
@@ -715,8 +716,6 @@ msgstr "发送配对请求"
 #: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-#: src/routes/_app/transfer/-session-row.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
 msgid "取消"
 msgstr "取消"
 
@@ -1388,7 +1387,7 @@ msgstr "打洞"
 msgid "托盘"
 msgstr "托盘"
 
-#: src/components/transfer/session-panel.tsx
+#: src/lib/transfer-actions.ts
 msgid "找不到原始文件路径，请重新选择文件发送"
 msgstr "找不到原始文件路径，请重新选择文件发送"
 

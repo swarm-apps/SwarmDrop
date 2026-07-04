@@ -16,7 +16,7 @@ msgstr ""
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "—"
-msgstr ""
+msgstr "—"
 
 #. placeholder {0}: detail.itemCount
 #. placeholder {0}: hit.itemCount
@@ -25,7 +25,7 @@ msgstr ""
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "{0, plural, other {# 项}}"
-msgstr ""
+msgstr "{0, plural, one {# item} other {# items}}"
 
 #~ msgid "{0}"
 #~ msgstr "{0}"
@@ -39,7 +39,7 @@ msgstr "{0} items, {1}"
 #. placeholder {0}: fileSelection.totalCount
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "{0} 项内容"
-msgstr ""
+msgstr "{0} items"
 
 #. placeholder {0}: progress?.completedFiles ?? 0
 #: src/components/file-tree/file-tree.tsx
@@ -249,7 +249,7 @@ msgstr "Used only for local display and pairing confirmation"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "今天"
-msgstr ""
+msgstr "Today"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "从左侧列表选择会话，查看进度、文件明细和操作。"
@@ -509,7 +509,7 @@ msgstr "Minimize to tray"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "准备中…"
-msgstr ""
+msgstr "Preparing…"
 
 #: src/lib/errors.ts
 msgid "出错了，请重试"
@@ -617,7 +617,7 @@ msgstr "Send"
 #. placeholder {0}: fileSelection.totalCount
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "发送 {0} 个文件"
-msgstr ""
+msgstr "Send {0} files"
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "发送中..."
@@ -648,13 +648,14 @@ msgstr "Send More"
 #. placeholder {0}: deviceDisplayName(selectedDevice)
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "发送给 {0}"
-msgstr ""
+msgstr "Send to {0}"
 
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "发送配对请求"
 msgstr "Send Pairing Request"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/components/ui/confirm-dialog.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
@@ -666,8 +667,6 @@ msgstr "Send Pairing Request"
 #: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-#: src/routes/_app/transfer/-session-row.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
 msgid "取消"
 msgstr "Cancel"
 
@@ -721,7 +720,7 @@ msgstr "Pairable"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "合计"
-msgstr ""
+msgstr "Total"
 
 #~ msgid "同一网络中可直接发起配对的设备。"
 #~ msgstr ""
@@ -761,7 +760,7 @@ msgstr "Once started, AI assistants can control file transfers via the MCP proto
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "启动后显示可发送的设备"
-msgstr ""
+msgstr "Devices you can send to appear once started"
 
 #: src/components/network/start-node-sheet.tsx
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
@@ -792,7 +791,7 @@ msgstr "When enabled, inbound files matching the policy go straight to the Inbox
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "在文件夹中显示"
-msgstr ""
+msgstr "Show in Folder"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "在文件管理器中右键「用 SwarmDrop 发送」，或在设备页选中目标设备发起传输；成功接收的文件会自动进入收件箱。"
@@ -1206,7 +1205,7 @@ msgstr "Current status"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "待发送"
-msgstr ""
+msgstr "To Send"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "待生成"
@@ -1218,7 +1217,7 @@ msgstr "Pending confirmation"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "快捷发送"
-msgstr ""
+msgstr "Quick Send"
 
 #~ msgid "快速配对"
 #~ msgstr ""
@@ -1264,7 +1263,7 @@ msgstr "Open"
 #. placeholder {0}: file.name
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "打开 {0}"
-msgstr ""
+msgstr "Open {0}"
 
 #~ msgid "打开保存目录失败"
 #~ msgstr "Failed to open save directory"
@@ -1279,7 +1278,7 @@ msgstr ""
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "打开收件箱列表"
-msgstr ""
+msgstr "Open inbox list"
 
 #: src/components/transfer/session-panel.tsx
 msgid "打开文件夹"
@@ -1294,7 +1293,7 @@ msgstr "Direct"
 msgid "托盘"
 msgstr "tray"
 
-#: src/components/transfer/session-panel.tsx
+#: src/lib/transfer-actions.ts
 msgid "找不到原始文件路径，请重新选择文件发送"
 msgstr "Original file paths not found. Please pick the files again to send."
 
@@ -1343,7 +1342,7 @@ msgstr "Received files are saved here by default. You can change this anytime."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "接收时间"
-msgstr ""
+msgstr "Received"
 
 #: src/components/transfer/session-panel.tsx
 msgid "接收未完成，请让对方重新发起传输。"
@@ -1362,7 +1361,7 @@ msgstr "Controls whether to connect to public bootstrap nodes"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "搜索收件箱"
-msgstr ""
+msgstr "Search inbox"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "搜索标题、来源、文件名…"
@@ -1413,7 +1412,7 @@ msgstr "File transfer failed, please try again"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "文件已全部移除，返回重新分享。"
-msgstr ""
+msgstr "All files removed. Go back to share again."
 
 #: src/components/transfer/session-panel.tsx
 msgid "文件明细"
@@ -1440,7 +1439,7 @@ msgstr "Invalid pairing code"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "无法加载这条记录"
-msgstr ""
+msgstr "Couldn't load this record"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "无法打开文件夹选择器，请检查存储权限"
@@ -1463,7 +1462,7 @@ msgstr "Mapped"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "昨天"
-msgstr ""
+msgstr "Yesterday"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "显示位置"
@@ -1526,7 +1525,7 @@ msgstr "Release Notes"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "更早"
-msgstr ""
+msgstr "Earlier"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "有效期"
@@ -1593,7 +1592,7 @@ msgstr "My device"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "本周"
-msgstr ""
+msgstr "This Week"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "本地位置"
@@ -1702,7 +1701,7 @@ msgstr "Saving..."
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "正在启动节点…"
-msgstr ""
+msgstr "Starting node…"
 
 #: src/components/transfer/session-panel.tsx
 msgid "正在建立会话..."
@@ -1752,7 +1751,7 @@ msgstr "Ask every time"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "没有在线设备"
-msgstr ""
+msgstr "No devices online"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "没有待发送的文件"
@@ -1788,7 +1787,7 @@ msgstr "Light"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "浏览收件箱"
-msgstr ""
+msgstr "Browse inbox"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "深色"
@@ -2131,7 +2130,7 @@ msgstr "Have the other device enter this pairing code"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "让目标设备打开 SwarmDrop 并保持在线，或先配对一台设备。"
-msgstr ""
+msgstr "Open SwarmDrop on the target device and keep it online, or pair a device first."
 
 #: src/components/close-behavior-manager.tsx
 msgid "记住我的选择（之后可在「设置」中修改）"
@@ -2143,7 +2142,7 @@ msgstr "The record cannot be recovered after deletion; transferred files are not
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "记录可能已被移除，或详情加载失败。请选择其它记录，或刷新收件箱。"
-msgstr ""
+msgstr "The record may have been removed, or its details failed to load. Pick another record or refresh the inbox."
 
 #~ msgid "设备"
 #~ msgstr "Devices"
@@ -2237,7 +2236,7 @@ msgstr "Please start the node first"
 
 #: src/components/external-open-handler.tsx
 msgid "请先完成 SwarmDrop 设置"
-msgstr ""
+msgstr "Please finish setting up SwarmDrop first"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "请输入大于 0 的数字，留空表示不限制"
@@ -2372,7 +2371,7 @@ msgstr "Select a session"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "选择一个设备"
-msgstr ""
+msgstr "Select a device"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "选择一条收件箱记录查看详情"
@@ -2384,7 +2383,7 @@ msgstr "After you select content, its file structure and total size are confirme
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "选择右侧一台在线设备，端到端加密直接送达。"
-msgstr ""
+msgstr "Pick an online device on the right for end-to-end encrypted direct delivery."
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "选择应用显示语言"
@@ -2404,7 +2403,7 @@ msgstr "Select Folder"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "选择设备"
-msgstr ""
+msgstr "Select Device"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "通用"
