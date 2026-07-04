@@ -32,8 +32,8 @@ interface FileTreeProps {
   completedFileIds?: Set<number>;
   /** 失败的 fileId 集合（transfer 模式） */
   errorFileIds?: Set<number>;
-  /** 删除文件回调（select 模式） */
-  onRemoveFile?: (absolutePath: string) => void;
+  /** 删除文件回调（select 模式）；入参为 relativePath（目录为带尾斜杠的前缀）。 */
+  onRemoveFile?: (relativePath: string) => void;
   /** 重试文件回调（transfer 模式） */
   onRetryFile?: (fileId: number) => void;
   /** 是否显示头部（默认 true） */
@@ -155,10 +155,12 @@ export function FileTree({
                 ? getFileStatus(data, mode, progress, completedFileIds, errorFileIds)
                 : undefined;
 
-            // 共享的 onRemove 回调
+            // 共享的 onRemove 回调。用 data.path（文件=relativePath，目录=带尾斜杠的
+            // 目录前缀）而非 absolutePath：扫描来源（buildTreeDataFromOffer）不带
+            // absolutePath，且 removeFile 本就按 relativePath 精确/前缀匹配。
             const onRemove =
-              mode === "select" && onRemoveFile && data.absolutePath
-                ? () => onRemoveFile(data.absolutePath!)
+              mode === "select" && onRemoveFile
+                ? () => onRemoveFile(data.path)
                 : undefined;
 
             return (
