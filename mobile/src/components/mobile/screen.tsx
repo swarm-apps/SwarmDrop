@@ -1,8 +1,16 @@
 import type { LucideIcon } from "lucide-react-native";
 import type { ReactNode } from "react";
-import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
+import Animated from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
+import { usePulseOpacity } from "@/hooks/usePulseOpacity";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +47,12 @@ export function AppScreen({
     <SafeAreaView
       style={{ flex: 1 }}
       className={cn("bg-background", className)}
-      edges={["top"]}
+      // footer(拇指区 dock)在 iOS 必须避开悬浮 tab bar:原生 SafeAreaView 就地测量自身
+      // safeAreaInsets,在 tab 容器内 bottom 会包含 iOS 26 浮动胶囊的高度。Android 的 tab bar
+      // 是实体占位、手势条也在 tab bar 之下,但 safe-area-context 仍会把手势条高度上报进
+      // bottom inset(不按视图相交计算),加了只会多一截空白 —— 故 bottom edge 仅 iOS 启用。
+      // 无 footer 的屏保持只留 top,滚动内容照常延伸到屏幕底。
+      edges={footer && Platform.OS === "ios" ? ["top", "bottom"] : ["top"]}
       testID={testID}
     >
       {scroll ? (
@@ -217,6 +230,62 @@ export function EmptyState({
       ) : null}
     </View>
   );
+}
+
+interface InlineEmptyStateProps {
+  icon: LucideIcon;
+  title: ReactNode;
+  description?: ReactNode;
+  /** 扫描/等待中语义:图标 chip 呼吸脉冲,把「空」表达成「正在进行」。 */
+  pulse?: boolean;
+  testID?: string;
+}
+
+/**
+ * 行内空态 —— 比全屏 `EmptyState` 轻一档:用于卡片区块/sheet 分组内的空状态。
+ * 同一空态语言(dashed 边框 + muted 圆 chip),但尺寸收紧、无动作按钮。
+ */
+export function InlineEmptyState({
+  icon: Icon,
+  title,
+  description,
+  pulse = false,
+  testID,
+}: InlineEmptyStateProps) {
+  const colors = useThemeColors();
+  return (
+    <View
+      className="items-center gap-2.5 rounded-lg border border-dashed border-border bg-card px-4 py-5"
+      testID={testID}
+    >
+      <IconChipPulse enabled={pulse}>
+        <View className="size-9 items-center justify-center rounded-full bg-muted">
+          <Icon color={colors.mutedForeground} size={16} />
+        </View>
+      </IconChipPulse>
+      <View className="items-center gap-0.5">
+        <Text className="text-center text-[13px] font-medium text-foreground">
+          {title}
+        </Text>
+        {description ? (
+          <Text className="text-center text-[11px] leading-4 text-muted-foreground">
+            {description}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function IconChipPulse({
+  enabled,
+  children,
+}: {
+  enabled: boolean;
+  children: ReactNode;
+}) {
+  const style = usePulseOpacity({ min: 0.4, duration: 800, enabled });
+  return <Animated.View style={style}>{children}</Animated.View>;
 }
 
 export function BottomActionArea({

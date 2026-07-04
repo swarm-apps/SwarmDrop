@@ -1,17 +1,21 @@
+import { useBottomSheetInternal } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { OTPInput, type OTPInputRef, type SlotProps } from "input-otp-native";
 import {
+  ArrowLeftRight,
   ChevronRight,
   Copy,
   Keyboard,
   OctagonAlert,
   Plus,
   Power,
+  Radar,
   Radio,
   RefreshCcw,
+  SearchX,
   Smartphone,
 } from "lucide-react-native";
 import {
@@ -23,7 +27,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import {
+  ActivityIndicator,
+  findNodeHandle,
+  Pressable,
+  TextInput as RNTextInput,
+  View,
+} from "react-native";
+import Animated from "react-native-reanimated";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { DeviceCard } from "@/components/device-card";
@@ -32,6 +43,7 @@ import {
   AppScreen,
   BottomActionArea,
   EmptyState,
+  InlineEmptyState,
   Surface,
 } from "@/components/mobile/screen";
 import {
@@ -48,8 +60,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { canSendToDevice } from "@/core/device-trust";
 import { getMobileCore } from "@/core/mobile-core";
-import { isProjectionActive } from "@/core/transfer-types";
+import {
+  compareProjectionsByUpdatedAtDesc,
+  isProjectionActive,
+} from "@/core/transfer-types";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
+import { usePulseOpacity } from "@/hooks/usePulseOpacity";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
@@ -139,7 +155,7 @@ export default function DevicesScreen() {
     () =>
       Object.values(projections)
         .filter(isProjectionActive)
-        .sort((a, b) => Number(b.updatedAt - a.updatedAt))
+        .sort(compareProjectionsByUpdatedAtDesc)
         .slice(0, 3),
     [projections],
   );
@@ -283,13 +299,12 @@ export default function DevicesScreen() {
             ))}
           </View>
         ) : (
-          <View testID="devices-empty-active-transfers">
-            <InlineEmptyText>
-              <Trans>
-                现在没有正在进行的传输，收到文件会第一时间出现在这儿。
-              </Trans>
-            </InlineEmptyText>
-          </View>
+          <InlineEmptyState
+            icon={ArrowLeftRight}
+            title={<Trans>现在没有正在进行的传输</Trans>}
+            description={<Trans>收到文件会第一时间出现在这儿</Trans>}
+            testID="devices-empty-active-transfers"
+          />
         )}
       </View>
 
@@ -611,11 +626,14 @@ const AddDeviceSheet = forwardRef<
               <Trans>附近设备</Trans>
             </Text>
             {nearbyDevices.length === 0 ? (
-              <InlineEmptyText>
-                <Trans>
-                  暂无附近设备。确认对端 SwarmDrop 已启动，或使用下方配对码。
-                </Trans>
-              </InlineEmptyText>
+              <InlineEmptyState
+                icon={Radar}
+                pulse
+                title={<Trans>正在留意附近的设备</Trans>}
+                description={
+                  <Trans>确认对端 SwarmDrop 已启动，或使用下方配对码</Trans>
+                }
+              />
             ) : (
               <>
                 <View
@@ -651,9 +669,11 @@ const AddDeviceSheet = forwardRef<
                   ))}
                 </View>
                 {filteredNearby.length === 0 ? (
-                  <InlineEmptyText>
-                    <Trans>没有符合条件的附近设备，换一个筛选条件试试。</Trans>
-                  </InlineEmptyText>
+                  <InlineEmptyState
+                    icon={SearchX}
+                    title={<Trans>没有符合条件的附近设备</Trans>}
+                    description={<Trans>换一个筛选条件试试</Trans>}
+                  />
                 ) : (
                   <View className="gap-2">
                     {visibleNearby.map((device) => (
@@ -931,7 +951,11 @@ const PairingCodeSheet = forwardRef<PairingCodeSheetRef, object>(
     }));
 
     return (
-      <AppBottomSheet ref={sheetRef}>
+      <AppBottomSheet
+        ref={sheetRef}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+      >
         <View className="gap-4 px-5 pt-2 pb-6">
           <View className="items-center gap-2">
             <View className="size-12 items-center justify-center rounded-full bg-primary/10">
@@ -974,11 +998,36 @@ function PairingCodeInput({
   const [looking, setLooking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // OTP 库内部是普通 TextInput(非 BottomSheetTextInput),而 sheet 的键盘避让被
+  // keyboardState.target 门控 —— 无 target 时 keyboardWillShow 只被缓存,sheet 纹丝不动
+  // 被键盘盖住。focus 落地后手动把当前聚焦的原生输入登记为目标,缓存事件会被重放,
+  // sheet 随键盘上移。
+  const { animatedKeyboardState } = useBottomSheetInternal();
+
   useEffect(() => {
     if (!focusToken) return;
-    const id = setTimeout(() => otpRef.current?.focus(), 250);
+    const id = setTimeout(() => {
+      otpRef.current?.focus();
+      requestAnimationFrame(() => {
+        // Fabric 下 currentlyFocusedInput() 返回 ReactNativeElement,findNodeHandle
+        // 运行时兼容但类型签名未更新,cast 绕过
+        const focused = RNTextInput.State.currentlyFocusedInput();
+        const node = focused ? findNodeHandle(focused as never) : null;
+        if (node != null) {
+          animatedKeyboardState.set((state) => ({ ...state, target: node }));
+        }
+      });
+    }, 250);
     return () => clearTimeout(id);
-  }, [focusToken]);
+  }, [focusToken, animatedKeyboardState]);
+
+  // 卸载(sheet dismiss)时注销键盘目标,不残留给下一个 sheet
+  useEffect(
+    () => () => {
+      animatedKeyboardState.set((state) => ({ ...state, target: undefined }));
+    },
+    [animatedKeyboardState],
+  );
 
   const onLookup = async (filled: string) => {
     if (looking || filled.length !== 6) return;
@@ -1010,7 +1059,7 @@ function PairingCodeInput({
   };
 
   return (
-    <View className="items-center gap-3 rounded-lg border border-border bg-muted p-3.5">
+    <View className="items-center gap-3">
       <OTPInput
         ref={otpRef}
         maxLength={6}
@@ -1019,7 +1068,7 @@ function PairingCodeInput({
         onComplete={onLookup}
         textAlign="center"
         render={({ slots }) => (
-          <View className="flex-row items-center justify-center gap-2">
+          <View className="flex-row items-center justify-center gap-2.5">
             {slots.map((slot, i) => (
               <Pressable
                 key={SLOT_KEYS[i]}
@@ -1040,29 +1089,43 @@ function PairingCodeInput({
   );
 }
 
-function OtpSlot({ char, isActive }: SlotProps) {
+// active 只换颜色不加粗边框(1px 恒定,框体零跳动);数字走 font-mono,与本机配对码
+// 展示卡(28px mono)同一视觉家族;插入点用闪烁 caret 指示,空 active 框不再无声。
+function OtpSlot({ char, isActive, hasFakeCaret }: SlotProps) {
   return (
     <View
-      className={
-        isActive
-          ? "h-12 w-10 items-center justify-center rounded-lg border-2 border-primary bg-muted"
-          : "h-12 w-10 items-center justify-center rounded-lg border border-border bg-muted"
-      }
+      className={cn(
+        "h-14 w-11 items-center justify-center rounded-lg border",
+        isActive ? "border-primary bg-primary/5" : "border-border bg-muted",
+      )}
     >
       {char !== null ? (
-        <Text className="text-[22px] font-bold text-foreground">{char}</Text>
+        <Text className="font-mono text-2xl font-bold text-foreground">
+          {char}
+        </Text>
+      ) : hasFakeCaret ? (
+        <OtpCaret />
       ) : null}
     </View>
   );
 }
 
-function InlineEmptyText({ children }: { children: React.ReactNode }) {
+function OtpCaret() {
+  const colors = useThemeColors();
+  const style = usePulseOpacity({ min: 0, duration: 500 });
+
   return (
-    <View className="rounded-lg bg-muted px-3 py-3">
-      <Text className="text-[12px] leading-5 text-muted-foreground">
-        {children}
-      </Text>
-    </View>
+    <Animated.View
+      style={[
+        style,
+        {
+          width: 2,
+          height: 26,
+          borderRadius: 1,
+          backgroundColor: colors.primary,
+        },
+      ]}
+    />
   );
 }
 

@@ -173,7 +173,7 @@ export function groupTransferProjections(
   }
 
   for (const items of Object.values(grouped)) {
-    items.sort((a, b) => Number(b.updatedAt - a.updatedAt));
+    items.sort(compareProjectionsByUpdatedAtDesc);
   }
 
   return grouped;
@@ -203,6 +203,29 @@ export function policyActionLabel(action: string): string {
   const message =
     POLICY_ACTION_MESSAGES[action as keyof typeof POLICY_ACTION_MESSAGES];
   return message ? i18n._(message) : action;
+}
+
+/**
+ * 传输记录搜索匹配:设备名或任一文件名包含关键词(大小写不敏感)。纯内存过滤。
+ * 空 query 由调用方短路(搜索页空输入 = 不出结果),这里只负责非空匹配。
+ */
+export function projectionMatchesQuery(
+  projection: MobileTransferProjection,
+  query: string,
+): boolean {
+  const q = query.toLowerCase();
+  return (
+    projection.peerName.toLowerCase().includes(q) ||
+    projection.files.some((file) => file.name.toLowerCase().includes(q))
+  );
+}
+
+/** projections 按最近更新倒序 —— 列表/分组/搜索共用的排序语义。 */
+export function compareProjectionsByUpdatedAtDesc(
+  a: MobileTransferProjection,
+  b: MobileTransferProjection,
+): number {
+  return Number(b.updatedAt - a.updatedAt);
 }
 
 export function projectionTransferredBytes(

@@ -10,6 +10,7 @@ import { create } from "zustand";
 import { getMobileCore } from "@/core/mobile-core";
 import type { TransferOfferQueueItem } from "@/core/transfer-types";
 import {
+  compareProjectionsByUpdatedAtDesc,
   isProjectionActive,
   isProjectionTerminal,
 } from "@/core/transfer-types";
@@ -235,6 +236,6 @@ export const useTransferStore = create<TransferState & TransferActions>()(
 export function selectActiveProjectionIds(state: TransferState): string[] {
   return Object.values(state.projections)
     .filter(isProjectionActive)
-    .sort((a, b) => Number(b.updatedAt - a.updatedAt))
+    .sort(compareProjectionsByUpdatedAtDesc)
     .map((projection) => projection.sessionId);
 }
