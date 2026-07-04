@@ -17,7 +17,7 @@ import {
   Square,
   X,
   Home,
-  Activity,
+  ArrowRightLeft,
   Inbox,
   Moon,
   Sun,
@@ -64,7 +64,7 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
     return [home, { icon: Inbox, label: <Trans>收件箱</Trans> }];
   }
   if (pathname.startsWith("/transfer")) {
-    return [home, { icon: Activity, label: <Trans>传输活动</Trans> }];
+    return [home, { icon: ArrowRightLeft, label: <Trans>传输活动</Trans> }];
   }
   // 主页 / 其他路径:单段当前主页(BreadcrumbPage)
   return [{ ...home, to: undefined }];
@@ -178,7 +178,7 @@ export function AppTopBar() {
               title={t`传输活动`}
               className="relative"
             >
-              <Activity className="size-4" />
+              <ArrowRightLeft className="size-4" />
               <span className="hidden text-xs font-medium xl:inline">
                 <Trans>传输</Trans>
               </span>
@@ -210,7 +210,7 @@ export function AppTopBar() {
 }
 
 /**
- * 活跃传输计数徽章:有进行中的传输时挂在顶栏 Activity 图标右上角,
+ * 活跃传输计数徽章:有进行中的传输时挂在顶栏传输图标右上角,
  * 让用户离开传输页也能看到"有东西正在传"。
  */
 function ActiveTransferBadge() {

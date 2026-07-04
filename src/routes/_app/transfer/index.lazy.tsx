@@ -17,7 +17,7 @@ import {
   type ReactNode,
 } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeftRight, MousePointerClick, Trash2, X } from "lucide-react";
+import { ArrowRightLeft, MousePointerClick, Trash2, X } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
@@ -382,7 +382,7 @@ function SessionRail({
 function RailEmptyState() {
   return (
     <CenteredEmptyState
-      icon={ArrowLeftRight}
+      icon={ArrowRightLeft}
       title={<Trans>暂无传输活动</Trans>}
       description={
         <Trans>
