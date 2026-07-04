@@ -169,23 +169,23 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         return Ok(None);
     }
 
-    // 已完成接收必有保存位置(不变量);缺失是数据异常,显式报错。save_root 仅作
-    // content_root_of 返回 None(跨多目录)时的回退根。
-    let Some(entity::SaveLocation::Path { path: save_root }) = session.save_path.as_ref() else {
+    // 已完成接收必有保存位置(不变量);缺失是数据异常,显式报错。容器目录(含缺
+    // local_dir 时回退存储根)由下面 content_root_of 统一解析。
+    if session.save_path.is_none() {
         return Err(crate::AppError::Transfer(
             "已完成接收会话缺少保存位置，无法创建收件箱条目".into(),
         ));
-    };
+    }
 
     let inbox_id = Uuid::new_v4();
     let files: Vec<&entity::transfer_file::ModelEx> = session.files.iter().collect();
     let item_count = i32::try_from(files.len())
         .map_err(|_| crate::AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
     let title = inbox_title(&files);
-    // root_path = 真实容器目录(与传输投影 content_root 同一纯事实计算),None(跨多目录)
-    // 时回退存储根 —— 收件箱前端只拿得到 rootPath、拿不到 saveLocation,兜底落 core 这侧。
-    let root_path = crate::database::ops::content_root_of(session.files.iter())
-        .or_else(|| Some(save_root.clone()));
+    // root_path = 真实容器目录(与传输投影 content_root 同一 core 解析:缺 local_dir 时
+    // 回退存储根)。兜底收口在 content_root_of 一处,不再重复。
+    let root_path =
+        crate::database::ops::content_root_of(session.files.iter(), session.save_path.as_ref());
     let content_hash = inbox_content_hash(&files);
     let now = now_ms();
 
