@@ -2,14 +2,12 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
   AlertTriangle,
-  ChevronLeft,
   ChevronRight,
   FileArchive,
   Search,
-  X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import {
   FilterRail,
@@ -22,6 +20,7 @@ import {
   matchesInboxFilter,
 } from "@/components/inbox/inbox-list";
 import { AppScreen, EmptyState } from "@/components/mobile/screen";
+import { SearchHeader } from "@/components/search-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -150,47 +149,20 @@ export default function InboxSearchScreen() {
       testID="inbox-search-screen"
       contentClassName="gap-4 pt-1"
     >
-      <View className="min-h-14 flex-row items-center gap-2">
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel={t`返回`}
-          testID="inbox-search-back-button"
-          className="size-11 items-center justify-center rounded-xl bg-muted active:opacity-70"
-        >
-          <ChevronLeft color={colors.foreground} size={21} />
-        </Pressable>
-        <View className="min-h-11 min-w-0 flex-1 flex-row items-center gap-2 rounded-xl bg-muted px-3">
-          <Search color={colors.mutedForeground} size={16} />
-          <TextInput
-            autoFocus
-            value={query}
-            onChangeText={setQuery}
-            accessibilityLabel={t`搜索收件箱`}
-            placeholder={
-              serverSearch ? t`搜索标题、来源、文件名…` : t`搜索标题或来源`
-            }
-            placeholderTextColor={colors.mutedForeground}
-            returnKeyType="search"
-            className="h-11 min-w-0 flex-1 text-[14px] text-foreground"
-            testID="inbox-search-input"
-          />
-          {searching ? (
+      <SearchHeader
+        value={query}
+        onChangeText={setQuery}
+        placeholder={
+          serverSearch ? t`搜索标题、来源、文件名…` : t`搜索标题或来源`
+        }
+        inputLabel={t`搜索收件箱`}
+        testIDPrefix="inbox-search"
+        trailing={
+          searching ? (
             <ActivityIndicator size="small" color={colors.mutedForeground} />
-          ) : null}
-          {query.length > 0 ? (
-            <Pressable
-              onPress={() => setQuery("")}
-              accessibilityRole="button"
-              accessibilityLabel={t`清除搜索`}
-              hitSlop={8}
-              className="size-7 items-center justify-center rounded-full bg-card active:opacity-70"
-            >
-              <X color={colors.mutedForeground} size={14} />
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
+          ) : null
+        }
+      />
 
       {showFilterRail ? (
         <FilterRail value={filter} counts={filterCounts} onChange={setFilter} />

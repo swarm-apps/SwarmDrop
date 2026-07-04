@@ -1,24 +1,33 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import Constants from "expo-constants";
+import type { LucideIcon } from "lucide-react-native";
 import {
+  ArrowUpRight,
   BadgeCheck,
   BookOpen,
   Code,
   Download,
   FileText,
+  KeyRound,
+  Lock,
   MessageSquare,
   RefreshCw,
+  Waypoints,
 } from "lucide-react-native";
 import {
   ActivityIndicator,
+  Image,
   Linking,
   Platform,
-  Pressable,
+  ScrollView,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { KeyValueRow } from "@/components/key-value-row";
-import { Surface } from "@/components/mobile/screen";
+import {
+  SettingDivider,
+  SettingRow,
+  SettingSection,
+} from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
 import { useUpdate } from "@/hooks/use-update";
@@ -53,157 +62,165 @@ export default function AboutScreen() {
     <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
       <SettingsHeader title={t`关于`} />
 
-      <View className="flex-1 items-center justify-center px-8 -mt-10">
-        <View className="flex-row items-center gap-4">
-          <View className="h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-            <Text className="text-[22px] font-bold text-primary-ink">SD</Text>
-          </View>
-          <View>
-            <Text className="text-[19px] font-semibold tracking-tight text-foreground">
-              SwarmDrop
-            </Text>
-            <View className="flex-row items-center gap-2 mt-0.5">
-              <Text className="text-[13px] text-muted-foreground">
-                v{APP_VERSION}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerClassName="gap-6 px-5 pt-4 pb-10"
+      >
+        {/* hero:左对齐 lockup,延续设置栈的编辑式排版,不做整页居中名片 */}
+        <View className="gap-3">
+          <View className="flex-row items-center gap-4">
+            <Image
+              source={require("../../../assets/images/icon.png")}
+              className="h-16 w-16 rounded-2xl border border-border"
+              accessibilityIgnoresInvertColors
+            />
+            <View className="gap-1.5">
+              <Text className="text-[18px] font-semibold tracking-tight text-foreground">
+                SwarmDrop
               </Text>
-              <View className="flex-row items-center gap-1">
-                {hasUpdate ? (
-                  <>
-                    <Download color={colors.primary} size={12} />
-                    <Text className="text-[11px] font-medium text-primary-ink">
-                      <Trans>有新版可用</Trans>
-                    </Text>
-                  </>
-                ) : isChecking ? (
-                  <>
-                    <ActivityIndicator
-                      color={colors.mutedForeground}
-                      size="small"
-                    />
-                    <Text
-                      className="text-[11px] font-medium"
-                      style={{ color: colors.mutedForeground }}
-                    >
-                      <Trans>正在检查...</Trans>
-                    </Text>
-                  </>
-                ) : isError ? (
-                  <>
-                    <RefreshCw color={colors.mutedForeground} size={12} />
-                    <Text
-                      className="text-[11px] font-medium"
-                      style={{ color: colors.mutedForeground }}
-                    >
-                      <Trans>检查失败</Trans>
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <BadgeCheck color={colors.success} size={12} />
-                    <Text className="text-[11px] font-medium text-success-ink">
-                      <Trans>已是最新</Trans>
-                    </Text>
-                  </>
-                )}
+              <View className="self-start rounded-full bg-muted px-2.5 py-1">
+                <Text className="font-mono text-[11px] text-muted-foreground">
+                  v{APP_VERSION}
+                </Text>
               </View>
             </View>
           </View>
+          <Text className="text-[12px] leading-5 text-muted-foreground">
+            <Trans>去中心化、跨网络、端到端加密文件传输</Trans>
+          </Text>
         </View>
 
-        <Text className="mt-5 text-center text-[13px] text-muted-foreground">
-          <Trans>去中心化、跨网络、端到端加密文件传输</Trans>
-        </Text>
-
         {/* 安全与加密:加密是常量不是状态,协议名只在这里出现一次 */}
-        <Surface className="mt-6 w-full gap-2.5">
-          <KeyValueRow
-            label={<Trans>加密方式</Trans>}
-            value={<Trans>端到端加密（XChaCha20-Poly1305）</Trans>}
-          />
-          <KeyValueRow
-            label={<Trans>密钥</Trans>}
-            value={<Trans>每次传输临时生成，用完即弃</Trans>}
-          />
-          <KeyValueRow
-            label={<Trans>传输路径</Trans>}
-            value={<Trans>设备点对点直连，明文不经过任何服务器</Trans>}
-          />
-        </Surface>
+        <SettingSection label={t`安全与加密`}>
+          <View className="gap-3.5 p-3.5">
+            <SecurityFeatureRow
+              icon={Lock}
+              title={<Trans>端到端加密</Trans>}
+              description={
+                <Trans>XChaCha20-Poly1305，路上没人能看到内容</Trans>
+              }
+            />
+            <SecurityFeatureRow
+              icon={KeyRound}
+              title={<Trans>一次一密</Trans>}
+              description={<Trans>每次传输临时生成密钥，用完即弃</Trans>}
+            />
+            <SecurityFeatureRow
+              icon={Waypoints}
+              title={<Trans>点对点直连</Trans>}
+              description={<Trans>明文不经过任何服务器</Trans>}
+            />
+          </View>
+        </SettingSection>
 
-        <View className="mt-6 flex-row items-center gap-3">
-          {isAndroid && (
-            <Pressable
+        {/* 应用内更新通道只存在于 Android,iOS 不渲染整个分组("检查失败"是噪音) */}
+        {isAndroid ? (
+          <SettingSection label={t`软件更新`}>
+            <SettingRow
+              icon={RefreshCw}
+              label={t`检查更新`}
               onPress={onCheckUpdate}
-              disabled={isChecking}
-              accessibilityLabel={t`检查更新`}
-              accessibilityRole="button"
-              style={{ opacity: isChecking ? 0.5 : 1 }}
-              className="h-9 flex-row items-center gap-1.5 rounded-lg border border-border px-3.5 active:opacity-70"
             >
-              <RefreshCw color={colors.foreground} size={13} />
-              <Text className="text-[13px] text-foreground">
-                <Trans>检查更新</Trans>
-              </Text>
-            </Pressable>
-          )}
-          <Pressable
+              {hasUpdate ? (
+                <View className="flex-row items-center gap-1">
+                  <Download color={colors.primary} size={12} />
+                  <Text className="text-[12px] font-medium text-primary-ink">
+                    <Trans>有新版可用</Trans>
+                  </Text>
+                </View>
+              ) : isChecking ? (
+                <ActivityIndicator
+                  color={colors.mutedForeground}
+                  size="small"
+                />
+              ) : isError ? (
+                <Text className="text-[12px] text-muted-foreground">
+                  <Trans>检查失败</Trans>
+                </Text>
+              ) : (
+                <View className="flex-row items-center gap-1">
+                  <BadgeCheck color={colors.success} size={12} />
+                  <Text className="text-[12px] font-medium text-success-ink">
+                    <Trans>已是最新</Trans>
+                  </Text>
+                </View>
+              )}
+            </SettingRow>
+          </SettingSection>
+        ) : null}
+
+        <SettingSection label={t`资源`}>
+          <LinkRow
+            icon={Code}
+            label="GitHub"
+            onPress={() => openUrl("https://github.com/yexiyue/SwarmDrop")}
+          />
+          <SettingDivider />
+          <LinkRow
+            icon={BookOpen}
+            label={t`文档`}
+            onPress={() => openUrl("https://yexiyue.github.io/SwarmDrop/")}
+          />
+          <SettingDivider />
+          <LinkRow
+            icon={MessageSquare}
+            label={t`反馈`}
+            onPress={() =>
+              openUrl("https://github.com/yexiyue/SwarmDrop/issues")
+            }
+          />
+          <SettingDivider />
+          <LinkRow
+            icon={FileText}
+            label={t`更新日志`}
             onPress={() =>
               openUrl("https://github.com/yexiyue/SwarmDrop/releases")
             }
-            accessibilityLabel={t`更新日志`}
-            accessibilityRole="button"
-            className="h-9 flex-row items-center gap-1.5 rounded-lg border border-border px-3.5 active:opacity-70"
-          >
-            <FileText color={colors.foreground} size={13} />
-            <Text className="text-[13px] text-foreground">
-              <Trans>更新日志</Trans>
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-
-      <View className="flex-row items-center justify-center gap-5 pb-6">
-        <LinkButton
-          icon={Code}
-          label="GitHub"
-          onPress={() => openUrl("https://github.com/yexiyue/SwarmDrop")}
-        />
-        <View className="h-3 w-px bg-border" />
-        <LinkButton
-          icon={BookOpen}
-          label={t`文档`}
-          onPress={() => openUrl("https://yexiyue.github.io/SwarmDrop/")}
-        />
-        <View className="h-3 w-px bg-border" />
-        <LinkButton
-          icon={MessageSquare}
-          label={t`反馈`}
-          onPress={() => openUrl("https://github.com/yexiyue/SwarmDrop/issues")}
-        />
-      </View>
+          />
+        </SettingSection>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-function LinkButton({
+function SecurityFeatureRow({
   icon: Icon,
+  title,
+  description,
+}: {
+  icon: LucideIcon;
+  title: React.ReactNode;
+  description: React.ReactNode;
+}) {
+  const colors = useThemeColors();
+  return (
+    <View className="flex-row items-center gap-3">
+      <View className="size-9 items-center justify-center rounded-full bg-primary/10">
+        <Icon color={colors.primary} size={16} />
+      </View>
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="text-[13px] font-medium text-foreground">{title}</Text>
+        <Text className="text-[11px] leading-4 text-muted-foreground">
+          {description}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function LinkRow({
+  icon,
   label,
   onPress,
 }: {
-  icon: React.ComponentType<{ color?: string; size?: number }>;
+  icon: LucideIcon;
   label: string;
   onPress: () => void;
 }) {
   const colors = useThemeColors();
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      className="flex-row items-center gap-1 active:opacity-70"
-    >
-      <Icon color={colors.mutedForeground} size={12} />
-      <Text className="text-[12px] text-muted-foreground">{label}</Text>
-    </Pressable>
+    <SettingRow icon={icon} label={label} onPress={onPress}>
+      <ArrowUpRight color={colors.mutedForeground} size={14} />
+    </SettingRow>
   );
 }

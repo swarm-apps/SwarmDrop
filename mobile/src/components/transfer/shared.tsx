@@ -6,7 +6,7 @@
  */
 
 import { Trans } from "@lingui/react/macro";
-import { ArrowDownLeft, ArrowUpRight } from "lucide-react-native";
+import { Download, Send } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import {
@@ -26,6 +26,10 @@ import { cn } from "@/lib/utils";
 
 /* ─── 方向图标 ─── */
 
+/**
+ * 方向 chip:发送=纸飞机(呼应设备卡的发送按钮),接收=下载托盘(呼应收件箱)。
+ * 底色浓度与 StatusBadge 的 /15 对齐 —— /10 在白底上若有若无,像没做完。
+ */
 export function DirectionIcon({ direction }: { direction: TransferDirection }) {
   const isSend = direction === "send";
   const colors = useThemeColors();
@@ -34,13 +38,13 @@ export function DirectionIcon({ direction }: { direction: TransferDirection }) {
     <View
       className={cn(
         "size-10 items-center justify-center rounded-xl",
-        isSend ? "bg-primary/10" : "bg-success/10",
+        isSend ? "bg-primary/15" : "bg-success/15",
       )}
     >
       {isSend ? (
-        <ArrowUpRight size={18} color={iconColor} strokeWidth={2.5} />
+        <Send size={16} color={iconColor} strokeWidth={2.25} />
       ) : (
-        <ArrowDownLeft size={18} color={iconColor} strokeWidth={2.5} />
+        <Download size={16} color={iconColor} strokeWidth={2.25} />
       )}
     </View>
   );

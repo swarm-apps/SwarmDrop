@@ -1,25 +1,55 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Activity, Trash2 } from "lucide-react-native";
+import { Activity, Search, SearchX, Trash2 } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, SectionList, View } from "react-native";
+import { SectionList, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { MobileTransferProjection } from "react-native-swarmdrop-core";
 import { ActivityProjectionCard } from "@/components/activity-projection-card";
-import { EmptyState, LIST_CONTENT_PADDING } from "@/components/mobile/screen";
+import { FilterChip, FilterChipRail } from "@/components/filter-chip";
+import {
+  EmptyState,
+  HeaderIconButton,
+  InlineEmptyState,
+  LIST_CONTENT_PADDING,
+} from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
-import { groupTransferProjections } from "@/core/transfer-types";
-import { useThemeColors } from "@/hooks/useThemeColors";
+import {
+  groupTransferProjections,
+  projectionDirection,
+  projectionGroup,
+} from "@/core/transfer-types";
 import { toast } from "@/lib/toast";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
+const ACTIVITY_FILTERS = ["all", "receive", "send", "attention"] as const;
+
+type ActivityFilter = (typeof ACTIVITY_FILTERS)[number];
+
+const ACTIVITY_FILTER_LABELS: Record<ActivityFilter, React.ReactNode> = {
+  all: <Trans>全部</Trans>,
+  receive: <Trans>收到</Trans>,
+  send: <Trans>发出</Trans>,
+  attention: <Trans>需要注意</Trans>,
+};
+
+/** 筛选是纯内存过滤:projections 本就全量在手,不值得为此过 FFI。搜索在 /transfer/search。 */
+function matchesActivityFilter(
+  projection: MobileTransferProjection,
+  filter: ActivityFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "attention")
+    return projectionGroup(projection) === "attention";
+  return projectionDirection(projection) === filter;
+}
+
 export default function ActivityScreen() {
   const router = useRouter();
   const { t } = useLingui();
-  const colors = useThemeColors();
   const projections = useTransferStore((s) => s.projections);
   const progressBySession = useTransferStore((s) => s.progressBySession);
   const loadProjections = useTransferStore((s) => s.loadProjections);
@@ -27,6 +57,7 @@ export default function ActivityScreen() {
   const resumeHistoryItem = useTransferStore((s) => s.resumeHistoryItem);
   const inboxItems = useInboxStore((s) => s.items);
   const [clearOpen, setClearOpen] = useState(false);
+  const [filter, setFilter] = useState<ActivityFilter>("all");
 
   useFocusEffect(
     useCallback(() => {
@@ -34,9 +65,29 @@ export default function ActivityScreen() {
     }, [loadProjections]),
   );
 
-  const grouped = useMemo(
-    () => groupTransferProjections(Object.values(projections)),
+  const allProjections = useMemo(
+    () => Object.values(projections),
     [projections],
+  );
+
+  // 计数按全量算(不随筛选变化),让用户在任何筛选下都能看到全貌;谓词与列表过滤共用一份。
+  const filterCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        ACTIVITY_FILTERS.map((f) => [
+          f,
+          allProjections.filter((p) => matchesActivityFilter(p, f)).length,
+        ]),
+      ) as Record<ActivityFilter, number>,
+    [allProjections],
+  );
+
+  const grouped = useMemo(
+    () =>
+      groupTransferProjections(
+        allProjections.filter((p) => matchesActivityFilter(p, filter)),
+      ),
+    [allProjections, filter],
   );
 
   // 会话 → 收件箱记录 反查:只有"接收且已落库"的会话能命中,用于已完成接收卡片的
@@ -53,6 +104,9 @@ export default function ActivityScreen() {
 
   // 4 个分组 → SectionList sections;数据只依赖 grouped(不含每 tick 变化的 progress),
   // 进度经 extraData 注入、按会话 memo 的卡片只重渲染真正变化的那一条。
+  // 顺序按"可行动优先":正在进行 → 可恢复(有恢复按钮) → 需要注意(只需知晓) → 已完成。
+  // showStatusBadge:分组标题与卡片状态恒同名的组(正在进行/已完成)关掉徽章,不复读;
+  // 混合状态的组(需要注意=失败/取消/拒绝,可恢复=暂停/中断)保留徽章区分具体状态。
   const sections = useMemo(() => {
     const defs = [
       {
@@ -61,15 +115,8 @@ export default function ActivityScreen() {
         data: grouped.active,
         showProgress: true,
         resume: false,
+        showStatusBadge: false,
         testID: "activity-section-active",
-      },
-      {
-        key: "attention",
-        title: <Trans>需要注意</Trans>,
-        data: grouped.attention,
-        showProgress: false,
-        resume: false,
-        testID: "activity-section-attention",
       },
       {
         key: "recoverable",
@@ -77,7 +124,17 @@ export default function ActivityScreen() {
         data: grouped.recoverable,
         showProgress: true,
         resume: true,
+        showStatusBadge: true,
         testID: "activity-section-recoverable",
+      },
+      {
+        key: "attention",
+        title: <Trans>需要注意</Trans>,
+        data: grouped.attention,
+        showProgress: false,
+        resume: false,
+        showStatusBadge: true,
+        testID: "activity-section-attention",
       },
       {
         key: "completed",
@@ -85,6 +142,7 @@ export default function ActivityScreen() {
         data: grouped.completed,
         showProgress: false,
         resume: false,
+        showStatusBadge: false,
         testID: "activity-section-completed",
       },
     ];
@@ -100,6 +158,10 @@ export default function ActivityScreen() {
     },
     [router],
   );
+
+  const openSearch = useCallback(() => {
+    router.push("/transfer/search" as never);
+  }, [router]);
 
   const openInboxItem = useCallback(
     (itemId: string) => {
@@ -147,24 +209,41 @@ export default function ActivityScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={LIST_CONTENT_PADDING}
         ListHeaderComponent={
-          <View className="gap-5">
+          <View className="gap-4">
             <SettingsHeader
               title={t`传输记录`}
               right={
-                <Pressable
-                  onPress={() => setClearOpen(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel={t`清空传输记录`}
-                  testID="activity-clear-button"
-                  className="size-11 items-center justify-center rounded-xl bg-muted active:opacity-70"
-                >
-                  <Trash2 color={colors.mutedForeground} size={19} />
-                </Pressable>
+                <View className="flex-row gap-2">
+                  <HeaderIconButton
+                    icon={Search}
+                    label={t`搜索传输记录`}
+                    onPress={openSearch}
+                    testID="activity-open-search-button"
+                  />
+                  <HeaderIconButton
+                    icon={Trash2}
+                    label={t`清空传输记录`}
+                    onPress={() => setClearOpen(true)}
+                    testID="activity-clear-button"
+                  />
+                </View>
               }
             />
             <Text className="px-1 text-[12px] text-muted-foreground">
               <Trans>每一笔传输的过程都记在这里；收好的东西请到收件箱找</Trans>
             </Text>
+            <FilterChipRail testID="activity-filter-rail">
+              {ACTIVITY_FILTERS.map((f) => (
+                <FilterChip
+                  key={f}
+                  active={filter === f}
+                  label={ACTIVITY_FILTER_LABELS[f]}
+                  count={filterCounts[f]}
+                  onPress={() => setFilter(f)}
+                  testID={`activity-filter-${f}`}
+                />
+              ))}
+            </FilterChipRail>
           </View>
         }
         renderSectionHeader={({ section }) => (
@@ -184,6 +263,7 @@ export default function ActivityScreen() {
             projection={item}
             progress={progressBySession[item.sessionId]}
             showProgress={section.showProgress}
+            showStatusBadge={section.showStatusBadge}
             onPress={goDetail}
             onResume={section.resume ? resume : undefined}
             inboxItemId={
@@ -197,14 +277,24 @@ export default function ActivityScreen() {
         ItemSeparatorComponent={ActivityItemGap}
         ListEmptyComponent={
           <View className="pt-5">
-            <EmptyState
-              icon={Activity}
-              title={<Trans>暂无传输记录</Trans>}
-              description={
-                <Trans>从设备页发送文件，或接收其他设备发来的内容。</Trans>
-              }
-              testID="activity-empty-state"
-            />
+            {allProjections.length === 0 ? (
+              <EmptyState
+                icon={Activity}
+                title={<Trans>暂无传输记录</Trans>}
+                description={
+                  <Trans>从设备页发送文件，或接收其他设备发来的内容。</Trans>
+                }
+                testID="activity-empty-state"
+              />
+            ) : (
+              // 有记录但被筛选排空 —— 与真空态区分,指回筛选条件本身。
+              <InlineEmptyState
+                icon={SearchX}
+                title={<Trans>没有匹配的传输记录</Trans>}
+                description={<Trans>换个筛选条件试试</Trans>}
+                testID="activity-filter-empty-state"
+              />
+            )}
           </View>
         }
       />

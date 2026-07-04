@@ -11,15 +11,15 @@ import {
   Video,
 } from "lucide-react-native";
 import { memo, type ReactNode, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
 import {
   MobileInboxContentKind,
   MobileInboxSourceKind,
 } from "react-native-swarmdrop-core";
+import { FilterChip, FilterChipRail } from "@/components/filter-chip";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { cn } from "@/lib/utils";
 import type { InboxPreviewItem } from "@/stores/inbox-store";
 
 export type InboxFilter =
@@ -132,13 +132,7 @@ export function FilterRail({
   };
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      className="-mx-5 h-10 max-h-10"
-      contentContainerClassName="gap-2 px-5"
-      testID="inbox-filter-rail"
-    >
+    <FilterChipRail testID="inbox-filter-rail">
       {PRIMARY_FILTERS.map((filter) => (
         <FilterChip
           key={filter}
@@ -160,7 +154,7 @@ export function FilterRail({
           ))
         : null}
       <MoreFiltersChip expanded={expanded} onPress={toggleMore} />
-    </ScrollView>
+    </FilterChipRail>
   );
 }
 
@@ -186,40 +180,6 @@ function MoreFiltersChip({
         numberOfLines={1}
       >
         {expanded ? <Trans>收起</Trans> : <Trans>更多筛选</Trans>}
-      </Text>
-    </Pressable>
-  );
-}
-
-function FilterChip({
-  active,
-  label,
-  count,
-  onPress,
-}: {
-  active: boolean;
-  label: ReactNode;
-  count: number;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      className={cn(
-        "h-9 min-w-16 items-center justify-center rounded-xl border px-3 active:opacity-70",
-        active ? "border-primary bg-primary" : "border-border bg-card",
-      )}
-    >
-      <Text
-        className={cn(
-          "text-[12px] font-semibold",
-          active ? "text-primary-foreground" : "text-foreground",
-        )}
-        numberOfLines={1}
-      >
-        {label} {count}
       </Text>
     </Pressable>
   );

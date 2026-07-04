@@ -44,6 +44,11 @@ interface ActivityProjectionCardProps {
    */
   inboxItemId?: string;
   onOpenInbox?: (itemId: string) => void;
+  /**
+   * 状态徽章开关 —— 卡片住在与状态同名的分组下(「已完成」组/「正在进行」组)时,
+   * 徽章只是复读分组标题,由父级关掉;混合状态的分组(需要注意/可恢复)保留。
+   */
+  showStatusBadge?: boolean;
 }
 
 function ActivityProjectionCardComponent({
@@ -54,6 +59,7 @@ function ActivityProjectionCardComponent({
   onResume,
   inboxItemId,
   onOpenInbox,
+  showStatusBadge = true,
 }: ActivityProjectionCardProps) {
   // 只为订阅 locale:policyNote 经全局 i18n 即时解析,memo 组件靠这个订阅在切换语言时重算。
   useLingui();
@@ -64,7 +70,10 @@ function ActivityProjectionCardComponent({
   const transferred = projectionTransferredBytes(projection, progress);
   const percent = calcPercent(transferred, total);
   const reason = projectionReasonLabel(projection);
-  const policyNote = projectionPolicyNote(projection);
+  // 已完成的卡不解释策略:自动接收成功是常规事实,灰条只会稀释「需要注意」组里
+  // 真正需要解释的策略拒绝/待确认。
+  const policyNote =
+    status === "completed" ? null : projectionPolicyNote(projection);
   const canResume = projection.recoverable && onResume !== undefined;
 
   return (
@@ -81,9 +90,13 @@ function ActivityProjectionCardComponent({
               className="min-w-0 flex-1 text-[14px] font-semibold text-foreground"
               numberOfLines={1}
             >
-              {projection.peerName}
+              {direction === "send" ? (
+                <Trans>发给 {projection.peerName}</Trans>
+              ) : (
+                <Trans>来自 {projection.peerName}</Trans>
+              )}
             </Text>
-            <StatusBadge status={status} />
+            {showStatusBadge ? <StatusBadge status={status} /> : null}
           </View>
           <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
             {projection.files.length} <Trans>文件</Trans>
