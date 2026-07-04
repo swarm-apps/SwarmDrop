@@ -611,6 +611,7 @@ msgid "启用后，符合策略的入站文件会直接进入收件箱"
 msgstr "启用后，符合策略的入站文件会直接进入收件箱"
 
 #: src/routes/_app/inbox/index.lazy.tsx
+#: src/routes/_app/inbox/index.lazy.tsx
 msgid "在文件夹中显示"
 msgstr "在文件夹中显示"
 
@@ -713,8 +714,8 @@ msgid "对方离线"
 msgstr "对方离线"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "导出"
-msgstr "导出"
+#~ msgid "导出"
+#~ msgstr "导出"
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
@@ -803,8 +804,8 @@ msgid "已完成"
 msgstr "已完成"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "已导出到所选位置"
-msgstr "已导出到所选位置"
+#~ msgid "已导出到所选位置"
+#~ msgstr "已导出到所选位置"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "已就绪"
@@ -977,13 +978,17 @@ msgstr "所有文件传输完成！"
 #~ msgstr "所有文件已被移除。返回后重新选择要发送的内容。"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "打开"
-msgstr "打开"
+#~ msgid "打开"
+#~ msgstr "打开"
 
 #. placeholder {0}: file.name
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "打开 {0}"
 msgstr "打开 {0}"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "打开传输记录"
+msgstr "打开传输记录"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
@@ -1139,8 +1144,8 @@ msgid "昨天"
 msgstr "昨天"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "显示位置"
-msgstr "显示位置"
+#~ msgid "显示位置"
+#~ msgstr "显示位置"
 
 #: src/components/transfer/session-panel.tsx
 #: src/routes/_app/transfer/-session-row.tsx

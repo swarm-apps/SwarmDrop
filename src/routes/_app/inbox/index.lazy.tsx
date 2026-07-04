@@ -18,17 +18,15 @@ import {
   type ReactNode,
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { createLazyFileRoute } from "@tanstack/react-router";
+import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
   ArchiveRestore,
+  ArrowRightLeft,
   Bot,
-  Download,
-  ExternalLink,
   FileArchive,
   FolderOpen,
   Inbox,
-  MapPin,
   PanelLeft,
   RefreshCw,
   Search,
@@ -66,7 +64,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
-import { pickFolder } from "@/lib/file-picker";
 import { projectionStatusLabel } from "@/lib/transfer-projection";
 import { MasterDetailShell } from "@/components/layout/master-detail-shell";
 
@@ -92,6 +89,7 @@ function InboxPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
 
+  const navigate = useNavigate();
   const selectItem = useInboxStore((s) => s.selectItem);
   const isSearching = query.trim() !== "";
   const selectedItem = useMemo(
@@ -108,9 +106,11 @@ function InboxPage() {
   const selectionVisible =
     selectedId !== null && (!isSearching || visibleIds.includes(selectedId));
 
+  // keep-previous：切换条目时保留上一份详情直到新详情到达，避免旧 detail.id ≠ selectedId
+  // 的那一帧掉到骨架屏造成闪烁。骨架屏只在首次、完全无详情时出现。
   const readerStatus: ReaderStatus = !selectionVisible
     ? "empty"
-    : detail && detail.id === selectedId
+    : detail
       ? "ready"
       : detailForId === selectedId
         ? "error"
@@ -142,22 +142,16 @@ function InboxPage() {
     }
   }, [visibleIds, selectedId, selectItem]);
 
-  const handleOpen = () => {
-    if (!selectedId) return;
-    void runAndRefresh(() => commands.openInboxItem(selectedId, null));
-  };
   const handleReveal = () => {
     if (!selectedId) return;
     void runAndRefresh(() => commands.showInboxItemInFolder(selectedId, null));
   };
-  const handleExport = async () => {
-    if (!selectedId) return;
-    const destination = await pickFolder();
-    if (!destination) return;
-    void runAndRefresh(
-      () => commands.exportInboxItem(selectedId, destination),
-      t`已导出到所选位置`,
-    );
+  const handleOpenTransfer = () => {
+    if (!selectedItem?.transferSessionId) return;
+    void navigate({
+      to: "/transfer",
+      search: { session: selectedItem.transferSessionId },
+    });
   };
   const handleArchive = () => {
     if (!selectedItem) return;
@@ -189,9 +183,10 @@ function InboxPage() {
             detail={detail}
             contained={!isCompact}
             onOpenList={openList ?? undefined}
-            onOpen={handleOpen}
             onReveal={handleReveal}
-            onExport={handleExport}
+            onOpenTransfer={
+              selectedItem?.transferSessionId ? handleOpenTransfer : null
+            }
             onArchive={handleArchive}
             onDelete={() => setDeleteOpen(true)}
             onFileOpen={(fileId) =>
@@ -600,9 +595,8 @@ function InboxReader({
   detail,
   contained,
   onOpenList,
-  onOpen,
   onReveal,
-  onExport,
+  onOpenTransfer,
   onArchive,
   onDelete,
   onFileOpen,
@@ -611,11 +605,10 @@ function InboxReader({
   status: ReaderStatus;
   detail: InboxItemDetail | null;
   contained: boolean;
-  /** 窄屏（<1024）传入即渲染详情头部前导「打开列表」按钮；桌面双栏不传。 */
+  /** 窄屏传入即渲染详情头部前导「打开列表」按钮；宽屏双栏不传。 */
   onOpenList?: () => void;
-  onOpen: () => void;
   onReveal: () => void;
-  onExport: () => void;
+  onOpenTransfer: (() => void) | null;
   onArchive: () => void;
   onDelete: () => void;
   onFileOpen: (fileId: number) => void;
@@ -646,9 +639,8 @@ function InboxReader({
           detail={detail}
           contained={contained}
           leading={toggle}
-          onOpen={onOpen}
           onReveal={onReveal}
-          onExport={onExport}
+          onOpenTransfer={onOpenTransfer}
           onArchive={onArchive}
           onDelete={onDelete}
           onFileOpen={onFileOpen}
@@ -683,9 +675,8 @@ function ReaderContent({
   detail,
   contained,
   leading,
-  onOpen,
   onReveal,
-  onExport,
+  onOpenTransfer,
   onArchive,
   onDelete,
   onFileOpen,
@@ -694,9 +685,9 @@ function ReaderContent({
   detail: InboxItemDetail;
   contained: boolean;
   leading?: ReactNode;
-  onOpen: () => void;
   onReveal: () => void;
-  onExport: () => void;
+  /** 跳到该条目对应的传输记录；无关联传输时为 null（不渲染按钮）。 */
+  onOpenTransfer: (() => void) | null;
   onArchive: () => void;
   onDelete: () => void;
   onFileOpen: (fileId: number) => void;
@@ -736,18 +727,21 @@ function ReaderContent({
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
-          <Button size="sm" className="gap-1.5" onClick={onOpen}>
-            <ExternalLink className="size-4" />
-            <Trans>打开</Trans>
+          <Button size="sm" className="gap-1.5" onClick={onReveal}>
+            <FolderOpen className="size-4" />
+            <Trans>在文件夹中显示</Trans>
           </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={onReveal}>
-            <MapPin className="size-4" />
-            <Trans>显示位置</Trans>
-          </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={onExport}>
-            <Download className="size-4" />
-            <Trans>导出</Trans>
-          </Button>
+          {onOpenTransfer && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={onOpenTransfer}
+            >
+              <ArrowRightLeft className="size-4" />
+              <Trans>打开传输记录</Trans>
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="gap-1.5" onClick={onArchive}>
             {detail.archivedAt ? (
               <ArchiveRestore className="size-4" />
