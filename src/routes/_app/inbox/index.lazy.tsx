@@ -42,11 +42,11 @@ import {
   type InboxItemFileEntry,
   type InboxItemSummary,
   type InboxSearchHit,
-  type TransferProjection,
 } from "@/lib/bindings";
 import { getFileIcon, getFileIconColor } from "@/lib/file-icon";
 import { useInboxStore } from "@/stores/inbox-store";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CenteredEmptyState } from "@/components/layout/section-primitives";
@@ -718,12 +718,25 @@ function ReaderContent({
               </span>
             </p>
           </div>
-          {detail.missing && (
-            <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-800 dark:text-amber-300">
-              <TriangleAlert className="size-3.5" />
-              <Trans>本地内容缺失</Trans>
-            </span>
-          )}
+          {/* 右上角精简来源信息：来源类型 + 内容类型·状态（技术细节/路径靠按钮到达，不暴露） */}
+          <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
+            <Badge variant="secondary" className="gap-1">
+              {detail.sourceKind === "mcp" ? (
+                <Bot className="size-3.5 text-brand" />
+              ) : null}
+              {sourceKindLabel(detail.sourceKind)}
+            </Badge>
+            <p className="text-xs text-muted-foreground">
+              {contentKindLabel(detail.contentKind)}
+              {detail.transfer ? ` · ${projectionStatusLabel(detail.transfer)}` : ""}
+            </p>
+            {detail.missing && (
+              <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-800 dark:text-amber-300">
+                <TriangleAlert className="size-3.5" />
+                <Trans>本地内容缺失</Trans>
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
@@ -781,8 +794,6 @@ function ReaderContent({
             />
           ))}
         </div>
-
-        <MetaSection item={detail} transfer={detail.transfer} />
       </div>
     </>
   );
@@ -854,61 +865,6 @@ function FileCard({
           <FolderOpen className="size-3.5" />
         </Button>
       </div>
-    </div>
-  );
-}
-
-function MetaSection({
-  item,
-  transfer,
-}: {
-  item: InboxItemSummary;
-  transfer: TransferProjection | null;
-}) {
-  return (
-    <section className="mt-9 border-t border-black/[0.06] pt-7 dark:border-white/10">
-      <h3 className="text-sm font-semibold text-foreground">
-        <Trans>来源与过程</Trans>
-      </h3>
-      <dl className="mt-5 grid grid-cols-1 gap-x-12 gap-y-5 @xl:grid-cols-2">
-        <MetaRow label={t`来源设备`} value={item.sourceName} />
-        <MetaRow label={t`来源类型`} value={sourceKindLabel(item.sourceKind)} />
-        <MetaRow label={t`内容类型`} value={contentKindLabel(item.contentKind)} />
-        <MetaRow label={t`接收时间`} value={new Date(item.receivedAt).toLocaleString()} />
-        <MetaRow
-          label={t`传输会话`}
-          value={item.transferSessionId ?? t`已清理`}
-          mono
-        />
-        <MetaRow label={t`本地位置`} value={item.rootPath ?? t`未知`} mono />
-        {transfer && (
-          <MetaRow label={t`活动状态`} value={projectionStatusLabel(transfer)} />
-        )}
-      </dl>
-    </section>
-  );
-}
-
-function MetaRow({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd
-        className={cn(
-          "mt-1.5 text-sm text-foreground",
-          mono ? "break-all font-mono text-[12px]" : "break-words",
-        )}
-      >
-        {value}
-      </dd>
     </div>
   );
 }
@@ -1193,3 +1149,4 @@ function contentKindLabel(kind: InboxItemSummary["contentKind"]): string {
   };
   return labels[kind];
 }
+
