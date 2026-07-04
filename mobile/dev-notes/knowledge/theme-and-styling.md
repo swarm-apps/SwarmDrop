@@ -134,6 +134,25 @@ NativeWind 5 preview 给 `ScrollView` 注册了 `contentContainerClassName`（`A
 `rounded-full`;行首内容类型 chip(收件箱行/文件行/sheet 行)=`rounded-xl`;徽标/pill=`rounded-full`。
 不要写字面量圆角(`rounded-[28px]` 这类);完整规则与已知豁免见 DESIGN.md「The Radius Vocabulary Rule」。
 
+### 详情卡里的「左灰标签 + 右对齐值」行用共享 KeyValueRow
+
+传输详情/关于页曾各自手写过同构的行组件(DetailRow/SecurityRow),已收敛为
+`@/components/key-value-row` 的 `KeyValueRow`(props: `label`/`value`/`mono?`/`numberOfLines?`,
+默认值截 3 行)。新详情屏直接用它,不要再繁殖私有拷贝。已知例外:device/[peerId].tsx 的
+`InfoRow` 是历史存量(单行截断 + 11px mono + 居中对齐),差异真实,暂未迁移。
+
+**相关文件**:[src/components/key-value-row.tsx](../../src/components/key-value-row.tsx)
+
+### bottom sheet 串接(收起 A 再弹 B)用 onDismiss 回调,不要 setTimeout 猜动画时长
+
+BottomSheetModal 收起是异步动画,`dismiss()` 后立刻 `present()` 下一个会两 modal 叠加。
+正确做法:记一个 pending ref,在 `AppBottomSheet` 的 `onDismiss`(转发自 BottomSheetModal,
+动画完全结束后触发)里检查并 present 下一个。不要 `setTimeout(..., 250)` 硬编码动画时长——
+换库版本/动画配置就悄悄失效。
+
+**相关文件**:[src/app/(main)/index.tsx](../../src/app/(main)/index.tsx)(AddDeviceSheet 的
+openInputCodeSheet/handleSheetDismiss)
+
 ## 安全区域 / 导航
 
 ### 主底部导航使用 NativeTabs，不再用 JS Tabs 自绘高度

@@ -116,6 +116,18 @@ compiler 介入会破坏 ubrn 的 turbo-module 形状。
 
 **相关文件**：[lingui.config.ts](../../lingui.config.ts)
 
+### memo 组件里经全局 i18n._ 解析的字符串要靠 useLingui() 订阅才会随语言切换
+
+`@lingui/core` 的全局 `i18n` 就是 LinguiProvider 注入的同一个单例,非 React 层
+(如 `src/core/transfer-types.ts` 的 `policyActionLabel`)可以直接 `i18n._(msg)` 解析——
+不需要把 translate 回调层层注入(试过,纯冗余间接层,已删)。但 `memo` 组件在 render
+期间调用这类函数得到的字符串不会自动随 locale 更新:组件里要调一次 `useLingui()`
+(来自 `@lingui/react`,非 macro 版)建立 context 订阅,locale 切换才会穿透 memo 触发重算。
+`<Trans>` 自己订阅 context,只有 render 期间手动解析的字符串需要这个。
+
+**相关文件**：[src/components/activity-projection-card.tsx](../../src/components/activity-projection-card.tsx)、
+[src/core/transfer-types.ts](../../src/core/transfer-types.ts)
+
 ## Maestro / E2E
 
 ### iOS 26 + Expo SDK 56 / RN 0.85 Fabric 下暂缓 Maestro selector 测试
