@@ -141,6 +141,9 @@ pub struct MobileTransferProjection {
     pub policy_action: Option<String>,
     pub policy_reason: Option<String>,
     pub save_location: Option<MobileSaveLocation>,
+    /// 「打开文件夹」应定位的真实容器目录 URI(收到内容实际所在文件夹);缺失时前端回退
+    /// `save_location`。由 core 从各文件 local_dir 事实源计算,不做相对路径拼接推导。
+    pub content_root: Option<String>,
     pub files: Vec<MobileTransferProjectionFile>,
 }
 
@@ -166,6 +169,7 @@ impl From<ops::TransferProjection> for MobileTransferProjection {
             policy_action,
             policy_reason,
             save_path,
+            content_root,
             files,
         } = projection;
         Self {
@@ -187,6 +191,7 @@ impl From<ops::TransferProjection> for MobileTransferProjection {
             policy_action,
             policy_reason,
             save_location: save_path.map(Into::into),
+            content_root,
             files: files.into_iter().map(Into::into).collect(),
         }
     }

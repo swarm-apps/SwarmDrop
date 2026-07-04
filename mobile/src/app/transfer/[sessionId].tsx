@@ -46,6 +46,7 @@ import { getMobileCore } from "@/core/mobile-core";
 import { canOpenSaveFolder } from "@/core/saf-intent";
 import {
   isProjectionActive,
+  isProjectionRecoverable,
   projectionDirection,
   projectionPolicyNote,
   projectionStatus,
@@ -538,7 +539,7 @@ function TransferProgressBlock({
         projectionReasonLabel(projection) ?? <StatusLabel status={status} />
       }
       subtitle={
-        projection.recoverable ? (
+        isProjectionRecoverable(projection) ? (
           <Trans>可从断点继续，无需重新传输</Trans>
         ) : null
       }
@@ -734,7 +735,16 @@ function ActionButton({
   );
 }
 
+/**
+ * 「打开文件夹」/「保存位置」定位的目标目录:优先用 core 给的真实容器目录
+ * `contentRoot`(收到内容实际所在文件夹,SAF/file:// 皆为合法可打开目录 URI);
+ * 缺失(旧数据 / 发送会话 / 异常)回退配置的存储根 `saveLocation`。
+ * 绝不用 saveLocation + relativePath 拼接推导(SAF/重名下失真)。
+ */
 function savePathOf(projection: MobileTransferProjection): string | null {
+  if (projection.contentRoot) {
+    return projection.contentRoot;
+  }
   if (projection.saveLocation?.tag !== MobileSaveLocation_Tags.Path) {
     return null;
   }

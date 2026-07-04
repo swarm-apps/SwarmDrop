@@ -234,12 +234,9 @@ export default function InboxDetailScreen() {
     [itemId, markFileMissing, t],
   );
 
-  // 打开保存目录:优先记录的根目录,单文件回退到文件所在目录。
-  // (曾是「复制路径」——一串 file://,普通用户拿到也无处可贴;直接带去文件管理器。)
-  // canOpenSaveFolder=false(Android 私有目录)时入口整个不渲染,不给用户一个必败按钮。
-  const folderTarget =
-    detail?.item.rootPath ??
-    (primaryFile ? parentDirOf(primaryFile.localPath) : null);
+  // 打开文件夹:直接用记录的真实容器目录 rootPath(core 以 finalize_sink 的文件父目录
+  // URI 为事实源算出)。canOpenSaveFolder=false(Android 私有目录)时入口不渲染。
+  const folderTarget = detail?.item.rootPath ?? null;
   const canOpenFolder = folderTarget != null && canOpenSaveFolder(folderTarget);
   const openFolder = useCallback(() => {
     if (!folderTarget) return;

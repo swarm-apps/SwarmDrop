@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use swarmdrop_core::host::{
-    CoreSaveLocation, FileAccess, FileSinkId, FileSourceId, HostFileMetadata,
+    CoreSaveLocation, FileAccess, FileSinkId, FileSourceId, FinalizedSink, HostFileMetadata,
 };
 use swarmdrop_core::{AppError, AppResult};
 
@@ -95,6 +95,23 @@ impl From<MobileFileMetadata> for HostFileMetadata {
     }
 }
 
+/// finalize_sink 的返回（uniffi 镜像 [`FinalizedSink`]）：文件最终 URI + 其父目录 URI。
+/// `dir` 供「打开文件夹」定位真实容器目录（file:// 目录 / SAF 目录 document URI）。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileFinalizedSink {
+    pub uri: String,
+    pub dir: String,
+}
+
+impl From<MobileFinalizedSink> for FinalizedSink {
+    fn from(v: MobileFinalizedSink) -> Self {
+        Self {
+            uri: v.uri,
+            dir: v.dir,
+        }
+    }
+}
+
 /// RN 端必须实现的文件 I/O 接口
 ///
 /// `source_id` 和 `sink_id` 都是字符串（host 自定义编码：桌面用 path，
@@ -128,10 +145,11 @@ pub trait ForeignFileAccess: Send + Sync {
     ) -> Result<(), FfiError>;
 
     /// 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
-    /// 返回文件的最终落盘 URI（file:// 或 SAF document URI）——core 会原样落库，
-    /// 收件箱「打开/分享/删除」都依赖它，**不能**用目录 + 相对路径拼接代替
-    /// （SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
-    async fn finalize_sink(&self, sink_id: String) -> Result<String, FfiError>;
+    /// 返回文件的最终落盘 URI **及其父目录 URI**（file:// 或 SAF document URI）——core
+    /// 会原样落库,收件箱「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir,**不能**用
+    /// 目录 + 相对路径拼接代替(SAF document id 有独立编码,重名冲突还会被系统改写成
+    /// "foo (1).txt")。
+    async fn finalize_sink(&self, sink_id: String) -> Result<MobileFinalizedSink, FfiError>;
 
     /// 取消时清理临时文件
     async fn cleanup_sink(&self, sink_id: String) -> Result<(), FfiError>;
@@ -205,11 +223,13 @@ impl FileAccess for MobileFileAccessAdapter {
             .map_err(to_app_error)
     }
 
-    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<String> {
-        self.foreign
+    async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<FinalizedSink> {
+        let finalized = self
+            .foreign
             .finalize_sink(sink.0.clone())
             .await
-            .map_err(to_app_error)
+            .map_err(to_app_error)?;
+        Ok(finalized.into())
     }
 
     async fn cleanup_sink(&self, sink: &FileSinkId) -> AppResult<()> {

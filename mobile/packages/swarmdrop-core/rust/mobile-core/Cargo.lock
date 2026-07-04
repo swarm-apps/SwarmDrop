@@ -1347,7 +1347,7 @@ dependencies = [
 [[package]]
 name = "entity"
 version = "0.1.0"
-source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=a012c61d8898d6528ae4949a3264d69a0886bb4e#a012c61d8898d6528ae4949a3264d69a0886bb4e"
+source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=ed49a0801f3d37784f847fc0c03b398cb873523e#ed49a0801f3d37784f847fc0c03b398cb873523e"
 dependencies = [
  "sea-orm",
  "serde",
@@ -2974,7 +2974,7 @@ dependencies = [
 [[package]]
 name = "migration"
 version = "0.1.0"
-source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=a012c61d8898d6528ae4949a3264d69a0886bb4e#a012c61d8898d6528ae4949a3264d69a0886bb4e"
+source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=ed49a0801f3d37784f847fc0c03b398cb873523e#ed49a0801f3d37784f847fc0c03b398cb873523e"
 dependencies = [
  "sea-orm",
  "sea-orm-migration",
@@ -4767,7 +4767,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "swarm-p2p-core"
 version = "0.1.0"
-source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=a012c61d8898d6528ae4949a3264d69a0886bb4e#a012c61d8898d6528ae4949a3264d69a0886bb4e"
+source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=ed49a0801f3d37784f847fc0c03b398cb873523e#ed49a0801f3d37784f847fc0c03b398cb873523e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4786,7 +4786,7 @@ dependencies = [
 [[package]]
 name = "swarmdrop-core"
 version = "0.5.3"
-source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=a012c61d8898d6528ae4949a3264d69a0886bb4e#a012c61d8898d6528ae4949a3264d69a0886bb4e"
+source = "git+https://github.com/swarm-apps/SwarmDrop.git?rev=ed49a0801f3d37784f847fc0c03b398cb873523e#ed49a0801f3d37784f847fc0c03b398cb873523e"
 dependencies = [
  "async-trait",
  "blake3",

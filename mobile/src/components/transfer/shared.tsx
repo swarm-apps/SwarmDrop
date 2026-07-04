@@ -17,8 +17,8 @@ import {
 } from "react-native-swarmdrop-core";
 import { Text } from "@/components/ui/text";
 import {
+  isProjectionRecoverable,
   type ProjectionStatus,
-  projectionStatus,
   type TransferDirection,
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -335,9 +335,11 @@ export function canShareFile(projection: MobileTransferProjection): boolean {
 }
 
 export function canResume(projection: MobileTransferProjection): boolean {
-  return (
-    projection.recoverable && projectionStatus(projection) !== "transferring"
-  );
+  // 「可点恢复」的窄谓词 = phase===Suspended && recoverable(与桌面 canResumeProjection、
+  // 本仓分组谓词 isProjectionRecoverable 同一事实来源)。core 的 recoverable 是「非终态、
+  // 原则上可续传」的宽标志(offered/waiting/active 都为 true),不能单独当 UI 判据 —— 否则
+  // 发送方等待对方接受(WaitingAccept)时会误显「恢复」。
+  return isProjectionRecoverable(projection);
 }
 
 export function canResend(projection: MobileTransferProjection): boolean {

@@ -430,6 +430,55 @@ const FfiConverterTypeMobileFileProgress = (() => {
 })();
 
 
+/**
+ * finalize_sink 的返回（uniffi 镜像 [`FinalizedSink`]）：文件最终 URI + 其父目录 URI。
+ * `dir` 供「打开文件夹」定位真实容器目录（file:// 目录 / SAF 目录 document URI）。
+ */
+export type MobileFinalizedSink = {
+    uri: string,
+    dir: string
+}
+
+/**
+ * Generated factory for {@link MobileFinalizedSink} record objects.
+ */
+export const MobileFinalizedSink = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileFinalizedSink, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileFinalizedSink>,
+
+    });
+})();
+
+const FfiConverterTypeMobileFinalizedSink = (() => {
+    type TypeName = MobileFinalizedSink;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                uri: FfiConverterString.read(from), 
+                dir: FfiConverterString.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.uri, into);
+            FfiConverterString.write(value.dir, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.uri) + 
+            FfiConverterString.allocationSize(value.dir);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
 export type MobileIdentity = {
     peerId: string,
     created: boolean
@@ -1689,6 +1738,11 @@ export type MobileTransferProjection = {
     policyAction?: string,
     policyReason?: string,
     saveLocation?: MobileSaveLocation,
+    /**
+     * 「打开文件夹」应定位的真实容器目录 URI(收到内容实际所在文件夹);缺失时前端回退
+     * `save_location`。由 core 从各文件 local_dir 事实源计算,不做相对路径拼接推导。
+     */
+    contentRoot?: string,
     files: Array<MobileTransferProjectionFile>
 }
 
@@ -1732,6 +1786,7 @@ const FfiConverterTypeMobileTransferProjection = (() => {
                 policyAction: FfiConverterOptionalString.read(from), 
                 policyReason: FfiConverterOptionalString.read(from), 
                 saveLocation: FfiConverterOptionalTypeMobileSaveLocation.read(from), 
+                contentRoot: FfiConverterOptionalString.read(from), 
                 files: FfiConverterArrayTypeMobileTransferProjectionFile.read(from)
             };
         }
@@ -1754,6 +1809,7 @@ const FfiConverterTypeMobileTransferProjection = (() => {
             FfiConverterOptionalString.write(value.policyAction, into);
             FfiConverterOptionalString.write(value.policyReason, into);
             FfiConverterOptionalTypeMobileSaveLocation.write(value.saveLocation, into);
+            FfiConverterOptionalString.write(value.contentRoot, into);
             FfiConverterArrayTypeMobileTransferProjectionFile.write(value.files, into);
         }
         allocationSize(value: TypeName): number {
@@ -1775,6 +1831,7 @@ const FfiConverterTypeMobileTransferProjection = (() => {
             FfiConverterOptionalString.allocationSize(value.policyAction) + 
             FfiConverterOptionalString.allocationSize(value.policyReason) + 
             FfiConverterOptionalTypeMobileSaveLocation.allocationSize(value.saveLocation) + 
+            FfiConverterOptionalString.allocationSize(value.contentRoot) + 
             FfiConverterArrayTypeMobileTransferProjectionFile.allocationSize(value.files);
             
         }
@@ -4188,11 +4245,12 @@ export interface ForeignFileAccess {
     writeSinkChunk(sinkId: string, offset: /*u64*/bigint, data: ArrayBuffer, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     /**
      * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
-     * 返回文件的最终落盘 URI（file:// 或 SAF document URI）——core 会原样落库，
-     * 收件箱「打开/分享/删除」都依赖它，**不能**用目录 + 相对路径拼接代替
-     * （SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
+     * 返回文件的最终落盘 URI **及其父目录 URI**（file:// 或 SAF document URI）——core
+     * 会原样落库,收件箱「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir,**不能**用
+     * 目录 + 相对路径拼接代替(SAF document id 有独立编码,重名冲突还会被系统改写成
+     * "foo (1).txt")。
      */
-    finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<string>;
+    finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileFinalizedSink>;
     /**
      * 取消时清理临时文件
      */
@@ -4378,11 +4436,12 @@ async  writeSinkChunk(sinkId: string, offset: /*u64*/bigint, data: ArrayBuffer, 
     
     /**
      * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
-     * 返回文件的最终落盘 URI（file:// 或 SAF document URI）——core 会原样落库，
-     * 收件箱「打开/分享/删除」都依赖它，**不能**用目录 + 相对路径拼接代替
-     * （SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
+     * 返回文件的最终落盘 URI **及其父目录 URI**（file:// 或 SAF document URI）——core
+     * 会原样落库,收件箱「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir,**不能**用
+     * 目录 + 相对路径拼接代替(SAF document id 有独立编码,重名冲突还会被系统改写成
+     * "foo (1).txt")。
      */
-async  finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
+async  finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileFinalizedSink> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
@@ -4397,7 +4456,7 @@ async  finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promi
             /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*liftFunc:*/ FfiConverterTypeMobileFinalizedSink.lift.bind(FfiConverterTypeMobileFinalizedSink),
             /*liftString:*/ FfiConverterString.lift,
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -4756,18 +4815,18 @@ const uniffiCallbackInterfaceForeignFileAccess: { vtable: UniffiVTableCallbackIn
             uniffiCallbackData: bigint) => {
             const uniffiMakeCall = 
             async (signal: AbortSignal)
-            : Promise<string> => {
+            : Promise<MobileFinalizedSink> => {
                 const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
                 return await jsCallback.finalizeSink(
                     FfiConverterString.lift(sinkId), { signal }
                 )
             };
-            const uniffiHandleSuccess = (returnValue: string) => {
+            const uniffiHandleSuccess = (returnValue: MobileFinalizedSink) => {
                 uniffiFutureCallback.call(
                     uniffiFutureCallback,
                     uniffiCallbackData,
                     /* UniffiForeignFutureResultRustBuffer */{
-                        returnValue: FfiConverterString.lower(returnValue),
+                        returnValue: FfiConverterTypeMobileFinalizedSink.lower(returnValue),
                         callStatus: uniffiCaller.createCallStatus()
                     }
                 );
@@ -6742,7 +6801,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk() !== 54574) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink() !== 30636) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink() !== 46445) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink() !== 36565) {
@@ -6789,6 +6848,7 @@ export default Object.freeze({
     FfiConverterTypeMobileDiscoveryMode,
     FfiConverterTypeMobileFileMetadata,
     FfiConverterTypeMobileFileProgress,
+    FfiConverterTypeMobileFinalizedSink,
     FfiConverterTypeMobileIdentity,
     FfiConverterTypeMobileInboxContentKind,
     FfiConverterTypeMobileInboxFileEntry,

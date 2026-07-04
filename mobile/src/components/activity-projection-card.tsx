@@ -20,6 +20,7 @@ import {
 } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import {
+  isProjectionRecoverable,
   projectionDirection,
   projectionPolicyNote,
   projectionStatus,
@@ -76,7 +77,10 @@ function ActivityProjectionCardComponent({
   // 真正需要解释的策略拒绝/待确认。
   const policyNote =
     status === "completed" ? null : projectionPolicyNote(projection);
-  const canResume = projection.recoverable && onResume !== undefined;
+  // 用窄谓词(phase===Suspended && recoverable),不用裸 recoverable —— 即便日后别的
+  // section 也传 onResume,offered/waiting 卡片也不会误显「恢复传输」。
+  const canResume =
+    isProjectionRecoverable(projection) && onResume !== undefined;
 
   return (
     <Pressable
