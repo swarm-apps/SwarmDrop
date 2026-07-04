@@ -43,6 +43,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
+import { canOpenSaveFolder } from "@/core/saf-intent";
 import {
   isProjectionActive,
   projectionDirection,
@@ -642,7 +643,8 @@ function TransferActionBar({
     );
   }
 
-  if (savePath && status === "completed") {
+  // canOpenSaveFolder=false(Android 私有目录)时不给一个必败按钮;文件去收件箱打开/分享。
+  if (savePath && status === "completed" && canOpenSaveFolder(savePath)) {
     actions.push(
       <ActionButton
         key="open-folder"

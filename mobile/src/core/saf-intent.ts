@@ -42,6 +42,19 @@ export function startViewIntent(
 }
 
 /**
+ * 平台是否有系统入口能打开该保存目录 —— UI 用它决定「打开文件夹」入口是否渲染,
+ * 别让用户点一个注定失败的按钮:
+ * - iOS:file:// 沙盒目录可经 shareddocuments:// 在「文件」App 打开 → true
+ * - Android content://(SAF,用户自定义目录):DocumentsUI 可 ACTION_VIEW → true
+ * - Android file://(app 私有目录,默认接收位置):系统没有文件管理器能浏览
+ *   私有目录(除非自建 DocumentsProvider) → false
+ */
+export function canOpenSaveFolder(uri: string): boolean {
+  if (Platform.OS === "ios") return true;
+  return uri.startsWith("content://");
+}
+
+/**
  * 用系统文件管理器打开保存目录。
  *
  * - Android `content://` (SAF tree)：ACTION_VIEW + `vnd.android.document/directory`

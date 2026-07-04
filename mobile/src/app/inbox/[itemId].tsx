@@ -47,6 +47,7 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
+import { canOpenSaveFolder } from "@/core/saf-intent";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
@@ -182,8 +183,13 @@ export default function InboxDetailScreen() {
         await ensureAvailable(file);
         const available = await Sharing.isAvailableAsync();
         if (!available) {
-          // 系统分享不可用(罕见):带用户去文件管理器,比复制一串 file:// 到剪贴板有用
-          await openSaveFolderOrToast(parentDirOf(file.localPath));
+          // 系统分享不可用(罕见):能打开保存目录就带用户去文件管理器,否则如实提示
+          const dir = parentDirOf(file.localPath);
+          if (canOpenSaveFolder(dir)) {
+            await openSaveFolderOrToast(dir);
+          } else {
+            toast.error(t`系统分享不可用`);
+          }
           return;
         }
         await Sharing.shareAsync(file.localPath, {
@@ -203,9 +209,11 @@ export default function InboxDetailScreen() {
 
   // 打开保存目录:优先记录的根目录,单文件回退到文件所在目录。
   // (曾是「复制路径」——一串 file://,普通用户拿到也无处可贴;直接带去文件管理器。)
+  // canOpenSaveFolder=false(Android 私有目录)时入口整个不渲染,不给用户一个必败按钮。
   const folderTarget =
     detail?.item.rootPath ??
     (primaryFile ? parentDirOf(primaryFile.localPath) : null);
+  const canOpenFolder = folderTarget != null && canOpenSaveFolder(folderTarget);
   const openFolder = useCallback(() => {
     if (!folderTarget) return;
     void openSaveFolderOrToast(folderTarget);
@@ -420,7 +428,7 @@ export default function InboxDetailScreen() {
 
           <DetailActionBar
             primaryFile={primaryFile}
-            hasFolder={folderTarget != null}
+            hasFolder={canOpenFolder}
             onOpen={openPrimaryFile}
             onOpenFolder={openFolder}
           />
@@ -455,7 +463,7 @@ export default function InboxDetailScreen() {
           archived={archived}
           action={action}
           hasTransfer={transferSessionId != null}
-          canOpenFolder={folderTarget != null}
+          canOpenFolder={canOpenFolder}
           onArchive={() =>
             runAfterSheetDismiss(() => {
               void performArchive();
@@ -540,14 +548,17 @@ function InboxActionsSheet({
             disabled={action === "archive"}
             testID="inbox-detail-archive-action"
           />
-          <Divider />
-          <SheetActionRow
-            icon={FolderOpen}
-            label={<Trans>打开文件夹</Trans>}
-            onPress={onOpenFolder}
-            disabled={!canOpenFolder}
-            testID="inbox-detail-open-folder-action"
-          />
+          {canOpenFolder ? (
+            <>
+              <Divider />
+              <SheetActionRow
+                icon={FolderOpen}
+                label={<Trans>打开文件夹</Trans>}
+                onPress={onOpenFolder}
+                testID="inbox-detail-open-folder-action"
+              />
+            </>
+          ) : null}
           {hasTransfer ? (
             <>
               <Divider />
@@ -784,12 +795,15 @@ function DetailActionBar({
   const { t } = useLingui();
   const colors = useThemeColors();
   const canOpen = primaryFile != null && !primaryFile.missing;
+  // 多文件且平台打不开保存目录(Android 私有目录):没有可用主动作,整栏不渲染
+  // (逐项打开/分享由列表行承载,归档/删除在右上角菜单)。
+  if (!primaryFile && !hasFolder) return null;
   return (
     <BottomActionBar testID="inbox-detail-action-bar">
       <Pressable
         accessibilityRole="button"
         onPress={primaryFile ? onOpen : onOpenFolder}
-        disabled={primaryFile ? !canOpen : !hasFolder}
+        disabled={primaryFile ? !canOpen : false}
         testID={primaryFile ? "inbox-file-share-0" : "inbox-open-folder"}
         className="min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
       >
@@ -802,15 +816,14 @@ function DetailActionBar({
           {primaryFile ? <Trans>打开/分享</Trans> : <Trans>打开文件夹</Trans>}
         </Text>
       </Pressable>
-      {primaryFile ? (
+      {primaryFile && hasFolder ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t`打开文件夹`}
           onPress={onOpenFolder}
-          disabled={!hasFolder}
           hitSlop={8}
           testID="inbox-open-folder"
-          className="size-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
+          className="size-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
         >
           <FolderOpen color={colors.foreground} size={18} />
         </Pressable>
