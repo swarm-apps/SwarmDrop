@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   CheckCircle2,
   FolderOpen,
-  Loader2,
   type LucideIcon,
   Pause,
   Play,
@@ -12,16 +11,20 @@ import {
   X,
   XCircle,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   MobileSaveLocation_Tags,
-  MobileTransferPhase,
   type MobileTransferProjection,
 } from "react-native-swarmdrop-core";
 import { buildTreeDataFromOffer, FileTree } from "@/components/file-tree";
 import { KeyValueRow } from "@/components/key-value-row";
+import {
+  BottomActionBar,
+  HeaderIconButton,
+  Surface,
+} from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import {
   calcPercent,
@@ -40,8 +43,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
-import { openSafTreeUri } from "@/core/saf-intent";
 import {
+  isProjectionActive,
   projectionDirection,
   projectionPolicyNote,
   projectionStatus,
@@ -49,8 +52,9 @@ import {
   projectionTransferredBytes,
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
-import { errorMessage, truncateMiddle } from "@/lib/utils";
+import { errorMessage, lastPathSegment, truncateMiddle } from "@/lib/utils";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export default function TransferDetailScreen() {
@@ -160,9 +164,30 @@ export default function TransferDetailScreen() {
     } as never);
   }, [router, projection?.peerId]);
 
+  const savePath = projection ? savePathOf(projection) : null;
+  const isActive = projection != null && isProjectionActive(projection);
+
+  const openFolder = useCallback(() => {
+    if (!savePath) return;
+    void openSaveFolderOrToast(savePath);
+  }, [savePath]);
+
   return (
     <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader title={t`传输详情`} />
+      <SettingsHeader
+        title={t`传输详情`}
+        // 删除是低频动作,收进右上角(与收件箱详情的「更多」同位),不占底部动作栏
+        right={
+          projection && !isActive ? (
+            <HeaderIconButton
+              icon={Trash2}
+              label={t`删除记录`}
+              onPress={() => setDeleteOpen(true)}
+              testID="transfer-delete-button"
+            />
+          ) : null
+        }
+      />
       <ScrollView contentContainerClassName="gap-5 px-5 pt-2 pb-8">
         {!projection ? (
           loaded ? (
@@ -175,18 +200,21 @@ export default function TransferDetailScreen() {
             <TransferDetailSkeleton label={t`加载中`} />
           )
         ) : (
-          <TransferDetailContent
-            projection={projection}
-            progress={progress}
-            busy={busy}
-            onPause={onPause}
-            onCancel={() => setCancelOpen(true)}
-            onResume={onResume}
-            onResend={onResend}
-            onDelete={() => setDeleteOpen(true)}
-          />
+          <TransferDetailContent projection={projection} progress={progress} />
         )}
       </ScrollView>
+
+      {projection ? (
+        <TransferActionBar
+          projection={projection}
+          busy={busy}
+          onPause={onPause}
+          onCancel={() => setCancelOpen(true)}
+          onResume={onResume}
+          onResend={onResend}
+          onOpenFolder={openFolder}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={cancelOpen}
@@ -226,18 +254,17 @@ function TransferDetailSkeleton({ label }: { label: string }) {
         <Skeleton className="h-5 w-14 rounded-full" />
       </View>
 
-      {/* 进度块:大百分比数字 + 进度条 + 字节数 */}
-      <View className="gap-2">
-        <View className="flex-row items-end justify-between">
-          <Skeleton className="h-8 w-24" />
-          <Skeleton className="h-3 w-1/4" />
+      {/* 状态横幅:chip + 两行文本 */}
+      <View className="flex-row items-center gap-3 rounded-lg border border-border bg-card p-4">
+        <Skeleton className="size-11 rounded-full" />
+        <View className="min-w-0 flex-1 gap-1.5">
+          <Skeleton className="h-3.5 w-1/3" />
+          <Skeleton className="h-3 w-1/2" />
         </View>
-        <Skeleton className="h-2 w-full rounded-full" />
-        <Skeleton className="h-3 w-1/3" />
       </View>
 
       {/* 信息卡:与真实卡片相同 chrome */}
-      <View className="gap-3 rounded-xl border border-border bg-card p-4">
+      <View className="gap-3 rounded-lg border border-border bg-card p-4">
         <View className="flex-row items-center justify-between gap-3">
           <Skeleton className="h-3 w-16" />
           <Skeleton className="h-3 w-1/2" />
@@ -277,29 +304,12 @@ function TransferDetailSkeleton({ label }: { label: string }) {
 function TransferDetailContent({
   projection,
   progress,
-  busy,
-  onPause,
-  onCancel,
-  onResume,
-  onResend,
-  onDelete,
 }: {
   projection: MobileTransferProjection;
   progress: Parameters<typeof projectionTransferredBytes>[1];
-  busy: string | null;
-  onPause: () => void;
-  onCancel: () => void;
-  onResume: () => void;
-  onResend: () => void;
-  onDelete: () => void;
 }) {
   const status = projectionStatus(projection);
   const direction = projectionDirection(projection);
-  const savePath = savePathOf(projection);
-  const isActive =
-    projection.phase === MobileTransferPhase.Offered ||
-    projection.phase === MobileTransferPhase.WaitingAccept ||
-    projection.phase === MobileTransferPhase.Active;
 
   const treeData = useMemo(
     () =>
@@ -313,15 +323,6 @@ function TransferDetailContent({
       ),
     [projection.files],
   );
-
-  const openFolder = useCallback(async () => {
-    if (!savePath) return;
-    try {
-      await openSafTreeUri(savePath);
-    } catch {
-      toast.info(savePath);
-    }
-  }, [savePath]);
 
   return (
     <>
@@ -347,7 +348,49 @@ function TransferDetailContent({
 
       <TransferProgressBlock projection={projection} progress={progress} />
 
-      <View className="gap-3 rounded-xl border border-border bg-card p-4">
+      <DetailCard projection={projection} />
+
+      <View className="gap-2">
+        <View className="flex-row items-baseline justify-between">
+          <Text className="text-[13px] font-semibold text-muted-foreground">
+            <Trans>文件</Trans>
+          </Text>
+          <Text className="text-[11px] text-muted-foreground">
+            {status === "transferring" && progress ? (
+              `${progress.completedFiles}/${projection.files.length}`
+            ) : (
+              <Trans>{projection.files.length} 项</Trans>
+            )}
+          </Text>
+        </View>
+        <FileTree
+          mode={status === "transferring" ? "transfer" : "select"}
+          dataLoader={treeData.dataLoader}
+          rootChildren={treeData.rootChildren}
+          progress={progress ?? null}
+        />
+      </View>
+    </>
+  );
+}
+
+/**
+ * 详情信息卡:内容全部源自 projection(tick 间引用稳定,仅相变时替换),
+ * memo 让每秒多次的进度 tick 不再重跑 toLocaleString / decode 等格式化。
+ */
+const DetailCard = memo(function DetailCard({
+  projection,
+}: {
+  projection: MobileTransferProjection;
+}) {
+  const savePath = savePathOf(projection);
+  const policyNote = projectionPolicyNote(projection);
+  return (
+    <View className="gap-2">
+      <Text className="text-[13px] font-semibold text-muted-foreground">
+        <Trans>详情</Trans>
+      </Text>
+      <Surface className="gap-3 p-4">
         <KeyValueRow
           label={<Trans>开始时间</Trans>}
           value={new Date(Number(projection.startedAt)).toLocaleString()}
@@ -370,47 +413,17 @@ function TransferDetailContent({
         {savePath ? (
           <KeyValueRow
             label={<Trans>保存位置</Trans>}
-            value={decodeURIComponent(savePath)}
+            value={`…/${lastPathSegment(savePath)}`}
             mono
           />
         ) : null}
-        {projectionPolicyNote(projection) ? (
-          <KeyValueRow
-            label={<Trans>设备策略</Trans>}
-            value={projectionPolicyNote(projection)}
-          />
+        {policyNote ? (
+          <KeyValueRow label={<Trans>设备策略</Trans>} value={policyNote} />
         ) : null}
-      </View>
-
-      <View className="gap-2">
-        <Text className="text-[13px] font-semibold text-muted-foreground">
-          <Trans>文件</Trans>
-        </Text>
-        <FileTree
-          mode={status === "transferring" ? "transfer" : "select"}
-          dataLoader={treeData.dataLoader}
-          rootChildren={treeData.rootChildren}
-          totalCount={projection.files.length}
-          totalSize={Number(projection.totalSize)}
-          progress={progress ?? null}
-        />
-      </View>
-
-      <ActionBar
-        projection={projection}
-        busy={busy}
-        isActive={isActive}
-        savePath={savePath}
-        onPause={onPause}
-        onCancel={onCancel}
-        onResume={onResume}
-        onResend={onResend}
-        onDelete={onDelete}
-        onOpenFolder={openFolder}
-      />
-    </>
+      </Surface>
+    </View>
   );
-}
+});
 
 function TransferProgressBlock({
   projection,
@@ -459,88 +472,138 @@ function TransferProgressBlock({
             ),
           )
         : 0;
+    // 平均速度是这块唯一不与头部/文件区重复的新信息(文件数/总大小已在头部副行)。
+    const avgSpeed = duration > 0 ? Number(total) / duration : null;
     return (
-      <View className="items-center gap-3 py-2">
-        <View className="size-14 items-center justify-center rounded-full bg-success/15">
-          <CheckCircle2 size={32} color={colors.success} strokeWidth={2} />
-        </View>
-        <Text className="text-base font-semibold text-foreground">
-          <Trans>所有文件传输完成！</Trans>
-        </Text>
-        <View className="w-full max-w-xs flex-row justify-around px-4">
-          <Stat
-            value={String(projection.files.length)}
-            label={<Trans>文件</Trans>}
-          />
-          <Stat
-            value={formatBytes(projection.totalSize)}
-            label={<Trans>总大小</Trans>}
-          />
-          <Stat value={formatDuration(duration)} label={<Trans>用时</Trans>} />
-        </View>
-      </View>
+      <StatusBanner
+        chip={
+          <View className="size-11 items-center justify-center rounded-full bg-success/15">
+            <CheckCircle2 size={22} color={colors.success} strokeWidth={2.25} />
+          </View>
+        }
+        title={<Trans>传输完成</Trans>}
+        subtitle={
+          avgSpeed != null ? (
+            <Trans>
+              用时 {formatDuration(duration)} · 平均 {formatSpeed(avgSpeed)}
+            </Trans>
+          ) : (
+            <Trans>用时 {formatDuration(duration)}</Trans>
+          )
+        }
+      />
     );
   }
 
   if (status === "failed") {
     return (
-      <View className="items-center gap-3 py-2">
-        <View className="size-14 items-center justify-center rounded-full bg-destructive/15">
-          <XCircle size={32} color={colors.destructive} strokeWidth={2} />
-        </View>
-        <Text className="text-base font-semibold text-foreground">
-          <Trans>传输失败</Trans>
-        </Text>
-        <Text className="max-w-xs text-center text-[11px] text-muted-foreground">
-          <LocalizedError message={projection.errorMessage} />
-        </Text>
-      </View>
+      <StatusBanner
+        chip={
+          <View className="size-11 items-center justify-center rounded-full bg-destructive/15">
+            <XCircle size={22} color={colors.destructive} strokeWidth={2.25} />
+          </View>
+        }
+        title={<Trans>传输失败</Trans>}
+        subtitle={<LocalizedError message={projection.errorMessage} />}
+      />
     );
   }
 
-  const reason = projectionReasonLabel(projection);
+  // 等待对方确认(offered/waiting_accept):唯一仍在"进行"的非进度态,用 spinner 表达活跃。
+  if (status === "offered" || status === "waiting_accept") {
+    return (
+      <StatusBanner
+        chip={
+          <View className="size-11 items-center justify-center rounded-full bg-muted">
+            <ActivityIndicator size="small" color={colors.primary} />
+          </View>
+        }
+        title={<StatusLabel status={status} />}
+        subtitle={<Trans>对方确认后立即开始传输</Trans>}
+      />
+    );
+  }
+
+  // 其余挂起/终态(中断/离线/已取消/已拒绝):中性 chip,可恢复时给一句安心话。
+  const Icon = status === "cancelled" || status === "rejected" ? X : Pause;
   return (
-    <View className="items-center gap-2 py-4">
-      <Loader2 size={24} color={colors.primary} />
-      <Text className="text-[11px] text-muted-foreground">
-        {reason ?? <StatusLabel status={status} />}
-      </Text>
-    </View>
+    <StatusBanner
+      chip={
+        <View className="size-11 items-center justify-center rounded-full bg-muted">
+          <Icon size={20} color={colors.mutedForeground} strokeWidth={2.25} />
+        </View>
+      }
+      title={
+        projectionReasonLabel(projection) ?? <StatusLabel status={status} />
+      }
+      subtitle={
+        projection.recoverable ? (
+          <Trans>可从断点继续，无需重新传输</Trans>
+        ) : null
+      }
+    />
   );
 }
 
-function ActionBar({
+/**
+ * 终态/等待态的状态横幅:与全页左对齐网格统一(取代旧的居中堆叠),
+ * 状态色只花在 chip 上,文字保持中性 —— 头部 StatusBadge 已承载彩色状态文字。
+ */
+function StatusBanner({
+  chip,
+  title,
+  subtitle,
+}: {
+  chip: React.ReactNode;
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+}) {
+  return (
+    <Surface className="flex-row items-center gap-3 p-4">
+      {chip}
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="text-[15px] font-semibold text-foreground">
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text className="text-[12px] leading-4 text-muted-foreground">
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+    </Surface>
+  );
+}
+
+/**
+ * 固定底部动作栏 —— 与收件箱详情的 DetailActionBar 同一交互位与结构:
+ * 主动作横排 flex-1,删除已收进右上角,取消(危险)以描边形态与主动作并排。
+ */
+function TransferActionBar({
   projection,
   busy,
-  isActive,
-  savePath,
   onPause,
   onCancel,
   onResume,
   onResend,
-  onDelete,
   onOpenFolder,
 }: {
   projection: MobileTransferProjection;
   busy: string | null;
-  isActive: boolean;
-  savePath: string | null;
   onPause: () => void;
   onCancel: () => void;
   onResume: () => void;
   onResend: () => void;
-  onDelete: () => void;
   onOpenFolder: () => void;
 }) {
-  // 两级层级:主操作(恢复/打开文件夹/暂停)全宽实心占主导;
-  // 破坏性操作(取消/删除)降权为窄、居中、无填充,永不撑满成红色 hero。
-  const prominent: React.ReactNode[] = [];
-  const destructive: React.ReactNode[] = [];
+  const actions: React.ReactNode[] = [];
   const status = projectionStatus(projection);
+  const isActive = isProjectionActive(projection);
+  const savePath = savePathOf(projection);
 
   if (isActive) {
     if (status === "transferring") {
-      prominent.push(
+      actions.push(
         <ActionButton
           key="pause"
           Icon={Pause}
@@ -552,7 +615,7 @@ function ActionBar({
         />,
       );
     }
-    destructive.push(
+    actions.push(
       <ActionButton
         key="cancel"
         Icon={X}
@@ -566,7 +629,7 @@ function ActionBar({
   }
 
   if (canResume(projection)) {
-    prominent.push(
+    actions.push(
       <ActionButton
         key="resume"
         Icon={Play}
@@ -580,13 +643,13 @@ function ActionBar({
   }
 
   if (savePath && status === "completed") {
-    prominent.push(
+    actions.push(
       <ActionButton
         key="open-folder"
         Icon={FolderOpen}
         label={<Trans>打开文件夹</Trans>}
         onPress={onOpenFolder}
-        variant="secondary"
+        variant="primary"
       />,
     );
   }
@@ -598,7 +661,7 @@ function ActionBar({
     canResend(projection) &&
     status === "failed"
   ) {
-    prominent.push(
+    actions.push(
       <ActionButton
         key="resend"
         Icon={Send}
@@ -609,41 +672,9 @@ function ActionBar({
     );
   }
 
-  if (!isActive) {
-    destructive.push(
-      <ActionButton
-        key="delete"
-        Icon={Trash2}
-        label={<Trans>删除</Trans>}
-        onPress={onDelete}
-        disabled={busy === "deleting"}
-        loading={busy === "deleting"}
-        variant="destructive"
-      />,
-    );
-  }
-
-  if (prominent.length === 0 && destructive.length === 0) return null;
+  if (actions.length === 0) return null;
   return (
-    <View className="gap-2 pt-1">
-      {prominent.length > 0 ? <View className="gap-2">{prominent}</View> : null}
-      {destructive.length > 0 ? (
-        <View className="flex-row flex-wrap items-center justify-center gap-x-4 gap-y-1">
-          {destructive}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-function Stat({ value, label }: { value: string; label: React.ReactNode }) {
-  return (
-    <View className="items-center gap-0.5">
-      <Text className="text-lg font-bold tabular-nums text-foreground">
-        {value}
-      </Text>
-      <Text className="text-[10px] text-muted-foreground">{label}</Text>
-    </View>
+    <BottomActionBar testID="transfer-action-bar">{actions}</BottomActionBar>
   );
 }
 
@@ -665,43 +696,38 @@ function ActionButton({
   variant,
 }: ActionButtonProps) {
   const colors = useThemeColors();
-  const isDestructive = variant === "destructive";
-  const bgClass =
-    variant === "primary"
-      ? "bg-primary"
-      : variant === "secondary"
-        ? "border border-border bg-card"
-        : "active:bg-destructive/10"; // destructive: 无填充,降权
-  const textClass =
-    variant === "primary"
-      ? "text-primary-foreground"
-      : variant === "secondary"
-        ? "text-foreground"
-        : "text-destructive-ink";
-  const iconColor =
-    variant === "primary"
-      ? colors.primaryForeground
-      : variant === "secondary"
-        ? colors.foreground
-        : colors.destructive;
-  // 主/次操作:全宽实心,占主导;破坏性:窄、内容自适应宽度,让位于主操作
-  const layoutClass = isDestructive
-    ? "min-h-11 px-4 py-2"
-    : "min-h-12 w-full py-3";
+  // 横排底栏三形态:主动作实心蓝,次动作描边白,破坏性描边白+红字(不做红色实心 hero)
+  const style = {
+    primary: {
+      bg: "bg-primary",
+      text: "text-primary-foreground",
+      icon: colors.primaryForeground,
+    },
+    secondary: {
+      bg: "border border-border bg-card",
+      text: "text-foreground",
+      icon: colors.foreground,
+    },
+    destructive: {
+      bg: "border border-border bg-card",
+      text: "text-destructive-ink",
+      icon: colors.destructive,
+    },
+  }[variant];
 
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
-      className={`flex-row items-center justify-center gap-1.5 rounded-xl ${layoutClass} ${bgClass} active:opacity-70 disabled:opacity-50`}
+      className={`min-h-12 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-4 ${style.bg} active:opacity-70 disabled:opacity-50`}
     >
       {loading ? (
-        <ActivityIndicator size="small" color={iconColor} />
+        <ActivityIndicator size="small" color={style.icon} />
       ) : (
-        <Icon size={16} color={iconColor} />
+        <Icon size={16} color={style.icon} />
       )}
-      <Text className={`text-[13px] font-medium ${textClass}`}>{label}</Text>
+      <Text className={`text-[13px] font-semibold ${style.text}`}>{label}</Text>
     </Pressable>
   );
 }

@@ -179,17 +179,24 @@ export function groupTransferProjections(
   return grouped;
 }
 
+/**
+ * (policyAction, policyReason) → 展示文案的唯一组合规则:core 的 reason 本身已是
+ * 完整说明(如「可信设备策略自动接收」),再前缀 action label 只会得到"设备策略自动接收:
+ * 可信设备策略自动接收"式的口吃拼接 —— 有 reason 用 reason,否则退到 action label。
+ * projection 详情/活动卡与接收 offer 弹窗共用,不要各自再拼。
+ */
+export function policyNoteOf(
+  action?: string | null,
+  reason?: string | null,
+): string | null {
+  if (reason) return reason;
+  return action ? policyActionLabel(action) : null;
+}
+
 export function projectionPolicyNote(
   projection: MobileTransferProjection,
 ): string | null {
-  if (projection.policyReason) {
-    return projection.policyAction
-      ? `${policyActionLabel(projection.policyAction)}: ${projection.policyReason}`
-      : projection.policyReason;
-  }
-  return projection.policyAction
-    ? policyActionLabel(projection.policyAction)
-    : null;
+  return policyNoteOf(projection.policyAction, projection.policyReason);
 }
 
 const POLICY_ACTION_MESSAGES = {

@@ -8,7 +8,10 @@ import {
   View,
 } from "react-native";
 import Animated from "react-native-reanimated";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { usePulseOpacity } from "@/hooks/usePulseOpacity";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -297,6 +300,29 @@ export function BottomActionArea({
 }) {
   return (
     <View className={cn("gap-2 border-t border-border px-5 py-4", className)}>
+      {children}
+    </View>
+  );
+}
+
+/**
+ * 详情页固定底部动作栏容器:横排动作 + 安全区 padding,渲染在滚动内容之外。
+ * 收件箱详情与传输详情共用这层 chrome;按钮形态与状态逻辑保持页内私有。
+ */
+export function BottomActionBar({
+  children,
+  testID,
+}: {
+  children: ReactNode;
+  testID?: string;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      className="flex-row items-center gap-3 border-t border-border bg-background px-5 pt-3"
+      style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+      testID={testID}
+    >
       {children}
     </View>
   );

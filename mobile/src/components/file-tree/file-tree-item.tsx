@@ -37,10 +37,6 @@ interface FileTreeItemProps {
   onRemove?: () => void;
   /** error 模式下点重试 */
   onRetry?: () => void;
-  /** 整行点击（如详情页的「分享文件」），不传则整行不可点击 */
-  onPress?: () => void;
-  /** 整行长按（如详情页的「复制路径」） */
-  onLongPress?: () => void;
 }
 
 /* ─── 文件图标映射 ─── */
@@ -157,28 +153,17 @@ function FileTreeItemComponent({
   level = 0,
   onRemove,
   onRetry,
-  onPress,
-  onLongPress,
 }: FileTreeItemProps) {
   const styles = variantStyles[variant];
   const colors = useThemeColors();
   const { t } = useLingui();
   const Icon = getFileIcon(name);
   const isTransferring = variant === "transferring";
-  const isPressable = onPress != null || onLongPress != null;
   const iconColor = styles.iconColor(colors);
 
   return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      // 不传 onPress / onLongPress 时 Pressable 不消耗触摸事件
-      accessibilityRole={isPressable ? "button" : undefined}
-      className={cn(
-        "flex-col rounded-lg py-2 pr-2",
-        styles.row,
-        isPressable && "active:opacity-70",
-      )}
+    <View
+      className={cn("flex-col rounded-lg py-2 pr-2", styles.row)}
       style={{ paddingLeft: level * 22 + 8, gap: isTransferring ? 6 : 0 }}
     >
       <View className="flex-row items-center gap-2.5">
@@ -232,7 +217,7 @@ function FileTreeItemComponent({
           fillClass="bg-primary"
         />
       ) : null}
-    </Pressable>
+    </View>
   );
 }
 

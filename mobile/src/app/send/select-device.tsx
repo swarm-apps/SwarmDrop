@@ -244,14 +244,25 @@ export default function SendPreparePage() {
         <AddSourceButtons disabled={sending} onPick={handlePick} />
 
         {selectedFiles.length > 0 ? (
-          <FileTree
-            mode="select"
-            dataLoader={treeData.dataLoader}
-            rootChildren={treeData.rootChildren}
-            totalCount={selectedFiles.length}
-            totalSize={Number(totalSize)}
-            onRemove={removeSelectedByPath}
-          />
+          <View className="gap-2">
+            <View className="flex-row items-center justify-between">
+              <Text className="text-sm font-medium text-foreground">
+                <Trans>已选文件</Trans>
+              </Text>
+              <Text className="text-xs text-muted-foreground">
+                <Trans>
+                  共 {selectedFiles.length} 项 ·{" "}
+                  {formatBytes(Number(totalSize))}
+                </Trans>
+              </Text>
+            </View>
+            <FileTree
+              mode="select"
+              dataLoader={treeData.dataLoader}
+              rootChildren={treeData.rootChildren}
+              onRemove={removeSelectedByPath}
+            />
+          </View>
         ) : (
           <View className="flex-1 items-center justify-center gap-2 py-6">
             <View className="size-14 items-center justify-center rounded-full bg-muted">

@@ -1,5 +1,4 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import * as Clipboard from "expo-clipboard";
 import { File } from "expo-file-system";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
@@ -10,14 +9,12 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardList,
-  Copy,
   Database,
   ExternalLink,
   FileArchive,
   FileText,
   FileWarning,
   FolderOpen,
-  HardDrive,
   Image as ImageIcon,
   type LucideIcon,
   MoreHorizontal,
@@ -30,14 +27,17 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   MobileInboxContentKind,
   type MobileInboxItemDetail,
   MobileInboxSourceKind,
 } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
-import { AppScreen, Surface } from "@/components/mobile/screen";
+import {
+  AppScreen,
+  BottomActionBar,
+  Surface,
+} from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import {
@@ -48,15 +48,15 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
-import { cn } from "@/lib/utils";
+import { cn, parentDirOf } from "@/lib/utils";
 import { type InboxFileEntry, useInboxStore } from "@/stores/inbox-store";
 
 export default function InboxDetailScreen() {
   const { t } = useLingui();
   const router = useRouter();
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const actionsSheetRef = useRef<AppBottomSheetRef>(null);
   const { itemId } = useLocalSearchParams<{ itemId: string }>();
   const [deleteMode, setDeleteMode] = useState<"record" | "content" | null>(
@@ -129,6 +129,27 @@ export default function InboxDetailScreen() {
   const title = detail?.item.title ?? t`收件箱详情`;
   const fileCount = detail?.files.length ?? 0;
   const primaryFile = detail?.files.length === 1 ? detail.files[0] : null;
+  const itemMissing =
+    detail?.item.missing === true || primaryFile?.missing === true;
+  const contentKind = detail?.item.contentKind;
+  // 只有"有真内容可看"(图片/文本正文)才配大预览;其余形态(通用文件/多文件/缺失)
+  // 用标题区的类型图标 chip 承载识别,不再渲染大而空的占位框。
+  // 做成"可空文件引用"而非 boolean:JSX 分支直接窄化,不用二次判空。
+  const previewImageFile =
+    primaryFile != null &&
+    !primaryFile.missing &&
+    primaryFile.localPath.startsWith("file://") &&
+    isImageFile(primaryFile.name)
+      ? primaryFile
+      : null;
+  const excerptFile =
+    !itemMissing &&
+    previewImageFile == null &&
+    (contentKind === MobileInboxContentKind.Text ||
+      contentKind === MobileInboxContentKind.Clipboard)
+      ? primaryFile
+      : null;
+  const hasRichPreview = previewImageFile != null || excerptFile != null;
 
   const performArchive = useCallback(async () => {
     if (!itemId || !detail) return;
@@ -161,8 +182,8 @@ export default function InboxDetailScreen() {
         await ensureAvailable(file);
         const available = await Sharing.isAvailableAsync();
         if (!available) {
-          await Clipboard.setStringAsync(file.localPath);
-          toast.info(t`系统分享不可用，已复制路径`);
+          // 系统分享不可用(罕见):带用户去文件管理器,比复制一串 file:// 到剪贴板有用
+          await openSaveFolderOrToast(parentDirOf(file.localPath));
           return;
         }
         await Sharing.shareAsync(file.localPath, {
@@ -180,13 +201,15 @@ export default function InboxDetailScreen() {
     [itemId, markFileMissing, t],
   );
 
-  const copyFilePath = useCallback(
-    async (path: string) => {
-      await Clipboard.setStringAsync(path);
-      toast.success(t`已复制路径`);
-    },
-    [t],
-  );
+  // 打开保存目录:优先记录的根目录,单文件回退到文件所在目录。
+  // (曾是「复制路径」——一串 file://,普通用户拿到也无处可贴;直接带去文件管理器。)
+  const folderTarget =
+    detail?.item.rootPath ??
+    (primaryFile ? parentDirOf(primaryFile.localPath) : null);
+  const openFolder = useCallback(() => {
+    if (!folderTarget) return;
+    void openSaveFolderOrToast(folderTarget);
+  }, [folderTarget]);
 
   const transferSessionId = detail?.item.transferSessionId;
   const openTransfer = useCallback(() => {
@@ -201,12 +224,6 @@ export default function InboxDetailScreen() {
     if (deleteMode === "content") return t`删除记录和本地文件`;
     return t`删除这条收件箱记录`;
   }, [deleteMode, t]);
-
-  const copyPrimaryLocation = useCallback(async () => {
-    const path = primaryFile?.localPath ?? detail?.item.rootPath;
-    if (!path) return;
-    await copyFilePath(decodeURIComponent(path));
-  }, [copyFilePath, detail?.item.rootPath, primaryFile?.localPath]);
 
   const openPrimaryFile = useCallback(() => {
     if (!primaryFile) return;
@@ -237,24 +254,17 @@ export default function InboxDetailScreen() {
       />
 
       {detailLoading && !detail ? (
-        // 骨架屏镜像正常分支布局:预览大框 → 标题块 → InfoPill 行 → 文件行
+        // 骨架屏镜像正常分支布局:类型 chip + 标题块 → 详情卡行
         <View
           accessible
           accessibilityLabel={t`加载中`}
           className="flex-1 gap-5 px-5 pt-3"
         >
-          <Skeleton
-            className="w-full rounded-lg"
-            style={detailStyles.previewFrame}
-          />
-          <View className="gap-3">
-            <View className="gap-1.5">
-              <Skeleton className="h-6 w-2/3" />
+          <View className="flex-row items-center gap-3">
+            <Skeleton className="size-14 rounded-xl" />
+            <View className="min-w-0 flex-1 gap-1.5">
+              <Skeleton className="h-5 w-2/3" />
               <Skeleton className="h-3 w-1/2" />
-            </View>
-            <View className="flex-row gap-2">
-              <Skeleton className="h-14 flex-1 rounded-lg" />
-              <Skeleton className="h-14 flex-1 rounded-lg" />
             </View>
           </View>
           <View className="overflow-hidden rounded-lg border border-border bg-card">
@@ -266,7 +276,7 @@ export default function InboxDetailScreen() {
                   row > 0 ? "border-t border-border" : "",
                 )}
               >
-                <Skeleton className="size-11 rounded-full" />
+                <Skeleton className="size-11 rounded-xl" />
                 <View className="min-w-0 flex-1 gap-1.5">
                   <Skeleton className="h-3.5 w-1/2" />
                   <Skeleton className="h-3 w-1/3" />
@@ -325,57 +335,65 @@ export default function InboxDetailScreen() {
             showsVerticalScrollIndicator={false}
             contentContainerClassName="gap-5 px-5 pb-8 pt-3"
           >
-            <ContentPreview detail={detail} primaryFile={primaryFile} />
+            {previewImageFile ? (
+              <ImagePreview file={previewImageFile} />
+            ) : excerptFile ? (
+              <TextExcerptCard
+                kind={detail.item.contentKind}
+                file={excerptFile}
+              />
+            ) : null}
 
             <View className="gap-3" testID="inbox-detail-summary">
-              <View className="gap-1.5">
-                <Text
-                  className="text-[24px] font-semibold leading-8 tracking-tight text-foreground"
-                  numberOfLines={3}
-                >
-                  {title}
-                </Text>
-                <Text className="text-[12px] leading-5 text-muted-foreground">
-                  <Trans>来自</Trans> {detail.item.sourceName}
-                  {" · "}
-                  {formatRelativeTime(detail.item.receivedAt)}
-                </Text>
-              </View>
-              <View className="flex-row flex-wrap gap-2">
-                <ContentKindPill
-                  kind={detail.item.contentKind}
-                  file={primaryFile}
-                />
-                {detail.item.missing ? (
-                  <StatePill tone="missing" label={<Trans>文件缺失</Trans>} />
+              <View className="flex-row items-center gap-3">
+                {!hasRichPreview ? (
+                  <TypeChip
+                    missing={itemMissing}
+                    multi={fileCount > 1}
+                    primaryFile={primaryFile}
+                  />
                 ) : null}
-                {archived ? (
-                  <StatePill tone="muted" label={<Trans>已归档</Trans>} />
-                ) : null}
+                <View className="min-w-0 flex-1 gap-1">
+                  <Text
+                    className="text-[20px] font-semibold leading-7 tracking-tight text-foreground"
+                    numberOfLines={3}
+                  >
+                    {title}
+                  </Text>
+                  <Text
+                    className="text-[12px] leading-5 text-muted-foreground"
+                    numberOfLines={1}
+                  >
+                    <Trans>来自</Trans> {detail.item.sourceName}
+                    {" · "}
+                    {formatRelativeTime(detail.item.receivedAt)}
+                    {" · "}
+                    {fileCount > 1 ? (
+                      <>
+                        {fileCount} <Trans>项</Trans>
+                        {" · "}
+                      </>
+                    ) : null}
+                    {formatBytes(detail.item.totalSize)}
+                  </Text>
+                </View>
               </View>
-              <View className="flex-row gap-2">
-                <InfoPill
-                  icon={FileArchive}
-                  label={<Trans>内容</Trans>}
-                  value={
-                    <>
-                      {fileCount} <Trans>项</Trans>
-                    </>
-                  }
-                />
-                <InfoPill
-                  icon={HardDrive}
-                  label={<Trans>大小</Trans>}
-                  value={formatBytes(detail.item.totalSize)}
-                />
-              </View>
+              {detail.item.missing || archived ? (
+                <View className="flex-row flex-wrap gap-2">
+                  {detail.item.missing ? (
+                    <StatePill tone="missing" label={<Trans>文件缺失</Trans>} />
+                  ) : null}
+                  {archived ? (
+                    <StatePill tone="muted" label={<Trans>已归档</Trans>} />
+                  ) : null}
+                </View>
+              ) : null}
             </View>
 
             {detail.files.length > 1 ? (
               <IncludedFiles
                 files={detail.files}
                 onOpenShare={openOrShareFile}
-                onCopy={copyFilePath}
               />
             ) : null}
 
@@ -390,16 +408,11 @@ export default function InboxDetailScreen() {
                 accessibilityRole="button"
                 onPress={openTransfer}
                 testID="inbox-detail-transfer-link"
-                className="min-h-12 flex-row items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-3 active:opacity-70"
+                className="min-h-12 flex-row items-center justify-between gap-3 rounded-lg border border-border bg-card px-3.5 active:opacity-70"
               >
-                <View className="min-w-0 flex-1">
-                  <Text className="text-[13px] font-semibold text-foreground">
-                    <Trans>查看传输过程</Trans>
-                  </Text>
-                  <Text className="text-[11px] text-muted-foreground">
-                    <Trans>跳转到传输详情</Trans>
-                  </Text>
-                </View>
+                <Text className="text-[13px] font-semibold text-foreground">
+                  <Trans>查看传输过程</Trans>
+                </Text>
                 <ExternalLink color={colors.mutedForeground} size={17} />
               </Pressable>
             ) : null}
@@ -407,10 +420,9 @@ export default function InboxDetailScreen() {
 
           <DetailActionBar
             primaryFile={primaryFile}
-            hasLocation={primaryFile != null || detail.item.rootPath != null}
-            bottomInset={insets.bottom}
+            hasFolder={folderTarget != null}
             onOpen={openPrimaryFile}
-            onCopy={copyPrimaryLocation}
+            onOpenFolder={openFolder}
           />
         </>
       )}
@@ -443,15 +455,15 @@ export default function InboxDetailScreen() {
           archived={archived}
           action={action}
           hasTransfer={transferSessionId != null}
-          canCopyLocation={primaryFile != null || detail.item.rootPath != null}
+          canOpenFolder={folderTarget != null}
           onArchive={() =>
             runAfterSheetDismiss(() => {
               void performArchive();
             })
           }
-          onCopyLocation={() =>
+          onOpenFolder={() =>
             runAfterSheetDismiss(() => {
-              void copyPrimaryLocation();
+              void openFolder();
             })
           }
           onOpenTransfer={() => runAfterSheetDismiss(openTransfer)}
@@ -489,9 +501,9 @@ function InboxActionsSheet({
   archived,
   action,
   hasTransfer,
-  canCopyLocation,
+  canOpenFolder,
   onArchive,
-  onCopyLocation,
+  onOpenFolder,
   onOpenTransfer,
   onDeleteRecord,
   onDeleteContent,
@@ -501,9 +513,9 @@ function InboxActionsSheet({
   archived: boolean;
   action: string | null;
   hasTransfer: boolean;
-  canCopyLocation: boolean;
+  canOpenFolder: boolean;
   onArchive: () => void;
-  onCopyLocation: () => void;
+  onOpenFolder: () => void;
   onOpenTransfer: () => void;
   onDeleteRecord: () => void;
   onDeleteContent: () => void;
@@ -530,11 +542,11 @@ function InboxActionsSheet({
           />
           <Divider />
           <SheetActionRow
-            icon={Copy}
-            label={<Trans>复制保存位置</Trans>}
-            onPress={onCopyLocation}
-            disabled={!canCopyLocation}
-            testID="inbox-detail-copy-location-action"
+            icon={FolderOpen}
+            label={<Trans>打开文件夹</Trans>}
+            onPress={onOpenFolder}
+            disabled={!canOpenFolder}
+            testID="inbox-detail-open-folder-action"
           />
           {hasTransfer ? (
             <>
@@ -639,59 +651,57 @@ function truncateExcerpt(text: string): string {
   return `${collapsed.slice(0, TEXT_EXCERPT_MAX_CHARS)}…`;
 }
 
-function ContentPreview({
-  detail,
-  primaryFile,
+/** 图片:唯一保留大预览框的形态 —— 真的有内容可看,大面积才花得值。 */
+function ImagePreview({ file }: { file: InboxFileEntry }) {
+  return (
+    <View
+      className="overflow-hidden rounded-lg border border-border bg-card"
+      style={detailStyles.previewFrame}
+      testID="inbox-detail-preview"
+    >
+      <Image
+        source={{ uri: file.localPath }}
+        resizeMode="cover"
+        className="h-full w-full"
+        accessibilityLabel={file.name}
+      />
+    </View>
+  );
+}
+
+/** 文本/剪贴板:内联展示真实收到的正文,而不是纯装饰性图标留白。 */
+function TextExcerptCard({
+  kind,
+  file,
 }: {
-  detail: MobileInboxItemDetail;
-  primaryFile: InboxFileEntry | null;
+  kind: MobileInboxContentKind;
+  file: InboxFileEntry;
 }) {
   const colors = useThemeColors();
-  const preview = previewMeta(detail, primaryFile);
-  const canPreviewImage =
-    primaryFile != null &&
-    !primaryFile.missing &&
-    primaryFile.localPath.startsWith("file://") &&
-    isImageFile(primaryFile.name);
-
-  const isMissing = detail.item.missing || primaryFile?.missing === true;
-  // 多文件合集:内联展示实际文件名列表,而不是纯装饰性 Package 图标(与 previewMeta 的
-  // 分支优先级保持一致:files.length > 1 优先于 contentKind 判断)。
-  const isMultiFileExcerpt =
-    !isMissing && !canPreviewImage && detail.files.length > 1;
-  // 文本/剪贴板:内联展示真实收到的正文,而不是纯装饰性图标留白。
-  const isTextExcerptKind =
-    !isMissing &&
-    !canPreviewImage &&
-    !isMultiFileExcerpt &&
-    (detail.item.contentKind === MobileInboxContentKind.Text ||
-      detail.item.contentKind === MobileInboxContentKind.Clipboard);
-
   const [textExcerpt, setTextExcerpt] = useState<string | null>(null);
   const [textReadFailed, setTextReadFailed] = useState(false);
 
+  // 依赖原始值而非 file 对象:refocus 会整体替换 detail(全新对象),按引用依赖
+  // 每次返回本页都会闪「加载中」并重读整个文件。
+  const { localPath, missing } = file;
   useEffect(() => {
     setTextExcerpt(null);
     setTextReadFailed(false);
-    if (!isTextExcerptKind) return;
-    if (
-      !primaryFile ||
-      primaryFile.missing ||
-      !primaryFile.localPath.startsWith("file://")
-    ) {
+    if (missing || !localPath.startsWith("file://")) {
       setTextReadFailed(true);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const file = new File(primaryFile.localPath);
-        if (!file.exists) {
+        const localFile = new File(localPath);
+        if (!localFile.exists) {
           if (!cancelled) setTextReadFailed(true);
           return;
         }
-        const content = await file.text();
-        if (!cancelled) setTextExcerpt(content);
+        const content = await localFile.text();
+        // 写入前截断:state 只留展示所需的 ~400 字符,MB 级文本不常驻内存
+        if (!cancelled) setTextExcerpt(truncateExcerpt(content));
       } catch {
         if (!cancelled) setTextReadFailed(true);
       }
@@ -699,158 +709,129 @@ function ContentPreview({
     return () => {
       cancelled = true;
     };
-  }, [isTextExcerptKind, primaryFile]);
+  }, [localPath, missing]);
 
-  const showExcerpt = isTextExcerptKind || isMultiFileExcerpt;
+  const isClipboard = kind === MobileInboxContentKind.Clipboard;
+  const Icon = isClipboard ? ClipboardList : FileText;
+  return (
+    <Surface className="gap-2.5 px-4 py-4" testID="inbox-detail-text-excerpt">
+      <View className="flex-row items-center gap-2">
+        <Icon color={colors.mutedForeground} size={15} />
+        <Text className="text-[12px] font-medium text-muted-foreground">
+          {isClipboard ? <Trans>剪贴板内容</Trans> : <Trans>文本内容</Trans>}
+        </Text>
+      </View>
+      <Text className="text-[13px] leading-5 text-foreground" numberOfLines={8}>
+        {textExcerpt != null ? (
+          textExcerpt
+        ) : textReadFailed ? (
+          <Trans>暂时无法读取正文内容。</Trans>
+        ) : (
+          <Trans>正在加载内容…</Trans>
+        )}
+      </Text>
+    </Surface>
+  );
+}
 
+/**
+ * 无大预览时,标题区行首的内容类型 chip(与收件箱列表/文件行同一 chip 语言):
+ * 缺失 → 警示色,多文件 → 合集,单文件 → 按扩展名。
+ */
+function TypeChip({
+  missing,
+  multi,
+  primaryFile,
+}: {
+  missing: boolean;
+  multi: boolean;
+  primaryFile: InboxFileEntry | null;
+}) {
+  const colors = useThemeColors();
+  const Icon = missing
+    ? FileWarning
+    : multi
+      ? Package
+      : primaryFile
+        ? fileIcon(primaryFile.name)
+        : FileArchive;
   return (
     <View
-      className="overflow-hidden rounded-lg border border-border bg-card"
-      style={showExcerpt ? undefined : detailStyles.previewFrame}
-      testID="inbox-detail-preview"
-    >
-      {canPreviewImage ? (
-        <Image
-          source={{ uri: primaryFile.localPath }}
-          resizeMode="cover"
-          className="h-full w-full"
-          accessibilityLabel={primaryFile.name}
-        />
-      ) : isTextExcerptKind ? (
-        <View
-          className="w-full gap-2.5 bg-primary/5 px-5 py-5"
-          testID="inbox-detail-text-excerpt"
-        >
-          <View className="flex-row items-center gap-2">
-            <preview.icon color={preview.color(colors)} size={18} />
-            <Text className="text-[13px] font-semibold text-foreground">
-              {preview.title}
-            </Text>
-          </View>
-          <Text
-            className="text-[13px] leading-5 text-foreground"
-            numberOfLines={8}
-          >
-            {textExcerpt != null ? (
-              truncateExcerpt(textExcerpt)
-            ) : textReadFailed ? (
-              <Trans>暂时无法读取正文内容。</Trans>
-            ) : (
-              <Trans>正在加载内容…</Trans>
-            )}
-          </Text>
-        </View>
-      ) : isMultiFileExcerpt ? (
-        <View
-          className="w-full gap-2.5 bg-primary/5 px-5 py-5"
-          testID="inbox-detail-files-excerpt"
-        >
-          <View className="flex-row items-center gap-2">
-            <preview.icon color={preview.color(colors)} size={18} />
-            <Text className="text-[13px] font-semibold text-foreground">
-              {preview.title}
-            </Text>
-          </View>
-          <Text
-            className="text-[12px] leading-5 text-muted-foreground"
-            numberOfLines={4}
-          >
-            {detail.files.map((file) => file.name).join("、")}
-          </Text>
-        </View>
-      ) : (
-        <View className="h-full w-full items-center justify-center gap-5 bg-primary/5 px-8">
-          <View className="size-24 items-center justify-center rounded-full bg-background">
-            <preview.icon color={preview.color(colors)} size={42} />
-          </View>
-          <View className="items-center gap-1.5">
-            <Text className="text-center text-[15px] font-semibold text-foreground">
-              {preview.title}
-            </Text>
-            <Text className="text-center text-[12px] leading-5 text-muted-foreground">
-              {preview.description}
-            </Text>
-          </View>
-        </View>
+      className={cn(
+        "size-14 items-center justify-center rounded-xl",
+        missing ? "bg-destructive/10" : "bg-muted",
       )}
+    >
+      <Icon
+        color={missing ? colors.destructive : colors.foreground}
+        size={24}
+      />
     </View>
   );
 }
 
 function DetailActionBar({
   primaryFile,
-  hasLocation,
-  bottomInset,
+  hasFolder,
   onOpen,
-  onCopy,
+  onOpenFolder,
 }: {
   primaryFile: InboxFileEntry | null;
-  hasLocation: boolean;
-  bottomInset: number;
+  hasFolder: boolean;
   onOpen: () => void;
-  onCopy: () => void;
+  onOpenFolder: () => void;
 }) {
   const { t } = useLingui();
   const colors = useThemeColors();
   const canOpen = primaryFile != null && !primaryFile.missing;
   return (
-    <View
-      className="flex-row items-center gap-3 border-t border-border bg-background px-5 pt-3"
-      style={{ paddingBottom: Math.max(bottomInset, 12) }}
-      testID="inbox-detail-action-bar"
-    >
+    <BottomActionBar testID="inbox-detail-action-bar">
       <Pressable
         accessibilityRole="button"
-        onPress={primaryFile ? onOpen : onCopy}
-        disabled={primaryFile ? !canOpen : !hasLocation}
-        testID={primaryFile ? "inbox-file-share-0" : "inbox-copy-location"}
+        onPress={primaryFile ? onOpen : onOpenFolder}
+        disabled={primaryFile ? !canOpen : !hasFolder}
+        testID={primaryFile ? "inbox-file-share-0" : "inbox-open-folder"}
         className="min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
       >
         {primaryFile ? (
           <Share2 color={colors.primaryForeground} size={18} />
         ) : (
-          <Copy color={colors.primaryForeground} size={18} />
+          <FolderOpen color={colors.primaryForeground} size={18} />
         )}
         <Text className="text-[14px] font-semibold text-primary-foreground">
-          {primaryFile ? <Trans>打开/分享</Trans> : <Trans>复制保存位置</Trans>}
+          {primaryFile ? <Trans>打开/分享</Trans> : <Trans>打开文件夹</Trans>}
         </Text>
       </Pressable>
       {primaryFile ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t`复制路径`}
-          onPress={onCopy}
-          disabled={!hasLocation}
+          accessibilityLabel={t`打开文件夹`}
+          onPress={onOpenFolder}
+          disabled={!hasFolder}
           hitSlop={8}
-          testID="inbox-file-copy-0"
+          testID="inbox-open-folder"
           className="size-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
         >
-          <Copy color={colors.foreground} size={18} />
+          <FolderOpen color={colors.foreground} size={18} />
         </Pressable>
       ) : null}
-    </View>
+    </BottomActionBar>
   );
 }
 
 function IncludedFiles({
   files,
   onOpenShare,
-  onCopy,
 }: {
   files: InboxFileEntry[];
   onOpenShare: (file: InboxFileEntry) => void;
-  onCopy: (path: string) => void;
 }) {
   return (
     <View className="gap-2.5" testID="inbox-detail-files">
-      <View className="flex-row items-center justify-between">
-        <Text className="text-[15px] font-semibold text-foreground">
-          <Trans>包含内容</Trans>
-        </Text>
-        <Text className="text-[11px] text-muted-foreground">
-          {files.length} <Trans>项</Trans>
-        </Text>
-      </View>
+      {/* 计数不再重复:标题区副行已有「N 项 · 大小」 */}
+      <Text className="text-[15px] font-semibold text-foreground">
+        <Trans>包含内容</Trans>
+      </Text>
       <View className="overflow-hidden rounded-lg border border-border bg-card">
         {files.map((file, index) => (
           <FileRow
@@ -858,7 +839,6 @@ function IncludedFiles({
             file={file}
             index={index}
             onOpenShare={onOpenShare}
-            onCopy={onCopy}
             separated={index > 0}
           />
         ))}
@@ -871,23 +851,28 @@ function FileRow({
   file,
   index,
   onOpenShare,
-  onCopy,
   separated = false,
 }: {
   file: InboxFileEntry;
   index: number;
   onOpenShare: (file: InboxFileEntry) => void;
-  onCopy: (path: string) => void;
   separated?: boolean;
 }) {
   const { t } = useLingui();
   const colors = useThemeColors();
   const Icon = fileIcon(file.name);
+  // 相对路径只展示目录部分(尾段就是文件名,重复);平铺接收(无目录)时不展示。
+  // checksum 属协议细节,不上一级界面。
+  const pathDir = parentDirOf(file.relativePath);
   return (
-    <View
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t`打开或分享`}
+      onPress={() => onOpenShare(file)}
+      disabled={file.missing}
       testID={`inbox-file-share-${index}`}
       className={cn(
-        "min-h-16 flex-row items-center gap-3 bg-card p-3",
+        "min-h-16 flex-row items-center gap-3 bg-card p-3 active:bg-muted",
         separated ? "border-t border-border" : "",
       )}
     >
@@ -898,7 +883,7 @@ function FileRow({
           <Icon color={colors.foreground} size={18} />
         )}
       </View>
-      <View className="min-w-0 flex-1 gap-1">
+      <View className="min-w-0 flex-1 gap-0.5">
         <View className="flex-row items-center gap-2">
           <Text
             className="min-w-0 flex-1 text-[13px] font-semibold text-foreground"
@@ -911,44 +896,12 @@ function FileRow({
           ) : null}
         </View>
         <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
-          {file.relativePath}
-        </Text>
-        <Text className="text-[11px] text-muted-foreground">
           {formatBytes(file.size)}
+          {pathDir ? ` · ${pathDir}` : null}
         </Text>
-        {file.checksum ? (
-          <Text
-            className="font-mono text-[10px] text-muted-foreground"
-            numberOfLines={1}
-          >
-            {file.checksum}
-          </Text>
-        ) : null}
       </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t`打开或分享`}
-        onPress={() => onOpenShare(file)}
-        disabled={file.missing}
-        hitSlop={8}
-        className="size-10 items-center justify-center rounded-xl bg-muted active:opacity-70 disabled:opacity-50"
-      >
-        <ExternalLink color={colors.foreground} size={16} />
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t`复制路径`}
-        onPress={(event) => {
-          event.stopPropagation();
-          onCopy(file.localPath);
-        }}
-        hitSlop={8}
-        testID={`inbox-file-copy-${index}`}
-        className="size-10 items-center justify-center rounded-xl bg-muted active:opacity-70"
-      >
-        <Copy color={colors.foreground} size={16} />
-      </Pressable>
-    </View>
+      <ExternalLink color={colors.mutedForeground} size={16} />
+    </Pressable>
   );
 }
 
@@ -969,14 +922,9 @@ function DetailsPanel({
         onPress={onToggle}
         className="min-h-12 flex-row items-center justify-between px-3.5 py-3 active:opacity-70"
       >
-        <View className="flex-row items-center gap-2">
-          <View className="size-8 items-center justify-center rounded-xl bg-muted">
-            <Database color={colors.foreground} size={15} />
-          </View>
-          <Text className="text-[14px] font-semibold text-foreground">
-            <Trans>详情</Trans>
-          </Text>
-        </View>
+        <Text className="text-[14px] font-semibold text-foreground">
+          <Trans>详情</Trans>
+        </Text>
         {expanded ? (
           <ChevronUp color={colors.mutedForeground} size={17} />
         ) : (
@@ -990,23 +938,24 @@ function DetailsPanel({
           value={new Date(Number(detail.item.receivedAt)).toLocaleString()}
         />
         <DetailLine
-          icon={FolderOpen}
-          label={<Trans>保存位置</Trans>}
-          value={
-            detail.item.rootPath ? (
-              decodeURIComponent(detail.item.rootPath)
-            ) : (
-              <Trans>未记录</Trans>
-            )
-          }
-          mono
+          icon={Tag}
+          label={<Trans>来源类型</Trans>}
+          value={<SourceKindLabel kind={detail.item.sourceKind} />}
         />
         {expanded ? (
           <>
+            {/* 长路径/长 ID 这类核对用途的技术字段收在展开态,默认不占版面。 */}
             <DetailLine
-              icon={Tag}
-              label={<Trans>来源类型</Trans>}
-              value={<SourceKindLabel kind={detail.item.sourceKind} />}
+              icon={FolderOpen}
+              label={<Trans>保存位置</Trans>}
+              value={
+                detail.item.rootPath ? (
+                  decodeURIComponent(detail.item.rootPath)
+                ) : (
+                  <Trans>未记录</Trans>
+                )
+              }
+              mono
             />
             <DetailLine
               icon={Smartphone}
@@ -1036,27 +985,6 @@ function DetailsPanel({
       </View>
     </View>
   );
-}
-
-function ContentKindPill({
-  kind,
-  file,
-}: {
-  kind: MobileInboxContentKind;
-  file?: InboxFileEntry | null;
-}) {
-  const label = file ? (
-    contentLabel(file.name, kind)
-  ) : kind === MobileInboxContentKind.Files ? (
-    <Trans>文件</Trans>
-  ) : kind === MobileInboxContentKind.Text ? (
-    <Trans>文本</Trans>
-  ) : kind === MobileInboxContentKind.Clipboard ? (
-    <Trans>剪贴板</Trans>
-  ) : (
-    <Trans>组合内容</Trans>
-  );
-  return <StatePill tone="muted" label={label} />;
 }
 
 /** 收件箱来源类型:已配对设备 / 配对码 / AI 代理(MCP) / 未知,镜像桌面 sourceKindLabel。 */
@@ -1097,29 +1025,6 @@ function StatePill({
       >
         {label}
       </Text>
-    </View>
-  );
-}
-
-function InfoPill({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: LucideIcon;
-  label: React.ReactNode;
-  value: React.ReactNode;
-}) {
-  const colors = useThemeColors();
-  return (
-    <View className="min-h-14 flex-1 flex-row items-center gap-2 rounded-lg bg-primary/5 px-3">
-      <Icon color={colors.primary} size={15} />
-      <View className="min-w-0 flex-1">
-        <Text className="text-[10px] text-muted-foreground">{label}</Text>
-        <Text className="text-[12px] font-semibold text-foreground">
-          {value}
-        </Text>
-      </View>
     </View>
   );
 }
@@ -1185,103 +1090,10 @@ function isMissingFileError(err: unknown, file: InboxFileEntry): boolean {
   }
 }
 
-function previewMeta(
-  detail: MobileInboxItemDetail,
-  primaryFile: InboxFileEntry | null,
-): {
-  icon: LucideIcon;
-  title: React.ReactNode;
-  description: React.ReactNode;
-  color: (colors: ReturnType<typeof useThemeColors>) => string;
-} {
-  if (detail.item.missing || primaryFile?.missing) {
-    return {
-      icon: FileWarning,
-      title: <Trans>文件已不在原位置</Trans>,
-      description: <Trans>可以保留记录，或从更多菜单清理这条记录。</Trans>,
-      color: (colors) => colors.destructive,
-    };
-  }
-  if (detail.files.length > 1) {
-    return {
-      icon: Package,
-      title: (
-        <>
-          {detail.files.length} <Trans>项内容</Trans>
-        </>
-      ),
-      description: (
-        <Trans>这是一组收到的内容，下方可以逐项打开或复制路径。</Trans>
-      ),
-      color: (colors) => colors.primary,
-    };
-  }
-  if (primaryFile && isVideoFile(primaryFile.name)) {
-    return {
-      icon: Video,
-      title: extensionName(primaryFile.name),
-      description: <Trans>视频文件，可以通过系统分享面板打开。</Trans>,
-      color: (colors) => colors.primary,
-    };
-  }
-  if (primaryFile && isImageFile(primaryFile.name)) {
-    return {
-      icon: ImageIcon,
-      title: extensionName(primaryFile.name),
-      description: <Trans>图片文件</Trans>,
-      color: (colors) => colors.primary,
-    };
-  }
-  if (detail.item.contentKind === MobileInboxContentKind.Clipboard) {
-    return {
-      icon: ClipboardList,
-      title: <Trans>剪贴板内容</Trans>,
-      description: <Trans>从另一台设备接收的剪贴板记录。</Trans>,
-      color: (colors) => colors.primary,
-    };
-  }
-  if (detail.item.contentKind === MobileInboxContentKind.Text) {
-    return {
-      icon: FileText,
-      title: <Trans>文本内容</Trans>,
-      description: <Trans>从另一台设备接收的文本记录。</Trans>,
-      color: (colors) => colors.primary,
-    };
-  }
-  return {
-    icon: primaryFile ? fileIcon(primaryFile.name) : FileArchive,
-    title: primaryFile ? (
-      extensionName(primaryFile.name)
-    ) : (
-      <Trans>收到的内容</Trans>
-    ),
-    description: primaryFile ? (
-      <Trans>可以打开、分享或复制本地保存路径。</Trans>
-    ) : (
-      <Trans>这条记录暂时没有可打开的本地文件。</Trans>
-    ),
-    color: (colors) => colors.primary,
-  };
-}
-
 function fileIcon(name: string): LucideIcon {
   if (isImageFile(name)) return ImageIcon;
   if (isVideoFile(name)) return Video;
   return FileArchive;
-}
-
-function contentLabel(name: string, kind: MobileInboxContentKind) {
-  if (isImageFile(name)) return <Trans>图片</Trans>;
-  if (isVideoFile(name)) return <Trans>视频</Trans>;
-  if (kind === MobileInboxContentKind.Text) return <Trans>文本</Trans>;
-  if (kind === MobileInboxContentKind.Clipboard) return <Trans>剪贴板</Trans>;
-  if (kind === MobileInboxContentKind.Bundle) return <Trans>组合内容</Trans>;
-  return <Trans>文件</Trans>;
-}
-
-function extensionName(name: string): string {
-  const match = /\.([^.]+)$/.exec(name);
-  return match ? match[1].toUpperCase() : "FILE";
 }
 
 function isImageFile(name: string): boolean {

@@ -18,7 +18,7 @@ import {
 import { getMobilePaths } from "@/core/paths";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
-import { errorMessage } from "@/lib/utils";
+import { errorMessage, lastPathSegment } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
@@ -256,7 +256,7 @@ function ReceivePathRow() {
           </Text>
           <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
             {isCustom ? (
-              prettyPath(displayPath)
+              lastPathSegment(displayPath)
             ) : (
               <Trans>应用私有目录（默认）</Trans>
             )}
@@ -285,16 +285,4 @@ function ReceivePathRow() {
       />
     </>
   );
-}
-
-/** 把 file:// 或 content:// URI 截成更短的显示串：取最后一段路径。 */
-function prettyPath(uri: string): string {
-  try {
-    const decoded = decodeURIComponent(uri.replace(/\/$/, ""));
-    const segments = decoded.split("/");
-    const last = segments[segments.length - 1];
-    return last && last.length > 0 ? last : decoded;
-  } catch {
-    return uri;
-  }
 }

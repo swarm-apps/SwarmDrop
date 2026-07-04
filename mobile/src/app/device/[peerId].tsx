@@ -63,7 +63,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
-import { cn, errorMessage } from "@/lib/utils";
+import { cn, errorMessage, lastPathSegment } from "@/lib/utils";
 import {
   summariesToOfflineDevices,
   useMobileCoreStore,
@@ -1083,13 +1083,7 @@ function Divider() {
 
 function formatSaveLocation(uri?: string | null): React.ReactNode {
   if (!uri) return <Trans>收件箱</Trans>;
-  try {
-    const decoded = decodeURIComponent(uri.replace(/\/$/, ""));
-    const segments = decoded.split("/");
-    return segments[segments.length - 1] || <Trans>默认位置</Trans>;
-  } catch {
-    return uri;
-  }
+  return lastPathSegment(uri) || <Trans>默认位置</Trans>;
 }
 
 function formatExpiresAt(expiresAt?: bigint | null): React.ReactNode {

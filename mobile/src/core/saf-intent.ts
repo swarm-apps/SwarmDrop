@@ -1,7 +1,10 @@
 /**
- * Android Intent 启动工具 —— 共享给 update-installer / 传输详情等多处使用。
+ * 打开系统文件管理器 / Android Intent 启动工具 —— 共享给 update-installer /
+ * 传输详情 / 收件箱详情等多处使用。
  *
- * 把常用的 ACTION_VIEW + 标记位封装成一个函数；iOS / 其它 scheme 由调用方处理。
+ * `startViewIntent` 封装 ACTION_VIEW + 标记位(Android-only);
+ * `openSaveFolder` 是跨平台的「打开保存目录」:Android 走 SAF intent,iOS 走
+ * shareddocuments:// 唤起系统「文件」App,失败统一抛错由调用方降级提示。
  */
 
 import * as IntentLauncher from "expo-intent-launcher";
@@ -39,19 +42,24 @@ export function startViewIntent(
 }
 
 /**
- * 用系统能力打开传输保存目录。
+ * 用系统文件管理器打开保存目录。
  *
  * - Android `content://` (SAF tree)：ACTION_VIEW + `vnd.android.document/directory`
  *   交给 DocumentsUI / 默认 Files app
- * - file:// / iOS：走 `Linking.openURL`；iOS 上 file:// 往往不被系统接管，
- *   失败由调用方降级到「复制路径到剪贴板」
+ * - iOS `file://`：换成 `shareddocuments://` scheme 让系统「文件」App 就地打开
+ *   (不经 canOpenURL —— 未在 LSApplicationQueriesSchemes 声明的 scheme 会误报 false)
+ * - 其余走 `Linking.openURL`；失败由调用方降级提示
  */
-export async function openSafTreeUri(uri: string): Promise<void> {
+export async function openSaveFolder(uri: string): Promise<void> {
   if (Platform.OS === "android" && uri.startsWith("content://")) {
     await startViewIntent({
       data: uri,
       type: "vnd.android.document/directory",
     });
+    return;
+  }
+  if (Platform.OS === "ios" && uri.startsWith("file://")) {
+    await Linking.openURL(uri.replace(/^file:\/\//, "shareddocuments://"));
     return;
   }
   const supported = await Linking.canOpenURL(uri);

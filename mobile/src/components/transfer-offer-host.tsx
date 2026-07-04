@@ -26,9 +26,10 @@ import { Text } from "@/components/ui/text";
 import { resolveTrustLevel } from "@/core/device-trust";
 import { getMobileCore } from "@/core/mobile-core";
 import { resolveReceiveLocation } from "@/core/paths";
-import { policyActionLabel } from "@/core/transfer-types";
+import { policyNoteOf } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
+import { lastPathSegment } from "@/lib/utils";
 import {
   summariesToOfflineDevices,
   useMobileCoreStore,
@@ -145,7 +146,7 @@ export function TransferOfferHost() {
 
   const totalLabel = formatBytes(Number(current.offer.totalSize));
   const trustLevel = pairedDevice ? resolveTrustLevel(pairedDevice) : null;
-  const policyNote = offerPolicyNote(
+  const policyNote = policyNoteOf(
     current.offer.policyAction,
     current.offer.policyReason,
   );
@@ -237,7 +238,7 @@ export function TransferOfferHost() {
                   testID="transfer-offer-save-destination"
                 >
                   {saveDir ? (
-                    prettyDestination(saveDir)
+                    lastPathSegment(saveDir)
                   ) : (
                     <Trans>默认接收位置</Trans>
                   )}
@@ -268,10 +269,7 @@ export function TransferOfferHost() {
               mode="select"
               dataLoader={treeData.dataLoader}
               rootChildren={treeData.rootChildren}
-              totalCount={current.offer.files.length}
-              totalSize={Number(current.offer.totalSize)}
               progress={null}
-              showHeader={false}
             />
           ) : null}
         </ScrollView>
@@ -336,26 +334,4 @@ export function TransferOfferHost() {
       </AlertDialogContent>
     </AlertDialog>
   );
-}
-
-function offerPolicyNote(
-  action?: string | null,
-  reason?: string | null,
-): string | null {
-  if (reason) {
-    return action ? `${policyActionLabel(action)}: ${reason}` : reason;
-  }
-  return action ? policyActionLabel(action) : null;
-}
-
-/** 把 file:// / content:// URI 截成更短的显示串:取最后一段路径。 */
-function prettyDestination(uri: string): string {
-  try {
-    const decoded = decodeURIComponent(uri.replace(/\/$/, ""));
-    const segments = decoded.split("/");
-    const last = segments[segments.length - 1];
-    return last && last.length > 0 ? last : decoded;
-  } catch {
-    return uri;
-  }
 }

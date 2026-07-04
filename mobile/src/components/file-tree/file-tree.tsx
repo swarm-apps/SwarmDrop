@@ -12,7 +12,6 @@
 
 import { syncDataLoaderFeature } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
-import { Trans } from "@lingui/react/macro";
 import { FlashList } from "@shopify/flash-list";
 import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { View } from "react-native";
@@ -20,8 +19,7 @@ import type {
   MobileFileProgress,
   MobileTransferProgress,
 } from "react-native-swarmdrop-core";
-import { calcPercent, formatBytes } from "@/components/transfer/shared";
-import { Text } from "@/components/ui/text";
+import { calcPercent } from "@/components/transfer/shared";
 import type { FileStatus, TreeDataLoader, TreeNodeData } from "./data";
 import { FileTreeItem } from "./file-tree-item";
 import { FolderRow } from "./folder-row";
@@ -30,8 +28,6 @@ interface FileTreeProps {
   mode: "select" | "transfer";
   dataLoader: TreeDataLoader;
   rootChildren: string[];
-  totalCount: number;
-  totalSize: number;
   /** transfer 模式下的实时进度 */
   progress?: MobileTransferProgress | null;
   /** transfer 模式下：已完成的 fileId 集合 */
@@ -42,12 +38,6 @@ interface FileTreeProps {
   onRemove?: (relativePath: string) => void;
   /** error 文件重试 */
   onRetryFile?: (fileId: number) => void;
-  /** 文件行点击（详情页用：分享文件） */
-  onFilePress?: (data: TreeNodeData) => void;
-  /** 文件行长按（详情页用：复制路径） */
-  onFileLongPress?: (data: TreeNodeData) => void;
-  /** 是否显示头部（默认 true） */
-  showHeader?: boolean;
   /**
    * 是否启用虚拟滚动（FlashList）。
    * - 默认 false：用 plain map 渲染，可嵌套在外层 ScrollView 中（详情页 / 发送页）
@@ -60,16 +50,11 @@ export function FileTree({
   mode,
   dataLoader,
   rootChildren,
-  totalCount,
-  totalSize,
   progress,
   completedFileIds,
   errorFileIds,
   onRemove,
   onRetryFile,
-  onFilePress,
-  onFileLongPress,
-  showHeader = true,
   virtualize = false,
 }: FileTreeProps) {
   const wrappedDataLoader = useMemo<TreeDataLoader>(
@@ -170,31 +155,12 @@ export function FileTree({
             ? () => onRetryFile(data.fileId as number)
             : undefined
         }
-        onPress={onFilePress ? () => onFilePress(data) : undefined}
-        onLongPress={onFileLongPress ? () => onFileLongPress(data) : undefined}
       />
     );
   };
 
   return (
-    <View className={virtualize ? "flex-1 gap-2" : "gap-2"}>
-      {showHeader ? (
-        <View className="flex-row items-center justify-between">
-          <Text className="text-sm font-medium text-foreground">
-            {mode === "select" ? <Trans>已选文件</Trans> : <Trans>文件</Trans>}
-          </Text>
-          <Text className="text-xs text-muted-foreground">
-            {mode === "select" ? (
-              <Trans>
-                共 {totalCount} 项 · {formatBytes(totalSize)}
-              </Trans>
-            ) : (
-              `${progress?.completedFiles ?? 0}/${totalCount}`
-            )}
-          </Text>
-        </View>
-      ) : null}
-
+    <View className={virtualize ? "flex-1" : undefined}>
       <View
         className="overflow-hidden rounded-xl border border-border bg-card"
         style={virtualize ? { minHeight: 120 } : undefined}
