@@ -68,7 +68,7 @@ import { cn } from "@/lib/utils";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
 import { pickFolder } from "@/lib/file-picker";
 import { projectionStatusLabel } from "@/lib/transfer-projection";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { MasterDetailShell } from "@/components/layout/master-detail-shell";
 
 export const Route = createLazyFileRoute("/_app/inbox/")({
   component: InboxPage,
@@ -89,11 +89,10 @@ function InboxPage() {
   const runAndRefresh = useInboxStore((s) => s.runAndRefresh);
   const runSearch = useInboxStore((s) => s.runSearch);
 
-  const isDesktop = useMediaQuery("(min-width: 1024px)");
-  const [listOpen, setListOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
 
+  const selectItem = useInboxStore((s) => s.selectItem);
   const isSearching = query.trim() !== "";
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) ?? null,
@@ -134,25 +133,14 @@ function InboxPage() {
     return () => clearTimeout(id);
   }, [query, showArchived, runSearch]);
 
-  // 切到桌面（两栏）时收起抽屉，避免状态残留
+  // 自动选首项：有内容且无有效选中（未选 / 选中项已不在可见列表）→ 选首个可见项；
+  // 零内容不选（走空态）。搜索态下 visibleIds = 搜索结果，即自动选中首个命中。
   useEffect(() => {
-    if (isDesktop) setListOpen(false);
-  }, [isDesktop]);
-
-  // 抽屉打开：Esc 关闭 + 焦点移入面板
-  const drawerPanelRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (isDesktop || !listOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setListOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    const raf = requestAnimationFrame(() => drawerPanelRef.current?.focus());
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      cancelAnimationFrame(raf);
-    };
-  }, [isDesktop, listOpen]);
+    if (visibleIds.length === 0) return;
+    if (selectedId === null || !visibleIds.includes(selectedId)) {
+      selectItem(visibleIds[0]);
+    }
+  }, [visibleIds, selectedId, selectItem]);
 
   const handleOpen = () => {
     if (!selectedId) return;
@@ -189,68 +177,36 @@ function InboxPage() {
     setDeleteOpen(false);
   };
 
-  const reader = (
-    <InboxReader
-      status={readerStatus}
-      detail={detail}
-      contained={isDesktop}
-      onOpenList={isDesktop ? undefined : () => setListOpen(true)}
-      onOpen={handleOpen}
-      onReveal={handleReveal}
-      onExport={handleExport}
-      onArchive={handleArchive}
-      onDelete={() => setDeleteOpen(true)}
-      onFileOpen={(fileId) =>
-        detail && runAndRefresh(() => commands.openInboxItem(detail.id, fileId))
-      }
-      onFileReveal={(fileId) =>
-        detail &&
-        runAndRefresh(() => commands.showInboxItemInFolder(detail.id, fileId))
-      }
-    />
-  );
-
   return (
-    <main className="relative flex h-full flex-1 flex-col bg-transparent">
-      {isDesktop ? (
-        <div className="mx-auto grid h-full w-full max-w-[1240px] grid-cols-[minmax(300px,360px)_minmax(0,1fr)] grid-rows-1 gap-6 overflow-hidden p-6">
-          <section className="glass-panel flex min-h-0 flex-col overflow-hidden rounded-[24px]">
-            <InboxRail />
-          </section>
-          {reader}
-        </div>
-      ) : (
-        <>
-          <div className="mx-auto flex h-full w-full max-w-[880px] flex-col overflow-y-auto p-4 sm:p-5">
-            {reader}
-          </div>
-
-          {/* 列表抽屉：限定在顶栏下方的内容区滑出，遮罩只暗内容、不盖全局顶栏 */}
-          <div className={cn("absolute inset-0 z-30", !listOpen && "pointer-events-none")}>
-            <div
-              onClick={() => setListOpen(false)}
-              className={cn(
-                "absolute inset-0 bg-black/40 transition-opacity duration-300 motion-reduce:transition-none",
-                listOpen ? "opacity-100" : "opacity-0",
-              )}
-            />
-            <div
-              ref={drawerPanelRef}
-              role="dialog"
-              aria-modal="true"
-              aria-label={t`收件箱`}
-              tabIndex={-1}
-              inert={!listOpen}
-              className={cn(
-                "absolute inset-y-0 left-0 flex w-[86%] max-w-[344px] flex-col rounded-r-[24px] border-r border-[color:var(--glass-control-border)] bg-background shadow-2xl outline-hidden transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-                listOpen ? "translate-x-0" : "-translate-x-full",
-              )}
-            >
-              <InboxRail onAfterSelect={() => setListOpen(false)} />
-            </div>
-          </div>
-        </>
-      )}
+    <>
+      <MasterDetailShell
+        drawerLabel={t`收件箱`}
+        listMaxWidth={360}
+        list={({ closeDrawer }) => <InboxRail onAfterSelect={closeDrawer} />}
+        detail={({ openList, isCompact }) => (
+          <InboxReader
+            status={readerStatus}
+            detail={detail}
+            contained={!isCompact}
+            onOpenList={openList ?? undefined}
+            onOpen={handleOpen}
+            onReveal={handleReveal}
+            onExport={handleExport}
+            onArchive={handleArchive}
+            onDelete={() => setDeleteOpen(true)}
+            onFileOpen={(fileId) =>
+              detail &&
+              runAndRefresh(() => commands.openInboxItem(detail.id, fileId))
+            }
+            onFileReveal={(fileId) =>
+              detail &&
+              runAndRefresh(() =>
+                commands.showInboxItemInFolder(detail.id, fileId),
+              )
+            }
+          />
+        )}
+      />
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
@@ -297,7 +253,7 @@ function InboxPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </main>
+    </>
   );
 }
 

@@ -127,15 +127,21 @@ const nearbyDevices = useNetworkStore(
 
 ## master-detail 页面（收件箱 / 传输活动）
 
-### 双栏 + 抽屉的响应式模式已有现成骨架，别再各自手搓
+### 统一走 MasterDetailShell，断点、抽屉方向、自动选首项全局一个标准
 
-收件箱与传输活动共用同一套 master-detail 模式：`≥1024px` 用 `grid-cols-[minmax(300px,~370px)_minmax(0,1fr)]` 双栏 + 各自内部滚动；`<1024px` 单栏 + 抽屉（`absolute inset-0` 遮罩限定在内容区、不盖全局顶栏，面板 `inert` + Esc 关闭 + 焦点移入）。断点判断用共享 hook `useMediaQuery("(min-width: 1024px)")`（`src/hooks/use-media-query.ts`），不要再内联手写。
+收件箱与传输活动共用 `src/components/layout/master-detail-shell.tsx`，不要各页手写响应式/抽屉：
+- **宽屏（≥920px）**：`minmax(300px, listMaxWidth)` 列表 + `minmax(0,1fr)` 详情双栏。
+- **窄屏（<920px）**：**详情占满 + 列表从左侧抽屉滑出**（遮罩限定内容区、不盖顶栏，面板 `inert` + Esc + 焦点移入）。两页都从左开，方向统一。
 
-**语义决定谁进抽屉**：收件箱的核心是"读一条记录"→ 阅读区全宽、列表收进左抽屉；传输活动的核心是"扫所有会话状态"（列表行自带进度条）→ 列表全宽、详情从右抽屉滑出。新 master-detail 页面先想清楚哪半边是核心任务。
+**断点单一来源**：`MASTER_DETAIL_QUERY = "(min-width: 920px)"`（`src/hooks/use-media-query.ts`，配 `useIsWideLayout()`）。920 对齐首页设备页的 `min-[920px]` 主分栏——首页收栏时两页同步进抽屉。新 master-detail 页面复用这个常量，不要各写各的断点（曾经 inbox/transfer 各写 1024px，且抽屉一左一右不统一，已收敛）。
+
+**shell 用法**：`list`/`detail` 是 render prop。`list({ closeDrawer })`（选中后关抽屉）；`detail({ openList, isCompact })`——`openList` 窄屏非 null（用 `<OpenListButton>` 唤出列表）、宽屏 null；`isCompact` 决定详情内部滚动 vs 随页面滚动（对应旧 `contained`）。详情组件自包裹 `glass-panel`。
+
+**自动选首项**：两页有内容时自动选中首项（详情区默认有内容），仅零条目才显示空态。规则：无有效选中（未选 / 选中项已删除或不在可见列表）且有内容 → 选首个可见项；**不在筛选/搜索切换时强制重选**已有的有效选中，避免选中态跳动。transfer 用 `shown = 选中 ?? items[0]` 派生，避免自动选中 URL 更新前的空窗闪烁。
 
 **选中态放 URL search param**（如 `/transfer?session=xxx`），旧的 `$id` 详情路由用 `beforeLoad` + `redirect` 兜住深链；列表内点击用 `replace: true` 避免堆历史。
 
-**相关文件**：`src/routes/_app/inbox/index.lazy.tsx`、`src/routes/_app/transfer/index.lazy.tsx`、`src/routes/_app/transfer/$sessionId.tsx`、`src/hooks/use-media-query.ts`
+**相关文件**：`src/components/layout/master-detail-shell.tsx`、`src/routes/_app/inbox/index.lazy.tsx`、`src/routes/_app/transfer/index.lazy.tsx`、`src/hooks/use-media-query.ts`
 
 ## 设置页（settings）布局与基元
 

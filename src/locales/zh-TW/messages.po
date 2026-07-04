@@ -201,12 +201,16 @@ msgid "今天"
 msgstr "今天"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "从左侧列表选择会话，查看进度、文件明细和操作。"
-msgstr "從左側列表選擇工作階段，檢視進度、檔案明細和操作。"
+#~ msgid "从左侧列表选择会话，查看进度、文件明细和操作。"
+#~ msgstr "從左側列表選擇工作階段，檢視進度、檔案明細和操作。"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "从附近设备发起配对，或使用配对码连接另一台设备。"
 msgstr "從附近裝置發起配對，或使用配對碼連線另一台裝置。"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "会话列表"
+msgstr "會話列表"
 
 #: src/components/layout/app-topbar.tsx
 msgid "传输"
@@ -235,13 +239,14 @@ msgstr "傳輸方式"
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
+#: src/routes/_app/transfer/index.lazy.tsx
 msgid "传输活动"
 msgstr "傳輸活動"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "传输详情"
-msgstr "傳輸詳情"
+#~ msgid "传输详情"
+#~ msgstr "傳輸詳情"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "使用同网段已开启协助能力的桌面端"
@@ -335,7 +340,6 @@ msgid "关于"
 msgstr "關於"
 
 #: src/components/layout/app-topbar.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
 msgid "关闭"
 msgstr "關閉"
 
@@ -452,8 +456,8 @@ msgid "发现设备，配对，然后发送文件"
 msgstr "發現裝置，配對，然後傳送檔案"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "发起或接收传输后，会话会出现在左侧列表。"
-msgstr "發起或接收傳輸後，工作階段會出現在左側列表。"
+#~ msgid "发起或接收传输后，会话会出现在左侧列表。"
+#~ msgstr "發起或接收傳輸後，工作階段會出現在左側列表。"
 
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "发起配对"
@@ -1143,6 +1147,7 @@ msgid "暂停传输"
 msgstr "暫停傳輸"
 
 #: src/routes/_app/transfer/index.lazy.tsx
+#: src/routes/_app/transfer/index.lazy.tsx
 msgid "暂无传输活动"
 msgstr "暫無傳輸活動"
 
@@ -1821,8 +1826,8 @@ msgid "选择"
 msgstr "選擇"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "选择一个会话"
-msgstr "選擇一個工作階段"
+#~ msgid "选择一个会话"
+#~ msgstr "選擇一個工作階段"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "选择一个设备"

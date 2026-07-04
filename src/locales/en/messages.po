@@ -201,12 +201,16 @@ msgid "今天"
 msgstr "Today"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "从左侧列表选择会话，查看进度、文件明细和操作。"
-msgstr "Select a session from the list to view progress, file details, and actions."
+#~ msgid "从左侧列表选择会话，查看进度、文件明细和操作。"
+#~ msgstr "Select a session from the list to view progress, file details, and actions."
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "从附近设备发起配对，或使用配对码连接另一台设备。"
 msgstr "Pair with a nearby device, or use a pairing code to connect another device."
+
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "会话列表"
+msgstr "Session list"
 
 #: src/components/layout/app-topbar.tsx
 msgid "传输"
@@ -235,13 +239,14 @@ msgstr "Transfer method"
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
+#: src/routes/_app/transfer/index.lazy.tsx
 msgid "传输活动"
 msgstr "Transfers"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "传输详情"
-msgstr "Transfer Details"
+#~ msgid "传输详情"
+#~ msgstr "Transfer Details"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "使用同网段已开启协助能力的桌面端"
@@ -335,7 +340,6 @@ msgid "关于"
 msgstr "About"
 
 #: src/components/layout/app-topbar.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
 msgid "关闭"
 msgstr "Close"
 
@@ -452,8 +456,8 @@ msgid "发现设备，配对，然后发送文件"
 msgstr "Discover devices, pair, then send files"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "发起或接收传输后，会话会出现在左侧列表。"
-msgstr "Sessions appear in the list once you send or receive a transfer."
+#~ msgid "发起或接收传输后，会话会出现在左侧列表。"
+#~ msgstr "Sessions appear in the list once you send or receive a transfer."
 
 #: src/routes/_app/pairing/-device-found-view.tsx
 msgid "发起配对"
@@ -1143,6 +1147,7 @@ msgid "暂停传输"
 msgstr "Pause Transfer"
 
 #: src/routes/_app/transfer/index.lazy.tsx
+#: src/routes/_app/transfer/index.lazy.tsx
 msgid "暂无传输活动"
 msgstr "No transfer activity"
 
@@ -1821,8 +1826,8 @@ msgid "选择"
 msgstr "Select"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "选择一个会话"
-msgstr "Select a session"
+#~ msgid "选择一个会话"
+#~ msgstr "Select a session"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "选择一个设备"
