@@ -1,6 +1,7 @@
+import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { Trans } from "@lingui/react/macro";
-import { AlertCircle, RotateCcw } from "lucide-react-native";
+import { AlertCircle, Inbox, RotateCcw } from "lucide-react-native";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
 import type {
@@ -61,8 +62,9 @@ function ActivityProjectionCardComponent({
   onOpenInbox,
   showStatusBadge = true,
 }: ActivityProjectionCardProps) {
-  // 只为订阅 locale:policyNote 经全局 i18n 即时解析,memo 组件靠这个订阅在切换语言时重算。
-  useLingui();
+  // useLingui 一职两用:订阅 locale(policyNote 经全局 i18n 即时解析,memo 组件靠它
+  // 在切换语言时重算)+ 提供 _ 翻译 a11y 文案。
+  const { _ } = useLingui();
   const colors = useThemeColors();
   const direction = projectionDirection(projection);
   const status = projectionStatus(projection);
@@ -106,6 +108,20 @@ function ActivityProjectionCardComponent({
             {formatRelativeTime(projection.updatedAt)}
           </Text>
         </View>
+        {inboxItemId && onOpenInbox ? (
+          // 行尾快捷动作(与设备卡的发送按钮同一模式):跳到收件箱里对应的记录
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation();
+              onOpenInbox(inboxItemId);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={_(msg`在收件箱查看`)}
+            className="size-11 items-center justify-center self-center rounded-xl bg-muted active:opacity-70"
+          >
+            <Inbox color={colors.foreground} size={17} />
+          </Pressable>
+        ) : null}
       </View>
 
       {showProgress ? (
@@ -156,22 +172,6 @@ function ActivityProjectionCardComponent({
           <RotateCcw color={colors.primaryForeground} size={15} />
           <Text className="text-[13px] font-semibold text-primary-foreground">
             <Trans>恢复传输</Trans>
-          </Text>
-        </Pressable>
-      ) : null}
-
-      {inboxItemId && onOpenInbox ? (
-        <Pressable
-          onPress={(event) => {
-            event.stopPropagation();
-            onOpenInbox(inboxItemId);
-          }}
-          accessibilityRole="link"
-          hitSlop={8}
-          className="self-start active:opacity-70"
-        >
-          <Text className="text-[12px] font-semibold text-primary-ink">
-            <Trans>在收件箱查看</Trans>
           </Text>
         </Pressable>
       ) : null}

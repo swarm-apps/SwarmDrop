@@ -520,7 +520,7 @@ msgid "发现设置已变更，重启节点后生效。"
 msgstr "发现设置已变更，重启节点后生效。"
 
 #. placeholder {0}: projection.peerName
-#: src/components/activity-projection-card.tsx:94
+#: src/components/activity-projection-card.tsx:96
 msgid "发给 {0}"
 msgstr "发给 {0}"
 
@@ -691,7 +691,7 @@ msgstr "图片文件"
 msgid "在你的设备之间,安全地传文件"
 msgstr "在你的设备之间,安全地传文件"
 
-#: src/components/activity-projection-card.tsx:174
+#: src/components/activity-projection-card.tsx:119
 msgid "在收件箱查看"
 msgstr "在收件箱查看"
 
@@ -1078,7 +1078,7 @@ msgstr "总大小"
 msgid "恢复"
 msgstr "恢复"
 
-#: src/components/activity-projection-card.tsx:158
+#: src/components/activity-projection-card.tsx:174
 msgid "恢复传输"
 msgstr "恢复传输"
 
@@ -1371,7 +1371,7 @@ msgstr "放弃选择？"
 #: src/app/send/select-device.tsx:384
 #: src/app/transfer/[sessionId].tsx:387
 #: src/app/transfer/[sessionId].tsx:473
-#: src/components/activity-projection-card.tsx:102
+#: src/components/activity-projection-card.tsx:104
 #: src/components/file-tree/file-tree.tsx:184
 #: src/components/inbox/inbox-list.tsx:102
 #: src/components/inbox/inbox-list.tsx:435
@@ -1596,7 +1596,7 @@ msgid "来自"
 msgstr "来自"
 
 #. placeholder {0}: projection.peerName
-#: src/components/activity-projection-card.tsx:96
+#: src/components/activity-projection-card.tsx:98
 msgid "来自 {0}"
 msgstr "来自 {0}"
 
