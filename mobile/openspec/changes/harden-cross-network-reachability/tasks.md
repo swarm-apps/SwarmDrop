@@ -32,10 +32,10 @@
 
 ## 5. 移动仓跟进
 
-- [ ] 5.1 bump swarmdrop-core rev；`MobileNetworkRuntimeConfig`/`MobileNetworkStatus` 镜像加字段（穷尽解构 drift guard 驱动）
-- [ ] 5.2 重生成 bindings：`build:android` + `build:ios` + `prepare` 三连（rust-bridge 知识库路径）；`pnpm typecheck` 全绿
-- [ ] 5.3 移动设置页加"公网可达性"开关 + 网络状态区"公网可达/仅局域网可达"展示 + LanOnly 文案同步；`pnpm lint`/i18n extract
-- [ ] 5.4 移动仓提交
+- [x] 5.1 bump swarmdrop-core rev；`MobileNetworkRuntimeConfig`/`MobileNetworkStatus` 镜像加字段（穷尽解构 drift guard 驱动）
+- [x] 5.2 重生成 bindings：`build:android` + `build:ios` + `prepare` 三连（rust-bridge 知识库路径）；`pnpm typecheck` 全绿
+- [x] 5.3 移动设置页加"公网可达性"开关 + 网络状态区"公网可达/仅局域网可达"展示 + LanOnly 文案同步；`pnpm lint`/i18n extract
+- [x] 5.4 移动仓提交
 
 ## 6. 拓扑验证（用户环境）
 

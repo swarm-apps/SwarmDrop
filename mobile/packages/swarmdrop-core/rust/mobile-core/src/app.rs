@@ -106,7 +106,14 @@ impl MobileCore {
     }
 
     pub(crate) async fn set_net_manager(&self, manager: NetManager<TransferManager>) {
-        *self.net_manager.lock().await = Some(manager);
+        let mut guard = self.net_manager.lock().await;
+        // 覆盖前先关停旧节点（如 error 态重启、shutdown 与 start 竞态后的重复启动）：
+        // 否则旧 NetManager 的 cancel_token 永不触发，presence/infra 循环与
+        // 旧 swarm 永久泄漏（后台持续耗电）
+        if let Some(old) = guard.as_ref() {
+            old.shutdown().await;
+        }
+        *guard = Some(manager);
     }
 
     pub(crate) async fn pairing_manager(&self) -> FfiResult<Arc<PairingManager>> {

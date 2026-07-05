@@ -163,6 +163,35 @@ const pairedDevices = useMemo(() => {
 **相关文件**：桌面仓 `crates/core/src/presence/`（rev dd46c7d），
 [packages/swarmdrop-core/rust/mobile-core/src/network.rs](../../packages/swarmdrop-core/rust/mobile-core/src/network.rs)
 
+### 基础设施链路同样是收敛式的（infra::Supervisor），LanOnly ≠ 网络隔离
+
+跨网关拓扑（手机 LAN Helper + LanOnly 电脑 + 公网设备）的可达性由
+`swarmdrop_core::infra::Supervisor` 收敛维持（rev 5c1e209，change
+harden-cross-network-reachability）：relay reservation 断线自动退避重建
+（helper 挂起/重启恢复后秒级收敛，候选地址刷新即重置退避）；identify 识别
+bootstrap agent 自动纳管为 Learned 候选。
+
+**关键语义**：
+- `discovery_mode=LanOnly` 只是"不主动连内置公网引导"；新设置
+  `public_reachability`（默认开）才管"允不允许经公网中继被跨网访问"。
+  LanOnly+默认开 = 设备经 LAN Helper 学到公网中继后自动做直连
+  reservation，跨网设备**一跳可拨、零打洞依赖**——这是跨网 presence
+  可靠的根基，别关。
+- OnlineRecord 是结构化可达性声明（direct_addrs/relay_addrs/relays hint），
+  不再是裸 listeners；重探对 circuit 地址会先修 relay 直连再拨。
+- relay 限额已适配文件传输：bytes 无限、duration 12h（旧默认 64MiB/30min
+  会掐断大文件中继传输）。
+
+**不要做**：
+- 不要在 host/UI 层对 reservation/候选做任何一次性编排——断线重建、
+  退避、纳管全部在 core 收敛层。
+- 单机联调 LAN Helper 时记得 `LanHelperConfig.announce_loopback_addrs=true`，
+  否则 reservation 响应无地址、客户端以 NoAddressesInReservation 拒绝
+  （生产局域网有私网地址不受影响）。
+
+**相关文件**：桌面仓 `crates/core/src/infra/`、`libs/core`（reservation
+生命周期机制）；[src/app/settings/network.tsx](../../src/app/settings/network.tsx)（公网可达性开关与状态行）
+
 ### 不在 AppState 切换时自动 shutdown/start
 
 文件选择器、系统弹窗等"瞬间退台"场景会反复重建 NetManager 打断传输，UI 还会出现"还没有配对设备"
