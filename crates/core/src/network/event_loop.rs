@@ -38,6 +38,8 @@ pub async fn handle_core_node_event<TTransfer>(
 ) -> AppResult<()> {
     // 让 DeviceManager 自己处理 PeerConnected/Disconnected/Identify/Ping/HolePunch/Discovered
     shared.devices.handle_event(event);
+    // presence 状态机折叠（已配对 peer 的 Connected/Probing 转换 + 断连即重拨）
+    shared.presence.handle_event(event);
     maybe_register_lan_helper(shared, event, event_bus).await;
 
     match event {
@@ -108,6 +110,10 @@ pub async fn handle_core_node_event<TTransfer>(
         }
         NodeEvent::HolePunchFailed { peer_id, error } => {
             warn!("Hole punch failed with {}: {}", peer_id, error);
+        }
+        NodeEvent::PingFailure { peer_id, error } => {
+            // 已配对 peer 的死对端判定在 presence supervisor（顶部 handle_event）完成
+            tracing::debug!("Ping 失败 {}: {}", peer_id, error);
         }
         NodeEvent::InboundRequest {
             peer_id,
@@ -232,7 +238,7 @@ fn usable_lan_candidate_addrs(addrs: &[Multiaddr]) -> Vec<Multiaddr> {
         .collect()
 }
 
-async fn publish_devices_and_status<TTransfer>(
+pub(crate) async fn publish_devices_and_status<TTransfer>(
     shared: &SharedNetRefs<TTransfer>,
     event_bus: &dyn EventBus,
 ) {
@@ -267,6 +273,15 @@ pub async fn run_event_loop<TTransfer>(
 ) where
     TTransfer: IncomingTransferRuntime + Send + Sync + 'static,
 {
+    // presence 后台任务随事件循环拉起（宣告/bootstrap/保活装载/状态机推进），
+    // 随 NetManager 的 CancellationToken 退出。host 无需任何 presence 调用。
+    tokio::spawn(
+        shared
+            .presence
+            .clone()
+            .run(shared.clone(), event_bus.clone()),
+    );
+
     while let Some(event) = receiver.recv().await {
         if let Err(e) = handle_core_node_event(&shared, &event, event_bus.as_ref()).await {
             warn!("core 节点事件处理失败: {}", e);

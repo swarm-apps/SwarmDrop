@@ -6,11 +6,13 @@
 pub mod database;
 pub mod device;
 pub mod device_manager;
+pub mod dht_key;
 pub mod error;
 pub mod host;
 pub mod identity;
 pub mod network;
 pub mod pairing;
+pub mod presence;
 pub mod protocol;
 pub mod runtime;
 pub mod transfer;

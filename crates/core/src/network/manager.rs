@@ -10,6 +10,7 @@ use super::{BootstrapCandidateManager, NatStatus, NetworkStatus, NodeStatus};
 use crate::device::PairedDeviceInfo;
 use crate::device_manager::DeviceManager;
 use crate::pairing::manager::PairingManager;
+use crate::presence::{PresenceMap, PresenceSupervisor};
 use crate::protocol::AppNetClient;
 
 /// NetManager 注入的传输运行时。
@@ -30,6 +31,7 @@ pub struct NetManager<TTransfer = ()> {
     peer_id: PeerId,
     pairing: Arc<PairingManager>,
     devices: Arc<DeviceManager>,
+    presence: Arc<PresenceSupervisor>,
     transfer: Arc<TTransfer>,
     /// 全局取消令牌（shutdown 时取消所有后台任务）
     cancel_token: CancellationToken,
@@ -70,7 +72,15 @@ where
             peer_id,
             paired_map.clone(),
         ));
-        let devices = Arc::new(DeviceManager::new(paired_map));
+        // presence 状态表：Supervisor 写，DeviceManager 读（在线判定）
+        let presence_map: PresenceMap = Arc::new(DashMap::new());
+        let presence = Arc::new(PresenceSupervisor::new(
+            client.clone(),
+            peer_id,
+            paired_map.clone(),
+            presence_map.clone(),
+        ));
+        let devices = Arc::new(DeviceManager::new(paired_map, presence_map));
         let transfer = Arc::new(transfer);
         let cancel_token = CancellationToken::new();
 
@@ -82,6 +92,7 @@ where
             peer_id,
             pairing,
             devices,
+            presence,
             transfer,
             cancel_token,
             listen_addrs: Arc::new(RwLock::new(Vec::new())),
@@ -120,6 +131,16 @@ where
         self.cancel_token.cancel();
     }
 
+    /// 停止节点前的收尾：宣布下线（尽力而为）+ 取消全部后台任务。
+    ///
+    /// host 停止节点只需调用本方法，无需关心 presence 细节。
+    pub async fn shutdown(&self) {
+        if let Err(e) = self.presence.announce_offline().await {
+            tracing::debug!("announce_offline 失败（忽略）: {e}");
+        }
+        self.cancel_background_tasks();
+    }
+
     /// 获取当前网络状态快照
     pub fn get_network_status(&self) -> NetworkStatus {
         self.shared_refs().build_network_status()
@@ -132,6 +153,8 @@ where
             client: self.client.clone(),
             devices: self.devices.clone(),
             pairing: self.pairing.clone(),
+            presence: self.presence.clone(),
+            cancel_token: self.cancel_token.clone(),
             transfer: self.transfer.clone(),
             listen_addrs: self.listen_addrs.clone(),
             nat_status: self.nat_status.clone(),
@@ -154,6 +177,9 @@ pub struct SharedNetRefs<TTransfer = ()> {
     pub client: AppNetClient,
     pub devices: Arc<DeviceManager>,
     pub pairing: Arc<PairingManager>,
+    pub presence: Arc<PresenceSupervisor>,
+    /// 全局取消令牌（presence 等后台任务随之退出）
+    pub cancel_token: CancellationToken,
     pub transfer: Arc<TTransfer>,
     pub listen_addrs: Arc<RwLock<Vec<Multiaddr>>>,
     pub nat_status: Arc<RwLock<NatStatus>>,
@@ -163,6 +189,29 @@ pub struct SharedNetRefs<TTransfer = ()> {
     pub network_config: NetworkRuntimeConfig,
     pub lan_helper_advertised_addrs: Arc<RwLock<Vec<Multiaddr>>>,
     pub relay_server_enabled: Arc<RwLock<bool>>,
+}
+
+// 手写 Clone：全部字段为 Arc/Clone，避免给 TTransfer 加 Clone 约束
+impl<TTransfer> Clone for SharedNetRefs<TTransfer> {
+    fn clone(&self) -> Self {
+        Self {
+            peer_id: self.peer_id,
+            client: self.client.clone(),
+            devices: self.devices.clone(),
+            pairing: self.pairing.clone(),
+            presence: self.presence.clone(),
+            cancel_token: self.cancel_token.clone(),
+            transfer: self.transfer.clone(),
+            listen_addrs: self.listen_addrs.clone(),
+            nat_status: self.nat_status.clone(),
+            public_addr: self.public_addr.clone(),
+            relay_peers: self.relay_peers.clone(),
+            candidates: self.candidates.clone(),
+            network_config: self.network_config.clone(),
+            lan_helper_advertised_addrs: self.lan_helper_advertised_addrs.clone(),
+            relay_server_enabled: self.relay_server_enabled.clone(),
+        }
+    }
 }
 
 impl<TTransfer> SharedNetRefs<TTransfer> {

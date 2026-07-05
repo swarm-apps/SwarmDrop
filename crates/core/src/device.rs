@@ -308,7 +308,7 @@ impl PairedDeviceInfo {
 }
 
 /// 设备状态。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum DeviceStatus {

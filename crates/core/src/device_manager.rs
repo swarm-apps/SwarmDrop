@@ -7,6 +7,7 @@ use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use crate::device::{
     ConnectionType, Device, DeviceStatus, OsInfo, PairedDeviceInfo, infer_connection_type,
 };
+use crate::presence::PresenceMap;
 use crate::protocol::AppRequest;
 
 /// 运行时 Peer 信息（DashMap 中的值）
@@ -62,14 +63,30 @@ pub struct DeviceManager {
     peers: DashMap<PeerId, PeerInfo>,
     /// 与 PairingManager 共享的已配对设备（只读）
     paired_devices: Arc<DashMap<PeerId, PairedDeviceInfo>>,
+    /// 与 PresenceSupervisor 共享的 presence 状态（只读）。
+    /// 已配对设备的在线判定以它为准：Probing（断连宽限期）仍呈现在线。
+    presence: PresenceMap,
 }
 
 impl DeviceManager {
-    /// 创建 DeviceManager，传入与 PairingManager 共享的已配对设备引用
-    pub fn new(paired_devices: Arc<DashMap<PeerId, PairedDeviceInfo>>) -> Self {
+    /// 创建 DeviceManager，传入与 PairingManager / PresenceSupervisor 共享的引用
+    pub fn new(
+        paired_devices: Arc<DashMap<PeerId, PairedDeviceInfo>>,
+        presence: PresenceMap,
+    ) -> Self {
         Self {
             peers: DashMap::new(),
             paired_devices,
+            presence,
+        }
+    }
+
+    /// 已配对设备的在线判定：presence 状态优先（宽限期呈现在线），
+    /// Supervisor 尚未写入时回退到瞬时连接状态。
+    fn paired_peer_online(&self, peer_id: &PeerId, is_connected: bool) -> bool {
+        match self.presence.get(peer_id).map(|e| *e.value()) {
+            Some(state) => state.is_online(),
+            None => is_connected,
         }
     }
 
@@ -170,12 +187,17 @@ impl DeviceManager {
                 .map(|entry| {
                     let info = entry.value();
                     let peer_info = self.peers.get(&info.peer_id);
-                    let (status, connection, latency) = match peer_info.as_deref() {
-                        Some(p) if p.is_connected => {
-                            connection_info(&p.addrs, p.rtt_ms, p.hole_punched)
-                        }
-                        _ => (DeviceStatus::Offline, None, None),
-                    };
+                    let is_connected = peer_info.as_deref().is_some_and(|p| p.is_connected);
+                    let (status, connection, latency) =
+                        if self.paired_peer_online(&info.peer_id, is_connected) {
+                            match peer_info.as_deref() {
+                                // 宽限期内连接详情沿用最近一次已知信息
+                                Some(p) => connection_info(&p.addrs, p.rtt_ms, p.hole_punched),
+                                None => (DeviceStatus::Online, None, None),
+                            }
+                        } else {
+                            (DeviceStatus::Offline, None, None)
+                        };
 
                     Device {
                         peer_id: info.peer_id,
@@ -201,13 +223,18 @@ impl DeviceManager {
             .and_then(OsInfo::from_agent_version)
             .unwrap_or_else(|| OsInfo::unknown_from_peer_id(&peer.peer_id));
 
-        let (status, connection, latency) = if peer.is_connected {
+        let paired = self.paired_devices.get(&peer.peer_id);
+        // 已配对 peer 的在线判定走 presence（宽限期不闪离线）；其余 peer 用瞬时连接
+        let online = if paired.is_some() {
+            self.paired_peer_online(&peer.peer_id, peer.is_connected)
+        } else {
+            peer.is_connected
+        };
+        let (status, connection, latency) = if online {
             connection_info(&peer.addrs, peer.rtt_ms, peer.hole_punched)
         } else {
             (DeviceStatus::Offline, None, None)
         };
-
-        let paired = self.paired_devices.get(&peer.peer_id);
         Device {
             peer_id: peer.peer_id,
             os_info,
