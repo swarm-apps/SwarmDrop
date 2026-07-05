@@ -870,7 +870,11 @@ export type MobileNetworkRuntimeConfig = {
     customBootstrapNodes: Array<string>,
     discoveryMode: MobileDiscoveryMode,
     autoDiscoverLanHelpers: boolean,
-    provideLanHelper: boolean
+    provideLanHelper: boolean,
+    /**
+     * 公网可达性：允许经公网中继被跨网设备访问（关闭 = 严格局域网）
+     */
+    publicReachability: boolean
 }
 
 /**
@@ -898,7 +902,8 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
                 customBootstrapNodes: FfiConverterArrayString.read(from), 
                 discoveryMode: FfiConverterTypeMobileDiscoveryMode.read(from), 
                 autoDiscoverLanHelpers: FfiConverterBool.read(from), 
-                provideLanHelper: FfiConverterBool.read(from)
+                provideLanHelper: FfiConverterBool.read(from), 
+                publicReachability: FfiConverterBool.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
@@ -906,12 +911,14 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
             FfiConverterTypeMobileDiscoveryMode.write(value.discoveryMode, into);
             FfiConverterBool.write(value.autoDiscoverLanHelpers, into);
             FfiConverterBool.write(value.provideLanHelper, into);
+            FfiConverterBool.write(value.publicReachability, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterArrayString.allocationSize(value.customBootstrapNodes) + 
             FfiConverterTypeMobileDiscoveryMode.allocationSize(value.discoveryMode) + 
             FfiConverterBool.allocationSize(value.autoDiscoverLanHelpers) + 
-            FfiConverterBool.allocationSize(value.provideLanHelper);
+            FfiConverterBool.allocationSize(value.provideLanHelper) + 
+            FfiConverterBool.allocationSize(value.publicReachability);
             
         }
     };
@@ -928,6 +935,14 @@ export type MobileNetworkStatus = {
     connectedPeers: /*u64*/bigint,
     discoveredPeers: /*u64*/bigint,
     relayReady: boolean,
+    /**
+     * 公网可达（活跃公网 reservation 或已确认公网直达地址）
+     */
+    publicReachable: boolean,
+    /**
+     * 公网可达性设置回显（host 重启横幅检测用）
+     */
+    publicReachabilityEnabled: boolean,
     relayPeers: Array<string>,
     bootstrapConnected: boolean,
     discoveryMode: MobileDiscoveryMode,
@@ -972,6 +987,8 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
                 connectedPeers: FfiConverterUInt64.read(from), 
                 discoveredPeers: FfiConverterUInt64.read(from), 
                 relayReady: FfiConverterBool.read(from), 
+                publicReachable: FfiConverterBool.read(from), 
+                publicReachabilityEnabled: FfiConverterBool.read(from), 
                 relayPeers: FfiConverterArrayString.read(from), 
                 bootstrapConnected: FfiConverterBool.read(from), 
                 discoveryMode: FfiConverterTypeMobileDiscoveryMode.read(from), 
@@ -995,6 +1012,8 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
             FfiConverterUInt64.write(value.connectedPeers, into);
             FfiConverterUInt64.write(value.discoveredPeers, into);
             FfiConverterBool.write(value.relayReady, into);
+            FfiConverterBool.write(value.publicReachable, into);
+            FfiConverterBool.write(value.publicReachabilityEnabled, into);
             FfiConverterArrayString.write(value.relayPeers, into);
             FfiConverterBool.write(value.bootstrapConnected, into);
             FfiConverterTypeMobileDiscoveryMode.write(value.discoveryMode, into);
@@ -1017,6 +1036,8 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
             FfiConverterUInt64.allocationSize(value.connectedPeers) + 
             FfiConverterUInt64.allocationSize(value.discoveredPeers) + 
             FfiConverterBool.allocationSize(value.relayReady) + 
+            FfiConverterBool.allocationSize(value.publicReachable) + 
+            FfiConverterBool.allocationSize(value.publicReachabilityEnabled) + 
             FfiConverterArrayString.allocationSize(value.relayPeers) + 
             FfiConverterBool.allocationSize(value.bootstrapConnected) + 
             FfiConverterTypeMobileDiscoveryMode.allocationSize(value.discoveryMode) + 
@@ -2578,7 +2599,8 @@ const FfiConverterTypeFfiError = (() => {
 export enum MobileBootstrapCandidateSource {
     BuiltInPublic,
     UserCustom,
-    MdnsLanHelper
+    MdnsLanHelper,
+    Learned
 }
 
 const FfiConverterTypeMobileBootstrapCandidateSource = (() => {
@@ -2590,6 +2612,7 @@ const FfiConverterTypeMobileBootstrapCandidateSource = (() => {
                 case 1: return MobileBootstrapCandidateSource.BuiltInPublic;
                 case 2: return MobileBootstrapCandidateSource.UserCustom;
                 case 3: return MobileBootstrapCandidateSource.MdnsLanHelper;
+                case 4: return MobileBootstrapCandidateSource.Learned;
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -2598,6 +2621,7 @@ const FfiConverterTypeMobileBootstrapCandidateSource = (() => {
                 case MobileBootstrapCandidateSource.BuiltInPublic: return ordinalConverter.write(1, into);
                 case MobileBootstrapCandidateSource.UserCustom: return ordinalConverter.write(2, into);
                 case MobileBootstrapCandidateSource.MdnsLanHelper: return ordinalConverter.write(3, into);
+                case MobileBootstrapCandidateSource.Learned: return ordinalConverter.write(4, into);
             }
         }
         allocationSize(value: TypeName): number {

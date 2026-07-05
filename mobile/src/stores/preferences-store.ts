@@ -14,6 +14,8 @@ interface PreferencesState {
   autoDiscoverLanHelpers: boolean;
   /** 是否让本机提供 LAN Helper 能力。移动端默认 false，不作为主入口推广 */
   provideLanHelper: boolean;
+  /** 公网可达性：允许经公网中继被跨网设备访问，默认 true；关闭 = 严格局域网 */
+  publicReachability: boolean;
   /** 自定义引导节点(Multiaddr 字符串数组),与后端 DEFAULT_BOOTSTRAP_NODES 合并 */
   customBootstrapNodes: string[];
   /** 用户自定义接收文件保存目录的 URI(file:// 或 content://);null 走默认 transfersInboxUri */
@@ -25,6 +27,7 @@ interface PreferencesState {
   setDiscoveryMode: (mode: DiscoveryModePreference) => void;
   setAutoDiscoverLanHelpers: (value: boolean) => void;
   setProvideLanHelper: (value: boolean) => void;
+  setPublicReachability: (value: boolean) => void;
   addBootstrapNode: (addr: string) => void;
   removeBootstrapNode: (addr: string) => void;
   setReceivePath: (uri: string | null) => void;
@@ -39,6 +42,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       discoveryMode: "auto",
       autoDiscoverLanHelpers: true,
       provideLanHelper: false,
+      publicReachability: true,
       customBootstrapNodes: [],
       receivePath: null,
       autoAccept: false,
@@ -61,6 +65,10 @@ export const usePreferencesStore = create<PreferencesState>()(
 
       setProvideLanHelper(value) {
         set({ provideLanHelper: value });
+      },
+
+      setPublicReachability(value) {
+        set({ publicReachability: value });
       },
 
       addBootstrapNode(addr) {

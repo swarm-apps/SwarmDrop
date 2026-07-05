@@ -188,6 +188,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
               discoveryMode: prefs.discoveryMode,
               autoDiscoverLanHelpers: prefs.autoDiscoverLanHelpers,
               provideLanHelper: prefs.provideLanHelper,
+              publicReachability: prefs.publicReachability,
             }),
           );
           const networkStatus = await core.networkStatus();

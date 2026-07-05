@@ -51,22 +51,26 @@ export default function NetworkScreen() {
     discoveryMode,
     autoDiscoverLanHelpers,
     provideLanHelper,
+    publicReachability,
     customBootstrapNodes,
     setAutoStart,
     setDiscoveryMode,
     setAutoDiscoverLanHelpers,
     setProvideLanHelper,
+    setPublicReachability,
   } = usePreferencesStore(
     useShallow((s) => ({
       autoStart: s.autoStart,
       discoveryMode: s.discoveryMode,
       autoDiscoverLanHelpers: s.autoDiscoverLanHelpers,
       provideLanHelper: s.provideLanHelper,
+      publicReachability: s.publicReachability,
       customBootstrapNodes: s.customBootstrapNodes,
       setAutoStart: s.setAutoStart,
       setDiscoveryMode: s.setDiscoveryMode,
       setAutoDiscoverLanHelpers: s.setAutoDiscoverLanHelpers,
       setProvideLanHelper: s.setProvideLanHelper,
+      setPublicReachability: s.setPublicReachability,
     })),
   );
 
@@ -75,13 +79,15 @@ export default function NetworkScreen() {
     return (
       discoveryModeFromNative(networkStatus.discoveryMode) !== discoveryMode ||
       networkStatus.autoDiscoverLanHelpers !== autoDiscoverLanHelpers ||
-      networkStatus.localLanHelperEnabled !== provideLanHelper
+      networkStatus.localLanHelperEnabled !== provideLanHelper ||
+      networkStatus.publicReachabilityEnabled !== publicReachability
     );
   }, [
     autoDiscoverLanHelpers,
     discoveryMode,
     networkStatus,
     provideLanHelper,
+    publicReachability,
     runtimeState,
   ]);
 
@@ -169,6 +175,11 @@ export default function NetworkScreen() {
       label: <Trans>公网引导</Trans>,
       value: networkStatus?.bootstrapConnected ? t`已连接` : t`未连接`,
     },
+    {
+      key: "public-reachable",
+      label: <Trans>公网可达</Trans>,
+      value: networkStatus?.publicReachable ? t`可达` : t`仅局域网`,
+    },
   ];
 
   return (
@@ -202,10 +213,30 @@ export default function NetworkScreen() {
                 <Trans>自动模式会使用公网引导、中继和局域网协助节点。</Trans>
               ) : (
                 <Trans>
-                  LAN-only 只依赖局域网协助和自定义节点，跨网络可达性会受限。
+                  LAN-only
+                  不主动连接公网引导；仍可经局域网协助节点被跨网访问，除非关闭公网可达性。
                 </Trans>
               )}
             </Text>
+          </View>
+          <SettingDivider />
+          <View className="flex-row items-center gap-3 px-3.5 py-3">
+            <View className="flex-1 gap-0.5">
+              <Text className="text-[14px] text-foreground">
+                <Trans>公网可达性</Trans>
+              </Text>
+              <Text className="text-[11px] text-muted-foreground">
+                <Trans>
+                  允许通过公网中继被跨网设备访问；关闭后为严格局域网。
+                </Trans>
+              </Text>
+            </View>
+            <Switch
+              checked={publicReachability}
+              onCheckedChange={setPublicReachability}
+              accessibilityLabel={t`公网可达性`}
+              testID="network-public-reachability-switch"
+            />
           </View>
           <SettingDivider />
           <View className="flex-row items-center gap-3 px-3.5 py-3">

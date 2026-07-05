@@ -11,6 +11,8 @@ export interface NetworkRuntimePreferences {
   discoveryMode: DiscoveryModePreference;
   autoDiscoverLanHelpers: boolean;
   provideLanHelper: boolean;
+  /** 公网可达性：允许经公网中继被跨网设备访问（关闭 = 严格局域网） */
+  publicReachability: boolean;
 }
 
 export function buildNetworkRuntimeConfig(
@@ -21,6 +23,7 @@ export function buildNetworkRuntimeConfig(
     discoveryMode: discoveryModeToNative(preferences.discoveryMode),
     autoDiscoverLanHelpers: preferences.autoDiscoverLanHelpers,
     provideLanHelper: preferences.provideLanHelper,
+    publicReachability: preferences.publicReachability,
   };
 }
 

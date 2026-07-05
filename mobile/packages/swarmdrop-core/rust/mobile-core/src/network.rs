@@ -42,6 +42,8 @@ pub struct MobileNetworkRuntimeConfig {
     pub discovery_mode: MobileDiscoveryMode,
     pub auto_discover_lan_helpers: bool,
     pub provide_lan_helper: bool,
+    /// 公网可达性：允许经公网中继被跨网设备访问（关闭 = 严格局域网）
+    pub public_reachability: bool,
 }
 
 impl From<MobileNetworkRuntimeConfig> for NetworkRuntimeConfig {
@@ -51,6 +53,7 @@ impl From<MobileNetworkRuntimeConfig> for NetworkRuntimeConfig {
             discovery_mode: config.discovery_mode.into(),
             auto_discover_lan_helpers: config.auto_discover_lan_helpers,
             provide_lan_helper: config.provide_lan_helper,
+            public_reachability: config.public_reachability,
         }
     }
 }
@@ -60,6 +63,7 @@ pub enum MobileBootstrapCandidateSource {
     BuiltInPublic,
     UserCustom,
     MdnsLanHelper,
+    Learned,
 }
 
 impl From<BootstrapCandidateSource> for MobileBootstrapCandidateSource {
@@ -68,6 +72,7 @@ impl From<BootstrapCandidateSource> for MobileBootstrapCandidateSource {
             BootstrapCandidateSource::BuiltInPublic => Self::BuiltInPublic,
             BootstrapCandidateSource::UserCustom => Self::UserCustom,
             BootstrapCandidateSource::MdnsLanHelper => Self::MdnsLanHelper,
+            BootstrapCandidateSource::Learned => Self::Learned,
         }
     }
 }
@@ -99,6 +104,10 @@ pub struct MobileNetworkStatus {
     pub connected_peers: u64,
     pub discovered_peers: u64,
     pub relay_ready: bool,
+    /// 公网可达（活跃公网 reservation 或已确认公网直达地址）
+    pub public_reachable: bool,
+    /// 公网可达性设置回显（host 重启横幅检测用）
+    pub public_reachability_enabled: bool,
     pub relay_peers: Vec<String>,
     pub bootstrap_connected: bool,
     pub discovery_mode: MobileDiscoveryMode,
@@ -125,6 +134,8 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
             connected_peers,
             discovered_peers,
             relay_ready,
+            public_reachable,
+            public_reachability_enabled,
             relay_peers,
             bootstrap_connected,
             discovery_mode,
@@ -153,6 +164,8 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
             connected_peers: connected_peers as u64,
             discovered_peers: discovered_peers as u64,
             relay_ready,
+            public_reachable,
+            public_reachability_enabled,
             relay_peers: relay_peers
                 .into_iter()
                 .map(|peer_id| peer_id.to_string())
