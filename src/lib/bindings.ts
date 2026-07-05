@@ -690,6 +690,12 @@ export type TransferProjection = {
 	policyAction: string | null,
 	policyReason: string | null,
 	savePath: CoreSaveLocation | null,
+	/**
+	 *  「打开文件夹」应定位的真实容器目录 URI(收到内容实际所在的文件夹),已在 core 解析:
+	 *  各文件 `local_dir` 全部同一目录 → 该目录;否则回退存储根 `save_path`。前端直读,
+	 *  不再自行兜底(已完成接收必为 `Some`)。
+	 */
+	contentRoot: string | null,
 	files: TransferProjectionFile[],
 };
 
