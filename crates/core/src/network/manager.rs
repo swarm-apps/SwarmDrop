@@ -273,6 +273,7 @@ impl<TTransfer> SharedNetRefs<TTransfer> {
             discovered_peers: self.devices.discovered_count(),
             relay_ready: !relay_peers_list.is_empty(),
             public_reachable,
+            public_reachability_enabled: self.network_config.public_reachability,
             relay_peers: relay_peers_list,
             bootstrap_connected: self.devices.has_connected_bootstrap_peer(),
             discovery_mode: self.network_config.discovery_mode,

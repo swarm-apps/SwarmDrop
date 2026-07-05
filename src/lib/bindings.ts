@@ -419,6 +419,8 @@ export type NetworkStatus = {
 	 *  false = 仅局域网可达（跨网设备无法直接访问本机）。
 	 */
 	publicReachable: boolean,
+	/**  公网可达性设置的回显（host 侧检测"设置已变更需重启"用）。 */
+	publicReachabilityEnabled: boolean,
 	/**  当前已连接的中继节点 PeerId 列表。 */
 	relayPeers: string[],
 	/**  是否至少有一个引导节点已连接。 */

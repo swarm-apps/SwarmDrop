@@ -56,6 +56,8 @@ pub struct NetworkStatus {
     /// 公网可达：持有公网范围中继的活跃 reservation，或已确认公网直达地址。
     /// false = 仅局域网可达（跨网设备无法直接访问本机）。
     pub public_reachable: bool,
+    /// 公网可达性设置的回显（host 侧检测"设置已变更需重启"用）。
+    pub public_reachability_enabled: bool,
     /// 当前已连接的中继节点 PeerId 列表。
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
     pub relay_peers: Vec<PeerId>,
