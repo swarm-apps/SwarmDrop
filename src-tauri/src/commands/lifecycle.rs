@@ -78,9 +78,15 @@ pub async fn start(
     // 事件循环自动接管（见 swarmdrop_core::presence），host 不再手工编排。
     let shared = net_manager.shared_refs();
 
-    // 存入 Tauri state
+    // 存入 Tauri state；已有旧节点（webview 重载后重复 start）先关停，
+    // 否则旧 NetManager 被静默覆盖，其 cancel_token 永不触发，
+    // presence/infra 循环与旧 swarm 永久泄漏
     if let Some(state) = app.try_state::<NetManagerState>() {
-        *state.lock().await = Some(net_manager);
+        let mut guard = state.lock().await;
+        if let Some(old) = guard.as_ref() {
+            old.shutdown().await;
+        }
+        *guard = Some(net_manager);
     } else {
         app.manage(Mutex::new(Some(net_manager)));
     }

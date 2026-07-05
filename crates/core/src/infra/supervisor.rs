@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use swarm_p2p_core::NodeEvent;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use tokio::time::Instant;
 
 use crate::device::OsInfo;
@@ -91,16 +91,18 @@ impl InfraSupervisor {
             }
             NodeEvent::RelayReservationLost { relay_peer_id } => {
                 tracing::info!("relay reservation 丢失: {relay_peer_id}，进入重建");
-                // 立即安排首轮重建（tick 内执行），失败后按退避降频
-                self.links.insert(
-                    *relay_peer_id,
-                    RelayLinkState {
+                // 只翻可用位，保留既有退避进度——reservation 被 relay 拒绝时
+                // 每次尝试都会产生一次 Lost，无条件清零会退化成 1-2s 重试风暴。
+                // attempts 仅由 Accepted（健康恢复）与候选 last_seen 刷新（重新发现）归零。
+                self.links
+                    .entry(*relay_peer_id)
+                    .and_modify(|link| link.reservation_active = false)
+                    .or_insert(RelayLinkState {
                         reservation_active: false,
                         next_attempt_at: Instant::now(),
                         attempts: 0,
                         candidate_seen: chrono::Utc::now(),
-                    },
-                );
+                    });
             }
             // 学习型候选：识别基础设施 agent 自动纳管
             NodeEvent::IdentifyReceived {
@@ -125,15 +127,8 @@ impl InfraSupervisor {
             return;
         };
         // 已知候选只做地址合并；新候选受数量上限约束
-        if candidates.get(peer_id).is_none() {
-            let learned_count = candidates
-                .snapshot()
-                .iter()
-                .filter(|c| c.sources.contains(&BootstrapCandidateSource::Learned))
-                .count();
-            if learned_count >= MAX_LEARNED_CANDIDATES {
-                return;
-            }
+        if !candidates.contains(peer_id) && candidates.learned_count() >= MAX_LEARNED_CANDIDATES {
+            return;
         }
         let changed = candidates.upsert(
             peer_id,
@@ -202,9 +197,12 @@ impl InfraSupervisor {
             let client = self.client.clone();
             let peer = candidate.peer_id;
             let addrs = candidate.addrs.clone();
+            let roles = candidate.roles.into();
             tokio::spawn(async move {
-                tracing::debug!("确保 relay reservation: {peer}（第 {attempts} 次尝试）");
-                let _ = client.ensure_relay_reservation(peer, addrs).await;
+                tracing::debug!("收敛基础设施链路: {peer}（第 {attempts} 次尝试）");
+                // 全角色注册：kad 重接线 + 未连接时拨号 + 常驻登记 reservation 意图
+                // （identify 后幂等建立），断连恢复与 reservation 重建一步到位
+                let _ = client.add_infrastructure_peer(peer, addrs, roles).await;
             });
         }
     }
@@ -228,28 +226,12 @@ impl InfraSupervisor {
     }
 }
 
-/// 过滤出对公网侧可用的地址（剔除私网/loopback/unspecified/circuit）
+/// 过滤出对公网侧可用的直连地址（剔除私网/loopback/link-local/circuit）
 fn usable_public_addrs(addrs: &[Multiaddr]) -> Vec<Multiaddr> {
+    use swarm_p2p_core::addr::{circuit_hops, is_public_routable};
     addrs
         .iter()
-        .filter(|addr| {
-            !addr.iter().any(|p| matches!(p, Protocol::P2pCircuit))
-                && addr.iter().any(|p| match p {
-                    Protocol::Ip4(ip) => {
-                        !ip.is_private()
-                            && !ip.is_loopback()
-                            && !ip.is_link_local()
-                            && !ip.is_unspecified()
-                    }
-                    Protocol::Ip6(ip) => {
-                        !ip.is_loopback()
-                            && !ip.is_unspecified()
-                            && (ip.segments()[0] & 0xfe00) != 0xfc00
-                    }
-                    Protocol::Dns(_) | Protocol::Dns4(_) | Protocol::Dns6(_) => true,
-                    _ => false,
-                })
-        })
+        .filter(|addr| circuit_hops(addr) == 0 && is_public_routable(addr))
         .cloned()
         .collect()
 }
@@ -343,6 +325,16 @@ mod tests {
         s.tick(now + Duration::from_secs(3));
         let link = link_of(&s, &p).unwrap();
         assert_eq!(link.attempts, 2);
+
+        // 回归：重试期间每次失败都会再来一条 Lost（如被 relay 拒绝），
+        // 不得清零退避进度，否则退化成 1-2s 重试风暴
+        s.handle_event(&NodeEvent::RelayReservationLost { relay_peer_id: p });
+        let link = link_of(&s, &p).unwrap();
+        assert_eq!(link.attempts, 2, "Lost 不得重置 attempts");
+        assert!(
+            link.next_attempt_at > now + Duration::from_secs(3),
+            "Lost 不得提前 next_attempt_at"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

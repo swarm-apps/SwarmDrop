@@ -188,6 +188,18 @@ impl BootstrapCandidateManager {
         self.candidates.values().cloned().collect()
     }
 
+    pub fn contains(&self, peer_id: PeerId) -> bool {
+        self.candidates.contains_key(&peer_id)
+    }
+
+    /// Learned 来源候选数量（学习型候选上限约束用）
+    pub fn learned_count(&self) -> usize {
+        self.candidates
+            .values()
+            .filter(|c| c.sources.contains(&BootstrapCandidateSource::Learned))
+            .count()
+    }
+
     pub fn lan_helper_count(&self) -> usize {
         self.candidates
             .values()

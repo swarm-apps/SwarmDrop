@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use swarm_p2p_core::{EventReceiver, InfrastructureRoles, NodeEvent};
 use tracing::{info, warn};
 
@@ -233,22 +233,7 @@ async fn maybe_register_lan_helper<TTransfer>(
 fn usable_lan_candidate_addrs(addrs: &[Multiaddr]) -> Vec<Multiaddr> {
     addrs
         .iter()
-        .filter(|addr| {
-            addr.iter().any(|protocol| match protocol {
-                Protocol::Ip4(ip) => {
-                    ip.is_private()
-                        && !ip.is_loopback()
-                        && !ip.is_link_local()
-                        && !ip.is_unspecified()
-                }
-                Protocol::Ip6(ip) => {
-                    (ip.segments()[0] & 0xfe00) == 0xfc00
-                        && !ip.is_loopback()
-                        && !ip.is_unspecified()
-                }
-                _ => false,
-            })
-        })
+        .filter(|addr| swarm_p2p_core::addr::is_private_lan(addr))
         .cloned()
         .collect()
 }
@@ -298,103 +283,116 @@ pub async fn run_event_loop<TTransfer>(
     );
     tokio::spawn(shared.infra.clone().run(shared.clone()));
 
-    while let Some(event) = receiver.recv().await {
-        if let Err(e) = handle_core_node_event(&shared, &event, event_bus.as_ref()).await {
-            warn!("core 节点事件处理失败: {}", e);
-        }
-
-        // 对端断连：把该 peer 当前 active 传输转为 recoverable suspended(Interrupted)。
-        // 发送端会话本就 idle、靠此 hook 感知断连；接收端 data channel 读取会因连接丢失失败，
-        // 但 handle_peer_disconnected 先取消会话（cancel 优先于 error）避免误判 failed。
-        if let NodeEvent::PeerDisconnected { peer_id } = &event {
-            shared.transfer.handle_peer_disconnected(*peer_id).await;
-        }
-
-        // 通知：配对请求触发系统通知
-        if let NodeEvent::InboundRequest {
-            request: AppRequest::Pairing(req),
-            ..
-        } = &event
-            && let Some(notifier) = notifier.as_ref()
+    loop {
+        let event = tokio::select! {
+            // 节点停止：退出循环使本函数持有的 client/receiver 全部 drop，
+            // command channel 关闭 → libs 事件循环退出 → swarm 释放（断开全部
+            // 连接、关闭监听）。否则 keep-alive 白名单会把僵尸节点的连接钉死，
+            // 远端将永远看到已停止的节点在线。
+            _ = shared.cancel_token.cancelled() => break,
+            maybe = receiver.recv() => match maybe {
+                Some(event) => event,
+                None => break,
+            },
+        };
         {
-            let _ = notifier
-                .notify_if_unfocused(crate::host::Notification::PairingRequest {
-                    hostname: req.os_info.hostname.clone(),
-                })
-                .await;
-        }
-
-        // 处理传输请求
-        if let NodeEvent::InboundRequest {
-            peer_id,
-            pending_id,
-            request: AppRequest::Transfer(transfer_request),
-        } = event
-        {
-            let is_offer = matches!(
-                transfer_request,
-                crate::protocol::TransferRequest::Offer { .. }
-            );
-
-            let paired_device = is_offer
-                .then(|| shared.pairing.get_paired_device(&peer_id))
-                .flatten();
-
-            // Offer：先校验 pairing 状态，避免向未配对方泄露设备信息
-            if is_offer && paired_device.is_none() {
-                warn!("Rejecting transfer offer from unpaired peer: {}", peer_id);
-                let response = crate::protocol::AppResponse::Transfer(
-                    crate::protocol::TransferResponse::OfferResult {
-                        accepted: false,
-                        key: None,
-                        reason: Some(crate::protocol::OfferRejectReason::NotPaired),
-                    },
-                );
-                let _ = shared.client.send_response(pending_id, response).await;
-                continue;
+            if let Err(e) = handle_core_node_event(&shared, &event, event_bus.as_ref()).await {
+                warn!("core 节点事件处理失败: {}", e);
             }
 
-            // Offer：用 paired_devices 中的真实设备名（hostname）覆盖 peer_id 短串
-            let device_name_override = if is_offer {
-                paired_device.as_ref().map(display_device_name)
-            } else {
-                None
-            };
-            let via_relay = is_offer && is_peer_connected_via_relay(&shared, &peer_id);
+            // 对端断连：把该 peer 当前 active 传输转为 recoverable suspended(Interrupted)。
+            // 发送端会话本就 idle、靠此 hook 感知断连；接收端 data channel 读取会因连接丢失失败，
+            // 但 handle_peer_disconnected 先取消会话（cancel 优先于 error）避免误判 failed。
+            if let NodeEvent::PeerDisconnected { peer_id } = &event {
+                shared.transfer.handle_peer_disconnected(*peer_id).await;
+            }
 
-            let result = handle_incoming_transfer_request(
-                &shared.client,
-                shared.transfer.as_ref(),
-                event_bus.as_ref(),
+            // 通知：配对请求触发系统通知
+            if let NodeEvent::InboundRequest {
+                request: AppRequest::Pairing(req),
+                ..
+            } = &event
+                && let Some(notifier) = notifier.as_ref()
+            {
+                let _ = notifier
+                    .notify_if_unfocused(crate::host::Notification::PairingRequest {
+                        hostname: req.os_info.hostname.clone(),
+                    })
+                    .await;
+            }
+
+            // 处理传输请求
+            if let NodeEvent::InboundRequest {
                 peer_id,
                 pending_id,
-                paired_device,
-                via_relay,
-                transfer_request,
-            )
-            .await;
+                request: AppRequest::Transfer(transfer_request),
+            } = event
+            {
+                let is_offer = matches!(
+                    transfer_request,
+                    crate::protocol::TransferRequest::Offer { .. }
+                );
 
-            match result {
-                Ok(IncomingTransferDisposition::Handled) => {
-                    // 已自动接收或已策略拒绝的 Offer 只进入活动与恢复，不弹确认通知。
+                let paired_device = is_offer
+                    .then(|| shared.pairing.get_paired_device(&peer_id))
+                    .flatten();
+
+                // Offer：先校验 pairing 状态，避免向未配对方泄露设备信息
+                if is_offer && paired_device.is_none() {
+                    warn!("Rejecting transfer offer from unpaired peer: {}", peer_id);
+                    let response = crate::protocol::AppResponse::Transfer(
+                        crate::protocol::TransferResponse::OfferResult {
+                            accepted: false,
+                            key: None,
+                            reason: Some(crate::protocol::OfferRejectReason::NotPaired),
+                        },
+                    );
+                    let _ = shared.client.send_response(pending_id, response).await;
+                    continue;
                 }
-                Ok(IncomingTransferDisposition::OfferRequiresConfirmation) => {
-                    if is_offer
-                        && let (Some(notifier), Some(name)) =
-                            (notifier.as_ref(), device_name_override)
-                    {
-                        let _ = notifier
-                            .notify_if_unfocused(crate::host::Notification::IncomingTransfer {
-                                device_name: name,
-                            })
-                            .await;
+
+                // Offer：用 paired_devices 中的真实设备名（hostname）覆盖 peer_id 短串
+                let device_name_override = if is_offer {
+                    paired_device.as_ref().map(display_device_name)
+                } else {
+                    None
+                };
+                let via_relay = is_offer && is_peer_connected_via_relay(&shared, &peer_id);
+
+                let result = handle_incoming_transfer_request(
+                    &shared.client,
+                    shared.transfer.as_ref(),
+                    event_bus.as_ref(),
+                    peer_id,
+                    pending_id,
+                    paired_device,
+                    via_relay,
+                    transfer_request,
+                )
+                .await;
+
+                match result {
+                    Ok(IncomingTransferDisposition::Handled) => {
+                        // 已自动接收或已策略拒绝的 Offer 只进入活动与恢复，不弹确认通知。
                     }
-                }
-                Ok(IncomingTransferDisposition::Unhandled(_)) => {
-                    warn!("传输请求未被处理（可能为新协议变体）");
-                }
-                Err(e) => {
-                    warn!("传输请求处理失败: {}", e);
+                    Ok(IncomingTransferDisposition::OfferRequiresConfirmation) => {
+                        if is_offer
+                            && let (Some(notifier), Some(name)) =
+                                (notifier.as_ref(), device_name_override)
+                        {
+                            let _ = notifier
+                                .notify_if_unfocused(crate::host::Notification::IncomingTransfer {
+                                    device_name: name,
+                                })
+                                .await;
+                        }
+                    }
+                    Ok(IncomingTransferDisposition::Unhandled(_)) => {
+                        warn!("传输请求未被处理（可能为新协议变体）");
+                    }
+                    Err(e) => {
+                        warn!("传输请求处理失败: {}", e);
+                    }
                 }
             }
         }

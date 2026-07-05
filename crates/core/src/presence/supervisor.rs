@@ -7,7 +7,7 @@ use std::time::Duration;
 use dashmap::DashMap;
 use swarm_p2p_core::NodeEvent;
 use swarm_p2p_core::libp2p::kad::Record;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use tokio::time::Instant;
 
 use super::{ONLINE_RECORD_TTL_SECS, OnlineRecord, RelayHint};
@@ -134,13 +134,29 @@ impl PresenceSupervisor {
         }
     }
 
+    /// 幂等地把 peer 加入连接保活白名单（behaviour 侧去重）
+    fn spawn_keep_alive(&self, peer: PeerId) {
+        let client = self.client.clone();
+        tokio::spawn(async move {
+            let _ = client.set_keep_alive(peer, true).await;
+        });
+    }
+
     // === 事件折叠（core 事件循环调用） ===
 
     /// 消费连接/ping 事件，折叠 presence 状态。仅关心已配对 peer。
     pub fn handle_event(&self, event: &NodeEvent<AppRequest>) {
         match event {
             NodeEvent::PeerConnected { peer_id } if self.paired.contains_key(peer_id) => {
-                self.presence.insert(*peer_id, PresenceState::Connected);
+                if self
+                    .presence
+                    .insert(*peer_id, PresenceState::Connected)
+                    .is_none()
+                {
+                    // 首次建 entry（新配对后事件先于 reconcile 到达）：
+                    // 立即补保活白名单，避免 reconcile 因 entry 已存在而跳过
+                    self.spawn_keep_alive(*peer_id);
+                }
             }
             // 防御性收敛：有 ping 必有活跃连接（补 PeerConnected 事件错过的场景）
             NodeEvent::PingSuccess { peer_id, .. } if self.paired.contains_key(peer_id) => {
@@ -148,8 +164,12 @@ impl PresenceSupervisor {
                 if !matches!(
                     self.presence.get(peer_id).map(|e| *e.value()),
                     Some(PresenceState::Connected)
-                ) {
-                    self.presence.insert(*peer_id, PresenceState::Connected);
+                ) && self
+                    .presence
+                    .insert(*peer_id, PresenceState::Connected)
+                    .is_none()
+                {
+                    self.spawn_keep_alive(*peer_id);
                 }
             }
             // 死对端检测（TCP 兜底）：连续失败达阈值 → 主动断连 → 走 Probing 流程。
@@ -279,10 +299,7 @@ impl PresenceSupervisor {
                     PresenceState::Unreachable { next_probe_at: now }
                 };
                 self.presence.entry(peer).or_insert(initial);
-                let client = self.client.clone();
-                tokio::spawn(async move {
-                    let _ = client.set_keep_alive(peer, true).await;
-                });
+                self.spawn_keep_alive(peer);
             }
         }
 
@@ -425,7 +442,7 @@ impl PresenceSupervisor {
                 addrs: c
                     .addrs
                     .into_iter()
-                    .filter(|a| !is_undialable_addr(a))
+                    .filter(|a| !swarm_p2p_core::addr::is_loopback_or_unspecified(a))
                     .collect(),
             })
             .filter(|hint| !hint.addrs.is_empty())
@@ -476,10 +493,7 @@ impl PresenceSupervisor {
             self.presence
                 .entry(peer)
                 .or_insert(PresenceState::Unreachable { next_probe_at: now });
-            let client = self.client.clone();
-            tokio::spawn(async move {
-                let _ = client.set_keep_alive(peer, true).await;
-            });
+            self.spawn_keep_alive(peer);
         }
 
         // 宣告 → bootstrap（沿用原 host 启动序列的顺序；bootstrap 加超时防挂）
@@ -534,32 +548,20 @@ fn announce_backoff(fail_streak: u32) -> Duration {
 /// - 恰好一跳 circuit → relay 组；多跳 circuit 剔除（libp2p 硬拒）
 /// - 私网地址保留在 direct 组（跨子网 LAN 可用，跨网拨快速失败无害）
 fn classify_announce_addrs(addrs: Vec<Multiaddr>) -> (Vec<Multiaddr>, Vec<Multiaddr>) {
+    use swarm_p2p_core::addr::{circuit_hops, is_loopback_or_unspecified};
     let mut direct = Vec::new();
     let mut relay = Vec::new();
     for addr in addrs {
-        if is_undialable_addr(&addr) {
+        if is_loopback_or_unspecified(&addr) {
             continue;
         }
-        match addr
-            .iter()
-            .filter(|p| matches!(p, Protocol::P2pCircuit))
-            .count()
-        {
+        match circuit_hops(&addr) {
             0 => direct.push(addr),
             1 => relay.push(addr),
             _ => {} // 多跳 circuit：任何 libp2p 节点都拨不了
         }
     }
     (direct, relay)
-}
-
-/// loopback / unspecified 对任何对端都不可拨
-fn is_undialable_addr(addr: &Multiaddr) -> bool {
-    addr.iter().any(|p| match p {
-        Protocol::Ip4(ip) => ip.is_loopback() || ip.is_unspecified(),
-        Protocol::Ip6(ip) => ip.is_loopback() || ip.is_unspecified(),
-        _ => false,
-    })
 }
 
 #[cfg(test)]
