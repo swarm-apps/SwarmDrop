@@ -10,6 +10,7 @@ pub mod dht_key;
 pub mod error;
 pub mod host;
 pub mod identity;
+pub mod infra;
 pub mod network;
 pub mod pairing;
 pub mod presence;

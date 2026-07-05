@@ -134,6 +134,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
         discoveryMode,
         autoDiscoverLanHelpers,
         provideLanHelper,
+        publicReachability,
         mcp,
       } = usePreferencesStore.getState();
       const networkOptions: NetworkRuntimeConfig = {
@@ -141,6 +142,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
         discoveryMode,
         autoDiscoverLanHelpers,
         provideLanHelper,
+        publicReachability,
       };
       await commands.start(pairedDevices, networkOptions);
 

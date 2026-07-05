@@ -30,6 +30,8 @@ interface PreferencesState {
   autoDiscoverLanHelpers: boolean;
   /** 本设备提供局域网协助能力 */
   provideLanHelper: boolean;
+  /** 公网可达性：允许通过公网中继被跨网设备访问（关闭 = 严格局域网） */
+  publicReachability: boolean;
   /** 文件传输设置 */
   transfer: {
     /** 接收文件的默认保存路径 */
@@ -65,6 +67,8 @@ interface PreferencesState {
   setAutoDiscoverLanHelpers: (enabled: boolean) => void;
   /** 设置本设备是否提供局域网协助能力 */
   setProvideLanHelper: (enabled: boolean) => void;
+  /** 设置公网可达性 */
+  setPublicReachability: (enabled: boolean) => void;
   /** 设置传输保存路径 */
   setTransferSavePath: (path: string) => void;
   /** 设置 MCP 端口 */
@@ -101,6 +105,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       discoveryMode: "auto",
       autoDiscoverLanHelpers: true,
       provideLanHelper: false,
+      publicReachability: true,
       transfer: {
         savePath: "",
       },
@@ -155,6 +160,10 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({ provideLanHelper });
       },
 
+      setPublicReachability(publicReachability: boolean) {
+        set({ publicReachability });
+      },
+
       setTransferSavePath(path: string) {
         set((state) => ({
           transfer: { ...state.transfer, savePath: path },
@@ -192,6 +201,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         discoveryMode: state.discoveryMode,
         autoDiscoverLanHelpers: state.autoDiscoverLanHelpers,
         provideLanHelper: state.provideLanHelper,
+        publicReachability: state.publicReachability,
         transfer: state.transfer,
         mcp: state.mcp,
         closeBehavior: state.closeBehavior,

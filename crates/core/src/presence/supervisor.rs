@@ -1,17 +1,19 @@
 //! presence 状态机与后台维持任务。
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use dashmap::DashMap;
 use swarm_p2p_core::NodeEvent;
-use swarm_p2p_core::libp2p::PeerId;
 use swarm_p2p_core::libp2p::kad::Record;
+use swarm_p2p_core::libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use tokio::time::Instant;
 
-use super::{ONLINE_RECORD_TTL_SECS, OnlineRecord};
+use super::{ONLINE_RECORD_TTL_SECS, OnlineRecord, RelayHint};
 use crate::device::{OsInfo, PairedDeviceInfo};
 use crate::dht_key;
+use crate::network::candidates::{BootstrapCandidateManager, CandidateHealth};
 use crate::protocol::{AppNetClient, AppRequest};
 
 /// per-paired-peer 的 presence 状态。
@@ -88,6 +90,9 @@ fn dial_backoff(attempts: u32) -> Duration {
 /// 阈值取 2 而非 1 是为了避免大传输压满链路时 ping 偶发超时误杀活连接。
 const PING_FAILURE_THRESHOLD: u32 = 2;
 
+/// 在线记录携带的中继提示上限（防 record 膨胀）
+const MAX_RELAY_HINTS: usize = 3;
+
 /// presence 唯一大脑。
 ///
 /// 事件输入走 [`handle_event`](Self::handle_event)（core 事件循环同步调用），
@@ -97,8 +102,14 @@ pub struct PresenceSupervisor {
     peer_id: PeerId,
     paired: Arc<DashMap<PeerId, PairedDeviceInfo>>,
     presence: PresenceMap,
+    /// 候选表（构建在线记录的 relay hint 用）
+    candidates: Arc<RwLock<BootstrapCandidateManager>>,
     /// 连续 ping 失败计数（PingSuccess / 断连时清零）
     ping_failures: DashMap<PeerId, u32>,
+    /// 在线记录需要重发（地址集/reservation 变化或上次发布失败）
+    announce_dirty: AtomicBool,
+    /// announce 连续失败计数（重试退避用）
+    announce_fail_streak: AtomicU32,
     timings: PresenceTimings,
 }
 
@@ -108,13 +119,17 @@ impl PresenceSupervisor {
         peer_id: PeerId,
         paired: Arc<DashMap<PeerId, PairedDeviceInfo>>,
         presence: PresenceMap,
+        candidates: Arc<RwLock<BootstrapCandidateManager>>,
     ) -> Self {
         Self {
             client,
             peer_id,
             paired,
             presence,
+            candidates,
             ping_failures: DashMap::new(),
+            announce_dirty: AtomicBool::new(false),
+            announce_fail_streak: AtomicU32::new(0),
             timings: PresenceTimings::default(),
         }
     }
@@ -179,6 +194,13 @@ impl PresenceSupervisor {
                 tokio::spawn(async move {
                     let _ = client.dial(peer).await;
                 });
+            }
+            // 可达性事实变化 → 在线记录标脏，run 循环按退避立即重发
+            NodeEvent::Listening { .. }
+            | NodeEvent::RelayReservationAccepted { .. }
+            | NodeEvent::RelayReservationLost { .. }
+            | NodeEvent::NatStatusChanged { .. } => {
+                self.announce_dirty.store(true, Ordering::Relaxed);
             }
             _ => {}
         }
@@ -291,41 +313,88 @@ impl PresenceSupervisor {
             + Duration::from_secs(hash % self.timings.probe_jitter_secs.max(1))
     }
 
-    /// 重探一台离线设备：查 DHT 在线记录 → 注册地址 → 重拨。
+    /// 重探一台离线设备（多步编排）：
+    ///
+    /// 1. 查 DHT 在线记录，注册 direct+circuit 地址后直拨；
+    /// 2. 直拨失败且记录携带 relay hint → 逐个先与 relay 建连
+    ///    （触发 DCUtR 自升级），再拨目标的 circuit 地址；
+    /// 3. 失败原因分级记录（无记录/地址不可拨/relay 不可达），不静默。
     ///
     /// DHT 无记录时仍尝试直接 dial：地址簿可能还留有 mDNS 注册的局域网地址
     /// （无公网 bootstrap 的纯局域网场景 DHT 记录不可用）。
     fn spawn_probe(&self, peer: PeerId) {
         let client = self.client.clone();
         tokio::spawn(async move {
-            if let Ok(result) = client
+            let record = match client
                 .get_record(dht_key::online_key(&peer.to_bytes()))
                 .await
             {
-                let record = result.record;
-                let expired = record
-                    .expires
-                    .map(|e| e < std::time::Instant::now())
-                    .unwrap_or(false);
-                if !expired
-                    && let Ok(online) = serde_json::from_slice::<OnlineRecord>(&record.value)
-                    && !online.listen_addrs.is_empty()
-                {
-                    let _ = client.add_peer_addrs(peer, online.listen_addrs).await;
+                Ok(result) => {
+                    let record = result.record;
+                    let expired = record
+                        .expires
+                        .map(|e| e < std::time::Instant::now())
+                        .unwrap_or(false);
+                    if expired {
+                        None
+                    } else {
+                        serde_json::from_slice::<OnlineRecord>(&record.value).ok()
+                    }
+                }
+                Err(_) => None,
+            };
+
+            let Some(online) = record else {
+                tracing::debug!("重探 {peer}: 无在线记录，地址簿兜底直拨");
+                let _ = client.dial(peer).await;
+                return;
+            };
+
+            let addrs = online.dialable_addrs();
+            if !addrs.is_empty() {
+                let _ = client.add_peer_addrs(peer, addrs).await;
+            }
+            if client.dial(peer).await.is_ok() {
+                return;
+            }
+
+            // 直拨失败 → relay hint 多步恢复：先修与 relay 的直连再拨 circuit
+            for hint in online.relays.iter().take(MAX_RELAY_HINTS) {
+                if hint.addrs.is_empty() {
+                    continue;
+                }
+                let _ = client
+                    .add_peer_addrs(hint.peer_id, hint.addrs.clone())
+                    .await;
+                if let Err(e) = client.dial(hint.peer_id).await {
+                    tracing::debug!("重探 {peer}: relay {} 不可达: {e}", hint.peer_id);
+                    continue;
+                }
+                match client.dial(peer).await {
+                    Ok(()) => return,
+                    Err(e) => {
+                        tracing::debug!("重探 {peer}: 经 relay {} 拨号失败: {e}", hint.peer_id)
+                    }
                 }
             }
-            let _ = client.dial(peer).await;
+            tracing::debug!(
+                "重探 {peer}: 全部地址不可拨（{} 个 hint 已尝试）",
+                online.relays.len()
+            );
         });
     }
 
     // === 在线宣告（DHT OnlineRecord） ===
 
-    /// 宣布上线：将本节点的可达地址发布到 DHT（TTL 见 [`ONLINE_RECORD_TTL_SECS`]）
+    /// 宣布上线：发布结构化的可达性声明到 DHT（TTL 见 [`ONLINE_RECORD_TTL_SECS`]）
     pub async fn announce_online(&self) -> crate::AppResult<()> {
         let addrs = self.client.get_addrs().await?;
+        let (direct_addrs, relay_addrs) = classify_announce_addrs(addrs);
         let record_data = OnlineRecord {
             os_info: OsInfo::default(),
-            listen_addrs: addrs,
+            direct_addrs,
+            relay_addrs,
+            relays: self.relay_hints(),
             timestamp: chrono::Utc::now().timestamp(),
         };
         self.client
@@ -341,6 +410,28 @@ impl PresenceSupervisor {
         Ok(())
     }
 
+    /// 从候选表取活跃 relay 作为中继提示（≤3，供对端先修 relay 直连再拨 circuit）
+    fn relay_hints(&self) -> Vec<RelayHint> {
+        let Ok(candidates) = self.candidates.read() else {
+            return Vec::new();
+        };
+        candidates
+            .snapshot()
+            .into_iter()
+            .filter(|c| c.roles.relay_server && matches!(c.health, CandidateHealth::RelayReady))
+            .take(MAX_RELAY_HINTS)
+            .map(|c| RelayHint {
+                peer_id: c.peer_id,
+                addrs: c
+                    .addrs
+                    .into_iter()
+                    .filter(|a| !is_undialable_addr(a))
+                    .collect(),
+            })
+            .filter(|hint| !hint.addrs.is_empty())
+            .collect()
+    }
+
     /// 宣布下线：从 DHT 移除在线记录（节点停止时调用）
     pub async fn announce_offline(&self) -> crate::AppResult<()> {
         self.client
@@ -352,8 +443,16 @@ impl PresenceSupervisor {
     fn spawn_announce(self: &Arc<Self>) {
         let this = self.clone();
         tokio::spawn(async move {
-            if let Err(e) = this.announce_online().await {
-                tracing::debug!("announce_online 失败（将按周期重试）: {e}");
+            match this.announce_online().await {
+                Ok(()) => {
+                    this.announce_fail_streak.store(0, Ordering::Relaxed);
+                }
+                Err(e) => {
+                    // 失败保持脏标记，run 循环按退避重试（而非死等 150s 周期）
+                    this.announce_fail_streak.fetch_add(1, Ordering::Relaxed);
+                    this.announce_dirty.store(true, Ordering::Relaxed);
+                    tracing::debug!("announce_online 失败（将退避重试）: {e}");
+                }
             }
         });
     }
@@ -387,7 +486,7 @@ impl PresenceSupervisor {
         self.spawn_announce();
         let _ = tokio::time::timeout(Duration::from_secs(30), self.client.bootstrap()).await;
 
-        let mut last_announce = Instant::now();
+        let mut last_announce_attempt = Instant::now();
         let mut interval = tokio::time::interval(self.timings.tick);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -406,8 +505,14 @@ impl PresenceSupervisor {
                         )
                         .await;
                     }
-                    if now.duration_since(last_announce) >= self.timings.announce_interval {
-                        last_announce = now;
+                    // 事件驱动（脏标记 + 失败退避）优先，150s 周期兜底
+                    let since = now.duration_since(last_announce_attempt);
+                    let dirty = self.announce_dirty.load(Ordering::Relaxed);
+                    let retry_after =
+                        announce_backoff(self.announce_fail_streak.load(Ordering::Relaxed));
+                    if (dirty && since >= retry_after) || since >= self.timings.announce_interval {
+                        self.announce_dirty.store(false, Ordering::Relaxed);
+                        last_announce_attempt = now;
                         self.spawn_announce();
                     }
                 }
@@ -415,6 +520,46 @@ impl PresenceSupervisor {
         }
         tracing::info!("presence supervisor 退出");
     }
+}
+
+/// 脏标记触发的重发去抖/失败退避：2s 起步，随连续失败翻倍，上限 30s
+fn announce_backoff(fail_streak: u32) -> Duration {
+    let secs = 2u64.saturating_mul(1 << fail_streak.min(4));
+    Duration::from_secs(secs.min(30))
+}
+
+/// 把本机地址集分类为可发布的（direct, relay circuit）两组。
+///
+/// - loopback/unspecified 剔除（对任何对端无意义）
+/// - 恰好一跳 circuit → relay 组；多跳 circuit 剔除（libp2p 硬拒）
+/// - 私网地址保留在 direct 组（跨子网 LAN 可用，跨网拨快速失败无害）
+fn classify_announce_addrs(addrs: Vec<Multiaddr>) -> (Vec<Multiaddr>, Vec<Multiaddr>) {
+    let mut direct = Vec::new();
+    let mut relay = Vec::new();
+    for addr in addrs {
+        if is_undialable_addr(&addr) {
+            continue;
+        }
+        match addr
+            .iter()
+            .filter(|p| matches!(p, Protocol::P2pCircuit))
+            .count()
+        {
+            0 => direct.push(addr),
+            1 => relay.push(addr),
+            _ => {} // 多跳 circuit：任何 libp2p 节点都拨不了
+        }
+    }
+    (direct, relay)
+}
+
+/// loopback / unspecified 对任何对端都不可拨
+fn is_undialable_addr(addr: &Multiaddr) -> bool {
+    addr.iter().any(|p| match p {
+        Protocol::Ip4(ip) => ip.is_loopback() || ip.is_unspecified(),
+        Protocol::Ip6(ip) => ip.is_loopback() || ip.is_unspecified(),
+        _ => false,
+    })
 }
 
 #[cfg(test)]
@@ -446,7 +591,17 @@ mod tests {
 
         let paired: Arc<DashMap<PeerId, PairedDeviceInfo>> = Arc::new(DashMap::new());
         let presence: PresenceMap = Arc::new(DashMap::new());
-        let supervisor = PresenceSupervisor::new(client, peer_id, paired.clone(), presence.clone());
+        let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(
+            crate::network::DiscoveryMode::Auto,
+            true,
+        )));
+        let supervisor = PresenceSupervisor::new(
+            client,
+            peer_id,
+            paired.clone(),
+            presence.clone(),
+            candidates,
+        );
         TestCtx {
             supervisor,
             paired,
@@ -574,6 +729,55 @@ mod tests {
         assert!(
             matches!(state_of(&ctx, &peer), Some(PresenceState::Connected)),
             "状态转换应等待真实的 PeerDisconnected 事件"
+        );
+    }
+
+    #[test]
+    fn classify_filters_undialable_and_multihop_addrs() {
+        let addrs: Vec<Multiaddr> = [
+            "/ip4/192.168.1.20/tcp/4001",                     // 私网直连：保留
+            "/ip4/203.0.113.7/udp/4001/quic-v1",              // 公网直连：保留
+            "/ip4/127.0.0.1/tcp/4001",                        // loopback：剔除
+            "/ip4/0.0.0.0/tcp/4001",                          // unspecified：剔除
+            // 合法一跳 circuit → relay 组
+            "/ip4/192.168.1.5/tcp/4001/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp/p2p-circuit",
+            // 非法二跳 circuit：剔除
+            "/ip4/47.115.172.218/tcp/4001/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp/p2p-circuit/p2p/12D3KooWQYhTNQdmr3ArTeUHRYzFg94BKyTkoWBDWez9kSCVe2Xo/p2p-circuit",
+        ]
+        .into_iter()
+        .map(|a| a.parse().unwrap())
+        .collect();
+
+        let (direct, relay) = classify_announce_addrs(addrs);
+
+        assert_eq!(direct.len(), 2, "私网+公网直连保留: {direct:?}");
+        assert_eq!(relay.len(), 1, "仅一跳 circuit 进 relay 组: {relay:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reachability_events_mark_announce_dirty() {
+        let ctx = test_ctx();
+        assert!(!ctx.supervisor.announce_dirty.load(Ordering::Relaxed));
+
+        ctx.supervisor
+            .handle_event(&NodeEvent::RelayReservationAccepted {
+                relay_peer_id: PeerId::from_public_key(&Keypair::generate_ed25519().public()),
+                renewal: false,
+            });
+        assert!(
+            ctx.supervisor.announce_dirty.load(Ordering::Relaxed),
+            "reservation 建立必须标脏在线记录"
+        );
+
+        ctx.supervisor
+            .announce_dirty
+            .store(false, Ordering::Relaxed);
+        ctx.supervisor.handle_event(&NodeEvent::Listening {
+            addr: "/ip4/192.168.1.2/tcp/4001".parse().unwrap(),
+        });
+        assert!(
+            ctx.supervisor.announce_dirty.load(Ordering::Relaxed),
+            "监听地址变化必须标脏在线记录"
         );
     }
 

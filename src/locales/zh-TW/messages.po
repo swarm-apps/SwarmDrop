@@ -185,6 +185,7 @@ msgstr "僅刪除記錄會保留本機檔案；勾選刪除本機檔案後，會
 msgid "仅在需要接入私有或备用网络时添加。"
 msgstr "僅在需要接入私有或備用網路時新增。"
 
+#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "仅局域网"
 msgstr "僅區域網路"
@@ -310,6 +311,10 @@ msgstr "允許資料夾"
 msgid "允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响"
 msgstr "允許本機 AI 助手代為處置該裝置需你確認的入站檔案（接受或拒絕）；關閉則仍需你手動確認。已自動接收的入站不受此影響"
 
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
+msgstr ""
+
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先查找，再确认"
 msgstr "先尋找，再確認"
@@ -322,6 +327,15 @@ msgstr "全部"
 #: src/components/network/stop-node-sheet.tsx
 msgid "公网"
 msgstr "公網"
+
+#: src/components/network/stop-node-sheet.tsx
+msgid "公网可达"
+msgstr ""
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "公网可达性"
+msgstr ""
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "公网地址"
@@ -561,6 +575,10 @@ msgstr "可恢復"
 #: src/lib/transfer-projection.ts
 msgid "可恢复失败"
 msgstr "可恢復失敗"
+
+#: src/components/network/stop-node-sheet.tsx
+msgid "可达"
+msgstr ""
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
@@ -992,7 +1010,6 @@ msgid "打开传输记录"
 msgstr "開啟傳輸記錄"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-#: src/routes/_app/inbox/index.lazy.tsx
 msgid "打开收件箱列表"
 msgstr "開啟收件匣列表"
 
@@ -1052,8 +1069,8 @@ msgid "接收策略"
 msgstr "接收策略"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "控制是否连接公网引导节点"
-msgstr "控制是否連線公網引導節點"
+#~ msgid "控制是否连接公网引导节点"
+#~ msgstr "控制是否連線公網引導節點"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "搜索收件箱"
@@ -1143,6 +1160,10 @@ msgstr "對應成功"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "昨天"
 msgstr "昨天"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+msgstr ""
 
 #: src/routes/_app/inbox/index.lazy.tsx
 #~ msgid "显示位置"

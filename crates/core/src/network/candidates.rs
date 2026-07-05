@@ -14,6 +14,8 @@ pub enum BootstrapCandidateSource {
     BuiltInPublic,
     UserCustom,
     MdnsLanHelper,
+    /// 运行时经 identify 学到的基础设施节点（如 LanOnly 下经 LAN Helper 认识的公网中继）
+    Learned,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -181,6 +183,11 @@ impl BootstrapCandidateManager {
         self.candidates.get(&peer_id).cloned()
     }
 
+    /// 全量候选快照（infra 收敛层 tick 时消费）
+    pub fn snapshot(&self) -> Vec<BootstrapCandidate> {
+        self.candidates.values().cloned().collect()
+    }
+
     pub fn lan_helper_count(&self) -> usize {
         self.candidates
             .values()
@@ -211,6 +218,7 @@ impl BootstrapCandidateManager {
             BootstrapCandidateSource::UserCustom => 0,
             BootstrapCandidateSource::MdnsLanHelper => 1,
             BootstrapCandidateSource::BuiltInPublic => 2,
+            BootstrapCandidateSource::Learned => 3,
         });
         statuses
     }

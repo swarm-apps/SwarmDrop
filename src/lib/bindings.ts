@@ -12,6 +12,14 @@ export const commands = {
 	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
+	/**
+	 *  公网可达性：允许在已知公网中继上建立 reservation 使本机可被跨网直达。
+	 * 
+	 *  与 discovery_mode 正交——LanOnly 只管"不主动连接内置公网引导"，
+	 *  经 LAN Helper 学到的公网中继仍受本开关控制。关闭 = 严格局域网，
+	 *  跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+	 */
+	publicReachability?: boolean,
 } | null) => __TAURI_INVOKE<null>("start", { pairedDevices, networkOptions }),
 	shutdown: () => __TAURI_INVOKE<null>("shutdown"),
 	listDevices: (filter: "all" | "connected" | "paired" | null) => __TAURI_INVOKE<DeviceListResult>("list_devices", { filter }),
@@ -177,7 +185,9 @@ export type AppErrorPayload = {
 	message: string,
 };
 
-export type BootstrapCandidateSource = "builtInPublic" | "userCustom" | "mdnsLanHelper";
+export type BootstrapCandidateSource = "builtInPublic" | "userCustom" | "mdnsLanHelper" | 
+/**  运行时经 identify 学到的基础设施节点（如 LanOnly 下经 LAN Helper 认识的公网中继） */
+"learned";
 
 export type CandidateSourceStatus = {
 	source: BootstrapCandidateSource,
@@ -383,6 +393,14 @@ export type NetworkRuntimeConfig = {
 	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
+	/**
+	 *  公网可达性：允许在已知公网中继上建立 reservation 使本机可被跨网直达。
+	 * 
+	 *  与 discovery_mode 正交——LanOnly 只管"不主动连接内置公网引导"，
+	 *  经 LAN Helper 学到的公网中继仍受本开关控制。关闭 = 严格局域网，
+	 *  跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+	 */
+	publicReachability?: boolean,
 };
 
 /**  网络状态快照。 */
@@ -396,6 +414,11 @@ export type NetworkStatus = {
 	discoveredPeers: number,
 	/**  Relay 中继是否就绪（至少有一个中继节点已连接）。 */
 	relayReady: boolean,
+	/**
+	 *  公网可达：持有公网范围中继的活跃 reservation，或已确认公网直达地址。
+	 *  false = 仅局域网可达（跨网设备无法直接访问本机）。
+	 */
+	publicReachable: boolean,
 	/**  当前已连接的中继节点 PeerId 列表。 */
 	relayPeers: string[],
 	/**  是否至少有一个引导节点已连接。 */

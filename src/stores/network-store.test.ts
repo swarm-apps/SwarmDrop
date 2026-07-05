@@ -101,6 +101,7 @@ describe("network-store", () => {
         discoveryMode: "lanOnly",
         autoDiscoverLanHelpers: false,
         provideLanHelper: true,
+        publicReachability: true,
       },
     );
   });

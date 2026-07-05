@@ -40,6 +40,8 @@ pub async fn handle_core_node_event<TTransfer>(
     shared.devices.handle_event(event);
     // presence 状态机折叠（已配对 peer 的 Connected/Probing 转换 + 断连即重拨）
     shared.presence.handle_event(event);
+    // infra 收敛折叠（reservation 建立/丢失 + 学习型基础设施候选）
+    shared.infra.handle_event(event);
     maybe_register_lan_helper(shared, event, event_bus).await;
 
     match event {
@@ -69,6 +71,16 @@ pub async fn handle_core_node_event<TTransfer>(
             }
             if let Ok(mut candidates) = shared.candidates.write() {
                 candidates.mark_relay_ready(*relay_peer_id);
+            }
+            publish_network_status(shared, event_bus).await;
+        }
+        NodeEvent::RelayReservationLost { relay_peer_id } => {
+            // 重建由 InfraSupervisor 负责（顶部 handle_event 已折叠）；这里只更新状态视图
+            if let Ok(mut rp) = shared.relay_peers.write() {
+                rp.remove(relay_peer_id);
+            }
+            if let Ok(mut candidates) = shared.candidates.write() {
+                candidates.mark_failed(*relay_peer_id);
             }
             publish_network_status(shared, event_bus).await;
         }
@@ -191,6 +203,9 @@ async fn maybe_register_lan_helper<TTransfer>(
         })
         .unwrap_or(false);
 
+    // changed 只是"地址/来源有更新"的即时接线路径（避免每次 identify 重复发命令）。
+    // 候选进表后，连接与 reservation 的持续维持由 InfraSupervisor 收敛兜底——
+    // helper 重启/挂起恢复（changed=false）的重建不再依赖这里。
     if changed {
         let client = shared.client.clone();
         let candidates = shared.candidates.clone();
@@ -273,14 +288,15 @@ pub async fn run_event_loop<TTransfer>(
 ) where
     TTransfer: IncomingTransferRuntime + Send + Sync + 'static,
 {
-    // presence 后台任务随事件循环拉起（宣告/bootstrap/保活装载/状态机推进），
-    // 随 NetManager 的 CancellationToken 退出。host 无需任何 presence 调用。
+    // presence / infra 后台收敛任务随事件循环拉起，随 NetManager 的
+    // CancellationToken 退出。host 无需任何 presence/infra 调用。
     tokio::spawn(
         shared
             .presence
             .clone()
             .run(shared.clone(), event_bus.clone()),
     );
+    tokio::spawn(shared.infra.clone().run(shared.clone()));
 
     while let Some(event) = receiver.recv().await {
         if let Err(e) = handle_core_node_event(&shared, &event, event_bus.as_ref()).await {

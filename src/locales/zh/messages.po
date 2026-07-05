@@ -184,6 +184,7 @@ msgstr "仅删除记录会保留本地文件；勾选删除本地文件后，会
 msgid "仅在需要接入私有或备用网络时添加。"
 msgstr "仅在需要接入私有或备用网络时添加。"
 
+#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "仅局域网"
 msgstr "仅局域网"
@@ -309,6 +310,10 @@ msgstr "允许文件夹"
 msgid "允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响"
 msgstr "允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响"
 
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
+msgstr "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
+
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先查找，再确认"
 msgstr "先查找，再确认"
@@ -321,6 +326,15 @@ msgstr "全部"
 #: src/components/network/stop-node-sheet.tsx
 msgid "公网"
 msgstr "公网"
+
+#: src/components/network/stop-node-sheet.tsx
+msgid "公网可达"
+msgstr "公网可达"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "公网可达性"
+msgstr "公网可达性"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "公网地址"
@@ -560,6 +574,10 @@ msgstr "可恢复"
 #: src/lib/transfer-projection.ts
 msgid "可恢复失败"
 msgstr "可恢复失败"
+
+#: src/components/network/stop-node-sheet.tsx
+msgid "可达"
+msgstr "可达"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
@@ -991,7 +1009,6 @@ msgid "打开传输记录"
 msgstr "打开传输记录"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-#: src/routes/_app/inbox/index.lazy.tsx
 msgid "打开收件箱列表"
 msgstr "打开收件箱列表"
 
@@ -1051,8 +1068,8 @@ msgid "接收策略"
 msgstr "接收策略"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "控制是否连接公网引导节点"
-msgstr "控制是否连接公网引导节点"
+#~ msgid "控制是否连接公网引导节点"
+#~ msgstr "控制是否连接公网引导节点"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "搜索收件箱"
@@ -1142,6 +1159,10 @@ msgstr "映射成功"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "昨天"
 msgstr "昨天"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+msgstr "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 #~ msgid "显示位置"
