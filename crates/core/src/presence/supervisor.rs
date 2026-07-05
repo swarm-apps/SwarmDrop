@@ -77,10 +77,15 @@ fn dial_backoff(attempts: u32) -> Duration {
     }
 }
 
-/// 判定死对端所需的连续 ping 失败次数。
+/// 判定死对端所需的连续 PingFailure 事件数。
 ///
 /// 只对 TCP 连接真正生效：QUIC 传输层自带 10s idle 判死（先于本机制），
-/// TCP 无 keepalive，死对端全靠 ping 失败暴露（15s 间隔 + 10s 超时 ≈ 30-40s 判死）。
+/// TCP/yamux 无任何传输层判死，死对端全靠 ping 失败暴露。
+///
+/// 注意 libp2p-ping handler 会静默吞掉第 1 次失败（兼容每次新开 substream
+/// 的对端），从第 2 次连续失败起才上报事件——所以阈值 2 个事件 ≈ 协议层
+/// 连续 3 次失败 ≈ 40s（15s 间隔 + 10s 超时），加 15s 宽限后约 1 分钟判离线。
+/// 阈值取 2 而非 1 是为了避免大传输压满链路时 ping 偶发超时误杀活连接。
 const PING_FAILURE_THRESHOLD: u32 = 2;
 
 /// presence 唯一大脑。
