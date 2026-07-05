@@ -140,6 +140,29 @@ const pairedDevices = useMemo(() => {
 
 ## 节点生命周期
 
+### presence 由 core 自治，host 不做任何 presence 调用
+
+已配对设备的在线状态维持（DHT 在线宣告刷新、keep-alive 白名单、断连宽限重拨、
+离线低频重探）全部由 `swarmdrop_core::presence::Supervisor` 承担，随 core 的
+`run_event_loop` 自动拉起、随 `NetManager::shutdown()` 结束。在线语义：
+`Connected | Probing(断连后 ~15s 宽限，UI 维持在线) → online`，`Unreachable → offline`。
+
+**正确做法**：
+- host 启动节点只调 `start_node`，停止只调 `manager.shutdown()`（内含 announce_offline）。
+- 网络抖动 1-2 秒不会闪离线（宽限期语义）。死对端判离线时长按 transport 分：
+  QUIC ≈25s（quinn 10s idle 判死 + 15s 宽限）；TCP ≈55s（无传输层判死，靠
+  Supervisor 数 2 个 PingFailure 事件 ≈ 协议层连续 3 次失败 ≈40s，libp2p-ping
+  handler 会吞掉第 1 次失败）。对端回归 ≤90s 被低频重探发现。
+
+**不要做**：
+- 不要在 host 侧再加 announce_online / check_paired_online 之类的一次性编排——
+  这些 API 已从 `pairing::manager` 移除，职责在 `presence` 模块。
+- 不要把「在线」再当成瞬时 libp2p 连接镜像来改——libp2p 0.52+ 的 ping 不保活，
+  裸连接 60s 空闲必被回收，那正是 v0.7.5 之前「闲置自动离线」bug 的根因。
+
+**相关文件**：桌面仓 `crates/core/src/presence/`（rev dd46c7d），
+[packages/swarmdrop-core/rust/mobile-core/src/network.rs](../../packages/swarmdrop-core/rust/mobile-core/src/network.rs)
+
 ### 不在 AppState 切换时自动 shutdown/start
 
 文件选择器、系统弹窗等"瞬间退台"场景会反复重建 NetManager 打断传输，UI 还会出现"还没有配对设备"

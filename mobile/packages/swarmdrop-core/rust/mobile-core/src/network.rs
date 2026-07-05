@@ -1,6 +1,7 @@
 //! 网络生命周期 —— `start_node` / `shutdown_node` / `network_status`。
 //!
-//! host 必须在前台主动调 `start_node`,后台时调 `shutdown_node`。core 不自动管。
+//! 节点开关由 host 决定（用户显式控制）；节点运行期间的 presence
+//! （在线宣告 / 已配对设备保活与重连）由 core 自治，host 无需参与。
 
 use swarmdrop_core::network::{
     BootstrapCandidateSource, CandidateSourceStatus, DiscoveryMode, NetworkRuntimeConfig,
@@ -8,7 +9,7 @@ use swarmdrop_core::network::{
 };
 
 use crate::app::MobileCore;
-use crate::error::{FfiError, FfiResult};
+use crate::error::FfiResult;
 use crate::events::spawn_event_loop;
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
@@ -213,14 +214,9 @@ impl MobileCore {
             },
         )?;
 
+        // presence（宣告上线 / bootstrap / 已配对设备重连与保活）由 core 的
+        // 事件循环自动接管（见 swarmdrop_core::presence），host 不再手工编排。
         let shared = started.manager.shared_refs();
-        let client = started.manager.client().clone();
-        let pairing = shared.pairing.clone();
-        tokio::spawn(async move {
-            let _ = pairing.announce_online().await;
-            let _ = client.bootstrap().await;
-            pairing.check_paired_online().await;
-        });
         spawn_event_loop(started.receiver, shared, self.event_bus_arc());
 
         self.set_net_manager(started.manager).await;
@@ -230,12 +226,8 @@ impl MobileCore {
     pub async fn shutdown_node(&self) -> FfiResult<()> {
         let mut guard = self.net_manager_guard().await;
         if let Some(manager) = guard.as_ref() {
-            manager
-                .pairing()
-                .announce_offline()
-                .await
-                .map_err(FfiError::from)?;
-            manager.cancel_background_tasks();
+            // 宣布下线（尽力而为）+ 取消 presence 等后台任务
+            manager.shutdown().await;
         }
         guard.take();
         Ok(())
