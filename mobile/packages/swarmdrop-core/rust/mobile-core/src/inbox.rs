@@ -238,6 +238,10 @@ fn parse_item_id(s: &str) -> FfiResult<Uuid> {
     Uuid::parse_str(s).map_err(|_| FfiError::Transfer(format!("invalid inbox item id: {s}")))
 }
 
+fn parse_session_id(s: &str) -> FfiResult<Uuid> {
+    Uuid::parse_str(s).map_err(|_| FfiError::Transfer(format!("invalid session_id: {s}")))
+}
+
 fn parse_file_id(file_id: u32) -> FfiResult<i32> {
     i32::try_from(file_id)
         .map_err(|_| FfiError::Transfer(format!("invalid inbox file id: {file_id}")))
@@ -263,6 +267,18 @@ impl MobileCore {
         let item_uuid = parse_item_id(&item_id)?;
         let db = self.ensure_db().await?;
         let item = inbox_ops::get_inbox_item_detail(&db, item_uuid)
+            .await
+            .map_err(FfiError::from)?;
+        Ok(item.map(Into::into))
+    }
+
+    pub async fn get_inbox_item_by_transfer_session_id(
+        &self,
+        session_id: String,
+    ) -> FfiResult<Option<MobileInboxItemDetail>> {
+        let session_uuid = parse_session_id(&session_id)?;
+        let db = self.ensure_db().await?;
+        let item = inbox_ops::get_inbox_item_by_transfer_session_id(&db, session_uuid)
             .await
             .map_err(FfiError::from)?;
         Ok(item.map(Into::into))

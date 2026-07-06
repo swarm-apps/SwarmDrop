@@ -35,6 +35,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_archive_inbox_item(ptr: bigint, itemId: Uint8Array, archived: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record(ptr: bigint, itemId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item(ptr: bigint, itemId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item_by_transfer_session_id(ptr: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_inbox_items(ptr: bigint, includeArchived: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_file_missing(ptr: bigint, itemId: Uint8Array, fileId: number, missing: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_item_opened(ptr: bigint, itemId: Uint8Array): bigint;
@@ -139,6 +140,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item_by_transfer_session_id(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_item_opened(): number;

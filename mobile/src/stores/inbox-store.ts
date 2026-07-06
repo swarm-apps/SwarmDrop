@@ -44,6 +44,9 @@ interface InboxState {
 interface InboxActions {
   refresh(): Promise<void>;
   repairMissingItems(): Promise<number>;
+  resolveItemIdByTransferSessionId(
+    transferSessionId: string,
+  ): Promise<string | null>;
   loadDetail(itemId: string): Promise<MobileInboxItemDetail | null>;
   clearDetail(): void;
   markOpened(itemId: string): Promise<void>;
@@ -65,6 +68,27 @@ export type InboxPreviewItem = MobileInboxItemSummary;
 export type InboxDetailItem = MobileInboxItemDetail;
 export type InboxFileEntry = MobileInboxFileEntry;
 export type InboxSearchHit = MobileInboxSearchHit;
+
+function findInboxItemIdByTransferSessionId(
+  items: MobileInboxItemSummary[],
+  transferSessionId: string,
+): string | null {
+  return (
+    items.find((item) => item.transferSessionId === transferSessionId)?.id ??
+    null
+  );
+}
+
+function upsertInboxItem(
+  items: MobileInboxItemSummary[],
+  item: MobileInboxItemSummary,
+): MobileInboxItemSummary[] {
+  const index = items.findIndex((current) => current.id === item.id);
+  if (index === -1) return [item, ...items];
+  const next = items.slice();
+  next[index] = item;
+  return next;
+}
 
 // 并发 refresh 的单调序号：多触发源下迟到的旧响应不得覆盖新结果。
 let refreshSeq = 0;
@@ -143,6 +167,34 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
       throw err;
     } finally {
       set({ action: null });
+    }
+  },
+
+  async resolveItemIdByTransferSessionId(transferSessionId) {
+    const cached = findInboxItemIdByTransferSessionId(
+      get().items,
+      transferSessionId,
+    );
+    if (cached) return cached;
+
+    try {
+      const detail =
+        await getMobileCore().getInboxItemByTransferSessionId(
+          transferSessionId,
+        );
+      if (!detail) return null;
+      set((state) => ({
+        items: upsertInboxItem(state.items, detail.item),
+        lastRefreshedAt: Date.now(),
+      }));
+      return detail.item.id;
+    } catch (err) {
+      set({ lastError: errorMessage(err) });
+      console.warn(
+        "[inbox-store] resolve by transfer session failed:",
+        errorMessage(err),
+      );
+      return null;
     }
   },
 

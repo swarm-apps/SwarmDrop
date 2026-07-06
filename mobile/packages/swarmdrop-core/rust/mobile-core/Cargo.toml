@@ -22,12 +22,12 @@ uuid = { version = "1", features = ["v4"] }
 # swarm-p2p-core 会撞 "multiple versions"。
 #
 # sync-mobile-core-runtime target:
-# /Volumes/yexiyue/SwarmDrop develop 1e70b58025deeda285c7e623b6f9e6686e4ec0bd
-# (open-containing-folder: finalize_sink 返回父目录 URI + content_root/local_dir 贯穿)
-swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "1e70b58025deeda285c7e623b6f9e6686e4ec0bd" }
-entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "1e70b58025deeda285c7e623b6f9e6686e4ec0bd" }
-migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "1e70b58025deeda285c7e623b6f9e6686e4ec0bd" }
-swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "1e70b58025deeda285c7e623b6f9e6686e4ec0bd" }
+# /Volumes/yexiyue/SwarmDrop develop e6323d1d19cb226005dd637d91b4197c3ef58c66
+# (inbox-by-transfer-session: 传输详情完成态可深链到收件箱条目)
+swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "e6323d1d19cb226005dd637d91b4197c3ef58c66" }
+entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "e6323d1d19cb226005dd637d91b4197c3ef58c66" }
+migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "e6323d1d19cb226005dd637d91b4197c3ef58c66" }
+swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "e6323d1d19cb226005dd637d91b4197c3ef58c66" }
 sea-orm = { version = "2.0.0-rc", features = [
     "macros",
     "runtime-tokio-rustls",

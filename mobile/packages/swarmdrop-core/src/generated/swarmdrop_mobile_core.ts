@@ -5430,6 +5430,7 @@ export interface MobileCoreLike {
     archiveInboxItem(itemId: string, archived: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     deleteInboxItemRecord(itemId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     getInboxItem(itemId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileInboxItemDetail | undefined>;
+    getInboxItemByTransferSessionId(sessionId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileInboxItemDetail | undefined>;
     listInboxItems(includeArchived: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<Array<MobileInboxItemSummary>>;
     markInboxFileMissing(itemId: string, fileId: /*u32*/number, missing: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     markInboxItemOpened(itemId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
@@ -5899,6 +5900,34 @@ async  getInboxItem(itemId: string, asyncOpts_?: { signal: AbortSignal }): Promi
     }
     }
     
+async  getInboxItemByTransferSessionId(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileInboxItemDetail | undefined> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item_by_transfer_session_id(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(sessionId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterOptionalTypeMobileInboxItemDetail.lift.bind(FfiConverterOptionalTypeMobileInboxItemDetail),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+
 async  listInboxItems(includeArchived: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileInboxItemSummary>> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -6746,6 +6775,9 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item() !== 20504) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item_by_transfer_session_id() !== 58105) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item_by_transfer_session_id");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items() !== 59837) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items");

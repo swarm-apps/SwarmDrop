@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   CheckCircle2,
   FolderOpen,
+  Inbox,
   type LucideIcon,
   Pause,
   Play,
@@ -54,6 +55,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
 import { errorMessage, lastPathSegment, truncateMiddle } from "@/lib/utils";
+import { useInboxStore } from "@/stores/inbox-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export default function TransferDetailScreen() {
@@ -71,6 +73,23 @@ export default function TransferDetailScreen() {
   const resumeHistoryItem = useTransferStore((s) => s.resumeHistoryItem);
   const refreshAfterTransition = useTransferStore(
     (s) => s.refreshAfterTransition,
+  );
+
+  const completedReceiveSessionId =
+    projection &&
+    projectionStatus(projection) === "completed" &&
+    projectionDirection(projection) === "receive"
+      ? projection.sessionId
+      : null;
+  const inboxItemId = useInboxStore((s) =>
+    completedReceiveSessionId
+      ? (s.items.find(
+          (item) => item.transferSessionId === completedReceiveSessionId,
+        )?.id ?? null)
+      : null,
+  );
+  const resolveInboxItemId = useInboxStore(
+    (s) => s.resolveItemIdByTransferSessionId,
   );
 
   const [busy, setBusy] = useState<
@@ -163,6 +182,19 @@ export default function TransferDetailScreen() {
     } as never);
   }, [router, projection?.peerId]);
 
+  useEffect(() => {
+    if (!completedReceiveSessionId || inboxItemId) return;
+    void resolveInboxItemId(completedReceiveSessionId);
+  }, [completedReceiveSessionId, inboxItemId, resolveInboxItemId]);
+
+  const openInboxItem = useCallback(() => {
+    if (!inboxItemId) return;
+    router.push({
+      pathname: "/inbox/[itemId]",
+      params: { itemId: inboxItemId },
+    } as never);
+  }, [inboxItemId, router]);
+
   const savePath = projection ? savePathOf(projection) : null;
   const isActive = projection != null && isProjectionActive(projection);
 
@@ -212,6 +244,8 @@ export default function TransferDetailScreen() {
           onResume={onResume}
           onResend={onResend}
           onOpenFolder={openFolder}
+          canOpenInbox={inboxItemId != null}
+          onOpenInbox={openInboxItem}
         />
       ) : null}
 
@@ -586,6 +620,8 @@ function TransferActionBar({
   onResume,
   onResend,
   onOpenFolder,
+  canOpenInbox,
+  onOpenInbox,
 }: {
   projection: MobileTransferProjection;
   busy: string | null;
@@ -594,6 +630,8 @@ function TransferActionBar({
   onResume: () => void;
   onResend: () => void;
   onOpenFolder: () => void;
+  canOpenInbox: boolean;
+  onOpenInbox: () => void;
 }) {
   const actions: React.ReactNode[] = [];
   const status = projectionStatus(projection);
@@ -641,6 +679,19 @@ function TransferActionBar({
     );
   }
 
+  if (canOpenInbox && status === "completed") {
+    actions.push(
+      <ActionButton
+        key="open-inbox"
+        Icon={Inbox}
+        label={<Trans>在收件箱查看</Trans>}
+        onPress={onOpenInbox}
+        variant="primary"
+        testID="transfer-open-inbox-button"
+      />,
+    );
+  }
+
   // canOpenSaveFolder=false(Android 私有目录)时不给一个必败按钮;文件去收件箱打开/分享。
   if (savePath && status === "completed" && canOpenSaveFolder(savePath)) {
     actions.push(
@@ -649,7 +700,8 @@ function TransferActionBar({
         Icon={FolderOpen}
         label={<Trans>打开文件夹</Trans>}
         onPress={onOpenFolder}
-        variant="primary"
+        variant={canOpenInbox ? "secondary" : "primary"}
+        testID="transfer-open-folder-button"
       />,
     );
   }
@@ -685,6 +737,7 @@ interface ActionButtonProps {
   disabled?: boolean;
   loading?: boolean;
   variant: "primary" | "secondary" | "destructive";
+  testID?: string;
 }
 
 function ActionButton({
@@ -694,6 +747,7 @@ function ActionButton({
   disabled,
   loading,
   variant,
+  testID,
 }: ActionButtonProps) {
   const colors = useThemeColors();
   // 横排底栏三形态:主动作实心蓝,次动作描边白,破坏性描边白+红字(不做红色实心 hero)
@@ -720,6 +774,7 @@ function ActionButton({
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
+      testID={testID}
       className={`min-h-12 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-4 ${style.bg} active:opacity-70 disabled:opacity-50`}
     >
       {loading ? (
