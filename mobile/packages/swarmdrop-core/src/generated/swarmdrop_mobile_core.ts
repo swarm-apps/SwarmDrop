@@ -5927,7 +5927,7 @@ async  getInboxItemByTransferSessionId(sessionId: string, asyncOpts_?: { signal:
         throw __error;
     }
     }
-
+    
 async  listInboxItems(includeArchived: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileInboxItemSummary>> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {

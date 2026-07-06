@@ -325,7 +325,7 @@ extern "C" {
         RustBuffer item_id
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item_by_transfer_session_id(
-        /*handle*/ uint64_t ptr,
+        /*handle*/ uint64_t ptr, 
         RustBuffer session_id
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_inbox_items(
@@ -6484,7 +6484,7 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item_by_transfer_session_id(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
         );
 
-
+        
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_inbox_items(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
@@ -7306,7 +7306,7 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item_by_transfer_session_id(
         );
 
-
+        
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
