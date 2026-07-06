@@ -51,6 +51,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::list_inbox_items,
             commands::search_inbox,
             commands::get_inbox_item_detail,
+            commands::get_inbox_item_by_transfer_session_id,
             commands::repair_missing_inbox_items,
             commands::open_inbox_item,
             commands::show_inbox_item_in_folder,

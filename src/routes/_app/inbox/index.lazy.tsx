@@ -68,35 +68,44 @@ import {
   MasterDetailShell,
   OpenListButton,
 } from "@/components/layout/master-detail-shell";
+import { getErrorMessage } from "@/lib/errors";
 
 export const Route = createLazyFileRoute("/_app/inbox/")({
   component: InboxPage,
 });
 
 type ReaderStatus = "empty" | "loading" | "error" | "ready";
+type RunAndRefresh = (
+  action: () => Promise<unknown>,
+  success?: string,
+  detailId?: string | null,
+) => Promise<InboxItemSummary[] | null>;
 
 function InboxPage() {
+  const { item, q, archived } = Route.useSearch();
+  const selectedId = item ?? null;
+  const query = q ?? "";
+  const showArchived = archived === true;
   const detail = useInboxStore((s) => s.detail);
   const detailForId = useInboxStore((s) => s.detailForId);
-  const selectedId = useInboxStore((s) => s.selectedId);
   const items = useInboxStore((s) => s.items);
-  const query = useInboxStore((s) => s.query);
   const searchResults = useInboxStore((s) => s.searchResults);
-  const showArchived = useInboxStore((s) => s.showArchived);
+  const loading = useInboxStore((s) => s.loading);
+  const searching = useInboxStore((s) => s.searching);
   const loadItems = useInboxStore((s) => s.loadItems);
   const loadDetail = useInboxStore((s) => s.loadDetail);
-  const runAndRefresh = useInboxStore((s) => s.runAndRefresh);
   const runSearch = useInboxStore((s) => s.runSearch);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
 
   const navigate = useNavigate();
-  const selectItem = useInboxStore((s) => s.selectItem);
   const isSearching = query.trim() !== "";
+  const selectedDetail =
+    selectedId && detail?.id === selectedId ? detail : null;
   const selectedItem = useMemo(
-    () => items.find((item) => item.id === selectedId) ?? null,
-    [items, selectedId],
+    () => items.find((item) => item.id === selectedId) ?? selectedDetail,
+    [items, selectedId, selectedDetail],
   );
   const visibleIds = useMemo(
     () =>
@@ -105,22 +114,87 @@ function InboxPage() {
         : items.map((i) => i.id),
     [isSearching, searchResults, items],
   );
-  const selectionVisible =
-    selectedId !== null && (!isSearching || visibleIds.includes(selectedId));
 
   // keep-previous：切换条目时保留上一份详情直到新详情到达，避免旧 detail.id ≠ selectedId
   // 的那一帧掉到骨架屏造成闪烁。骨架屏只在首次、完全无详情时出现。
-  const readerStatus: ReaderStatus = !selectionVisible
+  const readerStatus: ReaderStatus = !selectedId
     ? "empty"
-    : detail
+    : selectedDetail
       ? "ready"
       : detailForId === selectedId
         ? "error"
         : "loading";
 
+  const navigateInbox = useCallback(
+    ({
+      item: nextItem = selectedId,
+      q: nextQuery = query,
+      archived: nextArchived = showArchived,
+    }: {
+      item?: string | null;
+      q?: string;
+      archived?: boolean;
+    }) => {
+      void navigate({
+        to: "/inbox",
+        search: {
+          ...(nextItem ? { item: nextItem } : {}),
+          ...(nextQuery.trim() !== "" ? { q: nextQuery } : {}),
+          ...(nextArchived ? { archived: true } : {}),
+        },
+        replace: true,
+      });
+    },
+    [navigate, query, selectedId, showArchived],
+  );
+
+  const selectItem = useCallback(
+    (id: string | null) => navigateInbox({ item: id }),
+    [navigateInbox],
+  );
+
+  const setQuery = useCallback(
+    (nextQuery: string) => navigateInbox({ q: nextQuery }),
+    [navigateInbox],
+  );
+
+  const setShowArchived = useCallback(
+    (value: boolean) => navigateInbox({ archived: value }),
+    [navigateInbox],
+  );
+
+  const refreshCurrentView = useCallback(
+    async (detailId: string | null = selectedId) => {
+      const nextItems = await loadItems(showArchived);
+      await runSearch(query, showArchived);
+      await loadDetail(detailId);
+      return nextItems;
+    },
+    [loadDetail, loadItems, query, runSearch, selectedId, showArchived],
+  );
+
+  const runAndRefresh = useCallback(
+    async (
+      action: () => Promise<unknown>,
+      success?: string,
+      detailId: string | null = selectedId,
+    ) => {
+      try {
+        await action();
+        if (success) toast.success(success);
+        return await refreshCurrentView(detailId);
+      } catch (err) {
+        toast.error(getErrorMessage(err));
+        await refreshCurrentView(detailId);
+        return null;
+      }
+    },
+    [refreshCurrentView, selectedId],
+  );
+
   // 进入页面 / 切换归档过滤时重新加载列表
   useEffect(() => {
-    void loadItems();
+    void loadItems(showArchived);
   }, [loadItems, showArchived]);
 
   // 选中项变化时加载详情
@@ -130,19 +204,52 @@ function InboxPage() {
 
   // 搜索词 / 归档过滤变化 → 防抖触发检索
   useEffect(() => {
-    if (query.trim() === "") return;
-    const id = setTimeout(() => void runSearch(), 250);
+    if (query.trim() === "") {
+      void runSearch("", showArchived);
+      return;
+    }
+    const id = setTimeout(() => void runSearch(query, showArchived), 250);
     return () => clearTimeout(id);
   }, [query, showArchived, runSearch]);
+
+  // 深链到已归档条目时，详情可直接加载；同时打开归档过滤，让左栏也可见。
+  useEffect(() => {
+    if (selectedDetail?.archivedAt && !showArchived) {
+      setShowArchived(true);
+    }
+  }, [selectedDetail, setShowArchived, showArchived]);
 
   // 自动选首项：有内容且无有效选中（未选 / 选中项已不在可见列表）→ 选首个可见项；
   // 零内容不选（走空态）。搜索态下 visibleIds = 搜索结果，即自动选中首个命中。
   useEffect(() => {
-    if (visibleIds.length === 0) return;
-    if (selectedId === null || !visibleIds.includes(selectedId)) {
+    if (loading || searching) return;
+    if (visibleIds.length === 0) {
+      if (selectedId && detailForId === selectedId && !selectedDetail) {
+        selectItem(null);
+      }
+      return;
+    }
+    if (!selectedId) {
+      selectItem(visibleIds[0]);
+      return;
+    }
+    if (visibleIds.includes(selectedId)) return;
+    if (!isSearching && detailForId !== selectedId) return;
+    if (!isSearching && selectedDetail?.archivedAt && !showArchived) return;
+    if (selectedId !== visibleIds[0]) {
       selectItem(visibleIds[0]);
     }
-  }, [visibleIds, selectedId, selectItem]);
+  }, [
+    detailForId,
+    isSearching,
+    loading,
+    searching,
+    selectItem,
+    selectedDetail,
+    selectedId,
+    showArchived,
+    visibleIds,
+  ]);
 
   const handleReveal = () => {
     if (!selectedId) return;
@@ -157,18 +264,30 @@ function InboxPage() {
   };
   const handleArchive = () => {
     if (!selectedItem) return;
-    const archived = !selectedItem.archivedAt;
-    void runAndRefresh(
-      () => commands.archiveInboxItem(selectedItem.id, archived),
-      archived ? t`已归档收件箱记录` : t`已取消归档`,
-    );
+    const nextArchived = !selectedItem.archivedAt;
+    void (async () => {
+      const nextItems = await runAndRefresh(
+        () => commands.archiveInboxItem(selectedItem.id, nextArchived),
+        nextArchived ? t`已归档收件箱记录` : t`已取消归档`,
+        nextArchived && !showArchived ? null : selectedItem.id,
+      );
+      if (!nextItems) return;
+      if (nextArchived && !showArchived && !isSearching) {
+        selectItem(nextItems[0]?.id ?? null);
+      }
+    })();
   };
   const handleDeleteConfirm = async () => {
     if (!selectedId) return;
-    await runAndRefresh(
+    const nextItems = await runAndRefresh(
       () => commands.deleteInboxItem(selectedId, deleteLocalFiles),
       deleteLocalFiles ? t`已删除记录和本地文件` : t`已删除收件箱记录`,
+      null,
     );
+    if (!nextItems) return;
+    if (!isSearching) {
+      selectItem(nextItems[0]?.id ?? null);
+    }
     setDeleteLocalFiles(false);
     setDeleteOpen(false);
   };
@@ -178,11 +297,22 @@ function InboxPage() {
       <MasterDetailShell
         drawerLabel={t`收件箱`}
         listMaxWidth={360}
-        list={({ closeDrawer }) => <InboxRail onAfterSelect={closeDrawer} />}
+        list={({ closeDrawer }) => (
+          <InboxRail
+            selectedId={selectedId}
+            query={query}
+            showArchived={showArchived}
+            onSelect={selectItem}
+            onQueryChange={setQuery}
+            onShowArchivedChange={setShowArchived}
+            onAfterSelect={closeDrawer}
+            runAndRefresh={runAndRefresh}
+          />
+        )}
         detail={({ openList, isCompact }) => (
           <InboxReader
             status={readerStatus}
-            detail={detail}
+            detail={selectedDetail}
             contained={!isCompact}
             onOpenList={openList ?? undefined}
             onReveal={handleReveal}
@@ -192,13 +322,15 @@ function InboxPage() {
             onArchive={handleArchive}
             onDelete={() => setDeleteOpen(true)}
             onFileOpen={(fileId) =>
-              detail &&
-              runAndRefresh(() => commands.openInboxItem(detail.id, fileId))
+              selectedDetail &&
+              runAndRefresh(() =>
+                commands.openInboxItem(selectedDetail.id, fileId),
+              )
             }
             onFileReveal={(fileId) =>
-              detail &&
+              selectedDetail &&
               runAndRefresh(() =>
-                commands.showInboxItemInFolder(detail.id, fileId),
+                commands.showInboxItemInFolder(selectedDetail.id, fileId),
               )
             }
           />
@@ -256,18 +388,29 @@ function InboxPage() {
 
 /* ─────────────────── 左栏 / 抽屉：时间分组导航 ─────────────────── */
 
-function InboxRail({ onAfterSelect }: { onAfterSelect?: () => void }) {
+function InboxRail({
+  selectedId,
+  query,
+  showArchived,
+  onSelect,
+  onQueryChange,
+  onShowArchivedChange,
+  onAfterSelect,
+  runAndRefresh,
+}: {
+  selectedId: string | null;
+  query: string;
+  showArchived: boolean;
+  onSelect: (id: string | null) => void;
+  onQueryChange: (query: string) => void;
+  onShowArchivedChange: (showArchived: boolean) => void;
+  onAfterSelect?: () => void;
+  runAndRefresh: RunAndRefresh;
+}) {
   const items = useInboxStore((s) => s.items);
-  const selectedId = useInboxStore((s) => s.selectedId);
   const loading = useInboxStore((s) => s.loading);
-  const showArchived = useInboxStore((s) => s.showArchived);
-  const setShowArchived = useInboxStore((s) => s.setShowArchived);
-  const selectItem = useInboxStore((s) => s.selectItem);
-  const runAndRefresh = useInboxStore((s) => s.runAndRefresh);
-  const query = useInboxStore((s) => s.query);
   const searching = useInboxStore((s) => s.searching);
   const searchResults = useInboxStore((s) => s.searchResults);
-  const setQuery = useInboxStore((s) => s.setQuery);
 
   const isSearching = query.trim() !== "";
   const groups = useMemo(() => groupInboxByTime(items), [items]);
@@ -282,7 +425,7 @@ function InboxRail({ onAfterSelect }: { onAfterSelect?: () => void }) {
   );
 
   const handleSelect = (id: string) => {
-    selectItem(id);
+    onSelect(id);
     onAfterSelect?.();
   };
 
@@ -298,14 +441,14 @@ function InboxRail({ onAfterSelect }: { onAfterSelect?: () => void }) {
           : Math.min(visibleIds.length - 1, Math.max(0, idx + delta));
       const nextId = visibleIds[nextIdx];
       if (!nextId || nextId === selectedId) return;
-      selectItem(nextId);
+      onSelect(nextId);
       requestAnimationFrame(() => {
         railScrollRef.current
           ?.querySelector<HTMLElement>(`[data-inbox-id="${CSS.escape(nextId)}"]`)
           ?.focus();
       });
     },
-    [visibleIds, selectedId, selectItem],
+    [visibleIds, selectedId, onSelect],
   );
 
   const handleRailKeyDown = (e: React.KeyboardEvent) => {
@@ -362,7 +505,7 @@ function InboxRail({ onAfterSelect }: { onAfterSelect?: () => void }) {
               variant={showArchived ? "secondary" : "ghost"}
               size="sm"
               className="h-8 gap-1.5 px-2.5 text-xs"
-              onClick={() => setShowArchived(!showArchived)}
+              onClick={() => onShowArchivedChange(!showArchived)}
             >
               <Archive className="size-3.5" />
               <Trans>归档</Trans>
@@ -375,7 +518,7 @@ function InboxRail({ onAfterSelect }: { onAfterSelect?: () => void }) {
           <Input
             type="search"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => onQueryChange(e.target.value)}
             aria-label={t`搜索收件箱`}
             placeholder={t`搜索标题、来源、文件名…`}
             className="h-9 rounded-[14px] border-transparent bg-foreground/[0.045] pl-9 text-sm dark:bg-white/[0.05]"
@@ -1142,4 +1285,3 @@ function contentKindLabel(kind: InboxItemSummary["contentKind"]): string {
   };
   return labels[kind];
 }
-

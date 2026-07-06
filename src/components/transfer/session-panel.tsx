@@ -14,6 +14,7 @@ import {
   ArrowUpRight,
   CheckCircle2,
   FolderOpen,
+  Inbox,
   Loader2,
   Pause,
   Play,
@@ -22,6 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -42,6 +44,7 @@ import type {
   TransferProjection,
   TransferProgressEvent,
 } from "@/lib/bindings";
+import { commands } from "@/lib/bindings";
 import {
   doPauseTransfer,
   doCancelTransfer,
@@ -392,6 +395,7 @@ export const SessionActions = memo(function SessionActions({
   const isPaused = projection.phase === "suspended";
   const [isCancelling, setIsCancelling] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const [isOpeningInbox, setIsOpeningInbox] = useState(false);
 
   const handlePause = useCallback(async () => {
     try {
@@ -424,6 +428,31 @@ export const SessionActions = memo(function SessionActions({
     }
   }, [projection.savePath, projection.files]);
 
+  const handleOpenInbox = useCallback(async () => {
+    if (isOpeningInbox) return;
+    setIsOpeningInbox(true);
+    try {
+      const detail = await commands.getInboxItemByTransferSessionId(
+        projection.sessionId,
+      );
+      if (!detail) {
+        toast.error(t`收件箱记录还在生成，请稍后再试`);
+        return;
+      }
+      void navigate({
+        to: "/inbox",
+        search: {
+          item: detail.id,
+          ...(detail.archivedAt ? { archived: true } : {}),
+        },
+      });
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setIsOpeningInbox(false);
+    }
+  }, [isOpeningInbox, navigate, projection.sessionId]);
+
   const handleResume = useCallback(async () => {
     try {
       const newSessionId = await doResumeTransfer(projection.sessionId);
@@ -446,6 +475,9 @@ export const SessionActions = memo(function SessionActions({
       setIsResending(false);
     }
   }, [navigate, projection]);
+
+  const canOpenInbox =
+    isProjectionCompleted(projection) && projection.direction === "receive";
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -487,10 +519,29 @@ export const SessionActions = memo(function SessionActions({
         </>
       )}
 
+      {canOpenInbox && (
+        <Button
+          onClick={handleOpenInbox}
+          disabled={isOpeningInbox}
+          className="rounded-full px-5 shadow-[0_10px_22px_rgba(219,163,65,0.18)]"
+        >
+          {isOpeningInbox ? (
+            <Loader2 className="mr-2 size-4 animate-spin" />
+          ) : (
+            <Inbox className="mr-2 size-4" />
+          )}
+          <Trans>在收件箱查看</Trans>
+        </Button>
+      )}
+
       {isProjectionCompleted(projection) && projection.savePath && (
         <Button
+          variant={canOpenInbox ? "secondary" : "default"}
           onClick={handleOpenFolder}
-          className="rounded-full px-5 shadow-[0_10px_22px_rgba(219,163,65,0.18)]"
+          className={cn(
+            "rounded-full px-5",
+            !canOpenInbox && "shadow-[0_10px_22px_rgba(219,163,65,0.18)]",
+          )}
         >
           <FolderOpen className="mr-2 size-4" />
           <Trans>打开文件夹</Trans>

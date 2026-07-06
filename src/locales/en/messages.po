@@ -629,6 +629,10 @@ msgstr "Start Node"
 msgid "启用后，符合策略的入站文件会直接进入收件箱"
 msgstr "When enabled, inbound files matching the policy go straight to the Inbox"
 
+#: src/components/transfer/session-panel.tsx
+msgid "在收件箱查看"
+msgstr "View in Inbox"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "在文件夹中显示"
@@ -1092,6 +1096,10 @@ msgstr "OS"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "收件箱"
 msgstr "Inbox"
+
+#: src/components/transfer/session-panel.tsx
+msgid "收件箱记录还在生成，请稍后再试"
+msgstr "Inbox record is still being created. Try again in a moment."
 
 #: src/components/transfer/transfer-offer-dialog.tsx
 msgid "收到文件"

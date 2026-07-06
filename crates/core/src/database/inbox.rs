@@ -416,6 +416,26 @@ pub async fn get_inbox_item_detail(
     Ok(Some(InboxItemDetail::from_model(db, item).await?))
 }
 
+/// 加载与指定传输会话关联的可见收件箱详情。
+///
+/// 与幂等创建路径使用的 `find_inbox_item_by_session` 不同，这个查询面向 UI/API，
+/// 会排除已软删除的收件箱条目。
+pub async fn get_inbox_item_by_transfer_session_id(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+) -> AppResult<Option<InboxItemDetail>> {
+    let Some(item) = entity::InboxItem::load()
+        .filter(entity::inbox_item::Column::TransferSessionId.eq(session_id))
+        .filter(entity::inbox_item::Column::DeletedAt.is_null())
+        .with(entity::InboxItemFile)
+        .one(db)
+        .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(InboxItemDetail::from_model(db, item).await?))
+}
+
 /// 标记收件箱条目最近打开时间。
 pub async fn mark_inbox_item_opened(db: &DatabaseConnection, item_id: Uuid) -> AppResult<()> {
     if let Some(item) = entity::InboxItem::find_by_id(item_id).one(db).await? {
@@ -715,6 +735,46 @@ mod tests {
         let list = list_inbox_items(&db, false).await.expect("list inbox");
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, first.item.id);
+    }
+
+    #[tokio::test]
+    async fn inbox_item_can_be_loaded_by_transfer_session_id() {
+        let db = make_db().await;
+        let session_id = Uuid::new_v4();
+        create_receive_session(&db, session_id, TransferState::active(0)).await;
+        mark_session_completed(&db, session_id).await.unwrap();
+        let item = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let queried = get_inbox_item_by_transfer_session_id(&db, session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(queried.item.id, item.item.id);
+        assert_eq!(queried.item.transfer_session_id, Some(session_id));
+        assert_eq!(queried.files.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn inbox_item_by_transfer_session_id_hides_deleted_records() {
+        let db = make_db().await;
+        let session_id = Uuid::new_v4();
+        create_receive_session(&db, session_id, TransferState::active(0)).await;
+        mark_session_completed(&db, session_id).await.unwrap();
+        let item = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        delete_inbox_item_record(&db, item.item.id).await.unwrap();
+
+        let queried = get_inbox_item_by_transfer_session_id(&db, session_id)
+            .await
+            .unwrap();
+        assert!(queried.is_none());
     }
 
     #[tokio::test]

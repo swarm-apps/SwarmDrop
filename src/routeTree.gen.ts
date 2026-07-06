@@ -17,13 +17,13 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppPairingRouteImport } from './routes/_app/pairing'
 import { Route as AppTransferIndexRouteImport } from './routes/_app/transfer/index'
 import { Route as AppSendIndexRouteImport } from './routes/_app/send/index'
+import { Route as AppInboxIndexRouteImport } from './routes/_app/inbox/index'
 import { Route as AppTransferSessionIdRouteImport } from './routes/_app/transfer/$sessionId'
 
 const OnboardingDeviceNameLazyRouteImport = createFileRoute(
   '/_onboarding/device-name',
 )()
 const AppSettingsIndexLazyRouteImport = createFileRoute('/_app/settings/')()
-const AppInboxIndexLazyRouteImport = createFileRoute('/_app/inbox/')()
 const AppDevicesIndexLazyRouteImport = createFileRoute('/_app/devices/')()
 const AppSendShareTargetLazyRouteImport = createFileRoute(
   '/_app/send/share-target',
@@ -66,13 +66,6 @@ const AppSettingsIndexLazyRoute = AppSettingsIndexLazyRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/settings/index.lazy').then((d) => d.Route),
 )
-const AppInboxIndexLazyRoute = AppInboxIndexLazyRouteImport.update({
-  id: '/inbox/',
-  path: '/inbox/',
-  getParentRoute: () => AppRoute,
-} as any).lazy(() =>
-  import('./routes/_app/inbox/index.lazy').then((d) => d.Route),
-)
 const AppDevicesIndexLazyRoute = AppDevicesIndexLazyRouteImport.update({
   id: '/devices/',
   path: '/devices/',
@@ -93,6 +86,13 @@ const AppSendIndexRoute = AppSendIndexRouteImport.update({
   getParentRoute: () => AppRoute,
 } as any).lazy(() =>
   import('./routes/_app/send/index.lazy').then((d) => d.Route),
+)
+const AppInboxIndexRoute = AppInboxIndexRouteImport.update({
+  id: '/inbox/',
+  path: '/inbox/',
+  getParentRoute: () => AppRoute,
+} as any).lazy(() =>
+  import('./routes/_app/inbox/index.lazy').then((d) => d.Route),
 )
 const AppSendShareTargetLazyRoute = AppSendShareTargetLazyRouteImport.update({
   id: '/send/share-target',
@@ -129,10 +129,10 @@ export interface FileRoutesByFullPath {
   '/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/pairing/input': typeof AppPairingInputLazyRoute
   '/send/share-target': typeof AppSendShareTargetLazyRoute
+  '/inbox/': typeof AppInboxIndexRoute
   '/send/': typeof AppSendIndexRoute
   '/transfer/': typeof AppTransferIndexRoute
   '/devices/': typeof AppDevicesIndexLazyRoute
-  '/inbox/': typeof AppInboxIndexLazyRoute
   '/settings/': typeof AppSettingsIndexLazyRoute
 }
 export interface FileRoutesByTo {
@@ -143,10 +143,10 @@ export interface FileRoutesByTo {
   '/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/pairing/input': typeof AppPairingInputLazyRoute
   '/send/share-target': typeof AppSendShareTargetLazyRoute
+  '/inbox': typeof AppInboxIndexRoute
   '/send': typeof AppSendIndexRoute
   '/transfer': typeof AppTransferIndexRoute
   '/devices': typeof AppDevicesIndexLazyRoute
-  '/inbox': typeof AppInboxIndexLazyRoute
   '/settings': typeof AppSettingsIndexLazyRoute
 }
 export interface FileRoutesById {
@@ -160,10 +160,10 @@ export interface FileRoutesById {
   '/_app/pairing/generate': typeof AppPairingGenerateLazyRoute
   '/_app/pairing/input': typeof AppPairingInputLazyRoute
   '/_app/send/share-target': typeof AppSendShareTargetLazyRoute
+  '/_app/inbox/': typeof AppInboxIndexRoute
   '/_app/send/': typeof AppSendIndexRoute
   '/_app/transfer/': typeof AppTransferIndexRoute
   '/_app/devices/': typeof AppDevicesIndexLazyRoute
-  '/_app/inbox/': typeof AppInboxIndexLazyRoute
   '/_app/settings/': typeof AppSettingsIndexLazyRoute
 }
 export interface FileRouteTypes {
@@ -176,10 +176,10 @@ export interface FileRouteTypes {
     | '/pairing/generate'
     | '/pairing/input'
     | '/send/share-target'
+    | '/inbox/'
     | '/send/'
     | '/transfer/'
     | '/devices/'
-    | '/inbox/'
     | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -190,10 +190,10 @@ export interface FileRouteTypes {
     | '/pairing/generate'
     | '/pairing/input'
     | '/send/share-target'
+    | '/inbox'
     | '/send'
     | '/transfer'
     | '/devices'
-    | '/inbox'
     | '/settings'
   id:
     | '__root__'
@@ -206,10 +206,10 @@ export interface FileRouteTypes {
     | '/_app/pairing/generate'
     | '/_app/pairing/input'
     | '/_app/send/share-target'
+    | '/_app/inbox/'
     | '/_app/send/'
     | '/_app/transfer/'
     | '/_app/devices/'
-    | '/_app/inbox/'
     | '/_app/settings/'
   fileRoutesById: FileRoutesById
 }
@@ -263,13 +263,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsIndexLazyRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/inbox/': {
-      id: '/_app/inbox/'
-      path: '/inbox'
-      fullPath: '/inbox/'
-      preLoaderRoute: typeof AppInboxIndexLazyRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/devices/': {
       id: '/_app/devices/'
       path: '/devices'
@@ -289,6 +282,13 @@ declare module '@tanstack/react-router' {
       path: '/send'
       fullPath: '/send/'
       preLoaderRoute: typeof AppSendIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inbox/': {
+      id: '/_app/inbox/'
+      path: '/inbox'
+      fullPath: '/inbox/'
+      preLoaderRoute: typeof AppInboxIndexRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/send/share-target': {
@@ -340,10 +340,10 @@ interface AppRouteChildren {
   AppPairingRoute: typeof AppPairingRouteWithChildren
   AppTransferSessionIdRoute: typeof AppTransferSessionIdRoute
   AppSendShareTargetLazyRoute: typeof AppSendShareTargetLazyRoute
+  AppInboxIndexRoute: typeof AppInboxIndexRoute
   AppSendIndexRoute: typeof AppSendIndexRoute
   AppTransferIndexRoute: typeof AppTransferIndexRoute
   AppDevicesIndexLazyRoute: typeof AppDevicesIndexLazyRoute
-  AppInboxIndexLazyRoute: typeof AppInboxIndexLazyRoute
   AppSettingsIndexLazyRoute: typeof AppSettingsIndexLazyRoute
 }
 
@@ -351,10 +351,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppPairingRoute: AppPairingRouteWithChildren,
   AppTransferSessionIdRoute: AppTransferSessionIdRoute,
   AppSendShareTargetLazyRoute: AppSendShareTargetLazyRoute,
+  AppInboxIndexRoute: AppInboxIndexRoute,
   AppSendIndexRoute: AppSendIndexRoute,
   AppTransferIndexRoute: AppTransferIndexRoute,
   AppDevicesIndexLazyRoute: AppDevicesIndexLazyRoute,
-  AppInboxIndexLazyRoute: AppInboxIndexLazyRoute,
   AppSettingsIndexLazyRoute: AppSettingsIndexLazyRoute,
 }
 

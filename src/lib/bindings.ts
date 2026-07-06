@@ -37,6 +37,10 @@ export const commands = {
 	files: InboxItemFileEntry[],
 	transfer: TransferProjection | null,
 }) & (InboxItemSummary) | null>("get_inbox_item_detail", { itemId }),
+	getInboxItemByTransferSessionId: (sessionId: string) => __TAURI_INVOKE<({
+	files: InboxItemFileEntry[],
+	transfer: TransferProjection | null,
+}) & (InboxItemSummary) | null>("get_inbox_item_by_transfer_session_id", { sessionId }),
 	repairMissingInboxItems: () => __TAURI_INVOKE<InboxItemDetail[]>("repair_missing_inbox_items"),
 	openInboxItem: (itemId: string, fileId: number | null) => __TAURI_INVOKE<null>("open_inbox_item", { itemId, fileId }),
 	showInboxItemInFolder: (itemId: string, fileId: number | null) => __TAURI_INVOKE<null>("show_inbox_item_in_folder", { itemId, fileId }),
