@@ -91,8 +91,12 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
   const handleStart = async () => {
     setWorking(true);
     try {
-      await startNode();
-      onDismiss();
+      const result = await startNode();
+      if (result.ok) {
+        onDismiss();
+      } else {
+        toast.error(t`启动节点失败`, result.error);
+      }
     } finally {
       setWorking(false);
     }
@@ -101,8 +105,12 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
   const performStop = async () => {
     setWorking(true);
     try {
-      await shutdownNode();
-      onDismiss();
+      const result = await shutdownNode();
+      if (result.ok) {
+        onDismiss();
+      } else {
+        toast.error(t`停止节点失败`, result.error);
+      }
     } finally {
       setWorking(false);
     }

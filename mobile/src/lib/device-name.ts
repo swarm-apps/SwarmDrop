@@ -38,7 +38,13 @@ export async function applyDeviceName(name: string): Promise<void> {
   const { runtimeState, shutdownNode, startNode } =
     useMobileCoreStore.getState();
   if (runtimeState === "running") {
-    await shutdownNode();
-    await startNode();
+    const shutdown = await shutdownNode();
+    if (!shutdown.ok) {
+      throw new Error(shutdown.error);
+    }
+    const start = await startNode();
+    if (!start.ok) {
+      throw new Error(start.error);
+    }
   }
 }

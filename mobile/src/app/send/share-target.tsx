@@ -100,7 +100,7 @@ export default function ShareTargetScreen() {
   useEffect(() => {
     if (!startedRef.current && runtimeState === "stopped") {
       startedRef.current = true;
-      void startNode().catch(() => {});
+      void startNode();
     }
   }, [runtimeState, startNode]);
 

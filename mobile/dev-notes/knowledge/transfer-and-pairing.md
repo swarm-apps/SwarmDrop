@@ -188,6 +188,26 @@ bootstrap agent 自动纳管为 Learned 候选。
 - 单机联调 LAN Helper 时记得 `LanHelperConfig.announce_loopback_addrs=true`，
   否则 reservation 响应无地址、客户端以 NoAddressesInReservation 拒绝
   （生产局域网有私网地址不受影响）。
+- 不要手写 Multiaddr 分类（私网/公网/loopback/circuit 跳数）——统一用
+  `swarm_p2p_core::addr` 谓词，曾因五处手写漂移出过 IPv6 link-local 误判。
+- libs 层不做任何自动 reservation（策略归 InfraSupervisor 的
+  wants_reservation 门控），否则 public_reachability 设置会被绕过。
+
+### 节点生命周期契约：shutdown().await + drop(manager) = 完整拆除
+
+`run_event_loop` 随 `cancel_token` 退出（v0.7.3/v0.7.7 审查轮治本）：
+退出后 client/receiver 全部 drop → libs 事件循环退出 → swarm 断开全部
+连接。此前僵尸节点的连接被 keep-alive 白名单钉死，**对端会永远看到已
+停止的节点在线**。
+
+**正确做法**：
+- host 停节点 = `manager.shutdown().await` + `guard.take()`（两步缺一不可，
+  只 cancel 不 drop 则 client 句柄拖住 swarm 不死）。
+- 任何新的 core 后台循环必须 `tokio::select!` 挂 `shared.cancel_token`。
+- 重复 start 前必须先 shutdown 旧 manager（桌面 lifecycle / 移动
+  set_net_manager 已内置该保护）——静默覆盖 = cancel_token 永不触发的
+  永久泄漏。
+- 回归测试锚点：`e2e_transfer.rs::shutdown_node_goes_offline_on_peer`。
 
 **相关文件**：桌面仓 `crates/core/src/infra/`、`libs/core`（reservation
 生命周期机制）；[src/app/settings/network.tsx](../../src/app/settings/network.tsx)（公网可达性开关与状态行）

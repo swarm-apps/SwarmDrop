@@ -20,8 +20,6 @@ interface PreferencesState {
   customBootstrapNodes: string[];
   /** 用户自定义接收文件保存目录的 URI(file:// 或 content://);null 走默认 transfersInboxUri */
   receivePath: string | null;
-  /** 自动接受已配对设备的文件请求,默认 false(对齐桌面 transfer.autoAccept) */
-  autoAccept: boolean;
   setDeviceName: (name: string) => void;
   setAutoStart: (value: boolean) => void;
   setDiscoveryMode: (mode: DiscoveryModePreference) => void;
@@ -31,8 +29,21 @@ interface PreferencesState {
   addBootstrapNode: (addr: string) => void;
   removeBootstrapNode: (addr: string) => void;
   setReceivePath: (uri: string | null) => void;
-  setAutoAccept: (value: boolean) => void;
 }
+
+type PersistedPreferences = Partial<
+  Pick<
+    PreferencesState,
+    | "deviceName"
+    | "autoStart"
+    | "discoveryMode"
+    | "autoDiscoverLanHelpers"
+    | "provideLanHelper"
+    | "publicReachability"
+    | "customBootstrapNodes"
+    | "receivePath"
+  >
+>;
 
 export const usePreferencesStore = create<PreferencesState>()(
   persist(
@@ -45,7 +56,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       publicReachability: true,
       customBootstrapNodes: [],
       receivePath: null,
-      autoAccept: false,
 
       setDeviceName(name) {
         set({ deviceName: name.trim() });
@@ -90,14 +100,59 @@ export const usePreferencesStore = create<PreferencesState>()(
       setReceivePath(uri) {
         set({ receivePath: uri && uri.length > 0 ? uri : null });
       },
-
-      setAutoAccept(value) {
-        set({ autoAccept: value });
-      },
     }),
     {
       name: "swarmdrop-preferences",
       storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        deviceName: state.deviceName,
+        autoStart: state.autoStart,
+        discoveryMode: state.discoveryMode,
+        autoDiscoverLanHelpers: state.autoDiscoverLanHelpers,
+        provideLanHelper: state.provideLanHelper,
+        publicReachability: state.publicReachability,
+        customBootstrapNodes: state.customBootstrapNodes,
+        receivePath: state.receivePath,
+      }),
+      merge: (persisted, current) => {
+        const stored =
+          persisted && typeof persisted === "object"
+            ? (persisted as PersistedPreferences)
+            : {};
+        return {
+          ...current,
+          ...(typeof stored.deviceName === "string"
+            ? { deviceName: stored.deviceName }
+            : {}),
+          ...(typeof stored.autoStart === "boolean"
+            ? { autoStart: stored.autoStart }
+            : {}),
+          ...(stored.discoveryMode === "auto" ||
+          stored.discoveryMode === "lanOnly"
+            ? { discoveryMode: stored.discoveryMode }
+            : {}),
+          ...(typeof stored.autoDiscoverLanHelpers === "boolean"
+            ? { autoDiscoverLanHelpers: stored.autoDiscoverLanHelpers }
+            : {}),
+          ...(typeof stored.provideLanHelper === "boolean"
+            ? { provideLanHelper: stored.provideLanHelper }
+            : {}),
+          ...(typeof stored.publicReachability === "boolean"
+            ? { publicReachability: stored.publicReachability }
+            : {}),
+          ...(Array.isArray(stored.customBootstrapNodes)
+            ? {
+                customBootstrapNodes: stored.customBootstrapNodes.filter(
+                  (addr): addr is string => typeof addr === "string",
+                ),
+              }
+            : {}),
+          ...(typeof stored.receivePath === "string" ||
+          stored.receivePath === null
+            ? { receivePath: stored.receivePath }
+            : {}),
+        };
+      },
     },
   ),
 );

@@ -29,6 +29,7 @@ export function PairingRequestHost() {
   const colors = useThemeColors();
   const current = useNotificationStore((s) => s.current);
   const respondStore = useNotificationStore((s) => s.respond);
+  const markPairingCodeConsumed = usePairingCodeStore((s) => s.markConsumed);
   const [responding, setResponding] = useState(false);
 
   const open = current !== null && current.type === "pairing-request";
@@ -56,7 +57,7 @@ export function PairingRequestHost() {
         // Code 模式 accept 后，后端已消耗 active_code（参考 SwarmDrop
         // pairing/manager.rs:282）；通知 store 续生新码（reject 不消耗，不动）
         if (accept && payload.code !== undefined) {
-          usePairingCodeStore.getState().markConsumed();
+          markPairingCodeConsumed();
         }
       } catch (err) {
         console.warn(
@@ -70,7 +71,7 @@ export function PairingRequestHost() {
         setResponding(false);
       }
     },
-    [current, payload, respondStore, responding, t],
+    [current, markPairingCodeConsumed, payload, respondStore, responding, t],
   );
 
   if (!open || !payload) return null;

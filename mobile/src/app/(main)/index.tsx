@@ -205,7 +205,10 @@ export default function DevicesScreen() {
 
   const handleStartNode = useCallback(async () => {
     try {
-      await startNode();
+      const result = await startNode();
+      if (!result.ok) {
+        toast.error(t`启动节点失败`, result.error);
+      }
     } catch (err) {
       toast.error(t`启动节点失败`, errorMessage(err));
     }

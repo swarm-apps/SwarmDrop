@@ -98,10 +98,18 @@ export default function BootstrapNodesScreen() {
   const handleRestart = useCallback(async () => {
     setRestarting(true);
     try {
-      await shutdownNode();
-      await startNode();
-      setNeedsRestart(false);
-      toast.success(t`节点已重启`);
+      const shutdown = await shutdownNode();
+      if (!shutdown.ok) {
+        toast.error(t`重启节点失败`, shutdown.error);
+        return;
+      }
+      const start = await startNode();
+      if (start.ok && start.state === "running") {
+        setNeedsRestart(false);
+        toast.success(t`节点已重启`);
+      } else {
+        toast.error(t`重启节点失败`, start.ok ? undefined : start.error);
+      }
     } catch (err) {
       toast.error(t`重启节点失败`, err);
     } finally {

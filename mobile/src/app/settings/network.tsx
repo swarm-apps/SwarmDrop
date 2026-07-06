@@ -37,13 +37,14 @@ export default function NetworkScreen() {
   const [restarting, setRestarting] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
-  const { networkStatus, runtimeState, shutdownNode, startNode } =
+  const { networkStatus, runtimeState, shutdownNode, startNode, setError } =
     useMobileCoreStore(
       useShallow((s) => ({
         networkStatus: s.networkStatus,
         runtimeState: s.runtimeState,
         shutdownNode: s.shutdownNode,
         startNode: s.startNode,
+        setError: s.setError,
       })),
     );
   const {
@@ -111,24 +112,26 @@ export default function NetworkScreen() {
   const restartNode = useCallback(async () => {
     setRestarting(true);
     try {
-      await shutdownNode();
-      await startNode();
-      // startNode/shutdownNode 内部吞错并把失败写进 store（runtimeState=error）而不抛出，
-      // 这里读回最新状态判断真实结果，避免重启失败仍弹「成功」。
-      const { runtimeState: state, error } = useMobileCoreStore.getState();
-      if (state === "running") {
+      const shutdown = await shutdownNode();
+      if (!shutdown.ok) {
+        toast.error(t`重启节点失败`, shutdown.error);
+        setError(null);
+        return;
+      }
+      const start = await startNode();
+      if (start.ok && start.state === "running") {
         toast.success(t`节点已按新发现设置重启`);
       } else {
-        toast.error(t`重启节点失败`, error ?? undefined);
+        toast.error(t`重启节点失败`, start.ok ? undefined : start.error);
         // 错误已就地反馈，清掉全局 error 避免又延迟泄漏到设备页（重复提示）。
-        useMobileCoreStore.getState().setError(null);
+        setError(null);
       }
     } catch (err) {
       toast.error(t`重启节点失败`, errorMessage(err));
     } finally {
       setRestarting(false);
     }
-  }, [shutdownNode, startNode, t]);
+  }, [shutdownNode, startNode, setError, t]);
 
   const rows: Array<{
     key: string;

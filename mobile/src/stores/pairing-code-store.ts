@@ -41,15 +41,13 @@ function clearTimer() {
   }
 }
 
-function scheduleRefresh(expiresAt: bigint) {
+function scheduleRefresh(expiresAt: bigint, regenerateIfActive: () => void) {
   clearTimer();
   // expiresAt 单位是 seconds (i64)，转毫秒；提前 500ms 重生
   const ms = Math.max(0, Number(expiresAt) * 1000 - Date.now() - 500);
   autoRefreshTimer = setTimeout(() => {
     autoRefreshTimer = null;
-    if (usePairingCodeStore.getState().codeInfo !== null) {
-      usePairingCodeStore.getState().regenerate();
-    }
+    regenerateIfActive();
   }, ms);
 }
 
@@ -57,53 +55,61 @@ function isExpired(info: MobilePairingCode): boolean {
   return Number(info.expiresAt) * 1000 <= Date.now();
 }
 
-async function doGenerate(): Promise<void> {
-  usePairingCodeStore.setState({ generating: true, error: null });
-  try {
-    const info = await getMobileCore().generatePairingCode(TTL_SECS);
-    usePairingCodeStore.setState({
-      codeInfo: info,
-      generating: false,
-      error: null,
-    });
-    scheduleRefresh(info.expiresAt);
-  } catch (err) {
-    clearTimer();
-    usePairingCodeStore.setState({
-      codeInfo: null,
-      generating: false,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    console.warn("[pairing-code] generate failed:", err);
-  }
-}
-
-export const usePairingCodeStore = create<PairingCodeState>()(() => ({
-  codeInfo: null,
-  generating: false,
-  error: null,
-
-  async ensure() {
-    const { codeInfo, generating } = usePairingCodeStore.getState();
-    if (generating) return;
-    if (codeInfo !== null && !isExpired(codeInfo)) return;
-    await doGenerate();
-  },
-
-  async regenerate() {
-    if (usePairingCodeStore.getState().generating) return;
-    await doGenerate();
-  },
-
-  clear() {
-    clearTimer();
-    usePairingCodeStore.setState({ codeInfo: null, error: null });
-  },
-
-  markConsumed() {
-    // 仅在有活跃码时续生；没有码就不主动生成（用户没在用配对码功能）
-    if (usePairingCodeStore.getState().codeInfo !== null) {
-      void doGenerate();
+export const usePairingCodeStore = create<PairingCodeState>()((set, get) => {
+  async function generate(): Promise<void> {
+    set({ generating: true, error: null });
+    try {
+      const info = await getMobileCore().generatePairingCode(TTL_SECS);
+      set({
+        codeInfo: info,
+        generating: false,
+        error: null,
+      });
+      scheduleRefresh(info.expiresAt, () => {
+        const { codeInfo, generating } = get();
+        if (codeInfo !== null && !generating) {
+          void get().regenerate();
+        }
+      });
+    } catch (err) {
+      clearTimer();
+      set({
+        codeInfo: null,
+        generating: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      console.warn("[pairing-code] generate failed:", err);
     }
-  },
-}));
+  }
+
+  return {
+    codeInfo: null,
+    generating: false,
+    error: null,
+
+    async ensure() {
+      const { codeInfo, generating } = get();
+      if (generating) return;
+      if (codeInfo !== null && !isExpired(codeInfo)) return;
+      await generate();
+    },
+
+    async regenerate() {
+      if (get().generating) return;
+      await generate();
+    },
+
+    clear() {
+      clearTimer();
+      set({ codeInfo: null, error: null });
+    },
+
+    markConsumed() {
+      const { codeInfo, generating } = get();
+      // 仅在有活跃码时续生；没有码就不主动生成（用户没在用配对码功能）
+      if (codeInfo !== null && !generating) {
+        void generate();
+      }
+    },
+  };
+});

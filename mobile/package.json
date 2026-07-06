@@ -13,6 +13,7 @@
     "lint:ci": "biome ci src/",
     "format": "biome check --fix src/",
     "typecheck": "tsc --noEmit",
+    "check:zustand-access": "node scripts/check-zustand-store-access.mjs",
     "i18n:extract": "lingui extract --clean"
   },
   "dependencies": {

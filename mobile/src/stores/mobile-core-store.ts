@@ -22,6 +22,9 @@ import { usePreferencesStore } from "@/stores/preferences-store";
 export type RuntimeState = "stopped" | "starting" | "running" | "error";
 /** 设备身份加载状态 —— UI 端用 i18n 渲染对应文案 */
 export type IdentityStatus = "idle" | "loading" | "ready" | "failed";
+export type NodeCommandResult =
+  | { ok: true; state: RuntimeState }
+  | { ok: false; state: RuntimeState; error: string };
 
 /** 已配对设备的骨架信息 —— 节点未启动时也能显示 */
 export interface PairedDeviceSummary {
@@ -78,9 +81,9 @@ type MobileCoreState = {
    *  不依赖 NetManager,节点未启动也能调,UI 离线视图的权威数据源。 */
   loadPairedDevicesCache: () => Promise<void>;
   /** 关闭 NetManager 释放 P2P 资源（用户手动停或 app 即将被杀时调用） */
-  shutdownNode: () => Promise<void>;
+  shutdownNode: () => Promise<NodeCommandResult>;
   /** 启动 NetManager */
-  startNode: () => Promise<void>;
+  startNode: () => Promise<NodeCommandResult>;
   refreshDevices: () => Promise<void>;
   refreshNetworkStatus: () => Promise<void>;
   updatePairedDevicePolicy: (
@@ -166,8 +169,12 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           });
           // 节点停了，配对码也无效（不能通过 DHT 被对端找到）—— 清掉
           usePairingCodeStore.getState().clear();
+          return { ok: true, state: "stopped" };
         } catch (err) {
+          const message = errorMessage(err);
           console.warn("[mobile-core-store] shutdownNode failed:", err);
+          set({ error: message });
+          return { ok: false, state: get().runtimeState, error: message };
         }
       },
 
@@ -176,7 +183,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           get().runtimeState === "running" ||
           get().runtimeState === "starting"
         )
-          return;
+          return { ok: true, state: get().runtimeState };
         set({ runtimeState: "starting", error: null });
         try {
           const core = await initMobileCore();
@@ -206,12 +213,20 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             void ensureNotificationPermission();
             void startForegroundKeepAlive();
           }
+          if (nextRuntimeState !== "running") {
+            const message = "节点未进入运行状态";
+            set({ error: message });
+            return { ok: false, state: nextRuntimeState, error: message };
+          }
+          return { ok: true, state: nextRuntimeState };
         } catch (err) {
+          const message = errorMessage(err);
           set({
-            error: errorMessage(err),
+            error: message,
             runtimeState: "error",
             startedAt: null,
           });
+          return { ok: false, state: "error", error: message };
         }
       },
 
