@@ -3,28 +3,30 @@
 @import "fumadocs-ui/css/preset.css";
 
 /*
- * SwarmDrop 品牌色：蜂巢蜜金（取自新 logo 的金色 mark），与桌面应用主题同源。
- * 金色是浅色——实心底 --brand-solid 恒配 --brand-ink 墨字（7:1+），绝不配白字；
- * 强调文字/图标用 --brand（亮模式加深到白底 4.6:1，暗模式切亮金）。
- * --tile 是应用暗色画布的深藏蓝，用于 CTA 等「深底金图形」品牌场景，两种模式不变。
+ * SwarmDrop 品牌色：青绿主体 + 赤铜中心（取自新 logo 的双色方案），与桌面应用主题同源。
+ * 青绿实心底 --brand-solid 恒配 --brand-ink 深墨字（4.9:1），避免小字白字对比不足；
+ * 强调文字/图标用 --brand（亮模式加深到白底 5.3:1，暗模式切亮青绿）。
+ * --tile 是应用暗色画布的深藏蓝，用于 CTA 等「深底品牌图形」场景，两种模式不变。
  * Fumadocs 自带 --color-fd-* 前缀变量，两套互不冲突。
  */
 :root {
-  --brand: #a56800; /* 强调文字/图标/描边，白底 4.6:1 */
-  --brand-strong: #8a5700;
-  --brand-solid: #dba341; /* 实心按钮/面板底色，恒配 --brand-ink */
-  --brand-ink: #2f1e01; /* 金底上的文字 */
-  --brand-soft: #f6ebd2;
+  --brand: #087968; /* 强调文字/图标/描边，白底 5.3:1 */
+  --brand-strong: #066457;
+  --brand-solid: #0f8f7a; /* 实心按钮/面板底色，恒配 --brand-ink */
+  --brand-ink: #020817; /* 青绿底上的文字 */
+  --brand-soft: #e3f7f1;
+  --brand-warm: #c56a42; /* logo 中心赤铜色，小面积品牌温度 */
   --sky: #0ea5e9; /* sky-500：天蓝点缀保留 */
   --tile: #0d111a; /* 应用暗色画布深藏蓝 */
 }
 
 .dark {
-  --brand: #e2ad54; /* 暗底亮金 9.2:1 */
-  --brand-strong: #ebc078;
-  --brand-solid: #dba341; /* 实心底色不随模式变，墨字对比恒定 */
-  --brand-ink: #2f1e01;
-  --brand-soft: #4a3410;
+  --brand: #5ee0c8; /* 暗底亮青绿 12:1+ */
+  --brand-strong: #8af0dd;
+  --brand-solid: #13a38c;
+  --brand-ink: #020817;
+  --brand-soft: #0d3b34;
+  --brand-warm: #e18762;
   --sky: #38bdf8; /* sky-400 */
   --tile: #0d111a;
 }

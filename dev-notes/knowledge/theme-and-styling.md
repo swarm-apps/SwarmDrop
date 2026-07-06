@@ -4,27 +4,28 @@
 
 桌面端 UI 层的项目特有约束：shadcn/ui new-york 风格、Tailwind v4 token、macOS 自定义标题栏、Aurora 背景。本主题只记录"看代码看不出来 / 容易踩坑"的部分，常规 utility 用法直接查 `/tailwind-css-patterns` 或 `/tailwind-design-system`。
 
-## 主题色：蜂巢蜜金双 token 体系
+## 主题色：青绿主色双 token 体系
 
-### 金色 primary 不能直接当文字色用（--brand 存在的原因）
+### 青绿 primary 填充和文字仍然分 token（--brand 存在的原因）
 
-2026-07 起 primary 是蜂巢蜜金（light `oklch(0.75 0.13 78)` / dark `oklch(0.78 0.123 78)`，源自 logo 金色）。金色系是浅色，与旧的深藏蓝 primary 有两个根本差异：
+2026-07 起 primary 是 Harbor Teal（light `oklch(0.583 0.105 177.1)` / dark `oklch(0.641 0.115 177.6)`，源自新 logo 的青绿主体）。logo 中心的赤铜 `#C56A42` 只作为小面积品牌温度，不作为通用 UI action/state 色。
 
 **正确做法**：
-- **填充场景**（按钮底、badge 底、开关轨道）：用 `bg-primary` + `text-primary-foreground`（暖调墨色 `oklch(0.25 0.05 78)`，对金底 7:1+）。**不是白字**——白字在金底上只有 ~1.9:1
-- **文字/图标场景**（链接、accent 图标、彩色标签）：用 `text-brand`（light 深金 `#A56800` 白底 4.6:1；dark 自动切亮金）。`text-primary` 在白底上只有 2.8:1，会挂 WCAG AA
+- **填充场景**（按钮底、badge 底、开关轨道）：用 `bg-primary` + `text-primary-foreground`（深墨 `#020817`，对青绿底约 5:1）。**不是白字**——白字在青绿底上只有约 4.0:1，小字不够稳
+- **文字/图标场景**（链接、accent 图标、彩色标签）：用 `text-brand`（light 深青绿 `#087968` 白底 5.3:1；dark 自动切亮青绿 `#5EE0C8`）。`text-primary` 是填充色，不要直接当小字正文色
 - 半透明 wash 用 `bg-primary/10`、`ring-primary/15` 这类 opacity modifier，light/dark 各自微调档位（dark 通常高一档）
 
 **不要做**：
 - `text-primary` 当文字色（亮色模式必挂对比度）
-- 金色填充配 `text-white`
+- 青绿填充配 `text-white`
+- 把赤铜中心色 `#C56A42` 升级成按钮/状态主色
 - 新代码再写死 `text-blue-600` / `bg-blue-500/10` 之类蓝色 utility——蓝色 accent 已于主题迁移时全量清除
 
 **相关文件**：`src/index.css`（`--brand` 定义 + `@theme inline` 注册）、`DESIGN.md`（Brand Fidelity Rule）
 
 ### 连接类型徽章三色保持语义可辨
 
-设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=green、打洞=sky、中继=amber。主题迁移时曾把打洞扫成品牌金，和中继的 amber 撞色，已改回 sky。品牌金与 amber 色相接近（78 vs ~70），任何新的琥珀/黄色语义用法都要先确认与品牌金拉得开距离。
+设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=green、打洞=sky、中继=amber。品牌主色现在也是青绿色，任何新的 success/online 语义用法都要先确认与 `text-brand` / `bg-primary` 拉得开距离；赤铜只留给 logo/品牌小点缀，不参与状态编码。
 
 **相关文件**：`src/routes/_app/devices/-components/device-card.tsx`（`connectionConfig`）
 
