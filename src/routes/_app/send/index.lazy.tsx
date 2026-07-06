@@ -44,14 +44,13 @@ export const Route = createLazyFileRoute("/_app/send/")({
 });
 
 function SendPage() {
-  const { peerId } = Route.useSearch();
+  const { peerId, session: activeSessionId } = Route.useSearch();
   const navigate = useNavigate();
   const router = useRouter();
   const fileSelection = useFileSelection();
   const [sending, setSending] = useState(false);
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null);
-  // startSend 成功后就地转进度视图（不再跳独立详情页）
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const loadProjections = useTransferStore((s) => s.loadProjections);
 
   // 从 network-store / secret-store 查找目标设备
   const onlineDevice = useNetworkStore(
@@ -109,15 +108,29 @@ function SendPage() {
         fileIds,
       );
 
-      await useTransferStore.getState().loadProjections();
-
-      setActiveSessionId(result.sessionId);
+      await loadProjections();
+      void navigate({
+        to: "/send",
+        search: { peerId: device.peerId, session: result.sessionId },
+        replace: true,
+      });
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
       setSending(false);
       setPrepareProgress(null);
     }
+  };
+
+  const setActiveSessionId = (sessionId: string | null) => {
+    void navigate({
+      to: "/send",
+      search: {
+        peerId,
+        ...(sessionId ? { session: sessionId } : {}),
+      },
+      replace: true,
+    });
   };
 
   const handleBack = () => {
@@ -280,4 +293,3 @@ function DesktopSendView({
     </TaskPageShell>
   );
 }
-

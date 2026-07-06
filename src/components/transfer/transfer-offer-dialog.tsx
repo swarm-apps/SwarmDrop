@@ -31,6 +31,7 @@ export function TransferOfferDialog() {
   const [dismissedSessionId, setDismissedSessionId] = useState<string | null>(
     null,
   );
+  const configuredSavePath = usePreferencesStore((s) => s.transfer.savePath);
 
   const { shiftOffer, pendingOffers, loadProjections } = useTransferStore(
     useShallow((s) => ({
@@ -52,9 +53,8 @@ export function TransferOfferDialog() {
     let cancelled = false;
     // 默认落盘位置 = 设置里配的接收文件夹（preferences.transfer.savePath）；未配则回退
     // getDefaultSavePath（<下载>/SwarmDrop）。agent 代收也读同一个 pref，二者一致。
-    const configured = usePreferencesStore.getState().transfer.savePath;
-    if (configured) {
-      setSavePath(configured);
+    if (configuredSavePath) {
+      setSavePath(configuredSavePath);
     } else {
       getDefaultSavePath().then((path) => {
         if (!cancelled) setSavePath(path);
@@ -63,7 +63,7 @@ export function TransferOfferDialog() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [configuredSavePath]);
 
   // 当 dismissedSessionId 对应的 offer 被移除后，清除 dismissedSessionId
   useEffect(() => {

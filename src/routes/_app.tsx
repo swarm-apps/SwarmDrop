@@ -27,6 +27,10 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
+  const autoStart = usePreferencesStore((s) => s.autoStart);
+  const networkStatus = useNetworkStore((s) => s.status);
+  const startNetwork = useNetworkStore((s) => s.startNetwork);
+
   // 传输事件监听
   useEffect(() => {
     setupTransferListeners();
@@ -37,14 +41,12 @@ function AppLayout() {
 
   // 自动启动节点(解锁后首次进入时检查)
   useEffect(() => {
-    const { autoStart } = usePreferencesStore.getState();
-    const { status, startNetwork } = useNetworkStore.getState();
-    if (autoStart && status === "stopped") {
+    if (autoStart && networkStatus === "stopped") {
       void startNetwork().then((ok) => {
         if (!ok) console.warn("[auto-start] 节点自动启动失败");
       });
     }
-  }, []);
+  }, [autoStart, networkStatus, startNetwork]);
 
   const location = useLocation();
 

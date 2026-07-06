@@ -6,7 +6,8 @@
  * - 宽屏（≥920px）：左「会话列表」+ 右「会话详情」双栏。
  * - 窄屏（<920px）：详情占满，列表从左侧抽屉滑出。
  * 有内容时自动选中首项（详情区默认有内容），仅一条都没有才显示空态。
- * 选中态由 search param `?session=` 承载，旧 /transfer/$sessionId 深链重定向至此。
+ * 选中态由 search param `?session=` 承载，过滤器由 `?filter=` 承载；
+ * 旧 /transfer/$sessionId 深链重定向至此。
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -38,6 +39,7 @@ import {
   SessionSummaryHeader,
 } from "@/components/transfer/session-panel";
 import { DESTRUCTIVE_BTN_CLASS, SessionRow } from "./-session-row";
+import type { TransferFilterKey } from "./index";
 
 export const Route = createLazyFileRoute("/_app/transfer/")({
   component: TransferPage,
@@ -45,7 +47,7 @@ export const Route = createLazyFileRoute("/_app/transfer/")({
 
 /* ─────────────────── 过滤器 ─────────────────── */
 
-type FilterKey = "all" | "active" | "recoverable" | "ended";
+type FilterKey = TransferFilterKey;
 
 function matchesFilter(item: TransferProjection, filter: FilterKey): boolean {
   switch (filter) {
@@ -71,10 +73,10 @@ function phaseRank(item: TransferProjection): number {
 
 function TransferPage() {
   const navigate = useNavigate();
-  const { session: selectedId } = Route.useSearch();
+  const { session: selectedId, filter: routeFilter } = Route.useSearch();
   const projections = useTransferStore((s) => s.projections);
   const loadProjections = useTransferStore((s) => s.loadProjections);
-  const [filter, setFilter] = useState<FilterKey>("all");
+  const filter: FilterKey = routeFilter ?? "all";
   const [clearOpen, setClearOpen] = useState(false);
 
   // 进入页面时主动刷新后端 projection（删除路径的权威来源）
@@ -114,11 +116,28 @@ function TransferPage() {
     (sessionId: string | null) => {
       void navigate({
         to: "/transfer",
-        search: sessionId ? { session: sessionId } : {},
+        search: {
+          ...(sessionId ? { session: sessionId } : {}),
+          ...(filter !== "all" ? { filter } : {}),
+        },
         replace: true,
       });
     },
-    [navigate],
+    [filter, navigate],
+  );
+
+  const selectFilter = useCallback(
+    (nextFilter: FilterKey) => {
+      void navigate({
+        to: "/transfer",
+        search: {
+          ...(selectedId ? { session: selectedId } : {}),
+          ...(nextFilter !== "all" ? { filter: nextFilter } : {}),
+        },
+        replace: true,
+      });
+    },
+    [navigate, selectedId],
   );
 
   // 自动选首项：无有效选中（未选 / 选中项已删除）且有内容 → 选第一条；零内容 → 清空走空态。
@@ -157,7 +176,7 @@ function TransferPage() {
             totalCount={items.length}
             counts={counts}
             filter={filter}
-            onFilterChange={setFilter}
+            onFilterChange={selectFilter}
             selectedId={shown?.sessionId ?? null}
             onSelect={selectSession}
             onAfterSelect={closeDrawer}

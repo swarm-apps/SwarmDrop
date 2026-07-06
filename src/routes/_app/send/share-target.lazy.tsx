@@ -53,6 +53,9 @@ export const Route = createLazyFileRoute("/_app/send/share-target")({
 });
 
 function ShareTargetPage() {
+  const { session: activeSessionId } = Route.useSearch() as {
+    session?: string;
+  };
   const navigate = useNavigate();
   const router = useRouter();
   const fileSelection = useFileSelection();
@@ -61,15 +64,16 @@ function ShareTargetPage() {
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null);
-  // startSend 成功后就地转进度视图（右键快捷发送全程单界面，发完即可关窗）
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   // 主任务是选设备（文件已定）。窄屏（<920）选设备占主屏，「待发文件」收进左抽屉。
   const isWide = useIsWideLayout();
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
 
   const status = useNetworkStore((s) => s.status);
+  const startNetwork = useNetworkStore((s) => s.startNetwork);
   const devices = useNetworkStore((s) => s.devices);
   const pairedDevices = useSecretStore((s) => s.pairedDevices);
+  const consumeShareSources = useShareStore((s) => s.consume);
+  const loadProjections = useTransferStore((s) => s.loadProjections);
 
   // 消费在途来源：订阅 store 而非只在 mount 时 consume——页面已挂载时用户再次
   // 「用 SwarmDrop 打开」不会 remount（navigate 同路由 no-op），必须靠订阅感知新批次。
@@ -78,23 +82,27 @@ function ShareTargetPage() {
   const pendingSources = useShareStore((s) => s.sources);
   useEffect(() => {
     if (pendingSources.length === 0) return;
-    const { sources, presetPeerId } = useShareStore.getState().consume();
+    const { sources, presetPeerId } = consumeShareSources();
     if (sources.length === 0) return;
-    setActiveSessionId(null);
+    void navigate({
+      to: "/send/share-target",
+      search: {},
+      replace: true,
+    });
     clear();
     // 「重新发送」携带原目标设备；设备当前离线时 selectedDevice 派生为 null，自动回落选设备
     if (presetPeerId) setSelectedPeerId(presetPeerId);
     void addSources(sources).catch((err) => toast.error(getErrorMessage(err)));
-  }, [pendingSources, addSources, clear]);
+  }, [pendingSources, consumeShareSources, navigate, addSources, clear]);
 
   // 节点未启动时自动启动一次（外部打开常处于冷启动、节点还没起）。
   const startedRef = useRef(false);
   useEffect(() => {
     if (!startedRef.current && status === "stopped") {
       startedRef.current = true;
-      void useNetworkStore.getState().startNetwork();
+      void startNetwork();
     }
-  }, [status]);
+  }, [status, startNetwork]);
 
   const nodeRunning = status === "running";
 
@@ -128,14 +136,26 @@ function ShareTargetPage() {
         deviceDisplayName(selectedDevice),
         fileIds,
       );
-      await useTransferStore.getState().loadProjections();
-      setActiveSessionId(result.sessionId);
+      await loadProjections();
+      void navigate({
+        to: "/send/share-target",
+        search: { session: result.sessionId },
+        replace: true,
+      });
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
       setSending(false);
       setPrepareProgress(null);
     }
+  };
+
+  const setActiveSessionId = (sessionId: string) => {
+    void navigate({
+      to: "/send/share-target",
+      search: { session: sessionId },
+      replace: true,
+    });
   };
 
   const handleBack = () => {
@@ -437,4 +457,3 @@ function EmptyDevices() {
     </div>
   );
 }
-

@@ -17,7 +17,10 @@ import {
 import type { PeerId } from "@/lib/types";
 import { isErrorKind, getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
-import { useNetworkStore } from "@/stores/network-store";
+import {
+  findNetworkDeviceSnapshot,
+  startNetworkFromStore,
+} from "@/stores/network-store";
 
 export type { PairingRequestPayload };
 
@@ -48,7 +51,7 @@ function handleNodeNotStarted(err: unknown): boolean {
     action: {
       label: t`启动`,
       onClick: () => {
-        void useNetworkStore.getState().startNetwork();
+        void startNetworkFromStore();
       },
     },
   });
@@ -133,15 +136,12 @@ function clearAutoRefreshTimer() {
 }
 
 /** 调度过期前的自动重生（提前 500ms 拿新码避免 UI 闪 expired） */
-function scheduleAutoRefresh(expiresAt: string) {
+function scheduleAutoRefresh(expiresAt: string, regenerateIfActive: () => void) {
   clearAutoRefreshTimer();
   const ms = Math.max(0, new Date(expiresAt).getTime() - Date.now() - 500);
   autoRefreshTimer = setTimeout(() => {
     autoRefreshTimer = null;
-    // 仅当还有活跃码时刷新（avoid 用户主动 clearActiveCode 后又被偷偷生成）
-    if (usePairingStore.getState().activeCode !== null) {
-      usePairingStore.getState().generateCode();
-    }
+    regenerateIfActive();
   }, ms);
 }
 
@@ -171,7 +171,12 @@ export const usePairingStore = create<PairingState>()(
           current: { phase: "generating", codeInfo },
           codeError: null,
         });
-        scheduleAutoRefresh(codeInfo.expiresAt);
+        scheduleAutoRefresh(codeInfo.expiresAt, () => {
+          // 仅当还有活跃码时刷新（avoid 用户主动 clearActiveCode 后又被偷偷生成）
+          if (get().activeCode !== null) {
+            void get().generateCode();
+          }
+        });
       } catch (err) {
         if (handleNodeNotStarted(err)) return;
         const message = getErrorMessage(err);
@@ -345,7 +350,7 @@ export const usePairingStore = create<PairingState>()(
 
         if (response.status === "success") {
           // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
-          const device = useNetworkStore.getState().devices.find(d => d.peerId === peerId);
+          const device = findNetworkDeviceSnapshot(peerId);
           const deviceName = device ? deviceDisplayName(device) : peerId.slice(-8);
 
           set({

@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
+import { useShareStore } from "@/stores/share-store";
 import {
   calcPercent,
   formatFileSize,
@@ -391,6 +392,7 @@ export const SessionActions = memo(function SessionActions({
   trailing?: React.ReactNode;
 }) {
   const navigate = useNavigate();
+  const setShareSources = useShareStore((s) => s.setSources);
   const isActive = isProjectionActive(projection);
   const isPaused = projection.phase === "suspended";
   const [isCancelling, setIsCancelling] = useState(false);
@@ -467,14 +469,14 @@ export const SessionActions = memo(function SessionActions({
   const handleResend = useCallback(async () => {
     setIsResending(true);
     try {
-      await doResendTransfer(projection);
+      await doResendTransfer(projection, setShareSources);
       void navigate({ to: "/send/share-target" });
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
       setIsResending(false);
     }
-  }, [navigate, projection]);
+  }, [navigate, projection, setShareSources]);
 
   const canOpenInbox =
     isProjectionCompleted(projection) && projection.direction === "receive";

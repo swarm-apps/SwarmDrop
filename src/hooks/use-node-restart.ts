@@ -15,19 +15,20 @@ import { useNetworkStore } from "@/stores/network-store";
 export function useNodeRestart() {
   const { t } = useLingui();
   const nodeStatus = useNetworkStore((s) => s.status);
+  const stopNetwork = useNetworkStore((s) => s.stopNetwork);
+  const startNetwork = useNetworkStore((s) => s.startNetwork);
   const [needsRestart, setNeedsRestart] = useState(false);
   const [restarting, setRestarting] = useState(false);
 
   const markRestartNeeded = useCallback(() => {
-    if (useNetworkStore.getState().status === "running") {
+    if (nodeStatus === "running") {
       setNeedsRestart(true);
     }
-  }, []);
+  }, [nodeStatus]);
 
   const restart = useCallback(async () => {
     setRestarting(true);
     try {
-      const { stopNetwork, startNetwork } = useNetworkStore.getState();
       await stopNetwork();
       const ok = await startNetwork();
       if (!ok) {
@@ -43,7 +44,7 @@ export function useNodeRestart() {
     } finally {
       setRestarting(false);
     }
-  }, [t]);
+  }, [startNetwork, stopNetwork, t]);
 
   return {
     restarting,

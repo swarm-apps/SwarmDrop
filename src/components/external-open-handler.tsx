@@ -19,6 +19,8 @@ import { useShareStore } from "@/stores/share-store";
 
 export function ExternalOpenHandler() {
   const navigate = useNavigate();
+  const deviceName = usePreferencesStore((s) => s.deviceName);
+  const setShareSources = useShareStore((s) => s.setSources);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -28,14 +30,13 @@ export function ExternalOpenHandler() {
       if (paths.length === 0) return;
 
       // 首启未设设备名 → 丢弃本次意图并提示（不缓冲回放）。
-      const deviceName = usePreferencesStore.getState().deviceName.trim();
-      if (deviceName === "") {
+      if (deviceName.trim() === "") {
         toast.info(t`请先完成 SwarmDrop 设置`);
         return;
       }
 
       const sources: FileSource[] = paths.map((path) => ({ type: "path", path }));
-      useShareStore.getState().setSources(sources);
+      setShareSources(sources);
       void navigate({ to: "/send/share-target" });
     };
 
@@ -56,7 +57,7 @@ export function ExternalOpenHandler() {
       cancelled = true;
       unlisten?.();
     };
-  }, [navigate]);
+  }, [deviceName, navigate, setShareSources]);
 
   return null;
 }

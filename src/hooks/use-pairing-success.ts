@@ -11,11 +11,12 @@ import { usePairingStore } from "@/stores/pairing-store";
 export function usePairingSuccess() {
   const navigate = useNavigate();
   const phase = usePairingStore((s) => s.current.phase);
+  const reset = usePairingStore((s) => s.reset);
 
   useEffect(() => {
     if (phase === "success") {
       navigate({ to: "/devices" });
-      usePairingStore.getState().reset();
+      reset();
     }
-  }, [phase, navigate]);
+  }, [phase, navigate, reset]);
 }

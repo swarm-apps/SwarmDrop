@@ -221,3 +221,13 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
     set({ error: null });
   },
 }));
+
+/** 命令式边界：供非 React/store orchestration 回调启动节点。 */
+export function startNetworkFromStore(): Promise<boolean> {
+  return useNetworkStore.getState().startNetwork();
+}
+
+/** 命令式边界：供配对流程用当前网络快照补全设备展示名。 */
+export function findNetworkDeviceSnapshot(peerId: string): Device | undefined {
+  return useNetworkStore.getState().devices.find((device) => device.peerId === peerId);
+}

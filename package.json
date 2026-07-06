@@ -9,6 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "check:zustand-access": "node scripts/check-zustand-store-access.mjs",
     "tauri": "tauri",
     "i18n:extract": "lingui extract",
     "changelog": "git-cliff --output CHANGELOG.md",

@@ -48,6 +48,8 @@ function DevicesPage() {
   const fetchDevices = useNetworkStore((s) => s.fetchDevices);
   const isOnline = status === "running" || status === "starting";
   const storedPairedDevices = useSecretStore((state) => state.pairedDevices);
+  const removePairedDevice = useSecretStore((state) => state.removePairedDevice);
+  const upsertPairedDevice = useSecretStore((state) => state.upsertPairedDevice);
   const directPairing = usePairingStore((state) => state.directPairing);
   const projections = useTransferStore((s) => s.projections);
 
@@ -140,7 +142,7 @@ function DevicesPage() {
   const handleUnpair = (device: Device) => {
     // 同时更新后端运行时状态(节点未运行时静默成功)
     commands.removePairedDevice(device.peerId);
-    useSecretStore.getState().removePairedDevice(device.peerId);
+    removePairedDevice(device.peerId);
   };
 
   const handleUpdatePolicy = useCallback(
@@ -154,11 +156,11 @@ function DevicesPage() {
         trustLevel,
         receivePolicy,
       );
-      useSecretStore.getState().upsertPairedDevice(updated);
+      upsertPairedDevice(updated);
       await fetchDevices("all");
       toast.success(t`已更新可信设备策略`);
     },
-    [fetchDevices],
+    [fetchDevices, upsertPairedDevice],
   );
 
   return (

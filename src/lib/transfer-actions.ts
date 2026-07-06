@@ -8,8 +8,7 @@
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { getErrorMessage } from "@/lib/errors";
-import { commands, type TransferProjection } from "@/lib/bindings";
-import { useShareStore } from "@/stores/share-store";
+import { commands, type FileSource, type TransferProjection } from "@/lib/bindings";
 
 /** 暂停传输 */
 export async function doPauseTransfer(sessionId: string) {
@@ -58,12 +57,13 @@ export async function doResumeTransfer(sessionId: string): Promise<string> {
  */
 export async function doResendTransfer(
   projection: TransferProjection,
+  setSources: (sources: FileSource[], presetPeerId?: string) => void,
 ): Promise<void> {
   const paths = await commands.getTransferSourcePaths(projection.sessionId);
   if (paths.length === 0) {
     throw new Error(t`找不到原始文件路径，请重新选择文件发送`);
   }
-  useShareStore.getState().setSources(
+  setSources(
     paths.map((path) => ({ type: "path", path })),
     projection.peerId,
   );
