@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     "SwarmDrop 是去中心化、跨网络、端到端加密的 P2P 文件传输工具。无账号、无服务器，把 LocalSend 的体验扩展到任意网络。",
   icons: {
     icon: [
-      { url: appIconPath, type: "image/svg+xml" },
+      { url: appIconPath, type: "image/png" },
       { url: `${BASE_PATH}/favicon.ico`, sizes: "any" },
     ],
   },

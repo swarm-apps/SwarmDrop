@@ -4,7 +4,7 @@ export const appName = "SwarmDrop";
 export const appTagline = "Drop files anywhere. No cloud. No limits.";
 // GitHub Pages 部署在 /SwarmDrop 子路径下，纯字符串路径（不像 next/image、next/link
 // 那样能被框架自动加前缀）必须手动拼 BASE_PATH，否则会被解析成域名根路径 404。
-export const appIconPath = `${BASE_PATH}/app-icon.svg`;
+export const appIconPath = `${BASE_PATH}/app-icon.png`;
 export const docsRoute = "/docs";
 export const docsImageRoute = "/og/docs";
 export const docsContentRoute = "/llms.mdx/docs";
