@@ -2,13 +2,21 @@
 name: SwarmDrop Mobile
 description: Cross-network, end-to-end encrypted file transfer between your own devices.
 colors:
-  trust-blue: "#3B82F6"
+  harbor-teal: "#0F8F7A"
+  action-teal: "#087968"
+  harbor-teal-ink: "#087968"
+  copper-core: "#C56A42"
+  brand-mist: "#F0FBF7"
+  mist-surface: "#F5FAF8"
   porch-white: "#FFFFFF"
   doorway-ink: "#020817"
+  night-background: "#121E20"
+  night-surface: "#18282B"
+  night-muted: "#203538"
   quiet-surface: "#F1F5F9"
   quiet-ink: "#0F172A"
   hush-gray: "#64748B"
-  threshold-line: "#E2E8F0"
+  threshold-line: "#DDEAE6"
   welcome-green: "#16A34A"
   caution-amber: "#F59E0B"
   alert-red: "#EF4444"
@@ -50,8 +58,8 @@ spacing:
   lg: "14px"
 components:
   button-primary:
-    backgroundColor: "{colors.trust-blue}"
-    textColor: "{colors.quiet-ink}"
+    backgroundColor: "{colors.action-teal}"
+    textColor: "{colors.porch-white}"
     typography: "{typography.body}"
     rounded: "{rounded.xl}"
     padding: "10px 16px"
@@ -64,12 +72,12 @@ components:
     padding: "10px 16px"
     height: "40px"
   card:
-    backgroundColor: "{colors.porch-white}"
+    backgroundColor: "{colors.mist-surface}"
     textColor: "{colors.doorway-ink}"
     rounded: "{rounded.lg}"
     padding: "14px"
   device-row:
-    backgroundColor: "{colors.porch-white}"
+    backgroundColor: "{colors.mist-surface}"
     textColor: "{colors.doorway-ink}"
     typography: "{typography.title}"
     rounded: "{rounded.lg}"
@@ -82,8 +90,8 @@ components:
     rounded: "{rounded.full}"
     padding: "4px 10px"
   trust-badge-owned:
-    backgroundColor: "{colors.trust-blue}"
-    textColor: "{colors.trust-blue}"
+    backgroundColor: "{colors.harbor-teal}"
+    textColor: "{colors.harbor-teal-ink}"
     typography: "{typography.label}"
     rounded: "{rounded.full}"
     padding: "2px 10px"
@@ -107,32 +115,39 @@ This system explicitly rejects the two poles PRODUCT.md names as anti-references
 
 ## 2. Colors
 
-The palette is a neutral shadcn/ui "New York" base (unmodified — this project has not yet diverged from the stock preset) carrying four semantic accents. Read this as two layers: a quiet neutral scaffold, and a small, disciplined set of state colors layered on top.
+The palette is a quiet neutral scaffold with white page chrome, mist-tinted content surfaces, and a small, disciplined set of state colors layered on top.
 
 ### Primary
-- **Trust Blue** (`#3B82F6`, `hsl(217.2 91.2% 59.8%)`): the one color that means "act here" — primary buttons, the send affordance on a device row, focus rings, and the "owned device" trust badge. It is the same hex in light and dark mode; only its foreground text flips (see Named Rule below).
+- **Harbor Teal** (`#0F8F7A`, `hsl(170.2 81% 31%)`): the selected logo subject color. It is the brand anchor, but it is too light for small white labels on buttons.
+- **Action Teal** (`#087968`, `hsl(171 87.6% 25.3%)`): the mobile UI action fill for primary buttons, send affordances, checked controls, and light-mode focus rings. It is one step deeper than the logo teal so button labels and lucide icons can be white and still clear ~5.3:1 contrast.
+- **Copper Core** (`#C56A42`): the small secondary brand color in the logo center. It adds warmth to the mark, but it is not a general UI action or state color.
 
 ### Neutral
-- **Porch White** (`#FFFFFF`): light-mode background, card, and popover surface.
-- **Doorway Ink** (`#020817`): light-mode body text; becomes the dark-mode background.
+- **Porch White** (`#FFFFFF`): light-mode app background and popover surface. The page stays clean and familiar instead of looking like a tinted marketing screen.
+- **Mist Surface** (`#F5FAF8`): light-mode cards, device rows, and repeated content surfaces. It is deliberately softer than the brand mist so repeated lists do not turn the whole app green.
+- **Brand Mist** (`#F0FBF7`): app icon / splash background and occasional brand panels only, not the default repeated card color.
+- **Doorway Ink** (`#020817`): light-mode body text.
+- **Night Background** (`#121E20`): dark-mode app background; softened away from near-black so large mobile surfaces do not feel harsh.
+- **Night Surface** (`#18282B`): dark-mode card and popover surface.
+- **Night Muted** (`#203538`): dark-mode secondary/muted/accent fills, borders, and inputs.
 - **Quiet Surface** (`#F1F5F9`): secondary/muted/accent backgrounds — icon chips, pill backgrounds at rest, disabled fills.
-- **Quiet Ink** (`#0F172A`): text on Quiet Surface; also doubles as `--primary-foreground` in both light and dark mode (see Named Rule).
+- **Quiet Ink** (`#0F172A`): text on Quiet Surface.
 - **Hush Gray** (`#64748B`): muted/secondary text — captions, offline-state labels, "os · platform" metadata rows.
-- **Threshold Line** (`#E2E8F0`): every border and input outline in the app. One border color, no exceptions — it is the literal edge of the doorstep.
+- **Threshold Line** (`#DDEAE6` light / `#203538` dark): every border and input outline in the app. One border color, no exceptions — it is the literal edge of the doorstep.
 
 ### State (used only for status, never decoratively)
 - **Welcome Green** (`#16A34A` light / `#22C55E` dark): device online, transfer complete, "collaborator" trust level.
 - **Caution Amber** (`#F59E0B` light / `#FACC15` dark): node starting up, transfer in progress.
 - **Alert Red** (`#EF4444` light / `#7F1D1D` dark): errors, blocked devices, destructive actions.
 
-Dark mode swaps background/foreground (Porch White ↔ Doorway Ink) and deepens neutrals one step (Quiet Surface → `#1E293B`, Threshold Line → `#1E293B`, Hush Gray → `#94A3B8`), while Trust Blue, Welcome Green, and Alert Red each get a dedicated, slightly adjusted dark-mode value already defined in `src/global.css` — never a flat opacity hack over the light value.
+Dark mode uses a softened teal-black stack instead of pure black: Night Background `#121E20`, Night Surface `#18282B`, Night Muted `#203538`, and Hush Gray `#9AB0AE`. Action Teal remains the primary fill so button text/icons stay white across themes; the dark focus ring uses the brighter brand cyan (`#5EE0C8`) for visibility.
 
 ### Named Rules
-**The Doorstep Threshold Rule.** There is exactly one border/input color in the entire system (`--border` / `--input`, both `#E2E8F0` light, `#1E293B` dark). Never introduce a second gray for dividers — reach for opacity on existing semantic colors (`bg-success/10`, `bg-destructive/15`) instead of a new hex.
+**The Doorstep Threshold Rule.** There is exactly one border/input color in the entire system (`--border` / `--input`, both `#DDEAE6` light, `#203538` dark). Never introduce a second divider color — reach for opacity on existing semantic colors (`bg-success/10`, `bg-destructive/15`) instead of a new hex.
 
-**The Unified Ink Rule.** `--primary-foreground` is dark ink (`#0F172A`) in both light and dark mode, even though `--primary` itself (`#3B82F6`) never changes. This used to flip (light text in light mode, dark text in dark mode) until an audit found the light-mode pairing cleared only ~3.5:1 contrast against Trust Blue — below the 4.5:1 AA floor. Dark ink clears ~4.9:1 in both modes, so the token is now one value, not two. Don't reintroduce a lighter light-mode variant without re-verifying contrast first.
+**The Primary Button Contrast Rule.** Mobile primary buttons use Action Teal (`#087968`) as the fill and white as `--primary-foreground`. Do not put white text/icons on raw Harbor Teal (`#0F8F7A`) for small buttons: it clears only ~4.0:1. If a button needs white labels or lucide icons, use Action Teal as the fill.
 
-**The State Ink Rule.** The saturated state colors (`--success` / `--warning` / `--destructive` / `--primary`) are calibrated for **fills, dots, and icons**, not for text. As *small text* on a light surface or a same-hue 10–15% tint they clear only ~2:1 (amber), ~3.3:1 (green), ~3.5:1 (red), ~3.4:1 (blue) — all below AA. So there is a dedicated **ink** token per state for text use: `--success-ink` / `--warning-ink` / `--destructive-ink` / `--primary-ink` (light = a darker shade, e.g. amber-700 / green-700 / red-700 / blue-600; dark = a lighter shade for text on dark tint). All clear ≥4.5:1 on both white and the `/10`–`/15` tint. **Rule:** state color as a *dot / fill / icon* → the base token; state color as *text* → the `-ink` token. `StatusPill`, `TrustBadge`, `ConnectionBadge`, and `transfer/shared`'s `StatusBadge` all follow this; new state text must too.
+**The State Ink Rule.** The saturated state colors (`--success` / `--warning` / `--destructive` / `--primary`) are calibrated for **fills, dots, and icons**, not for text. As *small text* on a light surface or a same-hue 10–15% tint they can fall below AA — raw Harbor Teal is only ~4.0:1 as small text on white, while `--primary-ink` (`#087968`) clears ~5.3:1. So there is a dedicated **ink** token per state for text use: `--success-ink` / `--warning-ink` / `--destructive-ink` / `--primary-ink` (light = a darker shade; dark = a lighter shade for text on dark tint). All clear ≥4.5:1 on both white and the `/10`–`/15` tint. **Rule:** state color as a *dot / fill / icon* → the base token; state color as *text* → the `-ink` token. `StatusPill`, `TrustBadge`, `ConnectionBadge`, and `transfer/shared`'s `StatusBadge` all follow this; new state text must too.
 
 ## 3. Typography
 
@@ -165,7 +180,7 @@ Two-tier, deliberately flat-first. Resting surfaces (buttons, cards, inputs, dev
 
 ### Buttons
 - **Shape:** `rounded-xl` (12px) — the app's canonical action-button radius. The shadcn `<Button>` primitive and all hand-rolled `Pressable` buttons now agree on it; cards/surfaces stay `rounded-lg` (10px). (This was reconciled from an earlier `rounded-md`/`lg`/`xl`/`2xl` spread that made the same action look different screen-to-screen.)
-- **Primary:** Trust Blue fill, **dark-ink text** (`--primary-foreground`, `#0F172A`, per the Unified Ink Rule — not white), `h-10` (40px, `sm:h-9`), `px-4 py-2`. Active feedback is either the variant fill (`active:bg-primary/90`, shadcn `<Button>`) or `active:opacity-70` (hand-rolled Pressable) — never a hover-only affordance, this is touch-first.
+- **Primary:** Action Teal fill, **white text/icons** (`--primary-foreground`, `#FFFFFF`, per the Primary Button Contrast Rule), `h-10` (40px, `sm:h-9`), `px-4 py-2`. Active feedback is either the variant fill (`active:bg-primary/90`, shadcn `<Button>`) or `active:opacity-70` (hand-rolled Pressable) — never a hover-only affordance, this is touch-first.
 - **Interaction consistency:** hand-rolled action buttons standardize on `active:opacity-70` + `disabled:opacity-50` (never `active:opacity-80/90` or `disabled:opacity-55`).
 - **Paired-action layout (dialogs & confirm screens):** two-action sets are ALWAYS a horizontal row — dismissive (outline) left, confirming (primary/destructive) right, equal `flex-1` widths (iOS HIG / Material 3 / 微信系惯例). `AlertDialogFooter`/`DialogFooter` were de-webbed from shadcn's `flex-col-reverse sm:flex-row` for this; vertical stacking is reserved for ≥3 actions or menu-style row lists (e.g. the inbox long-press sheet). Destructive-adjacent secondary buttons keep the neutral `border-border` — danger is carried by red ink (icon + text), never by a tinted border.
 - **Outline:** Porch White fill with a Threshold Line border; active state fills to Quiet Surface (`active:bg-accent`).
@@ -180,15 +195,15 @@ Two-tier, deliberately flat-first. Resting surfaces (buttons, cards, inputs, dev
 
 ### Cards / Device Rows
 - **Corner style:** `rounded-lg` (10px).
-- **Background:** Porch White, `border` in Threshold Line.
+- **Background:** Mist Surface, `border` in Threshold Line.
 - **Padding:** `p-3.5` (14px) — one consistent inset across card and row variants.
 - **Two variants:** `row` (76px min-height, horizontal, for the primary phone list) and `card` (vertical, for wider grid layouts) — same visual language, different flow direction.
 - **Offline state:** `opacity-60`–`opacity-65` on the whole row/card rather than a separate "disabled" color — the doorstep still shows you the device, just dimmed, not hidden.
-- **Send affordance:** a `size-11` (44px) circular Trust Blue button embedded at the trailing edge, disabled (falls back to Quiet Surface fill) when the device can't currently receive.
+- **Send affordance:** a `size-11` (44px) circular Action Teal button embedded at the trailing edge, disabled (falls back to Quiet Surface fill) when the device can't currently receive.
 
 ### Inputs
 - **Style:** Threshold Line border, Porch White background (`dark:bg-input/30`), `rounded-md`, `h-10` (`sm:h-9`).
-- **Focus (web only):** ring in Trust Blue at 50% opacity, 3px.
+- **Focus (web only):** ring in Action Teal at 50% opacity, 3px; dark mode uses the brighter brand cyan ring token.
 - **Disabled:** `opacity-50`.
 
 ### Navigation
@@ -216,6 +231,6 @@ Two-tier, deliberately flat-first. Resting surfaces (buttons, cards, inputs, dev
 ### Don't:
 - **Don't** introduce social/entertainment patterns — hero avatars, like counts, or timeline-style activity feeds. Per PRODUCT.md, this is explicitly rejected.
 - **Don't** build enterprise-SaaS-style dense data tables or dashboard-stacking layouts. Per PRODUCT.md, this is explicitly rejected.
-- **Don't** add a second border/divider gray — every edge in this app is Threshold Line (`#E2E8F0` / `#1E293B` dark); reach for opacity variants of existing state colors instead.
-- **Don't** revert `--primary-foreground` back to a lighter light-mode value — the unified dark-ink value (see the Unified Ink Rule) is what clears WCAG AA; a lighter value only cleared ~3.5:1.
+- **Don't** add a second border/divider color — every edge in this app is Threshold Line (`#DDEAE6` / `#203538` dark); reach for opacity variants of existing state colors instead.
+- **Don't** put small white button labels on raw logo teal (`#0F8F7A`) — use Action Teal (`#087968`) for primary button fills.
 - **Don't** add decorative gradients, glassmorphism, or gradient text anywhere — none exist today and none fit a doorstep that's supposed to feel calm and legible, not flashy. (Toasts use `burnt` — the OS-native mechanism per platform: iOS SPIndicator capsule at top, Android system `ToastAndroid` at bottom. No custom toast surface, no blur; see `lib/toast.ts`.)

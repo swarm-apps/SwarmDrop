@@ -7,6 +7,19 @@ NativeWind 5（preview）+ Tailwind v4 + @rn-primitives/* 组成 UI 层；`tailw
 图标走 `lucide-react-native`；色彩走 CSS 变量（`src/global.css`）+ `useThemeColors` hook 拉对应
 JS 值。主题持久化在 [src/lib/theme-persistence.ts](../../src/lib/theme-persistence.ts)。
 
+### 移动端 primary 按钮用深青绿底 + 白字/白图标
+
+Logo 主体色是 Harbor Teal `#0F8F7A`，但它承载白色小字只有约 4.0:1；移动端按钮如果改成黑字又会显得
+闷、不够清楚。`src/global.css` 因此把 UI action fill 定为更深一档的 Action Teal `#087968`，
+`--primary-foreground` 定为白色。所有 primary 按钮文案用 `text-primary-foreground`，lucide 图标和
+spinner 用 `colors.primaryForeground`，不要在按钮里手写黑色或直接把 logo teal 当按钮底。
+
+浅色模式主背景保持白色，重复内容 surface（卡片、设备行、列表行）用更淡一档的 Mist Surface `#F5FAF8`；
+app icon / splash 的 Brand Mist `#F0FBF7` 不直接铺满所有卡片，避免整屏泛绿。暗色模式背景从近黑改为
+Night Background `#121E20`，卡片 `#18282B`，muted/border/input `#203538`，避免大面积黑底太硬。
+
+**相关文件**：[src/global.css](../../src/global.css)，[DESIGN.md](../../DESIGN.md)
+
 ## NativeWind / Tailwind
 
 ### 拼接 className 时用 cn() 而不是嵌套三元
@@ -55,7 +68,7 @@ const colors = useThemeColors();
 <CheckCircle2 size={32} color={colors.success} strokeWidth={2} />
 ```
 
-非主题里的固定色（amber-500、blue-500）直接写 hex：
+非主题里的固定色（amber-500、slate-500）直接写 hex：
 
 ```tsx
 const FOLDER_COLOR = "#f59e0b";  // amber-500
@@ -103,7 +116,7 @@ Text 会被撑成 `flex-1` 铺满按钮宽，RN Text 默认 `textAlign:left` →
 
 `--success` / `--warning` / `--destructive` / `--primary` 这几个饱和色是给**填充 / 圆点 / 图标**
 调过的，当**小字**压在浅底或同色 `/10`~`/15` tint 上时对比度全不达 WCAG AA（amber 只有 ~2:1，
-green ~3.3:1，red ~3.5:1，blue ~3.4:1）。所以 `global.css` 另有一套高对比文字变体
+green ~3.3:1，red ~3.5:1，teal ~4.0:1）。所以 `global.css` 另有一套高对比文字变体
 `--success-ink` / `--warning-ink` / `--destructive-ink` / `--primary-ink`（亮=深一档、暗=亮一档，
 均 ≥4.5:1）。
 
@@ -132,8 +145,8 @@ NativeWind 5 preview 给 `ScrollView` 注册了 `contentContainerClassName`（`A
 
 内容区(列表初载、详情初载、搜索检索中)的加载态用 `Skeleton`(`src/components/ui/skeleton.tsx`)
 拼出与加载完成后**相同结构**的占位——真实卡片 chrome(边框/圆角/内边距)照写,文字/图标位置
-放 Skeleton 块;按钮内、输入框内的行内 spinner 仍用 `ActivityIndicator`(蓝底按钮内颜色必须
-`colors.primaryForeground`,不要 `colors.background`,那是 Unified Ink Rule 修过的低对比坑)。
+放 Skeleton 块;按钮内、输入框内的行内 spinner 仍用 `ActivityIndicator`(primary 底按钮内颜色必须
+`colors.primaryForeground`,不要 `colors.background` 或手写黑色,按钮前景规则统一由 primary token 承担)。
 
 **要点**:
 - 列表骨架 3-5 行,行间距与真实列表一致;文本行宽度错落(w-1/2 / w-2/3 / w-1/3)避免呆板

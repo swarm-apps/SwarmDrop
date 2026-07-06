@@ -40,17 +40,17 @@
 :root {
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
+  --card: 156 33.3% 97.1%;
   --card-foreground: 222.2 84% 4.9%;
   --popover: 0 0% 100%;
   --popover-foreground: 222.2 84% 4.9%;
-  --primary: 217.2 91.2% 59.8%;
-  --primary-foreground: 222.2 47.4% 11.2%;
-  --secondary: 210 40% 96.1%;
+  --primary: 171 87.6% 25.3%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 160 31% 94.3%;
   --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
+  --muted: 160 31% 94.3%;
   --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
+  --accent: 160 31% 94.3%;
   --accent-foreground: 222.2 47.4% 11.2%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 210 40% 98%;
@@ -65,28 +65,28 @@
   --success-ink: 142.4 71.8% 29.2%;
   --warning-ink: 26 90% 37%;
   --destructive-ink: 0 74% 42%;
-  --primary-ink: 221.2 83.2% 53.3%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 217.2 91.2% 59.8%;
+  --primary-ink: 171 87.6% 25.3%;
+  --border: 161.5 23.6% 89.2%;
+  --input: 161.5 23.6% 89.2%;
+  --ring: 171 87.6% 25.3%;
   --radius: 0.625rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
+    --background: 188.6 28% 9.8%;
+    --foreground: 166.7 27.3% 93.5%;
+    --card: 189.5 28.4% 13.1%;
+    --card-foreground: 166.7 27.3% 93.5%;
+    --popover: 189.5 28.4% 13.1%;
+    --popover-foreground: 166.7 27.3% 93.5%;
+    --primary: 171 87.6% 25.3%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 187.5 27.3% 17.3%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
+    --muted: 187.5 27.3% 17.3%;
+    --muted-foreground: 174.5 12.2% 64.7%;
+    --accent: 187.5 27.3% 17.3%;
     --accent-foreground: 210 40% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
@@ -99,9 +99,9 @@
     --success-ink: 141.9 69.2% 58%;
     --warning-ink: 43 96% 56%;
     --destructive-ink: 0 90.6% 70.8%;
-    --primary-ink: 213.1 93.9% 67.8%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+    --primary-ink: 168.9 67.7% 62.4%;
+    --border: 187.5 27.3% 17.3%;
+    --input: 187.5 27.3% 17.3%;
+    --ring: 168.9 67.7% 62.4%;
   }
 }
