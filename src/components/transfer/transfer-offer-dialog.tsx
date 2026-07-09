@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Trans } from "@lingui/react/macro";
 import { useTransferStore } from "@/stores/transfer-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { commands } from "@/lib/bindings";
 import type { SaveLocation } from "@/lib/types";
 import { FileTree } from "@/components/file-tree";
@@ -30,6 +31,7 @@ export function TransferOfferDialog() {
   const [dismissedSessionId, setDismissedSessionId] = useState<string | null>(
     null,
   );
+  const configuredSavePath = usePreferencesStore((s) => s.transfer.savePath);
 
   const { shiftOffer, pendingOffers, loadProjections } = useTransferStore(
     useShallow((s) => ({
@@ -49,13 +51,19 @@ export function TransferOfferDialog() {
 
   useEffect(() => {
     let cancelled = false;
-    getDefaultSavePath().then((path) => {
-      if (!cancelled) setSavePath(path);
-    });
+    // 默认落盘位置 = 设置里配的接收文件夹（preferences.transfer.savePath）；未配则回退
+    // getDefaultSavePath（<下载>/SwarmDrop）。agent 代收也读同一个 pref，二者一致。
+    if (configuredSavePath) {
+      setSavePath(configuredSavePath);
+    } else {
+      getDefaultSavePath().then((path) => {
+        if (!cancelled) setSavePath(path);
+      });
+    }
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [configuredSavePath]);
 
   // 当 dismissedSessionId 对应的 offer 被移除后，清除 dismissedSessionId
   useEffect(() => {
@@ -88,11 +96,11 @@ export function TransferOfferDialog() {
       await commands.acceptReceive(currentOffer.sessionId, saveLocation);
       await loadProjections();
 
-      // 成功后才出队 + 跳转详情；失败时保留 offer 供重试（不在 finally 出队）。
+      // 成功后才出队 + 跳转活动中心并选中该会话；失败时保留 offer 供重试（不在 finally 出队）。
       shiftOffer();
       navigate({
-        to: "/transfer/$sessionId",
-        params: { sessionId: currentOffer.sessionId },
+        to: "/transfer",
+        search: { session: currentOffer.sessionId },
       });
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -130,11 +138,11 @@ export function TransferOfferDialog() {
   return (
     <Dialog open={true} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-lg"
+        className="flex max-h-[85vh] flex-col sm:max-w-lg"
         showCloseButton={false}
         onPointerDownOutside={(e) => e.preventDefault()}
       >
-        <DialogHeader className="flex flex-col items-center gap-2">
+        <DialogHeader className="shrink-0 flex flex-col items-center gap-2">
           <div className="flex size-14 items-center justify-center rounded-full bg-primary/15">
             <Download className="size-7 text-brand" />
           </div>
@@ -161,8 +169,8 @@ export function TransferOfferDialog() {
           />
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 sm:px-0">
-          <div className="max-h-[40vh] min-h-30">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 sm:px-0">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <FileTree
               mode="select"
               dataLoader={treeData.dataLoader}
@@ -173,16 +181,14 @@ export function TransferOfferDialog() {
             />
           </div>
 
-          <div className="mt-4">
-            <SavePathSelector
-              savePath={savePath}
-              onChangePath={handleChangePath}
-              disabled={processing}
-            />
-          </div>
+          <SavePathSelector
+            savePath={savePath}
+            onChangePath={handleChangePath}
+            disabled={processing}
+          />
         </div>
 
-        <DialogFooter className="flex-row justify-center gap-3 sm:justify-center">
+        <DialogFooter className="shrink-0 flex-row justify-center gap-3 sm:justify-center">
           <Button
             variant="outline"
             onClick={handleReject}

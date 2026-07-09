@@ -1,0 +1,22 @@
+# Desktop-shell native strings (tray + system notifications) — English.
+
+[tray]
+open = "Open SwarmDrop"
+open_folder = "Open Received Folder"
+settings = "Settings…"
+quit = "Quit SwarmDrop"
+pause = "Pause Receiving"
+resume = "Resume Receiving"
+
+[tray.status]
+offline = "○ Disconnected"
+online = "● Online · Ready to receive"
+paused = "⏸ Receiving paused"
+
+[notif.pairing]
+title = "Pairing request"
+body = "%{hostname} wants to pair with you"
+
+[notif.incoming_transfer]
+title = "Incoming file transfer"
+body = "%{name} wants to send you files"

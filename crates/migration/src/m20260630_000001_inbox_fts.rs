@@ -73,7 +73,7 @@ mod tests {
             .await
             .expect("connect sqlite memory");
 
-        Migrator::up(&db, None).await.expect("run migrations");
+        crate::up_through(&db, "m20260630_000001_inbox_fts").await;
         assert!(fts_exists(&db).await, "inbox_fts 应被创建");
 
         // 空库回填后仍可正常查询（验证 FTS5 + trigram 编译可用、回填 SQL 合法）。

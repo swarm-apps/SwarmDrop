@@ -100,7 +100,7 @@ targets: aarch64-apple-darwin,x86_64-apple-darwin
 **步骤流程：**
 
 1. **系统依赖** — `libsodium-dev`（主机端编译工具链需要）
-2. **前端工具链** — pnpm 9 + Node.js LTS
+2. **前端工具链** — pnpm 11 + Node.js LTS
 3. **Java** — Temurin JDK 17
 4. **Android SDK** — `android-actions/setup-android@v3`
 5. **Rust** — stable + `aarch64-linux-android` target

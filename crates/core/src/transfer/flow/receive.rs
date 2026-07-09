@@ -130,6 +130,13 @@ impl TransferManager {
         Ok(())
     }
 
+    /// Peek 挂起入站 offer 的来源 `PeerId`（不移除），供 MCP 代收门控校验用。
+    ///
+    /// 返回 `None` 表示该 session 没有挂起 offer——已被接受/拒绝，或已过挂起窗口被回收。
+    pub fn pending_offer_peer(&self, session_id: &Uuid) -> Option<PeerId> {
+        self.pending.get(session_id).map(|offer| offer.peer_id)
+    }
+
     /// 接受传输并启动接收
     pub async fn accept_and_start_receive(
         &self,

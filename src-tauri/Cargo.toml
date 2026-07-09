@@ -1,6 +1,6 @@
 [package]
 name = "swarmdrop"
-version = "0.6.0"
+version = "0.7.3"
 description = "A Tauri App"
 authors = ["you"]
 edition.workspace = true
@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
@@ -40,6 +40,11 @@ tauri-plugin-process = "2"
 # MCP Bridge —— 仅 debug 注册(见 setup.rs::register_plugins),供 AI 调试桥使用;
 # release 会编译但不注册,因此攻击面仅限 dev。无条件依赖以便 tauri-build 收集其 ACL。
 tauri-plugin-mcp-bridge = "0.11"
+# WebdriverIO 原生模式 E2E(e2e/desktop)—— 同上,仅 debug 注册,无条件依赖以便 tauri-build 收集 ACL。
+# tauri-plugin-wdio-webdriver 起内嵌 WebDriver server(零外部进程);tauri-plugin-wdio 提供
+# browser.tauri.execute / IPC mock / 日志采集,配合前端 @wdio/tauri-plugin 使用。
+tauri-plugin-wdio-webdriver = "1"
+tauri-plugin-wdio = "1"
 rand = "0.10.0"
 chrono = "0.4.43"
 dashmap = "6.1.0"
@@ -66,3 +71,11 @@ tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript", "derive"] }
 # Linux=zbus-secret-service + crypto-rust）。4.x 已移除 apple-native/windows-native/
 # linux-native-sync-persistent/crypto-rust/vendored 等旧 feature，故不再按 target 分别声明。
 keyring = "4.1.2"
+# 桌面壳原生字符串（托盘菜单 + 系统通知）本地化。前端 Lingui 管 App 内文案，rust-i18n
+# 只覆盖 Rust 直接渲染的 OS 表面。locale 目录见 src-tauri/locales/，i18n! 宏在 lib.rs，
+# 缺项回退源 locale zh。
+rust-i18n = "4"
+
+# Windows：运行时自注册「任意文件 / 文件夹」右键 shell verb（fileAssociations 覆盖不到通配）。
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"

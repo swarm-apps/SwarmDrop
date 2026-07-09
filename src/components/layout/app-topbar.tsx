@@ -17,8 +17,7 @@ import {
   Square,
   X,
   Home,
-  Activity,
-  FileText,
+  ArrowRightLeft,
   Inbox,
   Moon,
   Sun,
@@ -36,6 +35,8 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { useNetworkStore, type NodeStatus } from "@/stores/network-store";
+import { useTransferStore } from "@/stores/transfer-store";
+import { isProjectionActive } from "@/lib/transfer-projection";
 import { StartNodeSheet } from "@/components/network/start-node-sheet";
 import { StopNodeSheet } from "@/components/network/stop-node-sheet";
 
@@ -62,15 +63,8 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
   if (pathname === "/inbox") {
     return [home, { icon: Inbox, label: <Trans>收件箱</Trans> }];
   }
-  if (pathname === "/transfer") {
-    return [home, { icon: Activity, label: <Trans>活动与恢复</Trans> }];
-  }
-  if (pathname.startsWith("/transfer/")) {
-    return [
-      home,
-      { icon: Activity, label: <Trans>活动与恢复</Trans>, to: "/transfer" },
-      { icon: FileText, label: <Trans>传输详情</Trans> },
-    ];
+  if (pathname.startsWith("/transfer")) {
+    return [home, { icon: ArrowRightLeft, label: <Trans>传输活动</Trans> }];
   }
   // 主页 / 其他路径:单段当前主页(BreadcrumbPage)
   return [{ ...home, to: undefined }];
@@ -159,36 +153,49 @@ export function AppTopBar() {
         >
           <ThemeShortcut />
 
+          {/* ≥1280px 图标带文字标签（识别而非回忆），窄窗口回落 icon-only（title/aria 兜底） */}
           <Button
             asChild
             variant="ghost"
-            size="icon"
-            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+            className="h-8 gap-1.5 rounded-md px-2 hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
             <Link to="/inbox" aria-label={t`收件箱`} title={t`收件箱`}>
               <Inbox className="size-4" />
+              <span className="hidden text-xs font-medium xl:inline">
+                <Trans>收件箱</Trans>
+              </span>
             </Link>
           </Button>
 
           <Button
             asChild
             variant="ghost"
-            size="icon"
-            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+            className="h-8 gap-1.5 rounded-md px-2 hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
-            <Link to="/transfer" aria-label={t`活动与恢复`} title={t`活动与恢复`}>
-              <Activity className="size-4" />
+            <Link
+              to="/transfer"
+              aria-label={t`传输活动`}
+              title={t`传输活动`}
+              className="relative"
+            >
+              <ArrowRightLeft className="size-4" />
+              <span className="hidden text-xs font-medium xl:inline">
+                <Trans>传输</Trans>
+              </span>
+              <ActiveTransferBadge />
             </Link>
           </Button>
 
           <Button
             asChild
             variant="ghost"
-            size="icon"
-            className="size-8 rounded-md hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
+            className="h-8 gap-1.5 rounded-md px-2 hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
             <Link to="/settings" aria-label={t`设置`} title={t`设置`}>
               <Settings className="size-4" />
+              <span className="hidden text-xs font-medium xl:inline">
+                <Trans>设置</Trans>
+              </span>
             </Link>
           </Button>
 
@@ -199,6 +206,25 @@ export function AppTopBar() {
       <StartNodeSheet open={startOpen} onOpenChange={setStartOpen} />
       <StopNodeSheet open={stopOpen} onOpenChange={setStopOpen} />
     </>
+  );
+}
+
+/**
+ * 活跃传输计数徽章:有进行中的传输时挂在顶栏传输图标右上角,
+ * 让用户离开传输页也能看到"有东西正在传"。
+ */
+function ActiveTransferBadge() {
+  // 只订阅 projections 引用：高频 progress 事件不改它，计数只在会话状态真变时重算
+  const projections = useTransferStore((s) => s.projections);
+  const activeCount = useMemo(
+    () => Object.values(projections).filter(isProjectionActive).length,
+    [projections],
+  );
+  if (activeCount === 0) return null;
+  return (
+    <span className="absolute right-0.5 top-0.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-primary px-1 font-mono text-[9px] font-semibold leading-none text-primary-foreground">
+      {activeCount}
+    </span>
   );
 }
 
@@ -225,8 +251,9 @@ function ThemeShortcut() {
   );
 }
 
-/** Windows / Linux 自画窗口控制按钮(最小化 / 最大化 / 关闭) */
-function WindowControls() {
+/** Windows / Linux 自画窗口控制按钮(最小化 / 最大化 / 关闭)。
+ *  全屏路由（发送 / 配对）隐藏 AppTopBar 时，需在页面自己的顶栏复用它。 */
+export function WindowControls() {
   const { t } = useLingui();
   const appWindow = getCurrentWindow();
 

@@ -46,13 +46,16 @@ export function CloseBehaviorManager() {
   const navigate = useNavigate();
   const [askOpen, setAskOpen] = useState(false);
   const [remember, setRemember] = useState(false);
+  const closeBehavior = usePreferencesStore((s) => s.closeBehavior);
+  const savePath = usePreferencesStore((s) => s.transfer.savePath);
+  const hasShownTrayHint = usePreferencesStore((s) => s.hasShownTrayHint);
+  const setHasShownTrayHint = usePreferencesStore((s) => s.setHasShownTrayHint);
+  const setCloseBehavior = usePreferencesStore((s) => s.setCloseBehavior);
 
   const trayWord = isMac ? t`菜单栏` : t`托盘`;
 
   const hideToTray = useCallback(async () => {
     await getCurrentWindow().hide();
-    const { hasShownTrayHint, setHasShownTrayHint } =
-      usePreferencesStore.getState();
     if (!hasShownTrayHint) {
       await sendTrayHintNotification(
         t`SwarmDrop 仍在后台运行`,
@@ -60,7 +63,7 @@ export function CloseBehaviorManager() {
       );
       setHasShownTrayHint(true);
     }
-  }, [t, trayWord]);
+  }, [hasShownTrayHint, setHasShownTrayHint, t, trayWord]);
 
   const quit = useCallback(async () => {
     await commands.quitApp();
@@ -72,11 +75,10 @@ export function CloseBehaviorManager() {
     let disposed = false;
     void getCurrentWindow()
       .onCloseRequested(async (event) => {
-        const behavior = usePreferencesStore.getState().closeBehavior;
         event.preventDefault();
-        if (behavior === "tray") {
+        if (closeBehavior === "tray") {
           await hideToTray();
-        } else if (behavior === "quit") {
+        } else if (closeBehavior === "quit") {
           await quit();
         } else {
           setRemember(false); // 每次询问都从未勾选开始，避免上次残留导致误持久化
@@ -91,7 +93,7 @@ export function CloseBehaviorManager() {
       disposed = true;
       unlisten?.();
     };
-  }, [hideToTray, quit]);
+  }, [closeBehavior, hideToTray, quit]);
 
   // 托盘信号（类型化 tauri-specta 事件）：打开接收文件夹 / 跳设置（路径与路由由前端拥有）。
   useEffect(() => {
@@ -103,7 +105,6 @@ export function CloseBehaviorManager() {
     };
     void events.trayOpenReceiveFolder
       .listen(async () => {
-        const { savePath } = usePreferencesStore.getState().transfer;
         if (savePath) {
           try {
             await openPath(savePath);
@@ -122,19 +123,19 @@ export function CloseBehaviorManager() {
       disposed = true;
       unlistens.forEach((u) => u());
     };
-  }, [navigate]);
+  }, [navigate, savePath]);
 
   const onMinimize = useCallback(async () => {
-    if (remember) usePreferencesStore.getState().setCloseBehavior("tray");
+    if (remember) setCloseBehavior("tray");
     setAskOpen(false);
     await hideToTray();
-  }, [remember, hideToTray]);
+  }, [remember, hideToTray, setCloseBehavior]);
 
   const onQuit = useCallback(async () => {
-    if (remember) usePreferencesStore.getState().setCloseBehavior("quit");
+    if (remember) setCloseBehavior("quit");
     setAskOpen(false);
     await quit();
-  }, [remember, quit]);
+  }, [remember, quit, setCloseBehavior]);
 
   return (
     <AlertDialog open={askOpen} onOpenChange={setAskOpen}>

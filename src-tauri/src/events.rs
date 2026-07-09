@@ -96,6 +96,16 @@ pub struct TransferProjectionUpdate(pub TransferProjection);
 #[serde(transparent)]
 pub struct ReceivingPausedChanged(pub bool);
 
+// === 外部文件打开（Open With → share-target 反向发送）===
+
+/// 外部「用 SwarmDrop 打开」文件/文件夹后归一化的本地绝对路径列表。
+/// 事件名 `"external-file-open"`，前端根处理器据此扫描并跳转选设备屏。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalFileOpen {
+    pub paths: Vec<String>,
+}
+
 // === 托盘信号（Rust 托盘 → 前端执行依赖前端状态的动作）===
 
 /// 托盘「打开接收文件夹」：路径由前端 `savePath` 拥有，故由前端打开。

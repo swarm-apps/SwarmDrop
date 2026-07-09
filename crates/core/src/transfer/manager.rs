@@ -125,7 +125,13 @@ pub struct ResumeFileInfo {
 }
 
 const PREPARED_TIMEOUT_SECS: u64 = 300;
-const PENDING_OFFER_TIMEOUT_SECS: u64 = 300;
+/// 挂起入站 offer 的内存回收窗口。
+///
+/// 必须**小于**发送端 Offer 请求的真实响应窗口——后者受 libp2p 全局协议超时
+/// `req_resp_timeout`（180s）封顶（`OFFER_RESPONSE_TIMEOUT_SECS` 的 client 侧 with_timeout
+/// 加长不了，见 `flow/send.rs`）。取 170s 保证本端 pending 先于发送端 180s 放弃被回收，
+/// 避免"接收端刚接受、发送端已超时放弃 → 回复通道已关"的边界竞态。有效决策窗口约 3 分钟。
+const PENDING_OFFER_TIMEOUT_SECS: u64 = 170;
 const SEND_SESSION_IDLE_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 const CLEANUP_INTERVAL_SECS: u64 = 60;
 

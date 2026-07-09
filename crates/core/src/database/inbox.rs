@@ -12,7 +12,6 @@ use uuid::Uuid;
 
 use crate::AppResult;
 use crate::database::ops::{TransferProjection, get_transfer_projection, now_ms};
-use crate::host::CoreSaveLocation;
 
 /// 收件箱列表条目 DTO。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -170,18 +169,23 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         return Ok(None);
     }
 
-    let Some(save_path) = session.save_path.clone().map(CoreSaveLocation::from) else {
+    // 已完成接收必有保存位置(不变量);缺失是数据异常,显式报错。容器目录(含缺
+    // local_dir 时回退存储根)由下面 content_root_of 统一解析。
+    if session.save_path.is_none() {
         return Err(crate::AppError::Transfer(
             "已完成接收会话缺少保存位置，无法创建收件箱条目".into(),
         ));
-    };
+    }
 
     let inbox_id = Uuid::new_v4();
     let files: Vec<&entity::transfer_file::ModelEx> = session.files.iter().collect();
     let item_count = i32::try_from(files.len())
         .map_err(|_| crate::AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
     let title = inbox_title(&files);
-    let root_path = save_location_root(&save_path);
+    // root_path = 真实容器目录(与传输投影 content_root 同一 core 解析:缺 local_dir 时
+    // 回退存储根)。兜底收口在 content_root_of 一处,不再重复。
+    let root_path =
+        crate::database::ops::content_root_of(session.files.iter(), session.save_path.as_ref());
     let content_hash = inbox_content_hash(&files);
     let now = now_ms();
 
@@ -214,6 +218,16 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         .await?;
 
     for file in files {
+        // finalize_sink 记录的最终落盘位置是唯一事实源（SAF document URI /
+        // 重名冲突改写都无法由「目录 + 相对路径」拼接推导）。已完成接收会话的
+        // 文件必然写过它——缺失即数据异常（如旧版本残留库），显式报错不做推导。
+        let Some(local_path) = file.local_path.clone() else {
+            txn.rollback().await?;
+            return Err(crate::AppError::Transfer(format!(
+                "已完成接收文件缺少落盘路径记录: {}（旧版本数据，请清除应用数据后重试）",
+                file.name
+            )));
+        };
         entity::inbox_item_file::ActiveModel::builder()
             .set_inbox_item_id(inbox_id)
             .set_transfer_file_id(Some(file.id))
@@ -221,7 +235,7 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
             .set_name(file.name.clone())
             .set_size(file.size)
             .set_checksum(file.checksum.clone())
-            .set_local_path(resolve_local_path(&save_path, &file.relative_path))
+            .set_local_path(local_path)
             .set_missing(false)
             .insert(&txn)
             .await?;
@@ -263,10 +277,19 @@ pub async fn repair_missing_inbox_items_for_completed_receives(
         if find_inbox_item_by_session(db, session.session_id)
             .await?
             .is_none()
-            && let Some(detail) =
-                ensure_inbox_item_for_completed_receive_session(db, session.session_id).await?
         {
-            repaired.push(detail);
+            // 尽力补建：单个会话失败（如 local_path 为 NULL 的旧数据）只跳过，
+            // 不掐断整批——否则一个坏会话会让其后所有可补会话永远建不出来。
+            match ensure_inbox_item_for_completed_receive_session(db, session.session_id).await {
+                Ok(Some(detail)) => repaired.push(detail),
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        "补建收件箱条目失败，跳过: session={}, {e}",
+                        session.session_id
+                    );
+                }
+            }
         }
     }
     Ok(repaired)
@@ -393,6 +416,26 @@ pub async fn get_inbox_item_detail(
     Ok(Some(InboxItemDetail::from_model(db, item).await?))
 }
 
+/// 加载与指定传输会话关联的可见收件箱详情。
+///
+/// 与幂等创建路径使用的 `find_inbox_item_by_session` 不同，这个查询面向 UI/API，
+/// 会排除已软删除的收件箱条目。
+pub async fn get_inbox_item_by_transfer_session_id(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+) -> AppResult<Option<InboxItemDetail>> {
+    let Some(item) = entity::InboxItem::load()
+        .filter(entity::inbox_item::Column::TransferSessionId.eq(session_id))
+        .filter(entity::inbox_item::Column::DeletedAt.is_null())
+        .with(entity::InboxItemFile)
+        .one(db)
+        .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(InboxItemDetail::from_model(db, item).await?))
+}
+
 /// 标记收件箱条目最近打开时间。
 pub async fn mark_inbox_item_opened(db: &DatabaseConnection, item_id: Uuid) -> AppResult<()> {
     if let Some(item) = entity::InboxItem::find_by_id(item_id).one(db).await? {
@@ -469,21 +512,6 @@ fn inbox_content_hash(files: &[&entity::transfer_file::ModelEx]) -> String {
         hasher.update(&file.size.to_le_bytes());
     }
     hasher.finalize().to_hex().to_string()
-}
-
-fn save_location_root(save_path: &CoreSaveLocation) -> Option<String> {
-    match save_path {
-        CoreSaveLocation::Path { path } => Some(path.clone()),
-    }
-}
-
-fn resolve_local_path(save_path: &CoreSaveLocation, relative_path: &str) -> String {
-    match save_path {
-        CoreSaveLocation::Path { path } => std::path::Path::new(path)
-            .join(relative_path)
-            .to_string_lossy()
-            .into_owned(),
-    }
 }
 
 /// 由接收会话的 `origin` 列派生收件箱 `source_kind`：MCP/代理来源 → `Mcp`，否则 `PairedDevice`。
@@ -572,10 +600,36 @@ mod tests {
     use sea_orm::{ConnectOptions, Database};
 
     use crate::database::ops::{
-        CreateSessionInput, clear_all_history, create_session, mark_session_completed,
+        CreateSessionInput, clear_all_history, create_session, mark_file_completed,
+        mark_session_completed,
     };
+    use crate::host::CoreSaveLocation;
     use crate::protocol::FileInfo;
     use crate::transfer::coordinator::TransferState;
+
+    /// 模拟 receiver 的文件级完成：真实链路里 finalize_sink 的返回值经
+    /// `mark_file_completed` 写入 local_path，收件箱落库依赖它。
+    async fn mark_files_completed(db: &DatabaseConnection, session_id: Uuid, files: &[FileInfo]) {
+        for file in files {
+            let local_path = format!("/tmp/swarmdrop-inbox-test/{}", file.relative_path);
+            // 父目录 = local_path 的 dirname(模拟 finalize_sink 的 dir 返回)。
+            let local_dir = local_path
+                .rsplit_once('/')
+                .map(|(d, _)| d.to_string())
+                .unwrap_or_default();
+            mark_file_completed(
+                db,
+                session_id,
+                file.file_id as i32,
+                vec![],
+                file.size as i64,
+                local_path,
+                local_dir,
+            )
+            .await
+            .expect("mark file completed");
+        }
+    }
 
     #[test]
     fn source_kind_derived_from_origin() {
@@ -650,6 +704,7 @@ mod tests {
         )
         .await
         .expect("create receive session");
+        mark_files_completed(db, session_id, &files).await;
     }
 
     #[tokio::test]
@@ -680,6 +735,46 @@ mod tests {
         let list = list_inbox_items(&db, false).await.expect("list inbox");
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, first.item.id);
+    }
+
+    #[tokio::test]
+    async fn inbox_item_can_be_loaded_by_transfer_session_id() {
+        let db = make_db().await;
+        let session_id = Uuid::new_v4();
+        create_receive_session(&db, session_id, TransferState::active(0)).await;
+        mark_session_completed(&db, session_id).await.unwrap();
+        let item = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let queried = get_inbox_item_by_transfer_session_id(&db, session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(queried.item.id, item.item.id);
+        assert_eq!(queried.item.transfer_session_id, Some(session_id));
+        assert_eq!(queried.files.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn inbox_item_by_transfer_session_id_hides_deleted_records() {
+        let db = make_db().await;
+        let session_id = Uuid::new_v4();
+        create_receive_session(&db, session_id, TransferState::active(0)).await;
+        mark_session_completed(&db, session_id).await.unwrap();
+        let item = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        delete_inbox_item_record(&db, item.item.id).await.unwrap();
+
+        let queried = get_inbox_item_by_transfer_session_id(&db, session_id)
+            .await
+            .unwrap();
+        assert!(queried.is_none());
     }
 
     #[tokio::test]
@@ -745,6 +840,7 @@ mod tests {
         )
         .await
         .expect("create receive session");
+        mark_files_completed(db, session_id, files).await;
         mark_session_completed(db, session_id)
             .await
             .expect("mark completed");

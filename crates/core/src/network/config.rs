@@ -30,6 +30,13 @@ pub struct NetworkRuntimeConfig {
     pub auto_discover_lan_helpers: bool,
     #[serde(default)]
     pub provide_lan_helper: bool,
+    /// 公网可达性：允许在已知公网中继上建立 reservation 使本机可被跨网直达。
+    ///
+    /// 与 discovery_mode 正交——LanOnly 只管"不主动连接内置公网引导"，
+    /// 经 LAN Helper 学到的公网中继仍受本开关控制。关闭 = 严格局域网，
+    /// 跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+    #[serde(default = "default_true")]
+    pub public_reachability: bool,
 }
 
 impl Default for NetworkRuntimeConfig {
@@ -39,6 +46,7 @@ impl Default for NetworkRuntimeConfig {
             discovery_mode: DiscoveryMode::Auto,
             auto_discover_lan_helpers: true,
             provide_lan_helper: false,
+            public_reachability: true,
         }
     }
 }

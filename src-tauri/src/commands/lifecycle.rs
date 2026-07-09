@@ -11,7 +11,6 @@ use swarmdrop_core::host::{EventBus, FileAccess, UpdateInstallRequest, UpdateIns
 use swarmdrop_core::transfer::manager::TransferManager;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
 
 use crate::AppError;
 use crate::device::{DeviceFilter, DeviceListResult, PairedDeviceInfo};
@@ -74,29 +73,20 @@ pub async fn start(
 
     let net_manager = started.manager;
     let receiver = started.receiver;
-    let client = net_manager.client().clone();
 
-    // 宣布上线（bootstrap 前发布，尽早让对方发现）
-    if let Err(e) = net_manager.pairing().announce_online().await {
-        warn!("Failed to announce online: {}", e);
-    }
-
+    // presence（宣告上线 / bootstrap / 已配对设备重连与保活）由 core 的
+    // 事件循环自动接管（见 swarmdrop_core::presence），host 不再手工编排。
     let shared = net_manager.shared_refs();
 
-    // DHT bootstrap → 完成后检查已配对设备是否在线
-    let bootstrap_client = client.clone();
-    let pairing_for_startup = shared.pairing.clone();
-    tokio::spawn(async move {
-        match bootstrap_client.bootstrap().await {
-            Ok(result) => info!("DHT bootstrap completed: {:?}", result),
-            Err(e) => warn!("DHT bootstrap failed: {}", e),
-        }
-        pairing_for_startup.check_paired_online().await;
-    });
-
-    // 存入 Tauri state
+    // 存入 Tauri state；已有旧节点（webview 重载后重复 start）先关停，
+    // 否则旧 NetManager 被静默覆盖，其 cancel_token 永不触发，
+    // presence/infra 循环与旧 swarm 永久泄漏
     if let Some(state) = app.try_state::<NetManagerState>() {
-        *state.lock().await = Some(net_manager);
+        let mut guard = state.lock().await;
+        if let Some(old) = guard.as_ref() {
+            old.shutdown().await;
+        }
+        *guard = Some(net_manager);
     } else {
         app.manage(Mutex::new(Some(net_manager)));
     }
@@ -128,10 +118,8 @@ pub async fn shutdown(app: AppHandle) -> crate::AppResult<()> {
     if let Some(state) = app.try_state::<NetManagerState>() {
         let mut guard = state.lock().await;
         if let Some(manager) = guard.as_ref() {
-            if let Err(e) = manager.pairing().announce_offline().await {
-                warn!("Failed to announce offline: {}", e);
-            }
-            manager.cancel_background_tasks();
+            // 宣布下线 + 取消 presence 等后台任务
+            manager.shutdown().await;
         }
         guard.take();
     }

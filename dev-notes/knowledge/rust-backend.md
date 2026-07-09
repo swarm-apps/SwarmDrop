@@ -4,6 +4,21 @@
 
 Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC 类型映射、SeaORM/SQLite、libp2p P2P。常规 Rust 风格查 `/rust-best-practices`，async 模式查 `/rust-async-patterns`，Tauri IPC 查 `/tauri-v2`，SeaORM 查 `/sea-orm-2`。
 
+## 外部打开（share-target 反向流）
+
+### macOS 下 dev 进程与 release .app 并存时，「用 SwarmDrop 打开」会静默丢失文件路径
+
+现象：双击文件 /「打开方式」后窗口只是被聚焦、停在当前页，不进选设备屏，且 dev 日志里没有 `external open: ingest paths`。
+
+机制：macOS 的文件打开走 Apple Event（`RunEvent::Opened`）而非 argv。Launch Services 把 dev 裸二进制（`target/debug/swarmdrop`）和 release .app 视为不同 app → 启动一个新的 release 实例并把 Apple Event 发给它 → 新实例的 single-instance 插件发现已有实例（相同 identifier 的 dev 进程）就转发 argv 并退出——但 macOS 下路径在 Apple Event 里、argv 里没有（`external_open.rs` 的 `handle_second_instance` 在 macOS 是显式 no-op）→ 路径随退出的进程丢失。
+
+**正确做法**：
+- 测试「打开方式 / 右键发送」链路时确保只跑一个实例；release 单独运行（冷启动或已运行）链路都正常
+- 调试该链路不必真右键：在 dev 里 emit `external-file-open` 事件即可全链路模拟（见 toolchain.md）
+- 从终端直接跑 `swarmdrop.app/Contents/MacOS/swarmdrop` 可以看到 release 的 tracing stdout，且 LS 能正常把 Apple Event 发给它
+
+**相关文件**：`src-tauri/src/external_open.rs`、`src-tauri/src/setup.rs`（single-instance 注册）
+
 ## 模块边界
 
 ### 业务逻辑放 crates/core，src-tauri 是薄壳
@@ -372,6 +387,31 @@ keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立
 
 **相关文件**：`src-tauri/src/host/keychain.rs`、`src-tauri/src/host.rs`
 
+### 桌面「用本应用打开文件」（share-target 入口）：文件用 Tauri fileAssociations（按扩展名），别用 public.data 通配
+
+**macOS「打开方式」只显示声明了「与该文件 UTI 具体匹配」的 app，不显示只声明通用 `public.data`/`public.item` 的 app**（Apple 论坛 + 实测：xlsx/md/sql 都被"归属抑制"压掉，只有无归属的随机文件才偶尔显示）。macOS 15.4+ 里 `public.data` 单条目还行、多加几条 UTI 还会触发 Gatekeeper。所以**「声明 public.data 覆盖任意文件」在 Open With 上根本走不通**——这是 macOS 设计、不是实现问题。真·任意文件只能走原生 Share Extension（Tauri 不脚手架，重活，单独立项）。
+
+**正解：文件用 Tauri 官方 `bundle.fileAssociations`（按 `ext` 扩展名列表）**——为每个扩展名生成具体 UTI 声明，Open With 可靠显示，且三平台注册由 Tauri 统一生成（macOS CFBundleDocumentTypes+LSHandlerRank / Windows 注册表 / Linux .desktop MimeType）。用 `role=Viewer`+`rank=Alternate`（出现但不抢默认）。代价：只覆盖列举的扩展名（列一批广的即可：Office/文档/图片/视频/音频/压缩/代码…），极冷门/无扩展名文件不显示。
+- ⚠️ Tauri 曾漏生成 `LSHandlerRank`（issue #13159）导致 macOS 不进 Open With，需 **tauri ≥ 2.6 左右**（本仓 2.11.3 已含修复）。
+- **别再自定义 `src-tauri/Info.plist` 塞 CFBundleDocumentTypes**：会与 Tauri 生成的合并/覆盖冲突。
+
+**文件夹**（fileAssociations 按扩展名，表达不了目录）走 `external_open::register_open_with` 后台线程单独最小注册：
+- **Windows**：HKCU 注册表 `Software\Classes\Directory\shell\<Verb>\command`（`winreg`，`[target.'cfg(windows)'.dependencies]`，幂等短路）。文件不用手写注册表了，交给 Tauri。
+- **Linux**：`~/.local/share/applications/*.desktop` 的 `MimeType=inode/directory;` + `update-desktop-database`（best-effort、`.spawn()` 不等子进程）。文件的 MimeType 由 Tauri 生成的 .desktop 承载。
+- **macOS**：本轮不做文件夹 Open With（自定义 plist 有合并冲突风险，且 macOS 文件夹 Open With 本就少见）。
+
+**路径送达机制三平台也不同**（`external_open::ingest_paths` 统一入口 + ~200ms 去抖合并）：
+- macOS 走 `RunEvent::Opened { urls }`——**必须把 `lib.rs` 的 `.run(generate_context!())` 改成 `.build(ctx)?.run(|handle, event| ...)`** 才能接到；冷启动不经 argv。
+- Windows/Linux 冷启动读 `std::env::args()`；热启动读 `single_instance` 回调的 `args`（原本被 `_args` 丢弃，是天然挂载点）。
+- **冷启动竞态**：`RunEvent::Opened`/argv 可能早于前端订阅 → Rust 侧缓冲 + 前端 mount 时调 `take_pending_external_open()` 拉取（取走即清空、标记就绪）。前端务必**先挂事件监听、再拉 pending**，否则 take 标记就绪后、订阅前到达的路径会丢。
+- **⚠️ 缓冲必须用进程级全局（`OnceLock`），不能用 Tauri 托管 state**：macOS「退出 app 后用『打开方式』打开文件」是冷启动 + 窗口状态恢复，`application:openURLs:`（→`RunEvent::Opened`）可能**早于 `setup()` 的 `app.manage(...)`** 到达。此时若在 Opened handler 里 `app.state::<T>()`，会 panic「state not managed」；而该 handler 在 ObjC `extern "C"` 边界上、panic 不可 unwind → 直接 `SIGABRT`（崩溃栈：`tao::...application_open_urls` → `panic_cannot_unwind` → `abort`，release 下我们的帧被内联，看着像 tao 自崩）。Tauri 官方 Opened 示例用托管 state 只在「app 已运行」场景成立。解法：缓冲放模块内 `OnceLock<Mutex<..>>`，Opened 冷路径完全不碰 `AppHandle`；并给 Opened handler 外包一层 `std::panic::catch_unwind(AssertUnwindSafe(..))` 兜底。
+- **唤窗只在前端就绪（热态/托盘隐藏）时做**：常驻托盘、窗口隐藏时来了外部打开要 `show_main_window` 否则用户啥都看不到；但**别在冷启动 Opened 早期路径调 AppKit 窗口操作**（状态恢复中，有风险），且冷启动窗口本就默认显示。用「缓冲里的 `frontend_ready` 标志」区分冷/热，仅热态唤窗。
+- app 自定义命令/事件走 `core:default`，**不需要**在 `capabilities/default.json` 加权限（只有 plugin 命令才要）。
+
+**验证盲区（务必真机、逐平台）**：文件关联注册 + 路径送达全部**只能打包安装后在对应系统手测**，`cargo check`/`pnpm tauri dev` 覆盖不到；且 Windows 注册表代码在 mac 上因 `cfg(windows)` **连编译都不过**（Linux 同理）。macOS 侧还要注意 ad-hoc 签名/未公证的 dev 包在 Finder「打开方式」里的行为可能与正式包不同。
+
+**相关文件**：`src-tauri/tauri.conf.json`（`bundle.fileAssociations` 扩展名列表）、`src-tauri/src/external_open.rs`（文件夹注册 + 路径入口/缓冲）、`src-tauri/src/{lib,setup}.rs`、`src-tauri/Cargo.toml`（winreg）、前端 `src/components/external-open-handler.tsx`
+
 ### develop 基线可能带 clippy/fmt 漂移（clippy/rustfmt 版本更新所致）
 
 工具链升级（如 clippy/rustfmt 1.95）会新增/收紧 lint，使**之前干净**的已提交代码在全量重建时冒出警告（too_many_arguments、derivable_impls、items_after_test_module、collapsible_if、unused_imports 等）和 fmt 漂移。它们不是本次改动引入的。
@@ -382,3 +422,58 @@ keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立
 - 只在 test 用到的 import 移进 `#[cfg(test)] mod tests` 局部，别留在模块顶层（否则 lib 构建报 unused，即便 test mod 有 `use super::*`）。
 
 **相关文件**：`crates/core/src/{device.rs,network/event_loop.rs,transfer/incoming.rs,transfer/flow/receive.rs}`、`src-tauri/src/database.rs`
+
+## 国际化 (i18n)
+
+### 后端字符串本地化：分两桶——「前端渲染」走 Lingui、「Rust 渲染」走 rust-i18n
+
+后端面向用户的字符串按**谁渲染**分两桶，不要用一套解法：
+
+- **① 错误 / 一切经 IPC 让前端展示的文本** → 前端 Lingui 翻译。后端只发稳定 `kind`（+ 结构化参数），**永不返回预翻译散文**。前端 `src/lib/errors.ts` 的 `getErrorMessage` 按 `err.kind` 查 Lingui 描述符表（`msg\`...\``），技术类 kind（Io/Serialization/Database/TaskJoin/P2p/Tauri）统一「出错了，请重试」，后端 `message` 降级为日志/详情用技术细节。core 错误的 `#[error("...")]` 一律写**语言无关英文**（曾有 `ExpiredCode`/`InvalidCode` 塞中文散文，已改掉——那是「翻译发生在错误的层」的反例）。
+- **② 托盘菜单 / 系统通知等 Rust/OS 直接渲染、前端够不着的** → 桌面壳侧 rust-i18n 翻译（下条）。
+
+原则一句话：**后端发码、边缘翻译**。错误 `kind` 与通知语义枚举同构。
+
+**相关文件**：`src/lib/errors.ts`、`crates/core/src/error.rs`、`src-tauri/locales/`、`src-tauri/src/i18n.rs`
+
+### rust-i18n 集成：`i18n!` 在 lib.rs 根、per-locale TOML、`%{var}` 插值
+
+托盘 + 通知用 `rust-i18n = "4"`。**只覆盖 Rust 直接渲染的 ~20 条字符串**，不与前端 Lingui 重叠。
+
+**正确做法**：
+- `rust_i18n::i18n!("locales", fallback = "zh")` **必须在 crate 根**（`src-tauri/src/lib.rs`）调用一次——`t!` 展开成 `crate::_rust_i18n_translate(...)`，放子模块里路径解析不到。目录相对 `CARGO_MANIFEST_DIR`（= `src-tauri/`）。
+- per-locale 文件 `src-tauri/locales/{zh,zh-TW,en}.toml`，文件名即 locale code（`zh-TW.toml` → locale `zh-TW`，与前端 `LocaleKey` 对齐）。嵌套表 `[tray]` / `[tray.status]` / `[notif.pairing]` 自动扁平成点分键 `tray.status.offline`。
+- 插值：消息里 `%{name}`，调用 `t!("notif.pairing.body", hostname = value)`（named-arg 用 `=`；也支持 `"name" => value`）。
+- `t!` 返回 `Cow<'static, str>`，`set_text` / `MenuItem::with_id` 收 `AsRef<str>` 直接吃；要 `String` 时 `.to_string()`（比 `.into_owned()` 稳，对 Cow/String/&str 都成立）。
+- **locale 只有 3 个**（zh/zh-TW/en，见 `lingui.config.ts`），Rust 目录照 3 个来，别按 CLAUDE.md 顶部的「8 locale」。
+
+**不要做**：
+- 别在 core 里做 rust-i18n / 塞语言散文——core 平台中立，通知走语义枚举交给 host 译（下条）。
+
+**相关文件**：`src-tauri/src/lib.rs`（`i18n!`）、`src-tauri/locales/*.toml`、`src-tauri/src/{tray.rs,host/notifier.rs}`
+
+### locale 交付：Rust 启动读 tauri-store 的「双层编码」JSON 字符串，必须在 build_tray 之前
+
+前端 `preferences-store` 是 locale 权威源。Rust 两个时机拿 locale：启动读持久化、切换经命令。
+
+**正确做法**：
+- 启动：`crate::i18n::init_locale_from_store` 用 `app.store("preferences.json")` 读 key `"preferences-store"`。⚠️ **该值是 zustand persist 经 JSONStorage 序列化后的 JSON 字符串**（`store.get` 拿到的是 `Value::String("{...}")`，不是对象）——要 `.as_str()` 再 `serde_json::from_str` 一次，才能取 `["state"]["locale"]`。读不到回退 `i18n!` 的 fallback zh。**必须在 `build_tray` 之前调用**（setup.rs），否则托盘首帧闪一下默认语言。
+- 切换：前端 `preferences-store.setLocale` 在 `dynamicActivate` 后 `commands.setLocale(locale)`（try/catch best-effort）；后端 `set_locale` 命令 = `rust_i18n::set_locale` + `crate::tray::relocalize_tray`。
+- 托盘要「切语言即时重绘」：**全部** `MenuItem` 句柄（open/pause/open_folder/settings/quit + status）都要存进 `TrayState`，否则换不了词；状态行/暂停项文案依赖当前 `(online,paused)`，用 `TrayState` 里的 `AtomicBool` 缓存这俩，`relocalize_tray` 才能重新派生。
+
+**相关文件**：`src-tauri/src/i18n.rs`、`src-tauri/src/setup.rs`、`src-tauri/src/tray.rs`、`src/stores/preferences-store.ts`
+
+### 通知语义枚举：core 发 `Notification` 码、host 译；改 `Notifier` 签名不破 RN
+
+core 的系统通知从 `NotificationRequest{title,body}`（拼好的中文散文）改成语义枚举
+`Notification::{PairingRequest{hostname}, IncomingTransfer{device_name}}`，desktop `DesktopNotifier`
+`match` + `t!()` 译成当前 locale。core 彻底不碰语言。
+
+**关键（曾误判为跨仓破坏点）**：改 `Notifier` trait 的方法签名**不会破 SwarmDrop-RN**。核实：RN
+`mobile-core/src/events.rs` 对 `run_event_loop(..., Option<Arc<dyn Notifier>>)` 传 `None`（「移动端无
+窗口聚焦概念，不需要 Notifier」），**RN 根本不实现 `Notifier`、不引用 `NotificationRequest`**（后者
+无 uniffi 导出，只有 desktop-only specta derive）。trait 名与 `run_event_loop` 签名都没变 → RN 的
+`None` 调用不受影响。且 RN `Cargo.toml` 通常 pin 在 `swarmdrop-core` 的 **git rev**（非本地 path），本地
+改动对 RN 零即时影响。**动 core 的 host trait 前，先确认 RN 到底实不实现它、是不是传 None——别默认「改 core trait 必炸 RN」**。
+
+**相关文件**：`crates/core/src/host.rs`（`Notification` + `Notifier`）、`crates/core/src/network/event_loop.rs`、`src-tauri/src/host/notifier.rs`、`../SwarmDrop-RN/packages/swarmdrop-core/rust/mobile-core/src/events.rs`

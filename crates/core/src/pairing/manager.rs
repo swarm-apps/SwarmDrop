@@ -4,9 +4,9 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use swarm_p2p_core::libp2p::{Multiaddr, PeerId, kad::Record};
 
-use super::code::{OnlineRecord, PairingCodeInfo, ShareCodeRecord};
-use super::dht_key;
+use super::code::{PairingCodeInfo, ShareCodeRecord};
 use crate::device::{OsInfo, PairedDeviceInfo};
+use crate::dht_key;
 use crate::protocol::{
     AppNetClient, AppRequest, AppResponse, PairingMethod, PairingRequest, PairingResponse,
 };
@@ -20,8 +20,8 @@ struct PendingInbound {
 
 /// 配对管理器
 ///
-/// 管理配对码生成/查询、DHT 在线宣告、配对请求/响应处理，
-/// 以及已配对设备的增删查。
+/// 管理配对码生成/查询、配对请求/响应处理，以及已配对设备的增删查。
+/// 在线宣告与已配对设备的 presence 维持见 [`crate::presence`]。
 ///
 /// 本身不含 Arc，需要共享时由使用方包裹 `Arc<PairingManager>`。
 pub struct PairingManager {
@@ -67,82 +67,6 @@ impl PairingManager {
                 publisher: Some(self.peer_id),
                 expires: Some(Instant::now() + Duration::from_secs(ttl_secs)),
             })
-            .await?;
-        Ok(())
-    }
-
-    // === DHT 在线宣告 ===
-
-    /// 宣布上线：将本节点的可达地址发布到 DHT
-    pub async fn announce_online(&self) -> AppResult<()> {
-        let addrs = self.client.get_addrs().await?;
-        let record_data = OnlineRecord {
-            os_info: OsInfo::default(),
-            listen_addrs: addrs,
-            timestamp: chrono::Utc::now().timestamp(),
-        };
-        self.put_json_record(
-            dht_key::online_key(&self.peer_id.to_bytes()),
-            &record_data,
-            300,
-        )
-        .await
-    }
-
-    /// 启动后检查已配对设备是否在线
-    ///
-    /// 在 DHT bootstrap 完成后调用。对每个已配对设备查询其在线记录，
-    /// 找到则将地址注册到地址簿，使后续传输可直接 dial，无需重新配对。
-    pub async fn check_paired_online(&self) {
-        let paired = self.get_paired_devices();
-        if paired.is_empty() {
-            return;
-        }
-
-        tracing::info!("检查 {} 个已配对设备的在线状态", paired.len());
-
-        for device in paired {
-            let key = dht_key::online_key(&device.peer_id.to_bytes());
-            match self.client.get_record(key).await {
-                Ok(result) => {
-                    let record = result.record;
-                    // 跳过已过期记录
-                    if record.expires.map(|e| e < Instant::now()).unwrap_or(false) {
-                        continue;
-                    }
-                    if let Ok(online_record) = serde_json::from_slice::<OnlineRecord>(&record.value)
-                    {
-                        if online_record.listen_addrs.is_empty() {
-                            continue;
-                        }
-                        if let Err(e) = self
-                            .client
-                            .add_peer_addrs(device.peer_id, online_record.listen_addrs)
-                            .await
-                        {
-                            tracing::warn!("注册 {} 地址失败: {}", device.peer_id, e);
-                            continue;
-                        }
-                        // 主动 dial：连接成功后触发 PeerConnected 事件，
-                        // 事件循环推送 devices-changed，前端自动更新在线状态
-                        if let Err(e) = self.client.dial(device.peer_id).await {
-                            tracing::warn!("拨号 {} 失败: {}", device.peer_id, e);
-                        } else {
-                            tracing::info!("已向已配对设备 {} 发起重连", device.peer_id);
-                        }
-                    }
-                }
-                Err(_) => {
-                    // 设备离线或 DHT 查询失败，正常现象，静默忽略
-                }
-            }
-        }
-    }
-
-    /// 宣布下线：从 DHT 移除在线记录
-    pub async fn announce_offline(&self) -> AppResult<()> {
-        self.client
-            .remove_record(dht_key::online_key(&self.peer_id.to_bytes()))
             .await?;
         Ok(())
     }

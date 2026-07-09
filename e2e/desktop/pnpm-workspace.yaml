@@ -1,0 +1,12 @@
+packages:
+  - .
+
+overrides:
+  '@sinclair/typebox': 0.34.49
+  '@wdio/native-utils': 2.5.0
+  path-expression-matcher: 1.6.1
+
+allowBuilds:
+  esbuild: true
+  edgedriver: false
+  geckodriver: false

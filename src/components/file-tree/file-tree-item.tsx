@@ -133,7 +133,7 @@ export function FileTreeItem({
               ? <Trans>失败</Trans>
               : formatFileSize(size)}
         </span>
-        {variant === "select" && <RemoveButton onClick={onRemove} />}
+        {variant === "select" && onRemove && <RemoveButton onClick={onRemove} />}
         {variant === "error" && (
           <button
             type="button"

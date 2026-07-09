@@ -11,6 +11,12 @@ import { syncDeviceNameFromBackend } from "@/lib/device-name";
 import { Toaster } from "@/components/ui/sonner";
 import "./index.css";
 
+// e2e/desktop 下的 WebdriverIO 原生模式测试依赖 window.wdioTauri（browser.tauri.execute /
+// IPC mock / 日志采集），仅 dev build 引入，避免打进生产包。
+if (import.meta.env.DEV) {
+  void import("@wdio/tauri-plugin");
+}
+
 // Create a new router instance
 const router = createRouter({ routeTree });
 

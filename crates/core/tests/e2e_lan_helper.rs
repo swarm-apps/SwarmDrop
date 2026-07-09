@@ -88,6 +88,7 @@ fn runtime_config(discovery_mode: DiscoveryMode, provide_lan_helper: bool) -> Ne
         discovery_mode,
         auto_discover_lan_helpers: true,
         provide_lan_helper,
+        public_reachability: true,
     }
 }
 

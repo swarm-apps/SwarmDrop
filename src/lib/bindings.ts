@@ -12,6 +12,14 @@ export const commands = {
 	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
+	/**
+	 *  公网可达性：允许在已知公网中继上建立 reservation 使本机可被跨网直达。
+	 * 
+	 *  与 discovery_mode 正交——LanOnly 只管"不主动连接内置公网引导"，
+	 *  经 LAN Helper 学到的公网中继仍受本开关控制。关闭 = 严格局域网，
+	 *  跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+	 */
+	publicReachability?: boolean,
 } | null) => __TAURI_INVOKE<null>("start", { pairedDevices, networkOptions }),
 	shutdown: () => __TAURI_INVOKE<null>("shutdown"),
 	listDevices: (filter: "all" | "connected" | "paired" | null) => __TAURI_INVOKE<DeviceListResult>("list_devices", { filter }),
@@ -29,6 +37,10 @@ export const commands = {
 	files: InboxItemFileEntry[],
 	transfer: TransferProjection | null,
 }) & (InboxItemSummary) | null>("get_inbox_item_detail", { itemId }),
+	getInboxItemByTransferSessionId: (sessionId: string) => __TAURI_INVOKE<({
+	files: InboxItemFileEntry[],
+	transfer: TransferProjection | null,
+}) & (InboxItemSummary) | null>("get_inbox_item_by_transfer_session_id", { sessionId }),
 	repairMissingInboxItems: () => __TAURI_INVOKE<InboxItemDetail[]>("repair_missing_inbox_items"),
 	openInboxItem: (itemId: string, fileId: number | null) => __TAURI_INVOKE<null>("open_inbox_item", { itemId, fileId }),
 	showInboxItemInFolder: (itemId: string, fileId: number | null) => __TAURI_INVOKE<null>("show_inbox_item_in_folder", { itemId, fileId }),
@@ -89,6 +101,14 @@ export const commands = {
 	saveBehavior?: ReceiveSaveBehavior,
 	defaultSaveLocation?: string | null,
 	allowMcpSendToDevice: boolean,
+	/**
+	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
+	 * 
+	 *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
+	 *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+	 *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
+	 */
+	allowMcpAcceptFromDevice?: boolean,
 	expiresAt?: number | null,
 } | null) => __TAURI_INVOKE<PairedDeviceInfo>("update_paired_device_policy", { peerId, trustLevel, receivePolicy }),
 	scanSources: (sources: FileSource[]) => __TAURI_INVOKE<ScannedSourceResult[]>("scan_sources", { sources }),
@@ -99,6 +119,8 @@ export const commands = {
 	cancelSend: (sessionId: string) => __TAURI_INVOKE<null>("cancel_send", { sessionId }),
 	cancelReceive: (sessionId: string) => __TAURI_INVOKE<null>("cancel_receive", { sessionId }),
 	getTransferProjections: () => __TAURI_INVOKE<TransferProjection[]>("get_transfer_projections"),
+	/**  发送方向会话的源文件绝对路径（「重新发送」重建载荷用；接收方向返回空列表）。 */
+	getTransferSourcePaths: (sessionId: string) => __TAURI_INVOKE<string[]>("get_transfer_source_paths", { sessionId }),
 	deleteTransferSession: (sessionId: string) => __TAURI_INVOKE<null>("delete_transfer_session", { sessionId }),
 	clearTransferHistory: () => __TAURI_INVOKE<null>("clear_transfer_history"),
 	pauseTransfer: (sessionId: string) => __TAURI_INVOKE<null>("pause_transfer", { sessionId }),
@@ -119,6 +141,8 @@ export const commands = {
 	 *  也不退出）。托盘「退出」走 Rust 侧 `app.exit(0)`，不经本命令。
 	 */
 	quitApp: () => __TAURI_INVOKE<void>("quit_app"),
+	/**  应用当前 locale：更新 rust-i18n 全局 locale 并即时重绘托盘菜单文案。 */
+	setLocale: (locale: string) => __TAURI_INVOKE<null>("set_locale", { locale }),
 	/**  查询 MCP Server 当前状态 */
 	getMcpStatus: () => __TAURI_INVOKE<McpStatus>("get_mcp_status"),
 	/**
@@ -129,11 +153,14 @@ export const commands = {
 	startMcpServer: (port: number | null) => __TAURI_INVOKE<McpStatus>("start_mcp_server", { port }),
 	/**  停止 MCP Server */
 	stopMcpServer: () => __TAURI_INVOKE<McpStatus>("stop_mcp_server"),
+	/**  前端根处理器 mount 时调用：标记就绪并取走冷启动期间缓冲的外部打开路径。 */
+	takePendingExternalOpen: () => __TAURI_INVOKE<string[]>("take_pending_external_open"),
 };
 
 /** Events */
 export const events = {
 	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
+	externalFileOpen: makeEvent<ExternalFileOpen>("external-file-open"),
 	networkStatusChanged: makeEvent<NetworkStatusChanged>("network-status-changed"),
 	pairedDeviceAdded: makeEvent<PairedDeviceAdded>("paired-device-added"),
 	pairingRequestReceived: makeEvent<PairingRequestReceived>("pairing-request-received"),
@@ -162,7 +189,9 @@ export type AppErrorPayload = {
 	message: string,
 };
 
-export type BootstrapCandidateSource = "builtInPublic" | "userCustom" | "mdnsLanHelper";
+export type BootstrapCandidateSource = "builtInPublic" | "userCustom" | "mdnsLanHelper" | 
+/**  运行时经 identify 学到的基础设施节点（如 LanOnly 下经 LAN Helper 认识的公网中继） */
+"learned";
 
 export type CandidateSourceStatus = {
 	source: BootstrapCandidateSource,
@@ -225,6 +254,14 @@ export type DeviceReceivePolicy = {
 	saveBehavior?: ReceiveSaveBehavior,
 	defaultSaveLocation?: string | null,
 	allowMcpSendToDevice: boolean,
+	/**
+	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
+	 * 
+	 *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
+	 *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+	 *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
+	 */
+	allowMcpAcceptFromDevice?: boolean,
 	expiresAt?: number | null,
 };
 
@@ -253,6 +290,14 @@ export type EnumeratedFile = {
 	source: FileSource,
 	/**  文件大小 */
 	size: number,
+};
+
+/**
+ *  外部「用 SwarmDrop 打开」文件/文件夹后归一化的本地绝对路径列表。
+ *  事件名 `"external-file-open"`，前端根处理器据此扫描并跳转选设备屏。
+ */
+export type ExternalFileOpen = {
+	paths: string[],
 };
 
 export type FileProgressInfo = {
@@ -352,6 +397,14 @@ export type NetworkRuntimeConfig = {
 	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
+	/**
+	 *  公网可达性：允许在已知公网中继上建立 reservation 使本机可被跨网直达。
+	 * 
+	 *  与 discovery_mode 正交——LanOnly 只管"不主动连接内置公网引导"，
+	 *  经 LAN Helper 学到的公网中继仍受本开关控制。关闭 = 严格局域网，
+	 *  跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+	 */
+	publicReachability?: boolean,
 };
 
 /**  网络状态快照。 */
@@ -365,6 +418,13 @@ export type NetworkStatus = {
 	discoveredPeers: number,
 	/**  Relay 中继是否就绪（至少有一个中继节点已连接）。 */
 	relayReady: boolean,
+	/**
+	 *  公网可达：持有公网范围中继的活跃 reservation，或已确认公网直达地址。
+	 *  false = 仅局域网可达（跨网设备无法直接访问本机）。
+	 */
+	publicReachable: boolean,
+	/**  公网可达性设置的回显（host 侧检测"设置已变更需重启"用）。 */
+	publicReachabilityEnabled: boolean,
 	/**  当前已连接的中继节点 PeerId 列表。 */
 	relayPeers: string[],
 	/**  是否至少有一个引导节点已连接。 */
@@ -659,6 +719,12 @@ export type TransferProjection = {
 	policyAction: string | null,
 	policyReason: string | null,
 	savePath: CoreSaveLocation | null,
+	/**
+	 *  「打开文件夹」应定位的真实容器目录 URI(收到内容实际所在的文件夹),已在 core 解析:
+	 *  各文件 `local_dir` 全部同一目录 → 该目录;否则回退存储根 `save_path`。前端直读,
+	 *  不再自行兜底(已完成接收必为 `Some`)。
+	 */
+	contentRoot: string | null,
 	files: TransferProjectionFile[],
 };
 

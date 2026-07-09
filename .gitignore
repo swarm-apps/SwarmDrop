@@ -39,3 +39,4 @@ dist-ssr
 keys/
 keystore.properties
 .codex
+graphify-out

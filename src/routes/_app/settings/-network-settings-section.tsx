@@ -34,6 +34,8 @@ export function NetworkSettingsSection() {
   const setAutoDiscoverLanHelpers = usePreferencesStore((state) => state.setAutoDiscoverLanHelpers);
   const provideLanHelper = usePreferencesStore((state) => state.provideLanHelper);
   const setProvideLanHelper = usePreferencesStore((state) => state.setProvideLanHelper);
+  const publicReachability = usePreferencesStore((state) => state.publicReachability);
+  const setPublicReachability = usePreferencesStore((state) => state.setPublicReachability);
   const { restarting, markRestartNeeded, restart, showBanner } = useNodeRestart();
 
   return (
@@ -53,7 +55,9 @@ export function NetworkSettingsSection() {
 
         <SettingsRow
           title={<Trans>发现模式</Trans>}
-          description={<Trans>控制是否连接公网引导节点</Trans>}
+          description={
+            <Trans>是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性</Trans>
+          }
           action={
             <Select
               value={discoveryMode}
@@ -70,6 +74,23 @@ export function NetworkSettingsSection() {
                 <SelectItem value="lanOnly">{t(msg`仅局域网`)}</SelectItem>
               </SelectContent>
             </Select>
+          }
+        />
+
+        <SettingsRow
+          title={<Trans>公网可达性</Trans>}
+          description={
+            <Trans>允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用</Trans>
+          }
+          action={
+            <Switch
+              aria-label={t(msg`公网可达性`)}
+              checked={publicReachability}
+              onCheckedChange={(enabled) => {
+                setPublicReachability(enabled);
+                markRestartNeeded();
+              }}
+            />
           }
         />
 

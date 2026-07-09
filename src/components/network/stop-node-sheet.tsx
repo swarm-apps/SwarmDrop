@@ -76,6 +76,7 @@ export function StopNodeSheet({ open, onOpenChange }: StopNodeSheetProps) {
   const discoveredCount = networkStatus?.discoveredPeers ?? 0;
   const natStatus = networkStatus?.natStatus ?? "unknown";
   const relayReady = networkStatus?.relayReady ?? false;
+  const publicReachable = networkStatus?.publicReachable ?? false;
   const publicAddr = networkStatus?.publicAddr ?? null;
   const relayPeers = networkStatus?.relayPeers ?? [];
   const bootstrapConnected = networkStatus?.bootstrapConnected ?? false;
@@ -119,6 +120,7 @@ export function StopNodeSheet({ open, onOpenChange }: StopNodeSheetProps) {
           DeviceIcon={DeviceIcon}
           natStatus={natStatus}
           relayReady={relayReady}
+          publicReachable={publicReachable}
           publicAddr={publicAddr}
           relayPeers={relayPeers}
           bootstrapConnected={bootstrapConnected}
@@ -147,6 +149,7 @@ function StopNodeContent({
   DeviceIcon,
   natStatus,
   relayReady,
+  publicReachable,
   publicAddr,
   relayPeers,
   bootstrapConnected,
@@ -169,6 +172,7 @@ function StopNodeContent({
   DeviceIcon: React.ComponentType<{ className?: string }>;
   natStatus: string;
   relayReady: boolean;
+  publicReachable: boolean;
   publicAddr: string | null;
   relayPeers: string[];
   bootstrapConnected: boolean;
@@ -301,6 +305,23 @@ function StopNodeContent({
               )}
             >
               {natStatus === "public" ? t`映射成功` : t`未知`}
+            </Badge>
+          </div>
+          {/* 公网可达性 — 区分"设备离线"与"跨网不可直达" */}
+          <div className="flex items-center justify-between border-t border-border px-4 py-3">
+            <span className="text-sm text-muted-foreground">
+              <Trans>公网可达</Trans>
+            </span>
+            <Badge
+              variant="outline"
+              className={cn(
+                "border-transparent text-xs",
+                publicReachable
+                  ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {publicReachable ? t`可达` : t`仅局域网`}
             </Badge>
           </div>
           {/* 中继状态 — 高度不足时隐藏 */}

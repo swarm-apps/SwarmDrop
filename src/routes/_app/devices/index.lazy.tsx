@@ -13,7 +13,7 @@ import {
   SectionHeader,
   SectionShell,
 } from "@/components/layout/section-primitives";
-import { TransferItem } from "../transfer/-transfer-item";
+import { SessionRow } from "../transfer/-session-row";
 import type {
   Device,
   DeviceReceivePolicy,
@@ -48,6 +48,8 @@ function DevicesPage() {
   const fetchDevices = useNetworkStore((s) => s.fetchDevices);
   const isOnline = status === "running" || status === "starting";
   const storedPairedDevices = useSecretStore((state) => state.pairedDevices);
+  const removePairedDevice = useSecretStore((state) => state.removePairedDevice);
+  const upsertPairedDevice = useSecretStore((state) => state.upsertPairedDevice);
   const directPairing = usePairingStore((state) => state.directPairing);
   const projections = useTransferStore((s) => s.projections);
 
@@ -140,7 +142,7 @@ function DevicesPage() {
   const handleUnpair = (device: Device) => {
     // 同时更新后端运行时状态(节点未运行时静默成功)
     commands.removePairedDevice(device.peerId);
-    useSecretStore.getState().removePairedDevice(device.peerId);
+    removePairedDevice(device.peerId);
   };
 
   const handleUpdatePolicy = useCallback(
@@ -154,11 +156,11 @@ function DevicesPage() {
         trustLevel,
         receivePolicy,
       );
-      useSecretStore.getState().upsertPairedDevice(updated);
+      upsertPairedDevice(updated);
       await fetchDevices("all");
       toast.success(t`已更新可信设备策略`);
     },
-    [fetchDevices],
+    [fetchDevices, upsertPairedDevice],
   );
 
   return (
@@ -350,6 +352,14 @@ function PairedDevicesSection({
 }
 
 function ActiveTransfersSection({ items }: { items: TransferProjection[] }) {
+  const navigate = useNavigate();
+  const openSession = useCallback(
+    (sessionId: string) => {
+      void navigate({ to: "/transfer", search: { session: sessionId } });
+    },
+    [navigate],
+  );
+
   return (
     <SectionShell>
       <SectionHeader
@@ -367,7 +377,13 @@ function ActiveTransfersSection({ items }: { items: TransferProjection[] }) {
       ) : (
         <div className="flex flex-col gap-2.5">
           {items.map((item) => (
-            <TransferItem key={item.sessionId} projection={item} />
+            <SessionRow
+              key={item.sessionId}
+              projection={item}
+              selected={false}
+              onSelect={openSession}
+              onSessionChange={openSession}
+            />
           ))}
         </div>
       )}

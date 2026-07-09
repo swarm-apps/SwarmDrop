@@ -1,0 +1,23 @@
+# 桌面壳原生字符串（托盘 + 系统通知）源 locale：简体中文。
+# 前端 App 内文案由 Lingui 管理，本目录只覆盖 Rust 直接渲染的 OS 表面。
+
+[tray]
+open = "打开 SwarmDrop"
+open_folder = "打开接收文件夹"
+settings = "设置…"
+quit = "退出 SwarmDrop"
+pause = "暂停接收"
+resume = "恢复接收"
+
+[tray.status]
+offline = "○ 未连接"
+online = "● 在线 · 可接收文件"
+paused = "⏸ 已暂停接收"
+
+[notif.pairing]
+title = "配对请求"
+body = "%{hostname} 请求与您配对"
+
+[notif.incoming_transfer]
+title = "收到文件传输请求"
+body = "%{name} 想要向您发送文件"

@@ -1519,3 +1519,53 @@ async fn e2e_paused_offer_declined_then_resumes_on_resume() {
     )
     .await;
 }
+
+/// 回归（僵尸节点治本）：停止节点后 run_event_loop 随 cancel_token 退出，
+/// swarm 被释放、连接断开——对端必须在宽限期后判其离线，而不是被
+/// keep-alive 白名单钉死的僵尸连接骗成永久在线。
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_node_goes_offline_on_peer() {
+    let (node_a, node_b) =
+        connected_paired_pair(MemoryHost::new(test_paths()), MemoryHost::new(test_paths())).await;
+    let id_b = node_b.peer_id;
+
+    // 双方 presence 就绪：A 视角 B 在线
+    poll_until(
+        || {
+            node_a
+                .manager
+                .devices()
+                .get_devices(swarmdrop_core::device_manager::DeviceFilter::Paired)
+                .iter()
+                .any(|d| {
+                    d.peer_id == id_b
+                        && matches!(d.status, swarmdrop_core::device::DeviceStatus::Online)
+                })
+        },
+        Duration::from_secs(15),
+        "A 视角 B 在线",
+    )
+    .await;
+
+    // 停止 B（host 停节点的完整语义：shutdown + drop，对应 guard.take()）
+    node_b.manager.shutdown().await;
+    drop(node_b);
+
+    // A 应在宽限期（15s）+ 判死/传播余量内看到 B 离线
+    poll_until(
+        || {
+            node_a
+                .manager
+                .devices()
+                .get_devices(swarmdrop_core::device_manager::DeviceFilter::Paired)
+                .iter()
+                .any(|d| {
+                    d.peer_id == id_b
+                        && matches!(d.status, swarmdrop_core::device::DeviceStatus::Offline)
+                })
+        },
+        Duration::from_secs(45),
+        "停止节点后 A 视角 B 离线",
+    )
+    .await;
+}

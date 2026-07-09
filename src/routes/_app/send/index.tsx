@@ -7,10 +7,18 @@ import { createFileRoute } from "@tanstack/react-router";
 
 interface SendSearch {
   peerId: string;
+  session?: string;
+}
+
+export function validateSendSearch(search: Record<string, unknown>): SendSearch {
+  const peerId = search.peerId;
+  const session = search.session;
+  return {
+    peerId: typeof peerId === "string" ? peerId : "",
+    ...(typeof session === "string" && session !== "" ? { session } : {}),
+  };
 }
 
 export const Route = createFileRoute("/_app/send/")({
-  validateSearch: (search: Record<string, unknown>): SendSearch => ({
-    peerId: (search.peerId as string) ?? "",
-  }),
+  validateSearch: validateSendSearch,
 });

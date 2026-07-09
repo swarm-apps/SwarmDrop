@@ -7,7 +7,7 @@ use entity::{
 };
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityLoaderTrait, EntityTrait,
-    IntoActiveModel, QueryFilter, QueryOrder, Set,
+    IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use uuid::Uuid;
 
@@ -141,6 +141,28 @@ pub async fn update_session_save_path(
     Ok(())
 }
 
+/// 更新会话的 `origin`（provenance）。agent 代收接受入站 offer 后把 origin 标成 `Mcp`，
+/// 使完成后建的收件箱条目 `source_kind=mcp`（UI 显示「AI 代理」）——与落盘位置无关，
+/// 让代收文件既落在与手动一致的接收文件夹、又能在收件箱区分来源。
+pub async fn update_session_origin(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    origin: crate::protocol::TransferOrigin,
+) -> AppResult<()> {
+    let Some(session) = entity::TransferSession::find_by_id(session_id)
+        .one(db)
+        .await?
+    else {
+        return Err(crate::AppError::Transfer("会话不存在".into()));
+    };
+
+    let mut model = session.into_active_model();
+    model.origin = Set(Some(origin.to_db_string()));
+    model.updated_at = Set(now_ms());
+    model.update(db).await?;
+    Ok(())
+}
+
 /// 更新文件 range checkpoint 和已传输字节数（新 data-channel 数据面使用）。
 pub async fn update_file_checkpoint_ranges(
     db: &DatabaseConnection,
@@ -158,19 +180,23 @@ pub async fn update_file_checkpoint_ranges(
     .await
 }
 
-/// 标记单个文件完成，并写入完整 checkpoint
+/// 标记单个文件完成，写入完整 checkpoint 与最终落盘位置（finalize_sink 返回值）
 pub async fn mark_file_completed(
     db: &DatabaseConnection,
     session_id: Uuid,
     file_id: i32,
     completed_chunks: Vec<u8>,
     transferred_bytes: i64,
+    local_path: String,
+    local_dir: String,
 ) -> AppResult<()> {
     update_file(db, session_id, file_id, |model| {
         model.status = Set(FileStatus::Completed);
         model.completed_chunks = Set(completed_chunks);
         model.transferred_bytes = Set(transferred_bytes);
         model.completed_ranges = Set(ranges_json(&prefix_range(transferred_bytes)));
+        model.local_path = Set(Some(local_path));
+        model.local_dir = Set(Some(local_dir));
     })
     .await
 }
@@ -380,6 +406,10 @@ pub struct TransferProjection {
     pub policy_action: Option<String>,
     pub policy_reason: Option<String>,
     pub save_path: Option<CoreSaveLocation>,
+    /// 「打开文件夹」应定位的真实容器目录 URI(收到内容实际所在的文件夹),已在 core 解析:
+    /// 各文件 `local_dir` 全部同一目录 → 该目录;否则回退存储根 `save_path`。前端直读,
+    /// 不再自行兜底(已完成接收必为 `Some`)。
+    pub content_root: Option<String>,
     pub files: Vec<TransferProjectionFile>,
 }
 
@@ -406,12 +436,31 @@ impl From<entity::transfer_file::ModelEx> for TransferProjectionFile {
     }
 }
 
+/// 「打开文件夹」应定位的真实容器目录(投影与收件箱共用,**兜底收口在此一处**):
+/// 所有已完成接收文件的 `local_dir` 若唯一一致 → 该目录;否则(跨多个不同父目录 /
+/// 发送会话 / 缺 local_dir 的历史)→ 回退存储根 `save_path`。返回值即「可直接打开的
+/// 目录 or None(无 save_path 的边角)」,消费方直读、无需再兜底。绝不做「保存目录 +
+/// 相对路径」字符串拼接推导。
+pub(crate) fn content_root_of<'a>(
+    files: impl IntoIterator<Item = &'a entity::transfer_file::ModelEx>,
+    save_path: Option<&entity::SaveLocation>,
+) -> Option<String> {
+    let mut dirs = files.into_iter().filter_map(|f| f.local_dir.as_deref());
+    if let Some(first) = dirs.next() {
+        if dirs.all(|d| d == first) {
+            return Some(first.to_string());
+        }
+    }
+    save_path.map(|entity::SaveLocation::Path { path }| path.clone())
+}
+
 impl From<entity::transfer_session::ModelEx> for TransferProjection {
     fn from(s: entity::transfer_session::ModelEx) -> Self {
         // transferred_bytes 派生自文件级求和（单一事实来源）：文件进度由 persist_chunk /
         // save_sender_file_progress 增量落库，projection 直接 SUM，省掉各生命周期转换前
         // 手工 sync_session_transferred_bytes 的二次写与漂移风险。
         let transferred_bytes = s.files.iter().map(|f| f.transferred_bytes).sum();
+        let content_root = content_root_of(s.files.iter(), s.save_path.as_ref());
         Self {
             session_id: s.session_id,
             direction: s.direction,
@@ -431,6 +480,7 @@ impl From<entity::transfer_session::ModelEx> for TransferProjection {
             policy_action: s.policy_action,
             policy_reason: s.policy_reason,
             save_path: s.save_path.map(Into::into),
+            content_root,
             files: s.files.into_iter().map(Into::into).collect(),
         }
     }
@@ -568,6 +618,22 @@ pub async fn get_session_files(
 ) -> AppResult<Vec<entity::transfer_file::Model>> {
     Ok(entity::TransferFile::find()
         .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .all(db)
+        .await?)
+}
+
+/// 获取 session 内有源路径的文件绝对路径（发送方向；「重新发送」重建载荷用）。
+/// 只查 source_path 一列并把 NULL 过滤下推到 SQL，避免物化 bitmap BLOB 等无关列。
+pub async fn get_session_source_paths(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+) -> AppResult<Vec<String>> {
+    Ok(entity::TransferFile::find()
+        .select_only()
+        .column(entity::transfer_file::Column::SourcePath)
+        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .filter(entity::transfer_file::Column::SourcePath.is_not_null())
+        .into_tuple::<String>()
         .all(db)
         .await?)
 }

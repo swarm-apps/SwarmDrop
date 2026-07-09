@@ -30,7 +30,7 @@ scripts/
 | Android SDK | 最新 | 通过 Android Studio 或 `setup-android@v3` |
 | Android NDK | 随 SDK 安装 | CI 上使用 `$ANDROID_NDK_LATEST_HOME` |
 | Rust target | `aarch64-linux-android` | `rustup target add aarch64-linux-android` |
-| Node.js | LTS | pnpm 9 |
+| Node.js | LTS | pnpm 11 |
 
 ## 本地开发
 

@@ -8,6 +8,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createTauriStorage } from "@/lib/tauri-store";
 import { dynamicActivate, defaultLocale, type LocaleKey } from "@/lib/i18n";
+import { commands } from "@/lib/bindings";
 
 export type DiscoveryMode = "auto" | "lanOnly";
 
@@ -29,6 +30,8 @@ interface PreferencesState {
   autoDiscoverLanHelpers: boolean;
   /** 本设备提供局域网协助能力 */
   provideLanHelper: boolean;
+  /** 公网可达性：允许通过公网中继被跨网设备访问（关闭 = 严格局域网） */
+  publicReachability: boolean;
   /** 文件传输设置 */
   transfer: {
     /** 接收文件的默认保存路径 */
@@ -64,6 +67,8 @@ interface PreferencesState {
   setAutoDiscoverLanHelpers: (enabled: boolean) => void;
   /** 设置本设备是否提供局域网协助能力 */
   setProvideLanHelper: (enabled: boolean) => void;
+  /** 设置公网可达性 */
+  setPublicReachability: (enabled: boolean) => void;
   /** 设置传输保存路径 */
   setTransferSavePath: (path: string) => void;
   /** 设置 MCP 端口 */
@@ -100,6 +105,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       discoveryMode: "auto",
       autoDiscoverLanHelpers: true,
       provideLanHelper: false,
+      publicReachability: true,
       transfer: {
         savePath: "",
       },
@@ -113,6 +119,13 @@ export const usePreferencesStore = create<PreferencesState>()(
       async setLocale(locale: LocaleKey) {
         await dynamicActivate(locale);
         set({ locale });
+        // 同步给后端：托盘菜单 / 系统通知等原生字符串随之切换语言并即时重绘托盘。
+        // best-effort——后端未就绪 / IPC 失败不影响前端语言已切换。
+        try {
+          await commands.setLocale(locale);
+        } catch {
+          // 忽略：前端语言已切换，后端原生字符串下次会话或下次切换时对齐。
+        }
       },
 
       setDeviceName(name: string) {
@@ -145,6 +158,10 @@ export const usePreferencesStore = create<PreferencesState>()(
 
       setProvideLanHelper(provideLanHelper: boolean) {
         set({ provideLanHelper });
+      },
+
+      setPublicReachability(publicReachability: boolean) {
+        set({ publicReachability });
       },
 
       setTransferSavePath(path: string) {
@@ -184,6 +201,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         discoveryMode: state.discoveryMode,
         autoDiscoverLanHelpers: state.autoDiscoverLanHelpers,
         provideLanHelper: state.provideLanHelper,
+        publicReachability: state.publicReachability,
         transfer: state.transfer,
         mcp: state.mcp,
         closeBehavior: state.closeBehavior,

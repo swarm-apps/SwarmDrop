@@ -64,16 +64,3 @@ impl From<&PairingCodeInfo> for ShareCodeRecord {
         }
     }
 }
-
-/// 在线宣告记录，发布到 DHT 供已配对设备发现地址。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct OnlineRecord {
-    #[serde(flatten)]
-    pub os_info: OsInfo,
-    #[serde(default)]
-    #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
-    pub listen_addrs: Vec<Multiaddr>,
-    pub timestamp: i64,
-}

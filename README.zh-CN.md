@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="public/app-icon.svg" width="140" alt="SwarmDrop logo">
+<img src="public/app-icon.png" width="140" alt="SwarmDrop logo">
 
 # SwarmDrop
 

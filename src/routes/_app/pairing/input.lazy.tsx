@@ -58,9 +58,9 @@ function PairingInputPage() {
   useEffect(() => {
     openInput();
     return () => {
-      usePairingStore.getState().reset();
+      reset();
     };
-  }, [openInput]);
+  }, [openInput, reset]);
 
   // 配对成功后自动跳转到设备页面
   usePairingSuccess();

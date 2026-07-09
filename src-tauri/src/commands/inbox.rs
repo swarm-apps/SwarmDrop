@@ -31,6 +31,15 @@ pub async fn get_inbox_item_detail(
     Ok(crate::database::inbox::get_inbox_item_detail(&db, item_id).await?)
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn get_inbox_item_by_transfer_session_id(
+    db: State<'_, DatabaseConnection>,
+    session_id: Uuid,
+) -> crate::AppResult<Option<InboxItemDetail>> {
+    Ok(crate::database::inbox::get_inbox_item_by_transfer_session_id(&db, session_id).await?)
+}
+
 /// 检索收件箱。`limit` 默认 20，`include_archived` 默认 false。
 ///
 /// 数据库未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
