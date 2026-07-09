@@ -43,6 +43,8 @@
     "updater:default",
     "process:allow-restart",
     "dialog:default",
-    "mcp-bridge:default"
+    "mcp-bridge:default",
+    "wdio-webdriver:default",
+    "wdio:default"
   ]
 }

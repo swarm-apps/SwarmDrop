@@ -8,7 +8,21 @@
 
 ### pnpm only
 
-项目锁定 pnpm（`packageManager` 字段 + pnpm-lock.yaml）。npm / yarn install 会产生不一致的 lockfile。
+项目锁定 pnpm 11（`packageManager` 字段 + pnpm-lock.yaml）。npm / yarn install 会产生不一致的 lockfile。
+
+### pnpm 11 settings 放在 pnpm-workspace.yaml
+
+pnpm 11 不再把 `package.json` 里的 `pnpm` 字段作为项目 settings 来源。需要配置 overrides、允许依赖
+build scripts、release-age 策略等，都放到对应项目根的 `pnpm-workspace.yaml`。
+
+**正确做法**：
+- 根桌面应用用仓库根 `pnpm-workspace.yaml`，当前仅声明 `packages: ["."]` 和允许 `esbuild` build script。
+- 独立 e2e 子项目用 `e2e/desktop/pnpm-workspace.yaml`，把 WDIO 相关 overrides 和 build-script 策略放在那里。
+
+**不要做**：
+- 在 `package.json` 里新增 `pnpm.overrides` / `pnpm.onlyBuiltDependencies`，pnpm 11 下容易被忽略或造成 lockfile 不一致。
+
+**相关文件**：`package.json`、`pnpm-workspace.yaml`、`e2e/desktop/package.json`、`e2e/desktop/pnpm-workspace.yaml`
 
 ### 前端测试使用 Vitest
 
@@ -25,6 +39,27 @@ pnpm test
 - Lingui 组件测试用 `src/test/setup.ts` 激活测试 locale，组件测试按需包 `I18nProvider`
 
 **相关文件**：`vitest.config.ts`、`src/test/setup.ts`、`src/stores/network-store.test.ts`
+
+### 桌面端 E2E 用 WebdriverIO，跟 Vitest 是两套独立体系
+
+`e2e/desktop` 是用官方 `npm create wdio@latest e2e/desktop` 向导生成的独立项目，native 模式
+驱动真实 Tauri 二进制，跟 `pnpm test`（Vitest，管 `src/**/*.test.ts(x)` 单元/组件测试）不是
+一回事，也不应该合并——WDIO 生态没有 vitest framework adapter，只有 `@wdio/mocha-framework`
+等，看到 `wdio.conf.ts` 里 `framework: 'mocha'` 是正常的，不是配置错误。`vitest.config.ts`
+已显式 `exclude: [...configDefaults.exclude, "e2e/**"]` 避免 glob 误扫（`exclude` 会整体覆
+盖默认值，必须展开 `configDefaults.exclude` 而不是只写新增项）。
+
+**正确做法**：加新 E2E 能力用官方 CLI 重新生成/调整，不要手写 `wdio.conf.ts`；这个向导目前
+生成的配置本身有几处已知 bug（`services` 数组多一个不存在的 `'tauri-plugin'` service、
+`capabilities` 还是浏览器 boilerplate、`@wdio/native-utils` 版本对不上导致运行时报错）——
+详见 [`dev-notes/blogs/desktop-webdriver-e2e.md`](../blogs/desktop-webdriver-e2e.md) 的
+"常见坑"。
+
+**最容易踩的一个坑**：native 二进制必须用 `pnpm tauri build --debug --no-bundle` 构建，裸
+`cargo build` 出来的二进制会因为 `tauri.conf.json` 的 `devUrl` 指向没启动的 Vite dev server
+而白屏（窗口标题读出来是空字符串，`window.__TAURI__.core.invoke` 一直超时）。
+
+**相关文件**：`e2e/desktop/`、`dev-notes/blogs/desktop-webdriver-e2e.md`
 
 ## Cargo 配置
 
@@ -163,7 +198,7 @@ SwarmDrop 的 `src-tauri` 是 Cargo workspace member，不是独立 Cargo 项目
 
 `pnpm/action-setup` 的 `with: version:` 和 `package.json` 的 `packageManager` 字段**不能同时存在**，否则报 `Multiple versions of pnpm specified` / `ERR_PNPM_BAD_PM_VERSION`，CI 在 Setup pnpm 步骤直接失败。
 
-**正确做法**：SwarmDrop（有 `packageManager: "pnpm@9.0.0"`）的 workflow 里 `pnpm/action-setup@v4` **不要带 `with: version`**，让它读 packageManager。RN（无 packageManager 字段）靠 action 的 `version` 指定。别混用。
+**正确做法**：SwarmDrop（有 `packageManager: "pnpm@11.10.0"`）的 workflow 里 `pnpm/action-setup@v4` **不要带 `with: version`**，让它读 packageManager。RN（无 packageManager 字段）靠 action 的 `version` 指定。别混用。
 
 ### windows updater bundle 选取：用清单内匹配，别用 `[ -f ]`
 

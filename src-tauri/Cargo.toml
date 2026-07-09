@@ -40,6 +40,11 @@ tauri-plugin-process = "2"
 # MCP Bridge —— 仅 debug 注册(见 setup.rs::register_plugins),供 AI 调试桥使用;
 # release 会编译但不注册,因此攻击面仅限 dev。无条件依赖以便 tauri-build 收集其 ACL。
 tauri-plugin-mcp-bridge = "0.11"
+# WebdriverIO 原生模式 E2E(e2e/desktop)—— 同上,仅 debug 注册,无条件依赖以便 tauri-build 收集 ACL。
+# tauri-plugin-wdio-webdriver 起内嵌 WebDriver server(零外部进程);tauri-plugin-wdio 提供
+# browser.tauri.execute / IPC mock / 日志采集,配合前端 @wdio/tauri-plugin 使用。
+tauri-plugin-wdio-webdriver = "1"
+tauri-plugin-wdio = "1"
 rand = "0.10.0"
 chrono = "0.4.43"
 dashmap = "6.1.0"

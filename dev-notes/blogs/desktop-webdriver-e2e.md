@@ -283,7 +283,7 @@ export const config: WebdriverIO.Config = {
     [
       '@wdio/tauri-service',
       {
-        appBinaryPath: './src-tauri/target/debug/swarmdrop',
+        appBinaryPath: '../../target/debug/swarmdrop', // 仓库根 target/，不是 src-tauri/target/
         driverProvider: 'embedded',
       },
     ],
@@ -398,21 +398,68 @@ flowchart LR
     E --> G[移动端截图 / Maestro 报告]
 ```
 
+## 已落地（v1，native only）
+
+实际接入时跳过了 browser mode，只做了 native mode，用官方 `npm create wdio@latest e2e/desktop`
+向导生成脚手架（Desktop Testing → Tauri → Embedded driver → 装 `@wdio/tauri-plugin`），
+而不是手写 `wdio.conf.ts`。落地过程中踩到的坑都记在下面，比原设计阶段的推测更准。
+
 ## 常见坑
 
-### App binary 找不到
+### App binary 必须用 `tauri build`，不能裸 `cargo build`
 
-确认已经构建：
+跑通之前踩到的最大的坑：裸 `cargo build -p swarmdrop` 编译出的 debug 二进制，运行起来窗口
+标题是空字符串、`window.__TAURI__.core.invoke` 一直超时——本质是空白页面。原因是
+`tauri.conf.json` 的 `build.devUrl` 写死指向 `http://localhost:1420`，裸 `cargo build` 不
+会经过 Tauri CLI 的 dev/build 语境判断，于是二进制尝试连一个没人监听的 Vite dev server。
+
+必须用 Tauri CLI 构建，它会先跑 `beforeBuildCommand`（`pnpm build`）产出新鲜的 `dist/` 并把
+它打进二进制：
 
 ```bash
 pnpm tauri build --debug --no-bundle
 ```
 
-再确认路径：
+再确认路径——`src-tauri` 是 Cargo workspace member 而非独立项目，产物在仓库根 `target/`：
 
 ```text
-src-tauri/target/debug/swarmdrop
+target/debug/swarmdrop
 ```
+
+### 官方向导生成的 `wdio.conf.ts` 有两处要手动改
+
+`npm create wdio@latest` 的 Desktop → Tauri → Embedded 分支目前（`@wdio/tauri-service@1.2.0`）
+生成的配置有两个跟自己文档不一致的地方，跑之前要手动修：
+
+1. `services` 数组多生成了一个 `'tauri-plugin'` 条目（`services: [['tauri', {...}], 'tauri-plugin']`）。
+   `@wdio/tauri-plugin` 只是前端集成（dev-only import + Rust 插件注册），根本不是 WDIO service，
+   留着会报 `Couldn't find plugin "tauri-plugin" service`，删掉即可。
+2. `capabilities` 还是向导的通用浏览器 boilerplate（`browserName: 'chrome'`），Tauri service
+   只认 `browserName: 'tauri' | 'wry'` 且需要 `'tauri:options'.application` 指向二进制路径，
+   否则报 `Tauri service only supports 'tauri' or 'wry' browserName`。TS 侧注意：这个对象不能
+   直接内联进 `capabilities: [...]` 字面量（会被 `WebdriverIO.Config` 默认 capabilities 类型的
+   多余属性检查拦下 `'tauri:options'`），要单独声明成 `const capabilities: TauriCapabilities[] = [...]`
+   再引用。
+
+### `@wdio/tauri-service` 依赖的 `@wdio/native-utils` 版本对不上
+
+`@wdio/tauri-service@1.2.0` 声明依赖 `@wdio/native-utils@2.4.0`，但编译产物实际调用的是
+2.5.0 才新增的 `installMockSyncOverride` 导出——上游发布时依赖范围没跟上，报
+`SyntaxError: The requested module '@wdio/native-utils' does not provide an export named
+'installMockSyncOverride'`。用 pnpm overrides 钉到 2.5.0 绕过（`e2e/desktop/package.json`）：
+
+```json
+{
+  "pnpm": {
+    "overrides": {
+      "@wdio/native-utils": "2.5.0"
+    }
+  }
+}
+```
+
+改完要 `pnpm install` 重新解析一次。以后升级 `@wdio/tauri-service` 时如果这个坑消失了，可以
+把 override 删掉。
 
 ### embedded WebDriver 没起来
 

@@ -166,6 +166,14 @@ fn register_plugins(builder: Builder<Wry>) -> Builder<Wry> {
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
+    // WebDriver E2E —— 仅 debug build 注册,供 e2e/desktop 下的 WebdriverIO 原生模式测试用。
+    // wdio-webdriver 起内嵌 WebDriver server(embedded provider,零外部进程);wdio 提供
+    // browser.tauri.execute / IPC mock / 前后端日志采集。release 不注册,攻击面仅限 dev。
+    #[cfg(debug_assertions)]
+    let builder = builder
+        .plugin(tauri_plugin_wdio_webdriver::init())
+        .plugin(tauri_plugin_wdio::init());
+
     builder
 }
 
