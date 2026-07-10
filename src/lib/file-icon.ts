@@ -2,10 +2,8 @@
  * 文件类型图标 + 配色映射（单一来源）
  *
  * 按扩展名返回对应的 Lucide 图标组件与 tailwind 配色类。调用方控制 size 与多文件
- * 聚合（count）等渲染细节，这里负责「扩展名 → 图标 + 配色」这一份映射，让 file-tree /
- * history-item / inbox 三处共用同一套字形与配色（之前各搓一份、字形与颜色都漂移）。
- *
- * 注：file-tree 行按传输状态着色，只取 [`getFileIcon`] 不用 [`getFileIconColor`]。
+ * 聚合（count）等渲染细节，这里负责「扩展名 → 图标 + 配色」这一份映射，让统一
+ * file-browser、history-item 等场景共用同一套字形与配色。
  */
 
 import {

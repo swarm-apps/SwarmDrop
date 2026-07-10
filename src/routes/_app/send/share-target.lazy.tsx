@@ -28,12 +28,13 @@ import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { useShareStore } from "@/stores/share-store";
 import { useTransferStore } from "@/stores/transfer-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
-import { formatFileSize, formatLatency } from "@/lib/format";
+import { formatLatency } from "@/lib/format";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
-import { FileTree } from "@/components/file-tree";
+import { FileBrowser } from "@/components/file-browser";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
 import { SendProgressView } from "./-components/send-progress-view";
 import { cn } from "@/lib/utils";
@@ -74,6 +75,8 @@ function ShareTargetPage() {
   const pairedDevices = useSecretStore((s) => s.pairedDevices);
   const consumeShareSources = useShareStore((s) => s.consume);
   const loadProjections = useTransferStore((s) => s.loadProjections);
+  const fileView = usePreferencesStore((state) => state.fileBrowserViews.send);
+  const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
 
   // 消费在途来源：订阅 store 而非只在 mount 时 consume——页面已挂载时用户再次
   // 「用 SwarmDrop 打开」不会 remount（navigate 同路由 no-op），必须靠订阅感知新批次。
@@ -178,41 +181,24 @@ function ShareTargetPage() {
 
   // 待发文件面板内容（宽屏左栏 / 窄屏抽屉共用）
   const filesBody = (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
-          <FileStack className="size-4" />
-          <Trans>待发文件</Trans>
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {fileSelection.hasFiles ? (
-            <span className="font-mono tabular-nums">
-              {fileSelection.totalCount} 项 · {formatFileSize(fileSelection.totalSize)}
-            </span>
-          ) : (
-            <Trans>—</Trans>
-          )}
-        </span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {fileSelection.hasFiles ? (
-          <FileTree
-            mode="select"
-            dataLoader={fileSelection.dataLoader}
-            rootChildren={fileSelection.rootChildren}
-            totalCount={fileSelection.totalCount}
-            totalSize={fileSelection.totalSize}
-            onRemoveFile={fileSelection.removeFile}
-          />
-        ) : (
-          <div className="flex h-full min-h-[160px] items-center justify-center rounded-[20px] bg-foreground/[0.025] px-4 text-center dark:bg-white/[0.035]">
-            <p className="max-w-[26ch] text-sm leading-6 text-muted-foreground">
-              <Trans>文件已全部移除，返回重新分享。</Trans>
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
+    <FileBrowser
+      items={fileSelection.items}
+      title={<Trans>待发文件</Trans>}
+      view={fileView}
+      onViewChange={(nextView) => setFileBrowserView("send", nextView)}
+      actions={{
+        onRemove: (target) => fileSelection.removeFile(
+          target.type === "directory"
+            ? target.relativePath
+            : target.item.relativePath,
+        ),
+      }}
+      emptyState={{
+        title: <Trans>文件已全部移除</Trans>,
+        description: <Trans>返回后重新选择要分享的文件。</Trans>,
+      }}
+      className="h-full"
+    />
   );
 
   // 选设备面板内容（主任务）。窄屏传入 openFiles 渲染「查看待发文件」按钮。

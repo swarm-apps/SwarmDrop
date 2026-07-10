@@ -9,6 +9,10 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { createTauriStorage } from "@/lib/tauri-store";
 import { dynamicActivate, defaultLocale, type LocaleKey } from "@/lib/i18n";
 import { commands } from "@/lib/bindings";
+import type {
+  FileBrowserScope,
+  FileBrowserView,
+} from "@/components/file-browser";
 
 export type DiscoveryMode = "auto" | "lanOnly";
 
@@ -37,6 +41,8 @@ interface PreferencesState {
     /** 接收文件的默认保存路径 */
     savePath: string;
   };
+  /** 各业务场景独立的文件浏览视图偏好。 */
+  fileBrowserViews: Record<FileBrowserScope, FileBrowserView>;
   /** MCP Server 设置 */
   mcp: {
     /** 监听端口 */
@@ -71,6 +77,8 @@ interface PreferencesState {
   setPublicReachability: (enabled: boolean) => void;
   /** 设置传输保存路径 */
   setTransferSavePath: (path: string) => void;
+  /** 设置指定场景的文件浏览视图。 */
+  setFileBrowserView: (scope: FileBrowserScope, view: FileBrowserView) => void;
   /** 设置 MCP 端口 */
   setMcpPort: (port: number) => void;
   /** 设置 MCP 自动启动 */
@@ -108,6 +116,11 @@ export const usePreferencesStore = create<PreferencesState>()(
       publicReachability: true,
       transfer: {
         savePath: "",
+      },
+      fileBrowserViews: {
+        send: "tree",
+        inbox: "grid",
+        transfer: "tree",
       },
       mcp: {
         port: 19527,
@@ -170,6 +183,12 @@ export const usePreferencesStore = create<PreferencesState>()(
         }));
       },
 
+      setFileBrowserView(scope, view) {
+        set((state) => ({
+          fileBrowserViews: { ...state.fileBrowserViews, [scope]: view },
+        }));
+      },
+
       setMcpPort(port: number) {
         set((state) => ({
           mcp: { ...state.mcp, port },
@@ -203,6 +222,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         provideLanHelper: state.provideLanHelper,
         publicReachability: state.publicReachability,
         transfer: state.transfer,
+        fileBrowserViews: state.fileBrowserViews,
         mcp: state.mcp,
         closeBehavior: state.closeBehavior,
         hasShownTrayHint: state.hasShownTrayHint,

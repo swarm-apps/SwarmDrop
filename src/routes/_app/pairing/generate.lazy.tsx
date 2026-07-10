@@ -94,7 +94,37 @@ function PairingGeneratePage() {
     <TaskPageShell>
       <TaskToolbar title={<Trans>添加新设备</Trans>} onBack={handleBack} />
 
-      <TaskContent className="flex min-h-0 flex-col gap-5">
+      <TaskContent
+        className="flex min-h-0 flex-col gap-5"
+        footer={
+          <CommandDock>
+            <TaskButton variant="outline" onClick={handleBack}>
+              <Trans>取消</Trans>
+            </TaskButton>
+            {isExpired || errorMessage ? (
+              <TaskButton
+                onClick={() => regenerateCode()}
+                disabled={!isNodeRunning}
+              >
+                <RefreshCw className="size-4" />
+                <Trans>重新生成</Trans>
+              </TaskButton>
+            ) : (
+              <TaskButton
+                onClick={() => handleCopy()}
+                disabled={!isNodeRunning || isLoading || !codeInfo}
+              >
+                {copied ? (
+                  <Check className="size-4" />
+                ) : (
+                  <Copy className="size-4" />
+                )}
+                {copied ? <Trans>已复制</Trans> : <Trans>复制配对码</Trans>}
+              </TaskButton>
+            )}
+          </CommandDock>
+        }
+      >
         <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <GlassPanel className="min-h-[420px]">
             <div className="flex h-full flex-col items-center justify-center gap-7 p-6 text-center">
@@ -181,25 +211,6 @@ function PairingGeneratePage() {
           </TaskHeroPanel>
         </div>
 
-        <CommandDock>
-          <TaskButton variant="outline" onClick={handleBack}>
-            <Trans>取消</Trans>
-          </TaskButton>
-          {isExpired || errorMessage ? (
-            <TaskButton onClick={() => regenerateCode()} disabled={!isNodeRunning}>
-              <RefreshCw className="size-4" />
-              <Trans>重新生成</Trans>
-            </TaskButton>
-          ) : (
-            <TaskButton
-              onClick={() => handleCopy()}
-              disabled={!isNodeRunning || isLoading || !codeInfo}
-            >
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-              {copied ? <Trans>已复制</Trans> : <Trans>复制配对码</Trans>}
-            </TaskButton>
-          )}
-        </CommandDock>
       </TaskContent>
     </TaskPageShell>
   );

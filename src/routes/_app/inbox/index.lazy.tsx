@@ -38,7 +38,6 @@ import { toast } from "sonner";
 import {
   commands,
   type InboxItemDetail,
-  type InboxItemFileEntry,
   type InboxItemSummary,
   type InboxSearchHit,
 } from "@/lib/bindings";
@@ -69,6 +68,8 @@ import {
   OpenListButton,
 } from "@/components/layout/master-detail-shell";
 import { getErrorMessage } from "@/lib/errors";
+import { FileBrowser, fromInboxFiles } from "@/components/file-browser";
+import { usePreferencesStore } from "@/stores/preferences-store";
 
 export const Route = createLazyFileRoute("/_app/inbox/")({
   component: InboxPage,
@@ -842,6 +843,21 @@ function ReaderContent({
   onFileOpen: (fileId: number) => void;
   onFileReveal: (fileId: number) => void;
 }) {
+  const view = usePreferencesStore((state) => state.fileBrowserViews.inbox);
+  const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
+  const items = useMemo(
+    () => fromInboxFiles(detail.files, {
+      getPreviewUrl: (file) => {
+        try {
+          return convertFileSrc(file.localPath);
+        } catch {
+          return undefined;
+        }
+      },
+    }),
+    [detail.files],
+  );
+
   return (
     <>
       <header
@@ -927,102 +943,24 @@ function ReaderContent({
         </div>
       </header>
 
-      <div
-        data-testid="inbox-file-grid"
+      <FileBrowser
+        items={items}
+        title={<Trans>文件</Trans>}
+        view={view}
+        onViewChange={(nextView) => setFileBrowserView("inbox", nextView)}
+        actions={{
+          onOpen: (item) => onFileOpen(Number(item.sourceId)),
+          onReveal: (item) => onFileReveal(Number(item.sourceId)),
+        }}
+        testId="inbox-file-grid"
+        cardTestId="inbox-file-card"
         className={cn(
           "@container px-7 py-6",
-          contained && "min-h-0 flex-1 overflow-auto",
+          contained && "min-h-0 flex-1",
         )}
-      >
-        <h3 className="text-sm font-semibold text-foreground">
-          <Trans>文件</Trans>
-        </h3>
-        <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]">
-          {detail.files.map((file) => (
-            <FileCard
-              key={file.id}
-              file={file}
-              onOpen={() => onFileOpen(file.id)}
-              onReveal={() => onFileReveal(file.id)}
-            />
-          ))}
-        </div>
-      </div>
+        contentClassName={contained ? undefined : "min-h-[360px]"}
+      />
     </>
-  );
-}
-
-function FileCard({
-  file,
-  onOpen,
-  onReveal,
-}: {
-  file: InboxItemFileEntry;
-  onOpen: () => void;
-  onReveal: () => void;
-}) {
-  const [failed, setFailed] = useState(false);
-  const src =
-    isImageFile(file.name) && !failed ? thumbnailSrc(file.localPath) : null;
-  const Icon = getFileIcon(file.name);
-
-  return (
-    <div
-      data-testid="inbox-file-card"
-      data-file-id={file.id}
-      className="group/card relative flex flex-col overflow-hidden rounded-[14px] border border-[color:var(--glass-control-border)] bg-foreground/[0.02] transition-colors hover:bg-foreground/[0.05] dark:bg-white/[0.03] dark:hover:bg-white/[0.06]"
-    >
-      <button
-        type="button"
-        onClick={onOpen}
-        title={t`打开 ${file.name}`}
-        className="flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-muted/50 outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        {src ? (
-          <img
-            src={src}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            onError={() => setFailed(true)}
-            className="size-full object-cover"
-          />
-        ) : (
-          <Icon className={cn("size-7", getFileIconColor(file.name))} />
-        )}
-      </button>
-
-      <div className="flex items-start gap-1.5 px-2.5 py-2">
-        <div className="min-w-0 flex-1">
-          <p
-            className="truncate text-[13px] font-medium text-foreground"
-            title={file.relativePath}
-          >
-            {file.name}
-          </p>
-          <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">
-            {formatFileSize(file.size)}
-          </p>
-        </div>
-        {file.missing && (
-          <Pill tone="amber">
-            <Trans>缺失</Trans>
-          </Pill>
-        )}
-      </div>
-
-      <div className="absolute right-2 top-2 opacity-0 transition-opacity group-focus-within/card:opacity-100 group-hover/card:opacity-100 motion-reduce:transition-none">
-        <Button
-          size="icon"
-          variant="secondary"
-          className="size-7 shadow-sm"
-          title={t`在文件夹中显示`}
-          onClick={onReveal}
-        >
-          <FolderOpen className="size-3.5" />
-        </Button>
-      </div>
-    </div>
   );
 }
 
@@ -1206,26 +1144,6 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
   }
   if (cursor < text.length) parts.push(text.slice(cursor));
   return <>{parts}</>;
-}
-
-/* ─────────────────── 文件类型 / 缩略图 ─────────────────── */
-
-const IMAGE_EXT = new Set([
-  "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif", "svg", "ico",
-]);
-
-function isImageFile(name: string): boolean {
-  const i = name.lastIndexOf(".");
-  return i >= 0 && IMAGE_EXT.has(name.slice(i + 1).toLowerCase());
-}
-
-/** 收件目录经 assetProtocol scope 暴露给 webview；失败回退 null（走类型图标）。 */
-function thumbnailSrc(localPath: string): string | null {
-  try {
-    return convertFileSrc(localPath);
-  } catch {
-    return null;
-  }
 }
 
 /* ─────────────────── 数据：时间分组 + 标签 ─────────────────── */

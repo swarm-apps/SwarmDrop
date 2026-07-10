@@ -3,7 +3,7 @@
  * 活动中心（/transfer 右栏 / 抽屉）与发送流（/send、/send/share-target 就地进度）共用：
  * - SessionSummaryHeader：对端设备 + 方向摘要 + 状态徽章
  * - SessionProgressBlock：按 phase 渲染进度 / 完成摘要 / 失败信息
- * - SessionFileSection：文件明细树
+ * - SessionFileSection：可切换树形 / 网格的文件明细
  * - SessionActions：暂停 / 恢复 / 取消 / 打开文件夹（不再隐式跳转，由使用方回调决定去向）
  */
 
@@ -30,6 +30,7 @@ import { Progress } from "@/components/ui/progress";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { useShareStore } from "@/stores/share-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import {
   calcPercent,
   formatFileSize,
@@ -40,7 +41,11 @@ import { cn } from "@/lib/utils";
 import { openTransferResult } from "@/lib/file-picker";
 import { getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
-import { FileTree, buildTreeDataFromSession } from "@/components/file-tree";
+import {
+  FileBrowser,
+  fromTransferProjectionFiles,
+  type FileBrowserStatus,
+} from "@/components/file-browser";
 import type {
   TransferProjection,
   TransferProgressEvent,
@@ -356,31 +361,26 @@ export const SessionFileSection = memo(function SessionFileSection({
   progress: TransferProgressEvent | null;
   className?: string;
 }) {
-  const treeData = useMemo(
-    () => buildTreeDataFromSession({ files: projection.files }),
-    [projection.files],
+  const view = usePreferencesStore((state) => state.fileBrowserViews.transfer);
+  const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
+  const defaultStatus: FileBrowserStatus = isProjectionCompleted(projection)
+    ? "completed"
+    : isProjectionFailed(projection)
+      ? "error"
+      : "waiting";
+  const items = useMemo(
+    () => fromTransferProjectionFiles(projection.files, { progress, defaultStatus }),
+    [defaultStatus, progress, projection.files],
   );
 
   return (
-    <div className={cn("flex min-h-0 flex-col gap-3", className)}>
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-foreground">
-          <Trans>文件明细</Trans>
-        </h2>
-        <span className="text-xs text-muted-foreground">
-          {projection.files.length} <Trans>个文件</Trans>
-        </span>
-      </div>
-      <FileTree
-        mode={projection.phase === "active" ? "transfer" : "select"}
-        dataLoader={treeData.dataLoader}
-        rootChildren={treeData.rootChildren}
-        totalCount={projection.files.length}
-        totalSize={projection.totalSize}
-        progress={progress}
-        showHeader={false}
-      />
-    </div>
+    <FileBrowser
+      items={items}
+      title={<Trans>文件明细</Trans>}
+      view={view}
+      onViewChange={(nextView) => setFileBrowserView("transfer", nextView)}
+      className={className}
+    />
   );
 });
 

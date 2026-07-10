@@ -1,23 +1,20 @@
 /**
  * useFileSelection
  * 文件选择状态管理 Hook — 管理 ScannedFile 列表，
- * 返回 headless-tree 所需的 dataLoader / rootChildren / 统计数据
+ * 返回统一 FileBrowser 所需的 items / 统计数据
  *
  * 流程：pickFiles → scanSources（后端扫描）→ 展示文件树 → prepareSend
  */
 
 import { useCallback, useMemo, useState } from "react";
-import { buildTreeDataFromOffer } from "@/components/file-tree";
-import type { TreeDataLoader } from "@/components/file-tree";
+import { fromEnumeratedFiles, type FileBrowserItem } from "@/components/file-browser";
 import type { FileSource } from "@/lib/bindings";
 import type { ScannedFile } from "@/lib/types";
 import { commands } from "@/lib/bindings";
 
 export interface FileSelection {
-  /** headless-tree 数据加载器 */
-  dataLoader: TreeDataLoader;
-  /** 根级子节点 ID */
-  rootChildren: string[];
+  /** 统一文件浏览模型 */
+  items: FileBrowserItem[];
   /** 文件总数 */
   totalCount: number;
   /** 总大小 */
@@ -37,19 +34,7 @@ export interface FileSelection {
 export function useFileSelection(): FileSelection {
   const [files, setFiles] = useState<ScannedFile[]>([]);
 
-  // 派生树数据 — 使用 buildTreeDataFromOffer（已支持 relativePath 输入）
-  const treeData = useMemo(
-    () =>
-      buildTreeDataFromOffer(
-        files.map((f, i) => ({
-          fileId: i,
-          name: f.name,
-          relativePath: f.relativePath,
-          size: f.size,
-        })),
-      ),
-    [files],
-  );
+  const items = useMemo(() => fromEnumeratedFiles(files), [files]);
 
   // 统计
   const stats = useMemo(() => {
@@ -65,12 +50,7 @@ export function useFileSelection(): FileSelection {
 
     const results = await commands.scanSources(sources);
 
-    const newFiles: ScannedFile[] = [];
-    for (const result of results) {
-      for (const file of result.files) {
-        newFiles.push(file);
-      }
-    }
+    const newFiles = results.flatMap((result) => result.files);
 
     if (newFiles.length > 0) {
       setFiles((prev) => [...prev, ...newFiles]);
@@ -100,8 +80,7 @@ export function useFileSelection(): FileSelection {
   }, [files]);
 
   return {
-    dataLoader: treeData.dataLoader,
-    rootChildren: treeData.rootChildren,
+    items,
     totalCount: stats.totalCount,
     totalSize: stats.totalSize,
     hasFiles: stats.totalCount > 0,

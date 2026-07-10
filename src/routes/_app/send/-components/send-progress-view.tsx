@@ -64,15 +64,58 @@ export function SendProgressView({
         onBack={onBack}
       />
 
-      <TaskContent className="flex min-h-0 flex-col gap-5">
-        <GlassPanel>
+      <TaskContent
+        scrollTestId="send-progress-scroll-region"
+        className="flex min-h-full flex-col gap-5"
+        footer={
+          <CommandDock>
+            {/* 传输进行/暂停期间离开不打断：后台继续，可回活动中心查看 */}
+            {isProjectionActive(projection) && (
+              <p className="mr-auto hidden px-2 text-xs text-muted-foreground sm:block">
+                <Trans>离开此页不会中断传输，可在「传输活动」中继续查看。</Trans>
+              </p>
+            )}
+            <SessionActions
+              projection={projection}
+              onSessionChange={onSessionChange}
+              trailing={
+                isTerminal ? (
+                  <>
+                    {onSendMore && (
+                      <TaskButton variant="outline" onClick={onSendMore}>
+                        <PackagePlus className="size-4" />
+                        <Trans>发送更多</Trans>
+                      </TaskButton>
+                    )}
+                    <TaskButton
+                      variant={
+                        completed && !projection.savePath
+                          ? "default"
+                          : "outline"
+                      }
+                      onClick={onBack}
+                    >
+                      <Check className="size-4" />
+                      <Trans>完成</Trans>
+                    </TaskButton>
+                  </>
+                ) : null
+              }
+            />
+          </CommandDock>
+        }
+      >
+        <GlassPanel className="shrink-0">
           <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:p-6">
             <SessionSummaryHeader projection={projection} />
-            <SessionProgressBlock projection={projection} progress={progress} />
+            <SessionProgressBlock
+              projection={projection}
+              progress={progress}
+            />
           </div>
         </GlassPanel>
 
-        <GlassPanel className="min-h-0 flex-1">
+        <GlassPanel className="h-[360px] shrink-0 sm:h-[400px] lg:h-[440px]">
           <div className="flex h-full min-h-0 flex-col p-4 lg:p-5">
             <SessionFileSection
               projection={projection}
@@ -81,40 +124,6 @@ export function SendProgressView({
             />
           </div>
         </GlassPanel>
-
-        <CommandDock>
-          {/* 传输进行/暂停期间离开不打断：后台继续，可回活动中心查看 */}
-          {isProjectionActive(projection) && (
-            <p className="mr-auto hidden px-2 text-xs text-muted-foreground sm:block">
-              <Trans>离开此页不会中断传输，可在「传输活动」中继续查看。</Trans>
-            </p>
-          )}
-          <SessionActions
-            projection={projection}
-            onSessionChange={onSessionChange}
-            trailing={
-              isTerminal ? (
-                <>
-                  {onSendMore && (
-                    <TaskButton variant="outline" onClick={onSendMore}>
-                      <PackagePlus className="size-4" />
-                      <Trans>发送更多</Trans>
-                    </TaskButton>
-                  )}
-                  <TaskButton
-                    variant={
-                      completed && !projection.savePath ? "default" : "outline"
-                    }
-                    onClick={onBack}
-                  >
-                    <Check className="size-4" />
-                    <Trans>完成</Trans>
-                  </TaskButton>
-                </>
-              ) : null
-            }
-          />
-        </CommandDock>
       </TaskContent>
     </TaskPageShell>
   );

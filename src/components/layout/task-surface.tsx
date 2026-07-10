@@ -33,7 +33,7 @@ export function TaskToolbar({
   trailing?: ReactNode;
 }) {
   return (
-    <header className="flex h-13 shrink-0 items-center justify-between gap-3 border-b border-white/35 bg-white/[0.16] px-4 shadow-[0_1px_0_rgba(255,255,255,0.28)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/[0.10] lg:px-5">
+    <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-white/[0.28] bg-white/[0.08] px-4 backdrop-blur-md dark:border-white/[0.07] dark:bg-slate-950/[0.06] lg:px-5">
       <button
         type="button"
         onClick={onBack}
@@ -52,19 +52,44 @@ export function TaskToolbar({
 export function TaskContent({
   children,
   className,
+  footer,
+  footerClassName,
+  scrollTestId,
   ...props
 }: {
   children: ReactNode;
   className?: string;
+  /** 固定在任务页底部、位于内容滚动区之外的操作栏。 */
+  footer?: ReactNode;
+  footerClassName?: string;
+  scrollTestId?: string;
 } & HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div
-        {...props}
-        className={cn("mx-auto h-full w-full max-w-[1180px] p-5 lg:p-7", className)}
+        data-testid={scrollTestId}
+        className="min-h-0 flex-1 overflow-auto"
       >
-        {children}
+        <div
+          {...props}
+          className={cn(
+            "mx-auto h-full w-full max-w-[1180px] p-5 lg:p-7",
+            className,
+          )}
+        >
+          {children}
+        </div>
       </div>
+      {footer ? (
+        <div
+          className={cn(
+            "mx-auto w-full max-w-[1180px] shrink-0 px-5 pb-5 lg:px-7 lg:pb-7",
+            footerClassName,
+          )}
+        >
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -81,13 +106,11 @@ export function GlassPanel({
     <section
       {...props}
       className={cn(
-        "glass-panel rounded-[28px] p-2 shadow-[0_22px_70px_rgba(15,23,42,0.07)] dark:shadow-[0_24px_82px_rgba(0,0,0,0.24)]",
+        "glass-panel rounded-[24px] shadow-[0_18px_56px_rgba(15,23,42,0.07)] dark:shadow-[0_20px_68px_rgba(0,0,0,0.22)]",
         className,
       )}
     >
-      <div className="h-full rounded-[22px] bg-white/38 shadow-[inset_0_1px_0_rgba(255,255,255,0.48)] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-        {children}
-      </div>
+      {children}
     </section>
   );
 }
@@ -169,7 +192,7 @@ export function TaskButton({
       className={cn(
         "rounded-full px-5 transition-[background-color,color,transform,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]",
         variant === "default" &&
-          "bg-primary text-primary-foreground shadow-[0_10px_22px_rgba(219,163,65,0.18)] hover:bg-primary/90",
+          "bg-primary text-primary-foreground shadow-[0_10px_22px_rgb(8_121_104_/_0.18)] hover:bg-primary/90",
         variant === "outline" &&
           "glass-control border-transparent bg-transparent shadow-none hover:bg-white/50 dark:hover:bg-white/[0.06]",
         variant === "secondary" &&

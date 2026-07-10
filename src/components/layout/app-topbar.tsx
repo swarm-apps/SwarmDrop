@@ -20,6 +20,7 @@ import {
   ArrowRightLeft,
   Inbox,
   Moon,
+  Send,
   Sun,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -65,6 +66,9 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
   }
   if (pathname.startsWith("/transfer")) {
     return [home, { icon: ArrowRightLeft, label: <Trans>传输活动</Trans> }];
+  }
+  if (pathname.startsWith("/send")) {
+    return [home, { icon: Send, label: <Trans>发送文件</Trans> }];
   }
   // 主页 / 其他路径:单段当前主页(BreadcrumbPage)
   return [{ ...home, to: undefined }];

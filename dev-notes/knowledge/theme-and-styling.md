@@ -23,6 +23,18 @@
 
 **相关文件**：`src/index.css`（`--brand` 定义 + `@theme inline` 注册）、`DESIGN.md`（Brand Fidelity Rule）
 
+### destructive 填充必须配高对比前景色
+
+`--destructive-foreground` 用于红色危险操作按钮和 Windows 自绘关闭按钮的悬停图标；亮色与暗色主题都应使用接近白色的前景色。若误配为 `--destructive` 本身，图标和文字会在红色背景上失去对比度。
+
+**正确做法**：
+- 保持 `--destructive-foreground` 为浅色，并让 `bg-destructive text-destructive-foreground` 成对出现
+
+**不要做**：
+- 把 `--destructive-foreground` 设成与 `--destructive` 相同的红色
+
+**相关文件**：`src/index.css`、`src/components/layout/app-topbar.tsx`
+
 ### 连接类型徽章三色保持语义可辨
 
 设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=green、打洞=sky、中继=amber。品牌主色现在也是青绿色，任何新的 success/online 语义用法都要先确认与 `text-brand` / `bg-primary` 拉得开距离；赤铜只留给 logo/品牌小点缀，不参与状态编码。
@@ -40,6 +52,16 @@
 - Windows 端不走 Overlay，顶栏布局要兼容两种平台（用 `cfg!()` 等价的前端判断 + Tauri OS plugin）
 
 **相关文件**：`src-tauri/tauri.conf.json`、`src/components/layout/*`
+
+### 发送流保留全局 AppTopBar
+
+发送、快捷发送与发送进度属于已认证应用内的任务流，而不是独立窗口。它们应显示 `AppTopBar`，让用户保有品牌、节点状态、全局导航和 Windows 窗口控制；仅配对流程继续使用独立全屏 chrome。发送页内部的 `TaskToolbar` 只提供当前任务的返回和上下文。
+
+**正确做法**：
+- 在 `_app` layout 仅将 `/pairing` 判为全屏路由
+- 在 `AppTopBar` 为 `/send` 提供「主页 > 发送文件」面包屑
+
+**相关文件**：`src/routes/_app.tsx`、`src/components/layout/app-topbar.tsx`、`src/components/layout/task-surface.tsx`
 
 ## i18n / 翻译
 
@@ -148,7 +170,9 @@ const nearbyDevices = useNetworkStore(
 
 **发送流两页的语义**：`/send`（点设备卡进来，设备已定）主任务是选文件 → 设备收成顶部 mini 摘要条、文件选择占满单栏带滚动；`/send/share-target`（外部打开进来，文件已定）主任务是选设备 → 选设备占主屏、「待发文件」进左抽屉。发送流断点也用 920（同一 `useIsWideLayout`）。
 
-**shadcn Dialog 内要限高滚动**：`DialogContent` 基础是 `grid gap-4`，加 `flex max-h-[85vh] flex-col`（tailwind-merge 会让 flex 覆盖 grid），header/footer `shrink-0`，中间滚动区必须是 **flex-col 容器**（不能只给 `flex-1`），否则内部 FileTree 的 `md:flex-1` 拿不到 flex 父级、按自然高撑破；DialogContent 本身 `overflow:visible` 不裁剪，靠内部滚动收口。
+**FileBrowser 的滚动高度链必须完整**：`FileBrowser` 外层本身是 `flex min-h-0 flex-1 flex-col`，其调用方若需要它填满面板剩余空间，也必须是 `flex min-h-0 flex-1 flex-col`。漏掉 `flex-col` 时虚拟列表会按内容撑高，滚动条失效并挤压底部操作栏。发送页、快捷发送左栏/抽屉、传输详情和接收 offer 弹窗都遵循这一约束。
+
+**shadcn Dialog 内要限高滚动**：`DialogContent` 基础是 `grid gap-4`，加 `flex max-h-[85vh] flex-col`（tailwind-merge 会让 flex 覆盖 grid），header/footer `shrink-0`，中间滚动区必须是 **flex-col 容器**（不能只给 `flex-1`），否则内部 FileBrowser 的 `flex-1` 拿不到 flex 父级、按自然高撑破；DialogContent 本身 `overflow:visible` 不裁剪，靠内部滚动收口。
 
 **相关文件**：`src/components/layout/master-detail-shell.tsx`（含 `SlideDrawer`）、`src/routes/_app/inbox/index.lazy.tsx`、`src/routes/_app/transfer/index.lazy.tsx`、`src/routes/_app/send/index.lazy.tsx`、`src/routes/_app/send/share-target.lazy.tsx`、`src/components/transfer/transfer-offer-dialog.tsx`、`src/hooks/use-media-query.ts`
 

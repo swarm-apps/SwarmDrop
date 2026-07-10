@@ -20,6 +20,7 @@ import { commands } from "@/lib/bindings";
 import { useTransferStore } from "@/stores/transfer-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
@@ -28,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { FileDropZone } from "./-components/file-drop-zone";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
 import { SendProgressView } from "./-components/send-progress-view";
-import { FileTree } from "@/components/file-tree";
+import { FileBrowser } from "@/components/file-browser";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   CommandDock,
@@ -208,6 +209,8 @@ function DesktopSendView({
   onBack,
 }: SendViewProps) {
   const DeviceIcon = getDeviceIcon(device.os || device.platform || "");
+  const view = usePreferencesStore((state) => state.fileBrowserViews.send);
+  const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
 
   return (
     <TaskPageShell data-testid="send-page">
@@ -219,6 +222,34 @@ function DesktopSendView({
       <TaskContent
         data-testid="send-content"
         className="flex min-h-0 flex-col gap-4"
+        footer={
+          prepareProgress ? (
+            <CommandDock className="justify-stretch">
+              <div className="min-w-0 flex-1 px-2">
+                <PrepareProgressBar progress={prepareProgress} />
+              </div>
+            </CommandDock>
+          ) : (
+            <CommandDock>
+              <TaskButton
+                variant="outline"
+                onClick={onBack}
+                disabled={sending}
+                data-testid="send-cancel-action"
+              >
+                <Trans>取消</Trans>
+              </TaskButton>
+              <TaskButton
+                onClick={onSend}
+                disabled={!fileSelection.hasFiles || sending}
+                data-testid="send-confirm-action"
+              >
+                <Send className="size-4" />
+                {sending ? <Trans>发送中...</Trans> : <Trans>发送</Trans>}
+              </TaskButton>
+            </CommandDock>
+          )
+        }
       >
         {/* 目标设备 mini 摘要条：设备只是信息，让位给文件选择这个主任务 */}
         <div
@@ -253,63 +284,51 @@ function DesktopSendView({
           </div>
         </div>
 
-        {/* 文件选择：占满剩余高度，文件树在面板内滚动 */}
+        {/* 文件选择：空态只保留一个明确的投放区；有内容后再展开补充入口与文件浏览器。 */}
         <GlassPanel
           data-testid="send-file-selection-panel"
           className="min-h-0 flex-1"
         >
           <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-5">
-            <FileDropZone onSourcesSelected={onSourcesSelected} disabled={sending} />
-            <div className="min-h-0 flex-1 overflow-hidden">
-              {fileSelection.hasFiles ? (
-                <FileTree
-                  mode="select"
-                  dataLoader={fileSelection.dataLoader}
-                  rootChildren={fileSelection.rootChildren}
-                  totalCount={fileSelection.totalCount}
-                  totalSize={fileSelection.totalSize}
-                  onRemoveFile={fileSelection.removeFile}
+            {fileSelection.hasFiles ? (
+              <FileDropZone
+                onSourcesSelected={onSourcesSelected}
+                disabled={sending}
+                compact
+                className="shrink-0"
+              />
+            ) : (
+              <div
+                data-testid="send-empty-selection"
+                className="flex min-h-0 flex-1"
+              >
+                <FileDropZone
+                  onSourcesSelected={onSourcesSelected}
+                  disabled={sending}
+                  className="flex-1"
                 />
-              ) : (
-                <div
-                  data-testid="send-empty-selection"
-                  className="flex h-full min-h-[180px] items-center justify-center rounded-[20px] bg-foreground/[0.025] text-center dark:bg-white/[0.035]"
-                >
-                  <p className="max-w-[28ch] text-sm leading-6 text-muted-foreground">
-                    <Trans>选择内容后，文件结构和总大小会在这里确认。</Trans>
-                  </p>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
+            {fileSelection.hasFiles ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <FileBrowser
+                  items={fileSelection.items}
+                  title={<Trans>已选文件</Trans>}
+                  view={view}
+                  onViewChange={(nextView) => setFileBrowserView("send", nextView)}
+                  actions={{
+                    onRemove: (target) => fileSelection.removeFile(
+                      target.type === "directory"
+                        ? target.relativePath
+                        : target.item.relativePath,
+                    ),
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
         </GlassPanel>
 
-        {prepareProgress ? (
-          <CommandDock className="justify-stretch">
-            <div className="min-w-0 flex-1 px-2">
-              <PrepareProgressBar progress={prepareProgress} />
-            </div>
-          </CommandDock>
-        ) : (
-          <CommandDock>
-            <TaskButton
-              variant="outline"
-              onClick={onBack}
-              disabled={sending}
-              data-testid="send-cancel-action"
-            >
-              <Trans>取消</Trans>
-            </TaskButton>
-            <TaskButton
-              onClick={onSend}
-              disabled={!fileSelection.hasFiles || sending}
-              data-testid="send-confirm-action"
-            >
-              <Send className="size-4" />
-              {sending ? <Trans>发送中...</Trans> : <Trans>发送</Trans>}
-            </TaskButton>
-          </CommandDock>
-        )}
       </TaskContent>
     </TaskPageShell>
   );

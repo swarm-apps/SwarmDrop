@@ -14,8 +14,8 @@ msgstr ""
 "Plural-Forms: \n"
 
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "—"
-msgstr "—"
+#~ msgid "—"
+#~ msgstr "—"
 
 #. placeholder {0}: detail.itemCount
 #. placeholder {0}: hit.itemCount
@@ -26,6 +26,17 @@ msgstr "—"
 msgid "{0, plural, other {# 项}}"
 msgstr "{0, plural, other {# 项}}"
 
+#. placeholder {0}: node.fileCount ?? 0
+#: src/components/file-browser/folder-row.tsx
+msgid "{0} 项"
+msgstr "{0} 项"
+
+#. placeholder {0}: items.length
+#. placeholder {1}: formatFileSize(totalSize)
+#: src/components/file-browser/file-browser.tsx
+msgid "{0} 项 · {1}"
+msgstr "{0} 项 · {1}"
+
 #: src/routes/_app/send/index.lazy.tsx
 #~ msgid "{0} 项，{1}"
 #~ msgstr "{0} 项，{1}"
@@ -34,10 +45,9 @@ msgstr "{0, plural, other {# 项}}"
 #~ msgid "{0} 项内容"
 #~ msgstr "{0} 项内容"
 
-#. placeholder {0}: progress?.completedFiles ?? 0
 #: src/components/file-tree/file-tree.tsx
-msgid "{0}/{totalCount}"
-msgstr "{0}/{totalCount}"
+#~ msgid "{0}/{totalCount}"
+#~ msgstr "{0}/{totalCount}"
 
 #. placeholder {0}: code.length
 #: src/routes/_app/pairing/input.lazy.tsx
@@ -45,8 +55,8 @@ msgid "{0}/6 位"
 msgstr "{0}/6 位"
 
 #: src/components/file-tree/folder-row.tsx
-msgid "{fileCount} 项"
-msgstr "{fileCount} 项"
+#~ msgid "{fileCount} 项"
+#~ msgstr "{fileCount} 项"
 
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "{firstFileName} 等 {fileCount} 个文件"
@@ -137,7 +147,6 @@ msgid "不限制"
 msgstr "不限制"
 
 #: src/components/transfer/session-panel.tsx
-#: src/components/transfer/session-panel.tsx
 msgid "个文件"
 msgstr "个文件"
 
@@ -213,6 +222,7 @@ msgstr "会话列表"
 msgid "传输"
 msgstr "传输"
 
+#: src/components/file-browser/file-card.tsx
 #: src/lib/transfer-projection.ts
 #: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/transfer/-session-row.tsx
@@ -340,10 +350,9 @@ msgstr "公网可达性"
 msgid "公网地址"
 msgstr "公网地址"
 
-#. placeholder {0}: formatFileSize(totalSize)
 #: src/components/file-tree/file-tree.tsx
-msgid "共 {totalCount} 项 · {0}"
-msgstr "共 {totalCount} 项 · {0}"
+#~ msgid "共 {totalCount} 项 · {0}"
+#~ msgstr "共 {totalCount} 项 · {0}"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "关于"
@@ -498,6 +507,7 @@ msgstr "发送到"
 msgid "发送到 {0}"
 msgstr "发送到 {0}"
 
+#: src/components/layout/app-topbar.tsx
 #: src/routes/_app/send/-components/send-progress-view.tsx
 msgid "发送文件"
 msgstr "发送文件"
@@ -632,7 +642,7 @@ msgstr "启用后，符合策略的入站文件会直接进入收件箱"
 msgid "在收件箱查看"
 msgstr "在收件箱查看"
 
-#: src/routes/_app/inbox/index.lazy.tsx
+#: src/components/file-browser/item-actions.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "在文件夹中显示"
 msgstr "在文件夹中显示"
@@ -688,8 +698,8 @@ msgid "大小上限"
 msgstr "大小上限"
 
 #: src/components/file-tree/file-tree-item.tsx
-msgid "失败"
-msgstr "失败"
+#~ msgid "失败"
+#~ msgstr "失败"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "安全配对"
@@ -891,7 +901,7 @@ msgstr "已连节点"
 msgid "已选内容"
 msgstr "已选内容"
 
-#: src/components/file-tree/file-tree.tsx
+#: src/routes/_app/send/index.lazy.tsx
 msgid "已选文件"
 msgstr "已选文件"
 
@@ -1003,10 +1013,9 @@ msgstr "所有文件传输完成！"
 #~ msgid "打开"
 #~ msgstr "打开"
 
-#. placeholder {0}: file.name
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "打开 {0}"
-msgstr "打开 {0}"
+#~ msgid "打开 {0}"
+#~ msgstr "打开 {0}"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "打开传输记录"
@@ -1015,6 +1024,10 @@ msgstr "打开传输记录"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "打开收件箱列表"
 msgstr "打开收件箱列表"
+
+#: src/components/file-browser/item-actions.tsx
+msgid "打开文件"
+msgstr "打开文件"
 
 #: src/components/transfer/session-panel.tsx
 msgid "打开文件夹"
@@ -1104,8 +1117,9 @@ msgstr "收件箱记录还在生成，请稍后再试"
 msgid "收到文件"
 msgstr "收到文件"
 
-#: src/components/file-tree/file-tree.tsx
+#: src/components/file-browser/file-browser.tsx
 #: src/components/transfer/session-panel.tsx
+#: src/components/transfer/transfer-offer-dialog.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "文件"
@@ -1124,12 +1138,24 @@ msgid "文件传输失败，请重试"
 msgstr "文件传输失败，请重试"
 
 #: src/routes/_app/send/share-target.lazy.tsx
-msgid "文件已全部移除，返回重新分享。"
-msgstr "文件已全部移除，返回重新分享。"
+msgid "文件已全部移除"
+msgstr "文件已全部移除"
+
+#: src/routes/_app/send/share-target.lazy.tsx
+#~ msgid "文件已全部移除，返回重新分享。"
+#~ msgstr "文件已全部移除，返回重新分享。"
 
 #: src/components/transfer/session-panel.tsx
 msgid "文件明细"
 msgstr "文件明细"
+
+#: src/components/file-browser/file-browser.tsx
+msgid "文件视图"
+msgstr "文件视图"
+
+#: src/components/file-browser/file-card.tsx
+msgid "文件缺失"
+msgstr "文件缺失"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "文本"
@@ -1189,6 +1215,10 @@ msgstr "暂无传输活动"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "暂无已接收内容"
 msgstr "暂无已接收内容"
+
+#: src/components/file-browser/file-browser.tsx
+msgid "暂无文件"
+msgstr "暂无文件"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "暂无正在传输"
@@ -1330,6 +1360,14 @@ msgstr "查找中"
 #: src/stores/pairing-store.ts
 msgid "查找设备"
 msgstr "查找设备"
+
+#: src/components/file-browser/file-browser.tsx
+msgid "树形视图"
+msgstr "树形视图"
+
+#: src/components/file-browser/file-card.tsx
+msgid "根目录"
+msgstr "根目录"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "检查中..."
@@ -1511,6 +1549,10 @@ msgstr "离开此页不会中断传输，可在「传输活动」中继续查看
 msgid "离线"
 msgstr "离线"
 
+#: src/components/file-browser/item-actions.tsx
+msgid "移除"
+msgstr "移除"
+
 #: src/routes/_app/settings/-about-section.tsx
 msgid "端到端加密"
 msgstr "端到端加密"
@@ -1563,10 +1605,14 @@ msgstr "管理 P2P 网络节点的启动和连接状态"
 msgid "给设备取个名字"
 msgstr "给设备取个名字"
 
-#: src/routes/_app/inbox/index.lazy.tsx
+#: src/components/file-browser/file-row.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "缺失"
 msgstr "缺失"
+
+#: src/components/file-browser/file-browser.tsx
+msgid "网格视图"
+msgstr "网格视图"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "网络"
@@ -1823,6 +1869,10 @@ msgstr "运行时长"
 msgid "返回"
 msgstr "返回"
 
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "返回后重新选择要分享的文件。"
+msgstr "返回后重新选择要分享的文件。"
+
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "还没有已配对设备"
 msgstr "还没有已配对设备"
@@ -1872,8 +1922,8 @@ msgid "选择一条收件箱记录查看详情"
 msgstr "选择一条收件箱记录查看详情"
 
 #: src/routes/_app/send/index.lazy.tsx
-msgid "选择内容后，文件结构和总大小会在这里确认。"
-msgstr "选择内容后，文件结构和总大小会在这里确认。"
+#~ msgid "选择内容后，文件结构和总大小会在这里确认。"
+#~ msgstr "选择内容后，文件结构和总大小会在这里确认。"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 #~ msgid "选择右侧一台在线设备，端到端加密直接送达。"
@@ -1971,6 +2021,10 @@ msgstr "重新发送"
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "重新生成"
 msgstr "重新生成"
+
+#: src/components/file-browser/item-actions.tsx
+msgid "重试"
+msgstr "重试"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "错误"

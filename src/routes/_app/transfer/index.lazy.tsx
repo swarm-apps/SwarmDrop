@@ -388,23 +388,31 @@ function SessionDetail({
 
   return (
     <DetailShell openList={openList} isCompact={isCompact}>
-      <div
-        className={cn(
-          "flex flex-col gap-5 p-4 lg:p-5",
-          isCompact ? "flex-1" : "min-h-0 flex-1",
-        )}
-      >
-        <SessionSummaryHeader projection={projection} />
-        <SessionProgressBlock projection={projection} progress={progress} />
-        <SessionFileSection
-          projection={projection}
-          progress={progress}
-          className="min-h-0 flex-1"
-        />
-        <SessionActions
-          projection={projection}
-          onSessionChange={onSessionChange}
-        />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div
+          data-testid="transfer-detail-scroll-region"
+          className={cn(
+            "flex flex-col gap-5 p-4 lg:p-5",
+            isCompact ? "flex-1" : "min-h-0 flex-1 overflow-auto",
+          )}
+        >
+          <SessionSummaryHeader projection={projection} />
+          <SessionProgressBlock projection={projection} progress={progress} />
+          <SessionFileSection
+            projection={projection}
+            progress={progress}
+            className="h-[360px] shrink-0 lg:h-[400px]"
+          />
+        </div>
+        <div
+          data-testid="transfer-detail-actions"
+          className="shrink-0 border-t border-border/60 bg-muted/15 px-4 py-3 lg:px-5"
+        >
+          <SessionActions
+            projection={projection}
+            onSessionChange={onSessionChange}
+          />
+        </div>
       </div>
     </DetailShell>
   );
