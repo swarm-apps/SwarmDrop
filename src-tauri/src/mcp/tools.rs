@@ -190,7 +190,7 @@ impl McpHandler {
 
     /// 列出已配对且在线的设备
     #[tool(
-        description = "列出已配对且在线的设备，返回可以发送文件的目标设备列表",
+        description = "列出已配对且在线的设备，返回可以发送文件的目标设备列表。displayName 是面向用户的设备名（优先用户设置，未设置时回退 hostname）；peerId 仅用于后续 send_files 调用。",
         annotations(read_only_hint = true)
     )]
     pub async fn list_available_devices(&self) -> Result<CallToolResult, ErrorData> {
@@ -201,14 +201,7 @@ impl McpHandler {
         let available: Vec<McpDevice> = devices
             .into_iter()
             .filter(|d| matches!(d.status, DeviceStatus::Online))
-            .map(|d| McpDevice {
-                peer_id: d.peer_id.to_string(),
-                hostname: d.os_info.hostname,
-                os: d.os_info.os,
-                platform: d.os_info.platform,
-                connection: d.connection.map(|c| format!("{c:?}")),
-                latency_ms: d.latency,
-            })
+            .map(McpDevice::from)
             .collect();
 
         let json = serde_json::to_string_pretty(&available).unwrap_or_default();
@@ -710,7 +703,7 @@ impl McpHandler {
 
     /// 列出全部已配对设备（只读，含策略标志）
     #[tool(
-        description = "只读列出全部已配对设备（含离线），带在线态、信任级别与 MCP 策略标志（allowMcpSendToDevice / allowMcpAcceptFromDevice / autoAccept）。用于解释某设备为何发不出 / 收不了。与 list_available_devices（仅在线可发送）互补。",
+        description = "只读列出全部已配对设备（含离线），带用户设备名（displayName）、在线态、信任级别与 MCP 策略标志（allowMcpSendToDevice / allowMcpAcceptFromDevice / autoAccept）。用于解释某设备为何发不出 / 收不了。与 list_available_devices（仅在线可发送）互补。",
         annotations(read_only_hint = true)
     )]
     pub async fn list_paired_devices(&self) -> Result<CallToolResult, ErrorData> {
@@ -883,6 +876,10 @@ pub struct ExportInboxItemParams {
 #[serde(rename_all = "camelCase")]
 struct McpPairedDevice {
     peer_id: String,
+    /// 用户设置的设备名称；未设置时为 null。
+    name: Option<String>,
+    /// 面向用户显示的设备名，优先使用 name，未设置时回退 hostname。
+    display_name: String,
     hostname: String,
     os: String,
     platform: String,
@@ -896,8 +893,11 @@ struct McpPairedDevice {
 impl From<crate::device::Device> for McpPairedDevice {
     fn from(d: crate::device::Device) -> Self {
         let policy = d.receive_policy;
+        let display_name = mcp_display_name(d.os_info.name.as_deref(), &d.os_info.hostname);
         Self {
             peer_id: d.peer_id.to_string(),
+            name: d.os_info.name,
+            display_name,
             hostname: d.os_info.hostname,
             os: d.os_info.os,
             platform: d.os_info.platform,
@@ -926,16 +926,61 @@ struct SendFilesResponse {
     message: String,
 }
 
-/// 简化的设备信息（MCP 输出）
+/// 面向 MCP 的设备显示名：用户命名优先，系统 hostname 仅作回退。
+fn mcp_display_name(name: Option<&str>, hostname: &str) -> String {
+    name.filter(|name| !name.trim().is_empty())
+        .unwrap_or(hostname)
+        .to_owned()
+}
+
+/// 简化的可用设备信息（MCP 输出）
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct McpDevice {
     peer_id: String,
+    /// 用户设置的设备名称；未设置时为 null。
+    name: Option<String>,
+    /// 面向用户显示的设备名，优先使用 name，未设置时回退 hostname。
+    display_name: String,
     hostname: String,
     os: String,
     platform: String,
     connection: Option<String>,
     latency_ms: Option<u64>,
+}
+
+impl From<crate::device::Device> for McpDevice {
+    fn from(d: crate::device::Device) -> Self {
+        let display_name = mcp_display_name(d.os_info.name.as_deref(), &d.os_info.hostname);
+        Self {
+            peer_id: d.peer_id.to_string(),
+            name: d.os_info.name,
+            display_name,
+            hostname: d.os_info.hostname,
+            os: d.os_info.os,
+            platform: d.os_info.platform,
+            connection: d.connection.map(|connection| format!("{connection:?}")),
+            latency_ms: d.latency,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mcp_display_name;
+
+    #[test]
+    fn mcp_display_name_prefers_user_supplied_name() {
+        assert_eq!(
+            mcp_display_name(Some("我的 MacBook"), "DESKTOP-1234"),
+            "我的 MacBook"
+        );
+    }
+
+    #[test]
+    fn mcp_display_name_falls_back_when_name_is_blank() {
+        assert_eq!(mcp_display_name(Some("  "), "DESKTOP-1234"), "DESKTOP-1234");
+    }
 }
 
 /// search_inbox 的输入参数

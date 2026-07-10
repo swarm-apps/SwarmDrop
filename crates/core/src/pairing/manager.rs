@@ -266,6 +266,21 @@ impl PairingManager {
         self.paired_devices.insert(info.peer_id, info);
     }
 
+    /// 用 Identify 中收到的最新设备信息刷新已配对设备。
+    ///
+    /// 返回 `Some` 表示信息已变化，调用方应将其持久化到 host 的 keychain。
+    pub fn refresh_paired_device_os_info(
+        &self,
+        peer_id: &PeerId,
+        os_info: OsInfo,
+    ) -> Option<PairedDeviceInfo> {
+        let mut device = self.paired_devices.get_mut(peer_id)?;
+        if !device.refresh_os_info(os_info) {
+            return None;
+        }
+        Some(device.clone())
+    }
+
     pub fn remove_paired_device(&self, peer_id: &PeerId) -> Option<PairedDeviceInfo> {
         self.paired_devices.remove(peer_id).map(|(_, v)| v)
     }
