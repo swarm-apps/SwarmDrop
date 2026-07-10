@@ -264,6 +264,10 @@ msgstr "Use a desktop on the same subnet with assistance enabled"
 msgid "例如：MacBook Pro"
 msgstr "e.g. MacBook Pro"
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "保存"
+msgstr ""
+
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "保存中..."
 msgstr "Saving..."
@@ -330,6 +334,7 @@ msgid "先查找，再确认"
 msgstr "Find first, then confirm"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
+#: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "全部"
 msgstr "All"
@@ -415,6 +420,10 @@ msgstr "Preparing…"
 msgid "出错了，请重试"
 msgstr "Something went wrong, please try again"
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "分组内设备将保留为已配对状态，并显示在未分组列表中。"
+msgstr ""
+
 #: src/components/layout/app-topbar.tsx
 msgid "切换到浅色主题"
 msgstr "Switch to light theme"
@@ -427,6 +436,11 @@ msgstr "Switch to dark theme"
 msgid "切换过滤条件，或直接使用下方配对码连接。"
 msgstr "Switch the filter, or use the pairing code below to connect."
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "创建"
+msgstr ""
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "删除"
 msgstr "Delete"
@@ -434,6 +448,14 @@ msgstr "Delete"
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "删除「{displayFileName}」的传输记录？"
 msgstr "Delete the transfer record for \"{displayFileName}\"?"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "删除分组"
+msgstr ""
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "删除分组不会取消其中设备的配对。"
+msgstr ""
 
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
@@ -513,10 +535,13 @@ msgstr "Sent to {0}"
 msgid "发送文件"
 msgstr "Send Files"
 
-#. placeholder {0}: deviceDisplayName(device)
 #: src/routes/_app/send/index.lazy.tsx
-msgid "发送文件到 {0}"
-msgstr "Send files to {0}"
+#~ msgid "发送文件到 {0}"
+#~ msgstr "Send files to {0}"
+
+#: src/routes/_app/send/index.lazy.tsx
+msgid "发送文件到 {displayName}"
+msgstr ""
 
 #: src/routes/_app/send/-components/send-progress-view.tsx
 msgid "发送更多"
@@ -535,6 +560,8 @@ msgstr "Send Pairing Request"
 #: src/components/ui/confirm-dialog.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/pairing/-device-found-view.tsx
@@ -577,6 +604,10 @@ msgstr "Only establish connections you've confirmed"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "只读"
 msgstr "Read-only"
+
+#: src/routes/_app/devices/index.lazy.tsx
+msgid "可在设备菜单中为已配对设备设置分组。"
+msgstr ""
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "可恢复"
@@ -1002,6 +1033,10 @@ msgstr "Resume transfer"
 msgid "成功接收的文件会出现在这里；暂停或失败的传输会留在活动与恢复。"
 msgstr "Successfully received files appear here; paused or failed transfers stay in Activity & Resume."
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "所属分组"
+msgstr ""
+
 #: src/components/transfer/session-panel.tsx
 msgid "所有文件传输完成！"
 msgstr "All files transferred successfully!"
@@ -1254,6 +1289,10 @@ msgstr "Validity"
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "服务状态"
 msgstr "Service Status"
+
+#: src/routes/_app/devices/index.lazy.tsx
+msgid "未分组"
+msgstr ""
 
 #: src/components/layout/app-topbar.tsx
 #: src/components/network/start-node-sheet.tsx
@@ -1602,6 +1641,14 @@ msgstr "Rejected by policy"
 msgid "管理 P2P 网络节点的启动和连接状态"
 msgstr "Manage P2P network node startup and connection status"
 
+#: src/routes/_app/devices/index.lazy.tsx
+msgid "管理分组"
+msgstr ""
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "管理设备分组"
+msgstr ""
+
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "给设备取个名字"
 msgstr "Name your device"
@@ -1746,6 +1793,15 @@ msgstr "The data channel between your devices — for humans and AI agents alike
 msgid "设备信息"
 msgstr "Device Info"
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "设备别名"
+msgstr ""
+
+#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "设备别名与分组"
+msgstr ""
+
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "设备名称"
 msgstr "Device name"
@@ -1797,6 +1853,10 @@ msgstr "Settings"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "试试更短的关键词，或检查是否包含已归档内容。"
 msgstr "Try shorter keywords, or check whether archived items are included."
+
+#: src/routes/_app/devices/index.lazy.tsx
+msgid "该分组中还没有设备"
+msgstr ""
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "该节点已存在"
@@ -1874,9 +1934,17 @@ msgstr "Back"
 msgid "返回后重新选择要分享的文件。"
 msgstr "Go back and select files to share again."
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "还没有分组，可在下方创建。"
+msgstr ""
+
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "还没有已配对设备"
 msgstr "No paired devices yet"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "这些信息仅保存在本机，不会同步给对端。"
+msgstr ""
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "进入 SwarmDrop"

@@ -9,6 +9,7 @@ import {
   RadioTower,
   Send,
   Settings2,
+  Tags,
   Unlink,
   Wifi,
   Zap,
@@ -79,9 +80,14 @@ const connectionConfig: Record<
 
 interface DeviceCardProps {
   device: Device;
+  displayName?: string;
+  groupNames?: string[];
+  identityHint?: string;
+  showIdentityHint?: boolean;
   onSend?: (device: Device) => void;
   onConnect?: (device: Device) => void;
   onUnpair?: (device: Device) => void;
+  onOrganize?: (device: Device) => void;
   onUpdatePolicy?: (
     device: Device,
     trustLevel: DeviceTrustLevel,
@@ -91,9 +97,14 @@ interface DeviceCardProps {
 
 export function DeviceCard({
   device,
+  displayName = deviceDisplayName(device),
+  groupNames = [],
+  identityHint,
+  showIdentityHint = false,
   onSend,
   onConnect,
   onUnpair,
+  onOrganize,
   onUpdatePolicy,
 }: DeviceCardProps) {
   const { t } = useLingui();
@@ -161,7 +172,7 @@ export function DeviceCard({
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate text-sm font-medium text-foreground">
-              {deviceDisplayName(device)}
+              {displayName}
             </span>
             <div className="flex items-center gap-1">
               {device.isPaired ? (
@@ -187,10 +198,21 @@ export function DeviceCard({
                 </span>
               )}
             </div>
+            {(showIdentityHint || groupNames.length > 0) && (
+              <p className="truncate text-[10px] text-muted-foreground">
+                {[
+                  ...groupNames,
+                  showIdentityHint ? identityHint : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
           </div>
           {/* More Menu (paired only) */}
           {device.isPaired && onUnpair && (
             <DeviceActionMenu
+              onOrganizeClick={onOrganize ? () => onOrganize(device) : undefined}
               onPolicyClick={
                 onUpdatePolicy ? () => setPolicyOpen(true) : undefined
               }
@@ -267,7 +289,7 @@ export function DeviceCard({
       <UnpairAlertDialog
         open={unpairOpen}
         onOpenChange={setUnpairOpen}
-        deviceName={deviceDisplayName(device)}
+        deviceName={displayName}
         onConfirm={() => onUnpair?.(device)}
       />
       {onUpdatePolicy && (
@@ -283,10 +305,12 @@ export function DeviceCard({
 }
 
 function DeviceActionMenu({
+  onOrganizeClick,
   onPolicyClick,
   onUnpairClick,
   label,
 }: {
+  onOrganizeClick?: () => void;
   onPolicyClick?: () => void;
   onUnpairClick: () => void;
   label: string;
@@ -313,6 +337,19 @@ function DeviceActionMenu({
         className="glass-card min-w-[112px] rounded-[14px] p-1"
         onClick={(event) => event.stopPropagation()}
       >
+        {onOrganizeClick && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.stopPropagation();
+              onOrganizeClick();
+            }}
+            data-testid="device-organize-menu-action"
+            className="h-8 rounded-[10px] px-2.5 text-xs font-medium"
+          >
+            <Tags className="size-3.5" />
+            <Trans>设备别名与分组</Trans>
+          </DropdownMenuItem>
+        )}
         {onPolicyClick && (
           <>
             <DropdownMenuItem

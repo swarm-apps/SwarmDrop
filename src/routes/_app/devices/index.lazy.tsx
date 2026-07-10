@@ -4,7 +4,7 @@
  * 移动端已迁移到 SwarmDrop-RN,此处仅桌面端
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { DeviceCard } from "./-components/device-card";
 import { AddDeviceSection } from "./-components/add-device-section";
@@ -34,7 +34,20 @@ import { OfflineEmptyState } from "./-components/offline-empty-state";
 import { StartNodeSheet } from "@/components/network/start-node-sheet";
 import { StopNodeSheet } from "@/components/network/stop-node-sheet";
 import { deviceDisplayName } from "@/lib/device-name";
-import { MonitorSmartphone, Send } from "lucide-react";
+import {
+  deviceGroupNames,
+  deviceIdentityHint,
+  hasDuplicateOrganizedName,
+  organizedDeviceName,
+  type DeviceOrganization,
+} from "@/lib/device-organization";
+import { usePreferencesStore } from "@/stores/preferences-store";
+import {
+  DeviceGroupsDialog,
+  DeviceOrganizationDialog,
+} from "./-components/device-organization-dialogs";
+import { Button } from "@/components/ui/button";
+import { MonitorSmartphone, Send, Tags } from "lucide-react";
 
 export const Route = createLazyFileRoute("/_app/devices/")({
   component: DevicesPage,
@@ -50,6 +63,14 @@ function DevicesPage() {
   const storedPairedDevices = useSecretStore((state) => state.pairedDevices);
   const removePairedDevice = useSecretStore((state) => state.removePairedDevice);
   const upsertPairedDevice = useSecretStore((state) => state.upsertPairedDevice);
+  const deviceOrganization = usePreferencesStore((state) => state.deviceOrganization);
+  const setDeviceAlias = usePreferencesStore((state) => state.setDeviceAlias);
+  const createDeviceGroup = usePreferencesStore((state) => state.createDeviceGroup);
+  const renameDeviceGroup = usePreferencesStore((state) => state.renameDeviceGroup);
+  const deleteDeviceGroup = usePreferencesStore((state) => state.deleteDeviceGroup);
+  const reorderDeviceGroups = usePreferencesStore((state) => state.reorderDeviceGroups);
+  const setDeviceGroups = usePreferencesStore((state) => state.setDeviceGroups);
+  const clearDeviceOrganization = usePreferencesStore((state) => state.clearDeviceOrganization);
   const directPairing = usePairingStore((state) => state.directPairing);
   const projections = useTransferStore((s) => s.projections);
 
@@ -59,6 +80,9 @@ function DevicesPage() {
   // 节点控制弹窗状态
   const [startSheetOpen, setStartSheetOpen] = useState(false);
   const [stopSheetOpen, setStopSheetOpen] = useState(false);
+  const [organizingDevice, setOrganizingDevice] = useState<Device | null>(null);
+  const [groupsOpen, setGroupsOpen] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState("all");
 
   // 已配对设备:后端在线数据优先,离线回退到 secret-store。
   // stored(来自 storedPairedDevices)存在即等价于"已配对",无需再单独维护 pairedPeerIds 集。
@@ -109,11 +133,34 @@ function DevicesPage() {
       })
       .sort((a, b) => {
         if (a.status === b.status) {
-          return deviceDisplayName(a).localeCompare(deviceDisplayName(b));
+          return organizedDeviceName(a, deviceOrganization).localeCompare(
+            organizedDeviceName(b, deviceOrganization),
+          );
         }
         return a.status === "online" ? -1 : 1;
       });
-  }, [storedPairedDevices, normalizedDevices]);
+  }, [deviceOrganization, storedPairedDevices, normalizedDevices]);
+
+  const visiblePairedDevices = useMemo(() => {
+    if (selectedGroupId === "all") return pairedDevices;
+    if (selectedGroupId === "ungrouped") {
+      return pairedDevices.filter(
+        (device) => deviceGroupNames(device.peerId, deviceOrganization).length === 0,
+      );
+    }
+    const peerIds = new Set(deviceOrganization.groupDeviceIds[selectedGroupId] ?? []);
+    return pairedDevices.filter((device) => peerIds.has(device.peerId));
+  }, [deviceOrganization, pairedDevices, selectedGroupId]);
+
+  useEffect(() => {
+    if (
+      selectedGroupId !== "all"
+      && selectedGroupId !== "ungrouped"
+      && !deviceOrganization.groups.some((group) => group.id === selectedGroupId)
+    ) {
+      setSelectedGroupId("all");
+    }
+  }, [deviceOrganization.groups, selectedGroupId]);
 
   const nearbyDevices = useMemo(
     () =>
@@ -143,6 +190,7 @@ function DevicesPage() {
     // 同时更新后端运行时状态(节点未运行时静默成功)
     commands.removePairedDevice(device.peerId);
     removePairedDevice(device.peerId);
+    clearDeviceOrganization(device.peerId);
   };
 
   const handleUpdatePolicy = useCallback(
@@ -168,18 +216,49 @@ function DevicesPage() {
       <DesktopDevicesView
         isOnline={isOnline}
         nearbyDevices={nearbyDevices}
-        pairedDevices={pairedDevices}
+        pairedDevices={visiblePairedDevices}
+        pairedDeviceCount={pairedDevices.length}
+        deviceOrganization={deviceOrganization}
+        selectedGroupId={selectedGroupId}
         activeItems={activeItems}
         onSend={handleSend}
         onConnect={handleConnect}
         onUnpair={handleUnpair}
         onUpdatePolicy={handleUpdatePolicy}
+        onOrganizeDevice={setOrganizingDevice}
+        onSelectedGroupChange={setSelectedGroupId}
+        onManageGroups={() => setGroupsOpen(true)}
         onStartClick={() => setStartSheetOpen(true)}
       />
 
       {/* 节点控制弹窗 */}
       <StartNodeSheet open={startSheetOpen} onOpenChange={setStartSheetOpen} />
       <StopNodeSheet open={stopSheetOpen} onOpenChange={setStopSheetOpen} />
+      <DeviceOrganizationDialog
+        open={organizingDevice !== null}
+        onOpenChange={(open) => !open && setOrganizingDevice(null)}
+        device={organizingDevice}
+        organization={deviceOrganization}
+        actions={{
+          setAlias: setDeviceAlias,
+          setGroups: setDeviceGroups,
+          createGroup: createDeviceGroup,
+          renameGroup: renameDeviceGroup,
+          deleteGroup: deleteDeviceGroup,
+          reorderGroups: reorderDeviceGroups,
+        }}
+      />
+      <DeviceGroupsDialog
+        open={groupsOpen}
+        onOpenChange={setGroupsOpen}
+        organization={deviceOrganization}
+        actions={{
+          createGroup: createDeviceGroup,
+          renameGroup: renameDeviceGroup,
+          deleteGroup: deleteDeviceGroup,
+          reorderGroups: reorderDeviceGroups,
+        }}
+      />
     </>
   );
 }
@@ -188,6 +267,9 @@ interface DesktopDevicesViewProps {
   isOnline: boolean;
   nearbyDevices: Device[];
   pairedDevices: Device[];
+  pairedDeviceCount: number;
+  deviceOrganization: DeviceOrganization;
+  selectedGroupId: string;
   activeItems: TransferProjection[];
   onSend: (device: Device) => void;
   onConnect: (device: Device) => void;
@@ -197,6 +279,9 @@ interface DesktopDevicesViewProps {
     trustLevel: DeviceTrustLevel,
     receivePolicy: DeviceReceivePolicy,
   ) => Promise<void>;
+  onOrganizeDevice: (device: Device) => void;
+  onSelectedGroupChange: (groupId: string) => void;
+  onManageGroups: () => void;
   onStartClick: () => void;
 }
 
@@ -204,11 +289,17 @@ function DesktopDevicesView({
   isOnline,
   nearbyDevices,
   pairedDevices,
+  pairedDeviceCount,
+  deviceOrganization,
+  selectedGroupId,
   activeItems,
   onSend,
   onConnect,
   onUnpair,
   onUpdatePolicy,
+  onOrganizeDevice,
+  onSelectedGroupChange,
+  onManageGroups,
   onStartClick,
 }: DesktopDevicesViewProps) {
   // 桌面端主屏:设备发现 / 快速配对 / 已配对设备 / 活跃传输 —— 顶栏由全局 AppTopBar 承载
@@ -222,7 +313,7 @@ function DesktopDevicesView({
           <div className="mx-auto grid w-full max-w-[1220px] gap-5 px-5 py-5 min-[920px]:grid-cols-[minmax(0,1fr)_360px] lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8 lg:py-7">
             <HomeOverview
               nearbyCount={nearbyDevices.length}
-              pairedCount={pairedDevices.length}
+              pairedCount={pairedDeviceCount}
               activeCount={activeItems.length}
             />
 
@@ -233,6 +324,12 @@ function DesktopDevicesView({
                 onConnect={onConnect}
                 onUnpair={onUnpair}
                 onUpdatePolicy={onUpdatePolicy}
+                organization={deviceOrganization}
+                selectedGroupId={selectedGroupId}
+                totalDeviceCount={pairedDeviceCount}
+                onOrganize={onOrganizeDevice}
+                onSelectedGroupChange={onSelectedGroupChange}
+                onManageGroups={onManageGroups}
               />
               <ActiveTransfersSection items={activeItems} />
             </div>
@@ -330,6 +427,12 @@ function PairedDevicesSection({
   onConnect,
   onUnpair,
   onUpdatePolicy,
+  organization,
+  selectedGroupId,
+  totalDeviceCount,
+  onOrganize,
+  onSelectedGroupChange,
+  onManageGroups,
 }: {
   devices: Device[];
   onSend: (device: Device) => void;
@@ -340,19 +443,70 @@ function PairedDevicesSection({
     trustLevel: DeviceTrustLevel,
     receivePolicy: DeviceReceivePolicy,
   ) => Promise<void>;
+  organization: DeviceOrganization;
+  selectedGroupId: string;
+  totalDeviceCount: number;
+  onOrganize: (device: Device) => void;
+  onSelectedGroupChange: (groupId: string) => void;
+  onManageGroups: () => void;
 }) {
   return (
     <SectionShell data-testid="paired-devices-section">
       <SectionHeader
         title={<Trans>已配对设备</Trans>}
-        count={devices.length}
+        count={totalDeviceCount}
         description={<Trans>在线设备优先显示，可直接进入发送流程。</Trans>}
       />
+      {totalDeviceCount > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <GroupFilterButton
+            selected={selectedGroupId === "all"}
+            onClick={() => onSelectedGroupChange("all")}
+          >
+            <Trans>全部</Trans>
+          </GroupFilterButton>
+          <GroupFilterButton
+            selected={selectedGroupId === "ungrouped"}
+            onClick={() => onSelectedGroupChange("ungrouped")}
+          >
+            <Trans>未分组</Trans>
+          </GroupFilterButton>
+          {organization.groups
+            .slice()
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .map((group) => (
+              <GroupFilterButton
+                key={group.id}
+                selected={selectedGroupId === group.id}
+                onClick={() => onSelectedGroupChange(group.id)}
+              >
+                {group.name}
+              </GroupFilterButton>
+            ))}
+          <Button
+            className="ml-auto"
+            size="sm"
+            variant="ghost"
+            onClick={onManageGroups}
+          >
+            <Tags className="size-3.5" />
+            <Trans>管理分组</Trans>
+          </Button>
+        </div>
+      )}
       {devices.length === 0 ? (
         <EmptyPanel
           data-testid="paired-devices-empty"
-          title={<Trans>还没有已配对设备</Trans>}
-          description={<Trans>从附近设备发起配对，或使用配对码连接另一台设备。</Trans>}
+          title={
+            totalDeviceCount === 0
+              ? <Trans>还没有已配对设备</Trans>
+              : <Trans>该分组中还没有设备</Trans>
+          }
+          description={
+            totalDeviceCount === 0
+              ? <Trans>从附近设备发起配对，或使用配对码连接另一台设备。</Trans>
+              : <Trans>可在设备菜单中为已配对设备设置分组。</Trans>
+          }
         />
       ) : (
         <div
@@ -367,11 +521,41 @@ function PairedDevicesSection({
               onConnect={onConnect}
               onUnpair={onUnpair}
               onUpdatePolicy={onUpdatePolicy}
+              displayName={organizedDeviceName(device, organization)}
+              groupNames={deviceGroupNames(device.peerId, organization)}
+              identityHint={deviceIdentityHint(device)}
+              showIdentityHint={hasDuplicateOrganizedName(
+                device,
+                devices,
+                organization,
+              )}
+              onOrganize={onOrganize}
             />
           ))}
         </div>
       )}
     </SectionShell>
+  );
+}
+
+function GroupFilterButton({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button
+      size="sm"
+      variant={selected ? "secondary" : "ghost"}
+      className="h-7 rounded-full px-3 text-xs"
+      onClick={onClick}
+    >
+      {children}
+    </Button>
   );
 }
 

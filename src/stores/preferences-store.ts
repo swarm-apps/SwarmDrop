@@ -9,6 +9,10 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { createTauriStorage } from "@/lib/tauri-store";
 import { dynamicActivate, defaultLocale, type LocaleKey } from "@/lib/i18n";
 import { commands } from "@/lib/bindings";
+import {
+  emptyDeviceOrganization,
+  type DeviceOrganization,
+} from "@/lib/device-organization";
 import type {
   FileBrowserScope,
   FileBrowserView,
@@ -19,11 +23,55 @@ export type DiscoveryMode = "auto" | "lanOnly";
 /** 点窗口 ✕ 时的行为：每次询问 / 最小化到托盘 / 退出应用。 */
 export type CloseBehavior = "ask" | "tray" | "quit";
 
+export function normalizeDeviceOrganization(value: unknown): DeviceOrganization {
+  if (!value || typeof value !== "object") {
+    return { aliases: {}, groups: [], groupDeviceIds: {} };
+  }
+
+  const source = value as Record<string, unknown>;
+  const groups = Array.isArray(source.groups)
+    ? source.groups.flatMap((group, sortOrder) => {
+      if (!group || typeof group !== "object") return [];
+      const candidate = group as Record<string, unknown>;
+      if (typeof candidate.id !== "string" || typeof candidate.name !== "string") {
+        return [];
+      }
+      return [{
+        id: candidate.id,
+        name: candidate.name,
+        sortOrder: typeof candidate.sortOrder === "number"
+          ? candidate.sortOrder
+          : sortOrder,
+      }];
+    })
+    : [];
+  const groupIds = new Set(groups.map((group) => group.id));
+  const aliases = Object.fromEntries(
+    Object.entries(source.aliases ?? {}).filter(
+      ([, alias]) => typeof alias === "string" && alias.trim(),
+    ),
+  ) as Record<string, string>;
+  const groupDeviceIds = Object.fromEntries(
+    Object.entries(source.groupDeviceIds ?? {})
+      .filter(([groupId]) => groupIds.has(groupId))
+      .map(([groupId, peerIds]) => [
+        groupId,
+        Array.isArray(peerIds)
+          ? peerIds.filter((peerId): peerId is string => typeof peerId === "string")
+          : [],
+      ]),
+  ) as Record<string, string[]>;
+
+  return { aliases, groups, groupDeviceIds };
+}
+
 interface PreferencesState {
   /** 语言 */
   locale: LocaleKey;
   /** 自定义设备名称（为空时使用系统主机名） */
   deviceName: string;
+  /** 本机对已配对设备的别名与分组，不同步到对端。 */
+  deviceOrganization: DeviceOrganization;
   /** 解锁后自动启动 P2P 节点 */
   autoStart: boolean;
   /** 自定义引导节点地址列表（Multiaddr 格式） */
@@ -61,6 +109,13 @@ interface PreferencesState {
   setLocale: (locale: LocaleKey) => Promise<void>;
   /** 设置设备名称 */
   setDeviceName: (name: string) => void;
+  setDeviceAlias: (peerId: string, name: string) => void;
+  createDeviceGroup: (name: string) => string | null;
+  renameDeviceGroup: (groupId: string, name: string) => void;
+  deleteDeviceGroup: (groupId: string) => void;
+  reorderDeviceGroups: (groupIds: string[]) => void;
+  setDeviceGroups: (peerId: string, groupIds: string[]) => void;
+  clearDeviceOrganization: (peerId: string) => void;
   /** 设置自动启动 */
   setAutoStart: (autoStart: boolean) => void;
   /** 添加自定义引导节点 */
@@ -108,6 +163,7 @@ export const usePreferencesStore = create<PreferencesState>()(
     (set) => ({
       locale: defaultLocale,
       deviceName: "",
+      deviceOrganization: emptyDeviceOrganization,
       autoStart: false,
       customBootstrapNodes: [],
       discoveryMode: "auto",
@@ -143,6 +199,113 @@ export const usePreferencesStore = create<PreferencesState>()(
 
       setDeviceName(name: string) {
         set({ deviceName: name });
+      },
+
+      setDeviceAlias(peerId, name) {
+        const alias = name.trim();
+        set((state) => {
+          const aliases = { ...state.deviceOrganization.aliases };
+          if (alias) aliases[peerId] = alias;
+          else delete aliases[peerId];
+          return { deviceOrganization: { ...state.deviceOrganization, aliases } };
+        });
+      },
+
+      createDeviceGroup(name) {
+        const groupName = name.trim();
+        if (!groupName) return null;
+        const id = crypto.randomUUID();
+        set((state) => ({
+          deviceOrganization: {
+            ...state.deviceOrganization,
+            groups: [
+              ...state.deviceOrganization.groups,
+              { id, name: groupName, sortOrder: state.deviceOrganization.groups.length },
+            ],
+          },
+        }));
+        return id;
+      },
+
+      renameDeviceGroup(groupId, name) {
+        const groupName = name.trim();
+        if (!groupName) return;
+        set((state) => ({
+          deviceOrganization: {
+            ...state.deviceOrganization,
+            groups: state.deviceOrganization.groups.map((group) =>
+              group.id === groupId ? { ...group, name: groupName } : group,
+            ),
+          },
+        }));
+      },
+
+      deleteDeviceGroup(groupId) {
+        set((state) => {
+          const groupDeviceIds = { ...state.deviceOrganization.groupDeviceIds };
+          delete groupDeviceIds[groupId];
+          return {
+            deviceOrganization: {
+              ...state.deviceOrganization,
+              groups: state.deviceOrganization.groups
+                .filter((group) => group.id !== groupId)
+                .map((group, sortOrder) => ({ ...group, sortOrder })),
+              groupDeviceIds,
+            },
+          };
+        });
+      },
+
+      reorderDeviceGroups(groupIds) {
+        set((state) => {
+          const order = new Map(groupIds.map((id, index) => [id, index]));
+          return {
+            deviceOrganization: {
+              ...state.deviceOrganization,
+              groups: state.deviceOrganization.groups.map((group) => ({
+                ...group,
+                sortOrder: order.get(group.id) ?? group.sortOrder,
+              })),
+            },
+          };
+        });
+      },
+
+      setDeviceGroups(peerId, groupIds) {
+        set((state) => {
+          const validIds = new Set(state.deviceOrganization.groups.map((group) => group.id));
+          const selectedIds = new Set(groupIds.filter((id) => validIds.has(id)));
+          const groupDeviceIds = Object.fromEntries(
+            state.deviceOrganization.groups.map(({ id: groupId }) => {
+              const deviceIds = state.deviceOrganization.groupDeviceIds[groupId] ?? [];
+              const withoutPeer = deviceIds.filter((id) => id !== peerId);
+              return [
+                groupId,
+                selectedIds.has(groupId) ? [...withoutPeer, peerId] : withoutPeer,
+              ];
+            }),
+          );
+          return { deviceOrganization: { ...state.deviceOrganization, groupDeviceIds } };
+        });
+      },
+
+      clearDeviceOrganization(peerId) {
+        set((state) => {
+          const aliases = { ...state.deviceOrganization.aliases };
+          delete aliases[peerId];
+          return {
+            deviceOrganization: {
+              ...state.deviceOrganization,
+              aliases,
+              groupDeviceIds: Object.fromEntries(
+                Object.entries(state.deviceOrganization.groupDeviceIds).map(([groupId, deviceIds]) => [
+                  groupId,
+                  deviceIds.filter((id) => id !== peerId),
+                ]),
+              ),
+            },
+          };
+        });
       },
 
       setAutoStart(autoStart: boolean) {
@@ -211,10 +374,31 @@ export const usePreferencesStore = create<PreferencesState>()(
     }),
     {
       name: "preferences-store",
+      version: 1,
       storage: createJSONStorage(() => createTauriStorage("preferences.json")),
+      migrate: (persistedState) => {
+        const persisted = persistedState as Partial<PreferencesState>;
+        return {
+          ...persisted,
+          deviceOrganization: normalizeDeviceOrganization(
+            persisted.deviceOrganization,
+          ),
+        };
+      },
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<PreferencesState>;
+        return {
+          ...currentState,
+          ...persisted,
+          deviceOrganization: normalizeDeviceOrganization(
+            persisted.deviceOrganization,
+          ),
+        };
+      },
       partialize: (state) => ({
         locale: state.locale,
         deviceName: state.deviceName,
+        deviceOrganization: state.deviceOrganization,
         autoStart: state.autoStart,
         customBootstrapNodes: state.customBootstrapNodes,
         discoveryMode: state.discoveryMode,

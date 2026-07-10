@@ -8,6 +8,7 @@
 //! - 设备（只读）：list_paired_devices
 //! - 收件箱：search_inbox、list_inbox、get_inbox_item、get_inbox_file、archive_inbox_item、export_inbox_item
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -119,6 +120,39 @@ fn read_persisted_save_path(app: &tauri::AppHandle) -> Option<String> {
     (!path.is_empty()).then(|| path.to_string())
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedDeviceOrganization {
+    #[serde(default)]
+    aliases: HashMap<String, String>,
+    #[serde(default)]
+    groups: Vec<PersistedDeviceGroup>,
+    #[serde(default)]
+    group_device_ids: HashMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedDeviceGroup {
+    id: String,
+    name: String,
+    sort_order: usize,
+}
+
+/// 读取仅属于本机的设备别名与分组。旧偏好或读取失败时按空组织数据处理。
+fn read_persisted_device_organization(app: &tauri::AppHandle) -> PersistedDeviceOrganization {
+    use tauri_plugin_store::StoreExt;
+
+    app.store("preferences.json")
+        .ok()
+        .and_then(|store| store.get("preferences-store"))
+        .and_then(|raw| raw.as_str().map(str::to_owned))
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|value| value.get("state")?.get("deviceOrganization").cloned())
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default()
+}
+
 /// `ensure_node_running` 的启动互斥。
 ///
 /// MCP 是无人值守的并发调用方：两个 `ensure_node_running` 若同时看到「未运行」会双双调
@@ -194,6 +228,7 @@ impl McpHandler {
         annotations(read_only_hint = true)
     )]
     pub async fn list_available_devices(&self) -> Result<CallToolResult, ErrorData> {
+        let organization = read_persisted_device_organization(&self.app);
         get_net_manager!(self, _state, guard);
         let manager = guard.as_ref().unwrap();
 
@@ -201,7 +236,7 @@ impl McpHandler {
         let available: Vec<McpDevice> = devices
             .into_iter()
             .filter(|d| matches!(d.status, DeviceStatus::Online))
-            .map(McpDevice::from)
+            .map(|device| McpDevice::from_device(device, &organization))
             .collect();
 
         let json = serde_json::to_string_pretty(&available).unwrap_or_default();
@@ -210,7 +245,7 @@ impl McpHandler {
 
     /// 向指定设备发送文件
     #[tool(
-        description = "向指定设备发送文件。需要提供目标设备的 peer_id（从 list_available_devices 获取）和文件的绝对路径列表",
+        description = "向指定设备发送文件。必须提供 list_available_devices 返回的精确 peer_id，不能根据 displayName 猜测；若多个设备名称相同，先向用户展示 groups 和 identityHint 并请求确认，再调用此工具。",
         annotations(read_only_hint = false, open_world_hint = true)
     )]
     pub async fn send_files(
@@ -707,10 +742,14 @@ impl McpHandler {
         annotations(read_only_hint = true)
     )]
     pub async fn list_paired_devices(&self) -> Result<CallToolResult, ErrorData> {
+        let organization = read_persisted_device_organization(&self.app);
         get_net_manager!(self, _state, guard);
         let manager = guard.as_ref().unwrap();
         let devices = manager.devices().get_devices(DeviceFilter::Paired);
-        let out: Vec<McpPairedDevice> = devices.into_iter().map(McpPairedDevice::from).collect();
+        let out: Vec<McpPairedDevice> = devices
+            .into_iter()
+            .map(|device| McpPairedDevice::from_device(device, &organization))
+            .collect();
         mcp_ok(serde_json::to_string_pretty(&out).unwrap_or_default())
     }
 
@@ -831,7 +870,7 @@ impl McpHandler {
 /// send_files 的输入参数
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SendFilesParams {
-    /// 目标设备的 PeerId（从 list_available_devices 获取）
+    /// 目标设备的精确 PeerId（从 list_available_devices 返回值取得；同名候选须先由用户确认）
     pub peer_id: String,
     /// 要发送的文件/目录的绝对路径列表
     pub file_paths: Vec<String>,
@@ -876,10 +915,13 @@ pub struct ExportInboxItemParams {
 #[serde(rename_all = "camelCase")]
 struct McpPairedDevice {
     peer_id: String,
+    alias: Option<String>,
     /// 用户设置的设备名称；未设置时为 null。
     name: Option<String>,
     /// 面向用户显示的设备名，优先使用 name，未设置时回退 hostname。
     display_name: String,
+    groups: Vec<String>,
+    identity_hint: String,
     hostname: String,
     os: String,
     platform: String,
@@ -890,12 +932,26 @@ struct McpPairedDevice {
     auto_accept: bool,
 }
 
-impl From<crate::device::Device> for McpPairedDevice {
-    fn from(d: crate::device::Device) -> Self {
+impl McpPairedDevice {
+    fn from_device(d: crate::device::Device, organization: &PersistedDeviceOrganization) -> Self {
         let policy = d.receive_policy;
-        let display_name = mcp_display_name(d.os_info.name.as_deref(), &d.os_info.hostname);
+        let peer_id = d.peer_id.to_string();
+        let alias = organization
+            .aliases
+            .get(&peer_id)
+            .filter(|value| !value.trim().is_empty())
+            .cloned();
+        let display_name = mcp_display_name(
+            alias.as_deref(),
+            d.os_info.name.as_deref(),
+            &d.os_info.hostname,
+            &peer_id,
+        );
         Self {
-            peer_id: d.peer_id.to_string(),
+            groups: mcp_device_groups(&peer_id, organization),
+            identity_hint: mcp_identity_hint(&d.os_info.hostname, &peer_id),
+            peer_id,
+            alias,
             name: d.os_info.name,
             display_name,
             hostname: d.os_info.hostname,
@@ -927,10 +983,55 @@ struct SendFilesResponse {
 }
 
 /// 面向 MCP 的设备显示名：用户命名优先，系统 hostname 仅作回退。
-fn mcp_display_name(name: Option<&str>, hostname: &str) -> String {
-    name.filter(|name| !name.trim().is_empty())
-        .unwrap_or(hostname)
-        .to_owned()
+fn mcp_display_name(
+    alias: Option<&str>,
+    name: Option<&str>,
+    hostname: &str,
+    peer_id: &str,
+) -> String {
+    alias
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| name.filter(|value| !value.trim().is_empty()))
+        .or_else(|| (!hostname.trim().is_empty()).then_some(hostname))
+        .map(str::to_owned)
+        .unwrap_or_else(|| mcp_short_peer_id(peer_id))
+}
+
+fn mcp_short_peer_id(peer_id: &str) -> String {
+    if peer_id.len() > 10 {
+        format!("{}…{}", &peer_id[..4], &peer_id[peer_id.len() - 6..])
+    } else {
+        peer_id.to_owned()
+    }
+}
+
+fn mcp_identity_hint(hostname: &str, peer_id: &str) -> String {
+    let hostname = if hostname.trim().is_empty() {
+        "未知设备"
+    } else {
+        hostname
+    };
+    format!("{hostname} · {}", mcp_short_peer_id(peer_id))
+}
+
+fn mcp_device_groups(peer_id: &str, organization: &PersistedDeviceOrganization) -> Vec<String> {
+    let group_ids: HashSet<&str> = organization
+        .group_device_ids
+        .iter()
+        .filter(|(_, device_ids)| device_ids.iter().any(|id| id == peer_id))
+        .map(|(group_id, _)| group_id.as_str())
+        .collect();
+    let mut groups: Vec<_> = organization
+        .groups
+        .iter()
+        .filter(|group| group_ids.contains(group.id.as_str()) && !group.name.trim().is_empty())
+        .collect();
+    groups.sort_by(|left, right| {
+        left.sort_order
+            .cmp(&right.sort_order)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    groups.into_iter().map(|group| group.name.clone()).collect()
 }
 
 /// 简化的可用设备信息（MCP 输出）
@@ -938,10 +1039,13 @@ fn mcp_display_name(name: Option<&str>, hostname: &str) -> String {
 #[serde(rename_all = "camelCase")]
 struct McpDevice {
     peer_id: String,
+    alias: Option<String>,
     /// 用户设置的设备名称；未设置时为 null。
     name: Option<String>,
     /// 面向用户显示的设备名，优先使用 name，未设置时回退 hostname。
     display_name: String,
+    groups: Vec<String>,
+    identity_hint: String,
     hostname: String,
     os: String,
     platform: String,
@@ -949,11 +1053,25 @@ struct McpDevice {
     latency_ms: Option<u64>,
 }
 
-impl From<crate::device::Device> for McpDevice {
-    fn from(d: crate::device::Device) -> Self {
-        let display_name = mcp_display_name(d.os_info.name.as_deref(), &d.os_info.hostname);
+impl McpDevice {
+    fn from_device(d: crate::device::Device, organization: &PersistedDeviceOrganization) -> Self {
+        let peer_id = d.peer_id.to_string();
+        let alias = organization
+            .aliases
+            .get(&peer_id)
+            .filter(|value| !value.trim().is_empty())
+            .cloned();
+        let display_name = mcp_display_name(
+            alias.as_deref(),
+            d.os_info.name.as_deref(),
+            &d.os_info.hostname,
+            &peer_id,
+        );
         Self {
-            peer_id: d.peer_id.to_string(),
+            groups: mcp_device_groups(&peer_id, organization),
+            identity_hint: mcp_identity_hint(&d.os_info.hostname, &peer_id),
+            peer_id,
+            alias,
             name: d.os_info.name,
             display_name,
             hostname: d.os_info.hostname,
@@ -967,19 +1085,65 @@ impl From<crate::device::Device> for McpDevice {
 
 #[cfg(test)]
 mod tests {
-    use super::mcp_display_name;
+    use super::{
+        PersistedDeviceGroup, PersistedDeviceOrganization, mcp_device_groups, mcp_display_name,
+        mcp_identity_hint,
+    };
 
     #[test]
     fn mcp_display_name_prefers_user_supplied_name() {
         assert_eq!(
-            mcp_display_name(Some("我的 MacBook"), "DESKTOP-1234"),
+            mcp_display_name(None, Some("我的 MacBook"), "DESKTOP-1234", "peer"),
             "我的 MacBook"
         );
     }
 
     #[test]
     fn mcp_display_name_falls_back_when_name_is_blank() {
-        assert_eq!(mcp_display_name(Some("  "), "DESKTOP-1234"), "DESKTOP-1234");
+        assert_eq!(
+            mcp_display_name(None, Some("  "), "DESKTOP-1234", "peer"),
+            "DESKTOP-1234"
+        );
+    }
+
+    #[test]
+    fn mcp_display_name_prefers_local_alias() {
+        assert_eq!(
+            mcp_display_name(Some("张三的 Mac"), Some("MacBook"), "DESKTOP-1234", "peer"),
+            "张三的 Mac"
+        );
+    }
+
+    #[test]
+    fn mcp_device_groups_follow_user_order() {
+        let organization = PersistedDeviceOrganization {
+            aliases: Default::default(),
+            groups: vec![
+                PersistedDeviceGroup {
+                    id: "work".into(),
+                    name: "工作".into(),
+                    sort_order: 1,
+                },
+                PersistedDeviceGroup {
+                    id: "owner".into(),
+                    name: "张三".into(),
+                    sort_order: 0,
+                },
+            ],
+            group_device_ids: [
+                ("work".into(), vec!["peer-1".into()]),
+                ("owner".into(), vec!["peer-1".into()]),
+            ]
+            .into_iter()
+            .collect(),
+        };
+
+        assert_eq!(mcp_device_groups("peer-1", &organization), ["张三", "工作"]);
+        assert!(mcp_device_groups("peer-2", &organization).is_empty());
+        assert_eq!(
+            mcp_identity_hint("", "12D3KooW123456"),
+            "未知设备 · 12D3…123456"
+        );
     }
 }
 

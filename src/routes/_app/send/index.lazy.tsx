@@ -23,7 +23,11 @@ import { useSecretStore } from "@/stores/secret-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
-import { deviceDisplayName } from "@/lib/device-name";
+import {
+  deviceGroupNames,
+  deviceIdentityHint,
+  organizedDeviceName,
+} from "@/lib/device-organization";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { FileDropZone } from "./-components/file-drop-zone";
@@ -58,6 +62,7 @@ function SendPage() {
     (s) => s.devices.find((d) => d.peerId === peerId) ?? null,
   );
   const pairedDevices = useSecretStore((s) => s.pairedDevices);
+  const deviceOrganization = usePreferencesStore((s) => s.deviceOrganization);
 
   const device = useMemo<Device | null>(() => {
     if (onlineDevice) return onlineDevice;
@@ -101,7 +106,7 @@ function SendPage() {
       progressChannel.onmessage = setPrepareProgress;
       const prepared = await commands.prepareSend(scannedFiles, progressChannel);
       const fileIds = prepared.files.map((f) => f.fileId);
-      const displayName = deviceDisplayName(device);
+      const displayName = organizedDeviceName(device, deviceOrganization);
       const result = await commands.startSend(
         prepared.preparedId,
         device.peerId,
@@ -175,6 +180,9 @@ function SendPage() {
   return (
     <DesktopSendView
       device={device}
+      displayName={organizedDeviceName(device, deviceOrganization)}
+      identityHint={deviceIdentityHint(device)}
+      groupNames={deviceGroupNames(device.peerId, deviceOrganization)}
       fileSelection={fileSelection}
       sending={sending}
       prepareProgress={prepareProgress}
@@ -189,6 +197,9 @@ function SendPage() {
 
 interface SendViewProps {
   device: Device;
+  displayName: string;
+  identityHint: string;
+  groupNames: string[];
   fileSelection: ReturnType<typeof useFileSelection>;
   sending: boolean;
   prepareProgress: PrepareProgress | null;
@@ -201,6 +212,9 @@ interface SendViewProps {
 
 function DesktopSendView({
   device,
+  displayName,
+  identityHint,
+  groupNames,
   fileSelection,
   sending,
   prepareProgress,
@@ -215,7 +229,7 @@ function DesktopSendView({
   return (
     <TaskPageShell data-testid="send-page">
       <TaskToolbar
-        title={<Trans>发送文件到 {deviceDisplayName(device)}</Trans>}
+        title={<Trans>发送文件到 {displayName}</Trans>}
         onBack={onBack}
       />
 
@@ -261,11 +275,15 @@ function DesktopSendView({
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-foreground">
-              {deviceDisplayName(device)}
+              {displayName}
             </p>
             <p className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-muted-foreground">
               <ShieldCheck className="size-3 shrink-0 text-brand/80" />
-              <Trans>端到端加密直连</Trans>
+              <span className="truncate">
+                {groupNames.length > 0 ? groupNames.join(" · ") : identityHint}
+              </span>
+              <span className="shrink-0 text-muted-foreground/70">·</span>
+              <span className="shrink-0"><Trans>端到端加密直连</Trans></span>
             </p>
           </div>
           <div className="shrink-0 text-right">

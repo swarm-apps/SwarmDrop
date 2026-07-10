@@ -19,8 +19,9 @@
 调用 `list_available_devices` 获取可以发送文件的设备列表：
 
 - 返回已配对且在线的设备
-- 每个设备包含 `displayName`（优先使用对端设置的设备名称）、`hostname`、`os` 等信息；向用户展示时应优先使用 `displayName`
+- 每个设备包含 `displayName`（优先使用本机别名）、`groups`、`identityHint`、`hostname`、`os` 等信息；向用户展示时应优先使用 `displayName`
 - `peer_id` 仅是发送文件时需要的技术标识，不应用来让用户辨认设备
+- 多台设备的 `displayName` 相同或用户指代不明确时，必须用 `groups` 和 `identityHint` 向用户确认目标后再调用 `send_files`
 - 如果列表为空，说明没有在线的已配对设备
 
 ### 3. 发送文件

@@ -78,6 +78,23 @@ specta + chrono 会把 `DateTime<Utc>` 映射成 ISO 8601 字符串（前端 `st
 
 **相关文件**：`crates/core/src/pairing/code.rs`
 
+### MCP 读取前端本机偏好时要容错降级
+
+设备别名和分组属于本机 UI 偏好，不进入配对记录或 P2P 协议；MCP 要展示同一设备身份时，直接从
+`tauri-plugin-store` 的 `preferences.json` 读取 Zustand 的 JSON 字符串，并将缺失、旧格式或解析失败
+视为无组织数据。这样 MCP 不需要新增 IPC，也不会因本机偏好损坏而影响设备查询或发送。
+
+**正确做法**：
+- 读取 `preferences-store` 后先解析其 `{ state: ... }` 包装，再取 `state.deviceOrganization`
+- 使用 `#[serde(default)]` 的本地反序列化结构；失败时 `unwrap_or_default()`
+- MCP 返回 `displayName`、`groups` 与 `identityHint`，但操作仍只接受精确 PeerId
+
+**不要做**：
+- 不要将本机别名写入配对记录、设备 Identify 信息或 P2P 协议
+- 不要按 MCP 的显示名自动发送；同名候选须以分组和身份提示向用户澄清
+
+**相关文件**：`src-tauri/src/mcp/tools.rs`、`src/stores/preferences-store.ts`
+
 ## Clippy / dead_code
 
 ### 用 #[expect(...)] 替代 #[allow(...)]
