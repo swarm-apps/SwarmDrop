@@ -213,7 +213,10 @@ function DesktopDevicesView({
 }: DesktopDevicesViewProps) {
   // 桌面端主屏:设备发现 / 快速配对 / 已配对设备 / 活跃传输 —— 顶栏由全局 AppTopBar 承载
   return (
-    <main className="flex h-full flex-1 flex-col overflow-hidden bg-transparent">
+    <main
+      data-testid="desktop-devices-page"
+      className="flex h-full flex-1 flex-col overflow-hidden bg-transparent"
+    >
       {isOnline ? (
         <div className="flex-1 overflow-auto bg-transparent">
           <div className="mx-auto grid w-full max-w-[1220px] gap-5 px-5 py-5 min-[920px]:grid-cols-[minmax(0,1fr)_360px] lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8 lg:py-7">
@@ -260,7 +263,7 @@ function HomeOverview({
   activeCount: number;
 }) {
   return (
-    <section className="min-[920px]:col-span-2">
+    <section data-testid="desktop-home-overview" className="min-[920px]:col-span-2">
       <div className="glass-panel flex flex-col gap-4 rounded-[24px] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs font-medium text-brand">
@@ -278,9 +281,21 @@ function HomeOverview({
         </div>
 
         <div className="grid grid-cols-3 gap-2 sm:min-w-[300px]">
-          <OverviewStat label={<Trans>附近</Trans>} value={nearbyCount} />
-          <OverviewStat label={<Trans>已配对</Trans>} value={pairedCount} />
-          <OverviewStat label={<Trans>传输中</Trans>} value={activeCount} />
+          <OverviewStat
+            label={<Trans>附近</Trans>}
+            value={nearbyCount}
+            testId="desktop-home-stat-nearby"
+          />
+          <OverviewStat
+            label={<Trans>已配对</Trans>}
+            value={pairedCount}
+            testId="desktop-home-stat-paired"
+          />
+          <OverviewStat
+            label={<Trans>传输中</Trans>}
+            value={activeCount}
+            testId="desktop-home-stat-active"
+          />
         </div>
       </div>
     </section>
@@ -290,12 +305,17 @@ function HomeOverview({
 function OverviewStat({
   label,
   value,
+  testId,
 }: {
   label: React.ReactNode;
   value: number;
+  testId: string;
 }) {
   return (
-    <div className="rounded-[16px] bg-white/40 px-3 py-2.5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-white/[0.055] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+    <div
+      data-testid={testId}
+      className="rounded-[16px] bg-white/40 px-3 py-2.5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-white/[0.055] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+    >
       <div className="font-mono text-lg font-semibold text-foreground">
         {value}
       </div>
@@ -322,7 +342,7 @@ function PairedDevicesSection({
   ) => Promise<void>;
 }) {
   return (
-    <SectionShell>
+    <SectionShell data-testid="paired-devices-section">
       <SectionHeader
         title={<Trans>已配对设备</Trans>}
         count={devices.length}
@@ -330,11 +350,15 @@ function PairedDevicesSection({
       />
       {devices.length === 0 ? (
         <EmptyPanel
+          data-testid="paired-devices-empty"
           title={<Trans>还没有已配对设备</Trans>}
           description={<Trans>从附近设备发起配对，或使用配对码连接另一台设备。</Trans>}
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div
+          data-testid="paired-devices-grid"
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+        >
           {devices.map((device) => (
             <DeviceCard
               key={device.peerId}
@@ -361,7 +385,7 @@ function ActiveTransfersSection({ items }: { items: TransferProjection[] }) {
   );
 
   return (
-    <SectionShell>
+    <SectionShell data-testid="active-transfers-section">
       <SectionHeader
         title={<Trans>正在传输</Trans>}
         count={items.length}
@@ -370,12 +394,13 @@ function ActiveTransfersSection({ items }: { items: TransferProjection[] }) {
       />
       {items.length === 0 ? (
         <EmptyPanel
+          data-testid="active-transfers-empty"
           title={<Trans>暂无正在传输</Trans>}
           description={<Trans>开始发送或接收文件后，当前任务会显示在这里。</Trans>}
           className="py-4"
         />
       ) : (
-        <div className="flex flex-col gap-2.5">
+        <div data-testid="active-transfers-list" className="flex flex-col gap-2.5">
           {items.map((item) => (
             <SessionRow
               key={item.sessionId}

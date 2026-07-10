@@ -295,6 +295,7 @@ function InboxPage() {
   return (
     <>
       <MasterDetailShell
+        testId="inbox-page"
         drawerLabel={t`收件箱`}
         listMaxWidth={360}
         list={({ closeDrawer }) => (
@@ -473,7 +474,7 @@ function InboxRail({
     });
 
   return (
-    <div className="flex h-full flex-col p-3">
+    <div data-testid="inbox-rail" className="flex h-full flex-col p-3">
       <div className="shrink-0 px-1.5 pt-1">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -519,6 +520,7 @@ function InboxRail({
             type="search"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
+            data-testid="inbox-search-input"
             aria-label={t`搜索收件箱`}
             placeholder={t`搜索标题、来源、文件名…`}
             className="h-9 rounded-[14px] border-transparent bg-foreground/[0.045] pl-9 text-sm dark:bg-white/[0.05]"
@@ -529,6 +531,7 @@ function InboxRail({
       <div
         ref={railScrollRef}
         onKeyDown={handleRailKeyDown}
+        data-testid="inbox-list"
         className="mt-3 min-h-0 flex-1 scroll-pt-10 overflow-auto px-1 pb-1"
       >
         {isSearching ? (
@@ -624,6 +627,7 @@ function RailRowShell({
     <button
       type="button"
       data-inbox-id={id}
+      data-testid="inbox-item"
       aria-current={selected ? "true" : undefined}
       onClick={() => onSelect(id)}
       className={cn(
@@ -770,7 +774,12 @@ function InboxReader({
 
   if (status === "ready" && detail) {
     return (
-      <section className={sectionClass}>
+      <section
+        data-testid="inbox-reader"
+        data-inbox-status={status}
+        data-inbox-id={detail.id}
+        className={sectionClass}
+      >
         <ReaderContent
           detail={detail}
           contained={contained}
@@ -788,7 +797,11 @@ function InboxReader({
 
   // empty / loading / error：前导按钮固定在同坐标的极简头行，正文在其下方
   return (
-    <section className={sectionClass}>
+    <section
+      data-testid="inbox-reader"
+      data-inbox-status={status}
+      className={sectionClass}
+    >
       {toggle && (
         <div className="flex h-12 shrink-0 items-center border-b border-black/[0.06] px-7 dark:border-white/10">
           {toggle}
@@ -831,7 +844,10 @@ function ReaderContent({
 }) {
   return (
     <>
-      <header className="shrink-0 border-b border-black/[0.06] px-7 pb-5 pt-6 dark:border-white/10">
+      <header
+        data-testid="inbox-reader-header"
+        className="shrink-0 border-b border-black/[0.06] px-7 pb-5 pt-6 dark:border-white/10"
+      >
         <div className="flex items-start gap-3">
           {leading}
           <div className="min-w-0 flex-1">
@@ -912,6 +928,7 @@ function ReaderContent({
       </header>
 
       <div
+        data-testid="inbox-file-grid"
         className={cn(
           "@container px-7 py-6",
           contained && "min-h-0 flex-1 overflow-auto",
@@ -950,7 +967,11 @@ function FileCard({
   const Icon = getFileIcon(file.name);
 
   return (
-    <div className="group/card relative flex flex-col overflow-hidden rounded-[14px] border border-[color:var(--glass-control-border)] bg-foreground/[0.02] transition-colors hover:bg-foreground/[0.05] dark:bg-white/[0.03] dark:hover:bg-white/[0.06]">
+    <div
+      data-testid="inbox-file-card"
+      data-file-id={file.id}
+      className="group/card relative flex flex-col overflow-hidden rounded-[14px] border border-[color:var(--glass-control-border)] bg-foreground/[0.02] transition-colors hover:bg-foreground/[0.05] dark:bg-white/[0.03] dark:hover:bg-white/[0.06]"
+    >
       <button
         type="button"
         onClick={onOpen}
@@ -1009,7 +1030,10 @@ function FileCard({
 
 function ReaderPlaceholder({ onOpenList }: { onOpenList?: () => void }) {
   return (
-    <div className="flex h-full min-h-[280px] flex-col items-center justify-center gap-3 px-6 text-center">
+    <div
+      data-testid="inbox-reader-placeholder"
+      className="flex h-full min-h-[280px] flex-col items-center justify-center gap-3 px-6 text-center"
+    >
       <div className="flex size-14 items-center justify-center rounded-full bg-muted">
         <Inbox className="size-7 text-muted-foreground" />
       </div>
@@ -1101,6 +1125,7 @@ function ListSkeleton() {
 function InboxEmptyState() {
   return (
     <CenteredEmptyState
+      data-testid="inbox-empty-state"
       icon={Inbox}
       title={<Trans>暂无已接收内容</Trans>}
       description={
@@ -1114,6 +1139,7 @@ function InboxEmptyState() {
 function SearchEmptyState() {
   return (
     <CenteredEmptyState
+      data-testid="inbox-search-empty-state"
       icon={Search}
       title={<Trans>未找到匹配项</Trans>}
       description={<Trans>试试更短的关键词，或检查是否包含已归档内容。</Trans>}

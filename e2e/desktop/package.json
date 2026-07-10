@@ -14,6 +14,11 @@
     "expect-webdriverio": "^5.7.0"
   },
   "scripts": {
-    "wdio": "wdio run ./wdio.conf.ts"
+    "wdio": "wdio run ./wdio.conf.ts",
+    "record": "node ./scripts/record-desktop-demo.mjs",
+    "record:desktop-home": "node ./scripts/record-desktop-demo.mjs desktop-home",
+    "record:send-file": "node ./scripts/record-desktop-demo.mjs send-file",
+    "record:inbox": "node ./scripts/record-desktop-demo.mjs inbox",
+    "record:transfer": "node ./scripts/record-transfer-demo.mjs"
   }
 }

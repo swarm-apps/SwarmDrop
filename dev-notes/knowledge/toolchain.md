@@ -61,6 +61,65 @@ pnpm test
 
 **相关文件**：`e2e/desktop/`、`dev-notes/blogs/desktop-webdriver-e2e.md`
 
+### 桌面端官网素材录制用 WDIO demo spec + OBS WebSocket
+
+`e2e/desktop` 里 demo spec 与常规 E2E 分开：
+
+- 常规 E2E：`test/specs/**/*.e2e.ts`，由 `pnpm --dir e2e/desktop wdio` 执行。
+- 录制 demo：`test/specs/demo/*.demo.ts`，由 `record-desktop-demo.mjs` 按场景单独执行。
+
+录制入口：
+
+```bash
+pnpm --dir e2e/desktop record desktop-home
+pnpm --dir e2e/desktop record send-file
+pnpm --dir e2e/desktop record inbox
+```
+
+默认会连接 `OBS_WEBSOCKET_URL=ws://127.0.0.1:4455`，不显式设置
+`OBS_WEBSOCKET_PASSWORD` 时会读取 macOS OBS 配置里的 `server_password`。OBS 必须已启用
+WebSocket Server 且有屏幕录制权限。脚本会先构建 `pnpm tauri build --debug --no-bundle`，
+再启动 WDIO，让 demo spec 等到桌面首页稳定后写入 ready 信号；脚本收到 ready 后才
+`StartRecord`，短暂延迟后写入 go 信号放行交互，最后 `StopRecord`。这样录制文件只包含真实
+demo 操作，不包含 Tauri/WebDriver 启动等待。manifest 和 raw clip 会写到
+`e2e/desktop/build/desktop-recordings/`；关键截图写到 `e2e/desktop/build/wdio/screenshots/`。
+
+**正确做法**：
+- demo flow 用稳定 `data-testid`，不要靠文案或复杂 CSS 层级。
+- 录制模式下 demo helper 会先 `switchWindow("main")`，避免 `@wdio/tauri-service` 每个
+  focus 命令都触发 5 秒 `Tauri core.invoke` fallback。
+- OBS 短视频停止后要等输出文件大小稳定再复制；太早复制容易得到 0B 或 moov 不完整的视频。
+- demo spec 串行录制。当前 Tauri WebDriver 使用固定端口，并行跑多个 native demo 会抢端口。
+- `send-file.demo.ts` 允许没有在线已配对设备：此时只输出首页/空环境素材，不把录制管线判失败。
+- 录制产物在 `build/` 下，仓库根 `.gitignore` 已忽略，不要提交视频原始文件。
+
+**相关文件**：`e2e/desktop/scripts/record-desktop-demo.mjs`、`dev-notes/blogs/desktop-demo-recording-pipeline.md`
+
+### 双端 WebDriver composite 录制入口
+
+桌面 + iOS 双端素材使用 `pnpm --dir e2e/desktop record:transfer` 作为外层 orchestrator。它会启动
+`../SwarmDrop-RN` 的 Metro dev server，然后并行跑桌面 WDIO demo flow 和 RN `pnpm e2e:ios`。
+桌面端由 OBS 录制 Tauri 窗口，移动端由同一个 Appium/XCUITest WebDriver 会话录制 iOS 设备画面。
+桌面 flow 会先等 iOS 真正上线，若检测到上一轮残留配对，会通过
+`browser.tauri.execute(({ core }) => core.invoke("remove_paired_device", ...))` 清掉旧 peer，再等右侧附近设备
+回到"可配对"状态；两个端都 ready 后，外层脚本启动 OBS，写入 go 信号放行交互，录完再统一关闭。
+
+**正确做法**：
+- OBS 里预先布好桌面 Tauri 窗口采集；移动端不要再通过 OBS 采集，避免把模拟器外框和桌面背景带进素材。
+- iOS 端选择器走 `../SwarmDrop-RN/e2e/webdriver` 的 Appium/XCUITest；录屏仍由同一个 WebDriver 流程
+  生命周期控制。Simulator 使用 `simctl recordVideo`，真实设备设置 `SWARMDROP_APPIUM_SCREEN_RECORDING=1`
+  后调用 Appium `startRecordingScreen` / `stopRecordingScreen`。真实设备 WDA MJPEG 端口固定为 `10086`。
+- 移动端原始视频写入 `build/desktop-recordings/raw/ios-transfer-<timestamp>.mp4`；Appium 录屏需要录制主机安装
+  `ffmpeg`，iOS 真机从 iOS 11 起支持该接口，且不包含音频。
+- 桌面端和移动端都必须进入成功状态后才结束 demo；任一端进入失败状态或超时，整个录制任务失败。
+- 调试脚本本身用 `pnpm --dir e2e/desktop record:transfer --no-record --skip-build`，避免启动 OBS 和 Appium 录屏。
+- `pnpm tauri build --debug --no-bundle` 是生产 Vite build，`import.meta.env.DEV` 为 false。录制构建必须带
+  `VITE_WDIO_TAURI_PLUGIN=1`，否则前端不会加载 `@wdio/tauri-plugin`，`browser.tauri.execute` 会报
+  `Tauri core.invoke not available after 5s timeout`。
+- 演示节奏用 `SWARMDROP_DEMO_STEP_DELAY_MS` 控制，默认 1000ms；不要在 spec 里散落 30s 固定等待。
+
+**相关文件**：`e2e/desktop/scripts/record-transfer-demo.mjs`、`../SwarmDrop-RN/e2e/webdriver/`
+
 ## Cargo 配置
 
 ### dev profile 所有依赖 opt-level = 3

@@ -3,6 +3,7 @@
  * 玻璃面板外壳、区块标题、内嵌空态面板、居中空态——跨页面（设备 / 收件箱 / 传输）复用。
  */
 
+import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 export function SectionHeader({
@@ -47,12 +48,14 @@ export function SectionHeader({
 export function SectionShell({
   children,
   className,
+  ...props
 }: {
   children: React.ReactNode;
   className?: string;
-}) {
+} & HTMLAttributes<HTMLElement>) {
   return (
     <section
+      {...props}
       className={cn(
         "glass-panel flex min-h-full flex-col gap-4 rounded-[24px] p-4",
         className,
@@ -67,13 +70,15 @@ export function EmptyPanel({
   title,
   description,
   className,
+  ...props
 }: {
   title: React.ReactNode;
   description: React.ReactNode;
   className?: string;
-}) {
+} & Omit<HTMLAttributes<HTMLDivElement>, "title">) {
   return (
     <div
+      {...props}
       className={cn(
         "rounded-[18px] bg-foreground/[0.035] px-4 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]",
         className,
@@ -97,15 +102,17 @@ export function CenteredEmptyState({
   description,
   className,
   descriptionClassName,
+  ...props
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: React.ReactNode;
   description?: React.ReactNode;
   className?: string;
   descriptionClassName?: string;
-}) {
+} & Omit<HTMLAttributes<HTMLDivElement>, "title">) {
   return (
     <div
+      {...props}
       className={cn(
         "flex h-full flex-col items-center justify-center gap-3 text-center",
         className,

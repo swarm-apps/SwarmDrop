@@ -1,5 +1,5 @@
 import { ArrowLeft } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -8,12 +8,16 @@ type IconComp = ComponentType<{ className?: string }>;
 export function TaskPageShell({
   children,
   className,
+  ...props
 }: {
   children: ReactNode;
   className?: string;
-}) {
+} & HTMLAttributes<HTMLElement>) {
   return (
-    <main className={cn("flex h-full flex-1 flex-col bg-transparent", className)}>
+    <main
+      {...props}
+      className={cn("flex h-full flex-1 flex-col bg-transparent", className)}
+    >
       {children}
     </main>
   );
@@ -48,13 +52,17 @@ export function TaskToolbar({
 export function TaskContent({
   children,
   className,
+  ...props
 }: {
   children: ReactNode;
   className?: string;
-}) {
+} & HTMLAttributes<HTMLDivElement>) {
   return (
     <div className="min-h-0 flex-1 overflow-auto">
-      <div className={cn("mx-auto h-full w-full max-w-[1180px] p-5 lg:p-7", className)}>
+      <div
+        {...props}
+        className={cn("mx-auto h-full w-full max-w-[1180px] p-5 lg:p-7", className)}
+      >
         {children}
       </div>
     </div>
@@ -64,12 +72,14 @@ export function TaskContent({
 export function GlassPanel({
   children,
   className,
+  ...props
 }: {
   children: ReactNode;
   className?: string;
-}) {
+} & HTMLAttributes<HTMLElement>) {
   return (
     <section
+      {...props}
       className={cn(
         "glass-panel rounded-[28px] p-2 shadow-[0_22px_70px_rgba(15,23,42,0.07)] dark:shadow-[0_24px_82px_rgba(0,0,0,0.24)]",
         className,

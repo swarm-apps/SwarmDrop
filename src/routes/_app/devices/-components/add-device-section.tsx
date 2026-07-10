@@ -120,7 +120,7 @@ export function AddDeviceSection({
     (isNodeRunning && codeInfo === null && errorMessage === null);
 
   return (
-    <SectionShell className="gap-3.5">
+    <SectionShell data-testid="add-device-section" className="gap-3.5">
       <SectionHeader
         title={<Trans>添加设备</Trans>}
         count={devices.length}
@@ -141,7 +141,10 @@ export function AddDeviceSection({
         </div>
 
         {filteredDevices.length === 0 ? (
-          <div className="rounded-[15px] bg-foreground/[0.035] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]">
+          <div
+            data-testid="nearby-devices-empty"
+            className="rounded-[15px] bg-foreground/[0.035] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"
+          >
             <p className="text-sm font-medium text-foreground">
               {isFilteredEmpty ? (
                 <Trans>没有符合条件的附近设备</Trans>
@@ -158,7 +161,7 @@ export function AddDeviceSection({
             </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div data-testid="nearby-devices-list" className="flex flex-col gap-2">
             {filteredDevices.map((device) => (
               <NearbyDeviceRow
                 key={device.peerId}
@@ -173,7 +176,10 @@ export function AddDeviceSection({
 
       <div className="h-px bg-foreground/[0.055] dark:bg-white/[0.075]" />
 
-      <div className="glass-accent overflow-hidden rounded-[16px] p-2.5">
+      <div
+        data-testid="pairing-code-panel"
+        className="glass-accent overflow-hidden rounded-[16px] p-2.5"
+      >
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[13px] font-medium text-foreground">
@@ -217,6 +223,7 @@ export function AddDeviceSection({
             type="button"
             onClick={handleCopy}
             disabled={!isNodeRunning || !codeInfo || isExpired}
+            data-testid="pairing-code-copy-action"
             aria-label={copied ? t`已复制` : t`复制配对码`}
             title={copied ? t`已复制` : t`复制配对码`}
             className="glass-control flex size-10 items-center justify-center rounded-[12px] text-muted-foreground transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-brand active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:hover:text-brand"
@@ -231,6 +238,7 @@ export function AddDeviceSection({
               }
             }}
             disabled={!isNodeRunning}
+            data-testid="pairing-code-refresh-action"
             aria-label={t`重新生成`}
             title={t`重新生成`}
             className="glass-control flex size-10 items-center justify-center rounded-[12px] text-muted-foreground transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground active:scale-[0.98]"
@@ -242,6 +250,7 @@ export function AddDeviceSection({
         <button
           type="button"
           onClick={() => setInputOpen(true)}
+          data-testid="pairing-code-input-action"
           className="group mt-2 flex w-full min-w-0 items-center gap-2 rounded-[12px] bg-white/38 px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/52 active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.065]"
         >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-brand ring-1 ring-primary/15 dark:bg-primary/15 dark:ring-primary/10">
@@ -289,6 +298,9 @@ function NearbyDeviceRow({
     <button
       type="button"
       onClick={handleClick}
+      data-testid="nearby-device-row"
+      data-peer-id={device.peerId}
+      data-device-paired={isPaired ? "true" : "false"}
       className="group flex min-w-0 items-center gap-3 rounded-[15px] bg-white/35 p-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] transition-[background-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 hover:shadow-[0_12px_32px_rgba(219,163,65,0.07),inset_0_1px_0_rgba(255,255,255,0.5)] active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.07]"
     >
       <span className="flex size-9 shrink-0 items-center justify-center rounded-[13px] bg-primary/10 text-brand ring-1 ring-primary/15 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105 dark:bg-primary/15 dark:ring-primary/10">

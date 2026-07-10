@@ -67,6 +67,7 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
 
   return (
     <div
+      data-testid="file-drop-zone"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -93,6 +94,7 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
             type="button"
             onClick={handleSelectFiles}
             disabled={disabled}
+            data-testid="select-files-action"
             className="rounded-full bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground shadow-[0_10px_22px_rgba(219,163,65,0.18)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50"
           >
             <Trans>选择文件</Trans>
@@ -101,6 +103,7 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
             type="button"
             onClick={handleSelectFolder}
             disabled={disabled}
+            data-testid="select-folder-action"
             className="glass-control rounded-full px-5 py-2 text-[13px] font-medium text-brand transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 active:scale-[0.98] disabled:opacity-50 dark:hover:bg-white/[0.07]"
           >
             <Trans>选择文件夹</Trans>

@@ -260,7 +260,10 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
         <div className="flex size-14 items-center justify-center rounded-full bg-green-100 dark:bg-green-500/15 md:size-16">
           <CheckCircle2 className="size-7 text-green-600 dark:text-green-400 md:size-8" />
         </div>
-        <h3 className="text-base font-semibold text-foreground md:text-lg">
+        <h3
+          data-testid="send-success-state"
+          className="text-base font-semibold text-foreground md:text-lg"
+        >
           <Trans>所有文件传输完成！</Trans>
         </h3>
 
@@ -302,7 +305,10 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
         <div className="flex size-14 items-center justify-center rounded-full bg-red-100 dark:bg-red-500/15 md:size-16">
           <XCircle className="size-7 text-red-600 dark:text-red-400 md:size-8" />
         </div>
-        <h3 className="text-base font-semibold text-foreground md:text-lg">
+        <h3
+          data-testid="send-failure-state"
+          className="text-base font-semibold text-foreground md:text-lg"
+        >
           <Trans>传输失败</Trans>
         </h3>
         {projection.errorMessage && (

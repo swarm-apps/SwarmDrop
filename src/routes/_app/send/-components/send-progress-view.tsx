@@ -45,7 +45,7 @@ export function SendProgressView({
 
   if (!projection) {
     return (
-      <TaskPageShell>
+      <TaskPageShell data-testid="send-progress-view">
         <TaskToolbar title={<Trans>发送文件</Trans>} onBack={onBack} />
         <TaskContent className="flex min-h-0 flex-col items-center justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -58,7 +58,7 @@ export function SendProgressView({
   const completed = isProjectionCompleted(projection);
 
   return (
-    <TaskPageShell>
+    <TaskPageShell data-testid="send-progress-view">
       <TaskToolbar
         title={<Trans>发送到 {projection.peerName}</Trans>}
         onBack={onBack}

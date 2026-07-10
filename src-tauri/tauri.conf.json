@@ -14,7 +14,7 @@
     "windows": [
       {
         "title": "SwarmDrop",
-        "width": 1000,
+        "width": 960,
         "height": 720,
         "minWidth": 360,
         "minHeight": 480,

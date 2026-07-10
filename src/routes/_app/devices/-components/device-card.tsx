@@ -121,6 +121,10 @@ export function DeviceCard({
       <div
         role={isInteractive ? "button" : undefined}
         tabIndex={isInteractive ? 0 : -1}
+        data-testid="device-card"
+        data-peer-id={device.peerId}
+        data-device-status={device.status}
+        data-device-paired={device.isPaired ? "true" : "false"}
         onClick={isInteractive ? handleCardClick : undefined}
         onKeyDown={(e) => {
           if (e.currentTarget !== e.target) return;
@@ -226,6 +230,7 @@ export function DeviceCard({
               size="sm"
               variant={isOnline ? "default" : "outline"}
               disabled={!isOnline}
+              data-testid="device-send-action"
               onClick={(e) => {
                 e.stopPropagation();
                 onSend?.(device);
@@ -244,6 +249,7 @@ export function DeviceCard({
             <Button
               size="sm"
               variant="outline"
+              data-testid="device-connect-action"
               onClick={(e) => {
                 e.stopPropagation();
                 onConnect?.(device);
@@ -292,6 +298,7 @@ function DeviceActionMenu({
           type="button"
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
+          data-testid="device-actions-menu"
           aria-label={label}
           title={label}
           className="glass-control flex size-8 items-center justify-center rounded-full text-muted-foreground transition-[color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground active:scale-[0.96]"
@@ -313,6 +320,7 @@ function DeviceActionMenu({
                 event.stopPropagation();
                 onPolicyClick();
               }}
+              data-testid="device-policy-menu-action"
               className="h-8 rounded-[10px] px-2.5 text-xs font-medium"
             >
               <Settings2 className="size-3.5" />
@@ -323,6 +331,7 @@ function DeviceActionMenu({
         )}
         <DropdownMenuItem
           variant="destructive"
+          data-testid="device-unpair-menu-action"
           onSelect={(event) => {
             event.stopPropagation();
             onUnpairClick();
@@ -396,11 +405,12 @@ function UnpairAlertDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>
+          <AlertDialogCancel data-testid="device-unpair-cancel-action">
             <Trans>取消</Trans>
           </AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
+            data-testid="device-unpair-confirm-action"
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             <Trans>确认取消配对</Trans>

@@ -143,7 +143,10 @@ function SendPage() {
 
   if (!device) {
     return (
-      <main className="flex h-full flex-col items-center justify-center gap-3">
+      <main
+        data-testid="send-device-missing"
+        className="flex h-full flex-col items-center justify-center gap-3"
+      >
         <p className="text-sm text-muted-foreground">
           <Trans>设备未找到</Trans>
         </p>
@@ -207,15 +210,21 @@ function DesktopSendView({
   const DeviceIcon = getDeviceIcon(device.os || device.platform || "");
 
   return (
-    <TaskPageShell>
+    <TaskPageShell data-testid="send-page">
       <TaskToolbar
         title={<Trans>发送文件到 {deviceDisplayName(device)}</Trans>}
         onBack={onBack}
       />
 
-      <TaskContent className="flex min-h-0 flex-col gap-4">
+      <TaskContent
+        data-testid="send-content"
+        className="flex min-h-0 flex-col gap-4"
+      >
         {/* 目标设备 mini 摘要条：设备只是信息，让位给文件选择这个主任务 */}
-        <div className="glass-panel flex shrink-0 items-center gap-3 rounded-[20px] px-4 py-3">
+        <div
+          data-testid="send-target-summary"
+          className="glass-panel flex shrink-0 items-center gap-3 rounded-[20px] px-4 py-3"
+        >
           <span className="glass-control flex size-11 shrink-0 items-center justify-center rounded-[16px] text-brand">
             <DeviceIcon className="size-5" />
           </span>
@@ -245,7 +254,10 @@ function DesktopSendView({
         </div>
 
         {/* 文件选择：占满剩余高度，文件树在面板内滚动 */}
-        <GlassPanel className="min-h-0 flex-1">
+        <GlassPanel
+          data-testid="send-file-selection-panel"
+          className="min-h-0 flex-1"
+        >
           <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-5">
             <FileDropZone onSourcesSelected={onSourcesSelected} disabled={sending} />
             <div className="min-h-0 flex-1 overflow-hidden">
@@ -259,7 +271,10 @@ function DesktopSendView({
                   onRemoveFile={fileSelection.removeFile}
                 />
               ) : (
-                <div className="flex h-full min-h-[180px] items-center justify-center rounded-[20px] bg-foreground/[0.025] text-center dark:bg-white/[0.035]">
+                <div
+                  data-testid="send-empty-selection"
+                  className="flex h-full min-h-[180px] items-center justify-center rounded-[20px] bg-foreground/[0.025] text-center dark:bg-white/[0.035]"
+                >
                   <p className="max-w-[28ch] text-sm leading-6 text-muted-foreground">
                     <Trans>选择内容后，文件结构和总大小会在这里确认。</Trans>
                   </p>
@@ -277,12 +292,18 @@ function DesktopSendView({
           </CommandDock>
         ) : (
           <CommandDock>
-            <TaskButton variant="outline" onClick={onBack} disabled={sending}>
+            <TaskButton
+              variant="outline"
+              onClick={onBack}
+              disabled={sending}
+              data-testid="send-cancel-action"
+            >
               <Trans>取消</Trans>
             </TaskButton>
             <TaskButton
               onClick={onSend}
               disabled={!fileSelection.hasFiles || sending}
+              data-testid="send-confirm-action"
             >
               <Send className="size-4" />
               {sending ? <Trans>发送中...</Trans> : <Trans>发送</Trans>}

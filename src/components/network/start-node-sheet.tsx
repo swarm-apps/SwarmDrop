@@ -104,7 +104,11 @@ export function StartNodeSheet({ open, onOpenChange }: StartNodeSheetProps) {
         </div>
 
         <DialogFooter>
-          <Button onClick={handleStart} disabled={isStarting}>
+          <Button
+            onClick={handleStart}
+            disabled={isStarting}
+            data-testid="start-node-confirm-action"
+          >
             {isStarting ? <Trans>启动中...</Trans> : <Trans>启动节点</Trans>}
           </Button>
         </DialogFooter>
