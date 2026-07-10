@@ -157,6 +157,11 @@ export default function RootLayout() {
                         name="send/share-target"
                         options={{ animation: "slide_from_right" }}
                       />
+                      <Stack.Screen
+                        name="send/shared-files"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen name="e2e/file-browser" />
                     </Stack>
                     <PairingRequestHost />
                     <TransferOfferHost />

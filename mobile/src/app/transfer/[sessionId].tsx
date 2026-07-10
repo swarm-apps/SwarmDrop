@@ -13,10 +13,10 @@ import {
   XCircle,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { MobileTransferProjection } from "react-native-swarmdrop-core";
-import { buildTreeDataFromOffer, FileTree } from "@/components/file-tree";
+import { FileBrowser, fromProjection } from "@/components/file-browser";
 import { KeyValueRow } from "@/components/key-value-row";
 import {
   BottomActionBar,
@@ -197,6 +197,10 @@ export default function TransferDetailScreen() {
 
   const savePath = projection ? savePathOf(projection) : null;
   const isActive = projection != null && isProjectionActive(projection);
+  const fileItems = useMemo(
+    () => (projection ? fromProjection(projection, progress) : []),
+    [progress, projection],
+  );
 
   const openFolder = useCallback(() => {
     if (!savePath) return;
@@ -219,9 +223,9 @@ export default function TransferDetailScreen() {
           ) : null
         }
       />
-      <ScrollView contentContainerClassName="gap-5 px-5 pt-2 pb-8">
-        {!projection ? (
-          loaded ? (
+      {!projection ? (
+        <View className="flex-1 px-5 pt-2">
+          {loaded ? (
             <View className="items-center gap-3 py-20">
               <Text className="text-xs text-muted-foreground">
                 <Trans>会话不存在或已结束</Trans>
@@ -229,11 +233,20 @@ export default function TransferDetailScreen() {
             </View>
           ) : (
             <TransferDetailSkeleton label={t`加载中`} />
-          )
-        ) : (
-          <TransferDetailContent projection={projection} progress={progress} />
-        )}
-      </ScrollView>
+          )}
+        </View>
+      ) : (
+        <FileBrowser
+          items={fileItems}
+          scope="transfer"
+          resetKey={projection.sessionId}
+          testID="transfer-detail-file-browser"
+          title={<Trans>文件</Trans>}
+          contentHeader={
+            <TransferDetailHeader projection={projection} progress={progress} />
+          }
+        />
+      )}
 
       {projection ? (
         <TransferActionBar
@@ -273,7 +286,7 @@ export default function TransferDetailScreen() {
   );
 }
 
-// 加载骨架:镜像 TransferDetailContent 的主要区块(状态头/进度块/信息卡/文件列表)
+// 加载骨架:镜像 TransferDetailHeader 的主要区块(状态头/进度块/信息卡/文件列表)
 function TransferDetailSkeleton({ label }: { label: string }) {
   return (
     <View className="gap-5" accessible accessibilityLabel={label}>
@@ -334,7 +347,7 @@ function TransferDetailSkeleton({ label }: { label: string }) {
   );
 }
 
-function TransferDetailContent({
+function TransferDetailHeader({
   projection,
   progress,
 }: {
@@ -344,21 +357,8 @@ function TransferDetailContent({
   const status = projectionStatus(projection);
   const direction = projectionDirection(projection);
 
-  const treeData = useMemo(
-    () =>
-      buildTreeDataFromOffer(
-        projection.files.map((file) => ({
-          fileId: file.fileId,
-          name: file.name,
-          relativePath: file.relativePath || file.name,
-          size: Number(file.size),
-        })),
-      ),
-    [projection.files],
-  );
-
   return (
-    <>
+    <View className="gap-5 pt-2">
       <View className="flex-row items-center gap-3">
         <DirectionIcon direction={direction} />
         <View className="min-w-0 flex-1">
@@ -382,28 +382,7 @@ function TransferDetailContent({
       <TransferProgressBlock projection={projection} progress={progress} />
 
       <DetailCard projection={projection} />
-
-      <View className="gap-2">
-        <View className="flex-row items-baseline justify-between">
-          <Text className="text-[13px] font-semibold text-muted-foreground">
-            <Trans>文件</Trans>
-          </Text>
-          <Text className="text-[11px] text-muted-foreground">
-            {status === "transferring" && progress ? (
-              `${progress.completedFiles}/${projection.files.length}`
-            ) : (
-              <Trans>{projection.files.length} 项</Trans>
-            )}
-          </Text>
-        </View>
-        <FileTree
-          mode={status === "transferring" ? "transfer" : "select"}
-          dataLoader={treeData.dataLoader}
-          rootChildren={treeData.rootChildren}
-          progress={progress ?? null}
-        />
-      </View>
-    </>
+    </View>
   );
 }
 

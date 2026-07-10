@@ -1,7 +1,20 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import type {
+  FileBrowserScope,
+  FileBrowserView,
+} from "@/components/file-browser/types";
 import type { DiscoveryModePreference } from "@/core/network-discovery";
+
+export const DEFAULT_FILE_BROWSER_VIEWS: Record<
+  FileBrowserScope,
+  FileBrowserView
+> = {
+  send: "tree",
+  transfer: "tree",
+  inbox: "grid",
+};
 
 interface PreferencesState {
   /** 用户自定义设备名,空字符串走系统 hostname / Device.deviceName fallback */
@@ -20,6 +33,7 @@ interface PreferencesState {
   customBootstrapNodes: string[];
   /** 用户自定义接收文件保存目录的 URI(file:// 或 content://);null 走默认 transfersInboxUri */
   receivePath: string | null;
+  fileBrowserViews: Record<FileBrowserScope, FileBrowserView>;
   setDeviceName: (name: string) => void;
   setAutoStart: (value: boolean) => void;
   setDiscoveryMode: (mode: DiscoveryModePreference) => void;
@@ -29,6 +43,7 @@ interface PreferencesState {
   addBootstrapNode: (addr: string) => void;
   removeBootstrapNode: (addr: string) => void;
   setReceivePath: (uri: string | null) => void;
+  setFileBrowserView: (scope: FileBrowserScope, view: FileBrowserView) => void;
 }
 
 type PersistedPreferences = Partial<
@@ -42,6 +57,7 @@ type PersistedPreferences = Partial<
     | "publicReachability"
     | "customBootstrapNodes"
     | "receivePath"
+    | "fileBrowserViews"
   >
 >;
 
@@ -56,6 +72,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       publicReachability: true,
       customBootstrapNodes: [],
       receivePath: null,
+      fileBrowserViews: DEFAULT_FILE_BROWSER_VIEWS,
 
       setDeviceName(name) {
         set({ deviceName: name.trim() });
@@ -100,6 +117,12 @@ export const usePreferencesStore = create<PreferencesState>()(
       setReceivePath(uri) {
         set({ receivePath: uri && uri.length > 0 ? uri : null });
       },
+
+      setFileBrowserView(scope, view) {
+        set((state) => ({
+          fileBrowserViews: { ...state.fileBrowserViews, [scope]: view },
+        }));
+      },
     }),
     {
       name: "swarmdrop-preferences",
@@ -113,6 +136,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         publicReachability: state.publicReachability,
         customBootstrapNodes: state.customBootstrapNodes,
         receivePath: state.receivePath,
+        fileBrowserViews: state.fileBrowserViews,
       }),
       merge: (persisted, current) => {
         const stored =
@@ -151,8 +175,21 @@ export const usePreferencesStore = create<PreferencesState>()(
           stored.receivePath === null
             ? { receivePath: stored.receivePath }
             : {}),
+          fileBrowserViews: mergeFileBrowserViews(stored.fileBrowserViews),
         };
       },
     },
   ),
 );
+
+function mergeFileBrowserViews(
+  stored: PersistedPreferences["fileBrowserViews"],
+): Record<FileBrowserScope, FileBrowserView> {
+  const views = { ...DEFAULT_FILE_BROWSER_VIEWS };
+  if (!stored || typeof stored !== "object") return views;
+  for (const scope of ["send", "transfer", "inbox"] as const) {
+    const value = stored[scope];
+    if (value === "tree" || value === "grid") views[scope] = value;
+  }
+  return views;
+}

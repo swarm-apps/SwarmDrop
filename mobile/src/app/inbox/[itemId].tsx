@@ -36,6 +36,12 @@ import {
 } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import {
+  FileBrowser,
+  type FileBrowserActions,
+  fromInboxFiles,
+  inboxFileId,
+} from "@/components/file-browser";
+import {
   AppScreen,
   BottomActionBar,
   Surface,
@@ -54,7 +60,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { openFileWithSystem, shareFileWithSystem } from "@/lib/open-file";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
-import { cn, parentDirOf } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { type InboxFileEntry, useInboxStore } from "@/stores/inbox-store";
 
 export default function InboxDetailScreen() {
@@ -284,6 +290,33 @@ export default function InboxDetailScreen() {
     [dismissActionsSheet],
   );
 
+  const fileItems = useMemo(
+    () =>
+      detail && itemId
+        ? fromInboxFiles(itemId, detail.files, inboxPreviewUri)
+        : [],
+    [detail, itemId],
+  );
+  const fileBrowserActions = useMemo<FileBrowserActions>(
+    () => ({
+      openItem: (item) => {
+        const file = detail?.files.find(
+          (candidate) =>
+            itemId && inboxFileId(itemId, candidate.id) === item.id,
+        );
+        if (file) void openFile(file);
+      },
+      shareItem: (item) => {
+        const file = detail?.files.find(
+          (candidate) =>
+            itemId && inboxFileId(itemId, candidate.id) === item.id,
+        );
+        if (file) void shareFile(file);
+      },
+    }),
+    [detail, itemId, openFile, shareFile],
+  );
+
   return (
     <AppScreen testID="inbox-detail-screen" contentClassName="px-0 pb-0 pt-0">
       <SettingsHeader
@@ -368,92 +401,57 @@ export default function InboxDetailScreen() {
         </View>
       ) : (
         <>
-          <ScrollView
-            className="flex-1"
-            showsVerticalScrollIndicator={false}
-            contentContainerClassName="gap-5 px-5 pb-8 pt-3"
-          >
-            {previewImageFile ? (
-              <ImagePreview file={previewImageFile} />
-            ) : previewVideoFile ? (
-              <VideoPreview file={previewVideoFile} />
-            ) : excerptFile ? (
-              <TextExcerptCard
-                kind={detail.item.contentKind}
-                file={excerptFile}
-              />
-            ) : null}
-
-            <View className="gap-3" testID="inbox-detail-summary">
-              <View className="flex-row items-center gap-3">
-                {!hasRichPreview ? (
-                  <TypeChip
-                    missing={itemMissing}
-                    multi={fileCount > 1}
-                    primaryFile={primaryFile}
-                  />
-                ) : null}
-                <View className="min-w-0 flex-1 gap-1">
-                  <Text
-                    className="text-[20px] font-semibold leading-7 tracking-tight text-foreground"
-                    numberOfLines={3}
-                  >
-                    {title}
-                  </Text>
-                  <Text
-                    className="text-[12px] leading-5 text-muted-foreground"
-                    numberOfLines={1}
-                  >
-                    <Trans>来自</Trans> {detail.item.sourceName}
-                    {" · "}
-                    {formatRelativeTime(detail.item.receivedAt)}
-                    {" · "}
-                    {fileCount > 1 ? (
-                      <>
-                        {fileCount} <Trans>项</Trans>
-                        {" · "}
-                      </>
-                    ) : null}
-                    {formatBytes(detail.item.totalSize)}
-                  </Text>
-                </View>
-              </View>
-              {detail.item.missing || archived ? (
-                <View className="flex-row flex-wrap gap-2">
-                  {detail.item.missing ? (
-                    <StatePill tone="missing" label={<Trans>文件缺失</Trans>} />
-                  ) : null}
-                  {archived ? (
-                    <StatePill tone="muted" label={<Trans>已归档</Trans>} />
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
-
-            {detail.files.length > 1 ? (
-              <IncludedFiles files={detail.files} onOpenFile={openFile} />
-            ) : null}
-
-            <DetailsPanel
-              detail={detail}
-              expanded={detailsExpanded}
-              onToggle={() => setDetailsExpanded((value) => !value)}
+          {detail.files.length > 1 ? (
+            <FileBrowser
+              items={fileItems}
+              scope="inbox"
+              actions={fileBrowserActions}
+              resetKey={detail.item.id}
+              testID="inbox-detail-file-browser"
+              title={<Trans>包含内容</Trans>}
+              contentHeader={
+                <InboxDetailContent
+                  detail={detail}
+                  title={title}
+                  archived={archived}
+                  itemMissing={itemMissing}
+                  fileCount={fileCount}
+                  primaryFile={primaryFile}
+                  hasRichPreview={hasRichPreview}
+                  previewImageFile={previewImageFile}
+                  previewVideoFile={previewVideoFile}
+                  excerptFile={excerptFile}
+                  detailsExpanded={detailsExpanded}
+                  onToggleDetails={() => setDetailsExpanded((value) => !value)}
+                  transferSessionId={transferSessionId}
+                  onOpenTransfer={openTransfer}
+                />
+              }
             />
-
-            {transferSessionId ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={openTransfer}
-                testID="inbox-detail-transfer-link"
-                className="min-h-12 flex-row items-center justify-between gap-3 rounded-lg border border-border bg-card px-3.5 active:opacity-70"
-              >
-                <Text className="text-[13px] font-semibold text-foreground">
-                  <Trans>查看传输过程</Trans>
-                </Text>
-                <ExternalLink color={colors.mutedForeground} size={17} />
-              </Pressable>
-            ) : null}
-          </ScrollView>
+          ) : (
+            <ScrollView
+              className="flex-1"
+              showsVerticalScrollIndicator={false}
+              contentContainerClassName="px-5 pb-8 pt-3"
+            >
+              <InboxDetailContent
+                detail={detail}
+                title={title}
+                archived={archived}
+                itemMissing={itemMissing}
+                fileCount={fileCount}
+                primaryFile={primaryFile}
+                hasRichPreview={hasRichPreview}
+                previewImageFile={previewImageFile}
+                previewVideoFile={previewVideoFile}
+                excerptFile={excerptFile}
+                detailsExpanded={detailsExpanded}
+                onToggleDetails={() => setDetailsExpanded((value) => !value)}
+                transferSessionId={transferSessionId}
+                onOpenTransfer={openTransfer}
+              />
+            </ScrollView>
+          )}
 
           <DetailActionBar
             primaryFile={primaryFile}
@@ -519,6 +517,120 @@ export default function InboxDetailScreen() {
         />
       ) : null}
     </AppScreen>
+  );
+}
+
+interface InboxDetailContentProps {
+  detail: MobileInboxItemDetail;
+  title: string;
+  archived: boolean;
+  itemMissing: boolean;
+  fileCount: number;
+  primaryFile: InboxFileEntry | null;
+  hasRichPreview: boolean;
+  previewImageFile: InboxFileEntry | null;
+  previewVideoFile: InboxFileEntry | null;
+  excerptFile: InboxFileEntry | null;
+  detailsExpanded: boolean;
+  onToggleDetails: () => void;
+  transferSessionId?: string;
+  onOpenTransfer: () => void;
+}
+
+function InboxDetailContent({
+  detail,
+  title,
+  archived,
+  itemMissing,
+  fileCount,
+  primaryFile,
+  hasRichPreview,
+  previewImageFile,
+  previewVideoFile,
+  excerptFile,
+  detailsExpanded,
+  onToggleDetails,
+  transferSessionId,
+  onOpenTransfer,
+}: InboxDetailContentProps) {
+  const colors = useThemeColors();
+
+  return (
+    <View className="gap-5">
+      {previewImageFile ? (
+        <ImagePreview file={previewImageFile} />
+      ) : previewVideoFile ? (
+        <VideoPreview file={previewVideoFile} />
+      ) : excerptFile ? (
+        <TextExcerptCard kind={detail.item.contentKind} file={excerptFile} />
+      ) : null}
+
+      <View className="gap-3" testID="inbox-detail-summary">
+        <View className="flex-row items-center gap-3">
+          {!hasRichPreview ? (
+            <TypeChip
+              missing={itemMissing}
+              multi={fileCount > 1}
+              primaryFile={primaryFile}
+            />
+          ) : null}
+          <View className="min-w-0 flex-1 gap-1">
+            <Text
+              className="text-[20px] font-semibold leading-7 tracking-tight text-foreground"
+              numberOfLines={3}
+            >
+              {title}
+            </Text>
+            <Text
+              className="text-[12px] leading-5 text-muted-foreground"
+              numberOfLines={1}
+            >
+              <Trans>来自</Trans> {detail.item.sourceName}
+              {" · "}
+              {formatRelativeTime(detail.item.receivedAt)}
+              {" · "}
+              {fileCount > 1 ? (
+                <>
+                  {fileCount} <Trans>项</Trans>
+                  {" · "}
+                </>
+              ) : null}
+              {formatBytes(detail.item.totalSize)}
+            </Text>
+          </View>
+        </View>
+        {detail.item.missing || archived ? (
+          <View className="flex-row flex-wrap gap-2">
+            {detail.item.missing ? (
+              <StatePill tone="missing" label={<Trans>文件缺失</Trans>} />
+            ) : null}
+            {archived ? (
+              <StatePill tone="muted" label={<Trans>已归档</Trans>} />
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+
+      <DetailsPanel
+        detail={detail}
+        expanded={detailsExpanded}
+        onToggle={onToggleDetails}
+      />
+
+      {transferSessionId ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onOpenTransfer}
+          testID="inbox-detail-transfer-link"
+          className="min-h-12 flex-row items-center justify-between gap-3 rounded-lg border border-border bg-card px-3.5 active:opacity-70"
+        >
+          <Text className="text-[13px] font-semibold text-foreground">
+            <Trans>查看传输过程</Trans>
+          </Text>
+          <ExternalLink color={colors.mutedForeground} size={17} />
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -922,92 +1034,6 @@ function DetailActionBar({
   );
 }
 
-function IncludedFiles({
-  files,
-  onOpenFile,
-}: {
-  files: InboxFileEntry[];
-  onOpenFile: (file: InboxFileEntry) => void;
-}) {
-  return (
-    <View className="gap-2.5" testID="inbox-detail-files">
-      {/* 计数不再重复:标题区副行已有「N 项 · 大小」 */}
-      <Text className="text-[15px] font-semibold text-foreground">
-        <Trans>包含内容</Trans>
-      </Text>
-      <View className="overflow-hidden rounded-lg border border-border bg-card">
-        {files.map((file, index) => (
-          <FileRow
-            key={file.id}
-            file={file}
-            index={index}
-            onOpenFile={onOpenFile}
-            separated={index > 0}
-          />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function FileRow({
-  file,
-  index,
-  onOpenFile,
-  separated = false,
-}: {
-  file: InboxFileEntry;
-  index: number;
-  onOpenFile: (file: InboxFileEntry) => void;
-  separated?: boolean;
-}) {
-  const { t } = useLingui();
-  const colors = useThemeColors();
-  const Icon = fileIcon(file.name);
-  // 相对路径只展示目录部分(尾段就是文件名,重复);平铺接收(无目录)时不展示。
-  // checksum 属协议细节,不上一级界面。
-  const pathDir = parentDirOf(file.relativePath);
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={t`打开 ${file.name}`}
-      onPress={() => onOpenFile(file)}
-      disabled={file.missing}
-      testID={`inbox-file-share-${index}`}
-      className={cn(
-        "min-h-16 flex-row items-center gap-3 bg-card p-3 active:bg-muted",
-        separated ? "border-t border-border" : "",
-      )}
-    >
-      <View className="size-11 items-center justify-center rounded-xl bg-muted">
-        {file.missing ? (
-          <FileWarning color={colors.destructive} size={18} />
-        ) : (
-          <Icon color={colors.foreground} size={18} />
-        )}
-      </View>
-      <View className="min-w-0 flex-1 gap-0.5">
-        <View className="flex-row items-center gap-2">
-          <Text
-            className="min-w-0 flex-1 text-[13px] font-semibold text-foreground"
-            numberOfLines={1}
-          >
-            {file.name}
-          </Text>
-          {file.missing ? (
-            <StatePill tone="missing" label={<Trans>缺失</Trans>} />
-          ) : null}
-        </View>
-        <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
-          {formatBytes(file.size)}
-          {pathDir ? ` · ${pathDir}` : null}
-        </Text>
-      </View>
-      <ExternalLink color={colors.mutedForeground} size={16} />
-    </Pressable>
-  );
-}
-
 function DetailsPanel({
   detail,
   expanded,
@@ -1198,6 +1224,14 @@ function isMissingFileError(err: unknown, file: InboxFileEntry): boolean {
   // 不靠错误文案判断（本地化 / 不同平台下英文子串会漏判）：复查文件是否还在原位。
   // 同样只认「明确不存在」，查询失败不判缺失。
   return fileExists(file.localPath) === false;
+}
+
+function inboxPreviewUri(file: InboxFileEntry): string | undefined {
+  return !file.missing &&
+    file.localPath.startsWith("file://") &&
+    isImageFile(file.name)
+    ? file.localPath
+    : undefined;
 }
 
 function fileIcon(name: string): LucideIcon {

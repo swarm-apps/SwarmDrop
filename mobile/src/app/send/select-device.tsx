@@ -5,7 +5,7 @@
  * 流程：
  *   1. 顶部 device header（不再让用户选设备，已经在主屏选过）
  *   2. 「添加文件 / 添加文件夹 / 照片 / 视频」按钮组，多次点击累加
- *   3. file-tree（mode=select）渲染已选；点 X 移除单个文件 / 子目录
+ *   3. FileBrowser 渲染已选；点 X 移除单个文件 / 子目录
  *   4. 底部「取消 / 发送」操作栏；发送过程显示 prepareSend 进度条
  *   5. 发送成功 → router.replace 到 `/transfer/[sessionId]` 看实时进度
  */
@@ -28,7 +28,12 @@ import type {
 } from "react-native-swarmdrop-core";
 import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
-import { buildTreeDataFromSelection, FileTree } from "@/components/file-tree";
+import {
+  FileBrowser,
+  type FileBrowserActions,
+  fromSelectedFiles,
+} from "@/components/file-browser";
+import { BottomActionBar } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import {
   calcPercent,
@@ -67,7 +72,8 @@ export default function SendPreparePage() {
     runtimeState,
     selectedFiles,
     appendFiles,
-    removeSelectedByPath,
+    removeSelectedBySourceId,
+    removeSelectedDirectory,
     clearSelectedFiles,
   } = useMobileCoreStore(
     useShallow((s) => ({
@@ -76,7 +82,8 @@ export default function SendPreparePage() {
       runtimeState: s.runtimeState,
       selectedFiles: s.selectedFiles,
       appendFiles: s.appendFiles,
-      removeSelectedByPath: s.removeSelectedByPath,
+      removeSelectedBySourceId: s.removeSelectedBySourceId,
+      removeSelectedDirectory: s.removeSelectedDirectory,
       clearSelectedFiles: s.clearSelectedFiles,
     })),
   );
@@ -115,17 +122,18 @@ export default function SendPreparePage() {
     });
   }, []);
 
-  // ── 文件树数据 ─────────────────────────────────────────────
-  const treeData = useMemo(
-    () =>
-      buildTreeDataFromSelection(
-        selectedFiles.map((f) => ({
-          name: f.name,
-          relativePath: f.relativePath,
-          size: Number(f.size),
-        })),
-      ),
+  const browserItems = useMemo(
+    () => fromSelectedFiles(selectedFiles),
     [selectedFiles],
+  );
+  const browserActions = useMemo<FileBrowserActions>(
+    () => ({
+      removeItem: (item) => {
+        if (item.sourceId) removeSelectedBySourceId(item.sourceId);
+      },
+      removeDirectory: removeSelectedDirectory,
+    }),
+    [removeSelectedBySourceId, removeSelectedDirectory],
   );
 
   const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0n);
@@ -238,48 +246,21 @@ export default function SendPreparePage() {
     <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
       <SettingsHeader title={t`发送到 ${displayName}`} />
 
-      <View className="flex-1 gap-3 px-5 pt-2">
-        <DeviceHeader device={device} runtimeState={runtimeState} />
-
-        <AddSourceButtons disabled={sending} onPick={handlePick} />
-
-        {selectedFiles.length > 0 ? (
-          <View className="gap-2">
-            <View className="flex-row items-center justify-between">
-              <Text className="text-sm font-medium text-foreground">
-                <Trans>已选文件</Trans>
-              </Text>
-              <Text className="text-xs text-muted-foreground">
-                <Trans>
-                  共 {selectedFiles.length} 项 ·{" "}
-                  {formatBytes(Number(totalSize))}
-                </Trans>
-              </Text>
-            </View>
-            <FileTree
-              mode="select"
-              dataLoader={treeData.dataLoader}
-              rootChildren={treeData.rootChildren}
-              onRemove={removeSelectedByPath}
-            />
+      <FileBrowser
+        items={browserItems}
+        scope="send"
+        actions={browserActions}
+        title={<Trans>已选文件</Trans>}
+        contentHeader={
+          <View className="gap-3 pt-2">
+            <DeviceHeader device={device} runtimeState={runtimeState} />
+            <AddSourceButtons disabled={sending} onPick={handlePick} />
           </View>
-        ) : (
-          <View className="flex-1 items-center justify-center gap-2 py-6">
-            <View className="size-14 items-center justify-center rounded-full bg-muted">
-              <FileText color={colors.mutedForeground} size={26} />
-            </View>
-            <Text className="text-[13px] text-muted-foreground">
-              <Trans>还没有选择任何文件</Trans>
-            </Text>
-            <Text className="text-[11px] text-muted-foreground">
-              <Trans>点击上方按钮添加文件或文件夹</Trans>
-            </Text>
-          </View>
-        )}
-      </View>
+        }
+        testID="send-file-browser"
+      />
 
-      {/* 底部操作栏 */}
-      <View className="gap-2 border-t border-border bg-card px-5 py-3">
+      <BottomActionBar testID="send-action-bar">
         {prepareProgress ? (
           <PrepareProgressBar progress={prepareProgress} />
         ) : (
@@ -329,7 +310,7 @@ export default function SendPreparePage() {
             </View>
           </View>
         )}
-      </View>
+      </BottomActionBar>
     </SafeAreaView>
   );
 }
@@ -426,7 +407,7 @@ function PrepareProgressBar({ progress }: { progress: MobilePrepareProgress }) {
   const total = Number(progress.totalBytes);
   const hashed = Number(progress.bytesHashed);
   return (
-    <View className="gap-2">
+    <View className="flex-1 gap-2">
       <View className="flex-row items-center justify-between gap-3">
         <Text
           className="flex-1 text-[12px] text-muted-foreground"

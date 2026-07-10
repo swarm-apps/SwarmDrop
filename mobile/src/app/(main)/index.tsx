@@ -311,6 +311,20 @@ export default function DevicesScreen() {
         )}
       </View>
 
+      {__DEV__ ? (
+        <Pressable
+          onPress={() => router.push("/e2e/file-browser" as never)}
+          accessibilityRole="button"
+          accessibilityLabel="Open file browser fixture"
+          testID="devices-open-file-browser-fixture"
+          className="min-h-11 items-center justify-center rounded-lg border border-dashed border-border active:opacity-70"
+        >
+          <Text className="text-[11px] text-muted-foreground">
+            WebDriver · FileBrowser fixture
+          </Text>
+        </Pressable>
+      ) : null}
+
       <NodeControlSheet ref={nodeSheetRef} />
       <AddDeviceSheet
         ref={addDeviceSheetRef}

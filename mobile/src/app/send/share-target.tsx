@@ -10,29 +10,23 @@
  */
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { useRouter } from "expo-router";
-import {
-  Check,
-  File as FileIcon,
-  Image as ImageIcon,
-  Inbox,
-  type LucideIcon,
-  Send,
-  Video,
-  X,
-} from "lucide-react-native";
+import { type Href, useNavigation, useRouter } from "expo-router";
+import { Check, Files, Inbox, Send } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type {
   MobileDevice as DeviceInfo,
   MobilePrepareProgress,
-  MobileTransferFile as TransferFile,
 } from "react-native-swarmdrop-core";
 import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { ConnectionBadge } from "@/components/connection-badge";
-import { EmptyState, Surface } from "@/components/mobile/screen";
+import {
+  BottomActionBar,
+  EmptyState,
+  Surface,
+} from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import {
   calcPercent,
@@ -61,10 +55,10 @@ type ThemeColors = ReturnType<typeof useThemeColors>;
 export default function ShareTargetScreen() {
   const { t } = useLingui();
   const router = useRouter();
+  const navigation = useNavigation();
   const colors = useThemeColors();
 
   const sharedFiles = useShareStore((s) => s.sharedFiles);
-  const removeSharedByPath = useShareStore((s) => s.removeSharedByPath);
   const clearSharedFiles = useShareStore((s) => s.clearSharedFiles);
 
   const { devices, pairedDevicesCache, runtimeState, startNode } =
@@ -83,8 +77,11 @@ export default function ShareTargetScreen() {
   const [prepareProgress, setPrepareProgress] =
     useState<MobilePrepareProgress | null>(null);
 
-  // 离屏(返回/发送成功后 replace)统一清空在途分享,避免下次进入带上旧文件。
-  useEffect(() => () => clearSharedFiles(), [clearSharedFiles]);
+  // 当前 screen 真正从栈中移除时清理；push 到文件检查页不会触发 beforeRemove。
+  useEffect(
+    () => navigation.addListener("beforeRemove", clearSharedFiles),
+    [clearSharedFiles, navigation],
+  );
 
   // 准备阶段进度(与发送准备页一致,订阅 PrepareProgress 事件)。
   useEffect(() => {
@@ -126,6 +123,10 @@ export default function ShareTargetScreen() {
   const totalSize = sharedFiles.reduce((sum, f) => sum + f.size, 0n);
   const canSend = !sending && sharedFiles.length > 0 && selectedDevice !== null;
 
+  const openSharedFiles = useCallback(() => {
+    router.push("/send/shared-files" as Href);
+  }, [router]);
+
   const onSend = useCallback(async () => {
     if (!selectedDevice || sending || sharedFiles.length === 0) return;
     setSending(true);
@@ -165,45 +166,55 @@ export default function ShareTargetScreen() {
     <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
       <SettingsHeader title={t`发送到`} />
 
-      <ScrollView
-        contentContainerClassName="gap-4 px-5 pt-2 pb-4"
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ① 分享的文件 */}
-        <Surface className="gap-3">
-          <View className="flex-row items-center justify-between gap-3">
-            <Text className="text-[15px] font-semibold text-foreground">
-              <Trans>{sharedFiles.length} 个文件</Trans>
-            </Text>
-            <Text className="text-[12px] text-muted-foreground">
-              {formatBytes(Number(totalSize))}
+      <FlatList
+        data={targetDevices}
+        keyExtractor={(device) => device.peerId}
+        renderItem={({ item }) => (
+          <TargetDeviceRow
+            device={item}
+            selected={item.peerId === selectedPeerId}
+            colors={colors}
+            onPress={() => setSelectedPeerId(item.peerId)}
+          />
+        )}
+        ItemSeparatorComponent={DeviceSeparator}
+        contentContainerStyle={SHARE_TARGET_CONTENT_STYLE}
+        ListHeaderComponent={
+          <View className="gap-4 pb-3">
+            <Surface className="gap-3">
+              <View className="flex-row items-center gap-3">
+                <View className="size-11 items-center justify-center rounded-xl bg-muted">
+                  <Files color={colors.foreground} size={20} />
+                </View>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[15px] font-semibold text-foreground">
+                    <Trans>{sharedFiles.length} 个文件</Trans>
+                  </Text>
+                  <Text className="text-[12px] text-muted-foreground">
+                    {formatBytes(totalSize)}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={openSharedFiles}
+                  disabled={sharedFiles.length === 0}
+                  accessibilityRole="button"
+                  accessibilityLabel={t`查看分享文件`}
+                  testID="share-target-review-files"
+                  className="min-h-11 justify-center rounded-xl border border-border px-3.5 active:opacity-70 disabled:opacity-50"
+                >
+                  <Text className="text-[12px] font-semibold text-foreground">
+                    <Trans>查看文件</Trans>
+                  </Text>
+                </Pressable>
+              </View>
+            </Surface>
+            <Text className="text-[13px] font-semibold text-muted-foreground">
+              <Trans>选择设备</Trans>
             </Text>
           </View>
-          {sharedFiles.length > 0 ? (
-            <View className="gap-1">
-              {sharedFiles.map((file) => (
-                <SharedFileRow
-                  key={file.relativePath}
-                  file={file}
-                  colors={colors}
-                  onRemove={() => removeSharedByPath(file.relativePath)}
-                  removeLabel={t`移除`}
-                />
-              ))}
-            </View>
-          ) : (
-            <Text className="text-[12px] text-muted-foreground">
-              <Trans>文件已全部移除，返回重新分享。</Trans>
-            </Text>
-          )}
-        </Surface>
-
-        {/* ② 选择设备 */}
-        <View className="gap-2.5">
-          <Text className="text-[13px] font-semibold text-muted-foreground">
-            <Trans>选择设备</Trans>
-          </Text>
-          {runtimeState !== "running" ? (
+        }
+        ListEmptyComponent={
+          runtimeState !== "running" ? (
             <View className="min-h-32 items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-card py-8">
               <ActivityIndicator color={colors.mutedForeground} />
               <View className="items-center gap-1">
@@ -215,7 +226,7 @@ export default function ShareTargetScreen() {
                 </Text>
               </View>
             </View>
-          ) : targetDevices.length === 0 ? (
+          ) : (
             <EmptyState
               icon={Inbox}
               title={<Trans>没有在线设备</Trans>}
@@ -225,24 +236,13 @@ export default function ShareTargetScreen() {
                 </Trans>
               }
             />
-          ) : (
-            <View className="gap-2">
-              {targetDevices.map((device) => (
-                <TargetDeviceRow
-                  key={device.peerId}
-                  device={device}
-                  selected={device.peerId === selectedPeerId}
-                  colors={colors}
-                  onPress={() => setSelectedPeerId(device.peerId)}
-                />
-              ))}
-            </View>
-          )}
-        </View>
-      </ScrollView>
+          )
+        }
+        testID="share-target-device-list"
+      />
 
       {/* 底部发送栏 */}
-      <View className="gap-2 border-t border-border bg-card px-5 py-3">
+      <BottomActionBar testID="share-target-action-bar">
         {sending && prepareProgress ? (
           <SharePrepareProgress progress={prepareProgress} />
         ) : (
@@ -277,82 +277,23 @@ export default function ShareTargetScreen() {
             </Text>
           </Pressable>
         )}
-      </View>
+      </BottomActionBar>
     </SafeAreaView>
   );
 }
 
-/* ─── 分享文件行 ─── */
-
-const IMAGE_EXTS = [
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".gif",
-  ".webp",
-  ".heic",
-  ".heif",
-  ".bmp",
-  ".tiff",
-  ".avif",
-];
-const VIDEO_EXTS = [
-  ".mp4",
-  ".mov",
-  ".m4v",
-  ".webm",
-  ".mkv",
-  ".avi",
-  ".wmv",
-  ".flv",
-  ".3gp",
-];
-
-function fileIconFor(name: string): LucideIcon {
-  const lower = name.toLowerCase();
-  if (IMAGE_EXTS.some((e) => lower.endsWith(e))) return ImageIcon;
-  if (VIDEO_EXTS.some((e) => lower.endsWith(e))) return Video;
-  return FileIcon;
-}
-
-function SharedFileRow({
-  file,
-  colors,
-  onRemove,
-  removeLabel,
-}: {
-  file: TransferFile;
-  colors: ThemeColors;
-  onRemove: () => void;
-  removeLabel: string;
-}) {
-  const Icon = fileIconFor(file.name);
-  return (
-    <View className="flex-row items-center gap-3 py-1.5">
-      <Icon color={colors.mutedForeground} size={18} />
-      <Text
-        className="min-w-0 flex-1 text-[13px] text-foreground"
-        numberOfLines={1}
-      >
-        {file.name}
-      </Text>
-      <Text className="text-[11px] text-muted-foreground">
-        {formatBytes(Number(file.size))}
-      </Text>
-      <Pressable
-        onPress={onRemove}
-        hitSlop={10}
-        accessibilityRole="button"
-        accessibilityLabel={removeLabel}
-        className="rounded-full p-1 active:bg-destructive/15"
-      >
-        <X size={14} color={colors.mutedForeground} />
-      </Pressable>
-    </View>
-  );
-}
-
 /* ─── 可选目标设备行 ─── */
+
+const SHARE_TARGET_CONTENT_STYLE = {
+  flexGrow: 1,
+  paddingHorizontal: 20,
+  paddingTop: 8,
+  paddingBottom: 16,
+} as const;
+
+function DeviceSeparator() {
+  return <View className="h-2" />;
+}
 
 function TargetDeviceRow({
   device,
@@ -427,7 +368,7 @@ function SharePrepareProgress({
   const total = Number(progress.totalBytes);
   const hashed = Number(progress.bytesHashed);
   return (
-    <View className="gap-2 py-1">
+    <View className="flex-1 gap-2 py-1">
       <View className="flex-row items-center justify-between gap-3">
         <Text
           className="flex-1 text-[12px] text-muted-foreground"

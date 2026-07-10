@@ -240,9 +240,14 @@ export async function completeOnboardingIfNeeded() {
       "onboarding-enter-button",
       "devices-screen",
       "devices-header",
+      "file-browser-fixture-screen",
     ],
     30_000,
   );
+  const alreadyInApp =
+    initialScreen === "devices-screen" ||
+    initialScreen === "devices-header" ||
+    initialScreen === "file-browser-fixture-screen";
 
   if (initialScreen === "onboarding-start-button") {
     await byTestId("onboarding-start-button").click();
@@ -258,15 +263,26 @@ export async function completeOnboardingIfNeeded() {
     await byTestId("onboarding-device-name-continue-button").click();
   }
 
-  if (await existsByTestId("onboarding-enter-button", 30_000)) {
+  if (
+    !alreadyInApp &&
+    (await existsByTestId("onboarding-enter-button", 30_000))
+  ) {
     await dismissExpoWarningToast();
     await byTestId("onboarding-enter-button").click();
   }
 
-  await tapIfExists("onboarding-enter-button", 1_000);
+  if (!alreadyInApp) {
+    await tapIfExists("onboarding-enter-button", 1_000);
+  }
 
   return await waitForAnyTestId(
-    ["devices-screen", "devices-header", "inbox-header", "settings-header"],
+    [
+      "devices-screen",
+      "devices-header",
+      "inbox-header",
+      "settings-header",
+      "file-browser-fixture-screen",
+    ],
     45_000,
   );
 }

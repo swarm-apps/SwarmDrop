@@ -9,6 +9,11 @@ import type {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
+  removeSelectedDirectory as filterSelectedDirectory,
+  mergeSelectedFiles,
+  removeSelectedFile,
+} from "@/core/file-browser-identity";
+import {
   startForegroundKeepAlive,
   stopForegroundKeepAlive,
 } from "@/core/foreground-service";
@@ -92,10 +97,10 @@ type MobileCoreState = {
     receivePolicy?: MobileDeviceReceivePolicy,
   ) => Promise<DeviceInfo>;
   removePairedDevice: (peerId: string) => Promise<void>;
-  /** 追加文件到当前选择（多次选择叠加，去重按 relativePath） */
+  /** 追加文件到当前选择（多次选择叠加，按稳定 sourceId 去重） */
   appendFiles: (files: TransferFile[]) => void;
-  /** 移除选择中的某个 relativePath（目录以 / 结尾，会移除整个子树） */
-  removeSelectedByPath: (relativePath: string) => void;
+  removeSelectedBySourceId: (sourceId: string) => void;
+  removeSelectedDirectory: (relativeDirectory: string) => void;
   clearSelectedFiles: () => void;
   applyNetworkStatus: (status: NetworkStatus) => void;
   applyDevices: (devices: DeviceInfo[]) => void;
@@ -295,26 +300,21 @@ export const useMobileCoreStore = create<MobileCoreState>()(
 
       appendFiles(files) {
         if (files.length === 0) return;
-        const current = get().selectedFiles;
-        const seen = new Set(current.map((f) => f.relativePath));
-        const merged = [...current];
-        for (const f of files) {
-          if (!seen.has(f.relativePath)) {
-            merged.push(f);
-            seen.add(f.relativePath);
-          }
-        }
-        set({ selectedFiles: merged });
+        set({ selectedFiles: mergeSelectedFiles(get().selectedFiles, files) });
       },
 
-      removeSelectedByPath(relativePath) {
-        // 目录形态：以 "/" 结尾，移除其下所有子文件
-        const isDir = relativePath.endsWith("/");
+      removeSelectedBySourceId(sourceId) {
         set((s) => ({
-          selectedFiles: s.selectedFiles.filter((f) => {
-            if (isDir) return !f.relativePath.startsWith(relativePath);
-            return f.relativePath !== relativePath;
-          }),
+          selectedFiles: removeSelectedFile(s.selectedFiles, sourceId),
+        }));
+      },
+
+      removeSelectedDirectory(relativeDirectory) {
+        set((s) => ({
+          selectedFiles: filterSelectedDirectory(
+            s.selectedFiles,
+            relativeDirectory,
+          ),
         }));
       },
 

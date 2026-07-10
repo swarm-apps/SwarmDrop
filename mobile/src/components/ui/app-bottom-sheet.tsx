@@ -6,10 +6,11 @@
  * 内容少时不再留大片空白。取代此前部分 sheet 写死的 `snapPoints={["62%","88%"]}`
  * 固定百分比(`enableDynamicSizing={false}`)导致的底部留白 + 各 sheet 高度策略不一致。
  *
- * 两种内容容器:
+ * 三种内容容器:
  * - 默认(`scrollable` 省略):`BottomSheetView`,适合短内容,整体随内容高度收缩。
  * - `scrollable`:`BottomSheetScrollView` + `maxDynamicContentSize` 封顶(默认屏高 90%),
  *   内容超过上限时在 sheet 内滚动,适合长表单 / 带 footer 的编辑器。
+ * - `virtualized`:children 自己提供 `BottomSheetFlatList` 等虚拟列表；封装只提供固定高度容器。
  *
  * 参考基线:`InboxActionsSheet`(inbox/[itemId].tsx)。
  */
@@ -27,6 +28,7 @@ import { forwardRef, type ReactNode, useCallback } from "react";
 import {
   type StyleProp,
   useWindowDimensions,
+  View,
   type ViewStyle,
 } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -38,6 +40,8 @@ interface AppBottomSheetProps {
   children: ReactNode;
   /** true → 用可滚动容器 + maxDynamicContentSize 封顶(长内容 / 带 footer)。 */
   scrollable?: boolean;
+  /** true → children 自己提供 BottomSheetFlatList 等虚拟列表。 */
+  virtualized?: boolean;
   /** 可滚动时的最大高度占屏比,默认 0.9。 */
   maxHeightRatio?: number;
   /** 内容容器 padding 等样式(尤其带 footer 时给底部留位)。 */
@@ -49,6 +53,8 @@ interface AppBottomSheetProps {
   keyboardBehavior?: BottomSheetModalProps["keyboardBehavior"];
   keyboardBlurBehavior?: BottomSheetModalProps["keyboardBlurBehavior"];
   androidKeyboardInputMode?: BottomSheetModalProps["android_keyboardInputMode"];
+  snapPoints?: BottomSheetModalProps["snapPoints"];
+  enablePanDownToClose?: boolean;
   onDismiss?: () => void;
 }
 
@@ -59,6 +65,7 @@ export const AppBottomSheet = forwardRef<
   {
     children,
     scrollable = false,
+    virtualized = false,
     maxHeightRatio = 0.9,
     contentContainerStyle,
     contentTestID,
@@ -66,6 +73,8 @@ export const AppBottomSheet = forwardRef<
     keyboardBehavior,
     keyboardBlurBehavior,
     androidKeyboardInputMode,
+    snapPoints,
+    enablePanDownToClose = true,
     onDismiss,
   },
   ref,
@@ -80,19 +89,20 @@ export const AppBottomSheet = forwardRef<
         opacity={0.4}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={enablePanDownToClose ? "close" : "none"}
       />
     ),
-    [],
+    [enablePanDownToClose],
   );
 
   return (
     <BottomSheetModal
       ref={ref}
-      enableDynamicSizing
+      enableDynamicSizing={!virtualized}
+      snapPoints={virtualized ? (snapPoints ?? ["90%"]) : snapPoints}
       // 仅在可滚动时封顶:短内容(BottomSheetView)本就随内容收缩,无需上限也不会裁切。
       maxDynamicContentSize={scrollable ? height * maxHeightRatio : undefined}
-      enablePanDownToClose
+      enablePanDownToClose={enablePanDownToClose}
       onDismiss={onDismiss}
       keyboardBehavior={keyboardBehavior}
       keyboardBlurBehavior={keyboardBlurBehavior}
@@ -102,7 +112,14 @@ export const AppBottomSheet = forwardRef<
       backgroundStyle={{ backgroundColor: colors.card }}
       handleIndicatorStyle={{ backgroundColor: colors.border }}
     >
-      {scrollable ? (
+      {virtualized ? (
+        <View
+          testID={contentTestID}
+          style={[{ flex: 1 }, contentContainerStyle]}
+        >
+          {children}
+        </View>
+      ) : scrollable ? (
         <BottomSheetScrollView
           testID={contentTestID}
           contentContainerStyle={contentContainerStyle}
