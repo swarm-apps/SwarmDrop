@@ -14,7 +14,10 @@
     "format": "biome check --fix src/",
     "typecheck": "tsc --noEmit",
     "check:zustand-access": "node scripts/check-zustand-store-access.mjs",
-    "i18n:extract": "lingui extract --clean"
+    "i18n:extract": "lingui extract --clean",
+    "e2e:ios": "wdio run ./e2e/webdriver/wdio.ios.conf.ts",
+    "e2e:ios:driver": "appium driver list --installed",
+    "e2e:ios:doctor": "appium driver doctor xcuitest"
   },
   "dependencies": {
     "@expo/dom-webview": "^56.0.5",
@@ -99,7 +102,18 @@
     "@lingui/metro-transformer": "^6.0.1",
     "@react-native/babel-preset": "0.85.3",
     "@tailwindcss/postcss": "^4.3.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.1.1",
     "@types/react": "~19.2.2",
+    "@wdio/appium-service": "^9.29.1",
+    "@wdio/cli": "^9.29.1",
+    "@wdio/globals": "^9.29.1",
+    "@wdio/local-runner": "^9.29.1",
+    "@wdio/mocha-framework": "^9.29.1",
+    "@wdio/spec-reporter": "^9.29.1",
+    "appium": "^3.5.2",
+    "appium-xcuitest-driver": "^11.17.3",
+    "expect-webdriverio": "^5.7.0",
     "postcss": "^8.5.14",
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.3"

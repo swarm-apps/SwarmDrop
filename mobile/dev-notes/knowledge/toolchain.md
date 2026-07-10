@@ -128,7 +128,50 @@ compiler 介入会破坏 ubrn 的 turbo-module 形状。
 **相关文件**：[src/components/activity-projection-card.tsx](../../src/components/activity-projection-card.tsx)、
 [src/core/transfer-types.ts](../../src/core/transfer-types.ts)
 
-## Maestro / E2E
+## iOS WebDriver 与 Appium 录屏
+
+### iOS 端 E2E 改用 WebdriverIO + Appium XCUITest
+
+iOS 26 / Expo SDK 56 / RN 0.85 Fabric 下 Maestro selector 不稳定时，iOS 端自动化走
+WebDriver 协议：`pnpm e2e:ios` 会启动 Appium 3 + `appium-xcuitest-driver`，再由
+WebdriverIO 执行 `e2e/webdriver/test/specs/*.e2e.ts`。
+
+录制 demo 时继续使用同一个 Appium 会话录制屏幕，不要让 Maestro 另起一个 XCTest 会话：
+
+- 外层脚本设置 `SWARMDROP_MOBILE_RECORDING_PATH` 后，demo spec 调用
+  `browser.startRecordingScreen()`。
+- 流程完成并收到外层 `mobile-close` 信号后调用 `browser.stopRecordingScreen()`，把返回的 base64 MP4
+  写入指定路径。
+- 双端传输入口会把移动端原始视频写到桌面仓库的
+  `e2e/desktop/build/desktop-recordings/raw/ios-transfer-<timestamp>.mp4`。
+- Appium XCUITest 录屏需要录制主机安装 `ffmpeg`；iOS 真机和模拟器都支持该接口，但录屏不包含音频。
+- 真实设备的 WDA MJPEG 流固定使用 `10086` 端口；如果换机器或遇到端口占用，先检查该端口再修改
+  `e2e/webdriver/wdio.ios.conf.ts`。本机验证可通过 `SWARMDROP_MJPEG_SERVER_PORT` 临时覆盖，并设置
+  `SWARMDROP_APPIUM_SCREEN_RECORDING=1`。
+- iOS Simulator 默认不启动 WDA MJPEG，使用 `simctl io recordVideo --display=1`，避免 WDA
+  broadcaster 和 Simulator 视频捕获互相冲突；真实设备才使用 Appium `startRecordingScreen`。
+- 传输 demo 只有在移动端出现 `transfer-success-state`，且桌面端出现 `send-success-state` 后才算成功；失败
+  状态和超时都会让流程失败。
+
+这种方式只录 iOS 设备画面，不包含 OBS 的桌面背景、模拟器窗口边框或 Maestro 的 Flow 面板，适合后续
+交给 ffmpeg / Remotion 做裁切和双端合成。
+
+**正确做法**：
+- 选择器统一用 Accessibility ID：`await $("~onboarding-start-button").click()`。
+- React Native 关键交互要补稳定 `testID`；必要时同步 `accessibilityLabel`。iOS 上 `testID`
+  会映射到 accessibility identifier，是 Appium/XCUITest 的稳定锚点。
+- 已安装 dev build 时直接 `SWARMDROP_IOS_UDID=<udid> pnpm e2e:ios`；需要安装指定 `.app` 时设置
+  `SWARMDROP_IOS_APP_PATH=/path/to/SwarmDrop.app`。
+- `appium driver install xcuitest` 在本仓库会被 `workspace:*` 依赖绊住，因为它内部调用 npm 修改当前包；
+  用 pnpm 安装 `appium-xcuitest-driver` 到 devDependencies，Appium 3 可以从项目依赖中识别 driver。
+
+**不要做**：
+- 不要把 iOS Maestro 坐标点击当成稳定 gate；坐标只适合临时采样。
+- 不要把 `appium-xcuitest-driver` 只装到全局环境后假定 CI/其他机器可用。
+
+**相关文件**：[e2e/webdriver/wdio.ios.conf.ts](../../e2e/webdriver/wdio.ios.conf.ts),
+[e2e/webdriver/test/specs/onboarding.e2e.ts](../../e2e/webdriver/test/specs/onboarding.e2e.ts),
+[e2e/webdriver/README.md](../../e2e/webdriver/README.md)
 
 ### iOS 26 + Expo SDK 56 / RN 0.85 Fabric 下暂缓 Maestro selector 测试
 

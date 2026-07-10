@@ -79,6 +79,7 @@ export function PairingRequestHost() {
   return (
     <AlertDialog open={open}>
       <AlertDialogContent
+        testID="pairing-request-dialog"
         style={[
           {
             borderRadius: 20,
@@ -138,6 +139,7 @@ export function PairingRequestHost() {
             disabled={responding}
             accessibilityRole="button"
             accessibilityLabel={t`拒绝`}
+            testID="pairing-request-reject-button"
             className="h-12 flex-1 items-center justify-center rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
           >
             <Text className="text-base font-medium text-foreground">
@@ -149,6 +151,7 @@ export function PairingRequestHost() {
             disabled={responding || remaining === 0}
             accessibilityRole="button"
             accessibilityLabel={t`接受`}
+            testID="pairing-request-accept-button"
             className="h-12 flex-1 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
           >
             {responding ? (

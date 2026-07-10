@@ -12,13 +12,15 @@
 
 这篇文章想把同一个思路搬到移动端。主角是 [Maestro](https://docs.maestro.dev/)：一个用 YAML 描述移动端操作流程，并能生成截图、录屏、报告的 UI 自动化工具。对 SwarmDrop-RN 来说，它不只是 E2E 测试框架，更是一块 AI 开发验证资产。
 
+当前项目的落地边界已经明确：Android 单端 smoke 和临时 UI 探索仍可使用 Maestro；iOS 26 / Expo SDK 56 / RN 0.85 Fabric 下，长期 selector 流程和双端传输改用 WebdriverIO + Appium XCUITest。iOS 官网素材也由同一个 Appium 会话录屏，避免 Maestro 与 WebDriver 同时占用 XCTest。
+
 ## 先看这条链路
 
 在终端项目里，VHS 把 `.tape` 变成 GIF / MP4 / WebM。到了移动端，Maestro 做的是类似的事情：
 
 ```mermaid
 flowchart LR
-    A[Maestro YAML flow] --> B[Android Emulator<br/>iOS Simulator<br/>Physical Device]
+    A[Maestro YAML flow] --> B[Android Emulator<br/>临时 iOS 探索]
     B --> C[真实点击 / 输入 / 等待 / 断言]
     C --> D[截图 / 视频 / HTML 报告 / JUnit 报告]
     D --> E[回归测试]
@@ -202,13 +204,17 @@ flowchart LR
 
 ## 录制官网演示
 
-Maestro 可以把 flow 录成 MP4：
+Maestro 可以把独立 flow 录成 MP4：
 
 ```bash
 maestro record --local .maestro/demo/send-file.yaml build/swarmdrop-send-file.mp4
 ```
 
 建议始终使用 `--local`。这样录制在本机完成，不需要把原始屏幕和 flow 输出交给远端渲染。录制有最长时长限制，所以 demo flow 要短，最好控制在 30 到 60 秒内。
+
+对于 SwarmDrop 的 iOS 双端传输素材，不再用 Maestro 录制。请使用现有的 `pnpm --dir e2e/desktop record:transfer`：
+桌面端由 OBS 录制 Tauri 窗口，移动端由 WebDriver/Appium 的 `startRecordingScreen` / `stopRecordingScreen`
+录制纯设备画面，并且只有桌面端和移动端都进入成功状态后才结束。
 
 这里也要分清两种 flow：
 
@@ -267,7 +273,7 @@ maestro start-device --platform ios
 | 阶段 | 组合 | 目标 |
 |---|---|---|
 | 1 | Android 单端 | onboarding、设置、传输历史、权限弹窗 |
-| 2 | iOS 单端 | 同一批 UI 路径跨平台验证 |
+| 2 | iOS 单端 | 通过 WebDriver/Appium 验证和录屏，Maestro selector 暂不作为稳定 gate |
 | 3 | Desktop + Android | 桌面发送、移动端接收 |
 | 4 | Android + Desktop | 移动端发送、桌面接收 |
 | 5 | Android + iOS | 移动端之间配对和传输 |
@@ -286,7 +292,7 @@ flowchart TB
     G --> H
 ```
 
-不要一开始就追求一个 Maestro flow 编排完整双设备传输。更稳的方式是外面加一层 orchestrator：桌面端由 Tauri MCP 操作，移动端由 Maestro 操作，AI 或脚本负责串联节奏。
+不要一开始就追求一个 Maestro flow 编排完整双设备传输。当前 iOS 双端传输由外层 orchestrator 串联：桌面端和移动端都由 WebDriver 操作，桌面端用 OBS 录制，移动端用 Appium 录制，并分别等待成功状态。
 
 ## 让 flow 稳定的项目约定
 

@@ -509,6 +509,7 @@ function TransferProgressBlock({
     const avgSpeed = duration > 0 ? Number(total) / duration : null;
     return (
       <StatusBanner
+        testID="transfer-success-state"
         chip={
           <View className="size-11 items-center justify-center rounded-full bg-success/15">
             <CheckCircle2 size={22} color={colors.success} strokeWidth={2.25} />
@@ -531,6 +532,7 @@ function TransferProgressBlock({
   if (status === "failed") {
     return (
       <StatusBanner
+        testID="transfer-failure-state"
         chip={
           <View className="size-11 items-center justify-center rounded-full bg-destructive/15">
             <XCircle size={22} color={colors.destructive} strokeWidth={2.25} />
@@ -583,16 +585,18 @@ function TransferProgressBlock({
  * 状态色只花在 chip 上,文字保持中性 —— 头部 StatusBadge 已承载彩色状态文字。
  */
 function StatusBanner({
+  testID,
   chip,
   title,
   subtitle,
 }: {
+  testID?: string;
   chip: React.ReactNode;
   title: React.ReactNode;
   subtitle?: React.ReactNode;
 }) {
   return (
-    <Surface className="flex-row items-center gap-3 p-4">
+    <Surface testID={testID} className="flex-row items-center gap-3 p-4">
       {chip}
       <View className="min-w-0 flex-1 gap-0.5">
         <Text className="text-[15px] font-semibold text-foreground">
