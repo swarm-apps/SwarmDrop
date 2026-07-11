@@ -40,9 +40,6 @@ const FGS_ANDROID_BASE = {
   // → 被系统渲染成深色块。color 给图标染品牌绿。
   smallIcon: "ic_notification",
   color: "#0F8F7A",
-  // 展开通知右侧的大图标 = 彩色品牌 logo(圆形裁切,与 launcher 图标一致)。
-  largeIcon: require("../../assets/images/icon.png"),
-  circularLargeIcon: true,
   asForegroundService: true,
   foregroundServiceTypes: [FGS_TYPE],
   ongoing: true,

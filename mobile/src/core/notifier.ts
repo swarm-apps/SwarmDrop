@@ -85,9 +85,6 @@ async function notifyTransferOffer(
       // 状态栏单色小图标(见 foreground-service.ts 说明);color 染品牌绿。
       smallIcon: "ic_notification",
       color: "#0F8F7A",
-      // 展开通知右侧的彩色品牌 logo(圆形裁切)。
-      largeIcon: require("../../assets/images/icon.png"),
-      circularLargeIcon: true,
       pressAction: { id: "default" },
     },
   });
@@ -117,9 +114,6 @@ async function notifyPairingRequest(
       // 状态栏单色小图标(见 foreground-service.ts 说明);color 染品牌绿。
       smallIcon: "ic_notification",
       color: "#0F8F7A",
-      // 展开通知右侧的彩色品牌 logo(圆形裁切)。
-      largeIcon: require("../../assets/images/icon.png"),
-      circularLargeIcon: true,
       pressAction: { id: "default" },
     },
   });
