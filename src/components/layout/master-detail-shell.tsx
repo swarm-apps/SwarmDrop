@@ -99,12 +99,14 @@ export function MasterDetailShell({
   list,
   detail,
   drawerLabel,
+  testId,
   /** 宽屏左栏最大宽度（px）。 */
   listMaxWidth = 360,
 }: {
   list: (ctx: ListContext) => ReactNode;
   detail: (ctx: DetailContext) => ReactNode;
   drawerLabel: string;
+  testId?: string;
   listMaxWidth?: number;
 }) {
   const isWide = useIsWideLayout();
@@ -121,7 +123,10 @@ export function MasterDetailShell({
 
   if (isWide) {
     return (
-      <main className="relative flex h-full flex-1 flex-col bg-transparent">
+      <main
+        data-testid={testId}
+        className="relative flex h-full flex-1 flex-col bg-transparent"
+      >
         <div
           className="mx-auto grid h-full w-full max-w-[1240px] grid-rows-1 gap-6 overflow-hidden p-6"
           style={{
@@ -138,7 +143,10 @@ export function MasterDetailShell({
   }
 
   return (
-    <main className="relative flex h-full flex-1 flex-col bg-transparent">
+    <main
+      data-testid={testId}
+      className="relative flex h-full flex-1 flex-col bg-transparent"
+    >
       <div className="mx-auto flex h-full w-full max-w-[880px] flex-col overflow-y-auto p-4 sm:p-5">
         {detail({ openList: () => setDrawerOpen(true), isCompact: true })}
       </div>

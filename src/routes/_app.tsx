@@ -50,10 +50,8 @@ function AppLayout() {
 
   const location = useLocation();
 
-  // send/pairing 页面为独立全屏,不显示全局 header
-  const isFullScreenRoute =
-    location.pathname.startsWith("/send") ||
-    location.pathname.startsWith("/pairing");
+  // 配对流程保持独立全屏；发送流仍属于已认证应用，需要保留全局导航与窗口控制。
+  const isFullScreenRoute = location.pathname.startsWith("/pairing");
 
   return (
     <div className="app-shell flex h-svh flex-col">

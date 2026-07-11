@@ -109,7 +109,16 @@ impl EventBus for TauriEventBus {
             }
             CoreEvent::PairingCompleted { .. } => {}
             CoreEvent::PairedDeviceAdded { device } => {
-                PairedDeviceAdded(device).emit(&self.app).map_err(map_err)?;
+                let peer_id = device.peer_id;
+                let provider = crate::host::keychain_provider(&self.app)
+                    .map_err(|error| swarmdrop_core::AppError::Network(error.to_string()))?;
+                let devices =
+                    swarmdrop_core::identity::upsert_paired_device(&*provider, device).await?;
+                if let Some(updated) = devices.into_iter().find(|item| item.peer_id == peer_id) {
+                    PairedDeviceAdded(updated)
+                        .emit(&self.app)
+                        .map_err(map_err)?;
+                }
             }
             CoreEvent::TransferOfferReceived { offer } => {
                 TransferOffer(offer).emit(&self.app).map_err(map_err)?;

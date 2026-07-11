@@ -20,15 +20,20 @@ import { commands } from "@/lib/bindings";
 import { useTransferStore } from "@/stores/transfer-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
-import { deviceDisplayName } from "@/lib/device-name";
+import {
+  deviceGroupNames,
+  deviceIdentityHint,
+  organizedDeviceName,
+} from "@/lib/device-organization";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { FileDropZone } from "./-components/file-drop-zone";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
 import { SendProgressView } from "./-components/send-progress-view";
-import { FileTree } from "@/components/file-tree";
+import { FileBrowser } from "@/components/file-browser";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   CommandDock,
@@ -57,6 +62,7 @@ function SendPage() {
     (s) => s.devices.find((d) => d.peerId === peerId) ?? null,
   );
   const pairedDevices = useSecretStore((s) => s.pairedDevices);
+  const deviceOrganization = usePreferencesStore((s) => s.deviceOrganization);
 
   const device = useMemo<Device | null>(() => {
     if (onlineDevice) return onlineDevice;
@@ -100,7 +106,7 @@ function SendPage() {
       progressChannel.onmessage = setPrepareProgress;
       const prepared = await commands.prepareSend(scannedFiles, progressChannel);
       const fileIds = prepared.files.map((f) => f.fileId);
-      const displayName = deviceDisplayName(device);
+      const displayName = organizedDeviceName(device, deviceOrganization);
       const result = await commands.startSend(
         prepared.preparedId,
         device.peerId,
@@ -143,7 +149,10 @@ function SendPage() {
 
   if (!device) {
     return (
-      <main className="flex h-full flex-col items-center justify-center gap-3">
+      <main
+        data-testid="send-device-missing"
+        className="flex h-full flex-col items-center justify-center gap-3"
+      >
         <p className="text-sm text-muted-foreground">
           <Trans>设备未找到</Trans>
         </p>
@@ -171,6 +180,9 @@ function SendPage() {
   return (
     <DesktopSendView
       device={device}
+      displayName={organizedDeviceName(device, deviceOrganization)}
+      identityHint={deviceIdentityHint(device)}
+      groupNames={deviceGroupNames(device.peerId, deviceOrganization)}
       fileSelection={fileSelection}
       sending={sending}
       prepareProgress={prepareProgress}
@@ -185,6 +197,9 @@ function SendPage() {
 
 interface SendViewProps {
   device: Device;
+  displayName: string;
+  identityHint: string;
+  groupNames: string[];
   fileSelection: ReturnType<typeof useFileSelection>;
   sending: boolean;
   prepareProgress: PrepareProgress | null;
@@ -197,6 +212,9 @@ interface SendViewProps {
 
 function DesktopSendView({
   device,
+  displayName,
+  identityHint,
+  groupNames,
   fileSelection,
   sending,
   prepareProgress,
@@ -205,27 +223,67 @@ function DesktopSendView({
   onBack,
 }: SendViewProps) {
   const DeviceIcon = getDeviceIcon(device.os || device.platform || "");
+  const view = usePreferencesStore((state) => state.fileBrowserViews.send);
+  const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
 
   return (
-    <TaskPageShell>
+    <TaskPageShell data-testid="send-page">
       <TaskToolbar
-        title={<Trans>发送文件到 {deviceDisplayName(device)}</Trans>}
+        title={<Trans>发送文件到 {displayName}</Trans>}
         onBack={onBack}
       />
 
-      <TaskContent className="flex min-h-0 flex-col gap-4">
+      <TaskContent
+        data-testid="send-content"
+        className="flex min-h-0 flex-col gap-4"
+        footer={
+          prepareProgress ? (
+            <CommandDock className="justify-stretch">
+              <div className="min-w-0 flex-1 px-2">
+                <PrepareProgressBar progress={prepareProgress} />
+              </div>
+            </CommandDock>
+          ) : (
+            <CommandDock>
+              <TaskButton
+                variant="outline"
+                onClick={onBack}
+                disabled={sending}
+                data-testid="send-cancel-action"
+              >
+                <Trans>取消</Trans>
+              </TaskButton>
+              <TaskButton
+                onClick={onSend}
+                disabled={!fileSelection.hasFiles || sending}
+                data-testid="send-confirm-action"
+              >
+                <Send className="size-4" />
+                {sending ? <Trans>发送中...</Trans> : <Trans>发送</Trans>}
+              </TaskButton>
+            </CommandDock>
+          )
+        }
+      >
         {/* 目标设备 mini 摘要条：设备只是信息，让位给文件选择这个主任务 */}
-        <div className="glass-panel flex shrink-0 items-center gap-3 rounded-[20px] px-4 py-3">
+        <div
+          data-testid="send-target-summary"
+          className="glass-panel flex shrink-0 items-center gap-3 rounded-[20px] px-4 py-3"
+        >
           <span className="glass-control flex size-11 shrink-0 items-center justify-center rounded-[16px] text-brand">
             <DeviceIcon className="size-5" />
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-foreground">
-              {deviceDisplayName(device)}
+              {displayName}
             </p>
             <p className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-muted-foreground">
               <ShieldCheck className="size-3 shrink-0 text-brand/80" />
-              <Trans>端到端加密直连</Trans>
+              <span className="truncate">
+                {groupNames.length > 0 ? groupNames.join(" · ") : identityHint}
+              </span>
+              <span className="shrink-0 text-muted-foreground/70">·</span>
+              <span className="shrink-0"><Trans>端到端加密直连</Trans></span>
             </p>
           </div>
           <div className="shrink-0 text-right">
@@ -244,51 +302,51 @@ function DesktopSendView({
           </div>
         </div>
 
-        {/* 文件选择：占满剩余高度，文件树在面板内滚动 */}
-        <GlassPanel className="min-h-0 flex-1">
+        {/* 文件选择：空态只保留一个明确的投放区；有内容后再展开补充入口与文件浏览器。 */}
+        <GlassPanel
+          data-testid="send-file-selection-panel"
+          className="min-h-0 flex-1"
+        >
           <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-5">
-            <FileDropZone onSourcesSelected={onSourcesSelected} disabled={sending} />
-            <div className="min-h-0 flex-1 overflow-hidden">
-              {fileSelection.hasFiles ? (
-                <FileTree
-                  mode="select"
-                  dataLoader={fileSelection.dataLoader}
-                  rootChildren={fileSelection.rootChildren}
-                  totalCount={fileSelection.totalCount}
-                  totalSize={fileSelection.totalSize}
-                  onRemoveFile={fileSelection.removeFile}
+            {fileSelection.hasFiles ? (
+              <FileDropZone
+                onSourcesSelected={onSourcesSelected}
+                disabled={sending}
+                compact
+                className="shrink-0"
+              />
+            ) : (
+              <div
+                data-testid="send-empty-selection"
+                className="flex min-h-0 flex-1"
+              >
+                <FileDropZone
+                  onSourcesSelected={onSourcesSelected}
+                  disabled={sending}
+                  className="flex-1"
                 />
-              ) : (
-                <div className="flex h-full min-h-[180px] items-center justify-center rounded-[20px] bg-foreground/[0.025] text-center dark:bg-white/[0.035]">
-                  <p className="max-w-[28ch] text-sm leading-6 text-muted-foreground">
-                    <Trans>选择内容后，文件结构和总大小会在这里确认。</Trans>
-                  </p>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
+            {fileSelection.hasFiles ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <FileBrowser
+                  items={fileSelection.items}
+                  title={<Trans>已选文件</Trans>}
+                  view={view}
+                  onViewChange={(nextView) => setFileBrowserView("send", nextView)}
+                  actions={{
+                    onRemove: (target) => fileSelection.removeFile(
+                      target.type === "directory"
+                        ? target.relativePath
+                        : target.item.relativePath,
+                    ),
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
         </GlassPanel>
 
-        {prepareProgress ? (
-          <CommandDock className="justify-stretch">
-            <div className="min-w-0 flex-1 px-2">
-              <PrepareProgressBar progress={prepareProgress} />
-            </div>
-          </CommandDock>
-        ) : (
-          <CommandDock>
-            <TaskButton variant="outline" onClick={onBack} disabled={sending}>
-              <Trans>取消</Trans>
-            </TaskButton>
-            <TaskButton
-              onClick={onSend}
-              disabled={!fileSelection.hasFiles || sending}
-            >
-              <Send className="size-4" />
-              {sending ? <Trans>发送中...</Trans> : <Trans>发送</Trans>}
-            </TaskButton>
-          </CommandDock>
-        )}
       </TaskContent>
     </TaskPageShell>
   );

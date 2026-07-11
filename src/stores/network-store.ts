@@ -81,9 +81,9 @@ async function setupEventListeners() {
       usePairingStore.getState().handleInboundRequest(event.payload);
     }),
 
-    // 配对成功（后端已添加到运行时，并写入 host keychain 持久化）
+    // 配对成功或 Identify 刷新（后端已写入 host keychain 持久化）
     events.pairedDeviceAdded.listen((event) => {
-      useSecretStore.getState().addPairedDevice(event.payload);
+      useSecretStore.getState().upsertPairedDevice(event.payload);
     }),
   ]);
 

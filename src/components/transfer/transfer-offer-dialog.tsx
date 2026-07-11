@@ -15,8 +15,7 @@ import { useTransferStore } from "@/stores/transfer-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { commands } from "@/lib/bindings";
 import type { SaveLocation } from "@/lib/types";
-import { FileTree } from "@/components/file-tree";
-import { buildTreeDataFromOffer } from "@/components/file-tree";
+import { FileBrowser, fromOfferFiles } from "@/components/file-browser";
 import { PolicyReasonBadge } from "@/components/transfer/policy-reason-badge";
 import { Badge } from "@/components/ui/badge";
 import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
@@ -32,6 +31,8 @@ export function TransferOfferDialog() {
     null,
   );
   const configuredSavePath = usePreferencesStore((s) => s.transfer.savePath);
+  const fileView = usePreferencesStore((s) => s.fileBrowserViews.transfer);
+  const setFileBrowserView = usePreferencesStore((s) => s.setFileBrowserView);
 
   const { shiftOffer, pendingOffers, loadProjections } = useTransferStore(
     useShallow((s) => ({
@@ -75,9 +76,9 @@ export function TransferOfferDialog() {
     }
   }, [pendingOffers, dismissedSessionId]);
 
-  const treeData = useMemo(() => {
-    if (!currentOffer) return null;
-    return buildTreeDataFromOffer(currentOffer.files);
+  const offerItems = useMemo(() => {
+    if (!currentOffer) return [];
+    return fromOfferFiles(currentOffer.files);
   }, [currentOffer]);
 
   const handleChangePath = useCallback(async () => {
@@ -133,53 +134,61 @@ export function TransferOfferDialog() {
     [processing, handleReject],
   );
 
-  if (!currentOffer || !treeData) return null;
+  if (!currentOffer) return null;
 
   return (
     <Dialog open={true} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="flex max-h-[85vh] flex-col sm:max-w-lg"
+        data-testid="transfer-offer-dialog"
+        className="flex max-h-[min(820px,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden rounded-[20px] p-0 sm:max-w-2xl"
         showCloseButton={false}
         onPointerDownOutside={(e) => e.preventDefault()}
       >
-        <DialogHeader className="shrink-0 flex flex-col items-center gap-2">
-          <div className="flex size-14 items-center justify-center rounded-full bg-primary/15">
-            <Download className="size-7 text-brand" />
+        <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 text-left sm:text-left">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-[15px] bg-primary/12 text-brand">
+              <Download className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-lg leading-6">
+                <Trans>收到文件</Trans>
+              </DialogTitle>
+              <DialogDescription className="mt-0.5 truncate">
+                <Trans>来自 {currentOffer.deviceName}</Trans>
+              </DialogDescription>
+              <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+                {currentOffer.origin.type === "mcp" && (
+                  <Badge variant="secondary" className="max-w-full gap-1">
+                    <Bot className="size-3.5 shrink-0" />
+                    <span className="truncate">
+                      {currentOffer.origin.client ? (
+                        <Trans>由 AI 代理发起（{currentOffer.origin.client}）</Trans>
+                      ) : (
+                        <Trans>由 AI 代理发起</Trans>
+                      )}
+                    </span>
+                  </Badge>
+                )}
+                <PolicyReasonBadge
+                  variant="offer"
+                  policyAction={currentOffer.policyAction}
+                  policyReason={currentOffer.policyReason}
+                />
+              </div>
+            </div>
           </div>
-          <DialogTitle className="text-center text-xl">
-            <Trans>收到文件</Trans>
-          </DialogTitle>
-          <DialogDescription className="text-center">
-            <Trans>来自 {currentOffer.deviceName}</Trans>
-          </DialogDescription>
-          {currentOffer.origin.type === "mcp" && (
-            <Badge variant="secondary" className="gap-1">
-              <Bot className="size-3.5" />
-              {currentOffer.origin.client ? (
-                <Trans>由 AI 代理发起（{currentOffer.origin.client}）</Trans>
-              ) : (
-                <Trans>由 AI 代理发起</Trans>
-              )}
-            </Badge>
-          )}
-          <PolicyReasonBadge
-            variant="offer"
-            policyAction={currentOffer.policyAction}
-            policyReason={currentOffer.policyReason}
-          />
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 sm:px-0">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <FileTree
-              mode="select"
-              dataLoader={treeData.dataLoader}
-              rootChildren={treeData.rootChildren}
-              totalCount={currentOffer.files.length}
-              totalSize={currentOffer.totalSize}
-              showHeader={false}
-            />
-          </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
+          <FileBrowser
+            items={offerItems}
+            title={<Trans>文件</Trans>}
+            view={fileView}
+            onViewChange={(nextView) =>
+              setFileBrowserView("transfer", nextView)
+            }
+            className="h-[clamp(280px,42vh,420px)] min-h-0 flex-none"
+          />
 
           <SavePathSelector
             savePath={savePath}
@@ -188,19 +197,19 @@ export function TransferOfferDialog() {
           />
         </div>
 
-        <DialogFooter className="shrink-0 flex-row justify-center gap-3 sm:justify-center">
+        <DialogFooter className="shrink-0 flex-row gap-3 border-t border-border/60 bg-muted/20 px-5 py-4 sm:justify-end">
           <Button
             variant="outline"
             onClick={handleReject}
             disabled={processing}
-            className="flex-1"
+            className="h-10 flex-1 rounded-xl sm:flex-none sm:px-7"
           >
             <Trans>拒绝</Trans>
           </Button>
           <Button
             onClick={handleAccept}
-            disabled={processing}
-            className="flex-1"
+            disabled={processing || !savePath}
+            className="h-10 flex-1 rounded-xl sm:flex-none sm:px-8"
           >
             {processing ? <Trans>处理中...</Trans> : <Trans>接收</Trans>}
           </Button>
@@ -224,7 +233,7 @@ const SavePathSelector = memo(function SavePathSelector({
       <span className="text-sm font-medium text-foreground">
         <Trans>保存到</Trans>
       </span>
-      <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2.5">
+      <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5">
         <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm text-foreground">
           {savePath}
@@ -232,7 +241,7 @@ const SavePathSelector = memo(function SavePathSelector({
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 shrink-0 px-2 text-xs"
+          className="h-7 shrink-0 rounded-lg px-2.5 text-xs"
           onClick={onChangePath}
           disabled={disabled}
         >

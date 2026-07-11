@@ -20,6 +20,7 @@ import {
   ArrowRightLeft,
   Inbox,
   Moon,
+  Send,
   Sun,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -66,6 +67,9 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
   if (pathname.startsWith("/transfer")) {
     return [home, { icon: ArrowRightLeft, label: <Trans>传输活动</Trans> }];
   }
+  if (pathname.startsWith("/send")) {
+    return [home, { icon: Send, label: <Trans>发送文件</Trans> }];
+  }
   // 主页 / 其他路径:单段当前主页(BreadcrumbPage)
   return [{ ...home, to: undefined }];
 }
@@ -86,6 +90,7 @@ export function AppTopBar() {
     <>
       <header
         data-tauri-drag-region
+        data-testid="app-topbar"
         className={cn(
           "app-topbar relative z-20 flex h-11 shrink-0 items-center justify-between overflow-hidden border-b border-white/[0.30] bg-white/[0.18] pr-4 shadow-[0_1px_0_rgba(255,255,255,0.34),0_16px_42px_rgba(15,23,42,0.05)] backdrop-blur-xl dark:border-white/[0.07] dark:bg-slate-950/[0.08] dark:shadow-[0_1px_0_rgba(255,255,255,0.05),0_16px_42px_rgba(0,0,0,0.10)] lg:pr-5",
           // macOS 左侧给系统红绿灯按钮留出位置：pl 和 pr 分开写，
@@ -159,7 +164,12 @@ export function AppTopBar() {
             variant="ghost"
             className="h-8 gap-1.5 rounded-md px-2 hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
-            <Link to="/inbox" aria-label={t`收件箱`} title={t`收件箱`}>
+            <Link
+              to="/inbox"
+              aria-label={t`收件箱`}
+              title={t`收件箱`}
+              data-testid="topbar-inbox-link"
+            >
               <Inbox className="size-4" />
               <span className="hidden text-xs font-medium xl:inline">
                 <Trans>收件箱</Trans>
@@ -176,6 +186,7 @@ export function AppTopBar() {
               to="/transfer"
               aria-label={t`传输活动`}
               title={t`传输活动`}
+              data-testid="topbar-transfer-link"
               className="relative"
             >
               <ArrowRightLeft className="size-4" />
@@ -191,7 +202,12 @@ export function AppTopBar() {
             variant="ghost"
             className="h-8 gap-1.5 rounded-md px-2 hover:bg-foreground/[0.055] dark:hover:bg-white/[0.075]"
           >
-            <Link to="/settings" aria-label={t`设置`} title={t`设置`}>
+            <Link
+              to="/settings"
+              aria-label={t`设置`}
+              title={t`设置`}
+              data-testid="topbar-settings-link"
+            >
               <Settings className="size-4" />
               <span className="hidden text-xs font-medium xl:inline">
                 <Trans>设置</Trans>
@@ -335,6 +351,8 @@ function StatusPill({
     <button
       type="button"
       onClick={onClick}
+      data-testid="network-status-pill"
+      data-node-status={status}
       className={cn(
         "flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-opacity hover:opacity-80",
         config.bg,

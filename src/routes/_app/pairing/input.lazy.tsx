@@ -109,7 +109,22 @@ function PairingInputPage() {
     <TaskPageShell>
       <TaskToolbar title={<Trans>连接已有设备</Trans>} onBack={handleBack} />
 
-      <TaskContent className="flex min-h-0 flex-col gap-5">
+      <TaskContent
+        className="flex min-h-0 flex-col gap-5"
+        footer={
+          <CommandDock>
+            <TaskButton variant="outline" onClick={handleBack}>
+              <Trans>取消</Trans>
+            </TaskButton>
+            <TaskButton
+              onClick={handleConfirm}
+              disabled={code.length < 6 || isSearching}
+            >
+              <Trans>确认</Trans>
+            </TaskButton>
+          </CommandDock>
+        }
+      >
         <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <GlassPanel className="min-h-[420px]">
             <div className="flex h-full flex-col items-center justify-center gap-7 p-6 text-center">
@@ -176,17 +191,6 @@ function PairingInputPage() {
           </TaskHeroPanel>
         </div>
 
-        <CommandDock>
-          <TaskButton variant="outline" onClick={handleBack}>
-            <Trans>取消</Trans>
-          </TaskButton>
-          <TaskButton
-            onClick={handleConfirm}
-            disabled={code.length < 6 || isSearching}
-          >
-            <Trans>确认</Trans>
-          </TaskButton>
-        </CommandDock>
       </TaskContent>
     </TaskPageShell>
   );

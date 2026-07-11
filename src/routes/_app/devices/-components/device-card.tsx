@@ -9,6 +9,7 @@ import {
   RadioTower,
   Send,
   Settings2,
+  Tags,
   Unlink,
   Wifi,
   Zap,
@@ -79,9 +80,14 @@ const connectionConfig: Record<
 
 interface DeviceCardProps {
   device: Device;
+  displayName?: string;
+  groupNames?: string[];
+  identityHint?: string;
+  showIdentityHint?: boolean;
   onSend?: (device: Device) => void;
   onConnect?: (device: Device) => void;
   onUnpair?: (device: Device) => void;
+  onOrganize?: (device: Device) => void;
   onUpdatePolicy?: (
     device: Device,
     trustLevel: DeviceTrustLevel,
@@ -91,9 +97,14 @@ interface DeviceCardProps {
 
 export function DeviceCard({
   device,
+  displayName = deviceDisplayName(device),
+  groupNames = [],
+  identityHint,
+  showIdentityHint = false,
   onSend,
   onConnect,
   onUnpair,
+  onOrganize,
   onUpdatePolicy,
 }: DeviceCardProps) {
   const { t } = useLingui();
@@ -121,6 +132,10 @@ export function DeviceCard({
       <div
         role={isInteractive ? "button" : undefined}
         tabIndex={isInteractive ? 0 : -1}
+        data-testid="device-card"
+        data-peer-id={device.peerId}
+        data-device-status={device.status}
+        data-device-paired={device.isPaired ? "true" : "false"}
         onClick={isInteractive ? handleCardClick : undefined}
         onKeyDown={(e) => {
           if (e.currentTarget !== e.target) return;
@@ -157,7 +172,7 @@ export function DeviceCard({
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate text-sm font-medium text-foreground">
-              {deviceDisplayName(device)}
+              {displayName}
             </span>
             <div className="flex items-center gap-1">
               {device.isPaired ? (
@@ -183,10 +198,21 @@ export function DeviceCard({
                 </span>
               )}
             </div>
+            {(showIdentityHint || groupNames.length > 0) && (
+              <p className="truncate text-[10px] text-muted-foreground">
+                {[
+                  ...groupNames,
+                  showIdentityHint ? identityHint : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
           </div>
           {/* More Menu (paired only) */}
           {device.isPaired && onUnpair && (
             <DeviceActionMenu
+              onOrganizeClick={onOrganize ? () => onOrganize(device) : undefined}
               onPolicyClick={
                 onUpdatePolicy ? () => setPolicyOpen(true) : undefined
               }
@@ -226,6 +252,7 @@ export function DeviceCard({
               size="sm"
               variant={isOnline ? "default" : "outline"}
               disabled={!isOnline}
+              data-testid="device-send-action"
               onClick={(e) => {
                 e.stopPropagation();
                 onSend?.(device);
@@ -244,6 +271,7 @@ export function DeviceCard({
             <Button
               size="sm"
               variant="outline"
+              data-testid="device-connect-action"
               onClick={(e) => {
                 e.stopPropagation();
                 onConnect?.(device);
@@ -261,7 +289,7 @@ export function DeviceCard({
       <UnpairAlertDialog
         open={unpairOpen}
         onOpenChange={setUnpairOpen}
-        deviceName={deviceDisplayName(device)}
+        deviceName={displayName}
         onConfirm={() => onUnpair?.(device)}
       />
       {onUpdatePolicy && (
@@ -277,10 +305,12 @@ export function DeviceCard({
 }
 
 function DeviceActionMenu({
+  onOrganizeClick,
   onPolicyClick,
   onUnpairClick,
   label,
 }: {
+  onOrganizeClick?: () => void;
   onPolicyClick?: () => void;
   onUnpairClick: () => void;
   label: string;
@@ -292,6 +322,7 @@ function DeviceActionMenu({
           type="button"
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
+          data-testid="device-actions-menu"
           aria-label={label}
           title={label}
           className="glass-control flex size-8 items-center justify-center rounded-full text-muted-foreground transition-[color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground active:scale-[0.96]"
@@ -306,6 +337,19 @@ function DeviceActionMenu({
         className="glass-card min-w-[112px] rounded-[14px] p-1"
         onClick={(event) => event.stopPropagation()}
       >
+        {onOrganizeClick && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.stopPropagation();
+              onOrganizeClick();
+            }}
+            data-testid="device-organize-menu-action"
+            className="h-8 rounded-[10px] px-2.5 text-xs font-medium"
+          >
+            <Tags className="size-3.5" />
+            <Trans>设备别名与分组</Trans>
+          </DropdownMenuItem>
+        )}
         {onPolicyClick && (
           <>
             <DropdownMenuItem
@@ -313,6 +357,7 @@ function DeviceActionMenu({
                 event.stopPropagation();
                 onPolicyClick();
               }}
+              data-testid="device-policy-menu-action"
               className="h-8 rounded-[10px] px-2.5 text-xs font-medium"
             >
               <Settings2 className="size-3.5" />
@@ -323,6 +368,7 @@ function DeviceActionMenu({
         )}
         <DropdownMenuItem
           variant="destructive"
+          data-testid="device-unpair-menu-action"
           onSelect={(event) => {
             event.stopPropagation();
             onUnpairClick();
@@ -396,11 +442,12 @@ function UnpairAlertDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>
+          <AlertDialogCancel data-testid="device-unpair-cancel-action">
             <Trans>取消</Trans>
           </AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
+            data-testid="device-unpair-confirm-action"
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             <Trans>确认取消配对</Trans>

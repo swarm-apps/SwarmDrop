@@ -13,9 +13,17 @@ import type { FileSource } from "@/lib/bindings";
 interface FileDropZoneProps {
   onSourcesSelected: (sources: FileSource[]) => void;
   disabled?: boolean;
+  /** 已有文件时收成补充入口，空态则作为主操作区展开。 */
+  compact?: boolean;
+  className?: string;
 }
 
-export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps) {
+export function FileDropZone({
+  onSourcesSelected,
+  disabled,
+  compact = false,
+  className,
+}: FileDropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
 
   function handleDragOver(e: React.DragEvent) {
@@ -67,45 +75,55 @@ export function FileDropZone({ onSourcesSelected, disabled }: FileDropZoneProps)
 
   return (
     <div
+      data-testid="file-drop-zone"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        "group flex flex-col items-center justify-center gap-3.5 rounded-[24px] p-2 transition-[background-color,transform,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+        "group flex rounded-[20px] border border-dashed p-4 transition-[background-color,border-color,transform,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+        compact
+          ? "min-h-[96px] flex-row items-center justify-between gap-4"
+          : "min-h-[260px] flex-col items-center justify-center gap-5 px-6",
         isDragging
-          ? "glass-accent scale-[0.995] shadow-[0_18px_46px_rgba(219,163,65,0.12)]"
-          : "glass-card hover:shadow-[0_16px_42px_rgba(15,23,42,0.06)]",
+          ? "border-primary/50 bg-primary/10 shadow-[0_18px_46px_rgb(8_121_104_/_0.12)]"
+          : "border-brand/20 bg-white/[0.24] hover:border-brand/40 hover:bg-primary/[0.045] dark:bg-white/[0.025] dark:hover:bg-primary/[0.08]",
         disabled && "pointer-events-none opacity-50",
+        className,
       )}
-      style={{ height: 164 }}
     >
-      <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-[18px] bg-white/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-        <div className="glass-control flex size-12 items-center justify-center rounded-[18px] text-brand transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-0.5">
-          <CloudUpload className="size-5.5" />
+      <div
+        className={cn(
+          "flex min-w-0 items-center",
+          compact ? "gap-3" : "flex-col gap-3 text-center",
+        )}
+      >
+        <div className="glass-control flex size-11 shrink-0 items-center justify-center rounded-[16px] text-brand transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-0.5">
+          <CloudUpload className="size-5" />
         </div>
-
         <span className="text-[13px] text-muted-foreground">
           <Trans>拖拽文件或文件夹到这里</Trans>
         </span>
+      </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handleSelectFiles}
-            disabled={disabled}
-            className="rounded-full bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground shadow-[0_10px_22px_rgba(219,163,65,0.18)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50"
-          >
-            <Trans>选择文件</Trans>
-          </button>
-          <button
-            type="button"
-            onClick={handleSelectFolder}
-            disabled={disabled}
-            className="glass-control rounded-full px-5 py-2 text-[13px] font-medium text-brand transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 active:scale-[0.98] disabled:opacity-50 dark:hover:bg-white/[0.07]"
-          >
-            <Trans>选择文件夹</Trans>
-          </button>
-        </div>
+      <div className="flex shrink-0 items-center gap-2.5">
+        <button
+          type="button"
+          onClick={handleSelectFiles}
+          disabled={disabled}
+          data-testid="select-files-action"
+          className="rounded-full bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground shadow-[0_10px_22px_rgb(8_121_104_/_0.18)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50"
+        >
+          <Trans>选择文件</Trans>
+        </button>
+        <button
+          type="button"
+          onClick={handleSelectFolder}
+          disabled={disabled}
+          data-testid="select-folder-action"
+          className="glass-control rounded-full px-5 py-2 text-[13px] font-medium text-brand transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 active:scale-[0.98] disabled:opacity-50 dark:hover:bg-white/[0.07]"
+        >
+          <Trans>选择文件夹</Trans>
+        </button>
       </div>
     </div>
   );

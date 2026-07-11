@@ -168,6 +168,7 @@ function TransferPage() {
   return (
     <>
       <MasterDetailShell
+        testId="transfer-page"
         drawerLabel={t`传输活动`}
         listMaxWidth={370}
         list={({ closeDrawer }) => (
@@ -256,7 +257,7 @@ function SessionRail({
   ];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div data-testid="transfer-rail" className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center justify-between gap-3 px-4 pb-2 pt-4">
         <h1 className="text-[15px] font-semibold tracking-tight text-foreground">
           <Trans>传输活动</Trans>
@@ -294,9 +295,15 @@ function SessionRail({
         ))}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 pt-0">
+      <div
+        data-testid="transfer-list"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 pt-0"
+      >
         {totalCount === 0 ? (
-          <p className="px-2 py-8 text-center text-xs text-muted-foreground">
+          <p
+            data-testid="transfer-empty-state"
+            className="px-2 py-8 text-center text-xs text-muted-foreground"
+          >
             <Trans>暂无传输活动</Trans>
           </p>
         ) : items.length === 0 ? (
@@ -322,6 +329,7 @@ function SessionRail({
 function DetailEmptyState() {
   return (
     <CenteredEmptyState
+      data-testid="transfer-detail-empty-state"
       icon={ArrowRightLeft}
       title={<Trans>暂无传输活动</Trans>}
       description={
@@ -349,6 +357,7 @@ function DetailShell({
 }) {
   return (
     <section
+      data-testid="transfer-detail"
       className={cn(
         "glass-panel flex flex-col rounded-[24px]",
         isCompact ? "flex-1" : "min-h-0 flex-1 overflow-hidden",
@@ -379,23 +388,31 @@ function SessionDetail({
 
   return (
     <DetailShell openList={openList} isCompact={isCompact}>
-      <div
-        className={cn(
-          "flex flex-col gap-5 p-4 lg:p-5",
-          isCompact ? "flex-1" : "min-h-0 flex-1",
-        )}
-      >
-        <SessionSummaryHeader projection={projection} />
-        <SessionProgressBlock projection={projection} progress={progress} />
-        <SessionFileSection
-          projection={projection}
-          progress={progress}
-          className="min-h-0 flex-1"
-        />
-        <SessionActions
-          projection={projection}
-          onSessionChange={onSessionChange}
-        />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div
+          data-testid="transfer-detail-scroll-region"
+          className={cn(
+            "flex flex-col gap-5 p-4 lg:p-5",
+            isCompact ? "flex-1" : "min-h-0 flex-1 overflow-auto",
+          )}
+        >
+          <SessionSummaryHeader projection={projection} />
+          <SessionProgressBlock projection={projection} progress={progress} />
+          <SessionFileSection
+            projection={projection}
+            progress={progress}
+            className="h-[360px] shrink-0 lg:h-[400px]"
+          />
+        </div>
+        <div
+          data-testid="transfer-detail-actions"
+          className="shrink-0 border-t border-border/60 bg-muted/15 px-4 py-3 lg:px-5"
+        >
+          <SessionActions
+            projection={projection}
+            onSessionChange={onSessionChange}
+          />
+        </div>
       </div>
     </DetailShell>
   );

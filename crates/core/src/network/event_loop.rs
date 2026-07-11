@@ -43,6 +43,7 @@ pub async fn handle_core_node_event<TTransfer>(
     // infra 收敛折叠（reservation 建立/丢失 + 学习型基础设施候选）
     shared.infra.handle_event(event);
     maybe_register_lan_helper(shared, event, event_bus).await;
+    let refreshed_paired_device = refresh_paired_device_from_identify(shared, event);
 
     match event {
         NodeEvent::Listening { addr } => {
@@ -151,7 +152,33 @@ pub async fn handle_core_node_event<TTransfer>(
             // 交给 caller 通过 IncomingTransferRuntime 处理
         }
     }
+    if let Some(device) = refreshed_paired_device {
+        // 已配对设备的名称/系统信息来自对端 Identify；由 host 消费此事件后写入持久化存储。
+        let _ = event_bus
+            .publish(CoreEvent::PairedDeviceAdded { device })
+            .await;
+    }
     Ok(())
+}
+
+fn refresh_paired_device_from_identify<TTransfer>(
+    shared: &SharedNetRefs<TTransfer>,
+    event: &NodeEvent<AppRequest>,
+) -> Option<crate::device::PairedDeviceInfo> {
+    let NodeEvent::IdentifyReceived {
+        peer_id,
+        agent_version,
+        ..
+    } = event
+    else {
+        return None;
+    };
+
+    OsInfo::from_agent_version(agent_version).and_then(|os_info| {
+        shared
+            .pairing
+            .refresh_paired_device_os_info(peer_id, os_info)
+    })
 }
 
 async fn maybe_register_lan_helper<TTransfer>(

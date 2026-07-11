@@ -12,8 +12,9 @@ import { Toaster } from "@/components/ui/sonner";
 import "./index.css";
 
 // e2e/desktop 下的 WebdriverIO 原生模式测试依赖 window.wdioTauri（browser.tauri.execute /
-// IPC mock / 日志采集），仅 dev build 引入，避免打进生产包。
-if (import.meta.env.DEV) {
+// IPC mock / 日志采集）。Vite dev 天然引入；录制用 debug no-bundle 会走生产构建，
+// 由录制脚本显式传 VITE_WDIO_TAURI_PLUGIN=1。正常 release 不打进生产包。
+if (import.meta.env.DEV || import.meta.env.VITE_WDIO_TAURI_PLUGIN === "1") {
   void import("@wdio/tauri-plugin");
 }
 

@@ -121,7 +121,7 @@ impl DeviceReceivePolicy {
 /// `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
 /// `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
 /// `name.as_deref().unwrap_or(&hostname)` 回退。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct OsInfo {
     /// 用户起的设备名；缺省时回退到 `hostname`。
@@ -304,6 +304,17 @@ impl PairedDeviceInfo {
         self.trust_level = trust_level;
         self.receive_policy = DeviceReceivePolicy::for_trust_level(trust_level);
         self.trust_confirmed = true;
+    }
+
+    /// 用对端 Identify 广播的最新信息刷新设备元数据。
+    ///
+    /// 返回是否发生了变化，供调用方避免重复持久化。
+    pub fn refresh_os_info(&mut self, os_info: OsInfo) -> bool {
+        if self.os_info == os_info {
+            return false;
+        }
+        self.os_info = os_info;
+        true
     }
 }
 
@@ -488,6 +499,18 @@ mod tests {
         assert!(device.receive_policy.require_confirmation);
         assert!(!device.receive_policy.auto_accept);
         assert!(!device.trust_confirmed);
+    }
+
+    #[test]
+    fn refresh_os_info_updates_remote_device_name() {
+        let keypair = Keypair::generate_ed25519();
+        let peer_id = PeerId::from_public_key(&keypair.public());
+        let mut device = PairedDeviceInfo::new(peer_id, sample(None, "MacBook-Pro"), 42);
+
+        let changed = device.refresh_os_info(sample(Some("小李的 MacBook"), "MacBook-Pro"));
+
+        assert!(changed);
+        assert_eq!(device.os_info.name.as_deref(), Some("小李的 MacBook"));
     }
 
     #[test]

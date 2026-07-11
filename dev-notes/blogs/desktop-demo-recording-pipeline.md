@@ -6,7 +6,7 @@
 
 > 录屏软件只负责采集画面，用户路径应该由脚本驱动。
 
-如果流程靠手点，视频很快会变成一次性素材：改了 UI 要重录，换语言要重录，官网要横版、短视频要竖版也要重录。SwarmDrop 桌面端应该把素材生产变成流水线：用 WDIO 或 Tauri MCP 操作真实应用，用 OBS / Screen Studio 录制窗口，用 Remotion 做统一包装。
+如果流程靠手点，视频很快会变成一次性素材：改了 UI 要重录，换语言要重录，官网要横版、短视频要竖版也要重录。SwarmDrop 应该把素材生产变成流水线：用 WDIO 或 Tauri MCP 操作真实应用，桌面端用 OBS 录制窗口，移动端用同一个 Appium 会话录制设备画面，最后用 Remotion 做统一包装。
 
 ## 总体链路
 
@@ -37,7 +37,8 @@ flowchart LR
 | WDIO browser mode | 前端快速层 | 准备和验证 renderer 状态，不直接录官网素材 |
 | WDIO native mode | 桌面自动化层 | 启动真实 Tauri App、点击、等待、截图 |
 | Tauri MCP Bridge | AI 临场操作层 | 手工探索、调试当前窗口、临时操作 |
-| OBS | 可脚本化录制层 | 免费、可控、适合自动开始/停止 |
+| OBS | 桌面端可脚本化录制层 | 免费、可控、适合采集 Tauri 窗口 |
+| Appium XCUITest | 移动端录制层 | 和 iOS WebDriver 共用会话，输出无桌面边框的设备画面 |
 | Screen Studio | 高质量手工录制层 | 自动缩放、鼠标动画、产品 demo 好看 |
 | ffmpeg | 标准化层 | 裁切、转码、统一帧率和尺寸 |
 | Remotion | 合成层 | 品牌包装、字幕、分辨率、多语言、多画幅 |
@@ -153,11 +154,11 @@ demo spec 的特点：
 ```mermaid
 flowchart LR
     A[启动 SwarmDrop Desktop] --> B[WDIO 操作桌面端<br/>准备发送]
-    C[启动 SwarmDrop-RN] --> D[Maestro 操作移动端<br/>等待接收]
+    C[启动 SwarmDrop-RN] --> D[WebDriver/Appium 操作移动端<br/>等待接收并录屏]
     B --> E[真实 P2P transfer]
     D --> E
     E --> F[桌面 raw clip]
-    E --> G[移动端 raw clip]
+    E --> G[移动端 Appium raw clip]
     F --> H[Remotion 合成双端教程]
     G --> H
 ```
@@ -226,7 +227,7 @@ build/
 
 缺点：批量重录不方便。
 
-### 阶段二：OBS 脚本化
+### 阶段二：OBS + Appium 脚本化
 
 适合反复生成素材。
 
@@ -239,18 +240,106 @@ sequenceDiagram
     participant OBS as OBS
     participant WDIO as WebdriverIO
     participant App as SwarmDrop Desktop
+    participant Appium as Appium XCUITest
+    participant Mobile as SwarmDrop-RN
 
     Script->>Build: pnpm tauri build --debug --no-bundle
-    Script->>OBS: start recording selected window
     Script->>WDIO: run demo spec
-    WDIO->>App: launch / click / wait
+    WDIO->>App: launch / wait stable home
+    Script->>Appium: startRecordingScreen
+    Appium->>Mobile: capture device screen
+    WDIO-->>Script: ready signal
+    Script->>OBS: start recording selected window
+    Script-->>WDIO: go signal
+    WDIO->>App: click / wait / capture screenshots
     WDIO-->>Script: pass / fail
     Script->>OBS: stop recording
+    Script->>Appium: stopRecordingScreen
 ```
 
 优点：可重复、可批量、适合 CI 或 release 前素材刷新。
 
 缺点：OBS 场景、窗口捕获和权限要先配好。
+
+## 当前可执行脚本
+
+仓库里先落地三条桌面端 demo flow：
+
+| 场景 | WDIO spec | 命令 |
+|---|---|---|
+| 桌面首页 | `test/specs/demo/desktop-home.demo.ts` | `pnpm --dir e2e/desktop record desktop-home` |
+| 发送入口 | `test/specs/demo/send-file.demo.ts` | `pnpm --dir e2e/desktop record send-file` |
+| 收件箱 | `test/specs/demo/inbox.demo.ts` | `pnpm --dir e2e/desktop record inbox` |
+
+脚本入口：
+
+```bash
+e2e/desktop/scripts/record-desktop-demo.mjs
+```
+
+常用参数：
+
+```bash
+# 跳过 Tauri debug build，直接用已有 target/debug/swarmdrop
+pnpm --dir e2e/desktop record desktop-home --skip-build
+
+# 只跑 WDIO demo 和截图，不连接 OBS
+pnpm --dir e2e/desktop record inbox --no-record
+
+# 指定自定义 spec
+pnpm --dir e2e/desktop record --spec ./test/specs/demo/send-file.demo.ts
+```
+
+脚本会做这些事：
+
+1. 连接 OBS WebSocket；
+2. 如果没有 `--skip-build`，执行 `pnpm tauri build --debug --no-bundle`；
+3. 启动指定 WDIO native demo spec；
+4. 等 demo spec 写入 ready 信号，确认 SwarmDrop 窗口和首页已稳定；
+5. 调用 OBS `StartRecord`；
+6. 写入 go 信号放行 demo 交互；
+7. 等 WDIO 结束后调用 OBS `StopRecord`；
+8. 等 OBS 输出文件大小稳定，再复制 raw clip。
+6. 写入录制 manifest，并把 OBS 产物复制到 raw 目录。
+
+默认产物位置：
+
+```text
+e2e/desktop/build/
+├── wdio/
+│   └── screenshots/
+└── desktop-recordings/
+    ├── raw/
+    └── manifests/
+```
+
+OBS 连接配置：
+
+```bash
+# 默认值
+OBS_WEBSOCKET_URL=ws://127.0.0.1:4455
+
+# 可选；不填时脚本会读取 macOS OBS 配置里的 server_password
+OBS_WEBSOCKET_PASSWORD=...
+```
+
+前置条件：
+
+- OBS 已打开，WebSocket Server 已启用；
+- OBS 有 macOS 屏幕录制权限；
+- OBS 场景里已经配置好窗口采集或显示器采集；
+- SwarmDrop 桌面端本地 profile 已准备好，最好已完成首次设置并解锁；
+- 如果要录 `send-file` 的发送页，需要至少有一台在线且已配对设备；否则 spec 会停在首页并输出“无在线设备”的素材截图。
+
+当前 `data-testid` 约定：
+
+| 页面 | 关键 testid |
+|---|---|
+| 首页 | `desktop-devices-page`, `desktop-home-overview`, `paired-devices-section`, `add-device-section` |
+| 设备 | `device-card`, `device-send-action`, `device-connect-action`, `nearby-device-row` |
+| 发送 | `send-page`, `send-target-summary`, `file-drop-zone`, `send-empty-selection`, `send-confirm-action` |
+| 收件箱 | `inbox-page`, `inbox-rail`, `inbox-item`, `inbox-reader`, `inbox-empty-state` |
+| 顶栏 | `app-topbar`, `network-status-pill`, `topbar-inbox-link`, `topbar-transfer-link` |
 
 ### 阶段三：Remotion 统一合成
 
@@ -262,7 +351,7 @@ Remotion 不负责点击按钮，它负责把 raw clips 包装成发布素材：
 - 加步骤字幕；
 - 加品牌色背景；
 - 加桌面窗口框；
-- 合并移动端 Maestro 视频；
+- 合并移动端 Appium 视频；
 - 输出 16:9、9:16、1:1；
 - 输出不同语言版本。
 
@@ -348,7 +437,7 @@ demo flow 必须用稳定 `data-testid`，不要靠长文案或视觉层级。
 1. 建立桌面视频模板；
 2. 加字幕和标题；
 3. 输出官网 hero 和教程版本；
-4. 加移动端 Maestro 视频合成双端演示。
+4. 加移动端 Appium 视频合成双端演示。
 
 ## 参考资料
 
