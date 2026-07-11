@@ -247,8 +247,12 @@ export const usePreferencesStore = create<PreferencesState>()(
           return {
             deviceOrganization: {
               ...state.deviceOrganization,
+              // groups 数组保持插入序，sortOrder 才是用户自定义顺序的载体；删组后
+              // 必须先按 sortOrder 排序再重新编号，否则会把 reorder 过的顺序退回
+              // 插入序（丢失用户排序）。
               groups: state.deviceOrganization.groups
                 .filter((group) => group.id !== groupId)
+                .sort((a, b) => a.sortOrder - b.sortOrder)
                 .map((group, sortOrder) => ({ ...group, sortOrder })),
               groupDeviceIds,
             },

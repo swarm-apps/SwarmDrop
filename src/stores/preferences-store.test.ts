@@ -85,4 +85,22 @@ describe("device organization preferences", () => {
       groupDeviceIds: { [family]: [] },
     });
   });
+
+  it("preserves the reordered group order after deleting another group", () => {
+    const store = usePreferencesStore.getState();
+    const work = store.createDeviceGroup("工作")!;
+    const home = store.createDeviceGroup("家庭")!;
+    const travel = store.createDeviceGroup("出行")!;
+
+    // 把「出行」移到最前：数组仍是插入序 [work, home, travel]，但 sortOrder 变为
+    // travel=0, work=1, home=2。
+    usePreferencesStore.getState().reorderDeviceGroups([travel, work, home]);
+    // 删掉中间的「家庭」，剩余顺序应保持 [出行, 工作]，而非退回插入序 [工作, 出行]。
+    usePreferencesStore.getState().deleteDeviceGroup(home);
+
+    const groups = [...usePreferencesStore.getState().deviceOrganization.groups]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((group) => group.name);
+    expect(groups).toEqual(["出行", "工作"]);
+  });
 });
