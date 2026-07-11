@@ -49,7 +49,7 @@ export function SearchHeader({
           placeholder={placeholder}
           placeholderTextColor={colors.mutedForeground}
           returnKeyType="search"
-          className="h-11 min-w-0 flex-1 text-[14px] text-foreground"
+          className="min-w-0 flex-1 text-[14px] text-foreground"
           testID={`${testIDPrefix}-input`}
         />
         {trailing}
