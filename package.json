@@ -17,6 +17,9 @@
   },
   "dependencies": {
     "@choochmeque/tauri-plugin-biometry-api": "^0.2.6",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@headless-tree/core": "^1.6.3",
     "@headless-tree/react": "^1.6.3",
     "@icons-pack/react-simple-icons": "^13.8.0",

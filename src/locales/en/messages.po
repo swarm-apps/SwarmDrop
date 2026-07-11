@@ -55,6 +55,14 @@ msgstr "{0} items · {1}"
 msgid "{0}/6 位"
 msgstr "{0}/6 digits"
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
+msgstr "{deviceCount, plural, one {# device} other {# devices}}"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#~ msgid "{deviceCount} 台设备"
+#~ msgstr "{deviceCount} devices"
+
 #: src/components/file-tree/folder-row.tsx
 #~ msgid "{fileCount} 项"
 #~ msgstr "{fileCount} items"
@@ -266,7 +274,7 @@ msgstr "e.g. MacBook Pro"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "保存"
-msgstr ""
+msgstr "Save"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "保存中..."
@@ -422,7 +430,11 @@ msgstr "Something went wrong, please try again"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "分组内设备将保留为已配对状态，并显示在未分组列表中。"
-msgstr ""
+msgstr "Devices in this group stay paired and move to the ungrouped list."
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "分组名称"
+msgstr "Group name"
 
 #: src/components/layout/app-topbar.tsx
 msgid "切换到浅色主题"
@@ -437,8 +449,12 @@ msgid "切换过滤条件，或直接使用下方配对码连接。"
 msgstr "Switch the filter, or use the pairing code below to connect."
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-msgid "创建"
-msgstr ""
+#~ msgid "创建"
+#~ msgstr "Create"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#~ msgid "创建分组"
+#~ msgstr "Create group"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
@@ -451,11 +467,18 @@ msgstr "Delete the transfer record for \"{displayFileName}\"?"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "删除分组"
-msgstr ""
+msgstr "Delete group"
+
+#. placeholder {0}: group.name
+#. placeholder {0}: lastDeleteName.current
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "删除分组「{0}」"
+msgstr "Delete group “{0}”"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-msgid "删除分组不会取消其中设备的配对。"
-msgstr ""
+#~ msgid "删除分组不会取消其中设备的配对。"
+#~ msgstr "Deleting a group won't unpair the devices in it."
 
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
@@ -541,7 +564,7 @@ msgstr "Send Files"
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "发送文件到 {displayName}"
-msgstr ""
+msgstr "Send files to {displayName}"
 
 #: src/routes/_app/send/-components/send-progress-view.tsx
 msgid "发送更多"
@@ -607,7 +630,7 @@ msgstr "Read-only"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "可在设备菜单中为已配对设备设置分组。"
-msgstr ""
+msgstr "Assign groups to paired devices from the device menu."
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "可恢复"
@@ -669,6 +692,10 @@ msgstr "Start Node"
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "启用后，符合策略的入站文件会直接进入收件箱"
 msgstr "When enabled, inbound files matching the policy go straight to the Inbox"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "在下方创建第一个分组来整理已配对设备。"
+msgstr "Create your first group below to organize paired devices."
 
 #: src/components/transfer/session-panel.tsx
 msgid "在收件箱查看"
@@ -1035,7 +1062,7 @@ msgstr "Successfully received files appear here; paused or failed transfers stay
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "所属分组"
-msgstr ""
+msgstr "Groups"
 
 #: src/components/transfer/session-panel.tsx
 msgid "所有文件传输完成！"
@@ -1090,6 +1117,14 @@ msgstr "Once a device is found, you can confirm its system info before sending a
 #: src/components/transfer/transfer-offer-dialog.tsx
 msgid "拒绝"
 msgstr "Decline"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "拖动排序"
+msgstr "Drag to reorder"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "拖动排序、重命名或删除分组。删除分组不会取消其中设备的配对。"
+msgstr "Drag to reorder, rename, or delete groups. Deleting a group won't unpair its devices."
 
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "拖拽文件或文件夹到这里"
@@ -1201,6 +1236,16 @@ msgstr "Text"
 msgid "断点续传"
 msgstr "Resumable Transfers"
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "新分组名称"
+msgstr "New group name"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "新建"
+msgstr "Add"
+
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "无效的 Multiaddr 地址"
 msgstr "Invalid Multiaddr address"
@@ -1292,7 +1337,7 @@ msgstr "Service Status"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "未分组"
-msgstr ""
+msgstr "Ungrouped"
 
 #: src/components/layout/app-topbar.tsx
 #: src/components/network/start-node-sheet.tsx
@@ -1542,6 +1587,10 @@ msgstr "Initiated by AI agent"
 msgid "由 AI 代理发起（{0}）"
 msgstr "Initiated by AI agent ({0})"
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "留空则使用设备名"
+msgstr "Leave blank to use the device name"
+
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
 msgid "监听地址"
@@ -1643,11 +1692,11 @@ msgstr "Manage P2P network node startup and connection status"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "管理分组"
-msgstr ""
+msgstr "Manage groups"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "管理设备分组"
-msgstr ""
+msgstr "Manage device groups"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "给设备取个名字"
@@ -1795,12 +1844,12 @@ msgstr "Device Info"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "设备别名"
-msgstr ""
+msgstr "Device alias"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "设备别名与分组"
-msgstr ""
+msgstr "Device alias and groups"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "设备名称"
@@ -1856,7 +1905,7 @@ msgstr "Try shorter keywords, or check whether archived items are included."
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "该分组中还没有设备"
-msgstr ""
+msgstr "No devices in this group yet"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "该节点已存在"
@@ -1935,8 +1984,12 @@ msgid "返回后重新选择要分享的文件。"
 msgstr "Go back and select files to share again."
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "还没有分组"
+msgstr "No groups yet"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "还没有分组，可在下方创建。"
-msgstr ""
+msgstr "No groups yet. Create one below."
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "还没有已配对设备"
@@ -1944,7 +1997,7 @@ msgstr "No paired devices yet"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "这些信息仅保存在本机，不会同步给对端。"
-msgstr ""
+msgstr "This info is stored only on this device and never shared with peers."
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "进入 SwarmDrop"
