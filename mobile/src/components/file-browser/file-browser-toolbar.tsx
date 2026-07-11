@@ -36,7 +36,7 @@ function FileBrowserToolbarComponent({
         <Text className="text-[13px] font-semibold text-foreground">
           {title ?? <Trans>文件</Trans>}
         </Text>
-        <Text className="text-[11px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground">
           <Trans>{count} 项</Trans> · {formatBytes(totalSize)}
         </Text>
       </View>

@@ -82,9 +82,11 @@ export function ForceUpdateDialog({
           <View className="gap-2">
             <Progress value={percent} />
             <View className="flex-row justify-between">
-              <Text className="text-muted-foreground text-xs">{percent}%</Text>
+              <Text className="text-muted-foreground text-[13px]">
+                {percent}%
+              </Text>
               {speedMb ? (
-                <Text className="text-muted-foreground text-xs">
+                <Text className="text-muted-foreground text-[13px]">
                   {speedMb} MB/s
                 </Text>
               ) : null}

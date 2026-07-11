@@ -74,7 +74,7 @@ function FolderRowComponent({
           >
             {name}
           </Text>
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             <Trans>{fileCount} 项</Trans> · {formatBytes(size)}
           </Text>
         </View>

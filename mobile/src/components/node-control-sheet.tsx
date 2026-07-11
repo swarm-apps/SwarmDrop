@@ -358,7 +358,7 @@ function Row({
         <Text
           className={
             mono
-              ? "font-mono text-[12px] text-foreground"
+              ? "font-mono text-[13px] text-foreground"
               : "text-[13px] font-medium text-foreground"
           }
           numberOfLines={1}

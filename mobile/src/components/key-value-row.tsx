@@ -19,9 +19,9 @@ export function KeyValueRow({
 }) {
   return (
     <View className="flex-row items-start justify-between gap-3">
-      <Text className="text-[12px] text-muted-foreground">{label}</Text>
+      <Text className="text-[13px] text-muted-foreground">{label}</Text>
       <Text
-        className={`flex-1 text-right text-[12px] text-foreground ${mono ? "font-mono" : ""}`}
+        className={`flex-1 text-right text-[13px] text-foreground ${mono ? "font-mono" : ""}`}
         numberOfLines={numberOfLines}
       >
         {value}

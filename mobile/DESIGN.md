@@ -41,9 +41,9 @@ typography:
     letterSpacing: "normal"
   label:
     fontFamily: "System"
-    fontSize: "11px"
+    fontSize: "12px"
     fontWeight: 500
-    lineHeight: "14px"
+    lineHeight: "16px"
     letterSpacing: "normal"
 rounded:
   sm: "6px"
@@ -109,7 +109,7 @@ This system explicitly rejects the two poles PRODUCT.md names as anti-references
 
 **Key Characteristics:**
 - Neutral, near-monochrome surfaces; color is spent almost entirely on *state* (online, trusted, transferring, failed), never on decoration.
-- A tight 10–15px type scale carries nearly all product UI; size barely moves, weight and color do the talking.
+- A tight 11–15px type scale carries nearly all product UI; size barely moves, weight and color do the talking.
 - Flat at rest, lifted only when a surface floats above the page (sheets, dialogs, menus).
 - Every interactive surface answers instantly (`active:opacity-70`), no hover-dependent affordances — this is a touch-first surface.
 
@@ -160,10 +160,12 @@ Dark mode uses a softened teal-black stack instead of pure black: Night Backgrou
 - **Headline** (semibold 600, 24–30px, `tracking-tight`): available via the `h2`/`h3` Text variants but **not currently used on any product screen** — treat as available inventory for future section headers, not an established pattern.
 - **Title** (semibold 600, 15px): the real workhorse heading — device names, primary list-row titles, section titles. This is the size a user's eye lands on first.
 - **Body** (regular 400, 14px, occasionally 16px `text-base` for prose-like copy): button labels, secondary row text, settings descriptions.
-- **Label** (medium 500, 10–11px): status pills, trust badges, connection badges, "os · platform" captions. This is the densest, most frequently repeated text style in the app.
+- **Label** (medium 500, 11–12px): status pills, trust badges, connection badges, "os · platform" captions. This is the densest, most frequently repeated text style in the app.
 
 ### Named Rules
-**The Small-Print Confidence Rule.** 80%+ of all text sizes in this codebase fall between 10px and 15px (`text-[11px]` alone appears 80+ times). Do not reach for a larger size to add emphasis — reach for `font-semibold` or a state color instead. A 30px+ size is earned only by a genuine metric readout, never by a section header wanting attention.
+**The Small-Print Confidence Rule.** 80%+ of all text sizes in this codebase fall between 11px and 15px (`text-[12px]` is now the most common, ~80 uses; `text-[13px]` next). Do not reach for a larger size to add emphasis — reach for `font-semibold` or a state color instead. A 30px+ size is earned only by a genuine metric readout, never by a section header wanting attention.
+
+**2026-07 relaxation.** Real-user feedback ("字体偏小、整体拥挤") lifted the whole small tier up one step: the floor rose from 10px → 11px (no `text-[10px]` in shipped UI anymore), the former workhorse 11px caption tier became 12px, and 12px became 13px. Body (14px) and Title (15px) were deliberately left unchanged — the fix targeted the *secondary/metadata* tier that carried the "too small" complaint, plus comfortable line-height on multi-line descriptions (`EmptyState`/`InlineEmptyState`/`SettingRow`). This is a calibrated one-step lift, not a rejection of the dense scale — keep new small text at 11–13px, not 10px. Don't "correct" this back down.
 
 ## 4. Elevation
 

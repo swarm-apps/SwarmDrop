@@ -308,7 +308,7 @@ export default function DevicesScreen() {
               className="flex-row items-center gap-1 active:opacity-70"
             >
               <Tags color={colors.mutedForeground} size={13} />
-              <Text className="text-[12px] font-semibold text-primary-ink">
+              <Text className="text-[13px] font-semibold text-primary-ink">
                 <Trans>管理分组</Trans>
               </Text>
             </Pressable>
@@ -360,7 +360,7 @@ export default function DevicesScreen() {
             hitSlop={8}
             testID="devices-open-activity-button"
           >
-            <Text className="text-[12px] font-semibold text-primary-ink">
+            <Text className="text-[13px] font-semibold text-primary-ink">
               <Trans>查看全部</Trans>
             </Text>
           </Pressable>
@@ -394,7 +394,7 @@ export default function DevicesScreen() {
           testID="devices-open-file-browser-fixture"
           className="min-h-11 items-center justify-center rounded-lg border border-dashed border-border active:opacity-70"
         >
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             WebDriver · FileBrowser fixture
           </Text>
         </Pressable>
@@ -452,7 +452,7 @@ function NodeStatePanel({
           </Text>
           <Text
             className={cn(
-              "text-[12px] leading-5",
+              "text-[13px] leading-5",
               isError ? "text-destructive-ink" : "text-muted-foreground",
             )}
             numberOfLines={isError ? 3 : undefined}
@@ -528,7 +528,7 @@ function HomeDock({
           )}
         </Text>
         {isRunning && unpairedNearbyCount > 0 ? (
-          <Text className="text-[11px] font-medium text-primary-foreground">
+          <Text className="text-[12px] font-medium text-primary-foreground">
             <Trans>· 附近发现 {unpairedNearbyCount} 台</Trans>
           </Text>
         ) : null}
@@ -710,14 +710,14 @@ const AddDeviceSheet = forwardRef<
               <Text className="text-base font-bold text-foreground">
                 <Trans>添加设备</Trans>
               </Text>
-              <Text className="text-center text-[12px] leading-5 text-muted-foreground">
+              <Text className="text-center text-[13px] leading-5 text-muted-foreground">
                 <Trans>附近的设备会自动出现；也可以用 6 位配对码互相认识</Trans>
               </Text>
             </View>
           </View>
 
           <View className="gap-2.5">
-            <Text className="text-[12px] font-semibold text-muted-foreground">
+            <Text className="text-[13px] font-semibold text-muted-foreground">
               <Trans>附近设备</Trans>
             </Text>
             {nearbyDevices.length === 0 ? (
@@ -752,7 +752,7 @@ const AddDeviceSheet = forwardRef<
                     >
                       <Text
                         className={cn(
-                          "text-[11px] font-medium",
+                          "text-[12px] font-medium",
                           nearbyFilter === key
                             ? "text-foreground"
                             : "text-muted-foreground",
@@ -788,7 +788,7 @@ const AddDeviceSheet = forwardRef<
                         testID="nearby-show-all-button"
                         className="min-h-9 items-center justify-center rounded-lg active:opacity-70"
                       >
-                        <Text className="text-[12px] font-semibold text-primary-ink">
+                        <Text className="text-[13px] font-semibold text-primary-ink">
                           <Trans>查看全部 ({filteredNearby.length})</Trans>
                         </Text>
                       </Pressable>
@@ -800,7 +800,7 @@ const AddDeviceSheet = forwardRef<
                         testID="nearby-collapse-button"
                         className="min-h-9 items-center justify-center rounded-lg active:opacity-70"
                       >
-                        <Text className="text-[12px] font-semibold text-muted-foreground">
+                        <Text className="text-[13px] font-semibold text-muted-foreground">
                           <Trans>收起</Trans>
                         </Text>
                       </Pressable>
@@ -810,7 +810,7 @@ const AddDeviceSheet = forwardRef<
               </>
             )}
             {pairingError !== null ? (
-              <Text className="text-[12px] text-destructive-ink">
+              <Text className="text-[13px] text-destructive-ink">
                 {pairingError}
               </Text>
             ) : null}
@@ -834,7 +834,7 @@ const AddDeviceSheet = forwardRef<
                 <Trans>输入配对码</Trans>
               </Text>
               <Text
-                className="mt-0.5 text-[12px] text-muted-foreground"
+                className="mt-0.5 text-[13px] text-muted-foreground"
                 numberOfLines={1}
               >
                 <Trans>输入另一台设备显示的 6 位数字</Trans>
@@ -885,7 +885,7 @@ function NearbyDeviceRow({
           {organizedDeviceName(device, deviceOrganization)}
         </Text>
         <Text
-          className="mt-0.5 text-[11px] text-muted-foreground"
+          className="mt-0.5 text-[12px] text-muted-foreground"
           numberOfLines={1}
         >
           {pairing ? (
@@ -911,14 +911,14 @@ function NearbyDeviceRow({
             testID={`nearby-cancel-pairing-${device.peerId}`}
             className="min-w-14 items-center rounded-full border border-border px-3 py-1.5 active:opacity-70"
           >
-            <Text className="text-[12px] font-semibold text-muted-foreground">
+            <Text className="text-[13px] font-semibold text-muted-foreground">
               <Trans>取消</Trans>
             </Text>
           </Pressable>
         </View>
       ) : (
         <View className="min-w-14 items-center rounded-full bg-primary px-3 py-1.5">
-          <Text className="text-[12px] font-semibold text-primary-foreground">
+          <Text className="text-[13px] font-semibold text-primary-foreground">
             {device.isPaired ? <Trans>发送</Trans> : <Trans>配对</Trans>}
           </Text>
         </View>
@@ -962,12 +962,12 @@ function PairingCodeCard() {
           <Text className="text-[13px] font-semibold text-foreground">
             <Trans>本机配对码</Trans>
           </Text>
-          <Text className="mt-0.5 text-[11px] text-muted-foreground">
+          <Text className="mt-0.5 text-[12px] text-muted-foreground">
             <Trans>让另一台设备输入这组 6 位数字</Trans>
           </Text>
         </View>
         {code !== null ? (
-          <Text className="rounded-full bg-card px-2 py-1 text-[11px] text-muted-foreground">
+          <Text className="rounded-full bg-card px-2 py-1 text-[12px] text-muted-foreground">
             {remaining > 0 ? t`${formatMmss(remaining)} 后过期` : t`已过期`}
           </Text>
         ) : null}
@@ -982,7 +982,7 @@ function PairingCodeCard() {
             {code}
           </Text>
         ) : (
-          <Text className="text-[12px] text-muted-foreground">
+          <Text className="text-[13px] text-muted-foreground">
             {error ?? t`暂未生成配对码`}
           </Text>
         )}
@@ -996,7 +996,7 @@ function PairingCodeCard() {
           className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
         >
           <RefreshCcw color={colors.foreground} size={14} />
-          <Text className="text-[12px] font-semibold text-foreground">
+          <Text className="text-[13px] font-semibold text-foreground">
             {code === null ? <Trans>生成</Trans> : <Trans>刷新</Trans>}
           </Text>
         </Pressable>
@@ -1015,8 +1015,8 @@ function PairingCodeCard() {
           <Text
             className={
               code !== null
-                ? "text-[12px] font-semibold text-primary-foreground"
-                : "text-[12px] font-semibold text-muted-foreground"
+                ? "text-[13px] font-semibold text-primary-foreground"
+                : "text-[13px] font-semibold text-muted-foreground"
             }
           >
             <Trans>复制</Trans>
@@ -1061,7 +1061,7 @@ const PairingCodeSheet = forwardRef<PairingCodeSheetRef, object>(
               <Text className="text-base font-bold text-foreground">
                 <Trans>输入配对码</Trans>
               </Text>
-              <Text className="text-center text-[12px] leading-5 text-muted-foreground">
+              <Text className="text-center text-[13px] leading-5 text-muted-foreground">
                 <Trans>输入另一台设备显示的 6 位数字</Trans>
               </Text>
             </View>
@@ -1177,7 +1177,7 @@ function PairingCodeInput({
         )}
       />
       {error !== null ? (
-        <Text className="text-[12px] text-destructive-ink">{error}</Text>
+        <Text className="text-[13px] text-destructive-ink">{error}</Text>
       ) : looking ? (
         <ActivityIndicator color={colors.mutedForeground} />
       ) : null}
@@ -1362,7 +1362,7 @@ function GroupFilterChip({
     >
       <Text
         className={cn(
-          "text-[12px]",
+          "text-[13px]",
           selected ? "font-semibold text-primary-ink" : "text-muted-foreground",
         )}
         numberOfLines={1}

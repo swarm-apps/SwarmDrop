@@ -18,7 +18,7 @@ export function EncryptionNote({
   return (
     <View className={cn("flex-row items-center gap-1.5", className)}>
       <Lock color={colors.mutedForeground} size={12} />
-      <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+      <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
         {children}
       </Text>
     </View>

@@ -232,7 +232,7 @@ function SearchBody({
           {hasQuery ? <Trans>搜索结果</Trans> : <Trans>最近接收</Trans>}
         </Text>
         {items.length > 0 ? (
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             {resultCount} <Trans>条</Trans>
           </Text>
         ) : null}
@@ -377,11 +377,11 @@ function InboxHitRow({
           <HighlightedText
             text={hit.sourceName}
             query={query}
-            className="min-w-0 flex-1 text-[11px] text-muted-foreground"
+            className="min-w-0 flex-1 text-[12px] text-muted-foreground"
             numberOfLines={1}
           />
-          <Text className="text-[11px] text-muted-foreground">·</Text>
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">·</Text>
+          <Text className="text-[12px] text-muted-foreground">
             {hit.itemCount} <Trans>项</Trans>
           </Text>
         </View>
@@ -389,7 +389,7 @@ function InboxHitRow({
           <HighlightedText
             text={hit.snippet}
             query={query}
-            className="text-[11px] text-muted-foreground"
+            className="text-[12px] text-muted-foreground"
             numberOfLines={1}
           />
         ) : null}

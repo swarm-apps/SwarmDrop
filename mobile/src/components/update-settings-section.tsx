@@ -57,7 +57,7 @@ export function UpdateSettingsSection({
         <View className="flex-1 gap-0.5">
           <Text className="text-sm font-medium">{t.settingsTitle}</Text>
           {currentVersion ? (
-            <Text className="text-muted-foreground text-xs">
+            <Text className="text-muted-foreground text-[13px]">
               {t.currentVersionLabel(currentVersion)}
             </Text>
           ) : null}
@@ -100,9 +100,11 @@ export function UpdateSettingsSection({
         <View className="gap-2">
           <Progress value={percent} />
           <View className="flex-row justify-between">
-            <Text className="text-muted-foreground text-xs">{percent}%</Text>
+            <Text className="text-muted-foreground text-[13px]">
+              {percent}%
+            </Text>
             {speedMb ? (
-              <Text className="text-muted-foreground text-xs">
+              <Text className="text-muted-foreground text-[13px]">
                 {speedMb} MB/s
               </Text>
             ) : null}

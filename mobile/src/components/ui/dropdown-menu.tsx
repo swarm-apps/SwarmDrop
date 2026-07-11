@@ -299,7 +299,7 @@ function DropdownMenuShortcut({
   return (
     <Text
       className={cn(
-        "text-muted-foreground ml-auto text-xs tracking-widest",
+        "text-muted-foreground ml-auto text-[13px] tracking-widest",
         className,
       )}
       {...props}

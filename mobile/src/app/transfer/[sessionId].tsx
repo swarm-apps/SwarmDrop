@@ -227,7 +227,7 @@ export default function TransferDetailScreen() {
         <View className="flex-1 px-5 pt-2">
           {loaded ? (
             <View className="items-center gap-3 py-20">
-              <Text className="text-xs text-muted-foreground">
+              <Text className="text-[13px] text-muted-foreground">
                 <Trans>会话不存在或已结束</Trans>
               </Text>
             </View>
@@ -368,7 +368,7 @@ function TransferDetailHeader({
           >
             {projection.peerName}
           </Text>
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             {direction === "send" ? <Trans>发送</Trans> : <Trans>接收</Trans>}
             {" · "}
             {projection.files.length} <Trans>个文件</Trans>
@@ -457,7 +457,7 @@ function TransferProgressBlock({
           <Text className="text-3xl font-bold tabular-nums text-foreground">
             {percent}%
           </Text>
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             {status === "transferring" && progress ? (
               formatSpeed(Number(progress.speed))
             ) : (
@@ -466,7 +466,7 @@ function TransferProgressBlock({
           </Text>
         </View>
         <ProgressBar percent={percent} />
-        <Text className="text-[11px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground">
           {formatBytes(transferred)} / {formatBytes(total)}
         </Text>
       </View>
@@ -582,7 +582,7 @@ function StatusBanner({
           {title}
         </Text>
         {subtitle ? (
-          <Text className="text-[12px] leading-4 text-muted-foreground">
+          <Text className="text-[13px] leading-4 text-muted-foreground">
             {subtitle}
           </Text>
         ) : null}

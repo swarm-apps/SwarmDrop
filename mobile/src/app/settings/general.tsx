@@ -145,7 +145,7 @@ function PauseReceivingRow() {
         <Text className="text-[14px] text-foreground">
           <Trans>暂停接收</Trans>
         </Text>
-        <Text className="text-[11px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground">
           {nodeRunning ? (
             <Trans>
               暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。
@@ -202,7 +202,7 @@ function NotificationRow() {
         <Text className="text-[14px] text-foreground">
           <Trans>通知提醒</Trans>
         </Text>
-        <Text className="text-[11px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground">
           <Trans>接收配对与文件传输请求的系统通知</Trans>
         </Text>
       </View>
@@ -254,7 +254,7 @@ function ReceivePathRow() {
           <Text className="text-[14px] text-foreground">
             <Trans>接收位置</Trans>
           </Text>
-          <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+          <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
             {isCustom ? (
               lastPathSegment(displayPath)
             ) : (

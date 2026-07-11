@@ -190,7 +190,7 @@ export default function ShareTargetScreen() {
                   <Text className="text-[15px] font-semibold text-foreground">
                     <Trans>{sharedFiles.length} 个文件</Trans>
                   </Text>
-                  <Text className="text-[12px] text-muted-foreground">
+                  <Text className="text-[13px] text-muted-foreground">
                     {formatBytes(totalSize)}
                   </Text>
                 </View>
@@ -202,7 +202,7 @@ export default function ShareTargetScreen() {
                   testID="share-target-review-files"
                   className="min-h-11 justify-center rounded-xl border border-border px-3.5 active:opacity-70 disabled:opacity-50"
                 >
-                  <Text className="text-[12px] font-semibold text-foreground">
+                  <Text className="text-[13px] font-semibold text-foreground">
                     <Trans>查看文件</Trans>
                   </Text>
                 </Pressable>
@@ -221,7 +221,7 @@ export default function ShareTargetScreen() {
                 <Text className="text-[13px] font-semibold text-foreground">
                   <Trans>正在启动节点…</Trans>
                 </Text>
-                <Text className="text-[11px] text-muted-foreground">
+                <Text className="text-[12px] text-muted-foreground">
                   <Trans>启动后显示可发送的设备</Trans>
                 </Text>
               </View>
@@ -331,7 +331,7 @@ function TargetDeviceRow({
         </Text>
         <View className="min-w-0 flex-row flex-wrap items-center gap-1.5">
           <View className="size-1.5 rounded-full bg-success" />
-          <Text className="text-[11px] text-success-ink">
+          <Text className="text-[12px] text-success-ink">
             <Trans>在线</Trans>
           </Text>
           <TrustBadge
@@ -371,7 +371,7 @@ function SharePrepareProgress({
     <View className="flex-1 gap-2 py-1">
       <View className="flex-row items-center justify-between gap-3">
         <Text
-          className="flex-1 text-[12px] text-muted-foreground"
+          className="flex-1 text-[13px] text-muted-foreground"
           numberOfLines={1}
         >
           <Trans>
@@ -379,7 +379,7 @@ function SharePrepareProgress({
             {progress.totalFiles.toString()})
           </Trans>
         </Text>
-        <Text className="text-[11px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground">
           {formatBytes(hashed)} / {formatBytes(total)}
         </Text>
       </View>

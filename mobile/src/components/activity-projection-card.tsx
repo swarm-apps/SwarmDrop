@@ -104,7 +104,7 @@ function ActivityProjectionCardComponent({
             </Text>
             {showStatusBadge ? <StatusBadge status={status} /> : null}
           </View>
-          <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
+          <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
             {projection.files.length} <Trans>文件</Trans>
             {" · "}
             {formatBytes(total)}
@@ -131,7 +131,7 @@ function ActivityProjectionCardComponent({
       {showProgress ? (
         <View className="gap-1.5">
           <ProgressBar percent={percent} heightClass="h-1.5" />
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             {formatBytes(transferred)} / {formatBytes(total)}
           </Text>
         </View>
@@ -140,13 +140,13 @@ function ActivityProjectionCardComponent({
       {reason || projection.errorMessage || policyNote ? (
         <View className="gap-1 rounded-lg bg-muted px-3 py-2">
           {reason ? (
-            <Text className="text-[11px] text-muted-foreground">{reason}</Text>
+            <Text className="text-[12px] text-muted-foreground">{reason}</Text>
           ) : null}
           {policyNote ? (
             <View className="flex-row items-center gap-1.5">
               <AlertCircle color={colors.mutedForeground} size={12} />
               <Text
-                className="min-w-0 flex-1 text-[11px] text-muted-foreground"
+                className="min-w-0 flex-1 text-[12px] text-muted-foreground"
                 numberOfLines={2}
               >
                 {policyNote}
@@ -155,7 +155,7 @@ function ActivityProjectionCardComponent({
           ) : null}
           {projection.errorMessage ? (
             <Text
-              className="text-[11px] text-destructive-ink"
+              className="text-[12px] text-destructive-ink"
               numberOfLines={2}
             >
               <LocalizedError message={projection.errorMessage} />

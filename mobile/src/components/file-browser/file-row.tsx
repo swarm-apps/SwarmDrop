@@ -105,7 +105,7 @@ function FileRowComponent({ item, depth = 0, actions, testID }: FileRowProps) {
               {item.name}
             </Text>
             <Text
-              className="text-[11px] text-muted-foreground"
+              className="text-[12px] text-muted-foreground"
               numberOfLines={1}
             >
               {formatBytes(item.size)} · {statusText}

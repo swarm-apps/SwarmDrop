@@ -298,7 +298,7 @@ export default function DeviceDetailScreen() {
                 {displayName}
               </Text>
               <Text
-                className="text-[12px] text-muted-foreground"
+                className="text-[13px] text-muted-foreground"
                 numberOfLines={1}
               >
                 {device.os} · {device.platform}
@@ -369,7 +369,7 @@ export default function DeviceDetailScreen() {
               <Trans>信任与接收策略</Trans>
             </Text>
           </View>
-          <Text className="text-[12px] text-muted-foreground">
+          <Text className="text-[13px] text-muted-foreground">
             <PolicyHeadline note={policy.note} />
           </Text>
           <View className="gap-2 rounded-lg bg-muted px-3.5 py-3">
@@ -601,7 +601,7 @@ function PolicyEditor({
             <Trans>设备策略</Trans>
           </Text>
           <Text
-            className="max-w-[280px] text-center text-[12px] text-muted-foreground"
+            className="max-w-[280px] text-center text-[13px] text-muted-foreground"
             numberOfLines={2}
           >
             {deviceName}
@@ -637,7 +637,7 @@ function PolicyEditor({
           disabled={blocked}
           onChange={setReceiveMode}
         />
-        <Text className="px-1 text-[11px] text-muted-foreground">
+        <Text className="px-1 text-[12px] text-muted-foreground">
           {autoMode ? (
             <Trans>文件直接进入收件箱和默认保存位置</Trans>
           ) : (
@@ -663,12 +663,12 @@ function PolicyEditor({
       {/* 保存位置 —— 基础项 */}
       <View className="rounded-xl bg-muted px-3.5 py-3">
         <View className="flex-row items-center justify-between gap-3">
-          <Text className="text-[12px] text-muted-foreground">
+          <Text className="text-[13px] text-muted-foreground">
             <Trans>保存位置</Trans>
           </Text>
           <View className="min-w-0 flex-1 flex-row items-center justify-end gap-2">
             <Text
-              className="shrink text-right text-[12px] text-foreground"
+              className="shrink text-right text-[13px] text-foreground"
               numberOfLines={1}
             >
               {formatSaveLocation(draftPolicy.defaultSaveLocation)}
@@ -693,7 +693,7 @@ function PolicyEditor({
               testID="device-policy-save-location-button"
               className="min-h-11 items-center justify-center rounded-lg border border-border px-3.5 active:opacity-70 disabled:opacity-40"
             >
-              <Text className="text-[12px] font-semibold text-foreground">
+              <Text className="text-[13px] font-semibold text-foreground">
                 <Trans>选择</Trans>
               </Text>
             </Pressable>
@@ -738,7 +738,7 @@ function PolicyEditor({
             <Divider />
             <View className="gap-1.5 px-3.5 py-3">
               <View className="flex-row items-center justify-between gap-3">
-                <Text className="text-[12px] text-muted-foreground">
+                <Text className="text-[13px] text-muted-foreground">
                   <Trans>最大大小</Trans>
                 </Text>
                 <View className="flex-row items-center gap-2">
@@ -766,12 +766,12 @@ function PolicyEditor({
                       opacity: blocked ? 0.5 : 1,
                     }}
                   />
-                  <Text className="text-[12px] text-muted-foreground">MB</Text>
+                  <Text className="text-[13px] text-muted-foreground">MB</Text>
                 </View>
               </View>
               {sizeError ? (
                 <Text
-                  className="text-right text-[11px] text-destructive-ink"
+                  className="text-right text-[12px] text-destructive-ink"
                   testID="device-policy-max-size-error"
                 >
                   <Trans>请输入大于 0 的数字，留空表示不限制</Trans>
@@ -992,7 +992,7 @@ function TrustOption({
         <Text className="text-[14px] font-semibold text-foreground">
           <TrustLabel level={level} />
         </Text>
-        <Text className="text-[11px] text-muted-foreground" numberOfLines={2}>
+        <Text className="text-[12px] text-muted-foreground" numberOfLines={2}>
           <TrustDescription level={level} />
         </Text>
       </View>
@@ -1020,7 +1020,7 @@ function PolicySwitch({
     <View className="min-h-16 flex-row items-center gap-3 px-3.5 py-3">
       <View className="flex-1 gap-0.5">
         <Text className="text-[14px] text-foreground">{label}</Text>
-        <Text className="text-[11px] text-muted-foreground">{description}</Text>
+        <Text className="text-[12px] text-muted-foreground">{description}</Text>
       </View>
       <Switch
         checked={checked}
@@ -1095,12 +1095,12 @@ function InfoRow({
 }) {
   return (
     <View className="flex-row items-center justify-between gap-3">
-      <Text className="text-[12px] text-muted-foreground">{label}</Text>
+      <Text className="text-[13px] text-muted-foreground">{label}</Text>
       <Text
         className={
           mono
-            ? "flex-1 text-right font-mono text-[11px] text-foreground"
-            : "flex-1 text-right text-[12px] text-foreground"
+            ? "flex-1 text-right font-mono text-[12px] text-foreground"
+            : "flex-1 text-right text-[13px] text-foreground"
         }
         numberOfLines={1}
       >

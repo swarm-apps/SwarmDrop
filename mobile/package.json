@@ -1,7 +1,7 @@
 {
   "name": "swarmdrop-mobile",
   "main": "expo-router/entry",
-  "version": "0.7.14",
+  "version": "0.7.15",
   "private": true,
   "scripts": {
     "start": "expo start --dev-client",
@@ -83,11 +83,13 @@
     "react-native-gesture-handler": "~2.31.2",
     "react-native-image-viewing": "^0.2.2",
     "react-native-keyboard-controller": "^1.21.6",
+    "react-native-marked": "^8.1.0",
     "react-native-notify-kit": "^10.4.6",
     "react-native-reanimated": "4.3.1",
     "react-native-reorderable-list": "^0.18.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.25.2",
+    "react-native-svg": "15.15.5",
     "react-native-swarmdrop-core": "workspace:*",
     "react-native-worklets": "0.8.3",
     "tailwind-merge": "^3.6.0",

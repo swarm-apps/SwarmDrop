@@ -80,7 +80,7 @@ function RecentTransferRowComponent({
             style={{ width: `${percent}%` }}
           />
         </View>
-        <Text className="text-[11px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground">
           {formatBytes(transferred)} / {formatBytes(total)}
         </Text>
       </View>

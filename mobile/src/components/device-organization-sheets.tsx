@@ -143,7 +143,7 @@ export const DeviceOrganizeSheet = forwardRef<DeviceOrganizeSheetRef, object>(
               <Text className="text-base font-bold text-foreground">
                 <Trans>别名与分组</Trans>
               </Text>
-              <Text className="text-center text-[12px] leading-5 text-muted-foreground">
+              <Text className="text-center text-[13px] leading-5 text-muted-foreground">
                 <Trans>这些信息仅保存在本机,不会同步给对端</Trans>
               </Text>
             </View>
@@ -168,7 +168,7 @@ export const DeviceOrganizeSheet = forwardRef<DeviceOrganizeSheetRef, object>(
               <Trans>所属分组</Trans>
             </Text>
             {sortedGroups.length === 0 ? (
-              <Text className="px-1 text-[12px] text-muted-foreground">
+              <Text className="px-1 text-[13px] text-muted-foreground">
                 <Trans>还没有分组,可在下方创建</Trans>
               </Text>
             ) : (

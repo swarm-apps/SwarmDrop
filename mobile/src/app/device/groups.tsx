@@ -172,7 +172,7 @@ export default function DeviceGroupsScreen() {
             renderItem={renderItem}
             keyExtractor={(item) => item.id}
             ListHeaderComponent={
-              <Text className="px-1 pb-2 text-[12px] text-muted-foreground">
+              <Text className="px-1 pb-2 text-[13px] text-muted-foreground">
                 <Trans>长按手柄拖动排序 · 左滑删除</Trans>
               </Text>
             }
@@ -342,7 +342,7 @@ function GroupRow({
           </Pressable>
         )}
 
-        <Text className="text-[11px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground">
           {deviceCount > 0 ? (
             <Plural value={deviceCount} one="# 台设备" other="# 台设备" />
           ) : (

@@ -287,14 +287,14 @@ function OfferHeader({
               <Trans>收到文件</Trans>
             )}
           </Text>
-          <Text className="text-xs text-muted-foreground" numberOfLines={1}>
+          <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
             {current.offer.deviceName} · {fileCount} <Trans>个文件</Trans> ·{" "}
             {formatBytes(current.offer.totalSize)}
           </Text>
           {current.offer.origin.tag === MobileTransferOrigin_Tags.Mcp ? (
             <View className="mt-1 flex-row items-center gap-1 self-start rounded-full bg-primary/10 px-2 py-0.5">
               <Bot color={colors.primary} size={12} />
-              <Text className="text-[11px] font-medium text-primary-ink">
+              <Text className="text-[12px] font-medium text-primary-ink">
                 {current.offer.origin.inner.client ? (
                   <Trans>
                     由 AI 代理发起（{current.offer.origin.inner.client}）
@@ -310,18 +310,18 @@ function OfferHeader({
 
       <View className="gap-2 rounded-xl bg-muted px-3.5 py-3">
         <View className="flex-row items-center justify-between gap-3">
-          <Text className="text-[12px] font-semibold text-foreground">
+          <Text className="text-[13px] font-semibold text-foreground">
             <Trans>设备策略</Trans>
           </Text>
           {trustLevel ? (
             <TrustBadge level={trustLevel} compact />
           ) : (
-            <Text className="text-[11px] text-muted-foreground">
+            <Text className="text-[12px] text-muted-foreground">
               <Trans>未配对</Trans>
             </Text>
           )}
         </View>
-        <Text className="text-[12px] text-muted-foreground">
+        <Text className="text-[13px] text-muted-foreground">
           {policyNote ?? <Trans>此设备需要手动确认后才会开始接收。</Trans>}
         </Text>
       </View>
@@ -331,11 +331,11 @@ function OfferHeader({
           <View className="min-w-0 flex-1 flex-row items-center gap-2">
             <FolderOpen color={colors.mutedForeground} size={15} />
             <View className="min-w-0 flex-1">
-              <Text className="text-[11px] text-muted-foreground">
+              <Text className="text-[12px] text-muted-foreground">
                 <Trans>保存到</Trans>
               </Text>
               <Text
-                className="text-[12px] text-foreground"
+                className="text-[13px] text-foreground"
                 numberOfLines={1}
                 testID="transfer-offer-save-destination"
               >
@@ -354,7 +354,7 @@ function OfferHeader({
             testID="transfer-offer-change-save-dir"
             className="min-h-11 items-center justify-center rounded-lg border border-border px-3.5 active:opacity-70"
           >
-            <Text className="text-[12px] font-semibold text-foreground">
+            <Text className="text-[13px] font-semibold text-foreground">
               <Trans>更改</Trans>
             </Text>
           </Pressable>

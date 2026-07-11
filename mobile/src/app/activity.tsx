@@ -229,7 +229,7 @@ export default function ActivityScreen() {
                 </View>
               }
             />
-            <Text className="px-1 text-[12px] text-muted-foreground">
+            <Text className="px-1 text-[13px] text-muted-foreground">
               <Trans>每一笔传输的过程都记在这里；收好的东西请到收件箱找</Trans>
             </Text>
             <FilterChipRail testID="activity-filter-rail">
@@ -252,7 +252,7 @@ export default function ActivityScreen() {
               {section.title}
             </Text>
             {section.key === "completed" ? (
-              <Text className="mt-1 text-[11px] text-muted-foreground">
+              <Text className="mt-1 text-[12px] text-muted-foreground">
                 <Trans>收到的内容已放进收件箱</Trans>
               </Text>
             ) : null}

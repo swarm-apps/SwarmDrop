@@ -91,7 +91,7 @@ function DeviceCardComponent({
               />
               <Text
                 className={cn(
-                  "text-[11px]",
+                  "text-[12px]",
                   isOnline ? "text-success-ink" : "text-muted-foreground",
                 )}
               >
@@ -101,7 +101,7 @@ function DeviceCardComponent({
           </View>
           <View className="flex-row items-center gap-2">
             <Text
-              className="min-w-0 flex-1 text-[11px] text-muted-foreground"
+              className="min-w-0 flex-1 text-[12px] text-muted-foreground"
               numberOfLines={1}
             >
               {device.os} · {device.platform}
@@ -121,7 +121,7 @@ function DeviceCardComponent({
           </View>
           {identityLine ? (
             <Text
-              className="text-[10px] text-muted-foreground"
+              className="text-[11px] text-muted-foreground"
               numberOfLines={1}
             >
               {identityLine}
@@ -173,7 +173,7 @@ function DeviceCardComponent({
           />
           <Text
             className={cn(
-              "text-[11px]",
+              "text-[12px]",
               isOnline ? "text-success-ink" : "text-muted-foreground",
             )}
           >
@@ -189,11 +189,11 @@ function DeviceCardComponent({
         >
           {displayName}
         </Text>
-        <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+        <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
           {device.os} · {device.platform}
         </Text>
         {identityLine ? (
-          <Text className="text-[10px] text-muted-foreground" numberOfLines={1}>
+          <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
             {identityLine}
           </Text>
         ) : null}

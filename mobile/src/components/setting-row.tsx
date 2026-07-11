@@ -38,7 +38,7 @@ export function SettingRow({
         <View className="flex-1">
           <Text className="text-[14px] text-foreground">{label}</Text>
           {description ? (
-            <Text className="text-[11px] text-muted-foreground mt-0.5">
+            <Text className="text-[12px] leading-4 text-muted-foreground mt-0.5">
               {description}
             </Text>
           ) : null}
@@ -59,7 +59,7 @@ export function SettingSection({
   return (
     <View className="gap-2">
       {label ? (
-        <Text className="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <Text className="px-1 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </Text>
       ) : null}

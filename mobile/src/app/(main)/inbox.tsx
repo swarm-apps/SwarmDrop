@@ -258,7 +258,7 @@ function InboxErrorBanner({
     >
       <AlertTriangle color={colors.destructive} size={16} />
       <Text
-        className="flex-1 text-[12px] text-destructive-ink"
+        className="flex-1 text-[13px] text-destructive-ink"
         numberOfLines={2}
       >
         {message}
@@ -269,7 +269,7 @@ function InboxErrorBanner({
         testID="inbox-refresh-error-retry"
         className="h-8 items-center justify-center rounded-xl border border-border bg-card px-3 active:opacity-70"
       >
-        <Text className="text-[12px] font-semibold text-foreground">
+        <Text className="text-[13px] font-semibold text-foreground">
           <Trans>重试</Trans>
         </Text>
       </Pressable>
@@ -308,7 +308,7 @@ function InboxToolbar({
               <Trans>接收内容库</Trans>
             </Text>
           </View>
-          <Text className="mt-1.5 text-[12px] leading-5 text-muted-foreground">
+          <Text className="mt-1.5 text-[13px] leading-5 text-muted-foreground">
             <Trans>浏览最近接收的文件、文本和合集。</Trans>
           </Text>
         </View>
@@ -319,7 +319,7 @@ function InboxToolbar({
               {count}
             </Text>
           </View>
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             <Trans>条内容</Trans>
           </Text>
         </View>
@@ -349,10 +349,10 @@ function InboxToolbar({
           className="min-h-11 flex-row items-center justify-between rounded-xl bg-destructive/10 px-3 active:opacity-70 disabled:opacity-50"
         >
           <View className="min-w-0 flex-1">
-            <Text className="text-[12px] font-semibold text-destructive-ink">
+            <Text className="text-[13px] font-semibold text-destructive-ink">
               <Trans>发现 {attentionCount} 条异常内容</Trans>
             </Text>
-            <Text className="mt-0.5 text-[11px] text-muted-foreground">
+            <Text className="mt-0.5 text-[12px] text-muted-foreground">
               <Trans>检查本地文件并更新收件箱状态</Trans>
             </Text>
           </View>
@@ -381,9 +381,9 @@ function StatPill({
     <View className="min-h-12 flex-1 flex-row items-center gap-2 rounded-xl bg-primary/5 px-3">
       <Icon color={colors.primary} size={15} />
       <View className="min-w-0 flex-1">
-        <Text className="text-[10px] text-muted-foreground">{label}</Text>
+        <Text className="text-[11px] text-muted-foreground">{label}</Text>
         <Text
-          className="text-[12px] font-semibold text-foreground"
+          className="text-[13px] font-semibold text-foreground"
           numberOfLines={1}
         >
           {value}

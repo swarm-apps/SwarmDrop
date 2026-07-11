@@ -79,13 +79,13 @@ export default function AboutScreen() {
                 SwarmDrop
               </Text>
               <View className="self-start rounded-full bg-muted px-2.5 py-1">
-                <Text className="font-mono text-[11px] text-muted-foreground">
+                <Text className="font-mono text-[12px] text-muted-foreground">
                   v{APP_VERSION}
                 </Text>
               </View>
             </View>
           </View>
-          <Text className="text-[12px] leading-5 text-muted-foreground">
+          <Text className="text-[13px] leading-5 text-muted-foreground">
             <Trans>去中心化、跨网络、端到端加密文件传输</Trans>
           </Text>
         </View>
@@ -124,7 +124,7 @@ export default function AboutScreen() {
               {hasUpdate ? (
                 <View className="flex-row items-center gap-1">
                   <Download color={colors.primary} size={12} />
-                  <Text className="text-[12px] font-medium text-primary-ink">
+                  <Text className="text-[13px] font-medium text-primary-ink">
                     <Trans>有新版可用</Trans>
                   </Text>
                 </View>
@@ -134,13 +134,13 @@ export default function AboutScreen() {
                   size="small"
                 />
               ) : isError ? (
-                <Text className="text-[12px] text-muted-foreground">
+                <Text className="text-[13px] text-muted-foreground">
                   <Trans>检查失败</Trans>
                 </Text>
               ) : (
                 <View className="flex-row items-center gap-1">
                   <BadgeCheck color={colors.success} size={12} />
-                  <Text className="text-[12px] font-medium text-success-ink">
+                  <Text className="text-[13px] font-medium text-success-ink">
                     <Trans>已是最新</Trans>
                   </Text>
                 </View>
@@ -200,7 +200,7 @@ function SecurityFeatureRow({
       </View>
       <View className="min-w-0 flex-1 gap-0.5">
         <Text className="text-[13px] font-medium text-foreground">{title}</Text>
-        <Text className="text-[11px] leading-4 text-muted-foreground">
+        <Text className="text-[12px] leading-4 text-muted-foreground">
           {description}
         </Text>
       </View>

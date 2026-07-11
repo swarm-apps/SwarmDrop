@@ -136,7 +136,7 @@ export function StatusBadge({ status }: { status: AnyStatus }) {
   const meta = statusMetaOf(status);
   return (
     <View className={cn("rounded-full px-2 py-0.5", meta.bg)}>
-      <Text className={cn("text-[11px] font-medium", meta.text)}>
+      <Text className={cn("text-[12px] font-medium", meta.text)}>
         <StatusLabel status={status} />
       </Text>
     </View>

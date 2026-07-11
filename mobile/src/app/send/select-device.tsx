@@ -273,7 +273,7 @@ export default function SendPreparePage() {
           <PrepareProgressBar progress={prepareProgress} />
         ) : (
           <View className="flex-row items-center justify-between gap-3">
-            <Text className="text-[12px] text-muted-foreground">
+            <Text className="text-[13px] text-muted-foreground">
               {selectedFiles.length > 0 ? (
                 <Trans>
                   {selectedFiles.length} 个文件 · {formatBytes(totalSize)}
@@ -351,7 +351,7 @@ function DeviceHeader({
         >
           {displayName}
         </Text>
-        <Text className="text-[11px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground">
           {trustLevel === "blocked" ? (
             <Trans>已阻止 · 不可发送</Trans>
           ) : isOnline ? (
@@ -402,7 +402,7 @@ function AddSourceButtons({
           <View className="size-8 items-center justify-center rounded-full bg-primary/10">
             <Icon color={colors.primary} size={16} />
           </View>
-          <Text className="text-[11px] font-medium text-foreground">
+          <Text className="text-[12px] font-medium text-foreground">
             {label}
           </Text>
         </Pressable>
@@ -420,7 +420,7 @@ function PrepareProgressBar({ progress }: { progress: MobilePrepareProgress }) {
     <View className="flex-1 gap-2">
       <View className="flex-row items-center justify-between gap-3">
         <Text
-          className="flex-1 text-[12px] text-muted-foreground"
+          className="flex-1 text-[13px] text-muted-foreground"
           numberOfLines={1}
         >
           <Trans>
@@ -428,13 +428,13 @@ function PrepareProgressBar({ progress }: { progress: MobilePrepareProgress }) {
             {progress.totalFiles.toString()})
           </Trans>
         </Text>
-        <Text className="text-[11px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground">
           {formatBytes(hashed)} / {formatBytes(total)}
         </Text>
       </View>
       <ProgressBar percent={calcPercent(hashed, total)} heightClass="h-1.5" />
       {progress.currentFile ? (
-        <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+        <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
           {progress.currentFile}
         </Text>
       ) : null}

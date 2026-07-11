@@ -51,7 +51,7 @@ function HistoryTransferRowComponent({ item, onPress }: Props) {
           <StatusBadge status={status} />
         </View>
 
-        <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
+        <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
           <Trans>{filesCount} 个文件</Trans>
           {" · "}
           {formatBytes(item.totalSize)}
@@ -60,13 +60,13 @@ function HistoryTransferRowComponent({ item, onPress }: Props) {
         </Text>
 
         {reason ? (
-          <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+          <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
             {reason}
           </Text>
         ) : null}
 
         {failedAndHasMessage ? (
-          <Text className="text-[11px] text-destructive-ink" numberOfLines={1}>
+          <Text className="text-[12px] text-destructive-ink" numberOfLines={1}>
             <LocalizedError message={item.errorMessage} />
           </Text>
         ) : null}

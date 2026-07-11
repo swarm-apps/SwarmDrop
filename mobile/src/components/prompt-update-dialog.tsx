@@ -85,7 +85,7 @@ export function PromptUpdateDialog({
 
         {release?.notes ? (
           <View className="bg-muted gap-2 rounded-lg p-4">
-            <Text className="text-muted-foreground text-xs font-medium">
+            <Text className="text-muted-foreground text-[13px] font-medium">
               {t.releaseNotesLabel}
             </Text>
             <ReleaseNotesView
@@ -99,9 +99,11 @@ export function PromptUpdateDialog({
           <View className="gap-2">
             <Progress value={percent} />
             <View className="flex-row justify-between">
-              <Text className="text-muted-foreground text-xs">{percent}%</Text>
+              <Text className="text-muted-foreground text-[13px]">
+                {percent}%
+              </Text>
               {speedMb ? (
-                <Text className="text-muted-foreground text-xs">
+                <Text className="text-muted-foreground text-[13px]">
                   {speedMb} MB/s
                 </Text>
               ) : null}

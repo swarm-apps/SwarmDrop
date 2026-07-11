@@ -136,7 +136,7 @@ export function DeviceInfoCard() {
           <View className="flex-row items-center gap-1.5">
             <Cpu color={colors.mutedForeground} size={12} />
             <Text
-              className="flex-1 text-[12px] text-muted-foreground"
+              className="flex-1 text-[13px] text-muted-foreground"
               numberOfLines={1}
             >
               {osLabel}
@@ -153,7 +153,7 @@ export function DeviceInfoCard() {
           >
             <Activity color={colors.mutedForeground} size={12} />
             <Text
-              className="flex-1 font-mono text-[12px] text-muted-foreground"
+              className="flex-1 font-mono text-[13px] text-muted-foreground"
               numberOfLines={1}
             >
               {peerId ? truncateMiddle(peerId, 8, 4) : "—"}
@@ -182,7 +182,7 @@ export function DeviceInfoCard() {
 
 function Metric({ label, value }: { label: React.ReactNode; value: string }) {
   return (
-    <Text className="text-[12px] text-muted-foreground">
+    <Text className="text-[13px] text-muted-foreground">
       {label} <Text className="font-semibold text-foreground">{value}</Text>
     </Text>
   );

@@ -24,7 +24,7 @@ export function TrustBadge({ level, compact, confirmed }: TrustBadgeProps) {
       <Text
         className={cn(
           "font-medium",
-          compact ? "text-[10px]" : "text-[11px]",
+          compact ? "text-[11px]" : "text-[12px]",
           meta.text,
         )}
       >

@@ -211,7 +211,7 @@ export default function NetworkScreen() {
                 onPress={() => setDiscoveryMode("lanOnly")}
               />
             </View>
-            <Text className="text-[11px] text-muted-foreground">
+            <Text className="text-[12px] text-muted-foreground">
               {discoveryMode === "auto" ? (
                 <Trans>自动模式会使用公网引导、中继和局域网协助节点。</Trans>
               ) : (
@@ -228,7 +228,7 @@ export default function NetworkScreen() {
               <Text className="text-[14px] text-foreground">
                 <Trans>公网可达性</Trans>
               </Text>
-              <Text className="text-[11px] text-muted-foreground">
+              <Text className="text-[12px] text-muted-foreground">
                 <Trans>
                   允许通过公网中继被跨网设备访问；关闭后为严格局域网。
                 </Trans>
@@ -247,7 +247,7 @@ export default function NetworkScreen() {
               <Text className="text-[14px] text-foreground">
                 <Trans>自动发现 LAN Helper</Trans>
               </Text>
-              <Text className="text-[11px] text-muted-foreground">
+              <Text className="text-[12px] text-muted-foreground">
                 <Trans>在本地网络发现可协助连接的节点。</Trans>
               </Text>
             </View>
@@ -265,7 +265,7 @@ export default function NetworkScreen() {
             className="gap-3 rounded-xl border border-warning/30 bg-warning/10 p-3.5"
             testID="network-restart-required"
           >
-            <Text className="text-[12px] text-warning-ink">
+            <Text className="text-[13px] text-warning-ink">
               <Trans>发现设置已变更，重启节点后生效。</Trans>
             </Text>
             <Pressable
@@ -313,7 +313,7 @@ export default function NetworkScreen() {
               />
               <Text
                 className={cn(
-                  "text-xs font-medium",
+                  "text-[13px] font-medium",
                   networkQuality === "good"
                     ? "text-success-ink"
                     : "text-warning-ink",
@@ -388,7 +388,7 @@ export default function NetworkScreen() {
               <Text className="text-[14px] text-foreground">
                 <Trans>自动启动节点</Trans>
               </Text>
-              <Text className="text-[11px] text-muted-foreground">
+              <Text className="text-[12px] text-muted-foreground">
                 <Trans>App 启动后自动启动 P2P 节点。</Trans>
               </Text>
             </View>
@@ -414,7 +414,7 @@ export default function NetworkScreen() {
               <Text className="text-[14px] text-foreground">
                 <Trans>自定义引导节点</Trans>
               </Text>
-              <Text className="text-[11px] text-muted-foreground">
+              <Text className="text-[12px] text-muted-foreground">
                 {customBootstrapNodes.length > 0 ? (
                   <Trans>{customBootstrapNodes.length} 个自定义节点</Trans>
                 ) : (
@@ -430,7 +430,7 @@ export default function NetworkScreen() {
               <Text className="text-[14px] text-foreground">
                 <Trans>本机 LAN Helper</Trans>
               </Text>
-              <Text className="text-[11px] text-muted-foreground">
+              <Text className="text-[12px] text-muted-foreground">
                 <Trans>
                   让本机作为局域网协助节点。默认关闭，以避免后台和电量风险。
                 </Trans>
@@ -490,7 +490,7 @@ function DiscoveryModeOption({
         <Text className="text-[13px] font-semibold text-foreground">
           {mode === "auto" ? <Trans>自动</Trans> : <Trans>LAN-only</Trans>}
         </Text>
-        <Text className="text-[10px] text-muted-foreground" numberOfLines={2}>
+        <Text className="text-[11px] text-muted-foreground" numberOfLines={2}>
           {mode === "auto" ? (
             <Trans>公网 + 局域网</Trans>
           ) : (
@@ -521,7 +521,7 @@ function CandidateSourceList({
               key={candidateSourceKey(item.source)}
               className="rounded-full bg-muted px-2.5 py-1"
             >
-              <Text className="text-[11px] text-muted-foreground">
+              <Text className="text-[12px] text-muted-foreground">
                 <CandidateSourceLabel source={item.source} /> ·{" "}
                 {String(item.count)}
               </Text>
@@ -547,7 +547,7 @@ function NetworkHint({
   return (
     <View className="flex-row gap-3 rounded-xl border border-border bg-card p-3.5">
       <RadioTower size={17} color={colors.warning} />
-      <Text className="flex-1 text-[12px] text-muted-foreground">
+      <Text className="flex-1 text-[13px] text-muted-foreground">
         {!bootstrapReady && discoveryMode === "auto" ? (
           <Trans>公网引导尚未连接，跨网络发现可能暂时不可用。</Trans>
         ) : !relayReady ? (

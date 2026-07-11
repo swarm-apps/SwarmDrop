@@ -50,7 +50,7 @@ export function StatusPill({
       <Text
         className={cn(
           "font-medium",
-          size === "sm" ? "text-xs" : "text-sm",
+          size === "sm" ? "text-[13px]" : "text-sm",
           textClass,
         )}
       >

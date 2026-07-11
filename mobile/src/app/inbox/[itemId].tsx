@@ -368,7 +368,7 @@ export default function InboxDetailScreen() {
             <Text className="text-[14px] font-semibold text-foreground">
               <Trans>暂时无法打开，请重试</Trans>
             </Text>
-            <Text className="text-center text-[12px] text-muted-foreground">
+            <Text className="text-center text-[13px] text-muted-foreground">
               {lastError}
             </Text>
             <Pressable
@@ -394,7 +394,7 @@ export default function InboxDetailScreen() {
             <Text className="text-[14px] font-semibold text-foreground">
               <Trans>收件箱记录不存在</Trans>
             </Text>
-            <Text className="text-center text-[12px] text-muted-foreground">
+            <Text className="text-center text-[13px] text-muted-foreground">
               <Trans>它可能已经被删除。</Trans>
             </Text>
           </Surface>
@@ -582,7 +582,7 @@ function InboxDetailContent({
               {title}
             </Text>
             <Text
-              className="text-[12px] leading-5 text-muted-foreground"
+              className="text-[13px] leading-5 text-muted-foreground"
               numberOfLines={1}
             >
               <Trans>来自</Trans> {detail.item.sourceName}
@@ -686,7 +686,7 @@ function InboxActionsSheet({
           <Text className="text-[17px] font-bold text-foreground">
             <Trans>更多操作</Trans>
           </Text>
-          <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
+          <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
             {title}
           </Text>
         </View>
@@ -930,7 +930,7 @@ function TextExcerptCard({
     <Surface className="gap-2.5 px-4 py-4" testID="inbox-detail-text-excerpt">
       <View className="flex-row items-center gap-2">
         <Icon color={colors.mutedForeground} size={15} />
-        <Text className="text-[12px] font-medium text-muted-foreground">
+        <Text className="text-[13px] font-medium text-muted-foreground">
           {isClipboard ? <Trans>剪贴板内容</Trans> : <Trans>文本内容</Trans>}
         </Text>
       </View>
@@ -1148,8 +1148,8 @@ function StatePill({
       <Text
         className={
           tone === "missing"
-            ? "text-[10px] font-medium text-destructive-ink"
-            : "text-[10px] font-medium text-muted-foreground"
+            ? "text-[11px] font-medium text-destructive-ink"
+            : "text-[11px] font-medium text-muted-foreground"
         }
       >
         {label}
@@ -1174,10 +1174,10 @@ function DetailLine({
     <View className="flex-row items-start gap-2">
       <Icon color={colors.mutedForeground} size={14} />
       <View className="min-w-0 flex-1">
-        <Text className="text-[11px] text-muted-foreground">{label}</Text>
+        <Text className="text-[12px] text-muted-foreground">{label}</Text>
         <Text
           className={cn(
-            "mt-0.5 text-[12px] text-foreground",
+            "mt-0.5 text-[13px] text-foreground",
             mono ? "font-mono" : "",
           )}
           numberOfLines={3}

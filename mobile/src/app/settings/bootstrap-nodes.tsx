@@ -129,7 +129,7 @@ export default function BootstrapNodesScreen() {
         contentContainerClassName="gap-3 px-5 pt-2 pb-8"
         showsVerticalScrollIndicator={false}
       >
-        <Text className="text-[12px] text-muted-foreground px-1">
+        <Text className="text-[13px] text-muted-foreground px-1">
           <Trans>引导节点用于发现 P2P 网络。修改后需重启节点生效。</Trans>
         </Text>
 
@@ -138,13 +138,13 @@ export default function BootstrapNodesScreen() {
             <Fragment key={addr}>
               <View className="flex-row items-center justify-between gap-2 p-3.5">
                 <Text
-                  className="flex-1 font-mono text-[11px] text-muted-foreground"
+                  className="flex-1 font-mono text-[12px] text-muted-foreground"
                   numberOfLines={1}
                 >
                   {truncateAddr(addr)}
                 </Text>
                 <View className="rounded bg-muted px-1.5 py-0.5">
-                  <Text className="text-[10px] text-muted-foreground">
+                  <Text className="text-[11px] text-muted-foreground">
                     <Trans>默认</Trans>
                   </Text>
                 </View>
@@ -161,7 +161,7 @@ export default function BootstrapNodesScreen() {
             <Fragment key={addr}>
               <View className="flex-row items-center justify-between gap-2 p-3.5">
                 <Text
-                  className="flex-1 font-mono text-[11px] text-foreground"
+                  className="flex-1 font-mono text-[12px] text-foreground"
                   numberOfLines={1}
                 >
                   {truncateAddr(addr)}
@@ -193,7 +193,7 @@ export default function BootstrapNodesScreen() {
                 autoFocus
                 autoCapitalize="none"
                 autoCorrect={false}
-                className="rounded-lg border border-border bg-background px-3 py-2.5 font-mono text-[12px] text-foreground"
+                className="rounded-lg border border-border bg-background px-3 py-2.5 font-mono text-[13px] text-foreground"
               />
               <View className="flex-row gap-2">
                 <Pressable
@@ -236,7 +236,7 @@ export default function BootstrapNodesScreen() {
 
         {needsRestart && runtimeState === "running" ? (
           <View className="flex-row items-center justify-between gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3">
-            <Text className="flex-1 text-[12px] text-warning-ink">
+            <Text className="flex-1 text-[13px] text-warning-ink">
               <Trans>引导节点已变更,需重启节点生效</Trans>
             </Text>
             <Pressable
@@ -250,7 +250,7 @@ export default function BootstrapNodesScreen() {
               ) : (
                 <RotateCw color={colors.foreground} size={12} />
               )}
-              <Text className="text-[12px] font-medium text-foreground">
+              <Text className="text-[13px] font-medium text-foreground">
                 {restarting ? <Trans>重启中</Trans> : <Trans>重启节点</Trans>}
               </Text>
             </Pressable>

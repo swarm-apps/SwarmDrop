@@ -176,7 +176,7 @@ function MoreFiltersChip({
     >
       <SlidersHorizontal color={colors.mutedForeground} size={13} />
       <Text
-        className="text-[12px] font-semibold text-foreground"
+        className="text-[13px] font-semibold text-foreground"
         numberOfLines={1}
       >
         {expanded ? <Trans>收起</Trans> : <Trans>更多筛选</Trans>}
@@ -220,27 +220,27 @@ function InboxRowComponent({
           <InboxStatusBadges item={item} />
         </View>
         <View className="flex-row items-center gap-1.5">
-          <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
+          <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
             {contentLabel(item)}
           </Text>
-          <Text className="text-[11px] text-muted-foreground">·</Text>
+          <Text className="text-[12px] text-muted-foreground">·</Text>
           <HighlightedText
             text={item.sourceName}
             query={highlight}
-            className="min-w-0 flex-1 text-[11px] text-muted-foreground"
+            className="min-w-0 flex-1 text-[12px] text-muted-foreground"
             numberOfLines={1}
           />
         </View>
         <View className="flex-row items-center gap-1.5">
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             {item.itemCount} <Trans>项</Trans>
           </Text>
-          <Text className="text-[11px] text-muted-foreground">·</Text>
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">·</Text>
+          <Text className="text-[12px] text-muted-foreground">
             {formatBytes(item.totalSize)}
           </Text>
-          <Text className="text-[11px] text-muted-foreground">·</Text>
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">·</Text>
+          <Text className="text-[12px] text-muted-foreground">
             {formatRelativeTime(item.receivedAt)}
           </Text>
         </View>
@@ -268,7 +268,7 @@ export function InboxStatusBadges({ item }: { item: InboxPreviewItem }) {
       {item.sourceKind === MobileInboxSourceKind.Mcp ? (
         <View className="flex-row items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5">
           <Bot color={colors.primary} size={11} />
-          <Text className="text-[10px] font-medium text-primary-ink">
+          <Text className="text-[11px] font-medium text-primary-ink">
             <Trans>AI 代理</Trans>
           </Text>
         </View>
@@ -340,8 +340,8 @@ function StatePill({
       <Text
         className={
           missing
-            ? "text-[10px] font-medium text-destructive-ink"
-            : "text-[10px] font-medium text-muted-foreground"
+            ? "text-[11px] font-medium text-destructive-ink"
+            : "text-[11px] font-medium text-muted-foreground"
         }
       >
         {missing ? (

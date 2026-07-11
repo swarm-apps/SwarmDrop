@@ -97,7 +97,7 @@ export default function Setup() {
 
         {peerId !== null ? (
           <View className="mt-3 w-full rounded-lg border border-border bg-card p-3.5">
-            <Text className="mb-1 text-[12px] text-muted-foreground">
+            <Text className="mb-1 text-[13px] text-muted-foreground">
               <Trans>设备 ID</Trans>
             </Text>
             <Text

@@ -104,7 +104,7 @@ export function PairingRequestHost() {
           <AlertDialogTitle className="flex-1 text-foreground text-base font-bold">
             <Trans>配对请求</Trans>
           </AlertDialogTitle>
-          <Text className="text-xs text-muted-foreground">
+          <Text className="text-[13px] text-muted-foreground">
             {remaining > 0 ? `${remaining}s` : t`已过期`}
           </Text>
         </View>
@@ -125,7 +125,7 @@ export function PairingRequestHost() {
               {truncateMiddle(payload.peerId, 12, 8)}
             </Text>
             {payload.code ? (
-              <Text className="text-[11px] text-muted-foreground">
+              <Text className="text-[12px] text-muted-foreground">
                 <Trans>配对码 {payload.code}</Trans>
               </Text>
             ) : null}

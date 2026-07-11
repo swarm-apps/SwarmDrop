@@ -86,11 +86,11 @@ export function ConnectionBadge({
       )}
     >
       <Icon size={compact ? 11 : 12} color={colors[meta.tone]} />
-      <Text className={cn("text-[10px] font-medium", meta.text)}>
+      <Text className={cn("text-[11px] font-medium", meta.text)}>
         <Label />
       </Text>
       {latency != null && Number.isFinite(latency) ? (
-        <Text className={cn("text-[10px]", meta.text)}>{latency}ms</Text>
+        <Text className={cn("text-[11px]", meta.text)}>{latency}ms</Text>
       ) : null}
     </View>
   );

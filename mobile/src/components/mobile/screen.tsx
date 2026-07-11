@@ -109,7 +109,7 @@ export function AppHeader({
           </Text>
           {subtitle ? (
             <Text
-              className="mt-0.5 text-[12px] text-muted-foreground"
+              className="mt-0.5 text-[13px] text-muted-foreground"
               numberOfLines={1}
             >
               {subtitle}
@@ -207,7 +207,7 @@ export function EmptyState({
         <Text className="text-center text-[15px] font-semibold text-foreground">
           {title}
         </Text>
-        <Text className="text-center text-[12px] text-muted-foreground">
+        <Text className="text-center text-[13px] leading-5 text-muted-foreground">
           {description}
         </Text>
       </View>
@@ -271,7 +271,7 @@ export function InlineEmptyState({
           {title}
         </Text>
         {description ? (
-          <Text className="text-center text-[11px] leading-4 text-muted-foreground">
+          <Text className="text-center text-[12px] leading-4 text-muted-foreground">
             {description}
           </Text>
         ) : null}

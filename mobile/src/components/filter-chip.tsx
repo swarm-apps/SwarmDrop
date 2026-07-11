@@ -57,7 +57,7 @@ export function FilterChip({
     >
       <Text
         className={cn(
-          "text-[12px] font-semibold",
+          "text-[13px] font-semibold",
           active ? "text-primary-foreground" : "text-foreground",
         )}
         numberOfLines={1}

@@ -86,7 +86,7 @@ function FileCardComponent({ item, actions, testID }: FileCardProps) {
           <Text className="text-[13px] font-semibold" numberOfLines={2}>
             {item.name}
           </Text>
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             {formatBytes(item.size)}
           </Text>
           {item.status === "transferring" || item.status === "paused" ? (

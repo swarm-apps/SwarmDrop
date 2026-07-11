@@ -78,7 +78,7 @@ export function FileBrowser({
           <Text className="text-[13px] font-semibold text-foreground">
             <Trans>没有文件</Trans>
           </Text>
-          <Text className="text-[11px] text-muted-foreground">
+          <Text className="text-[12px] text-muted-foreground">
             <Trans>添加文件后会显示在这里</Trans>
           </Text>
         </View>
