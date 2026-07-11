@@ -138,7 +138,6 @@ export const DeviceOrganizeSheet = forwardRef<DeviceOrganizeSheetRef, object>(
         contentTestID="device-organize-sheet"
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
-        androidKeyboardInputMode="adjustResize"
       >
         <View className="gap-5 px-5 pt-2 pb-6">
           <View className="items-center gap-2">
@@ -331,7 +330,6 @@ export const DeviceGroupsManageSheet = forwardRef<
         contentTestID="device-groups-manage-sheet"
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
-        androidKeyboardInputMode="adjustResize"
       >
         <View className="gap-4 px-5 pt-2 pb-6">
           <View className="items-center gap-1">

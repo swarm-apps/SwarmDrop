@@ -2,7 +2,7 @@
   "expo": {
     "name": "SwarmDrop",
     "slug": "swarmdrop-mobile",
-    "version": "0.7.8",
+    "version": "0.7.9",
     "orientation": "portrait",
     "scheme": "swarmdrop",
     "userInterfaceStyle": "automatic",
@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "com.yexiyue.swarmdrop",
-      "versionCode": 14,
+      "versionCode": 15,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -71,6 +71,7 @@
       "./plugins/with-android-release-signing",
       "./plugins/with-android-install-permission",
       "./plugins/with-android-foreground-service",
+      "./plugins/with-android-notification-icon",
       "./plugins/with-android-gradle-memory",
       "expo-video"
     ],

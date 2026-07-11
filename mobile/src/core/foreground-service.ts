@@ -35,6 +35,14 @@ const FGS_TYPE =
 /** idle 保活与传输进度两条通知共享的 Android 前台服务字段。 */
 const FGS_ANDROID_BASE = {
   channelId: KEEPALIVE_CHANNEL_ID,
+  // 状态栏单色小图标(白色橡子剪影,由 with-android-notification-icon plugin 注入
+  // res/drawable-*/ic_notification.png)。不设则 notify-kit 回退到彩色 launcher 图标
+  // → 被系统渲染成深色块。color 给图标染品牌绿。
+  smallIcon: "ic_notification",
+  color: "#0F8F7A",
+  // 展开通知右侧的大图标 = 彩色品牌 logo(圆形裁切,与 launcher 图标一致)。
+  largeIcon: require("../../assets/images/icon.png"),
+  circularLargeIcon: true,
   asForegroundService: true,
   foregroundServiceTypes: [FGS_TYPE],
   ongoing: true,

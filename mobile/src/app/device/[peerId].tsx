@@ -447,7 +447,6 @@ export default function DeviceDetailScreen() {
         footerComponent={renderPolicyFooter}
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
-        androidKeyboardInputMode="adjustResize"
       >
         <PolicyEditor
           deviceName={displayName}

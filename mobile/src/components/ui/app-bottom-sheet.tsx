@@ -49,7 +49,18 @@ interface AppBottomSheetProps {
   /** 内容容器 testID(迁移时保留原 sheet 的 testID,如 device-policy-sheet)。 */
   contentTestID?: string;
   footerComponent?: React.FC<BottomSheetFooterProps>;
-  /** 带输入框的 sheet 传键盘行为;默认不设(短内容无需)。 */
+  /**
+   * 带输入框的 sheet 传键盘行为;默认不设(短内容无需)。
+   * `keyboardBehavior="interactive"` + `keyboardBlurBehavior="restore"` 是带底部输入
+   * sheet 的推荐基线。
+   *
+   * ⚠️ `androidKeyboardInputMode` 勿设 `"adjustResize"`。gorhom 在
+   * `android + adjustResize + interactive` 下会把键盘容器高度强制归零并直接 return
+   * (BottomSheet.tsx),把 sheet 上移完全交给系统 window resize;而本 App 是
+   * Expo(SDK 56)edge-to-edge,`adjustResize` 只把键盘作为 inset、不会 resize sheet 容器,
+   * 于是 sheet 纹丝不动、底部输入被键盘盖住。留空即用 gorhom 默认 `adjustPan`,
+   * 走库内主动上移逻辑,edge-to-edge 下才正确避让。
+   */
   keyboardBehavior?: BottomSheetModalProps["keyboardBehavior"];
   keyboardBlurBehavior?: BottomSheetModalProps["keyboardBlurBehavior"];
   androidKeyboardInputMode?: BottomSheetModalProps["android_keyboardInputMode"];
