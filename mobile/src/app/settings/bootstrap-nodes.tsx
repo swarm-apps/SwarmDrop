@@ -193,6 +193,7 @@ export default function BootstrapNodesScreen() {
                 autoFocus
                 autoCapitalize="none"
                 autoCorrect={false}
+                textAlignVertical="center"
                 className="h-10 rounded-lg border border-border bg-background px-3 font-mono text-[12px] text-foreground"
               />
               <View className="flex-row gap-2">

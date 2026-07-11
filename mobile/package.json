@@ -1,7 +1,7 @@
 {
   "name": "swarmdrop-mobile",
   "main": "expo-router/entry",
-  "version": "0.7.10",
+  "version": "0.7.11",
   "private": true,
   "scripts": {
     "start": "expo start --dev-client",
@@ -85,6 +85,7 @@
     "react-native-keyboard-controller": "^1.21.6",
     "react-native-notify-kit": "^10.4.6",
     "react-native-reanimated": "4.3.1",
+    "react-native-reorderable-list": "^0.18.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.25.2",
     "react-native-swarmdrop-core": "workspace:*",

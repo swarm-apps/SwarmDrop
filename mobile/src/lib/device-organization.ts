@@ -26,6 +26,13 @@ export const emptyDeviceOrganization: DeviceOrganization = {
   groupDeviceIds: {},
 };
 
+/** 分组按 sortOrder 排序 —— 全 app 统一的分组排序入口。 */
+export function sortedDeviceGroups(
+  organization: DeviceOrganization,
+): DeviceGroup[] {
+  return [...organization.groups].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
 /** 任何含 `{ peerId, hostname, name? }` 形状的设备（MobileDevice / PairedDeviceSummary）。 */
 export interface IdentifiedDevice {
   peerId: string;

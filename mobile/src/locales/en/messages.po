@@ -13,7 +13,7 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/app/(main)/index.tsx:535
+#: src/app/(main)/index.tsx:532
 msgid "· 附近发现 {unpairedNearbyCount} 台"
 msgstr "· {unpairedNearbyCount} nearby"
 
@@ -34,7 +34,7 @@ msgid "{0} 个自定义节点"
 msgstr "{0} custom nodes"
 
 #. placeholder {0}: formatMmss(remaining)
-#: src/app/(main)/index.tsx:970
+#: src/app/(main)/index.tsx:968
 msgid "{0} 后过期"
 msgstr "Expires in {0}"
 
@@ -59,12 +59,16 @@ msgstr "{count} items"
 msgid "{d} 天前"
 msgstr "{d} days ago"
 
+#: src/app/device/groups.tsx:348
+msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
+msgstr "{deviceCount, plural, one {# device} other {# devices}}"
+
 #: src/core/notifier.ts:81
 msgid "{deviceName} 想发送 {fileCount} 个文件"
 msgstr "{deviceName} wants to send {fileCount} files"
 
 #. placeholder {0}: formatSpeed(p.speed)
-#: src/core/foreground-service.ts:167
+#: src/core/foreground-service.ts:172
 msgid "{fileCount} 个文件 · {0}"
 msgstr "{fileCount} files · {0}"
 
@@ -134,11 +138,11 @@ msgstr "NAT status"
 msgid "Peer ID"
 msgstr "Peer ID"
 
-#: src/core/foreground-service.ts:109
+#: src/core/foreground-service.ts:114
 msgid "SwarmDrop 正在后台运行"
 msgstr "SwarmDrop is running in the background"
 
-#: src/app/(main)/index.tsx:453
+#: src/app/(main)/index.tsx:450
 msgid "SwarmDrop 还没上线"
 msgstr "SwarmDrop isn't online yet"
 
@@ -158,21 +162,13 @@ msgstr "One key per transfer"
 msgid "上次打开"
 msgstr "Last opened"
 
-#: src/components/device-organization-sheets.tsx:367
-msgid "上移"
-msgstr "Move up"
-
-#: src/components/device-organization-sheets.tsx:376
-msgid "下移"
-msgstr "Move down"
-
 #: src/app/device/[peerId].tsx:386
 msgid "不允许"
 msgstr "Not allowed"
 
-#: src/app/device/[peerId].tsx:751
-#: src/app/device/[peerId].tsx:1124
-#: src/app/device/[peerId].tsx:1126
+#: src/app/device/[peerId].tsx:750
+#: src/app/device/[peerId].tsx:1123
+#: src/app/device/[peerId].tsx:1125
 msgid "不限制"
 msgstr "No limit"
 
@@ -195,7 +191,7 @@ msgstr "Relay"
 msgid "中继尚未就绪，非同一网络的设备可能无法直连。"
 msgstr "Relay is not ready yet. Devices on other networks may not connect directly."
 
-#: src/app/device/[peerId].tsx:1054
+#: src/app/device/[peerId].tsx:1053
 msgid "临时确认"
 msgstr "Temporary confirmation"
 
@@ -203,7 +199,7 @@ msgstr "Temporary confirmation"
 msgid "临时设备"
 msgstr "Temporary device"
 
-#: src/app/device/[peerId].tsx:1041
+#: src/app/device/[peerId].tsx:1040
 msgid "临时设备默认需要确认，并限制文件夹和自动接收。"
 msgstr "Temporary devices require confirmation by default, and folders and auto receive are restricted."
 
@@ -223,7 +219,7 @@ msgstr "Only removes this local activity record. The other device is not affecte
 msgid "仅删除记录"
 msgstr "Delete record only"
 
-#: src/app/device/[peerId].tsx:731
+#: src/app/device/[peerId].tsx:730
 msgid "仅在自动接收开启时生效"
 msgstr "Only applies when auto receive is enabled"
 
@@ -286,12 +282,12 @@ msgstr "Something went wrong during transfer. Try again."
 msgid "作为自动发现失败时的兜底路径。"
 msgstr "Use as a fallback path when automatic discovery fails."
 
-#: src/components/device-organization-sheets.tsx:255
+#: src/components/device-organization-sheets.tsx:246
 msgid "保存"
 msgstr "Save"
 
 #: src/app/device/[peerId].tsx:391
-#: src/app/device/[peerId].tsx:668
+#: src/app/device/[peerId].tsx:667
 #: src/app/inbox/[itemId].tsx:1079
 #: src/app/transfer/[sessionId].tsx:427
 msgid "保存位置"
@@ -306,11 +302,11 @@ msgstr "Save to"
 msgid "保存失败"
 msgstr "Save failed"
 
-#: src/app/device/[peerId].tsx:894
+#: src/app/device/[peerId].tsx:893
 msgid "保存策略"
 msgstr "Save policy"
 
-#: src/core/foreground-service.ts:110
+#: src/core/foreground-service.ts:115
 msgid "保持在线以接收配对与文件"
 msgstr "Stay online to receive pairings and files"
 
@@ -318,7 +314,7 @@ msgstr "Stay online to receive pairings and files"
 msgid "信任与接收策略"
 msgstr "Trust and receive policy"
 
-#: src/app/device/[peerId].tsx:615
+#: src/app/device/[peerId].tsx:614
 msgid "信任级别"
 msgstr "Trust level"
 
@@ -357,11 +353,11 @@ msgstr "Failed to stop node"
 msgid "允许"
 msgstr "Allowed"
 
-#: src/app/device/[peerId].tsx:730
+#: src/app/device/[peerId].tsx:729
 msgid "允许中继自动接收"
 msgstr "Allow relay auto receive"
 
-#: src/app/device/[peerId].tsx:653
+#: src/app/device/[peerId].tsx:652
 msgid "允许文件夹"
 msgstr "Allow folders"
 
@@ -378,8 +374,8 @@ msgstr "View {0} fullscreen"
 msgid "全程端到端加密，路上没人能看到内容"
 msgstr "End-to-end encrypted, nobody can see the contents along the way"
 
-#: src/app/(main)/index.tsx:557
-#: src/app/(main)/index.tsx:1294
+#: src/app/(main)/index.tsx:554
+#: src/app/(main)/index.tsx:1320
 #: src/app/activity.tsx:33
 #: src/components/inbox/inbox-list.tsx:101
 msgid "全部"
@@ -419,7 +415,7 @@ msgstr "About"
 msgid "关闭"
 msgstr "Close"
 
-#: src/app/device/[peerId].tsx:654
+#: src/app/device/[peerId].tsx:653
 msgid "关闭后只接收单个文件或文件集合"
 msgstr "When off, only single files or file bundles are accepted"
 
@@ -431,11 +427,11 @@ msgstr "Other devices will see this name when pairing. You can change it anytime
 msgid "内容指纹"
 msgstr "Content fingerprint"
 
-#: src/app/(main)/index.tsx:528
+#: src/app/(main)/index.tsx:525
 msgid "再试一次"
 msgstr "Try again"
 
-#: src/app/device/[peerId].tsx:743
+#: src/app/device/[peerId].tsx:742
 msgid "最大大小"
 msgstr "Max size"
 
@@ -452,7 +448,7 @@ msgstr "Recently received"
 msgid "准备中"
 msgstr "Preparing"
 
-#: src/app/(main)/index.tsx:466
+#: src/app/(main)/index.tsx:463
 msgid "出了点问题，点下方「再试一次」。"
 msgstr "Something went wrong. Tap “Try again” below."
 
@@ -477,11 +473,11 @@ msgstr "Share failed"
 msgid "分享文件"
 msgstr "Share file"
 
-#: src/components/device-organization-sheets.tsx:431
-msgid "分组内设备将保留为已配对状态，并显示在未分组列表中。"
-msgstr "Devices in this group stay paired and appear in the ungrouped list."
+#: src/app/device/groups.tsx:238
+msgid "分组内设备将保留为已配对状态,并显示在未分组列表中。"
+msgstr "Devices in the group stay paired and appear in the ungrouped list."
 
-#: src/components/device-organization-sheets.tsx:359
+#: src/app/device/groups.tsx:324
 msgid "分组名称"
 msgstr "Group name"
 
@@ -493,35 +489,39 @@ msgstr "Switch the filter above, or open Search to find past content."
 msgid "刚刚"
 msgstr "Just now"
 
-#: src/app/(main)/index.tsx:451
+#: src/app/(main)/index.tsx:448
 msgid "刚才没能启动"
 msgstr "Couldn't start just now"
 
-#: src/components/device-organization-sheets.tsx:222
-#: src/components/device-organization-sheets.tsx:409
+#: src/app/device/groups.tsx:210
+#: src/components/device-organization-sheets.tsx:213
 msgid "创建分组"
 msgstr "Create group"
+
+#: src/app/device/groups.tsx:160
+msgid "创建分组来整理你的设备,例如「家里」「工作」"
+msgstr "Create groups to organize your devices, e.g. \"Home\" or \"Work\"."
 
 #: src/app/onboarding/setup.tsx:80
 msgid "初始化失败"
 msgstr "Initialization failed"
 
+#: src/app/device/groups.tsx:241
 #: src/app/inbox/[itemId].tsx:478
 #: src/app/settings/bootstrap-nodes.tsx:173
 #: src/app/settings/bootstrap-nodes.tsx:272
 #: src/app/transfer/[sessionId].tsx:281
-#: src/components/device-organization-sheets.tsx:433
 msgid "删除"
 msgstr "Delete"
 
-#: src/components/device-organization-sheets.tsx:384
-#: src/components/device-organization-sheets.tsx:429
+#: src/app/device/groups.tsx:233
+msgid "删除「{pendingDeleteName}」后,组内设备将保留为已配对状态,并显示在未分组列表中。"
+msgstr "After deleting \"{pendingDeleteName}\", its devices stay paired and appear in the ungrouped list."
+
+#: src/app/device/groups.tsx:230
+#: src/app/device/groups.tsx:298
 msgid "删除分组"
 msgstr "Delete group"
-
-#: src/components/device-organization-sheets.tsx:342
-msgid "删除分组不会取消其中设备的配对"
-msgstr "Deleting a group won't unpair its devices"
 
 #: src/app/inbox/[itemId].tsx:194
 #: src/app/transfer/[sessionId].tsx:168
@@ -550,13 +550,13 @@ msgid "删除这条记录"
 msgstr "Delete this record"
 
 #: src/app/device/[peerId].tsx:318
-#: src/components/device-organization-sheets.tsx:150
+#: src/components/device-organization-sheets.tsx:141
 msgid "别名与分组"
 msgstr "Alias & groups"
 
 #: src/app/(main)/inbox.tsx:130
 #: src/app/(main)/inbox.tsx:171
-#: src/app/(main)/index.tsx:999
+#: src/app/(main)/index.tsx:997
 msgid "刷新"
 msgstr "Refresh"
 
@@ -622,7 +622,7 @@ msgstr "Discovery settings changed. Restart the node to apply."
 msgid "发给 {0}"
 msgstr "To {0}"
 
-#: src/app/(main)/index.tsx:921
+#: src/app/(main)/index.tsx:919
 #: src/app/send/select-device.tsx:228
 #: src/app/send/select-device.tsx:315
 #: src/app/transfer/[sessionId].tsx:372
@@ -630,7 +630,7 @@ msgid "发送"
 msgstr "Send"
 
 #: src/components/recent-transfer-row.tsx:71
-#: src/core/foreground-service.ts:161
+#: src/core/foreground-service.ts:166
 msgid "发送中"
 msgstr "Sending"
 
@@ -662,16 +662,16 @@ msgstr "Send files to {displayName}"
 msgid "发送给 {0}"
 msgstr "Send to {0}"
 
-#: src/app/(main)/index.tsx:914
+#: src/app/(main)/index.tsx:912
 #: src/app/pairing/found-device.tsx:118
 #: src/app/pairing/found-device.tsx:122
 #: src/app/send/select-device.tsx:296
 #: src/app/settings/bootstrap-nodes.tsx:208
 #: src/app/transfer/[sessionId].tsx:642
-#: src/components/device-organization-sheets.tsx:245
+#: src/components/device-organization-sheets.tsx:236
 #: src/components/node-control-sheet.tsx:279
 #: src/components/ui/confirm-dialog.tsx:61
-#: src/core/foreground-service.ts:174
+#: src/core/foreground-service.ts:179
 msgid "取消"
 msgstr "Cancel"
 
@@ -679,7 +679,7 @@ msgstr "Cancel"
 msgid "取消传输"
 msgstr "Cancel transfer"
 
-#: src/app/device/[peerId].tsx:474
+#: src/app/device/[peerId].tsx:473
 msgid "取消后需要重新配对，才能再次向这台设备发送或接收文件。"
 msgstr "You will need to pair again before sending files to or receiving files from this device."
 
@@ -691,10 +691,10 @@ msgstr "Cancel failed"
 msgid "取消归档"
 msgstr "Unarchive"
 
-#: src/app/(main)/index.tsx:908
-#: src/app/device/[peerId].tsx:472
-#: src/app/device/[peerId].tsx:476
-#: src/app/device/[peerId].tsx:952
+#: src/app/(main)/index.tsx:906
+#: src/app/device/[peerId].tsx:471
+#: src/app/device/[peerId].tsx:475
+#: src/app/device/[peerId].tsx:951
 msgid "取消配对"
 msgstr "Unpair"
 
@@ -730,8 +730,8 @@ msgstr "Recoverable interruption"
 msgid "可达"
 msgstr "Reachable"
 
-#: src/app/(main)/index.tsx:553
-#: src/app/(main)/index.tsx:895
+#: src/app/(main)/index.tsx:550
+#: src/app/(main)/index.tsx:893
 msgid "可配对"
 msgstr "Pairable"
 
@@ -739,11 +739,11 @@ msgstr "Pairable"
 msgid "合集"
 msgstr "Bundle"
 
-#: src/core/foreground-service.ts:59
+#: src/core/foreground-service.ts:64
 msgid "后台保活与传输"
 msgstr "Background keepalive and transfer"
 
-#: src/app/(main)/index.tsx:530
+#: src/app/(main)/index.tsx:527
 msgid "启动"
 msgstr "Start"
 
@@ -751,7 +751,7 @@ msgstr "Start"
 msgid "启动中"
 msgstr "Starting"
 
-#: src/app/(main)/index.tsx:468
+#: src/app/(main)/index.tsx:465
 msgid "启动后，你的其他设备才能找到这台手机。"
 msgstr "Once started, your other devices will be able to find this phone."
 
@@ -772,8 +772,8 @@ msgstr "Start node"
 msgid "启动节点后才能发现和连接其他设备"
 msgstr "Start the node to discover and connect to other devices"
 
-#: src/app/(main)/index.tsx:257
-#: src/app/(main)/index.tsx:260
+#: src/app/(main)/index.tsx:255
+#: src/app/(main)/index.tsx:258
 #: src/components/node-control-sheet.tsx:98
 msgid "启动节点失败"
 msgstr "Failed to start node"
@@ -807,7 +807,7 @@ msgstr "Online"
 msgid "在线 · 可接收"
 msgstr "Online · ready"
 
-#: src/app/(main)/index.tsx:341
+#: src/app/(main)/index.tsx:339
 msgid "在设备详情里可以把设备加入分组"
 msgstr "Add devices to groups from device details"
 
@@ -819,7 +819,7 @@ msgstr "Invalid address. Must start with / and contain /p2p/"
 msgid "型号"
 msgstr "Model"
 
-#: src/app/(main)/index.tsx:1021
+#: src/app/(main)/index.tsx:1019
 msgid "复制"
 msgstr "Copy"
 
@@ -890,7 +890,7 @@ msgstr "The other side rejected the transfer request: {reason}"
 msgid "对方拒绝了这次传输"
 msgstr "The other side rejected this transfer"
 
-#: src/app/(main)/index.tsx:624
+#: src/app/(main)/index.tsx:621
 msgid "对方无响应，请重试"
 msgstr "No response. Try again."
 
@@ -985,7 +985,7 @@ msgstr "Peer ID copied"
 msgid "已复制到剪贴板"
 msgstr "Copied to clipboard"
 
-#: src/app/(main)/index.tsx:951
+#: src/app/(main)/index.tsx:949
 msgid "已复制配对码"
 msgstr "Pairing code copied"
 
@@ -1029,7 +1029,7 @@ msgstr "Transfer history cleared"
 msgid "已解除阻止"
 msgstr "Unblocked"
 
-#: src/app/(main)/index.tsx:970
+#: src/app/(main)/index.tsx:968
 #: src/components/pairing-request-host.tsx:108
 msgid "已过期"
 msgstr "Expired"
@@ -1056,20 +1056,20 @@ msgstr "Selected files"
 msgid "已选的文件将被清空。"
 msgstr "The selected files will be cleared."
 
-#: src/app/(main)/index.tsx:555
+#: src/app/(main)/index.tsx:552
 msgid "已配对"
 msgstr "Paired"
 
-#: src/app/(main)/index.tsx:893
+#: src/app/(main)/index.tsx:891
 msgid "已配对，可直接发送"
 msgstr "Paired. Ready to send."
 
-#: src/app/(main)/index.tsx:301
+#: src/app/(main)/index.tsx:299
 #: src/app/inbox/[itemId].tsx:1123
 msgid "已配对设备"
 msgstr "Paired devices"
 
-#: src/app/device/[peerId].tsx:1056
+#: src/app/device/[peerId].tsx:1055
 #: src/components/trust-badge.tsx:50
 msgid "已阻止"
 msgstr "Blocked"
@@ -1179,7 +1179,7 @@ msgstr "Resume failed"
 msgid "恢复默认"
 msgstr "Restore default"
 
-#: src/app/device/[peerId].tsx:683
+#: src/app/device/[peerId].tsx:682
 msgid "恢复默认保存位置"
 msgstr "Restore default save location"
 
@@ -1195,11 +1195,11 @@ msgstr "My iPhone"
 msgid "我的设备"
 msgstr "My device"
 
-#: src/components/device-organization-sheets.tsx:174
+#: src/components/device-organization-sheets.tsx:165
 msgid "所属分组"
 msgstr "Groups"
 
-#: src/app/device/[peerId].tsx:1058
+#: src/app/device/[peerId].tsx:1057
 msgid "手动确认"
 msgstr "Manual confirmation"
 
@@ -1226,7 +1226,7 @@ msgstr "Open folder"
 msgid "打洞"
 msgstr "Hole punching"
 
-#: src/core/notifier.ts:104
+#: src/core/notifier.ts:107
 msgid "扫码配对"
 msgstr "Pair by QR code"
 
@@ -1253,6 +1253,10 @@ msgstr "Failed to decline the transfer"
 msgid "拒绝配对失败"
 msgstr "Failed to decline pairing"
 
+#: src/app/device/groups.tsx:360
+msgid "拖动排序"
+msgstr "Drag to reorder"
+
 #: src/app/inbox/search.tsx:314
 msgid "换一个关键词，或切换上方筛选范围。"
 msgstr "Try another keyword, or switch the filter above."
@@ -1261,7 +1265,7 @@ msgstr "Try another keyword, or switch the filter above."
 msgid "换一个关键词试试。"
 msgstr "Try another keyword."
 
-#: src/app/(main)/index.tsx:770
+#: src/app/(main)/index.tsx:767
 msgid "换一个筛选条件试试"
 msgstr "Try a different filter"
 
@@ -1289,7 +1293,7 @@ msgid "接收"
 msgstr "Receive"
 
 #: src/components/recent-transfer-row.tsx:71
-#: src/core/foreground-service.ts:161
+#: src/core/foreground-service.ts:166
 msgid "接收中"
 msgstr "Receiving"
 
@@ -1315,7 +1319,7 @@ msgid "接收文件将保存到应用私有目录。"
 msgstr "Incoming files will be saved to the app's private directory."
 
 #: src/app/device/[peerId].tsx:377
-#: src/app/device/[peerId].tsx:634
+#: src/app/device/[peerId].tsx:633
 msgid "接收方式"
 msgstr "Receive mode"
 
@@ -1369,7 +1373,7 @@ msgstr "Operation failed"
 
 #: src/app/(main)/_layout.tsx:48
 #: src/app/(main)/inbox.tsx:117
-#: src/app/device/[peerId].tsx:1119
+#: src/app/device/[peerId].tsx:1118
 msgid "收件箱"
 msgstr "Inbox"
 
@@ -1399,7 +1403,7 @@ msgstr "Received"
 msgid "收到文件"
 msgstr "Incoming files"
 
-#: src/app/(main)/index.tsx:385
+#: src/app/(main)/index.tsx:383
 msgid "收到文件会第一时间出现在这儿"
 msgstr "Incoming files will show up here right away"
 
@@ -1407,11 +1411,11 @@ msgstr "Incoming files will show up here right away"
 msgid "收到文件传输请求"
 msgstr "File transfer request received"
 
-#: src/app/device/[peerId].tsx:1045
+#: src/app/device/[peerId].tsx:1044
 msgid "收到文件前需要手动确认。"
 msgstr "Manual confirmation is required before receiving files."
 
-#: src/app/device/[peerId].tsx:645
+#: src/app/device/[peerId].tsx:644
 msgid "收到文件时先弹出确认,不直接接收"
 msgstr "Show a confirmation before receiving files, instead of accepting directly"
 
@@ -1427,7 +1431,7 @@ msgstr "Received items are in your inbox"
 msgid "收到的内容都替你放在这儿"
 msgstr "Everything you receive is kept here for you"
 
-#: src/app/(main)/index.tsx:804
+#: src/app/(main)/index.tsx:801
 #: src/components/inbox/inbox-list.tsx:182
 msgid "收起"
 msgstr "Collapse"
@@ -1465,7 +1469,7 @@ msgstr "Folder"
 msgid "文件已不在原位置"
 msgstr "The file is no longer at its original location"
 
-#: src/app/device/[peerId].tsx:643
+#: src/app/device/[peerId].tsx:642
 msgid "文件直接进入收件箱和默认保存位置"
 msgstr "Files go directly to Inbox and the default save location"
 
@@ -1486,12 +1490,12 @@ msgstr "Text content"
 msgid "文档"
 msgstr "Docs"
 
-#: src/components/device-organization-sheets.tsx:211
-#: src/components/device-organization-sheets.tsx:398
+#: src/app/device/groups.tsx:198
+#: src/components/device-organization-sheets.tsx:202
 msgid "新分组名称"
 msgstr "New group name"
 
-#: src/core/notifier.ts:106
+#: src/core/notifier.ts:109
 msgid "新设备请求配对"
 msgstr "New device pairing request"
 
@@ -1518,7 +1522,7 @@ msgid "映射成功"
 msgstr "Public"
 
 #: src/app/transfer/[sessionId].tsx:630
-#: src/core/foreground-service.ts:173
+#: src/core/foreground-service.ts:178
 msgid "暂停"
 msgstr "Pause"
 
@@ -1535,7 +1539,7 @@ msgstr "Pause receiving"
 msgid "暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。"
 msgstr "While paused, the node stays online and discoverable, and pairing still works, but new receive requests are automatically declined."
 
-#: src/app/_layout.tsx:202
+#: src/app/_layout.tsx:206
 msgid "暂只支持发送文件、图片和视频"
 msgstr "Only files, images, and videos can be sent for now"
 
@@ -1547,6 +1551,10 @@ msgstr "None"
 msgid "暂无传输记录"
 msgstr "No transfers yet"
 
+#: src/app/device/groups.tsx:350
+msgid "暂无设备"
+msgstr "No devices"
+
 #: src/app/inbox/[itemId].tsx:369
 msgid "暂时无法打开，请重试"
 msgstr "Cannot open right now. Try again."
@@ -1555,7 +1563,7 @@ msgstr "Cannot open right now. Try again."
 msgid "暂时无法读取正文内容。"
 msgstr "Body content cannot be read right now."
 
-#: src/app/(main)/index.tsx:985
+#: src/app/(main)/index.tsx:983
 msgid "暂未生成配对码"
 msgstr "No pairing code generated yet"
 
@@ -1591,7 +1599,7 @@ msgstr "Failed to update archive state"
 msgid "更新日志"
 msgstr "Changelog"
 
-#: src/app/device/[peerId].tsx:785
+#: src/app/device/[peerId].tsx:784
 msgid "有效期"
 msgstr "Expires"
 
@@ -1599,7 +1607,7 @@ msgstr "Expires"
 msgid "有新版可用"
 msgstr "Update available"
 
-#: src/app/(main)/index.tsx:1300
+#: src/app/(main)/index.tsx:1326
 msgid "未分组"
 msgstr "Ungrouped"
 
@@ -1654,7 +1662,7 @@ msgstr "Local LAN Helper"
 msgid "本机暂停"
 msgstr "Paused locally"
 
-#: src/app/(main)/index.tsx:962
+#: src/app/(main)/index.tsx:960
 msgid "本机配对码"
 msgstr "This device's pairing code"
 
@@ -1688,12 +1696,12 @@ msgstr "From {0}"
 msgid "查看传输过程"
 msgstr "View transfer details"
 
-#: src/app/(main)/index.tsx:366
+#: src/app/(main)/index.tsx:364
 msgid "查看全部"
 msgstr "View all"
 
 #. placeholder {0}: filteredNearby.length
-#: src/app/(main)/index.tsx:792
+#: src/app/(main)/index.tsx:789
 msgid "查看全部 ({0})"
 msgstr "View all ({0})"
 
@@ -1739,11 +1747,11 @@ msgstr "Preparing your device"
 msgid "正在加载内容…"
 msgstr "Loading content..."
 
-#: src/app/(main)/index.tsx:449
+#: src/app/(main)/index.tsx:446
 msgid "正在启动"
 msgstr "Starting"
 
-#: src/app/(main)/index.tsx:524
+#: src/app/(main)/index.tsx:521
 msgid "正在启动…"
 msgstr "Starting…"
 
@@ -1755,7 +1763,7 @@ msgstr "Starting node..."
 msgid "正在生成本地身份..."
 msgstr "Generating local identity..."
 
-#: src/app/(main)/index.tsx:727
+#: src/app/(main)/index.tsx:724
 msgid "正在留意附近的设备"
 msgstr "Keeping an eye out for nearby devices"
 
@@ -1769,11 +1777,11 @@ msgstr "Hashing ({0}/{1})"
 msgid "正在进行"
 msgstr "In progress"
 
-#: src/app/(main)/index.tsx:891
+#: src/app/(main)/index.tsx:889
 msgid "正在配对..."
 msgstr "Pairing..."
 
-#: src/app/device/[peerId].tsx:585
+#: src/app/device/[peerId].tsx:584
 #: src/app/settings/general.tsx:229
 #: src/components/transfer-offer-host.tsx:98
 msgid "此目录不可读"
@@ -1813,11 +1821,11 @@ msgstr "No online devices"
 msgid "没有文件"
 msgstr "No files"
 
-#: src/app/(main)/index.tsx:769
+#: src/app/(main)/index.tsx:766
 msgid "没有符合条件的附近设备"
 msgstr "No nearby devices match this filter"
 
-#: src/app/(main)/index.tsx:357
+#: src/app/(main)/index.tsx:355
 msgid "活跃传输"
 msgstr "Active transfers"
 
@@ -1845,8 +1853,8 @@ msgstr "Files will appear here after you add them"
 msgid "添加自定义引导节点"
 msgstr "Add custom bootstrap node"
 
-#: src/app/(main)/index.tsx:526
-#: src/app/(main)/index.tsx:711
+#: src/app/(main)/index.tsx:523
+#: src/app/(main)/index.tsx:708
 msgid "添加设备"
 msgstr "Add device"
 
@@ -1867,7 +1875,7 @@ msgstr "Clear search"
 msgid "清除筛选"
 msgstr "Clear filters"
 
-#: src/app/(main)/index.tsx:333
+#: src/app/(main)/index.tsx:331
 msgid "点下方「添加设备」，把你的电脑或另一台手机接进来。"
 msgstr "Tap “Add device” below to bring in your computer or another phone."
 
@@ -1879,11 +1887,11 @@ msgstr "Direct peer-to-peer"
 msgid "照片"
 msgstr "Photos"
 
-#: src/app/(main)/index.tsx:384
+#: src/app/(main)/index.tsx:382
 msgid "现在没有正在进行的传输"
 msgstr "No transfers in progress"
 
-#: src/app/(main)/index.tsx:999
+#: src/app/(main)/index.tsx:997
 msgid "生成"
 msgstr "Generate"
 
@@ -1907,7 +1915,7 @@ msgstr "Started by AI agent"
 msgid "由 AI 代理发起（{0}）"
 msgstr "Started by AI agent ({0})"
 
-#: src/components/device-organization-sheets.tsx:165
+#: src/components/device-organization-sheets.tsx:156
 msgid "留空则用对端名称"
 msgstr "Leave empty to use the device's own name"
 
@@ -1916,7 +1924,7 @@ msgstr "Leave empty to use the device's own name"
 msgid "知道了"
 msgstr "Got it"
 
-#: src/app/device/[peerId].tsx:1067
+#: src/app/device/[peerId].tsx:1066
 msgid "短期授权，默认一天后过期。"
 msgstr "Short-term authorization. Expires after one day by default."
 
@@ -1924,7 +1932,7 @@ msgstr "Short-term authorization. Expires after one day by default."
 msgid "确定要中止这次传输吗？"
 msgstr "Abort this transfer?"
 
-#: src/app/(main)/index.tsx:729
+#: src/app/(main)/index.tsx:726
 msgid "确认对端 SwarmDrop 已启动，或使用下方配对码"
 msgstr "Make sure SwarmDrop is running on the other device, or use the pairing code below"
 
@@ -2000,13 +2008,9 @@ msgstr "Failed to save policy"
 msgid "策略设置"
 msgstr "Policy settings"
 
-#: src/app/(main)/index.tsx:314
+#: src/app/(main)/index.tsx:312
 msgid "管理分组"
 msgstr "Manage groups"
-
-#: src/components/device-organization-sheets.tsx:339
-msgid "管理设备分组"
-msgstr "Manage device groups"
 
 #: src/app/settings/general.tsx:64
 #: src/components/pairing/peer-summary-card.tsx:55
@@ -2084,8 +2088,8 @@ msgstr "Auto-discover LAN Helper"
 msgid "自动启动节点"
 msgstr "Auto-start node"
 
-#: src/app/device/[peerId].tsx:806
-#: src/app/device/[peerId].tsx:1052
+#: src/app/device/[peerId].tsx:805
+#: src/app/device/[peerId].tsx:1051
 msgid "自动接收"
 msgstr "Auto receive"
 
@@ -2101,11 +2105,11 @@ msgstr "Custom"
 msgid "自定义引导节点"
 msgstr "Custom bootstrap nodes"
 
-#: src/app/(main)/index.tsx:280
+#: src/app/(main)/index.tsx:278
 msgid "自家设备都在这儿，东西到了会自动收下"
 msgstr "Your devices live here; incoming files are received automatically"
 
-#: src/app/device/[peerId].tsx:1065
+#: src/app/device/[peerId].tsx:1064
 msgid "自己的设备，可自动接收入站文件。"
 msgstr "Your own device. It can automatically receive incoming files."
 
@@ -2133,11 +2137,11 @@ msgstr "Node is not running. Start the node to pause receiving."
 msgid "节点状态"
 msgstr "Node status"
 
-#: src/app/device/[peerId].tsx:917
+#: src/app/device/[peerId].tsx:916
 msgid "解除阻止"
 msgstr "Unblock"
 
-#: src/app/(main)/index.tsx:965
+#: src/app/(main)/index.tsx:963
 msgid "让另一台设备输入这组 6 位数字"
 msgstr "Have the other device enter this 6-digit code"
 
@@ -2159,11 +2163,15 @@ msgstr "Devices"
 msgid "设备 ID"
 msgstr "Device ID"
 
-#: src/app/(main)/index.tsx:279
+#: src/app/(main)/index.tsx:277
 msgid "设备中心"
 msgstr "Device center"
 
-#: src/components/device-organization-sheets.tsx:160
+#: src/app/device/groups.tsx:151
+msgid "设备分组"
+msgstr "Device Groups"
+
+#: src/components/device-organization-sheets.tsx:151
 msgid "设备别名"
 msgstr "Device alias"
 
@@ -2181,7 +2189,7 @@ msgstr "Device name"
 msgid "设备名称已更新"
 msgstr "Device name updated"
 
-#: src/app/(main)/index.tsx:223
+#: src/app/(main)/index.tsx:221
 msgid "设备当前不可发送"
 msgstr "This device cannot receive sends right now"
 
@@ -2190,7 +2198,7 @@ msgstr "This device cannot receive sends right now"
 msgid "设备未找到"
 msgstr "Device not found"
 
-#: src/app/device/[peerId].tsx:602
+#: src/app/device/[peerId].tsx:601
 #: src/app/transfer/[sessionId].tsx:433
 #: src/components/transfer-offer-host.tsx:314
 msgid "设备策略"
@@ -2226,7 +2234,7 @@ msgstr "Identity is ready. You can pair and transfer files now."
 msgid "设置"
 msgstr "Settings"
 
-#: src/app/(main)/index.tsx:340
+#: src/app/(main)/index.tsx:338
 msgid "该分组还没有设备"
 msgstr "No devices in this group yet"
 
@@ -2238,11 +2246,11 @@ msgstr "This node will no longer be used as a fallback for automatic discovery, 
 msgid "该节点已存在"
 msgstr "Node already exists"
 
-#: src/app/device/[peerId].tsx:1043
+#: src/app/device/[peerId].tsx:1042
 msgid "该设备会自动接收，并保存到收件箱和默认位置。"
 msgstr "This device will auto receive and save to Inbox and the default location."
 
-#: src/app/device/[peerId].tsx:1039
+#: src/app/device/[peerId].tsx:1038
 msgid "该设备已被阻止，发送入口和自动接收都会关闭。"
 msgstr "This device is blocked. Sending and auto receive are disabled."
 
@@ -2260,7 +2268,7 @@ msgstr "Language"
 msgid "语言已更新"
 msgstr "Language updated"
 
-#: src/app/_layout.tsx:207
+#: src/app/_layout.tsx:211
 msgid "请先完成 SwarmDrop 设置"
 msgstr "Complete SwarmDrop setup first"
 
@@ -2272,7 +2280,7 @@ msgstr "Request rejected"
 msgid "请稍后重试,或检查存储权限"
 msgstr "Please try again later, or check storage permissions"
 
-#: src/app/device/[peerId].tsx:778
+#: src/app/device/[peerId].tsx:777
 msgid "请输入大于 0 的数字，留空表示不限制"
 msgstr "Enter a number greater than 0, or leave blank for no limit"
 
@@ -2297,8 +2305,8 @@ msgstr "Direct cross-network transfer, even on different Wi-Fi"
 msgid "软件更新"
 msgstr "Software update"
 
-#: src/app/(main)/index.tsx:840
-#: src/app/(main)/index.tsx:1064
+#: src/app/(main)/index.tsx:837
+#: src/app/(main)/index.tsx:1062
 msgid "输入另一台设备显示的 6 位数字"
 msgstr "Enter the 6-digit code shown on the other device"
 
@@ -2306,8 +2314,8 @@ msgstr "Enter the 6-digit code shown on the other device"
 msgid "输入设备名或文件名，结果即时出现"
 msgstr "Type a device or file name, results appear instantly"
 
-#: src/app/(main)/index.tsx:834
-#: src/app/(main)/index.tsx:1061
+#: src/app/(main)/index.tsx:831
+#: src/app/(main)/index.tsx:1059
 msgid "输入配对码"
 msgstr "Enter pairing code"
 
@@ -2329,15 +2337,15 @@ msgstr "Uptime"
 msgid "返回"
 msgstr "Back"
 
-#: src/components/device-organization-sheets.tsx:178
-msgid "还没有分组，可在下方创建"
+#: src/app/device/groups.tsx:158
+msgid "还没有分组"
+msgstr "No groups yet"
+
+#: src/components/device-organization-sheets.tsx:169
+msgid "还没有分组,可在下方创建"
 msgstr "No groups yet — create one below"
 
-#: src/components/device-organization-sheets.tsx:348
-msgid "还没有分组，在下方创建第一个"
-msgstr "No groups yet — create your first below"
-
-#: src/app/(main)/index.tsx:331
+#: src/app/(main)/index.tsx:329
 msgid "还没有配对设备"
 msgstr "No paired devices yet"
 
@@ -2345,9 +2353,9 @@ msgstr "No paired devices yet"
 msgid "这串 ID 由它的加密密钥生成，像指纹一样独一无二"
 msgstr "This ID is derived from its encryption key, unique like a fingerprint"
 
-#: src/components/device-organization-sheets.tsx:153
-msgid "这些信息仅保存在本机，不会同步给对端"
-msgstr "Stored only on this device, never synced to peers"
+#: src/components/device-organization-sheets.tsx:144
+msgid "这些信息仅保存在本机,不会同步给对端"
+msgstr "Saved on this device only, never synced to peers"
 
 #: src/app/inbox/[itemId].tsx:473
 msgid "这会删除收件箱记录，并尝试删除本机保存的文件。"
@@ -2373,7 +2381,7 @@ msgstr "Connection timed out. Make sure the other device is online and try again
 msgid "连接路径"
 msgstr "Connection path"
 
-#: src/app/device/[peerId].tsx:698
+#: src/app/device/[peerId].tsx:697
 msgid "选择"
 msgstr "Choose"
 
@@ -2386,7 +2394,7 @@ msgstr "Choose a device"
 msgid "选择外观"
 msgstr "Choose appearance"
 
-#: src/app/device/[peerId].tsx:590
+#: src/app/device/[peerId].tsx:589
 #: src/app/send/select-device.tsx:157
 #: src/app/settings/general.tsx:235
 #: src/components/transfer-offer-host.tsx:103
@@ -2424,7 +2432,7 @@ msgstr "Notifications enabled"
 msgid "通知提醒"
 msgstr "Notification alerts"
 
-#: src/app/(main)/index.tsx:921
+#: src/app/(main)/index.tsx:919
 #: src/components/device-info-card.tsx:173
 msgid "配对"
 msgstr "Pair"
@@ -2446,15 +2454,15 @@ msgstr "Pairing code"
 msgid "配对码 {0}"
 msgstr "Pairing code {0}"
 
-#: src/core/notifier.ts:104
+#: src/core/notifier.ts:107
 msgid "配对码 {code}"
 msgstr "Pairing code {code}"
 
-#: src/app/(main)/index.tsx:1147
+#: src/app/(main)/index.tsx:1145
 msgid "配对码无效或已过期"
 msgstr "Pairing code invalid or expired"
 
-#: src/app/(main)/index.tsx:637
+#: src/app/(main)/index.tsx:634
 #: src/app/pairing/found-device.tsx:39
 msgid "配对被拒绝"
 msgstr "Pairing rejected"
@@ -2487,6 +2495,11 @@ msgstr "Restart node"
 msgid "重启节点失败"
 msgstr "Restart failed"
 
+#. placeholder {0}: group.name
+#: src/app/device/groups.tsx:334
+msgid "重命名 {0}"
+msgstr "Rename {0}"
+
 #: src/app/transfer/[sessionId].tsx:703
 msgid "重新发送"
 msgstr "Send again"
@@ -2508,28 +2521,32 @@ msgstr "Retry {0}"
 msgid "错误"
 msgstr "Error"
 
-#: src/app/device/[peerId].tsx:1069
+#: src/app/device/groups.tsx:175
+msgid "长按手柄拖动排序 · 左滑删除"
+msgstr "Long-press the handle to reorder · swipe left to delete"
+
+#: src/app/device/[peerId].tsx:1068
 msgid "阻止发送和入站接收。"
 msgstr "Block sending and incoming receive."
 
-#: src/app/device/[peerId].tsx:488
+#: src/app/device/[peerId].tsx:487
 msgid "阻止后对方无法向你发送文件,自动接收也会关闭。你可以随时解除阻止。"
 msgstr "After blocking, the other device cannot send files to you, and auto receive will be disabled. You can unblock it anytime."
 
-#: src/app/device/[peerId].tsx:492
-#: src/app/device/[peerId].tsx:938
+#: src/app/device/[peerId].tsx:491
+#: src/app/device/[peerId].tsx:937
 msgid "阻止设备"
 msgstr "Block device"
 
-#: src/app/device/[peerId].tsx:486
+#: src/app/device/[peerId].tsx:485
 msgid "阻止这台设备"
 msgstr "Block this device"
 
-#: src/app/(main)/index.tsx:714
+#: src/app/(main)/index.tsx:711
 msgid "附近的设备会自动出现；也可以用 6 位配对码互相认识"
 msgstr "Nearby devices appear automatically; you can also use a 6-digit pairing code"
 
-#: src/app/(main)/index.tsx:721
+#: src/app/(main)/index.tsx:718
 msgid "附近设备"
 msgstr "Nearby devices"
 
@@ -2538,7 +2555,7 @@ msgstr "Nearby devices"
 msgid "需要注意"
 msgstr "Needs attention"
 
-#: src/app/device/[peerId].tsx:807
+#: src/app/device/[peerId].tsx:806
 msgid "需要确认"
 msgstr "Requires confirmation"
 
@@ -2548,12 +2565,12 @@ msgstr "Requires confirmation"
 msgid "项"
 msgstr "items"
 
-#: src/app/(main)/index.tsx:464
+#: src/app/(main)/index.tsx:461
 msgid "马上就好，正在让附近设备能找到你。"
 msgstr "Almost there, making this phone discoverable to nearby devices."
 
-#: src/app/device/[peerId].tsx:710
-#: src/app/device/[peerId].tsx:716
+#: src/app/device/[peerId].tsx:709
+#: src/app/device/[peerId].tsx:715
 #: src/app/settings/network.tsx:403
 msgid "高级"
 msgstr "Advanced"
@@ -2562,7 +2579,7 @@ msgstr "Advanced"
 msgid "默认"
 msgstr "Default"
 
-#: src/app/device/[peerId].tsx:1120
+#: src/app/device/[peerId].tsx:1119
 msgid "默认位置"
 msgstr "Default location"
 
@@ -2570,6 +2587,6 @@ msgstr "Default location"
 msgid "默认接收位置"
 msgstr "Default receive location"
 
-#: src/app/device/[peerId].tsx:1071
+#: src/app/device/[peerId].tsx:1070
 msgid "默认级别，收到文件前需要确认。"
 msgstr "Default level. Confirmation is required before receiving files."

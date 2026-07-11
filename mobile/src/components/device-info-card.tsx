@@ -102,12 +102,13 @@ export function DeviceInfoCard() {
               onSubmitEditing={handleSaveName}
               autoFocus
               returnKeyType="done"
+              textAlignVertical="center"
               style={
                 Platform.OS === "android"
                   ? { includeFontPadding: false }
                   : undefined
               }
-              className="h-7 text-base font-bold text-foreground border-b border-primary px-0 py-0"
+              className="h-9 text-base font-bold text-foreground border-b border-primary px-0 py-0"
               placeholder={systemHostname}
               placeholderTextColor={colors.mutedForeground}
             />

@@ -41,10 +41,6 @@ import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { DeviceCard } from "@/components/device-card";
 import {
-  DeviceGroupsManageSheet,
-  type DeviceGroupsManageSheetRef,
-} from "@/components/device-organization-sheets";
-import {
   AppHeader,
   AppScreen,
   BottomActionArea,
@@ -98,7 +94,6 @@ export default function DevicesScreen() {
   const colors = useThemeColors();
   const nodeSheetRef = useRef<NodeControlSheetRef>(null);
   const addDeviceSheetRef = useRef<AddDeviceSheetRef>(null);
-  const manageGroupsSheetRef = useRef<DeviceGroupsManageSheetRef>(null);
 
   const deviceOrganization = usePreferencesStore((s) => s.deviceOrganization);
   const [selectedGroupId, setSelectedGroupId] = useState("all");
@@ -306,7 +301,7 @@ export default function DevicesScreen() {
           </Text>
           {pairedDevices.length > 0 ? (
             <Pressable
-              onPress={() => manageGroupsSheetRef.current?.present()}
+              onPress={() => router.push("/device/groups")}
               accessibilityRole="button"
               hitSlop={8}
               testID="devices-manage-groups-button"
@@ -411,7 +406,6 @@ export default function DevicesScreen() {
         nearbyDevices={nearbyDevices}
         onSend={sendToDevice}
       />
-      <DeviceGroupsManageSheet ref={manageGroupsSheetRef} />
     </AppScreen>
   );
 }
