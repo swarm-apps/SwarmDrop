@@ -49,7 +49,6 @@ export function SearchHeader({
           placeholder={placeholder}
           placeholderTextColor={colors.mutedForeground}
           returnKeyType="search"
-          textAlignVertical="center"
           className="h-11 min-w-0 flex-1 text-[14px] text-foreground"
           testID={`${testIDPrefix}-input`}
         />

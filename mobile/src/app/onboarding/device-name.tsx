@@ -99,8 +99,7 @@ export default function DeviceName() {
             accessibilityLabel={t`设备名称`}
             placeholder={t`我的 iPhone`}
             placeholderTextColor={colors.mutedForeground}
-            textAlignVertical="center"
-            className="h-12 rounded-xl border border-border bg-card px-3.5 text-[16px] text-foreground"
+            className="rounded-xl border border-border bg-card px-3.5 py-3.5 text-[16px] text-foreground"
             testID="onboarding-device-name-input"
           />
           {error !== null ? (

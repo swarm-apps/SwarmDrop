@@ -201,7 +201,7 @@ export default function DeviceGroupsScreen() {
               testID="device-groups-new-group-input"
               onSubmitEditing={handleCreate}
               returnKeyType="done"
-              className="h-11 flex-1 rounded-lg bg-card px-3.5 text-[14px]"
+              className="flex-1 rounded-lg bg-card px-3.5 text-[14px]"
             />
             <Pressable
               onPress={handleCreate}
