@@ -22,12 +22,14 @@ uuid = { version = "1", features = ["v4"] }
 # swarm-p2p-core 会撞 "multiple versions"。
 #
 # sync-mobile-core-runtime target:
-# /Volumes/yexiyue/SwarmDrop develop e6323d1d19cb226005dd637d91b4197c3ef58c66
-# (inbox-by-transfer-session: 传输详情完成态可深链到收件箱条目)
-swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "e6323d1d19cb226005dd637d91b4197c3ef58c66" }
-entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "e6323d1d19cb226005dd637d91b4197c3ef58c66" }
-migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "e6323d1d19cb226005dd637d91b4197c3ef58c66" }
-swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "e6323d1d19cb226005dd637d91b4197c3ef58c66" }
+# /Volumes/yexiyue/SwarmDrop develop d62a4dd53d093f0abaab404cfba04490a19f4d9a
+# (add-device-aliases-and-groups → 含 bae7053 "persist identified device names":
+#  对端经 Identify 广播新名称时 host 把刷新后的设备写回持久化;e6323d1..d62a4dd
+#  对 crates/libs 仅 3 文件纯新增,mobile-core API 用法不受影响)
+swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "d62a4dd53d093f0abaab404cfba04490a19f4d9a" }
+entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "d62a4dd53d093f0abaab404cfba04490a19f4d9a" }
+migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "d62a4dd53d093f0abaab404cfba04490a19f4d9a" }
+swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "d62a4dd53d093f0abaab404cfba04490a19f4d9a" }
 sea-orm = { version = "2.0.0-rc", features = [
     "macros",
     "runtime-tokio-rustls",

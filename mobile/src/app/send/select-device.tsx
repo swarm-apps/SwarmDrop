@@ -50,7 +50,7 @@ import {
 } from "@/core/file-access";
 import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { deviceDisplayName } from "@/lib/device-name";
+import { organizedDeviceName } from "@/lib/device-organization";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { cn, errorMessage } from "@/lib/utils";
@@ -58,6 +58,7 @@ import {
   summariesToOfflineDevices,
   useMobileCoreStore,
 } from "@/stores/mobile-core-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export default function SendPreparePage() {
@@ -88,6 +89,7 @@ export default function SendPreparePage() {
     })),
   );
   const startSend = useTransferStore((s) => s.startSend);
+  const deviceOrganization = usePreferencesStore((s) => s.deviceOrganization);
 
   // 进入页面时清掉残留的旧选择（用户从主屏不同设备来回切换时不要带上次的）
   useEffect(() => {
@@ -107,7 +109,9 @@ export default function SendPreparePage() {
     return fallback ?? null;
   }, [peerId, devices, pairedDevicesCache]);
 
-  const displayName = device ? deviceDisplayName(device) : "";
+  const displayName = device
+    ? organizedDeviceName(device, deviceOrganization)
+    : "";
 
   // ── 准备阶段进度（订阅 PrepareProgress 事件）─────────────────
   const [sending, setSending] = useState(false);
@@ -253,7 +257,11 @@ export default function SendPreparePage() {
         title={<Trans>已选文件</Trans>}
         contentHeader={
           <View className="gap-3 pt-2">
-            <DeviceHeader device={device} runtimeState={runtimeState} />
+            <DeviceHeader
+              device={device}
+              displayName={displayName}
+              runtimeState={runtimeState}
+            />
             <AddSourceButtons disabled={sending} onPick={handlePick} />
           </View>
         }
@@ -319,9 +327,11 @@ export default function SendPreparePage() {
 
 function DeviceHeader({
   device,
+  displayName,
   runtimeState,
 }: {
   device: DeviceInfo;
+  displayName: string;
   runtimeState: string;
 }) {
   const colors = useThemeColors();
@@ -339,7 +349,7 @@ function DeviceHeader({
           className="text-[14px] font-semibold text-foreground"
           numberOfLines={1}
         >
-          {deviceDisplayName(device)}
+          {displayName}
         </Text>
         <Text className="text-[11px] text-muted-foreground">
           {trustLevel === "blocked" ? (

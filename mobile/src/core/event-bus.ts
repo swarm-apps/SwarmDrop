@@ -74,6 +74,13 @@ function routeEventToStores(event: MobileCoreEvent): void {
       break;
     }
 
+    case MobileCoreEvent_Tags.PairedDeviceAdded: {
+      // 对端经 Identify 广播新设备名 → 原生已把刷新后的设备写回 keychain,
+      // 这里刷新离线兜底 cache,使新名称在设备离线 / 重启后仍展示。
+      void useMobileCoreStore.getState().loadPairedDevicesCache();
+      break;
+    }
+
     case MobileCoreEvent_Tags.TransferOfferReceived: {
       // offer 已经是 ubrn 生成的 MobileTransferOffer,store 类型也对齐它,直接透传
       const offer = event.inner.offer;

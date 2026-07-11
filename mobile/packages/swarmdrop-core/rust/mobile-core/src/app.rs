@@ -46,9 +46,12 @@ impl MobileCore {
     ) -> Arc<Self> {
         // 进程级 panic hook —— 只装一次,后续可用 take_last_panic() 取详情
         crate::panic_hook::install();
+        // keychain 先建好 Arc,事件总线也持有它一份 —— Identify 刷新的设备名
+        // 由事件总线写回 keychain(见 MobileEventBusAdapter::publish)。
+        let keychain = Arc::new(MobileKeychainAdapter::new(keychain));
         Arc::new(Self {
-            keychain: Arc::new(MobileKeychainAdapter::new(keychain)),
-            event_bus: Arc::new(MobileEventBusAdapter::new(event_bus)),
+            event_bus: Arc::new(MobileEventBusAdapter::new(event_bus, keychain.clone())),
+            keychain,
             file_access: Arc::new(MobileFileAccessAdapter::new(file_access)),
             data_dir,
             keypair: Mutex::new(None),

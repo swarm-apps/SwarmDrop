@@ -17,6 +17,7 @@ import {
   RefreshCcw,
   SearchX,
   Smartphone,
+  Tags,
 } from "lucide-react-native";
 import {
   forwardRef,
@@ -32,12 +33,17 @@ import {
   findNodeHandle,
   Pressable,
   TextInput as RNTextInput,
+  ScrollView,
   View,
 } from "react-native";
 import Animated from "react-native-reanimated";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { DeviceCard } from "@/components/device-card";
+import {
+  DeviceGroupsManageSheet,
+  type DeviceGroupsManageSheetRef,
+} from "@/components/device-organization-sheets";
 import {
   AppHeader,
   AppScreen,
@@ -67,7 +73,13 @@ import {
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
 import { usePulseOpacity } from "@/hooks/usePulseOpacity";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { deviceDisplayName } from "@/lib/device-name";
+import {
+  type DeviceOrganization,
+  deviceGroupNames,
+  deviceIdentityHint,
+  hasDuplicateOrganizedName,
+  organizedDeviceName,
+} from "@/lib/device-organization";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { cn, errorMessage } from "@/lib/utils";
@@ -77,13 +89,19 @@ import {
   useMobileCoreStore,
 } from "@/stores/mobile-core-store";
 import { usePairingCodeStore } from "@/stores/pairing-code-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export default function DevicesScreen() {
   const router = useRouter();
   const { t } = useLingui();
+  const colors = useThemeColors();
   const nodeSheetRef = useRef<NodeControlSheetRef>(null);
   const addDeviceSheetRef = useRef<AddDeviceSheetRef>(null);
+  const manageGroupsSheetRef = useRef<DeviceGroupsManageSheetRef>(null);
+
+  const deviceOrganization = usePreferencesStore((s) => s.deviceOrganization);
+  const [selectedGroupId, setSelectedGroupId] = useState("all");
 
   const {
     devices,
@@ -139,17 +157,49 @@ export default function DevicesScreen() {
         if (a.status !== b.status) {
           return a.status === "online" ? -1 : 1;
         }
-        return deviceDisplayName(a).localeCompare(deviceDisplayName(b));
+        return organizedDeviceName(a, deviceOrganization).localeCompare(
+          organizedDeviceName(b, deviceOrganization),
+        );
       },
     );
-  }, [devices, pairedDevicesCache]);
+  }, [devices, pairedDevicesCache, deviceOrganization]);
+
+  // 按所选分组筛选;"全部"直通,"未分组"取无分组设备,其余取该组成员。
+  const visiblePairedDevices = useMemo(() => {
+    if (selectedGroupId === "all") return pairedDevices;
+    if (selectedGroupId === "ungrouped") {
+      return pairedDevices.filter(
+        (device) =>
+          deviceGroupNames(device.peerId, deviceOrganization).length === 0,
+      );
+    }
+    const peerIds = new Set(
+      deviceOrganization.groupDeviceIds[selectedGroupId] ?? [],
+    );
+    return pairedDevices.filter((device) => peerIds.has(device.peerId));
+  }, [pairedDevices, selectedGroupId, deviceOrganization]);
+
+  // 所选分组被删除后回落到"全部",避免停在不存在的筛选上。
+  useEffect(() => {
+    if (
+      selectedGroupId !== "all" &&
+      selectedGroupId !== "ungrouped" &&
+      !deviceOrganization.groups.some((group) => group.id === selectedGroupId)
+    ) {
+      setSelectedGroupId("all");
+    }
+  }, [deviceOrganization.groups, selectedGroupId]);
 
   const nearbyDevices = useMemo(() => {
     if (runtimeState !== "running") return [];
     return devices
       .filter((device) => device.status === "online")
-      .sort((a, b) => deviceDisplayName(a).localeCompare(deviceDisplayName(b)));
-  }, [runtimeState, devices]);
+      .sort((a, b) =>
+        organizedDeviceName(a, deviceOrganization).localeCompare(
+          organizedDeviceName(b, deviceOrganization),
+        ),
+      );
+  }, [runtimeState, devices, deviceOrganization]);
 
   const activeProjections = useMemo(
     () =>
@@ -254,7 +304,29 @@ export default function DevicesScreen() {
             <Trans>已配对设备</Trans>
             {pairedDevices.length > 0 ? ` (${pairedDevices.length})` : ""}
           </Text>
+          {pairedDevices.length > 0 ? (
+            <Pressable
+              onPress={() => manageGroupsSheetRef.current?.present()}
+              accessibilityRole="button"
+              hitSlop={8}
+              testID="devices-manage-groups-button"
+              className="flex-row items-center gap-1 active:opacity-70"
+            >
+              <Tags color={colors.mutedForeground} size={13} />
+              <Text className="text-[12px] font-semibold text-primary-ink">
+                <Trans>管理分组</Trans>
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
+
+        {pairedDevices.length > 0 && deviceOrganization.groups.length > 0 ? (
+          <GroupFilterRow
+            organization={deviceOrganization}
+            selectedGroupId={selectedGroupId}
+            onSelect={setSelectedGroupId}
+          />
+        ) : null}
 
         {pairedDevices.length === 0 ? (
           <EmptyState
@@ -265,9 +337,17 @@ export default function DevicesScreen() {
             }
             testID="devices-empty-state"
           />
+        ) : visiblePairedDevices.length === 0 ? (
+          <InlineEmptyState
+            icon={Smartphone}
+            title={<Trans>该分组还没有设备</Trans>}
+            description={<Trans>在设备详情里可以把设备加入分组</Trans>}
+            testID="devices-empty-group"
+          />
         ) : (
           <DeviceGrid
-            devices={pairedDevices}
+            devices={visiblePairedDevices}
+            organization={deviceOrganization}
             onPress={openDeviceDetail}
             onSend={sendToDevice}
           />
@@ -331,6 +411,7 @@ export default function DevicesScreen() {
         nearbyDevices={nearbyDevices}
         onSend={sendToDevice}
       />
+      <DeviceGroupsManageSheet ref={manageGroupsSheetRef} />
     </AppScreen>
   );
 }
@@ -786,6 +867,7 @@ function NearbyDeviceRow({
 }) {
   const colors = useThemeColors();
   const { t } = useLingui();
+  const deviceOrganization = usePreferencesStore((s) => s.deviceOrganization);
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
 
   return (
@@ -803,7 +885,7 @@ function NearbyDeviceRow({
           className="text-[13px] font-semibold text-foreground"
           numberOfLines={1}
         >
-          {deviceDisplayName(device)}
+          {organizedDeviceName(device, deviceOrganization)}
         </Text>
         <Text
           className="mt-0.5 text-[11px] text-muted-foreground"
@@ -1154,25 +1236,142 @@ function formatMmss(seconds: number): string {
 
 function DeviceGrid({
   devices,
+  organization,
   onPress,
   onSend,
 }: {
   devices: DeviceInfo[];
+  organization: DeviceOrganization;
   onPress: (d: DeviceInfo) => void;
   onSend: (d: DeviceInfo) => void;
 }) {
+  // 预计算每台设备的显示投影并缓存,让 groupNames 数组保持稳定引用:
+  // 否则每次渲染都新建数组,会击穿 DeviceCard 的 memo,活跃传输高频进度 tick
+  // 触发父屏重渲时全表重算(memo 注释正是为防此)。organization/devices 不变时
+  // 这里返回同一份映射,DeviceCard 的浅比较得以命中。
+  const projections = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        displayName: string;
+        groupNames: string[];
+        identityHint: string;
+        showIdentityHint: boolean;
+      }
+    >();
+    for (const device of devices) {
+      map.set(device.peerId, {
+        displayName: organizedDeviceName(device, organization),
+        groupNames: deviceGroupNames(device.peerId, organization),
+        identityHint: deviceIdentityHint(device),
+        showIdentityHint: hasDuplicateOrganizedName(
+          device,
+          devices,
+          organization,
+        ),
+      });
+    }
+    return map;
+  }, [devices, organization]);
+
   return (
     <View className="gap-2.5">
-      {devices.map((device, idx) => (
-        <DeviceCard
-          key={device.peerId}
-          device={device}
-          variant="row"
-          testID={`device-card-${idx}`}
-          onPress={onPress}
-          onSend={onSend}
-        />
-      ))}
+      {devices.map((device, idx) => {
+        const projection = projections.get(device.peerId);
+        return (
+          <DeviceCard
+            key={device.peerId}
+            device={device}
+            variant="row"
+            testID={`device-card-${idx}`}
+            displayName={projection?.displayName}
+            groupNames={projection?.groupNames}
+            identityHint={projection?.identityHint}
+            showIdentityHint={projection?.showIdentityHint}
+            onPress={onPress}
+            onSend={onSend}
+          />
+        );
+      })}
     </View>
+  );
+}
+
+/** 已配对设备的分组筛选 chips：全部 / 未分组 / 各用户分组，横向可滚动。 */
+function GroupFilterRow({
+  organization,
+  selectedGroupId,
+  onSelect,
+}: {
+  organization: DeviceOrganization;
+  selectedGroupId: string;
+  onSelect: (groupId: string) => void;
+}) {
+  const groups = useMemo(
+    () => [...organization.groups].sort((a, b) => a.sortOrder - b.sortOrder),
+    [organization.groups],
+  );
+
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+      testID="devices-group-filter"
+    >
+      <GroupFilterChip
+        selected={selectedGroupId === "all"}
+        onPress={() => onSelect("all")}
+      >
+        <Trans>全部</Trans>
+      </GroupFilterChip>
+      <GroupFilterChip
+        selected={selectedGroupId === "ungrouped"}
+        onPress={() => onSelect("ungrouped")}
+      >
+        <Trans>未分组</Trans>
+      </GroupFilterChip>
+      {groups.map((group) => (
+        <GroupFilterChip
+          key={group.id}
+          selected={selectedGroupId === group.id}
+          onPress={() => onSelect(group.id)}
+        >
+          {group.name}
+        </GroupFilterChip>
+      ))}
+    </ScrollView>
+  );
+}
+
+function GroupFilterChip({
+  selected,
+  onPress,
+  children,
+}: {
+  selected: boolean;
+  onPress: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      className={cn(
+        "min-h-8 justify-center rounded-full border px-3.5 active:opacity-70",
+        selected ? "border-primary bg-primary/10" : "border-border bg-card",
+      )}
+    >
+      <Text
+        className={cn(
+          "text-[12px]",
+          selected ? "font-semibold text-primary-ink" : "text-muted-foreground",
+        )}
+        numberOfLines={1}
+      >
+        {children}
+      </Text>
+    </Pressable>
   );
 }

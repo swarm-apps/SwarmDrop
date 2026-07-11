@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Crypto from "expo-crypto";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type {
@@ -6,6 +7,11 @@ import type {
   FileBrowserView,
 } from "@/components/file-browser/types";
 import type { DiscoveryModePreference } from "@/core/network-discovery";
+import {
+  type DeviceOrganization,
+  emptyDeviceOrganization,
+  normalizeDeviceOrganization,
+} from "@/lib/device-organization";
 
 export const DEFAULT_FILE_BROWSER_VIEWS: Record<
   FileBrowserScope,
@@ -19,6 +25,8 @@ export const DEFAULT_FILE_BROWSER_VIEWS: Record<
 interface PreferencesState {
   /** 用户自定义设备名,空字符串走系统 hostname / Device.deviceName fallback */
   deviceName: string;
+  /** 本机对已配对设备的别名与分组,仅保存在本机,不同步到对端。 */
+  deviceOrganization: DeviceOrganization;
   /** App 启动时是否自动启动 P2P 节点,默认 false(对齐桌面 autoStart) */
   autoStart: boolean;
   /** 网络发现模式：auto 使用公网引导 + LAN helper，lanOnly 只依赖局域网/自定义节点 */
@@ -44,12 +52,25 @@ interface PreferencesState {
   removeBootstrapNode: (addr: string) => void;
   setReceivePath: (uri: string | null) => void;
   setFileBrowserView: (scope: FileBrowserScope, view: FileBrowserView) => void;
+  /** 设置 / 清空某设备的本机别名（空串或纯空白清空）。 */
+  setDeviceAlias: (peerId: string, name: string) => void;
+  /** 创建分组，返回新分组 id；名称为空返回 null。 */
+  createDeviceGroup: (name: string) => string | null;
+  renameDeviceGroup: (groupId: string, name: string) => void;
+  deleteDeviceGroup: (groupId: string) => void;
+  /** 按给定顺序重排分组 sortOrder。 */
+  reorderDeviceGroups: (groupIds: string[]) => void;
+  /** 设置某设备所属的分组集合（覆盖式）。 */
+  setDeviceGroups: (peerId: string, groupIds: string[]) => void;
+  /** 取消配对时清理该 PeerId 的别名与全部分组成员关系。 */
+  clearDeviceOrganization: (peerId: string) => void;
 }
 
 type PersistedPreferences = Partial<
   Pick<
     PreferencesState,
     | "deviceName"
+    | "deviceOrganization"
     | "autoStart"
     | "discoveryMode"
     | "autoDiscoverLanHelpers"
@@ -65,6 +86,7 @@ export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
       deviceName: "",
+      deviceOrganization: emptyDeviceOrganization,
       autoStart: false,
       discoveryMode: "auto",
       autoDiscoverLanHelpers: true,
@@ -123,12 +145,141 @@ export const usePreferencesStore = create<PreferencesState>()(
           fileBrowserViews: { ...state.fileBrowserViews, [scope]: view },
         }));
       },
+
+      setDeviceAlias(peerId, name) {
+        const alias = name.trim();
+        set((state) => {
+          const aliases = { ...state.deviceOrganization.aliases };
+          if (alias) aliases[peerId] = alias;
+          else delete aliases[peerId];
+          return {
+            deviceOrganization: { ...state.deviceOrganization, aliases },
+          };
+        });
+      },
+
+      createDeviceGroup(name) {
+        const groupName = name.trim();
+        if (!groupName) return null;
+        const id = Crypto.randomUUID();
+        set((state) => ({
+          deviceOrganization: {
+            ...state.deviceOrganization,
+            groups: [
+              ...state.deviceOrganization.groups,
+              {
+                id,
+                name: groupName,
+                sortOrder: state.deviceOrganization.groups.length,
+              },
+            ],
+          },
+        }));
+        return id;
+      },
+
+      renameDeviceGroup(groupId, name) {
+        const groupName = name.trim();
+        if (!groupName) return;
+        set((state) => ({
+          deviceOrganization: {
+            ...state.deviceOrganization,
+            groups: state.deviceOrganization.groups.map((group) =>
+              group.id === groupId ? { ...group, name: groupName } : group,
+            ),
+          },
+        }));
+      },
+
+      deleteDeviceGroup(groupId) {
+        set((state) => {
+          const groupDeviceIds = { ...state.deviceOrganization.groupDeviceIds };
+          delete groupDeviceIds[groupId];
+          return {
+            deviceOrganization: {
+              ...state.deviceOrganization,
+              // groups 数组保持插入序,sortOrder 才是用户自定义顺序的载体;
+              // 删组后必须先按 sortOrder 排序再重新编号,否则会把 reorder 过的
+              // 顺序退回插入序(丢失用户排序)。
+              groups: state.deviceOrganization.groups
+                .filter((group) => group.id !== groupId)
+                .sort((a, b) => a.sortOrder - b.sortOrder)
+                .map((group, sortOrder) => ({ ...group, sortOrder })),
+              groupDeviceIds,
+            },
+          };
+        });
+      },
+
+      reorderDeviceGroups(groupIds) {
+        set((state) => {
+          const order = new Map(groupIds.map((id, index) => [id, index]));
+          return {
+            deviceOrganization: {
+              ...state.deviceOrganization,
+              groups: state.deviceOrganization.groups.map((group) => ({
+                ...group,
+                sortOrder: order.get(group.id) ?? group.sortOrder,
+              })),
+            },
+          };
+        });
+      },
+
+      setDeviceGroups(peerId, groupIds) {
+        set((state) => {
+          const validIds = new Set(
+            state.deviceOrganization.groups.map((group) => group.id),
+          );
+          const selectedIds = new Set(
+            groupIds.filter((id) => validIds.has(id)),
+          );
+          const groupDeviceIds = Object.fromEntries(
+            state.deviceOrganization.groups.map(({ id: groupId }) => {
+              const deviceIds =
+                state.deviceOrganization.groupDeviceIds[groupId] ?? [];
+              const withoutPeer = deviceIds.filter((id) => id !== peerId);
+              return [
+                groupId,
+                selectedIds.has(groupId)
+                  ? [...withoutPeer, peerId]
+                  : withoutPeer,
+              ];
+            }),
+          );
+          return {
+            deviceOrganization: { ...state.deviceOrganization, groupDeviceIds },
+          };
+        });
+      },
+
+      clearDeviceOrganization(peerId) {
+        set((state) => {
+          const aliases = { ...state.deviceOrganization.aliases };
+          delete aliases[peerId];
+          return {
+            deviceOrganization: {
+              ...state.deviceOrganization,
+              aliases,
+              groupDeviceIds: Object.fromEntries(
+                Object.entries(state.deviceOrganization.groupDeviceIds).map(
+                  ([groupId, deviceIds]) => [
+                    groupId,
+                    deviceIds.filter((id) => id !== peerId),
+                  ],
+                ),
+              ),
+            },
+          };
+        });
+      },
     }),
     {
       name: "swarmdrop-preferences",
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         deviceName: state.deviceName,
+        deviceOrganization: state.deviceOrganization,
         autoStart: state.autoStart,
         discoveryMode: state.discoveryMode,
         autoDiscoverLanHelpers: state.autoDiscoverLanHelpers,
@@ -145,6 +296,9 @@ export const usePreferencesStore = create<PreferencesState>()(
             : {};
         return {
           ...current,
+          deviceOrganization: normalizeDeviceOrganization(
+            stored.deviceOrganization,
+          ),
           ...(typeof stored.deviceName === "string"
             ? { deviceName: stored.deviceName }
             : {}),

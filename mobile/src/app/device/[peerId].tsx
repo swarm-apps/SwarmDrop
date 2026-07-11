@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   ShieldX,
   SlidersHorizontal,
+  Tags,
   Trash2,
   UserCheck,
   Users,
@@ -32,6 +33,10 @@ import {
   ConnectionBadge,
   normalizeConnectionKind,
 } from "@/components/connection-badge";
+import {
+  DeviceOrganizeSheet,
+  type DeviceOrganizeSheetRef,
+} from "@/components/device-organization-sheets";
 import { EncryptionNote } from "@/components/encryption-note";
 import {
   AppScreen,
@@ -60,7 +65,7 @@ import {
   trustLevelToNative,
 } from "@/core/device-trust";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { deviceDisplayName } from "@/lib/device-name";
+import { organizedDeviceName } from "@/lib/device-organization";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { cn, errorMessage, lastPathSegment } from "@/lib/utils";
@@ -68,6 +73,7 @@ import {
   summariesToOfflineDevices,
   useMobileCoreStore,
 } from "@/stores/mobile-core-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 
 type SavingAction = "save" | "block" | "unblock" | "unpair" | null;
 
@@ -77,6 +83,7 @@ export default function DeviceDetailScreen() {
   const colors = useThemeColors();
   const { peerId } = useLocalSearchParams<{ peerId: string }>();
   const policySheetRef = useRef<AppBottomSheetRef>(null);
+  const organizeSheetRef = useRef<DeviceOrganizeSheetRef>(null);
   const [draftLevel, setDraftLevel] = useState<TrustLevel>("collaborator");
   const [draftPolicy, setDraftPolicy] = useState<MobileDeviceReceivePolicy>(
     () => defaultReceivePolicy("collaborator"),
@@ -99,6 +106,10 @@ export default function DeviceDetailScreen() {
       updatePairedDevicePolicy: s.updatePairedDevicePolicy,
       removePairedDevice: s.removePairedDevice,
     })),
+  );
+  const deviceOrganization = usePreferencesStore((s) => s.deviceOrganization);
+  const clearDeviceOrganization = usePreferencesStore(
+    (s) => s.clearDeviceOrganization,
   );
 
   const device = useMemo<DeviceInfo | null>(() => {
@@ -153,7 +164,7 @@ export default function DeviceDetailScreen() {
         // 针对性反馈:阻止/解除有专属文案,别一律"设备策略已更新"含糊带过。
         toast.success(
           action === "block"
-            ? t`已阻止 ${deviceDisplayName(device)}`
+            ? t`已阻止 ${organizedDeviceName(device, deviceOrganization)}`
             : action === "unblock"
               ? t`已解除阻止`
               : t`设备策略已更新`,
@@ -165,7 +176,7 @@ export default function DeviceDetailScreen() {
         setSavingAction(null);
       }
     },
-    [device, savingAction, t, updatePairedDevicePolicy],
+    [device, deviceOrganization, savingAction, t, updatePairedDevicePolicy],
   );
 
   const handleSave = useCallback(() => {
@@ -192,6 +203,8 @@ export default function DeviceDetailScreen() {
     setSavingAction("unpair");
     try {
       await removePairedDevice(device.peerId);
+      // 取消配对同时清理该 PeerId 的本机别名与全部分组成员关系。
+      clearDeviceOrganization(device.peerId);
       setUnpairOpen(false);
       policySheetRef.current?.dismiss();
       toast.success(t`已取消配对`);
@@ -201,7 +214,14 @@ export default function DeviceDetailScreen() {
     } finally {
       setSavingAction(null);
     }
-  }, [device, removePairedDevice, router, savingAction, t]);
+  }, [
+    device,
+    clearDeviceOrganization,
+    removePairedDevice,
+    router,
+    savingAction,
+    t,
+  ]);
 
   const renderPolicyFooter = useCallback(
     (props: BottomSheetFooterProps) => (
@@ -254,7 +274,7 @@ export default function DeviceDetailScreen() {
     );
   }
 
-  const displayName = deviceDisplayName(device);
+  const displayName = organizedDeviceName(device, deviceOrganization);
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
   const trustLevel = resolveTrustLevel(device);
   const policy = policySummaryForDevice(device);
@@ -286,6 +306,18 @@ export default function DeviceDetailScreen() {
             </View>
             <TrustBadge level={trustLevel} confirmed={device.trustConfirmed} />
           </View>
+
+          <Pressable
+            onPress={() => organizeSheetRef.current?.present(device)}
+            accessibilityRole="button"
+            testID="device-organize-entry"
+            className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border active:opacity-70"
+          >
+            <Tags color={colors.foreground} size={16} />
+            <Text className="text-[13px] font-semibold text-foreground">
+              <Trans>别名与分组</Trans>
+            </Text>
+          </Pressable>
 
           <View className="gap-2">
             <InfoRow
@@ -431,6 +463,8 @@ export default function DeviceDetailScreen() {
           onValidityChange={setPolicyValid}
         />
       </AppBottomSheet>
+
+      <DeviceOrganizeSheet ref={organizeSheetRef} />
 
       <ConfirmDialog
         open={unpairOpen}

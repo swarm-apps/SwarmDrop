@@ -17,6 +17,7 @@ use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_core::transfer::progress::FileTransferStatus;
 
 use crate::history::MobileTransferProjection;
+use crate::keychain::MobileKeychainAdapter;
 use crate::network::MobileNetworkStatus;
 use crate::transfer::MobileTransferOffer;
 
@@ -173,17 +174,35 @@ pub trait ForeignEventBus: Send + Sync {
 
 pub(crate) struct MobileEventBusAdapter {
     foreign: Arc<dyn ForeignEventBus>,
+    /// 用于把 Identify 刷新后的已配对设备写回 keychain（对齐桌面 host 行为）。
+    keychain: Arc<MobileKeychainAdapter>,
 }
 
 impl MobileEventBusAdapter {
-    pub(crate) fn new(foreign: Arc<dyn ForeignEventBus>) -> Self {
-        Self { foreign }
+    pub(crate) fn new(
+        foreign: Arc<dyn ForeignEventBus>,
+        keychain: Arc<MobileKeychainAdapter>,
+    ) -> Self {
+        Self { foreign, keychain }
     }
 }
 
 #[async_trait]
 impl EventBus for MobileEventBusAdapter {
     async fn publish(&self, event: CoreEvent) -> AppResult<()> {
+        // 对端经 Identify 广播新设备名时,共享 core 会 publish PairedDeviceAdded;
+        // 持久化是 host 职责(桌面在 event_bus.rs 里 upsert),移动端在此把刷新后的
+        // 设备写回 keychain,使新名称在设备离线 / 应用重启后仍保留。
+        if let CoreEvent::PairedDeviceAdded { device } = &event {
+            if let Err(error) = swarmdrop_core::identity::upsert_paired_device(
+                self.keychain.as_ref(),
+                device.clone(),
+            )
+            .await
+            {
+                tracing::warn!("持久化 Identify 刷新的已配对设备失败: {error}");
+            }
+        }
         if let Some(mobile_event) = map_event(event) {
             self.foreign.emit(mobile_event);
         }

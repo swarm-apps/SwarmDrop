@@ -14,6 +14,14 @@ import { cn } from "@/lib/utils";
 
 interface DeviceCardProps {
   device: DeviceInfo;
+  /** 本机显示名（别名优先）；省略时回退到对端名称 / hostname。 */
+  displayName?: string;
+  /** 该设备所属分组名，用作同名消歧的次级身份信息。 */
+  groupNames?: string[];
+  /** `hostname · 短 PeerId` 次级身份提示。 */
+  identityHint?: string;
+  /** 当前列表内存在同名设备时为 true，触发展示次级身份信息。 */
+  showIdentityHint?: boolean;
   onPress?: (device: DeviceInfo) => void;
   onSend?: (device: DeviceInfo) => void;
   variant?: "card" | "row";
@@ -25,6 +33,10 @@ interface DeviceCardProps {
  */
 function DeviceCardComponent({
   device,
+  displayName: displayNameProp,
+  groupNames = [],
+  identityHint,
+  showIdentityHint = false,
   onPress,
   onSend,
   variant = "card",
@@ -34,9 +46,16 @@ function DeviceCardComponent({
   const { t } = useLingui();
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
   const isOnline = device.status === "online";
-  const displayName = deviceDisplayName(device);
+  const displayName = displayNameProp ?? deviceDisplayName(device);
   const trustLevel = resolveTrustLevel(device);
   const sendable = canSendToDevice(device);
+  // 同名时把分组 + `hostname · 短 PeerId` 合成一行次级身份信息。
+  const identityLine =
+    showIdentityHint || groupNames.length > 0
+      ? [...groupNames, showIdentityHint ? identityHint : undefined]
+          .filter(Boolean)
+          .join(" · ")
+      : null;
 
   if (variant === "row") {
     return (
@@ -100,6 +119,14 @@ function DeviceCardComponent({
               confirmed={device.trustConfirmed}
             />
           </View>
+          {identityLine ? (
+            <Text
+              className="text-[10px] text-muted-foreground"
+              numberOfLines={1}
+            >
+              {identityLine}
+            </Text>
+          ) : null}
         </View>
 
         <Pressable
@@ -165,6 +192,11 @@ function DeviceCardComponent({
         <Text className="text-[11px] text-muted-foreground" numberOfLines={1}>
           {device.os} · {device.platform}
         </Text>
+        {identityLine ? (
+          <Text className="text-[10px] text-muted-foreground" numberOfLines={1}>
+            {identityLine}
+          </Text>
+        ) : null}
       </View>
 
       <View className="flex-row items-center justify-between gap-2">
