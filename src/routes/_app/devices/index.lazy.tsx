@@ -39,6 +39,7 @@ import {
   deviceIdentityHint,
   hasDuplicateOrganizedName,
   organizedDeviceName,
+  sortGroups,
   type DeviceOrganization,
 } from "@/lib/device-organization";
 import { usePreferencesStore } from "@/stores/preferences-store";
@@ -471,10 +472,7 @@ function PairedDevicesSection({
           >
             <Trans>未分组</Trans>
           </GroupFilterButton>
-          {organization.groups
-            .slice()
-            .sort((a, b) => a.sortOrder - b.sortOrder)
-            .map((group) => (
+          {sortGroups(organization.groups).map((group) => (
               <GroupFilterButton
                 key={group.id}
                 selected={selectedGroupId === group.id}
