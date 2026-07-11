@@ -606,6 +606,9 @@ const AddDeviceSheet = forwardRef<
   const handlePair = useCallback(
     async (device: DeviceInfo) => {
       if (device.isPaired) {
+        // 已配对直发:先收起本 sheet 再跳选择页。否则 sheet 仍 present 时 push 新屏,
+        // 其返回键监听器会跨屏残留、吞掉新屏第一次返回(与下方配对成功路径同理)。
+        sheetRef.current?.dismiss();
         onSend(device);
         return;
       }

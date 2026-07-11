@@ -8,6 +8,10 @@ export default function MainLayout() {
 
   return (
     <NativeTabs
+      // tab 之间用 replace 语义(不留返回历史):任意 tab 按 Android 返回键直接退出 App,
+      // 而非默认 "initialRoute"(回设备 tab/首页)。tab 内更深的 Stack 导航不受影响;
+      // iOS 无系统返回键,此项只作用于 Android。
+      backBehavior="none"
       backgroundColor={colors.card}
       disableIndicator
       disableTransparentOnScrollEdge

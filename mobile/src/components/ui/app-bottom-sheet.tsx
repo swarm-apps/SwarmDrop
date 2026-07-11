@@ -24,8 +24,16 @@ import {
   BottomSheetScrollView,
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
-import { forwardRef, type ReactNode, useCallback } from "react";
 import {
+  forwardRef,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
+import {
+  BackHandler,
+  type NativeEventSubscription,
   type StyleProp,
   useWindowDimensions,
   View,
@@ -93,6 +101,64 @@ export const AppBottomSheet = forwardRef<
   const colors = useThemeColors();
   const { height } = useWindowDimensions();
 
+  // —— Android 硬件返回键 ——
+  // gorhom 自身不处理硬件返回键(库内/编译产物/类型 prop 全无 BackHandler;backdrop 的
+  // pressBehavior 只管"点击暗色遮罩"这个手势,与返回键无关)。官方唯一做法是自己挂
+  // BackHandler:sheet 打开 → 拦截返回键关闭它;关闭 → 放行。一处覆盖全 App 所有 sheet。
+  // iOS 无系统返回键,BackHandler 为 no-op,不受影响。
+  const innerRef = useRef<BottomSheetModal | null>(null);
+  const backSubRef = useRef<NativeEventSubscription | null>(null);
+  // ref 存最新 enablePanDownToClose,让常驻的 BackHandler 闭包始终读到当前值,不吃陈旧闭包。
+  const enableCloseRef = useRef(enablePanDownToClose);
+  enableCloseRef.current = enablePanDownToClose;
+
+  // innerRef(封装内部 dismiss 用)与外部转发 ref 合并,始终指向同一个 modal 实例。
+  const setSheetRef = useCallback(
+    (node: BottomSheetModal | null) => {
+      innerRef.current = node;
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
+
+  // 单一入口:按 open 幂等注册/注销监听器。
+  const syncBackHandler = useCallback((open: boolean) => {
+    if (open && !backSubRef.current) {
+      backSubRef.current = BackHandler.addEventListener(
+        "hardwareBackPress",
+        () => {
+          // 可关闭 sheet → 返回键关闭它;不可关闭(强制决策,如传输邀请)→ 仅拦截,阻止
+          // 返回键退出 App、但保持 sheet 打开(与其禁用下拉/遮罩关闭的语义一致)。
+          if (enableCloseRef.current) innerRef.current?.dismiss();
+          return true;
+        },
+      );
+    } else if (!open && backSubRef.current) {
+      backSubRef.current.remove();
+      backSubRef.current = null;
+    }
+  }, []);
+
+  // 用 onAnimate(动画"开始前"触发)管注册/注销,而非 onChange(动画"完成"才触发):
+  // 消除 present 开场窗口的漏拦截、以及 dismiss 后监听器残留到下一屏误吞返回键。
+  // onChange 作幂等兜底(覆盖 onAnimate 未触发的边缘,如 animateOnMount=false)。
+  const handleAnimate = useCallback(
+    (_from: number, to: number) => syncBackHandler(to >= 0),
+    [syncBackHandler],
+  );
+  const handleChange = useCallback(
+    (index: number) => syncBackHandler(index >= 0),
+    [syncBackHandler],
+  );
+  const handleDismiss = useCallback(() => {
+    syncBackHandler(false);
+    onDismiss?.();
+  }, [syncBackHandler, onDismiss]);
+
+  // 卸载兜底:sheet 未经正常关闭流程就被卸载时,防止监听器泄漏。
+  useEffect(() => () => syncBackHandler(false), [syncBackHandler]);
+
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
       <BottomSheetBackdrop
@@ -108,13 +174,15 @@ export const AppBottomSheet = forwardRef<
 
   return (
     <BottomSheetModal
-      ref={ref}
+      ref={setSheetRef}
       enableDynamicSizing={!virtualized}
       snapPoints={virtualized ? (snapPoints ?? ["90%"]) : snapPoints}
       // 仅在可滚动时封顶:短内容(BottomSheetView)本就随内容收缩,无需上限也不会裁切。
       maxDynamicContentSize={scrollable ? height * maxHeightRatio : undefined}
       enablePanDownToClose={enablePanDownToClose}
-      onDismiss={onDismiss}
+      onAnimate={handleAnimate}
+      onChange={handleChange}
+      onDismiss={handleDismiss}
       keyboardBehavior={keyboardBehavior}
       keyboardBlurBehavior={keyboardBlurBehavior}
       android_keyboardInputMode={androidKeyboardInputMode}
