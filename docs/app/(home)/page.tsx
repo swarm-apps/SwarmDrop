@@ -17,14 +17,15 @@ import {
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { DownloadPanel } from "@/components/download-panel";
+import { MobileDownloadCard } from "@/components/mobile-download-card";
 import { SwarmVisual } from "@/components/swarm-visual";
 import { appName, links, swarmhiveConfig } from "@/lib/shared";
 
-async function getInitialDownloadCatalog(): Promise<DownloadCatalog | null> {
+async function getInitialCatalog(appSlug: string): Promise<DownloadCatalog | null> {
   try {
     return await getDownloadCatalog({
       baseUrl: swarmhiveConfig.baseUrl,
-      appSlug: swarmhiveConfig.appSlug,
+      appSlug,
       channel: swarmhiveConfig.channel,
       fetchImpl: fetch,
     });
@@ -34,7 +35,10 @@ async function getInitialDownloadCatalog(): Promise<DownloadCatalog | null> {
 }
 
 export default async function HomePage() {
-  const initialCatalog = await getInitialDownloadCatalog();
+  const [initialCatalog, initialMobileCatalog] = await Promise.all([
+    getInitialCatalog(swarmhiveConfig.appSlug),
+    getInitialCatalog(swarmhiveConfig.appSlugMobile),
+  ]);
 
   return (
     <main className="flex flex-1 flex-col overflow-hidden">
@@ -46,6 +50,14 @@ export default async function HomePage() {
         channel={swarmhiveConfig.channel}
         fallbackUrl={links.releases}
         initialCatalog={initialCatalog}
+        allowClientRefresh={swarmhiveConfig.baseUrl.startsWith("https://")}
+      />
+      <MobileDownloadCard
+        baseUrl={swarmhiveConfig.baseUrl}
+        appSlug={swarmhiveConfig.appSlugMobile}
+        channel={swarmhiveConfig.channel}
+        fallbackUrl={links.mobile}
+        initialCatalog={initialMobileCatalog}
         allowClientRefresh={swarmhiveConfig.baseUrl.startsWith("https://")}
       />
       <Features />

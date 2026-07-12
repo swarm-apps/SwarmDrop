@@ -18,6 +18,8 @@ export const gitConfig = {
 export const swarmhiveConfig = {
   baseUrl: process.env.NEXT_PUBLIC_SWARMHIVE_URL ?? "http://47.115.172.218:3030",
   appSlug: "swarmdrop",
+  /** 移动端(Android)是独立版本线,在 SwarmHive 里是单独的 app。 */
+  appSlugMobile: "swarmdrop-rn",
   channel: "stable",
 };
 
