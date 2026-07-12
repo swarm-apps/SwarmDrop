@@ -149,6 +149,18 @@ jobs:
           RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
         run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
 
+      # 预先算出该 APK 在 GitHub Release 上的资产 URL(与下方 "Stage APKs" 的重命名规则
+      # mobile-{tag}-{base}.apk 完全一致),作为 SwarmHive 的镜像 / fallback 下载源传给 action。
+      # 单 APK(arm64-v8a)故取第一个;GitHub Release 此刻尚为 draft,服务端 liveness 会等它
+      # 转正后才对外暴露该镜像(add-github-release-source)。
+      - name: Resolve GitHub mirror URL (primary APK)
+        id: mirror
+        run: |
+          PRIMARY=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          base=$(basename "$PRIMARY" .apk)
+          asset="mobile-${{ steps.tag.outputs.tag }}-${base}.apk"
+          echo "url=https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/${asset}" >> "$GITHUB_OUTPUT"
+
       - name: Publish to SwarmHive (upload + finalize)
         # 去掉旧的 continue-on-error:依赖 action 退出码红绿(权限/配置 exit 2 标红,不再被吞)。
         # 单 target,一步上传到 draft + finalize + 把 stable 渠道指向它。
@@ -164,6 +176,8 @@ jobs:
           finalize: "true"
           channel: stable
           notes-file: swarmhive-notes.md
+          # 把该 APK 的 GitHub Release 资产 URL 记为镜像 / fallback 下载源。
+          github-mirror-url: ${{ steps.mirror.outputs.url }}
           # action v2 内置选取:给 glob 即可(android 白名单 .apk)。
           artifact-paths: android/app/build/outputs/apk/release/*.apk
 
