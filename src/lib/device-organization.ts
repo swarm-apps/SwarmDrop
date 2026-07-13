@@ -57,6 +57,16 @@ export function deviceGroupNames(
     .map((group) => group.name);
 }
 
+/**
+ * 分组按用户自定义顺序（sortOrder）排列；sortOrder 相同时用名称兜底，保证稳定。
+ * 设备页筛选条、分组管理弹窗、别名弹窗共用同一份顺序规则，不要各处再手写 sort。
+ */
+export function sortGroups(groups: DeviceGroup[]): DeviceGroup[] {
+  return [...groups].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
+  );
+}
+
 export function hasDuplicateOrganizedName(
   device: IdentifiedDevice,
   devices: IdentifiedDevice[],

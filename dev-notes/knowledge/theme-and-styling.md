@@ -99,6 +99,19 @@ const nearbyDevices = useNetworkStore(
 
 **相关文件**：`src/routes/_app/devices/-components/add-device-menu.tsx`、项目里其他 selectors 见 `src/stores/`
 
+### 弹窗 seeding effect 别依赖整个 store 对象（否则弹窗内改 store 会冲掉编辑态）
+
+弹窗打开时常用 `useEffect` 把 store 持久值 seed 进本地编辑 state（别名、pill 勾选）。**若该 effect 依赖整个 store 派生对象（如 `organization`），而弹窗内又有会 mutate 这个 store 的操作（如"新建分组"）**，mutation 换掉对象引用 → effect 重跑 → 把用户尚未保存的本地编辑连同刚建的东西一起冲掉（xhigh code-review 实锤：别名、pill、新分组自动选中三样全丢）。
+
+**正确做法**：
+- effect 只依赖"真正的重置时机"（`[device, open]`），store 对象用 `useRef` 读快照：`const orgRef = useRef(organization); orgRef.current = organization;` 然后 effect 内 `orgRef.current`。既拿最新值又不进依赖，弹窗内 mutation 不再触发重置。
+- 派生给 UI 的实时列表（pill 列表）照常 `useMemo(store.groups)`——它**该**跟随 store 实时更新；不能被重置的只是本地"编辑中"state。
+
+**不要做**：
+- 把整个 `organization` / store 对象塞进 seeding effect 的依赖数组。
+
+**相关文件**：`src/routes/_app/devices/-components/device-organization-dialogs.tsx`（`DeviceOrganizationDialog` 的 seeding effect + `organizationRef`）
+
 ## 暗色主题背景
 
 ### 主应用使用全局 app-shell 环境光背景
@@ -202,3 +215,43 @@ const nearbyDevices = useNetworkStore(
 - 同一类设置项一会儿规整 Row、一会儿大色块图标卡，视觉权重不统一
 
 **相关文件**：`src/routes/_app/settings/-settings-primitives.tsx`、`src/routes/_app/settings/index.lazy.tsx`（bento grid + `ThemeOption` / `ThemePreview`）、`src/routes/_app/settings/-device-info-section.tsx`（英雄横卡 `lg:flex-row`）、`src/hooks/use-node-restart.ts`
+
+## 列表拖拽排序
+
+### 拖拽排序统一用 @dnd-kit（键盘可达 + reduced motion 降级）
+
+需要用户手动排序的列表（如设备分组管理）用 `@dnd-kit`（`@dnd-kit/core` + `/sortable` + `/utilities`，2026-07 引入），不要再写 `ChevronUp` / `ChevronDown` 逐格挪动的按钮。
+
+**正确做法**：
+- 结构：`DndContext`（`sensors` + `collisionDetection={closestCenter}` + `onDragEnd`）→ `SortableContext`（`strategy={verticalListSortingStrategy}`，`items` 传稳定 id 数组）→ 每行 `useSortable({ id })`
+- sensors **必须同时配** `PointerSensor`（`activationConstraint: { distance: 6 }` 防误触，别让点击手柄=开始拖）和 `KeyboardSensor`（`coordinateGetter: sortableKeyboardCoordinates`）——键盘可拿起/移动是项目 WCAG AA 要求，纯鼠标拖拽会让可达性相对旧的上下箭头**倒退**
+- 拖拽手柄：lucide `GripVertical` + `touch-none cursor-grab active:cursor-grabbing`，`{...attributes} {...listeners}` 只挂在手柄上（不是整行），行内还有 Input（重命名）等可交互元素时尤其重要
+- 持久化：`onDragEnd` 用 `arrayMove(ids, from, to)` 算出新顺序，直接把有序 id 数组丢给 store 的 reorder action（如 `reorderDeviceGroups`）；store 内部按数组下标重编号 `sortOrder`。**乐观 + 立即持久化，不需要本地 order state**——zustand 同步更新后列表顺序即生效
+- reduced motion：`useMediaQuery("(prefers-reduced-motion: reduce)")` 为真时把 `useSortable` 返回的 `transition` 置 `undefined`（只保留 `transform` 跟手），满足"始终提供降级路径"
+
+**不要做**：
+- 只配 `PointerSensor` 不配 `KeyboardSensor`——丢键盘可达性
+- 把 `listeners` 挂到整行——行内 Input / 按钮会抢不到指针事件
+- 维护一份本地排序 state 再和 store 双写——直接持久化后由 store 派生即可
+
+**相关文件**：`src/routes/_app/devices/-components/device-organization-dialogs.tsx`（`DeviceGroupsDialog` / `SortableGroupRow`）、`src/stores/preferences-store.ts`（`reorderDeviceGroups`）
+
+### 弹窗内拖拽用 DragOverlay + 内联 restrictToVerticalAxis，行样式走单层分组列表
+
+分组管理在 shadcn `Dialog`（`max-h-[85vh]` 内部滚动）里拖拽排序，两点项目特定处理让它从"能用"到"主流好看"：
+
+**正确做法**：
+- **被拖项用 `DragOverlay` 渲染**：`DragOverlay` 以 `position:fixed` 在 portal 层绘制，脱离弹窗 `overflow-y-auto` 滚动容器不被裁切，呈现"被拎起"的抬升态；原行用 `isDragging && "opacity-40"` 留成占位空槽。悬浮预览是**纯展示**组件（grip + 名称文本 + 计数 + 删除图标，`bg-popover` + `border-primary/25` + 玻璃投影），不含真实 Input/Button——避免重复的 aria-label 干扰测试。`onDragStart` 记 `activeId`，`onDragEnd`/`onDragCancel` 清空。
+- **纵向锁轴不引 `@dnd-kit/modifiers`**：dnd-kit 的 modifier 本质是 `({ transform }) => Transform` 函数，`restrictToVerticalAxis` 内联成 `({ transform }) => ({ ...transform, x: 0 })` 挂到 `DndContext` 的 `modifiers`，避免为一个函数引整包依赖。
+- **`dropAnimation` 跟随 reduced motion**：reduced motion 下传 `null` 关掉落位动画，否则用默认（`undefined`）。
+- **行样式是单层分组列表，不是每行带边框卡片**：外层一个 `rounded-[16px] border border-border/60 bg-muted/20` 容器，行内 `rounded-[10px] hover:bg-accent/60` + `gap-0.5`，靠容器边界 + 间距分组，避开本文件「玻璃态层级不要做成卡片套卡片」里同源的"边框堆叠暗色发灰"。弹窗内一律用语义 token（`bg-muted`/`bg-popover`/`bg-accent`/`text-brand`），不用 glass 工具类。
+
+**不要做**：
+- 在弹窗滚动容器里只靠 `useSortable` 的 in-flow transform 拖拽——被拖项会被 `overflow` 裁切，且缺少抬升质感。
+- 为了锁纵轴而引 `@dnd-kit/modifiers` 整包。
+
+**承载方式决策**：分组管理是"短、可逆、偶尔"的任务，且用武之地就是设备页顶部筛选 chip，用**居中 Dialog**（关闭即见筛选条更新），不开独立路由——独立页面会撞"克制的层级"和"厚重企业级后台"反面参照。
+
+**两个分组弹窗共用同一"分组区"骨架**：管理分组弹窗（`DeviceGroupsDialog`，可排序列表）和单设备别名弹窗（`DeviceOrganizationDialog`，多选归属 pill）都把分组内容放进**同款 recessed 容器**（`rounded-[16px] border border-border/60 bg-muted/20 dark:bg-white/[0.02]`）+ 下方一条"创建行"（`Input` + `variant="outline"` 的 `＋新建` 按钮，`disabled={!newGroup.trim()}` 门控）。pill 未选态用 `bg-background` + hairline，选中态 `bg-primary/10 text-brand border-primary/30` + `Check`——两弹窗视觉权重同源。新增同类"分组/标签选择"区沿用这套骨架，不要各画各的。
+
+**相关文件**：`src/routes/_app/devices/-components/device-organization-dialogs.tsx`（`DeviceGroupsDialog` / `SortableGroupRow` / `GroupRowPreview` / `restrictToVerticalAxis` / `DeviceOrganizationDialog`）

@@ -55,6 +55,14 @@ msgstr "{0} 項 · {1}"
 msgid "{0}/6 位"
 msgstr "{0}/6 位"
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
+msgstr "{deviceCount, plural, other {# 台裝置}}"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#~ msgid "{deviceCount} 台设备"
+#~ msgstr "{deviceCount} 台裝置"
+
 #: src/components/file-tree/folder-row.tsx
 #~ msgid "{fileCount} 项"
 #~ msgstr "{fileCount} 項"
@@ -266,7 +274,7 @@ msgstr "例如：MacBook Pro"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "保存"
-msgstr ""
+msgstr "儲存"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "保存中..."
@@ -422,7 +430,11 @@ msgstr "發生錯誤，請重試"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "分组内设备将保留为已配对状态，并显示在未分组列表中。"
-msgstr ""
+msgstr "群組內的裝置會保留已配對狀態，並顯示在未分組清單中。"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "分组名称"
+msgstr "群組名稱"
 
 #: src/components/layout/app-topbar.tsx
 msgid "切换到浅色主题"
@@ -437,8 +449,12 @@ msgid "切换过滤条件，或直接使用下方配对码连接。"
 msgstr "切換過濾條件，或直接使用下方配對碼連線。"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-msgid "创建"
-msgstr ""
+#~ msgid "创建"
+#~ msgstr "建立"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#~ msgid "创建分组"
+#~ msgstr "建立群組"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
@@ -451,11 +467,18 @@ msgstr "刪除「{displayFileName}」的傳輸記錄？"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "删除分组"
-msgstr ""
+msgstr "刪除群組"
+
+#. placeholder {0}: group.name
+#. placeholder {0}: lastDeleteName.current
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "删除分组「{0}」"
+msgstr "刪除群組「{0}」"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-msgid "删除分组不会取消其中设备的配对。"
-msgstr ""
+#~ msgid "删除分组不会取消其中设备的配对。"
+#~ msgstr "刪除群組不會取消其中裝置的配對。"
 
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
@@ -541,7 +564,7 @@ msgstr "傳送檔案"
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "发送文件到 {displayName}"
-msgstr ""
+msgstr "傳送檔案到 {displayName}"
 
 #: src/routes/_app/send/-components/send-progress-view.tsx
 msgid "发送更多"
@@ -607,7 +630,7 @@ msgstr "唯讀"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "可在设备菜单中为已配对设备设置分组。"
-msgstr ""
+msgstr "可在裝置選單中為已配對裝置設定群組。"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "可恢复"
@@ -669,6 +692,10 @@ msgstr "啟動節點"
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "启用后，符合策略的入站文件会直接进入收件箱"
 msgstr "啟用後，符合策略的入站檔案會直接進入收件匣"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "在下方创建第一个分组来整理已配对设备。"
+msgstr "在下方建立第一個群組來整理已配對裝置。"
 
 #: src/components/transfer/session-panel.tsx
 msgid "在收件箱查看"
@@ -1035,7 +1062,7 @@ msgstr "成功接收的檔案會出現在這裡；暫停或失敗的傳輸會留
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "所属分组"
-msgstr ""
+msgstr "所屬群組"
 
 #: src/components/transfer/session-panel.tsx
 msgid "所有文件传输完成！"
@@ -1090,6 +1117,14 @@ msgstr "找到裝置後，你可以確認系統資訊再傳送配對請求。"
 #: src/components/transfer/transfer-offer-dialog.tsx
 msgid "拒绝"
 msgstr "拒絕"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "拖动排序"
+msgstr "拖曳排序"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "拖动排序、重命名或删除分组。删除分组不会取消其中设备的配对。"
+msgstr "拖曳排序、重新命名或刪除群組。刪除群組不會取消其中裝置的配對。"
 
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "拖拽文件或文件夹到这里"
@@ -1201,6 +1236,16 @@ msgstr "文字"
 msgid "断点续传"
 msgstr "中斷續傳"
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "新分组名称"
+msgstr "新群組名稱"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "新建"
+msgstr "新增"
+
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "无效的 Multiaddr 地址"
 msgstr "無效的 Multiaddr 位址"
@@ -1292,7 +1337,7 @@ msgstr "服務狀態"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "未分组"
-msgstr ""
+msgstr "未分組"
 
 #: src/components/layout/app-topbar.tsx
 #: src/components/network/start-node-sheet.tsx
@@ -1542,6 +1587,10 @@ msgstr "由 AI 代理發起"
 msgid "由 AI 代理发起（{0}）"
 msgstr "由 AI 代理發起（{0}）"
 
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "留空则使用设备名"
+msgstr "留空則使用裝置名稱"
+
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
 msgid "监听地址"
@@ -1643,11 +1692,11 @@ msgstr "管理 P2P 網路節點的啟動和連線狀態"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "管理分组"
-msgstr ""
+msgstr "管理群組"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "管理设备分组"
-msgstr ""
+msgstr "管理裝置群組"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "给设备取个名字"
@@ -1795,12 +1844,12 @@ msgstr "裝置資訊"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "设备别名"
-msgstr ""
+msgstr "裝置別名"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "设备别名与分组"
-msgstr ""
+msgstr "裝置別名與群組"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "设备名称"
@@ -1856,7 +1905,7 @@ msgstr "試試更短的關鍵字，或檢查是否包含已封存內容。"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "该分组中还没有设备"
-msgstr ""
+msgstr "此群組中還沒有裝置"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "该节点已存在"
@@ -1935,8 +1984,12 @@ msgid "返回后重新选择要分享的文件。"
 msgstr "返回後重新選擇要分享的檔案。"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
+msgid "还没有分组"
+msgstr "還沒有群組"
+
+#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "还没有分组，可在下方创建。"
-msgstr ""
+msgstr "還沒有群組，可在下方建立。"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "还没有已配对设备"
@@ -1944,7 +1997,7 @@ msgstr "還沒有已配對裝置"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "这些信息仅保存在本机，不会同步给对端。"
-msgstr ""
+msgstr "這些資訊僅儲存在本機，不會同步給對端。"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "进入 SwarmDrop"
