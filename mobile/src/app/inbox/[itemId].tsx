@@ -40,6 +40,8 @@ import {
   type FileBrowserActions,
   fromInboxFiles,
   inboxFileId,
+  isImageFile,
+  isVideoFile,
 } from "@/components/file-browser";
 import {
   AppScreen,
@@ -291,10 +293,7 @@ export default function InboxDetailScreen() {
   );
 
   const fileItems = useMemo(
-    () =>
-      detail && itemId
-        ? fromInboxFiles(itemId, detail.files, inboxPreviewUri)
-        : [],
+    () => (detail && itemId ? fromInboxFiles(itemId, detail.files) : []),
     [detail, itemId],
   );
   const fileBrowserActions = useMemo<FileBrowserActions>(
@@ -1226,57 +1225,11 @@ function isMissingFileError(err: unknown, file: InboxFileEntry): boolean {
   return fileExists(file.localPath) === false;
 }
 
-function inboxPreviewUri(file: InboxFileEntry): string | undefined {
-  return !file.missing &&
-    file.localPath.startsWith("file://") &&
-    isImageFile(file.name)
-    ? file.localPath
-    : undefined;
-}
-
 function fileIcon(name: string): LucideIcon {
   if (isImageFile(name)) return ImageIcon;
   if (isVideoFile(name)) return Video;
   return FileArchive;
 }
-
-function isImageFile(name: string): boolean {
-  return hasAnyExtension(name, IMAGE_EXTENSIONS);
-}
-
-function isVideoFile(name: string): boolean {
-  return hasAnyExtension(name, VIDEO_EXTENSIONS);
-}
-
-function hasAnyExtension(name: string, extensions: string[]): boolean {
-  const lower = name.toLowerCase();
-  return extensions.some((extension) => lower.endsWith(extension));
-}
-
-const IMAGE_EXTENSIONS = [
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".gif",
-  ".webp",
-  ".heic",
-  ".heif",
-  ".bmp",
-  ".tiff",
-  ".avif",
-];
-
-const VIDEO_EXTENSIONS = [
-  ".mp4",
-  ".mov",
-  ".m4v",
-  ".webm",
-  ".mkv",
-  ".avi",
-  ".wmv",
-  ".flv",
-  ".3gp",
-];
 
 const detailStyles = StyleSheet.create({
   previewFrame: {

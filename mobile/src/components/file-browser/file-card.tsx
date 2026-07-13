@@ -1,18 +1,16 @@
 import { useLingui } from "@lingui/react/macro";
-import { Check, RotateCcw, Share2, X } from "lucide-react-native";
+import { Image } from "expo-image";
+import { Check, Play, RotateCcw, Share2, X } from "lucide-react-native";
 import { memo, useCallback, useState } from "react";
-import {
-  type GestureResponderEvent,
-  Image,
-  Pressable,
-  View,
-} from "react-native";
+import { type GestureResponderEvent, Pressable, View } from "react-native";
 import { formatBytes, ProgressBar } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 import { fileBrowserIcon } from "./file-icon";
+import { isVideoFile } from "./media-type";
 import type { FileBrowserActions, FileBrowserItem } from "./types";
+import { useFileThumbnail } from "./use-file-thumbnail";
 
 interface FileCardProps {
   item: FileBrowserItem;
@@ -20,13 +18,17 @@ interface FileCardProps {
   testID?: string;
 }
 
+// expo-image 的 <Image> 默认不吃 nativewind className,直接用 style 铺满 cell。
+const FILL_STYLE = { width: "100%", height: "100%" } as const;
+
 function FileCardComponent({ item, actions, testID }: FileCardProps) {
   const { t } = useLingui();
   const colors = useThemeColors();
   const Icon = fileBrowserIcon(item.name);
-  const [failedPreviewUri, setFailedPreviewUri] = useState<string | null>(null);
-  const showPreview =
-    Boolean(item.previewUri) && failedPreviewUri !== item.previewUri;
+  const thumbnailUri = useFileThumbnail(item);
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const showPreview = Boolean(thumbnailUri) && failedUri !== thumbnailUri;
+  const showVideoBadge = showPreview && isVideoFile(item.name);
   const openable = Boolean(actions?.openItem) && item.status !== "missing";
 
   const open = useCallback(() => {
@@ -68,14 +70,24 @@ function FileCardComponent({ item, actions, testID }: FileCardProps) {
         <View className="h-24 items-center justify-center bg-muted">
           {showPreview ? (
             <Image
-              source={{ uri: item.previewUri }}
-              className="size-full"
-              resizeMode="cover"
-              onError={() => setFailedPreviewUri(item.previewUri ?? null)}
+              source={{ uri: thumbnailUri }}
+              style={FILL_STYLE}
+              contentFit="cover"
+              recyclingKey={item.id}
+              cachePolicy="memory-disk"
+              transition={0}
+              onError={() => setFailedUri(thumbnailUri ?? null)}
             />
           ) : (
             <Icon size={32} color={colors.mutedForeground} />
           )}
+          {showVideoBadge ? (
+            <View className="absolute inset-0 items-center justify-center">
+              <View className="size-8 items-center justify-center rounded-full bg-black/45">
+                <Play size={16} color="#FFFFFF" fill="#FFFFFF" />
+              </View>
+            </View>
+          ) : null}
           {item.status === "completed" ? (
             <View className="absolute right-2 top-2 rounded-full bg-card/90 p-1.5">
               <Check size={14} color={colors.success} />

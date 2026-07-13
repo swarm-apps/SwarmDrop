@@ -15,6 +15,12 @@ export {
 } from "./adapters";
 export { FileBrowser } from "./file-browser";
 export {
+  IMAGE_EXTENSIONS,
+  isImageFile,
+  isVideoFile,
+  VIDEO_EXTENSIONS,
+} from "./media-type";
+export {
   buildFileBrowserTree,
   flattenVisibleNodes,
 } from "./tree-data";

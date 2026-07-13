@@ -7,37 +7,37 @@ import {
   FileVideo,
   type LucideIcon,
 } from "lucide-react-native";
+import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from "./media-type";
 
+const TEXT_EXTENSIONS = new Set(["md", "txt", "doc", "docx", "pdf", "rtf"]);
+const CODE_EXTENSIONS = new Set([
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "json",
+  "css",
+  "html",
+  "rs",
+  "py",
+  "go",
+  "java",
+  "toml",
+  "yaml",
+  "yml",
+  "sh",
+  "swift",
+  "kt",
+]);
+const ARCHIVE_EXTENSIONS = new Set(["zip", "tar", "gz", "rar", "7z"]);
+
+// 图片/视频扩展名从 media-type 单一来源引入,避免与缩略图判定分叉。
 const ICON_GROUPS: ReadonlyArray<readonly [ReadonlySet<string>, LucideIcon]> = [
-  [
-    new Set(["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "heic"]),
-    FileImage,
-  ],
-  [new Set(["mp4", "mov", "m4v", "avi", "mkv", "webm"]), FileVideo],
-  [new Set(["md", "txt", "doc", "docx", "pdf", "rtf"]), FileText],
-  [
-    new Set([
-      "ts",
-      "tsx",
-      "js",
-      "jsx",
-      "json",
-      "css",
-      "html",
-      "rs",
-      "py",
-      "go",
-      "java",
-      "toml",
-      "yaml",
-      "yml",
-      "sh",
-      "swift",
-      "kt",
-    ]),
-    FileCode,
-  ],
-  [new Set(["zip", "tar", "gz", "rar", "7z"]), FileArchive],
+  [IMAGE_EXTENSIONS, FileImage],
+  [VIDEO_EXTENSIONS, FileVideo],
+  [TEXT_EXTENSIONS, FileText],
+  [CODE_EXTENSIONS, FileCode],
+  [ARCHIVE_EXTENSIONS, FileArchive],
 ];
 
 export function fileBrowserIcon(name: string): LucideIcon {

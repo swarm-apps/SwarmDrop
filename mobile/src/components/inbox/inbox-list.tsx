@@ -16,6 +16,7 @@ import {
   MobileInboxContentKind,
   MobileInboxSourceKind,
 } from "react-native-swarmdrop-core";
+import { isImageFile, isVideoFile } from "@/components/file-browser";
 import { FilterChip, FilterChipRail } from "@/components/filter-chip";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
@@ -369,41 +370,11 @@ function isTextLike(item: InboxPreviewItem): boolean {
 }
 
 function isImageLike(item: InboxPreviewItem): boolean {
-  return hasAnyExtension(item.title, IMAGE_EXTENSIONS);
+  return isImageFile(item.title);
 }
 
 function isVideoLike(item: InboxPreviewItem): boolean {
-  return hasAnyExtension(item.title, VIDEO_EXTENSIONS);
-}
-
-const IMAGE_EXTENSIONS = [
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".gif",
-  ".webp",
-  ".heic",
-  ".heif",
-  ".bmp",
-  ".tiff",
-  ".avif",
-];
-
-const VIDEO_EXTENSIONS = [
-  ".mp4",
-  ".mov",
-  ".m4v",
-  ".webm",
-  ".mkv",
-  ".avi",
-  ".wmv",
-  ".flv",
-  ".3gp",
-];
-
-function hasAnyExtension(title: string, extensions: string[]): boolean {
-  const lower = title.toLowerCase();
-  return extensions.some((extension) => lower.endsWith(extension));
+  return isVideoFile(item.title);
 }
 
 function contentIcon(item: InboxPreviewItem) {

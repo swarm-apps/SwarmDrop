@@ -240,6 +240,7 @@ function fixtureStatus(index: number): FileBrowserItem["status"] {
 
 function fixtureAssertionsPass() {
   const selected = makeSelectedFiles(3);
+  const selectedItems = fromSelectedFiles(selected);
   const normalized = normalizeRelativePath("root\\nested//report.txt");
   const remaining = removeSelectedDirectory(selected, "foo");
   const offer = fromOfferFiles("offer-a", [
@@ -279,30 +280,26 @@ function fixtureAssertionsPass() {
       MobileTerminalReason.FatalError,
     ),
   );
-  const inbox = fromInboxFiles(
-    "inbox-a",
-    [
-      {
-        id: 7,
-        relativePath: "photo.jpg",
-        name: "photo.jpg",
-        size: 8n,
-        checksum: "fixture",
-        localPath: "file:///fixture/photo.jpg",
-        missing: false,
-      },
-      {
-        id: 8,
-        relativePath: "missing.txt",
-        name: "missing.txt",
-        size: 9n,
-        checksum: "fixture",
-        localPath: "file:///fixture/missing.txt",
-        missing: true,
-      },
-    ],
-    (file) => file.localPath,
-  );
+  const inbox = fromInboxFiles("inbox-a", [
+    {
+      id: 7,
+      relativePath: "photo.jpg",
+      name: "photo.jpg",
+      size: 8n,
+      checksum: "fixture",
+      localPath: "file:///fixture/photo.jpg",
+      missing: false,
+    },
+    {
+      id: 8,
+      relativePath: "missing.txt",
+      name: "missing.txt",
+      size: 9n,
+      checksum: "fixture",
+      localPath: "file:///fixture/missing.txt",
+      missing: true,
+    },
+  ]);
   const duplicateTree = buildFileBrowserTree([
     { ...offer[0], id: "duplicate-a" },
     { ...offer[0], id: "duplicate-b" },
@@ -327,7 +324,9 @@ function fixtureAssertionsPass() {
     completed[0]?.status === "completed" &&
     cancelled[0]?.status === "cancelled" &&
     failed[0]?.status === "error" &&
-    inbox[0]?.previewUri === "file:///fixture/photo.jpg" &&
+    selectedItems[0]?.localUri === "fixture://source/0" &&
+    inbox[0]?.localUri === "file:///fixture/photo.jpg" &&
+    inbox[1]?.localUri === undefined &&
     inbox[1]?.status === "missing" &&
     duplicateRows.length === 3 &&
     duplicateRows[1]?.id !== duplicateRows[2]?.id

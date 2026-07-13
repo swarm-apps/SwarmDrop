@@ -23,7 +23,12 @@ export interface FileBrowserItem {
   size: bigint;
   status: FileBrowserStatus;
   progress?: number;
-  previewUri?: string;
+  /**
+   * 本设备上可访问的 `file://` 路径(存在时)。发送 scope 来自 `sourceId`,
+   * 收件箱 scope 来自未缺失文件的 `localPath`;transfer/offer scope 不设。
+   * 缩略图管线(`useFileThumbnail`)据此解析图片/视频缩略图。
+   */
+  localUri?: string;
 }
 
 export interface FileBrowserActions {

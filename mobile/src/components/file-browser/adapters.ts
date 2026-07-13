@@ -26,6 +26,8 @@ export function fromSelectedFiles(
     relativePath: normalizeRelativePath(file.relativePath, file.name),
     size: file.size,
     status: "idle",
+    // 发送来源在所有选择路径下都是可渲染的 file://(见 core/file-access + share-intent)。
+    localUri: file.sourceId,
   }));
 }
 
@@ -84,7 +86,6 @@ export function fromProjection(
 export function fromInboxFiles(
   itemId: string,
   files: readonly MobileInboxFileEntry[],
-  previewUriFor?: (file: MobileInboxFileEntry) => string | undefined,
 ): FileBrowserItem[] {
   return files.map((file) => ({
     id: inboxFileId(itemId, file.id),
@@ -93,8 +94,9 @@ export function fromInboxFiles(
     relativePath: normalizeRelativePath(file.relativePath, file.name),
     size: file.size,
     status: file.missing ? "missing" : "completed",
-    ...(!file.missing && previewUriFor
-      ? { previewUri: previewUriFor(file) }
+    // 仅未缺失且真为 file:// 时可缩略图;Android SAF content:// 不设(交系统打开)。
+    ...(!file.missing && file.localPath.startsWith("file://")
+      ? { localUri: file.localPath }
       : {}),
   }));
 }
