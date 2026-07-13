@@ -1,0 +1,18 @@
+# docs 是独立于仓库根的子项目（自带 package.json / pnpm-lock.yaml）。
+#
+# 这个文件给 docs 建立独立的 pnpm workspace 边界：pnpm 在 docs 下运行时会向上
+# 查找最近的 pnpm-workspace.yaml，有了本文件就停在 docs、以 docs 为 workspace 根，
+# 不会再向上找到仓库根的 pnpm-workspace.yaml（其 `packages: - .` 不含 docs）而
+# “劫持”本目录的安装——被劫持时会按根依赖装进根 node_modules、docs/node_modules 为空，
+# 导致 CI 里 `next build` 报 next: not found。
+packages:
+  - .
+
+# pnpm 10+ 默认不执行未批准依赖的 build 脚本，且在 frozen 安装下会以非零码退出
+# （ERR_PNPM_IGNORED_BUILDS）。这里批准 docs 依赖里带 native 二进制的包运行其构建脚本，
+# 与仓库根 pnpm-workspace.yaml 的 allowBuilds 写法保持一致。
+allowBuilds:
+  esbuild: true
+  sharp: true
+  "@tailwindcss/oxide": true
+  unrs-resolver: true
