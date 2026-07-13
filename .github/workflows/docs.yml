@@ -38,8 +38,15 @@ jobs:
           cache: pnpm
           cache-dependency-path: docs/pnpm-lock.yaml
 
+      # docs 是自带 lockfile 的独立子项目。仓库根有 pnpm-workspace.yaml
+      # (packages: - .，不含 docs)；在 docs 下装依赖时 pnpm 会向上找到根
+      # workspace 并按它安装（把根依赖装进根 node_modules），导致 docs/node_modules
+      # 为空、后续 next build 报 next: not found。--ignore-workspace 让 pnpm 忽略
+      # 根 workspace，把 docs 当独立项目、用 docs/pnpm-lock.yaml 安装。
+      # 依赖的 native 包（esbuild/@tailwindcss/oxide/sharp 等）由预编译平台子包提供
+      # 二进制，无需其 build 脚本，故这里无需额外 approve-builds。
       - name: pnpm install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-workspace
 
       - name: Build docs (static export)
         env:
