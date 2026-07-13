@@ -189,6 +189,7 @@ Two-tier, deliberately flat-first. Resting surfaces (buttons, cards, inputs, dev
 - **Ghost:** no fill or border at rest; active state fills to Quiet Surface at half strength.
 - **Destructive:** Alert Red fill, white text; used sparingly (block device, delete history).
 - **Sizes:** `sm` (36px), `default` (40px), `lg` (44px) — all `sm:` variants drop 4px for wider layouts.
+- **Full-width bottom CTA:** the single dominant action inside a fixed `BottomActionBar` (send / accept / 完成 / 打开) is `min-h-12` (48px) + `flex-1` + `rounded-xl bg-primary`, label `text-[14px] font-semibold text-primary-foreground` (icon at 18px). This 48px is one step above the `lg` (44px) inline size because the CTA spans the bar as the screen's primary commit — established across `share-target` / `shared-files` / inbox-detail / transfer-offer / pairing-accept. **Always `flex-1`, never a content-hugging pill** (a solo `Pressable` in the `flex-row` bar without `flex-1` collapses to text width and left-pins — the bug fixed in `share-target`). Paired inline buttons (取消/发送 in a row) stay `h-10` (40px); the solo bar CTA is the 48px variant.
 
 ### Badges & Pills
 - **Trust Badge:** 4 levels (owned / collaborator / temporary / blocked), each a 10%-tint pill (`bg-{color}/10` or `/15`) in `rounded-full`, `text-[10-11px] font-medium`. A `confirmed: false` state appends "· 待确认" inline rather than changing color — pending state is a text suffix, not a new hue.

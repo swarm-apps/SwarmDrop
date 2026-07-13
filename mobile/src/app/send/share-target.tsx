@@ -256,7 +256,7 @@ export default function ShareTargetScreen() {
                 : t`选择一个设备`
             }
             accessibilityState={{ busy: sending, disabled: !canSend }}
-            className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:opacity-50"
+            className="min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
           >
             {sending ? (
               <ActivityIndicator
@@ -264,9 +264,12 @@ export default function ShareTargetScreen() {
                 size="small"
               />
             ) : (
-              <Send color={colors.primaryForeground} size={17} />
+              <Send color={colors.primaryForeground} size={18} />
             )}
-            <Text className="text-[14px] font-semibold text-primary-foreground">
+            <Text
+              className="shrink text-[14px] font-semibold text-primary-foreground"
+              numberOfLines={1}
+            >
               {sending ? (
                 <Trans>准备中</Trans>
               ) : selectedDevice ? (
@@ -315,7 +318,7 @@ function TargetDeviceRow({
       accessibilityState={{ selected }}
       accessibilityLabel={deviceDisplayName(device)}
       className={cn(
-        "min-h-[64px] flex-row items-center gap-3 rounded-lg border p-3 active:opacity-70",
+        "min-h-16 flex-row items-center gap-3 rounded-lg border p-3.5 active:opacity-70",
         selected ? "border-primary bg-primary/5" : "border-border bg-card",
       )}
     >
