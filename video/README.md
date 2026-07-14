@@ -2,6 +2,9 @@
 
 这个目录是独立的 Remotion 成片工程。它只负责制作官网素材，官网运行时不加载 Remotion。
 
+桌面 / 移动端 Demo 的事件驱动后期方案见
+[`e2e/desktop/demo-postproduction-design.md`](../e2e/desktop/demo-postproduction-design.md)。
+
 ## 命令
 
 ```bash
