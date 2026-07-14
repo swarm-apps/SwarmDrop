@@ -74,6 +74,8 @@ pnpm test
 pnpm --dir e2e/desktop record desktop-home
 pnpm --dir e2e/desktop record send-file
 pnpm --dir e2e/desktop record inbox
+# 单次启动应用，连续录制首页、发送入口、收件箱三段主片
+pnpm --dir e2e/desktop record desktop-suite
 ```
 
 默认会连接 `OBS_WEBSOCKET_URL=ws://127.0.0.1:4455`，不显式设置
@@ -90,10 +92,13 @@ demo 操作，不包含 Tauri/WebDriver 启动等待。manifest 和 raw clip 会
   focus 命令都触发 5 秒 `Tauri core.invoke` fallback。
 - OBS 短视频停止后要等输出文件大小稳定再复制；太早复制容易得到 0B 或 moov 不完整的视频。
 - demo spec 串行录制。当前 Tauri WebDriver 使用固定端口，并行跑多个 native demo 会抢端口。
+- 批量录制桌面基础素材时使用 `desktop-suite`，它在一个 WDIO worker 中依次加载首页、发送入口、收件箱场景；Tauri 应用只会冷启动一次，并会在全部场景结束后由 WDIO 正常收尾。需要单独补录时，继续使用三个单场景命令。
 - `send-file.demo.ts` 允许没有在线已配对设备：此时只输出首页/空环境素材，不把录制管线判失败。
 - 录制产物在 `build/` 下，仓库根 `.gitignore` 已忽略，不要提交视频原始文件。
 
 **相关文件**：`e2e/desktop/scripts/record-desktop-demo.mjs`、`dev-notes/blogs/desktop-demo-recording-pipeline.md`
+
+录制平台选择、当前 Android / iOS 验证结论和产物约定见 [demo-recording.md](demo-recording.md)。
 
 ### 双端 WebDriver composite 录制入口
 
@@ -117,6 +122,22 @@ demo 操作，不包含 Tauri/WebDriver 启动等待。manifest 和 raw clip 会
   `VITE_WDIO_TAURI_PLUGIN=1`，否则前端不会加载 `@wdio/tauri-plugin`，`browser.tauri.execute` 会报
   `Tauri core.invoke not available after 5s timeout`。
 - 演示节奏用 `SWARMDROP_DEMO_STEP_DELAY_MS` 控制，默认 1000ms；不要在 spec 里散落 30s 固定等待。
+
+### 移动模拟器独立录屏
+
+需要单独采集手机素材而不是运行完整双端传输时，用 `e2e/desktop/scripts/record-mobile-simulator.mjs`：
+
+```bash
+# Android Emulator，默认使用 emulator-5554；其他序列号通过 ANDROID_SERIAL 指定
+ANDROID_SERIAL=emulator-5554 pnpm --dir e2e/desktop record:mobile android
+
+# 自动录制 10 秒，便于快速验证或截取短素材
+pnpm --dir e2e/desktop record:mobile android 10
+```
+
+**正确做法**：Android 使用 `adb shell screenrecord` 后自动 pull 到 `e2e/desktop/build/desktop-recordings/raw/`。iOS 的命令行录制依赖 `simctl`，当前本机图形服务不可用，改用 Simulator 的 `Cmd+R` 手动录制；完整结论见 [demo-recording.md](demo-recording.md)。移动端单独录制只负责画面；真实双端传输继续使用 `record:transfer`，由它统一驱动流程、录屏和收尾。
+
+**相关文件**：`e2e/desktop/scripts/record-mobile-simulator.mjs`、`e2e/desktop/package.json`
 
 **相关文件**：`e2e/desktop/scripts/record-transfer-demo.mjs`、`../SwarmDrop-RN/e2e/webdriver/`
 

@@ -19,6 +19,8 @@
     "record:desktop-home": "node ./scripts/record-desktop-demo.mjs desktop-home",
     "record:send-file": "node ./scripts/record-desktop-demo.mjs send-file",
     "record:inbox": "node ./scripts/record-desktop-demo.mjs inbox",
-    "record:transfer": "node ./scripts/record-transfer-demo.mjs"
+    "record:desktop-suite": "node ./scripts/record-desktop-demo.mjs desktop-suite",
+    "record:transfer": "node ./scripts/record-transfer-demo.mjs",
+    "record:mobile": "node ./scripts/record-mobile-simulator.mjs"
   }
 }

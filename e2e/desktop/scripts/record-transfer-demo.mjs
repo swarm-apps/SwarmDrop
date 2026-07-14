@@ -21,6 +21,8 @@ const mobileTransferSpec = resolve(
 );
 
 function parseArgs(argv) {
+  // pnpm 将 package script 的参数分隔符 `--` 原样传入；本脚本没有子命令边界，直接忽略。
+  const args = argv.filter((arg) => arg !== "--");
   const options = {
     noRecord: false,
     skipBuild: false,
@@ -30,7 +32,7 @@ function parseArgs(argv) {
     keepMobileState: false,
   };
 
-  for (const arg of argv) {
+  for (const arg of args) {
     if (arg === "--no-record") {
       options.noRecord = true;
     } else if (arg === "--skip-build") {
