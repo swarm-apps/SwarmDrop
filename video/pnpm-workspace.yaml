@@ -1,0 +1,6 @@
+# 视频工程保持独立，避免被仓库根 pnpm workspace 劫持。
+packages:
+  - .
+
+allowBuilds:
+  esbuild: true

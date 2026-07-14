@@ -24,6 +24,22 @@ build scripts、release-age 策略等，都放到对应项目根的 `pnpm-worksp
 
 **相关文件**：`package.json`、`pnpm-workspace.yaml`、`e2e/desktop/package.json`、`e2e/desktop/pnpm-workspace.yaml`
 
+### 官网 Hero 视频使用独立 Remotion 工程
+
+`video/` 是用于制作官网成片的独立 pnpm workspace，不参与桌面应用或 `docs/` 的依赖安装。Remotion
+只在本地 Studio 和导出时运行；官网静态导出只消费 `docs/public/hero/` 内的 MP4 与封面图。
+
+**正确做法**：
+- 进入 `video/` 后使用 `pnpm studio` 预览、`pnpm render:hero` 导出。
+- 保持成片尺寸 1920 × 1080、30 fps、20 秒；网页播放用静音、循环的原生 `<video>`。
+- 使用 `useCurrentFrame()`、`interpolate()`、`spring()` 表达视频时间线，不要在 Remotion Composition 中使用 CSS 动画。
+
+**不要做**：
+- 不要把 `remotion` 或 `@remotion/player` 加进 `docs/package.json`，也不要在 GitHub Pages 构建中渲染视频。
+- 不要提交未经裁剪的原始录屏；`video/out/` 为本地临时产物。
+
+**相关文件**：`video/`、`docs/public/hero/`、`docs/app/(home)/page.tsx`
+
 ### 前端测试使用 Vitest
 
 前端单元/组件测试使用 Vitest + jsdom + Testing Library，配置集中在 `vitest.config.ts`，复用
