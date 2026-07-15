@@ -737,10 +737,18 @@ msgstr "處理中..."
 msgid "复制"
 msgstr "複製"
 
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "复制失败，请手动复制路径"
+msgstr "複製失敗，請手動複製路徑"
+
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制失败，请手动复制配对码"
 msgstr "複製失敗,請手動複製配對碼"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "复制路径"
+msgstr "複製路徑"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
@@ -885,6 +893,7 @@ msgstr "已取消封存"
 msgid "已复制"
 msgstr "已複製"
 
+#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已复制到剪贴板"
@@ -1308,6 +1317,10 @@ msgstr "暫無正在傳輸"
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "暂无附近设备"
 msgstr "暫無附近裝置"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "更多位置操作"
+msgstr "更多位置操作"
 
 #: src/components/transfer/transfer-offer-dialog.tsx
 #: src/routes/_app/settings/-transfer-settings-section.tsx
@@ -1910,6 +1923,10 @@ msgstr "此群組中還沒有裝置"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "该节点已存在"
 msgstr "該節點已存在"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "该记录没有可用的本地路径"
+msgstr "此記錄沒有可用的本機路徑"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "语言"

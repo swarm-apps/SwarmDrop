@@ -737,10 +737,18 @@ msgstr "Processing..."
 msgid "复制"
 msgstr "Copy"
 
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "复制失败，请手动复制路径"
+msgstr "Copy failed, please copy the path manually"
+
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制失败，请手动复制配对码"
 msgstr "Copy failed, please copy the pairing code manually"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "复制路径"
+msgstr "Copy path"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
@@ -885,6 +893,7 @@ msgstr "Unarchived"
 msgid "已复制"
 msgstr "Copied"
 
+#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已复制到剪贴板"
@@ -1308,6 +1317,10 @@ msgstr "No transfers in progress"
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "暂无附近设备"
 msgstr "No nearby devices"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "更多位置操作"
+msgstr "More location actions"
 
 #: src/components/transfer/transfer-offer-dialog.tsx
 #: src/routes/_app/settings/-transfer-settings-section.tsx
@@ -1910,6 +1923,10 @@ msgstr "No devices in this group yet"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "该节点已存在"
 msgstr "Node already exists"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "该记录没有可用的本地路径"
+msgstr "This item has no local path available"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "语言"

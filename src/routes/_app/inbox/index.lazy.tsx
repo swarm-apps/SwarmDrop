@@ -23,6 +23,8 @@ import {
   ArchiveRestore,
   ArrowRightLeft,
   Bot,
+  ChevronDown,
+  Copy,
   FileArchive,
   FolderOpen,
   Inbox,
@@ -50,6 +52,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CenteredEmptyState } from "@/components/layout/section-primitives";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -81,6 +89,16 @@ type RunAndRefresh = (
   success?: string,
   detailId?: string | null,
 ) => Promise<InboxItemSummary[] | null>;
+
+/**
+ * 可复制的本地路径：单文件取文件自身，多文件取所在目录，与 Rust 侧
+ * `item_target_path` 同一优先级。但这里不校验路径是否仍存在——文件已缺失时
+ * 用户仍需要拿到路径去排查，所以复制不走后端的 `ensure_path_exists`。
+ */
+function inboxItemPath(detail: InboxItemDetail): string | null {
+  if (detail.files.length === 1) return detail.files[0].localPath;
+  return detail.rootPath;
+}
 
 function InboxPage() {
   const { item, q, archived } = Route.useSearch();
@@ -256,6 +274,17 @@ function InboxPage() {
     if (!selectedId) return;
     void runAndRefresh(() => commands.showInboxItemInFolder(selectedId, null));
   };
+  const handleCopyPath = () => {
+    const path = selectedDetail ? inboxItemPath(selectedDetail) : null;
+    if (!path) {
+      toast.error(t`该记录没有可用的本地路径`);
+      return;
+    }
+    void navigator.clipboard.writeText(path).then(
+      () => toast.success(t`已复制到剪贴板`),
+      () => toast.error(t`复制失败，请手动复制路径`),
+    );
+  };
   const handleOpenTransfer = () => {
     if (!selectedItem?.transferSessionId) return;
     void navigate({
@@ -318,6 +347,7 @@ function InboxPage() {
             contained={!isCompact}
             onOpenList={openList ?? undefined}
             onReveal={handleReveal}
+            onCopyPath={handleCopyPath}
             onOpenTransfer={
               selectedItem?.transferSessionId ? handleOpenTransfer : null
             }
@@ -746,6 +776,7 @@ function InboxReader({
   contained,
   onOpenList,
   onReveal,
+  onCopyPath,
   onOpenTransfer,
   onArchive,
   onDelete,
@@ -758,6 +789,7 @@ function InboxReader({
   /** 窄屏传入即渲染详情头部前导「打开列表」按钮；宽屏双栏不传。 */
   onOpenList?: () => void;
   onReveal: () => void;
+  onCopyPath: () => void;
   onOpenTransfer: (() => void) | null;
   onArchive: () => void;
   onDelete: () => void;
@@ -786,6 +818,7 @@ function InboxReader({
           contained={contained}
           leading={toggle}
           onReveal={onReveal}
+          onCopyPath={onCopyPath}
           onOpenTransfer={onOpenTransfer}
           onArchive={onArchive}
           onDelete={onDelete}
@@ -826,6 +859,7 @@ function ReaderContent({
   contained,
   leading,
   onReveal,
+  onCopyPath,
   onOpenTransfer,
   onArchive,
   onDelete,
@@ -836,6 +870,7 @@ function ReaderContent({
   contained: boolean;
   leading?: ReactNode;
   onReveal: () => void;
+  onCopyPath: () => void;
   /** 跳到该条目对应的传输记录；无关联传输时为 null（不渲染按钮）。 */
   onOpenTransfer: (() => void) | null;
   onArchive: () => void;
@@ -908,10 +943,29 @@ function ReaderContent({
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
-          <Button size="sm" className="gap-1.5" onClick={onReveal}>
-            <FolderOpen className="size-4" />
-            <Trans>在文件夹中显示</Trans>
-          </Button>
+          <div className="inline-flex">
+            <Button size="sm" className="gap-1.5 rounded-r-none" onClick={onReveal}>
+              <FolderOpen className="size-4" />
+              <Trans>在文件夹中显示</Trans>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  aria-label={t`更多位置操作`}
+                  className="rounded-l-none border-l border-primary-foreground/25 has-[>svg]:px-2"
+                >
+                  <ChevronDown className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={onCopyPath}>
+                  <Copy className="size-4" />
+                  <Trans>复制路径</Trans>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           {onOpenTransfer && (
             <Button
               size="sm"
