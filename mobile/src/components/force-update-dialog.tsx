@@ -13,6 +13,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Text } from "@/components/ui/text";
 import { useUpdate } from "@/hooks/use-update";
+import { forceDialogVisible } from "@/lib/update-dialog-visibility";
 import {
   resolveUpdateTexts,
   type UpdateLocale,
@@ -37,7 +38,7 @@ export function ForceUpdateDialog({
 
   const isDownloading = status === "downloading";
   const isReady = status === "ready";
-  const open = status === "force-required" || isDownloading || isReady;
+  const open = forceDialogVisible(status, release);
   const busy = isDownloading || isReady;
 
   useEffect(() => {

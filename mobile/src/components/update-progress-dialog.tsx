@@ -8,6 +8,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Text } from "@/components/ui/text";
 import { useUpdate } from "@/hooks/use-update";
+import { progressDialogVisible } from "@/lib/update-dialog-visibility";
 import {
   resolveUpdateTexts,
   type UpdateLocale,
@@ -26,11 +27,11 @@ export function UpdateProgressDialog({
   texts,
   open,
 }: UpdateProgressDialogProps) {
-  const { status, progress } = useUpdate();
+  const { status, release, progress } = useUpdate();
   const t = resolveUpdateTexts(locale, texts);
 
   const isReady = status === "ready";
-  const visible = open ?? (status === "downloading" || isReady);
+  const visible = open ?? progressDialogVisible(status, release);
   const percent = progress ? Math.round(progress.percent * 100) : 0;
   const speedMb = progress?.speed
     ? (progress.speed / 1024 / 1024).toFixed(1)
