@@ -66,8 +66,8 @@ pnpm build
 | Routing | TanStack Router (file-system based, auto code-splitting) |
 | State | Zustand 5 (stores: auth, network, preferences, secret, pairing, transfer) |
 | UI | shadcn/ui (new-york style), Lucide icons, Radix primitives |
-| i18n | Lingui 5 (8 locales: zh, zh-TW, en, ja, ko, es, fr, de) |
-| Backend | Rust 2021, Tauri 2 |
+| i18n | Lingui 5 (3 locales: zh, zh-TW, en — ja/ko/es/fr/de are roadmap targets, not yet added) |
+| Backend | Rust 2024, Tauri 2 |
 | P2P | libp2p 0.56 via `swarm-p2p-core` (git submodule in `libs/`) |
 | Security | Stronghold (encrypted vault), Biometry (FaceID/TouchID/Windows Hello) |
 | Database | SeaORM 2.0 + SQLite (传输历史、断点续传 checkpoint) |
