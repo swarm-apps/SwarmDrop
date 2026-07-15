@@ -95,8 +95,8 @@ importers:
         specifier: ^2.0.2
         version: 2.0.2(@babel/runtime@7.29.2)(react-native@0.85.3(@babel/core@7.29.0)(@react-native/metro-config@0.85.3(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
       '@swarm-hive/sdk':
-        specifier: ^0.1.0
-        version: 0.1.0(@types/react@19.2.14)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
+        specifier: ^0.4.0
+        version: 0.4.0(@types/react@19.2.14)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
       burnt:
         specifier: ^0.13.0
         version: 0.13.0(expo@56.0.12)(react-dom@19.2.3(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.0)(@react-native/metro-config@0.85.3(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
@@ -134,7 +134,7 @@ importers:
         specifier: ^56.0.4
         version: 56.0.4(expo@56.0.12)
       expo-file-system:
-        specifier: ^56.0.8
+        specifier: ~56.0.8
         version: 56.0.8(expo@56.0.12)(react-native@0.85.3(@babel/core@7.29.0)(@react-native/metro-config@0.85.3(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.3))
       expo-haptics:
         specifier: ^56.0.3
@@ -146,7 +146,7 @@ importers:
         specifier: ^56.0.18
         version: 56.0.18(expo@56.0.12)
       expo-intent-launcher:
-        specifier: ^56.0.4
+        specifier: ~56.0.4
         version: 56.0.4(expo@56.0.12)
       expo-linking:
         specifier: ~56.0.14
@@ -3151,8 +3151,8 @@ packages:
   '@so-ric/colorspace@1.1.6':
     resolution: {integrity: sha512-/KiKkpHNOBgkFJwu9sh48LkHSMYGyuTcSFK/qMBdnOAlrRJzRSXAOFB5qwzaVQuDl8wAvHVMkaASQDReTahxuw==}
 
-  '@swarm-hive/sdk@0.1.0':
-    resolution: {integrity: sha512-WLN6H1xSSS7w7fU9sS7swxpncZWH7Gpvcz/R+36EpNhbYVEzv9QT1t1m5bZEBk/kdgGbPubyM51erokpUwJIpg==}
+  '@swarm-hive/sdk@0.4.0':
+    resolution: {integrity: sha512-hOlSiw2Oz/7eYTqTOx3XOGMkRmmpEvQ/KOzGCkIa89VEmgq+k8m3AJEa6QmxLTQaH4h4HJqAohII5KnAWBwA7w==}
     peerDependencies:
       react: '>=18'
     peerDependenciesMeta:
@@ -10559,9 +10559,7 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.83.4': {}
 
@@ -10861,10 +10859,10 @@ snapshots:
       color: 5.0.3
       text-hex: 1.0.0
 
-  '@swarm-hive/sdk@0.1.0(@types/react@19.2.14)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))':
+  '@swarm-hive/sdk@0.4.0(@types/react@19.2.14)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))':
     dependencies:
       '@noble/hashes': 1.8.0
-      semver: 7.8.0
+      semver: 7.8.4
       zustand: 5.0.13(@types/react@19.2.14)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
     optionalDependencies:
       react: 19.2.3
