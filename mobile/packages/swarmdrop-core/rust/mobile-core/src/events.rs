@@ -174,7 +174,7 @@ pub trait ForeignEventBus: Send + Sync {
 
 pub(crate) struct MobileEventBusAdapter {
     foreign: Arc<dyn ForeignEventBus>,
-    /// 用于把 Identify 刷新后的已配对设备写回 keychain（对齐桌面 host 行为）。
+    /// 用于把新配对 / Identify 刷新后的已配对设备写回 keychain（对齐桌面 host 行为）。
     keychain: Arc<MobileKeychainAdapter>,
 }
 
@@ -190,18 +190,18 @@ impl MobileEventBusAdapter {
 #[async_trait]
 impl EventBus for MobileEventBusAdapter {
     async fn publish(&self, event: CoreEvent) -> AppResult<()> {
-        // 对端经 Identify 广播新设备名时,共享 core 会 publish PairedDeviceAdded;
-        // 持久化是 host 职责(桌面在 event_bus.rs 里 upsert),移动端在此把刷新后的
-        // 设备写回 keychain,使新名称在设备离线 / 应用重启后仍保留。
-        if let CoreEvent::PairedDeviceAdded { device } = &event {
-            if let Err(error) = swarmdrop_core::identity::upsert_paired_device(
+        // PairedDeviceAdded 有两个来源:配对成功时 pairing.rs 主动 publish,以及对端经
+        // Identify 广播新设备名时共享 core publish。持久化是 host 职责(桌面在
+        // event_bus.rs 里 upsert),移动端在此把设备写回 keychain,使新配对的设备 / 刷新
+        // 后的名称在设备离线或应用重启后仍保留。
+        if let CoreEvent::PairedDeviceAdded { device } = &event
+            && let Err(error) = swarmdrop_core::identity::upsert_paired_device(
                 self.keychain.as_ref(),
                 device.clone(),
             )
             .await
-            {
-                tracing::warn!("持久化 Identify 刷新的已配对设备失败: {error}");
-            }
+        {
+            tracing::warn!("持久化已配对设备失败: {error}");
         }
         if let Some(mobile_event) = map_event(event) {
             self.foreign.emit(mobile_event);
