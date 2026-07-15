@@ -24,7 +24,7 @@ Always respond in Chinese (简体中文). All output, including thinking, planni
 
 SwarmDrop is a decentralized, cross-network, end-to-end encrypted file transfer tool built with Tauri v2. It aims to be a "cross-network version of LocalSend" — no accounts, no servers, supporting both LAN and cross-network peer-to-peer file transfers.
 
-**Current Status:** Phase 3 (File Transfer) — transfer + resume + SQLite inbox in place; a local MCP server has shipped (AI agents can send files and search the received inbox). Current release: v0.6.0.
+**Current Status:** Phase 3 (File Transfer) — transfer + resume + SQLite inbox in place; a local MCP server has shipped (AI agents can send files and search the received inbox). Current release: v0.7.7.
 
 ## Build and Development Commands
 

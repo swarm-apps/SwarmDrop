@@ -1,7 +1,7 @@
 {
   "name": "swarmdrop",
   "private": true,
-  "version": "0.7.6",
+  "version": "0.7.7",
   "packageManager": "pnpm@11.10.0",
   "type": "module",
   "scripts": {
