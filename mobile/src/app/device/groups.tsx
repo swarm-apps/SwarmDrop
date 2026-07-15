@@ -26,7 +26,10 @@ import {
   type DeviceGroup,
   sortedDeviceGroups,
 } from "@/lib/device-organization";
-import { useMobileCoreStore } from "@/stores/mobile-core-store";
+import {
+  mergePairedDevicesWithCache,
+  useMobileCoreStore,
+} from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 /**
@@ -39,7 +42,7 @@ import { usePreferencesStore } from "@/stores/preferences-store";
  * - 新建:底部固定输入栏,支持连续创建;键盘弹出时随 KeyboardStickyView 贴合键盘。
  *
  * 组内成员仍在「设备详情 → 别名与分组」里勾选;本页只负责分组本身的 CRUD + 排序,
- * 每行右侧展示只读的设备数(与实际配对设备取交集,和首页分组筛选一致)。
+ * 每行右侧展示只读的设备数(与实际配对设备取交集,口径同首页:实时 devices ∪ keychain cache)。
  * 别名与分组仅存本机,不同步给对端。
  */
 export default function DeviceGroupsScreen() {
@@ -62,7 +65,12 @@ export default function DeviceGroupsScreen() {
       reorderDeviceGroups: s.reorderDeviceGroups,
     })),
   );
-  const pairedDevicesCache = useMobileCoreStore((s) => s.pairedDevicesCache);
+  const { devices, pairedDevicesCache } = useMobileCoreStore(
+    useShallow((s) => ({
+      devices: s.devices,
+      pairedDevicesCache: s.pairedDevicesCache,
+    })),
+  );
 
   const [newGroup, setNewGroup] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -74,10 +82,17 @@ export default function DeviceGroupsScreen() {
     [organization],
   );
 
-  // 设备数与实际配对设备取交集(残留 membership 不计入),和首页分组筛选口径一致。
+  // 设备数与实际配对设备取交集(残留 membership 不计入)。口径必须和首页一致 ——
+  // 即"实时 devices ∪ keychain cache",不能只看 cache:配对完成后 cache 要等下一次
+  // Identify 才刷新,只看 cache 会把刚配对的设备算漏(显示「暂无设备」)。
   const pairedPeerIds = useMemo(
-    () => new Set(pairedDevicesCache.map((summary) => summary.peerId)),
-    [pairedDevicesCache],
+    () =>
+      new Set(
+        mergePairedDevicesWithCache(devices, pairedDevicesCache).map(
+          (device) => device.peerId,
+        ),
+      ),
+    [devices, pairedDevicesCache],
   );
   const deviceCountOf = useCallback(
     (groupId: string) =>

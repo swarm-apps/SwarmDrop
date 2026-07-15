@@ -22,6 +22,8 @@
   "dependencies": {
     "@expo/dom-webview": "^56.0.5",
     "@expo/metro-runtime": "~56.0.15",
+    "@formatjs/intl-locale": "^5.3.10",
+    "@formatjs/intl-pluralrules": "^6.3.12",
     "@gorhom/bottom-sheet": "^5.2.14",
     "@lingui/core": "^6.0.1",
     "@lingui/react": "^6.0.1",

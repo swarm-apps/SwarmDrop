@@ -1,3 +1,6 @@
+// 必须先于 @lingui/core —— Hermes 无 Intl.PluralRules,见 ./polyfills。
+import "./polyfills";
+
 import type { Messages } from "@lingui/core";
 import { i18n } from "@lingui/core";
 import {

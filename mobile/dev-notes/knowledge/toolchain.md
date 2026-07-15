@@ -128,6 +128,54 @@ compiler 介入会破坏 ubrn 的 turbo-module 形状。
 **相关文件**：[src/components/activity-projection-card.tsx](../../src/components/activity-projection-card.tsx)、
 [src/core/transfer-types.ts](../../src/core/transfer-types.ts)
 
+### Hermes 的 Intl 是残缺的 —— 用 `<Plural>` 前必须有 @formatjs polyfill
+
+Hermes 虽然开了 Intl，但**只实现了四样**（真机 `Object.getOwnPropertyNames(Intl)` 实测原话）：
+
+```
+getCanonicalLocales,Collator,DateTimeFormat,NumberFormat
+```
+
+**既没有 `PluralRules`，也没有 `Locale`。** 而 `@lingui/core` v6 的 `plural()`
+（`dist/index.mjs:75-84`）**无条件** `new Intl.PluralRules(...)` 且全文件零 try/catch，
+于是任何 `<Plural>` / ICU plural 消息在**渲染期**抛
+`TypeError: undefined cannot be used as a constructor` → dev 红屏、**release 硬闪退**
+（全仓无 ErrorBoundary）。失败还不被 memoize（`getMemoized` 只在 construct 成功后才 cache），
+所以是每次渲染都抛，不是只崩第一次。
+
+**正确做法**：[src/i18n/polyfills.ts](../../src/i18n/polyfills.ts) 已配好，在
+[src/i18n/lingui.ts](../../src/i18n/lingui.ts) 顶部（先于 `@lingui/core`）import：
+
+```ts
+import "@formatjs/intl-locale/polyfill-force.js";
+import "@formatjs/intl-pluralrules/polyfill-force.js";
+import "@formatjs/intl-pluralrules/locale-data/zh.js";
+import "@formatjs/intl-pluralrules/locale-data/en.js";
+```
+
+**每一条都是踩出来的**：
+
+- **两个 polyfill 缺一不可**。只补 `PluralRules` 会换个地方崩——它内部 locale 匹配要
+  `new Intl.Locale(...)`（错在 `@formatjs/intl-localematcher` 的 `findMatchingDistanceImpl`）。
+  Lingui 官方 RN 教程原文就是「polyfill `Intl.Locale` **and** `Intl.PluralRules`」。
+  `intl-getcanonicallocales` 不需要（Hermes 原生有）。
+- **`.js` 后缀不能省**——两个包的 exports map 只暴露带 `.js` 的路径，省掉解析不到。
+- **zh + en 都要载**——lingui `normalizeLocales` 无条件追加 `"en"` 兜底，实际解析的 locales
+  恒为 `[当前语言, "en"]`，少载任一个可能抛 `RangeError`。
+- **用 `polyfill-force` 不用 `polyfill`**——后者的 native 探测在 Android 上拖慢启动秒级，
+  而这里缺失是确定性的、不需要探测。
+- 装完**清 Metro 缓存**（`expo start -c`）。
+
+**踩坑史**：v0.7.16 前全项目只有 `app/device/groups.tsx` 一处 `<Plural>`（分组行设备数），
+且只在设备数 ≥ 1 时渲染——设备数 0 走 `<Trans>` 碰不到 Intl，所以历次「真机验证」都没抓到，
+直到用户把设备加进分组才必崩。
+
+**验证手法**：复数**正确性**可以在 Node 里验（平台无关）——删掉 `Intl.PluralRules`/`Intl.Locale`
+只留 Hermes 那四样，装 polyfill，跑真实 catalog；是否**崩**则必须上真机 A/B。
+
+**相关文件**：[src/i18n/polyfills.ts](../../src/i18n/polyfills.ts)、
+[src/i18n/lingui.ts](../../src/i18n/lingui.ts)、[src/app/device/groups.tsx](../../src/app/device/groups.tsx)
+
 ## iOS WebDriver 与 Appium 录屏
 
 ### iOS 端 E2E 改用 WebdriverIO + Appium XCUITest

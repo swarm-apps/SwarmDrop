@@ -67,16 +67,12 @@ function routeEventToStores(event: MobileCoreEvent): void {
       break;
     }
 
-    case MobileCoreEvent_Tags.PairingCompleted: {
-      refreshDevices();
-      // 新配对设备已写入 keychain,同步刷新 UI 兜底 cache(不依赖节点状态)
-      void useMobileCoreStore.getState().loadPairedDevicesCache();
-      break;
-    }
-
     case MobileCoreEvent_Tags.PairedDeviceAdded: {
-      // 对端经 Identify 广播新设备名 → 原生已把刷新后的设备写回 keychain,
-      // 这里刷新离线兜底 cache,使新名称在设备离线 / 重启后仍展示。
+      // 两个来源:(1) 配对成功时 mobile-core pairing.rs 主动 publish;
+      // (2) 对端经 Identify 广播新设备名时共享 core publish。
+      // 两种情况原生都已把设备写回 keychain,这里刷新离线兜底 cache,
+      // 使新设备 / 新名称在节点未运行、设备离线或重启后仍展示。
+      refreshDevices();
       void useMobileCoreStore.getState().loadPairedDevicesCache();
       break;
     }

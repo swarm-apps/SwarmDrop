@@ -4,9 +4,17 @@
 //! 1. 对端调 `generate_pairing_code` → 6 位码上链 DHT
 //! 2. 本端调 `lookup_device_by_code(code)` → 拿对端 PeerId + OsInfo
 //! 3. 本端调 `request_pairing(peer_id, Some(code), addrs)` → handshake
-//! 4. Success 后 `PairingCompleted` 事件触发,paired_devices 写入 keychain
+//! 4. Success 后 publish `PairedDeviceAdded`(而不是自己 upsert keychain)
+//!
+//! 配对成功为什么是 publish 而不是直接写 keychain:`MobileEventBusAdapter::publish`
+//! 已经把"写 keychain + emit 给 JS"两件事一起做了,一次 publish 就够、不会重复写盘;
+//! 而 JS 的 `pairedDevicesCache` 只在收到事件时刷新 —— 只写 keychain 的话 JS 无从得知,
+//! cache 会一直停在冷启动的旧快照(节点停掉时永不自愈)。与桌面
+//! `src-tauri/commands/pairing.rs` 配对成功后 emit `PairedDeviceAdded` 的做法对称。
+//! 注意 core 的 `PairingCompleted` 变体从来没有 publisher,别指望它。
 
 use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_core::pairing::code::ShareCodeRecord;
 use swarmdrop_core::protocol::{PairingMethod, PairingRefuseReason, PairingResponse};
 
@@ -122,7 +130,8 @@ impl MobileCore {
             .await
             .map_err(FfiError::from)?;
         if let Some(info) = paired {
-            swarmdrop_core::identity::upsert_paired_device(self.keychain(), info)
+            self.event_bus_arc()
+                .publish(CoreEvent::PairedDeviceAdded { device: info })
                 .await
                 .map_err(FfiError::from)?;
         }
@@ -152,7 +161,8 @@ impl MobileCore {
             .await
             .map_err(FfiError::from)?
         {
-            swarmdrop_core::identity::upsert_paired_device(self.keychain(), info)
+            self.event_bus_arc()
+                .publish(CoreEvent::PairedDeviceAdded { device: info })
                 .await
                 .map_err(FfiError::from)?;
         }
