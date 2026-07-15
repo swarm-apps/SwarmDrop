@@ -80,7 +80,7 @@ Lingui 配置 `sourceLocale: "zh"`，意味着代码里写 `<Trans>添加设备<
 
 ### 实际只有 3 个 locale
 
-CLAUDE.md 顶部写"8 locales (zh, zh-TW, en, ja, ko, es, fr, de)"——这是规划目标，**当前实际只有 zh / zh-TW / en**（见 `lingui.config.ts` 与 `src/locales/`）。加新语言前先确认 Aurora / 字体 fallback 等下游是否准备好。
+ja / ko / es / fr / de 是规划目标，**当前实际只有 zh / zh-TW / en**（见 `lingui.config.ts` 与 `src/locales/`）。加新语言前先确认 Aurora / 字体 fallback 等下游是否准备好。
 
 ## Zustand selector 与派生数组
 

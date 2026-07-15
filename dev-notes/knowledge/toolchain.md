@@ -231,7 +231,7 @@ Tauri dev 期间硬编码连这两个端口。改 `vite.config.ts` 端口会让 
 
 **克隆后必须**：`git submodule update --init --recursive`，否则 `cargo build` 找不到 `swarm-p2p-core`。
 
-**注意**：`libs/core` 使用 **Rust 2024 edition**，与主仓 2021 edition 不同——给 submodule 加新文件时注意 edition 差异（比如 `unsafe` block 在 2024 更严格）。
+**注意**：`libs/` 和主仓都是 **Rust 2024 edition**（各自 `[workspace.package] edition = "2024"`，成员 crate 通过 `edition.workspace = true` 继承），两边没有 edition 差异。
 
 ## Lingui 提取
 
@@ -242,7 +242,9 @@ sourceLocale: "zh",
 locales: ["zh", "zh-TW", "en"],
 ```
 
-CLAUDE.md 顶部写"8 locales"——那是规划目标，**当前实际是 3 个**。新增 locale 前先确认设计资源就绪。
+ja/ko/es/fr/de 只是规划目标，**当前实际是 3 个**。新增 locale 前先确认设计资源就绪。
+
+补翻译时只需覆盖这 3 个；`src/locales/` 下没有其它语言目录，不要为尚未落地的 locale 建空目录。
 
 ### 提取命令必须先于 commit
 
