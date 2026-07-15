@@ -1,22 +1,34 @@
-// rn registry 的注入式端口 —— rn-adapter.ts 只依赖这两个接口 + @swarm-hive/sdk,
-// 让 adapter 本体可纯逻辑单测(不碰 expo-* 真实实现)。真实实现见同目录
-// expo-downloader.ts / expo-installer.ts,由用户在装配时注入。
-//
-// 语义对齐 SwarmHive SDK 的 UpdateAdapter:
-// - download 把远端 URL 落到本地,产出一个本地 APK 路径(string);
-// - install 是 fire-and-forget handoff —— 把 APK 交给系统 PackageInstaller(via
-//   ACTION_VIEW intent),intent 派发即 resolve(SDK engine 无 installing 态)。
-
-/** 下载进度回调:累计已下载字节 + 期望总字节(任一为 0/未知时由 adapter 兜底 percent)。 */
 export type ApkProgressCallback = (downloaded: number, total: number) => void;
+
+/** 投递的期望值,由 adapter 从 `ReleaseInfo` 取出传给下载器(只有 adapter 手上有它)。 */
+export interface ApkDownloadExpectation {
+  /** 期望字节数(来自 update 响应的 `size_bytes`);缺省则下载器跳过尺寸校验。 */
+  sizeBytes?: number;
+}
 
 /**
  * APK 下载器(注入式)。把 `url` 下到本地缓存,边下边回调进度,
- * resolve 出本地文件路径(供 installer 消费)。
+ * resolve 出本地 APK 路径(供 installer 消费)。
+ *
+ * **契约:下载器的职责是产出一个可用的 APK,而不是产出一个文件。** resolve 之前必须确认
+ * 拿到的确实是 APK —— `createDownloadResumable` 对非 2xx **不抛错**,它把错误响应体(如
+ * OSS 的 XML 错误页)照常写进目标文件并正常 resolve。校验归下载器所有(它才碰 expo-*,
+ * adapter 因此得以保持纯逻辑可单测),而 adapter 的多源 failover **只在下载器抛错时才
+ * 触发** —— 所以一个不校验的实现会让 failover 对它本该扛住的故障静默失效。
+ *
+ * 自行注入实现时:要么直接用 expo-downloader.ts 的 `createExpoApkDownloader`,要么照它的
+ * `assertApkDownload` 自行校验(状态 + 非空 + 尺寸 + ZIP magic,失败先删文件再抛)。
  */
 export interface ApkDownloader {
-  /** 下载 `url` 到本地;`onProgress(downloaded,total)` 报进度;resolve 本地 APK 路径。 */
-  download(url: string, onProgress: ApkProgressCallback): Promise<string>;
+  /**
+   * 下载 `url` 到本地;`onProgress(downloaded,total)` 报进度;resolve 本地 APK 路径。
+   * `expected` 可选(既有两参实现仍可赋值);拿到则据以校验投递结果。
+   */
+  download(
+    url: string,
+    onProgress: ApkProgressCallback,
+    expected?: ApkDownloadExpectation,
+  ): Promise<string>;
 }
 
 /**

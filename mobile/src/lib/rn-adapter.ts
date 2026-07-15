@@ -120,16 +120,37 @@ export function createRnAdapter(opts: RnAdapterOptions): UpdateAdapter {
       release: ReleaseInfo,
       onProgress: (p: Progress) => void,
     ): Promise<DownloadHandle> {
-      const tracker = new DownloadSpeedTracker(onProgress);
-      const apkPath = await opts.downloader.download(
-        release.url,
-        (downloaded, total) => {
-          tracker.update(downloaded, total);
-        },
+      // 主源 + 备用源(GitHub Release,已过服务端 liveness/digest 校验)按序尝试:
+      // 某源投递失败(OSS 匿名下 APK 受限的错误页 / 截断 / 网络错误)则逐个 fallback
+      // (`add-github-release-source`)。
+      //
+      // 触发 fallback 的判据 = 注入的 downloader 抛错 —— 校验归下载器所有(碰 expo-* 的是
+      // 它,本 adapter 因此保持纯逻辑可单测),这里只把期望值传下去。客户端 sha256 校验的
+      // 要求已被撤销(`harden-rn-apk-downloader` design D5):Expo 没有廉价的流式 SHA-256、
+      // 服务端在暴露镜像前已比对过 digest、传输损坏由尺寸 + ZIP magic 拦下、APK 真伪由
+      // Android 安装器验签兜底。
+      const candidates = [release.url, ...(release.mirrorUrls ?? [])].filter(
+        (u, i, arr): u is string => !!u && arr.indexOf(u) === i,
       );
-      tracker.finish();
-      // payload 必须 self-contained(engine install 前会清 pendingHandle):存本地 APK 路径。
-      return { release, payload: apkPath };
+      let lastErr: unknown;
+      for (const url of candidates) {
+        const tracker = new DownloadSpeedTracker(onProgress);
+        try {
+          const apkPath = await opts.downloader.download(
+            url,
+            (downloaded, total) => {
+              tracker.update(downloaded, total);
+            },
+            { sizeBytes: release.sizeBytes },
+          );
+          tracker.finish();
+          // payload 必须 self-contained(engine install 前会清 pendingHandle):存本地 APK 路径。
+          return { release, payload: apkPath };
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr ?? new Error("no download source available");
     },
 
     async install(handle: DownloadHandle): Promise<void> {
