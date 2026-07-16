@@ -52,6 +52,13 @@ pnpm i18n:extract
 # Documentation site (run from docs/)
 pnpm dev                # Astro + Starlight dev server
 pnpm build
+
+# Mobile (run from mobile/ — 独立 pnpm workspace)
+pnpm install            # 必须在 mobile/ 下跑，根 workspace 不含它
+pnpm ios                # expo run:ios
+pnpm android            # expo run:android
+pnpm typecheck
+pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 ```
 
 **Package manager:** pnpm only (not npm or yarn).
@@ -175,8 +182,18 @@ Git submodule containing `swarm-p2p-core` crate. Workspace at `libs/Cargo.toml`,
 
 Key exports: `NetClient`, `NodeConfig`, `NodeEvent`, `start()`, re-exported `libp2p`.
 
-> 本仓库现在仅承载桌面端。移动端 (iOS / Android) 已迁移到独立的 SwarmDrop-RN
-> 项目（React Native + Expo + uniffi），共享 `crates/core` + `libs/core` 业务核心。
+### Mobile (`mobile/`)
+
+移动端 (iOS / Android，React Native + Expo + uniffi) 曾是独立的 `swarm-apps/SwarmDrop-RN`
+仓，现已并入本仓 `mobile/`（该仓已归档只读）。
+
+- **Rust 桥接** `mobile/packages/swarmdrop-core/rust/mobile-core` 是根 Cargo workspace 的
+  member，以 path 依赖引用 `crates/core` + `libs/core`。改 core 立刻对移动端生效，
+  `cargo check --workspace` 一并覆盖。
+- **JS 侧**是独立的 pnpm workspace（同 `video/`、`docs/`、`e2e/desktop`）——在 `mobile/`
+  下跑 `pnpm install` / `pnpm typecheck`，根 workspace 的 `packages: ["."]` 不含它。
+- **版本线独立**：桌面 `v*` tag，移动 `mobile-v*` tag，两条流水线互不触发。
+  详见 `dev-notes/knowledge/toolchain.md`。
 
 ### Auto-Update System
 
@@ -185,7 +202,8 @@ Updates are delivered by **[SwarmHive](https://github.com/swarm-apps/SwarmHive)*
 - **Desktop** — the Tauri updater polls SwarmHive directly. Endpoint in `tauri.conf.json`:
   `http://47.115.172.218:3030/api/v1/updates/tauri/swarmdrop?current_version={{current_version}}&target={{target}}&arch={{arch}}`.
   The dogfood server is plain HTTP, so `dangerousInsecureTransportProtocol: true` is set; Windows uses `installMode: "passive"`.
-- **Mobile** — SwarmDrop-RN checks updates against the same SwarmHive server.
+- **Mobile** — `mobile/` checks updates against the same SwarmHive server, under a separate
+  app slug `swarmdrop-rn` (存量客户端指向它，不能改名), published by `mobile-release.yml`.
 - Publishing config lives in `swarmhive.toml` (server URL + app slug `swarmdrop`).
 
 ### Release Process
@@ -230,6 +248,9 @@ Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/rel
 | 数据库实体设计 | `dev-notes/design/database-entity-design.md` |
 | 文件传输设计 | `dev-notes/design/file-transfer-design.md` |
 | P2P core library | `libs/core/` |
+| 移动端 (RN + Expo) | `mobile/` |
+| 移动端 Rust 桥接 (uniffi) | `mobile/packages/swarmdrop-core/rust/mobile-core/` |
+| 移动端 release CI | `.github/workflows/mobile-release.yml` |
 | Tauri capabilities | `src-tauri/capabilities/default.json` |
 | Release CI workflow | `.github/workflows/release.yml` |
 
@@ -240,7 +261,7 @@ Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/rel
 | Phase 1 — Networking | Done | libp2p Swarm, mDNS, DHT, Relay, DCUtR |
 | Phase 2 — Pairing | Done | Share codes, device identity, DHT Provider |
 | Phase 3 — File Transfer | In Progress | Request-Response, E2E encryption, SQLite history, pause/resume |
-| Phase 4 — Mobile | Moved | 已迁移到独立的 SwarmDrop-RN 项目（React Native + Expo + uniffi）|
+| Phase 4 — Mobile | Done | React Native + Expo + uniffi，已并入本仓 `mobile/`（独立版本线 `mobile-v*`）|
 
 Detailed per-phase specs: `dev-notes/roadmap/phase-*.md`
 
