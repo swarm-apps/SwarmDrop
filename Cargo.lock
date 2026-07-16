@@ -7975,7 +7975,7 @@ dependencies = [
 
 [[package]]
 name = "swarmdrop"
-version = "0.7.8"
+version = "0.7.9"
 dependencies = [
  "async-trait",
  "axum",
