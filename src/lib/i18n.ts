@@ -18,6 +18,11 @@ export type LocaleKey = keyof typeof locales;
 
 export const defaultLocale: LocaleKey = "zh";
 
+/** 收窄任意字符串（如 `i18n.locale`，其类型只是 string）到受支持的语言。 */
+export function isLocaleKey(value: string): value is LocaleKey {
+  return value in locales;
+}
+
 /**
  * 动态加载并激活指定语言的消息目录
  * Vite 插件会自动编译 .po 文件

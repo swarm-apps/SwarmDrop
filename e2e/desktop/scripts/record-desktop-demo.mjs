@@ -22,6 +22,7 @@ const demos = {
   "desktop-home": "./test/specs/demo/desktop-home.demo.ts",
   "send-file": "./test/specs/demo/send-file.demo.ts",
   inbox: "./test/specs/demo/inbox.demo.ts",
+  "desktop-suite": "./test/specs/demo/desktop-suite.demo.ts",
 };
 
 const buildDir = join(desktopDir, "build");
@@ -30,6 +31,8 @@ const manifestDir = join(buildDir, "desktop-recordings", "manifests");
 const signalDir = join(buildDir, "desktop-recordings", "signals");
 
 function parseArgs(argv) {
+  // pnpm 将 package script 的参数分隔符 `--` 原样传入；本脚本没有子命令边界，直接忽略。
+  const args = argv.filter((arg) => arg !== "--");
   const options = {
     demo: "desktop-home",
     spec: null,
@@ -39,8 +42,8 @@ function parseArgs(argv) {
     demoExplicit: false,
   };
 
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
     if (arg === "--skip-build") {
       options.skipBuild = true;
     } else if (arg === "--no-record") {
@@ -48,7 +51,7 @@ function parseArgs(argv) {
     } else if (arg === "--no-open-obs") {
       options.openObs = false;
     } else if (arg === "--spec") {
-      options.spec = argv[i + 1] ?? null;
+      options.spec = args[i + 1] ?? null;
       i += 1;
     } else if (arg.startsWith("--spec=")) {
       options.spec = arg.slice("--spec=".length);

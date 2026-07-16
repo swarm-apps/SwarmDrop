@@ -24,7 +24,7 @@ Always respond in Chinese (简体中文). All output, including thinking, planni
 
 SwarmDrop is a decentralized, cross-network, end-to-end encrypted file transfer tool built with Tauri v2. It aims to be a "cross-network version of LocalSend" — no accounts, no servers, supporting both LAN and cross-network peer-to-peer file transfers.
 
-**Current Status:** Phase 3 (File Transfer) — transfer + resume + SQLite inbox in place; a local MCP server has shipped (AI agents can send files and search the received inbox). Current release: v0.6.0.
+**Current Status:** Phase 3 (File Transfer) — transfer + resume + SQLite inbox in place; a local MCP server has shipped (AI agents can send files and search the received inbox). Current release: v0.7.7.
 
 ## Build and Development Commands
 
@@ -66,8 +66,8 @@ pnpm build
 | Routing | TanStack Router (file-system based, auto code-splitting) |
 | State | Zustand 5 (stores: auth, network, preferences, secret, pairing, transfer) |
 | UI | shadcn/ui (new-york style), Lucide icons, Radix primitives |
-| i18n | Lingui 5 (8 locales: zh, zh-TW, en, ja, ko, es, fr, de) |
-| Backend | Rust 2021, Tauri 2 |
+| i18n | Lingui 5 (3 locales: zh, zh-TW, en — ja/ko/es/fr/de are roadmap targets, not yet added) |
+| Backend | Rust 2024, Tauri 2 |
 | P2P | libp2p 0.56 via `swarm-p2p-core` (git submodule in `libs/`) |
 | Security | Stronghold (encrypted vault), Biometry (FaceID/TouchID/Windows Hello) |
 | Database | SeaORM 2.0 + SQLite (传输历史、断点续传 checkpoint) |

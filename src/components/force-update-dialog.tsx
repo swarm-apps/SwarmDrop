@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { useUpdate } from "@/hooks/use-update";
+import { forceDialogVisible } from "@/lib/update-dialog-visibility";
 import { resolveUpdateTexts, type UpdateLocale, type UpdateTexts } from "@/lib/update-texts";
 
 export interface ForceUpdateDialogProps {
@@ -31,7 +32,7 @@ export function ForceUpdateDialog({
 
   const isDownloading = status === "downloading";
   const isReady = status === "ready";
-  const open = status === "force-required" || isDownloading || isReady;
+  const open = forceDialogVisible(status, release);
 
   useEffect(() => {
     if (status === "ready") void install();

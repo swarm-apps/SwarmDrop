@@ -24,6 +24,22 @@ build scripts、release-age 策略等，都放到对应项目根的 `pnpm-worksp
 
 **相关文件**：`package.json`、`pnpm-workspace.yaml`、`e2e/desktop/package.json`、`e2e/desktop/pnpm-workspace.yaml`
 
+### 官网 Hero 视频使用独立 Remotion 工程
+
+`video/` 是用于制作官网成片的独立 pnpm workspace，不参与桌面应用或 `docs/` 的依赖安装。Remotion
+只在本地 Studio 和导出时运行；官网静态导出只消费 `docs/public/hero/` 内的 MP4 与封面图。
+
+**正确做法**：
+- 进入 `video/` 后使用 `pnpm studio` 预览、`pnpm render:hero` 导出。
+- 保持成片尺寸 1920 × 1080、30 fps、20 秒；网页播放用静音、循环的原生 `<video>`。
+- 使用 `useCurrentFrame()`、`interpolate()`、`spring()` 表达视频时间线，不要在 Remotion Composition 中使用 CSS 动画。
+
+**不要做**：
+- 不要把 `remotion` 或 `@remotion/player` 加进 `docs/package.json`，也不要在 GitHub Pages 构建中渲染视频。
+- 不要提交未经裁剪的原始录屏；`video/out/` 为本地临时产物。
+
+**相关文件**：`video/`、`docs/public/hero/`、`docs/app/(home)/page.tsx`
+
 ### 前端测试使用 Vitest
 
 前端单元/组件测试使用 Vitest + jsdom + Testing Library，配置集中在 `vitest.config.ts`，复用
@@ -74,6 +90,8 @@ pnpm test
 pnpm --dir e2e/desktop record desktop-home
 pnpm --dir e2e/desktop record send-file
 pnpm --dir e2e/desktop record inbox
+# 单次启动应用，连续录制首页、发送入口、收件箱三段主片
+pnpm --dir e2e/desktop record desktop-suite
 ```
 
 默认会连接 `OBS_WEBSOCKET_URL=ws://127.0.0.1:4455`，不显式设置
@@ -90,10 +108,13 @@ demo 操作，不包含 Tauri/WebDriver 启动等待。manifest 和 raw clip 会
   focus 命令都触发 5 秒 `Tauri core.invoke` fallback。
 - OBS 短视频停止后要等输出文件大小稳定再复制；太早复制容易得到 0B 或 moov 不完整的视频。
 - demo spec 串行录制。当前 Tauri WebDriver 使用固定端口，并行跑多个 native demo 会抢端口。
+- 批量录制桌面基础素材时使用 `desktop-suite`，它在一个 WDIO worker 中依次加载首页、发送入口、收件箱场景；Tauri 应用只会冷启动一次，并会在全部场景结束后由 WDIO 正常收尾。需要单独补录时，继续使用三个单场景命令。
 - `send-file.demo.ts` 允许没有在线已配对设备：此时只输出首页/空环境素材，不把录制管线判失败。
 - 录制产物在 `build/` 下，仓库根 `.gitignore` 已忽略，不要提交视频原始文件。
 
 **相关文件**：`e2e/desktop/scripts/record-desktop-demo.mjs`、`dev-notes/blogs/desktop-demo-recording-pipeline.md`
+
+录制平台选择、当前 Android / iOS 验证结论和产物约定见 [demo-recording.md](demo-recording.md)。
 
 ### 双端 WebDriver composite 录制入口
 
@@ -117,6 +138,22 @@ demo 操作，不包含 Tauri/WebDriver 启动等待。manifest 和 raw clip 会
   `VITE_WDIO_TAURI_PLUGIN=1`，否则前端不会加载 `@wdio/tauri-plugin`，`browser.tauri.execute` 会报
   `Tauri core.invoke not available after 5s timeout`。
 - 演示节奏用 `SWARMDROP_DEMO_STEP_DELAY_MS` 控制，默认 1000ms；不要在 spec 里散落 30s 固定等待。
+
+### 移动模拟器独立录屏
+
+需要单独采集手机素材而不是运行完整双端传输时，用 `e2e/desktop/scripts/record-mobile-simulator.mjs`：
+
+```bash
+# Android Emulator，默认使用 emulator-5554；其他序列号通过 ANDROID_SERIAL 指定
+ANDROID_SERIAL=emulator-5554 pnpm --dir e2e/desktop record:mobile android
+
+# 自动录制 10 秒，便于快速验证或截取短素材
+pnpm --dir e2e/desktop record:mobile android 10
+```
+
+**正确做法**：Android 使用 `adb shell screenrecord` 后自动 pull 到 `e2e/desktop/build/desktop-recordings/raw/`。iOS 的命令行录制依赖 `simctl`，当前本机图形服务不可用，改用 Simulator 的 `Cmd+R` 手动录制；完整结论见 [demo-recording.md](demo-recording.md)。移动端单独录制只负责画面；真实双端传输继续使用 `record:transfer`，由它统一驱动流程、录屏和收尾。
+
+**相关文件**：`e2e/desktop/scripts/record-mobile-simulator.mjs`、`e2e/desktop/package.json`
 
 **相关文件**：`e2e/desktop/scripts/record-transfer-demo.mjs`、`../SwarmDrop-RN/e2e/webdriver/`
 
@@ -194,7 +231,7 @@ Tauri dev 期间硬编码连这两个端口。改 `vite.config.ts` 端口会让 
 
 **克隆后必须**：`git submodule update --init --recursive`，否则 `cargo build` 找不到 `swarm-p2p-core`。
 
-**注意**：`libs/core` 使用 **Rust 2024 edition**，与主仓 2021 edition 不同——给 submodule 加新文件时注意 edition 差异（比如 `unsafe` block 在 2024 更严格）。
+**注意**：`libs/` 和主仓都是 **Rust 2024 edition**（各自 `[workspace.package] edition = "2024"`，成员 crate 通过 `edition.workspace = true` 继承），两边没有 edition 差异。
 
 ## Lingui 提取
 
@@ -205,7 +242,9 @@ sourceLocale: "zh",
 locales: ["zh", "zh-TW", "en"],
 ```
 
-CLAUDE.md 顶部写"8 locales"——那是规划目标，**当前实际是 3 个**。新增 locale 前先确认设计资源就绪。
+ja/ko/es/fr/de 只是规划目标，**当前实际是 3 个**。新增 locale 前先确认设计资源就绪。
+
+补翻译时只需覆盖这 3 个；`src/locales/` 下没有其它语言目录，不要为尚未落地的 locale 建空目录。
 
 ### 提取命令必须先于 commit
 
