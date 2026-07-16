@@ -189,20 +189,32 @@ impl PairingManager {
         method: &PairingMethod,
         response: PairingResponse,
     ) -> AppResult<Option<PairedDeviceInfo>> {
-        // 仅在接受时验证并消耗配对码；拒绝时直接发响应，无需验证
-        if let PairingMethod::Code { code } = method
-            && matches!(response, PairingResponse::Success)
-        {
-            let mut guard = self.active_code.lock().unwrap();
-            let info = guard.as_ref().ok_or(AppError::InvalidCode)?;
-            if &info.code != code {
-                return Err(AppError::InvalidCode);
+        // 仅在接受时校验凭证；拒绝时直接发响应，无需校验。
+        //
+        // 这里必须是穷尽 match 而不是 `if let`：`if let Code {..}` 会让其它变体
+        // 静默落到下面的 `paired_devices.insert`，等于新增一个变体就自动获得一条
+        // 免校验的配对通道。穷尽 match 强制每个变体都对「凭什么信任对方」表态。
+        if matches!(response, PairingResponse::Success) {
+            match method {
+                PairingMethod::Code { code } => {
+                    let mut guard = self.active_code.lock().unwrap();
+                    let info = guard.as_ref().ok_or(AppError::InvalidCode)?;
+                    if &info.code != code {
+                        return Err(AppError::InvalidCode);
+                    }
+                    if info.is_expired() {
+                        return Err(AppError::ExpiredCode);
+                    }
+                    *guard = None;
+                    // guard 在此处 drop，锁在 await 之前释放
+                }
+                // Direct 没有配对码可校验，其授权依据是「对端在本机 mDNS 多播域内」，
+                // 由 `network::event_loop` 在入站时把关：非局域网的 Direct 请求根本
+                // 不会进 `pending_inbound`，走不到这里。`cache_inbound_request` 是
+                // `pending_inbound` 的唯一写入口，且只被 event_loop 调用，所以那道
+                // 校验是单点且充分的。
+                PairingMethod::Direct => {}
             }
-            if info.is_expired() {
-                return Err(AppError::ExpiredCode);
-            }
-            *guard = None;
-            // guard 在此处 drop，锁在 await 之前释放
         }
 
         let accepted = matches!(response, PairingResponse::Success);

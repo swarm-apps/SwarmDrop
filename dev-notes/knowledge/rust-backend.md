@@ -303,6 +303,41 @@ LAN Helper 路径。
 
 **相关文件**：`crates/core/tests/e2e_lan_helper.rs`、`crates/core/Cargo.toml`
 
+## 配对安全
+
+### `PairingMethod::Direct` 的授权依据是 mDNS 观测，不是对端自报地址
+
+Direct（局域网点击配对，`/devices` 页「连接」按钮）没有配对码做凭证，唯一的授权依据是
+**「对端确实和本机在同一局域网」**。这个判据由 `DeviceManager::is_lan_discovered()` 提供，
+而它成立**完全依赖一个隐式前提**：`PeerInfo.addrs` 的唯一写入来源是
+`NodeEvent::PeersDiscovered`（mDNS 多播实际观测到的地址）。
+
+`handle_event` 的 `IdentifyReceived` 分支**只取 `agent_version`、用 `..` 忽略 `listen_addrs`**——
+这不是疏漏，是安全前提：identify 里的 `listen_addrs` 是对端**自报**的，远程攻击者谎报一个
+`192.168.x.x` 就能冒充同网段设备。
+
+**正确做法**：
+- Direct 的校验必须在 `event_loop` 的 `publish(PairingRequestReceived)` **之前**——否则任意远程
+  peer 都能靠一个 Pairing 请求让本机弹窗 + 推系统通知（骚扰面），且 UI 上的设备名完全由对端
+  `os_info` 自报，用户正等着某台设备时很可能直接点接受。
+- 拒绝时**不回响应**，不向扫描者泄露本机是否在线。
+- `handle_pairing_request` 里对 `PairingMethod` 必须用**穷尽 match**。原先是
+  `if let PairingMethod::Code { code } = method`，导致 `Direct` 静默 fall-through 到无条件
+  `paired_devices.insert`——**新增任何变体都会自动获得一条免校验的配对通道**。穷尽 match 强制
+  每个变体对「凭什么信任对方」表态。
+- `cache_inbound_request` 是 `pending_inbound` 的唯一写入口且只被 event_loop 调用，所以那道
+  校验是单点且充分的，`manager` 层不需要（也拿不到 `DeviceManager` 引用去）复查。
+
+**不要做**：
+- **不要让 `IdentifyReceived` 分支消费 `listen_addrs` 写进 `addrs`**。回归测试
+  `self_reported_identify_addrs_must_not_grant_lan_status` 会失败——那不是测试过时，是重新打开了
+  配对绕过漏洞。（已用 mutation 验证：注入该改动后测试精确失败。）
+- 不要用 `connection_info()` 判断是否局域网——它在 `hole_punched == true` 时直接返回 `Dcutr`，
+  会掩盖 `Lan`。要用 `infer_connection_type(&addrs)`（`has_lan` 优先）。
+
+**相关文件**：`crates/core/src/device_manager.rs`（`is_lan_discovered` + tests）、
+`crates/core/src/network/event_loop.rs`（入站校验）、`crates/core/src/pairing/manager.rs`（穷尽 match）
+
 ## 身份存储 (keychain)
 
 ### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）
