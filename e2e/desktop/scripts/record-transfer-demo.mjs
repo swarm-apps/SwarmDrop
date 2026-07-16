@@ -10,7 +10,9 @@ import net from "node:net";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(scriptDir, "..");
 const repoRoot = resolve(desktopDir, "../..");
-const mobileRoot = resolve(repoRoot, "../SwarmDrop-RN");
+// 移动端已并入单仓的 mobile/（原先是平级的 ../SwarmDrop-RN，该仓已归档只读）。
+// 这个路径不改会指向本地遗留的旧 clone —— 目录还在，所以不报错，只是静默拿旧代码录制。
+const mobileRoot = resolve(repoRoot, "mobile");
 const desktopTransferSpec = resolve(
   desktopDir,
   "test/specs/demo/lan-transfer.demo.ts",
