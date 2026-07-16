@@ -12,8 +12,8 @@
     "check:zustand-access": "node scripts/check-zustand-store-access.mjs",
     "tauri": "tauri",
     "i18n:extract": "lingui extract",
-    "changelog": "git-cliff --output CHANGELOG.md",
-    "changelog:latest": "git-cliff --latest --strip header"
+    "changelog": "git-cliff --tag-pattern '^v[0-9]' --exclude-path 'mobile/**' --output CHANGELOG.md",
+    "changelog:latest": "git-cliff --latest --strip header --tag-pattern '^v[0-9]' --exclude-path 'mobile/**'"
   },
   "dependencies": {
     "@choochmeque/tauri-plugin-biometry-api": "^0.2.6",

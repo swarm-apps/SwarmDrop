@@ -1,5 +1,6 @@
-name: Build Android
+name: Build Android (Mobile)
 
+# 手动触发的 Android 构建，产物只上传 artifact、不发版。发版走 mobile-release.yml。
 on:
   workflow_dispatch:
     inputs:
@@ -10,14 +11,13 @@ on:
         default: release
 
 concurrency:
-  group: build-android-${{ github.ref }}
+  group: mobile-build-android-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   NODE_VERSION: "22"
   JAVA_VERSION: "17"
   NDK_VERSION: r27c
-  PNPM_VERSION: "10"
 
 jobs:
   build:
@@ -52,28 +52,32 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
-          cache-workspaces: packages/swarmdrop-core/rust/mobile-core
+          # 单仓后 mobile-core 是根 workspace 的 member，target/ 在仓库根。
+          cache-workspaces: .
 
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-ndk
 
+      # 不带 version：读根 package.json 的 packageManager (pnpm@11.10.0)。
+      # 两者同时指定会 ERR_PNPM_BAD_PM_VERSION。
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-        with:
-          version: ${{ env.PNPM_VERSION }}
+        uses: pnpm/action-setup@v4
 
       - name: Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
 
       - name: Install dependencies
+        working-directory: mobile
         run: pnpm install --frozen-lockfile
 
       - name: Build Rust bridge (ubrn android)
+        working-directory: mobile
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
@@ -85,6 +89,7 @@ jobs:
           fi
 
       - name: Expo prebuild
+        working-directory: mobile
         run: npx expo prebuild --platform android --clean --no-install
 
       - name: Decode release keystore
@@ -96,10 +101,10 @@ jobs:
             echo "ERROR: ANDROID_KEYSTORE_BASE64 secret is not set"
             exit 1
           fi
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > mobile/android/app/release.keystore
 
       - name: Gradle assemble (${{ inputs.build_type }})
-        working-directory: android
+        working-directory: mobile/android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -114,6 +119,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: swarmdrop-android-${{ inputs.build_type }}-${{ github.sha }}
-          path: android/app/build/outputs/apk/${{ inputs.build_type }}/*.apk
+          path: mobile/android/app/build/outputs/apk/${{ inputs.build_type }}/*.apk
           if-no-files-found: error
           retention-days: 14

@@ -1,2 +1,30 @@
 packages:
   - "packages/swarmdrop-core"
+
+# 以下三项原先在 mobile/package.json 的 `pnpm` 字段里——RN 独立仓时用 pnpm 10，那个
+# 版本还读该字段。并入单仓后统一走根 package.json 的 packageManager (pnpm@11.10.0)，
+# 而 **pnpm 11 不再读 package.json 的 `pnpm` 字段**，配置必须搬到这里，否则被静默忽略：
+#
+#   - overrides 失效 → frozen-lockfile 报 ERR_PNPM_LOCKFILE_CONFIG_MISMATCH（会 fail，
+#     属于响的错误）
+#   - patchedDependencies 失效 → ubrn 的本地 patch 不打，**不报错**，直接拿未打补丁的
+#     版本去生成绑定（属于哑的错误，危险得多）
+# 等价于 pnpm 10 时代的 `onlyBuiltDependencies: ["esbuild"]`——那是个白名单，语义是
+# 「只有 esbuild 能跑 build script，其余一律不跑」，且不吭声。pnpm 11 改成：未表态的
+# 依赖会直接 ERR_PNPM_IGNORED_BUILDS 报错，要求逐个声明。故这里把当时被隐式忽略的四个
+# 显式写成 false，行为与迁移前完全一致。
+#
+# 这四个都是 e2e 的 WebDriver 依赖，build script 干的是下载 driver 二进制；appium 的
+# driver 由 `pnpm e2e:ios:driver` 单独管理，不靠 install 期的 build script。
+allowBuilds:
+  esbuild: true
+  appium: false
+  appium-ios-tuntap: false
+  edgedriver: false
+  geckodriver: false
+
+overrides:
+  lightningcss: 1.30.1
+
+patchedDependencies:
+  uniffi-bindgen-react-native@0.31.0-2: patches/uniffi-bindgen-react-native@0.31.0-2.patch
