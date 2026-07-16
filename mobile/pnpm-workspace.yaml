@@ -1,6 +1,12 @@
 packages:
   - "packages/swarmdrop-core"
 
+# React Native 的 Metro bundler 不认 pnpm 默认的 symlink(isolated) node_modules，
+# 必须扁平安装。这一项原先在 mobile/.npmrc 里写作 `node-linker=hoisted`——pnpm 10
+# 读它，**pnpm 11 不读**，会静默退回 isolated：顶层包数从 847 掉到 70，
+# `expo-modules-core` 等传递依赖不再出现在顶层，typecheck 与 Metro 双双找不到模块。
+nodeLinker: hoisted
+
 # 以下三项原先在 mobile/package.json 的 `pnpm` 字段里——RN 独立仓时用 pnpm 10，那个
 # 版本还读该字段。并入单仓后统一走根 package.json 的 packageManager (pnpm@11.10.0)，
 # 而 **pnpm 11 不再读 package.json 的 `pnpm` 字段**，配置必须搬到这里，否则被静默忽略：
