@@ -79,7 +79,12 @@ jobs:
     name: Build Android (release)
     needs: [verify-versions, generate-changelog]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 90 而非沿用 RN 独立仓时的 60：那 60 分钟是建立在 RN 仓十几次发版攒下的
+    # Gradle/Rust 热缓存之上的。迁到主仓后缓存 key 全新，首跑 Gradle assembleRelease
+    # 单步就吃掉 ~54 分钟并撞上 60 分钟上限（Rust 桥只用了 6 分钟，不是瓶颈）。
+    # 缓存建立后实际耗时会回落，但上限留够，避免冷缓存场景（如 NDK 升级、
+    # actions/cache 过期驱逐）再次卡死在这里。
+    timeout-minutes: 90
     permissions:
       contents: write
     outputs:
