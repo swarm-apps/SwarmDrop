@@ -1,0 +1,272 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  JAVA_VERSION: "17"
+  NDK_VERSION: r27c
+  PNPM_VERSION: "10"
+
+jobs:
+  generate-changelog:
+    name: Generate changelog
+    runs-on: ubuntu-latest
+    outputs:
+      changelog: ${{ steps.cliff.outputs.content }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog (this release)
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+
+  build-android:
+    name: Build Android (release)
+    needs: [generate-changelog]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      apk_url: ${{ steps.stage.outputs.apk_url }}
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            VERSION=$(jq -r '.version' package.json)
+            TAG="v${VERSION}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${TAG}"
+
+      - name: Setup JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Setup Android NDK ${{ env.NDK_VERSION }}
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          link-to-sdk: true
+
+      - name: Setup Rust toolchain (Android targets)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: aarch64-linux-android
+          cache-workspaces: packages/swarmdrop-core/rust/mobile-core
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Rust bridge (ubrn android, release profile)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: pnpm --filter react-native-swarmdrop-core build:android:release
+
+      - name: Expo prebuild
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "ERROR: ANDROID_KEYSTORE_BASE64 secret is not set"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+
+      - name: Gradle assembleRelease
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
+
+      # === SwarmHive 发布(Android arm64-v8a → stable)===
+      # version / versionCode 取自 app.json(= APK 内实际 versionName / versionCode),
+      # 与 prebuild 出来的 APK 一致;不用 git tag,避免 tag 与 app.json 不同步时错位。
+      - name: Resolve Android version + versionCode
+        id: vc
+        run: |
+          echo "name=$(jq -r '.expo.version' app.json)" >> "$GITHUB_OUTPUT"
+          echo "code=$(jq -r '.expo.android.versionCode // 1' app.json)" >> "$GITHUB_OUTPUT"
+
+      # changelog(与 GitHub Release body 同源)注入 SwarmHive release notes。
+      # CI token 已含 release:update,重发时 PATCH notes 不再 forbidden。
+      - name: Write SwarmHive release notes
+        env:
+          RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
+        run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
+
+      # 预先算出该 APK 在 GitHub Release 上的资产 URL(与下方 "Stage APKs" 的重命名规则
+      # mobile-{tag}-{base}.apk 完全一致),作为 SwarmHive 的镜像 / fallback 下载源传给 action。
+      # 单 APK(arm64-v8a)故取第一个;GitHub Release 此刻尚为 draft,服务端 liveness 会等它
+      # 转正后才对外暴露该镜像(add-github-release-source)。
+      - name: Resolve GitHub mirror URL (primary APK)
+        id: mirror
+        run: |
+          PRIMARY=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          base=$(basename "$PRIMARY" .apk)
+          asset="mobile-${{ steps.tag.outputs.tag }}-${base}.apk"
+          echo "url=https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to SwarmHive (upload + finalize)
+        # 去掉旧的 continue-on-error:依赖 action 退出码红绿(权限/配置 exit 2 标红,不再被吞)。
+        # 单 target,一步上传到 draft + finalize + 把 stable 渠道指向它。
+        uses: swarm-apps/swarmhive-action@v2
+        with:
+          server: ${{ secrets.SWARMHIVE_SERVER }}
+          token: ${{ secrets.SWARMHIVE_TOKEN }}
+          platform: android
+          app: swarmdrop-rn
+          version: ${{ steps.vc.outputs.name }}
+          version-code: ${{ steps.vc.outputs.code }}
+          abi: arm64-v8a
+          finalize: "true"
+          channel: stable
+          notes-file: swarmhive-notes.md
+          # 把该 APK 的 GitHub Release 资产 URL 记为镜像 / fallback 下载源。
+          github-mirror-url: ${{ steps.mirror.outputs.url }}
+          # action v2 内置选取:给 glob 即可(android 白名单 .apk)。
+          artifact-paths: android/app/build/outputs/apk/release/*.apk
+
+      - name: Stage APKs with versioned names
+        id: stage
+        run: |
+          mkdir -p artifacts
+          PRIMARY=""
+          for apk in android/app/build/outputs/apk/release/*.apk; do
+            base=$(basename "$apk" .apk)
+            target="mobile-${{ steps.tag.outputs.tag }}-${base}.apk"
+            cp "$apk" "artifacts/${target}"
+            if [ -z "$PRIMARY" ]; then PRIMARY="$target"; fi
+          done
+          ls -l artifacts
+          echo "apk_url=https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/${PRIMARY}" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release and upload APKs
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: SwarmDrop Mobile ${{ steps.tag.outputs.tag }}
+          body: ${{ needs.generate-changelog.outputs.changelog }}
+          draft: true
+          prerelease: false
+          files: artifacts/*.apk
+
+  publish-release:
+    name: Publish release
+    needs: [build-android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            VERSION=$(jq -r '.version' package.json)
+            TAG="v${VERSION}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Promote draft to published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ steps.tag.outputs.tag }}" --draft=false
+
+  update-changelog:
+    name: Update CHANGELOG.md
+    needs: [publish-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine target branch
+        id: branch
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            BRANCH=$(git branch -r --contains "${{ github.sha }}" | grep -v HEAD | sed 's|origin/||' | xargs | cut -d' ' -f1)
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+          echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "Target branch: ${BRANCH}"
+          git checkout "$BRANCH"
+
+      - name: Generate full changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: -o CHANGELOG.md
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet CHANGELOG.md; then
+            echo "No changelog changes"
+            exit 0
+          fi
+          git add CHANGELOG.md
+          git commit -m "chore(release): update CHANGELOG.md"
+          git push origin ${{ steps.branch.outputs.name }}

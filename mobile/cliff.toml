@@ -1,0 +1,60 @@
+# git-cliff configuration
+# https://git-cliff.org/docs/configuration
+
+[changelog]
+header = """# Changelog\n
+All notable changes to SwarmDrop Mobile will be documented in this file.\n
+"""
+body = """
+{%- macro remote_url() -%}
+  https://github.com/swarm-apps/SwarmDrop-RN
+{%- endmacro -%}
+
+{% if version -%}
+## [{{ version | trim_start_matches(pat="v") }}]({{ self::remote_url() }}/releases/tag/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## Unreleased
+{% endif -%}
+
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits
+| filter(attribute="scope")
+| sort(attribute="scope") %}
+- **{{ commit.scope }}:** {{ commit.message }}
+  {%- if commit.breaking %} (**BREAKING**){% endif %}
+{%- endfor -%}
+{% for commit in commits %}
+{%- if not commit.scope %}
+- {{ commit.message }}
+  {%- if commit.breaking %} (**BREAKING**){% endif %}
+{%- endif -%}
+{%- endfor -%}
+{% endfor %}\n
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactor" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^style", group = "Styling" },
+  { message = "^test", group = "Testing" },
+  { message = "^ci", group = "CI/CD" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore: bump version", skip = true },
+  { message = "^chore", group = "Miscellaneous" },
+  { message = "^build", group = "Build" },
+  { body = ".*security", group = "Security" },
+]
+protect_breaking_commits = false
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "newest"

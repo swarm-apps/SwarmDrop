@@ -1,0 +1,104 @@
+{
+  "name": "react-native-swarmdrop-core",
+  "version": "0.1.0",
+  "description": "Rust core bindings for SwarmDrop mobile via UniFFI",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yexiyue/swarmdrop.git",
+    "directory": "packages/swarmdrop-core"
+  },
+  "main": "./lib/module/index.js",
+  "types": "./lib/typescript/src/index.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.tsx",
+      "types": "./lib/typescript/src/index.d.ts",
+      "default": "./lib/module/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "rust",
+    "android",
+    "ios",
+    "cpp",
+    "*.podspec",
+    "!ios/build",
+    "!android/build",
+    "!android/gradle",
+    "!android/gradlew",
+    "!android/gradlew.bat",
+    "!android/local.properties",
+    "!**/__tests__",
+    "!**/__fixtures__",
+    "!**/__mocks__",
+    "!**/.*"
+  ],
+  "scripts": {
+    "prepare": "bob build",
+    "typecheck": "tsc --noEmit",
+    "cargo:check": "cargo check --manifest-path rust/mobile-core/Cargo.toml",
+    "build:android": "ubrn build android --and-generate && pnpm ubrn:fix",
+    "build:android:release": "ubrn build android --and-generate --release -t arm64-v8a && pnpm ubrn:fix",
+    "build:ios": "ubrn build ios --and-generate && pnpm ubrn:fix",
+    "build:ios:release": "ubrn build ios --and-generate --release && pnpm ubrn:fix",
+    "ubrn:fix": "node scripts/fix-ubrn-output.mjs",
+    "ubrn:checkout": "ubrn checkout"
+  },
+  "keywords": [
+    "react-native",
+    "ios",
+    "android",
+    "rust",
+    "uniffi",
+    "swarmdrop"
+  ],
+  "author": "yexiyue <yexiyue666@qq.com> (https://github.com/yexiyue)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yexiyue/swarmdrop/issues"
+  },
+  "homepage": "https://github.com/yexiyue/swarmdrop#readme",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "@react-native/babel-preset": "0.83.0",
+    "react-native-builder-bob": "^0.41.0",
+    "typescript": "~5.9.2",
+    "uniffi-bindgen-react-native": "latest"
+  },
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "targets": [
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ]
+  },
+  "codegenConfig": {
+    "name": "SwarmdropCoreSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.swarmdropcore"
+    }
+  },
+  "create-react-native-library": {
+    "type": "turbo-module",
+    "languages": "cpp",
+    "version": "0.61.0"
+  }
+}

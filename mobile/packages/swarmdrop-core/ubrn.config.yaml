@@ -1,0 +1,19 @@
+---
+rust:
+  directory: ./rust/mobile-core
+  manifestPath: Cargo.toml
+
+bindings:
+  cpp: cpp/generated
+  ts: src/generated
+
+ios:
+  targets:
+    - aarch64-apple-ios        # 真机 (arm64)
+    - aarch64-apple-ios-sim    # M 系列 Mac 模拟器
+    - x86_64-apple-ios         # Intel Mac 模拟器
+
+noOverwrite:
+  - android/build.gradle
+  - package.json
+  - SwarmdropCore.podspec
