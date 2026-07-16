@@ -4,6 +4,7 @@ members = [
     "crates/entity",
     "crates/migration",
     "src-tauri",
+    "mobile/packages/swarmdrop-core/rust/mobile-core",
 ]
 resolver = "2"
 
@@ -46,3 +47,19 @@ tracing = "0.1.44"
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# 移动端 release —— 包体优先，与桌面的 `[profile.release]`（速度优先）分开。
+#
+# 为什么不直接写 `[profile.release]`：Cargo 只认 workspace root 的 profile，
+# **member 自己的 profile 会被静默忽略**（只有一行 warning）。mobile-core 并入
+# workspace 前是隐式 workspace root，自带这套 opt-level="z" 配置；并入后若不搬到
+# 这里，移动端包体优化就无声无息地没了。而桌面 release 需要 opt-level=3，两者不能共用。
+#
+# 消费方：`ubrn build <platform> --profile mobile-release`（ubrn 的 -p 会覆盖 -r）。
+# 产物落在 `target/mobile-release/`，不是 `target/release/`。
+[profile.mobile-release]
+inherits = "release"
+lto = "thin"
+codegen-units = 1
+opt-level = "z"
+strip = "symbols"

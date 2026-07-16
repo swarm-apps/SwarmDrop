@@ -9,42 +9,23 @@ name = "swarmdrop_mobile_core"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-async-trait = "0.1"
-serde_json = "1"
-thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
-uniffi = { version = "0.31.0", features = ["bindgen", "build", "cli", "tokio"] }
-uuid = { version = "1", features = ["v4"] }
-# SwarmDrop 主仓四个 workspace member —— 走 HTTPS 而非 ssh://，CI runner 无
-# SSH key 也能匿名 clone（SwarmDrop 仓是 public）。要与本地未提交改动联调时，
-# 把这四行改回 path = "../../../../../SwarmDrop/crates/{core,entity,migration}"
-# 和 path = "../../../../../SwarmDrop/libs/core"，git 与 path 不能混用，否则
-# swarm-p2p-core 会撞 "multiple versions"。
-#
-# sync-mobile-core-runtime target:
-# /Volumes/yexiyue/SwarmDrop develop d62a4dd53d093f0abaab404cfba04490a19f4d9a
-# (add-device-aliases-and-groups → 含 bae7053 "persist identified device names":
-#  对端经 Identify 广播新名称时 host 把刷新后的设备写回持久化;e6323d1..d62a4dd
-#  对 crates/libs 仅 3 文件纯新增,mobile-core API 用法不受影响)
-swarmdrop-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "d62a4dd53d093f0abaab404cfba04490a19f4d9a" }
-entity = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "d62a4dd53d093f0abaab404cfba04490a19f4d9a" }
-migration = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "d62a4dd53d093f0abaab404cfba04490a19f4d9a" }
-swarm-p2p-core = { git = "https://github.com/swarm-apps/SwarmDrop.git", rev = "d62a4dd53d093f0abaab404cfba04490a19f4d9a" }
-sea-orm = { version = "2.0.0-rc", features = [
-    "macros",
-    "runtime-tokio-rustls",
-    "sqlx-sqlite",
-    "with-chrono",
-    "with-uuid",
-] }
-sea-orm-migration = { version = "2.0.0-rc", features = [
-    "runtime-tokio-rustls",
-    "sqlx-sqlite",
-] }
-tracing = "0.1"
+# 与桌面共享的业务核心。单仓后是普通 workspace path 依赖，改 crates/core 立刻对
+# 移动端生效，`cargo check --workspace` 也会一并覆盖本 crate。
+swarmdrop-core = { workspace = true }
+entity = { workspace = true }
+migration = { workspace = true }
+swarm-p2p-core = { workspace = true }
 
-[profile.release]
-lto = "thin"
-codegen-units = 1
-opt-level = "z"
-strip = "symbols"
+async-trait = { workspace = true }
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+uniffi = { version = "0.31.0", features = ["bindgen", "build", "cli", "tokio"] }
+
+# release profile 见 workspace root 的 `[profile.mobile-release]` —— 写在这里会被
+# Cargo 忽略（非 root package 的 profile 不生效）。

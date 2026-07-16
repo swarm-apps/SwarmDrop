@@ -21,8 +21,9 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     // e2e/desktop 是独立的 WebdriverIO 原生模式 E2E 项目（自己的 package.json / mocha
-    // framework），不归 Vitest 管，显式排除避免 glob 误扫。exclude 会整体覆盖默认值，
+    // framework），mobile/ 是独立的 RN pnpm workspace（自己的 package.json / RN 测试
+    // 环境），两者都不归 Vitest 管，显式排除避免 glob 误扫。exclude 会整体覆盖默认值，
     // 必须展开 configDefaults.exclude 而不是只写新增项。
-    exclude: [...configDefaults.exclude, "e2e/**"],
+    exclude: [...configDefaults.exclude, "e2e/**", "mobile/**"],
   },
 });
