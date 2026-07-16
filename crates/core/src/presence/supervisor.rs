@@ -407,13 +407,7 @@ impl PresenceSupervisor {
     pub async fn announce_online(&self) -> crate::AppResult<()> {
         let addrs = self.client.get_addrs().await?;
         let (direct_addrs, relay_addrs) = classify_announce_addrs(addrs);
-        let record_data = OnlineRecord {
-            os_info: OsInfo::default(),
-            direct_addrs,
-            relay_addrs,
-            relays: self.relay_hints(),
-            timestamp: chrono::Utc::now().timestamp(),
-        };
+        let record_data = build_online_record(direct_addrs, relay_addrs, self.relay_hints());
         self.client
             .put_record(Record {
                 key: dht_key::online_key(&self.peer_id.to_bytes()),
@@ -542,6 +536,29 @@ fn announce_backoff(fail_streak: u32) -> Duration {
     Duration::from_secs(secs.min(30))
 }
 
+/// 构造在线宣告记录。
+///
+/// **这条记录发布到公共 DHT**：key = `SHA256(NS‖peer_id)` 可由公开信息算出，记录本身
+/// 无签名，任何加入网络的节点都能查。所以它只能携带「让已配对设备拨得通」所必需的
+/// 地址，不能携带任何设备身份信息。
+///
+/// 抽成纯函数正是为了让这条约束可测——见 `online_record_must_not_carry_device_info`。
+fn build_online_record(
+    direct_addrs: Vec<Multiaddr>,
+    relay_addrs: Vec<Multiaddr>,
+    relays: Vec<RelayHint>,
+) -> OnlineRecord {
+    OnlineRecord {
+        // 死字段（读取端只用 dialable_addrs，从不消费它），发空占位仅为 wire 兼容。
+        // 详见 OsInfo::redacted 的文档。
+        os_info: OsInfo::redacted(),
+        direct_addrs,
+        relay_addrs,
+        relays,
+        timestamp: chrono::Utc::now().timestamp(),
+    }
+}
+
 /// 把本机地址集分类为可发布的（direct, relay circuit）两组。
 ///
 /// - loopback/unspecified 剔除（对任何对端无意义）
@@ -569,6 +586,34 @@ mod tests {
     use super::*;
     use crate::protocol::{AppRequest, AppResponse};
     use swarm_p2p_core::libp2p::identity::Keypair;
+
+    /// 在线宣告记录发布到**公共 DHT**：key = `SHA256(NS‖peer_id)` 由公开信息可算，
+    /// 记录无签名，任何加入网络的节点都能查。它绝不能携带设备身份信息——尤其是
+    /// `hostname`（`OsInfo::default()` 读 `COMPUTERNAME`/`HOSTNAME`，常含真名）。
+    ///
+    /// 若有人把 `build_online_record` 里的 `OsInfo::redacted()` 改回 `OsInfo::default()`，
+    /// 本测试会失败。**那不是测试过时，是把每 150 秒广播一次主机名的行为改了回来。**
+    #[test]
+    fn online_record_must_not_carry_device_info() {
+        let rec = build_online_record(vec![], vec![], vec![]);
+
+        assert_eq!(
+            rec.os_info,
+            OsInfo::redacted(),
+            "在线宣告发布到任何人可查的公共 DHT，不得携带设备信息"
+        );
+
+        // wire 兼容的另一半：字段本身必须仍在序列化结果里。
+        // OsInfo 的 hostname/os/platform/arch 都没有 #[serde(default)]，
+        // 直接删字段会让存量客户端整条记录反序列化失败 → 丢掉 direct_addrs → 退化成盲拨。
+        let json = serde_json::to_string(&rec).unwrap();
+        for key in ["hostname", "os", "platform", "arch"] {
+            assert!(
+                json.contains(key),
+                "wire 格式必须保留 `{key}` 键，否则存量客户端无法反序列化整条记录"
+            );
+        }
+    }
 
     struct TestCtx {
         supervisor: PresenceSupervisor,

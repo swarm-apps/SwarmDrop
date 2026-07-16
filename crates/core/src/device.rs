@@ -154,6 +154,30 @@ impl Default for OsInfo {
 }
 
 impl OsInfo {
+    /// 不含任何设备信息的占位值，仅用于保持 wire 格式兼容。
+    ///
+    /// [`OnlineRecord`](crate::presence::OnlineRecord) 的 `os_info` 是历史遗留的**死字段**：
+    /// 它随在线宣告发布到公共 DHT（key = `SHA256(NS‖peer_id)`，任何人可算可查、记录无签名），
+    /// 但读取端只取 `dialable_addrs()`，从不消费它。而 [`OsInfo::default`] 会带上
+    /// `COMPUTERNAME`/`HOSTNAME` —— 等于每 150 秒向一个公开 keyspace 广播一次主机名，
+    /// 而主机名常含真名。
+    ///
+    /// **为什么不直接删掉字段**：`hostname`/`os`/`platform`/`arch` 都没有 `#[serde(default)]`，
+    /// 删掉会让存量客户端反序列化整条记录失败（进而丢掉 `direct_addrs`，退化成盲拨）。
+    /// 发空值则 wire 格式不变、存量客户端零影响。
+    ///
+    /// 随 presence 重写（改为「只对已配对设备可见」）时，整个 `os_info` 字段应一并移除。
+    pub fn redacted() -> Self {
+        Self {
+            name: None,
+            hostname: String::new(),
+            os: String::new(),
+            platform: String::new(),
+            arch: String::new(),
+            capabilities: Vec::new(),
+        }
+    }
+
     /// SwarmDrop 客户端 agent_version 前缀。
     pub const AGENT_PREFIX: &str = "swarmdrop/";
 

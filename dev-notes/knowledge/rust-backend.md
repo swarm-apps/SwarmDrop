@@ -338,6 +338,33 @@ Direct（局域网点击配对，`/devices` 页「连接」按钮）没有配对
 **相关文件**：`crates/core/src/device_manager.rs`（`is_lan_discovered` + tests）、
 `crates/core/src/network/event_loop.rs`（入站校验）、`crates/core/src/pairing/manager.rs`（穷尽 match）
 
+### 发布到公共 DHT 的记录不得携带设备信息
+
+`OnlineRecord`（presence 在线宣告）的 key = `SHA256("/swarmdrop/online/" ‖ peer_id)`——peer_id 是公开的，
+所以**任何加入网络的节点都能算出这个 key 并读取记录**，且记录无签名。它只能携带「让已配对设备拨得通」
+所必需的地址。
+
+`os_info` 是历史遗留的**死字段**：写入端发 `OsInfo::default()`（含 `COMPUTERNAME`/`HOSTNAME`，常含真名），
+而读取端（`supervisor.rs` 的重探路径）只用 `dialable_addrs()`，**从不消费它**——等于每 150 秒
+（`ONLINE_RECORD_TTL_SECS / 2`）向公开 keyspace 广播一次主机名，零收益。
+
+**正确做法**：
+- 发 `OsInfo::redacted()`（全空占位），**不要**发 `OsInfo::default()`
+- 记录构造抽成纯函数 `build_online_record()`，让「不含设备信息」这条约束可被单测锁住
+- 换 iroh **不自动解决**这类问题（pkarr 同样是「知道 EndpointId 就查得到地址」）——这是产品层的
+  可见性设计，不是传输层能代劳的
+
+**不要做**：
+- **不要直接删掉 `os_info` 字段**。`OsInfo` 的 `hostname`/`os`/`platform`/`arch` 都没有
+  `#[serde(default)]`（只有 `name`/`capabilities` 有），删字段会让存量客户端反序列化**整条记录**失败
+  → 连 `direct_addrs` 一起丢 → 退化成盲拨。发空值则 wire 格式不变、存量客户端零影响。
+  字段本身随 presence 重写（改为「只对已配对设备可见」）时一并移除。
+- 不要把 `OsInfo::default()` 改回来。回归测试 `online_record_must_not_carry_device_info` 会失败——
+  那不是测试过时（已用 mutation 验证：注入 `redacted()`→`default()` 后测试精确失败）。
+
+**相关文件**：`crates/core/src/device.rs`（`OsInfo::redacted`）、
+`crates/core/src/presence/supervisor.rs`（`build_online_record` + 测试）、`crates/core/src/presence/mod.rs`
+
 ## 身份存储 (keychain)
 
 ### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）
