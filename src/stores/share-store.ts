@@ -7,7 +7,7 @@
  * 刻意**不持久化**：v1 不做「未引导时暂存、引导后恢复」。根级 ExternalOpenHandler
  * 收到 external-file-open → 包装成 FileSource[] → setSources → navigate
  * `/send/share-target`；选设备屏 mount 时 `consume()` 一次性取走并清空，与交互式发送页
- * （useFileSelection 内部 state）互不污染。对标 SwarmDrop-RN 的 src/stores/share-store.ts。
+ * （useFileSelection 内部 state）互不污染。对标移动端的 mobile/src/stores/share-store.ts。
  */
 
 import { create } from "zustand";

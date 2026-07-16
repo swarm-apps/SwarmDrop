@@ -1,4 +1,4 @@
-# SwarmDrop-RN WebDriver E2E
+# 移动端 WebDriver E2E
 
 这套 E2E 用 WebdriverIO + Appium XCUITest 驱动 iOS 端，避开 Maestro 在 iOS 26 / Expo SDK 56 / RN 0.85 Fabric 下 selector 不稳定的问题。
 

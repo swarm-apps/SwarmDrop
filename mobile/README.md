@@ -11,7 +11,7 @@
 The Android & iOS client for [SwarmDrop](https://github.com/swarm-apps/SwarmDrop),
 sharing the very same Rust core as the desktop app.
 
-[![Release](https://img.shields.io/github/v/release/swarm-apps/SwarmDrop-RN?style=flat-square)](https://github.com/swarm-apps/SwarmDrop-RN/releases)
+[![Release](https://img.shields.io/github/v/release/swarm-apps/SwarmDrop?style=flat-square&filter=mobile-v*)](https://github.com/swarm-apps/SwarmDrop/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-Android%20%7C%20iOS-lightgrey?style=flat-square)](#-download)
 
@@ -54,7 +54,7 @@ It shares the **same Rust core** (`swarmdrop-core`) as the desktop app, bridged 
 
 | Platform | Format |
 |---|---|
-| **Android** | `.apk` — [SwarmDrop-RN releases](https://github.com/swarm-apps/SwarmDrop-RN/releases/latest) (arm64-v8a) |
+| **Android** | `.apk` — [Releases](https://github.com/swarm-apps/SwarmDrop/releases) (arm64-v8a) |
 | **iOS** | build from source (see [Development](#-development)); not yet on TestFlight |
 
 > 🔄 In-app **automatic updates** are delivered by [**SwarmHive**](https://github.com/swarm-apps/SwarmHive) — the same self-hostable, open-source update server the desktop app uses. No proprietary update SaaS.
@@ -63,11 +63,15 @@ It shares the **same Rust core** (`swarmdrop-core`) as the desktop app, bridged 
 
 ## 🛠 Development
 
-Requires **Node 22+** · **pnpm 10+** · a recent stable **Rust** (1.85+) · **JDK 17** · **Android NDK r27c** (plus **Xcode 16+** for iOS).
+Requires **Node 22+** · **pnpm 11+** · a recent stable **Rust** (1.85+) · **JDK 17** · **Android NDK r27c** (plus **Xcode 16+** for iOS).
 
 ```bash
-git clone git@github.com:swarm-apps/SwarmDrop-RN.git
-cd SwarmDrop-RN
+# --recursive is required: the Rust bridge depends on swarm-p2p-core in libs/
+# via a path dependency, so a shallow clone fails to compile.
+git clone --recursive git@github.com:swarm-apps/SwarmDrop.git
+cd SwarmDrop/mobile
+
+# Mobile is its own pnpm workspace — install from inside mobile/
 pnpm install
 
 # Build the Rust bridge (pick your platform)
@@ -139,7 +143,7 @@ Don't mix git and path deps (`swarm-p2p-core` will hit a multiple-versions confl
 <br>
 
 ```
-SwarmDrop-RN/
+SwarmDrop/mobile/
 ├── src/                              # RN app code
 │   ├── app/                          #   expo-router routes
 │   ├── components/                   #   UI components
@@ -174,7 +178,7 @@ git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z
 
 Part of a family of decentralized, local-first, end-to-end encrypted tools:
 
-- **SwarmDrop** — device-to-device file transfer. [Desktop](https://github.com/swarm-apps/SwarmDrop) · [Mobile](https://github.com/swarm-apps/SwarmDrop-RN)
+- **SwarmDrop** — device-to-device file transfer. [Desktop](https://github.com/swarm-apps/SwarmDrop) · [Mobile](.)
 - **SwarmNote** — decentralized, encrypted notes. [Desktop](https://github.com/swarm-apps/SwarmNote) · [Mobile](https://github.com/swarm-apps/SwarmNote-RN)
 - **SwarmHive** — self-hostable, open-source release & auto-update server for Tauri and React Native apps. [Repo](https://github.com/swarm-apps/SwarmHive)
 

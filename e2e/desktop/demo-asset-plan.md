@@ -24,7 +24,7 @@
 关键架构决策（本轮敲定）：
 
 - **两端都用 WebDriver 确定性驱动**：桌面 WDIO（`e2e/desktop`）、移动 WDIO + Appium-XCUITest
-  （`SwarmDrop-RN/e2e/webdriver`）。移动端 **Maestro 已废弃并清理**，不再作为 UI 自动化入口。
+  （`mobile/e2e/webdriver`）。移动端 **Maestro 已废弃并清理**，不再作为 UI 自动化入口。
 - **只有一个后期工程**：桌面仓库的 `video/`（Remotion）。移动端**不建独立后期工程**，只产原片，
   原片喂进同一个 `video/`，复用相同的事件 timeline schema。
 - 好处：一套语义标注 API、一套 Remotion 组件、一套 timeline，桌面和移动共用。
@@ -33,7 +33,7 @@
 flowchart LR
   subgraph 驱动层["确定性驱动 · WebDriver"]
     DW["桌面 WDIO<br/>e2e/desktop"]
-    MW["移动 WDIO + Appium<br/>SwarmDrop-RN/e2e/webdriver"]
+    MW["移动 WDIO + Appium<br/>mobile/e2e/webdriver"]
   end
   subgraph 采集层["录屏"]
     OBS["OBS<br/>Tauri 内容窗"]
@@ -112,7 +112,7 @@ pnpm --dir video exec remotion render src/index.ts DesktopDemo out/desktop-demo.
 在线设备 / 发送 / 收件箱场景**不 seed 假数据**，用真实第二节点（用户定）——设备在线状态是纯运行时
 P2P 状态、无法 seed，故此路唯一可行。隐私门槛放宽：**只需脱敏设备名**（两端改通用），其余真数据 OK。
 
-- **已验证可跑**：SwarmDrop-RN 增量构建（`cd ../SwarmDrop-RN && pnpm exec expo run:ios --device "iPhone 17"`，
+- **已验证可跑**：移动端增量构建（`cd ../../mobile && pnpm exec expo run:ios --device "iPhone 17"`，
   用 RN 自己的 pnpm 10.x，避开桌面 pnpm 11 忽略 `pnpm` 字段导致的 no-TTY purge 坑）→ 装到 iPhone 17 sim →
   Maestro 驱动 onboarding（设备名设 "iOS Demo" 脱敏）→ 启动节点 → "运行中"、LAN 可发现。
 - **成片编排**：`record-transfer-demo.mjs`（`record:transfer`）双端驱动——桌面 `lan-transfer.demo.ts`

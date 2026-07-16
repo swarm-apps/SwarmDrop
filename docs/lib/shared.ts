@@ -28,5 +28,8 @@ export const links = {
   downloads: "#download",
   releases: `https://github.com/${gitConfig.user}/${gitConfig.repo}/releases/latest`,
   repo: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
-  mobile: "https://github.com/swarm-apps/SwarmDrop-RN/releases",
+  // SwarmHive 不可用时的后备下载入口。移动端已并入主仓，发版走 mobile-v* tag，
+  // 所以指向主仓 releases（与桌面的 v* 混在一列，但至少能拿到最新 APK）——
+  // 原先指向的 swarm-apps/SwarmDrop-RN 已归档，其 releases 永远停在 v0.7.18。
+  mobile: `https://github.com/${gitConfig.user}/${gitConfig.repo}/releases`,
 };
