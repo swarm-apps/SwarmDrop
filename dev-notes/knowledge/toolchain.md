@@ -341,6 +341,18 @@ git-cliff --config mobile/cliff.toml --latest --tag-pattern '^mobile-v' \
 unrelated history 的末端，主仓全部 `crates/` 提交都不在其祖先链上，会被算成「本次发布的
 新内容」（实测 81 条 vs 打在并入点的 1 条）。
 
+### 补分界 tag 会不会误发版：看 tag 指向的 commit 上有没有 workflow
+
+GitHub Actions 的 tag 触发，判据是 **tag 指向的那个 commit 的树里有没有该 workflow 文件**，
+不是默认分支上有没有。
+
+补 `mobile-v0.7.18` 时没有触发发布，靠的是它指向的 merge commit 早于加入
+`mobile-release.yml` 的那次提交——**属于巧合，不是设计**。日后再补 `v*` / `mobile-v*` 形式的
+分界 tag，若打在已含对应 workflow 的 commit 上，会真的跑一遍构建并发到 SwarmHive。
+
+**要补而又不想发版**，二选一：先确认目标 commit 不含该 workflow；或改用不匹配触发 glob 的
+tag 名（如 `mobile-baseline-0.7.18`）。
+
 ### Tauri workspace 的 release bundle 在根 `target/`
 
 SwarmDrop 的 `src-tauri` 是 Cargo workspace member，不是独立 Cargo 项目。`tauri-action`
