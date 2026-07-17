@@ -177,6 +177,15 @@ iroh 在浏览器里 100% 走 relay（wasm 下 `mod ip` 整个不编译，没有
 **所以「Web 端中继成本无法回避」在 iroh 侧成立，而「libp2p 能给你 Web 直连」这条退路
 对我们的技术栈根本不存在** —— 它不构成留在 libp2p 的理由。
 
+> 🔁 **2026-07-17 更新**：这条被人重新推翻过一次（从「rust-libp2p 有三个 websys transport」
+> 反推出「所以能直连」），教训见 [libp2p-wasm.md](libp2p-wasm.md)。那次调研补充了三点本条没有的
+> 硬证据，**要引用请引那边**：
+> 1. 三个 websys transport 的 `listen_on` **全部无条件返回 Err**，且 `webrtc-websys::dial` 拒绝
+>    `role.is_listener()` ⇒ 浏览器连 DCUtR 升级都做不到。
+> 2. 缺的具体是 `/webrtc-signaling/0.0.1`，rust-libp2p 全仓 0 命中。
+> 3. **本条低估了严重性**：`specs/webrtc/webrtc.md:15` 明确该协议覆盖「NAT 后的**非浏览器**节点」
+>    ⇒ 连「Web 用 js-libp2p」也换不来 Web ↔ 我们桌面端的直连（对端 rust 不会说这个协议）。
+
 ### 「iroh-blobs 有 2GB OOM / issue #84 #90 零 PR」—— 查无实据
 
 调研未能证实。**别把它当作否决 iroh-blobs 的理由** —— 真正的否决理由是下面那三条结构性冲突，
