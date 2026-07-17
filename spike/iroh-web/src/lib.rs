@@ -65,14 +65,23 @@ pub async fn create_endpoint_no_relay() -> Result<String, JsError> {
     Ok(id)
 }
 
-/// 验证点 3：连 relay，报告每个 home relay 的真实连接状态。
+/// 验证点 3：连 relay 并等到真正连通，报告每个 home relay 的状态。
 ///
-/// `home_relay_status()` 给的是 `Vec<RelayStatus>`（可能有多个 home relay），
-/// 每项带 `url()` / `is_connected()` / `last_error()`。
+/// **用 `Endpoint::online()` 等连通，不要自己轮 `home_relay_status()`。**
+/// 这里原先手写过一版轮询，是走弯路 —— iroh 已经把这件事封装好了
+/// （`endpoint.rs:1355`），且它的实现恰好演示了两个必须避开的坑：
 ///
-/// **不只看「有没有返回」，要看 `is_connected()`** —— watcher 初始化完成不等于
-/// 握手成功。`last_error()` 是这个 spike 最有价值的东西：relay 连不上时它给出
-/// 具体原因，这正是 #62 区分「iroh 不行」与「relay 够不着」所需要的。
+/// 1. **不要用 `initialized()`**。它等的是「Nullable 从空变为有值」，而
+///    `Vec<T>` 的 `Nullable` 实现是 `self.pop()`（n0-watcher `lib.rs:121`）——
+///    既**只取最后一个、丢弃其余**，又只保证「某个 relay 的 URL 已知」而非握手成功
+///    （`endpoint.rs:1374` 原文：empty ... before the endpoint has selected a home relay）。
+///    实测正是如此：它 1.6s 就返回，此时 `is_connected()=false` 且 `last_error()=None`。
+/// 2. `online()` 内部用 `get()` 起步、`updated()` 拿完整 `Vec`、再 `.any(is_connected)`
+///    —— `initialized()` 与 `updated()` 的返回类型是不对称的（前者解包成单个 T，
+///    后者给完整 Value）。
+///
+/// `last_error()` 仍是本 spike 最有价值的输出：relay 连不上时它给出具体原因，
+/// 正是 #62 区分「iroh 不行」与「relay 够不着」所需要的。
 #[wasm_bindgen]
 pub async fn probe_relay() -> Result<JsValue, JsError> {
     let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
@@ -80,48 +89,35 @@ pub async fn probe_relay() -> Result<JsValue, JsError> {
         .await
         .map_err(to_js_err)?;
 
-    // initialized() 语义是「等 Nullable 从空变为有值」，Vec<RelayStatus> 的空 Vec
-    // 视作 null —— 所以它解包后给的是**单个** RelayStatus，不是整个列表。
-    //
-    // **且它返回得很早**：relay 一进列表就返回，此时握手还在进行
-    // （实测 is_connected()=false、last_error()=None）。要拿终态必须 updated() 轮候，
-    // 否则会把「还在连」误报成「连不上」——这个坑正是 #62 说的「分不清是 iroh 不行
-    // 还是 relay 够不着」的一种变体。
-    let mut watcher = endpoint.home_relay_status();
-    let mut status = watcher.initialized().await;
-
-    // 最多等 20 秒。终态 = 连上了，或拿到了具体错误。
-    let deadline = 20;
-    let mut waited = 0;
-    while !status.is_connected() && status.last_error().is_none() && waited < deadline {
-        // updated() 等下一次状态变化；配 timeout 防止 relay 静默不回导致永久挂起
-        // 注意不对称：initialized() 会把 Vec 解包成单个 RelayStatus，
-        // 而 updated() 返回的是完整的 Vec<RelayStatus>。
-        let next = match n0_future::time::timeout(
-            std::time::Duration::from_secs(1),
-            watcher.updated(),
-        )
+    // bind() 返回 ≠ 能用：此时几乎肯定还没选好 relay（endpoint.rs:1203 官方注释）。
+    // online() 等到至少一个 relay 真正连上。配 timeout 兜底：relay 被静默丢弃时
+    // online() 会永久挂起（它内部对 watcher 断开的处理是 pending 而非报错）。
+    let timed_out = n0_future::time::timeout(std::time::Duration::from_secs(20), endpoint.online())
         .await
-        {
-            Ok(Ok(v)) => v,
-            // 超时或 watcher 断开：重新取当前值再判一次
-            _ => watcher.get(),
-        };
-        if let Some(s) = next.into_iter().next() {
-            status = s;
-        }
-        waited += 1;
-    }
+        .is_err();
 
-    let report = match (status.is_connected(), status.last_error()) {
-        (true, _) => format!("✅ {} 已连通（等待 {waited}s）", status.url()),
-        // last_error 是这个 spike 最有价值的输出：它区分「iroh 不行」与「relay 够不着」
-        (false, Some(err)) => format!("❌ {} 连接失败: {err}", status.url()),
-        (false, None) => format!("⏱️ {} 等待 {waited}s 仍未连通，且无错误上报（疑似被静默丢弃/墙）", status.url()),
+    // 无论是否超时都取一次状态，这样能拿到 last_error。
+    let statuses = endpoint.home_relay_status().get();
+
+    let report = if statuses.is_empty() {
+        "❌ 未选出任何 home relay（relay 完全不可达）".to_string()
+    } else {
+        statuses
+            .iter()
+            .map(|s| match (s.is_connected(), s.last_error()) {
+                (true, _) => format!("✅ {} 已连通", s.url()),
+                (false, Some(err)) => format!("❌ {} 连接失败: {err}", s.url()),
+                (false, None) if timed_out => {
+                    format!("⏱️ {} 20s 未连通且无错误上报（疑似被静默丢弃）", s.url())
+                }
+                (false, None) => format!("⏳ {} 仍在连接中", s.url()),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     };
     tracing::info!("{report}");
 
-    // 同上：不 close 会触发 iroh 的 Drop 告警，且不向 relay 发优雅断开。
+    // 必须 close：iroh 在 impl Drop 里直接 tracing::error! + abort()（socket.rs:220）。
     endpoint.close().await;
 
     Ok(JsValue::from_str(&report))
