@@ -249,6 +249,16 @@ iroh 官方 browser-echo 示例里那个 `wasm-bindgen = "=0.2.122"` 精确 pin 
 **不要把 spike 放 `crates/`** —— 那是生产位置（如 `crates/web` 是 #72 定的），spike 可能失败，
 要能整目录删掉不留痕。验证通过后再按架构文档挪到正式位置。
 
+**wasm crate 转正到 `crates/` 时会撞上 profile 限制**（spike 期靠 exclude 绕过，转正就绕不掉了）：
+Cargo 的 `[profile.*]` **只能在 workspace root 生效**，成员 crate 的 profile 被静默忽略（同
+mobile-core 并入时那个坑）。给单个 crate 定制 profile 的**唯一**办法是该 crate 自己的
+`.cargo/config.toml` —— iroh 官方 browser-chat 就是这么做的（`browser-wasm/.cargo/config.toml`，
+注释：*"we specify the profile here, because it is the only way to define different settings for a
+single crate in a workspace"*）。代价是从 workspace root 构建时这份 profile 不生效。
+
+体积影响不小：官方 browser-blobs 缺 `[profile.release]` 那 6 行（`opt-level="z"` / `lto` /
+`codegen-units=1` / `panic=abort` / `strip="symbols"`），白白多付约 **39%** 的 gzip 体积。
+
 ### workspace members 固定 5 个（含移动端桥接 crate）
 
 ```toml
@@ -450,6 +460,33 @@ SwarmDrop 的 `src-tauri` 是 Cargo workspace member，不是独立 Cargo 项目
   CI 在上传步报 `no updater bundles selected`。
 
 **相关文件**：`.github/workflows/release.yml`
+
+### mobile-release.yml 缺两条 iroh-ffi 已验证的 CI 实践
+
+2026-07 读 iroh-ffi 的 CI 时发现两条我们缺、且**与迁不迁 iroh 无关**的实践，可直接抄：
+
+**① 可复现构建 —— 我们现在 .a 里嵌着绝对路径，泄露且不可复现**
+
+iroh-ffi 在 RUSTFLAGS 里加 4 条 `--remap-path-prefix`（cargo registry / cargo git / 源码 checkout /
+rustup sysroot），**并且**在 CFLAGS 里加 3 条 `-ffile-prefix-map`。
+
+⚠️ 第二半不能省：`--remap-path-prefix` 是 **Rust-only** 的，`ring` 等依赖走 build.rs + `cc`
+编译 bundled C 源码，只有 `-ffile-prefix-map` 管得到它们。
+
+**② 发布前验证产物形状 —— 我们现在只验「构建成功」**
+
+iroh-ffi 有 `cargo make verify-swift-xcframework` / `verify-kotlin-android-consumer` /
+`verify-kotlin-consumer`，Makefile.toml 注释里写明动机，抓的正是
+*"succeeds, artifact is broken, runtime crash on consumer device"* 这一类。
+
+具体到 Android：把刚构建的 .so 塞进一个**真的 consumer app**，在 emulator 上跑 instrumented test
+（纯离线的一行调用即可）。抓三类构建期看不见的问题：
+
+- AGP 没把 .so 从 JAR merge 进 APK
+- .so 加载了但 JNI 符号缺失
+- NDK API level 对 emulator 太高
+
+**相关文件**：`.github/workflows/mobile-release.yml`
 
 ### pnpm/action-setup 不能与 packageManager 双指定
 

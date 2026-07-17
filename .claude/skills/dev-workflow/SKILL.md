@@ -21,6 +21,7 @@ description: |
 | [theme-and-styling.md](../../../dev-notes/knowledge/theme-and-styling.md) | shadcn/ui 用法、Tailwind v4 token、主题切换、窗口装饰（macOS Overlay / Win 自定义标题栏）、Aurora 背景等 UI 层约束 |
 | [rust-backend.md](../../../dev-notes/knowledge/rust-backend.md) | Tauri command 约定、`crates/core` ↔ `src-tauri` 边界、SeaORM/SQLite、P2P/async、tracing、specta + chrono 类型映射 |
 | [toolchain.md](../../../dev-notes/knowledge/toolchain.md) | pnpm/Vite/Tauri CLI、Biome、Cargo workspace、Lingui 提取、git submodule（libs/）、CI、版本号同步 |
+| [iroh-migration.md](../../../dev-notes/knowledge/iroh-migration.md) | libp2p → iroh 迁移评估结论（**评估中，未决策**）：能力差、被推翻的旧认知、relay/配对/Web 端取舍、生态选型否决清单。碰 P2P 选型、Web 端、n0-* 依赖或有人提「迁 iroh」时先读 |
 
 **读取方式**：用 Read 工具读取对应文件，遵循其中记录的最佳实践和注意事项。
 
