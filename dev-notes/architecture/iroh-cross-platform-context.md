@@ -491,14 +491,43 @@ RN 侧保留原判断（**这部分已在生产验证，可信**）：
 - Rust async 映射为 Promise；Record/Enum/Object/callback 生成对应 TS 类型；
 - 生成文件禁止手改。
 
-wasm-bindgen 本身也能生成函数/类声明，但复杂业务数据容易退化为 JsValue。ts-rs、Specta 仅负责 TS 类型导出，不负责 WASM 运行时绑定。Web/RN 应让 UniFFI facade 成为唯一类型源；Tauri 可继续使用现有 Specta 导出 desktop command 类型。
+wasm-bindgen 本身也能生成函数/类声明，但复杂业务数据容易退化为 JsValue。ts-rs、Specta 仅负责 TS 类型导出，不负责 WASM 运行时绑定。**RN** 应让 UniFFI facade 成为唯一类型源；Tauri 可继续使用现有 Specta 导出 desktop command 类型。
 
-CI 必须：
+> **校正（2026-07-17）**：本段原写作「**Web/RN** 应让 UniFFI facade 成为唯一类型源」，
+> 那是 §9 老方案（同一份 facade 同时喂 RN 和 Web）的残留，**与本文 §「crates/web 不走
+> js-api facade」自相矛盾**，已改为只约束 RN。
+>
+> **Web 走 wasm-bindgen，不经 UniFFI** —— 这也是 iroh 官方唯一推荐的路径，原文：
+>
+> > "Add `iroh` to your browser project's dependencies and keep building it using **wasm-bindgen**."
+> > "Currently we don't bundle iroh's Wasm build as an NPM package." Instead, developers should create
+> > **application-specific Rust wrapper crates using wasm-bindgen** to expose needed JavaScript APIs.
+> >
+> > — <https://docs.iroh.computer/languages/wasm-browser.md>
+>
+> `crates/web` 就是官方说的那个 "application-specific Rust wrapper crate"。依赖须写
+> `iroh = { version = "1", default-features = false }`（丢掉 `metrics` feature，wasm 上编不过）。
+>
+> 连带影响：这条路绕开了 ubrn 的 Web/WASM 后端（作者盖章 *"should not yet be used in
+> production"*、地基是 Mozilla 说 *"likely to change or go away completely"* 的
+> `wasm-unstable-single-threaded`、且「同一 facade 喂 RN + Web」零生产先例）。故 #61 已关闭
+> ——它验证的是一个已被取代的方案。
 
-1. 重新生成 RN/Web bindings；
-2. 检查生成目录是否与 Git 一致；
-3. 分别运行 Web、RN 的 TypeScript typecheck；
+CI 必须（两条链路不同，别混为一谈）：
+
+**RN（UniFFI / ubrn）**
+
+1. 重新生成 RN bindings；
+2. 检查生成目录是否与 Git 一致（`packages/swarmdrop-core/src/generated/` 是提交进仓的）；
+3. 运行 RN 的 TypeScript typecheck；
 4. 接口变更后重建 iOS/Android native artifact，避免 TS 已更新但 xcframework 或 so 过期。
+
+**Web（wasm-bindgen）**
+
+1. `wasm-bindgen` 产物在 build 时生成、不提交进仓，故无「与 Git 一致」这一检查；
+2. 运行 Web 的 TypeScript typecheck（针对 wasm-bindgen 生成的 `.d.ts`）；
+3. `crates/web` 需 `--target wasm32-unknown-unknown` 单独 check —— 它不在桌面/移动的
+   target 里，`cargo check --workspace` 覆盖不到 wasm 特有的编译失败（如 `std::Instant`）。
 
 ## 10. 仓库组织：目标是单仓
 
