@@ -6,6 +6,12 @@ members = [
     "src-tauri",
     "mobile/packages/swarmdrop-core/rust/mobile-core",
 ]
+# spike/ 是 wasm-only 的临时验证（#60），不进 members：
+# 它只对 wasm32-unknown-unknown 有意义，进了 workspace 会被 `cargo check --workspace`
+# 用桌面 target 编一遍、白白拖慢，且它自带的 [profile.release] 也会被 workspace root
+# 静默忽略（同 mobile-core 并入时那个坑）。不 exclude 的话 cargo 会报它「在 workspace
+# 目录内却不是 member」。
+exclude = ["spike"]
 resolver = "2"
 
 [workspace.package]

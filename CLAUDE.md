@@ -11,6 +11,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/theme-and-styling.md`](dev-notes/knowledge/theme-and-styling.md) — shadcn/ui、Tailwind、macOS Overlay 标题栏、Zustand selector 派生数组陷阱、Lingui 源 locale
 - [`dev-notes/knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md) — crates/core ↔ src-tauri 边界、specta + chrono、`#[expect]` 风格、IPC 时间类型选型
 - [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、Vite/Tauri 端口、submodule、Lingui 实际 locale、版本号三处同步
+- [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估结论（2026-07 调研）：能力差、被推翻的旧认知、选型否决清单、前置实测清单
+- [`dev-notes/knowledge/libp2p-wasm.md`](dev-notes/knowledge/libp2p-wasm.md) — Web 端（wasm）可行性（2026-07 调研）：局域网路线（最可行起点）、webrtc-direct 与自托管、浏览器公网零可达入口、rust-wasm 与 js-libp2p 取舍、tokio → n0-future、wasm 编译的坑
+- [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去：切割线在 `DatabaseConnection` 不在 `entity`、SendWrapper 免改 trait、耦合面量化
 
 ## Design Context
 

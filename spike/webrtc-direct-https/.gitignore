@@ -1,0 +1,3 @@
+/target
+# 服务端每次启动生成（含随机端口与本次证书的 certhash），不入库。
+/static/addrs.js

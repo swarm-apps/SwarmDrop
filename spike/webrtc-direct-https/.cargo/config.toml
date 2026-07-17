@@ -1,0 +1,10 @@
+[target.wasm32-unknown-unknown]
+# getrandom 0.3（rand 0.9 链路）要 rustflag + feature 两样都给。
+# getrandom 0.2 那条由 libp2p 的 `wasm-bindgen` feature 传递的 `js` 负责，两者缺一不可。
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+
+# Apple clang 没有 WebAssembly backend（`clang -print-targets` 一条 wasm 都没有），
+# ring 要把 C 编到 wasm 必挂。Linux 发行版 clang 通常自带，可删。
+[env]
+CC_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/clang"
+AR_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/llvm-ar"
