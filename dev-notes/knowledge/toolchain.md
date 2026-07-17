@@ -198,6 +198,57 @@ opt-level = 3
 
 **不要做**：删除这段配置或把 `*` 改成具体 crate 列表——会漏掉新加的 crypto/网络依赖。
 
+### wasm 构建：macOS 必须装 brew 的 LLVM，系统 clang 不行
+
+**任何要编到 `wasm32-unknown-unknown` 的活都会撞这个**（当前是 `spike/iroh-web`，M2/M6 也躲不掉）。
+
+**Apple 自带的 clang 阉割了 WebAssembly backend** —— `clang -print-targets` 里一条 wasm 都没有。
+凡是依赖里有需要编 C 的 crate（如 `ring`，iroh 的 `tls-ring` feature 会拉进来），cc-rs 调系统
+clang 必然失败：
+
+```
+error: unable to create target: 'No available targets are compatible with triple "wasm32-unknown-unknown"'
+error occurred in cc-rs: ... clang ... ring-0.17.14/crypto/curve25519/curve25519.c
+```
+
+**正确做法**（`brew install llvm` 后，在该 crate 的 `.cargo/config.toml`）：
+
+```toml
+[target.wasm32-unknown-unknown]
+# getrandom 0.3 在 wasm 上必须显式指定 backend，少了编不过且报错不指向这里
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+
+[env]
+CC_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/clang"
+AR_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/llvm-ar"
+```
+
+**注意**：这是 macOS 工具链的问题，不是 iroh/ring 的问题；Linux 的发行版 clang 通常自带 wasm
+target，所以 CI 上不需要这段 —— 别因为「CI 能过」就以为本机不用配。
+
+**wasm-pack 不必手动 pin `wasm-bindgen`**：它会从 `Cargo.lock` 解析出版本、自动装匹配的
+`wasm-bindgen-cli`（见其 `src/lockfile.rs` 的 `require_wasm_bindgen`，实测装了 v0.2.126）。
+iroh 官方 browser-echo 示例里那个 `wasm-bindgen = "=0.2.122"` 精确 pin 是**手工串链路**的产物
+（`cargo build` 后自己调 `wasm-bindgen` CLI，两者 schema version 对不上直接报错），
+用 wasm-pack 就不必背这个包袱。
+
+**相关文件**：`spike/iroh-web/.cargo/config.toml`、`spike/iroh-web/README.md`
+
+### spike/ 不进 workspace
+
+`spike/` 放临时的技术验证（当前：`spike/iroh-web`，见 #60），根 `Cargo.toml` 里
+`exclude = ["spike"]`。
+
+**Why**：
+- spike 通常是 **wasm-only / 平台专用**的，进 members 会被 `cargo check --workspace` 用桌面
+  target 白编一遍，纯浪费
+- spike 自带的 `[profile.release]` 进了 workspace 会被 root **静默忽略**（同 mobile-core 并入
+  时踩的那个坑）
+- 不 exclude 的话 cargo 会报「在 workspace 目录内却不是 member」
+
+**不要把 spike 放 `crates/`** —— 那是生产位置（如 `crates/web` 是 #72 定的），spike 可能失败，
+要能整目录删掉不留痕。验证通过后再按架构文档挪到正式位置。
+
 ### workspace members 固定 5 个（含移动端桥接 crate）
 
 ```toml
