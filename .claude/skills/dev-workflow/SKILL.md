@@ -38,7 +38,7 @@ description: |
 - `/frontend` — 项目内置：TanStack Router / Zustand / Lingui 用法
 - `/lingui-best-practices` — i18n（新增 `<Trans>` / `t``...```、提取 catalog）
 - `/tailwind-css-patterns` / `/tailwind-design-system` — Tailwind v4 utility 和 design token
-- `/uniffi-bindgen-rn` — 与 SwarmDrop-RN 共享 `crates/core` 时的桥接约束（仅相关时）
+- `/uniffi-bindgen-rn` — `mobile/` 经 uniffi 共享 `crates/core` 的桥接约束（仅相关时）
 
 **优先级**：项目知识库 > 项目级 skill（`.claude/skills/*`）> 通用 skill > Claude 自身知识。当项目知识库中有明确记录时，以项目知识库为准。
 
@@ -49,7 +49,7 @@ description: |
 **需要记录的内容**：
 - 新引入的依赖及其正确用法
 - 发现的配置坑和 workaround（尤其是 `crates/core` ↔ `src-tauri` / `swarm-p2p-core` / Tauri plugin 交互）
-- 做出的架构决策及原因（含双仓 SwarmDrop / SwarmDrop-RN 取舍）
+- 做出的架构决策及原因（含桌面 / `mobile/` 两端的取舍）
 - 与通用最佳实践不同的项目特定做法
 - 解决的非显见 bug 的根因
 

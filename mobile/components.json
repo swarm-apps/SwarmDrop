@@ -1,0 +1,23 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "src/global.css",
+    "baseColor": "neutral",
+    "cssVariables": true
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "registries": {
+    "@swarmhive-rn": "https://raw.githubusercontent.com/swarm-apps/swarmhive/main/packages/registry-rn/public/r/{name}.json",
+    "@react-native-reusables": "https://reactnativereusables.com/r/nativewind/{name}.json"
+  }
+}

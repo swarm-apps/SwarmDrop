@@ -1,0 +1,65 @@
+diff --git a/crates/ubrn_common/Cargo.toml b/crates/ubrn_common/Cargo.toml
+index 7b60c9b312c8cdcdd84ca728c2d4b1802504389b..1f05b3de0d62ee1f537da46cefbb25c7e94c8eac 100644
+--- a/crates/ubrn_common/Cargo.toml
++++ b/crates/ubrn_common/Cargo.toml
+@@ -8,6 +8,7 @@ publish = false
+ anyhow = { workspace = true }
+ camino = { workspace = true }
+ cargo_metadata = { workspace = true }
++dunce = "1.0.5"
+ extend = { workspace = true }
+ glob = "0.3.1"
+ serde = { workspace = true }
+diff --git a/crates/ubrn_common/src/files.rs b/crates/ubrn_common/src/files.rs
+index aa32bfa0e38d4bf52162394c5a01c3e7e756c471..998d2b0d0348725c245c3a79de786a9ff1b38886 100644
+--- a/crates/ubrn_common/src/files.rs
++++ b/crates/ubrn_common/src/files.rs
+@@ -58,7 +58,7 @@ pub fn file_paths(pattern: &str) -> Result<Vec<std::ffi::OsString>, anyhow::Erro
+ }
+ 
+ pub fn pwd() -> Result<Utf8PathBuf> {
+-    let path = std::env::current_dir()?;
++    let path = dunce::canonicalize(std::env::current_dir()?)?;
+     Ok(Utf8PathBuf::try_from(path)?)
+ }
+ 
+@@ -228,7 +228,7 @@ pub impl Utf8Path {
+         Ok(if is_recording_enabled() {
+             self.to_path_buf()
+         } else {
+-            self.canonicalize_utf8()?
++            Utf8PathBuf::try_from(dunce::canonicalize(self)?)?
+         })
+     }
+ }
+diff --git a/crates/ubrn_common/src/rust_crate.rs b/crates/ubrn_common/src/rust_crate.rs
+index 584f1a1c16f2a2b5a652b46bbf940b8248d7f8d4..8fcaf0ce85c43f30f5b74745f0fa8886493052b2 100644
+--- a/crates/ubrn_common/src/rust_crate.rs
++++ b/crates/ubrn_common/src/rust_crate.rs
+@@ -9,7 +9,7 @@ use anyhow::Result;
+ use camino::{Utf8Path, Utf8PathBuf};
+ use cargo_metadata::{Metadata, MetadataCommand, TargetKind};
+ 
+-use crate::{path_or_shim, run_cmd_quietly};
++use crate::{path_or_shim, run_cmd_quietly, Utf8PathExt};
+ 
+ #[derive(Debug, Clone)]
+ pub struct CrateMetadata {
+@@ -102,7 +102,7 @@ impl CrateMetadata {
+         if !manifest_path.exists() {
+             anyhow::bail!("Manifest not found at {manifest_path}");
+         }
+-        let manifest_path = manifest_path.canonicalize_utf8()?;
++        let manifest_path = manifest_path.canonicalize_utf8_or_shim()?;
+         let crate_dir = manifest_path
+             .parent()
+             .expect("A valid parent for the crate manifest")
+@@ -169,7 +169,7 @@ impl TryFrom<Utf8PathBuf> for CrateMetadata {
+         if !manifest_path.exists() {
+             anyhow::bail!("Crate manifest doesn't exist");
+         }
+-        let manifest_path = manifest_path.canonicalize_utf8()?;
++        let manifest_path = manifest_path.canonicalize_utf8_or_shim()?;
+         let manifest_path = if !manifest_path.ends_with("Cargo.toml") {
+             if !manifest_path.is_dir() {
+                 anyhow::bail!("Crate should either be a path to a Cargo.toml or a directory containing a Cargo.toml file");

@@ -188,8 +188,11 @@ const message = i18n.t(msg`设备已连接`);
 
 **分享码系统**: 6 位数字，DHT key = SHA256(code)，记录包含 OS 信息 + 时间戳，默认 TTL 300 秒
 
-> 移动端（iOS / Android）已迁移到独立的 **SwarmDrop-RN** 项目（React Native + Expo + uniffi），
-> 共用 `crates/core` 与 `libs/core`。本仓库自此只保留桌面端 (Windows / macOS / Linux)。
+> 移动端（iOS / Android，React Native + Expo + uniffi）在 `mobile/`，与桌面共用
+> `crates/core` 与 `libs/core`。它曾是独立的 SwarmDrop-RN 仓，2026-07-16 并入本仓（该仓已归档）。
+> Rust 桥接 `mobile/packages/swarmdrop-core/rust/mobile-core` 是根 Cargo workspace 的 member，
+> 走 path 依赖；JS 侧则是独立 pnpm workspace（在 `mobile/` 下跑 `pnpm install`）。
+> 发版是两条独立版本线：桌面 `v*`、移动 `mobile-v*`（仅 Android，iOS 不发版）。
 
 ## 开发规范
 

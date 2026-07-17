@@ -31,10 +31,54 @@ jobs:
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
-          args: --latest --strip header
+          # 单仓后两条版本线并存，桌面的 changelog 必须把移动端摘干净：
+          #   --tag-pattern  只认桌面的 v* tag，不会把 mobile-v* 当成上一个版本
+          #   --exclude-path 排掉 mobile/ 下的提交（RN 并入时带进 129 条历史，
+          #                  且都是 unrelated history，不过滤会全落进「本次发布」——
+          #                  实测 122 条 vs 过滤后 6 条）
+          # crates/ 与 libs/ 不排除：两端共享，改动确实影响桌面。
+          args: --latest --strip header --tag-pattern '^v[0-9]' --exclude-path 'mobile/**'
+
+  # 桌面版本号散在三处，必须一起改（踩过坑，见 dev-notes/knowledge/toolchain.md）。
+  # 这里在构建前闸掉不一致，而不是跑完 40 分钟四个 target 才发现错位。
+  # 移动端不参与——单仓后两端各自打 tag(v* / mobile-v*)、各走一条版本线，
+  # 移动端的对应校验在 mobile-release.yml。
+  verify-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert desktop version sources agree
+        run: |
+          CONF=$(jq -r '.version' src-tauri/tauri.conf.json)
+          PKG=$(jq -r '.version' package.json)
+          CARGO=$(grep -m1 '^version' src-tauri/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+
+          echo "src-tauri/tauri.conf.json : $CONF   (release 真源，CI 用这个)"
+          echo "package.json              : $PKG"
+          echo "src-tauri/Cargo.toml      : $CARGO"
+
+          fail=0
+          for pair in "package.json:$PKG" "src-tauri/Cargo.toml:$CARGO"; do
+            name="${pair%%:*}"; val="${pair#*:}"
+            if [ "$val" != "$CONF" ]; then
+              echo "::error::$name 的版本 $val 与 tauri.conf.json 真源 $CONF 不一致"
+              fail=1
+            fi
+          done
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG_VER="${GITHUB_REF_NAME#v}"
+            if [ "$TAG_VER" != "$CONF" ]; then
+              echo "::error::tag v$TAG_VER 与 tauri.conf.json 真源 $CONF 不一致"
+              fail=1
+            fi
+          fi
+
+          [ "$fail" = "0" ] && echo "✅ 桌面版本一致：$CONF" || exit 1
 
   build-tauri:
-    needs: [generate-changelog]
+    needs: [generate-changelog, verify-versions]
     permissions:
       contents: write
     outputs:
@@ -153,8 +197,9 @@ jobs:
           channel: stable
 
   # 仅在 workflow_dispatch 指定 min_version 时打补丁；tag push 路径直接跳过。
-  # 旧版本同时还在 latest.json 里塞 mobile.android.{version,download_url}，
-  # 移动端拆到 swarm-apps/SwarmDrop-RN 之后这块已无意义。
+  # 旧版本同时还在 latest.json 里塞 mobile.android.{version,download_url}——那是移动端
+  # 尚未独立发版时的遗留。移动端现在虽已并回单仓(mobile/)，但仍是独立版本线 + 独立
+  # SwarmHive app(swarmdrop-rn)，由 mobile-release.yml 发布，不走这里的 latest.json。
   update-latest-json:
     if: ${{ github.event.inputs.min_version != '' }}
     needs: [build-tauri]

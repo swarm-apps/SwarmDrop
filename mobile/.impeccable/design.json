@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-01T00:00:00Z",
+  "title": "Design System: SwarmDrop Mobile",
+  "extensions": {
+    "colorMeta": {
+      "trust-blue": {
+        "role": "primary",
+        "displayName": "Trust Blue",
+        "canonical": "hsl(217.2 91.2% 59.8%)",
+        "tonalRamp": ["#1e3a8a", "#1e40af", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#dbeafe"]
+      },
+      "porch-white": {
+        "role": "neutral-background",
+        "displayName": "Porch White",
+        "canonical": "hsl(0 0% 100%)",
+        "tonalRamp": ["#0f172a", "#334155", "#64748b", "#94a3b8", "#cbd5e1", "#e2e8f0", "#f1f5f9", "#ffffff"]
+      },
+      "doorway-ink": {
+        "role": "neutral-foreground",
+        "displayName": "Doorway Ink",
+        "canonical": "hsl(222.2 84% 4.9%)",
+        "tonalRamp": ["#020817", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"]
+      },
+      "quiet-surface": {
+        "role": "neutral-surface",
+        "displayName": "Quiet Surface",
+        "canonical": "hsl(210 40% 96.1%)",
+        "tonalRamp": ["#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1", "#f1f5f9"]
+      },
+      "quiet-ink": {
+        "role": "neutral-foreground-secondary",
+        "displayName": "Quiet Ink",
+        "canonical": "hsl(222.2 47.4% 11.2%)",
+        "tonalRamp": ["#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1", "#f1f5f9"]
+      },
+      "hush-gray": {
+        "role": "neutral-muted",
+        "displayName": "Hush Gray",
+        "canonical": "hsl(215.4 16.3% 46.9%)",
+        "tonalRamp": ["#0f172a", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1", "#e2e8f0", "#f1f5f9"]
+      },
+      "threshold-line": {
+        "role": "border",
+        "displayName": "Threshold Line",
+        "canonical": "hsl(214.3 31.8% 91.4%)",
+        "tonalRamp": ["#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1", "#e2e8f0", "#f1f5f9"]
+      },
+      "welcome-green": {
+        "role": "success",
+        "displayName": "Welcome Green",
+        "canonical": "hsl(142.1 76.2% 36.3%)",
+        "tonalRamp": ["#14532d", "#166534", "#15803d", "#16a34a", "#22c55e", "#4ade80", "#86efac", "#dcfce7"]
+      },
+      "caution-amber": {
+        "role": "warning",
+        "displayName": "Caution Amber",
+        "canonical": "hsl(38 92% 50%)",
+        "tonalRamp": ["#78350f", "#92400e", "#b45309", "#d97706", "#f59e0b", "#fbbf24", "#fcd34d", "#fef3c7"]
+      },
+      "alert-red": {
+        "role": "destructive",
+        "displayName": "Alert Red",
+        "canonical": "hsl(0 84.2% 60.2%)",
+        "tonalRamp": ["#7f1d1d", "#991b1b", "#b91c1c", "#dc2626", "#ef4444", "#f87171", "#fca5a5", "#fee2e2"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The live transfer progress number on the transfer detail screen — a metric readout, not a heading." },
+      "title": { "displayName": "Title", "purpose": "Device names and primary list-row titles — the real workhorse heading size in the app." },
+      "body": { "displayName": "Body", "purpose": "Button labels, secondary row text, settings descriptions." },
+      "label": { "displayName": "Label", "purpose": "Status pills, trust badges, connection badges, and metadata captions — the densest, most repeated text style." }
+    },
+    "shadows": [
+      { "name": "resting", "value": "0 1px 2px rgba(0,0,0,0.05)", "purpose": "Default for anything anchored in the layout flow: buttons, cards, inputs, device rows." },
+      { "name": "floating", "value": "0 10px 25px rgba(0,0,0,0.15)", "purpose": "Content that overlays the page on open: dialog, alert-dialog, popover, dropdown-menu, select." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one color that means 'act here' — send, confirm, pair.",
+      "html": "<button class=\"ds-btn-primary\">发送文件</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 10px 16px; border-radius: 8px; background: #3B82F6; color: #F8FAFC; font-size: 14px; font-weight: 500; border: none; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: background 0.15s ease-out; } .ds-btn-primary:hover, .ds-btn-primary:active { background: rgba(59,130,246,0.9); } .ds-btn-primary:focus-visible { outline: 3px solid rgba(59,130,246,0.5); outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action — cancel, dismiss, view details.",
+      "html": "<button class=\"ds-btn-outline\">取消</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 10px 16px; border-radius: 8px; background: #FFFFFF; color: #020817; border: 1px solid #E2E8F0; font-size: 14px; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: background 0.15s ease-out; } .ds-btn-outline:hover, .ds-btn-outline:active { background: #F1F5F9; }"
+    },
+    {
+      "name": "Device Row",
+      "kind": "card",
+      "refersTo": "device-row",
+      "description": "The primary phone-list unit — icon, name, online state, and a send affordance in one tappable row.",
+      "html": "<div class=\"ds-device-row\"><div class=\"ds-device-icon\"></div><div class=\"ds-device-info\"><div class=\"ds-device-name\">MBP-yexiyue<span class=\"ds-online-dot\"></span><span class=\"ds-online-label\">在线</span></div><div class=\"ds-device-meta\">macOS · darwin</div></div><button class=\"ds-send-btn\" aria-label=\"发送文件\">↗</button></div>",
+      "css": ".ds-device-row { display: flex; align-items: center; gap: 12px; min-height: 76px; border-radius: 10px; border: 1px solid #E2E8F0; background: #FFFFFF; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); } .ds-device-icon { width: 44px; height: 44px; border-radius: 9999px; background: #F1F5F9; flex-shrink: 0; } .ds-device-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; } .ds-device-name { font-size: 15px; font-weight: 600; color: #020817; display: flex; align-items: center; gap: 6px; } .ds-online-dot { width: 6px; height: 6px; border-radius: 9999px; background: #16A34A; display: inline-block; } .ds-online-label { font-size: 11px; color: #16A34A; font-weight: 500; } .ds-device-meta { font-size: 11px; color: #64748B; } .ds-send-btn { width: 44px; height: 44px; border-radius: 12px; background: #3B82F6; color: #F8FAFC; border: none; flex-shrink: 0; font-size: 17px; transition: opacity 0.15s ease-out; } .ds-send-btn:hover, .ds-send-btn:active { opacity: 0.7; }"
+    },
+    {
+      "name": "Status Pill (Running)",
+      "kind": "chip",
+      "refersTo": "status-pill-running",
+      "description": "Node runtime state — doubles as a tap target to start/stop the node.",
+      "html": "<span class=\"ds-status-pill\"><span class=\"ds-status-dot\"></span>运行中</span>",
+      "css": ".ds-status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 9999px; background: rgba(22,163,74,0.1); color: #16A34A; font-size: 12px; font-weight: 500; } .ds-status-dot { width: 8px; height: 8px; border-radius: 9999px; background: #16A34A; }"
+    },
+    {
+      "name": "Trust Badge (Owned)",
+      "kind": "chip",
+      "refersTo": "trust-badge-owned",
+      "description": "Device trust level — one of four (owned/collaborator/temporary/blocked), same tint pattern each time.",
+      "html": "<span class=\"ds-trust-badge\">本人设备</span>",
+      "css": ".ds-trust-badge { display: inline-flex; padding: 2px 10px; border-radius: 9999px; background: rgba(59,130,246,0.1); color: #3B82F6; font-size: 11px; font-weight: 500; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Pairing code entry, search, settings text fields.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"输入配对码\" />",
+      "css": ".ds-input { display: flex; align-items: center; width: 100%; height: 40px; padding: 4px 12px; border-radius: 8px; border: 1px solid #E2E8F0; background: #FFFFFF; color: #020817; font-size: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); } .ds-input::placeholder { color: #64748B; } .ds-input:focus-visible { outline: 3px solid rgba(59,130,246,0.5); outline-offset: 1px; border-color: #3B82F6; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Trusted Doorstep",
+    "overview": "SwarmDrop Mobile is the doorstep of a home you control: you decide who gets a key, you can see who's standing there, and nothing gets in — or out — without your say-so. The system is built around control through visibility, not through complexity. Every screen answers one of three questions at a glance: who is this device to me, is it here right now, and what's happening with my files. It does this in a friendly, low-key voice, never a hardened-security one — the app should feel like a considerate host, not a bouncer.\n\nThis system explicitly rejects the two poles PRODUCT.md names as anti-references: it is not a social/entertainment feed (no hero avatars, no likes, no timelines), and it is not an enterprise SaaS console (no dense data tables, no dashboard stacking). Both would bury the doorstep metaphor under either performative flourish or administrative weight.",
+    "keyCharacteristics": [
+      "Neutral, near-monochrome surfaces; color is spent almost entirely on state (online, trusted, transferring, failed), never on decoration.",
+      "A tight 10–15px type scale carries nearly all product UI; size barely moves, weight and color do the talking.",
+      "Flat at rest, lifted only when a surface floats above the page (sheets, dialogs, menus).",
+      "Every interactive surface answers instantly (active:opacity-70), no hover-dependent affordances — this is a touch-first surface."
+    ],
+    "rules": [
+      { "name": "The Doorstep Threshold Rule", "body": "There is exactly one border/input color in the entire system (#E2E8F0 light, #1E293B dark). Never introduce a second gray for dividers — reach for opacity on existing semantic colors instead of a new hex.", "section": "colors" },
+      { "name": "The Unified Ink Rule", "body": "--primary-foreground is dark ink (#0F172A) in both light and dark mode, even though --primary itself never changes. It used to flip (light text in light mode), but that pairing only cleared ~3.5:1 contrast, below WCAG AA 4.5:1. Dark ink clears ~4.9:1 in both modes, so the token is now one value, not two.", "section": "colors" },
+      { "name": "The Small-Print Confidence Rule", "body": "80%+ of all text sizes in this codebase fall between 10px and 15px. Do not reach for a larger size to add emphasis — reach for font-semibold or a state color instead.", "section": "typography" },
+      { "name": "The Almost-Flat Rule", "body": "If a resting component's shadow is visible without close inspection, it's too strong. Only floating/overlay surfaces earn a shadow you can actually see.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep color spend almost entirely on state (online/offline, trust level, transfer status) — color is information, not decoration.",
+      "Do use the 10–15px type scale for anything that repeats on screen; reserve 24px+ for the rare, genuinely singular metric readout.",
+      "Do use active:opacity-70 (or the variant-specific active fill) as the only interaction feedback — no hover-dependent states on native.",
+      "Do keep resting surfaces at shadow-sm shadow-black/5 or flatter; reserve visible shadow for anything that floats above the page on open.",
+      "Do dim offline/disabled states with opacity on the whole surface, not a separate muted color scheme."
+    ],
+    "donts": [
+      "Don't introduce social/entertainment patterns — hero avatars, like counts, or timeline-style activity feeds.",
+      "Don't build enterprise-SaaS-style dense data tables or dashboard-stacking layouts.",
+      "Don't add a second border/divider gray — every edge in this app is Threshold Line; reach for opacity variants of existing state colors instead.",
+      "Don't revert --primary-foreground back to a lighter light-mode value — the unified dark-ink value is what clears WCAG AA; a lighter value only cleared ~3.5:1.",
+      "Don't add decorative gradients, glassmorphism, or gradient text anywhere — none exist today and none fit a doorstep that's supposed to feel calm and legible."
+    ]
+  }
+}

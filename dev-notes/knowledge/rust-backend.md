@@ -303,6 +303,68 @@ LAN Helper 路径。
 
 **相关文件**：`crates/core/tests/e2e_lan_helper.rs`、`crates/core/Cargo.toml`
 
+## 配对安全
+
+### `PairingMethod::Direct` 的授权依据是 mDNS 观测，不是对端自报地址
+
+Direct（局域网点击配对，`/devices` 页「连接」按钮）没有配对码做凭证，唯一的授权依据是
+**「对端确实和本机在同一局域网」**。这个判据由 `DeviceManager::is_lan_discovered()` 提供，
+而它成立**完全依赖一个隐式前提**：`PeerInfo.addrs` 的唯一写入来源是
+`NodeEvent::PeersDiscovered`（mDNS 多播实际观测到的地址）。
+
+`handle_event` 的 `IdentifyReceived` 分支**只取 `agent_version`、用 `..` 忽略 `listen_addrs`**——
+这不是疏漏，是安全前提：identify 里的 `listen_addrs` 是对端**自报**的，远程攻击者谎报一个
+`192.168.x.x` 就能冒充同网段设备。
+
+**正确做法**：
+- Direct 的校验必须在 `event_loop` 的 `publish(PairingRequestReceived)` **之前**——否则任意远程
+  peer 都能靠一个 Pairing 请求让本机弹窗 + 推系统通知（骚扰面），且 UI 上的设备名完全由对端
+  `os_info` 自报，用户正等着某台设备时很可能直接点接受。
+- 拒绝时**不回响应**，不向扫描者泄露本机是否在线。
+- `handle_pairing_request` 里对 `PairingMethod` 必须用**穷尽 match**。原先是
+  `if let PairingMethod::Code { code } = method`，导致 `Direct` 静默 fall-through 到无条件
+  `paired_devices.insert`——**新增任何变体都会自动获得一条免校验的配对通道**。穷尽 match 强制
+  每个变体对「凭什么信任对方」表态。
+- `cache_inbound_request` 是 `pending_inbound` 的唯一写入口且只被 event_loop 调用，所以那道
+  校验是单点且充分的，`manager` 层不需要（也拿不到 `DeviceManager` 引用去）复查。
+
+**不要做**：
+- **不要让 `IdentifyReceived` 分支消费 `listen_addrs` 写进 `addrs`**。回归测试
+  `self_reported_identify_addrs_must_not_grant_lan_status` 会失败——那不是测试过时，是重新打开了
+  配对绕过漏洞。（已用 mutation 验证：注入该改动后测试精确失败。）
+- 不要用 `connection_info()` 判断是否局域网——它在 `hole_punched == true` 时直接返回 `Dcutr`，
+  会掩盖 `Lan`。要用 `infer_connection_type(&addrs)`（`has_lan` 优先）。
+
+**相关文件**：`crates/core/src/device_manager.rs`（`is_lan_discovered` + tests）、
+`crates/core/src/network/event_loop.rs`（入站校验）、`crates/core/src/pairing/manager.rs`（穷尽 match）
+
+### 发布到公共 DHT 的记录不得携带设备信息
+
+`OnlineRecord`（presence 在线宣告）的 key = `SHA256("/swarmdrop/online/" ‖ peer_id)`——peer_id 是公开的，
+所以**任何加入网络的节点都能算出这个 key 并读取记录**，且记录无签名。它只能携带「让已配对设备拨得通」
+所必需的地址。
+
+`os_info` 是历史遗留的**死字段**：写入端发 `OsInfo::default()`（含 `COMPUTERNAME`/`HOSTNAME`，常含真名），
+而读取端（`supervisor.rs` 的重探路径）只用 `dialable_addrs()`，**从不消费它**——等于每 150 秒
+（`ONLINE_RECORD_TTL_SECS / 2`）向公开 keyspace 广播一次主机名，零收益。
+
+**正确做法**：
+- 发 `OsInfo::redacted()`（全空占位），**不要**发 `OsInfo::default()`
+- 记录构造抽成纯函数 `build_online_record()`，让「不含设备信息」这条约束可被单测锁住
+- 换 iroh **不自动解决**这类问题（pkarr 同样是「知道 EndpointId 就查得到地址」）——这是产品层的
+  可见性设计，不是传输层能代劳的
+
+**不要做**：
+- **不要直接删掉 `os_info` 字段**。`OsInfo` 的 `hostname`/`os`/`platform`/`arch` 都没有
+  `#[serde(default)]`（只有 `name`/`capabilities` 有），删字段会让存量客户端反序列化**整条记录**失败
+  → 连 `direct_addrs` 一起丢 → 退化成盲拨。发空值则 wire 格式不变、存量客户端零影响。
+  字段本身随 presence 重写（改为「只对已配对设备可见」）时一并移除。
+- 不要把 `OsInfo::default()` 改回来。回归测试 `online_record_must_not_carry_device_info` 会失败——
+  那不是测试过时（已用 mutation 验证：注入 `redacted()`→`default()` 后测试精确失败）。
+
+**相关文件**：`crates/core/src/device.rs`（`OsInfo::redacted`）、
+`crates/core/src/presence/supervisor.rs`（`build_online_record` + 测试）、`crates/core/src/presence/mod.rs`
+
 ## 身份存储 (keychain)
 
 ### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）

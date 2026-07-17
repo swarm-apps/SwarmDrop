@@ -1,0 +1,31 @@
+[package]
+name = "swarmdrop-mobile-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "swarmdrop_mobile_core"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+# 与桌面共享的业务核心。单仓后是普通 workspace path 依赖，改 crates/core 立刻对
+# 移动端生效，`cargo check --workspace` 也会一并覆盖本 crate。
+swarmdrop-core = { workspace = true }
+entity = { workspace = true }
+migration = { workspace = true }
+swarm-p2p-core = { workspace = true }
+
+async-trait = { workspace = true }
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+uniffi = { version = "0.31.0", features = ["bindgen", "build", "cli", "tokio"] }
+
+# release profile 见 workspace root 的 `[profile.mobile-release]` —— 写在这里会被
+# Cargo 忽略（非 root package 的 profile 不生效）。

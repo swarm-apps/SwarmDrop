@@ -1,0 +1,137 @@
+name: Build Android (Mobile)
+
+# 手动触发的 Android 构建，产物只上传 artifact、不发版。发版走 mobile-release.yml。
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: Gradle build variant
+        type: choice
+        options: [release, debug]
+        default: release
+
+concurrency:
+  group: mobile-build-android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  JAVA_VERSION: "17"
+  NDK_VERSION: r27c
+
+jobs:
+  build:
+    name: Build Android (${{ inputs.build_type }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # 见 mobile-release.yml 同名步骤：单仓后根 target/ 兼容两端产物，14GB runner
+      # 会在 Gradle 链接原生库时耗尽磁盘（No space left on device / clang++ Bus error）。
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Setup Android NDK ${{ env.NDK_VERSION }}
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          link-to-sdk: true
+
+      - name: Setup Rust toolchain (Android targets)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          # 单仓后 mobile-core 是根 workspace 的 member，target/ 在仓库根。
+          cache-workspaces: .
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      # 不带 version：读根 package.json 的 packageManager (pnpm@11.10.0)。
+      # 两者同时指定会 ERR_PNPM_BAD_PM_VERSION。
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Rust bridge (ubrn android)
+        working-directory: mobile
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          if [ "${{ inputs.build_type }}" = "release" ]; then
+            pnpm --filter react-native-swarmdrop-core build:android:release
+          else
+            pnpm --filter react-native-swarmdrop-core build:android
+          fi
+
+      - name: Expo prebuild
+        working-directory: mobile
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Decode release keystore
+        if: inputs.build_type == 'release'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "ERROR: ANDROID_KEYSTORE_BASE64 secret is not set"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > mobile/android/app/release.keystore
+
+      - name: Gradle assemble (${{ inputs.build_type }})
+        working-directory: mobile/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ "${{ inputs.build_type }}" = "release" ]; then
+            ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
+          else
+            ./gradlew assembleDebug -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: swarmdrop-android-${{ inputs.build_type }}-${{ github.sha }}
+          path: mobile/android/app/build/outputs/apk/${{ inputs.build_type }}/*.apk
+          if-no-files-found: error
+          retention-days: 14

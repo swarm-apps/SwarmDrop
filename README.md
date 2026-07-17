@@ -20,7 +20,7 @@ No accounts. No servers. No cloud.
 **[Features](#features)** ·
 **[AI & MCP](#built-for-ai-agents-mcp)** ·
 **[Download](#download)** ·
-**[Mobile](https://github.com/swarm-apps/SwarmDrop-RN)** ·
+**[Mobile](mobile/)** ·
 **[简体中文](README.zh-CN.md)**
 
 </div>
@@ -72,7 +72,7 @@ Everything happens on-device and end-to-end encrypted — the agent's reasoning 
 
 > Downloads and **automatic updates** — for both desktop *and* mobile — are served by [SwarmHive](https://github.com/swarm-apps/SwarmHive), our own open-source, self-hostable release server. No proprietary update SaaS in the loop.
 
-> **Mobile** — SwarmDrop also runs on **Android & iOS** via [SwarmDrop-RN](https://github.com/swarm-apps/SwarmDrop-RN), a React Native app that shares the very same Rust core (`crates/core`) and encrypted protocol as the desktop app.
+> **Mobile** — SwarmDrop also runs on **Android & iOS** via `mobile/`, a React Native app that shares the very same Rust core (`crates/core`) and encrypted protocol as the desktop app.
 
 ## Getting Started
 
@@ -180,7 +180,7 @@ SwarmDrop/
 ```
 
 `crates/core` is shared by both the desktop app (`src-tauri`) and the mobile app
-([SwarmDrop-RN](https://github.com/swarm-apps/SwarmDrop-RN)) via uniffi-bindgen-react-native.
+(`mobile/`) via uniffi-bindgen-react-native.
 
 </details>
 
@@ -221,7 +221,7 @@ Issues and PRs welcome. A few conventions:
 
 SwarmDrop is part of a family of decentralized, local-first, end-to-end encrypted tools:
 
-- **SwarmDrop** — device-to-device file transfer. [Desktop](https://github.com/swarm-apps/SwarmDrop) · [Mobile](https://github.com/swarm-apps/SwarmDrop-RN)
+- **SwarmDrop** — device-to-device file transfer, desktop and mobile in one repo. [Repo](https://github.com/swarm-apps/SwarmDrop)
 - **SwarmNote** — decentralized, encrypted notes. [Desktop](https://github.com/swarm-apps/SwarmNote) · [Mobile](https://github.com/swarm-apps/SwarmNote-RN)
 - **SwarmHive** — self-hostable, open-source release & auto-update server for Tauri and React Native apps. SwarmDrop ships every update through it — and so can you. [Repo](https://github.com/swarm-apps/SwarmHive)
 

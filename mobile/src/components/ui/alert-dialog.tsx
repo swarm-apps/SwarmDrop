@@ -1,0 +1,181 @@
+import * as AlertDialogPrimitive from "@rn-primitives/alert-dialog";
+import type { VariantProps } from "class-variance-authority";
+import * as React from "react";
+import { Platform, View, type ViewProps } from "react-native";
+import { FadeIn, FadeOut } from "react-native-reanimated";
+import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
+import { buttonTextVariants, buttonVariants } from "@/components/ui/button";
+import { NativeOnlyAnimatedView } from "@/components/ui/native-only-animated-view";
+import { TextClassContext } from "@/components/ui/text";
+import { cn } from "@/lib/utils";
+
+const AlertDialog = AlertDialogPrimitive.Root;
+
+const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
+
+const AlertDialogPortal = AlertDialogPrimitive.Portal;
+
+const FullWindowOverlay =
+  Platform.OS === "ios" ? RNFullWindowOverlay : React.Fragment;
+
+function AlertDialogOverlay({
+  className,
+  children,
+  ...props
+}: Omit<
+  React.ComponentProps<typeof AlertDialogPrimitive.Overlay>,
+  "asChild"
+> & {
+  children?: React.ReactNode;
+}) {
+  return (
+    <FullWindowOverlay>
+      <AlertDialogPrimitive.Overlay
+        // Layout + bg are fully inline: react-native-css can drop alpha colors
+        // and arbitrary layout utilities under NativeWind v5 preview, leaving
+        // the overlay either transparent or non-fullscreen. Inline style is
+        // the only fully reliable path here. See
+        // dev-notes/knowledge/theme-and-styling.md > AlertDialog/Dialog overlay.
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          zIndex: 50,
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 8,
+          backgroundColor: "rgba(0,0,0,0.5)",
+        }}
+        className={cn(
+          Platform.select({
+            web: "animate-in fade-in-0 fixed",
+          }),
+          className,
+        )}
+        {...props}
+      >
+        <NativeOnlyAnimatedView
+          entering={FadeIn.duration(200).delay(50)}
+          exiting={FadeOut.duration(150)}
+        >
+          {children}
+        </NativeOnlyAnimatedView>
+      </AlertDialogPrimitive.Overlay>
+    </FullWindowOverlay>
+  );
+}
+
+function AlertDialogContent({
+  className,
+  portalHost,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
+  portalHost?: string;
+}) {
+  return (
+    <AlertDialogPortal hostName={portalHost}>
+      <AlertDialogOverlay>
+        <AlertDialogPrimitive.Content
+          className={cn(
+            "bg-background border-border z-50 flex w-full max-w-[calc(100%-2rem)] flex-col gap-4 rounded-lg border p-6 shadow-lg shadow-black/5 sm:max-w-lg",
+            Platform.select({
+              web: "animate-in fade-in-0 zoom-in-95 duration-200",
+            }),
+            className,
+          )}
+          {...props}
+        />
+      </AlertDialogOverlay>
+    </AlertDialogPortal>
+  );
+}
+
+function AlertDialogHeader({ className, ...props }: ViewProps) {
+  return (
+    <TextClassContext.Provider value="text-center sm:text-left">
+      <View className={cn("flex flex-col gap-2", className)} {...props} />
+    </TextClassContext.Provider>
+  );
+}
+
+function AlertDialogFooter({ className, ...props }: ViewProps) {
+  // 上游 shadcn 是 web 响应式(窄视口竖排、sm:横排),手机永远走不到 sm:,
+  // 全 app 弹窗被迫竖排。移动端惯例(iOS HIG / Material 3 / 微信系)是
+  // 双键横排:取消左、确认右 —— 调用方给按钮加 flex-1 等宽。
+  return <View className={cn("flex flex-row gap-2.5", className)} {...props} />;
+}
+
+function AlertDialogTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Title>) {
+  return (
+    <AlertDialogPrimitive.Title
+      className={cn("text-foreground text-lg font-semibold", className)}
+      {...props}
+    />
+  );
+}
+
+function AlertDialogDescription({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Description>) {
+  return (
+    <AlertDialogPrimitive.Description
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  );
+}
+
+function AlertDialogAction({
+  className,
+  variant,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Action> &
+  Pick<VariantProps<typeof buttonVariants>, "variant">) {
+  return (
+    // className 只作用于按钮容器,不能进 buttonTextVariants —— 调用方传的 flex-1
+    // (双键等宽)若漏进文字上下文,会把 Text 撑成 flex-1、文字左对齐(失去居中)。
+    <TextClassContext.Provider value={buttonTextVariants({ variant })}>
+      <AlertDialogPrimitive.Action
+        className={cn(buttonVariants({ variant }), className)}
+        {...props}
+      />
+    </TextClassContext.Provider>
+  );
+}
+
+function AlertDialogCancel({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
+  return (
+    // 同 Action:className 只给按钮容器,勿漏进文字变体(否则 flex-1 令文案左对齐)。
+    <TextClassContext.Provider
+      value={buttonTextVariants({ variant: "outline" })}
+    >
+      <AlertDialogPrimitive.Cancel
+        className={cn(buttonVariants({ variant: "outline" }), className)}
+        {...props}
+      />
+    </TextClassContext.Provider>
+  );
+}
+
+export {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogOverlay,
+  AlertDialogPortal,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+};

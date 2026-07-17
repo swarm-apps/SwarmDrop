@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "demo": "desktop-home",
+  "source": {
+    "path": "demos/desktop-home.mp4",
+    "sourceTrimMs": 250,
+    "width": 1440,
+    "height": 1080,
+    "contentRect": {
+      "x": 24,
+      "y": 180,
+      "width": 960,
+      "height": 720
+    },
+    "durationMs": 7967
+  },
+  "viewport": {
+    "height": 720,
+    "width": 960
+  },
+  "events": [
+    {
+      "atMs": 28,
+      "type": "caption",
+      "text": "配对完成后，设备中心一览"
+    },
+    {
+      "atMs": 1247,
+      "type": "focus",
+      "target": {
+        "height": 748,
+        "width": 527,
+        "x": 20,
+        "y": 216
+      },
+      "caption": "已配对设备优先展示，在线即可直接发送",
+      "scale": 1.12,
+      "holdMs": 1800
+    },
+    {
+      "atMs": 3458,
+      "type": "focus",
+      "target": {
+        "height": 170,
+        "width": 328,
+        "x": 583,
+        "y": 425
+      },
+      "caption": "跨网络时用这组 6 位配对码连接",
+      "scale": 1.35,
+      "holdMs": 1800
+    },
+    {
+      "atMs": 4869,
+      "type": "click",
+      "target": {
+        "height": 40,
+        "width": 40,
+        "x": 814,
+        "y": 483
+      },
+      "caption": "一键复制配对码"
+    }
+  ]
+}

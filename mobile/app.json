@@ -1,0 +1,84 @@
+{
+  "expo": {
+    "name": "SwarmDrop",
+    "slug": "swarmdrop-mobile",
+    "version": "0.7.19",
+    "orientation": "portrait",
+    "scheme": "swarmdrop",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/images/icon.png",
+    "ios": {
+      "bundleIdentifier": "com.yexiyue.swarmdrop"
+    },
+    "android": {
+      "package": "com.yexiyue.swarmdrop",
+      "versionCode": 25,
+      "predictiveBackGestureEnabled": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#F0FBF7"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-localization",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F0FBF7",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0"
+          },
+          "android": {
+            "softwareKeyboardLayoutMode": "resize",
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许 SwarmDrop 访问相册以选择要发送的照片和视频。"
+        }
+      ],
+      "expo-sharing",
+      "expo-web-browser",
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsFileWithMaxCount": 20,
+            "NSExtensionActivationSupportsImageWithMaxCount": 20,
+            "NSExtensionActivationSupportsMovieWithMaxCount": 20
+          },
+          "iosAppGroupIdentifier": "group.com.yexiyue.swarmdrop",
+          "androidIntentFilters": [
+            "*/*"
+          ],
+          "androidMultiIntentFilters": [
+            "*/*"
+          ]
+        }
+      ],
+      "./plugins/with-android-release-signing",
+      "./plugins/with-android-install-permission",
+      "./plugins/with-android-foreground-service",
+      "./plugins/with-android-notification-icon",
+      "./plugins/with-android-gradle-memory",
+      "expo-video",
+      "expo-image"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

@@ -1,0 +1,339 @@
+name: Release (Mobile)
+
+# 移动端独立版本线：mobile-v* 触发，与桌面的 v* 互不干扰（glob 从头匹配，v* 不会
+# 撞上 mobile-v*）。两端共享 crates/core，但发版节奏解耦——移动端历史版本号已到
+# 0.7.18、高于桌面 0.7.8，若强行统一版本线，桌面发 v0.7.9 止血会让移动端降版、
+# 存量用户反而收不到更新。
+#
+# 代价：M4 的 wire-break 锁步不再由「同一个 tag」强制，需靠协议协商或流程保证。
+on:
+  push:
+    tags:
+      - "mobile-v*"
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  JAVA_VERSION: "17"
+  NDK_VERSION: r27c
+
+jobs:
+  # 移动端版本散在两处 + tag，一起改才对。构建要 40 分钟，先闸掉错位。
+  # versionCode 不参与比较——它对 Google Play 单调递增，与 versionName 无关。
+  verify-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Assert mobile version sources agree
+        run: |
+          APP=$(jq -r '.expo.version' mobile/app.json)
+          PKG=$(jq -r '.version' mobile/package.json)
+
+          echo "mobile/app.json      : $APP   (真源 = APK 的 versionName)"
+          echo "mobile/package.json  : $PKG"
+
+          fail=0
+          if [ "$PKG" != "$APP" ]; then
+            echo "::error::mobile/package.json 的 $PKG 与 app.json 真源 $APP 不一致"
+            fail=1
+          fi
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG_VER="${GITHUB_REF_NAME#mobile-v}"
+            if [ "$TAG_VER" != "$APP" ]; then
+              echo "::error::tag mobile-v$TAG_VER 与 app.json 真源 $APP 不一致"
+              fail=1
+            fi
+          fi
+
+          [ "$fail" = "0" ] && echo "✅ 移动端版本一致：$APP" || exit 1
+
+  generate-changelog:
+    runs-on: ubuntu-latest
+    outputs:
+      changelog: ${{ steps.cliff.outputs.content }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog (mobile only)
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          # mobile/cliff.toml 与根的差别仅在 header 文案（"SwarmDrop Mobile"）。
+          config: mobile/cliff.toml
+          # --tag-pattern  只认 mobile-v*，不会把桌面的 v* 当成上一个版本
+          # --include-path 只取 mobile/ 与共享 core 的提交；桌面侧改动不进移动端 changelog
+          args: >-
+            --latest --strip header
+            --tag-pattern '^mobile-v'
+            --include-path 'mobile/**' --include-path 'crates/**' --include-path 'libs/**'
+
+  build-android:
+    name: Build Android (release)
+    needs: [verify-versions, generate-changelog]
+    runs-on: ubuntu-latest
+    # 90 而非沿用 RN 独立仓时的 60：那 60 分钟是建立在 RN 仓十几次发版攒下的
+    # Gradle/Rust 热缓存之上的。迁到主仓后缓存 key 全新，首跑 Gradle assembleRelease
+    # 单步就吃掉 ~54 分钟并撞上 60 分钟上限（Rust 桥只用了 6 分钟，不是瓶颈）。
+    # 缓存建立后实际耗时会回落，但上限留够，避免冷缓存场景（如 NDK 升级、
+    # actions/cache 过期驱逐）再次卡死在这里。
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    outputs:
+      apk_url: ${{ steps.stage.outputs.apk_url }}
+
+    steps:
+      # 单仓后磁盘吃紧：cache-workspaces 指向根 workspace，target/ 同时容纳桌面与移动的
+      # Rust 产物；再叠上 hoisted 的 ~844 个 node_modules、Android SDK/NDK、Gradle 缓存，
+      # 14GB 的 runner 装不下。实测 Gradle 链接 libreanimated.so 时报 "No space left on
+      # device"，clang++ 直接 Bus error (core dumped)——RN 独立仓时 target 里只有
+      # mobile-core，所以从没撞到过。清掉 runner 预装但本项目用不到的部分。
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false # 保留：Node / Java 从 tool-cache 来
+          android: false # 保留：setup-android / setup-ndk 依赖既有 SDK 布局
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            VERSION=$(jq -r '.expo.version' mobile/app.json)
+            TAG="mobile-v${VERSION}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${TAG}"
+
+      - name: Setup JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Setup Android NDK ${{ env.NDK_VERSION }}
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          link-to-sdk: true
+
+      - name: Setup Rust toolchain (Android targets)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: aarch64-linux-android
+          # 单仓后 mobile-core 是根 workspace 的 member，target/ 在仓库根，
+          # 不再是 packages/swarmdrop-core/rust/mobile-core/target/。
+          cache-workspaces: .
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      # 不带 version：读根 package.json 的 packageManager (pnpm@11.10.0)。
+      # 两者同时指定会 ERR_PNPM_BAD_PM_VERSION（见 dev-notes/knowledge/toolchain.md）。
+      # RN 独立仓时用 pnpm 10 + action 的 version 指定，单仓后统一到 11。
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Rust bridge (ubrn android, mobile-release profile)
+        working-directory: mobile
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: pnpm --filter react-native-swarmdrop-core build:android:release
+
+      - name: Expo prebuild
+        working-directory: mobile
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "ERROR: ANDROID_KEYSTORE_BASE64 secret is not set"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > mobile/android/app/release.keystore
+
+      - name: Gradle assembleRelease
+        working-directory: mobile/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
+
+      # === SwarmHive 发布(Android arm64-v8a → stable)===
+      # version / versionCode 取自 app.json(= APK 内实际 versionName / versionCode)，
+      # 与 prebuild 出来的 APK 一致；不用 git tag，避免 tag 与 app.json 不同步时错位。
+      - name: Resolve Android version + versionCode
+        id: vc
+        run: |
+          echo "name=$(jq -r '.expo.version' mobile/app.json)" >> "$GITHUB_OUTPUT"
+          echo "code=$(jq -r '.expo.android.versionCode // 1' mobile/app.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Write SwarmHive release notes
+        env:
+          RELEASE_NOTES: ${{ needs.generate-changelog.outputs.changelog }}
+        run: printf '%s' "$RELEASE_NOTES" > swarmhive-notes.md
+
+      # 预先算出该 APK 在 GitHub Release 上的资产 URL(与下方 "Stage APKs" 的重命名规则
+      # 完全一致)，作为 SwarmHive 的镜像 / fallback 下载源传给 action。GitHub Release
+      # 此刻尚为 draft，服务端 liveness 会等它转正后才对外暴露该镜像。
+      - name: Resolve GitHub mirror URL (primary APK)
+        id: mirror
+        run: |
+          PRIMARY=$(ls mobile/android/app/build/outputs/apk/release/*.apk | head -1)
+          base=$(basename "$PRIMARY" .apk)
+          asset="${{ steps.tag.outputs.tag }}-${base}.apk"
+          echo "url=https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to SwarmHive (upload + finalize)
+        # 单 target，一步上传到 draft + finalize + 把 stable 渠道指向它。
+        # app slug 仍是 swarmdrop-rn：单仓不改变 SwarmHive 上两个 app 的身份，
+        # 存量移动端客户端的更新检查指向它，改名会让存量收不到更新。
+        uses: swarm-apps/swarmhive-action@v2
+        with:
+          server: ${{ secrets.SWARMHIVE_SERVER }}
+          token: ${{ secrets.SWARMHIVE_TOKEN }}
+          platform: android
+          app: swarmdrop-rn
+          version: ${{ steps.vc.outputs.name }}
+          version-code: ${{ steps.vc.outputs.code }}
+          abi: arm64-v8a
+          finalize: "true"
+          channel: stable
+          notes-file: swarmhive-notes.md
+          github-mirror-url: ${{ steps.mirror.outputs.url }}
+          artifact-paths: mobile/android/app/build/outputs/apk/release/*.apk
+
+      - name: Stage APKs with versioned names
+        id: stage
+        run: |
+          mkdir -p artifacts
+          PRIMARY=""
+          for apk in mobile/android/app/build/outputs/apk/release/*.apk; do
+            base=$(basename "$apk" .apk)
+            target="${{ steps.tag.outputs.tag }}-${base}.apk"
+            cp "$apk" "artifacts/${target}"
+            if [ -z "$PRIMARY" ]; then PRIMARY="$target"; fi
+          done
+          ls -l artifacts
+          echo "apk_url=https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/${PRIMARY}" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release and upload APKs
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: SwarmDrop Mobile ${{ steps.tag.outputs.tag }}
+          body: ${{ needs.generate-changelog.outputs.changelog }}
+          draft: true
+          prerelease: false
+          files: artifacts/*.apk
+
+  publish-release:
+    name: Publish release
+    needs: [build-android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            VERSION=$(jq -r '.expo.version' mobile/app.json)
+            TAG="mobile-v${VERSION}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Promote draft to published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ steps.tag.outputs.tag }}" --draft=false
+
+  update-changelog:
+    name: Update mobile/CHANGELOG.md
+    needs: [publish-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine target branch
+        id: branch
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            BRANCH=$(git branch -r --contains "${{ github.sha }}" | grep -v HEAD | sed 's|origin/||' | xargs | cut -d' ' -f1)
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+          echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "Target branch: ${BRANCH}"
+          git checkout "$BRANCH"
+
+      # 写 mobile/CHANGELOG.md，不是仓库根的 CHANGELOG.md——后者是桌面的，
+      # 两条版本线各自维护自己的变更历史，否则会互相覆盖。
+      - name: Generate full mobile changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: mobile/cliff.toml
+          args: >-
+            -o mobile/CHANGELOG.md
+            --tag-pattern '^mobile-v'
+            --include-path 'mobile/**' --include-path 'crates/**' --include-path 'libs/**'
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet mobile/CHANGELOG.md; then
+            echo "No changelog changes"
+            exit 0
+          fi
+          git add mobile/CHANGELOG.md
+          git commit -m "chore(release): update mobile/CHANGELOG.md"
+          git push origin ${{ steps.branch.outputs.name }}

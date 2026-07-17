@@ -22,7 +22,7 @@ use crate::device::{ConnectionType, OsInfo};
 use crate::device_manager::DeviceFilter;
 use crate::error::AppResult;
 use crate::host::{CoreEvent, EventBus, Notifier};
-use crate::protocol::AppRequest;
+use crate::protocol::{AppRequest, PairingMethod};
 use crate::transfer::incoming::{
     IncomingTransferDisposition, IncomingTransferRuntime, handle_incoming_transfer_request,
 };
@@ -133,17 +133,29 @@ pub async fn handle_core_node_event<TTransfer>(
             pending_id,
             request: AppRequest::Pairing(pair_req),
         } => {
-            shared
-                .pairing
-                .cache_inbound_request(*peer_id, *pending_id, pair_req);
+            // Direct 没有配对码做凭证，唯一的授权依据就是「对端和本机在同一局域网」。
+            // 这道校验必须在 publish 之前：否则任意远程 peer 都能靠一个 Pairing 请求
+            // 让本机弹窗 + 推系统通知，且 UI 上的设备名完全由对端自报——用户正等着
+            // 某台设备时很可能直接点接受。
+            let direct_from_wan = matches!(pair_req.method, PairingMethod::Direct)
+                && !shared.devices.is_lan_discovered(peer_id);
 
-            let _ = event_bus
-                .publish(CoreEvent::PairingRequestReceived {
-                    peer_id: *peer_id,
-                    pending_id: *pending_id,
-                    request: pair_req.clone(),
-                })
-                .await;
+            if direct_from_wan {
+                // 不缓存、不弹窗、不通知，也不回响应：不向扫描者泄露本机是否在线。
+                warn!("拒绝非局域网 peer 的 Direct 配对请求: {peer_id}");
+            } else {
+                shared
+                    .pairing
+                    .cache_inbound_request(*peer_id, *pending_id, pair_req);
+
+                let _ = event_bus
+                    .publish(CoreEvent::PairingRequestReceived {
+                        peer_id: *peer_id,
+                        pending_id: *pending_id,
+                        request: pair_req.clone(),
+                    })
+                    .await;
+            }
         }
         NodeEvent::InboundRequest {
             request: AppRequest::Transfer(_),

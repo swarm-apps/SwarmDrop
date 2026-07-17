@@ -1,0 +1,250 @@
+/**
+ * 移动端传输领域类型 —— RN 侧只消费 projection，不再维护旧 history/status 模型。
+ */
+
+import { i18n } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
+import {
+  MobileSuspendedReason,
+  MobileTerminalReason,
+  MobileTransferDirection,
+  type MobileTransferOfferFile,
+  type MobileTransferOrigin,
+  MobileTransferPhase,
+  type MobileTransferProgress,
+  type MobileTransferProjection,
+} from "react-native-swarmdrop-core";
+
+export type TransferDirection = "send" | "receive";
+
+export type ProjectionStatus =
+  | "offered"
+  | "waiting_accept"
+  | "transferring"
+  | "paused"
+  | "interrupted"
+  | "peer_offline"
+  | "app_restarted"
+  | "completed"
+  | "cancelled"
+  | "rejected"
+  | "failed";
+
+export type ProjectionGroup =
+  | "active"
+  | "recoverable"
+  | "attention"
+  | "completed";
+
+export interface TransferOfferQueueItem {
+  id: string;
+  offer: {
+    sessionId: string;
+    peerId: string;
+    deviceName: string;
+    totalSize: bigint;
+    files: MobileTransferOfferFile[];
+    origin: MobileTransferOrigin;
+    policyAction?: string;
+    policyReason?: string;
+  };
+  receivedAt: number;
+}
+
+export function projectionDirection(
+  projection: MobileTransferProjection,
+): TransferDirection {
+  return projection.direction === MobileTransferDirection.Send
+    ? "send"
+    : "receive";
+}
+
+export function projectionStatus(
+  projection: MobileTransferProjection,
+): ProjectionStatus {
+  switch (projection.phase) {
+    case MobileTransferPhase.Offered:
+      return "offered";
+    case MobileTransferPhase.WaitingAccept:
+      return "waiting_accept";
+    case MobileTransferPhase.Active:
+      return "transferring";
+    case MobileTransferPhase.Suspended:
+      return suspendedStatus(projection.suspendedReason);
+    case MobileTransferPhase.Terminal:
+      return terminalStatus(projection.terminalReason);
+    default:
+      return "failed";
+  }
+}
+
+function suspendedStatus(
+  reason: MobileSuspendedReason | undefined,
+): ProjectionStatus {
+  switch (reason) {
+    case MobileSuspendedReason.LocalPaused:
+    case MobileSuspendedReason.RemotePaused:
+      return "paused";
+    case MobileSuspendedReason.PeerOffline:
+      return "peer_offline";
+    case MobileSuspendedReason.AppRestarted:
+      return "app_restarted";
+    case MobileSuspendedReason.Interrupted:
+      return "interrupted";
+    default:
+      return "interrupted";
+  }
+}
+
+function terminalStatus(
+  reason: MobileTerminalReason | undefined,
+): ProjectionStatus {
+  switch (reason) {
+    case MobileTerminalReason.Completed:
+      return "completed";
+    case MobileTerminalReason.Cancelled:
+      return "cancelled";
+    case MobileTerminalReason.Rejected:
+      return "rejected";
+    case MobileTerminalReason.FatalError:
+      return "failed";
+    default:
+      return "failed";
+  }
+}
+
+export function isProjectionActive(
+  projection: MobileTransferProjection,
+): boolean {
+  return (
+    projection.phase === MobileTransferPhase.Offered ||
+    projection.phase === MobileTransferPhase.WaitingAccept ||
+    projection.phase === MobileTransferPhase.Active
+  );
+}
+
+export function isProjectionRecoverable(
+  projection: MobileTransferProjection,
+): boolean {
+  return (
+    projection.phase === MobileTransferPhase.Suspended && projection.recoverable
+  );
+}
+
+export function isProjectionTerminal(
+  projection: MobileTransferProjection,
+): boolean {
+  return projection.phase === MobileTransferPhase.Terminal;
+}
+
+export function projectionNeedsAttention(
+  projection: MobileTransferProjection,
+): boolean {
+  if (projection.phase === MobileTransferPhase.Suspended) {
+    return !projection.recoverable;
+  }
+  return (
+    projection.phase === MobileTransferPhase.Terminal &&
+    projection.terminalReason === MobileTerminalReason.FatalError
+  );
+}
+
+export function projectionGroup(
+  projection: MobileTransferProjection,
+): ProjectionGroup {
+  if (isProjectionActive(projection)) return "active";
+  if (isProjectionRecoverable(projection)) return "recoverable";
+  if (projectionNeedsAttention(projection)) return "attention";
+  return "completed";
+}
+
+export function groupTransferProjections(
+  projections: MobileTransferProjection[],
+): Record<ProjectionGroup, MobileTransferProjection[]> {
+  const grouped: Record<ProjectionGroup, MobileTransferProjection[]> = {
+    active: [],
+    recoverable: [],
+    attention: [],
+    completed: [],
+  };
+
+  for (const projection of projections) {
+    grouped[projectionGroup(projection)].push(projection);
+  }
+
+  for (const items of Object.values(grouped)) {
+    items.sort(compareProjectionsByUpdatedAtDesc);
+  }
+
+  return grouped;
+}
+
+/**
+ * (policyAction, policyReason) → 展示文案的唯一组合规则:core 的 reason 本身已是
+ * 完整说明(如「可信设备策略自动接收」),再前缀 action label 只会得到"设备策略自动接收:
+ * 可信设备策略自动接收"式的口吃拼接 —— 有 reason 用 reason,否则退到 action label。
+ * projection 详情/活动卡与接收 offer 弹窗共用,不要各自再拼。
+ */
+export function policyNoteOf(
+  action?: string | null,
+  reason?: string | null,
+): string | null {
+  if (reason) return reason;
+  return action ? policyActionLabel(action) : null;
+}
+
+export function projectionPolicyNote(
+  projection: MobileTransferProjection,
+): string | null {
+  return policyNoteOf(projection.policyAction, projection.policyReason);
+}
+
+const POLICY_ACTION_MESSAGES = {
+  auto_accept: msg`设备策略自动接收`,
+  require_confirmation: msg`设备策略要求确认`,
+  reject: msg`设备策略已拒绝`,
+} as const;
+
+// 按当前 locale 即时解析;调用组件需自行持有 useLingui() 订阅才能随 locale 切换重算。
+export function policyActionLabel(action: string): string {
+  const message =
+    POLICY_ACTION_MESSAGES[action as keyof typeof POLICY_ACTION_MESSAGES];
+  return message ? i18n._(message) : action;
+}
+
+/**
+ * 传输记录搜索匹配:设备名或任一文件名包含关键词(大小写不敏感)。纯内存过滤。
+ * 空 query 由调用方短路(搜索页空输入 = 不出结果),这里只负责非空匹配。
+ */
+export function projectionMatchesQuery(
+  projection: MobileTransferProjection,
+  query: string,
+): boolean {
+  const q = query.toLowerCase();
+  return (
+    projection.peerName.toLowerCase().includes(q) ||
+    projection.files.some((file) => file.name.toLowerCase().includes(q))
+  );
+}
+
+/** projections 按最近更新倒序 —— 列表/分组/搜索共用的排序语义。 */
+export function compareProjectionsByUpdatedAtDesc(
+  a: MobileTransferProjection,
+  b: MobileTransferProjection,
+): number {
+  return Number(b.updatedAt - a.updatedAt);
+}
+
+export function projectionTransferredBytes(
+  projection: MobileTransferProjection,
+  progress?: MobileTransferProgress,
+): bigint {
+  return progress?.transferredBytes ?? projection.transferredBytes;
+}
+
+export function projectionTotalBytes(
+  projection: MobileTransferProjection,
+  progress?: MobileTransferProgress,
+): bigint {
+  return progress?.totalBytes ?? projection.totalSize;
+}

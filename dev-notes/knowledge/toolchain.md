@@ -10,19 +10,45 @@
 
 项目锁定 pnpm 11（`packageManager` 字段 + pnpm-lock.yaml）。npm / yarn install 会产生不一致的 lockfile。
 
-### pnpm 11 settings 放在 pnpm-workspace.yaml
+### pnpm 11 settings 放在 pnpm-workspace.yaml —— `.npmrc` 与 `package.json` 的 `pnpm` 字段都不再读
 
-pnpm 11 不再把 `package.json` 里的 `pnpm` 字段作为项目 settings 来源。需要配置 overrides、允许依赖
-build scripts、release-age 策略等，都放到对应项目根的 `pnpm-workspace.yaml`。
+pnpm 11 不再把 `package.json` 里的 `pnpm` 字段作为项目 settings 来源，**`.npmrc` 里的项目级
+settings 同样不读**。overrides、build script 白名单、依赖 patch、node-linker 等，都要放到对应
+项目根的 `pnpm-workspace.yaml`。
 
 **正确做法**：
 - 根桌面应用用仓库根 `pnpm-workspace.yaml`，当前仅声明 `packages: ["."]` 和允许 `esbuild` build script。
 - 独立 e2e 子项目用 `e2e/desktop/pnpm-workspace.yaml`，把 WDIO 相关 overrides 和 build-script 策略放在那里。
+- `mobile/pnpm-workspace.yaml` 是完整样例（迁移自 RN 独立仓的 pnpm 10 配置）。
 
 **不要做**：
-- 在 `package.json` 里新增 `pnpm.overrides` / `pnpm.onlyBuiltDependencies`，pnpm 11 下容易被忽略或造成 lockfile 不一致。
+- 在 `package.json` 里新增 `pnpm.overrides` / `pnpm.onlyBuiltDependencies`，pnpm 11 下会被忽略。
 
-**相关文件**：`package.json`、`pnpm-workspace.yaml`、`e2e/desktop/package.json`、`e2e/desktop/pnpm-workspace.yaml`
+#### 迁移时按「会不会吭声」分类，哑的那些优先查
+
+移动端从 pnpm 10 并入时四项配置全部失效，但**只有一半会报错**：
+
+| 原位置 | pnpm 11 归宿 | 失效表现 |
+|---|---|---|
+| `pnpm.overrides` | `overrides:` | **响** — `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`，frozen 装不上 |
+| `pnpm.onlyBuiltDependencies` | `allowBuilds:` | **响** — `ERR_PNPM_IGNORED_BUILDS`，要求逐个表态 |
+| `pnpm.patchedDependencies` | `patchedDependencies:` | **哑** — patch 不打，直接拿未打补丁的包用 |
+| `.npmrc` 的 `node-linker=hoisted` | `nodeLinker: hoisted` | **哑** — 静默退回 isolated |
+
+两个哑的都很致命：
+
+- **`patchedDependencies`** — 本项目给 ubrn 打了 patch（加 `dunce` 依赖）。不生效则拿未打补丁
+  的 ubrn 去生成绑定。验证方式：`node_modules/.pnpm/` 下的目录名带 `_patch_hash=<hash>` 后缀，
+  且该 hash 与 lockfile 里 `patchedDependencies` 记录的一致。
+- **`nodeLinker`** — RN 的 Metro bundler 不认 symlink(isolated) 结构，必须 hoisted。失效后
+  顶层包数 847 → 70，传递依赖（`expo-modules-core` 等）不在顶层，typecheck 与 Metro 双双解析
+  失败。**判据是顶层包数（`ls node_modules | wc -l`），不是有没有 `.pnpm` 目录** —— hoisted 下
+  `.pnpm` 作为 store 照样存在。
+
+`allowBuilds` 语义也变了：pnpm 10 的 `onlyBuiltDependencies` 是白名单（未列出的静默不跑），
+pnpm 11 要求每个都显式 `true`/`false`，否则报错。等价迁移要把当年被隐式忽略的依赖显式写成 `false`。
+
+**相关文件**：`package.json`、`pnpm-workspace.yaml`、`mobile/pnpm-workspace.yaml`、`e2e/desktop/pnpm-workspace.yaml`
 
 ### 官网 Hero 视频使用独立 Remotion 工程
 
@@ -172,13 +198,17 @@ opt-level = 3
 
 **不要做**：删除这段配置或把 `*` 改成具体 crate 列表——会漏掉新加的 crypto/网络依赖。
 
-### workspace members 固定 4 个
+### workspace members 固定 5 个（含移动端桥接 crate）
 
 ```toml
-members = ["crates/core", "crates/entity", "crates/migration", "src-tauri"]
+members = [
+    "crates/core", "crates/entity", "crates/migration", "src-tauri",
+    "mobile/packages/swarmdrop-core/rust/mobile-core",
+]
 ```
 
-加新 crate 必须显式登记，否则 `cargo check --workspace` 不会覆盖。
+加新 crate 必须显式登记，否则 `cargo check --workspace` 不会覆盖——移动端并入单仓的
+核心价值正是让 `cargo check --workspace` 覆盖 mobile-core，漏登记等于白并。
 
 ## Vite / Tauri 联动
 
@@ -226,7 +256,7 @@ Tauri dev 期间硬编码连这两个端口。改 `vite.config.ts` 端口会让 
 ```
 [submodule "libs"]
     path = libs
-    url = https://github.com/yexiyue/swarm-p2p.git
+    url = https://github.com/swarm-apps/swarm-p2p.git
 ```
 
 **克隆后必须**：`git submodule update --init --recursive`，否则 `cargo build` 找不到 `swarm-p2p-core`。
@@ -254,17 +284,28 @@ pnpm i18n:extract
 
 漏跑会导致 `src/locales/*/messages.po` 缺少新加的字符串，运行时降级显示原文。
 
-## 版本号同步
+## 版本号同步：两条独立版本线
 
-三处版本必须一起改（已经踩过坑）：
+单仓但**两条版本线**，各自打 tag、各自发版，互不干扰：
 
-| 文件 | 字段 |
-|---|---|
-| `package.json` | `version` |
-| `src-tauri/Cargo.toml` | `package.version` |
-| `src-tauri/tauri.conf.json` | `version` ←  **release 真源**（CI 用这个） |
+| | 桌面 | 移动 |
+|---|---|---|
+| tag | `v0.8.0` | `mobile-v0.7.19` |
+| workflow | `.github/workflows/release.yml` | `.github/workflows/mobile-release.yml` |
+| SwarmHive app | `swarmdrop` | `swarmdrop-rn` |
+| 版本真源 | `src-tauri/tauri.conf.json` | `mobile/app.json` 的 `expo.version` |
+| 跟随项 | `package.json`、`src-tauri/Cargo.toml` | `mobile/package.json` |
 
-`crates/core/Cargo.toml` 的 version 也建议同步，方便 SwarmDrop-RN 共享 core 时对版本。
+同一条线内的几处必须一起改（已经踩过坑）。CI 的 `verify-versions` job 会在构建前校验
+真源、跟随项、tag 三者一致，不一致直接 fail——不必再靠人记。
+
+**为什么不统一版本线**：移动端历史版本号已到 0.7.18、高于桌面 0.7.8。统一到任何
+`< 0.7.18` 的版本对移动端都是**降版**，存量用户收不到更新。
+
+**tag 互斥靠 glob 从头匹配**：`v*` 不会匹配 `mobile-v0.7.19`。别把移动端 tag 起成
+`v-mobile-*` 之类以 `v` 开头的形式，会同时点燃两条流水线。
+
+`crates/core/Cargo.toml` 的 version 与两条线都无关，它是共享 core 自己的版本。
 
 ## 提交前 checklist
 
@@ -277,7 +318,74 @@ cargo clippy --workspace -- -D warnings   # 项目期望零 warning
 
 ## CI / Release
 
-两仓都由 push `v*` tag 触发 release CI（`.github/workflows/release.yml`）。发版 = bump 版本 + commit + tag + push tag。
+单仓两条 release 流水线，各由自己的 tag 触发（见上「版本号同步：两条独立版本线」）。
+发版 = bump 该线的版本 + commit + tag + push tag。
+
+### changelog 必须按路径 + tag 分流
+
+移动端并入时带进 129 条历史，且是 **unrelated history**——`v0.7.8..HEAD` 里它们全部
+可达，不过滤会整个落进「本次发布」（实测桌面 122 条 vs 过滤后 6 条）。两侧都要过滤：
+
+```bash
+# 桌面：只认 v* tag，排掉 mobile/
+git-cliff --latest --tag-pattern '^v[0-9]' --exclude-path 'mobile/**'
+# 移动：只认 mobile-v* tag，只取 mobile/ 与共享 core
+git-cliff --config mobile/cliff.toml --latest --tag-pattern '^mobile-v' \
+  --include-path 'mobile/**' --include-path 'crates/**' --include-path 'libs/**'
+```
+
+`--tag-pattern` 不能省：否则 git-cliff 会把另一条线的 tag 当成上一个版本。
+`pnpm changelog` / `changelog:latest` 已内置桌面侧过滤。
+
+**`mobile-v0.7.18` 这个 tag 打在并入点(merge commit)上，不是 RN 的原 HEAD**：后者是
+unrelated history 的末端，主仓全部 `crates/` 提交都不在其祖先链上，会被算成「本次发布的
+新内容」（实测 81 条 vs 打在并入点的 1 条）。
+
+### SwarmHive 的 app 还记着代码来源，改仓库结构要同步改它
+
+SwarmHive 服务端给每个 app 存了一行 `github_source`（owner / repo / tag template），用于
+GitHub 镜像与 liveness 探测。**它是仓库结构的第二份真相，改仓不改它就会发版失败或发错。**
+
+移动端并入单仓时踩到两处，第一处会响、第二处是哑的：
+
+```
+# 响的：swarmhive-action 传的 mirror_url 指向主仓，与配置的 source 对不上，exit 2
+mirror_url repo swarm-apps/SwarmDrop does not match the app's configured source swarm-apps/SwarmDrop-RN
+```
+
+```
+# 哑的：tag template 仍是 v{version}。在 RN 独立仓里没问题（那边 tag 就叫 v0.7.18），
+# 但在单仓里 v0.7.19 是**桌面**的 tag —— 只改 repo 不改模板，SwarmHive 会去主仓找
+# v0.7.19，把「下载 Android」指到桌面的安装包上。
+```
+
+**正确做法**（CLI ≥ 0.9.0 才有 `source` 子命令；`apps update` 只能改 display-name / platforms，改不了它）：
+
+```bash
+npx @swarm-hive/cli@0.9.0 source get --app swarmdrop-rn   # 读，无需 token
+npx @swarm-hive/cli@0.9.0 source set --app swarmdrop-rn \
+  --owner swarm-apps --repo SwarmDrop --tag-template 'mobile-v{version}'
+```
+
+`--prefer-platform` 省略即保持原值（本项目是 `react-native-android`，别误清）。
+
+**注意 CI 里的版本**：`swarm-apps/swarmhive-action@v2` 内部固定 `@swarm-hive/cli@0.7.0`，那个版本
+没有 `source` 命令 —— 改配置要在本地用新版 CLI，别指望 CI 顺手带过去。
+
+服务端校验逻辑见 SwarmHive 的 `crates/swarmhive-server/src/services/mirror.rs`：有 `github_source`
+行就必须匹配 owner/repo，没有该行则只校验 URL 是不是合法的 github release-download 链接。
+
+### 补分界 tag 会不会误发版：看 tag 指向的 commit 上有没有 workflow
+
+GitHub Actions 的 tag 触发，判据是 **tag 指向的那个 commit 的树里有没有该 workflow 文件**，
+不是默认分支上有没有。
+
+补 `mobile-v0.7.18` 时没有触发发布，靠的是它指向的 merge commit 早于加入
+`mobile-release.yml` 的那次提交——**属于巧合，不是设计**。日后再补 `v*` / `mobile-v*` 形式的
+分界 tag，若打在已含对应 workflow 的 commit 上，会真的跑一遍构建并发到 SwarmHive。
+
+**要补而又不想发版**，二选一：先确认目标 commit 不含该 workflow；或改用不匹配触发 glob 的
+tag 名（如 `mobile-baseline-0.7.18`）。
 
 ### Tauri workspace 的 release bundle 在根 `target/`
 
@@ -304,15 +412,36 @@ SwarmDrop 的 `src-tauri` 是 Cargo workspace member，不是独立 Cargo 项目
 
 **正确做法**：把清单 `jq -r '.[]' | sed 's#\\#/#g'` 转正斜杠存进 `paths`，用 `grep -qxF "${f}.sig" <<< "$paths"` 在清单内判断有无同名 sig；windows 优先选 `*-setup.exe`。
 
-### 双仓 core 依赖：本地 path / 发版 git
+### 移动端已并入单仓（mobile/），core 是普通 path 依赖
 
-RN 的 `packages/swarmdrop-core/rust/mobile-core/Cargo.toml` 依赖 SwarmDrop 的 `swarmdrop-core`/`entity`/`migration`/`swarm-p2p-core`：
+> 历史：移动端曾是独立的 `swarm-apps/SwarmDrop-RN` 仓，靠 git rev pin 引用主仓的
+> `swarmdrop-core`/`entity`/`migration`/`swarm-p2p-core`，本地联调要手工把四行 git 改成
+> path、改完再改回去。该模式已废弃——它让 core 的改动漂到移动端要走一次「同步仪式」，
+> 实测漂了 6 天、漏掉一个已修的配对校验。现在 `mobile/` 是主仓的一个目录。
 
-- **本地联调**：四个都用 `path = "../../../../../SwarmDrop/crates/*"`（+ `libs/core`），需平级 checkout。
-- **发版**：四个都换成 `git = "https://github.com/swarm-apps/SwarmDrop.git", tag = "vX.Y.Z"`。
+- `mobile/packages/swarmdrop-core/rust/mobile-core` 是**根 Cargo workspace 的 member**，
+  四个依赖都写 `{ workspace = true }`。改 `crates/core` 立刻对移动端生效，
+  `cargo check --workspace` 一并覆盖，一个 PR 能同时改两端并原子回滚。
+- `mobile/` 是**独立的 pnpm workspace**（同 `video/`、`e2e/desktop`、`docs/`），
+  有自己的 `package.json` / `pnpm-lock.yaml` / `pnpm-workspace.yaml`，在 `mobile/` 下跑
+  `pnpm install`。根 workspace 的 `packages: [.]` 不含它。
 
-**不要做**：git 与 path 混用——`swarm-p2p-core` 会撞 `multiple versions`，四个必须统一来源。cargo 拉 git 依赖会自动递归拉 SwarmDrop 的 `libs` submodule（swarm-p2p）。
+**移动端 release profile 必须写在 workspace root**：
 
-**发版顺序**：先发 SwarmDrop（bump + tag `vX.Y.Z` + push tag），tag 在远端存在后，再把 RN 的 git 依赖 pin 到该 tag、发 RN，保证 RN core pin 到可复现的 release commit。
+```toml
+# 根 Cargo.toml —— 不能写成 [profile.release]，那是桌面的（速度优先 opt-level=3）
+[profile.mobile-release]
+inherits = "release"
+opt-level = "z"   # 包体优先
+lto = "thin"
+strip = "symbols"
+```
 
-**相关文件**：`.github/workflows/release.yml`（两仓）、`SwarmDrop-RN/packages/swarmdrop-core/rust/mobile-core/Cargo.toml`
+**Why**：Cargo 只认 workspace root 的 profile，**member 自己的 profile 会被静默忽略**
+（只有一行 warning）。mobile-core 并入前是隐式 workspace root、自带这套配置；并入后若不
+搬到根，移动端包体优化就无声消失。消费方是 `ubrn build <platform> --profile mobile-release`
+（ubrn 的 `-p` 覆盖 `-r`），产物落在 `target/mobile-release/` 而非 `target/release/`。
+ubrn 用 `cargo metadata` 的 `target_directory` 定位产物，会自动跟到仓库根，无需额外配置。
+
+**相关文件**：`Cargo.toml`、`mobile/packages/swarmdrop-core/rust/mobile-core/Cargo.toml`、
+`mobile/packages/swarmdrop-core/package.json`

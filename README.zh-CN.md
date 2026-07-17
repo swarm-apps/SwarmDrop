@@ -20,7 +20,7 @@
 **[特性](#特性)** ·
 **[AI 与 MCP](#为-ai-agent-而生mcp)** ·
 **[下载](#下载)** ·
-**[移动端](https://github.com/swarm-apps/SwarmDrop-RN)** ·
+**[移动端](mobile/)** ·
 **[English](README.md)**
 
 </div>
@@ -72,7 +72,7 @@
 
 > 下载与**自动更新**（桌面*和*移动端）均由 [SwarmHive](https://github.com/swarm-apps/SwarmHive) 提供 —— 我们自研、可自托管的开源发布与更新服务，全程不依赖任何商业更新 SaaS。
 
-> **移动端** —— SwarmDrop 也通过 [SwarmDrop-RN](https://github.com/swarm-apps/SwarmDrop-RN) 运行在 **Android 与 iOS** 上，它与桌面端共享同一份 Rust core（`crates/core`）和加密协议。
+> **移动端** —— SwarmDrop 也通过 `mobile/` 运行在 **Android 与 iOS** 上，它与桌面端共享同一份 Rust core（`crates/core`）和加密协议。
 
 ## 快速开始
 
@@ -180,7 +180,7 @@ SwarmDrop/
 ```
 
 `crates/core` 同时被桌面端（`src-tauri`）与移动端
-（[SwarmDrop-RN](https://github.com/swarm-apps/SwarmDrop-RN)）通过 uniffi-bindgen-react-native 复用。
+（`mobile/`）通过 uniffi-bindgen-react-native 复用。
 
 </details>
 
@@ -221,7 +221,7 @@ pnpm tauri build    # 打包
 
 SwarmDrop 是一系列去中心化、本地优先、端到端加密工具中的一员：
 
-- **SwarmDrop** —— 设备间文件传输。[桌面端](https://github.com/swarm-apps/SwarmDrop) · [移动端](https://github.com/swarm-apps/SwarmDrop-RN)
+- **SwarmDrop** —— 设备间文件传输，桌面与移动同仓。[仓库](https://github.com/swarm-apps/SwarmDrop)
 - **SwarmNote** —— 去中心化的加密笔记。[桌面端](https://github.com/swarm-apps/SwarmNote) · [移动端](https://github.com/swarm-apps/SwarmNote-RN)
 - **SwarmHive** —— 可自托管的开源发布与自动更新服务，支持 Tauri 与 React Native 应用。SwarmDrop 自身的每次更新都走它 —— 你的应用也可以。[仓库](https://github.com/swarm-apps/SwarmHive)
 
