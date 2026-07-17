@@ -1,0 +1,62 @@
+[package]
+name = "iroh-web"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# #60 的 spike：验证 iroh 能否在真实浏览器里跑。
+#
+# 刻意不放 crates/ —— 那是 #72 定的生产位置（crates/web），本 spike 可能失败，
+# 失败要能整目录删掉。验证通过后再按架构文档落到 crates/web。
+#
+# 依赖与 features 抄自 iroh 官方 browser-echo 示例（n0-computer/iroh-examples），
+# 那是已知能跑的配置。spike 要验证的是 iroh，不是"我们能不能自己配对工具链"——
+# 两者混在一起，失败时分不清是谁的锅。
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# default-features = false 是官方硬要求：丢掉 metrics feature，否则 wasm 编不过。
+# tls-ring 是浏览器构建的必需项。
+iroh = { version = "1", default-features = false, features = ["tls-ring"] }
+
+# iroh 生态的 async 抽象。它出现在官方浏览器示例里——这正是 M2 (#57) 要把 core 的
+# 29 处 tokio::spawn/time 换成它的原因：tokio 在 wasm 上只剩 sync 可用。
+n0-future = "0.3"
+
+# wasm 上 tokio 只能开 sync（同步原语），default-features = false 是硬要求。
+tokio = { version = "1", default-features = false, features = ["sync"] }
+
+# wasm 上 getrandom 需要 wasm_js backend，且必须配合 .cargo/config.toml 里的
+# rustflags --cfg getrandom_backend="wasm_js" —— 少了那行直接编不过。
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+# 用 "0.2" 而非官方示例的精确 pin "=0.2.122"：那个 pin 是**手工串链路**的产物
+# （cargo build 后手动调 wasm-bindgen-cli，两者 schema version 必须完全一致）。
+# wasm-pack 会从 Cargo.lock 读出版本、自动装匹配的 CLI（见其 src/lockfile.rs 的
+# require_wasm_bindgen），故无需自己 pin。
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+
+console_error_panic_hook = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber-wasm = "0.1"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+# 取自官方 browser-echo。与移动端的 [profile.mobile-release] 同一套路数。
+[profile.release]
+codegen-units = 1
+strip = "symbols"
+debug = false
+lto = true
+opt-level = "z"
+panic = "abort"
+
+# iroh 编出来的 wasm 实际需要这两个 feature，wasm-pack 默认的 wasm-opt 参数里没有
+# （取自官方 browser-echo 的 wasm-opt 调用）。
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Os", "--enable-nontrapping-float-to-int", "--enable-bulk-memory"]
