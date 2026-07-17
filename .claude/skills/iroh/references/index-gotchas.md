@@ -4,20 +4,25 @@ iroh 1.0.2 · 调研日期 2026-07-17 · 源码 `/Volumes/yexiyue/iroh-study/`
 
 **本文按「你先撞到什么」组织。** 每条都给到源码位置，可自行核对。
 
-| 分区 | 覆盖 |
-|---|---|
-| **A** | Endpoint / 启动（crypto_provider、preset、BindError、身份） |
-| **B** | 关闭（close vs Drop vs abort） |
-| **C** | 流（懒创建死锁、100 并发上限、方向反了的限制、内存） |
-| **D** | Router / 协议（must_use、ALPN 覆盖、panic 连坐、关闭编排、0-RTT） |
-| **E** | Watcher（initialized 的两个陷阱、抖动、有损采样） |
-| **F** | Relay（QAD 端口、scheme、Disabled 语义、stale 文档、版本兼容） |
-| **G** | 发现 / 隐私（改名、无 mDNS、user_data 泄漏、BEP44 误解） |
-| **H** | Feature / 跨平台（default-features 连带杀伤、wasm、ring、iOS/Android） |
-| **I** | iroh-blobs / 传输（非生产质量、ImportMode、push 默认禁用、浏览器限制、panic） |
-| **J** | 高层协议 / 地基（gossip 不是 presence、docs 全栈、irpc 边界、n0-error） |
+> **这是正交索引层，不是官方分区。** 你先撞到的是报错、挂死、静默失灵，此时**根本不知道它属于哪个分区** ——
+> 所以本文按「症状」而不是按领域组织。每个字母分区下的条目**跨多个官方分区**，这正是它不能被打散的原因。
+>
+> 按能力查库 → [index-ecosystem-map.md](index-ecosystem-map.md)；官方没讲的地基 → [index-foundations.md](index-foundations.md)。
 
----
+| 分区 | 覆盖 | 官方 home |
+|---|---|---|
+| **A** | Endpoint / 启动（crypto_provider、preset、BindError、身份、默认监听） | [02-connecting.md](02-connecting.md)（A5 另牵 [07](07-configuration.md)） |
+| **B** | 关闭（close vs Drop vs abort、Clone 语义） | [02-connecting.md](02-connecting.md) |
+| **C** | 流（懒创建死锁、100 并发上限、方向反了的限制、内存） | [03a-using-quic.md](03a-using-quic.md) |
+| **D** | Router / 协议（must_use、ALPN 覆盖、panic 连坐、关闭编排、AcceptError、0-RTT） | [03b-writing-a-protocol.md](03b-writing-a-protocol.md)（D12–D14 → [02](02-connecting.md) 的 Hooks） |
+| **E** | Watcher（initialized 的两个陷阱、抖动、有损采样、缺失 API） | [index-foundations.md](index-foundations.md) + [02-connecting.md](02-connecting.md) |
+| **F** | Relay（QAD 端口、`--dev`、scheme、Disabled 语义、双 RelayConfig、stale 文档、版本兼容） | [01](01-concepts.md) 心智 / [07](07-configuration.md) 配置 / [08](08-deployment.md) 安全 |
+| **G** | 发现 / 隐私（改名、无 mDNS、user_data 泄漏、BEP44 误解、DNS 属性） | [02-connecting.md](02-connecting.md) + [08-deployment.md](08-deployment.md) |
+| **H** | Feature / 跨平台（default-features 连带杀伤、wasm、ring/clang、tls-\*、apple datapath） | [07-configuration.md](07-configuration.md) + [06-wasm-browser.md](06-wasm-browser.md) |
+| **I** | iroh-blobs / 传输（ImportMode、push 默认禁用、FsStore 布局、panic #233、自建 runtime） | [03c-blobs.md](03c-blobs.md) |
+| **J** | 高层协议 / 地基（gossip 不是 presence、消息不认证作者） | [02-connecting.md](02-connecting.md) 的 Gossip 一节 |
+| **K** | Ticket / 编码（wire 判别符、跨版本断代、读源码的行号陷阱） | [01-concepts.md](01-concepts.md) 的 Tickets 一节 |
+
 
 ## A. Endpoint / 启动
 
@@ -784,7 +789,7 @@ pub(crate) enum IrohAttr { Relay, Addr, UserData }
 
 **但 rustflag 得自己补**：`--cfg getrandom_backend="wasm_js"`（`.cargo/config.toml` 或 `RUSTFLAGS`）——**是 rustflag 不是 feature，不会随 `cargo add iroh` 带过来**。
 
-> ⚠️ **别说成「不加就编译失败」** —— **实测它不是编译硬门槛**：browser-blobs 根本没有 `.cargo/config.toml` 却 build 成功；browser-echo 用 `RUSTFLAGS=""` 清掉该 cfg 后同样成功。**但只验证了「能编过」，没验证运行时随机数是否正常** —— 保留该 cfg 是无害且更保险的（与 n0 CI 一致），密码学相关的东西别仅凭「编过了」就放行。详见 [wasm-and-browser.md](wasm-and-browser.md)。
+> ⚠️ **别说成「不加就编译失败」** —— **实测它不是编译硬门槛**：browser-blobs 根本没有 `.cargo/config.toml` 却 build 成功；browser-echo 用 `RUSTFLAGS=""` 清掉该 cfg 后同样成功。**但只验证了「能编过」，没验证运行时随机数是否正常** —— 保留该 cfg 是无害且更保险的（与 n0 CI 一致），密码学相关的东西别仅凭「编过了」就放行。详见 [06-wasm-browser.md](06-wasm-browser.md)。
 
 ### H3. macOS 上 ring 编不到 wasm32
 
@@ -893,9 +898,8 @@ pkarr 走 HTTPS 打 `https://dns.iroh.link/pkarr`（`pkarr.rs:127`），**浏览
 
 ### H11. iOS 无 CI 覆盖
 
-**事实**：`iroh/.github/workflows/ci.yml` **grep 不到任何 iOS job**。Android 有（`cargo ndk`，NDK r25c，cargo-ndk 4.1.2，3 个 target）。
-
-Android CI 的 feature 集：`cargo ndk test --no-run -p iroh --features tls-ring,metrics,portmapper,test-utils`——⚠️ **`--features X` 是叠加在 default 之上的**（没有 `--no-default-features`），实际 = default ∪ {test-utils}。
+**这是成熟度事实而非症状** —— `iroh/.github/workflows/ci.yml` grep 不到任何 iOS job（Android 有）。
+正文 → [07-configuration.md](07-configuration.md) 的「iOS / Android：没有任何专属 feature」。
 
 ### H12. portmapper 在 wasm/未开 feature 时不报错，而是空壳
 
@@ -911,11 +915,7 @@ Android CI 的 feature 集：`cargo ndk test --no-run -p iroh --features tls-rin
 
 ### I1. iroh-blobs 自述非生产质量，且退不回 0.35
 
-**事实**：README 第 3 行：「this version of iroh-blobs is **not yet considered production quality**. For now, if you need production quality, use iroh-blobs 0.35」。
-
-**但 0.35 是旧架构**（docs.rs 已核实）：`api` 模块整个不存在（0.35 该路径 404，0.103 返回 200），无 `FsStore`；CHANGELOG 版本头从 0.35.0 **直接跳到** 0.101.0。
-
-**iroh 1.0 的稳定性承诺不覆盖 iroh-blobs——传输主力恰恰是那个没 1.0 的 crate。**
+**这是成熟度判定而非症状** → [index-ecosystem-map.md](index-ecosystem-map.md) 的 iroh-blobs 条目。
 
 ### I2. `ImportMode` 的默认是 `Copy` 不是 `TryReference`
 
@@ -997,15 +997,13 @@ async fn import_path(cmd: ImportPathMsg) -> Result<ImportEntry> {
 
 ### I9. 想自定义 store 后端
 
-**根因**：**0.103 里没有可插拔的 store 后端 trait**——`Store` 是 **struct**（`api.rs:213`），`store/mod.rs` 与 `api.rs` 的 `pub trait` grep 零命中。自定义意味着实现 `api::Store` 背后的 irpc actor/service。**这正解释了 issue #84 为何是在申请该 trait。**
+**这是能力边界而非症状**：0.103 里**没有可插拔的 store 后端 trait**，`Store` 是 struct（`api.rs:213`）。
+→ [index-ecosystem-map.md](index-ecosystem-map.md) 的「不存在」清单 + [03c-blobs.md](03c-blobs.md)。
 
 ### I10. 「iroh-blobs 支持增量同步」有歧义
 
-**根因**：**iroh-blobs 的「增量」= 同一 hash 未下完的部分补齐（bitfield 集合差）。不是文件 v1→v2 之间只传改动量**——**未找到任何 rsync 式跨版本 delta 同步 API**，内容寻址下**文件一改 hash 全变**。
-
-**对「传一个每天改一点的大文件」这种场景，iroh-blobs 每次都是全新 hash、全量重传。**
-
-（**白送但 sendme 没吃的能力**：`api::downloader` 的多源并行下载 `SplitStrategy::Split`，`src/api/downloader.rs:317-320`。）
+**这是能力边界而非症状**：它的「增量」= 同一 hash 未下完的部分补齐（bitfield 集合差），
+**不是 rsync 式跨版本 delta** —— 内容寻址下文件一改 hash 全变。→ [03c-blobs.md](03c-blobs.md)。
 
 ### I11. fs store 在空闲驱逐时 panic（issue #233，未修）
 
@@ -1060,40 +1058,49 @@ let rt = tokio::runtime::Builder::new_multi_thread()
 
 > ⚠️ **措辞精确性**：说 gossip「不加密」是**失准**的 —— 它跑在 iroh Connection 上，**每一跳都是 QUIC/TLS 加密且端点已鉴权**。准确表述：**gossip 不提供跨多跳转发的端到端机密性与作者鉴权** —— 逐跳加密，但中间转发者可见明文。
 
-### J3. 只想要 blobs，却被 iroh-docs 拖进全栈
+### J3–J6. 高层协议的选型判断
 
-**根因**：`src/protocol.rs:101-106` 的 `Builder::spawn` **强制三个参数**：`spawn(self, endpoint: Endpoint, blobs: BlobsStore, gossip: Gossip)`。Cargo.toml 中 blobs/gossip 均为**必选**（非 optional），Router 须注册**三个 ALPN**。
+以下四条**不是症状，是「该不该引入」的选型判断**，正文已收口到别处：
 
-**评估时必须按「docs + blobs + gossip 三件套」算总账**（iroh-docs 14552 行 + iroh-gossip 8043 行 + blobs 23457 行），不能只看 docs。
-
-**另注**：iroh-docs 默认 feature 会**同时编入 redb 4.1 和 redb 3.1 两个大版本**（`Cargo.toml:47-48` + `:76` 的 `redb-v2-migration` 在 default 里）。
-
-### J4. 把 irpc 当 bulk data plane
-
-**根因**：`irpc/src/rpc.rs:29-33` `pub const MAX_MESSAGE_SIZE: u64 = 1024 * 1024 * 16;`（**16 MiB**），:234/:240 在写入前用 `postcard::experimental::serialized_size` 校验并 `return Err(e!(WriteError::MaxMessageSizeExceeded))`。
-
-> ⚠️ 源码 doc 写的是 "**Default** max message size"，字面上暗示可配置 —— 但全仓 grep `max_message_size` / 任何 setter / builder 字段 **零命中**，该 const 在 8 处被直接引用，**无任何覆盖机制**。**「硬上限」比源码自己的措辞更准确。**
-
-**n0 自己的分界线**：**bulk data plane 手写 `ProtocolHandler`，control / progress / API 边界才上 irpc**。iroh 核心全部 7 个 Cargo.toml grep `irpc` **零命中** —— **迁移路径上没有「必须先学 irpc」这一步**。
-
-### J5. 以为 irpc 能接 Tauri IPC / uniffi
-
-**根因**：`lib.rs:14-19` 的四条 Non-goals 第一条逐字写着 *"Cross language interop. This is for talking from rust to rust"*。
-
-**Tauri IPC 是 Rust↔JS、uniffi 是 Rust↔TS，两者都是跨语言 FFI 边界，irpc 按设计就接不了。** 所以「加 irpc 是否与它们冗余」问错了 —— 它不与那两者重叠，而是**第三条 Rust↔Rust 边界**。判断标准应是「有没有 Rust↔Rust 的进程/网络边界需要收敛」。
-
-### J6. 用了 quic-rpc
-
-**根因**：**abandoned**。`Cargo.toml:22` `iroh = { version = "0.35" }` 与 iroh 1.0.2 **完全不兼容**；最后提交 2025-05-12（距 irpc 的 2026-07-01 有 14 个月空窗）；生态外部依赖数 **0**。irpc 亲口继承（`irpc/src/lib.rs:148-153`）。
-
-⚠️ **quic-rpc 的 README/lib.rs 里没有任何显式 deprecation 声明** —— abandoned 判定靠上述三项证据 + irpc 的单方面继承声明。
+| | 结论 | 正文 |
+|---|---|---|
+| **J3** 只想要 blobs 却被 iroh-docs 拖进全栈 | `Builder::spawn` 强制 `(endpoint, blobs, gossip)` 三个参数，Router 须注册三个 ALPN；默认 feature 还会同时编入 redb 4.1 与 3.1 两个大版本 | [03d-docs-rpc-automerge.md](03d-docs-rpc-automerge.md) |
+| **J4** 把 irpc 当 bulk data plane | 16 MiB 硬上限且无覆盖机制；n0 的分界线是「bulk 手写 ProtocolHandler，control/progress 才上 irpc」 | [03d-docs-rpc-automerge.md](03d-docs-rpc-automerge.md) |
+| **J5** 以为 irpc 能接 Tauri IPC / uniffi | Non-goals 第一条逐字写着 "Cross language interop. This is for talking from rust to rust" —— **按设计就接不了** | [03d-docs-rpc-automerge.md](03d-docs-rpc-automerge.md) |
+| **J6** 用了 quic-rpc | **abandoned**：绑死 iroh 0.35、外部依赖数 0、14 个月空窗 | [index-ecosystem-map.md](index-ecosystem-map.md) |
 
 ### J7. n0-error 的 location 在生产里永远是 None
 
-**根因**：`meta.rs:81-96` 的 `backtrace_enabled()` **只认 `RUST_BACKTRACE=1|full` 或 `RUST_ERROR_LOCATION=1`**，且用 **OnceLock 缓存**。
-
-**打包分发的桌面/移动应用不会带这些 env** → 迁到 n0-error 在**真实用户机器上拿不到任何 location** —— **迁移成本全付、收益为零**。
-
-**且不必迁**：iroh 的错误虽由 stack_error 生成，但**同时实现了 `std::error::Error`**（`n0-error-macros/src/lib.rs:730-736`）—— 现有 thiserror 错误枚举直接 `#[from]` 吃下即可，source 链完整。详见 [foundations.md](foundations.md)。
+**这是地基库的迁移成本判断而非症状** —— `backtrace_enabled()` 只认 `RUST_BACKTRACE=1|full` 或
+`RUST_ERROR_LOCATION=1` 且用 OnceLock 缓存；打包分发的应用不会带这些 env。**且不必迁**。
+→ [index-foundations.md](index-foundations.md)。
 
 ---
+
+## K. Ticket / 编码
+
+### K1. `TicketWireFormat::Variant1` 的 wire 判别符是 0x00，不是 0x01
+
+`endpoint.rs:36-38`：
+
+```rust
+enum TicketWireFormat { Variant1(Variant1EndpointTicket) }
+```
+
+单变体 enum，postcard 按**位置**编号，故判别符 = 0。其自身测试向量（`endpoint.rs:203-207`）印证：`// variant` 对应 `"00"`。
+
+对照 `iroh-blobs/src/ticket.rs:40-42` `enum TicketWireFormat { Variant0(Variant0BlobTicket) }`，测试向量（:227）写 `00 # discriminator for variant 0` —— **两者名字一个叫 Variant1 一个叫 Variant0，wire 上却都是 0x00**。
+
+**照抄这个「单变体 enum」模式是对的**（它就是为留版本位而存在的，`iroh-blobs/src/ticket.rs:35-38` 注释：*"In the future we might have multiple variants (not versions, since they might be both equally valid), so this is a single variant enum to force postcard to add a discriminator"*），但务必**按位置而非名字理解判别符**：新增变体时它拿到的是 0x01。建议命名直接用 V0/V1 并配注释写明 wire 值。
+
+### K2. wire format 跨版本断过 —— 连官方 README 都没跟上
+
+`dumbpipe/README.md:47` 里印的真实 ticket（100 字符）用**当前 iroh-tickets 1.0.0 解不出来**：base32 解出 57 字节，但 postcard 反序列化失败（`Serde Deserialization Error`）。原因是首字节 = `0x20`（十进制 32，像是旧格式的 32 字节长度前缀），而 1.0.0 期望的判别符是 `0x00`。该 README 与 `dumbpipe/Cargo.toml:20` 声明的 `iroh-tickets = "1.0.0"` 不一致。
+
+**两个教训**：
+1. **ticket 字符串不是永久稳定的** —— n0 自己在 1.0 前就破坏过格式。若要「发出去的旧链接以后还能用」，必须自己扛版本兼容（单变体 enum 留位 + 老变体永不删）
+2. **不要相信 iroh 文档里的示例 ticket 能跑** —— 以源码测试向量为准
+
+### K3. 读 browser-chat 源码时被注释掉的死代码骗
+
+`iroh-examples/browser-chat/browser-wasm/src/lib.rs:54` 的 `// let ticket = ChatTicket::new(topic);` 是注释掉的死代码；但 **:134 是 LIVE 代码**（`let mut ticket = ChatTicket::new(self.topic_id);`），真正的残留注释在 **:94**（`// ticket.bootstrap = [self.0.endpoint_id()]...`）。

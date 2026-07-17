@@ -1,20 +1,70 @@
 ---
 name: iroh
-description: "iroh 1.0.2 P2P 网络栈（QUIC + relay + 内容寻址）的完整指南：既回答「该用生态里哪个库、它成熟吗、代价是什么」，也回答「怎么正确地写」。覆盖 24 个仓的能力边界与成熟度判定，以及 Endpoint 生命周期与 presets、crypto_provider 注入、Connection/流原语与背压、Router/ProtocolHandler/ALPN 分发、AcceptError、relay 选路与自建、address_lookup（pkarr/DNS/mDNS/DHT，非内置 DHT）、Watcher（online/home_relay_status/watch_addr）、tickets 邀请编码、iroh-blobs 与 bao-tree 与 sendme 的 pull 式传输、gossip/docs/irpc 高层协议、uniffi/napi/C FFI 与移动端、wasm/浏览器能力天花板、NAT 穿透与替代传输、feature flags 与跨平台交叉编译。重点标注与 libp2p 的心智差异（libp2p 用户会成片踩空）。触发场景：编写或修改任何 iroh 相关 Rust 代码，配置 Endpoint::builder / presets / relay_mode / address_lookup，实现 ProtocolHandler 或注册 ALPN，调试 BindError / AcceptError / 连接不上 / relay 状态 / Watcher 挂死，交叉编译到 wasm32 / iOS / Android，自建 relay 或 pkarr/DNS 服务器，设计邀请链接或分享码，评估「该不该引入 iroh-blobs / bao-tree / gossip / docs / irpc」「有没有现成的库做 X」「这个 crate 维护还活着吗」「n0 会不会锁定我」「浏览器/移动端能做到哪一步」，或用户提到 iroh、n0、number0、EndpointId、EndpointAddr、noq、pkarr、blobs、bao、sendme、dumbpipe、iroh-relay、iroh-ffi、n0-future、n0-watcher 时。"
+description: "iroh 1.0.2 P2P 网络栈（QUIC + relay + 内容寻址）的完整指南，按 docs.iroh.computer 官方分区组织：既回答「该用生态里哪个库、它成熟吗、代价是什么」，也回答「怎么正确地写」。覆盖 24 个仓的能力边界与成熟度判定，以及 Endpoint 生命周期与 presets、crypto_provider 注入、Connection/流原语与背压、Router/ProtocolHandler/ALPN 分发、AcceptError、relay 选路与自建、address_lookup（pkarr/DNS/mDNS/DHT，非内置 DHT）、Watcher（online/home_relay_status/watch_addr）、tickets 邀请编码、iroh-blobs 与 bao-tree 与 sendme 的 pull 式传输、gossip/docs/irpc 高层协议、uniffi/napi/C FFI 与移动端、wasm/浏览器能力天花板、NAT 穿透与替代传输、feature flags 与跨平台交叉编译、Iroh Services 的锁定边界、版本承诺与兼容性政策。重点标注与 libp2p 的心智差异（libp2p 用户会成片踩空）。触发场景：编写或修改任何 iroh 相关 Rust 代码，配置 Endpoint::builder / presets / relay_mode / address_lookup，实现 ProtocolHandler 或注册 ALPN，调试 BindError / AcceptError / 连接不上 / relay 状态 / Watcher 挂死，交叉编译到 wasm32 / iOS / Android，自建 relay 或 pkarr/DNS 服务器，设计邀请链接或分享码，评估「该不该引入 iroh-blobs / bao-tree / gossip / docs / irpc」「有没有现成的库做 X」「这个 crate 维护还活着吗」「n0 会不会锁定我」「浏览器/移动端能做到哪一步」，或用户提到 iroh、n0、number0、EndpointId、EndpointAddr、noq、pkarr、blobs、bao、sendme、dumbpipe、iroh-relay、iroh-ffi、n0-future、n0-watcher 时。"
+
 ---
 
-# iroh 1.0.2 开发指南（选型 + 写码）
+# iroh 1.0.2 开发指南（按官方分区组织）
 
-基于 **iroh v1.0.2** 源码精读（调研日期 **2026-07-17**，源码快照 `/Volumes/yexiyue/iroh-study/`，**24 个仓**）。所有论断都带文件路径 + 行号，可自行核对。
+基于 **iroh v1.0.2** 源码精读（调研日期 **2026-07-17**，源码快照 `/Volumes/yexiyue/iroh-study/`，**24 个仓**）。
+所有论断都带文件路径 + 行号，可自行核对。
 
-这份 skill 同时回答两类问题，**先选型、后写码，本就是同一条路上的两步**：
+**本 skill 的结构对齐 [docs.iroh.computer](https://docs.iroh.computer) 的官方分区**，好处有二：
+每个主题有单一归属（不用猜去哪找、往哪加），且查官方文档时能一一对应。
 
-1. **该用哪个** → 下方[能力 → 库速查表](#能力--库速查表)、[成熟度分级](#成熟度分级速览)、[`ecosystem-map.md`](references/ecosystem-map.md)
-2. **怎么正确地写** → 下方[核心心智速查](#核心心智速查)、[Critical 坑速览](#critical-坑速览)、各 references
+> 🚀 **第一次用 iroh / 只想先跑通两端** → [`00-getting-started.md`](references/00-getting-started.md)
+> （实测通过的最小 Cargo.toml + `echo.rs` 逐字全文 + 新手 8 个坑）。
+> **别照抄 iroh 仓库 README 的 quickstart —— 它对 1.0.2 编译不过**（`Endpoint::bind()` 缺 preset、
+> `spawn().await` 不是 async），详见该文坑 1。
 
 > **路径约定**：本文所有路径相对 iroh-study 根。**注意 iroh crate 的真实路径是 `iroh/iroh/src/...`，比直觉多一层。**
 >
-> **方法论边界（必须知道）**：iroh-study 下的仓库多为 **shallow clone（depth=1）**，`git log` 只有 1 条，且**不是 git 仓库整体**（无统一 `.git`）。因此成熟度判定**不使用**提交频率与 issue 活跃度，只用五类证据：**版本号 / HEAD 日期 / 依赖版本 / README 声明 / CI 配置**。要评活跃度请 `git fetch --unshallow` 或直接看 GitHub。
+> **方法论边界（必须知道）**：iroh-study 下的仓库多为 **shallow clone（depth=1）**，`git log` 只有 1 条，
+> 且**不是 git 仓库整体**（无统一 `.git`）。因此成熟度判定**不使用**提交频率与 issue 活跃度，只用五类证据：
+> **版本号 / HEAD 日期 / 依赖版本 / README 声明 / CI 配置**。要评活跃度请 `git fetch --unshallow` 或直接看 GitHub。
+
+---
+
+## 怎么用这份 skill：两套索引，按你手里的问题选
+
+**这份 skill 有两层目录，解决两类完全不同的查找。别在错的那层里翻。**
+
+| 你现在的处境 | 用哪层 | 入口 |
+|---|---|---|
+| **不知道去哪找**（「relay 怎么自建」「怎么写协议」「浏览器能做到哪一步」）| **按官方分区**：00–10，每个主题单一归属 | [下方分区导航](#按官方分区导航0010) |
+| **撞到报错 / 挂死 / 静默失灵**（此时你根本不知道它属于哪个分区）| **按症状** | [`index-gotchas.md`](references/index-gotchas.md) |
+| **选型**（「有没有现成的库做 X」「这个 crate 维护还活着吗」「代价多少」）| **按能力** | [`index-ecosystem-map.md`](references/index-ecosystem-map.md) |
+| 「这个 `Watcher` / `n0-error` / `noq` 是什么鬼」（官方文档完全没讲）| **地基** | [`index-foundations.md`](references/index-foundations.md) |
+
+**为什么要有 `index-` 这三个正交层？** 因为它们按**用途**而非**领域**组织，天然横跨所有分区，打散就失效：
+
+- **gotchas** —— 你先撞到的是 `BindError`、是挂死、是「某个 ALPN 神秘失灵」，**此时无从判断它属于哪一分区**。
+  99 条坑分 A–K 十一组，根因散在 Connecting / Protocols / Configuration / Deployment / Languages / foundations 六处。
+- **ecosystem-map** —— 「要做 X 用哪个库」跨全部分区，还含官方文档**结构上不存在**的东西：
+  成熟度判定、「不存在——别找了」清单、导航陷阱（两个 iroh-js、两个 RelayConfig、改名后 grep 不到）。
+- **foundations** —— n0-future / n0-watcher / n0-error / noq 是 iroh 的地基，官方零覆盖，但会在你写第一行代码时咬到你。
+
+### 按官方分区导航（00–10）
+
+| 文件 | 官方对应 | 内容 |
+|---|---|---|
+| [**00-getting-started.md**](references/00-getting-started.md) | Getting Started | iroh 是什么 / 不解决什么、实测最小 Cargo.toml、`echo.rs` 与 `echo-no-router.rs` 逐字对照、真·两进程实测、**新手 8 个坑**、17 个官方例子清单 |
+| [**01-concepts.md**](references/01-concepts.md) | Concepts | **只回答「这是什么」**：Endpoints（身份就是公钥）/ Relays（是 transport 不是配置、home relay 是算出来的、线协议）/ Address Lookup（没有 DHT）/ NAT Traversal（没有 STUN、没有 DCUtR）/ Protocols / Tickets |
+| [**02-connecting.md**](references/02-connecting.md) | Connecting | **怎么连上**：Creating an Endpoint（preset / crypto_provider / bind / BindError / close / 观察状态）、DNS、DHT、mDNS、**Endpoint Hooks（三层入站门禁）**、Gossip Broadcast |
+| [**03-protocols.md**](references/03-protocols.md) | Protocols | 分区导航页，下含四个子文件 ↓ |
+| ├ [03a-using-quic.md](references/03a-using-quic.md) | Using QUIC | 四个流原语、finish/reset/stop、六种交互模式、背压与 100 并发上限、内存上界、优先级、Datagram、关闭连接、0-RTT |
+| ├ [03b-writing-a-protocol.md](references/03b-writing-a-protocol.md) | Write your own Protocol | 可编译模板、ALPN 命名与版本、Router/ProtocolHandler/DynProtocolHandler、AcceptError、流的粒度、framing、panic 连坐、关闭编排、上线 checklist |
+| ├ [03c-blobs.md](references/03c-blobs.md) | Blobs | bao-tree（outboard / 0.39% / pre-post-order）、iroh-blobs（store 后端 / range-set 续传 / FsStore 布局 / tag+GC）、sendme、dumbpipe |
+| └ [03d-docs-rpc-automerge.md](references/03d-docs-rpc-automerge.md) | Documents / RPC / Automerge | iroh-docs 四条代价、irpc 16MiB 硬上限与 Non-goals、quic-rpc 为什么 abandoned |
+| [**04-transports.md**](references/04-transports.md) | Transports | custom transport API（数据报级 + PathSelector 陷阱）、Tor / Nym / BLE 的真实状态 |
+| [**05-languages.md**](references/05-languages.md) | Languages | 绑定矩阵、iroh-ffi 两个硬伤、uniffi `&self` 门槛、`async_runtime="tokio"` 的真身、Android 手写 JNI、Apple 部署下限 17.5、JS napi、iroh-c-ffi |
+| [**06-wasm-browser.md**](references/06-wasm-browser.md) | Languages → WebAssembly and Browsers | 能力天花板（relay-only 是**编译期**事实）、**存储层才是卡点**、pkarr 在浏览器**可用**（常见误传）、构建链路、体积、macOS ring 坑 |
+| [**07-configuration.md**](references/07-configuration.md) | Configuration | 10 个 feature 全表、两个 cfg alias、`default-features=false` 的连带杀伤、crypto backend、各 target 速查、**自建 relay 全流程**、Compatibility |
+| [**08-deployment.md**](references/08-deployment.md) | Deployment | 基础设施与成本模型、限流、Prometheus 指标、**Security & Privacy**（user_data 是唯一防线、DHT 键、relay 信任模型、准入控制） |
+| [**09-iroh-services.md**](references/09-iroh-services.md) | Iroh Services | n0 的商业产品线、开源/闭源边界、**锁定风险的完整分析**、计费、三档脱钩方案 |
+| [**10-about-and-policy.md**](references/10-about-and-policy.md) | About / Other | Release & Support Policy、**wire 兼容矩阵**、Roadmap（已过期）、Troubleshooting（含 iroh-doctor 深入）、FAQ |
+
+---
 
 ## 与 libp2p 的心智差异（迁移必读）
 
@@ -35,124 +85,14 @@ description: "iroh 1.0.2 P2P 网络栈（QUIC + relay + 内容寻址）的完整
 
 > **第 8 条的正确对比**（常见误传）：libp2p-tls **也不读**进程默认 provider——它把 ring **硬编码在内部**（`libp2p-tls-0.6.2/src/lib.rs:48,75` 是 `rustls::crypto::ring::default_provider()`，一个**构造函数**，不是 `CryptoProvider::get_default()`），随后同样走 `builder_with_provider`。真实差异是：**libp2p 硬编码 ring 不给你选，iroh 要求你显式注入**。两者都不读进程默认。
 
----
-
-# 第一部分：该用哪个（选型）
-
-## 能力 → 库速查表
-
-成熟度含义见[下方分级](#成熟度分级速览)；完整证据链见 [`ecosystem-map.md`](references/ecosystem-map.md)。
-
-### 寻址与发现
-
-| 我要做 X | 用 Y | 成熟度 | 入口 |
-|---|---|---|---|
-| 跨网寻址（EndpointId → 地址） | **iroh 内置 pkarr**（`presets::N0` 已默认装好） | production | `iroh/iroh/src/address_lookup.rs` |
-| 局域网发现（对标 libp2p mDNS behaviour） | **iroh-mdns-address-lookup**（iroh 核心**不含** mDNS，必须外挂） | **beta** | `iroh-address-lookups/iroh-mdns-address-lookup/src/lib.rs` |
-| 去中心化寻址（摆脱对 n0 DNS 的单点依赖） | **iroh-mainline-address-lookup**（BitTorrent Mainline DHT） | **beta** | `iroh-address-lookups/iroh-mainline-address-lookup/src/lib.rs` |
-| 自建 pkarr relay + DNS 权威 | **iroh-dns-server** | production | `iroh/iroh-dns-server/config.prod.toml` |
-| 「短码 → 地址」rendezvous | ❌ **生态里不存在**。iroh 的寻址原语只有 pubkey→addr | — | [`tickets.md`](references/tickets.md) |
-
-### 数据传输
-
-| 我要做 X | 用 Y | 成熟度 | 入口 |
-|---|---|---|---|
-| 逐块验签 / 可信断点续传（不要 blob store） | **bao-tree**（纯算法库，**不依赖 iroh 网络栈**） | production | `bao-tree/src/lib.rs:1-204` |
-| 内容寻址 blob store + 传输 + GC + 多源下载 | **iroh-blobs** | **experimental**（README 自述非生产质量） | `iroh-blobs/src/api/remote.rs` |
-| 文件传输的官方范式参考 | **sendme**（读它的 1184 行 main.rs） | **官方示例** | `sendme/src/main.rs` |
-| 最小 P2P 骨架（裸管子，自研协议） | **dumbpipe**（lib.rs 只有 13 行） | production | `dumbpipe/src/lib.rs` |
-| 内容发现（"谁有这个 hash"） | **iroh-content-discovery**（tracker 式，非 DHT） | experimental | `iroh-experiments/content-discovery/` |
-
-### 邀请 / 分享链接
-
-| 我要做 X | 用 Y | 成熟度 | 入口 |
-|---|---|---|---|
-| 把「连到某节点所需的一切」编码成可粘贴字符串 | **iroh-tickets** 的 `Ticket` trait（自定义 payload） | production | `iroh-tickets/src/lib.rs` |
-| 分享一个 blob（地址 + hash） | **iroh-blobs 的 `BlobTicket`** | 随 iroh-blobs | `iroh-blobs/src/ticket.rs` |
-| 过期 / 一次性 / 撤销 | ❌ **ticket 零支持**，必须自己在 payload 里做 | — | [`tickets.md`](references/tickets.md) |
-
-### 高层协议
-
-| 我要做 X | 用 Y | 成熟度 | 入口 |
-|---|---|---|---|
-| 大规模 swarm 的 topic pubsub | **iroh-gossip** | production（推断） | `iroh-gossip/src/api.rs` |
-| 多设备 KV 最终一致同步（共享文件夹） | **iroh-docs**（meta-protocol：强制 blobs + gossip 三件套） | production（推断） | `iroh-docs/src/protocol.rs` |
-| Rust↔Rust typed actor 边界 / RPC | **irpc** | production，但 **pre-1.0 且破坏性变更频繁** | `irpc/src/lib.rs` |
-| 把 irpc 跑在 iroh 上 | **irpc-iroh** | production（生态实证仅 n=1） | `irpc/irpc-iroh/src/lib.rs` |
-| ~~RPC 抽象 transport~~ | ❌ **quic-rpc 已被 irpc 取代**，卡死在 iroh 0.35 | **abandoned** | `quic-rpc/` |
-| CRDT 协作文档 | ⚠️ 生态里只有 **示例**（iroh-automerge / iroh-automerge-repo），无库 | experimental | `iroh-examples/iroh-automerge/src/protocol.rs` |
-
-### 传输层
-
-| 我要做 X | 用 Y | 成熟度 | 入口 |
-|---|---|---|---|
-| 自建 relay | **iroh-relay**（`--features server`，自带 binary + Dockerfile） | production | `iroh/iroh-relay/src/main.rs` |
-| 自定义物理/覆盖网络 | **custom transport API**（数据报级，非 stream 级） | **不受 semver 保护** | `iroh/iroh/src/socket/transports/custom.rs` |
-| Tor 隐藏服务传输 | **iroh-tor-transport**（要外部 Tor daemon + control port） | experimental | GitHub `n0-computer/iroh-tor-transport` |
-| Nym mixnet 传输 | **iroh-nym-transport**（~15-20 KiB/s，README 自陈不适合文件传输） | experimental | GitHub `n0-computer/iroh-nym-transport` |
-| BLE / 蓝牙传输 | ❌ **不存在**。只在 `iroh/TRANSPORTS.md:10` 预留了 id 0x424C45，repo 列为空 | — | `iroh/TRANSPORTS.md:10` |
-
-### 语言绑定
-
-| 我要做 X | 用 Y | 成熟度 | 入口 |
-|---|---|---|---|
-| Swift / Kotlin / Python | **iroh-ffi**（uniffi 0.31） | production | `iroh-ffi/src/endpoint.rs` |
-| Node.js | **iroh-ffi/iroh-js** = npm `@number0/iroh`（napi-rs 3） | production | `iroh-ffi/iroh-js/src/endpoint.rs` |
-| C / C++ / Go / 嵌入式 | **iroh-c-ffi**（safer-ffi，**全同步阻塞**） | production（打折：0.101.0 + edition 2021） | `iroh-c-ffi/src/endpoint.rs` |
-| React Native Turbo Module | ❌ **不存在**，uniffi_bindgen 内置 backend 只有 kotlin/python/ruby/swift | — | [`ffi-and-bindings.md`](references/ffi-and-bindings.md) |
-| 浏览器 / wasm | **iroh 本体**（`default-features = false, features = ["tls-ring"]`） | production | `iroh-examples/browser-echo/src/node.rs` |
-| ⚠️ 顶层 `iroh-js/` 目录 | ❌ **墓碑**。2023-12-07 单 commit，指向已下线的 api.iroh.network | **abandoned** | `iroh-js/README.md` |
-
-### 地基与工具
-
-| 我要做 X | 用 Y | 成熟度 | 入口 |
-|---|---|---|---|
-| tokio ↔ wasm 的 spawn/time 垫片 | **n0-future**（native 上就是 `pub use tokio::*`） | production | `n0-future/src/task.rs` |
-| 状态广播（latest-value-wins） | **n0-watcher**（是 iroh 公开 API，用 iroh 就躲不掉） | production | `n0-watcher/src/lib.rs` |
-| 带 location 的错误库 | **n0-error** —— 但**大概率不该用**（location 生产默认不采集） | production | `n0-error/src/meta.rs` |
-| 网络诊断（relay 可达性 / NAT / 打洞实测） | **iroh-doctor** CLI（**不是可嵌入的库**） | production | `iroh-doctor/src/doctor.rs` |
-| 云端指标 dashboard / 托管 relay | **iroh-services**（**纯选配 SaaS**，开源 iroh 对它零依赖） | production | `iroh-ffi/src/services.rs` |
-
-## 成熟度分级速览
-
-**iroh 1.0 ≠ 生态 1.0**：iroh / iroh-tickets / iroh-relay / iroh-dns-server / n0-watcher / n0-error / bao-tree 已 1.x（bao-tree 是 0.16 但按证据判 production）；blobs(0.103) / gossip(0.101) / docs(0.101) / irpc(0.17) / address-lookups(0.4) 全是 0.x，**无 API 稳定承诺**。
-
-| 分级 | 含义 | 成员 |
-|---|---|---|
-| **production** | 可生产依赖 | iroh · iroh-relay · iroh-dns-server · iroh-tickets · bao-tree · dumbpipe · n0-future · n0-watcher · n0-error · iroh-ffi · iroh-c-ffi(打折) · iroh-doctor · iroh-services |
-| **production（推断）** | 证据支持但**无上游背书** | iroh-gossip · iroh-docs |
-| **beta** | 能用，别当 1.0 看 | iroh-mdns-address-lookup · iroh-mainline-address-lookup · n0-mainline |
-| **experimental** | 读，别依赖 | iroh-blobs · custom transport API · swarm-discovery · iroh-tor/nym-transport · iroh-experiments/\* · iroh-automerge\* · iroh-dht-experiment |
-| **官方示例** | 抄模式，别当依赖 | sendme · browser-echo/chat/blobs · tauri-todos |
-| **abandoned** | 不要用 | quic-rpc · 顶层 `iroh-js/` · bao-docs · iroh-s3-bao-store |
-
-> ⚠️ 两条容易被写高的：**sendme 是「官方示例，同时作为可用工具发布」**（`README.md:11-15` 两句成对：*"**This is an example application**..."* → *"It is **also** useful as a standalone tool"*，`also` 一词的全部作用就是「首先是示例」）；**mDNS / DHT lookup 是 beta 不是 production**（0.4/0.5 pre-1.0；DHT 唯一测试 `#[ignore = "flaky"]`；mDNS 核心压在 alpha 依赖 `swarm-discovery 0.6.0-alpha.2` 上；n0-mainline 把 `ed25519-dalek` 精确 pin 在 `=3.0.0-rc.0`）。
-
-## 三条最重要的选型结论
-
-### 1. 要 bao-tree，多半不要 iroh-blobs
-
-bao-tree 是**不依赖 iroh 网络栈**的纯算法 crate（`bao-tree/Cargo.toml:16-38`；`default-features = false, features = ["validate"]` 连 tokio 都不引），精准补上「逐块验签」，代价约 **0.39% outboard 存储**，`Outboard` trait 可自实现 → outboard 能进你自己的 SQLite/KV。**与「迁不迁 iroh」完全解耦**。
-
-iroh-blobs 则是整套 store：README 自述非生产质量、**全库零加密原语**、浏览器只有 MemStore、fs store 有已验证的 Poisoned panic 路径（#233）、强制 tag/GC 心智、`FsStore::load` 还会自建一个独立的 multi_thread tokio runtime。→ [`blobs-and-file-transfer.md`](references/blobs-and-file-transfer.md)
-
-### 2. 迁 iroh 的最小形状是 dumbpipe，不是 iroh-blobs
-
-n0 自己的分界线：**bulk data plane 手写 `ProtocolHandler`，control/progress 才上 irpc**（iroh-blobs 自己也是这个模式）。iroh-blobs 是 pull 模型，push API 源码自述 experimental 且 `EventMask::DEFAULT` 里 `push: RequestMode::Disabled` —— **协议默认关闭**，官方还明确拒绝提供开启 push 的便捷常量（`iroh-blobs/src/provider/events.rs:200-203`）。
-
-dumbpipe 证明最小可用 iroh P2P 的协议定义只需 **13 行**（一个 ALPN 常量 + 5 字节 handshake + 一个 re-export）。→ [`blobs-and-file-transfer.md`](references/blobs-and-file-transfer.md)
-
-### 3. 不会被 n0 锁定，但默认配置会静默依赖 n0
-
-**锁定风险不成立**：开源 iroh 对 iroh-services **零依赖、零 phone-home**（iroh/iroh-relay/iroh-base 三个 Cargo.toml grep `iroh-services` 零命中；全仓 grep `services\.iroh\.computer|api_secret` 零命中）；iroh-relay 自带 server binary + Dockerfile，自建是一等公民路径。
-
-**但**：`presets::N0` 会静默拖入 n0 的三项基础设施（pkarr publisher + pkarr resolver + DNS lookup，全部指向 dns.iroh.link），且 `.relay_mode(RelayMode::Custom(..))` **只覆盖 relay，不移除 address lookup**——想彻底自建必须用 `presets::Minimal`，或显式 `clear_address_lookup()`。→ [`relay.md`](references/relay.md) · [`tooling.md`](references/tooling.md)
+> **这 10 条的正文分别在**：#1/#2/#9 → [03a](references/03a-using-quic.md) + [03b](references/03b-writing-a-protocol.md)；
+> #3 → [01-concepts.md](references/01-concepts.md) 的 Address Lookup；#4/#5 → [02-connecting.md](references/02-connecting.md)；
+> #6 → [03b](references/03b-writing-a-protocol.md)；#7 → [index-foundations.md](references/index-foundations.md)；
+> #8 → [02-connecting.md](references/02-connecting.md)；#10 → [06-wasm-browser.md](references/06-wasm-browser.md)。
 
 ---
 
-# 第二部分：怎么正确地写
-
-## 核心心智速查
+# 核心心智速查
 
 ### Endpoint = QUIC socket + 后台 actor + 可插拔发现
 
@@ -260,7 +200,7 @@ let router = Router::builder(endpoint)
 >
 > 另一条：**mDNS 与 DHT 的默认过滤策略完全相反** —— DHT 默认 `relay_only()`（不泄 IP），mDNS 默认 `AddrFilter::default()`（**恒等过滤器，不过滤**，广播全部本地 IP + relay + user_data）。同时装两个时，你以为设过 filter 了，其实只有一半生效。
 
-## Critical 坑速览（详见 [gotchas.md](references/gotchas.md)）
+## Critical 坑速览（详见 [index-gotchas.md](references/index-gotchas.md)）
 
 | 症状 | 根因 |
 |------|------|
@@ -281,26 +221,6 @@ let router = Router::builder(endpoint)
 | macOS 上 ring 编不到 wasm32 | **本地 toolchain 问题**，不是 iroh 约束：Apple 系统 clang 缺 wasm 后端。iroh CI 在 Linux 上带 `tls-ring` 编 wasm32 是**通过**的 |
 | 抄官方测试代码，生产构建编译不过 | `CaTlsConfig::insecure_skip_verify()` 被 `#[cfg(any(test, feature = "test-utils"))]` 门控。别为它开 test-utils——那会把整个 relay server 链进客户端 |
 | 鉴权服务拒绝掉每一个连接 | `access.http` callout 的 header 字面量是 **`X-Iroh-NodeId`**，不是 rustdoc 说的 `X-Iroh-Endpoint-Id` |
-
-## 详细参考文档
-
-| 文件 | 内容 |
-|------|------|
-| **[ecosystem-map.md](references/ecosystem-map.md)** | 生态全景图（mermaid）、**成熟度总表的完整证据链**（每条判定的版本号/HEAD 日期/依赖/README/CI 依据）、「不存在——别找了」清单（每条带 grep 级依据）、导航陷阱（两个 iroh-js / 改名后 grep 不到） |
-| **[endpoint-and-presets.md](references/endpoint-and-presets.md)** | Preset 机制、4 个 preset 逐行拆解、`bind()` 12 步流程、8 个 BindError 变体、crypto_provider 依赖注入、`close()` vs `Drop`/`abort()` 的 4 点差异、Endpoint 的 Clone 语义 |
-| **[streams-and-protocol.md](references/streams-and-protocol.md)** | 四个流原语签名与开销模型、100 条并发上限与背压、`max_concurrent_*` 的反直觉方向、内存上界（100×1.25MB）、Router/ProtocolHandler/DynProtocolHandler、ALPN 两层分发、AcceptError 5 变体、incoming_filter 三层门禁、关闭编排四步、0-RTT |
-| **[foundations.md](references/foundations.md)** | **地基三件套**：n0-future（native 就是 tokio、wasm JoinSet 缺陷、test-util 副作用）、**n0-watcher 全解**（有损采样语义、`initialized()` vs `updated()` 的类型与断开双重不对称、`Nullable<Vec<T>>` = `pop()`、`online()` 的标准写法、close() 不断开 watcher）、n0-error（为什么多半不该迁）、MSRV 汇总 |
-| **[relay.md](references/relay.md)** | relay 是 transport 不是配置、home relay 选优（近 5min 最小延迟 + 2/3 迟滞）、RelayMode 四态、WebSocket-only(0.91) 与协议 v2(0.98)、**自建全流程**（TLS 是 Option / cert_mode=Reloading / 端口真相 7842 / 准入控制四档 / 限流 / 成本模型 / accept_conn_limit 是死配置）、relay 不做暂存、同 EndpointId 双连接互顶 |
-| **[address-lookup.md](references/address-lookup.md)** | pkarr/DNS/mDNS/DHT 四选一与代价、发布解析职责分离、pkarr 签名包格式与 1104 字节上限、**隐私全解**（user_data 是唯一防线 / AddrFilter 两层 AND / mDNS 与 DHT 默认相反 / DHT 键 = SHA1(EndpointId) 无 salt / 源 IP 暴露面）、组合行为（无优先级并发）、subscribe vs resolve 分流、移动端 multicast 空白区 |
-| **[blobs-and-file-transfer.md](references/blobs-and-file-transfer.md)** | **bao-tree**（outboard 原理、0.39% 开销、pre/post-order 取舍、Outboard trait 自实现）、**iroh-blobs 四条硬伤**（零加密原语 / 浏览器只有 MemStore / #233 Poisoned panic / 自建 runtime）、range-set 差集续传、FsStore 四类存储位置、pull vs push 模型冲突、provider 事件拦截四档、**sendme 与 dumbpipe 逐行对照**、Collection/TempTag/GC |
-| **[tickets.md](references/tickets.md)** | Ticket trait 自定义模板、长度实测（63/122/184 字符）、零过期/零一次性/零撤销、base32 大小写与 QR 优化、wire format 版本陷阱（Variant1 判别符是 0x00）、BlobTicket 的有损编码、KIND 前缀 |
-| **[ffi-and-bindings.md](references/ffi-and-bindings.md)** | 绑定矩阵（uniffi/napi/C）、iroh-ffi 两个硬伤（不暴露 blobs / 不暴露 discovery）、uniffi `&self` 门槛导致的 `Mutex<Option<T>>` 降级、`async_runtime="tokio"` 的真身（async-compat TOKIO1 单线程）、回调 trait 与 WatchHandle、错误模型（Object 而非 Enum）、Android 手写 JNI 缺口、Apple 部署目标下限 17.5 与三个必链 framework、数据全是 Vec<u8> 拷贝的量化证据 |
-| **[wasm-and-browser.md](references/wasm-and-browser.md)** | 浏览器能力天花板（relay-only 是**编译期**事实）、三个官方例子的共享架构范式、**存储层才是卡点**（iroh-blobs 只有 MemStore，#84/#86 未合）、pkarr 在浏览器**可用**（常见误传）、构建链路两种范式、体积数据（附可信度声明）、wasm-opt 是负收益、macOS ring 坑、Rust Stream → JS ReadableStream |
-| **[protocols-gossip-docs-rpc.md](references/protocols-gossip-docs-rpc.md)** | gossip 三条硬约束（不认证作者 / 4096 字节上限 / **NeighborUp/Down ≠ presence**）、HyParView 参数来源、docs 四条代价（meta-protocol / ID 即读权限 / redb / 浏览器无持久化）、irpc 的正确位置（16MiB 硬上限、四条 Non-goals）、quic-rpc 为什么 abandoned、automerge 只有示例 |
-| **[features-and-platforms.md](references/features-and-platforms.md)** | 10 个 feature 全表、两个 cfg alias、default features 在 wasm 上**能编过**、`default-features=false` 的连带杀伤、tls-ring vs tls-aws-lc-rs、fast-apple-datapath 的真相（死代码）、Android/iOS CI 实况、ring→wasm 的 toolchain 问题、各 target 速查 |
-| **[nat-and-transports.md](references/nat-and-transports.md)** | **没有 STUN、没有 DCUtR 握手**、官方 16 组 NAT 矩阵（3 个 Hard 组合打不通）、QAD 走 UDP/7842、portmapper 能救家宽不能救 CGNAT、custom transport API（数据报级 + PathSelector 陷阱）、Tor/Nym/BLE 的真实状态 |
-| **[tooling.md](references/tooling.md)** | iroh-doctor 7 个子命令与**三个「看起来能用其实不能」**（NAT 分类器没接线 / 永不返回 Easy / `--https` flag 是装饰性的）、relay-urls 超时硬编码 2s、iroh-experiments 逐个点评、iroh-services 的开源边界与锁定风险证伪 |
-| **[gotchas.md](references/gotchas.md)** | **所有 critical 坑集中一处**，按「症状 → 根因 → 正确做法」组织。先撞到症状再来查的入口 |
 
 ## 关键版本与依赖事实
 

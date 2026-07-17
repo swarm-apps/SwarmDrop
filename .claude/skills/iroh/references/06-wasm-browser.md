@@ -22,16 +22,12 @@ iroh 1.0.2 · 调研日期 2026-07-17 · 源码 `/Volumes/yexiyue/iroh-study/`
 >
 > 四路证据：① `Cargo.toml` 的 package name 是 **`reverse-proxy`**（与目录名不符）；② 依赖 hyper 1.0 + hyper-util + `tokio { features = ["full"] }`（wasm 下不可能）+ dumbpipe 0.39，**零 wasm-bindgen 系依赖**；③ 目录里只有 `src/main.rs` 和 `src/quinn_endpoint.rs`，没有 public/、pkg/、package.json、.cargo/config.toml；④ `Makefile.toml:7-11` 的 `[tasks.deploy]` 与 `deploy.yml:7-15` 的 paths **只列 browser-echo/chat/blobs**，dumbpipe-web 只在 `ci.yml:18` 的 `RS_EXAMPLES_LIST`（原生构建）里。
 >
-> README 首句：*"This forwards http requests to dumbpipe"* —— **名字里的 web 指「给 dumbpipe 加个 HTTP 前端」，不是「跑在 web 里」**。它真正可复用的点（`quinn_endpoint.rs` 的 AsyncRead/AsyncWrite 缝合）见 [blobs-and-file-transfer.md](blobs-and-file-transfer.md)。
+> README 首句：*"This forwards http requests to dumbpipe"* —— **名字里的 web 指「给 dumbpipe 加个 HTTP 前端」，不是「跑在 web 里」**。它真正可复用的点（`quinn_endpoint.rs` 的 AsyncRead/AsyncWrite 缝合）见 [03c-blobs.md](03c-blobs.md)。
 
-## 成熟度
 
-- **browser-echo / browser-chat**：**活跃维护的官方示例**（不是 production）
-  - 依据：version 0.1.0，**无 publish 字段，未上 crates.io**；`iroh-examples/README.md:9` 自述 *"Examples how to use iroh or one of the iroh library crates. Things in here should be somewhat easy to understand."*
-  - **但**它们在 CI 的 `WASM_EXAMPLES_LIST`（`ci.yml:19` 只有这两个）里，每次 PR 验证 wasm 能编过；也在 `deploy.yml` 的 paths 和 `Makefile.toml` 的 deploy 依赖里；iroh 1.0.0；HEAD 2026-06-15 `deps: update to iroh 1.0 (#164)`
-  - → **被持续验证的一等示例，可放心抄模式**；但别当依赖，也别把它当 production 参考（**它的 tracing-subscriber 开了 env-filter 拉进 regex，体积白扛，生产要去掉**）
-- **browser-blobs**：**experimental**
-  - 依据：README 明写 *"For now, only the in-memory store works in the browser, so there is no persistence."*；**不在** CI wasm 列表；`Cargo.toml` 完全没有 `[profile.release]`；`src/lib.rs:4` 有一行**被注释掉的 cfg gate**（`// #[cfg(all(target_family = "wasm", target_os = "unknown"))]`，导致 wasm 模块无条件编译）；`public/main.js:48` 只在 `size < 1024*1024` 时才敢读回内容 —— **作者自己知道大文件会炸**；edition 还停在 2021（另两个是 2024）；**没有 `.cargo/config.toml`**（另两个都有）
+> **成熟度判定（三个样例哪个能抄、哪个别当依赖）与「自己写浏览器 store 的两道墙」（issue #84/#86/#207）**
+> → [index-ecosystem-map.md](index-ecosystem-map.md)。
+
 
 ## 共享架构范式
 
@@ -61,7 +57,6 @@ iroh 1.0.2 · 调研日期 2026-07-17 · 源码 `/Volumes/yexiyue/iroh-study/`
 
 `frontend` **不是 workspace member**，是独立 JS 包（`frontend/package.json`，靠 `"chat-browser": "file:../browser-wasm/pkg"` 消费 wasm 产物）。**Rust 侧和 JS 侧是两套包管理边界。**
 
----
 
 # 第二部分：网络层 —— 能用，但永远 relay-only
 
@@ -234,7 +229,19 @@ pub fn watch_addr(&self) -> impl n0_watcher::Watcher<Value = EndpointAddr> + use
 // 对比 native 版 :1269-1284 会 chain 上 ip_addrs()
 ```
 
-⚠️ **`RelayMode::Disabled` + wasm 的真实失效模式是「静默产出零地址的 EndpointAddr」，不是挂死**——详见 [foundations.md](foundations.md)。
+
+### wasm + `RelayMode::Disabled` 的真实失效模式
+
+⚠️ **常见误传**：「浏览器里 `watch_addr()` 会一直 pending 直到 home relay 选出来；Disabled + wasm 会静默挂死」——**这是错的**。
+
+`watch_addr()` 返回 `impl Watcher<Value = EndpointAddr>`，而 `initialized()` 有 `W: Nullable<T>` 约束，**`EndpointAddr` 不实现 `Nullable`，所以在 `watch_addr()` 的返回值上根本调不到 `initialized()`**，谈不上「永远 pending」。
+
+**真实失效模式是「静默产出空地址」**：wasm 版 `watch_addr()`（`endpoint.rs:1297`）只 map `home_relay()`，而 `home_relay()`（`socket.rs:488`）是 `local_addrs_watch.map(filter_map(Addr::Relay))`——Disabled 下过滤出空 Vec，`get()` 立刻返回一个 `EndpointAddr::from_parts(endpoint_id, [])`，即**零地址的 EndpointAddr**。不报错、不 pending。
+
+**危害其实更隐蔽**：你拿到的是个看起来合法、实际没人能拨通的 EndpointAddr，把它塞进 ticket 分发出去也不会有任何报错。
+
+**真正会「等」的是 `Endpoint::online()`**，Disabled 下确实永不返回——但那是 `online()` 的语义，不是 `watch_addr()`。
+
 
 ### Runtime 任务管理全部退化
 
@@ -265,6 +272,7 @@ browser-chat 就是用 `iroh-gossip = { version = "0.101", default-features = fa
 **这说明**：**基于 iroh Endpoint 的上层协议默认就是 wasm 兼容的**，只要不碰 `std::fs` / `tokio::net`。**真正需要 cfg 分支的是有平台副作用的部分 —— 数据库、文件读写、keychain。**
 
 > 这也是对「上层协议要不要为 Web 重写」的最乐观答案：**若你的协议/业务层只依赖 iroh Endpoint + n0-future，理论上不用为 wasm 改一行**（官方三个浏览器例子的 shared 核心里 `cfg(` 计数均为 0）。
+
 
 ---
 
@@ -312,49 +320,66 @@ pub fn bytes_to_uint8array(bytes: &[u8]) -> Uint8Array {
 
 > ⚠️ **别写「2GB 直接 OOM」** —— 源码只说「受可用内存限制」（`mem.rs:1-9`），**没给任何数字**；`gh search issues --repo n0-computer/iroh-blobs "2GB OR OOM OR 'out of memory'"` 返回**空**；`gh issue list --search "wasm OR browser OR OOM OR memory" --state all` 命中的 6 个 issue（#90/#84/#207/#203/#67/#233）无一提及。而 wasm32 的**架构硬上限是 4GiB**（`2^16 pages × 64KiB`，非 2GB）。**保留机制描述，删掉数字。真要给数字必须自己压测。**
 
-## 想自己写浏览器 store？两道墙
 
-### 墙 1：可插拔持久化后端未落地（issue #84 / PR #86）
+对照 `:767` 的 `#[cfg(not(wasm_browser))]` 真实现。**浏览器下只能走 `import_bytes`（`mem.rs:755`）全量入内存。**
 
-| Issue/PR | 状态 | 事实 |
-|----------|------|------|
-| **#84** "Make iroh-blobs fs storage agnostic" | **OPEN**（created 2025-04-25，updated **2026-06-09**，7 条评论） | 正文原文：「Eventually I think it would even be possible to support browser based storage like local storage or **indexeddb**」。rklaehn 2025-04-25 回：*"We would happily accept a PR... We want to release iroh 1.0 in Q3 this year, and iroh-blobs 1.0 at the same time"* |
-| **#86** "Seanaye/persistence trait" | **OPEN、非 draft**（2025-04-30 → **2026-05-27**），+752/-263 across 16 files | matthiasbeyer 2025-09-28 评论：*"I believe this cannot be trivially rebased, right? But I think this is crucial and should not be neglected by the iroh authors!"* |
-| **#90** "Browser / WebAssembly support" | **OPEN**（2025-05-06） | tracking issue |
-| **#187** "feat: compile to wasm for browsers" | **MERGED 2025-11-06** | +240/-136 across 28 files。**正是它带来了 wasm 编译支持**（合并痕迹本地可见：build.rs 的 cfg_aliases 与 ci.yaml 的 wasm job） |
-| **#201** "deps: Fix deps to actually work, **not just compile**, in wasm-browser" | **MERGED 2025-12-04** | — |
-
-### 墙 2：WASM + irpc 组合不可用（issue #207）
-
-OPEN，created 2026-01-14、updated **2026-06-15**（与 0.103.0 发布同日）。正文：*"Currently the `iroh-blobs/rpc` feature needs to be enabled when `iroh-blobs` is used alongside `irpc-iroh`. This does not work in WASM as the feature also enables some tokio code."*
-
-社区追问（cbenhagen 2026-03-30）：*"We'd also like to target wasm soon and are using both iroh-blobs (through iroh-docs) and iroh-rpc. Is there anything I can do to help move this forward?"* —— **无维护者回复**。
-
-本地佐证：`rpc = ["dep:noq", "irpc/rpc", "irpc/noq_endpoint_setup"]` 在 default 里；`Store::connect(endpoint: noq::Endpoint, ...)`(`api.rs:253`) 与 `Store::listen(self, endpoint: noq::Endpoint)`(`api.rs:261`) 均 `#[cfg(feature = "rpc")]` → wasm 上（`--no-default-features`）这些 API **直接不存在**。
-
-> ⚠️ **一条要证伪的旧说法**：「issue #84/#90 开了 14-15 个月零 PR」—— **「零 PR」是错的**（#187 已 MERGED）。
+> ⚠️ **常见误传纠正 1**：「必须关 default features，否则 **redb** 编不过」——**redb 编 wasm 完全没问题**。实测：新建 crate 仅依赖 redb 4.1.0，`cargo check --target wasm32-unknown-unknown` → Finished，零报错。机理是 redb 自带 fallback 后端（`src/tree_store/page_store/file_backend/mod.rs`：`#[cfg(not(any(windows, unix, target_os = "wasi")))] pub use fallback::FileBackend;`，wasm32-unknown-unknown 正好落进这条分支）。
 >
-> **正确的、更微妙也更有用的结论**：**wasm 能编译 ≠ 浏览器能用**。能编译（#187 已合），但**没持久化**（#86 未合）且 irpc 组合还坏着（#207）。
+> **「必须关 default features」结论成立，但报错不在 redb 而在 `mio`**：iroh-blobs 默认 features 编 wasm32 时 48 个 error 全在 `mio v1.2.2`（E0308/E0599，UdpSocket/IoSource），经 tokio 由 bao-tree/iroh-io/irpc/iroh-relay 等多路拉入。**归因给 redb 会被一条 `cargo check` 打脸。**
+
+> ⚠️ **常见误传纠正 2**：「iroh-blobs 没有 wasm cfg、靠 feature flag 做跨平台」—— 它**有** build.rs（:7 定义 `wasm_browser: { all(target_family = "wasm", target_os = "unknown") }`，Cargo.toml:79 依赖 cfg_aliases 0.2.1），src/ 下有 3 处 `cfg(wasm_browser)`（`store/util.rs:76`、`store/mem.rs:758`、`:767`）。**字面 grep `target_family` 会零命中 —— 这是 cfg alias 造成的间接层，别被骗。**
+
+**关于内存上限**：源码只说「受可用内存限制」（`mem.rs:1-9`：*"Being a memory store, this store has to import all data into memory before it can serve it. So the amount of data you can serve is limited by your available memory."*），**没给任何数字**。
+
+> ⚠️ **别写「2GB 直接 OOM」** —— 这个具体数字**在仓库和 issue 里均无出处**（`gh search issues --repo n0-computer/iroh-blobs "2GB OR OOM"` 返回空）。而 wasm32 的**架构硬上限是 4GiB**（`2^16 pages × 64KiB`，非 2GB）。**正确表述**：「mem store 全量入内存，容量受可用内存限制；wasm32 寻址硬上限 4GiB，实际远低于此（mem store 同时存 data + outboard 两份，import 期还有额外拷贝）」。真要给数字必须自己压测。
+
+> **自己写浏览器 store 的两道墙**（#84/#86 未合 → 无持久化；#207 → wasm + irpc 组合仍坏；
+> `Store` 是 struct 不是 trait，自定义意味着实现 irpc actor）→ [index-ecosystem-map.md](index-ecosystem-map.md)。
 >
-> ⚠️ 别用 `gh search issues --repo n0-computer/iroh-blobs "indexeddb OR opfs OR persistence"` 当判据 —— 它返回空集，但那是**查询构造 artifact**；拆开单独搜 `indexeddb` 就返回 #84。
->
-> **Web 端评估要盯 #86，不是 #90。**
+> **FsStore 的落盘布局**（`.data`/`.obao4`/`.sizes4`/`.bitfield` + redb）→ [03c-blobs.md](03c-blobs.md)。
+> **后果链**：浏览器无 fs-store → 无 `.bitfield` 落盘 → **刷新即从零开始**。
 
-### 自己写 store 的真实成本
+## iroh-docs 在浏览器下丧失持久化
 
-`Store` 是 **struct**（`api.rs:213`）而非可实现的 trait —— 自定义 store 意味着实现 `api::Store` 背后的 **irpc actor/service**。**这条路成本很高，不是「实现个 trait」那么简单。**
+### 浏览器可行性
 
-### 附：FsStore 的落盘布局（自己写 store 时可参考）
+| | wasm CI | 备注 |
+|---|---|---|
+| **iroh-gossip** | ✅ `ci.yaml:150` job "Build wasm32"，:169 `cargo build --target wasm32-unknown-unknown`（**未加** --no-default-features，即默认 net+metrics 可用），:175 断言无 `import "env"` | 有真实浏览器实跑参考 `iroh-examples/browser-chat`（README:3-5 含线上 demo 链接），其 Cargo.toml 用 `iroh-gossip = { version = "0.101", default-features = false, features = ["net"] }`；架构为 shared(Rust lib) + cli + browser-wasm(wasm-bindgen) + frontend(TypeScript/React/Vite/shadcn) |
+| **iroh-docs** | ⚠️ `ci.yaml:282` job "Build & test wasm32"，:310 为 `--no-default-features` → default 的 metrics/rpc/fs-store/redb-v2-migration **全部关闭** | **浏览器里丧失持久化**，只能内存态 |
 
-`iroh-blobs/src/store/fs/options.rs:28-42` 四个路径：`{hash}.data` / `{hash}.obao4`（outboard，4=16KiB block size）/ `{hash}.sizes4` / **`{hash}.bitfield`（已收到的 range set = 续传断点）**。元数据另用 redb。
-
-**这印证了后果链**：浏览器无 fs-store → 无 `.bitfield` 落盘 → **刷新即从零开始**。
 
 ---
 
-# 第四部分：构建链路
+# 第四部分：iroh-ffi 与 wasm —— 绕开它
 
-## 两种范式，产物不能混用
+## ❌ 完全不支持 wasm
+
+`support-matrix.yaml` 全部语言只有四种：swift / kotlin / python / js。**零 wasm 构建目标、零 wasm 文档、CI 无 wasm job。** napi 的 11 个 target 也**全是原生**。
+
+> ⚠️ **举证方法要小心**：`grep -rni "wasm" . --exclude-dir=.git` 有 108 处命中，但**不是「全部在 Cargo.lock」**。实测分布：Cargo.lock **32** + `iroh-js/yarn.lock` **74** + `iroh-js/index.js` **1** + `.yarn/releases/yarn-4.4.0.cjs` **1**。yarn.lock 那 74 处是 `@napi-rs/cli` 的工具链依赖（`@napi-rs/lzma-wasm32-wasi` 等），不是 iroh 的传递依赖。
+>
+> 更关键：`iroh-js/index.js:551` **存在一条 WASI 加载分支**（`require('@number0/iroh-wasm32-wasi')`，由 `NAPI_RS_FORCE_WASI` 触发）。它是 napi-rs 生成的样板且**实为死代码**（package.json 的 11 个 target 无 wasm32-wasi、optionalDependencies 无该包、仓内 find 不到任何 `*wasi*` 文件）。
+>
+> **所以「零 wasm 目标/文档/CI job」这个结论成立，但别用那条 grep 当判据。**
+
+**iroh 内核本身是支持 wasm 的**（Cargo.lock 里 ws_stream_wasm / wasm-bindgen 就是证据；`iroh/Cargo.toml:16` 注释 *"We need 'cdylib' to actually generate .wasm files"*，:91 有 wasm target deps 段），但**官方 FFI 层刻意没往 wasm 走**。别把「iroh 支持 wasm」误读成「iroh-ffi 支持 wasm」。想要浏览器端得绕开 iroh-ffi 直接用 iroh + wasm-bindgen 自己写（见 [06-wasm-browser.md](06-wasm-browser.md)）。
+
+**利好**：Web 端走 wasm-bindgen 时，**iroh 那半边不用你操心**，只需重写业务薄壳。
+
+## 「同一份 uniffi FFI 喂移动端和 Web」不可行
+
+不是没人做，是机制上走不通：
+
+- **机制级证据**：`async-compat-0.2.5/src/lib.rs:460-463` 的 TOKIO1 初始化里有 `thread::Builder::new().name("async-compat/tokio-1".into()).spawn(...)` —— wasm32-unknown-unknown 无 threads 时这是死路。而如果每一个 `#[uniffi::export]` 都带 `async_runtime="tokio"`，就全中
+- 旁证：`uniffi_core-0.31.1/Cargo.toml:41` 有 feature `wasm-unstable-single-threaded` —— **名字自带 unstable**；用它是为了在 wasm32 上摘掉 Future 的 Send bound（`ffi/rustfuture/mod.rs:42-53`）
+
+> ⚠️ 常见的错误理由是「uniffi 不支持 wasm」—— **不准确**，uniffi 有 `wasm-unstable-single-threaded`。**真正的杀手是你自己的 async 模型**：`async_runtime="tokio"` → async-compat → `thread::spawn`。
+
+---
+
+# 第五部分：构建链路
+
 
 | | browser-echo / browser-blobs | browser-chat |
 |---|---|---|
@@ -432,6 +457,81 @@ rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
 
 **它是 rustflag 不是 feature —— 不会随 `cargo add iroh` 自动带过来。** 下游项目要用得自己在 `.cargo/config.toml` 或 `RUSTFLAGS` 里补。
 
+## ⚠️ default features 在 wasm32 上是能编过的
+
+**这条直接推翻一个常见前提。**
+
+```yaml
+# iroh/.github/workflows/ci.yml
+wasm_test:
+  name: Build & test wasm32 for browsers
+  env:
+    RUSTFLAGS: '--cfg getrandom_backend="wasm_js"'
+  ...
+    - name: wasm32 build (iroh-relay)
+      run: cargo build --target wasm32-unknown-unknown -p iroh-relay
+
+    - name: wasm32 build (iroh)
+      run: cargo build --target wasm32-unknown-unknown -p iroh       # ← 没有 --no-default-features！
+
+    # If the Wasm file contains any 'import "env"' declarations, then
+    # some non-Wasm-compatible code made it into the final code.
+    - name: Ensure no 'import "env"' in iroh Wasm
+      run: |
+        ! wasm-tools print --skeleton target/wasm32-unknown-unknown/debug/iroh.wasm | grep 'import "env"'
+
+    - name: Run integration test in wasm
+      run: cargo test -p iroh --test integration --target=wasm32-unknown-unknown
+```
+
+**iroh CI 带 default features（含 metrics + tls-ring + portmapper + fast-apple-datapath）直接编 wasm32，没有 `--no-default-features`。**
+
+**「wasm 必须 default-features=false，因为 metrics 编不过」对 1.0.2 不成立**——metrics 的 wasm 支持在 **0.34.0** 就修好了（`CHANGELOG.md:885`，隶属 `## [0.34.0] - 2025-03-17`）：
+
+> *(iroh)* Enable `netwatch::netmon::Monitor` and the `metrics` feature in Wasm ([#3206])
+
+**如果你实测 default features 编不过 wasm，那是别的原因（大概率是 ring 的 C 编译，见下），不该归因到 metrics。**
+
+### 机制：target-gated 依赖，不是 feature 裁剪
+
+```toml
+# iroh/iroh/Cargo.toml
+# non-wasm-in-browser dependencies
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+hickory-resolver = { version = "0.26.0", default-features = false }
+portmapper = { version = "0.19.1", optional = true, default-features = false }
+noq = { version = "1.0.1", default-features = false, features = ["runtime-tokio", "rustls"] }
+tokio = { version = "1", features = ["io-util", "macros", "sync", "rt", "net", "fs", "io-std"] }
+
+# wasm-in-browser dependencies
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+wasm-bindgen-futures = "0.4"
+# we don't use time directly, but need to enable it because x509_parser uses these in browsers
+time = { version = "0.3", features = ["wasm-bindgen"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
+```
+
+**`portmapper` 这个 dep 本身就声明在 `not(wasm)` 的 target 表里，所以 `portmapper` feature 的 `dep:portmapper` 在 wasm 上是空转。**
+
+**关键心智：在 wasm 上开着 portmapper / fast-apple-datapath feature 是无害的，不需要为了 wasm 单独维护一份 feature 列表。**（注意 tokio 在 wasm 上没有 net/fs/io-std。）
+
+> **libp2p 对照**：libp2p 需要你手动为 wasm 换 transport feature（如 `libp2p-websocket-websys` 替 tcp）；iroh 的等价物是**自动的**——同一份 feature 列表，靠 target cfg 换实现。
+
+### 但 rustflag 得自己补
+
+```toml
+# iroh/.cargo/config.toml
+[target.wasm32-unknown-unknown]
+runner = "wasm-bindgen-test-runner"
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+```
+
+**这是 rustflag，不是 feature——不会随 `cargo add iroh` 自动带过来。** 下游项目要用得自己在 `.cargo/config.toml` 或 `RUSTFLAGS` 里补。
+
+> ⚠️ **但它不是编译硬门槛**（实测）：browser-blobs 无该 cfg 直接 build 成功；browser-echo 用 `RUSTFLAGS=""` 清掉后同样成功。**只验证了「能编过」，未验证运行时熵来源** —— 保留它是无害且更保险的。详见 [06-wasm-browser.md](06-wasm-browser.md)。
+
+另：`[lib] crate-type = ["lib", "cdylib"]`，注释「We need "cdylib" to actually generate .wasm files」，且因 rust-lang/cargo#12260 无法做成 target-dependent。
+
 ## ⚠️ macOS 上的隐藏坑：ring 编不过
 
 **这个坑没有任何文档提到，三个例子的 README 也没写。**
@@ -445,6 +545,24 @@ error occurred in cc-rs: command did not execute successfully: LC_ALL="C" "clang
 ```
 
 **根因**：Apple 系统 clang（Xcode CLT 自带）**不支持 wasm32 target**（`clang --print-targets | grep -i wasm` 无输出）。触发链路是 `iroh` 的 `tls-ring` feature → ring 要编 C（`RING_SRCS` 里那批 .c：curve25519.c、aes_nohw.c、montgomery.c…，交给 cc crate）。
+
+
+```rust
+// ring-0.17.14/build.rs:594-603
+const WASM32: &str = "wasm32";
+// Allow cross-compiling without a target sysroot for these targets.
+if (target.arch == WASM32)
+    || (target.os == "linux" && target.env == "musl" && target.arch != X86_64)
+{
+    // TODO: Expand this to non-clang compilers in 0.17.0 if practical.
+    if compiler.is_like_clang() {
+        let _ = c.flag("-nostdlibinc");
+        let _ = c.define("RING_CORE_NOSTDLIBINC", "1");
+    }
+}
+```
+
+**ring 对 wasm32 会实打实编译 C 源码**（`RING_SRCS` 里那批 .c：curve25519.c、aes_nohw.c、montgomery.c…），交给 cc crate（`Cargo.lock` 里 ring 的 build 依赖含 `cc`）。
 
 **解法（实测有效）**：
 
@@ -490,7 +608,6 @@ rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
 
 browser-blobs **缺这段**，白白多付约 **39%** 的 gzip 体积（套上 echo 的 profile 重编：wasm-opt 后从 4510KB/gzip 1739KB 降到 3027KB/gzip ~1253KB，raw 省 1483KB、gzip 省约 486KB）。
 
----
 
 # 第五部分：体积
 
@@ -513,7 +630,6 @@ browser-blobs **缺这段**，白白多付约 **39%** 的 gzip 体积（套上 e
    - 唯一 wasm-opt 帮上忙的是 browser-blobs 的**原始配置**（gzip 1953→1739KB，-11%）—— 但那只是因为它**没有 `[profile.release]`、符号没 strip**，wasm-opt 顺手清了本该由 strip 干的活
    - → **照抄这条链路前自己实测再决定留不留 wasm-opt，别默认它有用。**（前提：本机单次测量、已 strip+LTO 的产物；换 binaryen 版本或 flag 组合可能不同）
 
----
 
 # 第六部分：可抄的代码模式
 
@@ -670,3 +786,15 @@ fn start() {
 2. **tracing 的 TRACE 级别在浏览器 console 里会带 JS backtrace**，要用 `map_trace_level_to` 降级规避
 
 （browser-chat 用 `LevelFilter::DEBUG`，echo/blobs 用 `TRACE`。）
+
+---
+
+# 附：寻址在浏览器下只剩 pkarr 一条腿
+
+**DHT 与 mDNS 完全不可用** —— 不是降级，是编译/运行都没有。
+
+- 正面：内置 pkarr 模块处处有 wasm 分支（`pkarr.rs:310/313`、:458/461 多处 `#[cfg(wasm_browser)]` 成对出现）—— 被刻意支持
+- `DnsAddressLookup` 整模块被排除：`address_lookup.rs:120-126` `#[cfg(not(wasm_browser))] pub mod dns;`；presets 里同样跳过（`presets.rs:131-134`）
+- 反面：对 `iroh-address-lookups` 全仓 grep `wasm|target_arch`（含 `*.rs` 与 `*.toml`）**零结果**；对 `swarm-discovery` 的 src/ 与 Cargo.toml grep `wasm` 亦**零结果** —— 两者根本没考虑过 wasm，底层分别是 noq-udp 与 socket2 UDP 多播
+
+**Web 端必须依赖 pkarr relay**（n0 的 dns.iroh.link 或自建）。这意味着「无服务器」卖点在 Web 端天然打折 —— 桌面/移动可纯 DHT，Web 不行。**要么三端统一用 pkarr，要么接受三端能力不对等并在 UI 讲清楚 —— 这是产品决策，不只是技术细节。**

@@ -4,6 +4,11 @@ iroh 1.0.2 · n0-future 0.3.2 · n0-watcher 1.0.0 · n0-error 1.0.0 · 调研日
 
 > **三者都不在 iroh-study 里**（它们是 crates.io 依赖，但各自有独立仓库快照）。n0-watcher 源码在 `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/n0-watcher-1.0.0/src/lib.rs`。iroh 在 `iroh/iroh/src/lib.rs:291` 做了 `pub use n0_watcher::Watcher;`。
 
+> **这一层官方文档完全没有，但绕不开**：iroh 的公开 API 直接暴露 n0-watcher，错误类型由 n0-error 生成，
+> 异步原语走 n0-future，QUIC 栈是 noq。它们不属于任何官方分区，却会在你写第一行 iroh 代码时就咬到你。
+>
+> 索引层用途见 [SKILL.md](../SKILL.md)。按症状查坑 → [index-gotchas.md](index-gotchas.md)；按能力查库 → [index-ecosystem-map.md](index-ecosystem-map.md)。
+
 ## 一句话选型：三者定位完全不同，不要打包决策
 
 | 库 | 结论 | 理由 |
@@ -13,6 +18,27 @@ iroh 1.0.2 · n0-future 0.3.2 · n0-watcher 1.0.0 · n0-error 1.0.0 · 调研日
 | **n0-error** | **多半不用** | iroh 错误同时实现了 `std::error::Error`，thiserror 可直接 `#[from]`；而它的核心卖点 location **生产默认不采集** + 强制放弃 `#[derive(Debug)]` |
 
 ---
+| **noq** | **没得选** | iroh 1.0.2 的 QUIC 栈（quinn 分支）。transport config、流额度、0-RTT、Connection 内部锁全落在它身上 |
+
+## noq：iroh 的 QUIC 栈（读源码前必读）
+
+**noq 不在 iroh-study 里**。它是 n0 自家的 QUIC 栈（quinn 分支），iroh 1.0.2 依赖
+`noq` / `noq-proto` / `noq-udp` **1.0.1**（`iroh/iroh/Cargo.toml`），源码 vendor 在
+`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/noq-1.0.1/`。
+
+> ⚠️ **grep 陷阱**：`endpoint.rs` 里有个叫 `Noq` 的**错误变体**（`ConnectWithOptsError::Noq { source: QuicConnectError }`），
+> 那是错误枚举不是模块，grep 时别串台。
+
+**它决定了什么**（正文分散在各分区，此处只做索引）：
+
+| noq 决定的事 | 正文位置 |
+|---|---|
+| 四个流原语的签名与 Future Output、流很便宜的成本模型 | [03a-using-quic.md](03a-using-quic.md) |
+| 默认 100 并发流上限、`stream_receive_window` 1.25MB、背压而非报错 | [03a-using-quic.md](03a-using-quic.md) |
+| `send_datagram` / `max_datagram_size` / datagram 缓冲 | [03a-using-quic.md](03a-using-quic.md) |
+| `fast-apple-datapath` 的实际实现（iroh 侧零实现，纯透传 noq → noq-udp） | [07-configuration.md](07-configuration.md) |
+| irpc 的原生 transport 是 noq 而非 iroh | [03d-docs-rpc-automerge.md](03d-docs-rpc-automerge.md) |
+
 
 # n0-future
 
@@ -225,20 +251,6 @@ w.set(v) -> Ok(old)  // 值变了，已唤醒 watchers
         -> Err(v)    // 值没变（T: Eq 判定），【不唤醒】—— Err 不代表失败
 ```
 
-## 1.0.2 的公开 Watcher API 只有三个
-
-穷举 `grep "pub fn .*->.*Watch"` 在 `iroh/iroh/src/` 下：
-
-| API | 位置 | Value 类型 |
-|-----|------|-----------|
-| `Endpoint::watch_addr()` | `endpoint.rs:1270`（非 wasm）/ `:1297`（wasm） | `EndpointAddr` |
-| `Endpoint::home_relay_status()` | `endpoint.rs:1384` | `Vec<RelayStatus>` |
-| `Endpoint::net_report()` | `endpoint.rs:1433`（feature `unstable-net-report` 门控） | `Option<NetReport>` |
-
-> ⚠️ **1.0.2 没有 `direct_addrs()`。** `direct_addrs` / `direct_addresses` / `conn_type` 在公开 API 里**都不存在**。历史轨迹有据可查：`CHANGELOG.md:1717`「Rename Endpoint::local_endpoints to direct_addresses」；`:631`「[breaking] Make direct_addresses always be initialised (#3505)」；`:441`「Remove Endpoint::conn_type (#3647)」。**现在直连地址只能通过 `watch_addr()` 返回的 EndpointAddr 里的 `TransportAddr::Ip(..)` 间接看到。**
-
-> libp2p 的 `swarm.listeners()` / `SwarmEvent::NewListenAddr` 直接给你监听地址列表；iroh 把「直连地址 + relay 地址」打包成单个 `EndpointAddr` 让你 watch，不单独暴露 direct addrs。
-
 ## ⚠️ 核心陷阱：`initialized()` vs `updated()` 的双重不对称
 
 ### 不对称一：返回类型（一个解包一个不解包）
@@ -357,69 +369,6 @@ match self.as_mut().watcher.poll_updated(cx) {
 1. 不要把 `set()` 的 Err 当失败处理或 `?` 传播
 2. `T: Eq` 的去重是**隐式的** —— 把一个「内容相同但需要触发副作用」的值 set 进去**不会唤醒下游**，需要额外塞 epoch/序号字段。`Watcher::map`（:694-703）同样对**映射后**的值做去重
 
-## `home_relay_status().initialized()` 为什么不能用来等连接
-
-链条闭合于三处：
-
-1. **`home_relay_status()` 的 Value 是 `Vec<RelayStatus>`**（底层 `Watchable<Option<RelayStatus>>` 经 Join + flatten，见 [relay.md](relay.md)），所以 `Nullable` 走 `pop()` 分支——**非空即返回**
-2. **RelayActor 在拨号之前就发布 `Connecting`**（`socket/transports/relay/actor.rs:1138-1145`），`Connected` 要等 `run_dialing()` 返回后才写入（`:364-372`）
-3. 于是 Vec 的状态序列是 `[]` → `[RelayStatus{Connecting}]` → `[RelayStatus{Connected}]`
-
-`Endpoint::online` 的文档把这句话写死了（`endpoint.rs:1310-1312`）：
-
-> This currently means at least one relay server has completed its connection handshake... **Merely selecting a relay URL is not sufficient.**
-
-**`initialized()` 拿到的恰恰就是「只选了 URL」这个不充分状态。**
-
-> ⚠️ **精确表述（别写「必然」）**：证据只证明了 set 调用的先后顺序，证明不了 `initialized()` **必定**观测到 `Connecting`。两个反例：(a) `InitializedFut` 的 `initial` 字段在 future **创建时就同步求值**（`lib.rs:312` `initial: self.get().into_option()`），若此时 relay 已连上，`get()` 直接返回 `[Connected]`，`initialized()` 立刻返回 `is_connected()==true`；(b) 依 last-value-wins 语义，watcher 未及时 poll 时 `Connecting` 可被 `Connected` 覆盖跳过（实践中拨号需网络 RTT，极少发生）。
->
-> **准确说法：`initialized()` 在它观测到的第一个非空值处返回，而该值在典型时序下是 `Connecting`，故它对「是否已连上」不提供任何保证。** 注意这个准确版结论反而**更有力**——正因为不保证，才不能用它等连接。
-
-> libp2p 里等 relay 可用是匹配 `SwarmEvent::Behaviour(relay::client::Event::ReservationReqAccepted{..})`——一个明确的「预约已被接受」事件；iroh 这里没有等价事件，你只能采样状态并自己判 `is_connected()`。
-
-## 正确写法：`Endpoint::online()` + timeout
-
-```rust
-// endpoint.rs:1355-1370 —— 实现本身就是标准答案
-pub async fn online(&self) {
-    let mut watcher = self.inner.home_relay_status();
-    let mut value = watcher.get();
-    loop {
-        if value.into_iter().any(|status| status.is_connected()) { return; }
-        value = match watcher.updated().await {
-            Ok(value) => value,
-            Err(_disconnected) => {
-                std::future::pending::<()>().await;   // ← 断开时显式永久挂起
-                break;
-            }
-        }
-    }
-}
-```
-
-判据是 `any(|status| status.is_connected())` —— **至少一个 home relay 完成握手**。
-
-**`online()` 自身没有超时，且两种情况下永久挂起：**
-1. **没配 relay**（文档 `endpoint.rs:1314`：「If no relays are configured, this will pend forever.」）
-2. watcher 断开时它显式 `std::future::pending::<()>().await`
-
-**文档建议用接近 `NET_REPORT_TIMEOUT` 的超时包住**（`endpoint.rs:1316-1319`）。`NET_REPORT_TIMEOUT = 5`（秒，`iroh/iroh/src/net_report/defaults.rs:14`，`lib.rs:292` re-export）。
-
-dumbpipe 的实践（`dumbpipe/src/main.rs:28, 364`）：
-
-```rust
-const ONLINE_TIMEOUT: Duration = Duration::from_secs(5);
-if (timeout(ONLINE_TIMEOUT, endpoint.online()).await).is_err() {
-    eprintln!("Warning: Failed to connect to the home relay");
-}
-```
-
-⚠️ **两家超时后的行为不同，别搞混**：dumbpipe 5s **仅告警继续**；sendme 30s（`main.rs:731-736`）**硬失败**（`.await?` 把 Elapsed 传进 anyhow）。
-
-> `online()` 是官方且推荐的写法，但不必说成「唯一正解」——它本身就是 `home_relay_status()` + `updated()` 循环 + `any(is_connected)` 的手写样板。iroh 自己的测试 `endpoint.rs:4090` 就是 `home_relay_status().stream()` 手写循环（判 `last_error()`）。
-
-> **libp2p 对照**：对应 libp2p 里「循环 `swarm.next()` 直到匹配到 relay 预约成功事件」的那段样板；iroh 把它收敛成一个 `online()` 方法，所以自己手写 `initialized()` 版本纯属倒退。
-
 ## 全仓证据：`initialized()` 只该配 `Option`
 
 `grep -rn "\.initialized()" /Volumes/yexiyue/iroh-study/` **全部命中只有一处**：
@@ -441,75 +390,6 @@ iroh/iroh/tests/integration.rs:54:    time::timeout(Duration::from_secs(20), ser
 ```
 
 **判据极简：Value 是 `Option<T>` 才用 `initialized()`，是 `Vec<T>` 就别用。**
-
-## `watch_addr()` 中同一个陷阱
-
-**EndpointAddr 里出现 relay 地址 ≠ 已连上 relay。**
-
-```rust
-// socket/transports/relay.rs:180-185 —— 只要 status 是 Some 就产出 (url, id)，完全不看 Connecting/Connected
-pub(super) fn local_addr_watch(&self) -> RelayAddrWatcher {
-    let my_endpoint_id = self.my_endpoint_id;
-    self.my_relay.watch()
-        .map(move |status| status.map(|status| (status.url().clone(), my_endpoint_id)))
-}
-
-// endpoint.rs:1270-1284 —— watch_addr 把它直接拼进 EndpointAddr
-pub fn watch_addr(&self) -> impl n0_watcher::Watcher<Value = EndpointAddr> + use<> {
-    let watch_addrs = self.inner.ip_addrs();
-    let watch_relay = self.inner.home_relay();
-    let endpoint_id = self.id();
-    watch_addrs.or(watch_relay).map(move |(addrs, relays)| {
-        EndpointAddr::from_parts(endpoint_id,
-            relays.into_iter().map(TransportAddr::Relay)
-                .chain(addrs.into_iter().map(|x| TransportAddr::Ip(x.addr))))
-    })
-}
-```
-
-而 status 在 `Connecting` 阶段就已经是 `Some`。
-
-**「watch_addr 里已经有 relay 地址了 → 应该能被拨到了吧」是错的。** iroh 自己的文档也提醒先 `online()`（`endpoint.rs:1189-1192`）。
-
-另外 **`Endpoint::addr()` 就是 `self.watch_addr().get()`**（`endpoint.rs:1196-1198`）——一个可能残缺的瞬时快照，早期调用会拿到不完整的 EndpointAddr。
-
-### wasm + `RelayMode::Disabled` 的真实失效模式
-
-⚠️ **常见误传**：「浏览器里 `watch_addr()` 会一直 pending 直到 home relay 选出来；Disabled + wasm 会静默挂死」——**这是错的**。
-
-`watch_addr()` 返回 `impl Watcher<Value = EndpointAddr>`，而 `initialized()` 有 `W: Nullable<T>` 约束，**`EndpointAddr` 不实现 `Nullable`，所以在 `watch_addr()` 的返回值上根本调不到 `initialized()`**，谈不上「永远 pending」。
-
-**真实失效模式是「静默产出空地址」**：wasm 版 `watch_addr()`（`endpoint.rs:1297`）只 map `home_relay()`，而 `home_relay()`（`socket.rs:488`）是 `local_addrs_watch.map(filter_map(Addr::Relay))`——Disabled 下过滤出空 Vec，`get()` 立刻返回一个 `EndpointAddr::from_parts(endpoint_id, [])`，即**零地址的 EndpointAddr**。不报错、不 pending。
-
-**危害其实更隐蔽**：你拿到的是个看起来合法、实际没人能拨通的 EndpointAddr，把它塞进 ticket 分发出去也不会有任何报错。
-
-**真正会「等」的是 `Endpoint::online()`**，Disabled 下确实永不返回——但那是 `online()` 的语义，不是 `watch_addr()`。
-
-## 生命周期：`close()` 不断开 watcher，只有 drop 才会
-
-三个公开 Watcher API 的文档都重复了这段警告（`endpoint.rs:1235-1266` / `:1380-1383` / `:1412-1415`），说明这是踩过的坑：
-
-```
-/// ## Closing behavior
-///
-/// The returned watcher only becomes disconnected once the last clone of the [`Endpoint`]
-/// is dropped. Closing the endpoint does not disconnect the watcher. Thus, a stream created
-/// via [`Watcher::stream`] only terminates once the endpoint is fully dropped. To stop a task
-/// that loops over a watcher stream once the endpoint stops, combine with [`Self::closed`]:
-///
-/// let mut addr_stream = endpoint.watch_addr().stream();
-/// let endpoint_closed = endpoint.closed();
-/// tokio::spawn(endpoint_closed.run_until(async move {
-///     while let Some(addr) = addr_stream.next().await {
-///         info!("our address changed: {addr:?}");
-///     }
-///     info!("endpoint closed");
-/// }));
-```
-
-**`close()` 是「优雅关闭连接」，不是「释放 watcher」——两者生命周期是分离的。**
-
-> libp2p 没有这个区分：Swarm 没了事件流就没了。iroh 的 Endpoint 是 Arc-clone 语义，`close()` 与 `drop()` 是两件事，**watcher 只认 drop**。
 
 ## API 细节速查
 
@@ -696,15 +576,10 @@ res.anyerr()             // std error  -> AnyError，无 context
 err.report().full() / .sources(Some(SourceFormat::OneLine))
 ```
 
+
 ---
 
-## MSRV 汇总
+## MSRV
 
-| 库 | rust-version | edition |
-|---|---|---|
-| iroh | 1.91 | 2024 |
-| **n0-watcher** | **1.91**（`Cargo.toml:13`） | — |
-| n0-future | 1.85 | 2021 |
-| n0-error | 未声明 | 2024 |
-
-**迁 iroh 会一次性把 MSRV 底线抬到 1.91。** 若 CI/Docker/贡献者环境锁了旧 toolchain，需提前记一笔。
+**迁 iroh 会一次性把 MSRV 底线抬到 1.91**（iroh 1.91 / n0-watcher 1.91 / n0-future 1.85 / n0-error 未声明）。
+完整表格与工具链兼容性 → [07-configuration.md](07-configuration.md) 的 Compatibility 一节。
