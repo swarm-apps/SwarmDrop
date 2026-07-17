@@ -341,6 +341,40 @@ git-cliff --config mobile/cliff.toml --latest --tag-pattern '^mobile-v' \
 unrelated history 的末端，主仓全部 `crates/` 提交都不在其祖先链上，会被算成「本次发布的
 新内容」（实测 81 条 vs 打在并入点的 1 条）。
 
+### SwarmHive 的 app 还记着代码来源，改仓库结构要同步改它
+
+SwarmHive 服务端给每个 app 存了一行 `github_source`（owner / repo / tag template），用于
+GitHub 镜像与 liveness 探测。**它是仓库结构的第二份真相，改仓不改它就会发版失败或发错。**
+
+移动端并入单仓时踩到两处，第一处会响、第二处是哑的：
+
+```
+# 响的：swarmhive-action 传的 mirror_url 指向主仓，与配置的 source 对不上，exit 2
+mirror_url repo swarm-apps/SwarmDrop does not match the app's configured source swarm-apps/SwarmDrop-RN
+```
+
+```
+# 哑的：tag template 仍是 v{version}。在 RN 独立仓里没问题（那边 tag 就叫 v0.7.18），
+# 但在单仓里 v0.7.19 是**桌面**的 tag —— 只改 repo 不改模板，SwarmHive 会去主仓找
+# v0.7.19，把「下载 Android」指到桌面的安装包上。
+```
+
+**正确做法**（CLI ≥ 0.9.0 才有 `source` 子命令；`apps update` 只能改 display-name / platforms，改不了它）：
+
+```bash
+npx @swarm-hive/cli@0.9.0 source get --app swarmdrop-rn   # 读，无需 token
+npx @swarm-hive/cli@0.9.0 source set --app swarmdrop-rn \
+  --owner swarm-apps --repo SwarmDrop --tag-template 'mobile-v{version}'
+```
+
+`--prefer-platform` 省略即保持原值（本项目是 `react-native-android`，别误清）。
+
+**注意 CI 里的版本**：`swarm-apps/swarmhive-action@v2` 内部固定 `@swarm-hive/cli@0.7.0`，那个版本
+没有 `source` 命令 —— 改配置要在本地用新版 CLI，别指望 CI 顺手带过去。
+
+服务端校验逻辑见 SwarmHive 的 `crates/swarmhive-server/src/services/mirror.rs`：有 `github_source`
+行就必须匹配 owner/repo，没有该行则只校验 URL 是不是合法的 github release-download 链接。
+
 ### 补分界 tag 会不会误发版：看 tag 指向的 commit 上有没有 workflow
 
 GitHub Actions 的 tag 触发，判据是 **tag 指向的那个 commit 的树里有没有该 workflow 文件**，

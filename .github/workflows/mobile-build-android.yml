@@ -26,6 +26,19 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # 见 mobile-release.yml 同名步骤：单仓后根 target/ 兼容两端产物，14GB runner
+      # 会在 Gradle 链接原生库时耗尽磁盘（No space left on device / clang++ Bus error）。
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - name: Checkout (with submodules)
         uses: actions/checkout@v6
         with:

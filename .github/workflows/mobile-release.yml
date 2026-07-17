@@ -91,6 +91,22 @@ jobs:
       apk_url: ${{ steps.stage.outputs.apk_url }}
 
     steps:
+      # 单仓后磁盘吃紧：cache-workspaces 指向根 workspace，target/ 同时容纳桌面与移动的
+      # Rust 产物；再叠上 hoisted 的 ~844 个 node_modules、Android SDK/NDK、Gradle 缓存，
+      # 14GB 的 runner 装不下。实测 Gradle 链接 libreanimated.so 时报 "No space left on
+      # device"，clang++ 直接 Bus error (core dumped)——RN 独立仓时 target 里只有
+      # mobile-core，所以从没撞到过。清掉 runner 预装但本项目用不到的部分。
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false # 保留：Node / Java 从 tool-cache 来
+          android: false # 保留：setup-android / setup-ndk 依赖既有 SDK 布局
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - name: Checkout (with submodules)
         uses: actions/checkout@v6
         with:
