@@ -586,12 +586,39 @@ scratchpad 里做原生构建实验时用 `CARGO_TARGET_DIR` 指到别处。
   createWritable）则**整段 async fn future 裹 SendWrapper**，内部 !Send 句柄随包一起被兜
 
 **不要做**：
-- 别用 `SyncAccessHandle`——Worker-only，与 webrtc-websys 主线程约束冲突（见上一条 panic 条目）；
-  ws-only + Worker 的 bundle 才轮到它
+- 主线程别用 `SyncAccessHandle`——Worker-only API（Window 环境根本没有）；Worker 环境
+  用它（见下一条）
 - 别依赖 staging 数据活过页面刷新——`close` 前的写入刷新即丢，`keep_existing_data` 只保护
   已 close 的字节（所以跨刷新续传不在主线程版范围内）
 
 **相关文件**：`crates/web/src/file_access.rs`
+
+### SyncAccessHandle（Worker 落盘）：语义差异与 Send 边界坑
+
+Worker 版落盘用 `createSyncAccessHandle`（同步零 Promise 直写）。**实测对吞吐无增益**
+（六组基准全 ~31±3 MB/s——瓶颈在 relay 链路 + noise，不在落盘方式），留它的理由是每 chunk
+省一次 wasm↔JS Promise 调度 + 写即落盘（崩溃丢失面小）。
+
+**与 createWritable 的语义差异（容易踩）**：
+- **独占锁**：同一文件同时只能开一个 SyncAccessHandle，且 **drop 不释放锁，必须显式
+  `close()`**——cleanup/取消路径漏 close 会让同文件重开一直被锁挡
+- **无 staging**：写即落盘（createWritable 是 close 才提交）——「取消 = drop 丢弃未提交
+  写入」的语义不成立，取消后已写字节留在盘上（对续传反而有利）
+- `write_with_u8_array_and_options(&[u8], FileSystemReadWriteOptions{at}) -> f64` 返回
+  实际写入字节数，要校验短写。features：`FileSystemSyncAccessHandle` +
+  `FileSystemReadWriteOptions`
+
+**Send 边界新坑：await 不能落在对 !Send 值 match 的臂内**。
+`match option_promise { Some(p) => { ...await... } }` 编不过（E0277 `*mut u8` not Send）——
+generator 认为 scrutinee（`Option<js_sys::Promise>`）活过整个 match 表达式，包括臂内的
+await 点。**修法**：match 之前先把 !Send 值同步转成 Send 的形状——
+`option_promise.map(|p| SendWrapper::new(JsFuture::from(p)))` 得到
+`Option<SendWrapper<JsFuture>>` 再 `if let Some(f) = fut { f.await }`。配套模式：
+「同步 helper（无 await）里做完全部 !Send 句柄操作、只返回 `Option<Promise>`，async 层
+只做包裹与 await」——Send 边界一眼可查。
+
+**相关文件**：`crates/web/src/file_access.rs`（`SinkHandle` 枚举 + `write_chunk_promise` /
+`close_promise` helper）
 
 ---
 
