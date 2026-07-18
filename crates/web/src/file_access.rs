@@ -2,15 +2,18 @@
 //!
 //! - **发送侧源**：用户经 `<input type=file>` 选的 [`web_sys::File`] 存 `FileSourceId → File`
 //!   映射；`read_source_chunk` 走 `File.slice(offset,end).arrayBuffer()` 读 range。
-//! - **接收侧 sink**：块先入内存缓冲，`finalize_sink` 一次落 **OPFS**（主线程 async API
-//!   `navigator.storage.getDirectory → createWritable`；**禁用 SyncAccessHandle**——它 Worker-only，
-//!   与 webrtc-websys 的主线程约束冲突，知识库有记录）。完成后经 [`export_blob_url`] 读回 OPFS
-//!   建 blob URL 供 JS 下载。
+//! - **接收侧 sink**：**流式落盘**——`create_sink` 时开一个 OPFS `createWritable` 句柄并持有，
+//!   每个 chunk 用 `WriteParams { position, data }` **positioned 直写**（单次 Promise 往返），
+//!   `finalize_sink` 时 `close`。不再整文件缓冲入内存（大文件不再 OOM）。用主线程 async API
+//!   `navigator.storage.getDirectory → createWritable`；
+//!   **禁用 SyncAccessHandle**——它 Worker-only，与 webrtc-websys 的主线程约束冲突（知识库有记录）；
+//!   Worker 版走 SyncAccessHandle 是另一个 bundle。完成后经 [`export_blob_url`] 读回建 blob URL 供下载。
 //!
-//! JsValue `!Send`，而 [`FileAccess`] 是 `Send`：用 `send_wrapper::SendWrapper` 把 JsFuture 裹成
-//! Send（单线程 wasm 永不触发其跨线程 panic）。映射表同理裹 `SendWrapper<RefCell<..>>` 满足
-//! Send+Sync。**缓冲整文件入内存**是 demo 取舍——流式 OPFS positioned write 需跨 await 持 writable
-//! 句柄（更复杂），留作后续；大文件会吃内存。
+//! JsValue `!Send`，而 [`FileAccess`] 是 `Send`：用 `send_wrapper::SendWrapper` 兜 Send（单线程
+//! wasm 永不触发其跨线程 panic）。映射表（含持有的 writable 句柄）裹 `SendWrapper<RefCell<..>>`
+//! 满足 Send+Sync。纪律：**裸 `RefCell` borrow / 裸 !Send 句柄绝不跨 await**；需要跨 await 的
+//! !Send 状态一律裹进 SendWrapper——短路径在 scope 内取出 Promise 即丢、只让
+//! `SendWrapper<JsFuture>` 跨 await；多步 helper（如 [`open_writable`]）则整段 future 裹 SendWrapper。
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -24,20 +27,17 @@ use swarmdrop_host::{
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    File, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
-    FileSystemGetFileOptions, FileSystemWritableFileStream,
+    File, FileSystemCreateWritableOptions, FileSystemDirectoryHandle, FileSystemFileHandle,
+    FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemWritableFileStream,
+    WriteCommandType, WriteParams,
 };
-
-/// 接收侧内存缓冲（finalize 时落 OPFS）。
-struct SinkBuf {
-    relative_path: String,
-    data: Vec<u8>,
-}
 
 /// OPFS + File 源的 [`FileAccess`] 实现。
 pub struct OpfsFileAccess {
     sources: SendWrapper<RefCell<HashMap<FileSourceId, File>>>,
-    sinks: SendWrapper<RefCell<HashMap<FileSinkId, SinkBuf>>>,
+    /// 接收侧流式写句柄：`create_sink` 时开、每 chunk positioned 直写、`finalize` 时 close。
+    /// key（[`FileSinkId`]）就是 relative_path，无需另存。
+    sinks: SendWrapper<RefCell<HashMap<FileSinkId, FileSystemWritableFileStream>>>,
 }
 
 impl Default for OpfsFileAccess {
@@ -97,28 +97,19 @@ impl FileAccess for OpfsFileAccess {
     }
 
     async fn create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
-        let sink = FileSinkId(metadata.relative_path.clone());
-        self.sinks.borrow_mut().insert(
-            sink.clone(),
-            SinkBuf {
-                relative_path: metadata.relative_path,
-                data: Vec::new(),
-            },
-        );
-        Ok(sink)
+        // 全新文件：keep_existing_data=false，打开即截断任何同名残留。
+        self.open_and_store(FileSinkId(metadata.relative_path), false)
+            .await
     }
 
     async fn open_or_create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
-        // 续传（同一会话内）保留已有缓冲；不存在才新建。跨页面刷新的续传不在范围内。
-        let sink = FileSinkId(metadata.relative_path.clone());
-        self.sinks
-            .borrow_mut()
-            .entry(sink.clone())
-            .or_insert_with(|| SinkBuf {
-                relative_path: metadata.relative_path.clone(),
-                data: Vec::new(),
-            });
-        Ok(sink)
+        // 续传：同一会话内已开句柄则复用；否则开 keep_existing_data=true 的句柄保留已落盘部分
+        // （positioned write 只覆盖后续 range）。跨页面刷新的续传不在范围内。
+        let sink = FileSinkId(metadata.relative_path);
+        if self.sinks.borrow().contains_key(&sink) {
+            return Ok(sink);
+        }
+        self.open_and_store(sink, true).await
     }
 
     async fn write_sink_chunk(
@@ -127,33 +118,34 @@ impl FileAccess for OpfsFileAccess {
         offset: u64,
         data: Vec<u8>,
     ) -> AppResult<()> {
-        let mut sinks = self.sinks.borrow_mut();
-        let buf = sinks
-            .get_mut(sink)
-            .ok_or_else(|| AppError::Transfer(format!("sink 不存在: {}", sink.0)))?;
-        let start = offset as usize;
-        let end = start + data.len();
-        if buf.data.len() < end {
-            buf.data.resize(end, 0);
-        }
-        buf.data[start..end].copy_from_slice(&data);
+        // positioned write：WriteParams { type:"write", position, data } 单次调用等价 seek+write，
+        // 每 chunk 只走一次 JS Promise 往返。句柄与 params 在 scope 内取到 Promise 即丢。
+        let promise = {
+            let writable = self.sink(sink)?;
+            let params = WriteParams::new(WriteCommandType::Write);
+            params.set_position(Some(offset as f64));
+            params.set_data(&JsValue::from(js_sys::Uint8Array::from(data.as_slice())));
+            writable
+                .write_with_write_params(&params)
+                .map_err(js_to_err)?
+        };
+        SendWrapper::new(JsFuture::from(promise))
+            .await
+            .map_err(js_to_err)?;
         Ok(())
     }
 
     async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<FinalizedSink> {
-        let (relative_path, data) = {
-            let sinks = self.sinks.borrow();
-            let buf = sinks
-                .get(sink)
-                .ok_or_else(|| AppError::Transfer(format!("sink 不存在: {}", sink.0)))?;
-            (buf.relative_path.clone(), buf.data.clone())
-        };
-        // write_opfs 的 future 跨 await 持 !Send 的 OPFS 句柄——整体裹 SendWrapper 满足
-        // FileAccess trait 的 Send 约束（单线程 wasm 永不触发跨线程 panic）。
-        SendWrapper::new(write_opfs(&relative_path, &data)).await?;
+        // 流式直写已把全部 chunk 落盘，finalize 只需 close 句柄提交、再从表中移除。
+        let close_promise = self.sink(sink)?.close();
+        SendWrapper::new(JsFuture::from(close_promise))
+            .await
+            .map_err(js_to_err)?;
+        self.sinks.borrow_mut().remove(sink);
+        let relative_path = &sink.0;
         let dir = relative_path
             .rsplit_once('/')
-            .map(|(d, _)| d.to_string())
+            .map(|(d, _)| d)
             .unwrap_or_default();
         Ok(FinalizedSink {
             uri: format!("opfs:/{relative_path}"),
@@ -162,6 +154,7 @@ impl FileAccess for OpfsFileAccess {
     }
 
     async fn cleanup_sink(&self, sink: &FileSinkId) -> AppResult<()> {
+        // 移除即 drop writable 句柄；未 close 的写入被丢弃——正是取消/失败时该有的行为。
         self.sinks.borrow_mut().remove(sink);
         Ok(())
     }
@@ -174,6 +167,27 @@ impl OpfsFileAccess {
             .get(source)
             .cloned()
             .ok_or_else(|| AppError::Transfer(format!("文件源不存在: {}", source.0)))
+    }
+
+    /// 查表取 sink 的写句柄（clone 只是 wasm-bindgen 堆表引用计数，非数据拷贝）。
+    fn sink(&self, sink: &FileSinkId) -> AppResult<FileSystemWritableFileStream> {
+        self.sinks
+            .borrow()
+            .get(sink)
+            .cloned()
+            .ok_or_else(|| AppError::Transfer(format!("sink 不存在: {}", sink.0)))
+    }
+
+    /// 开 `sink.0`（即 relative_path）的流式写句柄并登记。
+    /// open_writable 内部有 !Send 句柄跨 await，整体裹 SendWrapper 满足 trait 的 Send 约束。
+    async fn open_and_store(
+        &self,
+        sink: FileSinkId,
+        keep_existing_data: bool,
+    ) -> AppResult<FileSinkId> {
+        let writable = SendWrapper::new(open_writable(&sink.0, keep_existing_data)).await?;
+        self.sinks.borrow_mut().insert(sink.clone(), writable);
+        Ok(sink)
     }
 }
 
@@ -251,22 +265,24 @@ async fn opfs_file_handle(relative_path: &str, create: bool) -> AppResult<FileSy
         .map_err(|_| AppError::Transfer("文件句柄类型错误".into()))
 }
 
-/// 把 `data` 整块写入 OPFS 的 `relative_path`（createWritable → write → close）。
-async fn write_opfs(relative_path: &str, data: &[u8]) -> AppResult<()> {
+/// 打开 `relative_path` 的 OPFS 流式写句柄。`keep_existing_data=true` 保留已有内容（续传用），
+/// false 打开即截断。句柄由调用方持有，逐块 `seek+write`、最后 `close`。
+async fn open_writable(
+    relative_path: &str,
+    keep_existing_data: bool,
+) -> AppResult<FileSystemWritableFileStream> {
     let handle = opfs_file_handle(relative_path, true).await?;
-    let writable = SendWrapper::new(JsFuture::from(handle.create_writable()))
+    // !Send 的 opts 只在 block 内构造并取到 Promise 后即丢，只让 SendWrapper<JsFuture> 跨 await。
+    let create_promise = {
+        let opts = FileSystemCreateWritableOptions::new();
+        opts.set_keep_existing_data(keep_existing_data);
+        handle.create_writable_with_options(&opts)
+    };
+    SendWrapper::new(JsFuture::from(create_promise))
         .await
         .map_err(js_to_err)?
         .dyn_into::<FileSystemWritableFileStream>()
-        .map_err(|_| AppError::Transfer("createWritable 返回类型错误".into()))?;
-    let write_promise = writable.write_with_u8_array(data).map_err(js_to_err)?;
-    SendWrapper::new(JsFuture::from(write_promise))
-        .await
-        .map_err(js_to_err)?;
-    SendWrapper::new(JsFuture::from(writable.close()))
-        .await
-        .map_err(js_to_err)?;
-    Ok(())
+        .map_err(|_| AppError::Transfer("createWritable 返回类型错误".into()))
 }
 
 /// 读回 OPFS 文件建 blob URL（供 JS `<a download>` 下载）。demo 用。

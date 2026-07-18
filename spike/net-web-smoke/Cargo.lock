@@ -4075,7 +4075,6 @@ dependencies = [
 name = "swarmdrop-net-base"
 version = "0.1.0"
 dependencies = [
- "cfg_aliases",
  "libp2p-identity",
  "multiaddr",
  "serde",
