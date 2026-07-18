@@ -8,8 +8,6 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use futures::StreamExt;
-use serde::Serialize;
-use swarmdrop_host::device::{OsInfo, PairedDeviceInfo};
 use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId};
 use swarmdrop_net::{DhtConfig, Endpoint, NodeAddr, NodeId, RelayState, Router, presets};
 use swarmdrop_transfer::HostEnumeratedFile;
@@ -18,7 +16,7 @@ use swarmdrop_transfer::incoming::TransferCtrlService;
 use swarmdrop_transfer::manager::TransferManager;
 use swarmdrop_transfer::peer::PeerDirectory;
 use swarmdrop_transfer::protocol::{
-    FileInfo, TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL, TRANSFER_DATA_PROTOCOL, TransferOrigin,
+    TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL, TRANSFER_DATA_PROTOCOL, TransferOrigin,
 };
 use swarmdrop_transfer::store::TransferStore;
 use swarmdrop_transfer::wire::TransferDataHandler;
@@ -30,8 +28,39 @@ use web_sys::File;
 use crate::error::{WebError, js_err};
 use crate::events::WebEventSink;
 use crate::file_access::OpfsFileAccess;
+use crate::peer::WebPeerDirectory;
 use crate::store::MemorySessionStore;
+use crate::types::{ConnectionJson, NodeAddrJson, OfferJson};
 use crate::{identity, share_code};
+
+// specta 导出的 TS 类型（static/types/bindings.ts，由 `cargo test -p swarmdrop-web
+// --features specta` 生成并入库）整体注入 .d.ts，供下方 typescript_type 引用——
+// wasm-bindgen 默认把 JsValue 返回值标成 any，这里把方法签名接到具名类型上。
+#[wasm_bindgen(typescript_custom_section)]
+const TS_BINDINGS: &'static str = include_str!("../static/types/bindings.ts");
+
+#[wasm_bindgen]
+extern "C" {
+    /// `pending_offers()` 的返回：`OfferJson[]`。
+    #[wasm_bindgen(typescript_type = "OfferJson[]")]
+    pub type OfferJsonArray;
+    /// `events()` 的返回：逐条产出 [`WebTransferEvent`] 序列化对象的流。
+    #[wasm_bindgen(typescript_type = "ReadableStream<WebTransferEvent>")]
+    pub type TransferEventStream;
+    /// `connect()` 的返回。
+    #[wasm_bindgen(typescript_type = "ConnectionJson")]
+    pub type ConnectionJsonJs;
+    /// `lookup_share_code()` 的返回。
+    #[wasm_bindgen(typescript_type = "NodeAddrJson")]
+    pub type NodeAddrJsonJs;
+}
+
+/// serde 可序列化值 → 具名 TS 类型的 JsValue（`unchecked_into` 到 typescript_type 包装）。
+fn to_js_typed<T: serde::Serialize, R: JsCast>(value: &T, what: &str) -> Result<R, JsValue> {
+    serde_wasm_bindgen::to_value(value)
+        .map(JsValue::unchecked_into)
+        .map_err(|e| WebError::network(format!("序列化{what}失败: {e}")).into())
+}
 
 /// 浏览器传输端节点。
 #[wasm_bindgen]
@@ -125,17 +154,21 @@ impl WebNode {
     }
 
     /// 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
-    pub async fn connect(&self, addr: String) -> Result<String, JsValue> {
+    /// 返回结构化的连接信息（`{ path: "local"|"direct"|"relayed", addr }`）。
+    pub async fn connect(&self, addr: String) -> Result<ConnectionJsonJs, JsValue> {
         let (id, addr) = split_p2p_addr(&addr)?;
         let info = self
             .endpoint
             .connect(NodeAddr::with_addrs(id, vec![addr]))
             .await
             .map_err(js_err)?;
-        Ok(format!(
-            "connected: path={:?} addr={}",
-            info.path, info.addr
-        ))
+        to_js_typed(
+            &ConnectionJson {
+                path: info.path.into(),
+                addr: info.addr.to_string(),
+            },
+            "连接信息",
+        )
     }
 
     /// 经 helper 请求 circuit reservation（浏览器被动接收连接的唯一入口），返回 circuit 地址。
@@ -163,12 +196,17 @@ impl WebNode {
         }
     }
 
-    /// 查分享码 → 返回对端 `NodeAddr` 的 JSON（`{ id, addrs }`），并注册进地址簿。
+    /// 查分享码 → 返回对端地址（`{ id, addrs }` 结构化对象），并注册进地址簿。
     /// 前置：本节点已 connect 到一个 DHT-capable helper（浏览器不可达 TCP bootstrap）。
-    pub async fn lookup_share_code(&self, code: String) -> Result<String, JsValue> {
+    pub async fn lookup_share_code(&self, code: String) -> Result<NodeAddrJsonJs, JsValue> {
         let node_addr = share_code::lookup(&self.endpoint, &code).await?;
-        serde_json::to_string(&node_addr)
-            .map_err(|e| WebError::network(format!("序列化 NodeAddr 失败: {e}")).into())
+        to_js_typed(
+            &NodeAddrJson {
+                id: node_addr.id.to_string(),
+                addrs: node_addr.addrs.iter().map(|a| a.to_string()).collect(),
+            },
+            "NodeAddr",
+        )
     }
 
     /// 向 `to`（base58 NodeId）发送用户选择的文件：登记文件源 → prepare（checksum + bao
@@ -207,8 +245,8 @@ impl WebNode {
         Ok(result.session_id.to_string())
     }
 
-    /// 当前挂起（待确认）的入站 offer 列表（JSON 数组）。
-    pub fn pending_offers(&self) -> Result<JsValue, JsValue> {
+    /// 当前挂起（待确认）的入站 offer 列表。
+    pub fn pending_offers(&self) -> Result<OfferJsonArray, JsValue> {
         let offers: Vec<OfferJson> = self
             .manager
             .pending_offers()
@@ -221,8 +259,7 @@ impl WebNode {
                 files: o.files,
             })
             .collect();
-        serde_wasm_bindgen::to_value(&offers)
-            .map_err(|e| WebError::network(format!("序列化 offers 失败: {e}")).into())
+        to_js_typed(&offers, "offers")
     }
 
     /// 接受入站 offer 并开始接收（落 OPFS）。
@@ -261,20 +298,23 @@ impl WebNode {
 
     /// 完成接收后，把 OPFS 里的文件读回成 blob URL 供 `<a download>` 下载。
     pub async fn download_url(&self, relative_path: String) -> Result<String, JsValue> {
-        crate::file_access::export_blob_url(&relative_path)
+        crate::opfs::export_blob_url(&relative_path)
             .await
             .map_err(|e| WebError::from(e).into())
     }
 
-    /// 传输事件流（`TransferEvent` 序列化后的对象）。**只能取一次**（单点消费）。
-    pub fn events(&self) -> Result<web_sys::ReadableStream, JsValue> {
+    /// 传输事件流（逐条产出 `WebTransferEvent` 序列化对象）。**只能取一次**（单点消费）。
+    pub fn events(&self) -> Result<TransferEventStream, JsValue> {
         let rx = self
             .events_rx
             .borrow_mut()
             .take()
             .ok_or_else(|| WebError::invalid_input("events() 只能取一次"))?;
         let stream = rx.map(|ev| Ok::<JsValue, JsValue>(crate::events::serialize_event(ev)));
-        Ok(wasm_streams::ReadableStream::from_stream(stream).into_raw())
+        Ok(
+            JsValue::from(wasm_streams::ReadableStream::from_stream(stream).into_raw())
+                .unchecked_into(),
+        )
     }
 
     /// 关停节点（取消后台任务 + 关 Endpoint，drop Router 停路由）。
@@ -284,45 +324,22 @@ impl WebNode {
     }
 }
 
-/// 无配对目录：对任意对端返回「陌生、需手动确认」的合成设备（见 spawn 注释）。
-struct WebPeerDirectory;
-
-impl PeerDirectory for WebPeerDirectory {
-    fn get_paired_device(&self, peer_id: &NodeId) -> Option<PairedDeviceInfo> {
-        // Collaborator + trust_confirmed=true 但 auto_accept=false → policy RequireConfirmation。
-        Some(PairedDeviceInfo::new(
-            *peer_id,
-            OsInfo::unknown_from_peer_id(peer_id),
-            js_sys::Date::now() as i64,
-        ))
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OfferJson {
-    session_id: String,
-    peer_id: String,
-    peer_name: String,
-    total_size: u64,
-    files: Vec<FileInfo>,
-}
-
 fn parse_session_id(s: &str) -> Result<Uuid, WebError> {
     Uuid::parse_str(s.trim()).map_err(|e| WebError::invalid_input(format!("非法 session_id: {e}")))
 }
 
-/// 把 `<addr>/p2p/<id>` 拆成 `(NodeId, Addr)`。
+/// 解析带 `/p2p/<id>` 的 multiaddr 为 `(目标 NodeId, 完整 Addr)`。
+///
+/// 用 `Addr::p2p_node_id()`（net-base）取**末位** P2p 段——circuit 地址
+/// `/…/p2p/RELAY/p2p-circuit/p2p/TARGET` 的目标身份在末位，天真的字符串切分会抓错。
+/// 地址整体（含 `/p2p/` 段）交给 dial，libp2p 会据此校验对端身份。
 fn split_p2p_addr(s: &str) -> Result<(NodeId, swarmdrop_net::Addr), JsValue> {
-    let s = s.trim();
-    let (addr, id) = s
-        .rsplit_once("/p2p/")
-        .ok_or_else(|| WebError::invalid_input("地址须以 /p2p/<node-id> 结尾"))?;
-    let id = id
-        .parse::<NodeId>()
-        .map_err(|e| WebError::invalid_input(format!("NodeId 解析失败: {e}")))?;
-    let addr = addr
+    let addr = s
+        .trim()
         .parse::<swarmdrop_net::Addr>()
         .map_err(|e| WebError::invalid_input(format!("地址解析失败: {e}")))?;
+    let id = addr
+        .p2p_node_id()
+        .ok_or_else(|| WebError::invalid_input("地址须含 /p2p/<node-id>"))?;
     Ok((id, addr))
 }

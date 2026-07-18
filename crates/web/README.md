@@ -54,17 +54,25 @@ python3 -m http.server 8080 -d static
 
 | 方法 | 说明 |
 |---|---|
-| `spawn()` | localStorage 身份 → Browser preset + DHT client → 装配 TransferManager + Router |
+| `spawn()` | 持久化身份（Window=localStorage / Worker=OPFS）→ Browser preset + DHT client → 装配 TransferManager + Router |
 | `node_id()` | 本机 base58 身份 |
-| `connect(addr)` / `reserve(helper_addr)` | 拨地址 / 请求 circuit reservation |
-| `lookup_share_code(code)` | DHT 查分享码 → 对端 `NodeAddr` JSON（复用 core record 结构，只读） |
+| `connect(addr)` | 拨地址 → `ConnectionJson`（`{ path: "local"\|"direct"\|"relayed", addr }`） |
+| `reserve(helper_addr)` | 请求 circuit reservation → circuit 地址字符串 |
+| `lookup_share_code(code)` | DHT 查分享码 → `NodeAddrJson`（`{ id, addrs }`） |
 | `send_files(to, files)` | 登记文件源 → prepare → Offer；返回 session_id |
-| `pending_offers()` | 当前挂起入站 offer（JSON 数组） |
+| `pending_offers()` | 当前挂起入站 offer → `OfferJson[]` |
 | `accept_offer(sid)` / `reject_offer(sid)` | 接受（落 OPFS）/ 拒绝 |
 | `resume(sid)` | 手动发起断点续传 |
 | `download_url(relative_path)` | 完成后读回 OPFS 建 blob URL 供下载 |
-| `events()` | 传输事件 `ReadableStream`（`TransferEvent` 序列化对象；**只能取一次**） |
+| `events()` | `ReadableStream<WebTransferEvent>`（**只能取一次**） |
 | `close()` | 关停 |
+
+**TS 类型端到端**：`src/types.rs` 的 JS 可见类型（`WebTransferEvent` / `OfferJson` /
+`ConnectionJson` / `NodeAddrJson` / `WebError`）由 specta 导出成 `static/types/bindings.ts`
+（`cargo test -p swarmdrop-web --features specta` 生成，入库），node.rs 经
+`typescript_custom_section` 注入 .d.ts 并用 `typescript_type` 把方法签名接到具名类型——
+`.d.ts` 里无 `any`。错误 reject 的是 `WebError`（`{ kind, message }`），Worker 桥原样透传
+（client.js 把 kind 挂回 Error 实例）。
 
 ## 端口实现取舍
 
@@ -89,6 +97,14 @@ python3 -m http.server 8080 -d static
 - **IndexedDB 持久化未做**（加分项）：内存版足够验证端到端；跨刷新续传属后续（`SendWrapper` 包
   JsFuture 的 Send 方案已在 storage-abstraction.md 探针证可行）。
 - DHT 查分享码需先连 DHT-capable helper（浏览器不可达 TCP bootstrap，故 spawn 不加 bootstrap）。
+- **client.js 手工镜像 WebNode 方法表**（结构性负债）：新增 WebNode 方法必须同步 client.js
+  转发一行，否则 Worker 模式静默缺方法（曾漏过 pending_offers/close）。根治可用 Proxy 动态
+  转发，React UI 工程时一并处理。
+- **2026-07-19 全 crate 审查记录为后续的项**：identity 未走 `KeychainProvider` 端口（trait 含
+  migration/配对持久化共 7 方法，Web 暂只需身份 3 个——配对持久化工程时做完整
+  `WebKeychainProvider`）；方法名 snake_case 与桌面 bindings.ts 的 camelCase 不一致（`js_name`
+  可改，随 React UI 一并）；`content_root_of` 与 transfer 版重复（泛化 transfer 签名可归一，
+  涉及三 crate 调用点）。
 
 ## 基准（`static/bench.html` + `scripts/web-bench/driver.mjs`）
 

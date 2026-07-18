@@ -119,7 +119,8 @@ if (mode === "worker") {
 window.node = node;
 log("node: " + node.node_id());
 
-log("connect helper → " + (await node.connect(helper)));
+const hc = await node.connect(helper);
+log(`connect helper → path=${hc.path} addr=${hc.addr}`);
 
 if (role === "recv") {
   const circuit = await node.reserve(helper);
@@ -190,7 +191,8 @@ if (role === "recv") {
     chan.postMessage({ type: "sendStarted" });
     const { peer, circuit } = m.data;
     log("recv ready: " + peer);
-    log("connect circuit → " + (await node.connect(circuit)));
+    const cc = await node.connect(circuit);
+    log(`connect circuit → path=${cc.path} addr=${cc.addr}`);
     log(`生成 ${size} 字节测试数据…`);
     const buf = new Uint8Array(size);
     fillPseudo(buf, 42);

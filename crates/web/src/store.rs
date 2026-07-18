@@ -20,6 +20,7 @@ use swarmdrop_transfer::coordinator::TransferState;
 use swarmdrop_transfer::store::{
     CreateSessionInput, InboxStore, SessionStore, TransferProjection, TransferProjectionFile,
 };
+use swarmdrop_transfer::store::{initial_completed_chunks, prefix_range, ranges_json};
 use uuid::Uuid;
 
 /// 一个会话的内存记录：会话行 + 其文件行。
@@ -97,12 +98,7 @@ impl SessionStore for MemorySessionStore {
             .enumerate()
             .map(|(idx, file)| {
                 let total_chunks = calc_total_chunks(file.size) as i32;
-                let bitmap_len = (total_chunks as usize).div_ceil(8);
-                let completed_chunks = if direction == entity::TransferDirection::Receive {
-                    vec![0u8; bitmap_len]
-                } else {
-                    vec![]
-                };
+                let completed_chunks = initial_completed_chunks(file.size, direction.clone());
                 entity::transfer_file::Model {
                     id: idx as i32,
                     session_id,
@@ -390,16 +386,4 @@ fn content_root_of(
     save_path
         .as_ref()
         .map(|CoreSaveLocation::Path { path }| path.clone())
-}
-
-fn ranges_json(ranges: &[(u64, u64)]) -> String {
-    serde_json::to_string(ranges).unwrap_or_else(|_| "[]".to_string())
-}
-
-fn prefix_range(transferred_bytes: i64) -> Vec<(u64, u64)> {
-    if transferred_bytes > 0 {
-        vec![(0, transferred_bytes as u64)]
-    } else {
-        Vec::new()
-    }
 }

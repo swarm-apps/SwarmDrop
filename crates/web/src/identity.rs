@@ -11,7 +11,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::error::{WebError, WebResult};
-use crate::file_access::{open_writable, opfs_file_handle};
+use crate::opfs::{open_writable, opfs_file_handle};
 
 const STORAGE_KEY: &str = "swarmdrop.identity.protobuf.hex";
 const OPFS_PATH: &str = ".swarmdrop/identity.protobuf.hex";

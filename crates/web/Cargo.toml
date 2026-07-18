@@ -10,7 +10,13 @@ edition.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# TS 类型导出（native `cargo test -p swarmdrop-web --features specta` 生成
+# static/types/bindings.ts；wasm production 构建不开，specta 不进 wasm 二进制）
+specta = ["dep:specta", "swarmdrop-transfer/specta"]
+
 [dependencies]
+specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid"], optional = true }
 swarmdrop-net = { workspace = true }
 swarmdrop-net-base = { workspace = true }
 swarmdrop-host = { workspace = true }
@@ -57,11 +63,8 @@ web-sys = { version = "0.3", features = [
     "FileSystemFileHandle",
     "FileSystemGetDirectoryOptions",
     "FileSystemGetFileOptions",
-    "FileSystemRemoveOptions",
     "FileSystemWritableFileStream",
     "FileSystemCreateWritableOptions",
-    "FileSystemSyncAccessHandle",
-    "FileSystemReadWriteOptions",
     "WriteParams",
     "WriteCommandType",
 ] }
@@ -70,6 +73,12 @@ web-sys = { version = "0.3", features = [
 # 原生 cargo test 覆盖不到；OPFS 需真实浏览器）。跑法：wasm-pack test --headless --chrome -p swarmdrop-web
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+
+# TS 导出器（仅 native 的 specta 导出 test 用，版本与桌面 tauri-specta 栈锁死）
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+specta-typescript = "=0.0.12"
+specta-serde = "=0.0.12"
+specta-util = "=0.0.12"
 
 [build-dependencies]
 cfg_aliases = { workspace = true }

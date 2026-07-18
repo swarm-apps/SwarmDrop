@@ -39,6 +39,12 @@ self.onmessage = async (m) => {
     }
     self.postMessage({ id, ok: true, value });
   } catch (e) {
-    self.postMessage({ id, ok: false, error: e?.message ?? String(e) });
+    // WebError reject 的是结构化 { kind, message }（可克隆），原样透传——拍成字符串会
+    // 丢掉机器可判别的 kind；非结构化异常（JS Error 等）兜底成 unknown kind。
+    const error =
+      e && typeof e === "object" && "kind" in e
+        ? e
+        : { kind: "unknown", message: e?.message ?? String(e) };
+    self.postMessage({ id, ok: false, error });
   }
 };

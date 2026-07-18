@@ -71,10 +71,10 @@
     log("node spawned: " + node.node_id());
 
     const addr = () => $("addr").value;
-    $("btn-connect").onclick = async () => { try { log(await node.connect(addr())); } catch (e) { log("❌ connect " + JSON.stringify(e)); } };
+    $("btn-connect").onclick = async () => { try { const c = await node.connect(addr()); log(`connected: path=${c.path} addr=${c.addr}`); } catch (e) { log("❌ connect " + JSON.stringify(e)); } };
     $("btn-reserve").onclick = async () => { try { log("reserve → " + await node.reserve(addr())); } catch (e) { log("❌ reserve " + JSON.stringify(e)); } };
     $("btn-lookup").onclick = async () => {
-      try { const j = await node.lookup_share_code($("code").value); log("share code → " + j); const o = JSON.parse(j); $("peer").value = o.id; if (o.addrs?.[0]) $("addr").value = o.addrs[0] + "/p2p/" + o.id; }
+      try { const o = await node.lookup_share_code($("code").value); log("share code → " + JSON.stringify(o)); $("peer").value = o.id; if (o.addrs?.[0]) $("addr").value = o.addrs[0] + "/p2p/" + o.id; }
       catch (e) { log("❌ lookup " + JSON.stringify(e)); }
     };
     $("btn-send").onclick = async () => {

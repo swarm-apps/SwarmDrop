@@ -22,7 +22,15 @@ export class SwarmDropWorkerClient {
       const p = c.pending.get(d.id);
       if (!p) return;
       c.pending.delete(d.id);
-      d.ok ? p.resolve(d.value) : p.reject(new Error(d.error));
+      if (d.ok) {
+        p.resolve(d.value);
+      } else {
+        // 还原结构化错误：Error 承载 message，kind 挂回实例——与 Window 模式
+        // catch 到的 { kind, message } 对齐（UI 可按 kind 分支）。
+        const err = new Error(d.error?.message ?? String(d.error));
+        err.kind = d.error?.kind ?? "unknown";
+        p.reject(err);
+      }
     };
     c.worker.onerror = (e) => console.error("worker error:", e.message ?? e);
     c.nodeId = await c.call("spawn");
@@ -43,8 +51,13 @@ export class SwarmDropWorkerClient {
   reserve(addr) { return this.call("reserve", addr); }
   lookup_share_code(code) { return this.call("lookup_share_code", code); }
   send_files(to, files) { return this.call("send_files", to, files); }
+  pending_offers() { return this.call("pending_offers"); }
   accept_offer(sid) { return this.call("accept_offer", sid); }
   reject_offer(sid) { return this.call("reject_offer", sid); }
   resume(sid) { return this.call("resume", sid); }
   download_url(path) { return this.call("download_url", path); }
+  async close() {
+    await this.call("close");
+    this.worker.terminate();
+  }
 }
