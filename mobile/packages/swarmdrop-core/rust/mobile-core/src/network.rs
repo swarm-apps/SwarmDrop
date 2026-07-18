@@ -224,7 +224,7 @@ impl MobileCore {
                     std::sync::Arc::new(swarmdrop_core::event_adapter::CoreTransferEvents(
                         event_bus,
                     )),
-                    std::sync::Arc::new(swarmdrop_core::database::SqlSessionStore::new(db)),
+                    std::sync::Arc::new(swarmdrop_storage_sql::SqlSessionStore::new(db)),
                     file_access,
                 )
             },

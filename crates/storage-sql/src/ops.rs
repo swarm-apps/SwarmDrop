@@ -11,16 +11,16 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use crate::AppResult;
-use crate::host::{CoreSaveLocation, HostFileMetadata};
-use crate::transfer::calc_total_chunks;
+use swarmdrop_host::AppResult;
+use swarmdrop_host::{CoreSaveLocation, HostFileMetadata};
+use swarmdrop_transfer::calc_total_chunks;
 // 持久化 DTO / 投影类型随 transfer 域迁出；ops 的实现函数（SqlSessionStore 委托目标）
 // 保留在 core。pub use 兼容再导出，保持 `database::ops::{TransferProjection, …}` 路径
 // 不变（src-tauri events / mcp / commands 复用），From<ModelEx> 投影转换也随类型迁到 transfer。
-pub use crate::transfer::store::{
+pub use swarmdrop_transfer::store::{
     CreateSessionInput, ExpiredReceiverActor, TransferProjection, TransferProjectionFile,
 };
-use crate::transfer::store::{initial_completed_chunks, prefix_range, ranges_json};
+use swarmdrop_transfer::store::{initial_completed_chunks, prefix_range, ranges_json};
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -112,7 +112,7 @@ pub async fn update_session_save_path(
         .one(db)
         .await?
     else {
-        return Err(crate::AppError::Transfer("会话不存在".into()));
+        return Err(swarmdrop_host::AppError::Transfer("会话不存在".into()));
     };
 
     let mut model = session.into_active_model();
@@ -128,13 +128,13 @@ pub async fn update_session_save_path(
 pub async fn update_session_origin(
     db: &DatabaseConnection,
     session_id: Uuid,
-    origin: crate::protocol::TransferOrigin,
+    origin: swarmdrop_transfer::protocol::TransferOrigin,
 ) -> AppResult<()> {
     let Some(session) = entity::TransferSession::find_by_id(session_id)
         .one(db)
         .await?
     else {
-        return Err(crate::AppError::Transfer("会话不存在".into()));
+        return Err(swarmdrop_host::AppError::Transfer("会话不存在".into()));
     };
 
     let mut model = session.into_active_model();
@@ -228,7 +228,7 @@ where
         .with(entity::TransferSession)
         .one(db)
         .await?
-        .ok_or_else(|| crate::AppError::Transfer("文件记录不存在".into()))?;
+        .ok_or_else(|| swarmdrop_host::AppError::Transfer("文件记录不存在".into()))?;
 
     let mut model = file.into_active_model();
     apply(&mut model);
@@ -378,7 +378,7 @@ pub async fn get_transfer_projection(
 pub async fn apply_transition(
     db: &DatabaseConnection,
     session: &entity::transfer_session::Model,
-    state: &crate::transfer::coordinator::TransferState,
+    state: &swarmdrop_transfer::coordinator::TransferState,
 ) -> AppResult<()> {
     let mut model = session.clone().into_active_model();
     model.phase = Set(state.phase.clone());
@@ -597,10 +597,10 @@ pub async fn load_file_outboard(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::FileInfo;
-    use crate::transfer::coordinator::TransferState;
     use migration::MigratorTrait;
     use sea_orm::{ConnectOptions, Database};
+    use swarmdrop_transfer::coordinator::TransferState;
+    use swarmdrop_transfer::protocol::FileInfo;
 
     async fn test_db() -> DatabaseConnection {
         // `:memory:` 每条物理连接是独立空库，钉死单连接保证 migration 与查询同库。

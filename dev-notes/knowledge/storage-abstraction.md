@@ -10,13 +10,16 @@
 
 网络侧的结论在 [libp2p-wasm.md](libp2p-wasm.md)，两份不重叠。
 
-> **当前状态（2026-07-18 更新）：trait 层已落地。** 传输域已抽成独立 crate
-> `swarmdrop-transfer`，`SessionStore` / `InboxStore` 端口按本文「trait 设计」一节实现，
-> core 侧 `database::store::SqlSessionStore` 用 SeaORM 委托既有 `ops`/`inbox` 函数；
-> `swarmdrop-transfer` 双 target 可编（进 `scripts/check-wasm.sh`），边界 grep 证 transfer
-> 零 `sea_orm`/`DatabaseConnection`。第 0 步（entity 解绑）此前已完成。**Web 端持久化实现
-> （IndexedDB/OPFS）仍未做**——它卡在更靠前的问题上（浏览器对我们的网络零可达入口，见
-> libp2p-wasm.md 第一节）；本次只落地了「让 Web 端 *能* 实现断点续传」的端口层。
+> **当前状态（2026-07-19 更新）：sea-orm 已彻底摘出 core（openspec: core-wasm-ready）。**
+> Sql 实现（`SqlSessionStore`/`ops`/`inbox`）整体搬到独立 crate `crates/storage-sql`
+> （swarmdrop-storage-sql，依赖面 = transfer 端口 + entity + host + sea-orm，**不依赖 core**），
+> 宿主（src-tauri / mobile-core）在组装点注入。core 同时完成 tokio→n0-future（24 处，
+> spawn/time/Instant 换、`tokio::sync`/`select!` 保留），**core 已进 `check-wasm.sh` 六 crate
+> 双门常绿**——pairing/presence/device/network 业务域自此 Web 可复用。
+> Web 端持久化实现（IndexedDB SessionStore）与 Web 消费 core 属后续 change。
+>
+> （2026-07-18 状态存档）trait 层落地：`SessionStore`/`InboxStore` 端口在 `swarmdrop-transfer`，
+> 双 target 可编，transfer 零 `sea_orm`/`DatabaseConnection`。第 0 步（entity 解绑）更早完成。
 >
 > 落地细节与本文设计的差异：`PeerDirectory`（解 incoming.rs 对配对管理器的依赖）与
 > `TransferEventSink`（事件发射依赖倒置，避免 transfer 反依赖 core 的 `CoreEvent`）是设计

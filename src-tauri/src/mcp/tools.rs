@@ -671,7 +671,7 @@ impl McpHandler {
                     .peer_info()
                     .map(|info| info.client_info.name.clone());
                 if let Some(db) = self.app.try_state::<DatabaseConnection>() {
-                    let _ = swarmdrop_core::database::ops::update_session_origin(
+                    let _ = crate::database::ops::update_session_origin(
                         &db,
                         session_id,
                         swarmdrop_core::protocol::TransferOrigin::Mcp { client },

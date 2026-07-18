@@ -10,9 +10,9 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use crate::AppResult;
-use crate::database::ops::{get_transfer_projection, now_ms};
-use crate::transfer::store::TransferProjection;
+use crate::ops::{get_transfer_projection, now_ms};
+use swarmdrop_host::AppResult;
+use swarmdrop_transfer::store::TransferProjection;
 
 /// 收件箱列表条目 DTO。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -161,7 +161,7 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         .with(entity::TransferFile)
         .one(db)
         .await?
-        .ok_or_else(|| crate::AppError::Transfer("传输会话不存在".into()))?;
+        .ok_or_else(|| swarmdrop_host::AppError::Transfer("传输会话不存在".into()))?;
 
     let is_completed_receive = session.direction == TransferDirection::Receive
         && session.phase == TransferPhase::Terminal
@@ -173,7 +173,7 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
     // 已完成接收必有保存位置(不变量);缺失是数据异常,显式报错。容器目录(含缺
     // local_dir 时回退存储根)由下面 content_root_of 统一解析。
     if session.save_path.is_none() {
-        return Err(crate::AppError::Transfer(
+        return Err(swarmdrop_host::AppError::Transfer(
             "已完成接收会话缺少保存位置，无法创建收件箱条目".into(),
         ));
     }
@@ -181,12 +181,14 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
     let inbox_id = Uuid::new_v4();
     let files: Vec<&entity::transfer_file::ModelEx> = session.files.iter().collect();
     let item_count = i32::try_from(files.len())
-        .map_err(|_| crate::AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
+        .map_err(|_| swarmdrop_host::AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
     let title = inbox_title(&files);
     // root_path = 真实容器目录(与传输投影 content_root 同一 core 解析:缺 local_dir 时
     // 回退存储根)。兜底收口在 content_root_of 一处,不再重复。
-    let root_path =
-        crate::transfer::store::content_root_of(session.files.iter(), session.save_path.as_ref());
+    let root_path = swarmdrop_transfer::store::content_root_of(
+        session.files.iter(),
+        session.save_path.as_ref(),
+    );
     let content_hash = inbox_content_hash(&files);
     let now = now_ms();
 
@@ -224,7 +226,7 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         // 文件必然写过它——缺失即数据异常（如旧版本残留库），显式报错不做推导。
         let Some(local_path) = file.local_path.clone() else {
             txn.rollback().await?;
-            return Err(crate::AppError::Transfer(format!(
+            return Err(swarmdrop_host::AppError::Transfer(format!(
                 "已完成接收文件缺少落盘路径记录: {}（旧版本数据，请清除应用数据后重试）",
                 file.name
             )));
@@ -518,9 +520,9 @@ fn inbox_content_hash(files: &[&entity::transfer_file::ModelEx]) -> String {
 /// 由接收会话的 `origin` 列派生收件箱 `source_kind`：MCP/代理来源 → `Mcp`，否则 `PairedDevice`。
 /// 历史 NULL / 未知值经 `TransferOrigin::from_db_string` 回退 `Human` → `PairedDevice`。
 fn source_kind_for_origin(origin: Option<&str>) -> InboxSourceKind {
-    match crate::protocol::TransferOrigin::from_db_string(origin.unwrap_or("human")) {
-        crate::protocol::TransferOrigin::Mcp { .. } => InboxSourceKind::Mcp,
-        crate::protocol::TransferOrigin::Human => InboxSourceKind::PairedDevice,
+    match swarmdrop_transfer::protocol::TransferOrigin::from_db_string(origin.unwrap_or("human")) {
+        swarmdrop_transfer::protocol::TransferOrigin::Mcp { .. } => InboxSourceKind::Mcp,
+        swarmdrop_transfer::protocol::TransferOrigin::Human => InboxSourceKind::PairedDevice,
     }
 }
 
@@ -600,13 +602,13 @@ mod tests {
     use migration::{Migrator, MigratorTrait};
     use sea_orm::{ConnectOptions, Database};
 
-    use crate::database::ops::{
+    use crate::ops::{
         clear_all_history, create_session, mark_file_completed, mark_session_completed,
     };
-    use crate::host::CoreSaveLocation;
-    use crate::protocol::FileInfo;
-    use crate::transfer::coordinator::TransferState;
-    use crate::transfer::store::CreateSessionInput;
+    use swarmdrop_host::CoreSaveLocation;
+    use swarmdrop_transfer::coordinator::TransferState;
+    use swarmdrop_transfer::protocol::FileInfo;
+    use swarmdrop_transfer::store::CreateSessionInput;
 
     /// 模拟 receiver 的文件级完成：真实链路里 finalize_sink 的返回值经
     /// `mark_file_completed` 写入 local_path，收件箱落库依赖它。

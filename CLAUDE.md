@@ -158,7 +158,7 @@ src-tauri/src/
 ├── file_source/        # 桌面文件读取（仅 Path::path_ops）
 ├── file_sink/          # 桌面文件写入（仅 Path::path_ops）
 ├── host/               # Desktop adapter：keychain / notifier / paths / update_installer / event_bus
-├── database/mod.rs     # SeaORM 连接初始化 + 启动清理；re-export swarmdrop_core::database::ops
+├── database/mod.rs     # SeaORM 连接初始化 + 启动清理；re-export swarmdrop_storage_sql::{ops, inbox}
 ├── mcp/                # 桌面专用 MCP server
 ├── events.rs           # Tauri 事件名常量
 └── error.rs            # AppError (thiserror) + AppResult
@@ -249,6 +249,7 @@ Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/rel
 | UI design file | `dev-notes/design/design.pen` |
 | 网络内核（新，2026-07 重构） | `crates/net/`、`crates/net-base/` |
 | 传输域（独立 crate） | `crates/transfer/`、宿主端口层 `crates/host/` |
+| SQL 存储实现（native-only） | `crates/storage-sql/`（SessionStore/InboxStore 的 SeaORM 后端，core 零 sea-orm） |
 | 网络内核知识库 | `dev-notes/knowledge/net-kernel.md` |
 | 重构决策与五道门经验 | `dev-notes/why-libp2p-not-iroh.md`、`dev-notes/knowledge/libp2p-wasm.md` |
 | 重构系列博客 | `dev-notes/blogs/2026-07-net-refactor-series.md` |

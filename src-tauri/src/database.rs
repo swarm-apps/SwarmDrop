@@ -1,20 +1,20 @@
-//! 数据库初始化模块
+//! 数据库桥：连接初始化 + storage-sql 命名空间 re-export + 启动清理编排。
 //!
-//! 在 Tauri setup() 中初始化 SeaORM DatabaseConnection（SQLite），
-//! 执行 migration，返回连接供注入 Tauri managed state。
+//! 在 Tauri setup() 中初始化 SeaORM DatabaseConnection（SQLite）并执行 migration；
+//! `crate::database::{ops, inbox}` 经此处 re-export 指向 `swarmdrop-storage-sql`
+//! （commands / MCP 的读查询消费点保持原路径）；启动时构造 SqlSessionStore 做过期会话清理。
 
-pub use swarmdrop_core::database::inbox;
-pub use swarmdrop_core::database::ops;
+pub use swarmdrop_storage_sql::{inbox, ops};
 
 use std::sync::Arc;
 
 use sea_orm::{Database, DatabaseConnection};
 use sea_orm_migration::MigratorTrait;
-use swarmdrop_core::database::SqlSessionStore;
 use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{CoreSaveLocation, EventBus};
 use swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS;
 use swarmdrop_core::transfer::coordinator::TransferCoordinator;
+use swarmdrop_storage_sql::SqlSessionStore;
 use tauri::{AppHandle, Manager};
 
 use crate::AppResult;

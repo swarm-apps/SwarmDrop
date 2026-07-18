@@ -2913,9 +2913,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
  "rand_core 0.10.1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -8962,6 +8964,7 @@ dependencies = [
  "specta-typescript",
  "swarmdrop-core",
  "swarmdrop-net",
+ "swarmdrop-storage-sql",
  "tauri",
  "tauri-build",
  "tauri-plugin-biometry",
@@ -9000,8 +9003,10 @@ dependencies = [
  "dashmap",
  "entity",
  "futures",
+ "getrandom 0.4.3",
  "if-addrs",
  "migration",
+ "n0-future",
  "rand 0.10.1",
  "sea-orm",
  "serde",
@@ -9009,12 +9014,12 @@ dependencies = [
  "specta",
  "swarmdrop-host",
  "swarmdrop-net",
+ "swarmdrop-storage-sql",
  "swarmdrop-transfer",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
- "unsigned-varint",
  "uuid",
 ]
 
@@ -9046,6 +9051,7 @@ dependencies = [
  "serde_json",
  "swarmdrop-core",
  "swarmdrop-net",
+ "swarmdrop-storage-sql",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -9088,6 +9094,25 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "swarmdrop-storage-sql"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "blake3",
+ "chrono",
+ "entity",
+ "migration",
+ "sea-orm",
+ "serde",
+ "specta",
+ "swarmdrop-host",
+ "swarmdrop-transfer",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -11,10 +11,10 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use super::{inbox, ops};
-use crate::AppResult;
-use crate::host::CoreSaveLocation;
-use crate::transfer::coordinator::TransferState;
-use crate::transfer::store::{CreateSessionInput, InboxStore, SessionStore, TransferProjection};
+use swarmdrop_host::AppResult;
+use swarmdrop_host::CoreSaveLocation;
+use swarmdrop_transfer::coordinator::TransferState;
+use swarmdrop_transfer::store::{CreateSessionInput, InboxStore, SessionStore, TransferProjection};
 
 /// SeaORM 持久化实现，注入 `TransferManager` 作为 `Arc<dyn TransferStore>`。
 #[derive(Clone)]

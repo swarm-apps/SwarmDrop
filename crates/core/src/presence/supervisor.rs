@@ -5,8 +5,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use dashmap::DashMap;
+use n0_future::time::Instant;
 use swarmdrop_net::{Addr, Endpoint, NetEvent, NodeAddr, NodeId};
-use tokio::time::Instant;
 
 use super::{ONLINE_RECORD_TTL_SECS, OnlineRecord, RelayHint, online_key};
 use crate::device::{OsInfo, PairedDeviceInfo};
@@ -130,7 +130,7 @@ impl PresenceSupervisor {
     /// 幂等地把 peer 加入连接保活白名单（behaviour 侧去重）
     fn spawn_keep_alive(&self, peer: NodeId) {
         let endpoint = self.endpoint.clone();
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             let _ = endpoint.set_keep_alive(peer, true).await;
         });
     }
@@ -185,7 +185,7 @@ impl PresenceSupervisor {
                     self.ping_failures.remove(node);
                     let endpoint = self.endpoint.clone();
                     let peer = *node;
-                    tokio::spawn(async move {
+                    n0_future::task::spawn(async move {
                         let _ = endpoint.disconnect(peer).await;
                     });
                 }
@@ -204,7 +204,7 @@ impl PresenceSupervisor {
                 // 断连即首拨（第 0 秒尝试）；拨通由 PeerConnected 收敛回 Connected
                 let endpoint = self.endpoint.clone();
                 let peer = *node;
-                tokio::spawn(async move {
+                n0_future::task::spawn(async move {
                     let _ = endpoint.connect(NodeAddr::new(peer)).await;
                 });
             }
@@ -258,7 +258,7 @@ impl PresenceSupervisor {
                         };
                         drop(entry);
                         let endpoint = self.endpoint.clone();
-                        tokio::spawn(async move {
+                        n0_future::task::spawn(async move {
                             let _ = endpoint.connect(NodeAddr::new(peer)).await;
                         });
                     }
@@ -305,7 +305,7 @@ impl PresenceSupervisor {
             self.presence.remove(&peer);
             self.ping_failures.remove(&peer);
             let endpoint = self.endpoint.clone();
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 let _ = endpoint.set_keep_alive(peer, false).await;
                 let _ = endpoint.disconnect(peer).await;
             });
@@ -334,7 +334,7 @@ impl PresenceSupervisor {
     /// （无公网 bootstrap 的纯局域网场景 DHT 记录不可用）。
     fn spawn_probe(&self, peer: NodeId) {
         let endpoint = self.endpoint.clone();
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             // 无在线记录（含 dht 未启用）→ 地址簿兜底直拨：可能还留有 mDNS 注册的
             // 局域网地址（纯局域网无公网 bootstrap 时 DHT 记录不可用）。
             let Some(online) = super::fetch_online_record(&endpoint, peer).await else {
@@ -429,7 +429,7 @@ impl PresenceSupervisor {
 
     fn spawn_announce(self: &Arc<Self>) {
         let this = self.clone();
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             match this.announce_online().await {
                 Ok(()) => {
                     this.announce_fail_streak.store(0, Ordering::Relaxed);
@@ -469,12 +469,12 @@ impl PresenceSupervisor {
         // 宣告 → bootstrap（沿用原 host 启动序列的顺序；bootstrap 加超时防挂）
         self.spawn_announce();
         if let Some(dht) = self.endpoint.dht() {
-            let _ = tokio::time::timeout(Duration::from_secs(30), dht.bootstrap()).await;
+            let _ = n0_future::time::timeout(Duration::from_secs(30), dht.bootstrap()).await;
         }
 
         let mut last_announce_attempt = Instant::now();
-        let mut interval = tokio::time::interval(self.timings.tick);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut interval = n0_future::time::interval(self.timings.tick);
+        interval.set_missed_tick_behavior(n0_future::time::MissedTickBehavior::Delay);
         // 可达性 watch：本机地址/NAT 变化（新内核为 watch 状态而非边沿事件）标脏在线记录
         let mut addrs_watcher = self.endpoint.watch_addrs();
         let mut nat_watcher = self.endpoint.watch_nat();

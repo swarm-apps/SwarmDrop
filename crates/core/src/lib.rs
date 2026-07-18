@@ -3,7 +3,6 @@
 //! 这里会承载桌面端和 React Native 移动端共享的身份、网络、配对、
 //! 传输和持久化逻辑。当前先建立 crate 边界，后续任务会逐步迁移模块。
 
-pub mod database;
 pub mod device_manager;
 pub mod event_adapter;
 pub mod host;

@@ -257,7 +257,7 @@ impl PairingManager {
         }
 
         // await 用户决策；超时或 sender 被 drop（respond 校验失败 / 回收）→ 婉拒
-        match tokio::time::timeout(PENDING_INBOUND_TIMEOUT, rx).await {
+        match n0_future::time::timeout(PENDING_INBOUND_TIMEOUT, rx).await {
             Ok(Ok(resp)) => Ok(resp),
             _ => {
                 self.pending_inbound.remove(&pending_id);

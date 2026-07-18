@@ -151,7 +151,7 @@ async fn maybe_register_lan_helper<TTransfer>(
         let endpoint = shared.endpoint.clone();
         let candidates = shared.candidates.clone();
         let node = *node;
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             if let Err(err) = endpoint
                 .add_infrastructure_peer(
                     NodeAddr::with_addrs(node, addrs),
@@ -221,13 +221,13 @@ pub async fn run_event_loop<TTransfer>(
 {
     // presence / infra 后台收敛任务随事件循环拉起，随 NetManager 的
     // CancellationToken 退出。host 无需任何 presence/infra 调用。
-    tokio::spawn(
+    n0_future::task::spawn(
         shared
             .presence
             .clone()
             .run(shared.clone(), event_bus.clone()),
     );
-    tokio::spawn(shared.infra.clone().run(shared.clone()));
+    n0_future::task::spawn(shared.infra.clone().run(shared.clone()));
 
     // 内核状态（本机地址 / NAT）无对应边沿事件，经 watch 变更驱动状态刷新。
     let mut addrs_watcher = shared.endpoint.watch_addrs();
@@ -274,7 +274,7 @@ pub fn spawn_event_loop<TTransfer>(
 ) where
     TTransfer: IncomingTransferRuntime + Send + Sync + 'static,
 {
-    tokio::spawn(async move {
+    n0_future::task::spawn(async move {
         run_event_loop(events, shared, event_bus).await;
         drop(router);
     });
