@@ -60,6 +60,8 @@ web-sys = { version = "0.3", features = [
     "FileSystemRemoveOptions",
     "FileSystemWritableFileStream",
     "FileSystemCreateWritableOptions",
+    "FileSystemSyncAccessHandle",
+    "FileSystemReadWriteOptions",
     "WriteParams",
     "WriteCommandType",
 ] }

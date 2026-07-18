@@ -11,6 +11,11 @@
 use wasm_bindgen::JsCast;
 use web_sys::{Storage, StorageManager, WorkerGlobalScope};
 
+/// 当前是否 Window（主线程）环境；false = Worker。
+pub fn is_window() -> bool {
+    web_sys::window().is_some()
+}
+
 /// 当前全局环境是否 secure context（Window 与 Worker 都有该属性）。
 pub fn is_secure_context() -> bool {
     if let Some(win) = web_sys::window() {
