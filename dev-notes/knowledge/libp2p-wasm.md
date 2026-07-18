@@ -548,6 +548,33 @@ macOS 拒绝 dlopen `/private/tmp` 下的 proc-macro dylib
 （`library load disallowed by system policy`）。表现为莫名其妙的 rustc exit 101。
 scratchpad 里做原生构建实验时用 `CARGO_TARGET_DIR` 指到别处。
 
+### OPFS 接收落盘：流式 positioned write 的正确姿势（主线程版）
+
+接收侧大文件落盘用「`createWritable` 句柄常驻 + 每 chunk positioned write + `close` 提交」，
+不要整文件内存缓冲（demo 初版就是这么 OOM 的）。
+
+**正确做法**：
+- 开句柄用 `create_writable_with_options(FileSystemCreateWritableOptions)`：
+  `keep_existing_data=false` 打开即截断（全新文件）、`true` 保留已有字节（断点续传——
+  positioned write 只覆盖写到的 range）。feature：`FileSystemCreateWritableOptions`
+- 每 chunk 用 `write_with_write_params(WriteParams)`（WHATWG `{type:"write", position, data}`）
+  **单次 Promise 完成 seek+write**；别手写 `seek()` + `write()` 两次往返（热路径调度开销翻倍）。
+  feature：`WriteParams` + `WriteCommandType`（`type` 是 spec required 字段，
+  `WriteParams::new(WriteCommandType::Write)`；position 是 `Option<f64>`）
+- `close()` 才提交落盘（writable 是 staging 语义）；取消/失败直接 drop 句柄 = 丢弃未提交写入，
+  正是想要的行为
+- SendWrapper 兜 Send 有**两种合法裹法**（模块 doc 已写明）：短路径在 scope 内取 Promise 即丢、
+  只让 `SendWrapper<JsFuture>` 跨 await；多步 helper（如 open_writable：建目录链→取文件句柄→
+  createWritable）则**整段 async fn future 裹 SendWrapper**，内部 !Send 句柄随包一起被兜
+
+**不要做**：
+- 别用 `SyncAccessHandle`——Worker-only，与 webrtc-websys 主线程约束冲突（见上一条 panic 条目）；
+  ws-only + Worker 的 bundle 才轮到它
+- 别依赖 staging 数据活过页面刷新——`close` 前的写入刷新即丢，`keep_existing_data` 只保护
+  已 close 的字节（所以跨刷新续传不在主线程版范围内）
+
+**相关文件**：`crates/web/src/file_access.rs`
+
 ---
 
 ## tokio 在 wasm 上：用 n0-future
