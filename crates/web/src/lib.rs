@@ -9,6 +9,7 @@
 //! --workspace` 秒过），只有 `wasm32-unknown-unknown` 下是真身。
 #![cfg(wasm_browser)]
 
+mod env;
 mod error;
 mod events;
 mod file_access;

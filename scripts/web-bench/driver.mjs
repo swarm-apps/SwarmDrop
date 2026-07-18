@@ -15,9 +15,11 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const PAGE = "http://127.0.0.1:8080/bench.html";
 
 const helper = process.argv[2];
-if (!helper) { console.error("用法: node driver.mjs <helper-ws-addr>/p2p/<id> [sizeBytes] [verify]"); process.exit(1); }
+if (!helper) { console.error("用法: node driver.mjs <helper-ws-addr>/p2p/<id> [sizeBytes] [verify] [recvMode=main|worker]"); process.exit(1); }
 const size = process.argv[3] || String(256 * 1024 * 1024);
 const verify = process.argv[4] ?? "1";
+// recv 侧运行模式（worker=wasm 跑 Web Worker）。send 恒 main：双 worker 会共用同一 OPFS 身份。
+const recvMode = process.argv[5] ?? "main";
 const run = Date.now().toString(36);
 
 const profile = mkdtempSync(join(tmpdir(), "swarmdrop-bench-chrome-"));
@@ -75,31 +77,43 @@ function evaluate(ws, expression) {
 }
 
 await waitCdp();
-const params = (role) =>
-  `role=${role}&run=${run}&size=${size}&verify=${verify}&helper=${encodeURIComponent(helper)}`;
+const params = (role, mode) =>
+  `role=${role}&mode=${mode}&run=${run}&size=${size}&verify=${verify}&helper=${encodeURIComponent(helper)}`;
 
-console.log(`# run=${run} size=${size} verify=${verify}`);
-const recvTab = await newTab(`${PAGE}?${params("recv")}`);
+console.log(`# run=${run} size=${size} verify=${verify} recvMode=${recvMode}`);
+const recvTab = await newTab(`${PAGE}?${params("recv", recvMode)}`);
 await sleep(2000); // recv 先 spawn + reserve
-const sendTab = await newTab(`${PAGE}?${params("send")}`);
+const sendTab = await newTab(`${PAGE}?${params("send", "main")}`);
 
 const wsRecv = await connectWs(recvTab.webSocketDebuggerUrl);
 const wsSend = await connectWs(sendTab.webSocketDebuggerUrl);
 
-// 抓 console error / 未捕获异常（wasm panic 详情走 console.error）
+// 抓 console error / 未捕获异常（wasm panic 详情走 console.error）。
+// Worker 是独立 CDP target：setAutoAttach(flatten) 自动附加，其 console 事件带 sessionId 同路收。
 function attachConsole(ws, tag) {
   ws.addEventListener("message", (m) => {
     const d = JSON.parse(m.data);
+    const src = d.sessionId ? `${tag}.worker` : tag;
     if (d.method === "Runtime.consoleAPICalled") {
       const text = d.params.args.map((a) => a.value ?? a.description ?? "").join(" ");
       if (d.params.type === "error" || /panicked|RuntimeError|unreachable/.test(text))
-        console.log(`{${tag}:console.${d.params.type}} ${text.slice(0, 800)}`);
+        console.log(`{${src}:console.${d.params.type}} ${text.slice(0, 800)}`);
     } else if (d.method === "Runtime.exceptionThrown") {
       const e = d.params.exceptionDetails;
-      console.log(`{${tag}:exception} ${(e.exception?.description ?? e.text ?? "").slice(0, 800)}`);
+      console.log(`{${src}:exception} ${(e.exception?.description ?? e.text ?? "").slice(0, 800)}`);
+    } else if (d.method === "Target.attachedToTarget") {
+      // 对新附加的 worker session 开 Runtime 域（flatten 模式：同一 ws、带 sessionId）
+      ws.send(JSON.stringify({
+        id: ++seq, sessionId: d.params.sessionId,
+        method: "Runtime.enable", params: {},
+      }));
     }
   });
   ws.send(JSON.stringify({ id: ++seq, method: "Runtime.enable" }));
+  ws.send(JSON.stringify({
+    id: ++seq, method: "Target.setAutoAttach",
+    params: { autoAttach: true, waitForDebuggerOnStart: false, flatten: true },
+  }));
 }
 attachConsole(wsRecv, "recv");
 attachConsole(wsSend, "send");

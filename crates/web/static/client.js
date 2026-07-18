@@ -1,0 +1,50 @@
+// 主线程桥：Worker 版 SwarmDrop 客户端。方法名与 WebNode 一致（全 async、返回同形状），
+// 事件用 onEvent(f) 回调（替代 events() 的 ReadableStream）——调用方可在两版之间无感切换。
+export class SwarmDropWorkerClient {
+  static async spawn() {
+    const c = new SwarmDropWorkerClient();
+    c.worker = new Worker("./worker.js", { type: "module" });
+    c.pending = new Map();
+    c.eventHandlers = new Set();
+    c.seq = 0;
+    c.worker.onmessage = (m) => {
+      const d = m.data;
+      if (d.type === "event") {
+        for (const h of [...c.eventHandlers]) {
+          try { h(d.event); } catch (e) { console.error("event handler:", e); }
+        }
+        return;
+      }
+      if (d.type === "eventsError") {
+        console.error("worker 事件流断裂:", d.error);
+        return;
+      }
+      const p = c.pending.get(d.id);
+      if (!p) return;
+      c.pending.delete(d.id);
+      d.ok ? p.resolve(d.value) : p.reject(new Error(d.error));
+    };
+    c.worker.onerror = (e) => console.error("worker error:", e.message ?? e);
+    c.nodeId = await c.call("spawn");
+    return c;
+  }
+
+  call(method, ...args) {
+    return new Promise((resolve, reject) => {
+      const id = ++this.seq;
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ id, method, args });
+    });
+  }
+
+  onEvent(f) { this.eventHandlers.add(f); }
+  node_id() { return this.nodeId; }
+  connect(addr) { return this.call("connect", addr); }
+  reserve(addr) { return this.call("reserve", addr); }
+  lookup_share_code(code) { return this.call("lookup_share_code", code); }
+  send_files(to, files) { return this.call("send_files", to, files); }
+  accept_offer(sid) { return this.call("accept_offer", sid); }
+  reject_offer(sid) { return this.call("reject_offer", sid); }
+  resume(sid) { return this.call("resume", sid); }
+  download_url(path) { return this.call("download_url", path); }
+}

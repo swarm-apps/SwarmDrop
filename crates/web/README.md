@@ -100,13 +100,26 @@ python3 -m http.server 8080 -d static
 node scripts/web-bench/driver.mjs "<helper-ws-addr>/p2p/<id>" 268435456 1
 ```
 
-2026-07-18 实测（M2 MacBook 同机三跳 A→relay→B，headless，最不利 CPU 竞争配置）：
+2026-07-18 实测（M2 MacBook 同机三跳 A→relay→B，headless，最不利 CPU 竞争配置）；
+`recvMode` 第 4 参数选接收侧运行模式（`main` | `worker`）：
 
-| 大小 | 接收耗时 | 均速 | 接收侧 longtask | hash |
-|---|---|---|---|---|
-| 256 MB | 8.2s | 31.3 MB/s | **0** | ✅ 一致 |
-| 1 GB | 32.1s | 31.9 MB/s | **0** | ✅ 一致 |
+| 大小 | 接收模式 | 接收耗时 | 均速 | 接收侧 longtask | hash |
+|---|---|---|---|---|---|
+| 256 MB | 主线程 | 8.2s | 31.3 MB/s | **0** | ✅ 一致 |
+| 1 GB | 主线程 | 32.1s | 31.9 MB/s | **0** | ✅ 一致 |
+| 256 MB | Worker | 7.4s | 34.8 MB/s | **0** | ✅ 一致 |
+| 1 GB | Worker | 33.2s | 30.9 MB/s | **0** | ✅ 一致 |
 
-速率不随文件大小衰减（无内存压力）；接收全程主线程零长任务——**webrtc/ws 主线程收流 +
-OPFS 流式落盘不卡 UI**。发送侧仅准备段一次 longtask（`new File([buf])` 构造测试数据，
+速率不随文件大小衰减（无内存压力）；两种模式接收全程主线程零长任务——**31 MB/s 档
+ws 收流 + OPFS 流式落盘不卡 UI**，Worker 版把 wasm 负载彻底移出主线程（重 UI /
+更高速率场景的保险）。发送侧仅准备段一次 longtask（`new File([buf])` 构造测试数据，
 非传输热路径）。
+
+## Worker 运行模式（`static/worker.js` + `static/client.js`）
+
+同一份 wasm 双环境通吃：`WebNode.spawn()` 在 Window 直跑（webrtc+ws 双 transport），
+在 Web Worker 里跑则自动 ws-only（`env.rs` 探测；**webrtc-websys 在 Worker 装着都不行**——
+它的 dial 在地址格式检查之前就碰 window，经 or_transport 拨任何地址都 panic，故 transport
+组装按环境裁剪）。身份持久化双轨：Window=localStorage、Worker=OPFS 文件（Worker 全自治，
+无需主线程注入）。`client.js` 提供与 `WebNode` 同形状的主线程桥（postMessage RPC，
+事件用 `onEvent` 回调），调用方两版无感切换；`File` 对象经 structured clone 传入 Worker。

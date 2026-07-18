@@ -76,6 +76,8 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 futures-timer = { version = "3", features = ["wasm-bindgen"] }
 # master 的 libp2p-swarm 精确 pin =0.4.58，必须跟着钉，否则 cargo 无解
 wasm-bindgen-futures = "=0.4.58"
+# Window/Worker 环境探测（Worker 里不装 webrtc-websys，见 transport.rs）
+web-sys = { version = "0.3", features = ["Window"] }
 
 [build-dependencies]
 cfg_aliases = { workspace = true }

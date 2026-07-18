@@ -50,21 +50,20 @@ pub struct WebNode {
 
 #[wasm_bindgen]
 impl WebNode {
-    /// 建节点：localStorage 身份 → Browser preset + DHT client → 装配 TransferManager +
-    /// Router（transfer-ctrl / transfer-data）。
+    /// 建节点：持久化身份（Window=localStorage / Worker=OPFS）→ Browser preset + DHT client
+    /// → 装配 TransferManager + Router（transfer-ctrl / transfer-data）。Window 与 Worker
+    /// 环境通吃（Worker 里勿拨 webrtc-direct 地址——webrtc-websys dial 碰 window 会 panic）。
     pub async fn spawn() -> Result<WebNode, JsValue> {
         // secure context 预警：非 https/localhost 源下 navigator.storage 与 crypto.subtle 缺失，
-        // 接收方 finalize 落盘会失败（现已快速报错而非挂死）。启动即显式提示，别等传到一半才发现。
-        if let Some(win) = web_sys::window()
-            && !win.is_secure_context()
-        {
+        // 接收方落盘会失败（现已快速报错而非挂死）。启动即显式提示，别等传到一半才发现。
+        if !crate::env::is_secure_context() {
             tracing::warn!(
                 "⚠ 当前非 secure context：navigator.storage/crypto.subtle 不可用，接收落盘会失败。\
                  请用 https 或 localhost / 127.0.0.1 访问（勿用 http 私网 IP）。"
             );
         }
 
-        let secret = identity::load_or_create()?;
+        let secret = identity::load_or_create().await?;
         let endpoint = Endpoint::builder()
             .secret_key(secret)
             .preset(presets::Browser)

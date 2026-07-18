@@ -20,6 +20,7 @@ import init, { WebNode } from "./pkg/swarmdrop_web.js";
 
 const q = new URLSearchParams(location.search);
 const role = q.get("role");
+const mode = q.get("mode") || "main"; // main=wasm 跑主线程 | worker=wasm 整个跑 Worker
 const helper = q.get("helper");
 const size = Number(q.get("size") || 256 * 1024 * 1024);
 const verify = q.get("verify") !== "0";
@@ -29,7 +30,7 @@ const out = document.getElementById("out");
 window.__benchResult = null;
 window.__benchLog = [];
 const log = (m) => {
-  const s = `[${role}] ${m}`;
+  const s = `[${role}:${mode}] ${m}`;
   console.log(s);
   window.__benchLog.push(s);
   out.textContent += s + "\n";
@@ -83,30 +84,40 @@ requestAnimationFrame(function rafLoop(t) {
   requestAnimationFrame(rafLoop);
 });
 
-// 带时间戳破缓存拉最新 wasm（同 index.html 的取舍）
-await init({ module_or_path: "./pkg/swarmdrop_web_bg.wasm?v=" + Date.now() });
-// 身份存 localStorage 且同 origin 两 tab 共享——send 侧 spawn 前删掉旧身份强制新生成，
-// 否则两 tab 同一 node id（发送方等于拨自己）。recv 先开先写，互不干扰。
-if (role === "send") localStorage.removeItem("swarmdrop.identity.protobuf.hex");
-const node = await WebNode.spawn();
+// 统一事件分发：main 模式喂 reader 循环，worker 模式喂 client.onEvent
+const handlers = new Set();
+const onEvent = (f) => handlers.add(f);
+const dispatch = (ev) => {
+  for (const h of [...handlers]) {
+    try { h(ev); } catch (e) { log("❌ handler(" + ev.type + "): " + e); }
+  }
+};
+
+let node; // WebNode（main）或 SwarmDropWorkerClient（worker）——方法形状一致
+if (mode === "worker") {
+  // Worker 版：wasm 整个跑 Worker（身份存 OPFS，与 main 版 localStorage 身份天然不同）
+  const { SwarmDropWorkerClient } = await import("./client.js");
+  node = await SwarmDropWorkerClient.spawn();
+  node.onEvent(dispatch);
+} else {
+  // 带时间戳破缓存拉最新 wasm（同 index.html 的取舍）
+  await init({ module_or_path: "./pkg/swarmdrop_web_bg.wasm?v=" + Date.now() });
+  // 身份存 localStorage 且同 origin 两 tab 共享——send 侧 spawn 前删掉旧身份强制新生成，
+  // 否则两 tab 同一 node id（发送方等于拨自己）。recv 先开先写，互不干扰。
+  if (role === "send") localStorage.removeItem("swarmdrop.identity.protobuf.hex");
+  node = await WebNode.spawn();
+  (async () => {
+    const reader = node.events().getReader();
+    while (true) {
+      let r;
+      try { r = await reader.read(); } catch (e) { log("❌ reader.read: " + e); break; }
+      if (r.done) break;
+      if (r.value) dispatch(r.value);
+    }
+  })();
+}
 window.node = node;
 log("node: " + node.node_id());
-
-// 事件流单点消费 → 分发给注册的 handler（events() 只能取一次）
-const handlers = new Set();
-(async () => {
-  const reader = node.events().getReader();
-  while (true) {
-    let r;
-    try { r = await reader.read(); } catch (e) { log("❌ reader.read: " + e); break; }
-    if (r.done) break;
-    if (!r.value) continue;
-    for (const h of [...handlers]) {
-      try { h(r.value); } catch (e) { log("❌ handler(" + r.value.type + "): " + e); }
-    }
-  }
-})();
-const onEvent = (f) => handlers.add(f);
 
 log("connect helper → " + (await node.connect(helper)));
 

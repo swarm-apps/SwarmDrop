@@ -9076,6 +9076,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

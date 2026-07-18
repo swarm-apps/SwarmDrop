@@ -198,8 +198,7 @@ impl OpfsFileAccess {
 /// 错误、无超时；我们实测时花了两轮才定位）。提前明确报错。secure context 仅含 https /
 /// localhost / 127.0.0.1（见 libp2p-wasm.md：非 secure 源同时丢 crypto.subtle 与 OPFS）。
 fn ensure_secure_context() -> AppResult<()> {
-    let win = web_sys::window().ok_or_else(|| AppError::Transfer("无 window".into()))?;
-    if !win.is_secure_context() {
+    if !crate::env::is_secure_context() {
         return Err(AppError::Transfer(
             "OPFS 不可用：当前页面非 secure context，navigator.storage 缺失。请用 https 或 \
              localhost / 127.0.0.1 访问（而非 http 私网 IP）。"
@@ -209,13 +208,11 @@ fn ensure_secure_context() -> AppResult<()> {
     Ok(())
 }
 
-/// OPFS 根目录（`navigator.storage.getDirectory()`）。
+/// OPFS 根目录（`navigator.storage.getDirectory()`，Window / Worker 通吃）。
 async fn opfs_root() -> AppResult<FileSystemDirectoryHandle> {
     ensure_secure_context()?;
-    let storage = web_sys::window()
-        .ok_or_else(|| AppError::Transfer("无 window".into()))?
-        .navigator()
-        .storage();
+    let storage = crate::env::storage_manager()
+        .ok_or_else(|| AppError::Transfer("navigator.storage 不可达（未知全局环境）".into()))?;
     // secure context 下仍加超时兜底：任何底层不 resolve 都在 5s 内明确失败，绝不永久挂起。
     let root = match n0_future::time::timeout(
         Duration::from_secs(5),
@@ -235,7 +232,10 @@ async fn opfs_root() -> AppResult<FileSystemDirectoryHandle> {
 }
 
 /// 沿 `relative_path` 逐段建目录，返回末段文件句柄（`create:true`）。
-async fn opfs_file_handle(relative_path: &str, create: bool) -> AppResult<FileSystemFileHandle> {
+pub(crate) async fn opfs_file_handle(
+    relative_path: &str,
+    create: bool,
+) -> AppResult<FileSystemFileHandle> {
     let mut dir = opfs_root().await?;
     let parts: Vec<&str> = relative_path.split('/').filter(|s| !s.is_empty()).collect();
     let (file_name, dirs) = parts
@@ -267,7 +267,7 @@ async fn opfs_file_handle(relative_path: &str, create: bool) -> AppResult<FileSy
 
 /// 打开 `relative_path` 的 OPFS 流式写句柄。`keep_existing_data=true` 保留已有内容（续传用），
 /// false 打开即截断。句柄由调用方持有，逐块 `seek+write`、最后 `close`。
-async fn open_writable(
+pub(crate) async fn open_writable(
     relative_path: &str,
     keep_existing_data: bool,
 ) -> AppResult<FileSystemWritableFileStream> {

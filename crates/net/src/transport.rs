@@ -99,17 +99,25 @@ pub(crate) async fn build_swarm(
     let swarm = SwarmBuilder::with_existing_identity(keypair)
         .with_wasm_bindgen()
         .with_other_transport(|key| {
-            // webrtc-websys 自带 noise + 分帧，不需要 upgrade 链。
-            let webrtc = webrtc_websys::Transport::new(webrtc_websys::Config::new(key))
-                .map(|(p, c), _| (p, StreamMuxerBox::new(c)));
-
             // websocket-websys 没有便捷方法，手动 upgrade/authenticate/multiplex
             // （照 rust-libp2p/interop-tests/src/arch.rs 的官方组合；
-            //  spike/webrtc-direct-https 实测通过）。
+            //  spike/webrtc-direct-https 实测通过）。Window/Worker 双环境可用。
             let ws = websocket_websys::Transport::default()
                 .upgrade(Version::V1Lazy)
                 .authenticate(noise::Config::new(key)?)
                 .multiplex(yamux::Config::default())
+                .map(|(p, c), _| (p, StreamMuxerBox::new(c)));
+
+            // Worker 环境（无 window）不装 webrtc-websys：它的 dial 在地址格式检查
+            // **之前**就调 maybe_local_firefox()（内含 window().expect）——装了它，
+            // 经 or_transport 拨任何地址（含 ws）都先进 webrtc 分支碰 window panic。
+            // 实测坐实（2026-07-18 Worker 版基准），非只影响 webrtc 地址。
+            if web_sys::window().is_none() {
+                return Ok(ws.boxed());
+            }
+
+            // webrtc-websys 自带 noise + 分帧，不需要 upgrade 链。
+            let webrtc = webrtc_websys::Transport::new(webrtc_websys::Config::new(key))
                 .map(|(p, c), _| (p, StreamMuxerBox::new(c)));
 
             // or_transport 两道坎（E0271）：两侧先各自 map 成 StreamMuxerBox；

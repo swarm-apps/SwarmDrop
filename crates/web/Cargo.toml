@@ -44,6 +44,8 @@ tracing-subscriber-wasm = "0.1"
 uuid = { workspace = true, features = ["js"] }
 web-sys = { version = "0.3", features = [
     "Window",
+    "WorkerGlobalScope",
+    "WorkerNavigator",
     "Navigator",
     "StorageManager",
     "Storage",
