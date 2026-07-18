@@ -37,7 +37,7 @@ graph LR
 
 ## 端口清单：transfer 自己开出的需求单
 
-transfer 把它对外界的全部需求，收敛成几个端口 trait，全部定义在自己的 crate 内：
+transfer 把它对外界的全部需求，收敛成几个端口 trait，**大部分**定义在自己的 crate 内（`SessionStore`/`InboxStore`/`PeerDirectory`/`TransferEventSink`/`TransferRuntime` 是 transfer 自有；`FileAccess` 因是宿主通用能力端口——桌面/移动/Web 都要读写文件——定义在 `swarmdrop-host`，transfer 只消费）：
 
 | 端口 trait | 位置 | 抽象的能力 | core 侧实现 |
 |---|---|---|---|

@@ -185,7 +185,8 @@ receive
 > `accept()` returns, the connection is dropped.**
 
 也就是说，Router 给每条入站流起的那个 handler 任务，**本来就是设计成可以长跑的**——你完全
-不需要再自己 spawn 一层。iroh 把协议分成两种形状：
+不需要再自己 spawn 一层。iroh 官方文档把协议分成两种形状（我们的内核是 iroh 风格自研，
+这里沿用它的「形状 A/B」概括）：
 
 - **形状 A**：在 `accept()` 里把整条连接/流跑完（blobs、sendme、dumbpipe、一切请求-响应型）。
 - **形状 B**：`accept()` 立刻返回，把连接 clone 交给长生命周期 actor（gossip、docs——**要

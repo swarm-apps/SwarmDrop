@@ -65,8 +65,9 @@ graph TD
 **wasm 双 target 可编**。CI 的 `scripts/check-wasm.sh` 直接把它列进检查清单：
 
 ```bash
-# scripts/check-wasm.sh
+# scripts/check-wasm.sh —— 五 crate 双门（check + clippy -D warnings）
 CRATES=(-p swarmdrop-net-base -p swarmdrop-net -p swarmdrop-host -p swarmdrop-transfer -p swarmdrop-web)
+cargo clippy "${CRATES[@]}" --target wasm32-unknown-unknown -- -D warnings
 cargo check "${CRATES[@]}" --target wasm32-unknown-unknown
 ```
 

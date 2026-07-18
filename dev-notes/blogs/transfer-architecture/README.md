@@ -17,7 +17,7 @@
 |---|---|---|
 | [00](00-dumbpipe-shape.md) | dumbpipe 形状：网络只给裸管道，业务自持 | 网络给裸字节流 + typed RPC，业务自持帧/offer/续传——vs 吞整套 blob 栈的 sendme 形状 |
 | [01](01-crate-extraction.md) | 传输域抽成独立 crate：六层分层 | 从「埋在 core」到独立 `swarmdrop-transfer`；单一职责成编译期约束；git rename 保历史 |
-| [02](02-dependency-inversion-ports.md) | 依赖倒置：端口 trait 定义在消费方 | transfer 定义 `SessionStore`/`PeerDirectory`/`FileAccess`，core 实现注入；边界 grep 零 sea_orm |
+| [02](02-dependency-inversion-ports.md) | 依赖倒置：端口 trait 定义在消费方 | transfer 定义 `SessionStore`/`PeerDirectory`/`TransferEventSink`（`FileAccess` 由 host 层定义），core 实现注入；边界 grep 零 sea_orm |
 | [03](03-event-cycle-breaking.md) | 打破事件循环依赖：TransferEventSink | `CoreEvent` 反向引用 transfer wire 类型 → 成环；发自有 `TransferEvent` + 适配器 1:1 映射解环 |
 | [04](04-bao-tree-verified-streaming.md) | bao-tree 逐块验证：文件收完前每块可验 | 唯一真实能力差；「已在用 blake3」是陷阱；root==checksum、Approach B、坏块被拒 |
 | [05](05-removing-encryption-layer.md) | 删掉应用层加密：加密应该在哪一层 | 应用层加密在 Noise 之下是冗余自引用；与逐块验签的张力；补归属校验 |
@@ -41,12 +41,12 @@ graph LR
 
 ## 与旧文的关系
 
-`../transfer/` 下的旧文描述的是重构**前**的架构（单 crate、XChaCha20 加密、旧 wire）：
+`../../archive/pre-refactor-blogs/` 下的旧文描述的是重构**前**的架构（单 crate、XChaCha20 加密、旧 wire）：
 
-- **[`../transfer/end-to-end-encryption.md`](../transfer/end-to-end-encryption.md) 已被本系列
+- **[`../../archive/pre-refactor-blogs/end-to-end-encryption.md`](../../archive/pre-refactor-blogs/end-to-end-encryption.md) 已被本系列
   [05](05-removing-encryption-layer.md) 取代**——它描述的应用层加密层已在 wire v2 删除。旧文的
   XChaCha20/Poly1305 密码学讲解本身仍有参考价值，但那一层不再存在。
-- `../transfer/transfer-protocol-design.md` 等其余旧文描述旧 wire 协议（拉取式、CBOR、加密密钥
+- `../../archive/pre-refactor-blogs/transfer-protocol-design.md` 等其余旧文描述旧 wire 协议（拉取式、CBOR、加密密钥
   握手），与本系列的 wire v2（裸流帧、明文 + bao proof、无密钥）形态不同，阅读时注意版本差异。
 
 ## 素材出处

@@ -123,8 +123,10 @@ v2 内启用，未 bump 版本号**（M3.5 预留的扩展位）。
 
 ## 落地决策三：发送端流式建 outboard，与 checksum 同源
 
-发送端在 prepare 阶段建 outboard。用 **post-order** outboard（`bao-tree` 建议：post-order 对追加
-文件友好），经 iroh-io 的 `AsyncSliceReader` 适配 async 的 `FileAccess`——**内存有界，不整文件入内存**：
+发送端在 prepare 阶段建 outboard。用 **post-order** outboard——它是单遍流式构建的自然产物，
+且两条构建路径（`build_outboard` 同步 + `build_outboard_from_source` 流式，`bao.rs:62-63`）产出同序，
+`encode_proof` 用同一个 `PostOrderOutboard` 重建即可。经 iroh-io 的 `AsyncSliceReader` 适配 async 的
+`FileAccess`——**内存有界，不整文件入内存**：
 
 ```rust
 // crates/transfer/src/bao.rs

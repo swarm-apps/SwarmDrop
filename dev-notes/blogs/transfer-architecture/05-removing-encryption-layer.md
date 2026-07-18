@@ -7,7 +7,7 @@
 > **为什么重要**：这是「加密应该放在哪一层」的一个真实决策。多一层加密不等于多一层安全——放错层
 > 的加密只是冗余的复杂度。
 >
-> ⚠️ **本篇取代旧文 [`transfer/end-to-end-encryption.md`](../transfer/end-to-end-encryption.md)**
+> ⚠️ **本篇取代旧文 [`transfer/end-to-end-encryption.md`](../../archive/pre-refactor-blogs/end-to-end-encryption.md)**
 > ——那篇描述的是重构前的架构（每次传输一把 XChaCha20 密钥）。旧文的密码学讲解仍有价值，但它描述
 > 的加密层**已不存在**。
 
@@ -78,7 +78,7 @@ Noise）：
 ```
 
 ```
-$ grep -rniE "xchacha|chacha|poly1305|TransferCrypto" crates/transfer/src/
+$ grep -rniE "xchacha|chacha|poly1305|TransferCrypto|加密" crates/transfer/src/
 crates/transfer/src/protocol.rs:  // 注释：说明为何删除
 crates/transfer/src/wire/mod.rs:  // 注释：crypto 整文件移除
 ```
