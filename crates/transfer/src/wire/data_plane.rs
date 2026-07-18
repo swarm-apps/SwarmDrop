@@ -166,10 +166,15 @@ impl TransferManager {
             return Ok(());
         }
 
+        // **在当前 handler 任务内 await 到完成，不 spawn**（wasm lost-wakeup 修复）：流不得跨任务
+        // move，否则 muxer 后续帧的 wake 打给旧 waker、新任务永久 Pending。Router 的 per-stream
+        // 任务本就设计为可长跑，accept 返回即流生命周期结束（iroh「形状 A：在 accept 里跑完」）。
         let actors = self.actors.clone();
-        receive.start_data_channel(epoch, stream, fetch_plan, move |sid| {
-            actors.remove_receive_if_epoch(sid, epoch);
-        });
+        receive
+            .start_data_channel(epoch, stream, fetch_plan, move |sid| {
+                actors.remove_receive_if_epoch(sid, epoch);
+            })
+            .await;
 
         Ok(())
     }

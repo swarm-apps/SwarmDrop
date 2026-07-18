@@ -267,17 +267,67 @@ Chrome 138 opt-in，**Chrome 142（2025-10-28）正式上线**，限制公网站
 
 ⇒ **页面照常从 `https://` 加载，只有 P2P 连接打到局域网 IP。** 这正好落进上面两道门的场景。
 
+> ⚠️ **2026-07 实测坐实了这条，且踩了坑**：Web 壳端到端调试时用 `http://192.168.50.105:8080`（私网 IP over http）测，finalize 落盘**静默永久挂死**。浏览器探针一句话定位：
+> ```
+> isSecureContext: false   navigator.storage: undefined   crypto.subtle: undefined
+> ```
+> `write_opfs` 调 `navigator.storage.getDirectory()` 打到 **undefined**，web-sys 绑定的 `JsFuture` 永久 pending（不 resolve 不 reject）——**最坏的失败模式，无错误无超时**。换 `http://127.0.0.1` / `http://localhost`（**secure context 即使是 http**）立即通过，逐字节一致。
+>
+> **secure context 白名单**：`https://*`、`http://localhost`、`http://127.0.0.1`、`file://`。私网 IP over http **不在内**。
+> **两条工程后果**：① 生产 Web 端必须 https 部署（自签 + 用户信任，或正式证书）；② `OpfsFileAccess` 这类碰 Web 平台 API 的端口实现，**构造时必须预检 `isSecureContext` / API 存在性并明确报错**，绝不能让 undefined 的 JsFuture 永久 pending（给每个 OPFS await 套 timeout 兜底）。
+> ③ 连接不受影响——libp2p 的 Noise/blake3 在 wasm 用自带实现，**不依赖 `crypto.subtle`**，所以 http 私网 IP 下连接照通、只有落盘炸。这让根因更隐蔽（网络全绿、只有存储挂）。
+
 ### 实测进度
 
 | # | 项 | 状态 |
 |---|---|---|
 | 1 | `ws://` 私有 IP 从 HTTPS 页面通不通 | ✅ **通**（[spike](../../spike/webrtc-direct-https/)，RTT 200µs；含 fetch 对照证明豁免专属私有 IP）|
 | 2 | LNA 权限提示今天会不会弹 | ⬜ **未测** —— spike 的页面本身就在私有 IP 上（local→local，不触发）。要测得把页面挂到真公网 HTTPS origin |
-| 3 | 浏览器经 LAN helper 的 relay 连第三台设备 | ⬜ 未测 |
-| 4 | certhash 能否跨重启稳定 | ⬜ 未测。`Certificate` 有 `from_pem`/`serialize_pem`（`transports/webrtc/src/tokio/certificate.rs:66,76`，`pem` feature），libp2p 侧无强制轮换 ⇒ 应可持久化，但 `RTCCertificate::from_key_pair` 的默认有效期未查 |
-| 5 | Safari / Firefox | ⬜ 未测。以上全是 Chrome |
+| 3 | 浏览器经 LAN helper 的 relay 连第三台设备 | ✅ **通**（2026-07 Web 壳实测，`crates/web`）：浏览器 reserve circuit → 对端拨 circuit 地址被动接收；且**浏览器↔浏览器经 helper circuit 双向文件传输逐字节一致**（见下方「单核心包实证」）|
+| 4 | certhash 能否跨重启稳定 | ✅ **通**（内核 `webrtc.rs` 测试 + 冒烟壳实测：同一持久化证书两次 bind 的 certhash 一致）|
+| 5 | Safari / Firefox | ⬜ 未测。以上全是 Chrome / Chromium |
+| 6 | **rust-wasm 单核心包端到端** | ✅ **通**（2026-07 里程碑）：浏览器跑与桌面**字面同一份** `swarmdrop-transfer`（offer 门控 / 256KiB 分块 / fetch_plan 续传 / **bao 逐块 Merkle 验签**），OPFS 落盘 716800 字节逐字节一致。**攻克代价见下节「四道运行时门」** |
 
 ---
+
+## rust-wasm 单核心包的四道运行时门（编译期完全看不见）
+
+> **这是本路线最硬的一手经验**（2026-07 Web 壳落地，十一轮真实浏览器实测剥出）。
+> 核心教训:**「native 测试全绿 + 五 crate wasm 编译全过 + 控制面全通」= 零保证**。
+> wasm 单线程 + Web 平台的运行时语义有四类陷阱,`cargo test`/`check-wasm` 一个都拦不到,
+> 只能真实浏览器逐层剥。四道门按我们踩到的顺序:
+
+**门 1 — `std::time` 直接 panic**。`std::time::Instant::now()` 在 wasm 是
+`time not implemented on this platform` 运行时 panic（不是编译错）。transfer 里 5 处
+`Instant` 曾把 prepare 直接炸掉。**修**:一律 `n0_future::time::Instant`（native=tokio,
+wasm=web_time）。**排查信号**:功能在某个用到计时的路径静默失败,console 有
+`time not implemented` panic。
+
+**门 2 — `futures::AsyncReadExt::split()` 的 reader half 在 wasm 不被唤醒**。
+数据面两端 `channel.split()` + 并发读写,在 wasm 单线程下 reader half 收到字节后不唤醒读端
+（native 多线程掩盖）。**判据**:能工作的路径(RPC/offer)全是**整条流顺序 read/write,从不 split**;
+唯独卡住的路径 split 了。**修**:去掉 split,顺序读写（本就不重叠时 split 纯属多余）。
+
+**门 3 — accepted 流跨任务 move 导致 lost-wakeup**。流在任务 A（Router handler）读了首帧,
+再 move 给独立 spawn 的任务 B——B 首次 poll 前,muxer 已把后续帧的 wake 打给 A 的旧 waker,
+B 注册新 waker 时事件已消耗,发送端不再有新字节 → **永久 Pending**。native 多线程时序掩盖。
+**判据**:同一条流跨了任务边界(一个任务读、另一个任务接手)。**修**:**accepted 流不跨任务**——
+在读首帧的同一任务里 await 到流生命周期结束（iroh「形状 A:在 accept 里跑完」)。
+这也是更干净的架构。
+
+**门 4 — Web 平台 API 的 secure-context gating**。见上「页面必须是 HTTPS」节:
+`navigator.storage`(OPFS)/`crypto.subtle` 在非 secure context(http 私网 IP)**整个不存在**,
+web-sys 绑定打到 undefined 的 `JsFuture` **永久 pending**。**判据**:碰 Web 平台 API 的路径静默挂死,
+`isSecureContext` 探针一句定位。**修**:构造时预检 + 明确报错 + 每个 JS await 套 timeout。
+
+**共同的方法论**（这套调试值得复用):
+- **穷举锚点 > 逐个假设**:卡点稳定后,在可疑路径**每个 await 前后**铺 `info!` 锚点,一轮实测
+  「最后一条锚点」= 精确病灶。逐个假设验证会来回拉扯(我们前几轮就是)。
+- **对照实验切分**:小文件 vs 大文件(切帧大小/流控假设)、换 origin(切 secure context)、
+  native e2e vs 浏览器(切 wasm 特有 vs 逻辑)。
+- **浏览器探针直插平台层**:绕开整个 rust 栈,`evaluate` 直接调 `navigator.storage.getDirectory()`
+  /`window.isSecureContext`,一刀切分「环境 vs 代码」。门 4 就是这么一句定位的。
+- **每层修复让卡点前移一步**是正确收敛的信号(offer 不通→首帧拉不到→拉到首帧→3 块全过→finalize)。
 
 ## ❌ 被推翻的旧认知
 

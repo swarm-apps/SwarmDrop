@@ -1,7 +1,9 @@
 //! 文件传输进度模型和计算器。
 
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+// wasm 上 std Instant panic（time not implemented），统一走 n0-future（native=tokio，wasm=web_time）
+use n0_future::time::Instant;
 
 use crate::host::CoreSaveLocation;
 use serde::Serialize;

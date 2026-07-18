@@ -12,9 +12,9 @@
 //! - [`super::flow::receive`] —— 接收方 accept / reject / 暂停 / 取消 + IncomingTransferRuntime 接收 helper
 //! - [`super::flow::resume`]  —— 双侧断点续传 + IncomingTransferRuntime 续传 helper
 
+use n0_future::time::Instant;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
 
 use dashmap::{DashMap, DashSet};
 use serde::Serialize;
@@ -98,6 +98,16 @@ pub struct PendingOffer {
     pub total_size: u64,
     pub created_at: Instant,
     pub responder: oneshot::Sender<TransferResponse>,
+}
+
+/// 挂起入站 offer 的只读快照（[`TransferManager::pending_offers`] 返回，供 pull 型 UI）。
+#[derive(Debug, Clone)]
+pub struct PendingOfferSummary {
+    pub session_id: Uuid,
+    pub peer_id: NodeId,
+    pub peer_name: String,
+    pub files: Vec<FileInfo>,
+    pub total_size: u64,
 }
 
 /// 发送方已发出、仍在等待对端 OfferResult 的请求。

@@ -3,9 +3,9 @@
 //! 这里同时承载 `IncomingTransferRuntime` 的接收侧 helper（`*_impl`），由 manager.rs
 //! 中的 trait impl 1-line delegate 调用。
 
+use n0_future::time::Instant;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 
 use swarmdrop_net::NodeId;
 use tokio::sync::oneshot;
@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::actor::receiver::ReceiverActor;
 use crate::coordinator::{CoordinatorInput, TransferState, UserCommand};
-use crate::manager::{PendingOffer, TransferManager};
+use crate::manager::{PendingOffer, PendingOfferSummary, TransferManager};
 use crate::policy::ReceivePolicyDecision;
 use crate::progress::{RuntimeTransferDirection, TransferFailedEvent};
 use crate::protocol::{FileInfo, OfferRejectReason, TransferOrigin, TransferResponse};
@@ -139,6 +139,26 @@ impl TransferManager {
     /// 返回 `None` 表示该 session 没有挂起 offer——已被接受/拒绝，或已过挂起窗口被回收。
     pub fn pending_offer_peer(&self, session_id: &Uuid) -> Option<NodeId> {
         self.pending.get(session_id).map(|offer| offer.peer_id)
+    }
+
+    /// 当前挂起（待用户决定）入站 offer 的只读快照。
+    ///
+    /// 桌面/移动经 `transfer-offer` 事件驱动 UI；Web 壳需要 pull 型查询当前 pending
+    /// （事件流之外的补查），故提供此只读访问器——不改任何行为。
+    pub fn pending_offers(&self) -> Vec<PendingOfferSummary> {
+        self.pending
+            .iter()
+            .map(|entry| {
+                let offer = entry.value();
+                PendingOfferSummary {
+                    session_id: offer.session_id,
+                    peer_id: offer.peer_id,
+                    peer_name: offer.peer_name.clone(),
+                    files: offer.files.clone(),
+                    total_size: offer.total_size,
+                }
+            })
+            .collect()
     }
 
     /// 接受传输并启动接收

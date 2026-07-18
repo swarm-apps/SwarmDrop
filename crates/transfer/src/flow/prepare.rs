@@ -3,7 +3,7 @@
 //! 这里只挂载 `TransferManager::prepare` 一个方法，结构体定义和其他生命周期方法
 //! 仍在 [`crate::manager`]。
 
-use std::time::Instant;
+use n0_future::time::Instant;
 
 use uuid::Uuid;
 

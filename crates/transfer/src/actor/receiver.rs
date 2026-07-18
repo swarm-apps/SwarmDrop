@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use futures::io::AsyncReadExt;
 use swarmdrop_net::{NodeId, P2pStream};
 use tokio::sync::{Mutex, watch};
 use tokio_util::sync::CancellationToken;
@@ -138,63 +137,69 @@ impl ReceiverActor {
         Ok(())
     }
 
-    /// 启动 data-channel 接收任务。
+    /// 驱动 data-channel 接收**到完成**——在调用方（Router per-stream handler）任务内 await，
+    /// **不再 spawn 独立任务**。
     ///
     /// Hello 已由 `TransferManager` 入站路由读取和校验；这里从 BlockData / Finish 开始读。
-    pub fn start_data_channel<F>(
+    ///
+    /// **必须与读 Hello 同一个任务**（wasm lost-wakeup 修复）：入站流经 Router handler 任务到达、
+    /// Hello 在该任务内读出；若把流 move 给独立 spawn 的任务再读，wasm 单线程下 muxer 已把后续帧的
+    /// wake 打给旧 waker（handler 任务——它已不再读此流），新任务首次 poll 注册的新 waker 再无字节
+    /// 触发 → 永久 Pending（native 多线程时序掩盖，故 e2e 不显形）。RPC/offer 全程可用正因流从不
+    /// 跨任务。故这里改 async、由 handler 任务 await 到终态；registry 清理（`on_finish`）与
+    /// `finished_tx` 通知照旧，只是驱动方式从独立 spawn 改为内联 await。
+    pub async fn start_data_channel<F>(
         self: Arc<Self>,
         epoch: i64,
         stream: P2pStream,
         fetch_plan: Vec<FileRange>,
         on_finish: F,
     ) where
-        F: FnOnce(&Uuid) + Send + 'static,
+        F: FnOnce(&Uuid),
     {
-        n0_future::task::spawn(async move {
-            let outcome = self.run_data_channel(epoch, stream, fetch_plan).await;
-            match &outcome {
-                Ok(true) => info!(
-                    "Data-channel receive completed: session={}",
-                    self.session_id
-                ),
-                Ok(false) => info!(
-                    "Data-channel receive cancelled: session={}",
-                    self.session_id
-                ),
-                Err(e) => {
-                    if self.cancel_token.is_cancelled() {
-                        info!(
-                            "Data-channel receive stopped after cancellation: session={}",
-                            self.session_id
-                        );
-                    } else {
-                        warn!(
-                            "Data-channel receive interrupted: session={}, error={}",
-                            self.session_id, e
-                        );
-                        let _ = self
-                            .coordinator
-                            .dispatch(
-                                self.session_id,
-                                crate::coordinator::CoordinatorInput::Network {
-                                    epoch,
-                                    signal: crate::coordinator::NetworkSignal::Interrupted,
-                                },
-                            )
-                            .await;
-                    }
+        let outcome = self.run_data_channel(epoch, stream, fetch_plan).await;
+        match &outcome {
+            Ok(true) => info!(
+                "Data-channel receive completed: session={}",
+                self.session_id
+            ),
+            Ok(false) => info!(
+                "Data-channel receive cancelled: session={}",
+                self.session_id
+            ),
+            Err(e) => {
+                if self.cancel_token.is_cancelled() {
+                    info!(
+                        "Data-channel receive stopped after cancellation: session={}",
+                        self.session_id
+                    );
+                } else {
+                    warn!(
+                        "Data-channel receive interrupted: session={}, error={}",
+                        self.session_id, e
+                    );
+                    let _ = self
+                        .coordinator
+                        .dispatch(
+                            self.session_id,
+                            crate::coordinator::CoordinatorInput::Network {
+                                epoch,
+                                signal: crate::coordinator::NetworkSignal::Interrupted,
+                            },
+                        )
+                        .await;
                 }
             }
+        }
 
-            let _ = self.finished_tx.send(true);
-            on_finish(&self.session_id);
-        });
+        let _ = self.finished_tx.send(true);
+        on_finish(&self.session_id);
     }
 
     async fn run_data_channel(
         self: &Arc<Self>,
         epoch: i64,
-        stream: P2pStream,
+        mut stream: P2pStream,
         fetch_plan: Vec<FileRange>,
     ) -> AppResult<bool> {
         self.validate_fetch_plan(&fetch_plan)?;
@@ -239,11 +244,10 @@ impl ReceiverActor {
         let progress = Arc::new(Mutex::new(tracker));
         let mut sinks: HashMap<u32, FileSinkId> = HashMap::new();
         let mut started_files = HashSet::new();
-        let (mut reader, mut writer) = stream.split();
 
-        // 接收方在数据面上只顺序读 BlockData 流，收到 Finish 后回写单帧 Finish 确认。
-        // 不再用 mpsc writer 桥：读循环天然顺序、仅末尾写一帧，与发送方单 reader/writer 对称
-        // （取消由读循环的 select! 直接响应，无需独立 writer task 兜底）。
+        // **整流顺序读写，不 split**（wasm 修复，与发送端对称）：读循环天然顺序、仅末尾写一帧
+        // Finish 确认，两者不重叠，`split` 本就多余；而 `futures` split 的 BiLock reader half 在
+        // wasm 下、数据到达 muxer 后不唤醒读端（native 多线程掩盖）——直接用整条流即修。
         loop {
             if self.cancel_token.is_cancelled() {
                 return Ok(false);
@@ -252,7 +256,7 @@ impl ReceiverActor {
             // 空闲等待下一帧时也响应取消，避免 cancel 后干等到下一帧或超时。
             let frame = tokio::select! {
                 _ = self.cancel_token.cancelled() => return Ok(false),
-                frame = read_frame(&mut reader) => frame?,
+                frame = read_frame(&mut stream) => frame?,
             };
             match frame {
                 Some(TransferDataFrame::BlockData {
@@ -283,7 +287,7 @@ impl ReceiverActor {
                         .await?;
                     // 回写 Finish 确认：发送方读到它即视为完成（已无逐块 Ack）。
                     write_frame(
-                        &mut writer,
+                        &mut stream,
                         &TransferDataFrame::Finish {
                             session_id: self.session_id,
                             epoch,

@@ -5,12 +5,11 @@
 //! 已加密，数据面直接传明文（见 [`wire`](crate::wire)）。
 //! 使用 `Arc<std::sync::Mutex<ProgressTracker>>` 实现并发安全的进度追踪。
 
+use n0_future::time::Instant;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
-use futures::io::AsyncReadExt;
 use swarmdrop_net::{NodeId, P2pStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -170,71 +169,72 @@ impl SenderActor {
     }
 
     /// 将本发送会话绑定到一条数据面裸流，并按 fetch_plan 连续推送数据。
+    ///
+    /// **整流顺序读写，不 split**（wasm 修复）：`futures::AsyncReadExt::split` 的 BiLock reader
+    /// half 在 wasm 下、数据到达 muxer 后不唤醒读端（native 多线程掩盖，浏览器单线程显形，
+    /// 现象为「字节到 muxer 但 run_data_channel 读循环不推进」）。改与可用的 RPC 同构——整条流
+    /// 顺序 write→read。写完 Hello+全部块+Finish 后，再读对端 Finish 确认。远端中途取消由「写
+    /// 出错」或随后读到 Abort 感知；本地取消由每块前的 cancel_token 检查响应。
     pub async fn run_data_channel(
         &self,
         epoch: i64,
-        channel: P2pStream,
+        mut channel: P2pStream,
         fetch_plan: Vec<FileRange>,
     ) -> AppResult<()> {
         let manifest = self.file_manifest();
         let plan = fetch_plan;
-        let (mut reader, mut writer) = channel.split();
 
-        let writer_task = async {
-            write_frame(
-                &mut writer,
-                &TransferDataFrame::Hello {
-                    session_id: self.session_id,
-                    epoch,
-                    role: TransferDataRole::Sender,
-                    manifest_digest: manifest_digest(&manifest),
-                    fetch_plan: plan.clone(),
-                },
-            )
-            .await?;
+        write_frame(
+            &mut channel,
+            &TransferDataFrame::Hello {
+                session_id: self.session_id,
+                epoch,
+                role: TransferDataRole::Sender,
+                manifest_digest: manifest_digest(&manifest),
+                fetch_plan: plan.clone(),
+            },
+        )
+        .await?;
 
-            for range in plan {
-                self.write_range(&mut writer, epoch, range).await?;
+        for range in plan {
+            if self.cancel_token.is_cancelled() {
+                return Err(AppError::Transfer("传输已取消".into()));
             }
+            self.write_range(&mut channel, epoch, range).await?;
+        }
 
-            write_frame(
-                &mut writer,
-                &TransferDataFrame::Finish {
-                    session_id: self.session_id,
-                    epoch,
-                },
-            )
-            .await
-        };
+        write_frame(
+            &mut channel,
+            &TransferDataFrame::Finish {
+                session_id: self.session_id,
+                epoch,
+            },
+        )
+        .await?;
 
-        let reader_task = async {
-            // 接收方收完并 finalize 后回一帧 Finish 作为完成确认（已无逐块 Ack），读到它即完成。
-            // 空闲等待时响应取消，避免 cancel 后干等到对端 Finish 或超时。
-            let frame = tokio::select! {
-                _ = self.cancel_token.cancelled() => {
-                    return Err(AppError::Transfer("传输已取消".into()));
-                }
-                frame = read_frame(&mut reader) => frame?,
-            };
-            match frame {
-                Some(TransferDataFrame::Finish {
-                    session_id,
-                    epoch: finish_epoch,
-                }) if session_id == self.session_id && EpochGuard::matches(finish_epoch, epoch) => {
-                    Ok(())
-                }
-                Some(TransferDataFrame::Abort { reason, .. }) => {
-                    Err(AppError::Transfer(format!("对端中止传输: {reason}")))
-                }
-                Some(other) => Err(AppError::Transfer(format!(
-                    "发送方收到意外 data frame: {other:?}"
-                ))),
-                None => Err(AppError::Transfer("data channel 在完成前关闭".into())),
+        // 接收方收完并 finalize 后回一帧 Finish 作为完成确认（已无逐块 Ack），读到它即完成。
+        // 空闲等待时响应取消，避免 cancel 后干等到对端 Finish 或超时。
+        let frame = tokio::select! {
+            _ = self.cancel_token.cancelled() => {
+                return Err(AppError::Transfer("传输已取消".into()));
             }
+            frame = read_frame(&mut channel) => frame?,
         };
-
-        tokio::try_join!(writer_task, reader_task)?;
-        Ok(())
+        match frame {
+            Some(TransferDataFrame::Finish {
+                session_id,
+                epoch: finish_epoch,
+            }) if session_id == self.session_id && EpochGuard::matches(finish_epoch, epoch) => {
+                Ok(())
+            }
+            Some(TransferDataFrame::Abort { reason, .. }) => {
+                Err(AppError::Transfer(format!("对端中止传输: {reason}")))
+            }
+            Some(other) => Err(AppError::Transfer(format!(
+                "发送方收到意外 data frame: {other:?}"
+            ))),
+            None => Err(AppError::Transfer("data channel 在完成前关闭".into())),
+        }
     }
 
     /// 发送数据面正常结束的终态副作用（与接收方 `finish_data_channel` 对称）。

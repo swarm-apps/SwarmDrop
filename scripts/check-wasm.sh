@@ -20,7 +20,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
   fi
 fi
 
-CRATES=(-p swarmdrop-net-base -p swarmdrop-net -p swarmdrop-host -p swarmdrop-transfer)
+CRATES=(-p swarmdrop-net-base -p swarmdrop-net -p swarmdrop-host -p swarmdrop-transfer -p swarmdrop-web)
 
 if [[ "${1:-}" == "--clippy" ]]; then
   cargo clippy "${CRATES[@]}" --target wasm32-unknown-unknown -- -D warnings
