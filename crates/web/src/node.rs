@@ -93,11 +93,15 @@ impl WebNode {
         }
 
         let secret = identity::load_or_create().await?;
+        // agent_version 必须走 OsInfo::to_agent_version()（"swarmdrop/{ver}; os=…" 契约）——
+        // 桌面 DeviceManager 用 AGENT_PREFIX 过滤设备列表，硬编码其他前缀会让 Web 节点
+        // 在对端设备列表里隐身（曾踩过：\"swarmdrop-web/0.1\" 被整个滤掉）。
+        let os_info = web_os_info();
         let endpoint = Endpoint::builder()
             .secret_key(secret)
             .preset(presets::Browser)
             .identify_protocol("/swarmdrop/2.0.0")
-            .agent_version("swarmdrop-web/0.1")
+            .agent_version(os_info.to_agent_version())
             .dht(DhtConfig::default())
             .bind()
             .await
@@ -321,6 +325,45 @@ impl WebNode {
     pub async fn close(self) {
         self.cancel.cancel();
         self.endpoint.close().await;
+    }
+}
+
+/// 浏览器环境的 [`OsInfo`]：UA 粗判 os、platform 固定 `"web"`、hostname 用浏览器名
+/// （UI 按 `name || hostname` 回退显示，浏览器名比占位 "Device" 有辨识度）。
+/// wasm 下 `OsInfo::default()` 的 env 探测恒 "unknown"，必须自建。
+fn web_os_info() -> swarmdrop_host::device::OsInfo {
+    let ua = crate::env::user_agent();
+    let os = if ua.contains("Windows") {
+        "windows"
+    } else if ua.contains("Android") {
+        "android"
+    } else if ua.contains("iPhone") || ua.contains("iPad") {
+        "ios"
+    } else if ua.contains("Mac OS") {
+        "macos"
+    } else if ua.contains("Linux") {
+        "linux"
+    } else {
+        "unknown"
+    };
+    let browser = if ua.contains("Edg/") {
+        "Edge"
+    } else if ua.contains("Chrome/") {
+        "Chrome"
+    } else if ua.contains("Firefox/") {
+        "Firefox"
+    } else if ua.contains("Safari/") {
+        "Safari"
+    } else {
+        "Browser"
+    };
+    swarmdrop_host::device::OsInfo {
+        name: None,
+        hostname: browser.to_string(),
+        os: os.to_string(),
+        platform: "web".to_string(),
+        arch: "wasm32".to_string(),
+        capabilities: Vec::new(),
     }
 }
 

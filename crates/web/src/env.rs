@@ -38,3 +38,13 @@ pub fn storage_manager() -> Option<StorageManager> {
 pub fn local_storage() -> Option<Storage> {
     web_sys::window()?.local_storage().ok().flatten()
 }
+
+/// `navigator.userAgent`，Window / Worker 通吃（取不到返回空串）。
+pub fn user_agent() -> String {
+    if let Some(win) = web_sys::window() {
+        return win.navigator().user_agent().unwrap_or_default();
+    }
+    worker_scope()
+        .and_then(|w| w.navigator().user_agent().ok())
+        .unwrap_or_default()
+}
