@@ -286,16 +286,16 @@ Chrome 138 opt-in，**Chrome 142（2025-10-28）正式上线**，限制公网站
 | 3 | 浏览器经 LAN helper 的 relay 连第三台设备 | ✅ **通**（2026-07 Web 壳实测，`crates/web`）：浏览器 reserve circuit → 对端拨 circuit 地址被动接收；且**浏览器↔浏览器经 helper circuit 双向文件传输逐字节一致**（见下方「单核心包实证」）|
 | 4 | certhash 能否跨重启稳定 | ✅ **通**（内核 `webrtc.rs` 测试 + 冒烟壳实测：同一持久化证书两次 bind 的 certhash 一致）|
 | 5 | Safari / Firefox | ⬜ 未测。以上全是 Chrome / Chromium |
-| 6 | **rust-wasm 单核心包端到端** | ✅ **通**（2026-07 里程碑）：浏览器跑与桌面**字面同一份** `swarmdrop-transfer`（offer 门控 / 256KiB 分块 / fetch_plan 续传 / **bao 逐块 Merkle 验签**），OPFS 落盘 716800 字节逐字节一致。**攻克代价见下节「四道运行时门」** |
+| 6 | **rust-wasm 单核心包端到端** | ✅ **通**（2026-07 里程碑）：浏览器跑与桌面**字面同一份** `swarmdrop-transfer`（offer 门控 / 256KiB 分块 / fetch_plan 续传 / **bao 逐块 Merkle 验签**），OPFS 落盘 716800 字节逐字节一致。**攻克代价见下节「五道运行时门」** |
 
 ---
 
-## rust-wasm 单核心包的四道运行时门（编译期完全看不见）
+## rust-wasm 单核心包的五道运行时门（编译期完全看不见）
 
 > **这是本路线最硬的一手经验**（2026-07 Web 壳落地，十一轮真实浏览器实测剥出）。
 > 核心教训:**「native 测试全绿 + 五 crate wasm 编译全过 + 控制面全通」= 零保证**。
-> wasm 单线程 + Web 平台的运行时语义有四类陷阱,`cargo test`/`check-wasm` 一个都拦不到,
-> 只能真实浏览器逐层剥。四道门按我们踩到的顺序:
+> wasm 单线程 + Web 平台的运行时语义有五类陷阱,`cargo test`/`check-wasm` 一个都拦不到,
+> 只能真实浏览器逐层剥(门 5 是自动化基准暴露的)。按我们踩到的顺序:
 
 **门 1 — `std::time` 直接 panic**。`std::time::Instant::now()` 在 wasm 是
 `time not implemented on this platform` 运行时 panic（不是编译错）。transfer 里 5 处
@@ -319,6 +319,16 @@ B 注册新 waker 时事件已消耗,发送端不再有新字节 → **永久 Pe
 `navigator.storage`(OPFS)/`crypto.subtle` 在非 secure context(http 私网 IP)**整个不存在**,
 web-sys 绑定打到 undefined 的 `JsFuture` **永久 pending**。**判据**:碰 Web 平台 API 的路径静默挂死,
 `isSecureContext` 探针一句定位。**修**:构造时预检 + 明确报错 + 每个 JS await 套 timeout。
+
+**门 5 — web-time `Instant` 的原点是页面加载,`Instant - Duration` 开局即下溢 panic**。
+门 1 换到 `n0_future::time::Instant`(wasm=web-time)后还有一层:native `Instant` 原点是系统启动
+(uptime 几乎总够减),web-time 原点是 `performance.now()` = **页面导航时刻**——页面开了不足
+N 秒就跑到 `now - N秒窗口`(如 progress 的滑动窗口 `now - SPEED_WINDOW`)时 `checked_sub`
+为 None,web-time 直接 `expect` panic(`RuntimeError: unreachable`,console 里
+`panicked at web-time-.../instant.rs`)。**为什么一直没炸**:人工实测时页面开了很久才点传输;
+自动化 bench 秒开秒传,第一个 chunk 就炸——**时间原点类 bug 只有自动化才能稳定暴露**。
+**修**:所有 `Instant - Duration` 一律 `checked_sub` 并处理 None(None = 窗口尚未填满,通常
+直接跳过修剪)。**排查信号**:发送/接收在传输启动瞬间 panic `unreachable`,栈指向 web-time。
 
 **共同的方法论**（这套调试值得复用):
 - **穷举锚点 > 逐个假设**:卡点稳定后,在可疑路径**每个 await 前后**铺 `info!` 锚点,一轮实测
