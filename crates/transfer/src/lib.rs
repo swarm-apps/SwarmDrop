@@ -7,6 +7,7 @@
 //! [`protocol`]。
 
 pub mod actor;
+pub mod bao;
 pub mod coordinator;
 pub mod epoch;
 pub mod events;

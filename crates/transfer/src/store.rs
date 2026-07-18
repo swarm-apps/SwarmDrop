@@ -90,6 +90,22 @@ pub trait SessionStore: Send + Sync {
         &self,
         session_id: Uuid,
     ) -> AppResult<Vec<entity::transfer_file::Model>>;
+
+    /// 持久化发送方某文件的 bao outboard（逐块验签 Merkle 树）。prepare 建好后随会话落库，
+    /// resume 免重算。
+    async fn save_file_outboard(
+        &self,
+        session_id: Uuid,
+        file_id: i32,
+        outboard: Vec<u8>,
+    ) -> AppResult<()>;
+
+    /// 载入发送方某文件的 bao outboard；无记录（旧会话 / 接收方）返回 `None`（发送端重算回存）。
+    async fn load_file_outboard(
+        &self,
+        session_id: Uuid,
+        file_id: i32,
+    ) -> AppResult<Option<Vec<u8>>>;
 }
 
 /// 收件箱端口（transfer 只用「完成接收后幂等建条目」一个用例）。

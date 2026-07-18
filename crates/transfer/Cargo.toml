@@ -33,6 +33,11 @@ specta = { version = "=2.0.0-rc.25", features = [
     "chrono",
     "serde_json",
 ], optional = true }
+# bao-tree 逐块验签：sync encode/decode（纯算法，wasm 可编）+ tokio_fsm（异步流式建
+# outboard，经 iroh-io 的 AsyncSliceReader 适配 FileAccess，内存有界；iroh-io 0.6 实测 wasm 可编）。
+bao-tree = { version = "0.16", default-features = false, features = ["validate", "tokio_fsm"] }
+iroh-io = { version = "0.6", default-features = false }
+bytes = "1"
 
 # wasm32：uuid v4 需要一个随机源；桌面/移动走 getrandom 默认后端，Web 走 js。
 [target.'cfg(target_arch = "wasm32")'.dependencies]

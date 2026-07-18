@@ -130,6 +130,23 @@ impl SessionStore for SqlSessionStore {
     ) -> AppResult<Vec<entity::transfer_file::Model>> {
         ops::get_session_files(&self.db, session_id).await
     }
+
+    async fn save_file_outboard(
+        &self,
+        session_id: Uuid,
+        file_id: i32,
+        outboard: Vec<u8>,
+    ) -> AppResult<()> {
+        ops::save_file_outboard(&self.db, session_id, file_id, outboard).await
+    }
+
+    async fn load_file_outboard(
+        &self,
+        session_id: Uuid,
+        file_id: i32,
+    ) -> AppResult<Option<Vec<u8>>> {
+        ops::load_file_outboard(&self.db, session_id, file_id).await
+    }
 }
 
 #[async_trait]

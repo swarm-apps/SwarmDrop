@@ -44,6 +44,11 @@ pub struct Model {
     /// 同由 `finalize_sink` 返回。是「打开文件夹」定位真实容器目录的事实源——SAF
     /// 下无法由 `local_path` 字符串推导父目录。历史行为 NULL——消费方回退会话保存目录。
     pub local_dir: Option<String>,
+    /// 发送方 bao-tree post-order outboard（BLOB，direction=send 时有值）。
+    ///
+    /// 逐块验签的 Merkle 树，prepare 阶段与 checksum 同一遍构建。持久化避免 resume 时重算
+    /// （1GiB 文件 ≈ 4MiB，约 0.4%）。历史/旧会话为 NULL——发送端载入缺失时按源文件重算并回存。
+    pub outboard: Option<Vec<u8>>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

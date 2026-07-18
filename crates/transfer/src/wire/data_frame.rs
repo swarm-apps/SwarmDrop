@@ -62,13 +62,16 @@ pub enum TransferDataFrame {
         session_id: Uuid,
         epoch: i64,
         range: FileRange,
-        /// 明文块数据（wire v2 已删应用层加密，见 [`wire`](crate::wire)）。
+        /// 明文块数据。**bao 验证启用后恒为空**——叶子数据已在 `proof` 的
+        /// bao 切片内（Approach B，避免 2x 冗余），本字段仅为 wire 布局
+        /// 兼容保留（详见 [`wire`](crate::wire) 模块 doc 的选型记录）。
         data: Vec<u8>,
-        /// 逐块完整性证明的扩展位（bao-tree 接入预留，见知识库
-        /// iroh-migration.md 的选型结论）。v2 当前恒为 `None`；接入后携带
-        /// 该 chunk group 的 outboard 证明，接收端**在文件收完前**即可逐块
-        /// 验证——取代「续传信任对端」的现状。字段进 v2 布局定义（u8 标志 +
-        /// 可选 len-prefixed bytes），接入时无需 bump 协议版本。
+        /// 逐块完整性证明：`encode_ranges_validated` 产出的完整 bao 切片
+        /// （size header + Parent/Leaf 交错），root = `FileInfo.checksum`
+        /// （标准 blake3 == bao 树根）。接收端整段喂 `decode_ranges` 验签，
+        /// **文件收完前即可逐块验证**——取代「续传信任对端」。
+        /// `None` / 验签失败 = 协议违规 → 断流走 Interrupted 恢复。
+        /// wire 布局：u8 标志 + 可选 len-prefixed bytes（v2 内启用，未 bump 版本）。
         proof: Option<Vec<u8>>,
     },
     Abort {

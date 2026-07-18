@@ -259,9 +259,9 @@ impl ReceiverActor {
                     session_id,
                     epoch: frame_epoch,
                     range,
-                    data,
-                    // bao-tree 接入后在此逐块验证 proof；当前发送端恒 None
-                    proof: _,
+                    // Approach B：明文在 proof 的 bao 切片里（data 恒空），decode 验签后取回。
+                    data: _,
+                    proof,
                 }) if session_id == self.session_id && EpochGuard::matches(frame_epoch, epoch) => {
                     self.handle_block_data(
                         &progress,
@@ -270,7 +270,7 @@ impl ReceiverActor {
                         &mut bitmaps,
                         is_resume,
                         range,
-                        data,
+                        proof,
                     )
                     .await?;
                 }
@@ -309,7 +309,7 @@ impl ReceiverActor {
         clippy::too_many_arguments,
         reason = "单个 BlockData 处理需要传入运行时上下文"
     )]
-    /// 处理一个入站 BlockData：校验 → 落盘 → 节流刷 checkpoint → 发进度。
+    /// 处理一个入站 BlockData：逐块验签 → 落盘 → 节流刷 checkpoint → 发进度。
     /// 各步拆成聚焦的小方法，避免协议/持久化两层揉在一个 async fn。
     async fn handle_block_data(
         &self,
@@ -319,9 +319,9 @@ impl ReceiverActor {
         bitmaps: &mut HashMap<u32, Vec<u8>>,
         is_resume: bool,
         range: FileRange,
-        data: Vec<u8>,
+        proof: Option<Vec<u8>>,
     ) -> AppResult<()> {
-        let (file_info, data) = self.validate_block(&range, data)?;
+        let (file_info, data) = self.verify_block(&range, proof)?;
         let sink_id = self
             .ensure_sink(&file_info, sinks, started_files, progress, is_resume)
             .await?;
@@ -331,10 +331,16 @@ impl ReceiverActor {
         Ok(())
     }
 
-    /// 找到文件 → 校验 range → 校验块长度，返回 (file_info, data)。
+    /// 找到文件 → 校验 range → **逐块验签 proof**，返回 (file_info, 验证过的明文)。
     ///
-    /// wire v2 已删应用层解密：块数据即明文，仅需校验 range 合法与长度一致。
-    fn validate_block(&self, range: &FileRange, data: Vec<u8>) -> AppResult<(FileInfo, Vec<u8>)> {
+    /// proof 缺失（`None`）或验证失败 = 协议违规（发送端恒带 proof，v2 内两端同步发布，无渐进
+    /// 兼容需求）→ `Err`，调用方按既有 Interrupted 恢复路径断流。验过的明文（decode 输出）
+    /// 长度即 `range.length`，逐块验签通过 → 写盘可信 → checkpoint bitmap 本身可信。
+    fn verify_block(
+        &self,
+        range: &FileRange,
+        proof: Option<Vec<u8>>,
+    ) -> AppResult<(FileInfo, Vec<u8>)> {
         let file_info = self
             .files
             .iter()
@@ -343,13 +349,20 @@ impl ReceiverActor {
             .ok_or_else(|| AppError::Transfer(format!("文件不存在: {}", range.file_id)))?;
         validate_block_range(&file_info, range)?;
 
-        if data.len() as u64 != range.length {
-            return Err(AppError::Transfer(format!(
-                "BlockData 长度不匹配: expected={}, actual={}",
-                range.length,
-                data.len()
-            )));
-        }
+        let proof = proof.ok_or_else(|| {
+            AppError::Transfer(format!(
+                "BlockData 缺少逐块证明（协议违规）: file_id={}, offset={}",
+                range.file_id, range.offset
+            ))
+        })?;
+        let root = crate::bao::root_from_checksum(&file_info.checksum)?;
+        let data = crate::bao::decode_and_verify(
+            &proof,
+            root,
+            file_info.size,
+            range.offset,
+            range.length,
+        )?;
         Ok((file_info, data))
     }
 

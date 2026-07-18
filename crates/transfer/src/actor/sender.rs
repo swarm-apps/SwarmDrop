@@ -359,6 +359,11 @@ impl SenderActor {
             .await?;
         let plaintext_len = plaintext.len() as u64;
 
+        // 逐块验签（Approach B）：proof 携带该 range 的完整 bao 切片（含叶子），data 置空——
+        // 叶子只在 proof 出现一次，无 2x 冗余。接收端 decode 必然验签，验过即写盘。
+        let root = crate::bao::root_from_checksum(&file.checksum)?;
+        let proof = crate::bao::encode_proof(&file.outboard, root, file.size, offset, &plaintext)?;
+
         write_frame(
             stream,
             &TransferDataFrame::BlockData {
@@ -369,9 +374,8 @@ impl SenderActor {
                     offset,
                     length: plaintext_len,
                 },
-                data: plaintext,
-                // bao-tree 接入前不携带逐块证明
-                proof: None,
+                data: Vec::new(),
+                proof: Some(proof),
             },
         )
         .await?;

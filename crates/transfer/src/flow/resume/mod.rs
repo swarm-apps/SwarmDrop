@@ -80,7 +80,8 @@ impl TransferManager {
         };
 
         // ▼ B 注册新 epoch actor（commit 前，不含 spawn）
-        self.register_resume_actor(&session, &files, new_epoch, target_peer);
+        self.register_resume_actor(&session, &files, new_epoch, target_peer)
+            .await?;
 
         // ▼ D 仅 Send 在 dispatch 后 spawn 复用 fetch_plan；Receive 无 spawn，故把
         // fetch_plan 直接 move 进 commit（不克隆），只有 Send 才提前克隆一份留给 spawn。
@@ -215,7 +216,8 @@ impl TransferManager {
             });
         }
 
-        self.start_local_resume_actor(peer_id, &session, &files, new_epoch, fetch_plan);
+        self.start_local_resume_actor(peer_id, &session, &files, new_epoch, fetch_plan)
+            .await?;
         let _ = self
             .events
             .emit(TransferEvent::TransferResumed {
@@ -345,22 +347,38 @@ impl TransferManager {
         Ok(())
     }
 
-    fn build_sender_actor_for_resume(
+    async fn build_sender_actor_for_resume(
         &self,
         session_id: Uuid,
         peer_id: NodeId,
         files: &[entity::transfer_file::Model],
-    ) -> Arc<SenderActor> {
-        let prepared_files = build_prepared_files_from_db(files);
+    ) -> AppResult<Arc<SenderActor>> {
+        let mut prepared_files = build_prepared_files_from_db(files);
+        // 回填缺失 outboard（旧会话无此列 / 被推翻的空值）：按源文件重算并回存，避免逐块重算。
+        // 0 字节文件 outboard 恒空且不参与逐块验签（见 bao::encode_proof），跳过。
+        for pf in &mut prepared_files {
+            if pf.outboard.is_empty() && pf.size > 0 {
+                let (_, outboard) = crate::bao::build_outboard_from_source(
+                    &self.file_access,
+                    &pf.source_id,
+                    pf.size,
+                )
+                .await?;
+                self.store
+                    .save_file_outboard(session_id, pf.file_id as i32, outboard.clone())
+                    .await?;
+                pf.outboard = outboard;
+            }
+        }
         let resume_state = build_sender_resume_state(files);
-        Arc::new(SenderActor::new_with_resume(
+        Ok(Arc::new(SenderActor::new_with_resume(
             session_id,
             peer_id,
             prepared_files,
             self.file_access.clone(),
             self.events.clone(),
             &resume_state,
-        ))
+        )))
     }
 
     /// 按方向重建并注册新 epoch actor（**仅构造 + insert，不 spawn**）。
@@ -369,17 +387,18 @@ impl TransferManager {
     /// [`start_local_resume_actor`](Self::start_local_resume_actor)（transition 后）共用；
     /// `spawn_send_data_channel` 在两侧都作为独立的「激活后」步骤，满足「spawn 在 active
     /// 之后」时序——绝不塞进本 helper，否则主动侧会在 commit/dispatch 前就推送数据面。
-    fn register_resume_actor(
+    async fn register_resume_actor(
         &self,
         session: &entity::transfer_session::Model,
         files: &[entity::transfer_file::Model],
         new_epoch: i64,
         peer_id: NodeId,
-    ) {
+    ) -> AppResult<()> {
         match session.direction {
             TransferDirection::Send => {
-                let send_actor =
-                    self.build_sender_actor_for_resume(session.session_id, peer_id, files);
+                let send_actor = self
+                    .build_sender_actor_for_resume(session.session_id, peer_id, files)
+                    .await?;
                 self.insert_send_actor(session.session_id, new_epoch, send_actor);
             }
             TransferDirection::Receive => {
@@ -396,6 +415,7 @@ impl TransferManager {
                 );
             }
         }
+        Ok(())
     }
 
     /// commit 失败时回滚刚注册的新 epoch actor（按方向 + new_epoch 守卫 remove + cancel）。
@@ -424,18 +444,20 @@ impl TransferManager {
 
     /// 被动应答侧（`handle_resume_commit_impl` transition 成功后）重建 actor。
     /// transition 已先行，故注册后立即 spawn（仅 Send）满足「spawn 在 active 之后」。
-    fn start_local_resume_actor(
+    async fn start_local_resume_actor(
         &self,
         peer_id: NodeId,
         session: &entity::transfer_session::Model,
         files: &[entity::transfer_file::Model],
         new_epoch: i64,
         fetch_plan: Vec<FileRange>,
-    ) {
-        self.register_resume_actor(session, files, new_epoch, peer_id);
+    ) -> AppResult<()> {
+        self.register_resume_actor(session, files, new_epoch, peer_id)
+            .await?;
         if matches!(session.direction, TransferDirection::Send) {
             self.spawn_send_data_channel(session.session_id, new_epoch, fetch_plan);
         }
+        Ok(())
     }
 }
 
@@ -554,6 +576,7 @@ mod tests {
             source_path: Some("/tmp/resume.txt".to_string()),
             local_path: None,
             local_dir: None,
+            outboard: None,
         }
     }
 

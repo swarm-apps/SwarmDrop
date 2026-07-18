@@ -206,19 +206,31 @@ iroh 在浏览器里 100% 走 relay（wasm 下 `mod ip` 整个不编译，没有
 
 ### 引 bao-tree 的落地路径
 
-**⚠️ 建议方案，未实施。**
+**✅ 已落地（2026-07-18）。** 实现见 `crates/transfer/src/bao.rs`。落地与原建议有几处关键差异：
 
-- 引 `bao-tree`（`default-features = false, features = ["validate"]`）
-- 把 256 KiB 无校验 chunk（`crates/core/src/transfer/mod.rs:22` `CHUNK_SIZE`）换成
-  **16 KiB 可验证 chunk group**
-- outboard 存进现有 SQLite checkpoint 表（bao-tree 的 `Outboard` trait 支持自定义后端）
+- 依赖 `bao-tree`（`default-features=false, features=["validate","tokio_fsm"]`）+ `iroh-io` +
+  `bytes`。**均实测 wasm 可编，无需 cfg。**
+- **CHUNK_SIZE 256KiB 不动**：`BlockSize::from_chunk_log(4)`（16KiB chunk group）作为验证粒度，
+  256KiB 是其整数倍、fetch_plan 天然对齐；文件尾部非对齐块 bao 依 `file_size` 自处理。
+- **root 零成本**：`FileInfo.checksum` 已是标准 blake3，== bao 树根（chunk group 不改 root），
+  直接当验证 root，FileInfo/wire 不加字段。
+- **wire 走扩展位 `BlockData.proof`**（M3.5 已预留），选 **Approach B**：proof 携完整 bao 切片、
+  `data` 置空（叶子只出现一次、无 2x；**不手写 Merkle 验证**，全走库 encode/decode）。
+- **发送端 outboard = PostOrder**，与 checksum **同一遍**流式构建（经 iroh-io `AsyncSliceReader`
+  适配 async `FileAccess`，内存有界），落 `transfer_files.outboard` BLOB 列（新 migration）供
+  resume 免重算（缺失则按源文件重算回存）。
+- **接收端不建 outboard**（推翻原建议的 PostOrderOutboard Stable/Unstable 写放大顾虑）：我们不做
+  再分发，逐块 proof 验过才 `mark_chunk_completed`——checkpoint bitmap 本身可信，**resume 信任
+  本地磁盘**（本地篡改不在传输威胁模型内）。
+- outboard **不进 checkpoint 表的 range 列**，而是 `transfer_files` 新增独立 BLOB 列；存取只经
+  `SessionStore::{save,load}_file_outboard` 端口（transfer 零 sea_orm）。
 
-**配套要先拍的板**：发送端对已完整的文件建 outboard → `PreOrderOutboard` 即可；
-接收端边收边写、文件在增长 → `PostOrderOutboard` 的 Stable/Unstable 语义能避免每次追加
-都重写整个 outboard，**直接关系到续传时 outboard 的写放大**。
+**已知后续**：prepare 目前 checksum 与 outboard 是**两遍**流式读（都内存有界）；可合并为一遍
+（从 outboard 构建的 reader 顺带喂 blake3 + emit 进度）——非必须，留作优化。
 
-**相关文件**：`crates/core/src/transfer/mod.rs`（CHUNK_SIZE）、
-`crates/core/src/transfer/flow/prepare.rs`、`crates/core/src/database/ops.rs`
+**相关文件**：`crates/transfer/src/bao.rs`、`crates/transfer/src/flow/prepare.rs`、
+`crates/transfer/src/actor/{sender,receiver}.rs`、`crates/transfer/src/store.rs`、
+`crates/entity/src/transfer_file.rs`、`crates/migration/src/m20260718_000001_transfer_file_outboard.rs`
 
 ### XChaCha20-Poly1305 迁 iroh 后是净负债
 

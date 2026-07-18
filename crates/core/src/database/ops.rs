@@ -578,6 +578,38 @@ pub async fn reap_expired_suspended_receives(
     Ok(reaped)
 }
 
+/// 持久化发送方某文件的 bao outboard（逐块验签 Merkle 树）。
+pub async fn save_file_outboard(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    file_id: i32,
+    outboard: Vec<u8>,
+) -> AppResult<()> {
+    update_file(db, session_id, file_id, |model| {
+        model.outboard = Set(Some(outboard));
+    })
+    .await
+}
+
+/// 载入发送方某文件的 bao outboard；无记录返回 `None`。
+///
+/// 只取 `outboard` 一列并把 NULL 过滤下推到 SQL，避免物化 bitmap BLOB 等无关列。
+pub async fn load_file_outboard(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    file_id: i32,
+) -> AppResult<Option<Vec<u8>>> {
+    Ok(entity::TransferFile::find()
+        .select_only()
+        .column(entity::transfer_file::Column::Outboard)
+        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .filter(entity::transfer_file::Column::FileId.eq(file_id))
+        .filter(entity::transfer_file::Column::Outboard.is_not_null())
+        .into_tuple::<Vec<u8>>()
+        .one(db)
+        .await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

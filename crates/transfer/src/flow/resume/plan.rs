@@ -160,6 +160,8 @@ pub(crate) fn build_prepared_files_from_db(
             source_id: FileSourceId(f.source_path.clone().unwrap_or_default()),
             size: f.size as u64,
             checksum: f.checksum.clone(),
+            // outboard 随会话落库；旧会话（无此列）为空，发送端在 resume 前重算并回存。
+            outboard: f.outboard.clone().unwrap_or_default(),
         })
         .collect()
 }

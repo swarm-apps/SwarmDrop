@@ -92,6 +92,12 @@ impl TransferManager {
                 origin: Some(origin.clone()),
             })
             .await?;
+        // 持久化各文件 bao outboard，供 resume 免重算（初始发送仍用内存中的 PreparedFile.outboard）。
+        for file in &selected_prepared {
+            self.store
+                .save_file_outboard(session_id, file.file_id as i32, file.outboard.clone())
+                .await?;
+        }
         self.coordinator.publish_projection(session_id).await?;
         self.outbound_offers.insert(
             session_id,

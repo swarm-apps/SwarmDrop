@@ -116,8 +116,14 @@ native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant`
   （`status.rs` / `node_id.rs` / `addr.rs` 的契约测试）。
 - `DhtKey::namespaced` 带长度前缀域分离（纯拼接下 `("ab","c")==("a","bc")`，
   旧栈同缺陷已修）——**改派生规则 = 分享码/在线宣告全部失配**。
-- transfer 数据面 `BlockData.proof` 是 bao-tree 扩展位（u8 标志 + 可选 bytes），
-  当前恒 None；接入时无需 bump 协议版本。
+- transfer 数据面 `BlockData.proof` = bao-tree 逐块验签切片（u8 标志 + 可选 len-prefixed
+  bytes）。**已启用（2026-07-18）**，不再恒 None：接入未 bump 协议版本（proof 是 opaque
+  bytes，wire 布局不变）。选型 Approach B——proof 携完整 bao 切片、`data` 置空（叶子只出现
+  一次、无 2x 冗余）；root == `FileInfo.checksum`（标准 blake3，`BlockSize::from_chunk_log(4)`
+  下 chunk group 不改 root）；proof 缺失/验签失败 = 协议违规 → 断流走 Interrupted 恢复。
+  发送端 outboard 与 checksum 同一遍流式构建、落 `transfer_files.outboard` 供 resume 免重算。
+  实现见 `crates/transfer/src/bao.rs`（sync encode/decode 纯算法 wasm 可编；outboard 构建走
+  bao-tree tokio_fsm + iroh-io 的 AsyncSliceReader 适配 FileAccess，均实测 wasm 可编，无 cfg）。
 - RPC 帧：u32 BE 长度前缀 + CBOR，上限 1MiB，恶意长度在**分配前**被拒
   （`rpc.rs` 帧测试）。
 

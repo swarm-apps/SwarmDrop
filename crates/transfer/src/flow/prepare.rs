@@ -76,6 +76,20 @@ impl TransferManager {
             let checksum = hasher.finalize().to_hex().to_string();
             completed_bytes += entry.size;
 
+            // 逐块验签的 bao outboard：流式建（内存有界），root 必等于上面的扁平 blake3
+            // checksum（16KiB chunk group 不改 root）。debug 下核验两者一致。
+            let (root, outboard) = crate::bao::build_outboard_from_source(
+                &self.file_access,
+                &entry.source_id,
+                entry.size,
+            )
+            .await?;
+            debug_assert_eq!(
+                root.to_hex().to_string(),
+                checksum,
+                "bao root 必须等于扁平 blake3 checksum"
+            );
+
             files.push(PreparedFile {
                 file_id,
                 name: entry.name,
@@ -83,6 +97,7 @@ impl TransferManager {
                 source_id: entry.source_id,
                 size: entry.size,
                 checksum,
+                outboard,
             });
         }
 

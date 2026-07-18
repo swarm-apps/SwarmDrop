@@ -53,6 +53,9 @@ pub struct PreparedFile {
     pub source_id: FileSourceId,
     pub size: u64,
     pub checksum: String,
+    /// bao-tree post-order outboard（逐块验签 Merkle 树）。prepare 与 checksum 同源构建；
+    /// resume 重建时从持久化端口载入（缺失则按源文件重算）。
+    pub outboard: Vec<u8>,
 }
 
 /// 协议 `FileInfo` 的两个唯一构造来源（发送方准备表 / DB 行），集中转换避免逐字段
