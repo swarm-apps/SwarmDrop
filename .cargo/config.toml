@@ -1,0 +1,11 @@
+# wasm32 构建约定（详见 dev-notes/knowledge/libp2p-wasm.md 与 spike/*/.cargo/config.toml）
+#
+# macOS 注意：Apple clang 没有 WebAssembly backend，依赖树里的 C 代码（ring 等）
+# 编 wasm 必挂。请经 `scripts/check-wasm.sh` 跑 wasm 检查（自动指向 Homebrew LLVM），
+# 或自行 `brew install llvm` 后 export CC_wasm32_unknown_unknown / AR_wasm32_unknown_unknown。
+# 这里刻意不写 [env] 硬编码 Homebrew 路径——那会污染 Linux CI。
+
+[target.wasm32-unknown-unknown]
+# getrandom 0.3（rand 0.9 链路）需要显式 backend，缺了编译失败且报错不指向这里。
+# getrandom 0.2 那条由 libp2p 传递的 `js` feature 负责，两者缺一不可。
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

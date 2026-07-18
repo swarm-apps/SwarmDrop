@@ -13,10 +13,10 @@
 //! `src-tauri/commands/pairing.rs` 配对成功后 emit `PairedDeviceAdded` 的做法对称。
 //! 注意 core 的 `PairingCompleted` 变体从来没有 publisher,别指望它。
 
-use swarm_p2p_core::libp2p::PeerId;
 use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_core::pairing::code::ShareCodeRecord;
 use swarmdrop_core::protocol::{PairingMethod, PairingRefuseReason, PairingResponse};
+use swarmdrop_net::NodeId;
 
 use crate::app::MobileCore;
 use crate::error::{FfiError, FfiResult};
@@ -44,7 +44,7 @@ pub struct MobileRemoteDeviceInfo {
 }
 
 impl MobileRemoteDeviceInfo {
-    fn from_record(peer_id: PeerId, record: ShareCodeRecord) -> Self {
+    fn from_record(peer_id: NodeId, record: ShareCodeRecord) -> Self {
         Self {
             peer_id: peer_id.to_string(),
             name: record.os_info.name,
@@ -144,10 +144,10 @@ impl MobileCore {
         code: Option<String>,
         accept: bool,
     ) -> FfiResult<()> {
+        // 新内核里配对方式已随入站请求缓存在 core 的 pending 表，respond 无需回传 code；
+        // 保留 `code` 参数仅为 FFI 签名稳定（避免 RN 侧 bindings 变更）。
+        let _ = code;
         let pairing = self.pairing_manager().await?;
-        let method = code
-            .map(|code| PairingMethod::Code { code })
-            .unwrap_or(PairingMethod::Direct);
         let response = if accept {
             PairingResponse::Success
         } else {
@@ -157,7 +157,7 @@ impl MobileCore {
         };
 
         if let Some(info) = pairing
-            .handle_pairing_request(pending_id, &method, response)
+            .respond_pairing_request(pending_id, response)
             .await
             .map_err(FfiError::from)?
         {

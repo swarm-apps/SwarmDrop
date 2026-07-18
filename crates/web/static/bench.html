@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>SwarmDrop Web bench —— 传输速率 / 主线程卡顿基准</title>
+</head>
+<body>
+<!--
+  自动化基准页（配 scripts/web-bench/driver.mjs 使用，也可手动开两个 tab）：
+    bench.html?role=recv&run=<id>&size=<bytes>&verify=1&helper=<ws-multiaddr-with-/p2p/id>
+    bench.html?role=send&…同参数…
+  两 tab 经 BroadcastChannel("bench-<run>") 自动握手：recv 先 reserve 广播 circuit 地址，
+  send 收到后 connect + send_files（xorshift32 确定性数据），recv 自动 accept。
+  结果写 window.__benchResult（driver 轮询），日志进 window.__benchLog。
+  卡顿探针：PerformanceObserver(longtask)（主指标，不受后台节流影响）+ rAF 帧间隔（参考）。
+-->
+<pre id="out"></pre>
+<script type="module">
+import init, { WebNode } from "./pkg/swarmdrop_web.js";
+
+const q = new URLSearchParams(location.search);
+const role = q.get("role");
+const mode = q.get("mode") || "main"; // main=wasm 跑主线程 | worker=wasm 整个跑 Worker
+const helper = q.get("helper");
+const size = Number(q.get("size") || 256 * 1024 * 1024);
+const verify = q.get("verify") !== "0";
+const chan = new BroadcastChannel("bench-" + (q.get("run") || "0"));
+
+const out = document.getElementById("out");
+window.__benchResult = null;
+window.__benchLog = [];
+const log = (m) => {
+  const s = `[${role}:${mode}] ${m}`;
+  console.log(s);
+  window.__benchLog.push(s);
+  out.textContent += s + "\n";
+};
+window.addEventListener("error", (e) => log("❌ window.onerror: " + e.message));
+window.addEventListener("unhandledrejection", (e) => log("❌ unhandledrejection: " + e.reason));
+
+// xorshift32 确定性伪随机填充（两端可复算，无需传对照数据）
+function fillPseudo(buf, seed) {
+  let x = seed >>> 0 || 0x9e3779b9;
+  const u32 = new Uint32Array(buf.buffer, 0, Math.floor(buf.length / 4));
+  for (let i = 0; i < u32.length; i++) {
+    x ^= x << 13; x >>>= 0;
+    x ^= x >>> 17;
+    x ^= x << 5; x >>>= 0;
+    u32[i] = x;
+  }
+}
+
+async function sha256hex(buf) {
+  const d = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ── 主线程健康探针：probing=true 的窗口内统计 ──
+const jank = {
+  longtasks: 0, longtaskTotalMs: 0, longtaskMaxMs: 0,
+  rafSamples: 0, rafMaxGapMs: 0, rafGapsOver50: 0, rafGapsOver200: 0,
+};
+let probing = false;
+try {
+  new PerformanceObserver((list) => {
+    if (!probing) return;
+    for (const e of list.getEntries()) {
+      jank.longtasks++;
+      jank.longtaskTotalMs += e.duration;
+      jank.longtaskMaxMs = Math.max(jank.longtaskMaxMs, e.duration);
+    }
+  }).observe({ entryTypes: ["longtask"] });
+} catch (e) { log("longtask observer 不可用: " + e); }
+let lastRaf = 0;
+requestAnimationFrame(function rafLoop(t) {
+  if (probing && lastRaf) {
+    const gap = t - lastRaf;
+    jank.rafSamples++;
+    jank.rafMaxGapMs = Math.max(jank.rafMaxGapMs, gap);
+    if (gap > 50) jank.rafGapsOver50++;
+    if (gap > 200) jank.rafGapsOver200++;
+  }
+  lastRaf = t;
+  requestAnimationFrame(rafLoop);
+});
+
+// 统一事件分发：main 模式喂 reader 循环，worker 模式喂 client.onEvent
+const handlers = new Set();
+const onEvent = (f) => handlers.add(f);
+const dispatch = (ev) => {
+  for (const h of [...handlers]) {
+    try { h(ev); } catch (e) { log("❌ handler(" + ev.type + "): " + e); }
+  }
+};
+
+let node; // WebNode（main）或 SwarmDropWorkerClient（worker）——方法形状一致
+if (mode === "worker") {
+  // Worker 版：wasm 整个跑 Worker（身份存 OPFS，与 main 版 localStorage 身份天然不同）
+  const { SwarmDropWorkerClient } = await import("./client.js");
+  node = await SwarmDropWorkerClient.spawn();
+  node.onEvent(dispatch);
+} else {
+  // 带时间戳破缓存拉最新 wasm（同 index.html 的取舍）
+  await init({ module_or_path: "./pkg/swarmdrop_web_bg.wasm?v=" + Date.now() });
+  // 身份存 localStorage 且同 origin 两 tab 共享——send 侧 spawn 前删掉旧身份强制新生成，
+  // 否则两 tab 同一 node id（发送方等于拨自己）。recv 先开先写，互不干扰。
+  if (role === "send") localStorage.removeItem("swarmdrop.identity.protobuf.hex");
+  node = await WebNode.spawn();
+  (async () => {
+    const reader = node.events().getReader();
+    while (true) {
+      let r;
+      try { r = await reader.read(); } catch (e) { log("❌ reader.read: " + e); break; }
+      if (r.done) break;
+      if (r.value) dispatch(r.value);
+    }
+  })();
+}
+window.node = node;
+log("node: " + node.node_id());
+
+const hc = await node.connect(helper);
+log(`connect helper → path=${hc.path} addr=${hc.addr}`);
+
+if (role === "recv") {
+  const circuit = await node.reserve(helper);
+  log("circuit: " + circuit);
+  let srcHash = null;
+  chan.addEventListener("message", (m) => {
+    if (m.data.type === "srcHash") srcHash = m.data.hash;
+  });
+  // 周期广播 ready（send tab 可能后到，BroadcastChannel 无缓冲），对方应答后停
+  const readyTimer = setInterval(
+    () => chan.postMessage({ type: "ready", peer: node.node_id(), circuit }), 300);
+  chan.addEventListener("message", (m) => {
+    if (m.data.type === "sendStarted") clearInterval(readyTimer);
+  });
+
+  let started = 0;
+  let lastProgress = null;
+  const speedSamples = [];
+  const fileNames = new Map();
+  onEvent(async (ev) => {
+    if (ev.type === "transferOfferReceived") {
+      log(`offer: ${ev.offer.sessionId} files=${ev.offer.files.length} total=${ev.offer.totalSize}`);
+      fileNames.set(ev.offer.sessionId, ev.offer.files);
+      probing = true;
+      started = performance.now();
+      await node.accept_offer(ev.offer.sessionId);
+      log("accepted");
+    } else if (ev.type === "transferProgress" && ev.event.direction === "receive") {
+      lastProgress = ev.event;
+      const sp = Number(ev.event.speed);
+      if (sp > 0) speedSamples.push(sp);
+    } else if (ev.type === "transferCompleted" && ev.event.direction === "receive") {
+      probing = false;
+      const secs = (performance.now() - started) / 1000;
+      const total = Number(lastProgress?.totalBytes || size);
+      log(`✅ completed in ${secs.toFixed(2)}s → ${(total / secs / 1048576).toFixed(2)} MB/s`);
+      let hashMatch = null, gotHash = null;
+      if (verify) {
+        try {
+          const files = fileNames.get(ev.event.sessionId) || [];
+          const url = await node.download_url(files[0].relativePath);
+          const buf = await (await fetch(url)).arrayBuffer();
+          gotHash = await sha256hex(buf);
+          for (let i = 0; i < 150 && srcHash === null; i++) await new Promise((r) => setTimeout(r, 200));
+          hashMatch = srcHash !== null ? gotHash === srcHash : null;
+          log(`hash: got=${gotHash.slice(0, 16)}… src=${(srcHash || "?").slice(0, 16)}… match=${hashMatch}`);
+        } catch (e) { log("❌ hash 校验: " + e); }
+      }
+      window.__benchResult = {
+        role, ok: true, seconds: secs, bytes: total,
+        avgMBps: total / secs / 1048576,
+        evSpeedMBps: speedSamples.length
+          ? { last: speedSamples.at(-1) / 1048576, max: Math.max(...speedSamples) / 1048576 }
+          : null,
+        jank, hashMatch, gotHash, srcHash,
+      };
+    } else if (ev.type === "transferFailed") {
+      probing = false;
+      log("❌ failed: " + ev.event.error);
+      window.__benchResult = { role, ok: false, error: ev.event.error, jank };
+    }
+  });
+} else if (role === "send") {
+  let startedOnce = false;
+  chan.addEventListener("message", async (m) => {
+    if (m.data.type !== "ready" || startedOnce) return;
+    startedOnce = true;
+    chan.postMessage({ type: "sendStarted" });
+    const { peer, circuit } = m.data;
+    log("recv ready: " + peer);
+    const cc = await node.connect(circuit);
+    log(`connect circuit → path=${cc.path} addr=${cc.addr}`);
+    log(`生成 ${size} 字节测试数据…`);
+    const buf = new Uint8Array(size);
+    fillPseudo(buf, 42);
+    if (verify) {
+      const t0 = performance.now();
+      const hash = await sha256hex(buf);
+      log(`srcHash=${hash.slice(0, 16)}… (${((performance.now() - t0) / 1000).toFixed(1)}s)`);
+      chan.postMessage({ type: "srcHash", hash });
+    }
+    const file = new File([buf], "bench.bin");
+    probing = true;
+    const t1 = performance.now();
+    const sid = await node.send_files(peer, [file]);
+    log("offer sent: " + sid);
+    onEvent((ev) => {
+      if (ev.type === "transferCompleted" && ev.event.direction === "send") {
+        probing = false;
+        const secs = (performance.now() - t1) / 1000;
+        log(`✅ send done in ${secs.toFixed(2)}s`);
+        window.__benchResult = {
+          role, ok: true, seconds: secs, bytes: size,
+          avgMBps: size / secs / 1048576, jank,
+        };
+      } else if (ev.type === "transferFailed") {
+        probing = false;
+        log("❌ failed: " + ev.event.error);
+        window.__benchResult = { role, ok: false, error: ev.event.error, jank };
+      }
+    });
+  });
+}
+</script>
+</body>
+</html>

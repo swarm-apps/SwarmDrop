@@ -15,9 +15,9 @@ impl MobileCore {
         let identity = swarmdrop_core::identity::load_or_create_identity(self.keychain())
             .await
             .map_err(FfiError::from)?;
-        self.set_keypair(identity.keypair.clone()).await;
+        self.set_keypair(identity.secret_key.clone()).await;
         Ok(MobileIdentity {
-            peer_id: identity.peer_id.to_string(),
+            peer_id: identity.node_id.to_string(),
             created: identity.created,
         })
     }

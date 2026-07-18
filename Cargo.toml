@@ -1,8 +1,13 @@
 [workspace]
 members = [
     "crates/core",
+    "crates/host",
+    "crates/transfer",
+    "crates/web",
     "crates/entity",
     "crates/migration",
+    "crates/net-base",
+    "crates/net",
     "src-tauri",
     "mobile/packages/swarmdrop-core/rust/mobile-core",
 ]
@@ -18,25 +23,48 @@ resolver = "2"
 edition = "2024"
 
 [workspace.dependencies]
-sea-orm = { version = "2.0.0-rc", features = [
+# default-features=false + 最小 features：entity 只吃类型宏，不吃 runtime——
+# Web 端依赖 entity 时不再撞 mio/sqlite 编译墙（storage-abstraction.md 第 0 步）。
+# runtime features（runtime-tokio-rustls/sqlx-sqlite）由需要连库的 crate 自己增量补。
+sea-orm = { version = "2.0.0-rc", default-features = false, features = [
     "macros",
-    "runtime-tokio-rustls",
-    "sqlx-sqlite",
     "with-chrono",
     "with-uuid",
+    "with-json",
 ] }
 sea-orm-migration = { version = "2.0.0-rc", features = [
     "runtime-tokio-rustls",
     "sqlx-sqlite",
 ] }
-swarm-p2p-core = { path = "libs/core" }
 swarmdrop-core = { path = "crates/core" }
+swarmdrop-host = { path = "crates/host" }
+swarmdrop-transfer = { path = "crates/transfer" }
 entity = { path = "crates/entity" }
 migration = { path = "crates/migration" }
 
+# ── 新网络内核（refactor/net-kernel，iroh 风格 API + wasm 双 target）──
+swarmdrop-net-base = { path = "crates/net-base" }
+swarmdrop-net = { path = "crates/net" }
+# libp2p 系全部 pin 同一 git rev。为什么是 git 不是 crates.io：crates.io 最新的
+# libp2p-webrtc 0.9.0-alpha.1 的 webrtc-direct 实证跑不通（spike/webrtc-direct-https，
+# 修复在 master PR 6429，随未发布的 0.10.0-alpha）。rev 93c5059 = 2026-07-13 master，
+# spike 双端（native server + wasm browser）实测通过。0.57 正式发布后切回 crates.io。
+# 升级 rev 必须走独立 PR + 全量测试 + wasm check。
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "93c5059" }
+libp2p-stream = { git = "https://github.com/libp2p/rust-libp2p", rev = "93c5059" }
+libp2p-webrtc = { git = "https://github.com/libp2p/rust-libp2p", rev = "93c5059" }
+# identity/multiaddr 不走 git：93c5059 树自己就把两者解析到 crates.io（spike 的
+# Cargo.lock 实证 libp2p-identity 0.2.14 / multiaddr 0.18.2 均为 registry 来源），
+# net-base 用 crates.io 版本与 git 树天然 unify，类型底座不背 git 依赖。
+libp2p-identity = "0.2"
+multiaddr = "0.18"
+# 运行时垫片：native = `pub use tokio::*`（类型等价零改动），wasm = spawn_local shim。
+# `tokio::sync` 与 `select!` 不必替换（wasm 安全），只有 spawn/time 走它。
+n0-future = "0.3"
+cfg_aliases = "0.2"
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_bytes = "0.11"
 futures = "0.3.31"
 unsigned-varint = { version = "0.8.0", features = ["futures"] }
 strum = { version = "0.28", features = ["derive"] }

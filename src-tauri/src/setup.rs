@@ -14,14 +14,14 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use crate::{commands, events};
 
-/// 初始化 tracing 订阅器（默认 `swarmdrop=debug,swarm_p2p_core=debug`，可被
+/// 初始化 tracing 订阅器（默认 `swarmdrop=debug,swarmdrop_net=debug`，可被
 /// `RUST_LOG` 覆盖）
 pub fn init_tracing() {
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("swarmdrop=debug,swarm_p2p_core=debug")),
+                .unwrap_or_else(|_| EnvFilter::new("swarmdrop=debug,swarmdrop_net=debug")),
         )
         .init();
 }

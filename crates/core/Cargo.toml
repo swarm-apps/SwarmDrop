@@ -6,23 +6,22 @@ edition.workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_bytes = { workspace = true }
 futures = { workspace = true }
 unsigned-varint = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-swarm-p2p-core = { workspace = true }
+swarmdrop-net = { workspace = true }
+swarmdrop-host = { workspace = true }
+swarmdrop-transfer = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
 chrono = { workspace = true }
-sha2 = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
 tracing = { workspace = true }
-sea-orm = { workspace = true }
+sea-orm = { workspace = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 entity = { workspace = true }
-chacha20poly1305 = "0.11"
 blake3 = "1.8.3"
 specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "chrono", "serde_json"], optional = true }
 
@@ -30,7 +29,12 @@ specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "chrono", "se
 default = []
 # 桌面 src-tauri 开启；移动 mobile-core 走 uniffi 不开。
 # 打开后所有跨前端的 struct/enum 会 derive specta::Type，可被 tauri-specta 收集。
-specta = ["dep:specta", "entity/specta"]
+specta = [
+    "dep:specta",
+    "entity/specta",
+    "swarmdrop-host/specta",
+    "swarmdrop-transfer/specta",
+]
 
 [dev-dependencies]
 # tests/ 集成测试用：workspace 的 tokio 不带 feature，#[tokio::test] 需 macros + rt-multi-thread。

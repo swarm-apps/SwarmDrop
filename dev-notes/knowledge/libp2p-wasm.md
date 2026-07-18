@@ -267,17 +267,77 @@ Chrome 138 opt-in，**Chrome 142（2025-10-28）正式上线**，限制公网站
 
 ⇒ **页面照常从 `https://` 加载，只有 P2P 连接打到局域网 IP。** 这正好落进上面两道门的场景。
 
+> ⚠️ **2026-07 实测坐实了这条，且踩了坑**：Web 壳端到端调试时用 `http://192.168.50.105:8080`（私网 IP over http）测，finalize 落盘**静默永久挂死**。浏览器探针一句话定位：
+> ```
+> isSecureContext: false   navigator.storage: undefined   crypto.subtle: undefined
+> ```
+> `write_opfs` 调 `navigator.storage.getDirectory()` 打到 **undefined**，web-sys 绑定的 `JsFuture` 永久 pending（不 resolve 不 reject）——**最坏的失败模式，无错误无超时**。换 `http://127.0.0.1` / `http://localhost`（**secure context 即使是 http**）立即通过，逐字节一致。
+>
+> **secure context 白名单**：`https://*`、`http://localhost`、`http://127.0.0.1`、`file://`。私网 IP over http **不在内**。
+> **两条工程后果**：① 生产 Web 端必须 https 部署（自签 + 用户信任，或正式证书）；② `OpfsFileAccess` 这类碰 Web 平台 API 的端口实现，**构造时必须预检 `isSecureContext` / API 存在性并明确报错**，绝不能让 undefined 的 JsFuture 永久 pending（给每个 OPFS await 套 timeout 兜底）。
+> ③ 连接不受影响——libp2p 的 Noise/blake3 在 wasm 用自带实现，**不依赖 `crypto.subtle`**，所以 http 私网 IP 下连接照通、只有落盘炸。这让根因更隐蔽（网络全绿、只有存储挂）。
+
 ### 实测进度
 
 | # | 项 | 状态 |
 |---|---|---|
 | 1 | `ws://` 私有 IP 从 HTTPS 页面通不通 | ✅ **通**（[spike](../../spike/webrtc-direct-https/)，RTT 200µs；含 fetch 对照证明豁免专属私有 IP）|
 | 2 | LNA 权限提示今天会不会弹 | ⬜ **未测** —— spike 的页面本身就在私有 IP 上（local→local，不触发）。要测得把页面挂到真公网 HTTPS origin |
-| 3 | 浏览器经 LAN helper 的 relay 连第三台设备 | ⬜ 未测 |
-| 4 | certhash 能否跨重启稳定 | ⬜ 未测。`Certificate` 有 `from_pem`/`serialize_pem`（`transports/webrtc/src/tokio/certificate.rs:66,76`，`pem` feature），libp2p 侧无强制轮换 ⇒ 应可持久化，但 `RTCCertificate::from_key_pair` 的默认有效期未查 |
-| 5 | Safari / Firefox | ⬜ 未测。以上全是 Chrome |
+| 3 | 浏览器经 LAN helper 的 relay 连第三台设备 | ✅ **通**（2026-07 Web 壳实测，`crates/web`）：浏览器 reserve circuit → 对端拨 circuit 地址被动接收；且**浏览器↔浏览器经 helper circuit 双向文件传输逐字节一致**（见下方「单核心包实证」）|
+| 4 | certhash 能否跨重启稳定 | ✅ **通**（内核 `webrtc.rs` 测试 + 冒烟壳实测：同一持久化证书两次 bind 的 certhash 一致）|
+| 5 | Safari / Firefox | ⬜ 未测。以上全是 Chrome / Chromium |
+| 6 | **rust-wasm 单核心包端到端** | ✅ **通**（2026-07 里程碑）：浏览器跑与桌面**字面同一份** `swarmdrop-transfer`（offer 门控 / 256KiB 分块 / fetch_plan 续传 / **bao 逐块 Merkle 验签**），OPFS 落盘 716800 字节逐字节一致。**攻克代价见下节「五道运行时门」** |
 
 ---
+
+## rust-wasm 单核心包的五道运行时门（编译期完全看不见）
+
+> **这是本路线最硬的一手经验**（2026-07 Web 壳落地，十一轮真实浏览器实测剥出）。
+> 核心教训:**「native 测试全绿 + 五 crate wasm 编译全过 + 控制面全通」= 零保证**。
+> wasm 单线程 + Web 平台的运行时语义有五类陷阱,`cargo test`/`check-wasm` 一个都拦不到,
+> 只能真实浏览器逐层剥(门 5 是自动化基准暴露的)。按我们踩到的顺序:
+
+**门 1 — `std::time` 直接 panic**。`std::time::Instant::now()` 在 wasm 是
+`time not implemented on this platform` 运行时 panic（不是编译错）。transfer 里 5 处
+`Instant` 曾把 prepare 直接炸掉。**修**:一律 `n0_future::time::Instant`（native=tokio,
+wasm=web_time）。**排查信号**:功能在某个用到计时的路径静默失败,console 有
+`time not implemented` panic。
+
+**门 2 — `futures::AsyncReadExt::split()` 的 reader half 在 wasm 不被唤醒**。
+数据面两端 `channel.split()` + 并发读写,在 wasm 单线程下 reader half 收到字节后不唤醒读端
+（native 多线程掩盖）。**判据**:能工作的路径(RPC/offer)全是**整条流顺序 read/write,从不 split**;
+唯独卡住的路径 split 了。**修**:去掉 split,顺序读写（本就不重叠时 split 纯属多余）。
+
+**门 3 — accepted 流跨任务 move 导致 lost-wakeup**。流在任务 A（Router handler）读了首帧,
+再 move 给独立 spawn 的任务 B——B 首次 poll 前,muxer 已把后续帧的 wake 打给 A 的旧 waker,
+B 注册新 waker 时事件已消耗,发送端不再有新字节 → **永久 Pending**。native 多线程时序掩盖。
+**判据**:同一条流跨了任务边界(一个任务读、另一个任务接手)。**修**:**accepted 流不跨任务**——
+在读首帧的同一任务里 await 到流生命周期结束（iroh「形状 A:在 accept 里跑完」)。
+这也是更干净的架构。
+
+**门 4 — Web 平台 API 的 secure-context gating**。见上「页面必须是 HTTPS」节:
+`navigator.storage`(OPFS)/`crypto.subtle` 在非 secure context(http 私网 IP)**整个不存在**,
+web-sys 绑定打到 undefined 的 `JsFuture` **永久 pending**。**判据**:碰 Web 平台 API 的路径静默挂死,
+`isSecureContext` 探针一句定位。**修**:构造时预检 + 明确报错 + 每个 JS await 套 timeout。
+
+**门 5 — web-time `Instant` 的原点是页面加载,`Instant - Duration` 开局即下溢 panic**。
+门 1 换到 `n0_future::time::Instant`(wasm=web-time)后还有一层:native `Instant` 原点是系统启动
+(uptime 几乎总够减),web-time 原点是 `performance.now()` = **页面导航时刻**——页面开了不足
+N 秒就跑到 `now - N秒窗口`(如 progress 的滑动窗口 `now - SPEED_WINDOW`)时 `checked_sub`
+为 None,web-time 直接 `expect` panic(`RuntimeError: unreachable`,console 里
+`panicked at web-time-.../instant.rs`)。**为什么一直没炸**:人工实测时页面开了很久才点传输;
+自动化 bench 秒开秒传,第一个 chunk 就炸——**时间原点类 bug 只有自动化才能稳定暴露**。
+**修**:所有 `Instant - Duration` 一律 `checked_sub` 并处理 None(None = 窗口尚未填满,通常
+直接跳过修剪)。**排查信号**:发送/接收在传输启动瞬间 panic `unreachable`,栈指向 web-time。
+
+**共同的方法论**（这套调试值得复用):
+- **穷举锚点 > 逐个假设**:卡点稳定后,在可疑路径**每个 await 前后**铺 `info!` 锚点,一轮实测
+  「最后一条锚点」= 精确病灶。逐个假设验证会来回拉扯(我们前几轮就是)。
+- **对照实验切分**:小文件 vs 大文件(切帧大小/流控假设)、换 origin(切 secure context)、
+  native e2e vs 浏览器(切 wasm 特有 vs 逻辑)。
+- **浏览器探针直插平台层**:绕开整个 rust 栈,`evaluate` 直接调 `navigator.storage.getDirectory()`
+  /`window.isSecureContext`,一刀切分「环境 vs 代码」。门 4 就是这么一句定位的。
+- **每层修复让卡点前移一步**是正确收敛的信号(offer 不通→首帧拉不到→拉到首帧→3 块全过→finalize)。
 
 ## ❌ 被推翻的旧认知
 
@@ -486,17 +546,79 @@ CC_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/clang"
 AR_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/llvm-ar"
 ```
 
-### `webrtc-websys` 在 Web Worker 里会 panic
+### `webrtc-websys` 在 Web Worker 里**装着都不行**（不止不能拨）
 
-`transports/webrtc-websys/src/transport.rs:116` 的 `web_sys::window().expect(...)` ——
-想把传输放进 Worker 避免阻塞主线程这条路不通。**只有 `websocket-websys` 支持 Worker**
-（它有 `web_context.rs` 做 window/worker 分支）。
+`transports/webrtc-websys/src/transport.rs` 的 `maybe_local_firefox()` 内含
+`web_sys::window().expect(...)`，且它在 `dial()` 里位于 **`parse_webrtc_dial_addr`
+地址格式检查之前**——所以只要它在 `or_transport` 组合里，Worker 中拨**任何**地址
+（包括 ws://）都会先进 webrtc 分支碰 window panic（2026-07-18 Worker 版基准实测坐实，
+症状：spawn 成功、connect 超时 + `RuntimeError: unreachable`）。「装而不拨就没事」
+不成立。**只有 `websocket-websys` 支持 Worker**（它有 `web_context.rs` 做 window/worker
+分支）。
+
+**正确做法**：transport 组装时按环境裁剪——`web_sys::window().is_none()`（Worker）就
+只装 ws，不进 or_transport（`crates/net/src/transport.rs` wasm 分支）。构造
+`webrtc_websys::Transport::new` 本身无害，炸点只在 dial。
 
 ### `/private/tmp` 下跑原生 cargo 会被 Gatekeeper 拦
 
 macOS 拒绝 dlopen `/private/tmp` 下的 proc-macro dylib
 （`library load disallowed by system policy`）。表现为莫名其妙的 rustc exit 101。
 scratchpad 里做原生构建实验时用 `CARGO_TARGET_DIR` 指到别处。
+
+### OPFS 接收落盘：流式 positioned write 的正确姿势（主线程版）
+
+接收侧大文件落盘用「`createWritable` 句柄常驻 + 每 chunk positioned write + `close` 提交」，
+不要整文件内存缓冲（demo 初版就是这么 OOM 的）。
+
+**正确做法**：
+- 开句柄用 `create_writable_with_options(FileSystemCreateWritableOptions)`：
+  `keep_existing_data=false` 打开即截断（全新文件）、`true` 保留已有字节（断点续传——
+  positioned write 只覆盖写到的 range）。feature：`FileSystemCreateWritableOptions`
+- 每 chunk 用 `write_with_write_params(WriteParams)`（WHATWG `{type:"write", position, data}`）
+  **单次 Promise 完成 seek+write**；别手写 `seek()` + `write()` 两次往返（热路径调度开销翻倍）。
+  feature：`WriteParams` + `WriteCommandType`（`type` 是 spec required 字段，
+  `WriteParams::new(WriteCommandType::Write)`；position 是 `Option<f64>`）
+- `close()` 才提交落盘（writable 是 staging 语义）；取消/失败直接 drop 句柄 = 丢弃未提交写入，
+  正是想要的行为
+- SendWrapper 兜 Send 有**两种合法裹法**（模块 doc 已写明）：短路径在 scope 内取 Promise 即丢、
+  只让 `SendWrapper<JsFuture>` 跨 await；多步 helper（如 open_writable：建目录链→取文件句柄→
+  createWritable）则**整段 async fn future 裹 SendWrapper**，内部 !Send 句柄随包一起被兜
+
+**不要做**：
+- 主线程别用 `SyncAccessHandle`——Worker-only API（Window 环境根本没有）；Worker 环境
+  用它（见下一条）
+- 别依赖 staging 数据活过页面刷新——`close` 前的写入刷新即丢，`keep_existing_data` 只保护
+  已 close 的字节（所以跨刷新续传不在主线程版范围内）
+
+**相关文件**：`crates/web/src/file_access.rs`
+
+### SyncAccessHandle（Worker 落盘）：语义差异与 Send 边界坑
+
+Worker 版落盘用 `createSyncAccessHandle`（同步零 Promise 直写）。**实测对吞吐无增益**
+（六组基准全 ~31±3 MB/s——瓶颈在 relay 链路 + noise，不在落盘方式），留它的理由是每 chunk
+省一次 wasm↔JS Promise 调度 + 写即落盘（崩溃丢失面小）。
+
+**与 createWritable 的语义差异（容易踩）**：
+- **独占锁**：同一文件同时只能开一个 SyncAccessHandle，且 **drop 不释放锁，必须显式
+  `close()`**——cleanup/取消路径漏 close 会让同文件重开一直被锁挡
+- **无 staging**：写即落盘（createWritable 是 close 才提交）——「取消 = drop 丢弃未提交
+  写入」的语义不成立，取消后已写字节留在盘上（对续传反而有利）
+- `write_with_u8_array_and_options(&[u8], FileSystemReadWriteOptions{at}) -> f64` 返回
+  实际写入字节数，要校验短写。features：`FileSystemSyncAccessHandle` +
+  `FileSystemReadWriteOptions`
+
+**Send 边界新坑：await 不能落在对 !Send 值 match 的臂内**。
+`match option_promise { Some(p) => { ...await... } }` 编不过（E0277 `*mut u8` not Send）——
+generator 认为 scrutinee（`Option<js_sys::Promise>`）活过整个 match 表达式，包括臂内的
+await 点。**修法**：match 之前先把 !Send 值同步转成 Send 的形状——
+`option_promise.map(|p| SendWrapper::new(JsFuture::from(p)))` 得到
+`Option<SendWrapper<JsFuture>>` 再 `if let Some(f) = fut { f.await }`。配套模式：
+「同步 helper（无 await）里做完全部 !Send 句柄操作、只返回 `Option<Promise>`，async 层
+只做包裹与 await」——Send 边界一眼可查。
+
+**相关文件**：`crates/web/src/file_access.rs`（`SinkHandle` 枚举 + `write_chunk_promise` /
+`close_promise` helper）
 
 ---
 

@@ -15,3 +15,6 @@ default = []
 # 桌面 src-tauri 开启，把 enum / 结构体导出给 tauri-specta 生成 TS bindings。
 # RN 端的 mobile-core 走 uniffi 桥，不开此 feature。
 specta = ["dep:specta"]
+# SQLite runtime（桌面/移动开；Web 不开——entity 本体是纯类型，wasm 可编）。
+# 见 dev-notes/knowledge/storage-abstraction.md「第 0 步」。
+sqlite = ["sea-orm/runtime-tokio-rustls", "sea-orm/sqlx-sqlite"]

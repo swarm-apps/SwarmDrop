@@ -13,7 +13,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、Vite/Tauri 端口、submodule、Lingui 实际 locale、版本号三处同步
 - [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估结论（2026-07 调研）：能力差、被推翻的旧认知、选型否决清单、前置实测清单
 - [`dev-notes/knowledge/libp2p-wasm.md`](dev-notes/knowledge/libp2p-wasm.md) — Web 端（wasm）可行性（2026-07 调研）：局域网路线（最可行起点）、webrtc-direct 与自托管、浏览器公网零可达入口、rust-wasm 与 js-libp2p 取舍、tokio → n0-future、wasm 编译的坑
-- [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去：切割线在 `DatabaseConnection` 不在 `entity`、SendWrapper 免改 trait、耦合面量化
+- [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去：切割线在 `DatabaseConnection` 不在 `entity`、SendWrapper 免改 trait、耦合面量化（**第 0 步已落地**：entity 的 sea-orm 已 feature 解绑）
+- [`dev-notes/knowledge/net-kernel.md`](dev-notes/knowledge/net-kernel.md) — 网络内核 swarmdrop-net（2026-07 重构产物）：架构速览与事件双轨制、libp2p git master（pin 93c5059）校准坑 6 条（relay HOP status / NoAddressesInReservation / add_peer_address 非地址簿等）、wasm 工程约定、wire v2 契约点、已知负债
 
 ## Design Context
 
@@ -245,12 +246,13 @@ Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/rel
 | Translation catalogs | `src/locales/{locale}/messages.po` |
 | Lingui config | `lingui.config.ts` |
 | Product requirements | `dev-notes/product-requirements.md` |
-| Implementation roadmap | `dev-notes/roadmap/implementation-roadmap.md` |
 | UI design file | `dev-notes/design/design.pen` |
-| 传输场景设计 | `dev-notes/design/transfer-scenarios-design.md` |
-| 数据库实体设计 | `dev-notes/design/database-entity-design.md` |
-| 文件传输设计 | `dev-notes/design/file-transfer-design.md` |
-| P2P core library | `libs/core/` |
+| 网络内核（新，2026-07 重构） | `crates/net/`、`crates/net-base/` |
+| 传输域（独立 crate） | `crates/transfer/`、宿主端口层 `crates/host/` |
+| 网络内核知识库 | `dev-notes/knowledge/net-kernel.md` |
+| 重构决策与五道门经验 | `dev-notes/why-libp2p-not-iroh.md`、`dev-notes/knowledge/libp2p-wasm.md` |
+| 重构系列博客 | `dev-notes/blogs/2026-07-net-refactor-series.md` |
+| 历史文档（重构前设计/已完成 roadmap/早期调研） | `dev-notes/archive/` |
 | 移动端 (RN + Expo) | `mobile/` |
 | 移动端 Rust 桥接 (uniffi) | `mobile/packages/swarmdrop-core/rust/mobile-core/` |
 | 移动端 release CI | `.github/workflows/mobile-release.yml` |
@@ -266,7 +268,7 @@ Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/rel
 | Phase 3 — File Transfer | In Progress | Request-Response, E2E encryption, SQLite history, pause/resume |
 | Phase 4 — Mobile | Done | React Native + Expo + uniffi，已并入本仓 `mobile/`（独立版本线 `mobile-v*`）|
 
-Detailed per-phase specs: `dev-notes/roadmap/phase-*.md`
+Detailed per-phase specs: `dev-notes/archive/completed-roadmap/phase-*.md`
 
 ## Documentation Site
 

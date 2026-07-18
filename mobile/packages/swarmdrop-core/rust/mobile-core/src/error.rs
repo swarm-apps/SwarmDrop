@@ -32,7 +32,6 @@ impl From<AppError> for FfiError {
         match error {
             AppError::Io(error) => Self::Io(error.to_string()),
             AppError::Serialization(error) => Self::Serialization(error.to_string()),
-            AppError::P2p(error) => Self::Network(error.to_string()),
             AppError::Network(message) => Self::Network(message),
             AppError::Identity(message) => Self::Identity(message),
             AppError::NodeNotStarted => Self::NodeNotStarted,

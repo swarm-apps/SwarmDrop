@@ -14,10 +14,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 swarmdrop-core = { workspace = true }
 entity = { workspace = true }
 migration = { workspace = true }
-swarm-p2p-core = { workspace = true }
+swarmdrop-net = { workspace = true }
 
 async-trait = { workspace = true }
-sea-orm = { workspace = true }
+sea-orm = { workspace = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 sea-orm-migration = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

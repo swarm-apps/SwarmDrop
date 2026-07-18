@@ -11,10 +11,10 @@ pub use candidates::{
 };
 pub use config::NetworkRuntimeConfig;
 pub use manager::{NetManager, SharedNetRefs, TransferRuntime};
-pub use swarm_p2p_core::event::NatStatus;
+pub use swarmdrop_net::NatStatus;
 
 use serde::{Deserialize, Serialize};
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
+use swarmdrop_net::{Addr, NodeId};
 
 /// 节点运行状态。
 #[derive(Debug, Clone, Default, Serialize)]
@@ -42,13 +42,13 @@ pub enum DiscoveryMode {
 pub struct NetworkStatus {
     pub status: NodeStatus,
     #[cfg_attr(feature = "specta", specta(type = Option<String>))]
-    pub peer_id: Option<PeerId>,
+    pub peer_id: Option<NodeId>,
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
-    pub listen_addrs: Vec<Multiaddr>,
+    pub listen_addrs: Vec<Addr>,
     #[cfg_attr(feature = "specta", specta(type = String))]
     pub nat_status: NatStatus,
     #[cfg_attr(feature = "specta", specta(type = Option<String>))]
-    pub public_addr: Option<Multiaddr>,
+    pub public_addr: Option<Addr>,
     pub connected_peers: usize,
     pub discovered_peers: usize,
     /// Relay 中继是否就绪（至少有一个中继节点已连接）。
@@ -58,9 +58,9 @@ pub struct NetworkStatus {
     pub public_reachable: bool,
     /// 公网可达性设置的回显（host 侧检测"设置已变更需重启"用）。
     pub public_reachability_enabled: bool,
-    /// 当前已连接的中继节点 PeerId 列表。
+    /// 当前已连接的中继节点 NodeId 列表。
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
-    pub relay_peers: Vec<PeerId>,
+    pub relay_peers: Vec<NodeId>,
     /// 是否至少有一个引导节点已连接。
     pub bootstrap_connected: bool,
     /// 当前发现模式。
@@ -75,7 +75,7 @@ pub struct NetworkStatus {
     pub relay_server_enabled: bool,
     /// LAN Helper 可公告地址。
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
-    pub lan_helper_advertised_addrs: Vec<Multiaddr>,
+    pub lan_helper_advertised_addrs: Vec<Addr>,
     /// 已发现的局域网协助节点数量。
     pub lan_helper_count: usize,
     /// 候选总数。

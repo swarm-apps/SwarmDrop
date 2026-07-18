@@ -1,7 +1,7 @@
 use chrono::{DateTime, Duration, Utc};
 use rand::seq::IndexedRandom;
 use serde::{Deserialize, Serialize};
-use swarm_p2p_core::libp2p::Multiaddr;
+use swarmdrop_net::Addr;
 
 use crate::device::OsInfo;
 
@@ -51,7 +51,7 @@ pub struct ShareCodeRecord {
     /// 发布者的可达地址，用于跨网络场景下让对方直接 dial。
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
-    pub listen_addrs: Vec<Multiaddr>,
+    pub listen_addrs: Vec<Addr>,
 }
 
 impl From<&PairingCodeInfo> for ShareCodeRecord {

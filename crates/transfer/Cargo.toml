@@ -1,0 +1,48 @@
+[package]
+name = "swarmdrop-transfer"
+version = "0.1.0"
+edition.workspace = true
+
+# 传输域：从 swarmdrop-core 迁出的完整文件传输实现（manager/coordinator/actor/flow/wire
+# + transfer 控制面协议）。经端口 trait（SessionStore/InboxStore/PeerDirectory/
+# TransferEventSink）依赖倒置，**不依赖 sea-orm / pairing / network 模块**，wasm 双 target 可编。
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+unsigned-varint = { workspace = true }
+thiserror = { workspace = true }
+# wasm 上 tokio 只有 sync/macros 可用（纯用户态原语：oneshot/Mutex/watch/select!）；
+# spawn/time 走 n0-future（native=tokio，wasm=spawn_local + web-time），同内核范式。
+tokio = { workspace = true, features = ["sync", "macros"] }
+tokio-util = { workspace = true }
+n0-future = { workspace = true }
+swarmdrop-net = { workspace = true }
+swarmdrop-host = { workspace = true }
+entity = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+dashmap = { workspace = true }
+tracing = { workspace = true }
+blake3 = "1.8.3"
+specta = { version = "=2.0.0-rc.25", features = [
+    "derive",
+    "uuid",
+    "chrono",
+    "serde_json",
+], optional = true }
+# bao-tree 逐块验签：sync encode/decode（纯算法，wasm 可编）+ tokio_fsm（异步流式建
+# outboard，经 iroh-io 的 AsyncSliceReader 适配 FileAccess，内存有界；iroh-io 0.6 实测 wasm 可编）。
+bao-tree = { version = "0.16", default-features = false, features = ["validate", "tokio_fsm"] }
+iroh-io = { version = "0.6", default-features = false }
+bytes = "1"
+
+# wasm32：uuid v4 需要一个随机源；桌面/移动走 getrandom 默认后端，Web 走 js。
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { workspace = true, features = ["js"] }
+
+[features]
+default = []
+specta = ["dep:specta", "entity/specta", "swarmdrop-host/specta"]

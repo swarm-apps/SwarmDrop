@@ -1,0 +1,8 @@
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+
+# macOS：Apple clang 无 wasm backend（ring 编 C 必挂），指向 Homebrew LLVM。
+# Linux 发行版 clang 通常自带，可删。
+[env]
+CC_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/clang"
+AR_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/llvm-ar"

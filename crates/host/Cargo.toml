@@ -1,0 +1,30 @@
+[package]
+name = "swarmdrop-host"
+version = "0.1.0"
+edition.workspace = true
+
+# 宿主端口层：从 swarmdrop-core 下沉的 platform-neutral ports + DTO + error + device
+# 数据类型。刻意保持轻依赖（net-base + entity + sea-orm 仅类型宏），wasm 双 target 可编。
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+# AppError::TaskJoin(#[from] tokio::task::JoinError) 需要 tokio 的 task 类型（rt feature）。
+tokio = { workspace = true, features = ["rt"] }
+swarmdrop-net-base = { workspace = true }
+entity = { workspace = true }
+# AppError::Database(#[from] sea_orm::DbErr)——只吃类型（workspace 默认最小 features，无 runtime）。
+sea-orm = { workspace = true }
+specta = { version = "=2.0.0-rc.25", features = [
+    "derive",
+    "uuid",
+    "chrono",
+    "serde_json",
+], optional = true }
+
+[features]
+default = []
+specta = ["dep:specta", "entity/specta"]

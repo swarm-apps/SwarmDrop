@@ -17,12 +17,60 @@
 
 mod supervisor;
 
+use futures::stream::BoxStream;
 use serde::{Deserialize, Serialize};
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
+use swarmdrop_net::{Addr, AddressLookup, DhtKey, Endpoint, LookupError, NodeId};
 
 use crate::device::OsInfo;
 
 pub use supervisor::{PresenceMap, PresenceState, PresenceSupervisor, PresenceTimings};
+
+/// 在线宣告 DHT 命名空间（迁自旧栈 `dht_key::NS_ONLINE`）。
+pub(crate) const ONLINE_NS: &str = "/swarmdrop/online/";
+
+/// 本机/对端在线记录的 DHT key（`SHA256(NS ‖ node_id 字符串)`）。
+pub(crate) fn online_key(node: NodeId) -> DhtKey {
+    DhtKey::namespaced(ONLINE_NS, node.to_string().as_bytes())
+}
+
+/// 基于在线宣告 record 的 pull 型地址解析源。
+///
+/// `connect(NodeId)` 无候选地址时，内核并发调本 lookup：查 DHT 在线记录、解析出
+/// 对端 dialable 地址。用 [`LookupBuilderFn`](swarmdrop_net::LookupBuilderFn) 延迟构造
+/// （构造依赖已 bind 的 Endpoint）注入 runtime 的 Builder。
+#[derive(Debug, Clone)]
+pub struct OnlineRecordLookup {
+    endpoint: Endpoint,
+}
+
+impl OnlineRecordLookup {
+    pub fn new(endpoint: Endpoint) -> Self {
+        Self { endpoint }
+    }
+}
+
+impl AddressLookup for OnlineRecordLookup {
+    fn resolve(&self, node: NodeId) -> Option<BoxStream<'static, Result<Vec<Addr>, LookupError>>> {
+        let endpoint = self.endpoint.clone();
+        Some(Box::pin(futures::stream::once(async move {
+            // 无记录 / dht 未启用 / 解析失败 → 空集（connect 回落其它候选或报 NoAddresses）
+            Ok(fetch_online_record(&endpoint, node)
+                .await
+                .map(|r| r.dialable_addrs())
+                .unwrap_or_default())
+        })))
+    }
+}
+
+/// 查回并解析某节点的在线宣告 record（无记录 / dht 未启用 / 解析失败 → `None`）。
+///
+/// [`OnlineRecordLookup::resolve`]（拨号地址解析）与 presence 的重探
+/// （`spawn_probe`）共用这段「取回 + 解析」。
+pub(crate) async fn fetch_online_record(endpoint: &Endpoint, node: NodeId) -> Option<OnlineRecord> {
+    let dht = endpoint.dht()?;
+    let record = dht.get(online_key(node)).await.ok()?;
+    serde_json::from_slice::<OnlineRecord>(&record.value).ok()
+}
 
 /// 中继提示：对端可先与该 relay 建立连接，再拨本机的 circuit 地址。
 ///
@@ -33,9 +81,9 @@ pub use supervisor::{PresenceMap, PresenceState, PresenceSupervisor, PresenceTim
 #[serde(rename_all = "camelCase")]
 pub struct RelayHint {
     #[cfg_attr(feature = "specta", specta(type = String))]
-    pub peer_id: PeerId,
+    pub peer_id: NodeId,
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
-    pub addrs: Vec<Multiaddr>,
+    pub addrs: Vec<Addr>,
 }
 
 /// 在线宣告记录，发布到 DHT 供已配对设备发现地址。
@@ -53,10 +101,10 @@ pub struct OnlineRecord {
     pub os_info: OsInfo,
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
-    pub direct_addrs: Vec<Multiaddr>,
+    pub direct_addrs: Vec<Addr>,
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
-    pub relay_addrs: Vec<Multiaddr>,
+    pub relay_addrs: Vec<Addr>,
     #[serde(default)]
     pub relays: Vec<RelayHint>,
     pub timestamp: i64,
@@ -64,7 +112,7 @@ pub struct OnlineRecord {
 
 impl OnlineRecord {
     /// 全部可尝试直拨的地址（direct + circuit）
-    pub fn dialable_addrs(&self) -> Vec<Multiaddr> {
+    pub fn dialable_addrs(&self) -> Vec<Addr> {
         self.direct_addrs
             .iter()
             .chain(self.relay_addrs.iter())

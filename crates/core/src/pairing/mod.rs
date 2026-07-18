@@ -2,3 +2,5 @@
 
 pub mod code;
 pub mod manager;
+
+pub use manager::{PairingManager, PairingService};

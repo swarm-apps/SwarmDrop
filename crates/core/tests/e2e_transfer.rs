@@ -1,7 +1,7 @@
 //! crates/core 端到端集成测试。
 //!
-//! 不需要 Tauri / 真机：在纯 `cargo test` 里 spawn 两个**真实**的 `swarm_p2p_core`
-//! 节点（关 mDNS + 显式 dial），用现成的 [`MemoryHost`] 当 host adapter、
+//! 不需要 Tauri / 真机：在纯 `cargo test` 里 spawn 两个**真实**的 `swarmdrop-net`
+//! Endpoint（关 mDNS + 显式 connect），用现成的 [`MemoryHost`] 当 host adapter、
 //! `sqlite::memory:` 当数据库，跑通完整的 offer → transfer → complete 链路。
 //!
 //! 方案见 `dev-notes/knowledge/rust-backend.md`「crates/core 端到端集成测试」。
@@ -18,14 +18,13 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use swarm_p2p_core::NodeConfig;
-use swarm_p2p_core::libp2p::identity::Keypair;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId, StreamProtocol};
+use swarmdrop_net::{Addr, DhtConfig, Endpoint, NodeAddr, NodeId, Router, SecretKey};
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 
-use swarmdrop_core::database::ops;
+use swarmdrop_core::database::{SqlSessionStore, ops};
 use swarmdrop_core::device::{OsInfo, PairedDeviceInfo};
+use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{
     CoreAppPaths, CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, FileSourceId,
     HostFileMetadata, MemoryHost,
@@ -33,29 +32,30 @@ use swarmdrop_core::host::{
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::run_event_loop;
-use swarmdrop_core::protocol::{
-    AppRequest, AppResponse, FileInfo, OfferRejectReason, TransferOrigin,
-};
+use swarmdrop_core::protocol::{FileInfo, OfferRejectReason, TransferOrigin};
+use swarmdrop_core::runtime::build_router;
 use swarmdrop_core::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState, UserCommand,
 };
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
-use swarmdrop_core::transfer::wire::data_frame::TRANSFER_DATA_PROTOCOL;
+use swarmdrop_core::transfer::store::CreateSessionInput;
 use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
 
 // ===== harness =====
 
 /// 一个已启动的测试节点：真实 P2P 节点 + 独立 sqlite::memory + MemoryHost。
 struct TestNode {
-    peer_id: PeerId,
-    /// 保活：持有 client / cancel_token / transfer Arc，drop 后 event_loop 退出。
+    peer_id: NodeId,
+    /// 保活：持有 endpoint / cancel_token / transfer Arc，drop 后 event_loop 退出。
     manager: NetManager<TransferManager>,
     /// 与 event_loop 共享同一实例，发送 / 接收侧都走它。
     transfer: Arc<TransferManager>,
     /// 断言入口：events() 取已发布 CoreEvent、sink_bytes() 取落盘字节。
     host: MemoryHost,
     db: Arc<DatabaseConnection>,
+    /// 保活：drop 后入站流路由停止。
+    _router: Router,
 }
 
 /// 测试用 app paths —— MemoryHost 不碰真实文件系统，随便给个目录即可。
@@ -69,18 +69,25 @@ fn test_paths() -> CoreAppPaths {
     }
 }
 
-/// 关 mDNS + 关 relay/dcutr/autonat + 只监听 127.0.0.1 随机端口。
+/// 关 mDNS + 只监听 127.0.0.1 随机端口的测试 Endpoint（开 DHT server 供在线记录）。
 ///
 /// 关 mDNS 是路径 B 的核心：两个本机节点不能靠 mDNS 自动发现，否则会互相串扰
-/// 状态；连接一律走显式 `add_peer_addrs` + `dial`。
-fn test_config() -> NodeConfig {
-    NodeConfig::new("/swarmdrop/1.0.0", "swarmdrop-e2e")
-        .with_mdns(false)
-        .with_relay_client(false)
-        .with_dcutr(false)
-        .with_autonat(false)
-        .with_data_channel_protocols(vec![StreamProtocol::new(TRANSFER_DATA_PROTOCOL)])
-        .with_listen_addrs(vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()])
+/// 状态；连接一律走显式 `add_addrs` + `connect`。
+async fn test_endpoint(secret: SecretKey) -> Endpoint {
+    Endpoint::builder()
+        .secret_key(secret)
+        .identify_protocol("/swarmdrop/2.0.0")
+        .agent_version("swarmdrop/e2e")
+        .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()])
+        .dht(DhtConfig {
+            server_mode: true,
+            ..DhtConfig::default()
+        })
+        .mdns(false)
+        .relay_client(false)
+        .bind()
+        .await
+        .expect("bind test endpoint")
 }
 
 /// 建一个钉死单连接的 sqlite::memory 库并跑全部 migration。
@@ -102,24 +109,22 @@ async fn make_db() -> Arc<DatabaseConnection> {
 }
 
 /// 预置一条已配对设备（is_paired 的唯一运行时依据是 PairingManager 的内存 DashMap）。
-fn paired_info(peer_id: PeerId) -> PairedDeviceInfo {
+fn paired_info(peer_id: NodeId) -> PairedDeviceInfo {
     PairedDeviceInfo::new(peer_id, OsInfo::default(), 0)
 }
 
-/// 复刻 `runtime::start_node` 的 body，但换成 [`test_config`]（关 mDNS）。
+/// 复刻 `runtime::start_node` 的 body，但换成 [`test_endpoint`]（关 mDNS、无引导）。
 ///
-/// keypair 由 caller 先生成，这样两节点能在 spawn 前互相拿到 peer_id 预置配对。
+/// secret 由 caller 先生成，这样两节点能在 spawn 前互相拿到 node_id 预置配对。
 async fn spawn_node(
-    keypair: Keypair,
+    secret: SecretKey,
     host: MemoryHost,
     db: Arc<DatabaseConnection>,
     paired: Vec<PairedDeviceInfo>,
 ) -> TestNode {
-    let peer_id = PeerId::from_public_key(&keypair.public());
-
-    let (client, receiver, dc_receiver) =
-        swarm_p2p_core::start::<AppRequest, AppResponse>(keypair, test_config())
-            .expect("start node");
+    let peer_id = secret.node_id();
+    let endpoint = test_endpoint(secret).await;
+    let events = endpoint.subscribe().await.expect("subscribe");
 
     // 同一个 MemoryHost 既当 EventBus 又当 FileAccess：clone 共享内部 Arc<Mutex<_>>，
     // 副作用对 `host` 断言句柄可见。
@@ -127,31 +132,29 @@ async fn spawn_node(
     let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
 
     let transfer = TransferManager::new(
-        client.clone(),
-        event_bus.clone(),
-        db.clone(),
+        endpoint.clone(),
+        Arc::new(CoreTransferEvents(event_bus.clone())),
+        Arc::new(SqlSessionStore::new(db.clone())),
         file_access,
-        dc_receiver,
     );
     let network_config = NetworkRuntimeConfig::default();
     let candidate_manager = create_candidate_manager(&network_config);
     let manager = NetManager::new(
-        client,
-        peer_id,
+        endpoint.clone(),
         paired,
         transfer,
         network_config,
         candidate_manager,
+        event_bus.clone(),
+        None,
     );
     let transfer = manager.transfer_arc();
 
-    // event_loop 驱动接收侧协议（IncomingTransferRuntime）+ 回填 listen_addrs。
-    tokio::spawn(run_event_loop(
-        receiver,
-        manager.shared_refs(),
-        event_bus,
-        None,
-    ));
+    // Router：三协议入站路由，复用 runtime 的装配（避免协议注册漂移）。
+    let router = build_router(&endpoint, manager.pairing_arc(), transfer.clone(), None);
+
+    // event_loop 驱动 devices/presence/infra + 回填 listen_addrs。
+    tokio::spawn(run_event_loop(events, manager.shared_refs(), event_bus));
 
     TestNode {
         peer_id,
@@ -159,6 +162,7 @@ async fn spawn_node(
         transfer,
         host,
         db,
+        _router: router,
     }
 }
 
@@ -174,8 +178,8 @@ async fn poll_until<F: FnMut() -> bool>(mut pred: F, timeout: Duration, label: &
     panic!("超时等待: {label}");
 }
 
-/// 等节点监听地址就绪（端口 0 由 OS 分配，必须等 NodeEvent::Listening 回填）。
-async fn wait_listen_addr(node: &TestNode) -> Multiaddr {
+/// 等节点监听地址就绪（端口 0 由 OS 分配，必须等 watch_addrs 回填）。
+async fn wait_listen_addr(node: &TestNode) -> Addr {
     let mut addr = None;
     poll_until(
         || {
@@ -204,10 +208,10 @@ async fn wait_listen_addr(node: &TestNode) -> Multiaddr {
 async fn connect(from: &TestNode, to: &TestNode) {
     let addr = wait_listen_addr(to).await;
     from.manager
-        .client()
-        .add_peer_addrs(to.peer_id, vec![addr])
+        .endpoint()
+        .add_addrs(to.peer_id, vec![addr])
         .await
-        .expect("add_peer_addrs");
+        .expect("add_addrs");
 
     let connected = |a: &TestNode, b: &TestNode| {
         a.manager.devices().is_connected(&b.peer_id) && b.manager.devices().is_connected(&a.peer_id)
@@ -216,7 +220,11 @@ async fn connect(from: &TestNode, to: &TestNode) {
         if connected(from, to) {
             return;
         }
-        let _ = from.manager.client().dial(to.peer_id).await;
+        let _ = from
+            .manager
+            .endpoint()
+            .connect(NodeAddr::new(to.peer_id))
+            .await;
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     panic!("两节点未能在超时内建连");
@@ -224,13 +232,13 @@ async fn connect(from: &TestNode, to: &TestNode) {
 
 /// 造一对互相已配对、已建连的节点（A=host_a、B=host_b，各自独立 sqlite::memory）。
 async fn connected_paired_pair(host_a: MemoryHost, host_b: MemoryHost) -> (TestNode, TestNode) {
-    let kp_a = Keypair::generate_ed25519();
-    let kp_b = Keypair::generate_ed25519();
-    let id_a = PeerId::from_public_key(&kp_a.public());
-    let id_b = PeerId::from_public_key(&kp_b.public());
+    let sk_a = SecretKey::generate();
+    let sk_b = SecretKey::generate();
+    let id_a = sk_a.node_id();
+    let id_b = sk_b.node_id();
 
-    let node_a = spawn_node(kp_a, host_a, make_db().await, vec![paired_info(id_b)]).await;
-    let node_b = spawn_node(kp_b, host_b, make_db().await, vec![paired_info(id_a)]).await;
+    let node_a = spawn_node(sk_a, host_a, make_db().await, vec![paired_info(id_b)]).await;
+    let node_b = spawn_node(sk_b, host_b, make_db().await, vec![paired_info(id_a)]).await;
     connect(&node_a, &node_b).await;
     (node_a, node_b)
 }
@@ -246,7 +254,7 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id:
     }];
     ops::create_session(
         db,
-        ops::CreateSessionInput {
+        CreateSessionInput {
             session_id,
             direction: TransferDirection::Receive,
             peer_id,
@@ -283,7 +291,7 @@ async fn seed_suspended_session(
 ) {
     ops::create_session(
         db,
-        ops::CreateSessionInput {
+        CreateSessionInput {
             session_id,
             direction,
             peer_id,
@@ -555,7 +563,10 @@ async fn e2e_startup_cleanup_active_to_suspended() {
     seed_active_session(db.as_ref(), session_id, "peer").await;
 
     // 重启清理：active → recoverable suspended(AppRestarted)。
-    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
     let converted = coordinator
         .cleanup_recoverable_sessions()
         .await
@@ -595,7 +606,10 @@ async fn e2e_remote_signals_write_remote_reason() {
     let db = make_db().await;
     let host = MemoryHost::new(test_paths());
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
-    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
 
     // 对端暂停：active → suspended/RemotePaused/recoverable。
     let paused_id = Uuid::new_v4();
@@ -641,10 +655,10 @@ async fn e2e_remote_signals_write_remote_reason() {
 /// 不依赖真实网络断连时序。预置一个无真实传输的 active 会话 → 调 handler → 验状态。
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_peer_disconnect_interrupts_active() {
-    // 一个真实节点（拿 client 构 TransferManager）+ 一个仅取 PeerId 的"对端"。
-    let fake_peer = PeerId::from_public_key(&Keypair::generate_ed25519().public());
+    // 一个真实节点（拿 endpoint 构 TransferManager）+ 一个仅取 NodeId 的"对端"。
+    let fake_peer = SecretKey::generate().node_id();
     let node = spawn_node(
-        Keypair::generate_ed25519(),
+        SecretKey::generate(),
         MemoryHost::new(test_paths()),
         make_db().await,
         vec![paired_info(fake_peer)],
@@ -1281,7 +1295,10 @@ async fn e2e_fatal_error_persists_message() {
     let db = make_db().await;
     let host = MemoryHost::new(test_paths());
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
-    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
 
     let session_id = Uuid::new_v4();
     seed_active_session(db.as_ref(), session_id, "peer").await;
@@ -1322,7 +1339,10 @@ async fn e2e_terminal_irreversible_under_concurrent_complete_cancel() {
     let db = make_db().await;
     let host = MemoryHost::new(test_paths());
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
-    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
 
     // 顺序 A：取消先到 → 迟到的完成被拒，终态保持 cancelled。
     let cancelled_first = Uuid::new_v4();

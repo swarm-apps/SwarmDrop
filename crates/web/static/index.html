@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>SwarmDrop Web —— 浏览器传输端</title>
+  <style>
+    body { font-family: ui-monospace, monospace; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+    h2 { margin: 1.4rem 0 .4rem; font-size: 1rem; border-bottom: 1px solid #ddd; padding-bottom: .2rem; }
+    input { width: 100%; box-sizing: border-box; margin: .25rem 0; padding: .4rem; }
+    button { margin: .25rem .5rem .25rem 0; padding: .4rem .8rem; }
+    #log { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; min-height: 8rem; font-size: .8rem; max-height: 20rem; overflow: auto; }
+    .offer, .xfer { background: #eef; border: 1px solid #cce; padding: .5rem; margin: .3rem 0; border-radius: 4px; font-size: .85rem; }
+    .bar { height: 6px; background: #cce; border-radius: 3px; overflow: hidden; margin-top: .3rem; }
+    .bar > i { display: block; height: 100%; background: #47c; width: 0; }
+    a.dl { display: inline-block; margin-top: .3rem; }
+    .row { display: flex; gap: .5rem; }
+    .row > input { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>SwarmDrop Web</h1>
+  <p>浏览器传输端：offer / accept / 续传 / bao 逐块验证全量复用内核。身份存 localStorage，收到的文件落 OPFS。</p>
+  <div id="ctx-warn" style="display:none; background:#fdd; border:1px solid #c88; color:#900; padding:.6rem; border-radius:4px; margin:.5rem 0; font-weight:bold;">
+    ⚠ 当前非 secure context：navigator.storage / crypto.subtle 不可用，接收方落盘会失败。
+    请用 <b>https</b> 或 <b>http://localhost</b> / <b>http://127.0.0.1</b> 访问，而非 http 私网 IP。
+  </div>
+  <div>本机 node id：<b id="nid">（未启动）</b></div>
+
+  <h2>① 连接（先连一个 helper 才能被动接收 / 查分享码）</h2>
+  <input id="addr" placeholder="/ip4/192.168.x.x/tcp/xxxx/ws/p2p/12D3Koo... 或 .../webrtc-direct/certhash/.../p2p/..." />
+  <button id="btn-connect">connect</button>
+  <button id="btn-reserve">reserve（circuit listen，拿被动接收地址）</button>
+
+  <h2>② 分享码（可选，需已连 DHT-capable helper）</h2>
+  <div class="row">
+    <input id="code" placeholder="6 位分享码" />
+    <button id="btn-lookup">lookup</button>
+  </div>
+
+  <h2>③ 发送文件</h2>
+  <input id="peer" placeholder="对端 node id（base58）" />
+  <input id="files" type="file" multiple />
+  <button id="btn-send">send</button>
+
+  <h2>④ 收到的 Offer</h2>
+  <div id="offers"></div>
+
+  <h2>⑤ 传输</h2>
+  <div id="xfers"></div>
+
+  <h2>日志</h2>
+  <div id="log"></div>
+
+  <script type="module">
+    import init, { WebNode } from "./pkg/swarmdrop_web.js";
+    const $ = (id) => document.getElementById(id);
+    const log = (m) => { const el = $("log"); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight; };
+
+    // 带时间戳强制拉新 wasm——浏览器对 .wasm 缓存激进，重建 pkg 后不破缓存会跑到旧字节码
+    // （实测踩过：测的是旧包却以为在测新修复）。demo 图省心，每次都拉最新。
+    // secure context 预警：非 https/localhost 源下 OPFS 落盘会失败（navigator.storage 缺失）。
+    if (!window.isSecureContext) {
+      $("ctx-warn").style.display = "block";
+      log("⚠ 非 secure context（isSecureContext=false）：navigator.storage=" + (navigator.storage ? "有" : "undefined") + " —— 接收落盘会失败，请用 https 或 localhost/127.0.0.1");
+    }
+
+    await init({ module_or_path: "./pkg/swarmdrop_web_bg.wasm?v=" + Date.now() });
+    const node = await WebNode.spawn();
+    window.node = node; // 调试/自动化可达
+    $("nid").textContent = node.node_id();
+    log("node spawned: " + node.node_id());
+
+    const addr = () => $("addr").value;
+    $("btn-connect").onclick = async () => { try { const c = await node.connect(addr()); log(`connected: path=${c.path} addr=${c.addr}`); } catch (e) { log("❌ connect " + JSON.stringify(e)); } };
+    $("btn-reserve").onclick = async () => { try { log("reserve → " + await node.reserve(addr())); } catch (e) { log("❌ reserve " + JSON.stringify(e)); } };
+    $("btn-lookup").onclick = async () => {
+      try { const o = await node.lookup_share_code($("code").value); log("share code → " + JSON.stringify(o)); $("peer").value = o.id; if (o.addrs?.[0]) $("addr").value = o.addrs[0] + "/p2p/" + o.id; }
+      catch (e) { log("❌ lookup " + JSON.stringify(e)); }
+    };
+    $("btn-send").onclick = async () => {
+      try {
+        const files = Array.from($("files").files);
+        if (!files.length) return log("先选文件");
+        const sid = await node.send_files($("peer").value, files);
+        log("offer 已发出: session=" + sid);
+      } catch (e) { log("❌ send " + JSON.stringify(e)); }
+    };
+
+    // 记住每个会话的文件（供完成后生成下载链接）。
+    const offerFiles = new Map();
+
+    function renderOffer(o) {
+      offerFiles.set(o.sessionId, o.files);
+      const div = document.createElement("div");
+      div.className = "offer";
+      div.id = "offer-" + o.sessionId;
+      div.innerHTML = `<b>${o.peerName}</b> 发来 ${o.files.length} 个文件（${o.totalSize} 字节）<br>` +
+        o.files.map(f => f.relativePath).join(", ");
+      const acc = document.createElement("button"); acc.textContent = "接受";
+      acc.onclick = async () => { try { await node.accept_offer(o.sessionId); div.remove(); } catch (e) { log("❌ accept " + JSON.stringify(e)); } };
+      const rej = document.createElement("button"); rej.textContent = "拒绝";
+      rej.onclick = async () => { try { await node.reject_offer(o.sessionId); div.remove(); } catch (e) { log("❌ reject " + JSON.stringify(e)); } };
+      div.append(acc, rej);
+      $("offers").append(div);
+    }
+
+    function xferEl(sessionId) {
+      let el = $("xfer-" + sessionId);
+      if (!el) {
+        el = document.createElement("div"); el.className = "xfer"; el.id = "xfer-" + sessionId;
+        el.innerHTML = `<div class="t">${sessionId}</div><div class="bar"><i></i></div><div class="s"></div>`;
+        $("xfers").append(el);
+      }
+      return el;
+    }
+
+    async function addDownloads(el, sessionId) {
+      const files = offerFiles.get(sessionId) || [];
+      for (const f of files) {
+        try {
+          const url = await node.download_url(f.relativePath);
+          const a = document.createElement("a"); a.className = "dl"; a.href = url; a.download = f.name; a.textContent = "下载 " + f.name;
+          el.append(a, document.createElement("br"));
+        } catch (e) { log("❌ download_url " + JSON.stringify(e)); }
+      }
+    }
+
+    // 消费事件流。每个事件 try/catch——单个坏事件不得掀翻整个 reader 循环（否则后续事件全静默）。
+    // 进度数值统一 Number() 强转，兼容序列化为 Number 或 BigInt 两种情况，避免混算抛错。
+    (async () => {
+      const reader = node.events().getReader();
+      while (true) {
+        let ev, done;
+        try {
+          ({ value: ev, done } = await reader.read());
+        } catch (e) { log("❌ reader.read 抛错: " + e); break; }
+        if (done) break;
+        if (!ev) { log("⚠ 收到空事件(null)，跳过"); continue; }
+        try {
+          switch (ev.type) {
+            case "transferOfferReceived": renderOffer(ev.offer); break;
+            case "transferProgress": {
+              const el = xferEl(ev.event.sessionId);
+              const total = Number(ev.event.totalBytes), got = Number(ev.event.transferredBytes);
+              const pct = total ? Math.floor(100 * got / total) : 0;
+              el.querySelector("i").style.width = pct + "%";
+              el.querySelector(".s").textContent = `${ev.event.direction} ${pct}% (${got}/${total}) ${(Number(ev.event.speed)/1024/1024).toFixed(2)} MB/s`;
+              break;
+            }
+            case "transferCompleted": {
+              const el = xferEl(ev.event.sessionId);
+              el.querySelector("i").style.width = "100%";
+              el.querySelector(".s").textContent = `✅ 完成（${ev.event.direction}）`;
+              if (ev.event.direction === "receive") await addDownloads(el, ev.event.sessionId);
+              break;
+            }
+            case "transferFailed": {
+              const el = xferEl(ev.event.sessionId);
+              el.querySelector(".s").textContent = "❌ 失败: " + ev.event.error;
+              break;
+            }
+            case "transferPaused": { xferEl(ev.event.sessionId).querySelector(".s").textContent = "⏸ 暂停"; break; }
+            default: log("event: " + ev.type);
+          }
+        } catch (e) { log("❌ 处理事件 " + ev.type + " 抛错(已跳过): " + e); }
+      }
+    })();
+  </script>
+</body>
+</html>
