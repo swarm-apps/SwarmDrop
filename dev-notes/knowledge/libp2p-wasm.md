@@ -546,11 +546,19 @@ CC_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/clang"
 AR_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/llvm-ar"
 ```
 
-### `webrtc-websys` 在 Web Worker 里会 panic
+### `webrtc-websys` 在 Web Worker 里**装着都不行**（不止不能拨）
 
-`transports/webrtc-websys/src/transport.rs:116` 的 `web_sys::window().expect(...)` ——
-想把传输放进 Worker 避免阻塞主线程这条路不通。**只有 `websocket-websys` 支持 Worker**
-（它有 `web_context.rs` 做 window/worker 分支）。
+`transports/webrtc-websys/src/transport.rs` 的 `maybe_local_firefox()` 内含
+`web_sys::window().expect(...)`，且它在 `dial()` 里位于 **`parse_webrtc_dial_addr`
+地址格式检查之前**——所以只要它在 `or_transport` 组合里，Worker 中拨**任何**地址
+（包括 ws://）都会先进 webrtc 分支碰 window panic（2026-07-18 Worker 版基准实测坐实，
+症状：spawn 成功、connect 超时 + `RuntimeError: unreachable`）。「装而不拨就没事」
+不成立。**只有 `websocket-websys` 支持 Worker**（它有 `web_context.rs` 做 window/worker
+分支）。
+
+**正确做法**：transport 组装时按环境裁剪——`web_sys::window().is_none()`（Worker）就
+只装 ws，不进 or_transport（`crates/net/src/transport.rs` wasm 分支）。构造
+`webrtc_websys::Transport::new` 本身无害，炸点只在 dial。
 
 ### `/private/tmp` 下跑原生 cargo 会被 Gatekeeper 拦
 
