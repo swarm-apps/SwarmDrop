@@ -279,9 +279,13 @@ impl ProgressTracker {
         let now = Instant::now();
         self.samples.push_back((now, self.transferred_bytes));
 
-        let cutoff = now - SPEED_WINDOW;
-        while self.samples.front().is_some_and(|(t, _)| *t < cutoff) {
-            self.samples.pop_front();
+        // checked_sub：wasm 的 Instant 原点是页面加载时刻（performance.now()），页面开
+        // 不足 SPEED_WINDOW 就传输时 `now - SPEED_WINDOW` 会下溢 panic（native 原点是
+        // 系统启动，减不穿，掩盖了这个坑）。None = 全部样本都在窗口内，无需修剪。
+        if let Some(cutoff) = now.checked_sub(SPEED_WINDOW) {
+            while self.samples.front().is_some_and(|(t, _)| *t < cutoff) {
+                self.samples.pop_front();
+            }
         }
     }
 
