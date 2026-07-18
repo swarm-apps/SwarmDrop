@@ -15,7 +15,7 @@
 
 - [认证系统设计](./auth-design.md)
 - [配对与传输设计](./pairing-transfer-design.md)
-- [MCP App 教程](../tutorials/mcp-app-tutorial.md)
+- [MCP App 教程](../../tutorials/mcp-app-tutorial.md)
 
 ---
 

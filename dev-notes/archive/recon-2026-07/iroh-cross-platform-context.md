@@ -685,11 +685,11 @@ libp2p 与 Iroh 的 wire/身份体系不兼容，不要假设可无感混用。
 
 内部：
 
-- [邀请链接与二维码配对设计](../iroh-invite-link-pairing-design.md)
-- [Iroh + Web + CLI 开工路线报告](../iroh-web-cli-recon-2026-07.md)
-- [Rendezvous 与配对风险调研](../rendezvous-recon-2026-07.md)
-- [Core / Desktop / Mobile 架构边界](core-desktop-mobile-boundaries.md)
-- [未来 OpenSpec 候选项](future-openspec-candidates.md)
+- [邀请链接与二维码配对设计](../../architecture/iroh-invite-link-pairing-design.md)
+- [Iroh + Web + CLI 开工路线报告](./iroh-web-cli-recon-2026-07.md)
+- [Rendezvous 与配对风险调研](./rendezvous-recon-2026-07.md)
+- [Core / Desktop / Mobile 架构边界](../../architecture/core-desktop-mobile-boundaries.md)
+- [未来 OpenSpec 候选项](../../architecture/future-openspec-candidates.md)
 
 外部：
 

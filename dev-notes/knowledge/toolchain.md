@@ -94,7 +94,7 @@ pnpm test
 **正确做法**：加新 E2E 能力用官方 CLI 重新生成/调整，不要手写 `wdio.conf.ts`；这个向导目前
 生成的配置本身有几处已知 bug（`services` 数组多一个不存在的 `'tauri-plugin'` service、
 `capabilities` 还是浏览器 boilerplate、`@wdio/native-utils` 版本对不上导致运行时报错）——
-详见 [`dev-notes/blogs/desktop-webdriver-e2e.md`](../blogs/desktop-webdriver-e2e.md) 的
+详见 [`dev-notes/blogs/desktop-webdriver-e2e.md`](../blogs/desktop/desktop-webdriver-e2e.md) 的
 "常见坑"。
 
 **最容易踩的一个坑**：native 二进制必须用 `pnpm tauri build --debug --no-bundle` 构建，裸

@@ -51,7 +51,7 @@ flowchart TB
 | HTTP 备选 | 简单可靠 | 非 P2P、需桌面中转 | PoC 失败时 |
 | boringtun (WireGuard) | 移动端成熟 | 需要 VPN 权限 | 暂不考虑 |
 
-**详见**: [../research/mobile-libp2p-investigation.md](../research/mobile-libp2p-investigation.md)
+**详见**: [../early-research/mobile-libp2p-investigation.md](../early-research/mobile-libp2p-investigation.md)
 
 ---
 

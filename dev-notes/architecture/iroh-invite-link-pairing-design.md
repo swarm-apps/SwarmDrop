@@ -262,7 +262,7 @@ struct PairedDevice {
 
 ## 15. 相关文档
 
-- [现有配对实现](pairing-implementation.md)
-- [Rendezvous 与配对风险调研](../rendezvous-recon-2026-07.md)
+- [现有配对实现](../archive/pre-refactor-design/pairing-implementation.md)
+- [Rendezvous 与配对风险调研](../archive/recon-2026-07/rendezvous-recon-2026-07.md)
 - [Core、桌面与移动端边界](../architecture/core-desktop-mobile-boundaries.md)
 - [未来 OpenSpec 候选项](../architecture/future-openspec-candidates.md)

@@ -6,7 +6,7 @@
 >
 > **相关文档**:
 > - [文件传输设计](./file-transfer-design.md) — Phase 3 整体设计方案
-> - [Phase 3 路线图](../roadmap/phase-3-file-transfer.md) — 阶段任务规划
+> - [Phase 3 路线图](../completed-roadmap/phase-3-file-transfer.md) — 阶段任务规划
 
 ---
 

@@ -14,7 +14,7 @@
 ### 相关文档
 
 - [配对与传输设计](./pairing-transfer-design.md) - 产品设计和用户流程
-- [Phase 2 路线图](../roadmap/phase-2-pairing.md) - 阶段任务规划
+- [Phase 2 路线图](../completed-roadmap/phase-2-pairing.md) - 阶段任务规划
 
 ---
 

@@ -246,12 +246,13 @@ Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/rel
 | Translation catalogs | `src/locales/{locale}/messages.po` |
 | Lingui config | `lingui.config.ts` |
 | Product requirements | `dev-notes/product-requirements.md` |
-| Implementation roadmap | `dev-notes/roadmap/implementation-roadmap.md` |
 | UI design file | `dev-notes/design/design.pen` |
-| 传输场景设计 | `dev-notes/design/transfer-scenarios-design.md` |
-| 数据库实体设计 | `dev-notes/design/database-entity-design.md` |
-| 文件传输设计 | `dev-notes/design/file-transfer-design.md` |
-| P2P core library | `libs/core/` |
+| 网络内核（新，2026-07 重构） | `crates/net/`、`crates/net-base/` |
+| 传输域（独立 crate） | `crates/transfer/`、宿主端口层 `crates/host/` |
+| 网络内核知识库 | `dev-notes/knowledge/net-kernel.md` |
+| 重构决策与四道门经验 | `dev-notes/why-libp2p-not-iroh.md`、`dev-notes/knowledge/libp2p-wasm.md` |
+| 重构系列博客 | `dev-notes/blogs/2026-07-net-refactor-series.md` |
+| 历史文档（重构前设计/已完成 roadmap/早期调研） | `dev-notes/archive/` |
 | 移动端 (RN + Expo) | `mobile/` |
 | 移动端 Rust 桥接 (uniffi) | `mobile/packages/swarmdrop-core/rust/mobile-core/` |
 | 移动端 release CI | `.github/workflows/mobile-release.yml` |
@@ -267,7 +268,7 @@ Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/rel
 | Phase 3 — File Transfer | In Progress | Request-Response, E2E encryption, SQLite history, pause/resume |
 | Phase 4 — Mobile | Done | React Native + Expo + uniffi，已并入本仓 `mobile/`（独立版本线 `mobile-v*`）|
 
-Detailed per-phase specs: `dev-notes/roadmap/phase-*.md`
+Detailed per-phase specs: `dev-notes/archive/completed-roadmap/phase-*.md`
 
 ## Documentation Site
 

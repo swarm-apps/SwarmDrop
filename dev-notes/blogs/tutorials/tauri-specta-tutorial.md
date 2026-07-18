@@ -216,7 +216,7 @@ info.peerName  // ❌ 编译错误：DeviceInfo 没有这个字段
 
 ## 三、五分钟接入：跟着 SwarmDrop 项目从零做一遍
 
-下面所有代码片段都来自 SwarmDrop 本仓库的真实集成（[src-tauri/src/setup.rs](src-tauri/src/setup.rs)），可以直接抄。
+下面所有代码片段都来自 SwarmDrop 本仓库的真实集成（[src-tauri/src/setup.rs](../../../src-tauri/src/setup.rs)），可以直接抄。
 
 ### 3.1 加依赖
 
@@ -404,7 +404,7 @@ if (r.status === "error") {
 `build_app()` 里的 `export` 只在 `tauri dev` / `tauri build` 真正跑起来时才会触发。
 意味着：CI 里如果只跑 `cargo build`，bindings 不会被刷新。
 
-SwarmDrop 的做法是把导出做成一个**测试**（[src-tauri/tests/specta_export.rs](src-tauri/tests/specta_export.rs)）：
+SwarmDrop 的做法是把导出做成一个**测试**（[src-tauri/tests/specta_export.rs](../../../src-tauri/tests/specta_export.rs)）：
 
 ```rust
 use specta_typescript::Typescript;
@@ -446,7 +446,7 @@ flowchart LR
 
 这是最常见的卡点。比如 libp2p 的 `PeerId`、`Multiaddr` —— 这些是第三方库的类型，你**无法**给它们加 `derive`。
 
-解决思路：**在边界处把它们 toString**。SwarmDrop 里就是这么做的（[src-tauri/src/commands/pairing.rs](src-tauri/src/commands/pairing.rs)）：
+解决思路：**在边界处把它们 toString**。SwarmDrop 里就是这么做的（[src-tauri/src/commands/pairing.rs](../../../src-tauri/src/commands/pairing.rs)）：
 
 ```rust
 #[tauri::command]
@@ -502,7 +502,7 @@ app.emit("paired-device-added", &info);   // 后端
 listen<???>("paired-device-added", e => { ... });  // 前端，payload 类型靠猜
 ```
 
-tauri-specta 同样可以收集事件类型。SwarmDrop 现在 13 个事件全部走 typed 化的路（[src-tauri/src/events.rs](../../src-tauri/src/events.rs)），下面是真实代码。
+tauri-specta 同样可以收集事件类型。SwarmDrop 现在 13 个事件全部走 typed 化的路（[src-tauri/src/events.rs](../../../src-tauri/src/events.rs)），下面是真实代码。
 
 **第一步：给 `tauri-specta` 加 `derive` feature**——不加则下面的 `Event` derive 宏不可见，会报"trait is imported here, but it is only a trait"。
 
@@ -658,18 +658,18 @@ flowchart TB
 
 ## 附录：本文涉及到的关键文件
 
-- 集中装配：[src-tauri/src/setup.rs](../../src-tauri/src/setup.rs)
-- 命令示例：[src-tauri/src/commands/pairing.rs](../../src-tauri/src/commands/pairing.rs)
-- 事件定义：[src-tauri/src/events.rs](../../src-tauri/src/events.rs)
-- 事件分发：[src-tauri/src/host/event_bus.rs](../../src-tauri/src/host/event_bus.rs)
-- 错误映射：[src-tauri/src/error.rs](../../src-tauri/src/error.rs)
-- 强制导出测试：[src-tauri/tests/specta_export.rs](../../src-tauri/tests/specta_export.rs)
-- 生成产物：[src/lib/bindings.ts](../../src/lib/bindings.ts)（请勿手改）
+- 集中装配：[src-tauri/src/setup.rs](../../../src-tauri/src/setup.rs)
+- 命令示例：[src-tauri/src/commands/pairing.rs](../../../src-tauri/src/commands/pairing.rs)
+- 事件定义：[src-tauri/src/events.rs](../../../src-tauri/src/events.rs)
+- 事件分发：[src-tauri/src/host/event_bus.rs](../../../src-tauri/src/host/event_bus.rs)
+- 错误映射：[src-tauri/src/error.rs](../../../src-tauri/src/error.rs)
+- 强制导出测试：[src-tauri/tests/specta_export.rs](../../../src-tauri/tests/specta_export.rs)
+- 生成产物：[src/lib/bindings.ts](../../../src/lib/bindings.ts)（请勿手改）
 
 > 改造后 SwarmDrop 前端不再有 `src/commands/` 目录——所有 IPC 调用走
 > `commands.xxx()`，所有事件走 `events.xxx.listen()`，全部来自单一源
 > `@/lib/bindings`。前端补充类型（业务别名 / 聚合类型 / `PeerId` 等
-> string alias）收拢在 [src/lib/types.ts](../../src/lib/types.ts)。
+> string alias）收拢在 [src/lib/types.ts](../../../src/lib/types.ts)。
 
 ## 延伸阅读
 

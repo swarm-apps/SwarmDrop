@@ -728,4 +728,4 @@ src/
 2. **WebRTC** - 浏览器友好，需要信令服务器
 3. **移动端之间直传** - 目前需要通过桌面端中转
 
-详见 [mobile-strategy.md](mobile-strategy.md)
+详见 [mobile-strategy.md](../early-research/mobile-strategy.md)

@@ -2,7 +2,7 @@
 
 > **范围**: 仅桌面端 (Windows / macOS / Linux)
 >
-> **设计文档**: [配对功能实现设计](../design/pairing-implementation.md) — 架构、数据结构、流程、代码示例
+> **设计文档**: [配对功能实现设计](../pre-refactor-design/pairing-implementation.md) — 架构、数据结构、流程、代码示例
 >
 > **总体规划**: [implementation-roadmap.md](implementation-roadmap.md)
 
