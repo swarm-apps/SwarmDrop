@@ -65,7 +65,7 @@ pub trait AddressLookup: Send + Sync + std::fmt::Debug + 'static {
 
 `connect` 无候选时的分支就走它（`actor.rs` 的 `handle_connect`）：spawn 一个任务并发查所有 lookup，任一产出即回注成 `ConnectResolved` 消息重新走拨号；全部查完仍无地址则 `ConnectError::NoAddresses`。`resolve_all` 会把多个源的结果去重合并。`resolve` 返回**流**而非单值是有讲究的——它允许「先吐本地缓存、再吐网络查询结果」这种渐进产出。
 
-`AddressLookup` 是扩展点四件套的一个实例，它本身已 object-safe 不需要 Dyn 孪生，细节见 [04](04-extension-points.md)。
+`AddressLookup` 是扩展点三件套范式的一个实例，它本身已 object-safe 不需要 Dyn 孪生，细节见 [04](04-extension-points.md)。
 
 ### Builder 回填：解决「lookup 需要 Endpoint」的鸡生蛋
 

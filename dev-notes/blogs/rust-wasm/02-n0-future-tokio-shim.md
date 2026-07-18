@@ -132,17 +132,20 @@ loop {
 }
 ```
 
-**根因是 wasm 单线程**：`FuturesUnordered` 需要**宿主主动 poll** 才推进，它不是像 tokio 那样
-把任务投到独立执行器上自己跑。当 `join_next()` 的 future 正挂起时新 spawn 的任务，不会触发
-对这个 future 的重新 poll，于是它永远 pending。native 多线程时序天然掩盖了这个问题。
+**根因不是"任务没被驱动"，恰恰相反**——`JoinSet::spawn` 内部就调 `spawn_local`（`n0-future`
+的 `task.rs`），任务照样被独立投递、独立跑完。缺陷在**收割**那一侧：`spawn` 把 handle push 进一个
+`FuturesUnordered` 收割队列，而 `join_next()` 的 future 正挂起时新 push 进来的成员，不会唤醒那个
+已挂起的 `join_next` future——于是即便新任务**早已跑完**，`join_next` 也收不上来（TODO 原文正是
+"even if the newly spawned future is already finished"）。native 多线程时序天然掩盖了这个收割盲区。
 
 变通办法（n0 自己的做法）是：每次往 `JoinSet` 里 spawn 后重建 `join_next` future。**但更根本的
-教训是：wasm 单线程下，"spawn 出去自己会跑"这个来自多线程 tokio 的直觉不成立。** 凡是依赖
-"后台任务被独立驱动"的结构，到 wasm 上都要重新审视谁来 poll 它。
+教训是：wasm 单线程下，"spawn 出去 → 结果自动被收上来"这个来自多线程 tokio 的直觉不成立——
+任务确实独立跑完了，你却得显式保证有人在正确的时机去 poll 那个收割/唤醒点。** 凡是依赖"后台
+任务的完成会自动传回来"的结构，到 wasm 上都要重新审视：谁持有那个 waker、它此刻是不是正挂起。
 
 > 🔗 **这条直接连到 [05 篇"编过 ≠ 能用"](05-what-compiles-isnt-what-runs.md) 的门 3**：一条流在
 > 任务 A 读了首帧、再 move 给独立 spawn 的任务 B，B 首次 poll 前 muxer 已经把后续帧的 wake 打给
-> 了 A 的旧 waker——同样是"新 spawn 的东西没人唤醒"的 lost-wakeup 家族。JoinSet shim 是它在
+> 了 A 的旧 waker——同样是"任务被独立 spawn 了、也被 poll 了，但后续的唤醒信号丢了"的 lost-wakeup 家族。JoinSet shim 是它在
 > API 层的显影，门 3 是它在数据面的显影。完整调试复盘见 [wasm-debugging 系列](../wasm-debugging/)。
 
 ## 小结
@@ -152,7 +155,8 @@ loop {
 - **三类 API**：`spawn`/`time` 要换（纯 import 替换）；`select!`/`tokio::sync` 不用换（纯用户态、
   wasm 安全）；`spawn_blocking`/`fs`/`net` 换不了（业务层本就不该碰它们）。
 - **别说"零成本"**：`test-util` 被 unification 带进生产包，二进制会变。
-- **wasm 版 JoinSet 是 FuturesUnordered shim**，需要宿主 poll、不是独立 spawn——这是 wasm
-  单线程 lost-wakeup 的第一次露头，[05 篇门 3](05-what-compiles-isnt-what-runs.md) 会再遇到它。
+- **wasm 版 JoinSet 是 FuturesUnordered shim**：任务照样 `spawn_local` 独立驱动、独立跑完，缺陷
+  在 `join_next` 的**收割**——它挂起期间新完成的任务收不上来。这是 wasm 单线程 lost-wakeup 的
+  第一次露头，[05 篇门 3](05-what-compiles-isnt-what-runs.md) 会再遇到它。
 
 下一篇换个战场：[为什么我们被迫吃 libp2p git master](03-libp2p-master-pitfalls.md)。

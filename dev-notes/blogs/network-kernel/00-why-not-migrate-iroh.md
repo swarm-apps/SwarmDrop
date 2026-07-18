@@ -55,7 +55,7 @@ graph TD
 | 1 | **Endpoint 而非裸 Swarm**：业务层不驱动事件循环 | `Endpoint` = `Arc<Inner>` 门面，单中枢 actor 唯一 poll 点 | [01](01-endpoint-facade.md) |
 | 2 | **按协议路由**，而非巨型事件分支 | Router + ProtocolHandler，路由到 **stream** 级 | [02](02-router-protocol-handler.md) |
 | 3 | **状态与事件分离**（Watcher 的心智） | watch 采样状态 + bounded mpsc 必达边沿 | [03](03-event-dual-track.md) |
-| 4 | **可插拔扩展点** 的人体工学 | RPITIT trait + Dyn trait + blanket + From 四件套 | [04](04-extension-points.md) |
+| 4 | **可插拔扩展点** 的人体工学 | RPITIT trait + Dyn 孪生 + blanket 三件套（比 iroh 省掉一道 From） | [04](04-extension-points.md) |
 | 5 | **Ticket 体验 + 连接授权分离**：连接与流是主角 | 裸流上的 typed `Rpc`，handler 可 await 用户决策 | [05](05-typed-rpc-on-streams.md) |
 | 6 | **简单路径模型 + 可插拔发现** | `PathKind` 四态 + AddressLookup / DHT 子 API | [06](06-address-lookup-dht.md) |
 
@@ -72,7 +72,7 @@ graph TD
 | `request_response` | 换成裸流上的 typed RPC（[05](05-typed-rpc-on-streams.md)） |
 | 文件数据流 | 保留独立 stream 协议，不塞进巨型 RPC 消息 |
 | 巨型 `NodeEvent` 枚举 | 拆成 watch 状态 + 小事件流（[03](03-event-dual-track.md)） |
-| 6 位 DHT 配对码 | 升级为签名、可过期的邀请凭证（产品协议，不绑网络库类型） |
+| 6 位 DHT 配对码 | 本次做等价迁移（DhtKey 域隔离）；**升级为签名、可过期的邀请凭证是后续 roadmap**（PairInvite 设计待实施，产品协议不绑网络库类型） |
 | Tauri / UniFFI / Web 宿主 | 绑稳定的 Core API，不绑 libp2p 内部类型（[07](07-type-boundary.md)） |
 | iroh | 作为设计参考与持续观察的备选适配器 |
 

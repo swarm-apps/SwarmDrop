@@ -128,4 +128,4 @@ match tx.try_send(event) {
 
 > **它是「现在是什么样」，还是「刚刚发生了什么」？** 前者进 watch，后者进 NetEvent。用错轨道，要么丢边沿，要么堆状态。
 
-状态与事件安顿好了，接下来看内核里那三个「可插拔扩展点」是怎么用同一套范式实现的——ProtocolHandler、RpcService、AddressLookup 共享的四件套：[04 — 可插拔扩展点的四件套范式](04-extension-points.md)。
+状态与事件安顿好了，接下来看内核里那三个「可插拔扩展点」是怎么用同一套范式实现的——ProtocolHandler、RpcService、AddressLookup 共享的三件套：[04 — 可插拔扩展点范式](04-extension-points.md)。

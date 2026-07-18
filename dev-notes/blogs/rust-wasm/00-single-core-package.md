@@ -21,7 +21,7 @@ SwarmDrop 是「跨网版 LocalSend」。桌面端、移动端已经用 Rust（l
 
 | | 两套实现（js-libp2p） | 单核心包（rust wasm） |
 |---|---|---|
-| 传输逻辑 | 约 **1 万行**生产级 Rust 要 TS 重写（仅 `transfer/` 就 5747 行）| **一行不写**，编到 wasm 复用 |
+| 传输逻辑 | 约 **1 万行**生产级 Rust 要 TS 重写（调研时仅 `transfer/` 就 5747 行，现已随 bao/web 壳增长）| **一行不写**，编到 wasm 复用 |
 | 测试 | **2693 行 Rust 测试带不走** | 原样复用 |
 | 字节兼容 | TS 侧逆向一个从未文档化的 CBOR 格式，rust 改一行 `protocol.rs` 就可能悄悄破坏两端 | 同一份 codec，天然一致 |
 | 加密/多路复用 | noise/yamux 是第三方 ChainSafe 包，另一条版本兼容轴 | 同一份 |
