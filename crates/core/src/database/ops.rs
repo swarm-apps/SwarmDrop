@@ -20,6 +20,7 @@ use crate::transfer::calc_total_chunks;
 pub use crate::transfer::store::{
     CreateSessionInput, ExpiredReceiverActor, TransferProjection, TransferProjectionFile,
 };
+use crate::transfer::store::{initial_completed_chunks, prefix_range, ranges_json};
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -75,12 +76,7 @@ pub async fn create_session(
 
     for (idx, file) in files.iter().enumerate() {
         let total_chunks = calc_total_chunks(file.size) as i32;
-        let bitmap_len = (total_chunks as usize).div_ceil(8);
-        let completed_chunks = if direction == TransferDirection::Receive {
-            vec![0u8; bitmap_len]
-        } else {
-            vec![]
-        };
+        let completed_chunks = initial_completed_chunks(file.size, direction.clone());
 
         let source_path = source_paths.and_then(|paths| paths.get(idx).cloned());
 
@@ -201,18 +197,6 @@ pub async fn reset_file_checkpoint(
         model.transferred_bytes = Set(0);
     })
     .await
-}
-
-fn ranges_json(ranges: &[(u64, u64)]) -> String {
-    serde_json::to_string(ranges).unwrap_or_else(|_| "[]".to_string())
-}
-
-fn prefix_range(transferred_bytes: i64) -> Vec<(u64, u64)> {
-    if transferred_bytes > 0 {
-        vec![(0, transferred_bytes as u64)]
-    } else {
-        Vec::new()
-    }
 }
 
 /// 更新发送方文件的已传输字节数（不修改 bitmap，发送方不使用 bitmap）

@@ -258,3 +258,27 @@ impl From<entity::transfer_session::ModelEx> for TransferProjection {
 pub fn parse_completed_ranges(value: &str) -> Vec<(u64, u64)> {
     serde_json::from_str(value).unwrap_or_default()
 }
+
+/// 序列化 `completed_ranges` JSON（[`parse_completed_ranges`] 的反向；store 实现共用）。
+pub fn ranges_json(ranges: &[(u64, u64)]) -> String {
+    serde_json::to_string(ranges).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// 「前缀已传」形态的 ranges（发送方以 `transferred_bytes` 表示断点）。
+pub fn prefix_range(transferred_bytes: i64) -> Vec<(u64, u64)> {
+    if transferred_bytes > 0 {
+        vec![(0, transferred_bytes as u64)]
+    } else {
+        Vec::new()
+    }
+}
+
+/// 文件的初始 chunk 位图：接收方按 [`calc_total_chunks`](crate::calc_total_chunks) 建零位图，
+/// 发送方为空（不使用 bitmap）。接收位图尺寸是续传正确性的域不变量，store 实现共用一份。
+pub fn initial_completed_chunks(size: u64, direction: entity::TransferDirection) -> Vec<u8> {
+    if direction == entity::TransferDirection::Receive {
+        vec![0u8; (crate::calc_total_chunks(size) as usize).div_ceil(8)]
+    } else {
+        vec![]
+    }
+}
