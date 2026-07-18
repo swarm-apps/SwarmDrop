@@ -73,8 +73,9 @@ python3 -m http.server 8080 -d static
   **不直接依赖 sea-orm**。InboxStore no-op。
 - **OpfsFileAccess**：主线程 async OPFS（`navigator.storage.getDirectory / createWritable`；
   **禁用 SyncAccessHandle**——Worker-only，与 webrtc-websys 主线程约束冲突）。JsValue `!Send`
-  用 `send_wrapper::SendWrapper` 裹 JsFuture 满足端口 Send。接收侧块入内存缓冲、finalize 一次落
-  OPFS（大文件吃内存，流式 positioned write 留作后续）。
+  用 `send_wrapper::SendWrapper` 裹 JsFuture 满足端口 Send。接收侧**流式落盘**：`create_sink`
+  开 `createWritable` 句柄常驻，每 chunk `WriteParams{position,data}` positioned 直写（单次
+  Promise 往返），`finalize` 时 `close` 提交；续传走 `keepExistingData:true`。大文件不进内存。
 - **WebEventSink**：`TransferEvent` 走无界 channel（`Send`）→ `events()` 的 ReadableStream 单点
   消费、serde-wasm-bindgen 序列化（镜像 `WebTransferEvent`，`tag="type"` camelCase）。
 - **身份**：`SecretKey` protobuf 编码 hex 存 localStorage。
@@ -87,5 +88,25 @@ python3 -m http.server 8080 -d static
   「陌生设备手动确认」，**不改 transfer**。
 - **IndexedDB 持久化未做**（加分项）：内存版足够验证端到端；跨刷新续传属后续（`SendWrapper` 包
   JsFuture 的 Send 方案已在 storage-abstraction.md 探针证可行）。
-- **接收缓冲整文件入内存**：demo 取舍，大文件会吃内存。
 - DHT 查分享码需先连 DHT-capable helper（浏览器不可达 TCP bootstrap，故 spawn 不加 bootstrap）。
+
+## 基准（`static/bench.html` + `scripts/web-bench/driver.mjs`）
+
+自动化传输基准：headless Chrome 双 tab（同 origin，send 侧 spawn 前清 localStorage 身份），经
+本机 helper 走 relay circuit 互传，测速率 / 主线程卡顿（longtask）/ SHA-256 字节一致性。
+
+```sh
+# 前置：wasm-pack build 完成；net-web-smoke helper 运行中；http.server 8080 -d static
+node scripts/web-bench/driver.mjs "<helper-ws-addr>/p2p/<id>" 268435456 1
+```
+
+2026-07-18 实测（M2 MacBook 同机三跳 A→relay→B，headless，最不利 CPU 竞争配置）：
+
+| 大小 | 接收耗时 | 均速 | 接收侧 longtask | hash |
+|---|---|---|---|---|
+| 256 MB | 8.2s | 31.3 MB/s | **0** | ✅ 一致 |
+| 1 GB | 32.1s | 31.9 MB/s | **0** | ✅ 一致 |
+
+速率不随文件大小衰减（无内存压力）；接收全程主线程零长任务——**webrtc/ws 主线程收流 +
+OPFS 流式落盘不卡 UI**。发送侧仅准备段一次 longtask（`new File([buf])` 构造测试数据，
+非传输热路径）。
