@@ -1,17 +1,17 @@
 //! 发送方 prepare 阶段：流式 BLAKE3 hash + 进度事件推送。
 //!
 //! 这里只挂载 `TransferManager::prepare` 一个方法，结构体定义和其他生命周期方法
-//! 仍在 [`crate::transfer::manager`]。
+//! 仍在 [`crate::manager`]。
 
 use std::time::Instant;
 
 use uuid::Uuid;
 
-use crate::host::CoreEvent;
-use crate::transfer::manager::{PreparedFile, PreparedTransfer, TransferManager};
-use crate::transfer::progress::PrepareProgressEvent;
-use crate::transfer::{CHUNK_SIZE, HostEnumeratedFile, calc_total_chunks};
+use crate::events::TransferEvent;
+use crate::manager::{PreparedFile, PreparedTransfer, TransferManager};
+use crate::progress::PrepareProgressEvent;
 use crate::{AppError, AppResult};
+use crate::{CHUNK_SIZE, HostEnumeratedFile, calc_total_chunks};
 
 impl TransferManager {
     /// 准备发送：流式 BLAKE3 hash + 进度事件推送
@@ -58,8 +58,8 @@ impl TransferManager {
                 if now.duration_since(last_emit) >= PROGRESS_THROTTLE {
                     last_emit = now;
                     let _ = self
-                        .event_bus
-                        .publish(CoreEvent::PrepareProgress {
+                        .events
+                        .emit(TransferEvent::PrepareProgress {
                             event: PrepareProgressEvent {
                                 prepared_id,
                                 current_file: entry.name.clone(),
@@ -88,8 +88,8 @@ impl TransferManager {
 
         // 最终完成事件（不受节流限制）
         let _ = self
-            .event_bus
-            .publish(CoreEvent::PrepareProgress {
+            .events
+            .emit(TransferEvent::PrepareProgress {
                 event: PrepareProgressEvent {
                     prepared_id,
                     current_file: String::new(),

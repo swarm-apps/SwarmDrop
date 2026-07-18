@@ -1,7 +1,7 @@
 //! 设备模型和连接类型推断。
 
 use serde::{Deserialize, Serialize};
-use swarmdrop_net::{Addr, NodeId};
+use swarmdrop_net_base::{Addr, NodeId};
 
 /// 已配对设备信任等级。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -424,7 +424,7 @@ pub fn infer_connection_type(addrs: &[Addr]) -> Option<ConnectionType> {
 
 #[cfg(test)]
 mod tests {
-    use swarmdrop_net::SecretKey;
+    use swarmdrop_net_base::SecretKey;
 
     use super::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
 

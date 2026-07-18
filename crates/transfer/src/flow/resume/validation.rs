@@ -5,10 +5,10 @@
 
 use entity::{TerminalReason, TransferPhase};
 
+use crate::epoch::EpochGuard;
 use crate::protocol::{
     FileCheckpoint, FileInfo, FileRange, ResumePhaseReport, ResumeRejectReason, ResumeReport,
 };
-use crate::transfer::epoch::EpochGuard;
 
 use super::plan::build_resume_manifest;
 

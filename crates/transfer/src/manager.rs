@@ -17,7 +17,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use dashmap::{DashMap, DashSet};
-use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use swarmdrop_net::{Endpoint, NodeId};
 use tokio::sync::oneshot;
@@ -26,13 +25,15 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::AppResult;
-use crate::host::{CoreSaveLocation, EventBus, FileAccess, FileSourceId};
-use crate::network::TransferRuntime;
+use crate::actor::registry::ActorRegistry;
+use crate::events::TransferEventSink;
+use crate::host::{CoreSaveLocation, FileAccess, FileSourceId};
+use crate::incoming::IncomingTransferRuntime;
+use crate::policy::ReceivePolicyDecision;
+use crate::progress::TransferFailedEvent;
 use crate::protocol::{FileInfo, TransferResponse};
-use crate::transfer::actor::registry::ActorRegistry;
-use crate::transfer::incoming::IncomingTransferRuntime;
-use crate::transfer::policy::ReceivePolicyDecision;
-use crate::transfer::progress::TransferFailedEvent;
+use crate::runtime::TransferRuntime;
+use crate::store::TransferStore;
 
 /// 发送方准备好的传输信息
 #[derive(Debug, Clone)]
@@ -145,12 +146,12 @@ const CLEANUP_INTERVAL_SECS: u64 = 60;
 /// 这样它们可以挂载额外的 `impl TransferManager { ... }` 块直接访问字段。
 pub struct TransferManager {
     pub(crate) endpoint: Endpoint,
-    pub(crate) event_bus: Arc<dyn EventBus>,
-    pub(crate) db: Arc<DatabaseConnection>,
+    pub(crate) events: Arc<dyn TransferEventSink>,
+    pub(crate) store: Arc<dyn TransferStore>,
     /// 默认文件访问 trait（用于发送方读源文件、接收方写入；host 在调用时也可针对单次会话覆盖）
     pub(crate) file_access: Arc<dyn FileAccess>,
     /// 传输生命周期协调器（状态变化的统一持久化 + projection 入口）。
-    pub(crate) coordinator: Arc<crate::transfer::coordinator::TransferCoordinator>,
+    pub(crate) coordinator: Arc<crate::coordinator::TransferCoordinator>,
 
     pub(crate) prepared: DashMap<Uuid, PreparedTransfer>,
     pub(crate) pending: DashMap<Uuid, PendingOffer>,
@@ -167,18 +168,18 @@ pub struct TransferManager {
 impl TransferManager {
     pub fn new(
         endpoint: Endpoint,
-        event_bus: Arc<dyn EventBus>,
-        db: Arc<DatabaseConnection>,
+        events: Arc<dyn TransferEventSink>,
+        store: Arc<dyn TransferStore>,
         file_access: Arc<dyn FileAccess>,
     ) -> Self {
-        let coordinator = Arc::new(crate::transfer::coordinator::TransferCoordinator::new(
-            db.clone(),
-            event_bus.clone(),
+        let coordinator = Arc::new(crate::coordinator::TransferCoordinator::new(
+            store.clone(),
+            events.clone(),
         ));
         Self {
             endpoint,
-            event_bus,
-            db,
+            events,
+            store,
             file_access,
             coordinator,
             prepared: DashMap::new(),
@@ -198,19 +199,20 @@ impl TransferManager {
     /// 启动后台定时清理任务
     ///
     /// 入站数据面不再由本任务轮询——新内核经 Router 的 [`TransferDataHandler`]
-    /// （[`wire::data_plane`](crate::transfer::wire)）按协议路由，装配在 runtime 层。
+    /// （[`wire::data_plane`](crate::wire)）按协议路由，装配在 runtime 层。
     pub fn spawn_cleanup_task(self: &Arc<Self>, cancel_token: CancellationToken) {
         let this = Arc::clone(self);
-        tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(CLEANUP_INTERVAL_SECS));
+        // spawn/time 走 n0-future（native=tokio，wasm=spawn_local + web-time）；固定间隔
+        // 清理不需要 tokio interval 的 fixed-rate 语义，每轮重置的 sleep 即可，且 wasm 可编。
+        n0_future::task::spawn(async move {
+            let interval = std::time::Duration::from_secs(CLEANUP_INTERVAL_SECS);
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         info!("传输资源清理任务已停止");
                         break;
                     }
-                    _ = interval.tick() => {
+                    _ = n0_future::time::sleep(interval) => {
                         this.run_cleanup();
                     }
                 }
@@ -243,14 +245,6 @@ impl TransferManager {
         &self.endpoint
     }
 
-    pub fn db(&self) -> &Arc<DatabaseConnection> {
-        &self.db
-    }
-
-    pub fn event_bus(&self) -> &Arc<dyn EventBus> {
-        &self.event_bus
-    }
-
     pub fn file_access(&self) -> &Arc<dyn FileAccess> {
         &self.file_access
     }
@@ -279,7 +273,7 @@ impl IncomingTransferRuntime for TransferManager {
     async fn handle_pause(
         &self,
         session_id: Uuid,
-    ) -> AppResult<crate::transfer::progress::TransferPausedEvent> {
+    ) -> AppResult<crate::progress::TransferPausedEvent> {
         self.handle_pause_impl(session_id).await
     }
 

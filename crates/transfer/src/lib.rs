@@ -1,22 +1,39 @@
-//! 文件传输共享常量和工具函数。
+//! swarmdrop-transfer：文件传输域（从 swarmdrop-core 迁出）。
+//!
+//! 经端口 trait 依赖倒置：持久化走 [`store::SessionStore`]/[`store::InboxStore`]，
+//! 配对目录走 [`peer::PeerDirectory`]，事件发射走 [`events::TransferEventSink`]，
+//! 生命周期清理走 [`runtime::TransferRuntime`]——本 crate **不依赖 sea-orm / pairing /
+//! network 模块**，wasm 双 target 可编。协议控制面（transfer-ctrl / transfer-data）在
+//! [`protocol`]。
 
 pub mod actor;
 pub mod coordinator;
 pub mod epoch;
+pub mod events;
 pub mod flow;
 pub mod incoming;
 pub mod manager;
+pub mod peer;
 pub mod policy;
 pub mod progress;
+pub mod protocol;
+pub mod runtime;
+pub mod store;
 pub mod wire;
+
+// ── 兼容层：迁出前这些模块内写的是 `crate::host::` / `crate::device::` /
+//    `crate::error::` / `crate::{AppError, AppResult}`；下沉后统一解析到 swarmdrop-host，
+//    避免逐处改路径。事件（CoreEvent/EventBus）不在 host——由 events 端口取代。
+pub use swarmdrop_host as host;
+pub use swarmdrop_host::{AppError, AppResult, device, error};
 
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::database::ops::ExpiredReceiverActor;
 use crate::host::{FileAccess, FileSourceId};
+use crate::store::ExpiredReceiverActor;
 
 /// 传输分块大小：256 KiB。
 pub const CHUNK_SIZE: usize = 256 * 1024;

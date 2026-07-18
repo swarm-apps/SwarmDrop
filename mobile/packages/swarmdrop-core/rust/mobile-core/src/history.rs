@@ -207,10 +207,13 @@ pub(crate) async fn reconcile_stale_sessions(
     event_bus: Arc<dyn EventBus>,
     file_access: &Arc<dyn FileAccess>,
 ) -> FfiResult<usize> {
-    let converted = TransferCoordinator::new(db.clone(), event_bus)
-        .cleanup_recoverable_sessions()
-        .await
-        .map_err(FfiError::from)?;
+    let converted = TransferCoordinator::new(
+        Arc::new(swarmdrop_core::database::SqlSessionStore::new(db.clone())),
+        Arc::new(swarmdrop_core::event_adapter::CoreTransferEvents(event_bus)),
+    )
+    .cleanup_recoverable_sessions()
+    .await
+    .map_err(FfiError::from)?;
 
     let reaped = ops::reap_expired_suspended_receives(
         &db,

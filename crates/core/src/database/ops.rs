@@ -13,31 +13,16 @@ use uuid::Uuid;
 
 use crate::AppResult;
 use crate::host::{CoreSaveLocation, HostFileMetadata};
-use crate::protocol::{FileInfo, TransferOrigin};
 use crate::transfer::calc_total_chunks;
-use crate::transfer::coordinator::TransferState;
+// 持久化 DTO / 投影类型随 transfer 域迁出；ops 的实现函数（SqlSessionStore 委托目标）
+// 保留在 core。pub use 兼容再导出，保持 `database::ops::{TransferProjection, …}` 路径
+// 不变（src-tauri events / mcp / commands 复用），From<ModelEx> 投影转换也随类型迁到 transfer。
+pub use crate::transfer::store::{
+    CreateSessionInput, ExpiredReceiverActor, TransferProjection, TransferProjectionFile,
+};
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
-}
-
-/// 新建传输会话所需的完整事实。
-pub struct CreateSessionInput<'a> {
-    pub session_id: Uuid,
-    pub direction: TransferDirection,
-    pub peer_id: &'a str,
-    pub peer_name: &'a str,
-    pub files: &'a [FileInfo],
-    pub total_size: u64,
-    pub save_path: Option<CoreSaveLocation>,
-    /// 发送方传入每个文件的绝对路径（与 `files` 一一对应），接收方传 `None`。
-    pub source_paths: Option<&'a [String]>,
-    pub lifecycle: TransferState,
-    /// 入站 Offer 的接收策略快照 `(action_name, reason)`；非策略场景传 `None`。
-    /// 随建会话一次写入，避免建后再 update 二次写。
-    pub policy: Option<(&'a str, &'a str)>,
-    /// 传输发起来源（人工 / MCP 代理），与 policy 正交；非传输场景（测试/seed）传 `None`。
-    pub origin: Option<TransferOrigin>,
 }
 
 /// 创建传输会话 + 关联的文件记录。
@@ -218,10 +203,6 @@ pub async fn reset_file_checkpoint(
     .await
 }
 
-pub fn parse_completed_ranges(value: &str) -> Vec<(u64, u64)> {
-    serde_json::from_str(value).unwrap_or_default()
-}
-
 fn ranges_json(ranges: &[(u64, u64)]) -> String {
     serde_json::to_string(ranges).unwrap_or_else(|_| "[]".to_string())
 }
@@ -382,109 +363,9 @@ where
 // ============ 查询 API ============
 
 // ============ 生命周期投影（redesign-transfer-lifecycle）============
-
-/// 传输投影 DTO —— 前端唯一状态源（逐步替代旧的分散事件 + 扁平 `SessionStatus`）。
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct TransferProjection {
-    pub session_id: Uuid,
-    pub direction: TransferDirection,
-    pub peer_id: String,
-    pub peer_name: String,
-    pub phase: TransferPhase,
-    pub suspended_reason: Option<SuspendedReason>,
-    pub terminal_reason: Option<TerminalReason>,
-    pub recoverable: bool,
-    pub epoch: i64,
-    pub total_size: i64,
-    pub transferred_bytes: i64,
-    pub started_at: i64,
-    pub updated_at: i64,
-    pub finished_at: Option<i64>,
-    pub error_message: Option<String>,
-    pub policy_action: Option<String>,
-    pub policy_reason: Option<String>,
-    pub save_path: Option<CoreSaveLocation>,
-    /// 「打开文件夹」应定位的真实容器目录 URI(收到内容实际所在的文件夹),已在 core 解析:
-    /// 各文件 `local_dir` 全部同一目录 → 该目录;否则回退存储根 `save_path`。前端直读,
-    /// 不再自行兜底(已完成接收必为 `Some`)。
-    pub content_root: Option<String>,
-    pub files: Vec<TransferProjectionFile>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct TransferProjectionFile {
-    pub file_id: i32,
-    pub name: String,
-    pub relative_path: String,
-    pub size: i64,
-    pub transferred_bytes: i64,
-}
-
-impl From<entity::transfer_file::ModelEx> for TransferProjectionFile {
-    fn from(f: entity::transfer_file::ModelEx) -> Self {
-        Self {
-            file_id: f.file_id,
-            name: f.name,
-            relative_path: f.relative_path,
-            size: f.size,
-            transferred_bytes: f.transferred_bytes,
-        }
-    }
-}
-
-/// 「打开文件夹」应定位的真实容器目录(投影与收件箱共用,**兜底收口在此一处**):
-/// 所有已完成接收文件的 `local_dir` 若唯一一致 → 该目录;否则(跨多个不同父目录 /
-/// 发送会话 / 缺 local_dir 的历史)→ 回退存储根 `save_path`。返回值即「可直接打开的
-/// 目录 or None(无 save_path 的边角)」,消费方直读、无需再兜底。绝不做「保存目录 +
-/// 相对路径」字符串拼接推导。
-pub(crate) fn content_root_of<'a>(
-    files: impl IntoIterator<Item = &'a entity::transfer_file::ModelEx>,
-    save_path: Option<&entity::SaveLocation>,
-) -> Option<String> {
-    let mut dirs = files.into_iter().filter_map(|f| f.local_dir.as_deref());
-    if let Some(first) = dirs.next()
-        && dirs.all(|d| d == first)
-    {
-        return Some(first.to_string());
-    }
-    save_path.map(|entity::SaveLocation::Path { path }| path.clone())
-}
-
-impl From<entity::transfer_session::ModelEx> for TransferProjection {
-    fn from(s: entity::transfer_session::ModelEx) -> Self {
-        // transferred_bytes 派生自文件级求和（单一事实来源）：文件进度由 persist_chunk /
-        // save_sender_file_progress 增量落库，projection 直接 SUM，省掉各生命周期转换前
-        // 手工 sync_session_transferred_bytes 的二次写与漂移风险。
-        let transferred_bytes = s.files.iter().map(|f| f.transferred_bytes).sum();
-        let content_root = content_root_of(s.files.iter(), s.save_path.as_ref());
-        Self {
-            session_id: s.session_id,
-            direction: s.direction,
-            peer_id: s.peer_id.0,
-            peer_name: s.peer_name,
-            phase: s.phase,
-            suspended_reason: s.suspended_reason,
-            terminal_reason: s.terminal_reason,
-            recoverable: s.recoverable,
-            epoch: s.epoch,
-            total_size: s.total_size,
-            transferred_bytes,
-            started_at: s.started_at,
-            updated_at: s.updated_at,
-            finished_at: s.finished_at,
-            error_message: s.error_message,
-            policy_action: s.policy_action,
-            policy_reason: s.policy_reason,
-            save_path: s.save_path.map(Into::into),
-            content_root,
-            files: s.files.into_iter().map(Into::into).collect(),
-        }
-    }
-}
+//
+// `TransferProjection` / `TransferProjectionFile` / `content_root_of` 及 `From<ModelEx>`
+// 投影转换随 transfer 域迁入 [`swarmdrop_transfer::store`]；下面的查询函数直接消费。
 
 /// 查询所有传输投影（前端列表唯一数据源，按开始时间倒序）。
 pub async fn get_transfer_projections(
@@ -638,13 +519,6 @@ pub async fn get_session_source_paths(
         .await?)
 }
 
-/// 被过期回收的接收会话及其文件元数据（供 host 尽力清理遗留 `.part`）。
-pub struct ExpiredReceiverActor {
-    pub session_id: Uuid,
-    /// 重建 sink 所需的文件元数据（已带 `save_dir`）。
-    pub files: Vec<HostFileMetadata>,
-}
-
 /// 启动清理：回收超过保留期仍未恢复的 recoverable suspended **接收**会话。
 ///
 /// 命中条件：`phase=Suspended` + `recoverable` + `direction=Receive` 且 `updated_at`
@@ -707,6 +581,7 @@ pub async fn reap_expired_suspended_receives(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::FileInfo;
     use crate::transfer::coordinator::TransferState;
     use migration::MigratorTrait;
     use sea_orm::{ConnectOptions, Database};

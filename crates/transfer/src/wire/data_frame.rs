@@ -62,7 +62,7 @@ pub enum TransferDataFrame {
         session_id: Uuid,
         epoch: i64,
         range: FileRange,
-        /// 明文块数据（wire v2 已删应用层加密，见 [`wire`](crate::transfer::wire)）。
+        /// 明文块数据（wire v2 已删应用层加密，见 [`wire`](crate::wire)）。
         data: Vec<u8>,
         /// 逐块完整性证明的扩展位（bao-tree 接入预留，见知识库
         /// iroh-migration.md 的选型结论）。v2 当前恒为 `None`；接入后携带

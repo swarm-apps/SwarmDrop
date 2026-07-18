@@ -2,12 +2,24 @@
 //!
 //! wire v2 删除了应用层 XChaCha20 加密：Noise/TLS 在途已加密，relay 只见密文，
 //! 密钥经同一加密信道分发是自引用——故 `OfferResult` / `ResumeCommit` 不再携带
-//! 传输密钥，数据面直接传明文（帧协议见 [`transfer::wire`](crate::transfer::wire)）。
+//! 传输密钥，数据面直接传明文（帧协议见 [`transfer::wire`](crate::wire)）。
 
 use serde::{Deserialize, Serialize};
+use swarmdrop_net::{ProtocolId, Rpc};
 use uuid::Uuid;
 
 use entity::TerminalReason;
+
+/// 传输控制面协议名（typed RPC）。
+pub const TRANSFER_CTRL_PROTOCOL: ProtocolId =
+    ProtocolId::from_static("/swarmdrop/transfer-ctrl/2");
+
+/// 传输数据面协议名（裸流 + 自带帧协议，见 [`wire`](crate::wire)）。
+pub const TRANSFER_DATA_PROTOCOL: ProtocolId =
+    ProtocolId::from_static("/swarmdrop/transfer-data/2");
+
+/// 传输控制面 typed RPC：`TransferRequest → TransferResponse`。
+pub const TRANSFER_CTRL: Rpc<TransferRequest, TransferResponse> = Rpc::new(TRANSFER_CTRL_PROTOCOL);
 
 /// 传输文件元信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -26,7 +26,7 @@ use crate::protocol::{
 };
 use crate::transfer::incoming::TransferCtrlService;
 use crate::transfer::manager::TransferManager;
-use crate::transfer::wire::data_plane::TransferDataHandler;
+use crate::transfer::wire::TransferDataHandler;
 
 /// 已启动的 core 节点。
 ///

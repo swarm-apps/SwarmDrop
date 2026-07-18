@@ -13,9 +13,9 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use uuid::Uuid;
 
-use crate::transfer::actor::receiver::ReceiverActor;
-use crate::transfer::actor::sender::SenderActor;
-use crate::transfer::epoch::EpochGuard;
+use crate::actor::receiver::ReceiverActor;
+use crate::actor::sender::SenderActor;
+use crate::epoch::EpochGuard;
 
 /// 可被注册表取消的 actor（epoch 替换 / 移除时调用）。
 ///
@@ -162,18 +162,55 @@ mod tests {
     use swarmdrop_net::SecretKey;
 
     use super::*;
-    use crate::host::{CoreAppPaths, MemoryHost};
-    use crate::transfer::manager::PreparedFile;
+    use crate::AppResult;
+    use crate::events::{TransferEvent, TransferEventSink};
+    use crate::host::{FileAccess, FileSinkId, FileSourceId, FinalizedSink, HostFileMetadata};
+    use crate::manager::PreparedFile;
+
+    /// 最小测试替身：本组测试只验证 registry 的 epoch 簿记，actor 被存/取/取消而从不
+    /// 触发文件 I/O 或事件发射，故 `FileAccess`/`TransferEventSink` 方法给零值实现即可。
+    /// （core 的 `MemoryHost` 不可用——它随 `CoreEvent`/`EventBus` 留在 core，不下沉。）
+    struct TestHost;
+
+    #[async_trait::async_trait]
+    impl FileAccess for TestHost {
+        async fn source_metadata(&self, _source: &FileSourceId) -> AppResult<HostFileMetadata> {
+            unreachable!("registry 测试不读文件")
+        }
+        async fn read_source_chunk(
+            &self,
+            _source: &FileSourceId,
+            _offset: u64,
+            _length: usize,
+        ) -> AppResult<Vec<u8>> {
+            unreachable!("registry 测试不读文件")
+        }
+        async fn create_sink(&self, _metadata: HostFileMetadata) -> AppResult<FileSinkId> {
+            unreachable!("registry 测试不写文件")
+        }
+        async fn write_sink_chunk(
+            &self,
+            _sink: &FileSinkId,
+            _offset: u64,
+            _data: Vec<u8>,
+        ) -> AppResult<()> {
+            unreachable!("registry 测试不写文件")
+        }
+        async fn finalize_sink(&self, _sink: &FileSinkId) -> AppResult<FinalizedSink> {
+            unreachable!("registry 测试不落盘")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TransferEventSink for TestHost {
+        async fn emit(&self, _event: TransferEvent) -> AppResult<()> {
+            Ok(())
+        }
+    }
 
     fn send_actor() -> Arc<SenderActor> {
         let peer_id = SecretKey::generate().node_id();
-        let base = std::env::temp_dir();
-        let host = Arc::new(MemoryHost::new(CoreAppPaths {
-            data_dir: base.clone(),
-            cache_dir: base.clone(),
-            temp_dir: base.clone(),
-            log_dir: base,
-        }));
+        let host = Arc::new(TestHost);
         Arc::new(SenderActor::new(
             Uuid::new_v4(),
             peer_id,

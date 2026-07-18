@@ -8637,13 +8637,31 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
+ "swarmdrop-host",
  "swarmdrop-net",
+ "swarmdrop-transfer",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
  "unsigned-varint",
  "uuid",
+]
+
+[[package]]
+name = "swarmdrop-host"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "entity",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "specta",
+ "swarmdrop-net-base",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
@@ -8699,6 +8717,30 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "swarmdrop-transfer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "blake3",
+ "chrono",
+ "dashmap",
+ "entity",
+ "futures",
+ "n0-future",
+ "serde",
+ "serde_json",
+ "specta",
+ "swarmdrop-host",
+ "swarmdrop-net",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "unsigned-varint",
+ "uuid",
 ]
 
 [[package]]

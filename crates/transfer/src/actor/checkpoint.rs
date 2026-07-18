@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 
 use crate::protocol::{FileInfo, FileRange};
-use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
 use crate::{AppError, AppResult};
+use crate::{CHUNK_SIZE, calc_total_chunks};
 
 /// Finish 前校验所有文件的 bitmap 都已收满（空文件视为已完成）。
 pub(crate) fn ensure_files_complete(

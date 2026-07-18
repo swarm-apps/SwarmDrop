@@ -12,13 +12,13 @@ use tokio::sync::oneshot;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::database::ops::CreateSessionInput;
+use crate::actor::receiver::ReceiverActor;
+use crate::coordinator::{CoordinatorInput, TransferState, UserCommand};
+use crate::manager::{PendingOffer, TransferManager};
+use crate::policy::ReceivePolicyDecision;
+use crate::progress::{RuntimeTransferDirection, TransferFailedEvent};
 use crate::protocol::{FileInfo, OfferRejectReason, TransferOrigin, TransferResponse};
-use crate::transfer::actor::receiver::ReceiverActor;
-use crate::transfer::coordinator::{CoordinatorInput, TransferState, UserCommand};
-use crate::transfer::manager::{PendingOffer, TransferManager};
-use crate::transfer::policy::ReceivePolicyDecision;
-use crate::transfer::progress::{RuntimeTransferDirection, TransferFailedEvent};
+use crate::store::CreateSessionInput;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
@@ -39,9 +39,8 @@ impl TransferManager {
         policy_decision: &ReceivePolicyDecision,
     ) -> AppResult<()> {
         let peer_id_str = peer_id.to_string();
-        crate::database::ops::create_session(
-            &self.db,
-            CreateSessionInput {
+        self.store
+            .create_session(CreateSessionInput {
                 session_id,
                 direction: entity::TransferDirection::Receive,
                 peer_id: &peer_id_str,
@@ -53,9 +52,8 @@ impl TransferManager {
                 lifecycle: TransferState::offered(0),
                 policy: Some((policy_decision.action_name(), &policy_decision.reason)),
                 origin: Some(origin),
-            },
-        )
-        .await
+            })
+            .await
     }
 
     #[expect(
@@ -159,12 +157,9 @@ impl TransferManager {
 
         info!("Accepting transfer offer: session={}", session_id);
 
-        crate::database::ops::update_session_save_path(
-            &self.db,
-            offer.session_id,
-            save_location.clone(),
-        )
-        .await?;
+        self.store
+            .update_session_save_path(offer.session_id, save_location.clone())
+            .await?;
 
         self.start_receive_actor(
             0,
@@ -224,9 +219,7 @@ impl TransferManager {
         self.coordinator
             .dispatch(
                 *session_id,
-                crate::transfer::coordinator::CoordinatorInput::User(
-                    crate::transfer::coordinator::UserCommand::Pause,
-                ),
+                crate::coordinator::CoordinatorInput::User(crate::coordinator::UserCommand::Pause),
             )
             .await?;
         self.remove_receive_actor(session_id);
@@ -250,9 +243,7 @@ impl TransferManager {
         self.coordinator
             .dispatch(
                 *session_id,
-                crate::transfer::coordinator::CoordinatorInput::User(
-                    crate::transfer::coordinator::UserCommand::Cancel,
-                ),
+                crate::coordinator::CoordinatorInput::User(crate::coordinator::UserCommand::Cancel),
             )
             .await?;
         info!("Receive session cancelled: session={}", session_id);
@@ -288,8 +279,8 @@ impl TransferManager {
             files,
             total_size,
             self.file_access.clone(),
-            self.event_bus.clone(),
-            self.db.clone(),
+            self.events.clone(),
+            self.store.clone(),
             self.coordinator.clone(),
             save_location,
             initial_bitmaps,
@@ -313,7 +304,7 @@ impl TransferManager {
         }
         if let Some(session) = self.get_receive_actor(&session_id) {
             self.remove_receive_actor(&session_id);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 session.cancel_and_wait().await;
                 session.cleanup_part_files().await;
             });
@@ -323,7 +314,7 @@ impl TransferManager {
             .coordinator
             .dispatch_network_current(
                 session_id,
-                crate::transfer::coordinator::NetworkSignal::RemoteCancelled,
+                crate::coordinator::NetworkSignal::RemoteCancelled,
             )
             .await
         {
@@ -343,9 +334,7 @@ impl TransferManager {
     /// 发送端会话由 data-channel 推送驱动、自身不轮询，靠此 hook 才能感知断连。
     pub(crate) async fn handle_peer_disconnected_impl(&self, peer_id: NodeId) {
         let peer_str = peer_id.to_string();
-        let ids = match crate::database::ops::find_active_session_ids_by_peer(&self.db, &peer_str)
-            .await
-        {
+        let ids = match self.store.find_active_session_ids_by_peer(&peer_str).await {
             Ok(ids) => ids,
             Err(e) => {
                 warn!("查询 peer {} 的 active 会话失败: {}", peer_str, e);
@@ -364,7 +353,7 @@ impl TransferManager {
                 .coordinator
                 .dispatch_network_current(
                     session_id,
-                    crate::transfer::coordinator::NetworkSignal::Interrupted,
+                    crate::coordinator::NetworkSignal::Interrupted,
                 )
                 .await
             {
@@ -376,12 +365,13 @@ impl TransferManager {
     pub(crate) async fn handle_pause_impl(
         &self,
         session_id: Uuid,
-    ) -> AppResult<crate::transfer::progress::TransferPausedEvent> {
+    ) -> AppResult<crate::progress::TransferPausedEvent> {
         let direction = if let Some(session) = self.get_send_actor(&session_id) {
             let progress = session.get_file_progress();
-            let _ =
-                crate::database::ops::save_sender_file_progress(&self.db, session_id, &progress)
-                    .await;
+            let _ = self
+                .store
+                .save_sender_file_progress(session_id, &progress)
+                .await;
             session.cancel();
             self.remove_send_actor(&session_id);
             RuntimeTransferDirection::Send
@@ -397,16 +387,13 @@ impl TransferManager {
         // 与本地 pause 的 LocalPaused 区分开——这正是 3.3 要落实的本地/对端 reason 区分。
         if let Err(e) = self
             .coordinator
-            .dispatch_network_current(
-                session_id,
-                crate::transfer::coordinator::NetworkSignal::RemotePaused,
-            )
+            .dispatch_network_current(session_id, crate::coordinator::NetworkSignal::RemotePaused)
             .await
         {
             warn!("dispatch 对端暂停失败: {}", e);
         }
 
-        Ok(crate::transfer::progress::TransferPausedEvent {
+        Ok(crate::progress::TransferPausedEvent {
             session_id,
             direction,
         })

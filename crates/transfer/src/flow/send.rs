@@ -1,6 +1,6 @@
 //! 发送方生命周期：发起 Offer / 暂停 / 取消 / send_actor 访问。
 //!
-//! 与 `receive` 模块对称；公共结构体定义仍在 [`crate::transfer::manager`]。
+//! 与 `receive` 模块对称；公共结构体定义仍在 [`crate::manager`]。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,19 +17,17 @@ use uuid::Uuid;
 /// pending 先于发送端放弃被清理，避免"接收端刚接受、发送端已超时"竞态。
 const OFFER_RESPONSE_TIMEOUT_SECS: u64 = 180;
 
-use crate::database::ops::CreateSessionInput;
-use crate::host::CoreEvent;
-use crate::protocol::{FileInfo, TRANSFER_CTRL, TransferOrigin, TransferRequest, TransferResponse};
-use crate::transfer::actor::sender::SenderActor;
-use crate::transfer::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferState};
-use crate::transfer::flow::resume::parse_peer_id;
-use crate::transfer::manager::{
-    PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager,
-};
-use crate::transfer::progress::{
+use crate::actor::sender::SenderActor;
+use crate::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferState};
+use crate::events::TransferEvent;
+use crate::flow::resume::parse_peer_id;
+use crate::manager::{PendingOutboundOffer, PreparedFile, StartSendResult, TransferManager};
+use crate::progress::{
     RuntimeTransferDirection, TransferAcceptedEvent, TransferFailedEvent, TransferRejectedEvent,
 };
-use crate::transfer::wire::data_frame::full_fetch_plan;
+use crate::protocol::{FileInfo, TRANSFER_CTRL, TransferOrigin, TransferRequest, TransferResponse};
+use crate::store::CreateSessionInput;
+use crate::wire::data_frame::full_fetch_plan;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
@@ -79,9 +77,8 @@ impl TransferManager {
             selected_files.len()
         );
 
-        crate::database::ops::create_session(
-            &self.db,
-            CreateSessionInput {
+        self.store
+            .create_session(CreateSessionInput {
                 session_id,
                 direction: entity::TransferDirection::Send,
                 peer_id: &peer_id_str,
@@ -93,9 +90,8 @@ impl TransferManager {
                 lifecycle: TransferState::waiting_accept(0),
                 policy: None,
                 origin: Some(origin.clone()),
-            },
-        )
-        .await?;
+            })
+            .await?;
         self.coordinator.publish_projection(session_id).await?;
         self.outbound_offers.insert(
             session_id,
@@ -107,13 +103,13 @@ impl TransferManager {
         let endpoint = self.endpoint.clone();
         let this = Arc::clone(self);
         let prepared_id = *prepared_id;
-        tokio::spawn(async move {
-            let bus = this.event_bus.clone();
+        n0_future::task::spawn(async move {
+            let bus = this.events.clone();
             let publish_failed = |error: String| {
                 let bus = bus.clone();
                 async move {
                     let _ = bus
-                        .publish(CoreEvent::TransferFailed {
+                        .emit(TransferEvent::TransferFailed {
                             event: TransferFailedEvent {
                                 session_id,
                                 direction: RuntimeTransferDirection::Send,
@@ -156,7 +152,7 @@ impl TransferManager {
                         target_peer,
                         selected_prepared,
                         this.file_access.clone(),
-                        this.event_bus.clone(),
+                        this.events.clone(),
                     ));
                     this.insert_send_actor(session_id, 0, send_actor);
                     this.close_accepted_outbound_offer(session_id, prepared_id);
@@ -171,8 +167,8 @@ impl TransferManager {
                             .coordinator
                             .dispatch(
                                 session_id,
-                                crate::transfer::coordinator::CoordinatorInput::User(
-                                    crate::transfer::coordinator::UserCommand::Cancel,
+                                crate::coordinator::CoordinatorInput::User(
+                                    crate::coordinator::UserCommand::Cancel,
                                 ),
                             )
                             .await
@@ -201,8 +197,8 @@ impl TransferManager {
                     }
 
                     let _ = this
-                        .event_bus
-                        .publish(CoreEvent::TransferAccepted {
+                        .events
+                        .emit(TransferEvent::TransferAccepted {
                             event: TransferAcceptedEvent { session_id },
                         })
                         .await;
@@ -230,8 +226,8 @@ impl TransferManager {
                         warn!("dispatch OfferRejected 失败: {}", e);
                     }
                     let _ = this
-                        .event_bus
-                        .publish(CoreEvent::TransferRejected {
+                        .events
+                        .emit(TransferEvent::TransferRejected {
                             event: TransferRejectedEvent { session_id, reason },
                         })
                         .await;
@@ -280,13 +276,13 @@ impl TransferManager {
         let progress = session.get_file_progress();
         // 落库文件级进度即可：projection 的 transferredBytes 直接 SUM 文件级，无需再
         // 手工 sync 到 session 列。
-        crate::database::ops::save_sender_file_progress(&self.db, *session_id, &progress).await?;
+        self.store
+            .save_sender_file_progress(*session_id, &progress)
+            .await?;
         self.coordinator
             .dispatch(
                 *session_id,
-                crate::transfer::coordinator::CoordinatorInput::User(
-                    crate::transfer::coordinator::UserCommand::Pause,
-                ),
+                crate::coordinator::CoordinatorInput::User(crate::coordinator::UserCommand::Pause),
             )
             .await?;
         self.remove_send_actor(session_id);
@@ -305,8 +301,8 @@ impl TransferManager {
                 self.coordinator
                     .dispatch(
                         *session_id,
-                        crate::transfer::coordinator::CoordinatorInput::User(
-                            crate::transfer::coordinator::UserCommand::Cancel,
+                        crate::coordinator::CoordinatorInput::User(
+                            crate::coordinator::UserCommand::Cancel,
                         ),
                     )
                     .await?;
@@ -322,9 +318,7 @@ impl TransferManager {
         self.coordinator
             .dispatch(
                 *session_id,
-                crate::transfer::coordinator::CoordinatorInput::User(
-                    crate::transfer::coordinator::UserCommand::Cancel,
-                ),
+                crate::coordinator::CoordinatorInput::User(crate::coordinator::UserCommand::Cancel),
             )
             .await?;
         info!("Send session cancelled: session={}", session_id);

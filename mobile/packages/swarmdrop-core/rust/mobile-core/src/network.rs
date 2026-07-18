@@ -221,8 +221,10 @@ impl MobileCore {
             move |endpoint| {
                 swarmdrop_core::transfer::manager::TransferManager::new(
                     endpoint,
-                    event_bus,
-                    db,
+                    std::sync::Arc::new(swarmdrop_core::event_adapter::CoreTransferEvents(
+                        event_bus,
+                    )),
+                    std::sync::Arc::new(swarmdrop_core::database::SqlSessionStore::new(db)),
                     file_access,
                 )
             },

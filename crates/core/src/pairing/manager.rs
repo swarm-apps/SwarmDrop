@@ -365,6 +365,14 @@ impl PairingManager {
     }
 }
 
+/// transfer 的 [`PeerDirectory`] 端口实现：把 offer 的中继自动接受策略所需的「查已配对
+/// 设备」委托给同名 inherent 方法（trait 与 inherent 同名，inherent 优先，无递归）。
+impl crate::transfer::peer::PeerDirectory for PairingManager {
+    fn get_paired_device(&self, peer_id: &NodeId) -> Option<PairedDeviceInfo> {
+        PairingManager::get_paired_device(self, peer_id)
+    }
+}
+
 /// 配对 typed RPC 服务：把 [`PairingManager`] 适配成 [`RpcService`]。
 #[derive(Clone)]
 pub struct PairingService(pub Arc<PairingManager>);

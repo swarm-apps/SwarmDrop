@@ -2,38 +2,33 @@
 //!
 //! 管理单个接收传输的生命周期：读取数据面裸流推送的分块、写入、校验、最终化。
 //! 文件 I/O 全部通过 [`FileAccess`] trait 完成。wire v2 已删应用层加密——数据面
-//! 直接收明文（见 [`wire`](crate::transfer::wire)）。CancellationToken 支持取消。
+//! 直接收明文（见 [`wire`](crate::wire)）。CancellationToken 支持取消。
 
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use futures::io::AsyncReadExt;
-use sea_orm::DatabaseConnection;
 use swarmdrop_net::{NodeId, P2pStream};
 use tokio::sync::{Mutex, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::host::{
-    CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, HostFileMetadata,
-};
-use crate::protocol::{FileInfo, FileRange};
-use crate::transfer::actor::checkpoint::{
+use crate::actor::checkpoint::{
     bytes_from_bitmap, count_completed_in_bitmap, ensure_files_complete, mark_chunk_completed,
     ranges_from_bitmap, validate_block_range,
 };
-use crate::transfer::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
-use crate::transfer::epoch::EpochGuard;
-use crate::transfer::progress::{
-    FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent,
-};
-use crate::transfer::wire::data_frame::{
-    TransferDataFrame, manifest_digest, read_frame, write_frame,
-};
-use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
+use crate::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
+use crate::epoch::EpochGuard;
+use crate::events::{TransferEvent, TransferEventSink};
+use crate::host::{CoreSaveLocation, FileAccess, FileSinkId, HostFileMetadata};
+use crate::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent};
+use crate::protocol::{FileInfo, FileRange};
+use crate::store::TransferStore;
+use crate::wire::data_frame::{TransferDataFrame, manifest_digest, read_frame, write_frame};
 use crate::{AppError, AppResult};
+use crate::{CHUNK_SIZE, calc_total_chunks};
 
 /// 每完成多少个 chunk 刷写一次 bitmap checkpoint 到 DB
 const CHECKPOINT_INTERVAL: u32 = 10;
@@ -51,9 +46,9 @@ pub struct ReceiverActor {
     /// 文件访问 trait
     file_access: Arc<dyn FileAccess>,
     /// 事件总线
-    event_bus: Arc<dyn EventBus>,
-    /// 数据库连接（断点续传 checkpoint 持久化）
-    db: Arc<DatabaseConnection>,
+    events: Arc<dyn TransferEventSink>,
+    /// 持久化端口（断点续传 checkpoint / 收件箱条目）
+    store: Arc<dyn TransferStore>,
     /// 生命周期协调器（接收方自身 complete/fail 后发 projection，消除收发不对称）
     coordinator: Arc<TransferCoordinator>,
     /// 保存位置（用于完成事件 payload，host 自己定义语义）
@@ -76,8 +71,8 @@ impl ReceiverActor {
         files: Vec<FileInfo>,
         total_size: u64,
         file_access: Arc<dyn FileAccess>,
-        event_bus: Arc<dyn EventBus>,
-        db: Arc<DatabaseConnection>,
+        events: Arc<dyn TransferEventSink>,
+        store: Arc<dyn TransferStore>,
         coordinator: Arc<TransferCoordinator>,
         save_location: CoreSaveLocation,
         initial_bitmaps: HashMap<u32, Vec<u8>>,
@@ -89,8 +84,8 @@ impl ReceiverActor {
             files,
             total_size,
             file_access,
-            event_bus,
-            db,
+            events,
+            store,
             coordinator,
             save_location,
             cancel_token: CancellationToken::new(),
@@ -155,7 +150,7 @@ impl ReceiverActor {
     ) where
         F: FnOnce(&Uuid) + Send + 'static,
     {
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             let outcome = self.run_data_channel(epoch, stream, fetch_plan).await;
             match &outcome {
                 Ok(true) => info!(
@@ -181,10 +176,9 @@ impl ReceiverActor {
                             .coordinator
                             .dispatch(
                                 self.session_id,
-                                crate::transfer::coordinator::CoordinatorInput::Network {
+                                crate::coordinator::CoordinatorInput::Network {
                                     epoch,
-                                    signal:
-                                        crate::transfer::coordinator::NetworkSignal::Interrupted,
+                                    signal: crate::coordinator::NetworkSignal::Interrupted,
                                 },
                             )
                             .await;
@@ -398,8 +392,8 @@ impl ReceiverActor {
             };
             if let Some(event) = progress_event {
                 let _ = self
-                    .event_bus
-                    .publish(CoreEvent::TransferProgress { event })
+                    .events
+                    .emit(TransferEvent::TransferProgress { event })
                     .await;
             }
         }
@@ -439,15 +433,15 @@ impl ReceiverActor {
         if let Some(checkpoint_bitmap) = checkpoint_bitmap {
             let completed_ranges =
                 ranges_from_bitmap(&checkpoint_bitmap, file_info.size, total_chunks);
-            crate::database::ops::update_file_checkpoint_ranges(
-                &self.db,
-                self.session_id,
-                range.file_id as i32,
-                checkpoint_bitmap,
-                &completed_ranges,
-                transferred as i64,
-            )
-            .await?;
+            self.store
+                .update_file_checkpoint_ranges(
+                    self.session_id,
+                    range.file_id as i32,
+                    checkpoint_bitmap,
+                    &completed_ranges,
+                    transferred as i64,
+                )
+                .await?;
         }
         Ok(())
     }
@@ -462,8 +456,8 @@ impl ReceiverActor {
         };
         if let Some(event) = progress_event {
             let _ = self
-                .event_bus
-                .publish(CoreEvent::TransferProgress { event })
+                .events
+                .emit(TransferEvent::TransferProgress { event })
                 .await;
         }
     }
@@ -504,12 +498,10 @@ impl ReceiverActor {
                     self.remove_created_sink(&sink_id).await;
                     // 校验失败时 .part 已被删除，但 DB bitmap 仍完整：必须 reset，否则续传/完成
                     // 路径会把该文件当作已完成跳过→丢数据。校验失败经 fail_session 转 terminal/failed。
-                    if let Err(e2) = crate::database::ops::reset_file_checkpoint(
-                        &self.db,
-                        self.session_id,
-                        file_info.file_id as i32,
-                    )
-                    .await
+                    if let Err(e2) = self
+                        .store
+                        .reset_file_checkpoint(self.session_id, file_info.file_id as i32)
+                        .await
                     {
                         warn!(
                             "重置文件 checkpoint 失败: file_id={}, {}",
@@ -529,16 +521,16 @@ impl ReceiverActor {
             let bitmap = bitmaps
                 .remove(&file_info.file_id)
                 .ok_or_else(|| AppError::Transfer("完成 bitmap 不存在".into()))?;
-            crate::database::ops::mark_file_completed(
-                &self.db,
-                self.session_id,
-                file_info.file_id as i32,
-                bitmap,
-                file_info.size as i64,
-                finalized.uri,
-                finalized.dir,
-            )
-            .await?;
+            self.store
+                .mark_file_completed(
+                    self.session_id,
+                    file_info.file_id as i32,
+                    bitmap,
+                    file_info.size as i64,
+                    finalized.uri,
+                    finalized.dir,
+                )
+                .await?;
         }
 
         // 终态经状态机：文件级 mark_file_completed 已在上面完成，session 终态由
@@ -561,8 +553,8 @@ impl ReceiverActor {
                 .await
                 .complete_event(Some(self.save_location.clone()));
             let _ = self
-                .event_bus
-                .publish(CoreEvent::TransferCompleted {
+                .events
+                .emit(TransferEvent::TransferCompleted {
                     event: complete_event,
                 })
                 .await;
@@ -579,7 +571,8 @@ impl ReceiverActor {
     /// 取消并等待后台任务完成（含最终 bitmap 刷写），最多等 5 秒
     pub async fn cancel_and_wait(&self) {
         self.cancel_token.cancel();
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), self.wait_finished()).await;
+        let _ =
+            n0_future::time::timeout(std::time::Duration::from_secs(5), self.wait_finished()).await;
     }
 
     /// 获取取消令牌
@@ -617,24 +610,23 @@ impl ReceiverActor {
         if matches!(transitioned, Ok(Some(_))) {
             let event = progress.lock().await.failed_event(msg);
             let _ = self
-                .event_bus
-                .publish(CoreEvent::TransferFailed { event })
+                .events
+                .emit(TransferEvent::TransferFailed { event })
                 .await;
         }
     }
 
     /// 接收完成后创建收件箱索引；失败只作为 DB 附加错误上报，不回滚已完成传输。
     async fn ensure_inbox_item_after_completion(&self) {
-        if let Err(e) = crate::database::inbox::ensure_inbox_item_for_completed_receive_session(
-            &self.db,
-            self.session_id,
-        )
-        .await
+        if let Err(e) = self
+            .store
+            .ensure_inbox_item_for_completed_receive_session(self.session_id)
+            .await
         {
             warn!("创建收件箱条目失败: session={}, {}", self.session_id, e);
             let _ = self
-                .event_bus
-                .publish(CoreEvent::TransferDbError {
+                .events
+                .emit(TransferEvent::TransferDbError {
                     event: TransferDbErrorEvent {
                         session_id: self.session_id,
                         message: format!("创建收件箱条目失败: {e}"),

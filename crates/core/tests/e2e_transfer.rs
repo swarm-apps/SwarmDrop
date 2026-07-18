@@ -22,8 +22,9 @@ use swarmdrop_net::{Addr, DhtConfig, Endpoint, NodeAddr, NodeId, Router, SecretK
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 
-use swarmdrop_core::database::ops;
+use swarmdrop_core::database::{SqlSessionStore, ops};
 use swarmdrop_core::device::{OsInfo, PairedDeviceInfo};
+use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{
     CoreAppPaths, CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, FileSourceId,
     HostFileMetadata, MemoryHost,
@@ -38,6 +39,7 @@ use swarmdrop_core::transfer::coordinator::{
 };
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
+use swarmdrop_core::transfer::store::CreateSessionInput;
 use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
 
 // ===== harness =====
@@ -129,8 +131,12 @@ async fn spawn_node(
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
 
-    let transfer =
-        TransferManager::new(endpoint.clone(), event_bus.clone(), db.clone(), file_access);
+    let transfer = TransferManager::new(
+        endpoint.clone(),
+        Arc::new(CoreTransferEvents(event_bus.clone())),
+        Arc::new(SqlSessionStore::new(db.clone())),
+        file_access,
+    );
     let network_config = NetworkRuntimeConfig::default();
     let candidate_manager = create_candidate_manager(&network_config);
     let manager = NetManager::new(
@@ -248,7 +254,7 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id:
     }];
     ops::create_session(
         db,
-        ops::CreateSessionInput {
+        CreateSessionInput {
             session_id,
             direction: TransferDirection::Receive,
             peer_id,
@@ -285,7 +291,7 @@ async fn seed_suspended_session(
 ) {
     ops::create_session(
         db,
-        ops::CreateSessionInput {
+        CreateSessionInput {
             session_id,
             direction,
             peer_id,
@@ -557,7 +563,10 @@ async fn e2e_startup_cleanup_active_to_suspended() {
     seed_active_session(db.as_ref(), session_id, "peer").await;
 
     // 重启清理：active → recoverable suspended(AppRestarted)。
-    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
     let converted = coordinator
         .cleanup_recoverable_sessions()
         .await
@@ -597,7 +606,10 @@ async fn e2e_remote_signals_write_remote_reason() {
     let db = make_db().await;
     let host = MemoryHost::new(test_paths());
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
-    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
 
     // 对端暂停：active → suspended/RemotePaused/recoverable。
     let paused_id = Uuid::new_v4();
@@ -1283,7 +1295,10 @@ async fn e2e_fatal_error_persists_message() {
     let db = make_db().await;
     let host = MemoryHost::new(test_paths());
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
-    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
 
     let session_id = Uuid::new_v4();
     seed_active_session(db.as_ref(), session_id, "peer").await;
@@ -1324,7 +1339,10 @@ async fn e2e_terminal_irreversible_under_concurrent_complete_cancel() {
     let db = make_db().await;
     let host = MemoryHost::new(test_paths());
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
-    let coordinator = TransferCoordinator::new(db.clone(), event_bus);
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
 
     // 顺序 A：取消先到 → 迟到的完成被拒，终态保持 cancelled。
     let cancelled_first = Uuid::new_v4();

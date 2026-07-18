@@ -2,7 +2,7 @@
 //!
 //! 管理单个发送传输的生命周期：经数据面裸流推送文件块、处理 Cancel。
 //! 文件读取通过 [`FileAccess`] trait 完成。wire v2 已删应用层加密——Noise/TLS 在途
-//! 已加密，数据面直接传明文（见 [`wire`](crate::transfer::wire)）。
+//! 已加密，数据面直接传明文（见 [`wire`](crate::wire)）。
 //! 使用 `Arc<std::sync::Mutex<ProgressTracker>>` 实现并发安全的进度追踪。
 
 use std::collections::HashMap;
@@ -11,22 +11,21 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use futures::io::AsyncReadExt;
-use sea_orm::DatabaseConnection;
 use swarmdrop_net::{NodeId, P2pStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::host::{CoreEvent, EventBus, FileAccess};
+use crate::CHUNK_SIZE;
+use crate::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator};
+use crate::epoch::EpochGuard;
+use crate::events::{TransferEvent, TransferEventSink};
+use crate::host::FileAccess;
+use crate::manager::PreparedFile;
+use crate::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
 use crate::protocol::{FileInfo, FileRange};
-use crate::transfer::CHUNK_SIZE;
-use crate::transfer::coordinator::{
-    ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator,
-};
-use crate::transfer::epoch::EpochGuard;
-use crate::transfer::manager::PreparedFile;
-use crate::transfer::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
-use crate::transfer::wire::data_frame::{
+use crate::store::SessionStore;
+use crate::wire::data_frame::{
     TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
 };
 use crate::{AppError, AppResult};
@@ -42,7 +41,7 @@ pub struct SenderActor {
     /// 文件访问 trait（host 实现，桌面=本地路径，RN=expo-fs callback）
     file_access: Arc<dyn FileAccess>,
     /// 事件总线（推送进度等给 host）
-    event_bus: Arc<dyn EventBus>,
+    events: Arc<dyn TransferEventSink>,
     /// 进度追踪器（Arc<Mutex> 供 data-channel 推送任务共享）
     progress: Arc<Mutex<ProgressTracker>>,
     /// 取消令牌
@@ -59,14 +58,14 @@ impl SenderActor {
         peer_id: NodeId,
         files: Vec<PreparedFile>,
         file_access: Arc<dyn FileAccess>,
-        event_bus: Arc<dyn EventBus>,
+        events: Arc<dyn TransferEventSink>,
     ) -> Self {
         Self::new_inner(
             session_id,
             peer_id,
             files,
             file_access,
-            event_bus,
+            events,
             &HashMap::new(),
         )
     }
@@ -80,7 +79,7 @@ impl SenderActor {
         peer_id: NodeId,
         files: Vec<PreparedFile>,
         file_access: Arc<dyn FileAccess>,
-        event_bus: Arc<dyn EventBus>,
+        events: Arc<dyn TransferEventSink>,
         resume_state: &HashMap<u32, (u32, u64)>,
     ) -> Self {
         Self::new_inner(
@@ -88,7 +87,7 @@ impl SenderActor {
             peer_id,
             files,
             file_access,
-            event_bus,
+            events,
             resume_state,
         )
     }
@@ -98,7 +97,7 @@ impl SenderActor {
         peer_id: NodeId,
         files: Vec<PreparedFile>,
         file_access: Arc<dyn FileAccess>,
-        event_bus: Arc<dyn EventBus>,
+        events: Arc<dyn TransferEventSink>,
         resume_state: &HashMap<u32, (u32, u64)>,
     ) -> Self {
         let total_bytes: u64 = files.iter().map(|f| f.size).sum();
@@ -126,7 +125,7 @@ impl SenderActor {
             peer_id,
             files,
             file_access,
-            event_bus,
+            events,
             progress: Arc::new(Mutex::new(tracker)),
             cancel_token: CancellationToken::new(),
             created_at: Instant::now(),
@@ -242,12 +241,12 @@ impl SenderActor {
     ///
     /// session 终态经状态机 `dispatch(Actor{epoch, Completed})`，享受 epoch + terminal
     /// 不可逆守卫（旧 epoch / 已取消的会话不被覆盖）；仅真正转入 completed 才发完成事件。
-    /// coordinator/event_bus 由 data_plane 传入（actor 自身只在完成回调点用一次，不持有）。
+    /// coordinator/events 由 data_plane 传入（actor 自身只在完成回调点用一次，不持有）。
     pub async fn on_completed(
         &self,
         epoch: i64,
         coordinator: &TransferCoordinator,
-        event_bus: &dyn EventBus,
+        events: &dyn TransferEventSink,
     ) {
         match coordinator
             .dispatch(
@@ -264,8 +263,8 @@ impl SenderActor {
                 // 不再手搓 TransferCompleteEvent。锁中毒（极罕见）则跳过完成事件。
                 let event = self.progress.lock().ok().map(|p| p.complete_event(None));
                 if let Some(event) = event {
-                    let _ = event_bus
-                        .publish(CoreEvent::TransferCompleted { event })
+                    let _ = events
+                        .emit(TransferEvent::TransferCompleted { event })
                         .await;
                 }
             }
@@ -283,11 +282,12 @@ impl SenderActor {
         &self,
         epoch: i64,
         coordinator: &TransferCoordinator,
-        db: &DatabaseConnection,
+        store: &dyn SessionStore,
     ) {
         let progress = self.get_file_progress();
-        let _ =
-            crate::database::ops::save_sender_file_progress(db, self.session_id, &progress).await;
+        let _ = store
+            .save_sender_file_progress(self.session_id, &progress)
+            .await;
         let _ = coordinator
             .dispatch(
                 self.session_id,
@@ -392,8 +392,8 @@ impl SenderActor {
         };
         if let Some(event) = progress_event {
             let _ = self
-                .event_bus
-                .publish(crate::host::CoreEvent::TransferProgress { event })
+                .events
+                .emit(TransferEvent::TransferProgress { event })
                 .await;
         }
 

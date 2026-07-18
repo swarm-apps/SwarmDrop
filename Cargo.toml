@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "crates/core",
+    "crates/host",
+    "crates/transfer",
     "crates/entity",
     "crates/migration",
     "crates/net-base",
@@ -34,6 +36,8 @@ sea-orm-migration = { version = "2.0.0-rc", features = [
     "sqlx-sqlite",
 ] }
 swarmdrop-core = { path = "crates/core" }
+swarmdrop-host = { path = "crates/host" }
+swarmdrop-transfer = { path = "crates/transfer" }
 entity = { path = "crates/entity" }
 migration = { path = "crates/migration" }
 

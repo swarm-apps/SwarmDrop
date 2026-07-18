@@ -7,10 +7,10 @@
 use std::collections::HashMap;
 
 use crate::host::FileSourceId;
+use crate::manager::{PreparedFile, ResumeFileInfo};
 use crate::protocol::{FileCheckpoint, FileInfo, FileRange, ResumeRejectReason, ResumeReport};
-use crate::transfer::manager::{PreparedFile, ResumeFileInfo};
-use crate::transfer::{CHUNK_SIZE, calc_total_chunks};
 use crate::{AppError, AppResult};
+use crate::{CHUNK_SIZE, calc_total_chunks};
 
 use super::validation::{resume_reject_message, validate_checkpoint};
 
@@ -24,7 +24,7 @@ pub(crate) fn build_resume_checkpoint(
         .map(|f| FileCheckpoint {
             file_id: f.file_id as u32,
             completed_ranges: {
-                let ranges = crate::database::ops::parse_completed_ranges(&f.completed_ranges);
+                let ranges = crate::store::parse_completed_ranges(&f.completed_ranges);
                 if !ranges.is_empty() {
                     ranges
                 } else if f.transferred_bytes > 0 {

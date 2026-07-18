@@ -15,7 +15,9 @@ use swarmdrop_net::{
 };
 use uuid::Uuid;
 
+use swarmdrop_core::database::SqlSessionStore;
 use swarmdrop_core::device::OsInfo;
+use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{CoreAppPaths, CoreEvent, EventBus, FileAccess, MemoryHost};
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::{handle_core_node_event, run_event_loop};
@@ -97,8 +99,12 @@ async fn spawn_node(
     let events = endpoint.subscribe().await.expect("subscribe");
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
-    let transfer =
-        TransferManager::new(endpoint.clone(), event_bus.clone(), db.clone(), file_access);
+    let transfer = TransferManager::new(
+        endpoint.clone(),
+        Arc::new(CoreTransferEvents(event_bus.clone())),
+        Arc::new(SqlSessionStore::new(db.clone())),
+        file_access,
+    );
     let candidate_manager = create_candidate_manager(&network_config);
     let manager = NetManager::new(
         endpoint.clone(),

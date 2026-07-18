@@ -6,6 +6,8 @@
 use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
+use swarmdrop_core::database::SqlSessionStore;
+use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{EventBus, FileAccess, Notifier, UpdateInstallRequest, UpdateInstaller};
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_net::SecretKey;
@@ -69,8 +71,8 @@ pub async fn start(
         move |endpoint| {
             TransferManager::new(
                 endpoint,
-                event_bus_for_factory,
-                db_for_factory,
+                Arc::new(CoreTransferEvents(event_bus_for_factory)),
+                Arc::new(SqlSessionStore::new(db_for_factory)),
                 file_access_for_factory,
             )
         },

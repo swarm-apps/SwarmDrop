@@ -6,8 +6,18 @@
 ## 架构速览（改内核前必读）
 
 ```
-宿主(src-tauri/mobile-core/wasm壳) → swarmdrop-core(业务) → swarmdrop-net(内核) → swarmdrop-net-base(类型底座)
+宿主(src-tauri/mobile-core/wasm壳)
+  → swarmdrop-core(组合根 + 网络/配对/presence + SqlSessionStore + CoreEvent 聚合)
+  → swarmdrop-transfer(传输域，经端口 trait 依赖倒置，双 target 可编)
+  → swarmdrop-host(宿主端口层：FileAccess/EventBus/error/device 数据类型)
+  → swarmdrop-net(内核) → swarmdrop-net-base(类型底座)
 ```
+
+依赖倒置（2026-07 传输域独立 crate）：`swarmdrop-transfer` 不依赖 sea-orm / pairing /
+network 模块，持久化走 `store::{SessionStore, InboxStore}`、配对目录走 `peer::PeerDirectory`、
+事件发射走 `events::TransferEventSink`、生命周期清理走 `runtime::TransferRuntime`，均由
+core 侧实现注入。`CoreEvent`/`EventBus`/`MemoryHost` 留在 core（`CoreEvent` 反向引用 transfer
+wire 类型，下沉会成环）。`swarmdrop-host` + `swarmdrop-transfer` 已进 `check-wasm.sh`。
 
 - **Endpoint 是 `Arc<Inner>` 门面**（Clone 廉价），单中枢 actor 是唯一 Swarm poll 点；
   快路径不经 actor：开流走 `libp2p_stream::Control`，状态读走 watch。

@@ -10,8 +10,18 @@
 
 网络侧的结论在 [libp2p-wasm.md](libp2p-wasm.md)，两份不重叠。
 
-> **当前状态：未决策，建议只做「第 0 步」。** trait 本身的价值全押在「要做 Web 端」上，
-> 而 Web 端卡在更靠前的问题上（浏览器对我们的网络零可达入口，见 libp2p-wasm.md 第一节）。
+> **当前状态（2026-07-18 更新）：trait 层已落地。** 传输域已抽成独立 crate
+> `swarmdrop-transfer`，`SessionStore` / `InboxStore` 端口按本文「trait 设计」一节实现，
+> core 侧 `database::store::SqlSessionStore` 用 SeaORM 委托既有 `ops`/`inbox` 函数；
+> `swarmdrop-transfer` 双 target 可编（进 `scripts/check-wasm.sh`），边界 grep 证 transfer
+> 零 `sea_orm`/`DatabaseConnection`。第 0 步（entity 解绑）此前已完成。**Web 端持久化实现
+> （IndexedDB/OPFS）仍未做**——它卡在更靠前的问题上（浏览器对我们的网络零可达入口，见
+> libp2p-wasm.md 第一节）；本次只落地了「让 Web 端 *能* 实现断点续传」的端口层。
+>
+> 落地细节与本文设计的差异：`PeerDirectory`（解 incoming.rs 对配对管理器的依赖）与
+> `TransferEventSink`（事件发射依赖倒置，避免 transfer 反依赖 core 的 `CoreEvent`）是设计
+> 时未列出的两个端口；宿主端口层（`FileAccess`/`EventBus`/error/device 数据类型）另抽成
+> `swarmdrop-host`。`load_resumable_session` 的收编即复用 `SessionStore::find_session`。
 
 ---
 

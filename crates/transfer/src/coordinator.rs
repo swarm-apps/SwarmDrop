@@ -10,12 +10,12 @@
 use std::sync::Arc;
 
 use entity::{SuspendedReason, TerminalReason, TransferPhase};
-use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use crate::AppResult;
-use crate::host::{CoreEvent, EventBus};
-use crate::transfer::epoch::EpochGuard;
+use crate::epoch::EpochGuard;
+use crate::events::{TransferEvent, TransferEventSink};
+use crate::store::TransferStore;
 
 /// 传输生命周期状态（镜像 entity 持久化字段）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -328,13 +328,13 @@ fn reduce_startup(state: &TransferState, sig: &StartupSignal) -> Option<Transfer
 /// load 当前状态 → [`reduce`]（纯函数）→ 写 DB。reducer 保持纯、可独立测试，
 /// dispatch 负责 I/O 副作用（DB 读写）。
 pub struct TransferCoordinator {
-    db: Arc<DatabaseConnection>,
-    event_bus: Arc<dyn EventBus>,
+    store: Arc<dyn TransferStore>,
+    events: Arc<dyn TransferEventSink>,
 }
 
 impl TransferCoordinator {
-    pub fn new(db: Arc<DatabaseConnection>, event_bus: Arc<dyn EventBus>) -> Self {
-        Self { db, event_bus }
+    pub fn new(store: Arc<dyn TransferStore>, events: Arc<dyn TransferEventSink>) -> Self {
+        Self { store, events }
     }
 
     /// 处理一个输入：load 当前状态 → reduce → 持久化 → 发 projection 事件。
@@ -347,7 +347,7 @@ impl TransferCoordinator {
         session_id: Uuid,
         input: CoordinatorInput,
     ) -> AppResult<Option<TransferState>> {
-        let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
+        let Some(session) = self.store.find_session(session_id).await? else {
             return Ok(None);
         };
         self.apply_input(&session, session_id, &input).await
@@ -362,7 +362,7 @@ impl TransferCoordinator {
         session_id: Uuid,
         signal: NetworkSignal,
     ) -> AppResult<Option<TransferState>> {
-        let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
+        let Some(session) = self.store.find_session(session_id).await? else {
             return Ok(None);
         };
         let input = CoordinatorInput::Network {
@@ -382,12 +382,10 @@ impl TransferCoordinator {
         let current = TransferState::from(session);
         match reduce(&current, input) {
             Some(new_state) => {
-                crate::database::ops::apply_transition(&self.db, session, &new_state).await?;
-                if let Some(projection) =
-                    crate::database::ops::get_transfer_projection(&self.db, session_id).await?
-                {
-                    self.event_bus
-                        .publish(CoreEvent::TransferProjection { projection })
+                self.store.apply_transition(session, &new_state).await?;
+                if let Some(projection) = self.store.get_transfer_projection(session_id).await? {
+                    self.events
+                        .emit(TransferEvent::TransferProjection { projection })
                         .await?;
                 }
                 Ok(Some(new_state))
@@ -403,7 +401,7 @@ impl TransferCoordinator {
     /// reducer 只把 active 转 suspended、其余 phase 自然 no-op，每次转换都经
     /// [`dispatch`](Self::dispatch) 写 DB + 发 projection。返回被转换的会话数。
     pub async fn cleanup_recoverable_sessions(&self) -> AppResult<usize> {
-        let ids = crate::database::ops::find_active_session_ids(&self.db).await?;
+        let ids = self.store.find_active_session_ids().await?;
         let mut converted = 0;
         for id in ids {
             let transitioned = self
@@ -426,11 +424,9 @@ impl TransferCoordinator {
     /// 本方法只用于「新建会话首投影」这一非转换场景（创建不是 reduce 输入，没有 from-state）。
     /// 终态（complete/fail/reject）已统一走 dispatch，不再经此旁路。
     pub async fn publish_projection(&self, session_id: Uuid) -> AppResult<()> {
-        if let Some(projection) =
-            crate::database::ops::get_transfer_projection(&self.db, session_id).await?
-        {
-            self.event_bus
-                .publish(CoreEvent::TransferProjection { projection })
+        if let Some(projection) = self.store.get_transfer_projection(session_id).await? {
+            self.events
+                .emit(TransferEvent::TransferProjection { projection })
                 .await?;
         }
         Ok(())

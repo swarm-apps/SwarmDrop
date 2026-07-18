@@ -7,21 +7,19 @@
 use std::sync::Arc;
 
 use entity::{TransferDirection, TransferPhase};
-use sea_orm::{DatabaseConnection, EntityTrait};
 use swarmdrop_net::NodeId;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::host::CoreEvent;
+use crate::actor::sender::SenderActor;
+use crate::events::TransferEvent;
+use crate::manager::{ResumeInfo, TransferManager};
+use crate::progress::{RuntimeTransferDirection, TransferResumedEvent, TransferResumedFileInfo};
 use crate::protocol::{
     FileRange, ResumePhaseReport, ResumeRejectReason, ResumeReport, TRANSFER_CTRL, TransferRequest,
     TransferResponse,
 };
-use crate::transfer::actor::sender::SenderActor;
-use crate::transfer::manager::{ResumeInfo, TransferManager};
-use crate::transfer::progress::{
-    RuntimeTransferDirection, TransferResumedEvent, TransferResumedFileInfo,
-};
+use crate::store::SessionStore;
 use crate::{AppError, AppResult};
 
 mod plan;
@@ -51,8 +49,9 @@ impl TransferManager {
     ///   phase 转 active）。
     /// - `dispatch` 用**旧** `session.epoch`，actor 注册 / spawn 用 `new_epoch`，勿混。
     pub async fn initiate_resume(&self, session_id: Uuid) -> AppResult<ResumeInfo> {
-        let (session, target_peer) = load_resumable_session(&self.db, session_id).await?;
-        let files = crate::database::ops::get_session_files(&self.db, session_id).await?;
+        let (session, target_peer) =
+            load_resumable_session(self.store.as_ref(), session_id).await?;
+        let files = self.store.get_session_files(session_id).await?;
 
         // ▼ D0 日志文案
         let role = match session.direction {
@@ -106,11 +105,9 @@ impl TransferManager {
         self.coordinator
             .dispatch(
                 session_id,
-                crate::transfer::coordinator::CoordinatorInput::Network {
+                crate::coordinator::CoordinatorInput::Network {
                     epoch: session.epoch,
-                    signal: crate::transfer::coordinator::NetworkSignal::ResumeCommitted {
-                        new_epoch,
-                    },
+                    signal: crate::coordinator::NetworkSignal::ResumeCommitted { new_epoch },
                 },
             )
             .await?;
@@ -140,7 +137,7 @@ impl TransferManager {
         &self,
         session_id: Uuid,
     ) -> AppResult<TransferResponse> {
-        let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
+        let Some(session) = self.store.find_session(session_id).await? else {
             return Ok(TransferResponse::ResumeStateReport {
                 session_id,
                 report: ResumeReport {
@@ -154,7 +151,7 @@ impl TransferManager {
                 },
             });
         };
-        let files = crate::database::ops::get_session_files(&self.db, session_id).await?;
+        let files = self.store.get_session_files(session_id).await?;
         Ok(TransferResponse::ResumeStateReport {
             session_id,
             report: ResumeReport {
@@ -178,7 +175,7 @@ impl TransferManager {
         new_epoch: i64,
         fetch_plan: Vec<FileRange>,
     ) -> AppResult<TransferResponse> {
-        let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
+        let Some(session) = self.store.find_session(session_id).await? else {
             return Ok(TransferResponse::ResumeAck {
                 session_id,
                 new_epoch,
@@ -186,7 +183,7 @@ impl TransferManager {
                 reason: Some(ResumeRejectReason::SessionNotFound),
             });
         };
-        let files = crate::database::ops::get_session_files(&self.db, session_id).await?;
+        let files = self.store.get_session_files(session_id).await?;
         if let Err(reason) = validate_resume_commit(&session, &files, new_epoch, &fetch_plan) {
             return Ok(TransferResponse::ResumeAck {
                 session_id,
@@ -200,11 +197,9 @@ impl TransferManager {
             .coordinator
             .dispatch(
                 session_id,
-                crate::transfer::coordinator::CoordinatorInput::Network {
+                crate::coordinator::CoordinatorInput::Network {
                     epoch: session.epoch,
-                    signal: crate::transfer::coordinator::NetworkSignal::ResumeCommitted {
-                        new_epoch,
-                    },
+                    signal: crate::coordinator::NetworkSignal::ResumeCommitted { new_epoch },
                 },
             )
             .await?;
@@ -222,8 +217,8 @@ impl TransferManager {
 
         self.start_local_resume_actor(peer_id, &session, &files, new_epoch, fetch_plan);
         let _ = self
-            .event_bus
-            .publish(CoreEvent::TransferResumed {
+            .events
+            .emit(TransferEvent::TransferResumed {
                 event: build_transfer_resumed_event(
                     &session,
                     &files,
@@ -321,7 +316,7 @@ impl TransferManager {
         session_id: Uuid,
         reason: ResumeRejectReason,
     ) -> AppResult<()> {
-        use crate::transfer::coordinator::{ActorReport, CoordinatorInput, UserCommand};
+        use crate::coordinator::{ActorReport, CoordinatorInput, UserCommand};
 
         match reason {
             ResumeRejectReason::Cancelled => {
@@ -363,7 +358,7 @@ impl TransferManager {
             peer_id,
             prepared_files,
             self.file_access.clone(),
-            self.event_bus.clone(),
+            self.events.clone(),
             &resume_state,
         ))
     }
@@ -463,11 +458,13 @@ fn build_save_location(session: &entity::transfer_session::Model) -> crate::host
 }
 
 async fn load_resumable_session(
-    db: &DatabaseConnection,
+    store: &dyn SessionStore,
     session_id: Uuid,
 ) -> AppResult<(entity::transfer_session::Model, NodeId)> {
-    let session = entity::TransferSession::find_by_id(session_id)
-        .one(db)
+    // 收编：不再直连 ORM（`find_by_id`），改经持久化端口 find_session；恢复校验
+    // （phase=Suspended + recoverable）与 peer 解析仍是 transfer 域逻辑，留在此处。
+    let session = store
+        .find_session(session_id)
         .await?
         .ok_or_else(|| AppError::Transfer("会话不存在".into()))?;
 

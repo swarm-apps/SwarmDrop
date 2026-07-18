@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 use sea_orm::{Database, DatabaseConnection};
 use sea_orm_migration::MigratorTrait;
+use swarmdrop_core::database::SqlSessionStore;
+use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{CoreSaveLocation, EventBus};
 use swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS;
 use swarmdrop_core::transfer::coordinator::TransferCoordinator;
@@ -46,7 +48,10 @@ pub async fn cleanup_stale_sessions(
     db: &DatabaseConnection,
     event_bus: Arc<dyn EventBus>,
 ) -> AppResult<()> {
-    let coordinator = TransferCoordinator::new(Arc::new(db.clone()), event_bus);
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(Arc::new(db.clone()))),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
     let converted = coordinator.cleanup_recoverable_sessions().await?;
     tracing::info!("启动清理: {converted} 个 active session 转为 suspended(app_restarted)");
 

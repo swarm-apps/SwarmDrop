@@ -12,12 +12,10 @@ use swarmdrop_net::{AcceptError, P2pStream, ProtocolHandler};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::epoch::EpochGuard;
+use crate::manager::TransferManager;
 use crate::protocol::{FileRange, TRANSFER_DATA_PROTOCOL};
-use crate::transfer::epoch::EpochGuard;
-use crate::transfer::manager::TransferManager;
-use crate::transfer::wire::data_frame::{
-    TransferDataFrame, TransferDataRole, read_frame, write_frame,
-};
+use crate::wire::data_frame::{TransferDataFrame, TransferDataRole, read_frame, write_frame};
 use crate::{AppError, AppResult};
 
 /// transfer-data 数据面协议处理器（注册进 Router）。
@@ -66,13 +64,13 @@ impl TransferManager {
         };
 
         let endpoint = self.endpoint.clone();
-        let db = self.db.clone();
+        let store = self.store.clone();
         let actors = self.actors.clone();
         let coordinator = self.coordinator.clone();
-        let event_bus = self.event_bus.clone();
+        let events = self.events.clone();
         let peer_id = session.peer_id;
 
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             let result = async {
                 let stream = endpoint
                     .open(peer_id, TRANSFER_DATA_PROTOCOL)
@@ -90,7 +88,7 @@ impl TransferManager {
             match result {
                 Ok(()) => {
                     session
-                        .on_completed(epoch, coordinator.as_ref(), event_bus.as_ref())
+                        .on_completed(epoch, coordinator.as_ref(), events.as_ref())
                         .await;
                 }
                 Err(e) if session.cancel_token().is_cancelled() => {
@@ -99,7 +97,7 @@ impl TransferManager {
                 Err(e) => {
                     warn!("transfer-data 发送中断: session={session_id}, {e}");
                     session
-                        .on_interrupted(epoch, coordinator.as_ref(), &db)
+                        .on_interrupted(epoch, coordinator.as_ref(), store.as_ref())
                         .await;
                 }
             }
@@ -203,7 +201,7 @@ fn validate_inbound_hello(
 #[cfg(test)]
 mod tests {
     use crate::protocol::FileInfo;
-    use crate::transfer::wire::data_frame::{full_fetch_plan, manifest_digest};
+    use crate::wire::data_frame::{full_fetch_plan, manifest_digest};
 
     use super::*;
 

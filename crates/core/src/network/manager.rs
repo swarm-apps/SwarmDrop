@@ -14,14 +14,10 @@ use crate::infra::InfraSupervisor;
 use crate::pairing::manager::PairingManager;
 use crate::presence::{PresenceMap, PresenceSupervisor};
 
-/// NetManager 注入的传输运行时。
-pub trait TransferRuntime: Send + Sync + 'static {
-    fn spawn_cleanup_task(transfer: &Arc<Self>, cancel_token: CancellationToken);
-}
-
-impl TransferRuntime for () {
-    fn spawn_cleanup_task(_transfer: &Arc<Self>, _cancel_token: CancellationToken) {}
-}
+// TransferRuntime 端口随 transfer 域迁出（消费方 NetManager 在 core，实现方
+// TransferManager 在 transfer，端口定义在下层 transfer 以免 transfer 反依赖 core）。
+// re-export 保持 `crate::network::TransferRuntime` 路径不变。
+pub use crate::transfer::runtime::TransferRuntime;
 
 /// 网络管理器
 ///

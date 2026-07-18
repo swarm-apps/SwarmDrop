@@ -11,17 +11,18 @@ use uuid::Uuid;
 
 use crate::device::PairedDeviceInfo;
 use crate::error::AppResult;
-use crate::host::{CoreEvent, CoreSaveLocation, EventBus, Notification, Notifier};
-use crate::pairing::PairingManager;
+use crate::events::{TransferEvent, TransferEventSink};
+use crate::host::{CoreSaveLocation, Notification, Notifier};
+use crate::manager::TransferManager;
+use crate::peer::PeerDirectory;
+use crate::policy::{
+    ReceivePolicyAction, ReceivePolicyContext, ReceivePolicyDecision, evaluate_receive_policy,
+};
+use crate::progress::{TransferFailedEvent, TransferPausedEvent};
 use crate::protocol::{
     FileInfo, OfferRejectReason, ResumeRejectReason, TransferOrigin, TransferRequest,
     TransferResponse,
 };
-use crate::transfer::manager::TransferManager;
-use crate::transfer::policy::{
-    ReceivePolicyAction, ReceivePolicyContext, ReceivePolicyDecision, evaluate_receive_policy,
-};
-use crate::transfer::progress::{TransferFailedEvent, TransferPausedEvent};
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -161,7 +162,7 @@ fn offer_result(accepted: bool, reason: Option<OfferRejectReason>) -> TransferRe
 /// 支持长交互），返回值即最终的 `OfferResult`。
 pub async fn handle_incoming_transfer_request<R, B>(
     runtime: &R,
-    event_bus: &B,
+    events: &B,
     notifier: Option<&Arc<dyn Notifier>>,
     peer_id: NodeId,
     paired_device: Option<PairedDeviceInfo>,
@@ -170,21 +171,17 @@ pub async fn handle_incoming_transfer_request<R, B>(
 ) -> AppResult<TransferResponse>
 where
     R: IncomingTransferRuntime,
-    B: EventBus + ?Sized,
+    B: TransferEventSink + ?Sized,
 {
     match request {
         TransferRequest::Cancel { session_id, reason } => {
             let event = runtime.handle_cancel(session_id, reason).await?;
-            event_bus
-                .publish(CoreEvent::TransferFailed { event })
-                .await?;
+            events.emit(TransferEvent::TransferFailed { event }).await?;
             Ok(TransferResponse::Ack { session_id })
         }
         TransferRequest::Pause { session_id } => {
             let event = runtime.handle_pause(session_id).await?;
-            event_bus
-                .publish(CoreEvent::TransferPaused { event })
-                .await?;
+            events.emit(TransferEvent::TransferPaused { event }).await?;
             Ok(TransferResponse::Ack { session_id })
         }
         TransferRequest::Offer {
@@ -272,8 +269,8 @@ where
                     policy_action,
                     policy_reason,
                 };
-                event_bus
-                    .publish(CoreEvent::TransferOfferReceived { offer })
+                events
+                    .emit(TransferEvent::TransferOfferReceived { offer })
                     .await?;
                 if let Some(notifier) = notifier {
                     let _ = notifier
@@ -341,11 +338,11 @@ fn display_device_name(device: &PairedDeviceInfo) -> String {
 
 /// transfer 控制面 typed RPC 服务。
 ///
-/// 从 [`Endpoint`] 的连接快照判定 `via_relay`，从 [`PairingManager`] 解析 offer 的
+/// 从 [`Endpoint`] 的连接快照判定 `via_relay`，从 [`PeerDirectory`] 解析 offer 的
 /// 已配对设备，再委托 [`handle_incoming_transfer_request`]。
 pub struct TransferCtrlService {
     transfer: Arc<TransferManager>,
-    pairing: Arc<PairingManager>,
+    pairing: Arc<dyn PeerDirectory>,
     endpoint: Endpoint,
     notifier: Option<Arc<dyn Notifier>>,
 }
@@ -353,7 +350,7 @@ pub struct TransferCtrlService {
 impl TransferCtrlService {
     pub fn new(
         transfer: Arc<TransferManager>,
-        pairing: Arc<PairingManager>,
+        pairing: Arc<dyn PeerDirectory>,
         endpoint: Endpoint,
         notifier: Option<Arc<dyn Notifier>>,
     ) -> Self {
@@ -391,7 +388,7 @@ impl RpcService<TransferRequest, TransferResponse> for TransferCtrlService {
 
         handle_incoming_transfer_request(
             self.transfer.as_ref(),
-            self.transfer.event_bus().as_ref(),
+            self.transfer.events.as_ref(),
             self.notifier.as_ref(),
             from,
             paired_device,

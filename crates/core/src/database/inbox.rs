@@ -11,7 +11,8 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::AppResult;
-use crate::database::ops::{TransferProjection, get_transfer_projection, now_ms};
+use crate::database::ops::{get_transfer_projection, now_ms};
+use crate::transfer::store::TransferProjection;
 
 /// 收件箱列表条目 DTO。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -185,7 +186,7 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
     // root_path = 真实容器目录(与传输投影 content_root 同一 core 解析:缺 local_dir 时
     // 回退存储根)。兜底收口在 content_root_of 一处,不再重复。
     let root_path =
-        crate::database::ops::content_root_of(session.files.iter(), session.save_path.as_ref());
+        crate::transfer::store::content_root_of(session.files.iter(), session.save_path.as_ref());
     let content_hash = inbox_content_hash(&files);
     let now = now_ms();
 
@@ -600,12 +601,12 @@ mod tests {
     use sea_orm::{ConnectOptions, Database};
 
     use crate::database::ops::{
-        CreateSessionInput, clear_all_history, create_session, mark_file_completed,
-        mark_session_completed,
+        clear_all_history, create_session, mark_file_completed, mark_session_completed,
     };
     use crate::host::CoreSaveLocation;
     use crate::protocol::FileInfo;
     use crate::transfer::coordinator::TransferState;
+    use crate::transfer::store::CreateSessionInput;
 
     /// 模拟 receiver 的文件级完成：真实链路里 finalize_sink 的返回值经
     /// `mark_file_completed` 写入 local_path，收件箱落库依赖它。
