@@ -7,29 +7,30 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_net::NodeId;
+use tokio::sync::oneshot;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::database::ops::CreateSessionInput;
-use crate::protocol::{
-    AppRequest, AppResponse, FileInfo, OfferRejectReason, TransferOrigin, TransferRequest,
-    TransferResponse,
-};
+use crate::protocol::{FileInfo, OfferRejectReason, TransferOrigin, TransferResponse};
 use crate::transfer::actor::receiver::ReceiverActor;
 use crate::transfer::coordinator::{CoordinatorInput, TransferState, UserCommand};
 use crate::transfer::manager::{PendingOffer, TransferManager};
 use crate::transfer::policy::ReceivePolicyDecision;
 use crate::transfer::progress::{RuntimeTransferDirection, TransferFailedEvent};
-use crate::transfer::wire::crypto::generate_key;
 use crate::{AppError, AppResult};
 
 impl TransferManager {
     /// 落库一条 `offered` 入站接收会话，并把策略快照随建会话一次写入。
     /// `cache_inbound_offer`（待用户决定）与 `record_rejected_inbound_offer`（策略直拒）共用。
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "建入站会话需完整对端/会话/策略上下文，无更小的有意义子集"
+    )]
     async fn create_offered_inbound_session(
         &self,
-        peer_id: &PeerId,
+        peer_id: &NodeId,
         peer_name: &str,
         session_id: Uuid,
         files: &[FileInfo],
@@ -63,15 +64,14 @@ impl TransferManager {
     )]
     pub async fn cache_inbound_offer(
         &self,
-        pending_id: u64,
-        peer_id: PeerId,
+        peer_id: NodeId,
         peer_name: String,
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
         origin: TransferOrigin,
         policy_decision: ReceivePolicyDecision,
-    ) -> AppResult<()> {
+    ) -> AppResult<oneshot::Receiver<TransferResponse>> {
         self.create_offered_inbound_session(
             &peer_id,
             &peer_name,
@@ -84,26 +84,32 @@ impl TransferManager {
         .await?;
         self.coordinator.publish_projection(session_id).await?;
 
+        // responder：transfer-ctrl handler await 它拿到用户/自动决策。
+        let (responder, rx) = oneshot::channel();
         self.pending.insert(
             session_id,
             PendingOffer {
-                pending_id,
                 peer_id,
                 peer_name,
                 session_id,
                 files,
                 total_size,
                 created_at: Instant::now(),
+                responder,
             },
         );
 
-        Ok(())
+        Ok(rx)
     }
 
     /// 记录被策略拒绝的入站 Offer。该记录只进入活动与恢复，不会进入收件箱。
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "记录被拒 offer 需完整对端/会话/策略上下文"
+    )]
     pub async fn record_rejected_inbound_offer(
         &self,
-        peer_id: PeerId,
+        peer_id: NodeId,
         peer_name: String,
         session_id: Uuid,
         files: Vec<FileInfo>,
@@ -133,11 +139,14 @@ impl TransferManager {
     /// Peek 挂起入站 offer 的来源 `PeerId`（不移除），供 MCP 代收门控校验用。
     ///
     /// 返回 `None` 表示该 session 没有挂起 offer——已被接受/拒绝，或已过挂起窗口被回收。
-    pub fn pending_offer_peer(&self, session_id: &Uuid) -> Option<PeerId> {
+    pub fn pending_offer_peer(&self, session_id: &Uuid) -> Option<NodeId> {
         self.pending.get(session_id).map(|offer| offer.peer_id)
     }
 
     /// 接受传输并启动接收
+    ///
+    /// **安全序**：先注册 ReceiverActor，再解决应答通道——对端 sender 收到
+    /// `accepted:true` 后立即打开数据面流，接收 actor 必须已就绪，否则 Hello 被拒。
     pub async fn accept_and_start_receive(
         &self,
         session_id: &Uuid,
@@ -148,18 +157,7 @@ impl TransferManager {
             .remove(session_id)
             .ok_or_else(|| AppError::Transfer(format!("pending offer not found: {session_id}")))?;
 
-        let key = generate_key();
         info!("Accepting transfer offer: session={}", session_id);
-
-        let response = AppResponse::Transfer(TransferResponse::OfferResult {
-            accepted: true,
-            key: Some(key),
-            reason: None,
-        });
-        self.client
-            .send_response(offer.pending_id, response)
-            .await
-            .map_err(|e| AppError::Transfer(format!("回复 OfferResult 失败: {e}")))?;
 
         crate::database::ops::update_session_save_path(
             &self.db,
@@ -175,9 +173,14 @@ impl TransferManager {
             offer.files,
             offer.total_size,
             save_location,
-            &key,
             HashMap::new(),
         );
+
+        // 解决 transfer-ctrl handler 的应答通道 → 对端得 accepted:true，开始推送
+        let _ = offer.responder.send(TransferResponse::OfferResult {
+            accepted: true,
+            reason: None,
+        });
 
         self.coordinator
             .dispatch(
@@ -197,15 +200,10 @@ impl TransferManager {
 
         info!("Rejecting transfer offer: session={}", session_id);
 
-        let response = AppResponse::Transfer(TransferResponse::OfferResult {
+        let _ = offer.responder.send(TransferResponse::OfferResult {
             accepted: false,
-            key: None,
             reason: Some(OfferRejectReason::UserDeclined),
         });
-        self.client
-            .send_response(offer.pending_id, response)
-            .await
-            .map_err(|e| AppError::Transfer(format!("回复拒绝 OfferResult 失败: {e}")))?;
         self.coordinator
             .dispatch(
                 offer.session_id,
@@ -232,19 +230,7 @@ impl TransferManager {
             )
             .await?;
         self.remove_receive_actor(session_id);
-
-        if let Err(e) = self
-            .client
-            .send_request(
-                session.peer_id,
-                AppRequest::Transfer(TransferRequest::Pause {
-                    session_id: *session_id,
-                }),
-            )
-            .await
-        {
-            warn!("通知对方暂停失败: session={}, {}", session_id, e);
-        }
+        self.notify_pause(session.peer_id, *session_id).await;
 
         info!("Receive session paused: session={}", session_id);
         Ok(())
@@ -256,7 +242,8 @@ impl TransferManager {
             .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
 
         session.cancel_and_wait().await;
-        session.send_cancel().await;
+        // Cancel 通知上提到 manager 层，与发送侧对称（ReceiverActor 不再持 endpoint）
+        self.notify_cancel(session.peer_id, *session_id).await;
         session.cleanup_part_files().await;
         self.remove_receive_actor(session_id);
         // 状态决策经 Coordinator：写 phase+status(桥接)+finished_at 并发 projection。
@@ -283,17 +270,16 @@ impl TransferManager {
     /// 创建 ReceiverActor 并注册到 ActorRegistry（接受 Offer / 恢复重建共用）。
     #[expect(
         clippy::too_many_arguments,
-        reason = "传输会话初始化必须接收完整上下文（session_id / peer / files / 元信息 / 加密密钥 / 续传位图），无更小的有意义子集"
+        reason = "传输会话初始化必须接收完整上下文（session_id / peer / files / 元信息 / 续传位图），无更小的有意义子集"
     )]
     pub(crate) fn start_receive_actor(
         &self,
         epoch: i64,
         session_id: Uuid,
-        peer_id: PeerId,
+        peer_id: NodeId,
         files: Vec<FileInfo>,
         total_size: u64,
         save_location: crate::host::CoreSaveLocation,
-        key: &[u8; 32],
         initial_bitmaps: HashMap<u32, Vec<u8>>,
     ) {
         let receive_actor = Arc::new(ReceiverActor::new(
@@ -306,8 +292,6 @@ impl TransferManager {
             self.db.clone(),
             self.coordinator.clone(),
             save_location,
-            key,
-            self.client.clone(),
             initial_bitmaps,
         ));
         self.actors
@@ -357,7 +341,7 @@ impl TransferManager {
     /// 先取消内存中的 send/receive 会话（cancel 优先于 error，run_data_channel 返回 Ok(false) 不 fail），
     /// 再经状态机 `Network{Interrupted}` 写 suspended/Interrupted/recoverable + 发 projection。
     /// 发送端会话由 data-channel 推送驱动、自身不轮询，靠此 hook 才能感知断连。
-    pub(crate) async fn handle_peer_disconnected_impl(&self, peer_id: PeerId) {
+    pub(crate) async fn handle_peer_disconnected_impl(&self, peer_id: NodeId) {
         let peer_str = peer_id.to_string();
         let ids = match crate::database::ops::find_active_session_ids_by_peer(&self.db, &peer_str)
             .await

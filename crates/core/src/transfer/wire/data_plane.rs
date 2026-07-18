@@ -1,57 +1,59 @@
 //! transfer-data 数据面接线。
 //!
-//! `libs/core` 暴露通用 data channel；本模块把它路由到 SwarmDrop 的
-//! SenderActor / ReceiverActor 并做注册表簿记。终态副作用（完成 / 中断
-//! 映射回 DB/projection）下沉到 actor 自身的 `on_completed`/`on_interrupted`
-//! 与 `finish_data_channel`/`fail_session`，本模块只做纯路由。
+//! 新内核按协议路由裸流（[`P2pStream`]）；本模块把它路由到 SwarmDrop 的
+//! SenderActor / ReceiverActor 并做注册表簿记。入站由 [`TransferDataHandler`]
+//! （实现 [`ProtocolHandler`]）驱动，出站由 [`Endpoint::open`] 打开。终态副作用
+//! （完成 / 中断映射回 DB/projection）下沉到 actor 自身的 `on_completed` /
+//! `on_interrupted` 与 `finish_data_channel` / `fail_session`，本模块只做纯路由。
 
 use std::sync::Arc;
 
-use swarm_p2p_core::libp2p::StreamProtocol;
-use swarm_p2p_core::{DataChannelReceiver, InboundDataChannel};
-use tokio_util::sync::CancellationToken;
+use swarmdrop_net::{AcceptError, P2pStream, ProtocolHandler};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::protocol::FileRange;
+use crate::protocol::{FileRange, TRANSFER_DATA_PROTOCOL};
 use crate::transfer::epoch::EpochGuard;
 use crate::transfer::manager::TransferManager;
 use crate::transfer::wire::data_frame::{
-    TRANSFER_DATA_PROTOCOL, TransferDataFrame, TransferDataRole, read_frame, write_frame,
+    TransferDataFrame, TransferDataRole, read_frame, write_frame,
 };
 use crate::{AppError, AppResult};
 
-impl TransferManager {
-    pub(crate) fn spawn_data_channel_task(
-        self: &Arc<Self>,
-        mut rx: DataChannelReceiver,
-        cancel_token: CancellationToken,
-    ) {
-        let manager = Arc::clone(self);
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = cancel_token.cancelled() => {
-                        info!("transfer-data 入站任务已停止");
-                        break;
-                    }
-                    inbound = rx.recv() => {
-                        let Some(inbound) = inbound else {
-                            info!("transfer-data 入站 receiver 已关闭");
-                            break;
-                        };
-                        let manager = Arc::clone(&manager);
-                        tokio::spawn(async move {
-                            if let Err(e) = manager.handle_inbound_data_channel(inbound).await {
-                                warn!("处理入站 transfer-data 通道失败: {}", e);
-                            }
-                        });
-                    }
-                }
-            }
-        });
-    }
+/// transfer-data 数据面协议处理器（注册进 Router）。
+///
+/// 每条入站数据面流在独立任务上调用 [`accept`](ProtocolHandler::accept)：读 Hello、
+/// 校验归属与 epoch/manifest，再把流交给对应 ReceiverActor。
+#[derive(Clone)]
+pub struct TransferDataHandler {
+    manager: Arc<TransferManager>,
+}
 
+impl std::fmt::Debug for TransferDataHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TransferDataHandler")
+            .finish_non_exhaustive()
+    }
+}
+
+impl TransferDataHandler {
+    pub fn new(manager: Arc<TransferManager>) -> Self {
+        Self { manager }
+    }
+}
+
+impl ProtocolHandler for TransferDataHandler {
+    async fn accept(&self, stream: P2pStream) -> Result<(), AcceptError> {
+        self.manager
+            .clone()
+            .handle_inbound_data_stream(stream)
+            .await
+            .map_err(AcceptError::from_err)
+    }
+}
+
+impl TransferManager {
+    /// 打开出站数据面流，绑定发送会话并按 fetch_plan 连续推送。
     pub(crate) fn spawn_send_data_channel(
         &self,
         session_id: Uuid,
@@ -63,7 +65,7 @@ impl TransferManager {
             return;
         };
 
-        let client = self.client.clone();
+        let endpoint = self.endpoint.clone();
         let db = self.db.clone();
         let actors = self.actors.clone();
         let coordinator = self.coordinator.clone();
@@ -72,11 +74,11 @@ impl TransferManager {
 
         tokio::spawn(async move {
             let result = async {
-                let channel = client
-                    .open_data_channel(peer_id, StreamProtocol::new(TRANSFER_DATA_PROTOCOL))
+                let stream = endpoint
+                    .open(peer_id, TRANSFER_DATA_PROTOCOL)
                     .await
                     .map_err(|e| AppError::Transfer(format!("打开 data channel 失败: {e}")))?;
-                session.run_data_channel(epoch, channel, fetch_plan).await
+                session.run_data_channel(epoch, stream, fetch_plan).await
             }
             .await;
 
@@ -104,18 +106,8 @@ impl TransferManager {
         });
     }
 
-    async fn handle_inbound_data_channel(
-        self: Arc<Self>,
-        inbound: InboundDataChannel,
-    ) -> AppResult<()> {
-        if inbound.channel.protocol().as_ref() != TRANSFER_DATA_PROTOCOL {
-            return Err(AppError::Transfer(format!(
-                "未知 data-channel 协议: {}",
-                inbound.channel.protocol()
-            )));
-        }
-
-        let mut stream = inbound.channel.into_stream();
+    /// 处理一条入站数据面裸流：读 Hello → 校验归属/epoch/manifest → 交 ReceiverActor。
+    async fn handle_inbound_data_stream(self: Arc<Self>, mut stream: P2pStream) -> AppResult<()> {
         let Some(hello) = read_frame(&mut stream).await? else {
             return Err(AppError::Transfer("data channel 未发送 Hello".into()));
         };
@@ -141,6 +133,17 @@ impl TransferManager {
             .await?;
             return Ok(());
         };
+
+        // 归属校验：传输层身份即归属证明（取代已删除的应用层加密所隐式承担的归属校验）。
+        // 流的远端必须与会话记录的发送方一致，不匹配立即断流（不发 Abort，不泄露）。
+        if stream.remote() != receive.peer_id {
+            return Err(AppError::Transfer(format!(
+                "data stream 归属校验失败: session={session_id}, remote={}, expected={}",
+                stream.remote(),
+                receive.peer_id
+            )));
+        }
+
         let Some(current_epoch) = self.actors.receive_epoch(&session_id) else {
             return Err(AppError::Transfer("接收 actor epoch 不存在".into()));
         };

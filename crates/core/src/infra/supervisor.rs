@@ -4,8 +4,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use dashmap::DashMap;
-use swarm_p2p_core::NodeEvent;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
+use swarmdrop_net::{Addr, Endpoint, InfraRoles, NetEvent, NodeAddr, NodeId};
 use tokio::time::Instant;
 
 use crate::device::OsInfo;
@@ -13,7 +12,6 @@ use crate::network::candidates::{
     BootstrapCandidate, BootstrapCandidateManager, BootstrapCandidateSource, CandidateRoles,
     CandidateScope,
 };
-use crate::protocol::{AppNetClient, AppRequest};
 
 /// 学习型候选上限（防陌生节点撑爆候选表）
 const MAX_LEARNED_CANDIDATES: usize = 4;
@@ -46,22 +44,22 @@ struct RelayLinkState {
 /// 事件输入走 [`handle_event`](Self::handle_event)（core 事件循环同步调用），
 /// 定时推进走 [`tick`](Self::tick)（由 [`run`](Self::run) 的后台任务驱动）。
 pub struct InfraSupervisor {
-    client: AppNetClient,
+    endpoint: Endpoint,
     candidates: Arc<RwLock<BootstrapCandidateManager>>,
     /// 公网可达性设置：false 时不对 Public 范围候选做 reservation
     public_reachability: bool,
     /// relay 候选的收敛状态（key = 候选 peer）
-    links: DashMap<PeerId, RelayLinkState>,
+    links: DashMap<NodeId, RelayLinkState>,
 }
 
 impl InfraSupervisor {
     pub fn new(
-        client: AppNetClient,
+        endpoint: Endpoint,
         candidates: Arc<RwLock<BootstrapCandidateManager>>,
         public_reachability: bool,
     ) -> Self {
         Self {
-            client,
+            endpoint,
             candidates,
             public_reachability,
             links: DashMap::new(),
@@ -76,11 +74,11 @@ impl InfraSupervisor {
 
     // === 事件折叠（core 事件循环调用） ===
 
-    pub fn handle_event(&self, event: &NodeEvent<AppRequest>) {
+    pub fn handle_event(&self, event: &NetEvent) {
         match event {
-            NodeEvent::RelayReservationAccepted { relay_peer_id, .. } => {
+            NetEvent::RelayReservationAccepted { relay, .. } => {
                 self.links.insert(
-                    *relay_peer_id,
+                    *relay,
                     RelayLinkState {
                         reservation_active: true,
                         next_attempt_at: Instant::now(),
@@ -89,13 +87,13 @@ impl InfraSupervisor {
                     },
                 );
             }
-            NodeEvent::RelayReservationLost { relay_peer_id } => {
-                tracing::info!("relay reservation 丢失: {relay_peer_id}，进入重建");
+            NetEvent::RelayReservationLost { relay } => {
+                tracing::info!("relay reservation 丢失: {relay}，进入重建");
                 // 只翻可用位，保留既有退避进度——reservation 被 relay 拒绝时
                 // 每次尝试都会产生一次 Lost，无条件清零会退化成 1-2s 重试风暴。
                 // attempts 仅由 Accepted（健康恢复）与候选 last_seen 刷新（重新发现）归零。
                 self.links
-                    .entry(*relay_peer_id)
+                    .entry(*relay)
                     .and_modify(|link| link.reservation_active = false)
                     .or_insert(RelayLinkState {
                         reservation_active: false,
@@ -105,20 +103,17 @@ impl InfraSupervisor {
                     });
             }
             // 学习型候选：识别基础设施 agent 自动纳管
-            NodeEvent::IdentifyReceived {
-                peer_id,
-                agent_version,
-                listen_addrs,
-                ..
-            } if OsInfo::is_bootstrap_agent(agent_version) => {
-                self.learn_candidate(*peer_id, listen_addrs);
+            NetEvent::PeerIdentified {
+                node, agent, addrs, ..
+            } if OsInfo::is_bootstrap_agent(agent) => {
+                self.learn_candidate(*node, addrs);
             }
             _ => {}
         }
     }
 
     /// 把运行时认识的基础设施节点纳入候选表（Learned 来源）。
-    fn learn_candidate(&self, peer_id: PeerId, listen_addrs: &[Multiaddr]) {
+    fn learn_candidate(&self, peer_id: NodeId, listen_addrs: &[Addr]) {
         let addrs = usable_public_addrs(listen_addrs);
         if addrs.is_empty() {
             return;
@@ -142,13 +137,15 @@ impl InfraSupervisor {
         if changed {
             tracing::info!("学习到基础设施节点 {peer_id}（{} 个公网地址）", addrs.len());
             // 即时 kad 接线；reservation 交给 tick 按 public_reachability 决策
-            let client = self.client.clone();
+            let endpoint = self.endpoint.clone();
             tokio::spawn(async move {
-                let _ = client
+                let _ = endpoint
                     .add_infrastructure_peer(
-                        peer_id,
-                        addrs,
-                        swarm_p2p_core::InfrastructureRoles::kad_server(),
+                        NodeAddr::with_addrs(peer_id, addrs),
+                        InfraRoles {
+                            kad_server: true,
+                            relay: false,
+                        },
                     )
                     .await;
             });
@@ -194,15 +191,17 @@ impl InfraSupervisor {
             let attempts = link.attempts;
             drop(link);
 
-            let client = self.client.clone();
+            let endpoint = self.endpoint.clone();
             let peer = candidate.peer_id;
             let addrs = candidate.addrs.clone();
-            let roles = candidate.roles.into();
+            let roles: InfraRoles = candidate.roles.into();
             tokio::spawn(async move {
                 tracing::debug!("收敛基础设施链路: {peer}（第 {attempts} 次尝试）");
                 // 全角色注册：kad 重接线 + 未连接时拨号 + 常驻登记 reservation 意图
                 // （identify 后幂等建立），断连恢复与 reservation 重建一步到位
-                let _ = client.add_infrastructure_peer(peer, addrs, roles).await;
+                let _ = endpoint
+                    .add_infrastructure_peer(NodeAddr::with_addrs(peer, addrs), roles)
+                    .await;
             });
         }
     }
@@ -227,11 +226,10 @@ impl InfraSupervisor {
 }
 
 /// 过滤出对公网侧可用的直连地址（剔除私网/loopback/link-local/circuit）
-fn usable_public_addrs(addrs: &[Multiaddr]) -> Vec<Multiaddr> {
-    use swarm_p2p_core::addr::{circuit_hops, is_public_routable};
+fn usable_public_addrs(addrs: &[Addr]) -> Vec<Addr> {
     addrs
         .iter()
-        .filter(|addr| circuit_hops(addr) == 0 && is_public_routable(addr))
+        .filter(|addr| addr.circuit_hops() == 0 && addr.is_public_routable())
         .cloned()
         .collect()
 }
@@ -240,46 +238,36 @@ fn usable_public_addrs(addrs: &[Multiaddr]) -> Vec<Multiaddr> {
 mod tests {
     use super::*;
     use crate::network::DiscoveryMode;
-    use crate::protocol::{AppRequest as Req, AppResponse as Resp};
-    use swarm_p2p_core::libp2p::identity::Keypair;
+    use swarmdrop_net::{ProtocolId, SecretKey};
 
-    fn test_client() -> (AppNetClient, swarm_p2p_core::EventReceiver<Req>) {
-        let keypair = Keypair::generate_ed25519();
-        let config = swarm_p2p_core::NodeConfig::new("/swarmdrop-infra-test/1.0.0", "test/1.0.0")
-            .with_listen_addrs(vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()])
-            .with_mdns(false)
-            .with_relay_client(true)
-            .with_dcutr(false)
-            .with_autonat(false);
-        let (client, events, _dc) =
-            swarm_p2p_core::start::<Req, Resp>(keypair, config).expect("start test node");
-        (client, events)
+    async fn test_endpoint() -> Endpoint {
+        Endpoint::builder()
+            .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()])
+            .bind()
+            .await
+            .expect("bind test endpoint")
     }
 
-    fn ctx(
+    async fn ctx(
         public_reachability: bool,
-    ) -> (
-        InfraSupervisor,
-        Arc<RwLock<BootstrapCandidateManager>>,
-        swarm_p2p_core::EventReceiver<Req>,
-    ) {
-        let (client, events) = test_client();
+    ) -> (InfraSupervisor, Arc<RwLock<BootstrapCandidateManager>>) {
+        let endpoint = test_endpoint().await;
         let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(
             DiscoveryMode::Auto,
             true,
         )));
-        let supervisor = InfraSupervisor::new(client, candidates.clone(), public_reachability);
-        (supervisor, candidates, events)
+        let supervisor = InfraSupervisor::new(endpoint, candidates.clone(), public_reachability);
+        (supervisor, candidates)
     }
 
-    fn peer() -> PeerId {
-        Keypair::generate_ed25519().public().to_peer_id()
+    fn peer() -> NodeId {
+        SecretKey::generate().node_id()
     }
 
     fn relay_candidate(
         candidates: &Arc<RwLock<BootstrapCandidateManager>>,
         scope: CandidateScope,
-    ) -> PeerId {
+    ) -> NodeId {
         let p = peer();
         candidates.write().unwrap().upsert(
             p,
@@ -291,22 +279,32 @@ mod tests {
         p
     }
 
-    fn link_of(s: &InfraSupervisor, p: &PeerId) -> Option<RelayLinkState> {
+    fn link_of(s: &InfraSupervisor, p: &NodeId) -> Option<RelayLinkState> {
         s.links.get(p).map(|e| *e.value())
+    }
+
+    fn identified(node: NodeId, agent: &str, addrs: Vec<Addr>) -> NetEvent {
+        NetEvent::PeerIdentified {
+            node,
+            agent: agent.into(),
+            protocol: "/swarmdrop/2.0.0".into(),
+            addrs,
+            protocols: vec![ProtocolId::from_static("/swarmdrop/pairing/2")],
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn reservation_lost_schedules_rebuild_with_backoff() {
-        let (s, candidates, _ev) = ctx(true);
+        let (s, candidates) = ctx(true).await;
         let p = relay_candidate(&candidates, CandidateScope::Public);
 
-        s.handle_event(&NodeEvent::RelayReservationAccepted {
-            relay_peer_id: p,
+        s.handle_event(&NetEvent::RelayReservationAccepted {
+            relay: p,
             renewal: false,
         });
         assert!(link_of(&s, &p).unwrap().reservation_active);
 
-        s.handle_event(&NodeEvent::RelayReservationLost { relay_peer_id: p });
+        s.handle_event(&NetEvent::RelayReservationLost { relay: p });
         let link = link_of(&s, &p).unwrap();
         assert!(!link.reservation_active);
 
@@ -328,7 +326,7 @@ mod tests {
 
         // 回归：重试期间每次失败都会再来一条 Lost（如被 relay 拒绝），
         // 不得清零退避进度，否则退化成 1-2s 重试风暴
-        s.handle_event(&NodeEvent::RelayReservationLost { relay_peer_id: p });
+        s.handle_event(&NetEvent::RelayReservationLost { relay: p });
         let link = link_of(&s, &p).unwrap();
         assert_eq!(link.attempts, 2, "Lost 不得重置 attempts");
         assert!(
@@ -339,7 +337,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn public_reachability_off_skips_public_candidates() {
-        let (s, candidates, _ev) = ctx(false);
+        let (s, candidates) = ctx(false).await;
         let public_peer = relay_candidate(&candidates, CandidateScope::Public);
         let lan_peer = relay_candidate(&candidates, CandidateScope::Lan);
 
@@ -357,20 +355,18 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn learns_bootstrap_agent_as_candidate() {
-        let (s, candidates, _ev) = ctx(true);
+        let (s, candidates) = ctx(true).await;
         let boot = peer();
 
-        s.handle_event(&NodeEvent::IdentifyReceived {
-            peer_id: boot,
-            agent_version: "swarm-bootstrap/0.4.1".into(),
-            protocol_version: "/swarmdrop/1.0.0".into(),
-            listen_addrs: vec![
+        s.handle_event(&identified(
+            boot,
+            "swarm-bootstrap/0.4.1",
+            vec![
                 "/ip4/47.115.172.218/tcp/4001".parse().unwrap(),
                 "/ip4/127.0.0.1/tcp/4001".parse().unwrap(),
                 "/ip4/192.168.1.5/tcp/4001".parse().unwrap(),
             ],
-            protocols: vec![],
-        });
+        ));
 
         let candidate = candidates.read().unwrap().get(boot).expect("learned");
         assert!(
@@ -386,16 +382,14 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn non_bootstrap_agent_is_not_learned() {
-        let (s, candidates, _ev) = ctx(true);
+        let (s, candidates) = ctx(true).await;
         let p = peer();
 
-        s.handle_event(&NodeEvent::IdentifyReceived {
-            peer_id: p,
-            agent_version: "swarmdrop/0.7.6 (macos)".into(),
-            protocol_version: "/swarmdrop/1.0.0".into(),
-            listen_addrs: vec!["/ip4/47.115.172.218/tcp/4001".parse().unwrap()],
-            protocols: vec![],
-        });
+        s.handle_event(&identified(
+            p,
+            "swarmdrop/0.7.6 (macos)",
+            vec!["/ip4/47.115.172.218/tcp/4001".parse().unwrap()],
+        ));
 
         assert!(candidates.read().unwrap().get(p).is_none());
     }

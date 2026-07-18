@@ -1,0 +1,95 @@
+# 本仓第一条 Rust CI。
+#
+# 此前 .github/workflows/ 只有 docs / mobile-build-android / mobile-release / release
+# ——没有任何一条跑 cargo。也就是说「提交前 cargo check + tsc 必须通过」（CLAUDE.md）
+# 一直只靠自觉，没有机器兜底。
+#
+# 覆盖范围：本 workflow 只管主仓。libs/ 是 swarm-apps/swarm-p2p submodule，
+# `libs/core` 经根 Cargo.toml 的 path 依赖被自动提升为 workspace member，所以
+# `cargo check/test --workspace` 会连它一起编——但前提是 checkout 带上 submodules。
+# `libs/bootstrap` 不在本仓 workspace 内（它是 swarm-p2p 仓自己的产物），由那边的 CI 管。
+name: rust
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: swatinem/rust-cache@v2
+
+      # 清单抄自 release.yml 的 ubuntu 构建（那是实际跑通过的），不要凭印象加减。
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: cargo fmt --all -- --check
+
+      - run: cargo check --workspace --all-targets
+
+      # 不加 --all-features：specta feature 会改 IPC 类型导出，属于 release 路径的关注点。
+      - run: cargo test --workspace
+
+  # 新网络内核的 wasm32 双 target 门禁（refactor/net-kernel 起）：
+  # swarmdrop-net{,-base} 必须持续可编到浏览器 target——Web 端是一等公民，
+  # 破坏 wasm 编译的改动在 PR 阶段就拦下。脚本内含 rustup target 安装与
+  # macOS 工具链处理；ubuntu 的发行版 clang 自带 wasm backend，直接可跑。
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - uses: swatinem/rust-cache@v2
+
+      - run: ./scripts/check-wasm.sh
+
+      - run: ./scripts/check-wasm.sh --clippy
+
+  # clippy 单独一个 job 且不阻塞：存量 warning 数未知，先让它跑起来看基线，
+  # 清干净之后再把 -D warnings 加上并设为必需。
+  clippy:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: cargo clippy --workspace --all-targets

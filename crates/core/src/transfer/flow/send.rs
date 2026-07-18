@@ -5,26 +5,21 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use swarm_p2p_core::RequestOptions;
-use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_net::{CallOptions, NodeId};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 /// Offer 请求的响应等待窗口。
 ///
-/// 接收端 `RequireConfirmation` 的 offer 需要人 / MCP agent 做决定。理想上想给更长窗口，
-/// 但 `RequestOptions::with_timeout` 只是 client 侧 `tokio::timeout` 包装——它只能让调用方
-/// 比协议**更早**放弃，**无法突破** libp2p 全局协议超时 `req_resp_timeout`（本应用在
-/// `network/config.rs` 设为 **180s**）。故这条 Offer 的**有效窗口封顶 ≈ 180s（约 3 分钟）**，
-/// 此处取与该协议上限一致、不做无谓的"更长"承诺。接收端 `PENDING_OFFER_TIMEOUT_SECS`
-/// 须**小于**它，保证 pending 先于发送端放弃被清理，避免"接收端刚接受、发送端已超时"竞态。
+/// 接收端 `RequireConfirmation` 的 offer 需要人 / MCP agent 做决定。新内核 RPC 的
+/// [`CallOptions::timeout`] 是调用方整体超时（open + 写请求 + 等响应），handler 可在此
+/// 窗口内长 await 用户决策。接收端 `PENDING_OFFER_TIMEOUT_SECS` 须**小于**它，保证
+/// pending 先于发送端放弃被清理，避免"接收端刚接受、发送端已超时"竞态。
 const OFFER_RESPONSE_TIMEOUT_SECS: u64 = 180;
 
 use crate::database::ops::CreateSessionInput;
 use crate::host::CoreEvent;
-use crate::protocol::{
-    AppRequest, AppResponse, FileInfo, TransferOrigin, TransferRequest, TransferResponse,
-};
+use crate::protocol::{FileInfo, TRANSFER_CTRL, TransferOrigin, TransferRequest, TransferResponse};
 use crate::transfer::actor::sender::SenderActor;
 use crate::transfer::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferState};
 use crate::transfer::flow::resume::parse_peer_id;
@@ -109,7 +104,7 @@ impl TransferManager {
             },
         );
 
-        let client = self.client.clone();
+        let endpoint = self.endpoint.clone();
         let this = Arc::clone(self);
         let prepared_id = *prepared_id;
         tokio::spawn(async move {
@@ -129,27 +124,25 @@ impl TransferManager {
                 }
             };
 
-            let result = client
-                .send_request_with_options(
+            let result = TRANSFER_CTRL
+                .call_with(
+                    &endpoint,
                     target_peer,
-                    AppRequest::Transfer(TransferRequest::Offer {
+                    &TransferRequest::Offer {
                         session_id,
                         files: selected_files.clone(),
                         total_size,
                         origin,
-                    }),
-                    RequestOptions::new()
-                        .with_timeout(Duration::from_secs(OFFER_RESPONSE_TIMEOUT_SECS)),
+                    },
+                    CallOptions {
+                        timeout: Duration::from_secs(OFFER_RESPONSE_TIMEOUT_SECS),
+                    },
                 )
                 .await;
 
             match result {
-                Ok(AppResponse::Transfer(TransferResponse::OfferResult {
-                    accepted: true,
-                    key: Some(key),
-                    ..
-                })) => {
-                    info!("Offer accepted for session {}, key received", session_id);
+                Ok(TransferResponse::OfferResult { accepted: true, .. }) => {
+                    info!("Offer accepted for session {}", session_id);
                     if this.discard_cancelled_outbound_offer(session_id, prepared_id) {
                         this.notify_cancel(target_peer, session_id).await;
                         info!(
@@ -162,7 +155,6 @@ impl TransferManager {
                         session_id,
                         target_peer,
                         selected_prepared,
-                        &key,
                         this.file_access.clone(),
                         this.event_bus.clone(),
                     ));
@@ -216,11 +208,10 @@ impl TransferManager {
                         .await;
                     this.spawn_send_data_channel(session_id, 0, full_fetch_plan(&selected_files));
                 }
-                Ok(AppResponse::Transfer(TransferResponse::OfferResult {
+                Ok(TransferResponse::OfferResult {
                     accepted: false,
                     reason,
-                    ..
-                })) => {
+                }) => {
                     if this.finish_unaccepted_outbound_offer(session_id, prepared_id) {
                         return;
                     }
@@ -244,19 +235,6 @@ impl TransferManager {
                             event: TransferRejectedEvent { session_id, reason },
                         })
                         .await;
-                }
-                Ok(AppResponse::Transfer(TransferResponse::OfferResult {
-                    accepted: true,
-                    key: None,
-                    ..
-                })) => {
-                    if this.finish_unaccepted_outbound_offer(session_id, prepared_id) {
-                        return;
-                    }
-                    warn!("Offer accepted 但未收到密钥: session={}", session_id);
-                    this.mark_offer_fatal(session_id, "对方接受但未提供加密密钥")
-                        .await;
-                    publish_failed("对方接受但未提供加密密钥".into()).await;
                 }
                 Ok(other) => {
                     if this.finish_unaccepted_outbound_offer(session_id, prepared_id) {
@@ -312,19 +290,7 @@ impl TransferManager {
             )
             .await?;
         self.remove_send_actor(session_id);
-
-        if let Err(e) = self
-            .client
-            .send_request(
-                session.peer_id,
-                AppRequest::Transfer(TransferRequest::Pause {
-                    session_id: *session_id,
-                }),
-            )
-            .await
-        {
-            warn!("通知对方暂停失败: session={}, {}", session_id, e);
-        }
+        self.notify_pause(session.peer_id, *session_id).await;
 
         info!("Send session paused: session={}", session_id);
         Ok(())
@@ -388,19 +354,34 @@ impl TransferManager {
         self.prepared.remove(&prepared_id);
     }
 
-    async fn notify_cancel(&self, peer_id: PeerId, session_id: Uuid) {
-        if let Err(e) = self
-            .client
-            .send_request(
+    /// 向对端发 Cancel 控制帧（收发两侧共用；失败仅告警）。
+    pub(crate) async fn notify_cancel(&self, peer_id: NodeId, session_id: Uuid) {
+        if let Err(e) = TRANSFER_CTRL
+            .call(
+                &self.endpoint,
                 peer_id,
-                AppRequest::Transfer(TransferRequest::Cancel {
+                &TransferRequest::Cancel {
                     session_id,
                     reason: "用户取消".into(),
-                }),
+                },
             )
             .await
         {
             warn!("通知对方取消失败: session={}, {}", session_id, e);
+        }
+    }
+
+    /// 向对端发 Pause 控制帧（收发两侧共用；失败仅告警）。
+    pub(crate) async fn notify_pause(&self, peer_id: NodeId, session_id: Uuid) {
+        if let Err(e) = TRANSFER_CTRL
+            .call(
+                &self.endpoint,
+                peer_id,
+                &TransferRequest::Pause { session_id },
+            )
+            .await
+        {
+            warn!("通知对方暂停失败: session={}, {}", session_id, e);
         }
     }
 

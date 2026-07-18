@@ -12,15 +12,15 @@
 //! - [`super::flow::receive`] —— 接收方 accept / reject / 暂停 / 取消 + IncomingTransferRuntime 接收 helper
 //! - [`super::flow::resume`]  —— 双侧断点续传 + IncomingTransferRuntime 续传 helper
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use dashmap::{DashMap, DashSet};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
-use swarm_p2p_core::DataChannelReceiver;
-use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_net::{Endpoint, NodeId};
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -28,7 +28,7 @@ use uuid::Uuid;
 use crate::AppResult;
 use crate::host::{CoreSaveLocation, EventBus, FileAccess, FileSourceId};
 use crate::network::TransferRuntime;
-use crate::protocol::{AppNetClient, FileInfo, TransferResponse};
+use crate::protocol::{FileInfo, TransferResponse};
 use crate::transfer::actor::registry::ActorRegistry;
 use crate::transfer::incoming::IncomingTransferRuntime;
 use crate::transfer::policy::ReceivePolicyDecision;
@@ -81,15 +81,19 @@ impl From<&entity::transfer_file::Model> for FileInfo {
 }
 
 /// 接收方缓存的入站 Offer
+///
+/// `responder` 是 transfer-ctrl RPC handler 的应答通道：handler 缓存本条 offer 后
+/// await 用户决策，UI accept/reject 时 send 一个 `OfferResult` 解决它，handler 据此
+/// 回复对端。清理任务回收本条目 → drop responder → handler 得 RecvError → 婉拒。
 #[derive(Debug)]
 pub struct PendingOffer {
-    pub pending_id: u64,
-    pub peer_id: PeerId,
+    pub peer_id: NodeId,
     pub peer_name: String,
     pub session_id: Uuid,
     pub files: Vec<FileInfo>,
     pub total_size: u64,
     pub created_at: Instant,
+    pub responder: oneshot::Sender<TransferResponse>,
 }
 
 /// 发送方已发出、仍在等待对端 OfferResult 的请求。
@@ -127,7 +131,7 @@ pub struct ResumeFileInfo {
 const PREPARED_TIMEOUT_SECS: u64 = 300;
 /// 挂起入站 offer 的内存回收窗口。
 ///
-/// 必须**小于**发送端 Offer 请求的真实响应窗口——后者受 libp2p 全局协议超时
+/// 必须**小于**发送端 Offer 请求的真实响应窗口——后者受底层协议超时
 /// `req_resp_timeout`（180s）封顶（`OFFER_RESPONSE_TIMEOUT_SECS` 的 client 侧 with_timeout
 /// 加长不了，见 `flow/send.rs`）。取 170s 保证本端 pending 先于发送端 180s 放弃被回收，
 /// 避免"接收端刚接受、发送端已超时放弃 → 回复通道已关"的边界竞态。有效决策窗口约 3 分钟。
@@ -140,7 +144,7 @@ const CLEANUP_INTERVAL_SECS: u64 = 60;
 /// 字段对兄弟模块（`prepare` / `send` / `receive` / `resume`）开放（`pub(crate)`），
 /// 这样它们可以挂载额外的 `impl TransferManager { ... }` 块直接访问字段。
 pub struct TransferManager {
-    pub(crate) client: AppNetClient,
+    pub(crate) endpoint: Endpoint,
     pub(crate) event_bus: Arc<dyn EventBus>,
     pub(crate) db: Arc<DatabaseConnection>,
     /// 默认文件访问 trait（用于发送方读源文件、接收方写入；host 在调用时也可针对单次会话覆盖）
@@ -155,8 +159,6 @@ pub struct TransferManager {
     /// 用户已取消、但底层 request 还未返回的 outbound Offer。
     pub(crate) cancelled_outbound_offers: DashSet<Uuid>,
     pub(crate) actors: ActorRegistry,
-    /// 入站 data-channel 接收器。只在后台任务启动时取出一次。
-    data_channel_rx: Mutex<Option<DataChannelReceiver>>,
     /// 全局「暂停接收」开关。运行时态、不持久化（重启回到「接收中」）。
     /// 暂停期间节点仍在线可发现、配对不受影响，仅对新 offer 婉拒（见 `incoming.rs`）。
     receiving_paused: AtomicBool,
@@ -164,18 +166,17 @@ pub struct TransferManager {
 
 impl TransferManager {
     pub fn new(
-        client: AppNetClient,
+        endpoint: Endpoint,
         event_bus: Arc<dyn EventBus>,
         db: Arc<DatabaseConnection>,
         file_access: Arc<dyn FileAccess>,
-        data_channel_rx: DataChannelReceiver,
     ) -> Self {
         let coordinator = Arc::new(crate::transfer::coordinator::TransferCoordinator::new(
             db.clone(),
             event_bus.clone(),
         ));
         Self {
-            client,
+            endpoint,
             event_bus,
             db,
             file_access,
@@ -185,7 +186,6 @@ impl TransferManager {
             outbound_offers: DashMap::new(),
             cancelled_outbound_offers: DashSet::new(),
             actors: ActorRegistry::new(),
-            data_channel_rx: Mutex::new(Some(data_channel_rx)),
             receiving_paused: AtomicBool::new(false),
         }
     }
@@ -196,16 +196,10 @@ impl TransferManager {
     }
 
     /// 启动后台定时清理任务
+    ///
+    /// 入站数据面不再由本任务轮询——新内核经 Router 的 [`TransferDataHandler`]
+    /// （[`wire::data_plane`](crate::transfer::wire)）按协议路由，装配在 runtime 层。
     pub fn spawn_cleanup_task(self: &Arc<Self>, cancel_token: CancellationToken) {
-        match self.data_channel_rx.lock() {
-            Ok(mut rx) => {
-                if let Some(rx) = rx.take() {
-                    self.spawn_data_channel_task(rx, cancel_token.clone());
-                }
-            }
-            Err(e) => warn!("data-channel receiver lock poisoned: {}", e),
-        }
-
         let this = Arc::clone(self);
         tokio::spawn(async move {
             let mut interval =
@@ -245,8 +239,8 @@ impl TransferManager {
         }
     }
 
-    pub fn client(&self) -> &AppNetClient {
-        &self.client
+    pub fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
     }
 
     pub fn db(&self) -> &Arc<DatabaseConnection> {
@@ -289,24 +283,22 @@ impl IncomingTransferRuntime for TransferManager {
         self.handle_pause_impl(session_id).await
     }
 
-    async fn handle_peer_disconnected(&self, peer_id: PeerId) {
+    async fn handle_peer_disconnected(&self, peer_id: NodeId) {
         self.handle_peer_disconnected_impl(peer_id).await
     }
 
     async fn cache_inbound_offer(
         &self,
-        pending_id: u64,
-        peer_id: PeerId,
+        peer_id: NodeId,
         device_name: String,
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
         origin: crate::protocol::TransferOrigin,
         policy_decision: ReceivePolicyDecision,
-    ) -> AppResult<()> {
+    ) -> AppResult<oneshot::Receiver<TransferResponse>> {
         TransferManager::cache_inbound_offer(
             self,
-            pending_id,
             peer_id,
             device_name,
             session_id,
@@ -329,7 +321,7 @@ impl IncomingTransferRuntime for TransferManager {
 
     async fn record_rejected_inbound_offer(
         &self,
-        peer_id: PeerId,
+        peer_id: NodeId,
         peer_name: String,
         session_id: Uuid,
         files: Vec<FileInfo>,
@@ -356,13 +348,12 @@ impl IncomingTransferRuntime for TransferManager {
 
     async fn handle_resume_commit(
         &self,
-        peer_id: PeerId,
+        peer_id: NodeId,
         session_id: Uuid,
         new_epoch: i64,
-        key: [u8; 32],
         fetch_plan: Vec<crate::protocol::FileRange>,
     ) -> AppResult<TransferResponse> {
-        self.handle_resume_commit_impl(peer_id, session_id, new_epoch, key, fetch_plan)
+        self.handle_resume_commit_impl(peer_id, session_id, new_epoch, fetch_plan)
             .await
     }
 }

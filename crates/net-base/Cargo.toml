@@ -1,0 +1,17 @@
+[package]
+name = "swarmdrop-net-base"
+version = "0.1.0"
+edition.workspace = true
+
+# 类型底座：跨 FFI / IPC / entity 复用的网络身份与地址类型。
+# 刻意保持依赖极小（无 tokio、无 swarm、无 transport），wasm 天然可编。
+# libp2p 类型（PeerId/Multiaddr/Keypair）在此收口成 newtype，不再向上穿透。
+
+[dependencies]
+libp2p-identity = { workspace = true, features = ["ed25519", "peerid", "rand"] }
+multiaddr = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

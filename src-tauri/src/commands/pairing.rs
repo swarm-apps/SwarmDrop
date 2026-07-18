@@ -3,20 +3,27 @@ use crate::device::DeviceFilter;
 use crate::events::{DevicesChanged, PairedDeviceAdded};
 use crate::network::NetManagerState;
 use serde::{Deserialize, Serialize};
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
 use swarmdrop_core::device::{DeviceReceivePolicy, DeviceTrustLevel, PairedDeviceInfo};
 use swarmdrop_core::pairing::code::{PairingCodeInfo, ShareCodeRecord};
 use swarmdrop_core::protocol::{PairingMethod, PairingResponse};
+use swarmdrop_net::{Addr, NodeId};
 use tauri::{AppHandle, State};
 use tauri_specta::Event as _;
 
 use crate::AppError;
 
+/// 把前端传来的 base58 字符串解析为 [`NodeId`]，失败归一化为 identity 错误。
+fn parse_peer_id(peer_id: &str) -> AppResult<NodeId> {
+    peer_id
+        .parse()
+        .map_err(|e| AppError::identity(format!("invalid peer_id: {e}")))
+}
+
 /// 查询设备信息的返回类型
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
-    /// libp2p PeerId（base58 字符串）
+    /// 节点身份 NodeId（base58 字符串）
     pub peer_id: String,
     pub code_record: ShareCodeRecord,
 }
@@ -53,7 +60,7 @@ pub async fn get_device_info(
 /// 配对成功后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
 ///
 /// `peer_id` 为 base58 字符串，`addrs` 为 multiaddr 字符串列表，由命令内部解析为
-/// libp2p 类型，方便通过 specta 生成 TypeScript bindings（libp2p 类型本身不实现
+/// 内核 newtype，方便通过 specta 生成 TypeScript bindings（内核类型本身不实现
 /// `specta::Type`）。
 #[tauri::command]
 #[specta::specta]
@@ -64,16 +71,11 @@ pub async fn request_pairing(
     method: PairingMethod,
     addrs: Option<Vec<String>>,
 ) -> AppResult<PairingResponse> {
-    let peer_id: PeerId =
-        peer_id
-            .parse()
-            .map_err(|e: swarm_p2p_core::libp2p::identity::ParseError| {
-                AppError::identity(format!("invalid peer_id: {e}"))
-            })?;
+    let peer_id = parse_peer_id(&peer_id)?;
     let addrs = addrs
         .map(|list| {
             list.into_iter()
-                .map(|s| s.parse::<Multiaddr>())
+                .map(|s| s.parse::<Addr>())
                 .collect::<Result<Vec<_>, _>>()
         })
         .transpose()
@@ -95,7 +97,7 @@ pub async fn request_pairing(
 
 /// 取消与指定设备的配对（同步更新运行时状态）
 ///
-/// `peer_id` 为 base58 字符串，由命令内部解析为 libp2p `PeerId`。
+/// `peer_id` 为 base58 字符串，由命令内部解析为 `NodeId`。
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_paired_device(
@@ -103,12 +105,7 @@ pub async fn remove_paired_device(
     net: State<'_, NetManagerState>,
     peer_id: String,
 ) -> AppResult<()> {
-    let peer_id: PeerId =
-        peer_id
-            .parse()
-            .map_err(|e: swarm_p2p_core::libp2p::identity::ParseError| {
-                AppError::identity(format!("invalid peer_id: {e}"))
-            })?;
+    let peer_id = parse_peer_id(&peer_id)?;
     let guard = net.lock().await;
     // 节点未运行时仍更新 host keychain 中的持久化列表。
     if let Some(manager) = guard.as_ref() {
@@ -130,12 +127,7 @@ pub async fn update_paired_device_policy(
     trust_level: DeviceTrustLevel,
     receive_policy: Option<DeviceReceivePolicy>,
 ) -> AppResult<PairedDeviceInfo> {
-    let peer_id: PeerId =
-        peer_id
-            .parse()
-            .map_err(|e: swarm_p2p_core::libp2p::identity::ParseError| {
-                AppError::identity(format!("invalid peer_id: {e}"))
-            })?;
+    let peer_id = parse_peer_id(&peer_id)?;
     let provider = crate::host::keychain_provider(&app)?;
     let devices = swarmdrop_core::identity::update_paired_device_policy(
         &*provider,
@@ -171,9 +163,12 @@ pub async fn respond_pairing_request(
     method: PairingMethod,
     response: PairingResponse,
 ) -> AppResult<()> {
+    // 新内核里配对方式已随入站请求缓存在 core 的 pending 表，respond 无需回传；
+    // 保留 `method` 参数仅为 IPC 签名稳定（避免前端 bindings 变更）。
+    let _ = method;
     let paired_info = with_manager!(net, |m| {
         m.pairing()
-            .handle_pairing_request(pending_id, &method, response)
+            .respond_pairing_request(pending_id, response)
             .await
     })?;
 
@@ -195,7 +190,7 @@ async fn persist_paired_device(
     Ok(())
 }
 
-async fn persist_paired_device_removal(app: &AppHandle, peer_id: &PeerId) -> AppResult<()> {
+async fn persist_paired_device_removal(app: &AppHandle, peer_id: &NodeId) -> AppResult<()> {
     let provider = crate::host::keychain_provider(app)?;
     swarmdrop_core::identity::remove_paired_device(&*provider, peer_id).await?;
     Ok(())

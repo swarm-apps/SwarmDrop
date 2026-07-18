@@ -1,7 +1,8 @@
 //! 发送方 actor（SenderActor）
 //!
-//! 管理单个发送传输的生命周期：经 data-channel 推送文件块、处理 Cancel。
-//! 文件读取通过 [`FileAccess`] trait 完成，加密使用 [`TransferCrypto`]。
+//! 管理单个发送传输的生命周期：经数据面裸流推送文件块、处理 Cancel。
+//! 文件读取通过 [`FileAccess`] trait 完成。wire v2 已删应用层加密——Noise/TLS 在途
+//! 已加密，数据面直接传明文（见 [`wire`](crate::transfer::wire)）。
 //! 使用 `Arc<std::sync::Mutex<ProgressTracker>>` 实现并发安全的进度追踪。
 
 use std::collections::HashMap;
@@ -11,8 +12,7 @@ use std::time::Instant;
 
 use futures::io::AsyncReadExt;
 use sea_orm::DatabaseConnection;
-use swarm_p2p_core::DataChannel;
-use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_net::{NodeId, P2pStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -26,7 +26,6 @@ use crate::transfer::coordinator::{
 use crate::transfer::epoch::EpochGuard;
 use crate::transfer::manager::PreparedFile;
 use crate::transfer::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
-use crate::transfer::wire::crypto::TransferCrypto;
 use crate::transfer::wire::data_frame::{
     TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
 };
@@ -36,12 +35,10 @@ use crate::{AppError, AppResult};
 pub struct SenderActor {
     /// 传输会话 ID
     pub session_id: Uuid,
-    /// 对端 PeerId（暂停时需要通知对端）
-    pub peer_id: PeerId,
+    /// 对端 NodeId（暂停时需要通知对端）
+    pub peer_id: NodeId,
     /// 准备好的文件列表（含文件来源）
     files: Vec<PreparedFile>,
-    /// 加密器
-    crypto: TransferCrypto,
     /// 文件访问 trait（host 实现，桌面=本地路径，RN=expo-fs callback）
     file_access: Arc<dyn FileAccess>,
     /// 事件总线（推送进度等给 host）
@@ -59,9 +56,8 @@ pub struct SenderActor {
 impl SenderActor {
     pub fn new(
         session_id: Uuid,
-        peer_id: PeerId,
+        peer_id: NodeId,
         files: Vec<PreparedFile>,
-        key: &[u8; 32],
         file_access: Arc<dyn FileAccess>,
         event_bus: Arc<dyn EventBus>,
     ) -> Self {
@@ -69,7 +65,6 @@ impl SenderActor {
             session_id,
             peer_id,
             files,
-            key,
             file_access,
             event_bus,
             &HashMap::new(),
@@ -82,9 +77,8 @@ impl SenderActor {
     /// 使 ProgressTracker 从正确的位置开始计数。
     pub fn new_with_resume(
         session_id: Uuid,
-        peer_id: PeerId,
+        peer_id: NodeId,
         files: Vec<PreparedFile>,
-        key: &[u8; 32],
         file_access: Arc<dyn FileAccess>,
         event_bus: Arc<dyn EventBus>,
         resume_state: &HashMap<u32, (u32, u64)>,
@@ -93,7 +87,6 @@ impl SenderActor {
             session_id,
             peer_id,
             files,
-            key,
             file_access,
             event_bus,
             resume_state,
@@ -102,9 +95,8 @@ impl SenderActor {
 
     fn new_inner(
         session_id: Uuid,
-        peer_id: PeerId,
+        peer_id: NodeId,
         files: Vec<PreparedFile>,
-        key: &[u8; 32],
         file_access: Arc<dyn FileAccess>,
         event_bus: Arc<dyn EventBus>,
         resume_state: &HashMap<u32, (u32, u64)>,
@@ -133,7 +125,6 @@ impl SenderActor {
             session_id,
             peer_id,
             files,
-            crypto: TransferCrypto::new(key),
             file_access,
             event_bus,
             progress: Arc::new(Mutex::new(tracker)),
@@ -179,16 +170,16 @@ impl SenderActor {
         self.cancel_token.cancel();
     }
 
-    /// 将本发送会话绑定到一条 data channel，并按 fetch_plan 连续推送数据。
+    /// 将本发送会话绑定到一条数据面裸流，并按 fetch_plan 连续推送数据。
     pub async fn run_data_channel(
         &self,
         epoch: i64,
-        channel: DataChannel,
+        channel: P2pStream,
         fetch_plan: Vec<FileRange>,
     ) -> AppResult<()> {
         let manifest = self.file_manifest();
         let plan = fetch_plan;
-        let (mut reader, mut writer) = channel.into_stream().split();
+        let (mut reader, mut writer) = channel.split();
 
         let writer_task = async {
             write_frame(
@@ -367,11 +358,6 @@ impl SenderActor {
             .read_source_chunk(&file.source_id, offset, length)
             .await?;
         let plaintext_len = plaintext.len() as u64;
-        let chunk_index = (offset / CHUNK_SIZE as u64) as u32;
-        let ciphertext = self
-            .crypto
-            .encrypt_chunk(&self.session_id, file.file_id, chunk_index, &plaintext)
-            .map_err(|e| AppError::Transfer(format!("加密失败: {e}")))?;
 
         write_frame(
             stream,
@@ -383,7 +369,9 @@ impl SenderActor {
                     offset,
                     length: plaintext_len,
                 },
-                ciphertext,
+                data: plaintext,
+                // bao-tree 接入前不携带逐块证明
+                proof: None,
             },
         )
         .await?;

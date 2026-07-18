@@ -14,10 +14,6 @@ pub enum AppError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
-    /// P2P 核心库错误
-    #[error("P2P error: {0}")]
-    P2p(#[from] swarm_p2p_core::Error),
-
     /// P2P 网络错误
     #[error("Network error: {0}")]
     Network(String),
@@ -64,7 +60,6 @@ impl Serialize for AppError {
         let (kind, message) = match self {
             AppError::Io(e) => ("Io", e.to_string()),
             AppError::Serialization(e) => ("Serialization", e.to_string()),
-            AppError::P2p(e) => ("P2p", e.to_string()),
             AppError::Network(msg) => ("Network", msg.clone()),
             AppError::Identity(msg) => ("Identity", msg.clone()),
             AppError::NodeNotStarted => ("NodeNotStarted", self.to_string()),

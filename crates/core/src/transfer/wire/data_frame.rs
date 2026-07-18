@@ -1,7 +1,8 @@
 //! transfer-data 数据通道帧协议。
 //!
-//! 这里是 SwarmDrop 应用层协议，不放进 `libs/core`。`libs/core` 只负责打开通用
-//! 字节流；本模块负责帧边界、版本、session/epoch 绑定和传输语义。
+//! 这里是 SwarmDrop 应用层协议：新内核只负责打开裸流（[`P2pStream`](swarmdrop_net::P2pStream)），
+//! 本模块负责帧边界、版本、session/epoch 绑定和传输语义。协议名见
+//! [`protocol::TRANSFER_DATA_PROTOCOL`](crate::protocol::TRANSFER_DATA_PROTOCOL)。
 
 use std::io;
 
@@ -11,13 +12,10 @@ use uuid::Uuid;
 use crate::protocol::{FileInfo, FileRange};
 use crate::{AppError, AppResult};
 
-/// SwarmDrop 文件传输数据面协议名。
-pub const TRANSFER_DATA_PROTOCOL: &str = "/swarmdrop/transfer-data/1";
+/// Hello 帧中的协议版本（wire v2）。
+pub const TRANSFER_DATA_VERSION: u16 = 2;
 
-/// Hello 帧中的协议版本。
-pub const TRANSFER_DATA_VERSION: u16 = 1;
-
-/// 单帧最大 payload。256KiB 明文加密后约 256KiB+tag，8MiB 给协议扩展和测试留余量。
+/// 单帧最大 payload。256KiB 明文块 + 帧头，8MiB 给协议扩展和测试留余量。
 pub const MAX_FRAME_LEN: usize = 8 * 1024 * 1024;
 
 // TAG 3（旧逐块 Ack）与 4（旧 BlockRequest 重传）已废弃；编号留空洞不复用，避免与历史帧混淆。
@@ -64,7 +62,14 @@ pub enum TransferDataFrame {
         session_id: Uuid,
         epoch: i64,
         range: FileRange,
-        ciphertext: Vec<u8>,
+        /// 明文块数据（wire v2 已删应用层加密，见 [`wire`](crate::transfer::wire)）。
+        data: Vec<u8>,
+        /// 逐块完整性证明的扩展位（bao-tree 接入预留，见知识库
+        /// iroh-migration.md 的选型结论）。v2 当前恒为 `None`；接入后携带
+        /// 该 chunk group 的 outboard 证明，接收端**在文件收完前**即可逐块
+        /// 验证——取代「续传信任对端」的现状。字段进 v2 布局定义（u8 标志 +
+        /// 可选 len-prefixed bytes），接入时无需 bump 协议版本。
+        proof: Option<Vec<u8>>,
     },
     Abort {
         session_id: Uuid,
@@ -191,11 +196,20 @@ fn encode_frame(frame: &TransferDataFrame) -> AppResult<Vec<u8>> {
             session_id,
             epoch,
             range,
-            ciphertext,
+            data,
+            proof,
         } => {
             push_context(&mut buf, TAG_BLOCK_DATA, *session_id, *epoch);
             push_range(&mut buf, range);
-            push_bytes(&mut buf, ciphertext)?;
+            push_bytes(&mut buf, data)?;
+            // 逐块证明扩展位：u8 标志 + 可选 len-prefixed bytes
+            match proof {
+                Some(proof) => {
+                    buf.push(1);
+                    push_bytes(&mut buf, proof)?;
+                }
+                None => buf.push(0),
+            }
         }
         TransferDataFrame::Abort {
             session_id,
@@ -238,12 +252,22 @@ fn decode_frame(payload: &[u8]) -> AppResult<TransferDataFrame> {
         }
         TAG_BLOCK_DATA => {
             let range = cursor.take_range()?;
-            let ciphertext = cursor.take_bytes()?;
+            let data = cursor.take_bytes()?;
+            let proof = match cursor.take_u8()? {
+                0 => None,
+                1 => Some(cursor.take_bytes()?),
+                other => {
+                    return Err(protocol_error(format!(
+                        "非法的 BlockData proof 标志: {other}"
+                    )));
+                }
+            };
             TransferDataFrame::BlockData {
                 session_id,
                 epoch,
                 range,
-                ciphertext,
+                data,
+                proof,
             }
         }
         TAG_ABORT => TransferDataFrame::Abort {
@@ -430,7 +454,8 @@ mod tests {
             session_id: session_id(),
             epoch: 3,
             range: range(),
-            ciphertext: vec![1, 2, 3, 4, 5],
+            data: vec![1, 2, 3, 4, 5],
+            proof: None,
         };
 
         let mut io = IoCursor::new(Vec::new());
@@ -439,6 +464,19 @@ mod tests {
 
         let decoded = read_frame(&mut io).await.unwrap().unwrap();
         assert_eq!(decoded, frame);
+
+        // 逐块证明扩展位（bao-tree 预留）：Some 分支同样 roundtrip
+        let with_proof = TransferDataFrame::BlockData {
+            session_id: session_id(),
+            epoch: 3,
+            range: range(),
+            data: vec![1, 2, 3],
+            proof: Some(vec![0xAA; 64]),
+        };
+        let mut io = IoCursor::new(Vec::new());
+        write_frame(&mut io, &with_proof).await.unwrap();
+        io.set_position(0);
+        assert_eq!(read_frame(&mut io).await.unwrap().unwrap(), with_proof);
         assert_eq!(decoded.session_id(), session_id());
         assert_eq!(decoded.epoch(), 3);
     }

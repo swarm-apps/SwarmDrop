@@ -8,11 +8,11 @@
 use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
-use swarm_p2p_core::libp2p::identity::Keypair;
 use swarmdrop_core::host::{FileAccess, KeychainProvider};
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::pairing::manager::PairingManager;
 use swarmdrop_core::transfer::manager::TransferManager;
+use swarmdrop_net::SecretKey;
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::error::{FfiError, FfiResult};
@@ -27,7 +27,7 @@ pub struct MobileCore {
     file_access: Arc<MobileFileAccessAdapter>,
     /// SQLite 文件所在目录（启动时初始化 DB 用）
     data_dir: String,
-    keypair: Mutex<Option<Keypair>>,
+    keypair: Mutex<Option<SecretKey>>,
     /// 持有 TransferManager generic 的 NetManager
     net_manager: Mutex<Option<NetManager<TransferManager>>>,
     /// SeaORM 连接，懒初始化（首次 start_node 时打开）
@@ -86,18 +86,18 @@ impl MobileCore {
         self.file_access.clone()
     }
 
-    pub(crate) async fn set_keypair(&self, keypair: Keypair) {
+    pub(crate) async fn set_keypair(&self, keypair: SecretKey) {
         *self.keypair.lock().await = Some(keypair);
     }
 
-    pub(crate) async fn ensure_keypair(&self) -> FfiResult<Keypair> {
+    pub(crate) async fn ensure_keypair(&self) -> FfiResult<SecretKey> {
         if let Some(keypair) = self.keypair.lock().await.as_ref().cloned() {
             return Ok(keypair);
         }
         let identity = swarmdrop_core::identity::load_or_create_identity(self.keychain())
             .await
             .map_err(FfiError::from)?;
-        let keypair = identity.keypair;
+        let keypair = identity.secret_key;
         *self.keypair.lock().await = Some(keypair.clone());
         Ok(keypair)
     }

@@ -1,8 +1,8 @@
 //! 接收方 actor（ReceiverActor）
 //!
-//! 管理单个接收传输的生命周期：读取 data-channel 推送的分块、解密写入、校验、最终化。
-//! 文件 I/O 全部通过 [`FileAccess`] trait 完成，加密使用 [`TransferCrypto`]。
-//! CancellationToken 支持取消。
+//! 管理单个接收传输的生命周期：读取数据面裸流推送的分块、写入、校验、最终化。
+//! 文件 I/O 全部通过 [`FileAccess`] trait 完成。wire v2 已删应用层加密——数据面
+//! 直接收明文（见 [`wire`](crate::transfer::wire)）。CancellationToken 支持取消。
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -10,8 +10,7 @@ use std::sync::Arc;
 
 use futures::io::AsyncReadExt;
 use sea_orm::DatabaseConnection;
-use swarm_p2p_core::libp2p::PeerId;
-use swarm_p2p_core::libp2p::Stream;
+use swarmdrop_net::{NodeId, P2pStream};
 use tokio::sync::{Mutex, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -20,7 +19,7 @@ use uuid::Uuid;
 use crate::host::{
     CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, HostFileMetadata,
 };
-use crate::protocol::{AppNetClient, AppRequest, FileInfo, FileRange, TransferRequest};
+use crate::protocol::{FileInfo, FileRange};
 use crate::transfer::actor::checkpoint::{
     bytes_from_bitmap, count_completed_in_bitmap, ensure_files_complete, mark_chunk_completed,
     ranges_from_bitmap, validate_block_range,
@@ -30,7 +29,6 @@ use crate::transfer::epoch::EpochGuard;
 use crate::transfer::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent,
 };
-use crate::transfer::wire::crypto::TransferCrypto;
 use crate::transfer::wire::data_frame::{
     TransferDataFrame, manifest_digest, read_frame, write_frame,
 };
@@ -44,8 +42,8 @@ const CHECKPOINT_INTERVAL: u32 = 10;
 pub struct ReceiverActor {
     /// 传输会话 ID
     pub session_id: Uuid,
-    /// 发送方 PeerId
-    pub peer_id: PeerId,
+    /// 发送方 NodeId
+    pub peer_id: NodeId,
     /// 文件列表
     files: Vec<FileInfo>,
     /// 总大小
@@ -60,10 +58,6 @@ pub struct ReceiverActor {
     coordinator: Arc<TransferCoordinator>,
     /// 保存位置（用于完成事件 payload，host 自己定义语义）
     save_location: CoreSaveLocation,
-    /// 加密器
-    crypto: Arc<TransferCrypto>,
-    /// 网络客户端
-    client: AppNetClient,
     /// 取消令牌
     cancel_token: CancellationToken,
     /// 已创建的临时文件（用于取消时清理）
@@ -78,7 +72,7 @@ impl ReceiverActor {
     #[expect(clippy::too_many_arguments, reason = "传输会话初始化需要完整上下文")]
     pub fn new(
         session_id: Uuid,
-        peer_id: PeerId,
+        peer_id: NodeId,
         files: Vec<FileInfo>,
         total_size: u64,
         file_access: Arc<dyn FileAccess>,
@@ -86,8 +80,6 @@ impl ReceiverActor {
         db: Arc<DatabaseConnection>,
         coordinator: Arc<TransferCoordinator>,
         save_location: CoreSaveLocation,
-        key: &[u8; 32],
-        client: AppNetClient,
         initial_bitmaps: HashMap<u32, Vec<u8>>,
     ) -> Self {
         let (finished_tx, _) = watch::channel(false);
@@ -101,8 +93,6 @@ impl ReceiverActor {
             db,
             coordinator,
             save_location,
-            crypto: Arc::new(TransferCrypto::new(key)),
-            client,
             cancel_token: CancellationToken::new(),
             created_sinks: Mutex::new(Vec::new()),
             initial_bitmaps,
@@ -159,7 +149,7 @@ impl ReceiverActor {
     pub fn start_data_channel<F>(
         self: Arc<Self>,
         epoch: i64,
-        stream: Stream,
+        stream: P2pStream,
         fetch_plan: Vec<FileRange>,
         on_finish: F,
     ) where
@@ -210,7 +200,7 @@ impl ReceiverActor {
     async fn run_data_channel(
         self: &Arc<Self>,
         epoch: i64,
-        stream: Stream,
+        stream: P2pStream,
         fetch_plan: Vec<FileRange>,
     ) -> AppResult<bool> {
         self.validate_fetch_plan(&fetch_plan)?;
@@ -275,7 +265,9 @@ impl ReceiverActor {
                     session_id,
                     epoch: frame_epoch,
                     range,
-                    ciphertext,
+                    data,
+                    // bao-tree 接入后在此逐块验证 proof；当前发送端恒 None
+                    proof: _,
                 }) if session_id == self.session_id && EpochGuard::matches(frame_epoch, epoch) => {
                     self.handle_block_data(
                         &progress,
@@ -284,7 +276,7 @@ impl ReceiverActor {
                         &mut bitmaps,
                         is_resume,
                         range,
-                        ciphertext,
+                        data,
                     )
                     .await?;
                 }
@@ -323,8 +315,8 @@ impl ReceiverActor {
         clippy::too_many_arguments,
         reason = "单个 BlockData 处理需要传入运行时上下文"
     )]
-    /// 处理一个入站 BlockData：解密校验 → 落盘 → 节流刷 checkpoint → 发进度。
-    /// 各步拆成聚焦的小方法，避免协议/密码学/持久化三层揉在一个 async fn。
+    /// 处理一个入站 BlockData：校验 → 落盘 → 节流刷 checkpoint → 发进度。
+    /// 各步拆成聚焦的小方法，避免协议/持久化两层揉在一个 async fn。
     async fn handle_block_data(
         &self,
         progress: &Arc<Mutex<ProgressTracker>>,
@@ -333,24 +325,22 @@ impl ReceiverActor {
         bitmaps: &mut HashMap<u32, Vec<u8>>,
         is_resume: bool,
         range: FileRange,
-        ciphertext: Vec<u8>,
+        data: Vec<u8>,
     ) -> AppResult<()> {
-        let (file_info, plaintext) = self.decrypt_and_validate(&range, &ciphertext)?;
+        let (file_info, data) = self.validate_block(&range, data)?;
         let sink_id = self
             .ensure_sink(&file_info, sinks, started_files, progress, is_resume)
             .await?;
-        self.persist_chunk(&file_info, &sink_id, &range, plaintext, bitmaps)
+        self.persist_chunk(&file_info, &sink_id, &range, data, bitmaps)
             .await?;
         self.emit_chunk_progress(progress, &range).await;
         Ok(())
     }
 
-    /// 找到文件 → 校验 range → 解密 → 校验明文长度，返回 (file_info, plaintext)。
-    fn decrypt_and_validate(
-        &self,
-        range: &FileRange,
-        ciphertext: &[u8],
-    ) -> AppResult<(FileInfo, Vec<u8>)> {
+    /// 找到文件 → 校验 range → 校验块长度，返回 (file_info, data)。
+    ///
+    /// wire v2 已删应用层解密：块数据即明文，仅需校验 range 合法与长度一致。
+    fn validate_block(&self, range: &FileRange, data: Vec<u8>) -> AppResult<(FileInfo, Vec<u8>)> {
         let file_info = self
             .files
             .iter()
@@ -359,19 +349,14 @@ impl ReceiverActor {
             .ok_or_else(|| AppError::Transfer(format!("文件不存在: {}", range.file_id)))?;
         validate_block_range(&file_info, range)?;
 
-        let chunk_index = (range.offset / CHUNK_SIZE as u64) as u32;
-        let plaintext = self
-            .crypto
-            .decrypt_chunk(&self.session_id, range.file_id, chunk_index, ciphertext)
-            .map_err(|e| AppError::Transfer(format!("解密失败: {e}")))?;
-        if plaintext.len() as u64 != range.length {
+        if data.len() as u64 != range.length {
             return Err(AppError::Transfer(format!(
-                "BlockData 明文长度不匹配: expected={}, actual={}",
+                "BlockData 长度不匹配: expected={}, actual={}",
                 range.length,
-                plaintext.len()
+                data.len()
             )));
         }
-        Ok((file_info, plaintext))
+        Ok((file_info, data))
     }
 
     /// 拿到（或首块时创建）该文件的 sink，并在文件首块发"开始传输"进度事件。
@@ -427,11 +412,11 @@ impl ReceiverActor {
         file_info: &FileInfo,
         sink_id: &FileSinkId,
         range: &FileRange,
-        plaintext: Vec<u8>,
+        data: Vec<u8>,
         bitmaps: &mut HashMap<u32, Vec<u8>>,
     ) -> AppResult<()> {
         self.file_access
-            .write_sink_chunk(sink_id, range.offset, plaintext)
+            .write_sink_chunk(sink_id, range.offset, data)
             .await?;
 
         let chunk_index = (range.offset / CHUNK_SIZE as u64) as u32;
@@ -584,20 +569,6 @@ impl ReceiverActor {
         }
 
         Ok(())
-    }
-
-    /// 发送 Cancel 消息给发送方
-    pub async fn send_cancel(&self) {
-        let _ = self
-            .client
-            .send_request(
-                self.peer_id,
-                AppRequest::Transfer(TransferRequest::Cancel {
-                    session_id: self.session_id,
-                    reason: "用户取消".into(),
-                }),
-            )
-            .await;
     }
 
     /// 主动取消

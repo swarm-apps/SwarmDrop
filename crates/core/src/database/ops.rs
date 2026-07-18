@@ -446,10 +446,10 @@ pub(crate) fn content_root_of<'a>(
     save_path: Option<&entity::SaveLocation>,
 ) -> Option<String> {
     let mut dirs = files.into_iter().filter_map(|f| f.local_dir.as_deref());
-    if let Some(first) = dirs.next() {
-        if dirs.all(|d| d == first) {
-            return Some(first.to_string());
-        }
+    if let Some(first) = dirs.next()
+        && dirs.all(|d| d == first)
+    {
+        return Some(first.to_string());
     }
     save_path.map(|entity::SaveLocation::Path { path }| path.clone())
 }

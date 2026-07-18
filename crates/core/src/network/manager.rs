@@ -1,19 +1,18 @@
-use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 use dashmap::DashMap;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
+use swarmdrop_net::{Addr, Endpoint, NodeId, RelayState};
 use tokio_util::sync::CancellationToken;
 
 use super::candidates::CandidateScope;
 use super::config::NetworkRuntimeConfig;
-use super::{BootstrapCandidateManager, NatStatus, NetworkStatus, NodeStatus};
+use super::{BootstrapCandidateManager, NetworkStatus, NodeStatus};
 use crate::device::PairedDeviceInfo;
 use crate::device_manager::DeviceManager;
+use crate::host::{EventBus, Notifier};
 use crate::infra::InfraSupervisor;
 use crate::pairing::manager::PairingManager;
 use crate::presence::{PresenceMap, PresenceSupervisor};
-use crate::protocol::AppNetClient;
 
 /// NetManager 注入的传输运行时。
 pub trait TransferRuntime: Send + Sync + 'static {
@@ -26,11 +25,11 @@ impl TransferRuntime for () {
 
 /// 网络管理器
 ///
-/// 统一管理 [`AppNetClient`]、[`DeviceManager`] 和 [`PairingManager`]，
-/// 对 [`commands`](crate::commands) 层提供访问接口。
+/// 统一管理 [`Endpoint`]、[`DeviceManager`] 和 [`PairingManager`]，对
+/// [`commands`](crate::commands) 层提供访问接口。运行时网络状态不再镜像到本地
+/// `Arc<RwLock>` 字段，而是直接读 `endpoint.watch_*()`（last-value-wins 采样）。
 pub struct NetManager<TTransfer = ()> {
-    client: AppNetClient,
-    peer_id: PeerId,
+    endpoint: Endpoint,
     pairing: Arc<PairingManager>,
     devices: Arc<DeviceManager>,
     presence: Arc<PresenceSupervisor>,
@@ -38,16 +37,8 @@ pub struct NetManager<TTransfer = ()> {
     transfer: Arc<TTransfer>,
     /// 全局取消令牌（shutdown 时取消所有后台任务）
     cancel_token: CancellationToken,
-    // 网络状态（Arc<RwLock> 供事件循环并发更新）
-    listen_addrs: Arc<RwLock<Vec<Multiaddr>>>,
-    nat_status: Arc<RwLock<NatStatus>>,
-    public_addr: Arc<RwLock<Option<Multiaddr>>>,
-    /// 当前已连接的中继节点 PeerId 集合
-    relay_peers: Arc<RwLock<HashSet<PeerId>>>,
     candidates: Arc<RwLock<BootstrapCandidateManager>>,
     network_config: NetworkRuntimeConfig,
-    lan_helper_advertised_addrs: Arc<RwLock<Vec<Multiaddr>>>,
-    relay_server_enabled: Arc<RwLock<bool>>,
 }
 
 impl<TTransfer> NetManager<TTransfer>
@@ -55,12 +46,13 @@ where
     TTransfer: TransferRuntime,
 {
     pub fn new(
-        client: AppNetClient,
-        peer_id: PeerId,
+        endpoint: Endpoint,
         paired_devices: Vec<PairedDeviceInfo>,
         transfer: TTransfer,
         network_config: NetworkRuntimeConfig,
         candidates: BootstrapCandidateManager,
+        event_bus: Arc<dyn EventBus>,
+        notifier: Option<Arc<dyn Notifier>>,
     ) -> Self {
         // 创建共享的已配对设备 Map：PairingManager 读写，DeviceManager 只读
         let paired_map: Arc<DashMap<_, _>> = Arc::new(
@@ -70,25 +62,27 @@ where
                 .collect(),
         );
 
-        let pairing = Arc::new(PairingManager::new(
-            client.clone(),
-            peer_id,
-            paired_map.clone(),
-        ));
         let candidates = Arc::new(RwLock::new(candidates));
         // presence 状态表：Supervisor 写，DeviceManager 读（在线判定）
         let presence_map: PresenceMap = Arc::new(DashMap::new());
         let presence = Arc::new(PresenceSupervisor::new(
-            client.clone(),
-            peer_id,
+            endpoint.clone(),
             paired_map.clone(),
             presence_map.clone(),
             candidates.clone(),
         ));
-        let devices = Arc::new(DeviceManager::new(paired_map, presence_map));
+        let devices = Arc::new(DeviceManager::new(paired_map.clone(), presence_map));
+        // pairing 需要 devices（Direct 的局域网校验）+ event_bus + notifier
+        let pairing = Arc::new(PairingManager::new(
+            endpoint.clone(),
+            paired_map,
+            devices.clone(),
+            event_bus,
+            notifier,
+        ));
         // 基础设施链路收敛：候选表为期望状态源，reservation 断线自动重建
         let infra = Arc::new(InfraSupervisor::new(
-            client.clone(),
+            endpoint.clone(),
             candidates.clone(),
             network_config.public_reachability,
         ));
@@ -99,27 +93,24 @@ where
         TTransfer::spawn_cleanup_task(&transfer, cancel_token.clone());
 
         Self {
-            client,
-            peer_id,
+            endpoint,
             pairing,
             devices,
             presence,
             infra,
             transfer,
             cancel_token,
-            listen_addrs: Arc::new(RwLock::new(Vec::new())),
-            nat_status: Arc::new(RwLock::new(NatStatus::Unknown)),
-            public_addr: Arc::new(RwLock::new(None)),
-            relay_peers: Arc::new(RwLock::new(HashSet::new())),
             candidates,
             network_config,
-            lan_helper_advertised_addrs: Arc::new(RwLock::new(Vec::new())),
-            relay_server_enabled: Arc::new(RwLock::new(false)),
         }
     }
 
     pub fn pairing(&self) -> &PairingManager {
         &self.pairing
+    }
+
+    pub fn pairing_arc(&self) -> Arc<PairingManager> {
+        self.pairing.clone()
     }
 
     pub fn devices(&self) -> &DeviceManager {
@@ -134,8 +125,8 @@ where
         self.transfer.clone()
     }
 
-    pub fn client(&self) -> &AppNetClient {
-        &self.client
+    pub fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
     }
 
     /// 取消所有后台任务（shutdown 时调用）
@@ -143,14 +134,16 @@ where
         self.cancel_token.cancel();
     }
 
-    /// 停止节点前的收尾：宣布下线（尽力而为）+ 取消全部后台任务。
+    /// 停止节点前的收尾：宣布下线（尽力而为）+ 取消全部后台任务 + 关闭内核。
     ///
-    /// host 停止节点只需调用本方法，无需关心 presence 细节。
+    /// 关闭 Endpoint 会 drop 底层 Swarm（断开全部连接、关闭监听），对端据此判离线；
+    /// Router 的 accept 循环随入站流源关闭而退出，无需单独编排。
     pub async fn shutdown(&self) {
         if let Err(e) = self.presence.announce_offline().await {
             tracing::debug!("announce_offline 失败（忽略）: {e}");
         }
         self.cancel_background_tasks();
+        self.endpoint.close().await;
     }
 
     /// 获取当前网络状态快照
@@ -161,33 +154,26 @@ where
     /// 获取事件循环需要的共享引用
     pub fn shared_refs(&self) -> SharedNetRefs<TTransfer> {
         SharedNetRefs {
-            peer_id: self.peer_id,
-            client: self.client.clone(),
+            endpoint: self.endpoint.clone(),
             devices: self.devices.clone(),
             pairing: self.pairing.clone(),
             presence: self.presence.clone(),
             infra: self.infra.clone(),
             cancel_token: self.cancel_token.clone(),
             transfer: self.transfer.clone(),
-            listen_addrs: self.listen_addrs.clone(),
-            nat_status: self.nat_status.clone(),
-            public_addr: self.public_addr.clone(),
-            relay_peers: self.relay_peers.clone(),
             candidates: self.candidates.clone(),
             network_config: self.network_config.clone(),
-            lan_helper_advertised_addrs: self.lan_helper_advertised_addrs.clone(),
-            relay_server_enabled: self.relay_server_enabled.clone(),
         }
     }
 }
 
 /// 事件循环使用的共享引用
 ///
-/// 持有与 [`NetManager`] 相同的 Arc 引用，
-/// 供 [`spawn_event_loop`](super::spawn_event_loop) 在独立 tokio task 中更新网络状态。
+/// 持有与 [`NetManager`] 相同的 Arc 引用，供
+/// [`run_event_loop`](super::event_loop::run_event_loop) 在独立 tokio task 中
+/// 处理内核事件与网络状态。
 pub struct SharedNetRefs<TTransfer = ()> {
-    pub peer_id: PeerId,
-    pub client: AppNetClient,
+    pub endpoint: Endpoint,
     pub devices: Arc<DeviceManager>,
     pub pairing: Arc<PairingManager>,
     pub presence: Arc<PresenceSupervisor>,
@@ -195,48 +181,42 @@ pub struct SharedNetRefs<TTransfer = ()> {
     /// 全局取消令牌（presence/infra 等后台任务随之退出）
     pub cancel_token: CancellationToken,
     pub transfer: Arc<TTransfer>,
-    pub listen_addrs: Arc<RwLock<Vec<Multiaddr>>>,
-    pub nat_status: Arc<RwLock<NatStatus>>,
-    pub public_addr: Arc<RwLock<Option<Multiaddr>>>,
-    pub relay_peers: Arc<RwLock<HashSet<PeerId>>>,
     pub candidates: Arc<RwLock<BootstrapCandidateManager>>,
     pub network_config: NetworkRuntimeConfig,
-    pub lan_helper_advertised_addrs: Arc<RwLock<Vec<Multiaddr>>>,
-    pub relay_server_enabled: Arc<RwLock<bool>>,
 }
 
 // 手写 Clone：全部字段为 Arc/Clone，避免给 TTransfer 加 Clone 约束
 impl<TTransfer> Clone for SharedNetRefs<TTransfer> {
     fn clone(&self) -> Self {
         Self {
-            peer_id: self.peer_id,
-            client: self.client.clone(),
+            endpoint: self.endpoint.clone(),
             devices: self.devices.clone(),
             pairing: self.pairing.clone(),
             presence: self.presence.clone(),
             infra: self.infra.clone(),
             cancel_token: self.cancel_token.clone(),
             transfer: self.transfer.clone(),
-            listen_addrs: self.listen_addrs.clone(),
-            nat_status: self.nat_status.clone(),
-            public_addr: self.public_addr.clone(),
-            relay_peers: self.relay_peers.clone(),
             candidates: self.candidates.clone(),
             network_config: self.network_config.clone(),
-            lan_helper_advertised_addrs: self.lan_helper_advertised_addrs.clone(),
-            relay_server_enabled: self.relay_server_enabled.clone(),
         }
     }
 }
 
 impl<TTransfer> SharedNetRefs<TTransfer> {
+    /// 当前持有活跃 reservation 的中继节点列表（本机经它们被动可达）。
+    pub fn active_relay_peers(&self) -> Vec<NodeId> {
+        self.endpoint
+            .watch_relays()
+            .get()
+            .into_iter()
+            .filter(|(_, state)| matches!(state, RelayState::Active))
+            .map(|(peer, _)| peer)
+            .collect()
+    }
+
     /// 构建当前网络状态快照
     pub fn build_network_status(&self) -> NetworkStatus {
-        let relay_peers_list: Vec<PeerId> = self
-            .relay_peers
-            .read()
-            .map(|g| g.iter().copied().collect())
-            .unwrap_or_default();
+        let relay_peers_list = self.active_relay_peers();
         let candidate_snapshot = self.candidates.read().ok();
         let candidate_sources = candidate_snapshot
             .as_deref()
@@ -253,7 +233,11 @@ impl<TTransfer> SharedNetRefs<TTransfer> {
         let relay_source = relay_peers_list
             .first()
             .and_then(|peer_id| candidate_snapshot.as_deref()?.relay_source(*peer_id));
-        let public_addr = self.public_addr.read().ok().and_then(|g| g.clone());
+
+        // watch_addrs 只读一次（原先 listen_addrs()/public_addr() 各读一遍各深拷贝）
+        let addrs = self.endpoint.watch_addrs().get();
+        let public_addr = addrs.external.first().cloned();
+        let listen_addrs = addrs.listen;
         // 公网可达 = AutoNAT 确认的公网直达地址，或任一公网范围 relay 的活跃 reservation
         let public_reachable = public_addr.is_some()
             || relay_peers_list.iter().any(|peer| {
@@ -263,11 +247,22 @@ impl<TTransfer> SharedNetRefs<TTransfer> {
                     .is_some_and(|c| matches!(c.scope, CandidateScope::Public))
             });
 
+        // LanHelper：本机若配置为提供协助，则把私网监听地址作为可公告地址。
+        let lan_helper_advertised_addrs: Vec<Addr> = if self.network_config.provide_lan_helper {
+            listen_addrs
+                .iter()
+                .filter(|a| a.is_private_lan())
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         NetworkStatus {
             status: NodeStatus::Running,
-            peer_id: Some(self.peer_id),
-            listen_addrs: read_or(&self.listen_addrs, Vec::new()),
-            nat_status: read_or(&self.nat_status, NatStatus::Unknown),
+            peer_id: Some(self.endpoint.node_id()),
+            listen_addrs,
+            nat_status: self.endpoint.watch_nat().get(),
             public_addr,
             connected_peers: self.devices.connected_count(),
             discovered_peers: self.devices.discovered_count(),
@@ -278,28 +273,17 @@ impl<TTransfer> SharedNetRefs<TTransfer> {
             bootstrap_connected: self.devices.has_connected_bootstrap_peer(),
             discovery_mode: self.network_config.discovery_mode,
             auto_discover_lan_helpers: self.network_config.auto_discover_lan_helpers,
+            // 迁移后三者同源于 `provide_lan_helper` 配置位——新内核 relay server
+            // 装配在 bind 期、无运行时开关，`local_lan_helper_running` 不再是运行时事实
+            // （只要配置开就恒为 true）。语义待前端协同收敛（UI 重写任务）。
             local_lan_helper_enabled: self.network_config.provide_lan_helper,
-            local_lan_helper_running: self.network_config.provide_lan_helper
-                && *self
-                    .relay_server_enabled
-                    .read()
-                    .as_deref()
-                    .unwrap_or(&false),
-            relay_server_enabled: *self
-                .relay_server_enabled
-                .read()
-                .as_deref()
-                .unwrap_or(&false),
-            lan_helper_advertised_addrs: read_or(&self.lan_helper_advertised_addrs, Vec::new()),
+            local_lan_helper_running: self.network_config.provide_lan_helper,
+            relay_server_enabled: self.network_config.provide_lan_helper,
+            lan_helper_advertised_addrs,
             lan_helper_count,
             bootstrap_candidate_count,
             candidate_sources,
             relay_source,
         }
     }
-}
-
-/// 读取 RwLock，中毒时返回默认值
-fn read_or<T: Clone>(lock: &RwLock<T>, default: T) -> T {
-    lock.read().map(|g| g.clone()).unwrap_or(default)
 }

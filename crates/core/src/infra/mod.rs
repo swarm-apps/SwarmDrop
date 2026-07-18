@@ -3,8 +3,8 @@
 //! 对候选表（[`BootstrapCandidateManager`]）中每个具备 relay 角色的候选，
 //! 持续维持「relay reservation 存活」这一期望状态：
 //!
-//! - reservation 丢失（[`NodeEvent::RelayReservationLost`]）→ 退避重建
-//!   （[`ensure_relay_reservation`](swarm_p2p_core::NetClient::ensure_relay_reservation)
+//! - reservation 丢失（[`NetEvent::RelayReservationLost`](swarmdrop_net::NetEvent)）→ 退避重建
+//!   （[`add_infrastructure_peer`](swarmdrop_net::Endpoint::add_infrastructure_peer)
 //!   幂等原语，连带重连与 identify 触发的自动重建）；
 //! - 运行时经 identify 学到的基础设施节点（`is_bootstrap_agent`）自动纳管
 //!   （来源 [`BootstrapCandidateSource::Learned`]）——LanOnly 设备经

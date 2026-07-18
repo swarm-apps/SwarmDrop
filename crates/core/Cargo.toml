@@ -6,23 +6,20 @@ edition.workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_bytes = { workspace = true }
 futures = { workspace = true }
 unsigned-varint = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-swarm-p2p-core = { workspace = true }
+swarmdrop-net = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
 chrono = { workspace = true }
-sha2 = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
 tracing = { workspace = true }
-sea-orm = { workspace = true }
+sea-orm = { workspace = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 entity = { workspace = true }
-chacha20poly1305 = "0.11"
 blake3 = "1.8.3"
 specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "chrono", "serde_json"], optional = true }
 

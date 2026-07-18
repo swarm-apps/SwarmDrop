@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use swarm_p2p_core::InfrastructureRoles;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
+use swarmdrop_net::{Addr, InfraRoles, NodeId};
 
 use super::DiscoveryMode;
 
@@ -53,11 +52,11 @@ impl CandidateRoles {
     }
 }
 
-impl From<CandidateRoles> for InfrastructureRoles {
+impl From<CandidateRoles> for InfraRoles {
     fn from(value: CandidateRoles) -> Self {
         Self {
             kad_server: value.kad_server,
-            relay_server: value.relay_server,
+            relay: value.relay_server,
         }
     }
 }
@@ -67,9 +66,9 @@ impl From<CandidateRoles> for InfrastructureRoles {
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapCandidate {
     #[cfg_attr(feature = "specta", specta(type = String))]
-    pub peer_id: PeerId,
+    pub peer_id: NodeId,
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
-    pub addrs: Vec<Multiaddr>,
+    pub addrs: Vec<Addr>,
     pub sources: Vec<BootstrapCandidateSource>,
     pub roles: CandidateRoles,
     pub scope: CandidateScope,
@@ -89,7 +88,7 @@ pub struct CandidateSourceStatus {
 pub struct BootstrapCandidateManager {
     discovery_mode: DiscoveryMode,
     auto_discover_lan_helpers: bool,
-    candidates: HashMap<PeerId, BootstrapCandidate>,
+    candidates: HashMap<NodeId, BootstrapCandidate>,
 }
 
 impl BootstrapCandidateManager {
@@ -111,8 +110,8 @@ impl BootstrapCandidateManager {
 
     pub fn upsert(
         &mut self,
-        peer_id: PeerId,
-        addrs: Vec<Multiaddr>,
+        peer_id: NodeId,
+        addrs: Vec<Addr>,
         source: BootstrapCandidateSource,
         roles: CandidateRoles,
         scope: CandidateScope,
@@ -159,7 +158,7 @@ impl BootstrapCandidateManager {
         }
     }
 
-    pub fn mark_connected(&mut self, peer_id: PeerId) {
+    pub fn mark_connected(&mut self, peer_id: NodeId) {
         if let Some(candidate) = self.candidates.get_mut(&peer_id)
             && !matches!(candidate.health, CandidateHealth::RelayReady)
         {
@@ -167,19 +166,19 @@ impl BootstrapCandidateManager {
         }
     }
 
-    pub fn mark_relay_ready(&mut self, peer_id: PeerId) {
+    pub fn mark_relay_ready(&mut self, peer_id: NodeId) {
         if let Some(candidate) = self.candidates.get_mut(&peer_id) {
             candidate.health = CandidateHealth::RelayReady;
         }
     }
 
-    pub fn mark_failed(&mut self, peer_id: PeerId) {
+    pub fn mark_failed(&mut self, peer_id: NodeId) {
         if let Some(candidate) = self.candidates.get_mut(&peer_id) {
             candidate.health = CandidateHealth::Failed;
         }
     }
 
-    pub fn get(&self, peer_id: PeerId) -> Option<BootstrapCandidate> {
+    pub fn get(&self, peer_id: NodeId) -> Option<BootstrapCandidate> {
         self.candidates.get(&peer_id).cloned()
     }
 
@@ -188,7 +187,7 @@ impl BootstrapCandidateManager {
         self.candidates.values().cloned().collect()
     }
 
-    pub fn contains(&self, peer_id: PeerId) -> bool {
+    pub fn contains(&self, peer_id: NodeId) -> bool {
         self.candidates.contains_key(&peer_id)
     }
 
@@ -235,7 +234,7 @@ impl BootstrapCandidateManager {
         statuses
     }
 
-    pub fn relay_source(&self, peer_id: PeerId) -> Option<BootstrapCandidateSource> {
+    pub fn relay_source(&self, peer_id: NodeId) -> Option<BootstrapCandidateSource> {
         self.candidates
             .get(&peer_id)
             .and_then(|candidate| candidate.sources.first().copied())
@@ -245,17 +244,17 @@ impl BootstrapCandidateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use swarm_p2p_core::libp2p::identity::Keypair;
+    use swarmdrop_net::SecretKey;
 
-    fn peer_id() -> PeerId {
-        Keypair::generate_ed25519().public().to_peer_id()
+    fn peer_id() -> NodeId {
+        SecretKey::generate().node_id()
     }
 
     #[test]
     fn upsert_merges_sources_and_addresses() {
         let peer = peer_id();
-        let addr1: Multiaddr = "/ip4/192.168.1.2/tcp/4001".parse().unwrap();
-        let addr2: Multiaddr = "/ip4/192.168.1.3/tcp/4001".parse().unwrap();
+        let addr1: Addr = "/ip4/192.168.1.2/tcp/4001".parse().unwrap();
+        let addr2: Addr = "/ip4/192.168.1.3/tcp/4001".parse().unwrap();
         let mut manager = BootstrapCandidateManager::new(DiscoveryMode::Auto, true);
 
         assert!(manager.upsert(

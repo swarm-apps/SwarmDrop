@@ -8,21 +8,20 @@ use std::sync::Arc;
 
 use entity::{TransferDirection, TransferPhase};
 use sea_orm::{DatabaseConnection, EntityTrait};
-use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_net::NodeId;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::host::CoreEvent;
 use crate::protocol::{
-    AppRequest, AppResponse, FileRange, ResumePhaseReport, ResumeRejectReason, ResumeReport,
-    TransferRequest, TransferResponse,
+    FileRange, ResumePhaseReport, ResumeRejectReason, ResumeReport, TRANSFER_CTRL, TransferRequest,
+    TransferResponse,
 };
 use crate::transfer::actor::sender::SenderActor;
 use crate::transfer::manager::{ResumeInfo, TransferManager};
 use crate::transfer::progress::{
     RuntimeTransferDirection, TransferResumedEvent, TransferResumedFileInfo,
 };
-use crate::transfer::wire::crypto::generate_key;
 use crate::{AppError, AppResult};
 
 mod plan;
@@ -73,7 +72,6 @@ impl TransferManager {
             return Err(AppError::Transfer(resume_reject_message(&reason).into()));
         }
 
-        let key = generate_key();
         let new_epoch = next_resume_epoch(session.epoch, report.epoch);
 
         // ▼ A fetch_plan 来源：接收方用本端 DB 推算，发送方用对端 report 推算
@@ -83,7 +81,7 @@ impl TransferManager {
         };
 
         // ▼ B 注册新 epoch actor（commit 前，不含 spawn）
-        self.register_resume_actor(&session, &files, &key, new_epoch, target_peer);
+        self.register_resume_actor(&session, &files, new_epoch, target_peer);
 
         // ▼ D 仅 Send 在 dispatch 后 spawn 复用 fetch_plan；Receive 无 spawn，故把
         // fetch_plan 直接 move 进 commit（不克隆），只有 Send 才提前克隆一份留给 spawn。
@@ -91,7 +89,7 @@ impl TransferManager {
             matches!(session.direction, TransferDirection::Send).then(|| fetch_plan.clone());
 
         if let Err(reason) = self
-            .request_resume_commit(target_peer, session_id, new_epoch, key, fetch_plan)
+            .request_resume_commit(target_peer, session_id, new_epoch, fetch_plan)
             .await
         {
             // ▼ C 回滚：按 new_epoch 守卫 remove + cancel（与 teardown 路径一致），再 reject
@@ -175,10 +173,9 @@ impl TransferManager {
     /// 注：actor 重建 + 续传搬运在轮 7（数据面）接入；此处先做状态转换。
     pub(crate) async fn handle_resume_commit_impl(
         &self,
-        peer_id: PeerId,
+        peer_id: NodeId,
         session_id: Uuid,
         new_epoch: i64,
-        key: [u8; 32],
         fetch_plan: Vec<FileRange>,
     ) -> AppResult<TransferResponse> {
         let Some(session) = crate::database::ops::find_session(&self.db, session_id).await? else {
@@ -223,7 +220,7 @@ impl TransferManager {
             });
         }
 
-        self.start_local_resume_actor(peer_id, &session, &files, &key, new_epoch, fetch_plan);
+        self.start_local_resume_actor(peer_id, &session, &files, new_epoch, fetch_plan);
         let _ = self
             .event_bus
             .publish(CoreEvent::TransferResumed {
@@ -250,23 +247,23 @@ impl TransferManager {
 impl TransferManager {
     async fn request_resume_probe(
         &self,
-        target_peer: PeerId,
+        target_peer: NodeId,
         session_id: Uuid,
     ) -> AppResult<ResumeReport> {
-        let response = self
-            .client
-            .send_request(
+        let response = TRANSFER_CTRL
+            .call(
+                &self.endpoint,
                 target_peer,
-                AppRequest::Transfer(TransferRequest::ResumeProbe { session_id }),
+                &TransferRequest::ResumeProbe { session_id },
             )
             .await
             .map_err(|e| AppError::Transfer(format!("ResumeProbe 发送失败: {e}")))?;
 
         match response {
-            AppResponse::Transfer(TransferResponse::ResumeStateReport {
+            TransferResponse::ResumeStateReport {
                 session_id: response_id,
                 report,
-            }) if response_id == session_id => Ok(report),
+            } if response_id == session_id => Ok(report),
             other => Err(AppError::Transfer(format!(
                 "ResumeProbe 收到意外响应: {other:?}"
             ))),
@@ -275,22 +272,20 @@ impl TransferManager {
 
     async fn request_resume_commit(
         &self,
-        target_peer: PeerId,
+        target_peer: NodeId,
         session_id: Uuid,
         new_epoch: i64,
-        key: [u8; 32],
         fetch_plan: Vec<FileRange>,
     ) -> Result<(), ResumeRejectReason> {
-        let response = self
-            .client
-            .send_request(
+        let response = TRANSFER_CTRL
+            .call(
+                &self.endpoint,
                 target_peer,
-                AppRequest::Transfer(TransferRequest::ResumeCommit {
+                &TransferRequest::ResumeCommit {
                     session_id,
                     new_epoch,
-                    key,
                     fetch_plan,
-                }),
+                },
             )
             .await
             .map_err(|e| {
@@ -299,20 +294,20 @@ impl TransferManager {
             })?;
 
         match response {
-            AppResponse::Transfer(TransferResponse::ResumeAck {
+            TransferResponse::ResumeAck {
                 session_id: response_id,
                 new_epoch: ack_epoch,
                 accepted: true,
                 ..
-            }) if response_id == session_id && ack_epoch == new_epoch => Ok(()),
-            AppResponse::Transfer(TransferResponse::ResumeAck { accepted: true, .. }) => {
+            } if response_id == session_id && ack_epoch == new_epoch => Ok(()),
+            TransferResponse::ResumeAck { accepted: true, .. } => {
                 Err(ResumeRejectReason::CheckpointInvalid)
             }
-            AppResponse::Transfer(TransferResponse::ResumeAck {
+            TransferResponse::ResumeAck {
                 accepted: false,
                 reason,
                 ..
-            }) => Err(reason.unwrap_or(ResumeRejectReason::FatalError)),
+            } => Err(reason.unwrap_or(ResumeRejectReason::FatalError)),
             other => {
                 warn!("ResumeCommit 收到意外响应: {:?}", other);
                 Err(ResumeRejectReason::FatalError)
@@ -358,9 +353,8 @@ impl TransferManager {
     fn build_sender_actor_for_resume(
         &self,
         session_id: Uuid,
-        peer_id: PeerId,
+        peer_id: NodeId,
         files: &[entity::transfer_file::Model],
-        key: &[u8; 32],
     ) -> Arc<SenderActor> {
         let prepared_files = build_prepared_files_from_db(files);
         let resume_state = build_sender_resume_state(files);
@@ -368,7 +362,6 @@ impl TransferManager {
             session_id,
             peer_id,
             prepared_files,
-            key,
             self.file_access.clone(),
             self.event_bus.clone(),
             &resume_state,
@@ -385,14 +378,13 @@ impl TransferManager {
         &self,
         session: &entity::transfer_session::Model,
         files: &[entity::transfer_file::Model],
-        key: &[u8; 32],
         new_epoch: i64,
-        peer_id: PeerId,
+        peer_id: NodeId,
     ) {
         match session.direction {
             TransferDirection::Send => {
                 let send_actor =
-                    self.build_sender_actor_for_resume(session.session_id, peer_id, files, key);
+                    self.build_sender_actor_for_resume(session.session_id, peer_id, files);
                 self.insert_send_actor(session.session_id, new_epoch, send_actor);
             }
             TransferDirection::Receive => {
@@ -405,7 +397,6 @@ impl TransferManager {
                     file_infos,
                     session.total_size as u64,
                     save_location,
-                    key,
                     initial_bitmaps,
                 );
             }
@@ -440,14 +431,13 @@ impl TransferManager {
     /// transition 已先行，故注册后立即 spawn（仅 Send）满足「spawn 在 active 之后」。
     fn start_local_resume_actor(
         &self,
-        peer_id: PeerId,
+        peer_id: NodeId,
         session: &entity::transfer_session::Model,
         files: &[entity::transfer_file::Model],
-        key: &[u8; 32],
         new_epoch: i64,
         fetch_plan: Vec<FileRange>,
     ) {
-        self.register_resume_actor(session, files, key, new_epoch, peer_id);
+        self.register_resume_actor(session, files, new_epoch, peer_id);
         if matches!(session.direction, TransferDirection::Send) {
             self.spawn_send_data_channel(session.session_id, new_epoch, fetch_plan);
         }
@@ -456,9 +446,9 @@ impl TransferManager {
 
 // ============ 断点续传辅助函数 ============
 
-pub(crate) fn parse_peer_id(s: &str) -> AppResult<PeerId> {
+pub(crate) fn parse_peer_id(s: &str) -> AppResult<NodeId> {
     s.parse()
-        .map_err(|_| AppError::Transfer(format!("无效的 PeerId: {s}")))
+        .map_err(|_| AppError::Transfer(format!("无效的 NodeId: {s}")))
 }
 
 /// `session.save_path` → `CoreSaveLocation`，缺省回退空路径（host 自行兜底语义）。
@@ -475,7 +465,7 @@ fn build_save_location(session: &entity::transfer_session::Model) -> crate::host
 async fn load_resumable_session(
     db: &DatabaseConnection,
     session_id: Uuid,
-) -> AppResult<(entity::transfer_session::Model, PeerId)> {
+) -> AppResult<(entity::transfer_session::Model, NodeId)> {
     let session = entity::TransferSession::find_by_id(session_id)
         .one(db)
         .await?

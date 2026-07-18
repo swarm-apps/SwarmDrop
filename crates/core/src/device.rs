@@ -1,7 +1,7 @@
 //! 设备模型和连接类型推断。
 
 use serde::{Deserialize, Serialize};
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
+use swarmdrop_net::{Addr, NodeId};
 
 /// 已配对设备信任等级。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -239,8 +239,8 @@ impl OsInfo {
         )
     }
 
-    /// 无法解析 agent_version 时的回退值，用 PeerId 末尾 8 位作为 hostname。
-    pub fn unknown_from_peer_id(peer_id: &PeerId) -> Self {
+    /// 无法解析 agent_version 时的回退值，用 NodeId 末尾 8 位作为 hostname。
+    pub fn unknown_from_peer_id(peer_id: &NodeId) -> Self {
         let s = peer_id.to_string();
         Self {
             name: None,
@@ -299,7 +299,7 @@ impl OsInfo {
 #[serde(rename_all = "camelCase")]
 pub struct PairedDeviceInfo {
     #[cfg_attr(feature = "specta", specta(type = String))]
-    pub peer_id: PeerId,
+    pub peer_id: NodeId,
     #[serde(flatten)]
     pub os_info: OsInfo,
     pub paired_at: i64,
@@ -312,7 +312,7 @@ pub struct PairedDeviceInfo {
 }
 
 impl PairedDeviceInfo {
-    pub fn new(peer_id: PeerId, os_info: OsInfo, paired_at: i64) -> Self {
+    pub fn new(peer_id: NodeId, os_info: OsInfo, paired_at: i64) -> Self {
         let trust_level = DeviceTrustLevel::Collaborator;
         Self {
             peer_id,
@@ -367,7 +367,7 @@ pub enum ConnectionType {
 #[serde(rename_all = "camelCase")]
 pub struct Device {
     #[cfg_attr(feature = "specta", specta(type = String))]
-    pub peer_id: PeerId,
+    pub peer_id: NodeId,
     #[serde(flatten)]
     pub os_info: OsInfo,
     pub status: DeviceStatus,
@@ -388,8 +388,11 @@ pub struct DeviceListResult {
     pub total: usize,
 }
 
-/// 基于 Multiaddr 分析推断连接类型。
-pub fn infer_connection_type(addrs: &[Multiaddr]) -> Option<ConnectionType> {
+/// 基于地址分析推断连接类型。
+///
+/// 分类谓词收口于 [`Addr`]（迁自旧栈散落三处的手写位运算）：私网/loopback→局域网，
+/// 公网可路由→打洞直连，circuit→中继。优先级 LAN > DCUtR > Relay。
+pub fn infer_connection_type(addrs: &[Addr]) -> Option<ConnectionType> {
     if addrs.is_empty() {
         return None;
     }
@@ -399,11 +402,11 @@ pub fn infer_connection_type(addrs: &[Multiaddr]) -> Option<ConnectionType> {
     let mut has_relay = false;
 
     for addr in addrs {
-        if has_p2p_circuit(addr) {
+        if addr.is_circuit() {
             has_relay = true;
-        } else if has_private_ip(addr) {
+        } else if addr.is_private_lan() || addr.is_loopback() {
             has_lan = true;
-        } else if has_public_ip(addr) {
+        } else if addr.is_public_routable() {
             has_dcutr = true;
         }
     }
@@ -419,25 +422,9 @@ pub fn infer_connection_type(addrs: &[Multiaddr]) -> Option<ConnectionType> {
     }
 }
 
-fn has_p2p_circuit(addr: &Multiaddr) -> bool {
-    addr.iter().any(|p| matches!(p, Protocol::P2pCircuit))
-}
-
-fn has_private_ip(addr: &Multiaddr) -> bool {
-    addr.iter().any(|p| {
-        matches!(p, Protocol::Ip4(ip) if ip.is_private() || ip.is_loopback() || ip.is_link_local())
-    })
-}
-
-fn has_public_ip(addr: &Multiaddr) -> bool {
-    addr.iter().any(|p| {
-        matches!(p, Protocol::Ip4(ip) if !ip.is_private() && !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified())
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
+    use swarmdrop_net::SecretKey;
 
     use super::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
 
@@ -506,8 +493,7 @@ mod tests {
 
     #[test]
     fn deserialize_legacy_paired_device_requires_trust_confirmation() {
-        let keypair = Keypair::generate_ed25519();
-        let peer_id = PeerId::from_public_key(&keypair.public());
+        let peer_id = SecretKey::generate().node_id();
         let json = serde_json::json!({
             "peerId": peer_id.to_string(),
             "hostname": "old-phone",
@@ -527,8 +513,7 @@ mod tests {
 
     #[test]
     fn refresh_os_info_updates_remote_device_name() {
-        let keypair = Keypair::generate_ed25519();
-        let peer_id = PeerId::from_public_key(&keypair.public());
+        let peer_id = SecretKey::generate().node_id();
         let mut device = PairedDeviceInfo::new(peer_id, sample(None, "MacBook-Pro"), 42);
 
         let changed = device.refresh_os_info(sample(Some("小李的 MacBook"), "MacBook-Pro"));

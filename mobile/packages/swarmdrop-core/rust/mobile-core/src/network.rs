@@ -216,21 +216,23 @@ impl MobileCore {
             device_name,
             paired_devices,
             network_config.into(),
-            move |client, data_channel_rx| {
+            event_bus.clone(),
+            None, // 移动端无窗口聚焦概念，不需要 Notifier
+            move |endpoint| {
                 swarmdrop_core::transfer::manager::TransferManager::new(
-                    client,
+                    endpoint,
                     event_bus,
                     db,
                     file_access,
-                    data_channel_rx,
                 )
             },
-        )?;
+        )
+        .await?;
 
         // presence（宣告上线 / bootstrap / 已配对设备重连与保活）由 core 的
         // 事件循环自动接管（见 swarmdrop_core::presence），host 不再手工编排。
         let shared = started.manager.shared_refs();
-        spawn_event_loop(started.receiver, shared, self.event_bus_arc());
+        spawn_event_loop(started.events, shared, self.event_bus_arc(), started.router);
 
         self.set_net_manager(started.manager).await;
         Ok(())

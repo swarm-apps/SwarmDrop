@@ -1,18 +1,23 @@
-//! 入站传输请求的跨宿主分发逻辑。
+//! 入站传输请求的跨宿主分发逻辑 + transfer 控制面 typed RPC 服务。
+
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Serialize;
-use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_net::{AcceptError, Endpoint, NodeId, PathKind, RpcService};
+use tokio::sync::oneshot;
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::device::PairedDeviceInfo;
-use crate::error::{AppError, AppResult};
-use crate::host::{CoreEvent, CoreSaveLocation, EventBus};
+use crate::error::AppResult;
+use crate::host::{CoreEvent, CoreSaveLocation, EventBus, Notification, Notifier};
+use crate::pairing::PairingManager;
 use crate::protocol::{
-    AppNetClient, AppResponse, FileInfo, OfferRejectReason, ResumeRejectReason, TransferOrigin,
-    TransferRequest, TransferResponse,
+    FileInfo, OfferRejectReason, ResumeRejectReason, TransferOrigin, TransferRequest,
+    TransferResponse,
 };
+use crate::transfer::manager::TransferManager;
 use crate::transfer::policy::{
     ReceivePolicyAction, ReceivePolicyContext, ReceivePolicyDecision, evaluate_receive_policy,
 };
@@ -60,7 +65,7 @@ pub trait IncomingTransferRuntime: Send + Sync {
 
     /// 对端断连：把该 peer 当前所有 active 传输转为 recoverable suspended(Interrupted)。
     /// 默认 no-op（mobile-core 占位）；桌面端 TransferManager 具体实现。
-    async fn handle_peer_disconnected(&self, peer_id: PeerId) {
+    async fn handle_peer_disconnected(&self, peer_id: NodeId) {
         let _ = peer_id;
     }
 
@@ -72,21 +77,24 @@ pub trait IncomingTransferRuntime: Send + Sync {
         false
     }
 
+    /// 缓存入站 offer，返回一个应答通道接收端：handler await 它拿到用户/自动决策。
+    ///
+    /// 自动接收路径由 `accept_cached_inbound_offer` 立即 send 决策；手动路径由 UI
+    /// accept/reject 时 send。清理回收 → drop sender → handler 得 RecvError → 婉拒。
     #[expect(
         clippy::too_many_arguments,
         reason = "缓存入站 offer 需要完整的对端与会话上下文"
     )]
     async fn cache_inbound_offer(
         &self,
-        pending_id: u64,
-        peer_id: PeerId,
+        peer_id: NodeId,
         device_name: String,
         session_id: Uuid,
         files: Vec<FileInfo>,
         total_size: u64,
         origin: TransferOrigin,
         policy_decision: ReceivePolicyDecision,
-    ) -> AppResult<()>;
+    ) -> AppResult<oneshot::Receiver<TransferResponse>>;
 
     async fn accept_cached_inbound_offer(
         &self,
@@ -94,9 +102,13 @@ pub trait IncomingTransferRuntime: Send + Sync {
         save_location: CoreSaveLocation,
     ) -> AppResult<()>;
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "记录被拒 offer 需完整对端/会话/策略上下文"
+    )]
     async fn record_rejected_inbound_offer(
         &self,
-        peer_id: PeerId,
+        peer_id: NodeId,
         peer_name: String,
         session_id: Uuid,
         files: Vec<FileInfo>,
@@ -124,13 +136,12 @@ pub trait IncomingTransferRuntime: Send + Sync {
     /// 恢复提交应答（默认拒绝；桌面端在 TransferManager 具体实现）。
     async fn handle_resume_commit(
         &self,
-        peer_id: PeerId,
+        peer_id: NodeId,
         session_id: Uuid,
         new_epoch: i64,
-        key: [u8; 32],
         fetch_plan: Vec<crate::protocol::FileRange>,
     ) -> AppResult<TransferResponse> {
-        let _ = (peer_id, key, fetch_plan);
+        let _ = (peer_id, fetch_plan);
         Ok(TransferResponse::ResumeAck {
             session_id,
             new_epoch,
@@ -140,20 +151,23 @@ pub trait IncomingTransferRuntime: Send + Sync {
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "入站请求分发需要 client/runtime/event_bus 与完整请求上下文"
-)]
+fn offer_result(accepted: bool, reason: Option<OfferRejectReason>) -> TransferResponse {
+    TransferResponse::OfferResult { accepted, reason }
+}
+
+/// 处理一个入站传输控制请求，返回应给对端的 [`TransferResponse`]。
+///
+/// Offer 的「require confirmation」在此内部 await 用户决策（新内核 RPC handler 天然
+/// 支持长交互），返回值即最终的 `OfferResult`。
 pub async fn handle_incoming_transfer_request<R, B>(
-    client: &AppNetClient,
     runtime: &R,
     event_bus: &B,
-    peer_id: PeerId,
-    pending_id: u64,
+    notifier: Option<&Arc<dyn Notifier>>,
+    peer_id: NodeId,
     paired_device: Option<PairedDeviceInfo>,
     via_relay: bool,
     request: TransferRequest,
-) -> AppResult<IncomingTransferDisposition>
+) -> AppResult<TransferResponse>
 where
     R: IncomingTransferRuntime,
     B: EventBus + ?Sized,
@@ -161,21 +175,17 @@ where
     match request {
         TransferRequest::Cancel { session_id, reason } => {
             let event = runtime.handle_cancel(session_id, reason).await?;
-            send_transfer_response(client, pending_id, TransferResponse::Ack { session_id })
-                .await?;
             event_bus
                 .publish(CoreEvent::TransferFailed { event })
                 .await?;
-            Ok(IncomingTransferDisposition::Handled)
+            Ok(TransferResponse::Ack { session_id })
         }
         TransferRequest::Pause { session_id } => {
             let event = runtime.handle_pause(session_id).await?;
-            send_transfer_response(client, pending_id, TransferResponse::Ack { session_id })
-                .await?;
             event_bus
                 .publish(CoreEvent::TransferPaused { event })
                 .await?;
-            Ok(IncomingTransferDisposition::Handled)
+            Ok(TransferResponse::Ack { session_id })
         }
         TransferRequest::Offer {
             session_id,
@@ -183,50 +193,30 @@ where
             total_size,
             origin,
         } => {
-            if paired_device.is_none() {
-                send_transfer_response(
-                    client,
-                    pending_id,
-                    TransferResponse::OfferResult {
-                        accepted: false,
-                        key: None,
-                        reason: Some(OfferRejectReason::NotPaired),
-                    },
-                )
-                .await?;
-                return Ok(IncomingTransferDisposition::Handled);
-            }
+            let Some(paired_device) = paired_device else {
+                return Ok(offer_result(false, Some(OfferRejectReason::NotPaired)));
+            };
 
             // 全局「暂停接收」：节点保持在线可发现，但对新 offer 自动婉拒——
             // 不缓存、不落盘、不发 TransferOffer 事件、不打扰本机用户。恢复后照常处理。
             if runtime.is_receiving_paused() {
-                send_transfer_response(
-                    client,
-                    pending_id,
-                    TransferResponse::OfferResult {
-                        accepted: false,
-                        key: None,
-                        reason: Some(OfferRejectReason::ReceivingPaused),
-                    },
-                )
-                .await?;
-                return Ok(IncomingTransferDisposition::Handled);
+                return Ok(offer_result(
+                    false,
+                    Some(OfferRejectReason::ReceivingPaused),
+                ));
             }
 
             let policy_decision = evaluate_receive_policy(ReceivePolicyContext {
-                device: paired_device.as_ref(),
+                device: Some(&paired_device),
                 files: &files,
                 total_size,
                 via_relay,
                 now_ms: chrono::Utc::now().timestamp_millis(),
             });
-            let device_name = paired_device
-                .as_ref()
-                .map(display_device_name)
-                .unwrap_or_else(|| short_peer_id(&peer_id));
+            let device_name = display_device_name(&paired_device);
 
             if policy_decision.action == ReceivePolicyAction::Reject {
-                let record_result = runtime
+                runtime
                     .record_rejected_inbound_offer(
                         peer_id,
                         device_name,
@@ -236,28 +226,16 @@ where
                         origin,
                         policy_decision,
                     )
-                    .await;
-                send_transfer_response(
-                    client,
-                    pending_id,
-                    TransferResponse::OfferResult {
-                        accepted: false,
-                        key: None,
-                        reason: Some(OfferRejectReason::PolicyRejected),
-                    },
-                )
-                .await?;
-                record_result?;
-                return Ok(IncomingTransferDisposition::Handled);
+                    .await?;
+                return Ok(offer_result(false, Some(OfferRejectReason::PolicyRejected)));
             }
 
             let auto_save_location = policy_decision.save_location.clone();
             let policy_action = Some(policy_decision.action_name().to_string());
             let policy_reason = Some(policy_decision.reason.clone());
 
-            runtime
+            let rx = runtime
                 .cache_inbound_offer(
-                    pending_id,
                     peer_id,
                     device_name.clone(),
                     session_id,
@@ -269,35 +247,45 @@ where
                 .await?;
 
             if let Some(save_location) = auto_save_location {
+                // 自动接收：立即解决应答通道并启动接收
                 runtime
                     .accept_cached_inbound_offer(session_id, save_location)
                     .await?;
-                return Ok(IncomingTransferDisposition::Handled);
+            } else {
+                // 需要确认：发 offer 事件 + 系统通知，随后 await 用户决策
+                let offer = TransferOfferEvent {
+                    session_id,
+                    peer_id: peer_id.to_string(),
+                    device_name: device_name.clone(),
+                    files: files
+                        .into_iter()
+                        .map(|f| TransferOfferFileEvent {
+                            file_id: f.file_id,
+                            name: f.name,
+                            relative_path: f.relative_path,
+                            size: f.size,
+                            is_directory: false,
+                        })
+                        .collect(),
+                    total_size,
+                    origin,
+                    policy_action,
+                    policy_reason,
+                };
+                event_bus
+                    .publish(CoreEvent::TransferOfferReceived { offer })
+                    .await?;
+                if let Some(notifier) = notifier {
+                    let _ = notifier
+                        .notify_if_unfocused(Notification::IncomingTransfer { device_name })
+                        .await;
+                }
             }
 
-            let offer = TransferOfferEvent {
-                session_id,
-                peer_id: peer_id.to_string(),
-                device_name,
-                files: files
-                    .into_iter()
-                    .map(|f| TransferOfferFileEvent {
-                        file_id: f.file_id,
-                        name: f.name,
-                        relative_path: f.relative_path,
-                        size: f.size,
-                        is_directory: false,
-                    })
-                    .collect(),
-                total_size,
-                origin,
-                policy_action,
-                policy_reason,
-            };
-            event_bus
-                .publish(CoreEvent::TransferOfferReceived { offer })
-                .await?;
-            Ok(IncomingTransferDisposition::OfferRequiresConfirmation)
+            // await 决策：清理回收 / accept / reject 都经应答通道解决。
+            Ok(rx
+                .await
+                .unwrap_or_else(|_| offer_result(false, Some(OfferRejectReason::UserDeclined))))
         }
         TransferRequest::ResumeProbe { session_id } => {
             let response = runtime
@@ -318,17 +306,15 @@ where
                         },
                     }
                 });
-            send_transfer_response(client, pending_id, response).await?;
-            Ok(IncomingTransferDisposition::Handled)
+            Ok(response)
         }
         TransferRequest::ResumeCommit {
             session_id,
             new_epoch,
-            key,
             fetch_plan,
         } => {
             let response = runtime
-                .handle_resume_commit(peer_id, session_id, new_epoch, key, fetch_plan)
+                .handle_resume_commit(peer_id, session_id, new_epoch, fetch_plan)
                 .await
                 .unwrap_or_else(|e| {
                     warn!("ResumeCommit 处理失败: {}", e);
@@ -339,27 +325,9 @@ where
                         reason: Some(ResumeRejectReason::SessionNotFound),
                     }
                 });
-            send_transfer_response(client, pending_id, response).await?;
-            Ok(IncomingTransferDisposition::Handled)
+            Ok(response)
         }
     }
-}
-
-pub enum IncomingTransferDisposition {
-    Handled,
-    OfferRequiresConfirmation,
-    Unhandled(TransferRequest),
-}
-
-async fn send_transfer_response(
-    client: &AppNetClient,
-    pending_id: u64,
-    response: TransferResponse,
-) -> AppResult<()> {
-    client
-        .send_response(pending_id, AppResponse::Transfer(response))
-        .await
-        .map_err(AppError::from)
 }
 
 fn display_device_name(device: &PairedDeviceInfo) -> String {
@@ -371,7 +339,66 @@ fn display_device_name(device: &PairedDeviceInfo) -> String {
         .unwrap_or_else(|| device.os_info.hostname.clone())
 }
 
-fn short_peer_id(peer_id: &PeerId) -> String {
-    let s = peer_id.to_string();
-    s[s.len().saturating_sub(8)..].to_string()
+/// transfer 控制面 typed RPC 服务。
+///
+/// 从 [`Endpoint`] 的连接快照判定 `via_relay`，从 [`PairingManager`] 解析 offer 的
+/// 已配对设备，再委托 [`handle_incoming_transfer_request`]。
+pub struct TransferCtrlService {
+    transfer: Arc<TransferManager>,
+    pairing: Arc<PairingManager>,
+    endpoint: Endpoint,
+    notifier: Option<Arc<dyn Notifier>>,
+}
+
+impl TransferCtrlService {
+    pub fn new(
+        transfer: Arc<TransferManager>,
+        pairing: Arc<PairingManager>,
+        endpoint: Endpoint,
+        notifier: Option<Arc<dyn Notifier>>,
+    ) -> Self {
+        Self {
+            transfer,
+            pairing,
+            endpoint,
+            notifier,
+        }
+    }
+
+    /// 与对端当前连接是否走中继（Offer 策略的 `allow_relay_auto_accept` 判定用）。
+    fn is_via_relay(&self, from: NodeId) -> bool {
+        // with() 只借用不 clone 整个 conns 快照。
+        self.endpoint.watch_conns().with(|conns| {
+            conns
+                .get(&from)
+                .is_some_and(|conn| matches!(conn.path, PathKind::Relayed))
+        })
+    }
+}
+
+impl RpcService<TransferRequest, TransferResponse> for TransferCtrlService {
+    async fn handle(
+        &self,
+        from: NodeId,
+        req: TransferRequest,
+    ) -> Result<TransferResponse, AcceptError> {
+        let is_offer = matches!(req, TransferRequest::Offer { .. });
+        // Offer 才需要解析已配对设备与中继判定；其余控制请求不依赖它们。
+        let paired_device = is_offer
+            .then(|| self.pairing.get_paired_device(&from))
+            .flatten();
+        let via_relay = is_offer && self.is_via_relay(from);
+
+        handle_incoming_transfer_request(
+            self.transfer.as_ref(),
+            self.transfer.event_bus().as_ref(),
+            self.notifier.as_ref(),
+            from,
+            paired_device,
+            via_relay,
+            req,
+        )
+        .await
+        .map_err(AcceptError::from_err)
+    }
 }

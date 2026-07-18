@@ -125,7 +125,7 @@ fn is_nested_path(file: &FileInfo) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
+    use swarmdrop_net::SecretKey;
 
     use super::{ReceivePolicyAction, ReceivePolicyContext, evaluate_receive_policy};
     use crate::device::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
@@ -146,9 +146,8 @@ mod tests {
     }
 
     fn device(level: DeviceTrustLevel) -> PairedDeviceInfo {
-        let keypair = Keypair::generate_ed25519();
         let mut device = PairedDeviceInfo::new(
-            PeerId::from_public_key(&keypair.public()),
+            SecretKey::generate().node_id(),
             OsInfo {
                 name: None,
                 hostname: "test".to_string(),

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use swarm_p2p_core::libp2p::PeerId;
+use swarmdrop_net::NodeId;
 
 use crate::device::{Device, PairedDeviceInfo};
 use crate::error::AppResult;
@@ -68,7 +68,9 @@ pub enum CoreEvent {
     },
     PairingRequestReceived {
         #[cfg_attr(feature = "specta", specta(type = String))]
-        peer_id: PeerId,
+        peer_id: NodeId,
+        /// core 内部生成的关联 id（新内核 RPC handler 天然长 await，不再是旧内核
+        /// pending 响应 id）；UI 用 `respond_pairing_request` 回带它解决对应 handler。
         pending_id: u64,
         #[serde(flatten)]
         request: PairingRequest,
@@ -553,7 +555,7 @@ impl UpdateInstaller for MemoryHost {
 mod tests {
     use std::path::PathBuf;
 
-    use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
+    use swarmdrop_net::{NodeId, SecretKey};
 
     use super::{
         AppPaths, CoreAppPaths, CoreEvent, CoreSaveLocation, DeviceIdentityBytes, EventBus,
@@ -573,9 +575,8 @@ mod tests {
         })
     }
 
-    fn peer_id() -> PeerId {
-        let keypair = Keypair::generate_ed25519();
-        PeerId::from_public_key(&keypair.public())
+    fn peer_id() -> NodeId {
+        SecretKey::generate().node_id()
     }
 
     fn os_info(hostname: &str) -> OsInfo {

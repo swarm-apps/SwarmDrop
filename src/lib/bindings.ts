@@ -49,7 +49,7 @@ export const commands = {
 	deleteInboxItem: (itemId: string, deleteLocalFiles: boolean) => __TAURI_INVOKE<null>("delete_inbox_item", { itemId, deleteLocalFiles }),
 	/**  从系统 keychain 初始化设备身份，不再要求用户输入 Stronghold 密码。 */
 	initializeIdentity: () => __TAURI_INVOKE<IdentityState>("initialize_identity"),
-	/**  生成新的 Ed25519 密钥对。 */
+	/**  生成新的 Ed25519 密钥对（protobuf 编码，与存量 keychain 格式兼容）。 */
 	generateKeypair: () => __TAURI_INVOKE<number[]>("generate_keypair"),
 	/**  注册密钥对到 Tauri state，并在桌面端写入系统 keychain。 */
 	registerKeypair: (keypair: number[]) => __TAURI_INVOKE<string>("register_keypair", { keypair }),
@@ -58,7 +58,7 @@ export const commands = {
 	/**
 	 *  设置设备名并持久化。
 	 * 
-	 *  仅写入 `device_config.json`。要让新名字通过 libp2p Identify `agent_version`
+	 *  仅写入 `device_config.json`。要让新名字通过 identify 协议的 `agent_version`
 	 *  重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
 	 *  paired_devices + network_options 上下文）。
 	 * 
@@ -75,7 +75,7 @@ export const commands = {
 	 *  配对成功后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
 	 * 
 	 *  `peer_id` 为 base58 字符串，`addrs` 为 multiaddr 字符串列表，由命令内部解析为
-	 *  libp2p 类型，方便通过 specta 生成 TypeScript bindings（libp2p 类型本身不实现
+	 *  内核 newtype，方便通过 specta 生成 TypeScript bindings（内核类型本身不实现
 	 *  `specta::Type`）。
 	 */
 	requestPairing: (peerId: string, method: PairingMethod, addrs: string[] | null) => __TAURI_INVOKE<PairingResponse>("request_pairing", { peerId, method, addrs }),
@@ -88,7 +88,7 @@ export const commands = {
 	/**
 	 *  取消与指定设备的配对（同步更新运行时状态）
 	 * 
-	 *  `peer_id` 为 base58 字符串，由命令内部解析为 libp2p `PeerId`。
+	 *  `peer_id` 为 base58 字符串，由命令内部解析为 `NodeId`。
 	 */
 	removePairedDevice: (peerId: string) => __TAURI_INVOKE<null>("remove_paired_device", { peerId }),
 	/**  更新已配对设备的可信策略。 */
@@ -228,7 +228,7 @@ export type DeviceFilter = "all" | "connected" | "paired";
 
 /**  查询设备信息的返回类型 */
 export type DeviceInfo = {
-	/**  libp2p PeerId（base58 字符串） */
+	/**  节点身份 NodeId（base58 字符串） */
 	peerId: string,
 	codeRecord: ShareCodeRecord,
 };
@@ -425,7 +425,7 @@ export type NetworkStatus = {
 	publicReachable: boolean,
 	/**  公网可达性设置的回显（host 侧检测"设置已变更需重启"用）。 */
 	publicReachabilityEnabled: boolean,
-	/**  当前已连接的中继节点 PeerId 列表。 */
+	/**  当前已连接的中继节点 NodeId 列表。 */
 	relayPeers: string[],
 	/**  是否至少有一个引导节点已连接。 */
 	bootstrapConnected: boolean,
@@ -495,6 +495,12 @@ export type PairingCodeInfo = {
 	expiresAt: string,
 };
 
+/**
+ *  配对方式。
+ * 
+ *  `Code` 携带分享码作凭证；`Direct` 为局域网直连（授权依据是「对端在本机 mDNS
+ *  多播域内」）。未来的邀请链接机制会新增 `Invite` 变体（扩展位，预留于此）。
+ */
 export type PairingMethod = { type: "code"; code: string } | { type: "direct" };
 
 /**  配对被拒绝的原因。 */

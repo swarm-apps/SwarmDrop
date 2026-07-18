@@ -159,14 +159,14 @@ impl Default for ActorRegistry {
 mod tests {
     use std::sync::Arc;
 
-    use swarm_p2p_core::libp2p::identity::Keypair;
+    use swarmdrop_net::SecretKey;
 
     use super::*;
     use crate::host::{CoreAppPaths, MemoryHost};
     use crate::transfer::manager::PreparedFile;
 
     fn send_actor() -> Arc<SenderActor> {
-        let peer_id = Keypair::generate_ed25519().public().to_peer_id();
+        let peer_id = SecretKey::generate().node_id();
         let base = std::env::temp_dir();
         let host = Arc::new(MemoryHost::new(CoreAppPaths {
             data_dir: base.clone(),
@@ -178,7 +178,6 @@ mod tests {
             Uuid::new_v4(),
             peer_id,
             Vec::<PreparedFile>::new(),
-            &[7; 32],
             host.clone(),
             host,
         ))

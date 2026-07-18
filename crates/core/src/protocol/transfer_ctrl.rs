@@ -1,44 +1,13 @@
-//! 应用层协议类型。
+//! 传输控制面请求/响应类型（wire v2）。
+//!
+//! wire v2 删除了应用层 XChaCha20 加密：Noise/TLS 在途已加密，relay 只见密文，
+//! 密钥经同一加密信道分发是自引用——故 `OfferResult` / `ResumeCommit` 不再携带
+//! 传输密钥，数据面直接传明文（帧协议见 [`transfer::wire`](crate::transfer::wire)）。
 
 use serde::{Deserialize, Serialize};
-use swarm_p2p_core::NetClient;
 use uuid::Uuid;
 
-use crate::device::OsInfo;
 use entity::TerminalReason;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PairingRequest {
-    pub os_info: OsInfo,
-    pub timestamp: i64,
-    pub method: PairingMethod,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase", tag = "type")]
-pub enum PairingMethod {
-    Code { code: String },
-    Direct,
-}
-
-/// 配对被拒绝的原因。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub enum PairingRefuseReason {
-    UserRejected,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase", tag = "status")]
-pub enum PairingResponse {
-    Success,
-    Refused { reason: PairingRefuseReason },
-}
 
 /// 传输文件元信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,12 +139,10 @@ pub enum TransferRequest {
     ResumeProbe {
         session_id: Uuid,
     },
-    /// 恢复提交：发起方确认恢复，携带新 epoch、传输密钥和 fetch_plan。
+    /// 恢复提交：发起方确认恢复，携带新 epoch 和 fetch_plan。
     ResumeCommit {
         session_id: Uuid,
         new_epoch: i64,
-        #[serde(serialize_with = "serialize_key", deserialize_with = "deserialize_key")]
-        key: [u8; 32],
         fetch_plan: Vec<FileRange>,
     },
 }
@@ -198,11 +165,6 @@ pub enum OfferRejectReason {
 pub enum TransferResponse {
     OfferResult {
         accepted: bool,
-        #[serde(
-            serialize_with = "serialize_opt_key",
-            deserialize_with = "deserialize_opt_key"
-        )]
-        key: Option<[u8; 32]>,
         reason: Option<OfferRejectReason>,
     },
     Ack {
@@ -221,59 +183,6 @@ pub enum TransferResponse {
         reason: Option<ResumeRejectReason>,
     },
 }
-
-fn serialize_key<S: serde::Serializer>(key: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_bytes(&key[..])
-}
-
-fn deserialize_key<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<[u8; 32], D::Error> {
-    let v: Vec<u8> = serde_bytes::deserialize(deserializer)?;
-    v.try_into()
-        .map_err(|_| serde::de::Error::custom("expected 32 bytes for key"))
-}
-
-fn serialize_opt_key<S: serde::Serializer>(
-    key: &Option<[u8; 32]>,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    match key {
-        Some(k) => serializer.serialize_some(&k[..]),
-        None => serializer.serialize_none(),
-    }
-}
-
-fn deserialize_opt_key<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<[u8; 32]>, D::Error> {
-    let opt: Option<Vec<u8>> = Option::deserialize(deserializer)?;
-    match opt {
-        None => Ok(None),
-        Some(v) => {
-            let arr: [u8; 32] = v
-                .try_into()
-                .map_err(|_| serde::de::Error::custom("expected 32 bytes for key"))?;
-            Ok(Some(arr))
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "type")]
-pub enum AppRequest {
-    Pairing(PairingRequest),
-    Transfer(TransferRequest),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "type")]
-pub enum AppResponse {
-    Pairing(PairingResponse),
-    Transfer(TransferResponse),
-}
-
-pub type AppNetClient = NetClient<AppRequest, AppResponse>;
 
 #[cfg(test)]
 mod tests {

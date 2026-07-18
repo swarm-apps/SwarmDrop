@@ -1,6 +1,6 @@
 //! 身份和已配对设备持久化逻辑。
 
-use swarm_p2p_core::libp2p::{PeerId, identity::Keypair};
+use swarmdrop_net::{NodeId, SecretKey};
 
 use crate::device::{DeviceReceivePolicy, DeviceTrustLevel, PairedDeviceInfo};
 use crate::error::{AppError, AppResult};
@@ -8,35 +8,35 @@ use crate::host::{DeviceIdentityBytes, IdentityMigrationState, KeychainProvider}
 
 /// 已初始化的设备身份。
 pub struct InitializedIdentity {
-    pub keypair: Keypair,
+    pub secret_key: SecretKey,
     pub keypair_bytes: Vec<u8>,
-    pub peer_id: PeerId,
+    pub node_id: NodeId,
     pub created: bool,
 }
 
 /// 从 host keychain 读取设备身份；不存在时自动生成并保存。
+///
+/// keypair 存量为 protobuf 编码，[`SecretKey::from_protobuf`] 与之完全兼容。
 pub async fn load_or_create_identity<P>(provider: &P) -> AppResult<InitializedIdentity>
 where
     P: KeychainProvider + ?Sized,
 {
     if let Some(identity) = provider.load_identity().await? {
-        let keypair = Keypair::from_protobuf_encoding(&identity.keypair)
+        let secret_key = SecretKey::from_protobuf(&identity.keypair)
             .map_err(|error| AppError::Identity(error.to_string()))?;
-        let peer_id = PeerId::from_public_key(&keypair.public());
+        let node_id = secret_key.node_id();
 
         return Ok(InitializedIdentity {
-            keypair,
+            secret_key,
             keypair_bytes: identity.keypair,
-            peer_id,
+            node_id,
             created: false,
         });
     }
 
-    let keypair = Keypair::generate_ed25519();
-    let keypair_bytes = keypair
-        .to_protobuf_encoding()
-        .map_err(|error| AppError::Identity(error.to_string()))?;
-    let peer_id = PeerId::from_public_key(&keypair.public());
+    let secret_key = SecretKey::generate();
+    let keypair_bytes = secret_key.to_protobuf();
+    let node_id = secret_key.node_id();
 
     provider
         .save_identity(DeviceIdentityBytes {
@@ -48,9 +48,9 @@ where
         .await?;
 
     Ok(InitializedIdentity {
-        keypair,
+        secret_key,
         keypair_bytes,
-        peer_id,
+        node_id,
         created: true,
     })
 }
@@ -96,7 +96,7 @@ where
 /// 更新已配对设备的可信策略，并返回更新后的列表。
 pub async fn update_paired_device_policy<P>(
     provider: &P,
-    peer_id: &PeerId,
+    peer_id: &NodeId,
     trust_level: DeviceTrustLevel,
     receive_policy: Option<DeviceReceivePolicy>,
 ) -> AppResult<Vec<PairedDeviceInfo>>
@@ -120,7 +120,7 @@ where
 /// 移除一个已配对设备，并返回更新后的列表。
 pub async fn remove_paired_device<P>(
     provider: &P,
-    peer_id: &PeerId,
+    peer_id: &NodeId,
 ) -> AppResult<Vec<PairedDeviceInfo>>
 where
     P: KeychainProvider + ?Sized,
@@ -135,8 +135,7 @@ where
 mod tests {
     use std::path::PathBuf;
 
-    use swarm_p2p_core::libp2p::PeerId;
-    use swarm_p2p_core::libp2p::identity::Keypair;
+    use swarmdrop_net::SecretKey;
 
     use crate::device::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
     use crate::host::{CoreAppPaths, KeychainProvider, MemoryHost};
@@ -151,9 +150,8 @@ mod tests {
     }
 
     fn paired_device(name: &str) -> PairedDeviceInfo {
-        let keypair = Keypair::generate_ed25519();
         PairedDeviceInfo::new(
-            PeerId::from_public_key(&keypair.public()),
+            SecretKey::generate().node_id(),
             OsInfo {
                 name: None,
                 hostname: name.to_string(),
@@ -216,7 +214,7 @@ mod tests {
 
         let loaded = super::load_or_create_identity(&host).await.unwrap();
         assert!(!loaded.created);
-        assert_eq!(created.peer_id, loaded.peer_id);
+        assert_eq!(created.node_id, loaded.node_id);
         assert_eq!(created.keypair_bytes, loaded.keypair_bytes);
     }
 
