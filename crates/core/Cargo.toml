@@ -11,14 +11,11 @@ thiserror = { workspace = true }
 # wasm 上 tokio 只有 sync/macros 可用（纯用户态原语）；spawn/time 走 n0-future（照 net/transfer 口径）
 tokio = { workspace = true, features = ["sync", "macros"] }
 n0-future = { workspace = true }
-# PairInvite 邀请串编码（postcard wire + base32 文本）与 capability 哈希
-postcard = { version = "1.1", features = ["use-std"] }
-data-encoding = "2"
-sha2 = { workspace = true }
 tokio-util = { workspace = true }
 swarmdrop-net = { workspace = true }
 swarmdrop-host = { workspace = true }
 swarmdrop-transfer = { workspace = true }
+swarmdrop-invite = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
 chrono = { workspace = true }

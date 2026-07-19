@@ -6,7 +6,6 @@ use dashmap::DashMap;
 use swarmdrop_net::{AcceptError, Addr, CallOptions, Endpoint, NodeId, RpcService};
 use tokio::sync::oneshot;
 
-use super::invite::{InviteRegistry, InviteRejectReason, PairInvite, TransportPolicy};
 use crate::device::{OsInfo, PairedDeviceInfo};
 use crate::device_manager::DeviceManager;
 use crate::host::{CoreEvent, EventBus, Notification, Notifier};
@@ -14,6 +13,7 @@ use crate::protocol::{
     PAIRING, PairingMethod, PairingRefuseReason, PairingRequest, PairingResponse,
 };
 use crate::{AppError, AppResult};
+use swarmdrop_invite::{InviteRegistry, InviteRejectReason, PairInvite, TransportPolicy};
 
 /// 出站配对调用超时（对齐旧栈 req_resp_timeout，容纳对端等用户决策的长交互）。
 const PAIRING_CALL_TIMEOUT: Duration = Duration::from_secs(180);

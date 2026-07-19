@@ -29,6 +29,7 @@ async-trait = { workspace = true }
 swarmdrop-net = { workspace = true }
 swarmdrop-core = { workspace = true, features = ["specta"] }
 swarmdrop-storage-sql = { workspace = true, features = ["specta"] }
+swarmdrop-invite = { workspace = true }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 tauri-plugin-biometry = "0.2"

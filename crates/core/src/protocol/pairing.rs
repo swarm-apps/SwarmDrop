@@ -16,9 +16,9 @@ pub struct PairingRequest {
 /// 配对方式。
 ///
 /// `Direct` 为局域网直连（授权依据是「对端在本机 mDNS 多播域内」）；`Invite` 携带
-/// 一次性邀请凭证（invite_id + capability，见 [`crate::pairing::invite`]）——受邀方
+/// 一次性邀请凭证（invite_id + capability，见 [`swarmdrop_invite`]）——受邀方
 /// 解码邀请串后连接发起方并出示凭证，发起方按
-/// [`InviteRegistry`](crate::pairing::invite::InviteRegistry) 校验。
+/// [`InviteRegistry`](swarmdrop_invite::InviteRegistry) 校验。
 ///
 /// 6 位分享码（旧 `Code` 变体 + DHT 发布/查询）已废弃——低熵可枚举、DHT 记录无法
 /// 证明身份，被自包含签名邀请取代（openspec: pair-invite-protocol）。

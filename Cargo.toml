@@ -4,6 +4,7 @@ members = [
     "crates/host",
     "crates/transfer",
     "crates/storage-sql",
+    "crates/invite",
     "crates/web",
     "crates/entity",
     "crates/migration",
@@ -46,6 +47,7 @@ migration = { path = "crates/migration" }
 # ── 新网络内核（refactor/net-kernel，iroh 风格 API + wasm 双 target）──
 swarmdrop-net-base = { path = "crates/net-base" }
 swarmdrop-storage-sql = { path = "crates/storage-sql" }
+swarmdrop-invite = { path = "crates/invite" }
 swarmdrop-net = { path = "crates/net" }
 # libp2p 系全部 pin 同一 git rev。为什么是 git 不是 crates.io：crates.io 最新的
 # libp2p-webrtc 0.9.0-alpha.1 的 webrtc-direct 实证跑不通（spike/webrtc-direct-https，

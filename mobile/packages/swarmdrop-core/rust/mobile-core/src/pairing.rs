@@ -13,8 +13,8 @@
 
 use swarmdrop_core::device::OsInfo;
 use swarmdrop_core::host::{CoreEvent, EventBus};
-use swarmdrop_core::pairing::invite::TransportPolicy;
 use swarmdrop_core::protocol::{PairingRefuseReason, PairingResponse};
+use swarmdrop_invite::TransportPolicy;
 
 use crate::app::MobileCore;
 use crate::error::{FfiError, FfiResult};

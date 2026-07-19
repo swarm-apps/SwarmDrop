@@ -2447,6 +2447,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast_qr"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f5ea9788036fedaf55f43a2db0ba01eedf47d26fd6852f01e5cf51952571d57"
+
+[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9029,6 +9035,7 @@ dependencies = [
  "specta",
  "specta-typescript",
  "swarmdrop-core",
+ "swarmdrop-invite",
  "swarmdrop-net",
  "swarmdrop-storage-sql",
  "tauri",
@@ -9067,21 +9074,19 @@ dependencies = [
  "blake3",
  "chrono",
  "dashmap",
- "data-encoding",
  "entity",
  "futures",
  "getrandom 0.4.3",
  "if-addrs",
  "migration",
  "n0-future",
- "postcard",
  "rand 0.10.1",
  "sea-orm",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "specta",
  "swarmdrop-host",
+ "swarmdrop-invite",
  "swarmdrop-net",
  "swarmdrop-storage-sql",
  "swarmdrop-transfer",
@@ -9109,6 +9114,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "swarmdrop-invite"
+version = "0.1.0"
+dependencies = [
+ "data-encoding",
+ "fast_qr",
+ "postcard",
+ "rand 0.10.1",
+ "serde",
+ "sha2 0.11.0",
+ "swarmdrop-net-base",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "swarmdrop-mobile-core"
 version = "0.1.0"
 dependencies = [
@@ -9119,6 +9138,7 @@ dependencies = [
  "sea-orm-migration",
  "serde_json",
  "swarmdrop-core",
+ "swarmdrop-invite",
  "swarmdrop-net",
  "swarmdrop-storage-sql",
  "thiserror 2.0.18",

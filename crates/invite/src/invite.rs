@@ -26,7 +26,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use swarmdrop_net::{Addr, NodeAddr, NodeId, SecretKey};
+use swarmdrop_net_base::{Addr, NodeAddr, NodeId, SecretKey};
 
 /// 邀请 KIND 前缀（纯字母——转大写后仍在 QR alphanumeric 字符集内）。
 const KIND: &str = "sdinvite";

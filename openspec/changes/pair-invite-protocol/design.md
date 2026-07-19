@@ -63,11 +63,30 @@ enum InviteState { Pending, Consumed { by: NodeId }, Revoked }
 net-base 已备好谓词（`Addr::is_private_lan / is_public_routable / is_circuit`）：
 LocalOnly 时接收方过滤地址提示只留私网、禁用 relay fallback；该字段在签名覆盖内（D1）。
 
-## D6：范围切分（四阶段映射）
+## D6：范围切分（修订——用户 2026-07-19 决策调整）
 
-本 change = 阶段一（协议内核 + 单测矩阵）+ 桌面最小入口。阶段二（链接/深链/QR 渲染）、
-阶段三（Web 临时端——依赖 Web 消费 core 组合根）、阶段四（6 位码下线）各自后续 change。
-双轨期 `PairingMethod` 三变体（Code/Direct/Invite）并存。
+- **本 change 已含**：协议内核 + 单测矩阵（Phase 1-2 ✅）、Invite 协议接入（Phase 3 ✅）、
+  **6 位配对码整体废弃**（原阶段四提前，`PairingMethod` 只剩 `Direct` + `Invite`，无双轨期）。
+- **三端 UI**（本次探索后另立 change）：桌面 React + 移动 RN 配对屏重写（生成二维码/复制链接/
+  倒计时 + 扫码/粘贴/剪贴板感知）；web 简单 demo（后续交外部开发者做完整 UI）。
+- **后续**：深链/Universal Link（设计文档阶段二的链接分发）、Web 临时端完整版（依赖 Web
+  消费 core 组合根，另一条线）。
+
+## D7：剪贴板感知 UX（三端「感知 + 一键确认」，非全自动）
+
+复制邀请链接后回到应用自动继续配对——但静默读剪贴板的隐私模型三端天差地别，故统一为
+「**感知到就亮一键入口，用户点击才真读+发起**」（邀请是信任凭证，全自动发起配对不留确认反
+危险，一键确认同时是安全闸）：
+
+| 端 | 感知手段 | 交互 |
+|---|---|---|
+| 桌面 Tauri | 窗口 focus 时静默读（无提示）+ `startsWith` 前缀校验 | 命中 → 顶部亮条「检测到配对邀请，点此配对」 |
+| iOS | `Clipboard.hasStringAsync()`（**只探有无字符串、不读内容、不弹系统横幅**） | 有内容 → 亮「粘贴邀请」chip → 点击才 `getStringAsync` 真读（横幅由用户触发，合规） |
+| Android | 回前台读 + 前缀校验（12+ 读时弹「已粘贴」toast，可接受） | 同 iOS 的 chip 交互 |
+| web demo | 无静默读能力（`readText` 需手势 + 权限） | 粘贴框 + 按钮 / Ctrl+V paste 事件 |
+
+前缀校验用 `sdinvite`（裸串）或 `swarmdrop://`/`https://swarmdrop.app/i#`（深链）即可秒判真伪。
+读到后本地 `PairInvite::decode` 验签 → 亮确认卡（对端设备名/平台/短指纹）→ 用户确认发起。
 
 ## 术语映射（原设计文档 iroh 术语 → 本栈）
 

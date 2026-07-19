@@ -1,0 +1,19 @@
+[package]
+name = "swarmdrop-invite"
+version = "0.1.0"
+edition.workspace = true
+
+# 配对邀请 PairInvite：编解码 / 一次性状态表 / 二维码生成。wasm-clean 独立层，
+# 只依赖 net-base 类型底座，不依赖 core——core 与浏览器端共享（见 lib.rs）。
+
+[dependencies]
+swarmdrop-net-base = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+# 邀请串编码：postcard wire（单变体 enum 版本化）+ base32 文本
+postcard = { version = "1.1", features = ["use-std"] }
+data-encoding = "2"
+# 二维码生成（wasm-first，SvgBuilder / 模块矩阵）
+fast_qr = { version = "0.13", features = ["svg"] }
+rand = { workspace = true }
