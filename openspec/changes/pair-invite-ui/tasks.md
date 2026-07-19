@@ -21,10 +21,10 @@
 ## Phase 2 — 移动 RN UI
 
 - [x] mobile rust 补 `pair_direct(peer_id)`（D6）；uniffi 绑定重建（ubrn generate jsi bindings，从 dylib）
-- [ ] `expo install expo-camera` + `app.json` config plugin（cameraPermission 文案）+ `expo prebuild` 重编
+- [x] `expo install expo-camera`（→ `~56.0.8`）+ `app.json` config plugin（cameraPermission 文案，禁麦克风/RECORD_AUDIO）；`expo prebuild` 重编为构建期动作
 - [x] QR 渲染组件（`react-native-svg` 按矩阵画 `<Rect>`）
 - [x] 发起方卡/屏：`generatePairInvite` → 二维码 + 复制（`expo-clipboard`）+ 倒计时
-- [ ] 受邀方：`CameraView` 扫码（qr 过滤 + 去抖 + 前缀校验 + 权限 primer + `openSettings` fallback）+ 粘贴 + 剪贴板感知（`hasStringAsync` 探测亮 chip）→ `consumePairInvite`
+- [x] 受邀方：`CameraView` 扫码（qr 过滤 + 去抖 + 前缀校验 + 权限 primer + `openSettings` fallback）+ 粘贴 + 剪贴板感知（`hasStringAsync` 探测亮 chip）→ `consumePairInvite`（`mobile/src/app/pairing/scan.tsx`；连带修 `fix(invite)` 前缀大小写）
 - [x] 删 `pairing-code-store`、`PairingCodeCard/Sheet/Input`、`lookupDeviceByCode` 链；`respondPairingRequest` 去 code 参数；LAN 近场 `handlePair` 接 `pairDirect`
 - [x] 复用：`peer-summary-card`/`success`/`pairing-request-host` 骨架/路由注册
 - [x] i18n：同桌面（`mobile/src/locales`）
