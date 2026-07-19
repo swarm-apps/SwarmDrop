@@ -19,6 +19,7 @@ specta = ["dep:specta", "swarmdrop-transfer/specta"]
 specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid"], optional = true }
 swarmdrop-net = { workspace = true }
 swarmdrop-net-base = { workspace = true }
+swarmdrop-invite = { workspace = true }
 swarmdrop-host = { workspace = true }
 swarmdrop-transfer = { workspace = true }
 entity = { workspace = true }

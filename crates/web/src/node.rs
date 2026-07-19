@@ -172,6 +172,33 @@ impl WebNode {
         )
     }
 
+    /// 用邀请串连接发起方（demo 级受邀方）：本地解码验签 → 按策略取地址 → connect。
+    ///
+    /// 完整 invite 配对握手（capability 出示 + 持久化配对记录）属 web 消费 core 的后续工程；
+    /// demo 只做「decode 取对端地址 → 连上 → 收文件」——transfer 层的 `WebPeerDirectory`
+    /// 对陌生设备本就手动确认，足够 demo 收发。
+    pub async fn connect_invite(&self, invite: String) -> Result<ConnectionJsonJs, JsValue> {
+        let inv = swarmdrop_invite::PairInvite::decode(&invite)
+            .map_err(|e| WebError::invalid_input(format!("邀请无效: {e}")))?;
+        let addr = inv
+            .usable_addrs()
+            .into_iter()
+            .next()
+            .ok_or_else(|| WebError::invalid_input("邀请不含可用地址"))?;
+        let info = self
+            .endpoint
+            .connect(NodeAddr::with_addrs(inv.inviter.id, vec![addr]))
+            .await
+            .map_err(js_err)?;
+        to_js_typed(
+            &ConnectionJson {
+                path: info.path.into(),
+                addr: info.addr.to_string(),
+            },
+            "连接信息",
+        )
+    }
+
     /// 经 helper 请求 circuit reservation（浏览器被动接收连接的唯一入口），返回 circuit 地址。
     pub async fn reserve(&self, helper_addr: String) -> Result<String, JsValue> {
         let (id, addr) = split_p2p_addr(&helper_addr)?;
