@@ -20,7 +20,7 @@
 - `pair-invite`: 一次性签名邀请配对——发起方生成自包含、Ed25519 签名、5 分钟 TTL、一次性消费的邀请串（base32 文本，二维码/链接同源），受邀方验签解码后经既有配对 RPC 完成 capability 校验与双向确认，写入长期配对记录。篡改、过期、重放、并发双花均无法建立信任。
 
 ### Modified Capabilities
-- `pairing`: `PairingMethod` 启用 `Invite` 变体（wire v2 增量，已留扩展位——加变体不破坏存量）；6 位码与 Direct 方式行为不变，双轨并存直到阶段四下线。
+- `pairing`: `PairingMethod` 启用 `Invite` 变体；**6 位分享码机制整体废弃**（用户 2026-07-19 决策，不考虑兼容性）——删 `Code` 变体、`code.rs`、DHT 分享码发布/查询。保留 `Direct`（LAN mDNS 直连）。配对流程不再经 DHT，邀请自包含地址提示、带外传递。
 
 ## Impact
 
