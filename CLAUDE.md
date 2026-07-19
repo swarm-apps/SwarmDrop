@@ -253,6 +253,7 @@ Triggered by pushing a `v*` tag. GitHub Actions workflow (`.github/workflows/rel
 | 网络内核知识库 | `dev-notes/knowledge/net-kernel.md` |
 | 重构决策与五道门经验 | `dev-notes/why-libp2p-not-iroh.md`、`dev-notes/knowledge/libp2p-wasm.md` |
 | 重构系列博客 | `dev-notes/blogs/2026-07-net-refactor-series.md` |
+| 配对重构系列博客（PairInvite） | `dev-notes/blogs/pairing-invite/README.md` |
 | 历史文档（重构前设计/已完成 roadmap/早期调研） | `dev-notes/archive/` |
 | 移动端 (RN + Expo) | `mobile/` |
 | 移动端 Rust 桥接 (uniffi) | `mobile/packages/swarmdrop-core/rust/mobile-core/` |
