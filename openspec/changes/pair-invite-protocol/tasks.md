@@ -2,18 +2,18 @@
 
 ## Phase 1 — net-base 签名 API
 
-- [ ] `SecretKey::sign(&[u8]) -> [u8; 64]` / `NodeId::verify(&[u8], &[u8; 64]) -> bool` 公开方法（包内层 libp2p-identity 能力）
-- [ ] 单测：sign/verify roundtrip、错签/错公钥拒绝、公钥从 NodeId multihash 恢复
+- [x] `SecretKey::sign(&[u8]) -> [u8; 64]` / `NodeId::verify(&[u8], &[u8; 64]) -> bool` 公开方法（包内层 libp2p-identity 能力）
+- [x] 单测：sign/verify roundtrip、错签/错公钥拒绝、公钥从 NodeId multihash 恢复
 
 ## Phase 2 — PairInvite 类型与编码（core/pairing/invite.rs）
 
-- [ ] `PairInvite` 领域类型 + `InviteWire::V1` 镜像结构（签名尾置、地址二进制、字段序即契约）
-- [ ] 编码：KIND `sdinvite` + postcard + base32-nopad（小写规范/解码大小写不敏感）；`Display`/`FromStr`
-- [ ] `ParseError` 四分类（Kind/Postcard/Encoding/Verify）
-- [ ] 解码验签（signable=去尾 64B，公钥从 inviter_id 恢复）+ TTL 预检
-- [ ] `InviteRegistry`：capability 哈希表 + CAS 消费 + 过期清理
-- [ ] 单测矩阵：roundtrip / 大小写 / 逐字段篡改拒绝（含 transport_policy）/ 过期 / 重复消费 / 并发双花仅一胜 / 未知版本变体拒绝 / wire hex 快照固化（契约锁定）
-- [ ] 双 target：进 check-wasm 门禁（core 已在集合内，确认新模块无 native 残留）
+- [x] `PairInvite` 领域类型 + `InviteWire::V1` 镜像结构（签名尾置、地址二进制、字段序即契约）
+- [x] 编码：KIND `sdinvite` + postcard + base32-nopad（小写规范/解码大小写不敏感）；`Display`/`FromStr`
+- [x] `ParseError` 四分类（Kind/Postcard/Encoding/Verify）
+- [x] 解码验签（signable=去尾 64B，公钥从 inviter_id 恢复）+ TTL 预检
+- [x] `InviteRegistry`：capability 哈希表 + CAS 消费 + 过期清理
+- [x] 单测矩阵：roundtrip / 大小写 / 逐字段篡改拒绝（含 transport_policy）/ 过期 / 重复消费 / 并发双花仅一胜 / 未知版本变体拒绝 / wire hex 快照固化（契约锁定）
+- [x] 双 target：进 check-wasm 门禁（core 已在集合内，确认新模块无 native 残留）
 
 ## Phase 3 — 配对协议 Invite 变体
 

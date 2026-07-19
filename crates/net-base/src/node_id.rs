@@ -44,6 +44,36 @@ impl NodeId {
     pub fn as_peer_id(&self) -> &PeerId {
         &self.0
     }
+
+    /// multihash 字节形态（wire 紧凑编码用，ed25519 下 38 字节；base58 即其编码）。
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.to_bytes()
+    }
+
+    /// 从 multihash 字节恢复（[`NodeId::to_bytes`] 的反向）。
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, IdParseError> {
+        PeerId::from_bytes(bytes)
+            .map(Self)
+            .map_err(|e| IdParseError::InvalidNodeId(e.to_string()))
+    }
+
+    /// 用本节点身份公钥验签（ed25519，64 字节签名）。
+    ///
+    /// 验签公钥从 NodeId **就地恢复**：ed25519 PeerId 是 identity multihash
+    /// （公钥 protobuf 直接内嵌、不经哈希），因此凭 NodeId 即可验签、无需另传公钥
+    /// ——PairInvite 等签名载荷不必携带独立公钥字段。非 identity 编码或
+    /// 非法公钥的 NodeId 恒返回 false（不 panic）。
+    pub fn verify(&self, message: &[u8], signature: &[u8; 64]) -> bool {
+        let mh = self.0.as_ref();
+        // multihash code 0x00 = identity（非哈希、digest 即原文）
+        if mh.code() != 0 {
+            return false;
+        }
+        match libp2p_identity::PublicKey::try_decode_protobuf(mh.digest()) {
+            Ok(pk) => pk.verify(message, signature),
+            Err(_) => false,
+        }
+    }
 }
 
 impl fmt::Display for NodeId {
@@ -116,6 +146,12 @@ impl SecretKey {
     pub fn as_keypair(&self) -> &Keypair {
         &self.0
     }
+
+    /// ed25519 签名（恒 64 字节）。验签用 [`NodeId::verify`]。
+    pub fn sign(&self, message: &[u8]) -> [u8; 64] {
+        let sig = self.0.sign(message).expect("ed25519 signing is infallible");
+        sig.try_into().expect("ed25519 signature is 64 bytes")
+    }
 }
 
 impl fmt::Debug for SecretKey {
@@ -169,6 +205,30 @@ mod tests {
     fn invalid_protobuf_is_rejected() {
         assert!(SecretKey::from_protobuf(b"garbage").is_err());
         assert!(SecretKey::from_protobuf(&[]).is_err());
+    }
+
+    #[test]
+    fn sign_verify_roundtrip() {
+        let sk = SecretKey::generate();
+        let msg = b"pair-invite signable bytes";
+        let sig = sk.sign(msg);
+        assert!(sk.node_id().verify(msg, &sig));
+    }
+
+    #[test]
+    fn verify_rejects_wrong_signature_and_wrong_key() {
+        let sk = SecretKey::generate();
+        let msg = b"payload";
+        let mut sig = sk.sign(msg);
+        // 篡改签名任一字节 → 拒绝
+        sig[0] ^= 0x01;
+        assert!(!sk.node_id().verify(msg, &sig));
+        // 正确签名 + 篡改消息 → 拒绝
+        let sig = sk.sign(msg);
+        assert!(!sk.node_id().verify(b"payload!", &sig));
+        // 别人的公钥 → 拒绝
+        let other = SecretKey::generate();
+        assert!(!other.node_id().verify(msg, &sig));
     }
 
     #[test]
