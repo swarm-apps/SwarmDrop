@@ -45,7 +45,7 @@ function PairingInputPage() {
   const isNodeRunning = useNetworkStore((s) => s.status === "running");
   const [text, setText] = useState("");
 
-  const { detected, dismiss, clear } = useClipboardInvite(
+  const { detected, dismiss } = useClipboardInvite(
     isNodeRunning && current.phase === "idle",
   );
 
@@ -130,7 +130,7 @@ function PairingInputPage() {
             type="button"
             onClick={() => {
               handleSubmit(detected);
-              clear();
+              dismiss();
             }}
             className="flex items-center gap-2 rounded-[16px] border border-brand/30 bg-brand/10 px-4 py-3 text-left text-sm text-foreground transition hover:bg-brand/15"
           >

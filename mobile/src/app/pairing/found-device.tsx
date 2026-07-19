@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import { ArrowLeft, MonitorSmartphone } from "lucide-react-native";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PeerSummaryCard } from "@/components/pairing/peer-summary-card";
@@ -23,10 +23,12 @@ export default function FoundDevice() {
   const confirmInvite = usePairingInviteStore((s) => s.confirmInvite);
   const cancelPreview = usePairingInviteStore((s) => s.cancelPreview);
 
-  // 无 pending（直接进入本页 / 刷新）→ 返回
+  // 仅「一进本页就没有 pending」（深链/刷新直达）时返回；confirm 成功清空 pending 由
+  // onConfirm 的 router.replace 导航，拒绝保留 pending 展示 error——都不触发本兜底。
+  const hadPending = useRef(pending !== null);
   useEffect(() => {
-    if (pending === null && !confirming) router.back();
-  }, [pending, confirming, router]);
+    if (!hadPending.current && !confirming) router.back();
+  }, [confirming, router]);
 
   const preview = pending?.preview;
 

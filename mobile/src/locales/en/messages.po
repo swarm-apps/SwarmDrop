@@ -13,7 +13,7 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/app/(main)/index.tsx:528
+#: src/app/(main)/index.tsx:526
 msgid "· 附近发现 {unpairedNearbyCount} 台"
 msgstr "· {unpairedNearbyCount} nearby"
 
@@ -142,7 +142,7 @@ msgstr "Peer ID"
 msgid "SwarmDrop 正在后台运行"
 msgstr "SwarmDrop is running in the background"
 
-#: src/app/(main)/index.tsx:446
+#: src/app/(main)/index.tsx:444
 msgid "SwarmDrop 还没上线"
 msgstr "SwarmDrop isn't online yet"
 
@@ -374,7 +374,7 @@ msgstr "View {0} fullscreen"
 msgid "全程端到端加密，路上没人能看到内容"
 msgstr "End-to-end encrypted, nobody can see the contents along the way"
 
-#: src/app/(main)/index.tsx:550
+#: src/app/(main)/index.tsx:548
 #: src/app/(main)/index.tsx:1238
 #: src/app/activity.tsx:33
 #: src/components/inbox/inbox-list.tsx:102
@@ -427,7 +427,7 @@ msgstr "Other devices will see this name when pairing. You can change it anytime
 msgid "内容指纹"
 msgstr "Content fingerprint"
 
-#: src/app/(main)/index.tsx:521
+#: src/app/(main)/index.tsx:519
 msgid "再试一次"
 msgstr "Try again"
 
@@ -448,7 +448,7 @@ msgstr "Recently received"
 msgid "准备中"
 msgstr "Preparing"
 
-#: src/app/(main)/index.tsx:459
+#: src/app/(main)/index.tsx:457
 msgid "出了点问题，点下方「再试一次」。"
 msgstr "Something went wrong. Tap “Try again” below."
 
@@ -489,7 +489,7 @@ msgstr "Switch the filter above, or open Search to find past content."
 msgid "刚刚"
 msgstr "Just now"
 
-#: src/app/(main)/index.tsx:444
+#: src/app/(main)/index.tsx:442
 msgid "刚才没能启动"
 msgstr "Couldn't start just now"
 
@@ -663,8 +663,8 @@ msgid "发送给 {0}"
 msgstr "Send to {0}"
 
 #: src/app/(main)/index.tsx:908
-#: src/app/pairing/found-device.tsx:114
-#: src/app/pairing/found-device.tsx:118
+#: src/app/pairing/found-device.tsx:116
+#: src/app/pairing/found-device.tsx:120
 #: src/app/send/select-device.tsx:296
 #: src/app/settings/bootstrap-nodes.tsx:208
 #: src/app/transfer/[sessionId].tsx:642
@@ -730,7 +730,7 @@ msgstr "Recoverable interruption"
 msgid "可达"
 msgstr "Reachable"
 
-#: src/app/(main)/index.tsx:546
+#: src/app/(main)/index.tsx:544
 #: src/app/(main)/index.tsx:889
 msgid "可配对"
 msgstr "Pairable"
@@ -743,7 +743,7 @@ msgstr "Bundle"
 msgid "后台保活与传输"
 msgstr "Background keepalive and transfer"
 
-#: src/app/(main)/index.tsx:523
+#: src/app/(main)/index.tsx:521
 msgid "启动"
 msgstr "Start"
 
@@ -751,7 +751,7 @@ msgstr "Start"
 msgid "启动中"
 msgstr "Starting"
 
-#: src/app/(main)/index.tsx:461
+#: src/app/(main)/index.tsx:459
 msgid "启动后，你的其他设备才能找到这台手机。"
 msgstr "Once started, your other devices will be able to find this phone."
 
@@ -772,8 +772,8 @@ msgstr "Start node"
 msgid "启动节点后才能发现和连接其他设备"
 msgstr "Start the node to discover and connect to other devices"
 
-#: src/app/(main)/index.tsx:251
-#: src/app/(main)/index.tsx:254
+#: src/app/(main)/index.tsx:249
+#: src/app/(main)/index.tsx:252
 #: src/components/node-control-sheet.tsx:98
 msgid "启动节点失败"
 msgstr "Failed to start node"
@@ -807,7 +807,7 @@ msgstr "Online"
 msgid "在线 · 可接收"
 msgstr "Online · ready"
 
-#: src/app/(main)/index.tsx:335
+#: src/app/(main)/index.tsx:333
 msgid "在设备详情里可以把设备加入分组"
 msgstr "Add devices to groups from device details"
 
@@ -827,7 +827,7 @@ msgstr "Copy Peer ID"
 msgid "复制 PeerID"
 msgstr "Copy PeerID"
 
-#: src/app/(main)/index.tsx:1010
+#: src/app/(main)/index.tsx:1014
 msgid "复制链接"
 msgstr ""
 
@@ -890,7 +890,7 @@ msgstr "The other side rejected the transfer request: {reason}"
 msgid "对方拒绝了这次传输"
 msgstr "The other side rejected this transfer"
 
-#: src/app/(main)/index.tsx:620
+#: src/app/(main)/index.tsx:618
 msgid "对方无响应，请重试"
 msgstr "No response. Try again."
 
@@ -1056,7 +1056,7 @@ msgstr "Selected files"
 msgid "已选的文件将被清空。"
 msgstr "The selected files will be cleared."
 
-#: src/app/(main)/index.tsx:548
+#: src/app/(main)/index.tsx:546
 msgid "已配对"
 msgstr "Paired"
 
@@ -1064,7 +1064,7 @@ msgstr "Paired"
 msgid "已配对，可直接发送"
 msgstr "Paired. Ready to send."
 
-#: src/app/(main)/index.tsx:295
+#: src/app/(main)/index.tsx:293
 #: src/app/inbox/[itemId].tsx:1122
 msgid "已配对设备"
 msgstr "Paired devices"
@@ -1242,7 +1242,7 @@ msgstr "Pair by QR code"
 msgid "找不到要传输的文件,可能已被移动或删除"
 msgstr "Cannot find the file to transfer. It may have been moved or deleted."
 
-#: src/app/pairing/found-device.tsx:83
+#: src/app/pairing/found-device.tsx:85
 msgid "找到设备"
 msgstr "Device found"
 
@@ -1411,7 +1411,7 @@ msgstr "Received"
 msgid "收到文件"
 msgstr "Incoming files"
 
-#: src/app/(main)/index.tsx:379
+#: src/app/(main)/index.tsx:377
 msgid "收到文件会第一时间出现在这儿"
 msgstr "Incoming files will show up here right away"
 
@@ -1704,7 +1704,7 @@ msgstr "From {0}"
 msgid "查看传输过程"
 msgstr "View transfer details"
 
-#: src/app/(main)/index.tsx:360
+#: src/app/(main)/index.tsx:358
 msgid "查看全部"
 msgstr "View all"
 
@@ -1755,11 +1755,11 @@ msgstr "Preparing your device"
 msgid "正在加载内容…"
 msgstr "Loading content..."
 
-#: src/app/(main)/index.tsx:442
+#: src/app/(main)/index.tsx:440
 msgid "正在启动"
 msgstr "Starting"
 
-#: src/app/(main)/index.tsx:517
+#: src/app/(main)/index.tsx:515
 msgid "正在启动…"
 msgstr "Starting…"
 
@@ -1833,7 +1833,7 @@ msgstr "No files"
 msgid "没有符合条件的附近设备"
 msgstr "No nearby devices match this filter"
 
-#: src/app/(main)/index.tsx:351
+#: src/app/(main)/index.tsx:349
 msgid "活跃传输"
 msgstr "Active transfers"
 
@@ -1861,8 +1861,8 @@ msgstr "Files will appear here after you add them"
 msgid "添加自定义引导节点"
 msgstr "Add custom bootstrap node"
 
-#: src/app/(main)/index.tsx:519
-#: src/app/(main)/index.tsx:704
+#: src/app/(main)/index.tsx:517
+#: src/app/(main)/index.tsx:702
 msgid "添加设备"
 msgstr "Add device"
 
@@ -1883,7 +1883,7 @@ msgstr "Clear search"
 msgid "清除筛选"
 msgstr "Clear filters"
 
-#: src/app/(main)/index.tsx:327
+#: src/app/(main)/index.tsx:325
 msgid "点下方「添加设备」，把你的电脑或另一台手机接进来。"
 msgstr "Tap “Add device” below to bring in your computer or another phone."
 
@@ -1895,7 +1895,7 @@ msgstr "Direct peer-to-peer"
 msgid "照片"
 msgstr "Photos"
 
-#: src/app/(main)/index.tsx:378
+#: src/app/(main)/index.tsx:376
 msgid "现在没有正在进行的传输"
 msgstr "No transfers in progress"
 
@@ -1941,19 +1941,19 @@ msgid "确定要中止这次传输吗？"
 msgstr "Abort this transfer?"
 
 #: src/app/(main)/index.tsx:722
-msgid "确认对端 SwarmDrop 已启动，或使用下方配对码"
-msgstr "Make sure SwarmDrop is running on the other device, or use the pairing code below"
+msgid "确认对端 SwarmDrop 已启动，或使用下方邀请二维码"
+msgstr ""
 
-#: src/app/pairing/found-device.tsx:73
+#: src/app/pairing/found-device.tsx:75
 msgid "确认设备"
 msgstr "Confirm device"
 
-#: src/app/pairing/found-device.tsx:86
+#: src/app/pairing/found-device.tsx:88
 msgid "确认这是你要配对的设备?"
 msgstr "Is this the device you want to pair with?"
 
-#: src/app/pairing/found-device.tsx:125
-#: src/app/pairing/found-device.tsx:133
+#: src/app/pairing/found-device.tsx:127
+#: src/app/pairing/found-device.tsx:135
 msgid "确认配对"
 msgstr "Confirm pairing"
 
@@ -2016,7 +2016,7 @@ msgstr "Failed to save policy"
 msgid "策略设置"
 msgstr "Policy settings"
 
-#: src/app/(main)/index.tsx:308
+#: src/app/(main)/index.tsx:306
 msgid "管理分组"
 msgstr "Manage groups"
 
@@ -2123,7 +2123,7 @@ msgstr "Custom"
 msgid "自定义引导节点"
 msgstr "Custom bootstrap nodes"
 
-#: src/app/(main)/index.tsx:274
+#: src/app/(main)/index.tsx:272
 msgid "自家设备都在这儿，东西到了会自动收下"
 msgstr "Your devices live here; incoming files are received automatically"
 
@@ -2181,7 +2181,7 @@ msgstr "Devices"
 msgid "设备 ID"
 msgstr "Device ID"
 
-#: src/app/(main)/index.tsx:273
+#: src/app/(main)/index.tsx:271
 msgid "设备中心"
 msgstr "Device center"
 
@@ -2207,7 +2207,7 @@ msgstr "Device name"
 msgid "设备名称已更新"
 msgstr "Device name updated"
 
-#: src/app/(main)/index.tsx:217
+#: src/app/(main)/index.tsx:215
 msgid "设备当前不可发送"
 msgstr "This device cannot receive sends right now"
 
@@ -2252,7 +2252,7 @@ msgstr "Identity is ready. You can pair and transfer files now."
 msgid "设置"
 msgstr "Settings"
 
-#: src/app/(main)/index.tsx:334
+#: src/app/(main)/index.tsx:332
 msgid "该分组还没有设备"
 msgstr "No devices in this group yet"
 
@@ -2338,7 +2338,7 @@ msgstr "Uptime"
 
 #: src/app/device/[peerId].tsx:269
 #: src/app/onboarding/device-name.tsx:71
-#: src/app/pairing/found-device.tsx:67
+#: src/app/pairing/found-device.tsx:69
 #: src/app/send/select-device.tsx:239
 #: src/components/search-header.tsx:38
 #: src/components/settings-header.tsx:26
@@ -2353,7 +2353,7 @@ msgstr "No groups yet"
 msgid "还没有分组,可在下方创建"
 msgstr "No groups yet — create one below"
 
-#: src/app/(main)/index.tsx:325
+#: src/app/(main)/index.tsx:323
 msgid "还没有配对设备"
 msgstr "No paired devices yet"
 
@@ -2465,7 +2465,7 @@ msgstr "Pairing code"
 msgid "配对码 {code}"
 msgstr "Pairing code {code}"
 
-#: src/app/(main)/index.tsx:630
+#: src/app/(main)/index.tsx:628
 msgid "配对被拒绝"
 msgstr "Pairing rejected"
 
@@ -2539,9 +2539,9 @@ msgstr "Block device"
 msgid "阻止这台设备"
 msgstr "Block this device"
 
-#: src/app/(main)/index.tsx:707
-msgid "附近的设备会自动出现；也可以用 6 位配对码互相认识"
-msgstr "Nearby devices appear automatically; you can also use a 6-digit pairing code"
+#: src/app/(main)/index.tsx:705
+msgid "附近的设备会自动出现；也可以用邀请（扫码/粘贴）互相认识"
+msgstr ""
 
 #: src/app/(main)/index.tsx:714
 msgid "附近设备"
@@ -2562,7 +2562,7 @@ msgstr "Requires confirmation"
 msgid "项"
 msgstr "items"
 
-#: src/app/(main)/index.tsx:457
+#: src/app/(main)/index.tsx:455
 msgid "马上就好，正在让附近设备能找到你。"
 msgstr "Almost there, making this phone discoverable to nearby devices."
 

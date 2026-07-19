@@ -86,15 +86,14 @@ impl PairingManager {
 
     // === 邀请（PairInvite）管理 ===
 
-    /// 生成一次性签名邀请并登记（返回领域对象；编码串由调用方 `invite.encode(secret)`
-    /// 得到，或用 [`encode_invite`](Self::encode_invite)）。不经 DHT——邀请串自包含
+    /// 生成邀请并返回编码串：签名 + 登记进 [`InviteRegistry`]。不经 DHT——邀请串自包含
     /// 地址提示，靠带外信道（二维码/链接）传递。
-    pub fn generate_invite(
+    pub fn encode_invite(
         &self,
         secret: &swarmdrop_net::SecretKey,
         policy: TransportPolicy,
         display: &OsInfo,
-    ) -> PairInvite {
+    ) -> String {
         let invite = PairInvite::generate(
             secret,
             self.shareable_addrs(),
@@ -107,22 +106,7 @@ impl PairingManager {
             now_secs(),
         );
         self.invite_registry.register(&invite);
-        invite
-    }
-
-    /// 生成邀请并直接返回编码串（[`generate_invite`](Self::generate_invite) + 签名编码）。
-    pub fn encode_invite(
-        &self,
-        secret: &swarmdrop_net::SecretKey,
-        policy: TransportPolicy,
-        display: &OsInfo,
-    ) -> String {
-        self.generate_invite(secret, policy, display).encode(secret)
-    }
-
-    /// 撤销邀请（用户取消 / 界面关闭）。
-    pub fn revoke_invite(&self, invite_id: &[u8; 16]) {
-        self.invite_registry.revoke(invite_id);
+        invite.encode(secret)
     }
 
     /// 受邀方：解码邀请串 → 验签 → TTL 预检 → 按策略过滤地址 → 连接发起方出示凭证。

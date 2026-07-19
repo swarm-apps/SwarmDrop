@@ -6,7 +6,7 @@
  * 绘 `<Rect>`。深模块 + 白底、不随暗色主题反色（摄像头对反色 QR 识别差）。
  */
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { ActivityIndicator, View } from "react-native";
 import Svg, { Rect } from "react-native-svg";
 import { getMobileCore } from "@/core/mobile-core";
@@ -25,14 +25,9 @@ interface QrCells {
 }
 
 export function InviteQr({ invite, size = 220 }: InviteQrProps) {
-  const [matrix, setMatrix] = useState<QrCells | null>(null);
-
-  useEffect(() => {
-    if (invite === null) {
-      setMatrix(null);
-      return;
-    }
-    // inviteQrMatrix 是同步 uniffi 方法（Rust pub fn）
+  // inviteQrMatrix 是同步 uniffi 方法（Rust pub fn）→ useMemo 直接算，无首帧 spinner 闪烁
+  const matrix = useMemo<QrCells | null>(() => {
+    if (invite === null) return null;
     try {
       const m = getMobileCore().inviteQrMatrix(invite);
       const dim = Number(m.size);
@@ -40,9 +35,9 @@ export function InviteQr({ invite, size = 220 }: InviteQrProps) {
       m.modules.forEach((on, i) => {
         if (on) cells.push({ x: i % dim, y: Math.floor(i / dim) });
       });
-      setMatrix({ dim, cells });
+      return { dim, cells };
     } catch {
-      setMatrix(null);
+      return null;
     }
   }, [invite]);
 

@@ -12,7 +12,16 @@
 //! - **quiet zone 4 模块**（ISO 硬性要求）。
 //! - 配色由渲染端负责：**深模块 + 白底，不随暗色主题反色**（摄像头对反色 QR 识别差）。
 
-use fast_qr::{ECL, QRBuilder};
+use fast_qr::{ECL, QRBuilder, QRCode};
+
+/// 三端统一的 QR 编码：payload 大写化（→ alphanumeric）+ ECL::M。**编码策略单点**——
+/// SVG / matrix 两个渲染出口都经此，改 ECL/模式只此一处。
+fn build_qr(invite: &str) -> Result<QRCode, QrError> {
+    QRBuilder::new(invite.to_ascii_uppercase())
+        .ecl(ECL::M)
+        .build()
+        .map_err(|e| QrError(e.to_string()))
+}
 
 /// 生成邀请二维码的 SVG 字符串（深模块 `#0a0a0a`，透明背景——渲染端套白卡）。
 ///
@@ -20,10 +29,7 @@ use fast_qr::{ECL, QRBuilder};
 pub fn invite_qr_svg(invite: &str) -> Result<String, QrError> {
     use fast_qr::convert::{Builder, Shape, svg::SvgBuilder};
 
-    let qr = QRBuilder::new(invite.to_ascii_uppercase())
-        .ecl(ECL::M)
-        .build()
-        .map_err(|e| QrError(e.to_string()))?;
+    let qr = build_qr(invite)?;
     Ok(SvgBuilder::default()
         .shape(Shape::Square)
         .margin(4)
@@ -34,10 +40,7 @@ pub fn invite_qr_svg(invite: &str) -> Result<String, QrError> {
 /// 生成邀请二维码的模块矩阵（`true` = 深模块）。RN 端按此自绘 `<Rect>`；
 /// 已含 4 模块 quiet zone 边距。
 pub fn invite_qr_matrix(invite: &str) -> Result<Vec<Vec<bool>>, QrError> {
-    let qr = QRBuilder::new(invite.to_ascii_uppercase())
-        .ecl(ECL::M)
-        .build()
-        .map_err(|e| QrError(e.to_string()))?;
+    let qr = build_qr(invite)?;
     let size = qr.size;
     const QZ: usize = 4;
     let full = size + QZ * 2;

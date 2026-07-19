@@ -173,7 +173,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             devices: [],
           });
           // 节点停了，配对码也无效（不能通过 DHT 被对端找到）—— 清掉
-          usePairingInviteStore.getState().clearInvite();
+          usePairingInviteStore.getState().clearActiveInvite();
           return { ok: true, state: "stopped" };
         } catch (err) {
           const message = errorMessage(err);

@@ -32,9 +32,9 @@ interface PairingInviteState {
   activeInvite: ActiveInvite | null;
   generating: boolean;
   error: string | null;
-  ensureInvite: (localOnly?: boolean) => Promise<void>;
-  regenerateInvite: (localOnly?: boolean) => Promise<void>;
-  clearInvite: () => void;
+  ensureActiveInvite: (localOnly?: boolean) => Promise<void>;
+  generateInvite: (localOnly?: boolean) => Promise<void>;
+  clearActiveInvite: () => void;
 
   // 受邀方
   pending: InvitePreview | null;
@@ -86,7 +86,7 @@ export const usePairingInviteStore = create<PairingInviteState>()(
         scheduleRefresh(active.generatedAt, () => {
           const { activeInvite, generating } = get();
           if (activeInvite !== null && !generating)
-            void get().regenerateInvite(localOnly);
+            void get().generateInvite(localOnly);
         });
       } catch (err) {
         clearTimer();
@@ -106,7 +106,7 @@ export const usePairingInviteStore = create<PairingInviteState>()(
       pending: null,
       confirming: false,
 
-      async ensureInvite(localOnly = false) {
+      async ensureActiveInvite(localOnly = false) {
         const { activeInvite, generating } = get();
         if (generating) return;
         if (
@@ -118,12 +118,12 @@ export const usePairingInviteStore = create<PairingInviteState>()(
         await generate(localOnly);
       },
 
-      async regenerateInvite(localOnly = false) {
+      async generateInvite(localOnly = false) {
         if (get().generating) return;
         await generate(localOnly);
       },
 
-      clearInvite() {
+      clearActiveInvite() {
         clearTimer();
         set({ activeInvite: null, error: null });
       },
@@ -131,7 +131,7 @@ export const usePairingInviteStore = create<PairingInviteState>()(
       async previewInvite(invite: string) {
         const v = invite.trim();
         try {
-          const preview = await getMobileCore().decodePairInvite(v);
+          const preview = getMobileCore().decodePairInvite(v);
           if (Number(preview.expiresAt) * 1000 <= Date.now()) {
             set({ error: "邀请已过期", pending: null });
             return false;
@@ -155,9 +155,13 @@ export const usePairingInviteStore = create<PairingInviteState>()(
           const result = await getMobileCore().consumePairInvite(
             pending.invite,
           );
-          set({ confirming: false, pending: null });
-          if (!result.accepted) {
-            set({ error: result.reason ?? "配对被拒绝" });
+          if (result.accepted) {
+            // 成功才清 pending——由确认页 router.replace(success) 导航，避免与
+            // found-device 的「pending===null → back()」竞态。
+            set({ confirming: false, pending: null });
+          } else {
+            // 拒绝：保留 pending，把 error 留在确认页展示（否则一闪即弹回主屏）。
+            set({ confirming: false, error: result.reason ?? "配对被拒绝" });
           }
           return result.accepted;
         } catch (err) {

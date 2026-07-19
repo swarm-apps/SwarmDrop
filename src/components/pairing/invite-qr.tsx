@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { commands } from "@/lib/bindings";
 
 interface InviteQrProps {
@@ -19,22 +19,28 @@ interface InviteQrProps {
   className?: string;
 }
 
+type QrState =
+  | { status: "loading" }
+  | { status: "ok"; svg: string }
+  | { status: "error" };
+
 export function InviteQr({ invite, size = 260, className }: InviteQrProps) {
-  const [svg, setSvg] = useState<string | null>(null);
+  const [state, setState] = useState<QrState>({ status: "loading" });
 
   useEffect(() => {
     if (invite === null) {
-      setSvg(null);
+      setState({ status: "loading" });
       return;
     }
     let cancelled = false;
+    setState({ status: "loading" });
     commands
       .inviteQrSvg(invite)
-      .then((s) => {
-        if (!cancelled) setSvg(s);
+      .then((svg) => {
+        if (!cancelled) setState({ status: "ok", svg });
       })
       .catch(() => {
-        if (!cancelled) setSvg(null);
+        if (!cancelled) setState({ status: "error" });
       });
     return () => {
       cancelled = true;
@@ -46,12 +52,14 @@ export function InviteQr({ invite, size = 260, className }: InviteQrProps) {
       className={`flex items-center justify-center rounded-2xl bg-white p-3 shadow-sm ${className ?? ""}`}
       style={{ width: size + 24, height: size + 24 }}
     >
-      {svg ? (
+      {state.status === "ok" ? (
         <div
           style={{ width: size, height: size }}
           // 二维码 SVG 由后端受信任生成（纯几何 path，无脚本），安全内联
-          dangerouslySetInnerHTML={{ __html: svg }}
+          dangerouslySetInnerHTML={{ __html: state.svg }}
         />
+      ) : state.status === "error" ? (
+        <AlertCircle className="size-8 text-neutral-400" />
       ) : (
         <Loader2 className="size-8 animate-spin text-neutral-400" />
       )}

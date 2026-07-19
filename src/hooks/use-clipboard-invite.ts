@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 const INVITE_PREFIX = "sdinvite";
 
 /**
- * @returns `detected` 感知到的邀请串（未感知为 null）；`dismiss` 忽略本次；`clear` 消费后清空
+ * @returns `detected` 感知到的邀请串（未感知为 null）；`dismiss` 收起一键条（忽略/消费共用）
  */
 export function useClipboardInvite(enabled: boolean) {
   const [detected, setDetected] = useState<string | null>(null);
@@ -42,7 +42,6 @@ export function useClipboardInvite(enabled: boolean) {
   }, [enabled, check]);
 
   const dismiss = useCallback(() => setDetected(null), []);
-  const clear = useCallback(() => setDetected(null), []);
 
-  return { detected, dismiss, clear };
+  return { detected, dismiss };
 }

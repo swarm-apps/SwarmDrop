@@ -568,7 +568,7 @@ const AddDeviceSheet = forwardRef<
   const { t } = useLingui();
   const colors = useThemeColors();
   const sheetRef = useRef<AppBottomSheetRef>(null);
-  const pairingCodeSheetRef = useRef<PairingCodeSheetRef>(null);
+  const inviteSheetRef = useRef<InviteSheetRef>(null);
   const [pairingPeer, setPairingPeer] = useState<string | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
 
@@ -656,17 +656,17 @@ const AddDeviceSheet = forwardRef<
 
   // 「输入配对码」要等本 sheet 收起动画结束再唤起,避免两个 modal 叠加——
   // 收起完成的时机由 onDismiss 给出,不硬编码动画时长。
-  const pendingInputCodeRef = useRef(false);
+  const pendingPasteInviteRef = useRef(false);
 
-  const openInputCodeSheet = useCallback(() => {
-    pendingInputCodeRef.current = true;
+  const openPasteInviteSheet = useCallback(() => {
+    pendingPasteInviteRef.current = true;
     sheetRef.current?.dismiss();
   }, []);
 
   const handleSheetDismiss = useCallback(() => {
-    if (!pendingInputCodeRef.current) return;
-    pendingInputCodeRef.current = false;
-    pairingCodeSheetRef.current?.present();
+    if (!pendingPasteInviteRef.current) return;
+    pendingPasteInviteRef.current = false;
+    inviteSheetRef.current?.present();
   }, []);
 
   const filteredNearby = useMemo(() => {
@@ -702,7 +702,9 @@ const AddDeviceSheet = forwardRef<
                 <Trans>添加设备</Trans>
               </Text>
               <Text className="text-center text-[13px] leading-5 text-muted-foreground">
-                <Trans>附近的设备会自动出现；也可以用 6 位配对码互相认识</Trans>
+                <Trans>
+                  附近的设备会自动出现；也可以用邀请（扫码/粘贴）互相认识
+                </Trans>
               </Text>
             </View>
           </View>
@@ -717,7 +719,7 @@ const AddDeviceSheet = forwardRef<
                 pulse
                 title={<Trans>正在留意附近的设备</Trans>}
                 description={
-                  <Trans>确认对端 SwarmDrop 已启动，或使用下方配对码</Trans>
+                  <Trans>确认对端 SwarmDrop 已启动，或使用下方邀请二维码</Trans>
                 }
               />
             ) : (
@@ -809,10 +811,10 @@ const AddDeviceSheet = forwardRef<
 
           <View className="h-px bg-border" />
 
-          <PairingCodeCard />
+          <InviteCard />
 
           <Pressable
-            onPress={openInputCodeSheet}
+            onPress={openPasteInviteSheet}
             accessibilityRole="button"
             testID="devices-open-input-code-sheet-button"
             className="min-h-[64px] flex-row items-center gap-3 rounded-xl border border-border bg-muted px-4 py-3 active:opacity-70"
@@ -835,7 +837,7 @@ const AddDeviceSheet = forwardRef<
           </Pressable>
         </View>
       </AppBottomSheet>
-      <PairingCodeSheet ref={pairingCodeSheetRef} />
+      <InviteSheet ref={inviteSheetRef} />
     </>
   );
 });
@@ -918,18 +920,18 @@ function NearbyDeviceRow({
   );
 }
 
-function PairingCodeCard() {
+function InviteCard() {
   const { t } = useLingui();
   const colors = useThemeColors();
   const activeInvite = usePairingInviteStore((s) => s.activeInvite);
   const generating = usePairingInviteStore((s) => s.generating);
   const error = usePairingInviteStore((s) => s.error);
-  const ensureInvite = usePairingInviteStore((s) => s.ensureInvite);
-  const regenerateInvite = usePairingInviteStore((s) => s.regenerateInvite);
+  const ensureActiveInvite = usePairingInviteStore((s) => s.ensureActiveInvite);
+  const generateInvite = usePairingInviteStore((s) => s.generateInvite);
 
   useEffect(() => {
-    void ensureInvite();
-  }, [ensureInvite]);
+    void ensureActiveInvite();
+  }, [ensureActiveInvite]);
 
   const remaining = useExpiresCountdown(
     activeInvite ? activeInvite.generatedAt + INVITE_TTL_SECS * 1000 : null,
@@ -978,9 +980,7 @@ function PairingCodeCard() {
 
       <View className="w-full flex-row gap-2">
         <Pressable
-          onPress={() =>
-            void regenerateInvite(activeInvite?.localOnly ?? false)
-          }
+          onPress={() => void generateInvite(activeInvite?.localOnly ?? false)}
           disabled={generating}
           accessibilityRole="button"
           className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
@@ -1019,13 +1019,13 @@ function PairingCodeCard() {
   );
 }
 
-interface PairingCodeSheetRef {
+interface InviteSheetRef {
   present: () => void;
   dismiss: () => void;
 }
 
-const PairingCodeSheet = forwardRef<PairingCodeSheetRef, object>(
-  function PairingCodeSheet(_props, ref) {
+const InviteSheet = forwardRef<InviteSheetRef, object>(
+  function InviteSheet(_props, ref) {
     const sheetRef = useRef<AppBottomSheetRef>(null);
     const colors = useThemeColors();
 

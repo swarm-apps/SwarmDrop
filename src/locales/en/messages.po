@@ -223,8 +223,12 @@ msgstr "Today"
 #~ msgstr "Select a session from the list to view progress, file details, and actions."
 
 #: src/routes/_app/devices/index.lazy.tsx
-msgid "从附近设备发起配对，或使用配对码连接另一台设备。"
-msgstr "Pair with a nearby device, or use a pairing code to connect another device."
+#~ msgid "从附近设备发起配对，或使用配对码连接另一台设备。"
+#~ msgstr "Pair with a nearby device, or use a pairing code to connect another device."
+
+#: src/routes/_app/devices/index.lazy.tsx
+msgid "从附近设备发起配对，或通过邀请连接另一台设备。"
+msgstr ""
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "会话列表"
@@ -872,11 +876,11 @@ msgstr "LAN assistance"
 msgid "展示配对邀请"
 msgstr ""
 
-#. placeholder {0}: deviceDisplayName(osInfo)
 #: src/stores/pairing-store.ts
-msgid "已与 {0} 配对成功"
-msgstr "Paired with {0} successfully"
+#~ msgid "已与 {0} 配对成功"
+#~ msgstr "Paired with {0} successfully"
 
+#: src/stores/pairing-store.ts
 #: src/stores/pairing-store.ts
 #: src/stores/pairing-store.ts
 msgid "已与 {deviceName} 配对成功"

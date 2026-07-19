@@ -502,7 +502,7 @@ function PairedDevicesSection({
           }
           description={
             totalDeviceCount === 0
-              ? <Trans>从附近设备发起配对，或使用配对码连接另一台设备。</Trans>
+              ? <Trans>从附近设备发起配对，或通过邀请连接另一台设备。</Trans>
               : <Trans>可在设备菜单中为已配对设备设置分组。</Trans>
           }
         />

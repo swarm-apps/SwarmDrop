@@ -78,13 +78,13 @@ export interface ActiveInvite {
   localOnly: boolean;
 }
 
-/** 出站配对阶段（受邀方侧：预览确认 → 请求中 → 成功/失败） */
+/** 出站配对阶段（受邀方侧：预览确认 → 请求中 → 成功）。
+ * 错误只经 toast 传达、不进状态机（UI 无 error 态渲染）；成功/请求态无 payload（UI 只读 phase）。 */
 export type PairingPhase =
   | { phase: "idle" }
   | { phase: "previewing"; invite: string; preview: PairInvitePreview }
-  | { phase: "requesting"; peerId: string }
-  | { phase: "success"; peerId: string; deviceName: string }
-  | { phase: "error"; message: string };
+  | { phase: "requesting" }
+  | { phase: "success" };
 
 interface PairingState {
   /** 当前出站配对阶段 */
@@ -166,14 +166,14 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
       const preview = await commands.decodePairInvite(invite.trim());
       if (preview.expiresAt * 1000 <= Date.now()) {
         const message = t`邀请已过期`;
-        set({ current: { phase: "error", message } });
+        set({ current: { phase: "idle" } });
         toast.error(message);
         return;
       }
       set({ current: { phase: "previewing", invite: invite.trim(), preview } });
     } catch (err) {
       const message = getErrorMessage(err);
-      set({ current: { phase: "error", message } });
+      set({ current: { phase: "idle" } });
       toast.error(message);
     }
   },
@@ -182,7 +182,7 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
     const { current } = get();
     if (current.phase !== "previewing") return;
     const { invite, preview } = current;
-    set({ current: { phase: "requesting", peerId: preview.peerId } });
+    set({ current: { phase: "requesting" } });
 
     try {
       const response: PairingResponse = await withTimeout(
@@ -193,17 +193,17 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
 
       if (response.status === "success") {
         const deviceName = preview.displayName || preview.peerId.slice(-8);
-        set({ current: { phase: "success", peerId: preview.peerId, deviceName } });
+        set({ current: { phase: "success" } });
         toast.success(t`已与 ${deviceName} 配对成功`);
       } else {
         const message = getPairingRefuseMessage(response.reason);
-        set({ current: { phase: "error", message } });
+        set({ current: { phase: "idle" } });
         toast.error(message);
       }
     } catch (err) {
       if (handleNodeNotStarted(err)) return;
       const message = getErrorMessage(err);
-      set({ current: { phase: "error", message } });
+      set({ current: { phase: "idle" } });
       toast.error(message);
     }
   },
@@ -226,7 +226,8 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
     set({ incomingRequest: null });
     try {
       await commands.respondPairingRequest(pendingId, method, { status: "success" });
-      toast.success(t`已与 ${deviceDisplayName(osInfo)} 配对成功`);
+      const deviceName = deviceDisplayName(osInfo);
+      toast.success(t`已与 ${deviceName} 配对成功`);
       get().processNextInbound();
       return true;
     } catch (err) {
@@ -258,7 +259,7 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
   },
 
   async directPairing(peerId: PeerId) {
-    set({ current: { phase: "requesting", peerId } });
+    set({ current: { phase: "requesting" } });
     try {
       const response: PairingResponse = await withTimeout(
         commands.requestPairing(peerId, { type: "direct" }, null),
@@ -269,17 +270,17 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
       if (response.status === "success") {
         const device = findNetworkDeviceSnapshot(peerId);
         const deviceName = device ? deviceDisplayName(device) : peerId.slice(-8);
-        set({ current: { phase: "success", peerId, deviceName } });
+        set({ current: { phase: "success" } });
         toast.success(t`已与 ${deviceName} 配对成功`);
       } else {
         const message = getPairingRefuseMessage(response.reason);
-        set({ current: { phase: "error", message } });
+        set({ current: { phase: "idle" } });
         toast.error(message);
       }
     } catch (err) {
       if (handleNodeNotStarted(err)) return;
       const message = getErrorMessage(err);
-      set({ current: { phase: "error", message } });
+      set({ current: { phase: "idle" } });
       toast.error(message);
     }
   },

@@ -90,8 +90,6 @@ function PairingGeneratePage() {
 
   const handleBack = () => navigate({ to: "/devices" });
 
-  const showQr = isNodeRunning && !isLoading && !errorMessage && activeInvite && !isExpired;
-
   return (
     <TaskPageShell>
       <TaskToolbar title={<Trans>添加新设备</Trans>} onBack={handleBack} />
@@ -149,7 +147,7 @@ function PairingGeneratePage() {
                   {errorMessage}
                 </PairingStatusMessage>
               ) : (
-                <InviteQr invite={showQr ? activeInvite.invite : null} size={240} />
+                <InviteQr invite={isExpired ? null : (activeInvite?.invite ?? null)} size={240} />
               )}
 
               {activeInvite && !isLoading && !errorMessage && (
