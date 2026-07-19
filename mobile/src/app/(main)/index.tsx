@@ -14,6 +14,7 @@ import {
   Radar,
   Radio,
   RefreshCcw,
+  ScanLine,
   SearchX,
   Smartphone,
   Tags,
@@ -1028,11 +1029,17 @@ const InviteSheet = forwardRef<InviteSheetRef, object>(
   function InviteSheet(_props, ref) {
     const sheetRef = useRef<AppBottomSheetRef>(null);
     const colors = useThemeColors();
+    const router = useRouter();
 
     useImperativeHandle(ref, () => ({
       present: () => sheetRef.current?.present(),
       dismiss: () => sheetRef.current?.dismiss(),
     }));
+
+    const openScanner = () => {
+      sheetRef.current?.dismiss();
+      router.push({ pathname: "/pairing/scan" });
+    };
 
     return (
       <AppBottomSheet
@@ -1043,16 +1050,35 @@ const InviteSheet = forwardRef<InviteSheetRef, object>(
         <View className="gap-4 px-5 pt-2 pb-6">
           <View className="items-center gap-2">
             <View className="size-12 items-center justify-center rounded-full bg-primary/10">
-              <ClipboardPaste color={colors.primary} size={22} />
+              <ScanLine color={colors.primary} size={22} />
             </View>
             <View className="items-center gap-1">
               <Text className="text-base font-bold text-foreground">
-                <Trans>粘贴配对邀请</Trans>
+                <Trans>扫码或粘贴邀请</Trans>
               </Text>
               <Text className="text-center text-[13px] leading-5 text-muted-foreground">
                 <Trans>扫描或粘贴另一台设备的邀请，验证后确认配对</Trans>
               </Text>
             </View>
+          </View>
+
+          <Pressable
+            onPress={openScanner}
+            accessibilityRole="button"
+            className="h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70"
+          >
+            <ScanLine color={colors.primaryForeground} size={18} />
+            <Text className="text-base font-semibold text-primary-foreground">
+              <Trans>扫描二维码</Trans>
+            </Text>
+          </Pressable>
+
+          <View className="flex-row items-center gap-3">
+            <View className="h-px flex-1 bg-border" />
+            <Text className="text-xs text-muted-foreground">
+              <Trans>或</Trans>
+            </Text>
+            <View className="h-px flex-1 bg-border" />
           </View>
 
           <PasteInviteInput onResolved={() => sheetRef.current?.dismiss()} />
@@ -1070,6 +1096,20 @@ function PasteInviteInput({ onResolved }: { onResolved?: () => void }) {
   const [text, setText] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasClip, setHasClip] = useState(false);
+
+  // 剪贴板感知：sheet 打开即挂载（gorhom modal present 时挂 children），用
+  // hasStringAsync 探测——只问「有没有字符串」，不读内容、不触发 iOS 粘贴横幅，
+  // 有内容就亮一枚 chip 引导一键粘贴。
+  useEffect(() => {
+    let alive = true;
+    void Clipboard.hasStringAsync().then((has) => {
+      if (alive) setHasClip(has);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const submit = async (raw: string) => {
     const v = raw.trim();
@@ -1096,6 +1136,19 @@ function PasteInviteInput({ onResolved }: { onResolved?: () => void }) {
 
   return (
     <View className="gap-3">
+      {hasClip && text.length === 0 ? (
+        <Pressable
+          onPress={pasteFromClipboard}
+          disabled={working}
+          accessibilityRole="button"
+          className="flex-row items-center gap-1.5 self-start rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 active:opacity-70 disabled:opacity-50"
+        >
+          <ClipboardPaste color={colors.primary} size={14} />
+          <Text className="text-[13px] font-medium text-primary">
+            <Trans>剪贴板里有内容，点此粘贴</Trans>
+          </Text>
+        </Pressable>
+      ) : null}
       <BottomSheetTextInput
         value={text}
         onChangeText={setText}
