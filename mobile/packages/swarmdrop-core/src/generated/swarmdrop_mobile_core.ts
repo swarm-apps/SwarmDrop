@@ -866,6 +866,69 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
 })();
 
 
+/**
+ * 邀请串解码后的展示投影（配对确认卡；不含 capability 等敏感字段）。
+ */
+export type MobileInvitePreview = {
+    peerId: string,
+    displayName: string,
+    displayPlatform: string,
+    /**
+     * 过期时刻（Unix 秒）——前端与当前时间比对。
+     */
+    expiresAt: /*i64*/bigint,
+    localOnly: boolean
+}
+
+/**
+ * Generated factory for {@link MobileInvitePreview} record objects.
+ */
+export const MobileInvitePreview = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInvitePreview, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInvitePreview>,
+
+    });
+})();
+
+const FfiConverterTypeMobileInvitePreview = (() => {
+    type TypeName = MobileInvitePreview;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                peerId: FfiConverterString.read(from), 
+                displayName: FfiConverterString.read(from), 
+                displayPlatform: FfiConverterString.read(from), 
+                expiresAt: FfiConverterInt64.read(from), 
+                localOnly: FfiConverterBool.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterString.write(value.displayName, into);
+            FfiConverterString.write(value.displayPlatform, into);
+            FfiConverterInt64.write(value.expiresAt, into);
+            FfiConverterBool.write(value.localOnly, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.peerId) + 
+            FfiConverterString.allocationSize(value.displayName) + 
+            FfiConverterString.allocationSize(value.displayPlatform) + 
+            FfiConverterInt64.allocationSize(value.expiresAt) + 
+            FfiConverterBool.allocationSize(value.localOnly);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+
 export type MobileNetworkRuntimeConfig = {
     customBootstrapNodes: Array<string>,
     discoveryMode: MobileDiscoveryMode,
@@ -1102,55 +1165,6 @@ const FfiConverterTypeMobilePairedDevice = (() => {
 })();
 
 
-export type MobilePairingCode = {
-    code: string,
-    createdAt: /*i64*/bigint,
-    expiresAt: /*i64*/bigint
-}
-
-/**
- * Generated factory for {@link MobilePairingCode} record objects.
- */
-export const MobilePairingCode = (() => {
-    const defaults = () => ({
-    });
-    const create = (() => {
-        return uniffiCreateRecord<MobilePairingCode, ReturnType<typeof defaults>>(defaults);
-    })();
-    return Object.freeze({
-        create,
-        new: create,
-        defaults: () => Object.freeze(defaults()) as Partial<MobilePairingCode>,
-
-    });
-})();
-
-const FfiConverterTypeMobilePairingCode = (() => {
-    type TypeName = MobilePairingCode;
-    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
-        read(from: RustBuffer): TypeName {
-            return {
-                code: FfiConverterString.read(from), 
-                createdAt: FfiConverterInt64.read(from), 
-                expiresAt: FfiConverterInt64.read(from)
-            };
-        }
-        write(value: TypeName, into: RustBuffer): void {
-            FfiConverterString.write(value.code, into);
-            FfiConverterInt64.write(value.createdAt, into);
-            FfiConverterInt64.write(value.expiresAt, into);
-        }
-        allocationSize(value: TypeName): number {
-            return FfiConverterString.allocationSize(value.code) + 
-            FfiConverterInt64.allocationSize(value.createdAt) + 
-            FfiConverterInt64.allocationSize(value.expiresAt);
-            
-        }
-    };
-    return new FFIConverter();
-})();
-
-
 export type MobilePairingResult = {
     accepted: boolean,
     reason?: string
@@ -1362,75 +1376,53 @@ const FfiConverterTypeMobilePreparedTransfer = (() => {
 })();
 
 
-export type MobileRemoteDeviceInfo = {
-    peerId: string,
+/**
+ * 二维码模块矩阵（RN 用 react-native-svg 按此绘 `<Rect>`；已含 quiet zone）。
+ */
+export type MobileQrMatrix = {
     /**
-     * 对端用户起的设备名；缺省时 UI 回退到 hostname。
+     * 边长（模块数）。
      */
-    name?: string,
-    hostname: string,
-    os: string,
-    platform: string,
-    arch: string,
-    listenAddrs: Array<string>,
-    createdAt: /*i64*/bigint,
-    expiresAt: /*i64*/bigint
+    size: /*u32*/number,
+    /**
+     * 行优先的模块值（`true` = 深模块），长度 = size × size。
+     */
+    modules: Array<boolean>
 }
 
 /**
- * Generated factory for {@link MobileRemoteDeviceInfo} record objects.
+ * Generated factory for {@link MobileQrMatrix} record objects.
  */
-export const MobileRemoteDeviceInfo = (() => {
+export const MobileQrMatrix = (() => {
     const defaults = () => ({
     });
     const create = (() => {
-        return uniffiCreateRecord<MobileRemoteDeviceInfo, ReturnType<typeof defaults>>(defaults);
+        return uniffiCreateRecord<MobileQrMatrix, ReturnType<typeof defaults>>(defaults);
     })();
     return Object.freeze({
         create,
         new: create,
-        defaults: () => Object.freeze(defaults()) as Partial<MobileRemoteDeviceInfo>,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileQrMatrix>,
 
     });
 })();
 
-const FfiConverterTypeMobileRemoteDeviceInfo = (() => {
-    type TypeName = MobileRemoteDeviceInfo;
+const FfiConverterTypeMobileQrMatrix = (() => {
+    type TypeName = MobileQrMatrix;
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             return {
-                peerId: FfiConverterString.read(from), 
-                name: FfiConverterOptionalString.read(from), 
-                hostname: FfiConverterString.read(from), 
-                os: FfiConverterString.read(from), 
-                platform: FfiConverterString.read(from), 
-                arch: FfiConverterString.read(from), 
-                listenAddrs: FfiConverterArrayString.read(from), 
-                createdAt: FfiConverterInt64.read(from), 
-                expiresAt: FfiConverterInt64.read(from)
+                size: FfiConverterUInt32.read(from), 
+                modules: FfiConverterArrayBool.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
-            FfiConverterString.write(value.peerId, into);
-            FfiConverterOptionalString.write(value.name, into);
-            FfiConverterString.write(value.hostname, into);
-            FfiConverterString.write(value.os, into);
-            FfiConverterString.write(value.platform, into);
-            FfiConverterString.write(value.arch, into);
-            FfiConverterArrayString.write(value.listenAddrs, into);
-            FfiConverterInt64.write(value.createdAt, into);
-            FfiConverterInt64.write(value.expiresAt, into);
+            FfiConverterUInt32.write(value.size, into);
+            FfiConverterArrayBool.write(value.modules, into);
         }
         allocationSize(value: TypeName): number {
-            return FfiConverterString.allocationSize(value.peerId) + 
-            FfiConverterOptionalString.allocationSize(value.name) + 
-            FfiConverterString.allocationSize(value.hostname) + 
-            FfiConverterString.allocationSize(value.os) + 
-            FfiConverterString.allocationSize(value.platform) + 
-            FfiConverterString.allocationSize(value.arch) + 
-            FfiConverterArrayString.allocationSize(value.listenAddrs) + 
-            FfiConverterInt64.allocationSize(value.createdAt) + 
-            FfiConverterInt64.allocationSize(value.expiresAt);
+            return FfiConverterUInt32.allocationSize(value.size) + 
+            FfiConverterArrayBool.allocationSize(value.modules);
             
         }
     };
@@ -5443,10 +5435,28 @@ export interface MobileCoreLike {
     networkStatus(asyncOpts_?: { signal: AbortSignal }) : Promise<MobileNetworkStatus>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     startNode(deviceName: string | undefined, networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
-    generatePairingCode(expiresInSecs: /*u64*/bigint, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingCode>;
-    lookupDeviceByCode(code: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobileRemoteDeviceInfo>;
-    requestPairing(peerId: string, code: string | undefined, addrs: Array<string>, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingResult>;
-    respondPairingRequest(pendingId: /*u64*/bigint, code: string | undefined, accept: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
+    /**
+     * 受邀方：用邀请串发起配对（解码验签 → 连接发起方 → 出示凭证握手）。
+     */
+    consumePairInvite(invite: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingResult>;
+    /**
+     * 解码并验签邀请串，返回对端展示信息（**不发起配对**）——扫码/粘贴后先看确认卡。
+     */
+    decodePairInvite(invite: string)  /*throws*/: MobileInvitePreview;
+    /**
+     * 发起方：生成一次性签名邀请串（供二维码/链接分享）。
+     * `local_only=true` 走 LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。
+     */
+    generatePairInvite(localOnly: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<string>;
+    /**
+     * 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
+     */
+    inviteQrMatrix(invite: string)  /*throws*/: MobileQrMatrix;
+    /**
+     * LAN 近场直连配对（同局域网点按；对端 mDNS 校验，与桌面 directPairing 对称）。
+     */
+    pairDirect(peerId: string, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<MobilePairingResult>;
+    respondPairingRequest(pendingId: /*u64*/bigint, accept: boolean, asyncOpts_?: { signal: AbortSignal })  /*throws*/: Promise<void>;
     /**
      * 接受接收：保存到 RN 提供的目录
      *
@@ -6156,71 +6166,18 @@ async  startNode(deviceName: string | undefined, networkConfig: MobileNetworkRun
     }
     }
     
-async  generatePairingCode(expiresInSecs: /*u64*/bigint, asyncOpts_?: { signal: AbortSignal }): Promise<MobilePairingCode> /*throws*/ {
+    /**
+     * 受邀方：用邀请串发起配对（解码验签 → 连接发起方 → 出示凭证握手）。
+     */
+async  consumePairInvite(invite: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobilePairingResult> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_generate_pairing_code(
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_consume_pair_invite(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterUInt64.lower(expiresInSecs)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterTypeMobilePairingCode.lift.bind(FfiConverterTypeMobilePairingCode),
-            /*liftString:*/ FfiConverterString.lift,
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-async  lookupDeviceByCode(code: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileRemoteDeviceInfo> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_lookup_device_by_code(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(code)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            /*liftFunc:*/ FfiConverterTypeMobileRemoteDeviceInfo.lift.bind(FfiConverterTypeMobileRemoteDeviceInfo),
-            /*liftString:*/ FfiConverterString.lift,
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-async  requestPairing(peerId: string, code: string | undefined, addrs: Array<string>, asyncOpts_?: { signal: AbortSignal }): Promise<MobilePairingResult> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_request_pairing(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterString.lower(peerId),FfiConverterOptionalString.lower(code),FfiConverterArrayString.lower(addrs)
+                    FfiConverterString.lower(invite)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
@@ -6240,7 +6197,102 @@ async  requestPairing(peerId: string, code: string | undefined, addrs: Array<str
     }
     }
     
-async  respondPairingRequest(pendingId: /*u64*/bigint, code: string | undefined, accept: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    /**
+     * 解码并验签邀请串，返回对端展示信息（**不发起配对**）——扫码/粘贴后先看确认卡。
+     */
+ decodePairInvite(invite: string): MobileInvitePreview /*throws*/ {
+    return FfiConverterTypeMobileInvitePreview.lift(
+        uniffiCaller.rustCallWithError(
+            /*liftError:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError),
+            /*caller:*/ (callStatus) => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_decode_pair_invite(uniffiTypeMobileCoreObjectFactory.clonePointer(this), 
+        FfiConverterString.lower(invite),
+                callStatus);
+            },
+            /*liftString:*/ FfiConverterString.lift,
+    ));
+    }
+    
+    /**
+     * 发起方：生成一次性签名邀请串（供二维码/链接分享）。
+     * `local_only=true` 走 LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。
+     */
+async  generatePairInvite(localOnly: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_generate_pair_invite(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterBool.lower(localOnly)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    /**
+     * 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
+     */
+ inviteQrMatrix(invite: string): MobileQrMatrix /*throws*/ {
+    return FfiConverterTypeMobileQrMatrix.lift(
+        uniffiCaller.rustCallWithError(
+            /*liftError:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError),
+            /*caller:*/ (callStatus) => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(uniffiTypeMobileCoreObjectFactory.clonePointer(this), 
+        FfiConverterString.lower(invite),
+                callStatus);
+            },
+            /*liftString:*/ FfiConverterString.lift,
+    ));
+    }
+    
+    /**
+     * LAN 近场直连配对（同局域网点按；对端 mDNS 校验，与桌面 directPairing 对称）。
+     */
+async  pairDirect(peerId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobilePairingResult> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pair_direct(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),
+                    FfiConverterString.lower(peerId)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            /*liftFunc:*/ FfiConverterTypeMobilePairingResult.lift.bind(FfiConverterTypeMobilePairingResult),
+            /*liftString:*/ FfiConverterString.lift,
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+async  respondPairingRequest(pendingId: /*u64*/bigint, accept: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
@@ -6248,7 +6300,7 @@ async  respondPairingRequest(pendingId: /*u64*/bigint, code: string | undefined,
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_respond_pairing_request(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),
-                    FfiConverterUInt64.lower(pendingId),FfiConverterOptionalString.lower(code),FfiConverterBool.lower(accept)
+                    FfiConverterUInt64.lower(pendingId),FfiConverterBool.lower(accept)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -6633,6 +6685,10 @@ const FfiConverterOptionalUInt32 = new FfiConverterOptional(FfiConverterUInt32);
 const FfiConverterOptionalUInt64 = new FfiConverterOptional(FfiConverterUInt64);
 
 
+// FfiConverter for Array<boolean>
+const FfiConverterArrayBool = new FfiConverterArray(FfiConverterBool);
+
+
 // FfiConverter for Array<MobileCandidateSourceStatus>
 const FfiConverterArrayTypeMobileCandidateSourceStatus = new FfiConverterArray(FfiConverterTypeMobileCandidateSourceStatus);
 
@@ -6803,16 +6859,22 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 2279) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pairing_code() !== 17271) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pairing_code");
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_consume_pair_invite() !== 64980) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_consume_pair_invite");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_lookup_device_by_code() !== 42910) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_lookup_device_by_code");
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_decode_pair_invite() !== 46799) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_decode_pair_invite");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_request_pairing() !== 44624) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_request_pairing");
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pair_invite() !== 63280) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pair_invite");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request() !== 37913) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix() !== 8809) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pair_direct() !== 4933) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pair_direct");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request() !== 7292) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive() !== 33535) {
@@ -6913,16 +6975,16 @@ export default Object.freeze({
     FfiConverterTypeMobileInboxItemSummary,
     FfiConverterTypeMobileInboxSearchHit,
     FfiConverterTypeMobileInboxSourceKind,
+    FfiConverterTypeMobileInvitePreview,
     FfiConverterTypeMobileNetworkRuntimeConfig,
     FfiConverterTypeMobileNetworkStatus,
     FfiConverterTypeMobilePairedDevice,
-    FfiConverterTypeMobilePairingCode,
     FfiConverterTypeMobilePairingResult,
     FfiConverterTypeMobilePrepareProgress,
     FfiConverterTypeMobilePreparedFile,
     FfiConverterTypeMobilePreparedTransfer,
+    FfiConverterTypeMobileQrMatrix,
     FfiConverterTypeMobileReceiveSaveBehavior,
-    FfiConverterTypeMobileRemoteDeviceInfo,
     FfiConverterTypeMobileSaveLocation,
     FfiConverterTypeMobileSendResult,
     FfiConverterTypeMobileSuspendedReason,

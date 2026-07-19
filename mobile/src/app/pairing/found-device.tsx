@@ -1,61 +1,55 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { ArrowLeft, MonitorSmartphone } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PeerSummaryCard } from "@/components/pairing/peer-summary-card";
 import { Text } from "@/components/ui/text";
-import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { usePairingInviteStore } from "@/stores/pairing-invite-store";
 
+/**
+ * 邀请配对确认页——受邀方粘贴/扫码邀请后，本地解码验签的对端信息（store.pending）
+ * 展示确认卡，用户确认后 confirmInvite（连接 + 出示凭证）。
+ */
 export default function FoundDevice() {
   const { t } = useLingui();
   const router = useRouter();
   const colors = useThemeColors();
-  const params = useLocalSearchParams<{
-    peerId: string;
-    code: string;
-    name?: string;
-    hostname: string;
-    os: string;
-    platform: string;
-    arch: string;
-  }>();
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const pending = usePairingInviteStore((s) => s.pending);
+  const confirming = usePairingInviteStore((s) => s.confirming);
+  const error = usePairingInviteStore((s) => s.error);
+  const confirmInvite = usePairingInviteStore((s) => s.confirmInvite);
+  const cancelPreview = usePairingInviteStore((s) => s.cancelPreview);
+
+  // 无 pending（直接进入本页 / 刷新）→ 返回
+  useEffect(() => {
+    if (pending === null && !confirming) router.back();
+  }, [pending, confirming, router]);
+
+  const preview = pending?.preview;
 
   const onConfirm = async () => {
-    setError(null);
-    setConfirming(true);
-    try {
-      const result = await getMobileCore().requestPairing(
-        params.peerId,
-        params.code,
-        [],
-      );
-      if (!result.accepted) {
-        setError(
-          result.reason ? t`配对被拒绝:${result.reason}` : t`配对被拒绝`,
-        );
-        return;
-      }
+    const accepted = await confirmInvite();
+    if (accepted && preview) {
       router.replace({
         pathname: "/pairing/success" as never,
         params: {
-          peerId: params.peerId,
-          name: params.name ?? "",
-          hostname: params.hostname,
-          os: params.os,
-          platform: params.platform,
-          arch: params.arch,
+          peerId: preview.peerId,
+          name: preview.displayName,
+          hostname: preview.displayName,
+          os: preview.displayPlatform,
+          platform: preview.displayPlatform,
+          arch: "",
         },
       } as never);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setConfirming(false);
     }
+  };
+
+  const onCancel = () => {
+    cancelPreview();
+    router.back();
   };
 
   return (
@@ -66,7 +60,7 @@ export default function FoundDevice() {
     >
       <View className="flex-row items-center justify-between px-4 pt-2">
         <Pressable
-          onPress={() => router.back()}
+          onPress={onCancel}
           hitSlop={12}
           disabled={confirming}
           accessibilityRole="button"
@@ -92,15 +86,17 @@ export default function FoundDevice() {
           <Trans>确认这是你要配对的设备?</Trans>
         </Text>
 
-        <PeerSummaryCard
-          name={params.name}
-          hostname={params.hostname}
-          os={params.os}
-          platform={params.platform}
-          arch={params.arch}
-          peerId={params.peerId}
-          showPlatform
-        />
+        {preview ? (
+          <PeerSummaryCard
+            name={preview.displayName}
+            hostname={preview.displayName}
+            os={preview.displayPlatform}
+            platform={preview.displayPlatform}
+            arch=""
+            peerId={preview.peerId}
+            showPlatform
+          />
+        ) : null}
 
         {error !== null ? (
           <Text className="mt-3 text-center text-[13px] text-destructive-ink">
@@ -112,7 +108,7 @@ export default function FoundDevice() {
       {/* 移动端惯例:双键横排,取消(次要)在左、确认配对(主要)在右 */}
       <View className="flex-row gap-2.5 px-6 pb-6">
         <Pressable
-          onPress={() => router.back()}
+          onPress={onCancel}
           disabled={confirming}
           accessibilityRole="button"
           accessibilityLabel={t`取消`}

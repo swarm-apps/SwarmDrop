@@ -21,7 +21,7 @@ import { initMobileCore } from "@/core/mobile-core";
 import { buildNetworkRuntimeConfig } from "@/core/network-discovery";
 import { ensureNotificationPermission } from "@/core/notifier";
 import { errorMessage } from "@/lib/utils";
-import { usePairingCodeStore } from "@/stores/pairing-code-store";
+import { usePairingInviteStore } from "@/stores/pairing-invite-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 export type RuntimeState = "stopped" | "starting" | "running" | "error";
@@ -173,7 +173,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             devices: [],
           });
           // 节点停了，配对码也无效（不能通过 DHT 被对端找到）—— 清掉
-          usePairingCodeStore.getState().clear();
+          usePairingInviteStore.getState().clearInvite();
           return { ok: true, state: "stopped" };
         } catch (err) {
           const message = errorMessage(err);

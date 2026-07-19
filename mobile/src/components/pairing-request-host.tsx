@@ -20,7 +20,6 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
 import { truncateMiddle } from "@/lib/utils";
 import { useNotificationStore } from "@/stores/notification-store";
-import { usePairingCodeStore } from "@/stores/pairing-code-store";
 
 const REQUEST_TTL_SECS = 60;
 
@@ -29,7 +28,6 @@ export function PairingRequestHost() {
   const colors = useThemeColors();
   const current = useNotificationStore((s) => s.current);
   const respondStore = useNotificationStore((s) => s.respond);
-  const markPairingCodeConsumed = usePairingCodeStore((s) => s.markConsumed);
   const [responding, setResponding] = useState(false);
 
   const open = current !== null && current.type === "pairing-request";
@@ -49,16 +47,7 @@ export function PairingRequestHost() {
       if (!current || !payload || responding) return;
       setResponding(true);
       try {
-        await getMobileCore().respondPairingRequest(
-          payload.pendingId,
-          payload.code ?? undefined,
-          accept,
-        );
-        // Code 模式 accept 后，后端已消耗 active_code（参考 SwarmDrop
-        // pairing/manager.rs:282）；通知 store 续生新码（reject 不消耗，不动）
-        if (accept && payload.code !== undefined) {
-          markPairingCodeConsumed();
-        }
+        await getMobileCore().respondPairingRequest(payload.pendingId, accept);
       } catch (err) {
         console.warn(
           `[pairing-host] ${accept ? "accept" : "reject"} failed:`,
@@ -71,7 +60,7 @@ export function PairingRequestHost() {
         setResponding(false);
       }
     },
-    [current, markPairingCodeConsumed, payload, respondStore, responding, t],
+    [current, payload, respondStore, responding, t],
   );
 
   if (!open || !payload) return null;
@@ -124,11 +113,6 @@ export function PairingRequestHost() {
             >
               {truncateMiddle(payload.peerId, 12, 8)}
             </Text>
-            {payload.code ? (
-              <Text className="text-[12px] text-muted-foreground">
-                <Trans>配对码 {payload.code}</Trans>
-              </Text>
-            ) : null}
           </View>
         </View>
 
