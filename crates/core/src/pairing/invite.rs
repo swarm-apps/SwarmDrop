@@ -314,6 +314,30 @@ impl InviteRegistry {
         );
     }
 
+    /// **非消费**预检（入站请求到达时早拒明显非法，不占用一次性额度）：
+    /// 存在 + 未过期 + capability 哈希匹配 + 状态 Pending。权威消费仍在
+    /// [`try_consume`](Self::try_consume)（用户确认时）。
+    pub fn check(
+        &self,
+        invite_id: &[u8; 16],
+        capability: &[u8; 32],
+        now: u64,
+    ) -> Result<(), InviteRejectReason> {
+        let invites = self.invites.lock().expect("registry lock");
+        let entry = invites.get(invite_id).ok_or(InviteRejectReason::Unknown)?;
+        if now >= entry.expires_at {
+            return Err(InviteRejectReason::Expired);
+        }
+        if entry.state != InviteState::Pending {
+            return Err(InviteRejectReason::Unavailable);
+        }
+        let hash: [u8; 32] = Sha256::digest(capability).into();
+        if hash != entry.capability_hash {
+            return Err(InviteRejectReason::BadCapability);
+        }
+        Ok(())
+    }
+
     /// PairHello 到达时调用：TTL + capability 哈希 + CAS `Pending → Consumed`。
     ///
     /// 一次性语义靠单锁内的检查-置换完成——两台设备同时扫同一码时恰有一台成功

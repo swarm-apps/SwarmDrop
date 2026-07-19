@@ -17,15 +17,15 @@
 
 ## Phase 3 — 配对协议 Invite 变体
 
-- [ ] `protocol/pairing.rs`：`PairingMethod::Invite { invite_id, capability }` 定型（wire v2 增量）
-- [ ] `PairingManager`：`generate_invite(policy) -> PairInvite`（取 dialable 地址 + 签名 + 登记 Registry）
-- [ ] `PairingManager`：入站 PairHello 的 Invite 分支（Registry 校验/CAS → 复用 pending 决策 → 双确认 → 写配对记录）
-- [ ] 受邀方流程：解码验签 → 按 TransportPolicy 过滤地址 → connect + 身份 pin 校验 → 发起 RPC
+- [x] `protocol/pairing.rs`：`PairingMethod::Invite { invite_id, capability }` 定型（wire v2 增量）
+- [x] `PairingManager`：`generate_invite(policy) -> PairInvite`（取 dialable 地址 + 签名 + 登记 Registry）
+- [x] `PairingManager`：入站 PairHello 的 Invite 分支（Registry 校验/CAS → 复用 pending 决策 → 双确认 → 写配对记录）
+- [x] 受邀方流程：解码验签 → 按 TransportPolicy 过滤地址 → connect + 身份 pin 校验 → 发起 RPC
 - [ ] 集成测试：双节点完整 Invite 配对（成功/篡改/过期/双花四路径）；既有 Code/Direct 回归
 
 ## Phase 4 — 桌面最小入口
 
-- [ ] 命令 `generate_pair_invite` / `consume_pair_invite` + specta bindings 重生成
+- [x] 命令 `generate_pair_invite` / `consume_pair_invite` + specta bindings 重生成（+ mobile uniffi 对等方法）
 - [ ] UI：邀请串展示 + 5 分钟倒计时 + 失效/已用状态；粘贴接受入口；入站确认复用现有弹窗
 - [ ] Lingui 文案 + `pnpm i18n:extract`
 
@@ -34,3 +34,10 @@
 - [ ] 桌面双机冒烟：生成 → 粘贴 → 双确认 → 配对记录落 keychain → 断线重连
 - [ ] 知识库：net-kernel.md（wire 契约点补 Invite）、设计文档标注「阶段一已实施 + base32 修订」
 - [ ] `cargo test --workspace` + 六 crate wasm 门禁全绿
+
+## Phase 6 — 6 位配对码下线（提前，用户 2026-07-19 决策）
+
+- [x] core：删 `pairing/code.rs`（PairingCodeInfo/ShareCodeRecord）、`PairingMethod::Code`、manager 的 DHT 分享码逻辑（generate_code/get_device_info/active_code/discovered_peers）
+- [x] 宿主：桌面 `generate_pairing_code`/`get_device_info` → `generate_pair_invite`/`consume_pair_invite`；mobile 同；web 删 `share_code.rs`/lookup
+- [x] `cargo test --workspace` 213 全绿 + 六 crate wasm 门禁 + clippy 干净
+- [ ] 前端 UI 重写（桌面 React 配对屏 / RN / web）——邀请生成/二维码/粘贴入口，属独立 UI 工程

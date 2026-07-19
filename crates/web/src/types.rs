@@ -117,15 +117,6 @@ pub struct ConnectionJson {
     pub addr: String,
 }
 
-/// `lookup_share_code()` 的结构化返回（`NodeAddr` 的 JS 投影）。
-#[derive(Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct NodeAddrJson {
-    pub id: String,
-    pub addrs: Vec<String>,
-}
-
 /// Web 壳对外错误。`kind` 供 JS 分支，`message` 供展示。
 ///
 /// wasm-bindgen 方法 reject 的错误值就是本类型的序列化对象（`{ kind, message }`）——

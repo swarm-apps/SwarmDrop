@@ -2,12 +2,11 @@ use crate::AppResult;
 use crate::device::DeviceFilter;
 use crate::events::{DevicesChanged, PairedDeviceAdded};
 use crate::network::NetManagerState;
-use serde::{Deserialize, Serialize};
-use swarmdrop_core::device::{DeviceReceivePolicy, DeviceTrustLevel, PairedDeviceInfo};
-use swarmdrop_core::pairing::code::{PairingCodeInfo, ShareCodeRecord};
+use swarmdrop_core::device::{DeviceReceivePolicy, DeviceTrustLevel, OsInfo, PairedDeviceInfo};
+use swarmdrop_core::pairing::invite::TransportPolicy;
 use swarmdrop_core::protocol::{PairingMethod, PairingResponse};
-use swarmdrop_net::{Addr, NodeId};
-use tauri::{AppHandle, State};
+use swarmdrop_net::{Addr, NodeId, SecretKey};
+use tauri::{AppHandle, Manager as _, State};
 use tauri_specta::Event as _;
 
 use crate::AppError;
@@ -19,40 +18,53 @@ fn parse_peer_id(peer_id: &str) -> AppResult<NodeId> {
         .map_err(|e| AppError::identity(format!("invalid peer_id: {e}")))
 }
 
-/// 查询设备信息的返回类型
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DeviceInfo {
-    /// 节点身份 NodeId（base58 字符串）
-    pub peer_id: String,
-    pub code_record: ShareCodeRecord,
-}
-
-/// 生成配对码
+/// 生成一次性签名邀请串（供二维码/链接分享）。
+///
+/// `local_only=true` 走 LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。
+/// 邀请自包含地址提示，不经 DHT——旧 6 位分享码机制已废弃。
 #[tauri::command]
 #[specta::specta]
-pub async fn generate_pairing_code(
+pub async fn generate_pair_invite(
+    app: AppHandle,
     net: State<'_, NetManagerState>,
-    expires_in_secs: Option<u64>,
-) -> AppResult<PairingCodeInfo> {
-    with_manager!(net, |m| m
-        .pairing()
-        .generate_code(expires_in_secs.unwrap_or(300))
-        .await)
+    local_only: Option<bool>,
+) -> AppResult<String> {
+    let secret = app
+        .try_state::<SecretKey>()
+        .ok_or_else(|| AppError::identity("设备身份未初始化"))?
+        .inner()
+        .clone();
+    let os_info = OsInfo::default();
+    let policy = if local_only.unwrap_or(false) {
+        TransportPolicy::LocalOnly
+    } else {
+        TransportPolicy::Auto
+    };
+    with_manager!(net, |m| AppResult::Ok(
+        m.pairing().encode_invite(&secret, policy, &os_info)
+    ))
 }
 
-/// 通过配对码查询对端设备信息
+/// 用邀请串发起配对（受邀方）：解码验签 → 连接发起方 → 出示凭证。
+///
+/// 配对成功后自动加入已配对设备并 emit `paired-device-added`。
 #[tauri::command]
 #[specta::specta]
-pub async fn get_device_info(
+pub async fn consume_pair_invite(
+    app: AppHandle,
     net: State<'_, NetManagerState>,
-    code: String,
-) -> AppResult<DeviceInfo> {
-    let (peer_id, code_record) = with_manager!(net, |m| m.pairing().get_device_info(&code).await)?;
-    Ok(DeviceInfo {
-        peer_id: peer_id.to_string(),
-        code_record,
-    })
+    invite: String,
+) -> AppResult<PairingResponse> {
+    let (response, paired_info) =
+        with_manager!(net, |m| m.pairing().pair_with_invite(&invite).await)?;
+
+    if let Some(info) = paired_info {
+        persist_paired_device(&app, info.clone()).await?;
+        let _ = PairedDeviceAdded(info).emit(&app);
+        publish_devices_changed(&app, &net).await;
+    }
+
+    Ok(response)
 }
 
 /// 向对端发起配对请求

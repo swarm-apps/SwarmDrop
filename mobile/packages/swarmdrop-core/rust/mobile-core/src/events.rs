@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use swarmdrop_core::AppResult;
 use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_core::network::SharedNetRefs;
-use swarmdrop_core::protocol::PairingMethod;
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_core::transfer::progress::FileTransferStatus;
 use swarmdrop_net::{Events, Router};
@@ -221,14 +220,13 @@ fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
             pending_id,
             request,
         } => {
-            let code = match request.method {
-                PairingMethod::Code { code } => Some(code),
-                PairingMethod::Direct => None,
-            };
+            // 邀请/Direct 配对无需向 UI 回传凭证——发起方（收到本请求者）已知上下文，
+            // 只需展示对端身份并让用户确认。字段保留 None 以稳定 FFI 签名。
+            let _ = &request.method;
             MobileCoreEvent::PairingRequestReceived {
                 peer_id: peer_id.to_string(),
                 pending_id,
-                code,
+                code: None,
             }
         }
         CoreEvent::PairingCompleted { peer_id } => MobileCoreEvent::PairingCompleted { peer_id },

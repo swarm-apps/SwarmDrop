@@ -1,6 +1,5 @@
 //! 配对相关共享模型。
 
-pub mod code;
 pub mod invite;
 pub mod manager;
 

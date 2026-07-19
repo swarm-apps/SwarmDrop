@@ -28,10 +28,10 @@ use web_sys::File;
 use crate::error::{WebError, js_err};
 use crate::events::WebEventSink;
 use crate::file_access::OpfsFileAccess;
+use crate::identity;
 use crate::peer::WebPeerDirectory;
 use crate::store::MemorySessionStore;
-use crate::types::{ConnectionJson, NodeAddrJson, OfferJson};
-use crate::{identity, share_code};
+use crate::types::{ConnectionJson, OfferJson};
 
 // specta 导出的 TS 类型（static/types/bindings.ts，由 `cargo test -p swarmdrop-web
 // --features specta` 生成并入库）整体注入 .d.ts，供下方 typescript_type 引用——
@@ -50,9 +50,6 @@ extern "C" {
     /// `connect()` 的返回。
     #[wasm_bindgen(typescript_type = "ConnectionJson")]
     pub type ConnectionJsonJs;
-    /// `lookup_share_code()` 的返回。
-    #[wasm_bindgen(typescript_type = "NodeAddrJson")]
-    pub type NodeAddrJsonJs;
 }
 
 /// serde 可序列化值 → 具名 TS 类型的 JsValue（`unchecked_into` 到 typescript_type 包装）。
@@ -198,19 +195,6 @@ impl WebNode {
                 return Err(WebError::network("endpoint 已关闭").into());
             }
         }
-    }
-
-    /// 查分享码 → 返回对端地址（`{ id, addrs }` 结构化对象），并注册进地址簿。
-    /// 前置：本节点已 connect 到一个 DHT-capable helper（浏览器不可达 TCP bootstrap）。
-    pub async fn lookup_share_code(&self, code: String) -> Result<NodeAddrJsonJs, JsValue> {
-        let node_addr = share_code::lookup(&self.endpoint, &code).await?;
-        to_js_typed(
-            &NodeAddrJson {
-                id: node_addr.id.to_string(),
-                addrs: node_addr.addrs.iter().map(|a| a.to_string()).collect(),
-            },
-            "NodeAddr",
-        )
     }
 
     /// 向 `to`（base58 NodeId）发送用户选择的文件：登记文件源 → prepare（checksum + bao
