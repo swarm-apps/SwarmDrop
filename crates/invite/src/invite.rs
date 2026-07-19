@@ -167,7 +167,18 @@ impl PairInvite {
     /// 解码邀请串并**验签**（payload 大小写不敏感；TTL 由调用方按 `expires_at` 判定
     /// ——权威判定在发起端 [`InviteRegistry`]，解码侧预检仅为 UX）。
     pub fn decode(s: &str) -> Result<Self, InviteParseError> {
-        let rest = s.trim().strip_prefix(KIND).ok_or(InviteParseError::Kind)?;
+        let s = s.trim();
+        // 前缀大小写不敏感：文本规范形态是小写 `sdinvite`，但 QR 为走 alphanumeric 模式把
+        // 整串大写（含前缀）→ 扫码得到的是 `SDINVITE…`。payload 在下方 to_ascii_uppercase
+        // 归一，前缀这里也按大小写不敏感匹配，两条输入路径（粘贴/扫码）才都能解。
+        let rest = s
+            .strip_prefix(KIND)
+            .or_else(|| {
+                s.get(..KIND.len())
+                    .filter(|p| p.eq_ignore_ascii_case(KIND))
+                    .map(|_| &s[KIND.len()..])
+            })
+            .ok_or(InviteParseError::Kind)?;
         let bytes = data_encoding::BASE32_NOPAD
             .decode(rest.to_ascii_uppercase().as_bytes())
             .map_err(|e| InviteParseError::Encoding(e.to_string()))?;
@@ -420,6 +431,11 @@ mod tests {
         // QR 大写形态：payload 大写可解（KIND 前缀保持小写拼接）
         let upper = format!("{KIND}{}", s[KIND.len()..].to_ascii_uppercase());
         assert_eq!(PairInvite::decode(&upper).unwrap(), invite);
+        // 真实扫码形态：QR 走 alphanumeric 模式把「整串」大写（含前缀 SDINVITE）——
+        // 前缀大小写敏感的话扫码 100% 解不出，这一断言堵住那个回归。
+        assert_eq!(PairInvite::decode(&s.to_ascii_uppercase()).unwrap(), invite);
+        // 大小写混排前缀也应放行
+        assert_eq!(PairInvite::decode(&format!("SdInViTe{}", &s[KIND.len()..])).unwrap(), invite);
     }
 
     #[test]
