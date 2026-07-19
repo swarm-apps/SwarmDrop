@@ -2,9 +2,10 @@ use crate::AppResult;
 use crate::device::DeviceFilter;
 use crate::events::{DevicesChanged, PairedDeviceAdded};
 use crate::network::NetManagerState;
+use serde::Serialize;
 use swarmdrop_core::device::{DeviceReceivePolicy, DeviceTrustLevel, OsInfo, PairedDeviceInfo};
 use swarmdrop_core::protocol::{PairingMethod, PairingResponse};
-use swarmdrop_invite::TransportPolicy;
+use swarmdrop_invite::{PairInvite, TransportPolicy};
 use swarmdrop_net::{Addr, NodeId, SecretKey};
 use tauri::{AppHandle, Manager as _, State};
 use tauri_specta::Event as _;
@@ -16,6 +17,46 @@ fn parse_peer_id(peer_id: &str) -> AppResult<NodeId> {
     peer_id
         .parse()
         .map_err(|e| AppError::identity(format!("invalid peer_id: {e}")))
+}
+
+/// 邀请串解码后的展示投影（用于配对确认卡；不含 capability 等敏感字段）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PairInvitePreview {
+    /// 发起方 NodeId（base58）。
+    pub peer_id: String,
+    pub display_name: String,
+    pub display_platform: String,
+    /// 过期时刻（Unix 秒）——前端与当前时间比对判断是否已过期。
+    pub expires_at: i64,
+    /// LocalOnly 策略（仅局域网）。
+    pub local_only: bool,
+}
+
+/// 生成邀请串的二维码 SVG（三端统一编码规范：大写 alphanumeric + ECL::M + quiet zone，
+/// 见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
+#[tauri::command]
+#[specta::specta]
+pub fn invite_qr_svg(invite: String) -> AppResult<String> {
+    swarmdrop_invite::invite_qr_svg(&invite)
+        .map_err(|e| AppError::identity(format!("二维码生成失败: {e}")))
+}
+
+/// 解码并验签邀请串，返回对端展示信息（**不发起配对、不消费**）。
+///
+/// 供受邀方在扫码/粘贴/剪贴板感知后先展示确认卡；篡改/伪造的邀请在此即被验签拒绝。
+#[tauri::command]
+#[specta::specta]
+pub fn decode_pair_invite(invite: String) -> AppResult<PairInvitePreview> {
+    let inv =
+        PairInvite::decode(&invite).map_err(|e| AppError::identity(format!("邀请无效: {e}")))?;
+    Ok(PairInvitePreview {
+        peer_id: inv.inviter.id.to_string(),
+        display_name: inv.display_name,
+        display_platform: inv.display_platform,
+        expires_at: inv.expires_at as i64,
+        local_only: matches!(inv.transport_policy, TransportPolicy::LocalOnly),
+    })
 }
 
 /// 生成一次性签名邀请串（供二维码/链接分享）。

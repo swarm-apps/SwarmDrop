@@ -73,6 +73,17 @@ export const commands = {
 	 */
 	generatePairInvite: (localOnly: boolean | null) => __TAURI_INVOKE<string>("generate_pair_invite", { localOnly }),
 	/**
+	 *  生成邀请串的二维码 SVG（三端统一编码规范：大写 alphanumeric + ECL::M + quiet zone，
+	 *  见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
+	 */
+	inviteQrSvg: (invite: string) => __TAURI_INVOKE<string>("invite_qr_svg", { invite }),
+	/**
+	 *  解码并验签邀请串，返回对端展示信息（**不发起配对、不消费**）。
+	 * 
+	 *  供受邀方在扫码/粘贴/剪贴板感知后先展示确认卡；篡改/伪造的邀请在此即被验签拒绝。
+	 */
+	decodePairInvite: (invite: string) => __TAURI_INVOKE<PairInvitePreview>("decode_pair_invite", { invite }),
+	/**
 	 *  用邀请串发起配对（受邀方）：解码验签 → 连接发起方 → 出示凭证。
 	 * 
 	 *  配对成功后自动加入已配对设备并 emit `paired-device-added`。
@@ -478,6 +489,18 @@ export type OsInfo = {
 	platform: string,
 	arch: string,
 	capabilities?: string[],
+};
+
+/**  邀请串解码后的展示投影（用于配对确认卡；不含 capability 等敏感字段）。 */
+export type PairInvitePreview = {
+	/**  发起方 NodeId（base58）。 */
+	peerId: string,
+	displayName: string,
+	displayPlatform: string,
+	/**  过期时刻（Unix 秒）——前端与当前时间比对判断是否已过期。 */
+	expiresAt: number,
+	/**  LocalOnly 策略（仅局域网）。 */
+	localOnly: boolean,
 };
 
 export type PairedDeviceAdded = PairedDeviceInfo;

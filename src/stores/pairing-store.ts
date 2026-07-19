@@ -1,6 +1,12 @@
 /**
  * Pairing Store
- * 管理配对流程的状态机
+ * 管理配对流程状态（PairInvite——一次性签名邀请，替代已废弃的 6 位配对码）。
+ *
+ * 出站两条路径：
+ * - 邀请（跨网/扫码）：generateInvite → 展示二维码/链接；受邀方 previewInvite（解码验签
+ *   看确认卡）→ consumeInvite（连接 + 出示凭证）。
+ * - Direct（同局域网点按）：directPairing（对端 LAN mDNS 校验）。
+ * 入站请求（作为邀请发起方收到受邀方连接）走 incomingRequest + accept/reject。
  */
 
 import { create } from "zustand";
@@ -8,8 +14,7 @@ import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import {
   commands,
-  type DeviceInfo,
-  type PairingCodeInfo,
+  type PairInvitePreview,
   type PairingRefuseReason,
   type PairingRequestPayload,
   type PairingResponse,
@@ -24,14 +29,11 @@ import {
 
 export type { PairingRequestPayload };
 
-/** 请求超时时间（毫秒） */
+/** 配对请求超时（毫秒）——含连接握手 + 对端用户决策，给足时间 */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-/** 搜索超时时间（毫秒） */
-const SEARCH_TIMEOUT_MS = 15_000;
-
-/** 搜索请求版本号，用于取消过期搜索 */
-let searchVersion = 0;
+/** 邀请默认有效期（秒），与 core `INVITE_TTL_SECS` 一致（用于前端倒计时） */
+export const INVITE_TTL_SECS = 300;
 
 /** 带超时的 Promise 包装 */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -66,13 +68,20 @@ function getPairingRefuseMessage(reason: PairingRefuseReason): string {
   }
 }
 
-/** 配对流程阶段（仅管理出站配对流程） */
+/** 本机生成的活跃邀请（发起方展示二维码/链接用） */
+export interface ActiveInvite {
+  /** 邀请串（小写规范形态，"sdinvite..."） */
+  invite: string;
+  /** 生成时刻（毫秒），倒计时基准；有效期 = generatedAt + INVITE_TTL_SECS */
+  generatedAt: number;
+  /** LocalOnly 策略 */
+  localOnly: boolean;
+}
+
+/** 出站配对阶段（受邀方侧：预览确认 → 请求中 → 成功/失败） */
 export type PairingPhase =
   | { phase: "idle" }
-  | { phase: "generating"; codeInfo: PairingCodeInfo }
-  | { phase: "inputting" }
-  | { phase: "searching"; code: string }
-  | { phase: "found"; code: string; deviceInfo: DeviceInfo }
+  | { phase: "previewing"; invite: string; preview: PairInvitePreview }
   | { phase: "requesting"; peerId: string }
   | { phase: "success"; peerId: string; deviceName: string }
   | { phase: "error"; message: string };
@@ -80,322 +89,210 @@ export type PairingPhase =
 interface PairingState {
   /** 当前出站配对阶段 */
   current: PairingPhase;
-  /**
-   * 活跃配对码 —— 与 `current` 解耦，跨页面/弹窗持久化。
-   *
-   * 生命周期：generateCode → activeCode = codeInfo + 启动自动刷新 timer →
-   * 过期或被消耗（PAIRED_DEVICE_ADDED 事件）→ 自动 regenerate；节点停止 / 用户
-   * 主动 clearActiveCode → null。UI 仅消费此字段，不要再看 `current.phase`。
-   */
-  activeCode: PairingCodeInfo | null;
-  /** 生成配对码时的错误（瞬时；下一次 generate 清空） */
-  codeError: string | null;
-  /** 当前展示的入站配对请求（独立于出站流程） */
+  /** 本机活跃邀请（发起方），跨页面/弹窗持久化 */
+  activeInvite: ActiveInvite | null;
+  /** 生成邀请时的错误（瞬时；下一次 generate 清空） */
+  inviteError: string | null;
+  /** 当前展示的入站配对请求 */
   incomingRequest: PairingRequestPayload | null;
-  /** 入站请求队列（当前已有入站请求展示时排队） */
+  /** 入站请求队列 */
   inboundQueue: PairingRequestPayload[];
 
-  // === Actions ===
+  // === 发起方：生成邀请 ===
 
-  /** 确保活跃配对码存在（已有则 no-op；否则 generate） */
-  ensureActiveCode: () => Promise<void>;
-  /** 生成新配对码（强制覆盖现有） */
-  generateCode: () => Promise<void>;
-  /** 重新生成配对码 */
-  regenerateCode: () => Promise<void>;
-  /** 清空活跃码（节点停止 / 用户主动 dismiss） */
-  clearActiveCode: () => void;
-  /** 切换到输入配对码状态 */
-  openInput: () => void;
-  /** 提交配对码查找设备 */
-  searchDevice: (code: string) => Promise<void>;
-  /** 发起配对请求（Code 模式） */
-  sendPairingRequest: () => Promise<void>;
-  /** 处理收到的入站配对请求 */
+  /** 确保活跃邀请存在（已有且未过期则 no-op；否则生成） */
+  ensureActiveInvite: (localOnly?: boolean) => Promise<void>;
+  /** 生成新邀请（强制覆盖现有） */
+  generateInvite: (localOnly?: boolean) => Promise<void>;
+  /** 清空活跃邀请（节点停止 / 用户主动 dismiss） */
+  clearActiveInvite: () => void;
+
+  // === 受邀方：预览 + 消费 ===
+
+  /** 解码验签邀请串 → 展示确认卡（不发起配对；篡改/过期在此拒） */
+  previewInvite: (invite: string) => Promise<void>;
+  /** 确认后发起配对（连接 + 出示凭证一步到位） */
+  confirmInvite: () => Promise<void>;
+
+  // === 入站请求 + Direct ===
+
   handleInboundRequest: (payload: PairingRequestPayload) => void;
-  /** 接受配对请求，返回是否成功 */
   acceptRequest: () => Promise<boolean>;
-  /** 拒绝配对请求 */
   rejectRequest: () => Promise<void>;
-  /** Direct 模式配对（附近设备直连） */
+  /** Direct 模式配对（同局域网点按直连） */
   directPairing: (peerId: PeerId) => Promise<void>;
-  /** 处理队列中的下一个入站请求 */
   processNextInbound: () => void;
-  /** 重置为 idle 状态 */
   reset: () => void;
 }
 
-/** 活跃码自动刷新 timer —— module-level（与 store 实例共生死） */
-let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+export const usePairingStore = create<PairingState>()((set, get) => ({
+  current: { phase: "idle" },
+  activeInvite: null,
+  inviteError: null,
+  incomingRequest: null,
+  inboundQueue: [],
 
-function clearAutoRefreshTimer() {
-  if (autoRefreshTimer !== null) {
-    clearTimeout(autoRefreshTimer);
-    autoRefreshTimer = null;
-  }
-}
+  async ensureActiveInvite(localOnly = false) {
+    const { activeInvite } = get();
+    if (activeInvite !== null && activeInvite.localOnly === localOnly) {
+      const expiresAt = activeInvite.generatedAt + INVITE_TTL_SECS * 1000;
+      if (expiresAt > Date.now()) return;
+    }
+    await get().generateInvite(localOnly);
+  },
 
-/** 调度过期前的自动重生（提前 500ms 拿新码避免 UI 闪 expired） */
-function scheduleAutoRefresh(expiresAt: string, regenerateIfActive: () => void) {
-  clearAutoRefreshTimer();
-  const ms = Math.max(0, new Date(expiresAt).getTime() - Date.now() - 500);
-  autoRefreshTimer = setTimeout(() => {
-    autoRefreshTimer = null;
-    regenerateIfActive();
-  }, ms);
-}
+  async generateInvite(localOnly = false) {
+    set({ inviteError: null });
+    try {
+      const invite = await commands.generatePairInvite(localOnly);
+      set({
+        activeInvite: { invite, generatedAt: Date.now(), localOnly },
+        inviteError: null,
+      });
+    } catch (err) {
+      if (handleNodeNotStarted(err)) return;
+      const message = getErrorMessage(err);
+      set({ activeInvite: null, inviteError: message });
+      toast.error(message);
+    }
+  },
 
-export const usePairingStore = create<PairingState>()(
-  (set, get) => ({
-    current: { phase: "idle" },
-    activeCode: null,
-    codeError: null,
-    incomingRequest: null,
-    inboundQueue: [],
+  clearActiveInvite() {
+    set({ activeInvite: null, inviteError: null });
+  },
 
-    async ensureActiveCode() {
-      const { activeCode } = get();
-      if (activeCode !== null) {
-        const expired = new Date(activeCode.expiresAt).getTime() <= Date.now();
-        if (!expired) return;
-      }
-      await get().generateCode();
-    },
-
-    async generateCode() {
-      set({ codeError: null });
-      try {
-        const codeInfo = await commands.generatePairingCode(300); // 5 分钟
-        set({
-          activeCode: codeInfo,
-          current: { phase: "generating", codeInfo },
-          codeError: null,
-        });
-        scheduleAutoRefresh(codeInfo.expiresAt, () => {
-          // 仅当还有活跃码时刷新（avoid 用户主动 clearActiveCode 后又被偷偷生成）
-          if (get().activeCode !== null) {
-            void get().generateCode();
-          }
-        });
-      } catch (err) {
-        if (handleNodeNotStarted(err)) return;
-        const message = getErrorMessage(err);
-        set({
-          activeCode: null,
-          codeError: message,
-          current: { phase: "error", message },
-        });
-        clearAutoRefreshTimer();
-        toast.error(message);
-      }
-    },
-
-    async regenerateCode() {
-      return get().generateCode();
-    },
-
-    clearActiveCode() {
-      clearAutoRefreshTimer();
-      set({ activeCode: null, codeError: null });
-    },
-
-    openInput() {
-      set({ current: { phase: "inputting" } });
-    },
-
-    async searchDevice(code: string) {
-      const version = ++searchVersion;
-      set({ current: { phase: "searching", code } });
-      try {
-        const deviceInfo = await withTimeout(
-          commands.getDeviceInfo(code),
-          SEARCH_TIMEOUT_MS,
-          t`查找设备`,
-        );
-        // 如果版本号不匹配，说明已被取消/重置
-        if (searchVersion !== version) return;
-        set({ current: { phase: "found", code, deviceInfo } });
-      } catch (err) {
-        if (searchVersion !== version) return;
-        if (handleNodeNotStarted(err)) return;
-        const message = getErrorMessage(err);
+  async previewInvite(invite: string) {
+    try {
+      const preview = await commands.decodePairInvite(invite.trim());
+      if (preview.expiresAt * 1000 <= Date.now()) {
+        const message = t`邀请已过期`;
         set({ current: { phase: "error", message } });
         toast.error(message);
+        return;
       }
-    },
+      set({ current: { phase: "previewing", invite: invite.trim(), preview } });
+    } catch (err) {
+      const message = getErrorMessage(err);
+      set({ current: { phase: "error", message } });
+      toast.error(message);
+    }
+  },
 
-    async sendPairingRequest() {
-      const { current } = get();
-      if (current.phase !== "found") return;
+  async confirmInvite() {
+    const { current } = get();
+    if (current.phase !== "previewing") return;
+    const { invite, preview } = current;
+    set({ current: { phase: "requesting", peerId: preview.peerId } });
 
-      const { code, deviceInfo } = current;
-      set({ current: { phase: "requesting", peerId: deviceInfo.peerId } });
+    try {
+      const response: PairingResponse = await withTimeout(
+        commands.consumePairInvite(invite),
+        REQUEST_TIMEOUT_MS,
+        t`配对请求`,
+      );
 
-      try {
-        const response: PairingResponse = await withTimeout(
-          commands.requestPairing(deviceInfo.peerId, { type: "code", code }, deviceInfo.codeRecord.listenAddrs ?? null),
-          REQUEST_TIMEOUT_MS,
-          t`配对请求`,
-        );
-
-        if (response.status === "success") {
-          // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
-          const displayName = deviceDisplayName(deviceInfo.codeRecord);
-          set({
-            current: {
-              phase: "success",
-              peerId: deviceInfo.peerId,
-              deviceName: displayName,
-            },
-          });
-          toast.success(t`已与 ${displayName} 配对成功`);
-        } else {
-          const message = getPairingRefuseMessage(response.reason);
-          set({ current: { phase: "error", message } });
-          toast.error(message);
-        }
-      } catch (err) {
-        if (handleNodeNotStarted(err)) return;
-        const message = getErrorMessage(err);
-        set({ current: { phase: "error", message } });
-        toast.error(message);
-      }
-    },
-
-    handleInboundRequest(payload: PairingRequestPayload) {
-      const { incomingRequest } = get();
-
-      if (incomingRequest === null) {
-        set({ incomingRequest: payload });
+      if (response.status === "success") {
+        const deviceName = preview.displayName || preview.peerId.slice(-8);
+        set({ current: { phase: "success", peerId: preview.peerId, deviceName } });
+        toast.success(t`已与 ${deviceName} 配对成功`);
       } else {
-        set((state) => ({
-          inboundQueue: [...state.inboundQueue, payload],
-        }));
-      }
-    },
-
-    async acceptRequest() {
-      const { incomingRequest } = get();
-      if (!incomingRequest) return false;
-
-      const { pendingId, osInfo, method } = incomingRequest;
-      // 立即清空，防止双击导致重复发送响应（pending channel 只能消费一次）
-      set({ incomingRequest: null });
-      try {
-        await commands.respondPairingRequest(
-          pendingId,
-          method,
-          { status: "success" },
-        );
-
-        // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
-        toast.success(t`已与 ${deviceDisplayName(osInfo)} 配对成功`);
-        // 处理队列中的下一个请求
-        get().processNextInbound();
-
-        // Code 模式配对成功后，后端已消耗活跃码（单例设计）
-        if (method.type === "code") {
-          // 清理队列中其他 Code 模式请求——旧码已失效，继续展示只会报错
-          set((state) => ({
-            inboundQueue: state.inboundQueue.filter((r) => r.method.type !== "code"),
-          }));
-          // 活跃码被消耗：立即重生新的，下次开 UI 直接是新码
-          if (get().activeCode !== null) {
-            get().generateCode();
-          }
-        }
-        return true;
-      } catch (err) {
-        if (handleNodeNotStarted(err)) return false;
-        const message = getErrorMessage(err);
-        toast.error(message);
-        get().processNextInbound();
-        return false;
-      }
-    },
-
-    async rejectRequest() {
-      const { incomingRequest } = get();
-      if (!incomingRequest) return;
-
-      const { pendingId, osInfo, method } = incomingRequest;
-      // 立即清空，防止双击导致重复发送响应
-      set({ incomingRequest: null });
-      try {
-        await commands.respondPairingRequest(
-          pendingId,
-          method,
-          { status: "refused", reason: { type: "user_rejected" } },
-        );
-        toast.success(t`已拒绝来自 ${deviceDisplayName(osInfo)} 的配对请求`);
-        // 处理队列中的下一个请求
-        get().processNextInbound();
-      } catch (err) {
-        if (handleNodeNotStarted(err)) return;
-        const message = getErrorMessage(err);
-        toast.error(message);
-        get().processNextInbound();
-      }
-    },
-
-    async directPairing(peerId: PeerId) {
-      set({ current: { phase: "requesting", peerId } });
-
-      try {
-        const response: PairingResponse = await withTimeout(
-          commands.requestPairing(peerId, { type: "direct" }, null),
-          REQUEST_TIMEOUT_MS,
-          t`配对请求`,
-        );
-
-        if (response.status === "success") {
-          // 已配对设备由后端通过 paired-device-added 事件同步到运行时 store
-          const device = findNetworkDeviceSnapshot(peerId);
-          const deviceName = device ? deviceDisplayName(device) : peerId.slice(-8);
-
-          set({
-            current: {
-              phase: "success",
-              peerId,
-              deviceName,
-            },
-          });
-          toast.success(t`已与 ${deviceName} 配对成功`);
-        } else {
-          const message = getPairingRefuseMessage(response.reason);
-          set({ current: { phase: "error", message } });
-          toast.error(message);
-        }
-      } catch (err) {
-        if (handleNodeNotStarted(err)) return;
-        const message = getErrorMessage(err);
+        const message = getPairingRefuseMessage(response.reason);
         set({ current: { phase: "error", message } });
         toast.error(message);
       }
-    },
+    } catch (err) {
+      if (handleNodeNotStarted(err)) return;
+      const message = getErrorMessage(err);
+      set({ current: { phase: "error", message } });
+      toast.error(message);
+    }
+  },
 
-    processNextInbound() {
-      const { inboundQueue } = get();
-      if (inboundQueue.length === 0) return;
+  handleInboundRequest(payload: PairingRequestPayload) {
+    const { incomingRequest } = get();
+    if (incomingRequest === null) {
+      set({ incomingRequest: payload });
+    } else {
+      set((state) => ({ inboundQueue: [...state.inboundQueue, payload] }));
+    }
+  },
 
-      const [next, ...rest] = inboundQueue;
-      set({
-        incomingRequest: next,
-        inboundQueue: rest,
+  async acceptRequest() {
+    const { incomingRequest } = get();
+    if (!incomingRequest) return false;
+
+    const { pendingId, osInfo, method } = incomingRequest;
+    // 立即清空，防止双击重复响应（pending channel 只能消费一次）
+    set({ incomingRequest: null });
+    try {
+      await commands.respondPairingRequest(pendingId, method, { status: "success" });
+      toast.success(t`已与 ${deviceDisplayName(osInfo)} 配对成功`);
+      get().processNextInbound();
+      return true;
+    } catch (err) {
+      if (handleNodeNotStarted(err)) return false;
+      toast.error(getErrorMessage(err));
+      get().processNextInbound();
+      return false;
+    }
+  },
+
+  async rejectRequest() {
+    const { incomingRequest } = get();
+    if (!incomingRequest) return;
+
+    const { pendingId, osInfo, method } = incomingRequest;
+    set({ incomingRequest: null });
+    try {
+      await commands.respondPairingRequest(pendingId, method, {
+        status: "refused",
+        reason: { type: "user_rejected" },
       });
-    },
+      toast.success(t`已拒绝来自 ${deviceDisplayName(osInfo)} 的配对请求`);
+      get().processNextInbound();
+    } catch (err) {
+      if (handleNodeNotStarted(err)) return;
+      toast.error(getErrorMessage(err));
+      get().processNextInbound();
+    }
+  },
 
-    reset() {
-      // 递增搜索版本以取消进行中的搜索
-      searchVersion++;
-      set({
-        current: { phase: "idle" },
-        incomingRequest: null,
-        inboundQueue: [],
-      });
-      // 注意：不清 activeCode —— 配对码独立持久化，由 clearActiveCode 或
-      // 节点停止/paired-device-added 事件管理。
-    },
+  async directPairing(peerId: PeerId) {
+    set({ current: { phase: "requesting", peerId } });
+    try {
+      const response: PairingResponse = await withTimeout(
+        commands.requestPairing(peerId, { type: "direct" }, null),
+        REQUEST_TIMEOUT_MS,
+        t`配对请求`,
+      );
 
-  }),
-);
+      if (response.status === "success") {
+        const device = findNetworkDeviceSnapshot(peerId);
+        const deviceName = device ? deviceDisplayName(device) : peerId.slice(-8);
+        set({ current: { phase: "success", peerId, deviceName } });
+        toast.success(t`已与 ${deviceName} 配对成功`);
+      } else {
+        const message = getPairingRefuseMessage(response.reason);
+        set({ current: { phase: "error", message } });
+        toast.error(message);
+      }
+    } catch (err) {
+      if (handleNodeNotStarted(err)) return;
+      const message = getErrorMessage(err);
+      set({ current: { phase: "error", message } });
+      toast.error(message);
+    }
+  },
+
+  processNextInbound() {
+    const { inboundQueue } = get();
+    if (inboundQueue.length === 0) return;
+    const [next, ...rest] = inboundQueue;
+    set({ incomingRequest: next, inboundQueue: rest });
+  },
+
+  reset() {
+    set({ current: { phase: "idle" }, incomingRequest: null, inboundQueue: [] });
+    // 不清 activeInvite——邀请独立持久化，由 clearActiveInvite / 节点停止管理。
+  },
+}));

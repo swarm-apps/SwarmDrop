@@ -1,21 +1,22 @@
 /**
- * Desktop Generate Code Page (Route)
- * 桌面端生成配对码页面
- * Toolbar（← 添加新设备）+ 居中 6 位码展示 + 倒计时 + 取消/复制按钮
+ * 发起方屏——生成一次性签名邀请，展示二维码 + 复制链接 + 倒计时 + 仅本地网络开关。
+ * 对方扫码/粘贴此邀请后，本机仍会弹确认请求（安全闸）。
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { AlertCircle, Check, Clock, Copy, Link, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertCircle, Check, Clock, Copy, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useShallow } from "zustand/react/shallow";
-import { usePairingStore } from "@/stores/pairing-store";
+import { INVITE_TTL_SECS, usePairingStore } from "@/stores/pairing-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { useCountdown } from "@/hooks/use-countdown";
 import { formatCountdown } from "@/lib/format";
+import { InviteQr } from "@/components/pairing/invite-qr";
+import { Switch } from "@/components/ui/switch";
 import {
   CommandDock,
   GlassPanel,
@@ -34,40 +35,43 @@ export const Route = createLazyFileRoute("/_app/pairing/generate")({
 function PairingGeneratePage() {
   const navigate = useNavigate();
 
-  const { ensureActiveCode, regenerateCode } = usePairingStore(
+  const { ensureActiveInvite, generateInvite } = usePairingStore(
     useShallow((state) => ({
-      ensureActiveCode: state.ensureActiveCode,
-      regenerateCode: state.regenerateCode,
-    }))
+      ensureActiveInvite: state.ensureActiveInvite,
+      generateInvite: state.generateInvite,
+    })),
   );
 
-  const codeInfo = usePairingStore((s) => s.activeCode);
-  const errorMessage = usePairingStore((s) => s.codeError);
+  const activeInvite = usePairingStore((s) => s.activeInvite);
+  const errorMessage = usePairingStore((s) => s.inviteError);
   const nodeStatus = useNetworkStore((s) => s.status);
   const isNodeRunning = nodeStatus === "running";
   const isNodeStarting = nodeStatus === "starting";
   const isNodeUnavailable = !isNodeRunning && !isNodeStarting;
   const isLoading =
     isNodeStarting ||
-    (isNodeRunning && codeInfo === null && errorMessage === null);
+    (isNodeRunning && activeInvite === null && errorMessage === null);
 
+  const [localOnly, setLocalOnly] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // 进入页面时确保有活跃码（store 内部自带过期自动重生 + paired-device-added
-  // 后 acceptRequest 触发的重生；离开页面不清状态，下次进来直接是新码）
+  // 进入页面确保有活跃邀请；切换 localOnly 时重生成
   useEffect(() => {
-    if (isNodeRunning) {
-      ensureActiveCode();
-    }
-  }, [ensureActiveCode, isNodeRunning]);
+    if (isNodeRunning) ensureActiveInvite(localOnly);
+  }, [ensureActiveInvite, isNodeRunning, localOnly]);
 
-  // 配对成功后自动跳转到设备页面
   usePairingSuccess();
 
-  // 倒计时
-  const { remainingSeconds, isExpired } = useCountdown(codeInfo?.expiresAt ?? null);
+  // 倒计时：generatedAt + TTL → ISO 字符串喂 useCountdown
+  const expiresAtIso = useMemo(
+    () =>
+      activeInvite
+        ? new Date(activeInvite.generatedAt + INVITE_TTL_SECS * 1000).toISOString()
+        : null,
+    [activeInvite],
+  );
+  const { remainingSeconds, isExpired } = useCountdown(expiresAtIso);
 
-  // 复制状态自动重置
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(false), 2000);
@@ -75,20 +79,18 @@ function PairingGeneratePage() {
   }, [copied]);
 
   const handleCopy = useCallback(async () => {
-    if (!codeInfo) return;
+    if (!activeInvite) return;
     try {
-      await navigator.clipboard.writeText(codeInfo.code);
+      await navigator.clipboard.writeText(activeInvite.invite);
       setCopied(true);
     } catch {
-      toast.error(t`复制失败，请手动复制配对码`);
+      toast.error(t`复制失败，请手动复制邀请`);
     }
-  }, [codeInfo]);
+  }, [activeInvite]);
 
-  const handleBack = () => {
-    navigate({ to: "/devices" });
-  };
+  const handleBack = () => navigate({ to: "/devices" });
 
-  const codeDigits = codeInfo?.code.split("") ?? [];
+  const showQr = isNodeRunning && !isLoading && !errorMessage && activeInvite && !isExpired;
 
   return (
     <TaskPageShell>
@@ -102,24 +104,17 @@ function PairingGeneratePage() {
               <Trans>取消</Trans>
             </TaskButton>
             {isExpired || errorMessage ? (
-              <TaskButton
-                onClick={() => regenerateCode()}
-                disabled={!isNodeRunning}
-              >
+              <TaskButton onClick={() => generateInvite(localOnly)} disabled={!isNodeRunning}>
                 <RefreshCw className="size-4" />
-                <Trans>重新生成</Trans>
+                <Trans>重新生成邀请</Trans>
               </TaskButton>
             ) : (
               <TaskButton
                 onClick={() => handleCopy()}
-                disabled={!isNodeRunning || isLoading || !codeInfo}
+                disabled={!isNodeRunning || isLoading || !activeInvite}
               >
-                {copied ? (
-                  <Check className="size-4" />
-                ) : (
-                  <Copy className="size-4" />
-                )}
-                {copied ? <Trans>已复制</Trans> : <Trans>复制配对码</Trans>}
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {copied ? <Trans>已复制</Trans> : <Trans>复制邀请链接</Trans>}
               </TaskButton>
             )}
           </CommandDock>
@@ -127,17 +122,13 @@ function PairingGeneratePage() {
       >
         <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <GlassPanel className="min-h-[420px]">
-            <div className="flex h-full flex-col items-center justify-center gap-7 p-6 text-center">
-              <div className="glass-control flex size-16 items-center justify-center rounded-[24px] text-brand">
-                <Link className="size-7" />
-              </div>
-
+            <div className="flex h-full flex-col items-center justify-center gap-6 p-6 text-center">
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                  <Trans>让对方输入这组配对码</Trans>
+                  <Trans>让对方扫码或粘贴此邀请</Trans>
                 </h1>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  <Trans>配对码只在短时间内有效，过期后可立即重新生成。</Trans>
+                  <Trans>邀请一次性有效，过期后可立即重新生成。</Trans>
                 </p>
               </div>
 
@@ -151,31 +142,21 @@ function PairingGeneratePage() {
                 </PairingStatusMessage>
               ) : isLoading ? (
                 <PairingStatusMessage icon={Loader2} spinning>
-                  <Trans>正在生成配对码</Trans>
+                  <Trans>正在生成邀请</Trans>
                 </PairingStatusMessage>
               ) : errorMessage ? (
                 <PairingStatusMessage icon={AlertCircle} tone="danger">
                   {errorMessage}
                 </PairingStatusMessage>
               ) : (
-                <div className="flex items-center gap-2.5">
-                  {codeDigits.slice(0, 3).map((digit, i) => (
-                    <CodeDigit key={i} digit={digit} />
-                  ))}
-                  <span className="mx-1 text-2xl font-semibold text-muted-foreground">
-                    -
-                  </span>
-                  {codeDigits.slice(3, 6).map((digit, i) => (
-                    <CodeDigit key={i + 3} digit={digit} />
-                  ))}
-                </div>
+                <InviteQr invite={showQr ? activeInvite.invite : null} size={240} />
               )}
 
-              {codeInfo && (
+              {activeInvite && !isLoading && !errorMessage && (
                 <div className="glass-control flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground">
                   <Clock className="size-4" />
                   {isExpired ? (
-                    <Trans>配对码已过期</Trans>
+                    <Trans>邀请已过期</Trans>
                   ) : (
                     <Trans>将在 {formatCountdown(remainingSeconds)} 后过期</Trans>
                   )}
@@ -188,39 +169,29 @@ function PairingGeneratePage() {
             icon={ShieldCheck}
             label={<Trans>安全配对</Trans>}
             title={<Trans>只建立你确认过的连接</Trans>}
-            description={<Trans>另一台设备输入配对码后，本机仍会弹出确认请求。</Trans>}
+            description={<Trans>对方扫码或粘贴邀请后，本机仍会弹出确认请求。</Trans>}
           >
             <div className="grid content-end gap-2">
-              <InfoTile
-                label={<Trans>节点状态</Trans>}
-                value={
-                  isNodeRunning ? (
-                    <Trans>正在运行</Trans>
-                  ) : isNodeStarting ? (
-                    <Trans>启动中</Trans>
-                  ) : (
-                    <Trans>未启动</Trans>
-                  )
-                }
-              />
+              <label className="glass-control flex items-center justify-between gap-3 rounded-[18px] px-4 py-3">
+                <div className="text-left">
+                  <div className="text-sm font-medium text-foreground">
+                    <Trans>仅本地网络</Trans>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    <Trans>只允许同一局域网连接</Trans>
+                  </div>
+                </div>
+                <Switch checked={localOnly} onCheckedChange={setLocalOnly} disabled={!isNodeRunning} />
+              </label>
               <InfoTile
                 label={<Trans>有效期</Trans>}
-                value={codeInfo && !isExpired ? formatCountdown(remainingSeconds) : t`待生成`}
+                value={activeInvite && !isExpired ? formatCountdown(remainingSeconds) : t`待生成`}
               />
             </div>
           </TaskHeroPanel>
         </div>
-
       </TaskContent>
     </TaskPageShell>
-  );
-}
-
-function CodeDigit({ digit }: { digit: string }) {
-  return (
-    <div className="glass-control flex h-18 w-14 items-center justify-center rounded-[18px] font-mono text-3xl font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.58)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-      {digit}
-    </div>
   );
 }
 

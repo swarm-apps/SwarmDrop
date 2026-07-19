@@ -1,51 +1,20 @@
 /**
  * Add Device Section（桌面端）
- * 添加设备区块 —— 附近设备行、本机配对码区，以及输入配对码弹窗。
- * 从 devices/index.lazy.tsx 抽出，设备页主文件只负责编排各区块。
+ * 添加设备区块 —— 附近设备行 + 配对入口（跳转到 canonical 配对路由）。
+ *
+ * 配对 UI（生成邀请 / 粘贴邀请）统一在 `/pairing/generate` `/pairing/input` 路由，
+ * 本区块只负责附近设备列表 + 两个入口按钮，避免内嵌重复实现（DRY）。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Trans } from "@lingui/react/macro";
-import { t } from "@lingui/core/macro";
-import { toast } from "sonner";
-import {
-  ArrowUpRight,
-  Check,
-  Clock,
-  Copy,
-  Keyboard,
-  Link as LinkIcon,
-  Loader2,
-  Radio,
-  RefreshCw,
-  Wifi,
-} from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowUpRight, ClipboardPaste, Link as LinkIcon, QrCode, Radio, Wifi } from "lucide-react";
 
 import type { Device } from "@/lib/bindings";
-import { useNetworkStore } from "@/stores/network-store";
-import { usePairingStore } from "@/stores/pairing-store";
-import { useCountdown } from "@/hooks/use-countdown";
 import { cn } from "@/lib/utils";
 import { deviceDisplayName } from "@/lib/device-name";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
-import { formatCountdown } from "@/lib/format";
-import {
-  DesktopDeviceFoundContent,
-  useDeviceFoundState,
-} from "@/routes/_app/pairing/-device-found-view";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSeparator,
-  InputOTPSlot,
-} from "@/components/ui/input-otp";
 import { SectionHeader, SectionShell } from "@/components/layout/section-primitives";
 
 type NearbyFilter = "all" | "unpaired" | "paired";
@@ -68,56 +37,15 @@ export function AddDeviceSection({
   onSend: (device: Device) => void;
   onConnect: (device: Device) => void;
 }) {
-  const ensureActiveCode = usePairingStore((state) => state.ensureActiveCode);
-  const regenerateCode = usePairingStore((state) => state.regenerateCode);
-  const codeInfo = usePairingStore((state) => state.activeCode);
-  const errorMessage = usePairingStore((state) => state.codeError);
-  const nodeStatus = useNetworkStore((state) => state.status);
-  const isNodeRunning = nodeStatus === "running";
-  const isNodeStarting = nodeStatus === "starting";
-  const { remainingSeconds, isExpired } = useCountdown(
-    codeInfo?.expiresAt ?? null,
-  );
-  const [copied, setCopied] = useState(false);
-  const [inputOpen, setInputOpen] = useState(false);
+  const navigate = useNavigate();
   const [nearbyFilter, setNearbyFilter] = useState<NearbyFilter>("all");
 
   const filteredDevices = useMemo(() => {
-    if (nearbyFilter === "paired") {
-      return devices.filter((device) => device.isPaired);
-    }
-    if (nearbyFilter === "unpaired") {
-      return devices.filter((device) => !device.isPaired);
-    }
+    if (nearbyFilter === "paired") return devices.filter((d) => d.isPaired);
+    if (nearbyFilter === "unpaired") return devices.filter((d) => !d.isPaired);
     return devices;
   }, [devices, nearbyFilter]);
   const isFilteredEmpty = devices.length > 0 && filteredDevices.length === 0;
-
-  useEffect(() => {
-    if (isNodeRunning) {
-      ensureActiveCode();
-    }
-  }, [ensureActiveCode, isNodeRunning]);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1800);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  const handleCopy = useCallback(async () => {
-    if (!codeInfo) return;
-    try {
-      await navigator.clipboard.writeText(codeInfo.code);
-      setCopied(true);
-    } catch {
-      toast.error(t`复制失败，请手动复制配对码`);
-    }
-  }, [codeInfo]);
-
-  const isLoading =
-    isNodeStarting ||
-    (isNodeRunning && codeInfo === null && errorMessage === null);
 
   return (
     <SectionShell data-testid="add-device-section" className="gap-3.5">
@@ -125,7 +53,7 @@ export function AddDeviceSection({
         title={<Trans>添加设备</Trans>}
         count={devices.length}
         icon={LinkIcon}
-        description={<Trans>附近设备优先，已配对设备可直接发送。</Trans>}
+        description={<Trans>附近设备优先，或通过邀请连接跨网设备。</Trans>}
       />
 
       <div className="space-y-2.5">
@@ -134,10 +62,7 @@ export function AddDeviceSection({
             <Radio className="size-3.5" />
             <Trans>附近设备</Trans>
           </div>
-          <NearbyFilterControl
-            value={nearbyFilter}
-            onChange={setNearbyFilter}
-          />
+          <NearbyFilterControl value={nearbyFilter} onChange={setNearbyFilter} />
         </div>
 
         {filteredDevices.length === 0 ? (
@@ -154,9 +79,9 @@ export function AddDeviceSection({
             </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {isFilteredEmpty ? (
-                <Trans>切换过滤条件，或直接使用下方配对码连接。</Trans>
+                <Trans>切换过滤条件，或通过邀请连接设备。</Trans>
               ) : (
-                <Trans>确认对端已启动，或直接使用下方配对码连接。</Trans>
+                <Trans>确认对端已启动，或通过邀请连接设备。</Trans>
               )}
             </p>
           </div>
@@ -176,102 +101,58 @@ export function AddDeviceSection({
 
       <div className="h-px bg-foreground/[0.055] dark:bg-white/[0.075]" />
 
-      <div
-        data-testid="pairing-code-panel"
-        className="glass-accent overflow-hidden rounded-[16px] p-2.5"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[13px] font-medium text-foreground">
-              <Trans>本机配对码</Trans>
-            </p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              <Trans>让另一台设备输入这组 6 位数字</Trans>
-            </p>
-          </div>
-          {codeInfo && (
-            <div className="glass-control flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted-foreground">
-              <Clock className="size-3" />
-              {isExpired ? (
-                <Trans>已过期</Trans>
-              ) : (
-                <span>{formatCountdown(remainingSeconds)}</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-2.5 grid grid-cols-[minmax(0,1fr)_40px_40px] gap-1.5">
-          <div className="glass-control flex h-10 min-w-0 items-center justify-center rounded-[12px] px-2.5">
-            {isNodeStarting ? (
-              <span className="text-[11px] text-muted-foreground">
-                <Trans>等待节点启动</Trans>
-              </span>
-            ) : isLoading ? (
-              <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
-            ) : isNodeRunning && errorMessage ? (
-              <span className="truncate text-[11px] text-destructive">
-                {errorMessage}
-              </span>
-            ) : (
-              <span className="font-mono text-[20px] font-semibold tracking-[0.16em] text-foreground">
-                {codeInfo?.code}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={handleCopy}
-            disabled={!isNodeRunning || !codeInfo || isExpired}
-            data-testid="pairing-code-copy-action"
-            aria-label={copied ? t`已复制` : t`复制配对码`}
-            title={copied ? t`已复制` : t`复制配对码`}
-            className="glass-control flex size-10 items-center justify-center rounded-[12px] text-muted-foreground transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-brand active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:hover:text-brand"
-          >
-            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (isNodeRunning) {
-                regenerateCode();
-              }
-            }}
-            disabled={!isNodeRunning}
-            data-testid="pairing-code-refresh-action"
-            aria-label={t`重新生成`}
-            title={t`重新生成`}
-            className="glass-control flex size-10 items-center justify-center rounded-[12px] text-muted-foreground transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground active:scale-[0.98]"
-          >
-            <RefreshCw className="size-3.5" />
-          </button>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setInputOpen(true)}
-          data-testid="pairing-code-input-action"
-          className="group mt-2 flex w-full min-w-0 items-center gap-2 rounded-[12px] bg-white/38 px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/52 active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.065]"
-        >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-brand ring-1 ring-primary/15 dark:bg-primary/15 dark:ring-primary/10">
-            <Keyboard className="size-3.5" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[13px] font-medium text-foreground">
-              <Trans>输入配对码</Trans>
-            </span>
-            <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-              <Trans>输入另一台设备显示的 6 位数字</Trans>
-            </span>
-          </span>
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground/[0.045] text-muted-foreground transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground dark:bg-white/[0.06]">
-            <ArrowUpRight className="size-3" />
-          </span>
-        </button>
+      {/* 配对入口——跳转到 canonical 路由 */}
+      <div className="grid grid-cols-2 gap-2">
+        <PairingEntryButton
+          icon={QrCode}
+          testid="pairing-generate-action"
+          title={<Trans>展示配对邀请</Trans>}
+          subtitle={<Trans>让对方扫码或粘贴</Trans>}
+          onClick={() => navigate({ to: "/pairing/generate" })}
+        />
+        <PairingEntryButton
+          icon={ClipboardPaste}
+          testid="pairing-input-action"
+          title={<Trans>粘贴邀请配对</Trans>}
+          subtitle={<Trans>连接对方设备</Trans>}
+          onClick={() => navigate({ to: "/pairing/input" })}
+        />
       </div>
-
-      <PairingInputDialog open={inputOpen} onOpenChange={setInputOpen} />
     </SectionShell>
+  );
+}
+
+function PairingEntryButton({
+  icon: Icon,
+  testid,
+  title,
+  subtitle,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  testid: string;
+  title: React.ReactNode;
+  subtitle: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testid}
+      className="group flex min-w-0 items-center gap-2 rounded-[12px] bg-white/38 px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/52 active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.065]"
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-brand ring-1 ring-primary/15 dark:bg-primary/15 dark:ring-primary/10">
+        <Icon className="size-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-foreground">{title}</span>
+        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{subtitle}</span>
+      </span>
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground/[0.045] text-muted-foreground transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground dark:bg-white/[0.06]">
+        <ArrowUpRight className="size-3" />
+      </span>
+    </button>
   );
 }
 
@@ -287,11 +168,8 @@ function NearbyDeviceRow({
   const DeviceIcon = getDeviceIcon(device.platform);
   const isPaired = device.isPaired;
   const handleClick = () => {
-    if (isPaired) {
-      onSend(device);
-    } else {
-      onConnect(device);
-    }
+    if (isPaired) onSend(device);
+    else onConnect(device);
   };
 
   return (
@@ -355,133 +233,5 @@ function NearbyFilterControl({
         </button>
       ))}
     </div>
-  );
-}
-
-function PairingInputDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const openInput = usePairingStore((state) => state.openInput);
-  const reset = usePairingStore((state) => state.reset);
-  const searchDevice = usePairingStore((state) => state.searchDevice);
-  const sendPairingRequest = usePairingStore((state) => state.sendPairingRequest);
-  const isSearching = usePairingStore(
-    (state) => state.current.phase === "searching",
-  );
-  const phase = usePairingStore((state) => state.current.phase);
-  const { showDeviceFound, deviceInfo, isRequesting } = useDeviceFoundState();
-  const [code, setCode] = useState("");
-
-  // 配对成功后由 usePairingSuccess 统一 navigate+reset；这里只负责关闭本地内联弹窗并
-  // 清掉已被消费的验证码，否则成功后弹窗会停在已失效的 OTP 输入界面（再次确认会报错）。
-  useEffect(() => {
-    if (phase === "success") {
-      setCode("");
-      onOpenChange(false);
-    }
-  }, [phase, onOpenChange]);
-
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (nextOpen) {
-      setCode("");
-      openInput();
-    } else {
-      reset();
-      setCode("");
-    }
-    onOpenChange(nextOpen);
-  };
-
-  const handleCodeComplete = (value: string) => {
-    if (value.length === 6) {
-      searchDevice(value);
-    }
-  };
-
-  const handleConfirm = () => {
-    if (code.length === 6) {
-      searchDevice(code);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[460px]">
-        {showDeviceFound && deviceInfo ? (
-          <DesktopDeviceFoundContent
-            deviceInfo={deviceInfo}
-            isRequesting={isRequesting}
-            onSendRequest={() => sendPairingRequest()}
-            onCancel={() => {
-              reset();
-              setCode("");
-            }}
-          />
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>
-                <Trans>输入配对码</Trans>
-              </DialogTitle>
-              <DialogDescription>
-                <Trans>输入另一台设备上显示的 6 位数字配对码。</Trans>
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="flex flex-col items-center gap-4 py-2">
-              <InputOTP
-                maxLength={6}
-                value={code}
-                onChange={setCode}
-                onComplete={handleCodeComplete}
-                disabled={isSearching}
-                autoFocus
-              >
-                <InputOTPGroup>
-                  <InputOTPSlot index={0} className="h-12 w-10 text-xl font-semibold" />
-                  <InputOTPSlot index={1} className="h-12 w-10 text-xl font-semibold" />
-                  <InputOTPSlot index={2} className="h-12 w-10 text-xl font-semibold" />
-                </InputOTPGroup>
-                <InputOTPSeparator />
-                <InputOTPGroup>
-                  <InputOTPSlot index={3} className="h-12 w-10 text-xl font-semibold" />
-                  <InputOTPSlot index={4} className="h-12 w-10 text-xl font-semibold" />
-                  <InputOTPSlot index={5} className="h-12 w-10 text-xl font-semibold" />
-                </InputOTPGroup>
-              </InputOTP>
-
-              {isSearching && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  <Trans>正在查找设备...</Trans>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => handleOpenChange(false)}
-                className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-              >
-                <Trans>取消</Trans>
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirm}
-                disabled={code.length < 6 || isSearching}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-              >
-                <Trans>确认</Trans>
-              </button>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
   );
 }

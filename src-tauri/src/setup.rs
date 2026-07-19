@@ -66,6 +66,8 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::set_device_name,
             // pairing
             commands::generate_pair_invite,
+            commands::invite_qr_svg,
+            commands::decode_pair_invite,
             commands::consume_pair_invite,
             commands::request_pairing,
             commands::respond_pairing_request,
