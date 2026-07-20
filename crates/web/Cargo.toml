@@ -34,6 +34,9 @@ uuid = { workspace = true }
 
 # ============ wasm：浏览器壳 ============
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+# 浏览器节点包一层 core 的组合根（start_node + NetManager + PairingManager），与桌面/移动
+# 同源装配。core 已 wasm-ready（check-wasm 门禁含 -p swarmdrop-core），仅 wasm 侧需要。
+swarmdrop-core = { workspace = true }
 wasm-bindgen = "0.2"
 # master 的 libp2p-swarm 精确 pin =0.4.58，必须跟着钉。
 wasm-bindgen-futures = "=0.4.58"
@@ -44,6 +47,10 @@ serde-wasm-bindgen = "0.6"
 # （storage-abstraction.md 探针已证可行；跨线程 access/drop 会 panic，wasm 单线程永不触发）。
 send_wrapper = "0.6"
 getrandom = { version = "0.3", features = ["wasm_js"] }
+# rand 0.10（经 swarmdrop-invite）引入 getrandom 0.4——wasm 后端 feature 必须显式开，否则
+# wasm-pack 独立构建 swarmdrop-web 缺 wasm_js 而炸（`check-wasm.sh` 多包一起编时被别处统一
+# feature 侥幸通过，独立构建暴露）。backend cfg 由 .cargo/config.toml 供，feature 由此依赖供。
+getrandom_v04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 console_error_panic_hook = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 tracing-subscriber-wasm = "0.1"

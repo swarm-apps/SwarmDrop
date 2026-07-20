@@ -88,6 +88,20 @@ pub struct OfferJson {
     pub files: Vec<FileInfo>,
 }
 
+/// 挂起入站配对请求的 JS 投影（`pending_pairing_requests()` 返回）。
+///
+/// browser-as-inviter 用：桌面消费浏览器生成的 invite 后，浏览器（邀请方）本机需弹确认。
+/// `pendingId` 以字符串承载核心的 u64 pending id（避免 JS number 精度 + serde_wasm_bindgen
+/// 对 u64 产 BigInt 的取回麻烦），`respond_pairing_request` 再 parse 回 u64。
+#[derive(Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPairingJson {
+    pub pending_id: String,
+    pub peer_id: String,
+    pub device_name: String,
+}
+
 /// 连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。
 #[derive(Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

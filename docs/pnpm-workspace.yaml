@@ -7,6 +7,10 @@
 # 导致 CI 里 `next build` 报 next: not found。
 packages:
   - .
+  # swarmdrop-web：crates/web 经 wasm-pack 构建的产物包（提交入库，`workspace:*` 引用）。
+  # 由 docs 的 `pnpm build:wasm`（见 crates/web/README）输出到此，/try 测试页 import 它。
+  # macOS 另需 export CC/AR_wasm32_unknown_unknown 指向 homebrew llvm。
+  - packages/*
 
 # pnpm 10+ 默认不执行未批准依赖的 build 脚本，且在 frozen 安装下会以非零码退出
 # （ERR_PNPM_IGNORED_BUILDS）。这里批准 docs 依赖里带 native 二进制的包运行其构建脚本，

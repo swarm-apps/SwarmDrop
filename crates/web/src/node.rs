@@ -1,49 +1,55 @@
-//! `WebNode`：Web 壳的组合根 + wasm-bindgen API 面。
+//! `WebNode`：Web 壳的 wasm-bindgen API 面。
 //!
-//! 端口全用 Web 实现装配 `TransferManager`（内存 store / OPFS / ReadableStream 事件），
-//! Router 只挂 transfer 控制面 + 数据面（无 pairing——[`WebPeerDirectory`] 对任意对端返回
-//! 「需手动确认」的合成设备，让入站 offer 走缓存 + 手动 accept 路径）。
+//! 浏览器节点**包一层 core 的组合根** [`start_node`]（与桌面/移动同源装配），注入 Browser
+//! [`EndpointProfile`] + Web 端口实现（内存 store / OPFS / WebEventSink transfer 事件流）。走
+//! 完整 [`NetManager`] + 3 协议 Router（含 pairing）：invite 配对经 `pair_with_invite`，配对记录
+//! 内存态（IndexedDB 持久化属后续）。NetManager 侧 pairing/device 事件走最小
+//! [`WebEventBus`](crate::event_bus)（consume-invite 路径的确认在邀请方桌面，浏览器侧暂不 surface）。
 
 use std::cell::RefCell;
 use std::sync::Arc;
 
 use futures::StreamExt;
+use swarmdrop_core::host::EventBus;
+use swarmdrop_core::network::event_loop::spawn_event_loop;
+use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
+use swarmdrop_core::protocol::pairing::{PairingRefuseReason, PairingResponse};
+use swarmdrop_core::runtime::{EndpointProfile, start_node};
+use swarmdrop_host::device::OsInfo;
 use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId};
-use swarmdrop_net::{DhtConfig, Endpoint, NodeAddr, NodeId, RelayState, Router, presets};
+use swarmdrop_invite::TransportPolicy;
+use swarmdrop_net::{Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
 use swarmdrop_transfer::HostEnumeratedFile;
 use swarmdrop_transfer::events::TransferEventSink;
-use swarmdrop_transfer::incoming::TransferCtrlService;
 use swarmdrop_transfer::manager::TransferManager;
-use swarmdrop_transfer::peer::PeerDirectory;
-use swarmdrop_transfer::protocol::{
-    TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL, TRANSFER_DATA_PROTOCOL, TransferOrigin,
-};
+use swarmdrop_transfer::protocol::TransferOrigin;
 use swarmdrop_transfer::store::TransferStore;
-use swarmdrop_transfer::wire::TransferDataHandler;
-use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 use web_sys::File;
 
 use crate::error::{WebError, js_err};
+use crate::event_bus::{PendingPairings, WebEventBus};
 use crate::events::WebEventSink;
 use crate::file_access::OpfsFileAccess;
 use crate::identity;
-use crate::peer::WebPeerDirectory;
 use crate::store::MemorySessionStore;
-use crate::types::{ConnectionJson, OfferJson};
+use crate::types::{ConnectionJson, OfferJson, PendingPairingJson};
 
 // specta 导出的 TS 类型（static/types/bindings.ts，由 `cargo test -p swarmdrop-web
 // --features specta` 生成并入库）整体注入 .d.ts，供下方 typescript_type 引用——
 // wasm-bindgen 默认把 JsValue 返回值标成 any，这里把方法签名接到具名类型上。
 #[wasm_bindgen(typescript_custom_section)]
-const TS_BINDINGS: &'static str = include_str!("../static/types/bindings.ts");
+const TS_BINDINGS: &'static str = include_str!("../bindings/bindings.ts");
 
 #[wasm_bindgen]
 extern "C" {
     /// `pending_offers()` 的返回：`OfferJson[]`。
     #[wasm_bindgen(typescript_type = "OfferJson[]")]
     pub type OfferJsonArray;
+    /// `pending_pairing_requests()` 的返回：`PendingPairingJson[]`。
+    #[wasm_bindgen(typescript_type = "PendingPairingJson[]")]
+    pub type PendingPairingArray;
     /// `events()` 的返回：逐条产出 [`WebTransferEvent`] 序列化对象的流。
     #[wasm_bindgen(typescript_type = "ReadableStream<WebTransferEvent>")]
     pub type TransferEventStream;
@@ -63,22 +69,29 @@ fn to_js_typed<T: serde::Serialize, R: JsCast>(value: &T, what: &str) -> Result<
 #[wasm_bindgen]
 pub struct WebNode {
     endpoint: Endpoint,
+    /// transfer 控制面（send / offers / accept / resume）——从 [`NetManager`] 取出的 Arc。
     manager: Arc<TransferManager>,
-    _router: Router,
+    /// core 网络管理器：pairing（invite 配对）+ devices + shutdown（含 cleanup task 生命周期）。
+    net_manager: NetManager<TransferManager>,
+    /// 本机私钥（`generate_invite` 签名邀请用；start_node 吃的是它的 clone）。
+    secret: SecretKey,
+    /// 本机 OsInfo（`generate_invite` 的 display_hint 用）。
+    os_info: OsInfo,
+    /// 入站配对请求队列（browser-as-inviter：桌面消费本机 invite 后本机弹确认）。
+    pending_pairings: PendingPairings,
     file_access: Arc<OpfsFileAccess>,
     events_rx: RefCell<
         Option<
             futures::channel::mpsc::UnboundedReceiver<swarmdrop_transfer::events::TransferEvent>,
         >,
     >,
-    cancel: CancellationToken,
 }
 
 #[wasm_bindgen]
 impl WebNode {
-    /// 建节点：持久化身份（Window=localStorage / Worker=OPFS）→ Browser preset + DHT client
-    /// → 装配 TransferManager + Router（transfer-ctrl / transfer-data）。Window 与 Worker
-    /// 环境通吃（Worker 里勿拨 webrtc-direct 地址——webrtc-websys dial 碰 window 会 panic）。
+    /// 建节点：持久化身份（Window=localStorage / Worker=OPFS）→ 包 core 组合根 [`start_node`]
+    /// （Browser [`EndpointProfile`] + Web 端口）→ 完整 [`NetManager`] + 3 协议 Router（含
+    /// pairing）。**须在主线程 Window 跑**——webrtc-websys dial 碰 window，Worker 里会 panic。
     pub async fn spawn() -> Result<WebNode, JsValue> {
         // secure context 预警：非 https/localhost 源下 navigator.storage 与 crypto.subtle 缺失，
         // 接收方落盘会失败（现已快速报错而非挂死）。启动即显式提示，别等传到一半才发现。
@@ -90,62 +103,67 @@ impl WebNode {
         }
 
         let secret = identity::load_or_create().await?;
-        // agent_version 必须走 OsInfo::to_agent_version()（"swarmdrop/{ver}; os=…" 契约）——
-        // 桌面 DeviceManager 用 AGENT_PREFIX 过滤设备列表，硬编码其他前缀会让 Web 节点
-        // 在对端设备列表里隐身（曾踩过：\"swarmdrop-web/0.1\" 被整个滤掉）。
+        // web_os_info() 自建（wasm 下 OsInfo::default() 的 env 探测恒 unknown）。agent_version 由
+        // start_node 走 to_agent_version()（"swarmdrop/{ver}; os=…" 契约）——桌面 DeviceManager
+        // 用 AGENT_PREFIX 过滤设备列表，前缀不符会让 Web 节点在对端设备列表里隐身。
         let os_info = web_os_info();
-        let endpoint = Endpoint::builder()
-            .secret_key(secret)
-            .preset(presets::Browser)
-            .identify_protocol("/swarmdrop/2.0.0")
-            .agent_version(os_info.to_agent_version())
-            .dht(DhtConfig::default())
-            .bind()
-            .await
-            .map_err(js_err)?;
 
-        let store: Arc<dyn TransferStore> = Arc::new(MemorySessionStore::new());
+        // Web 端口：内存 store / OPFS 落盘 / WebEventSink（transfer 事件直连 events() 流）。
         let file_access_impl = Arc::new(OpfsFileAccess::new());
         let file_access: Arc<dyn FileAccess> = file_access_impl.clone();
         let (sink, events_rx) = WebEventSink::new();
-        let events: Arc<dyn TransferEventSink> = Arc::new(sink);
-        let manager = Arc::new(TransferManager::new(
-            endpoint.clone(),
-            events,
-            store,
-            file_access,
-        ));
+        let transfer_events: Arc<dyn TransferEventSink> = Arc::new(sink);
+        // NetManager 侧事件的 bus：捕获入站配对请求（browser-as-inviter），其余记日志。
+        // transfer 事件不经此（走 WebEventSink → events() 流）。
+        let (event_bus_impl, pending_pairings) = WebEventBus::new();
+        let event_bus: Arc<dyn EventBus> = Arc::new(event_bus_impl);
 
-        let cancel = CancellationToken::new();
-        manager.spawn_cleanup_task(cancel.clone());
+        let file_access_for_factory = file_access.clone();
+        let started = start_node(
+            secret.clone(),
+            os_info.clone(),
+            Vec::new(), // 已配对设备：内存态起步（IndexedDB 持久化属后续工程）
+            // LanOnly：浏览器拨不了 TCP/QUIC 内置 bootstrap，跳过它免得 infra 反复空拨刷屏；
+            // LAN 配对经直连 ws + invite，不需 DHT bootstrap（公网可达待 webrtc-direct bootstrap）。
+            NetworkRuntimeConfig {
+                discovery_mode: DiscoveryMode::LanOnly,
+                ..NetworkRuntimeConfig::default()
+            },
+            EndpointProfile::Browser,
+            event_bus.clone(),
+            None, // 浏览器无系统通知
+            move |endpoint| {
+                TransferManager::new(
+                    endpoint,
+                    transfer_events,
+                    Arc::new(MemorySessionStore::new()) as Arc<dyn TransferStore>,
+                    file_access_for_factory,
+                )
+            },
+        )
+        .await
+        .map_err(WebError::from)?;
 
-        // PeerDirectory 对任意对端返回「需手动确认」的合成设备（Collaborator，auto_accept=false）：
-        // incoming.rs 对未配对（None）offer 硬拒 NotPaired（桌面安全边界），故 Web 无配对时必须
-        // 给个 Some——不改 transfer，语义正是「陌生设备手动确认」。
-        let pairing: Arc<dyn PeerDirectory> = Arc::new(WebPeerDirectory);
-        let router = Router::builder(endpoint.clone())
-            .accept(
-                TRANSFER_CTRL_PROTOCOL,
-                TRANSFER_CTRL.handler(TransferCtrlService::new(
-                    manager.clone(),
-                    pairing,
-                    endpoint.clone(),
-                    None,
-                )),
-            )
-            .accept(
-                TRANSFER_DATA_PROTOCOL,
-                TransferDataHandler::new(manager.clone()),
-            )
-            .spawn();
+        let endpoint = started.endpoint.clone();
+        let net_manager = started.manager;
+        let manager = net_manager.transfer_arc();
+        // 事件循环（presence / infra / 状态刷新）随 router 同生命周期，n0-future spawn（wasm 友好）。
+        spawn_event_loop(
+            started.events,
+            net_manager.shared_refs(),
+            event_bus,
+            started.router,
+        );
 
         Ok(WebNode {
             endpoint,
             manager,
-            _router: router,
+            net_manager,
+            secret,
+            os_info,
+            pending_pairings,
             file_access: file_access_impl,
             events_rx: RefCell::new(Some(events_rx)),
-            cancel,
         })
     }
 
@@ -172,31 +190,78 @@ impl WebNode {
         )
     }
 
-    /// 用邀请串连接发起方（demo 级受邀方）：本地解码验签 → 按策略取地址 → connect。
+    /// 受邀方：消费邀请串完成**真配对握手**。
     ///
-    /// 完整 invite 配对握手（capability 出示 + 持久化配对记录）属 web 消费 core 的后续工程；
-    /// demo 只做「decode 取对端地址 → 连上 → 收文件」——transfer 层的 `WebPeerDirectory`
-    /// 对陌生设备本就手动确认，足够 demo 收发。
-    pub async fn connect_invite(&self, invite: String) -> Result<ConnectionJsonJs, JsValue> {
-        let inv = swarmdrop_invite::PairInvite::decode(&invite)
-            .map_err(|e| WebError::invalid_input(format!("邀请无效: {e}")))?;
-        let addr = inv
-            .usable_addrs()
-            .into_iter()
-            .next()
-            .ok_or_else(|| WebError::invalid_input("邀请不含可用地址"))?;
-        let info = self
-            .endpoint
-            .connect(NodeAddr::with_addrs(inv.inviter.id, vec![addr]))
+    /// `pair_with_invite` 解码验签 → TTL 预检 → 按 `TransportPolicy` 过滤地址 → 连邀请方出示
+    /// capability（`PairingMethod::Invite`）→ 邀请方（桌面）校验 CAS 一次性消费 + 用户确认 →
+    /// 双方写配对记录。身份 pin 由握手强制（连到的必然是 `inviter_id`）。成功返回已配对对端的
+    /// NodeId（base58）；确认发生在**邀请方**侧，浏览器侧无需交互。配对后该对端进入本机信任
+    /// 表，双向传输（收 / 发）不再被 `NotPaired` 拦。
+    pub async fn connect_invite(&self, invite: String) -> Result<String, JsValue> {
+        let (response, paired) = self
+            .net_manager
+            .pairing()
+            .pair_with_invite(&invite)
             .await
-            .map_err(js_err)?;
-        to_js_typed(
-            &ConnectionJson {
-                path: info.path.into(),
-                addr: info.addr.to_string(),
-            },
-            "连接信息",
-        )
+            .map_err(WebError::from)?;
+        match response {
+            PairingResponse::Success => {
+                Ok(paired.map(|d| d.peer_id.to_string()).unwrap_or_default())
+            }
+            _ => Err(WebError::network("邀请方拒绝了配对或配对未成功").into()),
+        }
+    }
+
+    /// 发起方（browser-as-inviter）：生成一次性签名邀请串，供桌面/移动扫码或粘贴消费。
+    ///
+    /// `local_only=true` 走 LocalOnly（受邀方只用私网地址）。邀请自包含本机 dialable 地址提示——
+    /// 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
+    /// 拨得到本机，本机需先经 [`reserve`](Self::reserve) 在某 helper 上建 reservation，否则邀请里
+    /// 无可拨地址、消费方连不上。
+    pub fn generate_invite(&self, local_only: bool) -> Result<String, JsValue> {
+        let policy = if local_only {
+            TransportPolicy::LocalOnly
+        } else {
+            TransportPolicy::Auto
+        };
+        Ok(self
+            .net_manager
+            .pairing()
+            .encode_invite(&self.secret, policy, &self.os_info))
+    }
+
+    /// 挂起的入站配对请求（消费方扫/粘本机 invite 后到达）。**取出即清空**，调用方自行累积展示。
+    pub fn pending_pairing_requests(&self) -> Result<PendingPairingArray, JsValue> {
+        let items: Vec<PendingPairingJson> = self
+            .pending_pairings
+            .lock()
+            .map(|mut q| std::mem::take(&mut *q))
+            .unwrap_or_default();
+        to_js_typed(&items, "配对请求")
+    }
+
+    /// 响应一个入站配对请求（`accept=true` 接受并写配对记录、CAS 消费 invite / `false` 拒绝）。
+    pub async fn respond_pairing_request(
+        &self,
+        pending_id: String,
+        accept: bool,
+    ) -> Result<(), JsValue> {
+        let id: u64 = pending_id
+            .parse()
+            .map_err(|_| WebError::invalid_input("无效的 pending_id"))?;
+        let response = if accept {
+            PairingResponse::Success
+        } else {
+            PairingResponse::Refused {
+                reason: PairingRefuseReason::UserRejected,
+            }
+        };
+        self.net_manager
+            .pairing()
+            .respond_pairing_request(id, response)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
     }
 
     /// 经 helper 请求 circuit reservation（浏览器被动接收连接的唯一入口），返回 circuit 地址。
@@ -332,10 +397,11 @@ impl WebNode {
         )
     }
 
-    /// 关停节点（取消后台任务 + 关 Endpoint，drop Router 停路由）。
+    /// 关停节点：NetManager::shutdown 取消内部 token（停 presence / infra / event-loop +
+    /// transfer cleanup，drop Router 停路由）并关 Endpoint（drop Swarm → 断连）——
+    /// 与 `WebNode.endpoint` 是同一 handle，无需再显式关一次。
     pub async fn close(self) {
-        self.cancel.cancel();
-        self.endpoint.close().await;
+        self.net_manager.shutdown().await;
     }
 }
 
