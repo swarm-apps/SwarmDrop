@@ -15,7 +15,7 @@ use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 
 use crate::AppError;
-use crate::device::{DeviceFilter, DeviceListResult, PairedDeviceInfo};
+use crate::device::{DeviceFilter, DeviceListResult, OsInfo, PairedDeviceInfo};
 use crate::host::event_bus::TauriEventBus;
 use crate::network::{NetManagerState, NetworkStatus};
 use swarmdrop_core::network::NetworkRuntimeConfig;
@@ -53,6 +53,8 @@ pub async fn start(
     let file_access_for_factory = file_access.clone();
 
     let device_name = crate::host::device_config::load_device_name(&app).await;
+    // os_info 由 host 供给：桌面走 `OsInfo::native` 的 env 探测（hostname/os/arch）+ 用户设备名。
+    let os_info = OsInfo::native(device_name);
     // custom_bootstrap_nodes 现统一由 network_options 携带（前端 NetworkRuntimeConfig），
     // 不再有独立的 legacy 位置参与合并。
     let network_config = network_options.unwrap_or_default();
@@ -63,9 +65,10 @@ pub async fn start(
 
     let started = swarmdrop_core::runtime::start_node(
         (*secret_key).clone(),
-        device_name,
+        os_info,
         paired_devices,
         network_config,
+        swarmdrop_core::runtime::EndpointProfile::Native,
         event_bus.clone(),
         Some(notifier),
         move |endpoint| {

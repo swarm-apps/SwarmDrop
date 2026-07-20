@@ -19,7 +19,11 @@ use swarmdrop_invite::{InviteRegistry, InviteRejectReason, PairInvite, Transport
 const PAIRING_CALL_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// 入站配对请求待决表最长等待（超时回收，避免 handler 任务无限挂起）。
-const PENDING_INBOUND_TIMEOUT: Duration = Duration::from_secs(180);
+///
+/// 刻意**小于** [`PAIRING_CALL_TIMEOUT`]（180s）——与 transfer 的
+/// `PENDING_OFFER_TIMEOUT_SECS`(170) < `req_resp_timeout`(180) 同款错位：本端 pending 先于
+/// 发起端放弃被回收，保证"本端刚接受、发起端已超时放弃 → 回复通道已关"的边界竞态不发生。
+const PENDING_INBOUND_TIMEOUT: Duration = Duration::from_secs(170);
 
 /// 当前 Unix 秒（邀请 TTL 判定用；chrono 在 wasm 下走 js 时钟）。
 fn now_secs() -> u64 {

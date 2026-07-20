@@ -178,6 +178,28 @@ impl OsInfo {
         }
     }
 
+    /// Native 端（桌面 / 移动）装配入口：从用户设备名建 `OsInfo`，其余字段走 [`Default`]
+    /// （运行时探测 hostname / os / arch）。Web 端另有 `web_os_info()`，不走这里。
+    pub fn native(name: Option<String>) -> Self {
+        Self {
+            name,
+            ..Default::default()
+        }
+    }
+
+    /// UI 显示名：`name` 去空白后非空则用它，否则回退 `hostname`。
+    ///
+    /// 收敛「name → hostname」回退语义于一处，避免各端（transfer / mobile / pairing / web）
+    /// 各手写一份、对「空串是否回退 / 是否 trim」处理分叉。
+    pub fn display_name(&self) -> String {
+        self.name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .unwrap_or(&self.hostname)
+            .to_string()
+    }
+
     /// SwarmDrop 客户端 agent_version 前缀。
     pub const AGENT_PREFIX: &str = "swarmdrop/";
 

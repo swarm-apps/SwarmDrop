@@ -211,11 +211,15 @@ impl MobileCore {
         crate::history::reconcile_stale_sessions(db.clone(), event_bus.clone(), &file_access)
             .await?;
 
+        // os_info 由 host 供给：移动端 env 探测拿不到 hostname，回退 "Device"，UI 走 name 字段。
+        let os_info = swarmdrop_core::device::OsInfo::native(device_name);
+
         let started = swarmdrop_core::runtime::start_node(
             keypair,
-            device_name,
+            os_info,
             paired_devices,
             network_config.into(),
+            swarmdrop_core::runtime::EndpointProfile::Native,
             event_bus.clone(),
             None, // 移动端无窗口聚焦概念，不需要 Notifier
             move |endpoint| {

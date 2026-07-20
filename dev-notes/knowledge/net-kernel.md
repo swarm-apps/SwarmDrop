@@ -133,6 +133,10 @@ android target 依赖表）。
   storage-abstraction.md 的 SendWrapper 结论支撑）。`MaybeSend` 方案备而未用，
   真被 !Send 卡住时再引入。
 - `wasm-bindgen-futures` 必须精确 pin `=0.4.58`（master 的 libp2p-swarm 钉死了它）。
+- **`check-wasm.sh --clippy` 用 `-D warnings`，比本机 `cargo clippy` 严**：改 core/host 里
+  会进 wasm 门禁的代码时，纯 `cargo clippy`（无 `-D warnings`）只当 warning 放行的 lint
+  （如给 `start_node` 加参数触发的 `too_many_arguments`）会在 wasm job 变硬错误挂 CI。
+  提交前对 wasm 侧改动跑 `bash scripts/check-wasm.sh --clippy`，别只信本机 clippy 绿。
 
 ## wire v2 契约点（改动前先看固化测试）
 
