@@ -103,7 +103,8 @@ master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Andro
    **契约后果**：Android endpoint 对 `/ws`、`/wss` 地址**完全不可拨**（不只是不
    listen）——今天无影响（移动拨桌面走 TCP/QUIC），但属于平台能力不对称，规划
    ws-only 节点时要记得。根因是 libp2p 上游缺口（websocket phase 应复用已配置的
-   dns config），上游修复后本地可收敛回双分支。
+   dns config），已提上游 <https://github.com/libp2p/rust-libp2p/issues/6529>，
+   修复后本地可收敛回双分支。
 
 只修 1 不修 2 表现完全一样（同一错误字符串），容易误判「没修上」——先怀疑第二处，
 再怀疑 .so 没重编。`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
