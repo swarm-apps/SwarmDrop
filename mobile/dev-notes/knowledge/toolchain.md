@@ -48,11 +48,33 @@ cargo check --manifest-path .../mobile-core/Cargo.toml   # 验证 Rust 侧兼容
 
 ### lightningcss / uniffi-bindgen-react-native 锁版本
 
-`package.json` 用 `pnpm.overrides` 锁 `lightningcss: 1.30.1`（NativeWind v5 preview 的 ABI
-要求），`pnpm.patchedDependencies` 给 `uniffi-bindgen-react-native@0.31.0-2` 打了 patch（修
-Windows 路径 canonicalize）。升级这两个之前先验证 nativewind/ubrn 兼容性。
+`pnpm-workspace.yaml` 用 `overrides` 锁 `lightningcss: 1.30.1`（NativeWind v5 preview 的 ABI
+要求）。ubrn 的 Windows 路径 patch 已随 0.31.0-3（上游 PR #367）合入删除；仍需的 Node-24
+exports 兼容修复走 `.pnpmfile.cjs`（readPackage 给 ubrn 补 `./package.json` 导出）。
+升级这两个之前先验证 nativewind/ubrn 兼容性。
 
-**相关文件**：[package.json](../../package.json), [patches/](../../patches/)
+**相关文件**：[pnpm-workspace.yaml](../../pnpm-workspace.yaml), [.pnpmfile.cjs](../../.pnpmfile.cjs)
+
+### ubrn ≥0.31.0-3：生成代码 import `@ubjs/core`，子包必须显式声明该依赖
+
+ubrn 0.31.0-3 起 TypeScript runtime 拆分为独立 npm 包 `@ubjs/core`（上游 PR #399，
+uniffi-bindgen-javascript 改名的一部分）。重新生成绑定后，`src/generated/*.ts` 的
+runtime import 从 `uniffi-bindgen-react-native` 变为 `@ubjs/core`——ubrn 本身**不再
+把它作为传递依赖带进来**（ubrn 的 dependencies 为空），Metro 会直接报
+`Unable to resolve "@ubjs/core"`。
+
+**正确做法**：
+- `packages/swarmdrop-core/package.json` 的 `dependencies` 里精确锁
+  `"@ubjs/core": "<与 devDependencies 的 ubrn 完全同版本>"`（预发布版本线，caret 语义不可靠）。
+- 升级 ubrn 时两处版本一起动，然后 `pnpm install` + 重新生成绑定。
+- 忘了同步不会哑掉：`.pnpmfile.cjs` 在安装期校验两者版本相等，失配直接 throw。
+
+**历史包袱已清**：0.31.0-2 及以前需要 `scripts/fix-ubrn-output.mjs` 后处理产物里的
+`async static` 生成 bug（TS 语法错误），0.31.0-3 起上游已修、脚本已删（见 git history）。
+若未来升级 ubrn 后 bob build / typecheck 报 `async static` 语法错误，说明 bug 回归了——
+去上游报 issue，别急着复活本地脚本。
+
+**相关文件**：[packages/swarmdrop-core/package.json](../../packages/swarmdrop-core/package.json)
 
 ### UniFFI 接口变更后必须刷新 iOS xcframework
 
@@ -369,7 +391,6 @@ cd packages/swarmdrop-core/rust/mobile-core && cargo build
 npx ubrn generate jsi bindings --library \
   --ts-dir ../../src/generated --cpp-dir ../../cpp/generated \
   --crate swarmdrop_mobile_core target/debug/libswarmdrop_mobile_core.dylib
-cd ../.. && pnpm ubrn:fix
 # 3. 需要能真机跑时，再 npx ubrn build ios / android -t arm64-v8a（无 --and-generate，
 #    只重编 Rust + 拷 xcframework/jniLibs，不重生成、不碰脚手架）
 ```
