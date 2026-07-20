@@ -28,6 +28,7 @@ import { useSecretStore } from "@/stores/secret-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { applyDeviceName } from "@/lib/device-name";
+import { copyText } from "@/lib/clipboard";
 import { getErrorMessage } from "@/lib/errors";
 import { SettingsCard, SettingsSection } from "./-settings-primitives";
 
@@ -103,7 +104,7 @@ export function DeviceInfoSection() {
 
   const handleCopyPeerId = useCallback(() => {
     if (!deviceId) return;
-    navigator.clipboard.writeText(deviceId).then(() => {
+    copyText(deviceId).then(() => {
       setCopied(true);
       toast.success(t`已复制到剪贴板`);
       setTimeout(() => setCopied(false), 2000);

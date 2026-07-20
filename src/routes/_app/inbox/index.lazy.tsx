@@ -69,6 +69,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { copyText } from "@/lib/clipboard";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
 import { projectionStatusLabel } from "@/lib/transfer-projection";
 import {
@@ -280,7 +281,7 @@ function InboxPage() {
       toast.error(t`该记录没有可用的本地路径`);
       return;
     }
-    void navigator.clipboard.writeText(path).then(
+    void copyText(path).then(
       () => toast.success(t`已复制到剪贴板`),
       () => toast.error(t`复制失败，请手动复制路径`),
     );

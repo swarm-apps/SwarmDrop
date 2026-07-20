@@ -264,3 +264,27 @@ react-native-svg 画 `<Rect>`），配色固化在渲染端，不接主题 token
 **两个分组弹窗共用同一"分组区"骨架**：管理分组弹窗（`DeviceGroupsDialog`，可排序列表）和单设备别名弹窗（`DeviceOrganizationDialog`，多选归属 pill）都把分组内容放进**同款 recessed 容器**（`rounded-[16px] border border-border/60 bg-muted/20 dark:bg-white/[0.02]`）+ 下方一条"创建行"（`Input` + `variant="outline"` 的 `＋新建` 按钮，`disabled={!newGroup.trim()}` 门控）。pill 未选态用 `bg-background` + hairline，选中态 `bg-primary/10 text-brand border-primary/30` + `Check`——两弹窗视觉权重同源。新增同类"分组/标签选择"区沿用这套骨架，不要各画各的。
 
 **相关文件**：`src/routes/_app/devices/-components/device-organization-dialogs.tsx`（`DeviceGroupsDialog` / `SortableGroupRow` / `GroupRowPreview` / `restrictToVerticalAxis` / `DeviceOrganizationDialog`）
+
+## 剪贴板：桌面端复制统一走 Tauri 插件，不用 navigator.clipboard.writeText
+
+桌面 Tauri WebView 里调 `navigator.clipboard.writeText` 会弹**浏览器权限申请**（"允许访问剪贴板？"），在原生 app 里体验很怪异。
+
+**正确做法**：所有复制走 `copyText()`（`src/lib/clipboard.ts`，封装 `@tauri-apps/plugin-clipboard-manager` 的 `writeText`）——原生系统剪贴板、零提示。
+
+**三处装配缺一不可**：
+- `src-tauri/Cargo.toml`：`tauri-plugin-clipboard-manager = "2"`
+- `src-tauri/src/setup.rs` 的 `register_plugins`：`.plugin(tauri_plugin_clipboard_manager::init())`
+- `src-tauri/capabilities/default.json`：`"clipboard-manager:allow-write-text"`（**只加了插件不加 capability，运行时 invoke 会被拒**）
+- 前端：`package.json` 的 `@tauri-apps/plugin-clipboard-manager` + `pnpm install`
+
+**读剪贴板例外**：`src/hooks/use-clipboard-invite.ts` 仍用 `navigator.clipboard.readText()` 做窗口 focus 时的静默轮询感知邀请串——桌面 WebView 读剪贴板无系统提示，故意不切 Tauri 插件（切了要额外申请 read-text 权限）。只有**写**才必须走插件。
+
+**相关文件**：`src/lib/clipboard.ts`、用到的 `-device-info-section.tsx` / `-mcp-section.tsx` / `pairing/generate.lazy.tsx` / `inbox/index.lazy.tsx` / `network/lan-helper-address.tsx`
+
+## LAN 协助地址展示：数据源是 networkStatus.lanHelperAdvertisedAddrs，需自己拼 /p2p/<peerId>
+
+「浏览器快速连接本机」的 ws 地址来自 `networkStatus.lanHelperAdvertisedAddrs`（后端 `crates/core/src/network/manager.rs` 仅在 `provide_lan_helper` 开启时填充为私网监听地址）。这些是**裸监听地址、不含 `/p2p/` 段**，`reserve()` / `connect()` 都要求带 `/p2p/<id>`，故前端 `useLanHelperAddresses` 要 `.filter(a => a.includes("/ws")).map(a => \`${a}/p2p/${peerId}\`)`。
+
+**Zustand 派生别踩坑**：selector 只取稳定的 `s.networkStatus` 引用，`filter/map` 放 `useMemo` 里——直接在 selector 里派生数组每次返回新引用会无限 re-render（见本文件「Zustand selector 与派生数组」）。
+
+**相关文件**：`src/components/network/lan-helper-address.tsx`（`LanHelperAddress` + `useLanHelperAddresses`），装配在 `stop-node-sheet.tsx`（首页状态弹窗）和 `settings/-network-settings-section.tsx`

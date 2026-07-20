@@ -526,6 +526,10 @@ msgstr "{0} remaining"
 msgid "协作者"
 msgstr "Collaborator"
 
+#: src/components/network/lan-helper-address.tsx
+msgid "协助地址已复制"
+msgstr "Helper address copied"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "发现模式"
@@ -753,6 +757,10 @@ msgstr "Processing..."
 msgid "复制"
 msgstr "Copy"
 
+#: src/components/network/lan-helper-address.tsx
+msgid "复制失败"
+msgstr "Copy failed"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "复制失败，请手动复制路径"
 msgstr "Copy failed, please copy the path manually"
@@ -871,6 +879,10 @@ msgstr "LAN"
 #: src/components/network/stop-node-sheet.tsx
 msgid "局域网协助"
 msgstr "LAN assistance"
+
+#: src/components/network/lan-helper-address.tsx
+msgid "局域网协助地址"
+msgstr "LAN Helper Address"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "展示配对邀请"
@@ -1593,6 +1605,10 @@ msgstr "No missing inbox records"
 msgid "浅色"
 msgstr "Light"
 
+#: src/components/network/lan-helper-address.tsx
+msgid "浏览器端可用此地址快速连接本机"
+msgstr "Browsers can use this address to quickly connect to this device"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "浏览收件箱"
 msgstr "Browse inbox"
@@ -1628,6 +1644,10 @@ msgstr "Clear activity"
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "清空记录"
 msgstr "Clear records"
+
+#: src/components/network/lan-helper-address.tsx
+msgid "点击复制"
+msgstr "Click to copy"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "点窗口关闭按钮（✕）后的行为"

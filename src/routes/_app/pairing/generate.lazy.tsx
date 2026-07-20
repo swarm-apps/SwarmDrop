@@ -14,6 +14,7 @@ import { INVITE_TTL_SECS, usePairingStore } from "@/stores/pairing-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { useCountdown } from "@/hooks/use-countdown";
+import { copyText } from "@/lib/clipboard";
 import { formatCountdown } from "@/lib/format";
 import { InviteQr } from "@/components/pairing/invite-qr";
 import { Switch } from "@/components/ui/switch";
@@ -81,7 +82,7 @@ function PairingGeneratePage() {
   const handleCopy = useCallback(async () => {
     if (!activeInvite) return;
     try {
-      await navigator.clipboard.writeText(activeInvite.invite);
+      await copyText(activeInvite.invite);
       setCopied(true);
     } catch {
       toast.error(t`复制失败，请手动复制邀请`);

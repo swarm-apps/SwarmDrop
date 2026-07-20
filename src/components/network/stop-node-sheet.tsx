@@ -16,6 +16,7 @@ import type { MessageDescriptor } from "@lingui/core";
 import { cn } from "@/lib/utils";
 import { formatUptime } from "@/lib/format-uptime";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
+import { LanHelperAddress } from "@/components/network/lan-helper-address";
 import {
   Dialog,
   DialogContent,
@@ -104,7 +105,7 @@ export function StopNodeSheet({ open, onOpenChange }: StopNodeSheetProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-hidden p-0! sm:max-w-[min(90vw,32rem)]">
+      <DialogContent className="max-h-[85vh] overflow-y-auto p-0! sm:max-w-[min(90vw,32rem)]">
         <StopNodeContent
           onStop={handleStop}
           onCancel={() => onOpenChange(false)}
@@ -419,6 +420,9 @@ function StopNodeContent({
             </div>
           )}
         </div>
+
+        {/* 局域网协助地址 — 供浏览器端快速连接（仅本机开启协助时展示） */}
+        <LanHelperAddress />
 
         {/* 监听地址（折叠）— 高度不足时隐藏 */}
         {showExtra && listenAddrs.length > 0 && (

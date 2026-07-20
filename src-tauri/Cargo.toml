@@ -39,6 +39,7 @@ tauri-plugin-store = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-clipboard-manager = "2"
 # MCP Bridge —— 仅 debug 注册(见 setup.rs::register_plugins),供 AI 调试桥使用;
 # release 会编译但不注册,因此攻击面仅限 dev。无条件依赖以便 tauri-build 收集其 ACL。
 tauri-plugin-mcp-bridge = "0.11"

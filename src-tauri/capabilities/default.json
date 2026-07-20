@@ -43,6 +43,7 @@
     "updater:default",
     "process:allow-restart",
     "dialog:default",
+    "clipboard-manager:allow-write-text",
     "mcp-bridge:default",
     "wdio-webdriver:default",
     "wdio:default"

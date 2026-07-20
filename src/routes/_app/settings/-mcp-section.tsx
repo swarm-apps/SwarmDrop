@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { commands, type McpStatus } from "@/lib/bindings";
+import { copyText } from "@/lib/clipboard";
 import { getErrorMessage } from "@/lib/errors";
 import {
   SettingsCard,
@@ -89,7 +90,7 @@ export function McpSection() {
   );
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(mcpConfig).then(() => {
+    copyText(mcpConfig).then(() => {
       setCopied(true);
       toast.success(t`已复制到剪贴板`);
       setTimeout(() => setCopied(false), 2000);
