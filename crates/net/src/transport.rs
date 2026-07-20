@@ -2,8 +2,9 @@
 //!
 //! | target | transports |
 //! |---|---|
-//! | native | TCP + QUIC + DNS + WebSocket(listen 给浏览器) + relay client |
-//! | wasm   | webrtc-websys + websocket-websys + relay client（不能 listen 本地 socket）|
+//! | native  | TCP + QUIC + DNS + WebSocket(listen 给浏览器) + relay client |
+//! | android | 同 native，但 DNS 换显式公共解析、去 WebSocket（见 build_swarm 的 cfg 分支）|
+//! | wasm    | webrtc-websys + websocket-websys + relay client（不能 listen 本地 socket）|
 //!
 //! 说明：
 //! - SwarmBuilder 是编译期类型状态链，无法按运行时配置增删 transport；
@@ -33,7 +34,7 @@ pub(crate) async fn build_swarm(
 
     let err = |e: &dyn std::fmt::Display| BuildSwarmError(e.to_string());
 
-    let swarm = SwarmBuilder::with_existing_identity(keypair)
+    let builder = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
         .with_tcp(
             tcp::Config::default(),
@@ -62,16 +63,29 @@ pub(crate) async fn build_swarm(
             Ok(libp2p_webrtc::tokio::Transport::new(key.clone(), cert)
                 .map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn))))
         })
-        .map_err(|e| err(&e))?
-        // Android 上 system resolver（/etc/resolv.conf）不存在会失败——M4 宿主接线时
-        // 用 with_dns_config 显式配置处理，桌面/服务器场景 system 即可。
+        .map_err(|e| err(&e))?;
+
+    // Android：hickory 的 system_conf 经 JNI（ndk-context）读系统 DNS，RN 宿主没有
+    // 初始化入口 → start 报 "android context was not initialized"。炸点有两处，
+    // 排障细节见 dev-notes/knowledge/net-kernel.md 坑 7：
+    // 1. with_dns() → 换 with_dns_config 显式公共 DNS；
+    // 2. with_websocket() → 跳过——其宏展开硬编码 Transport::system，不吃
+    //    with_dns_config。代价：Android 端 /ws、/wss 地址完全不可拨（当前无消费方）。
+    #[cfg(target_os = "android")]
+    let builder =
+        builder.with_dns_config(android_dns_config(), libp2p::dns::ResolverOpts::default());
+
+    #[cfg(not(target_os = "android"))]
+    let builder = builder
         .with_dns()
         .map_err(|e| err(&e))?
         // WebSocket listener：LanHelper 给浏览器的入口（ws:// 私有 IP 豁免
         // mixed content，spike 实证）。是否真的 listen 由 listen 地址决定。
         .with_websocket(noise::Config::new, yamux::Config::default)
         .await
-        .map_err(|e| err(&e))?
+        .map_err(|e| err(&e))?;
+
+    let swarm = builder
         .with_relay_client(noise::Config::new, yamux::Config::default)
         .map_err(|e| err(&e))?
         .with_behaviour(|key, relay_client| {
@@ -82,6 +96,28 @@ pub(crate) async fn build_swarm(
         .build();
 
     Ok(swarm)
+}
+
+/// Android 公共 DNS 兜底列表（政策位，换供应商只改这里）：
+/// AliDNS / DNSPod / Cloudflare / Google。只有 relay/对端的 /dns4 地址会经它解析，
+/// bootstrap 走裸 IP 不受影响。
+#[cfg(target_os = "android")]
+const ANDROID_FALLBACK_DNS: &[std::net::Ipv4Addr] = &[
+    std::net::Ipv4Addr::new(223, 5, 5, 5),
+    std::net::Ipv4Addr::new(119, 29, 29, 29),
+    std::net::Ipv4Addr::new(1, 1, 1, 1),
+    std::net::Ipv4Addr::new(8, 8, 8, 8),
+];
+
+#[cfg(target_os = "android")]
+fn android_dns_config() -> libp2p::dns::ResolverConfig {
+    use hickory_resolver::config::NameServerConfig;
+
+    let servers = ANDROID_FALLBACK_DNS
+        .iter()
+        .map(|&ip| NameServerConfig::udp_and_tcp(ip.into()))
+        .collect();
+    libp2p::dns::ResolverConfig::from_parts(None, vec![], servers)
 }
 
 #[cfg(wasm_browser)]

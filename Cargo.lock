@@ -9157,6 +9157,7 @@ dependencies = [
  "futures",
  "futures-timer",
  "getrandom 0.3.4",
+ "hickory-resolver",
  "libp2p",
  "libp2p-stream",
  "libp2p-webrtc",
