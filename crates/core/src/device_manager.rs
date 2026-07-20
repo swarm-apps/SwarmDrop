@@ -1,25 +1,24 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use swarm_p2p_core::NodeEvent;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
+use swarmdrop_net::{Addr, DiscoverySource, NetEvent, NodeId, PathKind};
 
 use crate::device::{
     ConnectionType, Device, DeviceStatus, OsInfo, PairedDeviceInfo, infer_connection_type,
 };
 use crate::presence::PresenceMap;
-use crate::protocol::AppRequest;
 
 /// 运行时 Peer 信息（DashMap 中的值）
 #[derive(Debug, Clone)]
 pub(super) struct PeerInfo {
-    pub peer_id: PeerId,
-    pub addrs: Vec<Multiaddr>,
+    pub peer_id: NodeId,
+    /// 仅由 mDNS 发现事件写入（`is_lan_discovered` 赖以成立的 LAN 证据）。
+    pub addrs: Vec<Addr>,
     pub agent_version: Option<String>,
     pub rtt_ms: Option<u64>,
     pub is_connected: bool,
-    /// DCUtR 打洞是否成功（比地址推断更准确）
-    pub hole_punched: bool,
+    /// 内核报告的连接路径（比地址推断更准确；断连时清空）。
+    pub path: Option<PathKind>,
     /// 发现时间戳，暂未使用但后续可用于超时清理
     #[expect(dead_code)]
     pub discovered_at: i64,
@@ -28,14 +27,14 @@ pub(super) struct PeerInfo {
 
 impl PeerInfo {
     /// 创建新发现的 Peer（未连接状态）
-    fn new_discovered(peer_id: PeerId, addrs: Vec<Multiaddr>) -> Self {
+    fn new_discovered(peer_id: NodeId, addrs: Vec<Addr>) -> Self {
         Self {
             peer_id,
             addrs,
             agent_version: None,
             rtt_ms: None,
             is_connected: false,
-            hole_punched: false,
+            path: None,
             discovered_at: chrono::Utc::now().timestamp_millis(),
             connected_at: None,
         }
@@ -60,9 +59,9 @@ pub enum DeviceFilter {
 ///
 /// 本身不含 Arc，需要共享时由使用方包裹 `Arc<DeviceManager>`。
 pub struct DeviceManager {
-    peers: DashMap<PeerId, PeerInfo>,
+    peers: DashMap<NodeId, PeerInfo>,
     /// 与 PairingManager 共享的已配对设备（只读）
-    paired_devices: Arc<DashMap<PeerId, PairedDeviceInfo>>,
+    paired_devices: Arc<DashMap<NodeId, PairedDeviceInfo>>,
     /// 与 PresenceSupervisor 共享的 presence 状态（只读）。
     /// 已配对设备的在线判定以它为准：Probing（断连宽限期）仍呈现在线。
     presence: PresenceMap,
@@ -71,7 +70,7 @@ pub struct DeviceManager {
 impl DeviceManager {
     /// 创建 DeviceManager，传入与 PairingManager / PresenceSupervisor 共享的引用
     pub fn new(
-        paired_devices: Arc<DashMap<PeerId, PairedDeviceInfo>>,
+        paired_devices: Arc<DashMap<NodeId, PairedDeviceInfo>>,
         presence: PresenceMap,
     ) -> Self {
         Self {
@@ -83,77 +82,79 @@ impl DeviceManager {
 
     /// 已配对设备的在线判定：presence 状态优先（宽限期呈现在线），
     /// Supervisor 尚未写入时回退到瞬时连接状态。
-    fn paired_peer_online(&self, peer_id: &PeerId, is_connected: bool) -> bool {
+    fn paired_peer_online(&self, peer_id: &NodeId, is_connected: bool) -> bool {
         match self.presence.get(peer_id).map(|e| *e.value()) {
             Some(state) => state.is_online(),
             None => is_connected,
         }
     }
 
-    /// 处理 NodeEvent，更新 peer 状态
-    pub fn handle_event(&self, event: &NodeEvent<AppRequest>) {
+    /// 处理 NetEvent，更新 peer 状态
+    pub fn handle_event(&self, event: &NetEvent) {
         match event {
-            NodeEvent::PeersDiscovered { peers } => {
-                for (peer_id, addr) in peers {
-                    match self.peers.get_mut(peer_id) {
-                        Some(mut entry) => {
-                            if !entry.addrs.contains(addr) {
-                                entry.addrs.push(addr.clone());
-                            }
-                        }
-                        None => {
-                            self.peers.insert(
-                                *peer_id,
-                                PeerInfo::new_discovered(*peer_id, vec![addr.clone()]),
-                            );
+            // 仅 mDNS 发现写入 addrs：`is_lan_discovered` 的 LAN 证据必须来自本机
+            // 多播域实际观测，不能被对端 identify 自报地址伪造。
+            NetEvent::Discovered {
+                node,
+                addrs,
+                source: DiscoverySource::Mdns,
+            } => match self.peers.get_mut(node) {
+                Some(mut entry) => {
+                    for addr in addrs {
+                        if !entry.addrs.contains(addr) {
+                            entry.addrs.push(addr.clone());
                         }
                     }
                 }
-            }
+                None => {
+                    self.peers
+                        .insert(*node, PeerInfo::new_discovered(*node, addrs.clone()));
+                }
+            },
 
-            NodeEvent::PeerConnected { peer_id } => {
+            NetEvent::PeerConnected { node, path } => {
                 let now = chrono::Utc::now().timestamp_millis();
-                match self.peers.get_mut(peer_id) {
+                match self.peers.get_mut(node) {
                     Some(mut entry) => {
                         entry.is_connected = true;
                         entry.connected_at = Some(now);
+                        entry.path = Some(*path);
                     }
                     None => {
-                        let mut info = PeerInfo::new_discovered(*peer_id, vec![]);
+                        let mut info = PeerInfo::new_discovered(*node, vec![]);
                         info.is_connected = true;
                         info.connected_at = Some(now);
-                        self.peers.insert(*peer_id, info);
+                        info.path = Some(*path);
+                        self.peers.insert(*node, info);
                     }
                 }
             }
 
-            NodeEvent::PeerDisconnected { peer_id } => {
-                if let Some(mut entry) = self.peers.get_mut(peer_id) {
+            NetEvent::PathChanged { node, path } => {
+                if let Some(mut entry) = self.peers.get_mut(node) {
+                    entry.path = Some(*path);
+                }
+            }
+
+            NetEvent::PeerDisconnected { node } => {
+                if let Some(mut entry) = self.peers.get_mut(node) {
                     entry.is_connected = false;
                     entry.rtt_ms = None;
-                    entry.hole_punched = false;
+                    entry.path = None;
                 }
             }
 
-            NodeEvent::IdentifyReceived {
-                peer_id,
-                agent_version,
-                ..
-            } => {
-                if let Some(mut entry) = self.peers.get_mut(peer_id) {
-                    entry.agent_version = Some(agent_version.clone());
+            NetEvent::PeerIdentified { node, agent, .. } => {
+                // 只取 agent_version：identify 自报的 addrs 绝不写入 `addrs`（否则
+                // 远程 peer 谎报私网地址即可绕过 Direct 配对的局域网授权）。
+                if let Some(mut entry) = self.peers.get_mut(node) {
+                    entry.agent_version = Some(agent.clone());
                 }
             }
 
-            NodeEvent::PingSuccess { peer_id, rtt_ms } => {
-                if let Some(mut entry) = self.peers.get_mut(peer_id) {
-                    entry.rtt_ms = Some(*rtt_ms);
-                }
-            }
-
-            NodeEvent::HolePunchSucceeded { peer_id } => {
-                if let Some(mut entry) = self.peers.get_mut(peer_id) {
-                    entry.hole_punched = true;
+            NetEvent::PingSuccess { node, rtt } => {
+                if let Some(mut entry) = self.peers.get_mut(node) {
+                    entry.rtt_ms = Some(rtt.as_millis() as u64);
                 }
             }
 
@@ -192,7 +193,7 @@ impl DeviceManager {
                         if self.paired_peer_online(&info.peer_id, is_connected) {
                             match peer_info.as_deref() {
                                 // 宽限期内连接详情沿用最近一次已知信息
-                                Some(p) => connection_info(&p.addrs, p.rtt_ms, p.hole_punched),
+                                Some(p) => connection_info(&p.addrs, p.rtt_ms, p.path),
                                 None => (DeviceStatus::Online, None, None),
                             }
                         } else {
@@ -231,7 +232,7 @@ impl DeviceManager {
             peer.is_connected
         };
         let (status, connection, latency) = if online {
-            connection_info(&peer.addrs, peer.rtt_ms, peer.hole_punched)
+            connection_info(&peer.addrs, peer.rtt_ms, peer.path)
         } else {
             (DeviceStatus::Offline, None, None)
         };
@@ -249,7 +250,7 @@ impl DeviceManager {
     }
 
     /// 检查指定 peer 是否处于连接状态
-    pub fn is_connected(&self, peer_id: &PeerId) -> bool {
+    pub fn is_connected(&self, peer_id: &NodeId) -> bool {
         self.peers
             .get(peer_id)
             .is_some_and(|e| e.value().is_connected)
@@ -258,14 +259,14 @@ impl DeviceManager {
     /// 该 peer 是否曾在局域网 mDNS 多播域内被观测到。
     ///
     /// 判据是 `addrs` 中存在私有 IP。`addrs` 的唯一写入来源是
-    /// [`NodeEvent::PeersDiscovered`]（mDNS 多播实际观测到的地址），
-    /// **不是**对端在 identify 里自报的 `listen_addrs`（`handle_event` 的
-    /// `IdentifyReceived` 分支只取 `agent_version`）。因此远程 peer 无法
-    /// 通过自报地址伪造这个判据：它压根进不了本机的多播域，`addrs` 为空。
+    /// [`NetEvent::Discovered`] 的 mDNS 来源（多播域实际观测到的地址），
+    /// **不是**对端在 identify 里自报的 `addrs`（`handle_event` 的
+    /// `PeerIdentified` 分支只取 `agent`）。因此远程 peer 无法通过自报地址伪造这个
+    /// 判据：它压根进不了本机的多播域，`addrs` 为空。
     ///
     /// 用于给 [`PairingMethod::Direct`](crate::protocol::PairingMethod::Direct)
     /// 把关——该模式没有配对码做凭证，唯一的授权依据就是「对方确实和我在同一局域网」。
-    pub fn is_lan_discovered(&self, peer_id: &PeerId) -> bool {
+    pub fn is_lan_discovered(&self, peer_id: &NodeId) -> bool {
         self.peers
             .get(peer_id)
             .is_some_and(|e| infer_connection_type(&e.value().addrs) == Some(ConnectionType::Lan))
@@ -310,38 +311,48 @@ impl DeviceManager {
     }
 }
 
-/// 根据连接状态提取 (DeviceStatus, ConnectionType, latency)
+/// 内核连接路径映射到产品层连接类型。
+fn path_to_connection(path: PathKind) -> ConnectionType {
+    match path {
+        PathKind::Local => ConnectionType::Lan,
+        PathKind::Direct => ConnectionType::Dcutr,
+        PathKind::Relayed => ConnectionType::Relay,
+    }
+}
+
+/// 根据连接路径/地址提取 (DeviceStatus, ConnectionType, latency)
 ///
-/// `hole_punched` 为 true 时直接判定为 DCUtR，比地址推断更准确。
+/// 内核报告的 `path` 优先（比地址推断准确）；断连宽限期内 path 已清空，
+/// 回退到 mDNS 地址推断（局域网设备据此仍显示 LAN）。
 fn connection_info(
-    addrs: &[swarm_p2p_core::libp2p::Multiaddr],
+    addrs: &[Addr],
     rtt_ms: Option<u64>,
-    hole_punched: bool,
+    path: Option<PathKind>,
 ) -> (DeviceStatus, Option<ConnectionType>, Option<u64>) {
-    let connection = if hole_punched {
-        Some(ConnectionType::Dcutr)
-    } else {
-        infer_connection_type(addrs)
-    };
+    let connection = path
+        .map(path_to_connection)
+        .or_else(|| infer_connection_type(addrs));
     (DeviceStatus::Online, connection, rtt_ms)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use swarm_p2p_core::libp2p::identity::Keypair;
+    use swarmdrop_net::{ProtocolId, SecretKey};
 
     fn manager() -> DeviceManager {
         DeviceManager::new(Arc::new(DashMap::new()), Arc::new(DashMap::new()))
     }
 
-    fn peer() -> PeerId {
-        PeerId::from(Keypair::generate_ed25519().public())
+    fn peer() -> NodeId {
+        SecretKey::generate().node_id()
     }
 
-    fn discovered(peer_id: PeerId, addr: &str) -> NodeEvent<AppRequest> {
-        NodeEvent::PeersDiscovered {
-            peers: vec![(peer_id, addr.parse().unwrap())],
+    fn discovered(peer_id: NodeId, addr: &str) -> NetEvent {
+        NetEvent::Discovered {
+            node: peer_id,
+            addrs: vec![addr.parse().unwrap()],
+            source: DiscoverySource::Mdns,
         }
     }
 
@@ -352,7 +363,10 @@ mod tests {
         let mgr = manager();
         let peer_id = peer();
 
-        mgr.handle_event(&NodeEvent::PeerConnected { peer_id });
+        mgr.handle_event(&NetEvent::PeerConnected {
+            node: peer_id,
+            path: PathKind::Relayed,
+        });
 
         assert!(mgr.is_connected(&peer_id), "前提：已连接");
         assert!(
@@ -378,7 +392,10 @@ mod tests {
         let relay_peer = peer();
 
         mgr.handle_event(&discovered(public_peer, "/ip4/8.8.8.8/tcp/4001"));
-        mgr.handle_event(&discovered(relay_peer, "/ip4/8.8.8.8/tcp/4001/p2p-circuit"));
+        mgr.handle_event(&discovered(
+            relay_peer,
+            "/ip4/1.2.3.4/tcp/4001/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp/p2p-circuit",
+        ));
 
         assert!(
             !mgr.is_lan_discovered(&public_peer),
@@ -387,25 +404,28 @@ mod tests {
         assert!(!mgr.is_lan_discovered(&relay_peer), "中继地址不是局域网");
     }
 
-    /// 锁死 `is_lan_discovered` 赖以成立的隐式前提：`IdentifyReceived` 里对端**自报**的
-    /// `listen_addrs` 绝不能写进 `addrs`，否则远程 peer 只要谎报一个 192.168.x.x
+    /// 锁死 `is_lan_discovered` 赖以成立的隐式前提：`PeerIdentified` 里对端**自报**的
+    /// `addrs` 绝不能写进 `addrs`，否则远程 peer 只要谎报一个 192.168.x.x
     /// 就能把自己伪装成局域网设备，绕过 Direct 配对的唯一授权依据。
     ///
-    /// 如果有人日后"顺手"让 `IdentifyReceived` 分支消费 `listen_addrs`，此测试会失败 —— 那不是
+    /// 如果有人日后"顺手"让 `PeerIdentified` 分支消费 `addrs`，此测试会失败 —— 那不是
     /// 测试过时，是重新打开了一个配对绕过漏洞。
     #[test]
     fn self_reported_identify_addrs_must_not_grant_lan_status() {
         let mgr = manager();
         let peer_id = peer();
 
-        mgr.handle_event(&NodeEvent::PeerConnected { peer_id });
-        mgr.handle_event(&NodeEvent::IdentifyReceived {
-            peer_id,
-            agent_version: "swarmdrop/0.7.8".to_string(),
-            protocol_version: "/swarmdrop/1.0.0".to_string(),
+        mgr.handle_event(&NetEvent::PeerConnected {
+            node: peer_id,
+            path: PathKind::Relayed,
+        });
+        mgr.handle_event(&NetEvent::PeerIdentified {
+            node: peer_id,
+            agent: "swarmdrop/0.7.8".to_string(),
+            protocol: "/swarmdrop/2.0.0".to_string(),
             // 攻击者自报一个私有地址，试图冒充同网段设备
-            listen_addrs: vec!["/ip4/192.168.1.66/tcp/4001".parse().unwrap()],
-            protocols: vec![],
+            addrs: vec!["/ip4/192.168.1.66/tcp/4001".parse().unwrap()],
+            protocols: vec![ProtocolId::from_static("/swarmdrop/pairing/2")],
         });
 
         assert!(

@@ -77,6 +77,6 @@ flowchart TB
 
 ## 相关文档
 
-- [Core 抽离盘点](./core-extraction-inventory.md)
+- [Core 抽离盘点](../archive/recon-2026-07/core-extraction-inventory.md)
 - [Rust 工作区命令](../build/rust-workspace.md)
-- [文件传输设计](../design/file-transfer-design.md)
+- [文件传输设计](../archive/pre-refactor-design/file-transfer-design.md)

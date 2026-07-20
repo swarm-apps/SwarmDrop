@@ -57,17 +57,15 @@ pub struct EnumeratedFile {
 }
 
 impl FileSource {
-    /// 读取文件的指定分块
-    ///
-    /// `file_size` 用于验证 chunk_index 范围和计算最后一块的读取量。
-    pub async fn read_chunk(
+    /// 语义 = `FileAccess::read_source_chunk` 契约；实现与契约单测见 `path_ops::read_at_sync`。
+    pub async fn read_at(
         &self,
-        file_size: u64,
-        chunk_index: u32,
+        offset: u64,
+        length: usize,
         _app: &tauri::AppHandle,
     ) -> AppResult<Vec<u8>> {
         match self {
-            Self::Path { path } => path_ops::read_chunk(path, file_size, chunk_index).await,
+            Self::Path { path } => path_ops::read_at(path, offset, length).await,
         }
     }
 
@@ -184,15 +182,10 @@ impl FileAccess for TauriFileAccess {
         &self,
         source: &FileSourceId,
         offset: u64,
-        _length: usize,
+        length: usize,
     ) -> swarmdrop_core::AppResult<Vec<u8>> {
         let file_source = source_from_id(source)?;
-        let metadata = file_source.metadata(&self.app).await?;
-        let chunk_index = u32::try_from(offset / CHUNK_SIZE as u64)
-            .map_err(|_| swarmdrop_core::AppError::Transfer("chunk offset is too large".into()))?;
-        file_source
-            .read_chunk(metadata.size, chunk_index, &self.app)
-            .await
+        file_source.read_at(offset, length, &self.app).await
     }
 
     async fn create_sink(
@@ -246,9 +239,7 @@ impl FileAccess for TauriFileAccess {
                 swarmdrop_core::AppError::Transfer(format!("file sink not found: {}", sink.0))
             })?
             .clone();
-        let chunk_index = u32::try_from(offset / CHUNK_SIZE as u64)
-            .map_err(|_| swarmdrop_core::AppError::Transfer("chunk offset is too large".into()))?;
-        active.part_file.write_chunk(chunk_index, &data).await
+        active.part_file.write_at(offset, &data).await
     }
 
     async fn finalize_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<FinalizedSink> {
@@ -278,27 +269,5 @@ impl FileAccess for TauriFileAccess {
             active.part_file.cleanup(&self.app).await;
         }
         Ok(())
-    }
-}
-
-/// 计算文件的总分块数
-pub fn calc_total_chunks(file_size: u64) -> u32 {
-    if file_size == 0 {
-        return 1; // 空文件也算一个块
-    }
-    file_size.div_ceil(CHUNK_SIZE as u64) as u32
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_calc_total_chunks() {
-        assert_eq!(calc_total_chunks(0), 1);
-        assert_eq!(calc_total_chunks(1), 1);
-        assert_eq!(calc_total_chunks(CHUNK_SIZE as u64), 1);
-        assert_eq!(calc_total_chunks(CHUNK_SIZE as u64 + 1), 2);
-        assert_eq!(calc_total_chunks(CHUNK_SIZE as u64 * 10), 10);
     }
 }

@@ -288,8 +288,10 @@ opt-level = 3
 | 翻译文件 | `src/locales/{locale}/messages.po` |
 | Tauri 权限 | `src-tauri/capabilities/default.json` |
 | 产品需求 | `dev-notes/product-requirements.md` |
-| 实现路线图 | `dev-notes/roadmap/implementation-roadmap.md` |
+| 实现路线图（已完成，归档） | `dev-notes/archive/completed-roadmap/implementation-roadmap.md` |
 | UI 设计文件 | `dev-notes/design/design.pen` |
+| 网络内核知识库（2026-07 重构） | `dev-notes/knowledge/net-kernel.md` |
+| 历史文档（重构前设计/roadmap/调研） | `dev-notes/archive/` |
 
 ## 开发阶段
 
@@ -300,7 +302,7 @@ opt-level = 3
 | Phase 3 — 文件传输 | ⏳ 待开始 | Request-Response、E2E 加密、进度显示 |
 | Phase 4 — 移动端 | ⏳ 待开始 | HTTP 桥或全平台 libp2p、二维码配对 |
 
-详细阶段规划：`dev-notes/roadmap/phase-*.md`
+详细阶段规划（已完成，归档）：`dev-notes/archive/completed-roadmap/phase-*.md`
 
 ## 注意事项
 

@@ -2,7 +2,7 @@
 //!
 //! 测试启动三个真实 P2P 节点：A/B 为普通节点，C 开启 LAN Helper。A/B 通过
 //! 模拟的 mDNS + Identify 事件自动识别 C，并把 C 注册为 Kad/Relay infrastructure
-//! peer；随后用 Kad record 验证 A 写、B 读可通过 C 完成。
+//! peer；随后用 DHT record 验证 A 写、B 读可通过 C 完成。
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
@@ -10,28 +10,29 @@ use std::time::Duration;
 
 use migration::MigratorTrait;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
-use swarm_p2p_core::libp2p::identity::Keypair;
-use swarm_p2p_core::libp2p::kad::{Record, RecordKey};
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId, StreamProtocol};
-use swarm_p2p_core::{LanHelperConfig, NodeConfig, NodeEvent};
+use swarmdrop_net::{
+    Addr, DhtConfig, DhtKey, Endpoint, NodeId, ProtocolId, RelayServerConfig, Router, SecretKey,
+};
 use uuid::Uuid;
 
-use swarmdrop_core::device::{OsInfo, PairedDeviceInfo};
+use swarmdrop_core::device::OsInfo;
+use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{CoreAppPaths, CoreEvent, EventBus, FileAccess, MemoryHost};
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::{handle_core_node_event, run_event_loop};
 use swarmdrop_core::network::{BootstrapCandidateSource, DiscoveryMode, NetManager};
-use swarmdrop_core::protocol::{AppRequest, AppResponse};
+use swarmdrop_core::runtime::build_router;
 use swarmdrop_core::transfer::manager::TransferManager;
-use swarmdrop_core::transfer::wire::data_frame::TRANSFER_DATA_PROTOCOL;
+use swarmdrop_storage_sql::SqlSessionStore;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 struct TestNode {
-    peer_id: PeerId,
+    peer_id: NodeId,
     manager: NetManager<TransferManager>,
     host: MemoryHost,
     _db: Arc<DatabaseConnection>,
+    _router: Router,
 }
 
 fn test_paths() -> CoreAppPaths {
@@ -58,82 +59,79 @@ async fn make_db() -> Arc<DatabaseConnection> {
     Arc::new(db)
 }
 
-fn listen_addr(ip: Ipv4Addr) -> Multiaddr {
-    format!("/ip4/{ip}/tcp/0")
-        .parse()
-        .expect("valid listen addr")
-}
-
-fn ordinary_config(ip: Ipv4Addr, agent_version: String) -> NodeConfig {
-    NodeConfig::new("/swarmdrop/1.0.0", agent_version)
-        .with_listen_addrs(vec![listen_addr(ip)])
-        .with_mdns(false)
-        .with_relay_client(true)
-        .with_dcutr(false)
-        .with_autonat(false)
-        .with_data_channel_protocols(vec![StreamProtocol::new(TRANSFER_DATA_PROTOCOL)])
-        .with_kad_server_mode(false)
-        .with_req_resp_timeout(Duration::from_secs(30))
-}
-
-fn helper_config(ip: Ipv4Addr, agent_version: String) -> NodeConfig {
-    ordinary_config(ip, agent_version)
-        .with_kad_server_mode(true)
-        .with_lan_helper(LanHelperConfig::default())
-}
-
-fn runtime_config(discovery_mode: DiscoveryMode, provide_lan_helper: bool) -> NetworkRuntimeConfig {
-    NetworkRuntimeConfig {
-        custom_bootstrap_nodes: Vec::new(),
-        discovery_mode,
-        auto_discover_lan_helpers: true,
-        provide_lan_helper,
-        public_reachability: true,
+async fn build_endpoint(
+    secret: SecretKey,
+    ip: Ipv4Addr,
+    agent_version: String,
+    is_helper: bool,
+) -> Endpoint {
+    let mut builder = Endpoint::builder()
+        .secret_key(secret)
+        .identify_protocol("/swarmdrop/2.0.0")
+        .agent_version(agent_version)
+        .listen(vec![
+            format!("/ip4/{ip}/tcp/0").parse().expect("valid addr"),
+        ])
+        .dht(DhtConfig {
+            server_mode: is_helper,
+            ..DhtConfig::default()
+        })
+        .mdns(false)
+        .relay_client(true);
+    if is_helper {
+        builder = builder.relay_server(RelayServerConfig::default());
     }
+    builder.bind().await.expect("bind endpoint")
 }
 
 async fn spawn_node(
-    keypair: Keypair,
-    node_config: NodeConfig,
+    secret: SecretKey,
+    ip: Ipv4Addr,
+    agent_version: String,
+    is_helper: bool,
     network_config: NetworkRuntimeConfig,
 ) -> TestNode {
-    let peer_id = PeerId::from_public_key(&keypair.public());
+    let peer_id = secret.node_id();
     let host = MemoryHost::new(test_paths());
     let db = make_db().await;
 
-    let (client, receiver, dc_receiver) =
-        swarm_p2p_core::start::<AppRequest, AppResponse>(keypair, node_config).expect("start node");
+    let endpoint = build_endpoint(secret, ip, agent_version, is_helper).await;
+    let events = endpoint.subscribe().await.expect("subscribe");
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
     let transfer = TransferManager::new(
-        client.clone(),
-        event_bus.clone(),
-        db.clone(),
+        endpoint.clone(),
+        Arc::new(CoreTransferEvents(event_bus.clone())),
+        Arc::new(SqlSessionStore::new(db.clone())),
         file_access,
-        dc_receiver,
     );
     let candidate_manager = create_candidate_manager(&network_config);
     let manager = NetManager::new(
-        client,
-        peer_id,
-        Vec::<PairedDeviceInfo>::new(),
+        endpoint.clone(),
+        Vec::new(),
         transfer,
         network_config,
         candidate_manager,
+        event_bus.clone(),
+        None,
     );
 
-    tokio::spawn(run_event_loop(
-        receiver,
-        manager.shared_refs(),
-        event_bus,
+    // Router：三协议入站路由，复用 runtime 的装配（避免协议注册漂移）。
+    let router = build_router(
+        &endpoint,
+        manager.pairing_arc(),
+        manager.transfer_arc(),
         None,
-    ));
+    );
+
+    tokio::spawn(run_event_loop(events, manager.shared_refs(), event_bus));
 
     TestNode {
         peer_id,
         manager,
         host,
         _db: db,
+        _router: router,
     }
 }
 
@@ -148,7 +146,7 @@ async fn poll_until<F: FnMut() -> bool>(mut pred: F, label: &str) {
     panic!("超时等待: {label}");
 }
 
-async fn wait_listen_addr(node: &TestNode) -> Multiaddr {
+async fn wait_listen_addr(node: &TestNode) -> Addr {
     let mut addr = None;
     poll_until(
         || {
@@ -182,26 +180,24 @@ async fn wait_helper_running(helper: &TestNode) {
 async fn inject_lan_helper_discovery(
     node: &TestNode,
     helper: &TestNode,
-    helper_addr: Multiaddr,
+    helper_addr: Addr,
     helper_agent: String,
 ) {
-    let discovered = NodeEvent::PeersDiscovered {
-        peers: vec![(helper.peer_id, helper_addr.clone())],
+    let discovered = swarmdrop_net::NetEvent::Discovered {
+        node: helper.peer_id,
+        addrs: vec![helper_addr.clone()],
+        source: swarmdrop_net::DiscoverySource::Mdns,
     };
-    handle_core_node_event(&node.manager.shared_refs(), &discovered, &node.host)
-        .await
-        .expect("handle discovered event");
+    handle_core_node_event(&node.manager.shared_refs(), &discovered, &node.host).await;
 
-    let identified = NodeEvent::IdentifyReceived {
-        peer_id: helper.peer_id,
-        agent_version: helper_agent,
-        protocol_version: "/swarmdrop/1.0.0".to_string(),
-        listen_addrs: vec![helper_addr],
-        protocols: Vec::new(),
+    let identified = swarmdrop_net::NetEvent::PeerIdentified {
+        node: helper.peer_id,
+        agent: helper_agent,
+        protocol: "/swarmdrop/2.0.0".to_string(),
+        addrs: vec![helper_addr],
+        protocols: vec![ProtocolId::from_static("/swarmdrop/pairing/2")],
     };
-    handle_core_node_event(&node.manager.shared_refs(), &identified, &node.host)
-        .await
-        .expect("handle identify event");
+    handle_core_node_event(&node.manager.shared_refs(), &identified, &node.host).await;
 }
 
 async fn wait_registered_with_helper(node: &TestNode, helper: &TestNode) {
@@ -221,25 +217,28 @@ async fn wait_registered_with_helper(node: &TestNode, helper: &TestNode) {
 }
 
 async fn assert_kad_record_roundtrip(node_a: &TestNode, node_b: &TestNode) {
-    let key_bytes = format!("/swarmdrop/test/lan-helper/{}", Uuid::new_v4());
-    let key = RecordKey::new(&key_bytes);
+    let key = DhtKey::namespaced("/swarmdrop/test/lan-helper/", Uuid::new_v4().as_bytes());
     let value = b"hello-lan-helper-kad".to_vec();
-    let record = Record::new(key.clone(), value.clone());
 
-    tokio::time::timeout(TEST_TIMEOUT, node_a.manager.client().put_record(record))
-        .await
-        .expect("put_record timed out")
-        .expect("put_record failed");
+    let a_dht = node_a.manager.endpoint().dht().expect("A dht");
+    tokio::time::timeout(
+        TEST_TIMEOUT,
+        a_dht.put(key, value.clone(), Some(Duration::from_secs(300))),
+    )
+    .await
+    .expect("put_record timed out")
+    .expect("put_record failed");
 
+    let b_dht = node_b.manager.endpoint().dht().expect("B dht");
     for _ in 0..80 {
-        if let Ok(result) = node_b.manager.client().get_record(key.clone()).await
-            && result.record.value == value
+        if let Ok(record) = b_dht.get(key).await
+            && record.value == value
         {
             return;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    panic!("B 未能通过 LAN Helper 读取 A 写入的 Kad record");
+    panic!("B 未能通过 LAN Helper 读取 A 写入的 DHT record");
 }
 
 fn lan_helper_agent() -> String {
@@ -298,25 +297,37 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
         );
     };
 
-    let helper_key = Keypair::generate_ed25519();
-    let node_a_key = Keypair::generate_ed25519();
-    let node_b_key = Keypair::generate_ed25519();
+    fn runtime_config(mode: DiscoveryMode, provide_lan_helper: bool) -> NetworkRuntimeConfig {
+        NetworkRuntimeConfig {
+            custom_bootstrap_nodes: Vec::new(),
+            discovery_mode: mode,
+            auto_discover_lan_helpers: true,
+            provide_lan_helper,
+            public_reachability: true,
+        }
+    }
 
     let helper = spawn_node(
-        helper_key,
-        helper_config(ip, lan_helper_agent()),
+        SecretKey::generate(),
+        ip,
+        lan_helper_agent(),
+        true,
         runtime_config(discovery_mode, true),
     )
     .await;
     let node_a = spawn_node(
-        node_a_key,
-        ordinary_config(ip, ordinary_agent()),
+        SecretKey::generate(),
+        ip,
+        ordinary_agent(),
+        false,
         runtime_config(discovery_mode, false),
     )
     .await;
     let node_b = spawn_node(
-        node_b_key,
-        ordinary_config(ip, ordinary_agent()),
+        SecretKey::generate(),
+        ip,
+        ordinary_agent(),
+        false,
         runtime_config(discovery_mode, false),
     )
     .await;

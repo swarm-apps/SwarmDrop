@@ -2,7 +2,7 @@
   "expo": {
     "name": "SwarmDrop",
     "slug": "swarmdrop-mobile",
-    "version": "0.7.19",
+    "version": "0.8.0",
     "orientation": "portrait",
     "scheme": "swarmdrop",
     "userInterfaceStyle": "automatic",
@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "com.yexiyue.swarmdrop",
-      "versionCode": 25,
+      "versionCode": 26,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -47,6 +47,15 @@
         "expo-image-picker",
         {
           "photosPermission": "允许 SwarmDrop 访问相册以选择要发送的照片和视频。"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "允许 SwarmDrop 使用相机扫描配对二维码。",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
         }
       ],
       "expo-sharing",

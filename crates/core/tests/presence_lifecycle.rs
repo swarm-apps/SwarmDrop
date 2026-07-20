@@ -7,9 +7,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use swarm_p2p_core::NodeConfig;
-use swarm_p2p_core::libp2p::PeerId;
-use swarm_p2p_core::libp2p::identity::Keypair;
 use swarmdrop_core::AppResult;
 use swarmdrop_core::device::{DeviceStatus, OsInfo, PairedDeviceInfo};
 use swarmdrop_core::device_manager::DeviceFilter;
@@ -17,7 +14,7 @@ use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_core::network::config::create_candidate_manager;
 use swarmdrop_core::network::event_loop::handle_core_node_event;
 use swarmdrop_core::network::{NetManager, NetworkRuntimeConfig};
-use swarmdrop_core::protocol::{AppRequest, AppResponse};
+use swarmdrop_net::{Addr, DhtConfig, Endpoint, NodeAddr, NodeId, SecretKey};
 
 struct NoopBus;
 
@@ -28,14 +25,22 @@ impl EventBus for NoopBus {
     }
 }
 
-fn node_config() -> NodeConfig {
-    // 关 mDNS（显式注册地址），其余（含 60s idle / 15s ping）保持生产默认
-    NodeConfig::new("/swarmdrop-presence-test/1.0.0", "test/1.0.0")
-        .with_listen_addrs(vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()])
-        .with_mdns(false)
-        .with_relay_client(false)
-        .with_dcutr(false)
-        .with_autonat(false)
+/// 关 mDNS（显式注册地址），其余（含 60s idle / 15s ping）保持生产默认。
+async fn test_endpoint(secret: SecretKey) -> Endpoint {
+    Endpoint::builder()
+        .secret_key(secret)
+        .identify_protocol("/swarmdrop/2.0.0")
+        .agent_version("swarmdrop/presence-test")
+        .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()])
+        .dht(DhtConfig {
+            server_mode: true,
+            ..DhtConfig::default()
+        })
+        .mdns(false)
+        .relay_client(false)
+        .bind()
+        .await
+        .expect("bind test endpoint")
 }
 
 struct TestNode {
@@ -43,31 +48,37 @@ struct TestNode {
     pump: tokio::task::JoinHandle<()>,
 }
 
-fn spawn_node(keypair: Keypair, paired: Vec<PairedDeviceInfo>) -> TestNode {
-    let peer_id = PeerId::from_public_key(&keypair.public());
-    let (client, mut receiver, _dc) =
-        swarm_p2p_core::start::<AppRequest, AppResponse>(keypair, node_config())
-            .expect("start node");
+async fn spawn_node(secret: SecretKey, paired: Vec<PairedDeviceInfo>) -> TestNode {
+    let endpoint = test_endpoint(secret).await;
+    let mut events = endpoint.subscribe().await.expect("subscribe");
 
     let network_config = NetworkRuntimeConfig::default();
     let candidates = create_candidate_manager(&network_config);
-    let manager = NetManager::new(client, peer_id, paired, (), network_config, candidates);
-
     let bus: Arc<dyn EventBus> = Arc::new(NoopBus);
+    let manager = NetManager::new(
+        endpoint,
+        paired,
+        (),
+        network_config,
+        candidates,
+        bus.clone(),
+        None,
+    );
+
     let shared = manager.shared_refs();
 
     // 与 run_event_loop 等价的网络事件部分：presence 后台任务 + 事件泵
     tokio::spawn(shared.presence.clone().run(shared.clone(), bus.clone()));
     let pump = tokio::spawn(async move {
-        while let Some(event) = receiver.recv().await {
-            let _ = handle_core_node_event(&shared, &event, bus.as_ref()).await;
+        while let Some(event) = events.recv().await {
+            handle_core_node_event(&shared, &event, bus.as_ref()).await;
         }
     });
 
     TestNode { manager, pump }
 }
 
-fn paired_status(node: &TestNode, peer: &PeerId) -> Option<DeviceStatus> {
+fn paired_status(node: &TestNode, peer: &NodeId) -> Option<DeviceStatus> {
     node.manager
         .devices()
         .get_devices(DeviceFilter::Paired)
@@ -87,11 +98,10 @@ async fn poll_until<F: FnMut() -> bool>(mut pred: F, timeout: Duration, label: &
     panic!("超时等待: {label}");
 }
 
-async fn wait_listen_addrs(node: &TestNode) -> Vec<swarm_p2p_core::libp2p::Multiaddr> {
+async fn wait_listen_addrs(node: &TestNode) -> Vec<Addr> {
     for _ in 0..50 {
-        if let Ok(addrs) = node.manager.client().get_addrs().await
-            && !addrs.is_empty()
-        {
+        let addrs = node.manager.endpoint().watch_addrs().get().listen;
+        if !addrs.is_empty() {
             return addrs;
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -104,36 +114,42 @@ async fn wait_listen_addrs(node: &TestNode) -> Vec<swarm_p2p_core::libp2p::Multi
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "慢测(~2min)，本地手动运行验证 presence 全链路"]
 async fn paired_devices_survive_idle_then_offline_after_peer_death() {
-    let keypair_a = Keypair::generate_ed25519();
-    let keypair_b = Keypair::generate_ed25519();
-    let peer_a = PeerId::from_public_key(&keypair_a.public());
-    let peer_b = PeerId::from_public_key(&keypair_b.public());
+    let secret_a = SecretKey::generate();
+    let secret_b = SecretKey::generate();
+    let peer_a = secret_a.node_id();
+    let peer_b = secret_b.node_id();
 
     let a = spawn_node(
-        keypair_a,
+        secret_a,
         vec![PairedDeviceInfo::new(peer_b, OsInfo::default(), 0)],
-    );
+    )
+    .await;
     let b = spawn_node(
-        keypair_b,
+        secret_b,
         vec![PairedDeviceInfo::new(peer_a, OsInfo::default(), 0)],
-    );
+    )
+    .await;
 
     // 互相注册地址（生产环境由 mDNS / DHT 记录完成）
     let addrs_a = wait_listen_addrs(&a).await;
     let addrs_b = wait_listen_addrs(&b).await;
     a.manager
-        .client()
-        .add_peer_addrs(peer_b, addrs_b)
+        .endpoint()
+        .add_addrs(peer_b, addrs_b)
         .await
         .expect("A 注册 B 地址");
     b.manager
-        .client()
-        .add_peer_addrs(peer_a, addrs_a)
+        .endpoint()
+        .add_addrs(peer_a, addrs_a)
         .await
         .expect("B 注册 A 地址");
 
     // 建连（生产环境由 mDNS Discovered 或 supervisor 重探触发）
-    a.manager.client().dial(peer_b).await.expect("A dial B");
+    a.manager
+        .endpoint()
+        .connect(NodeAddr::new(peer_b))
+        .await
+        .expect("A connect B");
 
     poll_until(
         || paired_status(&a, &peer_b) == Some(DeviceStatus::Online),
@@ -162,17 +178,13 @@ async fn paired_devices_survive_idle_then_offline_after_peer_death() {
         "闲置后 B 视角 A 必须仍在线"
     );
     assert!(
-        a.manager
-            .client()
-            .is_connected(peer_b)
-            .await
-            .expect("is_connected"),
+        a.manager.endpoint().is_connected(peer_b),
         "底层连接必须真实存活，而非仅 UI 状态"
     );
 
     // === 核心断言 2：杀掉 B 后，A 先宽限（在线）再判离线 ===
     eprintln!("[presence-test] 杀掉 B 节点……");
-    b.manager.cancel_background_tasks();
+    b.manager.shutdown().await;
     b.pump.abort();
     drop(b);
 

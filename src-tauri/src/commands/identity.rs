@@ -1,6 +1,6 @@
-use swarm_p2p_core::libp2p::identity::Keypair;
 use swarmdrop_core::device::PairedDeviceInfo;
 use swarmdrop_core::host::DeviceIdentityBytes;
+use swarmdrop_net::SecretKey;
 use tauri::{AppHandle, Manager};
 
 use crate::AppResult;
@@ -21,9 +21,9 @@ pub async fn initialize_identity(app: AppHandle) -> AppResult<IdentityState> {
     let provider = crate::host::keychain_provider(&app)?;
     let identity = swarmdrop_core::identity::load_or_create_identity(&*provider).await?;
     let paired_devices = provider.load_paired_devices().await?;
-    let device_id = identity.peer_id.to_string();
+    let device_id = identity.node_id.to_string();
 
-    app.manage(identity.keypair);
+    app.manage(identity.secret_key);
 
     Ok(IdentityState {
         keypair: identity.keypair_bytes,
@@ -33,14 +33,11 @@ pub async fn initialize_identity(app: AppHandle) -> AppResult<IdentityState> {
     })
 }
 
-/// 生成新的 Ed25519 密钥对。
+/// 生成新的 Ed25519 密钥对（protobuf 编码，与存量 keychain 格式兼容）。
 #[tauri::command]
 #[specta::specta]
 pub async fn generate_keypair() -> AppResult<Vec<u8>> {
-    let keypair = Keypair::generate_ed25519();
-    keypair
-        .to_protobuf_encoding()
-        .map_err(|e| crate::AppError::identity(e.to_string()))
+    Ok(SecretKey::generate().to_protobuf())
 }
 
 /// 读取持久化的设备名（onboarding 完成前为 `None`）。
@@ -52,7 +49,7 @@ pub async fn get_device_name(app: AppHandle) -> AppResult<Option<String>> {
 
 /// 设置设备名并持久化。
 ///
-/// 仅写入 `device_config.json`。要让新名字通过 libp2p Identify `agent_version`
+/// 仅写入 `device_config.json`。要让新名字通过 identify 协议的 `agent_version`
 /// 重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
 /// paired_devices + network_options 上下文）。
 ///
@@ -72,20 +69,18 @@ pub async fn set_device_name(app: AppHandle, name: Option<String>) -> AppResult<
 #[tauri::command]
 #[specta::specta]
 pub async fn register_keypair(app: AppHandle, keypair: Vec<u8>) -> AppResult<String> {
-    let keypair = Keypair::from_protobuf_encoding(&keypair)
-        .map_err(|e| crate::AppError::identity(e.to_string()))?;
-    let peer_id = keypair.public().to_peer_id();
+    let secret_key =
+        SecretKey::from_protobuf(&keypair).map_err(|e| crate::AppError::identity(e.to_string()))?;
+    let node_id = secret_key.node_id();
 
     let provider = crate::host::keychain_provider(&app)?;
     provider
         .save_identity(DeviceIdentityBytes {
-            keypair: keypair
-                .to_protobuf_encoding()
-                .map_err(|e| crate::AppError::identity(e.to_string()))?,
+            keypair: secret_key.to_protobuf(),
         })
         .await?;
 
-    app.manage(keypair);
+    app.manage(secret_key);
 
-    Ok(peer_id.to_string())
+    Ok(node_id.to_string())
 }

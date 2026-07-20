@@ -5,7 +5,6 @@
 //! （`NetworkStatusChanged` → `"network-status-changed"`）。
 
 use serde::Serialize;
-use swarmdrop_core::database::ops::TransferProjection;
 use swarmdrop_core::device::{Device, PairedDeviceInfo};
 use swarmdrop_core::network::NetworkStatus;
 use swarmdrop_core::transfer::incoming::TransferOfferEvent;
@@ -13,6 +12,7 @@ use swarmdrop_core::transfer::progress::{
     TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent, TransferFailedEvent,
     TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent, TransferResumedEvent,
 };
+use swarmdrop_core::transfer::store::TransferProjection;
 
 // === 网络状态 ===
 

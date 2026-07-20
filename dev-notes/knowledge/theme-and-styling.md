@@ -112,6 +112,15 @@ const nearbyDevices = useNetworkStore(
 
 **相关文件**：`src/routes/_app/devices/-components/device-organization-dialogs.tsx`（`DeviceOrganizationDialog` 的 seeding effect + `organizationRef`）
 
+## 二维码不随暗色主题反色
+
+配对邀请二维码本体**一律深模块（`#0a0a0a`）+ 白底**，无论 app 是否暗色主题，套一张白色
+圆角卡（摄像头扫码器对「浅前景/深背景」的反色 QR 识别率差）。三端 QR 由 core
+`swarmdrop-invite::qr` 统一生成（桌面/web `InviteQr` 组件消费 SVG、RN 消费矩阵用
+react-native-svg 画 `<Rect>`），配色固化在渲染端，不接主题 token。
+
+**相关文件**：`src/components/pairing/invite-qr.tsx`、`mobile/src/components/pairing/invite-qr.tsx`
+
 ## 暗色主题背景
 
 ### 主应用使用全局 app-shell 环境光背景

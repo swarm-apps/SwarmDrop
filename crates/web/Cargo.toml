@@ -1,0 +1,85 @@
+[package]
+name = "swarmdrop-web"
+version = "0.1.0"
+edition.workspace = true
+
+# 浏览器 Web 壳：让浏览器成为真正的 SwarmDrop 传输端（offer/accept/续传/bao 逐块验证全量
+# 复用，无配对持久化）。#![cfg(wasm_browser)] 全 crate 门控——native target 下是空壳，秒过
+# `cargo check --workspace`；wasm 下经端口 Web 实现装配 TransferManager。
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# TS 类型导出（native `cargo test -p swarmdrop-web --features specta` 生成
+# static/types/bindings.ts；wasm production 构建不开，specta 不进 wasm 二进制）
+specta = ["dep:specta", "swarmdrop-transfer/specta"]
+
+[dependencies]
+specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid"], optional = true }
+swarmdrop-net = { workspace = true }
+swarmdrop-net-base = { workspace = true }
+swarmdrop-invite = { workspace = true }
+swarmdrop-host = { workspace = true }
+swarmdrop-transfer = { workspace = true }
+entity = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+n0-future = { workspace = true }
+tokio-util = { workspace = true }
+uuid = { workspace = true }
+
+# ============ wasm：浏览器壳 ============
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+wasm-bindgen = "0.2"
+# master 的 libp2p-swarm 精确 pin =0.4.58，必须跟着钉。
+wasm-bindgen-futures = "=0.4.58"
+js-sys = "0.3"
+wasm-streams = "0.4"
+serde-wasm-bindgen = "0.6"
+# 单线程 wasm 下把 !Send 的 JsValue future 裹成 Send，满足端口 trait 的 Send 约束
+# （storage-abstraction.md 探针已证可行；跨线程 access/drop 会 panic，wasm 单线程永不触发）。
+send_wrapper = "0.6"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+console_error_panic_hook = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+tracing-subscriber-wasm = "0.1"
+# uuid v4 在 wasm 需要随机源（js）。
+uuid = { workspace = true, features = ["js"] }
+web-sys = { version = "0.3", features = [
+    "Window",
+    "WorkerGlobalScope",
+    "WorkerNavigator",
+    "Navigator",
+    "StorageManager",
+    "Storage",
+    "File",
+    "Blob",
+    "Url",
+    "ReadableStream",
+    "FileSystemDirectoryHandle",
+    "FileSystemFileHandle",
+    "FileSystemGetDirectoryOptions",
+    "FileSystemGetFileOptions",
+    "FileSystemWritableFileStream",
+    "FileSystemCreateWritableOptions",
+    "WriteParams",
+    "WriteCommandType",
+] }
+
+# wasm-bindgen-test：Bug 2 快速失败回归测试只能在浏览器 harness 跑（整 crate #![cfg(wasm_browser)]，
+# 原生 cargo test 覆盖不到；OPFS 需真实浏览器）。跑法：wasm-pack test --headless --chrome -p swarmdrop-web
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+# TS 导出器（仅 native 的 specta 导出 test 用，版本与桌面 tauri-specta 栈锁死）
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+specta-typescript = "=0.0.12"
+specta-serde = "=0.0.12"
+specta-util = "=0.0.12"
+
+[build-dependencies]
+cfg_aliases = { workspace = true }

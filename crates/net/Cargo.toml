@@ -1,0 +1,94 @@
+[package]
+name = "swarmdrop-net"
+version = "0.1.0"
+edition.workspace = true
+
+# SwarmDrop 网络内核：iroh 风格 API（Endpoint/Router/ProtocolHandler/AddressLookup），
+# libp2p 底层，native + wasm32-unknown-unknown 双 target。
+#
+# 依赖用 target 三段式而非 feature 开关：同一 crate 双 target，feature 是加性的
+# 会在 workspace feature unification 下爆炸，target 表才是「按平台换实现」的正解
+# （iroh 同款做法，见 dev-notes/knowledge/libp2p-wasm.md）。
+
+[dependencies]
+swarmdrop-net-base = { workspace = true }
+n0-future = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+# wasm 上 tokio 只有 sync/macros 可用（纯用户态原语）；spawn/time 走 n0-future
+tokio = { workspace = true, features = ["sync", "macros"] }
+tokio-util = { workspace = true }
+# RPC 帧的 CBOR 编解码（libp2p request-response 内部同款库）
+cbor4ii = { version = "1", features = ["use_std", "serde1"] }
+# DhtKey 的 SHA256 派生（迁自旧栈 dht_key.rs）
+sha2 = { workspace = true }
+
+# ============ native ============
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+libp2p = { workspace = true, features = [
+    "ed25519",
+    "macros",
+    "tokio",
+    "tcp",
+    "quic",
+    # ⚠️ 0.56 的 feature bug：只开 websocket 不开 dns 编不过（builder 的 websocket
+    # phase 无条件引用 libp2p_dns）。dns 本身也是 native 默认要的（Android 的差异走
+    # transport.rs 的 target cfg 分支，不走 crate feature——双 target 下 feature 面越小越好）。
+    "dns",
+    "websocket",
+    "mdns",
+    "noise",
+    "yamux",
+    "kad",
+    "identify",
+    "ping",
+    "relay",
+    "dcutr",
+    "autonat",
+    "serde",
+] }
+libp2p-stream = { workspace = true }
+# 原生 webrtc-direct 不在 libp2p facade 里（facade 只有 webrtc-websys），必须直接依赖
+libp2p-webrtc = { workspace = true, features = ["tokio", "pem"] }
+# webrtc Certificate::generate 需要（对齐 libp2p 生态的 rand 0.8）
+rand = "0.8"
+
+# ============ android ============
+# Android 显式公共 DNS（transport.rs）要构造 NameServerConfig，libp2p::dns 不
+# re-export 它，需直接引 hickory。版本必须与 libp2p-dns 同线——分叉则类型不通，
+# 编译期就响。背景与炸点见 dev-notes/knowledge/net-kernel.md 坑 7。
+[target.'cfg(target_os = "android")'.dependencies]
+hickory-resolver = "0.26"
+
+# ============ wasm（浏览器）============
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+libp2p = { workspace = true, features = [
+    "ed25519",
+    "macros",
+    "noise",
+    "yamux",
+    "kad",
+    "identify",
+    "ping",
+    "relay",
+    "serde",
+    "websocket-websys",
+    "webrtc-websys",
+] }
+libp2p-stream = { workspace = true }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+# libp2p 依赖但不 re-export；wasm 上没有 tokio::time，底层超时靠它
+futures-timer = { version = "3", features = ["wasm-bindgen"] }
+# master 的 libp2p-swarm 精确 pin =0.4.58，必须跟着钉，否则 cargo 无解
+wasm-bindgen-futures = "=0.4.58"
+# Window/Worker 环境探测（Worker 里不装 webrtc-websys，见 transport.rs）
+web-sys = { version = "0.3", features = ["Window"] }
+
+[build-dependencies]
+cfg_aliases = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

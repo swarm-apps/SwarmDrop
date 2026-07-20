@@ -1,0 +1,423 @@
+//! 发送方 actor（SenderActor）
+//!
+//! 管理单个发送传输的生命周期：经数据面裸流推送文件块、处理 Cancel。
+//! 文件读取通过 [`FileAccess`] trait 完成。wire v2 已删应用层加密——Noise/TLS 在途
+//! 已加密，数据面直接传明文（见 [`wire`](crate::wire)）。
+//! 使用 `Arc<std::sync::Mutex<ProgressTracker>>` 实现并发安全的进度追踪。
+
+use n0_future::time::Instant;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
+use swarmdrop_net::{NodeId, P2pStream};
+use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
+use uuid::Uuid;
+
+use crate::CHUNK_SIZE;
+use crate::coordinator::{ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator};
+use crate::epoch::EpochGuard;
+use crate::events::{TransferEvent, TransferEventSink};
+use crate::host::FileAccess;
+use crate::manager::PreparedFile;
+use crate::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
+use crate::protocol::{FileInfo, FileRange};
+use crate::store::SessionStore;
+use crate::wire::data_frame::{
+    TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
+};
+use crate::{AppError, AppResult};
+
+/// 发送方 actor（SenderActor）
+pub struct SenderActor {
+    /// 传输会话 ID
+    pub session_id: Uuid,
+    /// 对端 NodeId（暂停时需要通知对端）
+    pub peer_id: NodeId,
+    /// 准备好的文件列表（含文件来源）
+    files: Vec<PreparedFile>,
+    /// 文件访问 trait（host 实现，桌面=本地路径，RN=expo-fs callback）
+    file_access: Arc<dyn FileAccess>,
+    /// 事件总线（推送进度等给 host）
+    events: Arc<dyn TransferEventSink>,
+    /// 进度追踪器（Arc<Mutex> 供 data-channel 推送任务共享）
+    progress: Arc<Mutex<ProgressTracker>>,
+    /// 取消令牌
+    cancel_token: CancellationToken,
+    /// 会话创建时间（用于统计传输耗时）
+    created_at: Instant,
+    /// 最后活动时间戳（毫秒，从 created_at 起算，用于空闲超时清理）
+    last_activity_ms: Arc<AtomicU64>,
+}
+
+impl SenderActor {
+    pub fn new(
+        session_id: Uuid,
+        peer_id: NodeId,
+        files: Vec<PreparedFile>,
+        file_access: Arc<dyn FileAccess>,
+        events: Arc<dyn TransferEventSink>,
+    ) -> Self {
+        Self::new_inner(
+            session_id,
+            peer_id,
+            files,
+            file_access,
+            events,
+            &HashMap::new(),
+        )
+    }
+
+    /// 断点续传专用构造函数
+    ///
+    /// `resume_state` 为每个文件的已完成 chunk 数和已传输字节数（从 DB 读取），
+    /// 使 ProgressTracker 从正确的位置开始计数。
+    pub fn new_with_resume(
+        session_id: Uuid,
+        peer_id: NodeId,
+        files: Vec<PreparedFile>,
+        file_access: Arc<dyn FileAccess>,
+        events: Arc<dyn TransferEventSink>,
+        resume_state: &HashMap<u32, (u32, u64)>,
+    ) -> Self {
+        Self::new_inner(
+            session_id,
+            peer_id,
+            files,
+            file_access,
+            events,
+            resume_state,
+        )
+    }
+
+    fn new_inner(
+        session_id: Uuid,
+        peer_id: NodeId,
+        files: Vec<PreparedFile>,
+        file_access: Arc<dyn FileAccess>,
+        events: Arc<dyn TransferEventSink>,
+        resume_state: &HashMap<u32, (u32, u64)>,
+    ) -> Self {
+        let total_bytes: u64 = files.iter().map(|f| f.size).sum();
+        let total_files = files.len();
+
+        let mut tracker = ProgressTracker::new(
+            session_id,
+            RuntimeTransferDirection::Send,
+            total_bytes,
+            total_files,
+        );
+
+        let file_descs: Vec<FileDesc> = files
+            .iter()
+            .map(|f| FileDesc {
+                file_id: f.file_id,
+                name: f.name.clone(),
+                size: f.size,
+            })
+            .collect();
+        tracker.init_files_with_resume(&file_descs, resume_state);
+
+        Self {
+            session_id,
+            peer_id,
+            files,
+            file_access,
+            events,
+            progress: Arc::new(Mutex::new(tracker)),
+            cancel_token: CancellationToken::new(),
+            created_at: Instant::now(),
+            last_activity_ms: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// 获取传输耗时（毫秒）
+    pub fn elapsed_ms(&self) -> u64 {
+        self.created_at.elapsed().as_millis() as u64
+    }
+
+    /// 获取已发送总字节数（从 ProgressTracker 读取）
+    pub fn total_bytes_sent(&self) -> u64 {
+        self.progress.lock().map_or(0, |p| p.transferred_bytes())
+    }
+
+    /// 获取每个文件的已传输进度（用于暂停时持久化到 DB）
+    ///
+    /// 返回 `Vec<(file_id, chunks_done, transferred_bytes)>`
+    pub fn get_file_progress(&self) -> Vec<(u32, u32, u64)> {
+        self.progress
+            .lock()
+            .map(|p| p.get_file_progress())
+            .unwrap_or_default()
+    }
+
+    /// 处理 Cancel：取消所有进行中的操作
+    pub fn handle_cancel(&self) {
+        warn!("Transfer cancelled by peer: session={}", self.session_id);
+        self.cancel_token.cancel();
+    }
+
+    /// 获取取消令牌（供外部检查是否已取消）
+    pub fn cancel_token(&self) -> &CancellationToken {
+        &self.cancel_token
+    }
+
+    /// 主动取消
+    pub fn cancel(&self) {
+        self.cancel_token.cancel();
+    }
+
+    /// 将本发送会话绑定到一条数据面裸流，并按 fetch_plan 连续推送数据。
+    ///
+    /// **整流顺序读写，不 split**（wasm 修复）：`futures::AsyncReadExt::split` 的 BiLock reader
+    /// half 在 wasm 下、数据到达 muxer 后不唤醒读端（native 多线程掩盖，浏览器单线程显形，
+    /// 现象为「字节到 muxer 但 run_data_channel 读循环不推进」）。改与可用的 RPC 同构——整条流
+    /// 顺序 write→read。写完 Hello+全部块+Finish 后，再读对端 Finish 确认。远端中途取消由「写
+    /// 出错」或随后读到 Abort 感知；本地取消由每块前的 cancel_token 检查响应。
+    pub async fn run_data_channel(
+        &self,
+        epoch: i64,
+        mut channel: P2pStream,
+        fetch_plan: Vec<FileRange>,
+    ) -> AppResult<()> {
+        let manifest = self.file_manifest();
+        let plan = fetch_plan;
+
+        write_frame(
+            &mut channel,
+            &TransferDataFrame::Hello {
+                session_id: self.session_id,
+                epoch,
+                role: TransferDataRole::Sender,
+                manifest_digest: manifest_digest(&manifest),
+                fetch_plan: plan.clone(),
+            },
+        )
+        .await?;
+
+        for range in plan {
+            if self.cancel_token.is_cancelled() {
+                return Err(AppError::Transfer("传输已取消".into()));
+            }
+            self.write_range(&mut channel, epoch, range).await?;
+        }
+
+        write_frame(
+            &mut channel,
+            &TransferDataFrame::Finish {
+                session_id: self.session_id,
+                epoch,
+            },
+        )
+        .await?;
+
+        // 接收方收完并 finalize 后回一帧 Finish 作为完成确认（已无逐块 Ack），读到它即完成。
+        // 空闲等待时响应取消，避免 cancel 后干等到对端 Finish 或超时。
+        let frame = tokio::select! {
+            _ = self.cancel_token.cancelled() => {
+                return Err(AppError::Transfer("传输已取消".into()));
+            }
+            frame = read_frame(&mut channel) => frame?,
+        };
+        match frame {
+            Some(TransferDataFrame::Finish {
+                session_id,
+                epoch: finish_epoch,
+            }) if session_id == self.session_id && EpochGuard::matches(finish_epoch, epoch) => {
+                Ok(())
+            }
+            Some(TransferDataFrame::Abort { reason, .. }) => {
+                Err(AppError::Transfer(format!("对端中止传输: {reason}")))
+            }
+            Some(other) => Err(AppError::Transfer(format!(
+                "发送方收到意外 data frame: {other:?}"
+            ))),
+            None => Err(AppError::Transfer("data channel 在完成前关闭".into())),
+        }
+    }
+
+    /// 发送数据面正常结束的终态副作用（与接收方 `finish_data_channel` 对称）。
+    ///
+    /// session 终态经状态机 `dispatch(Actor{epoch, Completed})`，享受 epoch + terminal
+    /// 不可逆守卫（旧 epoch / 已取消的会话不被覆盖）；仅真正转入 completed 才发完成事件。
+    /// coordinator/events 由 data_plane 传入（actor 自身只在完成回调点用一次，不持有）。
+    pub async fn on_completed(
+        &self,
+        epoch: i64,
+        coordinator: &TransferCoordinator,
+        events: &dyn TransferEventSink,
+    ) {
+        match coordinator
+            .dispatch(
+                self.session_id,
+                CoordinatorInput::Actor {
+                    epoch,
+                    report: ActorReport::Completed,
+                },
+            )
+            .await
+        {
+            Ok(Some(_)) => {
+                // 复用 ProgressTracker::complete_event（与接收方 finish_data_channel 对称），
+                // 不再手搓 TransferCompleteEvent。锁中毒（极罕见）则跳过完成事件。
+                let event = self.progress.lock().ok().map(|p| p.complete_event(None));
+                if let Some(event) = event {
+                    let _ = events
+                        .emit(TransferEvent::TransferCompleted { event })
+                        .await;
+                }
+            }
+            Ok(None) => info!(
+                "发送完成被状态机忽略（已 terminal / 旧 epoch）: session={}",
+                self.session_id
+            ),
+            Err(e) => warn!("dispatch 发送完成失败: session={}, {e}", self.session_id),
+        }
+    }
+
+    /// 发送数据面因非取消错误中断的终态副作用：先持久化已发进度（供续传），
+    /// 再经状态机 `dispatch(Network{epoch, Interrupted})` 转 suspended/recoverable。
+    pub async fn on_interrupted(
+        &self,
+        epoch: i64,
+        coordinator: &TransferCoordinator,
+        store: &dyn SessionStore,
+    ) {
+        let progress = self.get_file_progress();
+        let _ = store
+            .save_sender_file_progress(self.session_id, &progress)
+            .await;
+        let _ = coordinator
+            .dispatch(
+                self.session_id,
+                CoordinatorInput::Network {
+                    epoch,
+                    signal: NetworkSignal::Interrupted,
+                },
+            )
+            .await;
+    }
+
+    fn file_manifest(&self) -> Vec<FileInfo> {
+        self.files.iter().map(FileInfo::from).collect()
+    }
+
+    async fn write_range<W>(&self, stream: &mut W, epoch: i64, range: FileRange) -> AppResult<()>
+    where
+        W: futures::io::AsyncWrite + Unpin,
+    {
+        let file = self
+            .files
+            .iter()
+            .find(|f| f.file_id == range.file_id)
+            .ok_or_else(|| AppError::Transfer(format!("文件不存在: file_id={}", range.file_id)))?;
+
+        let end = range
+            .offset
+            .checked_add(range.length)
+            .ok_or_else(|| AppError::Transfer("fetch range 溢出".into()))?;
+        if end > file.size {
+            return Err(AppError::Transfer(format!(
+                "fetch range 超出文件大小: file_id={}, end={}, size={}",
+                range.file_id, end, file.size
+            )));
+        }
+
+        if file.size == 0 && range.offset == 0 && range.length == 0 {
+            self.write_block(stream, epoch, file, 0, 0).await?;
+            return Ok(());
+        }
+
+        let mut offset = range.offset;
+        while offset < end {
+            if self.cancel_token.is_cancelled() {
+                return Err(AppError::Transfer("传输已取消".into()));
+            }
+            let len = ((end - offset) as usize).min(CHUNK_SIZE);
+            self.write_block(stream, epoch, file, offset, len).await?;
+            offset += len as u64;
+        }
+
+        Ok(())
+    }
+
+    async fn write_block<W>(
+        &self,
+        stream: &mut W,
+        epoch: i64,
+        file: &PreparedFile,
+        offset: u64,
+        length: usize,
+    ) -> AppResult<()>
+    where
+        W: futures::io::AsyncWrite + Unpin,
+    {
+        let plaintext = self
+            .file_access
+            .read_source_chunk(&file.source_id, offset, length)
+            .await?;
+        // range 已按 file.size clamp，EOF 短读在此不可能——长度不符只能是宿主违约
+        // 或文件在传输中被外部改动。静默发出缩短的块会让外层循环仍按请求 len 推进
+        // offset，留下永不补发的 gap（接收端 checkpoint 永远收不齐），必须响错。
+        if plaintext.len() != length {
+            return Err(AppError::Transfer(format!(
+                "read_source_chunk 返回长度异常: 请求 {length}B@{offset}，得到 {}B (file_id={})",
+                plaintext.len(),
+                file.file_id
+            )));
+        }
+        let plaintext_len = plaintext.len() as u64;
+
+        // 逐块验签（Approach B）：proof 携带该 range 的完整 bao 切片（含叶子），data 置空——
+        // 叶子只在 proof 出现一次，无 2x 冗余。接收端 decode 必然验签，验过即写盘。
+        let root = crate::bao::root_from_checksum(&file.checksum)?;
+        let proof = crate::bao::encode_proof(&file.outboard, root, file.size, offset, &plaintext)?;
+
+        write_frame(
+            stream,
+            &TransferDataFrame::BlockData {
+                session_id: self.session_id,
+                epoch,
+                range: FileRange {
+                    file_id: file.file_id,
+                    offset,
+                    length: plaintext_len,
+                },
+                data: Vec::new(),
+                proof: Some(proof),
+            },
+        )
+        .await?;
+
+        self.last_activity_ms.store(
+            self.created_at.elapsed().as_millis() as u64,
+            Ordering::Relaxed,
+        );
+
+        let progress_event = {
+            let mut p = self
+                .progress
+                .lock()
+                .map_err(|_| AppError::Transfer("ProgressTracker 锁中毒".into()))?;
+            p.add_bytes(plaintext_len);
+            p.update_file_chunk(file.file_id, plaintext_len);
+            p.progress_event()
+        };
+        if let Some(event) = progress_event {
+            let _ = self
+                .events
+                .emit(TransferEvent::TransferProgress { event })
+                .await;
+        }
+
+        Ok(())
+    }
+
+    /// 返回自上次活动以来的空闲时间（毫秒）
+    pub fn idle_ms(&self) -> u64 {
+        let elapsed = self.created_at.elapsed().as_millis() as u64;
+        let last = self.last_activity_ms.load(Ordering::Relaxed);
+        elapsed.saturating_sub(last)
+    }
+}

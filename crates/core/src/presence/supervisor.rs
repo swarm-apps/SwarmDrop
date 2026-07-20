@@ -5,23 +5,19 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use dashmap::DashMap;
-use swarm_p2p_core::NodeEvent;
-use swarm_p2p_core::libp2p::kad::Record;
-use swarm_p2p_core::libp2p::{Multiaddr, PeerId};
-use tokio::time::Instant;
+use n0_future::time::Instant;
+use swarmdrop_net::{Addr, Endpoint, NetEvent, NodeAddr, NodeId};
 
-use super::{ONLINE_RECORD_TTL_SECS, OnlineRecord, RelayHint};
+use super::{ONLINE_RECORD_TTL_SECS, OnlineRecord, RelayHint, online_key};
 use crate::device::{OsInfo, PairedDeviceInfo};
-use crate::dht_key;
 use crate::network::candidates::{BootstrapCandidateManager, CandidateHealth};
-use crate::protocol::{AppNetClient, AppRequest};
 
 /// per-paired-peer 的 presence 状态。
 ///
 /// 设备列表的在线判定：`Connected | Probing → Online`，`Unreachable → Offline`。
 #[derive(Debug, Clone, Copy)]
 pub enum PresenceState {
-    /// 存在活跃 libp2p 连接
+    /// 存在活跃网络连接
     Connected,
     /// 连接刚断开，宽限期内退避重拨中（UI 仍呈现在线）
     Probing {
@@ -41,7 +37,7 @@ impl PresenceState {
 }
 
 /// 共享 presence 状态表：Supervisor 写，DeviceManager 读。
-pub type PresenceMap = Arc<DashMap<PeerId, PresenceState>>;
+pub type PresenceMap = Arc<DashMap<NodeId, PresenceState>>;
 
 /// presence 时间参数（测试可注入缩短版）
 #[derive(Debug, Clone, Copy)]
@@ -84,7 +80,7 @@ fn dial_backoff(attempts: u32) -> Duration {
 /// 只对 TCP 连接真正生效：QUIC 传输层自带 10s idle 判死（先于本机制），
 /// TCP/yamux 无任何传输层判死，死对端全靠 ping 失败暴露。
 ///
-/// 注意 libp2p-ping handler 会静默吞掉第 1 次失败（兼容每次新开 substream
+/// 注意底层 ping 协议会静默吞掉第 1 次失败（兼容每次新开 substream
 /// 的对端），从第 2 次连续失败起才上报事件——所以阈值 2 个事件 ≈ 协议层
 /// 连续 3 次失败 ≈ 40s（15s 间隔 + 10s 超时），加 15s 宽限后约 1 分钟判离线。
 /// 阈值取 2 而非 1 是为了避免大传输压满链路时 ping 偶发超时误杀活连接。
@@ -98,14 +94,13 @@ const MAX_RELAY_HINTS: usize = 3;
 /// 事件输入走 [`handle_event`](Self::handle_event)（core 事件循环同步调用），
 /// 定时推进走 [`tick`](Self::tick)（由 [`run`](Self::run) 的后台任务驱动）。
 pub struct PresenceSupervisor {
-    client: AppNetClient,
-    peer_id: PeerId,
-    paired: Arc<DashMap<PeerId, PairedDeviceInfo>>,
+    endpoint: Endpoint,
+    paired: Arc<DashMap<NodeId, PairedDeviceInfo>>,
     presence: PresenceMap,
     /// 候选表（构建在线记录的 relay hint 用）
     candidates: Arc<RwLock<BootstrapCandidateManager>>,
     /// 连续 ping 失败计数（PingSuccess / 断连时清零）
-    ping_failures: DashMap<PeerId, u32>,
+    ping_failures: DashMap<NodeId, u32>,
     /// 在线记录需要重发（地址集/reservation 变化或上次发布失败）
     announce_dirty: AtomicBool,
     /// announce 连续失败计数（重试退避用）
@@ -115,15 +110,13 @@ pub struct PresenceSupervisor {
 
 impl PresenceSupervisor {
     pub fn new(
-        client: AppNetClient,
-        peer_id: PeerId,
-        paired: Arc<DashMap<PeerId, PairedDeviceInfo>>,
+        endpoint: Endpoint,
+        paired: Arc<DashMap<NodeId, PairedDeviceInfo>>,
         presence: PresenceMap,
         candidates: Arc<RwLock<BootstrapCandidateManager>>,
     ) -> Self {
         Self {
-            client,
-            peer_id,
+            endpoint,
             paired,
             presence,
             candidates,
@@ -135,73 +128,73 @@ impl PresenceSupervisor {
     }
 
     /// 幂等地把 peer 加入连接保活白名单（behaviour 侧去重）
-    fn spawn_keep_alive(&self, peer: PeerId) {
-        let client = self.client.clone();
-        tokio::spawn(async move {
-            let _ = client.set_keep_alive(peer, true).await;
+    fn spawn_keep_alive(&self, peer: NodeId) {
+        let endpoint = self.endpoint.clone();
+        n0_future::task::spawn(async move {
+            let _ = endpoint.set_keep_alive(peer, true).await;
         });
     }
 
     // === 事件折叠（core 事件循环调用） ===
 
     /// 消费连接/ping 事件，折叠 presence 状态。仅关心已配对 peer。
-    pub fn handle_event(&self, event: &NodeEvent<AppRequest>) {
+    pub fn handle_event(&self, event: &NetEvent) {
         match event {
-            NodeEvent::PeerConnected { peer_id } if self.paired.contains_key(peer_id) => {
+            NetEvent::PeerConnected { node, .. } if self.paired.contains_key(node) => {
                 if self
                     .presence
-                    .insert(*peer_id, PresenceState::Connected)
+                    .insert(*node, PresenceState::Connected)
                     .is_none()
                 {
                     // 首次建 entry（新配对后事件先于 reconcile 到达）：
                     // 立即补保活白名单，避免 reconcile 因 entry 已存在而跳过
-                    self.spawn_keep_alive(*peer_id);
+                    self.spawn_keep_alive(*node);
                 }
             }
             // 防御性收敛：有 ping 必有活跃连接（补 PeerConnected 事件错过的场景）
-            NodeEvent::PingSuccess { peer_id, .. } if self.paired.contains_key(peer_id) => {
-                self.ping_failures.remove(peer_id);
+            NetEvent::PingSuccess { node, .. } if self.paired.contains_key(node) => {
+                self.ping_failures.remove(node);
                 if !matches!(
-                    self.presence.get(peer_id).map(|e| *e.value()),
+                    self.presence.get(node).map(|e| *e.value()),
                     Some(PresenceState::Connected)
                 ) && self
                     .presence
-                    .insert(*peer_id, PresenceState::Connected)
+                    .insert(*node, PresenceState::Connected)
                     .is_none()
                 {
-                    self.spawn_keep_alive(*peer_id);
+                    self.spawn_keep_alive(*node);
                 }
             }
             // 死对端检测（TCP 兜底）：连续失败达阈值 → 主动断连 → 走 Probing 流程。
             // QUIC 死对端由传输层 10s idle 先行判死，不会走到阈值。
-            NodeEvent::PingFailure { peer_id, error } if self.paired.contains_key(peer_id) => {
+            NetEvent::PingFailure { node, error } if self.paired.contains_key(node) => {
                 let failures = {
-                    let mut entry = self.ping_failures.entry(*peer_id).or_insert(0);
+                    let mut entry = self.ping_failures.entry(*node).or_insert(0);
                     *entry += 1;
                     *entry
                 };
                 if failures >= PING_FAILURE_THRESHOLD
                     && matches!(
-                        self.presence.get(peer_id).map(|e| *e.value()),
+                        self.presence.get(node).map(|e| *e.value()),
                         Some(PresenceState::Connected)
                     )
                 {
                     tracing::info!(
-                        "已配对设备 {peer_id} 连续 {failures} 次 ping 失败（{error}），主动断连重探"
+                        "已配对设备 {node} 连续 {failures} 次 ping 失败（{error}），主动断连重探"
                     );
-                    self.ping_failures.remove(peer_id);
-                    let client = self.client.clone();
-                    let peer = *peer_id;
-                    tokio::spawn(async move {
-                        let _ = client.disconnect(peer).await;
+                    self.ping_failures.remove(node);
+                    let endpoint = self.endpoint.clone();
+                    let peer = *node;
+                    n0_future::task::spawn(async move {
+                        let _ = endpoint.disconnect(peer).await;
                     });
                 }
             }
-            NodeEvent::PeerDisconnected { peer_id } if self.paired.contains_key(peer_id) => {
-                self.ping_failures.remove(peer_id);
+            NetEvent::PeerDisconnected { node } if self.paired.contains_key(node) => {
+                self.ping_failures.remove(node);
                 let now = Instant::now();
                 self.presence.insert(
-                    *peer_id,
+                    *node,
                     PresenceState::Probing {
                         since: now,
                         next_dial_at: now + dial_backoff(1),
@@ -209,17 +202,16 @@ impl PresenceSupervisor {
                     },
                 );
                 // 断连即首拨（第 0 秒尝试）；拨通由 PeerConnected 收敛回 Connected
-                let client = self.client.clone();
-                let peer = *peer_id;
-                tokio::spawn(async move {
-                    let _ = client.dial(peer).await;
+                let endpoint = self.endpoint.clone();
+                let peer = *node;
+                n0_future::task::spawn(async move {
+                    let _ = endpoint.connect(NodeAddr::new(peer)).await;
                 });
             }
-            // 可达性事实变化 → 在线记录标脏，run 循环按退避立即重发
-            NodeEvent::Listening { .. }
-            | NodeEvent::RelayReservationAccepted { .. }
-            | NodeEvent::RelayReservationLost { .. }
-            | NodeEvent::NatStatusChanged { .. } => {
+            // 可达性事实变化 → 在线记录标脏，run 循环按退避立即重发。
+            // Listening / NatStatus 变化改由 run 循环的 watch_addrs / watch_nat 驱动
+            // （新内核这两者是 watch 状态而非边沿事件）。
+            NetEvent::RelayReservationAccepted { .. } | NetEvent::RelayReservationLost { .. } => {
                 self.announce_dirty.store(true, Ordering::Relaxed);
             }
             _ => {}
@@ -235,12 +227,12 @@ impl PresenceSupervisor {
     pub async fn tick(
         &self,
         now: Instant,
-        is_connected: &(dyn Fn(&PeerId) -> bool + Sync),
+        is_connected: &(dyn Fn(&NodeId) -> bool + Sync),
     ) -> bool {
         self.reconcile_whitelist(now, is_connected);
 
         let mut went_offline = false;
-        let peers: Vec<PeerId> = self.presence.iter().map(|e| *e.key()).collect();
+        let peers: Vec<NodeId> = self.presence.iter().map(|e| *e.key()).collect();
         for peer in peers {
             // 逐个 get_mut 并在锁内复核状态，避免覆盖事件线程刚写入的 Connected
             let Some(mut entry) = self.presence.get_mut(&peer) else {
@@ -265,9 +257,9 @@ impl PresenceSupervisor {
                             attempts: attempts + 1,
                         };
                         drop(entry);
-                        let client = self.client.clone();
-                        tokio::spawn(async move {
-                            let _ = client.dial(peer).await;
+                        let endpoint = self.endpoint.clone();
+                        n0_future::task::spawn(async move {
+                            let _ = endpoint.connect(NodeAddr::new(peer)).await;
                         });
                     }
                 }
@@ -289,7 +281,7 @@ impl PresenceSupervisor {
     ///
     /// - 新配对 → 进保活白名单 + 建立初始状态（已连接则 Connected，否则立即重探）
     /// - 解除配对 → 出白名单 + 断开连接 + 移除状态
-    fn reconcile_whitelist(&self, now: Instant, is_connected: &(dyn Fn(&PeerId) -> bool + Sync)) {
+    fn reconcile_whitelist(&self, now: Instant, is_connected: &(dyn Fn(&NodeId) -> bool + Sync)) {
         for entry in self.paired.iter() {
             let peer = *entry.key();
             if !self.presence.contains_key(&peer) {
@@ -303,7 +295,7 @@ impl PresenceSupervisor {
             }
         }
 
-        let removed: Vec<PeerId> = self
+        let removed: Vec<NodeId> = self
             .presence
             .iter()
             .map(|e| *e.key())
@@ -312,18 +304,19 @@ impl PresenceSupervisor {
         for peer in removed {
             self.presence.remove(&peer);
             self.ping_failures.remove(&peer);
-            let client = self.client.clone();
-            tokio::spawn(async move {
-                let _ = client.set_keep_alive(peer, false).await;
-                let _ = client.disconnect(peer).await;
+            let endpoint = self.endpoint.clone();
+            n0_future::task::spawn(async move {
+                let _ = endpoint.set_keep_alive(peer, false).await;
+                let _ = endpoint.disconnect(peer).await;
             });
         }
     }
 
     /// 基础重探周期 + per-peer 确定性抖动（避免多设备同拍重探）
-    fn probe_interval(&self, peer: &PeerId) -> Duration {
+    fn probe_interval(&self, peer: &NodeId) -> Duration {
         let hash = peer
-            .to_bytes()
+            .to_string()
+            .into_bytes()
             .iter()
             .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(*b as u64));
         self.timings.probe_interval
@@ -339,39 +332,22 @@ impl PresenceSupervisor {
     ///
     /// DHT 无记录时仍尝试直接 dial：地址簿可能还留有 mDNS 注册的局域网地址
     /// （无公网 bootstrap 的纯局域网场景 DHT 记录不可用）。
-    fn spawn_probe(&self, peer: PeerId) {
-        let client = self.client.clone();
-        tokio::spawn(async move {
-            let record = match client
-                .get_record(dht_key::online_key(&peer.to_bytes()))
-                .await
-            {
-                Ok(result) => {
-                    let record = result.record;
-                    let expired = record
-                        .expires
-                        .map(|e| e < std::time::Instant::now())
-                        .unwrap_or(false);
-                    if expired {
-                        None
-                    } else {
-                        serde_json::from_slice::<OnlineRecord>(&record.value).ok()
-                    }
-                }
-                Err(_) => None,
-            };
-
-            let Some(online) = record else {
+    fn spawn_probe(&self, peer: NodeId) {
+        let endpoint = self.endpoint.clone();
+        n0_future::task::spawn(async move {
+            // 无在线记录（含 dht 未启用）→ 地址簿兜底直拨：可能还留有 mDNS 注册的
+            // 局域网地址（纯局域网无公网 bootstrap 时 DHT 记录不可用）。
+            let Some(online) = super::fetch_online_record(&endpoint, peer).await else {
                 tracing::debug!("重探 {peer}: 无在线记录，地址簿兜底直拨");
-                let _ = client.dial(peer).await;
+                let _ = endpoint.connect(NodeAddr::new(peer)).await;
                 return;
             };
 
             let addrs = online.dialable_addrs();
             if !addrs.is_empty() {
-                let _ = client.add_peer_addrs(peer, addrs).await;
+                let _ = endpoint.add_addrs(peer, addrs).await;
             }
-            if client.dial(peer).await.is_ok() {
+            if endpoint.connect(NodeAddr::new(peer)).await.is_ok() {
                 return;
             }
 
@@ -380,15 +356,13 @@ impl PresenceSupervisor {
                 if hint.addrs.is_empty() {
                     continue;
                 }
-                let _ = client
-                    .add_peer_addrs(hint.peer_id, hint.addrs.clone())
-                    .await;
-                if let Err(e) = client.dial(hint.peer_id).await {
+                let _ = endpoint.add_addrs(hint.peer_id, hint.addrs.clone()).await;
+                if let Err(e) = endpoint.connect(NodeAddr::new(hint.peer_id)).await {
                     tracing::debug!("重探 {peer}: relay {} 不可达: {e}", hint.peer_id);
                     continue;
                 }
-                match client.dial(peer).await {
-                    Ok(()) => return,
+                match endpoint.connect(NodeAddr::new(peer)).await {
+                    Ok(_) => return,
                     Err(e) => {
                         tracing::debug!("重探 {peer}: 经 relay {} 拨号失败: {e}", hint.peer_id)
                     }
@@ -405,19 +379,19 @@ impl PresenceSupervisor {
 
     /// 宣布上线：发布结构化的可达性声明到 DHT（TTL 见 [`ONLINE_RECORD_TTL_SECS`]）
     pub async fn announce_online(&self) -> crate::AppResult<()> {
-        let addrs = self.client.get_addrs().await?;
+        let Some(dht) = self.endpoint.dht() else {
+            return Ok(());
+        };
+        let addrs = self.endpoint.watch_addrs().get().dialable();
         let (direct_addrs, relay_addrs) = classify_announce_addrs(addrs);
         let record_data = build_online_record(direct_addrs, relay_addrs, self.relay_hints());
-        self.client
-            .put_record(Record {
-                key: dht_key::online_key(&self.peer_id.to_bytes()),
-                value: serde_json::to_vec(&record_data)?,
-                publisher: Some(self.peer_id),
-                expires: Some(
-                    std::time::Instant::now() + Duration::from_secs(ONLINE_RECORD_TTL_SECS),
-                ),
-            })
-            .await?;
+        dht.put(
+            online_key(self.endpoint.node_id()),
+            serde_json::to_vec(&record_data)?,
+            Some(Duration::from_secs(ONLINE_RECORD_TTL_SECS)),
+        )
+        .await
+        .map_err(|e| crate::AppError::Network(format!("发布在线记录失败: {e}")))?;
         Ok(())
     }
 
@@ -436,7 +410,7 @@ impl PresenceSupervisor {
                 addrs: c
                     .addrs
                     .into_iter()
-                    .filter(|a| !swarm_p2p_core::addr::is_loopback_or_unspecified(a))
+                    .filter(|a| !a.is_loopback_or_unspecified())
                     .collect(),
             })
             .filter(|hint| !hint.addrs.is_empty())
@@ -445,15 +419,17 @@ impl PresenceSupervisor {
 
     /// 宣布下线：从 DHT 移除在线记录（节点停止时调用）
     pub async fn announce_offline(&self) -> crate::AppResult<()> {
-        self.client
-            .remove_record(dht_key::online_key(&self.peer_id.to_bytes()))
-            .await?;
+        if let Some(dht) = self.endpoint.dht() {
+            dht.remove(online_key(self.endpoint.node_id()))
+                .await
+                .map_err(|e| crate::AppError::Network(format!("移除在线记录失败: {e}")))?;
+        }
         Ok(())
     }
 
     fn spawn_announce(self: &Arc<Self>) {
         let this = self.clone();
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             match this.announce_online().await {
                 Ok(()) => {
                     this.announce_fail_streak.store(0, Ordering::Relaxed);
@@ -492,15 +468,26 @@ impl PresenceSupervisor {
 
         // 宣告 → bootstrap（沿用原 host 启动序列的顺序；bootstrap 加超时防挂）
         self.spawn_announce();
-        let _ = tokio::time::timeout(Duration::from_secs(30), self.client.bootstrap()).await;
+        if let Some(dht) = self.endpoint.dht() {
+            let _ = n0_future::time::timeout(Duration::from_secs(30), dht.bootstrap()).await;
+        }
 
         let mut last_announce_attempt = Instant::now();
-        let mut interval = tokio::time::interval(self.timings.tick);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut interval = n0_future::time::interval(self.timings.tick);
+        interval.set_missed_tick_behavior(n0_future::time::MissedTickBehavior::Delay);
+        // 可达性 watch：本机地址/NAT 变化（新内核为 watch 状态而非边沿事件）标脏在线记录
+        let mut addrs_watcher = self.endpoint.watch_addrs();
+        let mut nat_watcher = self.endpoint.watch_nat();
 
         loop {
             tokio::select! {
                 _ = shared.cancel_token.cancelled() => break,
+                Some(_) = addrs_watcher.updated() => {
+                    self.announce_dirty.store(true, Ordering::Relaxed);
+                }
+                Some(_) = nat_watcher.updated() => {
+                    self.announce_dirty.store(true, Ordering::Relaxed);
+                }
                 _ = interval.tick() => {
                     let now = Instant::now();
                     let went_offline = self
@@ -544,8 +531,8 @@ fn announce_backoff(fail_streak: u32) -> Duration {
 ///
 /// 抽成纯函数正是为了让这条约束可测——见 `online_record_must_not_carry_device_info`。
 fn build_online_record(
-    direct_addrs: Vec<Multiaddr>,
-    relay_addrs: Vec<Multiaddr>,
+    direct_addrs: Vec<Addr>,
+    relay_addrs: Vec<Addr>,
     relays: Vec<RelayHint>,
 ) -> OnlineRecord {
     OnlineRecord {
@@ -562,20 +549,19 @@ fn build_online_record(
 /// 把本机地址集分类为可发布的（direct, relay circuit）两组。
 ///
 /// - loopback/unspecified 剔除（对任何对端无意义）
-/// - 恰好一跳 circuit → relay 组；多跳 circuit 剔除（libp2p 硬拒）
+/// - 恰好一跳 circuit → relay 组；多跳 circuit 剔除（内核硬拒）
 /// - 私网地址保留在 direct 组（跨子网 LAN 可用，跨网拨快速失败无害）
-fn classify_announce_addrs(addrs: Vec<Multiaddr>) -> (Vec<Multiaddr>, Vec<Multiaddr>) {
-    use swarm_p2p_core::addr::{circuit_hops, is_loopback_or_unspecified};
+fn classify_announce_addrs(addrs: Vec<Addr>) -> (Vec<Addr>, Vec<Addr>) {
     let mut direct = Vec::new();
     let mut relay = Vec::new();
     for addr in addrs {
-        if is_loopback_or_unspecified(&addr) {
+        if addr.is_loopback_or_unspecified() {
             continue;
         }
-        match circuit_hops(&addr) {
+        match addr.circuit_hops() {
             0 => direct.push(addr),
             1 => relay.push(addr),
-            _ => {} // 多跳 circuit：任何 libp2p 节点都拨不了
+            _ => {} // 多跳 circuit：任何节点都拨不了
         }
     }
     (direct, relay)
@@ -584,8 +570,8 @@ fn classify_announce_addrs(addrs: Vec<Multiaddr>) -> (Vec<Multiaddr>, Vec<Multia
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{AppRequest, AppResponse};
-    use swarm_p2p_core::libp2p::identity::Keypair;
+    use crate::network::DiscoveryMode;
+    use swarmdrop_net::{PathKind, SecretKey};
 
     /// 在线宣告记录发布到**公共 DHT**：key = `SHA256(NS‖peer_id)` 由公开信息可算，
     /// 记录无签名，任何加入网络的节点都能查。它绝不能携带设备身份信息——尤其是
@@ -617,66 +603,52 @@ mod tests {
 
     struct TestCtx {
         supervisor: PresenceSupervisor,
-        paired: Arc<DashMap<PeerId, PairedDeviceInfo>>,
+        paired: Arc<DashMap<NodeId, PairedDeviceInfo>>,
         presence: PresenceMap,
-        // 事件接收端必须存活，否则节点事件循环提前退出
-        _events: swarm_p2p_core::EventReceiver<AppRequest>,
     }
 
-    fn test_ctx() -> TestCtx {
-        let keypair = Keypair::generate_ed25519();
-        let peer_id = PeerId::from_public_key(&keypair.public());
-        let config = swarm_p2p_core::NodeConfig::new("/swarmdrop-test/1.0.0", "test/1.0.0")
-            .with_listen_addrs(vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()])
-            .with_mdns(false)
-            .with_relay_client(false)
-            .with_dcutr(false)
-            .with_autonat(false);
-        let (client, events, _dc) =
-            swarm_p2p_core::start::<AppRequest, AppResponse>(keypair, config)
-                .expect("start test node");
+    async fn test_ctx() -> TestCtx {
+        let endpoint = Endpoint::builder()
+            .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()])
+            .bind()
+            .await
+            .expect("bind test endpoint");
 
-        let paired: Arc<DashMap<PeerId, PairedDeviceInfo>> = Arc::new(DashMap::new());
+        let paired: Arc<DashMap<NodeId, PairedDeviceInfo>> = Arc::new(DashMap::new());
         let presence: PresenceMap = Arc::new(DashMap::new());
         let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(
-            crate::network::DiscoveryMode::Auto,
+            DiscoveryMode::Auto,
             true,
         )));
-        let supervisor = PresenceSupervisor::new(
-            client,
-            peer_id,
-            paired.clone(),
-            presence.clone(),
-            candidates,
-        );
+        let supervisor =
+            PresenceSupervisor::new(endpoint, paired.clone(), presence.clone(), candidates);
         TestCtx {
             supervisor,
             paired,
             presence,
-            _events: events,
         }
     }
 
-    fn pair(ctx: &TestCtx) -> PeerId {
-        let peer = PeerId::from_public_key(&Keypair::generate_ed25519().public());
+    fn pair(ctx: &TestCtx) -> NodeId {
+        let peer = SecretKey::generate().node_id();
         ctx.paired
             .insert(peer, PairedDeviceInfo::new(peer, OsInfo::default(), 0));
         peer
     }
 
-    fn state_of(ctx: &TestCtx, peer: &PeerId) -> Option<PresenceState> {
+    fn state_of(ctx: &TestCtx, peer: &NodeId) -> Option<PresenceState> {
         ctx.presence.get(peer).map(|e| *e.value())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn transient_disconnect_stays_online_and_reconnects() {
-        let ctx = test_ctx();
+        let ctx = test_ctx().await;
         let peer = pair(&ctx);
         ctx.presence.insert(peer, PresenceState::Connected);
 
         // 断连 → Probing（宽限期内仍在线，不推离线）
         ctx.supervisor
-            .handle_event(&NodeEvent::PeerDisconnected { peer_id: peer });
+            .handle_event(&NetEvent::PeerDisconnected { node: peer });
         let state = state_of(&ctx, &peer).unwrap();
         assert!(matches!(state, PresenceState::Probing { .. }));
         assert!(state.is_online(), "宽限期内必须仍呈现在线");
@@ -685,8 +657,10 @@ mod tests {
         assert!(!went_offline, "宽限期内 tick 不得判离线");
 
         // 拨通 → 回 Connected
-        ctx.supervisor
-            .handle_event(&NodeEvent::PeerConnected { peer_id: peer });
+        ctx.supervisor.handle_event(&NetEvent::PeerConnected {
+            node: peer,
+            path: PathKind::Local,
+        });
         assert!(matches!(
             state_of(&ctx, &peer),
             Some(PresenceState::Connected)
@@ -695,10 +669,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn grace_timeout_marks_unreachable() {
-        let ctx = test_ctx();
+        let ctx = test_ctx().await;
         let peer = pair(&ctx);
         ctx.supervisor
-            .handle_event(&NodeEvent::PeerDisconnected { peer_id: peer });
+            .handle_event(&NetEvent::PeerDisconnected { node: peer });
 
         // 快进到宽限期之后
         let later = Instant::now() + ctx.supervisor.timings.grace + Duration::from_secs(1);
@@ -711,7 +685,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn unpair_removes_presence_state() {
-        let ctx = test_ctx();
+        let ctx = test_ctx().await;
         let peer = pair(&ctx);
         ctx.presence.insert(peer, PresenceState::Connected);
 
@@ -725,7 +699,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn unreachable_probe_reschedules() {
-        let ctx = test_ctx();
+        let ctx = test_ctx().await;
         let peer = pair(&ctx);
         let now = Instant::now();
         ctx.presence
@@ -743,12 +717,12 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn consecutive_ping_failures_trigger_dead_peer_disconnect() {
-        let ctx = test_ctx();
+        let ctx = test_ctx().await;
         let peer = pair(&ctx);
         ctx.presence.insert(peer, PresenceState::Connected);
 
-        let fail = NodeEvent::PingFailure {
-            peer_id: peer,
+        let fail = NetEvent::PingFailure {
+            node: peer,
             error: "Ping timeout".into(),
         };
 
@@ -760,9 +734,9 @@ mod tests {
         );
 
         // ping 恢复：计数清零
-        ctx.supervisor.handle_event(&NodeEvent::PingSuccess {
-            peer_id: peer,
-            rtt_ms: 5,
+        ctx.supervisor.handle_event(&NetEvent::PingSuccess {
+            node: peer,
+            rtt: Duration::from_millis(5),
         });
         assert!(ctx.supervisor.ping_failures.get(&peer).is_none());
 
@@ -781,7 +755,7 @@ mod tests {
 
     #[test]
     fn classify_filters_undialable_and_multihop_addrs() {
-        let addrs: Vec<Multiaddr> = [
+        let addrs: Vec<Addr> = [
             "/ip4/192.168.1.20/tcp/4001",                     // 私网直连：保留
             "/ip4/203.0.113.7/udp/4001/quic-v1",              // 公网直连：保留
             "/ip4/127.0.0.1/tcp/4001",                        // loopback：剔除
@@ -803,12 +777,13 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn reachability_events_mark_announce_dirty() {
-        let ctx = test_ctx();
+        let ctx = test_ctx().await;
         assert!(!ctx.supervisor.announce_dirty.load(Ordering::Relaxed));
 
+        let relay = SecretKey::generate().node_id();
         ctx.supervisor
-            .handle_event(&NodeEvent::RelayReservationAccepted {
-                relay_peer_id: PeerId::from_public_key(&Keypair::generate_ed25519().public()),
+            .handle_event(&NetEvent::RelayReservationAccepted {
+                relay,
                 renewal: false,
             });
         assert!(
@@ -819,18 +794,18 @@ mod tests {
         ctx.supervisor
             .announce_dirty
             .store(false, Ordering::Relaxed);
-        ctx.supervisor.handle_event(&NodeEvent::Listening {
-            addr: "/ip4/192.168.1.2/tcp/4001".parse().unwrap(),
-        });
+        // Listening / NatStatus 已改为 watch 驱动；reservation 丢失仍是边沿事件，同样标脏。
+        ctx.supervisor
+            .handle_event(&NetEvent::RelayReservationLost { relay });
         assert!(
             ctx.supervisor.announce_dirty.load(Ordering::Relaxed),
-            "监听地址变化必须标脏在线记录"
+            "reservation 丢失必须标脏在线记录"
         );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn reconcile_initializes_new_paired_peers() {
-        let ctx = test_ctx();
+        let ctx = test_ctx().await;
         let connected_peer = pair(&ctx);
         let offline_peer = pair(&ctx);
 

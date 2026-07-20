@@ -39,4 +39,4 @@ OpenSpec 变更 `extract-core-and-add-rn-mobile` 的任务 6.x 取消了桌面�
 ## 相关文档
 
 - [Core / Desktop / Mobile 架构边界](./core-desktop-mobile-boundaries.md)
-- [Core 抽离盘点](./core-extraction-inventory.md)
+- [Core 抽离盘点](../archive/recon-2026-07/core-extraction-inventory.md)

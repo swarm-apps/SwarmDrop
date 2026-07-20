@@ -58,12 +58,6 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
-impl From<swarm_p2p_core::Error> for AppError {
-    fn from(e: swarm_p2p_core::Error) -> Self {
-        AppError::Core(e.into())
-    }
-}
-
 impl From<sea_orm::DbErr> for AppError {
     fn from(e: sea_orm::DbErr) -> Self {
         AppError::Core(e.into())

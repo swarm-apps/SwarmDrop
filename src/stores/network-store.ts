@@ -176,7 +176,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
       await commands.shutdown();
       await cleanupEventListeners();
       usePairingStore.getState().reset();
-      usePairingStore.getState().clearActiveCode();
+      usePairingStore.getState().clearActiveInvite();
       set({
         status: "stopped",
         devices: [],

@@ -42,3 +42,6 @@ keystore.properties
 .codex
 graphify-out
 video/out/
+
+# 旧网络内核参考（submodule 已停用，2026-07 重构后本地保留）
+/libs/

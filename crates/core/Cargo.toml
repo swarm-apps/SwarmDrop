@@ -6,35 +6,51 @@ edition.workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_bytes = { workspace = true }
 futures = { workspace = true }
-unsigned-varint = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+# wasm 上 tokio 只有 sync/macros 可用（纯用户态原语）；spawn/time 走 n0-future（照 net/transfer 口径）
+tokio = { workspace = true, features = ["sync", "macros"] }
+n0-future = { workspace = true }
 tokio-util = { workspace = true }
-swarm-p2p-core = { workspace = true }
+swarmdrop-net = { workspace = true }
+swarmdrop-host = { workspace = true }
+swarmdrop-transfer = { workspace = true }
+swarmdrop-invite = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
 chrono = { workspace = true }
-sha2 = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
 tracing = { workspace = true }
-sea-orm = { workspace = true }
 entity = { workspace = true }
-chacha20poly1305 = "0.11"
-blake3 = "1.8.3"
 specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "chrono", "serde_json"], optional = true }
 
 [features]
 default = []
 # 桌面 src-tauri 开启；移动 mobile-core 走 uniffi 不开。
 # 打开后所有跨前端的 struct/enum 会 derive specta::Type，可被 tauri-specta 收集。
-specta = ["dep:specta", "entity/specta"]
+specta = [
+    "dep:specta",
+    "entity/specta",
+    "swarmdrop-host/specta",
+    "swarmdrop-transfer/specta",
+]
+
+# ============ wasm（浏览器）============
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+# rand 0.10 → getrandom 0.4：wasm 后端走 feature（0.3 那条线才用 rustflags cfg，两线并存各管各的）
+getrandom = { version = "0.4", features = ["wasm_js"] }
+# uuid v4 在 wasm 需要 js 随机源
+uuid = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
 # tests/ 集成测试用：workspace 的 tokio 不带 feature，#[tokio::test] 需 macros + rt-multi-thread。
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # migration 不是普通依赖，端到端 harness 要 Migrator::up 建 sqlite::memory schema。
 migration = { workspace = true }
+# e2e harness 校验文件内容指纹。
+blake3 = "1.8.3"
+# e2e harness 用真实 SQLite store（业务代码只依赖端口 trait，不依赖它）。
+swarmdrop-storage-sql = { workspace = true }
+sea-orm = { workspace = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 if-addrs = "0.15.0"

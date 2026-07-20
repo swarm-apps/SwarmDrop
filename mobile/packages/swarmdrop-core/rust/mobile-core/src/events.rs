@@ -8,13 +8,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use swarm_p2p_core::EventReceiver;
 use swarmdrop_core::AppResult;
 use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_core::network::SharedNetRefs;
-use swarmdrop_core::protocol::{AppRequest, PairingMethod};
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_core::transfer::progress::FileTransferStatus;
+use swarmdrop_net::{Events, Router};
 
 use crate::history::MobileTransferProjection;
 use crate::keychain::MobileKeychainAdapter;
@@ -221,14 +220,13 @@ fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
             pending_id,
             request,
         } => {
-            let code = match request.method {
-                PairingMethod::Code { code } => Some(code),
-                PairingMethod::Direct => None,
-            };
+            // 邀请/Direct 配对无需向 UI 回传凭证——发起方（收到本请求者）已知上下文，
+            // 只需展示对端身份并让用户确认。字段保留 None 以稳定 FFI 签名。
+            let _ = &request.method;
             MobileCoreEvent::PairingRequestReceived {
                 peer_id: peer_id.to_string(),
                 pending_id,
-                code,
+                code: None,
             }
         }
         CoreEvent::PairingCompleted { peer_id } => MobileCoreEvent::PairingCompleted { peer_id },
@@ -319,19 +317,21 @@ fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
     Some(mapped)
 }
 
-/// 事件循环：完整版（包含 Transfer 处理），需要 TransferManager 已就绪
+/// 事件循环：完整版（包含 Transfer 处理），需要 TransferManager 已就绪。
+///
+/// 装配（含 `router` 保活）委托 core 的
+/// [`spawn_event_loop`](swarmdrop_core::network::event_loop::spawn_event_loop)；本壳只做
+/// [`MobileEventBusAdapter`] → `dyn EventBus` 的类型擦除。
 pub(crate) fn spawn_event_loop(
-    receiver: EventReceiver<AppRequest>,
+    events: Events,
     shared: SharedNetRefs<TransferManager>,
     event_bus: Arc<MobileEventBusAdapter>,
+    router: Router,
 ) {
-    tokio::spawn(async move {
-        swarmdrop_core::network::event_loop::run_event_loop(
-            receiver,
-            shared,
-            event_bus as Arc<dyn EventBus>,
-            None, // 移动端无窗口聚焦概念，不需要 Notifier
-        )
-        .await;
-    });
+    swarmdrop_core::network::event_loop::spawn_event_loop(
+        events,
+        shared,
+        event_bus as Arc<dyn EventBus>,
+        router,
+    );
 }

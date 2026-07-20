@@ -5,7 +5,7 @@
 //! content records.
 
 use entity::{InboxContentKind, InboxSourceKind};
-use swarmdrop_core::database::inbox as inbox_ops;
+use swarmdrop_storage_sql::inbox as inbox_ops;
 use uuid::Uuid;
 
 use crate::app::MobileCore;

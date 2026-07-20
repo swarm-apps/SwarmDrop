@@ -21,6 +21,10 @@ description: |
 | [theme-and-styling.md](../../../dev-notes/knowledge/theme-and-styling.md) | shadcn/ui 用法、Tailwind v4 token、主题切换、窗口装饰（macOS Overlay / Win 自定义标题栏）、Aurora 背景等 UI 层约束 |
 | [rust-backend.md](../../../dev-notes/knowledge/rust-backend.md) | Tauri command 约定、`crates/core` ↔ `src-tauri` 边界、SeaORM/SQLite、P2P/async、tracing、specta + chrono 类型映射 |
 | [toolchain.md](../../../dev-notes/knowledge/toolchain.md) | pnpm/Vite/Tauri CLI、Biome、Cargo workspace、Lingui 提取、git submodule（libs/）、CI、版本号同步 |
+| [iroh-migration.md](../../../dev-notes/knowledge/iroh-migration.md) | libp2p → iroh 迁移评估结论（**已决策暂不迁移**，保留为调研记录）：能力差、被推翻的旧认知、relay/配对取舍、生态选型否决清单。碰 P2P 选型、n0-* 依赖或有人提「迁 iroh」时先读。**n0-future 替换的落地细节以本文件为准** |
+| [libp2p-wasm.md](../../../dev-notes/knowledge/libp2p-wasm.md) | Web 端（wasm）可行性（**未决策**）：**局域网路线**（绕开跨网全部难点，最可行起点）、**webrtc-direct 与用户自建 relay**（certhash 免域名，libp2p vs iroh 的真实差距所在）、浏览器公网零可达入口、mixed content / Chrome LNA 平台门、rust-wasm 与 js-libp2p 取舍、tokio → n0-future 用量盘点、getrandom 双版本等 wasm 编译的坑。碰 Web 端、wasm、LAN helper、自建中继、`libs/core` transport 层或 tokio 替换时先读 |
+| [storage-abstraction.md](../../../dev-notes/knowledge/storage-abstraction.md) | 把 sea-orm 从 `crates/core` 摘出去（**第 0 步已落地**——entity 的 sea-orm 已 feature 解绑；trait 层未做）：切割线在 `DatabaseConnection` 不在 `entity`、SendWrapper 免改 trait 签名、31 个 pub fn / 3 个注入点 / 1 处事务的耦合面量化。`TerminalReason` 的 wire 地雷已随 v2 拆除。碰存储 trait、`database/ops.rs`、entity 依赖或 Web 端持久化时先读 |
+| [net-kernel.md](../../../dev-notes/knowledge/net-kernel.md) | 网络内核 `swarmdrop-net`（2026-07 重构产物，替代 libs/ 的 swarm-p2p-core）：架构速览（Endpoint/actor/双轨事件/扩展点四件套）、**libp2p git master pin 93c5059 的 6 条校准坑**（relay HOP status 默认不广告、NoAddressesInReservation、add_peer_address 非地址簿、DialPeerConditionFalse、circuit listen 时序、kad Instant 分叉）、wasm 工程约定（check-wasm.sh / 业务层零 cfg 硬约束）、wire v2 契约点（DhtKey 域分离 / BlockData proof 扩展位 / RPC 帧上限）。**碰 crates/net、crates/net-base、协议注册、relay、DHT、升级 libp2p rev 时必读** |
 
 **读取方式**：用 Read 工具读取对应文件，遵循其中记录的最佳实践和注意事项。
 

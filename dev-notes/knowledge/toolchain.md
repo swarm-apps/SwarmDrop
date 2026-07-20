@@ -50,6 +50,29 @@ pnpm 11 要求每个都显式 `true`/`false`，否则报错。等价迁移要把
 
 **相关文件**：`package.json`、`pnpm-workspace.yaml`、`mobile/pnpm-workspace.yaml`、`e2e/desktop/pnpm-workspace.yaml`
 
+### 给 mobile 加依赖：`pnpm add` 撞 `ERR_PNPM_UNUSED_PATCH`，绕过时当心连带 regen uniffi 绑定
+
+pnpm 11.10 下在 `mobile/` 里 `pnpm add <任何包>`（含 `expo install`）会报
+`[ERR_PNPM_UNUSED_PATCH] uniffi-bindgen-react-native@0.31.0-2`——patch 目标是嵌套成员
+`packages/swarmdrop-core` 的依赖，从 mobile 根视角被判「未使用」，哪怕版本精确匹配、patch 文件在、
+`_patch_hash` 也对。（pnpm 11.15+ 可能已修，但别为装一个包动全局 pnpm 版本。）
+
+**加包做法**：手动把依赖写进 `mobile/package.json`，再
+`pnpm install --config.allowUnusedPatches=true`。该 flag 只作用本次调用、不落进
+`pnpm-workspace.yaml`，不改仓库配置。装完 `grep` 一下 `pnpm-lock.yaml` 确认 patch 条目仍在、
+新包已入锁、无无关包版本变更（大 diff 多是 peer-dep hash churn，同版本重写属正常）。
+
+**必须复查的副作用（危险）**：`allowUnusedPatches` 有可能让 ubrn 的 patch 不打，随后
+prepare/codegen 用未打补丁的 ubrn **重新生成 uniffi 绑定**，把
+`mobile/packages/swarmdrop-core/{cpp,src}/generated/*`（6000+ 行）一并改了。这些是生成物、
+和你装的包无关，`git add mobile/` 会把它们一起 stage 进功能提交。**装完包务必 `git status`
+看有没有 generated 冒出来**；只要你没动 FFI 接口（`crates/core` / `mobile-core` 的 Rust 签名），
+committed 的绑定就是对的，直接
+`git checkout HEAD -- mobile/packages/swarmdrop-core/cpp/generated mobile/packages/swarmdrop-core/src/generated`
+回退，别让它混进提交。真要 regen 绑定是独立动作，走 `pnpm --filter react-native-swarmdrop-core build:ios`（patch 正常应用）。
+
+**相关文件**：`mobile/pnpm-workspace.yaml`、`mobile/packages/swarmdrop-core/**/generated/`
+
 ### 官网 Hero 视频使用独立 Remotion 工程
 
 `video/` 是用于制作官网成片的独立 pnpm workspace，不参与桌面应用或 `docs/` 的依赖安装。Remotion
@@ -94,7 +117,7 @@ pnpm test
 **正确做法**：加新 E2E 能力用官方 CLI 重新生成/调整，不要手写 `wdio.conf.ts`；这个向导目前
 生成的配置本身有几处已知 bug（`services` 数组多一个不存在的 `'tauri-plugin'` service、
 `capabilities` 还是浏览器 boilerplate、`@wdio/native-utils` 版本对不上导致运行时报错）——
-详见 [`dev-notes/blogs/desktop-webdriver-e2e.md`](../blogs/desktop-webdriver-e2e.md) 的
+详见 [`dev-notes/blogs/desktop-webdriver-e2e.md`](../blogs/desktop/desktop-webdriver-e2e.md) 的
 "常见坑"。
 
 **最容易踩的一个坑**：native 二进制必须用 `pnpm tauri build --debug --no-bundle` 构建，裸
@@ -197,6 +220,67 @@ opt-level = 3
 **Why**：crypto 依赖（`tauri-plugin-stronghold` / `chacha20poly1305` / `blake3` 等）和 libp2p 不开优化会慢 10-100×，dev 体感卡顿明显。
 
 **不要做**：删除这段配置或把 `*` 改成具体 crate 列表——会漏掉新加的 crypto/网络依赖。
+
+### wasm 构建：macOS 必须装 brew 的 LLVM，系统 clang 不行
+
+**任何要编到 `wasm32-unknown-unknown` 的活都会撞这个**（当前是 `spike/iroh-web`，M2/M6 也躲不掉）。
+
+**Apple 自带的 clang 阉割了 WebAssembly backend** —— `clang -print-targets` 里一条 wasm 都没有。
+凡是依赖里有需要编 C 的 crate（如 `ring`，iroh 的 `tls-ring` feature 会拉进来），cc-rs 调系统
+clang 必然失败：
+
+```
+error: unable to create target: 'No available targets are compatible with triple "wasm32-unknown-unknown"'
+error occurred in cc-rs: ... clang ... ring-0.17.14/crypto/curve25519/curve25519.c
+```
+
+**正确做法**（`brew install llvm` 后，在该 crate 的 `.cargo/config.toml`）：
+
+```toml
+[target.wasm32-unknown-unknown]
+# getrandom 0.3 在 wasm 上必须显式指定 backend，少了编不过且报错不指向这里
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+
+[env]
+CC_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/clang"
+AR_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/llvm-ar"
+```
+
+**注意**：这是 macOS 工具链的问题，不是 iroh/ring 的问题；Linux 的发行版 clang 通常自带 wasm
+target，所以 CI 上不需要这段 —— 别因为「CI 能过」就以为本机不用配。
+
+**wasm-pack 不必手动 pin `wasm-bindgen`**：它会从 `Cargo.lock` 解析出版本、自动装匹配的
+`wasm-bindgen-cli`（见其 `src/lockfile.rs` 的 `require_wasm_bindgen`，实测装了 v0.2.126）。
+iroh 官方 browser-echo 示例里那个 `wasm-bindgen = "=0.2.122"` 精确 pin 是**手工串链路**的产物
+（`cargo build` 后自己调 `wasm-bindgen` CLI，两者 schema version 对不上直接报错），
+用 wasm-pack 就不必背这个包袱。
+
+**相关文件**：`spike/iroh-web/.cargo/config.toml`、`spike/iroh-web/README.md`
+
+### spike/ 不进 workspace
+
+`spike/` 放临时的技术验证（当前：`spike/iroh-web`，见 #60），根 `Cargo.toml` 里
+`exclude = ["spike"]`。
+
+**Why**：
+- spike 通常是 **wasm-only / 平台专用**的，进 members 会被 `cargo check --workspace` 用桌面
+  target 白编一遍，纯浪费
+- spike 自带的 `[profile.release]` 进了 workspace 会被 root **静默忽略**（同 mobile-core 并入
+  时踩的那个坑）
+- 不 exclude 的话 cargo 会报「在 workspace 目录内却不是 member」
+
+**不要把 spike 放 `crates/`** —— 那是生产位置（如 `crates/web` 是 #72 定的），spike 可能失败，
+要能整目录删掉不留痕。验证通过后再按架构文档挪到正式位置。
+
+**wasm crate 转正到 `crates/` 时会撞上 profile 限制**（spike 期靠 exclude 绕过，转正就绕不掉了）：
+Cargo 的 `[profile.*]` **只能在 workspace root 生效**，成员 crate 的 profile 被静默忽略（同
+mobile-core 并入时那个坑）。给单个 crate 定制 profile 的**唯一**办法是该 crate 自己的
+`.cargo/config.toml` —— iroh 官方 browser-chat 就是这么做的（`browser-wasm/.cargo/config.toml`，
+注释：*"we specify the profile here, because it is the only way to define different settings for a
+single crate in a workspace"*）。代价是从 workspace root 构建时这份 profile 不生效。
+
+体积影响不小：官方 browser-blobs 缺 `[profile.release]` 那 6 行（`opt-level="z"` / `lto` /
+`codegen-units=1` / `panic=abort` / `strip="symbols"`），白白多付约 **39%** 的 gzip 体积。
 
 ### workspace members 固定 5 个（含移动端桥接 crate）
 
@@ -399,6 +483,33 @@ SwarmDrop 的 `src-tauri` 是 Cargo workspace member，不是独立 Cargo 项目
   CI 在上传步报 `no updater bundles selected`。
 
 **相关文件**：`.github/workflows/release.yml`
+
+### mobile-release.yml 缺两条 iroh-ffi 已验证的 CI 实践
+
+2026-07 读 iroh-ffi 的 CI 时发现两条我们缺、且**与迁不迁 iroh 无关**的实践，可直接抄：
+
+**① 可复现构建 —— 我们现在 .a 里嵌着绝对路径，泄露且不可复现**
+
+iroh-ffi 在 RUSTFLAGS 里加 4 条 `--remap-path-prefix`（cargo registry / cargo git / 源码 checkout /
+rustup sysroot），**并且**在 CFLAGS 里加 3 条 `-ffile-prefix-map`。
+
+⚠️ 第二半不能省：`--remap-path-prefix` 是 **Rust-only** 的，`ring` 等依赖走 build.rs + `cc`
+编译 bundled C 源码，只有 `-ffile-prefix-map` 管得到它们。
+
+**② 发布前验证产物形状 —— 我们现在只验「构建成功」**
+
+iroh-ffi 有 `cargo make verify-swift-xcframework` / `verify-kotlin-android-consumer` /
+`verify-kotlin-consumer`，Makefile.toml 注释里写明动机，抓的正是
+*"succeeds, artifact is broken, runtime crash on consumer device"* 这一类。
+
+具体到 Android：把刚构建的 .so 塞进一个**真的 consumer app**，在 emulator 上跑 instrumented test
+（纯离线的一行调用即可）。抓三类构建期看不见的问题：
+
+- AGP 没把 .so 从 JAR merge 进 APK
+- .so 加载了但 JNI 符号缺失
+- NDK API level 对 emulator 太高
+
+**相关文件**：`.github/workflows/mobile-release.yml`
 
 ### pnpm/action-setup 不能与 packageManager 双指定
 

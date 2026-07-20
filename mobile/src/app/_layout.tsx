@@ -143,6 +143,10 @@ export default function RootLayout() {
                         options={{ animation: "slide_from_right" }}
                       />
                       <Stack.Screen
+                        name="pairing/scan"
+                        options={{ animation: "slide_from_right" }}
+                      />
+                      <Stack.Screen
                         name="pairing/found-device"
                         options={{ animation: "slide_from_right" }}
                       />

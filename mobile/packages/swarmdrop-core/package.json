@@ -39,11 +39,10 @@
     "prepare": "bob build",
     "typecheck": "tsc --noEmit",
     "cargo:check": "cargo check -p swarmdrop-mobile-core",
-    "build:android": "ubrn build android --and-generate && pnpm ubrn:fix",
-    "build:android:release": "ubrn build android --and-generate --profile mobile-release -t arm64-v8a && pnpm ubrn:fix",
-    "build:ios": "ubrn build ios --and-generate && pnpm ubrn:fix",
-    "build:ios:release": "ubrn build ios --and-generate --profile mobile-release && pnpm ubrn:fix",
-    "ubrn:fix": "node scripts/fix-ubrn-output.mjs",
+    "build:android": "ubrn build android --and-generate",
+    "build:android:release": "ubrn build android --and-generate --profile mobile-release -t arm64-v8a",
+    "build:ios": "ubrn build ios --and-generate",
+    "build:ios:release": "ubrn build ios --and-generate --profile mobile-release",
     "ubrn:checkout": "ubrn checkout"
   },
   "keywords": [
@@ -64,11 +63,14 @@
     "react": "*",
     "react-native": "*"
   },
+  "dependencies": {
+    "@ubjs/core": "0.31.0-3"
+  },
   "devDependencies": {
     "@react-native/babel-preset": "0.83.0",
     "react-native-builder-bob": "^0.41.0",
     "typescript": "~5.9.2",
-    "uniffi-bindgen-react-native": "latest"
+    "uniffi-bindgen-react-native": "0.31.0-3"
   },
   "react-native-builder-bob": {
     "source": "src",

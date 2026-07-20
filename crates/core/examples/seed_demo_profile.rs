@@ -17,10 +17,10 @@
 
 use std::path::PathBuf;
 
-use swarm_p2p_core::libp2p::identity::Keypair;
 use swarmdrop_core::device::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
+use swarmdrop_net::SecretKey;
 
-/// 构造一台已配对设备：真 Ed25519 keypair → 合法 PeerId，通用元数据。
+/// 构造一台已配对设备：真 Ed25519 keypair → 合法 NodeId，通用元数据。
 fn device(
     name: &str,
     os: &str,
@@ -30,7 +30,7 @@ fn device(
     trust_level: DeviceTrustLevel,
     trust_confirmed: bool,
 ) -> PairedDeviceInfo {
-    let peer_id = Keypair::generate_ed25519().public().to_peer_id();
+    let peer_id = SecretKey::generate().node_id();
     let os_info = OsInfo {
         name: Some(name.to_string()),
         hostname: name.to_lowercase().replace(' ', "-"),
@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&dir)?;
 
     // self 身份：新生成，protobuf 编码（与 app `DeviceIdentityBytes.keypair` 存储格式一致）。
-    let self_keypair = Keypair::generate_ed25519().to_protobuf_encoding()?;
+    let self_keypair = SecretKey::generate().to_protobuf();
 
     // 固定基准时间戳，保证每次 seed 结果稳定可复现。
     let base = 1_720_000_000_i64;

@@ -258,7 +258,7 @@ impl McpHandler {
 
         // 发送端门控：MCP 来源需目标设备策略放行（allow_mcp_send_to_device）。
         // 这是真正的发送侧安全控制——防止 agent 静默把文件外传到未授权设备。
-        if let Ok(target_peer) = params.peer_id.parse::<swarm_p2p_core::libp2p::PeerId>()
+        if let Ok(target_peer) = params.peer_id.parse::<swarmdrop_net::NodeId>()
             && let Some(device) = manager.pairing().get_paired_device(&target_peer)
             && !device.receive_policy.allow_mcp_send_to_device
         {
@@ -627,7 +627,7 @@ impl McpHandler {
 
     /// 接受一个挂起的入站文件 offer（代收）
     #[tool(
-        description = "接受一个处于 RequireConfirmation 挂起态的入站文件 offer——这类会话在 list_transfers 里表现为 direction=receive、phase=Offered，先用它发现待审 offer 再取 sessionId。需来源设备已在 SwarmDrop 设备策略中开启「允许 MCP 代收」，否则被门控拒绝。可选 save_path（绝对目录）指定落盘位置；缺省落到与手动接收一致的接收文件夹（设置里的接收位置，未配则 <下载目录>/SwarmDrop）。代收的文件会在收件箱标记为「AI 代理」来源，便于与手动接收区分。注意：挂起 offer 的有效决策窗口约 3 分钟（受 libp2p 协议超时封顶），要可靠代收需让 agent 处于活跃轮询循环，别指望被动唤醒。",
+        description = "接受一个处于 RequireConfirmation 挂起态的入站文件 offer——这类会话在 list_transfers 里表现为 direction=receive、phase=Offered，先用它发现待审 offer 再取 sessionId。需来源设备已在 SwarmDrop 设备策略中开启「允许 MCP 代收」，否则被门控拒绝。可选 save_path（绝对目录）指定落盘位置；缺省落到与手动接收一致的接收文件夹（设置里的接收位置，未配则 <下载目录>/SwarmDrop）。代收的文件会在收件箱标记为「AI 代理」来源，便于与手动接收区分。注意：挂起 offer 的有效决策窗口约 3 分钟（受底层协议超时封顶），要可靠代收需让 agent 处于活跃轮询循环，别指望被动唤醒。",
         annotations(read_only_hint = false, open_world_hint = true)
     )]
     pub async fn accept_transfer(
@@ -671,7 +671,7 @@ impl McpHandler {
                     .peer_info()
                     .map(|info| info.client_info.name.clone());
                 if let Some(db) = self.app.try_state::<DatabaseConnection>() {
-                    let _ = swarmdrop_core::database::ops::update_session_origin(
+                    let _ = crate::database::ops::update_session_origin(
                         &db,
                         session_id,
                         swarmdrop_core::protocol::TransferOrigin::Mcp { client },
@@ -838,16 +838,13 @@ impl McpHandler {
             }
         }
 
-        // 门控：身份已解锁（keypair 已 manage 进 state）才允许 agent 拉起节点。
-        let Some(keypair) = self
-            .app
-            .try_state::<swarm_p2p_core::libp2p::identity::Keypair>()
-        else {
+        // 门控：身份已解锁（SecretKey 已 manage 进 state）才允许 agent 拉起节点。
+        let Some(secret_key) = self.app.try_state::<swarmdrop_net::SecretKey>() else {
             return mcp_error("设备身份未解锁，请先在 SwarmDrop 应用中解锁后重试");
         };
 
         // 复用既有 start：内部从 keychain 自取已配对设备；network_options=None 走默认设置。
-        match crate::commands::start(self.app.clone(), keypair, Vec::new(), None).await {
+        match crate::commands::start(self.app.clone(), secret_key, Vec::new(), None).await {
             Ok(()) => {
                 let state = self.app.state::<NetManagerState>();
                 let guard = state.lock().await;

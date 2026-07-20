@@ -16,7 +16,6 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 
-use crate::host::file_source::CHUNK_SIZE;
 use swarmdrop_core::{AppError, AppResult};
 
 /// 文件写入目标
@@ -68,11 +67,13 @@ impl PartFile {
         }
     }
 
-    /// 写入分块数据（使用缓存句柄 + pwrite，并发安全）
+    /// 在字节偏移 `offset` 处定位写入（使用缓存句柄 + pwrite，并发安全）
     ///
     /// 内部通过 `spawn_blocking` + 定位写入（pwrite/seek_write）实现，
-    /// 不修改文件偏移量，多个分块可安全并发写入同一文件。
-    pub async fn write_chunk(&self, chunk_index: u32, data: &[u8]) -> AppResult<()> {
+    /// 不修改文件偏移量，多个分块可安全并发写入同一文件。offset 按字节精确
+    /// 定位——与 `FileAccess::write_sink_chunk` 契约一致，不做任何 chunk 取整
+    /// （取整会把非对齐写静默落到错误位置，见 read 端 2026-07 事故）。
+    pub async fn write_at(&self, offset: u64, data: &[u8]) -> AppResult<()> {
         let handle = {
             let guard = self.write_handle.lock().unwrap();
             guard
@@ -81,7 +82,6 @@ impl PartFile {
                 .clone()
         };
 
-        let offset = chunk_index as u64 * CHUNK_SIZE as u64;
         let data = data.to_vec();
 
         tokio::task::spawn_blocking(move || write_all_at(&handle, &data, offset))
@@ -177,7 +177,7 @@ fn write_all_at(file: &std::fs::File, data: &[u8], offset: u64) -> std::io::Resu
 impl FileSink {
     /// 创建 .part 临时文件
     ///
-    /// 返回带有缓存写入句柄的 `PartFile`，后续分块写入直接调用 `part_file.write_chunk()`。
+    /// 返回带有缓存写入句柄的 `PartFile`，后续分块写入直接调用 `part_file.write_at()`。
     pub async fn create_part_file(
         &self,
         relative_path: &str,

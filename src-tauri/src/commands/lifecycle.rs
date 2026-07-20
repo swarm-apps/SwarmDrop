@@ -6,9 +6,11 @@
 use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
-use swarm_p2p_core::libp2p::identity::Keypair;
-use swarmdrop_core::host::{EventBus, FileAccess, UpdateInstallRequest, UpdateInstaller};
+use swarmdrop_core::event_adapter::CoreTransferEvents;
+use swarmdrop_core::host::{EventBus, FileAccess, Notifier, UpdateInstallRequest, UpdateInstaller};
 use swarmdrop_core::transfer::manager::TransferManager;
+use swarmdrop_net::SecretKey;
+use swarmdrop_storage_sql::SqlSessionStore;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 
@@ -22,7 +24,7 @@ use swarmdrop_core::network::NetworkRuntimeConfig;
 #[specta::specta]
 pub async fn start(
     app: AppHandle,
-    keypair: State<'_, Keypair>,
+    secret_key: State<'_, SecretKey>,
     paired_devices: Vec<PairedDeviceInfo>,
     network_options: Option<NetworkRuntimeConfig>,
 ) -> crate::AppResult<()> {
@@ -55,24 +57,31 @@ pub async fn start(
     // 不再有独立的 legacy 位置参与合并。
     let network_config = network_options.unwrap_or_default();
 
+    // notifier 交给 core 的 RPC handler（pairing / transfer offer 入站时弹通知）。
+    let notifier: Arc<dyn Notifier> =
+        Arc::new(crate::host::notifier::DesktopNotifier::new(app.clone()));
+
     let started = swarmdrop_core::runtime::start_node(
-        (*keypair).clone(),
+        (*secret_key).clone(),
         device_name,
         paired_devices,
         network_config,
-        move |client, dc_receiver| {
+        event_bus.clone(),
+        Some(notifier),
+        move |endpoint| {
             TransferManager::new(
-                client,
-                event_bus_for_factory,
-                db_for_factory,
+                endpoint,
+                Arc::new(CoreTransferEvents(event_bus_for_factory)),
+                Arc::new(SqlSessionStore::new(db_for_factory)),
                 file_access_for_factory,
-                dc_receiver,
             )
         },
-    )?;
+    )
+    .await?;
 
     let net_manager = started.manager;
-    let receiver = started.receiver;
+    let events = started.events;
+    let router = started.router;
 
     // presence（宣告上线 / bootstrap / 已配对设备重连与保活）由 core 的
     // 事件循环自动接管（见 swarmdrop_core::presence），host 不再手工编排。
@@ -94,7 +103,7 @@ pub async fn start(
     // 节点已启动 → 托盘进入在线态（新 TransferManager 默认未暂停）。
     crate::tray::refresh_tray(&app, true, false);
 
-    crate::network::spawn_event_loop(receiver, app, shared, event_bus);
+    crate::network::spawn_event_loop(events, shared, event_bus, router);
 
     Ok(())
 }
