@@ -469,6 +469,45 @@ module.exports = {
 
 ---
 
+## 坑 13:CMakeLists 的 `require.resolve` 在 pnpm workspace + CI 下返回空 → include 塌成 `/cpp/includes`
+
+**症状**:本地 `ubrn:android` + gradle 全绿,但 **CI(GitHub Actions)** 的 `Gradle assembleRelease` 挂在
+
+```text
+fatal error: 'UniffiCallInvoker.h' file not found
+Task :react-native-xxx-core:buildCMakeRelWithDebInfo[arm64-v8a] FAILED
+```
+
+clang 命令行里 include 路径是绝对的 **`-I/cpp/includes`**(注意开头那个 `/`),不是 `node_modules/.../cpp/includes`。
+
+**原因**:ubrn 生成的 `android/CMakeLists.txt` 用
+
+```cmake
+execute_process(COMMAND node -p "require.resolve('uniffi-bindgen-react-native/package.json')"
+                OUTPUT_VARIABLE UNIFFI_BINDGEN_PATH ...)
+```
+
+`execute_process` **没有 `WORKING_DIRECTORY`**,默认 cwd 是 Gradle 的深层 `.cxx` build 目录。本地 cwd 恰好在能 resolve 的位置所以过;CI 下从 build 目录向上找不到 `node_modules`(pnpm workspace 结构 + build 目录位置),`require.resolve` 抛错、stdout 空 → `UNIFFI_BINDGEN_PATH` 空 → `${UNIFFI_BINDGEN_PATH}/cpp/includes` 塌成 `/cpp/includes`。且 execute_process 没设 `RESULT_VARIABLE`,空值被静默吞掉。
+
+**修复**(改 CMakeLists + noOverwrite 保护):
+
+1. `execute_process` 加 `WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"`——强制从 CMakeLists 所在目录跑 node,向上稳定找到 node_modules。
+2. 加空值兜底:`node-linker=hoisted` 下包恒在 monorepo `mobile/node_modules`,从 `packages/<lib>/android` 上溯三级即 `mobile/`:
+
+   ```cmake
+   if(UNIFFI_BINDGEN_PATH)
+     get_filename_component(UNIFFI_BINDGEN_PATH "${UNIFFI_BINDGEN_PATH}" DIRECTORY)
+   else()
+     set(UNIFFI_BINDGEN_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../node_modules/uniffi-bindgen-react-native")
+   endif()
+   ```
+
+3. `ubrn.config.yaml` 的 `noOverwrite` 加 `android/CMakeLists.txt`,否则下次 `--and-generate` 覆盖回原样。
+
+**为什么本地测不出来**:本地 gradle build 的 cwd / node_modules 布局与 CI 不同(尤其 pnpm workspace + `expo prebuild --clean` 之后),require.resolve 本地能过、CI 挂。改完只能靠 CI 重验。SwarmDrop 2026-07 首次用 ubrn 0.31.0-3 发 mobile-v0.8.0 时踩到,桌面 v0.8.0 已发、移动因此挂。
+
+---
+
 ## 完整修复后的标准状态
 
 跑 `ubrn:android` / `ubrn:ios` 不再报错。检查清单:

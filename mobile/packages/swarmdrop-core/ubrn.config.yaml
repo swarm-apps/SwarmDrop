@@ -15,5 +15,6 @@ ios:
 
 noOverwrite:
   - android/build.gradle
+  - android/CMakeLists.txt
   - package.json
   - SwarmdropCore.podspec

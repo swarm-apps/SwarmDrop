@@ -5,15 +5,27 @@ project(SwarmdropCore)
 set (CMAKE_VERBOSE_MAKEFILE ON)
 set (CMAKE_CXX_STANDARD 17)
 
-# Resolve the path to the uniffi-bindgen-react-native package
+# Resolve the path to the uniffi-bindgen-react-native package.
+# WORKING_DIRECTORY 必须显式指向本 CMakeLists 目录：CI（Gradle externalNativeBuild）下
+# execute_process 的默认 cwd 是深层 .cxx build 目录，从那向上找不到 node_modules，
+# require.resolve 返回空 → UNIFFI_BINDGEN_PATH 空 → include 路径塌成绝对路径 /cpp/includes
+# → 'UniffiCallInvoker.h' file not found（本地能过、CI 必挂）。手改后由 ubrn.config.yaml
+# 的 noOverwrite 保护，不被 --and-generate 覆盖。详见 uniffi skill build-pitfalls 坑 13。
 execute_process(
     COMMAND node -p "require.resolve('uniffi-bindgen-react-native/package.json')"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     OUTPUT_VARIABLE UNIFFI_BINDGEN_PATH
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 # Get the directory; get_filename_component and cmake_path will normalize
 # paths with Windows path separators.
-get_filename_component(UNIFFI_BINDGEN_PATH "${UNIFFI_BINDGEN_PATH}" DIRECTORY)
+if(UNIFFI_BINDGEN_PATH)
+    get_filename_component(UNIFFI_BINDGEN_PATH "${UNIFFI_BINDGEN_PATH}" DIRECTORY)
+else()
+    # 兜底：node-linker=hoisted 下 uniffi-bindgen-react-native 恒在 monorepo 的
+    # mobile/node_modules，从 packages/swarmdrop-core/android 上溯三级即 mobile/。
+    set(UNIFFI_BINDGEN_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../node_modules/uniffi-bindgen-react-native")
+endif()
 
 # Specifies a path to native header files.
 include_directories(
