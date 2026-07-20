@@ -189,7 +189,7 @@ mod tests {
         let part = create_part_file(&dir, "data.bin", 1024).await.unwrap();
 
         let data = vec![0xABu8; 512];
-        part.write_chunk(0, &data).await.unwrap();
+        part.write_at(0, &data).await.unwrap();
 
         // 关闭句柄后读取验证
         part.close_write_handle();
@@ -215,8 +215,11 @@ mod tests {
         let data0 = vec![0xAAu8; chunk_size];
         let data1 = vec![0xBBu8; chunk_size];
 
-        // 并发写入两个分块
-        let (r0, r1) = tokio::join!(part.write_chunk(0, &data0), part.write_chunk(1, &data1));
+        // 并发写入两个分块（write_at 按字节 offset 定位，非对齐写不再被取整）
+        let (r0, r1) = tokio::join!(
+            part.write_at(0, &data0),
+            part.write_at(chunk_size as u64, &data1)
+        );
         r0.unwrap();
         r1.unwrap();
 

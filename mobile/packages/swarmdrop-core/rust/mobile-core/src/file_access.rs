@@ -123,6 +123,11 @@ pub trait ForeignFileAccess: Send + Sync {
     async fn source_metadata(&self, source_id: String) -> Result<MobileFileMetadata, FfiError>;
 
     /// 读取指定 chunk —— core 用于 BLAKE3 hash 计算和 chunk 发送
+    // 严格契约（同 crates/host ports.rs 的 FileAccess::read_source_chunk，那里是
+    // 权威文档）：必须精确返回 [offset, offset+length)——EOF 截断、越界得空、禁止
+    // 超长/取整；bao outboard 构建会按 16KiB 粒度、非对齐 offset 调用。JS 实现在
+    // mobile/src/core/foreign-file-access.ts（readBytes 尊重 length，改动时勿破坏）。
+    // 注：契约写普通注释而非 ///，是避免动 uniffi docstring 触发绑定重生成。
     async fn read_source_chunk(
         &self,
         source_id: String,

@@ -5,14 +5,14 @@
 use std::path::Path;
 
 use crate::host::file_source::{CHUNK_SIZE, EnumeratedFile, FileSource, FileSourceMetadata};
-use swarmdrop_core::{AppError, AppResult};
+use swarmdrop_core::AppResult;
 
 // ============ FileSource 分派方法 ============
 
-/// 读取文件的指定分块
-pub async fn read_chunk(path: &Path, file_size: u64, chunk_index: u32) -> AppResult<Vec<u8>> {
+/// 精确按 `[offset, offset+length)` 读取，契约与事故背景见 [`read_at_sync`]。
+pub async fn read_at(path: &Path, offset: u64, length: usize) -> AppResult<Vec<u8>> {
     let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || read_chunk_sync(&path, file_size, chunk_index)).await?
+    tokio::task::spawn_blocking(move || read_at_sync(&path, offset, length)).await?
 }
 
 /// 流式计算 BLAKE3 hash（hex 编码）
@@ -76,30 +76,30 @@ pub async fn verify_hash(path: &Path, expected_hex: &str) -> AppResult<bool> {
 
 // ============ 同步内部实现 ============
 
-fn read_chunk_sync(path: &Path, file_size: u64, chunk_index: u32) -> AppResult<Vec<u8>> {
+/// 精确按 `[offset, offset+length)` 读，越过文件尾自动截断（EOF 读返回空）。
+///
+/// 这是 `FileAccess::read_source_chunk` 的契约：调用方（bao outboard 构建按 16KiB
+/// leaf 粒度、sender 按 256KiB CHUNK_SIZE）依赖返回的字节数与请求一致。**不要**
+/// 退回「offset 取整到 chunk、忽略 length」的旧语义——那会让 blake3 subtree
+/// 断言在 >16KiB 文件的 prepare 阶段直接 panic（2026-07 图片传输事故）。
+fn read_at_sync(path: &Path, offset: u64, length: usize) -> AppResult<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
 
-    // 空文件：返回空数据
-    if file_size == 0 {
-        return Ok(Vec::new());
-    }
-
-    let offset = chunk_index as u64 * CHUNK_SIZE as u64;
-    if offset >= file_size {
-        return Err(AppError::Transfer(format!(
-            "chunk_index 超出范围: offset={offset}, file_size={file_size}"
-        )));
-    }
-
-    let remaining = file_size - offset;
-    let read_size = (remaining as usize).min(CHUNK_SIZE);
-
     let mut file = std::fs::File::open(path)?;
+    // seek 越过 EOF 合法，后续 read 自然返回 0 → 越界读得空、尾部自动截断。
+    // 不预查文件大小：省一次 fstat，也消掉 stat 与 read 之间文件变短的竞态窗口。
     file.seek(SeekFrom::Start(offset))?;
 
-    let mut buf = vec![0u8; read_size];
-    file.read_exact(&mut buf)?;
-
+    let mut buf = vec![0u8; length];
+    let mut filled = 0;
+    while filled < length {
+        let n = file.read(&mut buf[filled..])?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    buf.truncate(filled);
     Ok(buf)
 }
 
@@ -189,41 +189,43 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_read_chunk_basic() {
-        let dir = std::env::temp_dir().join("swarmdrop_test_read_chunk");
+    async fn test_read_at_exact_offset_and_length() {
+        let dir = std::env::temp_dir().join("swarmdrop_test_read_at");
         let _ = std::fs::create_dir_all(&dir);
         let file_path = dir.join("test.bin");
 
-        // 写入 512KB 数据（2 个 chunk）
-        let data: Vec<u8> = (0..CHUNK_SIZE * 2).map(|i| (i % 256) as u8).collect();
+        // 98061 字节 = 2026-07 图片传输事故的真实大小（>16KiB 非对齐）
+        let data: Vec<u8> = (0..98061).map(|i| (i % 256) as u8).collect();
         std::fs::write(&file_path, &data).unwrap();
-        let file_size = data.len() as u64;
 
-        // 读取第一个 chunk
-        let chunk0 = read_chunk(&file_path, file_size, 0).await.unwrap();
-        assert_eq!(chunk0.len(), CHUNK_SIZE);
-        assert_eq!(chunk0, &data[..CHUNK_SIZE]);
+        // bao outboard 构建的读法：16KiB leaf 粒度、非零 offset ——必须精确返回请求区间
+        let leaf1 = read_at(&file_path, 16384, 16384).await.unwrap();
+        assert_eq!(leaf1, &data[16384..32768], "非对齐 offset 必须精确定位");
 
-        // 读取第二个 chunk
-        let chunk1 = read_chunk(&file_path, file_size, 1).await.unwrap();
-        assert_eq!(chunk1.len(), CHUNK_SIZE);
-        assert_eq!(chunk1, &data[CHUNK_SIZE..]);
+        // 尾部截断：请求越过 EOF 只还文件内的部分
+        let tail = read_at(&file_path, 98061 - 100, 16384).await.unwrap();
+        assert_eq!(tail, &data[98061 - 100..]);
 
-        // 越界
-        assert!(read_chunk(&file_path, file_size, 2).await.is_err());
+        // 整 CHUNK_SIZE 读（sender 路径）
+        let all = read_at(&file_path, 0, CHUNK_SIZE).await.unwrap();
+        assert_eq!(all, data);
+
+        // EOF 之后读 → 空（AsyncSliceReader 语义，不报错）
+        assert!(read_at(&file_path, 98061, 1024).await.unwrap().is_empty());
+        assert!(read_at(&file_path, 200_000, 1024).await.unwrap().is_empty());
 
         // 清理
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
-    async fn test_read_chunk_empty_file() {
+    async fn test_read_at_empty_file() {
         let dir = std::env::temp_dir().join("swarmdrop_test_read_empty");
         let _ = std::fs::create_dir_all(&dir);
         let file_path = dir.join("empty.bin");
         std::fs::File::create(&file_path).unwrap();
 
-        let chunk = read_chunk(&file_path, 0, 0).await.unwrap();
+        let chunk = read_at(&file_path, 0, 1024).await.unwrap();
         assert!(chunk.is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
