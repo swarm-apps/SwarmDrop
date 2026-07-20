@@ -435,7 +435,10 @@ mod tests {
         // 前缀大小写敏感的话扫码 100% 解不出，这一断言堵住那个回归。
         assert_eq!(PairInvite::decode(&s.to_ascii_uppercase()).unwrap(), invite);
         // 大小写混排前缀也应放行
-        assert_eq!(PairInvite::decode(&format!("SdInViTe{}", &s[KIND.len()..])).unwrap(), invite);
+        assert_eq!(
+            PairInvite::decode(&format!("SdInViTe{}", &s[KIND.len()..])).unwrap(),
+            invite
+        );
     }
 
     #[test]
