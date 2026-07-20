@@ -40,11 +40,6 @@ pub fn js_err(e: impl std::fmt::Display) -> JsValue {
     WebError::network(e.to_string()).to_js()
 }
 
-/// `impl Display` 的内核错误 → [`WebError::Network`]。
-pub fn js_err_to_web(e: impl std::fmt::Display) -> WebError {
-    WebError::network(e.to_string())
-}
-
 /// `Result<T, WebError>` → `Result<T, JsValue>` 的收尾。
 pub type WebResult<T> = Result<T, WebError>;
 
