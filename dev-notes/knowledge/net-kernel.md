@@ -87,6 +87,30 @@ dial relay → identify 到达 → 才 listen circuit。内核的 `ensure_relay`
 native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant` 同源）——
 写跨平台代码需 cfg 分支（`actor.rs` 的 DhtCommand::Put 有样例）。
 
+### 坑 7：Android 上 hickory 读系统 DNS 走 JNI，两处入口都会炸（2026-07-20 实证）
+
+master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Android 上经
+`ndk_context::android_context()` 读系统 DNS——RN/uniffi 宿主没有任何初始化入口，
+`Endpoint::bind`（start）时直接报 `android context was not initialized`。**炸点有两处**：
+
+1. `with_dns()` → `Transport::system`。修法：Android target 用
+   `with_dns_config(公共 DNS, ResolverOpts::default())`（transport.rs 有
+   `android_dns_config()`：AliDNS/DNSPod/Cloudflare/Google udp+tcp 四组）。
+2. `with_websocket()`——**宏展开硬编码 `libp2p_dns::tokio::Transport::system(tcp)`**
+   （`libp2p/src/builder/phase/websocket.rs`），不吃 with_dns_config。修法：Android
+   直接跳过 ws（WebsocketPhase 有 `with_relay_client` shortcut，内部 without_websocket）；
+   WS listener 本来就是「LanHelper 给浏览器」的桌面场景，移动端无消费方。
+   **契约后果**：Android endpoint 对 `/ws`、`/wss` 地址**完全不可拨**（不只是不
+   listen）——今天无影响（移动拨桌面走 TCP/QUIC），但属于平台能力不对称，规划
+   ws-only 节点时要记得。根因是 libp2p 上游缺口（websocket phase 应复用已配置的
+   dns config），已提上游 <https://github.com/libp2p/rust-libp2p/issues/6529>，
+   修复后本地可收敛回双分支。
+
+只修 1 不修 2 表现完全一样（同一错误字符串），容易误判「没修上」——先怀疑第二处，
+再怀疑 .so 没重编。`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
+re-export ResolverConfig/ResolverOpts），版本必须与 libp2p-dns 同线（crates/net 的
+android target 依赖表）。
+
 ### 其余确认
 
 - `with_wasm_bindgen()` 在 master 仍在（删的是 cargo feature，不是方法）。
@@ -126,6 +150,34 @@ native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant`
   bao-tree tokio_fsm + iroh-io 的 AsyncSliceReader 适配 FileAccess，均实测 wasm 可编，无 cfg）。
 - RPC 帧：u32 BE 长度前缀 + CBOR，上限 1MiB，恶意长度在**分配前**被拒
   （`rpc.rs` 帧测试）。
+
+## 配对邀请 PairInvite（`crates/invite`，替代 6 位配对码）
+
+6 位配对码 + DHT 分享码已**整体废弃**（低熵可枚举、DHT 记录不证明身份）。替代品是独立
+wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core 与 web 共享），
+`PairingMethod` 现只剩 `Direct`（LAN mDNS）+ `Invite`。
+
+- **wire 契约（`invite.rs`，改动前看 `wire_v1_hex_snapshot` 单测）**：`sdinvite` 前缀 +
+  base32-nopad 小写 + postcard 单变体 enum `InviteWire::V1`（判别码 `0x00` 即版本，未知变体
+  解码即失败）。**签名尾置**——`InviteV1.signature` 是末位定长 64 字节，signable =
+  `bytes[..len-64]` 覆盖含版本判别码在内的全部前置字节（防降级），验签公钥从 `inviter_id`
+  的 identity multihash 就地恢复。字段序即契约，V1 发布后不可改。
+- **一次性/TTL**：`InviteRegistry`（发起端内存态）只存 `sha256(capability)`；入站 handle
+  非消费预检 + respond(Success) 原子 CAS `Pending→Consumed`（两台扫同码仅先确认者成功）。
+- **QR 三端统一（`qr.rs`，唯一编码源）**：喂 fast_qr 前把**整串（含 `sdinvite` 前缀）**
+  `.to_ascii_uppercase()` → 落 QR alphanumeric 模式（byte 模式 v13-15 降 v11-12，模块 -15%）；
+  ECL::M + 4 模块 quiet zone。三端渲染 core 出的 SVG/矩阵（桌面/web 用 `invite_qr_svg`、
+  RN 用 `invite_qr_matrix` + react-native-svg），**深模块 + 白底不随暗色反色**。
+  ⚠️ **整串大写含前缀**，故 `decode` 对前缀**必须大小写不敏感**——`strip_prefix("sdinvite")`
+  曾大小写敏感，扫码得到的 `SDINVITE…` 100% 解不出（粘贴走小写规范串侥幸没暴露，移动扫码落地
+  才发现）；已修（`invite.rs` 前缀 `eq_ignore_ascii_case` 回退）+ 补「整串大写 / 混排前缀」回归
+  断言（`roundtrip_and_case_insensitive`）。payload 段本就大小写不敏感。
+- **三端接线**：桌面命令 `generate_pair_invite`/`decode_pair_invite`/`invite_qr_svg`/
+  `consume_pair_invite`；mobile uniffi 同名 + `pair_direct`（补回 Direct）+ `invite_qr_matrix`；
+  web `WebNode::connect_invite`（decode 纯函数只需 net-base）。剪贴板感知（`hasStringAsync`
+  探测亮 chip）与移动扫码（expo-camera `CameraView`：`barcodeTypes:["qr"]` + 前缀校验 +
+  `lockRef` 一次性闸 + 权限三态 + AppState 回前台重拉）均已落地（`mobile/src/app/pairing/scan.tsx`）；
+  原生 `CameraView` 需 `expo prebuild` 重编。
 
 ## 已知负债（勿当 bug 重报）
 

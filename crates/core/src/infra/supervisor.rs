@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use dashmap::DashMap;
+use n0_future::time::Instant;
 use swarmdrop_net::{Addr, Endpoint, InfraRoles, NetEvent, NodeAddr, NodeId};
-use tokio::time::Instant;
 
 use crate::device::OsInfo;
 use crate::network::candidates::{
@@ -138,7 +138,7 @@ impl InfraSupervisor {
             tracing::info!("学习到基础设施节点 {peer_id}（{} 个公网地址）", addrs.len());
             // 即时 kad 接线；reservation 交给 tick 按 public_reachability 决策
             let endpoint = self.endpoint.clone();
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 let _ = endpoint
                     .add_infrastructure_peer(
                         NodeAddr::with_addrs(peer_id, addrs),
@@ -195,7 +195,7 @@ impl InfraSupervisor {
             let peer = candidate.peer_id;
             let addrs = candidate.addrs.clone();
             let roles: InfraRoles = candidate.roles.into();
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 tracing::debug!("收敛基础设施链路: {peer}（第 {attempts} 次尝试）");
                 // 全角色注册：kad 重接线 + 未连接时拨号 + 常驻登记 reservation 意图
                 // （identify 后幂等建立），断连恢复与 reservation 重建一步到位
@@ -213,8 +213,8 @@ impl InfraSupervisor {
     where
         TTransfer: Send + Sync + 'static,
     {
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut interval = n0_future::time::interval(Duration::from_secs(1));
+        interval.set_missed_tick_behavior(n0_future::time::MissedTickBehavior::Delay);
         loop {
             tokio::select! {
                 _ = shared.cancel_token.cancelled() => break,

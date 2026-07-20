@@ -357,6 +357,16 @@ impl SenderActor {
             .file_access
             .read_source_chunk(&file.source_id, offset, length)
             .await?;
+        // range 已按 file.size clamp，EOF 短读在此不可能——长度不符只能是宿主违约
+        // 或文件在传输中被外部改动。静默发出缩短的块会让外层循环仍按请求 len 推进
+        // offset，留下永不补发的 gap（接收端 checkpoint 永远收不齐），必须响错。
+        if plaintext.len() != length {
+            return Err(AppError::Transfer(format!(
+                "read_source_chunk 返回长度异常: 请求 {length}B@{offset}，得到 {}B (file_id={})",
+                plaintext.len(),
+                file.file_id
+            )));
+        }
         let plaintext_len = plaintext.len() as u64;
 
         // 逐块验签（Approach B）：proof 携带该 range 的完整 bao 切片（含叶子），data 置空——

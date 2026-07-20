@@ -101,6 +101,18 @@ impl Addr {
             .last()
     }
 
+    /// multiaddr 二进制字节形态（wire 紧凑编码用——文本形态约有 2x 膨胀）。
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+
+    /// 从 multiaddr 二进制字节恢复（[`Addr::to_bytes`] 的反向）。
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, AddrParseError> {
+        Multiaddr::try_from(bytes.to_vec())
+            .map(Self)
+            .map_err(|e| AddrParseError(e.to_string()))
+    }
+
     /// 内核内部互转用，业务层不应调用。
     #[doc(hidden)]
     pub fn from_multiaddr(addr: Multiaddr) -> Self {

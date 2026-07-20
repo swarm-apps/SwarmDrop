@@ -49,6 +49,15 @@
           "photosPermission": "允许 SwarmDrop 访问相册以选择要发送的照片和视频。"
         }
       ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "允许 SwarmDrop 使用相机扫描配对二维码。",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
       "expo-sharing",
       "expo-web-browser",
       [

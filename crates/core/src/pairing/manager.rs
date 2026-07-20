@@ -1,12 +1,11 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dashmap::DashMap;
-use swarmdrop_net::{AcceptError, Addr, CallOptions, Dht, DhtKey, Endpoint, NodeId, RpcService};
+use swarmdrop_net::{AcceptError, Addr, CallOptions, Endpoint, NodeId, RpcService};
 use tokio::sync::oneshot;
 
-use super::code::{PairingCodeInfo, ShareCodeRecord};
 use crate::device::{OsInfo, PairedDeviceInfo};
 use crate::device_manager::DeviceManager;
 use crate::host::{CoreEvent, EventBus, Notification, Notifier};
@@ -14,15 +13,18 @@ use crate::protocol::{
     PAIRING, PairingMethod, PairingRefuseReason, PairingRequest, PairingResponse,
 };
 use crate::{AppError, AppResult};
-
-/// 分享码 DHT 命名空间（迁自旧栈 `dht_key::NS_SHARE_CODE`）。
-const SHARE_CODE_NS: &str = "/swarmdrop/share-code/";
+use swarmdrop_invite::{InviteRegistry, InviteRejectReason, PairInvite, TransportPolicy};
 
 /// 出站配对调用超时（对齐旧栈 req_resp_timeout，容纳对端等用户决策的长交互）。
 const PAIRING_CALL_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// 入站配对请求待决表最长等待（超时回收，避免 handler 任务无限挂起）。
 const PENDING_INBOUND_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// 当前 Unix 秒（邀请 TTL 判定用；chrono 在 wasm 下走 js 时钟）。
+fn now_secs() -> u64 {
+    chrono::Utc::now().timestamp().max(0) as u64
+}
 
 /// 入站配对请求的待决上下文。
 ///
@@ -37,26 +39,24 @@ struct PendingInbound {
 
 /// 配对管理器（兼配对 typed RPC 服务）。
 ///
-/// 管理配对码生成/查询、出站配对请求、入站请求的用户决策编排，以及已配对设备的
+/// 管理邀请生成/消费、出站配对请求、入站请求的用户决策编排，以及已配对设备的
 /// 增删查。在线宣告与已配对设备的 presence 维持见 [`crate::presence`]。
 pub struct PairingManager {
     endpoint: Endpoint,
-    /// 当前活跃的配对码（单例，同一时刻最多一个）
-    active_code: Mutex<Option<PairingCodeInfo>>,
     /// 已配对设备（与 DeviceManager 共享读取）
     paired_devices: Arc<DashMap<NodeId, PairedDeviceInfo>>,
     /// 入站请求待决表（correlation id → 上下文 + oneshot sender）
     pending_inbound: DashMap<u64, PendingInbound>,
     /// correlation id 分配器（进程内自增；不再是旧内核 pending 响应 id）
     next_pending_id: AtomicU64,
-    /// get_device_info 查询时缓存对端 OsInfo，request_pairing 成功后使用
-    discovered_peers: DashMap<NodeId, OsInfo>,
     /// Direct 配对的局域网校验依据（`is_lan_discovered`）
     devices: Arc<DeviceManager>,
     /// 入站请求到达时发 [`CoreEvent::PairingRequestReceived`]
     event_bus: Arc<dyn EventBus>,
     /// 入站请求到达时的系统通知（桌面端；移动端传 None）
     notifier: Option<Arc<dyn Notifier>>,
+    /// 一次性邀请状态表（发起端：TTL + capability 哈希 + CAS 消费）
+    invite_registry: InviteRegistry,
 }
 
 impl PairingManager {
@@ -69,25 +69,14 @@ impl PairingManager {
     ) -> Self {
         Self {
             endpoint,
-            active_code: Mutex::new(None),
             paired_devices,
             pending_inbound: DashMap::new(),
             next_pending_id: AtomicU64::new(0),
-            discovered_peers: DashMap::new(),
             devices,
             event_bus,
             notifier,
+            invite_registry: InviteRegistry::new(),
         }
-    }
-
-    fn dht(&self) -> AppResult<&Dht> {
-        self.endpoint
-            .dht()
-            .ok_or_else(|| AppError::Network("DHT 未启用".into()))
-    }
-
-    fn share_code_key(code: &str) -> DhtKey {
-        DhtKey::namespaced(SHARE_CODE_NS, code.as_bytes())
     }
 
     /// 本机可供对端拨号的地址（监听 ∪ 外部确认地址，去重）。
@@ -95,65 +84,55 @@ impl PairingManager {
         self.endpoint.watch_addrs().get().dialable()
     }
 
-    // === 配对码管理 ===
+    // === 邀请（PairInvite）管理 ===
 
-    pub async fn generate_code(&self, expires_in_secs: u64) -> AppResult<PairingCodeInfo> {
-        let code_info = PairingCodeInfo::generate(expires_in_secs);
+    /// 生成邀请并返回编码串：签名 + 登记进 [`InviteRegistry`]。不经 DHT——邀请串自包含
+    /// 地址提示，靠带外信道（二维码/链接）传递。
+    pub fn encode_invite(
+        &self,
+        secret: &swarmdrop_net::SecretKey,
+        policy: TransportPolicy,
+        display: &OsInfo,
+    ) -> String {
+        let invite = PairInvite::generate(
+            secret,
+            self.shareable_addrs(),
+            policy,
+            display
+                .name
+                .clone()
+                .unwrap_or_else(|| display.hostname.clone()),
+            display.platform.clone(),
+            now_secs(),
+        );
+        self.invite_registry.register(&invite);
+        invite.encode(secret)
+    }
 
-        // 嵌入本机可达地址，供对方 dial 时使用
-        let mut record_data = ShareCodeRecord::from(&code_info);
-        record_data.listen_addrs = self.shareable_addrs();
-
-        self.dht()?
-            .put(
-                Self::share_code_key(&code_info.code),
-                serde_json::to_vec(&record_data)?,
-                Some(Duration::from_secs(expires_in_secs)),
-            )
+    /// 受邀方：解码邀请串 → 验签 → TTL 预检 → 按策略过滤地址 → 连接发起方出示凭证。
+    ///
+    /// 身份 pin 由 `request_pairing` 内的连接握手强制（连到的必然是 `inviter_id`，
+    /// 冒充在密码学上不可能）；LocalOnly 下地址提示已过滤为仅私网。
+    pub async fn pair_with_invite(
+        &self,
+        invite_str: &str,
+    ) -> AppResult<(PairingResponse, Option<PairedDeviceInfo>)> {
+        let invite = PairInvite::decode(invite_str).map_err(|e| {
+            tracing::warn!("邀请解码失败: {e}");
+            AppError::InvalidCode
+        })?;
+        if invite.is_expired(now_secs()) {
+            return Err(AppError::ExpiredCode);
+        }
+        let method = PairingMethod::Invite {
+            invite_id: invite.invite_id,
+            capability: invite.capability,
+        };
+        self.request_pairing(invite.inviter.id, method, Some(invite.usable_addrs()))
             .await
-            .map_err(|e| AppError::Network(format!("发布分享码失败: {e}")))?;
-
-        // 覆盖旧码（旧 DHT 记录靠 TTL 自然过期，无需显式删除）
-        *self.active_code.lock().unwrap() = Some(code_info.clone());
-
-        Ok(code_info)
     }
 
     // === 配对流程 ===
-
-    /// 查询配对码对应的设备信息，并缓存 OsInfo 供后续 request_pairing 使用
-    pub async fn get_device_info(&self, code: &str) -> AppResult<(NodeId, ShareCodeRecord)> {
-        let record = self
-            .dht()?
-            .get(Self::share_code_key(code))
-            .await
-            .map_err(|e| match e {
-                swarmdrop_net::DhtError::NotFound => AppError::InvalidCode,
-                other => AppError::Network(format!("查询分享码失败: {other}")),
-            })?;
-
-        let peer_id = record.publisher.ok_or(AppError::InvalidCode)?;
-        let share_record = serde_json::from_slice::<ShareCodeRecord>(&record.value)?;
-
-        // 分享码 record 自带过期时间（unix 秒）
-        if share_record.expires_at < chrono::Utc::now().timestamp() {
-            return Err(AppError::ExpiredCode);
-        }
-
-        // 将记录中的地址注册到地址簿，确保后续拨号能找到对方
-        if !share_record.listen_addrs.is_empty() {
-            self.endpoint
-                .add_addrs(peer_id, share_record.listen_addrs.clone())
-                .await
-                .map_err(|e| AppError::Network(format!("注册对端地址失败: {e}")))?;
-        }
-
-        // 缓存对端 OsInfo，request_pairing 成功后用于构造 PairedDeviceInfo
-        self.discovered_peers
-            .insert(peer_id, share_record.os_info.clone());
-
-        Ok((peer_id, share_record))
-    }
 
     /// 发起配对请求
     ///
@@ -193,12 +172,9 @@ impl PairingManager {
 
         match res {
             PairingResponse::Success => {
-                let os_info = self
-                    .discovered_peers
-                    .remove(&peer_id)
-                    .map(|(_, info)| info)
-                    .unwrap_or_else(|| OsInfo::unknown_from_peer_id(&peer_id));
-
+                // OsInfo 用占位值，随后由 identify 交换经 refresh_paired_device_os_info 补全
+                // （邀请里的 display_hint 只供确认界面，不作为持久设备信息来源）。
+                let os_info = OsInfo::unknown_from_peer_id(&peer_id);
                 let info =
                     PairedDeviceInfo::new(peer_id, os_info, chrono::Utc::now().timestamp_millis());
                 self.paired_devices.insert(peer_id, info.clone());
@@ -226,6 +202,22 @@ impl PairingManager {
             return Err(AcceptError::from_err(AppError::Network(
                 "direct pairing from non-LAN peer refused".into(),
             )));
+        }
+
+        // Invite：非消费预检——明显非法（未知/过期/错 capability/已用）直接婉拒，
+        // 不打扰用户、不占一次性额度。权威 CAS 消费留到用户确认（respond Success）。
+        if let PairingMethod::Invite {
+            invite_id,
+            capability,
+        } = &req.method
+            && let Err(reason) = self
+                .invite_registry
+                .check(invite_id, capability, now_secs())
+        {
+            tracing::warn!("拒绝非法邀请配对请求 {from}: {reason:?}");
+            return Ok(PairingResponse::Refused {
+                reason: PairingRefuseReason::UserRejected,
+            });
         }
 
         let (tx, rx) = oneshot::channel();
@@ -257,7 +249,7 @@ impl PairingManager {
         }
 
         // await 用户决策；超时或 sender 被 drop（respond 校验失败 / 回收）→ 婉拒
-        match tokio::time::timeout(PENDING_INBOUND_TIMEOUT, rx).await {
+        match n0_future::time::timeout(PENDING_INBOUND_TIMEOUT, rx).await {
             Ok(Ok(resp)) => Ok(resp),
             _ => {
                 self.pending_inbound.remove(&pending_id);
@@ -288,20 +280,20 @@ impl PairingManager {
         // 穷尽 match 而非 `if let`：新增变体不会静默落到免校验通道。
         if matches!(response, PairingResponse::Success) {
             match &pending.method {
-                PairingMethod::Code { code } => {
-                    let mut guard = self.active_code.lock().unwrap();
-                    let info = guard.as_ref().ok_or(AppError::InvalidCode)?;
-                    if &info.code != code {
-                        return Err(AppError::InvalidCode);
-                    }
-                    if info.is_expired() {
-                        return Err(AppError::ExpiredCode);
-                    }
-                    *guard = None;
-                    // 校验失败时上面提前 return（未 send responder），
-                    // pending.responder 随本函数返回被 drop → handler 得 RecvError 婉拒。
-                }
                 PairingMethod::Direct => {}
+                PairingMethod::Invite {
+                    invite_id,
+                    capability,
+                } => {
+                    // 权威一次性消费（CAS）：两台设备同时扫同码时，仅先确认者成功，
+                    // 后者拿到 Unavailable → 提前 return（未 send responder）→ 对端婉拒。
+                    self.invite_registry
+                        .try_consume(invite_id, capability, pending.peer_id, now_secs())
+                        .map_err(|reason| match reason {
+                            InviteRejectReason::Expired => AppError::ExpiredCode,
+                            _ => AppError::InvalidCode,
+                        })?;
+                }
             }
         }
 

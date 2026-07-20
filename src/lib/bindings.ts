@@ -65,10 +65,30 @@ export const commands = {
 	 *  `name = None`（或空串/纯空白）清空，回退到系统 hostname。
 	 */
 	setDeviceName: (name: string | null) => __TAURI_INVOKE<null>("set_device_name", { name }),
-	/**  生成配对码 */
-	generatePairingCode: (expiresInSecs: number | null) => __TAURI_INVOKE<PairingCodeInfo>("generate_pairing_code", { expiresInSecs }),
-	/**  通过配对码查询对端设备信息 */
-	getDeviceInfo: (code: string) => __TAURI_INVOKE<DeviceInfo>("get_device_info", { code }),
+	/**
+	 *  生成一次性签名邀请串（供二维码/链接分享）。
+	 * 
+	 *  `local_only=true` 走 LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。
+	 *  邀请自包含地址提示，不经 DHT——旧 6 位分享码机制已废弃。
+	 */
+	generatePairInvite: (localOnly: boolean | null) => __TAURI_INVOKE<string>("generate_pair_invite", { localOnly }),
+	/**
+	 *  生成邀请串的二维码 SVG（三端统一编码规范：大写 alphanumeric + ECL::M + quiet zone，
+	 *  见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
+	 */
+	inviteQrSvg: (invite: string) => __TAURI_INVOKE<string>("invite_qr_svg", { invite }),
+	/**
+	 *  解码并验签邀请串，返回对端展示信息（**不发起配对、不消费**）。
+	 * 
+	 *  供受邀方在扫码/粘贴/剪贴板感知后先展示确认卡；篡改/伪造的邀请在此即被验签拒绝。
+	 */
+	decodePairInvite: (invite: string) => __TAURI_INVOKE<PairInvitePreview>("decode_pair_invite", { invite }),
+	/**
+	 *  用邀请串发起配对（受邀方）：解码验签 → 连接发起方 → 出示凭证。
+	 * 
+	 *  配对成功后自动加入已配对设备并 emit `paired-device-added`。
+	 */
+	consumePairInvite: (invite: string) => __TAURI_INVOKE<PairingResponse>("consume_pair_invite", { invite }),
 	/**
 	 *  向对端发起配对请求
 	 * 
@@ -225,13 +245,6 @@ export type Device = {
 
 /**  设备过滤器 */
 export type DeviceFilter = "all" | "connected" | "paired";
-
-/**  查询设备信息的返回类型 */
-export type DeviceInfo = {
-	/**  节点身份 NodeId（base58 字符串） */
-	peerId: string,
-	codeRecord: ShareCodeRecord,
-};
 
 /**  设备列表查询结果。 */
 export type DeviceListResult = {
@@ -478,6 +491,18 @@ export type OsInfo = {
 	capabilities?: string[],
 };
 
+/**  邀请串解码后的展示投影（用于配对确认卡；不含 capability 等敏感字段）。 */
+export type PairInvitePreview = {
+	/**  发起方 NodeId（base58）。 */
+	peerId: string,
+	displayName: string,
+	displayPlatform: string,
+	/**  过期时刻（Unix 秒）——前端与当前时间比对判断是否已过期。 */
+	expiresAt: number,
+	/**  LocalOnly 策略（仅局域网）。 */
+	localOnly: boolean,
+};
+
 export type PairedDeviceAdded = PairedDeviceInfo;
 
 /**  已配对设备信息。 */
@@ -489,19 +514,22 @@ export type PairedDeviceInfo = {
 	trustConfirmed?: boolean,
 } & OsInfo;
 
-export type PairingCodeInfo = {
-	code: string,
-	createdAt: string,
-	expiresAt: string,
-};
-
 /**
  *  配对方式。
  * 
- *  `Code` 携带分享码作凭证；`Direct` 为局域网直连（授权依据是「对端在本机 mDNS
- *  多播域内」）。未来的邀请链接机制会新增 `Invite` 变体（扩展位，预留于此）。
+ *  `Direct` 为局域网直连（授权依据是「对端在本机 mDNS 多播域内」）；`Invite` 携带
+ *  一次性邀请凭证（invite_id + capability，见 [`swarmdrop_invite`]）——受邀方
+ *  解码邀请串后连接发起方并出示凭证，发起方按
+ *  [`InviteRegistry`](swarmdrop_invite::InviteRegistry) 校验。
+ * 
+ *  6 位分享码（旧 `Code` 变体 + DHT 发布/查询）已废弃——低熵可枚举、DHT 记录无法
+ *  证明身份，被自包含签名邀请取代（openspec: pair-invite-protocol）。
  */
-export type PairingMethod = { type: "code"; code: string } | { type: "direct" };
+export type PairingMethod = { type: "direct" } | { type: "invite"; 
+/**  邀请标识（发起端据此查 Registry）。 */
+invite_id: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number]; 
+/**  bearer 凭证明文（发起端比对哈希；信道保密靠邀请串的 fragment 传递）。 */
+capability: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] };
 
 /**  配对被拒绝的原因。 */
 export type PairingRefuseReason = { type: "user_rejected" };
@@ -575,19 +603,6 @@ export type ScannedSourceResult = {
 	files: EnumeratedFile[],
 	totalSize: number,
 };
-
-/**
- *  DHT 上跨设备共享的配对码记录。
- * 
- *  `created_at` / `expires_at` 保持 `i64`（Unix 秒）以稳定线路格式 +
- *  控制 DHT record 体积；与 IPC 边界的 `PairingCodeInfo`（DateTime<Utc>）解耦。
- */
-export type ShareCodeRecord = {
-	createdAt: number,
-	expiresAt: number,
-	/**  发布者的可达地址，用于跨网络场景下让对方直接 dial。 */
-	listenAddrs?: string[],
-} & OsInfo;
 
 /**  `send_offer` 的返回类型 */
 export type StartSendResult = {

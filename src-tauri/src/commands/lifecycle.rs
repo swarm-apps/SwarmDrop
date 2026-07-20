@@ -6,11 +6,11 @@
 use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
-use swarmdrop_core::database::SqlSessionStore;
 use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{EventBus, FileAccess, Notifier, UpdateInstallRequest, UpdateInstaller};
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_net::SecretKey;
+use swarmdrop_storage_sql::SqlSessionStore;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 

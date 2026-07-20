@@ -22,7 +22,6 @@ use swarmdrop_net::{Addr, DhtConfig, Endpoint, NodeAddr, NodeId, Router, SecretK
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 
-use swarmdrop_core::database::{SqlSessionStore, ops};
 use swarmdrop_core::device::{OsInfo, PairedDeviceInfo};
 use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{
@@ -41,6 +40,7 @@ use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::store::CreateSessionInput;
 use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
+use swarmdrop_storage_sql::{SqlSessionStore, ops};
 
 // ===== harness =====
 
@@ -533,7 +533,7 @@ async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
     wait_completed(node_b.db.as_ref(), session_id, "接收方").await;
 
     // 接收端：完成会话落 inbox，source_kind 应由 origin(mcp) 派生为 Mcp。
-    let detail = swarmdrop_core::database::inbox::ensure_inbox_item_for_completed_receive_session(
+    let detail = swarmdrop_storage_sql::inbox::ensure_inbox_item_for_completed_receive_session(
         node_b.db.as_ref(),
         session_id,
     )

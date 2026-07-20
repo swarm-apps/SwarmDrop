@@ -22,7 +22,7 @@ SwarmDrop-RN 的核心业务是 P2P 文件传输 + 设备配对。状态层在
 - `resumeTransfer(sessionId)`
 
 Rust bridge 的 [history.rs](../../packages/swarmdrop-core/rust/mobile-core/src/history.rs)
-只负责把 `swarmdrop_core::database::ops::TransferProjection` 镜像成
+只负责把 `swarmdrop_core::transfer::store::TransferProjection` 镜像成
 `MobileTransferProjection`。RN 端状态集中在
 [src/stores/transfer-store.ts](../../src/stores/transfer-store.ts)，UI 只用
 [src/core/transfer-types.ts](../../src/core/transfer-types.ts) 把 projection 映射成移动端展示状态。

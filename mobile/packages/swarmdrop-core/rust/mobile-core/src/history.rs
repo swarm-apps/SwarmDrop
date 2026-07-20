@@ -1,4 +1,4 @@
-//! 传输活动投影 —— 暴露共享 `swarmdrop_core::database::ops::TransferProjection`。
+//! 传输活动投影 —— 暴露共享 `swarmdrop_core::transfer::store::TransferProjection`。
 //!
 //! 旧的 `MobileSessionStatus`/history item 模型已经不再是移动端状态源。本文件只保留
 //! Activity/Recovery 所需的 projection 查询、删除、清空和恢复命令。
@@ -8,9 +8,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
-use swarmdrop_core::database::ops;
 use swarmdrop_core::host::{EventBus, FileAccess};
 use swarmdrop_core::transfer::coordinator::TransferCoordinator;
+use swarmdrop_storage_sql::ops;
 
 use crate::app::MobileCore;
 use crate::error::{FfiError, FfiResult};
@@ -208,7 +208,7 @@ pub(crate) async fn reconcile_stale_sessions(
     file_access: &Arc<dyn FileAccess>,
 ) -> FfiResult<usize> {
     let converted = TransferCoordinator::new(
-        Arc::new(swarmdrop_core::database::SqlSessionStore::new(db.clone())),
+        Arc::new(swarmdrop_storage_sql::SqlSessionStore::new(db.clone())),
         Arc::new(swarmdrop_core::event_adapter::CoreTransferEvents(event_bus)),
     )
     .cleanup_recoverable_sessions()

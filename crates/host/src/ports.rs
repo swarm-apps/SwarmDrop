@@ -132,6 +132,18 @@ pub struct HostFileMetadata {
 #[async_trait]
 pub trait FileAccess: Send + Sync {
     async fn source_metadata(&self, source: &FileSourceId) -> AppResult<HostFileMetadata>;
+    /// 精确读取源文件 `[offset, offset+length)` 区间的字节。
+    ///
+    /// **严格契约**（宿主实现必须逐条满足，违约会破坏 bao 逐块验签——
+    /// 2026-07 桌面宿主把 offset 取整到 256KiB chunk，>16KiB 文件 prepare 直接
+    /// panic 进 blake3）：
+    /// - 返回字节数 == `min(length, 文件大小 - offset)`：不取整、不多读、不少读；
+    /// - `offset` 越过 EOF → 返回空 `Vec`（不报错）；尾部不足 `length` → 截断到 EOF；
+    /// - 禁止返回超过 `length` 的数据（内核视为违约、响错拒收）。
+    ///
+    /// 调用方包括按 16KiB 粒度、非对齐 offset 读的 bao outboard 构建——
+    /// 不要假设 offset/length 与任何 chunk 尺寸对齐。参考实现（含契约单测）：
+    /// 桌面 `src-tauri/src/host/file_source/path_ops.rs::read_at_sync`。
     async fn read_source_chunk(
         &self,
         source: &FileSourceId,

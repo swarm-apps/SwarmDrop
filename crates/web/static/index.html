@@ -31,10 +31,10 @@
   <button id="btn-connect">connect</button>
   <button id="btn-reserve">reserve（circuit listen，拿被动接收地址）</button>
 
-  <h2>② 分享码（可选，需已连 DHT-capable helper）</h2>
+  <h2>② 粘贴邀请（受邀方：连桌面/移动生成的配对邀请）</h2>
   <div class="row">
-    <input id="code" placeholder="6 位分享码" />
-    <button id="btn-lookup">lookup</button>
+    <input id="invite" placeholder="sdinvite..." />
+    <button id="btn-invite">connect-invite</button>
   </div>
 
   <h2>③ 发送文件</h2>
@@ -73,9 +73,9 @@
     const addr = () => $("addr").value;
     $("btn-connect").onclick = async () => { try { const c = await node.connect(addr()); log(`connected: path=${c.path} addr=${c.addr}`); } catch (e) { log("❌ connect " + JSON.stringify(e)); } };
     $("btn-reserve").onclick = async () => { try { log("reserve → " + await node.reserve(addr())); } catch (e) { log("❌ reserve " + JSON.stringify(e)); } };
-    $("btn-lookup").onclick = async () => {
-      try { const o = await node.lookup_share_code($("code").value); log("share code → " + JSON.stringify(o)); $("peer").value = o.id; if (o.addrs?.[0]) $("addr").value = o.addrs[0] + "/p2p/" + o.id; }
-      catch (e) { log("❌ lookup " + JSON.stringify(e)); }
+    $("btn-invite").onclick = async () => {
+      try { const c = await node.connect_invite($("invite").value.trim()); log(`invite connected: path=${c.path} addr=${c.addr}`); }
+      catch (e) { log("❌ connect-invite " + JSON.stringify(e)); }
     };
     $("btn-send").onclick = async () => {
       try {

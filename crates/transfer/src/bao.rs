@@ -91,6 +91,15 @@ impl AsyncSliceReader for FileAccessReader {
             .read_source_chunk(&self.source_id, offset, len)
             .await
             .map_err(|e| std::io::Error::other(e.to_string()))?;
+        // 契约防御：宿主超长返回会把非法长度喂进 bao 的 subtree hasher（blake3 直接
+        // panic，2026-07 桌面宿主取整 offset 的事故形态）。响错优于截断——超长通常
+        // 伴随 offset 错位，截断会静默产出错误 hash。
+        if chunk.len() > len {
+            return Err(std::io::Error::other(format!(
+                "read_source_chunk 违反契约: 请求 {len}B@{offset}，返回 {}B",
+                chunk.len()
+            )));
+        }
         Ok(Bytes::from(chunk))
     }
 
@@ -228,7 +237,12 @@ mod tests {
     }
 
     /// 最小 FileAccess：只服务 read_source_chunk（供 outboard 流式构建测试）。
-    struct MockSource(Vec<u8>);
+    /// `ignore_len: true` 复刻 2026-07 桌面宿主违约形态——无视 len 返回 offset 到
+    /// 文件尾的全部字节。
+    struct MockSource {
+        data: Vec<u8>,
+        ignore_len: bool,
+    }
 
     #[async_trait::async_trait]
     impl FileAccess for MockSource {
@@ -242,8 +256,12 @@ mod tests {
             len: usize,
         ) -> AppResult<Vec<u8>> {
             let start = offset as usize;
-            let end = (start + len).min(self.0.len());
-            Ok(self.0.get(start..end).unwrap_or_default().to_vec())
+            let end = if self.ignore_len {
+                self.data.len()
+            } else {
+                (start + len).min(self.data.len())
+            };
+            Ok(self.data.get(start..end).unwrap_or_default().to_vec())
         }
         async fn create_sink(&self, _m: HostFileMetadata) -> AppResult<FileSinkId> {
             unreachable!()
@@ -260,7 +278,10 @@ mod tests {
     async fn streaming_build_matches_in_memory_and_flat_blake3() {
         let data = data_of(CHUNK_SIZE * 2 + 77 * 1024);
         let (mem_root, mem_ob) = build_outboard(&data);
-        let source: Arc<dyn FileAccess> = Arc::new(MockSource(data.clone()));
+        let source: Arc<dyn FileAccess> = Arc::new(MockSource {
+            data: data.clone(),
+            ignore_len: false,
+        });
         let (stream_root, stream_ob) =
             build_outboard_from_source(&source, &FileSourceId("x".into()), data.len() as u64)
                 .await
@@ -348,6 +369,35 @@ mod tests {
     #[test]
     fn empty_file_roundtrips() {
         roundtrip_all_blocks(&[]);
+    }
+
+    /// 宿主超长返回（违反 read_source_chunk 契约）必须响错拒收，
+    /// 而不是把非法长度送进 blake3 的 subtree hasher（panic）。
+    #[tokio::test]
+    async fn overlong_host_read_is_rejected_not_panic() {
+        let data = data_of(98061);
+        let source: Arc<dyn FileAccess> = Arc::new(MockSource {
+            data,
+            ignore_len: true,
+        });
+        let err = build_outboard_from_source(&source, &FileSourceId("x".into()), 98061)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("违反契约"), "应响契约错误: {err}");
+    }
+
+    /// 非 CHUNK_SIZE 对齐的 offset（16KiB，resume 场景可出现）也必须可 roundtrip。
+    /// 尺寸取 2026-07 图片传输事故的真实值（98061 = 16384 + 81677）。
+    #[test]
+    fn roundtrip_from_16kib_offset() {
+        let data = data_of(98061);
+        let (root, outboard) = build_outboard(&data);
+        let size = data.len() as u64;
+        let offset = 16384u64;
+        let block = &data[offset as usize..];
+        let proof = encode_proof(&outboard, root, size, offset, block).unwrap();
+        let decoded = decode_and_verify(&proof, root, size, offset, block.len() as u64).unwrap();
+        assert_eq!(decoded, block);
     }
 
     #[test]

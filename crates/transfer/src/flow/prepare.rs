@@ -51,6 +51,15 @@ impl TransferManager {
                     .file_access
                     .read_source_chunk(&entry.source_id, offset, length)
                     .await?;
+                // length 已按 entry.size 预算，长度不符 = 宿主违约或文件被外部修改。
+                // 静默吞掉会算出错误 checksum，拖到接收端验签才暴露，这里提前响错。
+                if chunk.len() != length {
+                    return Err(AppError::Transfer(format!(
+                        "read_source_chunk 返回长度异常: 请求 {length}B@{offset}，得到 {}B ({})",
+                        chunk.len(),
+                        entry.relative_path
+                    )));
+                }
                 hasher.update(&chunk);
                 let bytes_in_file = offset + chunk.len() as u64;
 

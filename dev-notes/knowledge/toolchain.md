@@ -50,6 +50,29 @@ pnpm 11 要求每个都显式 `true`/`false`，否则报错。等价迁移要把
 
 **相关文件**：`package.json`、`pnpm-workspace.yaml`、`mobile/pnpm-workspace.yaml`、`e2e/desktop/pnpm-workspace.yaml`
 
+### 给 mobile 加依赖：`pnpm add` 撞 `ERR_PNPM_UNUSED_PATCH`，绕过时当心连带 regen uniffi 绑定
+
+pnpm 11.10 下在 `mobile/` 里 `pnpm add <任何包>`（含 `expo install`）会报
+`[ERR_PNPM_UNUSED_PATCH] uniffi-bindgen-react-native@0.31.0-2`——patch 目标是嵌套成员
+`packages/swarmdrop-core` 的依赖，从 mobile 根视角被判「未使用」，哪怕版本精确匹配、patch 文件在、
+`_patch_hash` 也对。（pnpm 11.15+ 可能已修，但别为装一个包动全局 pnpm 版本。）
+
+**加包做法**：手动把依赖写进 `mobile/package.json`，再
+`pnpm install --config.allowUnusedPatches=true`。该 flag 只作用本次调用、不落进
+`pnpm-workspace.yaml`，不改仓库配置。装完 `grep` 一下 `pnpm-lock.yaml` 确认 patch 条目仍在、
+新包已入锁、无无关包版本变更（大 diff 多是 peer-dep hash churn，同版本重写属正常）。
+
+**必须复查的副作用（危险）**：`allowUnusedPatches` 有可能让 ubrn 的 patch 不打，随后
+prepare/codegen 用未打补丁的 ubrn **重新生成 uniffi 绑定**，把
+`mobile/packages/swarmdrop-core/{cpp,src}/generated/*`（6000+ 行）一并改了。这些是生成物、
+和你装的包无关，`git add mobile/` 会把它们一起 stage 进功能提交。**装完包务必 `git status`
+看有没有 generated 冒出来**；只要你没动 FFI 接口（`crates/core` / `mobile-core` 的 Rust 签名），
+committed 的绑定就是对的，直接
+`git checkout HEAD -- mobile/packages/swarmdrop-core/cpp/generated mobile/packages/swarmdrop-core/src/generated`
+回退，别让它混进提交。真要 regen 绑定是独立动作，走 `pnpm --filter react-native-swarmdrop-core build:ios`（patch 正常应用）。
+
+**相关文件**：`mobile/pnpm-workspace.yaml`、`mobile/packages/swarmdrop-core/**/generated/`
+
 ### 官网 Hero 视频使用独立 Remotion 工程
 
 `video/` 是用于制作官网成片的独立 pnpm workspace，不参与桌面应用或 `docs/` 的依赖安装。Remotion

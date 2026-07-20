@@ -49,7 +49,7 @@ export class SwarmDropWorkerClient {
   node_id() { return this.nodeId; }
   connect(addr) { return this.call("connect", addr); }
   reserve(addr) { return this.call("reserve", addr); }
-  lookup_share_code(code) { return this.call("lookup_share_code", code); }
+  connect_invite(invite) { return this.call("connect_invite", invite); }
   send_files(to, files) { return this.call("send_files", to, files); }
   pending_offers() { return this.call("pending_offers"); }
   accept_offer(sid) { return this.call("accept_offer", sid); }

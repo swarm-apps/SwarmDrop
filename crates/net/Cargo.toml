@@ -34,8 +34,8 @@ libp2p = { workspace = true, features = [
     "tcp",
     "quic",
     # ⚠️ 0.56 的 feature bug：只开 websocket 不开 dns 编不过（builder 的 websocket
-    # phase 无条件引用 libp2p_dns）。dns 本身也是 native 默认要的（Android 场景
-    # 由 Builder 运行时开关控制，不再走 crate feature——双 target 下 feature 面越小越好）。
+    # phase 无条件引用 libp2p_dns）。dns 本身也是 native 默认要的（Android 的差异走
+    # transport.rs 的 target cfg 分支，不走 crate feature——双 target 下 feature 面越小越好）。
     "dns",
     "websocket",
     "mdns",
@@ -54,6 +54,13 @@ libp2p-stream = { workspace = true }
 libp2p-webrtc = { workspace = true, features = ["tokio", "pem"] }
 # webrtc Certificate::generate 需要（对齐 libp2p 生态的 rand 0.8）
 rand = "0.8"
+
+# ============ android ============
+# Android 显式公共 DNS（transport.rs）要构造 NameServerConfig，libp2p::dns 不
+# re-export 它，需直接引 hickory。版本必须与 libp2p-dns 同线——分叉则类型不通，
+# 编译期就响。背景与炸点见 dev-notes/knowledge/net-kernel.md 坑 7。
+[target.'cfg(target_os = "android")'.dependencies]
+hickory-resolver = "0.26"
 
 # ============ wasm（浏览器）============
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]

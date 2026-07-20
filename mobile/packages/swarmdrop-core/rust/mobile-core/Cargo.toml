@@ -12,6 +12,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # 与桌面共享的业务核心。单仓后是普通 workspace path 依赖，改 crates/core 立刻对
 # 移动端生效，`cargo check --workspace` 也会一并覆盖本 crate。
 swarmdrop-core = { workspace = true }
+swarmdrop-storage-sql = { workspace = true }
+swarmdrop-invite = { workspace = true }
 entity = { workspace = true }
 migration = { workspace = true }
 swarmdrop-net = { workspace = true }

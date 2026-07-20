@@ -4,10 +4,11 @@
 # ——没有任何一条跑 cargo。也就是说「提交前 cargo check + tsc 必须通过」（CLAUDE.md）
 # 一直只靠自觉，没有机器兜底。
 #
-# 覆盖范围：本 workflow 只管主仓。libs/ 是 swarm-apps/swarm-p2p submodule，
-# `libs/core` 经根 Cargo.toml 的 path 依赖被自动提升为 workspace member，所以
-# `cargo check/test --workspace` 会连它一起编——但前提是 checkout 带上 submodules。
-# `libs/bootstrap` 不在本仓 workspace 内（它是 swarm-p2p 仓自己的产物），由那边的 CI 管。
+# 覆盖范围：本 workflow 只管主仓。旧的 libs/core（swarm-p2p）已由 crates/net 重写取代，
+# 主仓的 libs/ vendored 副本已于 2026-07 清理（权威源在 swarm-apps/swarm-p2p 独立仓）。
+# workspace member 全在 crates/* + src-tauri + mobile-core，cargo check/test --workspace
+# 不再涉及 libs/；下方各 job 的 `submodules: recursive` 现为 no-op（已无 .gitmodules），
+# 保留作未来再引入 submodule 的兜底。
 name: rust
 
 on:

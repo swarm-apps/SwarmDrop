@@ -15,7 +15,6 @@ use swarmdrop_net::{
 };
 use uuid::Uuid;
 
-use swarmdrop_core::database::SqlSessionStore;
 use swarmdrop_core::device::OsInfo;
 use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{CoreAppPaths, CoreEvent, EventBus, FileAccess, MemoryHost};
@@ -24,6 +23,7 @@ use swarmdrop_core::network::event_loop::{handle_core_node_event, run_event_loop
 use swarmdrop_core::network::{BootstrapCandidateSource, DiscoveryMode, NetManager};
 use swarmdrop_core::runtime::build_router;
 use swarmdrop_core::transfer::manager::TransferManager;
+use swarmdrop_storage_sql::SqlSessionStore;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);
 

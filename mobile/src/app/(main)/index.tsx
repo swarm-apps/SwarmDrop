@@ -1,20 +1,20 @@
-import { useBottomSheetInternal } from "@gorhom/bottom-sheet";
+import { BottomSheetTextInput } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { OTPInput, type OTPInputRef, type SlotProps } from "input-otp-native";
 import {
   ArrowLeftRight,
   ChevronRight,
+  ClipboardPaste,
   Copy,
-  Keyboard,
   OctagonAlert,
   Plus,
   Power,
   Radar,
   Radio,
   RefreshCcw,
+  ScanLine,
   SearchX,
   Smartphone,
   Tags,
@@ -28,15 +28,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  ActivityIndicator,
-  findNodeHandle,
-  Pressable,
-  TextInput as RNTextInput,
-  ScrollView,
-  View,
-} from "react-native";
-import Animated from "react-native-reanimated";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { DeviceCard } from "@/components/device-card";
@@ -52,6 +44,7 @@ import {
   NodeControlSheet,
   type NodeControlSheetRef,
 } from "@/components/node-control-sheet";
+import { InviteQr } from "@/components/pairing/invite-qr";
 import { RecentTransferRow } from "@/components/recent-transfer-row";
 import { StatusPill } from "@/components/status-pill";
 import {
@@ -67,7 +60,6 @@ import {
   isProjectionActive,
 } from "@/core/transfer-types";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
-import { usePulseOpacity } from "@/hooks/usePulseOpacity";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import {
   type DeviceOrganization,
@@ -84,7 +76,10 @@ import {
   type RuntimeState,
   useMobileCoreStore,
 } from "@/stores/mobile-core-store";
-import { usePairingCodeStore } from "@/stores/pairing-code-store";
+import {
+  INVITE_TTL_SECS,
+  usePairingInviteStore,
+} from "@/stores/pairing-invite-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
@@ -574,7 +569,7 @@ const AddDeviceSheet = forwardRef<
   const { t } = useLingui();
   const colors = useThemeColors();
   const sheetRef = useRef<AppBottomSheetRef>(null);
-  const pairingCodeSheetRef = useRef<PairingCodeSheetRef>(null);
+  const inviteSheetRef = useRef<InviteSheetRef>(null);
   const [pairingPeer, setPairingPeer] = useState<string | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
 
@@ -624,11 +619,8 @@ const AddDeviceSheet = forwardRef<
         setPairingError(t`对方无响应，请重试`);
       }, PAIRING_TIMEOUT_MS);
       try {
-        const result = await getMobileCore().requestPairing(
-          device.peerId,
-          undefined,
-          [],
-        );
+        // LAN 近场直连（Direct）：对端 mDNS 校验，与桌面 directPairing 对称
+        const result = await getMobileCore().pairDirect(device.peerId);
         // 期间被取消或已超时——这轮结果已过期,不再处理
         if (pairingAttemptRef.current !== attempt) return;
         clearPairingTimeout();
@@ -665,17 +657,17 @@ const AddDeviceSheet = forwardRef<
 
   // 「输入配对码」要等本 sheet 收起动画结束再唤起,避免两个 modal 叠加——
   // 收起完成的时机由 onDismiss 给出,不硬编码动画时长。
-  const pendingInputCodeRef = useRef(false);
+  const pendingPasteInviteRef = useRef(false);
 
-  const openInputCodeSheet = useCallback(() => {
-    pendingInputCodeRef.current = true;
+  const openPasteInviteSheet = useCallback(() => {
+    pendingPasteInviteRef.current = true;
     sheetRef.current?.dismiss();
   }, []);
 
   const handleSheetDismiss = useCallback(() => {
-    if (!pendingInputCodeRef.current) return;
-    pendingInputCodeRef.current = false;
-    pairingCodeSheetRef.current?.present();
+    if (!pendingPasteInviteRef.current) return;
+    pendingPasteInviteRef.current = false;
+    inviteSheetRef.current?.present();
   }, []);
 
   const filteredNearby = useMemo(() => {
@@ -711,7 +703,9 @@ const AddDeviceSheet = forwardRef<
                 <Trans>添加设备</Trans>
               </Text>
               <Text className="text-center text-[13px] leading-5 text-muted-foreground">
-                <Trans>附近的设备会自动出现；也可以用 6 位配对码互相认识</Trans>
+                <Trans>
+                  附近的设备会自动出现；也可以用邀请（扫码/粘贴）互相认识
+                </Trans>
               </Text>
             </View>
           </View>
@@ -726,7 +720,7 @@ const AddDeviceSheet = forwardRef<
                 pulse
                 title={<Trans>正在留意附近的设备</Trans>}
                 description={
-                  <Trans>确认对端 SwarmDrop 已启动，或使用下方配对码</Trans>
+                  <Trans>确认对端 SwarmDrop 已启动，或使用下方邀请二维码</Trans>
                 }
               />
             ) : (
@@ -818,33 +812,33 @@ const AddDeviceSheet = forwardRef<
 
           <View className="h-px bg-border" />
 
-          <PairingCodeCard />
+          <InviteCard />
 
           <Pressable
-            onPress={openInputCodeSheet}
+            onPress={openPasteInviteSheet}
             accessibilityRole="button"
             testID="devices-open-input-code-sheet-button"
             className="min-h-[64px] flex-row items-center gap-3 rounded-xl border border-border bg-muted px-4 py-3 active:opacity-70"
           >
             <View className="size-11 items-center justify-center rounded-xl bg-card">
-              <Keyboard color={colors.foreground} size={18} />
+              <ClipboardPaste color={colors.foreground} size={18} />
             </View>
             <View className="min-w-0 flex-1">
               <Text className="text-[14px] font-semibold text-foreground">
-                <Trans>输入配对码</Trans>
+                <Trans>粘贴配对邀请</Trans>
               </Text>
               <Text
                 className="mt-0.5 text-[13px] text-muted-foreground"
                 numberOfLines={1}
               >
-                <Trans>输入另一台设备显示的 6 位数字</Trans>
+                <Trans>扫描或粘贴另一台设备的邀请</Trans>
               </Text>
             </View>
             <ChevronRight color={colors.mutedForeground} size={18} />
           </Pressable>
         </View>
       </AppBottomSheet>
-      <PairingCodeSheet ref={pairingCodeSheetRef} />
+      <InviteSheet ref={inviteSheetRef} />
     </>
   );
 });
@@ -927,99 +921,98 @@ function NearbyDeviceRow({
   );
 }
 
-function PairingCodeCard() {
+function InviteCard() {
   const { t } = useLingui();
   const colors = useThemeColors();
-  const codeInfo = usePairingCodeStore((s) => s.codeInfo);
-  const generating = usePairingCodeStore((s) => s.generating);
-  const error = usePairingCodeStore((s) => s.error);
-  const ensure = usePairingCodeStore((s) => s.ensure);
-  const regenerate = usePairingCodeStore((s) => s.regenerate);
+  const activeInvite = usePairingInviteStore((s) => s.activeInvite);
+  const generating = usePairingInviteStore((s) => s.generating);
+  const error = usePairingInviteStore((s) => s.error);
+  const ensureActiveInvite = usePairingInviteStore((s) => s.ensureActiveInvite);
+  const generateInvite = usePairingInviteStore((s) => s.generateInvite);
 
   useEffect(() => {
-    void ensure();
-  }, [ensure]);
+    void ensureActiveInvite();
+  }, [ensureActiveInvite]);
 
   const remaining = useExpiresCountdown(
-    codeInfo ? Number(codeInfo.expiresAt) * 1000 : null,
+    activeInvite ? activeInvite.generatedAt + INVITE_TTL_SECS * 1000 : null,
   );
-  const code = codeInfo?.code ?? null;
+  const invite = activeInvite?.invite ?? null;
 
   const handleCopy = async () => {
-    if (!code) return;
-    await Clipboard.setStringAsync(code);
+    if (!invite) return;
+    await Clipboard.setStringAsync(invite);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    toast.success(t`已复制配对码`);
+    toast.success(t`已复制邀请链接`);
   };
 
   return (
     <View
-      className="gap-3 rounded-lg bg-primary/5 p-3.5"
+      className="items-center gap-3 rounded-lg bg-primary/5 p-3.5"
       testID="devices-local-code"
     >
-      <View className="flex-row items-start justify-between gap-3">
+      <View className="w-full flex-row items-start justify-between gap-3">
         <View className="min-w-0 flex-1">
           <Text className="text-[13px] font-semibold text-foreground">
-            <Trans>本机配对码</Trans>
+            <Trans>本机配对邀请</Trans>
           </Text>
           <Text className="mt-0.5 text-[12px] text-muted-foreground">
-            <Trans>让另一台设备输入这组 6 位数字</Trans>
+            <Trans>让另一台设备扫码或粘贴此邀请</Trans>
           </Text>
         </View>
-        {code !== null ? (
+        {invite !== null ? (
           <Text className="rounded-full bg-card px-2 py-1 text-[12px] text-muted-foreground">
             {remaining > 0 ? t`${formatMmss(remaining)} 后过期` : t`已过期`}
           </Text>
         ) : null}
       </View>
 
-      <View className="min-h-14 items-center justify-center rounded-lg border border-border bg-card px-3">
+      <View className="min-h-[220px] items-center justify-center">
         {generating ? (
-          // 骨架条镜像 6 位配对码的占位形状,避免生成时框内闪 spinner
-          <Skeleton className="h-8 w-44" />
-        ) : code !== null ? (
-          <Text className="font-mono text-[28px] font-bold tracking-[7px] text-foreground">
-            {code}
-          </Text>
+          <Skeleton className="size-[220px] rounded-[20px]" />
+        ) : invite !== null && remaining > 0 ? (
+          <InviteQr invite={invite} size={220} />
         ) : (
           <Text className="text-[13px] text-muted-foreground">
-            {error ?? t`暂未生成配对码`}
+            {error ?? t`暂未生成邀请`}
           </Text>
         )}
       </View>
 
-      <View className="flex-row gap-2">
+      <View className="w-full flex-row gap-2">
         <Pressable
-          onPress={() => void regenerate()}
+          onPress={() => void generateInvite(activeInvite?.localOnly ?? false)}
           disabled={generating}
           accessibilityRole="button"
           className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
         >
           <RefreshCcw color={colors.foreground} size={14} />
           <Text className="text-[13px] font-semibold text-foreground">
-            {code === null ? <Trans>生成</Trans> : <Trans>刷新</Trans>}
+            {invite === null ? <Trans>生成</Trans> : <Trans>刷新</Trans>}
           </Text>
         </Pressable>
         <Pressable
           onPress={handleCopy}
-          disabled={code === null}
+          disabled={invite === null}
           accessibilityRole="button"
           className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
           <Copy
             color={
-              code !== null ? colors.primaryForeground : colors.mutedForeground
+              invite !== null
+                ? colors.primaryForeground
+                : colors.mutedForeground
             }
             size={14}
           />
           <Text
             className={
-              code !== null
+              invite !== null
                 ? "text-[13px] font-semibold text-primary-foreground"
                 : "text-[13px] font-semibold text-muted-foreground"
             }
           >
-            <Trans>复制</Trans>
+            <Trans>复制链接</Trans>
           </Text>
         </Pressable>
       </View>
@@ -1027,24 +1020,26 @@ function PairingCodeCard() {
   );
 }
 
-interface PairingCodeSheetRef {
+interface InviteSheetRef {
   present: () => void;
   dismiss: () => void;
 }
 
-const PairingCodeSheet = forwardRef<PairingCodeSheetRef, object>(
-  function PairingCodeSheet(_props, ref) {
+const InviteSheet = forwardRef<InviteSheetRef, object>(
+  function InviteSheet(_props, ref) {
     const sheetRef = useRef<AppBottomSheetRef>(null);
     const colors = useThemeColors();
-    const [focusToken, setFocusToken] = useState(0);
+    const router = useRouter();
 
     useImperativeHandle(ref, () => ({
-      present: () => {
-        sheetRef.current?.present();
-        setFocusToken((value) => value + 1);
-      },
+      present: () => sheetRef.current?.present(),
       dismiss: () => sheetRef.current?.dismiss(),
     }));
+
+    const openScanner = () => {
+      sheetRef.current?.dismiss();
+      router.push({ pathname: "/pairing/scan" });
+    };
 
     return (
       <AppBottomSheet
@@ -1055,173 +1050,146 @@ const PairingCodeSheet = forwardRef<PairingCodeSheetRef, object>(
         <View className="gap-4 px-5 pt-2 pb-6">
           <View className="items-center gap-2">
             <View className="size-12 items-center justify-center rounded-full bg-primary/10">
-              <Keyboard color={colors.primary} size={22} />
+              <ScanLine color={colors.primary} size={22} />
             </View>
             <View className="items-center gap-1">
               <Text className="text-base font-bold text-foreground">
-                <Trans>输入配对码</Trans>
+                <Trans>扫码或粘贴邀请</Trans>
               </Text>
               <Text className="text-center text-[13px] leading-5 text-muted-foreground">
-                <Trans>输入另一台设备显示的 6 位数字</Trans>
+                <Trans>扫描或粘贴另一台设备的邀请，验证后确认配对</Trans>
               </Text>
             </View>
           </View>
 
-          <PairingCodeInput
-            focusToken={focusToken}
-            onResolved={() => sheetRef.current?.dismiss()}
-          />
+          <Pressable
+            onPress={openScanner}
+            accessibilityRole="button"
+            className="h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70"
+          >
+            <ScanLine color={colors.primaryForeground} size={18} />
+            <Text className="text-base font-semibold text-primary-foreground">
+              <Trans>扫描二维码</Trans>
+            </Text>
+          </Pressable>
+
+          <View className="flex-row items-center gap-3">
+            <View className="h-px flex-1 bg-border" />
+            <Text className="text-xs text-muted-foreground">
+              <Trans>或</Trans>
+            </Text>
+            <View className="h-px flex-1 bg-border" />
+          </View>
+
+          <PasteInviteInput onResolved={() => sheetRef.current?.dismiss()} />
         </View>
       </AppBottomSheet>
     );
   },
 );
 
-const SLOT_KEYS = ["s0", "s1", "s2", "s3", "s4", "s5"] as const;
-
-function PairingCodeInput({
-  focusToken,
-  onResolved,
-}: {
-  focusToken?: number;
-  onResolved?: () => void;
-}) {
+function PasteInviteInput({ onResolved }: { onResolved?: () => void }) {
   const router = useRouter();
   const { t } = useLingui();
   const colors = useThemeColors();
-  const otpRef = useRef<OTPInputRef>(null);
-  const [code, setCode] = useState("");
-  const [looking, setLooking] = useState(false);
+  const previewInvite = usePairingInviteStore((s) => s.previewInvite);
+  const [text, setText] = useState("");
+  const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasClip, setHasClip] = useState(false);
 
-  // OTP 库内部是普通 TextInput(非 BottomSheetTextInput),而 sheet 的键盘避让被
-  // keyboardState.target 门控 —— 无 target 时 keyboardWillShow 只被缓存,sheet 纹丝不动
-  // 被键盘盖住。focus 落地后手动把当前聚焦的原生输入登记为目标,缓存事件会被重放,
-  // sheet 随键盘上移。
-  const { animatedKeyboardState } = useBottomSheetInternal();
-
+  // 剪贴板感知：sheet 打开即挂载（gorhom modal present 时挂 children），用
+  // hasStringAsync 探测——只问「有没有字符串」，不读内容、不触发 iOS 粘贴横幅，
+  // 有内容就亮一枚 chip 引导一键粘贴。
   useEffect(() => {
-    if (!focusToken) return;
-    const id = setTimeout(() => {
-      otpRef.current?.focus();
-      requestAnimationFrame(() => {
-        // Fabric 下 currentlyFocusedInput() 返回 ReactNativeElement,findNodeHandle
-        // 运行时兼容但类型签名未更新,cast 绕过
-        const focused = RNTextInput.State.currentlyFocusedInput();
-        const node = focused ? findNodeHandle(focused as never) : null;
-        if (node != null) {
-          animatedKeyboardState.set((state) => ({ ...state, target: node }));
-        }
-      });
-    }, 250);
-    return () => clearTimeout(id);
-  }, [focusToken, animatedKeyboardState]);
+    let alive = true;
+    void Clipboard.hasStringAsync().then((has) => {
+      if (alive) setHasClip(has);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
-  // 卸载(sheet dismiss)时注销键盘目标,不残留给下一个 sheet
-  useEffect(
-    () => () => {
-      animatedKeyboardState.set((state) => ({ ...state, target: undefined }));
-    },
-    [animatedKeyboardState],
-  );
-
-  const onLookup = async (filled: string) => {
-    if (looking || filled.length !== 6) return;
+  const submit = async (raw: string) => {
+    const v = raw.trim();
+    if (working || v.length === 0) return;
     setError(null);
-    setLooking(true);
-    try {
-      const remote = await getMobileCore().lookupDeviceByCode(filled);
+    setWorking(true);
+    const ok = await previewInvite(v);
+    setWorking(false);
+    if (ok) {
       onResolved?.();
-      router.push({
-        pathname: "/pairing/found-device",
-        params: {
-          peerId: remote.peerId,
-          code: filled,
-          name: remote.name ?? "",
-          hostname: remote.hostname,
-          os: remote.os,
-          platform: remote.platform,
-          arch: remote.arch,
-        },
-      });
-    } catch (err) {
-      setError(t`配对码无效或已过期`);
-      setCode("");
-      otpRef.current?.clear();
-      console.warn("[devices] lookupDeviceByCode failed:", errorMessage(err));
-    } finally {
-      setLooking(false);
+      router.push({ pathname: "/pairing/found-device" });
+    } else {
+      setError(t`邀请无效或已过期`);
+    }
+  };
+
+  const pasteFromClipboard = async () => {
+    const clip = (await Clipboard.getStringAsync()).trim();
+    if (clip.length > 0) {
+      setText(clip);
+      await submit(clip);
     }
   };
 
   return (
-    <View className="items-center gap-3">
-      <OTPInput
-        ref={otpRef}
-        maxLength={6}
-        value={code}
-        onChange={setCode}
-        onComplete={onLookup}
-        textAlign="center"
-        render={({ slots }) => (
-          <View className="flex-row items-center justify-center gap-2.5">
-            {slots.map((slot, i) => (
-              <Pressable
-                key={SLOT_KEYS[i]}
-                onPress={() => otpRef.current?.focus()}
-              >
-                <OtpSlot {...slot} />
-              </Pressable>
-            ))}
-          </View>
-        )}
+    <View className="gap-3">
+      {hasClip && text.length === 0 ? (
+        <Pressable
+          onPress={pasteFromClipboard}
+          disabled={working}
+          accessibilityRole="button"
+          className="flex-row items-center gap-1.5 self-start rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 active:opacity-70 disabled:opacity-50"
+        >
+          <ClipboardPaste color={colors.primary} size={14} />
+          <Text className="text-[13px] font-medium text-primary">
+            <Trans>剪贴板里有内容，点此粘贴</Trans>
+          </Text>
+        </Pressable>
+      ) : null}
+      <BottomSheetTextInput
+        value={text}
+        onChangeText={setText}
+        placeholder="sdinvite..."
+        placeholderTextColor={colors.mutedForeground}
+        autoCapitalize="none"
+        autoCorrect={false}
+        multiline
+        className="min-h-24 rounded-xl border border-border bg-card p-3 font-mono text-[13px] text-foreground"
       />
       {error !== null ? (
         <Text className="text-[13px] text-destructive-ink">{error}</Text>
-      ) : looking ? (
-        <ActivityIndicator color={colors.mutedForeground} />
       ) : null}
+      <View className="flex-row gap-2">
+        <Pressable
+          onPress={pasteFromClipboard}
+          disabled={working}
+          accessibilityRole="button"
+          className="h-11 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
+        >
+          <ClipboardPaste color={colors.foreground} size={16} />
+          <Text className="text-[14px] font-semibold text-foreground">
+            <Trans>粘贴</Trans>
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => void submit(text)}
+          disabled={working || text.trim().length === 0}
+          accessibilityRole="button"
+          className="h-11 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
+        >
+          {working ? (
+            <ActivityIndicator color={colors.primaryForeground} />
+          ) : (
+            <Text className="text-[14px] font-semibold text-primary-foreground">
+              <Trans>继续</Trans>
+            </Text>
+          )}
+        </Pressable>
+      </View>
     </View>
-  );
-}
-
-// active 只换颜色不加粗边框(1px 恒定,框体零跳动);数字走 font-mono,与本机配对码
-// 展示卡(28px mono)同一视觉家族;插入点用闪烁 caret 指示,空 active 框不再无声。
-function OtpSlot({ char, isActive, hasFakeCaret }: SlotProps) {
-  return (
-    <View
-      className={cn(
-        "h-14 w-11 items-center justify-center rounded-lg border",
-        isActive ? "border-primary bg-primary/5" : "border-border bg-muted",
-      )}
-    >
-      {char !== null ? (
-        <Text className="font-mono text-2xl font-bold text-foreground">
-          {char}
-        </Text>
-      ) : hasFakeCaret ? (
-        <OtpCaret />
-      ) : null}
-    </View>
-  );
-}
-
-function OtpCaret() {
-  const colors = useThemeColors();
-  const style = usePulseOpacity({ min: 0, duration: 500 });
-
-  return (
-    <Animated.View
-      style={[
-        style,
-        {
-          width: 2,
-          height: 26,
-          borderRadius: 1,
-          backgroundColor: colors.primary,
-        },
-      ]}
-    />
   );
 }
 

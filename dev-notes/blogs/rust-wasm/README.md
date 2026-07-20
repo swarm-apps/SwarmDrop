@@ -17,6 +17,8 @@ OPFS 落盘逐字节一致。
 | [03](03-libp2p-master-pitfalls.md) | 吃 libp2p git master 的坑 | crates.io 的 webrtc-direct 是坏的，被迫 pin rev `93c5059`；facade 一起切、`=0.4.58` pin、relay HOP、`NoAddressesInReservation` |
 | [04](04-wasm-toolchain.md) | wasm 工具链的坑（文档不会告诉你） | Apple clang 编不了 ring、getrandom 双版本双开关、wasm-bindgen 版本一致、member profile 被忽略、体积 |
 | [05](05-what-compiles-isnt-what-runs.md) | 「编过 ≠ 能用」：wasm 的隐形门（总纲） | **题眼**。绿灯零保证；四道运行时门；wasm 单线程 + Web 语义是编译期看不见的第三维 |
+| [06](06-sea-orm-to-storage-sql.md) | sea-orm 从 core 摘到 storage-sql：core 编 wasm 的存储前置 | **补篇**。卡点不在 entity（纯结构体原样过）在 `DatabaseConnection`（拖 sqlx/tokio/mio/ring）；切割线划在连接层，core 只认 `SessionStore`/`InboxStore` 端口、SQL 实现下沉——core 从此零 sea_orm |
+| [07](07-webrtc-opfs-disk.md) | WebRTC 流式 + OPFS 落盘：大文件不炸内存 | **补篇**。收大文件不能整个塞内存——OPFS `createWritable` 常驻 + 每 256 KiB positioned write 直写；SyncAccessHandle 实测无增益、多养一套写法被主动删掉 |
 
 ## 阅读顺序
 

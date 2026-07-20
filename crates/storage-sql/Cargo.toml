@@ -1,0 +1,31 @@
+[package]
+name = "swarmdrop-storage-sql"
+version = "0.1.0"
+edition.workspace = true
+
+# SeaORM/SQLite 存储实现（SessionStore/InboxStore 端口的桌面/移动后端）。
+# 不依赖 swarmdrop-core——只吃端口 trait（transfer）+ 数据类型（entity/host）+ sea-orm。
+# native-only：sea-orm 的 sqlx/tokio 链无法编 wasm，Web 端走各自的存储实现。
+
+[dependencies]
+swarmdrop-transfer = { workspace = true }
+swarmdrop-host = { workspace = true }
+entity = { workspace = true }
+sea-orm = { workspace = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
+serde = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+# 收件箱条目内容指纹（与 core 同版本线）
+blake3 = "1.8.3"
+specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "chrono", "serde_json"], optional = true }
+
+[features]
+# 桌面 src-tauri 开启（inbox 摘要/检索类型进 bindings.ts）；移动不开。
+specta = ["dep:specta", "entity/specta", "swarmdrop-transfer/specta"]
+
+[dev-dependencies]
+# 内嵌单测：#[tokio::test] + Migrator::up 建 sqlite::memory schema（照 core 体例）。
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+migration = { workspace = true }

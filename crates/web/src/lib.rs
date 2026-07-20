@@ -28,13 +28,11 @@ mod opfs;
 #[cfg(wasm_browser)]
 mod peer;
 #[cfg(wasm_browser)]
-mod share_code;
-#[cfg(wasm_browser)]
 mod store;
 
 #[cfg(wasm_browser)]
 pub use node::WebNode;
-pub use types::{ConnectionJson, NodeAddrJson, OfferJson, WebError, WebTransferEvent};
+pub use types::{ConnectionJson, OfferJson, WebError, WebTransferEvent};
 
 /// wasm 模块加载即初始化 panic hook + tracing（浏览器 console）。
 #[cfg(wasm_browser)]

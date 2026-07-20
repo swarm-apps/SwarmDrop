@@ -12,155 +12,124 @@ import {
   type UniffiGcObject,
   type UniffiRustFutureContinuationCallback as RuntimeUniffiRustFutureContinuationCallback,
   type UniffiResult,
- } from 'uniffi-bindgen-react-native';
+ } from '@ubjs/core';
 
 interface NativeModuleInterface {
     ubrn_uniffi_internal_fn_func_ffi__string_to_byte_length(string: string, uniffi_out_err: UniffiRustCallStatus): number;
-    ubrn_uniffi_internal_fn_func_ffi__string_to_arraybuffer(string: string, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
-    ubrn_uniffi_internal_fn_func_ffi__arraybuffer_to_string(buffer: Uint8Array, uniffi_out_err: UniffiRustCallStatus): string;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_clone_mobilecore(handle: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_free_mobilecore(handle: bigint, uniffi_out_err: UniffiRustCallStatus): void;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_constructor_mobilecore_new(keychain: bigint, eventBus: bigint, fileAccess: bigint, dataDir: Uint8Array, uniffi_out_err: UniffiRustCallStatus): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(ptr: bigint, filter: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_paired_device(ptr: bigint, peerId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_update_paired_device_policy(ptr: bigint, peerId: Uint8Array, trustLevel: Uint8Array, receivePolicy: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_clear_transfer_activity(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_transfer_record(ptr: bigint, sessionId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_projection(ptr: bigint, sessionId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_projections(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_resume_transfer(ptr: bigint, sessionId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_archive_inbox_item(ptr: bigint, itemId: Uint8Array, archived: number): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record(ptr: bigint, itemId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item(ptr: bigint, itemId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item_by_transfer_session_id(ptr: bigint, sessionId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_inbox_items(ptr: bigint, includeArchived: number): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_file_missing(ptr: bigint, itemId: Uint8Array, fileId: number, missing: number): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_item_opened(ptr: bigint, itemId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(ptr: bigint, query: Uint8Array, limit: number, includeArchived: number): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(ptr: bigint, deviceName: Uint8Array, networkConfig: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_generate_pairing_code(ptr: bigint, expiresInSecs: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_lookup_device_by_code(ptr: bigint, code: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_request_pairing(ptr: bigint, peerId: Uint8Array, code: Uint8Array, addrs: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_respond_pairing_request(ptr: bigint, pendingId: bigint, code: Uint8Array, accept: number): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive(ptr: bigint, sessionId: Uint8Array, saveLocationUri: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_transfer(ptr: bigint, sessionId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer(ptr: bigint, sessionId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_prepare_send(ptr: bigint, files: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_reject_receive(ptr: bigint, sessionId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(ptr: bigint, preparedId: Uint8Array, peerId: Uint8Array, peerName: Uint8Array, fileIds: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(ptr: bigint, paused: number): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreigneventbus(handle: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_free_foreigneventbus(handle: bigint, uniffi_out_err: UniffiRustCallStatus): void;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreigneventbus(vtable: UniffiVTableCallbackInterfaceForeignEventBus): void;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreigneventbus_emit(ptr: bigint, event: Uint8Array, uniffi_out_err: UniffiRustCallStatus): void;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreignfileaccess(handle: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_free_foreignfileaccess(handle: bigint, uniffi_out_err: UniffiRustCallStatus): void;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreignfileaccess(vtable: UniffiVTableCallbackInterfaceForeignFileAccess): void;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_source_metadata(ptr: bigint, sourceId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_read_source_chunk(ptr: bigint, sourceId: Uint8Array, offset: bigint, length: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink(ptr: bigint, metadata: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink(ptr: bigint, metadata: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(ptr: bigint, sinkId: Uint8Array, offset: bigint, data: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(ptr: bigint, sinkId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(ptr: bigint, sinkId: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreignkeychainprovider(handle: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_free_foreignkeychainprovider(handle: bigint, uniffi_out_err: UniffiRustCallStatus): void;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreignkeychainprovider(vtable: UniffiVTableCallbackInterfaceForeignKeychainProvider): void;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_identity(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_identity(ptr: bigint, keypair: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_identity(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_paired_devices_json(ptr: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_paired_devices_json(ptr: bigint, devicesJson: Uint8Array): bigint;
+    ubrn_uniffi_internal_fn_func_ffi__string_to_buffer(string: string, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
+    ubrn_uniffi_internal_fn_func_ffi__string_from_buffer(buffer: Uint8Array, uniffi_out_err: UniffiRustCallStatus): string;
+    ubrn_uniffi_internal_fn_func_ffi__read_string_from_buffer(buffer: any, offset: number, length: number): string;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_u8(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_u8(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_u8(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_u8(handle: bigint, uniffi_out_err: UniffiRustCallStatus): number;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_u8(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_i8(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_i8(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i8(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_i8(handle: bigint, uniffi_out_err: UniffiRustCallStatus): number;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i8(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_u16(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_u16(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_u16(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_u16(handle: bigint, uniffi_out_err: UniffiRustCallStatus): number;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_u16(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_i16(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_i16(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i16(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_i16(handle: bigint, uniffi_out_err: UniffiRustCallStatus): number;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i16(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_u32(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_u32(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_u32(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_u32(handle: bigint, uniffi_out_err: UniffiRustCallStatus): number;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_u32(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_i32(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_i32(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i32(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_i32(handle: bigint, uniffi_out_err: UniffiRustCallStatus): number;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i32(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_u64(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_u64(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_u64(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_u64(handle: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_u64(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_i64(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_i64(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i64(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_i64(handle: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i64(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_f32(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_f32(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_f32(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_f32(handle: bigint, uniffi_out_err: UniffiRustCallStatus): number;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_f32(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_f64(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_f64(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_f64(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_f64(handle: bigint, uniffi_out_err: UniffiRustCallStatus): number;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_f64(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer(handle: bigint, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void(handle: bigint, callback: UniffiRustFutureContinuationCallback, callbackData: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void(handle: bigint): void;
-    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void(handle: bigint): void;
     ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void(handle: bigint, uniffi_out_err: UniffiRustCallStatus): void;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_record(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_projection(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_projections(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item_by_transfer_session_id(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_item_opened(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pairing_code(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_lookup_device_by_code(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_request_pairing(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(): number;
-    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(): number;
+    ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void(handle: bigint): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreigneventbus(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_free_foreigneventbus(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreignfileaccess(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_free_foreignfileaccess(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreignkeychainprovider(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_free_foreignkeychainprovider(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_clone_mobilecore(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_free_mobilecore(ptr: bigint, uniffi_out_err: UniffiRustCallStatus): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreigneventbus(vtable: UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignEventBus): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreignfileaccess(vtable: UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignFileAccess): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreignkeychainprovider(vtable: UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignKeychainProvider): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreigneventbus_emit(uniffiSelf: bigint, event: Uint8Array, uniffi_out_err: UniffiRustCallStatus): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_source_metadata(uniffiSelf: bigint, sourceId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_read_source_chunk(uniffiSelf: bigint, sourceId: Uint8Array, offset: bigint, length: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink(uniffiSelf: bigint, metadata: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink(uniffiSelf: bigint, metadata: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(uniffiSelf: bigint, sinkId: Uint8Array, offset: bigint, data: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(uniffiSelf: bigint, sinkId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(uniffiSelf: bigint, sinkId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_identity(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_identity(uniffiSelf: bigint, keypair: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_identity(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_paired_devices_json(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_paired_devices_json(uniffiSelf: bigint, devicesJson: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_constructor_mobilecore_new(keychain: bigint, eventBus: bigint, fileAccess: bigint, dataDir: Uint8Array, uniffi_out_err: UniffiRustCallStatus): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive(uniffiSelf: bigint, sessionId: Uint8Array, saveLocationUri: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_archive_inbox_item(uniffiSelf: bigint, itemId: Uint8Array, archived: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_transfer(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_clear_transfer_activity(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_consume_pair_invite(uniffiSelf: bigint, invite: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_decode_pair_invite(uniffiSelf: bigint, invite: Uint8Array, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record(uniffiSelf: bigint, itemId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_transfer_record(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_generate_pair_invite(uniffiSelf: bigint, localOnly: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item(uniffiSelf: bigint, itemId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_inbox_item_by_transfer_session_id(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_projection(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_projections(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(uniffiSelf: bigint, invite: Uint8Array, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(uniffiSelf: bigint, filter: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_inbox_items(uniffiSelf: bigint, includeArchived: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_paired_devices(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_file_missing(uniffiSelf: bigint, itemId: Uint8Array, fileId: number, missing: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_mark_inbox_item_opened(uniffiSelf: bigint, itemId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pair_direct(uniffiSelf: bigint, peerId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_prepare_send(uniffiSelf: bigint, files: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_reject_receive(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_paired_device(uniffiSelf: bigint, peerId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_respond_pairing_request(uniffiSelf: bigint, pendingId: bigint, accept: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_resume_transfer(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(uniffiSelf: bigint, query: Uint8Array, limit: number, includeArchived: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(uniffiSelf: bigint, preparedId: Uint8Array, peerId: Uint8Array, peerName: Uint8Array, fileIds: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(uniffiSelf: bigint, paused: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(uniffiSelf: bigint, deviceName: Uint8Array, networkConfig: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(uniffiSelf: bigint, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_update_paired_device_policy(uniffiSelf: bigint, peerId: Uint8Array, trustLevel: Uint8Array, receivePolicy: Uint8Array): bigint;
+    ubrn_ffi_swarmdrop_mobile_core_uniffi_contract_version(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_source_metadata(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk(): number;
@@ -175,172 +144,124 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new(): number;
-    ubrn_ffi_swarmdrop_mobile_core_uniffi_contract_version(): number;
-    ubrn_uniffi_internal_fn_method_mobilecore_ffi__bless_pointer(pointer: bigint, uniffi_out_err: UniffiRustCallStatus): UniffiGcObject;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_consume_pair_invite(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_decode_pair_invite(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_record(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pair_invite(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item_by_transfer_session_id(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_projection(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_projections(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_item_opened(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pair_direct(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy(): number;
     ubrn_uniffi_internal_fn_method_foreigneventbus_ffi__bless_pointer(pointer: bigint, uniffi_out_err: UniffiRustCallStatus): UniffiGcObject;
     ubrn_uniffi_internal_fn_method_foreignfileaccess_ffi__bless_pointer(pointer: bigint, uniffi_out_err: UniffiRustCallStatus): UniffiGcObject;
     ubrn_uniffi_internal_fn_method_foreignkeychainprovider_ffi__bless_pointer(pointer: bigint, uniffi_out_err: UniffiRustCallStatus): UniffiGcObject;
+    ubrn_uniffi_internal_fn_method_mobilecore_ffi__bless_pointer(pointer: bigint, uniffi_out_err: UniffiRustCallStatus): UniffiGcObject;
+    // Codegen call sites use these via `nativeModule().rustbuffer_alloc(...)`
+    // and `nativeModule().rustbuffer_free(...)`. The JSI host object exposes
+    // them as properties; see `props["rustbuffer_alloc"]` / `props["rustbuffer_free"]`
+    // in the C++ wrapper template.
+    rustbuffer_alloc(n: number): Uint8Array;
+    rustbuffer_free(view: Uint8Array): void;
 }
 
-// Casting globalThis to any allows us to look for `NativeSwarmdropMobileCore`
-// if it was added via JSI.
-//
-// We use a getter here rather than simply `globalThis.NativeSwarmdropMobileCore` so that
-// if/when the startup sequence isn't just so, an empty value isn't inadvertantly cached.
 const getter: () => NativeModuleInterface = () => (globalThis as any).NativeSwarmdropMobileCore;
 export default getter;
 
 // Structs and function types for calling back into Typescript from Rust.
 export type UniffiRustFutureContinuationCallback = (data: bigint, pollResult: number) => void;
 export type UniffiForeignFutureDroppedCallback = (handle: bigint) => void;
-type UniffiCallbackInterfaceFree = (handle: bigint) => void;
-type UniffiCallbackInterfaceClone = (handle: bigint) => UniffiResult<void>
-;
 export type UniffiForeignFutureDroppedCallbackStruct = {
   handle: bigint;
   free: UniffiForeignFutureDroppedCallback;
 };
-export type UniffiForeignFutureResultU8 = {
-  returnValue: number;
-  callStatus: UniffiRustCallStatus;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignEventBusMethod0 = (uniffiHandle: bigint, event: Uint8Array) => UniffiResult<void>;
+type UniffiCallbackInterfaceCloneSwarmdropMobileCoreForeignEventBus = (handle: bigint) => UniffiResult<void>;
+type UniffiCallbackInterfaceFreeSwarmdropMobileCoreForeignEventBus = (handle: bigint) => void;
+export type UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignEventBus = {
+  uniffi_free: UniffiCallbackInterfaceFreeSwarmdropMobileCoreForeignEventBus;
+  uniffi_clone: UniffiCallbackInterfaceCloneSwarmdropMobileCoreForeignEventBus;
+  emit: UniffiCallbackInterfaceSwarmdropMobileCoreForeignEventBusMethod0;
 };
-export type UniffiForeignFutureCompleteU8 = (callbackData: bigint, result: UniffiForeignFutureResultU8) => void;
-export type UniffiForeignFutureResultI8 = {
-  returnValue: number;
-  callStatus: UniffiRustCallStatus;
-};
-export type UniffiForeignFutureCompleteI8 = (callbackData: bigint, result: UniffiForeignFutureResultI8) => void;
-export type UniffiForeignFutureResultU16 = {
-  returnValue: number;
-  callStatus: UniffiRustCallStatus;
-};
-export type UniffiForeignFutureCompleteU16 = (callbackData: bigint, result: UniffiForeignFutureResultU16) => void;
-export type UniffiForeignFutureResultI16 = {
-  returnValue: number;
-  callStatus: UniffiRustCallStatus;
-};
-export type UniffiForeignFutureCompleteI16 = (callbackData: bigint, result: UniffiForeignFutureResultI16) => void;
-export type UniffiForeignFutureResultU32 = {
-  returnValue: number;
-  callStatus: UniffiRustCallStatus;
-};
-export type UniffiForeignFutureCompleteU32 = (callbackData: bigint, result: UniffiForeignFutureResultU32) => void;
-export type UniffiForeignFutureResultI32 = {
-  returnValue: number;
-  callStatus: UniffiRustCallStatus;
-};
-export type UniffiForeignFutureCompleteI32 = (callbackData: bigint, result: UniffiForeignFutureResultI32) => void;
-export type UniffiForeignFutureResultU64 = {
-  returnValue: bigint;
-  callStatus: UniffiRustCallStatus;
-};
-export type UniffiForeignFutureCompleteU64 = (callbackData: bigint, result: UniffiForeignFutureResultU64) => void;
-export type UniffiForeignFutureResultI64 = {
-  returnValue: bigint;
-  callStatus: UniffiRustCallStatus;
-};
-export type UniffiForeignFutureCompleteI64 = (callbackData: bigint, result: UniffiForeignFutureResultI64) => void;
-export type UniffiForeignFutureResultF32 = {
-  returnValue: number;
-  callStatus: UniffiRustCallStatus;
-};
-export type UniffiForeignFutureCompleteF32 = (callbackData: bigint, result: UniffiForeignFutureResultF32) => void;
-export type UniffiForeignFutureResultF64 = {
-  returnValue: number;
-  callStatus: UniffiRustCallStatus;
-};
-export type UniffiForeignFutureCompleteF64 = (callbackData: bigint, result: UniffiForeignFutureResultF64) => void;
 export type UniffiForeignFutureResultRustBuffer = {
-  returnValue: Uint8Array;
-  callStatus: UniffiRustCallStatus;
+  return_value: Uint8Array;
+  call_status: UniffiRustCallStatus;
 };
-export type UniffiForeignFutureCompleteRustBuffer = (callbackData: bigint, result: UniffiForeignFutureResultRustBuffer) => void;
+export type UniffiForeignFutureCompleterustBuffer = (callbackData: bigint, result: UniffiForeignFutureResultRustBuffer) => void;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod0 = (uniffiHandle: bigint, sourceId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod1 = (uniffiHandle: bigint, sourceId: Uint8Array, offset: bigint, length: bigint, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod2 = (uniffiHandle: bigint, metadata: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod3 = (uniffiHandle: bigint, metadata: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
 export type UniffiForeignFutureResultVoid = {
-  callStatus: UniffiRustCallStatus;
+  call_status: UniffiRustCallStatus;
 };
-export type UniffiForeignFutureCompleteVoid = (callbackData: bigint, result: UniffiForeignFutureResultVoid) => void;
-type UniffiCallbackInterfaceForeignEventBusMethod0 = (uniffiHandle: bigint, event: Uint8Array) => UniffiResult<void>
-;
-type UniffiCallbackInterfaceForeignFileAccessMethod0 = (uniffiHandle: bigint, sourceId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignFileAccessMethod1 = (uniffiHandle: bigint, sourceId: Uint8Array, offset: bigint, length: bigint, uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignFileAccessMethod2 = (uniffiHandle: bigint, metadata: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignFileAccessMethod3 = (uniffiHandle: bigint, metadata: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignFileAccessMethod4 = (uniffiHandle: bigint, sinkId: Uint8Array, offset: bigint, data: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteVoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignFileAccessMethod5 = (uniffiHandle: bigint, sinkId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignFileAccessMethod6 = (uniffiHandle: bigint, sinkId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteVoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignKeychainProviderMethod0 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignKeychainProviderMethod1 = (uniffiHandle: bigint, keypair: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteVoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignKeychainProviderMethod2 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompleteVoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignKeychainProviderMethod3 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompleteRustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-type UniffiCallbackInterfaceForeignKeychainProviderMethod4 = (uniffiHandle: bigint, devicesJson: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleteVoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct
-;
-export type UniffiVTableCallbackInterfaceForeignEventBus = {
-  uniffiFree: UniffiCallbackInterfaceFree;
-  uniffiClone: UniffiCallbackInterfaceClone;
-  emit: UniffiCallbackInterfaceForeignEventBusMethod0;
+export type UniffiForeignFutureCompletevoid = (callbackData: bigint, result: UniffiForeignFutureResultVoid) => void;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod4 = (uniffiHandle: bigint, sinkId: Uint8Array, offset: bigint, data: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod5 = (uniffiHandle: bigint, sinkId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod6 = (uniffiHandle: bigint, sinkId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceCloneSwarmdropMobileCoreForeignFileAccess = (handle: bigint) => UniffiResult<void>;
+type UniffiCallbackInterfaceFreeSwarmdropMobileCoreForeignFileAccess = (handle: bigint) => void;
+export type UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignFileAccess = {
+  uniffi_free: UniffiCallbackInterfaceFreeSwarmdropMobileCoreForeignFileAccess;
+  uniffi_clone: UniffiCallbackInterfaceCloneSwarmdropMobileCoreForeignFileAccess;
+  source_metadata: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod0;
+  read_source_chunk: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod1;
+  create_sink: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod2;
+  open_or_create_sink: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod3;
+  write_sink_chunk: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod4;
+  finalize_sink: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod5;
+  cleanup_sink: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod6;
 };
-export type UniffiVTableCallbackInterfaceForeignFileAccess = {
-  uniffiFree: UniffiCallbackInterfaceFree;
-  uniffiClone: UniffiCallbackInterfaceClone;
-  sourceMetadata: UniffiCallbackInterfaceForeignFileAccessMethod0;
-  readSourceChunk: UniffiCallbackInterfaceForeignFileAccessMethod1;
-  createSink: UniffiCallbackInterfaceForeignFileAccessMethod2;
-  openOrCreateSink: UniffiCallbackInterfaceForeignFileAccessMethod3;
-  writeSinkChunk: UniffiCallbackInterfaceForeignFileAccessMethod4;
-  finalizeSink: UniffiCallbackInterfaceForeignFileAccessMethod5;
-  cleanupSink: UniffiCallbackInterfaceForeignFileAccessMethod6;
-};
-export type UniffiVTableCallbackInterfaceForeignKeychainProvider = {
-  uniffiFree: UniffiCallbackInterfaceFree;
-  uniffiClone: UniffiCallbackInterfaceClone;
-  loadIdentity: UniffiCallbackInterfaceForeignKeychainProviderMethod0;
-  saveIdentity: UniffiCallbackInterfaceForeignKeychainProviderMethod1;
-  deleteIdentity: UniffiCallbackInterfaceForeignKeychainProviderMethod2;
-  loadPairedDevicesJson: UniffiCallbackInterfaceForeignKeychainProviderMethod3;
-  savePairedDevicesJson: UniffiCallbackInterfaceForeignKeychainProviderMethod4;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod0 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod1 = (uniffiHandle: bigint, keypair: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod2 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod3 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod4 = (uniffiHandle: bigint, devicesJson: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceCloneSwarmdropMobileCoreForeignKeychainProvider = (handle: bigint) => UniffiResult<void>;
+type UniffiCallbackInterfaceFreeSwarmdropMobileCoreForeignKeychainProvider = (handle: bigint) => void;
+export type UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignKeychainProvider = {
+  uniffi_free: UniffiCallbackInterfaceFreeSwarmdropMobileCoreForeignKeychainProvider;
+  uniffi_clone: UniffiCallbackInterfaceCloneSwarmdropMobileCoreForeignKeychainProvider;
+  load_identity: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod0;
+  save_identity: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod1;
+  delete_identity: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod2;
+  load_paired_devices_json: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod3;
+  save_paired_devices_json: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod4;
 };
 
 // UniffiRustFutureContinuationCallback is generated as part of the component interface's
 // ffi_definitions. However, we need it in the runtime.
-// We could:
-// (a) do some complicated template logic to ensure the declaration is not generated here (possible)
-// (b) import the generated declaration into the runtime (m a y b e) or…
-// (c) generate the declaration anyway, and use a different declaration in the runtime.
-//
-// We chose (c) here as the simplest. In addition, we perform a compile time check that
-// the two versions of `UniffiRustFutureContinuationCallback` are structurally equivalent.
-//
-// If you see the error:
-// ```
-// Type 'true' is not assignable to type 'false'.(2322)
-// ```
-// Then a new version of uniffi has changed the signature of the callback. Most likely, code in
-// `typescript/src/async-rust-call.ts` will need to be changed.
-//
-// If you see the error:
-// ```
-// Cannot find name 'UniffiRustFutureContinuationCallback'. Did you mean 'RuntimeUniffiRustFutureContinuationCallback'?(2552)
-// ```
-// then you may not be using callbacks or promises, and uniffi is now not generating Futures and callbacks.
-// You should not generate this if that is the case.
-//
-// ('You' being the bindings generator maintainer).
+// We chose to generate the declaration anyway, and use a different declaration in the runtime.
+// We perform a compile time check that the two versions are structurally equivalent.
 const isRustFutureContinuationCallbackTypeCompatible: UniffiStructuralEquality<
   RuntimeUniffiRustFutureContinuationCallback,
   UniffiRustFutureContinuationCallback
-> = true;
-const isUniffiForeignFutureTypeCompatible: UniffiStructuralEquality<
-  RuntimeUniffiForeignFuture,
-  UniffiForeignFuture
 > = true;
