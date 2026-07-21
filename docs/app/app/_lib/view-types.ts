@@ -13,12 +13,24 @@ export type {
   TransferProgressEvent,
   PrepareProgressEvent,
   PendingPairingJson,
+  ConnectionJson,
+  PathKindJson,
 } from "swarmdrop-web";
 
 import type { WebError } from "swarmdrop-web";
 
 /** 动态 import 的模块类型：跟随生成的 .d.ts（含 default=init 与 `WebNode` class，带 static spawn）。 */
 export type SwarmdropWebModule = typeof import("swarmdrop-web");
+
+/** `WebError.kind` 的中文标签——错误呈现统一收口用（web-error-view.tsx / connection-panel.tsx 共用）。 */
+export const WEB_ERROR_KIND_LABEL: Record<WebError["kind"], string> = {
+  identity: "身份错误",
+  network: "网络错误",
+  transfer: "传输错误",
+  invalidInput: "输入无效",
+  notFound: "未找到",
+  storage: "存储错误",
+};
 
 /**
  * 把任意 reject 值收敛成 `WebError`。wasm-bindgen 方法 reject 的就是 `{ kind, message }`；

@@ -6,6 +6,7 @@
 import { createStore, useStore } from "./create-store";
 import type { SecureContextInfo } from "./secure-context";
 import type {
+  ConnectionJson,
   PendingPairingJson,
   PrepareProgressEvent,
   TransferOfferEvent,
@@ -57,6 +58,15 @@ export interface WebNodeState {
   // —— pairing 域 ——
   /** 入站配对请求（browser-as-inviter：桌面消费本机 invite 后到达）。轮询累积。 */
   pendingPairings: PendingPairingJson[];
+
+  // —— connection 域（#76）——
+  /** 最近一次 `connect()` 成功的结果——浏览器不 listen socket，这只是「拨出去」的连接。 */
+  connection: ConnectionJson | null;
+  /**
+   * 最近一次 `reserve()` 成功拿到的 circuit 可达地址。浏览器唯一的被动接收入口，
+   * #77（配对）生成邀请前需要它——存进 store 而非局部 state，避免 #77 重复 reserve。
+   */
+  reservation: string | null;
 }
 
 const initialState: WebNodeState = {
@@ -71,6 +81,8 @@ const initialState: WebNodeState = {
   progress: {},
   eventLog: [],
   pendingPairings: [],
+  connection: null,
+  reservation: null,
 };
 
 export const webNodeStore = createStore<WebNodeState>(initialState);
@@ -108,6 +120,12 @@ export const webNodeActions = {
     webNodeStore.setState((s) => ({
       pendingPairings: s.pendingPairings.filter((r) => r.pendingId !== pendingId),
     }));
+  },
+  setConnection(connection: ConnectionJson | null) {
+    webNodeStore.setState({ connection });
+  },
+  setReservation(reservation: string | null) {
+    webNodeStore.setState({ reservation });
   },
   /** 关停后清空运行态，保留已探测的 secure 结果（环境不因关节点而改变）。 */
   reset() {
