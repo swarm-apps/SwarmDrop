@@ -8,9 +8,11 @@
 // （DESIGN.md：这三色是状态语义编码，在 one-accent 规则之外）。
 
 import { useRef, useState } from "react";
+import { WebErrorCard } from "./web-error-view";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
-import { toWebError, WEB_ERROR_KIND_LABEL, type PathKindJson, type WebError } from "../_lib/view-types";
+import { toWebError, type PathKindJson, type WebError } from "../_lib/view-types";
+import { withTimeout } from "../_lib/with-timeout";
 
 const PATH_META: Record<PathKindJson, { label: string; dot: string }> = {
   local: { label: "局域网直连", dot: "bg-emerald-500" },
@@ -19,28 +21,12 @@ const PATH_META: Record<PathKindJson, { label: string; dot: string }> = {
 };
 
 /**
- * 客户端超时：实测对不可达地址 `reserve()` 会随 swarm 拨号重试无限期挂起（`connect()` 至少
- * 还会在数十秒后 reject）——wasm 侧的 Promise 没有内建超时。不加这层，UI 会卡在
- * 「reserve 中…」永不恢复，违反「连接失败有清晰反馈，不静默」。这是纯前端兜底，不改内核重试
- * 语义（内核可能后续仍在背后重试，只是 UI 不再等它）。
+ * 实测对不可达地址 `reserve()` 会随 swarm 拨号重试无限期挂起（`connect()` 至少还会在数十秒
+ * 后 reject）——wasm 侧的 Promise 没有内建超时。不加这层，UI 会卡在「reserve 中…」永不恢复，
+ * 违反「连接失败有清晰反馈，不静默」。这是纯前端兜底，不改内核重试语义（内核可能后续仍在
+ * 背后重试，只是 UI 不再等它）。
  */
 const ACTION_TIMEOUT_MS = 20_000;
-
-function withTimeout<T>(promise: Promise<T>, timeoutError: WebError): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(timeoutError), ACTION_TIMEOUT_MS);
-    promise.then(
-      (v) => {
-        window.clearTimeout(timer);
-        resolve(v);
-      },
-      (e) => {
-        window.clearTimeout(timer);
-        reject(e);
-      },
-    );
-  });
-}
 
 export function ConnectionPanel() {
   const nodeStatus = useWebNode((s) => s.status);
@@ -67,17 +53,17 @@ export function ConnectionPanel() {
     setConnecting(true);
     setConnectError(null);
     try {
-      const conn = await withTimeout(node.connect(addr.trim()), {
+      const conn = await withTimeout(node.connect(addr.trim()), ACTION_TIMEOUT_MS, {
         kind: "network",
         message: `connect 超时（${ACTION_TIMEOUT_MS / 1000}s 内未响应，helper 可能不可达）`,
       });
       if (seq !== connectSeq.current) return;
       webNodeActions.setConnection(conn);
+      setConnecting(false);
     } catch (e) {
       if (seq !== connectSeq.current) return;
       setConnectError(toWebError(e));
-    } finally {
-      if (seq === connectSeq.current) setConnecting(false);
+      setConnecting(false);
     }
   };
 
@@ -88,17 +74,17 @@ export function ConnectionPanel() {
     setReserving(true);
     setReserveError(null);
     try {
-      const circuit = await withTimeout(node.reserve(addr.trim()), {
+      const circuit = await withTimeout(node.reserve(addr.trim()), ACTION_TIMEOUT_MS, {
         kind: "network",
         message: `reserve 超时（${ACTION_TIMEOUT_MS / 1000}s 内未建立可达性，helper 可能不可达或仍在后台重试拨号）`,
       });
       if (seq !== reserveSeq.current) return;
       webNodeActions.setReservation(circuit);
+      setReserving(false);
     } catch (e) {
       if (seq !== reserveSeq.current) return;
       setReserveError(toWebError(e));
-    } finally {
-      if (seq === reserveSeq.current) setReserving(false);
+      setReserving(false);
     }
   };
 
@@ -138,7 +124,7 @@ export function ConnectionPanel() {
         </button>
       </div>
 
-      {connectError && <InlineError error={connectError} />}
+      {connectError && <WebErrorCard error={connectError} className="mt-3 text-xs" />}
 
       {connection && (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-3 py-2">
@@ -148,7 +134,7 @@ export function ConnectionPanel() {
         </div>
       )}
 
-      {reserveError && <InlineError error={reserveError} />}
+      {reserveError && <WebErrorCard error={reserveError} className="mt-3 text-xs" />}
 
       {reservation && (
         <div className="mt-3">
@@ -160,18 +146,6 @@ export function ConnectionPanel() {
           </p>
         </div>
       )}
-    </div>
-  );
-}
-
-function InlineError({ error }: { error: WebError }) {
-  return (
-    <div
-      role="alert"
-      className="mt-3 rounded-lg border border-red-500/40 bg-red-50 px-3 py-2 text-xs dark:border-red-500/30 dark:bg-red-950/40"
-    >
-      <p className="font-medium text-red-900 dark:text-red-200">{WEB_ERROR_KIND_LABEL[error.kind]}</p>
-      <p className="mt-0.5 font-mono break-all text-red-800/90 dark:text-red-200/80">{error.message}</p>
     </div>
   );
 }
