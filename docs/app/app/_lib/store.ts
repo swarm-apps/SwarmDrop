@@ -1,12 +1,13 @@
 // Web 应用区的状态层：镜像桌面 `src/stores/network-store` 的思路，但事件源是「双轨」的——
 //   源一：transfer 域事件走 `events()` 的 ReadableStream（单点消费，见 event-dispatch.ts）；
-//   源二：pairing 入站请求走 `pending_pairing_requests()` 轮询（见 pairing-poll.ts）。
+//   源二：pairing 入站请求 + 已配对设备走同步 getter 轮询（见 state-poll.ts）。
 // 二者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
 
 import { createStore, useStore } from "./create-store";
 import type { SecureContextInfo } from "./secure-context";
 import type {
   ConnectionJson,
+  Device,
   PendingPairingJson,
   PrepareProgressEvent,
   TransferOfferEvent,
@@ -58,6 +59,8 @@ export interface WebNodeState {
   // —— pairing 域 ——
   /** 入站配对请求（browser-as-inviter：桌面消费本机 invite 后到达）。轮询累积。 */
   pendingPairings: PendingPairingJson[];
+  /** 已配对设备清单（#77）。轮询快照，非事件驱动——`paired_devices()` 是同步查询非事件流。 */
+  pairedDevices: Device[];
 
   // —— connection 域（#76）——
   /** 最近一次 `connect()` 成功的结果——浏览器不 listen socket，这只是「拨出去」的连接。 */
@@ -81,6 +84,7 @@ const initialState: WebNodeState = {
   progress: {},
   eventLog: [],
   pendingPairings: [],
+  pairedDevices: [],
   connection: null,
   reservation: null,
 };
@@ -120,6 +124,13 @@ export const webNodeActions = {
     webNodeStore.setState((s) => ({
       pendingPairings: s.pendingPairings.filter((r) => r.pendingId !== pendingId),
     }));
+  },
+  /**
+   * 每 1.5s 轮询都会传入一个新数组引用（`paired_devices()` 每次现造），若跳过内容比较，
+   * 订阅者会无谓重渲染。DashMap 遍历顺序不保证稳定，比较必须与顺序无关。
+   */
+  setPairedDevices(devices: Device[]) {
+    webNodeStore.setState((s) => (devicesEqual(s.pairedDevices, devices) ? {} : { pairedDevices: devices }));
   },
   setConnection(connection: ConnectionJson | null) {
     webNodeStore.setState({ connection });
@@ -165,4 +176,12 @@ function appendLog(log: WebTransferEvent[], ev: WebTransferEvent): WebTransferEv
   const next = log.length >= EVENT_LOG_CAP ? log.slice(1) : log.slice();
   next.push(ev);
   return next;
+}
+
+/** 与顺序无关的内容比较——DashMap 遍历顺序不保证跨调用稳定。 */
+function devicesEqual(a: Device[], b: Device[]): boolean {
+  if (a.length !== b.length) return false;
+  const key = (d: Device) => `${d.peerId}|${d.status}|${d.connection}|${d.latency}`;
+  const seen = new Set(a.map(key));
+  return b.every((d) => seen.has(key(d)));
 }

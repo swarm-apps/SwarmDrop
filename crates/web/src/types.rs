@@ -6,6 +6,9 @@
 //! serde_json）逐字段一致。
 
 use serde::Serialize;
+// `paired_devices()` 的 JS 返回类型：直接复用桌面同款读模型（已 Serialize + specta::Type），
+// 不再手写一份 Web 专属投影——字段（含在线状态/连接类型）语义与桌面一致，没有理由分叉。
+pub use swarmdrop_host::device::Device;
 use swarmdrop_transfer::events::TransferEvent;
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{

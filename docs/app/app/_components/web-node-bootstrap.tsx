@@ -11,8 +11,8 @@
 import { useEffect } from "react";
 import { startEventConsumption } from "../_lib/event-dispatch";
 import { spawnNode } from "../_lib/node-runtime";
-import { startPairingPoll } from "../_lib/pairing-poll";
 import { detectSecureContext } from "../_lib/secure-context";
+import { startStatePoll } from "../_lib/state-poll";
 import { webNodeActions } from "../_lib/store";
 import { toWebError } from "../_lib/view-types";
 
@@ -31,7 +31,7 @@ export function WebNodeBootstrap() {
         webNodeActions.setNodeId(node.node_id());
         webNodeActions.setStatus("running");
         startEventConsumption(node); // 源一：transfer 事件流（单点消费）
-        stopPoll = startPairingPoll(node); // 源二：pairing 入站请求轮询
+        stopPoll = startStatePoll(node); // 源二：pairing 请求 + 已配对设备轮询
       })
       .catch((e) => {
         if (cancelled) return;

@@ -13,7 +13,9 @@ use std::borrow::Cow;
 use specta::datatype::{DataType, Primitive};
 use specta::{Format, FormatError, Type, Types};
 use specta_util::Remapper;
-use swarmdrop_web::{ConnectionJson, OfferJson, PendingPairingJson, WebError, WebTransferEvent};
+use swarmdrop_web::{
+    ConnectionJson, Device, OfferJson, PendingPairingJson, WebError, WebTransferEvent,
+};
 
 /// serde 形状（tagged enum / rename）+ bigint→number 重映射。
 struct WebFormat(Remapper);
@@ -55,7 +57,8 @@ fn export_bindings() {
         .register::<OfferJson>()
         .register::<PendingPairingJson>()
         .register::<ConnectionJson>()
-        .register::<WebError>();
+        .register::<WebError>()
+        .register::<Device>();
 
     specta_typescript::Typescript::default()
         .header(

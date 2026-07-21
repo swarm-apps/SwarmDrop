@@ -7,11 +7,13 @@
 // 2），配色沿用桌面 device-card 的语义编码：局域网 emerald / 打洞 sky / 中继 amber
 // （DESIGN.md：这三色是状态语义编码，在 one-accent 规则之外）。
 
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import { getNode } from "../_lib/node-runtime";
+import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode, webNodeActions } from "../_lib/store";
-import { toWebError, type PathKindJson, type WebError } from "../_lib/view-types";
+import { type PathKindJson } from "../_lib/view-types";
 import { withTimeout } from "../_lib/with-timeout";
 
 const PATH_META: Record<PathKindJson, { label: string; dot: string }> = {
@@ -34,58 +36,35 @@ export function ConnectionPanel() {
   const reservation = useWebNode((s) => s.reservation);
 
   const [addr, setAddr] = useState("");
-  const [connecting, setConnecting] = useState(false);
-  const [reserving, setReserving] = useState(false);
-  const [connectError, setConnectError] = useState<WebError | null>(null);
-  const [reserveError, setReserveError] = useState<WebError | null>(null);
-
-  // 客户端超时放弃后，内核若仍在背后重试并最终 settle，其结果已过期——用序号丢弃，
-  // 避免覆盖用户后续重试（可能已用了另一个地址）的新结果。
-  const connectSeq = useRef(0);
-  const reserveSeq = useRef(0);
+  const connectAction = useAsyncAction();
+  const reserveAction = useAsyncAction();
 
   const ready = nodeStatus === "running";
 
-  const doConnect = async () => {
+  const doConnect = () => {
     const node = getNode();
     if (!node || !addr.trim()) return;
-    const seq = ++connectSeq.current;
-    setConnecting(true);
-    setConnectError(null);
-    try {
-      const conn = await withTimeout(node.connect(addr.trim()), ACTION_TIMEOUT_MS, {
-        kind: "network",
-        message: `connect 超时（${ACTION_TIMEOUT_MS / 1000}s 内未响应，helper 可能不可达）`,
-      });
-      if (seq !== connectSeq.current) return;
-      webNodeActions.setConnection(conn);
-      setConnecting(false);
-    } catch (e) {
-      if (seq !== connectSeq.current) return;
-      setConnectError(toWebError(e));
-      setConnecting(false);
-    }
+    connectAction.run(
+      () =>
+        withTimeout(node.connect(addr.trim()), ACTION_TIMEOUT_MS, {
+          kind: "network",
+          message: `connect 超时（${ACTION_TIMEOUT_MS / 1000}s 内未响应，helper 可能不可达）`,
+        }),
+      (conn) => webNodeActions.setConnection(conn),
+    );
   };
 
-  const doReserve = async () => {
+  const doReserve = () => {
     const node = getNode();
     if (!node || !addr.trim()) return;
-    const seq = ++reserveSeq.current;
-    setReserving(true);
-    setReserveError(null);
-    try {
-      const circuit = await withTimeout(node.reserve(addr.trim()), ACTION_TIMEOUT_MS, {
-        kind: "network",
-        message: `reserve 超时（${ACTION_TIMEOUT_MS / 1000}s 内未建立可达性，helper 可能不可达或仍在后台重试拨号）`,
-      });
-      if (seq !== reserveSeq.current) return;
-      webNodeActions.setReservation(circuit);
-      setReserving(false);
-    } catch (e) {
-      if (seq !== reserveSeq.current) return;
-      setReserveError(toWebError(e));
-      setReserving(false);
-    }
+    reserveAction.run(
+      () =>
+        withTimeout(node.reserve(addr.trim()), ACTION_TIMEOUT_MS, {
+          kind: "network",
+          message: `reserve 超时（${ACTION_TIMEOUT_MS / 1000}s 内未建立可达性，helper 可能不可达或仍在后台重试拨号）`,
+        }),
+      (circuit) => webNodeActions.setReservation(circuit),
+    );
   };
 
   return (
@@ -109,32 +88,32 @@ export function ConnectionPanel() {
         <button
           type="button"
           onClick={doConnect}
-          disabled={!ready || !addr.trim() || connecting}
+          disabled={!ready || !addr.trim() || connectAction.pending}
           className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
         >
-          {connecting ? "连接中…" : "connect"}
+          {connectAction.pending ? "连接中…" : "connect"}
         </button>
         <button
           type="button"
           onClick={doReserve}
-          disabled={!ready || !addr.trim() || reserving}
+          disabled={!ready || !addr.trim() || reserveAction.pending}
           className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
         >
-          {reserving ? "reserve 中…" : "reserve（circuit listen）"}
+          {reserveAction.pending ? "reserve 中…" : "reserve（circuit listen）"}
         </button>
       </div>
 
-      {connectError && <WebErrorCard error={connectError} className="mt-3 text-xs" />}
+      {connectAction.error && <WebErrorCard error={connectAction.error} className="mt-3 text-xs" />}
 
       {connection && (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-3 py-2">
-          <span className={`size-1.5 shrink-0 rounded-full ${PATH_META[connection.path].dot}`} />
+          <StatusDot colorClass={PATH_META[connection.path].dot} />
           <span className="text-xs font-medium text-fd-foreground">{PATH_META[connection.path].label}</span>
           <span className="truncate font-mono text-xs text-fd-muted-foreground">{connection.addr}</span>
         </div>
       )}
 
-      {reserveError && <WebErrorCard error={reserveError} className="mt-3 text-xs" />}
+      {reserveAction.error && <WebErrorCard error={reserveAction.error} className="mt-3 text-xs" />}
 
       {reservation && (
         <div className="mt-3">

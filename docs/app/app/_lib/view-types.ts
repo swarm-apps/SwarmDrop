@@ -15,6 +15,7 @@ export type {
   PendingPairingJson,
   ConnectionJson,
   PathKindJson,
+  Device,
 } from "swarmdrop-web";
 
 import type { WebError } from "swarmdrop-web";

@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use futures::StreamExt;
+use swarmdrop_core::device_manager::DeviceFilter;
 use swarmdrop_core::host::EventBus;
 use swarmdrop_core::network::event_loop::spawn_event_loop;
 use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
@@ -56,6 +57,9 @@ extern "C" {
     /// `connect()` 的返回。
     #[wasm_bindgen(typescript_type = "ConnectionJson")]
     pub type ConnectionJsonJs;
+    /// `paired_devices()` 的返回：`Device[]`。
+    #[wasm_bindgen(typescript_type = "Device[]")]
+    pub type DeviceArray;
 }
 
 /// serde 可序列化值 → 具名 TS 类型的 JsValue（`unchecked_into` 到 typescript_type 包装）。
@@ -262,6 +266,13 @@ impl WebNode {
             .await
             .map_err(WebError::from)?;
         Ok(())
+    }
+
+    /// 已配对设备清单——与桌面 `list_devices` 同源的 [`DeviceManager::get_devices`] 读模型
+    /// （含在线状态/连接类型，presence 在 Web 侧同样运作）。
+    pub fn paired_devices(&self) -> Result<DeviceArray, JsValue> {
+        let devices = self.net_manager.devices().get_devices(DeviceFilter::Paired);
+        to_js_typed(&devices, "已配对设备")
     }
 
     /// 经 helper 请求 circuit reservation（浏览器被动接收连接的唯一入口），返回 circuit 地址。

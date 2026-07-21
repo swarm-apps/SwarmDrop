@@ -17,6 +17,9 @@ export type ConnectionJson = {
     addr: string,
 };
 
+/**  连接类型。 */
+export type ConnectionType = "lan" | "dcutr" | "relay";
+
 /**
  *  接收端保存位置（host-agnostic）。
  *
@@ -26,6 +29,50 @@ export type ConnectionJson = {
 export type CoreSaveLocation =
 /**  文件系统绝对路径（桌面）或 `Paths.document` 子路径（移动端）。 */
 { type: "path"; path: string };
+
+/**  统一的设备输出类型。 */
+export type Device = {
+    peerId: string,
+    status: DeviceStatus,
+    connection: ConnectionType | null,
+    latency: number | null,
+    isPaired: boolean,
+    trustLevel: DeviceTrustLevel | null,
+    receivePolicy: DeviceReceivePolicy | null,
+    trustConfirmed: boolean | null,
+} & OsInfo;
+
+/**
+ *  可信设备接收策略。
+ *
+ *  字段保持 host-neutral：保存位置使用字符串表达的 host 路径，桌面端解释为绝对路径，
+ *  移动端后续可解释为应用文档目录下的子路径。
+ */
+export type DeviceReceivePolicy = {
+    autoAccept: boolean,
+    requireConfirmation: boolean,
+    maxTransferBytes?: number | null,
+    allowDirectories: boolean,
+    allowRelayAutoAccept: boolean,
+    saveBehavior?: ReceiveSaveBehavior,
+    defaultSaveLocation?: string | null,
+    allowMcpSendToDevice: boolean,
+    /**
+     *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
+     *
+     *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
+     *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+     *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
+     */
+    allowMcpAcceptFromDevice?: boolean,
+    expiresAt?: number | null,
+};
+
+/**  设备状态。 */
+export type DeviceStatus = "online" | "offline";
+
+/**  已配对设备信任等级。 */
+export type DeviceTrustLevel = "owned" | "collaborator" | "temporary" | "blocked";
 
 /**  传输文件元信息。 */
 export type FileInfo = {
@@ -60,6 +107,23 @@ export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined"
 /**  接收方处于全局「暂停接收」状态，婉拒新 offer。 */
 { type: "receiving_paused" };
 
+/**
+ *  设备操作系统信息。
+ *
+ *  `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
+ *  `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+ *  `name.as_deref().unwrap_or(&hostname)` 回退。
+ */
+export type OsInfo = {
+    /**  用户起的设备名；缺省时回退到 `hostname`。 */
+    name?: string | null,
+    hostname: string,
+    os: string,
+    platform: string,
+    arch: string,
+    capabilities?: string[],
+};
+
 /**  连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。 */
 export type PathKindJson = "local" | "direct" | "relayed";
 
@@ -91,6 +155,11 @@ export type PrepareProgressEvent = {
     /**  总字节数（所有文件） */
     totalBytes: number,
 };
+
+/**  自动接收时的保存行为。 */
+export type ReceiveSaveBehavior =
+/**  使用策略里配置的默认保存位置，接收完成后进入收件箱。 */
+"inbox_and_default_save_location";
 
 export type RuntimeTransferDirection = "send" | "receive" | "unknown";
 
@@ -314,7 +383,8 @@ export class WebNode {
     accept_offer(session_id: string): Promise<void>;
     /**
      * 关停节点：NetManager::shutdown 取消内部 token（停 presence / infra / event-loop +
-     * transfer cleanup，drop Router 停路由），再显式关 Endpoint（drop Swarm → 断连）。
+     * transfer cleanup，drop Router 停路由）并关 Endpoint（drop Swarm → 断连）——
+     * 与 `WebNode.endpoint` 是同一 handle，无需再显式关一次。
      */
     close(): Promise<void>;
     /**
@@ -353,6 +423,11 @@ export class WebNode {
      * 本节点身份（base58）。
      */
     node_id(): string;
+    /**
+     * 已配对设备清单——与桌面 `list_devices` 同源的 [`DeviceManager::get_devices`] 读模型
+     * （含在线状态/连接类型，presence 在 Web 侧同样运作）。
+     */
+    paired_devices(): Device[];
     /**
      * 当前挂起（待确认）的入站 offer 列表。
      */
@@ -408,6 +483,7 @@ export interface InitOutput {
     readonly webnode_events: (a: number) => [number, number, number];
     readonly webnode_generate_invite: (a: number, b: number) => [number, number, number, number];
     readonly webnode_node_id: (a: number) => [number, number];
+    readonly webnode_paired_devices: (a: number) => [number, number, number];
     readonly webnode_pending_offers: (a: number) => [number, number, number];
     readonly webnode_pending_pairing_requests: (a: number) => [number, number, number];
     readonly webnode_reject_offer: (a: number, b: number, c: number) => any;

@@ -75,6 +75,7 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/try
 | `accept_offer(sid)` / `reject_offer(sid)` | 接受（落 OPFS）/ 拒绝 |
 | `resume(sid)` | 手动发起断点续传 |
 | `download_url(relative_path)` | 完成后读回 OPFS 建 blob URL 供下载 |
+| `paired_devices()` | 已配对设备清单 → `Device[]`（与桌面 `list_devices` 同源的 `DeviceManager` 读模型，含在线状态/连接类型） |
 | `events()` | `ReadableStream<WebTransferEvent>`（**只能取一次**） |
 | `close()` | 关停 |
 
@@ -123,6 +124,20 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/try
   行套一层超时兜底（`docs/app/app/_components/connection-panel.tsx` 的 `withTimeout`，20s），
   否则 UI 会卡在「reserve 中…」不给反馈，违反「状态诚实可见」。根治需要内核加超时/可取消的
   reserve，或 wasm 侧暴露 abort 口子；当前判定为前端职责，未改内核。
+- **`paired_devices()` 复用桌面 `Device` 读模型，未做 Web 专属裁剪**（2026-07-21 `#77` 新增）：
+  直接返回 `DeviceManager::get_devices(DeviceFilter::Paired)`，字段含 `trustLevel` /
+  `receivePolicy` 等桌面概念——Web 侧当前不实现按信任级别的收件策略（见上方"无配对"条，
+  `PeerDirectory` 恒返回合成值），这些字段对 Web UI 目前只是展示、无策略含义。若后续 Web 也要
+  支持信任分级，这里不用改后端，前端消费即可。
+- **`paired_devices()` 是轮询不是推送**（2026-07-21 `#77`）：`CoreEvent::DevicesChanged` /
+  `PairedDeviceAdded` 已经带着桌面推送同款的完整数据，但 `WebEventBus::publish`
+  （`src/event_bus.rs`）目前用一个 `other => { tracing::debug!(...) }` 通配分支把它们连同其他
+  device/network 事件一起吞进日志，只挑出 `PairingRequestReceived` 落进队列。前端因此只能靠
+  `docs/app/app/_lib/state-poll.ts` 每 1.5s 轮询 `paired_devices()`。这是与 `pending_pairing_requests()`
+  一致的既有模式（浏览器侧 pairing 域本就未走推送流），本次新增的 `paired_devices()` 顺着同一
+  模式走，未推动它变成推送——真要做推送，需要决定新事件走哪条通道（塞进 `WebTransferEvent` 会
+  把 transfer 域和 device 域混在一起，不合适；更可能是给 `WebEventBus` 单开一条队列/流，
+  与 `pending_pairing_requests()` 同构）。
 
 ## 基准（`static/bench.html` + `scripts/web-bench/driver.mjs`）
 

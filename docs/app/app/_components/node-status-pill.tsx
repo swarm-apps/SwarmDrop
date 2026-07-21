@@ -4,6 +4,7 @@
 // 在 DESIGN 的 one-accent 规则之外，不算第二强调色。脉冲动效带 motion-reduce 降级。
 
 import { useWebNode, type NodeStatus } from "../_lib/store";
+import { StatusDot } from "./status-dot";
 
 const STATUS_META: Record<NodeStatus, { label: string; dot: string; pulse?: boolean }> = {
   idle: { label: "未启动", dot: "bg-fd-muted-foreground" },
@@ -18,9 +19,7 @@ export function NodeStatusPill() {
   const meta = STATUS_META[status];
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-fd-border bg-fd-card px-2.5 py-1 text-xs font-medium text-fd-muted-foreground shadow-xs">
-      <span
-        className={`size-1.5 rounded-full ${meta.dot} ${meta.pulse ? "animate-pulse motion-reduce:animate-none" : ""}`}
-      />
+      <StatusDot colorClass={meta.dot} pulse={meta.pulse} />
       {meta.label}
     </span>
   );
