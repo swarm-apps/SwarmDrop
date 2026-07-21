@@ -49,6 +49,11 @@ export interface WebNodeState {
   /** 发送侧 prepare（hash + bao outboard）进度，按 preparedId。 */
   prepares: Record<string, PrepareProgressEvent>;
   /**
+   * 最近一条 prepare 进度事件（#78 发送面板用：`send_files()` 内部生成的 preparedId 不回传
+   * 给调用方，MVP 只支持单个活跃发送，故用「最近一条」代表当前发送的 prepare 阶段）。
+   */
+  latestPrepareProgress: PrepareProgressEvent | null;
+  /**
    * 实时进度：speed / eta / 单文件粒度。**TransferProjection 从不携带这些字段**，故单独建域
    * （projection 只表达 phase + 累计字节，不会取代 progress）。供 #80 传输视图直接消费。
    */
@@ -81,6 +86,7 @@ const initialState: WebNodeState = {
   projections: {},
   offers: {},
   prepares: {},
+  latestPrepareProgress: null,
   progress: {},
   eventLog: [],
   pendingPairings: [],
@@ -163,7 +169,11 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
     case "transferProgress":
       return { progress: { ...s.progress, [ev.event.sessionId]: ev.event }, eventLog };
     case "prepareProgress":
-      return { prepares: { ...s.prepares, [ev.event.preparedId]: ev.event }, eventLog };
+      return {
+        prepares: { ...s.prepares, [ev.event.preparedId]: ev.event },
+        latestPrepareProgress: ev.event,
+        eventLog,
+      };
     default:
       // 终态事件（accepted/rejected/completed/failed/paused/resumed/dbError）与 TransferProjection
       // 的 phase/terminalReason/errorMessage 冗余（内核每次状态转换重发 projection），基座只留痕；

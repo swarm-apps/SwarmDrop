@@ -138,6 +138,16 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/try
   模式走，未推动它变成推送——真要做推送，需要决定新事件走哪条通道（塞进 `WebTransferEvent` 会
   把 transfer 域和 device 域混在一起，不合适；更可能是给 `WebEventBus` 单开一条队列/流，
   与 `pending_pairing_requests()` 同构）。
+- **`send_files()` 不回传 `preparedId`，前端只能用「最近一条」近似追踪 prepare 进度**
+  （2026-07-21 `#78`）：内部生成的 `prepared_id`（`node.rs` 的 `send_files`）只用于内部
+  `manager.prepare()` 调用，从不透出给 JS——`send_files(to, files): Promise<string>` 只在
+  prepare + 发 Offer 全部完成后返回最终 session_id。前端 `docs/app/app/_lib/store.ts` 因此
+  只能维护一个全局的 `latestPrepareProgress`（「最近一条 `prepareProgress` 事件」），MVP
+  下（单个活跃发送、按钮 pending 时锁定）够用，但**如果同时有两个并发 `send_files()` 在跑，
+  两者的 prepare 进度事件会交替覆盖同一个字段，进度条张冠李戴**。桌面端 `src-tauri` 的
+  `prepare_send`（返回 `prepared_id`）+ `start_send` 两步式命令已经验证过「把 preparedId
+  交回调用方」这个模式；Web 若要支持并发发送，应照这个先例把 `send_files` 拆成两步。判定为
+  当前 UI 不可触发（只有一个 `SendPanel` 实例、发送中按钮锁定）的已知限制，未现在拆分。
 
 ## 基准（`static/bench.html` + `scripts/web-bench/driver.mjs`）
 
