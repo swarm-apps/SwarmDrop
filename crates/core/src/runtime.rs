@@ -78,6 +78,7 @@ impl EndpointProfile {
 )]
 pub async fn start_node<F>(
     secret_key: SecretKey,
+    webrtc_certificate_pem: Option<String>,
     os_info: OsInfo,
     paired_devices: Vec<PairedDeviceInfo>,
     network_config: NetworkRuntimeConfig,
@@ -99,7 +100,14 @@ where
     };
     let agent_version = os_info.to_agent_version();
 
-    let endpoint = build_endpoint(secret_key, agent_version, &network_config, profile).await?;
+    let endpoint = build_endpoint(
+        secret_key,
+        webrtc_certificate_pem,
+        agent_version,
+        &network_config,
+        profile,
+    )
+    .await?;
 
     // 注册引导/中继基础设施节点（DHT bootstrap 依赖至少一个 kad server 进路由表）。
     // 浏览器端无内置引导，整循环跳过。
@@ -184,6 +192,7 @@ pub fn build_router(
 /// 已 bind 的 Endpoint）。identify 协议 / agent_version / DHT server_mode 三端一致。
 async fn build_endpoint(
     secret_key: SecretKey,
+    webrtc_certificate_pem: Option<String>,
     agent_version: String,
     config: &NetworkRuntimeConfig,
     profile: EndpointProfile,
@@ -197,6 +206,10 @@ async fn build_endpoint(
         .identify_protocol(IDENTIFY_PROTOCOL)
         .agent_version(agent_version)
         .dht(dht_config);
+
+    if let Some(pem) = webrtc_certificate_pem {
+        builder = builder.webrtc_certificate(pem);
+    }
 
     builder = match profile {
         EndpointProfile::Native => builder
@@ -232,6 +245,7 @@ mod tests {
 
         let native = build_endpoint(
             SecretKey::generate(),
+            None,
             "swarmdrop/test".to_string(),
             &config,
             EndpointProfile::Native,
@@ -242,6 +256,7 @@ mod tests {
 
         let browser = build_endpoint(
             SecretKey::generate(),
+            None,
             "swarmdrop/test".to_string(),
             &config,
             EndpointProfile::Browser,
@@ -249,5 +264,36 @@ mod tests {
         .await
         .expect("browser profile bind");
         browser.close().await;
+    }
+
+    #[tokio::test]
+    async fn native_profile_publishes_webrtc_direct_address() {
+        let native = build_endpoint(
+            SecretKey::generate(),
+            None,
+            "swarmdrop/test".to_string(),
+            &NetworkRuntimeConfig::default(),
+            EndpointProfile::Native,
+        )
+        .await
+        .expect("native profile bind");
+
+        let mut addrs = native.watch_addrs();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                if addrs
+                    .get()
+                    .dialable()
+                    .iter()
+                    .any(|addr| addr.to_string().contains("/webrtc-direct/certhash/"))
+                {
+                    break;
+                }
+                addrs.updated().await.expect("address watch closed");
+            }
+        })
+        .await
+        .expect("native profile should publish a webrtc-direct address");
+        native.close().await;
     }
 }

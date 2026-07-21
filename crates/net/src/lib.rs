@@ -59,3 +59,13 @@ pub use router::{ProtocolHandler, Router, RouterBuilder};
 pub use rpc::{CallOptions, MAX_RPC_FRAME, Rpc, RpcHandler, RpcMessage, RpcService};
 pub use stream::{Direction, P2pStream, StreamLimits};
 pub use watch::Watcher;
+
+/// 生成可持久化的 WebRTC Direct 证书 PEM（含私钥）。
+///
+/// 调用方必须把完整 PEM 放入安全存储后在每次启动时复用，不能仅保存密钥再重建。
+#[cfg(not(wasm_browser))]
+pub fn generate_webrtc_certificate_pem() -> Result<String, String> {
+    libp2p_webrtc::tokio::Certificate::generate(&mut rand::thread_rng())
+        .map_err(|error| error.to_string())
+        .map(|certificate| certificate.serialize_pem())
+}

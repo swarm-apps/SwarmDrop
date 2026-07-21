@@ -1,4 +1,5 @@
 //! 网络生命周期 —— `start_node` / `shutdown_node` / `network_status`。
+
 //!
 //! 节点开关由 host 决定（用户显式控制）；节点运行期间的 presence
 //! （在线宣告 / 已配对设备保活与重连）由 core 自治，host 无需参与。
@@ -196,6 +197,8 @@ impl MobileCore {
         network_config: MobileNetworkRuntimeConfig,
     ) -> FfiResult<()> {
         let keypair = self.ensure_keypair().await?;
+        let webrtc_certificate_pem =
+            swarmdrop_core::identity::load_or_create_webrtc_certificate(self.keychain()).await?;
         let paired_devices = swarmdrop_core::identity::load_paired_devices(self.keychain()).await?;
 
         // 启动前先确保 SQLite 已就绪（断点续传 / 历史记录都依赖它）
@@ -216,6 +219,7 @@ impl MobileCore {
 
         let started = swarmdrop_core::runtime::start_node(
             keypair,
+            Some(webrtc_certificate_pem),
             os_info,
             paired_devices,
             network_config.into(),

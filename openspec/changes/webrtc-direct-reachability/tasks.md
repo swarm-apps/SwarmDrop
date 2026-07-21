@@ -2,21 +2,21 @@
 
 ## Phase 1 — 证书持久化打通（混合策略核心）
 
-- [ ] `NetworkRuntimeConfig`（core `network/config.rs`）增 `webrtc_cert_pem`（或证书来源）字段，透传到 `build_endpoint` → `builder.webrtc_certificate(pem)`
-- [ ] 桌面：首启 `Certificate::generate` → `serialize_pem()` 存 Stronghold/keychain；后续 `from_pem()` 复用
+- [x] 宿主 Keychain 凭据读取后透传到 core `build_endpoint` → `builder.webrtc_certificate(pem)`（不得放入前端可序列化的 `NetworkRuntimeConfig`）
+- [x] 桌面与移动：首启 `Certificate::generate` → `serialize_pem()` 分别存系统 Keychain / SecureStore；后续 `from_pem()` 复用
 - [ ] helper/bootstrap：证书 PEM 持久化到服务器数据目录（权限 600），复用
-- [ ] 消掉 `transport.rs:54-61` 的 `certhash will not survive restarts` warn（有持久化证书时）
-- [ ] 回归：native 端跨重启 certhash 稳定（同一 PEM → 同一 certhash 的断言测试）
+- [x] 有持久化证书时不再触发 `transport.rs:54-61` 的 `certhash will not survive restarts` warn
+- [x] 回归：native 端跨重启 certhash 稳定（同一 PEM → 同一 certhash 的断言测试）
 
 ## Phase 2 — listen /webrtc-direct
 
-- [ ] 桌面端点 listen 地址集加 `/ip4/0.0.0.0/udp/0/webrtc-direct`（+ ipv6）
+- [x] 桌面与移动端点 listen 地址集加 `/ip4/0.0.0.0/udp/0/webrtc-direct`
 - [ ] helper/bootstrap listen /webrtc-direct（证书固定 → certhash 固定）
 - [ ] 实证 listen 生效：本机拨自身 webrtc-direct 地址成功
 
 ## Phase 3 — 分享物锚点分离（NodeId 锚点 + certhash hint）
 
-- [ ] 确认 webrtc-direct/certhash 地址进 `shareable_addrs()` = `dialable()` = `direct_addrs()`，未被 loopback/unspecified/circuit 过滤误杀（D6 覆盖验证）
+- [x] 确认 webrtc-direct/certhash 地址进 `shareable_addrs()` = `dialable()` = `direct_addrs()`，未被 loopback/unspecified/circuit 过滤误杀（D6 覆盖验证）
 - [ ] invite addr hints 携带 webrtc-direct 地址（复用 `pair-invite-protocol`，inviter=NodeId+hints 已就位）
 - [ ] 拨号链路：`connect(NodeAddr::new(peer))` 先试 hint、失败回落 `OnlineRecordLookup` 按 NodeId 重解析（`presence/supervisor.rs` 已实现，验证 webrtc-direct 地址纳入）
 - [ ] 断言：certhash 变更后（换证）按 NodeId 重解析自动拿到新地址，无需重发邀请

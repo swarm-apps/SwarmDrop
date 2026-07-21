@@ -112,6 +112,7 @@ pub struct MemoryHost {
 #[derive(Debug, Default)]
 struct MemoryHostInner {
     identity: Option<DeviceIdentityBytes>,
+    webrtc_certificate_pem: Option<String>,
     migration_state: Option<IdentityMigrationState>,
     paired_devices: Vec<PairedDeviceInfo>,
     events: Vec<CoreEvent>,
@@ -179,6 +180,23 @@ impl KeychainProvider for MemoryHost {
 
     async fn delete_identity(&self) -> AppResult<()> {
         self.inner.lock().expect("memory host poisoned").identity = None;
+        Ok(())
+    }
+
+    async fn load_webrtc_certificate_pem(&self) -> AppResult<Option<String>> {
+        Ok(self
+            .inner
+            .lock()
+            .expect("memory host poisoned")
+            .webrtc_certificate_pem
+            .clone())
+    }
+
+    async fn save_webrtc_certificate_pem(&self, pem: String) -> AppResult<()> {
+        self.inner
+            .lock()
+            .expect("memory host poisoned")
+            .webrtc_certificate_pem = Some(pem);
         Ok(())
     }
 

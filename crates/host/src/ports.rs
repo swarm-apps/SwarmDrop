@@ -36,6 +36,13 @@ pub trait KeychainProvider: Send + Sync {
     async fn save_identity(&self, identity: DeviceIdentityBytes) -> AppResult<()>;
     async fn delete_identity(&self) -> AppResult<()>;
 
+    /// WebRTC Direct 证书（完整 PEM，含私钥）。
+    ///
+    /// 它与设备 Ed25519 身份分开保存：前者固定分享地址中的 certhash，后者才是
+    /// Noise 握手使用的长期身份。
+    async fn load_webrtc_certificate_pem(&self) -> AppResult<Option<String>>;
+    async fn save_webrtc_certificate_pem(&self, pem: String) -> AppResult<()>;
+
     async fn load_migration_state(&self) -> AppResult<IdentityMigrationState>;
     async fn save_migration_state(&self, state: IdentityMigrationState) -> AppResult<()>;
 

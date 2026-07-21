@@ -53,6 +53,9 @@ pub async fn start(
     let file_access_for_factory = file_access.clone();
 
     let device_name = crate::host::device_config::load_device_name(&app).await;
+    let keychain = crate::host::keychain_provider(&app)?;
+    let webrtc_certificate_pem =
+        swarmdrop_core::identity::load_or_create_webrtc_certificate(&*keychain).await?;
     // os_info 由 host 供给：桌面走 `OsInfo::native` 的 env 探测（hostname/os/arch）+ 用户设备名。
     let os_info = OsInfo::native(device_name);
     // custom_bootstrap_nodes 现统一由 network_options 携带（前端 NetworkRuntimeConfig），
@@ -65,6 +68,7 @@ pub async fn start(
 
     let started = swarmdrop_core::runtime::start_node(
         (*secret_key).clone(),
+        Some(webrtc_certificate_pem),
         os_info,
         paired_devices,
         network_config,

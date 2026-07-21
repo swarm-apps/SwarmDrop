@@ -23,6 +23,11 @@ impl Preset for Native {
             "/ip4/0.0.0.0/udp/0/quic-v1"
                 .parse()
                 .expect("valid multiaddr"),
+            // 浏览器到原生端的局域网直连入口。certhash 由持久化 PEM 在 transport
+            // 层补入最终监听地址，邀请会随 dialable 地址集自然携带它。
+            "/ip4/0.0.0.0/udp/0/webrtc-direct"
+                .parse()
+                .expect("valid multiaddr"),
         ];
         // WebSocket listener：同网浏览器的 LAN 直连入口（ws:// 私有 IP 豁免 mixed content，
         // spike 实证）。浏览器拨不了裸 TCP/QUIC，ws 是它够到本机的唯一免证书路径。

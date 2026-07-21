@@ -3,6 +3,7 @@ import type { ForeignKeychainProvider } from "react-native-swarmdrop-core";
 
 const IDENTITY_KEY = "swarmdrop.identity.keypair";
 const PAIRED_DEVICES_KEY = "swarmdrop.paired-devices";
+const WEBRTC_CERTIFICATE_KEY = "swarmdrop.webrtc-direct.certificate";
 
 export class Keychain implements ForeignKeychainProvider {
   async loadIdentity(): Promise<ArrayBuffer | undefined> {
@@ -16,6 +17,14 @@ export class Keychain implements ForeignKeychainProvider {
 
   async deleteIdentity(): Promise<void> {
     await SecureStore.deleteItemAsync(IDENTITY_KEY);
+  }
+
+  async loadWebrtcCertificatePem(): Promise<string | undefined> {
+    return (await SecureStore.getItemAsync(WEBRTC_CERTIFICATE_KEY)) ?? undefined;
+  }
+
+  async saveWebrtcCertificatePem(pem: string): Promise<void> {
+    await SecureStore.setItemAsync(WEBRTC_CERTIFICATE_KEY, pem);
   }
 
   async loadPairedDevicesJson(): Promise<string> {
