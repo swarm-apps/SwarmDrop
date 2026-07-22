@@ -302,6 +302,18 @@ Tauri dev 期间硬编码连这两个端口。改 `vite.config.ts` 端口会让 
 
 **相关文件**：`vite.config.ts`
 
+### Windows 开发时必须忽略根目录 `target/`
+
+Cargo workspace 的构建产物位于仓库根目录 `target/`。若 Vite 监听到 Cargo 正在写入的 `.exe`，Windows 会报 `EBUSY`，并使 `beforeDevCommand` 退出，进而导致 `pnpm tauri dev` 失败。
+
+**正确做法**：
+- 在 `vite.config.ts` 的 `server.watch.ignored` 中同时保留 `"**/src-tauri/**"` 和 `"**/target/**"`。
+
+**不要做**：
+- 只忽略 `src-tauri/**`；它不包含根目录 `target/`。
+
+**相关文件**：`vite.config.ts`
+
 ### TAURI_DEV_HOST 用于真机调试
 
 `vite.config.ts` 读取 `TAURI_DEV_HOST` env：设了就把 host / hmr.host 切到该 IP。本地 dev 不需要设。
