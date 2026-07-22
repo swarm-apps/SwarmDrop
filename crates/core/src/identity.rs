@@ -55,6 +55,24 @@ where
     })
 }
 
+/// 读取或首次生成 WebRTC Direct 证书。
+///
+/// 证书 PEM 必须整体持久化；仅重建密钥仍会因证书中的随机字段改变 certhash，
+/// 导致已经发出的邀请地址失效。此函数仅在原生宿主编译。
+#[cfg(not(target_family = "wasm"))]
+pub async fn load_or_create_webrtc_certificate<P>(provider: &P) -> AppResult<String>
+where
+    P: KeychainProvider + ?Sized,
+{
+    if let Some(pem) = provider.load_webrtc_certificate_pem().await? {
+        return Ok(pem);
+    }
+
+    let pem = swarmdrop_net::generate_webrtc_certificate_pem().map_err(AppError::Network)?;
+    provider.save_webrtc_certificate_pem(pem.clone()).await?;
+    Ok(pem)
+}
+
 /// 读取已配对设备列表。
 pub async fn load_paired_devices<P>(provider: &P) -> AppResult<Vec<PairedDeviceInfo>>
 where
@@ -216,6 +234,21 @@ mod tests {
         assert!(!loaded.created);
         assert_eq!(created.node_id, loaded.node_id);
         assert_eq!(created.keypair_bytes, loaded.keypair_bytes);
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn load_or_create_webrtc_certificate_should_reuse_pem() {
+        let host = memory_host();
+
+        let created = super::load_or_create_webrtc_certificate(&host)
+            .await
+            .expect("create certificate");
+        let loaded = super::load_or_create_webrtc_certificate(&host)
+            .await
+            .expect("reuse certificate");
+
+        assert_eq!(created, loaded);
     }
 
     #[tokio::test]

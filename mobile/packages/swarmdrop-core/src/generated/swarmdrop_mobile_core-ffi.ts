@@ -89,6 +89,9 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_identity(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_identity(uniffiSelf: bigint, keypair: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_identity(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_webrtc_certificate_pem(uniffiSelf: bigint): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_webrtc_certificate_pem(uniffiSelf: bigint, pem: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_webrtc_certificate_pem(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_paired_devices_json(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_paired_devices_json(uniffiSelf: bigint, devicesJson: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_constructor_mobilecore_new(keychain: bigint, eventBus: bigint, fileAccess: bigint, dataDir: Uint8Array, uniffi_out_err: UniffiRustCallStatus): bigint;
@@ -141,6 +144,9 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_identity(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_identity(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_webrtc_certificate_pem(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_webrtc_certificate_pem(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_webrtc_certificate_pem(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new(): number;
@@ -244,7 +250,10 @@ type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod0 = 
 type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod1 = (uniffiHandle: bigint, keypair: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
 type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod2 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
 type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod3 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
-type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod4 = (uniffiHandle: bigint, devicesJson: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod4 = (uniffiHandle: bigint, pem: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod5 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod6 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod7 = (uniffiHandle: bigint, devicesJson: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
 type UniffiCallbackInterfaceCloneSwarmdropMobileCoreForeignKeychainProvider = (handle: bigint) => UniffiResult<void>;
 type UniffiCallbackInterfaceFreeSwarmdropMobileCoreForeignKeychainProvider = (handle: bigint) => void;
 export type UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignKeychainProvider = {
@@ -253,8 +262,11 @@ export type UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignKeychainProvi
   load_identity: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod0;
   save_identity: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod1;
   delete_identity: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod2;
-  load_paired_devices_json: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod3;
-  save_paired_devices_json: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod4;
+  load_webrtc_certificate_pem: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod3;
+  save_webrtc_certificate_pem: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod4;
+  delete_webrtc_certificate_pem: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod5;
+  load_paired_devices_json: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod6;
+  save_paired_devices_json: UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod7;
 };
 
 // UniffiRustFutureContinuationCallback is generated as part of the component interface's

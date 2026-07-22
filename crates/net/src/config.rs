@@ -74,7 +74,7 @@ impl Default for RelayServerConfig {
 }
 
 /// 内部装配配置（Builder 收集、bind 时消费）。
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct EndpointConfig {
     /// identify 的 protocol_version。默认是中立的内核值——业务协议契约
     /// （如 `/swarmdrop/2.0.0`）由上层经 `Builder::identify_protocol` 显式注入。
@@ -124,5 +124,31 @@ impl Default for EndpointConfig {
             stream_limits: StreamLimits::default(),
             connect_timeout: Duration::from_secs(30),
         }
+    }
+}
+
+impl std::fmt::Debug for EndpointConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EndpointConfig")
+            .field("identify_protocol", &self.identify_protocol)
+            .field("agent_version", &self.agent_version)
+            .field("ping_interval", &self.ping_interval)
+            .field("ping_timeout", &self.ping_timeout)
+            .field("idle_timeout", &self.idle_timeout)
+            .field("dht", &self.dht)
+            .field("mdns", &self.mdns)
+            .field("autonat", &self.autonat)
+            .field("dcutr", &self.dcutr)
+            .field("relay_client", &self.relay_client)
+            .field("relay_server", &self.relay_server)
+            // 绝不打印证书私钥材料，只标注是否已注入持久化证书
+            .field(
+                "webrtc_cert_pem",
+                &self.webrtc_cert_pem.as_ref().map(|_| "<redacted>"),
+            )
+            .field("listen", &self.listen)
+            .field("stream_limits", &self.stream_limits)
+            .field("connect_timeout", &self.connect_timeout)
+            .finish()
     }
 }

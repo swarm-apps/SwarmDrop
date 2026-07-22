@@ -26,6 +26,9 @@ struct DevIdentityFile {
     /// protobuf-encoded Ed25519 keypair；空 Vec 视为"无身份"，触发 core 生成新身份。
     #[serde(default)]
     keypair: Vec<u8>,
+    /// dev 模式仍按 release 语义保存完整 PEM，便于验证 certhash 跨重启稳定。
+    #[serde(default)]
+    webrtc_certificate_pem: Option<String>,
     #[serde(default)]
     migration_completed: bool,
     #[serde(default)]
@@ -110,6 +113,22 @@ impl KeychainProvider for FileKeychainProvider {
     async fn delete_identity(&self) -> CoreResult<()> {
         let mut file = self.read().await;
         file.keypair = Vec::new();
+        self.write(&file).await
+    }
+
+    async fn load_webrtc_certificate_pem(&self) -> CoreResult<Option<String>> {
+        Ok(self.read().await.webrtc_certificate_pem)
+    }
+
+    async fn save_webrtc_certificate_pem(&self, pem: String) -> CoreResult<()> {
+        let mut file = self.read().await;
+        file.webrtc_certificate_pem = Some(pem);
+        self.write(&file).await
+    }
+
+    async fn delete_webrtc_certificate_pem(&self) -> CoreResult<()> {
+        let mut file = self.read().await;
+        file.webrtc_certificate_pem = None;
         self.write(&file).await
     }
 
