@@ -124,6 +124,19 @@ pnpm test
 `cargo build` 出来的二进制会因为 `tauri.conf.json` 的 `devUrl` 指向没启动的 Vite dev server
 而白屏（窗口标题读出来是空字符串，`window.__TAURI__.core.invoke` 一直超时）。
 
+### 首次启动的空白窗口也要检查 Zustand 持久化合并
+
+`main.tsx` 会等待 preferences-store hydration 完成才渲染路由。Tauri Store 的文件即使存在，
+也可能还没有 `preferences-store` 这个 key；这时 Zustand 会把 `persistedState` 传为 `undefined`。
+若 `merge` 直接访问它的字段，hydration 会在内部 catch 后停住，`hasHydrated()` 永远为 false，
+窗口则因 `return null` 持续空白。
+
+**正确做法**：持久化合并函数先把缺失状态归一为 `{}`，例如
+`const persisted = (persistedState ?? {}) as Partial<PreferencesState>`；并在排查时用
+Tauri MCP Bridge 或 DevTools 检查 `usePreferencesStore.persist.hasHydrated()`。
+
+**相关文件**：`src/stores/preferences-store.ts`、`src/main.tsx`
+
 **相关文件**：`e2e/desktop/`、`dev-notes/blogs/desktop-webdriver-e2e.md`
 
 ### 桌面端官网素材录制用 WDIO demo spec + OBS WebSocket

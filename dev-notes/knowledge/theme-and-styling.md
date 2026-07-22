@@ -50,6 +50,7 @@
 - 顶栏组件需要给左侧留约 70-80px 给红绿灯占位（仅 macOS）
 - 自定义顶栏可以横跨整个窗口宽度，不要尝试绘制原生标题
 - Windows 端不走 Overlay，顶栏布局要兼容两种平台（用 `cfg!()` 等价的前端判断 + Tauri OS plugin）
+- 任何隐藏 `AppTopBar` 的布局（如 onboarding）也必须自行提供顶栏：macOS 留原生红绿灯和拖拽区，Windows/Linux 用一个右侧 `flex` 容器包裹并复用 `WindowControls`（它返回多个同级元素），否则 `justify-between` 会把每个控制按钮拉散；缺少这层 chrome 时，`set_decorations(false)` 后窗口也无法拖动或关闭
 
 **相关文件**：`src-tauri/tauri.conf.json`、`src/components/layout/*`
 
