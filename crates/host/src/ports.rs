@@ -13,11 +13,20 @@ use crate::device::PairedDeviceInfo;
 use crate::error::AppResult;
 
 /// 设备身份密钥材料。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceIdentityBytes {
     pub keypair: Vec<u8>,
+}
+
+impl std::fmt::Debug for DeviceIdentityBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // 绝不打印密钥材料
+        f.debug_struct("DeviceIdentityBytes")
+            .field("keypair", &"<redacted>")
+            .finish()
+    }
 }
 
 /// 身份存储迁移状态。
@@ -42,6 +51,7 @@ pub trait KeychainProvider: Send + Sync {
     /// Noise 握手使用的长期身份。
     async fn load_webrtc_certificate_pem(&self) -> AppResult<Option<String>>;
     async fn save_webrtc_certificate_pem(&self, pem: String) -> AppResult<()>;
+    async fn delete_webrtc_certificate_pem(&self) -> AppResult<()>;
 
     async fn load_migration_state(&self) -> AppResult<IdentityMigrationState>;
     async fn save_migration_state(&self, state: IdentityMigrationState) -> AppResult<()>;

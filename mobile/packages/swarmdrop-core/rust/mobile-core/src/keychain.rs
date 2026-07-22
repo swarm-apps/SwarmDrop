@@ -19,6 +19,7 @@ pub trait ForeignKeychainProvider: Send + Sync {
     async fn delete_identity(&self) -> Result<(), FfiError>;
     async fn load_webrtc_certificate_pem(&self) -> Result<Option<String>, FfiError>;
     async fn save_webrtc_certificate_pem(&self, pem: String) -> Result<(), FfiError>;
+    async fn delete_webrtc_certificate_pem(&self) -> Result<(), FfiError>;
     async fn load_paired_devices_json(&self) -> Result<String, FfiError>;
     async fn save_paired_devices_json(&self, devices_json: String) -> Result<(), FfiError>;
 }
@@ -64,6 +65,13 @@ impl KeychainProvider for MobileKeychainAdapter {
     async fn save_webrtc_certificate_pem(&self, pem: String) -> AppResult<()> {
         self.foreign
             .save_webrtc_certificate_pem(pem)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn delete_webrtc_certificate_pem(&self) -> AppResult<()> {
+        self.foreign
+            .delete_webrtc_certificate_pem()
             .await
             .map_err(Into::into)
     }

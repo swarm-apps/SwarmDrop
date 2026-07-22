@@ -31,7 +31,7 @@ spike 定的第一道门：**今天浏览器对我们的网络零公网可达入
 ## Impact
 
 - **crates/net**：`config.rs` 的 `webrtc_cert_pem` 保持；`transport.rs` listen 逻辑按地址生效、消 warn。（transport 层已落地，本 change 主要打通配置与 listen 地址。）
-- **crates/core**：`NetworkRuntimeConfig` 增 `webrtc_cert_pem`（或证书来源）字段并透传到 `build_endpoint`；helper/bootstrap 与桌面端点的 listen 地址集加 webrtc-direct 条目。**双 target——进 check-wasm 门禁**（web 拨号侧受益）。
+- **crates/core**：宿主 `KeychainProvider` 读取/首次生成的 `webrtc_cert_pem` 作为独立参数透传到 `build_endpoint`（**不得放入**前端可序列化的 `NetworkRuntimeConfig`）；桌面与移动端点的 listen 地址集已加 webrtc-direct 条目，helper/bootstrap 留待后续 phase。**双 target——进 check-wasm 门禁**（web 拨号侧受益）。
 - **src-tauri / mobile-core**：桌面首启生成 webrtc 证书 → `serialize_pem` 存系统 Keychain；移动端同样存 SecureStore；两端节点都 listen /webrtc-direct。
 - **helper/bootstrap（47.115.172.218）**：持久化证书到服务器数据目录（600）+ listen /webrtc-direct；若把 certhash 硬编码进客户端 bootstrap 配置则**优先长期不轮换**，并预留「经 identify/DHT 动态取 helper certhash」的降级路径（避免换证=全客户端发版的运维刚性）。
 - **crates/invite / pairing**：确认 `shareable_addrs()`/`dialable()` 纳入 webrtc-direct 地址；invite 携带它当 hint（依赖 `pair-invite-protocol`，其 inviter 已是 NodeId + addr hints 形状）。

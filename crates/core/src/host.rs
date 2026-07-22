@@ -200,6 +200,14 @@ impl KeychainProvider for MemoryHost {
         Ok(())
     }
 
+    async fn delete_webrtc_certificate_pem(&self) -> AppResult<()> {
+        self.inner
+            .lock()
+            .expect("memory host poisoned")
+            .webrtc_certificate_pem = None;
+        Ok(())
+    }
+
     async fn load_migration_state(&self) -> AppResult<IdentityMigrationState> {
         Ok(self
             .inner

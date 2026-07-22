@@ -126,6 +126,12 @@ impl KeychainProvider for FileKeychainProvider {
         self.write(&file).await
     }
 
+    async fn delete_webrtc_certificate_pem(&self) -> CoreResult<()> {
+        let mut file = self.read().await;
+        file.webrtc_certificate_pem = None;
+        self.write(&file).await
+    }
+
     async fn load_migration_state(&self) -> CoreResult<IdentityMigrationState> {
         // dev 无 Stronghold→keychain 迁移概念，对齐 load_or_create_identity 首次生成即 Completed。
         Ok(IdentityMigrationState::Completed)

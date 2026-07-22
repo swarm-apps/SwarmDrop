@@ -27,6 +27,10 @@ export class Keychain implements ForeignKeychainProvider {
     await SecureStore.setItemAsync(WEBRTC_CERTIFICATE_KEY, pem);
   }
 
+  async deleteWebrtcCertificatePem(): Promise<void> {
+    await SecureStore.deleteItemAsync(WEBRTC_CERTIFICATE_KEY);
+  }
+
   async loadPairedDevicesJson(): Promise<string> {
     return (await SecureStore.getItemAsync(PAIRED_DEVICES_KEY)) ?? "[]";
   }

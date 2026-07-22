@@ -4705,6 +4705,7 @@ export interface ForeignKeychainProvider {
     deleteIdentity(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     loadWebrtcCertificatePem(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string | undefined>;
     saveWebrtcCertificatePem(pem: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+    deleteWebrtcCertificatePem(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     loadPairedDevicesJson(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string>;
     savePairedDevicesJson(devicesJson: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 }
@@ -4851,6 +4852,33 @@ private constructor(pointer: UniffiHandle) {
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_webrtc_certificate_pem(
                     uniffiTypeForeignKeychainProviderImplObjectFactory.clonePointer(this),FfiConverterString.lower(pem, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    async deleteWebrtcCertificatePem(asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_webrtc_certificate_pem(
+                    uniffiTypeForeignKeychainProviderImplObjectFactory.clonePointer(this)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -5187,6 +5215,47 @@ const uniffiCallbackInterfaceForeignKeychainProvider: { vtable: any; register: (
                 const jsCallback = FfiConverterTypeForeignKeychainProvider.lift(uniffiHandle);
                 return await jsCallback.saveWebrtcCertificatePem(
                     FfiConverterString.lift(pem), { signal }
+                )
+            };
+            const uniffiHandleSuccess = (returnValue: void) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        call_status: uniffiCaller.createCallStatus()
+                    }
+                );
+            };
+            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        // TODO create callstatus with error.
+                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
+                    }
+                );
+            };
+            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                /*makeCall:*/ uniffiMakeCall,
+                /*handleSuccess:*/ uniffiHandleSuccess,
+                /*handleError:*/ uniffiHandleError,
+                /*isErrorType:*/ FfiError.instanceOf,
+                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
+                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
+                /*alloc:*/ nativeModule().rustbuffer_alloc,
+            );
+            return uniffiForeignFuture;
+        },
+        delete_webrtc_certificate_pem: (
+            uniffiHandle: bigint,
+            uniffiFutureCallback: UniffiForeignFutureCompletevoid,
+            uniffiCallbackData: bigint) => {
+            const uniffiMakeCall = 
+            async (signal: AbortSignal)
+            : Promise<void> => {
+                const jsCallback = FfiConverterTypeForeignKeychainProvider.lift(uniffiHandle);
+                return await jsCallback.deleteWebrtcCertificatePem({ signal }
                 )
             };
             const uniffiHandleSuccess = (returnValue: void) => {
@@ -6801,10 +6870,13 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_webrtc_certificate_pem() !== 57916) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_webrtc_certificate_pem");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json() !== 40514) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_webrtc_certificate_pem() !== 31482) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_webrtc_certificate_pem");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json() !== 16155) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json() !== 43512) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json() !== 44226) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new() !== 27705) {

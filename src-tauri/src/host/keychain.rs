@@ -57,6 +57,10 @@ impl KeychainProvider for DesktopKeychainProvider {
         .await
     }
 
+    async fn delete_webrtc_certificate_pem(&self) -> CoreResult<()> {
+        run_keyring(|| delete_entry_if_exists(WEBRTC_CERTIFICATE_USER)).await
+    }
+
     async fn load_migration_state(&self) -> CoreResult<IdentityMigrationState> {
         run_keyring(|| {
             let state = optional_entry_password(MIGRATION_STATE_USER)?;

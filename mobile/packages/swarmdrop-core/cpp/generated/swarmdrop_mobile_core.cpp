@@ -235,12 +235,19 @@ extern "C" {
     typedef void
     (*UniffiCallbackInterfaceForeignKeychainProviderMethod5)(
     uint64_t uniffi_handle, 
-    UniffiForeignFutureCompleteRustBuffer uniffi_future_callback, 
+    UniffiForeignFutureCompleteVoid uniffi_future_callback, 
     uint64_t uniffi_callback_data, 
     UniffiForeignFutureDroppedCallbackStruct * uniffi_out_dropped_callback
     );
     typedef void
     (*UniffiCallbackInterfaceForeignKeychainProviderMethod6)(
+    uint64_t uniffi_handle, 
+    UniffiForeignFutureCompleteRustBuffer uniffi_future_callback, 
+    uint64_t uniffi_callback_data, 
+    UniffiForeignFutureDroppedCallbackStruct * uniffi_out_dropped_callback
+    );
+    typedef void
+    (*UniffiCallbackInterfaceForeignKeychainProviderMethod7)(
     uint64_t uniffi_handle, 
     RustBuffer devices_json, 
     UniffiForeignFutureCompleteVoid uniffi_future_callback, 
@@ -268,8 +275,9 @@ extern "C" {
         UniffiCallbackInterfaceForeignKeychainProviderMethod2 delete_identity;
         UniffiCallbackInterfaceForeignKeychainProviderMethod3 load_webrtc_certificate_pem;
         UniffiCallbackInterfaceForeignKeychainProviderMethod4 save_webrtc_certificate_pem;
-        UniffiCallbackInterfaceForeignKeychainProviderMethod5 load_paired_devices_json;
-        UniffiCallbackInterfaceForeignKeychainProviderMethod6 save_paired_devices_json;
+        UniffiCallbackInterfaceForeignKeychainProviderMethod5 delete_webrtc_certificate_pem;
+        UniffiCallbackInterfaceForeignKeychainProviderMethod6 load_paired_devices_json;
+        UniffiCallbackInterfaceForeignKeychainProviderMethod7 save_paired_devices_json;
     } UniffiVTableCallbackInterfaceForeignKeychainProvider;
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_clone_mobilecore(
         /*handle*/ uint64_t handle, 
@@ -527,6 +535,9 @@ extern "C" {
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_webrtc_certificate_pem(
         /*handle*/ uint64_t ptr, 
         RustBuffer pem
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_webrtc_certificate_pem(
+        /*handle*/ uint64_t ptr
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_paired_devices_json(
         /*handle*/ uint64_t ptr
@@ -831,6 +842,8 @@ extern "C" {
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_webrtc_certificate_pem(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_webrtc_certificate_pem(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_webrtc_certificate_pem(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json(
     );
@@ -4900,7 +4913,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainpro
         rsLambda = nullptr;
     }
 } // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod4::vtablecallbackinterfaceforeignkeychainprovider
-    // Implementation of CallbackInterfaceForeignKeychainProviderMethod5 for vtable field load_paired_devices_json in VTableCallbackInterfaceForeignKeychainProvider
+    // Implementation of CallbackInterfaceForeignKeychainProviderMethod5 for vtable field delete_webrtc_certificate_pem in VTableCallbackInterfaceForeignKeychainProvider
 
 
 // Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod5::vtablecallbackinterfaceforeignkeychainprovider::UniffiCallbackInterfaceForeignKeychainProviderMethod5
@@ -4916,6 +4929,144 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainpro
 // We then give the `callback` function pointer to Rust which will call the lambda sometime in the
 // future.
 namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod5::vtablecallbackinterfaceforeignkeychainprovider {
+    using namespace facebook;
+
+    // We need to store a lambda in a global so we can call it from
+    // a function pointer. The function pointer is passed to Rust.
+    static std::function<void(uint64_t, UniffiForeignFutureCompleteVoid, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
+
+    // This is the main body of the callback. It's called from the lambda,
+    // which itself is called from the callback function which is passed to Rust.
+    static void body(jsi::Runtime &rt,
+                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
+                     std::shared_ptr<jsi::Value> callbackValue
+            ,uint64_t rs_uniffiHandle
+            ,UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback
+            ,uint64_t rs_uniffiCallbackData
+            ,UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+
+        // Convert the arguments from Rust, into jsi::Values.
+        // We'll use the Bridging class to do this…
+        auto js_uniffiHandle = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiHandle);
+        auto js_uniffiFutureCallback = uniffi::swarmdrop_mobile_core::Bridging<UniffiForeignFutureCompleteVoid>::toJs(rt, callInvoker, rs_uniffiFutureCallback);
+        auto js_uniffiCallbackData = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiCallbackData);
+
+        // Now we are ready to call the callback.
+        // We are already on the JS thread, because this `body` function was
+        // invoked from the CallInvoker.
+        try {
+            // Getting the callback function
+            auto cb = callbackValue->asObject(rt).asFunction(rt);
+            auto uniffiResult = cb.call(rt, js_uniffiHandle, js_uniffiFutureCallback, js_uniffiCallbackData
+            );
+
+            
+
+            
+            // return type is Struct("ForeignFutureDroppedCallbackStruct")
+            // Finally, we need to copy the return value back into the Rust pointer.
+            *rs_uniffiOutDroppedCallback =
+                uniffi::swarmdrop_mobile_core::Bridging<
+                    UniffiForeignFutureDroppedCallbackStruct
+                >::fromJs(
+                    rt, callInvoker, uniffiResult
+                );
+        } catch (const jsi::JSError &error) {
+            std::cout << "Error in callback UniffiCallbackInterfaceForeignKeychainProviderMethod5: "
+                    << error.what() << std::endl;
+            throw error;
+        }
+    }
+
+    static void callback(uint64_t rs_uniffiHandle, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+        // If the runtime has shutdown, then there is no point in trying to
+        // call into Javascript. BUT how do we tell if the runtime has shutdown?
+        //
+        // Answer: the module destructor calls into callback `cleanup` method,
+        // which nulls out the rsLamda.
+        //
+        // If rsLamda is null, then there is no runtime to call into.
+        if (rsLambda == nullptr) {
+            // This only occurs when destructors are calling into Rust free/drop,
+            // which causes the JS callback to be dropped.
+            return;
+        }
+
+        // The runtime, the actual callback jsi::funtion, and the callInvoker
+        // are all in the lambda.
+        rsLambda(
+            rs_uniffiHandle, 
+            rs_uniffiFutureCallback, 
+            rs_uniffiCallbackData, 
+            rs_uniffiOutDroppedCallback);
+    }
+
+    [[maybe_unused]] static UniffiCallbackInterfaceForeignKeychainProviderMethod5
+    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod5::vtablecallbackinterfaceforeignkeychainprovider
+                    jsi::Runtime &rt,
+                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
+                     const jsi::Value &value) {
+        if (rsLambda != nullptr) {
+            // `makeCallbackFunction` is called in two circumstances:
+            //
+            // 1. at startup, when initializing callback interface vtables.
+            // 2. when polling futures. This happens at least once per future that is
+            //    exposed to Javascript. We know that this is always the same function,
+            //    `uniffiFutureContinuationCallback` in `async-rust-calls.ts`.
+            //
+            // We can therefore return the callback function without making anything
+            // new if we've been initialized already.
+            return callback;
+        }
+        auto callbackFunction = value.asObject(rt).asFunction(rt);
+        auto callbackValue = std::make_shared<jsi::Value>(rt, callbackFunction);
+        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+                // We immediately make a lambda which will do the work of transforming the
+                // arguments into JSI values and calling the callback.
+                uniffi_runtime::UniffiCallFunc jsLambda = [
+                    callInvoker,
+                    callbackValue
+                    , rs_uniffiHandle
+                    , rs_uniffiFutureCallback
+                    , rs_uniffiCallbackData
+                    , rs_uniffiOutDroppedCallback](jsi::Runtime &rt) mutable {
+                    body(rt, callInvoker, callbackValue
+                        , rs_uniffiHandle
+                        , rs_uniffiFutureCallback
+                        , rs_uniffiCallbackData
+                        , rs_uniffiOutDroppedCallback);
+                };
+                // We'll then call that lambda from the callInvoker which will
+                // look after calling it on the correct thread.
+                callInvoker->invokeBlocking(rt, jsLambda);
+        };
+        return callback;
+    }
+
+    // This method is called from the destructor of NativeSwarmdropMobileCore, which only happens
+    // when the jsi::Runtime is being destroyed.
+    static void cleanup() {
+        // The lambda holds a reference to the the Runtime, so when this is nulled out,
+        // then the pointer will no longer be left dangling.
+        rsLambda = nullptr;
+    }
+} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod5::vtablecallbackinterfaceforeignkeychainprovider
+    // Implementation of CallbackInterfaceForeignKeychainProviderMethod6 for vtable field load_paired_devices_json in VTableCallbackInterfaceForeignKeychainProvider
+
+
+// Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider::UniffiCallbackInterfaceForeignKeychainProviderMethod6
+//
+// We have the following constraints:
+// - we need to pass a function pointer to Rust.
+// - we need a jsi::Runtime and jsi::Function to call into JS.
+// - function pointers can't store state, so we can't use a lamda.
+//
+// For this, we store a lambda as a global, as `rsLambda`. The `callback` function calls
+// the lambda, which itself calls the `body` which then calls into JS.
+//
+// We then give the `callback` function pointer to Rust which will call the lambda sometime in the
+// future.
+namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider {
     using namespace facebook;
 
     // We need to store a lambda in a global so we can call it from
@@ -4959,7 +5110,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainpro
                     rt, callInvoker, uniffiResult
                 );
         } catch (const jsi::JSError &error) {
-            std::cout << "Error in callback UniffiCallbackInterfaceForeignKeychainProviderMethod5: "
+            std::cout << "Error in callback UniffiCallbackInterfaceForeignKeychainProviderMethod6: "
                     << error.what() << std::endl;
             throw error;
         }
@@ -4988,8 +5139,8 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainpro
             rs_uniffiOutDroppedCallback);
     }
 
-    [[maybe_unused]] static UniffiCallbackInterfaceForeignKeychainProviderMethod5
-    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod5::vtablecallbackinterfaceforeignkeychainprovider
+    [[maybe_unused]] static UniffiCallbackInterfaceForeignKeychainProviderMethod6
+    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider
                     jsi::Runtime &rt,
                      std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
                      const jsi::Value &value) {
@@ -5037,11 +5188,11 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainpro
         // then the pointer will no longer be left dangling.
         rsLambda = nullptr;
     }
-} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod5::vtablecallbackinterfaceforeignkeychainprovider
-    // Implementation of CallbackInterfaceForeignKeychainProviderMethod6 for vtable field save_paired_devices_json in VTableCallbackInterfaceForeignKeychainProvider
+} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider
+    // Implementation of CallbackInterfaceForeignKeychainProviderMethod7 for vtable field save_paired_devices_json in VTableCallbackInterfaceForeignKeychainProvider
 
 
-// Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider::UniffiCallbackInterfaceForeignKeychainProviderMethod6
+// Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod7::vtablecallbackinterfaceforeignkeychainprovider::UniffiCallbackInterfaceForeignKeychainProviderMethod7
 //
 // We have the following constraints:
 // - we need to pass a function pointer to Rust.
@@ -5053,7 +5204,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainpro
 //
 // We then give the `callback` function pointer to Rust which will call the lambda sometime in the
 // future.
-namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider {
+namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod7::vtablecallbackinterfaceforeignkeychainprovider {
     using namespace facebook;
 
     // We need to store a lambda in a global so we can call it from
@@ -5099,7 +5250,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainpro
                     rt, callInvoker, uniffiResult
                 );
         } catch (const jsi::JSError &error) {
-            std::cout << "Error in callback UniffiCallbackInterfaceForeignKeychainProviderMethod6: "
+            std::cout << "Error in callback UniffiCallbackInterfaceForeignKeychainProviderMethod7: "
                     << error.what() << std::endl;
             throw error;
         }
@@ -5129,8 +5280,8 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainpro
             rs_uniffiOutDroppedCallback);
     }
 
-    [[maybe_unused]] static UniffiCallbackInterfaceForeignKeychainProviderMethod6
-    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider
+    [[maybe_unused]] static UniffiCallbackInterfaceForeignKeychainProviderMethod7
+    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod7::vtablecallbackinterfaceforeignkeychainprovider
                     jsi::Runtime &rt,
                      std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
                      const jsi::Value &value) {
@@ -5180,7 +5331,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainpro
         // then the pointer will no longer be left dangling.
         rsLambda = nullptr;
     }
-} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider
+} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod7::vtablecallbackinterfaceforeignkeychainprovider
 namespace uniffi::swarmdrop_mobile_core {
 using namespace facebook;
 using CallInvoker = uniffi_runtime::UniffiCallInvoker;
@@ -5223,10 +5374,13 @@ template <> struct Bridging<UniffiVTableCallbackInterfaceForeignKeychainProvider
     rsObject.save_webrtc_certificate_pem = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod4::vtablecallbackinterfaceforeignkeychainprovider::makeCallbackFunction(
           rt, callInvoker, jsObject.getProperty(rt, "save_webrtc_certificate_pem")
         );
-    rsObject.load_paired_devices_json = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod5::vtablecallbackinterfaceforeignkeychainprovider::makeCallbackFunction(
+    rsObject.delete_webrtc_certificate_pem = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod5::vtablecallbackinterfaceforeignkeychainprovider::makeCallbackFunction(
+          rt, callInvoker, jsObject.getProperty(rt, "delete_webrtc_certificate_pem")
+        );
+    rsObject.load_paired_devices_json = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider::makeCallbackFunction(
           rt, callInvoker, jsObject.getProperty(rt, "load_paired_devices_json")
         );
-    rsObject.save_paired_devices_json = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider::makeCallbackFunction(
+    rsObject.save_paired_devices_json = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod7::vtablecallbackinterfaceforeignkeychainprovider::makeCallbackFunction(
           rt, callInvoker, jsObject.getProperty(rt, "save_paired_devices_json")
         );
 
@@ -5792,6 +5946,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
         2,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_webrtc_certificate_pem(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_webrtc_certificate_pem"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_webrtc_certificate_pem"),
+        1,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_webrtc_certificate_pem(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_paired_devices_json"] = jsi::Function::createFromHostFunction(
@@ -6594,6 +6756,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_webrtc_certificate_pem(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_webrtc_certificate_pem"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_webrtc_certificate_pem"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_webrtc_certificate_pem(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_paired_devices_json"),
@@ -6796,6 +6966,7 @@ uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermetho
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod4::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod5::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod6::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
+uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod7::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
 }
 
 // Utility functions for serialization/deserialization of strings.
@@ -7350,6 +7521,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_webrtc_certificate_pem(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_webrtc_certificate_pem(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_webrtc_certificate_pem(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_webrtc_certificate_pem(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0])
         );
 
         
@@ -8086,6 +8264,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_webrtc_certificate_pem(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_webrtc_certificate_pem(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_webrtc_certificate_pem(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_webrtc_certificate_pem(
         );
 
         

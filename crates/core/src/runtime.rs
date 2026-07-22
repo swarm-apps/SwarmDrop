@@ -266,6 +266,26 @@ mod tests {
         browser.close().await;
     }
 
+    /// 轮询直到 `native` 的 dialable 地址集出现 webrtc-direct 地址，返回其 certhash 段。
+    async fn wait_for_webrtc_certhash(native: &Endpoint) -> String {
+        let mut addrs = native.watch_addrs();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                if let Some(hash) = addrs.get().dialable().iter().find_map(|addr| {
+                    let s = addr.to_string();
+                    s.contains("/webrtc-direct/certhash/")
+                        .then(|| s.split("/certhash/").nth(1).map(str::to_owned))
+                        .flatten()
+                }) {
+                    break hash;
+                }
+                addrs.updated().await.expect("address watch closed");
+            }
+        })
+        .await
+        .expect("native profile should publish a webrtc-direct address")
+    }
+
     #[tokio::test]
     async fn native_profile_publishes_webrtc_direct_address() {
         let native = build_endpoint(
@@ -278,22 +298,38 @@ mod tests {
         .await
         .expect("native profile bind");
 
-        let mut addrs = native.watch_addrs();
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                if addrs
-                    .get()
-                    .dialable()
-                    .iter()
-                    .any(|addr| addr.to_string().contains("/webrtc-direct/certhash/"))
-                {
-                    break;
-                }
-                addrs.updated().await.expect("address watch closed");
-            }
-        })
-        .await
-        .expect("native profile should publish a webrtc-direct address");
+        wait_for_webrtc_certhash(&native).await;
         native.close().await;
+    }
+
+    /// 本 PR 修的核心不变量：`identity::load_or_create_webrtc_certificate` 持久化的 PEM
+    /// 经 `build_endpoint` 两次装配后 certhash 必须一致，否则已分发的邀请地址会随每次
+    /// 重启失效。`crates/net/tests/webrtc.rs` 已在 `Endpoint::builder()` 这一层验证过
+    /// 同一 PEM 两次 bind 的 certhash 相等；这里补的是本 PR 新增的 core 集成点——
+    /// `build_endpoint` 的 `webrtc_certificate_pem` 装配路径本身不会漂移。
+    #[tokio::test]
+    async fn build_endpoint_reuses_certhash_for_same_persisted_pem() {
+        let pem = swarmdrop_net::generate_webrtc_certificate_pem().expect("generate cert");
+
+        let mut hashes = Vec::new();
+        for _ in 0..2 {
+            let native = build_endpoint(
+                SecretKey::generate(),
+                Some(pem.clone()),
+                "swarmdrop/test".to_string(),
+                &NetworkRuntimeConfig::default(),
+                EndpointProfile::Native,
+            )
+            .await
+            .expect("native profile bind");
+
+            hashes.push(wait_for_webrtc_certhash(&native).await);
+            native.close().await;
+        }
+
+        assert_eq!(
+            hashes[0], hashes[1],
+            "同一持久化证书经 build_endpoint 两次装配，certhash 必须一致"
+        );
     }
 }
