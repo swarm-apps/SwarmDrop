@@ -146,7 +146,11 @@ where
 
     /// 撤销 relay 常驻意图（[`ensure_relay_intent`](Self::ensure_relay_intent)
     /// 的对称面）：清候选表与收敛状态，并注销内核侧登记——关 circuit
-    /// listener、立刻断开（含中止在途拨号），此后不存在任何重建路径。
+    /// listener、立刻断开（含中止在途拨号）。
+    ///
+    /// 此处的直接注销调用是**低延迟快路径**（用户操作立即生效，不等 tick）；
+    /// 「不复活」的最终保证来自 supervisor 的反向收敛环——即便本调用与在途
+    /// 注册任务竞态、登记被短暂复活，环在下一轮差集必然清理，二者幂等叠加。
     pub async fn remove_relay_intent(&self, node: NodeId) -> AppResult<()> {
         if let Ok(mut candidates) = self.candidates.write() {
             candidates.remove(node);

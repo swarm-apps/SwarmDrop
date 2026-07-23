@@ -1,5 +1,6 @@
 //! 基础设施链路的收敛状态机。
 
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -74,8 +75,8 @@ impl InfraSupervisor {
 
     /// 注销一个基础设施节点的收敛状态（候选条目由调用方一并清除）。
     ///
-    /// 清掉 `links` 后，后续 tick 对它不再有任何收敛动作；在途 tick 任务
-    /// 经候选表 re-check（见 [`tick`](Self::tick)）失效。
+    /// 清掉 `links` 后，后续 tick 对它不再有正向收敛动作；与在途注册任务的
+    /// 竞态由 [`tick`](Self::tick) 的反向收敛闭合（差集发现即注销）。
     pub fn remove(&self, peer_id: NodeId) {
         self.links.remove(&peer_id);
     }
@@ -96,7 +97,9 @@ impl InfraSupervisor {
                 );
             }
             NetEvent::RelayReservationLost { relay } => {
-                tracing::info!("relay reservation 丢失: {relay}，进入重建");
+                // 轮数只在策略层内账（RelayState 不再携带），诊断走日志
+                let attempts = self.links.get(relay).map(|l| l.attempts).unwrap_or(0);
+                tracing::info!("relay reservation 丢失: {relay}（已尝试 {attempts} 轮），进入重建");
                 // 只翻可用位，保留既有退避进度——reservation 被 relay 拒绝时
                 // 每次尝试都会产生一次 Lost，无条件清零会退化成 1-2s 重试风暴。
                 // attempts 仅由 Accepted（健康恢复）与候选 last_seen 刷新（重新发现）归零。
@@ -162,13 +165,31 @@ impl InfraSupervisor {
 
     // === 收敛推进（定时任务调用） ===
 
-    /// 对每个应持有 reservation 的候选做一轮收敛检查。
+    /// 对每个应持有 reservation 的候选做一轮收敛检查（双向）。
     pub fn tick(&self, now: Instant) {
         let snapshot = self
             .candidates
             .read()
             .map(|c| c.snapshot())
             .unwrap_or_default();
+
+        // 反向收敛：内核有 relay 登记（watch_relays 条目）而候选表已无该 peer
+        // → 幂等注销，条目消失前每轮重发。终态一致由环保证：注销与在途注册
+        // 任务竞态导致登记短暂复活时，watch 重现条目、下一轮差集必然再次清理
+        // ——判据前提是候选表只经显式撤销移除（无自动过期清出，见 spec）。
+        let desired: HashSet<NodeId> = snapshot.iter().map(|c| c.peer_id).collect();
+        let observed: Vec<NodeId> = self
+            .endpoint
+            .watch_relays()
+            .with(|map| map.keys().copied().collect());
+        for peer in observed.into_iter().filter(|p| !desired.contains(p)) {
+            self.links.remove(&peer);
+            let endpoint = self.endpoint.clone();
+            n0_future::task::spawn(async move {
+                tracing::info!("反向收敛：注销已无候选的 relay 登记 {peer}");
+                let _ = endpoint.remove_infrastructure_peer(peer).await;
+            });
+        }
 
         for candidate in snapshot {
             if !self.wants_reservation(&candidate) {
@@ -200,16 +221,12 @@ impl InfraSupervisor {
             drop(link);
 
             let endpoint = self.endpoint.clone();
-            let candidates = self.candidates.clone();
             let peer = candidate.peer_id;
             let addrs = candidate.addrs.clone();
             let roles: InfraRoles = candidate.roles.into();
             n0_future::task::spawn(async move {
-                // re-check：候选在 spawn 后被注销（remove_relay_intent）时放弃本轮，
-                // 把「注销 vs 在途收敛」的竞态窗口收窄到微秒级
-                if !candidates.read().map(|c| c.contains(peer)).unwrap_or(false) {
-                    return;
-                }
+                // 与注销的竞态无需在此防护：即便本任务复活了已注销的登记，
+                // 反向收敛（tick 开头的差集）会在下一轮清理——终态一致由环保证
                 tracing::debug!("收敛基础设施链路: {peer}（第 {attempts} 次尝试）");
                 // 全角色注册：kad 重接线 + 未连接时拨号 + 常驻登记 reservation 意图
                 // （identify 后幂等建立），断连恢复与 reservation 重建一步到位
@@ -366,6 +383,41 @@ mod tests {
         // 后续 tick 不再对它有任何收敛动作
         s.tick(Instant::now() + Duration::from_secs(10));
         assert!(link_of(&s, &p).is_none(), "注销后 tick 不得复活 links");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reverse_convergence_removes_orphan_registration() {
+        let (s, _candidates) = ctx(true).await;
+        let ghost = peer();
+
+        // 制造孤儿登记：内核有 relay 意图（watch_relays 出条目）而候选表无该 peer
+        // ——等价于「注销与在途注册任务竞态、登记被复活」的终局形态
+        s.endpoint
+            .ensure_relay_reservation(swarmdrop_net::NodeAddr::with_addrs(
+                ghost,
+                vec!["/ip4/127.0.0.1/tcp/1".parse().unwrap()],
+            ))
+            .await
+            .expect("register orphan intent");
+        let mut watcher = s.endpoint.watch_relays();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !watcher.get().contains_key(&ghost) {
+                watcher.updated().await.expect("watch closed");
+            }
+        })
+        .await
+        .expect("orphan entry should appear");
+
+        // 一轮 tick：差集发现「内核有、候选无」→ 幂等注销（spawn 异步完成）
+        s.tick(Instant::now());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while watcher.get().contains_key(&ghost) {
+                watcher.updated().await.expect("watch closed");
+            }
+        })
+        .await
+        .expect("reverse convergence should remove orphan entry");
+        assert!(link_of(&s, &ghost).is_none(), "links 一并清除");
     }
 
     #[tokio::test(flavor = "multi_thread")]

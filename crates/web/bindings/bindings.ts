@@ -90,9 +90,10 @@ export type RelayInfoJson = {
 	state: RelayStateKind,
 	/**  `active` 时为本机经该 relay 的完整可达地址（内核拼装下发），其余为 null。 */
 	circuitAddr: string | null,
-	/**  尝试轮数（`connecting` = 当前第几轮；`failed` = 累计轮数；`active` = 0）。 */
-	attempts: number,
-	/**  `failed` 时的末次错误描述，其余为 null。 */
+	/**
+	 *  `failed` 时的末次错误描述，其余为 null。重试轮数不下发——那是
+	 *  策略层内账（supervisor 唯一持有），诊断走日志。
+	 */
 	lastError: string | null,
 };
 

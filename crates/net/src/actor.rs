@@ -13,7 +13,7 @@
 
 mod queries;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -122,10 +122,8 @@ pub(crate) struct Actor {
     /// circuit listener → relay peer。reservation 幂等去重 + ListenerClosed
     /// 时上抛 RelayReservationLost（迁自旧栈 `relay_listeners`）。
     relay_listeners: HashMap<ListenerId, PeerId>,
-    /// 承担 relay 角色的基础设施节点 → 累计尝试轮数——identify 到达时幂等
-    /// 重建 reservation；轮数在每次 `ensure_relay` 有效触发时 +1、
-    /// reservation 接受后归零（供 RelayState 的 attempt/attempts 字段）。
-    infra_relay_peers: HashMap<PeerId, u32>,
+    /// 承担 relay 角色的基础设施节点——identify 到达时幂等重建 reservation。
+    infra_relay_peers: HashSet<PeerId>,
     /// pull 型地址解析源（bind 尾声注入）。
     lookups: Arc<Vec<Box<dyn AddressLookup>>>,
     /// 自发端（lookup 任务解析完回注用）。
@@ -154,7 +152,7 @@ impl Actor {
             watches,
             queries: PendingQueries::default(),
             relay_listeners: HashMap::new(),
-            infra_relay_peers: HashMap::new(),
+            infra_relay_peers: HashSet::new(),
             lookups: Arc::new(Vec::new()),
             self_tx,
             config,
@@ -336,15 +334,14 @@ impl Actor {
     /// listen circuit（旧栈实证的顺序）。未连接时先拨号，identify 到达后
     /// 经 `infra_relay_peers` 幂等触发真正的 circuit listen。
     ///
-    /// 每次有效触发（尚无活跃 circuit listener）计一轮尝试——上层策略
-    /// （supervisor 退避）经 `AddInfraPeer` 重入即新一轮，attempt 随之递增。
+    /// 重试轮数不在此记账——那是上层策略（supervisor 退避）的内账，
+    /// 机制层只登记意图、报告状态。
     fn ensure_relay(&mut self, peer_id: PeerId) {
-        let counter = self.infra_relay_peers.entry(peer_id).or_insert(0);
-        // 已持有活跃 circuit listener：幂等 no-op（不误计轮数）
+        self.infra_relay_peers.insert(peer_id);
+        // 已持有活跃 circuit listener：幂等 no-op
         if self.relay_listeners.values().any(|p| *p == peer_id) {
             return;
         }
-        *counter += 1;
         self.set_relay_connecting(peer_id);
 
         if self.conns.contains_key(&peer_id) {
@@ -419,16 +416,10 @@ impl Actor {
         });
     }
 
-    /// 写 watch：该 relay 进入 Connecting（attempt 自取当前轮数；覆盖 Failed——
-    /// identify 重建 / 新一轮尝试都经此翻回）。
+    /// 写 watch：该 relay 进入 Connecting（覆盖 Failed——identify 重建 /
+    /// 新一轮尝试都经此翻回）。
     fn set_relay_connecting(&mut self, peer: PeerId) {
-        let attempt = self
-            .infra_relay_peers
-            .get(&peer)
-            .copied()
-            .unwrap_or(1)
-            .max(1);
-        self.set_relay_state(peer, RelayState::Connecting { attempt });
+        self.set_relay_state(peer, RelayState::Connecting);
     }
 
     /// 写 watch：该 relay 进入 Failed。仍持有活跃 circuit listener 时 no-op——
@@ -439,11 +430,9 @@ impl Actor {
         if self.relay_listeners.values().any(|p| *p == peer) {
             return;
         }
-        let attempts = self.infra_relay_peers.get(&peer).copied().unwrap_or(0);
         self.set_relay_state(
             peer,
             RelayState::Failed {
-                attempts,
                 last_error: error.into(),
             },
         );
@@ -616,7 +605,7 @@ impl Actor {
                 // 有消费者才格式化 DialError（断网时拨号失败成批出现，
                 // 多数事件既无 connect 等待者也非 infra relay）
                 let has_waiters = self.dials.contains_key(&peer);
-                let is_infra_relay = self.infra_relay_peers.contains_key(&peer);
+                let is_infra_relay = self.infra_relay_peers.contains(&peer);
                 if has_waiters || is_infra_relay {
                     let error_str = error.to_string();
                     self.fail_dial_waiters(peer, &error_str);
@@ -765,7 +754,7 @@ impl Actor {
             },
             BehaviourEvent::Identify(identify::Event::Received { peer_id, info, .. }) => {
                 // 基础设施 relay 断线重连后，identify 是幂等重建 reservation 的时机
-                if self.infra_relay_peers.contains_key(&peer_id) {
+                if self.infra_relay_peers.contains(&peer_id) {
                     self.request_relay_reservation(peer_id);
                 }
                 let protocols = info
@@ -843,10 +832,6 @@ impl Actor {
             } => {
                 let relay = NodeId::from_peer_id(relay_peer_id);
                 let circuit_addr = self.circuit_addr_for(relay_peer_id);
-                // 健康恢复：尝试轮数归零（与 supervisor 的 Accepted 归零语义一致）
-                if let Some(count) = self.infra_relay_peers.get_mut(&relay_peer_id) {
-                    *count = 0;
-                }
                 // renewal 时值相等 → set_relay_state 不发通知（周期性空通知消除）
                 self.set_relay_state(relay_peer_id, RelayState::Active { circuit_addr });
                 if !renewal {

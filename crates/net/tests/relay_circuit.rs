@@ -149,11 +149,7 @@ async fn unreachable_helper_enters_failed() {
     })
     .await;
     match state {
-        Some(RelayState::Failed {
-            attempts,
-            last_error,
-        }) => {
-            assert!(attempts >= 1, "至少经历一轮尝试");
+        Some(RelayState::Failed { last_error }) => {
             assert!(!last_error.is_empty(), "失败必须携带错误信息");
         }
         other => panic!("应为 Failed，实际 {other:?}"),

@@ -76,31 +76,19 @@ const UNTIL_ACTIVE_CAP: Duration = Duration::from_secs(30);
 fn relay_info_json(map: &BTreeMap<NodeId, RelayState>) -> Vec<RelayInfoJson> {
     map.iter()
         .map(|(id, state)| {
-            let (kind, circuit_addr, attempts, last_error) = match state {
-                RelayState::Connecting { attempt } => {
-                    (RelayStateKind::Connecting, None, *attempt, None)
+            let (kind, circuit_addr, last_error) = match state {
+                RelayState::Connecting => (RelayStateKind::Connecting, None, None),
+                RelayState::Active { circuit_addr } => {
+                    (RelayStateKind::Active, Some(circuit_addr.to_string()), None)
                 }
-                RelayState::Active { circuit_addr } => (
-                    RelayStateKind::Active,
-                    Some(circuit_addr.to_string()),
-                    0,
-                    None,
-                ),
-                RelayState::Failed {
-                    attempts,
-                    last_error,
-                } => (
-                    RelayStateKind::Failed,
-                    None,
-                    *attempts,
-                    Some(last_error.clone()),
-                ),
+                RelayState::Failed { last_error } => {
+                    (RelayStateKind::Failed, None, Some(last_error.clone()))
+                }
             };
             RelayInfoJson {
                 id: id.to_string(),
                 state: kind,
                 circuit_addr,
-                attempts,
                 last_error,
             }
         })
@@ -359,7 +347,7 @@ impl WebNode {
         Ok(())
     }
 
-    /// 全量 relay 状态快照（`{ id, state, circuitAddr?, attempts, lastError? }[]`）。
+    /// 全量 relay 状态快照（`{ id, state, circuitAddr?, lastError? }[]`）。
     pub fn relays_state(&self) -> Result<RelayInfoArray, JsValue> {
         to_js_typed(
             &relay_info_json(&self.endpoint.watch_relays().get()),
@@ -401,13 +389,8 @@ impl WebNode {
                     Some(RelayState::Active { circuit_addr }) => {
                         return Ok(circuit_addr.to_string());
                     }
-                    Some(RelayState::Failed {
-                        attempts,
-                        last_error,
-                    }) => {
-                        return Err(WebError::network(format!(
-                            "relay 建立失败（第 {attempts} 轮）: {last_error}"
-                        )));
+                    Some(RelayState::Failed { last_error }) => {
+                        return Err(WebError::network(format!("relay 建立失败: {last_error}")));
                     }
                     _ => {}
                 }

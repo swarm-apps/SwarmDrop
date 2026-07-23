@@ -63,26 +63,22 @@ impl AddrsInfo {
 ///
 /// 状态机对失败诚实：拨号失败（全部候选地址耗尽）与 reservation 失效都
 /// 翻转到 [`Failed`](RelayState::Failed)，观察者可区分「正在连接」与
-/// 「连接失败」。重试节奏是上层策略（如 core 的 InfraSupervisor 退避收敛），
-/// 内核不自行重试——每轮重试经 `add_infrastructure_peer` 幂等触发，
-/// `attempt` 随之递增，reservation 接受后归零。
+/// 「连接失败」。机制层只报告可自证的事实——**不携带重试轮数**：轮数的
+/// 语义由上层退避策略定义（core 的 InfraSupervisor 是重试记账的唯一主人，
+/// 诊断经其 tracing 日志输出），内核不自行重试，每轮重试经
+/// `add_infrastructure_peer` 幂等触发。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RelayState {
-    /// 正在建立（拨号或等待 relay 接受），`attempt` 为当前第几轮尝试。
-    Connecting {
-        /// 第几轮尝试（从 1 起）。
-        attempt: u32,
-    },
+    /// 正在建立（拨号或等待 relay 接受）。
+    Connecting,
     /// reservation 已被接受（可经该 relay 被动接收连接）。
     Active {
         /// 本机经该 relay 的完整可达地址（`<relay>/p2p-circuit/p2p/<本机>`），
         /// 由内核拼装下发——调用方不自行拼接（单一事实源）。
         circuit_addr: Addr,
     },
-    /// 本轮尝试失败（拨号候选地址耗尽 / reservation 被拒或失效）。
+    /// 尝试失败（拨号候选地址耗尽 / reservation 被拒或失效）。
     Failed {
-        /// 累计尝试轮数。
-        attempts: u32,
         /// 末次错误描述。
         last_error: String,
     },
