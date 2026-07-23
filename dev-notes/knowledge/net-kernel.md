@@ -111,6 +111,21 @@ master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Andro
 re-export ResolverConfig/ResolverOpts），版本必须与 libp2p-dns 同线（crates/net 的
 android target 依赖表）。
 
+### 坑 8：取消在途拨号要用 `disconnect_peer_id`，不是 `close_connection`
+
+`Swarm::close_connection(ConnectionId)` 只对 **established** 连接生效（`pool.get_established`），
+对 pending dial 返回 `false`——不能中断在途拨号。**`Swarm::disconnect_peer_id(PeerId)` →
+`Pool::disconnect` 才会对该 peer 的 pending 连接调用 `connection.abort()`**（pool.rs 文档明示
+"whether pending or established are closed asap"）。`remove_infrastructure_peer` 的"立刻断"
+语义靠它实现（2026-07-23 pin 93c5059 源码实读，`actor.rs::handle_remove_infra_peer`）。
+
+### 坑 9：watch 采样会跳过短暂中间态（事件双轨制的实证补充）
+
+浏览器实测 `relays_until_active`：不可达 helper 第 1 轮 `Failed` 写入 watch 后，JS 侧消费者
+经常在第 2-3 轮才观察到 Failed（wasm 单线程下 actor 与 JS future 抢调度，last-value-wins
+覆盖中间值）。**依赖"看到每一次状态翻转"的逻辑必须走 `NetEvent` 边沿轨**；watch 只保证
+最终收敛值可见。对 until_active 这类"等终态"逻辑无影响（Failed/Active 会持续存在直到下轮）。
+
 ### 其余确认
 
 - `with_wasm_bindgen()` 在 master 仍在（删的是 cargo feature，不是方法）。

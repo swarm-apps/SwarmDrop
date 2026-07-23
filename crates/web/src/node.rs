@@ -7,7 +7,9 @@
 //! [`WebEventBus`](crate::event_bus)（consume-invite 路径的确认在邀请方桌面，浏览器侧暂不 surface）。
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use swarmdrop_core::host::EventBus;
@@ -34,7 +36,7 @@ use crate::events::WebEventSink;
 use crate::file_access::OpfsFileAccess;
 use crate::identity;
 use crate::store::MemorySessionStore;
-use crate::types::{ConnectionJson, OfferJson, PendingPairingJson};
+use crate::types::{ConnectionJson, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind};
 
 // specta 导出的 TS 类型（static/types/bindings.ts，由 `cargo test -p swarmdrop-web
 // --features specta` 生成并入库）整体注入 .d.ts，供下方 typescript_type 引用——
@@ -56,6 +58,53 @@ extern "C" {
     /// `connect()` 的返回。
     #[wasm_bindgen(typescript_type = "ConnectionJson")]
     pub type ConnectionJsonJs;
+    /// `relays_state()` 的返回：`RelayInfoJson[]`。
+    #[wasm_bindgen(typescript_type = "RelayInfoJson[]")]
+    pub type RelayInfoArray;
+    /// `relays_changed()` 的返回：每次 relay 状态变化产出一份全量快照。
+    #[wasm_bindgen(typescript_type = "ReadableStream<RelayInfoJson[]>")]
+    pub type RelayChangedStream;
+}
+
+/// `until_active` 的契约级默认超时：即便调用方不传 signal，Promise 也在
+/// 有限时间内 settle（「任何 JS Promise 有限时间 settle」不变量的本地兜底）。
+/// 30s 是对外承诺的 API 默认值，不与下层内部常量（supervisor tick 间隔 /
+/// connect 超时）联动——调用方要更短的耐心用 `AbortSignal.timeout()` 表达。
+const UNTIL_ACTIVE_CAP: Duration = Duration::from_secs(30);
+
+/// `watch_relays` 快照 → JS 投影（`RelayInfoJson[]`）。
+fn relay_info_json(map: &BTreeMap<NodeId, RelayState>) -> Vec<RelayInfoJson> {
+    map.iter()
+        .map(|(id, state)| {
+            let (kind, circuit_addr, attempts, last_error) = match state {
+                RelayState::Connecting { attempt } => {
+                    (RelayStateKind::Connecting, None, *attempt, None)
+                }
+                RelayState::Active { circuit_addr } => (
+                    RelayStateKind::Active,
+                    Some(circuit_addr.to_string()),
+                    0,
+                    None,
+                ),
+                RelayState::Failed {
+                    attempts,
+                    last_error,
+                } => (
+                    RelayStateKind::Failed,
+                    None,
+                    *attempts,
+                    Some(last_error.clone()),
+                ),
+            };
+            RelayInfoJson {
+                id: id.to_string(),
+                state: kind,
+                circuit_addr,
+                attempts,
+                last_error,
+            }
+        })
+        .collect()
 }
 
 /// serde 可序列化值 → 具名 TS 类型的 JsValue（`unchecked_into` 到 typescript_type 包装）。
@@ -175,12 +224,22 @@ impl WebNode {
 
     /// 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
     /// 返回结构化的连接信息（`{ path: "local"|"direct"|"relayed", addr }`）。
-    pub async fn connect(&self, addr: String) -> Result<ConnectionJsonJs, JsValue> {
+    ///
+    /// `signal`（可选）：标准 `AbortSignal`——超时组合用平台原语表达
+    /// （`AbortSignal.timeout(5000)` / `AbortSignal.any([...])`）。abort 时 Promise
+    /// 立即以 `{ kind: "aborted" }` reject；**abort ≠ 撤回拨号**（在途拨号继续到
+    /// 自然失败，无常驻意图残留）。不传 signal 时由内核兜底超时（Browser 15s）
+    /// 保证有限时间内 settle。
+    pub async fn connect(
+        &self,
+        addr: String,
+        signal: Option<web_sys::AbortSignal>,
+    ) -> Result<ConnectionJsonJs, JsValue> {
         let (id, addr) = split_p2p_addr(&addr)?;
-        let info = self
-            .endpoint
-            .connect(NodeAddr::with_addrs(id, vec![addr]))
+        let connect = self.endpoint.connect(NodeAddr::with_addrs(id, vec![addr]));
+        let info = crate::abort::race(signal, connect)
             .await
+            .ok_or_else(|| JsValue::from(WebError::aborted("connect 已取消")))?
             .map_err(js_err)?;
         to_js_typed(
             &ConnectionJson {
@@ -217,8 +276,8 @@ impl WebNode {
     ///
     /// `local_only=true` 走 LocalOnly（受邀方只用私网地址）。邀请自包含本机 dialable 地址提示——
     /// 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
-    /// 拨得到本机，本机需先经 [`reserve`](Self::reserve) 在某 helper 上建 reservation，否则邀请里
-    /// 无可拨地址、消费方连不上。
+    /// 拨得到本机，本机需先经 [`relays_ensure`](Self::relays_ensure) 在某 helper 上建 reservation
+    /// （等到 `active`），否则邀请里无可拨地址、消费方连不上。
     pub fn generate_invite(&self, local_only: bool) -> Result<String, JsValue> {
         let policy = if local_only {
             TransportPolicy::LocalOnly
@@ -265,28 +324,107 @@ impl WebNode {
         Ok(())
     }
 
-    /// 经 helper 请求 circuit reservation（浏览器被动接收连接的唯一入口），返回 circuit 地址。
-    pub async fn reserve(&self, helper_addr: String) -> Result<String, JsValue> {
+    // ── relay 意图（声明式集合，替代一次性 RPC 形态的 reserve()）──
+    //
+    // reservation 是「持续维持的可达状态」而非「一次完成的动作」：命令（ensure/
+    // drop）改期望状态、同步返回；实际状态经查询（relays_state）与订阅
+    // （relays_changed）到达。意图生命周期与单次等待的耐心（AbortSignal）解耦。
+
+    /// 登记一个 relay helper 的常驻可达意图（幂等，同步返回）。
+    ///
+    /// 浏览器被动接收连接的唯一入口。拨号 / reservation / 断线重建由 core 的
+    /// InfraSupervisor 统一收敛（最迟 1s 内启动第一轮，失败退避重试）；进度经
+    /// [`relays_state`](Self::relays_state) / [`relays_changed`](Self::relays_changed)
+    /// 观测，或用 [`relays_until_active`](Self::relays_until_active) 等首次建立。
+    ///
+    /// 返回 helper 的 base58 NodeId——即 `relays_drop` / `relays_until_active` 的
+    /// 入参，调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
+    pub fn relays_ensure(&self, helper_addr: String) -> Result<String, JsValue> {
         let (id, addr) = split_p2p_addr(&helper_addr)?;
-        self.endpoint
-            .ensure_relay_reservation(NodeAddr::with_addrs(id, vec![addr]))
+        self.net_manager
+            .ensure_relay_intent(NodeAddr::with_addrs(id, vec![addr]));
+        Ok(id.to_string())
+    }
+
+    /// 撤销 relay 意图（[`relays_ensure`](Self::relays_ensure) 的对称面）。
+    ///
+    /// **真撤销**而非停止等待：停止后台收敛重试、关闭 circuit listener、立刻
+    /// 断开与该 helper 的连接（含中止在途拨号），条目从状态集合消失。
+    pub async fn relays_drop(&self, helper_id: String) -> Result<(), JsValue> {
+        let id = parse_node_id(&helper_id)?;
+        self.net_manager
+            .remove_relay_intent(id)
             .await
-            .map_err(js_err)?;
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
+    /// 全量 relay 状态快照（`{ id, state, circuitAddr?, attempts, lastError? }[]`）。
+    pub fn relays_state(&self) -> Result<RelayInfoArray, JsValue> {
+        to_js_typed(
+            &relay_info_json(&self.endpoint.watch_relays().get()),
+            "relay 状态",
+        )
+    }
+
+    /// relay 状态变化流：每次变化产出一份全量快照（可直接 setState）。
+    /// 可多次调用（每次独立订阅），与 `events()` 的单点消费不同。
+    pub fn relays_changed(&self) -> RelayChangedStream {
+        let watcher = self.endpoint.watch_relays();
+        let stream = futures::stream::unfold(watcher, |mut w| async move {
+            let map = w.updated().await?;
+            let value =
+                serde_wasm_bindgen::to_value(&relay_info_json(&map)).unwrap_or(JsValue::NULL);
+            Some((Ok::<JsValue, JsValue>(value), w))
+        });
+        JsValue::from(wasm_streams::ReadableStream::from_stream(stream).into_raw()).unchecked_into()
+    }
+
+    /// 等待某 relay 首次进入 `active`，resolve 出 circuit 可达地址（内核拼装）。
+    ///
+    /// 观察到 `failed` 时**立即 reject**（把「要不要再等下一轮退避」还给调用方），
+    /// 意图保留——要停止后台收敛请调 [`relays_drop`](Self::relays_drop)。
+    /// `signal`（可选）：abort 只是不再等待，同样不改变意图生命周期。
+    /// 不传 signal 时 30s 兜底超时保证 Promise 有限时间内 settle。
+    pub async fn relays_until_active(
+        &self,
+        helper_id: String,
+        signal: Option<web_sys::AbortSignal>,
+    ) -> Result<String, JsValue> {
+        let id = parse_node_id(&helper_id)?;
         let mut relays = self.endpoint.watch_relays();
-        loop {
-            if relays
-                .get()
-                .get(&id)
-                .is_some_and(|s| *s == RelayState::Active)
-            {
-                return Ok(format!(
-                    "{helper_addr}/p2p-circuit/p2p/{}",
-                    self.endpoint.node_id()
-                ));
+        let wait = async move {
+            // 首轮读快照，此后消费 updated() 的返回值——每次唤醒只做一份 map 拷贝
+            let mut map = relays.get();
+            loop {
+                match map.get(&id) {
+                    Some(RelayState::Active { circuit_addr }) => {
+                        return Ok(circuit_addr.to_string());
+                    }
+                    Some(RelayState::Failed {
+                        attempts,
+                        last_error,
+                    }) => {
+                        return Err(WebError::network(format!(
+                            "relay 建立失败（第 {attempts} 轮）: {last_error}"
+                        )));
+                    }
+                    _ => {}
+                }
+                map = match relays.updated().await {
+                    Some(map) => map,
+                    None => return Err(WebError::network("endpoint 已关闭")),
+                };
             }
-            if relays.updated().await.is_none() {
-                return Err(WebError::network("endpoint 已关闭").into());
-            }
+        };
+        let bounded = async {
+            n0_future::time::timeout(UNTIL_ACTIVE_CAP, wait)
+                .await
+                .map_err(|_| WebError::network("等待 reservation 超时"))?
+        };
+        match crate::abort::race(signal, bounded).await {
+            Some(result) => Ok(result?),
+            None => Err(WebError::aborted("until_active 已取消（意图保留）").into()),
         }
     }
 
@@ -447,6 +585,13 @@ fn web_os_info() -> swarmdrop_host::device::OsInfo {
 
 fn parse_session_id(s: &str) -> Result<Uuid, WebError> {
     Uuid::parse_str(s.trim()).map_err(|e| WebError::invalid_input(format!("非法 session_id: {e}")))
+}
+
+/// 解析 base58 身份串为 [`NodeId`]（`relays_drop` / `relays_until_active` 入参）。
+fn parse_node_id(s: &str) -> Result<NodeId, JsValue> {
+    s.trim()
+        .parse::<NodeId>()
+        .map_err(|e| WebError::invalid_input(format!("非法 NodeId: {e}")).into())
 }
 
 /// 解析带 `/p2p/<id>` 的 multiaddr 为 `(目标 NodeId, 完整 Addr)`。

@@ -60,12 +60,32 @@ impl AddrsInfo {
 }
 
 /// relay reservation 状态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// 状态机对失败诚实：拨号失败（全部候选地址耗尽）与 reservation 失效都
+/// 翻转到 [`Failed`](RelayState::Failed)，观察者可区分「正在连接」与
+/// 「连接失败」。重试节奏是上层策略（如 core 的 InfraSupervisor 退避收敛），
+/// 内核不自行重试——每轮重试经 `add_infrastructure_peer` 幂等触发，
+/// `attempt` 随之递增，reservation 接受后归零。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RelayState {
-    /// 已请求 circuit listener，等待 relay 接受。
-    Connecting,
+    /// 正在建立（拨号或等待 relay 接受），`attempt` 为当前第几轮尝试。
+    Connecting {
+        /// 第几轮尝试（从 1 起）。
+        attempt: u32,
+    },
     /// reservation 已被接受（可经该 relay 被动接收连接）。
-    Active,
+    Active {
+        /// 本机经该 relay 的完整可达地址（`<relay>/p2p-circuit/p2p/<本机>`），
+        /// 由内核拼装下发——调用方不自行拼接（单一事实源）。
+        circuit_addr: Addr,
+    },
+    /// 本轮尝试失败（拨号候选地址耗尽 / reservation 被拒或失效）。
+    Failed {
+        /// 累计尝试轮数。
+        attempts: u32,
+        /// 末次错误描述。
+        last_error: String,
+    },
 }
 
 /// 基础设施节点角色（`add_infrastructure_peer`）。
@@ -210,6 +230,17 @@ impl Endpoint {
     ) -> Result<(), Error> {
         let peer = peer.into();
         self.request(|reply| ActorMessage::AddInfraPeer { peer, roles, reply })
+            .await
+    }
+
+    /// 注销基础设施节点——[`add_infrastructure_peer`](Self::add_infrastructure_peer)
+    /// 的对称面：撤销 relay 常驻意图、清地址簿与 kad 路由表、关闭对应
+    /// circuit listener，并**立刻断开**与该节点的全部连接（含中止在途拨号，
+    /// pin 93c5059 的 `Pool::disconnect` 对 pending 连接调用 abort）。
+    ///
+    /// 注销后内核不再存在任何针对该节点的自动重连或 reservation 重建路径。
+    pub async fn remove_infrastructure_peer(&self, node: NodeId) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::RemoveInfraPeer { node, reply })
             .await
     }
 

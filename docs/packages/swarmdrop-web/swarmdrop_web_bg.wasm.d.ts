@@ -1,10 +1,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const start: () => void;
 export const __wbg_webnode_free: (a: number, b: number) => void;
 export const webnode_accept_offer: (a: number, b: number, c: number) => any;
 export const webnode_close: (a: number) => any;
-export const webnode_connect: (a: number, b: number, c: number) => any;
+export const webnode_connect: (a: number, b: number, c: number, d: number) => any;
 export const webnode_connect_invite: (a: number, b: number, c: number) => any;
 export const webnode_download_url: (a: number, b: number, c: number) => any;
 export const webnode_events: (a: number) => [number, number, number];
@@ -13,12 +14,15 @@ export const webnode_node_id: (a: number) => [number, number];
 export const webnode_pending_offers: (a: number) => [number, number, number];
 export const webnode_pending_pairing_requests: (a: number) => [number, number, number];
 export const webnode_reject_offer: (a: number, b: number, c: number) => any;
-export const webnode_reserve: (a: number, b: number, c: number) => any;
+export const webnode_relays_changed: (a: number) => any;
+export const webnode_relays_drop: (a: number, b: number, c: number) => any;
+export const webnode_relays_ensure: (a: number, b: number, c: number) => [number, number, number, number];
+export const webnode_relays_state: (a: number) => [number, number, number];
+export const webnode_relays_until_active: (a: number, b: number, c: number, d: number) => any;
 export const webnode_respond_pairing_request: (a: number, b: number, c: number, d: number) => any;
 export const webnode_resume: (a: number, b: number, c: number) => any;
 export const webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
 export const webnode_spawn: () => any;
-export const start: () => void;
 export const __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
 export const __wbg_intounderlyingsink_free: (a: number, b: number) => void;
 export const intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
@@ -45,9 +49,9 @@ export const wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke______:
 export const wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke_______1_: (a: number, b: number) => void;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
-export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_drop_slice: (a: number, b: number) => void;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __externref_table_dealloc: (a: number) => void;

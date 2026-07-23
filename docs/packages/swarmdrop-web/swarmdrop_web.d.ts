@@ -92,6 +92,22 @@ export type PrepareProgressEvent = {
     totalBytes: number,
 };
 
+/**  单个 relay 意图的状态快照（`relays_state()` 元素 / `relays_changed()` 流的产出单元）。 */
+export type RelayInfoJson = {
+    /**  relay 节点身份（base58 NodeId）。 */
+    id: string,
+    state: RelayStateKind,
+    /**  `active` 时为本机经该 relay 的完整可达地址（内核拼装下发），其余为 null。 */
+    circuitAddr: string | null,
+    /**  尝试轮数（`connecting` = 当前第几轮；`failed` = 累计轮数；`active` = 0）。 */
+    attempts: number,
+    /**  `failed` 时的末次错误描述，其余为 null。 */
+    lastError: string | null,
+};
+
+/**  relay reservation 状态类别（[`swarmdrop_net::RelayState`] 的 JS 投影，TS 侧字符串联合）。 */
+export type RelayStateKind = "connecting" | "active" | "failed";
+
 export type RuntimeTransferDirection = "send" | "receive" | "unknown";
 
 /**  suspended 原因（phase=Suspended 时有值）。 */
@@ -258,6 +274,11 @@ export type WebError =
 { kind: "transfer"; message: string } |
 /**  入参非法（地址格式、缺 `/p2p/` 等）。 */
 { kind: "invalidInput"; message: string } |
+/**
+ *  调用被 `AbortSignal` 取消。**abort ≠ 撤回拨号**：Promise 立即 reject 且
+ *  无常驻意图残留，但在途拨号会继续到自然失败（libp2p 无逐次拨号取消面）。
+ */
+{ kind: "aborted"; message: string } |
 /**  分享码不存在 / 已过期。 */
 { kind: "notFound"; message: string } |
 /**  存储（OPFS / localStorage）错误。 */
@@ -314,14 +335,21 @@ export class WebNode {
     accept_offer(session_id: string): Promise<void>;
     /**
      * 关停节点：NetManager::shutdown 取消内部 token（停 presence / infra / event-loop +
-     * transfer cleanup，drop Router 停路由），再显式关 Endpoint（drop Swarm → 断连）。
+     * transfer cleanup，drop Router 停路由）并关 Endpoint（drop Swarm → 断连）——
+     * 与 `WebNode.endpoint` 是同一 handle，无需再显式关一次。
      */
     close(): Promise<void>;
     /**
      * 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
      * 返回结构化的连接信息（`{ path: "local"|"direct"|"relayed", addr }`）。
+     *
+     * `signal`（可选）：标准 `AbortSignal`——超时组合用平台原语表达
+     * （`AbortSignal.timeout(5000)` / `AbortSignal.any([...])`）。abort 时 Promise
+     * 立即以 `{ kind: "aborted" }` reject；**abort ≠ 撤回拨号**（在途拨号继续到
+     * 自然失败，无常驻意图残留）。不传 signal 时由内核兜底超时（Browser 15s）
+     * 保证有限时间内 settle。
      */
-    connect(addr: string): Promise<ConnectionJson>;
+    connect(addr: string, signal?: AbortSignal | null): Promise<ConnectionJson>;
     /**
      * 受邀方：消费邀请串完成**真配对握手**。
      *
@@ -345,8 +373,8 @@ export class WebNode {
      *
      * `local_only=true` 走 LocalOnly（受邀方只用私网地址）。邀请自包含本机 dialable 地址提示——
      * 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
-     * 拨得到本机，本机需先经 [`reserve`](Self::reserve) 在某 helper 上建 reservation，否则邀请里
-     * 无可拨地址、消费方连不上。
+     * 拨得到本机，本机需先经 [`relays_ensure`](Self::relays_ensure) 在某 helper 上建 reservation
+     * （等到 `active`），否则邀请里无可拨地址、消费方连不上。
      */
     generate_invite(local_only: boolean): string;
     /**
@@ -366,9 +394,42 @@ export class WebNode {
      */
     reject_offer(session_id: string): Promise<void>;
     /**
-     * 经 helper 请求 circuit reservation（浏览器被动接收连接的唯一入口），返回 circuit 地址。
+     * relay 状态变化流：每次变化产出一份全量快照（可直接 setState）。
+     * 可多次调用（每次独立订阅），与 `events()` 的单点消费不同。
      */
-    reserve(helper_addr: string): Promise<string>;
+    relays_changed(): ReadableStream<RelayInfoJson[]>;
+    /**
+     * 撤销 relay 意图（[`relays_ensure`](Self::relays_ensure) 的对称面）。
+     *
+     * **真撤销**而非停止等待：停止后台收敛重试、关闭 circuit listener、立刻
+     * 断开与该 helper 的连接（含中止在途拨号），条目从状态集合消失。
+     */
+    relays_drop(helper_id: string): Promise<void>;
+    /**
+     * 登记一个 relay helper 的常驻可达意图（幂等，同步返回）。
+     *
+     * 浏览器被动接收连接的唯一入口。拨号 / reservation / 断线重建由 core 的
+     * InfraSupervisor 统一收敛（最迟 1s 内启动第一轮，失败退避重试）；进度经
+     * [`relays_state`](Self::relays_state) / [`relays_changed`](Self::relays_changed)
+     * 观测，或用 [`relays_until_active`](Self::relays_until_active) 等首次建立。
+     *
+     * 返回 helper 的 base58 NodeId——即 `relays_drop` / `relays_until_active` 的
+     * 入参，调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
+     */
+    relays_ensure(helper_addr: string): string;
+    /**
+     * 全量 relay 状态快照（`{ id, state, circuitAddr?, attempts, lastError? }[]`）。
+     */
+    relays_state(): RelayInfoJson[];
+    /**
+     * 等待某 relay 首次进入 `active`，resolve 出 circuit 可达地址（内核拼装）。
+     *
+     * 观察到 `failed` 时**立即 reject**（把「要不要再等下一轮退避」还给调用方），
+     * 意图保留——要停止后台收敛请调 [`relays_drop`](Self::relays_drop)。
+     * `signal`（可选）：abort 只是不再等待，同样不改变意图生命周期。
+     * 不传 signal 时 30s 兜底超时保证 Promise 有限时间内 settle。
+     */
+    relays_until_active(helper_id: string, signal?: AbortSignal | null): Promise<string>;
     /**
      * 响应一个入站配对请求（`accept=true` 接受并写配对记录、CAS 消费 invite / `false` 拒绝）。
      */
@@ -399,10 +460,11 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly webnode_accept_offer: (a: number, b: number, c: number) => any;
     readonly webnode_close: (a: number) => any;
-    readonly webnode_connect: (a: number, b: number, c: number) => any;
+    readonly webnode_connect: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_connect_invite: (a: number, b: number, c: number) => any;
     readonly webnode_download_url: (a: number, b: number, c: number) => any;
     readonly webnode_events: (a: number) => [number, number, number];
@@ -411,12 +473,15 @@ export interface InitOutput {
     readonly webnode_pending_offers: (a: number) => [number, number, number];
     readonly webnode_pending_pairing_requests: (a: number) => [number, number, number];
     readonly webnode_reject_offer: (a: number, b: number, c: number) => any;
-    readonly webnode_reserve: (a: number, b: number, c: number) => any;
+    readonly webnode_relays_changed: (a: number) => any;
+    readonly webnode_relays_drop: (a: number, b: number, c: number) => any;
+    readonly webnode_relays_ensure: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly webnode_relays_state: (a: number) => [number, number, number];
+    readonly webnode_relays_until_active: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_respond_pairing_request: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_resume: (a: number, b: number, c: number) => any;
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
-    readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly __wbg_intounderlyingsink_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
@@ -443,9 +508,9 @@ export interface InitOutput {
     readonly wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke_______1_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_drop_slice: (a: number, b: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __externref_table_dealloc: (a: number) => void;

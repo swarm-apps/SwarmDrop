@@ -19,11 +19,15 @@ import type {
 // WebNode 的运行时形状（swarmdrop-web 的 .d.ts 提供，这里仅取用到的方法）。
 type WebNode = {
   node_id(): string;
-  connect(addr: string): Promise<ConnectionJson>;
+  connect(addr: string, signal?: AbortSignal): Promise<ConnectionJson>;
   // 真配对握手（pair_with_invite）→ 成功返回已配对对端 NodeId（base58）。
   connect_invite(invite: string): Promise<string>;
-  reserve(helperAddr: string): Promise<string>;
-  // browser-as-inviter：生成邀请串（供桌面扫码/粘贴消费）。需先 reserve 才有可达地址。
+  // relay 意图（声明式）：ensure 登记（同步、返回 helper 的 NodeId）→
+  // until_active 等首次建立（failed 立即 reject）。id 由 ensure 返回值串联。
+  relays_ensure(helperAddr: string): string;
+  relays_until_active(helperId: string, signal?: AbortSignal): Promise<string>;
+  relays_drop(helperId: string): Promise<void>;
+  // browser-as-inviter：生成邀请串（供桌面扫码/粘贴消费）。需先建 reservation 才有可达地址。
   generate_invite(localOnly: boolean): string;
   pending_pairing_requests(): PendingPairingJson[];
   respond_pairing_request(pendingId: string, accept: boolean): Promise<void>;
@@ -61,6 +65,8 @@ export default function TryPage() {
   // browser-as-inviter：本机生成的邀请串 + 挂起的入站配对请求（桌面消费本机 invite 后到达）。
   const [myInvite, setMyInvite] = useState("");
   const [reserving, setReserving] = useState(false);
+  // 最近一次 ensure 的 helper NodeId（relays_ensure 返回值，drop / until_active 串联用）。
+  const helperIdRef = useRef<string | null>(null);
   const [pairingReqs, setPairingReqs] = useState<PendingPairingJson[]>([]);
 
   // 表单
@@ -232,11 +238,30 @@ export default function TryPage() {
     const node = nodeRef.current;
     if (!node) return;
     try {
-      log("reserve → " + (await node.reserve(addr.trim())));
+      // ensure 返回 helper 的 NodeId，直接串联 until_active / drop——JS 侧不解析 multiaddr
+      const helperId = node.relays_ensure(addr.trim());
+      helperIdRef.current = helperId;
+      log("relay 意图已登记，等待 reservation…");
+      log("reserve → " + (await node.relays_until_active(helperId)));
     } catch (e) {
       log("❌ reserve " + errStr(e));
     }
   }, [addr, log]);
+
+  // 撤销 relay 意图（真撤销：停止后台收敛重试、断开连接）。
+  const doDropRelay = useCallback(async () => {
+    const node = nodeRef.current;
+    if (!node) return;
+    const helperId = helperIdRef.current;
+    if (!helperId) return log("先 reserve 过才有可撤销的 relay 意图");
+    try {
+      await node.relays_drop(helperId);
+      helperIdRef.current = null;
+      log("relay 意图已撤销（后台不再重试）");
+    } catch (e) {
+      log("❌ drop " + errStr(e));
+    }
+  }, [log]);
 
   const doInvite = useCallback(async () => {
     const node = nodeRef.current;
@@ -284,14 +309,16 @@ export default function TryPage() {
     }
   }, [log]);
 
-  // browser-as-inviter：本机 reserve 一个中继（拿可达 circuit 地址）后生成邀请。
+  // browser-as-inviter：本机经一个中继建 reservation（拿可达 circuit 地址）后生成邀请。
   const reserveHelper = useCallback(async () => {
     const node = nodeRef.current;
     if (!node) return;
     if (!addr.trim()) return log("先在①填 helper 的 ws 地址再 reserve");
     setReserving(true);
     try {
-      const circuit = await node.reserve(addr.trim());
+      const helperId = node.relays_ensure(addr.trim());
+      helperIdRef.current = helperId;
+      const circuit = await node.relays_until_active(helperId);
       log("✅ reserve ok（本机现可被拨）→ " + circuit);
     } catch (e) {
       log("❌ reserve " + errStr(e));
@@ -384,6 +411,7 @@ export default function TryPage() {
         <div className="mt-2 flex gap-2">
           <Btn onClick={doConnect} disabled={!ready}>connect</Btn>
           <Btn onClick={doReserve} disabled={!ready}>reserve（circuit listen）</Btn>
+          <Btn onClick={doDropRelay} disabled={!ready}>drop relay</Btn>
         </div>
       </Section>
 

@@ -72,6 +72,14 @@ impl InfraSupervisor {
             && (matches!(candidate.scope, CandidateScope::Lan) || self.public_reachability)
     }
 
+    /// 注销一个基础设施节点的收敛状态（候选条目由调用方一并清除）。
+    ///
+    /// 清掉 `links` 后，后续 tick 对它不再有任何收敛动作；在途 tick 任务
+    /// 经候选表 re-check（见 [`tick`](Self::tick)）失效。
+    pub fn remove(&self, peer_id: NodeId) {
+        self.links.remove(&peer_id);
+    }
+
     // === 事件折叠（core 事件循环调用） ===
 
     pub fn handle_event(&self, event: &NetEvent) {
@@ -192,10 +200,16 @@ impl InfraSupervisor {
             drop(link);
 
             let endpoint = self.endpoint.clone();
+            let candidates = self.candidates.clone();
             let peer = candidate.peer_id;
             let addrs = candidate.addrs.clone();
             let roles: InfraRoles = candidate.roles.into();
             n0_future::task::spawn(async move {
+                // re-check：候选在 spawn 后被注销（remove_relay_intent）时放弃本轮，
+                // 把「注销 vs 在途收敛」的竞态窗口收窄到微秒级
+                if !candidates.read().map(|c| c.contains(peer)).unwrap_or(false) {
+                    return;
+                }
                 tracing::debug!("收敛基础设施链路: {peer}（第 {attempts} 次尝试）");
                 // 全角色注册：kad 重接线 + 未连接时拨号 + 常驻登记 reservation 意图
                 // （identify 后幂等建立），断连恢复与 reservation 重建一步到位
@@ -332,6 +346,49 @@ mod tests {
         assert!(
             link.next_attempt_at > now + Duration::from_secs(3),
             "Lost 不得提前 next_attempt_at"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn removed_candidate_is_not_converged() {
+        let (s, candidates) = ctx(true).await;
+        let p = relay_candidate(&candidates, CandidateScope::Public);
+
+        // 先经历一轮收敛（links 有状态）
+        s.tick(Instant::now());
+        assert!(link_of(&s, &p).is_some());
+
+        // 注销：候选 + links 双清（NetManager::remove_relay_intent 的顺序）
+        candidates.write().unwrap().remove(p);
+        s.remove(p);
+        assert!(link_of(&s, &p).is_none());
+
+        // 后续 tick 不再对它有任何收敛动作
+        s.tick(Instant::now() + Duration::from_secs(10));
+        assert!(link_of(&s, &p).is_none(), "注销后 tick 不得复活 links");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn removed_candidate_can_be_relearned() {
+        let (s, candidates) = ctx(true).await;
+        let boot = peer();
+        let addr: Addr = "/ip4/47.115.172.218/tcp/4001".parse().unwrap();
+
+        s.handle_event(&identified(
+            boot,
+            "swarm-bootstrap/0.4.1",
+            vec![addr.clone()],
+        ));
+        assert!(candidates.read().unwrap().get(boot).is_some());
+
+        candidates.write().unwrap().remove(boot);
+        s.remove(boot);
+
+        // 该节点后续真实可达并重新宣告：学习型候选重新纳管是正确行为
+        s.handle_event(&identified(boot, "swarm-bootstrap/0.4.1", vec![addr]));
+        assert!(
+            candidates.read().unwrap().get(boot).is_some(),
+            "重新 identify 后应可重新纳管"
         );
     }
 

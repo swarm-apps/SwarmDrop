@@ -25,6 +25,21 @@ pub enum CandidateScope {
     Lan,
 }
 
+impl CandidateScope {
+    /// 从地址形状推断 scope（UserCustom 等无来源先验的候选用）。
+    ///
+    /// 任一私网/loopback 地址即判 Lan——注意这意味着混合地址候选会**绕过
+    /// `public_reachability` 闸门**（supervisor 对 Lan 候选无条件收敛），
+    /// 这是有意的：用户手动点名的本地 helper 不应被公网开关拦下。
+    pub fn infer(addrs: &[Addr]) -> Self {
+        if addrs.iter().any(|a| a.is_private_lan() || a.is_loopback()) {
+            Self::Lan
+        } else {
+            Self::Public
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -156,6 +171,11 @@ impl BootstrapCandidateManager {
                 true
             }
         }
+    }
+
+    /// 移除候选（注销基础设施节点的策略层清理）。
+    pub fn remove(&mut self, peer_id: NodeId) {
+        self.candidates.remove(&peer_id);
     }
 
     pub fn mark_connected(&mut self, peer_id: NodeId) {

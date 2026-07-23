@@ -152,7 +152,8 @@ export class WebNode {
     }
     /**
      * 关停节点：NetManager::shutdown 取消内部 token（停 presence / infra / event-loop +
-     * transfer cleanup，drop Router 停路由），再显式关 Endpoint（drop Swarm → 断连）。
+     * transfer cleanup，drop Router 停路由）并关 Endpoint（drop Swarm → 断连）——
+     * 与 `WebNode.endpoint` 是同一 handle，无需再显式关一次。
      * @returns {Promise<void>}
      */
     close() {
@@ -163,13 +164,20 @@ export class WebNode {
     /**
      * 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
      * 返回结构化的连接信息（`{ path: "local"|"direct"|"relayed", addr }`）。
+     *
+     * `signal`（可选）：标准 `AbortSignal`——超时组合用平台原语表达
+     * （`AbortSignal.timeout(5000)` / `AbortSignal.any([...])`）。abort 时 Promise
+     * 立即以 `{ kind: "aborted" }` reject；**abort ≠ 撤回拨号**（在途拨号继续到
+     * 自然失败，无常驻意图残留）。不传 signal 时由内核兜底超时（Browser 15s）
+     * 保证有限时间内 settle。
      * @param {string} addr
+     * @param {AbortSignal | null} [signal]
      * @returns {Promise<ConnectionJson>}
      */
-    connect(addr) {
+    connect(addr, signal) {
         const ptr0 = passStringToWasm0(addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.webnode_connect(this.__wbg_ptr, ptr0, len0);
+        const ret = wasm.webnode_connect(this.__wbg_ptr, ptr0, len0, isLikeNone(signal) ? 0 : addToExternrefTable0(signal));
         return ret;
     }
     /**
@@ -216,8 +224,8 @@ export class WebNode {
      *
      * `local_only=true` 走 LocalOnly（受邀方只用私网地址）。邀请自包含本机 dialable 地址提示——
      * 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
-     * 拨得到本机，本机需先经 [`reserve`](Self::reserve) 在某 helper 上建 reservation，否则邀请里
-     * 无可拨地址、消费方连不上。
+     * 拨得到本机，本机需先经 [`relays_ensure`](Self::relays_ensure) 在某 helper 上建 reservation
+     * （等到 `active`），否则邀请里无可拨地址、消费方连不上。
      * @param {boolean} local_only
      * @returns {string}
      */
@@ -289,14 +297,87 @@ export class WebNode {
         return ret;
     }
     /**
-     * 经 helper 请求 circuit reservation（浏览器被动接收连接的唯一入口），返回 circuit 地址。
+     * relay 状态变化流：每次变化产出一份全量快照（可直接 setState）。
+     * 可多次调用（每次独立订阅），与 `events()` 的单点消费不同。
+     * @returns {ReadableStream<RelayInfoJson[]>}
+     */
+    relays_changed() {
+        const ret = wasm.webnode_relays_changed(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * 撤销 relay 意图（[`relays_ensure`](Self::relays_ensure) 的对称面）。
+     *
+     * **真撤销**而非停止等待：停止后台收敛重试、关闭 circuit listener、立刻
+     * 断开与该 helper 的连接（含中止在途拨号），条目从状态集合消失。
+     * @param {string} helper_id
+     * @returns {Promise<void>}
+     */
+    relays_drop(helper_id) {
+        const ptr0 = passStringToWasm0(helper_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_relays_drop(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * 登记一个 relay helper 的常驻可达意图（幂等，同步返回）。
+     *
+     * 浏览器被动接收连接的唯一入口。拨号 / reservation / 断线重建由 core 的
+     * InfraSupervisor 统一收敛（最迟 1s 内启动第一轮，失败退避重试）；进度经
+     * [`relays_state`](Self::relays_state) / [`relays_changed`](Self::relays_changed)
+     * 观测，或用 [`relays_until_active`](Self::relays_until_active) 等首次建立。
+     *
+     * 返回 helper 的 base58 NodeId——即 `relays_drop` / `relays_until_active` 的
+     * 入参，调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
      * @param {string} helper_addr
+     * @returns {string}
+     */
+    relays_ensure(helper_addr) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(helper_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.webnode_relays_ensure(this.__wbg_ptr, ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * 全量 relay 状态快照（`{ id, state, circuitAddr?, attempts, lastError? }[]`）。
+     * @returns {RelayInfoJson[]}
+     */
+    relays_state() {
+        const ret = wasm.webnode_relays_state(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * 等待某 relay 首次进入 `active`，resolve 出 circuit 可达地址（内核拼装）。
+     *
+     * 观察到 `failed` 时**立即 reject**（把「要不要再等下一轮退避」还给调用方），
+     * 意图保留——要停止后台收敛请调 [`relays_drop`](Self::relays_drop)。
+     * `signal`（可选）：abort 只是不再等待，同样不改变意图生命周期。
+     * 不传 signal 时 30s 兜底超时保证 Promise 有限时间内 settle。
+     * @param {string} helper_id
+     * @param {AbortSignal | null} [signal]
      * @returns {Promise<string>}
      */
-    reserve(helper_addr) {
-        const ptr0 = passStringToWasm0(helper_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    relays_until_active(helper_id, signal) {
+        const ptr0 = passStringToWasm0(helper_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.webnode_reserve(this.__wbg_ptr, ptr0, len0);
+        const ret = wasm.webnode_relays_until_active(this.__wbg_ptr, ptr0, len0, isLikeNone(signal) ? 0 : addToExternrefTable0(signal));
         return ret;
     }
     /**
@@ -413,6 +494,13 @@ function __wbg_get_imports() {
         __wbg__wbg_cb_unref_d9b87ff7982e3b21: function(arg0) {
             arg0._wbg_cb_unref();
         },
+        __wbg_aborted_0b67c37a14dbbc89: function(arg0) {
+            const ret = arg0.aborted;
+            return ret;
+        },
+        __wbg_addEventListener_3acb0aad4483804c: function() { return handleError(function (arg0, arg1, arg2, arg3) {
+            arg0.addEventListener(getStringFromWasm0(arg1, arg2), arg3);
+        }, arguments); },
         __wbg_arrayBuffer_05ce1af23e9064e8: function(arg0) {
             const ret = arg0.arrayBuffer();
             return ret;
@@ -829,6 +917,9 @@ function __wbg_get_imports() {
             const ret = arg0.readyState;
             return (__wbindgen_enum_RtcDataChannelState.indexOf(ret) + 1 || 5) - 1;
         },
+        __wbg_removeEventListener_e63328781a5b9af9: function() { return handleError(function (arg0, arg1, arg2, arg3) {
+            arg0.removeEventListener(getStringFromWasm0(arg1, arg2), arg3);
+        }, arguments); },
         __wbg_require_b74f47fc2d022fd6: function() { return handleError(function () {
             const ret = module.require;
             return ret;
@@ -1064,47 +1155,47 @@ function __wbg_get_imports() {
             return ret;
         }, arguments); },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 1788, function: Function { arguments: [], shim_idx: 1789, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 1791, function: Function { arguments: [], shim_idx: 1792, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_68a07cbe32b35190___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______, wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke______);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 1880, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 1881, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 1883, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 1884, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_68a07cbe32b35190___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_55f879203fe08ada___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke___web_sys_55f879203fe08ada___features__gen_CloseEvent__CloseEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 1880, function: Function { arguments: [NamedExternref("Event")], shim_idx: 1881, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 1883, function: Function { arguments: [NamedExternref("Event")], shim_idx: 1884, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_68a07cbe32b35190___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_55f879203fe08ada___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke___web_sys_55f879203fe08ada___features__gen_CloseEvent__CloseEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000004: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 1880, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 1881, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 1883, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 1884, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_68a07cbe32b35190___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_55f879203fe08ada___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke___web_sys_55f879203fe08ada___features__gen_CloseEvent__CloseEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000005: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 1936, function: Function { arguments: [NamedExternref("Event")], shim_idx: 1937, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 1939, function: Function { arguments: [NamedExternref("Event")], shim_idx: 1940, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_68a07cbe32b35190___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_55f879203fe08ada___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke___web_sys_55f879203fe08ada___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000006: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 1936, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 1937, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 1939, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 1940, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_68a07cbe32b35190___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_55f879203fe08ada___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke___web_sys_55f879203fe08ada___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000007: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 1936, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 1937, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 1939, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 1940, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_68a07cbe32b35190___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_55f879203fe08ada___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke___web_sys_55f879203fe08ada___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000008: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2560, function: Function { arguments: [Externref], shim_idx: 2561, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2563, function: Function { arguments: [Externref], shim_idx: 2564, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_68a07cbe32b35190___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_68a07cbe32b35190___JsValue____Output_______, wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke___wasm_bindgen_68a07cbe32b35190___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000009: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2614, function: Function { arguments: [], shim_idx: 2615, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2617, function: Function { arguments: [], shim_idx: 2618, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_68a07cbe32b35190___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_, wasm_bindgen_68a07cbe32b35190___convert__closures_____invoke_______1_);
             return ret;
         },

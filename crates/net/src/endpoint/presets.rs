@@ -45,11 +45,17 @@ impl Preset for Native {
 
 /// 浏览器端默认：不 listen 本地 socket（做不到），relay 客户端开——
 /// 被动接收连接靠 circuit relay listen（`ensure_relay_reservation` 触发）。
+///
+/// connect 超时下调到 15s（默认 30s 对浏览器交互太长）——这是「任何 JS
+/// Promise 在有限时间内 settle」不变量的内核兜底，不依赖调用方传 AbortSignal。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Browser;
 
 impl Preset for Browser {
     fn apply(self, builder: Builder) -> Builder {
-        builder.listen(Vec::new()).relay_client(true)
+        builder
+            .listen(Vec::new())
+            .relay_client(true)
+            .connect_timeout(std::time::Duration::from_secs(15))
     }
 }

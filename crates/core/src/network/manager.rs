@@ -1,14 +1,15 @@
 use std::sync::{Arc, RwLock};
 
 use dashmap::DashMap;
-use swarmdrop_net::{Addr, Endpoint, NodeId, RelayState};
+use swarmdrop_net::{Addr, Endpoint, NodeAddr, NodeId, RelayState};
 use tokio_util::sync::CancellationToken;
 
-use super::candidates::CandidateScope;
+use super::candidates::{BootstrapCandidateSource, CandidateRoles, CandidateScope};
 use super::config::NetworkRuntimeConfig;
 use super::{BootstrapCandidateManager, NetworkStatus, NodeStatus};
 use crate::device::PairedDeviceInfo;
 use crate::device_manager::DeviceManager;
+use crate::error::{AppError, AppResult};
 use crate::host::{EventBus, Notifier};
 use crate::infra::InfraSupervisor;
 use crate::pairing::manager::PairingManager;
@@ -121,6 +122,42 @@ where
         self.transfer.clone()
     }
 
+    /// 手动登记一个 relay helper 的常驻可达意图（幂等，重复登记只合并地址）。
+    ///
+    /// 只写期望状态——候选表 `UserCustom` + relay 角色；真正的拨号 /
+    /// reservation / 断线重建全部由 [`InfraSupervisor`] 统一收敛（单一收敛
+    /// 路径，最迟下一个 1s tick 启动第一轮）。进度经
+    /// `endpoint().watch_relays()` 观测（Connecting / Active / Failed）。
+    pub fn ensure_relay_intent(&self, helper: NodeAddr) {
+        let scope = CandidateScope::infer(&helper.addrs);
+        if let Ok(mut candidates) = self.candidates.write() {
+            candidates.upsert(
+                helper.id,
+                helper.addrs,
+                BootstrapCandidateSource::UserCustom,
+                CandidateRoles {
+                    kad_server: false,
+                    relay_server: true,
+                },
+                scope,
+            );
+        }
+    }
+
+    /// 撤销 relay 常驻意图（[`ensure_relay_intent`](Self::ensure_relay_intent)
+    /// 的对称面）：清候选表与收敛状态，并注销内核侧登记——关 circuit
+    /// listener、立刻断开（含中止在途拨号），此后不存在任何重建路径。
+    pub async fn remove_relay_intent(&self, node: NodeId) -> AppResult<()> {
+        if let Ok(mut candidates) = self.candidates.write() {
+            candidates.remove(node);
+        }
+        self.infra.remove(node);
+        self.endpoint
+            .remove_infrastructure_peer(node)
+            .await
+            .map_err(|e| AppError::Network(e.to_string()))
+    }
+
     pub fn endpoint(&self) -> &Endpoint {
         &self.endpoint
     }
@@ -201,13 +238,13 @@ impl<TTransfer> Clone for SharedNetRefs<TTransfer> {
 impl<TTransfer> SharedNetRefs<TTransfer> {
     /// 当前持有活跃 reservation 的中继节点列表（本机经它们被动可达）。
     pub fn active_relay_peers(&self) -> Vec<NodeId> {
-        self.endpoint
-            .watch_relays()
-            .get()
-            .into_iter()
-            .filter(|(_, state)| matches!(state, RelayState::Active))
-            .map(|(peer, _)| peer)
-            .collect()
+        // with()：只读 key 无需深拷贝整个 map（RelayState 三态化后 value 含堆数据）
+        self.endpoint.watch_relays().with(|map| {
+            map.iter()
+                .filter(|(_, state)| matches!(state, RelayState::Active { .. }))
+                .map(|(peer, _)| *peer)
+                .collect()
+        })
     }
 
     /// 构建当前网络状态快照

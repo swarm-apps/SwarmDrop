@@ -270,6 +270,20 @@ iroh 官方 browser-echo 示例里那个 `wasm-bindgen = "=0.2.122"` 精确 pin 
 
 **相关文件**：`spike/iroh-web/.cargo/config.toml`、`spike/iroh-web/README.md`
 
+### docs 的 Next dev：浏览器必须用 localhost 访问，127.0.0.1 会静默死页
+
+Next.js dev server（`cd docs && pnpm dev`）以 `localhost:3000` 起，浏览器若用
+`http://127.0.0.1:3000` 打开，dev 资源（webpack-hmr、字体、client chunk）会被
+**Blocked cross-origin request** 拦截——症状极具迷惑性：页面正常渲染（SSR HTML），
+但**没有 hydrate**，所有按钮点了没反应、console 无任何报错，看起来像业务代码坏了。
+服务端日志（pnpm dev 的输出）里才有 Blocked 警告。
+
+**正确做法**：`/try` 等交互页实测一律 `http://localhost:3000`；或在 `next.config.mjs`
+加 `allowedDevOrigins: ['127.0.0.1']`。（README 里"实测用 127.0.0.1"说的是**静态
+serve 的产物**，与 Next dev 是两回事。）
+
+**相关文件**：`docs/next.config.mjs`、`docs/app/try/page.tsx`
+
 ### spike/ 不进 workspace
 
 `spike/` 放临时的技术验证（当前：`spike/iroh-web`，见 #60），根 `Cargo.toml` 里
