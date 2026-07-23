@@ -390,9 +390,10 @@ build:android`（都带 `--and-generate`）会把 podspec/gradle 引用的手写
 # 1. 先 build 出 host dylib（供 uniffi 提取元数据，本机 target，快）
 cd packages/swarmdrop-core/rust/mobile-core && cargo build
 # 2. 只生成 TS + C++ bindings（library 模式，从 dylib 提取；CWD 需有 Cargo.toml）
+#    dylib 路径见下方「合并进单仓后」的坑——不再是本目录下的 target/debug/
 npx ubrn generate jsi bindings --library \
   --ts-dir ../../src/generated --cpp-dir ../../cpp/generated \
-  --crate swarmdrop_mobile_core target/debug/libswarmdrop_mobile_core.dylib
+  --crate swarmdrop_mobile_core <dylib-path>/libswarmdrop_mobile_core.dylib
 # 3. 需要能真机跑时，再 npx ubrn build ios / android -t arm64-v8a（无 --and-generate，
 #    只重编 Rust + 拷 xcframework/jniLibs，不重生成、不碰脚手架）
 ```
@@ -400,6 +401,31 @@ npx ubrn generate jsi bindings --library \
   RustBuffer 序列化），只有 `src/generated` 的 TS 类型变。diff 应干净、无杂散 churn。
 - `ubrn generate jsi bindings` 在 CWD 跑 `cargo metadata`，必须在 `rust/mobile-core` 目录下跑，
   输出路径写成相对该目录的 `../../{src,cpp}/generated`。
+
+### 合并进单仓后，dylib 产物路径变了——不在 `rust/mobile-core/target/`
+
+上面那条录自 SwarmDrop-RN 还是独立仓库时——那时 `rust/mobile-core` 自己就是 workspace 根，
+`cargo build` 的产物天然落在同目录 `target/debug/`。并入本仓后 `mobile-core` 是**根 Cargo
+workspace 的 member**（`Cargo.toml:workspace.members` 含它，`cargo metadata --no-deps` 的
+`root` 指向仓库根 `Cargo.toml`），`cargo build` 的产物因此落在**仓库根**的 `target/debug/`，
+`rust/mobile-core/target/debug/libswarmdrop_mobile_core.dylib` 根本不存在——照抄旧命令会
+`No such file or directory`。
+
+**正确做法**：
+```bash
+# 在仓库任意位置 build 均可（同一个 workspace target 目录）
+cargo build -p swarmdrop-mobile-core
+cd mobile/packages/swarmdrop-core/rust/mobile-core   # ubrn 仍需在此目录找 Cargo.toml
+<mobile>/node_modules/.bin/ubrn generate jsi bindings --library \
+  --ts-dir ../../src/generated --cpp-dir ../../cpp/generated \
+  --crate swarmdrop_mobile_core /Volumes/yexiyue/SwarmDrop/target/debug/libswarmdrop_mobile_core.dylib
+```
+- `ubrn` 可执行文件也跟着提升到 `mobile/node_modules/.bin/ubrn`（pnpm workspace 提升），
+  不在 `packages/swarmdrop-core/node_modules/`。
+- 找不准路径时 `find /Volumes/yexiyue/SwarmDrop/target/debug -iname "*mobile_core*"` 现查最快。
+
+**相关文件**：`Cargo.toml`（根 workspace members）、
+[packages/swarmdrop-core/rust/mobile-core/Cargo.toml](../../packages/swarmdrop-core/rust/mobile-core/Cargo.toml)
 
 **相关文件**：[packages/swarmdrop-core/ubrn.config.yaml](../../packages/swarmdrop-core/ubrn.config.yaml)
 

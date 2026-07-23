@@ -189,6 +189,10 @@ msgstr "Home"
 msgid "主题"
 msgstr "Theme"
 
+#: src/components/pairing/invite-qr.tsx
+msgid "二维码渲染失败"
+msgstr "QR code failed to render"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "仅删除记录"
 msgstr "Delete record only"
@@ -208,7 +212,7 @@ msgstr "LAN only"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "仅本地网络"
-msgstr ""
+msgstr "Local Network Only"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "仅用于本地展示和配对确认"
@@ -228,7 +232,7 @@ msgstr "Today"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "从附近设备发起配对，或通过邀请连接另一台设备。"
-msgstr ""
+msgstr "Pair with a nearby device, or connect another device with an invite."
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "会话列表"
@@ -350,7 +354,7 @@ msgstr "Allow cross-network devices to reach this device through public relays; 
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先验证，再确认"
-msgstr ""
+msgstr "Verify first, then confirm"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/index.lazy.tsx
@@ -455,13 +459,17 @@ msgstr "Switch to light theme"
 msgid "切换到深色主题"
 msgstr "Switch to dark theme"
 
+#: src/routes/_app/pairing/generate.lazy.tsx
+msgid "切换后会立即重新生成邀请，此前展示的二维码随即失效。"
+msgstr "Toggling regenerates the invite immediately; the QR code shown before stops working."
+
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #~ msgid "切换过滤条件，或直接使用下方配对码连接。"
 #~ msgstr "Switch the filter, or use the pairing code below to connect."
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "切换过滤条件，或通过邀请连接设备。"
-msgstr ""
+msgstr "Change the filter, or connect a device with an invite."
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #~ msgid "创建"
@@ -639,7 +647,7 @@ msgstr "Unpair"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "只允许同一局域网连接"
-msgstr ""
+msgstr "Allow connections from the same LAN only"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "只建立你确认过的连接"
@@ -717,6 +725,14 @@ msgstr "When enabled, inbound files matching the policy go straight to the Inbox
 msgid "在下方创建第一个分组来整理已配对设备。"
 msgstr "Create your first group below to organize paired devices."
 
+#: src/routes/_app/pairing/input.lazy.tsx
+msgid "在对方设备上打开 SwarmDrop，进入「添加设备 → 展示邀请」"
+msgstr "Open SwarmDrop on the other device, then go to Add Device → Show Invite"
+
+#: src/routes/_app/pairing/generate.lazy.tsx
+msgid "在对方设备上打开 SwarmDrop，进入「添加设备」"
+msgstr "Open SwarmDrop on the other device, then go to Add Device"
+
 #: src/components/transfer/session-panel.tsx
 msgid "在收件箱查看"
 msgstr "View in Inbox"
@@ -767,7 +783,7 @@ msgstr "Copy failed, please copy the path manually"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制失败，请手动复制邀请"
-msgstr ""
+msgstr "Copy failed. Please copy the invite manually."
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -780,7 +796,7 @@ msgstr "Copy path"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制邀请链接"
-msgstr ""
+msgstr "Copy Invite Link"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
@@ -826,7 +842,7 @@ msgstr "The peer has paused the transfer"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "对方扫码或粘贴邀请后，本机仍会弹出确认请求。"
-msgstr ""
+msgstr "After they scan or paste the invite, this device still asks you to confirm."
 
 #: src/lib/transfer-projection.ts
 msgid "对方拒绝"
@@ -850,7 +866,7 @@ msgstr "Peer offline"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "对方设备"
-msgstr ""
+msgstr "Their Device"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 #~ msgid "导出"
@@ -884,9 +900,14 @@ msgstr "LAN assistance"
 msgid "局域网协助地址"
 msgstr "LAN Helper Address"
 
+#: src/components/pairing/pairing-mode-tabs.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
-msgid "展示配对邀请"
-msgstr ""
+msgid "展示邀请"
+msgstr "Show Invite"
+
+#: src/routes/_app/devices/-components/add-device-section.tsx
+#~ msgid "展示配对邀请"
+#~ msgstr "Show Pairing Invite"
 
 #: src/stores/pairing-store.ts
 #~ msgid "已与 {0} 配对成功"
@@ -971,6 +992,10 @@ msgstr "Inbox record archived"
 msgid "已拒绝来自 {0} 的配对请求"
 msgstr "Declined pairing request from {0}"
 
+#: src/routes/_app/devices/-components/add-device-section.tsx
+msgid "已收到邀请"
+msgstr "Already have one"
+
 #: src/lib/transfer-projection.ts
 msgid "已暂停"
 msgstr "Paused"
@@ -992,8 +1017,8 @@ msgid "已清空活动记录"
 msgstr "Activity cleared"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-msgid "已粘贴"
-msgstr ""
+#~ msgid "已粘贴"
+#~ msgstr ""
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "已结束"
@@ -1096,8 +1121,8 @@ msgstr "Files to send"
 #~ msgstr "To Send"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
-msgid "待生成"
-msgstr "Not generated"
+#~ msgid "待生成"
+#~ msgstr "Not generated"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "待确认"
@@ -1131,6 +1156,14 @@ msgstr "All files transferred successfully!"
 #: src/routes/_app/send/share-target.lazy.tsx
 #~ msgid "所有文件已被移除。返回后重新选择要发送的内容。"
 #~ msgstr "All files have been removed. Go back and pick what to send again."
+
+#: src/routes/_app/pairing/generate.lazy.tsx
+msgid "手机上点「扫码」对准这个二维码；电脑上改用「粘贴邀请」"
+msgstr "On a phone, tap Scan and aim at this QR code; on a computer, switch to Paste Invite"
+
+#: src/routes/_app/pairing/input.lazy.tsx
+msgid "手机上装了 SwarmDrop 的话，直接用手机扫对方的二维码更快。"
+msgstr "If SwarmDrop is installed on your phone, scanning their QR code with it is faster."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 #~ msgid "打开"
@@ -1392,8 +1425,8 @@ msgid "更早"
 msgstr "Earlier"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
-msgid "有效期"
-msgstr "Validity"
+#~ msgid "有效期"
+#~ msgstr "Validity"
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "服务状态"
@@ -1466,6 +1499,10 @@ msgstr "Once local files are deleted, clearing activity can't restore them."
 msgid "本机协助中"
 msgstr "Assisting"
 
+#: src/routes/_app/pairing/generate.lazy.tsx
+msgid "本机弹出确认请求，你同意后配对完成"
+msgstr "This device shows a confirmation request — approve it and pairing is done"
+
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #~ msgid "本机配对码"
 #~ msgstr "Your pairing code"
@@ -1527,7 +1564,7 @@ msgstr "Check for Updates"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "检测到剪贴板中的配对邀请，点此继续"
-msgstr ""
+msgstr "Pairing invite found in the clipboard — click to continue"
 
 #. placeholder {0}: latestVersion ?? "?"
 #: src/routes/_app/settings/-about-section.tsx
@@ -1556,8 +1593,8 @@ msgstr "Establishing session..."
 #~ msgstr "Searching for device..."
 
 #: src/routes/_app/pairing/generate.lazy.tsx
-msgid "正在生成邀请"
-msgstr ""
+#~ msgid "正在生成邀请"
+#~ msgstr ""
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #~ msgid "正在生成配对码"
@@ -1622,14 +1659,16 @@ msgid "添加"
 msgstr "Add"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
-msgid "添加新设备"
-msgstr "Add New Device"
+#~ msgid "添加新设备"
+#~ msgstr "Add New Device"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "添加自定义引导节点"
 msgstr "Add Custom Bootstrap Node"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/input.lazy.tsx
 msgid "添加设备"
 msgstr "Add Device"
 
@@ -1707,7 +1746,7 @@ msgstr "Confirm Unpair"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "确认对端已启动，或通过邀请连接设备。"
-msgstr ""
+msgstr "Make sure the other device is running, or connect it with an invite."
 
 #: src/routes/_app/send/index.lazy.tsx
 #~ msgid "确认目标设备在线后，将文件或文件夹拖到右侧面板。"
@@ -1715,11 +1754,11 @@ msgstr ""
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "确认设备"
-msgstr ""
+msgstr "Confirm Device"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "确认配对"
-msgstr ""
+msgstr "Confirm Pairing"
 
 #: src/routes/_app/send/-components/send-progress-view.tsx
 msgid "离开此页不会中断传输，可在「传输活动」中继续查看。"
@@ -1759,8 +1798,8 @@ msgid "等待确认"
 msgstr "Waiting for confirmation"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-msgid "等待粘贴"
-msgstr ""
+#~ msgid "等待粘贴"
+#~ msgstr ""
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "等待节点启动"
@@ -1791,16 +1830,25 @@ msgid "管理设备分组"
 msgstr "Manage device groups"
 
 #: src/routes/_app/pairing/input.lazy.tsx
+msgid "粘贴到左侧，验证通过后确认发起配对"
+msgstr "Paste it on the left; once verified, confirm to start pairing"
+
+#: src/routes/_app/pairing/input.lazy.tsx
 msgid "粘贴后本机会验证并显示对端设备，确认后再发起配对。"
-msgstr ""
+msgstr "This device verifies the invite and shows the peer before pairing starts."
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "粘贴对方的配对邀请"
-msgstr ""
+msgstr "Paste their pairing invite"
+
+#: src/components/pairing/pairing-mode-tabs.tsx
+#: src/routes/_app/devices/-components/add-device-section.tsx
+msgid "粘贴邀请"
+msgstr "Paste Invite"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
-msgid "粘贴邀请配对"
-msgstr ""
+#~ msgid "粘贴邀请配对"
+#~ msgstr "Pair by Pasting an Invite"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "给设备取个名字"
@@ -1808,7 +1856,7 @@ msgstr "Name your device"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "继续"
-msgstr ""
+msgstr "Continue"
 
 #: src/components/file-browser/file-row.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
@@ -1918,12 +1966,20 @@ msgstr "Automatically start P2P network node after unlock"
 #~ msgstr "Have the other device enter these 6 digits"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
-msgid "让对方扫码或粘贴"
-msgstr ""
+msgid "让对方扫码"
+msgstr "Let them scan it"
+
+#: src/routes/_app/devices/-components/add-device-section.tsx
+#~ msgid "让对方扫码或粘贴"
+#~ msgstr "Let them scan or paste it"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "让对方扫码或粘贴此邀请"
-msgstr ""
+msgstr "Have the other device scan or paste this invite"
+
+#: src/routes/_app/pairing/input.lazy.tsx
+msgid "让对方点「复制邀请链接」，把那串 sdinvite… 发给你"
+msgstr "Ask them to tap Copy Invite Link and send you the sdinvite… string"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #~ msgid "让对方输入这组配对码"
@@ -2076,8 +2132,8 @@ msgstr "Enter Multiaddr address, e.g. /ip4/.../p2p/..."
 #~ msgstr "Enter the other device's pairing code"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-msgid "输入状态"
-msgstr ""
+#~ msgid "输入状态"
+#~ msgstr ""
 
 #: src/routes/_app/pairing/input.lazy.tsx
 #~ msgid "输入进度"
@@ -2135,12 +2191,12 @@ msgid "连接"
 msgstr "Connect"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
-msgid "连接对方设备"
-msgstr ""
+#~ msgid "连接对方设备"
+#~ msgstr "Connect to their device"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-msgid "连接已有设备"
-msgstr "Connect Existing Device"
+#~ msgid "连接已有设备"
+#~ msgstr "Connect Existing Device"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "连接请求"
@@ -2204,16 +2260,16 @@ msgstr "General"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "邀请一次性有效，过期后可立即重新生成。"
-msgstr ""
+msgstr "The invite is single-use; regenerate it any time after it expires."
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/stores/pairing-store.ts
 msgid "邀请已过期"
-msgstr ""
+msgstr "Invite expired"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "邀请经本地签名验证，真正建立信任仍需要双方确认。"
-msgstr ""
+msgstr "The invite is signature-verified locally; trust is only established once both sides confirm."
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "配对"
@@ -2221,7 +2277,7 @@ msgstr "Pair"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "配对中..."
-msgstr ""
+msgstr "Pairing..."
 
 #: src/routes/_app/pairing.tsx
 msgid "配对功能需要 P2P 节点处于运行状态"
@@ -2229,15 +2285,15 @@ msgstr "Pairing requires the P2P node to be running"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "配对后，双方可以互相发送文件。确认发起配对？"
-msgstr ""
+msgstr "Once paired, you can send files both ways. Start pairing?"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "配对后，该设备可以向您发送文件。请确认您认识此设备。"
 msgstr "Once paired, this device can send you files. Please make sure you recognize this device."
 
-#: src/routes/_app/pairing/-device-found-view.tsx
-#~ msgid "配对方式"
-#~ msgstr "Pairing Method"
+#: src/components/pairing/pairing-mode-tabs.tsx
+msgid "配对方式"
+msgstr "Pairing Method"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "配对码"
@@ -2268,6 +2324,10 @@ msgstr "Paired Devices"
 msgid "配对请求"
 msgstr "Pairing request"
 
+#: src/components/pairing/invite-qr.tsx
+msgid "配对邀请二维码"
+msgstr "Pairing invite QR code"
+
 #: src/routes/_app/settings/-settings-primitives.tsx
 msgid "重启中..."
 msgstr "Restarting..."
@@ -2284,15 +2344,13 @@ msgstr "Failed to restart node"
 msgid "重新发送"
 msgstr "Resend"
 
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #~ msgid "重新生成"
 #~ msgstr "Regenerate"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "重新生成邀请"
-msgstr ""
+msgstr "Regenerate Invite"
 
 #: src/components/file-browser/item-actions.tsx
 msgid "重试"
@@ -2316,7 +2374,7 @@ msgstr "Nearby Devices"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "附近设备优先，或通过邀请连接跨网设备。"
-msgstr ""
+msgstr "Nearby devices first, or use an invite to reach a device on another network."
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "随节点自动启动"

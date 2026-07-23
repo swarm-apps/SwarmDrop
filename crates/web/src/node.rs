@@ -125,6 +125,7 @@ impl WebNode {
         let file_access_for_factory = file_access.clone();
         let started = start_node(
             secret.clone(),
+            None,
             os_info.clone(),
             Vec::new(), // 已配对设备：内存态起步（IndexedDB 持久化属后续工程）
             // LanOnly：浏览器拨不了 TCP/QUIC 内置 bootstrap，跳过它免得 infra 反复空拨刷屏；

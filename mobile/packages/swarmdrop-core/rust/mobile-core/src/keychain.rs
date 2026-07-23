@@ -17,6 +17,9 @@ pub trait ForeignKeychainProvider: Send + Sync {
     async fn load_identity(&self) -> Result<Option<Vec<u8>>, FfiError>;
     async fn save_identity(&self, keypair: Vec<u8>) -> Result<(), FfiError>;
     async fn delete_identity(&self) -> Result<(), FfiError>;
+    async fn load_webrtc_certificate_pem(&self) -> Result<Option<String>, FfiError>;
+    async fn save_webrtc_certificate_pem(&self, pem: String) -> Result<(), FfiError>;
+    async fn delete_webrtc_certificate_pem(&self) -> Result<(), FfiError>;
     async fn load_paired_devices_json(&self) -> Result<String, FfiError>;
     async fn save_paired_devices_json(&self, devices_json: String) -> Result<(), FfiError>;
 }
@@ -50,6 +53,27 @@ impl KeychainProvider for MobileKeychainAdapter {
 
     async fn delete_identity(&self) -> AppResult<()> {
         self.foreign.delete_identity().await.map_err(Into::into)
+    }
+
+    async fn load_webrtc_certificate_pem(&self) -> AppResult<Option<String>> {
+        self.foreign
+            .load_webrtc_certificate_pem()
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn save_webrtc_certificate_pem(&self, pem: String) -> AppResult<()> {
+        self.foreign
+            .save_webrtc_certificate_pem(pem)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn delete_webrtc_certificate_pem(&self) -> AppResult<()> {
+        self.foreign
+            .delete_webrtc_certificate_pem()
+            .await
+            .map_err(Into::into)
     }
 
     // mobile 没有 Stronghold → keychain 迁移路径,直接返回 Completed

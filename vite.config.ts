@@ -42,8 +42,8 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. 忽略 Rust 源码与 Cargo 构建产物，避免 Windows 监听正在写入的 .exe 时触发 EBUSY
+      ignored: ["**/src-tauri/**", "**/target/**"],
     },
   },
 }));

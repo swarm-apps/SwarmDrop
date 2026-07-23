@@ -10,6 +10,7 @@ const SERVICE: &str = "com.yexiyue.swarmdrop";
 const IDENTITY_USER: &str = "device-identity";
 const PAIRED_DEVICES_USER: &str = "paired-devices";
 const MIGRATION_STATE_USER: &str = "identity-migration-state";
+const WEBRTC_CERTIFICATE_USER: &str = "webrtc-direct-certificate";
 
 #[derive(Debug, Clone, Default)]
 pub struct DesktopKeychainProvider;
@@ -41,6 +42,23 @@ impl KeychainProvider for DesktopKeychainProvider {
 
     async fn delete_identity(&self) -> CoreResult<()> {
         run_keyring(|| delete_entry_if_exists(IDENTITY_USER)).await
+    }
+
+    async fn load_webrtc_certificate_pem(&self) -> CoreResult<Option<String>> {
+        run_keyring(|| optional_entry_password(WEBRTC_CERTIFICATE_USER)).await
+    }
+
+    async fn save_webrtc_certificate_pem(&self, pem: String) -> CoreResult<()> {
+        run_keyring(move || {
+            entry(WEBRTC_CERTIFICATE_USER)?
+                .set_password(&pem)
+                .map_err(map_keyring_error)
+        })
+        .await
+    }
+
+    async fn delete_webrtc_certificate_pem(&self) -> CoreResult<()> {
+        run_keyring(|| delete_entry_if_exists(WEBRTC_CERTIFICATE_USER)).await
     }
 
     async fn load_migration_state(&self) -> CoreResult<IdentityMigrationState> {

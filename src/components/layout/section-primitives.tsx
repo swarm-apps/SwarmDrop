@@ -137,3 +137,76 @@ export function CenteredEmptyState({
     </div>
   );
 }
+
+/**
+ * 分段控件——一组互斥选项的胶囊切换条（设备页附近设备筛选、配对页模式切换）。
+ *
+ * 语义由 `variant` 决定：`tabs` 切换的是同一件事的两个视图（role=tab + aria-selected），
+ * `filter` 只是过滤同一份列表（aria-pressed）。视觉令牌两者共用一份，改选中底色 /
+ * 焦点环只需要动这里。
+ */
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  variant = "filter",
+  size = "sm",
+  label,
+  className,
+  testid,
+}: {
+  value: T;
+  options: Array<{
+    value: T;
+    label: React.ReactNode;
+    icon?: React.ComponentType<{ className?: string }>;
+    testid?: string;
+  }>;
+  onChange: (value: T) => void;
+  variant?: "tabs" | "filter";
+  size?: "sm" | "md";
+  label?: string;
+  className?: string;
+  testid?: string;
+}) {
+  const isTabs = variant === "tabs";
+  return (
+    <div
+      role={isTabs ? "tablist" : "group"}
+      aria-label={label}
+      data-testid={testid}
+      className={cn(
+        "flex shrink-0 rounded-full bg-foreground/[0.045] p-0.5 dark:bg-white/[0.06]",
+        className,
+      )}
+    >
+      {options.map((option) => {
+        const active = option.value === value;
+        const Icon = option.icon;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role={isTabs ? "tab" : undefined}
+            aria-selected={isTabs ? active : undefined}
+            aria-pressed={isTabs ? undefined : active}
+            data-testid={option.testid}
+            onClick={() => {
+              if (!active) onChange(option.value);
+            }}
+            className={cn(
+              "focus-ring flex items-center gap-1.5 rounded-full font-medium transition-[background-color,color] duration-200",
+              size === "md" ? "px-3 py-1.5 text-[12px]" : "px-2 py-1 text-[11px]",
+              active
+                ? "bg-zinc-950 text-white dark:bg-primary/20 dark:text-brand"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {Icon ? <Icon className="size-3.5" /> : null}
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

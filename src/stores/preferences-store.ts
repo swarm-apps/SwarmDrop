@@ -390,7 +390,9 @@ export const usePreferencesStore = create<PreferencesState>()(
         };
       },
       merge: (persistedState, currentState) => {
-        const persisted = persistedState as Partial<PreferencesState>;
+        // 首次启动时 Store 文件可能存在但尚无此 key，此时 persistedState 为 undefined。
+        // 必须按空对象处理，否则读取 deviceOrganization 会让 hydration 中断，首屏永久空白。
+        const persisted = (persistedState ?? {}) as Partial<PreferencesState>;
         return {
           ...currentState,
           ...persisted,

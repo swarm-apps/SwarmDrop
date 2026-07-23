@@ -154,6 +154,12 @@
 }
 
 @layer components {
+  /* 键盘焦点环——全站统一一份，别再逐个组件抄 focus-visible:outline-* 三件套 */
+  .focus-ring:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
   .glass-panel,
   .glass-card,
   .glass-control,
