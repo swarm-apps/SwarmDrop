@@ -451,6 +451,8 @@ cargo clippy --workspace -- -D warnings   # 项目期望零 warning
 **正确做法**：
 - 在 `ubuntu-latest` 与 `ubuntu-24.04-arm` 原生构建 Linux amd64 / arm64；不要在单个
   x86 runner 上用 QEMU 构建 release Rust 二进制。
+- 两个镜像构建必须是显式 job，`image-merge` 同时 `needs` 它们；不要用 matrix job 作为
+  唯一依赖，GitHub 可能在一个 matrix 子任务完成时就调度合并，错误发布单架构 manifest。
 - GHCR 两腿都只 push digest，最后用 `docker buildx imagetools create` 合成 manifest list；
   不能让两腿并发推同一个 tag。
 - 延续上游 `ghcr.io/swarm-apps/swarm-bootstrap` 时，同时保留 `bootstrap-vX.Y.Z` 及其

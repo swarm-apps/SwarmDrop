@@ -35,24 +35,15 @@ jobs:
           test "$tag_version" = "$cargo_version"
           echo "发布版本：$cargo_version"
 
-  # 两个 native runner 分别构建，避免 QEMU 模拟 ARM64 的长时间 release 编译。
-  image-build:
-    name: Image ${{ matrix.platform }}
+  # 不能使用 matrix：一个子任务结束时 GitHub 会提前满足 `needs`，
+  # 导致合并 job 错把单架构镜像发布为 manifest。两个显式 job 才能形成可靠屏障。
+  image-amd64:
+    name: Image linux/amd64
     needs: verify-version
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            runner: ubuntu-latest
-            arch: amd64
-          - platform: linux/arm64
-            runner: ubuntu-24.04-arm
-            arch: arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -78,17 +69,17 @@ jobs:
         with:
           context: .
           file: ./crates/bootstrap/Dockerfile
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=bootstrap-image-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=bootstrap-image-${{ matrix.arch }}
+          cache-from: type=gha,scope=bootstrap-image-amd64
+          cache-to: type=gha,mode=max,scope=bootstrap-image-amd64
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       # 保持 swarm-p2p 时代的架构标签，现有部署可只改镜像仓库而无需改 tag。
       - name: Publish legacy architecture tag
         run: |
           docker buildx imagetools create \
-            --tag "${{ env.IMAGE_NAME }}:${GITHUB_REF_NAME}-${{ matrix.arch }}" \
+            --tag "${{ env.IMAGE_NAME }}:${GITHUB_REF_NAME}-amd64" \
             "${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
 
       - name: Export digest
@@ -100,14 +91,71 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.arch }}
+          name: digests-amd64
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  image-arm64:
+    name: Image linux/arm64
+    needs: verify-version
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker metadata (labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./crates/bootstrap/Dockerfile
+          platforms: linux/arm64
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=bootstrap-image-arm64
+          cache-to: type=gha,mode=max,scope=bootstrap-image-arm64
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Publish legacy architecture tag
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ env.IMAGE_NAME }}:${GITHUB_REF_NAME}-arm64" \
+            "${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-arm64
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
   image-merge:
     name: Image manifest merge
-    needs: image-build
+    needs: [image-amd64, image-arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: read
