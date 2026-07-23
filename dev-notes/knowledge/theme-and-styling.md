@@ -100,6 +100,31 @@ const nearbyDevices = useNetworkStore(
 
 **相关文件**：`src/routes/_app/devices/-components/add-device-menu.tsx`、项目里其他 selectors 见 `src/stores/`
 
+### 渲染期现算的「时间派生状态」会被 React bailout 冻住（倒计时过期态不出现）
+
+`useCountdown` 曾把 `isExpired` 写成渲染期现算的 `Date.now() >= expiresMs`，而重渲染的唯一
+驱动是 `setInterval` 里的 `setRemainingSeconds(...)`。**剩余秒数归零后每秒都 set 相同的 `0`，
+React bailout 不再重渲染**，于是现算的 `isExpired` 永远停在过期前那次快照上——配对页卡在
+「将在 0:00 后过期」，过期覆盖层永远不出现（2026-07 起 `pnpm tauri dev` 实机验证抓到；
+单测和 tsc 都测不出来，因为它只在「定时器仍在跑但值不再变化」这个时间窗里暴露）。
+
+**正确做法**：凡是随时间翻转的派生布尔值（过期、超时、冷却结束），**跟随驱动重渲染的那份
+state 一起写进 state**，不要在渲染期现算：
+
+```ts
+const update = () => {
+  const remainingMs = expiresMs - Date.now();
+  const next = { remainingSeconds: Math.max(0, Math.floor(remainingMs / 1000)), isExpired: remainingMs <= 0 };
+  setState((prev) =>
+    prev.remainingSeconds === next.remainingSeconds && prev.isExpired === next.isExpired ? prev : next,
+  );
+};
+```
+
+值不变时**返回同一份引用**让 bailout 继续生效（过期后定时器照跑，但不空转重渲）。
+
+**相关文件**：`src/hooks/use-countdown.ts`
+
 ### 弹窗 seeding effect 别依赖整个 store 对象（否则弹窗内改 store 会冲掉编辑态）
 
 弹窗打开时常用 `useEffect` 把 store 持久值 seed 进本地编辑 state（别名、pill 勾选）。**若该 effect 依赖整个 store 派生对象（如 `organization`），而弹窗内又有会 mutate 这个 store 的操作（如"新建分组"）**，mutation 换掉对象引用 → effect 重跑 → 把用户尚未保存的本地编辑连同刚建的东西一起冲掉（xhigh code-review 实锤：别名、pill、新分组自动选中三样全丢）。
@@ -120,7 +145,36 @@ const nearbyDevices = useNetworkStore(
 `swarmdrop-invite::qr` 统一生成（桌面/web `InviteQr` 组件消费 SVG、RN 消费矩阵用
 react-native-svg 画 `<Rect>`），配色固化在渲染端，不接主题 token。
 
-**相关文件**：`src/components/pairing/invite-qr.tsx`、`mobile/src/components/pairing/invite-qr.tsx`
+### 白卡里的一切文字/图标色也必须固化，不能用主题 token
+
+白卡是「主题真空区」：`text-muted-foreground` / `text-foreground` 在暗色主题下会翻成浅灰
+或近白，压在**固定白底**上直接不可读。码面上的覆盖层文案、图标、按钮一律写死
+（桌面 `text-slate-700` / `bg-slate-900`，RN 同款 slate；错误态用 `red-600`，不要用
+`--destructive`——它在暗色下会被提亮，白底对比只剩 ~4:1）。
+
+**相关文件**：`src/components/pairing/invite-qr.tsx`（`QrOverlay`）、
+`mobile/src/components/pairing/invite-qr.tsx`
+
+### 码位状态用覆盖层，不替换整块内容
+
+「节点未启动 / 生成中 / 已过期 / 渲染失败」四态都以覆盖层压在码面上（码本体降到
+`opacity-[0.14]`），**不要**用状态文案把 `<InviteQr>` 整个换掉：换掉会让面板高度跳变，
+而且「过期」被渲染成一个转圈 spinner 时，用户读到的是「还在加载」——这正是改造前的
+真实缺陷。组件对外只暴露 `overlay?: { kind, message, action? }`，状态判定留在页面侧。
+
+加载态用**三枚定位角轮廓的 QR 骨架**而不是居中 spinner（product register：内容区
+loading 用骨架镜像真实布局）。
+
+**相关文件**：`src/components/pairing/invite-qr.tsx`、`src/routes/_app/pairing/generate.lazy.tsx`
+（`qrOverlay` 优先级：节点不可用 > 生成失败 > 已过期）、`src/components/pairing/invite-qr.test.tsx`
+
+### 配对两屏是「同一屏的两个方向」，切换挂在 TaskToolbar 的 trailing
+
+`/pairing/generate`（展示邀请）与 `/pairing/input`（粘贴邀请）共用标题「添加设备」，
+右上角挂 `PairingModeTabs` 互切，不必退回设备页再选另一个入口。两屏右栏都用
+`PairingSteps`（编号步骤）承载「对方要做什么」——编号在这里是真实顺序，不是装饰性分节标记。
+
+**相关文件**：`src/components/pairing/pairing-mode-tabs.tsx`、`src/components/pairing/pairing-steps.tsx`
 
 ## 暗色主题背景
 

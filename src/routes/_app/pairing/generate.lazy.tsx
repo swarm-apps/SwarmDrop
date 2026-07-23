@@ -1,11 +1,14 @@
 /**
  * 发起方屏——生成一次性签名邀请，展示二维码 + 复制链接 + 倒计时 + 仅本地网络开关。
  * 对方扫码/粘贴此邀请后，本机仍会弹确认请求（安全闸）。
+ *
+ * 码位是全屏唯一焦点：节点未启动 / 生成中 / 出错 / 过期都以覆盖层压在码面上，
+ * 不替换整块内容——状态一眼可见且布局不跳（PRODUCT.md「状态诚实可见」）。
  */
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { AlertCircle, Check, Clock, Copy, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Check, Clock, Copy, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
@@ -16,12 +19,14 @@ import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { useCountdown } from "@/hooks/use-countdown";
 import { copyText } from "@/lib/clipboard";
 import { formatCountdown } from "@/lib/format";
-import { InviteQr } from "@/components/pairing/invite-qr";
+import { cn } from "@/lib/utils";
+import { InviteQr, type InviteQrOverlay } from "@/components/pairing/invite-qr";
+import { PairingModeTabs } from "@/components/pairing/pairing-mode-tabs";
+import { PairingSteps } from "@/components/pairing/pairing-steps";
 import { Switch } from "@/components/ui/switch";
 import {
   CommandDock,
   GlassPanel,
-  InfoTile,
   TaskButton,
   TaskContent,
   TaskHeroPanel,
@@ -32,6 +37,9 @@ import {
 export const Route = createLazyFileRoute("/_app/pairing/generate")({
   component: PairingGeneratePage,
 });
+
+/** 倒计时进入这个区间就转告警色——「快没了」要先于「已过期」被看见。 */
+const EXPIRY_WARNING_SECS = 30;
 
 function PairingGeneratePage() {
   const navigate = useNavigate();
@@ -48,10 +56,6 @@ function PairingGeneratePage() {
   const nodeStatus = useNetworkStore((s) => s.status);
   const isNodeRunning = nodeStatus === "running";
   const isNodeStarting = nodeStatus === "starting";
-  const isNodeUnavailable = !isNodeRunning && !isNodeStarting;
-  const isLoading =
-    isNodeStarting ||
-    (isNodeRunning && activeInvite === null && errorMessage === null);
 
   const [localOnly, setLocalOnly] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -63,15 +67,9 @@ function PairingGeneratePage() {
 
   usePairingSuccess();
 
-  // 倒计时：generatedAt + TTL → ISO 字符串喂 useCountdown
-  const expiresAtIso = useMemo(
-    () =>
-      activeInvite
-        ? new Date(activeInvite.generatedAt + INVITE_TTL_SECS * 1000).toISOString()
-        : null,
-    [activeInvite],
+  const { remainingSeconds, isExpired } = useCountdown(
+    activeInvite ? activeInvite.generatedAt + INVITE_TTL_SECS * 1000 : null,
   );
-  const { remainingSeconds, isExpired } = useCountdown(expiresAtIso);
 
   useEffect(() => {
     if (!copied) return;
@@ -79,21 +77,50 @@ function PairingGeneratePage() {
     return () => clearTimeout(timer);
   }, [copied]);
 
+  const invite = activeInvite?.invite ?? null;
   const handleCopy = useCallback(async () => {
-    if (!activeInvite) return;
+    if (invite === null) return;
     try {
-      await copyText(activeInvite.invite);
+      await copyText(invite);
       setCopied(true);
     } catch {
       toast.error(t`复制失败，请手动复制邀请`);
     }
-  }, [activeInvite]);
+  }, [invite]);
+
+  const handleRegenerate = useCallback(
+    () => generateInvite(localOnly),
+    [generateInvite, localOnly],
+  );
 
   const handleBack = () => navigate({ to: "/devices" });
 
+  // 码面覆盖态：优先级 = 节点不可用 > 生成失败 > 已过期
+  const qrOverlay = useMemo<InviteQrOverlay | null>(() => {
+    if (!isNodeRunning) {
+      return isNodeStarting
+        ? { kind: "waiting", message: <Trans>等待节点启动</Trans> }
+        : { kind: "blocked", message: <Trans>请先启动网络节点</Trans> };
+    }
+    if (errorMessage !== null) {
+      return { kind: "error", message: errorMessage };
+    }
+    if (isExpired) {
+      return { kind: "expired", message: <Trans>邀请已过期</Trans> };
+    }
+    return null;
+  }, [errorMessage, isExpired, isNodeRunning, isNodeStarting]);
+
+  const showCountdown = activeInvite !== null && qrOverlay === null;
+  const isExpiringSoon = remainingSeconds <= EXPIRY_WARNING_SECS;
+
   return (
     <TaskPageShell>
-      <TaskToolbar title={<Trans>添加新设备</Trans>} onBack={handleBack} />
+      <TaskToolbar
+        title={<Trans>添加设备</Trans>}
+        onBack={handleBack}
+        trailing={<PairingModeTabs />}
+      />
 
       <TaskContent
         className="flex min-h-0 flex-col gap-5"
@@ -103,15 +130,12 @@ function PairingGeneratePage() {
               <Trans>取消</Trans>
             </TaskButton>
             {isExpired || errorMessage ? (
-              <TaskButton onClick={() => generateInvite(localOnly)} disabled={!isNodeRunning}>
+              <TaskButton onClick={handleRegenerate} disabled={!isNodeRunning}>
                 <RefreshCw className="size-4" />
                 <Trans>重新生成邀请</Trans>
               </TaskButton>
             ) : (
-              <TaskButton
-                onClick={() => handleCopy()}
-                disabled={!isNodeRunning || isLoading || !activeInvite}
-              >
+              <TaskButton onClick={handleCopy} disabled={!isNodeRunning || invite === null}>
                 {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
                 {copied ? <Trans>已复制</Trans> : <Trans>复制邀请链接</Trans>}
               </TaskButton>
@@ -123,7 +147,7 @@ function PairingGeneratePage() {
           <GlassPanel className="min-h-[420px]">
             <div className="flex h-full flex-col items-center justify-center gap-6 p-6 text-center">
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                <h1 className="text-2xl font-semibold tracking-tight text-balance text-foreground">
                   <Trans>让对方扫码或粘贴此邀请</Trans>
                 </h1>
                 <p className="mt-2 text-sm text-muted-foreground">
@@ -131,36 +155,28 @@ function PairingGeneratePage() {
                 </p>
               </div>
 
-              {isNodeUnavailable ? (
-                <PairingStatusMessage icon={AlertCircle}>
-                  <Trans>请先启动网络节点</Trans>
-                </PairingStatusMessage>
-              ) : isNodeStarting ? (
-                <PairingStatusMessage icon={Loader2} spinning>
-                  <Trans>等待节点启动</Trans>
-                </PairingStatusMessage>
-              ) : isLoading ? (
-                <PairingStatusMessage icon={Loader2} spinning>
-                  <Trans>正在生成邀请</Trans>
-                </PairingStatusMessage>
-              ) : errorMessage ? (
-                <PairingStatusMessage icon={AlertCircle} tone="danger">
-                  {errorMessage}
-                </PairingStatusMessage>
-              ) : (
-                <InviteQr invite={isExpired ? null : (activeInvite?.invite ?? null)} size={240} />
-              )}
+              <InviteQr
+                invite={invite}
+                size={240}
+                overlay={qrOverlay}
+              />
 
-              {activeInvite && !isLoading && !errorMessage && (
-                <div className="glass-control flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground">
-                  <Clock className="size-4" />
-                  {isExpired ? (
-                    <Trans>邀请已过期</Trans>
-                  ) : (
+              <div className="h-9">
+                {showCountdown && (
+                  <div
+                    aria-live="polite"
+                    className={cn(
+                      "glass-control flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm tabular-nums",
+                      isExpiringSoon
+                        ? "text-amber-700 dark:text-amber-300"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    <Clock className="size-4 shrink-0" />
                     <Trans>将在 {formatCountdown(remainingSeconds)} 后过期</Trans>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </div>
           </GlassPanel>
 
@@ -170,22 +186,37 @@ function PairingGeneratePage() {
             title={<Trans>只建立你确认过的连接</Trans>}
             description={<Trans>对方扫码或粘贴邀请后，本机仍会弹出确认请求。</Trans>}
           >
-            <div className="grid content-end gap-2">
-              <label className="glass-control flex items-center justify-between gap-3 rounded-[18px] px-4 py-3">
-                <div className="text-left">
-                  <div className="text-sm font-medium text-foreground">
-                    <Trans>仅本地网络</Trans>
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    <Trans>只允许同一局域网连接</Trans>
-                  </div>
-                </div>
-                <Switch checked={localOnly} onCheckedChange={setLocalOnly} disabled={!isNodeRunning} />
-              </label>
-              <InfoTile
-                label={<Trans>有效期</Trans>}
-                value={activeInvite && !isExpired ? formatCountdown(remainingSeconds) : t`待生成`}
+            <div className="flex flex-col gap-5">
+              <PairingSteps
+                steps={[
+                  <Trans key="1">在对方设备上打开 SwarmDrop，进入「添加设备」</Trans>,
+                  <Trans key="2">
+                    手机上点「扫码」对准这个二维码；电脑上改用「粘贴邀请」
+                  </Trans>,
+                  <Trans key="3">本机弹出确认请求，你同意后配对完成</Trans>,
+                ]}
               />
+
+              <div className="grid gap-1.5">
+                <label className="glass-control flex items-center justify-between gap-3 rounded-[18px] px-4 py-3">
+                  <div className="text-left">
+                    <div className="text-sm font-medium text-foreground">
+                      <Trans>仅本地网络</Trans>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      <Trans>只允许同一局域网连接</Trans>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={localOnly}
+                    onCheckedChange={setLocalOnly}
+                    disabled={!isNodeRunning}
+                  />
+                </label>
+                <p className="px-1 text-[11px] leading-4 text-muted-foreground">
+                  <Trans>切换后会立即重新生成邀请，此前展示的二维码随即失效。</Trans>
+                </p>
+              </div>
             </div>
           </TaskHeroPanel>
         </div>
@@ -194,27 +225,3 @@ function PairingGeneratePage() {
   );
 }
 
-function PairingStatusMessage({
-  icon: Icon,
-  children,
-  spinning,
-  tone = "muted",
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-  spinning?: boolean;
-  tone?: "muted" | "danger";
-}) {
-  return (
-    <div
-      className={
-        tone === "danger"
-          ? "flex h-18 items-center gap-2 rounded-[18px] px-4 text-sm text-destructive"
-          : "flex h-18 items-center gap-2 rounded-[18px] px-4 text-sm text-muted-foreground"
-      }
-    >
-      <Icon className={spinning ? "size-5 animate-spin" : "size-5"} />
-      {children}
-    </div>
-  );
-}

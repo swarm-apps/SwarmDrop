@@ -327,3 +327,72 @@ export function BottomActionBar({
     </View>
   );
 }
+
+/**
+ * 分段控件——一组互斥选项的切换条（附近设备筛选、邀请模式切换）。
+ *
+ * 语义由 `variant` 决定：`tabs` 切换的是同一件事的两个视图，`filter` 只是过滤同一份
+ * 列表。视觉令牌与触控高度两者共用一份——它俩会在同一个 sheet 里前后脚出现，
+ * 各写一份必然漂移（曾经一个 py-1.5、一个 min-h-9，无障碍角色也不一样）。
+ */
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  variant = "filter",
+  testID,
+}: {
+  value: T;
+  options: Array<{
+    value: T;
+    label: ReactNode;
+    icon?: LucideIcon;
+    testID?: string;
+  }>;
+  onChange: (value: T) => void;
+  variant?: "tabs" | "filter";
+  testID?: string;
+}) {
+  const colors = useThemeColors();
+  const isTabs = variant === "tabs";
+  return (
+    <View
+      className="flex-row gap-1 rounded-lg bg-muted p-0.5"
+      accessibilityRole={isTabs ? "tablist" : undefined}
+      testID={testID}
+    >
+      {options.map((option) => {
+        const active = option.value === value;
+        const Icon = option.icon;
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            accessibilityRole={isTabs ? "tab" : "button"}
+            accessibilityState={{ selected: active }}
+            testID={option.testID}
+            className={cn(
+              "min-h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-md px-2 active:opacity-70",
+              active && "bg-card",
+            )}
+          >
+            {Icon ? (
+              <Icon
+                color={active ? colors.foreground : colors.mutedForeground}
+                size={14}
+              />
+            ) : null}
+            <Text
+              className={cn(
+                "text-[12px] font-medium",
+                active ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}

@@ -14,11 +14,12 @@ import { usePairingStore } from "@/stores/pairing-store";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { useClipboardInvite } from "@/hooks/use-clipboard-invite";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
+import { PairingModeTabs } from "@/components/pairing/pairing-mode-tabs";
+import { PairingSteps } from "@/components/pairing/pairing-steps";
 import { useNetworkStore } from "@/stores/network-store";
 import {
   CommandDock,
   GlassPanel,
-  InfoTile,
   TaskButton,
   TaskContent,
   TaskHeroPanel,
@@ -109,7 +110,11 @@ function PairingInputPage() {
   // ─── 粘贴邀请视图 ───
   return (
     <TaskPageShell>
-      <TaskToolbar title={<Trans>连接已有设备</Trans>} onBack={handleBack} />
+      <TaskToolbar
+        title={<Trans>添加设备</Trans>}
+        onBack={handleBack}
+        trailing={<PairingModeTabs />}
+      />
 
       <TaskContent
         className="flex min-h-0 flex-col gap-5"
@@ -181,11 +186,23 @@ function PairingInputPage() {
             title={<Trans>先验证，再确认</Trans>}
             description={<Trans>邀请经本地签名验证，真正建立信任仍需要双方确认。</Trans>}
           >
-            <div className="grid content-end gap-2">
-              <InfoTile
-                label={<Trans>输入状态</Trans>}
-                value={text.trim().length > 0 ? <Trans>已粘贴</Trans> : <Trans>等待粘贴</Trans>}
+            <div className="flex flex-col gap-4">
+              <PairingSteps
+                steps={[
+                  <Trans key="1">
+                    在对方设备上打开 SwarmDrop，进入「添加设备 → 展示邀请」
+                  </Trans>,
+                  <Trans key="2">
+                    让对方点「复制邀请链接」，把那串 sdinvite… 发给你
+                  </Trans>,
+                  <Trans key="3">粘贴到左侧，验证通过后确认发起配对</Trans>,
+                ]}
               />
+              <p className="px-1 text-[11px] leading-4 text-muted-foreground">
+                <Trans>
+                  手机上装了 SwarmDrop 的话，直接用手机扫对方的二维码更快。
+                </Trans>
+              </p>
             </div>
           </TaskHeroPanel>
         </div>
