@@ -79,6 +79,16 @@ impl Builder {
         self
     }
 
+    /// 显式登记已知的外部可达地址。
+    ///
+    /// 典型场景是公网 relay 的 TCP/QUIC/WebSocket 地址。WebRTC Direct 的
+    /// certhash 可用 [`crate::webrtc_direct_addr_from_pem`] 从同一持久化证书
+    /// 预先派生；运行期发现的地址则使用 [`Endpoint::add_external_addr`] 登记。
+    pub fn external_addrs(mut self, addrs: Vec<Addr>) -> Self {
+        self.config.external_addrs = addrs;
+        self
+    }
+
     /// 启用 Kademlia DHT。
     pub fn dht(mut self, config: DhtConfig) -> Self {
         self.config.dht = Some(config);
@@ -94,6 +104,12 @@ impl Builder {
     /// AutoNAT v2 外部可达性探测。
     pub fn autonat(mut self, enabled: bool) -> Self {
         self.config.autonat = enabled;
+        self
+    }
+
+    /// AutoNAT v2 服务端（仅公网 bootstrap / relay 节点需要）。
+    pub fn autonat_server(mut self, enabled: bool) -> Self {
+        self.config.autonat_server = enabled;
         self
     }
 
@@ -157,6 +173,12 @@ impl Builder {
 
         let mut swarm = build_swarm(secret.as_keypair().clone(), &config).await?;
 
+        // 公网 relay 的 reservation 响应依赖 Swarm 已知 external address。
+        // 在 actor 起前登记，避免启动早期的 reservation 漏带可拨地址。
+        for addr in &config.external_addrs {
+            swarm.add_external_address(addr.as_multiaddr().clone());
+        }
+
         // 开流快路径句柄（Control 可 Clone，注册入站协议由 Router 在 spawn 时进行）
         let control = swarm.behaviour().stream.new_control();
 
@@ -171,7 +193,12 @@ impl Builder {
         }
 
         // watch：actor 是唯一写者，Endpoint 持读端
-        let (addrs_tx, addrs_rx) = watch::channel(AddrsInfo::default());
+        // `Swarm::add_external_address` 不会保证回发 ExternalAddrConfirmed；
+        // 显式配置的公网地址由组合根负责正确性，故在状态视图中同步作为初值。
+        let (addrs_tx, addrs_rx) = watch::channel(AddrsInfo {
+            listen: Vec::new(),
+            external: config.external_addrs.clone(),
+        });
         let (nat_tx, nat_rx) = watch::channel(NatStatus::default());
         let (conns_tx, conns_rx) = watch::channel(BTreeMap::new());
         let (relays_tx, relays_rx) = watch::channel(BTreeMap::new());

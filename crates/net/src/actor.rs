@@ -54,6 +54,11 @@ pub(crate) enum ActorMessage {
         addrs: Vec<Addr>,
         reply: oneshot::Sender<Result<(), Error>>,
     },
+    /// 显式登记本节点的外部可达地址（公网 relay / 动态 WebRTC 地址）。
+    AddExternalAddr {
+        addr: Addr,
+        reply: oneshot::Sender<Result<(), Error>>,
+    },
     SetKeepAlive {
         node: NodeId,
         enabled: bool,
@@ -190,6 +195,23 @@ impl Actor {
                 let peer = *node.as_peer_id();
                 for addr in &addrs {
                     self.record_addr(peer, addr.as_multiaddr().clone());
+                }
+                let _ = reply.send(Ok(()));
+            }
+            ActorMessage::AddExternalAddr { addr, reply } => {
+                self.swarm.add_external_address(addr.as_multiaddr().clone());
+                // 显式地址是组合根提供的可自证配置；Swarm 不保证为它回发
+                // ExternalAddrConfirmed，因此此处同步到唯一状态视图。
+                let changed = self.watches.addrs.send_if_modified(|info| {
+                    if info.external.contains(&addr) {
+                        false
+                    } else {
+                        info.external.push(addr);
+                        true
+                    }
+                });
+                if changed {
+                    self.publish_addrs();
                 }
                 let _ = reply.send(Ok(()));
             }

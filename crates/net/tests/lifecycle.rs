@@ -70,6 +70,39 @@ async fn subscriber_stream_ends_on_close() {
 }
 
 #[tokio::test]
+async fn explicitly_registered_external_addresses_are_published() {
+    let configured: swarmdrop_net::Addr = "/ip4/203.0.113.10/tcp/4001".parse().unwrap();
+    let endpoint = Endpoint::builder()
+        .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().expect("valid")])
+        .external_addrs(vec![configured.clone()])
+        .bind()
+        .await
+        .expect("bind");
+
+    let dynamic: swarmdrop_net::Addr = "/ip4/203.0.113.10/udp/4003/quic-v1".parse().unwrap();
+    endpoint
+        .add_external_addr(dynamic.clone())
+        .await
+        .expect("register dynamic address");
+
+    let mut watcher = endpoint.watch_addrs();
+    let external = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let external = watcher.get().external;
+            if external.contains(&configured) && external.contains(&dynamic) {
+                return external;
+            }
+            watcher.updated().await.expect("watch closed");
+        }
+    })
+    .await
+    .expect("external addresses should be published");
+    assert!(external.contains(&configured));
+    assert!(external.contains(&dynamic));
+    endpoint.close().await;
+}
+
+#[tokio::test]
 async fn inbound_streams_beyond_limit_are_rejected() {
     // server 每 peer 只允许 1 条入站流
     let server = Endpoint::builder()

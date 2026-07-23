@@ -1,0 +1,9 @@
+.git
+.DS_Store
+target
+node_modules
+mobile/node_modules
+docs/node_modules
+docs/.next
+e2e/desktop/node_modules
+e2e/desktop/build

@@ -1,0 +1,27 @@
+[Unit]
+Description=SwarmDrop Bootstrap + Relay Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=swarmdrop
+Group=swarmdrop
+WorkingDirectory=/opt/swarm-bootstrap
+Environment=RUST_LOG=info
+EnvironmentFile=/etc/swarm-bootstrap.env
+ExecStart=/opt/swarm-bootstrap/swarm-bootstrap run
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/swarm-bootstrap
+PrivateTmp=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=swarm-bootstrap
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

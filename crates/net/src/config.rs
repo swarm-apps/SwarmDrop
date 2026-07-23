@@ -89,6 +89,10 @@ pub(crate) struct EndpointConfig {
     /// mDNS 局域网发现（wasm 下忽略——behaviour 字段编译期不存在）。
     pub mdns: bool,
     pub autonat: bool,
+    /// AutoNAT v2 服务端：为其他节点执行公网可达性回拨探测。
+    ///
+    /// 仅公网引导节点应启用；普通客户端只需 [`Self::autonat`] 的客户端行为。
+    pub autonat_server: bool,
     pub dcutr: bool,
     pub relay_client: bool,
     /// 中继服务端（LanHelper；wasm 下忽略——behaviour 字段编译期不存在）。
@@ -97,6 +101,11 @@ pub(crate) struct EndpointConfig {
     /// 分享出去的地址全部失效**，生产必须注入持久化证书（keychain/数据目录）；
     /// `None` 时每次随机生成（仅测试/临时场景可接受）。native only。
     pub webrtc_cert_pem: Option<String>,
+    /// 显式登记为本节点外部可达的地址。
+    ///
+    /// 公网 relay 通常监听 `0.0.0.0`，而 reservation 应答必须返回公网地址；
+    /// 该字段让组合根在 bind 后立即把已知公网 TCP/QUIC/WS 地址注册给 Swarm。
+    pub external_addrs: Vec<Addr>,
     /// 监听地址（wasm 下必须为空——浏览器不能 listen 本地 socket，
     /// circuit listen 由 `ensure_relay_reservation` 触发）。
     pub listen: Vec<Addr>,
@@ -116,10 +125,12 @@ impl Default for EndpointConfig {
             dht: None,
             mdns: false,
             autonat: false,
+            autonat_server: false,
             dcutr: false,
             relay_client: true,
             relay_server: None,
             webrtc_cert_pem: None,
+            external_addrs: Vec::new(),
             listen: Vec::new(),
             stream_limits: StreamLimits::default(),
             connect_timeout: Duration::from_secs(30),
@@ -138,6 +149,7 @@ impl std::fmt::Debug for EndpointConfig {
             .field("dht", &self.dht)
             .field("mdns", &self.mdns)
             .field("autonat", &self.autonat)
+            .field("autonat_server", &self.autonat_server)
             .field("dcutr", &self.dcutr)
             .field("relay_client", &self.relay_client)
             .field("relay_server", &self.relay_server)
@@ -147,6 +159,7 @@ impl std::fmt::Debug for EndpointConfig {
                 &self.webrtc_cert_pem.as_ref().map(|_| "<redacted>"),
             )
             .field("listen", &self.listen)
+            .field("external_addrs", &self.external_addrs)
             .field("stream_limits", &self.stream_limits)
             .field("connect_timeout", &self.connect_timeout)
             .finish()

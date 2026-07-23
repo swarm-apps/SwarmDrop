@@ -95,6 +95,25 @@ dial 的候选地址来自 behaviour 的 `handle_pending_outbound_connection`。
 dial relay → identify 到达 → 才 listen circuit。内核的 `ensure_relay` 封装了这个时序
 （未连接先拨号，identify 经 `infra_relay_peers` 幂等触发真正 listen）。
 
+### 公网 Bootstrap + Relay 必须显式登记外部地址（2026-07）
+
+公网节点的实际 listener 常绑定 `0.0.0.0` / `[::]`。这类地址不能直接作为
+Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesInReservation`
+拒绝 reservation。`Swarm::add_external_address` 又不保证回发
+`ExternalAddrConfirmed`，只依赖 watch 事件会让状态与实际 Swarm 配置分叉。
+
+**正确做法**：
+- 组合根在 `Endpoint::bind()` 前经 `Builder::external_addrs()` 登记已知公网
+  TCP / QUIC / WebSocket 地址；它们同时成为 `watch_addrs().external` 初值。
+- 运行期得到的地址经 `Endpoint::add_external_addr()` 登记；actor 同步更新同一
+  watch 状态并通知 address lookup。
+- WebRTC Direct 使用与 transport 完全相同的持久化 PEM，通过
+  `webrtc_direct_addr_from_pem()` 预先派生带 `certhash` 的公网地址，**不要**等待
+  listener 启动后从字符串猜 hash。
+
+**相关文件**：`crates/net/src/{endpoint/{builder.rs,mod.rs},actor.rs,lib.rs}`、
+`crates/bootstrap/src/lib.rs`
+
 ### 坑 6：kad `Record.expires` 的类型按 target 分叉
 
 native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant` 同源）——

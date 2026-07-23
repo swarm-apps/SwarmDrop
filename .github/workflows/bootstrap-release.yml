@@ -1,0 +1,212 @@
+name: Bootstrap Release
+
+# 独立于桌面 v* 与移动 mobile-v* 的基础设施发布线：
+#   bootstrap-v0.6.0
+# 同时发布 GHCR 多架构镜像与 Linux amd64/arm64 二进制。
+on:
+  push:
+    tags:
+      - "bootstrap-v*"
+
+concurrency:
+  group: bootstrap-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/swarm-bootstrap
+
+jobs:
+  verify-version:
+    name: Verify release version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert tag and Cargo package agree
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#bootstrap-v}"
+          cargo_version=$(awk -F '"' '/^version = / { print $2; exit }' crates/bootstrap/Cargo.toml)
+          test -n "$cargo_version"
+          test "$tag_version" = "$cargo_version"
+          echo "发布版本：$cargo_version"
+
+  # 两个 native runner 分别构建，避免 QEMU 模拟 ARM64 的长时间 release 编译。
+  image-build:
+    name: Image ${{ matrix.platform }}
+    needs: verify-version
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker metadata (labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # 默认用当前仓库的 GITHUB_TOKEN；迁移上游已有包时可用 GHCR_TOKEN 授权。
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./crates/bootstrap/Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=bootstrap-image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=bootstrap-image-${{ matrix.arch }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+
+      # 保持 swarm-p2p 时代的架构标签，现有部署可只改镜像仓库而无需改 tag。
+      - name: Publish legacy architecture tag
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ env.IMAGE_NAME }}:${GITHUB_REF_NAME}-${{ matrix.arch }}" \
+            "${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  image-merge:
+    name: Image manifest merge
+    needs: image-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata (tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ github.ref_name }}
+            type=match,pattern=bootstrap-v(\d+\.\d+\.\d+),group=1
+            type=match,pattern=bootstrap-v(\d+\.\d+),group=1
+            type=raw,value=latest
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Inspect published image
+        run: docker buildx imagetools inspect ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+
+  # 先建空 Release，两个二进制 job 只追加附件，避免并发 create 互相冲突。
+  release:
+    name: Create GitHub Release
+    needs: image-merge
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release with generated notes
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+  binaries:
+    name: Binary ${{ matrix.target }}
+    needs: release
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --locked --release -p swarm-bootstrap --bin swarm-bootstrap
+
+      - name: Package tarball and checksum
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="swarm-bootstrap-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          staging="dist/$name"
+          mkdir -p "$staging"
+          cp target/release/swarm-bootstrap "$staging/"
+          cp crates/bootstrap/README.md "$staging/README.md"
+          tar -C dist -czf "${name}.tar.gz" "$name"
+          sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          echo "archive=${name}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload binaries to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.archive }}.sha256
+          fail_on_unmatched_files: true

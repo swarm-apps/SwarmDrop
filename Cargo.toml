@@ -10,6 +10,7 @@ members = [
     "crates/migration",
     "crates/net-base",
     "crates/net",
+    "crates/bootstrap",
     "src-tauri",
     "mobile/packages/swarmdrop-core/rust/mobile-core",
 ]

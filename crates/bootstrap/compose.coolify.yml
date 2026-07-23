@@ -1,0 +1,26 @@
+services:
+  swarm-bootstrap:
+    build:
+      context: ../..
+      dockerfile: crates/bootstrap/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${SWARM_BOOTSTRAP_TCP_PORT:-4001}:${SWARM_BOOTSTRAP_TCP_PORT:-4001}/tcp"
+      - "${SWARM_BOOTSTRAP_QUIC_PORT:-4001}:${SWARM_BOOTSTRAP_QUIC_PORT:-4001}/udp"
+      - "${SWARM_BOOTSTRAP_WEBSOCKET_PORT:-4002}:${SWARM_BOOTSTRAP_WEBSOCKET_PORT:-4002}/tcp"
+      - "${SWARM_BOOTSTRAP_WEBRTC_PORT:-4003}:${SWARM_BOOTSTRAP_WEBRTC_PORT:-4003}/udp"
+    volumes:
+      - swarm-bootstrap-data:/data
+    environment:
+      RUST_LOG: "${RUST_LOG:-info}"
+      SWARM_BOOTSTRAP_KEY_FILE: /data/identity.key
+      SWARM_BOOTSTRAP_WEBRTC_CERT_FILE: /data/webrtc.pem
+      SWARM_BOOTSTRAP_LISTEN_IP: "${SWARM_BOOTSTRAP_LISTEN_IP:-0.0.0.0}"
+      SWARM_BOOTSTRAP_EXTERNAL_IP: "${SWARM_BOOTSTRAP_EXTERNAL_IP:?Set the server public IP}"
+      SWARM_BOOTSTRAP_TCP_PORT: "${SWARM_BOOTSTRAP_TCP_PORT:-4001}"
+      SWARM_BOOTSTRAP_QUIC_PORT: "${SWARM_BOOTSTRAP_QUIC_PORT:-4001}"
+      SWARM_BOOTSTRAP_WEBSOCKET_PORT: "${SWARM_BOOTSTRAP_WEBSOCKET_PORT:-4002}"
+      SWARM_BOOTSTRAP_WEBRTC_PORT: "${SWARM_BOOTSTRAP_WEBRTC_PORT:-4003}"
+
+volumes:
+  swarm-bootstrap-data:

@@ -186,6 +186,16 @@ impl Endpoint {
             .await
     }
 
+    /// 动态登记一个本节点的外部可达地址。
+    ///
+    /// WebRTC Direct 的 `certhash` 只有 listener 实际启动后才会出现在
+    /// 地址中；公网 relay 可观察到该地址后通过此方法登记，使 reservation
+    /// 和 identify 都能向客户端公布完整可拨地址。
+    pub async fn add_external_addr(&self, addr: Addr) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::AddExternalAddr { addr, reply })
+            .await
+    }
+
     /// 保活白名单：白名单内对端的连接豁免空闲回收（已配对设备用）。
     pub async fn set_keep_alive(&self, node: NodeId, enabled: bool) -> Result<(), Error> {
         self.request(|reply| ActorMessage::SetKeepAlive {

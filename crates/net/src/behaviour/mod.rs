@@ -35,6 +35,9 @@ pub(crate) struct Behaviour {
     /// AutoNAT v2 客户端：让对端回拨确认外部可达性。
     #[cfg(not(wasm_browser))]
     pub autonat: Toggle<autonat::v2::client::Behaviour>,
+    /// AutoNAT v2 服务端（公网 bootstrap / relay 节点为客户端回拨探测）。
+    #[cfg(not(wasm_browser))]
+    pub autonat_server: Toggle<autonat::v2::server::Behaviour>,
     /// DCUtR 打洞协调（需要直连 socket，浏览器编译期不存在）。
     #[cfg(not(wasm_browser))]
     pub dcutr: Toggle<dcutr::Behaviour>,
@@ -101,6 +104,13 @@ impl Behaviour {
         let autonat = Toggle::from(config.autonat.then(autonat::v2::client::Behaviour::default));
 
         #[cfg(not(wasm_browser))]
+        let autonat_server = Toggle::from(
+            config
+                .autonat_server
+                .then(autonat::v2::server::Behaviour::default),
+        );
+
+        #[cfg(not(wasm_browser))]
         let dcutr = Toggle::from(config.dcutr.then(|| dcutr::Behaviour::new(peer_id)));
 
         // wasm 下 relay_server 配置被忽略（浏览器不可能当中继服务端）
@@ -140,6 +150,8 @@ impl Behaviour {
             mdns,
             #[cfg(not(wasm_browser))]
             autonat,
+            #[cfg(not(wasm_browser))]
+            autonat_server,
             #[cfg(not(wasm_browser))]
             dcutr,
             relay_server,
