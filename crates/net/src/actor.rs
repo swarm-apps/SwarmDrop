@@ -360,6 +360,12 @@ impl Actor {
     /// 机制层只登记意图、报告状态。
     fn ensure_relay(&mut self, peer_id: PeerId) {
         self.infra_relay_peers.insert(peer_id);
+        // reservation 依赖到 relay 的底层连接持续存在。Ping 被 keep-alive 语义排除，
+        // 因而不能仅靠其 30s 探测阻止 Swarm 在 idle_connection_timeout 后回收该连接。
+        self.swarm
+            .behaviour_mut()
+            .keep_alive
+            .set_keep_alive(peer_id, true);
         // 已持有活跃 circuit listener：幂等 no-op
         if self.relay_listeners.values().any(|p| *p == peer_id) {
             return;
@@ -390,6 +396,10 @@ impl Actor {
     fn handle_remove_infra_peer(&mut self, node: NodeId) {
         let peer = *node.as_peer_id();
         self.infra_relay_peers.remove(&peer);
+        self.swarm
+            .behaviour_mut()
+            .keep_alive
+            .set_keep_alive(peer, false);
         self.address_book.remove(&peer);
         if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
             kad.remove_peer(&peer);
