@@ -48,11 +48,11 @@ swarmdrop-net = { path = "crates/net" }
 # libp2p-webrtc 0.9.0-alpha.1 的 webrtc-direct 实证跑不通（spike/webrtc-direct-https，
 # 修复在 master PR 6429，随未发布的 0.10.0-alpha）。rev 93c5059 = 2026-07-13 master，
 # spike 双端（native server + wasm browser）实测通过。0.57 正式发布后切回 crates.io。
-# 临时测试 relay 的 16 KiB WebRTC/SCTP 转发修复；fork 基线仍为 93c5059，修复合入上游后
-# 应恢复上游 URL 并更新统一 git rev。升级 rev 必须走独立 PR + 全量测试 + wasm check。
-libp2p = { git = "https://github.com/yexiyue/rust-libp2p", rev = "7506c791759fab123992f71e175c6700d7f81972" }
-libp2p-stream = { git = "https://github.com/yexiyue/rust-libp2p", rev = "7506c791759fab123992f71e175c6700d7f81972" }
-libp2p-webrtc = { git = "https://github.com/yexiyue/rust-libp2p", rev = "7506c791759fab123992f71e175c6700d7f81972" }
+# 临时升级到 upstream 0.57 对应基线，以测试 WebRTC transport 的最新实现；上游正式发布后
+# 应恢复 upstream URL / crates.io 版本。升级 rev 必须走独立 PR + 全量测试 + wasm check。
+libp2p = { git = "https://github.com/yexiyue/rust-libp2p", rev = "01f770d42dcb2c931f918063240300f87260aced" }
+libp2p-stream = { git = "https://github.com/yexiyue/rust-libp2p", rev = "01f770d42dcb2c931f918063240300f87260aced" }
+libp2p-webrtc = { git = "https://github.com/yexiyue/rust-libp2p", rev = "01f770d42dcb2c931f918063240300f87260aced" }
 # identity/multiaddr 不走 git：93c5059 树自己就把两者解析到 crates.io（spike 的
 # Cargo.lock 实证 libp2p-identity 0.2.14 / multiaddr 0.18.2 均为 registry 来源），
 # net-base 用 crates.io 版本与 git 树天然 unify，类型底座不背 git 依赖。
@@ -78,6 +78,13 @@ sha2 = "0.11"
 async-trait = "0.1.89"
 dashmap = "6.1.0"
 tracing = "0.1.44"
+
+# WebRTC/SCTP 会拒绝小于完整 data-channel 消息的读取缓冲；临时覆盖 0.17.2 的 8 KiB 默认值。
+# 上游修复后应移除此 patch。
+[patch.crates-io]
+webrtc-data = { git = "https://github.com/yexiyue/webrtc", rev = "c961f7362cb5aaf1289f1de6e9b8c4e0eb746cf9" }
+webrtc-sctp = { git = "https://github.com/yexiyue/webrtc", rev = "c961f7362cb5aaf1289f1de6e9b8c4e0eb746cf9" }
+webrtc-util = { git = "https://github.com/yexiyue/webrtc", rev = "c961f7362cb5aaf1289f1de6e9b8c4e0eb746cf9" }
 
 [profile.dev.package."*"]
 opt-level = 3
