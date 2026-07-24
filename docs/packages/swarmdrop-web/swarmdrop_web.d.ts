@@ -461,8 +461,8 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
+    readonly start: () => void;
     readonly webnode_accept_offer: (a: number, b: number, c: number) => any;
     readonly webnode_close: (a: number) => any;
     readonly webnode_connect: (a: number, b: number, c: number, d: number) => any;
