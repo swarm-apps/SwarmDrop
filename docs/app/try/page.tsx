@@ -332,9 +332,9 @@ export default function TryPage() {
     const node = nodeRef.current;
     if (!node) return;
     try {
-      const inv = node.generate_invite(true);
+      const inv = node.generate_invite(false);
       setMyInvite(inv);
-      log("已生成邀请（LocalOnly）——桌面用「粘贴邀请配对」消费它");
+      log("已生成邀请（Auto）——桌面用「粘贴邀请配对」消费它");
     } catch (e) {
       log("❌ generate_invite " + errStr(e));
     }
