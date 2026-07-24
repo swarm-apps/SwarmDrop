@@ -362,8 +362,8 @@ msgid "全部"
 msgstr "全部"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "公网"
-msgstr "公网"
+#~ msgid "公网"
+#~ msgstr "公网"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "公网可达"
@@ -773,6 +773,10 @@ msgid "复制"
 msgstr "复制"
 
 #: src/components/network/lan-helper-address.tsx
+msgid "复制后可供浏览器端快速连接本机。"
+msgstr "复制后可供浏览器端快速连接本机。"
+
+#: src/components/network/lan-helper-address.tsx
 msgid "复制失败"
 msgstr "复制失败"
 
@@ -895,6 +899,7 @@ msgstr "局域网"
 msgid "局域网协助"
 msgstr "局域网协助"
 
+#: src/components/network/lan-helper-address.tsx
 #: src/components/network/lan-helper-address.tsx
 msgid "局域网协助地址"
 msgstr "局域网协助地址"
@@ -1642,8 +1647,8 @@ msgid "浅色"
 msgstr "浅色"
 
 #: src/components/network/lan-helper-address.tsx
-msgid "浏览器端可用此地址快速连接本机"
-msgstr "浏览器端可用此地址快速连接本机"
+#~ msgid "浏览器端可用此地址快速连接本机"
+#~ msgstr "浏览器端可用此地址快速连接本机"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "浏览收件箱"
@@ -1906,8 +1911,8 @@ msgid "自动接收位置"
 msgstr "自动接收位置"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "自定义"
-msgstr "自定义"
+#~ msgid "自定义"
+#~ msgstr "自定义"
 
 #. placeholder {0}: customBootstrapNodes.length
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
@@ -2326,6 +2331,10 @@ msgstr "配对请求"
 #: src/components/pairing/invite-qr.tsx
 msgid "配对邀请二维码"
 msgstr "配对邀请二维码"
+
+#: src/components/network/stop-node-sheet.tsx
+msgid "配置节点"
+msgstr "配置节点"
 
 #: src/routes/_app/settings/-settings-primitives.tsx
 msgid "重启中..."
