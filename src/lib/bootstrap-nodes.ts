@@ -6,9 +6,9 @@
  * /webrtc-direct 地址加入这里，避免客户端拨向不存在的 transport。
  */
 export const DESKTOP_BOOTSTRAP_NODES: readonly string[] = [
-  "/ip4/47.115.172.218/tcp/4001/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
-  "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
-  "/ip4/47.115.172.218/tcp/4002/ws/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
+  "/ip4/47.115.172.218/tcp/4001/p2p/12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep",
+  "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep",
+  "/ip4/47.115.172.218/tcp/4002/ws/p2p/12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep",
 ];
 
 /** 合并桌面默认与用户配置，保留首次出现的地址顺序。 */
