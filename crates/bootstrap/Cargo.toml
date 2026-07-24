@@ -1,6 +1,6 @@
 [package]
 name = "swarm-bootstrap"
-version = "0.6.0"
+version = "0.6.1"
 edition.workspace = true
 
 [[bin]]

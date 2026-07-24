@@ -812,6 +812,36 @@ impl Actor {
                 self.queries.handle(id, result, &step);
             }
             BehaviourEvent::RelayClient(ev) => self.handle_relay_client_event(ev),
+            BehaviourEvent::RelayServer(libp2p::relay::Event::CircuitReqAccepted {
+                src_peer_id,
+                dst_peer_id,
+            }) => {
+                info!(%src_peer_id, %dst_peer_id, "relay circuit accepted");
+            }
+            BehaviourEvent::RelayServer(libp2p::relay::Event::CircuitReqDenied {
+                src_peer_id,
+                dst_peer_id,
+                status,
+            }) => {
+                warn!(%src_peer_id, %dst_peer_id, ?status, "relay circuit denied");
+            }
+            BehaviourEvent::RelayServer(libp2p::relay::Event::CircuitClosed {
+                src_peer_id,
+                dst_peer_id,
+                error: Some(error),
+            }) => {
+                warn!(%src_peer_id, %dst_peer_id, %error, "relay circuit closed with I/O error");
+            }
+            BehaviourEvent::RelayServer(libp2p::relay::Event::CircuitClosed {
+                src_peer_id,
+                dst_peer_id,
+                error: None,
+            }) => {
+                info!(%src_peer_id, %dst_peer_id, "relay circuit closed");
+            }
+            BehaviourEvent::RelayServer(event) => {
+                debug!(?event, "relay server event");
+            }
             #[cfg(not(wasm_browser))]
             BehaviourEvent::Mdns(ev) => match ev {
                 libp2p::mdns::Event::Discovered(list) => {
