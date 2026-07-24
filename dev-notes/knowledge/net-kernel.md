@@ -154,6 +154,14 @@ master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Andro
    dns config），已提上游 <https://github.com/libp2p/rust-libp2p/issues/6529>，
    修复后本地可收敛回双分支。
 
+### Android 条件编译分支也必须通过 `-D warnings`（2026-07-24）
+
+移动端 release 使用 `RUSTFLAGS=-D warnings`，而仅在桌面目标编译的分支会让 Android
+的局部可变绑定变成硬错误。对于 listener 等平台差异，直接把 `#[cfg]` 放在 `vec![]`
+元素上，避免先声明 `mut` 再在某个 target 中 `push()`。
+
+**相关文件**：`crates/net/src/endpoint/presets.rs`
+
 只修 1 不修 2 表现完全一样（同一错误字符串），容易误判「没修上」——先怀疑第二处，
 再怀疑 .so 没重编。`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
 re-export ResolverConfig/ResolverOpts），版本必须与 libp2p-dns 同线（crates/net 的
