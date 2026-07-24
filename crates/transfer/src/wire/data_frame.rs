@@ -153,8 +153,22 @@ where
     let len = unsigned_varint::encode::usize(payload.len(), &mut len_buf);
     writer.write_all(len).await.map_err(io_error)?;
     writer.write_all(&payload).await.map_err(io_error)?;
-    writer.flush().await.map_err(io_error)?;
-    Ok(())
+
+    // WebRTC DataChannel 的 send 已把数据入浏览器发送队列；逐帧 flush 会等待
+    // bufferedAmount 归零。webrtc-websys 用 bufferedamountlow 回调同步唤醒该 future，
+    // 在 wasm 单线程执行器中可能重入同一 Closure，触发
+    // "closure invoked recursively or after being dropped"。因此浏览器端以写入入队
+    // 作为帧边界，背压仍由 poll_write 的 MAX_MSG_LEN 限制负责。
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        Ok(())
+    }
+
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    {
+        writer.flush().await.map_err(io_error)?;
+        Ok(())
+    }
 }
 
 /// 读取一个 length-prefixed frame。读到干净 EOF 时返回 `Ok(None)`。
