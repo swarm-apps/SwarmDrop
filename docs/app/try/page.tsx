@@ -181,6 +181,30 @@ export default function TryPage() {
           }));
           break;
         }
+        case "transferProjection": {
+          // data channel 建立失败、对端断开等恢复型错误只会以 projection
+          // （suspended / Interrupted）上报，并不会再额外发 transferFailed。
+          // try 页必须把它展开，否则表面上会像“已接受后卡住”。
+          const p = ev.projection;
+          const reason =
+            p.errorMessage ?? p.suspendedReason ?? p.terminalReason ?? "";
+          const status = [p.direction, p.phase, reason].filter(Boolean).join(" · ");
+          setXfers((prev) => ({
+            ...prev,
+            [p.sessionId]: {
+              ...(prev[p.sessionId] ?? { downloads: [], pct: 0 }),
+              sessionId: p.sessionId,
+              pct: p.totalSize
+                ? Math.floor(
+                    (100 * Number(p.transferredBytes)) / Number(p.totalSize),
+                  )
+                : 0,
+              status,
+            },
+          }));
+          log(`projection: session=${p.sessionId} ${status}`);
+          break;
+        }
         default:
           log("event: " + ev.type);
       }
