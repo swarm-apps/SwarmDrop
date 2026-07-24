@@ -48,28 +48,35 @@ cargo build --release -p swarm-bootstrap
 /ip4/<VPS_PUBLIC_IP>/tcp/4001/p2p/<PEER_ID>
 /ip4/<VPS_PUBLIC_IP>/udp/4001/quic-v1/p2p/<PEER_ID>
 /ip4/<VPS_PUBLIC_IP>/tcp/4002/ws/p2p/<PEER_ID>
-/ip4/<VPS_PUBLIC_IP>/udp/4003/webrtc-direct/certhash/<CERT_HASH>
+/ip4/<VPS_PUBLIC_IP>/udp/4003/webrtc-direct/certhash/<CERT_HASH>/p2p/<PEER_ID>
 ```
 
-`certhash` 是 WebRTC Direct multiaddr 的末段，不能再追加 `/p2p/<PEER_ID>`；需要时请将
-它与上方 `peer-id` 命令输出作为 `NodeAddr { id, addrs }` 的两个字段一并交给调用方。
+日志中的 WebRTC Direct 公告地址不含节点身份；将其配置给客户端时，必须在 `certhash` 后追加
+`/p2p/<PEER_ID>`，构成上方的完整 multiaddr。
 
 ## Docker / Coolify
 
-从仓库根目录构建：
+生产部署直接使用 GHCR 的多架构镜像：
 
 ```bash
-docker build -f crates/bootstrap/Dockerfile -t swarm-bootstrap:local .
 docker run --rm \
   -p 4001:4001/tcp -p 4001:4001/udp \
   -p 4002:4002/tcp -p 4003:4003/udp \
   -v swarm-bootstrap-data:/data \
   -e SWARM_BOOTSTRAP_EXTERNAL_IP=<VPS_PUBLIC_IP> \
-  swarm-bootstrap:local
+  ghcr.io/swarm-apps/swarm-bootstrap:latest
 ```
 
-`compose.coolify.yml` 可用于 Coolify。必须持久化 `/data`，否则身份或 WebRTC 证书改变会让
-已配置的 bootstrap 地址失效。
+`compose.coolify.yml` 可直接导入 Coolify，不需要仓库源码或 Dockerfile。它默认拉取
+`ghcr.io/swarm-apps/swarm-bootstrap:latest`；若要固定版本，设置
+`SWARM_BOOTSTRAP_IMAGE=ghcr.io/swarm-apps/swarm-bootstrap:0.6.0`。必须持久化 `/data`，
+否则身份或 WebRTC 证书改变会让已配置的 bootstrap 地址失效。
+
+本地开发时如需自行构建镜像，可从仓库根目录执行：
+
+```bash
+docker build -f crates/bootstrap/Dockerfile -t swarm-bootstrap:local .
+```
 
 ## 发布
 

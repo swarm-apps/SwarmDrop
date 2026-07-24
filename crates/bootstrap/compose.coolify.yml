@@ -1,8 +1,7 @@
 services:
   swarm-bootstrap:
-    build:
-      context: ../..
-      dockerfile: crates/bootstrap/Dockerfile
+    image: "${SWARM_BOOTSTRAP_IMAGE:-ghcr.io/swarm-apps/swarm-bootstrap:latest}"
+    pull_policy: always
     restart: unless-stopped
     ports:
       - "${SWARM_BOOTSTRAP_TCP_PORT:-4001}:${SWARM_BOOTSTRAP_TCP_PORT:-4001}/tcp"
