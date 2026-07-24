@@ -461,7 +461,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly webnode_accept_offer: (a: number, b: number, c: number) => any;
     readonly webnode_close: (a: number) => any;
@@ -483,6 +482,7 @@ export interface InitOutput {
     readonly webnode_resume: (a: number, b: number, c: number) => any;
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
+    readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly __wbg_intounderlyingsink_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
