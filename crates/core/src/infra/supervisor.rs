@@ -303,7 +303,7 @@ mod tests {
         candidates.write().unwrap().upsert(
             p,
             vec!["/ip4/203.0.113.7/tcp/4001".parse().unwrap()],
-            BootstrapCandidateSource::BuiltInPublic,
+            BootstrapCandidateSource::HostConfigured,
             CandidateRoles::kad_and_relay(),
             scope,
         );

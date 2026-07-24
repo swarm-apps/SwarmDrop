@@ -58,8 +58,7 @@ pub async fn start(
         swarmdrop_core::identity::load_or_create_webrtc_certificate(&*keychain).await?;
     // os_info 由 host 供给：桌面走 `OsInfo::native` 的 env 探测（hostname/os/arch）+ 用户设备名。
     let os_info = OsInfo::native(device_name);
-    // custom_bootstrap_nodes 现统一由 network_options 携带（前端 NetworkRuntimeConfig），
-    // 不再有独立的 legacy 位置参与合并。
+    // bootstrap_nodes 由桌面 host 注入；核心不再持有任何公共基础设施地址。
     let network_config = network_options.unwrap_or_default();
 
     // notifier 交给 core 的 RPC handler（pairing / transfer offer 入站时弹通知）。

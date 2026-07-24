@@ -10,8 +10,8 @@ use super::DiscoveryMode;
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum BootstrapCandidateSource {
-    BuiltInPublic,
-    UserCustom,
+    /// 当前 host 注入的静态引导/中继配置（含各端默认值和用户追加地址）。
+    HostConfigured,
     MdnsLanHelper,
     /// 运行时经 identify 学到的基础设施节点（如 LanOnly 下经 LAN Helper 认识的公网中继）
     Learned,
@@ -26,7 +26,7 @@ pub enum CandidateScope {
 }
 
 impl CandidateScope {
-    /// 从地址形状推断 scope（UserCustom 等无来源先验的候选用）。
+    /// 从地址形状推断 scope（HostConfigured 等无来源先验的候选用）。
     ///
     /// 任一私网/loopback 地址即判 Lan——注意这意味着混合地址候选会**绕过
     /// `public_reachability` 闸门**（supervisor 对 Lan 候选无条件收敛），
@@ -246,9 +246,8 @@ impl BootstrapCandidateManager {
             .map(|(source, count)| CandidateSourceStatus { source, count })
             .collect();
         statuses.sort_by_key(|status| match status.source {
-            BootstrapCandidateSource::UserCustom => 0,
+            BootstrapCandidateSource::HostConfigured => 0,
             BootstrapCandidateSource::MdnsLanHelper => 1,
-            BootstrapCandidateSource::BuiltInPublic => 2,
             BootstrapCandidateSource::Learned => 3,
         });
         statuses
@@ -280,7 +279,7 @@ mod tests {
         assert!(manager.upsert(
             peer,
             vec![addr1.clone()],
-            BootstrapCandidateSource::BuiltInPublic,
+            BootstrapCandidateSource::HostConfigured,
             CandidateRoles::kad_and_relay(),
             CandidateScope::Public,
         ));

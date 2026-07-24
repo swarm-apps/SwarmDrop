@@ -585,8 +585,8 @@ function CandidateSourceLabel({
   >["candidateSources"][number]["source"];
 }) {
   switch (candidateSourceKey(source)) {
-    case "userCustom":
-      return <Trans>自定义</Trans>;
+    case "hostConfigured":
+      return <Trans>配置节点</Trans>;
     case "mdnsLanHelper":
       return <Trans>LAN Helper</Trans>;
     default:

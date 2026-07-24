@@ -37,7 +37,7 @@ interface PreferencesState {
   provideLanHelper: boolean;
   /** 公网可达性：允许经公网中继被跨网设备访问，默认 true；关闭 = 严格局域网 */
   publicReachability: boolean;
-  /** 自定义引导节点(Multiaddr 字符串数组),与后端 DEFAULT_BOOTSTRAP_NODES 合并 */
+  /** 自定义引导节点(Multiaddr 字符串数组),启动时与移动端默认节点合并 */
   customBootstrapNodes: string[];
   /** 用户自定义接收文件保存目录的 URI(file:// 或 content://);null 走默认 transfersInboxUri */
   receivePath: string | null;

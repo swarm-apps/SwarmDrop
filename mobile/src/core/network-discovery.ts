@@ -3,6 +3,7 @@ import {
   MobileDiscoveryMode,
   type MobileNetworkRuntimeConfig,
 } from "react-native-swarmdrop-core";
+import { getMobileBootstrapNodes } from "@/core/bootstrap-nodes";
 
 export type DiscoveryModePreference = "auto" | "lanOnly";
 
@@ -19,7 +20,7 @@ export function buildNetworkRuntimeConfig(
   preferences: NetworkRuntimePreferences,
 ): MobileNetworkRuntimeConfig {
   return {
-    customBootstrapNodes: preferences.customBootstrapNodes,
+    bootstrapNodes: getMobileBootstrapNodes(preferences.customBootstrapNodes),
     discoveryMode: discoveryModeToNative(preferences.discoveryMode),
     autoDiscoverLanHelpers: preferences.autoDiscoverLanHelpers,
     provideLanHelper: preferences.provideLanHelper,
@@ -43,13 +44,11 @@ export function discoveryModeFromNative(
 
 export function candidateSourceKey(
   source: MobileBootstrapCandidateSource,
-): "builtInPublic" | "userCustom" | "mdnsLanHelper" {
+): "hostConfigured" | "mdnsLanHelper" {
   switch (source) {
-    case MobileBootstrapCandidateSource.UserCustom:
-      return "userCustom";
     case MobileBootstrapCandidateSource.MdnsLanHelper:
       return "mdnsLanHelper";
     default:
-      return "builtInPublic";
+      return "hostConfigured";
   }
 }

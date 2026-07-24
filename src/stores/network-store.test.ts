@@ -95,7 +95,10 @@ describe("network-store", () => {
     expect(mocks.start).toHaveBeenCalledWith(
       useSecretStore.getState().pairedDevices,
       {
-        customBootstrapNodes: [
+        bootstrapNodes: [
+          "/ip4/47.115.172.218/tcp/4001/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
+          "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
+          "/ip4/47.115.172.218/tcp/4002/ws/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
           "/ip4/192.168.1.10/tcp/4001/p2p/12D3KooWBootstrap",
         ],
         discoveryMode: "lanOnly",

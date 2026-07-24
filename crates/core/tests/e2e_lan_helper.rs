@@ -299,7 +299,7 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
 
     fn runtime_config(mode: DiscoveryMode, provide_lan_helper: bool) -> NetworkRuntimeConfig {
         NetworkRuntimeConfig {
-            custom_bootstrap_nodes: Vec::new(),
+            bootstrap_nodes: Vec::new(),
             discovery_mode: mode,
             auto_discover_lan_helpers: true,
             provide_lan_helper,
@@ -352,8 +352,8 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
                 !status
                     .candidate_sources
                     .iter()
-                    .any(|s| s.source == BootstrapCandidateSource::BuiltInPublic),
-                "LAN Only 模式下节点 {label} 不应加载内置公网候选"
+                    .any(|s| s.source == BootstrapCandidateSource::HostConfigured),
+                "LAN Only 模式下节点 {label} 不应加载 host 配置的公网候选"
             );
         }
     }

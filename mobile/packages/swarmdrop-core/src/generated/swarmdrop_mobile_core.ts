@@ -20,8 +20,7 @@ const uniffiIsDebug =
 // Public interface members begin here.
 
 export enum MobileBootstrapCandidateSource {
-    BuiltInPublic,
-    UserCustom,
+    HostConfigured,
     MdnsLanHelper,
     Learned
 }
@@ -32,19 +31,17 @@ const FfiConverterTypeMobileBootstrapCandidateSource = (() => {
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             switch (ordinalConverter.read(from)) {
-                case 1: return MobileBootstrapCandidateSource.BuiltInPublic;
-                case 2: return MobileBootstrapCandidateSource.UserCustom;
-                case 3: return MobileBootstrapCandidateSource.MdnsLanHelper;
-                case 4: return MobileBootstrapCandidateSource.Learned;
+                case 1: return MobileBootstrapCandidateSource.HostConfigured;
+                case 2: return MobileBootstrapCandidateSource.MdnsLanHelper;
+                case 3: return MobileBootstrapCandidateSource.Learned;
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
         write(value: TypeName, into: RustBuffer): void {
             switch (value) {
-                case MobileBootstrapCandidateSource.BuiltInPublic: return ordinalConverter.write(1, into);
-                case MobileBootstrapCandidateSource.UserCustom: return ordinalConverter.write(2, into);
-                case MobileBootstrapCandidateSource.MdnsLanHelper: return ordinalConverter.write(3, into);
-                case MobileBootstrapCandidateSource.Learned: return ordinalConverter.write(4, into);
+                case MobileBootstrapCandidateSource.HostConfigured: return ordinalConverter.write(1, into);
+                case MobileBootstrapCandidateSource.MdnsLanHelper: return ordinalConverter.write(2, into);
+                case MobileBootstrapCandidateSource.Learned: return ordinalConverter.write(3, into);
             }
         }
         allocationSize(value: TypeName): number {
@@ -1488,7 +1485,7 @@ const FfiConverterTypeMobileDiscoveryMode = (() => {
 })();
 
 export type MobileNetworkRuntimeConfig = {
-    customBootstrapNodes: Array<string>,
+    bootstrapNodes: Array<string>,
     discoveryMode: MobileDiscoveryMode,
     autoDiscoverLanHelpers: boolean,
     provideLanHelper: boolean,
@@ -1519,7 +1516,7 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             return {
-                customBootstrapNodes: FfiConverterSequenceString.read(from), 
+                bootstrapNodes: FfiConverterSequenceString.read(from), 
                 discoveryMode: FfiConverterTypeMobileDiscoveryMode.read(from), 
                 autoDiscoverLanHelpers: FfiConverterBool.read(from), 
                 provideLanHelper: FfiConverterBool.read(from), 
@@ -1527,14 +1524,14 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
             };
         }
         write(value: TypeName, into: RustBuffer): void {
-            FfiConverterSequenceString.write(value.customBootstrapNodes, into);
+            FfiConverterSequenceString.write(value.bootstrapNodes, into);
             FfiConverterTypeMobileDiscoveryMode.write(value.discoveryMode, into);
             FfiConverterBool.write(value.autoDiscoverLanHelpers, into);
             FfiConverterBool.write(value.provideLanHelper, into);
             FfiConverterBool.write(value.publicReachability, into);
         }
         allocationSize(value: TypeName): number {
-            return FfiConverterSequenceString.allocationSize(value.customBootstrapNodes) +
+            return FfiConverterSequenceString.allocationSize(value.bootstrapNodes) +
              FfiConverterTypeMobileDiscoveryMode.allocationSize(value.discoveryMode) +
              FfiConverterBool.allocationSize(value.autoDiscoverLanHelpers) +
              FfiConverterBool.allocationSize(value.provideLanHelper) +

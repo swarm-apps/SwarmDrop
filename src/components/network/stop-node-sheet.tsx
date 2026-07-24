@@ -212,10 +212,8 @@ function StopNodeContent({
   const relaySourceLabel =
     relaySource === "mdnsLanHelper"
       ? t`局域网协助`
-      : relaySource === "userCustom"
-        ? t`自定义`
-        : relaySource === "builtInPublic"
-          ? t`公网`
+      : relaySource === "hostConfigured"
+        ? t`配置节点`
           : null;
 
   return (

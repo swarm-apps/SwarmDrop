@@ -114,6 +114,22 @@ Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesIn
 **相关文件**：`crates/net/src/{endpoint/{builder.rs,mod.rs},actor.rs,lib.rs}`、
 `crates/bootstrap/src/lib.rs`
 
+### 公共基础设施地址由 Host 配置，核心只消费候选（2026-07-24）
+
+`swarmdrop-core::NetworkRuntimeConfig` 不再内置公网 bootstrap/relay 地址；公共节点是各端
+部署策略，桌面、移动和浏览器的可用 transport 不同，必须由各自 host 注入完整 multiaddr。
+
+**正确做法**：
+- 桌面端在 `src/lib/bootstrap-nodes.ts` 维护 TCP / QUIC / WebSocket 等可用地址，启动时与用户偏好合并。
+- 移动端在 `mobile/src/core/bootstrap-nodes.ts` 维护 Android 可用的 TCP / QUIC 地址；当前不放 `/ws`。
+- 浏览器在 `docs/app/try/relay-helpers.ts` 使用 WebRTC Direct 或 WSS helper；每项必须附带 `/p2p/<peer-id>`，WebRTC Direct 还必须带稳定的 `certhash`。
+- 新公网 relay 同时承担 circuit relay 时，仍需按上一节登记其外部地址；客户端清单只解决“如何拨到它”，不替代服务器侧公告。
+
+**不要做**：
+- 不要把某一端可用的 `/ws` 或 `/webrtc-direct` 地址无差别下发给所有端；Android 当前无法拨 WebSocket，而浏览器不能拨 TCP/QUIC。
+
+**相关文件**：`crates/core/src/network/config.rs`、`src/lib/bootstrap-nodes.ts`、`mobile/src/core/bootstrap-nodes.ts`、`docs/app/try/relay-helpers.ts`
+
 ### 坑 6：kad `Record.expires` 的类型按 target 分叉
 
 native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant` 同源）——

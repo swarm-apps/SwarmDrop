@@ -124,7 +124,7 @@ where
 
     /// 手动登记一个 relay helper 的常驻可达意图（幂等，重复登记只合并地址）。
     ///
-    /// 只写期望状态——候选表 `UserCustom` + relay 角色；真正的拨号 /
+    /// 只写期望状态——候选表 `HostConfigured` + relay 角色；真正的拨号 /
     /// reservation / 断线重建全部由 [`InfraSupervisor`] 统一收敛（单一收敛
     /// 路径，最迟下一个 1s tick 启动第一轮）。进度经
     /// `endpoint().watch_relays()` 观测（Connecting / Active / Failed）。
@@ -134,7 +134,7 @@ where
             candidates.upsert(
                 helper.id,
                 helper.addrs,
-                BootstrapCandidateSource::UserCustom,
+                BootstrapCandidateSource::HostConfigured,
                 CandidateRoles {
                     kad_server: false,
                     relay_server: true,

@@ -15,6 +15,7 @@ import type {
   PendingPairingJson,
   WebTransferEvent,
 } from "swarmdrop-web";
+import { WEB_RELAY_HELPERS } from "./relay-helpers";
 
 // WebNode 的运行时形状（swarmdrop-web 的 .d.ts 提供，这里仅取用到的方法）。
 type WebNode = {
@@ -70,7 +71,7 @@ export default function TryPage() {
   const [pairingReqs, setPairingReqs] = useState<PendingPairingJson[]>([]);
 
   // 表单
-  const [addr, setAddr] = useState("");
+  const [addr, setAddr] = useState(() => WEB_RELAY_HELPERS[0] ?? "");
   const [invite, setInvite] = useState("");
   const [peer, setPeer] = useState("");
   const filesRef = useRef<HTMLInputElement | null>(null);

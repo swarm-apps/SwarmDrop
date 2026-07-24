@@ -17,12 +17,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
-
-/** 默认引导节点(与后端 BOOTSTRAP_NODES 对应,只读展示) */
-const DEFAULT_BOOTSTRAP_NODES = [
-  "/ip4/47.115.172.218/tcp/4001/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
-  "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
-];
+import { MOBILE_BOOTSTRAP_NODES } from "@/core/bootstrap-nodes";
 
 function isValidMultiaddr(addr: string): boolean {
   return addr.startsWith("/") && addr.includes("/p2p/");
@@ -73,7 +68,7 @@ export default function BootstrapNodesScreen() {
     }
     if (
       customBootstrapNodes.includes(addr) ||
-      DEFAULT_BOOTSTRAP_NODES.includes(addr)
+      MOBILE_BOOTSTRAP_NODES.includes(addr)
     ) {
       toast.error(t`该节点已存在`);
       return;
@@ -134,7 +129,7 @@ export default function BootstrapNodesScreen() {
         </Text>
 
         <View className="rounded-lg border border-border bg-card overflow-hidden">
-          {DEFAULT_BOOTSTRAP_NODES.map((addr, idx) => (
+          {MOBILE_BOOTSTRAP_NODES.map((addr, idx) => (
             <Fragment key={addr}>
               <View className="flex-row items-center justify-between gap-2 p-3.5">
                 <Text
@@ -149,7 +144,7 @@ export default function BootstrapNodesScreen() {
                   </Text>
                 </View>
               </View>
-              {idx < DEFAULT_BOOTSTRAP_NODES.length - 1 ||
+              {idx < MOBILE_BOOTSTRAP_NODES.length - 1 ||
               customBootstrapNodes.length > 0 ||
               showInput ? (
                 <View className="h-px bg-border" />
