@@ -153,22 +153,8 @@ where
     let len = unsigned_varint::encode::usize(payload.len(), &mut len_buf);
     writer.write_all(len).await.map_err(io_error)?;
     writer.write_all(&payload).await.map_err(io_error)?;
-
-    // WebRTC DataChannel 的 send 已把数据入浏览器发送队列；逐帧 flush 会等待
-    // bufferedAmount 归零。webrtc-websys 用 bufferedamountlow 回调同步唤醒该 future，
-    // 在 wasm 单线程执行器中可能重入同一 Closure，触发
-    // "closure invoked recursively or after being dropped"。因此浏览器端以写入入队
-    // 作为帧边界，背压仍由 poll_write 的 MAX_MSG_LEN 限制负责。
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    {
-        Ok(())
-    }
-
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-    {
-        writer.flush().await.map_err(io_error)?;
-        Ok(())
-    }
+    writer.flush().await.map_err(io_error)?;
+    Ok(())
 }
 
 /// 读取一个 length-prefixed frame。读到干净 EOF 时返回 `Ok(None)`。
@@ -449,6 +435,9 @@ fn protocol_error(message: String) -> AppError {
 
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
     use futures::io::Cursor as IoCursor;
 
     use super::*;
@@ -462,6 +451,28 @@ mod tests {
             file_id: 7,
             offset: 1024,
             length: 4096,
+        }
+    }
+
+    #[derive(Default)]
+    struct FlushFailWriter(Vec<u8>);
+
+    impl AsyncWrite for FlushFailWriter {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            self.0.extend_from_slice(buf);
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Err(io::Error::other("flush called")))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
         }
     }
 
@@ -520,6 +531,19 @@ mod tests {
         io.set_position(0);
 
         assert_eq!(read_frame(&mut io).await.unwrap().unwrap(), frame);
+    }
+
+    #[tokio::test]
+    async fn write_frame_propagates_flush_error() {
+        let frame = TransferDataFrame::Finish {
+            session_id: session_id(),
+            epoch: 5,
+        };
+        let mut writer = FlushFailWriter::default();
+
+        let err = write_frame(&mut writer, &frame).await.unwrap_err();
+
+        assert!(err.to_string().contains("flush called"));
     }
 
     #[tokio::test]

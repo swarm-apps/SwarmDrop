@@ -52,9 +52,9 @@ swarmdrop-net = { path = "crates/net" }
 # 应恢复 upstream URL / crates.io 版本。升级 rev 必须走独立 PR + 全量测试 + wasm check。
 # 临时使用 fork 的 master：它跟随 upstream/master，并承载尚未合并的 WebRTC 修复；
 # 上游合并或发布可用版本后切回官方 URL / crates.io。更新时必须同步 Cargo.lock。
-libp2p = { git = "https://github.com/yexiyue/rust-libp2p", rev = "0d34d8e322fe3ec3a9d9f57b1a15792ea12abaef" }
-libp2p-stream = { git = "https://github.com/yexiyue/rust-libp2p", rev = "0d34d8e322fe3ec3a9d9f57b1a15792ea12abaef" }
-libp2p-webrtc = { git = "https://github.com/yexiyue/rust-libp2p", rev = "0d34d8e322fe3ec3a9d9f57b1a15792ea12abaef" }
+libp2p = { git = "https://github.com/yexiyue/rust-libp2p", rev = "c4c2c1676e0229469a1841224dce1bbbb62c04ab" }
+libp2p-stream = { git = "https://github.com/yexiyue/rust-libp2p", rev = "c4c2c1676e0229469a1841224dce1bbbb62c04ab" }
+libp2p-webrtc = { git = "https://github.com/yexiyue/rust-libp2p", rev = "c4c2c1676e0229469a1841224dce1bbbb62c04ab" }
 # identity/multiaddr 不走 git：93c5059 树自己就把两者解析到 crates.io（spike 的
 # Cargo.lock 实证 libp2p-identity 0.2.14 / multiaddr 0.18.2 均为 registry 来源），
 # net-base 用 crates.io 版本与 git 树天然 unify，类型底座不背 git 依赖。
