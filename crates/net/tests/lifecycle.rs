@@ -2,12 +2,14 @@
 
 mod common;
 
-use std::time::Duration;
+use std::net::TcpListener;
+use std::time::{Duration, Instant};
 
 use common::spawn_node;
 use futures::{AsyncReadExt, AsyncWriteExt};
 use swarmdrop_net::{
-    AcceptError, Endpoint, NodeAddr, P2pStream, ProtocolHandler, ProtocolId, Router, StreamLimits,
+    AcceptError, ConnectError, Endpoint, NodeAddr, P2pStream, ProtocolHandler, ProtocolId, Router,
+    SecretKey, StreamLimits,
 };
 
 const HOLD: ProtocolId = ProtocolId::from_static("/test/hold/1");
@@ -67,6 +69,67 @@ async fn subscriber_stream_ends_on_close() {
         .await
         .expect("event stream must end, not hang");
     assert!(end.is_none());
+}
+
+/// connect 超时不只是丢掉 Future：第二次同 peer 拨号必须能新建 TCP 连接。
+/// 否则会复用第一次遗留的 pending dial（libp2p 的 DialPeerConditionFalse）。
+#[tokio::test]
+async fn connect_timeout_aborts_orphaned_dial() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind hanging peer");
+    listener
+        .set_nonblocking(true)
+        .expect("make listener non-blocking");
+    let port = listener.local_addr().expect("listener addr").port();
+    let accepted = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut sockets = Vec::new();
+        while Instant::now() < deadline {
+            match listener.accept() {
+                // 保持 TCP 打开但不参与 Noise 握手：每次 client 拨号都会留下一
+                // 条可计数连接，直到测试结束统一 drop。
+                Ok((socket, _)) => sockets.push(socket),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("accept hanging peer: {error}"),
+            }
+        }
+        sockets.len()
+    });
+
+    let client = Endpoint::builder()
+        .connect_timeout(Duration::from_millis(100))
+        .bind()
+        .await
+        .expect("bind client");
+    let target = NodeAddr::with_addrs(
+        SecretKey::generate().node_id(),
+        vec![
+            format!("/ip4/127.0.0.1/tcp/{port}")
+                .parse()
+                .expect("valid address"),
+        ],
+    );
+    let result = client.connect(target.clone()).await;
+    assert!(
+        matches!(result, Err(ConnectError::Timeout)),
+        "hanging peer 应在调用方时限内超时，got: {result:?}"
+    );
+    // 给 actor 一次 poll Swarm 的机会处理 libp2p abort；随后同 peer 再拨一次。
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let retry = client
+        .connect_with_timeout(target, Duration::from_millis(100))
+        .await;
+    assert!(
+        matches!(retry, Err(ConnectError::Timeout)),
+        "第二次拨号也应独立超时，got: {retry:?}"
+    );
+    assert!(
+        accepted.join().expect("hanging peer thread") >= 2,
+        "取消旧拨号后，同 peer 的新 connect 必须发起新的 TCP 拨号"
+    );
+
+    client.close().await;
 }
 
 #[tokio::test]

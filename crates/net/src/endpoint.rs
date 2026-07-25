@@ -8,6 +8,7 @@ pub mod builder;
 pub mod presets;
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -109,6 +110,7 @@ pub(crate) struct Inner {
     /// Builder 启用 DHT 时为 Some。
     dht: Option<crate::dht::Dht>,
     connect_timeout: Duration,
+    next_connect_request_id: AtomicU64,
     closed: CancellationToken,
     actor_handle: Mutex<Option<n0_future::task::JoinHandle<()>>>,
 }
@@ -139,15 +141,46 @@ impl Endpoint {
     /// `NodeAddr.addrs` 为空表示只知道身份——依靠地址簿既有地址
     /// （AddressLookup 解析管线在 M2 接入此路径）。
     pub async fn connect(&self, addr: impl Into<NodeAddr>) -> Result<ConnInfo, ConnectError> {
+        self.connect_with_timeout(addr, self.inner.connect_timeout)
+            .await
+    }
+
+    /// 在指定时限内连接到对端。
+    ///
+    /// 超时不仅会结束调用方等待，还会通知 actor 清理已关闭的等待者；若没有
+    /// 其他调用者或基础设施角色使用该 peer，会中止底层 pending dial。
+    pub async fn connect_with_timeout(
+        &self,
+        addr: impl Into<NodeAddr>,
+        timeout: Duration,
+    ) -> Result<ConnInfo, ConnectError> {
         let addr = addr.into();
+        let node = addr.id;
+        let request_id = self
+            .inner
+            .next_connect_request_id
+            .fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.inner
             .actor_tx
-            .send(ActorMessage::Connect { addr, reply: tx })
+            .send(ActorMessage::Connect {
+                addr,
+                request_id,
+                reply: tx,
+            })
             .await
             .map_err(|_| ConnectError::Closed)?;
-        match n0_future::time::timeout(self.inner.connect_timeout, rx).await {
-            Err(_) => Err(ConnectError::Timeout),
+        match n0_future::time::timeout(timeout, rx).await {
+            Err(_) => {
+                // request_id 精确对应本次调用，不依赖 oneshot receiver 的销毁时序，
+                // 不会误删同一 peer 的并发等待者。
+                let _ = self
+                    .inner
+                    .actor_tx
+                    .send(ActorMessage::CancelConnect { node, request_id })
+                    .await;
+                Err(ConnectError::Timeout)
+            }
             Ok(Err(_)) => Err(ConnectError::Closed),
             Ok(Ok(result)) => result,
         }
@@ -199,6 +232,15 @@ impl Endpoint {
             },
         )
         .await
+    }
+
+    /// 撤销指定 relay 的 reservation。
+    ///
+    /// 这会移除 circuit listener 与自动重建意图；若 helper 的拨号仍在进行且
+    /// 没有其他调用者，会一并中止该拨号。已建立的其他业务连接不会被影响。
+    pub async fn cancel_relay_reservation(&self, relay: NodeId) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::CancelRelayReservation { relay, reply })
+            .await
     }
 
     /// 注册基础设施节点（bootstrap / LanHelper / 自建 relay）：进地址簿与

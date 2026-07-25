@@ -94,3 +94,57 @@ async fn rpc_through_circuit_relay() {
     receiver.close().await;
     helper.close().await;
 }
+
+/// 显式撤销 reservation 后，watch 状态与 circuit listener 都会被清掉；再次请求
+/// 同一 helper 仍可建立新的 reservation，证明没有留下后台重试/旧 listener。
+#[tokio::test]
+async fn cancel_relay_reservation_stops_and_allows_recreate() {
+    common::init_tracing();
+    let helper = Endpoint::builder()
+        .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().expect("valid")])
+        .relay_server(RelayServerConfig::default())
+        .bind()
+        .await
+        .expect("bind helper");
+    let helper_addrs = common::wait_listen_addrs(&helper).await;
+    let (receiver, _) = spawn_node().await;
+    let mut events = receiver.subscribe().await.expect("subscribe");
+    let helper_id = helper.node_id();
+    let helper_addr = NodeAddr::with_addrs(helper_id, helper_addrs);
+
+    receiver
+        .ensure_relay_reservation(helper_addr.clone())
+        .await
+        .expect("ensure reservation");
+    wait_event(
+        &mut events,
+        |event| matches!(event, NetEvent::RelayReservationAccepted { relay, .. } if *relay == helper_id),
+    )
+    .await;
+
+    receiver
+        .cancel_relay_reservation(helper_id)
+        .await
+        .expect("cancel reservation");
+    assert!(
+        !receiver.watch_relays().get().contains_key(&helper_id),
+        "取消后不能保留 relay watch 状态"
+    );
+
+    receiver
+        .ensure_relay_reservation(helper_addr)
+        .await
+        .expect("recreate reservation");
+    wait_event(
+        &mut events,
+        |event| matches!(event, NetEvent::RelayReservationAccepted { relay, .. } if *relay == helper_id),
+    )
+    .await;
+    assert_eq!(
+        receiver.watch_relays().get().get(&helper_id),
+        Some(&RelayState::Active)
+    );
+
+    receiver.close().await;
+    helper.close().await;
+}

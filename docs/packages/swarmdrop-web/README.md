@@ -117,13 +117,11 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/try
   `WebKeychainProvider`）；方法名 snake_case 与桌面 bindings.ts 的 camelCase 不一致（`js_name`
   可改，随 React UI 一并）；`content_root_of` 与 transfer 版重复（泛化 transfer 签名可归一，
   涉及三 crate 调用点）。
-- **`connect()` / `reserve()` 对不可达地址无内建超时**（2026-07-21 `docs/app/app` 连接面板
-  `#76` 实测发现）：`connect()` 对无法握手的地址会在数十秒后 reject（swarm 拨号重试耗尽），但
-  `reserve()` 对同类地址可**无限期挂起** JS Promise（swarm 持续退避重试拨号，reserve 等的
-  circuit 事件永远不来）。JS 侧目前**没有**任何客户端可见的超时或取消口子。前端调用方必须自
-  行套一层超时兜底（`docs/app/app/_components/connection-panel.tsx` 的 `withTimeout`，20s），
-  否则 UI 会卡在「reserve 中…」不给反馈，违反「状态诚实可见」。根治需要内核加超时/可取消的
-  reserve，或 wasm 侧暴露 abort 口子；当前判定为前端职责，未改内核。
+- **`connect()` / `reserve()` 的 20 秒可取消超时**（2026-07-25 `#84`）：WebNode 在内核层
+  设定等待上限。`connect()` 超时会清理 actor 等待者；若没有其他调用者或基础设施角色，直接
+  abort libp2p pending dial。`reserve()` 超时还会撤销 circuit listener 与 relay 自动重建意图，
+  并在没有其他用途时中止 helper 拨号。前端直接等待 WebNode Promise，不能再用 `Promise.race`
+  只取消 UI 等待，否则会重新制造后台残留。
 - **`paired_devices()` 复用桌面 `Device` 读模型，未做 Web 专属裁剪**（2026-07-21 `#77` 新增）：
   直接返回 `DeviceManager::get_devices(DeviceFilter::Paired)`，字段含 `trustLevel` /
   `receivePolicy` 等桌面概念——Web 侧当前不实现按信任级别的收件策略（见上方"无配对"条，

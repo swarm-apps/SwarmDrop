@@ -43,7 +43,14 @@ const SUBSCRIBER_QUEUE: usize = 256;
 pub(crate) enum ActorMessage {
     Connect {
         addr: NodeAddr,
+        request_id: u64,
         reply: oneshot::Sender<Result<ConnInfo, ConnectError>>,
+    },
+    /// 调用方的 connect 等待超时后清理对应等待者；若这是该 peer 唯一的
+    /// 业务拨号且未承担基础设施角色，则同时中止底层 pending dial。
+    CancelConnect {
+        node: NodeId,
+        request_id: u64,
     },
     Disconnect {
         node: NodeId,
@@ -72,14 +79,28 @@ pub(crate) enum ActorMessage {
         roles: InfraRoles,
         reply: oneshot::Sender<Result<(), Error>>,
     },
+    /// 撤销某 relay 的 reservation 意图：停止重建、移除 circuit listener，并在
+    /// 没有其他使用者时中止尚未完成的 helper 拨号。
+    CancelRelayReservation {
+        relay: NodeId,
+        reply: oneshot::Sender<Result<(), Error>>,
+    },
     /// AddressLookup 解析完成的回注（内部 loopback）。
     ConnectResolved {
         addr: NodeAddr,
+        request_id: u64,
         reply: oneshot::Sender<Result<ConnInfo, ConnectError>>,
     },
     /// bind 尾声注入 lookup 集合（构造依赖 Endpoint，晚于 actor spawn）。
     SetLookups(Vec<Box<dyn AddressLookup>>),
     Shutdown,
+}
+
+/// actor 挂账的一次 connect 调用。显式 request_id 避免超时路径依赖
+/// `oneshot::Sender::is_closed()` 的销毁时序。
+struct ConnectWaiter {
+    request_id: u64,
+    reply: oneshot::Sender<Result<ConnInfo, ConnectError>>,
 }
 
 /// watch 写端集合（actor 是唯一写者）。
@@ -96,7 +117,9 @@ pub(crate) struct Actor {
     swarm: Swarm<Behaviour>,
     rx: mpsc::Receiver<ActorMessage>,
     /// connect 等待表：peer → 等待者（ConnectionEstablished / 拨号失败时应答）。
-    dials: HashMap<PeerId, Vec<oneshot::Sender<Result<ConnInfo, ConnectError>>>>,
+    dials: HashMap<PeerId, Vec<ConnectWaiter>>,
+    /// 正在执行 AddressLookup 的 connect 请求；取消后移除，稍后回来的解析结果直接丢弃。
+    resolving_connects: HashSet<(PeerId, u64)>,
     /// 地址簿（M1 最小版：manual 注入；M2 扩展为带来源/时效的 AddressBook，
     /// 汇聚 mdns/identify/dht 各 push 源）。
     ///
@@ -139,6 +162,7 @@ impl Actor {
             swarm,
             rx,
             dials: HashMap::new(),
+            resolving_connects: HashSet::new(),
             address_book: HashMap::new(),
             conns: HashMap::new(),
             subscribers: Vec::new(),
@@ -166,8 +190,8 @@ impl Actor {
         }
         // 关停：回掉所有 pending 等待者，drop Swarm（断开全部连接 + 关监听）
         for (_, waiters) in self.dials.drain() {
-            for tx in waiters {
-                let _ = tx.send(Err(ConnectError::Closed));
+            for waiter in waiters {
+                let _ = waiter.reply.send(Err(ConnectError::Closed));
             }
         }
         debug!(dropped_events = self.dropped_events, "actor stopped");
@@ -175,7 +199,14 @@ impl Actor {
 
     fn handle_message(&mut self, msg: ActorMessage) {
         match msg {
-            ActorMessage::Connect { addr, reply } => self.handle_connect(addr, reply),
+            ActorMessage::Connect {
+                addr,
+                request_id,
+                reply,
+            } => self.handle_connect(addr, request_id, reply),
+            ActorMessage::CancelConnect { node, request_id } => {
+                self.cancel_connect(node, request_id)
+            }
             ActorMessage::Disconnect { node, reply } => {
                 let _ = self.swarm.disconnect_peer_id(*node.as_peer_id());
                 let _ = reply.send(Ok(()));
@@ -225,7 +256,20 @@ impl Actor {
                 }
                 let _ = reply.send(Ok(()));
             }
-            ActorMessage::ConnectResolved { addr, reply } => self.handle_connect(addr, reply),
+            ActorMessage::CancelRelayReservation { relay, reply } => {
+                self.cancel_relay_reservation(relay);
+                let _ = reply.send(Ok(()));
+            }
+            ActorMessage::ConnectResolved {
+                addr,
+                request_id,
+                reply,
+            } => {
+                let peer = *addr.id.as_peer_id();
+                if self.resolving_connects.remove(&(peer, request_id)) {
+                    self.handle_connect(addr, request_id, reply);
+                }
+            }
             ActorMessage::SetLookups(lookups) => {
                 self.lookups = Arc::new(lookups);
             }
@@ -386,9 +430,60 @@ impl Actor {
         }
     }
 
+    /// 清除超时 connect 对应的等待者。libp2p 的
+    /// `disconnect_peer_id` 会同时 abort pending connection；但同一 peer 可能有
+    /// 多个调用者或承担 relay 基础设施角色，只有没有其他使用者时才允许中止。
+    fn cancel_connect(&mut self, node: NodeId, request_id: u64) {
+        let peer = *node.as_peer_id();
+        self.resolving_connects.remove(&(peer, request_id));
+        let no_waiters = self.dials.get_mut(&peer).is_some_and(|waiters| {
+            waiters.retain(|waiter| waiter.request_id != request_id);
+            waiters.is_empty()
+        });
+        if !no_waiters {
+            return;
+        }
+
+        self.dials.remove(&peer);
+        if !self.infra_relay_peers.contains(&peer) {
+            // 返回 Err 仅表示还没有 established connection；pending dial 已被
+            // libp2p 中止，故无需把它当成失败上抛。
+            let _ = self.swarm.disconnect_peer_id(peer);
+            debug!(%peer, "connect timed out; cancelled pending dial");
+        }
+    }
+
+    /// 撤销 relay reservation。显式取消不是“reservation 丢失”，不发
+    /// `RelayReservationLost`，避免上层把用户取消误判成需要自动恢复的故障。
+    fn cancel_relay_reservation(&mut self, relay: NodeId) {
+        let peer = *relay.as_peer_id();
+        self.infra_relay_peers.remove(&peer);
+
+        let listeners: Vec<_> = self
+            .relay_listeners
+            .iter()
+            .filter_map(|(id, owner)| (*owner == peer).then_some(*id))
+            .collect();
+        for listener in listeners {
+            self.relay_listeners.remove(&listener);
+            let _ = self.swarm.remove_listener(listener);
+        }
+        self.watches
+            .relays
+            .send_if_modified(|relays| relays.remove(&relay).is_some());
+
+        // 不干扰已建立的业务连接或其他 connect 调用；若只有 relay 自己遗留的
+        // pending dial，disconnect_peer_id 会将它 abort，杜绝后续 reservation 重试。
+        if !self.conns.contains_key(&peer) && !self.dials.contains_key(&peer) {
+            let _ = self.swarm.disconnect_peer_id(peer);
+        }
+        debug!(%peer, "relay reservation cancelled");
+    }
+
     fn handle_connect(
         &mut self,
         addr: NodeAddr,
+        request_id: u64,
         reply: oneshot::Sender<Result<ConnInfo, ConnectError>>,
     ) {
         let peer = *addr.id.as_peer_id();
@@ -412,6 +507,7 @@ impl Actor {
         if candidates.is_empty() && !self.lookups.is_empty() {
             let lookups = self.lookups.clone();
             let node = addr.id;
+            self.resolving_connects.insert((peer, request_id));
             let self_tx = self.self_tx.clone();
             n0_future::task::spawn(async move {
                 let resolved = resolve_all(&lookups, node).await;
@@ -422,6 +518,7 @@ impl Actor {
                 let _ = self_tx
                     .send(ActorMessage::ConnectResolved {
                         addr: NodeAddr::with_addrs(node, resolved),
+                        request_id,
                         reply,
                     })
                     .await;
@@ -436,11 +533,18 @@ impl Actor {
         };
 
         match self.swarm.dial(opts) {
-            Ok(()) => self.dials.entry(peer).or_default().push(reply),
+            Ok(()) => self
+                .dials
+                .entry(peer)
+                .or_default()
+                .push(ConnectWaiter { request_id, reply }),
             // 已有拨号在途（infra dial / 并发 connect）：挂等待表共享其结果，
             // ConnectionEstablished / OutgoingConnectionError 到达时统一应答
             Err(libp2p::swarm::DialError::DialPeerConditionFalse(_)) => {
-                self.dials.entry(peer).or_default().push(reply);
+                self.dials
+                    .entry(peer)
+                    .or_default()
+                    .push(ConnectWaiter { request_id, reply });
             }
             Err(e) => {
                 let _ = reply.send(Err(ConnectError::DialFailed(e.to_string())));
@@ -486,8 +590,8 @@ impl Actor {
                 }
 
                 if let Some(waiters) = self.dials.remove(&peer_id) {
-                    for tx in waiters {
-                        let _ = tx.send(Ok(info.clone()));
+                    for waiter in waiters {
+                        let _ = waiter.reply.send(Ok(info.clone()));
                     }
                 }
             }
@@ -497,8 +601,10 @@ impl Actor {
                 ..
             } => {
                 if let Some(waiters) = self.dials.remove(&peer) {
-                    for tx in waiters {
-                        let _ = tx.send(Err(ConnectError::DialFailed(error.to_string())));
+                    for waiter in waiters {
+                        let _ = waiter
+                            .reply
+                            .send(Err(ConnectError::DialFailed(error.to_string())));
                     }
                 }
             }

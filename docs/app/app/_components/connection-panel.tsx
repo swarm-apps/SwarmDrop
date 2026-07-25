@@ -14,21 +14,12 @@ import { getNode } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { type PathKindJson } from "../_lib/view-types";
-import { withTimeout } from "../_lib/with-timeout";
 
 const PATH_META: Record<PathKindJson, { label: string; dot: string }> = {
   local: { label: "局域网直连", dot: "bg-emerald-500" },
   direct: { label: "打洞直连", dot: "bg-sky-500" },
   relayed: { label: "中继", dot: "bg-amber-500" },
 };
-
-/**
- * 实测对不可达地址 `reserve()` 会随 swarm 拨号重试无限期挂起（`connect()` 至少还会在数十秒
- * 后 reject）——wasm 侧的 Promise 没有内建超时。不加这层，UI 会卡在「reserve 中…」永不恢复，
- * 违反「连接失败有清晰反馈，不静默」。这是纯前端兜底，不改内核重试语义（内核可能后续仍在
- * 背后重试，只是 UI 不再等它）。
- */
-const ACTION_TIMEOUT_MS = 20_000;
 
 export function ConnectionPanel() {
   const nodeStatus = useWebNode((s) => s.status);
@@ -45,11 +36,7 @@ export function ConnectionPanel() {
     const node = getNode();
     if (!node || !addr.trim()) return;
     connectAction.run(
-      () =>
-        withTimeout(node.connect(addr.trim()), ACTION_TIMEOUT_MS, {
-          kind: "network",
-          message: `connect 超时（${ACTION_TIMEOUT_MS / 1000}s 内未响应，helper 可能不可达）`,
-        }),
+      () => node.connect(addr.trim()),
       (conn) => webNodeActions.setConnection(conn),
     );
   };
@@ -58,11 +45,7 @@ export function ConnectionPanel() {
     const node = getNode();
     if (!node || !addr.trim()) return;
     reserveAction.run(
-      () =>
-        withTimeout(node.reserve(addr.trim()), ACTION_TIMEOUT_MS, {
-          kind: "network",
-          message: `reserve 超时（${ACTION_TIMEOUT_MS / 1000}s 内未建立可达性，helper 可能不可达或仍在后台重试拨号）`,
-        }),
+      () => node.reserve(addr.trim()),
       (circuit) => webNodeActions.setReservation(circuit),
     );
   };

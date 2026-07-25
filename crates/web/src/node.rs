@@ -8,6 +8,7 @@
 
 use std::cell::RefCell;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use swarmdrop_core::device_manager::DeviceFilter;
@@ -36,6 +37,10 @@ use crate::file_access::OpfsFileAccess;
 use crate::identity;
 use crate::store::MemorySessionStore;
 use crate::types::{ConnectionJson, OfferJson, PendingPairingJson};
+
+/// 浏览器连接与 reservation 的最大等待时间。超时会通过 Endpoint 的取消路径
+/// 停止无主拨号/relay 重试，不是只 reject JavaScript Promise。
+const REACHABILITY_TIMEOUT: Duration = Duration::from_secs(20);
 
 // specta 导出的 TS 类型（static/types/bindings.ts，由 `cargo test -p swarmdrop-web
 // --features specta` 生成并入库）整体注入 .d.ts，供下方 typescript_type 引用——
@@ -183,7 +188,7 @@ impl WebNode {
         let (id, addr) = split_p2p_addr(&addr)?;
         let info = self
             .endpoint
-            .connect(NodeAddr::with_addrs(id, vec![addr]))
+            .connect_with_timeout(NodeAddr::with_addrs(id, vec![addr]), REACHABILITY_TIMEOUT)
             .await
             .map_err(js_err)?;
         to_js_typed(
@@ -277,26 +282,45 @@ impl WebNode {
     }
 
     /// 经 helper 请求 circuit reservation（浏览器被动接收连接的唯一入口），返回 circuit 地址。
+    ///
+    /// 20 秒内未被 relay 接受时，会撤销 circuit listener、自动重建意图和无主 helper
+    /// 拨号；调用方不会留下后台无限重试。
     pub async fn reserve(&self, helper_addr: String) -> Result<String, JsValue> {
         let (id, addr) = split_p2p_addr(&helper_addr)?;
-        self.endpoint
-            .ensure_relay_reservation(NodeAddr::with_addrs(id, vec![addr]))
-            .await
-            .map_err(js_err)?;
-        let mut relays = self.endpoint.watch_relays();
-        loop {
-            if relays
-                .get()
-                .get(&id)
-                .is_some_and(|s| *s == RelayState::Active)
-            {
-                return Ok(format!(
-                    "{helper_addr}/p2p-circuit/p2p/{}",
-                    self.endpoint.node_id()
-                ));
+        let wait_for_reservation = async {
+            self.endpoint
+                .ensure_relay_reservation(NodeAddr::with_addrs(id, vec![addr]))
+                .await
+                .map_err(js_err)?;
+            let mut relays = self.endpoint.watch_relays();
+            loop {
+                if relays
+                    .get()
+                    .get(&id)
+                    .is_some_and(|s| *s == RelayState::Active)
+                {
+                    return Ok(format!(
+                        "{helper_addr}/p2p-circuit/p2p/{}",
+                        self.endpoint.node_id()
+                    ));
+                }
+                if relays.updated().await.is_none() {
+                    return Err(WebError::network("endpoint 已关闭").into());
+                }
             }
-            if relays.updated().await.is_none() {
-                return Err(WebError::network("endpoint 已关闭").into());
+        };
+
+        match n0_future::time::timeout(REACHABILITY_TIMEOUT, wait_for_reservation).await {
+            Ok(result) => result,
+            Err(_) => {
+                self.endpoint
+                    .cancel_relay_reservation(id)
+                    .await
+                    .map_err(js_err)?;
+                Err(
+                    WebError::network("reserve 超时（20 秒内未建立可达性，已停止后台拨号与重试）")
+                        .into(),
+                )
             }
         }
     }

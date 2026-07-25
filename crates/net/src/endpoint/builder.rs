@@ -205,6 +205,7 @@ impl Builder {
             watch_relays: relays_rx,
             dht: dht_enabled.then(|| Dht::new(actor_tx.clone())),
             connect_timeout: config.connect_timeout,
+            next_connect_request_id: std::sync::atomic::AtomicU64::new(1),
             closed: CancellationToken::new(),
             actor_handle: Mutex::new(Some(actor_handle)),
         });
