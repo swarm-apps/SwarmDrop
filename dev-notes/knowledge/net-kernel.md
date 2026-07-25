@@ -71,9 +71,10 @@ Web 端在上游合并前需要同时依赖 WebRTC DataChannel 回调生命周�
 
 `max_message_size` 只限制单条编码后的 DataChannel 消息，以及发送端的背压高水位；浏览器
 回调在 Rust task 再次 poll 前可能已累计多条合法消息，故 `webrtc-websys` 的累计读取缓冲
-单独设为有界的 256 KiB 下限（且不低于单条消息上限）。两者不能混用，否则连续合法的 8 KiB
-消息会被错误判定为对端过载并重置 stream。数据面每个 target 都应调用 `flush()`；回调唤醒
-已由 #6558 延后，不能再以跳过 `flush()` 规避回调重入。
+通过 `Config::with_max_read_buffer_size` 单独显式配置为 256 KiB。它是本地资源上限，不参与
+协商；库会保证其不低于单条消息上限。两者不能混用，否则连续合法的 8 KiB 消息会被错误判定
+为对端过载并重置 stream。数据面每个 target 都应调用 `flush()`；回调唤醒已由 #6558 延后，
+不能再以跳过 `flush()` 规避回调重入。
 
 **正确做法**：
 - 每次更新先将 fork `master` 快进到上游，再重新合并仍未被上游接受的修复并跑 WebRTC/wasm 检查。
