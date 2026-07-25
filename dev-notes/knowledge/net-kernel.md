@@ -62,6 +62,20 @@ webrtc-direct 实证跑不通，修复只在 master（PR 6429）。**升级 rev 
 全量测试 + wasm check**；0.57 正式发布后切回 crates.io。identity/multiaddr 不用跟
 git——master 树自己解析到 crates.io（0.2.14 / 0.18.2），net-base 用 crates.io 版本天然 unify。
 
+### 临时 fork 集成策略（2026-07-25）
+
+Web 端在上游合并前需要同时依赖 WebRTC DataChannel 回调生命周期修复与连接级消息上限协商，
+因此 workspace 暂时 pin `yexiyue/rust-libp2p` 的 `master`。该分支以最新
+`libp2p/rust-libp2p:master` 为基线，并合并上游 PR #6558 与 #6560；`Cargo.lock` 必须与该
+精确 revision 一起提交。
+
+**正确做法**：
+- 每次更新先将 fork `master` 快进到上游，再重新合并仍未被上游接受的修复并跑 WebRTC/wasm 检查。
+- 上游合并或发布可用版本后，切回官方 URL（或 crates.io）并删除 fork pin。
+
+**不要做**：
+- 不要在产品仓库直接 pin 已删除分支或孤立 commit；这样 lockfile 无法长期可靠复现。
+
 ### 坑 1：relay server 的 HOP 协议默认不广告（relay 0.22.0，PR 6154）
 
 **行为变更**：HOP 协议广告默认 `Status::Disable` 且随 **external address** 自动开关。
