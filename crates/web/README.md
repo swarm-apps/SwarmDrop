@@ -25,10 +25,8 @@ brew install llvm   # macOS only
 export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang
 export AR_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/llvm-ar
 
-# ⚠ RUSTFLAGS 必带：wasm-pack 的 cargo 调用**不吃**仓库根 .cargo/config.toml 的 rustflags，
-#   getrandom 的 backend cfg 必须在此显式给（feature 侧由本 crate Cargo.toml 的
-#   getrandom(0.3/0.4) wasm_js 提供，cfg + feature 缺一不可）。
-export RUSTFLAGS='--cfg getrandom_backend="wasm_js"'
+# getrandom 的 wasm_js backend 由仓库根 `.cargo/config.toml` 中的 wasm target
+# 配置统一提供；不要在构建脚本或环境变量中重复设置，避免各端配置分叉。
 
 # 从仓库根跑（docs 是构建产物家；也可用 docs 的 `pnpm build:wasm` 便捷脚本）
 wasm-pack build crates/web --target web --release --out-dir ../../docs/packages/swarmdrop-web
