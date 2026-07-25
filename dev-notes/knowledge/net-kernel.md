@@ -69,11 +69,6 @@ Web 端在上游合并前需要同时依赖 WebRTC DataChannel 回调生命周�
 `libp2p/rust-libp2p:master` 为基线，并合并上游 PR #6558 与 #6560；`Cargo.lock` 必须与该
 精确 revision 一起提交。
 
-WebRTC 数据面帧在全部 target 均须执行 `AsyncWriteExt::flush()`。曾为规避 websys 的
-`bufferedamountlow` 回调重入而在 wasm 跳过 flush；该逻辑随着 #6558 的生命周期修复移除，
-否则会把「帧写完」降级为仅入浏览器发送队列。8 KiB 仍由连接层协商，和应用层的 256 KiB
-传输分块是两个层级，不能用跳过 flush 替代背压。
-
 **正确做法**：
 - 每次更新先将 fork `master` 快进到上游，再重新合并仍未被上游接受的修复并跑 WebRTC/wasm 检查。
 - 上游合并或发布可用版本后，切回官方 URL（或 crates.io）并删除 fork pin。
