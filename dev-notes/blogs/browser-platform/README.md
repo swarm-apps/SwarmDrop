@@ -26,6 +26,7 @@ Rust 编到 wasm 能不能跑，是**工具链**问题（见姊妹系列 [rust-w
 | 03 | [mixed content 与私网 IP 豁免](03-mixed-content-private-ip.md) | https 页面拨明文的规则；私网 IP 豁免与 webrtc-direct 免疫的 2×2 实证 |
 | 04 | [Rust Stream → JS ReadableStream](04-readablestream-bridge.md) | 事件流的桥；单 reader 约束、serde tag/camelCase 对齐、无自动 TS 类型 |
 | 05 | [wasm-bindgen 边界](05-wasm-bindgen-boundary.md) | newtype / SendWrapper / 可序列化 error / --weak-refs 四类 ABI 约束 |
+| 06 | [一次 DataChannel 误判：8 KiB 单帧限制不等于 8 KiB 接收缓冲](06-webrtc-datachannel-backpressure.md) | 协商消息大小、浏览器回调累计缓冲、`flush()` 与真实 relay 端到端验证 |
 
 ## 阅读顺序
 
