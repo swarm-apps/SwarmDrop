@@ -3,8 +3,8 @@
 // #78 发送面板：选已配对设备 → 拖拽/选择文件 → send_files() → prepare 进度实时展示。
 // 隐式优先 + 极客高效（PRODUCT.md 原则 1/3）：选设备、拖文件、送达，路径尽量短，不堆确认
 // 层级；prepare 是真实阶段而非假 loading（原则 2·状态诚实可见）。
-// 发送完成（Offer 已发出）后的接受/进度呈现交给 ⑤⑥（#79/#80），本面板只负责把「发出」这一步
-// 走完。
+// 发送完成（Offer 已发出）后的实时进度视图交给 ⑥（#80）；本面板只多接了 #79 的一项——对方拒绝
+// （尤其未配对硬拒 NotPaired）不能悬空成永远的「已发出」，见下方 rejection 分支。
 
 import { useRef, useState } from "react";
 import { WebErrorCard } from "./web-error-view";
@@ -12,6 +12,7 @@ import { calcPercent, formatFileSize } from "../_lib/format";
 import { getNode } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode } from "../_lib/store";
+import { OFFER_REJECT_REASON_LABEL } from "../_lib/view-types";
 
 /** 待发送文件项——配 id 而非数组下标做 key，移除文件时不会因下标前移而错位复用。 */
 interface PendingFile {
@@ -32,6 +33,9 @@ export function SendPanel() {
   const [dragOver, setDragOver] = useState(false);
   const [sentSessionId, setSentSessionId] = useState<string | null>(null);
   const sendAction = useAsyncAction();
+  // #79：对方拒绝了刚发出的 offer（尤其未配对硬拒 NotPaired）——不能让「已发出」成功态
+  // 永久悬空显示，必须替换成清晰的拒绝提示。
+  const rejection = useWebNode((s) => (sentSessionId ? s.rejections[sentSessionId] : undefined));
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const addFiles = (list: FileList | null) => {
@@ -174,9 +178,14 @@ export function SendPanel() {
           )}
 
           {sendAction.error && <WebErrorCard error={sendAction.error} className="mt-3 text-xs" />}
-          {sentSessionId && (
+          {sentSessionId && !rejection && (
             <p className="mt-3 text-xs text-emerald-600 dark:text-emerald-400">
               已发出：<span className="font-mono">{sentSessionId}</span>（对方接受后即可传输）
+            </p>
+          )}
+          {rejection && (
+            <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
+              {rejection.reason ? OFFER_REJECT_REASON_LABEL[rejection.reason.type] : "对方拒绝了此次传输"}
             </p>
           )}
         </>

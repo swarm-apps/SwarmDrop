@@ -10,15 +10,18 @@ export type {
   WebTransferEvent,
   TransferProjection,
   TransferOfferEvent,
+  OfferJson,
+  TransferRejectedEvent,
   TransferProgressEvent,
   PrepareProgressEvent,
   PendingPairingJson,
   ConnectionJson,
+  OfferRejectReason,
   PathKindJson,
   Device,
 } from "swarmdrop-web";
 
-import type { WebError } from "swarmdrop-web";
+import type { OfferRejectReason, WebError } from "swarmdrop-web";
 
 /** 动态 import 的模块类型：跟随生成的 .d.ts（含 default=init 与 `WebNode` class，带 static spawn）。 */
 export type SwarmdropWebModule = typeof import("swarmdrop-web");
@@ -31,6 +34,17 @@ export const WEB_ERROR_KIND_LABEL: Record<WebError["kind"], string> = {
   invalidInput: "输入无效",
   notFound: "未找到",
   storage: "存储错误",
+};
+
+/**
+ * `OfferRejectReason["type"]` 的中文标签（#79：对端拒绝 offer 的提示，尤其 `notPaired` 那句
+ * ——内核安全边界，不是「静默失败」，前端必须区分展示）。
+ */
+export const OFFER_REJECT_REASON_LABEL: Record<OfferRejectReason["type"], string> = {
+  not_paired: "对方尚未与你配对，请先完成配对后再试",
+  user_declined: "对方拒绝了此次传输",
+  policy_rejected: "对方的接收策略拒绝了此次传输",
+  receiving_paused: "对方已暂停接收，请稍后再试",
 };
 
 /**

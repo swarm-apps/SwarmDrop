@@ -1,6 +1,6 @@
 // Web 应用区的状态层：镜像桌面 `src/stores/network-store` 的思路，但事件源是「双轨」的——
 //   源一：transfer 域事件走 `events()` 的 ReadableStream（单点消费，见 event-dispatch.ts）；
-//   源二：pairing 入站请求 + 已配对设备走同步 getter 轮询（见 state-poll.ts）。
+//   源二：pairing 入站请求、挂起 offer + 已配对设备走同步 getter 轮询（见 state-poll.ts）。
 // 二者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
 
 import { createStore, useStore } from "./create-store";
@@ -8,11 +8,13 @@ import type { SecureContextInfo } from "./secure-context";
 import type {
   ConnectionJson,
   Device,
+  OfferJson,
   PendingPairingJson,
   PrepareProgressEvent,
   TransferOfferEvent,
   TransferProgressEvent,
   TransferProjection,
+  TransferRejectedEvent,
   WebError,
   WebTransferEvent,
 } from "./view-types";
@@ -30,6 +32,26 @@ const EVENT_LOG_CAP = 50;
  */
 const IDENTITY_LOCATION = "localStorage（Window 主线程）";
 
+/**
+ * 接收面板所需的稳定 offer 视图。
+ *
+ * 事件流的 `TransferOfferEvent` 比 `pending_offers()` 快照多出来源与策略字段；接收 UI
+ * 当前只消费两者共有的文件/对端字段，故在边界归一，避免把「首次事件」与「启动回补」分成
+ * 两套 state 与渲染路径。
+ */
+export interface IncomingOffer {
+  sessionId: string;
+  peerId: string;
+  deviceName: string;
+  totalSize: number;
+  files: Array<{
+    fileId: number;
+    name: string;
+    relativePath: string;
+    size: number;
+  }>;
+}
+
 export interface WebNodeState {
   // —— node 域 ——
   status: NodeStatus;
@@ -44,8 +66,14 @@ export interface WebNodeState {
   // —— transfer 域（以 projection 为主状态源）——
   /** 传输投影：前端主状态源（内核逐步以 transferProjection 事件替代分散的终态事件）。 */
   projections: Record<string, TransferProjection>;
-  /** 挂起入站 offer（按 sessionId）。 */
-  offers: Record<string, TransferOfferEvent>;
+  /** 挂起入站 offer（按 sessionId）。#79：以非阻断通知/收件箱形式浮现，接受/拒绝后从此域移除。 */
+  offers: Record<string, IncomingOffer>;
+  /**
+   * 对方拒绝 Offer 的原因（按 sessionId，发送侧用）。#79 验收标准之一：未配对对端硬拒
+   * `NotPaired` 时前端要给清晰提示而非静默失败——SendPanel 据此渲染，而非让「已发出」
+   * 成功态永久悬空。终态事件，不随其他域裁剪。
+   */
+  rejections: Record<string, TransferRejectedEvent>;
   /** 发送侧 prepare（hash + bao outboard）进度，按 preparedId。 */
   prepares: Record<string, PrepareProgressEvent>;
   /**
@@ -85,6 +113,7 @@ const initialState: WebNodeState = {
   secure: null,
   projections: {},
   offers: {},
+  rejections: {},
   prepares: {},
   latestPrepareProgress: null,
   progress: {},
@@ -120,6 +149,24 @@ export const webNodeActions = {
   /** 事件源一：把一条 transfer 事件归约进对应域。 */
   applyEvent(event: WebTransferEvent) {
     webNodeStore.setState((s) => reduceEvent(s, event));
+  },
+  /** #79：offer 已被本机接受/拒绝，从「待处理」域移除（决策是一次性动作，同 removePendingPairing）。 */
+  removeOffer(sessionId: string) {
+    webNodeStore.setState((s) => {
+      if (!(sessionId in s.offers)) return {};
+      const offers = { ...s.offers };
+      delete offers[sessionId];
+      return { offers };
+    });
+  },
+  /**
+   * `pending_offers()` 是只读快照，用于补回事件流接管前已经到达的请求；之后继续由
+   * `transferOfferReceived` 事件实时驱动。每次轮询都以内核的 pending 集合为准，从而不会
+   * 留下已经在别处接受/拒绝的陈旧条目。
+   */
+  setPendingOffers(offers: OfferJson[]) {
+    const next = Object.fromEntries(offers.map((offer) => [offer.sessionId, offerFromSnapshot(offer)]));
+    webNodeStore.setState((s) => (offersEqual(s.offers, next) ? {} : { offers: next }));
   },
   /** 事件源二：轮询到的入站配对请求，累积（内核侧取出即清空，故这里追加不去重覆盖）。 */
   addPendingPairings(reqs: PendingPairingJson[]) {
@@ -165,7 +212,10 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
         eventLog,
       };
     case "transferOfferReceived":
-      return { offers: { ...s.offers, [ev.offer.sessionId]: ev.offer }, eventLog };
+      return {
+        offers: { ...s.offers, [ev.offer.sessionId]: offerFromEvent(ev.offer) },
+        eventLog,
+      };
     case "transferProgress":
       return { progress: { ...s.progress, [ev.event.sessionId]: ev.event }, eventLog };
     case "prepareProgress":
@@ -174,8 +224,13 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
         latestPrepareProgress: ev.event,
         eventLog,
       };
+    case "transferRejected":
+      // TransferProjection 的 terminalReason 只到 "rejected" 粒度，不含 reason.type（区分
+      // not_paired / user_declined / policy_rejected / receiving_paused）——发送侧要给出精确
+      // 提示（尤其 #79 验收标准的「未配对」硬拒场景）必须落这个单独的域。
+      return { rejections: { ...s.rejections, [ev.event.sessionId]: ev.event }, eventLog };
     default:
-      // 终态事件（accepted/rejected/completed/failed/paused/resumed/dbError）与 TransferProjection
+      // 其余终态事件（accepted/completed/failed/paused/resumed/dbError）与 TransferProjection
       // 的 phase/terminalReason/errorMessage 冗余（内核每次状态转换重发 projection），基座只留痕；
       // 未知事件（.d.ts 未覆盖的新变体）同样留痕不吞。
       return { eventLog };
@@ -194,4 +249,50 @@ function devicesEqual(a: Device[], b: Device[]): boolean {
   const key = (d: Device) => `${d.peerId}|${d.status}|${d.connection}|${d.latency}`;
   const seen = new Set(a.map(key));
   return b.every((d) => seen.has(key(d)));
+}
+
+function offerFromEvent(offer: TransferOfferEvent): IncomingOffer {
+  return {
+    sessionId: offer.sessionId,
+    peerId: offer.peerId,
+    deviceName: offer.deviceName,
+    totalSize: offer.totalSize,
+    files: offer.files.map(({ fileId, name, relativePath, size }) => ({ fileId, name, relativePath, size })),
+  };
+}
+
+function offerFromSnapshot(offer: OfferJson): IncomingOffer {
+  return {
+    sessionId: offer.sessionId,
+    peerId: offer.peerId,
+    deviceName: offer.peerName,
+    totalSize: offer.totalSize,
+    files: offer.files.map(({ fileId, name, relativePath, size }) => ({ fileId, name, relativePath, size })),
+  };
+}
+
+/** 轮询快照每次都会新建对象；按可见字段比较后才通知 React，避免 1.5 秒空转重渲染。 */
+function offersEqual(a: Record<string, IncomingOffer>, b: Record<string, IncomingOffer>): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((sessionId) => {
+    const left = a[sessionId];
+    const right = b[sessionId];
+    if (!right || left.peerId !== right.peerId || left.deviceName !== right.deviceName || left.totalSize !== right.totalSize) {
+      return false;
+    }
+    return (
+      left.files.length === right.files.length &&
+      left.files.every((file, index) => {
+        const other = right.files[index];
+        return (
+          file.fileId === other.fileId &&
+          file.name === other.name &&
+          file.relativePath === other.relativePath &&
+          file.size === other.size
+        );
+      })
+    );
+  });
 }
