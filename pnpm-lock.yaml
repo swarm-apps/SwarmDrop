@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@choochmeque/tauri-plugin-biometry-api':
-        specifier: ^0.2.6
-        version: 0.2.6
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -348,9 +345,6 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
-
-  '@choochmeque/tauri-plugin-biometry-api@0.2.6':
-    resolution: {integrity: sha512-baqYaDFxBYqAIfITBfkoW2ZYhduvTEl0Oza7s4vX/i2xJhPhedZ5p+U2Pn1bEqyXZKogs0pk1ERJejiv1mipMg==}
 
   '@csstools/color-helpers@6.1.0':
     resolution: {integrity: sha512-064IFJdjTfUqnjpCVpMOdbr8FLQBhinbZj6yRv2An2E41O/pLEXqfFRWqGq/SxlE5PEUYTlvWsG2r8MswAVvkg==}
@@ -3958,10 +3952,6 @@ snapshots:
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
-
-  '@choochmeque/tauri-plugin-biometry-api@0.2.6':
-    dependencies:
-      '@tauri-apps/api': 2.11.0
 
   '@csstools/color-helpers@6.1.0': {}
 
