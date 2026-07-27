@@ -242,16 +242,22 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
 3. ~~native 后端~~ —— ✅ 已完成。两个真实 webrtc-rs 后端在本机跑通**信令 + 数据面**：
    init 通道 → offer/answer → trickle ICE → DTLS → Connected → 开子流 → 双向传数据、
    字节一致。`native 作为 offerer` 这项验收随之达成（spike 当时只验了 answerer 方向）
-4. **wasm 后端** —— 浏览器 `RTCPeerConnection`；对称矩阵的另一半
-5. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
+4. ~~wasm 后端~~ —— ✅ 已实现（浏览器 `RTCPeerConnection`）。**但只过了编译，逻辑未实测**
+   ——wasm 侧要浏览器才能跑
+5. **接进 `crates/web`，用 `docs/app/try` 实测浏览器侧** —— 这是 wasm 后端的第一道真验收
+6. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
    「确认实现正确」而非「决定要不要做」
-6. 独立仓库 + 社区化
+7. **与 js-libp2p 互通验收** —— 通用性的最终判据（决策理由之一就是它）
+8. 独立仓库 + 社区化
 
 ### 已落地实现的形状（截至 2026-07-27）
 
     protocol/   线上格式，零 libp2p-swarm 依赖
-    backend/    WebRTC 栈抽象；native 已实现，wasm 待补；mock 供状态机测试
+    backend/    WebRTC 栈抽象 + native（webrtc-rs 0.20）+ wasm（RTCPeerConnection）+ mock
     swarm/      session（纯逻辑状态机）/ handler（poll 适配）/ behaviour / transport
+
+**native 侧已端到端验证**：两个真实后端在本机跑通信令与数据面（开子流、双向传数据、
+字节一致）。wasm 侧只过了编译与 clippy，逻辑待浏览器实测。
 
 依赖方向单向 `swarm → backend → protocol`。状态机与协议层都是纯逻辑，可脱离真实
 WebRTC 与真实 `Stream` 测试——这是把「最容易出错的部分」隔离出来的刻意安排。
