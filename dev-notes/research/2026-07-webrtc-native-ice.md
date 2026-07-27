@@ -237,13 +237,24 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
 ### 执行顺序
 
 1. ~~验 ICE 能力与背压~~ —— ✅ 已完成（见上文 spike 结论）
-2. 设计 signaling 的 transport + behaviour 配对，跑通浏览器 ↔ NAT 后桌面。
-   **对称性从第一天就要在接口里体现**（见上文覆盖范围），事后补是重写
-3. 两项验收（不阻塞开工，有雏形后一起验）：
-   - **native 作为 offerer** —— spike 只验了 answerer 方向
-   - **跨 NAT 打洞** —— 需要两台不同网络的机器。此步目的已变：不再是「决定要不要做」
-     的判据，而是「确认实现正确」的验收项
-4. 独立仓库 + 社区化
+2. ~~signaling 的 transport + behaviour 配对~~ —— ✅ 已完成，见 `crates/webrtc-p2p`
+   （分支 `feat/webrtc-p2p-transport`）
+3. ~~native 后端~~ —— ✅ 已完成。两个真实 webrtc-rs 后端在本机跑通**信令 + 数据面**：
+   init 通道 → offer/answer → trickle ICE → DTLS → Connected → 开子流 → 双向传数据、
+   字节一致。`native 作为 offerer` 这项验收随之达成（spike 当时只验了 answerer 方向）
+4. **wasm 后端** —— 浏览器 `RTCPeerConnection`；对称矩阵的另一半
+5. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
+   「确认实现正确」而非「决定要不要做」
+6. 独立仓库 + 社区化
+
+### 已落地实现的形状（截至 2026-07-27）
+
+    protocol/   线上格式，零 libp2p-swarm 依赖
+    backend/    WebRTC 栈抽象；native 已实现，wasm 待补；mock 供状态机测试
+    swarm/      session（纯逻辑状态机）/ handler（poll 适配）/ behaviour / transport
+
+依赖方向单向 `swarm → backend → protocol`。状态机与协议层都是纯逻辑，可脱离真实
+WebRTC 与真实 `Stream` 测试——这是把「最容易出错的部分」隔离出来的刻意安排。
 
 3、4 仍应分开：API 设计、文档、CI、发版、issue 响应这些开销，在跑通之前都是负担；
 而真实的设计约束要跑通了才知道，那时设计的 API 才靠谱。
