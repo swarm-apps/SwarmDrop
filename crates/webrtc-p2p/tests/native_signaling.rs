@@ -75,3 +75,60 @@ async fn two_native_backends_complete_signaling() {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
+
+/// 建连之后真的能收发数据。
+///
+/// 这是数据面的决定性验证：信令只证明「握上手了」，这里证明「握完能说话」——
+/// DataChannel → 字节流 → libp2p framing 整条适配链都得对，错一环这个测试就挂。
+#[tokio::test]
+async fn established_connection_carries_data() {
+    use futures::{AsyncReadExt, AsyncWriteExt};
+    use libp2p_core::muxing::StreamMuxer;
+    use std::pin::Pin;
+
+    let config = Config::default();
+    let mut initiator = NativeBackend::new(&config);
+    let mut responder = NativeBackend::new(&config);
+    initiator.start_offer().unwrap();
+
+    let (mut a_up, mut b_up) = (false, false);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while !(a_up && b_up) {
+        assert!(tokio::time::Instant::now() < deadline, "30s 内未完成信令");
+        a_up |= relay_one(&mut initiator, &mut responder).expect("发起方信令失败");
+        b_up |= relay_one(&mut responder, &mut initiator).expect("应答方信令失败");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+
+    let mut muxer_a = initiator.take_muxer().expect("建连后应能取到数据面");
+    let mut muxer_b = responder.take_muxer().expect("建连后应能取到数据面");
+    assert!(
+        initiator.take_muxer().is_none(),
+        "数据面只能取一次，所有权已交出"
+    );
+
+    // 一端开流、另一端收流；两个方向必须并发驱动，否则互相等待。
+    let (outbound, inbound) = tokio::time::timeout(
+        Duration::from_secs(15),
+        futures::future::join(
+            std::future::poll_fn(|cx| Pin::new(&mut muxer_a).poll_outbound(cx)),
+            std::future::poll_fn(|cx| Pin::new(&mut muxer_b).poll_inbound(cx)),
+        ),
+    )
+    .await
+    .expect("15s 内应完成开流");
+
+    let mut sender = outbound.expect("开出站流失败");
+    let mut receiver = inbound.expect("收入站流失败");
+
+    const MSG: &[u8] = b"hello over webrtc datachannel";
+    sender.write_all(MSG).await.expect("写入失败");
+    sender.flush().await.expect("flush 失败");
+
+    let mut buf = vec![0u8; MSG.len()];
+    tokio::time::timeout(Duration::from_secs(15), receiver.read_exact(&mut buf))
+        .await
+        .expect("15s 内应收到数据")
+        .expect("读取失败");
+    assert_eq!(buf, MSG, "收到的字节应与发出的一致");
+}

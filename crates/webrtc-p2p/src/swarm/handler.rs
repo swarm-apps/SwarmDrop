@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 
 use asynchronous_codec::Framed;
 use futures::{SinkExt, StreamExt};
+use libp2p_core::muxing::StreamMuxerBox;
 use libp2p_core::upgrade::ReadyUpgrade;
 use libp2p_swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, FullyNegotiatedInbound,
@@ -33,8 +34,8 @@ pub enum Command {
 /// handler → behaviour。
 #[derive(Debug)]
 pub enum Event {
-    /// 直连建立（spec 步骤 8）。
-    Connected,
+    /// 直连建立（spec 步骤 8），附数据面。
+    Connected(StreamMuxerBox),
     /// 信令或建连失败。
     Failed(Error),
 }
@@ -185,7 +186,13 @@ impl ConnectionHandler for Handler {
                 Poll::Ready(Action::Connected) => {
                     // spec 步骤 8：成功后关闭信令流。
                     self.stream = None;
-                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Event::Connected));
+                    let event = match self.session.take_muxer() {
+                        Some(muxer) => Event::Connected(muxer),
+                        // 建连事件到了却拿不到数据面，等于没连上——如实报失败，
+                        // 否则上层会拿到一个不能收发的连接。
+                        None => Event::Failed(Error::Connection("数据面缺失".into())),
+                    };
+                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(event));
                 }
                 Poll::Ready(Action::Failed(e)) => {
                     self.stream = None;

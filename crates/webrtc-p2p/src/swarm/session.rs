@@ -196,6 +196,11 @@ impl Session {
         self.pending_action = Some(Action::Failed(error));
     }
 
+    /// 取出数据面。仅在 [`Action::Connected`] 之后有效，且只能取一次。
+    pub fn take_muxer(&mut self) -> Option<libp2p_core::muxing::StreamMuxerBox> {
+        self.backend.as_mut()?.take_muxer()
+    }
+
     /// 取下一条待发消息。宿主应在流可写时反复调用直至返回 `None`。
     pub fn next_outgoing(&mut self) -> Option<Message> {
         self.outbox.pop_front()
@@ -229,6 +234,7 @@ impl Session {
                     self.outbox.push_back(Message::ice_candidate(json))
                 }
                 BackendEvent::Connected => {
+                    // 注意此处**不清 backend**：数据面还要靠它交出来（见 take_muxer）。
                     self.state = State::Finished;
                     return Poll::Ready(Action::Connected);
                 }

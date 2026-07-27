@@ -70,6 +70,11 @@ impl Backend for MockBackend {
         Ok(())
     }
 
+    fn take_muxer(&mut self) -> Option<libp2p_core::muxing::StreamMuxerBox> {
+        // 脚本化后端没有真实连接，数据面由集成测试覆盖。
+        None
+    }
+
     fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<BackendEvent> {
         match self.queued.pop_front() {
             Some(e) => Poll::Ready(e),

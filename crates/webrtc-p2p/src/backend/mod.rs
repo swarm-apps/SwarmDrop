@@ -22,6 +22,8 @@
 
 use std::task::{Context, Poll};
 
+use libp2p_core::muxing::StreamMuxerBox;
+
 use crate::protocol::message::MessageType;
 
 /// 后端错误。
@@ -73,6 +75,12 @@ pub trait Backend: Send + 'static {
 
     /// 取下一个后端事件。
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<BackendEvent>;
+
+    /// 取出数据面。
+    ///
+    /// 仅在 [`BackendEvent::Connected`] 之后有效，且**只能取一次**——所有权交给上层的
+    /// `Connection`。未建连或已取走时返回 `None`。
+    fn take_muxer(&mut self) -> Option<StreamMuxerBox>;
 }
 
 /// 后端工厂：每条信令流配一个新后端。

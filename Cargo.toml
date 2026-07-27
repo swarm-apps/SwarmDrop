@@ -76,6 +76,9 @@ libp2p-webrtc = { git = "https://github.com/yexiyue/rust-libp2p", rev = "989cb61
 # 依赖 facade 会把整个协议栈拖进它的依赖树（官方 transport crate 同样只依赖这两个）。
 libp2p-core = { git = "https://github.com/yexiyue/rust-libp2p", rev = "989cb610658a49db3b76cf2ce864f1504e5fc69d" }
 libp2p-swarm = { git = "https://github.com/yexiyue/rust-libp2p", rev = "989cb610658a49db3b76cf2ce864f1504e5fc69d" }
+# DataChannel 之上的 libp2p framing。泛型且不依赖 webrtc-rs，故复用它不会把
+# 官方 libp2p-webrtc 钉的 0.17 拖进来。
+libp2p-webrtc-utils = { git = "https://github.com/yexiyue/rust-libp2p", rev = "989cb610658a49db3b76cf2ce864f1504e5fc69d" }
 # identity/multiaddr 不走 git：93c5059 树自己就把两者解析到 crates.io（spike 的
 # Cargo.lock 实证 libp2p-identity 0.2.14 / multiaddr 0.18.2 均为 registry 来源），
 # net-base 用 crates.io 版本与 git 树天然 unify，类型底座不背 git 依赖。

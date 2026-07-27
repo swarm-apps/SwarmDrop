@@ -212,10 +212,8 @@ impl NetworkBehaviour for Behaviour {
         event: THandlerOutEvent<Self>,
     ) {
         match event {
-            handler::Event::Connected => {
-                // TODO(后端)：`Connection` 应由后端在 Connected 时交出真实句柄，
-                // 现在只带 peer 身份。
-                let conn = Connection::new(peer);
+            handler::Event::Connected(muxer) => {
+                let conn = Connection::new(peer, muxer);
                 if self.pending_dials.contains_key(&peer) {
                     // 出站：回送给 transport 的 dial future。
                     self.finish_dial(peer, Ok(conn));
@@ -296,6 +294,70 @@ mod tests {
         "/ip4/1.2.3.4/tcp/4001".parse().unwrap()
     }
 
+    /// 空数据面：只为让 `Connected` 事件能被构造。真实数据面由集成测试覆盖。
+    fn null_muxer() -> libp2p_core::muxing::StreamMuxerBox {
+        use libp2p_core::muxing::{StreamMuxer, StreamMuxerEvent};
+        use std::pin::Pin;
+
+        struct NullStream;
+        impl futures::AsyncRead for NullStream {
+            fn poll_read(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+                _: &mut [u8],
+            ) -> Poll<std::io::Result<usize>> {
+                Poll::Ready(Ok(0))
+            }
+        }
+        impl futures::AsyncWrite for NullStream {
+            fn poll_write(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+                buf: &[u8],
+            ) -> Poll<std::io::Result<usize>> {
+                Poll::Ready(Ok(buf.len()))
+            }
+            fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
+            fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
+        }
+
+        struct NullMuxer;
+        impl StreamMuxer for NullMuxer {
+            type Substream = NullStream;
+            type Error = std::io::Error;
+            fn poll_inbound(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+            ) -> Poll<Result<Self::Substream, Self::Error>> {
+                Poll::Pending
+            }
+            fn poll_outbound(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+            ) -> Poll<Result<Self::Substream, Self::Error>> {
+                Poll::Pending
+            }
+            fn poll_close(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+            ) -> Poll<Result<(), Self::Error>> {
+                Poll::Ready(Ok(()))
+            }
+            fn poll(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+            ) -> Poll<Result<StreamMuxerEvent, Self::Error>> {
+                Poll::Pending
+            }
+        }
+
+        libp2p_core::muxing::StreamMuxerBox::new(NullMuxer)
+    }
+
     /// 未连上时应先拨号，而不是直接给一个不存在的连接发命令。
     #[test]
     fn dial_request_without_connection_dials_first() {
@@ -352,7 +414,7 @@ mod tests {
         b.on_connection_handler_event(
             peer(1),
             ConnectionId::new_unchecked(0),
-            handler::Event::Connected,
+            handler::Event::Connected(null_muxer()),
         );
 
         assert!(matches!(rx.try_recv(), Ok(Some(Ok(_)))));
@@ -366,7 +428,7 @@ mod tests {
         b.on_connection_handler_event(
             peer(9),
             ConnectionId::new_unchecked(0),
-            handler::Event::Connected,
+            handler::Event::Connected(null_muxer()),
         );
 
         let expected = peer(9);

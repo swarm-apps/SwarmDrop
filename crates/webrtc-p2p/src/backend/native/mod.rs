@@ -32,20 +32,22 @@ use webrtc::peer_connection::{
 };
 use webrtc::runtime::default_runtime;
 
+use libp2p_core::muxing::StreamMuxerBox;
+use webrtc::data_channel::DataChannel;
+
+use self::muxer::{INIT_CHANNEL_LABEL as MUXER_INIT_LABEL, Muxer};
 use super::{Backend, BackendError, BackendEvent};
 use crate::config::Config;
 use crate::protocol::MessageType;
+
+mod data_channel;
+mod muxer;
 
 /// SCTP 接收窗口。默认 1 MiB 在 LAN 上会导致连接直接断掉（spike 实测 4 MiB 处 failed）。
 const SCTP_RECEIVE_BUFFER: u32 = 8 * 1024 * 1024;
 
 /// 发送缓冲上限。默认无界；实测 1 MiB 吞吐腰斩、4 MiB 与无界持平且内存封顶。
 const SEND_BUFFER_LIMIT: usize = 4 * 1024 * 1024;
-
-/// spec 步骤 4 要求的 DataChannel label。
-///
-/// 「必须先建这条 channel，否则 SDP 里不带 ICE 信息」——少了它 offer 是空的，打洞无从谈起。
-const INIT_CHANNEL_LABEL: &str = "init";
 
 /// 排队中的操作。
 ///
@@ -67,6 +69,8 @@ pub struct NativeBackend {
     running: Option<BoxFuture<'static, Result<(), BackendError>>>,
     events_tx: mpsc::UnboundedSender<BackendEvent>,
     events_rx: mpsc::UnboundedReceiver<BackendEvent>,
+    /// 对端开来的 DataChannel，建连后连同 PeerConnection 一起交给 muxer。
+    inbound_dc_rx: Option<mpsc::UnboundedReceiver<Arc<dyn DataChannel>>>,
 }
 
 enum State {
@@ -95,13 +99,16 @@ impl NativeBackend {
     /// 同步构造；真正的 `PeerConnection` 在首次 [`Backend::poll`] 时建好。
     pub fn new(config: &Config) -> Self {
         let (events_tx, events_rx) = mpsc::unbounded();
-        let building = build_peer_connection(config.clone(), events_tx.clone()).boxed();
+        let (inbound_dc_tx, inbound_dc_rx) = mpsc::unbounded();
+        let building =
+            build_peer_connection(config.clone(), events_tx.clone(), inbound_dc_tx).boxed();
         Self {
             state: State::Building(building),
             queued: VecDeque::new(),
             running: None,
             events_tx,
             events_rx,
+            inbound_dc_rx: Some(inbound_dc_rx),
         }
     }
 
@@ -127,7 +134,7 @@ impl NativeBackend {
                 match op {
                     Op::StartOffer => {
                         // spec 步骤 4：offer 之前必须先建 `init` DataChannel。
-                        pc.create_data_channel(INIT_CHANNEL_LABEL, None)
+                        pc.create_data_channel(MUXER_INIT_LABEL, None)
                             .await
                             .map_err(|e| BackendError::new(format!("创建 init 通道失败：{e}")))?;
                         let offer = pc
@@ -206,6 +213,15 @@ impl Backend for NativeBackend {
         Ok(())
     }
 
+    fn take_muxer(&mut self) -> Option<StreamMuxerBox> {
+        let State::Ready(pc) = &self.state else {
+            return None;
+        };
+        // 接收端只有一个，take 掉即表示所有权已交出——再次调用返回 None。
+        let incoming = self.inbound_dc_rx.take()?;
+        Some(StreamMuxerBox::new(Muxer::new(pc.clone(), incoming)))
+    }
+
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<BackendEvent> {
         // 1. 等 PeerConnection 建好。
         if let State::Building(fut) = &mut self.state {
@@ -256,6 +272,7 @@ impl Backend for NativeBackend {
 #[derive(Clone)]
 struct EventForwarder {
     tx: mpsc::UnboundedSender<BackendEvent>,
+    dc_tx: mpsc::UnboundedSender<Arc<dyn DataChannel>>,
 }
 
 #[async_trait::async_trait]
@@ -271,6 +288,11 @@ impl PeerConnectionEventHandler for EventForwarder {
             },
             Err(e) => tracing::warn!("转换本地 candidate 失败：{e}"),
         }
+    }
+
+    async fn on_data_channel(&self, dc: Arc<dyn DataChannel>) {
+        // 交给 muxer 决定去留：init 通道会在那里被跳过（它不是数据流）。
+        let _ = self.dc_tx.unbounded_send(dc);
     }
 
     async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
@@ -290,6 +312,7 @@ impl PeerConnectionEventHandler for EventForwarder {
 async fn build_peer_connection(
     config: Config,
     events_tx: mpsc::UnboundedSender<BackendEvent>,
+    dc_tx: mpsc::UnboundedSender<Arc<dyn DataChannel>>,
 ) -> Result<Arc<dyn PeerConnection>, BackendError> {
     let runtime = default_runtime().ok_or_else(|| {
         BackendError::new("未检测到 async 运行时：native 后端需在 tokio 或 smol 中运行")
@@ -313,7 +336,10 @@ async fn build_peer_connection(
         .with_configuration(rtc_config)
         .with_media_engine(media_engine)
         .with_interceptor_registry(registry)
-        .with_handler(Arc::new(EventForwarder { tx: events_tx }))
+        .with_handler(Arc::new(EventForwarder {
+            tx: events_tx,
+            dc_tx,
+        }))
         .with_runtime(runtime)
         .with_udp_addrs(bind_addrs(&config))
         .with_sctp_receive_buffer_size(SCTP_RECEIVE_BUFFER)

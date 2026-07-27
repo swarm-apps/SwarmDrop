@@ -34,6 +34,7 @@ unsigned-varint = { workspace = true }
 # 下会在 workspace unification 时互相污染。
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 webrtc = "0.20.0-rc.4"
+libp2p-webrtc-utils = { workspace = true }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
 # 枚举本机网卡地址。绑 `0.0.0.0` 时 webrtc-rs **不会展开网卡**，会把字面量 0.0.0.0
@@ -44,3 +45,4 @@ if-addrs = "0.13"
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 # native 后端要求宿主处于 async 运行时中（webrtc-rs 的 default_runtime 靠它探测）。
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+libp2p-core = { workspace = true }
