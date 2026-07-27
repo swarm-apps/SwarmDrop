@@ -69,6 +69,59 @@ libp2p 本体里（会加深已有的 fork 债务）。
 js-libp2p 互通、#5978 若合并也能互通、社区接受度高。自创省不了多少事，却会让这个 crate
 永远只能和自己说话。
 
+## 覆盖范围：全矩阵，前提是实现对称
+
+信令协议是**对称**的，与两端各是什么类型无关——A 经 relay 发 offer、B 回 answer、双方
+交换 candidate、打洞、relay 退场。spec（`specs/webrtc/webrtc.md:15`）把这点写死了：
+
+> Note that _A_ and/or _B_ may as well be **non-browser nodes behind NATs** and/or firewalls.
+
+所以同一套实现覆盖全部组合：
+
+| 组合 | 今天 | 有了这个 crate |
+|---|---|---|
+| **web ↔ web** | 全程 relay 中转 | ✅ 直连 |
+| **web ↔ native（NAT 后）** | 全程 relay 中转 | ✅ 直连 |
+| web ↔ native（公网 / 局域网） | 已直连（webrtc-direct） | 不变 |
+| native ↔ native | 已直连（DCUtR） | 不变，多一条备选路径 |
+
+前两行是纯增量。**注意 web ↔ web 也在内**——它今天同样是全程中转
+（见 [`blogs/network/2026-07-cross-end-connectivity.md`](../blogs/network/2026-07-cross-end-connectivity.md)）。
+
+### 对称性是硬约束，不是可选优化
+
+**两侧实现都必须能 offer 也能 answer。** 不能把浏览器侧写成「只发起」、native 侧写成
+「只接受」——那样矩阵第二行就塌了。
+
+这正是 [#5978](https://github.com/libp2p/rust-libp2p/pull/5978) 的局限：它只实现了
+`webrtc-websys`（浏览器侧），native 侧一行没动，所以只能拿到第一行。**我们要多做的那
+一半，恰恰是让矩阵完整的那一半。**
+
+⚠️ **spike 只验证了 native 作为 answerer**（浏览器 offer → Rust answer）。native 作为
+offerer 尚未验证——`webrtc-rs` 有 `create_offer`，预期没问题，但这是对称性的必要验收项，
+别漏。
+
+### relay 省不掉，但角色降级
+
+信令必须经一条**已建立的连接**传输，而两端都在 NAT 后时那只能是 relay circuit。所以
+relay 依然必需。变的是它承担什么：
+
+```
+今天：  relay 转发全部文件数据        →  几百 MB
+之后：  relay 只转发 SDP + candidate  →  几 KB，打洞成功后信令流即关闭
+```
+
+**这才是本方案真正的收益形态**——不是「不再需要 relay」，而是「relay 从数据管道降级为
+握手信道」。自建 relay 的成本模型会完全不同。
+
+### 对 API 设计的影响
+
+既然要覆盖全矩阵，crate 就不能设计成「浏览器专用」或「native 专用」，而是**同一个协议
+实现的两个 target 特化**：signaling 状态机、SDP 处理、multiaddr 格式全部共享，只有底层
+PeerConnection 不同（`webrtc-rs` vs 浏览器 `RTCPeerConnection`）。
+
+这也是「通用」的第二层含义——不只是别的项目能用，而是**在同一个项目里覆盖所有端的组合**。
+
 ## spike 验证结论（2026-07-27）
 
 完整实验数据见 `spike/webrtc-ice-browser/README.md`。核心四条：
@@ -143,9 +196,12 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
 ### 执行顺序
 
 1. ~~验 ICE 能力与背压~~ —— ✅ 已完成（见上文 spike 结论）
-2. **验跨 NAT 打洞** —— 需要两台不同网络的机器。注意此步的**目的已变**：不再是
-   「决定要不要做」的判据，而是「确认实现正确」的验收项
-3. 设计 signaling 的 transport + behaviour 配对，跑通浏览器 ↔ NAT 后桌面
+2. 设计 signaling 的 transport + behaviour 配对，跑通浏览器 ↔ NAT 后桌面。
+   **对称性从第一天就要在接口里体现**（见上文覆盖范围），事后补是重写
+3. 两项验收（不阻塞开工，有雏形后一起验）：
+   - **native 作为 offerer** —— spike 只验了 answerer 方向
+   - **跨 NAT 打洞** —— 需要两台不同网络的机器。此步目的已变：不再是「决定要不要做」
+     的判据，而是「确认实现正确」的验收项
 4. 独立仓库 + 社区化
 
 3、4 仍应分开：API 设计、文档、CI、发版、issue 响应这些开销，在跑通之前都是负担；
