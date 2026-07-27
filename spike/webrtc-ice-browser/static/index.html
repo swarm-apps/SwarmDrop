@@ -1,0 +1,174 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>spike: webrtc-rs 0.20 ↔ 浏览器 ICE</title>
+<style>
+  body { font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 24px; max-width: 900px; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  .sub { color: #666; margin-bottom: 16px; }
+  button { font: inherit; padding: 4px 12px; margin-right: 8px; }
+  #log { background: #111; color: #ddd; padding: 12px; height: 340px; overflow: auto; white-space: pre-wrap; border-radius: 4px; }
+  .ok { color: #4ade80; } .bad { color: #f87171; } .hi { color: #60a5fa; }
+</style>
+
+<h1>spike: webrtc-rs 0.20 ↔ 浏览器 RTCPeerConnection</h1>
+<div class="sub">验证完整 ICE 协商能否打通 DataChannel。信令走本机 HTTP（vanilla ICE）。</div>
+
+<button id="go">① 建立连接</button>
+<button id="ping" disabled>② 发消息</button>
+<button id="bench" disabled>③ 吞吐测试（8 MiB）</button>
+<button id="stats" disabled>④ 看选中的 candidate pair</button>
+<button id="down" disabled>⑤ 下载测试（Rust → 浏览器 8 MiB）</button>
+
+<div id="log"></div>
+
+<script>
+  const logEl = document.getElementById("log");
+  const log = (msg, cls = "") => {
+    logEl.insertAdjacentHTML("beforeend", `<span class="${cls}">${msg}</span>\n`);
+    logEl.scrollTop = logEl.scrollHeight;
+  };
+
+  let pc, dc;
+
+  // 与 Rust 端同一个 STUN——两侧都要能产出 srflx，打洞才谈得上。
+  const STUN = "stun:stun.l.google.com:19302";
+
+  function countCandidates(tag, sdp) {
+    const lines = sdp.split("\n").filter((l) => l.startsWith("a=candidate:"));
+    const n = (t) => lines.filter((l) => l.includes(` typ ${t}`)).length;
+    log(`[${tag}] candidates: host=${n("host")} srflx=${n("srflx")} relay=${n("relay")}`);
+    lines.forEach((l) => log("      " + l.trim()));
+  }
+
+  document.getElementById("go").onclick = async () => {
+    pc = new RTCPeerConnection({ iceServers: [{ urls: STUN }] });
+
+    pc.oniceconnectionstatechange = () =>
+      log(`[ice] connection: ${pc.iceConnectionState}`,
+          pc.iceConnectionState === "connected" ? "ok" : "");
+    pc.onconnectionstatechange = () => log(`[pc ] state: ${pc.connectionState}`);
+
+    dc = pc.createDataChannel("spike");
+    dc.binaryType = "arraybuffer";
+    dc.onopen = () => {
+      log("[dc ] open ✅", "ok");
+      for (const id of ["ping", "bench", "stats", "down"]) document.getElementById(id).disabled = false;
+    };
+    dc.onclose = () => log("[dc ] closed");
+    dc.onmessage = (e) => {
+      if (typeof e.data !== "string") return onDownChunk(e.data.byteLength);
+      if (e.data.startsWith("send-done")) return finishDown(e.data);
+      log(`[dc ] ← ${e.data}`, "hi");
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    // vanilla ICE：等 gathering 完成再一次性发出去
+    await new Promise((res) => {
+      if (pc.iceGatheringState === "complete") return res();
+      pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && res();
+    });
+    log("[ice] gathering complete");
+    countCandidates("off", pc.localDescription.sdp);
+
+    const t0 = performance.now();
+    const resp = await fetch("/signal", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(pc.localDescription),
+    });
+    if (!resp.ok) return log(`[!!] 信令失败: ${await resp.text()}`, "bad");
+
+    const answer = await resp.json();
+    countCandidates("ans", answer.sdp);
+    await pc.setRemoteDescription(answer);
+    log(`[sig] answer 已应用（${Math.round(performance.now() - t0)} ms）`);
+  };
+
+  document.getElementById("ping").onclick = () => {
+    const msg = "ping " + new Date().toISOString();
+    dc.send(msg);
+    log(`[dc ] → ${msg}`);
+  };
+
+  let bench = null;
+
+  // ── 下行（Rust → 浏览器）：验证 0.20 的发送侧背压 ──
+  // 接收侧计时以「第一个数据块到达」为起点，避免把请求往返算进去。
+  let down = null;
+  function onDownChunk(n) {
+    if (!down) down = { got: 0, t0: performance.now() };
+    down.got += n;
+  }
+  function finishDown(msg) {
+    if (!down) return log(`[dn ] ${msg}（无数据到达）`, "bad");
+    const ms = performance.now() - down.t0;
+    const mib = down.got / 1048576;
+    log(`[dn ] 收到 ${mib.toFixed(1)} MiB / ${ms.toFixed(0)} ms = ` +
+        `${(mib / (ms / 1000)).toFixed(1)} MiB/s · 对端报告：${msg}`, "ok");
+    down = null;
+  }
+
+  document.getElementById("down").onclick = () => {
+    down = null;
+    log("[dn ] 请求 Rust 端下发 8 MiB…");
+    dc.send("send-me " + 8 * 1024 * 1024);
+  };
+
+  document.getElementById("bench").onclick = async () => {
+    const CHUNK = 16 * 1024, TOTAL = 8 * 1024 * 1024;
+    const buf = new Uint8Array(CHUNK).fill(7);
+    bench = { got: 0, total: 0, t0: performance.now() };
+    let sent = 0;
+    // 轮询而非 onbufferedamountlow：后者若在赋值 handler 前就触发会死等。
+    // 阈值压到 1 MiB —— 8 MiB 的突发会把 UDP 通道打满，ICE 的 consent 刷新
+    // （每 ~5s 一次 STUN binding）挤不进去，连接会被判定失效。
+    const HIGH = 1 << 20;
+    // 连接可能中途 failed —— 不检查 readyState 就会在 bufferedAmount 上死等，
+    // 把页面主线程锁死（实测踩过，连 agent-browser 都点不动）。
+    const alive = () => dc.readyState === "open" && pc.connectionState === "connected";
+    while (sent < TOTAL) {
+      while (dc.bufferedAmount > HIGH) {
+        if (!alive()) {
+          log(`[bch] ⛔ 连接中断于 ${(sent / 1048576).toFixed(1)} MiB ` +
+              `(dc=${dc.readyState} pc=${pc.connectionState})`, "bad");
+          bench = null;
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      dc.send(buf);
+      sent += CHUNK;
+    }
+    if (!alive()) {
+      log(`[bch] ⛔ 发送完成但连接已断 (pc=${pc.connectionState})`, "bad");
+      bench = null;
+      return;
+    }
+    // 发送侧只反映填缓冲的速度，没有意义——等 bufferedAmount 排空才是真发完，
+    // 然后让对端报它的接收速率（那才是链路的真实吞吐）。
+    while (dc.bufferedAmount > 0 && alive()) await new Promise((r) => setTimeout(r, 20));
+    const ms = performance.now() - bench.t0;
+    log(`[bch] 发完 ${(sent / 1048576).toFixed(1)} MiB / ${ms.toFixed(0)} ms ` +
+        `= ${(sent / 1048576 / (ms / 1000)).toFixed(1)} MiB/s（发送侧）`, "ok");
+    dc.send("bench-done");
+    bench = null;
+  };
+
+  document.getElementById("stats").onclick = async () => {
+    const stats = await pc.getStats();
+    let pair = null;
+    const byId = new Map();
+    stats.forEach((r) => byId.set(r.id, r));
+    stats.forEach((r) => {
+      if (r.type === "candidate-pair" && r.state === "succeeded" && r.nominated) pair = r;
+    });
+    if (!pair) return log("[sts] 没有找到选中的 candidate pair", "bad");
+    const l = byId.get(pair.localCandidateId), r = byId.get(pair.remoteCandidateId);
+    log(`[sts] 选中路径: ${l?.candidateType}(${l?.address}:${l?.port}) ` +
+        `↔ ${r?.candidateType}(${r?.address}:${r?.port})`, "hi");
+    log(`[sts] 收/发: ${(pair.bytesReceived / 1048576).toFixed(2)} / ` +
+        `${(pair.bytesSent / 1048576).toFixed(2)} MiB · RTT ${(pair.currentRoundTripTime * 1000).toFixed(1)} ms`);
+  };
+</script>
