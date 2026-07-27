@@ -80,6 +80,10 @@ pub type Factory = std::sync::Arc<
     dyn Fn(&crate::Config) -> Result<Box<dyn Backend>, BackendError> + Send + Sync + 'static,
 >;
 
+/// 原生后端（`webrtc-rs`）。wasm 上不编——它自带 UDP/SCTP/DTLS 栈。
+#[cfg(not(target_family = "wasm"))]
+pub mod native;
+
 /// 测试替身：脚本化后端，让信令状态机脱离真实 WebRTC 栈被驱动。
 #[cfg(test)]
 pub(crate) mod mock;

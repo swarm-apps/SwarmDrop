@@ -1,5 +1,6 @@
 //! 传输配置。
 
+use std::net::SocketAddr;
 use std::time::Duration;
 
 /// STUN 服务器。
@@ -22,6 +23,7 @@ pub const DEFAULT_SIGNALING_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct Config {
     stun_servers: Vec<String>,
     signaling_timeout: Duration,
+    udp_bind_addrs: Vec<SocketAddr>,
 }
 
 impl Default for Config {
@@ -29,6 +31,7 @@ impl Default for Config {
         Self {
             stun_servers: DEFAULT_STUN_SERVERS.iter().map(|s| s.to_string()).collect(),
             signaling_timeout: DEFAULT_SIGNALING_TIMEOUT,
+            udp_bind_addrs: Vec::new(),
         }
     }
 }
@@ -59,6 +62,20 @@ impl Config {
 
     pub fn signaling_timeout(&self) -> Duration {
         self.signaling_timeout
+    }
+
+    /// 覆盖 ICE 绑定的本地地址。
+    ///
+    /// 留空则由后端枚举本机网卡。**不要传 `0.0.0.0`**——webrtc-rs 不会据此展开网卡，
+    /// 而是把字面量写进 host candidate，对端无法使用，host 路径整条作废
+    /// （spike 实测吞吐从 50 MiB/s 掉到 0.6 MiB/s）。
+    pub fn with_udp_bind_addrs(mut self, addrs: impl IntoIterator<Item = SocketAddr>) -> Self {
+        self.udp_bind_addrs = addrs.into_iter().collect();
+        self
+    }
+
+    pub fn udp_bind_addrs(&self) -> &[SocketAddr] {
+        &self.udp_bind_addrs
     }
 }
 

@@ -27,3 +27,20 @@ futures = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 unsigned-varint = { workspace = true }
+
+# ── native 后端 ──
+# 只在非 wasm 上编：webrtc-rs 自带 UDP/SCTP/DTLS 栈，编不到 wasm（浏览器侧将用
+# 原生 RTCPeerConnection）。用 target 表而非 feature——feature 是加性的，双 target
+# 下会在 workspace unification 时互相污染。
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+webrtc = "0.20.0-rc.4"
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+# 枚举本机网卡地址。绑 `0.0.0.0` 时 webrtc-rs **不会展开网卡**，会把字面量 0.0.0.0
+# 写进 host candidate，对端无法使用 → host 路径整条作废（spike 实测，见
+# dev-notes/research/2026-07-webrtc-native-ice.md）。
+if-addrs = "0.13"
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+# native 后端要求宿主处于 async 运行时中（webrtc-rs 的 default_runtime 靠它探测）。
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
