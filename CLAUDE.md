@@ -103,7 +103,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | IPC | tauri-specta v2 —— TS bindings 自动生成，**不手写 invoke 封装** |
 | Backend | Rust 2024, Tauri 2 |
 | P2P | 自研 `crates/net`（iroh 风格 API，libp2p 底层，native + wasm 双 target） |
-| Security | Ed25519 身份 · 系统钥匙串（keyring 4）· XChaCha20-Poly1305 · BLAKE3 |
+| Security | Ed25519 身份 · 系统钥匙串（keyring 4）· Noise/TLS 传输层加密 · BLAKE3 + bao-tree 逐块验签 |
 | Database | SeaORM 2.0 + SQLite（传输历史、断点续传 checkpoint、收件箱）——**仅 native** |
 | MCP | rmcp 2 + axum（桌面本地 MCP server） |
 
@@ -114,6 +114,14 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 > capability 又空挂了一段时间，期间 README 与文档站一直在宣传一个不存在的功能。
 > 现已清理干净（`tauri-plugin-biometry`、`@choochmeque/tauri-plugin-biometry-api`、
 > `setup.rs` 的 plugin 注册、`biometry:default` 权限）。若将来要做，需重新接线。
+>
+> **不要再加应用层加密。** 传输的保密由传输层承担（Noise / QUIC-TLS，relay 只见密文）；
+> 应用层 XChaCha20-Poly1305 已在 wire v2 **整块删除**，生产代码零加密原语。它是自引用的
+> 冗余——密钥经同一条 Noise 信道分发，能读密文的攻击者必然也能读密钥；且它与 bao-tree
+> 逐块验签**不能共存**（加密后 `checksum` 会变成密文哈希，「root == 明文 blake3」这条
+> 不变量就塌了）。删除后归属校验由传输层身份补上：数据面必须校验
+> `stream.remote() == session.peer`。完整推导见
+> [`blogs/transfer-architecture/05-removing-encryption-layer.md`](dev-notes/blogs/transfer-architecture/05-removing-encryption-layer.md)。
 
 ## Architecture
 

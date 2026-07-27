@@ -38,10 +38,10 @@ And because the AI era runs on agents that constantly produce files on one machi
 | | |
 |---|---|
 | **Cross-Network** | Works on LAN or across the public internet. mDNS + Kademlia DHT + Relay + DCUtR pick the best route automatically — same Wi-Fi, different networks, behind NAT. |
-| **End-to-End Encrypted** | XChaCha20-Poly1305 with a fresh per-transfer key. Relays and bootstrap nodes only ever see ciphertext. Not a privacy *policy* — a cryptographic *fact*. |
+| **End-to-End Encrypted** | Every connection is Noise- or TLS 1.3-encrypted and mutually authenticated. Relays forward ciphertext they hold no key for. Not a privacy *policy* — a cryptographic *fact*. |
 | **No Accounts, No Servers** | Pair with a one-time signed invite (link or QR), or let LAN auto-discovery find your devices. Decentralized Ed25519 device identity. Self-host the bootstrap node if you want. |
 | **AI-Native** | A local MCP Server lets AI agents drive transfers and search your received files — the part no AirDrop or LocalSend can do. |
-| **Resumable & Reliable** | Resumable transfers with BLAKE3 integrity, plus a local SQLite history and inbox. Survives drops, restarts, and flaky links. |
+| **Resumable & Reliable** | Resumable transfers with per-chunk BLAKE3 verification (bao-tree) — every block is verified as it lands, not after the whole file does. Plus a local SQLite history and inbox. Survives drops, restarts, and flaky links. |
 
 ## Built for AI Agents (MCP)
 
@@ -132,8 +132,9 @@ graph TB
 
 - **Device identity** — Ed25519 keypair; the private key lives in the OS keychain (Keychain / Credential Manager / Secret Service).
 - **Pairing** — one-time signed invites (`sdinvite…`): Ed25519 signature + 256-bit capability + TTL, consumable exactly once. QR code and link are two carriers of the same string.
-- **Transfer keys** — a fresh 256-bit symmetric key per transfer (XChaCha20-Poly1305), held only in memory.
-- **Zero trust** — bootstrap and relay nodes never see plaintext.
+- **In-transit encryption** — Noise (TCP / WebSocket / WebRTC) or TLS 1.3 (QUIC). Every connection performs its own handshake with fresh ephemeral keys, and both peers are cryptographically authenticated by their device identity.
+- **Integrity** — the file's BLAKE3 hash is the bao-tree verification root; every chunk carries a proof and is verified on arrival.
+- **Zero trust** — bootstrap and relay nodes never see plaintext. Peers complete their own end-to-end handshake *on top of* the relay's byte pipe, so a relay holds no key for what it forwards.
 - **No telemetry** — no data collection, ever.
 
 <details>
@@ -157,7 +158,7 @@ SwarmDrop collects **nothing**. There is no analytics, no account, and no centra
 | i18n | Lingui 5 (zh · zh-TW · en) + rust-i18n for native strings |
 | Backend | Rust 2024 · Tauri 2 · SeaORM + SQLite |
 | P2P | in-house network kernel `swarmdrop-net` — iroh-style `Endpoint` API over libp2p (mDNS · Kademlia · Relay · DCUtR · WebRTC-Direct), native + wasm |
-| Security | OS keychain · Ed25519 · XChaCha20-Poly1305 · BLAKE3 |
+| Security | OS keychain · Ed25519 · Noise / TLS 1.3 (transport) · BLAKE3 + bao-tree |
 | AI | embedded MCP server (rmcp + axum, `127.0.0.1` only) |
 | IPC types | tauri-specta (commands & events, fully typed) |
 

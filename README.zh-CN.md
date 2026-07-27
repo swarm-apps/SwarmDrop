@@ -38,10 +38,10 @@
 | | |
 |---|---|
 | **跨网络** | 局域网或公网都行。mDNS + Kademlia DHT + Relay + DCUtR 自动选最优路径 —— 同 Wi-Fi、跨网络、NAT 之后都能连上。 |
-| **端到端加密** | XChaCha20-Poly1305，每次传输独立密钥。中继与引导节点只见密文。这不是隐私*政策*，是密码学*事实*。 |
+| **端到端加密** | 每条连接都经 Noise 或 TLS 1.3 加密并双向鉴权。中继转发的密文它自己没有密钥。这不是隐私*政策*，是密码学*事实*。 |
 | **无账号、无服务器** | 用一次性签名邀请（链接或二维码）配对，或让局域网自动发现你的设备。去中心化 Ed25519 设备身份，引导节点可自建。 |
 | **AI 原生** | 本地 MCP Server 让 AI Agent 驱动传输、检索已收文件 —— AirDrop / LocalSend 做不到的那部分。 |
-| **断点续传、可靠** | 断点续传 + BLAKE3 校验，本地 SQLite 历史与收件箱。掉线、重启、弱网都能扛。 |
+| **断点续传、可靠** | 断点续传 + BLAKE3 逐块验签（bao-tree）——每块收到即验，不必等整个文件落地。本地 SQLite 历史与收件箱。掉线、重启、弱网都能扛。 |
 
 ## 为 AI Agent 而生（MCP）
 
@@ -132,8 +132,11 @@ graph TB
 
 - **设备身份** —— Ed25519 密钥对，私钥存放在系统钥匙串（Keychain / 凭据管理器 / Secret Service）。
 - **配对** —— 一次性签名邀请（`sdinvite…`）：Ed25519 签名 + 256-bit capability + TTL，只能消费一次。二维码与链接是同一字符串的两种载体。
-- **传输密钥** —— 每次传输独立生成 256-bit 对称密钥（XChaCha20-Poly1305），仅存内存。
-- **零信任** —— 引导节点、中继节点都看不到明文。
+- **在途加密** —— Noise（TCP / WebSocket / WebRTC）或 TLS 1.3（QUIC）。每条连接各自握手、
+  协商全新的临时密钥，双方身份由设备密钥在握手时互相鉴权。
+- **完整性** —— 文件的 BLAKE3 哈希即 bao-tree 验证根，每个数据块自带证明，收到即验。
+- **零信任** —— 引导节点、中继节点都看不到明文。收发双方是在中继的字节管道**之上**另行完成
+  端到端握手的，中继手里没有它所转发内容的任何密钥。
 - **无遥测** —— 不收集任何用户数据。
 
 <details>
@@ -157,7 +160,7 @@ SwarmDrop **不收集任何数据**：无分析统计、无账号、没有任何
 | i18n | Lingui 5（zh · zh-TW · en）+ rust-i18n（原生字符串） |
 | 后端 | Rust 2024 · Tauri 2 · SeaORM + SQLite |
 | P2P | 自研网络内核 `swarmdrop-net` —— libp2p 之上的 iroh 风格 `Endpoint` API（mDNS · Kademlia · Relay · DCUtR · WebRTC-Direct），native + wasm 双 target |
-| 安全 | 系统钥匙串 · Ed25519 · XChaCha20-Poly1305 · BLAKE3 |
+| 安全 | 系统钥匙串 · Ed25519 · Noise / TLS 1.3（传输层）· BLAKE3 + bao-tree |
 | AI | 内置 MCP server（rmcp + axum，仅 `127.0.0.1`） |
 | IPC 类型 | tauri-specta（命令与事件双向类型化） |
 
