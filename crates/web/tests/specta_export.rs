@@ -14,7 +14,8 @@ use specta::datatype::{DataType, Primitive};
 use specta::{Format, FormatError, Type, Types};
 use specta_util::Remapper;
 use swarmdrop_web::{
-    ConnectionJson, Device, OfferJson, PendingPairingJson, WebError, WebTransferEvent,
+    ConnectionJson, Device, OfferJson, PendingPairingJson, RelayInfoJson, WebError,
+    WebTransferEvent,
 };
 
 /// serde 形状（tagged enum / rename）+ bigint→number 重映射。
@@ -57,6 +58,7 @@ fn export_bindings() {
         .register::<OfferJson>()
         .register::<PendingPairingJson>()
         .register::<ConnectionJson>()
+        .register::<RelayInfoJson>()
         .register::<WebError>()
         .register::<Device>();
 

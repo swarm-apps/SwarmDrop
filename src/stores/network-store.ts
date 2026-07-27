@@ -8,7 +8,6 @@ import {
   commands,
   events,
   type Device,
-  type NetworkRuntimeConfig,
   type NetworkStatus,
 } from "@/lib/bindings";
 import { toast } from "sonner";
@@ -17,6 +16,7 @@ import { getErrorMessage } from "@/lib/errors";
 import { useSecretStore } from "@/stores/secret-store";
 import { usePairingStore } from "@/stores/pairing-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
+import { getDesktopBootstrapNodes } from "@/lib/bootstrap-nodes";
 
 /** 节点状态（前端 UI 生命周期） */
 export type NodeStatus = "stopped" | "starting" | "running" | "error";
@@ -137,8 +137,8 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
         publicReachability,
         mcp,
       } = usePreferencesStore.getState();
-      const networkOptions: NetworkRuntimeConfig = {
-        customBootstrapNodes,
+      const networkOptions = {
+        bootstrapNodes: getDesktopBootstrapNodes(customBootstrapNodes),
         discoveryMode,
         autoDiscoverLanHelpers,
         provideLanHelper,

@@ -61,12 +61,28 @@ impl AddrsInfo {
 }
 
 /// relay reservation 状态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// 状态机对失败诚实：拨号失败（全部候选地址耗尽）与 reservation 失效都
+/// 翻转到 [`Failed`](RelayState::Failed)，观察者可区分「正在连接」与
+/// 「连接失败」。机制层只报告可自证的事实——**不携带重试轮数**：轮数的
+/// 语义由上层退避策略定义（core 的 InfraSupervisor 是重试记账的唯一主人，
+/// 诊断经其 tracing 日志输出），内核不自行重试，每轮重试经
+/// `add_infrastructure_peer` 幂等触发。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RelayState {
-    /// 已请求 circuit listener，等待 relay 接受。
+    /// 正在建立（拨号或等待 relay 接受）。
     Connecting,
     /// reservation 已被接受（可经该 relay 被动接收连接）。
-    Active,
+    Active {
+        /// 本机经该 relay 的完整可达地址（`<relay>/p2p-circuit/p2p/<本机>`），
+        /// 由内核拼装下发——调用方不自行拼接（单一事实源）。
+        circuit_addr: Addr,
+    },
+    /// 尝试失败（拨号候选地址耗尽 / reservation 被拒或失效）。
+    Failed {
+        /// 末次错误描述。
+        last_error: String,
+    },
 }
 
 /// 基础设施节点角色（`add_infrastructure_peer`）。
@@ -203,6 +219,16 @@ impl Endpoint {
             .await
     }
 
+    /// 动态登记一个本节点的外部可达地址。
+    ///
+    /// WebRTC Direct 的 `certhash` 只有 listener 实际启动后才会出现在
+    /// 地址中；公网 relay 可观察到该地址后通过此方法登记，使 reservation
+    /// 和 identify 都能向客户端公布完整可拨地址。
+    pub async fn add_external_addr(&self, addr: Addr) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::AddExternalAddr { addr, reply })
+            .await
+    }
+
     /// 保活白名单：白名单内对端的连接豁免空闲回收（已配对设备用）。
     pub async fn set_keep_alive(&self, node: NodeId, enabled: bool) -> Result<(), Error> {
         self.request(|reply| ActorMessage::SetKeepAlive {
@@ -252,6 +278,17 @@ impl Endpoint {
     ) -> Result<(), Error> {
         let peer = peer.into();
         self.request(|reply| ActorMessage::AddInfraPeer { peer, roles, reply })
+            .await
+    }
+
+    /// 注销基础设施节点——[`add_infrastructure_peer`](Self::add_infrastructure_peer)
+    /// 的对称面：撤销 relay 常驻意图、清地址簿与 kad 路由表、关闭对应
+    /// circuit listener，并**立刻断开**与该节点的全部连接（含中止在途拨号，
+    /// pin 93c5059 的 `Pool::disconnect` 对 pending 连接调用 abort）。
+    ///
+    /// 注销后内核不再存在任何针对该节点的自动重连或 reservation 重建路径。
+    pub async fn remove_infrastructure_peer(&self, node: NodeId) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::RemoveInfraPeer { node, reply })
             .await
     }
 

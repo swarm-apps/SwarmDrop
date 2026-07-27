@@ -12,6 +12,8 @@
 pub mod types;
 
 #[cfg(wasm_browser)]
+mod abort;
+#[cfg(wasm_browser)]
 mod env;
 #[cfg(wasm_browser)]
 mod error;
@@ -33,7 +35,8 @@ mod store;
 #[cfg(wasm_browser)]
 pub use node::WebNode;
 pub use types::{
-    ConnectionJson, Device, OfferJson, PendingPairingJson, WebError, WebTransferEvent,
+    ConnectionJson, Device, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind, WebError,
+    WebTransferEvent,
 };
 
 /// wasm 模块加载即初始化 panic hook + tracing（浏览器 console）。

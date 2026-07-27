@@ -57,6 +57,8 @@ tracing-subscriber-wasm = "0.1"
 # uuid v4 在 wasm 需要随机源（js）。
 uuid = { workspace = true, features = ["js"] }
 web-sys = { version = "0.3", features = [
+    "AbortSignal",
+    "EventTarget",
     "Window",
     "WorkerGlobalScope",
     "WorkerNavigator",

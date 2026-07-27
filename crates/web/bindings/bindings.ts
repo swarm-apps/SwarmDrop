@@ -152,6 +152,23 @@ export type ReceiveSaveBehavior =
 /**  使用策略里配置的默认保存位置，接收完成后进入收件箱。 */
 "inbox_and_default_save_location";
 
+/**  单个 relay 意图的状态快照（`relays_state()` 元素 / `relays_changed()` 流的产出单元）。 */
+export type RelayInfoJson = {
+	/**  relay 节点身份（base58 NodeId）。 */
+	id: string,
+	state: RelayStateKind,
+	/**  `active` 时为本机经该 relay 的完整可达地址（内核拼装下发），其余为 null。 */
+	circuitAddr: string | null,
+	/**
+	 *  `failed` 时的末次错误描述，其余为 null。重试轮数不下发——那是
+	 *  策略层内账（supervisor 唯一持有），诊断走日志。
+	 */
+	lastError: string | null,
+};
+
+/**  relay reservation 状态类别（[`swarmdrop_net::RelayState`] 的 JS 投影，TS 侧字符串联合）。 */
+export type RelayStateKind = "connecting" | "active" | "failed";
+
 export type RuntimeTransferDirection = "send" | "receive" | "unknown";
 
 /**  suspended 原因（phase=Suspended 时有值）。 */
@@ -318,6 +335,11 @@ export type WebError =
 { kind: "transfer"; message: string } | 
 /**  入参非法（地址格式、缺 `/p2p/` 等）。 */
 { kind: "invalidInput"; message: string } | 
+/**
+ *  调用被 `AbortSignal` 取消。**abort ≠ 撤回拨号**：Promise 立即 reject 且
+ *  无常驻意图残留，但在途拨号会继续到自然失败（libp2p 无逐次拨号取消面）。
+ */
+{ kind: "aborted"; message: string } | 
 /**  分享码不存在 / 已过期。 */
 { kind: "notFound"; message: string } | 
 /**  存储（OPFS / localStorage）错误。 */

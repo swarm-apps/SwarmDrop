@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::epoch::EpochGuard;
 use crate::manager::TransferManager;
+use crate::progress::{RuntimeTransferDirection, TransferFailedEvent};
 use crate::protocol::{FileRange, TRANSFER_DATA_PROTOCOL};
 use crate::wire::data_frame::{TransferDataFrame, TransferDataRole, read_frame, write_frame};
 use crate::{AppError, AppResult};
@@ -96,6 +97,18 @@ impl TransferManager {
                 }
                 Err(e) => {
                     warn!("transfer-data 发送中断: session={session_id}, {e}");
+                    // Interrupted 是可恢复状态，projection 仍是前端的权威状态；但它不保存
+                    // 底层拨号/流错误。额外发出失败事件仅用于呈现这次中断的具体原因，避免
+                    // Web 端只能看到笼统的 suspended/interrupted 而无法诊断。
+                    let _ = events
+                        .emit(crate::events::TransferEvent::TransferFailed {
+                            event: TransferFailedEvent {
+                                session_id,
+                                direction: RuntimeTransferDirection::Send,
+                                error: e.to_string(),
+                            },
+                        })
+                        .await;
                     session
                         .on_interrupted(epoch, coordinator.as_ref(), store.as_ref())
                         .await;

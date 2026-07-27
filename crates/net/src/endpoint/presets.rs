@@ -18,7 +18,7 @@ pub struct Native;
 
 impl Preset for Native {
     fn apply(self, builder: Builder) -> Builder {
-        let mut listen = vec![
+        let listen = vec![
             "/ip4/0.0.0.0/tcp/0".parse().expect("valid multiaddr"),
             "/ip4/0.0.0.0/udp/0/quic-v1"
                 .parse()
@@ -28,12 +28,13 @@ impl Preset for Native {
             "/ip4/0.0.0.0/udp/0/webrtc-direct"
                 .parse()
                 .expect("valid multiaddr"),
+            // Android 不编译 WebSocket transport，因此不能在此添加 /ws listener。
+            #[cfg(not(target_os = "android"))]
+            "/ip4/0.0.0.0/tcp/0/ws".parse().expect("valid multiaddr"),
         ];
         // WebSocket listener：同网浏览器的 LAN 直连入口（ws:// 私有 IP 豁免 mixed content，
         // spike 实证）。浏览器拨不了裸 TCP/QUIC，ws 是它够到本机的唯一免证书路径。
         // Android 的 websocket transport 未接（见 transport.rs `with_websocket` 跳过），不 listen。
-        #[cfg(not(target_os = "android"))]
-        listen.push("/ip4/0.0.0.0/tcp/0/ws".parse().expect("valid multiaddr"));
         builder
             .listen(listen)
             .mdns(true)
@@ -45,11 +46,17 @@ impl Preset for Native {
 
 /// 浏览器端默认：不 listen 本地 socket（做不到），relay 客户端开——
 /// 被动接收连接靠 circuit relay listen（`ensure_relay_reservation` 触发）。
+///
+/// connect 超时下调到 15s（默认 30s 对浏览器交互太长）——这是「任何 JS
+/// Promise 在有限时间内 settle」不变量的内核兜底，不依赖调用方传 AbortSignal。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Browser;
 
 impl Preset for Browser {
     fn apply(self, builder: Builder) -> Builder {
-        builder.listen(Vec::new()).relay_client(true)
+        builder
+            .listen(Vec::new())
+            .relay_client(true)
+            .connect_timeout(std::time::Duration::from_secs(15))
     }
 }

@@ -270,6 +270,20 @@ iroh 官方 browser-echo 示例里那个 `wasm-bindgen = "=0.2.122"` 精确 pin 
 
 **相关文件**：`spike/iroh-web/.cargo/config.toml`、`spike/iroh-web/README.md`
 
+### docs 的 Next dev：浏览器必须用 localhost 访问，127.0.0.1 会静默死页
+
+Next.js dev server（`cd docs && pnpm dev`）以 `localhost:3000` 起，浏览器若用
+`http://127.0.0.1:3000` 打开，dev 资源（webpack-hmr、字体、client chunk）会被
+**Blocked cross-origin request** 拦截——症状极具迷惑性：页面正常渲染（SSR HTML），
+但**没有 hydrate**，所有按钮点了没反应、console 无任何报错，看起来像业务代码坏了。
+服务端日志（pnpm dev 的输出）里才有 Blocked 警告。
+
+**正确做法**：`/try` 等交互页实测一律 `http://localhost:3000`；或在 `next.config.mjs`
+加 `allowedDevOrigins: ['127.0.0.1']`。（README 里"实测用 127.0.0.1"说的是**静态
+serve 的产物**，与 Next dev 是两回事。）
+
+**相关文件**：`docs/next.config.mjs`、`docs/app/try/page.tsx`
+
 ### spike/ 不进 workspace
 
 `spike/` 放临时的技术验证（当前：`spike/iroh-web`，见 #60），根 `Cargo.toml` 里
@@ -428,6 +442,28 @@ cargo clippy --workspace -- -D warnings   # 项目期望零 warning
 ## CI / Release
 
 单仓两条 release 流水线，各由自己的 tag 触发（见上「版本号同步：两条独立版本线」）。
+
+### Bootstrap 的三条发布线与多架构镜像
+
+`swarm-bootstrap` 是服务端基础设施，不能复用桌面 `v*` 或移动 `mobile-v*` 的发布触发器；
+它使用第三条独立 tag：`bootstrap-vX.Y.Z`。工作流同时发布 GitHub Release 二进制和 GHCR 镜像。
+
+**正确做法**：
+- 在 `ubuntu-latest` 与 `ubuntu-24.04-arm` 原生构建 Linux amd64 / arm64；不要在单个
+  x86 runner 上用 QEMU 构建 release Rust 二进制。
+- 两个镜像构建必须是显式 job，`image-merge` 同时 `needs` 它们；不要用 matrix job 作为
+  唯一依赖，GitHub 可能在一个 matrix 子任务完成时就调度合并，错误发布单架构 manifest。
+- GHCR 两腿都只 push digest，最后用 `docker buildx imagetools create` 合成 manifest list；
+  不能让两腿并发推同一个 tag。
+- 延续上游 `ghcr.io/swarm-apps/swarm-bootstrap` 时，同时保留 `bootstrap-vX.Y.Z` 及其
+  `-amd64` / `-arm64` 兼容标签，并增加 `X.Y.Z`、`X.Y`、`latest`。该包最初关联
+  `swarm-apps/swarm-p2p`，首次由 `swarm-apps/SwarmDrop` 发版前须在包设置中授予其 Actions
+  写权限；工作流优先使用可选的 `GHCR_TOKEN`，否则回退 `GITHUB_TOKEN`。
+- 先创建 GitHub Release，再由两个 binary job 只追加 `.tar.gz` 与 `.sha256`；两个 job
+  同时创建 release 会发生竞态并可能遗漏一个架构的文件。
+- 运行前校验 tag 去掉 `bootstrap-v` 后与 `crates/bootstrap/Cargo.toml` 版本相等。
+
+**相关文件**：`.github/workflows/bootstrap-release.yml`、`crates/bootstrap/{Cargo.toml,README.md}`
 发版 = bump 该线的版本 + commit + tag + push tag。
 
 ### changelog 必须按路径 + tag 分流

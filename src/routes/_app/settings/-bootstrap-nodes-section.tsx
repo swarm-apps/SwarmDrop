@@ -13,18 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useNodeRestart } from "@/hooks/use-node-restart";
+import { DESKTOP_BOOTSTRAP_NODES } from "@/lib/bootstrap-nodes";
 import { toast } from "sonner";
 import {
   NodeRestartBanner,
   SettingsCard,
   SettingsSection,
 } from "./-settings-primitives";
-
-/** 默认引导节点（与后端 BOOTSTRAP_NODES 对应，只读展示） */
-const DEFAULT_BOOTSTRAP_NODES = [
-  "/ip4/47.115.172.218/tcp/4001/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
-  "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
-];
 
 /** 简单的 Multiaddr 格式校验：必须包含 /p2p/ 且以 / 开头 */
 function isValidMultiaddr(addr: string): boolean {
@@ -46,6 +41,8 @@ function truncateAddr(addr: string): string {
 }
 
 function getTransportLabel(addr: string): string {
+  if (addr.includes("/ws")) return "WebSocket";
+  if (addr.includes("/webrtc-direct")) return "WebRTC";
   if (addr.includes("/quic")) return "QUIC";
   if (addr.includes("/tcp/")) return "TCP";
   return "P2P";
@@ -74,7 +71,7 @@ export function BootstrapNodesSection() {
 
     if (
       customBootstrapNodes.includes(addr) ||
-      DEFAULT_BOOTSTRAP_NODES.includes(addr)
+      DESKTOP_BOOTSTRAP_NODES.includes(addr)
     ) {
       toast.error(t(msg`该节点已存在`));
       return;
@@ -124,7 +121,7 @@ export function BootstrapNodesSection() {
           </div>
 
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {DEFAULT_BOOTSTRAP_NODES.map((addr) => (
+            {DESKTOP_BOOTSTRAP_NODES.map((addr) => (
               <div
                 key={addr}
                 className="min-w-0 rounded-xl border border-border/70 bg-background/55 p-3 dark:bg-white/[0.035]"

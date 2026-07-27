@@ -2,9 +2,13 @@ name: Deploy Docs
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - "docs/**"
+      # try 页面依赖 crates/web 生成的 WASM；网络内核和依赖锁变更同样会改变产物。
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -42,6 +46,16 @@ jobs:
       # 避免被仓库根 workspace 劫持安装；native 依赖的 build 脚本也在该文件里 allowBuilds。
       - name: pnpm install
         run: pnpm install --frozen-lockfile
+
+      # Pages 必须在当前提交重新生成 WASM，不能复用仓库中可能已经过期的产物包。
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Build WebAssembly
+        run: pnpm build:wasm
 
       - name: Build docs (static export)
         env:

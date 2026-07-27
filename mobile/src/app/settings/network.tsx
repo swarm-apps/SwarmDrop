@@ -15,6 +15,7 @@ import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
+import { LanHelperAddresses } from "@/components/lan-helper-addresses";
 import { SettingsHeader } from "@/components/settings-header";
 import { StatusPill } from "@/components/status-pill";
 import { Switch } from "@/components/ui/switch";
@@ -444,6 +445,11 @@ export default function NetworkScreen() {
             />
           </View>
         </SettingSection>
+
+        <LanHelperAddresses
+          addresses={networkStatus?.lanHelperAdvertisedAddrs ?? []}
+          peerId={networkStatus?.peerId}
+        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -585,8 +591,8 @@ function CandidateSourceLabel({
   >["candidateSources"][number]["source"];
 }) {
   switch (candidateSourceKey(source)) {
-    case "userCustom":
-      return <Trans>自定义</Trans>;
+    case "hostConfigured":
+      return <Trans>配置节点</Trans>;
     case "mdnsLanHelper":
       return <Trans>LAN Helper</Trans>;
     default:

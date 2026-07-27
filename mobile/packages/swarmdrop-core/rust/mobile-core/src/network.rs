@@ -39,7 +39,7 @@ impl From<MobileDiscoveryMode> for DiscoveryMode {
 
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileNetworkRuntimeConfig {
-    pub custom_bootstrap_nodes: Vec<String>,
+    pub bootstrap_nodes: Vec<String>,
     pub discovery_mode: MobileDiscoveryMode,
     pub auto_discover_lan_helpers: bool,
     pub provide_lan_helper: bool,
@@ -50,7 +50,7 @@ pub struct MobileNetworkRuntimeConfig {
 impl From<MobileNetworkRuntimeConfig> for NetworkRuntimeConfig {
     fn from(config: MobileNetworkRuntimeConfig) -> Self {
         Self {
-            custom_bootstrap_nodes: config.custom_bootstrap_nodes,
+            bootstrap_nodes: config.bootstrap_nodes,
             discovery_mode: config.discovery_mode.into(),
             auto_discover_lan_helpers: config.auto_discover_lan_helpers,
             provide_lan_helper: config.provide_lan_helper,
@@ -61,8 +61,7 @@ impl From<MobileNetworkRuntimeConfig> for NetworkRuntimeConfig {
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
 pub enum MobileBootstrapCandidateSource {
-    BuiltInPublic,
-    UserCustom,
+    HostConfigured,
     MdnsLanHelper,
     Learned,
 }
@@ -70,8 +69,7 @@ pub enum MobileBootstrapCandidateSource {
 impl From<BootstrapCandidateSource> for MobileBootstrapCandidateSource {
     fn from(source: BootstrapCandidateSource) -> Self {
         match source {
-            BootstrapCandidateSource::BuiltInPublic => Self::BuiltInPublic,
-            BootstrapCandidateSource::UserCustom => Self::UserCustom,
+            BootstrapCandidateSource::HostConfigured => Self::HostConfigured,
             BootstrapCandidateSource::MdnsLanHelper => Self::MdnsLanHelper,
             BootstrapCandidateSource::Learned => Self::Learned,
         }

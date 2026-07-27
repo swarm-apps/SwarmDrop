@@ -134,6 +134,31 @@ pub struct ConnectionJson {
     pub addr: String,
 }
 
+/// relay reservation 状态类别（[`swarmdrop_net::RelayState`] 的 JS 投影，TS 侧字符串联合）。
+#[derive(Debug, Clone, Copy, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "lowercase")]
+pub enum RelayStateKind {
+    Connecting,
+    Active,
+    Failed,
+}
+
+/// 单个 relay 意图的状态快照（`relays_state()` 元素 / `relays_changed()` 流的产出单元）。
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RelayInfoJson {
+    /// relay 节点身份（base58 NodeId）。
+    pub id: String,
+    pub state: RelayStateKind,
+    /// `active` 时为本机经该 relay 的完整可达地址（内核拼装下发），其余为 null。
+    pub circuit_addr: Option<String>,
+    /// `failed` 时的末次错误描述，其余为 null。重试轮数不下发——那是
+    /// 策略层内账（supervisor 唯一持有），诊断走日志。
+    pub last_error: Option<String>,
+}
+
 /// Web 壳对外错误。`kind` 供 JS 分支，`message` 供展示。
 ///
 /// wasm-bindgen 方法 reject 的错误值就是本类型的序列化对象（`{ kind, message }`）——
@@ -150,6 +175,9 @@ pub enum WebError {
     Transfer { message: String },
     /// 入参非法（地址格式、缺 `/p2p/` 等）。
     InvalidInput { message: String },
+    /// 调用被 `AbortSignal` 取消。**abort ≠ 撤回拨号**：Promise 立即 reject 且
+    /// 无常驻意图残留，但在途拨号会继续到自然失败（libp2p 无逐次拨号取消面）。
+    Aborted { message: String },
     /// 分享码不存在 / 已过期。
     NotFound { message: String },
     /// 存储（OPFS / localStorage）错误。
@@ -171,6 +199,12 @@ impl WebError {
 
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::NotFound {
+            message: message.into(),
+        }
+    }
+
+    pub fn aborted(message: impl Into<String>) -> Self {
+        Self::Aborted {
             message: message.into(),
         }
     }

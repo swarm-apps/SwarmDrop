@@ -69,3 +69,25 @@ pub fn generate_webrtc_certificate_pem() -> Result<String, String> {
         .map_err(|error| error.to_string())
         .map(|certificate| certificate.serialize_pem())
 }
+
+/// 根据持久化 WebRTC Direct 证书构造可公告的公网地址。
+///
+/// `certhash` 由完整证书派生，必须与
+/// [`Builder::webrtc_certificate`](Builder::webrtc_certificate) 注入的 PEM 相同。
+#[cfg(not(wasm_browser))]
+pub fn webrtc_direct_addr_from_pem(
+    ip: std::net::IpAddr,
+    port: u16,
+    pem: &str,
+) -> Result<Addr, String> {
+    use libp2p::multiaddr::Protocol;
+
+    let certificate =
+        libp2p_webrtc::tokio::Certificate::from_pem(pem).map_err(|error| error.to_string())?;
+    let address = libp2p::Multiaddr::empty()
+        .with(ip.into())
+        .with(Protocol::Udp(port))
+        .with(Protocol::WebRTCDirect)
+        .with(Protocol::Certhash(certificate.fingerprint().to_multihash()));
+    Ok(Addr::from_multiaddr(address))
+}

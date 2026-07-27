@@ -32,6 +32,19 @@ wire 类型，下沉会成环）。`swarmdrop-host` + `swarmdrop-transfer` 已�
 - 扩展点四件套范式（ergonomic RPITIT trait + Dyn trait + blanket impl）：
   `ProtocolHandler`、`RpcService`、`AddressLookup`(+Builder 回填)。
 
+### relay 意图的机制/策略分界（2026-07-23 定稿，deepen-relay-reconciliation）
+
+- **`RelayState` 不携带重试轮数**：机制层只报告可自证事实（`Connecting` / `Active{circuit_addr}` /
+  `Failed{last_error}`）。轮数语义由退避策略定义，唯一账本在 core 的 `InfraSupervisor.links`
+  （诊断走 tracing，不下发状态）。别再往 RelayState 加策略派生字段——actor 无法自洽维护它
+  （identify 重建、LAN helper 即时注册等路径会造成漂移，曾实证）。
+- **收敛环是双向的**：tick 正向（候选有→内核有）+ 反向（`watch_relays` 有条目而候选表无该
+  peer → 幂等发 `remove_infrastructure_peer`）。注销与在途注册的竞态由环的终态一致性闭合，
+  **不要**在共享收敛路径上加 re-check/epoch 类特例。反向判据的前提：候选表只经显式撤销移除
+  （无自动过期清出）且所有生产路径的 relay 登记均有候选条目——**引入候选自动清出机制前必须
+  重新评估**（spec `infra-peer-lifecycle` 已锁定该前提）。
+- `remove_relay_intent` 的直接注销调用是低延迟快路径，环是兜底，二者幂等叠加。
+
 ### 与旧栈（swarm-p2p-core）的关键差异
 
 | 旧 | 新 | 原因 |
@@ -48,6 +61,27 @@ wire 类型，下沉会成环）。`swarmdrop-host` + `swarmdrop-transfer` 已�
 webrtc-direct 实证跑不通，修复只在 master（PR 6429）。**升级 rev 必须走独立 PR +
 全量测试 + wasm check**；0.57 正式发布后切回 crates.io。identity/multiaddr 不用跟
 git——master 树自己解析到 crates.io（0.2.14 / 0.18.2），net-base 用 crates.io 版本天然 unify。
+
+### 临时 fork 集成策略（2026-07-25）
+
+Web 端在上游合并前需要同时依赖 WebRTC DataChannel 回调生命周期修复与连接级消息上限协商，
+因此 workspace 暂时 pin `yexiyue/rust-libp2p` 的 `master`。该分支以最新
+`libp2p/rust-libp2p:master` 为基线，并合并上游 PR #6558 与 #6560；`Cargo.lock` 必须与该
+精确 revision 一起提交。
+
+`max_message_size` 只限制单条编码后的 DataChannel 消息，以及发送端的背压高水位；浏览器
+回调在 Rust task 再次 poll 前可能已累计多条合法消息，故 `webrtc-websys` 的累计读取缓冲
+通过 `Config::with_max_read_buffer_size` 单独显式配置为 256 KiB。它是本地资源上限，不参与
+协商；库会保证其不低于单条消息上限。两者不能混用，否则连续合法的 8 KiB 消息会被错误判定
+为对端过载并重置 stream。数据面每个 target 都应调用 `flush()`；回调唤醒已由 #6558 延后，
+不能再以跳过 `flush()` 规避回调重入。
+
+**正确做法**：
+- 每次更新先将 fork `master` 快进到上游，再重新合并仍未被上游接受的修复并跑 WebRTC/wasm 检查。
+- 上游合并或发布可用版本后，切回官方 URL（或 crates.io）并删除 fork pin。
+
+**不要做**：
+- 不要在产品仓库直接 pin 已删除分支或孤立 commit；这样 lockfile 无法长期可靠复现。
 
 ### 坑 1：relay server 的 HOP 协议默认不广告（relay 0.22.0，PR 6154）
 
@@ -82,6 +116,41 @@ dial 的候选地址来自 behaviour 的 `handle_pending_outbound_connection`。
 dial relay → identify 到达 → 才 listen circuit。内核的 `ensure_relay` 封装了这个时序
 （未连接先拨号，identify 经 `infra_relay_peers` 幂等触发真正 listen）。
 
+### 公网 Bootstrap + Relay 必须显式登记外部地址（2026-07）
+
+公网节点的实际 listener 常绑定 `0.0.0.0` / `[::]`。这类地址不能直接作为
+Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesInReservation`
+拒绝 reservation。`Swarm::add_external_address` 又不保证回发
+`ExternalAddrConfirmed`，只依赖 watch 事件会让状态与实际 Swarm 配置分叉。
+
+**正确做法**：
+- 组合根在 `Endpoint::bind()` 前经 `Builder::external_addrs()` 登记已知公网
+  TCP / QUIC / WebSocket 地址；它们同时成为 `watch_addrs().external` 初值。
+- 运行期得到的地址经 `Endpoint::add_external_addr()` 登记；actor 同步更新同一
+  watch 状态并通知 address lookup。
+- WebRTC Direct 使用与 transport 完全相同的持久化 PEM，通过
+  `webrtc_direct_addr_from_pem()` 预先派生带 `certhash` 的公网地址，**不要**等待
+  listener 启动后从字符串猜 hash。
+
+**相关文件**：`crates/net/src/{endpoint/{builder.rs,mod.rs},actor.rs,lib.rs}`、
+`crates/bootstrap/src/lib.rs`
+
+### 公共基础设施地址由 Host 配置，核心只消费候选（2026-07-24）
+
+`swarmdrop-core::NetworkRuntimeConfig` 不再内置公网 bootstrap/relay 地址；公共节点是各端
+部署策略，桌面、移动和浏览器的可用 transport 不同，必须由各自 host 注入完整 multiaddr。
+
+**正确做法**：
+- 桌面端在 `src/lib/bootstrap-nodes.ts` 维护 TCP / QUIC / WebSocket 等可用地址，启动时与用户偏好合并。
+- 移动端在 `mobile/src/core/bootstrap-nodes.ts` 维护 Android 可用的 TCP / QUIC 地址；当前不放 `/ws`。
+- 浏览器在 `docs/app/try/relay-helpers.ts` 使用 WebRTC Direct 或 WSS helper；每项必须附带 `/p2p/<peer-id>`，WebRTC Direct 还必须带稳定的 `certhash`。
+- 新公网 relay 同时承担 circuit relay 时，仍需按上一节登记其外部地址；客户端清单只解决“如何拨到它”，不替代服务器侧公告。
+
+**不要做**：
+- 不要把某一端可用的 `/ws` 或 `/webrtc-direct` 地址无差别下发给所有端；Android 当前无法拨 WebSocket，而浏览器不能拨 TCP/QUIC。
+
+**相关文件**：`crates/core/src/network/config.rs`、`src/lib/bootstrap-nodes.ts`、`mobile/src/core/bootstrap-nodes.ts`、`docs/app/try/relay-helpers.ts`
+
 ### 坑 6：kad `Record.expires` 的类型按 target 分叉
 
 native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant` 同源）——
@@ -106,10 +175,33 @@ master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Andro
    dns config），已提上游 <https://github.com/libp2p/rust-libp2p/issues/6529>，
    修复后本地可收敛回双分支。
 
+### Android 条件编译分支也必须通过 `-D warnings`（2026-07-24）
+
+移动端 release 使用 `RUSTFLAGS=-D warnings`，而仅在桌面目标编译的分支会让 Android
+的局部可变绑定变成硬错误。对于 listener 等平台差异，直接把 `#[cfg]` 放在 `vec![]`
+元素上，避免先声明 `mut` 再在某个 target 中 `push()`。
+
+**相关文件**：`crates/net/src/endpoint/presets.rs`
+
 只修 1 不修 2 表现完全一样（同一错误字符串），容易误判「没修上」——先怀疑第二处，
 再怀疑 .so 没重编。`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
 re-export ResolverConfig/ResolverOpts），版本必须与 libp2p-dns 同线（crates/net 的
 android target 依赖表）。
+
+### 坑 8：取消在途拨号要用 `disconnect_peer_id`，不是 `close_connection`
+
+`Swarm::close_connection(ConnectionId)` 只对 **established** 连接生效（`pool.get_established`），
+对 pending dial 返回 `false`——不能中断在途拨号。**`Swarm::disconnect_peer_id(PeerId)` →
+`Pool::disconnect` 才会对该 peer 的 pending 连接调用 `connection.abort()`**（pool.rs 文档明示
+"whether pending or established are closed asap"）。`remove_infrastructure_peer` 的"立刻断"
+语义靠它实现（2026-07-23 pin 93c5059 源码实读，`actor.rs::handle_remove_infra_peer`）。
+
+### 坑 9：watch 采样会跳过短暂中间态（事件双轨制的实证补充）
+
+浏览器实测 `relays_until_active`：不可达 helper 第 1 轮 `Failed` 写入 watch 后，JS 侧消费者
+经常在第 2-3 轮才观察到 Failed（wasm 单线程下 actor 与 JS future 抢调度，last-value-wins
+覆盖中间值）。**依赖"看到每一次状态翻转"的逻辑必须走 `NetEvent` 边沿轨**；watch 只保证
+最终收敛值可见。对 until_active 这类"等终态"逻辑无影响（Failed/Active 会持续存在直到下轮）。
 
 ### 其余确认
 

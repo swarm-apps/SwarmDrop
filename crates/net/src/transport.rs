@@ -16,6 +16,7 @@
 
 use libp2p::Swarm;
 use libp2p::identity::Keypair;
+use std::num::NonZeroUsize;
 
 use crate::behaviour::Behaviour;
 use crate::config::EndpointConfig;
@@ -24,6 +25,21 @@ use crate::config::EndpointConfig;
 #[derive(Debug, thiserror::Error)]
 #[error("failed to build swarm: {0}")]
 pub struct BuildSwarmError(String);
+
+/// 所有端声明的单条编码 DataChannel 消息上限。
+///
+/// WebRTC transport 在 Noise 认证后自动协商双方较小值；统一声明 8 KiB 可使浏览器、
+/// 桌面、移动端及旧端回退路径都不会发送超出浏览器安全上限的帧。
+const WEBRTC_MAX_MESSAGE_SIZE: NonZeroUsize =
+    NonZeroUsize::new(8 * 1024).expect("8 KiB is non-zero");
+
+/// 浏览器 DataChannel 回调尚未被 Rust 消费时允许累计的最大字节数。
+///
+/// 它是本地资源上限，不参与对端协商；须大于单条消息上限，避免多个合法回调在 wasm
+/// 事件循环中连续到达时被误判为远端过载。
+#[cfg(wasm_browser)]
+const WEBRTC_MAX_READ_BUFFER_SIZE: NonZeroUsize =
+    NonZeroUsize::new(256 * 1024).expect("256 KiB is non-zero");
 
 #[cfg(not(wasm_browser))]
 pub(crate) async fn build_swarm(
@@ -61,6 +77,7 @@ pub(crate) async fn build_swarm(
                 }
             };
             Ok(libp2p_webrtc::tokio::Transport::new(key.clone(), cert)
+                .with_max_message_size(WEBRTC_MAX_MESSAGE_SIZE)
                 .map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn))))
         })
         .map_err(|e| err(&e))?;
@@ -153,8 +170,12 @@ pub(crate) async fn build_swarm(
             }
 
             // webrtc-websys 自带 noise + 分帧，不需要 upgrade 链。
-            let webrtc = webrtc_websys::Transport::new(webrtc_websys::Config::new(key))
-                .map(|(p, c), _| (p, StreamMuxerBox::new(c)));
+            let webrtc = webrtc_websys::Transport::new(
+                webrtc_websys::Config::new(key)
+                    .with_max_message_size(WEBRTC_MAX_MESSAGE_SIZE)
+                    .with_max_read_buffer_size(WEBRTC_MAX_READ_BUFFER_SIZE),
+            )
+            .map(|(p, c), _| (p, StreamMuxerBox::new(c)));
 
             // or_transport 两道坎（E0271）：两侧先各自 map 成 StreamMuxerBox；
             // 摊平后 Output 仍是 future::Either，需 into_inner() 再塌缩一次。

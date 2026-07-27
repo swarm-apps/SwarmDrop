@@ -8,7 +8,13 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	start: (pairedDevices: PairedDeviceInfo[], networkOptions: {
-	customBootstrapNodes?: string[],
+	/**
+	 *  由当前 host 提供的引导/中继节点完整地址。
+	 * 
+	 *  公共基础设施是桌面、移动和 Web 各自的部署策略，不属于跨平台核心；各端可按自身
+	 *  transport 能力提供不同的 TCP、QUIC、WebSocket 或 WebRTC Direct 地址。
+	 */
+	bootstrapNodes?: string[],
 	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
@@ -209,7 +215,9 @@ export type AppErrorPayload = {
 	message: string,
 };
 
-export type BootstrapCandidateSource = "builtInPublic" | "userCustom" | "mdnsLanHelper" | 
+export type BootstrapCandidateSource = 
+/**  当前 host 注入的静态引导/中继配置（含各端默认值和用户追加地址）。 */
+"hostConfigured" | "mdnsLanHelper" | 
 /**  运行时经 identify 学到的基础设施节点（如 LanOnly 下经 LAN Helper 认识的公网中继） */
 "learned";
 
@@ -406,7 +414,13 @@ export type McpStatus = {
 };
 
 export type NetworkRuntimeConfig = {
-	customBootstrapNodes?: string[],
+	/**
+	 *  由当前 host 提供的引导/中继节点完整地址。
+	 * 
+	 *  公共基础设施是桌面、移动和 Web 各自的部署策略，不属于跨平台核心；各端可按自身
+	 *  transport 能力提供不同的 TCP、QUIC、WebSocket 或 WebRTC Direct 地址。
+	 */
+	bootstrapNodes?: string[],
 	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,

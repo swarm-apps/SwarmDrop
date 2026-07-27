@@ -61,6 +61,11 @@ pub(crate) enum ActorMessage {
         addrs: Vec<Addr>,
         reply: oneshot::Sender<Result<(), Error>>,
     },
+    /// 显式登记本节点的外部可达地址（公网 relay / 动态 WebRTC 地址）。
+    AddExternalAddr {
+        addr: Addr,
+        reply: oneshot::Sender<Result<(), Error>>,
+    },
     SetKeepAlive {
         node: NodeId,
         enabled: bool,
@@ -79,10 +84,14 @@ pub(crate) enum ActorMessage {
         roles: InfraRoles,
         reply: oneshot::Sender<Result<(), Error>>,
     },
-    /// 撤销某 relay 的 reservation 意图：停止重建、移除 circuit listener，并在
-    /// 没有其他使用者时中止尚未完成的 helper 拨号。
+    /// 撤销某 relay 的 reservation 意图：停止重建、移除 circuit listener。
     CancelRelayReservation {
         relay: NodeId,
+        reply: oneshot::Sender<Result<(), Error>>,
+    },
+    /// 注销基础设施节点（`AddInfraPeer` 的对称面）。
+    RemoveInfraPeer {
+        node: NodeId,
         reply: oneshot::Sender<Result<(), Error>>,
     },
     /// AddressLookup 解析完成的回注（内部 loopback）。
@@ -218,6 +227,23 @@ impl Actor {
                 }
                 let _ = reply.send(Ok(()));
             }
+            ActorMessage::AddExternalAddr { addr, reply } => {
+                self.swarm.add_external_address(addr.as_multiaddr().clone());
+                // 显式地址是组合根提供的可自证配置；Swarm 不保证为它回发
+                // ExternalAddrConfirmed，因此此处同步到唯一状态视图。
+                let changed = self.watches.addrs.send_if_modified(|info| {
+                    if info.external.contains(&addr) {
+                        false
+                    } else {
+                        info.external.push(addr);
+                        true
+                    }
+                });
+                if changed {
+                    self.publish_addrs();
+                }
+                let _ = reply.send(Ok(()));
+            }
             ActorMessage::SetKeepAlive {
                 node,
                 enabled,
@@ -258,6 +284,10 @@ impl Actor {
             }
             ActorMessage::CancelRelayReservation { relay, reply } => {
                 self.cancel_relay_reservation(relay);
+                let _ = reply.send(Ok(()));
+            }
+            ActorMessage::RemoveInfraPeer { node, reply } => {
+                self.handle_remove_infra_peer(node);
                 let _ = reply.send(Ok(()));
             }
             ActorMessage::ConnectResolved {
@@ -367,8 +397,23 @@ impl Actor {
     /// 确保经某 relay 的 reservation：**必须先与 relay 有活跃连接**才能
     /// listen circuit（旧栈实证的顺序）。未连接时先拨号，identify 到达后
     /// 经 `infra_relay_peers` 幂等触发真正的 circuit listen。
+    ///
+    /// 重试轮数不在此记账——那是上层策略（supervisor 退避）的内账，
+    /// 机制层只登记意图、报告状态。
     fn ensure_relay(&mut self, peer_id: PeerId) {
         self.infra_relay_peers.insert(peer_id);
+        // reservation 依赖到 relay 的底层连接持续存在。Ping 被 keep-alive 语义排除，
+        // 因而不能仅靠其 30s 探测阻止 Swarm 在 idle_connection_timeout 后回收该连接。
+        self.swarm
+            .behaviour_mut()
+            .keep_alive
+            .set_keep_alive(peer_id, true);
+        // 已持有活跃 circuit listener：幂等 no-op
+        if self.relay_listeners.values().any(|p| *p == peer_id) {
+            return;
+        }
+        self.set_relay_connecting(peer_id);
+
         if self.conns.contains_key(&peer_id) {
             self.request_relay_reservation(peer_id);
             return;
@@ -376,6 +421,7 @@ impl Actor {
         let candidates = self.address_book.get(&peer_id).cloned().unwrap_or_default();
         if candidates.is_empty() {
             warn!(%peer_id, "no addresses for relay, cannot connect");
+            self.set_relay_failed(peer_id, "no addresses for relay");
             return;
         }
         if let Err(e) = self
@@ -387,10 +433,107 @@ impl Actor {
         }
     }
 
+    /// 注销基础设施节点：`ensure_relay`/`AddInfraPeer` 的逆操作。
+    /// 完成后内核不再有任何针对该节点的重连或 reservation 重建路径。
+    fn handle_remove_infra_peer(&mut self, node: NodeId) {
+        let peer = *node.as_peer_id();
+        self.infra_relay_peers.remove(&peer);
+        self.swarm
+            .behaviour_mut()
+            .keep_alive
+            .set_keep_alive(peer, false);
+        self.address_book.remove(&peer);
+        if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
+            kad.remove_peer(&peer);
+        }
+        // 先摘表再关 listener——随后到达的 ListenerClosed 反查不到该 peer，
+        // 不会误翻 Failed / 误发 RelayReservationLost
+        let listeners: Vec<ListenerId> = self
+            .relay_listeners
+            .iter()
+            .filter_map(|(id, p)| (*p == peer).then_some(*id))
+            .collect();
+        for id in listeners {
+            self.relay_listeners.remove(&id);
+            self.swarm.remove_listener(id);
+        }
+        self.watches
+            .relays
+            .send_if_modified(|map| map.remove(&node).is_some());
+        // 立刻断：established 优雅关闭 + pending 拨号中止
+        //（pin 93c5059 `Pool::disconnect` 对 pending 连接调用 abort）
+        let _ = self.swarm.disconnect_peer_id(peer);
+        // 挂在该 peer 上的 connect 等待者立即应答，不再干等超时
+        self.fail_dial_waiters(peer, "infrastructure peer removed");
+        info!(%peer, "infrastructure peer removed");
+    }
+
+    /// 该 peer 的全部 connect 等待者立即以失败应答（拨号失败 / 注销清算共用）。
+    fn fail_dial_waiters(&mut self, peer: PeerId, reason: &str) {
+        if let Some(waiters) = self.dials.remove(&peer) {
+            for waiter in waiters {
+                let _ = waiter
+                    .reply
+                    .send(Err(ConnectError::DialFailed(reason.to_string())));
+            }
+        }
+    }
+
+    /// 写 watch：值相等时不通知（renewal / 幂等重入不惊动订阅者——每次冗余
+    /// 通知都会放大成全部 `relays_changed` 流的序列化 + JS 侧重渲染）。
+    fn set_relay_state(&mut self, peer: PeerId, new: RelayState) {
+        let node = NodeId::from_peer_id(peer);
+        self.watches.relays.send_if_modified(|map| {
+            if map.get(&node) == Some(&new) {
+                return false;
+            }
+            map.insert(node, new);
+            true
+        });
+    }
+
+    /// 写 watch：该 relay 进入 Connecting（覆盖 Failed——identify 重建 /
+    /// 新一轮尝试都经此翻回）。
+    fn set_relay_connecting(&mut self, peer: PeerId) {
+        self.set_relay_state(peer, RelayState::Connecting);
+    }
+
+    /// 写 watch：该 relay 进入 Failed。仍持有活跃 circuit listener 时 no-op——
+    /// guard 查的是 actor 的权威事实源 `relay_listeners`（并行拨号失败不推翻
+    /// 活跃 reservation），而非 watch 投影；ListenerClosed 路径翻转前已摘表，
+    /// guard 自然放行，无需旁路。
+    fn set_relay_failed(&mut self, peer: PeerId, error: impl Into<String>) {
+        if self.relay_listeners.values().any(|p| *p == peer) {
+            return;
+        }
+        self.set_relay_state(
+            peer,
+            RelayState::Failed {
+                last_error: error.into(),
+            },
+        );
+    }
+
+    /// 本机经某 relay 的完整 circuit 可达地址（`<relay>/p2p-circuit/p2p/<本机>`）。
+    /// 单一事实源：调用方（web/桌面）不再自行拼接。
+    fn circuit_addr_for(&self, relay: PeerId) -> Addr {
+        let first = self
+            .address_book
+            .get(&relay)
+            .and_then(|addrs| addrs.first())
+            .cloned()
+            .unwrap_or_else(libp2p::Multiaddr::empty);
+        Addr::from_multiaddr(
+            circuit_base(first, relay)
+                .with(libp2p::multiaddr::Protocol::P2p(*self.node_id.as_peer_id())),
+        )
+    }
+
     /// 幂等请求 relay reservation：relay client 未启用或该 relay 已有活跃
     /// circuit listener 时 no-op（迁自旧栈 `request_relay_reservations`）。
     fn request_relay_reservation(&mut self, peer_id: PeerId) {
         if !self.swarm.behaviour().relay_client.is_enabled() {
+            self.set_relay_failed(peer_id, "relay client disabled");
             return;
         }
         if self.relay_listeners.values().any(|p| *p == peer_id) {
@@ -400,19 +543,12 @@ impl Actor {
         let addrs = self.address_book.get(&peer_id).cloned().unwrap_or_default();
         if addrs.is_empty() {
             warn!(%peer_id, "no addresses for relay, cannot request reservation");
+            self.set_relay_failed(peer_id, "no addresses for relay");
             return;
         }
         let mut requested = false;
         for addr in addrs {
-            let base = if addr
-                .iter()
-                .any(|p| matches!(p, libp2p::multiaddr::Protocol::P2p(_)))
-            {
-                addr.clone()
-            } else {
-                addr.clone().with(libp2p::multiaddr::Protocol::P2p(peer_id))
-            };
-            let relay_addr = base.with(libp2p::multiaddr::Protocol::P2pCircuit);
+            let relay_addr = circuit_base(addr, peer_id);
             match self.swarm.listen_on(relay_addr.clone()) {
                 Ok(listener_id) => {
                     self.relay_listeners.insert(listener_id, peer_id);
@@ -423,10 +559,12 @@ impl Actor {
             }
         }
         if requested {
-            self.watches.relays.send_modify(|map| {
-                map.entry(NodeId::from_peer_id(peer_id))
-                    .or_insert(RelayState::Connecting);
-            });
+            // 覆盖写：identify 幂等重建路径要把 Failed 翻回 Connecting；
+            // 此处必无活跃 listener（函数开头已 skip），不会覆盖 Active
+            self.set_relay_connecting(peer_id);
+        } else {
+            // 全部候选地址 listen_on 都失败（逐条已 warn）
+            self.set_relay_failed(peer_id, "circuit listen failed");
         }
     }
 
@@ -600,11 +738,17 @@ impl Actor {
                 error,
                 ..
             } => {
-                if let Some(waiters) = self.dials.remove(&peer) {
-                    for waiter in waiters {
-                        let _ = waiter
-                            .reply
-                            .send(Err(ConnectError::DialFailed(error.to_string())));
+                // 有消费者才格式化 DialError（断网时拨号失败成批出现，
+                // 多数事件既无 connect 等待者也非 infra relay）
+                let has_waiters = self.dials.contains_key(&peer);
+                let is_infra_relay = self.infra_relay_peers.contains(&peer);
+                if has_waiters || is_infra_relay {
+                    let error_str = error.to_string();
+                    self.fail_dial_waiters(peer, &error_str);
+                    // infra relay 拨号失败翻 Failed——该事件是 peer 级（本次 dial
+                    // 的全部候选地址已耗尽），符合「全地址耗尽才算失败」判据
+                    if is_infra_relay {
+                        self.set_relay_failed(peer, error_str);
                     }
                 }
             }
@@ -656,25 +800,34 @@ impl Actor {
                     .send_modify(|info| info.listen.push(addr));
                 self.publish_addrs();
             }
-            SwarmEvent::ListenerClosed { listener_id, .. } => {
+            SwarmEvent::ListenerClosed {
+                listener_id,
+                addresses,
+                reason,
+                ..
+            } => {
+                // listener 关闭不会另发 ExpiredListenAddr——其地址从 listen 视图移除
+                //（注销 relay 时 circuit 地址随之消失）
+                self.remove_listen_addrs(&addresses);
                 // circuit listener 关闭 = reservation 失效；该 relay 无其余
-                // listener 时上抛 RelayReservationLost + 清 watch
+                // listener 时翻 Failed（摘表在前，set_relay_failed 的 listener
+                // guard 自然放行）+ 上抛 RelayReservationLost。注销路径
+                //（RemoveInfraPeer）已先摘 relay_listeners，此处反查不到 → 静默
                 if let Some(relay_peer) = self.relay_listeners.remove(&listener_id)
                     && !self.relay_listeners.values().any(|p| *p == relay_peer)
                 {
-                    let relay = NodeId::from_peer_id(relay_peer);
-                    self.watches.relays.send_modify(|map| {
-                        map.remove(&relay);
+                    let last_error = match &reason {
+                        Ok(()) => "reservation closed".to_string(),
+                        Err(e) => e.to_string(),
+                    };
+                    self.set_relay_failed(relay_peer, last_error);
+                    self.emit(NetEvent::RelayReservationLost {
+                        relay: NodeId::from_peer_id(relay_peer),
                     });
-                    self.emit(NetEvent::RelayReservationLost { relay });
                 }
             }
             SwarmEvent::ExpiredListenAddr { address, .. } => {
-                let addr = Addr::from_multiaddr(address);
-                self.watches
-                    .addrs
-                    .send_modify(|info| info.listen.retain(|a| *a != addr));
-                self.publish_addrs();
+                self.remove_listen_addrs(std::slice::from_ref(&address));
             }
             SwarmEvent::ExternalAddrConfirmed { address } => {
                 let addr = Addr::from_multiaddr(address);
@@ -763,6 +916,36 @@ impl Actor {
                 self.queries.handle(id, result, &step);
             }
             BehaviourEvent::RelayClient(ev) => self.handle_relay_client_event(ev),
+            BehaviourEvent::RelayServer(libp2p::relay::Event::CircuitReqAccepted {
+                src_peer_id,
+                dst_peer_id,
+            }) => {
+                info!(%src_peer_id, %dst_peer_id, "relay circuit accepted");
+            }
+            BehaviourEvent::RelayServer(libp2p::relay::Event::CircuitReqDenied {
+                src_peer_id,
+                dst_peer_id,
+                status,
+            }) => {
+                warn!(%src_peer_id, %dst_peer_id, ?status, "relay circuit denied");
+            }
+            BehaviourEvent::RelayServer(libp2p::relay::Event::CircuitClosed {
+                src_peer_id,
+                dst_peer_id,
+                error: Some(error),
+            }) => {
+                warn!(%src_peer_id, %dst_peer_id, %error, "relay circuit closed with I/O error");
+            }
+            BehaviourEvent::RelayServer(libp2p::relay::Event::CircuitClosed {
+                src_peer_id,
+                dst_peer_id,
+                error: None,
+            }) => {
+                info!(%src_peer_id, %dst_peer_id, "relay circuit closed");
+            }
+            BehaviourEvent::RelayServer(event) => {
+                debug!(?event, "relay server event");
+            }
             #[cfg(not(wasm_browser))]
             BehaviourEvent::Mdns(ev) => match ev {
                 libp2p::mdns::Event::Discovered(list) => {
@@ -814,15 +997,28 @@ impl Actor {
                 ..
             } => {
                 let relay = NodeId::from_peer_id(relay_peer_id);
-                self.watches.relays.send_modify(|map| {
-                    map.insert(relay, RelayState::Active);
-                });
+                let circuit_addr = self.circuit_addr_for(relay_peer_id);
+                // renewal 时值相等 → set_relay_state 不发通知（周期性空通知消除）
+                self.set_relay_state(relay_peer_id, RelayState::Active { circuit_addr });
                 if !renewal {
                     info!(%relay_peer_id, "relay reservation accepted");
                 }
                 self.emit(NetEvent::RelayReservationAccepted { relay, renewal });
             }
             other => debug!(?other, "relay client event"),
+        }
+    }
+
+    /// 从 listen 视图移除一批地址，有变化时 republish（ListenerClosed /
+    /// ExpiredListenAddr 共用——两处失效路径同一套规则）。
+    fn remove_listen_addrs(&mut self, removed: &[libp2p::Multiaddr]) {
+        let changed = self.watches.addrs.send_if_modified(|info| {
+            let before = info.listen.len();
+            info.listen.retain(|a| !removed.contains(a.as_multiaddr()));
+            info.listen.len() != before
+        });
+        if changed {
+            self.publish_addrs();
         }
     }
 
@@ -907,6 +1103,20 @@ fn try_emit(tx: &mpsc::Sender<NetEvent>, event: NetEvent, dropped: &mut u64) -> 
 
 pub(crate) fn subscriber_channel() -> (mpsc::Sender<NetEvent>, mpsc::Receiver<NetEvent>) {
     mpsc::channel(SUBSCRIBER_QUEUE)
+}
+
+/// circuit 基址归一化：确保携带 `/p2p/<relay>` 段后接 `/p2p-circuit`。
+/// reservation listen 与 `Active` 状态下发共用（单一拼装规则，两处不漂移）。
+fn circuit_base(addr: libp2p::Multiaddr, relay: PeerId) -> libp2p::Multiaddr {
+    let base = if addr
+        .iter()
+        .any(|p| matches!(p, libp2p::multiaddr::Protocol::P2p(_)))
+    {
+        addr
+    } else {
+        addr.with(libp2p::multiaddr::Protocol::P2p(relay))
+    };
+    base.with(libp2p::multiaddr::Protocol::P2pCircuit)
 }
 
 /// 由连接的远端地址推断路径分类。

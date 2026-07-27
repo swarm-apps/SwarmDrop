@@ -395,8 +395,8 @@ function RelayReadyLabel({
 }) {
   if (!source) return <Trans>就绪</Trans>;
   switch (candidateSourceKey(source)) {
-    case "userCustom":
-      return <Trans>就绪 · 自定义</Trans>;
+    case "hostConfigured":
+      return <Trans>就绪 · 配置节点</Trans>;
     case "mdnsLanHelper":
       return <Trans>就绪 · LAN Helper</Trans>;
     default:
