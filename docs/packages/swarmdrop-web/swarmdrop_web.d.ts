@@ -17,6 +17,9 @@ export type ConnectionJson = {
     addr: string,
 };
 
+/**  连接类型。 */
+export type ConnectionType = "lan" | "dcutr" | "relay";
+
 /**
  *  接收端保存位置（host-agnostic）。
  *
@@ -26,6 +29,50 @@ export type ConnectionJson = {
 export type CoreSaveLocation =
 /**  文件系统绝对路径（桌面）或 `Paths.document` 子路径（移动端）。 */
 { type: "path"; path: string };
+
+/**  统一的设备输出类型。 */
+export type Device = {
+    peerId: string,
+    status: DeviceStatus,
+    connection: ConnectionType | null,
+    latency: number | null,
+    isPaired: boolean,
+    trustLevel: DeviceTrustLevel | null,
+    receivePolicy: DeviceReceivePolicy | null,
+    trustConfirmed: boolean | null,
+} & OsInfo;
+
+/**
+ *  可信设备接收策略。
+ *
+ *  字段保持 host-neutral：保存位置使用字符串表达的 host 路径，桌面端解释为绝对路径，
+ *  移动端后续可解释为应用文档目录下的子路径。
+ */
+export type DeviceReceivePolicy = {
+    autoAccept: boolean,
+    requireConfirmation: boolean,
+    maxTransferBytes?: number | null,
+    allowDirectories: boolean,
+    allowRelayAutoAccept: boolean,
+    saveBehavior?: ReceiveSaveBehavior,
+    defaultSaveLocation?: string | null,
+    allowMcpSendToDevice: boolean,
+    /**
+     *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
+     *
+     *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
+     *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+     *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
+     */
+    allowMcpAcceptFromDevice?: boolean,
+    expiresAt?: number | null,
+};
+
+/**  设备状态。 */
+export type DeviceStatus = "online" | "offline";
+
+/**  已配对设备信任等级。 */
+export type DeviceTrustLevel = "owned" | "collaborator" | "temporary" | "blocked";
 
 /**  传输文件元信息。 */
 export type FileInfo = {
@@ -46,6 +93,12 @@ export type FileProgressInfo = {
 
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 
+/**  `lookup_share_code()` 的返回：旧分享码 DHT record 解析出的对端身份和可拨地址。 */
+export type NodeAddrJson = {
+    id: string,
+    addrs: string[],
+};
+
 /**  挂起 offer 的 JS 投影（`pending_offers()` 返回 `OfferJson[]`）。 */
 export type OfferJson = {
     sessionId: string,
@@ -59,6 +112,23 @@ export type OfferJson = {
 export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined" } | { type: "policy_rejected" } |
 /**  接收方处于全局「暂停接收」状态，婉拒新 offer。 */
 { type: "receiving_paused" };
+
+/**
+ *  设备操作系统信息。
+ *
+ *  `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
+ *  `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+ *  `name.as_deref().unwrap_or(&hostname)` 回退。
+ */
+export type OsInfo = {
+    /**  用户起的设备名；缺省时回退到 `hostname`。 */
+    name?: string | null,
+    hostname: string,
+    os: string,
+    platform: string,
+    arch: string,
+    capabilities?: string[],
+};
 
 /**  连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。 */
 export type PathKindJson = "local" | "direct" | "relayed";
@@ -91,6 +161,11 @@ export type PrepareProgressEvent = {
     /**  总字节数（所有文件） */
     totalBytes: number,
 };
+
+/**  自动接收时的保存行为。 */
+export type ReceiveSaveBehavior =
+/**  使用策略里配置的默认保存位置，接收完成后进入收件箱。 */
+"inbox_and_default_save_location";
 
 /**  单个 relay 意图的状态快照（`relays_state()` 元素 / `relays_changed()` 流的产出单元）。 */
 export type RelayInfoJson = {
@@ -379,9 +454,18 @@ export class WebNode {
      */
     generate_invite(local_only: boolean): string;
     /**
+     * 兼容旧 6 位分享码：从 DHT 查 record，解析 publisher + listen_addrs，并注册到本地地址簿。
+     */
+    lookup_share_code(code: string): Promise<NodeAddrJson>;
+    /**
      * 本节点身份（base58）。
      */
     node_id(): string;
+    /**
+     * 已配对设备清单——与桌面 `list_devices` 同源的 [`DeviceManager::get_devices`] 读模型
+     * （含在线状态/连接类型，presence 在 Web 侧同样运作）。
+     */
+    paired_devices(): Device[];
     /**
      * 当前挂起（待确认）的入站 offer 列表。
      */
@@ -445,11 +529,22 @@ export class WebNode {
      */
     send_files(to: string, files: File[]): Promise<string>;
     /**
-     * 建节点：持久化身份（Window=localStorage / Worker=OPFS）→ 包 core 组合根 [`start_node`]
+     * 建节点：持久化身份（Window=localStorage / Worker=OPFS）+ IndexedDB 恢复已配对设备 → 包 core 组合根 [`start_node`]
      * （Browser [`EndpointProfile`] + Web 端口）→ 完整 [`NetManager`] + 3 协议 Router（含
      * pairing）。**须在主线程 Window 跑**——webrtc-websys dial 碰 window，Worker 里会 panic。
      */
     static spawn(): Promise<WebNode>;
+    /**
+     * 已持久化的传输会话投影（无序——收件箱与活动视图排法不同，排序留给调用方）。
+     *
+     * 页面刷新后事件流从零开始，前端据此回补收件箱与传输活动视图（收件箱 = 其中
+     * `direction=receive` 且 `terminalReason=completed` 的条目，文件仍在 OPFS，可继续
+     * [`download_url`](Self::download_url)）。
+     *
+     * **不含**非终态的发送会话与待决 offer：浏览器刷新后无法在不重新选择文件的前提下
+     * 读回 `File`，待决 offer 也已无处应答，故它们本就不落库（见 `store.rs` 模块注释）。
+     */
+    transfer_history(): TransferProjection[];
 }
 
 /**
@@ -461,8 +556,8 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly start: () => void;
+    readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly webnode_accept_offer: (a: number, b: number, c: number) => any;
     readonly webnode_close: (a: number) => any;
     readonly webnode_connect: (a: number, b: number, c: number, d: number) => any;
@@ -470,7 +565,9 @@ export interface InitOutput {
     readonly webnode_download_url: (a: number, b: number, c: number) => any;
     readonly webnode_events: (a: number) => [number, number, number];
     readonly webnode_generate_invite: (a: number, b: number) => [number, number, number, number];
+    readonly webnode_lookup_share_code: (a: number, b: number, c: number) => any;
     readonly webnode_node_id: (a: number) => [number, number];
+    readonly webnode_paired_devices: (a: number) => [number, number, number];
     readonly webnode_pending_offers: (a: number) => [number, number, number];
     readonly webnode_pending_pairing_requests: (a: number) => [number, number, number];
     readonly webnode_reject_offer: (a: number, b: number, c: number) => any;
@@ -483,30 +580,33 @@ export interface InitOutput {
     readonly webnode_resume: (a: number, b: number, c: number) => any;
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
+    readonly webnode_transfer_history: (a: number) => [number, number, number];
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
-    readonly __wbg_intounderlyingsink_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;
     readonly intounderlyingbytesource_pull: (a: number, b: any) => any;
     readonly intounderlyingbytesource_start: (a: number, b: any) => void;
     readonly intounderlyingbytesource_type: (a: number) => number;
-    readonly intounderlyingsink_abort: (a: number, b: any) => any;
-    readonly intounderlyingsink_close: (a: number) => any;
-    readonly intounderlyingsink_write: (a: number, b: any) => any;
     readonly __wbg_intounderlyingsource_free: (a: number, b: number) => void;
     readonly intounderlyingsource_cancel: (a: number) => void;
     readonly intounderlyingsource_pull: (a: number, b: any) => any;
-    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__web_sys_722c4f4a95e80f73___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__web_sys_722c4f4a95e80f73___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__wasm_bindgen_50225492efb0bf66___JsValue____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
-    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke___wasm_bindgen_50225492efb0bf66___JsValue__wasm_bindgen_50225492efb0bf66___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke___web_sys_722c4f4a95e80f73___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke___web_sys_722c4f4a95e80f73___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke___wasm_bindgen_50225492efb0bf66___JsValue_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke______: (a: number, b: number) => void;
-    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke_______1_: (a: number, b: number) => void;
+    readonly __wbg_intounderlyingsink_free: (a: number, b: number) => void;
+    readonly intounderlyingsink_abort: (a: number, b: any) => any;
+    readonly intounderlyingsink_close: (a: number) => any;
+    readonly intounderlyingsink_write: (a: number, b: any) => any;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_72cb8dc3ed0d6b49___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_72cb8dc3ed0d6b49___features__gen_CloseEvent__CloseEvent____Output________1_: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_72cb8dc3ed0d6b49___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_72cb8dc3ed0d6b49___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_72cb8dc3ed0d6b49___features__gen_CloseEvent__CloseEvent______1_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_72cb8dc3ed0d6b49___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

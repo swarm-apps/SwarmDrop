@@ -7,7 +7,7 @@
  * **只列 TCP + QUIC**（与 `mobile/src/core/bootstrap-nodes.ts` 对齐）。原生端两者
  * 都直达公网，服务端的 `/tcp/4002/ws` 永远排不上号；而浏览器也用不了它——https
  * 页面拨公网裸 IP 的 `ws://` 会被 mixed content 拦，Web 端清单
- * （`docs/app/try/relay-helpers.ts`）因此只有 webrtc-direct。
+ * （`docs/app/app/_lib/relay-helpers.ts`）因此只有 webrtc-direct。
  *
  * 注意这不代表 WebSocket 在桌面无用：桌面**自身**仍监听 `/ws`，那是同网浏览器
  * 直连本机的入口（`crates/net/src/endpoint/presets.rs`），与本清单无关。

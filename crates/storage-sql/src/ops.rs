@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use swarmdrop_host::AppResult;
 use swarmdrop_host::{CoreSaveLocation, HostFileMetadata};
-use swarmdrop_transfer::calc_total_chunks;
+use swarmdrop_transfer::{calc_total_chunks, expired_receive_reason};
 // 持久化 DTO / 投影类型随 transfer 域迁出；ops 的实现函数（SqlSessionStore 委托目标）
 // 保留在 core。pub use 兼容再导出，保持 `database::ops::{TransferProjection, …}` 路径
 // 不变（src-tauri events / mcp / commands 复用），From<ModelEx> 投影转换也随类型迁到 transfer。
@@ -523,7 +523,6 @@ pub async fn reap_expired_suspended_receives(
         .all(db)
         .await?;
 
-    let retention_days = retention_secs / 86_400;
     let mut reaped = Vec::with_capacity(sessions.len());
     for session in sessions {
         let session_id = session.session_id;
@@ -550,9 +549,7 @@ pub async fn reap_expired_suspended_receives(
             None,
             Some(TerminalReason::FatalError),
         );
-        model.error_message = Set(Some(format!(
-            "会话超过 {retention_days} 天未恢复，已过期回收"
-        )));
+        model.error_message = Set(Some(expired_receive_reason(retention_secs)));
         model.finished_at = Set(Some(now));
         model.updated_at = Set(now);
         model.update(db).await?;

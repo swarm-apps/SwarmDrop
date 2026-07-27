@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "quick-start",
+    "web",
     "concepts",
     "security",
     "self-host",

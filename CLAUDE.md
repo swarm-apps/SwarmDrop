@@ -16,8 +16,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md) — crates/core ↔ src-tauri 边界、specta + chrono、`#[expect]` 风格、IPC 时间类型选型
 - [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、Vite/Tauri 端口、Lingui 实际 locale、版本号三处同步
 - [`dev-notes/knowledge/net-kernel.md`](dev-notes/knowledge/net-kernel.md) — 网络内核 swarmdrop-net（2026-07 重构产物）：架构速览与事件双轨制、libp2p git pin 校准坑、wasm 工程约定、wire v2 契约点、已知负债。**碰 crates/net、crates/net-base、协议注册、relay、DHT、升级 libp2p rev 时必读**
-- [`dev-notes/knowledge/libp2p-wasm.md`](dev-notes/knowledge/libp2p-wasm.md) — Web 端（wasm）可行性调研（2026-07）。**结论已落地**：`crates/web` + `docs/app/try` 是其产物
-- [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`
+- [`dev-notes/knowledge/libp2p-wasm.md`](dev-notes/knowledge/libp2p-wasm.md) — Web 端（wasm）可行性调研（2026-07）。**结论已落地**：`crates/web` + `docs/app/app` 是其产物
+- [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`，Web 端是 IndexedDB 写穿的 `SessionStore`（`crates/web/src/store.rs`）
 - [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估（2026-07 调研）。**已决策：不迁移**，但 iroh 的 API 形态被 `crates/net` 借鉴。碰 P2P 选型或有人提「迁 iroh」时先读
 
 ## Design Context
@@ -256,7 +256,7 @@ mixed content 拦，`wss://` 又要域名 + CA）。
 
 客户端清单按端分三份，各自只列本端用得上的 transport（部署配置，不属于 P2P 内核）：
 `src/lib/bootstrap-nodes.ts`（桌面：tcp + quic）、`mobile/src/core/bootstrap-nodes.ts`
-（移动：tcp + quic）、`docs/app/try/relay-helpers.ts`（Web：webrtc-direct）。
+（移动：tcp + quic）、`docs/app/app/_lib/relay-helpers.ts`（Web：webrtc-direct）。
 服务端 4002 目前无客户端消费——保留是为兼容存量已发布版本。
 
 **配对：PairInvite（一次性签名邀请）。**
@@ -269,9 +269,13 @@ TTL 300s + 一次性消费），二维码与链接是同一字符串的不同载
 
 ### Web 端（wasm）
 
-`crates/web` 编成 wasm 后由文档站承载，入口 `docs/app/try`。走完整 `NetManager` + 3 协议，
-配对经 `pair_with_invite` 真 capability 握手；持久化用内存 store + OPFS（不吃 storage-sql）。
+`crates/web` 编成 wasm 后由文档站承载，入口 `docs/app/app`。走完整 `NetManager` + 3 协议，
+配对经 `pair_with_invite` 真 capability 握手；持久化是「内存读缓存 + IndexedDB 写穿」的
+`SessionStore` + OPFS 落盘（不吃 storage-sql），收件箱、传输历史与接收侧续传上下文跨刷新存活。
 浏览器侧传输依赖 WebSocket / WebRTC-Direct + relay circuit。
+
+**只有接收方向能续传**：浏览器无法在用户不重新选择的前提下再读同一个 `File`，
+因此非终态发送会话与待决 offer 一律不落库。
 
 wasm 是 CI 一等公民：`./scripts/check-wasm.sh` 在 PR 阶段拦截破坏浏览器 target 的改动。
 
@@ -355,8 +359,9 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | 宿主端口层 | `crates/host/` |
 | 配对邀请（PairInvite） | `crates/invite/` |
 | SQL 存储实现（native-only） | `crates/storage-sql/` |
-| Web 壳（wasm） | `crates/web/`，入口 `docs/app/try` |
+| Web 壳（wasm） | `crates/web/`（`store.rs` 是 IndexedDB 写穿的 `SessionStore`，`idb.rs` 是其底层），入口 `docs/app/app` |
 | Zustand stores | `src/stores/` |
+| Web 应用前端 | `docs/app/app/`（Next 应用区，非 fumadocs 文档；wasm 产物入库在 `docs/packages/swarmdrop-web/`） |
 | 路由页面 | `src/routes/` |
 | shadcn/ui 组件 | `src/components/ui/` |
 | 前端翻译 catalog | `src/locales/{locale}/messages.po` |
@@ -381,7 +386,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | Phase 2 — Pairing | Done | 已从 6 位分享码演进为 PairInvite 一次性签名邀请 |
 | Phase 3 — File Transfer | Done | 加密传输、断点续传、SQLite 历史与收件箱、MCP server |
 | Phase 4 — Mobile | Done | React Native + Expo + uniffi，独立版本线 `mobile-v*` |
-| Phase 5 — Web (wasm) | In Progress | `crates/web` + `docs/app/try`；WebRTC / relay 链路仍在收敛 |
+| Phase 5 — Web (wasm) | In Progress | `crates/web` + `docs/app/app`；WebRTC / relay 链路仍在收敛 |
 
 Detailed per-phase specs: `dev-notes/archive/completed-roadmap/phase-*.md`（历史存档，
 描述的是重构前的架构，读时注意时效）。
@@ -389,5 +394,5 @@ Detailed per-phase specs: `dev-notes/archive/completed-roadmap/phase-*.md`（历
 ## Documentation Site
 
 Next.js 16 + Fumadocs in `docs/`。内容在 `docs/content/docs/`。它同时是 Web 端的宿主
-（`docs/app/try`），所以改 `crates/web` 后需 `pnpm build:wasm` 重新生成 wasm 产物。
+（`docs/app/app`），所以改 `crates/web` 后需 `pnpm build:wasm` 重新生成 wasm 产物。
 Tutorial 风格内容用 `/swarmbook-tutorial` skill。

@@ -77,6 +77,16 @@ web-sys = { version = "0.3", features = [
     "FileSystemCreateWritableOptions",
     "WriteParams",
     "WriteCommandType",
+    "DomException",
+    "DomStringList",
+    "Event",
+    "IdbDatabase",
+    "IdbFactory",
+    "IdbObjectStore",
+    "IdbOpenDbRequest",
+    "IdbRequest",
+    "IdbTransaction",
+    "IdbTransactionMode",
 ] }
 
 # wasm-bindgen-test：Bug 2 快速失败回归测试只能在浏览器 harness 跑（整 crate #![cfg(wasm_browser)]，

@@ -6,6 +6,9 @@
 //! serde_json）逐字段一致。
 
 use serde::Serialize;
+// `paired_devices()` 的 JS 返回类型：直接复用桌面同款读模型（已 Serialize + specta::Type），
+// 不再手写一份 Web 专属投影——字段（含在线状态/连接类型）语义与桌面一致，没有理由分叉。
+pub use swarmdrop_host::device::Device;
 use swarmdrop_transfer::events::TransferEvent;
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{
@@ -129,6 +132,15 @@ impl From<swarmdrop_net_base::PathKind> for PathKindJson {
 pub struct ConnectionJson {
     pub path: PathKindJson,
     pub addr: String,
+}
+
+/// `lookup_share_code()` 的返回：旧分享码 DHT record 解析出的对端身份和可拨地址。
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct NodeAddrJson {
+    pub id: String,
+    pub addrs: Vec<String>,
 }
 
 /// relay reservation 状态类别（[`swarmdrop_net::RelayState`] 的 JS 投影，TS 侧字符串联合）。
