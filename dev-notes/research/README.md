@@ -21,6 +21,6 @@
 
 | 主题 | 状态 | 一句话 |
 |---|---|---|
-| [自研 WebRTC transport：浏览器直连 NAT 后设备](2026-07-webrtc-native-ice.md) | 🟡 可行性已验证，未决策 | webrtc-rs 0.20 有完整 ICE 能力，地基成立；缺跨 NAT 打洞的最后验证 |
+| [自研 WebRTC transport：浏览器直连 NAT 后设备](2026-07-webrtc-native-ice.md) | 🟢 已决策采纳 | webrtc-rs 0.20 有完整 ICE 能力，地基已实测；驱动理由是能力建设与生态缺口，非投入产出比 |
 
 状态图例：🟢 已决策采纳 · 🟡 验证中 / 待决策 · 🔴 已否决（保留论证）
