@@ -250,8 +250,14 @@ src-tauri/src/
 
 **Tracing:** 默认 filter `swarmdrop=debug,swarmdrop_net=debug`，`RUST_LOG` 可覆盖。
 
-**Bootstrap / relay node:** 自建，`47.115.172.218`——TCP 4001、QUIC 4001、WebSocket 4002。
-清单在 `src/lib/bootstrap-nodes.ts`（桌面部署配置，不属于 P2P 内核）。
+**Bootstrap / relay node:** 自建，`47.115.172.218`——TCP 4001、QUIC 4001、WebSocket 4002、
+**WebRTC Direct 4003**（后者是 Web 端唯一入口：https 页面拨公网裸 IP 的 `ws://` 会被
+mixed content 拦，`wss://` 又要域名 + CA）。
+
+客户端清单按端分三份，各自只列本端用得上的 transport（部署配置，不属于 P2P 内核）：
+`src/lib/bootstrap-nodes.ts`（桌面：tcp + quic）、`mobile/src/core/bootstrap-nodes.ts`
+（移动：tcp + quic）、`docs/app/try/relay-helpers.ts`（Web：webrtc-direct）。
+服务端 4002 目前无客户端消费——保留是为兼容存量已发布版本。
 
 **配对：PairInvite（一次性签名邀请）。**
 6 位数字分享码已废弃。现在是自包含邀请串 `sdinvite…`（Ed25519 签名 + 256bit capability +

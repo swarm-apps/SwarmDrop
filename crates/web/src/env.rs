@@ -4,9 +4,10 @@
 //! OPFS 落盘的 Worker 版）：用 `js_sys::global()` 探测环境取 navigator / isSecureContext。
 //! localStorage 仅 Window 有——Worker 环境的身份持久化退到 OPFS（见 identity.rs）。
 //!
-//! 注意：webrtc-websys 的 `window()` panic 只在 **dial webrtc-direct 地址**时触发
-//! （`Transport::dial → maybe_local_firefox`），构造无害——Worker 里装着 webrtc transport
-//! 不拨它即可，无需拆 preset。
+//! 注意：webrtc-websys 在 Worker 里**不能装**，不是「装了不拨就行」。它的 `dial` 在地址
+//! 格式检查**之前**就调 `maybe_local_firefox()`（内含 `window().expect`），于是经
+//! `or_transport` 拨任何地址（含 ws）都先进 webrtc 分支碰 panic。2026-07-18 Worker 版
+//! 基准实测坐实，故 `transport.rs` 在无 window 时直接返回 ws-only 栈。
 
 use wasm_bindgen::JsCast;
 use web_sys::{Storage, StorageManager, WorkerGlobalScope};
