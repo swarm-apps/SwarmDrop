@@ -14,7 +14,7 @@ use specta::datatype::{DataType, Primitive};
 use specta::{Format, FormatError, Type, Types};
 use specta_util::Remapper;
 use swarmdrop_web::{
-    ConnectionJson, Device, OfferJson, PendingPairingJson, RelayInfoJson, WebError,
+    ConnectionJson, Device, NodeAddrJson, OfferJson, PendingPairingJson, RelayInfoJson, WebError,
     WebTransferEvent,
 };
 
@@ -58,6 +58,7 @@ fn export_bindings() {
         .register::<OfferJson>()
         .register::<PendingPairingJson>()
         .register::<ConnectionJson>()
+        .register::<NodeAddrJson>()
         .register::<RelayInfoJson>()
         .register::<WebError>()
         .register::<Device>();

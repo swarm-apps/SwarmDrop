@@ -134,6 +134,15 @@ pub struct ConnectionJson {
     pub addr: String,
 }
 
+/// `lookup_share_code()` 的返回：旧分享码 DHT record 解析出的对端身份和可拨地址。
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct NodeAddrJson {
+    pub id: String,
+    pub addrs: Vec<String>,
+}
+
 /// relay reservation 状态类别（[`swarmdrop_net::RelayState`] 的 JS 投影，TS 侧字符串联合）。
 #[derive(Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

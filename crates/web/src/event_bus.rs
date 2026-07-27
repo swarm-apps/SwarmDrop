@@ -53,6 +53,13 @@ impl EventBus for WebEventBus {
                     });
                 }
             }
+            CoreEvent::PairedDeviceAdded { device } => {
+                wasm_bindgen_futures::spawn_local(async move {
+                    if let Err(err) = crate::identity::upsert_paired_device(device).await {
+                        tracing::warn!("持久化已配对设备失败: {err:?}");
+                    }
+                });
+            }
             other => {
                 tracing::debug!("WebEventBus core 事件（暂不 surface 到 JS）: {other:?}");
             }

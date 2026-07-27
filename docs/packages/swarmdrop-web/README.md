@@ -63,7 +63,7 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/try
 
 | 方法 | 说明 |
 |---|---|
-| `spawn()` | 持久化身份（Window=localStorage / Worker=OPFS）→ Browser preset + DHT client → 装配 TransferManager + Router |
+| `spawn()` | 持久化身份（Window=localStorage / Worker=OPFS）+ IndexedDB 恢复已配对设备 → Browser preset + DHT client → 装配 TransferManager + Router |
 | `node_id()` | 本机 base58 身份 |
 | `connect(addr)` | 拨地址 → `ConnectionJson`（`{ path: "local"\|"direct"\|"relayed", addr }`） |
 | `reserve(helper_addr)` | 请求 circuit reservation → circuit 地址字符串 |
@@ -97,6 +97,7 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/try
 - **WebEventSink**：`TransferEvent` 走无界 channel（`Send`）→ `events()` 的 ReadableStream 单点
   消费、serde-wasm-bindgen 序列化（镜像 `WebTransferEvent`，`tag="type"` camelCase）。
 - **身份**：`SecretKey` protobuf 编码 hex 存 localStorage。
+- **已配对设备**：`PairedDeviceInfo[]` 存 IndexedDB（`swarmdrop-web` / `kv` / `swarmdrop.pairedDevices.v1`），刷新后恢复并注入 `start_node`。
 
 ## 遗留 / 取舍
 
@@ -104,7 +105,7 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/try
   （Collaborator，auto_accept=false → policy RequireConfirmation）。`incoming.rs` 对未配对
   （`None`）offer 硬拒 `NotPaired`（桌面安全边界），故 Web 无配对时必须给个 `Some`——语义正是
   「陌生设备手动确认」，**不改 transfer**。
-- **IndexedDB 持久化未做**（加分项）：内存版足够验证端到端；跨刷新续传属后续（`SendWrapper` 包
+- **Transfer Store 的 IndexedDB 持久化未做**：传输会话内存版足够验证端到端；跨刷新续传属后续（`SendWrapper` 包
   JsFuture 的 Send 方案已在 storage-abstraction.md 探针证可行）。
 - DHT 查分享码需先连 DHT-capable helper（浏览器不可达 TCP bootstrap，故 spawn 不加 bootstrap）。
 - **client.js 手工镜像 WebNode 方法表**（结构性负债）：新增 WebNode 方法必须同步 client.js

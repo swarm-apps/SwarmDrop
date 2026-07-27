@@ -3,7 +3,7 @@
 //! 让浏览器成为真正的 SwarmDrop 传输端——**包一层 core 的组合根** `start_node`（与桌面/移动
 //! 同源装配），注入 Browser `EndpointProfile` + Web 端口（内存 store / OPFS / ReadableStream
 //! 事件）。走完整 `NetManager` + 3 协议：配对经 `pair_with_invite`（真 capability 握手），
-//! 配对记录**内存态**（IndexedDB 持久化 + React UI 属后续前端工程）。
+//! 配对设备记录经 IndexedDB 持久化并在刷新后注入 `start_node`。
 //!
 //! 除 [`types`]（JS 可见类型层，native 也编——specta 导出 test 在 native 注册它们）外，
 //! 全部模块由 `cfg(wasm_browser)` 门控：native target 下近乎空 crate（`cargo check
@@ -35,8 +35,8 @@ mod store;
 #[cfg(wasm_browser)]
 pub use node::WebNode;
 pub use types::{
-    ConnectionJson, Device, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind, WebError,
-    WebTransferEvent,
+    ConnectionJson, Device, NodeAddrJson, OfferJson, PendingPairingJson, RelayInfoJson,
+    RelayStateKind, WebError, WebTransferEvent,
 };
 
 /// wasm 模块加载即初始化 panic hook + tracing（浏览器 console）。

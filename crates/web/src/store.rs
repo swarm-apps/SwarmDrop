@@ -1,12 +1,12 @@
 //! 持久化端口的**内存**实现（`SessionStore` + `InboxStore`）。
 //!
-//! Web 壳范围内无配对/历史持久化，会话/文件表存内存即可（页面刷新即丢，符合「传输端」
-//! 定位）。entity 的 `Model` 是纯 scalar 结构（关系字段只在 `ModelEx`），可直接手构造——
+//! Web 壳的配对设备持久化在 `identity.rs`（IndexedDB）；本模块只负责传输会话/文件表内存态
+//! 存储（页面刷新即丢，符合当前「传输端」定位）。entity 的 `Model` 是纯 scalar 结构（关系字段只在 `ModelEx`），可直接手构造——
 //! 故本 crate **不直接依赖 sea-orm**（投影也直接构造 `TransferProjection`，绕开 `ModelEx`
 //! 的 `HasMany` 关系类型）。`std::sync::Mutex` 在单线程 wasm 下等价无锁，满足端口的
 //! Send+Sync（数据都是普通值，无 !Send）。
 //!
-//! **加分项 IndexedDB 版未做**：范围内内存版足够验证传输端到端；持久化断点续传跨刷新
+//! **Transfer Store 的 IndexedDB 版未做**：范围内内存版足够验证传输端到端；持久化断点续传跨刷新
 //! 属后续（storage-abstraction.md 探针已证 `send_wrapper::SendWrapper` 包 JsFuture 的 Send
 //! 方案可行）。
 

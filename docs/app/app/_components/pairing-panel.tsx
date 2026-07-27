@@ -9,7 +9,7 @@ import { WebErrorCard } from "./web-error-view";
 import { getNode } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode, webNodeActions } from "../_lib/store";
-import { toWebError, type WebError, type WebNode } from "../_lib/view-types";
+import { toWebError, type NodeAddrJson, type WebError, type WebNode } from "../_lib/view-types";
 
 /** 配对/消费邀请成功后刷新已配对设备清单；失败不影响主流程（下一轮 state-poll 会补上）。 */
 function refreshPairedDevices(node: WebNode) {
@@ -30,6 +30,9 @@ export function PairingPanel() {
   const [inviteInput, setInviteInput] = useState("");
   const [consumeSuccess, setConsumeSuccess] = useState<string | null>(null);
   const consumeAction = useAsyncAction();
+  const [shareCode, setShareCode] = useState("");
+  const [lookupResult, setLookupResult] = useState<NodeAddrJson | null>(null);
+  const lookupAction = useAsyncAction();
 
   const doConsumeInvite = () => {
     const node = getNode();
@@ -42,6 +45,16 @@ export function PairingPanel() {
         setInviteInput("");
         refreshPairedDevices(node);
       },
+    );
+  };
+
+  const doLookupShareCode = () => {
+    const node = getNode();
+    if (!node || !shareCode.trim()) return;
+    setLookupResult(null);
+    lookupAction.run(
+      () => node.lookup_share_code(shareCode.trim()),
+      setLookupResult,
     );
   };
 
@@ -115,6 +128,44 @@ export function PairingPanel() {
           <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
             已配对：<span className="font-mono">{consumeSuccess}</span>
           </p>
+        )}
+      </div>
+
+      <div className="mt-5 border-t border-fd-border pt-4">
+        <p className="text-xs font-medium text-fd-muted-foreground">
+          分享码查找（需先连接可用 DHT helper）
+        </p>
+        <div className="mt-2 flex gap-2">
+          <input
+            className="w-32 rounded-lg border border-fd-border bg-fd-background px-3 py-2 font-mono text-xs text-fd-foreground placeholder:text-fd-muted-foreground"
+            placeholder="123456"
+            inputMode="numeric"
+            maxLength={6}
+            value={shareCode}
+            onChange={(e) => setShareCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            disabled={!ready}
+          />
+          <button
+            type="button"
+            onClick={doLookupShareCode}
+            disabled={!ready || shareCode.length !== 6 || lookupAction.pending}
+            className="shrink-0 rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
+          >
+            {lookupAction.pending ? "查找中..." : "查找"}
+          </button>
+        </div>
+        {lookupAction.error && <WebErrorCard error={lookupAction.error} className="mt-2 text-xs" />}
+        {lookupResult && (
+          <div className="mt-2 rounded-lg border border-fd-border bg-fd-background px-3 py-2">
+            <p className="truncate font-mono text-xs text-fd-foreground">{lookupResult.id}</p>
+            <ul className="mt-1 space-y-1">
+              {lookupResult.addrs.map((addr) => (
+                <li key={addr} className="break-all font-mono text-[11px] text-fd-muted-foreground">
+                  {addr}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
 

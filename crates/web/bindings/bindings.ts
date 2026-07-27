@@ -84,6 +84,12 @@ export type FileProgressInfo = {
 
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 
+/**  `lookup_share_code()` 的返回：旧分享码 DHT record 解析出的对端身份和可拨地址。 */
+export type NodeAddrJson = {
+	id: string,
+	addrs: string[],
+};
+
 /**  挂起 offer 的 JS 投影（`pending_offers()` 返回 `OfferJson[]`）。 */
 export type OfferJson = {
 	sessionId: string,
