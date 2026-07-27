@@ -122,6 +122,47 @@ PeerConnection 不同（`webrtc-rs` vs 浏览器 `RTCPeerConnection`）。
 
 这也是「通用」的第二层含义——不只是别的项目能用，而是**在同一个项目里覆盖所有端的组合**。
 
+## 为什么不实现 webrtc-direct 模式（以及它的代价）
+
+js-libp2p 的 [`transport-webrtc`](https://github.com/libp2p/js-libp2p/tree/main/packages/transport-webrtc)
+一个包导出两种模式（`webRTC()` 打洞 / `webRTCDirect()`）。**我们只做打洞那一种。**
+
+原因是 js 把两者放一起是为了复用底层，而 **rust 侧早已把共享层抽了出来**：
+`libp2p-webrtc-utils` 发布在 crates.io（0.5.0），含 `fingerprint.rs` / `sdp.rs` /
+`stream.rs`。关键是它**泛型且不依赖 webrtc-rs**：
+
+```rust
+pub struct Stream<T> where T: AsyncRead + AsyncWrite   // 与具体 WebRTC 实现无关
+```
+
+所以我们用 webrtc-rs 0.20 照样能复用它，**不会因此把 0.17 拖进来**。加上 `multiaddr`
+已有 `Protocol::WebRTC` 与 `Protocol::WebRTCDirect` 两个协议段，分派天然不冲突：
+
+| 模式 | 谁实现 | 状态 |
+|---|---|---|
+| webrtc-direct（native server） | 官方 `libp2p-webrtc` | 已有，本项目在用 |
+| webrtc-direct（browser dialer） | 官方 `libp2p-webrtc-websys` | 已有，本项目在用 |
+| **打洞（两端）** | **本 crate** | 缺口所在 |
+
+### 代价：native 侧会有两套 WebRTC 栈
+
+官方 `libp2p-webrtc` 钉死 `webrtc = "0.17"`，我们要 `0.20`。两个不兼容版本**同时进
+依赖树**，native 侧编译两份完整的 ICE/DTLS/SCTP/SRTP，编译时间与二进制体积翻倍。
+
+> **看到依赖树里两个 webrtc 版本不是配置错误，是已知取舍。** 留档于此以免后人误删。
+
+wasm 侧没有这个问题——浏览器用原生 `RTCPeerConnection`，压根没有 webrtc-rs。这是一处
+native/wasm 的不对称。
+
+### 这个代价反过来是「将来补 direct」的唯一实际理由
+
+若本 crate 也实现 direct，就能**完全替代**官方 `libp2p-webrtc`，只留一套 0.20。
+理由不是功能缺失（官方实现可用），而是消除双份依赖——顺带让这个 crate 成为官方的完整
+替代品，通用性再上一档。
+
+**但排在打洞之后。** 现在的约束是：架构上不假设「只有打洞」——复用 `webrtc-utils`、
+模块划分给 direct 留位置，将来补上时不需要重构。
+
 ## spike 验证结论（2026-07-27）
 
 完整实验数据见 `spike/webrtc-ice-browser/README.md`。核心四条：

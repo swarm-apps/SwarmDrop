@@ -16,6 +16,10 @@ edition.workspace = true
 # 决策与背景：dev-notes/research/2026-07-webrtc-native-ice.md
 
 [dependencies]
+libp2p-core = { workspace = true }
+libp2p-identity = { workspace = true }
+libp2p-swarm = { workspace = true }
+futures = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 unsigned-varint = { workspace = true }

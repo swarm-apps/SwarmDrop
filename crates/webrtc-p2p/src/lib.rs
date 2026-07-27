@@ -41,6 +41,39 @@
 //! 格式全部共享，只有底层 PeerConnection 不同（native = `webrtc-rs`，
 //! wasm = 浏览器 `RTCPeerConnection`）。
 
+pub mod addr;
+pub mod behaviour;
+mod channel;
+mod config;
+mod connection;
+pub mod error;
 pub mod signaling;
+pub mod transport;
 
+pub use behaviour::{Behaviour, Event};
+pub use config::Config;
+pub use connection::Connection;
+pub use error::Error;
 pub use signaling::{Message, MessageType, SIGNALING_PROTOCOL};
+pub use transport::Transport;
+
+/// 创建配对的 [`Transport`] 与 [`Behaviour`]。
+///
+/// 两者**必须注册进同一个 Swarm**：transport 的建连过程要借 behaviour 在 relay 连接上
+/// 开信令流（原委见 [`channel`] 模块）。只注册其一时，dial 会以
+/// [`Error::BehaviourDetached`] 快速失败，而不是静默挂起。
+///
+/// ```no_run
+/// # fn main() {
+/// let (transport, behaviour) = webrtc_p2p::new(webrtc_p2p::Config::default());
+/// // transport 经 `with_other_transport` 接入，behaviour 放进你的 NetworkBehaviour 派生结构
+/// # let _ = (transport, behaviour);
+/// # }
+/// ```
+pub fn new(config: Config) -> (Transport, Behaviour) {
+    let (transport_side, behaviour_side) = channel::pair();
+    (
+        Transport::new(config.clone(), transport_side),
+        Behaviour::new(config, behaviour_side),
+    )
+}

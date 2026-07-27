@@ -11641,6 +11641,10 @@ dependencies = [
 name = "webrtc-p2p"
 version = "0.1.0"
 dependencies = [
+ "futures",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-swarm",
  "thiserror 2.0.19",
  "tracing",
  "unsigned-varint",
