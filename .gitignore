@@ -11,7 +11,7 @@ node_modules
 dist
 dist-ssr
 build/
-/target/
+/**/target/
 *.local
 
 # Editor directories and files
