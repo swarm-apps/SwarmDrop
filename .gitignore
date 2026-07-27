@@ -12,6 +12,7 @@ dist
 dist-ssr
 build/
 /target/
+**/.gradle/
 *.local
 
 # Editor directories and files
