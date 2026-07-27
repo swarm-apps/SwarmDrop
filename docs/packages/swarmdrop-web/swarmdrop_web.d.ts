@@ -534,6 +534,17 @@ export class WebNode {
      * pairing）。**须在主线程 Window 跑**——webrtc-websys dial 碰 window，Worker 里会 panic。
      */
     static spawn(): Promise<WebNode>;
+    /**
+     * 已持久化的传输会话投影（无序——收件箱与活动视图排法不同，排序留给调用方）。
+     *
+     * 页面刷新后事件流从零开始，前端据此回补收件箱与传输活动视图（收件箱 = 其中
+     * `direction=receive` 且 `terminalReason=completed` 的条目，文件仍在 OPFS，可继续
+     * [`download_url`](Self::download_url)）。
+     *
+     * **不含**非终态的发送会话与待决 offer：浏览器刷新后无法在不重新选择文件的前提下
+     * 读回 `File`，待决 offer 也已无处应答，故它们本就不落库（见 `store.rs` 模块注释）。
+     */
+    transfer_history(): TransferProjection[];
 }
 
 /**
@@ -568,7 +579,14 @@ export interface InitOutput {
     readonly webnode_resume: (a: number, b: number, c: number) => any;
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
+    readonly webnode_transfer_history: (a: number) => [number, number, number];
     readonly start: () => void;
+    readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
+    readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
+    readonly intounderlyingbytesource_cancel: (a: number) => void;
+    readonly intounderlyingbytesource_pull: (a: number, b: any) => any;
+    readonly intounderlyingbytesource_start: (a: number, b: any) => void;
+    readonly intounderlyingbytesource_type: (a: number) => number;
     readonly __wbg_intounderlyingsource_free: (a: number, b: number) => void;
     readonly intounderlyingsource_cancel: (a: number) => void;
     readonly intounderlyingsource_pull: (a: number, b: any) => any;
@@ -576,25 +594,19 @@ export interface InitOutput {
     readonly intounderlyingsink_abort: (a: number, b: any) => any;
     readonly intounderlyingsink_close: (a: number) => any;
     readonly intounderlyingsink_write: (a: number, b: any) => any;
-    readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
-    readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
-    readonly intounderlyingbytesource_cancel: (a: number) => void;
-    readonly intounderlyingbytesource_pull: (a: number, b: any) => any;
-    readonly intounderlyingbytesource_start: (a: number, b: any) => void;
-    readonly intounderlyingbytesource_type: (a: number) => number;
-    readonly wasm_bindgen__closure__destroy__h012121adb8dbf45c: (a: number, b: number) => void;
-    readonly wasm_bindgen__closure__destroy__h5591934f43f60b57: (a: number, b: number) => void;
-    readonly wasm_bindgen__closure__destroy__h204be8c381445e19: (a: number, b: number) => void;
-    readonly wasm_bindgen__closure__destroy__h4f87974dd3cf4973: (a: number, b: number) => void;
-    readonly wasm_bindgen__closure__destroy__hfe9f6fdc40634ab0: (a: number, b: number) => void;
-    readonly wasm_bindgen__closure__destroy__h37c9115083f1a38a: (a: number, b: number) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h34829bcf16c6c5f5: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h231dba009001781f: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h6becc1ea3666efca: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h4b626e153cf65dc2: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h053556be6b93199d: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__hca73116ab0054513: (a: number, b: number) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__hc2b55c50f834ee88: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_72cb8dc3ed0d6b49___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_72cb8dc3ed0d6b49___features__gen_CloseEvent__CloseEvent____Output________1_: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_72cb8dc3ed0d6b49___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_72cb8dc3ed0d6b49___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_72cb8dc3ed0d6b49___features__gen_CloseEvent__CloseEvent______1_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_72cb8dc3ed0d6b49___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

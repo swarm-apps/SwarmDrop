@@ -6,7 +6,14 @@ import { RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
-import { calcPercent, formatDuration, formatFileSize, formatTransferRate } from "../_lib/format";
+import {
+  calcPercent,
+  formatDuration,
+  formatFileSize,
+  formatTransferRate,
+  sessionEndedAt,
+  sortByUpdatedDesc,
+} from "../_lib/format";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode } from "../_lib/store";
 import { toWebError, type Device, type TransferProgressEvent, type TransferProjection, type WebError } from "../_lib/view-types";
@@ -50,10 +57,6 @@ const TERMINAL_LABEL: Record<NonNullable<TransferProjection["terminalReason"]>, 
   fatal_error: "失败",
 };
 
-function sortByUpdatedDesc(items: TransferProjection[]) {
-  return [...items].sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
 function groupSessions(projections: Record<string, TransferProjection>) {
   const active: TransferProjection[] = [];
   const history: TransferProjection[] = [];
@@ -90,7 +93,7 @@ function phaseLabel(projection: TransferProjection): string {
 }
 
 function elapsedSeconds(projection: TransferProjection): number | null {
-  const end = projection.finishedAt ?? projection.updatedAt;
+  const end = sessionEndedAt(projection);
   if (!projection.startedAt || !end || end < projection.startedAt) return null;
   return Math.round((end - projection.startedAt) / 1000);
 }

@@ -1,9 +1,10 @@
 //! swarmdrop-web：浏览器 Web 壳。
 //!
 //! 让浏览器成为真正的 SwarmDrop 传输端——**包一层 core 的组合根** `start_node`（与桌面/移动
-//! 同源装配），注入 Browser `EndpointProfile` + Web 端口（内存 store / OPFS / ReadableStream
-//! 事件）。走完整 `NetManager` + 3 协议：配对经 `pair_with_invite`（真 capability 握手），
-//! 配对设备记录经 IndexedDB 持久化并在刷新后注入 `start_node`。
+//! 同源装配），注入 Browser `EndpointProfile` + Web 端口（IndexedDB 写穿 store / OPFS /
+//! ReadableStream 事件）。走完整 `NetManager` + 3 协议：配对经 `pair_with_invite`（真
+//! capability 握手）。配对设备记录与传输会话都经 IndexedDB 持久化并在刷新后恢复——收件箱、
+//! 传输历史与接收侧续传上下文跨刷新仍在（落库范围与浏览器侧的物理限制见 `store.rs`）。
 //!
 //! 除 [`types`]（JS 可见类型层，native 也编——specta 导出 test 在 native 注册它们）外，
 //! 全部模块由 `cfg(wasm_browser)` 门控：native target 下近乎空 crate（`cargo check
@@ -23,6 +24,8 @@ mod event_bus;
 mod events;
 #[cfg(wasm_browser)]
 mod file_access;
+#[cfg(wasm_browser)]
+mod idb;
 #[cfg(wasm_browser)]
 mod identity;
 #[cfg(wasm_browser)]

@@ -2,44 +2,33 @@
 
 // #79 接收面板：入站 offer 以非阻断通知形式浮现在页面里（不做「发送/接收」Tab 切换，
 // PRODUCT.md 原则 1）——accept_offer/reject_offer 决策；已完成接收的会话在下方「收件箱」
-// 展示文件与下载链接（读回 OPFS 建 blob URL，原则 2·状态诚实可见：落盘完成才给下载）。
+// 展示（原则 2·状态诚实可见：落盘完成才给下载），点下载才读回 OPFS 建 blob URL。
+// 收件箱跨刷新仍在（#81）：内核把已完成的接收会话持久化到 IndexedDB，启动时经
+// `transfer_history()` 回补进 projections，文件本体一直在 OPFS。
 //
 // 未配对对端的 offer 由内核在协议层硬拒 NotPaired，从不进入 `pending_offers()`——本机对此
 // 零可见性（符合「安全边界」设计，不是本面板的缺陷）。#79 验收标准里的「需先配对」提示因此
 // 落在发送侧：见 send-panel.tsx 消费 `rejections` 域。
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { WebErrorCard } from "./web-error-view";
-import { formatFileSize } from "../_lib/format";
+import { formatFileSize, sessionEndedAt } from "../_lib/format";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
-import { toWebError, type TransferProjection, type WebError, type WebNode } from "../_lib/view-types";
+import { toWebError, type TransferProjection, type WebError } from "../_lib/view-types";
 
-interface DownloadEntry {
-  fileId: number;
-  name: string;
-  url: string;
-}
+/**
+ * blob URL 的存活窗口。
+ *
+ * 一个 blob URL 会钉住它背后那份 OPFS 文件快照直到被 revoke 或页面关闭——收件箱累计几个 GB，
+ * 就是几个 GB 的浏览器存储回收不掉。所以下载链接**点了才生成、用完就撤**，而不是进页面就把
+ * 整个收件箱解析一遍（#81 把历史灌进 projections 后，那会变成上百次 OPFS 句柄操作 + 上百个
+ * 永不回收的 URL）。撤销给足 30 秒：`a.click()` 触发后浏览器读取 blob 是异步的，立刻 revoke
+ * 会让大文件下载中途失败。
+ */
+const BLOB_URL_TTL_MS = 30_000;
 
-interface DownloadResolution {
-  entries: DownloadEntry[];
-  error: WebError | null;
-}
-
-/** 收到的文件读回 OPFS 建 blob URL——逐文件独立 try，一个失败不挡其余文件下载。 */
-async function resolveDownloads(node: WebNode, projection: TransferProjection): Promise<DownloadResolution> {
-  const entries: DownloadEntry[] = [];
-  let error: WebError | null = null;
-  for (const f of projection.files) {
-    try {
-      entries.push({ fileId: f.fileId, name: f.name, url: await node.download_url(f.relativePath) });
-    } catch (e) {
-      console.error(`[web] download_url(${f.relativePath}) 失败`, e);
-      error ??= toWebError(e);
-    }
-  }
-  return { entries, error };
-}
+type ProjectionFile = TransferProjection["files"][number];
 
 export function ReceivePanel() {
   const offers = useWebNode((s) => s.offers);
@@ -47,50 +36,43 @@ export function ReceivePanel() {
 
   const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
   const [decideError, setDecideError] = useState<WebError | null>(null);
-  const [downloads, setDownloads] = useState<Record<string, DownloadEntry[]>>({});
+  const [downloadingKeys, setDownloadingKeys] = useState<Set<string>>(new Set());
   const [downloadErrors, setDownloadErrors] = useState<Record<string, WebError>>({});
-  const resolvedRef = useRef<Set<string>>(new Set());
 
   const offerList = Object.values(offers);
-  const completed = Object.values(projections).filter(
-    (p) => p.direction === "receive" && p.phase === "terminal" && p.terminalReason === "completed",
-  );
+  // 显式按收到时间倒序：projections 混着实时事件与 #81 的启动回补，靠对象 key 的插入顺序
+  // 会让刷新前后的收件箱排法不一致。
+  const completed = Object.values(projections)
+    .filter((p) => p.direction === "receive" && p.phase === "terminal" && p.terminalReason === "completed")
+    .sort((a, b) => sessionEndedAt(b) - sessionEndedAt(a));
 
-  // 每当有新完成的接收会话，惰性拉一次 download_url——resolvedRef 保证同一 session 只拉一次
-  // （projections 更新会重跑 effect，未完成/已解析过的会话在循环里被跳过）。
-  useEffect(() => {
+  const download = async (sessionId: string, file: ProjectionFile) => {
     const node = getNode();
     if (!node) return;
-    const done = Object.values(projections).filter(
-      (p) => p.direction === "receive" && p.phase === "terminal" && p.terminalReason === "completed",
-    );
-    for (const p of done) {
-      if (resolvedRef.current.has(p.sessionId)) continue;
-      resolvedRef.current.add(p.sessionId);
-      void resolveDownloads(node, p).then(({ entries, error }) => {
-        setDownloads((prev) => ({ ...prev, [p.sessionId]: entries }));
-        if (error) {
-          setDownloadErrors((prev) => ({ ...prev, [p.sessionId]: error }));
-        }
-      });
-    }
-  }, [projections]);
-
-  const retryDownloads = (sessionId: string) => {
-    const node = getNode();
-    const projection = projections[sessionId];
-    if (!node || !projection) return;
-    resolvedRef.current.delete(sessionId);
+    const key = `${sessionId}:${file.fileId}`;
+    setDownloadingKeys((prev) => new Set(prev).add(key));
     setDownloadErrors((prev) => {
       const next = { ...prev };
-      delete next[sessionId];
+      delete next[key];
       return next;
     });
-    resolvedRef.current.add(sessionId);
-    void resolveDownloads(node, projection).then(({ entries, error }) => {
-      setDownloads((prev) => ({ ...prev, [sessionId]: entries }));
-      if (error) setDownloadErrors((prev) => ({ ...prev, [sessionId]: error }));
-    });
+    try {
+      const url = await node.download_url(file.relativePath);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = file.name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), BLOB_URL_TTL_MS);
+    } catch (e) {
+      console.error(`[web] download_url(${file.relativePath}) 失败`, e);
+      setDownloadErrors((prev) => ({ ...prev, [key]: toWebError(e) }));
+    } finally {
+      setDownloadingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
   };
 
   const decide = async (sessionId: string, accept: boolean) => {
@@ -178,40 +160,29 @@ export function ReceivePanel() {
                 </p>
                 <ul className="mt-1 space-y-1">
                   {p.files.map((f) => {
-                    const url = downloads[p.sessionId]?.find((d) => d.fileId === f.fileId)?.url;
+                    const key = `${p.sessionId}:${f.fileId}`;
+                    const error = downloadErrors[key];
                     return (
-                      <li key={f.fileId} className="flex items-center justify-between gap-2 text-xs">
-                        <span className="truncate text-fd-foreground">{f.name}</span>
-                        <span className="flex shrink-0 items-center gap-2">
-                          <span className="font-mono text-fd-muted-foreground">{formatFileSize(f.size)}</span>
-                          {url ? (
-                            <a
-                              href={url}
-                              download={f.name}
-                              className="font-medium text-fd-foreground underline underline-offset-2"
+                      <li key={f.fileId} className="text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-fd-foreground">{f.name}</span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className="font-mono text-fd-muted-foreground">{formatFileSize(f.size)}</span>
+                            <button
+                              type="button"
+                              onClick={() => download(p.sessionId, f)}
+                              disabled={downloadingKeys.has(key)}
+                              className="font-medium text-fd-foreground underline underline-offset-2 disabled:opacity-50"
                             >
-                              下载
-                            </a>
-                          ) : (
-                            <span className="text-fd-muted-foreground">准备中…</span>
-                          )}
-                        </span>
+                              {downloadingKeys.has(key) ? "准备中…" : error ? "重试下载" : "下载"}
+                            </button>
+                          </span>
+                        </div>
+                        {error && <WebErrorCard error={error} className="mt-1 text-xs" />}
                       </li>
                     );
                   })}
                 </ul>
-                {downloadErrors[p.sessionId] && (
-                  <div className="mt-2">
-                    <WebErrorCard error={downloadErrors[p.sessionId]} className="text-xs" />
-                    <button
-                      type="button"
-                      onClick={() => retryDownloads(p.sessionId)}
-                      className="mt-2 text-xs font-medium text-fd-foreground underline underline-offset-2"
-                    >
-                      重试生成下载链接
-                    </button>
-                  </div>
-                )}
               </li>
             ))}
           </ul>

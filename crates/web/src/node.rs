@@ -1,9 +1,10 @@
 //! `WebNode`：Web 壳的 wasm-bindgen API 面。
 //!
 //! 浏览器节点**包一层 core 的组合根** [`start_node`]（与桌面/移动同源装配），注入 Browser
-//! [`EndpointProfile`] + Web 端口实现（内存 store / OPFS / WebEventSink transfer 事件流）。走
-//! 完整 [`NetManager`] + 3 协议 Router（含 pairing）：invite 配对经 `pair_with_invite`，配对设备
-//! 记录经 IndexedDB 持久化并在 `spawn()` 时恢复。NetManager 侧 pairing/device 事件走最小
+//! [`EndpointProfile`] + Web 端口实现（IndexedDB 写穿 store / OPFS / WebEventSink transfer
+//! 事件流）。走完整 [`NetManager`] + 3 协议 Router（含 pairing）：invite 配对经
+//! `pair_with_invite`，配对设备记录与传输会话都经 IndexedDB 持久化、在 `spawn()` 时恢复
+//! （会话恢复的范围与理由见 [`crate::store`]）。NetManager 侧 pairing/device 事件走最小
 //! [`WebEventBus`](crate::event_bus)（consume-invite 路径的确认在邀请方桌面，浏览器侧暂不 surface）。
 
 use std::cell::RefCell;
@@ -24,6 +25,7 @@ use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId};
 use swarmdrop_invite::TransportPolicy;
 use swarmdrop_net::{DhtError, DhtKey, Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
 use swarmdrop_transfer::HostEnumeratedFile;
+use swarmdrop_transfer::coordinator::TransferCoordinator;
 use swarmdrop_transfer::events::TransferEventSink;
 use swarmdrop_transfer::manager::TransferManager;
 use swarmdrop_transfer::protocol::TransferOrigin;
@@ -37,7 +39,7 @@ use crate::event_bus::{PendingPairings, WebEventBus};
 use crate::events::WebEventSink;
 use crate::file_access::OpfsFileAccess;
 use crate::identity;
-use crate::store::MemorySessionStore;
+use crate::store::PersistentSessionStore;
 use crate::types::{
     ConnectionJson, NodeAddrJson, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind,
 };
@@ -78,6 +80,9 @@ extern "C" {
     /// `relays_changed()` 的返回：每次 relay 状态变化产出一份全量快照。
     #[wasm_bindgen(typescript_type = "ReadableStream<RelayInfoJson[]>")]
     pub type RelayChangedStream;
+    /// `transfer_history()` 的返回：`TransferProjection[]`。
+    #[wasm_bindgen(typescript_type = "TransferProjection[]")]
+    pub type TransferProjectionArray;
 }
 
 /// `until_active` 的契约级默认超时：即便调用方不传 signal，Promise 也在
@@ -139,6 +144,8 @@ pub struct WebNode {
     os_info: OsInfo,
     /// 入站配对请求队列（browser-as-inviter：桌面消费本机 invite 后本机弹确认）。
     pending_pairings: PendingPairings,
+    /// 传输会话持久化（IndexedDB 写穿）——`transfer_history()` 直读，无需经 manager。
+    session_store: Arc<PersistentSessionStore>,
     file_access: Arc<OpfsFileAccess>,
     events_rx: RefCell<
         Option<
@@ -169,17 +176,20 @@ impl WebNode {
         let os_info = web_os_info();
         let paired_devices = identity::load_paired_devices().await?;
 
-        // Web 端口：内存 store / OPFS 落盘 / WebEventSink（transfer 事件直连 events() 流）。
+        // Web 端口：IndexedDB 写穿 store / OPFS 落盘 / WebEventSink（transfer 事件直连 events() 流）。
         let file_access_impl = Arc::new(OpfsFileAccess::new());
         let file_access: Arc<dyn FileAccess> = file_access_impl.clone();
         let (sink, events_rx) = WebEventSink::new();
         let transfer_events: Arc<dyn TransferEventSink> = Arc::new(sink);
+        let session_store = Arc::new(PersistentSessionStore::load().await);
         // NetManager 侧事件的 bus：捕获入站配对请求（browser-as-inviter），其余记日志。
         // transfer 事件不经此（走 WebEventSink → events() 流）。
         let (event_bus_impl, pending_pairings) = WebEventBus::new();
         let event_bus: Arc<dyn EventBus> = Arc::new(event_bus_impl);
 
         let file_access_for_factory = file_access.clone();
+        let store_for_factory = session_store.clone();
+        let events_for_factory = transfer_events.clone();
         let started = start_node(
             secret.clone(),
             None,
@@ -197,14 +207,33 @@ impl WebNode {
             move |endpoint| {
                 TransferManager::new(
                     endpoint,
-                    transfer_events,
-                    Arc::new(MemorySessionStore::new()) as Arc<dyn TransferStore>,
+                    events_for_factory,
+                    store_for_factory as Arc<dyn TransferStore>,
                     file_access_for_factory,
                 )
             },
         )
         .await
         .map_err(WebError::from)?;
+
+        // 启动清理：上次会话遗留的 active 接收会话经状态机统一转 recoverable
+        // suspended(AppRestarted)——与桌面 `cleanup_stale_sessions`、移动
+        // `reconcile_stale_sessions` 同一条路径。漏做会让活动视图出现「永远在传」的幽灵
+        // 条目。过期回收（reap + 清 .part）是 SQL 侧原语，Web 的保留期判定在
+        // `PersistentSessionStore::load`。
+        match TransferCoordinator::new(
+            session_store.clone() as Arc<dyn TransferStore>,
+            transfer_events,
+        )
+        .cleanup_recoverable_sessions()
+        .await
+        {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!("启动清理: {n} 个遗留 active 会话转为 suspended(app_restarted)")
+            }
+            Err(e) => tracing::warn!("启动清理失败（历史会话状态可能不准）: {e}"),
+        }
 
         let endpoint = started.endpoint.clone();
         let net_manager = started.manager;
@@ -224,6 +253,7 @@ impl WebNode {
             secret,
             os_info,
             pending_pairings,
+            session_store,
             file_access: file_access_impl,
             events_rx: RefCell::new(Some(events_rx)),
         })
@@ -593,6 +623,18 @@ impl WebNode {
             .await
             .map_err(WebError::from)?;
         Ok(())
+    }
+
+    /// 已持久化的传输会话投影（无序——收件箱与活动视图排法不同，排序留给调用方）。
+    ///
+    /// 页面刷新后事件流从零开始，前端据此回补收件箱与传输活动视图（收件箱 = 其中
+    /// `direction=receive` 且 `terminalReason=completed` 的条目，文件仍在 OPFS，可继续
+    /// [`download_url`](Self::download_url)）。
+    ///
+    /// **不含**非终态的发送会话与待决 offer：浏览器刷新后无法在不重新选择文件的前提下
+    /// 读回 `File`，待决 offer 也已无处应答，故它们本就不落库（见 `store.rs` 模块注释）。
+    pub fn transfer_history(&self) -> Result<TransferProjectionArray, JsValue> {
+        to_js_typed(&self.session_store.all_projections(), "传输历史")
     }
 
     /// 完成接收后，把 OPFS 里的文件读回成 blob URL 供 `<a download>` 下载。

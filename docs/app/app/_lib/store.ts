@@ -1,7 +1,9 @@
-// Web 应用区的状态层：镜像桌面 `src/stores/network-store` 的思路，但事件源是「双轨」的——
+// Web 应用区的状态层：镜像桌面 `src/stores/network-store` 的思路，但事件源是「三轨」的——
 //   源一：transfer 域事件走 `events()` 的 ReadableStream（单点消费，见 event-dispatch.ts）；
-//   源二：pairing 入站请求、挂起 offer + 已配对设备走同步 getter 轮询（见 state-poll.ts）。
-// 二者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
+//   源二：pairing 入站请求、挂起 offer + 已配对设备走同步 getter 轮询（见 state-poll.ts）；
+//   源三：`transfer_history()` 在 spawn 后一次性回补 IndexedDB 里的历史投影（收件箱 + 活动
+//         视图跨刷新，见 web-node-bootstrap.tsx）。
+// 三者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
 
 import { createStore, useStore } from "./create-store";
 import type { SecureContextInfo } from "./secure-context";
@@ -64,7 +66,11 @@ export interface WebNodeState {
   secure: SecureContextInfo | null;
 
   // —— transfer 域（以 projection 为主状态源）——
-  /** 传输投影：前端主状态源（内核逐步以 transferProjection 事件替代分散的终态事件）。 */
+  /**
+   * 传输投影：前端主状态源（内核逐步以 transferProjection 事件替代分散的终态事件）。
+   * 收件箱（`direction=receive` 且 `terminalReason=completed`）与传输活动视图都由它派生，
+   * 故 #81 的跨刷新持久化只需在启动时把 `transfer_history()` 回补进来（见 `setHistory`）。
+   */
   projections: Record<string, TransferProjection>;
   /** 挂起入站 offer（按 sessionId）。#79：以非阻断通知/收件箱形式浮现，接受/拒绝后从此域移除。 */
   offers: Record<string, IncomingOffer>;
@@ -149,6 +155,21 @@ export const webNodeActions = {
   /** 事件源一：把一条 transfer 事件归约进对应域。 */
   applyEvent(event: WebTransferEvent) {
     webNodeStore.setState((s) => reduceEvent(s, event));
+  },
+  /**
+   * 事件源三：`transfer_history()` 的一次性回补（#81 跨刷新持久化）。
+   *
+   * 刷新后事件流从零开始，而 IndexedDB 里还留着收件箱、传输历史与接收侧续传上下文。
+   * 已存在的 sessionId **不覆盖**——回补在 `startEventConsumption` 之前调用，理论上撞不上，
+   * 但真撞上时实时事件必然比落库快照新。
+   */
+  setHistory(history: TransferProjection[]) {
+    // 早返回不是可选的：`{...}` 必产生新引用，空数组也会白掉一次全局重渲染。
+    if (history.length === 0) return;
+    webNodeStore.setState((s) => ({
+      // 后置展开即「已存在的不覆盖」。
+      projections: { ...Object.fromEntries(history.map((p) => [p.sessionId, p])), ...s.projections },
+    }));
   },
   /** #79：offer 已被本机接受/拒绝，从「待处理」域移除（决策是一次性动作，同 removePendingPairing）。 */
   removeOffer(sessionId: string) {

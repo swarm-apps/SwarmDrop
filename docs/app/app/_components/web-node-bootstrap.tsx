@@ -30,6 +30,13 @@ export function WebNodeBootstrap() {
         if (cancelled) return;
         webNodeActions.setNodeId(node.node_id());
         webNodeActions.setStatus("running");
+        // 源三先于源一：历史回补是同步快照，先灌进去就不会与随后的实时事件抢同一个
+        // sessionId（#81 刷新后收件箱与传输活动仍在）。读不到历史不该挡住节点可用。
+        try {
+          webNodeActions.setHistory(node.transfer_history());
+        } catch (e) {
+          console.error("[web] transfer_history() 失败，历史与收件箱本次不回补", e);
+        }
         startEventConsumption(node); // 源一：transfer 事件流（单点消费）
         stopPoll = startStatePoll(node); // 源二：pairing 请求 + 已配对设备轮询
       })

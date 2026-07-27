@@ -1,5 +1,21 @@
 // 格式化工具——与桌面 `src/lib/format.ts` 同名同语义（跨端一致的展示语言），
 // 两端代码不共享（独立 workspace），但刻意保持函数名/取整规则一致。
+// 另收纳跨面板共用的投影派生（排序键），避免各面板各写一份。
+
+import type { TransferProjection } from "./view-types";
+
+/**
+ * 会话「结束时刻」：终态会话有 `finishedAt`，非终态回退到最后更新。
+ * 收件箱排序与活动视图的耗时计算共用同一个定义。
+ */
+export function sessionEndedAt(projection: TransferProjection): number {
+  return projection.finishedAt ?? projection.updatedAt;
+}
+
+/** 按最后更新时间倒序（不改原数组）。 */
+export function sortByUpdatedDesc(items: TransferProjection[]): TransferProjection[] {
+  return [...items].sort((a, b) => b.updatedAt - a.updatedAt);
+}
 
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
