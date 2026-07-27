@@ -1,5 +1,17 @@
 # libp2p 与 Web 端（wasm）
 
+> **状态：调研结论已落地。** 本文是 2026-07-17 的**调研快照**，不是当前架构描述。
+>
+> 选定路线（rust-wasm 复用同一 Rust 核心）已实现：
+> - `crates/web` —— 浏览器 Web 壳，除 `types` 外全部 `cfg(wasm_browser)` 门控
+> - `docs/app/app` —— Web 端入口，由 Next.js 文档站承载
+> - `scripts/check-wasm.sh` —— wasm 双 target CI 门禁（net-base/net/host/transfer/invite/core/web）
+> - 浏览器端到端已于 2026-07-18 实测通过（ws / webrtc-direct dial、circuit 被动接收、双向 RPC）
+>
+> **读法**：以「为什么这么选」和「wasm 编译的坑」为主；里面的路线取舍与待办清单已成历史，
+> 不要当未完成工作。当前架构以 `CLAUDE.md` 为准，内核细节见 [net-kernel.md](net-kernel.md)。
+> 遗留未测项见 net-kernel.md 的「已知负债」。
+
 ## 概览
 
 2026-07-17 调研「rust-libp2p 能否编到 wasm，让 Web 端复用同一个 Rust 核心包」，

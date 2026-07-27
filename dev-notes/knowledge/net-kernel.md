@@ -1,7 +1,11 @@
 # 网络内核（swarmdrop-net）开发知识
 
-> 覆盖 `crates/net-base` + `crates/net`（2026-07 重构产物，替代 libs/ 的 swarm-p2p-core）。
+> 覆盖 `crates/net-base` + `crates/net`（2026-07 重构产物，取代 `libs/` 的 swarm-p2p-core
+> ——**该 submodule 已于 2026-07 从本仓删除**，`.gitmodules` 不存在，历史源在独立仓
+> `swarm-apps/swarm-p2p`）。
 > 架构设计依据见 `dev-notes/why-libp2p-not-iroh.md`；重构决策过程见当次 plan。
+>
+> **libp2p 依赖当前指向个人 fork**，不是官方 master——见下方「libp2p git pin 校准实录」。
 
 ## 架构速览（改内核前必读）
 
@@ -55,19 +59,88 @@ wire 类型，下沉会成环）。`swarmdrop-host` + `swarmdrop-transfer` 已�
 | 命令责任链（trait 对象穿链） | 扁平 ActorMessage 枚举 + oneshot | 协议数固定，责任链的开闭收益换不回间接成本 |
 | kad 路由表兼职地址簿 | actor 自维护 AddressBook | `Swarm::add_peer_address` 只是广播（见坑 3） |
 
-## libp2p git master（pin 93c5059）校准实录
+## libp2p git pin 校准实录
 
-**为什么 git 不是 crates.io**：libp2p-webrtc 0.9.0-alpha.1（crates.io 最新）的
-webrtc-direct 实证跑不通，修复只在 master（PR 6429）。**升级 rev 必须走独立 PR +
-全量测试 + wasm check**；0.57 正式发布后切回 crates.io。identity/multiaddr 不用跟
-git——master 树自己解析到 crates.io（0.2.14 / 0.18.2），net-base 用 crates.io 版本天然 unify。
+> **pin 目标的时间线**：
+> 1. 官方 master `93c5059`（2026-07-13 快照）—— 下方 6 条坑均在此 rev 上实读校准，结论仍适用
+> 2. **当前：个人 fork `github.com/yexiyue/rust-libp2p`**。确切 rev 以根 `Cargo.toml` 为准，
+>    **不要从本文抄 rev**——文档必然滞后于 Cargo.toml。
+>
+> **这是当前架构最大的单点依赖风险**：上游安全更新需自行 rebase。退出条件见下节，
+> 那里写死了可判定的判据和验证命令。
 
-### 临时 fork 集成策略（2026-07-25）
+**为什么是 git 不是 crates.io**：crates.io 的 libp2p-webrtc 0.9.0-alpha.1 的 webrtc-direct
+实证跑不通，修复只在 master（PR 6429，已于 2026-05-22 合并但**尚未进任何 crates.io 发布版**）。
+identity/multiaddr 不用跟 git——master 树自己解析到 crates.io（0.2.14 / 0.18.2），
+net-base 用 crates.io 版本天然 unify。
 
-Web 端在上游合并前需要同时依赖 WebRTC DataChannel 回调生命周期修复与连接级消息上限协商，
-因此 workspace 暂时 pin `yexiyue/rust-libp2p` 的 `master`。该分支以最新
-`libp2p/rust-libp2p:master` 为基线，并合并上游 PR #6558 与 #6560；`Cargo.lock` 必须与该
-精确 revision 一起提交。
+**升级 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
+
+### 临时 fork 集成策略 —— 含退出条件（校准于 2026-07-27）
+
+Web 端在上游合并前需要 WebRTC DataChannel 回调生命周期修复与连接级消息上限协商，
+因此 workspace 暂时 pin `yexiyue/rust-libp2p`。该分支以 `libp2p/rust-libp2p:master`
+为基线；`Cargo.lock` 必须与精确 revision 一起提交。
+
+#### fork 到底比上游多什么（2026-07-27 实测：ahead 7 / behind 0）
+
+**全部自有补丁都已提交上游 PR，无未提项。** 7 个 commit 对账（2 个是 merge commit）：
+
+| fork commit | 补丁 | 上游 PR | 状态（2026-07-27） |
+|---|---|---|---|
+| `db1bc23e` | `fix(webrtc-websys): defer data channel callback wakes` | [#6558](https://github.com/libp2p/rust-libp2p/pull/6558) | **OPEN** |
+| `c7d37a8d` | `feat(webrtc): negotiate data channel message limits` | [#6560](https://github.com/libp2p/rust-libp2p/pull/6560) | **OPEN** |
+| `9e3bcd9b` | `docs: add WebRTC message limit changelogs` | #6560（同 PR） | **OPEN** |
+| `c4c2c167` + `989cb610` | separate / configure receive buffer limit | #6560 的 `5984c716`（**squash 成单 commit**） | **OPEN** |
+
+> **对账时别只比 commit SHA。** PR 分支上的 `5984c716` 是 fork master 那两个 receive-buffer
+> commit 压缩后的形态——SHA 不同但内容等价（`poll_data_channel.rs` +70/-3 ≈ 两个 commit 的
+> 净效果）。只跑 `compare master...fork` 看 SHA 差集，会把**已提 PR 的补丁误判成「未提」**
+> （本文档 2026-07-27 就这么错过一次）。正确做法：`gh pr view <n> --json commits` 看 PR 实际
+> 内容，或直接比对文件。
+>
+> 同理，**两个 PR 分支互不包含**：#6558 与 #6560 各自基于上游 master 独立开分支，拿 fork master
+> 跟任一 PR 分支比，都会看到另一个 PR 的改动被列为「差异」——那不是遗漏。
+
+**唯一确实未进 PR 的内容**：`misc/webrtc-utils/src/stream.rs` 里 3 行文档注释（说明
+transport-local 聚合接收缓冲为何与协商的单条消息上限相互独立）。纯注释、零功能影响，
+上游合并后随 rebase 自然消失，**不构成退出阻塞**。
+
+#### 退出条件（两阶段，各自可判定）
+
+**阶段 1 — 切回官方 git URL**：两个 PR 都进入 upstream master。
+
+```bash
+# 主判据：两个 PR 均为 MERGED —— 此时上游 master 已含全部所需修复
+gh pr view 6558 --repo libp2p/rust-libp2p --json state --jq .state
+gh pr view 6560 --repo libp2p/rust-libp2p --json state --jq .state
+```
+
+两个都 MERGED 后，把三行 git 依赖的 URL 换回 `libp2p/rust-libp2p`、rev 换成上游 master 上
+含这两个 PR 的 commit，跑全量测试 + `./scripts/check-wasm.sh`，然后**删掉 fork pin**。
+
+```bash
+# 辅助判据（查漏用，不是合并信号）：确认 fork 上没有漏提的自有补丁。
+# ahead_by 不会因 PR 合并而自动归零 —— squash 与 merge commit 让 SHA 对不上，
+# 要等 fork master 重置到上游后才归零。它回答「还有没有自有补丁」，不回答「能不能切」。
+gh api repos/libp2p/rust-libp2p/compare/master...yexiyue:master --jq '.ahead_by'
+```
+
+**阶段 2 — 切回 crates.io**：上游发布含这些修复的版本。
+
+```bash
+# 当前（2026-07-27）：crates.io 仍是 0.56.0 / 0.9.0-alpha.1，都不含 webrtc-direct 修复
+cargo search libp2p --limit 1
+cargo search libp2p-webrtc --limit 1
+```
+
+判据：`cargo search` 显示的 `libp2p` ≥ **0.57.0**、`libp2p-webrtc` ≥ **0.10.0-alpha**、
+`libp2p-stream` ≥ **0.5.0-alpha**（这三个正是 fork 树上的版本号，见 Cargo.lock）。
+到那时把 git 依赖整体换成 crates.io 版本号，`libp2p-stream` / `libp2p-webrtc` 仍需与
+`libp2p` 同期版本对齐。
+
+> **复查节奏**：这三条命令跑一次不到 10 秒。建议每次要动 `crates/net` 时顺手跑一遍——
+> 拖得越久，fork 与上游的 rebase 成本越高。
 
 `max_message_size` 只限制单条编码后的 DataChannel 消息，以及发送端的背压高水位；浏览器
 回调在 Rust task 再次 poll 前可能已累计多条合法消息，故 `webrtc-websys` 的累计读取缓冲
@@ -143,13 +216,13 @@ Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesIn
 **正确做法**：
 - 桌面端在 `src/lib/bootstrap-nodes.ts` 维护 TCP / QUIC / WebSocket 等可用地址，启动时与用户偏好合并。
 - 移动端在 `mobile/src/core/bootstrap-nodes.ts` 维护 Android 可用的 TCP / QUIC 地址；当前不放 `/ws`。
-- 浏览器在 `docs/app/try/relay-helpers.ts` 使用 WebRTC Direct 或 WSS helper；每项必须附带 `/p2p/<peer-id>`，WebRTC Direct 还必须带稳定的 `certhash`。
+- 浏览器在 `docs/app/app/_lib/relay-helpers.ts` 使用 WebRTC Direct 或 WSS helper；每项必须附带 `/p2p/<peer-id>`，WebRTC Direct 还必须带稳定的 `certhash`。
 - 新公网 relay 同时承担 circuit relay 时，仍需按上一节登记其外部地址；客户端清单只解决“如何拨到它”，不替代服务器侧公告。
 
 **不要做**：
 - 不要把某一端可用的 `/ws` 或 `/webrtc-direct` 地址无差别下发给所有端；Android 当前无法拨 WebSocket，而浏览器不能拨 TCP/QUIC。
 
-**相关文件**：`crates/core/src/network/config.rs`、`src/lib/bootstrap-nodes.ts`、`mobile/src/core/bootstrap-nodes.ts`、`docs/app/try/relay-helpers.ts`
+**相关文件**：`crates/core/src/network/config.rs`、`src/lib/bootstrap-nodes.ts`、`mobile/src/core/bootstrap-nodes.ts`、`docs/app/app/_lib/relay-helpers.ts`
 
 ### 坑 6：kad `Record.expires` 的类型按 target 分叉
 

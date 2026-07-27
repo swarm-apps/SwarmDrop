@@ -32,7 +32,6 @@ swarmdrop-storage-sql = { workspace = true, features = ["specta"] }
 swarmdrop-invite = { workspace = true }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
-tauri-plugin-biometry = "0.2"
 tauri-plugin-fs = "2"
 tauri-plugin-os = "2"
 tauri-plugin-store = "2"

@@ -98,7 +98,6 @@ describe("network-store", () => {
         bootstrapNodes: [
           "/ip4/47.115.172.218/tcp/4001/p2p/12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep",
           "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep",
-          "/ip4/47.115.172.218/tcp/4002/ws/p2p/12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep",
           "/ip4/192.168.1.10/tcp/4001/p2p/12D3KooWBootstrap",
         ],
         discoveryMode: "lanOnly",

@@ -37,7 +37,14 @@ Phase 1–4 全部完成（Networking / Pairing / File Transfer / Mobile），�
 - iroh-web-cli-recon / rendezvous-recon / direction-research-2026-07
 - iroh-cross-platform-context / core-extraction-inventory（重构规划，已落地）
 
+### [todo-2026-02.md](todo-2026-02.md) — 早期 TODO 清单（v0.2–v0.4 时期）
+最后更新停在 v0.4.0，项目已到 v0.8.3。未勾选项要么早已完成（MCP、断点续传、UI 重构、移动端），
+要么已被代码注释取代。需求与计划现在走 `openspec/`。
+
 ## 未归档的相关文档（仍活跃）
 - `dev-notes/why-libp2p-not-iroh.md` — 决策文档，仍是当前架构的依据
-- `dev-notes/architecture/iroh-invite-link-pairing-design.md` — PairInvite 设计，**待实施**（非废弃）
-- `dev-notes/knowledge/*` — 全部活跃（dev-workflow 索引）
+- `dev-notes/architecture/iroh-invite-link-pairing-design.md` — PairInvite 设计，**已实施**
+  （落地在 `crates/invite`），保留作设计依据
+- `dev-notes/knowledge/*` — 全部活跃（dev-workflow 索引）。其中
+  `libp2p-wasm.md` / `storage-abstraction.md` / `iroh-migration.md` 是**调研快照**，
+  结论已分别落地或被否决，头部有状态横幅说明

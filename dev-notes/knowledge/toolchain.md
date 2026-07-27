@@ -230,7 +230,11 @@ pnpm --dir e2e/desktop record:mobile android 10
 opt-level = 3
 ```
 
-**Why**：crypto 依赖（`tauri-plugin-stronghold` / `chacha20poly1305` / `blake3` 等）和 libp2p 不开优化会慢 10-100×，dev 体感卡顿明显。
+**Why**：crypto 依赖（`chacha20poly1305` / `blake3` / `sha2` / `ed25519` 等）和 libp2p 不开优化会慢 10-100×，dev 体感卡顿明显。
+
+> 历史：这条最初是被 `tauri-plugin-stronghold` 逼出来的（它是当时最慢的一个）。
+> **Stronghold 已移除**（私钥改由系统钥匙串 `keyring` 管理），但这段配置**必须保留**
+> ——libp2p 与其余 crypto 依赖同样吃它。
 
 **不要做**：删除这段配置或把 `*` 改成具体 crate 列表——会漏掉新加的 crypto/网络依赖。
 
@@ -278,11 +282,11 @@ Next.js dev server（`cd docs && pnpm dev`）以 `localhost:3000` 起，浏览�
 但**没有 hydrate**，所有按钮点了没反应、console 无任何报错，看起来像业务代码坏了。
 服务端日志（pnpm dev 的输出）里才有 Blocked 警告。
 
-**正确做法**：`/try` 等交互页实测一律 `http://localhost:3000`；或在 `next.config.mjs`
+**正确做法**：`/app` 等交互页实测一律 `http://localhost:3000`；或在 `next.config.mjs`
 加 `allowedDevOrigins: ['127.0.0.1']`。（README 里"实测用 127.0.0.1"说的是**静态
 serve 的产物**，与 Next dev 是两回事。）
 
-**相关文件**：`docs/next.config.mjs`、`docs/app/try/page.tsx`
+**相关文件**：`docs/next.config.mjs`、`docs/app/app/`
 
 ### spike/ 不进 workspace
 
@@ -351,7 +355,10 @@ Cargo workspace 的构建产物位于仓库根目录 `target/`。若 Vite 监听
 
 **为什么能用**：live 模式的注入机制就是往 `index.html`（见 `.impeccable/live/config.json` 的 `files`）插一段 `<script>`，而 `pnpm tauri dev` 本质是 `BeforeDevCommand: pnpm dev --host` 起 Vite，Tauri 原生窗口只是加载同一个 Vite dev server 的 `index.html`。跑 `node .claude/skills/impeccable/scripts/live.mjs` 注入后，Vite 的 HMR 会让已经打开的 Tauri 窗口自动重载，注入的悬浮选取器工具条会直接出现在真实窗口里，App 本身也照常渲染（因为 Tauri IPC 上下文还在）。
 
-**踩过的坑**：单独用 `pnpm dev`（不走 `pnpm tauri dev`）在普通浏览器 tab 里打开 `http://localhost:1420` 会是**空白页**——这是因为前端 mount 时就会 `invoke()` 走 Tauri IPC（network-store / auth-store 等），普通 Chrome tab 没有 `window.__TAURI_INTERNALS__`，直接崩渲染。所以"浏览器 tab 打开空白"和"live 注入机制在 Tauri 里失效"是两件不同的事，别混为一谈。
+**踩过的坑**：单独用 `pnpm dev`（不走 `pnpm tauri dev`）在普通浏览器 tab 里打开 `http://localhost:1420` 会是**空白页**——这是因为前端 mount 时就会走 Tauri IPC（`commands.initializeIdentity()` / network-store 等），普通 Chrome tab 没有 `window.__TAURI_INTERNALS__`，直接崩渲染。所以"浏览器 tab 打开空白"和"live 注入机制在 Tauri 里失效"是两件不同的事，别混为一谈。
+
+> 注意：这里说的桌面前端（`src/`）与 **Web 端**（`crates/web` + `docs/app/app`）是两套东西。
+> Web 端不走 Tauri IPC，本来就在浏览器里跑。
 
 **agent 这边怎么驱动**：live.md 文档写的是用 `browser_navigate` 之类的浏览器工具去看/截图，这对 Tauri 不适用；改用 `mcp__tauri__driver_session`（需要项目已装 `tauri-plugin-mcp-bridge`，本仓库已装）连接同一个正在跑的原生窗口，`mcp__tauri__webview_screenshot` / `webview_execute_js` 代替浏览器截图/取值，`live-poll.mjs` 的本地 HTTP helper 完全不关心注入的 JS 跑在哪个 webview 里，所以轮询/accept/discard 那套照常工作。
 
@@ -368,23 +375,30 @@ Cargo workspace 的构建产物位于仓库根目录 `target/`。若 Vite 监听
 - emit 事件时 payload 必须是 **JSON 对象**。`mcp__tauri__ipc_emit_event` 的 payload 参数如果传了字符串化 JSON，前端 `event.payload` 收到的是 string，`payload.paths` 为 undefined，listener 静默失败、页面毫无反应。保险做法是用 `webview_execute_js` 执行 `window.__TAURI__.event.emit("external-file-open", { paths })`
 
 **不要做**：
-- 通过 `window.location.href = "/xxx"` 验证路由 redirect——整页刷新会丢内存态（解锁状态），app 会弹回 unlock 屏
+- 通过 `window.location.href = "/xxx"` 验证路由 redirect——整页刷新会丢掉所有运行时 store
+  （share-store 的待发送文件、network-store 的节点状态等），链路验证到一半就断了。
+  用路由跳转 API，不要整页刷新。
+
+> 该条最初写的是「会弹回 unlock 屏」。**密码/解锁流程已整体移除**（首启只问设备名，
+> 身份由后端 keychain 静默管理），但「整页刷新丢内存态」这个坑本身依然成立。
 
 **相关文件**：`src/components/external-open-handler.tsx`、`src/lib/bindings.ts`（`events.externalFileOpen`）
 
 ## Git submodule
 
-### libs/ 是 swarm-p2p submodule
+### 本仓已无 submodule（libs/ 于 2026-07 删除）
 
-```
-[submodule "libs"]
-    path = libs
-    url = https://github.com/swarm-apps/swarm-p2p.git
-```
+**曾经**：`libs/` 是 `swarm-apps/swarm-p2p` 的 submodule，提供 `swarm-p2p-core`，克隆后必须
+`git submodule update --init --recursive` 才能 `cargo build`。
 
-**克隆后必须**：`git submodule update --init --recursive`，否则 `cargo build` 找不到 `swarm-p2p-core`。
+**现在**：网络栈由自研的 `crates/net` + `crates/net-base` 取代，`libs/` 已从工作树删除，
+`.gitmodules` 不存在。**克隆后直接 `pnpm install` 即可**，无需任何 submodule 步骤。
+swarm-p2p 的历史源仍在独立仓 `swarm-apps/swarm-p2p`，但本仓不再依赖它。
 
-**注意**：`libs/` 和主仓都是 **Rust 2024 edition**（各自 `[workspace.package] edition = "2024"`，成员 crate 通过 `edition.workspace = true` 继承），两边没有 edition 差异。
+- workspace member 全在 `crates/*` + `src-tauri` + `mobile-core`
+- `.github/workflows/rust.yml` 各 job 里的 `submodules: recursive` 现为 no-op，
+  保留只作未来再引入 submodule 的兜底
+- 迁移背景见 [net-kernel.md](net-kernel.md)，决策见 `dev-notes/why-libp2p-not-iroh.md`
 
 ## Lingui 提取
 
@@ -478,6 +492,9 @@ git-cliff --latest --tag-pattern '^v[0-9]' --exclude-path 'mobile/**'
 git-cliff --config mobile/cliff.toml --latest --tag-pattern '^mobile-v' \
   --include-path 'mobile/**' --include-path 'crates/**' --include-path 'libs/**'
 ```
+
+> `--include-path 'libs/**'` 曾在 `mobile-release.yml` 两处挂着，`libs/` 于 2026-07 删除后
+> 成了 no-op，**已于 2026-07-27 清理**。共享 core 全部由 `crates/**` 覆盖。
 
 `--tag-pattern` 不能省：否则 git-cliff 会把另一条线的 tag 当成上一个版本。
 `pnpm changelog` / `changelog:latest` 已内置桌面侧过滤。

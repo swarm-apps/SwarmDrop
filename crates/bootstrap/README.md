@@ -30,8 +30,12 @@ cargo build --release -p swarm-bootstrap
 | --- | --- | --- |
 | 原生 TCP | 4001 | TCP |
 | 原生 QUIC | 4001 | UDP |
-| 浏览器 WebSocket | 4002 | TCP |
+| WebSocket | 4002 | TCP |
 | 浏览器 WebRTC Direct | 4003 | UDP |
+
+> 4002 曾按「浏览器入口」设计，实际用不上：https 页面拨公网裸 IP 的 `ws://` 会被
+> mixed content 拦，浏览器只能走 4003。原生端有 TCP/QUIC 直达，也不需要它。
+> 端口保留是为兼容存量已发布客户端，新客户端清单里已移除该地址。
 
 防火墙需放行以上四个端口（按相应 TCP/UDP 协议）。
 

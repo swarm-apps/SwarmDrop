@@ -1,5 +1,18 @@
 # 存储抽象（把 sea-orm 从 core 摘出去）
 
+> **状态：已落地。** 本文是 2026-07-17 的**调研快照**，记录的是切割方案的推导过程。
+>
+> 落地结果：
+> - `crates/core` **零 sea-orm 依赖**
+> - 端口 trait（`SessionStore` / `InboxStore`）在 `crates/transfer/src/store.rs`
+> - SQL 实现独立成 **`crates/storage-sql`**（native-only），宿主在组装点注入
+> - `crates/entity` 的 sea-orm 已 feature 解绑（Web 端可只吃类型宏）
+> - Web 端走内存 store + OPFS，不依赖 storage-sql
+>
+> **读法**：以「切割线为什么划在 `DatabaseConnection` 而不是 `entity`」「SendWrapper 为何
+> 免改 trait 签名」这类判断依据为主；文中「第 0 步 / trait 层未做」等进度描述已过时。
+> 当前架构以 `CLAUDE.md` 为准。
+
 ## 概览
 
 2026-07-17 调研「把 SQLite 存储抽象成 trait，让 Web 端也能实现断点续传」。

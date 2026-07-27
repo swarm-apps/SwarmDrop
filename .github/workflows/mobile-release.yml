@@ -69,11 +69,12 @@ jobs:
           # mobile/cliff.toml 与根的差别仅在 header 文案（"SwarmDrop Mobile"）。
           config: mobile/cliff.toml
           # --tag-pattern  只认 mobile-v*，不会把桌面的 v* 当成上一个版本
-          # --include-path 只取 mobile/ 与共享 core 的提交；桌面侧改动不进移动端 changelog
+          # --include-path 只取 mobile/ 与共享 core 的提交；桌面侧改动不进移动端 changelog。
+          #   共享 core 全在 crates/**（旧的 libs/** 已随 swarm-p2p-core 于 2026-07 删除）。
           args: >-
             --latest --strip header
             --tag-pattern '^mobile-v'
-            --include-path 'mobile/**' --include-path 'crates/**' --include-path 'libs/**'
+            --include-path 'mobile/**' --include-path 'crates/**'
 
   build-android:
     name: Build Android (release)
@@ -324,7 +325,7 @@ jobs:
           args: >-
             -o mobile/CHANGELOG.md
             --tag-pattern '^mobile-v'
-            --include-path 'mobile/**' --include-path 'crates/**' --include-path 'libs/**'
+            --include-path 'mobile/**' --include-path 'crates/**'
 
       - name: Commit and push
         run: |
