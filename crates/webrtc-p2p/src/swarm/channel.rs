@@ -27,7 +27,7 @@ pub(crate) const CHANNEL_CAPACITY: usize = 32;
 pub(crate) enum ToBehaviour {
     /// 请求对 `target` 发起信令。
     ///
-    /// `signaling_addr` 是**剔除 `/webrtc` 段后**的地址（见 [`crate::addr::split`]），
+    /// `signaling_addr` 是**剔除 `/webrtc` 段后**的地址（见 [`crate::protocol::addr::split`]），
     /// behaviour 用它确保存在一条可用于开流的连接。
     Dial {
         target: PeerId,

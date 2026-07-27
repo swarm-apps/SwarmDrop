@@ -1,7 +1,7 @@
 //! [`NetworkBehaviour`] 实现：在 relay 连接上跑 `/webrtc-signaling/0.0.1`。
 //!
 //! 与 [`crate::Transport`] 配对工作——transport 收到 dial 请求后转交这里，因为「在已有
-//! 连接上开协议流」只有 behaviour 做得到（原委见 [`crate::channel`]）。
+//! 连接上开协议流」只有 behaviour 做得到（原委见 [`crate::swarm::channel`]）。
 //!
 //! # 对称性
 //!
@@ -29,10 +29,11 @@ use libp2p_swarm::{
 };
 
 use crate::backend::Factory;
-use crate::channel::{BehaviourSide, ToBehaviour, ToTransport};
+use crate::config::Config;
 use crate::error::Error;
-use crate::handler::{self, Handler};
-use crate::{Config, Connection};
+use crate::swarm::channel::{BehaviourSide, ToBehaviour, ToTransport};
+use crate::swarm::connection::Connection;
+use crate::swarm::handler::{self, Handler};
 
 /// behaviour 对外抛出的事件。
 #[derive(Debug)]
@@ -269,7 +270,7 @@ impl NetworkBehaviour for Behaviour {
 mod tests {
     use super::*;
     use crate::backend::mock::MockBackend;
-    use crate::channel;
+    use crate::swarm::channel;
     use futures::channel::oneshot;
 
     fn peer(seed: u8) -> PeerId {

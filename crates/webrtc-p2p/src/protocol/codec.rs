@@ -6,7 +6,7 @@
 use asynchronous_codec::{Decoder, Encoder};
 use bytes::BytesMut;
 
-use crate::signaling::{self, Message};
+use crate::protocol::message::{self, Message};
 
 /// `/webrtc-signaling/0.0.1` 的 codec。
 #[derive(Debug, Default, Clone, Copy)]
@@ -14,7 +14,7 @@ pub struct Codec;
 
 impl Encoder for Codec {
     type Item<'a> = Message;
-    type Error = signaling::Error;
+    type Error = message::Error;
 
     fn encode(&mut self, item: Self::Item<'_>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         dst.extend_from_slice(&item.encode_framed());
@@ -24,7 +24,7 @@ impl Encoder for Codec {
 
 impl Decoder for Codec {
     type Item = Message;
-    type Error = signaling::Error;
+    type Error = message::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match Message::decode_framed(src) {
@@ -35,7 +35,7 @@ impl Decoder for Codec {
             }
             // 半包不是错误：`asynchronous-codec` 约定返回 Ok(None) 以等待更多字节。
             // 若当成 Err 返回，一次不完整的读就会把整条信令流 reset 掉。
-            Err(signaling::Error::Incomplete) => Ok(None),
+            Err(message::Error::Incomplete) => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -44,7 +44,7 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signaling::MessageType;
+    use crate::protocol::message::MessageType;
 
     #[test]
     fn encode_then_decode() {

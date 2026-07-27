@@ -2,7 +2,7 @@
 //!
 //! 它**不自己建连接**——建连所需的信令必须跑在一条已建立的 relay 连接上，而开流是
 //! behaviour 的能力。故 dial 的实质是「把请求交给配对的 behaviour，等它回送结果」，
-//! 见 [`crate::channel`]。
+//! 见 [`crate::swarm::channel`]。
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -15,9 +15,11 @@ use libp2p_core::transport::{DialOpts, ListenerId, TransportError, TransportEven
 use libp2p_core::{Multiaddr, Transport as CoreTransport};
 use libp2p_identity::PeerId;
 
-use crate::channel::{ToBehaviour, ToTransport, TransportSide};
+use crate::config::Config;
 use crate::error::Error;
-use crate::{Config, Connection, addr};
+use crate::protocol::addr;
+use crate::swarm::channel::{ToBehaviour, ToTransport, TransportSide};
+use crate::swarm::connection::Connection;
 
 /// 本传输产出的连接。
 pub type Output = (PeerId, Connection);
@@ -170,7 +172,7 @@ impl CoreTransport for Transport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::channel;
+    use crate::swarm::channel;
     use futures::executor::block_on;
     use libp2p_core::transport::PortUse;
 

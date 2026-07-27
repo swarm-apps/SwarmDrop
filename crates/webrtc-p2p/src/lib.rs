@@ -35,36 +35,35 @@
 //! 约定，不是能力划分。本 crate 的两个 target 特化必须都实现完整的双向能力——
 //! 上游 PR #5978 只做了浏览器侧，因此只覆盖 web↔web，拿不到 web↔NAT 后原生端。
 //!
-//! # 结构
+//! # 分层
 //!
-//! 协议层（本模块 [`signaling`]）与两个 target 后端分离：状态机、SDP 处理、multiaddr
-//! 格式全部共享，只有底层 PeerConnection 不同（native = `webrtc-rs`，
-//! wasm = 浏览器 `RTCPeerConnection`）。
+//! 依赖方向单向：`swarm` → `backend` → `protocol`，下层不反向引用上层。
+//!
+//! | 层 | 职责 | 依赖 libp2p-swarm |
+//! |---|---|---|
+//! | [`protocol`] | 线上格式：消息编解码、framed codec、`/webrtc` 地址约定 | 否 |
+//! | [`backend`] | WebRTC 栈抽象；native / wasm 各自特化 | 否 |
+//! | [`swarm`] | 接到 `Transport` / `NetworkBehaviour` 两个平面 | 是 |
+//!
+//! 三层里唯一与具体 WebRTC 实现绑定的只有 [`backend`]；状态机
+//! （[`swarm::session`]）与协议层都是纯逻辑，可脱离真实 WebRTC 与真实 `Stream` 测试。
 
-pub mod addr;
 pub mod backend;
-pub mod behaviour;
-mod channel;
-mod codec;
 mod config;
-mod connection;
 pub mod error;
-pub mod handler;
-pub mod signaling;
-pub mod transport;
+pub mod protocol;
+pub mod swarm;
 
-pub use backend::{Backend, BackendError, BackendEvent};
-pub use behaviour::{Behaviour, Event};
+pub use backend::{Backend, BackendError, BackendEvent, Factory};
 pub use config::Config;
-pub use connection::Connection;
 pub use error::Error;
-pub use signaling::{Message, MessageType, SIGNALING_PROTOCOL};
-pub use transport::Transport;
+pub use protocol::{Message, MessageType, SIGNALING_PROTOCOL};
+pub use swarm::{Behaviour, Connection, Event, Transport};
 
 /// 创建配对的 [`Transport`] 与 [`Behaviour`]。
 ///
 /// 两者**必须注册进同一个 Swarm**：transport 的建连过程要借 behaviour 在 relay 连接上
-/// 开信令流（原委见 [`channel`] 模块）。只注册其一时，dial 会以
+/// 开信令流（原委见 [`swarm`] 模块）。只注册其一时，dial 会以
 /// [`Error::BehaviourDetached`] 快速失败，而不是静默挂起。
 ///
 /// `factory` 为每条信令流创建一个 [`Backend`]。之所以由调用方注入而非内置，是因为两个
@@ -82,8 +81,8 @@ pub use transport::Transport;
 /// // transport 经 `with_other_transport` 接入，behaviour 放进你的 NetworkBehaviour 派生结构
 /// # let _ = (transport, behaviour);
 /// ```
-pub fn new(config: Config, factory: backend::Factory) -> (Transport, Behaviour) {
-    let (transport_side, behaviour_side) = channel::pair();
+pub fn new(config: Config, factory: Factory) -> (Transport, Behaviour) {
+    let (transport_side, behaviour_side) = swarm::channel::pair();
     (
         Transport::new(config.clone(), transport_side),
         Behaviour::new(config, factory, behaviour_side),
