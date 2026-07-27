@@ -17,7 +17,13 @@ impl Encoder for Codec {
     type Error = message::Error;
 
     fn encode(&mut self, item: Self::Item<'_>, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        dst.extend_from_slice(&item.encode_framed());
+        let framed = item.encode_framed();
+        // 长度上限两侧都要守。只在解码侧检查的话，本地产出超长消息时对端会直接
+        // reset 流，而这头只看到「对端中止了信令」，查不出真正原因。
+        if framed.len() > message::MAX_MESSAGE_LEN {
+            return Err(message::Error::TooLong(framed.len()));
+        }
+        dst.extend_from_slice(&framed);
         Ok(())
     }
 }
@@ -45,6 +51,18 @@ impl Decoder for Codec {
 mod tests {
     use super::*;
     use crate::protocol::message::MessageType;
+
+    /// 本地产出超长消息时应在发送侧就报错——留给对端 reset 的话，这头查不出原因。
+    #[test]
+    fn oversized_message_is_rejected_at_encode() {
+        let huge = "x".repeat(message::MAX_MESSAGE_LEN);
+        let mut buf = BytesMut::new();
+        assert!(matches!(
+            Codec.encode(Message::offer(huge), &mut buf),
+            Err(message::Error::TooLong(_))
+        ));
+        assert!(buf.is_empty(), "拒绝的消息不应留下半截字节");
+    }
 
     #[test]
     fn encode_then_decode() {
