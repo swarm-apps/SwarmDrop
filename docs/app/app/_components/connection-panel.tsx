@@ -45,7 +45,10 @@ export function ConnectionPanel() {
     const node = getNode();
     if (!node || !addr.trim()) return;
     reserveAction.run(
-      () => node.reserve(addr.trim()),
+      () => {
+        const helperId = node.relays_ensure(addr.trim());
+        return node.relays_until_active(helperId);
+      },
       (circuit) => webNodeActions.setReservation(circuit),
     );
   };

@@ -32,6 +32,7 @@ export const WEB_ERROR_KIND_LABEL: Record<WebError["kind"], string> = {
   network: "网络错误",
   transfer: "传输错误",
   invalidInput: "输入无效",
+  aborted: "已取消",
   notFound: "未找到",
   storage: "存储错误",
 };

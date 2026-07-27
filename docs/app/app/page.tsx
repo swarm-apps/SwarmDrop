@@ -5,6 +5,7 @@ import { NodePanel } from "./_components/node-panel";
 import { PairingPanel } from "./_components/pairing-panel";
 import { ReceivePanel } from "./_components/receive-panel";
 import { SendPanel } from "./_components/send-panel";
+import { TransferActivityPanel } from "./_components/transfer-activity-panel";
 import { WebErrorView } from "./_components/web-error-view";
 
 // 首屏（基座 + ①②③④⑤）：节点已在本页自动启动，展示身份/状态/连接/配对/发送/接收。统一的
@@ -24,6 +25,7 @@ export default function AppPage() {
       <PairingPanel />
       <DeviceList />
       <SendPanel />
+      <TransferActivityPanel />
       <ReceivePanel />
       <DevEventLog />
     </div>
