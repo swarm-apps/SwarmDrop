@@ -1,6 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const start: () => void;
 export const __wbg_webnode_free: (a: number, b: number) => void;
 export const webnode_accept_offer: (a: number, b: number, c: number) => any;
 export const webnode_close: (a: number) => any;
@@ -25,7 +26,6 @@ export const webnode_resume: (a: number, b: number, c: number) => any;
 export const webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
 export const webnode_spawn: () => any;
 export const webnode_transfer_history: (a: number) => [number, number, number];
-export const start: () => void;
 export const __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
 export const intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
 export const intounderlyingbytesource_cancel: (a: number) => void;

@@ -32,7 +32,7 @@ const EVENT_LOG_CAP = 50;
  * `WebNode::spawn` 也要求主线程——见 node-runtime.ts 注释），故这是编译期常量，不是探测值；
  * Worker 模式落地时（对应 OPFS）需改为按运行环境派生。
  */
-const IDENTITY_LOCATION = "localStorage（Window 主线程）";
+export const IDENTITY_LOCATION = "localStorage（Window 主线程）";
 
 /**
  * 接收面板所需的稳定 offer 视图。
@@ -59,8 +59,6 @@ export interface WebNodeState {
   status: NodeStatus;
   /** base58 身份；刷新后不变（内核 identity::load_or_create 持久化到 localStorage）。 */
   nodeId: string | null;
-  /** 身份持久化位置（Window=localStorage / Worker=OPFS，当前基座恒为前者）。 */
-  identityLocation: string;
   error: WebError | null;
   /** secure-context 探测结果；null = 尚未探测（SSR 快照）。 */
   secure: SecureContextInfo | null;
@@ -114,7 +112,6 @@ export interface WebNodeState {
 const initialState: WebNodeState = {
   status: "idle",
   nodeId: null,
-  identityLocation: IDENTITY_LOCATION,
   error: null,
   secure: null,
   projections: {},

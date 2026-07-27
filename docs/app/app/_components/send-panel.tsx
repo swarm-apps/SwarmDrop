@@ -7,6 +7,7 @@
 // （尤其未配对硬拒 NotPaired）不能悬空成永远的「已发出」，见下方 rejection 分支。
 
 import { useRef, useState } from "react";
+import { ProgressBar } from "./progress-bar";
 import { WebErrorCard } from "./web-error-view";
 import { calcPercent, formatFileSize } from "../_lib/format";
 import { getNode } from "../_lib/node-runtime";
@@ -166,14 +167,10 @@ export function SendPanel() {
                 {prepareProgress.totalFiles} 文件 · {formatFileSize(prepareProgress.bytesHashed)}/
                 {formatFileSize(prepareProgress.totalBytes)}）
               </p>
-              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-fd-border">
-                <div
-                  className="h-full bg-[var(--brand-solid)]"
-                  style={{
-                    width: `${calcPercent(prepareProgress.bytesHashed, prepareProgress.totalBytes)}%`,
-                  }}
-                />
-              </div>
+              <ProgressBar
+                percent={calcPercent(prepareProgress.bytesHashed, prepareProgress.totalBytes)}
+                className="mt-1"
+              />
             </div>
           )}
 

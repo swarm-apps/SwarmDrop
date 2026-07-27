@@ -8,6 +8,7 @@ import { useState } from "react";
 import { WebErrorCard } from "./web-error-view";
 import { getNode } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
+import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { toWebError, type NodeAddrJson, type WebError, type WebNode } from "../_lib/view-types";
 
@@ -74,28 +75,17 @@ export function PairingPanel() {
     }
   };
 
-  // —— 入站配对请求确认（每条请求可独立并发处理，故用 Set 而非单一 id）——
-  const [respondingIds, setRespondingIds] = useState<Set<string>>(new Set());
-  const [respondError, setRespondError] = useState<WebError | null>(null);
+  // —— 入站配对请求确认（每条请求可独立并发处理，故按 pendingId 分键而非单一 id）——
+  const respondAction = useKeyedAsyncAction();
 
-  const respond = async (pendingId: string, accept: boolean) => {
+  const respond = (pendingId: string, accept: boolean) => {
     const node = getNode();
     if (!node) return;
-    setRespondingIds((prev) => new Set(prev).add(pendingId));
-    setRespondError(null);
-    try {
+    void respondAction.run(pendingId, async () => {
       await node.respond_pairing_request(pendingId, accept);
       webNodeActions.removePendingPairing(pendingId);
       if (accept) refreshPairedDevices(node);
-    } catch (e) {
-      setRespondError(toWebError(e));
-    } finally {
-      setRespondingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(pendingId);
-        return next;
-      });
-    }
+    });
   };
 
   return (
@@ -220,7 +210,7 @@ export function PairingPanel() {
                   <button
                     type="button"
                     onClick={() => respond(r.pendingId, true)}
-                    disabled={respondingIds.has(r.pendingId)}
+                    disabled={respondAction.isPending(r.pendingId)}
                     className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
                   >
                     接受
@@ -228,7 +218,7 @@ export function PairingPanel() {
                   <button
                     type="button"
                     onClick={() => respond(r.pendingId, false)}
-                    disabled={respondingIds.has(r.pendingId)}
+                    disabled={respondAction.isPending(r.pendingId)}
                     className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
                   >
                     拒绝
@@ -237,7 +227,7 @@ export function PairingPanel() {
               </li>
             ))}
           </ul>
-          {respondError && <WebErrorCard error={respondError} className="mt-2 text-xs" />}
+          {respondAction.latestError && <WebErrorCard error={respondAction.latestError} className="mt-2 text-xs" />}
         </div>
       )}
     </div>

@@ -10,12 +10,12 @@
 // 零可见性（符合「安全边界」设计，不是本面板的缺陷）。#79 验收标准里的「需先配对」提示因此
 // 落在发送侧：见 send-panel.tsx 消费 `rejections` 域。
 
-import { useState } from "react";
 import { WebErrorCard } from "./web-error-view";
 import { formatFileSize, sessionEndedAt } from "../_lib/format";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
-import { toWebError, type TransferProjection, type WebError } from "../_lib/view-types";
+import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
+import { type TransferProjection } from "../_lib/view-types";
 
 /**
  * blob URL 的存活窗口。
@@ -34,10 +34,8 @@ export function ReceivePanel() {
   const offers = useWebNode((s) => s.offers);
   const projections = useWebNode((s) => s.projections);
 
-  const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
-  const [decideError, setDecideError] = useState<WebError | null>(null);
-  const [downloadingKeys, setDownloadingKeys] = useState<Set<string>>(new Set());
-  const [downloadErrors, setDownloadErrors] = useState<Record<string, WebError>>({});
+  const decideAction = useKeyedAsyncAction();
+  const downloadAction = useKeyedAsyncAction();
 
   const offerList = Object.values(offers);
   // 显式按收到时间倒序：projections 混着实时事件与 #81 的启动回补，靠对象 key 的插入顺序
@@ -46,53 +44,32 @@ export function ReceivePanel() {
     .filter((p) => p.direction === "receive" && p.phase === "terminal" && p.terminalReason === "completed")
     .sort((a, b) => sessionEndedAt(b) - sessionEndedAt(a));
 
-  const download = async (sessionId: string, file: ProjectionFile) => {
+  const download = (sessionId: string, file: ProjectionFile) => {
     const node = getNode();
     if (!node) return;
-    const key = `${sessionId}:${file.fileId}`;
-    setDownloadingKeys((prev) => new Set(prev).add(key));
-    setDownloadErrors((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
+    void downloadAction.run(`${sessionId}:${file.fileId}`, async () => {
+      try {
+        const url = await node.download_url(file.relativePath);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = file.name;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), BLOB_URL_TTL_MS);
+      } catch (e) {
+        console.error(`[web] download_url(${file.relativePath}) 失败`, e);
+        throw e;
+      }
     });
-    try {
-      const url = await node.download_url(file.relativePath);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = file.name;
-      anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), BLOB_URL_TTL_MS);
-    } catch (e) {
-      console.error(`[web] download_url(${file.relativePath}) 失败`, e);
-      setDownloadErrors((prev) => ({ ...prev, [key]: toWebError(e) }));
-    } finally {
-      setDownloadingKeys((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
   };
 
-  const decide = async (sessionId: string, accept: boolean) => {
+  const decide = (sessionId: string, accept: boolean) => {
     const node = getNode();
     if (!node) return;
-    setDecidingIds((prev) => new Set(prev).add(sessionId));
-    setDecideError(null);
-    try {
+    void decideAction.run(sessionId, async () => {
       if (accept) await node.accept_offer(sessionId);
       else await node.reject_offer(sessionId);
       webNodeActions.removeOffer(sessionId);
-    } catch (e) {
-      setDecideError(toWebError(e));
-    } finally {
-      setDecidingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(sessionId);
-        return next;
-      });
-    }
+    });
   };
 
   return (
@@ -127,7 +104,7 @@ export function ReceivePanel() {
                 <button
                   type="button"
                   onClick={() => decide(offer.sessionId, true)}
-                  disabled={decidingIds.has(offer.sessionId)}
+                  disabled={decideAction.isPending(offer.sessionId)}
                   className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
                 >
                   接受
@@ -135,7 +112,7 @@ export function ReceivePanel() {
                 <button
                   type="button"
                   onClick={() => decide(offer.sessionId, false)}
-                  disabled={decidingIds.has(offer.sessionId)}
+                  disabled={decideAction.isPending(offer.sessionId)}
                   className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
                 >
                   拒绝
@@ -145,7 +122,7 @@ export function ReceivePanel() {
           ))}
         </ul>
       )}
-      {decideError && <WebErrorCard error={decideError} className="mt-2 text-xs" />}
+      {decideAction.latestError && <WebErrorCard error={decideAction.latestError} className="mt-2 text-xs" />}
 
       <div className="mt-5 border-t border-fd-border pt-4">
         <p className="text-xs font-medium text-fd-muted-foreground">收件箱</p>
@@ -161,7 +138,7 @@ export function ReceivePanel() {
                 <ul className="mt-1 space-y-1">
                   {p.files.map((f) => {
                     const key = `${p.sessionId}:${f.fileId}`;
-                    const error = downloadErrors[key];
+                    const error = downloadAction.errorFor(key);
                     return (
                       <li key={f.fileId} className="text-xs">
                         <div className="flex items-center justify-between gap-2">
@@ -171,10 +148,10 @@ export function ReceivePanel() {
                             <button
                               type="button"
                               onClick={() => download(p.sessionId, f)}
-                              disabled={downloadingKeys.has(key)}
+                              disabled={downloadAction.isPending(key)}
                               className="font-medium text-fd-foreground underline underline-offset-2 disabled:opacity-50"
                             >
-                              {downloadingKeys.has(key) ? "准备中…" : error ? "重试下载" : "下载"}
+                              {downloadAction.isPending(key) ? "准备中…" : error ? "重试下载" : "下载"}
                             </button>
                           </span>
                         </div>

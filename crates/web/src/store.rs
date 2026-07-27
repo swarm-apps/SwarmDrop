@@ -50,7 +50,9 @@ use swarmdrop_transfer::store::{
     CreateSessionInput, InboxStore, SessionStore, TransferProjection, TransferProjectionFile,
 };
 use swarmdrop_transfer::store::{initial_completed_chunks, prefix_range, ranges_json};
-use swarmdrop_transfer::{SUSPENDED_RECEIVE_RETENTION_SECS, calc_total_chunks};
+use swarmdrop_transfer::{
+    SUSPENDED_RECEIVE_RETENTION_SECS, calc_total_chunks, expired_receive_reason,
+};
 use uuid::Uuid;
 
 use crate::idb;
@@ -240,13 +242,12 @@ fn is_expired_recoverable_receive(
 /// 而非一次状态**转换**——没有对应的 `StartupSignal`，也不该发 projection（前端此刻还没订阅）。
 fn reap(session: &mut entity::transfer_session::Model) {
     let now = js_sys::Date::now() as i64;
-    let retention_days = SUSPENDED_RECEIVE_RETENTION_SECS / 86_400;
     session.phase = entity::TransferPhase::Terminal;
     session.suspended_reason = None;
     session.terminal_reason = Some(entity::TerminalReason::FatalError);
     session.status = entity::SessionStatus::Failed;
     session.recoverable = false;
-    session.error_message = Some(format!("会话超过 {retention_days} 天未恢复，已过期回收"));
+    session.error_message = Some(expired_receive_reason(SUSPENDED_RECEIVE_RETENTION_SECS));
     session.finished_at = Some(now);
     session.updated_at = now;
 }

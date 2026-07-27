@@ -3,7 +3,8 @@
 // #80 传输活动视图：projection 是生命周期主状态，progress 只补充实时速率/ETA/单文件进度。
 
 import { RotateCcw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo } from "react";
+import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import {
@@ -16,7 +17,8 @@ import {
 } from "../_lib/format";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode } from "../_lib/store";
-import { toWebError, type Device, type TransferProgressEvent, type TransferProjection, type WebError } from "../_lib/view-types";
+import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
+import { type Device, type TransferProgressEvent, type TransferProjection, type WebError } from "../_lib/view-types";
 
 type TransferFileRow = TransferProgressEvent["files"][number] | TransferProjection["files"][number];
 
@@ -104,35 +106,21 @@ export function TransferActivityPanel() {
   const devices = useWebNode((s) => s.pairedDevices);
   const nodeStatus = useWebNode((s) => s.status);
 
-  const [resumingIds, setResumingIds] = useState<Set<string>>(new Set());
-  const [resumeErrors, setResumeErrors] = useState<Record<string, WebError>>({});
+  const resumeAction = useKeyedAsyncAction();
 
   const { active, history, total } = useMemo(() => groupSessions(projections), [projections]);
   const connections = useMemo(() => connectionByPeer(devices), [devices]);
   const ready = nodeStatus === "running";
 
-  const resume = async (sessionId: string) => {
-    const node = getNode();
-    if (!node) return;
-
-    setResumingIds((prev) => new Set(prev).add(sessionId));
-    setResumeErrors((prev) => {
-      const next = { ...prev };
-      delete next[sessionId];
-      return next;
-    });
-    try {
-      await node.resume(sessionId);
-    } catch (e) {
-      setResumeErrors((prev) => ({ ...prev, [sessionId]: toWebError(e) }));
-    } finally {
-      setResumingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(sessionId);
-        return next;
-      });
-    }
-  };
+  // 引用稳定：列表项是 memo 的，每次渲染新建回调会让 memo 彻底失效。
+  const resume = useCallback(
+    (sessionId: string) => {
+      const node = getNode();
+      if (!node) return;
+      void resumeAction.run(sessionId, () => node.resume(sessionId));
+    },
+    [resumeAction.run],
+  );
 
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
@@ -155,10 +143,10 @@ export function TransferActivityPanel() {
                   projection={item}
                   progress={progress[item.sessionId]}
                   connection={connectionLabel(item, connections)}
-                  resumePending={resumingIds.has(item.sessionId)}
-                  resumeError={resumeErrors[item.sessionId]}
+                  resumePending={resumeAction.isPending(item.sessionId)}
+                  resumeError={resumeAction.errorFor(item.sessionId)}
                   resumeDisabled={!ready}
-                  onResume={() => resume(item.sessionId)}
+                  onResume={resume}
                 />
               ))}
             </ul>
@@ -174,10 +162,10 @@ export function TransferActivityPanel() {
                     projection={item}
                     progress={progress[item.sessionId]}
                     connection={connectionLabel(item, connections)}
-                    resumePending={resumingIds.has(item.sessionId)}
-                    resumeError={resumeErrors[item.sessionId]}
+                    resumePending={resumeAction.isPending(item.sessionId)}
+                    resumeError={resumeAction.errorFor(item.sessionId)}
                     resumeDisabled={!ready}
-                    onResume={() => resume(item.sessionId)}
+                    onResume={resume}
                   />
                 ))}
               </ul>
@@ -189,7 +177,9 @@ export function TransferActivityPanel() {
   );
 }
 
-function TransferActivityItem({
+// memo：store 逐 key immutable 更新 projections/progress，未变动的会话保持原引用——
+// 一个会话每秒十余次的进度事件因此只重渲染它自己那一项，而不是整张活动 + 历史列表。
+const TransferActivityItem = memo(function TransferActivityItem({
   projection,
   progress,
   connection,
@@ -204,7 +194,7 @@ function TransferActivityItem({
   resumePending: boolean;
   resumeError?: WebError;
   resumeDisabled: boolean;
-  onResume: () => void;
+  onResume: (sessionId: string) => void;
 }) {
   const percent = transferPercent(projection, progress);
   const phase = phaseLabel(projection);
@@ -244,9 +234,7 @@ function TransferActivityItem({
           </span>
           <span>{percent}%</span>
         </div>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-fd-border">
-          <div className="h-full bg-[var(--brand-solid)] transition-[width]" style={{ width: `${percent}%` }} />
-        </div>
+        <ProgressBar percent={percent} className="mt-1.5" />
       </div>
 
       <div className="mt-3 grid gap-1.5">
@@ -270,7 +258,7 @@ function TransferActivityItem({
         {projection.recoverable && (
           <button
             type="button"
-            onClick={onResume}
+            onClick={() => onResume(projection.sessionId)}
             disabled={resumeDisabled || resumePending}
             className="inline-flex items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
           >
@@ -283,4 +271,4 @@ function TransferActivityItem({
       {resumeError && <WebErrorCard error={resumeError} className="mt-2 text-xs" />}
     </li>
   );
-}
+});
