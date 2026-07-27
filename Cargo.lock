@@ -11638,6 +11638,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "webrtc-p2p"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.19",
+ "tracing",
+ "unsigned-varint",
+]
+
+[[package]]
 name = "webrtc-sctp"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

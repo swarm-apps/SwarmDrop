@@ -1,0 +1,21 @@
+[package]
+name = "webrtc-p2p"
+version = "0.1.0"
+edition.workspace = true
+
+# libp2p WebRTC 打洞传输（spec: libp2p/specs 的 webrtc/webrtc.md）。
+#
+# 两个都无法 listen 的节点（浏览器、NAT 后的原生端）经 relay 交换 SDP + ICE candidate，
+# 打洞建立直连。与官方 `libp2p-webrtc`（webrtc-direct，ICE-lite 不打洞）是**两个不同的
+# 传输**，可共存。
+#
+# **刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate。** 它现在长在本仓里只是为了
+# 借 crates/net 做集成测试、迭代快；稳定后要 subtree split 出去独立发布。任何反向依赖
+# 都会把这条路堵死——评审时优先看这一条。
+#
+# 决策与背景：dev-notes/research/2026-07-webrtc-native-ice.md
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }
+unsigned-varint = { workspace = true }
