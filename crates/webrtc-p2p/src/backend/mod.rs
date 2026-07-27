@@ -92,6 +92,10 @@ pub type Factory = std::sync::Arc<
 #[cfg(not(target_family = "wasm"))]
 pub mod native;
 
+/// 浏览器后端（原生 RTCPeerConnection）。仅 wasm 上编。
+#[cfg(target_family = "wasm")]
+pub mod wasm;
+
 /// 测试替身：脚本化后端，让信令状态机脱离真实 WebRTC 栈被驱动。
 #[cfg(test)]
 pub(crate) mod mock;
