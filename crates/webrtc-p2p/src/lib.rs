@@ -42,14 +42,18 @@
 //! wasm = 浏览器 `RTCPeerConnection`）。
 
 pub mod addr;
+pub mod backend;
 pub mod behaviour;
 mod channel;
+mod codec;
 mod config;
 mod connection;
 pub mod error;
+pub mod handler;
 pub mod signaling;
 pub mod transport;
 
+pub use backend::{Backend, BackendError, BackendEvent};
 pub use behaviour::{Behaviour, Event};
 pub use config::Config;
 pub use connection::Connection;
@@ -63,17 +67,25 @@ pub use transport::Transport;
 /// 开信令流（原委见 [`channel`] 模块）。只注册其一时，dial 会以
 /// [`Error::BehaviourDetached`] 快速失败，而不是静默挂起。
 ///
+/// `factory` 为每条信令流创建一个 [`Backend`]。之所以由调用方注入而非内置，是因为两个
+/// target 的 WebRTC 栈毫无共同点（native = `webrtc-rs`，wasm = 浏览器
+/// `RTCPeerConnection`），且这样状态机可以脱离真实 WebRTC 被测试。
+///
 /// ```no_run
-/// # fn main() {
-/// let (transport, behaviour) = webrtc_p2p::new(webrtc_p2p::Config::default());
+/// use std::sync::Arc;
+/// # use webrtc_p2p::{Backend, BackendError, Config};
+/// # fn make_backend() -> Result<Box<dyn Backend>, BackendError> { unimplemented!() }
+/// let (transport, behaviour) = webrtc_p2p::new(
+///     Config::default(),
+///     Arc::new(|_cfg: &Config| make_backend()),
+/// );
 /// // transport 经 `with_other_transport` 接入，behaviour 放进你的 NetworkBehaviour 派生结构
 /// # let _ = (transport, behaviour);
-/// # }
 /// ```
-pub fn new(config: Config) -> (Transport, Behaviour) {
+pub fn new(config: Config, factory: backend::Factory) -> (Transport, Behaviour) {
     let (transport_side, behaviour_side) = channel::pair();
     (
         Transport::new(config.clone(), transport_side),
-        Behaviour::new(config, behaviour_side),
+        Behaviour::new(config, factory, behaviour_side),
     )
 }

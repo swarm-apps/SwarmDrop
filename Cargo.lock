@@ -11641,6 +11641,8 @@ dependencies = [
 name = "webrtc-p2p"
 version = "0.1.0"
 dependencies = [
+ "asynchronous-codec",
+ "bytes",
  "futures",
  "libp2p-core",
  "libp2p-identity",

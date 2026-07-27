@@ -16,6 +16,10 @@ edition.workspace = true
 # 决策与背景：dev-notes/research/2026-07-webrtc-native-ice.md
 
 [dependencies]
+# 与 libp2p 生态同款 framed 编解码（libp2p-webrtc-utils 亦用它），避免自己维护
+# 一套 buffer 状态机。
+asynchronous-codec = "0.7"
+bytes = "1"
 libp2p-core = { workspace = true }
 libp2p-identity = { workspace = true }
 libp2p-swarm = { workspace = true }

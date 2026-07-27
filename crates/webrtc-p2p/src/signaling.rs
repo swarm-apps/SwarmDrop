@@ -216,6 +216,12 @@ pub enum Error {
     UnknownWireType(u8),
     #[error("varint 解码失败：{0}")]
     Varint(#[from] unsigned_varint::decode::Error),
+    /// 信令流本身的 IO 错误。
+    ///
+    /// `asynchronous-codec` 要求 codec 的错误类型可由 `io::Error` 转换（它把底层读写
+    /// 错误也经此上报），故这里必须有此变体。
+    #[error("信令流 IO 失败：{0}")]
+    Io(#[from] std::io::Error),
 }
 
 impl fmt::Display for MessageType {
