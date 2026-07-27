@@ -11996,6 +11996,7 @@ dependencies = [
  "asynchronous-codec",
  "bytes",
  "futures",
+ "futures-timer",
  "if-addrs 0.13.4",
  "js-sys",
  "libp2p-core",

@@ -19,6 +19,9 @@
 use std::collections::VecDeque;
 use std::task::{Context, Poll};
 
+use futures::FutureExt;
+use futures_timer::Delay;
+
 use crate::backend::{Backend, BackendEvent, Factory};
 use crate::config::Config;
 use crate::error::Error;
@@ -70,6 +73,11 @@ pub struct Session {
     /// 已要求宿主开过出站流，避免每轮 poll 重复要求。
     stream_requested: bool,
     stream_attached: bool,
+    /// 信令超时计时器。会话真正开始（角色确定）时启动，终结时丢弃。
+    ///
+    /// 没有它，一个不响应的对端会把会话与其所在的 relay 连接一起永久占住——
+    /// handler 的 keep-alive 是「会话未结束就保持」，而会话永远不结束。
+    timeout: Option<Delay>,
     /// 待宿主取走的终结动作（Connected / Failed）。
     ///
     /// `fail()` 可能在 poll 之外被调用（开流失败、流读写出错），故动作要先存起来，
@@ -100,6 +108,7 @@ impl Session {
             outbox: VecDeque::new(),
             stream_requested: false,
             stream_attached: false,
+            timeout: None,
             pending_action: None,
         }
     }
@@ -121,7 +130,15 @@ impl Session {
             return;
         }
         self.role = Some(Role::Initiator);
+        self.begin_signaling();
+    }
+
+    /// 进入信令态并启动超时。
+    fn begin_signaling(&mut self) {
         self.state = State::Signaling;
+        if self.timeout.is_none() {
+            self.timeout = Some(Delay::new(self.config.signaling_timeout()));
+        }
     }
 
     /// 信令流就绪。
@@ -133,7 +150,7 @@ impl Session {
             return;
         }
         self.role.get_or_insert(role);
-        self.state = State::Signaling;
+        self.begin_signaling();
         self.stream_attached = true;
 
         if let Err(e) = self.ensure_backend() {
@@ -193,6 +210,7 @@ impl Session {
         self.state = State::Finished;
         self.backend = None;
         self.outbox.clear();
+        self.timeout = None;
         self.pending_action = Some(Action::Failed(error));
     }
 
@@ -213,6 +231,13 @@ impl Session {
         }
         if self.state == State::Finished {
             return Poll::Pending;
+        }
+
+        if let Some(timer) = self.timeout.as_mut()
+            && timer.poll_unpin(cx).is_ready()
+        {
+            self.fail(Error::SignalingTimeout);
+            return Poll::Ready(self.pending_action.take().expect("fail 必然置入动作"));
         }
 
         // 发起方要先有一条出站流才能送 offer。
@@ -236,6 +261,7 @@ impl Session {
                 BackendEvent::Connected => {
                     // 注意此处**不清 backend**：数据面还要靠它交出来（见 take_muxer）。
                     self.state = State::Finished;
+                    self.timeout = None;
                     return Poll::Ready(Action::Connected);
                 }
                 BackendEvent::Failed(msg) => {
@@ -268,6 +294,13 @@ mod tests {
     fn session_with(
         events: impl IntoIterator<Item = BackendEvent>,
     ) -> (Session, Arc<Mutex<Calls>>) {
+        session_with_config(Config::default(), events)
+    }
+
+    fn session_with_config(
+        config: Config,
+        events: impl IntoIterator<Item = BackendEvent>,
+    ) -> (Session, Arc<Mutex<Calls>>) {
         let (backend, calls) = MockBackend::new(events);
         let slot = Mutex::new(Some(backend));
         let factory: Factory = Arc::new(move |_: &Config| {
@@ -277,7 +310,7 @@ mod tests {
                 .map(|b| Box::new(b) as Box<dyn Backend>)
                 .ok_or_else(|| BackendError::new("后端已被取走"))
         });
-        (Session::new(Config::default(), factory), calls)
+        (Session::new(config, factory), calls)
     }
 
     fn poll(s: &mut Session) -> Poll<Action> {
@@ -422,5 +455,37 @@ mod tests {
 
         s.on_stream_closed();
         assert!(matches!(poll(&mut s), Poll::Pending), "不应报失败");
+    }
+
+    // 超时**真正触发**的行为在集成测试里验（`tests/native_signaling.rs`）——
+    // 同步单测用的是 noop waker，计时器到点也叫不醒它。这里只验启停时机。
+
+    /// 建连成功后计时器必须停——否则一条正常连接会在超时点被判失败。
+    #[test]
+    fn success_stops_the_clock() {
+        let (mut s, _) = session_with([BackendEvent::Connected]);
+        s.attach_stream(Role::Responder);
+        assert!(s.timeout.is_some(), "信令期间应在计时");
+
+        assert!(matches!(poll(&mut s), Poll::Ready(Action::Connected)));
+        assert!(s.timeout.is_none(), "成功后计时器应被丢弃");
+    }
+
+    /// 计时器在角色确定时才启动：尚未开始的会话不该被判超时。
+    #[test]
+    fn idle_session_has_no_clock() {
+        let (mut s, _) = session_with([]);
+        assert!(s.timeout.is_none(), "未定角色前不应计时");
+        s.attach_stream(Role::Responder);
+        assert!(s.timeout.is_some(), "会话开始后应计时");
+    }
+
+    /// 失败也要停表，否则 fail 之后计时器还挂着。
+    #[test]
+    fn failure_stops_the_clock() {
+        let (mut s, _) = session_with([]);
+        s.attach_stream(Role::Responder);
+        s.fail(Error::SignalingAborted("x".into()));
+        assert!(s.timeout.is_none());
     }
 }

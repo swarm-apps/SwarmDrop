@@ -18,6 +18,9 @@ use webrtc::peer_connection::PeerConnection;
 use super::data_channel::PollDataChannel;
 use crate::error::Error;
 
+/// 「取回一条入站通道的 label」这件事的进行中状态。
+type LabelCheck = BoxFuture<'static, (Arc<dyn DataChannel>, Option<String>)>;
+
 /// spec 步骤 4 那条只为让 SDP 带上 ICE 信息而建的通道。
 ///
 /// **它不是数据流**：步骤 8 要求建连后关闭它。若把它当子流交给上层，对端会收到一条
@@ -31,6 +34,14 @@ pub(crate) struct Muxer {
     incoming: mpsc::UnboundedReceiver<Arc<dyn DataChannel>>,
     /// 正在创建的出站 DataChannel。
     creating: Option<BoxFuture<'static, Result<Arc<dyn DataChannel>, Error>>>,
+    /// 正在取 label 的入站 DataChannel。
+    ///
+    /// `label()` 是 `async fn`（要锁 PeerConnection 内部状态），**不能用
+    /// `now_or_never()` 图省事**——锁一有竞争它就返回 `None`，init 通道会漏过筛子被
+    /// 当成数据流交出去，对端从此挂在一条永不产生数据的流上。且这偶发。
+    checking: Option<LabelCheck>,
+    /// 正在关闭 PeerConnection。
+    closing: Option<BoxFuture<'static, ()>>,
     /// 出站通道的自增编号，仅用于生成互不重复的 label。
     next_outbound_id: u64,
     /// 子流的 drop 通知。必须持续驱动，否则子流被 drop 时底层通道不会关闭，
@@ -47,6 +58,8 @@ impl Muxer {
             pc,
             incoming,
             creating: None,
+            checking: None,
+            closing: None,
             next_outbound_id: 0,
             drop_listeners: FuturesUnordered::new(),
         }
@@ -70,15 +83,27 @@ impl StreamMuxer for Muxer {
     ) -> Poll<Result<Self::Substream, Self::Error>> {
         let this = self.get_mut();
         loop {
+            // 先把正在查 label 的那条处理完，再取下一条。
+            if let Some(fut) = this.checking.as_mut() {
+                let (dc, label) = ready!(fut.poll_unpin(cx));
+                this.checking = None;
+                // init 通道不是数据流，跳过（见 INIT_CHANNEL_LABEL 的说明）。
+                if label.as_deref() == Some(INIT_CHANNEL_LABEL) {
+                    continue;
+                }
+                return Poll::Ready(Ok(this.wrap(dc)));
+            }
+
             let Some(dc) = ready!(this.incoming.poll_next_unpin(cx)) else {
                 return Poll::Ready(Err(Error::Connection("连接已关闭".into())));
             };
-            // init 通道不是数据流，跳过（见 INIT_CHANNEL_LABEL 的说明）。
-            if dc.label().now_or_never().and_then(Result::ok).as_deref() == Some(INIT_CHANNEL_LABEL)
-            {
-                continue;
-            }
-            return Poll::Ready(Ok(this.wrap(dc)));
+            this.checking = Some(
+                async move {
+                    let label = dc.label().await.ok();
+                    (dc, label)
+                }
+                .boxed(),
+            );
         }
     }
 
@@ -106,9 +131,23 @@ impl StreamMuxer for Muxer {
         Poll::Ready(dc.map(|dc| this.wrap(dc)))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        // `PeerConnection::close` 是 async；这里不持有它的 future，交由 Drop 时释放。
-        // libp2p 关闭连接后不会再 poll 本 muxer，故无需等待完成。
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        // 必须主动关：`PeerConnection` 持有 UDP socket 与 ICE agent，只靠 Drop 不保证
+        // 及时释放。关闭失败无从补救也无需上报——连接本来就要没了。
+        let this = self.get_mut();
+        if this.closing.is_none() {
+            let pc = this.pc.clone();
+            this.closing = Some(
+                async move {
+                    if let Err(e) = pc.close().await {
+                        tracing::debug!("关闭 PeerConnection 失败：{e}");
+                    }
+                }
+                .boxed(),
+            );
+        }
+        ready!(this.closing.as_mut().expect("刚置入").poll_unpin(cx));
+        this.closing = None;
         Poll::Ready(Ok(()))
     }
 

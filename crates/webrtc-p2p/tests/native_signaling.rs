@@ -132,3 +132,33 @@ async fn established_connection_carries_data() {
         .expect("读取失败");
     assert_eq!(buf, MSG, "收到的字节应与发出的一致");
 }
+
+/// 对端从不回应时，信令必须超时收场。
+///
+/// 没有它，一个沉默的对端会把会话连同其所在的 relay 连接一起永久占住——handler 的
+/// keep-alive 是「会话未结束就保持」，而会话永远不结束。
+///
+/// 放在集成测试而非单测：计时器到点要靠运行时唤醒 waker，单测的 noop waker 叫不醒。
+#[tokio::test]
+async fn signaling_times_out_when_peer_never_answers() {
+    use webrtc_p2p::error::Error;
+    use webrtc_p2p::swarm::session::{Action, Role, Session};
+
+    let config = Config::default().with_signaling_timeout(Duration::from_millis(200));
+    let mut session = Session::new(config, NativeBackend::factory());
+    // 装上流但不喂任何消息——模拟对端收下 offer 后石沉大海。
+    session.attach_stream(Role::Responder);
+
+    let action = tokio::time::timeout(
+        Duration::from_secs(5),
+        std::future::poll_fn(|cx| session.poll(cx)),
+    )
+    .await
+    .expect("应在超时时限内自行收场");
+
+    assert!(
+        matches!(action, Action::Failed(Error::SignalingTimeout)),
+        "应报超时，实得 {action:?}"
+    );
+    assert!(session.is_finished());
+}

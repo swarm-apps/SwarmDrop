@@ -26,6 +26,9 @@ libp2p-swarm = { workspace = true }
 # DataChannel 之上的 libp2p framing。泛型且不依赖具体 WebRTC 实现，故两个 target 共用。
 libp2p-webrtc-utils = { workspace = true }
 futures = { workspace = true }
+# 信令超时的计时器。选它而非 n0-future：rust-libp2p 自己就用它（upnp behaviour 即是），
+# 且我们只需要 time、不需要 spawn。
+futures-timer = "3"
 thiserror = { workspace = true }
 tracing = { workspace = true }
 unsigned-varint = { workspace = true }
@@ -48,6 +51,8 @@ if-addrs = "0.13"
 # 另加 ICE 相关几项——它是 direct 模式不做 trickle，我们要。
 [target.'cfg(target_family = "wasm")'.dependencies]
 js-sys = "0.3"
+# 浏览器上没有系统计时器，Delay 要走 setTimeout。
+futures-timer = { version = "3", features = ["wasm-bindgen"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 # 浏览器对象不是 Send，而 libp2p 的 ConnectionHandler 要求 Send。wasm 单线程，

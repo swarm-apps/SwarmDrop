@@ -8,8 +8,6 @@
 //! [`protocol::message::Error`]: crate::protocol::message::Error
 //! [`backend::BackendError`]: crate::backend::BackendError
 
-use libp2p_identity::PeerId;
-
 /// 本传输的错误。
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -30,8 +28,11 @@ pub enum Error {
     )]
     BehaviourDetached,
 
-    #[error("与 {peer} 的信令超时")]
-    SignalingTimeout { peer: PeerId },
+    /// 信令在 [`Config::signaling_timeout`](crate::Config::signaling_timeout) 内未完成。
+    ///
+    /// 不带对端身份：会话是 per-connection 的，不知道对端是谁；behaviour 上报时会补上。
+    #[error("信令超时")]
+    SignalingTimeout,
 
     /// 信令流被中止：对端 reset、连接断开、开流失败等。
     #[error("信令中止：{0}")]

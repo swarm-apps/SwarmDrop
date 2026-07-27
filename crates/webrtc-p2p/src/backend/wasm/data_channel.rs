@@ -25,6 +25,16 @@ use futures::{AsyncRead, AsyncWrite};
 use wasm_bindgen::prelude::*;
 use web_sys::{MessageEvent, RtcDataChannel, RtcDataChannelState, RtcDataChannelType};
 
+/// 发送缓冲上限。超过就背压，等浏览器排空到低水位再继续。
+///
+/// 没有它，快生产者能把浏览器的发送缓冲无限撑大——spike 实测过同类失败：8 MiB 突发
+/// 会把链路打满，连接直接断掉而非降速。native 侧靠「等上一条 send 完成」实现背压，
+/// 浏览器侧只能靠 bufferedAmount 自己数。
+const MAX_BUFFERED_AMOUNT: u32 = 1024 * 1024;
+
+/// 低水位。降到这里才唤醒写侧——留出一半余量，避免在阈值附近反复抖动。
+const LOW_WATER_MARK: u32 = MAX_BUFFERED_AMOUNT / 2;
+
 /// 把浏览器 `RTCDataChannel` 包装成字节流。
 ///
 /// `Clone` 语义是「共享同一条通道」，不是复制。
@@ -45,12 +55,20 @@ struct Shared {
     /// 通道出错。
     error: Option<String>,
     /// 等待可读的任务。
-    waker: Option<Waker>,
+    read_waker: Option<Waker>,
+    /// 因发送缓冲满而等待的任务。
+    write_waker: Option<Waker>,
 }
 
 impl Shared {
-    fn wake(&mut self) {
-        if let Some(w) = self.waker.take() {
+    fn wake_read(&mut self) {
+        if let Some(w) = self.read_waker.take() {
+            w.wake();
+        }
+    }
+
+    fn wake_write(&mut self) {
+        if let Some(w) = self.write_waker.take() {
             w.wake();
         }
     }
@@ -60,6 +78,7 @@ struct Callbacks {
     _onmessage: Closure<dyn FnMut(MessageEvent)>,
     _onclose: Closure<dyn FnMut()>,
     _onerror: Closure<dyn FnMut(JsValue)>,
+    _onbufferedamountlow: Closure<dyn FnMut()>,
 }
 
 impl PollDataChannel {
@@ -76,7 +95,7 @@ impl PollDataChannel {
                 let bytes = js_sys::Uint8Array::new(&data).to_vec();
                 let mut s = shared.borrow_mut();
                 s.read_buf.extend_from_slice(&bytes);
-                s.wake();
+                s.wake_read();
             }) as Box<dyn FnMut(MessageEvent)>)
         };
         let onclose = {
@@ -84,7 +103,9 @@ impl PollDataChannel {
             Closure::wrap(Box::new(move || {
                 let mut s = shared.borrow_mut();
                 s.eof = true;
-                s.wake();
+                s.wake_read();
+                // 通道关了，等着写的任务也该醒来看看。
+                s.wake_write();
             }) as Box<dyn FnMut()>)
         };
         let onerror = {
@@ -92,10 +113,20 @@ impl PollDataChannel {
             Closure::wrap(Box::new(move |e: JsValue| {
                 let mut s = shared.borrow_mut();
                 s.error = Some(format!("{e:?}"));
-                s.wake();
+                s.wake_read();
+                s.wake_write();
             }) as Box<dyn FnMut(JsValue)>)
         };
 
+        let onbufferedamountlow = {
+            let shared = shared.clone();
+            Closure::wrap(Box::new(move || {
+                shared.borrow_mut().wake_write();
+            }) as Box<dyn FnMut()>)
+        };
+
+        dc.set_buffered_amount_low_threshold(LOW_WATER_MARK);
+        dc.set_onbufferedamountlow(Some(onbufferedamountlow.as_ref().unchecked_ref()));
         dc.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
         dc.set_onclose(Some(onclose.as_ref().unchecked_ref()));
         dc.set_onerror(Some(onerror.as_ref().unchecked_ref()));
@@ -107,6 +138,7 @@ impl PollDataChannel {
                 _onmessage: onmessage,
                 _onclose: onclose,
                 _onerror: onerror,
+                _onbufferedamountlow: onbufferedamountlow,
             }),
         }
     }
@@ -131,7 +163,7 @@ impl AsyncRead for PollDataChannel {
             // 0 字节即 EOF，这是 AsyncRead 的约定。
             return Poll::Ready(Ok(0));
         }
-        shared.waker = Some(cx.waker().clone());
+        shared.read_waker = Some(cx.waker().clone());
         Poll::Pending
     }
 }
@@ -139,11 +171,19 @@ impl AsyncRead for PollDataChannel {
 impl AsyncWrite for PollDataChannel {
     fn poll_write(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        if let Some(e) = self.shared.borrow_mut().error.take() {
-            return Poll::Ready(Err(io::Error::other(e)));
+        {
+            let mut shared = self.shared.borrow_mut();
+            if let Some(e) = shared.error.take() {
+                return Poll::Ready(Err(io::Error::other(e)));
+            }
+            // 背压：缓冲满就等浏览器排空到低水位（onbufferedamountlow 会叫醒我们）。
+            if self.dc.buffered_amount() > MAX_BUFFERED_AMOUNT {
+                shared.write_waker = Some(cx.waker().clone());
+                return Poll::Pending;
+            }
         }
         match self.dc.ready_state() {
             RtcDataChannelState::Open => {}
