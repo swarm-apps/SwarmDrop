@@ -39,7 +39,7 @@ And because the AI era runs on agents that constantly produce files on one machi
 |---|---|
 | **Cross-Network** | Works on LAN or across the public internet. mDNS + Kademlia DHT + Relay + DCUtR pick the best route automatically — same Wi-Fi, different networks, behind NAT. |
 | **End-to-End Encrypted** | XChaCha20-Poly1305 with a fresh per-transfer key. Relays and bootstrap nodes only ever see ciphertext. Not a privacy *policy* — a cryptographic *fact*. |
-| **No Accounts, No Servers** | Connect with a 6-digit pairing code or LAN auto-discovery. Decentralized Ed25519 device identity. Self-host the bootstrap node if you want. |
+| **No Accounts, No Servers** | Pair with a one-time signed invite (link or QR), or let LAN auto-discovery find your devices. Decentralized Ed25519 device identity. Self-host the bootstrap node if you want. |
 | **AI-Native** | A local MCP Server lets AI agents drive transfers and search your received files — the part no AirDrop or LocalSend can do. |
 | **Resumable & Reliable** | Resumable transfers with BLAKE3 integrity, plus a local SQLite history and inbox. Survives drops, restarts, and flaky links. |
 
@@ -77,14 +77,14 @@ Everything happens on-device and end-to-end encrypted — the agent's reasoning 
 ## Getting Started
 
 ```
-1. Launch the app → set a security password → start the P2P node
-2. Add a device → 6-digit pairing code  /  LAN auto-discovery
+1. Launch the app → name this device → start the P2P node
+2. Add a device → share a one-time invite  /  LAN auto-discovery
 3. Pick a device → drag & drop files to send
 ```
 
 **Pairing**
 
-- **Pairing code** — for cross-network: one side generates a 6-digit code, the other enters it.
+- **Invite** — for cross-network: one side generates a one-time invite; send it as a link or scan the QR code. It carries an Ed25519 signature and a TTL, and can only be used once.
 - **LAN** — on the same Wi-Fi, devices discover each other automatically; click to pair.
 
 **Transfer paths** *(auto-selected, best first)*
@@ -111,28 +111,29 @@ Everything happens on-device and end-to-end encrypted — the agent's reasoning 
 
 ```mermaid
 graph TB
-    subgraph Frontend["Frontend — React 19 · TypeScript · Vite"]
-        A["TanStack Router · Zustand · Lingui"]
+    subgraph Shells["Shells — desktop · mobile · web"]
+        A["React + Tauri · React Native + uniffi · wasm"]
     end
-    subgraph Backend["Core — Rust + Tauri 2"]
-        B["chunked encryption · integrity · progress · resume"]
+    subgraph Core["Shared core — Rust (crates/*)"]
+        B["transfer: chunked encryption · integrity · progress · resume"]
+        G["pairing: one-time signed invites"]
     end
-    subgraph P2P["P2P network — libp2p"]
-        C["Request-Response · file transfer"]
+    subgraph Net["Network kernel — swarmdrop-net"]
         D["mDNS · LAN discovery"]
-        E["Kademlia DHT · cross-network discovery"]
+        E["Kademlia DHT · presence records"]
         F["Relay + DCUtR · NAT traversal"]
+        H["TCP · QUIC · WebSocket · WebRTC-Direct"]
     end
-    Frontend -- "Tauri IPC (typed via specta)" --> Backend
-    Backend -- "libp2p Swarm" --> P2P
+    Shells -- "typed IPC / uniffi / wasm-bindgen" --> Core
+    Core -- "Endpoint API" --> Net
 ```
 
 **Security model**
 
-- **Device identity** — Ed25519 keypair; the private key lives in an encrypted [Stronghold](https://docs.rs/iota-stronghold) vault.
+- **Device identity** — Ed25519 keypair; the private key lives in the OS keychain (Keychain / Credential Manager / Secret Service).
+- **Pairing** — one-time signed invites (`sdinvite…`): Ed25519 signature + 256-bit capability + TTL, consumable exactly once. QR code and link are two carriers of the same string.
 - **Transfer keys** — a fresh 256-bit symmetric key per transfer (XChaCha20-Poly1305), held only in memory.
 - **Zero trust** — bootstrap and relay nodes never see plaintext.
-- **Biometric unlock** — Touch ID / Face ID / Windows Hello.
 - **No telemetry** — no data collection, ever.
 
 <details>
@@ -153,10 +154,10 @@ SwarmDrop collects **nothing**. There is no analytics, no account, and no centra
 |---|---|
 | Frontend | React 19 · TypeScript 5.8 · Vite 7 · Tailwind CSS 4 · shadcn/ui |
 | State / Routing | Zustand 5 · TanStack Router |
-| i18n | Lingui 5 (zh · zh-TW · en …) |
-| Backend | Rust · Tauri 2 · SeaORM + SQLite |
-| P2P | libp2p 0.56 (mDNS · Kademlia · Relay · DCUtR · request-response) |
-| Security | Stronghold · Ed25519 · XChaCha20-Poly1305 · BLAKE3 |
+| i18n | Lingui 5 (zh · zh-TW · en) + rust-i18n for native strings |
+| Backend | Rust 2024 · Tauri 2 · SeaORM + SQLite |
+| P2P | in-house network kernel `swarmdrop-net` — iroh-style `Endpoint` API over libp2p (mDNS · Kademlia · Relay · DCUtR · WebRTC-Direct), native + wasm |
+| Security | OS keychain · Ed25519 · XChaCha20-Poly1305 · BLAKE3 |
 | AI | embedded MCP server (rmcp + axum, `127.0.0.1` only) |
 | IPC types | tauri-specta (commands & events, fully typed) |
 
@@ -169,27 +170,38 @@ SwarmDrop collects **nothing**. There is no analytics, no account, and no centra
 
 ```
 SwarmDrop/
-├── src/              # frontend (React + Vite)
-├── src-tauri/        # desktop shell (Tauri command/event routing, MCP server)
+├── src/              # desktop frontend (React + Vite)
+├── src-tauri/        # desktop shell (thin IPC commands, host adapters, MCP server, tray)
 ├── crates/
-│   ├── core/         # shared core: network / pairing / device / transfer / protocol / db
+│   ├── net-base/     # network type foundation (NodeId / Addr / ProtocolId)
+│   ├── net/          # network kernel: Endpoint facade + background actor
+│   ├── host/         # platform-neutral host ports (DTO / error / device types)
+│   ├── invite/       # PairInvite encoding + one-time registry + QR
+│   ├── transfer/     # transfer domain (dependency-inverted via port traits)
+│   ├── core/         # business core: identity / network / pairing / presence / protocol
+│   ├── storage-sql/  # SeaORM + SQLite implementation of the storage ports (native only)
+│   ├── web/          # browser shell, compiled to wasm
+│   ├── bootstrap/    # public bootstrap + relay node
 │   ├── entity/       # SeaORM entities
 │   └── migration/    # SeaORM migrations
-├── libs/core/        # swarm-p2p-core (git submodule)
-└── docs/             # documentation site (Next.js + Fumadocs)
+├── mobile/           # iOS / Android (React Native + Expo + uniffi)
+└── docs/             # documentation site (Next.js + Fumadocs) — also hosts the web build at /try
 ```
 
-`crates/core` is shared by both the desktop app (`src-tauri`) and the mobile app
-(`mobile/`) via uniffi-bindgen-react-native.
+The `crates/*` stack is shared by all three shells: desktop (`src-tauri`), mobile
+(`mobile/`, via uniffi-bindgen-react-native), and web (`crates/web`, via wasm).
+`crates/core` carries no `sea-orm` and `crates/transfer` no network dependency — those
+boundaries are what keep the browser target compiling.
 
 </details>
 
 ## Building from Source
 
 Requires **Node 18+**, **pnpm 9+**, and a recent stable **Rust** toolchain (1.85+).
+There are **no git submodules** — a plain clone is enough.
 
 ```bash
-git clone --recurse-submodules git@github.com:swarm-apps/SwarmDrop.git
+git clone git@github.com:swarm-apps/SwarmDrop.git
 cd SwarmDrop
 pnpm install
 
@@ -197,14 +209,14 @@ pnpm tauri dev      # develop
 pnpm tauri build    # package
 ```
 
-> If you already cloned without submodules: `git submodule update --init --recursive`.
-
 ## Roadmap
 
-- [x] P2P networking (libp2p · mDNS · DHT · Relay · DCUtR)
-- [x] Device pairing (pairing code · LAN direct · biometric unlock)
+- [x] P2P networking (mDNS · DHT · Relay · DCUtR)
+- [x] Device pairing (one-time signed invites · QR · LAN direct)
 - [x] File transfer (E2E encryption · live progress · history · resume)
 - [x] MCP server — AI agents can send files & search the inbox
+- [x] Mobile apps (iOS / Android)
+- [ ] Web client in the browser (wasm) — try it at [`/try`](https://swarm-apps.github.io/SwarmDrop/try)
 - [ ] Expanded agent toolset — full transfer lifecycle (status / cancel / pause / resume) over MCP
 - [ ] On-device content extraction for richer inbox search
 

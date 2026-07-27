@@ -2,7 +2,16 @@
 
 ## 概览
 
-Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC 类型映射、SeaORM/SQLite、libp2p P2P。常规 Rust 风格查 `/rust-best-practices`，async 模式查 `/rust-async-patterns`，Tauri IPC 查 `/tauri-v2`，SeaORM 查 `/sea-orm-2`。
+Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC 类型映射、SeaORM/SQLite、P2P。常规 Rust 风格查 `/rust-best-practices`，async 模式查 `/rust-async-patterns`，Tauri IPC 查 `/tauri-v2` 与 `/tauri-specta`，SeaORM 查 `/sea-orm-2`。
+
+> **三个已被取代的旧概念**，本文早期条目可能仍按旧模型描述问题，遇到时按新的理解：
+>
+> - **`swarm-p2p-core` / `libs/`** 已删除 → 网络栈是自研 `crates/net` + `crates/net-base`，
+>   API 是 `Endpoint`（见 [net-kernel.md](net-kernel.md)）
+> - **6 位分享码** 已废弃 → PairInvite 一次性签名邀请（`crates/invite`）
+> - **手写 `invoke` 封装** 已废弃 → IPC 走 tauri-specta 生成的 `src/lib/bindings.ts`
+>
+> 当前架构以 `CLAUDE.md` 为准。
 
 ## 外部打开（share-target 反向流）
 
@@ -23,7 +32,9 @@ Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC �
 
 ### 业务逻辑放 crates/core，src-tauri 是薄壳
 
-`src-tauri/src/lib.rs` 用 `pub use swarmdrop_core::pairing;` 等 alias 把 core 模块路径桥进 crate（所以代码里 `crate::pairing::*` / `crate::protocol::*` 仍然有效）。**桌面壳已经没有业务逻辑了**——传输逻辑也已全部迁到 `crates/core/src/transfer/`（见下「代码地图：CLAUDE.md 的后端目录树已过期」）。
+**桌面壳已经没有业务逻辑了**——传输逻辑已全部迁到独立 crate `crates/transfer/`，
+存储实现迁到 `crates/storage-sql/`，`src-tauri` 只剩命令薄壳 + host adapter + MCP + 托盘。
+当前完整边界见 `CLAUDE.md` 的「Workspace 布局」。
 
 **正确做法**：
 - 加新业务逻辑/类型默认放 `crates/core`，让 SwarmDrop-RN 也能复用
@@ -32,33 +43,22 @@ Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC �
 
 **相关文件**：`crates/core/src/lib.rs`、`src-tauri/src/lib.rs`、`dev-notes/architecture/core-desktop-mobile-boundaries.md`
 
-### 代码地图：CLAUDE.md 的后端目录树已过期，别照它臆测
+### 两个容易被臆测错的 API 事实
 
-根 `CLAUDE.md` 的「Backend Architecture」目录树是**迁移前的快照**，2026-07 的 iroh 迁移调研中被逐条实测推翻。
-读文档会被带偏，以下是实测结论（每条都可用左边的命令复现）：
-
-| CLAUDE.md 写的 | 实际 | 判据 |
-|---|---|---|
-| `src-tauri/src/transfer/`（"本 crate 唯一仍含业务逻辑的模块"，内含 `offer.rs`/`sender.rs`/`receiver.rs`/`crypto.rs`/`progress.rs`） | **不存在**。真实位置 `crates/core/src/transfer/`，**23 个 .rs、6789 行** | `ls src-tauri/src/transfer` → No such file；`offer.rs` 全仓零命中 |
-| `src-tauri/src/network/mod.rs` + `network/event_loop.rs`（"Tauri Channel 事件转发"） | **整个目录不存在**，现在是扁平的 `src-tauri/src/network.rs` | `ls src-tauri/src/network/` → No such file |
-| `src-tauri/src/file_source/` + `file_sink/` | 在 `src-tauri/src/host/` 下（`host/file_sink/path_ops.rs`）。`crates/core/src/file_sink` 也不存在 | `ls src-tauri/src/host/` |
-
-另外两条常被写错的：
-
-- **`TransferManager`（`crates/core/src/transfer/manager.rs:142`）不存在名为 Offer / Send / Resume 的三个入口**。
-  真实的流程入口是 `flow/` 下的四个模块：`prepare.rs` / `send.rs` / `receive.rs` / `resume/`。
-  （`manager.rs` 上的 pub 方法是 `new` / `set_receiving_paused` / `spawn_cleanup_task` / `client` / `db` /
-  `event_bus` / `file_access`；`handle_cancel` / `handle_pause` / `handle_peer_disconnected` /
-  `cache_inbound_offer` / … 是私有 trait impl。）
-- **没有名为 `FileSink` 的 trait**。sink 是 `FileAccess` trait（`crates/core/src/host.rs:214`）的下半区
-  （`:223-241` 的 `create_sink` / `write_sink_chunk` / `finalize_sink` / `cleanup_sink`）；
-  `FileSinkId` 只是 `:153` 的一个 newtype。桌面实现走 `.part` 临时文件再 finalize
+- **`TransferManager` 没有名为 Offer / Send / Resume 的三个入口**。真实的流程入口是 `flow/`
+  下的四个模块：`prepare.rs` / `send.rs` / `receive.rs` / `resume/`。`manager.rs` 上的 pub 方法
+  是 `new` / `set_receiving_paused` / `spawn_cleanup_task` / `client` / `db` / `event_bus` /
+  `file_access`；`handle_cancel` / `handle_pause` / `handle_peer_disconnected` /
+  `cache_inbound_offer` 等都是私有 trait impl。
+- **没有名为 `FileSink` 的 trait**。sink 是 `FileAccess` trait（`crates/host/src/ports.rs`）的
+  下半区（`create_sink` / `write_sink_chunk` / `finalize_sink` / `cleanup_sink`）；
+  `FileSinkId` 只是一个 newtype。桌面实现走 `.part` 临时文件再 finalize
   （`src-tauri/src/host/file_sink/path_ops.rs`），**不是直接流式落到最终文件**。
 
-**正确做法**：涉及后端结构的判断先跑 `ls` / `grep` 坐实，别信 CLAUDE.md 的树。
-（改这棵树本身是独立待办——本条先把真相钉在知识库里。）
+**正确做法**：涉及后端结构的判断先跑 `ls` / `grep` 坐实。文档描述架构，源码才是契约——
+本仓的文档曾整整漂移一个大版本，这个教训值得记住。
 
-**相关文件**：`CLAUDE.md`（待修）、`crates/core/src/transfer/`、`crates/core/src/host.rs`
+**相关文件**：`crates/transfer/src/manager.rs`、`crates/host/src/ports.rs`
 
 ### NodeEvent 的消费全在 core，桌面壳一次都不碰
 
@@ -68,9 +68,10 @@ Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC �
 
 真实分层：
 
-- `crates/core/src/network/event_loop.rs` 是唯一消费者。文件头明写「完全平台无关：消费
-  `swarm_p2p_core::NodeEvent`，更新 SharedNetRefs 中的网络/设备状态，通过 EventBus 把高层事件推送给
-  host」「host 端（Tauri / RN）只需提供 EventBus + IncomingTransferRuntime + Notifier」
+- `crates/core/src/network/event_loop.rs` 是唯一消费者。它完全平台无关：消费内核事件，
+  更新网络/设备状态，通过 EventBus 把高层事件推送给 host；host 端（Tauri / RN / wasm）
+  只需提供 EventBus + TransferRuntime + Notifier。内核事件由 `crates/net` 的 actor 产出，
+  经 `Endpoint` 的 watch / 事件双轨暴露（见 [net-kernel.md](net-kernel.md)）
 - 往上抛的是**高层 `CoreEvent`**（`crates/core/src/host.rs:62`，变体远不止 DevicesChanged /
   NetworkStatusChanged，还含 Pairing\* / Transfer\* 一系列），经 **`&dyn EventBus` trait**
   （`crates/core/src/host.rs:123`）
@@ -87,11 +88,11 @@ Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC �
 
 ```
 grep -rn "update_file_checkpoint_ranges" crates/ src-tauri/src/
-  → 定义 crates/core/src/database/ops.rs:167
+  → 定义 crates/storage-sql/src/ops.rs:167
   → 测试 crates/core/tests/e2e_transfer.rs:1156
-  → 唯一调用点 crates/core/src/transfer/actor/receiver.rs:457
+  → 唯一调用点 crates/transfer/src/actor/receiver.rs:457
 
-grep -rnE "checkpoint|completed_ranges|completed_chunks" crates/core/src/transfer/actor/sender.rs
+grep -rnE "checkpoint|completed_ranges|completed_chunks" crates/transfer/src/actor/sender.rs
   → 0 命中
 ```
 
@@ -104,10 +105,10 @@ entity doc（`crates/entity/src/transfer_file.rs:30`）也写死「仅接收方�
 **「清单减去已有」的集合减法**。（`plan.rs:29-31` 有一条 `transferred_bytes` 单连续 range 的过渡
 fallback，仅在 `parse_completed_ranges` 为空时生效，不构成「线性单点模型」的定性。）
 
-**相关文件**：`crates/entity/src/transfer_file.rs`、`crates/core/src/database/ops.rs`、
-`crates/core/src/transfer/{actor/receiver.rs,actor/sender.rs,flow/resume/plan.rs}`
+**相关文件**：`crates/entity/src/transfer_file.rs`、`crates/storage-sql/src/ops.rs`、
+`crates/transfer/src/{actor/receiver.rs,actor/sender.rs,flow/resume/plan.rs}`
 
-### `crates/core/src/transfer/` 按功能分三层子目录
+### `crates/transfer/src/` 按功能分三层子目录
 
 传输模块（`cleanup-transfer-tech-debt` 重组）从平铺 17 文件分成三组，加新文件时按职责归位：
 
@@ -117,12 +118,13 @@ fallback，仅在 `parse_completed_ranges` 为空时生效，不构成「线性�
 - **顶层** —— 跨层核心类型：`manager`(`TransferManager` 结构+trait impl)/`coordinator`(状态机 reducer)/`epoch`(`EpochGuard`)/`progress`/`policy`/`incoming`
 
 **正确做法**：
-- 跨层引用一律用绝对路径 `crate::transfer::<组>::<模块>`，不用 `super::`（文件进子目录后 `super` 语义会变）
+- 跨层引用一律用绝对路径 `crate::<组>::<模块>`（本 crate 内）或 `swarmdrop_transfer::…`（跨 crate），
+  不用 `super::`（文件进子目录后 `super` 语义会变）
 - 文件进子目录后，被跨组调用的 `pub(super)` 要放宽到 `pub(crate)`（`pub(super)` 只剩组内可见）
 - 术语固定：运行时内存对象叫 **actor**（`SenderActor`/`ReceiverActor`），**session** 只指逻辑会话 id / DB 行
-- `EpochGuard`（`transfer/epoch.rs`）是 epoch 比较单点：`is_stale`(迟到`<`)/`is_newer`(更新`>`)/`matches`(精确`==`)，不要再散写裸 `<`/`>`/`==`
+- `EpochGuard`（`epoch.rs`）是 epoch 比较单点：`is_stale`(迟到`<`)/`is_newer`(更新`>`)/`matches`(精确`==`)，不要再散写裸 `<`/`>`/`==`
 
-**相关文件**：`crates/core/src/transfer/mod.rs`、`crates/core/src/transfer/{actor,flow,wire}/mod.rs`、`crates/core/src/transfer/epoch.rs`
+**相关文件**：`crates/transfer/src/lib.rs`、`crates/transfer/src/{actor,flow,wire}/mod.rs`、`crates/transfer/src/epoch.rs`
 
 ### `FileAccess::read_source_chunk` 的 (offset, length) 是严格契约——宿主违约会炸进 blake3
 
@@ -183,9 +185,11 @@ specta + chrono 会把 `DateTime<Utc>` 映射成 ISO 8601 字符串（前端 `st
 **不要做**：
 - 用 `i64` 当 IPC 时间戳——前端容易把秒当毫秒（`new Date(秒数)` 解析成 1970 年附近），导致 timer 死循环（见配对码每秒重生 bug 的修复 commit `8d298e5`）
 
-**例外**：DHT 跨设备记录（`ShareCodeRecord`）保持 `i64` Unix 秒以稳定线路格式 + 节省 record 体积。From 转换里手写 `.timestamp()`。
+**例外**：**跨设备的 wire 类型**保持 `i64` Unix 秒，以稳定线路格式 + 节省 record 体积
+（当前是 DHT 的 `OnlineRecord::timestamp`）。From 转换里手写 `.timestamp()`。
+区分标准是「跨 IPC」还是「跨设备」——前者用 `DateTime<Utc>`，后者用 `i64`。
 
-**相关文件**：`crates/core/src/pairing/code.rs`
+**相关文件**：`crates/core/src/presence/mod.rs`（`OnlineRecord`）
 
 ### MCP 读取前端本机偏好时要容错降级
 
@@ -206,7 +210,7 @@ specta + chrono 会把 `DateTime<Utc>` 映射成 ISO 8601 字符串（前端 `st
 
 ### AppError 的 Serialize 是手写的，不是 derive —— 加 variant 字段不会炸 IPC
 
-两个 `AppError` 都**只有** `#[derive(Debug, Error)]`（`crates/core/src/error.rs:7`、
+两个 `AppError` 都**只有** `#[derive(Debug, Error)]`（`crates/host/src/error.rs`、
 `src-tauri/src/error.rs:28`），Serialize 是**手写的** `impl Serialize for AppError`
 （core 在 `:55-82`、桌面在 `:98`，match 投影成 `{kind, message}`）。
 
@@ -217,7 +221,7 @@ specta + chrono 会把 `DateTime<Utc>` 映射成 ISO 8601 字符串（前端 `st
 多出的字段会被手写 Serialize **静默忽略**（前端契约不变）。所以「加字段会炸 IPC」这个顾虑不成立，
 真实成本在别处（例如某些宏方案要求具名字段，而我们的 variant 多是 tuple/unit 形式）。
 
-**相关文件**：`crates/core/src/error.rs`、`src-tauri/src/error.rs`
+**相关文件**：`crates/host/src/error.rs`、`src-tauri/src/error.rs`
 
 ### crates/web 的 specta 导出不支持 `skip_serializing_if`
 
@@ -242,13 +246,13 @@ serde_wasm_bindgen 把 `None` 序列化成 `undefined`，JS 侧 `obj.field ?? fa
 pub fn insert_session(...) { ... }
 ```
 
-**相关文件**：`crates/core/src/database/ops.rs`、`crates/core/src/transfer/flow/receive.rs`
+**相关文件**：`crates/storage-sql/src/ops.rs`、`crates/transfer/src/flow/receive.rs`
 
 ## P2P / 异步
 
 ### 启动顺序：plugin → updater → database → start command
 
-`src-tauri/src/setup.rs` 里 plugin 在 Builder::default() 注册；updater + database 在 setup() hook 里初始化并注入 Tauri state。**P2P 节点不在启动期自动起**——前端调 `commands::start()` 才创建 `NetClient` + `PairingManager`。
+`src-tauri/src/setup.rs` 里 plugin 在 Builder::default() 注册；updater + database 在 setup() hook 里初始化并注入 Tauri state。**P2P 节点不在启动期自动起**——前端调 `commands::start()` 才 bind `Endpoint` 并创建 `NetManager`（内含 `PairingManager`）。
 
 **相关文件**：`src-tauri/src/setup.rs`、`src-tauri/src/lib.rs` 的 `start` 命令
 
@@ -268,7 +272,7 @@ pub fn insert_session(...) { ... }
 - 不要再新增 `ResumeRequest` / `ResumeOffer` 分支，旧路径会绕过 probe 阶段导致两端恢复事实不一致。
 - 不要直接调用 `mark_session_transferring` 恢复；phase/epoch 必须由 Coordinator 写入并发布 projection。
 
-**相关文件**：`crates/core/src/transfer/flow/resume/mod.rs`、`crates/core/src/protocol.rs`、`crates/core/tests/e2e_transfer.rs`
+**相关文件**：`crates/transfer/src/flow/resume/mod.rs`、`crates/core/src/protocol/`、`crates/core/tests/e2e_transfer.rs`
 
 ### 主动取消必须通知对端并写 cancelled
 
@@ -280,24 +284,7 @@ pub fn insert_session(...) { ... }
 - 取消状态写入放在 `crates/core`，Tauri / RN host 只做薄命令封装
 - 前端收到 `TransferFailedEvent` 中的 `对方取消` 时按 info toast 展示，不按错误处理
 
-**相关文件**：`crates/core/src/transfer/flow/send.rs`、`crates/core/src/transfer/flow/receive.rs`、`src/stores/transfer-store.ts`
-
-### libp2p-stream 数据通道：不在 stable facade，需直接依赖
-
-`swarm-p2p-core` 用 `libp2p::stream` 承载文件传输等数据面字节流，但 **libp2p 0.56 stable facade 没有 `stream` feature**（libp2p-stream 仍是 `0.4.0-alpha`）。必须直接依赖 `libp2p-stream = "0.4.0-alpha"`（与 libp2p 0.56 同期，对齐 libp2p-swarm 0.47.x，无 multiple-versions 冲突）。
-
-**正确做法**：
-- `Behaviour::new_control(&self)` 返回 `Control`（可 clone、跨任务共享）；`Control::accept(proto)` 返回 `IncomingStreams`（生命周期独立于临时 control），`Control::open_stream(peer, proto).await` 打开出站流。
-- `Stream` 是 `libp2p_swarm::Stream` re-export（`libp2p::Stream`，**非 feature-gated**），impl `futures::AsyncRead + AsyncWrite`；`DataChannel` 用 `stream_mut()` / `into_stream()` 暴露它，避免 Pin 投影。
-- `IncomingStreams` 必须持续 poll：放进 core 中央 `select!`（多协议用 `futures::stream::select_all` 合并 + protocol 标签 + `if !is_empty()` 守卫防 busy-loop），accept 出的流用 `try_send` 转交，**绝不阻塞 swarm 循环**（否则拖死 ping / kad）。
-- 开流级背压破损（yamux 静默丢流）：用 runtime 层计数登记表（`ChannelRegistry` + drop guard）显式 limit + 报 typed error，而非依赖底层丢弃。
-- `OpenStreamError` 是 `#[non_exhaustive]`（`UnsupportedProtocol(_)` / `Io(_)`），match 必须带 `_`。
-
-**不要做**：
-- 不要手写自定义 `NetworkBehaviour + ConnectionHandler`——薄封装 `libp2p-stream` 即可，poll 负担由 core event loop 吸收，对下游透明。
-- 不要把帧编解码放进 `libs/core`——它只传裸字节，帧协议在 `crates/core`（应用层）。
-
-**相关文件**：`libs/core/src/data_channel.rs`、`libs/core/src/runtime/{node,event_loop}.rs`、`libs/core/src/client/mod.rs`
+**相关文件**：`crates/transfer/src/flow/send.rs`、`crates/transfer/src/flow/receive.rs`、`src/stores/transfer-store.ts`
 
 ### transfer-data Finish 只是信号，完成事实必须由接收端证明
 
@@ -311,13 +298,16 @@ pub fn insert_session(...) { ... }
 - 零字节文件可在完成阶段创建空 sink 并标记完成；非零文件没有 live sink 时只能依赖已完整的恢复 checkpoint，不能创建空文件冒充完成。
 - 当前 libp2p stream 是可靠有序流，`BlockRequest` 只保留协议帧位；生产路径不要假装支持同流重传，解密/范围错误应中断。
 
-**相关文件**：`crates/core/src/transfer/{actor/sender.rs,actor/receiver.rs,wire/data_frame.rs}`
+**相关文件**：`crates/transfer/src/{actor/sender.rs,actor/receiver.rs,wire/data_frame.rs}`
 
-### swarm-p2p-core 测试需显式声明 tokio rt-multi-thread
+### 测试需显式声明 tokio rt-multi-thread，别靠 workspace feature unification
 
-`#[tokio::test(flavor = "multi_thread")]` 需要 tokio `rt-multi-thread`，而 `swarm-p2p-core` 的 `[dependencies] tokio` 只有 `rt`。测试一直靠 workspace feature unification（其他成员带进来）才能编译——**单独 `cargo clippy -p swarm-p2p-core --all-targets` 或单独构建会报 `runtime flavor multi_thread requires rt-multi-thread`**。已在 `[dev-dependencies]` 显式声明 `rt-multi-thread + time`。RN 端单独复用 core 时同理。
+`#[tokio::test(flavor = "multi_thread")]` 需要 tokio `rt-multi-thread`，而某些 crate 的
+`[dependencies] tokio` 只开了 `rt`。测试能编过往往是靠 workspace feature unification
+（其他成员把 feature 带进来）——**一旦单独 `cargo clippy -p <crate> --all-targets` 或
+单独构建，就会报 `runtime flavor multi_thread requires rt-multi-thread`**。
 
-**相关文件**：`libs/core/Cargo.toml`
+**正确做法**：在该 crate 的 `[dev-dependencies]` 里显式声明 `tokio = { features = ["rt-multi-thread", "time", "macros"] }`，不要依赖 unification。移动端单独复用 core 时同理。
 
 ### mobile-core 从不自建 tokio runtime —— 所有 spawn 挤在 async-compat 的单线程上
 
@@ -363,7 +353,7 @@ mobile-core 从不自建 runtime，全靠 uniffi `async_runtime = "tokio"` 背�
 - migration 加列用 `ALTER TABLE ... ADD COLUMN ... NOT NULL DEFAULT ...`；开发期 `DELETE FROM transfer_files/transfer_sessions` 清空旧历史（design 允许），避免处理旧行默认值。
 - sea-orm 2.0 entity 用 `ActiveModel::builder().set_xxx()`；加 NOT NULL 字段后在 `create_session` 补 `.set_phase/.set_epoch/.set_recoverable`，未 set 字段走 DB default（builder 不强制）。
 
-**相关文件**：`crates/core/src/transfer/coordinator.rs`、`crates/core/src/database/ops.rs`（apply_transition/projection）、`crates/entity/src/lib.rs`（`TransferPhase::legacy_status`）
+**相关文件**：`crates/transfer/src/coordinator.rs`、`crates/storage-sql/src/ops.rs`（apply_transition/projection）、`crates/entity/src/lib.rs`（`TransferPhase::legacy_status`）
 
 ### 接线 mark_session_* → Coordinator：本地/对端 reason 区分 + 取消优先于 error
 
@@ -380,7 +370,7 @@ mobile-core 从不自建 runtime，全靠 uniffi `async_runtime = "tokio"` 背�
 - **`transferred_bytes` 是 projection 派生、不在 session 列维护**（`cleanup-transfer-tech-debt` 轮4）：`get_transfer_projection` 直接 `SUM(files.transferred_bytes)`；文件级进度由 `persist_chunk`（接收）/ `save_sender_file_progress`（发送）增量落库。**不要**在 pause/cancel/disconnect 前手工把文件进度 sync 回 session 列（已删 `sync_session_transferred_bytes`），那是会漂移的二次写。
 - **发送终态副作用归 actor**：发送完成/中断的 dispatch + 落库 + 完成事件下沉到 `SenderActor::on_completed`/`on_interrupted`（与接收 `finish_data_channel`/`fail_session` 对称），`wire/data_plane` 只做纯路由 + `remove_send_if_epoch` 注册表簿记（按 epoch 移除防旧任务误删 resume 后新 actor）。
 
-**相关文件**：`crates/core/src/transfer/{coordinator.rs,flow/receive.rs,actor/receiver.rs,actor/sender.rs,flow/send.rs,wire/data_plane.rs}`、`crates/core/src/network/event_loop.rs`、`crates/core/src/database/ops.rs`、`crates/core/tests/e2e_transfer.rs`（remote-reason / peer-disconnect / sender-resume 确定性测试）
+**相关文件**：`crates/transfer/src/{coordinator.rs,flow/receive.rs,actor/receiver.rs,actor/sender.rs,flow/send.rs,wire/data_plane.rs}`、`crates/core/src/network/event_loop.rs`、`crates/storage-sql/src/ops.rs`、`crates/core/tests/e2e_transfer.rs`（remote-reason / peer-disconnect / sender-resume 确定性测试）
 
 ### 桌面启动清理只保留过期文件清理，active 统一交给 Coordinator
 
@@ -413,7 +403,7 @@ mobile-core 从不自建 runtime，全靠 uniffi `async_runtime = "tokio"` 背�
 - 不要在前端重新拼接 active sessions 与 DB history
 - 不要在发送/接收页面手工构造 transient transfer session；如果缺等待态，优先让后端补 projection
 
-**相关文件**：`crates/core/src/transfer/{flow/send.rs,flow/receive.rs,coordinator.rs}`、`crates/core/src/database/ops.rs`、`src/stores/transfer-store.ts`、`src/lib/transfer-projection.ts`
+**相关文件**：`crates/transfer/src/{flow/send.rs,flow/receive.rs,coordinator.rs}`、`crates/storage-sql/src/ops.rs`、`src/stores/transfer-store.ts`、`src/lib/transfer-projection.ts`
 
 ### ActorRegistry 是运行时 actor 唯一入口
 
@@ -431,31 +421,45 @@ Coordinator 负责 DB 状态，ActorRegistry 负责内存 actor 唯一性。
 - 不要新增 `send_sessions` / `receive_sessions` 裸 map 操作
 - 不要在 resume/data-channel 路径创建 actor 时漏传 new_epoch
 
-**相关文件**：`crates/core/src/transfer/actor/registry.rs`、`crates/core/src/transfer/{manager.rs,flow/send.rs,flow/receive.rs,flow/resume/mod.rs}`
+**相关文件**：`crates/transfer/src/actor/registry.rs`、`crates/transfer/src/{manager.rs,flow/send.rs,flow/receive.rs,flow/resume/mod.rs}`
 
 ### crates/core 端到端集成测试：两个真实节点 + MemoryHost + sqlite::memory（不需要 Tauri/真机）
 
-完整传输链路（offer→transfer→pause→resume→cancel）可在纯 `cargo test` 里跑通，**零生产代码改动**。调研结论：`libp2p-swarm-test` **不适用**——它测 raw `Swarm` + 自定义 `NetworkBehaviour`，和 SwarmDrop 的 `NetClient`/`EventReceiver` 封装层级对不上，且 `CoreBehaviour` 含只能 `with_relay_client` 造的 `relay::client::Behaviour`，传不进 swarm-test。正解是「两个真实 `start()` 节点 + 关 mDNS + 显式 dial」。
+完整传输链路（offer→transfer→pause→resume→cancel）可在纯 `cargo test` 里跑通，**零生产代码改动**。
+`libp2p-swarm-test` **不适用**——它测 raw `Swarm` + 自定义 `NetworkBehaviour`，和本项目
+`Endpoint` 的封装层级对不上。正解是「两个真实 `Endpoint` + 关 mDNS + 显式建连」。
 
-**✅ 已落地实证**：`crates/core/tests/e2e_transfer.rs` 已实现并通过——连通性 smoke（`e2e_two_nodes_connect`）+ 完整单文件传输（`e2e_single_file_transfer`：prepare→send_offer→accept→拉取落盘→Complete→Ack→两侧 DB 都到 `Terminal/Completed` + 接收方 `sink_bytes` 等于源 + 两侧都发 `TransferCompleted`）。dev-deps 只需补 `tokio`（macros+rt-multi-thread）+ `migration`（其余 sea-orm/entity/uuid/swarm-p2p-core 已是普通 dep）。`tempfile` 暂未用到（内存库单连接钉死即可跨重启保活）。
+**harness 已实现，直接读 `crates/core/tests/e2e_transfer.rs`（约 1600 行）扩展**，
+里面有 `test_endpoint` / `spawn_node` / `connect` / `connected_paired_pair` 四个现成 helper。
+下面只记那些**读代码看不出来、踩过才知道**的约束：
 
 **正确做法**：
-- 现成资产：`MemoryHost::new(paths)`（`crates/core/src/host.rs`，实现全 6 个 host trait + `with_source()` 预载文件 + `events()` 取回 CoreEvent）；`Database::connect("sqlite::memory:")` + `migration::Migrator::up(&db, None)`；`swarm_p2p_core::start` + `TransferManager::new` + `NetManager::new` + `run_event_loop` 全 public，复刻 `runtime::start_node` 即可。
-- **关 mDNS + 显式 dial 消除时序**：`NodeConfig::new(...).with_mdns(false).with_relay_client(false).with_dcutr(false).with_autonat(false).with_listen_addrs(["/ip4/127.0.0.1/tcp/0"])`；建连用 `client.add_peer_addrs(peer, [listen_addr]) + client.dial(peer)`，不靠 mDNS `PeerDiscovered`（这也是 `data_channel.rs` 并行串扰的根治法）。
-- 每节点 `tokio::spawn(run_event_loop(receiver, mgr.shared_refs(), host, None))` 驱动接收方协议处理（IncomingTransferRuntime）。
-- 断言：`MemoryHost.events()` 查发出的 projection / Transfer* 事件；`db` 查 phase/epoch/checkpoint 验状态机。中断模拟 = drop 一侧 event_loop task；重启 = 用同一 `db` 重新 spawn 节点。
-- dev-deps：`migration`（workspace）、`sea-orm`、`tokio`（rt-multi-thread+macros）、`swarm-p2p-core`、`tempfile`。
+- **关 mDNS + 显式建连消除时序**：`Endpoint::builder().mdns(false).relay_client(false)
+  .listen(["/ip4/127.0.0.1/tcp/0"])`。两个本机节点若靠 mDNS 自动发现会互相串扰状态，
+  必须 `endpoint.add_addrs(peer, [addr])` + `endpoint.connect(NodeAddr::new(peer))`。
+- 端口用 `/ip4/127.0.0.1/tcp/0`（OS 分配），建连前先轮询拿到实际绑定的 listen addr。
+- 断言分两路：`MemoryHost.events()` 查发出的 projection / Transfer\* 事件；`db` 查
+  phase/epoch/checkpoint 验状态机。中断模拟 = drop 一侧 event_loop task；
+  重启 = 用同一 `db` 重新 spawn 节点（内存库单连接钉死即可跨重启保活，不需要 tempfile）。
 
 **不要做**：
-- 不要 mock `AppNetClient`（= `NetClient<AppRequest,AppResponse>`，必须两个真实建连节点）。
-- 不要忘 `is_paired` 校验：Offer 要求已配对，`NetManager::new` 的 `paired_devices` 要互相塞 `PairedDeviceInfo`（双向），否则 Offer 直接被 `OfferRejectReason::NotPaired` 拒。`is_paired` 唯一运行时依据是 `PairingManager` 的内存 DashMap，不查 DB / keychain。
-- 不要等 mDNS 发现事件触发连接——改用 `dial()` 的精确 await。
-- **连接判定不要用 `connected_count()` / `get_network_status().connected_peers`**：它额外要求 identify 把 `agent_version` 分类成 SwarmDrop 客户端（`OsInfo::is_swarmdrop_agent`），测试给的 agent_version 不匹配会恒为 0。改用 `manager.devices().is_connected(&peer_id)`（只看裸 `PeerConnected`，与连通性/req_resp/配对都无关）。
-- **不要在同步谓词里 `block_on` async DB 查询**：`#[tokio::test]` 已在 runtime 上，再建嵌套 runtime block_on 会 panic（"Cannot start a runtime from within a runtime"）。DB 等待写原生 `async` 轮询循环（`loop { get_transfer_projection().await; sleep().await }`），连接/事件这类同步状态才用同步谓词轮询。
-- 端口用 `/ip4/127.0.0.1/tcp/0`（OS 分配），dial 前必须先轮询 `get_network_status().listen_addrs` 拿到实际绑定地址（`run_event_loop` 处理 `NodeEvent::Listening` 时回填）。
-- **`client.dial()` 在并行 `cargo test` 下会瞬时失败**：多个 `#[tokio::test(multi_thread)]` + 多组节点同跑抢 CPU 时，到 `127.0.0.1:port` 的连接尝试瞬时失败，`dial().expect()` 会 flaky（串行 `--test-threads=1` 不复现，但 CI 默认并行）。`connect` helper 要**重试 dial 直到 `devices().is_connected(&peer)` 双向为真**、忽略单次 dial 错误（已连接时再 dial 是廉价 no-op 错误）——连接才是目标，不是单次 dial 调用成功。
+- 不要忘**双向** `is_paired`：Offer 要求已配对，两侧都要互相塞 `PairedDeviceInfo`，
+  否则直接被 `OfferRejectReason::NotPaired` 拒。`is_paired` 唯一运行时依据是
+  `PairingManager` 的内存 DashMap，**不查 DB / keychain**。
+- **连接判定不要用 `connected_count()` / `NetworkStatus::connected_peers`**：它们额外要求
+  identify 把 `agent_version` 分类成 SwarmDrop 客户端（`OsInfo::is_swarmdrop_agent`），
+  测试的 agent_version 不匹配会**恒为 0**。改用 `manager.devices().is_connected(&peer_id)`
+  （只看裸 `PeerConnected`）。
+- **建连在并行 `cargo test` 下会瞬时失败**：多组节点同跑抢 CPU 时，到 `127.0.0.1:port` 的
+  连接尝试会瞬时失败，单次 `connect().expect()` 是 flaky 的（串行 `--test-threads=1` 不复现，
+  但 CI 默认并行）。`connect` helper 必须**重试到 `is_connected` 双向为真**、忽略单次错误
+  ——连接才是目标，不是单次调用成功。
+- **不要在同步谓词里 `block_on` async DB 查询**：`#[tokio::test]` 已在 runtime 上，
+  嵌套 runtime 会 panic（"Cannot start a runtime from within a runtime"）。DB 等待写原生
+  async 轮询循环，只有连接/事件这类同步状态才用同步谓词轮询。
 
-**相关文件**：`crates/core/tests/e2e_transfer.rs`（**已实现的 harness，直接参照/扩展**）、`crates/core/src/host.rs`（MemoryHost）、`crates/core/src/runtime.rs`（start_node 可复刻）、`crates/core/src/network/event_loop.rs`（run_event_loop）、`libs/core/tests/data_channel.rs`（现有双节点模式参考）
+**相关文件**：`crates/core/tests/e2e_transfer.rs`、`crates/core/src/host.rs`（MemoryHost）、
+`crates/core/src/runtime.rs`（`start_node` 组合根，测试即复刻它）
 
 ### LAN Helper 三节点测试需要真实私有网卡地址
 
@@ -530,7 +534,7 @@ Direct（局域网点击配对，`/devices` 页「连接」按钮）没有配对
 - 不要把 `OsInfo::default()` 改回来。回归测试 `online_record_must_not_carry_device_info` 会失败——
   那不是测试过时（已用 mutation 验证：注入 `redacted()`→`default()` 后测试精确失败）。
 
-**相关文件**：`crates/core/src/device.rs`（`OsInfo::redacted`）、
+**相关文件**：`crates/host/src/device.rs`（`OsInfo::redacted`）、
 `crates/core/src/presence/supervisor.rs`（`build_online_record` + 测试）、`crates/core/src/presence/mod.rs`
 
 ## 身份存储 (keychain)
@@ -606,7 +610,7 @@ match tauri::image::Image::from_bytes(png_bytes) {
 - `XChaCha20Poly1305::new(key.into())`、`Sha256::digest(...).to_vec()` **无需改**：hybrid-array `Array` 仍 `Deref<[u8]>` + 提供 `From<&[u8;N]>`。SHA256 摘要值逐字节不变 → DHT key 兼容旧节点。
 - 这俩同属 RustCrypto 协调波，**一起升**避免 generic-array/hybrid-array 长期并存。需 edition 2024 / MSRV 1.85（本仓已满足）。
 
-**相关文件**：`crates/core/src/transfer/wire/crypto.rs`、`crates/core/src/pairing/dht_key.rs`
+**相关文件**：`crates/transfer/src/protocol.rs`（传输加密）、`crates/net/src/dht.rs`（DhtKey）
 
 ### rmcp 1.x→2.0：类型改名 + streamable-HTTP 新增 Host/Origin 白名单
 
@@ -681,7 +685,7 @@ keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立
 
 原则一句话：**后端发码、边缘翻译**。错误 `kind` 与通知语义枚举同构。
 
-**相关文件**：`src/lib/errors.ts`、`crates/core/src/error.rs`、`src-tauri/locales/`、`src-tauri/src/i18n.rs`
+**相关文件**：`src/lib/errors.ts`、`crates/host/src/error.rs`、`src-tauri/locales/`、`src-tauri/src/i18n.rs`
 
 ### rust-i18n 集成：`i18n!` 在 lib.rs 根、per-locale TOML、`%{var}` 插值
 

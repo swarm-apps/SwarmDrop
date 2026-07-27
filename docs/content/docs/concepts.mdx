@@ -1,6 +1,6 @@
 ---
 title: 核心概念
-description: 配对码、DHT 发现、NAT 穿透与自动选路的工作原理。
+description: 配对邀请、DHT 在线记录、NAT 穿透与自动选路的工作原理。
 ---
 
 import { Mermaid } from "@/components/mermaid";
@@ -10,47 +10,56 @@ import { Mermaid } from "@/components/mermaid";
 ## 整体架构
 
 <Mermaid chart={`graph TB
-  subgraph Frontend["前端 UI"]
-    A["React 19 · TanStack Router · Zustand"]
+  subgraph Shells["三端外壳"]
+    A["桌面 React + Tauri · 移动 React Native · 浏览器 wasm"]
   end
-  subgraph Backend["业务层 · Rust + Tauri 2"]
-    B["分块加密 · 校验 · 进度调度"]
+  subgraph Core["共享业务核心 · Rust"]
+    B["分块加密 · 校验 · 进度调度 · 断点续传"]
+    G["配对邀请 · 设备身份"]
   end
-  subgraph P2P["P2P 网络 · libp2p"]
-    C["Request-Response · 文件传输"]
+  subgraph Net["网络内核"]
     D["mDNS · 局域网发现"]
-    E["Kademlia DHT · 跨网络发现"]
+    E["Kademlia DHT · 在线记录"]
     F["Relay + DCUtR · NAT 穿透"]
+    H["TCP · QUIC · WebSocket · WebRTC-Direct"]
   end
-  A -- "Tauri IPC (typed via specta)" --> B
-  B -- "libp2p Swarm" --> P2P
+  A -- "类型化 IPC / uniffi / wasm" --> Core
+  Core -- "Endpoint API" --> Net
 `} />
 
 ## 设备身份
 
-每台设备启动时生成一对 **Ed25519** 密钥。公钥派生出全网唯一的 `PeerId`，是设备在网络中的地址；
-私钥用于签名与加密协商，存放在 Stronghold 加密保险库里，由你的密码或生物识别守护。
+每台设备首次启动时生成一对 **Ed25519** 密钥。公钥派生出全网唯一的设备 ID，是设备在网络中的地址；
+私钥用于签名与加密协商，托管在操作系统钥匙串里，永不离开本机。
 
-## 配对码与 DHT 发现
+## 配对邀请
 
-跨网络场景下，两台设备彼此并不知道对方的 `PeerId`，这时用**分享码**牵线：
+跨网络场景下，两台设备彼此并不知道对方的设备 ID，这时用**一次性邀请**牵线：
 
-- 分享码是 6 位字母数字（如 `AB12CD`），默认有效期 10 分钟。
-- 发送方把「分享码 → 自己的 PeerId」这条记录发布到 **Kademlia DHT**，DHT key = `SHA256(分享码)`。
-- 接收方输入同一分享码，在 DHT 查到对方 `PeerId`，随即发起连接。
+- 发起方生成一个自包含的邀请串 `sdinvite…`，里面已经带上了自己的设备 ID 与可拨地址。
+- 邀请以链接分享，或渲染成二维码让对方扫——两者是同一字符串的不同载体。
+- 邀请带 **Ed25519 签名**（防篡改）、**256-bit capability**（防猜测）和**有效期**，
+  且**只能被消费一次**。用过即失效，不会留下长期可复用的凭据。
 
 <Mermaid chart={`sequenceDiagram
-  participant A as 发送方
-  participant DHT as Kademlia DHT
-  participant B as 接收方
-  A->>DHT: publish SHA256(code) → PeerId_A
-  B->>DHT: query SHA256(code)
-  DHT-->>B: PeerId_A
-  B->>A: 发起连接
+  participant A as 发起方
+  participant U as 用户（链接 / 二维码）
+  participant B as 受邀方
+  A->>A: 生成一次性签名邀请
+  A->>U: 分享 sdinvite…
+  U->>B: 打开链接 / 扫码
+  B->>B: 验签 + 解出设备 ID 与地址
+  B->>A: 发起连接并完成 capability 握手
+  A->>A: 作废该邀请（一次性）
 `} />
 
-> SwarmDrop **不用 DHT 去枚举设备列表**：网络里设备太多，且无法预判连接质量。
-> DHT 只用来精确定位某个分享码背后的那一台设备。
+因为邀请自带地址，多数情况下不必再查 DHT 就能直接拨通。
+
+## DHT 的角色
+
+**Kademlia DHT 不用来枚举设备列表**：网络里设备太多，且无法预判连接质量。
+它只承担一件事——**已配对设备的在线记录**：设备上线时发布一条自己的可拨地址记录，
+对端在直连失败时据此重新找到你。记录不携带任何设备信息。
 
 ## NAT 穿透与自动选路
 

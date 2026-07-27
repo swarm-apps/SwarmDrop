@@ -44,14 +44,30 @@ swarmdrop-net-base = { path = "crates/net-base" }
 swarmdrop-storage-sql = { path = "crates/storage-sql" }
 swarmdrop-invite = { path = "crates/invite" }
 swarmdrop-net = { path = "crates/net" }
-# libp2p 系全部 pin 同一 git rev。为什么是 git 不是 crates.io：crates.io 最新的
-# libp2p-webrtc 0.9.0-alpha.1 的 webrtc-direct 实证跑不通（spike/webrtc-direct-https，
-# 修复在 master PR 6429，随未发布的 0.10.0-alpha）。rev 93c5059 = 2026-07-13 master，
-# spike 双端（native server + wasm browser）实测通过。0.57 正式发布后切回 crates.io。
-# 临时升级到 upstream 0.57 对应基线，以测试 WebRTC transport 的最新实现；上游正式发布后
-# 应恢复 upstream URL / crates.io 版本。升级 rev 必须走独立 PR + 全量测试 + wasm check。
-# 临时使用 fork 的 master：它跟随 upstream/master，并承载尚未合并的 WebRTC 修复；
-# 上游合并或发布可用版本后切回官方 URL / crates.io。更新时必须同步 Cargo.lock。
+# libp2p 系全部 pin 同一 git rev —— 且当前指向**个人 fork**，不是官方仓。
+#
+# 为什么是 git 不是 crates.io：crates.io 的 libp2p-webrtc 0.9.0-alpha.1 的 webrtc-direct
+# 实证跑不通（spike/webrtc-direct-https）。修复在 master（PR 6429，2026-05-22 已合并），
+# 但至今未进任何 crates.io 发布版。
+#
+# 为什么是 fork 不是官方 master：Web 端还需要两个尚未合并的 WebRTC PR
+# （fork 实测 ahead 7 / behind 0，全部已提上游，无未提项）：
+#   PR #6558  fix(webrtc-websys): defer data channel callback wakes        （OPEN）
+#   PR #6560  feat(webrtc): negotiate data channel message limits          （OPEN）
+#             ↳ 含 receive buffer limit 修复（在 PR 分支上 squash 成 5984c716，
+#               与 fork master 的 c4c2c167+989cb610 内容等价、SHA 不同）
+#
+# 【退出条件】两阶段，各自可判定（完整判据 + 验证命令见 dev-notes/knowledge/net-kernel.md
+# 的「临时 fork 集成策略 —— 含退出条件」）：
+#   阶段 1 切回官方 git：#6558 与 #6560 均 MERGED 后，换回官方 URL + 上游 master rev
+#          `gh pr view 6558 --repo libp2p/rust-libp2p --json state --jq .state`
+#   阶段 2 切回 crates.io：`cargo search libp2p` 显示 ≥ 0.57.0（webrtc ≥ 0.10.0-alpha、
+#                        stream ≥ 0.5.0-alpha）时，整体换成版本号依赖
+#
+# 对账 fork 与上游时别只比 commit SHA——PR 分支会 squash，SHA 对不上不等于补丁没提。
+#
+# 拖得越久 rebase 成本越高——动 crates/net 时顺手跑一遍上面两条命令。
+# 升级 rev 必须走独立 PR + 全量测试 + wasm check，并同步 Cargo.lock。
 libp2p = { git = "https://github.com/yexiyue/rust-libp2p", rev = "989cb610658a49db3b76cf2ce864f1504e5fc69d" }
 libp2p-stream = { git = "https://github.com/yexiyue/rust-libp2p", rev = "989cb610658a49db3b76cf2ce864f1504e5fc69d" }
 libp2p-webrtc = { git = "https://github.com/yexiyue/rust-libp2p", rev = "989cb610658a49db3b76cf2ce864f1504e5fc69d" }
