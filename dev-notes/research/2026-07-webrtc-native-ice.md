@@ -245,8 +245,8 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
 4. ~~wasm 后端~~ —— ✅ 已实现（浏览器 `RTCPeerConnection`）。**但只过了编译，逻辑未实测**
    ——wasm 侧要浏览器才能跑
 5. ~~接进 `crates/net`~~ —— ✅ 已完成（分支 `feat/webrtc-p2p-wiring`，见下节）
-6. **用 `docs/app/app` 实测浏览器侧** —— 这是 wasm 后端的第一道真验收。**代码已就位、
-   尚未跑过**
+6. **用 `docs/app/app` 实测浏览器侧** —— 🟡 **部分完成**（2026-07-28）。
+   传输已能被正确装配、监听地址进入可拨集；但**打洞本身仍未发生**，缺一个「升级器」（见下）
 7. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
    「确认实现正确」而非「决定要不要做」
 8. **与 js-libp2p 互通验收** —— 通用性的最终判据（决策理由之一就是它）
@@ -268,10 +268,36 @@ Native profile 也开。
 | listen 地址自己补 `/p2p/<本机>` | 对端解析不出目标，拨不动 |
 | `classify_path` 对 `/webrtc` 例外 | 打洞成功却被记成 Relayed，最优连接选错 |
 
-**浏览器验证怎么做**（第 6 步）：`cd docs && pnpm build:wasm && pnpm dev`，开两个标签页
-互相配对，然后看 ① 各自的可拨地址里是否出现 `…/p2p-circuit/webrtc/p2p/<self>`
-（`ensure_webrtc_listener` 生效）② 控制台是否出现 `webrtc hole punching succeeded`
-③ 连接路径是否显示为直连而非中继。三条都过才算 wasm 后端跑通。
+### 浏览器实测结果（2026-07-28）
+
+`cd docs && pnpm build:wasm && pnpm dev`，用 `agent-browser --session a/b` 开两个**隔离**
+浏览器（同浏览器多标签会共享 IndexedDB 身份，那是同一个节点），各自 connect + 建立可达。
+
+**修掉的三个真 bug**（全部由实测暴露，单测与编译都发现不了）：
+
+| # | 缺陷 | 后果 |
+|---|---|---|
+| 1 | `with_relay_client` 把 relay 排在 `or_transport` 最前 | 打洞地址全被 relay 接走，**打洞路径一次没被调用**，无报错 |
+| 2 | 在 `ReservationReqAccepted` 路径里 `listen_on` | 打爆 relay client 的 `expect("Relay connection exist")`，2/2 必现 |
+| 3 | `Transport::listen_on` 不唤醒 poll | 新监听地址延迟通告 |
+
+**已验证通过**：webrtc-p2p transport 真的接到 listen 地址 → `NewAddress` 进入 Swarm →
+地址进入 `listen_addrs`（形如 `…/p2p/<relay>/p2p-circuit/webrtc/p2p/<self>`，与 js-libp2p
+格式一致）。
+
+### ❗仍缺一个「升级器」——打洞不会自己发生
+
+实测中两个浏览器确实连上了，但走的是**普通 circuit 中转**，不含 `/webrtc`。
+
+原因是设计层面的：webrtc-p2p 只在 **dial 一个 `/webrtc` 地址**时才启动信令。而 libp2p 拨号
+是**并发**的——candidate 里 circuit 地址和 webrtc 地址一起拨，circuit 几乎必然先成功
+（打洞要等 ICE 收敛数秒），于是 webrtc 那条根本没机会。
+
+**这不是 bug，是功能未完成**：需要一个类似 DCUtR 的升级器——连接建立后，若对端地址集里有
+`/webrtc` 变体且当前路径是 `Relayed`，就主动拨那条地址把中转升级成直连。native 侧这件事
+由 `dcutr` behaviour 做，浏览器侧没有对应物，得自己写。
+
+这是第 7 步（跨 NAT 验收）的**前置条件**——没有升级器，跨 NAT 场景同样不会触发打洞。
 
 代价：wasm 产物 gzip 1367 KB → 1418 KB（+51 KB，+3.7%）。
 

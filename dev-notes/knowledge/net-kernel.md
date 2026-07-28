@@ -295,28 +295,50 @@ android target 依赖表）。
 与官方 `libp2p-webrtc`（webrtc-direct）是**两个传输、可共存**：那个要求目标地址已可达，
 这个让双方都不可达的节点经 relay 换信令后打洞。
 
-### 注册顺序：必须排在 `with_relay_client` 之前
+### ⚠️ 不能用 `with_relay_client`——relay 会抢走打洞地址（2026-07-28 浏览器实测）
 
-打洞地址 `<relay>/p2p-circuit/webrtc/p2p/<target>` **含 `/p2p-circuit` 段**，relay client
-transport 同样认这类地址（它的 `parse_relayed_multiaddr` 只要求有 circuit 段，circuit 之后
-的未知协议被忽略）。而 `with_relay_client` 内部是 `已有 transport.or_transport(relay)`，
-`or_transport` 先到先得——晚注册，地址就被 relay 抢去当普通中转。
+打洞地址 `<relay>/p2p-circuit/webrtc/p2p/<target>` **含 `/p2p-circuit` 段**，而 relay client
+transport 的 `parse_relayed_multiaddr` 只要求有 circuit 段——**circuit 之后的 `/webrtc` 被
+塞进 `dst_addr` 而不报错**（`priv_client/transport.rs` 的 `p => { ... dst_addr.push(p) }`），
+于是它照单全收。
 
-**症状极隐蔽**：链路能通、传输正常，只是永远打不了洞，且没有任何报错。
+谁先拿到取决于 `or_transport` 顺序，而 `with_relay_client` 内部写死
+`relay_transport.or_transport(已有链)`——**relay 永远在最前**。`with_other_transport` 无论
+注册多少次都在它后面，抢不过。
 
-### listener 生命周期严格绑定 reservation
+**症状极隐蔽**：reservation 正常、中转正常、传输正常，只是打洞路径**一次都没被调用过**，
+且没有任何报错。实测靠在 webrtc-p2p 的 `listen_on` 里打日志才发现（那条日志因此保留）。
 
-本机要能「被拨」，得在 `ReservationReqAccepted` 后补一个
-`<relay>/p2p-circuit/webrtc/p2p/<本机>` 监听（`Actor::ensure_webrtc_listener`），它才会进
-`watch_addrs().listen` → `dialable()` → 邀请。
+**正确做法**：跳过 builder 的 relay phase——自己 `libp2p::relay::client::new()` 造 transport，
+用 `relay_first_webrtc()` 把 webrtc-p2p 放在 relay 前面，behaviour 经闭包外的
+`let mut relay_behaviour = None` 回传，最后用 **单参数** `with_behaviour(|key| ...)`
+（`RelayPhase` 的快捷方式，内部走 `without_relay()`）。多传一个 relay_client 参数就会走回
+那条把 relay 排最前的路。
+
+js-libp2p 没这个问题——它的 circuit transport filter 显式排除带 `/webrtc` 的地址。
+rust-libp2p 缺这道排除，因为上游还没有 private-to-private 的 WebRTC 传输。
+
+### listener 只在 `request_relay_reservation` 里挂，不跟随 reservation 事件
+
+本机要能「被拨」，需要一个 `<relay>/p2p-circuit/webrtc/p2p/<本机>` 监听
+（`Actor::ensure_webrtc_listener`），它才会进 `watch_addrs().listen` → `dialable()` → 邀请。
 
 两条约束：
 
 1. **不能进 `relay_listeners` 表**。它不是一份 reservation（webrtc-p2p transport 收下地址
    只是登记 listener，不向 relay 请求任何东西），混进去它的 `ListenerClosed` 会被误判成
    reservation 失效 → 误发 `RelayReservationLost`。故另存 `webrtc_listeners: PeerId → ListenerId`。
-2. **reservation 一没就必须撤**（`ListenerClosed` 判失效处 + `handle_remove_infra_peer`）。
-   信令要经 relay 转发，reservation 没了这条地址就是死的，留着等于对外通告拨不通的地址。
+2. **不要挂在 `ReservationReqAccepted` 的处理路径上**。那条路径正是 relay client 更新自己
+   `reservation_addresses` 表的时刻，在其中插入 `listen_on` 会扰动它的内部时序，把它的
+   `expect("Relay connection exist")` 打成 panic——浏览器实测 2/2 必现，短路后 0/2。
+   撤销同理，只在 `handle_remove_infra_peer` 做。
+   代价是 reservation 掉线期间地址短暂不可达；幂等重试会拉回来，比让对端地址簿反复失效好。
+
+### webrtc-p2p 的 `Transport::listen_on` 必须唤醒 poll
+
+`listen_on` / `remove_listener` 是外部**同步**调用，往 `pending` 队列塞事件时没有任何东西
+会唤醒 poll（只有 `from_behaviour` 有消息才会）。少了这个唤醒，新监听地址要等到下一次因
+别的原因被 poll 才通告得出去。故 poll 挂起时存 waker，`queue()` 时唤醒。
 
 **本机 `/p2p` 段要自己补**——swarm 不代劳。relay client 也是自己补的
 （`priv_client/handler.rs` 的 `.with(P2pCircuit).with(P2p(local_peer_id))`）；漏了地址仍能

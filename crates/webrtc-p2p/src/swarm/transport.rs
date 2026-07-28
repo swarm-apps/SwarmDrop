@@ -37,6 +37,12 @@ pub struct Transport {
     channel: TransportSide,
     listeners: Vec<Listener>,
     pending: VecDeque<TransportEvent<BoxFuture<'static, Result<Output, Error>>, Error>>,
+    /// 上一次 `poll` 挂起时留下的 waker。
+    ///
+    /// `listen_on` / `remove_listener` 是**外部同步调用**，它们往 `pending` 塞事件时
+    /// 没有任何东西会唤醒 poll——只有 `from_behaviour` 有消息才会。少了这个唤醒，
+    /// 新监听地址要等到下一次因别的原因被 poll 才通告得出去。
+    waker: Option<std::task::Waker>,
 }
 
 #[derive(Debug)]
@@ -52,6 +58,15 @@ impl Transport {
             channel,
             listeners: Vec::new(),
             pending: VecDeque::new(),
+            waker: None,
+        }
+    }
+
+    /// 事件入队并唤醒 poll。
+    fn queue(&mut self, event: TransportEvent<BoxFuture<'static, Result<Output, Error>>, Error>) {
+        self.pending.push_back(event);
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
         }
     }
 
@@ -86,7 +101,10 @@ impl CoreTransport for Transport {
             id,
             addr: addr.clone(),
         });
-        self.pending.push_back(TransportEvent::NewAddress {
+        // 留着这条：地址到底被哪个 transport 接走，只有它能证明（relay client 会
+        // 静默吞下带 `/webrtc` 的 circuit 地址，没有日志就完全看不出来）。
+        tracing::debug!(%addr, ?id, "accepted webrtc listen address");
+        self.queue(TransportEvent::NewAddress {
             listener_id: id,
             listen_addr: addr,
         });
@@ -98,7 +116,7 @@ impl CoreTransport for Transport {
             return false;
         };
         self.listeners.remove(idx);
-        self.pending.push_back(TransportEvent::ListenerClosed {
+        self.queue(TransportEvent::ListenerClosed {
             listener_id: id,
             reason: Ok(()),
         });
@@ -146,6 +164,7 @@ impl CoreTransport for Transport {
         if let Some(event) = this.pending.pop_front() {
             return Poll::Ready(event);
         }
+        this.waker = Some(cx.waker().clone());
 
         // behaviour 完成一次入站信令 → 交给 swarm 当作 Incoming。
         // 没有这条，本端就只能主动拨、不能被拨（spec 步骤 4 的 MUST）。

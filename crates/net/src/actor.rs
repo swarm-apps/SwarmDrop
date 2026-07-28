@@ -537,14 +537,20 @@ impl Actor {
         )
     }
 
-    /// reservation 生效后补一个 `<relay>/p2p-circuit/webrtc/p2p/<本机>` 监听（幂等）。
+    /// 与 circuit listener 同批挂一个 `<relay>/p2p-circuit/webrtc/p2p/<本机>` 监听（幂等）。
     ///
     /// 它让本机的可拨地址集里出现 `/webrtc` 变体——对端据此知道「这条路能打洞」，
     /// 拨过来时地址会被 webrtc-p2p transport 接走，走信令而非纯中转。
     ///
-    /// **生命周期严格绑定 reservation**：这条地址的可达性完全依赖 relay 上的
-    /// reservation（信令要经它转发），reservation 一没就必须撤（[`Self::remove_webrtc_listener`]），
-    /// 否则对外通告一条永远拨不通的死地址。
+    /// ⚠️ **只在 [`Self::request_relay_reservation`] 里调，不要挪到
+    /// `ReservationReqAccepted` 的处理路径上**——那条路径正是 libp2p relay client
+    /// 更新自己 `reservation_addresses` 表的时刻，在其中插入 `listen_on` 会扰动它的
+    /// 内部时序，把它的 `expect("Relay connection exist")` 打成 panic（浏览器实测
+    /// 2/2 复现，短路本函数后 0/2）。相应地，撤销也只在
+    /// [`Self::handle_remove_infra_peer`] 做，不跟随 `ListenerClosed`。
+    ///
+    /// 代价：reservation 掉线期间这条地址短暂不可达。可以接受——`request_relay_reservation`
+    /// 幂等重试会把 reservation 拉回来，而让地址跟着每次抖动增删反而会让对端地址簿失效。
     fn ensure_webrtc_listener(&mut self, relay: PeerId) {
         if self.config.webrtc_p2p.is_none() || self.webrtc_listeners.contains_key(&relay) {
             return;
@@ -612,6 +618,7 @@ impl Actor {
             // 覆盖写：identify 幂等重建路径要把 Failed 翻回 Connecting；
             // 此处必无活跃 listener（函数开头已 skip），不会覆盖 Active
             self.set_relay_connecting(peer_id);
+            self.ensure_webrtc_listener(peer_id);
         } else {
             // 全部候选地址 listen_on 都失败（逐条已 warn）
             self.set_relay_failed(peer_id, "circuit listen failed");
@@ -870,8 +877,10 @@ impl Actor {
                         Ok(()) => "reservation closed".to_string(),
                         Err(e) => e.to_string(),
                     };
-                    // reservation 没了，/webrtc 地址随之不可达——必须一起撤
-                    self.remove_webrtc_listener(relay_peer);
+                    // 这里**刻意不撤** /webrtc listener：撤销要调 remove_listener，而这条
+                    // 路径与 relay client 的内部状态机交错，实测会触发它的 panic
+                    // （见 ensure_webrtc_listener）。reservation 会被幂等重试拉回来，
+                    // 地址短暂不可达好过让对端地址簿反复失效。
                     self.set_relay_failed(relay_peer, last_error);
                     self.emit(NetEvent::RelayReservationLost {
                         relay: NodeId::from_peer_id(relay_peer),
@@ -1062,9 +1071,6 @@ impl Actor {
                 let circuit_addr = self.circuit_addr_for(relay_peer_id);
                 // renewal 时值相等 → set_relay_state 不发通知（周期性空通知消除）
                 self.set_relay_state(relay_peer_id, RelayState::Active { circuit_addr });
-                // 经这条 reservation 才可达，故等 accepted 再挂 /webrtc 监听（幂等，
-                // renewal 重入不会重复 listen）
-                self.ensure_webrtc_listener(relay_peer_id);
                 if !renewal {
                     info!(%relay_peer_id, "relay reservation accepted");
                 }
@@ -1212,6 +1218,14 @@ fn is_hole_punched(addr: &Addr) -> bool {
         .any(|p| p == libp2p::multiaddr::Protocol::WebRTC)
 }
 
+fn path_rank(path: PathKind) -> u8 {
+    match path {
+        PathKind::Local => 3,
+        PathKind::Direct => 2,
+        PathKind::Relayed => 1,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1254,13 +1268,5 @@ mod tests {
             classify_path(&addr("/ip4/47.115.172.218/udp/4003/webrtc-direct")),
             PathKind::Direct
         );
-    }
-}
-
-fn path_rank(path: PathKind) -> u8 {
-    match path {
-        PathKind::Local => 3,
-        PathKind::Direct => 2,
-        PathKind::Relayed => 1,
     }
 }
