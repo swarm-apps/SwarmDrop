@@ -488,17 +488,29 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 `RTCPeerConnectionState::Connected` 时写出去就消失了，全链路零报错，表现为「握手莫名挂住」。
 实测数据在 issue 正文里（三条消息只到一条）。修法是发首包前等 `OnOpen`。
 
-**issue 827 的两端绕法不同，别记混**：
+#### direct 的三个指纹从哪来——issue 827 只砸中其中一个
 
-| 端 | 指纹来源 | 位置 |
+Noise prologue 绑定**双方**指纹（`libp2p-webrtc-noise:<client><server>`，
+`libp2p-webrtc-utils/src/noise.rs`），两端算不出同一个 prologue 就握手失败。三个取值点：
+
+| 谁要谁的 | 来源 | 位置 |
 |---|---|---|
-| native | `get_stats` 的 certificate 统计项 | `native/direct/upgrade.rs` 的 `remote_fingerprint()` |
-| wasm | `localDescription` 的 `a=fingerprint:` | `wasm/direct.rs` |
+| 拨号端要**服务端**的 | multiaddr 的 certhash（参数传入） | 两端皆是，spec 设计 |
+| wasm 拨号端要**自己**的 | `localDescription` 的 `a=fingerprint:` | `wasm/direct.rs::local_fingerprint` |
+| **服务端要拨号端的** | `get_stats` 的 certificate 项 | `native/direct/upgrade.rs::remote_fingerprint` |
 
-⚠️ native 那条目前靠 **`cert.stats.id.starts_with("remote-certificate-")`** 认远端项。
-这个 id 前缀是 rtc 的实现细节，没有任何文档承诺它稳定——更稳的判据是先读 `Transport`
-统计项的 `remote_certificate_id`，再按 id 精确匹配 certificate 项（实测两者一致）。
-**升级 rtc rev 时这里要重测**：前缀一变，direct 拨号会在「拿不到对端证书指纹」上整片失败。
+前两行不是绕法：certhash 本来就该从地址来；浏览器不给你直接读自己的证书指纹，
+解析 `localDescription` 是唯一途径。**只有第三行是 issue 827 逼出来的**——
+服务端在 direct 模式下收不到真 offer（自己合成、填 `Fingerprint::FF`），
+拨号端的指纹只存在于 DTLS 握手里，官方 0.17 用的正是 `get_remote_certificate()`。
+
+⚠️ 那一处目前靠 **`cert.stats.id.starts_with("remote-certificate-")`** 认远端项。
+id 前缀是 rtc 的实现细节，无文档承诺稳定；更稳的判据是先读 `Transport` 统计项的
+`remote_certificate_id` 再按 id 精确匹配（实测两者一致）。
+
+**但风险是有兜底的**：`tests/direct_loopback.rs` 跑真握手且断言
+`accepted_peer == client_peer`——指纹取错 prologue 就对不上，Noise 直接失败。
+所以前缀若变，`cargo test` 当场红，不会静默漏到生产。
 
 ### webrtc 0.20 没有 UDPMux —— 改从 `Runtime::wrap_udp_socket` 注入
 
