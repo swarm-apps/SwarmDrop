@@ -10,11 +10,43 @@
 
 import { useEffect } from "react";
 import { startEventConsumption } from "../_lib/event-dispatch";
-import { spawnNode } from "../_lib/node-runtime";
+import { getNode, spawnNode } from "../_lib/node-runtime";
+import { WEB_RELAY_HELPERS } from "../_lib/relay-helpers";
 import { detectSecureContext } from "../_lib/secure-context";
 import { startStatePoll } from "../_lib/state-poll";
 import { webNodeActions } from "../_lib/store";
 import { toWebError } from "../_lib/view-types";
+
+/**
+ * 登记配置好的 relay helper——浏览器唯一的公网可达入口。
+ *
+ * **必须在启动时做，不能只留给「连接」区手点。** 浏览器不 listen 本地 socket：没有
+ * circuit 可达地址就既收不到对端拨回，也进不了 DHT（bootstrap 要先经 identify 被
+ * `InfraSupervisor` 认成基础设施节点，才会被 `add_infrastructure_peer` 接进 kad 路由表）。
+ *
+ * 少了这一步，每次刷新页面后节点都处于网络孤立状态：presence 宣告持续
+ * `QuorumFailed`，已配对设备恒显示「离线」——而这与「已配对设备刷新后仍在」的产品
+ * 承诺直接冲突（2026-07-28 实测）。
+ *
+ * `relays_ensure` 是**幂等的常驻意图**（拨号 / reservation / 断线重建都由 core 的
+ * `InfraSupervisor` 收敛），与「连接」区的手动登记互不冲突，用户仍可另加 helper 或撤销。
+ */
+function ensureConfiguredRelays(node: ReturnType<typeof getNode>) {
+  if (!node) return;
+  for (const addr of WEB_RELAY_HELPERS) {
+    try {
+      const helperId = node.relays_ensure(addr);
+      // 首次 active 时回填 circuit 地址给「连接」区展示。单个 helper 起不来不该挡住
+      // 其余功能（局域网直连、已有会话都不依赖它），故只记日志。
+      void node
+        .relays_until_active(helperId)
+        .then((circuit) => webNodeActions.setReservation(circuit))
+        .catch((e) => console.error("[web] relay helper 未能建立可达", addr, e));
+    } catch (e) {
+      console.error("[web] relay helper 登记失败", addr, e);
+    }
+  }
+}
 
 export function WebNodeBootstrap() {
   useEffect(() => {
@@ -39,6 +71,7 @@ export function WebNodeBootstrap() {
         }
         startEventConsumption(node); // 源一：transfer 事件流（单点消费）
         stopPoll = startStatePoll(node); // 源二：pairing 请求 + 已配对设备轮询
+        ensureConfiguredRelays(node); // 公网可达 + DHT 接线，见函数注释
       })
       .catch((e) => {
         if (cancelled) return;
