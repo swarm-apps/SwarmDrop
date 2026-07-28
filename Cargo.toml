@@ -144,19 +144,36 @@ strip = "symbols"
 #
 # 修复已提上游：https://github.com/webrtc-rs/rtc/pull/137（5 行接线 + 正反两向集成测试）
 #
+# ## 第二个补丁：send 谎报成功（PR 138）
+#
+# `RTCDataChannel::send` 只检查通道**已注册**，而真正决定能否发出去的条件（SCTP stream
+# 是否已建立）在 `DataChannelHandler::handle_write` 里才查——那层跑在 pipeline 的 write
+# pass 上，错误只 `warn!` 不上抛。于是调用方拿到 `Ok(())`，数据被丢掉。通道**关闭后**
+# 同样如此，且被拒的 send 还会错误累加 `outstanding_bytes`（那些字节没进过 SCTP，
+# 永远不会被释放 = 发送窗口被永久缩小）。
+#
+# 这是本仓 direct 链路上最贵的一个坑：Noise 首包在 `Connected` 时写出去就消失，
+# 全链路零报错，只表现为「握手莫名挂住」。修复把判据搬到 send 边界，用与 handler
+# 完全相同的条件。→ https://github.com/webrtc-rs/rtc/pull/138
+#
+# ⚠️ **`data_channel::await_open` 不能因此删掉**：这个补丁改的是失败方式（静默丢 →
+# 明确报错），不是「不用等」。它的价值是把那类挂住变成当场报错。
+#
 # ## 退出条件（可判定）
 #
-# PR 合并且发布含该修复的版本后，删掉本段即可：
+# 两个 PR 都合并、且发布含它们的版本后，删掉本段即可：
 #
 #   gh pr view 137 --repo webrtc-rs/rtc --json state --jq .state    # 期望 MERGED
+#   gh pr view 138 --repo webrtc-rs/rtc --json state --jq .state    # 期望 MERGED
 #   cargo search rtc --limit 1                                       # 期望 > 0.20.0-rc.4
 #
-# 合并但未发版的过渡期，可把 rev 换成上游 master 上含该 PR 的 commit，仍保留本段但把
+# 合并但未发版的过渡期，可把 rev 换成上游 master 上含这两个 PR 的 commit，仍保留本段但把
 # URL 换回 `webrtc-rs/rtc`——那一步已经不再是「自有补丁」，只是等发版。
 #
 # ⚠️ 与 libp2p 的 fork pin 一样，**升级 rev 必须走独立 PR + 全量测试**，并同步 Cargo.lock。
 [patch.crates-io]
-rtc = { git = "https://github.com/yexiyue/rtc", rev = "144f5afd41bf4c38a8cfdf90dfbbb6f8467e7410" }
+# 集成分支 = upstream/master + PR 137 + PR 138（各自独立分支，互不依赖）。
+rtc = { git = "https://github.com/yexiyue/rtc", rev = "5a8b4b9b7853fa0e90b09c5ba26db564626f43f5" }
 # webrtc 0.20 的两个缺口，都已提上游且各自带测试：
 #
 # 1. `on_data_channel` 把本端 `create_data_channel` 开的通道也回报一遍，且回报的句柄是死的
