@@ -33,8 +33,15 @@
 
 ## Phase 4 — 双路径实拨 + wasm 兜底
 
-- [ ] 浏览器 ↔ helper：web 经 webrtc-direct 连自托管 helper，跨网可达
-- [ ] 浏览器 ↔ 桌面端点：桌面 invite 携带自己的 webrtc-direct 地址，浏览器端到端直连
+- [x] 浏览器 ↔ helper：web 经 webrtc-direct 连自托管 helper，跨网可达
+      —— 2026-07-28 实拨：`浏览器出站连接就绪 remote=47.115.172.218:4003 peer=12D3KooWCkaj…`，
+      并在其上拿到 circuit reservation
+- [x] 浏览器 ↔ 桌面端点：桌面 invite 携带自己的 webrtc-direct 地址，浏览器端到端直连
+      —— 2026-07-28 实拨全链路：桌面 `generate_pair_invite` → 浏览器消费 →
+      `浏览器出站连接就绪 remote=127.0.0.1:56442 peer=12D3KooWRkj1…`（桌面 peer id 对上）→
+      `/swarmdrop/pairing/2` 配对成功 → 桌面发 256 KB → 浏览器 OPFS 落盘，
+      SHA-256 与源文件逐字节一致；桌面侧日志 `already has a non-relayed path` 确认非中继。
+      ⚠️ 两端同机，命中的是 127.0.0.1 那条 hint——**跨机 LAN 仍未单独验**
 - [ ] wasm 受邀端重解析兜底：hint 失效 → 按 NodeId 拿当前 webrtc-direct 地址（浏览器查 DHT 或经 helper 代解析）——D6 未验路径，专门验
 - [ ] helper certhash 降级路径预留：客户端认 helper NodeId+IP，certhash 运行时经 identify/DHT 动态取（避免换证=全客户端发版）
 
