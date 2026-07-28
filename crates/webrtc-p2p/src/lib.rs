@@ -1,32 +1,39 @@
-//! libp2p WebRTC 打洞传输。
+//! libp2p WebRTC 传输，两种模式。
 //!
-//! 让两个都无法 listen 的节点（浏览器、NAT 后的原生端）经 relay 交换信令、打洞建立直连。
-//! 实现 libp2p spec [`webrtc/webrtc.md`] 的 `/webrtc-signaling/0.0.1`（spec 里称这个场景为
-//! private-to-private，对应 js-libp2p 的 `webRTC()`）。
+//! | 模式 | 地址 | 场景 |
+//! |---|---|---|
+//! | **打洞** | `<relayed-multiaddr>/webrtc/p2p/…` | 双方**都**不可 listen（浏览器 / NAT 后） |
+//! | **direct** | `/ip4/…/udp/…/webrtc-direct/certhash/…` | 一端有可达地址（公网 / 同网段） |
+//!
+//! 打洞实现 libp2p spec [`webrtc/webrtc.md`] 的 `/webrtc-signaling/0.0.1`（spec 里称
+//! private-to-private，对应 js-libp2p 的 `webRTC()`）；direct 实现
+//! [`webrtc/webrtc-direct.md`]，是官方 `libp2p-webrtc` / `libp2p-webrtc-websys` 的
+//! **完整替代品**——两者都基于 webrtc-rs 但版本不同（0.20 vs 0.17），并存等于把整套
+//! ICE/DTLS/SCTP 编译两遍。
 //!
 //! [`webrtc/webrtc.md`]: https://github.com/libp2p/specs/blob/master/webrtc/webrtc.md
+//! [`webrtc/webrtc-direct.md`]: https://github.com/libp2p/specs/blob/master/webrtc/webrtc-direct.md
 //!
-//! # 与官方 `libp2p-webrtc` 的关系
+//! # 两种模式的分水岭：证书指纹经什么信道来
 //!
-//! 是**两个不同的传输**，可共存：
-//!
-//! | | 官方 `libp2p-webrtc`（webrtc-direct） | 本 crate |
+//! | | 打洞 | direct |
 //! |---|---|---|
-//! | 场景 | browser → **有公网可达地址**的 server | 双方**都**不可达（浏览器 / NAT 后） |
-//! | ICE | ICE-lite，服务端只被动应答 | 完整 ICE，双向收集候选 + 打洞 |
-//! | 信令 | 无——SDP 由 multiaddr 确定性构造 | `/webrtc-signaling/0.0.1`，经 relay |
-//! | 地址 | `/ip4/…/udp/…/webrtc-direct/certhash/…` | `<relayed-multiaddr>/webrtc/p2p/…` |
-//! | 证书指纹信任 | **不信任**（可经非认证信道传播） | **信任**（经已认证的 relay 连接交换） |
+//! | 指纹信道 | **已认证的** relay 连接 | multiaddr——**不可信** |
+//! | 身份认证 | DTLS 指纹绑定即可 | **必须再跑一次 Noise** |
+//! | ICE | 完整，双向收候选 | 服务端 ICE-lite，只被动应答 |
+//! | 信令 | `/webrtc-signaling/0.0.1` | 无——SDP 由 multiaddr 确定性构造 |
 //!
-//! # 为什么不需要额外的 Noise 握手
+//! 打洞不需要额外握手：SDP 里含 DTLS 证书指纹，而 SDP 经已认证的 relay 连接传输，
+//! DTLS 握手会验证它，身份因此被绑定（spec FAQ 第一条）。
 //!
-//! SDP 里含 DTLS 证书指纹，而 SDP 经**已认证的** relay 连接传输；DTLS 握手会验证该指纹。
-//! 身份因此被绑定，无需在 DataChannel 之上再叠一层握手（spec FAQ 第一条）。
-//!
-//! ⚠️ 这条把「relay 连接必须是认证的」变成**安全前提**而非实现细节。libp2p 的 relay
+//! ⚠️ 这把「relay 连接必须是认证的」变成**安全前提**而非实现细节。libp2p 的 relay
 //! 连接本身经 Noise/TLS 认证，天然满足；但若将来允许经未认证信道传信令，整个模型会塌。
 //!
-//! # 对称性：spec 的 MUST，不是可选优化
+//! direct 的 certhash 则可能经任何信道传播（贴在网页上、印在二维码里），所以那条路径
+//! 上的 Noise 握手是**不能省的**——DTLS 只证明「对面持有这张证书」，证明不了「这张
+//! 证书属于那个 PeerId」。
+//!
+//! # 对称性：spec 的 MUST，不是可选优化（打洞模式）
 //!
 //! spec 步骤 4 原文：*"A MUST as well be able to handle an incoming signaling protocol
 //! stream to support the case where B initiates the signaling process."*
@@ -41,12 +48,15 @@
 //!
 //! | 层 | 职责 | 依赖 libp2p-swarm |
 //! |---|---|---|
-//! | [`protocol`] | 线上格式：消息编解码、framed codec、`/webrtc` 地址约定 | 否 |
+//! | [`protocol`] | 线上格式：消息编解码、framed codec、两种模式的地址约定 | 否 |
 //! | [`backend`] | WebRTC 栈抽象；native / wasm 各自特化 | 否 |
 //! | [`swarm`] | 接到 `Transport` / `NetworkBehaviour` 两个平面 | 是 |
 //!
 //! 三层里唯一与具体 WebRTC 实现绑定的只有 [`backend`]；状态机
 //! （[`swarm::session`]）与协议层都是纯逻辑，可脱离真实 WebRTC 与真实 `Stream` 测试。
+//!
+//! direct 模式没有信令，因而不涉及 `session` / `Behaviour`——它在 [`backend`] 里闭环，
+//! 由 [`Transport`] 按地址段分派过去。
 
 pub mod backend;
 mod config;
@@ -54,8 +64,15 @@ pub mod error;
 pub mod protocol;
 pub mod swarm;
 
+/// direct 模式的 DTLS 证书（native）。
+///
+/// 宿主用它生成并持久化证书：`Certificate::generate()?.serialize_pem()` 存盘，
+/// 下次启动 `DirectConfig::with_certificate_pem(pem)` 加载回来。**必须持久化**，
+/// 否则通告地址里的 certhash 每次重启都变。
+#[cfg(not(target_family = "wasm"))]
+pub use backend::native::direct::Certificate;
 pub use backend::{Backend, BackendError, BackendEvent, Factory};
-pub use config::Config;
+pub use config::{Config, DirectConfig};
 pub use error::Error;
 pub use protocol::{Message, MessageType, SIGNALING_PROTOCOL};
 pub use swarm::{Behaviour, Connection, Event, Transport};

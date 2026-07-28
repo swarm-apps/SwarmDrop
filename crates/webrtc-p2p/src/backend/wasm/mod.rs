@@ -38,6 +38,7 @@ use crate::config::Config;
 use crate::protocol::MessageType;
 
 mod data_channel;
+pub(crate) mod direct;
 mod muxer;
 
 /// 排队中的操作。

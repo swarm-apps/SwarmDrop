@@ -39,6 +39,22 @@ unsigned-varint = { workspace = true }
 # 下会在 workspace unification 时互相污染。
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 webrtc = "0.20.0-rc.4"
+# 只为**打开 pem feature**：`RTCCertificate::{from_pem, serialize_pem}` 挂在它下面，
+# 而 rtc 的默认 feature 不含 pem、`webrtc` 也没有透传它。direct 模式要把证书持久化
+# （certhash 写在 multiaddr 里，换一次证书存量地址就全失效），少了它做不到。
+# 另外 direct 模式还要几个 `webrtc` 没有 re-export 的类型（`RTCDataChannelInit`、
+# `RTCDtlsRole`、stats、以及 STUN 解析与 `NetworkType`），也从这里取——rtc 自己
+# re-export 了全套子 crate（`rtc::ice` / `rtc::stun` / …）。
+#
+# **不要改成直接依赖 `rtc-ice` / `rtc-stun`。** rtc 一旦被 `[patch]` 换成 git 源，
+# 直接依赖仍从 crates.io 解析，同名类型会分叉成两个，报「expected rtc::rtc_ice::X,
+# found rtc_ice::X」这种极绕的错。经 `rtc::` 转一手就天然同源。
+rtc = { version = "0.20.0-rc.4", features = ["pem"] }
+# `RTCCertificate::from_key_pair` 收的是 `rcgen::KeyPair`，而 rtc 不 re-export rcgen，
+# 只能直接依赖。**版本必须与 rtc 同线**（当前 0.14），否则是两个不同的 `KeyPair` 类型。
+# `default-features = false`：加密后端（ring / aws-lc-rs）由 rtc 的 feature 决定，
+# 这里跟着走，别自己指定。
+rcgen = { version = "0.14", default-features = false }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
 # 枚举本机网卡地址。绑 `0.0.0.0` 时 webrtc-rs **不会展开网卡**，会把字面量 0.0.0.0
@@ -81,3 +97,5 @@ web-sys = { version = "0.3", features = [
 # native 后端要求宿主处于 async 运行时中（webrtc-rs 的 default_runtime 靠它探测）。
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 libp2p-core = { workspace = true }
+# 排 direct 建连要同时看到我们自己的 tracing 与 webrtc-rs 的 `log`，故带 tracing-log 桥。
+tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }

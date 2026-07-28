@@ -26,6 +26,11 @@ use crate::error::Error;
 /// 永远没有数据的流，libp2p 的协议协商会卡在那儿。
 pub(crate) const INIT_CHANNEL_LABEL: &str = "init";
 
+/// direct 模式 Noise 握手所用通道的 SCTP stream id（`negotiated` + id 0）。
+///
+/// 与 native 侧同名常量含义一致，见那边的说明。
+pub(crate) const NOISE_CHANNEL_ID: u16 = 0;
+
 /// libp2p 子流。
 ///
 /// `libp2p_webrtc_utils::Stream<PollDataChannel>` 内部持有 JS 对象（经 `Rc`），不是
@@ -33,6 +38,25 @@ pub(crate) const INIT_CHANNEL_LABEL: &str = "init";
 /// 一样用 `SendWrapper` 包一层并转发读写——wasm 单线程，跨线程访问会 panic，因而安全。
 pub(crate) struct Substream {
     inner: SendWrapper<libp2p_webrtc_utils::Stream<PollDataChannel>>,
+}
+
+impl Substream {
+    /// 把一条 DataChannel 直接包成子流，不登记 drop 通知。
+    ///
+    /// 只给 direct 模式的 Noise 握手通道用：握手期间没有「子流被取消」这回事，
+    /// 握手完成后那条通道也不再使用。业务子流一律走 [`Inner::wrap`]，它会登记
+    /// drop 通知——少了那个，子流被 drop 时底层通道不会关闭。
+    pub(crate) fn without_drop_listener(
+        dc: RtcDataChannel,
+        config: libp2p_webrtc_utils::StreamConfig,
+    ) -> Self {
+        let (stream, drop_listener) =
+            libp2p_webrtc_utils::Stream::with_config(PollDataChannel::new(dc), config);
+        drop(drop_listener);
+        Self {
+            inner: SendWrapper::new(stream),
+        }
+    }
 }
 
 impl AsyncRead for Substream {
@@ -72,23 +96,54 @@ struct Inner {
     pc: RtcPeerConnection,
     incoming: mpsc::UnboundedReceiver<RtcDataChannel>,
     next_outbound_id: u64,
+    /// 子流的消息尺寸策略。direct 模式沿用 Noise 协商出的值，打洞模式用默认值。
+    stream_config: libp2p_webrtc_utils::StreamConfig,
     /// 子流的 drop 通知。必须持续驱动，否则子流被 drop 时底层通道不会关闭，
     /// 连接上会积累永不释放的 DataChannel。
     drop_listeners:
         FuturesUnordered<SendWrapper<libp2p_webrtc_utils::DropListener<PollDataChannel>>>,
+    /// 建连期间注册的 JS 回调闭包。
+    ///
+    /// **必须由连接持有到最后。** `Closure` 一被 drop，JS 侧那个回调就静默失效——
+    /// direct 的建连流程在函数局部量里注册 `ondatachannel`，若不移交给这里，
+    /// `outbound()` 一返回回调就没了，`incoming` 从此永远收不到对端开的子流：
+    /// 连接看着是好的，只是再也开不出入站流来。
+    _callbacks: Vec<Box<dyn std::any::Any>>,
 }
 
 impl Muxer {
+    /// 打洞模式用：消息尺寸取默认值（那条路径没有 Noise 握手，也就没有可协商的上限）。
     pub(crate) fn new(
         pc: RtcPeerConnection,
         incoming: mpsc::UnboundedReceiver<RtcDataChannel>,
+    ) -> Self {
+        // 打洞路径的回调由 `WasmBackend` 自己续命，这里不接管。
+        Self::with_config(
+            pc,
+            incoming,
+            libp2p_webrtc_utils::StreamConfig::default(),
+            Vec::new(),
+        )
+    }
+
+    /// direct 模式用：沿用 Noise 握手**协商出来**的消息尺寸上限。
+    ///
+    /// 两端必须一致，否则合法的大消息会被一侧判成协议违规而重置子流。
+    /// `callbacks` 是建连期间注册的 JS 闭包，交给连接续命（见 [`Inner::_callbacks`]）。
+    pub(crate) fn with_config(
+        pc: RtcPeerConnection,
+        incoming: mpsc::UnboundedReceiver<RtcDataChannel>,
+        stream_config: libp2p_webrtc_utils::StreamConfig,
+        callbacks: Vec<Box<dyn std::any::Any>>,
     ) -> Self {
         Self {
             inner: SendWrapper::new(Inner {
                 pc,
                 incoming,
                 next_outbound_id: 0,
+                stream_config,
                 drop_listeners: FuturesUnordered::new(),
+                _callbacks: callbacks,
             }),
         }
     }
@@ -96,7 +151,8 @@ impl Muxer {
 
 impl Inner {
     fn wrap(&mut self, dc: RtcDataChannel) -> Substream {
-        let (stream, drop_listener) = libp2p_webrtc_utils::Stream::new(PollDataChannel::new(dc));
+        let (stream, drop_listener) =
+            libp2p_webrtc_utils::Stream::with_config(PollDataChannel::new(dc), self.stream_config);
         self.drop_listeners.push(SendWrapper::new(drop_listener));
         Substream {
             inner: SendWrapper::new(stream),
@@ -119,6 +175,13 @@ impl StreamMuxer for Muxer {
             };
             // init 通道不是数据流，跳过（见 INIT_CHANNEL_LABEL 的说明）。
             if dc.label() == INIT_CHANNEL_LABEL {
+                continue;
+            }
+            // Noise 握手通道同理（direct 模式）：它由两端各自以 negotiated=true/id=0
+            // 建出，按 W3C 规范不该经 `ondatachannel` 上报，但别把这当成保证——
+            // native 侧的 rtc 0.20 就照报不误。显式跳过，代价只是一次比较。
+            if dc.id() == Some(NOISE_CHANNEL_ID) {
+                tracing::debug!("跳过 Noise 握手通道（stream id 0），它不是业务子流");
                 continue;
             }
             return Poll::Ready(Ok(inner.wrap(dc)));

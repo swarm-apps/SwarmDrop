@@ -24,6 +24,7 @@ pub struct Config {
     stun_servers: Vec<String>,
     signaling_timeout: Duration,
     udp_bind_addrs: Vec<SocketAddr>,
+    direct: Option<DirectConfig>,
 }
 
 impl Default for Config {
@@ -32,6 +33,68 @@ impl Default for Config {
             stun_servers: DEFAULT_STUN_SERVERS.iter().map(|s| s.to_string()).collect(),
             signaling_timeout: DEFAULT_SIGNALING_TIMEOUT,
             udp_bind_addrs: Vec::new(),
+            direct: None,
+        }
+    }
+}
+
+/// direct 模式（`/webrtc-direct`）的配置。
+///
+/// 不配它，本传输只处理打洞地址；配了才会接管 `/webrtc-direct`。两种模式共用一个
+/// [`Transport`](crate::Transport)，按地址段分派。
+#[derive(Debug, Clone)]
+pub struct DirectConfig {
+    id_keys: libp2p_identity::Keypair,
+    certificate_pem: Option<String>,
+    max_message_size: Option<std::num::NonZeroUsize>,
+}
+
+impl DirectConfig {
+    /// direct 模式必须知道本机身份——它要在 DataChannel 之上再跑一次 Noise 握手。
+    ///
+    /// 打洞模式不需要，因为那边的证书指纹经**已认证**的 relay 连接交换；direct 的
+    /// certhash 写在 multiaddr 里，可能经任何不可信信道传播（spec FAQ 第一条）。
+    pub fn new(id_keys: libp2p_identity::Keypair) -> Self {
+        Self {
+            id_keys,
+            certificate_pem: None,
+            max_message_size: None,
+        }
+    }
+
+    /// 指定持久化的 DTLS 证书（PEM，含私钥）。
+    ///
+    /// **强烈建议配置。** 通告地址里的 certhash 由这张证书决定，不配就等于每次启动
+    /// 换一个地址，对端记下的旧地址全部拨不通。宿主应把它存起来跨重启复用——
+    /// 首次可用 `Certificate::generate().serialize_pem()` 生成（native）。
+    pub fn with_certificate_pem(mut self, pem: impl Into<String>) -> Self {
+        self.certificate_pem = Some(pem.into());
+        self
+    }
+
+    /// 声明本端单条编码 DataChannel 消息的上限。
+    ///
+    /// Noise 握手后两端**自动协商取较小值**，所以这只是「本端愿意收多大」。留空则用
+    /// `libp2p-webrtc-utils` 的默认值。
+    ///
+    /// 多端部署时应当各端声明同一个值——浏览器的安全上限最紧，让它决定全局。
+    pub fn with_max_message_size(mut self, size: std::num::NonZeroUsize) -> Self {
+        self.max_message_size = Some(size);
+        self
+    }
+
+    pub fn id_keys(&self) -> &libp2p_identity::Keypair {
+        &self.id_keys
+    }
+
+    pub fn certificate_pem(&self) -> Option<&str> {
+        self.certificate_pem.as_deref()
+    }
+
+    pub(crate) fn stream_config(&self) -> libp2p_webrtc_utils::StreamConfig {
+        match self.max_message_size {
+            Some(size) => libp2p_webrtc_utils::StreamConfig::new(size),
+            None => libp2p_webrtc_utils::StreamConfig::default(),
         }
     }
 }
@@ -76,6 +139,19 @@ impl Config {
 
     pub fn udp_bind_addrs(&self) -> &[SocketAddr] {
         &self.udp_bind_addrs
+    }
+
+    /// 启用 direct 模式（`/webrtc-direct`）。
+    ///
+    /// 不调用它，`/webrtc-direct` 地址会被本传输拒绝（留给官方 `libp2p-webrtc` 或
+    /// 其他实现处理）。
+    pub fn with_direct(mut self, direct: DirectConfig) -> Self {
+        self.direct = Some(direct);
+        self
+    }
+
+    pub fn direct(&self) -> Option<&DirectConfig> {
+        self.direct.as_ref()
     }
 }
 

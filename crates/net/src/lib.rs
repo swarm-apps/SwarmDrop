@@ -65,7 +65,7 @@ pub use watch::Watcher;
 /// 调用方必须把完整 PEM 放入安全存储后在每次启动时复用，不能仅保存密钥再重建。
 #[cfg(not(wasm_browser))]
 pub fn generate_webrtc_certificate_pem() -> Result<String, String> {
-    libp2p_webrtc::tokio::Certificate::generate(&mut rand::thread_rng())
+    webrtc_p2p::Certificate::generate()
         .map_err(|error| error.to_string())
         .map(|certificate| certificate.serialize_pem())
 }
@@ -80,14 +80,13 @@ pub fn webrtc_direct_addr_from_pem(
     port: u16,
     pem: &str,
 ) -> Result<Addr, String> {
-    use libp2p::multiaddr::Protocol;
-
-    let certificate =
-        libp2p_webrtc::tokio::Certificate::from_pem(pem).map_err(|error| error.to_string())?;
-    let address = libp2p::Multiaddr::empty()
-        .with(ip.into())
-        .with(Protocol::Udp(port))
-        .with(Protocol::WebRTCDirect)
-        .with(Protocol::Certhash(certificate.fingerprint().to_multihash()));
+    let certificate = webrtc_p2p::Certificate::from_pem(pem).map_err(|error| error.to_string())?;
+    // 走 webrtc-p2p 的编码器，别在这儿手拼——那边有 `direct_addr_roundtrips` 钉死
+    // 「与官方编码逐字一致」。多一条独立路径就多一处会悄悄漂移的 certhash，
+    // 而漂移的症状是存量分享地址集体拨不通。
+    let address = webrtc_p2p::protocol::addr::direct_addr(
+        std::net::SocketAddr::new(ip, port),
+        Some(certificate.fingerprint()),
+    );
     Ok(Addr::from_multiaddr(address))
 }

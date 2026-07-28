@@ -133,7 +133,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 |---|---|
 | `crates/net-base` | 网络类型底座。`NodeId` / `Addr` / `NodeAddr` / `ProtocolId` / `NatStatus` —— libp2p 类型在此收口成 newtype，**不向上穿透** |
 | `crates/net` | 网络内核 `swarmdrop-net`。iroh 风格 `Endpoint` 门面 + 后台 actor，隐藏事件循环、连接管理、协议路由、地址选择 |
-| `crates/webrtc-p2p` | libp2p WebRTC **打洞**传输（spec `/webrtc-signaling/0.0.1`）。已接进 `crates/net`，**三端默认开启**——打洞要两端都支持，只开一边等于没开。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
+| `crates/webrtc-p2p` | libp2p WebRTC 传输，**两种模式**：打洞（`/webrtc`，spec `/webrtc-signaling/0.0.1`，三端默认开启——打洞要两端都支持，只开一边等于没开）+ direct（`/webrtc-direct`，**已完全取代官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys`**，native 监听 + 拨号、浏览器拨号均已实测跑通）。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
 | `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖 |
 | `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码。**wasm-clean，不依赖 core** |
 | `crates/transfer` | 文件传输域。经端口 trait 依赖倒置，**不依赖 sea-orm / pairing / network** |
@@ -335,13 +335,23 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 
 - **Rust library naming:** lib 名为 `swarmdrop_lib`（非 `swarmdrop`），避开 Windows 上 cargo
   的 lib/bin 命名冲突。
-- **libp2p 依赖 pin 在个人 fork。** 根 `Cargo.toml` 的 libp2p / libp2p-stream / libp2p-webrtc
-  三者同 pin `github.com/yexiyue/rust-libp2p` 的一个 rev——crates.io 的 webrtc-direct 实证
-  跑不通，且 Web 端还需两个待合并的上游 PR（#6558、#6560）。**这是本项目最大的单点依赖风险。**
-  退出条件已写死并可判定（两个 PR 均 MERGED → 切官方 git；crates.io 发布 0.57 → 切版本号依赖），
-  判据与验证命令见 `Cargo.toml` 该处注释与
-  [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork 集成策略」。
-  **升级 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
+- **两处依赖 pin 在个人 fork（本项目最大的单点依赖风险）。** 两处的退出条件都写死在
+  `Cargo.toml` 对应注释里，且都可判定：
+  1. **libp2p**（`libp2p` / `libp2p-stream` / `libp2p-core` / `libp2p-swarm` /
+     `libp2p-webrtc-utils` 同 pin `github.com/yexiyue/rust-libp2p` 一个 rev）——三个待合并的
+     上游 PR：Web 端要的 #6558 / #6560，以及 **#6570（relay 崩溃，2026-07-28 线上实证）**。
+     退出：三个 PR 均 MERGED → 切官方 git；crates.io 发布 0.57 → 切版本号依赖。详见
+     [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork 集成策略」。
+  2. **rtc**（`[patch.crates-io]` → `github.com/yexiyue/rtc`）——rtc 0.20 的
+     `disable_certificate_fingerprint_verification` 是**死代码**（有 setter 无读取），
+     webrtc-direct 的服务端因此建不起来。修复已提
+     <https://github.com/webrtc-rs/rtc/pull/137>；退出：PR 合并且发版。
+  **升级任一 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
+- **官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys` 已于 2026-07-28 移除。** webrtc-direct
+  改由自研的 `crates/webrtc-p2p` 提供，native 依赖树里的 webrtc-rs 从两套（0.17 + 0.20）
+  并成一套。浏览器侧手动验证用 `cargo run -p webrtc-p2p --example direct_listener`。
+  跨实现的证书兼容由 `certificate.rs` 的 `reads_official_pem_with_identical_certhash`
+  钉死——**那条测试红了就说明存量地址会全部拨不通**。
 - **Dev profile optimization:** 所有依赖在 dev 下也用 `opt-level = 3`（加密依赖否则慢 10–100 倍）。
   移动端 release 用单独的 `[profile.mobile-release]`（包体优先）——注意 **Cargo 会静默忽略
   member 自己的 profile**，只有 workspace root 的算数。

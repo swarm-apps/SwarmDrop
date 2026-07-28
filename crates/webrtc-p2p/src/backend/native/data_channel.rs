@@ -29,6 +29,7 @@ use std::task::{Context, Poll, ready};
 use bytes::BytesMut;
 use futures::future::BoxFuture;
 use futures::{AsyncRead, AsyncWrite, FutureExt};
+use rtc::data_channel::RTCDataChannelState;
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 
 /// 把消息式 `DataChannel` 包装成字节流。
@@ -106,8 +107,10 @@ impl AsyncRead for PollDataChannel {
             match ready!(fut.poll_unpin(cx)) {
                 Some(DataChannelEvent::OnMessage(msg)) => {
                     shared.reading = None;
-                    let data = msg.data.clone();
-                    shared.read_buf.extend_from_slice(&data);
+                    // **接管所有权，别 clone**：`BytesMut` 的 `Clone` 是深拷贝（不是
+                    // 引用计数），而走到这里 `read_buf` 必然为空——循环顶部已经把
+                    // 非空的情况提前返回了。这是唯一的逐字节路径，白烧两次整包 memcpy。
+                    shared.read_buf = msg.data;
                 }
                 Some(DataChannelEvent::OnClose) | None => {
                     shared.reading = None;
@@ -160,4 +163,33 @@ impl AsyncWrite for PollDataChannel {
 
 fn to_io(e: webrtc::error::Error) -> io::Error {
     io::Error::other(e.to_string())
+}
+
+/// 等一条 DataChannel 真正进入 `Open`。
+///
+/// **必须在写第一个字节之前等。** `PeerConnection` 的 `connected` 只表示 DTLS 握手
+/// 完成，而 DataChannel 要等 SCTP 关联建立才可用——实测两者差约 2 ms，期间
+/// `dc.send()` 会**成功返回但把数据丢掉**（0.20 不为未 open 的通道排队）。
+///
+/// 症状极隐蔽：第一条消息静默消失，两端各自等对方，直到超时。这与 wasm 侧那条
+/// 「`Connecting` 不是错误」是同一个时序问题的两面。
+pub(crate) async fn await_open(dc: &Arc<dyn DataChannel>) -> Result<(), io::Error> {
+    // 已经开了就别去 poll——那会白白吃掉一个事件。
+    if matches!(dc.ready_state().await, Ok(RTCDataChannelState::Open)) {
+        return Ok(());
+    }
+
+    loop {
+        match dc.poll().await {
+            Some(DataChannelEvent::OnOpen) => return Ok(()),
+            Some(DataChannelEvent::OnClose) | None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "DataChannel 在打开前就关闭了",
+                ));
+            }
+            // OnError 未必致命（通道可能仍可用），继续等 OnOpen 或 OnClose。
+            Some(_) => continue,
+        }
+    }
 }

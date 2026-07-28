@@ -18,6 +18,7 @@
 pub mod behaviour;
 pub(crate) mod channel;
 pub mod connection;
+pub(crate) mod direct;
 pub mod handler;
 pub mod session;
 pub mod transport;

@@ -3,6 +3,7 @@
 //! 每条 libp2p 子流对应一条 DataChannel，字节流由 [`PollDataChannel`] 适配、framing 由
 //! `libp2p_webrtc_utils::Stream` 承担。
 
+use std::collections::HashSet;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, ready};
@@ -14,6 +15,8 @@ use futures::{FutureExt, StreamExt};
 use libp2p_core::muxing::{StreamMuxer, StreamMuxerEvent};
 use webrtc::data_channel::DataChannel;
 use webrtc::peer_connection::PeerConnection;
+
+use rtc::data_channel::RTCDataChannelId;
 
 use super::data_channel::PollDataChannel;
 use crate::error::Error;
@@ -30,8 +33,23 @@ pub(crate) const INIT_CHANNEL_LABEL: &str = "init";
 /// 一条 WebRTC 连接的数据面。
 pub(crate) struct Muxer {
     pc: Arc<dyn PeerConnection>,
-    /// 对端开来的 DataChannel（由后端的事件回调投递）。
+    /// `on_data_channel` 投递来的通道。
+    ///
+    /// ⚠️ 名字里的「入站」在 webrtc 0.20 上**不成立**：它的 driver 对**每一个**
+    /// `OnOpen` 都调 `handler.on_data_channel`，不区分通道是本端建的还是对端建的
+    /// （`peer_connection/driver.rs` 的 `RTCDataChannelEvent::OnOpen` 分支）。
+    /// 所以自己开的流也会从这里回灌回来——过滤见 [`Muxer::local_channels`]。
     incoming: mpsc::UnboundedReceiver<Arc<dyn DataChannel>>,
+    /// 本端开出去的通道 id。
+    ///
+    /// 少了这道过滤，`poll_inbound` 会把自己刚开的**出站**流当成入站流交给上层：
+    /// 上层于是在一条对端根本不知情的流上等协议协商，而真正的入站流被这条假流挤在
+    /// 后面。direct 的 Noise 通道（`negotiated` id 0）同理——它握手完就关了，
+    /// 交出去的症状是「连接建好了，第一条子流一读就 `UnexpectedEof`」。
+    ///
+    /// 按 id 而不是按 label 过滤：`poll_outbound` 的 label 是本端自己编的，
+    /// 对端完全可以用同名 label 开流。
+    local_channels: HashSet<RTCDataChannelId>,
     /// 正在创建的出站 DataChannel。
     creating: Option<BoxFuture<'static, Result<Arc<dyn DataChannel>, Error>>>,
     /// 正在取 label 的入站 DataChannel。
@@ -47,12 +65,37 @@ pub(crate) struct Muxer {
     /// 子流的 drop 通知。必须持续驱动，否则子流被 drop 时底层通道不会关闭，
     /// 连接上会积累永不释放的 DataChannel。
     drop_listeners: FuturesUnordered<libp2p_webrtc_utils::DropListener<PollDataChannel>>,
+    /// 子流的消息尺寸策略。
+    stream_config: libp2p_webrtc_utils::StreamConfig,
 }
 
 impl Muxer {
+    /// 打洞模式用：消息尺寸取默认值。
+    ///
+    /// 那条路径没有 Noise 握手，也就没有可协商的上限。
     pub(crate) fn new(
         pc: Arc<dyn PeerConnection>,
         incoming: mpsc::UnboundedReceiver<Arc<dyn DataChannel>>,
+    ) -> Self {
+        // 打洞路径的 init 通道靠 label 过滤（它的 id 是自动分配的，事先不知道）。
+        Self::with_config(
+            pc,
+            incoming,
+            libp2p_webrtc_utils::StreamConfig::default(),
+            HashSet::new(),
+        )
+    }
+
+    /// direct 模式用：沿用 Noise 握手**协商出来**的消息尺寸上限。
+    ///
+    /// 两端必须一致，否则合法的大消息会被一侧判成协议违规而重置子流。
+    /// `local_channels` 是建连期间由本端开出、不应被当成子流的通道 id
+    /// （direct 模式的 Noise 通道）。
+    pub(crate) fn with_config(
+        pc: Arc<dyn PeerConnection>,
+        incoming: mpsc::UnboundedReceiver<Arc<dyn DataChannel>>,
+        stream_config: libp2p_webrtc_utils::StreamConfig,
+        local_channels: HashSet<RTCDataChannelId>,
     ) -> Self {
         Self {
             pc,
@@ -62,12 +105,15 @@ impl Muxer {
             closing: None,
             next_outbound_id: 0,
             drop_listeners: FuturesUnordered::new(),
+            stream_config,
+            local_channels,
         }
     }
 
     /// 把一条 DataChannel 包成 libp2p 子流，并登记它的 drop 通知。
     fn wrap(&mut self, dc: Arc<dyn DataChannel>) -> libp2p_webrtc_utils::Stream<PollDataChannel> {
-        let (stream, drop_listener) = libp2p_webrtc_utils::Stream::new(PollDataChannel::new(dc));
+        let (stream, drop_listener) =
+            libp2p_webrtc_utils::Stream::with_config(PollDataChannel::new(dc), self.stream_config);
         self.drop_listeners.push(drop_listener);
         stream
     }
@@ -89,6 +135,11 @@ impl StreamMuxer for Muxer {
                 this.checking = None;
                 // init 通道不是数据流，跳过（见 INIT_CHANNEL_LABEL 的说明）。
                 if label.as_deref() == Some(INIT_CHANNEL_LABEL) {
+                    continue;
+                }
+                // 本端开的通道会被 driver 回灌回来，跳过（见 `local_channels`）。
+                if this.local_channels.contains(&dc.id()) {
+                    tracing::trace!(id = ?dc.id(), "跳过本端开的通道，它不是入站子流");
                     continue;
                 }
                 return Poll::Ready(Ok(this.wrap(dc)));
@@ -118,9 +169,16 @@ impl StreamMuxer for Muxer {
             this.next_outbound_id += 1;
             this.creating = Some(
                 async move {
-                    pc.create_data_channel(&label, None)
+                    let dc = pc
+                        .create_data_channel(&label, None)
                         .await
-                        .map_err(|e| Error::Connection(format!("创建 DataChannel 失败：{e}")))
+                        .map_err(|e| Error::Connection(format!("创建 DataChannel 失败：{e}")))?;
+                    // 必须等真 open 再交出去——未 open 时写入会**静默丢弃**，
+                    // 上层看到的是「刚开的流对端读到 EOF」。详见 `data_channel::await_open`。
+                    super::data_channel::await_open(&dc).await.map_err(|e| {
+                        Error::Connection(format!("等待 DataChannel 打开失败：{e}"))
+                    })?;
+                    Ok(dc)
                 }
                 .boxed(),
             );
@@ -128,7 +186,12 @@ impl StreamMuxer for Muxer {
         let fut = this.creating.as_mut().expect("刚置入");
         let dc = ready!(fut.poll_unpin(cx));
         this.creating = None;
-        Poll::Ready(dc.map(|dc| this.wrap(dc)))
+        Poll::Ready(dc.map(|dc| {
+            // 登记后 `poll_inbound` 才认得出这条是自己开的——driver 马上会把它
+            // 从 `on_data_channel` 回灌回来。
+            this.local_channels.insert(dc.id());
+            this.wrap(dc)
+        }))
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

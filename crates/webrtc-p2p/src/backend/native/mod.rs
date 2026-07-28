@@ -40,8 +40,9 @@ use super::{Backend, BackendError, BackendEvent};
 use crate::config::Config;
 use crate::protocol::MessageType;
 
-mod data_channel;
-mod muxer;
+pub(crate) mod data_channel;
+pub mod direct;
+pub(crate) mod muxer;
 
 /// SCTP 接收窗口。默认 1 MiB 在 LAN 上会导致连接直接断掉（spike 实测 4 MiB 处 failed）。
 const SCTP_RECEIVE_BUFFER: u32 = 8 * 1024 * 1024;

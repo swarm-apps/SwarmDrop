@@ -14,13 +14,8 @@ use swarmdrop_net::Endpoint;
 async fn webrtc_direct_listener_and_stable_certhash() {
     init_tracing();
 
-    // 持久化证书：两次 bind 的 certhash 必须一致
-    let cert_pem = {
-        // 用 libp2p-webrtc 生成一份 PEM 供注入（模拟 keychain 存量）
-        let cert = libp2p_webrtc::tokio::Certificate::generate(&mut rand::thread_rng())
-            .expect("generate cert");
-        cert.serialize_pem()
-    };
+    // 持久化证书：两次 bind 的 certhash 必须一致（模拟 keychain 存量）
+    let cert_pem = swarmdrop_net::generate_webrtc_certificate_pem().expect("generate cert");
 
     let certhash_of = |addrs: &[swarmdrop_net::Addr]| -> Option<String> {
         addrs.iter().find_map(|a| {
