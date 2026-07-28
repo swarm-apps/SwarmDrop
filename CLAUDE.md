@@ -33,7 +33,7 @@ Always respond in Chinese (简体中文). All output, including thinking, planni
 SwarmDrop is a decentralized, cross-network, end-to-end encrypted file transfer tool built with Tauri v2. It aims to be a "cross-network version of LocalSend" — no accounts, no servers, supporting both LAN and cross-network peer-to-peer file transfers.
 
 **Current Status:** 桌面 / 移动 / Web 三端。桌面与移动已发布；Web 端（wasm）是当前主战场。
-Current desktop release: **v0.8.3**（bootstrap 独立版本线，当前 0.6.5）。
+Current desktop release: **v0.9.0**（bootstrap 独立版本线，当前 0.7.0；移动 `mobile-v0.9.0`）。
 
 ## Build and Development Commands
 
@@ -306,6 +306,7 @@ wasm 是 CI 一等公民：`./scripts/check-wasm.sh` 在 PR 阶段拦截破坏�
 | `video/` | Remotion 后期工程（Demo / Hero 素材） |
 | `scripts/` | `check-wasm.sh`、`check-zustand-store-access.mjs`、`web-bench` |
 | `dev-notes/` | 知识库、博客、调研、归档；`archive/` 存重构前设计与已完成 roadmap |
+| `dev-notes/prompts/` | **给新会话的启动提示词**（跨会话交接用）。与 `research/` 的区别：那边记「为什么这么决策」，这边记「接下来怎么开工」——含前置阅读、硬约束、已知坑、验收标准 |
 | `dev-notes/research/` | **未落地方案**的调研与 spike 结论，每篇带决策状态。与 `knowledge/` 分开是刻意的——后者被 `/dev-workflow` 当「现行架构的事实」加载，混入调研会让人把「评估中的方案」读成「已有的能力」 |
 
 ### Auto-Update System
