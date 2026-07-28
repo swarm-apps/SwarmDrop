@@ -105,22 +105,28 @@ function Hero() {
             className="anim-rise mt-6 max-w-md text-pretty text-lg text-fd-muted-foreground"
             style={{ "--d": "0.12s" } as React.CSSProperties}
           >
-            {appName} 让设备点对点直连，文件只有收发双方能解密。无账号，无服务器，跨任意网络。
+            {appName} 让设备点对点直连，文件只有收发双方能解密。桌面、移动端和浏览器都能作为真正的传输端。
           </p>
           <div
             className="anim-rise mt-9 flex flex-wrap items-center gap-3"
             style={{ "--d": "0.18s" } as React.CSSProperties}
           >
-            <a
-              href={links.downloads}
+            <Link
+              href="/app"
               className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-[var(--brand-ink)] shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-[0.98]"
             >
-              下载 {appName}
+              在浏览器里试用
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+            </Link>
+            <a
+              href={links.downloads}
+              className="inline-flex h-12 items-center justify-center rounded-xl border border-fd-border bg-fd-card px-7 text-sm font-semibold transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground active:scale-[0.98]"
+            >
+              下载 {appName}
             </a>
             <Link
               href="/docs"
-              className="inline-flex h-12 items-center justify-center rounded-xl border border-fd-border bg-fd-card px-7 text-sm font-semibold transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground active:scale-[0.98]"
+              className="inline-flex h-12 items-center justify-center px-3 text-sm font-semibold text-fd-muted-foreground transition-colors hover:text-fd-foreground active:scale-[0.98]"
             >
               阅读文档
             </Link>
@@ -395,12 +401,18 @@ function FinalCta() {
           免费开源，所有平台都能装。两分钟跑起你的第一台节点。
         </p>
         <div className="relative mt-9 flex flex-wrap items-center justify-center gap-3">
-          <a
-            href={links.downloads}
+          <Link
+            href="/app"
             className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-[var(--brand-ink)] shadow-sm transition-transform hover:shadow-md active:scale-[0.98]"
           >
-            下载 {appName}
+            在浏览器里试用
             <ArrowRight className="size-4" />
+          </Link>
+          <a
+            href={links.downloads}
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/30 px-7 text-sm font-semibold text-white transition-colors hover:bg-white/10 active:scale-[0.98]"
+          >
+            下载 {appName}
           </a>
           <a
             href={links.repo}

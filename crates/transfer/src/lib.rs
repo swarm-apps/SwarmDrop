@@ -45,6 +45,15 @@ pub const CHUNK_SIZE: usize = 256 * 1024;
 /// 并清理 `.part`，防止活动列表与磁盘临时文件无限堆积。两端一致。
 pub const SUSPENDED_RECEIVE_RETENTION_SECS: u64 = 7 * 24 * 60 * 60;
 
+/// 过期回收写进 `error_message` 的说明文案。
+///
+/// 两端的回收各自改自己的模型（native 是 sea-orm `ActiveModel`，Web 是 `entity::Model`），
+/// 字段赋值没法共享；但这句是用户在传输历史里直接读到的文案，散成两处硬编码时，
+/// 改一处就成了静默的口径漂移。
+pub fn expired_receive_reason(retention_secs: u64) -> String {
+    format!("会话超过 {} 天未恢复，已过期回收", retention_secs / 86_400)
+}
+
 /// 计算文件总分块数。
 pub fn calc_total_chunks(file_size: u64) -> u32 {
     if file_size == 0 {

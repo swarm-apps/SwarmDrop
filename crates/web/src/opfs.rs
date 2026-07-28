@@ -112,7 +112,7 @@ pub(crate) async fn open_writable(
         .map_err(|_| AppError::Transfer("createWritable 返回类型错误".into()))
 }
 
-/// 读回 OPFS 文件建 blob URL（供 JS `<a download>` 下载）。demo 用。
+/// 读回 OPFS 文件建 blob URL（收件箱下载入口；调用方点一次下载生成一个、用完 revoke）。
 ///
 /// **快速失败**：文件不存在（会话未完成/不存在）→ `get_file_handle(create:false)` 立即 reject
 /// → 返回错误。外加超时兜底——保证**永不永久挂起**（team-lead 实测到 1800s+ 挂死，用超时封顶：
@@ -139,8 +139,14 @@ async fn export_blob_url_inner(relative_path: &str) -> AppResult<String> {
 }
 
 /// JS 错误 → [`AppError`]（OPFS/JS 语境的通用收敛）。
+///
+/// 消息提取与 IndexedDB 侧共用 [`crate::error::js_message`]——这些错误（配额不足、
+/// NotFoundError…）会一路渲染到收件箱的错误卡片上，不能是 `JsValue` 的 Debug 噪音。
 pub(crate) fn js_to_err(v: JsValue) -> AppError {
-    AppError::Transfer(format!("OPFS/JS 错误: {v:?}"))
+    AppError::Transfer(format!(
+        "OPFS 错误: {}",
+        crate::error::js_message(&v, "未知 JS 异常")
+    ))
 }
 
 #[cfg(test)]

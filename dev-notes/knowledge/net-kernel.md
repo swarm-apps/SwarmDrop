@@ -216,13 +216,13 @@ Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesIn
 **正确做法**：
 - 桌面端在 `src/lib/bootstrap-nodes.ts` 维护 TCP / QUIC / WebSocket 等可用地址，启动时与用户偏好合并。
 - 移动端在 `mobile/src/core/bootstrap-nodes.ts` 维护 Android 可用的 TCP / QUIC 地址；当前不放 `/ws`。
-- 浏览器在 `docs/app/try/relay-helpers.ts` 使用 WebRTC Direct 或 WSS helper；每项必须附带 `/p2p/<peer-id>`，WebRTC Direct 还必须带稳定的 `certhash`。
+- 浏览器在 `docs/app/app/_lib/relay-helpers.ts` 使用 WebRTC Direct 或 WSS helper；每项必须附带 `/p2p/<peer-id>`，WebRTC Direct 还必须带稳定的 `certhash`。
 - 新公网 relay 同时承担 circuit relay 时，仍需按上一节登记其外部地址；客户端清单只解决“如何拨到它”，不替代服务器侧公告。
 
 **不要做**：
 - 不要把某一端可用的 `/ws` 或 `/webrtc-direct` 地址无差别下发给所有端；Android 当前无法拨 WebSocket，而浏览器不能拨 TCP/QUIC。
 
-**相关文件**：`crates/core/src/network/config.rs`、`src/lib/bootstrap-nodes.ts`、`mobile/src/core/bootstrap-nodes.ts`、`docs/app/try/relay-helpers.ts`
+**相关文件**：`crates/core/src/network/config.rs`、`src/lib/bootstrap-nodes.ts`、`mobile/src/core/bootstrap-nodes.ts`、`docs/app/app/_lib/relay-helpers.ts`
 
 ### 坑 6：kad `Record.expires` 的类型按 target 分叉
 

@@ -102,7 +102,8 @@ impl FileAccess for OpfsFileAccess {
 
     async fn open_or_create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
         // 续传：同一会话内已开句柄则复用；否则开 keep_existing_data=true 的句柄保留已落盘部分
-        // （positioned write 只覆盖后续 range）。跨页面刷新的续传不在范围内。
+        // （positioned write 只覆盖后续 range）。**跨页面刷新的接收续传也走这条**——OPFS 里的
+        // 部分文件与 checkpoint 都持久（#81），刷新后新开的句柄接着上次的字节写。
         let sink = FileSinkId(metadata.relative_path);
         if self.sinks.borrow().contains_key(&sink) {
             return Ok(sink);

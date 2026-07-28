@@ -23,13 +23,18 @@
 
 网络侧的结论在 [libp2p-wasm.md](libp2p-wasm.md)，两份不重叠。
 
-> **当前状态（2026-07-19 更新）：sea-orm 已彻底摘出 core（openspec: core-wasm-ready）。**
+> **当前状态（2026-07-27 更新）：Web 端 IndexedDB `SessionStore` 已落地（`#81`）。**
+> `crates/web/src/store.rs` 的 `PersistentSessionStore` = 内存读缓存 + IndexedDB 写穿，
+> 低层读写收在 `crates/web/src/idb.rs`。本文预判的两条都成立：**trait 签名一个字没改**，
+> `SendWrapper` 裹 JsFuture 满足 Send；**entity 的 `Model` 直接上签名**、wasm 编译无碍。
+> 四条本文没预判到的实测细节见下方「Web 侧落地实测」。
+>
+> **（2026-07-19）sea-orm 已彻底摘出 core（openspec: core-wasm-ready）。**
 > Sql 实现（`SqlSessionStore`/`ops`/`inbox`）整体搬到独立 crate `crates/storage-sql`
 > （swarmdrop-storage-sql，依赖面 = transfer 端口 + entity + host + sea-orm，**不依赖 core**），
 > 宿主（src-tauri / mobile-core）在组装点注入。core 同时完成 tokio→n0-future（24 处，
 > spawn/time/Instant 换、`tokio::sync`/`select!` 保留），**core 已进 `check-wasm.sh` 六 crate
 > 双门常绿**——pairing/presence/device/network 业务域自此 Web 可复用。
-> Web 端持久化实现（IndexedDB SessionStore）与 Web 消费 core 属后续 change。
 >
 > （2026-07-18 状态存档）trait 层落地：`SessionStore`/`InboxStore` 端口在 `swarmdrop-transfer`，
 > 双 target 可编，transfer 零 `sea_orm`/`DatabaseConnection`。第 0 步（entity 解绑）更早完成。
@@ -229,6 +234,59 @@ pub trait SessionStore: Send + Sync {
 
 ---
 
+## Web 侧落地实测（2026-07-27，`#81`）
+
+四条本文设计时没预判到的，全部有实现为证（`crates/web/src/store.rs` + `idb.rs`）。
+
+### `SendWrapper` 要连 `JsValue` 的**构造**一起裹进去
+
+本文只写了「裹 JsFuture」，**不够**。`JsValue` 建在 wrapper 外面，它就活在外层 `async fn` 的
+frame 里，整个 future 照样不是 `Send`：
+
+```rust
+// ❌ 编译不过：future cannot be sent between threads safely
+let value = JsValue::from_str(&json);
+SendWrapper::new(idb::put(store, &key, &value)).await
+
+// ✅ 值的构造也在 wrapper 里面
+SendWrapper::new(async move {
+    let value = JsValue::from_str(&json);
+    idb::put(store, &key, &value).await
+}).await
+```
+
+判据很简单：**wrapper 之外不能出现任何 `JsValue`**（包括参数、临时值、返回值）。
+
+### entity 的 `Model` 能上 trait 签名，但**不能直接落库**
+
+本文「entity 原样过 wasm32」的结论只覆盖编译。落库还差一层：`Model` 是
+`#[sea_orm::model]` + `DeriveEntityModel`，**没有 serde derive**（sea-orm 侧不需要），
+所以持久化得自建 DTO 做 From/Into。
+
+这反而是好事——DTO 是这份存储的 wire 格式显式声明点，改字段就是改格式，而不是让 ORM 的
+派生细节悄悄决定磁盘布局。给 entity 加 derive 是另一条路，但 `ModelEx` 带
+`HasMany`/`HasOne` 关系字段，跟着一起派生会炸，**不要走这条**。
+
+### 每个操作自开一个 IndexedDB 事务，内部不跨 `await`
+
+本文「地雷」里说的「IndexedDB 事务是微任务窗口内自动提交」在实现上的形态：拿到
+`IDBObjectStore` 后直到请求 settle 之间**不能有别的 await**，否则拿
+`TransactionInactiveError`。代价是每次操作重开一次连接——Web 的写频率（接收侧 checkpoint
+每 10 个 chunk = 2.5 MB 一次）下可忽略，不值得为它引连接缓存 + `thread_local` 的复杂度。
+
+### 「Web 端断点续传」只有**接收方向**成立
+
+本文的出发点是「让 Web 也能断点续传」，实测要打个对折：**发送方向物理上做不到**。
+发送侧的文件内容来自用户选中的 `File` 对象，页面刷新后 JS 上下文销毁，浏览器不允许在未经
+用户重新选择的情况下再读同一个文件（File System Access 的持久 handle 只有 Chromium 有，
+且仍需授权）。所以存储抽象再完美，非终态发送会话恢复出来也只是个点了必失败的续传按钮。
+
+⇒ **落库范围应按「恢复得了吗」筛，而不是「有没有状态」**：终态会话（历史/收件箱）+ 非终态
+的接收会话落库；非终态发送会话与待决 offer（`pending_offers()` 是内存态，刷新后无处应答）
+不落库。判定见 `store.rs` 的 `worth_persisting`。
+
+---
+
 ## 地雷
 
 ### `entity::TerminalReason` 在 CBOR wire 协议上（跨版本兼容风险）
@@ -268,14 +326,15 @@ ResumeProbe 应答 → **跨版本续传静默失败**。
 **这条不定，SQLite 与 IndexedDB 两端行为会悄悄分叉。** 建议先实测（构造 file insert 失败的场景，
 看 session 行是否残留）再定 trait 契约。
 
-### Web 侧后端选型
+### ~~Web 侧后端选型~~ —— 已定（2026-07-27）
 
-IndexedDB（`idb` / `rexie`）vs OPFS。**注意 OPFS 的 `FileSystemSyncAccessHandle` 只能在 Web Worker
-里用**，而 `webrtc-websys` 在 Worker 里会 panic（见 [libp2p-wasm.md](libp2p-wasm.md)）——
-两者的线程约束要一起设计，不能分开选。
+结构化数据（session / checkpoint）走 **IndexedDB**，不引 `idb`/`rexie`，直接 `web-sys`
+（`crates/web/src/idb.rs`，约 170 行，身份/配对/会话三处共用）；文件数据走既有的
+`FileAccess` trait 的 **OPFS 异步实现**。
 
-文件数据本身走 `host.rs` 现有的 `FileAccess` trait（已经是 trait，OPFS 实现即可），
-**只有结构化数据（session / checkpoint / 收件箱）需要新 trait**。
+原设计里的顾虑成立且已避开：OPFS 的 `FileSystemSyncAccessHandle` 只能在 Web Worker 里用，
+而 `webrtc-websys` 在 Worker 里会 panic（见 [libp2p-wasm.md](libp2p-wasm.md)）——所以
+`OpfsFileAccess` 全程走主线程 async API，禁用 SyncAccessHandle。
 
 ## 相关文件
 

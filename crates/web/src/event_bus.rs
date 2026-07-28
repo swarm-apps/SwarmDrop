@@ -53,6 +53,17 @@ impl EventBus for WebEventBus {
                     });
                 }
             }
+            // 名字叫 Added，实际语义是「对端 identify 后刷新了已配对设备的 OS 信息」
+            // （core 的 event_loop 只在 refresh_paired_device_from_identify 命中时发）。
+            // 与 `WebNode::connect_invite` / `respond_pairing_request` 里那次 upsert 不重复：
+            // 那是配对成功的首次写入，这里是之后的信息刷新回写。
+            CoreEvent::PairedDeviceAdded { device } => {
+                wasm_bindgen_futures::spawn_local(async move {
+                    if let Err(err) = crate::identity::upsert_paired_device(device).await {
+                        tracing::warn!("持久化已配对设备失败: {err:?}");
+                    }
+                });
+            }
             other => {
                 tracing::debug!("WebEventBus core 事件（暂不 surface 到 JS）: {other:?}");
             }

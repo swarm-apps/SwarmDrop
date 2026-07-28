@@ -148,7 +148,7 @@ certhash 跨重启稳定——否则每次启动地址都变，已配对设备�
 （实测矩阵见 [browser-platform/03](../browser-platform/03-mixed-content-private-ip.md)）。
 
 这也解释了两份地址清单为何不同：桌面的 `src/lib/bootstrap-nodes.ts` 是 tcp + quic
-（原生端直达公网），而 Web 端的 `docs/app/try/relay-helpers.ts` **只有一条 webrtc-direct**。
+（原生端直达公网），而 Web 端的 `docs/app/app/_lib/relay-helpers.ts` **只有一条 webrtc-direct**。
 
 > 桌面清单里原本还有一条 `/tcp/4002/ws`，2026-07-27 删掉了：原生端有 tcp/quic 直达，
 > 它永远排不上号；浏览器又因 mixed content 用不了它——两头都不消费的死配置。

@@ -1,9 +1,10 @@
 //! `WebNode`：Web 壳的 wasm-bindgen API 面。
 //!
 //! 浏览器节点**包一层 core 的组合根** [`start_node`]（与桌面/移动同源装配），注入 Browser
-//! [`EndpointProfile`] + Web 端口实现（内存 store / OPFS / WebEventSink transfer 事件流）。走
-//! 完整 [`NetManager`] + 3 协议 Router（含 pairing）：invite 配对经 `pair_with_invite`，配对记录
-//! 内存态（IndexedDB 持久化属后续）。NetManager 侧 pairing/device 事件走最小
+//! [`EndpointProfile`] + Web 端口实现（IndexedDB 写穿 store / OPFS / WebEventSink transfer
+//! 事件流）。走完整 [`NetManager`] + 3 协议 Router（含 pairing）：invite 配对经
+//! `pair_with_invite`，配对设备记录与传输会话都经 IndexedDB 持久化、在 `spawn()` 时恢复
+//! （会话恢复的范围与理由见 [`crate::store`]）。NetManager 侧 pairing/device 事件走最小
 //! [`WebEventBus`](crate::event_bus)（consume-invite 路径的确认在邀请方桌面，浏览器侧暂不 surface）。
 
 use std::cell::RefCell;
@@ -12,6 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
+use serde::Deserialize;
+use swarmdrop_core::device_manager::DeviceFilter;
 use swarmdrop_core::host::EventBus;
 use swarmdrop_core::network::event_loop::spawn_event_loop;
 use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
@@ -20,8 +23,9 @@ use swarmdrop_core::runtime::{EndpointProfile, start_node};
 use swarmdrop_host::device::OsInfo;
 use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId};
 use swarmdrop_invite::TransportPolicy;
-use swarmdrop_net::{Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
+use swarmdrop_net::{DhtError, DhtKey, Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
 use swarmdrop_transfer::HostEnumeratedFile;
+use swarmdrop_transfer::coordinator::TransferCoordinator;
 use swarmdrop_transfer::events::TransferEventSink;
 use swarmdrop_transfer::manager::TransferManager;
 use swarmdrop_transfer::protocol::TransferOrigin;
@@ -35,8 +39,14 @@ use crate::event_bus::{PendingPairings, WebEventBus};
 use crate::events::WebEventSink;
 use crate::file_access::OpfsFileAccess;
 use crate::identity;
-use crate::store::MemorySessionStore;
-use crate::types::{ConnectionJson, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind};
+use crate::store::PersistentSessionStore;
+use crate::types::{
+    ConnectionJson, NodeAddrJson, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind,
+};
+
+/// 浏览器连接与 reservation 的最大等待时间。超时会通过 Endpoint 的取消路径
+/// 停止无主拨号/relay 重试，不是只 reject JavaScript Promise。
+const REACHABILITY_TIMEOUT: Duration = Duration::from_secs(20);
 
 // specta 导出的 TS 类型（static/types/bindings.ts，由 `cargo test -p swarmdrop-web
 // --features specta` 生成并入库）整体注入 .d.ts，供下方 typescript_type 引用——
@@ -58,12 +68,21 @@ extern "C" {
     /// `connect()` 的返回。
     #[wasm_bindgen(typescript_type = "ConnectionJson")]
     pub type ConnectionJsonJs;
+    /// `lookup_share_code()` 的返回。
+    #[wasm_bindgen(typescript_type = "NodeAddrJson")]
+    pub type NodeAddrJsonJs;
+    /// `paired_devices()` 的返回：`Device[]`。
+    #[wasm_bindgen(typescript_type = "Device[]")]
+    pub type DeviceArray;
     /// `relays_state()` 的返回：`RelayInfoJson[]`。
     #[wasm_bindgen(typescript_type = "RelayInfoJson[]")]
     pub type RelayInfoArray;
     /// `relays_changed()` 的返回：每次 relay 状态变化产出一份全量快照。
     #[wasm_bindgen(typescript_type = "ReadableStream<RelayInfoJson[]>")]
     pub type RelayChangedStream;
+    /// `transfer_history()` 的返回：`TransferProjection[]`。
+    #[wasm_bindgen(typescript_type = "TransferProjection[]")]
+    pub type TransferProjectionArray;
 }
 
 /// `until_active` 的契约级默认超时：即便调用方不传 signal，Promise 也在
@@ -71,6 +90,15 @@ extern "C" {
 /// 30s 是对外承诺的 API 默认值，不与下层内部常量（supervisor tick 间隔 /
 /// connect 超时）联动——调用方要更短的耐心用 `AbortSignal.timeout()` 表达。
 const UNTIL_ACTIVE_CAP: Duration = Duration::from_secs(30);
+const SHARE_CODE_NAMESPACE: &str = "/swarmdrop/share-code/";
+
+#[derive(Deserialize)]
+struct LegacyShareCodeRecord {
+    #[serde(default, alias = "expiresAt")]
+    expires_at: Option<i64>,
+    #[serde(default, alias = "listenAddrs")]
+    listen_addrs: Vec<String>,
+}
 
 /// `watch_relays` 快照 → JS 投影（`RelayInfoJson[]`）。
 fn relay_info_json(map: &BTreeMap<NodeId, RelayState>) -> Vec<RelayInfoJson> {
@@ -116,6 +144,8 @@ pub struct WebNode {
     os_info: OsInfo,
     /// 入站配对请求队列（browser-as-inviter：桌面消费本机 invite 后本机弹确认）。
     pending_pairings: PendingPairings,
+    /// 传输会话持久化（IndexedDB 写穿）——`transfer_history()` 直读，无需经 manager。
+    session_store: Arc<PersistentSessionStore>,
     file_access: Arc<OpfsFileAccess>,
     events_rx: RefCell<
         Option<
@@ -126,7 +156,7 @@ pub struct WebNode {
 
 #[wasm_bindgen]
 impl WebNode {
-    /// 建节点：持久化身份（Window=localStorage / Worker=OPFS）→ 包 core 组合根 [`start_node`]
+    /// 建节点：持久化身份（Window=localStorage / Worker=OPFS）+ IndexedDB 恢复已配对设备 → 包 core 组合根 [`start_node`]
     /// （Browser [`EndpointProfile`] + Web 端口）→ 完整 [`NetManager`] + 3 协议 Router（含
     /// pairing）。**须在主线程 Window 跑**——webrtc-websys dial 碰 window，Worker 里会 panic。
     pub async fn spawn() -> Result<WebNode, JsValue> {
@@ -144,23 +174,27 @@ impl WebNode {
         // start_node 走 to_agent_version()（"swarmdrop/{ver}; os=…" 契约）——桌面 DeviceManager
         // 用 AGENT_PREFIX 过滤设备列表，前缀不符会让 Web 节点在对端设备列表里隐身。
         let os_info = web_os_info();
+        let paired_devices = identity::load_paired_devices().await?;
 
-        // Web 端口：内存 store / OPFS 落盘 / WebEventSink（transfer 事件直连 events() 流）。
+        // Web 端口：IndexedDB 写穿 store / OPFS 落盘 / WebEventSink（transfer 事件直连 events() 流）。
         let file_access_impl = Arc::new(OpfsFileAccess::new());
         let file_access: Arc<dyn FileAccess> = file_access_impl.clone();
         let (sink, events_rx) = WebEventSink::new();
         let transfer_events: Arc<dyn TransferEventSink> = Arc::new(sink);
+        let session_store = Arc::new(PersistentSessionStore::load().await);
         // NetManager 侧事件的 bus：捕获入站配对请求（browser-as-inviter），其余记日志。
         // transfer 事件不经此（走 WebEventSink → events() 流）。
         let (event_bus_impl, pending_pairings) = WebEventBus::new();
         let event_bus: Arc<dyn EventBus> = Arc::new(event_bus_impl);
 
         let file_access_for_factory = file_access.clone();
+        let store_for_factory = session_store.clone();
+        let events_for_factory = transfer_events.clone();
         let started = start_node(
             secret.clone(),
             None,
             os_info.clone(),
-            Vec::new(), // 已配对设备：内存态起步（IndexedDB 持久化属后续工程）
+            paired_devices,
             // LanOnly：浏览器拨不了 TCP/QUIC 内置 bootstrap，跳过它免得 infra 反复空拨刷屏；
             // LAN 配对经直连 ws + invite，不需 DHT bootstrap（公网可达待 webrtc-direct bootstrap）。
             NetworkRuntimeConfig {
@@ -173,14 +207,33 @@ impl WebNode {
             move |endpoint| {
                 TransferManager::new(
                     endpoint,
-                    transfer_events,
-                    Arc::new(MemorySessionStore::new()) as Arc<dyn TransferStore>,
+                    events_for_factory,
+                    store_for_factory as Arc<dyn TransferStore>,
                     file_access_for_factory,
                 )
             },
         )
         .await
         .map_err(WebError::from)?;
+
+        // 启动清理：上次会话遗留的 active 接收会话经状态机统一转 recoverable
+        // suspended(AppRestarted)——与桌面 `cleanup_stale_sessions`、移动
+        // `reconcile_stale_sessions` 同一条路径。漏做会让活动视图出现「永远在传」的幽灵
+        // 条目。过期回收（reap + 清 .part）是 SQL 侧原语，Web 的保留期判定在
+        // `PersistentSessionStore::load`。
+        match TransferCoordinator::new(
+            session_store.clone() as Arc<dyn TransferStore>,
+            transfer_events,
+        )
+        .cleanup_recoverable_sessions()
+        .await
+        {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!("启动清理: {n} 个遗留 active 会话转为 suspended(app_restarted)")
+            }
+            Err(e) => tracing::warn!("启动清理失败（历史会话状态可能不准）: {e}"),
+        }
 
         let endpoint = started.endpoint.clone();
         let net_manager = started.manager;
@@ -200,6 +253,7 @@ impl WebNode {
             secret,
             os_info,
             pending_pairings,
+            session_store,
             file_access: file_access_impl,
             events_rx: RefCell::new(Some(events_rx)),
         })
@@ -208,6 +262,60 @@ impl WebNode {
     /// 本节点身份（base58）。
     pub fn node_id(&self) -> String {
         self.endpoint.node_id().to_string()
+    }
+
+    /// 兼容旧 6 位分享码：从 DHT 查 record，解析 publisher + listen_addrs，并注册到本地地址簿。
+    pub async fn lookup_share_code(&self, code: String) -> Result<NodeAddrJsonJs, JsValue> {
+        let code = code.trim();
+        if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(WebError::invalid_input("分享码必须是 6 位数字").into());
+        }
+
+        let dht = self
+            .endpoint
+            .dht()
+            .ok_or_else(|| WebError::network("当前节点未启用 DHT"))?;
+        let record = dht
+            .get(DhtKey::namespaced(SHARE_CODE_NAMESPACE, code.as_bytes()))
+            .await
+            .map_err(|e| match e {
+                DhtError::NotFound => WebError::not_found("未找到分享码或分享码已过期"),
+                other => WebError::network(format!("查询分享码失败: {other}")),
+            })?;
+        let peer_id = record
+            .publisher
+            .ok_or_else(|| WebError::network("分享码记录缺少发布者身份"))?;
+        let legacy: LegacyShareCodeRecord = serde_json::from_slice(&record.value)
+            .map_err(|e| WebError::network(format!("解析分享码记录失败: {e}")))?;
+        if legacy
+            .expires_at
+            .is_some_and(|expires_at| expires_at <= (js_sys::Date::now() / 1000.0) as i64)
+        {
+            return Err(WebError::not_found("分享码已过期").into());
+        }
+        if legacy.listen_addrs.is_empty() {
+            return Err(WebError::network("分享码记录没有可用地址").into());
+        }
+
+        let mut parsed_addrs = Vec::with_capacity(legacy.listen_addrs.len());
+        for addr in &legacy.listen_addrs {
+            parsed_addrs.push(
+                addr.parse::<swarmdrop_net::Addr>()
+                    .map_err(|e| WebError::network(format!("分享码地址解析失败: {e}")))?,
+            );
+        }
+        self.endpoint
+            .add_addrs(peer_id, parsed_addrs)
+            .await
+            .map_err(|e| WebError::network(format!("注册分享码地址失败: {e}")))?;
+
+        to_js_typed(
+            &NodeAddrJson {
+                id: peer_id.to_string(),
+                addrs: legacy.listen_addrs,
+            },
+            "分享码查找结果",
+        )
     }
 
     /// 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
@@ -224,7 +332,9 @@ impl WebNode {
         signal: Option<web_sys::AbortSignal>,
     ) -> Result<ConnectionJsonJs, JsValue> {
         let (id, addr) = split_p2p_addr(&addr)?;
-        let connect = self.endpoint.connect(NodeAddr::with_addrs(id, vec![addr]));
+        let connect = self
+            .endpoint
+            .connect_with_timeout(NodeAddr::with_addrs(id, vec![addr]), REACHABILITY_TIMEOUT);
         let info = crate::abort::race(signal, connect)
             .await
             .ok_or_else(|| JsValue::from(WebError::aborted("connect 已取消")))?
@@ -254,7 +364,13 @@ impl WebNode {
             .map_err(WebError::from)?;
         match response {
             PairingResponse::Success => {
-                Ok(paired.map(|d| d.peer_id.to_string()).unwrap_or_default())
+                if let Some(device) = paired {
+                    let peer_id = device.peer_id.to_string();
+                    identity::upsert_paired_device(device).await?;
+                    Ok(peer_id)
+                } else {
+                    Ok(String::new())
+                }
             }
             _ => Err(WebError::network("邀请方拒绝了配对或配对未成功").into()),
         }
@@ -304,12 +420,23 @@ impl WebNode {
                 reason: PairingRefuseReason::UserRejected,
             }
         };
-        self.net_manager
+        let paired = self
+            .net_manager
             .pairing()
             .respond_pairing_request(id, response)
             .await
             .map_err(WebError::from)?;
+        if let Some(device) = paired {
+            identity::upsert_paired_device(device).await?;
+        }
         Ok(())
+    }
+
+    /// 已配对设备清单——与桌面 `list_devices` 同源的 [`DeviceManager::get_devices`] 读模型
+    /// （含在线状态/连接类型，presence 在 Web 侧同样运作）。
+    pub fn paired_devices(&self) -> Result<DeviceArray, JsValue> {
+        let devices = self.net_manager.devices().get_devices(DeviceFilter::Paired);
+        to_js_typed(&devices, "已配对设备")
     }
 
     // ── relay 意图（声明式集合，替代一次性 RPC 形态的 reserve()）──
@@ -496,6 +623,18 @@ impl WebNode {
             .await
             .map_err(WebError::from)?;
         Ok(())
+    }
+
+    /// 已持久化的传输会话投影（无序——收件箱与活动视图排法不同，排序留给调用方）。
+    ///
+    /// 页面刷新后事件流从零开始，前端据此回补收件箱与传输活动视图（收件箱 = 其中
+    /// `direction=receive` 且 `terminalReason=completed` 的条目，文件仍在 OPFS，可继续
+    /// [`download_url`](Self::download_url)）。
+    ///
+    /// **不含**非终态的发送会话与待决 offer：浏览器刷新后无法在不重新选择文件的前提下
+    /// 读回 `File`，待决 offer 也已无处应答，故它们本就不落库（见 `store.rs` 模块注释）。
+    pub fn transfer_history(&self) -> Result<TransferProjectionArray, JsValue> {
+        to_js_typed(&self.session_store.all_projections(), "传输历史")
     }
 
     /// 完成接收后，把 OPFS 里的文件读回成 blob URL 供 `<a download>` 下载。

@@ -282,11 +282,11 @@ Next.js dev server（`cd docs && pnpm dev`）以 `localhost:3000` 起，浏览�
 但**没有 hydrate**，所有按钮点了没反应、console 无任何报错，看起来像业务代码坏了。
 服务端日志（pnpm dev 的输出）里才有 Blocked 警告。
 
-**正确做法**：`/try` 等交互页实测一律 `http://localhost:3000`；或在 `next.config.mjs`
+**正确做法**：`/app` 等交互页实测一律 `http://localhost:3000`；或在 `next.config.mjs`
 加 `allowedDevOrigins: ['127.0.0.1']`。（README 里"实测用 127.0.0.1"说的是**静态
 serve 的产物**，与 Next dev 是两回事。）
 
-**相关文件**：`docs/next.config.mjs`、`docs/app/try/page.tsx`
+**相关文件**：`docs/next.config.mjs`、`docs/app/app/`
 
 ### spike/ 不进 workspace
 
@@ -357,7 +357,7 @@ Cargo workspace 的构建产物位于仓库根目录 `target/`。若 Vite 监听
 
 **踩过的坑**：单独用 `pnpm dev`（不走 `pnpm tauri dev`）在普通浏览器 tab 里打开 `http://localhost:1420` 会是**空白页**——这是因为前端 mount 时就会走 Tauri IPC（`commands.initializeIdentity()` / network-store 等），普通 Chrome tab 没有 `window.__TAURI_INTERNALS__`，直接崩渲染。所以"浏览器 tab 打开空白"和"live 注入机制在 Tauri 里失效"是两件不同的事，别混为一谈。
 
-> 注意：这里说的桌面前端（`src/`）与 **Web 端**（`crates/web` + `docs/app/try`）是两套东西。
+> 注意：这里说的桌面前端（`src/`）与 **Web 端**（`crates/web` + `docs/app/app`）是两套东西。
 > Web 端不走 Tauri IPC，本来就在浏览器里跑。
 
 **agent 这边怎么驱动**：live.md 文档写的是用 `browser_navigate` 之类的浏览器工具去看/截图，这对 Tauri 不适用；改用 `mcp__tauri__driver_session`（需要项目已装 `tauri-plugin-mcp-bridge`，本仓库已装）连接同一个正在跑的原生窗口，`mcp__tauri__webview_screenshot` / `webview_execute_js` 代替浏览器截图/取值，`live-poll.mjs` 的本地 HTTP helper 完全不关心注入的 JS 跑在哪个 webview 里，所以轮询/accept/discard 那套照常工作。

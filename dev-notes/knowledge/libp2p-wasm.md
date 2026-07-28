@@ -4,7 +4,7 @@
 >
 > 选定路线（rust-wasm 复用同一 Rust 核心）已实现：
 > - `crates/web` —— 浏览器 Web 壳，除 `types` 外全部 `cfg(wasm_browser)` 门控
-> - `docs/app/try` —— Web 端入口，由 Next.js 文档站承载
+> - `docs/app/app` —— Web 端入口，由 Next.js 文档站承载
 > - `scripts/check-wasm.sh` —— wasm 双 target CI 门禁（net-base/net/host/transfer/invite/core/web）
 > - 浏览器端到端已于 2026-07-18 实测通过（ws / webrtc-direct dial、circuit 被动接收、双向 RPC）
 >
