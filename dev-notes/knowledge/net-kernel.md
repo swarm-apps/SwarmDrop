@@ -224,6 +224,24 @@ Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesIn
 
 **相关文件**：`crates/core/src/network/config.rs`、`src/lib/bootstrap-nodes.ts`、`mobile/src/core/bootstrap-nodes.ts`、`docs/app/app/_lib/relay-helpers.ts`
 
+### 每个 relay 只申请一份 reservation（2026-07-28 修）
+
+`request_relay_reservation` 曾对地址簿里该 relay 的**每个地址各 listen 一次**，于是一台
+通告 9 个地址的 LanHelper 就收到 9 份 reservation 请求。而配额是 **per-peer** 的
+（`max_reservations_per_peer` 默认 4），多数请求以 `ResourceLimitExceeded` 被拒 →
+listener 批量关闭 → reservation 反复丢失重建。公网 relay 的总配额（32）也曾被几个
+测试端占满，实测时表现为「怎么都 reserve 不上」。
+
+**一份就够**，三条依据：
+
+1. 走到该函数时**必然已连上 relay**（两个调用点都在 `conns` / identify 之后，见坑 5 的
+   时序），relay client 的 `ListenReq` 走「复用现有连接」分支；
+2. 我们传的地址只用来拼那条要通告的 external 地址，**不参与建连**；
+3. relay client 的 `reservation_addresses` 以 `ConnectionId` 为键——多份本就互相覆盖，
+   最终生效的只有一份。
+
+实测：请求数 13 → 2（两个 relay 各一份），`ResourceLimitExceeded` 归零。
+
 ### 坑 6：kad `Record.expires` 的类型按 target 分叉
 
 native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant` 同源）——

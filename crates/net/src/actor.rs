@@ -652,32 +652,42 @@ impl Actor {
             debug!(%peer_id, "relay reservation already active, skip");
             return;
         }
-        let addrs = self.address_book.get(&peer_id).cloned().unwrap_or_default();
-        if addrs.is_empty() {
+        // **每个 relay 只申请一份 reservation**，哪怕地址簿里有它十几个地址。
+        //
+        // 曾对每个地址各 listen 一次，后果是把 relay 的配额吃光——它是 per-peer 的
+        // （`max_reservations_per_peer` 默认 4），而一台 LanHelper 能通告十几个地址，
+        // 于是多数请求以 `ResourceLimitExceeded` 被拒、reservation 反复丢失重建
+        //（浏览器实测踩到，公网 relay 的总配额也被几个测试端占满）。
+        //
+        // 一份就够，因为走到这里时**必然已经连上 relay**（两个调用点都在 conns /
+        // identify 之后，坑 5 的时序）：relay client 的 ListenReq 会走「复用现有连接」
+        // 分支，我们传的地址只用来拼那条要通告的 external 地址，**不参与建连**。
+        // 它的 `reservation_addresses` 又以 ConnectionId 为键——多份本就互相覆盖，
+        // 最终生效的只有一份。
+        let Some(addr) = self
+            .address_book
+            .get(&peer_id)
+            .and_then(|addrs| addrs.first())
+            .cloned()
+        else {
             warn!(%peer_id, "no addresses for relay, cannot request reservation");
             self.set_relay_failed(peer_id, "no addresses for relay");
             return;
-        }
-        let mut requested = false;
-        for addr in addrs {
-            let relay_addr = circuit_base(addr, peer_id);
-            match self.swarm.listen_on(relay_addr.clone()) {
-                Ok(listener_id) => {
-                    self.relay_listeners.insert(listener_id, peer_id);
-                    requested = true;
-                    info!(%relay_addr, "requesting relay reservation");
-                }
-                Err(e) => warn!(%relay_addr, error = %e, "relay circuit listen failed"),
+        };
+        let relay_addr = circuit_base(addr, peer_id);
+        match self.swarm.listen_on(relay_addr.clone()) {
+            Ok(listener_id) => {
+                self.relay_listeners.insert(listener_id, peer_id);
+                info!(%relay_addr, "requesting relay reservation");
+                // 覆盖写：identify 幂等重建路径要把 Failed 翻回 Connecting；
+                // 此处必无活跃 listener（函数开头已 skip），不会覆盖 Active
+                self.set_relay_connecting(peer_id);
+                self.ensure_webrtc_listener(peer_id);
             }
-        }
-        if requested {
-            // 覆盖写：identify 幂等重建路径要把 Failed 翻回 Connecting；
-            // 此处必无活跃 listener（函数开头已 skip），不会覆盖 Active
-            self.set_relay_connecting(peer_id);
-            self.ensure_webrtc_listener(peer_id);
-        } else {
-            // 全部候选地址 listen_on 都失败（逐条已 warn）
-            self.set_relay_failed(peer_id, "circuit listen failed");
+            Err(e) => {
+                warn!(%relay_addr, error = %e, "relay circuit listen failed");
+                self.set_relay_failed(peer_id, "circuit listen failed");
+            }
         }
     }
 
