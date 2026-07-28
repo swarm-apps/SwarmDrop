@@ -4,20 +4,30 @@
 
 - [x] 宿主 Keychain 凭据读取后透传到 core `build_endpoint` → `builder.webrtc_certificate(pem)`（不得放入前端可序列化的 `NetworkRuntimeConfig`）
 - [x] 桌面与移动：首启 `Certificate::generate` → `serialize_pem()` 分别存系统 Keychain / SecureStore；后续 `from_pem()` 复用
-- [ ] helper/bootstrap：证书 PEM 持久化到服务器数据目录（权限 600），复用
+- [x] helper/bootstrap：证书 PEM 持久化到服务器数据目录（权限 600），复用
+      —— `crates/bootstrap/src/util/identity.rs` 的 `load_or_generate_webrtc_certificate`，
+      `write_private_file` 落 `0o600`
 - [x] 有持久化证书时不再触发 `transport.rs:54-61` 的 `certhash will not survive restarts` warn
 - [x] 回归：native 端跨重启 certhash 稳定（同一 PEM → 同一 certhash 的断言测试）
 
 ## Phase 2 — listen /webrtc-direct
 
 - [x] 桌面与移动端点 listen 地址集加 `/ip4/0.0.0.0/udp/0/webrtc-direct`
-- [ ] helper/bootstrap listen /webrtc-direct（证书固定 → certhash 固定）
-- [ ] 实证 listen 生效：本机拨自身 webrtc-direct 地址成功
+- [x] helper/bootstrap listen /webrtc-direct（证书固定 → certhash 固定）
+      —— `crates/bootstrap/src/lib.rs`（4003 端口 + `webrtc_direct_addr_from_pem` 登记外部地址），
+      测试 `external_addresses_include_webrtc_certhash`
+- [x] 实证 listen 生效：本机拨自身 webrtc-direct 地址成功
+      —— `crates/net/tests/webrtc.rs::dial_own_webrtc_direct_listen_addr`：服务端只监听
+      webrtc-direct，拨号方只拿这一个地址，连上后跑一次子流字节往返。
+      **这条测试撞出了子流无序通道的静默丢包**（见 net-kernel.md）
 
 ## Phase 3 — 分享物锚点分离（NodeId 锚点 + certhash hint）
 
 - [x] 确认 webrtc-direct/certhash 地址进 `shareable_addrs()` = `dialable()` = `direct_addrs()`，未被 loopback/unspecified/circuit 过滤误杀（D6 覆盖验证）
-- [ ] invite addr hints 携带 webrtc-direct 地址（复用 `pair-invite-protocol`，inviter=NodeId+hints 已就位）
+- [x] invite addr hints 携带 webrtc-direct 地址（复用 `pair-invite-protocol`，inviter=NodeId+hints 已就位）
+      —— `PairingManager::encode_invite` 直接吃 `shareable_addrs()` = `dialable()`（listen ∪ external，
+      无按传输段过滤）；`TransportPolicy::LocalOnly` 的 `is_private_lan()` 只看 IP 段、
+      不看传输段，故不会误杀 webrtc-direct 地址
 - [ ] 拨号链路：`connect(NodeAddr::new(peer))` 先试 hint、失败回落 `OnlineRecordLookup` 按 NodeId 重解析（`presence/supervisor.rs` 已实现，验证 webrtc-direct 地址纳入）
 - [ ] 断言：certhash 变更后（换证）按 NodeId 重解析自动拿到新地址，无需重发邀请
 

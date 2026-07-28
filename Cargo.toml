@@ -51,16 +51,19 @@ swarmdrop-net = { path = "crates/net" }
 # 实证跑不通（spike/webrtc-direct-https）。修复在 master（PR 6429，2026-05-22 已合并），
 # 但至今未进任何 crates.io 发布版。
 #
-# 为什么是 fork 不是官方 master：Web 端还需要两个尚未合并的 WebRTC PR
+# 为什么是 fork 不是官方 master：还有三个尚未合并的修复
 # （fork 实测 ahead 7 / behind 0，全部已提上游，无未提项）：
 #   PR #6558  fix(webrtc-websys): defer data channel callback wakes        （OPEN）
 #   PR #6560  feat(webrtc): negotiate data channel message limits          （OPEN）
 #             ↳ 含 receive buffer limit 修复（在 PR 分支上 squash 成 5984c716，
 #               与 fork master 的 c4c2c167+989cb610 内容等价、SHA 不同）
+#   PR #6472  fix(relay): avoid panic when dst has connections without     （OPEN，**上游自己的**）
+#             reservations —— 我们独立提的 #6570 与它源码逐字节相同，
+#             2026-07-28 已按维护者要求关闭，改跟 #6472
 #
 # 【退出条件】两阶段，各自可判定（完整判据 + 验证命令见 dev-notes/knowledge/net-kernel.md
 # 的「临时 fork 集成策略 —— 含退出条件」）：
-#   阶段 1 切回官方 git：#6558 与 #6560 均 MERGED 后，换回官方 URL + 上游 master rev
+#   阶段 1 切回官方 git：#6558 / #6560 / #6472 均 MERGED 后，换回官方 URL + 上游 master rev
 #          `gh pr view 6558 --repo libp2p/rust-libp2p --json state --jq .state`
 #   阶段 2 切回 crates.io：`cargo search libp2p` 显示 ≥ 0.57.0（webrtc ≥ 0.10.0-alpha、
 #                        stream ≥ 0.5.0-alpha）时，整体换成版本号依赖
