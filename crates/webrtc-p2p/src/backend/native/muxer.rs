@@ -35,10 +35,12 @@ pub(crate) struct Muxer {
     pc: Arc<dyn PeerConnection>,
     /// `on_data_channel` 投递来的通道。
     ///
-    /// ⚠️ 名字里的「入站」在 webrtc 0.20 上**不成立**：它的 driver 对**每一个**
-    /// `OnOpen` 都调 `handler.on_data_channel`，不区分通道是本端建的还是对端建的
-    /// （`peer_connection/driver.rs` 的 `RTCDataChannelEvent::OnOpen` 分支）。
-    /// 所以自己开的流也会从这里回灌回来——过滤见 [`Muxer::local_channels`]。
+    /// ⚠️ 名字里的「入站」不能当保证：webrtc 0.20 的 driver 对**每一个** `OnOpen`
+    /// 都调 `handler.on_data_channel`，不分通道是本端建的还是对端建的。修复已提上游
+    /// （<https://github.com/webrtc-rs/webrtc/pull/825>），本仓 pin 的集成分支已含。
+    ///
+    /// 即便如此，[`Muxer::local_channels`] 那道过滤**不要删**——它守的是「本端开的流
+    /// 不是入站流」这条不变式，不是某个版本的 bug 补丁。
     incoming: mpsc::UnboundedReceiver<Arc<dyn DataChannel>>,
     /// 本端开出去的通道 id。
     ///
@@ -137,7 +139,7 @@ impl StreamMuxer for Muxer {
                 if label.as_deref() == Some(INIT_CHANNEL_LABEL) {
                     continue;
                 }
-                // 本端开的通道会被 driver 回灌回来，跳过（见 `local_channels`）。
+                // 本端开的通道不是入站子流，跳过（见 `local_channels`）。
                 if this.local_channels.contains(&dc.id()) {
                     tracing::trace!(id = ?dc.id(), "跳过本端开的通道，它不是入站子流");
                     continue;

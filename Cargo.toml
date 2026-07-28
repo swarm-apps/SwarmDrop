@@ -157,3 +157,21 @@ strip = "symbols"
 # ⚠️ 与 libp2p 的 fork pin 一样，**升级 rev 必须走独立 PR + 全量测试**，并同步 Cargo.lock。
 [patch.crates-io]
 rtc = { git = "https://github.com/yexiyue/rtc", rev = "144f5afd41bf4c38a8cfdf90dfbbb6f8467e7410" }
+# webrtc 0.20 的两个缺口，都已提上游且各自带测试：
+#
+# 1. `on_data_channel` 把本端 `create_data_channel` 开的通道也回报一遍，且回报的句柄是死的
+#    （sender 已被占，callback 拿到的 receiver 永远收不到事件）。
+#    → <https://github.com/webrtc-rs/webrtc/pull/825>
+# 2. 没有 0.17 `get_remote_certificate` 的等价物；远端证书只经 stats 暴露，且要靠
+#    `Transport.remote_certificate_id` 反查才能分辨哪条是远端的。
+#    → <https://github.com/webrtc-rs/webrtc/pull/828>（issue #827）
+#
+# 集成分支 = upstream/master + 上面两个 PR + 一行「rtc 走 crates.io」（原因见该分支的
+# Cargo.toml 注释：path 依赖不受 patch 影响，会让 rtc 分叉成两个实例）。
+#
+# 退出条件（两个都 MERGED 即可删掉本行，rtc 那条另算）：
+#   gh pr view 825 --repo webrtc-rs/webrtc --json state --jq .state
+#   gh pr view 828 --repo webrtc-rs/webrtc --json state --jq .state
+#
+# ⚠️ 升级 rev 必须走独立 PR + 全量测试 + `./scripts/check-wasm.sh`，并同步 Cargo.lock。
+webrtc = { git = "https://github.com/yexiyue/webrtc", rev = "3d4ced90e6ad0fad53b7ec649aa040151030884c" }

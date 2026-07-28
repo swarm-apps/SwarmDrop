@@ -43,8 +43,6 @@ use rtc::data_channel::{RTCDataChannelId, RTCDataChannelInit};
 use rtc::ice::mdns::MulticastDnsMode;
 use rtc::ice::network_type::NetworkType;
 use rtc::peer_connection::transport::RTCDtlsRole;
-use rtc::statistics::StatsSelector;
-use rtc::statistics::report::RTCStatsReportEntry;
 
 use super::certificate::Certificate;
 use super::sdp;
@@ -402,25 +400,19 @@ async fn with_timeout<T>(
 
 /// DTLS 握手完成后，取对端证书的 SHA-256 指纹。
 ///
-/// 0.20 没有 0.17 那个 `sctp().transport().get_remote_certificate()`，远端证书只经
-/// **stats** 暴露：DTLS 握手时 rtc 会把它登记成一条 id 以 `remote-certificate-`
-/// 开头的 certificate 统计项，`fingerprint` 字段就是冒号分隔的十六进制 SHA-256。
+/// 服务端必须拿到**拨号端**的指纹才能算出与对面一致的 Noise prologue，而 direct 模式下
+/// 它收不到真 offer（自己合成、填 `Fingerprint::FF`），该值只存在于 DTLS 握手里。
+///
+/// 0.20 没有 0.17 那个 `sctp().transport().get_remote_certificate()`，缺口已提上游
+/// （<https://github.com/webrtc-rs/webrtc/pull/828>），本仓 pin 的集成分支已含该 API。
 async fn remote_fingerprint(pc: &dyn PeerConnection) -> Result<Fingerprint, Error> {
-    let report = pc
-        .get_stats(std::time::Instant::now(), StatsSelector::None)
-        .await;
+    let value = pc
+        .remote_certificate_fingerprint(std::time::Instant::now())
+        .await
+        .ok_or_else(|| Error::Connection("DTLS 握手后仍拿不到对端证书指纹".into()))?;
 
-    report
-        .iter()
-        .find_map(|entry| match entry {
-            RTCStatsReportEntry::Certificate(cert)
-                if cert.stats.id.starts_with("remote-certificate-") =>
-            {
-                crate::protocol::addr::parse_sdp_fingerprint(&cert.fingerprint)
-            }
-            _ => None,
-        })
-        .ok_or_else(|| Error::Connection("DTLS 握手后仍拿不到对端证书指纹".into()))
+    crate::protocol::addr::parse_sdp_fingerprint(&value)
+        .ok_or_else(|| Error::Connection(format!("对端证书指纹格式无法解析：{value}")))
 }
 
 /// 把 `PeerConnection` 的回调转成 channel。

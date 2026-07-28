@@ -475,9 +475,9 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 |---|---|---|---|
 | webrtc-rs/rtc | [PR 137](https://github.com/webrtc-rs/rtc/pull/137) | `disable_certificate_fingerprint_verification` 是死代码 | **阻塞** — `[patch.crates-io]` 的唯一存在理由 |
 | libp2p/rust-libp2p | [PR 6570](https://github.com/libp2p/rust-libp2p/pull/6570) | relay circuit 无 reservation 时 panic | **阻塞** — 与 #6558/#6560 同属 git pin 退出条件 |
-| webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | 已本地绕过（muxer 的 `local_channels` 不变式），合并后可简化 |
+| webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | **已 pin**（见下）；muxer 的 `local_channels` 仍保留，它是不变式不是补丁 |
 | webrtc-rs/webrtc | [issue 826](https://github.com/webrtc-rs/webrtc/issues/826) | `send()` 在通道 open 前返回 `Ok` 但**静默丢数据** | 已本地绕过（`data_channel::await_open`），**别删那个等待** |
-| webrtc-rs/webrtc | [issue 827](https://github.com/webrtc-rs/webrtc/issues/827) | 0.20 拿不到远端 DTLS 证书（0.17 有 `get_remote_certificate`） | 两端各自绕（见下），有 API 后可合并回一行 |
+| webrtc-rs/webrtc | [PR 828](https://github.com/webrtc-rs/webrtc/pull/828) | 加 `remote_certificate_fingerprint`（issue 827） | **已 pin**，`remote_fingerprint()` 收成一行 |
 | libp2p/rust-libp2p | [PR 6571](https://github.com/libp2p/rust-libp2p/pull/6571) | `Fingerprint::from_sdp_format` | 纯反哺 — 合并后 `protocol/addr.rs` 的手写解析可删 |
 | libp2p/rust-libp2p | [PR 6572](https://github.com/libp2p/rust-libp2p/pull/6572) | offer SDP 模板搬进 `libp2p-webrtc-utils` | 纯反哺 — 合并后 `native/direct/sdp.rs` 的模板副本可删 |
 
@@ -504,13 +504,34 @@ Noise prologue 绑定**双方**指纹（`libp2p-webrtc-noise:<client><server>`�
 服务端在 direct 模式下收不到真 offer（自己合成、填 `Fingerprint::FF`），
 拨号端的指纹只存在于 DTLS 握手里，官方 0.17 用的正是 `get_remote_certificate()`。
 
-⚠️ 那一处目前靠 **`cert.stats.id.starts_with("remote-certificate-")`** 认远端项。
-id 前缀是 rtc 的实现细节，无文档承诺稳定；更稳的判据是先读 `Transport` 统计项的
-`remote_certificate_id` 再按 id 精确匹配（实测两者一致）。
+那一处曾靠 `cert.stats.id.starts_with("remote-certificate-")` 认远端项（id 前缀是 rtc 的
+实现细节，无文档承诺稳定）。现已换成上游 API [`PR 828`](https://github.com/webrtc-rs/webrtc/pull/828)
+的 `remote_certificate_fingerprint()`——库内部用 `Transport.remote_certificate_id` 反查，
+不再赌前缀。
 
-**但风险是有兜底的**：`tests/direct_loopback.rs` 跑真握手且断言
-`accepted_peer == client_peer`——指纹取错 prologue 就对不上，Noise 直接失败。
-所以前缀若变，`cargo test` 当场红，不会静默漏到生产。
+两道兜底都在：`tests/direct_loopback.rs` 跑真握手且断言 `accepted_peer == client_peer`
+（指纹取错 prologue 就对不上，Noise 当场失败）；上游那侧的测试则交叉验证
+「一端看到的 remote == 另一端的 local」，防的是取反了还静默通过——
+拿本端指纹去做 pin 校验等于自己跟自己比，会接受任何 peer。
+
+### webrtc 也 pin 了 fork（2026-07-28）
+
+`[patch.crates-io]` 现在有**两条**：`rtc` 与 `webrtc`。后者指向集成分支
+`yexiyue/webrtc@swarmdrop-integration` = upstream/master + PR 825 + PR 828 + 一行本地改动。
+
+⚠️ **那一行本地改动不能省，也不能带进上游 PR**：上游 `webrtc` 用
+`rtc = { version = "...", path = "rtc" }` 指向 submodule，而 **`[patch.crates-io]` 不作用于
+path 依赖**。保留 path 的话，`webrtc` 的 rtc 来自 submodule、`webrtc-p2p` 的 rtc 来自 patch，
+两个 source id = 两个互不兼容的同名 crate，`webrtc` 返回的类型对不上 `use rtc::...` 的类型，
+直接编译失败。集成分支把 path 去掉，让它也从 crates.io 解析、被同一条 patch 命中。
+
+验证收敛的命令（应只有一行 rtc）：
+
+```bash
+cargo tree -p webrtc-p2p -i rtc
+```
+
+退出条件写在根 `Cargo.toml` 那段注释里（两个 PR 均 MERGED 即可删）。
 
 ### webrtc 0.20 没有 UDPMux —— 改从 `Runtime::wrap_udp_socket` 注入
 
