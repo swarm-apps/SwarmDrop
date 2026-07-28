@@ -245,8 +245,8 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
 4. ~~wasm 后端~~ —— ✅ 已实现（浏览器 `RTCPeerConnection`）。**但只过了编译，逻辑未实测**
    ——wasm 侧要浏览器才能跑
 5. ~~接进 `crates/net`~~ —— ✅ 已完成（分支 `feat/webrtc-p2p-wiring`，见下节）
-6. **用 `docs/app/app` 实测浏览器侧** —— 🟡 **部分完成**（2026-07-28）。
-   传输已能被正确装配、监听地址进入可拨集；但**打洞本身仍未发生**，缺一个「升级器」（见下）
+6. ~~用 `docs/app/app` 实测浏览器侧~~ —— ✅ **已完成（2026-07-28）**：
+   web ↔ web 打洞成功，并在直连上完成配对
 7. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
    「确认实现正确」而非「决定要不要做」
 8. **与 js-libp2p 互通验收** —— 通用性的最终判据（决策理由之一就是它）
@@ -285,37 +285,60 @@ Native profile 也开。
 地址进入 `listen_addrs`（形如 `…/p2p/<relay>/p2p-circuit/webrtc/p2p/<self>`，与 js-libp2p
 格式一致）。
 
-### ❗仍缺一个「升级器」——打洞不会自己发生
+### 升级器已实现（2026-07-28）
 
-实测中两个浏览器确实连上了，但走的是**普通 circuit 中转**，不含 `/webrtc`。
+打洞不会自己发生：webrtc-p2p 只在 **dial 一个 `/webrtc` 地址**时才启动信令，而 libp2p
+是并发拨号——circuit 与 `/webrtc` 一起拨，circuit 几乎必然先成功（打洞要等 ICE 收敛数秒），
+那条根本没机会。所以必须在连上之后**主动再拨一次**。native 侧这活由 `dcutr` 干。
 
-原因是设计层面的：webrtc-p2p 只在 **dial 一个 `/webrtc` 地址**时才启动信令。而 libp2p 拨号
-是**并发**的——candidate 里 circuit 地址和 webrtc 地址一起拨，circuit 几乎必然先成功
-（打洞要等 ICE 收敛数秒），于是 webrtc 那条根本没机会。
+`Actor::try_upgrade_to_direct`（`crates/net/src/actor.rs`）：
 
-**这不是 bug，是功能未完成**：需要一个类似 DCUtR 的升级器——连接建立后，若对端地址集里有
-`/webrtc` 变体且当前路径是 `Relayed`，就主动拨那条地址把中转升级成直连。native 侧这件事
-由 `dcutr` behaviour 做，浏览器侧没有对应物，得自己写。
+- **触发点只能是 identify 到达**——对端的 `/webrtc` 地址只经 identify 传来
+  （`NewExternalAddrOfPeer` 不进地址簿）
+- **定序**：双方都可被拨时按 PeerId 只让一侧发起，否则两端同时打洞会建出两条连接；
+  但本端不可被拨时必须无条件发起，否则双方互等（`should_initiate`，单测钉死两个分支）
+- **`PeerCondition::Always`**：此刻已连着中转，默认条件会直接否掉这次拨号
+- 五个否决点**每个都留痕**——实测吃过「没打洞但查不出为什么」的亏
 
-这是第 7 步（跨 NAT 验收）的**前置条件**——没有升级器，跨 NAT 场景同样不会触发打洞。
+实测（两个隔离浏览器）：一侧 `upgrading relayed connection via webrtc hole punch`，
+另一侧 `skip webrtc upgrade: peer initiates (PeerId ordering)`，定序正确。
 
-代价：wasm 产物 gzip 1367 KB → 1418 KB（+51 KB，+3.7%）。
+### 附带修掉的既有 bug：入站中继连接被判成直连
 
-### 已落地实现的形状（截至 2026-07-27）
+经 relay 的**入站**连接，`send_back_addr` 只有 `/p2p/<src>`（libp2p relay 就是这么填的），
+地址里没有任何 circuit 痕迹。`classify_path` 单看地址就把中转判成了 Direct——UI 显示反了，
+升级器也会以为「已有直连」而永不打洞。改用 `ConnectedPoint::is_relayed()`（入站看的是
+`local_addr`，那里有 circuit 段）。这个 bug 在升级器之前就存在。
 
-    protocol/   线上格式，零 libp2p-swarm 依赖
-    backend/    WebRTC 栈抽象 + native（webrtc-rs 0.20）+ wasm（RTCPeerConnection）+ mock
-    swarm/      session（纯逻辑状态机）/ handler（poll 适配）/ behaviour / transport
+### ✅ 浏览器端到端跑通（2026-07-28）
 
-**native 侧已端到端验证**：两个真实后端在本机跑通信令与数据面（开子流、双向传数据、
-字节一致）。wasm 侧只过了编译与 clippy，**逻辑一行没实测**——接进 `crates/net` 不改变
-这一点，浏览器实测才算数。
+两个隔离浏览器 + 桌面 LanHelper 当 relay，完整闭环：
 
-依赖方向单向 `swarm → backend → protocol`。状态机与协议层都是纯逻辑，可脱离真实
-WebRTC 与真实 `Stream` 测试——这是把「最容易出错的部分」隔离出来的刻意安排。
+    发起方  upgrading relayed connection… → 出站信令流就绪 → webrtc hole punching succeeded
+    应答方  skip: peer initiates (PeerId 定序) → 入站信令流就绪 → webrtc hole punching succeeded
+    两端    skip: already has a non-relayed path        ← 收敛，不再重试
 
-3、4 仍应分开：API 设计、文档、CI、发版、issue 响应这些开销，在跑通之前都是负担；
-而真实的设计约束要跑通了才知道，那时设计的 API 才靠谱。
+随后在这条打洞直连上完成了 **PairInvite 配对**（请求送达 → 对端点「接受」→ 双方
+「已配对 ✓」），业务面可用。
+
+#### 修掉的最后一个 bug：`Connecting` 被当成写错误
+
+`PollDataChannel::poll_write` 原本只放行 `Open`，其余状态一律返回错误。但
+**PeerConnection 的 `connected`（DTLS 完成）早于 DataChannel 的 `open`（SCTP 完成）**，
+muxer 一交出去上层就开始写，此刻必然还是 `Connecting`——于是打洞连接刚建立就被
+「DataChannel 不可写，当前状态 Connecting」刷屏，实际只差几十毫秒。
+
+修法两处：`Connecting` 时注册 waker 返回 `Poll::Pending`；补 `onopen` 回调唤醒它
+（原先根本没有这个回调，写任务即使挂上也永远等不到通知）。
+
+native 侧没有这个问题——`webrtc-rs` 的 `DataChannel::send` 是 async，内部等 SCTP。
+
+#### 排障前提：先收紧 tracing filter
+
+Web 端原来是全局 `DEBUG`，libp2p 各层的日志（multistream 协商、每连接 poll、identify
+push…）把浏览器 console 的行数上限冲爆——**自己的日志一条都看不到**，前几轮因此误判
+「应答方毫无痕迹」。改成按 target 分层（`crates/web/src/lib.rs` 的 `Targets`）后日志从
+2000 行降到 30 行，根因一眼可见。**这是排障的前置条件，不是可选优化。**
 
 ## 被评估但未选择的替代路径：UPnP 端口映射
 

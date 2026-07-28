@@ -182,7 +182,7 @@ impl Builder {
         let node_id = secret.node_id();
         let config = self.config;
 
-        let mut swarm = build_swarm(secret.as_keypair().clone(), &config).await?;
+        let mut swarm = build_swarm(secret.as_keypair().clone(), &config)?;
 
         // 公网 relay 的 reservation 响应依赖 Swarm 已知 external address。
         // 在 actor 起前登记，避免启动早期的 reservation 漏带可拨地址。

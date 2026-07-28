@@ -1,7 +1,7 @@
 /**
  * 移动端默认的引导/中继节点。
  *
- * Android 当前没有 WebSocket transport，因此这里仅配置 TCP/QUIC。移动端与桌面端
+ * 原生端直达公网，这里仅配置 TCP/QUIC。移动端与桌面端
  * 的节点清单刻意分离，服务端新增可用 transport 后可独立调整。
  */
 export const MOBILE_BOOTSTRAP_NODES: readonly string[] = [

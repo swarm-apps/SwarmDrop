@@ -133,7 +133,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 |---|---|
 | `crates/net-base` | 网络类型底座。`NodeId` / `Addr` / `NodeAddr` / `ProtocolId` / `NatStatus` —— libp2p 类型在此收口成 newtype，**不向上穿透** |
 | `crates/net` | 网络内核 `swarmdrop-net`。iroh 风格 `Endpoint` 门面 + 后台 actor，隐藏事件循环、连接管理、协议路由、地址选择 |
-| `crates/webrtc-p2p` | libp2p WebRTC **打洞**传输（spec `/webrtc-signaling/0.0.1`）。已接进 `crates/net`，**默认关**——只有 Browser profile 开（浏览器没有 DCUtR）；native 侧未开。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
+| `crates/webrtc-p2p` | libp2p WebRTC **打洞**传输（spec `/webrtc-signaling/0.0.1`）。已接进 `crates/net`（双 target 同款装配），**默认关**——当前只有 Browser profile 开。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
 | `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖 |
 | `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码。**wasm-clean，不依赖 core** |
 | `crates/transfer` | 文件传输域。经端口 trait 依赖倒置，**不依赖 sea-orm / pairing / network** |
@@ -251,14 +251,19 @@ src-tauri/src/
 
 **Tracing:** 默认 filter `swarmdrop=debug,swarmdrop_net=debug`，`RUST_LOG` 可覆盖。
 
-**Bootstrap / relay node:** 自建，`47.115.172.218`——TCP 4001、QUIC 4001、WebSocket 4002、
-**WebRTC Direct 4003**（后者是 Web 端唯一入口：https 页面拨公网裸 IP 的 `ws://` 会被
+**Bootstrap / relay node:** 自建，`47.115.172.218`——TCP 4001、QUIC 4001、
+**WebRTC Direct 4003**（后者是浏览器唯一入口：https 页面拨公网裸 IP 的 `ws://` 会被
 mixed content 拦，`wss://` 又要域名 + CA）。
 
-客户端清单按端分三份，各自只列本端用得上的 transport（部署配置，不属于 P2P 内核）：
-`src/lib/bootstrap-nodes.ts`（桌面：tcp + quic）、`mobile/src/core/bootstrap-nodes.ts`
-（移动：tcp + quic）、`docs/app/app/_lib/relay-helpers.ts`（Web：webrtc-direct）。
-服务端 4002 目前无客户端消费——保留是为兼容存量已发布版本。
+客户端清单按端分两份，各自只列本端用得上的 transport（部署配置，不属于 P2P 内核）：
+`src/lib/bootstrap-nodes.ts` + `mobile/src/core/bootstrap-nodes.ts`（原生端：tcp + quic）、
+`docs/app/app/_lib/relay-helpers.ts`（浏览器：webrtc-direct）。
+
+> **WebSocket 已于 2026-07-28 整体移除**（客户端 transport、桌面 listener、bootstrap 的
+> 4002 端口）。它唯一的活是「同网浏览器直连桌面」，webrtc-direct 把这件事做得更好：
+> 不占 TCP 端口、私网公网同一条路径，也没有「circuit 地址被 ws 按前缀抢走」这类误匹配
+> （实测踩过，见 `crates/net/src/transport.rs` 的 `relay_first_webrtc`）。
+> 副产品：Android 与桌面的 transport 栈终于一致（Android 曾因 JNI DNS 问题编不进 ws）。
 
 **配对：PairInvite（一次性签名邀请）。**
 6 位数字分享码已废弃。现在是自包含邀请串 `sdinvite…`（Ed25519 签名 + 256bit capability +
@@ -273,7 +278,7 @@ TTL 300s + 一次性消费），二维码与链接是同一字符串的不同载
 `crates/web` 编成 wasm 后由文档站承载，入口 `docs/app/app`。走完整 `NetManager` + 3 协议，
 配对经 `pair_with_invite` 真 capability 握手；持久化是「内存读缓存 + IndexedDB 写穿」的
 `SessionStore` + OPFS 落盘（不吃 storage-sql），收件箱、传输历史与接收侧续传上下文跨刷新存活。
-浏览器侧传输依赖 WebSocket / WebRTC-Direct + relay circuit。
+浏览器侧传输依赖 WebRTC-Direct + relay circuit（+ WebRTC 打洞，见下）。
 
 **只有接收方向能续传**：浏览器无法在用户不重新选择的前提下再读同一个 `File`，
 因此非终态发送会话与待决 offer 一律不落库。

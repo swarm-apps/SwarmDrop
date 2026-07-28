@@ -2,16 +2,22 @@
 //!
 //! | target | transports |
 //! |---|---|
-//! | native  | TCP + QUIC + DNS + WebSocket(listen 给浏览器) + relay client |
-//! | android | 同 native，但 DNS 换显式公共解析、去 WebSocket（见 build_swarm 的 cfg 分支）|
-//! | wasm    | webrtc-websys + websocket-websys + relay client（不能 listen 本地 socket）|
+//! | native  | TCP + QUIC + DNS + webrtc-direct + relay client |
+//! | android | 同 native，但 DNS 换显式公共解析（见 build_swarm 的 cfg 分支）|
+//! | wasm    | webrtc-direct + webrtc 打洞 + relay client（不能 listen 本地 socket）|
+//!
+//! **WebSocket 已整体移除**（2026-07-28）。它唯一的活是「同网浏览器直连桌面」，而
+//! webrtc-direct 把这件事做得更好：不占 TCP 端口、私网公网同一条路径、且没有
+//! 「circuit 地址被 ws transport 抢走」这类前缀误匹配问题（实测踩过，见
+//! `webrtc_and_relay`）。移除后 Android 与桌面的 transport 栈也终于一致了。
 //!
 //! 说明：
 //! - SwarmBuilder 是编译期类型状态链，无法按运行时配置增删 transport；
-//!   「启不启用」用 behaviour 侧 `Toggle`（relay）或「不 listen」（tcp/ws）表达，
+//!   「启不启用」用 behaviour 侧 `Toggle`（relay）或「不 listen」（tcp）表达，
 //!   builder 链本身保持单条不分叉（旧栈同款手法）。
-//! - relay phase 无 target gate（`cfg(feature = "relay")` only）——wasm 也走
-//!   `with_relay_client`，浏览器经 circuit 被动接收连接靠它。
+//! - **relay client 由本模块自己装配**，不走 `with_relay_client`——那个方法会把 relay
+//!   排到 `or_transport` 最前，抢走 WebRTC 打洞地址（原委见 `webrtc_and_relay`）。
+//!   双 target 同款：浏览器经 circuit 被动接收连接也靠它。
 //! - webrtc-direct（native 侧 server/dialer）在 M2 经 `with_other_transport` 接入。
 //! - webrtc-p2p（打洞）默认关闭，`Builder::webrtc_p2p(..)` 启用；双 target 同款接法。
 
@@ -66,9 +72,12 @@ fn build_webrtc_p2p(
     (Some(transport), Some(behaviour))
 }
 
-/// 把「WebRTC 打洞」与「relay client」两个传输按**正确优先级**组装成一条。
+/// 造「WebRTC 打洞 + relay client」这条 transport，并返回配套的 relay behaviour。
 ///
-/// # 为什么必须自己组装，不能用 `SwarmBuilder::with_relay_client`
+/// 双 target 共用——**relay 的 upgrade 链只此一处**，否则两个 cfg 分支各写一遍，
+/// 将来改 noise / yamux 配置就得记得两边同步。
+///
+/// # 为什么不用 `SwarmBuilder::with_relay_client`
 ///
 /// 打洞地址 `<relay>/p2p-circuit/webrtc/p2p/<target>` 含 `/p2p-circuit` 段，而 relay
 /// client transport 的 `parse_relayed_multiaddr` 只要求有 circuit 段——**circuit 之后的
@@ -81,32 +90,43 @@ fn build_webrtc_p2p(
 /// 后果极隐蔽（浏览器实测）：`listen_on` / `dial` 全被 relay 接走，reservation 和中转
 /// 都正常工作，**打洞路径一次都没被调用过**，且没有任何报错。
 ///
-/// 所以这里跳过 builder 的 relay phase（后续用 `RelayPhase::with_behaviour` 的
-/// 单参数快捷方式），自己把 webrtc-p2p 放在 relay **前面**。
+/// # 注册位置的约束
+///
+/// 本函数的产物必须排在**任何会按前缀吞掉 circuit 地址的 transport 之前**。历史上
+/// WebSocket 就是这样一个：circuit 地址形如 `/ip4/…/tcp/…/ws/p2p/<relay>/p2p-circuit/…`，
+/// 它只认前缀就照单全收、无视 circuit 段，于是真的连上 relay，然后 Swarm 发现对端是
+/// relay 而非 target，报 `WrongPeerId`（实测踩过）。WebSocket 已于 2026-07-28 整体移除，
+/// 现存 transport（tcp/quic/webrtc-direct）都不认 circuit 地址，故顺序压力已解除——
+/// 但**再引入新 transport 时要重新审这一条**。
 ///
 /// js-libp2p 没有这个问题——它的 circuit transport filter 显式排除了带 `/webrtc` 的地址。
 /// rust-libp2p 缺这道排除，因为上游还没有 private-to-private 的 WebRTC 传输。
-fn relay_first_webrtc<M>(
+#[expect(
+    clippy::type_complexity,
+    reason = "libp2p 的 transport 组合类型天然如此"
+)]
+fn webrtc_and_relay(
+    key: &Keypair,
     webrtc: Option<webrtc_p2p::Transport>,
-    relay: libp2p::relay::client::Transport,
-    upgrade: impl FnOnce(libp2p::relay::client::Transport) -> M,
-) -> impl libp2p::core::Transport<
-    Output = (libp2p::PeerId, libp2p::core::muxing::StreamMuxerBox),
-    Error = impl std::error::Error + Send + Sync + 'static,
-    ListenerUpgrade = impl Send,
-    Dial = impl Send,
->
-where
-    M: libp2p::core::Transport<Output = (libp2p::PeerId, libp2p::core::muxing::StreamMuxerBox)>
-        + Send
-        + Unpin
-        + 'static,
-    M::Error: Send + Sync + 'static,
-    M::Dial: Send,
-    M::ListenerUpgrade: Send,
-{
+    relay_client: bool,
+) -> Result<
+    (
+        libp2p::core::transport::Boxed<(libp2p::PeerId, libp2p::core::muxing::StreamMuxerBox)>,
+        Option<libp2p::relay::client::Behaviour>,
+    ),
+    libp2p::noise::Error,
+> {
     use libp2p::core::muxing::StreamMuxerBox;
     use libp2p::core::transport::{OptionalTransport, Transport as _};
+    use libp2p::core::upgrade::Version;
+    use libp2p::{noise, yamux};
+
+    let (relay_transport, relay_behaviour) = libp2p::relay::client::new(key.public().to_peer_id());
+    let relay = relay_transport
+        .upgrade(Version::V1Lazy)
+        .authenticate(noise::Config::new(key)?)
+        .multiplex(yamux::Config::default())
+        .map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn)));
 
     let webrtc = match webrtc {
         Some(t) => {
@@ -114,14 +134,17 @@ where
         }
         None => OptionalTransport::none(),
     };
+
     // ⚠️ 顺序即语义：webrtc-p2p 在前，它只认带 `/webrtc` 的地址，其余原样落给 relay。
-    webrtc
-        .or_transport(upgrade(relay))
+    let transport = webrtc
+        .or_transport(relay)
         .map(|either, _| either.into_inner())
+        .boxed();
+    Ok((transport, relay_client.then_some(relay_behaviour)))
 }
 
 #[cfg(not(wasm_browser))]
-pub(crate) async fn build_swarm(
+pub(crate) fn build_swarm(
     keypair: Keypair,
     config: &EndpointConfig,
 ) -> Result<Swarm<Behaviour>, BuildSwarmError> {
@@ -167,44 +190,25 @@ pub(crate) async fn build_swarm(
                 .map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn))))
         })
         .map_err(|e| err(&e))?
-        // WebRTC 打洞 + relay client 合成一条，**顺序由我们定**（原委见
-        // `relay_first_webrtc`：`with_relay_client` 会把 relay 排到最前，抢走打洞地址）。
+        // WebRTC 打洞 + relay client 合成一条，**顺序由我们定**（见 `webrtc_and_relay`）。
         .with_other_transport(|key| {
-            let (relay_transport, relay) = libp2p::relay::client::new(key.public().to_peer_id());
-            relay_behaviour = config.relay_client.then_some(relay);
-            let key = key.clone();
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(relay_first_webrtc(
-                webrtc_p2p_transport,
-                relay_transport,
-                move |t| {
-                    t.upgrade(libp2p::core::upgrade::Version::V1Lazy)
-                        .authenticate(noise::Config::new(&key).expect("noise config"))
-                        .multiplex(yamux::Config::default())
-                        .map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn)))
-                },
-            ))
+            let (transport, relay) =
+                webrtc_and_relay(key, webrtc_p2p_transport, config.relay_client)?;
+            relay_behaviour = relay;
+            Ok(transport)
         })
         .map_err(|e| err(&e))?;
 
     // Android：hickory 的 system_conf 经 JNI（ndk-context）读系统 DNS，RN 宿主没有
-    // 初始化入口 → start 报 "android context was not initialized"。炸点有两处，
-    // 排障细节见 dev-notes/knowledge/net-kernel.md 坑 7：
-    // 1. with_dns() → 换 with_dns_config 显式公共 DNS；
-    // 2. with_websocket() → 跳过——其宏展开硬编码 Transport::system，不吃
-    //    with_dns_config。代价：Android 端 /ws、/wss 地址完全不可拨（当前无消费方）。
+    // 初始化入口 → start 报 "android context was not initialized"。换成显式公共 DNS。
+    // 排障细节见 dev-notes/knowledge/net-kernel.md 坑 7。
+    //（曾经的第二处炸点 `with_websocket` 随 WebSocket 整体移除而消失。）
     #[cfg(target_os = "android")]
     let builder =
         builder.with_dns_config(android_dns_config(), libp2p::dns::ResolverOpts::default());
 
     #[cfg(not(target_os = "android"))]
-    let builder = builder
-        .with_dns()
-        .map_err(|e| err(&e))?
-        // WebSocket listener：LanHelper 给浏览器的入口（ws:// 私有 IP 豁免
-        // mixed content，spike 实证）。是否真的 listen 由 listen 地址决定。
-        .with_websocket(noise::Config::new, yamux::Config::default)
-        .await
-        .map_err(|e| err(&e))?;
+    let builder = builder.with_dns().map_err(|e| err(&e))?;
 
     let swarm = builder
         // 单参数 with_behaviour = 跳过 builder 的 relay phase（relay transport 已在上面
@@ -240,14 +244,13 @@ fn android_dns_config() -> libp2p::dns::ResolverConfig {
 }
 
 #[cfg(wasm_browser)]
-pub(crate) async fn build_swarm(
+pub(crate) fn build_swarm(
     keypair: Keypair,
     config: &EndpointConfig,
 ) -> Result<Swarm<Behaviour>, BuildSwarmError> {
     use libp2p::core::muxing::StreamMuxerBox;
     use libp2p::core::transport::Transport as _;
-    use libp2p::core::upgrade::Version;
-    use libp2p::{SwarmBuilder, noise, webrtc_websys, websocket_websys, yamux};
+    use libp2p::{SwarmBuilder, webrtc_websys};
 
     let err = |e: &dyn std::fmt::Display| BuildSwarmError(e.to_string());
 
@@ -258,55 +261,27 @@ pub(crate) async fn build_swarm(
 
     let swarm = SwarmBuilder::with_existing_identity(keypair)
         .with_wasm_bindgen()
+        // ⚠️ **必须排在 ws/webrtc-websys 之前**：circuit 地址形如
+        // `/ip4/…/tcp/…/ws/p2p/<relay>/p2p-circuit/p2p/<target>`，而 websocket transport
+        // 只认前缀 `/ip4/…/tcp/…/ws` 就照单全收，无视后面的 circuit 段——它会真的连上
+        // relay，然后 Swarm 发现对端是 relay 而非 target，报 `WrongPeerId`（实测）。
+        // 官方 `with_relay_client` 把 relay 塞在最前正是为此；我们自己组装就得自己保证。
         .with_other_transport(|key| {
-            // websocket-websys 没有便捷方法，手动 upgrade/authenticate/multiplex
-            // （照 rust-libp2p/interop-tests/src/arch.rs 的官方组合；
-            //  spike/webrtc-direct-https 实测通过）。Window/Worker 双环境可用。
-            let ws = websocket_websys::Transport::default()
-                .upgrade(Version::V1Lazy)
-                .authenticate(noise::Config::new(key)?)
-                .multiplex(yamux::Config::default())
-                .map(|(p, c), _| (p, StreamMuxerBox::new(c)));
-
-            // Worker 环境（无 window）不装 webrtc-websys：它的 dial 在地址格式检查
-            // **之前**就调 maybe_local_firefox()（内含 window().expect）——装了它，
-            // 经 or_transport 拨任何地址（含 ws）都先进 webrtc 分支碰 window panic。
-            // 实测坐实（2026-07-18 Worker 版基准），非只影响 webrtc 地址。
-            if web_sys::window().is_none() {
-                return Ok(ws.boxed());
-            }
-
-            // webrtc-websys 自带 noise + 分帧，不需要 upgrade 链。
-            let webrtc = webrtc_websys::Transport::new(
+            let (transport, relay) =
+                webrtc_and_relay(key, webrtc_p2p_transport, config.relay_client)?;
+            relay_behaviour = relay;
+            Ok(transport)
+        })
+        .map_err(|e| err(&e))?
+        .with_other_transport(|key| {
+            // webrtc-direct：拨已可达的对端（同网桌面 / 公网 relay）。自带 noise
+            // 与分帧，不需要 upgrade 链。
+            Ok(webrtc_websys::Transport::new(
                 webrtc_websys::Config::new(key)
                     .with_max_message_size(WEBRTC_MAX_MESSAGE_SIZE)
                     .with_max_read_buffer_size(WEBRTC_MAX_READ_BUFFER_SIZE),
             )
-            .map(|(p, c), _| (p, StreamMuxerBox::new(c)));
-
-            // or_transport 两道坎（E0271）：两侧先各自 map 成 StreamMuxerBox；
-            // 摊平后 Output 仍是 future::Either，需 into_inner() 再塌缩一次。
-            Ok(webrtc
-                .or_transport(ws)
-                .map(|either, _| either.into_inner())
-                .boxed())
-        })
-        .map_err(|e| err(&e))?
-        // WebRTC 打洞 + relay client 合成一条，顺序同 native（见 `relay_first_webrtc`）。
-        .with_other_transport(|key| {
-            let (relay_transport, relay) = libp2p::relay::client::new(key.public().to_peer_id());
-            relay_behaviour = config.relay_client.then_some(relay);
-            let key = key.clone();
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(relay_first_webrtc(
-                webrtc_p2p_transport,
-                relay_transport,
-                move |t| {
-                    t.upgrade(Version::V1Lazy)
-                        .authenticate(noise::Config::new(&key).expect("noise config"))
-                        .multiplex(yamux::Config::default())
-                        .map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn)))
-                },
-            ))
+            .map(|(p, c), _| (p, StreamMuxerBox::new(c))))
         })
         .map_err(|e| err(&e))?
         // 单参数 = 跳过 builder 的 relay phase（原委见 native 分支）。

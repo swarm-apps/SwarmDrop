@@ -238,15 +238,9 @@ master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Andro
 1. `with_dns()` → `Transport::system`。修法：Android target 用
    `with_dns_config(公共 DNS, ResolverOpts::default())`（transport.rs 有
    `android_dns_config()`：AliDNS/DNSPod/Cloudflare/Google udp+tcp 四组）。
-2. `with_websocket()`——**宏展开硬编码 `libp2p_dns::tokio::Transport::system(tcp)`**
-   （`libp2p/src/builder/phase/websocket.rs`），不吃 with_dns_config。修法：Android
-   直接跳过 ws（WebsocketPhase 有 `with_relay_client` shortcut，内部 without_websocket）；
-   WS listener 本来就是「LanHelper 给浏览器」的桌面场景，移动端无消费方。
-   **契约后果**：Android endpoint 对 `/ws`、`/wss` 地址**完全不可拨**（不只是不
-   listen）——今天无影响（移动拨桌面走 TCP/QUIC），但属于平台能力不对称，规划
-   ws-only 节点时要记得。根因是 libp2p 上游缺口（websocket phase 应复用已配置的
-   dns config），已提上游 <https://github.com/libp2p/rust-libp2p/issues/6529>，
-   修复后本地可收敛回双分支。
+2. ~~`with_websocket()` 的宏展开硬编码 `Transport::system`~~ —— **随 WebSocket 整体移除
+   而消失（2026-07-28）**，Android 与桌面的 transport 栈现已一致。上游缺口
+   <https://github.com/libp2p/rust-libp2p/issues/6529> 对本项目不再有影响。
 
 ### Android 条件编译分支也必须通过 `-D warnings`（2026-07-24）
 
@@ -256,8 +250,7 @@ master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Andro
 
 **相关文件**：`crates/net/src/endpoint/presets.rs`
 
-只修 1 不修 2 表现完全一样（同一错误字符串），容易误判「没修上」——先怀疑第二处，
-再怀疑 .so 没重编。`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
+`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
 re-export ResolverConfig/ResolverOpts），版本必须与 libp2p-dns 同线（crates/net 的
 android target 依赖表）。
 
@@ -294,6 +287,25 @@ android target 依赖表）。
 
 与官方 `libp2p-webrtc`（webrtc-direct）是**两个传输、可共存**：那个要求目标地址已可达，
 这个让双方都不可达的节点经 relay 换信令后打洞。
+
+### WebSocket 已整体移除（2026-07-28）
+
+客户端 transport、桌面 `/ws` listener、bootstrap 的 4002 端口一并砍掉。它唯一的活是
+「同网浏览器直连桌面」，webrtc-direct 做得更好：不占 TCP 端口、私网公网同一条路径。
+
+**三个副产品**：
+
+1. **坑 7 只剩一处炸点**。原来 Android 的 JNI DNS 问题有两处（`with_dns` 与
+   `with_websocket`），后者随 ws 消失——Android 与桌面的 transport 栈现在完全一致。
+2. **前缀误匹配的隐患没了**。circuit 地址形如 `/ip4/…/tcp/…/ws/p2p/<relay>/p2p-circuit/…`，
+   ws transport 只认前缀就照单全收、无视 circuit 段，会真的连上 relay 然后报
+   `WrongPeerId`（实测踩过）。
+3. **native 也能打洞了**。`with_websocket` 是 `ws.or_transport(已有)` 把自己排到最前，而
+   builder 不允许在 websocket phase 之后再加 transport——它在时，native 无法把 webrtc-p2p
+   排到 relay 前面。砍掉后两个 target 用同一套装配。
+
+Worker 模式（曾是 ws-only，因 webrtc-websys 在 Worker 里必 panic）同时失去意义——
+`docs/app/app` 从未真的 `new Worker`，那是 spike 遗留。
 
 ### ⚠️ 不能用 `with_relay_client`——relay 会抢走打洞地址（2026-07-28 浏览器实测）
 
@@ -333,6 +345,21 @@ rust-libp2p 缺这道排除，因为上游还没有 private-to-private 的 WebRT
    `expect("Relay connection exist")` 打成 panic——浏览器实测 2/2 必现，短路后 0/2。
    撤销同理，只在 `handle_remove_infra_peer` 做。
    代价是 reservation 掉线期间地址短暂不可达；幂等重试会拉回来，比让对端地址簿反复失效好。
+
+### 浏览器侧排障：先收紧 tracing filter
+
+Web 端曾是全局 `DEBUG`，libp2p 各层的日志（multistream 协商、每连接 poll、identify push…）
+把浏览器 console 的行数上限冲爆——**自己的日志一条都看不到**。排 webrtc 打洞时因此误判过
+「对端毫无响应」。现按 target 分层（`crates/web/src/lib.rs` 的 `Targets`），日志量降两个
+数量级。**碰 Web 端排障先确认 filter，别对着被冲掉的日志下结论。**
+
+### DataChannel 的 `Connecting` 不是错误（wasm 侧）
+
+`PeerConnection` 的 `connected`（DTLS 完成）**早于** DataChannel 的 `open`（SCTP 完成）。
+muxer 一交出去上层就开始写，此刻必然还是 `Connecting`——把它当写错误会让刚建立的打洞连接
+立刻刷屏报错，实际只差几十毫秒。正确做法是注册 waker 返回 `Pending`，并配 `onopen` 回调
+唤醒（**没有 onopen 就永远等不到通知**）。native 侧无此问题：`webrtc-rs` 的 `send` 是
+async，内部等 SCTP。
 
 ### webrtc-p2p 的 `Transport::listen_on` 必须唤醒 poll
 

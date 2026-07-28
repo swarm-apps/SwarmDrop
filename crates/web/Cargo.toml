@@ -52,7 +52,12 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 # feature 侥幸通过，独立构建暴露）。backend cfg 由 .cargo/config.toml 供，feature 由此依赖供。
 getrandom_v04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 console_error_panic_hook = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+# `registry` + `std` 是 Targets 分层过滤的前置（见 lib.rs 的 start()）
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "fmt",
+    "registry",
+    "std",
+] }
 tracing-subscriber-wasm = "0.1"
 # uuid v4 在 wasm 需要随机源（js）。
 uuid = { workspace = true, features = ["js"] }
