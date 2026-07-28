@@ -454,10 +454,6 @@ export class WebNode {
      */
     generate_invite(local_only: boolean): string;
     /**
-     * 兼容旧 6 位分享码：从 DHT 查 record，解析 publisher + listen_addrs，并注册到本地地址簿。
-     */
-    lookup_share_code(code: string): Promise<NodeAddrJson>;
-    /**
      * 本节点身份（base58）。
      */
     node_id(): string;
@@ -564,7 +560,6 @@ export interface InitOutput {
     readonly webnode_download_url: (a: number, b: number, c: number) => any;
     readonly webnode_events: (a: number) => [number, number, number];
     readonly webnode_generate_invite: (a: number, b: number) => [number, number, number, number];
-    readonly webnode_lookup_share_code: (a: number, b: number, c: number) => any;
     readonly webnode_node_id: (a: number) => [number, number];
     readonly webnode_paired_devices: (a: number) => [number, number, number];
     readonly webnode_pending_offers: (a: number) => [number, number, number];

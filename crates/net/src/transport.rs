@@ -19,7 +19,8 @@
 //!   排到 `or_transport` 最前，抢走 WebRTC 打洞地址（原委见 `webrtc_and_relay`）。
 //!   双 target 同款：浏览器经 circuit 被动接收连接也靠它。
 //! - webrtc-direct（native 侧 server/dialer）在 M2 经 `with_other_transport` 接入。
-//! - webrtc-p2p（打洞）默认关闭，`Builder::webrtc_p2p(..)` 启用；双 target 同款接法。
+//! - webrtc-p2p（打洞）经 `Builder::webrtc_p2p(..)` 启用，双 target 同款接法；
+//!   内核默认关，但 core 的组合根对三端一律开启（打洞要两端都支持）。
 
 use libp2p::Swarm;
 use libp2p::identity::Keypair;

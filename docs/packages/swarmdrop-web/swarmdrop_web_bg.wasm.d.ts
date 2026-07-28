@@ -9,7 +9,6 @@ export const webnode_connect_invite: (a: number, b: number, c: number) => any;
 export const webnode_download_url: (a: number, b: number, c: number) => any;
 export const webnode_events: (a: number) => [number, number, number];
 export const webnode_generate_invite: (a: number, b: number) => [number, number, number, number];
-export const webnode_lookup_share_code: (a: number, b: number, c: number) => any;
 export const webnode_node_id: (a: number) => [number, number];
 export const webnode_paired_devices: (a: number) => [number, number, number];
 export const webnode_pending_offers: (a: number) => [number, number, number];

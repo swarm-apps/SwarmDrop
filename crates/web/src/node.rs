@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
-use serde::Deserialize;
 use swarmdrop_core::device_manager::DeviceFilter;
 use swarmdrop_core::host::EventBus;
 use swarmdrop_core::network::event_loop::spawn_event_loop;
@@ -23,7 +22,7 @@ use swarmdrop_core::runtime::{EndpointProfile, start_node};
 use swarmdrop_host::device::OsInfo;
 use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId};
 use swarmdrop_invite::TransportPolicy;
-use swarmdrop_net::{DhtError, DhtKey, Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
+use swarmdrop_net::{Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
 use swarmdrop_transfer::HostEnumeratedFile;
 use swarmdrop_transfer::coordinator::TransferCoordinator;
 use swarmdrop_transfer::events::TransferEventSink;
@@ -40,9 +39,7 @@ use crate::events::WebEventSink;
 use crate::file_access::OpfsFileAccess;
 use crate::identity;
 use crate::store::PersistentSessionStore;
-use crate::types::{
-    ConnectionJson, NodeAddrJson, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind,
-};
+use crate::types::{ConnectionJson, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind};
 
 /// 浏览器连接与 reservation 的最大等待时间。超时会通过 Endpoint 的取消路径
 /// 停止无主拨号/relay 重试，不是只 reject JavaScript Promise。
@@ -68,9 +65,6 @@ extern "C" {
     /// `connect()` 的返回。
     #[wasm_bindgen(typescript_type = "ConnectionJson")]
     pub type ConnectionJsonJs;
-    /// `lookup_share_code()` 的返回。
-    #[wasm_bindgen(typescript_type = "NodeAddrJson")]
-    pub type NodeAddrJsonJs;
     /// `paired_devices()` 的返回：`Device[]`。
     #[wasm_bindgen(typescript_type = "Device[]")]
     pub type DeviceArray;
@@ -90,15 +84,6 @@ extern "C" {
 /// 30s 是对外承诺的 API 默认值，不与下层内部常量（supervisor tick 间隔 /
 /// connect 超时）联动——调用方要更短的耐心用 `AbortSignal.timeout()` 表达。
 const UNTIL_ACTIVE_CAP: Duration = Duration::from_secs(30);
-const SHARE_CODE_NAMESPACE: &str = "/swarmdrop/share-code/";
-
-#[derive(Deserialize)]
-struct LegacyShareCodeRecord {
-    #[serde(default, alias = "expiresAt")]
-    expires_at: Option<i64>,
-    #[serde(default, alias = "listenAddrs")]
-    listen_addrs: Vec<String>,
-}
 
 /// `watch_relays` 快照 → JS 投影（`RelayInfoJson[]`）。
 fn relay_info_json(map: &BTreeMap<NodeId, RelayState>) -> Vec<RelayInfoJson> {
@@ -262,60 +247,6 @@ impl WebNode {
     /// 本节点身份（base58）。
     pub fn node_id(&self) -> String {
         self.endpoint.node_id().to_string()
-    }
-
-    /// 兼容旧 6 位分享码：从 DHT 查 record，解析 publisher + listen_addrs，并注册到本地地址簿。
-    pub async fn lookup_share_code(&self, code: String) -> Result<NodeAddrJsonJs, JsValue> {
-        let code = code.trim();
-        if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(WebError::invalid_input("分享码必须是 6 位数字").into());
-        }
-
-        let dht = self
-            .endpoint
-            .dht()
-            .ok_or_else(|| WebError::network("当前节点未启用 DHT"))?;
-        let record = dht
-            .get(DhtKey::namespaced(SHARE_CODE_NAMESPACE, code.as_bytes()))
-            .await
-            .map_err(|e| match e {
-                DhtError::NotFound => WebError::not_found("未找到分享码或分享码已过期"),
-                other => WebError::network(format!("查询分享码失败: {other}")),
-            })?;
-        let peer_id = record
-            .publisher
-            .ok_or_else(|| WebError::network("分享码记录缺少发布者身份"))?;
-        let legacy: LegacyShareCodeRecord = serde_json::from_slice(&record.value)
-            .map_err(|e| WebError::network(format!("解析分享码记录失败: {e}")))?;
-        if legacy
-            .expires_at
-            .is_some_and(|expires_at| expires_at <= (js_sys::Date::now() / 1000.0) as i64)
-        {
-            return Err(WebError::not_found("分享码已过期").into());
-        }
-        if legacy.listen_addrs.is_empty() {
-            return Err(WebError::network("分享码记录没有可用地址").into());
-        }
-
-        let mut parsed_addrs = Vec::with_capacity(legacy.listen_addrs.len());
-        for addr in &legacy.listen_addrs {
-            parsed_addrs.push(
-                addr.parse::<swarmdrop_net::Addr>()
-                    .map_err(|e| WebError::network(format!("分享码地址解析失败: {e}")))?,
-            );
-        }
-        self.endpoint
-            .add_addrs(peer_id, parsed_addrs)
-            .await
-            .map_err(|e| WebError::network(format!("注册分享码地址失败: {e}")))?;
-
-        to_js_typed(
-            &NodeAddrJson {
-                id: peer_id.to_string(),
-                addrs: legacy.listen_addrs,
-            },
-            "分享码查找结果",
-        )
     }
 
     /// 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。

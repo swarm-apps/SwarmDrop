@@ -231,18 +231,22 @@ async fn build_endpoint(
             .address_lookup(LookupBuilderFn(|ep: &Endpoint| {
                 Ok(Box::new(OnlineRecordLookup::new(ep.clone())) as Box<dyn AddressLookup>)
             })),
-        // 浏览器开 WebRTC 打洞：它没有 DCUtR（那需要直连 socket，wasm 编译期就不存在），
-        // 经 relay 换信令是它把中转升级成直连的唯一途径。
-        //
-        // Native 侧暂不开——桌面/移动已有 autonat + dcutr 能打洞，重复开销无收益；
-        // 且打洞要**两端都支持**，web ↔ 原生端要等 wasm 侧实测通过再决定是否接。
-        EndpointProfile::Browser => builder
-            .preset(presets::Browser)
-            .webrtc_p2p(WebRtcP2pConfig {
-                stun_servers: STUN_SERVERS.iter().map(|s| s.to_string()).collect(),
-                ..WebRtcP2pConfig::default()
-            }),
+        EndpointProfile::Browser => builder.preset(presets::Browser),
     };
+
+    // WebRTC 打洞：**两端都开**。
+    //
+    // 浏览器非开不可——它没有 DCUtR（那需要直连 socket，wasm 编译期就不存在），经 relay
+    // 换信令是它把中转升级成直连的唯一途径。而原生端也必须开，因为**打洞要两端都支持**：
+    // 只有浏览器开着，`web ↔ NAT 后的桌面/手机` 这一格照样是全程中转，而那恰恰是自研这个
+    // 传输最想拿下的场景。
+    //
+    // 对原生端不是冗余：dcutr 走 TCP/QUIC 直连，ICE 走 UDP + STUN 候选，两者覆盖的 NAT
+    // 类型不同，互为补充。
+    builder = builder.webrtc_p2p(WebRtcP2pConfig {
+        stun_servers: STUN_SERVERS.iter().map(|s| s.to_string()).collect(),
+        ..WebRtcP2pConfig::default()
+    });
 
     // relay server 仅 Native + LanHelper（Browser 是纯 relay client，永不当 server）。
     // 这里判据是「端点形态是否 Native」，与 `registers_infra()`（是否注册引导设施）语义无关，

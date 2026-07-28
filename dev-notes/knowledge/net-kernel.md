@@ -299,9 +299,11 @@ android target 依赖表）。
 
 ## WebRTC 打洞传输接线（`crates/webrtc-p2p`，2026-07-28）
 
-自研的打洞传输已接进内核。**默认关**：`EndpointConfig.webrtc_p2p: Option<WebRtcP2pConfig>`，
-经 `Builder::webrtc_p2p(..)` 开启；当前只有 Browser profile 开（`crates/core/src/runtime.rs`），
-桌面/移动不开——它们有 autonat + dcutr，浏览器才是没有 DCUtR 的那一端。
+自研的打洞传输已接进内核。内核层面可关（`EndpointConfig.webrtc_p2p: Option<WebRtcP2pConfig>`，
+经 `Builder::webrtc_p2p(..)` 开启），但 **core 的组合根对三端一律开启**
+（`crates/core/src/runtime.rs`）——**打洞要两端都支持，只开浏览器等于没开**：
+`web ↔ NAT 后的桌面/手机` 那一格照样全程中转，而那恰恰是自研它最想拿下的场景。
+对原生端也不是冗余：dcutr 走 TCP/QUIC 直连，ICE 走 UDP + STUN 候选，覆盖的 NAT 类型不同。
 
 与官方 `libp2p-webrtc`（webrtc-direct）是**两个传输、可共存**：那个要求目标地址已可达，
 这个让双方都不可达的节点经 relay 换信令后打洞。

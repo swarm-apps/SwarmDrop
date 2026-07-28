@@ -254,10 +254,11 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
 
 ### 接线形状（2026-07-28）
 
-**默认关**，`Builder::webrtc_p2p(WebRtcP2pConfig)` 开启；当前只有 Browser profile 开
-（`crates/core/src/runtime.rs`）。桌面/移动不开——它们有 autonat + dcutr，而打洞要
-**两端都支持**，所以现阶段可验的组合是 **web ↔ web**；要验 web ↔ 原生端，得先给
-Native profile 也开。
+内核层面可关（`Builder::webrtc_p2p(WebRtcP2pConfig)`），但 **core 的组合根对三端一律
+开启**（`crates/core/src/runtime.rs`）——**打洞要两端都支持，只开浏览器等于没开**：
+`web ↔ NAT 后的桌面/手机` 那一格照样全程中转，而那正是本方案最想拿下的场景
+（见上文覆盖矩阵第二行）。对原生端也不是冗余：dcutr 走 TCP/QUIC 直连，ICE 走
+UDP + STUN 候选，覆盖的 NAT 类型不同。
 
 四条非显见约束（详见 [`knowledge/net-kernel.md`](../knowledge/net-kernel.md) 同名小节）：
 

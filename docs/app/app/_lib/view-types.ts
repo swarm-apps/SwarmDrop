@@ -15,7 +15,6 @@ export type {
   TransferProgressEvent,
   PrepareProgressEvent,
   PendingPairingJson,
-  NodeAddrJson,
   ConnectionJson,
   OfferRejectReason,
   PathKindJson,
