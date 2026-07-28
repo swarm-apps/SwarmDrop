@@ -476,7 +476,7 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 | webrtc-rs/rtc | [PR 137](https://github.com/webrtc-rs/rtc/pull/137) | `disable_certificate_fingerprint_verification` 是死代码 | **阻塞** — `[patch.crates-io]` 的唯一存在理由 |
 | libp2p/rust-libp2p | [PR 6570](https://github.com/libp2p/rust-libp2p/pull/6570) | relay circuit 无 reservation 时 panic | **阻塞** — 与 #6558/#6560 同属 git pin 退出条件 |
 | webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | **已 pin**（见下）；muxer 的 `local_channels` 仍保留，它是不变式不是补丁 |
-| webrtc-rs/webrtc | [issue 826](https://github.com/webrtc-rs/webrtc/issues/826) | `send()` 在通道 open 前返回 `Ok` 但**静默丢数据** | 已本地绕过（`data_channel::await_open`），**别删那个等待** |
+| webrtc-rs/**rtc** | [PR 138](https://github.com/webrtc-rs/rtc/pull/138) | `send()` 在通道 open 前/关闭后返回 `Ok` 但**静默丢数据**（issue 826） | 未 pin；本地绕法 `data_channel::await_open` **无论如何都要留** |
 | webrtc-rs/webrtc | [PR 828](https://github.com/webrtc-rs/webrtc/pull/828) | 加 `remote_certificate_fingerprint`（issue 827） | **已 pin**，`remote_fingerprint()` 收成一行 |
 | libp2p/rust-libp2p | [PR 6571](https://github.com/libp2p/rust-libp2p/pull/6571) | `Fingerprint::from_sdp_format` | 纯反哺 — 合并后 `protocol/addr.rs` 的手写解析可删 |
 | libp2p/rust-libp2p | [PR 6572](https://github.com/libp2p/rust-libp2p/pull/6572) | offer SDP 模板搬进 `libp2p-webrtc-utils` | 纯反哺 — 合并后 `native/direct/sdp.rs` 的模板副本可删 |
@@ -487,6 +487,22 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 ⚠️ **issue 826 是本仓踩过最贵的一个坑**：Noise 握手第一条消息在
 `RTCPeerConnectionState::Connected` 时写出去就消失了，全链路零报错，表现为「握手莫名挂住」。
 实测数据在 issue 正文里（三条消息只到一条）。修法是发首包前等 `OnOpen`。
+
+根因后来钉死在 **rtc**（不在 webrtc）：`DataChannelHandler::handle_write` 确实返回了
+`ErrDataChannelNotExisted`，但它跑在 pipeline 的 write pass 上，那里的错误只 `warn!` 不上抛：
+
+```
+send result: Ok(())
+[WARN rtc::peer_connection::handler] DataChannelHandler.handle_write got error: data channel not existed
+```
+
+修复见 [rtc#138](https://github.com/webrtc-rs/rtc/pull/138)（把判据搬到 send 边界，
+用与 handler 完全相同的条件，于是两者不可能不一致）。顺带查出两件 issue 里没写的：
+**通道关闭后 send 同样返回 `Ok`**，且被拒的 send 还会错误累加 `outstanding_bytes`
+——那些字节从没进过 SCTP，永远不会被释放，等于把发送窗口永久缩小一截。
+
+> **就算 rtc#138 合并了，`await_open` 也不能删。** 它把「静默丢」变成「明确报错」，
+> 不代表可以不等——发之前仍然必须等通道 open。
 
 #### direct 的三个指纹从哪来——issue 827 只砸中其中一个
 
