@@ -177,7 +177,7 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 
 - `__root.tsx` — 根布局
 - `_onboarding.tsx` + `_onboarding/device-name.lazy.tsx` — 首启引导（**只有设备命名**）
-- `_app.tsx` — 主布局（侧边栏 / 底部导航）
+- `_app.tsx` — 主布局（`AppTopBar` + 内容区；`/pairing` 是全屏路由，不挂顶栏）
 - `_app/devices/` — 设备（含 `-components/` 局部组件、trust policy、分组）
 - `_app/send/` — 发送（含 `share-target` 外部打开入口）
 - `_app/inbox/` — 收件箱
@@ -204,8 +204,17 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 **Zustand 访问约束**：selector 里禁止派生新数组/对象（会无限重渲染）。
 `pnpm check:zustand-access` 是机器兜底，细节见 `dev-notes/knowledge/theme-and-styling.md`。
 
-**Responsive Design** — 3 breakpoints via `use-breakpoint` hook: mobile (<768px) 底部导航 /
-tablet (768–1023px) 图标侧边栏 / desktop (≥1024px) 展开侧边栏。
+**Responsive Design** — 桌面端**没有侧边栏，也没有底部导航**：全局导航是 `AppTopBar`
+的顶栏 + 面包屑（`src/components/layout/app-topbar.tsx`），导航深度靠面包屑表达。
+这是 `DESIGN.md` 里的刻意简化，不是待补的缺口——加 nav rail 前先读那里第 204 / 228 行。
+
+页面级主从布局用 `MasterDetailShell`（收件箱 / 传输活动 / share-target 共用），
+单一断点 `MASTER_DETAIL_QUERY = (min-width: 920px)`：≥920 左列表 + 右详情双栏，
+<920 详情占满、列表从左抽屉滑出。**所有 master-detail 页都用这一个断点，不要各页写各的。**
+其余响应式靠 Tailwind 断点类。hook 是 `src/hooks/use-media-query.ts` 的 `useIsWideLayout`。
+
+> Web 应用区（`docs/app/app`）是**另一套形态**——侧边栏 + 多路由，与桌面端有意分叉，
+> 见 issue #88。别把两边的导航描述混用。
 
 **i18n** — 前端 Lingui + Babel macro，源 locale `zh`，实际 locale 为 **zh / zh-TW / en**
 （ja/ko/es/fr/de 是路线图，尚未添加）。`pnpm i18n:extract` 提取，catalog 在
