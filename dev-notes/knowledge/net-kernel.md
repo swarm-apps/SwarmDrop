@@ -466,6 +466,28 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 修复已提上游 <https://github.com/webrtc-rs/rtc/pull/137>，根 `Cargo.toml` 的
 `[patch.crates-io]` 临时 pin 个人 fork，**退出条件写在那段注释里**（两条可判定命令）。
 
+### 上游缺口台账（2026-07-28）
+
+做 direct 期间踩到的上游问题都已提出去。**关键区分：只有下表标「阻塞」的两项影响本仓的
+依赖 pin**，其余是反哺与待改进——看到「5 个上游 PR」不要以为退出条件从 3 个变成 5 个。
+
+| 仓 | 编号 | 内容 | 对本仓的意义 |
+|---|---|---|---|
+| webrtc-rs/rtc | [PR 137](https://github.com/webrtc-rs/rtc/pull/137) | `disable_certificate_fingerprint_verification` 是死代码 | **阻塞** — `[patch.crates-io]` 的唯一存在理由 |
+| libp2p/rust-libp2p | [PR 6570](https://github.com/libp2p/rust-libp2p/pull/6570) | relay circuit 无 reservation 时 panic | **阻塞** — 与 #6558/#6560 同属 git pin 退出条件 |
+| webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | 已本地绕过（muxer 的 `local_channels` 不变式），合并后可简化 |
+| webrtc-rs/webrtc | [issue 826](https://github.com/webrtc-rs/webrtc/issues/826) | `send()` 在通道 open 前返回 `Ok` 但**静默丢数据** | 已本地绕过（`data_channel::await_open`），**别删那个等待** |
+| webrtc-rs/webrtc | [issue 827](https://github.com/webrtc-rs/webrtc/issues/827) | 0.20 拿不到远端 DTLS 证书（0.17 有 `get_remote_certificate`） | 已改用 SDP 解析指纹；有 API 后可换回握手侧校验 |
+| libp2p/rust-libp2p | [PR 6571](https://github.com/libp2p/rust-libp2p/pull/6571) | `Fingerprint::from_sdp_format` | 纯反哺 — 合并后 `protocol/addr.rs` 的手写解析可删 |
+| libp2p/rust-libp2p | [PR 6572](https://github.com/libp2p/rust-libp2p/pull/6572) | offer SDP 模板搬进 `libp2p-webrtc-utils` | 纯反哺 — 合并后 `native/direct/sdp.rs` 的模板副本可删 |
+
+> #6571 / #6572 **基于上游 master 开分支，不在 fork 树上**——它们不进 `Cargo.toml` 的 pin，
+> 也不进退出条件。它们合并只是让本仓能删掉两处副本。
+
+⚠️ **issue 826 是本仓踩过最贵的一个坑**：Noise 握手第一条消息在
+`RTCPeerConnectionState::Connected` 时写出去就消失了，全链路零报错，表现为「握手莫名挂住」。
+实测数据在 issue 正文里（三条消息只到一条）。修法是发首包前等 `OnOpen`。
+
 ### webrtc 0.20 没有 UDPMux —— 改从 `Runtime::wrap_udp_socket` 注入
 
 0.17 的 `UDPMux` / `UDPMuxWriter` / `UDPMuxConn` 体系在 0.20 整个消失
