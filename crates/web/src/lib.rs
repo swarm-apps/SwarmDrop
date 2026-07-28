@@ -46,12 +46,31 @@ pub use types::{
 #[cfg(wasm_browser)]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 fn start() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+
     console_error_panic_hook::set_once();
-    tracing_subscriber::fmt()
-        // 浏览器无 std 时钟，不去掉会 runtime error。
-        .without_time()
-        .with_ansi(false)
-        .with_max_level(tracing::Level::DEBUG)
-        .with_writer(tracing_subscriber_wasm::MakeConsoleWriter::default())
+
+    // **按 target 分层过滤，不要全局 DEBUG。** libp2p 各层的 debug 日志量极大
+    // （multistream 协商、每条连接的 poll、identify push…），全开会把本项目自己的
+    // 日志冲出浏览器 console 的行数上限——排障时反而什么都看不到（实测吃过亏）。
+    let filter = tracing_subscriber::filter::Targets::new()
+        .with_target("swarmdrop_web", tracing::Level::DEBUG)
+        .with_target("swarmdrop_core", tracing::Level::DEBUG)
+        .with_target("swarmdrop_net", tracing::Level::DEBUG)
+        .with_target("swarmdrop_transfer", tracing::Level::DEBUG)
+        // 打洞信令的每一步都值得看见，它没有别的可观测手段
+        .with_target("webrtc_p2p", tracing::Level::TRACE)
+        .with_default(tracing::Level::INFO);
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                // 浏览器无 std 时钟，不去掉会 runtime error。
+                .without_time()
+                .with_ansi(false)
+                .with_writer(tracing_subscriber_wasm::MakeConsoleWriter::default()),
+        )
+        .with(filter)
         .init();
 }

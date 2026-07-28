@@ -28,13 +28,9 @@ impl Preset for Native {
             "/ip4/0.0.0.0/udp/0/webrtc-direct"
                 .parse()
                 .expect("valid multiaddr"),
-            // Android 不编译 WebSocket transport，因此不能在此添加 /ws listener。
-            #[cfg(not(target_os = "android"))]
-            "/ip4/0.0.0.0/tcp/0/ws".parse().expect("valid multiaddr"),
         ];
-        // WebSocket listener：同网浏览器的 LAN 直连入口（ws:// 私有 IP 豁免 mixed content，
-        // spike 实证）。浏览器拨不了裸 TCP/QUIC，ws 是它够到本机的唯一免证书路径。
-        // Android 的 websocket transport 未接（见 transport.rs `with_websocket` 跳过），不 listen。
+        // 浏览器拨不了裸 TCP/QUIC，webrtc-direct 是它够到本机的唯一路径——certhash
+        // 免域名免 CA，私网公网同一条。（WebSocket 曾兼任此职，2026-07-28 已移除。）
         builder
             .listen(listen)
             .mdns(true)

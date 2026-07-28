@@ -224,6 +224,24 @@ Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesIn
 
 **相关文件**：`crates/core/src/network/config.rs`、`src/lib/bootstrap-nodes.ts`、`mobile/src/core/bootstrap-nodes.ts`、`docs/app/app/_lib/relay-helpers.ts`
 
+### 每个 relay 只申请一份 reservation（2026-07-28 修）
+
+`request_relay_reservation` 曾对地址簿里该 relay 的**每个地址各 listen 一次**，于是一台
+通告 9 个地址的 LanHelper 就收到 9 份 reservation 请求。而配额是 **per-peer** 的
+（`max_reservations_per_peer` 默认 4），多数请求以 `ResourceLimitExceeded` 被拒 →
+listener 批量关闭 → reservation 反复丢失重建。公网 relay 的总配额（32）也曾被几个
+测试端占满，实测时表现为「怎么都 reserve 不上」。
+
+**一份就够**，三条依据：
+
+1. 走到该函数时**必然已连上 relay**（两个调用点都在 `conns` / identify 之后，见坑 5 的
+   时序），relay client 的 `ListenReq` 走「复用现有连接」分支；
+2. 我们传的地址只用来拼那条要通告的 external 地址，**不参与建连**；
+3. relay client 的 `reservation_addresses` 以 `ConnectionId` 为键——多份本就互相覆盖，
+   最终生效的只有一份。
+
+实测：请求数 13 → 2（两个 relay 各一份），`ResourceLimitExceeded` 归零。
+
 ### 坑 6：kad `Record.expires` 的类型按 target 分叉
 
 native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant` 同源）——
@@ -238,15 +256,9 @@ master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Andro
 1. `with_dns()` → `Transport::system`。修法：Android target 用
    `with_dns_config(公共 DNS, ResolverOpts::default())`（transport.rs 有
    `android_dns_config()`：AliDNS/DNSPod/Cloudflare/Google udp+tcp 四组）。
-2. `with_websocket()`——**宏展开硬编码 `libp2p_dns::tokio::Transport::system(tcp)`**
-   （`libp2p/src/builder/phase/websocket.rs`），不吃 with_dns_config。修法：Android
-   直接跳过 ws（WebsocketPhase 有 `with_relay_client` shortcut，内部 without_websocket）；
-   WS listener 本来就是「LanHelper 给浏览器」的桌面场景，移动端无消费方。
-   **契约后果**：Android endpoint 对 `/ws`、`/wss` 地址**完全不可拨**（不只是不
-   listen）——今天无影响（移动拨桌面走 TCP/QUIC），但属于平台能力不对称，规划
-   ws-only 节点时要记得。根因是 libp2p 上游缺口（websocket phase 应复用已配置的
-   dns config），已提上游 <https://github.com/libp2p/rust-libp2p/issues/6529>，
-   修复后本地可收敛回双分支。
+2. ~~`with_websocket()` 的宏展开硬编码 `Transport::system`~~ —— **随 WebSocket 整体移除
+   而消失（2026-07-28）**，Android 与桌面的 transport 栈现已一致。上游缺口
+   <https://github.com/libp2p/rust-libp2p/issues/6529> 对本项目不再有影响。
 
 ### Android 条件编译分支也必须通过 `-D warnings`（2026-07-24）
 
@@ -256,8 +268,7 @@ master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Andro
 
 **相关文件**：`crates/net/src/endpoint/presets.rs`
 
-只修 1 不修 2 表现完全一样（同一错误字符串），容易误判「没修上」——先怀疑第二处，
-再怀疑 .so 没重编。`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
+`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
 re-export ResolverConfig/ResolverOpts），版本必须与 libp2p-dns 同线（crates/net 的
 android target 依赖表）。
 
@@ -285,6 +296,116 @@ android target 依赖表）。
   运行时行为待真机冒烟确认**。
 - ConnectionHandler 的关联类型（InboundOpenInfo 等）与 0.56 一致，keep_alive
   behaviour 近零改动移植。
+
+## WebRTC 打洞传输接线（`crates/webrtc-p2p`，2026-07-28）
+
+自研的打洞传输已接进内核。**默认关**：`EndpointConfig.webrtc_p2p: Option<WebRtcP2pConfig>`，
+经 `Builder::webrtc_p2p(..)` 开启；当前只有 Browser profile 开（`crates/core/src/runtime.rs`），
+桌面/移动不开——它们有 autonat + dcutr，浏览器才是没有 DCUtR 的那一端。
+
+与官方 `libp2p-webrtc`（webrtc-direct）是**两个传输、可共存**：那个要求目标地址已可达，
+这个让双方都不可达的节点经 relay 换信令后打洞。
+
+### WebSocket 已整体移除（2026-07-28）
+
+客户端 transport、桌面 `/ws` listener、bootstrap 的 4002 端口一并砍掉。它唯一的活是
+「同网浏览器直连桌面」，webrtc-direct 做得更好：不占 TCP 端口、私网公网同一条路径。
+
+**三个副产品**：
+
+1. **坑 7 只剩一处炸点**。原来 Android 的 JNI DNS 问题有两处（`with_dns` 与
+   `with_websocket`），后者随 ws 消失——Android 与桌面的 transport 栈现在完全一致。
+2. **前缀误匹配的隐患没了**。circuit 地址形如 `/ip4/…/tcp/…/ws/p2p/<relay>/p2p-circuit/…`，
+   ws transport 只认前缀就照单全收、无视 circuit 段，会真的连上 relay 然后报
+   `WrongPeerId`（实测踩过）。
+3. **native 也能打洞了**。`with_websocket` 是 `ws.or_transport(已有)` 把自己排到最前，而
+   builder 不允许在 websocket phase 之后再加 transport——它在时，native 无法把 webrtc-p2p
+   排到 relay 前面。砍掉后两个 target 用同一套装配。
+
+Worker 模式（曾是 ws-only，因 webrtc-websys 在 Worker 里必 panic）同时失去意义——
+`docs/app/app` 从未真的 `new Worker`，那是 spike 遗留。
+
+### ⚠️ 不能用 `with_relay_client`——relay 会抢走打洞地址（2026-07-28 浏览器实测）
+
+打洞地址 `<relay>/p2p-circuit/webrtc/p2p/<target>` **含 `/p2p-circuit` 段**，而 relay client
+transport 的 `parse_relayed_multiaddr` 只要求有 circuit 段——**circuit 之后的 `/webrtc` 被
+塞进 `dst_addr` 而不报错**（`priv_client/transport.rs` 的 `p => { ... dst_addr.push(p) }`），
+于是它照单全收。
+
+谁先拿到取决于 `or_transport` 顺序，而 `with_relay_client` 内部写死
+`relay_transport.or_transport(已有链)`——**relay 永远在最前**。`with_other_transport` 无论
+注册多少次都在它后面，抢不过。
+
+**症状极隐蔽**：reservation 正常、中转正常、传输正常，只是打洞路径**一次都没被调用过**，
+且没有任何报错。实测靠在 webrtc-p2p 的 `listen_on` 里打日志才发现（那条日志因此保留）。
+
+**正确做法**：跳过 builder 的 relay phase——自己 `libp2p::relay::client::new()` 造 transport，
+用 `relay_first_webrtc()` 把 webrtc-p2p 放在 relay 前面，behaviour 经闭包外的
+`let mut relay_behaviour = None` 回传，最后用 **单参数** `with_behaviour(|key| ...)`
+（`RelayPhase` 的快捷方式，内部走 `without_relay()`）。多传一个 relay_client 参数就会走回
+那条把 relay 排最前的路。
+
+js-libp2p 没这个问题——它的 circuit transport filter 显式排除带 `/webrtc` 的地址。
+rust-libp2p 缺这道排除，因为上游还没有 private-to-private 的 WebRTC 传输。
+
+### listener 只在 `request_relay_reservation` 里挂，不跟随 reservation 事件
+
+本机要能「被拨」，需要一个 `<relay>/p2p-circuit/webrtc/p2p/<本机>` 监听
+（`Actor::ensure_webrtc_listener`），它才会进 `watch_addrs().listen` → `dialable()` → 邀请。
+
+两条约束：
+
+1. **不能进 `relay_listeners` 表**。它不是一份 reservation（webrtc-p2p transport 收下地址
+   只是登记 listener，不向 relay 请求任何东西），混进去它的 `ListenerClosed` 会被误判成
+   reservation 失效 → 误发 `RelayReservationLost`。故另存 `webrtc_listeners: PeerId → ListenerId`。
+2. **不要挂在 `ReservationReqAccepted` 的处理路径上**。那条路径正是 relay client 更新自己
+   `reservation_addresses` 表的时刻，在其中插入 `listen_on` 会扰动它的内部时序，把它的
+   `expect("Relay connection exist")` 打成 panic——浏览器实测 2/2 必现，短路后 0/2。
+   撤销同理，只在 `handle_remove_infra_peer` 做。
+   代价是 reservation 掉线期间地址短暂不可达；幂等重试会拉回来，比让对端地址簿反复失效好。
+
+### 浏览器侧排障：先收紧 tracing filter
+
+Web 端曾是全局 `DEBUG`，libp2p 各层的日志（multistream 协商、每连接 poll、identify push…）
+把浏览器 console 的行数上限冲爆——**自己的日志一条都看不到**。排 webrtc 打洞时因此误判过
+「对端毫无响应」。现按 target 分层（`crates/web/src/lib.rs` 的 `Targets`），日志量降两个
+数量级。**碰 Web 端排障先确认 filter，别对着被冲掉的日志下结论。**
+
+### DataChannel 的 `Connecting` 不是错误（wasm 侧）
+
+`PeerConnection` 的 `connected`（DTLS 完成）**早于** DataChannel 的 `open`（SCTP 完成）。
+muxer 一交出去上层就开始写，此刻必然还是 `Connecting`——把它当写错误会让刚建立的打洞连接
+立刻刷屏报错，实际只差几十毫秒。正确做法是注册 waker 返回 `Pending`，并配 `onopen` 回调
+唤醒（**没有 onopen 就永远等不到通知**）。native 侧无此问题：`webrtc-rs` 的 `send` 是
+async，内部等 SCTP。
+
+### webrtc-p2p 的 `Transport::listen_on` 必须唤醒 poll
+
+`listen_on` / `remove_listener` 是外部**同步**调用，往 `pending` 队列塞事件时没有任何东西
+会唤醒 poll（只有 `from_behaviour` 有消息才会）。少了这个唤醒，新监听地址要等到下一次因
+别的原因被 poll 才通告得出去。故 poll 挂起时存 waker，`queue()` 时唤醒。
+
+**本机 `/p2p` 段要自己补**——swarm 不代劳。relay client 也是自己补的
+（`priv_client/handler.rs` 的 `.with(P2pCircuit).with(P2p(local_peer_id))`）；漏了地址仍能
+listen 成功，但对端解析不出目标节点，拨不动。
+
+### `classify_path` 对 `/webrtc` 的例外
+
+打洞连接的远端地址天生带 circuit 段（**信令**确实经 relay），但数据面是直连、一个字节不过
+中继。`is_circuit()` 会把它判成 `Relayed`，于是 `path_rank` 把真直连排到中转之下、UI 显示
+也反了。`actor.rs` 的 `classify_path` 因此对含 `/webrtc` 的 circuit 地址返回 `Direct`
+（`is_hole_punched`），单测钉死。
+
+### `OptionalTransport` 只有 `From<T>`，没有 `From<Option<T>>`
+
+`OptionalTransport::from(opt)` 会包成 `OptionalTransport<Option<_>>`——那不是 `Transport`，
+报错信息绕。用 `match { Some(t) => ::some(t), None => ::none() }`。另外
+`with_other_transport` 闭包里没有 `?` 时错误类型推断不出来，要显式标注成
+`Box<dyn Error + Send + Sync>`（`TryIntoTransport` 唯一认的 Result 形态）。
+
+**相关文件**：`crates/net/src/{transport.rs,actor.rs,config.rs,behaviour/mod.rs}`、
+`crates/core/src/runtime.rs`；决策与 spike 实测见
+[`dev-notes/research/2026-07-webrtc-native-ice.md`](../research/2026-07-webrtc-native-ice.md)
 
 ## wasm 工程约定
 

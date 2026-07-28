@@ -75,6 +75,7 @@ impl Shared {
 }
 
 struct Callbacks {
+    _onopen: Closure<dyn FnMut()>,
     _onmessage: Closure<dyn FnMut(MessageEvent)>,
     _onclose: Closure<dyn FnMut()>,
     _onerror: Closure<dyn FnMut(JsValue)>,
@@ -118,6 +119,15 @@ impl PollDataChannel {
             }) as Box<dyn FnMut(JsValue)>)
         };
 
+        // Connecting → Open 的唯一通知。少了它，在 SCTP 握手完成前发起的写会永远挂着
+        // ——没有任何其他事件会叫醒它（onmessage 只在收到数据时来）。
+        let onopen = {
+            let shared = shared.clone();
+            Closure::wrap(Box::new(move || {
+                shared.borrow_mut().wake_write();
+            }) as Box<dyn FnMut()>)
+        };
+
         let onbufferedamountlow = {
             let shared = shared.clone();
             Closure::wrap(Box::new(move || {
@@ -127,6 +137,7 @@ impl PollDataChannel {
 
         dc.set_buffered_amount_low_threshold(LOW_WATER_MARK);
         dc.set_onbufferedamountlow(Some(onbufferedamountlow.as_ref().unchecked_ref()));
+        dc.set_onopen(Some(onopen.as_ref().unchecked_ref()));
         dc.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
         dc.set_onclose(Some(onclose.as_ref().unchecked_ref()));
         dc.set_onerror(Some(onerror.as_ref().unchecked_ref()));
@@ -135,6 +146,7 @@ impl PollDataChannel {
             dc,
             shared,
             _callbacks: Rc::new(Callbacks {
+                _onopen: onopen,
                 _onmessage: onmessage,
                 _onclose: onclose,
                 _onerror: onerror,
@@ -187,7 +199,15 @@ impl AsyncWrite for PollDataChannel {
         }
         match self.dc.ready_state() {
             RtcDataChannelState::Open => {}
-            // 未开或已关都不该再写。浏览器在 closed 上写会抛异常，先挡住。
+            // **SCTP 握手未完成，不是错误。** PeerConnection 的 `connected`（DTLS 完成）
+            // 早于 DataChannel 的 `open`（SCTP 完成），muxer 一交出去上层就可能开始写，
+            // 此刻必然还是 Connecting。曾把它当错误返回，症状是打洞连接刚建立就
+            // 「DataChannel 不可写，当前状态 Connecting」刷屏——实际只差几十毫秒。
+            RtcDataChannelState::Connecting => {
+                self.shared.borrow_mut().write_waker = Some(cx.waker().clone());
+                return Poll::Pending;
+            }
+            // 已关就不该再写。浏览器在 closed 上写会抛异常，先挡住。
             state => {
                 return Poll::Ready(Err(io::Error::other(format!(
                     "DataChannel 不可写，当前状态 {state:?}"

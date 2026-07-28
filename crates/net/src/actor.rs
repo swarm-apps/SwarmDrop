@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use libp2p::core::transport::ListenerId;
-use libp2p::swarm::dial_opts::DialOpts;
+use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::{ConnectionId, SwarmEvent};
 use libp2p::{PeerId, Swarm, identify, kad, ping};
 #[cfg(not(wasm_browser))]
@@ -148,6 +148,14 @@ pub(crate) struct Actor {
     /// circuit listener → relay peer。reservation 幂等去重 + ListenerClosed
     /// 时上抛 RelayReservationLost（迁自旧栈 `relay_listeners`）。
     relay_listeners: HashMap<ListenerId, PeerId>,
+    /// relay peer → 该 relay 上的 `/webrtc` 打洞监听器。
+    ///
+    /// **与 `relay_listeners` 分开存**：它不是一份 reservation（webrtc-p2p transport 收下
+    /// 这个地址只是登记 listener，不向 relay 请求任何东西），混进去会让它的 ListenerClosed
+    /// 被误判成 reservation 失效。
+    webrtc_listeners: HashMap<PeerId, ListenerId>,
+    /// 正在尝试打洞升级的对端（去重，避免 identify 每次到达都重拨）。
+    upgrading: HashSet<PeerId>,
     /// 承担 relay 角色的基础设施节点——identify 到达时幂等重建 reservation。
     infra_relay_peers: HashSet<PeerId>,
     /// pull 型地址解析源（bind 尾声注入）。
@@ -179,6 +187,8 @@ impl Actor {
             watches,
             queries: PendingQueries::default(),
             relay_listeners: HashMap::new(),
+            webrtc_listeners: HashMap::new(),
+            upgrading: HashSet::new(),
             infra_relay_peers: HashSet::new(),
             lookups: Arc::new(Vec::new()),
             self_tx,
@@ -457,6 +467,7 @@ impl Actor {
             self.relay_listeners.remove(&id);
             self.swarm.remove_listener(id);
         }
+        self.remove_webrtc_listener(peer);
         self.watches
             .relays
             .send_if_modified(|map| map.remove(&node).is_some());
@@ -529,6 +540,107 @@ impl Actor {
         )
     }
 
+    /// 与 circuit listener 同批挂一个 `<relay>/p2p-circuit/webrtc/p2p/<本机>` 监听（幂等）。
+    ///
+    /// 它让本机的可拨地址集里出现 `/webrtc` 变体——对端据此知道「这条路能打洞」，
+    /// 拨过来时地址会被 webrtc-p2p transport 接走，走信令而非纯中转。
+    ///
+    /// ⚠️ **只在 [`Self::request_relay_reservation`] 里调，不要挪到
+    /// `ReservationReqAccepted` 的处理路径上**——那条路径正是 libp2p relay client
+    /// 更新自己 `reservation_addresses` 表的时刻，在其中插入 `listen_on` 会扰动它的
+    /// 内部时序，把它的 `expect("Relay connection exist")` 打成 panic（浏览器实测
+    /// 2/2 复现，短路本函数后 0/2）。相应地，撤销也只在
+    /// [`Self::handle_remove_infra_peer`] 做，不跟随 `ListenerClosed`。
+    ///
+    /// 代价：reservation 掉线期间这条地址短暂不可达。可以接受——`request_relay_reservation`
+    /// 幂等重试会把 reservation 拉回来，而让地址跟着每次抖动增删反而会让对端地址簿失效。
+    fn ensure_webrtc_listener(&mut self, relay: PeerId) {
+        if self.config.webrtc_p2p.is_none() || self.webrtc_listeners.contains_key(&relay) {
+            return;
+        }
+        let Some(addr) = self
+            .address_book
+            .get(&relay)
+            .and_then(|addrs| addrs.first())
+            .cloned()
+        else {
+            return;
+        };
+        // 与 circuit_addr_for 同一套拼装规则，只多一个 /webrtc 段——格式由
+        // webrtc-p2p 自己的构造函数保证，与它的 split 天然对称。
+        let listen_addr = webrtc_p2p::protocol::addr::from_circuit(
+            &circuit_base(addr, relay),
+            *self.node_id.as_peer_id(),
+        );
+        match self.swarm.listen_on(listen_addr.clone()) {
+            Ok(id) => {
+                self.webrtc_listeners.insert(relay, id);
+                info!(%listen_addr, "webrtc hole-punching listener registered");
+            }
+            Err(e) => warn!(%listen_addr, error = %e, "webrtc circuit listen failed"),
+        }
+    }
+
+    /// 把中转连接升级成打洞直连——webrtc-p2p 版的 DCUtR。
+    ///
+    /// **没有它打洞永远不会发生**：webrtc-p2p 只在拨一个 `/webrtc` 地址时才启动信令，
+    /// 而 libp2p 是并发拨号——candidate 里 circuit 与 `/webrtc` 一起拨，circuit 几乎
+    /// 必然先成功（打洞要等 ICE 收敛数秒），于是那条根本没机会。所以必须在连上之后
+    /// **主动再拨一次**。native 侧这活由 `dcutr` behaviour 干，浏览器侧没有对应物。
+    ///
+    /// 只在 identify 到达时调用：对端的 `/webrtc` 地址只经 identify 传来
+    /// （`NewExternalAddrOfPeer` 不进地址簿），别处拿不到。
+    fn try_upgrade_to_direct(&mut self, peer: PeerId, remote_addrs: &[libp2p::Multiaddr]) {
+        if self.config.webrtc_p2p.is_none() || self.upgrading.contains(&peer) {
+            return;
+        }
+        // 对端通告了 `/webrtc` 变体 = 它支持打洞且可被拨。没有就是对端不支持，静默跳过。
+        let Some(addr) = remote_addrs
+            .iter()
+            .find(|a| webrtc_p2p::protocol::addr::is_webrtc(a))
+        else {
+            return;
+        };
+        // 走到这里说明「本可以打洞」，后面每个否决点都留痕——否则「为什么没打洞」
+        // 在一条有五个否决条件的链上根本无从查起（实测吃过这个亏）。
+        let only_relayed = self
+            .conns
+            .get(&peer)
+            .is_some_and(|c| !c.is_empty() && c.iter().all(|(_, i)| i.path == PathKind::Relayed));
+        if !only_relayed {
+            debug!(%peer, "skip webrtc upgrade: already has a non-relayed path");
+            return;
+        }
+        // `webrtc_listeners` 非空 = 本端也挂了 `/webrtc` 监听，即对端同样能拨过来
+        if !should_initiate(
+            self.node_id.as_peer_id(),
+            &peer,
+            !self.webrtc_listeners.is_empty(),
+        ) {
+            debug!(%peer, "skip webrtc upgrade: peer initiates (PeerId ordering)");
+            return;
+        }
+        // `PeerCondition::Always`：此刻已经连着中转了，默认条件会直接否掉这次拨号。
+        let opts = DialOpts::peer_id(peer)
+            .addresses(vec![addr.clone()])
+            .condition(PeerCondition::Always)
+            .build();
+        match self.swarm.dial(opts) {
+            Ok(()) => {
+                self.upgrading.insert(peer);
+                info!(%peer, %addr, "upgrading relayed connection via webrtc hole punch");
+            }
+            Err(e) => debug!(%peer, error = %e, "webrtc upgrade dial rejected"),
+        }
+    }
+
+    /// 撤掉某 relay 上的 `/webrtc` 监听（reservation 失效 / 节点注销时调用）。
+    fn remove_webrtc_listener(&mut self, relay: PeerId) {
+        if let Some(id) = self.webrtc_listeners.remove(&relay) {
+            self.swarm.remove_listener(id);
+        }
+    }
+
     /// 幂等请求 relay reservation：relay client 未启用或该 relay 已有活跃
     /// circuit listener 时 no-op（迁自旧栈 `request_relay_reservations`）。
     fn request_relay_reservation(&mut self, peer_id: PeerId) {
@@ -540,31 +652,42 @@ impl Actor {
             debug!(%peer_id, "relay reservation already active, skip");
             return;
         }
-        let addrs = self.address_book.get(&peer_id).cloned().unwrap_or_default();
-        if addrs.is_empty() {
+        // **每个 relay 只申请一份 reservation**，哪怕地址簿里有它十几个地址。
+        //
+        // 曾对每个地址各 listen 一次，后果是把 relay 的配额吃光——它是 per-peer 的
+        // （`max_reservations_per_peer` 默认 4），而一台 LanHelper 能通告十几个地址，
+        // 于是多数请求以 `ResourceLimitExceeded` 被拒、reservation 反复丢失重建
+        //（浏览器实测踩到，公网 relay 的总配额也被几个测试端占满）。
+        //
+        // 一份就够，因为走到这里时**必然已经连上 relay**（两个调用点都在 conns /
+        // identify 之后，坑 5 的时序）：relay client 的 ListenReq 会走「复用现有连接」
+        // 分支，我们传的地址只用来拼那条要通告的 external 地址，**不参与建连**。
+        // 它的 `reservation_addresses` 又以 ConnectionId 为键——多份本就互相覆盖，
+        // 最终生效的只有一份。
+        let Some(addr) = self
+            .address_book
+            .get(&peer_id)
+            .and_then(|addrs| addrs.first())
+            .cloned()
+        else {
             warn!(%peer_id, "no addresses for relay, cannot request reservation");
             self.set_relay_failed(peer_id, "no addresses for relay");
             return;
-        }
-        let mut requested = false;
-        for addr in addrs {
-            let relay_addr = circuit_base(addr, peer_id);
-            match self.swarm.listen_on(relay_addr.clone()) {
-                Ok(listener_id) => {
-                    self.relay_listeners.insert(listener_id, peer_id);
-                    requested = true;
-                    info!(%relay_addr, "requesting relay reservation");
-                }
-                Err(e) => warn!(%relay_addr, error = %e, "relay circuit listen failed"),
+        };
+        let relay_addr = circuit_base(addr, peer_id);
+        match self.swarm.listen_on(relay_addr.clone()) {
+            Ok(listener_id) => {
+                self.relay_listeners.insert(listener_id, peer_id);
+                info!(%relay_addr, "requesting relay reservation");
+                // 覆盖写：identify 幂等重建路径要把 Failed 翻回 Connecting；
+                // 此处必无活跃 listener（函数开头已 skip），不会覆盖 Active
+                self.set_relay_connecting(peer_id);
+                self.ensure_webrtc_listener(peer_id);
             }
-        }
-        if requested {
-            // 覆盖写：identify 幂等重建路径要把 Failed 翻回 Connecting；
-            // 此处必无活跃 listener（函数开头已 skip），不会覆盖 Active
-            self.set_relay_connecting(peer_id);
-        } else {
-            // 全部候选地址 listen_on 都失败（逐条已 warn）
-            self.set_relay_failed(peer_id, "circuit listen failed");
+            Err(e) => {
+                warn!(%relay_addr, error = %e, "relay circuit listen failed");
+                self.set_relay_failed(peer_id, "circuit listen failed");
+            }
         }
     }
 
@@ -700,7 +823,7 @@ impl Actor {
                 ..
             } => {
                 let addr = Addr::from_multiaddr(endpoint.get_remote_address().clone());
-                let path = classify_path(&addr);
+                let path = classify_path(&addr, endpoint.is_relayed());
                 let info = ConnInfo {
                     path,
                     addr,
@@ -712,6 +835,10 @@ impl Actor {
                     .or_default()
                     .push((connection_id, info.clone()));
                 self.publish_conns();
+
+                // 本轮升级已有结果（无论这条是不是打洞连接）；成功则 only_relayed
+                // 转 false 自然不再重试，失败则等下一次 identify 重来。
+                self.upgrading.remove(&peer_id);
 
                 let node = NodeId::from_peer_id(peer_id);
                 if u32::from(num_established) == 1 {
@@ -738,6 +865,7 @@ impl Actor {
                 error,
                 ..
             } => {
+                self.upgrading.remove(&peer);
                 // 有消费者才格式化 DialError（断网时拨号失败成批出现，
                 // 多数事件既无 connect 等待者也非 infra relay）
                 let has_waiters = self.dials.contains_key(&peer);
@@ -820,6 +948,10 @@ impl Actor {
                         Ok(()) => "reservation closed".to_string(),
                         Err(e) => e.to_string(),
                     };
+                    // 这里**刻意不撤** /webrtc listener：撤销要调 remove_listener，而这条
+                    // 路径与 relay client 的内部状态机交错，实测会触发它的 panic
+                    // （见 ensure_webrtc_listener）。reservation 会被幂等重试拉回来，
+                    // 地址短暂不可达好过让对端地址簿反复失效。
                     self.set_relay_failed(relay_peer, last_error);
                     self.emit(NetEvent::RelayReservationLost {
                         relay: NodeId::from_peer_id(relay_peer),
@@ -893,6 +1025,8 @@ impl Actor {
                 if self.infra_relay_peers.contains(&peer_id) {
                     self.request_relay_reservation(peer_id);
                 }
+                // 也是唯一能拿到对端 `/webrtc` 地址、进而升级中转连接的时机
+                self.try_upgrade_to_direct(peer_id, &info.listen_addrs);
                 let protocols = info
                     .protocols
                     .iter()
@@ -946,6 +1080,16 @@ impl Actor {
             BehaviourEvent::RelayServer(event) => {
                 debug!(?event, "relay server event");
             }
+            BehaviourEvent::WebrtcP2p(ev) => match ev {
+                webrtc_p2p::Event::DirectConnectionEstablished { peer } => {
+                    info!(%peer, "webrtc hole punching succeeded");
+                }
+                webrtc_p2p::Event::Failed { peer, error } => {
+                    // 不是致命错误：relay 中转仍在，业务照常。spec 步骤 8 把
+                    // 「打不通之后怎么办」明确留给应用，内核只如实记录。
+                    debug!(%peer, %error, "webrtc hole punching failed, staying on relay");
+                }
+            },
             #[cfg(not(wasm_browser))]
             BehaviourEvent::Mdns(ev) => match ev {
                 libp2p::mdns::Event::Discovered(list) => {
@@ -1119,15 +1263,50 @@ fn circuit_base(addr: libp2p::Multiaddr, relay: PeerId) -> libp2p::Multiaddr {
     base.with(libp2p::multiaddr::Protocol::P2pCircuit)
 }
 
-/// 由连接的远端地址推断路径分类。
-fn classify_path(addr: &Addr) -> PathKind {
-    if addr.is_circuit() {
-        PathKind::Relayed
-    } else if addr.is_private_lan() || addr.is_loopback() {
+/// 由连接的远端地址与端点信息推断路径分类。
+///
+/// `relayed` 取自 [`ConnectedPoint::is_relayed`](libp2p::core::ConnectedPoint::is_relayed)，
+/// **不能用 `addr.is_circuit()` 代替**：入站中继连接的 `send_back_addr` 只有
+/// `/p2p/<src>` 一段（libp2p relay 就是这么填的），地址里根本没有 circuit 痕迹，
+/// 单看地址会把中转判成直连——UI 显示反了，升级器也会以为「已有直连」而不再打洞。
+/// `is_relayed()` 对入站看的是 `local_addr`，那里有 circuit 段。
+fn classify_path(addr: &Addr, relayed: bool) -> PathKind {
+    // WebRTC 打洞连接的地址形如 `<relay>/p2p-circuit/webrtc/p2p/<peer>`——含 circuit
+    // 段只是沿用 libp2p 的地址约定（**信令**确实经 relay），数据面是打洞后的直连，
+    // 一个字节都不过中继。故必须排在 `relayed` 之前判：否则打洞成功反而被记成
+    // Relayed，既让 UI 显示与实情相反，也让 path_rank 把真直连排在中转之下。
+    if is_hole_punched(addr) {
+        return PathKind::Direct;
+    }
+    if relayed {
+        return PathKind::Relayed;
+    }
+    if addr.is_private_lan() || addr.is_loopback() {
         PathKind::Local
     } else {
         PathKind::Direct
     }
+}
+
+/// 本端该不该主动发起打洞（`try_upgrade_to_direct` 的定序规则）。
+///
+/// 双方都可被拨时按 PeerId 定序只让一侧发起——两端同时打洞会建出两条多余连接
+/// （spec 步骤 4 的「由 A 发起」正是为此）。
+///
+/// **`local_reachable` 那半边不能省**：本端没挂 `/webrtc` 监听时（没开打洞、或
+/// reservation 还没起来），对端根本拨不过来，此时若还讲定序就会两边互等、谁都不发起。
+fn should_initiate(local: &PeerId, remote: &PeerId, local_reachable: bool) -> bool {
+    !local_reachable || local < remote
+}
+
+/// 是否为 webrtc-p2p 打洞建立的连接（circuit 地址里带 `/webrtc` 段）。
+///
+/// 判定复用 webrtc-p2p 自己的谓词——它同时是那个 transport 决定「收不收这个地址」的
+/// 依据，两处若各写一份，改了一处另一处就会与实际接管关系错位。
+///
+/// 与 `/webrtc-direct` 是两回事：后者不含 circuit 段，走不到这里。
+fn is_hole_punched(addr: &Addr) -> bool {
+    webrtc_p2p::protocol::addr::is_webrtc(addr.as_multiaddr())
 }
 
 fn path_rank(path: PathKind) -> u8 {
@@ -1135,5 +1314,94 @@ fn path_rank(path: PathKind) -> u8 {
         PathKind::Local => 3,
         PathKind::Direct => 2,
         PathKind::Relayed => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RELAY: &str = "12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep";
+    const PEER: &str = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
+
+    fn addr(s: &str) -> Addr {
+        Addr::from_multiaddr(s.parse().expect("valid multiaddr"))
+    }
+
+    /// 打洞连接的地址天生带 circuit 段（信令经 relay），但数据面是直连。
+    /// 判成 Relayed 会让 `path_rank` 把真直连排到中转之下，UI 也会显示反了。
+    #[test]
+    fn hole_punched_circuit_addr_ranks_as_direct() {
+        let punched = addr(&format!(
+            "/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit/webrtc/p2p/{PEER}"
+        ));
+        let relayed = addr(&format!(
+            "/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit/p2p/{PEER}"
+        ));
+
+        assert_eq!(classify_path(&punched, true), PathKind::Direct);
+        assert_eq!(classify_path(&relayed, true), PathKind::Relayed);
+        assert!(
+            path_rank(classify_path(&punched, true)) > path_rank(classify_path(&relayed, true)),
+            "打洞成功后必须优于中转，否则最优连接会选错"
+        );
+    }
+
+    /// 入站中继连接的 `send_back_addr` 只有 `/p2p/<src>`——地址里没有任何 circuit
+    /// 痕迹，只能靠 `endpoint.is_relayed()` 判。曾因单看地址把它判成 Direct，
+    /// 导致升级器以为「已有直连」而永不打洞。
+    #[test]
+    fn inbound_relayed_connection_is_not_direct() {
+        let bare_peer = addr(&format!("/p2p/{PEER}"));
+        assert_eq!(
+            classify_path(&bare_peer, true),
+            PathKind::Relayed,
+            "地址无 circuit 段时必须信 endpoint"
+        );
+        assert_eq!(
+            classify_path(&bare_peer, false),
+            PathKind::Direct,
+            "同一地址在非中继端点上仍是直连"
+        );
+    }
+
+    fn peer(seed: u8) -> PeerId {
+        libp2p::identity::Keypair::ed25519_from_bytes([seed; 32])
+            .expect("valid key")
+            .public()
+            .to_peer_id()
+    }
+
+    /// 定序规则：双方可拨时只有一侧发起，且**必是同一侧**。
+    #[test]
+    fn exactly_one_side_initiates_when_both_reachable() {
+        let (a, b) = (peer(1), peer(2));
+        assert_ne!(
+            should_initiate(&a, &b, true),
+            should_initiate(&b, &a, true),
+            "两端得出相同结论会导致要么都不打洞、要么建两条连接"
+        );
+    }
+
+    /// 本端不可被拨时必须无条件发起——否则对端也在等本端，双方互等谁都不动。
+    #[test]
+    fn unreachable_side_always_initiates() {
+        let (small, big) = (peer(1), peer(2));
+        assert!(should_initiate(&big, &small, false), "PeerId 较大也要发起");
+        assert!(should_initiate(&small, &big, false));
+    }
+
+    /// webrtc-direct 是另一个传输：不含 circuit 段，本就走 Local/Direct 分支，
+    /// 不该被 `/webrtc` 判定误伤。
+    #[test]
+    fn webrtc_direct_addrs_classify_by_reachability() {
+        assert_eq!(
+            classify_path(&addr("/ip4/192.168.1.9/udp/4001/webrtc-direct"), false),
+            PathKind::Local
+        );
+        assert_eq!(
+            classify_path(&addr("/ip4/47.115.172.218/udp/4003/webrtc-direct"), false),
+            PathKind::Direct
+        );
     }
 }

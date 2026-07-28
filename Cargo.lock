@@ -4645,8 +4645,6 @@ dependencies = [
  "libp2p-tcp",
  "libp2p-upnp",
  "libp2p-webrtc-websys",
- "libp2p-websocket",
- "libp2p-websocket-websys",
  "libp2p-yamux",
  "multiaddr",
  "pin-project",
@@ -5143,42 +5141,6 @@ dependencies = [
  "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "libp2p-websocket"
-version = "0.46.0"
-source = "git+https://github.com/yexiyue/rust-libp2p?rev=989cb610658a49db3b76cf2ce864f1504e5fc69d#989cb610658a49db3b76cf2ce864f1504e5fc69d"
-dependencies = [
- "either",
- "futures",
- "futures-rustls",
- "libp2p-core",
- "libp2p-identity",
- "parking_lot",
- "pin-project-lite",
- "rw-stream-sink",
- "soketto",
- "thiserror 2.0.19",
- "tracing",
- "url",
- "webpki-roots",
-]
-
-[[package]]
-name = "libp2p-websocket-websys"
-version = "0.6.0"
-source = "git+https://github.com/yexiyue/rust-libp2p?rev=989cb610658a49db3b76cf2ce864f1504e5fc69d#989cb610658a49db3b76cf2ce864f1504e5fc69d"
-dependencies = [
- "bytes",
- "futures",
- "js-sys",
- "libp2p-core",
- "send_wrapper 0.6.0",
- "thiserror 2.0.19",
- "tracing",
- "wasm-bindgen",
  "web-sys",
 ]
 
@@ -9072,21 +9034,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "soketto"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e859df029d160cb88608f5d7df7fb4753fd20fdfb4de5644f3d8b8440841721"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "futures",
- "httparse",
- "log",
- "rand 0.8.7",
- "sha1 0.10.7",
-]
-
-[[package]]
 name = "soup3"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9673,6 +9620,7 @@ dependencies = [
  "tracing-subscriber",
  "wasm-bindgen-futures",
  "web-sys",
+ "webrtc-p2p",
 ]
 
 [[package]]

@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use super::presets::Preset;
 use super::{AddrsInfo, Endpoint, Inner};
 use crate::actor::{Actor, ActorMessage, WatchSenders};
-use crate::config::{DhtConfig, EndpointConfig, RelayServerConfig};
+use crate::config::{DhtConfig, EndpointConfig, RelayServerConfig, WebRtcP2pConfig};
 use crate::dht::Dht;
 use crate::lookup::AddressLookupBuilder;
 use crate::stream::{StreamLimits, StreamRegistry};
@@ -138,6 +138,17 @@ impl Builder {
         self
     }
 
+    /// 启用 WebRTC 打洞传输（默认关闭）。
+    ///
+    /// 与 webrtc-direct 正交：后者要求目标地址已可达，前者让双方都不可达的节点
+    /// （浏览器、NAT 后的原生端）经 relay 换信令后打洞。开启后本机既能拨
+    /// `<relay>/p2p-circuit/webrtc/p2p/<target>`，也会为 circuit reservation
+    /// 额外监听 `<relay>/p2p-circuit/webrtc` 以便被拨。
+    pub fn webrtc_p2p(mut self, config: WebRtcP2pConfig) -> Self {
+        self.config.webrtc_p2p = Some(config);
+        self
+    }
+
     /// 注册 pull 型地址解析源（`connect(NodeId)` 无候选地址时并发查询）。
     ///
     /// 构造依赖 Endpoint 的 lookup（如基于 DHT 的在线宣告）用
@@ -171,7 +182,7 @@ impl Builder {
         let node_id = secret.node_id();
         let config = self.config;
 
-        let mut swarm = build_swarm(secret.as_keypair().clone(), &config).await?;
+        let mut swarm = build_swarm(secret.as_keypair().clone(), &config)?;
 
         // 公网 relay 的 reservation 响应依赖 Swarm 已知 external address。
         // 在 actor 起前登记，避免启动早期的 reservation 漏带可拨地址。

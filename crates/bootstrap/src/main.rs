@@ -32,9 +32,6 @@ enum Command {
         /// QUIC 监听端口。
         #[arg(long, env = "SWARM_BOOTSTRAP_QUIC_PORT", default_value_t = 4001)]
         quic_port: u16,
-        /// 给浏览器使用的 WebSocket 监听端口。
-        #[arg(long, env = "SWARM_BOOTSTRAP_WEBSOCKET_PORT", default_value_t = 4002)]
-        websocket_port: u16,
         /// 给浏览器使用的 WebRTC Direct UDP 监听端口。
         #[arg(long, env = "SWARM_BOOTSTRAP_WEBRTC_PORT", default_value_t = 4003)]
         webrtc_port: u16,
@@ -99,7 +96,6 @@ fn main() -> Result<()> {
         Command::Run {
             tcp_port,
             quic_port,
-            websocket_port,
             webrtc_port,
             key_file,
             webrtc_cert_file,
@@ -153,7 +149,6 @@ fn main() -> Result<()> {
                     external_ip,
                     tcp_port,
                     quic_port,
-                    websocket_port,
                     webrtc_port,
                     idle_timeout: Duration::from_secs(idle_timeout_secs),
                     relay_limits,

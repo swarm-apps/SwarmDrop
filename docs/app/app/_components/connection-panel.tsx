@@ -79,14 +79,14 @@ export function ConnectionPanel() {
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
       <h2 className="text-sm font-semibold text-fd-foreground">连接</h2>
       <p className="mt-1 text-xs text-fd-muted-foreground">
-        填一个 helper 的 <code className="font-mono">ws</code> 或{" "}
-        <code className="font-mono">webrtc-direct</code> 地址（带 <code className="font-mono">/p2p/&lt;id&gt;</code>{" "}
+        填一个 helper 的 <code className="font-mono">webrtc-direct</code> 地址（带{" "}
+        <code className="font-mono">/p2p/&lt;id&gt;</code>{" "}
         尾段）。浏览器不 listen 本地 socket，要被对端拨回得先建立 circuit 可达地址。
       </p>
 
       <input
         className="mt-3 w-full rounded-lg border border-fd-border bg-fd-background px-3 py-2 font-mono text-xs text-fd-foreground placeholder:text-fd-muted-foreground"
-        placeholder="/ip4/.../tcp/.../ws/p2p/12D3Koo... 或 .../webrtc-direct/certhash/.../p2p/..."
+        placeholder="/ip4/.../udp/.../webrtc-direct/certhash/.../p2p/12D3Koo..."
         value={addr}
         onChange={(e) => setAddr(e.target.value)}
         disabled={!ready}

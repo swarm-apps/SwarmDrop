@@ -44,6 +44,12 @@ pub(crate) struct Behaviour {
     /// 中继服务端（LanHelper 模式）。类型在 wasm 也存在（relay feature），
     /// 无需 cfg——wasm 下配置恒 None。
     pub relay_server: Toggle<relay::Behaviour>,
+    /// WebRTC 打洞的信令面（`/webrtc-signaling/0.0.1`）。
+    ///
+    /// 与 `crate::transport` 里注册的 `webrtc_p2p::Transport` **是配对的一半**，
+    /// 二者由同一次 `webrtc_p2p::new()` 产出——拆开注册 dial 会直接失败。
+    /// 双 target 均可用（浏览器与 NAT 后原生端正是它的目标场景）。
+    pub webrtc_p2p: Toggle<webrtc_p2p::Behaviour>,
     /// 应用字节流（Router / Endpoint::open 的底座）。
     pub stream: libp2p_stream::Behaviour,
 }
@@ -52,6 +58,7 @@ impl Behaviour {
     pub(crate) fn new(
         keypair: &Keypair,
         relay_client: Option<relay::client::Behaviour>,
+        webrtc_p2p: Option<webrtc_p2p::Behaviour>,
         config: &EndpointConfig,
     ) -> Self {
         let peer_id = keypair.public().to_peer_id();
@@ -155,6 +162,7 @@ impl Behaviour {
             #[cfg(not(wasm_browser))]
             dcutr,
             relay_server,
+            webrtc_p2p: Toggle::from(webrtc_p2p),
             stream: libp2p_stream::Behaviour::new(),
         }
     }

@@ -147,6 +147,8 @@ impl Session {
     /// 的实现所在。
     pub fn attach_stream(&mut self, role: Role) {
         if self.state == State::Finished || self.stream_attached {
+            tracing::debug!(?role, state = ?self.state, attached = self.stream_attached,
+                "忽略 attach_stream");
             return;
         }
         self.role.get_or_insert(role);
@@ -207,6 +209,7 @@ impl Session {
         if self.state == State::Finished {
             return;
         }
+        tracing::debug!(%error, role = ?self.role, "信令会话失败");
         self.state = State::Finished;
         self.backend = None;
         self.outbox.clear();

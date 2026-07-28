@@ -147,6 +147,7 @@ impl ConnectionHandler for Handler {
                 protocol: stream,
                 ..
             }) => {
+                tracing::debug!("入站信令流就绪，本端为应答方");
                 self.stream = Some(Framed::new(stream, Codec));
                 self.session.attach_stream(Role::Responder);
             }
@@ -155,6 +156,7 @@ impl ConnectionHandler for Handler {
                 protocol: stream,
                 ..
             }) => {
+                tracing::debug!("出站信令流就绪，本端为发起方");
                 self.stream = Some(Framed::new(stream, Codec));
                 self.session.attach_stream(Role::Initiator);
             }

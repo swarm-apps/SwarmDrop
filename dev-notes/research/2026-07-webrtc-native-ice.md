@@ -244,26 +244,101 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
    字节一致。`native 作为 offerer` 这项验收随之达成（spike 当时只验了 answerer 方向）
 4. ~~wasm 后端~~ —— ✅ 已实现（浏览器 `RTCPeerConnection`）。**但只过了编译，逻辑未实测**
    ——wasm 侧要浏览器才能跑
-5. **接进 `crates/web`，用 `docs/app/app` 实测浏览器侧** —— 这是 wasm 后端的第一道真验收
-6. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
+5. ~~接进 `crates/net`~~ —— ✅ 已完成（分支 `feat/webrtc-p2p-wiring`，见下节）
+6. ~~用 `docs/app/app` 实测浏览器侧~~ —— ✅ **已完成（2026-07-28）**：
+   web ↔ web 打洞成功，并在直连上完成配对
+7. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
    「确认实现正确」而非「决定要不要做」
-7. **与 js-libp2p 互通验收** —— 通用性的最终判据（决策理由之一就是它）
-8. 独立仓库 + 社区化
+8. **与 js-libp2p 互通验收** —— 通用性的最终判据（决策理由之一就是它）
+9. 独立仓库 + 社区化
 
-### 已落地实现的形状（截至 2026-07-27）
+### 接线形状（2026-07-28）
 
-    protocol/   线上格式，零 libp2p-swarm 依赖
-    backend/    WebRTC 栈抽象 + native（webrtc-rs 0.20）+ wasm（RTCPeerConnection）+ mock
-    swarm/      session（纯逻辑状态机）/ handler（poll 适配）/ behaviour / transport
+**默认关**，`Builder::webrtc_p2p(WebRtcP2pConfig)` 开启；当前只有 Browser profile 开
+（`crates/core/src/runtime.rs`）。桌面/移动不开——它们有 autonat + dcutr，而打洞要
+**两端都支持**，所以现阶段可验的组合是 **web ↔ web**；要验 web ↔ 原生端，得先给
+Native profile 也开。
 
-**native 侧已端到端验证**：两个真实后端在本机跑通信令与数据面（开子流、双向传数据、
-字节一致）。wasm 侧只过了编译与 clippy，逻辑待浏览器实测。
+四条非显见约束（详见 [`knowledge/net-kernel.md`](../knowledge/net-kernel.md) 同名小节）：
 
-依赖方向单向 `swarm → backend → protocol`。状态机与协议层都是纯逻辑，可脱离真实
-WebRTC 与真实 `Stream` 测试——这是把「最容易出错的部分」隔离出来的刻意安排。
+| 约束 | 违反的后果 |
+|---|---|
+| transport 注册在 `with_relay_client` **之前** | 地址被 relay 抢去当中转，能通但永不打洞，**无报错** |
+| `/webrtc` listener 与 reservation 同生共死 | 通告拨不通的死地址 / 误发 `RelayReservationLost` |
+| listen 地址自己补 `/p2p/<本机>` | 对端解析不出目标，拨不动 |
+| `classify_path` 对 `/webrtc` 例外 | 打洞成功却被记成 Relayed，最优连接选错 |
 
-3、4 仍应分开：API 设计、文档、CI、发版、issue 响应这些开销，在跑通之前都是负担；
-而真实的设计约束要跑通了才知道，那时设计的 API 才靠谱。
+### 浏览器实测结果（2026-07-28）
+
+`cd docs && pnpm build:wasm && pnpm dev`，用 `agent-browser --session a/b` 开两个**隔离**
+浏览器（同浏览器多标签会共享 IndexedDB 身份，那是同一个节点），各自 connect + 建立可达。
+
+**修掉的三个真 bug**（全部由实测暴露，单测与编译都发现不了）：
+
+| # | 缺陷 | 后果 |
+|---|---|---|
+| 1 | `with_relay_client` 把 relay 排在 `or_transport` 最前 | 打洞地址全被 relay 接走，**打洞路径一次没被调用**，无报错 |
+| 2 | 在 `ReservationReqAccepted` 路径里 `listen_on` | 打爆 relay client 的 `expect("Relay connection exist")`，2/2 必现 |
+| 3 | `Transport::listen_on` 不唤醒 poll | 新监听地址延迟通告 |
+
+**已验证通过**：webrtc-p2p transport 真的接到 listen 地址 → `NewAddress` 进入 Swarm →
+地址进入 `listen_addrs`（形如 `…/p2p/<relay>/p2p-circuit/webrtc/p2p/<self>`，与 js-libp2p
+格式一致）。
+
+### 升级器已实现（2026-07-28）
+
+打洞不会自己发生：webrtc-p2p 只在 **dial 一个 `/webrtc` 地址**时才启动信令，而 libp2p
+是并发拨号——circuit 与 `/webrtc` 一起拨，circuit 几乎必然先成功（打洞要等 ICE 收敛数秒），
+那条根本没机会。所以必须在连上之后**主动再拨一次**。native 侧这活由 `dcutr` 干。
+
+`Actor::try_upgrade_to_direct`（`crates/net/src/actor.rs`）：
+
+- **触发点只能是 identify 到达**——对端的 `/webrtc` 地址只经 identify 传来
+  （`NewExternalAddrOfPeer` 不进地址簿）
+- **定序**：双方都可被拨时按 PeerId 只让一侧发起，否则两端同时打洞会建出两条连接；
+  但本端不可被拨时必须无条件发起，否则双方互等（`should_initiate`，单测钉死两个分支）
+- **`PeerCondition::Always`**：此刻已连着中转，默认条件会直接否掉这次拨号
+- 五个否决点**每个都留痕**——实测吃过「没打洞但查不出为什么」的亏
+
+实测（两个隔离浏览器）：一侧 `upgrading relayed connection via webrtc hole punch`，
+另一侧 `skip webrtc upgrade: peer initiates (PeerId ordering)`，定序正确。
+
+### 附带修掉的既有 bug：入站中继连接被判成直连
+
+经 relay 的**入站**连接，`send_back_addr` 只有 `/p2p/<src>`（libp2p relay 就是这么填的），
+地址里没有任何 circuit 痕迹。`classify_path` 单看地址就把中转判成了 Direct——UI 显示反了，
+升级器也会以为「已有直连」而永不打洞。改用 `ConnectedPoint::is_relayed()`（入站看的是
+`local_addr`，那里有 circuit 段）。这个 bug 在升级器之前就存在。
+
+### ✅ 浏览器端到端跑通（2026-07-28）
+
+两个隔离浏览器 + 桌面 LanHelper 当 relay，完整闭环：
+
+    发起方  upgrading relayed connection… → 出站信令流就绪 → webrtc hole punching succeeded
+    应答方  skip: peer initiates (PeerId 定序) → 入站信令流就绪 → webrtc hole punching succeeded
+    两端    skip: already has a non-relayed path        ← 收敛，不再重试
+
+随后在这条打洞直连上完成了 **PairInvite 配对**（请求送达 → 对端点「接受」→ 双方
+「已配对 ✓」），业务面可用。
+
+#### 修掉的最后一个 bug：`Connecting` 被当成写错误
+
+`PollDataChannel::poll_write` 原本只放行 `Open`，其余状态一律返回错误。但
+**PeerConnection 的 `connected`（DTLS 完成）早于 DataChannel 的 `open`（SCTP 完成）**，
+muxer 一交出去上层就开始写，此刻必然还是 `Connecting`——于是打洞连接刚建立就被
+「DataChannel 不可写，当前状态 Connecting」刷屏，实际只差几十毫秒。
+
+修法两处：`Connecting` 时注册 waker 返回 `Poll::Pending`；补 `onopen` 回调唤醒它
+（原先根本没有这个回调，写任务即使挂上也永远等不到通知）。
+
+native 侧没有这个问题——`webrtc-rs` 的 `DataChannel::send` 是 async，内部等 SCTP。
+
+#### 排障前提：先收紧 tracing filter
+
+Web 端原来是全局 `DEBUG`，libp2p 各层的日志（multistream 协商、每连接 poll、identify
+push…）把浏览器 console 的行数上限冲爆——**自己的日志一条都看不到**，前几轮因此误判
+「应答方毫无痕迹」。改成按 target 分层（`crates/web/src/lib.rs` 的 `Targets`）后日志从
+2000 行降到 30 行，根因一眼可见。**这是排障的前置条件，不是可选优化。**
 
 ## 被评估但未选择的替代路径：UPnP 端口映射
 

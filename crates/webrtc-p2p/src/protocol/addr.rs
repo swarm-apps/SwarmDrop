@@ -60,6 +60,23 @@ pub fn from_circuit(circuit: &Multiaddr, target: PeerId) -> Multiaddr {
     addr
 }
 
+/// 把本传输地址里的目标节点换成 `peer`。
+///
+/// 用途是由本端的**监听地址**推出「对端经同一 relay 回拨过来」的地址：监听地址形如
+/// `…/p2p-circuit/webrtc/p2p/<self>`，换掉末位的 `/p2p/<self>` 即得对端视角的地址。
+///
+/// 末位不是 `/p2p` 段时直接追加——监听地址允许省略本机段，两种形态都能得到正确结果。
+pub fn with_peer(addr: &Multiaddr, peer: PeerId) -> Multiaddr {
+    let mut parts: Vec<Protocol> = addr.iter().collect();
+    if matches!(parts.last(), Some(Protocol::P2p(_))) {
+        parts.pop();
+    }
+    parts
+        .into_iter()
+        .collect::<Multiaddr>()
+        .with(Protocol::P2p(peer))
+}
+
 /// 地址解析错误。
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -118,6 +135,36 @@ mod tests {
         let (_, got) = split(&from_circuit(&circuit_of(relay), target)).unwrap();
         assert_eq!(got, target);
         assert_ne!(got, relay);
+    }
+
+    /// 监听地址 → 对端回拨地址：只换目标段，relay 与 `/webrtc` 位置不动。
+    #[test]
+    fn with_peer_replaces_target() {
+        let (relay, me, remote) = (peer(5), peer(6), peer(7));
+        let listen = from_circuit(&circuit_of(relay), me);
+
+        let back = with_peer(&listen, remote);
+        assert_eq!(
+            back.to_string(),
+            format!("/ip4/1.2.3.4/tcp/4001/p2p/{relay}/p2p-circuit/webrtc/p2p/{remote}")
+        );
+        assert_eq!(split(&back).unwrap().1, remote);
+    }
+
+    /// 监听地址省略本机 `/p2p` 段时应当是追加而非替换——否则会把 relay 段吃掉。
+    #[test]
+    fn with_peer_appends_when_no_target() {
+        let relay = peer(8);
+        let back = with_peer(&from_circuit_base(relay), peer(9));
+        assert_eq!(split(&back).unwrap().1, peer(9));
+        assert!(
+            back.iter().any(|p| p == Protocol::P2p(relay)),
+            "relay 段必须原样保留"
+        );
+    }
+
+    fn from_circuit_base(relay: PeerId) -> Multiaddr {
+        circuit_of(relay).with(Protocol::WebRTC)
     }
 
     #[test]

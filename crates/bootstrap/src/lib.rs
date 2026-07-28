@@ -25,7 +25,6 @@ pub struct BootstrapConfig {
     pub external_ip: IpAddr,
     pub tcp_port: u16,
     pub quic_port: u16,
-    pub websocket_port: u16,
     pub webrtc_port: u16,
     pub idle_timeout: Duration,
     pub relay_limits: RelayServerConfig,
@@ -78,10 +77,6 @@ fn listen_addrs(config: &BootstrapConfig) -> Result<Vec<Addr>> {
         ),
         addr(
             config.listen_ip,
-            format!("tcp/{}/ws", config.websocket_port),
-        ),
-        addr(
-            config.listen_ip,
             format!("udp/{}/webrtc-direct", config.webrtc_port),
         ),
     ]
@@ -95,10 +90,6 @@ fn external_addrs(config: &BootstrapConfig) -> Result<Vec<Addr>> {
         addr(
             config.external_ip,
             format!("udp/{}/quic-v1", config.quic_port),
-        ),
-        addr(
-            config.external_ip,
-            format!("tcp/{}/ws", config.websocket_port),
         ),
     ]
     .into_iter()
@@ -138,7 +129,6 @@ mod tests {
             external_ip: "203.0.113.10".parse().unwrap(),
             tcp_port: 4001,
             quic_port: 4001,
-            websocket_port: 4002,
             webrtc_port: 4003,
             idle_timeout: Duration::from_secs(120),
             relay_limits: RelayServerConfig::default(),

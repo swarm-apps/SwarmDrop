@@ -12,6 +12,9 @@ edition.workspace = true
 
 [dependencies]
 swarmdrop-net-base = { workspace = true }
+# WebRTC 打洞传输。放顶层而非 target 表——它自己按 target 换后端（native = webrtc-rs，
+# wasm = 浏览器 RTCPeerConnection），双 target 都要编。
+webrtc-p2p = { workspace = true }
 n0-future = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
@@ -33,11 +36,9 @@ libp2p = { workspace = true, features = [
     "tokio",
     "tcp",
     "quic",
-    # ⚠️ 0.56 的 feature bug：只开 websocket 不开 dns 编不过（builder 的 websocket
-    # phase 无条件引用 libp2p_dns）。dns 本身也是 native 默认要的（Android 的差异走
-    # transport.rs 的 target cfg 分支，不走 crate feature——双 target 下 feature 面越小越好）。
+    # dns 是 native 默认要的（/dns4 地址解析）。Android 的差异走 transport.rs 的
+    # target cfg 分支，不走 crate feature——双 target 下 feature 面越小越好。
     "dns",
-    "websocket",
     "mdns",
     "noise",
     "yamux",
@@ -74,7 +75,6 @@ libp2p = { workspace = true, features = [
     "ping",
     "relay",
     "serde",
-    "websocket-websys",
     "webrtc-websys",
 ] }
 libp2p-stream = { workspace = true }
