@@ -477,7 +477,7 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 | libp2p/rust-libp2p | [PR 6570](https://github.com/libp2p/rust-libp2p/pull/6570) | relay circuit 无 reservation 时 panic | **阻塞** — 与 #6558/#6560 同属 git pin 退出条件 |
 | webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | 已本地绕过（muxer 的 `local_channels` 不变式），合并后可简化 |
 | webrtc-rs/webrtc | [issue 826](https://github.com/webrtc-rs/webrtc/issues/826) | `send()` 在通道 open 前返回 `Ok` 但**静默丢数据** | 已本地绕过（`data_channel::await_open`），**别删那个等待** |
-| webrtc-rs/webrtc | [issue 827](https://github.com/webrtc-rs/webrtc/issues/827) | 0.20 拿不到远端 DTLS 证书（0.17 有 `get_remote_certificate`） | 已改用 SDP 解析指纹；有 API 后可换回握手侧校验 |
+| webrtc-rs/webrtc | [issue 827](https://github.com/webrtc-rs/webrtc/issues/827) | 0.20 拿不到远端 DTLS 证书（0.17 有 `get_remote_certificate`） | 两端各自绕（见下），有 API 后可合并回一行 |
 | libp2p/rust-libp2p | [PR 6571](https://github.com/libp2p/rust-libp2p/pull/6571) | `Fingerprint::from_sdp_format` | 纯反哺 — 合并后 `protocol/addr.rs` 的手写解析可删 |
 | libp2p/rust-libp2p | [PR 6572](https://github.com/libp2p/rust-libp2p/pull/6572) | offer SDP 模板搬进 `libp2p-webrtc-utils` | 纯反哺 — 合并后 `native/direct/sdp.rs` 的模板副本可删 |
 
@@ -487,6 +487,18 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 ⚠️ **issue 826 是本仓踩过最贵的一个坑**：Noise 握手第一条消息在
 `RTCPeerConnectionState::Connected` 时写出去就消失了，全链路零报错，表现为「握手莫名挂住」。
 实测数据在 issue 正文里（三条消息只到一条）。修法是发首包前等 `OnOpen`。
+
+**issue 827 的两端绕法不同，别记混**：
+
+| 端 | 指纹来源 | 位置 |
+|---|---|---|
+| native | `get_stats` 的 certificate 统计项 | `native/direct/upgrade.rs` 的 `remote_fingerprint()` |
+| wasm | `localDescription` 的 `a=fingerprint:` | `wasm/direct.rs` |
+
+⚠️ native 那条目前靠 **`cert.stats.id.starts_with("remote-certificate-")`** 认远端项。
+这个 id 前缀是 rtc 的实现细节，没有任何文档承诺它稳定——更稳的判据是先读 `Transport`
+统计项的 `remote_certificate_id`，再按 id 精确匹配 certificate 项（实测两者一致）。
+**升级 rtc rev 时这里要重测**：前缀一变，direct 拨号会在「拿不到对端证书指纹」上整片失败。
 
 ### webrtc 0.20 没有 UDPMux —— 改从 `Runtime::wrap_udp_socket` 注入
 
