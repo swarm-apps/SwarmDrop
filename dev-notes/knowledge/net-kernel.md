@@ -270,6 +270,46 @@ listener 批量关闭 → reservation 反复丢失重建。公网 relay 的总�
 
 实测：请求数 13 → 2（两个 relay 各一份），`ResourceLimitExceeded` 归零。
 
+### presence 的启动序列必然抢跑——失败必须短退避，不能等满一个周期（2026-07-29 修）
+
+`PresenceSupervisor::run` 的装载把每台已配对设备排成 `next_probe_at: now`（立即重探），
+而那一刻 relay reservation 还没建立、DHT 也没连上任何节点——**首探注定失败**。原先
+`Unreachable` 分支无条件把下次排到 `probe_interval(75s) + jitter(≤15s)` 之后，
+**排期与探测结果无关**，于是第二次机会在一个完整周期之后。
+
+实测：浏览器刷新页面，已配对设备要 **89s** 才翻回在线。修成 2s 起步逐次翻倍、封顶回
+基础周期后，三次刷新分别是 **6s / 3s / 4s**。
+
+同一个启动序列还会让首次 `announce_online` 撞空（下面那条），但 announce 早就有
+`announce_backoff`（2s 起步）——**只有重探漏了退避**。改动同构，见
+`probe_backoff` 与回归守卫 `first_probe_failure_retries_fast`。
+
+> 通用教训：**任何"启动时立即做一次"的动作，都要假设它跑在网络就绪之前**，
+> 失败路径必须能快速重试。固定周期在这种场景下等价于「首次失败 = 一个周期的不可用」。
+
+### ⚠️ 别把浏览器的 `QuorumFailed` 归咎于 kad client 模式（2026-07-29 证伪）
+
+浏览器启动早期 `announce_online` 会报一次
+`QuorumFailed { success: [], quorum: 1 }`。曾据此判断「浏览器无 AutoNAT →
+kad 恒 `Mode::Client` → PutRecord 第二阶段拿不到 success」。**这个判断是错的**，
+沿它排查会一路走进 libp2p-kad 源码而找不到问题。
+
+两条实证否掉它：
+
+1. native 端用 `server_mode: false`（Client 模式，与浏览器完全一致）对同一个 bootstrap
+   做 `dht.put`，**成功**。client 模式 put 不了这个前提不成立。
+2. 开 `libp2p_kad=trace` 看失败的那次查询，**一条 `Request to peer in query succeeded`
+   都没有**——不是第二阶段拿不到 success，是**第一阶段就没有 peer 可问**。日志行序说明
+   一切：失败的 `QueryId(0)` 出现在第 5 行，而 webrtc-direct 连接第 55 行才就绪。
+
+真正的原因还是上面那条：**启动序列抢跑**。它只失败一次，`announce_backoff` 2s 后重试
+即成功——硬证据是让 native 去 DHT 读浏览器的 presence 记录，读得到（1100 字节，
+含正确的 circuit 地址）。
+
+另注：浏览器拿到 relay reservation 后，circuit 地址会被 confirm 成 external address，
+kad 随即 `Switching to server-mode`。所以浏览器**并非恒 Client**，这也是上述判断的
+另一处事实错误。
+
 ### 坑 6：kad `Record.expires` 的类型按 target 分叉
 
 native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant` 同源）——
