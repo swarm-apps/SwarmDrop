@@ -13,6 +13,7 @@
 //! - relay phase 无 target gate（`cfg(feature = "relay")` only）——wasm 也走
 //!   `with_relay_client`，浏览器经 circuit 被动接收连接靠它。
 //! - webrtc-direct（native 侧 server/dialer）在 M2 经 `with_other_transport` 接入。
+//! - webrtc-p2p（打洞）默认关闭，`Builder::webrtc_p2p(..)` 启用；双 target 同款接法。
 
 use libp2p::Swarm;
 use libp2p::identity::Keypair;
@@ -41,14 +42,45 @@ const WEBRTC_MAX_MESSAGE_SIZE: NonZeroUsize =
 const WEBRTC_MAX_READ_BUFFER_SIZE: NonZeroUsize =
     NonZeroUsize::new(256 * 1024).expect("256 KiB is non-zero");
 
+/// 按配置创建 WebRTC 打洞传输的**两个平面**，未启用时返回一对 `None`。
+///
+/// ⚠️ 两者必须来自同一次 [`webrtc_p2p::new`] 且注册进同一个 Swarm——transport 的 dial
+/// 只是把请求转交 behaviour（信令要在一条已建立的 relay 连接上开流，那是 behaviour 的
+/// 能力）。只注册其一时 dial 会以 `BehaviourDetached` 快速失败。
+///
+/// `factory` 由调用方按 target 注入：native = `webrtc-rs`，wasm = 浏览器
+/// `RTCPeerConnection`，两者毫无共同点。
+fn build_webrtc_p2p(
+    config: &EndpointConfig,
+    factory: webrtc_p2p::Factory,
+) -> (Option<webrtc_p2p::Transport>, Option<webrtc_p2p::Behaviour>) {
+    let Some(cfg) = config.webrtc_p2p.as_ref() else {
+        return (None, None);
+    };
+    let (transport, behaviour) = webrtc_p2p::new(
+        webrtc_p2p::Config::default()
+            .with_stun_servers(cfg.stun_servers.iter().cloned())
+            .with_signaling_timeout(cfg.signaling_timeout),
+        factory,
+    );
+    (Some(transport), Some(behaviour))
+}
+
 #[cfg(not(wasm_browser))]
 pub(crate) async fn build_swarm(
     keypair: Keypair,
     config: &EndpointConfig,
 ) -> Result<Swarm<Behaviour>, BuildSwarmError> {
+    use libp2p::core::muxing::StreamMuxerBox;
+    use libp2p::core::transport::{OptionalTransport, Transport as _};
     use libp2p::{SwarmBuilder, noise, tcp, yamux};
 
     let err = |e: &dyn std::fmt::Display| BuildSwarmError(e.to_string());
+
+    let (webrtc_p2p_transport, webrtc_p2p_behaviour) = build_webrtc_p2p(
+        config,
+        webrtc_p2p::backend::native::NativeBackend::factory(),
+    );
 
     let builder = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
@@ -62,8 +94,6 @@ pub(crate) async fn build_swarm(
         // webrtc-direct：浏览器拨公网/私网裸 IP 的入口（certhash 免域名免 CA，
         // spike/webrtc-direct-https 实证）。是否 listen 由地址决定（/webrtc-direct）。
         .with_other_transport(|key| {
-            use libp2p::core::muxing::StreamMuxerBox;
-            use libp2p::core::transport::Transport as _;
             let cert = match &config.webrtc_cert_pem {
                 Some(pem) => libp2p_webrtc::tokio::Certificate::from_pem(pem)
                     .map_err(|e| std::io::Error::other(e.to_string()))?,
@@ -79,6 +109,25 @@ pub(crate) async fn build_swarm(
             Ok(libp2p_webrtc::tokio::Transport::new(key.clone(), cert)
                 .with_max_message_size(WEBRTC_MAX_MESSAGE_SIZE)
                 .map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn))))
+        })
+        .map_err(|e| err(&e))?
+        // WebRTC 打洞。**必须排在 `with_relay_client` 之前**：它拨的
+        // `<relay>/p2p-circuit/webrtc/p2p/<target>` 含 `/p2p-circuit` 段，relay client
+        // transport 同样认这类地址；`with_relay_client` 内部是
+        // `已有 transport.or_transport(relay)`，先注册者优先，晚了地址就被 relay 抢去
+        // 当普通中转拨号——链路能通但永远打不了洞，且无任何报错。
+        .with_other_transport(|_| {
+            // 错误类型无法从闭包体推断（这里没有任何 `?` 触发 From 转换），显式标注成
+            // `TryIntoTransport` 唯一认的那个 Result 形态。
+            type TransportError = Box<dyn std::error::Error + Send + Sync>;
+            // `OptionalTransport` 只有 `From<T>`，没有 `From<Option<T>>`——顺手写
+            // `.from(opt)` 会包成 `OptionalTransport<Option<_>>`，那不是 Transport。
+            Ok::<_, TransportError>(match webrtc_p2p_transport {
+                Some(t) => OptionalTransport::some(
+                    t.map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn))),
+                ),
+                None => OptionalTransport::none(),
+            })
         })
         .map_err(|e| err(&e))?;
 
@@ -106,7 +155,12 @@ pub(crate) async fn build_swarm(
         .with_relay_client(noise::Config::new, yamux::Config::default)
         .map_err(|e| err(&e))?
         .with_behaviour(|key, relay_client| {
-            Behaviour::new(key, config.relay_client.then_some(relay_client), config)
+            Behaviour::new(
+                key,
+                config.relay_client.then_some(relay_client),
+                webrtc_p2p_behaviour,
+                config,
+            )
         })
         .map_err(|e| err(&e))?
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(config.idle_timeout))
@@ -143,11 +197,14 @@ pub(crate) async fn build_swarm(
     config: &EndpointConfig,
 ) -> Result<Swarm<Behaviour>, BuildSwarmError> {
     use libp2p::core::muxing::StreamMuxerBox;
-    use libp2p::core::transport::Transport as _;
+    use libp2p::core::transport::{OptionalTransport, Transport as _};
     use libp2p::core::upgrade::Version;
     use libp2p::{SwarmBuilder, noise, webrtc_websys, websocket_websys, yamux};
 
     let err = |e: &dyn std::fmt::Display| BuildSwarmError(e.to_string());
+
+    let (webrtc_p2p_transport, webrtc_p2p_behaviour) =
+        build_webrtc_p2p(config, webrtc_p2p::backend::wasm::WasmBackend::factory());
 
     let swarm = SwarmBuilder::with_existing_identity(keypair)
         .with_wasm_bindgen()
@@ -185,10 +242,31 @@ pub(crate) async fn build_swarm(
                 .boxed())
         })
         .map_err(|e| err(&e))?
+        // 顺序同 native：必须在 `with_relay_client` 之前，否则 `/p2p-circuit/webrtc/…`
+        // 地址会被 relay client transport 抢去当普通中转（详见 native 分支同处注释）。
+        .with_other_transport(|_| {
+            // 错误类型无法从闭包体推断（这里没有任何 `?` 触发 From 转换），显式标注成
+            // `TryIntoTransport` 唯一认的那个 Result 形态。
+            type TransportError = Box<dyn std::error::Error + Send + Sync>;
+            // `OptionalTransport` 只有 `From<T>`，没有 `From<Option<T>>`——顺手写
+            // `.from(opt)` 会包成 `OptionalTransport<Option<_>>`，那不是 Transport。
+            Ok::<_, TransportError>(match webrtc_p2p_transport {
+                Some(t) => OptionalTransport::some(
+                    t.map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn))),
+                ),
+                None => OptionalTransport::none(),
+            })
+        })
+        .map_err(|e| err(&e))?
         .with_relay_client(noise::Config::new, yamux::Config::default)
         .map_err(|e| err(&e))?
         .with_behaviour(|key, relay_client| {
-            Behaviour::new(key, config.relay_client.then_some(relay_client), config)
+            Behaviour::new(
+                key,
+                config.relay_client.then_some(relay_client),
+                webrtc_p2p_behaviour,
+                config,
+            )
         })
         .map_err(|e| err(&e))?
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(config.idle_timeout))

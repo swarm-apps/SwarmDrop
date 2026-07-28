@@ -9673,6 +9673,7 @@ dependencies = [
  "tracing-subscriber",
  "wasm-bindgen-futures",
  "web-sys",
+ "webrtc-p2p",
 ]
 
 [[package]]

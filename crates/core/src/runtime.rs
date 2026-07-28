@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use swarmdrop_net::{
     AddressLookup, DhtConfig, Endpoint, Events, InfraRoles, LookupBuilderFn, RelayServerConfig,
-    Router, SecretKey, presets,
+    Router, SecretKey, WebRtcP2pConfig, presets,
 };
 
 use crate::device::{OsInfo, PairedDeviceInfo};
@@ -184,6 +184,20 @@ pub fn build_router(
         .spawn()
 }
 
+/// WebRTC 打洞用的 STUN 服务器（政策位，换供应商只改这里）。
+///
+/// 多列几家是因为**没有 STUN 就只有 host candidate，跨 NAT 必然打不通**——这不是可选
+/// 优化。国内可达的排前面，Google 兜底：本项目的 bootstrap 在国内，只挂 Google 等于
+/// 对主力用户群关掉打洞能力。
+///
+/// ⚠️ 严格说这是部署配置，按既有约定（net-kernel.md「公共基础设施地址由 Host 配置」）
+/// 该由各 host 注入。当前只有浏览器一个消费方，先收在这里；等需要按端差异化时再上提。
+const STUN_SERVERS: &[&str] = &[
+    "stun:stun.qq.com:3478",
+    "stun:stun.miwifi.com:3478",
+    "stun:stun.l.google.com:19302",
+];
+
 /// 按 [`EndpointProfile`] + [`NetworkRuntimeConfig`] 装配并 bind 一个 Endpoint。
 ///
 /// preset / DHT 在线记录 lookup 由 profile 决定（Native 挂 `OnlineRecordLookup`、Browser
@@ -217,7 +231,17 @@ async fn build_endpoint(
             .address_lookup(LookupBuilderFn(|ep: &Endpoint| {
                 Ok(Box::new(OnlineRecordLookup::new(ep.clone())) as Box<dyn AddressLookup>)
             })),
-        EndpointProfile::Browser => builder.preset(presets::Browser),
+        // 浏览器开 WebRTC 打洞：它没有 DCUtR（那需要直连 socket，wasm 编译期就不存在），
+        // 经 relay 换信令是它把中转升级成直连的唯一途径。
+        //
+        // Native 侧暂不开——桌面/移动已有 autonat + dcutr 能打洞，重复开销无收益；
+        // 且打洞要**两端都支持**，web ↔ 原生端要等 wasm 侧实测通过再决定是否接。
+        EndpointProfile::Browser => builder
+            .preset(presets::Browser)
+            .webrtc_p2p(WebRtcP2pConfig {
+                stun_servers: STUN_SERVERS.iter().map(|s| s.to_string()).collect(),
+                ..WebRtcP2pConfig::default()
+            }),
     };
 
     // relay server 仅 Native + LanHelper（Browser 是纯 relay client，永不当 server）。

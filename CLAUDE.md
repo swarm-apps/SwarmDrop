@@ -133,7 +133,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 |---|---|
 | `crates/net-base` | 网络类型底座。`NodeId` / `Addr` / `NodeAddr` / `ProtocolId` / `NatStatus` —— libp2p 类型在此收口成 newtype，**不向上穿透** |
 | `crates/net` | 网络内核 `swarmdrop-net`。iroh 风格 `Endpoint` 门面 + 后台 actor，隐藏事件循环、连接管理、协议路由、地址选择 |
-| `crates/webrtc-p2p` | libp2p WebRTC **打洞**传输（spec `/webrtc-signaling/0.0.1`）。**尚未接线**——无人依赖，SwarmDrop 行为不变；进 workspace 只为被 CI 覆盖。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
+| `crates/webrtc-p2p` | libp2p WebRTC **打洞**传输（spec `/webrtc-signaling/0.0.1`）。已接进 `crates/net`，**默认关**——只有 Browser profile 开（浏览器没有 DCUtR）；native 侧未开。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
 | `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖 |
 | `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码。**wasm-clean，不依赖 core** |
 | `crates/transfer` | 文件传输域。经端口 trait 依赖倒置，**不依赖 sea-orm / pairing / network** |

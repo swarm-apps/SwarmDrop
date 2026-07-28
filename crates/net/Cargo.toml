@@ -12,6 +12,9 @@ edition.workspace = true
 
 [dependencies]
 swarmdrop-net-base = { workspace = true }
+# WebRTC 打洞传输。放顶层而非 target 表——它自己按 target 换后端（native = webrtc-rs，
+# wasm = 浏览器 RTCPeerConnection），双 target 都要编。
+webrtc-p2p = { workspace = true }
 n0-future = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

@@ -69,8 +69,11 @@ impl CoreTransport for Transport {
     type ListenerUpgrade = BoxFuture<'static, Result<Output, Error>>;
     type Dial = BoxFuture<'static, Result<Output, Error>>;
 
-    /// 监听地址形如 `<relay-addr>/p2p-circuit/webrtc`——**不含**目标 `/p2p` 段
-    /// （目标就是本机，由 swarm 在对外通告时补上）。
+    /// 监听地址形如 `<relay-addr>/p2p-circuit/webrtc/p2p/<本机>`。
+    ///
+    /// **本机 `/p2p` 段要调用方自己补**——swarm 不会代劳（relay client transport 同样是
+    /// 自己补的，见其 `priv_client/handler.rs`）。省略它地址仍能被接受，但通告出去后
+    /// 对端拨不动，因为解析不出目标节点。
     fn listen_on(
         &mut self,
         id: ListenerId,
@@ -156,7 +159,7 @@ impl CoreTransport for Transport {
             };
             let listener_id = listener.id;
             let local_addr = listener.addr.clone();
-            let send_back_addr = addr::from_circuit(&local_addr, peer);
+            let send_back_addr = addr::with_peer(&local_addr, peer);
             return Poll::Ready(TransportEvent::Incoming {
                 listener_id,
                 upgrade: async move { Ok((peer, connection)) }.boxed(),

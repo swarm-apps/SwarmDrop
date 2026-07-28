@@ -45,7 +45,7 @@ pub use swarmdrop_net_base::{
     Addr, DiscoverySource, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, SecretKey,
 };
 
-pub use config::{DhtConfig, RelayServerConfig};
+pub use config::{DhtConfig, RelayServerConfig, WebRtcP2pConfig};
 pub use dht::{Dht, DhtError, DhtKey, DhtRecord};
 pub use endpoint::{
     AddrsInfo, BindError, Builder, ConnInfo, Endpoint, InfraRoles, RelayState, presets,

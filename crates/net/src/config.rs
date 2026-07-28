@@ -73,6 +73,37 @@ impl Default for RelayServerConfig {
     }
 }
 
+/// WebRTC 打洞传输配置（`Builder::webrtc_p2p(..)` 启用）。
+///
+/// 它与 webrtc-direct 是**两个不同的传输**：后者要求目标地址已可达（ICE-lite，不打洞），
+/// 前者让双方都不可达的节点经 relay 换信令后打洞直连。两者可同时开启。
+///
+/// 这里刻意不复用 `webrtc_p2p::Config`——内核不让第三方类型穿透到上层 API
+/// （与「libp2p 类型不出内核」同一条约束），转换在 `transport.rs` 就地完成。
+#[derive(Debug, Clone)]
+pub struct WebRtcP2pConfig {
+    /// STUN 服务器。
+    ///
+    /// **不是可选优化**：没有 STUN 就只有 host candidate，跨 NAT 必然打不通
+    /// （浏览器无法经 identify 发现自己的公网地址——每条 WebRTC 连接用新端口）。
+    /// 默认取 `webrtc_p2p` 的公共 STUN；国内网络可换成可达的服务器。
+    pub stun_servers: Vec<String>,
+    /// 信令交换整体超时（开流 → offer → answer → ICE 收敛）。
+    ///
+    /// 超时后 dial 失败，由上层决定是否退回 relay 中转——spec 步骤 8 把该策略留给应用。
+    pub signaling_timeout: Duration,
+}
+
+impl Default for WebRtcP2pConfig {
+    fn default() -> Self {
+        let defaults = webrtc_p2p::Config::default();
+        Self {
+            stun_servers: defaults.stun_servers().to_vec(),
+            signaling_timeout: defaults.signaling_timeout(),
+        }
+    }
+}
+
 /// 内部装配配置（Builder 收集、bind 时消费）。
 #[derive(Clone)]
 pub(crate) struct EndpointConfig {
@@ -101,6 +132,8 @@ pub(crate) struct EndpointConfig {
     /// 分享出去的地址全部失效**，生产必须注入持久化证书（keychain/数据目录）；
     /// `None` 时每次随机生成（仅测试/临时场景可接受）。native only。
     pub webrtc_cert_pem: Option<String>,
+    /// WebRTC 打洞传输（`None` = 不启用）。双 target 均可用。
+    pub webrtc_p2p: Option<WebRtcP2pConfig>,
     /// 显式登记为本节点外部可达的地址。
     ///
     /// 公网 relay 通常监听 `0.0.0.0`，而 reservation 应答必须返回公网地址；
@@ -130,6 +163,7 @@ impl Default for EndpointConfig {
             relay_client: true,
             relay_server: None,
             webrtc_cert_pem: None,
+            webrtc_p2p: None,
             external_addrs: Vec::new(),
             listen: Vec::new(),
             stream_limits: StreamLimits::default(),
@@ -158,6 +192,7 @@ impl std::fmt::Debug for EndpointConfig {
                 "webrtc_cert_pem",
                 &self.webrtc_cert_pem.as_ref().map(|_| "<redacted>"),
             )
+            .field("webrtc_p2p", &self.webrtc_p2p)
             .field("listen", &self.listen)
             .field("external_addrs", &self.external_addrs)
             .field("stream_limits", &self.stream_limits)

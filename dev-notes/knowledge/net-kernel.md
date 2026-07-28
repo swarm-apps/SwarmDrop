@@ -286,6 +286,60 @@ android target 依赖表）。
 - ConnectionHandler 的关联类型（InboundOpenInfo 等）与 0.56 一致，keep_alive
   behaviour 近零改动移植。
 
+## WebRTC 打洞传输接线（`crates/webrtc-p2p`，2026-07-28）
+
+自研的打洞传输已接进内核。**默认关**：`EndpointConfig.webrtc_p2p: Option<WebRtcP2pConfig>`，
+经 `Builder::webrtc_p2p(..)` 开启；当前只有 Browser profile 开（`crates/core/src/runtime.rs`），
+桌面/移动不开——它们有 autonat + dcutr，浏览器才是没有 DCUtR 的那一端。
+
+与官方 `libp2p-webrtc`（webrtc-direct）是**两个传输、可共存**：那个要求目标地址已可达，
+这个让双方都不可达的节点经 relay 换信令后打洞。
+
+### 注册顺序：必须排在 `with_relay_client` 之前
+
+打洞地址 `<relay>/p2p-circuit/webrtc/p2p/<target>` **含 `/p2p-circuit` 段**，relay client
+transport 同样认这类地址（它的 `parse_relayed_multiaddr` 只要求有 circuit 段，circuit 之后
+的未知协议被忽略）。而 `with_relay_client` 内部是 `已有 transport.or_transport(relay)`，
+`or_transport` 先到先得——晚注册，地址就被 relay 抢去当普通中转。
+
+**症状极隐蔽**：链路能通、传输正常，只是永远打不了洞，且没有任何报错。
+
+### listener 生命周期严格绑定 reservation
+
+本机要能「被拨」，得在 `ReservationReqAccepted` 后补一个
+`<relay>/p2p-circuit/webrtc/p2p/<本机>` 监听（`Actor::ensure_webrtc_listener`），它才会进
+`watch_addrs().listen` → `dialable()` → 邀请。
+
+两条约束：
+
+1. **不能进 `relay_listeners` 表**。它不是一份 reservation（webrtc-p2p transport 收下地址
+   只是登记 listener，不向 relay 请求任何东西），混进去它的 `ListenerClosed` 会被误判成
+   reservation 失效 → 误发 `RelayReservationLost`。故另存 `webrtc_listeners: PeerId → ListenerId`。
+2. **reservation 一没就必须撤**（`ListenerClosed` 判失效处 + `handle_remove_infra_peer`）。
+   信令要经 relay 转发，reservation 没了这条地址就是死的，留着等于对外通告拨不通的地址。
+
+**本机 `/p2p` 段要自己补**——swarm 不代劳。relay client 也是自己补的
+（`priv_client/handler.rs` 的 `.with(P2pCircuit).with(P2p(local_peer_id))`）；漏了地址仍能
+listen 成功，但对端解析不出目标节点，拨不动。
+
+### `classify_path` 对 `/webrtc` 的例外
+
+打洞连接的远端地址天生带 circuit 段（**信令**确实经 relay），但数据面是直连、一个字节不过
+中继。`is_circuit()` 会把它判成 `Relayed`，于是 `path_rank` 把真直连排到中转之下、UI 显示
+也反了。`actor.rs` 的 `classify_path` 因此对含 `/webrtc` 的 circuit 地址返回 `Direct`
+（`is_hole_punched`），单测钉死。
+
+### `OptionalTransport` 只有 `From<T>`，没有 `From<Option<T>>`
+
+`OptionalTransport::from(opt)` 会包成 `OptionalTransport<Option<_>>`——那不是 `Transport`，
+报错信息绕。用 `match { Some(t) => ::some(t), None => ::none() }`。另外
+`with_other_transport` 闭包里没有 `?` 时错误类型推断不出来，要显式标注成
+`Box<dyn Error + Send + Sync>`（`TryIntoTransport` 唯一认的 Result 形态）。
+
+**相关文件**：`crates/net/src/{transport.rs,actor.rs,config.rs,behaviour/mod.rs}`、
+`crates/core/src/runtime.rs`；决策与 spike 实测见
+[`dev-notes/research/2026-07-webrtc-native-ice.md`](../research/2026-07-webrtc-native-ice.md)
+
 ## wasm 工程约定
 
 - 双 target 门禁：`scripts/check-wasm.sh`（CI rust.yml 的 wasm job 每 PR 跑）。

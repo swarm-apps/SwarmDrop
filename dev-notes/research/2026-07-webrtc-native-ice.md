@@ -244,11 +244,36 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
    字节一致。`native 作为 offerer` 这项验收随之达成（spike 当时只验了 answerer 方向）
 4. ~~wasm 后端~~ —— ✅ 已实现（浏览器 `RTCPeerConnection`）。**但只过了编译，逻辑未实测**
    ——wasm 侧要浏览器才能跑
-5. **接进 `crates/web`，用 `docs/app/app` 实测浏览器侧** —— 这是 wasm 后端的第一道真验收
-6. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
+5. ~~接进 `crates/net`~~ —— ✅ 已完成（分支 `feat/webrtc-p2p-wiring`，见下节）
+6. **用 `docs/app/app` 实测浏览器侧** —— 这是 wasm 后端的第一道真验收。**代码已就位、
+   尚未跑过**
+7. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
    「确认实现正确」而非「决定要不要做」
-7. **与 js-libp2p 互通验收** —— 通用性的最终判据（决策理由之一就是它）
-8. 独立仓库 + 社区化
+8. **与 js-libp2p 互通验收** —— 通用性的最终判据（决策理由之一就是它）
+9. 独立仓库 + 社区化
+
+### 接线形状（2026-07-28）
+
+**默认关**，`Builder::webrtc_p2p(WebRtcP2pConfig)` 开启；当前只有 Browser profile 开
+（`crates/core/src/runtime.rs`）。桌面/移动不开——它们有 autonat + dcutr，而打洞要
+**两端都支持**，所以现阶段可验的组合是 **web ↔ web**；要验 web ↔ 原生端，得先给
+Native profile 也开。
+
+四条非显见约束（详见 [`knowledge/net-kernel.md`](../knowledge/net-kernel.md) 同名小节）：
+
+| 约束 | 违反的后果 |
+|---|---|
+| transport 注册在 `with_relay_client` **之前** | 地址被 relay 抢去当中转，能通但永不打洞，**无报错** |
+| `/webrtc` listener 与 reservation 同生共死 | 通告拨不通的死地址 / 误发 `RelayReservationLost` |
+| listen 地址自己补 `/p2p/<本机>` | 对端解析不出目标，拨不动 |
+| `classify_path` 对 `/webrtc` 例外 | 打洞成功却被记成 Relayed，最优连接选错 |
+
+**浏览器验证怎么做**（第 6 步）：`cd docs && pnpm build:wasm && pnpm dev`，开两个标签页
+互相配对，然后看 ① 各自的可拨地址里是否出现 `…/p2p-circuit/webrtc/p2p/<self>`
+（`ensure_webrtc_listener` 生效）② 控制台是否出现 `webrtc hole punching succeeded`
+③ 连接路径是否显示为直连而非中继。三条都过才算 wasm 后端跑通。
+
+代价：wasm 产物 gzip 1367 KB → 1418 KB（+51 KB，+3.7%）。
 
 ### 已落地实现的形状（截至 2026-07-27）
 
@@ -257,7 +282,8 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
     swarm/      session（纯逻辑状态机）/ handler（poll 适配）/ behaviour / transport
 
 **native 侧已端到端验证**：两个真实后端在本机跑通信令与数据面（开子流、双向传数据、
-字节一致）。wasm 侧只过了编译与 clippy，逻辑待浏览器实测。
+字节一致）。wasm 侧只过了编译与 clippy，**逻辑一行没实测**——接进 `crates/net` 不改变
+这一点，浏览器实测才算数。
 
 依赖方向单向 `swarm → backend → protocol`。状态机与协议层都是纯逻辑，可脱离真实
 WebRTC 与真实 `Stream` 测试——这是把「最容易出错的部分」隔离出来的刻意安排。

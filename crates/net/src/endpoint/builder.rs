@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use super::presets::Preset;
 use super::{AddrsInfo, Endpoint, Inner};
 use crate::actor::{Actor, ActorMessage, WatchSenders};
-use crate::config::{DhtConfig, EndpointConfig, RelayServerConfig};
+use crate::config::{DhtConfig, EndpointConfig, RelayServerConfig, WebRtcP2pConfig};
 use crate::dht::Dht;
 use crate::lookup::AddressLookupBuilder;
 use crate::stream::{StreamLimits, StreamRegistry};
@@ -135,6 +135,17 @@ impl Builder {
     /// 注入持久化证书，否则重启后分享出去的地址全部失效。native only。
     pub fn webrtc_certificate(mut self, pem: impl Into<String>) -> Self {
         self.config.webrtc_cert_pem = Some(pem.into());
+        self
+    }
+
+    /// 启用 WebRTC 打洞传输（默认关闭）。
+    ///
+    /// 与 webrtc-direct 正交：后者要求目标地址已可达，前者让双方都不可达的节点
+    /// （浏览器、NAT 后的原生端）经 relay 换信令后打洞。开启后本机既能拨
+    /// `<relay>/p2p-circuit/webrtc/p2p/<target>`，也会为 circuit reservation
+    /// 额外监听 `<relay>/p2p-circuit/webrtc` 以便被拨。
+    pub fn webrtc_p2p(mut self, config: WebRtcP2pConfig) -> Self {
+        self.config.webrtc_p2p = Some(config);
         self
     }
 
