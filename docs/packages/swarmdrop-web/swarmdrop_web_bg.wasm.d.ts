@@ -1,8 +1,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const start: () => void;
 export const __wbg_webnode_free: (a: number, b: number) => void;
+export const start: () => void;
 export const webnode_accept_offer: (a: number, b: number, c: number) => any;
 export const webnode_close: (a: number) => any;
 export const webnode_connect: (a: number, b: number, c: number, d: number) => any;

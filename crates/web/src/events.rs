@@ -39,7 +39,7 @@ impl TransferEventSink for WebEventSink {
 /// 仍返回 NULL（reader 侧对 null 有容错），但根因可见。
 pub fn serialize_event(event: TransferEvent) -> JsValue {
     let web = WebTransferEvent::from(event);
-    match serde_wasm_bindgen::to_value(&web) {
+    match crate::serialize::to_js(&web) {
         Ok(value) => value,
         Err(e) => {
             tracing::warn!(event = web.type_name(), "事件序列化失败（返回 NULL）: {e}");

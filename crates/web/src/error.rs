@@ -11,7 +11,7 @@ pub use crate::types::WebError;
 impl WebError {
     /// 序列化成结构化 JS 对象；序列化本身失败时兜底成字符串（不应发生）。
     pub fn to_js(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(self)
+        crate::serialize::to_js(self)
             .unwrap_or_else(|_| JsValue::from_str("error serialization failed"))
     }
 }

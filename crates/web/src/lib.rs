@@ -33,6 +33,8 @@ mod node;
 #[cfg(wasm_browser)]
 mod opfs;
 #[cfg(wasm_browser)]
+mod serialize;
+#[cfg(wasm_browser)]
 mod store;
 
 #[cfg(wasm_browser)]

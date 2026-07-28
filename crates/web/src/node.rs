@@ -110,7 +110,7 @@ fn relay_info_json(map: &BTreeMap<NodeId, RelayState>) -> Vec<RelayInfoJson> {
 
 /// serde 可序列化值 → 具名 TS 类型的 JsValue（`unchecked_into` 到 typescript_type 包装）。
 fn to_js_typed<T: serde::Serialize, R: JsCast>(value: &T, what: &str) -> Result<R, JsValue> {
-    serde_wasm_bindgen::to_value(value)
+    crate::serialize::to_js(value)
         .map(JsValue::unchecked_into)
         .map_err(|e| WebError::network(format!("序列化{what}失败: {e}")).into())
 }
@@ -419,8 +419,7 @@ impl WebNode {
         let watcher = self.endpoint.watch_relays();
         let stream = futures::stream::unfold(watcher, |mut w| async move {
             let map = w.updated().await?;
-            let value =
-                serde_wasm_bindgen::to_value(&relay_info_json(&map)).unwrap_or(JsValue::NULL);
+            let value = crate::serialize::to_js(&relay_info_json(&map)).unwrap_or(JsValue::NULL);
             Some((Ok::<JsValue, JsValue>(value), w))
         });
         JsValue::from(wasm_streams::ReadableStream::from_stream(stream).into_raw()).unchecked_into()
