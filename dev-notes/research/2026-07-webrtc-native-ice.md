@@ -122,6 +122,47 @@ PeerConnection 不同（`webrtc-rs` vs 浏览器 `RTCPeerConnection`）。
 
 这也是「通用」的第二层含义——不只是别的项目能用，而是**在同一个项目里覆盖所有端的组合**。
 
+## 为什么不实现 webrtc-direct 模式（以及它的代价）
+
+js-libp2p 的 [`transport-webrtc`](https://github.com/libp2p/js-libp2p/tree/main/packages/transport-webrtc)
+一个包导出两种模式（`webRTC()` 打洞 / `webRTCDirect()`）。**我们只做打洞那一种。**
+
+原因是 js 把两者放一起是为了复用底层，而 **rust 侧早已把共享层抽了出来**：
+`libp2p-webrtc-utils` 发布在 crates.io（0.5.0），含 `fingerprint.rs` / `sdp.rs` /
+`stream.rs`。关键是它**泛型且不依赖 webrtc-rs**：
+
+```rust
+pub struct Stream<T> where T: AsyncRead + AsyncWrite   // 与具体 WebRTC 实现无关
+```
+
+所以我们用 webrtc-rs 0.20 照样能复用它，**不会因此把 0.17 拖进来**。加上 `multiaddr`
+已有 `Protocol::WebRTC` 与 `Protocol::WebRTCDirect` 两个协议段，分派天然不冲突：
+
+| 模式 | 谁实现 | 状态 |
+|---|---|---|
+| webrtc-direct（native server） | 官方 `libp2p-webrtc` | 已有，本项目在用 |
+| webrtc-direct（browser dialer） | 官方 `libp2p-webrtc-websys` | 已有，本项目在用 |
+| **打洞（两端）** | **本 crate** | 缺口所在 |
+
+### 代价：native 侧会有两套 WebRTC 栈
+
+官方 `libp2p-webrtc` 钉死 `webrtc = "0.17"`，我们要 `0.20`。两个不兼容版本**同时进
+依赖树**，native 侧编译两份完整的 ICE/DTLS/SCTP/SRTP，编译时间与二进制体积翻倍。
+
+> **看到依赖树里两个 webrtc 版本不是配置错误，是已知取舍。** 留档于此以免后人误删。
+
+wasm 侧没有这个问题——浏览器用原生 `RTCPeerConnection`，压根没有 webrtc-rs。这是一处
+native/wasm 的不对称。
+
+### 这个代价反过来是「将来补 direct」的唯一实际理由
+
+若本 crate 也实现 direct，就能**完全替代**官方 `libp2p-webrtc`，只留一套 0.20。
+理由不是功能缺失（官方实现可用），而是消除双份依赖——顺带让这个 crate 成为官方的完整
+替代品，通用性再上一档。
+
+**但排在打洞之后。** 现在的约束是：架构上不假设「只有打洞」——复用 `webrtc-utils`、
+模块划分给 direct 留位置，将来补上时不需要重构。
+
 ## spike 验证结论（2026-07-27）
 
 完整实验数据见 `spike/webrtc-ice-browser/README.md`。核心四条：
@@ -196,13 +237,30 @@ ICE 打洞本身是成熟技术（视频会议全靠它），业界成功率约 
 ### 执行顺序
 
 1. ~~验 ICE 能力与背压~~ —— ✅ 已完成（见上文 spike 结论）
-2. 设计 signaling 的 transport + behaviour 配对，跑通浏览器 ↔ NAT 后桌面。
-   **对称性从第一天就要在接口里体现**（见上文覆盖范围），事后补是重写
-3. 两项验收（不阻塞开工，有雏形后一起验）：
-   - **native 作为 offerer** —— spike 只验了 answerer 方向
-   - **跨 NAT 打洞** —— 需要两台不同网络的机器。此步目的已变：不再是「决定要不要做」
-     的判据，而是「确认实现正确」的验收项
-4. 独立仓库 + 社区化
+2. ~~signaling 的 transport + behaviour 配对~~ —— ✅ 已完成，见 `crates/webrtc-p2p`
+   （分支 `feat/webrtc-p2p-transport`）
+3. ~~native 后端~~ —— ✅ 已完成。两个真实 webrtc-rs 后端在本机跑通**信令 + 数据面**：
+   init 通道 → offer/answer → trickle ICE → DTLS → Connected → 开子流 → 双向传数据、
+   字节一致。`native 作为 offerer` 这项验收随之达成（spike 当时只验了 answerer 方向）
+4. ~~wasm 后端~~ —— ✅ 已实现（浏览器 `RTCPeerConnection`）。**但只过了编译，逻辑未实测**
+   ——wasm 侧要浏览器才能跑
+5. **接进 `crates/web`，用 `docs/app/app` 实测浏览器侧** —— 这是 wasm 后端的第一道真验收
+6. **跨 NAT 打洞验收** —— 需要两台不同网络的机器。ICE 打洞本身成熟，此步是
+   「确认实现正确」而非「决定要不要做」
+7. **与 js-libp2p 互通验收** —— 通用性的最终判据（决策理由之一就是它）
+8. 独立仓库 + 社区化
+
+### 已落地实现的形状（截至 2026-07-27）
+
+    protocol/   线上格式，零 libp2p-swarm 依赖
+    backend/    WebRTC 栈抽象 + native（webrtc-rs 0.20）+ wasm（RTCPeerConnection）+ mock
+    swarm/      session（纯逻辑状态机）/ handler（poll 适配）/ behaviour / transport
+
+**native 侧已端到端验证**：两个真实后端在本机跑通信令与数据面（开子流、双向传数据、
+字节一致）。wasm 侧只过了编译与 clippy，逻辑待浏览器实测。
+
+依赖方向单向 `swarm → backend → protocol`。状态机与协议层都是纯逻辑，可脱离真实
+WebRTC 与真实 `Stream` 测试——这是把「最容易出错的部分」隔离出来的刻意安排。
 
 3、4 仍应分开：API 设计、文档、CI、发版、issue 响应这些开销，在跑通之前都是负担；
 而真实的设计约束要跑通了才知道，那时设计的 API 才靠谱。

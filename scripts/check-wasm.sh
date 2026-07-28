@@ -20,7 +20,9 @@ if [[ "$(uname)" == "Darwin" ]]; then
   fi
 fi
 
-CRATES=(-p swarmdrop-net-base -p swarmdrop-net -p swarmdrop-host -p swarmdrop-transfer -p swarmdrop-invite -p swarmdrop-core -p swarmdrop-web)
+# webrtc-p2p 排在最前：它是双 target 的传输实现（浏览器侧是它存在的理由之一），
+# 且不依赖任何 swarmdrop crate，破了 wasm 应当第一个暴露。
+CRATES=(-p webrtc-p2p -p swarmdrop-net-base -p swarmdrop-net -p swarmdrop-host -p swarmdrop-transfer -p swarmdrop-invite -p swarmdrop-core -p swarmdrop-web)
 
 if [[ "${1:-}" == "--clippy" ]]; then
   cargo clippy "${CRATES[@]}" --target wasm32-unknown-unknown -- -D warnings
