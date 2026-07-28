@@ -181,7 +181,7 @@ export function TransferActivityPanel() {
 // 一个会话每秒十余次的进度事件因此只重渲染它自己那一项，而不是整张活动 + 历史列表。
 const TransferActivityItem = memo(function TransferActivityItem({
   projection,
-  progress,
+  progress: liveProgress,
   connection,
   resumePending,
   resumeError,
@@ -196,6 +196,15 @@ const TransferActivityItem = memo(function TransferActivityItem({
   resumeDisabled: boolean;
   onResume: (sessionId: string) => void;
 }) {
+  // `progress` 是**在途采样**：会话一进终态内核就不再下发，最后收到的那一帧会永远
+  // 停在那儿。而下面每一处都让采样优先于 projection，于是终态被一个陈旧值盖住。
+  //
+  // projection 才是权威——它在终态已回填全量字节。2026-07-28 实测：16 MiB 传完、
+  // `projection.transferredBytes` 已是 16777216，采样却停在 3932160，界面显示
+  // 「已完成 · 23%」。
+  const ended = projection.phase === "terminal";
+  const progress = ended ? undefined : liveProgress;
+
   const percent = transferPercent(projection, progress);
   const phase = phaseLabel(projection);
   const bytesDone = progress?.transferredBytes ?? projection.transferredBytes;
@@ -221,9 +230,13 @@ const TransferActivityItem = memo(function TransferActivityItem({
         </div>
         <div className="text-right text-xs">
           <p className="font-medium text-fd-foreground">{phase}</p>
-          <p className="mt-1 text-fd-muted-foreground">
-            {formatTransferRate(progress?.speed)} · ETA {formatDuration(progress?.eta)}
-          </p>
+          {/* 速率与 ETA 只对进行中的会话有意义——终态显示「等待数据 · ETA 未知」
+              是在报告一个不存在的等待。已用时长在下方单独展示。 */}
+          {!ended && (
+            <p className="mt-1 text-fd-muted-foreground">
+              {formatTransferRate(progress?.speed)} · ETA {formatDuration(progress?.eta)}
+            </p>
+          )}
         </div>
       </div>
 
