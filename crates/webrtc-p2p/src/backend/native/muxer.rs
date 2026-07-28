@@ -30,6 +30,28 @@ type LabelCheck = BoxFuture<'static, (Arc<dyn DataChannel>, Option<String>)>;
 /// 永远没有数据的流，libp2p 的协议协商会卡在那儿。
 pub(crate) const INIT_CHANNEL_LABEL: &str = "init";
 
+/// 子流通道的参数：**有序、可靠**。libp2p 的子流语义要求如此。
+///
+/// ⚠️ **不能传 `None` 用默认值。** `RTCDataChannelInit` 是 `#[derive(Default)]`，
+/// `ordered: bool` 于是默认成 `false`——与它自己的文档（「The default value of `true`」）
+/// 和 W3C 规范（`ordered` 默认 `true`）都相反。
+///
+/// 无序通道的后果比「乱序」严重得多：无序 chunk 绕过 SCTP 的有序投递队列，会**抢在
+/// 同一批发出的 DCEP OPEN 前面**到达。对端在一条还不认识的 stream 上看到用户数据，
+/// `RTCDataChannelInternal::accept` 要求 PPID 是 DCEP、于是报
+/// `InvalidPayloadProtocolIdentifier(53)`——而那个错误跑在 pipeline 的 read pass 上，
+/// 只 `warn!` 不上抛。净效果是**每条子流的第一条消息静默丢失**，表现为
+/// multistream-select 永远协商不完，两端各自超时。
+///
+/// 症状只在真实 swarm 下出现：手写测试若在 `create_data_channel` 后紧接着 poll 一轮，
+/// DCEP OPEN 会先单独成包发出去，反而撞不出来。
+pub(crate) fn ordered_reliable() -> rtc::data_channel::RTCDataChannelInit {
+    rtc::data_channel::RTCDataChannelInit {
+        ordered: true,
+        ..Default::default()
+    }
+}
+
 /// 一条 WebRTC 连接的数据面。
 pub(crate) struct Muxer {
     pc: Arc<dyn PeerConnection>,
@@ -172,7 +194,7 @@ impl StreamMuxer for Muxer {
             this.creating = Some(
                 async move {
                     let dc = pc
-                        .create_data_channel(&label, None)
+                        .create_data_channel(&label, Some(ordered_reliable()))
                         .await
                         .map_err(|e| Error::Connection(format!("创建 DataChannel 失败：{e}")))?;
                     // 必须等真 open 再交出去——未 open 时写入会**静默丢弃**，

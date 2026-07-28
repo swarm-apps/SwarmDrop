@@ -474,7 +474,8 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 | 仓 | 编号 | 内容 | 对本仓的意义 |
 |---|---|---|---|
 | webrtc-rs/rtc | [PR 137](https://github.com/webrtc-rs/rtc/pull/137) | `disable_certificate_fingerprint_verification` 是死代码 | **阻塞** — direct 服务端没它建不起来 |
-| libp2p/rust-libp2p | [PR 6570](https://github.com/libp2p/rust-libp2p/pull/6570) | relay circuit 无 reservation 时 panic | **阻塞** — 与 #6558/#6560 同属 git pin 退出条件 |
+| libp2p/rust-libp2p | [PR 6472](https://github.com/libp2p/rust-libp2p/pull/6472)（上游自己的） | relay circuit 无 reservation 时 panic | **阻塞** — 与 #6558/#6560 同属 git pin 退出条件 |
+| webrtc-rs/**rtc** | [PR 140](https://github.com/webrtc-rs/rtc/pull/140) | `RTCDataChannelInit` 的 `ordered` 默认成 `false`（issue 139） | 反哺 — 本仓已在自己这侧显式传参，不进 pin |
 | webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | **已 pin**（见下）；muxer 的 `local_channels` 仍保留，它是不变式不是补丁 |
 | webrtc-rs/**rtc** | [PR 138](https://github.com/webrtc-rs/rtc/pull/138) | `send()` 在通道 open 前/关闭后返回 `Ok` 但**静默丢数据**（issue 826） | **已 pin**；`data_channel::await_open` **无论如何都要留** |
 | webrtc-rs/webrtc | [PR 828](https://github.com/webrtc-rs/webrtc/pull/828) | 加 `remote_certificate_fingerprint`（issue 827） | **已 pin**，`remote_fingerprint()` 收成一行 |
@@ -483,6 +484,12 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 
 > #6571 / #6572 **基于上游 master 开分支，不在 fork 树上**——它们不进 `Cargo.toml` 的 pin，
 > 也不进退出条件。它们合并只是让本仓能删掉两处副本。
+
+> **我们的 relay panic PR #6570 已于 2026-07-28 关闭。** 维护者指出上游早有
+> [#6472](https://github.com/libp2p/rust-libp2p/pull/6472)，实测两者**源码逐字节相同**
+> （同一段 `find(|(_, status)| status.is_active())`），只有测试写法不同。
+> ⚠️ **这不缩短退出条件**：#6472 至今仍是 OPEN，那一行只是从「我们的 PR」换成
+> 「上游的 PR」，fork 上的补丁照旧要留着。
 
 ⚠️ **issue 826 是本仓踩过最贵的一个坑**：Noise 握手第一条消息在
 `RTCPeerConnectionState::Connected` 时写出去就消失了，全链路零报错，表现为「握手莫名挂住」。
@@ -614,6 +621,45 @@ webrtc 0.20 的 driver 对**每一个** `OnOpen` 事件都调它，不区分通�
 **这个缺口值得提上游**：与 rtc #137 同一性质，几行判断即可，且能同时消掉两个 target 的
 workaround。尚未提。
 
+### ⛔ 建 DataChannel 永远不要传 `None`——rtc 的 `ordered` 默认是 `false`
+
+**2026-07-28 实证，本轮最贵的一个坑。** `rtc::data_channel::RTCDataChannelInit` 是
+`#[derive(Default)]`，`ordered: bool` 于是默认成 **`false`**——与它自己紧邻的文档
+（「The default value of `true` guarantees that data will be delivered in order」）
+和 W3C 规范（`ordered` 默认 `true`）**都相反**。
+
+无序通道的后果远不止「乱序」：**无序 chunk 绕过 SCTP 的有序投递队列**，会抢在同一批
+发出的 DCEP OPEN 前面到达对端。对端在一条还不认识的 stream 上看到用户数据，
+`RTCDataChannelInternal::accept` 要求 PPID 必须是 DCEP，于是报
+`InvalidPayloadProtocolIdentifier(53)`（53 = WebRTC Binary，完全正常的值）——而那个错误跑在
+pipeline 的 read pass 上，**只 `warn!` 不上抛**，与 [issue 826](https://github.com/webrtc-rs/webrtc/issues/826)
+同一条吞错误的路径。
+
+净效果：**每条子流的第一条消息静默丢失**。发送端 `send()` 返回 `Ok`，链路零报错，
+表现为 multistream-select 永远协商不完、两端各自 10s 超时：
+
+```
+libp2p_swarm::connection: inbound stream upgrade timed out    ← 两端都刷
+rtc::peer_connection::handler: DataChannelHandler.handle_read got error:
+    Unknown PayloadProtocolIdentifier 53                       ← 开 RUST_LOG=rtc=debug 才看得见
+```
+
+排障提示：症状停在 libp2p 层，根因只在 `rtc` 的日志里。**direct 排障第一件事就是
+`RUST_LOG=rtc=debug`**——上面那行 warn 是唯一的线索。
+
+修法在 `native/muxer.rs::ordered_reliable()`，crate 内**所有** `create_data_channel`
+都过它，`None` 一处不留（Noise 通道本来就显式写了 `ordered: true`，所以握手一直是好的，
+坏的只有子流）。
+
+⚠️ **crate 级测试撞不出来**：`direct_loopback.rs` 那种手写 poll 循环会在
+`create_data_channel` 之后立刻再转一圈，DCEP OPEN 因而单独成包先发，竞态被盖住。
+真 swarm 的 poll 节奏才暴露它——回归守卫是 `crates/net/tests/webrtc.rs` 的
+`dial_own_webrtc_direct_listen_addr`（摘掉修复必红，已双向验证）。
+
+wasm 侧不受影响：浏览器 `createDataChannel` 按规范默认 `ordered: true`。
+
+上游已提 [rtc issue 139](https://github.com/webrtc-rs/rtc/issues/139)。
+
 ### 用 `rtc::` 转出子 crate，不要直接依赖 `rtc-ice` / `rtc-stun`
 
 rtc `pub use` 了全套子 crate（`rtc::ice` / `rtc::stun` / `rtc::dtls` / …）。直接依赖
@@ -664,11 +710,9 @@ API、在这里必须绕：
 - **`webrtc_p2p::new` 强制要 `Factory`**，而 direct 全程不碰 `Backend`——测试与 example
   都得捏一个「必然返回 Err」的假工厂来表达「我不需要这个平面」。对一个准备独立发布的
   crate，这是 API 层的问题。
-- **三处上游候选**（除已提的 rtc #137、libp2p #6570）：`on_data_channel` 回灌本端通道；
-  `dc.send()` 在未 open 时静默丢数据（W3C 语义是 `connecting` 缓冲、`closed` 抛错）；
-  `Fingerprint` 缺 `from_sdp_format`（官方 `webrtc-websys` 自己也抄了一份）。
-- **`remote_fingerprint` 靠 scrape stats 字符串**（0.17 有 `get_remote_certificate()`，
-  0.20 掉了）。属于「库该暴露而没暴露」，目前没有可判定的退出条件。
+> 这节里原有的四条「上游候选」**已全部提出去并落地**（webrtc #825/#828、rtc #138、
+> libp2p #6571/#6572），`remote_fingerprint` 也已换成上游 API。现状以上面的
+> 「上游缺口台账」为准，不要再照这节去重复提。
 
 **相关文件**：`crates/webrtc-p2p/src/backend/native/direct/{udp_mux,upgrade,sdp,certificate,transport}.rs`、
 `crates/webrtc-p2p/src/backend/wasm/direct.rs`、

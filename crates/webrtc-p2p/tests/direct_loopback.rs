@@ -233,3 +233,117 @@ async fn one_port_serves_multiple_clients() {
         "同一端口上两条连接应各自认出正确的对端：实得 {peers:?}"
     );
 }
+
+/// 双向：两端各自开一条子流，各写各读。
+///
+/// `direct_dial_completes_noise_and_carries_data` 只驱动了服务端的读循环，也只测了
+/// client→server 一个方向——回程一个字节都没验过。真实的 libp2p 连接上，identify
+/// 之类的协议在建连瞬间就双向开流，这个形状才是生产实际。
+///
+/// ⚠️ **它抓不到子流通道的时序问题**（如无序通道让首条消息抢在 DCEP OPEN 前面）：
+/// 这里的 poll 循环在 `create_data_channel` 之后立刻又转一圈，DCEP OPEN 因而单独成包
+/// 先发出去，反而把竞态盖住了。那一类要靠 `crates/net/tests/webrtc.rs` 的
+/// `dial_own_webrtc_direct_listen_addr`——真 swarm 的 poll 节奏才撞得出来。
+#[tokio::test]
+async fn direct_carries_data_in_both_directions() {
+    let (mut server, _sb, server_peer) = node(1);
+    let (mut client, _cb, _client_peer) = node(2);
+
+    let listen_addr = listen_and_get_addr(&mut server, ListenerId::next()).await;
+    let dial_addr: Multiaddr = format!("{listen_addr}/p2p/{server_peer}").parse().unwrap();
+    let dialing = client.dial(dial_addr, DIAL_OPTS).expect("应能拨号");
+
+    let (dial_result, mut accepted) = tokio::time::timeout(
+        Duration::from_secs(30),
+        futures::future::join(dialing, accept(&mut server, 1)),
+    )
+    .await
+    .expect("30s 内应完成 direct 建连");
+
+    let (_, mut client_conn) = dial_result.expect("拨号失败");
+    let (_, mut server_conn) = accepted.remove(0).expect("接受入站连接失败");
+
+    const TO_SERVER: &[u8] = b"ping from client";
+    const TO_CLIENT: &[u8] = b"pong from server";
+
+    // 四条流一起要：两端各开一条出站、各收一条入站。`StreamMuxer` 的 poll 方法都拿
+    // `Pin<&mut Self>`，同一条连接不能同时被两个 future 借走，故手写一个 poll 循环。
+    let mut c_out = None;
+    let mut s_in = None;
+    let mut s_out = None;
+    let mut c_in = None;
+
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        poll_fn(|cx| {
+            // 两端的读循环都要喂——回程数据要靠客户端那条才收得到。
+            while Pin::new(&mut server).poll(cx).is_ready() {}
+            while Pin::new(&mut client).poll(cx).is_ready() {}
+
+            if c_out.is_none()
+                && let Poll::Ready(s) = Pin::new(&mut client_conn).poll_outbound(cx)
+            {
+                c_out = Some(s.expect("客户端开出站流失败"));
+            }
+            if c_in.is_none()
+                && let Poll::Ready(s) = Pin::new(&mut client_conn).poll_inbound(cx)
+            {
+                c_in = Some(s.expect("客户端收入站流失败"));
+            }
+            if s_out.is_none()
+                && let Poll::Ready(s) = Pin::new(&mut server_conn).poll_outbound(cx)
+            {
+                s_out = Some(s.expect("服务端开出站流失败"));
+            }
+            if s_in.is_none()
+                && let Poll::Ready(s) = Pin::new(&mut server_conn).poll_inbound(cx)
+            {
+                s_in = Some(s.expect("服务端收入站流失败"));
+            }
+
+            if c_out.is_some() && c_in.is_some() && s_out.is_some() && s_in.is_some() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        }),
+    )
+    .await
+    .expect("20s 内四条子流都应就绪");
+
+    let mut c_out = c_out.expect("已就绪");
+    let mut c_in = c_in.expect("已就绪");
+    let mut s_out = s_out.expect("已就绪");
+    let mut s_in = s_in.expect("已就绪");
+
+    let mut work = std::pin::pin!(async {
+        c_out.write_all(TO_SERVER).await.expect("客户端写入失败");
+        c_out.flush().await.expect("客户端 flush 失败");
+        s_out.write_all(TO_CLIENT).await.expect("服务端写入失败");
+        s_out.flush().await.expect("服务端 flush 失败");
+
+        let mut at_server = vec![0u8; TO_SERVER.len()];
+        s_in.read_exact(&mut at_server)
+            .await
+            .expect("服务端读取失败");
+        let mut at_client = vec![0u8; TO_CLIENT.len()];
+        c_in.read_exact(&mut at_client)
+            .await
+            .expect("客户端读取失败");
+        (at_server, at_client)
+    });
+
+    let (at_server, at_client) = tokio::time::timeout(
+        Duration::from_secs(20),
+        poll_fn(|cx| {
+            while Pin::new(&mut server).poll(cx).is_ready() {}
+            while Pin::new(&mut client).poll(cx).is_ready() {}
+            work.as_mut().poll(cx)
+        }),
+    )
+    .await
+    .expect("20s 内应完成双向收发");
+
+    assert_eq!(at_server, TO_SERVER, "服务端收到的字节应与客户端发出的一致");
+    assert_eq!(at_client, TO_CLIENT, "客户端收到的字节应与服务端发出的一致");
+}

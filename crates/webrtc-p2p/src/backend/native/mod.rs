@@ -135,7 +135,10 @@ impl NativeBackend {
                 match op {
                     Op::StartOffer => {
                         // spec 步骤 4：offer 之前必须先建 `init` DataChannel。
-                        pc.create_data_channel(MUXER_INIT_LABEL, None)
+                        // 这条不承载数据，有序与否本无影响；用同一个构造器是为了让
+                        // 「本 crate 从不传 `None`」成为无例外的规则——默认值是个陷阱，
+                        // 见 [`muxer::ordered_reliable`]。
+                        pc.create_data_channel(MUXER_INIT_LABEL, Some(muxer::ordered_reliable()))
                             .await
                             .map_err(|e| BackendError::new(format!("创建 init 通道失败：{e}")))?;
                         let offer = pc
