@@ -344,18 +344,23 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 
 - **Rust library naming:** lib 名为 `swarmdrop_lib`（非 `swarmdrop`），避开 Windows 上 cargo
   的 lib/bin 命名冲突。
-- **两处依赖 pin 在个人 fork（本项目最大的单点依赖风险）。** 两处的退出条件都写死在
-  `Cargo.toml` 对应注释里，且都可判定：
+- **三处依赖 pin（本项目最大的单点依赖风险）。** 退出条件都写死在 `Cargo.toml` 对应注释里，
+  且都可判定：
   1. **libp2p**（`libp2p` / `libp2p-stream` / `libp2p-core` / `libp2p-swarm` /
-     `libp2p-webrtc-utils` 同 pin `github.com/yexiyue/rust-libp2p` 一个 rev）——三个待合并的
-     上游 PR：Web 端要的 #6558 / #6560，以及 **#6570（relay 崩溃，2026-07-28 线上实证）**。
-     退出：三个 PR 均 MERGED → 切官方 git；crates.io 发布 0.57 → 切版本号依赖。详见
-     [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork 集成策略」。
-  2. **rtc**（`[patch.crates-io]` → `github.com/yexiyue/rtc`）——rtc 0.20 的
-     `disable_certificate_fingerprint_verification` 是**死代码**（有 setter 无读取），
-     webrtc-direct 的服务端因此建不起来。修复已提
-     <https://github.com/webrtc-rs/rtc/pull/137>；退出：PR 合并且发版。
+     `libp2p-webrtc-utils` 同 pin `github.com/yexiyue/rust-libp2p` 一个 rev）——**仍是个人
+     fork**。待合并的上游 PR：Web 端要的 #6558 / #6560。（#6570 relay 崩溃已自行关闭——
+     上游 #6472 先修了同一问题。）退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 →
+     切版本号依赖。详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork
+     集成策略」。
+  2. **rtc**（`[patch.crates-io]`）——**已不再是 fork**：五个 webrtc-rs 补丁于 2026-07-29
+     全部合并，这条 pin 现在直接指**官方** `webrtc-rs/rtc` 的 master commit。只欠 crates.io
+     发版（当前仍是 `0.20.0-rc.4`）。退出：`cargo search rtc` > `0.20.0-rc.4`。
+  3. **webrtc**（`[patch.crates-io]` → `github.com/yexiyue/webrtc`）——功能补丁（#825 /
+     #828）已全部进上游，fork 只剩**一行集成适配**：去掉 `rtc` 的 `path` 依赖。那行不能
+     进上游（`[patch.crates-io]` 不作用于 path 依赖，保留它会让 rtc 分叉成两个互不兼容的
+     实例）。所以这条 pin 比 rtc 那条活得久，同样等发版。
   **升级任一 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
+  五个补丁的完整复盘见 [`dev-notes/blogs/webrtc/`](dev-notes/blogs/webrtc/README.md)。
 - **官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys` 已于 2026-07-28 移除。** webrtc-direct
   改由自研的 `crates/webrtc-p2p` 提供，native 依赖树里的 webrtc-rs 从两套（0.17 + 0.20）
   并成一套。浏览器侧手动验证用 `cargo run -p webrtc-p2p --example direct_listener`。

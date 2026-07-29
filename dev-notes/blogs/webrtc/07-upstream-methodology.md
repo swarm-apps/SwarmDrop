@@ -9,19 +9,22 @@
 
 | 仓库 | PR | 内容 | 状态 |
 |---|---|---|---|
-| **rtc** | [#137](https://github.com/webrtc-rs/rtc/pull/137) | 指纹校验开关是死代码（[第 02 篇](02-dtls-fingerprint-dead-switch.md)） | 复审中 |
+| **rtc** | [#137](https://github.com/webrtc-rs/rtc/pull/137) | 指纹校验开关是死代码（[第 02 篇](02-dtls-fingerprint-dead-switch.md)） | **已合并** |
 | | [#138](https://github.com/webrtc-rs/rtc/pull/138) | `send` 谎报成功（[第 03 篇](03-datachannel-silent-send.md)） | **已合并** |
 | | [#140](https://github.com/webrtc-rs/rtc/pull/140) | `ordered` 默认值（[第 04 篇](04-datachannel-ordered-default.md)） | **已合并** |
 | **webrtc** | [#824](https://github.com/webrtc-rs/webrtc/pull/824) | 抬高读缓冲默认值 | 自行关闭 |
 | | [#825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 回报本端通道（[第 05 篇](05-who-opened-this-channel.md)） | **已合并** |
-| | [#828](https://github.com/webrtc-rs/webrtc/pull/828) | 统计类型叫不出名字（[第 06 篇](06-remote-fingerprint-via-stats.md)） | 复审中 |
+| | [#828](https://github.com/webrtc-rs/webrtc/pull/828) | 统计类型叫不出名字（[第 06 篇](06-remote-fingerprint-via-stats.md)） | **已合并** |
 | **rust-libp2p** | [#6558](https://github.com/libp2p/rust-libp2p/pull/6558) | websys 回调重入 panic | 待审 |
 | | [#6560](https://github.com/libp2p/rust-libp2p/pull/6560) | 协商 DataChannel 消息上限 | 待审 |
 | | [#6570](https://github.com/libp2p/rust-libp2p/pull/6570) | relay 无 reservation 时 panic | 自行关闭 |
 | | [#6571](https://github.com/libp2p/rust-libp2p/pull/6571) | `Fingerprint::from_sdp_format` | 待审 |
 | | [#6572](https://github.com/libp2p/rust-libp2p/pull/6572) | offer SDP 模板归位 | 待审 |
 
-三个已合并，两个复审中，两个自行关闭，四个待审。
+**webrtc-rs 两个仓库的五个 PR 全部合并**（2026-07-29），另有两个自行关闭、四个在 rust-libp2p
+待审。连带关掉了三个 issue：[webrtc#826](https://github.com/webrtc-rs/webrtc/issues/826)、
+[#827](https://github.com/webrtc-rs/webrtc/issues/827)、
+[rtc#139](https://github.com/webrtc-rs/rtc/issues/139)。
 
 这些不是「顺手做的开源贡献」——**每一个都是 SwarmDrop 的硬阻塞**。#137 不修，direct
 服务端起不来；#138 不修，Noise 握手挂住；#140 不修，每条流丢首包。没有绕路可走。
@@ -155,21 +158,34 @@ rust-libp2p 的 PR 模板甚至把它做成了必填项（工具名 + 一条「�
 
 ## 判断七：fork pin 是负债，要写好还款条件
 
-三个上游都还没发布含补丁的版本，所以本仓在 `Cargo.toml` 里 pin 了两处 fork
-（rtc 与 webrtc，各自一条 `[patch.crates-io]`），libp2p 则整体 pin 在一个 fork rev 上。
+**补丁合并 ≠ 能拆 pin。** 五个 PR 都进了上游 master，但 crates.io 上仍是
+`0.20.0-rc.4`（不含它们），所以现在是 git rev 临时顶着，等发版再换回版本号。
+合并那一刻真正变化的，是两条 pin 的**性质**：
+
+| pin | 合并前 | 合并后 | 还欠什么 |
+|---|---|---|---|
+| `rtc` | 个人 fork 的集成分支 | **官方 `webrtc-rs/rtc` 的 master commit** | 只欠发版 |
+| `webrtc` | 个人 fork（两个功能补丁 + 一行适配） | 个人 fork，**只剩那一行适配** | 发版 + 那行适配（见下） |
+
+第一条已经不算「自有补丁」了——URL 就是上游仓库本身，风险从「我维护着一份分叉」
+降到「我在等一次发版」。这个区别值得在注释里写明：**前者需要有人持续照看，后者只需要
+定期看一眼版本号。**
+
+libp2p 那条 pin 则原样不动，它的四个 PR 还在待审。
 
 这是**本项目最大的单点依赖风险**，所以治理规则写死在 `Cargo.toml` 的注释里：
 
 **1. 退出条件必须可判定——写成能直接跑的命令。**
 
 ```bash
-gh pr view 137 --repo webrtc-rs/rtc --json state --jq .state    # 期望 MERGED
-gh pr view 138 --repo webrtc-rs/rtc --json state --jq .state    # 已 MERGED
-cargo search rtc --limit 1                                       # 期望 > 0.20.0-rc.4
+cargo search rtc --limit 1        # 期望 > 0.20.0-rc.4
+cargo search webrtc --limit 1     # 期望 > 0.20.0-rc.4
 ```
 
-不是「等上游修好」这种没法执行的描述，而是任何人（包括半年后的自己）都能跑一遍就知道
-「能不能拆」的检查。
+不是「等上游修好」这种没法执行的描述，而是任何人（包括半年后的自己）跑一遍就知道
+「能不能拆」。合并前那一版写的是 `gh pr view … --jq .state`，同样可判定——
+**条件会变，但永远保持可执行**：PR 合并后就把它换成版本号检查，而不是留着一条
+已经恒为真的旧条件。
 
 **2. 每条 pin 都要写清楚「为什么非它不可」。**
 注释里记的是症状、根因、以及不修会怎样——而不是「见 PR #137」。链接会失效，
@@ -198,7 +214,8 @@ crates.io + patch——**依赖树里出现两个不同的 rtc 实例**，同名
 调用处而不是解析处，极难看懂。
 
 解法是在 fork 分支上加一行「让 rtc 走 crates.io」，并在那个分支的 Cargo.toml 注释里
-写明原因。
+写明原因。**这一行不能进上游**（上游用 path 指 submodule 是它自己的正确选择），
+所以 webrtc 这条 pin 注定比 rtc 那条活得久：rtc 只欠一次发版，它还额外背着这行适配。
 
 ## 小结：一条踩坑到补丁的完整链路
 
