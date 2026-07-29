@@ -24,7 +24,7 @@ function renderQr(ui: React.ReactElement) {
 describe("InviteQr 状态呈现", () => {
   it("渲染后端返回的 SVG，并给出可读的图像标签", async () => {
     inviteQrSvg.mockResolvedValue("<svg><rect /></svg>");
-    renderQr(<InviteQr invite="sdinvite1abc" />);
+    renderQr(<InviteQr invite="sd:abc" />);
 
     const image = await screen.findByRole("img");
     expect(image.getAttribute("aria-label")).toBeTruthy();
@@ -36,7 +36,7 @@ describe("InviteQr 状态呈现", () => {
 
     renderQr(
       <InviteQr
-        invite="sdinvite1abc"
+        invite="sd:abc"
         overlay={{ kind: "expired", message: "邀请已过期" }}
       />,
     );
@@ -51,7 +51,7 @@ describe("InviteQr 状态呈现", () => {
 
   it("IPC 失败时不静默留白，而是报出渲染失败", async () => {
     inviteQrSvg.mockRejectedValue(new Error("boom"));
-    renderQr(<InviteQr invite="sdinvite1abc" />);
+    renderQr(<InviteQr invite="sd:abc" />);
 
     await waitFor(() => {
       expect(screen.getByText("二维码渲染失败")).toBeTruthy();

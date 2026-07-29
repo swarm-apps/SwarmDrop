@@ -55,11 +55,35 @@ impl Addr {
         })
     }
 
-    /// 公网可路由地址（含 DNS 名）：排除 loopback/unspecified/私网/ULA/link-local。
+    /// 是否位于运营商共享地址空间（100.64.0.0/10）。Tailscale 等 mesh VPN 常用此段，
+    /// 它不是公网，即使标准库的 `is_private` 不会把它归为 RFC1918 私网。
+    pub fn is_shared_address_space(&self) -> bool {
+        self.0.iter().any(|p| match p {
+            Protocol::Ip4(ip) => is_v4_shared(&ip),
+            _ => false,
+        })
+    }
+
+    /// 是否为 RFC 2544 基准测试网段（198.18.0.0/15）。它不是互联网可路由地址，
+    /// 但某些虚拟网络会显式使用它，邀请筛选应把它作为受限候选而非直接丢弃。
+    pub fn is_benchmarking_address(&self) -> bool {
+        self.0.iter().any(|p| match p {
+            Protocol::Ip4(ip) => is_v4_benchmarking(&ip),
+            _ => false,
+        })
+    }
+
+    /// 公网可路由地址（含 DNS 名）：排除 loopback/unspecified/私网/ULA/link-local、
+    /// 共享地址空间与 RFC 2544 基准测试网段。
     pub fn is_public_routable(&self) -> bool {
         self.0.iter().any(|p| match p {
             Protocol::Ip4(ip) => {
-                !ip.is_private() && !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified()
+                !ip.is_private()
+                    && !ip.is_loopback()
+                    && !ip.is_link_local()
+                    && !ip.is_unspecified()
+                    && !is_v4_shared(&ip)
+                    && !is_v4_benchmarking(&ip)
             }
             Protocol::Ip6(ip) => {
                 !ip.is_loopback()
@@ -83,6 +107,23 @@ impl Addr {
     /// 是否为中继地址（含 p2p-circuit 段）。
     pub fn is_circuit(&self) -> bool {
         self.circuit_hops() > 0
+    }
+
+    /// 该地址是否包含 QUIC v1 传输段。
+    pub fn is_quic_v1(&self) -> bool {
+        self.0.iter().any(|p| p == Protocol::QuicV1)
+    }
+
+    /// 该地址是否包含 TCP 传输段。
+    pub fn is_tcp(&self) -> bool {
+        self.0.iter().any(|p| matches!(p, Protocol::Tcp(_)))
+    }
+
+    /// 该地址是否包含浏览器可用的 WebRTC 传输段（直连或 relay circuit）。
+    pub fn is_webrtc(&self) -> bool {
+        self.0
+            .iter()
+            .any(|p| matches!(p, Protocol::WebRTC | Protocol::WebRTCDirect))
     }
 
     /// 提取地址内嵌的节点身份（`/p2p/<id>` 段）。
@@ -198,6 +239,16 @@ fn is_v6_link_local(ip: &std::net::Ipv6Addr) -> bool {
     (ip.segments()[0] & 0xffc0) == 0xfe80
 }
 
+fn is_v4_shared(ip: &std::net::Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 100 && (octets[1] & 0b1100_0000) == 0b0100_0000
+}
+
+fn is_v4_benchmarking(ip: &std::net::Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 198 && (octets[1] & 0b1111_1110) == 18
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,7 +274,17 @@ mod tests {
         // 公网
         assert!(addr("/ip4/203.0.113.7/tcp/1").is_public_routable());
         assert!(addr("/dns4/relay.example.com/tcp/1").is_public_routable());
+        assert!(addr("/ip4/100.100.200.77/tcp/1").is_shared_address_space());
+        assert!(
+            !addr("/ip4/100.100.200.77/tcp/1").is_public_routable(),
+            "Tailscale 默认共享地址空间不能当公网"
+        );
+        assert!(addr("/ip4/198.18.0.1/tcp/1").is_benchmarking_address());
+        assert!(!addr("/ip4/198.18.0.1/tcp/1").is_public_routable());
         assert!(!addr("/ip4/192.168.1.2/tcp/1").is_public_routable());
+        assert!(addr("/ip4/192.168.1.2/tcp/1").is_tcp());
+        assert!(addr("/ip4/192.168.1.2/udp/1/quic-v1").is_quic_v1());
+        assert!(addr("/ip4/192.168.1.2/udp/1/webrtc-direct").is_webrtc());
         assert!(
             !addr("/ip6/fe80::1/tcp/1").is_public_routable(),
             "IPv6 link-local 不是公网"

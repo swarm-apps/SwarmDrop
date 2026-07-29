@@ -4,20 +4,22 @@
 //! （openspec: pair-invite-ui design D1/D2）。三端拿本模块产出的 SVG 字符串（web 直接
 //! `innerHTML`、桌面 `dangerouslySetInnerHTML`）或模块矩阵（RN 用 react-native-svg 自绘）。
 //!
-//! 关键规范（全部固化在此，调用方传小写规范邀请串即可）：
-//! - **payload 大写化** → 走 QR alphanumeric 模式（base32 大写字母表 `A-Z2-7` 全落在
-//!   alphanumeric 字符集）：byte 模式 v13-15 降到 v11-12，模块数 -15%，扫码可靠性显著↑。
-//!   解码大小写不敏感（见 [`crate::PairInvite::decode`]），零风险。
+//! 关键规范（全部固化在此，调用方传链接规范邀请串即可）：
+//! - **wire 转 Base32 再大写化** → 走 QR alphanumeric 模式（Base32 大写字母表 `A-Z2-7`
+//!   全落在 alphanumeric 字符集）：避免链接用的 Base64URL 被大写化破坏，同时保持小码面。
 //! - **ECL::M**（15% 纠错）：屏→摄像头近距干净场景足够；Q/H 只会顶高版本更难扫，且无 logo。
 //! - **quiet zone 4 模块**（ISO 硬性要求）。
 //! - 配色由渲染端负责：**深模块 + 白底，不随暗色主题反色**（摄像头对反色 QR 识别差）。
 
 use fast_qr::{ECL, QRBuilder, QRCode};
 
-/// 三端统一的 QR 编码：payload 大写化（→ alphanumeric）+ ECL::M。**编码策略单点**——
+use crate::PairInvite;
+
+/// 三端统一的 QR 编码：wire → Base32 → 大写（alphanumeric）+ ECL::M。**编码策略单点**——
 /// SVG / matrix 两个渲染出口都经此，改 ECL/模式只此一处。
 fn build_qr(invite: &str) -> Result<QRCode, QrError> {
-    QRBuilder::new(invite.to_ascii_uppercase())
+    let payload = PairInvite::qr_payload(invite).map_err(|e| QrError(e.to_string()))?;
+    QRBuilder::new(payload.to_ascii_uppercase())
         .ecl(ECL::M)
         .build()
         .map_err(|e| QrError(e.to_string()))
@@ -25,7 +27,8 @@ fn build_qr(invite: &str) -> Result<QRCode, QrError> {
 
 /// 生成邀请二维码的 SVG 字符串（深模块 `#0a0a0a`，透明背景——渲染端套白卡）。
 ///
-/// `invite` 传小写规范邀请串（`PairInvite::encode` 的产物）；本函数内部大写化。
+/// `invite` 传链接规范邀请串（`PairInvite::encode` 的产物）；本函数内部转换为二维码
+/// 专用 Base32 表现形式。
 pub fn invite_qr_svg(invite: &str) -> Result<String, QrError> {
     use fast_qr::convert::{Builder, Shape, svg::SvgBuilder};
 
@@ -93,20 +96,21 @@ mod tests {
         assert!(!m[0][0] && !m[0][m.len() - 1]);
     }
 
-    /// 大写化 → alphanumeric 模式降版本：同一 payload 大写比小写 QR version 更低（模块更少）。
+    /// 二维码专用 Base32 比链接用 Base64URL 的 byte 模式版本更低（模块更少）。
     #[test]
-    fn uppercase_lowers_qr_version() {
+    fn qr_base32_lowers_qr_version() {
         let invite = sample_invite();
-        let upper = QRBuilder::new(invite.to_ascii_uppercase())
+        let payload = PairInvite::qr_payload(&invite).unwrap();
+        let qr_base32 = QRBuilder::new(payload.to_ascii_uppercase())
             .ecl(ECL::M)
             .build()
             .unwrap();
-        let lower = QRBuilder::new(invite.clone()).ecl(ECL::M).build().unwrap();
+        let url_base64 = QRBuilder::new(invite).ecl(ECL::M).build().unwrap();
         assert!(
-            upper.size < lower.size,
-            "大写 alphanumeric 应比小写 byte 模式版本更低: upper={} lower={}",
-            upper.size,
-            lower.size
+            qr_base32.size < url_base64.size,
+            "Base32 alphanumeric 应比 Base64URL byte 模式版本更低: qr={} url={}",
+            qr_base32.size,
+            url_base64.size
         );
     }
 }

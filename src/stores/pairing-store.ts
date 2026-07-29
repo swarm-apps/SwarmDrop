@@ -70,7 +70,7 @@ function getPairingRefuseMessage(reason: PairingRefuseReason): string {
 
 /** 本机生成的活跃邀请（发起方展示二维码/链接用） */
 export interface ActiveInvite {
-  /** 邀请串（小写规范形态，"sdinvite..."） */
+  /** 邀请串（链接规范形态，"sd:..."） */
   invite: string;
   /** 生成时刻（毫秒），倒计时基准；有效期 = generatedAt + INVITE_TTL_SECS */
   generatedAt: number;

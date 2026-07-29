@@ -86,7 +86,7 @@ export function PairingPanel() {
         <div className="mt-2 flex gap-2">
           <input
             className="flex-1 rounded-lg border border-fd-border bg-fd-background px-3 py-2 font-mono text-xs text-fd-foreground placeholder:text-fd-muted-foreground"
-            placeholder="sdinvite..."
+            placeholder="sd:..."
             value={inviteInput}
             onChange={(e) => setInviteInput(e.target.value)}
             disabled={!ready}

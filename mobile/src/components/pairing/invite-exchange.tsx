@@ -306,7 +306,7 @@ function PasteInviteInput({ onResolved }: { onResolved: () => void }) {
       <BottomSheetTextInput
         value={text}
         onChangeText={setText}
-        placeholder="sdinvite..."
+        placeholder="sd:..."
         placeholderTextColor={colors.mutedForeground}
         autoCapitalize="none"
         autoCorrect={false}

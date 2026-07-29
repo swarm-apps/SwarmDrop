@@ -1982,8 +1982,12 @@ msgid "让对方扫码或粘贴此邀请"
 msgstr "让对方扫码或粘贴此邀请"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-msgid "让对方点「复制邀请链接」，把那串 sdinvite… 发给你"
-msgstr "让对方点「复制邀请链接」，把那串 sdinvite… 发给你"
+msgid "让对方点「复制邀请链接」，把那串 sd:… 发给你"
+msgstr "让对方点「复制邀请链接」，把那串 sd:… 发给你"
+
+#: src/routes/_app/pairing/input.lazy.tsx
+#~ msgid "让对方点「复制邀请链接」，把那串 sdinvite… 发给你"
+#~ msgstr "让对方点「复制邀请链接」，把那串 sdinvite… 发给你"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #~ msgid "让对方输入这组配对码"

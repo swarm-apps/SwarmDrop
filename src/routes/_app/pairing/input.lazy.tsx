@@ -1,7 +1,7 @@
 /**
  * 受邀方屏——粘贴/剪贴板感知邀请串 → 本地解码验签展示确认卡 → 确认后发起配对。
  *
- * 桌面无相机，输入靠粘贴 + 剪贴板感知（窗口 focus 静默读，命中 `sdinvite` 前缀亮一键条，
+ * 桌面无相机，输入靠粘贴 + 剪贴板感知（窗口 focus 静默读，命中 `sd:` 前缀亮一键条，
  * 用户点击才 preview——非全自动，邀请是信任凭证）。
  */
 
@@ -172,7 +172,7 @@ function PairingInputPage() {
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="sdinvite..."
+                placeholder="sd:..."
                 spellCheck={false}
                 autoFocus
                 className="glass-control h-32 w-full max-w-md resize-none rounded-[18px] p-4 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
@@ -193,7 +193,7 @@ function PairingInputPage() {
                     在对方设备上打开 SwarmDrop，进入「添加设备 → 展示邀请」
                   </Trans>,
                   <Trans key="2">
-                    让对方点「复制邀请链接」，把那串 sdinvite… 发给你
+                    让对方点「复制邀请链接」，把那串 sd:… 发给你
                   </Trans>,
                   <Trans key="3">粘贴到左侧，验证通过后确认发起配对</Trans>,
                 ]}
