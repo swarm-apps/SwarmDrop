@@ -275,8 +275,9 @@ mixed content 拦，`wss://` 又要域名 + CA）。
 > 副产品：Android 与桌面的 transport 栈终于一致（Android 曾因 JNI DNS 问题编不进 ws）。
 
 **配对：PairInvite（一次性签名邀请）。**
-6 位数字分享码已废弃。现在是自包含邀请串 `sdinvite…`（Ed25519 签名 + 256bit capability +
-TTL 300s + 一次性消费），二维码与链接是同一字符串的不同载体；签名尾置以覆盖版本判别码防降级。
+6 位数字分享码已废弃。现在是自包含邀请串 `sd:…`（Ed25519 签名 + 128bit capability +
+TTL 300s + 一次性消费）；链接走 Base64URL，二维码走同一 wire 的 `SD…` Base32 表现。
+签名尾置以覆盖版本判别码防降级。
 实现在 `crates/invite`，设计见 `openspec/changes/pair-invite-protocol/design.md`。
 
 **DHT 的用途已变**：不再用于分享码查找，改为已配对设备的 **presence 在线记录**

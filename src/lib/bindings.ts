@@ -532,7 +532,7 @@ export type PairedDeviceInfo = {
  *  配对方式。
  * 
  *  `Direct` 为局域网直连（授权依据是「对端在本机 mDNS 多播域内」）；`Invite` 携带
- *  一次性邀请凭证（invite_id + capability，见 [`swarmdrop_invite`]）——受邀方
+ *  一次性邀请凭证（128bit capability，见 [`swarmdrop_invite`]）——受邀方
  *  解码邀请串后连接发起方并出示凭证，发起方按
  *  [`InviteRegistry`](swarmdrop_invite::InviteRegistry) 校验。
  * 
@@ -540,10 +540,8 @@ export type PairedDeviceInfo = {
  *  证明身份，被自包含签名邀请取代（openspec: pair-invite-protocol）。
  */
 export type PairingMethod = { type: "direct" } | { type: "invite"; 
-/**  邀请标识（发起端据此查 Registry）。 */
-invite_id: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number]; 
-/**  bearer 凭证明文（发起端比对哈希；信道保密靠邀请串的 fragment 传递）。 */
-capability: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] };
+/**  128bit bearer 凭证明文。发起端以其 SHA-256 查询状态表，明文不落盘。 */
+capability: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] };
 
 /**  配对被拒绝的原因。 */
 export type PairingRefuseReason = { type: "user_rejected" };

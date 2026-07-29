@@ -42,7 +42,7 @@ import { usePairingInviteStore } from "@/stores/pairing-invite-store";
  */
 
 /** 邀请串 KIND 前缀（`crates/invite/src/invite.rs:32`）。QR 编码为大写，解码大小写不敏感。 */
-const INVITE_PREFIX = "sdinvite";
+const INVITE_PREFIX = "sd";
 
 /** 取景窗边长（pt）。四角标记与遮罩挖洞共用，改这一个值即可。 */
 const RETICLE_SIZE = 248;
@@ -101,7 +101,7 @@ export default function ScanInvite() {
     async (result: BarcodeScanningResult) => {
       if (lockRef.current) return;
       const raw = result.data.trim();
-      // 前缀校验：只认 sdinvite 邀请串，其余二维码静默忽略、继续扫。
+      // 前缀校验：只认 sd 邀请串，其余二维码静默忽略、继续扫。
       if (!raw.toLowerCase().startsWith(INVITE_PREFIX)) return;
       await consumeInvite(
         raw,

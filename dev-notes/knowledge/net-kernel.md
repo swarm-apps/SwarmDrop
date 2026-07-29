@@ -799,21 +799,26 @@ API、在这里必须绕：
 wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core 与 web 共享），
 `PairingMethod` 现只剩 `Direct`（LAN mDNS）+ `Invite`。
 
-- **wire 契约（`invite.rs`，改动前看 `wire_v1_hex_snapshot` 单测）**：`sdinvite` 前缀 +
-  base32-nopad 小写 + postcard 单变体 enum `InviteWire::V1`（判别码 `0x00` 即版本，未知变体
-  解码即失败）。**签名尾置**——`InviteV1.signature` 是末位定长 64 字节，signable =
+- **wire 契约（`invite.rs`，改动前看 `wire_v1_keeps_version_capability_and_tail_signature_layout`
+  单测）**：链接是 `sd:` 前缀 +
+  base64url-nopad；二维码是 `SD` 前缀 + base32-nopad。二者承载相同的 postcard 单变体
+  enum `InviteWire::V1`（判别码 `0x00` 即版本，未知变体解码即失败）。wire 只传 128bit
+  capability、身份、精简地址、到期时刻、网络策略、设备名与平台名；不再传 invite_id 或签发时刻。
+  **签名尾置**——`InviteV1.signature` 是末位定长 64 字节，signable =
   `bytes[..len-64]` 覆盖含版本判别码在内的全部前置字节（防降级），验签公钥从 `inviter_id`
   的 identity multihash 就地恢复。字段序即契约，V1 发布后不可改。
-- **一次性/TTL**：`InviteRegistry`（发起端内存态）只存 `sha256(capability)`；入站 handle
+- **一次性/TTL**：`InviteRegistry`（发起端内存态）以 `sha256(capability)` 为键，不存明文；入站 handle
   非消费预检 + respond(Success) 原子 CAS `Pending→Consumed`（两台扫同码仅先确认者成功）。
-- **QR 三端统一（`qr.rs`，唯一编码源）**：喂 fast_qr 前把**整串（含 `sdinvite` 前缀）**
-  `.to_ascii_uppercase()` → 落 QR alphanumeric 模式（byte 模式 v13-15 降 v11-12，模块 -15%）；
-  ECL::M + 4 模块 quiet zone。三端渲染 core 出的 SVG/矩阵（桌面/web 用 `invite_qr_svg`、
-  RN 用 `invite_qr_matrix` + react-native-svg），**深模块 + 白底不随暗色反色**。
-  ⚠️ **整串大写含前缀**，故 `decode` 对前缀**必须大小写不敏感**——`strip_prefix("sdinvite")`
-  曾大小写敏感，扫码得到的 `SDINVITE…` 100% 解不出（粘贴走小写规范串侥幸没暴露，移动扫码落地
-  才发现）；已修（`invite.rs` 前缀 `eq_ignore_ascii_case` 回退）+ 补「整串大写 / 混排前缀」回归
-  断言（`roundtrip_and_case_insensitive`）。payload 段本就大小写不敏感。
+- **QR 三端统一（`qr.rs`，唯一编码源）**：链接 payload 的 Base64URL **不能**大写；先解出并验签
+  wire，再编码为 `SD` + Base32，才能落 QR alphanumeric 模式；ECL::M + 4 模块 quiet zone。
+  三端渲染 core 出的 SVG/矩阵（桌面/web 用 `invite_qr_svg`、RN 用 `invite_qr_matrix` +
+  react-native-svg），**深模块 + 白底不随暗色反色**。
+  `decode` 对 `SD` 二维码前缀和 Base32 payload 大小写不敏感；带 `:` 的 Base64URL 链接则必须
+  保持原样，补有两类回归断言。
+- **地址瘦身**：每类网络分别只留 TCP（无则 QUIC，native）和 WebRTC（浏览器）各一条；
+  两类路径从该网络分类的全部地址中独立挑选，避免 TCP-only 网卡排在前面时误删 WebRTC。
+  Auto 最多保留 100.64/10 overlay（Tailscale）、LAN、公网与 relay 的 native/WebRTC
+  各一条；198.18/15 仅在没有 overlay 时回退。LocalOnly 只保留 LAN 的 native/WebRTC。
 - **三端接线**：桌面命令 `generate_pair_invite`/`decode_pair_invite`/`invite_qr_svg`/
   `consume_pair_invite`；mobile uniffi 同名 + `pair_direct`（补回 Direct）+ `invite_qr_matrix`；
   web `WebNode::connect_invite`（decode 纯函数只需 net-base）。剪贴板感知（`hasStringAsync`

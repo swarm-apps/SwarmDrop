@@ -36,7 +36,7 @@ import { Mermaid } from "@/components/mermaid";
 
 跨网络场景下，两台设备彼此并不知道对方的设备 ID，这时用**一次性邀请**牵线：
 
-- 发起方生成一个自包含的邀请串 `sdinvite…`，里面已经带上了自己的设备 ID 与可拨地址。
+- 发起方生成一个自包含的邀请串 `sd:…`，里面已经带上了自己的设备 ID 与可拨地址。
 - 邀请以链接分享，或渲染成二维码让对方扫——两者是同一字符串的不同载体。
 - 邀请带 **Ed25519 签名**（防篡改）、**256-bit capability**（防猜测）和**有效期**，
   且**只能被消费一次**。用过即失效，不会留下长期可复用的凭据。
@@ -46,7 +46,7 @@ import { Mermaid } from "@/components/mermaid";
   participant U as 用户（链接 / 二维码）
   participant B as 受邀方
   A->>A: 生成一次性签名邀请
-  A->>U: 分享 sdinvite…
+  A->>U: 分享 sd:…
   U->>B: 打开链接 / 扫码
   B->>B: 验签 + 解出设备 ID 与地址
   B->>A: 发起连接并完成 capability 握手

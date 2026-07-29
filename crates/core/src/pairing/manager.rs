@@ -30,6 +30,105 @@ fn now_secs() -> u64 {
     chrono::Utc::now().timestamp().max(0) as u64
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InviteAddrScope {
+    Shared,
+    Lan,
+    Public,
+    Benchmark,
+}
+
+impl InviteAddrScope {
+    fn classify(addr: &Addr) -> Option<Self> {
+        if addr.is_shared_address_space() {
+            Some(Self::Shared)
+        } else if addr.is_private_lan() {
+            Some(Self::Lan)
+        } else if addr.is_public_routable() {
+            Some(Self::Public)
+        } else if addr.is_benchmarking_address() {
+            Some(Self::Benchmark)
+        } else {
+            None
+        }
+    }
+}
+
+/// 每类网络只保留一条原生路径和一条 WebRTC 路径，避免把全部监听地址复制进邀请。
+///
+/// 两类路径分别从整类地址中挑选，不能假设同一网卡一定同时监听所有传输；否则先出现的
+/// TCP-only 网卡会把后续 WebRTC 地址挤掉，桌面生成的邀请便可能无法从 Web 端打开。
+fn select_invite_addrs(addrs: Vec<Addr>, policy: TransportPolicy) -> Vec<Addr> {
+    let mut shared = Vec::new();
+    let mut lan = Vec::new();
+    let mut public = Vec::new();
+    let mut benchmark = Vec::new();
+    let mut circuits = Vec::new();
+
+    for addr in addrs {
+        if addr.is_loopback_or_unspecified() {
+            continue;
+        }
+        if addr.is_circuit() {
+            if !circuits.contains(&addr) {
+                circuits.push(addr);
+            }
+            continue;
+        }
+        let Some(paths) = InviteAddrScope::classify(&addr).map(|scope| match scope {
+            InviteAddrScope::Shared => &mut shared,
+            InviteAddrScope::Lan => &mut lan,
+            InviteAddrScope::Public => &mut public,
+            InviteAddrScope::Benchmark => &mut benchmark,
+        }) else {
+            continue;
+        };
+        if !paths.contains(&addr) {
+            paths.push(addr);
+        }
+    }
+
+    let mut selected = Vec::new();
+    if policy == TransportPolicy::LocalOnly {
+        append_invite_transports(&mut selected, &lan);
+        return selected;
+    }
+
+    append_invite_transports(&mut selected, &shared);
+    append_invite_transports(&mut selected, &lan);
+    append_invite_transports(&mut selected, &public);
+    if shared.is_empty() {
+        append_invite_transports(&mut selected, &benchmark);
+    }
+    append_invite_transports(&mut selected, &circuits);
+    selected
+}
+
+/// native 优先保留可穿过 UDP 封锁的 TCP（无则 QUIC），浏览器另保留 WebRTC。
+fn append_invite_transports(selected: &mut Vec<Addr>, paths: &[Addr]) {
+    let start = selected.len();
+    let native = paths
+        .iter()
+        .find(|addr| addr.is_tcp() && !addr.is_webrtc())
+        .or_else(|| {
+            paths
+                .iter()
+                .find(|addr| addr.is_quic_v1() && !addr.is_webrtc())
+        });
+    let browser = paths.iter().find(|addr| addr.is_webrtc());
+
+    for addr in [native, browser].into_iter().flatten() {
+        if !selected.contains(addr) {
+            selected.push(addr.clone());
+        }
+    }
+    if selected.len() == start
+        && let Some(addr) = paths.first()
+    {
+        selected.push(addr.clone());
+    }
+}
+
 /// 入站配对请求的待决上下文。
 ///
 /// 新内核 RPC handler 天然长 await：handler 存 `responder` 后 await 用户决策，
@@ -83,9 +182,9 @@ impl PairingManager {
         }
     }
 
-    /// 本机可供对端拨号的地址（监听 ∪ 外部确认地址，去重）。
-    fn shareable_addrs(&self) -> Vec<Addr> {
-        self.endpoint.watch_addrs().get().dialable()
+    /// 本机可供对端拨号的精简地址集。
+    fn shareable_addrs(&self, policy: TransportPolicy) -> Vec<Addr> {
+        select_invite_addrs(self.endpoint.watch_addrs().get().dialable(), policy)
     }
 
     // === 邀请（PairInvite）管理 ===
@@ -100,12 +199,9 @@ impl PairingManager {
     ) -> String {
         let invite = PairInvite::generate(
             secret,
-            self.shareable_addrs(),
+            self.shareable_addrs(policy),
             policy,
-            display
-                .name
-                .clone()
-                .unwrap_or_else(|| display.hostname.clone()),
+            display.display_name(),
             display.platform.clone(),
             now_secs(),
         );
@@ -129,7 +225,6 @@ impl PairingManager {
             return Err(AppError::ExpiredCode);
         }
         let method = PairingMethod::Invite {
-            invite_id: invite.invite_id,
             capability: invite.capability,
         };
         self.request_pairing(invite.inviter.id, method, Some(invite.usable_addrs()))
@@ -208,15 +303,10 @@ impl PairingManager {
             )));
         }
 
-        // Invite：非消费预检——明显非法（未知/过期/错 capability/已用）直接婉拒，
+        // Invite：非消费预检——明显非法（未知/过期/已用）直接婉拒，
         // 不打扰用户、不占一次性额度。权威 CAS 消费留到用户确认（respond Success）。
-        if let PairingMethod::Invite {
-            invite_id,
-            capability,
-        } = &req.method
-            && let Err(reason) = self
-                .invite_registry
-                .check(invite_id, capability, now_secs())
+        if let PairingMethod::Invite { capability } = &req.method
+            && let Err(reason) = self.invite_registry.check(capability, now_secs())
         {
             tracing::warn!("拒绝非法邀请配对请求 {from}: {reason:?}");
             return Ok(PairingResponse::Refused {
@@ -285,14 +375,11 @@ impl PairingManager {
         if matches!(response, PairingResponse::Success) {
             match &pending.method {
                 PairingMethod::Direct => {}
-                PairingMethod::Invite {
-                    invite_id,
-                    capability,
-                } => {
+                PairingMethod::Invite { capability } => {
                     // 权威一次性消费（CAS）：两台设备同时扫同码时，仅先确认者成功，
                     // 后者拿到 Unavailable → 提前 return（未 send responder）→ 对端婉拒。
                     self.invite_registry
-                        .try_consume(invite_id, capability, pending.peer_id, now_secs())
+                        .try_consume(capability, now_secs())
                         .map_err(|reason| match reason {
                             InviteRejectReason::Expired => AppError::ExpiredCode,
                             _ => AppError::InvalidCode,
@@ -380,5 +467,88 @@ impl RpcService<PairingRequest, PairingResponse> for PairingService {
         req: PairingRequest,
     ) -> Result<PairingResponse, AcceptError> {
         self.0.handle_inbound(from, req).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn addr(value: &str) -> Addr {
+        value.parse().unwrap()
+    }
+
+    #[test]
+    fn auto_invite_keeps_bounded_direct_and_relay_paths() {
+        let relay_id = "12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp";
+        let circuit_tcp = format!("/ip4/203.0.113.9/tcp/4001/p2p/{relay_id}/p2p-circuit");
+        let circuit_quic = format!("/ip4/203.0.113.9/udp/4001/quic-v1/p2p/{relay_id}/p2p-circuit");
+        let circuit_webrtc = format!("/ip4/203.0.113.9/tcp/4001/p2p/{relay_id}/p2p-circuit/webrtc");
+        let selected = select_invite_addrs(
+            vec![
+                addr("/ip4/127.0.0.1/tcp/4001"),
+                addr("/ip4/100.100.200.77/tcp/4001"),
+                addr("/ip4/100.100.200.77/udp/4001/quic-v1"),
+                addr("/ip4/100.100.200.77/udp/4002/webrtc-direct"),
+                addr("/ip4/192.168.1.10/tcp/4001"),
+                addr("/ip4/192.168.1.10/udp/4001/quic-v1"),
+                addr("/ip4/192.168.1.11/udp/4002/webrtc-direct"),
+                addr("/ip4/198.51.100.10/tcp/4001"),
+                addr("/ip4/198.51.100.10/udp/4001/quic-v1"),
+                addr("/ip4/198.51.100.10/udp/4002/webrtc-direct"),
+                addr("/ip4/198.18.0.1/udp/4001/quic-v1"),
+                addr(&circuit_webrtc),
+                addr(&circuit_quic),
+                addr(&circuit_tcp),
+            ],
+            TransportPolicy::Auto,
+        );
+        let expected = vec![
+            addr("/ip4/100.100.200.77/tcp/4001"),
+            addr("/ip4/100.100.200.77/udp/4002/webrtc-direct"),
+            addr("/ip4/192.168.1.10/tcp/4001"),
+            addr("/ip4/192.168.1.11/udp/4002/webrtc-direct"),
+            addr("/ip4/198.51.100.10/tcp/4001"),
+            addr("/ip4/198.51.100.10/udp/4002/webrtc-direct"),
+            addr(&circuit_tcp),
+            addr(&circuit_webrtc),
+        ];
+
+        assert_eq!(selected, expected);
+    }
+
+    #[test]
+    fn auto_invite_uses_benchmark_address_only_without_shared_overlay() {
+        let selected = select_invite_addrs(
+            vec![
+                addr("/ip4/198.18.0.1/tcp/4001"),
+                addr("/ip4/198.18.0.1/udp/4001/quic-v1"),
+            ],
+            TransportPolicy::Auto,
+        );
+
+        assert_eq!(selected, vec![addr("/ip4/198.18.0.1/tcp/4001")]);
+    }
+
+    #[test]
+    fn local_only_invite_keeps_only_bounded_lan_paths() {
+        let selected = select_invite_addrs(
+            vec![
+                addr("/ip4/127.0.0.1/tcp/4001"),
+                addr("/ip4/192.168.1.10/tcp/4001"),
+                addr("/ip4/10.0.0.2/udp/4002/webrtc-direct"),
+                addr("/ip4/172.16.0.3/tcp/4001"),
+                addr("/ip4/198.51.100.10/tcp/4001"),
+            ],
+            TransportPolicy::LocalOnly,
+        );
+
+        assert_eq!(
+            selected,
+            vec![
+                addr("/ip4/192.168.1.10/tcp/4001"),
+                addr("/ip4/10.0.0.2/udp/4002/webrtc-direct"),
+            ]
+        );
     }
 }

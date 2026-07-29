@@ -1,12 +1,13 @@
 //! PairInvite：一次性签名配对邀请（openspec: pair-invite-protocol）。
 //!
-//! 替代 6 位配对码的信任建立机制：发起方生成自包含邀请串（Ed25519 签名 + 256bit
+//! 替代 6 位配对码的信任建立机制：发起方生成自包含邀请串（Ed25519 签名 + 128bit
 //! capability + TTL + 一次性消费），二维码/链接是同一字符串的不同载体。
 //!
 //! 编码骨架借自 iroh-tickets（源码级调研 2026-07-19，设计记录见
 //! `openspec/changes/pair-invite-protocol/design.md`）：
-//! - 文本 = KIND 前缀 `sdinvite` + base32-nopad（小写规范形态，解码大小写不敏感——
-//!   生成二维码前整串转大写可走 QR alphanumeric mode，省 ~17% 模块）
+//! - 链接文本 = KIND 前缀 `sd:` + base64url-nopad（URL 安全、比 base32 短）
+//! - 二维码文本 = KIND 前缀 `SD` + base32-nopad（二维码专用；走 alphanumeric mode）。
+//!   两种文本承载同一份 wire，统一由 [`PairInvite::decode`] 验签。
 //! - wire = postcard 单变体 enum（[`InviteWire`]，1 字节判别码即版本；未知变体解码
 //!   即失败）+ 手工镜像结构（领域类型改字段不碰 wire 契约）
 //! - **签名尾置**：`signature` 是 wire 结构末位定长 64 字节 → signable =
@@ -20,16 +21,16 @@
 //! 语义；只存 capability 哈希，明文绝不落盘/日志）。
 
 use std::collections::HashMap;
-use std::fmt;
 use std::str::FromStr;
 use std::sync::Mutex;
 
+use data_encoding::{BASE32_NOPAD, BASE64URL_NOPAD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use swarmdrop_net_base::{Addr, NodeAddr, NodeId, SecretKey};
 
-/// 邀请 KIND 前缀（纯字母——转大写后仍在 QR alphanumeric 字符集内）。
-const KIND: &str = "sdinvite";
+/// 邀请 KIND 前缀。二维码形态去掉 `:` 后统一大写，仍在 QR alphanumeric 字符集内。
+const KIND: &str = "sd";
 
 /// 默认 TTL：5 分钟。
 pub const INVITE_TTL_SECS: u64 = 300;
@@ -46,16 +47,15 @@ pub enum TransportPolicy {
 /// 一次性配对邀请（领域类型；wire 形态见 [`InviteWire`]）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairInvite {
-    pub invite_id: [u8; 16],
-    /// 256bit bearer 凭据。发起端只持久化其 SHA-256（见 [`InviteRegistry`]）。
-    pub capability: [u8; 32],
+    /// 128bit bearer 凭据。发起端只持久化其 SHA-256（见 [`InviteRegistry`]）。
+    pub capability: [u8; 16],
     /// 发起方身份 + 地址提示（地址只是提示——最终身份由连接握手强制）。
     pub inviter: NodeAddr,
-    pub issued_at: u64,
     pub expires_at: u64,
     pub transport_policy: TransportPolicy,
     /// 仅供确认界面展示，不参与授权决策。
     pub display_name: String,
+    /// 仅供确认界面展示，不参与授权决策。
     pub display_platform: String,
 }
 
@@ -70,13 +70,11 @@ enum InviteWire {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct InviteV1 {
-    invite_id: [u8; 16],
-    capability: [u8; 32],
+    capability: [u8; 16],
     /// NodeId 的 multihash 字节（ed25519 下 38B；验签公钥由此恢复）。
     inviter_id: Vec<u8>,
     /// multiaddr 二进制（文本形态约 2x 膨胀，QR 长度敏感）。
     inviter_addrs: Vec<Vec<u8>>,
-    issued_at: u64,
     expires_at: u64,
     /// 0 = Auto，1 = LocalOnly。
     transport_policy: u8,
@@ -84,7 +82,7 @@ struct InviteV1 {
     display_platform: String,
     /// 必须末位（postcard 定长数组无长度前缀 → wire 尾部恰为 64 字节裸签名）。
     /// serde 内置 impl 只到 [u8;32]，64 字节拆两段序列化——postcard 下仍是紧凑
-    /// 128 字节无分隔，尾部恰为签名（切分契约不受影响）。
+    /// 64 字节无分隔，尾部恰为签名（切分契约不受影响）。
     #[serde(with = "sig_serde")]
     signature: [u8; 64],
 }
@@ -112,10 +110,10 @@ mod sig_serde {
 /// 邀请串解析错误（分类照 iroh-tickets 的 ParseError 四分层）。
 #[derive(Debug, thiserror::Error)]
 pub enum InviteParseError {
-    /// 前缀不是 `sdinvite`（不是邀请串或种类不对）。
+    /// 前缀不是 `sd`（不是邀请串或种类不对）。
     #[error("不是配对邀请串（缺 {KIND} 前缀）")]
     Kind,
-    /// base32 解码失败。
+    /// Base64URL / Base32 外层文本解码失败。
     #[error("邀请串编码损坏: {0}")]
     Encoding(String),
     /// postcard 反序列化失败（含未知版本变体）。
@@ -138,10 +136,8 @@ impl PairInvite {
     ) -> Self {
         let mut rng = rand::rng();
         Self {
-            invite_id: rand::RngExt::random(&mut rng),
             capability: rand::RngExt::random(&mut rng),
             inviter: NodeAddr::with_addrs(secret.node_id(), inviter_addrs),
-            issued_at: now,
             expires_at: now + INVITE_TTL_SECS,
             transport_policy,
             display_name,
@@ -149,7 +145,10 @@ impl PairInvite {
         }
     }
 
-    /// 编码为邀请串（小写规范形态）并签名。
+    /// 编码为链接分享用的 URL-safe Base64 文本并签名。
+    ///
+    /// 二维码渲染会将同一份已验签 wire 改为 Base32 表现形式；不能直接把 Base64URL
+    /// 大写化，否则会破坏其大小写敏感的 payload。
     pub fn encode(&self, secret: &SecretKey) -> String {
         let mut wire = self.to_wire([0u8; 64]);
         // 签名尾置：先序列化占位版取 signable（尾 64 字节即占位签名，前缀与最终
@@ -158,35 +157,25 @@ impl PairInvite {
         let sig = secret.sign(&unsigned[..unsigned.len() - 64]);
         wire.signature = sig;
         let bytes = postcard::to_stdvec(&InviteWire::V1(wire)).expect("postcard");
-        let mut out = String::from(KIND);
-        out.push_str(&data_encoding::BASE32_NOPAD.encode(&bytes));
-        out.make_ascii_lowercase();
-        out
+        format!("{KIND}:{}", BASE64URL_NOPAD.encode(&bytes))
     }
 
-    /// 解码邀请串并**验签**（payload 大小写不敏感；TTL 由调用方按 `expires_at` 判定
-    /// ——权威判定在发起端 [`InviteRegistry`]，解码侧预检仅为 UX）。
+    /// 解码并**验签**链接或二维码邀请。
+    ///
+    /// 链接形态是大小写敏感的 Base64URL；二维码形态是大小写不敏感的 Base32。TTL
+    /// 由调用方按 `expires_at` 判定——权威判定在发起端 [`InviteRegistry`]，解码侧预检
+    /// 仅为 UX。
     pub fn decode(s: &str) -> Result<Self, InviteParseError> {
-        let s = s.trim();
-        // 前缀大小写不敏感：文本规范形态是小写 `sdinvite`，但 QR 为走 alphanumeric 模式把
-        // 整串大写（含前缀）→ 扫码得到的是 `SDINVITE…`。payload 在下方 to_ascii_uppercase
-        // 归一，前缀这里也按大小写不敏感匹配，两条输入路径（粘贴/扫码）才都能解。
-        let rest = s
-            .strip_prefix(KIND)
-            .or_else(|| {
-                s.get(..KIND.len())
-                    .filter(|p| p.eq_ignore_ascii_case(KIND))
-                    .map(|_| &s[KIND.len()..])
-            })
-            .ok_or(InviteParseError::Kind)?;
-        let bytes = data_encoding::BASE32_NOPAD
-            .decode(rest.to_ascii_uppercase().as_bytes())
-            .map_err(|e| InviteParseError::Encoding(e.to_string()))?;
+        let bytes = decode_wire_text(s)?;
+        Self::decode_wire(&bytes)
+    }
+
+    fn decode_wire(bytes: &[u8]) -> Result<Self, InviteParseError> {
         if bytes.len() <= 64 {
             return Err(InviteParseError::Verify("载荷过短"));
         }
         let InviteWire::V1(wire) =
-            postcard::from_bytes(&bytes).map_err(|e| InviteParseError::Postcard(e.to_string()))?;
+            postcard::from_bytes(bytes).map_err(|e| InviteParseError::Postcard(e.to_string()))?;
 
         let inviter_id = NodeId::from_bytes(&wire.inviter_id)
             .map_err(|_| InviteParseError::Verify("发起方身份非法"))?;
@@ -206,15 +195,22 @@ impl PairInvite {
             _ => return Err(InviteParseError::Verify("未知网络策略")),
         };
         Ok(Self {
-            invite_id: wire.invite_id,
             capability: wire.capability,
             inviter: NodeAddr::with_addrs(inviter_id, addrs),
-            issued_at: wire.issued_at,
             expires_at: wire.expires_at,
             transport_policy,
             display_name: wire.display_name,
             display_platform: wire.display_platform,
         })
+    }
+
+    /// 将一个已验签的链接/二维码邀请转为二维码专用的 Base32 文本。
+    ///
+    /// 这不是另一份 wire：只改变外层文本编码，避免 Base64URL 在二维码统一大写化时损坏。
+    pub(crate) fn qr_payload(s: &str) -> Result<String, InviteParseError> {
+        let bytes = decode_wire_text(s)?;
+        Self::decode_wire(&bytes)?;
+        Ok(format!("{KIND}{}", BASE32_NOPAD.encode(&bytes)))
     }
 
     /// 是否已过期（`now` 为 Unix 秒）。
@@ -239,11 +235,9 @@ impl PairInvite {
     #[doc(hidden)]
     fn to_wire(&self, signature: [u8; 64]) -> InviteV1 {
         InviteV1 {
-            invite_id: self.invite_id,
             capability: self.capability,
             inviter_id: self.inviter.id.to_bytes(),
             inviter_addrs: self.inviter.addrs.iter().map(|a| a.to_bytes()).collect(),
-            issued_at: self.issued_at,
             expires_at: self.expires_at,
             transport_policy: match self.transport_policy {
                 TransportPolicy::Auto => 0,
@@ -256,6 +250,27 @@ impl PairInvite {
     }
 }
 
+/// 解开外层文本表现形式。带 `:` 的链接形态必须保持大小写；无 `:` 的二维码形态才可
+/// 大写化，因为它使用的是大小写无关的 Base32。
+fn decode_wire_text(s: &str) -> Result<Vec<u8>, InviteParseError> {
+    let s = s.trim();
+    let rest = s
+        .get(..KIND.len())
+        .filter(|prefix| prefix.eq_ignore_ascii_case(KIND))
+        .map(|_| &s[KIND.len()..])
+        .ok_or(InviteParseError::Kind)?;
+
+    if let Some(payload) = rest.strip_prefix(':') {
+        return BASE64URL_NOPAD
+            .decode(payload.as_bytes())
+            .map_err(|e| InviteParseError::Encoding(e.to_string()));
+    }
+
+    BASE32_NOPAD
+        .decode(rest.to_ascii_uppercase().as_bytes())
+        .map_err(|e| InviteParseError::Encoding(e.to_string()))
+}
+
 /// 解析邀请串（含验签）。注意编码需私钥签名 → 无对称 `Display`（见 [`PairInvite::encode`]）。
 impl FromStr for PairInvite {
     type Err = InviteParseError;
@@ -265,25 +280,13 @@ impl FromStr for PairInvite {
     }
 }
 
-impl fmt::Display for InviteState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Pending => write!(f, "pending"),
-            Self::Consumed { .. } => write!(f, "consumed"),
-            Self::Revoked => write!(f, "revoked"),
-        }
-    }
-}
-
 /// 邀请消费被拒的原因（发起端权威判定）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InviteRejectReason {
-    /// 未知 invite_id（从未发出或发起端已重启）。
+    /// 未知 capability（从未发出、凭据错误或发起端已重启）。
     Unknown,
     /// 已过期。
     Expired,
-    /// capability 不匹配（哈希校验失败）。
-    BadCapability,
     /// 已被消费（一次性）或已撤销。
     Unavailable,
 }
@@ -291,21 +294,31 @@ pub enum InviteRejectReason {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum InviteState {
     Pending,
-    Consumed { by: NodeId },
+    Consumed,
     Revoked,
 }
 
 struct PendingInvite {
-    /// SHA-256(capability)——明文 capability 绝不进本表/日志/持久化。
-    capability_hash: [u8; 32],
     expires_at: u64,
     state: InviteState,
+}
+
+impl PendingInvite {
+    fn check_available(&self, now: u64) -> Result<(), InviteRejectReason> {
+        if now >= self.expires_at {
+            return Err(InviteRejectReason::Expired);
+        }
+        if self.state != InviteState::Pending {
+            return Err(InviteRejectReason::Unavailable);
+        }
+        Ok(())
+    }
 }
 
 /// 发起端邀请状态表：TTL + 哈希校验 + **原子一次性消费**（内存态）。
 #[derive(Default)]
 pub struct InviteRegistry {
-    invites: Mutex<HashMap<[u8; 16], PendingInvite>>,
+    invites: Mutex<HashMap<[u8; 32], PendingInvite>>,
 }
 
 impl InviteRegistry {
@@ -313,12 +326,11 @@ impl InviteRegistry {
         Self::default()
     }
 
-    /// 登记新生成的邀请（只存 capability 哈希）。
+    /// 登记新生成的邀请（以 capability 哈希为键，明文不进本表/日志/持久化）。
     pub fn register(&self, invite: &PairInvite) {
         self.invites.lock().expect("registry lock").insert(
-            invite.invite_id,
+            capability_hash(&invite.capability),
             PendingInvite {
-                capability_hash: Sha256::digest(invite.capability).into(),
                 expires_at: invite.expires_at,
                 state: InviteState::Pending,
             },
@@ -328,63 +340,35 @@ impl InviteRegistry {
     /// **非消费**预检（入站请求到达时早拒明显非法，不占用一次性额度）：
     /// 存在 + 未过期 + capability 哈希匹配 + 状态 Pending。权威消费仍在
     /// [`try_consume`](Self::try_consume)（用户确认时）。
-    pub fn check(
-        &self,
-        invite_id: &[u8; 16],
-        capability: &[u8; 32],
-        now: u64,
-    ) -> Result<(), InviteRejectReason> {
+    pub fn check(&self, capability: &[u8; 16], now: u64) -> Result<(), InviteRejectReason> {
         let invites = self.invites.lock().expect("registry lock");
-        let entry = invites.get(invite_id).ok_or(InviteRejectReason::Unknown)?;
-        if now >= entry.expires_at {
-            return Err(InviteRejectReason::Expired);
-        }
-        if entry.state != InviteState::Pending {
-            return Err(InviteRejectReason::Unavailable);
-        }
-        let hash: [u8; 32] = Sha256::digest(capability).into();
-        if hash != entry.capability_hash {
-            return Err(InviteRejectReason::BadCapability);
-        }
-        Ok(())
+        let entry = invites
+            .get(&capability_hash(capability))
+            .ok_or(InviteRejectReason::Unknown)?;
+        entry.check_available(now)
     }
 
-    /// PairHello 到达时调用：TTL + capability 哈希 + CAS `Pending → Consumed`。
+    /// 用户确认时调用：TTL + capability 哈希 + CAS `Pending → Consumed`。
     ///
     /// 一次性语义靠单锁内的检查-置换完成——两台设备同时扫同一码时恰有一台成功
     /// （另一台拿到 [`InviteRejectReason::Unavailable`]）。
-    pub fn try_consume(
-        &self,
-        invite_id: &[u8; 16],
-        capability: &[u8; 32],
-        by: NodeId,
-        now: u64,
-    ) -> Result<(), InviteRejectReason> {
+    pub fn try_consume(&self, capability: &[u8; 16], now: u64) -> Result<(), InviteRejectReason> {
         let mut invites = self.invites.lock().expect("registry lock");
         let entry = invites
-            .get_mut(invite_id)
+            .get_mut(&capability_hash(capability))
             .ok_or(InviteRejectReason::Unknown)?;
-        if now >= entry.expires_at {
-            return Err(InviteRejectReason::Expired);
-        }
-        if entry.state != InviteState::Pending {
-            return Err(InviteRejectReason::Unavailable);
-        }
-        let hash: [u8; 32] = Sha256::digest(capability).into();
-        if hash != entry.capability_hash {
-            return Err(InviteRejectReason::BadCapability);
-        }
-        entry.state = InviteState::Consumed { by };
+        entry.check_available(now)?;
+        entry.state = InviteState::Consumed;
         Ok(())
     }
 
     /// 撤销（用户取消 / 界面关闭）。
-    pub fn revoke(&self, invite_id: &[u8; 16]) {
+    pub fn revoke(&self, capability: &[u8; 16]) {
         if let Some(e) = self
             .invites
             .lock()
             .expect("registry lock")
-            .get_mut(invite_id)
+            .get_mut(&capability_hash(capability))
         {
             e.state = InviteState::Revoked;
         }
@@ -397,6 +381,11 @@ impl InviteRegistry {
             .expect("registry lock")
             .retain(|_, e| now < e.expires_at);
     }
+}
+
+/// capability 只作为一次性 bearer 凭据使用；状态表以其哈希索引，避免明文滞留。
+fn capability_hash(capability: &[u8; 16]) -> [u8; 32] {
+    Sha256::digest(capability).into()
 }
 
 #[cfg(test)]
@@ -418,25 +407,27 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_and_case_insensitive() {
+    fn roundtrip_url_and_qr_text() {
         let sk = SecretKey::generate();
         let invite = test_invite(&sk, TransportPolicy::Auto);
         let s = invite.encode(&sk);
-        // 规范形态全小写
-        assert_eq!(s, s.to_ascii_lowercase());
-        assert!(s.starts_with(KIND));
-        // 原样解码
+        assert!(s.starts_with(&format!("{KIND}:")));
+        assert!(!s.ends_with('='), "URL 编码不应带 padding");
+        assert!(s.len() < PairInvite::qr_payload(&s).unwrap().len());
+        // 链接原样解码
         let back = PairInvite::decode(&s).unwrap();
         assert_eq!(back, invite);
-        // QR 大写形态：payload 大写可解（KIND 前缀保持小写拼接）
-        let upper = format!("{KIND}{}", s[KIND.len()..].to_ascii_uppercase());
-        assert_eq!(PairInvite::decode(&upper).unwrap(), invite);
-        // 真实扫码形态：QR 走 alphanumeric 模式把「整串」大写（含前缀 SDINVITE）——
-        // 前缀大小写敏感的话扫码 100% 解不出，这一断言堵住那个回归。
-        assert_eq!(PairInvite::decode(&s.to_ascii_uppercase()).unwrap(), invite);
-        // 大小写混排前缀也应放行
+        assert!(PairInvite::decode(&s.to_ascii_uppercase()).is_err());
+        // 二维码形态可被整串大写，Base64URL 链接则不能被大写化。
+        let qr = PairInvite::qr_payload(&s).unwrap();
+        assert_eq!(PairInvite::decode(&qr).unwrap(), invite);
         assert_eq!(
-            PairInvite::decode(&format!("SdInViTe{}", &s[KIND.len()..])).unwrap(),
+            PairInvite::decode(&qr.to_ascii_uppercase()).unwrap(),
+            invite
+        );
+        // 二维码前缀大小写混排也应放行。
+        assert_eq!(
+            PairInvite::decode(&format!("Sd{}", &qr[KIND.len()..])).unwrap(),
             invite
         );
     }
@@ -446,16 +437,14 @@ mod tests {
         let sk = SecretKey::generate();
         let invite = test_invite(&sk, TransportPolicy::LocalOnly);
         let s = invite.encode(&sk);
-        let rest = s.strip_prefix(KIND).unwrap();
-        let bytes = data_encoding::BASE32_NOPAD
-            .decode(rest.to_ascii_uppercase().as_bytes())
-            .unwrap();
+        let rest = s.strip_prefix(&format!("{KIND}:")).unwrap();
+        let bytes = BASE64URL_NOPAD.decode(rest.as_bytes()).unwrap();
 
         // 逐字节翻转除签名外的每个字节（含 enum 判别码与 transport_policy），必须全拒
         for i in 0..bytes.len() - 64 {
             let mut tampered = bytes.clone();
             tampered[i] ^= 0x01;
-            let ts = format!("{KIND}{}", data_encoding::BASE32_NOPAD.encode(&tampered));
+            let ts = format!("{KIND}:{}", BASE64URL_NOPAD.encode(&tampered));
             assert!(
                 PairInvite::decode(&ts).is_err(),
                 "第 {i} 字节被篡改却通过了解码"
@@ -465,7 +454,7 @@ mod tests {
         let mut tampered = bytes.clone();
         let last = tampered.len() - 1;
         tampered[last] ^= 0x01;
-        let ts = format!("{KIND}{}", data_encoding::BASE32_NOPAD.encode(&tampered));
+        let ts = format!("{KIND}:{}", BASE64URL_NOPAD.encode(&tampered));
         assert!(matches!(
             PairInvite::decode(&ts),
             Err(InviteParseError::Verify(_))
@@ -479,11 +468,11 @@ mod tests {
             Err(InviteParseError::Kind)
         ));
         assert!(matches!(
-            PairInvite::decode("sdinvite!!!!"),
+            PairInvite::decode("sd:!!!!"),
             Err(InviteParseError::Encoding(_))
         ));
-        // 前缀对、base32 合法、内容不是 postcard wire
-        let junk = format!("{KIND}{}", data_encoding::BASE32_NOPAD.encode(&[9u8; 80]));
+        // 前缀对、Base64URL 合法、内容不是 postcard wire
+        let junk = format!("{KIND}:{}", BASE64URL_NOPAD.encode(&[9u8; 80]));
         assert!(PairInvite::decode(&junk).is_err());
     }
 
@@ -505,46 +494,24 @@ mod tests {
         let invite = test_invite(&sk, TransportPolicy::Auto);
         let reg = InviteRegistry::new();
         reg.register(&invite);
-        let peer = SecretKey::generate().node_id();
-
         // 错 capability
         assert_eq!(
-            reg.try_consume(&invite.invite_id, &[0u8; 32], peer, invite.issued_at),
-            Err(InviteRejectReason::BadCapability)
+            reg.try_consume(&[0u8; 16], invite.expires_at - INVITE_TTL_SECS),
+            Err(InviteRejectReason::Unknown)
         );
         // 过期
         assert_eq!(
-            reg.try_consume(
-                &invite.invite_id,
-                &invite.capability,
-                peer,
-                invite.expires_at
-            ),
+            reg.try_consume(&invite.capability, invite.expires_at),
             Err(InviteRejectReason::Expired)
-        );
-        // 未知 id
-        assert_eq!(
-            reg.try_consume(&[7u8; 16], &invite.capability, peer, invite.issued_at),
-            Err(InviteRejectReason::Unknown)
         );
         // 正常消费
         assert_eq!(
-            reg.try_consume(
-                &invite.invite_id,
-                &invite.capability,
-                peer,
-                invite.issued_at
-            ),
+            reg.try_consume(&invite.capability, invite.expires_at - INVITE_TTL_SECS),
             Ok(())
         );
         // 重复消费拒
         assert_eq!(
-            reg.try_consume(
-                &invite.invite_id,
-                &invite.capability,
-                peer,
-                invite.issued_at
-            ),
+            reg.try_consume(&invite.capability, invite.expires_at - INVITE_TTL_SECS),
             Err(InviteRejectReason::Unavailable)
         );
     }
@@ -560,12 +527,10 @@ mod tests {
         let mut handles = Vec::new();
         for _ in 0..8 {
             let reg = reg.clone();
-            let id = invite.invite_id;
             let cap = invite.capability;
-            let now = invite.issued_at;
+            let now = invite.expires_at - INVITE_TTL_SECS;
             handles.push(std::thread::spawn(move || {
-                let peer = SecretKey::generate().node_id();
-                reg.try_consume(&id, &cap, peer, now).is_ok()
+                reg.try_consume(&cap, now).is_ok()
             }));
         }
         let wins: usize = handles
@@ -581,44 +546,26 @@ mod tests {
         let invite = test_invite(&sk, TransportPolicy::Auto);
         let reg = InviteRegistry::new();
         reg.register(&invite);
-        reg.revoke(&invite.invite_id);
+        reg.revoke(&invite.capability);
         assert_eq!(
-            reg.try_consume(
-                &invite.invite_id,
-                &invite.capability,
-                SecretKey::generate().node_id(),
-                invite.issued_at
-            ),
+            reg.try_consume(&invite.capability, invite.expires_at - INVITE_TTL_SECS),
             Err(InviteRejectReason::Unavailable)
         );
     }
 
-    /// wire 契约锁定：V1 编码的 hex 快照。**本测试失败 = wire 契约被改动**——
+    /// wire 契约锁定：V1 的关键字段布局。**本测试失败 = wire 契约被改动**——
     /// 已发布的邀请串将无法解析，禁止随手"修"这个测试，先回看 InviteV1 的改动。
     #[test]
-    fn wire_v1_hex_snapshot() {
-        // 固定密钥与字段，产出确定性字节流
-        let sk = SecretKey::from_protobuf(
-            &SecretKey::generate().to_protobuf(), // 结构占位——实际用固定值见下
-        )
-        .unwrap();
+    fn wire_v1_keeps_version_capability_and_tail_signature_layout() {
+        let sk = SecretKey::generate();
         let mut invite = test_invite(&sk, TransportPolicy::LocalOnly);
-        invite.invite_id = [0x11; 16];
-        invite.capability = [0x22; 32];
+        invite.capability = [0x22; 16];
         let s = invite.encode(&sk);
-        let bytes = data_encoding::BASE32_NOPAD
-            .decode(
-                s.strip_prefix(KIND)
-                    .unwrap()
-                    .to_ascii_uppercase()
-                    .as_bytes(),
-            )
-            .unwrap();
+        let bytes = decode_wire_text(&s).unwrap();
         // 契约固定段（不含随机密钥派生部分）：
-        // [0]=0x00 enum 判别码（V1）；[1..17]=invite_id；[17..49]=capability
+        // [0]=0x00 enum 判别码（V1）；[1..17]=capability
         assert_eq!(bytes[0], 0x00, "V1 判别码必须是 0x00");
-        assert_eq!(&bytes[1..17], &[0x11; 16]);
-        assert_eq!(&bytes[17..49], &[0x22; 32]);
+        assert_eq!(&bytes[1..17], &[0x22; 16]);
         // 尾 64 字节是签名（签名尾置契约）
         let sig: [u8; 64] = bytes[bytes.len() - 64..].try_into().unwrap();
         assert!(invite.inviter.id.verify(&bytes[..bytes.len() - 64], &sig));
