@@ -45,8 +45,10 @@ function SendPanelInner() {
   const prepareProgress = useWebNode((s) => s.latestPrepareProgress);
   const ready = nodeStatus === "running";
 
-  // 同一路由内 `?peerId=` 变化（如从设备页重复点不同设备的「发送」）不会重挂本组件，
-  // 故初始值之外还要跟随 query 同步；用户手动改过选择后再来一条链接，同样以链接为准。
+  // 同一路由内 `?peerId=` 变化（如从设备页改点另一台设备的「发送」）不会重挂本组件，
+  // 故初始值之外还要跟随 query 同步。
+  // 注意这只在 query **变化**时生效：手动改选后又点回同一台设备（query 没变）不会重置选择，
+  // 那种情况下下拉框里改回去就是了，不值得为它引入一个额外的「链接点击」信号。
   const requestedPeerId = useSearchParams().get(PARAM.peerId) ?? "";
   const [peerId, setPeerId] = useState(requestedPeerId);
   useEffect(() => {
@@ -84,7 +86,12 @@ function SendPanelInner() {
     );
   };
 
-  const canSend = ready && !!peerId && files.length > 0 && !sendAction.pending;
+  // `?peerId=` 是**外部输入**：链接可能来自已解除配对、已下线的设备，也可能是手输的。
+  // 手动 select 选出来的必然有效（离线项是 disabled 的），但 query 带进来的不是——
+  // 只判 `!!peerId` 会让按钮在必然失败的目标上亮着，用户点完只收到一条内核报错。
+  // 同时兜住「选好设备后对方转离线」这个时间窗。
+  const targetValid = devices.some((d) => d.peerId === peerId && d.status === "online");
+  const canSend = ready && targetValid && files.length > 0 && !sendAction.pending;
 
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
@@ -114,6 +121,14 @@ function SendPanelInner() {
               </option>
             ))}
           </select>
+
+          {/* 选了目标却发不出去时，把原因说出来——否则「发送」按钮只是灰着，
+              而灰按钮不解释自己（PRODUCT.md 原则 2·状态诚实可见）。 */}
+          {peerId && !targetValid && (
+            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              这台设备不在已配对列表里，或当前离线——请重新选择。
+            </p>
+          )}
 
           <div
             className={`mt-3 rounded-lg border-2 border-dashed px-4 py-6 text-center text-xs transition-colors ${
