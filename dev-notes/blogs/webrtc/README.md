@@ -19,7 +19,7 @@
 |---|---|---|
 | 00 | [WebRTC 到底是什么](00-what-is-webrtc.md) | **零基础入门。** ICE / DTLS / SCTP / SDP 四层拆解，每层解决什么问题、怎么静默失败 |
 | 01 | [libp2p 的两种 WebRTC](01-libp2p-webrtc-direct.md) | 打洞与 direct：信令怎么送、certhash 为什么必须持久化、为什么 direct **必须**再跑一次 Noise |
-| 02 | [一个有 setter 没 reader 的开关](02-dtls-fingerprint-dead-switch.md) | `rtc#137`：指纹校验开关是死代码；正反双向测试；一次让我发现自己有语义 bug 的评审 |
+| 02 | [一个有 setter 没 reader 的开关](02-dtls-fingerprint-dead-switch.md) | `rtc#137`：指纹校验开关是死代码；正反双向测试；两轮评审——我把意见读错了，还顺手断言错了一件事 |
 | 03 | [`send` 返回 `Ok(())`，数据却蒸发了](03-datachannel-silent-send.md) | `rtc#138`：**最贵的一个坑**。检查条件与决定成败的条件不是同一个，错误被 `warn!` 掉 |
 | 04 | [每条流的首条消息都丢](04-datachannel-ordered-default.md) | `rtc#140`：`#[derive(Default)]` 让 `ordered` 成了 `false`，用户数据超车 DCEP 控制消息 |
 | 05 | [这条通道是谁开的](05-who-opened-this-channel.md) | `webrtc#825`：`on_data_channel` 把本端开的通道也回报，而且交出去的是死句柄 |
@@ -46,6 +46,23 @@
 拦住，因为它们全都发生在「编译期看不见、运行时不报错」的那一层。
 
 这也是为什么每篇都要花大量篇幅讲**怎么定位**——在这类问题上，定位比修复难十倍。
+
+## 顺带记下的两次自我纠错
+
+系列里保留了两次我把话说错的完整过程，没有事后抹平：
+
+| 错在哪 | 我当时的确信程度 | 验证成本 | 后果 |
+|---|---|---|---|
+| 「pre-release 版本互不 semver 兼容，会静默解析出第二份类型」 | 觉得是常识 | 查一次 Cargo 版本解析规则 | 发现得早，**没进上游** |
+| 「传 `None` 会连带放行不出示证书的对端」（[02](02-dtls-fingerprint-dead-switch.md)） | 觉得是显然的代码阅读结论 | `grep` 一次 `flight4.rs` | **进了上游回复**，只能公开纠正 |
+
+两次都不是「拿不准还硬说」，恰恰相反——**两次我都很确信**。所以这条教训的正确形式不是
+「拿不准的要谨慎」，而是：
+
+> **自以为拿得准的，也要先跑一遍。**
+
+详见 [06 篇「两次自我纠错」](06-remote-fingerprint-via-stats.md) 与
+[07 篇](07-upstream-methodology.md)。
 
 ## 相关材料
 

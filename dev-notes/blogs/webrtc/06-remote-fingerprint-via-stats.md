@@ -122,21 +122,61 @@ pub use rtc::peer_connection::{ ... };
 回复的结尾留了台阶：如果他仍然坚持，我把三行也删掉，只留文档和测试。这不是客套——
 **上游的 API 边界是维护者的决定权，我的工作是把信息摆全，不是把结论摆上去。**
 
-## 一个自我纠错
+## 评审第二轮：两条要求，和一个他没提的东西
 
-写 commit message 时我第一版这么论证 re-export 的必要性：
+他的回应是两条行级评论：
+
+> `revert this comments`（指我加在 `get_stats` 上的那段文档）
+>
+> `just keep this new integration test to show an example how to extract peer DTLS certificate fingerprint`
+
+两条都照做了。**但他没有提 `pub use`。**
+
+这里有个判断要做。他第一轮明确说过「应用直接 `use rtc::statistics::…` 就行」，
+加上这轮「just keep the test」的字面意思，完全可以理解成那三行也该撤。
+
+我没有替他决定，而是先去验证了一件事——**撤掉会怎样**。把 `pub use` 改回 `use`，跑一遍：
+
+```text
+error[E0603]: enum `RTCStatsReportEntry` is private
+  --> tests/remote_certificate_fingerprint.rs:22:72
+error[E0603]: enum `StatsSelector` is private
+  --> tests/remote_certificate_fingerprint.rs:23:5
+```
+
+`tests/` 下的集成测试看到的就是外部调用者的视角，而 `[dev-dependencies]` 里没有 `rtc`。
+所以「保留测试 + 撤掉 re-export」还得往 `Cargo.toml` 加一条 dev 依赖——**那超出了他的
+要求**，不该由我擅自决定。
+
+于是回复里把这个事实连同实测报错原样摆出来，并说明：只要他一句话，我就连
+`[dev-dependencies]` 一起加上。**把选择权和它的后果一起交回去，比自作主张地删或留都好。**
+
+## 两次自我纠错
+
+这个系列里我栽了两次，值得放在一起看。
+
+**第一次**：写 commit message 时这么论证 re-export 的必要性——
 
 > pre-release 版本互不 semver 兼容，版本不匹配会静默解析出第二份类型。
 
-**这是错的。** Cargo 对 `^0.20.0-rc.4` 的解析范围是 `>=0.20.0-rc.4, <0.21.0`——
-rc.5 是满足的，会被统一成同一份。不存在「静默分叉」。
+**错的。** Cargo 对 `^0.20.0-rc.4` 的解析范围是 `>=0.20.0-rc.4, <0.21.0`，rc.5 满足，
+会被统一成同一份。不存在「静默分叉」。发现得早，**没进到上游**。
 
-发现之后改成了准确的说法（下游得重复声明一个本 crate 已 pin 的版本并手工同步），
-**错误的陈述没有进到上游 PR 里**。
+**第二次**：[第 02 篇](02-dtls-fingerprint-dead-switch.md) 里那句「传 `None` 会连带
+放行不出示证书的对端」。**也是错的**——DTLS 层的 `RequireAnyClientCert` 自己就拦住了。
+这次**进了上游回复**，只能公开纠正。
 
-这件事值得单独记一笔：给上游提 PR 时，**论证里的每一个技术断言都会被当成事实**。
-一个听起来很专业但其实站不住的理由，比没有理由更糟——它会消耗维护者对你其余论点的信任。
-拿不准的机制，宁可用更弱但确定为真的表述。
+共同点很扎眼：**两次我都相当确信。** 第一次觉得 pre-release 语义特殊是常识，
+第二次觉得「不装回调就没人查空证书」是显然的代码阅读结论。而两次的验证成本都只有几分钟——
+查一下 Cargo 的版本解析规则，grep 一下 `flight4.rs`。
+
+所以这条教训比「拿不准的要谨慎」更硬：
+
+> **不是「拿不准的要谨慎」，是「自以为拿得准的也要先跑一遍」。**
+
+上面那个 `E0603` 就是照这条做的：与其断言「撤掉 re-export 测试会编不过」，不如真改回去
+跑一次，把报错贴进回复。**同样一句话，一个是推测，一个是证据**——而在别人的仓库里，
+只有后者值钱。
 
 ## 测试怎么设计：让「写反了」无处藏身
 

@@ -84,7 +84,8 @@ RTCDtlsTransport::new(
 看起来天经地义：不校验，那就不装校验回调。跑通了，direct 服务端起来了，
 浏览器拨得上了，测试全绿，提 PR。
 
-**这里有个不易察觉的问题**，我当时没看出来。
+**这一版本身没有错。** 但它后面引出的评审往返，比这个 bug 本身更值得记——
+因为我在那轮里犯了一个更典型的错误。
 
 ## 测试怎么写：负向那条才是关键
 
@@ -112,7 +113,7 @@ test default_verification_rejects_mismatched_fingerprint    // 不开开关 → 
 > 交叉验证（一端的 remote 必须等于另一端的 local），本质是同一件事——
 > **让「实现写反了」这个具体的失败模式无处藏身**。
 
-## 评审：一句话点出了我没想到的东西
+## 评审第一轮：一句看不懂的话
 
 上游维护者 rainliu 给了 `CHANGES_REQUESTED`，评论只有一句：
 
@@ -120,14 +121,14 @@ test default_verification_rejects_mismatched_fingerprint    // 不开开关 → 
 
 评论锚在那个 `if` 上。但**这个文件总共只有 232 行**——没有 1135 行。
 
-多打了一个 1。第 135 行是什么？正是那个校验回调的定义处：
+看起来是多打了一个 1。第 135 行是什么？正是那个校验回调的定义处：
 
 ```rust
 // src/peer_connection/transport/dtls/mod.rs:135
 let verify_peer_certificate: VerifyPeerCertificateFn = Arc::new(
     move |certs: &[Vec<u8>], _chains: &[CertificateDer<'static>]| -> Result<()> {
         if certs.is_empty() {
-            return Err(Error::ErrNonCertificate);   // ← 关键就在这一行
+            return Err(Error::ErrNonCertificate);
         }
         // ...逐个比对指纹...
         Err(Error::ErrNoMatchingCertificateFingerprint)
@@ -135,40 +136,64 @@ let verify_peer_certificate: VerifyPeerCertificateFn = Arc::new(
 );
 ```
 
-他的意思是：别在**调用点**用 `Option` 切换，把判断挪进**闭包内部**。
+于是我推断：他要我把判断挪进**闭包内部**——不在调用点用 `Option` 切换，而是在闭包里早退。
 
-我照做的时候才反应过来——**这不是风格问题，是我的实现有语义 bug**：
+改的时候我自以为还发现了一件事：
 
 > 传 `None` 会跳过**整个回调**，连它自己那句 `certs.is_empty()` → `ErrNonCertificate`
-> 一起丢掉。
+> 一起丢掉。「跳过指纹比对」和「接受一个不出示证书的对端」是两件事。
 
-「跳过指纹比对」和「接受一个根本不出示证书的对端」是**两件事**。direct 模式只需要前者。
-我的第一版把后者也一并放行了——一个安全开关，顺手扩大了它本不该覆盖的范围。
+听起来很有道理，我把它写进了回复。**但这个推论是错的。** 下面会说到。
 
-改成闭包内早退，两件事就分开了：
+## 评审第二轮：他其实是另一个意思
+
+rainliu 直接贴了代码，一步到位：
 
 ```rust
-let skip_fingerprint_check = self.disable_certificate_fingerprint_verification;
-let verify_peer_certificate: VerifyPeerCertificateFn = Arc::new(
-    move |certs, _chains| -> Result<()> {
-        if certs.is_empty() {
-            return Err(Error::ErrNonCertificate);   // ← 保住了
-        }
-
-        // 跳过指纹比对，不等于接受一个不出示证书的对端，所以上面那条检查依然生效。
-        // 对端改由带外认证——正是 WebRTC-Direct 需要的：服务端本地合成 offer、
-        // 填占位指纹，之后用 DataChannel 上的 Noise 握手认证对方。
-        if skip_fingerprint_check {
-            return Ok(());
-        }
-
-        // ...原样的指纹比对...
-    },
-);
+let verify_peer_certificate: Option<VerifyPeerCertificateFn> =
+    if !self.disable_certificate_fingerprint_verification {
+        Some(Arc::new(...))
+    } else {
+        None
+    };
 ```
 
-调用点回到最初的 `Some(verify_peer_certificate)` 一行，`start()` 里的改动缩回成纯粹的
-字段接线。
+以及调用点 `.with_verify_peer_certificate(verify_peer_certificate)`。
+
+他要的不是「闭包内早退」，而是**在构造处就决定要不要构造这个闭包**——语义上和我最初那版
+（传 `None`）完全一样，只是把三元判断从调用点挪到了变量声明处，读起来更顺，也不会白白
+分配一个永远不会被调用的 `Arc<闭包>`。
+
+**我的推断错了。** 那句「135」指的是构造处，不是闭包体内。
+
+## 那个「语义 bug」并不存在
+
+既然他坚持传 `None`，我就得回去验证自己上一轮的论断到底成不成立——传 `None`
+真的会放行「不出示证书的对端」吗？
+
+不会。`RTCDtlsTransport` 配的是 `ClientAuthType::RequireAnyClientCert`，而 DTLS 层
+自己就在管这件事：
+
+```rust
+// rtc-dtls/src/flight/flight4.rs
+ClientAuthType::RequireAnyClientCert => {
+    if state.peer_certificates.is_empty() {
+        return Err((
+            Some(Alert { alert_level: Fatal, alert_description: NoCertificate }),
+            Some(Error::ErrClientCertificateRequired),
+        ));
+    }
+}
+```
+
+而且拦在回调**之前**；`CertificateVerify` 那条路径上还有第二道
+（`ErrCertificateVerifyNoCertificate`）。
+
+所以闭包里那句 `certs.is_empty()` 在这条路径上是**冗余防御**，去掉它什么也不会发生。
+我的第一版没有安全问题，他的写法也没有——**只有我那条「发现了语义 bug」的断言是错的**。
+
+按他的形状改完，两个集成测试原样通过，包括那条负向的（它正好证明了「默认仍然严格」
+在新写法下依然成立）。回复里我明确纠正了上一轮的论断，附上了 flight4 的代码位置。
 
 ## 教训
 
@@ -180,14 +205,30 @@ let verify_peer_certificate: VerifyPeerCertificateFn = Arc::new(
 `allow_insecure_verification_algorithm` 走同一条路径且接线完整，两个并排一看，缺口自己
 显形。孤立地读一段代码很难判断「是漏了还是故意的」。
 
-**3. 关掉一个检查时，问清楚自己到底关掉了几件事。**
-「不校验指纹」和「不要求证书」在实现上可能是同一个开关，在语义上完全不同。**范围过大的
-安全开关不会报错，只会在某天变成漏洞。**
+**3. 「关掉一个检查，到底关掉了几件事」——问题是对的，答案要去代码里找。**
+我问对了这个问题：「不校验指纹」和「不要求证书」确实是两件事，值得分开确认。
+但我**推理**出了答案，而不是**验证**出答案——真相在 `flight4.rs` 里躺着，
+grep 一次就能看到。**问对问题只是一半，另一半是去读那段代码。**
 
-**4. 评审里看不懂的意见，先按最合理的解读做一遍。**
-`1135` 显然是笔误，但与其在 PR 里等一轮问答，不如按 `135` 改完、在回复里写明推断依据、
-并留一句「如果你指的是别处我再挪」。改完之后我发现他是对的——**而且对的理由比他说的还多
-一条**。
+**4. 评审里看不懂的意见，先按最合理的解读做一遍——但要把推断本身写进回复。**
+`1135` 显然是笔误，与其等一轮问答，不如按最可能的解读改完。这次我推断错了，
+代价只是再改一次（几个小时），仍然比空等一轮便宜。
+
+更关键的是：**因为我在回复里写明了「我把 1135 读成了 135，也就是闭包定义处」，
+他一眼就看出我理解偏了，直接贴出了他想要的代码。** 如果我只是默默改完说「已修复」，
+这一轮还得再来一次。**推断可以错，但推断必须是公开的。**
+
+**5. 自以为拿得准的技术断言，也要先跑一遍。**
+这条见 [第 07 篇](07-upstream-methodology.md)——同一个系列里我栽了两次，
+一次是 semver 规则，一次就是这里。
+
+---
+
+**上一篇**：[libp2p 的两种 WebRTC](01-libp2p-webrtc-direct.md) ·
+**下一篇**：[`send` 返回 `Ok(())`，数据却蒸发了](03-datachannel-silent-send.md)
+
+**上游**：[rtc#137](https://github.com/webrtc-rs/rtc/pull/137) ·
+**本仓**：`Cargo.toml` 的 `[patch.crates-io]` 段落记录了 pin 的原因与退出条件
 
 ---
 
