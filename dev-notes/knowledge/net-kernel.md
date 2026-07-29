@@ -826,6 +826,23 @@ wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core
   `lockRef` 一次性闸 + 权限三态 + AppState 回前台重拉）均已落地（`mobile/src/app/pairing/scan.tsx`）；
   原生 `CameraView` 需 `expo prebuild` 重编。
 
+### ⚠️ 客户端不要对邀请串做大小写归一（2026-07-29 修）
+
+`sdinvite` 时代的载荷是 Base32，大小写不敏感，于是 `scan.tsx` 顺手写了
+`previewInvite(raw.toLowerCase())`——注释还写着"归一回小写规范形态"。**换成
+`sd:<base64url>` 后这一行直接毁掉载荷**：Base64URL 里 `A` 与 `a` 是不同的 6 bit，
+小写化后 postcard 解不出来，移动端「粘贴邀请」100% 失败（扫码那条侥幸没事——二维码
+本来就是 Base32）。
+
+同一次改动里 KIND 前缀从 8 字符缩到 2 字符，`startsWith("sd")` 也一并退化成
+近乎无效的判据：任何以 sd 开头的二维码都会被送进 `previewInvite`，白白锁住扫码器
+再弹一次「邀请无效」。现已换成带字符集与长度下限的 `INVITE_PATTERN`，两种载体各一支。
+
+> 通用教训：**编码换了字母表，就要回头查所有做大小写变换的调用点**。Rust 侧
+> `decode_wire_text` 当时已经写明"带 `:` 的链接形态必须保持大小写"、单测也钉了
+> `decode(&s.to_ascii_uppercase()).is_err()`——契约是对的，漏的是三端调用侧的同步。
+> 前缀长度变化同理：它既是判别码也是误匹配的唯一屏障。
+
 ## 已知负债（勿当 bug 重报）
 
 - mdns/autonat/dcutr 的 native 运行时行为未经自动化测试（依赖真机/多机冒烟）。
