@@ -13,7 +13,7 @@ export function SecureContextBanner() {
   return (
     <div
       role="alert"
-      className="mx-auto mt-4 w-full max-w-3xl rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200"
+      className="rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200"
     >
       <p className="font-medium">当前非 secure context，接收文件会失败。</p>
       <p className="mt-1 text-amber-800/90 dark:text-amber-200/80">

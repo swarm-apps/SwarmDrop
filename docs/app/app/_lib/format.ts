@@ -17,6 +17,14 @@ export function sortByUpdatedDesc(items: TransferProjection[]): TransferProjecti
   return [...items].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/**
+ * 会话是否仍在进行中。传输页的「N 个进行中」与导航徽标的计数共用同一个判定——
+ * 各写一份的话，将来加一个非 terminal 的新 phase，两处数字就会对不上。
+ */
+export function isActiveSession(projection: TransferProjection): boolean {
+  return projection.phase !== "terminal";
+}
+
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

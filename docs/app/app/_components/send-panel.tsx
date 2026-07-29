@@ -5,11 +5,19 @@
 // 层级；prepare 是真实阶段而非假 loading（原则 2·状态诚实可见）。
 // 发送完成（Offer 已发出）后的实时进度视图交给 ⑥（#80）；本面板只多接了 #79 的一项——对方拒绝
 // （尤其未配对硬拒 NotPaired）不能悬空成永远的「已发出」，见下方 rejection 分支。
+//
+// #92：设备页点「发送」会带 `?peerId=` 进来预选目标。读 query 就必须有 Suspense 边界
+// （静态导出下预渲染阶段拿不到 query，没边界 `next build` 直接报 CSR bailout）——边界包在
+// 本文件导出的 `SendPanel` 里，调用方拿到的就是安全的版本，不必记得自己套。
 
-import { useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { PanelFallback } from "./panel-fallback";
 import { ProgressBar } from "./progress-bar";
 import { WebErrorCard } from "./web-error-view";
 import { calcPercent, formatFileSize } from "../_lib/format";
+import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode } from "../_lib/store";
@@ -24,12 +32,29 @@ interface PendingFile {
 let nextFileId = 0;
 
 export function SendPanel() {
+  return (
+    <Suspense fallback={<PanelFallback>正在准备发送…</PanelFallback>}>
+      <SendPanelInner />
+    </Suspense>
+  );
+}
+
+function SendPanelInner() {
   const nodeStatus = useWebNode((s) => s.status);
   const devices = useWebNode((s) => s.pairedDevices);
   const prepareProgress = useWebNode((s) => s.latestPrepareProgress);
   const ready = nodeStatus === "running";
 
-  const [peerId, setPeerId] = useState("");
+  // 同一路由内 `?peerId=` 变化（如从设备页改点另一台设备的「发送」）不会重挂本组件，
+  // 故初始值之外还要跟随 query 同步。
+  // 注意这只在 query **变化**时生效：手动改选后又点回同一台设备（query 没变）不会重置选择，
+  // 那种情况下下拉框里改回去就是了，不值得为它引入一个额外的「链接点击」信号。
+  const requestedPeerId = useSearchParams().get(PARAM.peerId) ?? "";
+  const [peerId, setPeerId] = useState(requestedPeerId);
+  useEffect(() => {
+    if (requestedPeerId) setPeerId(requestedPeerId);
+  }, [requestedPeerId]);
+
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [sentSessionId, setSentSessionId] = useState<string | null>(null);
@@ -61,20 +86,28 @@ export function SendPanel() {
     );
   };
 
-  const canSend = ready && !!peerId && files.length > 0 && !sendAction.pending;
+  // `?peerId=` 是**外部输入**：链接可能来自已解除配对、已下线的设备，也可能是手输的。
+  // 手动 select 选出来的必然有效（离线项是 disabled 的），但 query 带进来的不是——
+  // 只判 `!!peerId` 会让按钮在必然失败的目标上亮着，用户点完只收到一条内核报错。
+  // 同时兜住「选好设备后对方转离线」这个时间窗。
+  const targetValid = devices.some((d) => d.peerId === peerId && d.status === "online");
+  const canSend = ready && targetValid && files.length > 0 && !sendAction.pending;
 
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
-      <h2 className="text-sm font-semibold text-fd-foreground">发送</h2>
-
       {devices.length === 0 ? (
-        <p className="mt-2 text-xs text-fd-muted-foreground">
-          还没有已配对设备，先在上方「配对」区完成配对。
+        <p className="text-xs text-fd-muted-foreground">
+          还没有已配对设备，先去{" "}
+          <Link href={NAV.devices.href} className="font-medium text-fd-foreground underline underline-offset-2">
+            设备
+          </Link>{" "}
+          页完成配对。
         </p>
       ) : (
         <>
           <select
-            className="mt-3 w-full rounded-lg border border-fd-border bg-fd-background px-3 py-2 text-xs text-fd-foreground"
+            aria-label="目标设备"
+            className="w-full rounded-lg border border-fd-border bg-fd-background px-3 py-2 text-xs text-fd-foreground"
             value={peerId}
             onChange={(e) => setPeerId(e.target.value)}
             // 选设备/移除文件不受「是否已选目标」约束，故不复用 canSend——只挡节点未就绪/发送中。
@@ -88,6 +121,14 @@ export function SendPanel() {
               </option>
             ))}
           </select>
+
+          {/* 选了目标却发不出去时，把原因说出来——否则「发送」按钮只是灰着，
+              而灰按钮不解释自己（PRODUCT.md 原则 2·状态诚实可见）。 */}
+          {peerId && !targetValid && (
+            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              这台设备不在已配对列表里，或当前离线——请重新选择。
+            </p>
+          )}
 
           <div
             className={`mt-3 rounded-lg border-2 border-dashed px-4 py-6 text-center text-xs transition-colors ${
@@ -177,7 +218,11 @@ export function SendPanel() {
           {sendAction.error && <WebErrorCard error={sendAction.error} className="mt-3 text-xs" />}
           {sentSessionId && !rejection && (
             <p className="mt-3 text-xs text-emerald-600 dark:text-emerald-400">
-              已发出：<span className="font-mono">{sentSessionId}</span>（对方接受后即可传输）
+              已发出：<span className="font-mono">{sentSessionId}</span>（对方接受后即可传输）·{" "}
+              {/* 实时进度归传输页，这里只给入口——直接带上 session，落地即选中该条。 */}
+              <Link href={transferSessionHref(sentSessionId)} className="font-medium underline underline-offset-2">
+                查看传输
+              </Link>
             </p>
           )}
           {rejection && (

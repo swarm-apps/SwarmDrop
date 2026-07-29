@@ -520,6 +520,13 @@ export class WebNode {
      */
     resume(session_id: string): Promise<void>;
     /**
+     * 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
+     *
+     * 幂等且不报错——不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），
+     * 调用方 fire-and-forget 即可。
+     */
+    revoke_invite(invite: string): void;
+    /**
      * 向 `to`（base58 NodeId）发送用户选择的文件：登记文件源 → prepare（checksum + bao
      * outboard）→ 发 Offer。返回 session_id。
      */
@@ -553,7 +560,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
-    readonly start: () => void;
     readonly webnode_accept_offer: (a: number, b: number, c: number) => any;
     readonly webnode_close: (a: number) => any;
     readonly webnode_connect: (a: number, b: number, c: number, d: number) => any;
@@ -573,9 +579,11 @@ export interface InitOutput {
     readonly webnode_relays_until_active: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_respond_pairing_request: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_resume: (a: number, b: number, c: number) => any;
+    readonly webnode_revoke_invite: (a: number, b: number, c: number) => void;
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
     readonly webnode_transfer_history: (a: number) => [number, number, number];
+    readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;

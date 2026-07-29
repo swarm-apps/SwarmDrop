@@ -1,7 +1,11 @@
 "use client";
 
-// 顶栏节点状态徽章。状态点用语义色（green/amber/red）——属「状态诚实可见」的语义编码，
+// 节点状态徽章。状态点用语义色（green/amber/red）——属「状态诚实可见」的语义编码，
 // 在 DESIGN 的 one-accent 规则之外，不算第二强调色。脉冲动效带 motion-reduce 降级。
+//
+// 图标侧栏（768–1023px）那一档宽度放不下文字，调用方传 `labelClassName="hidden lg:inline"`
+// 把标签藏掉即可——不需要第二个组件。文字藏起来时读屏与悬停仍拿得到：
+// `title` / `aria-label` 常驻，「节点是否在跑」不因窗口窄而消失（PRODUCT.md 原则 2）。
 
 import { useWebNode, type NodeStatus } from "../_lib/store";
 import { StatusDot } from "./status-dot";
@@ -14,13 +18,26 @@ const STATUS_META: Record<NodeStatus, { label: string; dot: string; pulse?: bool
   error: { label: "启动失败", dot: "bg-red-500" },
 };
 
-export function NodeStatusPill() {
+export function NodeStatusPill({
+  className = "",
+  labelClassName = "",
+}: {
+  className?: string;
+  labelClassName?: string;
+}) {
   const status = useWebNode((s) => s.status);
   const meta = STATUS_META[status];
+  const label = `节点${meta.label}`;
+
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-fd-border bg-fd-card px-2.5 py-1 text-xs font-medium text-fd-muted-foreground shadow-xs">
+    <span
+      role="status"
+      title={label}
+      aria-label={label}
+      className={`inline-flex items-center gap-1.5 rounded-full border border-fd-border bg-fd-card px-2.5 py-1 text-xs font-medium text-fd-muted-foreground shadow-xs ${className}`}
+    >
       <StatusDot colorClass={meta.dot} pulse={meta.pulse} />
-      {meta.label}
+      <span className={labelClassName}>{meta.label}</span>
     </span>
   );
 }
