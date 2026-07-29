@@ -1,5 +1,13 @@
 # pairing-invite — 从 6 位配对码到一次性签名邀请
 
+> ⏱ **时效**：本系列写于 2026-07 的 PairInvite v1 落地当时，正文里的 wire 结构与编码细节
+> 保留那一刻的样子。邀请编码此后精简过一轮（2026-07-29）：KIND 前缀 `sdinvite` → `sd`，
+> 链接改用 Base64URL（二维码另走 `SD` + Base32），capability 256bit → 128bit，
+> `invite_id` 与 `issued_at` 从 wire 移除、状态表改以 `sha256(capability)` 索引。
+> **受影响最大的是 02 与 03 两篇**（wire 字段表、「整串大写」那条）。
+> 当前实现以 `crates/invite` 与 [`knowledge/net-kernel.md`](../../knowledge/net-kernel.md) 为准；
+> 信任模型的推导（发现 ≠ 信任、签名兜底什么）不受影响，那才是本系列的主线。
+
 > 配对重构的完整记录：为什么把用了两个 Phase 的 6 位 DHT 分享码整体废弃，换成一次性、
 > 可验证、可过期的**签名邀请**（`PairInvite`）。根子上的问题是**「发现」被误当成了「信任」**——
 > 一个低熵数字同时扮演「找到对方地址」和「证明就是对方」两个正交角色。这个系列从「为什么

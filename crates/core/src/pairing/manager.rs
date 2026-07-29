@@ -30,30 +30,6 @@ fn now_secs() -> u64 {
     chrono::Utc::now().timestamp().max(0) as u64
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum InviteAddrScope {
-    Shared,
-    Lan,
-    Public,
-    Benchmark,
-}
-
-impl InviteAddrScope {
-    fn classify(addr: &Addr) -> Option<Self> {
-        if addr.is_shared_address_space() {
-            Some(Self::Shared)
-        } else if addr.is_private_lan() {
-            Some(Self::Lan)
-        } else if addr.is_public_routable() {
-            Some(Self::Public)
-        } else if addr.is_benchmarking_address() {
-            Some(Self::Benchmark)
-        } else {
-            None
-        }
-    }
-}
-
 /// 每类网络只保留一条原生路径和一条 WebRTC 路径，避免把全部监听地址复制进邀请。
 ///
 /// 两类路径分别从整类地址中挑选，不能假设同一网卡一定同时监听所有传输；否则先出现的
@@ -65,26 +41,27 @@ fn select_invite_addrs(addrs: Vec<Addr>, policy: TransportPolicy) -> Vec<Addr> {
     let mut benchmark = Vec::new();
     let mut circuits = Vec::new();
 
+    // 五个类别互斥（`is_private_lan` 只认 RFC1918，`is_public_routable` 已排除
+    // 100.64/10 与 198.18/15），所以分桶顺序只影响可读性，不影响归属。
     for addr in addrs {
         if addr.is_loopback_or_unspecified() {
             continue;
         }
-        if addr.is_circuit() {
-            if !circuits.contains(&addr) {
-                circuits.push(addr);
-            }
-            continue;
-        }
-        let Some(paths) = InviteAddrScope::classify(&addr).map(|scope| match scope {
-            InviteAddrScope::Shared => &mut shared,
-            InviteAddrScope::Lan => &mut lan,
-            InviteAddrScope::Public => &mut public,
-            InviteAddrScope::Benchmark => &mut benchmark,
-        }) else {
+        let bucket = if addr.is_circuit() {
+            &mut circuits
+        } else if addr.is_shared_address_space() {
+            &mut shared
+        } else if addr.is_private_lan() {
+            &mut lan
+        } else if addr.is_public_routable() {
+            &mut public
+        } else if addr.is_benchmarking_address() {
+            &mut benchmark
+        } else {
             continue;
         };
-        if !paths.contains(&addr) {
-            paths.push(addr);
+        if !bucket.contains(&addr) {
+            bucket.push(addr);
         }
     }
 
@@ -106,7 +83,9 @@ fn select_invite_addrs(addrs: Vec<Addr>, policy: TransportPolicy) -> Vec<Addr> {
 
 /// native 优先保留可穿过 UDP 封锁的 TCP（无则 QUIC），浏览器另保留 WebRTC。
 fn append_invite_transports(selected: &mut Vec<Addr>, paths: &[Addr]) {
-    let start = selected.len();
+    // `!is_webrtc()` 不是冗余：WebRTC 地址底下压着 tcp/udp 段（circuit 打洞地址
+    // `/ip4/…/tcp/…/p2p-circuit/webrtc` 就是），不排除它就会被当 native 选走，
+    // 浏览器那一条反而落空。
     let native = paths
         .iter()
         .find(|addr| addr.is_tcp() && !addr.is_webrtc())
@@ -117,15 +96,15 @@ fn append_invite_transports(selected: &mut Vec<Addr>, paths: &[Addr]) {
         });
     let browser = paths.iter().find(|addr| addr.is_webrtc());
 
-    for addr in [native, browser].into_iter().flatten() {
+    // 两类都没命中说明这一类只有别的传输，留一条免得整类地址丢空。
+    let picked = match (native, browser) {
+        (None, None) => [paths.first(), None],
+        pair => [pair.0, pair.1],
+    };
+    for addr in picked.into_iter().flatten() {
         if !selected.contains(addr) {
             selected.push(addr.clone());
         }
-    }
-    if selected.len() == start
-        && let Some(addr) = paths.first()
-    {
-        selected.push(addr.clone());
     }
 }
 
@@ -550,5 +529,20 @@ mod tests {
                 addr("/ip4/10.0.0.2/udp/4002/webrtc-direct"),
             ]
         );
+    }
+
+    /// 兜底分支：某一类只剩本函数不认识的传输时，仍要留一条，不能把整类丢空。
+    /// 当前 transport 栈（TCP / QUIC / WebRTC）走不到这里，它是新增传输时的安全网。
+    #[test]
+    fn unknown_transport_class_still_keeps_one_path() {
+        let selected = select_invite_addrs(
+            vec![
+                addr("/ip4/192.168.1.10/udp/4001"),
+                addr("/ip4/192.168.1.11/udp/4002"),
+            ],
+            TransportPolicy::LocalOnly,
+        );
+
+        assert_eq!(selected, vec![addr("/ip4/192.168.1.10/udp/4001")]);
     }
 }

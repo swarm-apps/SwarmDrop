@@ -38,7 +38,7 @@ import { Mermaid } from "@/components/mermaid";
 
 - 发起方生成一个自包含的邀请串 `sd:…`，里面已经带上了自己的设备 ID 与可拨地址。
 - 邀请以链接分享，或渲染成二维码让对方扫——两者是同一字符串的不同载体。
-- 邀请带 **Ed25519 签名**（防篡改）、**256-bit capability**（防猜测）和**有效期**，
+- 邀请带 **Ed25519 签名**（防篡改）、**128-bit capability**（防猜测）和**有效期**，
   且**只能被消费一次**。用过即失效，不会留下长期可复用的凭据。
 
 <Mermaid chart={`sequenceDiagram
