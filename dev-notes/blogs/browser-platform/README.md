@@ -67,6 +67,10 @@ graph TB
   01（secure context = 门 4）只讲平台事实，调试叙事在那边。
 - **[network-kernel/](../network-kernel/)** —— iroh 风格架构重构。
 - **[transfer-architecture/](../transfer-architecture/)** —— 传输域端口抽象、bao。
+- **[webrtc/](../webrtc/)**（后续系列）—— WebRTC **协议栈内部**：ICE/DTLS/SCTP 分层、
+  libp2p 的打洞与 direct、以及自研传输时向上游提的六个补丁。本系列讲浏览器**外部**能
+  给什么，那边讲协议**内部**怎么工作；06 篇的 8 KiB 消息上限在那边有上游视角
+  （libp2p#6560）。
 
 ## 主要素材出处
 

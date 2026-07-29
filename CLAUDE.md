@@ -397,6 +397,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | 重构决策与五道门经验 | `dev-notes/why-libp2p-not-iroh.md`、`dev-notes/knowledge/libp2p-wasm.md` |
 | 重构系列博客 | `dev-notes/blogs/2026-07-net-refactor-series.md` |
 | 配对重构系列博客 | `dev-notes/blogs/pairing-invite/README.md` |
+| WebRTC 系列博客（零基础入门 + 上游补丁复盘） | `dev-notes/blogs/webrtc/README.md` |
 | 产品需求 | `dev-notes/product-requirements.md` |
 | UI 设计文件 | `dev-notes/design/design.pen` |
 | 历史文档（重构前设计 / 已完成 roadmap / 早期调研） | `dev-notes/archive/` |
