@@ -55,6 +55,8 @@ export function PairingPanel() {
     const node = getNode();
     if (!node) return;
     setGenerateError(null);
+    // 旧邀请立即作废——邀请是一次性信任凭证，界面上被顶掉了就不该还能用到 TTL 到点。
+    if (generatedInvite !== null) node.revoke_invite(generatedInvite);
     try {
       setGeneratedInvite(node.generate_invite(localOnly));
     } catch (e) {

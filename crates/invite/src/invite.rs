@@ -553,6 +553,24 @@ mod tests {
         );
     }
 
+    /// 撤销侧（三端 UI）手上只有邀请串，capability 要经解码取回。这条钉死
+    /// 「编解码往返后仍索引到同一条记录」——`PairingManager::revoke_invite` 的不变量。
+    #[test]
+    fn revoke_via_decoded_invite_string_blocks_consume() {
+        let sk = SecretKey::generate();
+        let invite = test_invite(&sk, TransportPolicy::Auto);
+        let reg = InviteRegistry::new();
+        reg.register(&invite);
+
+        let decoded = PairInvite::decode(&invite.encode(&sk)).unwrap();
+        reg.revoke(&decoded.capability);
+
+        assert_eq!(
+            reg.check(&invite.capability, invite.expires_at - INVITE_TTL_SECS),
+            Err(InviteRejectReason::Unavailable)
+        );
+    }
+
     /// wire 契约锁定：V1 的关键字段布局。**本测试失败 = wire 契约被改动**——
     /// 已发布的邀请串将无法解析，禁止随手"修"这个测试，先回看 InviteV1 的改动。
     #[test]

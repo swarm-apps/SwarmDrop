@@ -188,6 +188,22 @@ impl PairingManager {
         invite.encode(secret)
     }
 
+    /// 撤销本机发出的邀请：重新生成覆盖旧串、用户主动放弃、关闭邀请界面时调用。
+    ///
+    /// **幂等且无副作用**，故不返回 `Result`——邀请串解不开、或它的 capability 不在
+    /// 本机 registry 里（已消费 / 非本机发出 / 节点重启后表已空），语义上都等价于
+    /// 「它已经不可用了」，正是调用方要的终态。传入他人的邀请串同样是 no-op：
+    /// registry 按 `sha256(capability)` 索引，查不到就什么都不做。
+    ///
+    /// 撤销**不是**过期的替代：TTL 到点自然失效，本方法是让它提前失效。
+    pub fn revoke_invite(&self, invite_str: &str) {
+        match PairInvite::decode(invite_str) {
+            Ok(invite) => self.invite_registry.revoke(&invite.capability),
+            // 解不开就谈不上撤销，降到 debug——调用方多为 fire-and-forget 的清理路径。
+            Err(e) => tracing::debug!("撤销邀请时解码失败（视作已失效）: {e}"),
+        }
+    }
+
     /// 受邀方：解码邀请串 → 验签 → TTL 预检 → 按策略过滤地址 → 连接发起方出示凭证。
     ///
     /// 身份 pin 由 `request_pairing` 内的连接握手强制（连到的必然是 `inviter_id`，

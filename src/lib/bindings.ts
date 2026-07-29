@@ -79,6 +79,13 @@ export const commands = {
 	 */
 	generatePairInvite: (localOnly: boolean | null) => __TAURI_INVOKE<string>("generate_pair_invite", { localOnly }),
 	/**
+	 *  撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
+	 * 
+	 *  幂等：不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），所以前端可以
+	 *  fire-and-forget。节点未启动时同样无事可做——registry 是内存态，随节点一起没了。
+	 */
+	revokePairInvite: (invite: string) => __TAURI_INVOKE<null>("revoke_pair_invite", { invite }),
+	/**
 	 *  生成邀请串的二维码 SVG（三端统一编码规范：大写 alphanumeric + ECL::M + quiet zone，
 	 *  见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
 	 */

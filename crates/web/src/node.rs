@@ -325,6 +325,14 @@ impl WebNode {
             .encode_invite(&self.secret, policy, &self.os_info))
     }
 
+    /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
+    ///
+    /// 幂等且不报错——不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），
+    /// 调用方 fire-and-forget 即可。
+    pub fn revoke_invite(&self, invite: &str) {
+        self.net_manager.pairing().revoke_invite(invite);
+    }
+
     /// 挂起的入站配对请求（消费方扫/粘本机 invite 后到达）。**取出即清空**，调用方自行累积展示。
     pub fn pending_pairing_requests(&self) -> Result<PendingPairingArray, JsValue> {
         let items: Vec<PendingPairingJson> = self

@@ -5457,6 +5457,13 @@ export interface MobileCoreLike {
     respondPairingRequest(pendingId: bigint, accept: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     resumeTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileTransferProjection>;
 /**
+ * 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
+ *
+ * 后端幂等——不认识的串 no-op；节点未启动时这里直接 Err，但那种情况下 registry
+ * 本就是空的，调用方 fire-and-forget 即可（详见 `PairingManager::revoke_invite`）。
+ */
+    revokePairInvite(invite: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
  * 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
  * 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
  */
@@ -6434,6 +6441,39 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
+ * 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
+ *
+ * 后端幂等——不认识的串 no-op；节点未启动时这里直接 Err，但那种情况下 registry
+ * 本就是空的，调用方 fire-and-forget 即可（详见 `PairingManager::revoke_invite`）。
+ */
+    async revokePairInvite(invite: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_revoke_pair_invite(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(invite, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
  * 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
  * 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
  */
@@ -6968,6 +7008,9 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer() !== 29332) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite() !== 48480) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox() !== 7065) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox");

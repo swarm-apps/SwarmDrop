@@ -54,6 +54,7 @@ class NativeSwarmdropMobileCore : public jsi::HostObject {
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pair_direct(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_respond_pairing_request(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_revoke_pair_invite(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_transfer(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
@@ -164,6 +165,7 @@ class NativeSwarmdropMobileCore : public jsi::HostObject {
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pair_direct(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);

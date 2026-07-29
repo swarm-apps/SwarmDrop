@@ -68,6 +68,18 @@ function getPairingRefuseMessage(reason: PairingRefuseReason): string {
   }
 }
 
+/**
+ * 撤销本机发出的邀请——邀请是一次性信任凭证，UI 上「作废」了就该真的作废，
+ * 不能只是从界面上消失、后端 registry 里还留着能用到 TTL 到点。
+ *
+ * fire-and-forget：后端幂等（不认识的串 no-op），节点未启动时 registry 本就是空的，
+ * 任何失败都不影响调用方要的终态，所以不 await、不报错、不阻塞界面。
+ */
+function revokeInvite(active: ActiveInvite | null): void {
+  if (active === null) return;
+  void commands.revokePairInvite(active.invite).catch(() => {});
+}
+
 /** 本机生成的活跃邀请（发起方展示二维码/链接用） */
 export interface ActiveInvite {
   /** 邀请串（链接规范形态，"sd:..."） */
@@ -102,9 +114,9 @@ interface PairingState {
 
   /** 确保活跃邀请存在（已有且未过期则 no-op；否则生成） */
   ensureActiveInvite: (localOnly?: boolean) => Promise<void>;
-  /** 生成新邀请（强制覆盖现有） */
+  /** 生成新邀请（强制覆盖现有；被覆盖的旧邀请立即撤销） */
   generateInvite: (localOnly?: boolean) => Promise<void>;
-  /** 清空活跃邀请（节点停止 / 用户主动 dismiss） */
+  /** 清空活跃邀请并撤销它（节点停止 / 用户主动 dismiss） */
   clearActiveInvite: () => void;
 
   // === 受邀方：预览 + 消费 ===
@@ -143,6 +155,9 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
 
   async generateInvite(localOnly = false) {
     set({ inviteError: null });
+    // 先撤销再生成：UI 承诺「切换后此前展示的二维码随即失效」，这个失效不该
+    // 取决于新邀请是否生成成功（失败路径下 activeInvite 同样被清空，状态一致）。
+    revokeInvite(get().activeInvite);
     try {
       const invite = await commands.generatePairInvite(localOnly);
       set({
@@ -158,6 +173,7 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
   },
 
   clearActiveInvite() {
+    revokeInvite(get().activeInvite);
     set({ activeInvite: null, inviteError: null });
   },
 

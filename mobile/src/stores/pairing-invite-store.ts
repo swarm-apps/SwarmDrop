@@ -33,7 +33,9 @@ interface PairingInviteState {
   generating: boolean;
   error: string | null;
   ensureActiveInvite: (localOnly?: boolean) => Promise<void>;
+  /** 生成新邀请（被覆盖的旧邀请立即撤销） */
   generateInvite: (localOnly?: boolean) => Promise<void>;
+  /** 清空活跃邀请并撤销它 */
   clearActiveInvite: () => void;
 
   // 受邀方
@@ -44,6 +46,20 @@ interface PairingInviteState {
   /** 确认后发起配对；返回 accepted */
   confirmInvite: () => Promise<boolean>;
   cancelPreview: () => void;
+}
+
+/**
+ * 撤销本机发出的邀请——邀请是一次性信任凭证，UI 上「作废」了就该真的作废，
+ * 不能只是从界面上消失、后端 registry 里还留着能用到 TTL 到点。
+ *
+ * fire-and-forget：后端幂等（不认识的串 no-op），节点未启动时 registry 本就是空的，
+ * 任何失败都不影响调用方要的终态，所以不 await、不报错、不阻塞界面。
+ */
+function revokeInvite(active: ActiveInvite | null): void {
+  if (active === null) return;
+  void getMobileCore()
+    .revokePairInvite(active.invite)
+    .catch(() => {});
 }
 
 let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,6 +91,9 @@ export const usePairingInviteStore = create<PairingInviteState>()(
   (set, get) => {
     async function generate(localOnly: boolean): Promise<void> {
       set({ generating: true, error: null });
+      // 先撤销再生成：失效是「重新生成」当场承诺的效果，不该取决于新邀请是否成功
+      // （失败路径下 activeInvite 同样被清空，状态一致）。
+      revokeInvite(get().activeInvite);
       try {
         const invite = await getMobileCore().generatePairInvite(localOnly);
         const active: ActiveInvite = {
@@ -125,6 +144,7 @@ export const usePairingInviteStore = create<PairingInviteState>()(
 
       clearActiveInvite() {
         clearTimer();
+        revokeInvite(get().activeInvite);
         set({ activeInvite: null, error: null });
       },
 

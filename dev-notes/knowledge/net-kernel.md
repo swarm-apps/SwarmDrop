@@ -809,6 +809,15 @@ wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core
   的 identity multihash 就地恢复。字段序即契约，V1 发布后不可改。
 - **一次性/TTL**：`InviteRegistry`（发起端内存态）以 `sha256(capability)` 为键，不存明文；入站 handle
   非消费预检 + respond(Success) 原子 CAS `Pending→Consumed`（两台扫同码仅先确认者成功）。
+- **撤销（`PairingManager::revoke_invite`，2026-07-29 补齐接线）**：入参是**邀请串**不是
+  capability——三端 UI 手上只有串，capability 经解码取回（`revoke_via_decoded_invite_string_blocks_consume`
+  钉死往返一致）。**幂等且不返回 Result**：串解不开、capability 不在表里（已消费 / 非本机发出 /
+  节点重启后表已空）语义上都等价于「它已不可用」，正是调用方要的终态；传入他人的邀请串同样
+  no-op，撤销不了别人的东西。三端调用点统一为「生成新邀请前撤销被覆盖的旧串」+「clearActiveInvite」，
+  一律 fire-and-forget。
+  ⚠️ **不要在离开邀请页时撤销**：store 里 `activeInvite` 是刻意跨页面持久化的（用户复制走
+  链接后会切走等对方粘贴），撤销而不同步清 store 会得到「二维码照常显示、实际拨不通」——
+  比不撤销更糟。撤销与清状态必须成对。
 - **QR 三端统一（`qr.rs`，唯一编码源）**：链接 payload 的 Base64URL **不能**大写；先解出并验签
   wire，再编码为 `SD` + Base32，才能落 QR alphanumeric 模式；ECL::M + 4 模块 quiet zone。
   三端渲染 core 出的 SVG/矩阵（桌面/web 用 `invite_qr_svg`、RN 用 `invite_qr_matrix` +

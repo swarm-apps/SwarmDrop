@@ -74,6 +74,15 @@ impl MobileCore {
         Ok(pairing.encode_invite(&secret, policy, &OsInfo::default()))
     }
 
+    /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
+    ///
+    /// 后端幂等——不认识的串 no-op；节点未启动时这里直接 Err，但那种情况下 registry
+    /// 本就是空的，调用方 fire-and-forget 即可（详见 `PairingManager::revoke_invite`）。
+    pub async fn revoke_pair_invite(&self, invite: String) -> FfiResult<()> {
+        self.pairing_manager().await?.revoke_invite(&invite);
+        Ok(())
+    }
+
     /// 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
     pub fn invite_qr_matrix(&self, invite: String) -> FfiResult<MobileQrMatrix> {
         let matrix = swarmdrop_invite::invite_qr_matrix(&invite)

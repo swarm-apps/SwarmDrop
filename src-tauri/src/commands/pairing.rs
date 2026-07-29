@@ -86,6 +86,19 @@ pub async fn generate_pair_invite(
     ))
 }
 
+/// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
+///
+/// 幂等：不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），所以前端可以
+/// fire-and-forget。节点未启动时同样无事可做——registry 是内存态，随节点一起没了。
+#[tauri::command]
+#[specta::specta]
+pub async fn revoke_pair_invite(net: State<'_, NetManagerState>, invite: String) -> AppResult<()> {
+    with_manager!(net, |m| {
+        m.pairing().revoke_invite(&invite);
+        AppResult::Ok(())
+    })
+}
+
 /// 用邀请串发起配对（受邀方）：解码验签 → 连接发起方 → 出示凭证。
 ///
 /// 配对成功后自动加入已配对设备并 emit `paired-device-added`。

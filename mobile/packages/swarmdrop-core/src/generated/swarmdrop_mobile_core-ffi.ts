@@ -125,6 +125,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_respond_pairing_request(uniffiSelf: bigint, pendingId: bigint, accept: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_resume_transfer(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_revoke_pair_invite(uniffiSelf: bigint, invite: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(uniffiSelf: bigint, query: Uint8Array, limit: number, includeArchived: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(uniffiSelf: bigint, preparedId: Uint8Array, peerId: Uint8Array, peerName: Uint8Array, fileIds: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(uniffiSelf: bigint, paused: number): bigint;
@@ -180,6 +181,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(): number;
