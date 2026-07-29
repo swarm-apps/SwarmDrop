@@ -20,6 +20,8 @@ import { DownloadPanel } from "@/components/download-panel";
 import { MobileDownloadCard } from "@/components/mobile-download-card";
 import { SwarmVisual } from "@/components/swarm-visual";
 import { appName, links, swarmhiveConfig } from "@/lib/shared";
+// 落地页 CTA 直接指向应用区落点，绕开 `/app` 那一跳（它只是给手输地址的人兜底的重定向壳）。
+import { APP_HOME } from "@/app/app/_lib/nav";
 
 async function getInitialCatalog(appSlug: string): Promise<DownloadCatalog | null> {
   try {
@@ -112,7 +114,7 @@ function Hero() {
             style={{ "--d": "0.18s" } as React.CSSProperties}
           >
             <Link
-              href="/app"
+              href={APP_HOME}
               className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-[var(--brand-ink)] shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-[0.98]"
             >
               在浏览器里试用
@@ -402,7 +404,7 @@ function FinalCta() {
         </p>
         <div className="relative mt-9 flex flex-wrap items-center justify-center gap-3">
           <Link
-            href="/app"
+            href={APP_HOME}
             className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-[var(--brand-ink)] shadow-sm transition-transform hover:shadow-md active:scale-[0.98]"
           >
             在浏览器里试用

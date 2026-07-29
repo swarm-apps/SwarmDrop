@@ -17,6 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、Vite/Tauri 端口、Lingui 实际 locale、版本号三处同步
 - [`dev-notes/knowledge/net-kernel.md`](dev-notes/knowledge/net-kernel.md) — 网络内核 swarmdrop-net（2026-07 重构产物）：架构速览与事件双轨制、libp2p git pin 校准坑、wasm 工程约定、wire v2 契约点、已知负债。**碰 crates/net、crates/net-base、协议注册、relay、DHT、升级 libp2p rev 时必读**
 - [`dev-notes/knowledge/libp2p-wasm.md`](dev-notes/knowledge/libp2p-wasm.md) — Web 端（wasm）可行性调研（2026-07）。**结论已落地**：`crates/web` + `docs/app/app` 是其产物
+- [`dev-notes/knowledge/web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md) — Web 应用区**表现层**（`docs/app/app`）：运行时单例只挂 layout、静态导出三限制（无 redirect / 无动态段 / useSearchParams 要 Suspense）、basePath 与 next/link、自研 store 的 selector 约束。**碰 Web 端 React 代码时必读**
 - [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`，Web 端是 IndexedDB 写穿的 `SessionStore`（`crates/web/src/store.rs`）
 - [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估（2026-07 调研）。**已决策：不迁移**，但 iroh 的 API 形态被 `crates/net` 借鉴。碰 P2P 选型或有人提「迁 iroh」时先读
 
@@ -213,8 +214,9 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 <920 详情占满、列表从左抽屉滑出。**所有 master-detail 页都用这一个断点，不要各页写各的。**
 其余响应式靠 Tailwind 断点类。hook 是 `src/hooks/use-media-query.ts` 的 `useIsWideLayout`。
 
-> Web 应用区（`docs/app/app`）是**另一套形态**——侧边栏 + 多路由，与桌面端有意分叉，
-> 见 issue #88。别把两边的导航描述混用。
+> Web 应用区（`docs/app/app`）是**另一套形态**——持久侧边栏 + 多路由，与桌面端有意分叉
+> （#88/#90 已落地，决策与理由写在 `DESIGN.md` 的「Navigation — Web app area」）。
+> 别把两边的导航描述混用。
 
 **i18n** — 前端 Lingui + Babel macro，源 locale `zh`，实际 locale 为 **zh / zh-TW / en**
 （ja/ko/es/fr/de 是路线图，尚未添加）。`pnpm i18n:extract` 提取，catalog 在
@@ -294,6 +296,31 @@ TTL 300s + 一次性消费）；链接走 Base64URL，二维码走同一 wire �
 因此非终态发送会话与待决 offer 一律不落库。
 
 wasm 是 CI 一等公民：`./scripts/check-wasm.sh` 在 PR 阶段拦截破坏浏览器 target 的改动。
+
+**前端形态（#90 起）：持久侧边栏 + 五条路由**，分区对齐桌面端但导航形态有意分叉：
+
+| 路由 | 内容 |
+|---|---|
+| `/app` | 客户端重定向到 `/app/devices`（静态导出没有服务端，`redirect()` 用不了） |
+| `/app/devices` | 已配对设备 + 配对（应用首页） |
+| `/app/send` | 发送，接受 `?peerId=` 预选目标 |
+| `/app/inbox` | 待处理入站请求 + 已接收文件 |
+| `/app/transfer` | 传输会话，选中态走 `?session=` |
+| `/app/settings` | 节点身份 · helper 连接 · 事件日志 |
+
+导航项定义在 `docs/app/app/_lib/nav.ts`（**单一事实源**，标题/描述/图标/徽标都从它派生）。
+三条硬约束，改这块前必读：
+
+1. **运行时单例只挂 layout**。`WebNodeBootstrap` 一个组件里同时做 spawn 节点、
+   `startEventConsumption`、`startStatePoll`、`ensureConfiguredRelays`。下放到任何 page
+   就会变成每路由一份，同一事件被处理多次。它也**刻意不在 cleanup 里 `closeNode()`**（StrictMode）。
+2. **静态导出三条限制**：不能用动态路由段（sessionId 是运行时 UUID，`generateStaticParams`
+   预生成不出来，故传输详情用 query param）；内部导航必须走 `next/link`（手写 `<a href>`
+   不加 basePath，GitHub Pages 子路径下全 404）；`useSearchParams()` 必须套 `<Suspense>`，
+   否则 `next build` 报 CSR bailout。
+3. **`_lib/create-store.ts` 是自研 store 不是 zustand**，同样有「selector 里派生新数组/对象
+   → 无限重渲染」的陷阱，而 `pnpm check:zustand-access` **只扫仓库根 `src/`，不覆盖 docs/**。
+   这块没有机器兜底，selector 一律只返回原始值或 store 内的稳定引用。
 
 ### Mobile (`mobile/`)
 
@@ -394,6 +421,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | Web 壳（wasm） | `crates/web/`（`store.rs` 是 IndexedDB 写穿的 `SessionStore`，`idb.rs` 是其底层），入口 `docs/app/app` |
 | Zustand stores | `src/stores/` |
 | Web 应用前端 | `docs/app/app/`（Next 应用区，非 fumadocs 文档；wasm 产物入库在 `docs/packages/swarmdrop-web/`） |
+| Web 应用区导航定义 | `docs/app/app/_lib/nav.ts`（路由/标题/图标/徽标单一事实源）+ `_components/app-nav.tsx` |
 | 路由页面 | `src/routes/` |
 | shadcn/ui 组件 | `src/components/ui/` |
 | 前端翻译 catalog | `src/locales/{locale}/messages.po` |

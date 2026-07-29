@@ -4,8 +4,10 @@
 // 隐式优先（PRODUCT.md 原则 1）：配对是一次性动作，配完即长期信任，不做成每次传输都要选的
 // 模式——本面板只负责把「配对」这一次性动作走完，配对后的设备去下方「已配对设备」清单看。
 
+import Link from "next/link";
 import { useState } from "react";
 import { WebErrorCard } from "./web-error-view";
+import { NAV } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
@@ -117,7 +119,11 @@ export function PairingPanel() {
         </p>
         {!reservation && (
           <p className="mt-1 text-xs text-fd-muted-foreground">
-            需先在上方「连接」区 reserve 拿到 circuit 可达地址，否则邀请里无可拨地址。
+            需先在{" "}
+            <Link href={NAV.settings.href} className="font-medium text-fd-foreground underline underline-offset-2">
+              设置
+            </Link>{" "}
+            页的「连接」区建立可达（circuit），否则邀请里无可拨地址。
           </p>
         )}
         <label className="mt-2 flex items-center gap-1.5 text-xs text-fd-muted-foreground">

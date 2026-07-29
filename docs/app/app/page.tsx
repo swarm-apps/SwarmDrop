@@ -1,33 +1,30 @@
-import { ConnectionPanel } from "./_components/connection-panel";
-import { DevEventLog } from "./_components/dev-event-log";
-import { DeviceList } from "./_components/device-list";
-import { NodePanel } from "./_components/node-panel";
-import { PairingPanel } from "./_components/pairing-panel";
-import { ReceivePanel } from "./_components/receive-panel";
-import { SendPanel } from "./_components/send-panel";
-import { TransferActivityPanel } from "./_components/transfer-activity-panel";
-import { WebErrorView } from "./_components/web-error-view";
+"use client";
 
-// 首屏：节点在本页自动启动，身份 / 连接 / 配对 / 发送 / 传输活动 / 接收各占一块。
-// 面板顺序即用户路径——先有身份和连接，才谈得上配对，配对后才能收发。
-export default function AppPage() {
+// `/app` 只是入口，落点是设备页（同桌面端：设备关系是应用首页）。
+//
+// 静态导出（`output: "export"`）下没有服务端，`next/navigation` 的 `redirect()` 与
+// next.config 的 `redirects()` 都用不了——只能在客户端跳。渲染的不是空白 loading 而是一条
+// 真链接：JS 尚未加载或被禁用时，用户仍然点得进去，不会卡在一个永远转圈的页面上。
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { APP_HOME } from "./_lib/nav";
+
+export default function AppIndexPage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace(APP_HOME);
+  }, [router]);
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-base font-semibold text-fd-foreground">浏览器传输端</h1>
-        <p className="mt-1 text-sm text-fd-muted-foreground">
-          节点已在本页启动，与桌面 / 移动端同源。已配对设备、收件箱与传输历史刷新后仍在。
-        </p>
-      </div>
-      <WebErrorView />
-      <NodePanel />
-      <ConnectionPanel />
-      <PairingPanel />
-      <DeviceList />
-      <SendPanel />
-      <TransferActivityPanel />
-      <ReceivePanel />
-      <DevEventLog />
-    </div>
+    <p className="text-sm text-fd-muted-foreground">
+      正在进入{" "}
+      <Link href={APP_HOME} className="font-medium text-fd-foreground underline underline-offset-2">
+        设备
+      </Link>
+      …
+    </p>
   );
 }

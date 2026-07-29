@@ -11,10 +11,12 @@
 // 2），配色沿用桌面 device-card 的语义编码：局域网 emerald / 打洞 sky / 中继 amber
 // （DESIGN.md：这三色是状态语义编码，在 one-accent 规则之外）。
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import { getNode } from "../_lib/node-runtime";
+import { NAV } from "../_lib/nav";
 import { WEB_RELAY_HELPERS } from "../_lib/relay-helpers";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode, webNodeActions } from "../_lib/store";
@@ -137,7 +139,11 @@ export function ConnectionPanel() {
       {reservation && (
         <div className="mt-3">
           <p className="text-xs font-medium text-fd-muted-foreground">
-            circuit 可达地址（供下方「生成邀请」使用，刷新前有效）
+            circuit 可达地址（供{" "}
+            <Link href={NAV.devices.href} className="underline underline-offset-2">
+              设备
+            </Link>{" "}
+            页的「生成邀请」使用，刷新前有效）
           </p>
           <p className="mt-1 break-all rounded-lg border border-fd-border bg-fd-background px-3 py-2 font-mono text-xs text-fd-foreground">
             {reservation}

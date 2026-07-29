@@ -200,9 +200,20 @@ The system runs two elevation languages side by side, and the split is deliberat
 - **Focus:** border shifts to `ring` color plus a 3px `ring-ring/50` halo — no glow, no color change beyond the ring.
 - **Error / Disabled:** invalid state adds a destructive-tinted ring; disabled drops to 50% opacity and disables pointer events.
 
-### Navigation (Topbar + Breadcrumb)
+### Navigation — Desktop shell (Topbar + Breadcrumb)
 - Desktop uses a single top bar: an unclickable logo mark, a node-status pill, a breadcrumb trail (home icon → intermediate clickable segments → unclickable current page), and window controls. There is no persistent sidebar in the current build — navigation depth is expressed through the breadcrumb, not through a nav rail.
 - The topbar's only structural line is a 1px `rgb(255 255 255 / 0.34)` (light) / `rgb(255 255 255 / 0.08)` (dark) bottom hairline — no shadow, no background fill of its own beyond the ambient shell.
+
+### Navigation — Web app area (Sidebar + Bottom Nav)
+The browser build (`docs/app/app`, hosted inside the docs site) uses a **persistent sidebar**, not the breadcrumb-only topbar. This is a deliberate fork, decided in issue #88 — it is the "check against the current breadcrumb-only pattern" the Don't-list below asks for, and its conclusion applies to the Web area only: **the desktop shell does not change.**
+
+Why the fork: the desktop app owns its entire window and can borrow the native title bar for chrome, so a breadcrumb is enough to say "you are inside an app". A browser tab has no such frame — the same tab renders marketing pages and docs — so persistent nav is the only structure that reads as an application rather than another document page. Deep-linkable routes also require a visible place to return to.
+
+- **Sections** mirror the desktop information architecture exactly — devices / send / inbox / transfer / settings — so the two builds stay conceptually one product. Only the navigation *shape* differs.
+- **Three responsive tiers:** ≥1024px expanded rail (icon + label, 224px) · 768–1023px icon rail (64px, label degrades to `title`/`aria-label`) · <768px fixed bottom nav with a sticky brand+status header. The single source of truth for the items is `docs/app/app/_lib/nav.ts`.
+- **Active state** is `bg-fd-accent` + `text-[var(--brand)]` + `aria-current="page"` — the one-accent rule still holds; no second saturated color enters the chrome.
+- **Count badges** (pending offers, in-flight transfers) use the brand solid fill with `--brand-ink` text. They exist because splitting one page into five routes hides time-sensitive inbound requests behind a route — the badge is the compensation for that, not decoration.
+- **Node status stays visible in every tier** (pill when there's room, bare status dot in the icon rail): "state is honestly visible" does not get dropped because the window got narrow.
 
 ### Ambient WebGL Background (signature component)
 A `Renderer`-driven (`ogl`) full-bleed canvas sits behind every app screen: a slow Perlin-noise "soft aurora" gradient (`aurora-mist` → `aurora-cyan`) always on, plus a teal/light-blue "side rays" overlay that appears only in dark mode. The loop is gated by `IntersectionObserver` + `visibilitychange` (pauses when off-screen or the tab is hidden) and fully respects `prefers-reduced-motion` by freezing on the first frame instead of skipping the effect outright — the texture stays, the motion doesn't. This is the system's single biggest personality investment; everything else in the UI stays deliberately quiet so this can carry the "alive network" feeling.
@@ -225,4 +236,4 @@ Individual pairing-code digits render as `glass-control` chips (`18px` radius, `
 - **Don't** apply `backdrop-filter` to a button, input, or any control someone clicks or types into — glass is for containers, not controls.
 - **Don't** add a second saturated accent color to the static UI chrome; if a screen feels flat, that's a signal to lean on the ambient background or an icon, not a new hex.
 - **Don't** re-derive Harbor Teal from scratch or let Copper Core become a general UI accent — `oklch(0.583 0.105 177.1)` (light fill) / `oklch(0.641 0.115 177.6)` (dark fill) / `text-brand` for text form; treat these as fixed (The Brand Fidelity Rule). And never use the fill teal as small text on white — that's what `text-brand` exists for.
-- **Don't** add a persistent sidebar nav rail without checking against the current breadcrumb-only pattern first — it's a deliberate simplification, not an oversight.
+- **Don't** add a persistent sidebar nav rail to the **desktop shell** without checking against the current breadcrumb-only pattern first — it's a deliberate simplification, not an oversight. (The Web app area already went through that check and forked; see "Navigation — Web app area". A fork granted there is not a precedent for the desktop shell.)
