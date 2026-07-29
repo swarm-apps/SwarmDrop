@@ -31,8 +31,8 @@ use libp2p_webrtc_utils::{Fingerprint, StreamConfig, noise};
 use webrtc::data_channel::DataChannel;
 use webrtc::peer_connection::{
     MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler,
-    RTCConfigurationBuilder, RTCPeerConnectionState, Registry, SettingEngine,
-    register_default_interceptors,
+    RTCConfigurationBuilder, RTCPeerConnectionState, RTCStatsReportEntry, Registry, SettingEngine,
+    StatsSelector, register_default_interceptors,
 };
 use webrtc::runtime::Runtime;
 
@@ -403,12 +403,39 @@ async fn with_timeout<T>(
 /// 服务端必须拿到**拨号端**的指纹才能算出与对面一致的 Noise prologue，而 direct 模式下
 /// 它收不到真 offer（自己合成、填 `Fingerprint::FF`），该值只存在于 DTLS 握手里。
 ///
-/// 0.20 没有 0.17 那个 `sctp().transport().get_remote_certificate()`，缺口已提上游
-/// （<https://github.com/webrtc-rs/webrtc/pull/828>），本仓 pin 的集成分支已含该 API。
+/// 0.20 没有 0.17 那个 `sctp().transport().get_remote_certificate()`，只能从统计报告里反查，
+/// 而报告的组织方式让这件事**很容易做反**：它给每一侧各放一条 `Certificate` 条目，条目本身
+/// 不说自己属于哪边，只有 `Transport` 条目的 `remote_certificate_id` 能把两者分开。取错了不
+/// 报错——prologue 会拿本端指纹跟本端比，Noise 随后失败，但错因完全看不出来。
+///
+/// 上游曾提议把这段封进 `PeerConnection`
+/// （<https://github.com/webrtc-rs/webrtc/pull/828>），评审结论是不给 trait 加 W3C 之外的
+/// 方法，故留在这里。
 async fn remote_fingerprint(pc: &dyn PeerConnection) -> Result<Fingerprint, Error> {
-    let value = pc
-        .remote_certificate_fingerprint(std::time::Instant::now())
-        .await
+    let report = pc
+        .get_stats(std::time::Instant::now(), StatsSelector::None)
+        .await;
+
+    let remote_id = report
+        .iter()
+        .find_map(|entry| match entry {
+            RTCStatsReportEntry::Transport(transport)
+                if !transport.remote_certificate_id.is_empty() =>
+            {
+                Some(transport.remote_certificate_id.clone())
+            }
+            _ => None,
+        })
+        .ok_or_else(|| Error::Connection("DTLS 握手后统计报告里没有对端证书".into()))?;
+
+    let value = report
+        .iter()
+        .find_map(|entry| match entry {
+            RTCStatsReportEntry::Certificate(cert) if cert.stats.id == remote_id => {
+                Some(cert.fingerprint.clone())
+            }
+            _ => None,
+        })
         .ok_or_else(|| Error::Connection("DTLS 握手后仍拿不到对端证书指纹".into()))?;
 
     crate::protocol::addr::parse_sdp_fingerprint(&value)

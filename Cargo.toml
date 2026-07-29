@@ -167,7 +167,7 @@ strip = "symbols"
 # 两个 PR 都合并、且发布含它们的版本后，删掉本段即可：
 #
 #   gh pr view 137 --repo webrtc-rs/rtc --json state --jq .state    # 期望 MERGED
-#   gh pr view 138 --repo webrtc-rs/rtc --json state --jq .state    # 期望 MERGED
+#   gh pr view 138 --repo webrtc-rs/rtc --json state --jq .state    # **已 MERGED**
 #   cargo search rtc --limit 1                                       # 期望 > 0.20.0-rc.4
 #
 # 合并但未发版的过渡期，可把 rev 换成上游 master 上含这两个 PR 的 commit，仍保留本段但把
@@ -181,10 +181,15 @@ rtc = { git = "https://github.com/yexiyue/rtc", rev = "5a8b4b9b7853fa0e90b09c5ba
 #
 # 1. `on_data_channel` 把本端 `create_data_channel` 开的通道也回报一遍，且回报的句柄是死的
 #    （sender 已被占，callback 拿到的 receiver 永远收不到事件）。
-#    → <https://github.com/webrtc-rs/webrtc/pull/825>
-# 2. 没有 0.17 `get_remote_certificate` 的等价物；远端证书只经 stats 暴露，且要靠
-#    `Transport.remote_certificate_id` 反查才能分辨哪条是远端的。
+#    → <https://github.com/webrtc-rs/webrtc/pull/825>（**已合并**，等发版）
+# 2. `get_stats` 的签名点名了 `StatsSelector` / `RTCStatsReport`，而这两个类型没被
+#    `pub use` 出来——一个公开的 trait 方法，参数和返回值在 crate 外**叫不出名字**。
 #    → <https://github.com/webrtc-rs/webrtc/pull/828>（issue #827）
+#
+#    它起因于「0.20 没有 0.17 `get_remote_certificate` 的等价物」。PR 起初想加一个
+#    `remote_certificate_fingerprint` 便捷方法，评审否了（不给 trait 加 W3C 之外的
+#    API，见 #828 的讨论），只留 re-export——反查逻辑因此归本仓，在
+#    `crates/webrtc-p2p` 的 `direct::upgrade::remote_fingerprint()`。
 #
 # 集成分支 = upstream/master + 上面两个 PR + 一行「rtc 走 crates.io」（原因见该分支的
 # Cargo.toml 注释：path 依赖不受 patch 影响，会让 rtc 分叉成两个实例）。
