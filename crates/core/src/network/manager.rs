@@ -14,6 +14,7 @@ use crate::host::{EventBus, Notifier};
 use crate::infra::InfraSupervisor;
 use crate::pairing::manager::PairingManager;
 use crate::presence::{PresenceMap, PresenceSupervisor};
+use swarmdrop_invite::InviteStore;
 
 // TransferRuntime 端口随 transfer 域迁出（消费方 NetManager 在 core，实现方
 // TransferManager 在 transfer，端口定义在下层 transfer 以免 transfer 反依赖 core）。
@@ -42,6 +43,14 @@ impl<TTransfer> NetManager<TTransfer>
 where
     TTransfer: TransferRuntime,
 {
+    /// `invite_store` 是邀请注册表的落盘端口（native = `SqlInviteStore` /
+    /// wasm = IndexedDB 实现），由宿主注入；不需要持久化时传
+    /// `Arc::new(NoopInviteStore)`。构造后宿主应 `await pairing().load_invites()`。
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "与 runtime::start_node 同源：参数都是三端各自供给的端口/身份/配置，\
+                  打包成 struct 只是换个容器、不减调用方负担"
+    )]
     pub fn new(
         endpoint: Endpoint,
         paired_devices: Vec<PairedDeviceInfo>,
@@ -50,6 +59,7 @@ where
         candidates: BootstrapCandidateManager,
         event_bus: Arc<dyn EventBus>,
         notifier: Option<Arc<dyn Notifier>>,
+        invite_store: Arc<dyn InviteStore>,
     ) -> Self {
         // 创建共享的已配对设备 Map：PairingManager 读写，DeviceManager 只读
         let paired_map: Arc<DashMap<_, _>> = Arc::new(
@@ -76,6 +86,7 @@ where
             devices.clone(),
             event_bus,
             notifier,
+            invite_store,
         ));
         // 基础设施链路收敛：候选表为期望状态源，reservation 断线自动重建
         let infra = Arc::new(InfraSupervisor::new(

@@ -131,7 +131,7 @@ graph TB
 **安全模型**
 
 - **设备身份** —— Ed25519 密钥对，私钥存放在系统钥匙串（Keychain / 凭据管理器 / Secret Service）。
-- **配对** —— 一次性签名邀请（`sdinvite…`）：Ed25519 签名 + 256-bit capability + TTL，只能消费一次。二维码与链接是同一字符串的两种载体。
+- **配对** —— 一次性签名邀请（单一 canonical 链接）：Ed25519 签名 + 128-bit capability + TTL，只能消费一次。链接、二维码、剪贴板、深链承载的是**同一个**字符串；capability 置于 URL fragment，永不到达服务器。
 - **在途加密** —— Noise（TCP / WebSocket / WebRTC）或 TLS 1.3（QUIC）。每条连接各自握手、
   协商全新的临时密钥，双方身份由设备密钥在握手时互相鉴权。
 - **完整性** —— 文件的 BLAKE3 哈希即 bao-tree 验证根，每个数据块自带证明，收到即验。
@@ -218,7 +218,7 @@ pnpm tauri build    # 打包
 - [x] 文件传输（端到端加密 · 实时进度 · 历史 · 断点续传）
 - [x] MCP Server —— AI Agent 可发文件、检索收件箱
 - [x] 移动端（iOS / Android）
-- [ ] 浏览器内的 Web 端（wasm）—— 可在 [`/try`](https://swarm-apps.github.io/SwarmDrop/try) 试用
+- [ ] 浏览器内的 Web 端（wasm）—— 可在 [`/app`](https://swarm-apps.github.io/SwarmDrop/app) 试用
 - [ ] 扩展 Agent 工具集 —— 通过 MCP 驱动完整传输生命周期（状态 / 取消 / 暂停 / 恢复）
 - [ ] 端上内容抽取，强化收件箱检索
 

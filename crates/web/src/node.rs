@@ -39,7 +39,10 @@ use crate::events::WebEventSink;
 use crate::file_access::OpfsFileAccess;
 use crate::identity;
 use crate::store::PersistentSessionStore;
-use crate::types::{ConnectionJson, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind};
+use crate::types::{
+    ConnectionJson, InviteListItemJson, OfferJson, PendingPairingJson, RelayInfoJson,
+    RelayStateKind,
+};
 
 /// 浏览器连接与 reservation 的最大等待时间。超时会通过 Endpoint 的取消路径
 /// 停止无主拨号/relay 重试，不是只 reject JavaScript Promise。
@@ -71,6 +74,9 @@ extern "C" {
     /// `relays_state()` 的返回：`RelayInfoJson[]`。
     #[wasm_bindgen(typescript_type = "RelayInfoJson[]")]
     pub type RelayInfoArray;
+    /// `list_invites()` 的返回：`InviteListItemJson[]`。
+    #[wasm_bindgen(typescript_type = "InviteListItemJson[]")]
+    pub type InviteListArray;
     /// `relays_changed()` 的返回：每次 relay 状态变化产出一份全量快照。
     #[wasm_bindgen(typescript_type = "ReadableStream<RelayInfoJson[]>")]
     pub type RelayChangedStream;
@@ -189,6 +195,9 @@ impl WebNode {
             EndpointProfile::Browser,
             event_bus.clone(),
             None, // 浏览器无系统通知
+            // 邀请注册表落盘：刷新页面比重启桌面 App 频繁得多，内存态会让刚发出的邀请
+            // 立刻变成「不认识」（openspec: invite-persistence）。
+            Arc::new(crate::invite_store::IdbInviteStore),
             move |endpoint| {
                 TransferManager::new(
                     endpoint,
@@ -313,7 +322,9 @@ impl WebNode {
     /// 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
     /// 拨得到本机，本机需先经 [`relays_ensure`](Self::relays_ensure) 在某 helper 上建 reservation
     /// （等到 `active`），否则邀请里无可拨地址、消费方连不上。
-    pub fn generate_invite(&self, local_only: bool) -> Result<String, JsValue> {
+    /// **async 化于 invite-persistence**：生成时要把邀请写穿进 IndexedDB，否则刷新页面
+    /// 后本机就不认识刚发出去的那条邀请了（注册表 fail-closed，查不到即拒绝）。
+    pub async fn generate_invite(&self, local_only: bool) -> Result<String, JsValue> {
         let policy = if local_only {
             TransportPolicy::LocalOnly
         } else {
@@ -322,15 +333,47 @@ impl WebNode {
         Ok(self
             .net_manager
             .pairing()
-            .encode_invite(&self.secret, policy, &self.os_info))
+            .encode_invite(&self.secret, policy, &self.os_info)
+            .await)
     }
 
     /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
     ///
     /// 幂等且不报错——不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），
-    /// 调用方 fire-and-forget 即可。
-    pub fn revoke_invite(&self, invite: &str) {
-        self.net_manager.pairing().revoke_invite(invite);
+    /// 调用方 fire-and-forget 即可（**返回 Promise，不 await 也能用**）。
+    ///
+    /// async 化于 invite-persistence：撤销要把那行从 IndexedDB 删掉，否则刷新后它又回来了。
+    /// 返回**是否已落盘**：`false` 时重启后那条邀请会复活，调用方应当提示用户。
+    pub async fn revoke_invite(&self, invite: String) -> bool {
+        self.net_manager.pairing().revoke_invite(&invite).await
+    }
+
+    /// 本机未过期的已发出邀请（最近生成的在前）。
+    ///
+    /// TTL 24h + 跨刷新存活之后，「我现在有几条邀请在外面飘」需要能看见 ——
+    /// 这个列表与 [`revoke_invite_by_id`](Self::revoke_invite_by_id) 是那段窗口的控制手段。
+    pub fn list_invites(&self) -> Result<InviteListArray, JsValue> {
+        let items: Vec<InviteListItemJson> = self
+            .net_manager
+            .pairing()
+            .list_invites()
+            .into_iter()
+            .map(|summary| InviteListItemJson {
+                id: hex_lower(&summary.capability_hash),
+                created_at: summary.created_at.to_string(),
+                expires_at: summary.expires_at.to_string(),
+                consumed: summary.consumed,
+            })
+            .collect();
+        to_js_typed(&items, "邀请列表")
+    }
+
+    /// 按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
+    /// 返回**是否已落盘**：`false` 时刷新后那条邀请会复活，调用方应当提示用户。
+    pub async fn revoke_invite_by_id(&self, id: String) -> Result<bool, JsValue> {
+        let hash = parse_hex32(&id)
+            .ok_or_else(|| JsValue::from(WebError::network("邀请标识格式非法".to_owned())))?;
+        Ok(self.net_manager.pairing().revoke_invite_by_hash(hash).await)
     }
 
     /// 挂起的入站配对请求（消费方扫/粘本机 invite 后到达）。**取出即清空**，调用方自行累积展示。
@@ -668,4 +711,26 @@ fn split_p2p_addr(s: &str) -> Result<(NodeId, swarmdrop_net::Addr), JsValue> {
         .p2p_node_id()
         .ok_or_else(|| WebError::invalid_input("地址须含 /p2p/<node-id>"))?;
     Ok((id, addr))
+}
+
+/// `[u8; 32]` → 小写 hex（邀请列表条目的不透明 ID）。
+fn hex_lower(bytes: &[u8; 32]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// 小写 hex → `[u8; 32]`（[`hex_lower`] 的逆），长度或字符非法返回 `None`。
+fn parse_hex32(text: &str) -> Option<[u8; 32]> {
+    if text.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (index, slot) in out.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(text.get(index * 2..index * 2 + 2)?, 16).ok()?;
+    }
+    Some(out)
 }

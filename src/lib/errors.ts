@@ -40,8 +40,9 @@ export function isErrorKind(err: unknown, kind: string): boolean {
  */
 const KIND_MESSAGES: Record<string, MessageDescriptor> = {
   NodeNotStarted: msg`节点未启动`,
-  ExpiredCode: msg`配对码已过期`,
-  InvalidCode: msg`无效的配对码`,
+  // 判别码名字是 6 位配对码时代的历史，语义早已是 PairInvite（见 crates/host 的注释）。
+  ExpiredCode: msg`邀请已过期`,
+  InvalidCode: msg`邀请无效或已被使用`,
   Network: msg`网络连接出现问题，请稍后重试`,
   Transfer: msg`文件传输失败，请重试`,
   Identity: msg`设备身份初始化失败`,

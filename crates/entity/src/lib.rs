@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 
 pub mod inbox_item;
 pub mod inbox_item_file;
+pub mod pair_invite;
 pub mod transfer_file;
 pub mod transfer_session;
 
 pub use inbox_item::Entity as InboxItem;
 pub use inbox_item_file::Entity as InboxItemFile;
+pub use pair_invite::Entity as PairInvite;
 pub use transfer_file::Entity as TransferFile;
 pub use transfer_session::Entity as TransferSession;
 

@@ -224,6 +224,8 @@ impl MobileCore {
             swarmdrop_core::runtime::EndpointProfile::Native,
             event_bus.clone(),
             None, // 移动端无窗口聚焦概念，不需要 Notifier
+            // 邀请注册表落盘，与桌面同一套 SQL 实现（openspec: invite-persistence）
+            std::sync::Arc::new(swarmdrop_storage_sql::SqlInviteStore::new((*db).clone())),
             move |endpoint| {
                 swarmdrop_core::transfer::manager::TransferManager::new(
                     endpoint,

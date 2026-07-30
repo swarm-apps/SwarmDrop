@@ -18,7 +18,7 @@ import { useNetworkStore } from "@/stores/network-store";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { useCountdown } from "@/hooks/use-countdown";
 import { copyText } from "@/lib/clipboard";
-import { formatCountdown } from "@/lib/format";
+import { formatTimeLeft } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { InviteQr, type InviteQrOverlay } from "@/components/pairing/invite-qr";
 import { PairingModeTabs } from "@/components/pairing/pairing-mode-tabs";
@@ -173,7 +173,7 @@ function PairingGeneratePage() {
                     )}
                   >
                     <Clock className="size-4 shrink-0" />
-                    <Trans>将在 {formatCountdown(remainingSeconds)} 后过期</Trans>
+                    <Trans>将在 {formatTimeLeft(remainingSeconds)} 后过期</Trans>
                   </div>
                 )}
               </div>

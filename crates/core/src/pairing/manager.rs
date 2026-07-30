@@ -13,7 +13,9 @@ use crate::protocol::{
     PAIRING, PairingMethod, PairingRefuseReason, PairingRequest, PairingResponse,
 };
 use crate::{AppError, AppResult};
-use swarmdrop_invite::{InviteRegistry, InviteRejectReason, PairInvite, TransportPolicy};
+use swarmdrop_invite::{
+    InviteRegistry, InviteRejectReason, InviteStore, InviteSummary, PairInvite, TransportPolicy,
+};
 
 /// 出站配对调用超时（对齐旧栈 req_resp_timeout，容纳对端等用户决策的长交互）。
 const PAIRING_CALL_TIMEOUT: Duration = Duration::from_secs(180);
@@ -142,12 +144,17 @@ pub struct PairingManager {
 }
 
 impl PairingManager {
+    /// `invite_store` 是邀请注册表的落盘端口（native = SQL / wasm = IndexedDB），
+    /// 由宿主在组装点注入；传 [`NoopInviteStore`](swarmdrop_invite::NoopInviteStore)
+    /// 退回旧的「重启丢邀请」语义。**构造后需调用 [`Self::load_invites`]** 把已落盘的
+    /// 邀请读回内存表，否则重启后它们等同不存在。
     pub fn new(
         endpoint: Endpoint,
         paired_devices: Arc<DashMap<NodeId, PairedDeviceInfo>>,
         devices: Arc<DeviceManager>,
         event_bus: Arc<dyn EventBus>,
         notifier: Option<Arc<dyn Notifier>>,
+        invite_store: Arc<dyn InviteStore>,
     ) -> Self {
         Self {
             endpoint,
@@ -157,8 +164,21 @@ impl PairingManager {
             devices,
             event_bus,
             notifier,
-            invite_registry: InviteRegistry::new(),
+            invite_registry: InviteRegistry::new(invite_store),
         }
+    }
+
+    /// 启动时把落盘的邀请读回内存表（顺带清掉已过期的）。
+    ///
+    /// 内存表是一次性消费的权威判定点，不 load 就等于「重启后所有已发出的邀请都不认识」
+    /// —— 对方点开链接会得到「邀请无效」。
+    pub async fn load_invites(&self) {
+        self.invite_registry.load(now_secs()).await;
+    }
+
+    /// 本机未过期的已发出邀请（供「已发出邀请」列表与撤销）。
+    pub fn list_invites(&self) -> Vec<InviteSummary> {
+        self.invite_registry.list_active(now_secs())
     }
 
     /// 本机可供对端拨号的精简地址集。
@@ -170,21 +190,24 @@ impl PairingManager {
 
     /// 生成邀请并返回编码串：签名 + 登记进 [`InviteRegistry`]。不经 DHT——邀请串自包含
     /// 地址提示，靠带外信道（二维码/链接）传递。
-    pub fn encode_invite(
+    pub async fn encode_invite(
         &self,
         secret: &swarmdrop_net::SecretKey,
         policy: TransportPolicy,
         display: &OsInfo,
     ) -> String {
+        let now = now_secs();
         let invite = PairInvite::generate(
             secret,
             self.shareable_addrs(policy),
             policy,
             display.display_name(),
             display.platform.clone(),
-            now_secs(),
+            now,
         );
-        self.invite_registry.register(&invite);
+        // 先落盘再返回串：邀请一旦交到用户手上就可能被立刻使用，注册表里没有它就等于
+        // 「不认识」→ 直接拒绝。
+        self.invite_registry.register(&invite, now).await;
         invite.encode(secret)
     }
 
@@ -196,12 +219,26 @@ impl PairingManager {
     /// registry 按 `sha256(capability)` 索引，查不到就什么都不做。
     ///
     /// 撤销**不是**过期的替代：TTL 到点自然失效，本方法是让它提前失效。
-    pub fn revoke_invite(&self, invite_str: &str) {
+    ///
+    /// 返回**是否已落盘**。`false` 意味着本进程内撤销生效了，但重启后那条邀请会复活
+    /// （写穿失败，库里仍是 `register` 写下的 Pending）—— 调用方应当让用户知道，
+    /// 而不是让他以为撤销成功了。
+    pub async fn revoke_invite(&self, invite_str: &str) -> bool {
         match PairInvite::decode(invite_str) {
-            Ok(invite) => self.invite_registry.revoke(&invite.capability),
+            Ok(invite) => self.invite_registry.revoke(&invite.capability).await,
             // 解不开就谈不上撤销，降到 debug——调用方多为 fire-and-forget 的清理路径。
-            Err(e) => tracing::debug!("撤销邀请时解码失败（视作已失效）: {e}"),
+            // 报 true：没有需要持久化的东西。
+            Err(e) => {
+                tracing::debug!("撤销邀请时解码失败（视作已失效）: {e}");
+                true
+            }
         }
+    }
+
+    /// 按 capability 哈希撤销（邀请列表里只有哈希，没有原串 —— 明文不落盘）。
+    /// 返回是否已落盘，见 [`Self::revoke_invite`]。
+    pub async fn revoke_invite_by_hash(&self, capability_hash: [u8; 32]) -> bool {
+        self.invite_registry.revoke_by_hash(capability_hash).await
     }
 
     /// 受邀方：解码邀请串 → 验签 → TTL 预检 → 按策略过滤地址 → 连接发起方出示凭证。
@@ -375,9 +412,18 @@ impl PairingManager {
                     // 后者拿到 Unavailable → 提前 return（未 send responder）→ 对端婉拒。
                     self.invite_registry
                         .try_consume(capability, now_secs())
+                        .await
                         .map_err(|reason| match reason {
                             InviteRejectReason::Expired => AppError::ExpiredCode,
-                            _ => AppError::InvalidCode,
+                            // 不是「邀请无效」——是本机没能把「已消费」落盘，所以宁可让
+                            // 这次配对失败也不能放行（否则重启后同一凭证还能再用一次）。
+                            // 这里排在 responder.send(Success) 之前，报失败是诚实的。
+                            InviteRejectReason::NotPersisted => AppError::Identity(
+                                "邀请状态未能保存，本次配对已中止，请重新生成邀请".into(),
+                            ),
+                            InviteRejectReason::Unknown | InviteRejectReason::Unavailable => {
+                                AppError::InvalidCode
+                            }
                         })?;
                 }
             }

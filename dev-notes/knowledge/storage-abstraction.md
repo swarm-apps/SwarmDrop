@@ -336,6 +336,151 @@ ResumeProbe 应答 → **跨版本续传静默失败**。
 而 `webrtc-websys` 在 Worker 里会 panic（见 [libp2p-wasm.md](libp2p-wasm.md)）——所以
 `OpfsFileAccess` 全程走主线程 async API，禁用 SyncAccessHandle。
 
+## 第三个走同一模式的端口：`InviteStore`（2026-07-30 落地）
+
+邀请注册表的落盘（openspec: invite-persistence）照 `SessionStore` / `InboxStore` 的路子又走了
+一遍，形态完全同构：trait 在 `crates/invite/src/store.rs`（**仍 wasm-clean** —— trait 定义不带
+任何存储依赖），native 实现 `crates/storage-sql/src/invite.rs`，wasm 实现
+`crates/web/src/invite_store.rs`（`SendWrapper` 裹 `JsFuture` 那条经验直接复用）。
+
+这一例贡献了三条前两个端口没暴露的东西：
+
+### 「落盘只是备份，所以端口不必返回错误」是个陷阱 —— 判据不是权威性，是失败后果
+
+这一节最初写的是：「`InviteStore` 四个方法全部返回 `()`，因为 CAS 在内存里完成、落盘只是
+写穿备份，写库失败时正确的用户可见行为是『配对照样成功』」。**判据错了**，写方法现在返回
+`bool`。推翻它的是一次审查 + 三个探针，过程值得留着。
+
+错在把「内存是权威」推成了「落盘失败无所谓」。真实的失败后果按路径分三档：
+
+| 写穿失败的操作 | 库里留下 | 重启后 | 判定 |
+|---|---|---|---|
+| `register` 的 upsert | 没有这行 | 「不认识」→ 拒绝 | benign |
+| `try_consume` 的 upsert | `register` 写的 `Pending` | **可再消费一次** | 破一次性语义 |
+| `revoke` 的 upsert | 同上 | **撤销失效、邀请复活** | 破用户的显式意图 |
+
+关键是那个反直觉点：**`register` 已经把 `Pending` 写进库了**，所以此后任何一次写穿失败
+（UPDATE 也好 DELETE 也好）都留下同一个结果 —— 库里那行还是 `Pending`。我一度以为「撤销
+从删行改成写状态」修好了这个，那是错的：两种失败后果完全相同，实测过。
+
+正确的判据：**端口方法要不要返回错误，取决于「失败后果是 benign 还是破坏不变量」，
+而不是「这份数据是不是权威」。** 备份的写失败一样能破不变量 —— 只要有别的路径会把那份
+备份读回来当事实（这里就是启动 `load`）。
+
+具体怎么改（可复用的形状）：
+
+1. **写方法返回 `bool`**（不是 `Result`）—— 端口层没有统一错误类型时，调用方只需要
+   「成没成」这一位，错误详情归实现层的日志。配 `#[must_use]` 免得又被忽略。
+2. **在能 fail-closed 的那条路径上真的 fail-closed。** `try_consume` 敢报错是因为调用点的
+   顺序：`respond_pairing_request` 里它排在 `responder.send(Success)` **之前**，此刻配对还没
+   成功，报失败是诚实的。**这个顺序是能不能 fail-closed 的唯一依据** —— 先看调用点再决定。
+3. **不能 fail-closed 的路径要把失败上报到 UI。** 撤销没有可中止的下游动作，但用户必须知道
+   「撤销只在本次运行内生效」，否则他以为撤销干净了。
+4. **`load` 之类的恢复路径要状态单调** —— 不允许库里的低优先级状态盖掉内存里的终态。
+   写穿失败恰好制造出「内存 Consumed / 库 Pending」，重复 load 就复活了。
+
+### 这类失败模式在测试里默认不存在，必须注入
+
+「权威判定在内存 → 释放锁 → await 写穿」这个形态有个**只在这个形态下存在**的性质：内存已改、
+库未落地的那段窗口里，别的调用方看到什么。它独立于任何单元语义 —— 单看 `try_consume` 的
+输入输出永远看不出来，必须单独钉。
+
+而**默认写法的内存桩钉不到它**：桩的 `upsert` 立刻返回，窗口宽度是零，那个中间态在测试里
+从来没存在过。`invite-persistence` 一开始 20 个测试全绿，窗口内的可见性一条没覆盖。
+
+桩要能注入三件事 —— 静默失败、可撑开的窗口、以及**「已进闸」的回执**：
+
+```rust
+struct TestStore {
+    records: Mutex<HashMap<..>>,
+    fail_writes: AtomicBool,                    // 静默丢弃写入
+    hold_writes: Mutex<Option<Arc<Notify>>>,    // 挂在栅栏上，把窗口撑开
+    entered: Notify,                            // 回执：写穿真的进闸了
+}
+
+async fn upsert(&self, record: InviteRecord) -> bool {
+    let gate = self.hold_writes.lock().unwrap().clone();  // 先取出再 await，锁不跨 await
+    if let Some(gate) = gate {
+        self.entered.notify_one();   // 回执必须发在挂起之前，否则测试等不到
+        gate.notified().await;
+    }
+    if self.fail_writes.load(SeqCst) { return false; }
+    /* 落盘 */ true
+}
+```
+
+**回执不是方便，是正确性。** 我第一版用 `tokio::task::yield_now()` 猜时序，两头都能出错：
+断言可能跑在 CAS 之前（假红），放行也可能跑在挂起之前——而 `notify_waiters()` **不存许可**，
+错过就是永久挂住。两个 `Notify` 都要用 `notify_one()`（存许可，握手不依赖谁先被调度）。
+
+**这条测试要用 `multi_thread` flavor。** 单线程 runtime 下「spawn 的任务被 poll 一次正好撞到
+闸」这个巧合会让猜时序的写法也通过，等于把护栏调松。实测：把握手换回 `yield_now()` +
+`notify_waiters()`，单线程 30/30 过，多线程 **12/12 永久挂住** —— 同一个缺陷，只有多线程
+才暴露。
+
+四个坑：
+
+1. **开闸时机**。`crates/invite` 的闸是无差别的（挂住后续所有写），所以必须**在 `register`
+   之后才开闸**，否则注册本身第一个卡死、测试走不到被测状态。若窗口内还会触发别的写穿，
+   就得改成按状态/按键选择性挂闸。
+2. **回执发在 await 之前**（上面那条）。顺序反了就是双向等待。
+3. **断言顺序：先读「用户/库看到什么」，再调会改状态的路径。** 反了会读到 mutator 之后的
+   状态、断言假红。凡是「重启后用户看到什么」这类断言，一律排在所有 mutator 前面。
+4. **别在测试里重算键**（如 `sha256(capability)`）—— 那是把生产代码的键推导复制一份进测试，
+   算法一改测试就悄悄查不到东西，而 `Option` 变 `None` 后断言可能照样过。只放一条记录、
+   用 `values().next()` 直查。
+
+值得各钉一条测试的四条性质（都不是单元语义）：
+
+| 性质 | 桩配置 |
+|---|---|
+| 窗口内的可见性仍收紧 | `hold_writes` |
+| 写穿失败后，重启是否放行 | `fail_writes` + 新建注册表 + `load` |
+| 重复 `load` 会不会把内存态降级 | `fail_writes` + 同一注册表上再 `load` |
+| 两个重叠写入乱序落地的后果 | `hold_writes` + 期间跑另一条 mutator |
+
+后三条都靠「**新建一个注册表、共用同一个 store**」模拟重启 —— 这是这类端口测试的标准动作，
+比真起一次 SQLite 便宜得多，且能精确控制失败点。
+
+**「锁不跨 await」有个免费的编译期护栏，但它只属于 native 门禁。** tokio spawn 要求 future
+`Send`，`MutexGuard` 跨 await 就 `!Send` → `cargo check --workspace` 直接红，不用为它单独写
+测试。反面要记住：**wasm 侧的 future 没有 `Send` 要求**（`spawn_local` 不要），所以只跑
+`check-wasm.sh` 是看不出锁跨 await 的。
+
+副产品：`crates/invite` 的 dev-dependencies 因此需要 tokio 的 `sync` feature —— dev-deps
+不参与 wasm 编译（`check-wasm.sh` 没有 `--all-targets`），不破门禁。
+
+**什么时候值得建这套桩**：端口方法是 async + 权威判定在内存 + 写穿在锁外，三条同时成立。
+只满足前两条（比如同步端口）就不必，那时没有窗口。
+
+### 「锁内改内存 → 释放锁 → await 写穿」是这类端口的固定形态
+
+`std::sync::MutexGuard` 不能跨 `await`（不是 Send），所以异步写穿天然被迫写成：
+
+```rust
+let record = {
+    let mut table = self.inner.lock().unwrap();
+    // …改内存，顺手把要落盘的快照 clone 出来
+};                       // ← 锁在这里释放
+self.store.upsert(record).await;
+```
+
+编译器的这条限制刚好等于我们要的顺序（CAS 先成功、再落盘），**不需要额外的纪律去维持**。
+
+### 落盘失败不回滚内存态：状态宁可比库更严
+
+`InviteRegistry` 写库失败时保留内存里已置换的状态。方向是刻意的：内存说「已消费」而库还是
+「待用」，重启后那条邀请会「复活」一次，但它仍要过验签 + TTL，且用户能在列表里看到并撤销；
+反过来（库说已消费、内存说待用）才会导致同一邀请被用两次。
+
+顺带一个**被推翻的直觉**：一开始以为「已消费记录不能提前删，否则重启后同一邀请又能用」。
+读代码发现注册表是 fail-closed 的（`.ok_or(InviteRejectReason::Unknown)?` —— 查不到即拒绝），
+删早了只会让它变「不认识」，不会放行。保留已消费记录到过期的真实理由是 **UX**（让发起方看到
+「已被使用」而不是凭空消失）。这个区别决定了将来要压表大小时可以牺牲哪一边。
+
+**相关文件**：`crates/invite/src/store.rs`、`crates/storage-sql/src/invite.rs`、
+`crates/web/src/invite_store.rs`、`crates/migration/src/m20260730_000001_pair_invites.rs`
+
 ## 相关文件
 
 - `crates/entity/Cargo.toml:7` —— sea-orm 硬绑 runtime（第 0 步的目标）

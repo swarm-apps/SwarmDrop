@@ -13,11 +13,11 @@ import { useShallow } from "zustand/react/shallow";
 import { SettingsHeader } from "@/components/settings-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
+import { MOBILE_BOOTSTRAP_NODES } from "@/core/bootstrap-nodes";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
-import { MOBILE_BOOTSTRAP_NODES } from "@/core/bootstrap-nodes";
 
 function isValidMultiaddr(addr: string): boolean {
   return addr.startsWith("/") && addr.includes("/p2p/");

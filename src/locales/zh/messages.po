@@ -26,6 +26,11 @@ msgstr ""
 msgid "{0, plural, other {# 项}}"
 msgstr "{0, plural, other {# 项}}"
 
+#. placeholder {0}: formatTimeLeft(seconds)
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "{0} 后失效"
+msgstr "{0} 后失效"
+
 #. placeholder {0}: node.fileCount ?? 0
 #: src/components/file-browser/folder-row.tsx
 msgid "{0} 项"
@@ -73,6 +78,10 @@ msgstr "{firstFileName} 等 {fileCount} 个文件"
 #: src/stores/pairing-store.ts
 msgid "{label}超时（{0}s）"
 msgstr "{label}超时（{0}s）"
+
+#: src/components/pairing/clipboard-invite-banner.tsx
+msgid "<0>{deviceName}</0> 想和你配对，点此确认"
+msgstr "<0>{deviceName}</0> 想和你配对，点此确认"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "<未设置>"
@@ -884,7 +893,7 @@ msgstr "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）�
 msgid "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
 msgstr "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
 
-#. placeholder {0}: formatCountdown(remainingSeconds)
+#. placeholder {0}: formatTimeLeft(remainingSeconds)
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "将在 {0} 后过期"
 msgstr "将在 {0} 后过期"
@@ -942,6 +951,10 @@ msgstr "已删除收件箱记录"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "已删除记录和本地文件"
 msgstr "已删除记录和本地文件"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "已发出的邀请"
+msgstr "已发出的邀请"
 
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
@@ -1028,9 +1041,13 @@ msgstr "已清空活动记录"
 msgid "已结束"
 msgstr "已结束"
 
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "已过期"
-#~ msgstr "已过期"
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "已被对方使用"
+msgstr "已被对方使用"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "已过期"
+msgstr "已过期"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "已连接"
@@ -1264,6 +1281,10 @@ msgstr "搜索收件箱"
 msgid "搜索标题、来源、文件名…"
 msgstr "搜索标题、来源、文件名…"
 
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "撤销"
+msgstr "撤销"
+
 #: src/routes/_app/pairing/-device-found-view.tsx
 #~ msgid "操作系统"
 #~ msgstr "操作系统"
@@ -1348,8 +1369,8 @@ msgid "无效的 Multiaddr 地址"
 msgstr "无效的 Multiaddr 地址"
 
 #: src/lib/errors.ts
-msgid "无效的配对码"
-msgstr "无效的配对码"
+#~ msgid "无效的配对码"
+#~ msgstr "无效的配对码"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "无法加载这条记录"
@@ -1567,8 +1588,8 @@ msgid "检查更新"
 msgstr "检查更新"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-msgid "检测到剪贴板中的配对邀请，点此继续"
-msgstr "检测到剪贴板中的配对邀请，点此继续"
+#~ msgid "检测到剪贴板中的配对邀请，点此继续"
+#~ msgstr "检测到剪贴板中的配对邀请，点此继续"
 
 #. placeholder {0}: latestVersion ?? "?"
 #: src/routes/_app/settings/-about-section.tsx
@@ -1629,6 +1650,10 @@ msgstr "没有在线设备"
 #: src/routes/_app/send/share-target.lazy.tsx
 #~ msgid "没有待发送的文件"
 #~ msgstr "没有待发送的文件"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "没有生效中的邀请"
+msgstr "没有生效中的邀请"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
@@ -1731,6 +1756,10 @@ msgstr "监听端口"
 #~ msgid "目标设备"
 #~ msgstr "目标设备"
 
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "看不到邀请链接？"
+msgstr "看不到邀请链接？"
+
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"
 msgstr "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"
@@ -1792,6 +1821,10 @@ msgstr "端口号需在 1024 ~ 65535 之间"
 #: src/lib/transfer-projection.ts
 msgid "等待中"
 msgstr "等待中"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "等待对方使用"
+msgstr "等待对方使用"
 
 #: src/components/transfer/session-panel.tsx
 msgid "等待对方确认..."
@@ -1982,12 +2015,16 @@ msgid "让对方扫码或粘贴此邀请"
 msgstr "让对方扫码或粘贴此邀请"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-msgid "让对方点「复制邀请链接」，把那串 sd:… 发给你"
-msgstr "让对方点「复制邀请链接」，把那串 sd:… 发给你"
+#~ msgid "让对方点「复制邀请链接」，把那串 sd:… 发给你"
+#~ msgstr "让对方点「复制邀请链接」，把那串 sd:… 发给你"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 #~ msgid "让对方点「复制邀请链接」，把那串 sdinvite… 发给你"
 #~ msgstr "让对方点「复制邀请链接」，把那串 sdinvite… 发给你"
+
+#: src/routes/_app/pairing/input.lazy.tsx
+msgid "让对方点「复制邀请链接」，把那条链接发给你"
+msgstr "让对方点「复制邀请链接」，把那条链接发给你"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #~ msgid "让对方输入这组配对码"
@@ -2270,10 +2307,31 @@ msgstr "通用"
 msgid "邀请一次性有效，过期后可立即重新生成。"
 msgstr "邀请一次性有效，过期后可立即重新生成。"
 
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "邀请凭证不会被保存，所以这里只能显示状态。需要再分享请重新生成一条。"
+msgstr "邀请凭证不会被保存，所以这里只能显示状态。需要再分享请重新生成一条。"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "邀请已撤销"
+msgstr "邀请已撤销"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "邀请已撤销，但没能保存"
+msgstr "邀请已撤销，但没能保存"
+
+#: src/lib/errors.ts
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/stores/pairing-store.ts
 msgid "邀请已过期"
 msgstr "邀请已过期"
+
+#: src/lib/errors.ts
+msgid "邀请无效或已被使用"
+msgstr "邀请无效或已被使用"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
+msgstr "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "邀请经本地签名验证，真正建立信任仍需要双方确认。"
@@ -2316,8 +2374,8 @@ msgstr "配对码"
 #~ msgstr "配对码只用于定位设备，真正建立信任仍需要双方确认。"
 
 #: src/lib/errors.ts
-msgid "配对码已过期"
-msgstr "配对码已过期"
+#~ msgid "配对码已过期"
+#~ msgstr "配对码已过期"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "配对确认"
@@ -2343,6 +2401,10 @@ msgstr "配置节点"
 #: src/routes/_app/settings/-settings-primitives.tsx
 msgid "重启中..."
 msgstr "重启中..."
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "重启应用后它可能恢复可用，建议稍后再撤销一次。"
+msgstr "重启应用后它可能恢复可用，建议稍后再撤销一次。"
 
 #: src/routes/_app/settings/-settings-primitives.tsx
 msgid "重启节点"

@@ -26,6 +26,22 @@ pub struct MobilePairingResult {
     pub reason: Option<String>,
 }
 
+/// 「已发出的邀请」列表条目（openspec: invite-persistence）。
+///
+/// **没有邀请串本身**：capability 明文不落盘也不出注册表，重启后拼不回原始链接。
+/// UI 只显示元数据 + 提供撤销；想再分享就生成一条新的。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileInviteListItem {
+    /// `sha256(capability)` 的 hex —— 撤销时回传，UI 当不透明 ID 用。
+    pub id: String,
+    /// 创建时刻（Unix 秒）。
+    pub created_at: i64,
+    /// 过期时刻（Unix 秒）。
+    pub expires_at: i64,
+    /// 已被对方消费（仍显示到过期，让用户知道它被用过）。
+    pub consumed: bool,
+}
+
 /// 邀请串解码后的展示投影（配对确认卡；不含 capability 等敏感字段）。
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileInvitePreview {
@@ -52,9 +68,18 @@ fn pairing_result(response: PairingResponse) -> MobilePairingResult {
             accepted: true,
             reason: None,
         },
+        // **稳定的 snake_case 判别码，不是 `{reason:?}`。** Debug 格式化会把
+        // `UserRejected` 这种裸 Rust 标识符直接送上 UI —— 既不是中文也不是英文，
+        // 是个内部符号。文案由 JS 侧本地化（见 `found-device.tsx`）。
+        // 穷尽 match：将来加变体时这里编译失败，比悄悄漏一个好。
         PairingResponse::Refused { reason } => MobilePairingResult {
             accepted: false,
-            reason: Some(format!("{reason:?}")),
+            reason: Some(
+                match reason {
+                    PairingRefuseReason::UserRejected => "user_rejected",
+                }
+                .to_owned(),
+            ),
         },
     }
 }
@@ -71,16 +96,48 @@ impl MobileCore {
         } else {
             TransportPolicy::Auto
         };
-        Ok(pairing.encode_invite(&secret, policy, &OsInfo::default()))
+        Ok(pairing
+            .encode_invite(&secret, policy, &OsInfo::default())
+            .await)
     }
 
     /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
     ///
     /// 后端幂等——不认识的串 no-op；节点未启动时这里直接 Err，但那种情况下 registry
     /// 本就是空的，调用方 fire-and-forget 即可（详见 `PairingManager::revoke_invite`）。
-    pub async fn revoke_pair_invite(&self, invite: String) -> FfiResult<()> {
-        self.pairing_manager().await?.revoke_invite(&invite);
-        Ok(())
+    /// 返回**是否已落盘**：`false` 时重启后那条邀请会复活，UI 应当提示用户。
+    pub async fn revoke_pair_invite(&self, invite: String) -> FfiResult<bool> {
+        Ok(self.pairing_manager().await?.revoke_invite(&invite).await)
+    }
+
+    /// 本机未过期的已发出邀请（最近生成的在前）。
+    ///
+    /// TTL 24h + 跨重启存活之后，「我现在有几条邀请在外面飘」需要能看见 —— 这个列表与
+    /// [`Self::revoke_pair_invite_by_id`] 是那段窗口的可见性与控制手段。
+    pub async fn list_pair_invites(&self) -> FfiResult<Vec<MobileInviteListItem>> {
+        Ok(self
+            .pairing_manager()
+            .await?
+            .list_invites()
+            .into_iter()
+            .map(|summary| MobileInviteListItem {
+                id: hex_lower(&summary.capability_hash),
+                created_at: summary.created_at as i64,
+                expires_at: summary.expires_at as i64,
+                consumed: summary.consumed,
+            })
+            .collect())
+    }
+
+    /// 按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
+    pub async fn revoke_pair_invite_by_id(&self, id: String) -> FfiResult<bool> {
+        let hash =
+            parse_hex32(&id).ok_or_else(|| FfiError::Identity("邀请标识格式非法".to_owned()))?;
+        Ok(self
+            .pairing_manager()
+            .await?
+            .revoke_invite_by_hash(hash)
+            .await)
     }
 
     /// 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
@@ -94,8 +151,13 @@ impl MobileCore {
 
     /// 解码并验签邀请串，返回对端展示信息（**不发起配对**）——扫码/粘贴后先看确认卡。
     pub fn decode_pair_invite(&self, invite: String) -> FfiResult<MobileInvitePreview> {
-        let inv = PairInvite::decode(&invite)
-            .map_err(|e| FfiError::Identity(format!("邀请无效: {e}")))?;
+        // 分类成 InvalidCode（语言中立判别码），文案由 JS 侧本地化。包成
+        // `Identity(format!("邀请无效: {e}"))` 会把一条 Rust 中文串直接甩到 UI 上 ——
+        // 英文界面下就露馅了。技术细节只进日志。
+        let inv = PairInvite::decode(&invite).map_err(|e| {
+            tracing::debug!("decode_pair_invite 失败: {e}");
+            FfiError::InvalidCode
+        })?;
         Ok(MobileInvitePreview {
             peer_id: inv.inviter.id.to_string(),
             display_name: inv.display_name,
@@ -161,4 +223,26 @@ impl MobileCore {
 
         Ok(())
     }
+}
+
+/// `[u8; 32]` → 小写 hex（邀请列表条目的不透明 ID）。
+fn hex_lower(bytes: &[u8; 32]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// 小写 hex → `[u8; 32]`（[`hex_lower`] 的逆），长度或字符非法返回 `None`。
+fn parse_hex32(text: &str) -> Option<[u8; 32]> {
+    if text.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (index, slot) in out.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(text.get(index * 2..index * 2 + 2)?, 16).ok()?;
+    }
+    Some(out)
 }

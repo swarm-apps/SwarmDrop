@@ -96,7 +96,7 @@ pub struct TransferProjectionUpdate(pub TransferProjection);
 #[serde(transparent)]
 pub struct ReceivingPausedChanged(pub bool);
 
-// === 外部文件打开（Open With → share-target 反向发送）===
+// === 外部入口（Open With → share-target 反向发送；深链 → 配对）===
 
 /// 外部「用 SwarmDrop 打开」文件/文件夹后归一化的本地绝对路径列表。
 /// 事件名 `"external-file-open"`，前端根处理器据此扫描并跳转选设备屏。
@@ -104,6 +104,17 @@ pub struct ReceivingPausedChanged(pub bool);
 #[serde(rename_all = "camelCase")]
 pub struct ExternalFileOpen {
     pub paths: Vec<String>,
+}
+
+/// 深链（`swarmdrop://…`）送达的配对邀请链接原文。
+///
+/// 事件名 `"external-pair-invite"`。**未解码未验签** —— 宿主层只递文本，前端照常走
+/// 「解码验签 → 确认卡 → 用户确认」的安全闸，与扫码/粘贴同一条路
+/// （openspec: pair-deep-link）。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalPairInvite {
+    pub invite: String,
 }
 
 // === 托盘信号（Rust 托盘 → 前端执行依赖前端状态的动作）===

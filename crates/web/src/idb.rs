@@ -24,13 +24,16 @@ use web_sys::{
 use crate::error::{WebError, WebResult};
 
 const DB_NAME: &str = "swarmdrop-web";
-/// v1 = 仅 `kv`；v2 新增 `sessions`（传输会话持久化，见模块注释）。
-const DB_VERSION: u32 = 2;
+/// v1 = 仅 `kv`；v2 新增 `sessions`（传输会话持久化）；v3 新增 `invites`（邀请注册表落盘）。
+/// **加 store 必须同时提版本号**，否则 `onupgradeneeded` 不触发、新 store 建不出来。
+const DB_VERSION: u32 = 3;
 
 /// 单例键值 store（身份 / 已配对设备）。
 pub const KV_STORE: &str = "kv";
 /// 传输会话 store（key = session uuid 字符串）。
 pub const SESSION_STORE: &str = "sessions";
+/// 邀请注册表 store（key = capability 的 sha256 hex）。
+pub const INVITE_STORE: &str = "invites";
 
 /// 读一个键（不存在 → `None`）。
 async fn get(store_name: &str, key: &str) -> WebResult<Option<JsValue>> {
@@ -136,7 +139,7 @@ fn install_upgrade_handler(open_request: &IdbOpenDbRequest) -> Closure<dyn FnMut
             .result()
             .and_then(|value| value.dyn_into::<IdbDatabase>())
         {
-            for name in [KV_STORE, SESSION_STORE] {
+            for name in [KV_STORE, SESSION_STORE, INVITE_STORE] {
                 if !db.object_store_names().contains(name) {
                     let _ = db.create_object_store(name);
                 }

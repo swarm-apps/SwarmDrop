@@ -20,7 +20,9 @@ export class Keychain implements ForeignKeychainProvider {
   }
 
   async loadWebrtcCertificatePem(): Promise<string | undefined> {
-    return (await SecureStore.getItemAsync(WEBRTC_CERTIFICATE_KEY)) ?? undefined;
+    return (
+      (await SecureStore.getItemAsync(WEBRTC_CERTIFICATE_KEY)) ?? undefined
+    );
   }
 
   async saveWebrtcCertificatePem(pem: string): Promise<void> {

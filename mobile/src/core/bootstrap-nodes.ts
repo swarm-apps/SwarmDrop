@@ -10,6 +10,8 @@ export const MOBILE_BOOTSTRAP_NODES: readonly string[] = [
 ];
 
 /** 合并移动默认与用户配置，保留首次出现的地址顺序。 */
-export function getMobileBootstrapNodes(customNodes: readonly string[]): string[] {
+export function getMobileBootstrapNodes(
+  customNodes: readonly string[],
+): string[] {
   return [...new Set([...MOBILE_BOOTSTRAP_NODES, ...customNodes])];
 }

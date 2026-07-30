@@ -132,6 +132,10 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             identityStatus: "ready",
             initialized: true,
           });
+          // 把本机身份推给邀请 store，供「这是你自己的邀请」的自我过滤用。
+          // **推而不拉**：反向 import 会成环（本文件已 import 那个 store），
+          // 而 core 的 initializeIdentity 是异步的、没有同步 getter 可问。
+          usePairingInviteStore.setState({ selfPeerId: identity.peerId });
           // 身份就绪后立即拉一次 keychain paired 设备,
           // 保证主屏/选择接收设备页冷启动就有离线视图(不依赖节点是否启动)。
           await get().loadPairedDevicesCache();

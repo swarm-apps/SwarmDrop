@@ -63,6 +63,7 @@ async fn spawn_node(secret: SecretKey, paired: Vec<PairedDeviceInfo>) -> TestNod
         candidates,
         bus.clone(),
         None,
+        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
     );
 
     let shared = manager.shared_refs();

@@ -19,7 +19,7 @@ export default function FoundDevice() {
   const colors = useThemeColors();
   const pending = usePairingInviteStore((s) => s.pending);
   const confirming = usePairingInviteStore((s) => s.confirming);
-  const error = usePairingInviteStore((s) => s.error);
+  const confirmReject = usePairingInviteStore((s) => s.confirmReject);
   const confirmInvite = usePairingInviteStore((s) => s.confirmInvite);
   const cancelPreview = usePairingInviteStore((s) => s.cancelPreview);
 
@@ -100,9 +100,15 @@ export default function FoundDevice() {
           />
         ) : null}
 
-        {error !== null ? (
+        {/* 文案按判别码本地化 —— store 里存的是 `userRejected` / `failed`，不是后端串。
+            后端曾经把 `{reason:?}` 的 Rust 裸标识符送到这里显示。 */}
+        {confirmReject !== null ? (
           <Text className="mt-3 text-center text-[13px] text-destructive-ink">
-            {error}
+            {confirmReject === "userRejected" ? (
+              <Trans>对方拒绝了配对请求</Trans>
+            ) : (
+              <Trans>配对没有成功，请确认两端都在线后重试</Trans>
+            )}
           </Text>
         ) : null}
       </View>

@@ -20,7 +20,7 @@ sharing the very same Rust core as the desktop app.
 
 **English** · [简体中文](README.zh-CN.md)
 
-[Website](https://swarm-apps.github.io/SwarmDrop/) · [Features](#-features) · [Download](#-download) · [Develop](#-development) · [Desktop](https://github.com/swarm-apps/SwarmDrop)
+[Website](https://swarmapp.cn/) · [Features](#-features) · [Download](#-download) · [Develop](#-development) · [Desktop](https://github.com/swarm-apps/SwarmDrop)
 
 </div>
 
@@ -50,7 +50,7 @@ It shares the **same Rust core** (`swarmdrop-core`) as the desktop app, bridged 
 
 ## 📦 Download
 
-**[Get SwarmDrop from the official website →](https://swarm-apps.github.io/SwarmDrop/)** — every platform, desktop and mobile, in one place.
+**[Get SwarmDrop from the official website →](https://swarmapp.cn/)** — every platform, desktop and mobile, in one place.
 
 | Platform | Format |
 |---|---|

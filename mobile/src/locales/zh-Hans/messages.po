@@ -33,8 +33,8 @@ msgstr "{0} 个文件 · {1}"
 msgid "{0} 个自定义节点"
 msgstr "{0} 个自定义节点"
 
-#. placeholder {0}: formatMmss(remaining)
-#: src/components/pairing/invite-exchange.tsx:181
+#. placeholder {0}: formatTimeLeft(remaining, i18n.locale)
+#: src/components/pairing/invite-exchange.tsx:182
 msgid "{0} 后过期"
 msgstr "{0} 后过期"
 
@@ -365,7 +365,7 @@ msgstr "允许中继自动接收"
 msgid "允许文件夹"
 msgstr "允许文件夹"
 
-#: src/app/pairing/scan.tsx:179
+#: src/app/pairing/scan.tsx:187
 msgid "允许相机权限"
 msgstr "允许相机权限"
 
@@ -427,7 +427,7 @@ msgstr "关闭"
 msgid "关闭后只接收单个文件或文件集合"
 msgstr "关闭后只接收单个文件或文件集合"
 
-#: src/app/pairing/scan.tsx:268
+#: src/app/pairing/scan.tsx:276
 msgid "关闭手电筒"
 msgstr "关闭手电筒"
 
@@ -568,7 +568,7 @@ msgstr "别名与分组"
 
 #: src/app/(main)/inbox.tsx:130
 #: src/app/(main)/inbox.tsx:171
-#: src/components/pairing/invite-exchange.tsx:202
+#: src/components/pairing/invite-exchange.tsx:203
 msgid "刷新"
 msgstr "刷新"
 
@@ -580,15 +580,15 @@ msgstr "剪贴板"
 msgid "剪贴板内容"
 msgstr "剪贴板内容"
 
-#: src/components/pairing/invite-exchange.tsx:302
+#: src/components/pairing/invite-exchange.tsx:310
 msgid "剪贴板里有内容，点此粘贴"
 msgstr "剪贴板里有内容，点此粘贴"
 
-#: src/app/pairing/scan.tsx:119
+#: src/app/pairing/scan.tsx:127
 msgid "剪贴板里没有配对邀请"
 msgstr "剪贴板里没有配对邀请"
 
-#: src/app/pairing/scan.tsx:123
+#: src/app/pairing/scan.tsx:131
 msgid "剪贴板里的邀请无效或已过期"
 msgstr "剪贴板里的邀请无效或已过期"
 
@@ -616,7 +616,7 @@ msgstr "包含内容"
 msgid "协作设备"
 msgstr "协作设备"
 
-#: src/components/lan-helper-addresses.tsx:52
+#: src/components/lan-helper-addresses.tsx:56
 msgid "协助地址已复制"
 msgstr "协助地址已复制"
 
@@ -624,7 +624,7 @@ msgstr "协助地址已复制"
 msgid "去中心化、跨网络、端到端加密文件传输"
 msgstr "去中心化、跨网络、端到端加密文件传输"
 
-#: src/app/pairing/scan.tsx:181
+#: src/app/pairing/scan.tsx:189
 msgid "去系统设置开启"
 msgstr "去系统设置开启"
 
@@ -695,8 +695,8 @@ msgid "发送给 {0}"
 msgstr "发送给 {0}"
 
 #: src/app/(main)/index.tsx:841
-#: src/app/pairing/found-device.tsx:116
-#: src/app/pairing/found-device.tsx:120
+#: src/app/pairing/found-device.tsx:122
+#: src/app/pairing/found-device.tsx:126
 #: src/app/send/select-device.tsx:296
 #: src/app/settings/bootstrap-nodes.tsx:203
 #: src/app/transfer/[sessionId].tsx:642
@@ -791,7 +791,7 @@ msgstr "启动后，你的其他设备才能找到这台手机。"
 msgid "启动后显示可发送的设备"
 msgstr "启动后显示可发送的设备"
 
-#: src/app/_layout.tsx:38
+#: src/app/_layout.tsx:43
 msgid "启动失败"
 msgstr "启动失败"
 
@@ -859,15 +859,15 @@ msgstr "复制 Peer ID"
 msgid "复制 PeerID"
 msgstr "复制 PeerID"
 
-#: src/components/lan-helper-addresses.tsx:79
+#: src/components/lan-helper-addresses.tsx:83
 msgid "复制协助地址"
 msgstr "复制协助地址"
 
-#: src/components/lan-helper-addresses.tsx:70
+#: src/components/lan-helper-addresses.tsx:74
 msgid "复制后可供浏览器端快速连接本机。"
 msgstr "复制后可供浏览器端快速连接本机。"
 
-#: src/components/pairing/invite-exchange.tsx:212
+#: src/components/pairing/invite-exchange.tsx:213
 msgid "复制链接"
 msgstr "复制链接"
 
@@ -930,6 +930,10 @@ msgstr "对方拒绝了传输请求：{reason}"
 msgid "对方拒绝了这次传输"
 msgstr "对方拒绝了这次传输"
 
+#: src/app/pairing/found-device.tsx:108
+msgid "对方拒绝了配对请求"
+msgstr "对方拒绝了配对请求"
+
 #: src/app/(main)/index.tsx:606
 msgid "对方无响应，请重试"
 msgstr "对方无响应，请重试"
@@ -955,11 +959,11 @@ msgstr "对端暂停"
 msgid "对端离线"
 msgstr "对端离线"
 
-#: src/app/pairing/scan.tsx:241
+#: src/app/pairing/scan.tsx:249
 msgid "将配对二维码放入框内"
 msgstr "将配对二维码放入框内"
 
-#: src/components/pairing/invite-exchange.tsx:152
+#: src/components/pairing/invite-exchange.tsx:153
 msgid "尚未生成邀请"
 msgstr "尚未生成邀请"
 
@@ -985,11 +989,11 @@ msgstr "就绪 · 配置节点"
 msgid "局域网"
 msgstr "局域网"
 
-#: src/components/lan-helper-addresses.tsx:58
+#: src/components/lan-helper-addresses.tsx:62
 msgid "局域网协助地址"
 msgstr "局域网协助地址"
 
-#: src/components/pairing/invite-exchange.tsx:69
+#: src/components/pairing/invite-exchange.tsx:70
 msgid "展示我的邀请"
 msgstr "展示我的邀请"
 
@@ -1041,7 +1045,7 @@ msgstr "已复制 Peer ID"
 msgid "已复制到剪贴板"
 msgstr "已复制到剪贴板"
 
-#: src/components/pairing/invite-exchange.tsx:143
+#: src/components/pairing/invite-exchange.tsx:144
 msgid "已复制邀请链接"
 msgstr "已复制邀请链接"
 
@@ -1162,7 +1166,7 @@ msgstr "应用重启后可恢复"
 msgid "延迟"
 msgstr "延迟"
 
-#: src/app/pairing/scan.tsx:155
+#: src/app/pairing/scan.tsx:163
 msgid "开启相机以扫码"
 msgstr "开启相机以扫码"
 
@@ -1254,7 +1258,7 @@ msgstr "我的 iPhone"
 msgid "我的设备"
 msgstr "我的设备"
 
-#: src/components/pairing/invite-exchange.tsx:101
+#: src/components/pairing/invite-exchange.tsx:102
 msgid "或"
 msgstr "或"
 
@@ -1278,7 +1282,7 @@ msgstr "打开"
 msgid "打开失败"
 msgstr "打开失败"
 
-#: src/app/pairing/scan.tsx:268
+#: src/app/pairing/scan.tsx:276
 msgid "打开手电筒"
 msgstr "打开手电筒"
 
@@ -1293,11 +1297,11 @@ msgstr "打开文件夹"
 msgid "打洞"
 msgstr "打洞"
 
-#: src/components/pairing/invite-exchange.tsx:94
+#: src/components/pairing/invite-exchange.tsx:95
 msgid "扫描对方的二维码"
 msgstr "扫描对方的二维码"
 
-#: src/components/pairing/invite-exchange.tsx:75
+#: src/components/pairing/invite-exchange.tsx:76
 msgid "扫码或粘贴"
 msgstr "扫码或粘贴"
 
@@ -1305,7 +1309,7 @@ msgstr "扫码或粘贴"
 msgid "扫码配对"
 msgstr "扫码配对"
 
-#: src/app/pairing/scan.tsx:159
+#: src/app/pairing/scan.tsx:167
 msgid "扫码需要访问相机。SwarmDrop 只用相机识别配对二维码，不拍照、不录像、不上传。"
 msgstr "扫码需要访问相机。SwarmDrop 只用相机识别配对二维码，不拍照、不录像、不上传。"
 
@@ -1519,7 +1523,7 @@ msgstr "收起"
 msgid "收起诊断详情"
 msgstr "收起诊断详情"
 
-#: src/app/pairing/scan.tsx:193
+#: src/app/pairing/scan.tsx:201
 msgid "改用粘贴邀请"
 msgstr "改用粘贴邀请"
 
@@ -1622,7 +1626,7 @@ msgstr "暂停接收"
 msgid "暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。"
 msgstr "暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。"
 
-#: src/app/_layout.tsx:210
+#: src/app/_layout.tsx:217
 msgid "暂只支持发送文件、图片和视频"
 msgstr "暂只支持发送文件、图片和视频"
 
@@ -1737,7 +1741,7 @@ msgstr "本机 Helper"
 msgid "本机 LAN Helper"
 msgstr "本机 LAN Helper"
 
-#: src/components/lan-helper-addresses.tsx:67
+#: src/components/lan-helper-addresses.tsx:71
 msgid "本机可拨号地址"
 msgstr "本机可拨号地址"
 
@@ -1745,7 +1749,7 @@ msgstr "本机可拨号地址"
 msgid "本机暂停"
 msgstr "本机暂停"
 
-#: src/components/pairing/invite-exchange.tsx:166
+#: src/components/pairing/invite-exchange.tsx:167
 msgid "本机配对邀请"
 msgstr "本机配对邀请"
 
@@ -1864,7 +1868,7 @@ msgstr "正在进行"
 msgid "正在配对..."
 msgstr "正在配对..."
 
-#: src/app/pairing/scan.tsx:239
+#: src/app/pairing/scan.tsx:247
 msgid "正在验证邀请…"
 msgstr "正在验证邀请…"
 
@@ -1978,7 +1982,7 @@ msgstr "照片"
 msgid "现在没有正在进行的传输"
 msgstr "现在没有正在进行的传输"
 
-#: src/components/pairing/invite-exchange.tsx:231
+#: src/components/pairing/invite-exchange.tsx:232
 msgid "生成邀请"
 msgstr "生成邀请"
 
@@ -2006,7 +2010,7 @@ msgstr "由 AI 代理发起（{0}）"
 msgid "留空则用对端名称"
 msgstr "留空则用对端名称"
 
-#: src/app/pairing/scan.tsx:164
+#: src/app/pairing/scan.tsx:172
 msgid "相机权限已被关闭。请到系统设置里为 SwarmDrop 开启相机，再回来扫码。"
 msgstr "相机权限已被关闭。请到系统设置里为 SwarmDrop 开启相机，再回来扫码。"
 
@@ -2035,8 +2039,8 @@ msgstr "确认设备"
 msgid "确认这是你要配对的设备?"
 msgstr "确认这是你要配对的设备?"
 
-#: src/app/pairing/found-device.tsx:127
-#: src/app/pairing/found-device.tsx:135
+#: src/app/pairing/found-device.tsx:133
+#: src/app/pairing/found-device.tsx:141
 msgid "确认配对"
 msgstr "确认配对"
 
@@ -2103,15 +2107,15 @@ msgstr "策略设置"
 msgid "管理分组"
 msgstr "管理分组"
 
-#: src/components/pairing/invite-exchange.tsx:329
+#: src/components/pairing/invite-exchange.tsx:337
 msgid "粘贴"
 msgstr "粘贴"
 
-#: src/app/pairing/scan.tsx:296
+#: src/app/pairing/scan.tsx:304
 msgid "粘贴邀请"
 msgstr "粘贴邀请"
 
-#: src/components/pairing/invite-exchange.tsx:314
+#: src/components/pairing/invite-exchange.tsx:322
 msgid "粘贴配对邀请"
 msgstr "粘贴配对邀请"
 
@@ -2131,7 +2135,7 @@ msgstr "给设备取个名字"
 #: src/app/onboarding/device-name.tsx:55
 #: src/app/onboarding/device-name.tsx:59
 #: src/app/transfer/[sessionId].tsx:270
-#: src/components/pairing/invite-exchange.tsx:342
+#: src/components/pairing/invite-exchange.tsx:350
 msgid "继续"
 msgstr "继续"
 
@@ -2241,7 +2245,7 @@ msgstr "节点状态"
 msgid "解除阻止"
 msgstr "解除阻止"
 
-#: src/components/pairing/invite-exchange.tsx:169
+#: src/components/pairing/invite-exchange.tsx:170
 msgid "让另一台设备扫码或粘贴此邀请"
 msgstr "让另一台设备扫码或粘贴此邀请"
 
@@ -2368,7 +2372,8 @@ msgstr "语言"
 msgid "语言已更新"
 msgstr "语言已更新"
 
-#: src/app/_layout.tsx:215
+#: src/app/_layout.tsx:222
+#: src/app/_layout.tsx:267
 msgid "请先完成 SwarmDrop 设置"
 msgstr "请先完成 SwarmDrop 设置"
 
@@ -2421,8 +2426,8 @@ msgstr "运行时长"
 #: src/app/device/[peerId].tsx:269
 #: src/app/onboarding/device-name.tsx:71
 #: src/app/pairing/found-device.tsx:69
-#: src/app/pairing/scan.tsx:259
-#: src/app/pairing/scan.tsx:320
+#: src/app/pairing/scan.tsx:267
+#: src/app/pairing/scan.tsx:328
 #: src/app/send/select-device.tsx:239
 #: src/components/search-header.tsx:38
 #: src/components/settings-header.tsx:26
@@ -2456,6 +2461,12 @@ msgstr "这会删除收件箱记录，并尝试删除本机保存的文件。"
 #: src/app/inbox/[itemId].tsx:474
 msgid "这只删除收件箱索引，不会删除本地文件。"
 msgstr "这只删除收件箱索引，不会删除本地文件。"
+
+#: src/app/_layout.tsx:279
+#: src/app/pairing/scan.tsx:93
+#: src/components/pairing/invite-exchange.tsx:283
+msgid "这是你自己的邀请"
+msgstr "这是你自己的邀请"
 
 #: src/app/onboarding/setup.tsx:60
 msgid "进入 SwarmDrop"
@@ -2524,15 +2535,22 @@ msgstr "通知已开启"
 msgid "通知提醒"
 msgstr "通知提醒"
 
-#: src/components/pairing/invite-exchange.tsx:151
+#: src/components/pairing/invite-exchange.tsx:152
 msgid "邀请已过期"
 msgstr "邀请已过期"
 
-#: src/components/pairing/invite-exchange.tsx:279
-msgid "邀请无效或已过期"
-msgstr "邀请无效或已过期"
+#: src/app/_layout.tsx:281
+#: src/app/pairing/scan.tsx:95
+#: src/components/pairing/invite-exchange.tsx:285
+msgid "邀请已过期，请让对方重新生成"
+msgstr "邀请已过期，请让对方重新生成"
 
-#: src/app/pairing/scan.tsx:108
+#: src/app/_layout.tsx:282
+#: src/components/pairing/invite-exchange.tsx:286
+msgid "邀请无效或已被使用"
+msgstr "邀请无效或已被使用"
+
+#: src/app/pairing/scan.tsx:115
 msgid "邀请无效或已过期，请对准另一台设备的邀请二维码"
 msgstr "邀请无效或已过期，请对准另一台设备的邀请二维码"
 
@@ -2548,6 +2566,10 @@ msgstr "配对与传输请求"
 #: src/app/pairing/success.tsx:42
 msgid "配对成功"
 msgstr "配对成功"
+
+#: src/app/pairing/found-device.tsx:110
+msgid "配对没有成功，请确认两端都在线后重试"
+msgstr "配对没有成功，请确认两端都在线后重试"
 
 #: src/app/inbox/[itemId].tsx:1124
 msgid "配对码"
@@ -2601,7 +2623,7 @@ msgstr "重命名 {0}"
 msgid "重新发送"
 msgstr "重新发送"
 
-#: src/components/pairing/invite-exchange.tsx:233
+#: src/components/pairing/invite-exchange.tsx:234
 msgid "重新生成邀请"
 msgstr "重新生成邀请"
 

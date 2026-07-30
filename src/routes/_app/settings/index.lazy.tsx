@@ -34,6 +34,7 @@ import { NetworkSettingsSection } from "./-network-settings-section";
 import { BootstrapNodesSection } from "./-bootstrap-nodes-section";
 import { TransferSettingsSection } from "./-transfer-settings-section";
 import { McpSection } from "./-mcp-section";
+import { SentInvitesSection } from "./-sent-invites-section";
 import {
   SettingsCard,
   SettingsRow,
@@ -100,6 +101,14 @@ function SettingsPage() {
             </div>
             <div id="mcp" className="scroll-mt-6 md:col-span-2 lg:col-span-3">
               <McpSection />
+            </div>
+
+            {/* row5 已发出的邀请：24h 有效期下「有几条邀请在外面飘」需要能看见并撤销 */}
+            <div
+              id="invites"
+              className="scroll-mt-6 md:col-span-2 lg:col-span-6"
+            >
+              <SentInvitesSection />
             </div>
           </div>
         </div>

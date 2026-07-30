@@ -320,21 +320,30 @@ loading 用骨架镜像真实布局）。
 
 **相关文件**：`src/routes/_app/devices/-components/device-organization-dialogs.tsx`（`DeviceGroupsDialog` / `SortableGroupRow` / `GroupRowPreview` / `restrictToVerticalAxis` / `DeviceOrganizationDialog`）
 
-## 剪贴板：桌面端复制统一走 Tauri 插件，不用 navigator.clipboard.writeText
+## 剪贴板：桌面端读写都走 Tauri 插件，不用 navigator.clipboard
 
-桌面 Tauri WebView 里调 `navigator.clipboard.writeText` 会弹**浏览器权限申请**（"允许访问剪贴板？"），在原生 app 里体验很怪异。
+桌面 Tauri WebView 里调 `navigator.clipboard.writeText` 会弹**浏览器权限申请**（"允许访问剪贴板？"），在原生 app 里体验很怪异。读同样不能用 WebView API（见下方「曾经的例外」）。
 
-**正确做法**：所有复制走 `copyText()`（`src/lib/clipboard.ts`，封装 `@tauri-apps/plugin-clipboard-manager` 的 `writeText`）——原生系统剪贴板、零提示。
+**正确做法**：读写都走 `src/lib/clipboard.ts` 的 `copyText()` / `readText()`（封装 `@tauri-apps/plugin-clipboard-manager`）——原生系统剪贴板、零提示。`pnpm check:clipboard` 机器拦住绕过封装的写法（`scripts/check-clipboard-access.mjs`，只扫仓库根 `src/`）。
 
-**三处装配缺一不可**：
+**四处装配缺一不可**：
 - `src-tauri/Cargo.toml`：`tauri-plugin-clipboard-manager = "2"`
 - `src-tauri/src/setup.rs` 的 `register_plugins`：`.plugin(tauri_plugin_clipboard_manager::init())`
-- `src-tauri/capabilities/default.json`：`"clipboard-manager:allow-write-text"`（**只加了插件不加 capability，运行时 invoke 会被拒**）
+- `src-tauri/capabilities/default.json`：`"clipboard-manager:allow-write-text"` **和** `"clipboard-manager:allow-read-text"`（**只加了插件不加 capability，运行时 invoke 会被拒**）
 - 前端：`package.json` 的 `@tauri-apps/plugin-clipboard-manager` + `pnpm install`
 
-**读剪贴板例外**：`src/hooks/use-clipboard-invite.ts` 仍用 `navigator.clipboard.readText()` 做窗口 focus 时的静默轮询感知邀请串——桌面 WebView 读剪贴板无系统提示，故意不切 Tauri 插件（切了要额外申请 read-text 权限）。只有**写**才必须走插件。
+**`readText()` 的错误不可归因**：剪贴板为空、内容非文本、权限缺失都 reject 且无法区分（插件底层是 arboard 的 `ContentNotAvailable`）。调用方一律按「读不到」处理，不要据此推断原因。
 
-**相关文件**：`src/lib/clipboard.ts`、用到的 `-device-info-section.tsx` / `-mcp-section.tsx` / `pairing/generate.lazy.tsx` / `inbox/index.lazy.tsx` / `network/lan-helper-address.tsx`
+**曾经的例外（2026-07-30 推翻，教训值得留着）**：这里原先写着「读剪贴板是例外，`use-clipboard-invite.ts` 故意用 `navigator.clipboard.readText()`，因为桌面 WebView 读剪贴板无系统提示，切插件还要多申请一个权限」。
+
+那条理由站不住，而且**它的错法很典型**：
+
+- `readText()` 在 WKWebView / WebKitGTK 上通常要求 transient activation，而该 hook 是在 `window` 的 `focus` 事件里调的 —— **focus 不构成用户手势**。
+- 而调用点写的是 `catch { return }`，把失败和「剪贴板本来就没内容」压成同一个静默分支。于是「这个功能在某个平台从来没生效过」不会产生任何信号，假设也就永远不会被证伪。
+
+**教训**：静默 catch + 未经实测的平台行为假设 = 一条能在知识库里活很久的错误记录。增强型功能失败时可以不打扰用户，但**必须留一条 debug 痕迹**，否则它坏没坏你都不知道。
+
+**相关文件**：`src/lib/clipboard.ts`、`src/hooks/use-clipboard-invite.ts`、`scripts/check-clipboard-access.mjs`、用到 `copyText` 的 `-device-info-section.tsx` / `-mcp-section.tsx` / `pairing/generate.lazy.tsx` / `inbox/index.lazy.tsx` / `network/lan-helper-address.tsx`
 
 ## LAN 协助地址展示：数据源是 networkStatus.lanHelperAdvertisedAddrs，需自己拼 /p2p/<peerId>
 

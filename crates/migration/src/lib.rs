@@ -11,6 +11,7 @@ mod m20260630_000002_add_transfer_origin;
 mod m20260704_000001_transfer_file_local_path;
 mod m20260704_000002_transfer_file_local_dir;
 mod m20260718_000001_transfer_file_outboard;
+mod m20260730_000001_pair_invites;
 
 pub struct Migrator;
 
@@ -43,6 +44,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260704_000001_transfer_file_local_path::Migration),
             Box::new(m20260704_000002_transfer_file_local_dir::Migration),
             Box::new(m20260718_000001_transfer_file_outboard::Migration),
+            Box::new(m20260730_000001_pair_invites::Migration),
         ]
     }
 }

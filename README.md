@@ -131,7 +131,7 @@ graph TB
 **Security model**
 
 - **Device identity** — Ed25519 keypair; the private key lives in the OS keychain (Keychain / Credential Manager / Secret Service).
-- **Pairing** — one-time signed invites (`sdinvite…`): Ed25519 signature + 256-bit capability + TTL, consumable exactly once. QR code and link are two carriers of the same string.
+- **Pairing** — one-time signed invites (a single canonical link): Ed25519 signature + 128-bit capability + TTL, consumable exactly once. Link, QR code, clipboard and deep link all carry the very same string; the capability rides in the URL fragment so it never reaches a server.
 - **In-transit encryption** — Noise (TCP / WebSocket / WebRTC) or TLS 1.3 (QUIC). Every connection performs its own handshake with fresh ephemeral keys, and both peers are cryptographically authenticated by their device identity.
 - **Integrity** — the file's BLAKE3 hash is the bao-tree verification root; every chunk carries a proof and is verified on arrival.
 - **Zero trust** — bootstrap and relay nodes never see plaintext. Peers complete their own end-to-end handshake *on top of* the relay's byte pipe, so a relay holds no key for what it forwards.
@@ -217,7 +217,7 @@ pnpm tauri build    # package
 - [x] File transfer (E2E encryption · live progress · history · resume)
 - [x] MCP server — AI agents can send files & search the inbox
 - [x] Mobile apps (iOS / Android)
-- [ ] Web client in the browser (wasm) — try it at [`/try`](https://swarm-apps.github.io/SwarmDrop/try)
+- [ ] Web client in the browser (wasm) — try it at [`/app`](https://swarm-apps.github.io/SwarmDrop/app)
 - [ ] Expanded agent toolset — full transfer lifecycle (status / cancel / pause / resume) over MCP
 - [ ] On-device content extraction for richer inbox search
 

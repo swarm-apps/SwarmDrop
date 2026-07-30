@@ -6,7 +6,9 @@
 //! 见 dev-notes/knowledge/storage-abstraction.md）——这正是它从 core 摘出的原因。
 
 pub mod inbox;
+pub mod invite;
 pub mod ops;
 pub mod store;
 
+pub use invite::SqlInviteStore;
 pub use store::SqlSessionStore;

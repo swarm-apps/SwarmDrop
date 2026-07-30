@@ -27,6 +27,11 @@ msgstr ""
 msgid "{0, plural, other {# 项}}"
 msgstr "{0, plural, one {# item} other {# items}}"
 
+#. placeholder {0}: formatTimeLeft(seconds)
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "{0} 后失效"
+msgstr "Expires in {0}"
+
 #. placeholder {0}: node.fileCount ?? 0
 #: src/components/file-browser/folder-row.tsx
 msgid "{0} 项"
@@ -74,6 +79,10 @@ msgstr "{firstFileName} and {fileCount} files"
 #: src/stores/pairing-store.ts
 msgid "{label}超时（{0}s）"
 msgstr "{label} timed out ({0}s)"
+
+#: src/components/pairing/clipboard-invite-banner.tsx
+msgid "<0>{deviceName}</0> 想和你配对，点此确认"
+msgstr "<0>{deviceName}</0> wants to pair with you — tap to confirm"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "<未设置>"
@@ -885,7 +894,7 @@ msgstr "Add the following JSON to your AI client's MCP configuration (e.g. Claud
 msgid "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
 msgstr "This will delete all {0} records, including checkpoints of resumable tasks. This cannot be undone; transferred files are not affected."
 
-#. placeholder {0}: formatCountdown(remainingSeconds)
+#. placeholder {0}: formatTimeLeft(remainingSeconds)
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "将在 {0} 后过期"
 msgstr "Expires in {0}"
@@ -943,6 +952,10 @@ msgstr "Inbox record deleted"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "已删除记录和本地文件"
 msgstr "Record and local files deleted"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "已发出的邀请"
+msgstr "Invites you've sent"
 
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
@@ -1029,9 +1042,13 @@ msgstr "Activity cleared"
 msgid "已结束"
 msgstr "Ended"
 
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "已过期"
-#~ msgstr "Expired"
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "已被对方使用"
+msgstr "Used by the other device"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "已过期"
+msgstr "Expired"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "已连接"
@@ -1265,6 +1282,10 @@ msgstr "Search inbox"
 msgid "搜索标题、来源、文件名…"
 msgstr "Search by title, source, or filename..."
 
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "撤销"
+msgstr "Revoke"
+
 #: src/routes/_app/pairing/-device-found-view.tsx
 #~ msgid "操作系统"
 #~ msgstr "OS"
@@ -1349,8 +1370,8 @@ msgid "无效的 Multiaddr 地址"
 msgstr "Invalid Multiaddr address"
 
 #: src/lib/errors.ts
-msgid "无效的配对码"
-msgstr "Invalid pairing code"
+#~ msgid "无效的配对码"
+#~ msgstr "Invalid pairing code"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "无法加载这条记录"
@@ -1568,8 +1589,8 @@ msgid "检查更新"
 msgstr "Check for Updates"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-msgid "检测到剪贴板中的配对邀请，点此继续"
-msgstr "Pairing invite found in the clipboard — click to continue"
+#~ msgid "检测到剪贴板中的配对邀请，点此继续"
+#~ msgstr "Pairing invite found in the clipboard — click to continue"
 
 #. placeholder {0}: latestVersion ?? "?"
 #: src/routes/_app/settings/-about-section.tsx
@@ -1630,6 +1651,10 @@ msgstr "No devices online"
 #: src/routes/_app/send/share-target.lazy.tsx
 #~ msgid "没有待发送的文件"
 #~ msgstr "No files to send"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "没有生效中的邀请"
+msgstr "No active invites"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
@@ -1732,6 +1757,10 @@ msgstr "Listening Port"
 #~ msgid "目标设备"
 #~ msgstr "Target device"
 
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "看不到邀请链接？"
+msgstr "Can't see the invite link?"
+
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"
 msgstr "Are you sure you want to unpair \"{deviceName}\"? You'll need to pair again to transfer files."
@@ -1793,6 +1822,10 @@ msgstr "Port must be between 1024 and 65535"
 #: src/lib/transfer-projection.ts
 msgid "等待中"
 msgstr "Waiting"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "等待对方使用"
+msgstr "Waiting to be used"
 
 #: src/components/transfer/session-panel.tsx
 msgid "等待对方确认..."
@@ -1983,12 +2016,16 @@ msgid "让对方扫码或粘贴此邀请"
 msgstr "Have the other device scan or paste this invite"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-msgid "让对方点「复制邀请链接」，把那串 sd:… 发给你"
-msgstr "Ask them to tap Copy Invite Link and send you the sd:… string"
+#~ msgid "让对方点「复制邀请链接」，把那串 sd:… 发给你"
+#~ msgstr "Ask them to tap Copy Invite Link and send you the sd:… string"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 #~ msgid "让对方点「复制邀请链接」，把那串 sdinvite… 发给你"
 #~ msgstr "Ask them to tap Copy Invite Link and send you the sdinvite… string"
+
+#: src/routes/_app/pairing/input.lazy.tsx
+msgid "让对方点「复制邀请链接」，把那条链接发给你"
+msgstr "Have them tap \"Copy invite link\" and send you the link"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #~ msgid "让对方输入这组配对码"
@@ -2271,10 +2308,31 @@ msgstr "General"
 msgid "邀请一次性有效，过期后可立即重新生成。"
 msgstr "The invite is single-use; regenerate it any time after it expires."
 
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "邀请凭证不会被保存，所以这里只能显示状态。需要再分享请重新生成一条。"
+msgstr "The invite credential is never stored, so only its status can be shown here. Generate a new one if you need to share again."
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "邀请已撤销"
+msgstr "Invite revoked"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "邀请已撤销，但没能保存"
+msgstr "Invite revoked, but not saved"
+
+#: src/lib/errors.ts
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/stores/pairing-store.ts
 msgid "邀请已过期"
 msgstr "Invite expired"
+
+#: src/lib/errors.ts
+msgid "邀请无效或已被使用"
+msgstr "This invite is invalid or has already been used"
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
+msgstr "Invites stay valid for 24 hours. Once generated they show up here and can be revoked at any time."
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "邀请经本地签名验证，真正建立信任仍需要双方确认。"
@@ -2317,8 +2375,8 @@ msgstr "Pairing Code"
 #~ msgstr "The pairing code only locates the device; establishing trust still requires confirmation from both sides."
 
 #: src/lib/errors.ts
-msgid "配对码已过期"
-msgstr "Code expired"
+#~ msgid "配对码已过期"
+#~ msgstr "Code expired"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "配对确认"
@@ -2339,11 +2397,15 @@ msgstr "Pairing invite QR code"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "配置节点"
-msgstr ""
+msgstr "Configured"
 
 #: src/routes/_app/settings/-settings-primitives.tsx
 msgid "重启中..."
 msgstr "Restarting..."
+
+#: src/routes/_app/settings/-sent-invites-section.tsx
+msgid "重启应用后它可能恢复可用，建议稍后再撤销一次。"
+msgstr "It may become usable again after a restart — try revoking once more later."
 
 #: src/routes/_app/settings/-settings-primitives.tsx
 msgid "重启节点"

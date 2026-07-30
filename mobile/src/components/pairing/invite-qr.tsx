@@ -1,7 +1,7 @@
 /**
  * 邀请二维码（移动端）
  *
- * 模块矩阵由 core `inviteQrMatrix` 生成（三端统一编码规范：大写 alphanumeric +
+ * 模块矩阵由 core `inviteQrMatrix` 生成（三端统一编码规范：原样编码 + 最优分段 +
  * ECL::M + quiet zone，见 crates/invite/src/qr.rs），本组件用 react-native-svg 把深模块
  * 合并成单条 `<Path>`。深模块 + 白底、不随暗色主题反色（摄像头对反色 QR 识别差）。
  *
@@ -28,7 +28,7 @@ export interface InviteQrOverlay {
 }
 
 interface InviteQrProps {
-  /** 邀请串（小写规范形态）；null 时展示骨架 */
+  /** canonical 邀请链接（原样传给后端编码，不做大小写归一）；null 时展示骨架 */
   invite: string | null;
   /** 边长（px），默认 220 */
   size?: number;

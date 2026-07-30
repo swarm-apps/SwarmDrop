@@ -147,6 +147,7 @@ async fn spawn_node(
         candidate_manager,
         event_bus.clone(),
         None,
+        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
     );
     let transfer = manager.transfer_arc();
 

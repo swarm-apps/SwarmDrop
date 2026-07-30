@@ -21,6 +21,10 @@ import { UpdateHost } from "@/components/update-host";
 import { UpdateProvider } from "@/components/update-provider";
 import { initMobileCore } from "@/core/mobile-core";
 import { initNotifications } from "@/core/notifications";
+import {
+  subscribePendingInvite,
+  takePendingInvite,
+} from "@/core/pending-deep-link";
 import { shareFilesToTransferFiles } from "@/core/share-intent";
 import { useNavTheme } from "@/hooks/useThemeColors";
 import { LinguiProvider } from "@/i18n/LinguiProvider";
@@ -31,6 +35,7 @@ import {
   useOnboardingStore,
   waitForOnboardingHydration,
 } from "@/stores/onboarding-store";
+import { usePairingInviteStore } from "@/stores/pairing-invite-store";
 import { useShareStore } from "@/stores/share-store";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -177,6 +182,8 @@ export default function RootLayout() {
                     <PortalHost />
                     {/* 入站分享(expo-share-intent):映射文件 → 选设备屏。命令式,无常驻 UI。 */}
                     <ShareIntentHandler />
+                    {/* 配对深链:`+native-intent.tsx` 放下的邀请 → 确认卡。同样无常驻 UI。 */}
+                    <DeepLinkInviteHandler />
                   </BottomSheetModalProvider>
                 </ShareIntentProvider>
               </UpdateProvider>
@@ -229,6 +236,59 @@ function ShareIntentHandler() {
     resetShareIntent,
     t,
   ]);
+
+  return null;
+}
+
+/**
+ * 配对深链处理：`+native-intent.tsx` 放下的邀请 → 解码验签 → 确认卡。
+ *
+ * 与扫码/粘贴走的是**同一条**安全闸（`previewInvite` 成功才进 `/pairing/found-device`，
+ * 由用户看着对端设备名与指纹确认）—— 深链只是又一个入口，不是一条捷径。
+ *
+ * 冷启动与热启动都要覆盖，所以是「先订阅、再取一次」：
+ * - 冷启动时 `redirectSystemPath` 早在 React 之前就放下了负载，mount 后 take 得到；
+ * - 热启动时它在 handler 已 mount 之后放下，只能靠订阅拿到。
+ * 反过来（先 take 再订阅）会在两者之间漏掉一条。
+ *
+ * 未过引导时不能进配对流（还没有设备身份），提示后**丢弃**——与分享一致，v1 不暂存。
+ */
+function DeepLinkInviteHandler() {
+  const router = useRouter();
+  const { t } = useLingui();
+  const hasOnboarded = useOnboardingStore((s) => s.hasOnboarded);
+  const previewInvite = usePairingInviteStore((s) => s.previewInvite);
+
+  useEffect(() => {
+    const handle = async () => {
+      const invite = takePendingInvite();
+      if (invite === null) return;
+      if (!hasOnboarded) {
+        toast.info(t`请先完成 SwarmDrop 设置`);
+        return;
+      }
+      // 原样交给 core：canonical 载体整串大小写不敏感，归一统一在那侧做。
+      const ok = await previewInvite(invite);
+      if (ok) {
+        router.push({ pathname: "/pairing/found-device" });
+        return;
+      }
+      const reject = usePairingInviteStore.getState().previewReject;
+      toast.error(
+        reject === "self"
+          ? t`这是你自己的邀请`
+          : reject === "expired"
+            ? t`邀请已过期，请让对方重新生成`
+            : t`邀请无效或已被使用`,
+      );
+    };
+
+    const unsubscribe = subscribePendingInvite(() => {
+      void handle();
+    });
+    void handle();
+    return unsubscribe;
+  }, [hasOnboarded, previewInvite, router, t]);
 
   return null;
 }

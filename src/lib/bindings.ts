@@ -82,12 +82,28 @@ export const commands = {
 	 *  撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
 	 * 
 	 *  幂等：不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），所以前端可以
-	 *  fire-and-forget。节点未启动时同样无事可做——registry 是内存态，随节点一起没了。
+	 *  fire-and-forget。节点未启动时同样无事可做——注册表随节点一起没了（重启后由
+	 *  `load_invites` 从库里读回，见 `invite-persistence`）。
 	 */
-	revokePairInvite: (invite: string) => __TAURI_INVOKE<null>("revoke_pair_invite", { invite }),
+	revokePairInvite: (invite: string) => __TAURI_INVOKE<boolean>("revoke_pair_invite", { invite }),
 	/**
-	 *  生成邀请串的二维码 SVG（三端统一编码规范：大写 alphanumeric + ECL::M + quiet zone，
-	 *  见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
+	 *  列出本机未过期的已发出邀请（最近生成的在前）。
+	 * 
+	 *  TTL 24h 之后「我现在有几条邀请在外面飘」不再是个可以忽略的问题 —— 这个列表加上
+	 *  [`revoke_pair_invite_by_id`] 是那段窗口的可见性与控制手段，不是可选装饰。
+	 */
+	listPairInvites: () => __TAURI_INVOKE<PairInviteListItem[]>("list_pair_invites"),
+	/**
+	 *  按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
+	 * 
+	 *  **返回是否已落盘**。`false` 意味着撤销在本次运行内生效了，但重启后那条邀请会复活
+	 *  （写穿失败，库里仍是生成时写下的 pending）—— UI 必须把这件事告诉用户，
+	 *  否则他会以为已经撤销干净了。
+	 */
+	revokePairInviteById: (id: string) => __TAURI_INVOKE<boolean>("revoke_pair_invite_by_id", { id }),
+	/**
+	 *  生成 canonical 邀请链接的二维码 SVG（三端统一编码规范：原样编码 + 最优分段 + ECL::M
+	 *  + quiet zone，见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
 	 */
 	inviteQrSvg: (invite: string) => __TAURI_INVOKE<string>("invite_qr_svg", { invite }),
 	/**
@@ -186,14 +202,21 @@ export const commands = {
 	startMcpServer: (port: number | null) => __TAURI_INVOKE<McpStatus>("start_mcp_server", { port }),
 	/**  停止 MCP Server */
 	stopMcpServer: () => __TAURI_INVOKE<McpStatus>("stop_mcp_server"),
-	/**  前端根处理器 mount 时调用：标记就绪并取走冷启动期间缓冲的外部打开路径。 */
-	takePendingExternalOpen: () => __TAURI_INVOKE<string[]>("take_pending_external_open"),
+	/**
+	 *  前端根处理器 mount 时调用：标记就绪并**一次取走**冷启动期间缓冲的两类负载
+	 *  （文件路径 + 深链邀请）。
+	 * 
+	 *  一次取走而非两个命令：`frontend_ready` 是共享标记，拆开会让第二类负载丢在
+	 *  「标记已置位、前端还没订阅完」那道缝里（详见 [`external_open::take_pending`]）。
+	 */
+	takePendingExternalOpen: () => __TAURI_INVOKE<PendingExternalOpen>("take_pending_external_open"),
 };
 
 /** Events */
 export const events = {
 	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
 	externalFileOpen: makeEvent<ExternalFileOpen>("external-file-open"),
+	externalPairInvite: makeEvent<ExternalPairInvite>("external-pair-invite"),
 	networkStatusChanged: makeEvent<NetworkStatusChanged>("network-status-changed"),
 	pairedDeviceAdded: makeEvent<PairedDeviceAdded>("paired-device-added"),
 	pairingRequestReceived: makeEvent<PairingRequestReceived>("pairing-request-received"),
@@ -326,6 +349,17 @@ export type EnumeratedFile = {
  */
 export type ExternalFileOpen = {
 	paths: string[],
+};
+
+/**
+ *  深链（`swarmdrop://…`）送达的配对邀请链接原文。
+ * 
+ *  事件名 `"external-pair-invite"`。**未解码未验签** —— 宿主层只递文本，前端照常走
+ *  「解码验签 → 确认卡 → 用户确认」的安全闸，与扫码/粘贴同一条路
+ *  （openspec: pair-deep-link）。
+ */
+export type ExternalPairInvite = {
+	invite: string,
 };
 
 export type FileProgressInfo = {
@@ -512,6 +546,23 @@ export type OsInfo = {
 	capabilities?: string[],
 };
 
+/**
+ *  「已发出的邀请」列表条目。
+ * 
+ *  **没有邀请串本身** —— capability 明文不落盘也不出注册表（invite-persistence design D4），
+ *  所以重启后拼不回原始链接。UI 只能显示元数据 + 提供撤销；想再分享就生成一条新的。
+ */
+export type PairInviteListItem = {
+	/**  `sha256(capability)` 的 hex —— 撤销时回传，UI 当不透明 ID 用。 */
+	id: string,
+	/**  创建时刻（Unix 秒）。 */
+	createdAt: number,
+	/**  过期时刻（Unix 秒）。 */
+	expiresAt: number,
+	/**  已被对方消费（仍在列表里显示到过期，让用户知道它被用过）。 */
+	consumed: boolean,
+};
+
 /**  邀请串解码后的展示投影（用于配对确认卡；不含 capability 等敏感字段）。 */
 export type PairInvitePreview = {
 	/**  发起方 NodeId（base58）。 */
@@ -571,6 +622,14 @@ export type PairingRequestPayload = {
 export type PairingRequestReceived = PairingRequestPayload;
 
 export type PairingResponse = { status: "success" } | { status: "refused"; reason: PairingRefuseReason };
+
+/**  冷启动期间缓冲的外部入口负载（一次取走，见 [`take_pending`]）。 */
+export type PendingExternalOpen = {
+	/**  「打开方式」送达的路径（可能多个）。 */
+	paths: string[],
+	/**  深链送达的配对邀请链接（只留最后一条，见 [`Inner::invite`]）。 */
+	invite: string | null,
+};
 
 /**  `prepare_send` 的 hash 进度事件 */
 export type PrepareProgressEvent = {

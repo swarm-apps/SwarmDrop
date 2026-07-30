@@ -191,6 +191,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["swarmdrop"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFDOUYzRTBFNjBEMjBDNEEKUldSS0ROSmdEajZmSEhVa2N5cUFWRXRoMzQ2eUQwK0IvTVFrdXNkSmpoaEVJYUNzUEpkM2xaejAK",
       "endpoints": [

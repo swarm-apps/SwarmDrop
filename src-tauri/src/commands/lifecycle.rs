@@ -74,6 +74,9 @@ pub async fn start(
         swarmdrop_core::runtime::EndpointProfile::Native,
         event_bus.clone(),
         Some(notifier),
+        // 邀请注册表落盘：24h TTL 下「发条链接给同事、自己顺手重启 App」是常态，
+        // 内存态会让那条链接直接失效（openspec: invite-persistence）。
+        Arc::new(swarmdrop_storage_sql::SqlInviteStore::new((*db).clone())),
         move |endpoint| {
             TransferManager::new(
                 endpoint,

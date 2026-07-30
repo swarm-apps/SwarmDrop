@@ -32,8 +32,10 @@ export type { PairingRequestPayload };
 /** 配对请求超时（毫秒）——含连接握手 + 对端用户决策，给足时间 */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-/** 邀请默认有效期（秒），与 core `INVITE_TTL_SECS` 一致（用于前端倒计时） */
-export const INVITE_TTL_SECS = 300;
+/** 邀请默认有效期（秒），与 core `INVITE_TTL_SECS` 一致（用于前端倒计时）。
+ * 24h —— 链接分享是异步场景，5 分钟会让「发给同事、他十分钟后点开」必然失败
+ * （openspec: invite-persistence）。改这里必须同步 crates/invite 的常量。 */
+export const INVITE_TTL_SECS = 86_400;
 
 /** 带超时的 Promise 包装 */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -74,6 +76,10 @@ function getPairingRefuseMessage(reason: PairingRefuseReason): string {
  *
  * fire-and-forget：后端幂等（不认识的串 no-op），节点未启动时 registry 本就是空的，
  * 任何失败都不影响调用方要的终态，所以不 await、不报错、不阻塞界面。
+ *
+ * **这里刻意忽略「是否已落盘」那个返回值**，与设置页的撤销按钮不同：这条路径是「生成新
+ * 邀请时顺手作废旧的」，用户的注意力在新邀请上，为一条他已经不打算再用的旧邀请弹提示
+ * 只是噪音。真要管理在外流通的邀请，去设置页的「已发出的邀请」——那里会报告落盘失败。
  */
 function revokeInvite(active: ActiveInvite | null): void {
   if (active === null) return;
@@ -82,7 +88,7 @@ function revokeInvite(active: ActiveInvite | null): void {
 
 /** 本机生成的活跃邀请（发起方展示二维码/链接用） */
 export interface ActiveInvite {
-  /** 邀请串（链接规范形态，"sd:..."） */
+  /** 邀请串（canonical 链接形态，`https://swarm-apps.github.io/SwarmDrop/p/#…`；二维码就是它原样） */
   invite: string;
   /** 生成时刻（毫秒），倒计时基准；有效期 = generatedAt + INVITE_TTL_SECS */
   generatedAt: number;

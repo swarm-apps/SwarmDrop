@@ -114,6 +114,7 @@ async fn spawn_node(
         candidate_manager,
         event_bus.clone(),
         None,
+        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
     );
 
     // Router：三协议入站路由，复用 runtime 的装配（避免协议注册漂移）。

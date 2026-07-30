@@ -44,6 +44,8 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 uuid = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
+# 集成测试要给 NetManager::new 传 InviteStore 端口（NoopInviteStore）
+swarmdrop-invite = { workspace = true }
 # tests/ 集成测试用：workspace 的 tokio 不带 feature，#[tokio::test] 需 macros + rt-multi-thread。
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # migration 不是普通依赖，端到端 harness 要 Migrator::up 建 sqlite::memory schema。

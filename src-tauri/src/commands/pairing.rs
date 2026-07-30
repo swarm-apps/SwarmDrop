@@ -33,8 +33,8 @@ pub struct PairInvitePreview {
     pub local_only: bool,
 }
 
-/// 生成邀请串的二维码 SVG（三端统一编码规范：大写 alphanumeric + ECL::M + quiet zone，
-/// 见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
+/// 生成 canonical 邀请链接的二维码 SVG（三端统一编码规范：原样编码 + 最优分段 + ECL::M
+/// + quiet zone，见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
 #[tauri::command]
 #[specta::specta]
 pub fn invite_qr_svg(invite: String) -> AppResult<String> {
@@ -48,8 +48,13 @@ pub fn invite_qr_svg(invite: String) -> AppResult<String> {
 #[tauri::command]
 #[specta::specta]
 pub fn decode_pair_invite(invite: String) -> AppResult<PairInvitePreview> {
-    let inv =
-        PairInvite::decode(&invite).map_err(|e| AppError::identity(format!("邀请无效: {e}")))?;
+    // **分类成 InvalidCode，不要包成 Identity。** `kind` 是前端本地化的判别码
+    // （见 `src/lib/errors.ts`）：包成 Identity 会让用户看到「设备身份初始化失败」——
+    // 一条与「链接不对」毫无关系的提示。技术细节只进日志，不进 UI。
+    let inv = PairInvite::decode(&invite).map_err(|e| {
+        tracing::debug!("decode_pair_invite 失败: {e}");
+        AppError::Core(swarmdrop_core::AppError::InvalidCode)
+    })?;
     Ok(PairInvitePreview {
         peer_id: inv.inviter.id.to_string(),
         display_name: inv.display_name,
@@ -82,21 +87,102 @@ pub async fn generate_pair_invite(
         TransportPolicy::Auto
     };
     with_manager!(net, |m| AppResult::Ok(
-        m.pairing().encode_invite(&secret, policy, &os_info)
+        m.pairing().encode_invite(&secret, policy, &os_info).await
     ))
 }
 
 /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
 ///
 /// 幂等：不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），所以前端可以
-/// fire-and-forget。节点未启动时同样无事可做——registry 是内存态，随节点一起没了。
+/// fire-and-forget。节点未启动时同样无事可做——注册表随节点一起没了（重启后由
+/// `load_invites` 从库里读回，见 `invite-persistence`）。
 #[tauri::command]
 #[specta::specta]
-pub async fn revoke_pair_invite(net: State<'_, NetManagerState>, invite: String) -> AppResult<()> {
-    with_manager!(net, |m| {
-        m.pairing().revoke_invite(&invite);
-        AppResult::Ok(())
-    })
+pub async fn revoke_pair_invite(
+    net: State<'_, NetManagerState>,
+    invite: String,
+) -> AppResult<bool> {
+    with_manager!(net, |m| AppResult::Ok(
+        m.pairing().revoke_invite(&invite).await
+    ))
+}
+
+/// 「已发出的邀请」列表条目。
+///
+/// **没有邀请串本身** —— capability 明文不落盘也不出注册表（invite-persistence design D4），
+/// 所以重启后拼不回原始链接。UI 只能显示元数据 + 提供撤销；想再分享就生成一条新的。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PairInviteListItem {
+    /// `sha256(capability)` 的 hex —— 撤销时回传，UI 当不透明 ID 用。
+    pub id: String,
+    /// 创建时刻（Unix 秒）。
+    pub created_at: i64,
+    /// 过期时刻（Unix 秒）。
+    pub expires_at: i64,
+    /// 已被对方消费（仍在列表里显示到过期，让用户知道它被用过）。
+    pub consumed: bool,
+}
+
+/// 列出本机未过期的已发出邀请（最近生成的在前）。
+///
+/// TTL 24h 之后「我现在有几条邀请在外面飘」不再是个可以忽略的问题 —— 这个列表加上
+/// [`revoke_pair_invite_by_id`] 是那段窗口的可见性与控制手段，不是可选装饰。
+#[tauri::command]
+#[specta::specta]
+pub async fn list_pair_invites(
+    net: State<'_, NetManagerState>,
+) -> AppResult<Vec<PairInviteListItem>> {
+    with_manager!(net, |m| AppResult::Ok(
+        m.pairing()
+            .list_invites()
+            .into_iter()
+            .map(|summary| PairInviteListItem {
+                id: hex_lower(&summary.capability_hash),
+                created_at: summary.created_at as i64,
+                expires_at: summary.expires_at as i64,
+                consumed: summary.consumed,
+            })
+            .collect()
+    ))
+}
+
+/// 按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
+///
+/// **返回是否已落盘**。`false` 意味着撤销在本次运行内生效了，但重启后那条邀请会复活
+/// （写穿失败，库里仍是生成时写下的 pending）—— UI 必须把这件事告诉用户，
+/// 否则他会以为已经撤销干净了。
+#[tauri::command]
+#[specta::specta]
+pub async fn revoke_pair_invite_by_id(
+    net: State<'_, NetManagerState>,
+    id: String,
+) -> AppResult<bool> {
+    let hash = parse_hex32(&id)?;
+    with_manager!(net, |m| AppResult::Ok(
+        m.pairing().revoke_invite_by_hash(hash).await
+    ))
+}
+
+fn hex_lower(bytes: &[u8; 32]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+fn parse_hex32(text: &str) -> AppResult<[u8; 32]> {
+    if text.len() != 64 {
+        return Err(AppError::identity("邀请标识格式非法"));
+    }
+    let mut out = [0u8; 32];
+    for (index, slot) in out.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16)
+            .map_err(|_| AppError::identity("邀请标识格式非法"))?;
+    }
+    Ok(out)
 }
 
 /// 用邀请串发起配对（受邀方）：解码验签 → 连接发起方 → 出示凭证。

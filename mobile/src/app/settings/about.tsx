@@ -153,20 +153,20 @@ export default function AboutScreen() {
           <LinkRow
             icon={Code}
             label="GitHub"
-            onPress={() => openUrl("https://github.com/yexiyue/SwarmDrop")}
+            onPress={() => openUrl("https://github.com/swarm-apps/SwarmDrop")}
           />
           <SettingDivider />
           <LinkRow
             icon={BookOpen}
             label={t`文档`}
-            onPress={() => openUrl("https://yexiyue.github.io/SwarmDrop/")}
+            onPress={() => openUrl("https://swarm-apps.github.io/SwarmDrop/")}
           />
           <SettingDivider />
           <LinkRow
             icon={MessageSquare}
             label={t`反馈`}
             onPress={() =>
-              openUrl("https://github.com/yexiyue/SwarmDrop/issues")
+              openUrl("https://github.com/swarm-apps/SwarmDrop/issues")
             }
           />
           <SettingDivider />
@@ -174,7 +174,7 @@ export default function AboutScreen() {
             icon={FileText}
             label={t`更新日志`}
             onPress={() =>
-              openUrl("https://github.com/yexiyue/SwarmDrop/releases")
+              openUrl("https://github.com/swarm-apps/SwarmDrop/releases")
             }
           />
         </SettingSection>

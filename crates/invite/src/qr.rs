@@ -4,53 +4,57 @@
 //! （openspec: pair-invite-ui design D1/D2）。三端拿本模块产出的 SVG 字符串（web 直接
 //! `innerHTML`、桌面 `dangerouslySetInnerHTML`）或模块矩阵（RN 用 react-native-svg 自绘）。
 //!
-//! 关键规范（全部固化在此，调用方传链接规范邀请串即可）：
-//! - **wire 转 Base32 再大写化** → 走 QR alphanumeric 模式（Base32 大写字母表 `A-Z2-7`
-//!   全落在 alphanumeric 字符集）：避免链接用的 Base64URL 被大写化破坏，同时保持小码面。
+//! 关键规范（全部固化在此，调用方传 canonical 邀请链接即可）：
+//! - **原样编码，不做大小写归一**。canonical 是「小写 scheme/host/path + 大写 base32
+//!   payload」，最优分段会把小写前缀那 23 个字符单独编成一个 byte 段，payload 那两百多个
+//!   字符仍走 alphanumeric —— 实测码面与「整串大写」**完全相同**（都是 57×57），
+//!   所以没有任何理由为了二维码去牺牲链接的正常外观。
+//!   （历史：fast_qr 时代整串统一 mode，必须全大写才能进 alphanumeric，canonical 因此一度
+//!   长成 `HTTPS://SWARMAPP.CN/P/#…`。换成支持最优分段的编码器后这个约束消失了。）
+//! - **最优分段**（`QrCode::new` → `bits::encode_auto`）同时吸收那个 `#`（它不在
+//!   alphanumeric 字符集内）与小写前缀，而不是把整串拖进 byte mode（+30% 面积）。
+//!   见 `optimal_segmentation_beats_byte_mode`。
 //! - **ECL::M**（15% 纠错）：屏→摄像头近距干净场景足够；Q/H 只会顶高版本更难扫，且无 logo。
+//!   这也是 `QrCode::new` 的默认级别。
 //! - **quiet zone 4 模块**（ISO 硬性要求）。
 //! - 配色由渲染端负责：**深模块 + 白底，不随暗色主题反色**（摄像头对反色 QR 识别差）。
 
-use fast_qr::{ECL, QRBuilder, QRCode};
+use qrcode::QrCode;
 
-use crate::PairInvite;
-
-/// 三端统一的 QR 编码：wire → Base32 → 大写（alphanumeric）+ ECL::M。**编码策略单点**——
-/// SVG / matrix 两个渲染出口都经此，改 ECL/模式只此一处。
-fn build_qr(invite: &str) -> Result<QRCode, QrError> {
-    let payload = PairInvite::qr_payload(invite).map_err(|e| QrError(e.to_string()))?;
-    QRBuilder::new(payload.to_ascii_uppercase())
-        .ecl(ECL::M)
-        .build()
-        .map_err(|e| QrError(e.to_string()))
+/// 三端统一的 QR 编码：canonical 链接原样 → 最优分段 + ECL::M。
+/// **编码策略单点**——SVG / matrix 两个渲染出口都经此，改 ECL/模式只此一处。
+fn build_qr(invite: &str) -> Result<QrCode, QrError> {
+    // 不做大小写归一：最优分段自己会把小写前缀与大写 payload 分成两段，
+    // 码面与整串大写相同（见模块文档与 `qr_size_baseline`）。
+    QrCode::new(invite.as_bytes()).map_err(|e| QrError(e.to_string()))
 }
 
 /// 生成邀请二维码的 SVG 字符串（深模块 `#0a0a0a`，透明背景——渲染端套白卡）。
 ///
-/// `invite` 传链接规范邀请串（`PairInvite::encode` 的产物）；本函数内部转换为二维码
-/// 专用 Base32 表现形式。
+/// `invite` 传 canonical 邀请链接（`PairInvite::encode` 的产物）。
 pub fn invite_qr_svg(invite: &str) -> Result<String, QrError> {
-    use fast_qr::convert::{Builder, Shape, svg::SvgBuilder};
+    use qrcode::render::svg;
 
     let qr = build_qr(invite)?;
-    Ok(SvgBuilder::default()
-        .shape(Shape::Square)
-        .margin(4)
-        .module_color([10, 10, 10, 255])
-        .to_str(&qr))
+    Ok(qr
+        .render()
+        .quiet_zone(true)
+        .dark_color(svg::Color("#0a0a0a"))
+        .light_color(svg::Color("transparent"))
+        .build())
 }
 
 /// 生成邀请二维码的模块矩阵（`true` = 深模块）。RN 端按此自绘 `<Rect>`；
 /// 已含 4 模块 quiet zone 边距。
 pub fn invite_qr_matrix(invite: &str) -> Result<Vec<Vec<bool>>, QrError> {
     let qr = build_qr(invite)?;
-    let size = qr.size;
+    let size = qr.width();
     const QZ: usize = 4;
     let full = size + QZ * 2;
     let mut matrix = vec![vec![false; full]; full];
-    for (r, row) in qr.data.chunks(size).take(size).enumerate() {
+    for (r, row) in qr.to_colors().chunks(size).take(size).enumerate() {
         for (c, module) in row.iter().enumerate() {
-            matrix[r + QZ][c + QZ] = module.value();
+            matrix[r + QZ][c + QZ] = *module == qrcode::Color::Dark;
         }
     }
     Ok(matrix)
@@ -96,21 +100,139 @@ mod tests {
         assert!(!m[0][0] && !m[0][m.len() - 1]);
     }
 
-    /// 二维码专用 Base32 比链接用 Base64URL 的 byte 模式版本更低（模块更少）。
+    /// **回归钉子**：最优分段必须真的在起作用。
+    ///
+    /// canonical（小写前缀 + 大写 base32 payload）会被分成 byte + alphanumeric 两段；
+    /// 把 payload 也变成小写后整串只能走 byte mode。前者必须更小。
+    ///
+    /// 这条红了意味着编码器换回了「全串统一 mode」的实现（fast_qr 那类），
+    /// 二维码会明显变密、扫码成功率下降。
     #[test]
-    fn qr_base32_lowers_qr_version() {
+    fn optimal_segmentation_beats_byte_mode() {
         let invite = sample_invite();
-        let payload = PairInvite::qr_payload(&invite).unwrap();
-        let qr_base32 = QRBuilder::new(payload.to_ascii_uppercase())
-            .ecl(ECL::M)
-            .build()
-            .unwrap();
-        let url_base64 = QRBuilder::new(invite).ecl(ECL::M).build().unwrap();
+        // 经 build_qr 而非直接 QrCode::new：否则这条只是「依赖库行为」的金丝雀，
+        // 抓不到 build_qr 自身的任何改动。
+        let segmented = build_qr(&invite).unwrap();
+        let all_byte = QrCode::new(invite.to_lowercase().as_bytes()).unwrap();
         assert!(
-            qr_base32.size < url_base64.size,
-            "Base32 alphanumeric 应比 Base64URL byte 模式版本更低: qr={} url={}",
-            qr_base32.size,
-            url_base64.size
+            segmented.width() < all_byte.width(),
+            "最优分段应比全 byte mode 版本更低: segmented={} all_byte={}",
+            segmented.width(),
+            all_byte.width()
+        );
+    }
+
+    /// **不做大小写归一**这个决定的真实理由是「链接可用性」，不是「大写没收益」。
+    ///
+    /// 曾经的理由是后者：fast_qr 只有全串统一 mode，canonical 因此一度长成
+    /// `HTTPS://SWARMAPP.CN/P/#…`；换成支持最优分段的编码器后实测两者码面相同，于是改回
+    /// 小写。**但前缀换成 GitHub Pages 子路径（42 字符）后这个等式不再总成立** —— 实测某些
+    /// 随机 payload 下大写确实能省一个 version（61 → 57），因为长前缀整体进 alphanumeric
+    /// 省下的位数跨过了边界。
+    ///
+    /// 即便如此也不能大写：`/SwarmDrop/` 是仓库名，**GitHub Pages 路径区分大小写**，
+    /// 大写成 `/SWARMDROP/` 直接 404 —— 扫码跳到一个打不开的落地页。粘贴路径因为前缀匹配
+    /// 大小写不敏感仍能配对，所以这个回归只在真机扫码时暴露。
+    ///
+    /// 所以这里只钉一个方向：大写**不会更大**。真正防「有人把 `to_ascii_uppercase()` 加回
+    /// `build_qr`」的是 [`build_qr_encodes_input_verbatim`]（用模块矩阵，宽度没有区分力）。
+    #[test]
+    fn uppercasing_never_grows_the_code() {
+        let invite = fixed_invite();
+        let original = build_qr(&invite).unwrap().width();
+        let upper = build_qr(&invite.to_ascii_uppercase()).unwrap().width();
+        assert!(
+            upper <= original,
+            "大写不应让码面更大（原样 {original}，大写 {upper}）"
+        );
+    }
+
+    /// **`build_qr` 必须编码传入的串本身，不做任何大小写归一。**
+    ///
+    /// 这条钉的不是码面而是**链接可用性**：确定性样本下大写与原样码面相同（都 57），
+    /// 所以 `qr_size_baseline` 的 `width == 57` 对「有人把 `to_ascii_uppercase()` 加回
+    /// `build_qr`」**完全没有区分力** —— 加回去照样绿。
+    ///
+    /// 而后果是真的：加回大写化后路径段变成 `/SWARMDROP/P/`，而 GitHub Pages 区分大小写
+    /// （`/SwarmDrop/` 是仓库名、`p/` 是小写目录）→ **扫码跳网页 404**。粘贴路径因前缀
+    /// 匹配大小写不敏感仍正常，所以这个回归只在真机扫码时暴露。
+    ///
+    /// 判据用模块矩阵而非宽度：同宽但内容不同，矩阵能区分，宽度不能。
+    #[test]
+    fn build_qr_encodes_input_verbatim() {
+        let invite = sample_invite();
+        assert_ne!(
+            invite_qr_matrix(&invite).unwrap(),
+            invite_qr_matrix(&invite.to_ascii_uppercase()).unwrap(),
+            "build_qr 似乎对输入做了大小写归一——那会让扫码跳到一个 404 的大写路径"
+        );
+    }
+
+    /// 码面尺寸基线（密度退化哨兵）。
+    ///
+    /// 确定性样本实测：邀请串 287 字符 → 最优分段 **57×57**（QR version 10，`width = 4v+17`）。
+    ///
+    /// ⚠️ **这是哨兵，不是「生产码面就是 57」的承诺。** 真实邀请的宽度**随内容浮动**：
+    /// 随机 base32 payload 里的 `2-7` 属于 QR 的 numeric 类，数字连段的长短会改变最优分段
+    /// 的取舍，而 42 字符的前缀让码面正好卡在 version 边界上。实测同一份 wire 的随机样本
+    /// 落在 **57 ~ 65** 之间（纯字母 57、纯数字 49、周期性混排 65、真实随机多数 61）。
+    /// 所以这条测试用固定私钥 + 固定 capability 的 [`fixed_invite`]，否则它会随机红绿
+    /// —— 那正是本次改动暴露出来的既有缺陷。
+    ///
+    /// 这条红了说明码面确实变了——wire 加了字段、canonical 前缀变长、或编码规范退化。
+    /// 不要随手改数字，先确认变化是有意的：码面变大直接影响扫码成功率。
+    ///
+    /// ⚠️ 钉的是**最小形态**：`sample_invite()` 只带 1 个地址提示。真机上桌面通常有多个
+    /// 监听地址，每多约 15 个 base32 字符就逼近下一个 version 边界，所以生产码面会明显
+    /// 大于这个基线。
+    /// 固定私钥（protobuf 编码，`SecretKey::from_protobuf` 的入参格式）。
+    ///
+    /// 码面基线必须**确定**才有意义，而 `sample_invite()` 每次随机生成 —— 实测同一条测试
+    /// 在不同运行里给出 57 / 61 两种宽度，因为 base32 payload 里的 `2-7` 属于 QR 的
+    /// numeric 类（3.33 bit/字符），随机内容里数字连段的长短会改变最优分段的取舍，而前缀
+    /// 变长后码面正好卡在 version 边界上。ed25519 签名是确定性的（RFC 8032），所以固定
+    /// 私钥 + 固定字段 ⇒ 整串字节可复现 ⇒ 宽度可复现。
+    const FIXED_KEY_PROTOBUF: &[u8] = &[
+        0x08, 0x01, 0x12, 0x40, 0x97, 0x59, 0x30, 0x96, 0xf4, 0x3c, 0xf8, 0x8a, 0x0d, 0xd2, 0x55,
+        0x6e, 0xe7, 0xb7, 0xc6, 0xcf, 0x8c, 0x41, 0xc7, 0x5a, 0xae, 0x02, 0xe0, 0xe1, 0xaa, 0x66,
+        0x52, 0xd6, 0x2c, 0x2b, 0x89, 0xd3, 0xf0, 0xda, 0x62, 0x87, 0xc1, 0x2e, 0x09, 0x84, 0xb4,
+        0x6c, 0xfc, 0x21, 0xd4, 0x37, 0xc8, 0x0e, 0xaf, 0xa6, 0x45, 0xf4, 0x5e, 0x03, 0xa5, 0xc7,
+        0x0a, 0x42, 0xb3, 0x92, 0x8d, 0x7a, 0xf4, 0x29,
+    ];
+
+    /// 确定性样本邀请：固定私钥 + 固定 capability（不走 `generate`，那里 capability 是随机的）。
+    fn fixed_invite() -> String {
+        let sk = swarmdrop_net_base::SecretKey::from_protobuf(FIXED_KEY_PROTOBUF)
+            .expect("固定私钥应当可解析");
+        crate::PairInvite {
+            capability: [
+                0x3f, 0x1c, 0xa7, 0x02, 0x9b, 0x64, 0xd8, 0x51, 0x0e, 0xf3, 0x27, 0xbc, 0x45, 0x8a,
+                0x16, 0xd0,
+            ],
+            inviter: swarmdrop_net_base::NodeAddr::with_addrs(
+                sk.node_id(),
+                vec!["/ip4/192.168.1.10/tcp/4001".parse().unwrap()],
+            ),
+            expires_at: 1_700_086_400,
+            transport_policy: crate::TransportPolicy::Auto,
+            display_name: "书房 Mac".into(),
+            display_platform: "macos".into(),
+        }
+        .encode(&sk)
+    }
+
+    #[test]
+    fn qr_size_baseline() {
+        let invite = fixed_invite();
+        assert_eq!(
+            invite.len(),
+            287,
+            "样本邀请串长度变了，码面基线需要重新校准"
+        );
+        assert_eq!(
+            build_qr(&invite).unwrap().width(),
+            57,
+            "码面尺寸偏离基线（57 = QR version 10）"
         );
     }
 }

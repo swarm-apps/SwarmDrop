@@ -29,6 +29,8 @@ mod idb;
 #[cfg(wasm_browser)]
 mod identity;
 #[cfg(wasm_browser)]
+mod invite_store;
+#[cfg(wasm_browser)]
 mod node;
 #[cfg(wasm_browser)]
 mod opfs;
@@ -40,8 +42,8 @@ mod store;
 #[cfg(wasm_browser)]
 pub use node::WebNode;
 pub use types::{
-    ConnectionJson, Device, OfferJson, PendingPairingJson, RelayInfoJson, RelayStateKind, WebError,
-    WebTransferEvent,
+    ConnectionJson, Device, InviteListItemJson, OfferJson, PendingPairingJson, RelayInfoJson,
+    RelayStateKind, WebError, WebTransferEvent,
 };
 
 /// wasm 模块加载即初始化 panic hook + tracing（浏览器 console）。

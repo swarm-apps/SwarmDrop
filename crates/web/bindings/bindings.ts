@@ -84,10 +84,21 @@ export type FileProgressInfo = {
 
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 
-/**  `lookup_share_code()` 的返回：旧分享码 DHT record 解析出的对端身份和可拨地址。 */
-export type NodeAddrJson = {
+/**
+ *  「已发出的邀请」列表条目（openspec: invite-persistence）。
+ * 
+ *  **没有邀请串本身**：capability 明文不落盘也不出注册表，刷新后拼不回原始链接。
+ *  UI 只显示元数据 + 提供撤销；想再分享就生成一条新的。
+ * 
+ *  时间戳用字符串承载 Unix 秒，与 `pendingId` 同一个理由（避免 u64 → BigInt 的取回麻烦）。
+ */
+export type InviteListItemJson = {
+	/**  `sha256(capability)` 的 hex —— 撤销时回传，UI 当不透明 ID 用。 */
 	id: string,
-	addrs: string[],
+	createdAt: string,
+	expiresAt: string,
+	/**  已被对方消费（仍显示到过期，让用户知道它被用过）。 */
+	consumed: boolean,
 };
 
 /**  挂起 offer 的 JS 投影（`pending_offers()` 返回 `OfferJson[]`）。 */

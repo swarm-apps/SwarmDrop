@@ -67,6 +67,8 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             // pairing
             commands::generate_pair_invite,
             commands::revoke_pair_invite,
+            commands::list_pair_invites,
+            commands::revoke_pair_invite_by_id,
             commands::invite_qr_svg,
             commands::decode_pair_invite,
             commands::consume_pair_invite,
@@ -118,6 +120,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::TransferProjectionUpdate,
             events::ReceivingPausedChanged,
             events::ExternalFileOpen,
+            events::ExternalPairInvite,
             events::TrayOpenReceiveFolder,
             events::TrayOpenSettings,
         ])
@@ -162,7 +165,19 @@ fn register_plugins(builder: Builder<Wry>) -> Builder<Wry> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_clipboard_manager::init());
+        .plugin(tauri_plugin_clipboard_manager::init())
+        // deep-link：**只用它的 scheme 注册能力**（macOS plist / Windows 注册表 /
+        // Linux .desktop），事件消费仍走 `external_open` 那份自建 handler。
+        //
+        // 理由（openspec: pair-deep-link design D1）：自建 handler 带着两样不能丢的东西 ——
+        // `catch_unwind`（`RunEvent::Opened` 在 ObjC extern "C" 回调里触发，panic 不能跨
+        // 该边界 unwind，否则直接 abort）与全局 OnceLock 缓冲（冷启动时事件可能早于
+        // `app.manage(...)`，那时访问托管状态会 panic）。
+        //
+        // ⚠️ **待实测**：macOS 上本 plugin 也会挂 `RunEvent::Opened`，两个消费者是否互相
+        // 影响未验证（需要真机跑 `pnpm tauri dev` 并点一次深链）。若发现它抢事件，退路是
+        // 不装 plugin、自己写三平台注册（见 design D1 末尾）。
+        .plugin(tauri_plugin_deep_link::init());
 
     // MCP Bridge —— 仅 debug build 注册,供 @hypothesi/tauri-mcp-server 调试
     // (读日志 / 调 IPC / 操作 WebView)。默认监听 0.0.0.0:9223;release 不注册。
@@ -209,6 +224,17 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
             .plugin(tauri_plugin_updater::Builder::new().build())
         {
             tracing::warn!("Failed to initialize updater plugin: {e}");
+        }
+
+        // 深链 scheme 注册：**只有 dev 需要**（打包后由 installer / plist 完成）。
+        // 没有它，`pnpm tauri dev` 下点 swarmdrop:// 链接系统找不到处理程序，深链根本测不了。
+        // macOS 无需运行时注册（走 bundle plist），故只对 Windows / Linux 调。
+        #[cfg(all(debug_assertions, not(target_os = "macos")))]
+        {
+            use tauri_plugin_deep_link::DeepLinkExt as _;
+            if let Err(e) = app.deep_link().register_all() {
+                tracing::warn!("注册 swarmdrop:// scheme 失败（dev 下深链将不可用）: {e}");
+            }
         }
 
         // 事件总线提前注入：启动清理也会经 Coordinator 发布 TransferProjection。

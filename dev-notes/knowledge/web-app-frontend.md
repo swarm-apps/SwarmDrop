@@ -7,7 +7,8 @@ Web 端（wasm）的**表现层**约束。内核侧看 [`libp2p-wasm.md`](libp2p
 而看代码本身看不出来」的部分。
 
 宿主是 fumadocs 文档站（Next 16 App Router），构建是 **`output: "export"` 静态导出 +
-`trailingSlash: true` + GitHub Pages 子路径 `basePath`**。这三条几乎决定了下面每一条约束。
+`trailingSlash: true`**，部署在自定义域名 `swarmapp.cn` 的**域名根**。这两条决定了下面
+大部分约束；曾经的第三条（GitHub Pages 子路径 `basePath`）已于 2026-07-30 随域名迁移移除。
 
 导航形态（持久侧栏 + 五路由）与桌面端 breadcrumb-only 是**有意分叉**，决策记在
 `DESIGN.md` 的「Navigation — Web app area」，路由清单在 `CLAUDE.md` 的「Web 端（wasm）」段。
@@ -114,23 +115,57 @@ query param 名只在 `PARAM` 里定义一次（生产方与 `useSearchParams().
 不要在 layout 里写 `pb-24` 这类魔数去补偿——知道高度的人和补偿高度的人应当是同一个，
 否则导航行高或 safe-area 一变，那个数就悄悄失准。
 
-## 内部导航一律 next/link，纯字符串路径要手拼 BASE_PATH
+## 内部导航一律 next/link（basePath 已移除，但这条仍然成立）
 
-`basePath` 由 `PAGES_BASE_PATH` 注入（CI 部署 = `/SwarmDrop`，本地 build 留空）。
-`<Link>` / `useRouter()` 会自动加前缀并按 `trailingSlash` 补尾斜杠；**手写
-`<a href="/app/devices">` 不会**，GitHub Pages 子路径下整片 404。
+`<Link>` / `useRouter()` 会按 `trailingSlash` 补尾斜杠并做预取；手写
+`<a href="/app/devices">` 绕过这些。
 
-非框架管辖的纯字符串路径（`<img src>`、fetch URL）要手拼 `BASE_PATH`——
-`lib/shared.ts` 的 `appIconPath` 就是这么来的。
+**2026-07-30 更新（invite-url-canonical）**：站点迁到自定义域名根，`basePath` 整条链路移除。
+`next.config.mjs` 现在只注入 `PAGES_SITE_ORIGIN`（供 `metadataBase` / sitemap 出绝对 URL），
+`lib/site.ts` 不再导出 `BASE_PATH`。两条老约束随之作废：
 
-**本地验证子路径部署**：`PAGES_BASE_PATH=/SwarmDrop pnpm build`，然后 grep 产物里的
-导航 href 是否带前缀：
+- ~~「非框架管辖的纯字符串路径（`<img src>`、fetch URL）要手拼 `BASE_PATH`」~~
+  现在直接从 `/` 写起即可（`lib/shared.ts` 的 `appIconPath` 已简化成 `"/app-icon.png"`）。
+- ~~「本地验证子路径部署：`PAGES_BASE_PATH=/SwarmDrop pnpm build` + grep href 前缀」~~
+  没有前缀可验了。
 
-```bash
-grep -o 'href="[^"]*/app/[a-z]*/"' out/app/devices/index.html | sort -u
-```
+手写 `<a>` 仍不推荐，但它不再是「子路径下整片 404」那种致命错误。
+
+**换域名要同步三处**（跨语言没法共享常量）：`.github/workflows/docs.yml` 的
+`PAGES_SITE_ORIGIN`、仓库 Settings → Pages 的 Custom domain 字段（**不是** CNAME 文件 ——
+workflow 型部署会忽略它）、`crates/invite` 的 `INVITE_URL_PREFIX`，外加两份前端副本：
+`mobile/src/app/pairing/scan.tsx` 与 `docs/app/app/_components/pairing-panel.tsx`。
 
 **相关文件**：`docs/next.config.mjs`、`docs/lib/site.ts`、`docs/lib/shared.ts`
+
+## 要求极小的页面不要走 Next：client component 的 baseline 就 ~150KB
+
+配对落地页（`/p/`，openspec: invite-url-canonical）是分享链接的第一跳，而站点经 GitHub
+Pages 在国内可达性不确定（域名未备案，境内 CDN 也就接不了），所以它必须在慢网络下秒开。
+
+**Next 页面达不到这个体积**：client component 必然带上 React + framework runtime，
+baseline 约 150KB gzip，而这个页面的全部逻辑是「读 hash → 给两个出口」。
+
+做法是写成 `docs/public/p/index.html`（内联 CSS + 内联 JS）。`public/` 下的文件被静态导出
+原样复制到 `out/p/index.html`，路径正好对上 canonical 邀请链接的 `/p/` 段。实测
+**3.2KB gzip**，零框架、零额外请求。
+
+代价：拿不到站点的 Tailwind 与 fumadocs 主题，明暗配色要用 CSS 变量 +
+`prefers-color-scheme` 自己复刻一份。
+
+**判据**：页面只做分流、不共享站点交互 → 走 `public/`；一旦要用站点组件或 store → 回到
+Next 页面。
+
+### 跨页面递交 capability 用 sessionStorage，不要塞进下一个 URL
+
+落地页把邀请交给 `/app/devices` 时，存的是 `sessionStorage`（key
+`swarmdrop:pending-invite`，值是完整 canonical 链接），app 区读完立即 `removeItem`。
+
+两个理由：capability 完全不进第二个地址栏（刷新、分享、截图都带不走）；存完整链接则 app 区
+不必再硬编码一份链接前缀，原样交给后端的唯一解析入口即可。落地页与 app 区同域，storage 互通。
+
+隐私模式下 storage 可能不可用，落地页会**退回**把 payload 挂在 fragment 上传过去，所以
+消费端两条路径都要读（见 `pairing-panel.tsx` 的 handoff effect）。
 
 ## `_lib/create-store.ts` 是自研 store，且不在 lint 兜底范围内
 

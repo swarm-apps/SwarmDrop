@@ -27,6 +27,7 @@ use crate::protocol::{
 use crate::transfer::incoming::TransferCtrlService;
 use crate::transfer::manager::TransferManager;
 use crate::transfer::wire::TransferDataHandler;
+use swarmdrop_invite::InviteStore;
 
 /// 已启动的 core 节点。
 ///
@@ -69,12 +70,12 @@ impl EndpointProfile {
 /// 广播给对端。Host 改名后需 stop + start 节点让新值上线。
 ///
 /// keychain 存量为 protobuf 编码，[`SecretKey`] 与之完全兼容。
-// 依赖注入组合根：8 个参数都是三端各自供给的端口 / 身份 / 配置（secret / os_info /
-// paired / network_config / profile / event_bus / notifier / transfer 工厂），打包成
+// 依赖注入组合根：参数都是三端各自供给的端口 / 身份 / 配置（secret / os_info / paired /
+// network_config / profile / event_bus / notifier / invite_store / transfer 工厂），打包成
 // struct 只是把同一组必填项换个容器、并不减少调用方负担，故直接放行。
 #[expect(
     clippy::too_many_arguments,
-    reason = "依赖注入组合根，8 个参数都是三端必填的端口/身份/配置，打包成 struct 不减负担"
+    reason = "依赖注入组合根，参数都是三端必填的端口/身份/配置，打包成 struct 不减负担"
 )]
 pub async fn start_node<F>(
     secret_key: SecretKey,
@@ -85,6 +86,9 @@ pub async fn start_node<F>(
     profile: EndpointProfile,
     event_bus: Arc<dyn EventBus>,
     notifier: Option<Arc<dyn Notifier>>,
+    // 邀请注册表的落盘端口（native = SqlInviteStore / wasm = IndexedDB 实现）。
+    // 不需要持久化时传 Arc::new(NoopInviteStore) —— 退回「重启丢邀请」的旧语义。
+    invite_store: Arc<dyn InviteStore>,
     create_transfer: F,
 ) -> AppResult<StartedNode>
 where
@@ -137,7 +141,12 @@ where
         candidate_manager,
         event_bus,
         notifier.clone(),
+        invite_store,
     );
+
+    // 把落盘的邀请读回内存表。必须在对外服务之前完成：注册表是一次性消费的权威判定点，
+    // 没 load 就等于「重启后所有已发出的邀请都不认识」，对方点开链接只会拿到「邀请无效」。
+    manager.pairing().load_invites().await;
 
     // Router：三协议入站路由。pairing 与 transfer 控制面是 typed RPC，数据面是裸流。
     let router = build_router(

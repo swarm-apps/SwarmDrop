@@ -5,6 +5,8 @@ description: |
   (1) 编写或修改任何 src/ / src-tauri/src/ / crates/core/src/ 下的代码
   (2) 添加新依赖或修改配置文件（Cargo.toml / package.json / tauri.conf.json）
   (3) 完成一个 feature 或修复一个 bug
+  覆盖全流程：开发前加载知识库 → 开发中遵循最佳实践 → 开发后「机器门禁 → /simplify → /code-review」
+  三道关 → 收尾更新知识库。任务完成不等于代码通过，三道关缺一不算完。
   触发关键词：组件开发、bug 修复、重构、新功能、依赖升级、配置变更、Tauri command、P2P、配对、传输
 ---
 
@@ -54,7 +56,83 @@ description: |
 
 **优先级**：项目知识库 > 项目级 skill（`.claude/skills/*`）> 通用 skill > Claude 自身知识。当项目知识库中有明确记录时，以项目知识库为准。
 
-### 3. 开发后：更新知识库
+### 3. 开发后：门禁 → 简化 → 审查
+
+**三步都不能省，顺序固定。** 机器门禁先保证「能编过」，`/simplify` 再收拾形态，
+`/code-review` 最后审最终代码。顺序反了等于拿中间态浪费一轮审查。
+
+#### 3.1 机器门禁
+
+**前端这几条没有 CI 兜底**（`.github/workflows/` 下只有 `rust.yml` 管 Rust，前端零 workflow），
+所以这份清单就是它们唯一的执行者 —— 漏跑没人会告诉你。
+
+```bash
+# 前端
+pnpm exec tsc --noEmit
+pnpm test                  # vitest
+pnpm check:zustand-access  # selector 派生数组检查（防无限重渲染）
+pnpm check:clipboard       # 禁止绕过 src/lib/clipboard.ts 直接用 navigator.clipboard
+pnpm i18n:extract          # 新增/修改翻译字符串后
+                           # ⚠️ 提取完要**补 en / zh-TW 译文**，否则那两个语言静默回落中文
+
+# Rust（在仓库根目录跑即可，workspace 会一并 check）
+cargo fmt --all
+cargo check --workspace --all-targets
+cargo test --workspace
+cargo clippy --workspace
+
+# wasm 双 target 门禁 —— 改 net / net-base / host / transfer / invite / core / web 后必跑
+./scripts/check-wasm.sh
+./scripts/check-wasm.sh --clippy
+
+# 单 crate
+cargo check -p swarmdrop-core --features specta
+cargo check -p swarmdrop            # 桌面壳（package 名 swarmdrop，lib 名 swarmdrop_lib）
+```
+
+**约束**：
+
+1. 提交前 `cargo check --workspace` + `tsc --noEmit` 必须通过。
+2. 动了 wasm 侧 7 个 crate 中任何一个，`./scripts/check-wasm.sh` 也必须过——CI 会拦。
+3. `pnpm tauri dev` 启动时 specta 自动重新导出 `src/lib/bindings.ts`——改了 Rust 端 IPC 类型
+   **不要**手动改 bindings.ts，让它自动生成。
+4. `cargo clippy` 当前在 CI 里是 `continue-on-error`（存量 warning 基线未清），
+   所以**别指望 CI 帮你拦 clippy 问题**，新代码自己保证干净。
+
+#### 3.2 `/simplify` —— 质量清理
+
+复用、简化、效率、抽象层次（altitude）四个维度，发现即改。
+
+**它明确不找 bug。** 跑完 `/simplify` 不代表代码是对的——正确性由 3.3 负责，两者不可互相替代。
+
+#### 3.3 `/code-review` —— 正确性 · 架构 · 逻辑
+
+在 `/simplify` 之后跑，审的是最终形态。发现问题 → 修 → **重跑 3.1 的门禁**。
+
+改动较大或跨层（同时动 `crates/*` 与前端、或碰网络内核 / 协议 wire）时，按并行审查做：
+派多个 agent 各审一块（前端表现层 / Rust 业务域 / 分层边界与协议契约），主线汇总去重后定结论。
+单个 agent 一次扫全 diff 会漏掉跨层不一致。
+
+**项目专属自检清单**（通用 review 抓不到，逐条过）：
+
+| 维度 | 检查点 |
+|---|---|
+| 分层边界 | `crates/core` 零 sea-orm、`crates/transfer` 零 network 依赖、`crates/invite` 零 core 依赖；libp2p 类型在 `crates/net-base` 收口成 newtype，不向上穿透 |
+| wasm | 动了 net / net-base / host / transfer / invite / core / web → `check-wasm.sh` 必须过；业务层不写 `cfg(wasm_browser)` 分支（门控归 `crates/web`） |
+| 传输安全 | **不新增应用层加密**（保密归传输层 Noise/QUIC-TLS，且会与 bao-tree 逐块验签冲突）；数据面校验 `stream.remote() == session.peer` |
+| IPC | 新增/改动的命令与事件已注册进 `src-tauri/src/setup.rs` 的 `collect_commands!` / `collect_events!`；`bindings.ts` 没被手改 |
+| 命令薄壳 | `src-tauri/src/commands/` 只解析参数 + 取 State + 调 manager，业务逻辑不许留在壳里 |
+| 前端状态 | zustand 与 `docs/app/app` 自研 `create-store` 的 selector 都不许派生新数组/对象；`check:zustand-access` **不覆盖 docs/**，那边纯靠人审 |
+| Web 应用区 | 运行时单例（节点 spawn / 事件消费 / 轮询）只挂 layout，不下放到 page；静态导出三限制：无 `redirect()`、运行时 ID 不进路由段、`useSearchParams()` 套 `<Suspense>`；内部导航走 `next/link` |
+| 文案 | 新增 UI 串走 Lingui（源 locale `zh`）并已 `pnpm i18n:extract`；托盘/通知等原生串走 rust-i18n |
+| 依赖 pin | 没有擅自动 libp2p / rtc / webrtc 三处 pin（升 rev 必须独立 PR + 全量测试 + wasm check） |
+| 版本号 | 改版本时三处同步：`package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` |
+
+审查结论要落到「改了什么 / 为什么不改」，不要只报告发现。
+
+### 4. 收尾：更新知识库
+
+**3.3 里审出来的非显见问题，往往正是该记的知识**——趁上下文还热记下来。
 
 完成代码修改后，**检查是否产生了新的项目知识**：
 
@@ -92,38 +170,3 @@ description: |
 
 **相关文件**：`path/to/file`
 ```
-
-### 4. 代码质量检查
-
-开发完成后，运行 `/simplify` 检查代码质量。lint / format / typecheck 命令：
-
-```bash
-# 前端
-pnpm exec tsc --noEmit
-pnpm test                  # vitest
-pnpm check:zustand-access  # selector 派生数组检查（防无限重渲染）
-pnpm i18n:extract          # 新增/修改翻译字符串后
-
-# Rust（在仓库根目录跑即可，workspace 会一并 check）
-cargo fmt --all
-cargo check --workspace --all-targets
-cargo test --workspace
-cargo clippy --workspace
-
-# wasm 双 target 门禁 —— 改 net / net-base / host / transfer / invite / core / web 后必跑
-./scripts/check-wasm.sh
-./scripts/check-wasm.sh --clippy
-
-# 单 crate
-cargo check -p swarmdrop-core --features specta
-cargo check -p swarmdrop            # 桌面壳（package 名 swarmdrop，lib 名 swarmdrop_lib）
-```
-
-**约束**：
-
-1. 提交前 `cargo check --workspace` + `tsc --noEmit` 必须通过。
-2. 动了 wasm 侧 7 个 crate 中任何一个，`./scripts/check-wasm.sh` 也必须过——CI 会拦。
-3. `pnpm tauri dev` 启动时 specta 自动重新导出 `src/lib/bindings.ts`——改了 Rust 端 IPC 类型
-   **不要**手动改 bindings.ts，让它自动生成。
-4. `cargo clippy` 当前在 CI 里是 `continue-on-error`（存量 warning 基线未清），
-   所以**别指望 CI 帮你拦 clippy 问题**，新代码自己保证干净。

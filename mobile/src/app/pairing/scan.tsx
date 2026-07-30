@@ -25,6 +25,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
+import { INVITE_IN_TEXT_PATTERN, INVITE_PATTERN } from "@/core/invite-link";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 import { usePairingInviteStore } from "@/stores/pairing-invite-store";
@@ -40,15 +41,6 @@ import { usePairingInviteStore } from "@/stores/pairing-invite-store";
  * 四角在浅色背景（白纸/白屏上的二维码）下也不会糊成一片。低光是扫码失败的头号原因，
  * 所以手电筒是常驻控件，不藏在二级菜单里。
  */
-
-/**
- * 邀请串的两种载体（`crates/invite/src/invite.rs` 的 `decode_wire_text`）：
- * 链接 `sd:<base64url>`（大小写敏感）、二维码 `SD<base32>`（大小写不敏感、整串大写）。
- *
- * 判据带上字符集与长度下限：KIND 前缀只有两个字母，只比 `startsWith("sd")` 会把
- * 任何以 sd 开头的二维码都送进 `previewInvite`，白白锁住扫码器再弹一次「邀请无效」。
- */
-const INVITE_PATTERN = /^sd(?::[A-Za-z0-9_-]{32,}|[A-Za-z2-7]{32,})$/;
 
 /** 取景窗边长（pt）。四角标记与遮罩挖洞共用，改这一个值即可。 */
 const RETICLE_SIZE = 248;
@@ -81,8 +73,8 @@ export default function ScanInvite() {
       lockRef.current = true;
       setWorking(true);
       setError(null);
-      // 原样交给 core，**不要**做大小写归一：链接载体是大小写敏感的 Base64URL，
-      // 归一会直接毁掉载荷（二维码的 Base32 才大小写不敏感，core 那侧自会统一）。
+      // 原样交给 core。canonical 载体整串大小写不敏感（payload 是 base32），所以这里
+      // 既不需要也不该做归一——统一由 core 那侧完成，前端多一步就多一处能漂移的地方。
       const ok = await previewInvite(raw);
       if (ok) {
         Haptics.notificationAsync(
@@ -93,14 +85,23 @@ export default function ScanInvite() {
         return;
       }
       setWorking(false);
-      setError(invalidHint);
+      // 按判别码给话：「自己的邀请」「已过期」「链接坏了」是三回事，说成一样会让用户
+      // 反复重新生成、重新扫，而问题可能只是他扫了自己那张码。
+      const reject = usePairingInviteStore.getState().previewReject;
+      setError(
+        reject === "self"
+          ? t`这是你自己的邀请`
+          : reject === "expired"
+            ? t`邀请已过期，请让对方重新生成`
+            : invalidHint,
+      );
       // 去抖 1.5s 再解锁，避免坏码高频重触发。
       setTimeout(() => {
         lockRef.current = false;
         setError(null);
       }, 1500);
     },
-    [previewInvite, router],
+    [previewInvite, router, t],
   );
 
   const handleScanned = useCallback(
@@ -120,13 +121,14 @@ export default function ScanInvite() {
   // 对方把邀请以文本发过来时（微信/邮件），不必回上一屏再找输入框。
   const handlePaste = useCallback(async () => {
     if (lockRef.current) return;
-    const clip = (await Clipboard.getStringAsync()).trim();
-    if (!INVITE_PATTERN.test(clip)) {
+    const clip = await Clipboard.getStringAsync();
+    const found = INVITE_IN_TEXT_PATTERN.exec(clip)?.[0];
+    if (found === undefined) {
       setError(t`剪贴板里没有配对邀请`);
       setTimeout(() => setError(null), 2000);
       return;
     }
-    await consumeInvite(clip, t`剪贴板里的邀请无效或已过期`);
+    await consumeInvite(found, t`剪贴板里的邀请无效或已过期`);
   }, [consumeInvite, t]);
 
   const goBack = () => router.back();

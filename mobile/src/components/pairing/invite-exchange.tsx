@@ -28,6 +28,7 @@ import { InviteQr, type InviteQrOverlay } from "@/components/pairing/invite-qr";
 import { Text } from "@/components/ui/text";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { i18n } from "@/i18n/lingui";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import {
@@ -178,7 +179,7 @@ function InviteCard() {
                 : "text-muted-foreground",
             )}
           >
-            {t`${formatMmss(remaining)} 后过期`}
+            {t`${formatTimeLeft(remaining, i18n.locale)} 后过期`}
           </Text>
         ) : null}
       </View>
@@ -276,7 +277,14 @@ function PasteInviteInput({ onResolved }: { onResolved: () => void }) {
       onResolved();
       router.push({ pathname: "/pairing/found-device" });
     } else {
-      setError(t`邀请无效或已过期`);
+      const reject = usePairingInviteStore.getState().previewReject;
+      setError(
+        reject === "self"
+          ? t`这是你自己的邀请`
+          : reject === "expired"
+            ? t`邀请已过期，请让对方重新生成`
+            : t`邀请无效或已被使用`,
+      );
     }
   };
 
@@ -306,7 +314,7 @@ function PasteInviteInput({ onResolved }: { onResolved: () => void }) {
       <BottomSheetTextInput
         value={text}
         onChangeText={setText}
-        placeholder="sd:..."
+        placeholder="https://swarm-apps.github.io/SwarmDrop/p/#..."
         placeholderTextColor={colors.mutedForeground}
         autoCapitalize="none"
         autoCorrect={false}
@@ -348,8 +356,24 @@ function PasteInviteInput({ onResolved }: { onResolved: () => void }) {
   );
 }
 
-function formatMmss(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+/**
+ * 剩余有效期。TTL 是 24h，`mm:ss` 会显示成「1439:59」这种荒唐数字，所以按量级换单位。
+ *
+ * 走 `Intl.NumberFormat` 的 unit style 而不是拼中文串：英文 / 繁中界面下拼串会露出
+ * 「23 小时」这样的混排。**只给时长、不带方向词**，「…后过期」由调用处的 `t` 组装
+ * （`RelativeTimeFormat` 会自带「后」，与外层文案叠成「23 小时后 后过期」）。
+ *
+ * 最后一小时内保留 `mm:ss`：那时用户多半正盯着屏幕当面配对，秒级跳动是有用的反馈。
+ */
+function formatTimeLeft(seconds: number, locale: string): string {
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+  return new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit: "hour",
+    unitDisplay: "long",
+  }).format(Math.round(seconds / 3600));
 }

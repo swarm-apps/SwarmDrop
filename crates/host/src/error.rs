@@ -26,12 +26,21 @@ pub enum AppError {
     #[error("Node not started")]
     NodeNotStarted,
 
-    /// 配对码已过期（面向用户的文案由前端按 `kind` 渲染，此处仅作语言无关技术描述）
-    #[error("pairing code expired")]
+    /// 邀请已过期。
+    ///
+    /// 变体名沿用「Code」是历史（6 位配对码时代），现在承载的是 PairInvite 的过期
+    /// ——**不要照名字去理解语义**。改名要动 core / uniffi / TS bindings / 前端
+    /// `KIND_MESSAGES` 四处的 `kind` 契约，与本次改动无关，故只在此说明。
+    ///
+    /// 面向用户的文案由前端按 `kind` 渲染，此处仅作语言无关技术描述。
+    #[error("invite expired")]
     ExpiredCode,
 
-    /// 无效的配对码（面向用户的文案由前端按 `kind` 渲染，此处仅作语言无关技术描述）
-    #[error("invalid pairing code")]
+    /// 邀请无效：解析 / 验签失败，或凭证已被消费、已撤销。
+    ///
+    /// 变体名同上，是历史遗留。技术细节（哪一步失败）只进日志 —— 它对用户没有意义，
+    /// 而且是 Rust 侧的中文串，直接展示会在非中文界面露馅。
+    #[error("invalid invite")]
     InvalidCode,
 
     /// tokio 任务错误

@@ -93,10 +93,21 @@ export type FileProgressInfo = {
 
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 
-/**  `lookup_share_code()` 的返回：旧分享码 DHT record 解析出的对端身份和可拨地址。 */
-export type NodeAddrJson = {
+/**
+ *  「已发出的邀请」列表条目（openspec: invite-persistence）。
+ *
+ *  **没有邀请串本身**：capability 明文不落盘也不出注册表，刷新后拼不回原始链接。
+ *  UI 只显示元数据 + 提供撤销；想再分享就生成一条新的。
+ *
+ *  时间戳用字符串承载 Unix 秒，与 `pendingId` 同一个理由（避免 u64 → BigInt 的取回麻烦）。
+ */
+export type InviteListItemJson = {
+    /**  `sha256(capability)` 的 hex —— 撤销时回传，UI 当不透明 ID 用。 */
     id: string,
-    addrs: string[],
+    createdAt: string,
+    expiresAt: string,
+    /**  已被对方消费（仍显示到过期，让用户知道它被用过）。 */
+    consumed: boolean,
 };
 
 /**  挂起 offer 的 JS 投影（`pending_offers()` 返回 `OfferJson[]`）。 */
@@ -451,8 +462,17 @@ export class WebNode {
      * 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
      * 拨得到本机，本机需先经 [`relays_ensure`](Self::relays_ensure) 在某 helper 上建 reservation
      * （等到 `active`），否则邀请里无可拨地址、消费方连不上。
+     * **async 化于 invite-persistence**：生成时要把邀请写穿进 IndexedDB，否则刷新页面
+     * 后本机就不认识刚发出去的那条邀请了（注册表 fail-closed，查不到即拒绝）。
      */
-    generate_invite(local_only: boolean): string;
+    generate_invite(local_only: boolean): Promise<string>;
+    /**
+     * 本机未过期的已发出邀请（最近生成的在前）。
+     *
+     * TTL 24h + 跨刷新存活之后，「我现在有几条邀请在外面飘」需要能看见 ——
+     * 这个列表与 [`revoke_invite_by_id`](Self::revoke_invite_by_id) 是那段窗口的控制手段。
+     */
+    list_invites(): InviteListItemJson[];
     /**
      * 本节点身份（base58）。
      */
@@ -523,9 +543,17 @@ export class WebNode {
      * 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
      *
      * 幂等且不报错——不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），
-     * 调用方 fire-and-forget 即可。
+     * 调用方 fire-and-forget 即可（**返回 Promise，不 await 也能用**）。
+     *
+     * async 化于 invite-persistence：撤销要把那行从 IndexedDB 删掉，否则刷新后它又回来了。
+     * 返回**是否已落盘**：`false` 时重启后那条邀请会复活，调用方应当提示用户。
      */
-    revoke_invite(invite: string): void;
+    revoke_invite(invite: string): Promise<boolean>;
+    /**
+     * 按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
+     * 返回**是否已落盘**：`false` 时刷新后那条邀请会复活，调用方应当提示用户。
+     */
+    revoke_invite_by_id(id: string): Promise<boolean>;
     /**
      * 向 `to`（base58 NodeId）发送用户选择的文件：登记文件源 → prepare（checksum + bao
      * outboard）→ 发 Offer。返回 session_id。
@@ -566,7 +594,8 @@ export interface InitOutput {
     readonly webnode_connect_invite: (a: number, b: number, c: number) => any;
     readonly webnode_download_url: (a: number, b: number, c: number) => any;
     readonly webnode_events: (a: number) => [number, number, number];
-    readonly webnode_generate_invite: (a: number, b: number) => [number, number, number, number];
+    readonly webnode_generate_invite: (a: number, b: number) => any;
+    readonly webnode_list_invites: (a: number) => [number, number, number];
     readonly webnode_node_id: (a: number) => [number, number];
     readonly webnode_paired_devices: (a: number) => [number, number, number];
     readonly webnode_pending_offers: (a: number) => [number, number, number];
@@ -579,7 +608,8 @@ export interface InitOutput {
     readonly webnode_relays_until_active: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_respond_pairing_request: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_resume: (a: number, b: number, c: number) => any;
-    readonly webnode_revoke_invite: (a: number, b: number, c: number) => void;
+    readonly webnode_revoke_invite: (a: number, b: number, c: number) => any;
+    readonly webnode_revoke_invite_by_id: (a: number, b: number, c: number) => any;
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
     readonly webnode_transfer_history: (a: number) => [number, number, number];

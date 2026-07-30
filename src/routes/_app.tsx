@@ -16,6 +16,7 @@ import { usePreferencesStore } from "@/stores/preferences-store";
 import { ConnectionRequestDialog } from "@/components/pairing/connection-request-dialog";
 import { TransferOfferDialog } from "@/components/transfer/transfer-offer-dialog";
 import { ExternalOpenHandler } from "@/components/external-open-handler";
+import { ClipboardInviteBanner } from "@/components/pairing/clipboard-invite-banner";
 import {
   setupTransferListeners,
   cleanupTransferListeners,
@@ -71,6 +72,9 @@ function AppLayout() {
             <WindowControls />
           </div>
         ))}
+      {/* 剪贴板里有别人给的邀请时抬一条非模态提示（自己发出的不亮，见组件文档）。
+          放在 main 之上、顶栏之下：它是入站信号，不该被页面内容挤走。 */}
+      {!isFullScreenRoute && <ClipboardInviteBanner />}
       <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>

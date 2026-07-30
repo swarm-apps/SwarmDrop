@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "check:zustand-access": "node scripts/check-zustand-store-access.mjs",
+    "check:clipboard": "node scripts/check-clipboard-access.mjs",
     "tauri": "tauri",
     "i18n:extract": "lingui extract",
     "changelog": "git-cliff --tag-pattern '^v[0-9]' --exclude-path 'mobile/**' --output CHANGELOG.md",

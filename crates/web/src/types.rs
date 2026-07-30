@@ -105,6 +105,24 @@ pub struct PendingPairingJson {
     pub device_name: String,
 }
 
+/// 「已发出的邀请」列表条目（openspec: invite-persistence）。
+///
+/// **没有邀请串本身**：capability 明文不落盘也不出注册表，刷新后拼不回原始链接。
+/// UI 只显示元数据 + 提供撤销；想再分享就生成一条新的。
+///
+/// 时间戳用字符串承载 Unix 秒，与 `pendingId` 同一个理由（避免 u64 → BigInt 的取回麻烦）。
+#[derive(Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct InviteListItemJson {
+    /// `sha256(capability)` 的 hex —— 撤销时回传，UI 当不透明 ID 用。
+    pub id: String,
+    pub created_at: String,
+    pub expires_at: String,
+    /// 已被对方消费（仍显示到过期，让用户知道它被用过）。
+    pub consumed: bool,
+}
+
 /// 连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。
 #[derive(Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

@@ -107,6 +107,7 @@ async fn reservation_rebuilds_after_helper_restart() {
         candidates,
         bus.clone(),
         None,
+        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
     );
 
     let shared = manager.shared_refs();
