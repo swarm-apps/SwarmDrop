@@ -16,8 +16,9 @@
 // 暗色主题下它会变浅灰，压在白底上不可读。
 
 import { Check, Copy } from "lucide-react";
+import { Ban, CheckCircle2, TimerOff, WifiOff, type LucideIcon } from "lucide-react";
 import { memo, useMemo, useRef, useState } from "react";
-import { INVITE_TTL_HOURS } from "../_lib/invite";
+import { formatRemaining, remainingSeconds } from "../_lib/invite";
 import { getNode } from "../_lib/node-runtime";
 
 /** 码面边长（px）。手机扫描距离 20–30cm 下够用，也不至于把面板撑开。 */
@@ -25,12 +26,49 @@ const QR_SIZE = 196;
 /** 白卡内边距（px），须与下面的 `p-3` 一致——尺寸由它派生，改一处不会静默错位。 */
 const CARD_PADDING = 12;
 
+/** 码失效的四种成因。文案与图标在组件内映射，调用方只报事实不拼话。 */
+type OverlayKind = "consumed" | "expired" | "revoked" | "unreachable";
+
+interface InviteShareProps {
+  /** `null` 表示「正在生成」：白卡留在原位显示占位，**不卸载整块**。 */
+  invite: string | null;
+  /**
+   * 该邀请的失效时刻（Unix 秒，字符串承载——wasm 侧避开 u64 → BigInt）。
+   * 调用方须 latch 住它，不能从只含未过期条目的列表里现查（理由见 pairing-panel）。
+   */
+  expiresAt: string | null;
+  /** 邀请已被对方消费（一次性凭证，用掉即止）。 */
+  consumed: boolean;
+  /** 用户是否已在「已发出的邀请」里撤销了这一条。 */
+  revoked: boolean;
+  /** 本机当前是否有可达路径（relay reservation）。 */
+  reachable: boolean;
+  /**
+   * 当前 Unix 秒，由调用方的 `useNowSeconds()` 提供。
+   *
+   * 时钟从外面传进来而不是本组件自己起一个：本组件是 `memo` 的，自建时钟只会推动
+   * 自己，而同一个面板底部「已发出的邀请」列表里的剩余期由父组件渲染——两个时钟意味着
+   * 两个相位，也意味着父组件那份可能整个不走。
+   */
+  now: number;
+}
+
 /**
- * `invite` 为 null 表示「正在生成」：白卡留在原位显示占位，**不卸载整块**。
- * 重新生成时若让整块消失再长回来，码面区域会塌一下——桌面端用覆盖层压住失效的码来
- * 避免这个跳版，这里用同尺寸占位达到同样效果。
+ * 码失效后**必须在码面上说出来**（#101）。二维码与纯文本链接的差别就在这里：一段死文本
+ * 粘过去会得到一句报错，而一个死码对方要先掏出手机、对准、等识别，全程没有任何信号说明
+ * 它已经没用了——代价高得多。
+ *
+ * 所以失效时不撤掉码，而是把它压到几乎扫不出来再叠一层说明：位置不变、无布局跳动，
+ * 且「这里本来有个码、现在它坏了」这件事本身是可见的。同桌面端 `InviteQrOverlay`。
  */
-export const InviteShare = memo(function InviteShare({ invite }: { invite: string | null }) {
+export const InviteShare = memo(function InviteShare({
+  invite,
+  expiresAt,
+  consumed,
+  revoked,
+  reachable,
+  now,
+}: InviteShareProps) {
   // 同步计算：`invite_qr_svg` 是纯计算（不碰 IndexedDB、不碰网络），一帧就出结果，
   // 不需要桌面端那套 loading 态——那边的 loading 是跨 Tauri IPC 才有的。
   //
@@ -50,17 +88,37 @@ export const InviteShare = memo(function InviteShare({ invite }: { invite: strin
     }
   }, [invite]);
 
+  // **判过期用的是邀请自带的 `expiresAt` 绝对时刻**，不是「生成时刻 + TTL」——后者依赖
+  // 前端记的那个时间点，刷新页面就丢，而邀请本身活 24 小时且跨刷新存活。
+  const remaining = expiresAt === null ? null : remainingSeconds(expiresAt, now);
+
+  // 优先级：已用 > 过期 > 撤销 > 不可达。
+  //
+  // **`expired` 必须排在 `revoked` 前面**：注册表只保留「未过期且未撤销」的条目，所以
+  // 「查不到」这一个现象对应两种成因。先用邀请自带的失效时刻把过期摘出来，剩下的才是
+  // 撤销——反过来排会对着一条自然到期的邀请断言「你撤销过它」，那是可被用户证伪的假话。
+  //
+  // 「不可达」垫底：前三者是这条邀请自己已成定局的事实，而它描述的是本机此刻的状态。
+  const overlay: OverlayKind | null =
+    invite === null ? null
+    : consumed ? "consumed"
+    : remaining !== null && remaining <= 0 ? "expired"
+    : revoked ? "revoked"
+    : !reachable ? "unreachable"
+    : null;
+
   return (
     <div className="mt-3 flex flex-col items-center gap-3 sm:flex-row sm:items-start">
       <div
-        className="flex shrink-0 items-center justify-center rounded-xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:ring-white/15"
+        className="relative flex shrink-0 items-center justify-center rounded-xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:ring-white/15"
         style={{ width: QR_SIZE + CARD_PADDING * 2, height: QR_SIZE + CARD_PADDING * 2 }}
       >
         {html ? (
           <div
             role="img"
             aria-label="配对邀请二维码"
-            className="size-full [&>svg]:size-full"
+            // 压到扫不动为止：失效的码若还能被读到，对方只会白跑一趟失败流程。
+            className={`size-full [&>svg]:size-full ${overlay ? "opacity-[0.09]" : ""}`}
             // SVG 由 wasm 侧受信任生成（纯几何 path，无脚本），内联安全。
             dangerouslySetInnerHTML={html}
           />
@@ -70,6 +128,7 @@ export const InviteShare = memo(function InviteShare({ invite }: { invite: strin
             {invite === null ? "正在生成…" : "二维码生成失败，请用下方链接配对"}
           </p>
         )}
+        {overlay && <QrOverlay kind={overlay} />}
       </div>
 
       <div className="flex w-full min-w-0 flex-col gap-2">
@@ -77,8 +136,14 @@ export const InviteShare = memo(function InviteShare({ invite }: { invite: strin
             所以两条路径要分端说清楚，不能笼统写「扫码或粘贴」。 */}
         <p className="text-xs text-fd-muted-foreground">
           手机上用 SwarmDrop 的「扫码」对准它；桌面端没有相机，复制链接发过去用「粘贴邀请」。
-          {INVITE_TTL_HOURS} 小时内有效。
         </p>
+        {/* 剩余有效期贴着说明走，不写死「24 小时内有效」——那句话在码已经躺了半天之后
+            仍然照说不误，等于没说。失效后交给码面上的覆盖层，这里不再重复。 */}
+        {overlay === null && expiresAt !== null && (
+          <p className="text-xs text-fd-muted-foreground" aria-live="polite">
+            {formatRemaining(expiresAt, now)}
+          </p>
+        )}
         {/* `key` 让按钮随邀请换代重挂：否则「已复制」会在点了「重新生成」之后继续挂着，
             而剪贴板里躺的是刚被撤销的上一条；「复制失败」同理会残留到一条全新的邀请上。 */}
         <CopyInviteButton key={invite ?? "pending"} invite={invite} />
@@ -95,6 +160,43 @@ export const InviteShare = memo(function InviteShare({ invite }: { invite: strin
     </div>
   );
 });
+
+const OVERLAY = {
+  consumed: {
+    icon: CheckCircle2,
+    title: "邀请已被使用",
+    hint: "一条邀请只能用一次。要再连一台设备，请重新生成。",
+  },
+  expired: { icon: TimerOff, title: "邀请已过期", hint: "有效期已过，重新生成一条即可。" },
+  revoked: { icon: Ban, title: "邀请已撤销", hint: "这个码已经作废，请重新生成一条。" },
+  unreachable: {
+    // 只说「已撤销」不说「已断开」：这个分支唯一的成因是用户在设置页主动撤销了可达，
+    // 而 store 里的 `reservation` 目前**感知不到真实断线**（helper 掉线不会把它置回 null），
+    // 所以不能拿它当断线检测来承诺。
+    icon: WifiOff,
+    title: "本机可达已撤销",
+    hint: "circuit 已撤销，对方扫这个码也拨不回来。重新建立可达后请重新生成。",
+  },
+} satisfies Record<OverlayKind, { icon: LucideIcon; title: string; hint: string }>;
+
+/**
+ * 码面覆盖层。白底之上，所以文字用固定的 `slate` 深色而非主题 token（见文件头）。
+ * 不带动作按钮——恢复动作只有一个「重新生成」，它就在码上方几十像素处，
+ * 在这里再放一个等于同一屏出现两个同义主动作。
+ */
+function QrOverlay({ kind }: { kind: OverlayKind }) {
+  const { icon: Icon, title, hint } = OVERLAY[kind];
+  return (
+    <div
+      role="status"
+      className="absolute inset-3 flex flex-col items-center justify-center gap-1.5 rounded-lg bg-white/85 px-3 text-center"
+    >
+      <Icon className="size-6 text-slate-400" aria-hidden="true" />
+      <p className="text-xs font-medium text-slate-700">{title}</p>
+      <p className="text-[11px] leading-snug text-slate-500">{hint}</p>
+    </div>
+  );
+}
 
 function CopyInviteButton({ invite }: { invite: string | null }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");

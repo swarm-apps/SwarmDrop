@@ -145,7 +145,8 @@ query param 名只在 `PARAM` 里定义一次（生产方与 `useSearchParams().
 **换域名要同步三处**（跨语言没法共享常量）：`.github/workflows/docs.yml` 的
 `PAGES_SITE_ORIGIN`、仓库 Settings → Pages 的 Custom domain 字段（**不是** CNAME 文件 ——
 workflow 型部署会忽略它）、`crates/invite` 的 `INVITE_URL_PREFIX`，外加两份前端副本：
-`mobile/src/app/pairing/scan.tsx` 与 `docs/app/app/_components/pairing-panel.tsx`。
+`mobile/src/core/invite-link.ts` 与 `docs/app/app/_lib/invite.ts`。
+权威清单在 `INVITE_URL_PREFIX` 的文档注释里（含各处的性质：功能性 / 纯文案）。
 
 **相关文件**：`docs/next.config.mjs`、`docs/lib/site.ts`、`docs/lib/shared.ts`
 
