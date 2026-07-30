@@ -337,6 +337,28 @@ impl WebNode {
             .await)
     }
 
+    /// 邀请二维码的 SVG 字符串（深模块 + 透明背景，渲染端自己套白卡）。
+    ///
+    /// 编码规范由 [`swarmdrop_invite::qr`] 三端单点固化（原样编码 + 最优分段 + ECL::M +
+    /// quiet zone）——浏览器**不要**另引 JS 二维码库：三端各画一遍，码面规范就会漂，
+    /// 而漂了的表现是「某一端生成的码另一端扫不出来」，很难归因。
+    ///
+    /// **这是纯函数，`&self` 只是可达性的代价，不代表它是节点能力**——别把这里当作
+    /// 「纯计算也该挂 `WebNode`」的先例。做成自由函数或 `WebNode` 的静态方法都更贴切，
+    /// 但前端拿 wasm 模块句柄的唯一路径是 `node-runtime.ts` 里那个**不导出**的
+    /// `loadModule()`（静态 import 会在 Next 预渲染时挂，故只能动态 import + 记忆化）。
+    /// 走自由函数就得再开一个 `getModule()` 访问器并自己缓存一份——为一个叶子功能
+    /// 加这套机器不值，而 `getNode()` 是现成的。
+    ///
+    /// 同步返回：纯计算，不碰 IndexedDB 也不碰网络。
+    pub fn invite_qr_svg(&self, invite: String) -> Result<String, JsValue> {
+        // 不用 `js_err`（它一律映射成 `kind: "network"`）：编码失败是纯计算的「输入装不下」
+        // ——QR 在 ECL::M 下的容量上限约 2KB wire，而本机产出的邀请最坏 327 字节，够不着。
+        // 真报出来时若顶着「网络错误」的标题，只会把排查引到完全无关的方向。
+        swarmdrop_invite::invite_qr_svg(&invite)
+            .map_err(|e| WebError::invalid_input(e.to_string()).into())
+    }
+
     /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
     ///
     /// 幂等且不报错——不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），

@@ -7,8 +7,16 @@ Web 端（wasm）的**表现层**约束。内核侧看 [`libp2p-wasm.md`](libp2p
 而看代码本身看不出来」的部分。
 
 宿主是 fumadocs 文档站（Next 16 App Router），构建是 **`output: "export"` 静态导出 +
-`trailingSlash: true`**，部署在自定义域名 `swarmapp.cn` 的**域名根**。这两条决定了下面
-大部分约束；曾经的第三条（GitHub Pages 子路径 `basePath`）已于 2026-07-30 随域名迁移移除。
+`trailingSlash: true` + GitHub Pages 子路径 `basePath`**（CI 经 `PAGES_BASE_PATH` 注入
+`/SwarmDrop`，本地留空）。这三条决定了下面大部分约束。
+
+> **2026-07-30 更正**：本文件一度写成「已迁到自定义域名 `swarmapp.cn` 域名根、basePath 已
+> 移除」。那是 `openspec: invite-url-canonical` 的**目标态，不是现状**——同一次提交的
+> `docs/next.config.mjs` 注释里明写「swarmapp.cn 已实名但尚未备案，境内注册商可以随时停掉
+> 未备案 `.cn` 的解析，所以自定义域名这一步整体延后」。代码事实：`next.config.mjs:20` 的
+> `basePath` 仍在、`docs/lib/site.ts` 仍导出 `BASE_PATH`、`crates/invite` 的
+> `INVITE_URL_PREFIX` 仍是 `https://swarm-apps.github.io/SwarmDrop/p/#`。
+> **迁移真正落地时**要同步的是那段「换域名要同步三处」的清单，不是提前把现状改写成目标态。
 
 导航形态（持久侧栏 + 五路由）与桌面端 breadcrumb-only 是**有意分叉**，决策记在
 `DESIGN.md` 的「Navigation — Web app area」，路由清单在 `CLAUDE.md` 的「Web 端（wasm）」段。
@@ -115,26 +123,30 @@ query param 名只在 `PARAM` 里定义一次（生产方与 `useSearchParams().
 不要在 layout 里写 `pb-24` 这类魔数去补偿——知道高度的人和补偿高度的人应当是同一个，
 否则导航行高或 safe-area 一变，那个数就悄悄失准。
 
-## 内部导航一律 next/link（basePath 已移除，但这条仍然成立）
+## 内部导航一律 next/link（子路径下这条是致命的）
 
-`<Link>` / `useRouter()` 会按 `trailingSlash` 补尾斜杠并做预取；手写
-`<a href="/app/devices">` 绕过这些。
+`<Link>` / `useRouter()` 会按 `trailingSlash` 补尾斜杠、自动加 `basePath` 并做预取；手写
+`<a href="/app/devices">` 三样全绕过，**GitHub Pages 子路径下会整片 404**。
 
-**2026-07-30 更新（invite-url-canonical）**：站点迁到自定义域名根，`basePath` 整条链路移除。
-`next.config.mjs` 现在只注入 `PAGES_SITE_ORIGIN`（供 `metadataBase` / sitemap 出绝对 URL），
-`lib/site.ts` 不再导出 `BASE_PATH`。两条老约束随之作废：
+两条配套约束（`basePath` 仍在，见本文开头的更正，所以它们都还有效）：
 
-- ~~「非框架管辖的纯字符串路径（`<img src>`、fetch URL）要手拼 `BASE_PATH`」~~
-  现在直接从 `/` 写起即可（`lib/shared.ts` 的 `appIconPath` 已简化成 `"/app-icon.png"`）。
-- ~~「本地验证子路径部署：`PAGES_BASE_PATH=/SwarmDrop pnpm build` + grep href 前缀」~~
-  没有前缀可验了。
+- **非框架管辖的纯字符串路径要手拼 `BASE_PATH`**。`next/link` 与 `next/image` 会自动加，
+  但 `<img src="/x">`、metadata 里的 `/x` 不会——`/x` 解析时会把 base path 整段替换掉。
+  已知需要拼的：`docs/lib/shared.ts` 的 `appIconPath`（`${BASE_PATH}/app-icon.png`）。
+- **本地验证子路径部署**：`PAGES_BASE_PATH=/SwarmDrop pnpm build`，然后 grep 导出产物里的
+  `href` 确认全部带前缀：
 
-手写 `<a>` 仍不推荐，但它不再是「子路径下整片 404」那种致命错误。
+  ```bash
+  grep -o 'href="/app[^"]*"' out/app/*/index.html   # 应当为空（都该带 /SwarmDrop 前缀）
+  ```
+
+  路径大小写必须精确匹配仓库名 `SwarmDrop`（Pages 区分大小写）。
 
 **换域名要同步三处**（跨语言没法共享常量）：`.github/workflows/docs.yml` 的
 `PAGES_SITE_ORIGIN`、仓库 Settings → Pages 的 Custom domain 字段（**不是** CNAME 文件 ——
 workflow 型部署会忽略它）、`crates/invite` 的 `INVITE_URL_PREFIX`，外加两份前端副本：
-`mobile/src/app/pairing/scan.tsx` 与 `docs/app/app/_components/pairing-panel.tsx`。
+`mobile/src/core/invite-link.ts` 与 `docs/app/app/_lib/invite.ts`。
+权威清单在 `INVITE_URL_PREFIX` 的文档注释里（含各处的性质：功能性 / 纯文案）。
 
 **相关文件**：`docs/next.config.mjs`、`docs/lib/site.ts`、`docs/lib/shared.ts`
 
@@ -219,3 +231,43 @@ pnpm build && python3 -m http.server 3210 -d out   # 保持 trailingSlash 目录
 单页时代的面板注释与文案里有大量「上方『连接』区」「下方『生成邀请』」这类**位置指代**。
 拆页后它们全部失真。迁移面板时顺手把位置指代换成带 `<Link>` 的页面指代
 （「设置页的『连接』区」），否则用户会在当前页找一个根本不在这里的东西。
+
+## 二维码只能从 wasm 侧取，不许引 JS 二维码库
+
+编码规范（原样编码 + 最优分段 + ECL::M + quiet zone 4 模块）单点固化在
+`crates/invite/src/qr.rs`，三端共用：桌面走 Tauri 命令 `invite_qr_svg`，移动走 uniffi
+`invite_qr_matrix`，Web 走 `WebNode::invite_qr_svg`。**另引 JS 库 = 第四套编码策略**，
+而漂了的症状是「这端生成的码那端扫不出来」，极难归因。
+
+几条只有踩过才知道的：
+
+- **`{__html: svg}` 要连对象一起 `useMemo`**。React 对 `dangerouslySetInnerHTML` 只做
+  引用比较，JSX 里现造的对象字面量每次都 `!==` 上一个 → 每次重渲染重设一遍 innerHTML。
+  这个码面的 SVG 有三万多字节、path 里一千六百多条子命令，重解析不便宜；而对方扫完码
+  拨过来那几轮 store 更新，正好都落在用户盯着码面的时候。组件再包一层 `memo`。
+- **空串不能进 `{__html}`**：`{__html: ""}` 恒为真值，会渲染出一块既没码也没文字的空白卡。
+  取不到 SVG 就返回 `null` 走兜底分支。
+- **白卡内禁用 `text-fd-*` 主题 token**。码面固定深模块 + 白底、不随暗色主题反色
+  （摄像头对反色 QR 识别差），所以卡内文字在暗色主题下会变浅灰压在白底上。用固定的
+  `text-slate-*`。
+- **容量不是约束，密度才是**。QR 在 ECL::M 下约 2079 字节 wire 才到顶，而浏览器邀请最坏
+  327 字节（地址只来自 relay reservation，`append_invite_transports` 每桶最多留 2 条）。
+  先出事的是「196px 码面下 px/模块 < 2 就扫不动」——真放宽地址上限时，掉的是扫码成功率
+  而不是编码。
+
+**相关文件**：`docs/app/app/_components/invite-share.tsx`、`crates/web/src/node.rs`、
+`crates/invite/src/qr.rs`
+
+## 剪贴板：同步失败也要接住，且状态要随内容换代重置
+
+`docs/` 是纯浏览器环境，没有 Tauri 的 clipboard 封装（`pnpm check:clipboard` 只扫仓库根
+`src/`，不覆盖这里），直接用 `navigator.clipboard`。两个坑：
+
+- **非安全上下文下 `navigator.clipboard` 是 `undefined`，不是「有对象但 reject」**。
+  取 `.writeText` 就是一次**同步** TypeError，挂在 promise 上的 `onRejected` 根本轮不到，
+  按钮会一动不动地骗人。用 `try { await … } catch` 而不是 `.then(ok, fail)`。
+- **「已复制」这类瞬时态要随被复制的内容换代重置**，最省事的是给按钮加 `key={内容}`。
+  否则重新生成邀请后，按钮还挂着上一条的「已复制」，而剪贴板里躺的是刚被撤销的串——
+  用户照着粘出去，对方拿到一条必然失败的邀请。
+
+**相关文件**：`docs/app/app/_components/invite-share.tsx`

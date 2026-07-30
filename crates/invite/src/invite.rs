@@ -54,10 +54,17 @@ use crate::store::{InviteRecord, InviteStore, NoopInviteStore, PersistedInviteSt
 /// |---|---|
 /// | `.github/workflows/docs.yml` 的 `PAGES_BASE_PATH` / `PAGES_SITE_ORIGIN` | 站点得真的部署在这个地址上 |
 /// | `mobile/src/core/invite-link.ts` 的正则 | **功能性**，但已含两个域名的 alternation，切换无需再改 |
-/// | `src/routes/_app/pairing/input.lazy.tsx`、`docs/.../pairing-panel.tsx` 的 placeholder | 纯文案 |
+/// | `docs/app/app/_lib/invite.ts` 的 `INVITE_URL_PREFIX` / `INVITE_LINK_SOURCE` | **功能性**，Web 应用区唯一的一份副本 |
+/// | `docs/public/p/index.html` 的 `/p/` 路径段 | **功能性**，但域名自适应（见下） |
+/// | `src/routes/_app/pairing/input.lazy.tsx` 的 placeholder | 纯文案 |
 /// | `docs/content/docs/*.mdx`、README | 纯文档 |
 ///
-/// Web 端兜底路径不再是镜像：它从 `location` 推导，两个域名都在受理列表里，所以自适应。
+/// Web 端两条路径的性质**不一样**，别当成一件事：
+/// - **落地页**（`docs/public/p/index.html`）从 `location` 推导前缀，所以换域名它自适应；
+///   但它硬编码了 `/p/` 这个**路径段**——路径一改它会静默拼出不受理的前缀，
+///   症状是「落地页显示成功、应用区说这不是配对邀请」。
+/// - **应用区**（`_lib/invite.ts`）硬编码整个前缀，不能用 `location.origin`：解码器只认
+///   受理列表里的前缀，而站点跑在预览域名或 localhost 时推导出来的串会被拒掉。
 ///
 /// 两处约束，改动前先读明白：
 /// 1. **带尾斜杠**。静态导出产物是 `p/index.html`，访问 `/p` 会先吃一次目录重定向；
