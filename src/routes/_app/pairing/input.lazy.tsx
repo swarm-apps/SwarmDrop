@@ -125,8 +125,10 @@ function PairingInputPage() {
           </CommandDock>
         }
       >
-        <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <GlassPanel className="min-h-[420px]">
+        {/* 断点与列序同 generate 页（理由写在那边）：920 分栏、说明在左、输入在右；
+            窄屏堆叠时输入框在上，先给用户可操作的那块。 */}
+        <div className="grid min-h-0 flex-1 gap-5 min-[920px]:grid-cols-[360px_minmax(0,1fr)] lg:grid-cols-[380px_minmax(0,1fr)]">
+          <GlassPanel className="min-h-[420px] min-[920px]:order-2">
             <div className="flex h-full flex-col items-center justify-center gap-7 p-6 text-center">
               <div className="glass-control flex size-16 items-center justify-center rounded-[24px] text-brand">
                 <Link className="size-7" />
@@ -153,6 +155,7 @@ function PairingInputPage() {
           </GlassPanel>
 
           <TaskHeroPanel
+            className="min-[920px]:order-1"
             icon={ShieldCheck}
             label={<Trans>配对确认</Trans>}
             title={<Trans>先验证，再确认</Trans>}

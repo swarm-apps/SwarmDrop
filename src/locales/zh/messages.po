@@ -1412,6 +1412,7 @@ msgid "暂无传输活动"
 msgstr "暂无传输活动"
 
 #: src/routes/_app/inbox/index.lazy.tsx
+#: src/routes/_app/inbox/index.lazy.tsx
 msgid "暂无已接收内容"
 msgstr "暂无已接收内容"
 
@@ -1676,8 +1677,8 @@ msgstr "浅色"
 #~ msgstr "浏览器端可用此地址快速连接本机"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "浏览收件箱"
-msgstr "浏览收件箱"
+#~ msgid "浏览收件箱"
+#~ msgstr "浏览收件箱"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "深色"
@@ -1695,6 +1696,7 @@ msgstr "添加"
 msgid "添加自定义引导节点"
 msgstr "添加自定义引导节点"
 
+#: src/components/layout/app-topbar.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/input.lazy.tsx
@@ -2116,8 +2118,8 @@ msgid "设置"
 msgstr "设置"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "试试更短的关键词，或检查是否包含已归档内容。"
-msgstr "试试更短的关键词，或检查是否包含已归档内容。"
+#~ msgid "试试更短的关键词，或检查是否包含已归档内容。"
+#~ msgstr "试试更短的关键词，或检查是否包含已归档内容。"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "该分组中还没有设备"

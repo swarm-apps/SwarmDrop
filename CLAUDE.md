@@ -178,7 +178,10 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 
 - `__root.tsx` — 根布局
 - `_onboarding.tsx` + `_onboarding/device-name.lazy.tsx` — 首启引导（**只有设备命名**）
-- `_app.tsx` — 主布局（`AppTopBar` + 内容区；`/pairing` 是全屏路由，不挂顶栏）
+- `_app.tsx` — 主布局（`AppTopBar` + 内容区。**所有**路由都挂顶栏，无全屏例外：
+  `/pairing` 曾经是全屏路由、自绘一条只有窗口按钮的玻璃条，那条 strip 与页面自己的
+  `TaskToolbar` 叠成两层头，Windows 上尤其像没做完。`AppTopBar` 本身就带
+  `data-tauri-drag-region` 与 `WindowControls`，无边框窗口需要的拖拽/控制它全包了）
 - `_app/devices/` — 设备（含 `-components/` 局部组件、trust policy、分组）
 - `_app/send/` — 发送（含 `share-target` 外部打开入口）
 - `_app/inbox/` — 收件箱
@@ -213,6 +216,15 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 单一断点 `MASTER_DETAIL_QUERY = (min-width: 920px)`：≥920 左列表 + 右详情双栏，
 <920 详情占满、列表从左抽屉滑出。**所有 master-detail 页都用这一个断点，不要各页写各的。**
 其余响应式靠 Tailwind 断点类。hook 是 `src/hooks/use-media-query.ts` 的 `useIsWideLayout`。
+
+920 这个数不止 `MasterDetailShell` 用：设备页与两个配对页的主分栏也写 `min-[920px]:`。
+**任何「主内容 + 侧栏说明」的分栏都用它，别退回 `lg:`（1024）**——Windows 常见的 125%
+缩放下 1200 物理像素只有 960 CSS 宽，正好落在 920 与 1024 之间，于是同一个窗口里
+设备页分栏、配对页却堆叠（配对页此前就是这么不一致的）。
+
+窄屏空态的分工同理有一条约定：教学文案（「怎么让它变得非空」）放**详情侧**的
+`CenteredEmptyState`，列表栏只用 `RailEmptyHint` 说一行「这里是空的」。因为窄屏用户
+落在详情屏、列表收在抽屉里；两边都摆整套空态则是宽屏下同一句话说两遍。
 
 > Web 应用区（`docs/app/app`）是**另一套形态**——持久侧边栏 + 多路由，与桌面端有意分叉
 > （#88/#90 已落地，决策与理由写在 `DESIGN.md` 的「Navigation — Web app area」）。

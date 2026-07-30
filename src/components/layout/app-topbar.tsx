@@ -19,6 +19,7 @@ import {
   Home,
   ArrowRightLeft,
   Inbox,
+  Link2,
   Moon,
   Send,
   Sun,
@@ -69,6 +70,9 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
   }
   if (pathname.startsWith("/send")) {
     return [home, { icon: Send, label: <Trans>发送文件</Trans> }];
+  }
+  if (pathname.startsWith("/pairing")) {
+    return [home, { icon: Link2, label: <Trans>添加设备</Trans> }];
   }
   // 主页 / 其他路径:单段当前主页(BreadcrumbPage)
   return [{ ...home, to: undefined }];

@@ -28,7 +28,6 @@ import {
   FileArchive,
   FolderOpen,
   Inbox,
-  PanelLeft,
   RefreshCw,
   Search,
   Trash2,
@@ -49,7 +48,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CenteredEmptyState } from "@/components/layout/section-primitives";
+import {
+  CenteredEmptyState,
+  RailEmptyHint,
+} from "@/components/layout/section-primitives";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -346,6 +348,7 @@ function InboxPage() {
             status={readerStatus}
             detail={selectedDetail}
             contained={!isCompact}
+            hasItems={items.length > 0}
             onOpenList={openList ?? undefined}
             onReveal={handleReveal}
             onCopyPath={handleCopyPath}
@@ -582,12 +585,17 @@ function InboxRail({
               ))}
             </div>
           ) : (
-            <SearchEmptyState />
+            <RailEmptyHint data-testid="inbox-search-empty-state">
+              <Trans>未找到匹配项</Trans>
+            </RailEmptyHint>
           )
         ) : loading ? (
           <ListSkeleton />
         ) : items.length === 0 ? (
-          <InboxEmptyState />
+          // rail 只确认「空」；教学文案在详情侧的 InboxEmptyState（见 RailEmptyHint 文档）
+          <RailEmptyHint data-testid="inbox-empty-state">
+            <Trans>暂无已接收内容</Trans>
+          </RailEmptyHint>
         ) : (
           <div className="flex flex-col gap-5">
             {groups.map((group) => (
@@ -775,6 +783,7 @@ function InboxReader({
   status,
   detail,
   contained,
+  hasItems,
   onOpenList,
   onReveal,
   onCopyPath,
@@ -787,6 +796,12 @@ function InboxReader({
   status: ReaderStatus;
   detail: InboxItemDetail | null;
   contained: boolean;
+  /**
+   * 收件箱是否有任何记录。`status === "empty"` 只表示「没选中」（判据是 `!selectedId`），
+   * 分不出「有记录但没点」和「一条都没有」—— 后者下提示「选择一条记录查看详情」是
+   * 在让用户去选一个不存在的东西。
+   */
+  hasItems: boolean;
   /** 窄屏传入即渲染详情头部前导「打开列表」按钮；宽屏双栏不传。 */
   onOpenList?: () => void;
   onReveal: () => void;
@@ -801,9 +816,12 @@ function InboxReader({
     <OpenListButton openList={onOpenList} label={t`打开收件箱列表`} />
   ) : null;
 
+  // 与传输活动 DetailShell 用同一组类，两页的详情外壳因此行为一致。
+  // 窄屏（!contained）此前不给 flex-1：卡片只长到内容高度（空态就是 min-h-[320px]），
+  // 下方留一大片空白，而传输活动那边是撑满的 —— 这正是两页空态观感不统一的根因。
   const sectionClass = cn(
     "glass-panel flex flex-col rounded-[24px]",
-    contained && "min-h-0 overflow-hidden",
+    contained ? "min-h-0 flex-1 overflow-hidden" : "flex-1",
   );
 
   if (status === "ready" && detail) {
@@ -844,7 +862,11 @@ function InboxReader({
       )}
       <div className={cn("flex flex-1 flex-col", !contained && "min-h-[320px]")}>
         {status === "empty" ? (
-          <ReaderPlaceholder onOpenList={onOpenList} />
+          hasItems ? (
+            <ReaderPlaceholder />
+          ) : (
+            <InboxEmptyState />
+          )
         ) : status === "loading" ? (
           <ReaderSkeleton />
         ) : (
@@ -1021,30 +1043,20 @@ function ReaderContent({
 
 /* ─────────────────── 占位 / 骨架 / 空态 ─────────────────── */
 
-function ReaderPlaceholder({ onOpenList }: { onOpenList?: () => void }) {
+/**
+ * 「有记录但还没选」的占位。仅宽屏双栏下会出现——窄屏进来就直接落在这一屏，
+ * 而列表在抽屉里，此时该说的是「怎么打开列表」，那个按钮由外层 section 头部的
+ * `OpenListButton` 承担（此前这里**又画了一个**「浏览收件箱」，同一个动作两个入口）。
+ *
+ * 与其它空态共用 `CenteredEmptyState`，不再手抄一份同样的圆形图标 + 居中排版。
+ */
+function ReaderPlaceholder() {
   return (
-    <div
+    <CenteredEmptyState
       data-testid="inbox-reader-placeholder"
-      className="flex h-full min-h-[280px] flex-col items-center justify-center gap-3 px-6 text-center"
-    >
-      <div className="flex size-14 items-center justify-center rounded-full bg-muted">
-        <Inbox className="size-7 text-muted-foreground" />
-      </div>
-      <p className="text-sm text-muted-foreground">
-        <Trans>选择一条收件箱记录查看详情</Trans>
-      </p>
-      {onOpenList && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-1 gap-1.5"
-          onClick={onOpenList}
-        >
-          <PanelLeft className="size-4" />
-          <Trans>浏览收件箱</Trans>
-        </Button>
-      )}
-    </div>
+      icon={Inbox}
+      title={<Trans>选择一条收件箱记录查看详情</Trans>}
+    />
   );
 }
 
@@ -1129,17 +1141,6 @@ function InboxEmptyState() {
   );
 }
 
-function SearchEmptyState() {
-  return (
-    <CenteredEmptyState
-      data-testid="inbox-search-empty-state"
-      icon={Search}
-      title={<Trans>未找到匹配项</Trans>}
-      description={<Trans>试试更短的关键词，或检查是否包含已归档内容。</Trans>}
-      descriptionClassName="max-w-[26ch]"
-    />
-  );
-}
 
 /* ─────────────────── 小构件 ─────────────────── */
 

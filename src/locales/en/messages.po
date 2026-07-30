@@ -1413,6 +1413,7 @@ msgid "暂无传输活动"
 msgstr "No transfer activity"
 
 #: src/routes/_app/inbox/index.lazy.tsx
+#: src/routes/_app/inbox/index.lazy.tsx
 msgid "暂无已接收内容"
 msgstr "No received items yet"
 
@@ -1677,8 +1678,8 @@ msgstr "Light"
 #~ msgstr "Browsers can use this address to quickly connect to this device"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "浏览收件箱"
-msgstr "Browse inbox"
+#~ msgid "浏览收件箱"
+#~ msgstr "Browse inbox"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "深色"
@@ -1696,6 +1697,7 @@ msgstr "Add"
 msgid "添加自定义引导节点"
 msgstr "Add Custom Bootstrap Node"
 
+#: src/components/layout/app-topbar.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/input.lazy.tsx
@@ -2117,8 +2119,8 @@ msgid "设置"
 msgstr "Settings"
 
 #: src/routes/_app/inbox/index.lazy.tsx
-msgid "试试更短的关键词，或检查是否包含已归档内容。"
-msgstr "Try shorter keywords, or check whether archived items are included."
+#~ msgid "试试更短的关键词，或检查是否包含已归档内容。"
+#~ msgstr "Try shorter keywords, or check whether archived items are included."
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "该分组中还没有设备"

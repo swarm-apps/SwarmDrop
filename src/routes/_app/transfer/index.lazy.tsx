@@ -27,7 +27,10 @@ import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { CenteredEmptyState } from "@/components/layout/section-primitives";
+import {
+  CenteredEmptyState,
+  RailEmptyHint,
+} from "@/components/layout/section-primitives";
 import {
   MasterDetailShell,
   OpenListButton,
@@ -300,16 +303,13 @@ function SessionRail({
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 pt-0"
       >
         {totalCount === 0 ? (
-          <p
-            data-testid="transfer-empty-state"
-            className="px-2 py-8 text-center text-xs text-muted-foreground"
-          >
+          <RailEmptyHint data-testid="transfer-empty-state">
             <Trans>暂无传输活动</Trans>
-          </p>
+          </RailEmptyHint>
         ) : items.length === 0 ? (
-          <p className="px-2 py-8 text-center text-xs text-muted-foreground">
+          <RailEmptyHint>
             <Trans>此分类下暂无记录</Trans>
-          </p>
+          </RailEmptyHint>
         ) : (
           items.map((item) => (
             <SessionRow

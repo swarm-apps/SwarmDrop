@@ -10,7 +10,7 @@ import {
   AppAmbientBackground,
   AppAmbientLightOverlay,
 } from "@/components/layout/app-ambient-background";
-import { AppTopBar, WindowControls } from "@/components/layout/app-topbar";
+import { AppTopBar } from "@/components/layout/app-topbar";
 import { useNetworkStore } from "@/stores/network-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { ConnectionRequestDialog } from "@/components/pairing/connection-request-dialog";
@@ -21,7 +21,6 @@ import {
   setupTransferListeners,
   cleanupTransferListeners,
 } from "@/stores/transfer-store";
-import { isMac } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app")({
   component: AppLayout,
@@ -51,30 +50,23 @@ function AppLayout() {
 
   const location = useLocation();
 
-  // 配对流程保持独立全屏；发送流仍属于已认证应用，需要保留全局导航与窗口控制。
-  const isFullScreenRoute = location.pathname.startsWith("/pairing");
+  // 剪贴板提示的落点就是粘贴页，所以在那一页上它是纯噪音（页面本身就是那个入口）。
+  // 其余页面一律亮，包括 /pairing/generate —— 在展示自己邀请的同时收到别人的邀请，
+  // 是个合理场景。
+  const isInviteInputRoute = location.pathname.startsWith("/pairing/input");
 
   return (
     <div className="app-shell flex h-svh flex-col">
       <AppAmbientBackground />
-      {!isFullScreenRoute && <AppTopBar />}
-      {/* 全屏路由无 AppTopBar：Windows/Linux 是无边框自绘窗口
-          (setup.rs set_decorations(false))，需补一条可拖拽、带窗口控制的玻璃顶条；
-          macOS 走系统 Overlay 红绿灯，只留等高拖拽占位。 */}
-      {isFullScreenRoute &&
-        (isMac ? (
-          <div data-tauri-drag-region className="h-8 shrink-0 bg-background" />
-        ) : (
-          <div
-            data-tauri-drag-region
-            className="flex h-9 shrink-0 items-center justify-end bg-white/[0.16] pr-2 backdrop-blur-xl dark:bg-slate-950/[0.10]"
-          >
-            <WindowControls />
-          </div>
-        ))}
+      {/* 顶栏在**所有**路由上挂，配对页也不例外。它此前是全屏路由、自绘一条只有窗口
+          按钮的玻璃条：那条 strip 与页面自己的 TaskToolbar 叠成两层头，且 Windows 上
+          看起来像没做完。AppTopBar 本身就带 data-tauri-drag-region 与 WindowControls
+          （macOS 靠 pl-20 给红绿灯留位），无边框窗口的拖拽/控制它全包了，特例是多余的。
+          /send 一直是「AppTopBar + TaskToolbar」两层，配对页照此对齐。 */}
+      <AppTopBar />
       {/* 剪贴板里有别人给的邀请时抬一条非模态提示（自己发出的不亮，见组件文档）。
           放在 main 之上、顶栏之下：它是入站信号，不该被页面内容挤走。 */}
-      {!isFullScreenRoute && <ClipboardInviteBanner />}
+      {!isInviteInputRoute && <ClipboardInviteBanner />}
       <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>

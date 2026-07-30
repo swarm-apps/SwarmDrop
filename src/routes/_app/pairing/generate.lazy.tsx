@@ -143,8 +143,16 @@ function PairingGeneratePage() {
           </CommandDock>
         }
       >
-        <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <GlassPanel className="min-h-[420px]">
+        {/* 分栏断点是 920 而非 lg(1024)：全仓主从布局共用 `MASTER_DETAIL_QUERY`
+            （见 use-media-query.ts）与设备页的 `min-[920px]`。此前写 lg，Windows
+            125% 缩放下 1200 物理像素只有 960 CSS 宽，正好卡在断点外侧 —— 同一个
+            窗口里设备页分栏、配对页却堆叠，两页观感不一致的根因就在这里。
+
+            DOM 顺序是「码面 → 说明」：窄屏堆叠时码面必须在上，它才是这一页的主体，
+            不该被近 400px 高的说明挤出首屏；≥920px 再用 order 把说明翻到左列。
+            这里几乎不牺牲焦点顺序 —— 内容区只有「仅本地网络」一个可聚焦控件。 */}
+        <div className="grid min-h-0 flex-1 gap-5 min-[920px]:grid-cols-[360px_minmax(0,1fr)] lg:grid-cols-[380px_minmax(0,1fr)]">
+          <GlassPanel className="min-h-[420px] min-[920px]:order-2">
             <div className="flex h-full flex-col items-center justify-center gap-6 p-6 text-center">
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight text-balance text-foreground">
@@ -181,6 +189,7 @@ function PairingGeneratePage() {
           </GlassPanel>
 
           <TaskHeroPanel
+            className="min-[920px]:order-1"
             icon={ShieldCheck}
             label={<Trans>安全配对</Trans>}
             title={<Trans>只建立你确认过的连接</Trans>}

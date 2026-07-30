@@ -580,9 +580,9 @@ msgstr "Clipboard"
 msgid "剪贴板内容"
 msgstr "Clipboard content"
 
-#: src/components/pairing/invite-exchange.tsx:310
-msgid "剪贴板里有内容，点此粘贴"
-msgstr "Clipboard has content — tap to paste"
+#: src/components/pairing/invite-exchange.tsx:308
+msgid "剪贴板里没有内容"
+msgstr "Clipboard is empty"
 
 #: src/app/pairing/scan.tsx:127
 msgid "剪贴板里没有配对邀请"
@@ -2107,15 +2107,16 @@ msgstr "Policy settings"
 msgid "管理分组"
 msgstr "Manage groups"
 
-#: src/components/pairing/invite-exchange.tsx:337
+#: src/components/pairing/invite-exchange.tsx:361
 msgid "粘贴"
 msgstr "Paste"
 
 #: src/app/pairing/scan.tsx:304
+#: src/components/pairing/invite-exchange.tsx:361
 msgid "粘贴邀请"
 msgstr "Paste Invite"
 
-#: src/components/pairing/invite-exchange.tsx:322
+#: src/components/pairing/invite-exchange.tsx:331
 msgid "粘贴配对邀请"
 msgstr "Paste pairing invite"
 
@@ -2135,7 +2136,7 @@ msgstr "Name this device"
 #: src/app/onboarding/device-name.tsx:55
 #: src/app/onboarding/device-name.tsx:59
 #: src/app/transfer/[sessionId].tsx:270
-#: src/components/pairing/invite-exchange.tsx:350
+#: src/components/pairing/invite-exchange.tsx:374
 msgid "继续"
 msgstr "Continue"
 
@@ -2464,7 +2465,7 @@ msgstr "This only deletes the Inbox index. Local files are kept."
 
 #: src/app/_layout.tsx:279
 #: src/app/pairing/scan.tsx:93
-#: src/components/pairing/invite-exchange.tsx:283
+#: src/components/pairing/invite-exchange.tsx:293
 msgid "这是你自己的邀请"
 msgstr "This is your own invite"
 
@@ -2541,12 +2542,12 @@ msgstr "Invite expired"
 
 #: src/app/_layout.tsx:281
 #: src/app/pairing/scan.tsx:95
-#: src/components/pairing/invite-exchange.tsx:285
+#: src/components/pairing/invite-exchange.tsx:295
 msgid "邀请已过期，请让对方重新生成"
 msgstr "This invite has expired — ask them to create a new one"
 
 #: src/app/_layout.tsx:282
-#: src/components/pairing/invite-exchange.tsx:286
+#: src/components/pairing/invite-exchange.tsx:296
 msgid "邀请无效或已被使用"
 msgstr "This invite is invalid or has already been used"
 

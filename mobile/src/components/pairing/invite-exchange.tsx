@@ -22,7 +22,7 @@ import {
   ScanLine,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, AppState, Pressable, View } from "react-native";
 import { SegmentedControl } from "@/components/mobile/screen";
 import { InviteQr, type InviteQrOverlay } from "@/components/pairing/invite-qr";
 import { Text } from "@/components/ui/text";
@@ -254,15 +254,25 @@ function PasteInviteInput({ onResolved }: { onResolved: () => void }) {
   const [hasClip, setHasClip] = useState(false);
 
   // 剪贴板感知：sheet 打开即挂载（gorhom modal present 时挂 children），用
-  // hasStringAsync 探测——只问「有没有字符串」，不读内容、不触发 iOS 粘贴横幅，
-  // 有内容就亮一枚 chip 引导一键粘贴。
+  // hasStringAsync 探测——只问「有没有字符串」，不读内容、不触发 iOS 粘贴横幅。
+  //
+  // 结果直接喂给下方的「粘贴」按钮（不再另起一枚 chip，见 return 处注释）。
+  // 回前台要**重新探测**：典型动线正是「切到微信复制链接 → 切回来」，只在挂载时探
+  // 一次的话按钮会一直停在「剪贴板是空的」这个已经过期的判断上。
   useEffect(() => {
     let alive = true;
-    void Clipboard.hasStringAsync().then((has) => {
-      if (alive) setHasClip(has);
+    const probe = () => {
+      void Clipboard.hasStringAsync().then((has) => {
+        if (alive) setHasClip(has);
+      });
+    };
+    probe();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") probe();
     });
     return () => {
       alive = false;
+      sub.remove();
     };
   }, []);
 
@@ -290,27 +300,26 @@ function PasteInviteInput({ onResolved }: { onResolved: () => void }) {
 
   const pasteFromClipboard = async () => {
     const clip = (await Clipboard.getStringAsync()).trim();
-    if (clip.length > 0) {
-      setText(clip);
-      await submit(clip);
+    if (clip.length === 0) {
+      // 按钮**不**做 disabled：探测结果可能已经过期，且 Android 10+ 只允许处于前台的
+      // 应用读剪贴板，回前台那一刻的探测有可能早于焦点到手而误报「空」。所以真读到空
+      // 时在这里说清楚，而不是像原来那样静默无反应。
+      setHasClip(false);
+      setError(t`剪贴板里没有内容`);
+      return;
     }
+    setText(clip);
+    await submit(clip);
   };
+
+  /** 已知剪贴板有内容、且用户还没手输 —— 此时「粘贴」是这一屏建议的动作。 */
+  const suggestPaste = hasClip && text.length === 0;
 
   return (
     <View className="gap-3">
-      {hasClip && text.length === 0 ? (
-        <Pressable
-          onPress={pasteFromClipboard}
-          disabled={working}
-          accessibilityRole="button"
-          className="min-h-9 flex-row items-center gap-1.5 self-start rounded-full border border-primary/30 bg-primary/10 px-3 active:opacity-70 disabled:opacity-50"
-        >
-          <ClipboardPaste color={colors.primary} size={14} />
-          <Text className="text-[13px] font-medium text-primary-ink">
-            <Trans>剪贴板里有内容，点此粘贴</Trans>
-          </Text>
-        </Pressable>
-      ) : null}
+      {/* 这里曾经还有一枚 chip「剪贴板里有内容，点此粘贴」，与下方「粘贴」按钮
+          调的是同一个 pasteFromClipboard —— 一个动作两个入口、两处文案。
+          剪贴板状态改为收进按钮本身（tint + 文案切换），少一层控件也少一句话。 */}
       <BottomSheetTextInput
         value={text}
         onChangeText={setText}
@@ -330,11 +339,26 @@ function PasteInviteInput({ onResolved }: { onResolved: () => void }) {
           onPress={pasteFromClipboard}
           disabled={working}
           accessibilityRole="button"
-          className="min-h-11 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-border bg-card active:opacity-70 disabled:opacity-50"
+          className={cn(
+            "min-h-11 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border active:opacity-70 disabled:opacity-50",
+            // 剪贴板里有东西就把这颗按钮点亮成「建议动作」——原先那句提示的活由它接了。
+            // 不只靠 tint：文案同时从「粘贴」变成「粘贴邀请」，色觉受限也读得出差别。
+            suggestPaste
+              ? "border-primary/30 bg-primary/10"
+              : "border-border bg-card",
+          )}
         >
-          <ClipboardPaste color={colors.foreground} size={16} />
-          <Text className="text-[14px] font-semibold text-foreground">
-            <Trans>粘贴</Trans>
+          <ClipboardPaste
+            color={suggestPaste ? colors.primary : colors.foreground}
+            size={16}
+          />
+          <Text
+            className={cn(
+              "text-[14px] font-semibold",
+              suggestPaste ? "text-primary-ink" : "text-foreground",
+            )}
+          >
+            {suggestPaste ? <Trans>粘贴邀请</Trans> : <Trans>粘贴</Trans>}
           </Text>
         </Pressable>
         <Pressable

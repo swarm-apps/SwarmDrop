@@ -139,6 +139,34 @@ export function CenteredEmptyState({
 }
 
 /**
+ * 列表栏（rail）的空态：只有一行字。
+ *
+ * 与 [`CenteredEmptyState`] 的分工是刻意的，不是偷懒：
+ * - 宽屏下列表与详情同时可见，两侧各摆一套「图标 + 标题 + 描述」就是同一句话说两遍；
+ * - 窄屏用户落在**详情**侧（列表收进抽屉），所以「怎么让它变得非空」这类教学一律
+ *   放详情，rail 只负责确认「这里确实是空的」。
+ *
+ * 收件箱与传输活动两页的 rail 共用它，别再各写一份内联 `<p>`。
+ */
+export function RailEmptyHint({
+  children,
+  className,
+  ...props
+}: { children: React.ReactNode } & HTMLAttributes<HTMLParagraphElement>) {
+  return (
+    <p
+      {...props}
+      className={cn(
+        "px-2 py-8 text-center text-xs text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </p>
+  );
+}
+
+/**
  * 分段控件——一组互斥选项的胶囊切换条（设备页附近设备筛选、配对页模式切换）。
  *
  * 语义由 `variant` 决定：`tabs` 切换的是同一件事的两个视图（role=tab + aria-selected），

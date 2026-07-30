@@ -70,10 +70,15 @@ export function TaskContent({
         data-testid={scrollTestId}
         className="min-h-0 flex-1 overflow-auto"
       >
+        {/* `min-h-full` 而不是 `h-full`：后者把高度钉死成滚动容器的高度，内容一旦超出
+            就从**底部 padding 之外**溢出去 —— 滚到底时卡片直接贴住下方 CommandDock，
+            看起来像漏了 padding。`min-h-full` 让盒子随内容长高，同时短内容仍撑满整屏，
+            所以 `flex items-center justify-center` 那类居中布局照旧生效
+            （min-height 一样会为 flex-1 产生可分配的剩余空间）。 */}
         <div
           {...props}
           className={cn(
-            "mx-auto h-full w-full max-w-[1180px] p-5 lg:p-7",
+            "mx-auto min-h-full w-full max-w-[1180px] p-5 lg:p-7",
             className,
           )}
         >
