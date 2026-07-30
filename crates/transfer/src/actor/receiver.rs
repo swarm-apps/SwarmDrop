@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use futures::AsyncWriteExt;
 use swarmdrop_net::{NodeId, P2pStream};
 use tokio::sync::{Mutex, watch};
 use tokio_util::sync::CancellationToken;
@@ -22,7 +23,9 @@ use crate::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
 use crate::epoch::EpochGuard;
 use crate::events::{TransferEvent, TransferEventSink};
 use crate::host::{CoreSaveLocation, FileAccess, FileSinkId, HostFileMetadata};
-use crate::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent};
+use crate::progress::{
+    FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent, TransferFailedEvent,
+};
 use crate::protocol::{FileInfo, FileRange};
 use crate::store::TransferStore;
 use crate::wire::data_frame::{TransferDataFrame, manifest_digest, read_frame, write_frame};
@@ -151,34 +154,80 @@ impl ReceiverActor {
     pub async fn start_data_channel<F>(
         self: Arc<Self>,
         epoch: i64,
-        stream: P2pStream,
+        mut stream: P2pStream,
         fetch_plan: Vec<FileRange>,
         on_finish: F,
-    ) where
+    ) -> AppResult<()>
+    where
         F: FnOnce(&Uuid),
     {
-        let outcome = self.run_data_channel(epoch, stream, fetch_plan).await;
-        match &outcome {
-            Ok(true) => info!(
-                "Data-channel receive completed: session={}",
-                self.session_id
-            ),
-            Ok(false) => info!(
-                "Data-channel receive cancelled: session={}",
-                self.session_id
-            ),
+        let outcome = self.run_data_channel(epoch, &mut stream, fetch_plan).await;
+        let result = match outcome {
+            Ok(true) => {
+                info!(
+                    "Data-channel receive completed: session={}",
+                    self.session_id
+                );
+                Ok(())
+            }
+            Ok(false) => {
+                info!(
+                    "Data-channel receive cancelled: session={}",
+                    self.session_id
+                );
+                Ok(())
+            }
             Err(e) => {
                 if self.cancel_token.is_cancelled() {
                     info!(
                         "Data-channel receive stopped after cancellation: session={}",
                         self.session_id
                     );
+                    Ok(())
                 } else {
+                    let error = e.to_string();
                     warn!(
                         "Data-channel receive interrupted: session={}, error={}",
-                        self.session_id, e
+                        self.session_id, error
                     );
-                    let _ = self
+
+                    // 数据面错误过去在这里被吞掉并直接 drop 流，发送方只能看到 yamux 的
+                    // "connection is closed"。先尽力回写 Abort 并正常关闭写半边，让对端有机会
+                    // 读到真正的落盘/校验原因；即使流已坏，本机失败事件仍保留完整诊断。
+                    if let Err(abort_error) = write_frame(
+                        &mut stream,
+                        &TransferDataFrame::Abort {
+                            session_id: self.session_id,
+                            epoch,
+                            reason: error.clone(),
+                        },
+                    )
+                    .await
+                    {
+                        warn!(
+                            "回写 transfer-data Abort 失败: session={}, error={}",
+                            self.session_id, abort_error
+                        );
+                    } else if let Err(close_error) = stream.close().await {
+                        warn!(
+                            "关闭 transfer-data 写半边失败: session={}, error={}",
+                            self.session_id, close_error
+                        );
+                    }
+
+                    self.emit_best_effort(
+                        TransferEvent::TransferFailed {
+                            event: TransferFailedEvent {
+                                session_id: self.session_id,
+                                direction: RuntimeTransferDirection::Receive,
+                                error: error.clone(),
+                            },
+                        },
+                        "上报接收失败事件",
+                    )
+                    .await;
+
+                    if let Err(dispatch_error) = self
                         .coordinator
                         .dispatch(
                             self.session_id,
@@ -187,19 +236,27 @@ impl ReceiverActor {
                                 signal: crate::coordinator::NetworkSignal::Interrupted,
                             },
                         )
-                        .await;
+                        .await
+                    {
+                        warn!(
+                            "dispatch 接收中断失败: session={}, error={}",
+                            self.session_id, dispatch_error
+                        );
+                    }
+                    Err(e)
                 }
             }
-        }
+        };
 
         let _ = self.finished_tx.send(true);
         on_finish(&self.session_id);
+        result
     }
 
     async fn run_data_channel(
         self: &Arc<Self>,
         epoch: i64,
-        mut stream: P2pStream,
+        stream: &mut P2pStream,
         fetch_plan: Vec<FileRange>,
     ) -> AppResult<bool> {
         self.validate_fetch_plan(&fetch_plan)?;
@@ -256,7 +313,7 @@ impl ReceiverActor {
             // 空闲等待下一帧时也响应取消，避免 cancel 后干等到下一帧或超时。
             let frame = tokio::select! {
                 _ = self.cancel_token.cancelled() => return Ok(false),
-                frame = read_frame(&mut stream) => frame?,
+                frame = read_frame(&mut *stream) => frame?,
             };
             match frame {
                 Some(TransferDataFrame::BlockData {
@@ -287,7 +344,7 @@ impl ReceiverActor {
                         .await?;
                     // 回写 Finish 确认：发送方读到它即视为完成（已无逐块 Ack）。
                     write_frame(
-                        &mut stream,
+                        &mut *stream,
                         &TransferDataFrame::Finish {
                             session_id: self.session_id,
                             epoch,
@@ -408,10 +465,11 @@ impl ReceiverActor {
                 p.progress_event()
             };
             if let Some(event) = progress_event {
-                let _ = self
-                    .events
-                    .emit(TransferEvent::TransferProgress { event })
-                    .await;
+                self.emit_best_effort(
+                    TransferEvent::TransferProgress { event },
+                    "上报接收文件开始进度",
+                )
+                .await;
             }
         }
         Ok(sink_id)
@@ -472,9 +530,7 @@ impl ReceiverActor {
             p.progress_event()
         };
         if let Some(event) = progress_event {
-            let _ = self
-                .events
-                .emit(TransferEvent::TransferProgress { event })
+            self.emit_best_effort(TransferEvent::TransferProgress { event }, "上报接收块进度")
                 .await;
         }
     }
@@ -526,11 +582,11 @@ impl ReceiverActor {
                         );
                     }
                     let msg = format!(
-                        "文件校验失败: {} (file_id={})",
-                        file_info.name, file_info.file_id
+                        "文件最终化失败: {} (file_id={}): {}",
+                        file_info.name, file_info.file_id, e
                     );
-                    self.fail_session(epoch, progress, msg).await;
-                    return Err(e);
+                    self.fail_session(epoch, msg.clone()).await;
+                    return Err(AppError::Transfer(msg));
                 }
             };
             self.remove_created_sink(&sink_id).await;
@@ -569,12 +625,13 @@ impl ReceiverActor {
                 .lock()
                 .await
                 .complete_event(Some(self.save_location.clone()));
-            let _ = self
-                .events
-                .emit(TransferEvent::TransferCompleted {
+            self.emit_best_effort(
+                TransferEvent::TransferCompleted {
                     event: complete_event,
-                })
-                .await;
+                },
+                "上报接收完成事件",
+            )
+            .await;
         }
 
         Ok(())
@@ -588,8 +645,12 @@ impl ReceiverActor {
     /// 取消并等待后台任务完成（含最终 bitmap 刷写），最多等 5 秒
     pub async fn cancel_and_wait(&self) {
         self.cancel_token.cancel();
-        let _ =
-            n0_future::time::timeout(std::time::Duration::from_secs(5), self.wait_finished()).await;
+        if n0_future::time::timeout(std::time::Duration::from_secs(5), self.wait_finished())
+            .await
+            .is_err()
+        {
+            warn!("等待接收任务取消超时: session={}", self.session_id);
+        }
     }
 
     /// 获取取消令牌
@@ -612,24 +673,35 @@ impl ReceiverActor {
     }
 
     /// 标记会话失败：终态经状态机 dispatch(Actor{FatalError}) 写 terminal/failed + 发 projection。
-    /// 仅真正转入 failed 才发失败事件（被取消/旧 epoch 抢先则不发）。
-    async fn fail_session(&self, epoch: i64, progress: &Arc<Mutex<ProgressTracker>>, msg: String) {
-        let transitioned = self
+    /// 具体失败事件统一由 `start_data_channel` 发一次，避免最终化错误在内外两层重复上报。
+    async fn fail_session(&self, epoch: i64, msg: String) {
+        if let Err(error) = self
             .coordinator
             .dispatch(
                 self.session_id,
                 CoordinatorInput::Actor {
                     epoch,
-                    report: ActorReport::FatalError(msg.clone()),
+                    report: ActorReport::FatalError(msg),
                 },
             )
-            .await;
-        if matches!(transitioned, Ok(Some(_))) {
-            let event = progress.lock().await.failed_event(msg);
-            let _ = self
-                .events
-                .emit(TransferEvent::TransferFailed { event })
-                .await;
+            .await
+        {
+            warn!(
+                "dispatch 接收终态失败: session={}, error={}",
+                self.session_id, error
+            );
+        }
+    }
+
+    /// UI 事件投递失败不改变传输状态，但必须留诊断，避免状态已落库而界面无反馈。
+    async fn emit_best_effort(&self, event: TransferEvent, operation: &'static str) {
+        if let Err(error) = self.events.emit(event).await {
+            warn!(
+                session = %self.session_id,
+                %error,
+                operation,
+                "传输事件投递失败"
+            );
         }
     }
 
@@ -641,15 +713,16 @@ impl ReceiverActor {
             .await
         {
             warn!("创建收件箱条目失败: session={}, {}", self.session_id, e);
-            let _ = self
-                .events
-                .emit(TransferEvent::TransferDbError {
+            self.emit_best_effort(
+                TransferEvent::TransferDbError {
                     event: TransferDbErrorEvent {
                         session_id: self.session_id,
                         message: format!("创建收件箱条目失败: {e}"),
                     },
-                })
-                .await;
+                },
+                "上报收件箱数据库错误",
+            )
+            .await;
         }
     }
 

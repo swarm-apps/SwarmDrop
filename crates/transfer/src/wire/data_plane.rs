@@ -88,9 +88,7 @@ impl TransferManager {
             actors.remove_send_if_epoch(&session_id, epoch);
             match result {
                 Ok(()) => {
-                    session
-                        .on_completed(epoch, coordinator.as_ref(), events.as_ref())
-                        .await;
+                    session.on_completed(epoch, coordinator.as_ref()).await;
                 }
                 Err(e) if session.cancel_token().is_cancelled() => {
                     info!("transfer-data 发送任务已取消: session={session_id}, {e}");
@@ -100,7 +98,7 @@ impl TransferManager {
                     // Interrupted 是可恢复状态，projection 仍是前端的权威状态；但它不保存
                     // 底层拨号/流错误。额外发出失败事件仅用于呈现这次中断的具体原因，避免
                     // Web 端只能看到笼统的 suspended/interrupted 而无法诊断。
-                    let _ = events
+                    if let Err(event_error) = events
                         .emit(crate::events::TransferEvent::TransferFailed {
                             event: TransferFailedEvent {
                                 session_id,
@@ -108,7 +106,13 @@ impl TransferManager {
                                 error: e.to_string(),
                             },
                         })
-                        .await;
+                        .await
+                    {
+                        warn!(
+                            "上报发送失败事件失败: session={}, error={}",
+                            session_id, event_error
+                        );
+                    }
                     session
                         .on_interrupted(epoch, coordinator.as_ref(), store.as_ref())
                         .await;
@@ -187,7 +191,7 @@ impl TransferManager {
             .start_data_channel(epoch, stream, fetch_plan, move |sid| {
                 actors.remove_receive_if_epoch(sid, epoch);
             })
-            .await;
+            .await?;
 
         Ok(())
     }

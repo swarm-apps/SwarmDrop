@@ -151,9 +151,18 @@ where
 
     let mut len_buf = unsigned_varint::encode::usize_buffer();
     let len = unsigned_varint::encode::usize(payload.len(), &mut len_buf);
-    writer.write_all(len).await.map_err(io_error)?;
-    writer.write_all(&payload).await.map_err(io_error)?;
-    writer.flush().await.map_err(io_error)?;
+    writer
+        .write_all(len)
+        .await
+        .map_err(|err| frame_io_error("写入帧长度", frame, err))?;
+    writer
+        .write_all(&payload)
+        .await
+        .map_err(|err| frame_io_error("写入帧 payload", frame, err))?;
+    writer
+        .flush()
+        .await
+        .map_err(|err| frame_io_error("刷新帧", frame, err))?;
     Ok(())
 }
 
@@ -167,6 +176,11 @@ where
         Err(unsigned_varint::io::ReadError::Io(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
             return Ok(None);
         }
+        Err(unsigned_varint::io::ReadError::Io(e)) => {
+            return Err(AppError::Transfer(format!(
+                "transfer-data IO 错误（读取帧长度）: {e}"
+            )));
+        }
         Err(e) => return Err(protocol_error(format!("读取 frame 长度失败: {e}"))),
     };
     if len > MAX_FRAME_LEN {
@@ -175,7 +189,11 @@ where
         )));
     }
     let mut payload = vec![0u8; len];
-    reader.read_exact(&mut payload).await.map_err(io_error)?;
+    reader.read_exact(&mut payload).await.map_err(|err| {
+        AppError::Transfer(format!(
+            "transfer-data IO 错误（读取 {len} 字节帧 payload）: {err}"
+        ))
+    })?;
     decode_frame(&payload).map(Some)
 }
 
@@ -425,8 +443,30 @@ impl<'a> Cursor<'a> {
     }
 }
 
-fn io_error(err: io::Error) -> AppError {
-    AppError::Transfer(format!("transfer-data IO 错误: {err}"))
+fn frame_io_error(operation: &str, frame: &TransferDataFrame, err: io::Error) -> AppError {
+    let context = match frame {
+        TransferDataFrame::Hello {
+            session_id, epoch, ..
+        } => format!("Hello, session={session_id}, epoch={epoch}"),
+        TransferDataFrame::BlockData {
+            session_id,
+            epoch,
+            range,
+            ..
+        } => format!(
+            "BlockData, session={session_id}, epoch={epoch}, file_id={}, offset={}, length={}",
+            range.file_id, range.offset, range.length
+        ),
+        TransferDataFrame::Abort {
+            session_id, epoch, ..
+        } => format!("Abort, session={session_id}, epoch={epoch}"),
+        TransferDataFrame::Finish { session_id, epoch } => {
+            format!("Finish, session={session_id}, epoch={epoch}")
+        }
+    };
+    AppError::Transfer(format!(
+        "transfer-data IO 错误（{operation} {context}）: {err}"
+    ))
 }
 
 fn protocol_error(message: String) -> AppError {
@@ -542,8 +582,12 @@ mod tests {
         let mut writer = FlushFailWriter::default();
 
         let err = write_frame(&mut writer, &frame).await.unwrap_err();
+        let message = err.to_string();
 
-        assert!(err.to_string().contains("flush called"));
+        assert!(message.contains("flush called"));
+        assert!(message.contains("刷新帧 Finish"));
+        assert!(message.contains(&session_id().to_string()));
+        assert!(message.contains("epoch=5"));
     }
 
     #[tokio::test]

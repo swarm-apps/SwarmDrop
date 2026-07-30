@@ -1,0 +1,48 @@
+diff --git a/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt b/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt
+index c66d1b2..1fae188 100644
+--- a/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt
++++ b/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt
+@@ -2,6 +2,7 @@ package expo.modules.filesystem
+ 
+ import android.content.ContentResolver
+ import android.net.Uri
++import android.os.ParcelFileDescriptor
+ import expo.modules.kotlin.exception.Exceptions
+ import expo.modules.kotlin.sharedobjects.SharedRef
+ import expo.modules.kotlin.types.Enumerable
+@@ -47,7 +48,8 @@ enum class FileMode(val descriptor: String) : Enumerable {
+ 
+ class FileSystemFileHandle private constructor(
+   channel: FileChannel,
+-  private val mode: FileMode
++  private val mode: FileMode,
++  private val parcelFileDescriptor: ParcelFileDescriptor? = null
+ ) : SharedRef<FileChannel>(channel), AutoCloseable {
+   companion object {
+     fun forJavaFile(file: File, mode: FileMode): FileSystemFileHandle {
+@@ -76,10 +78,10 @@ class FileSystemFileHandle private constructor(
+       val channel = when (mode) {
+         FileMode.READ -> FileInputStream(pfd.fileDescriptor).channel
+         FileMode.WRITE, FileMode.APPEND, FileMode.TRUNCATE -> FileOutputStream(pfd.fileDescriptor).channel
+-        else -> throw Exceptions.IllegalArgument("Unsupported file mode: '$mode'")
++        FileMode.READ_WRITE -> FileOutputStream(pfd.fileDescriptor).channel
+       }
+ 
+-      return FileSystemFileHandle(channel, mode)
++      return FileSystemFileHandle(channel, mode, pfd)
+     }
+   }
+ 
+@@ -96,7 +98,11 @@ class FileSystemFileHandle private constructor(
+   }
+ 
+   override fun close() {
+-    fileChannel.close()
++    try {
++      fileChannel.close()
++    } finally {
++      parcelFileDescriptor?.close()
++    }
+   }
+ 
+   fun read(length: Long): ByteArray {

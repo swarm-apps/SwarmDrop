@@ -884,8 +884,27 @@ impl Actor {
                 peer_id,
                 connection_id,
                 num_established,
-                ..
+                cause,
+                endpoint,
             } => {
+                if let Some(error) = &cause {
+                    warn!(
+                        %peer_id,
+                        %connection_id,
+                        ?endpoint,
+                        %error,
+                        num_established,
+                        "connection closed with error"
+                    );
+                } else {
+                    debug!(
+                        %peer_id,
+                        %connection_id,
+                        ?endpoint,
+                        num_established,
+                        "connection closed"
+                    );
+                }
                 let node = NodeId::from_peer_id(peer_id);
                 let prev_best = self.best_conn(peer_id).map(|c| c.path);
                 if let Some(list) = self.conns.get_mut(&peer_id) {

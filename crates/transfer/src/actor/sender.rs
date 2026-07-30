@@ -184,7 +184,7 @@ impl SenderActor {
         let manifest = self.file_manifest();
         let plan = fetch_plan;
 
-        write_frame(
+        if let Err(error) = write_frame(
             &mut channel,
             &TransferDataFrame::Hello {
                 session_id: self.session_id,
@@ -194,23 +194,31 @@ impl SenderActor {
                 fetch_plan: plan.clone(),
             },
         )
-        .await?;
+        .await
+        {
+            return Err(self.prefer_remote_abort(&mut channel, epoch, error).await);
+        }
 
         for range in plan {
             if self.cancel_token.is_cancelled() {
                 return Err(AppError::Transfer("传输已取消".into()));
             }
-            self.write_range(&mut channel, epoch, range).await?;
+            if let Err(error) = self.write_range(&mut channel, epoch, range).await {
+                return Err(self.prefer_remote_abort(&mut channel, epoch, error).await);
+            }
         }
 
-        write_frame(
+        if let Err(error) = write_frame(
             &mut channel,
             &TransferDataFrame::Finish {
                 session_id: self.session_id,
                 epoch,
             },
         )
-        .await?;
+        .await
+        {
+            return Err(self.prefer_remote_abort(&mut channel, epoch, error).await);
+        }
 
         // 接收方收完并 finalize 后回一帧 Finish 作为完成确认（已无逐块 Ack），读到它即完成。
         // 空闲等待时响应取消，避免 cancel 后干等到对端 Finish 或超时。
@@ -237,17 +245,42 @@ impl SenderActor {
         }
     }
 
+    /// 接收方在本地落盘/校验失败时会先回写 Abort 再关流。发送端往往正处在下一块
+    /// `write_frame`，底层先返回的只是 yamux "connection is closed"；此时短暂读取反向
+    /// 数据，可把已经到达的 Abort 原因提升为最终错误，避免 UI 只展示传输层噪声。
+    async fn prefer_remote_abort(
+        &self,
+        channel: &mut P2pStream,
+        epoch: i64,
+        original: AppError,
+    ) -> AppError {
+        let is_stream_io = matches!(
+            &original,
+            AppError::Transfer(message) if message.starts_with("transfer-data IO 错误")
+        );
+        if !is_stream_io {
+            return original;
+        }
+
+        match n0_future::time::timeout(std::time::Duration::from_millis(750), read_frame(channel))
+            .await
+        {
+            Ok(Ok(Some(TransferDataFrame::Abort {
+                session_id,
+                epoch: abort_epoch,
+                reason,
+            }))) if session_id == self.session_id && EpochGuard::matches(abort_epoch, epoch) => {
+                AppError::Transfer(format!("对端中止传输: {reason}"))
+            }
+            _ => original,
+        }
+    }
+
     /// 发送数据面正常结束的终态副作用（与接收方 `finish_data_channel` 对称）。
     ///
     /// session 终态经状态机 `dispatch(Actor{epoch, Completed})`，享受 epoch + terminal
     /// 不可逆守卫（旧 epoch / 已取消的会话不被覆盖）；仅真正转入 completed 才发完成事件。
-    /// coordinator/events 由 data_plane 传入（actor 自身只在完成回调点用一次，不持有）。
-    pub async fn on_completed(
-        &self,
-        epoch: i64,
-        coordinator: &TransferCoordinator,
-        events: &dyn TransferEventSink,
-    ) {
+    pub async fn on_completed(&self, epoch: i64, coordinator: &TransferCoordinator) {
         match coordinator
             .dispatch(
                 self.session_id,
@@ -260,12 +293,23 @@ impl SenderActor {
         {
             Ok(Some(_)) => {
                 // 复用 ProgressTracker::complete_event（与接收方 finish_data_channel 对称），
-                // 不再手搓 TransferCompleteEvent。锁中毒（极罕见）则跳过完成事件。
-                let event = self.progress.lock().ok().map(|p| p.complete_event(None));
+                // 不再手搓 TransferCompleteEvent。
+                let event = match self.progress.lock() {
+                    Ok(progress) => Some(progress.complete_event(None)),
+                    Err(_) => {
+                        warn!(
+                            "读取发送完成进度失败（锁中毒）: session={}",
+                            self.session_id
+                        );
+                        None
+                    }
+                };
                 if let Some(event) = event {
-                    let _ = events
-                        .emit(TransferEvent::TransferCompleted { event })
-                        .await;
+                    self.emit_best_effort(
+                        TransferEvent::TransferCompleted { event },
+                        "上报发送完成事件",
+                    )
+                    .await;
                 }
             }
             Ok(None) => info!(
@@ -285,10 +329,16 @@ impl SenderActor {
         store: &dyn SessionStore,
     ) {
         let progress = self.get_file_progress();
-        let _ = store
+        if let Err(error) = store
             .save_sender_file_progress(self.session_id, &progress)
-            .await;
-        let _ = coordinator
+            .await
+        {
+            warn!(
+                "保存发送方中断进度失败: session={}, error={}",
+                self.session_id, error
+            );
+        }
+        if let Err(error) = coordinator
             .dispatch(
                 self.session_id,
                 CoordinatorInput::Network {
@@ -296,7 +346,13 @@ impl SenderActor {
                     signal: NetworkSignal::Interrupted,
                 },
             )
-            .await;
+            .await
+        {
+            warn!(
+                "dispatch 发送中断失败: session={}, error={}",
+                self.session_id, error
+            );
+        }
     }
 
     fn file_manifest(&self) -> Vec<FileInfo> {
@@ -405,13 +461,23 @@ impl SenderActor {
             p.progress_event()
         };
         if let Some(event) = progress_event {
-            let _ = self
-                .events
-                .emit(TransferEvent::TransferProgress { event })
+            self.emit_best_effort(TransferEvent::TransferProgress { event }, "上报发送块进度")
                 .await;
         }
 
         Ok(())
+    }
+
+    /// UI 事件投递失败不改变传输状态，但必须留诊断，避免状态已落库而界面无反馈。
+    async fn emit_best_effort(&self, event: TransferEvent, operation: &'static str) {
+        if let Err(error) = self.events.emit(event).await {
+            warn!(
+                session = %self.session_id,
+                %error,
+                operation,
+                "传输事件投递失败"
+            );
+        }
     }
 
     /// 返回自上次活动以来的空闲时间（毫秒）

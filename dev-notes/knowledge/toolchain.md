@@ -634,3 +634,25 @@ ubrn 用 `cargo metadata` 的 `target_directory` 定位产物，会自动跟到�
 
 **相关文件**：`Cargo.toml`、`mobile/packages/swarmdrop-core/rust/mobile-core/Cargo.toml`、
 `mobile/packages/swarmdrop-core/package.json`
+
+### expo-file-system 56.0.8 的 SAF FileHandle 必须保活 PFD
+
+Android 接收位置选系统目录后走 SAF `content://`。expo-file-system 56.0.8 的
+`FileSystemFileHandle.forContentURI` 只从 `ParcelFileDescriptor.fileDescriptor` 创建
+`FileChannel`，却不在 handle 中持有 `ParcelFileDescriptor`；PFD 被 GC 回收后，仍在使用的
+channel 会随机变成 `Bad file descriptor`。传输层随后只看到 data stream 被关闭，发送端常显示
+`connection is closed`，发生字节数取决于 GC 时机，**不是 100 MB 限制或缺少背压**。
+
+项目通过 `mobile/pnpm-workspace.yaml` 的 `patchedDependencies` 修复：
+
+- 持有 PFD 到 `FileHandle.close()`，并在 finally 中同时关闭；该部分来自 expo/expo#47176。
+- SAF 新传输用 `"wt"` 明确截断，续传用 `"rw"` 保留已有内容并做可定位写；同一进程恢复优先
+  复用现有 handle，不能用 `"w"` reopen，否则 checkpoint 还在而文件已被再次截断。
+
+补丁配置必须留在 `pnpm-workspace.yaml`（pnpm 11 不读 package.json 的 `pnpm` 字段），更新后用
+`pnpm install --config.allowUnusedPatches=true` 并确认 `mobile/pnpm-lock.yaml` 出现对应
+`patch_hash`。升级 expo-file-system 时先核对上游是否同时覆盖 PFD 生命周期和 SAF `"rw"` 写通道，
+不能只看到 #47176 合入就直接删除整个补丁。
+
+**相关文件**：`mobile/patches/expo-file-system@56.0.8.patch`、
+`mobile/src/core/foreign-file-access.ts`、`mobile/pnpm-workspace.yaml`
