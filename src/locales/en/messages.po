@@ -808,6 +808,8 @@ msgid "复制路径"
 msgstr "Copy path"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制邀请链接"
 msgstr "Copy Invite Link"
 
@@ -974,6 +976,8 @@ msgstr "Transfer canceled"
 msgid "已取消归档"
 msgstr "Unarchived"
 
+#: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已复制"
@@ -2425,6 +2429,8 @@ msgstr "Resend"
 #~ msgid "重新生成"
 #~ msgstr "Regenerate"
 
+#: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "重新生成邀请"
 msgstr "Regenerate Invite"

@@ -12,7 +12,6 @@ import { Check, Clock, Copy, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import { useShallow } from "zustand/react/shallow";
 import { INVITE_TTL_SECS, usePairingStore } from "@/stores/pairing-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
@@ -44,15 +43,11 @@ const EXPIRY_WARNING_SECS = 30;
 function PairingGeneratePage() {
   const navigate = useNavigate();
 
-  const { ensureActiveInvite, generateInvite } = usePairingStore(
-    useShallow((state) => ({
-      ensureActiveInvite: state.ensureActiveInvite,
-      generateInvite: state.generateInvite,
-    })),
-  );
-
+  const ensureActiveInvite = usePairingStore((state) => state.ensureActiveInvite);
+  const generateInvite = usePairingStore((state) => state.generateInvite);
   const activeInvite = usePairingStore((s) => s.activeInvite);
   const errorMessage = usePairingStore((s) => s.inviteError);
+  const isGeneratingInvite = usePairingStore((s) => s.isGeneratingInvite);
   const nodeStatus = useNetworkStore((s) => s.status);
   const isNodeRunning = nodeStatus === "running";
   const isNodeStarting = nodeStatus === "starting";
@@ -78,15 +73,21 @@ function PairingGeneratePage() {
   }, [copied]);
 
   const invite = activeInvite?.invite ?? null;
+  const canCopyInvite =
+    isNodeRunning &&
+    invite !== null &&
+    !isExpired &&
+    errorMessage === null &&
+    !isGeneratingInvite;
   const handleCopy = useCallback(async () => {
-    if (invite === null) return;
+    if (!canCopyInvite) return;
     try {
       await copyText(invite);
       setCopied(true);
     } catch {
       toast.error(t`复制失败，请手动复制邀请`);
     }
-  }, [invite]);
+  }, [canCopyInvite, invite]);
 
   const handleRegenerate = useCallback(
     () => generateInvite(localOnly),
@@ -125,21 +126,40 @@ function PairingGeneratePage() {
       <TaskContent
         className="flex min-h-0 flex-col gap-5"
         footer={
-          <CommandDock>
+          <CommandDock className="justify-between sm:justify-end">
             <TaskButton variant="outline" onClick={handleBack}>
               <Trans>取消</Trans>
             </TaskButton>
-            {isExpired || errorMessage ? (
-              <TaskButton onClick={handleRegenerate} disabled={!isNodeRunning}>
-                <RefreshCw className="size-4" />
+            <TaskButton
+              variant={canCopyInvite ? "outline" : "default"}
+              onClick={handleRegenerate}
+              disabled={!isNodeRunning || isGeneratingInvite}
+              aria-label={t`重新生成邀请`}
+              title={t`重新生成邀请`}
+              className="px-3 sm:px-5"
+            >
+              <RefreshCw
+                className={cn(
+                  "size-4",
+                  isGeneratingInvite && "animate-spin",
+                )}
+              />
+              <span className="hidden sm:inline">
                 <Trans>重新生成邀请</Trans>
-              </TaskButton>
-            ) : (
-              <TaskButton onClick={handleCopy} disabled={!isNodeRunning || invite === null}>
-                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              </span>
+            </TaskButton>
+            <TaskButton
+              onClick={handleCopy}
+              disabled={!canCopyInvite}
+              aria-label={copied ? t`已复制` : t`复制邀请链接`}
+              title={copied ? t`已复制` : t`复制邀请链接`}
+              className="px-3 sm:px-5"
+            >
+              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              <span className="hidden sm:inline">
                 {copied ? <Trans>已复制</Trans> : <Trans>复制邀请链接</Trans>}
-              </TaskButton>
-            )}
+              </span>
+            </TaskButton>
           </CommandDock>
         }
       >
@@ -219,7 +239,7 @@ function PairingGeneratePage() {
                   <Switch
                     checked={localOnly}
                     onCheckedChange={setLocalOnly}
-                    disabled={!isNodeRunning}
+                    disabled={!isNodeRunning || isGeneratingInvite}
                   />
                 </label>
                 <p className="px-1 text-[11px] leading-4 text-muted-foreground">

@@ -807,6 +807,8 @@ msgid "复制路径"
 msgstr "复制路径"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制邀请链接"
 msgstr "复制邀请链接"
 
@@ -973,6 +975,8 @@ msgstr "已取消传输"
 msgid "已取消归档"
 msgstr "已取消归档"
 
+#: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已复制"
@@ -2424,6 +2428,8 @@ msgstr "重新发送"
 #~ msgid "重新生成"
 #~ msgstr "重新生成"
 
+#: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "重新生成邀请"
 msgstr "重新生成邀请"

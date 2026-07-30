@@ -81,10 +81,13 @@ function getPairingRefuseMessage(reason: PairingRefuseReason): string {
  * 邀请时顺手作废旧的」，用户的注意力在新邀请上，为一条他已经不打算再用的旧邀请弹提示
  * 只是噪音。真要管理在外流通的邀请，去设置页的「已发出的邀请」——那里会报告落盘失败。
  */
-function revokeInvite(active: ActiveInvite | null): void {
-  if (active === null) return;
-  void commands.revokePairInvite(active.invite).catch(() => {});
+function revokeInvite(invite: string | null): void {
+  if (invite === null) return;
+  void commands.revokePairInvite(invite).catch(() => {});
 }
+
+/** 使被 clear/后续生成覆盖的异步结果失效，避免旧请求晚到后复活已撤销邀请。 */
+let inviteGenerationId = 0;
 
 /** 本机生成的活跃邀请（发起方展示二维码/链接用） */
 export interface ActiveInvite {
@@ -111,6 +114,8 @@ interface PairingState {
   activeInvite: ActiveInvite | null;
   /** 生成邀请时的错误（瞬时；下一次 generate 清空） */
   inviteError: string | null;
+  /** 正在生成邀请；用于禁止重复生成及复制已被撤销的旧链接 */
+  isGeneratingInvite: boolean;
   /** 当前展示的入站配对请求 */
   incomingRequest: PairingRequestPayload | null;
   /** 入站请求队列 */
@@ -147,6 +152,7 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
   current: { phase: "idle" },
   activeInvite: null,
   inviteError: null,
+  isGeneratingInvite: false,
   incomingRequest: null,
   inboundQueue: [],
 
@@ -160,27 +166,44 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
   },
 
   async generateInvite(localOnly = false) {
-    set({ inviteError: null });
+    if (get().isGeneratingInvite) return;
+
+    const generationId = ++inviteGenerationId;
+    const previousInvite = get().activeInvite?.invite ?? null;
+    set({
+      activeInvite: null,
+      inviteError: null,
+      isGeneratingInvite: true,
+    });
     // 先撤销再生成：UI 承诺「切换后此前展示的二维码随即失效」，这个失效不该
-    // 取决于新邀请是否生成成功（失败路径下 activeInvite 同样被清空，状态一致）。
-    revokeInvite(get().activeInvite);
+    // 取决于新邀请是否生成成功。生成期间也必须清掉旧串，否则页面仍能复制一条
+    // 已被 registry 撤销的链接。
+    revokeInvite(previousInvite);
     try {
       const invite = await commands.generatePairInvite(localOnly);
+      if (generationId !== inviteGenerationId) {
+        revokeInvite(invite);
+        return;
+      }
       set({
         activeInvite: { invite, generatedAt: Date.now(), localOnly },
         inviteError: null,
+        isGeneratingInvite: false,
       });
     } catch (err) {
+      if (generationId !== inviteGenerationId) return;
+      set({ activeInvite: null, isGeneratingInvite: false });
       if (handleNodeNotStarted(err)) return;
       const message = getErrorMessage(err);
-      set({ activeInvite: null, inviteError: message });
+      set({ inviteError: message });
       toast.error(message);
     }
   },
 
   clearActiveInvite() {
-    revokeInvite(get().activeInvite);
-    set({ activeInvite: null, inviteError: null });
+    inviteGenerationId += 1;
+    revokeInvite(get().activeInvite?.invite ?? null);
+    set({ activeInvite: null, inviteError: null, isGeneratingInvite: false });
   },
 
   async previewInvite(invite: string) {

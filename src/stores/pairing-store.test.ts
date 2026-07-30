@@ -42,7 +42,11 @@ describe("pairing-store 邀请撤销", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.revokePairInvite.mockResolvedValue(null);
-    usePairingStore.setState({ activeInvite: null, inviteError: null });
+    usePairingStore.setState({
+      activeInvite: null,
+      inviteError: null,
+      isGeneratingInvite: false,
+    });
   });
 
   it("重新生成时撤销被覆盖的旧邀请", async () => {
@@ -77,6 +81,52 @@ describe("pairing-store 邀请撤销", () => {
 
     expect(mocks.revokePairInvite).toHaveBeenCalledExactlyOnceWith(INVITE_A);
     expect(usePairingStore.getState().activeInvite).toBeNull();
+    expect(usePairingStore.getState().isGeneratingInvite).toBe(false);
+  });
+
+  it("重新生成期间清掉已撤销的旧邀请并阻止重复请求", async () => {
+    mocks.generatePairInvite.mockResolvedValueOnce(INVITE_A);
+    await usePairingStore.getState().generateInvite(false);
+
+    let resolveInvite: (invite: string) => void = () => {};
+    mocks.generatePairInvite.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveInvite = resolve;
+        }),
+    );
+
+    const pending = usePairingStore.getState().generateInvite(false);
+    const duplicate = usePairingStore.getState().generateInvite(false);
+
+    expect(usePairingStore.getState().activeInvite).toBeNull();
+    expect(usePairingStore.getState().isGeneratingInvite).toBe(true);
+    expect(mocks.generatePairInvite).toHaveBeenCalledTimes(2);
+
+    resolveInvite(INVITE_B);
+    await Promise.all([pending, duplicate]);
+
+    expect(usePairingStore.getState().activeInvite?.invite).toBe(INVITE_B);
+    expect(usePairingStore.getState().isGeneratingInvite).toBe(false);
+  });
+
+  it("清空期间生成结果晚到时保持清空并撤销迟到邀请", async () => {
+    let resolveInvite: (invite: string) => void = () => {};
+    mocks.generatePairInvite.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveInvite = resolve;
+        }),
+    );
+
+    const pending = usePairingStore.getState().generateInvite(false);
+    usePairingStore.getState().clearActiveInvite();
+    resolveInvite(INVITE_A);
+    await pending;
+
+    expect(usePairingStore.getState().activeInvite).toBeNull();
+    expect(usePairingStore.getState().isGeneratingInvite).toBe(false);
+    expect(mocks.revokePairInvite).toHaveBeenCalledExactlyOnceWith(INVITE_A);
   });
 
   it("撤销失败不外溢——fire-and-forget 不该打断界面", async () => {
