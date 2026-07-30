@@ -202,6 +202,7 @@ fn spawn_flush(app: &AppHandle) {
 /// 经 `RunEvent::Opened` 拿到已被解析过的 `url::Url`）；Windows / Linux 走 argv 原样字符串，
 /// 两种形态都能认 —— 典型的平台分叉静默失败。`tests::deep_link_contract` 钉死这一点，
 /// **落地页与移动端生成深链时也必须用单冒号形态**。
+#[cfg(target_os = "macos")]
 fn dispatch_url(app: &AppHandle, url: &url::Url) {
     match url.scheme() {
         "file" => {
