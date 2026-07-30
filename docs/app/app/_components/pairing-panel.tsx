@@ -6,13 +6,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { InviteShare } from "./invite-share";
 import { WebErrorCard } from "./web-error-view";
+import { INVITE_TTL_HOURS } from "../_lib/invite";
 import { NAV } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import { useWebNode, webNodeActions } from "../_lib/store";
-import { toWebError, type WebError, type WebNode } from "../_lib/view-types";
+import { type WebNode } from "../_lib/view-types";
 import { formatDuration } from "../_lib/format";
 import type { InviteListItemJson } from "swarmdrop-web";
 
@@ -92,7 +94,7 @@ export function PairingPanel() {
 
   // —— 生成邀请（发起方 / browser-as-inviter）——
   const [localOnly, setLocalOnly] = useState(false);
-  const [generateError, setGenerateError] = useState<WebError | null>(null);
+  const generateAction = useAsyncAction();
   const [generatedInvite, setGeneratedInvite] = useState<string | null>(null);
 
   // —— 已发出的邀请（TTL 24h + 跨刷新存活 → 必须能看见和撤销）——
@@ -116,18 +118,27 @@ export function PairingPanel() {
   // generate / revoke 在 invite-persistence 里变成了 async（要写穿 IndexedDB，否则刷新后
   // 本机就不认识刚发出的邀请了）。revoke 保持 fire-and-forget：后端幂等，失败也不影响
   // 调用方要的终态。
-  const doGenerateInvite = async () => {
+  const doGenerateInvite = () => {
     const node = getNode();
     if (!node) return;
-    setGenerateError(null);
     // 旧邀请立即作废——邀请是一次性信任凭证，界面上被顶掉了就不该还能用到 TTL 到点。
-    if (generatedInvite !== null) void node.revoke_invite(generatedInvite);
-    try {
-      setGeneratedInvite(await node.generate_invite(localOnly));
-    } catch (e) {
-      setGenerateError(toWebError(e));
-    }
-    refreshInvites();
+    // 同时立刻撤下旧码：它此刻已经失效，还挂在那儿只会让人扫完白跑一趟失败流程。
+    //
+    // 撤销落盘后**自己刷一次列表**，不搭生成那条链：撤销是无条件发出的，若只在生成成功
+    // 时刷新，一旦生成失败，「已发出的邀请」里会一直挂着那条刚被撤掉的。
+    //
+    // 已知边界：若两轮生成重叠，`useAsyncAction` 的 seq 会丢弃先返回的那条，它没进
+    // `generatedInvite` 也就逃过了这里的撤销，会活满 TTL。pending 守着按钮，人手点不出
+    // 重叠；真出现了它也还在下方「已发出的邀请」里可手动撤销，是可见的而非静默泄漏。
+    if (generatedInvite !== null) void node.revoke_invite(generatedInvite).then(refreshInvites);
+    setGeneratedInvite(null);
+    generateAction.run(
+      () => node.generate_invite(localOnly),
+      (invite) => {
+        setGeneratedInvite(invite);
+        refreshInvites();
+      },
+    );
   };
 
   const revokeAction = useKeyedAsyncAction();
@@ -155,6 +166,12 @@ export function PairingPanel() {
       if (accept) refreshPairedDevices(node);
     });
   };
+
+  const generateLabel = generateAction.pending
+    ? "生成中…"
+    : generatedInvite
+      ? "重新生成"
+      : "生成邀请";
 
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
@@ -214,20 +231,18 @@ export function PairingPanel() {
         </label>
         <button
           type="button"
-          onClick={() => void doGenerateInvite()}
-          disabled={!ready || !reservation}
+          onClick={doGenerateInvite}
+          disabled={!ready || !reservation || generateAction.pending}
           className="mt-2 rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
         >
-          生成邀请
+          {generateLabel}
         </button>
-        {generateError && <WebErrorCard error={generateError} className="mt-2 text-xs" />}
-        {generatedInvite && (
-          <textarea
-            readOnly
-            value={generatedInvite}
-            onFocus={(e) => e.currentTarget.select()}
-            className="mt-2 h-20 w-full break-all rounded-lg border border-fd-border bg-fd-background p-2 font-mono text-xs text-fd-foreground"
-          />
+        {generateAction.error && (
+          <WebErrorCard error={generateAction.error} className="mt-2 text-xs" />
+        )}
+        {/* 生成中也渲染（invite=null）：白卡留在原位显示占位，重新生成时不塌一下再长回来。 */}
+        {(generatedInvite || generateAction.pending) && (
+          <InviteShare invite={generatedInvite} />
         )}
       </div>
 
@@ -237,7 +252,7 @@ export function PairingPanel() {
             已发出的邀请（未过期）
           </p>
           <p className="mt-1 text-xs text-fd-muted-foreground">
-            邀请有效期 24 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存），
+            邀请有效期 {INVITE_TTL_HOURS} 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存），
             不想让它继续可用就撤销，需要再分享请重新生成。
           </p>
           <ul className="mt-2 space-y-2">

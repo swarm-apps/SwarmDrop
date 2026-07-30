@@ -467,6 +467,23 @@ export class WebNode {
      */
     generate_invite(local_only: boolean): Promise<string>;
     /**
+     * 邀请二维码的 SVG 字符串（深模块 + 透明背景，渲染端自己套白卡）。
+     *
+     * 编码规范由 [`swarmdrop_invite::qr`] 三端单点固化（原样编码 + 最优分段 + ECL::M +
+     * quiet zone）——浏览器**不要**另引 JS 二维码库：三端各画一遍，码面规范就会漂，
+     * 而漂了的表现是「某一端生成的码另一端扫不出来」，很难归因。
+     *
+     * **这是纯函数，`&self` 只是可达性的代价，不代表它是节点能力**——别把这里当作
+     * 「纯计算也该挂 `WebNode`」的先例。做成自由函数或 `WebNode` 的静态方法都更贴切，
+     * 但前端拿 wasm 模块句柄的唯一路径是 `node-runtime.ts` 里那个**不导出**的
+     * `loadModule()`（静态 import 会在 Next 预渲染时挂，故只能动态 import + 记忆化）。
+     * 走自由函数就得再开一个 `getModule()` 访问器并自己缓存一份——为一个叶子功能
+     * 加这套机器不值，而 `getNode()` 是现成的。
+     *
+     * 同步返回：纯计算，不碰 IndexedDB 也不碰网络。
+     */
+    invite_qr_svg(invite: string): string;
+    /**
      * 本机未过期的已发出邀请（最近生成的在前）。
      *
      * TTL 24h + 跨刷新存活之后，「我现在有几条邀请在外面飘」需要能看见 ——
@@ -595,6 +612,7 @@ export interface InitOutput {
     readonly webnode_download_url: (a: number, b: number, c: number) => any;
     readonly webnode_events: (a: number) => [number, number, number];
     readonly webnode_generate_invite: (a: number, b: number) => any;
+    readonly webnode_invite_qr_svg: (a: number, b: number, c: number) => [number, number, number, number];
     readonly webnode_list_invites: (a: number) => [number, number, number];
     readonly webnode_node_id: (a: number) => [number, number];
     readonly webnode_paired_devices: (a: number) => [number, number, number];
