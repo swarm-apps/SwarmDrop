@@ -23,11 +23,43 @@ UniFFI 接口变化后至少跑：
 ```bash
 pnpm --filter react-native-swarmdrop-core build:android
 pnpm --filter react-native-swarmdrop-core build:ios
-pnpm --filter react-native-swarmdrop-core prepare
 ```
 
-前两步刷新 Rust 静态库、TS bindings 和 C++ bridge；最后一步刷新 package `exports.types` 指向的
-`lib/typescript`，否则 app 的 `react-native-swarmdrop-core` 类型解析会继续看到旧 API。
+它们刷新 Rust 静态库、TS bindings 和 C++ bridge，**并在末尾链一次 `bob build`**（`&& bob build`
+写在四个 `build:*` 脚本里，不必再手动补 `prepare`）。
+
+### 为什么必须链 `bob build`：产物三层，错序就是启动即崩
+
+这层桥有三份产物，运行时校验只认最后一份：
+
+| 产物 | 谁生成 | 谁消费 |
+|---|---|---|
+| `src/generated/*.ts` + `cpp/generated/*` | `ubrn ... --and-generate` | 下面两者的输入 |
+| `jniLibs/**/*.a`（Rust 静态库，含真实 checksum 函数） | 同上 | CMake 链进 `.so` |
+| `lib/module/*.js` | `bob build`（= `prepare`） | **Metro 实际加载的就是它**（`exports.default`） |
+
+`lib/module` 里编着一串 `uniffiEnsureInitialized()` 校验常量。它若落后于 `.a`，App 一进
+`import` 就抛：
+
+```
+FFI function uniffi_..._checksum_method_mobilecore_revoke_pair_invite
+has a checksum mismatch; this may signify previously undetected incompatible Uniffi versions
+```
+
+**这不是 uniffi 版本问题**（错误文案会把人带偏），是同一版本里 JS 与原生库不同代。
+
+`prepare` 挂在 `pnpm install` 上，所以默认顺序恰好是**反的**：install 先用仓库里提交的
+`src/generated` 编出 `lib/`，之后 `--and-generate` 才把 `src/generated` 覆盖成新的 ——
+`lib/` 就此停在上一代。
+
+**发版流水线踩过一次（`mobile-v0.10.0`）**：CI 正是 `pnpm install` → `build:android:release`
+→ gradle 打包，且当时重新生成的 bindings **没提交进仓库**，于是 `lib/` 编自旧的提交版本，
+打出来的 APK 一启动就崩。CI 全绿 —— 它只验证「编得过」，从不启动 App。所以：
+
+- **`lib/` 是 gitignore 的**（`packages/*/lib/`），CI 每次现编，因此**提交的 `src/generated`
+  必须是最新的**，否则 CI 那次 `bob build` 拿的就是旧输入；
+- 但即使有人又忘了提交，`&& bob build` 也会在 generate 之后重编 `lib/`，把这条失败模式
+  从根上掐掉。两道保险都留着。
 
 ### 镜像 core struct 的 `From` impl 必须用穷尽解构（drift guard）
 

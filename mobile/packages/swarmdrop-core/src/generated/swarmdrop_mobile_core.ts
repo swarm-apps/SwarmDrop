@@ -1395,6 +1395,75 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
 })();
 
 /**
+ * 「已发出的邀请」列表条目（openspec: invite-persistence）。
+ *
+ * **没有邀请串本身**：capability 明文不落盘也不出注册表，重启后拼不回原始链接。
+ * UI 只显示元数据 + 提供撤销；想再分享就生成一条新的。
+ */
+export type MobileInviteListItem = {
+    /**
+     * `sha256(capability)` 的 hex —— 撤销时回传，UI 当不透明 ID 用。
+     */
+    id: string,
+    /**
+     * 创建时刻（Unix 秒）。
+     */
+    createdAt: bigint,
+    /**
+     * 过期时刻（Unix 秒）。
+     */
+    expiresAt: bigint,
+    /**
+     * 已被对方消费（仍显示到过期，让用户知道它被用过）。
+     */
+    consumed: boolean
+}
+
+/**
+ * Generated factory for {@link MobileInviteListItem} record objects.
+ */
+export const MobileInviteListItem = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInviteListItem, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInviteListItem>,
+    });
+})();
+
+const FfiConverterTypeMobileInviteListItem = (() => {
+    type TypeName = MobileInviteListItem;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                id: FfiConverterString.read(from), 
+                createdAt: FfiConverterInt64.read(from), 
+                expiresAt: FfiConverterInt64.read(from), 
+                consumed: FfiConverterBool.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.id, into);
+            FfiConverterInt64.write(value.createdAt, into);
+            FfiConverterInt64.write(value.expiresAt, into);
+            FfiConverterBool.write(value.consumed, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.id) +
+             FfiConverterInt64.allocationSize(value.createdAt) +
+             FfiConverterInt64.allocationSize(value.expiresAt) +
+             FfiConverterBool.allocationSize(value.consumed);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+/**
  * 邀请串解码后的展示投影（配对确认卡；不含 capability 等敏感字段）。
  */
 export type MobileInvitePreview = {
@@ -5432,6 +5501,13 @@ export interface MobileCoreLike {
     listDevices(filter: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileDevice>>;
     listInboxItems(includeArchived: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileInboxItemSummary>>;
 /**
+ * 本机未过期的已发出邀请（最近生成的在前）。
+ *
+ * TTL 24h + 跨重启存活之后，「我现在有几条邀请在外面飘」需要能看见 —— 这个列表与
+ * [`Self::revoke_pair_invite_by_id`] 是那段窗口的可见性与控制手段。
+ */
+    listPairInvites(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileInviteListItem>>;
+/**
  * 直接读 keychain 里的已配对设备清单 —— 不依赖 NetManager,
  * 节点未启动时也可调,用于 UI 离线兜底视图。
  */
@@ -5461,8 +5537,13 @@ export interface MobileCoreLike {
  *
  * 后端幂等——不认识的串 no-op；节点未启动时这里直接 Err，但那种情况下 registry
  * 本就是空的，调用方 fire-and-forget 即可（详见 `PairingManager::revoke_invite`）。
+ * 返回**是否已落盘**：`false` 时重启后那条邀请会复活，UI 应当提示用户。
  */
-    revokePairInvite(invite: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+    revokePairInvite(invite: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<boolean>;
+/**
+ * 按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
+ */
+    revokePairInviteById(id: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<boolean>;
 /**
  * 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
  * 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
@@ -6069,6 +6150,44 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
+ * 本机未过期的已发出邀请（最近生成的在前）。
+ *
+ * TTL 24h + 跨重启存活之后，「我现在有几条邀请在外面飘」需要能看见 —— 这个列表与
+ * [`Self::revoke_pair_invite_by_id`] 是那段窗口的可见性与控制手段。
+ */
+    async listPairInvites(asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileInviteListItem>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_pair_invites(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterSequenceTypeMobileInviteListItem.lift.bind(FfiConverterSequenceTypeMobileInviteListItem),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
  * 直接读 keychain 里的已配对设备清单 —— 不依赖 NetManager,
  * 节点未启动时也可调,用于 UI 离线兜底视图。
  */
@@ -6445,8 +6564,9 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
  *
  * 后端幂等——不认识的串 no-op；节点未启动时这里直接 Err，但那种情况下 registry
  * 本就是空的，调用方 fire-and-forget 即可（详见 `PairingManager::revoke_invite`）。
+ * 返回**是否已落盘**：`false` 时重启后那条邀请会复活，UI 应当提示用户。
  */
-    async revokePairInvite(invite: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    async revokePairInvite(invite: string, asyncOpts_?: { signal: AbortSignal }): Promise<boolean> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
@@ -6456,11 +6576,51 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(invite, nativeModule().rustbuffer_alloc)
                 );
             },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
-            /*liftFunc:*/ (_v) => {},
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_i8,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_i8,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_i8,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i8,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterBool.lift.bind(FfiConverterBool),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
+ */
+    async revokePairInviteById(id: string, asyncOpts_?: { signal: AbortSignal }): Promise<boolean> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_revoke_pair_invite_by_id(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(id, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_i8,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_i8,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_i8,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i8,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterBool.lift.bind(FfiConverterBool),
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -6837,6 +6997,9 @@ const FfiConverterSequenceTypeMobileDevice = new FfiConverterArray(FfiConverterT
 // FfiConverter for Array<MobileInboxItemSummary>
 const FfiConverterSequenceTypeMobileInboxItemSummary = new FfiConverterArray(FfiConverterTypeMobileInboxItemSummary);
 
+// FfiConverter for Array<MobileInviteListItem>
+const FfiConverterSequenceTypeMobileInviteListItem = new FfiConverterArray(FfiConverterTypeMobileInviteListItem);
+
 // FfiConverter for Array<MobileTransferFile>
 const FfiConverterSequenceTypeMobileTransferFile = new FfiConverterArray(FfiConverterTypeMobileTransferFile);
 
@@ -6973,6 +7136,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items() !== 59837) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_inbox_items");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_pair_invites() !== 33870) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_pair_invites");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices() !== 29003) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices");
     }
@@ -7009,8 +7175,11 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer() !== 29332) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite() !== 48480) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite() !== 4092) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite_by_id() !== 64447) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite_by_id");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox() !== 7065) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox");
@@ -7065,6 +7234,7 @@ export default Object.freeze({
     FfiConverterTypeMobileInboxItemSummary,
     FfiConverterTypeMobileInboxSearchHit,
     FfiConverterTypeMobileInboxSourceKind,
+    FfiConverterTypeMobileInviteListItem,
     FfiConverterTypeMobileInvitePreview,
     FfiConverterTypeMobileNetworkRuntimeConfig,
     FfiConverterTypeMobileNetworkStatus,
