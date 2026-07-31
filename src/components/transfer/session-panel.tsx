@@ -407,11 +407,11 @@ export const SessionActions = memo(function SessionActions({
 
   const handlePause = useCallback(async () => {
     try {
-      await doPauseTransfer(projection.sessionId);
+      await doPauseTransfer(projection.sessionId, projection.direction);
     } catch {
       // doPauseTransfer 已 toast
     }
-  }, [projection.sessionId]);
+  }, [projection.sessionId, projection.direction]);
 
   const handleCancel = useCallback(async () => {
     if (isCancelling) return;

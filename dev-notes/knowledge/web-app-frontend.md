@@ -232,6 +232,72 @@ pnpm build && python3 -m http.server 3210 -d out   # 保持 trailingSlash 目录
 拆页后它们全部失真。迁移面板时顺手把位置指代换成带 `<Link>` 的页面指代
 （「设置页的『连接』区」），否则用户会在当前页找一个根本不在这里的东西。
 
+## 改 `crates/web` 的公开面，有三条生成链路要重跑且都要入库
+
+前端拿到的类型与方法全部是生成物，链路有三条、彼此不串联，**跑漏任何一条都是前端拿着
+过期契约**。改了 `crates/web/src/types.rs` 或 `node.rs` 的公开面就把三条按顺序走一遍：
+
+```
+crates/web/src/types.rs
+  ──(cargo test -p swarmdrop-web --features specta --test specta_export)──>
+      crates/web/bindings/bindings.ts        ← node.rs 用 include_str! 整体注入 .d.ts
+
+crates/web/src/node.rs
+  ──(cd docs && pnpm build:wasm  →  wasm-pack build --target web)──>
+      docs/packages/swarmdrop-web/{swarmdrop_web.js, .d.ts, _bg.wasm, README.md}
+
+docs/app/app/_lib/view-types.ts        ← 手工再导出新类型（它刻意不手写镜像，只 re-export）
+```
+
+**顺序不能反**：第二条会把第一条的产物 `include_str!` 进 wasm-bindgen 的 .d.ts，先跑
+`build:wasm` 再生成 bindings.ts 等于白跑。
+
+三处各自漏掉的症状不一样，且**都不是编译错误**：
+
+- **漏在 specta 注册**：`tests/specta_export.rs` 的 `Types::default().register::<..>()` 链
+  **不是自动扫描**，新 DTO 要手动挂上去（并在 `lib.rs` 的 `pub use types::{..}` 里导出，
+  那个测试从 crate 根导入）。漏了则 bindings.ts 里没有该类型，而
+  `#[wasm_bindgen(typescript_type = "XxxJson")]` 里的类型名是个**字符串，wasm-bindgen 不校验**
+  —— Rust 侧照样编过，等到前端 import 才炸。
+- **漏跑 `pnpm build:wasm`**：新增方法时 `pnpm typecheck` 会说 `node.cancel_send` 不存在，
+  还算好归因；**改了实现而签名没变**时 typecheck 与 `pnpm build` 全绿，跑起来是旧行为，
+  只能靠「碰过 `crates/web` 就必重跑」的纪律兜。产物三份（`.js` / `.d.ts` / `_bg.wasm`）
+  都在 `git ls-files` 里，`git status` 看不见 `_bg.wasm` 变化就是没跑。
+- **漏加 `view-types.ts`**：报「模块没有导出的成员」。注意它可以被**绕过**——组件直接从
+  `swarmdrop-web` 导也一样编过（`pairing-panel.tsx` 的 `InviteListItemJson` 就是这么写的），
+  所以这个列表会慢慢变得不全，别把「编译过了」当成「已经加了」。
+
+**相关文件**：`crates/web/tests/specta_export.rs`、`crates/web/src/node.rs`、
+`docs/app/app/_lib/view-types.ts`
+
+## 加 IndexedDB object store 要同改三处，漏第三处只在运行时报错
+
+`crates/web/src/idb.rs` 里加一张新表（`inbox` 是第四张，`DB_VERSION` 3 → 4）必须同时动三处，
+**少任何一处都编得过**：
+
+| # | 位置 | 漏掉的症状 |
+|---|---|---|
+| 1 | `pub const XXX_STORE: &str = "…"` | 编译错误（唯一会红的一处，也是最没威胁的一处） |
+| 2 | `DB_VERSION` 提一档 | `onupgradeneeded` **根本不触发** ——老库里那张表永远不存在 |
+| 3 | `install_upgrade_handler` 的 `for name in [KV_STORE, SESSION_STORE, INVITE_STORE, INBOX_STORE]` | 版本提了、回调也进了，但**不建这张表** |
+
+2 与 3 都只在**运行时**暴露，且症状一模一样：第一次读写这张表拿一个 DOM 异常
+（`NotFoundError: One of the specified object stores was not found`）。
+`cargo check` / `check-wasm.sh` / `pnpm build` 全绿，跑起来才炸 —— 而这三样是平时唯一的门。
+
+两条配套：
+
+- **`onupgradeneeded` 里只做「建缺失的 store」，逐个判存在性、不按版本号分支。**
+  老库升级与新库首建因此走同一段代码，不需要 `if old_version < 4` 这类阶梯。
+  加新表时**不要**为它开特例。
+- **schema 变更不写迁移 / 回填 / 双写。** Web 端目前没有真实用户，
+  升版本号只为把新表建出来，旧数据直接丢弃（`inbox-store-port-completion` 的 design D7）。
+  实际观感是「传输历史满的、收件箱空的」，那是**预期结果不是 bug** ——
+  验收时容易误报，推导记在
+  [`storage-abstraction.md`](storage-abstraction.md) 的「schema 变更直接换」一节。
+
+**相关文件**：`crates/web/src/idb.rs`、`crates/web/src/store.rs`、`crates/web/src/inbox.rs`
+
 ## 二维码只能从 wasm 侧取，不许引 JS 二维码库
 
 编码规范（原样编码 + 最优分段 + ECL::M + quiet zone 4 模块）单点固化在

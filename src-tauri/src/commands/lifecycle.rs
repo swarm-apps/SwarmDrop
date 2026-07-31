@@ -7,15 +7,17 @@ use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
 use swarmdrop_core::event_adapter::CoreTransferEvents;
-use swarmdrop_core::host::{EventBus, FileAccess, Notifier, UpdateInstallRequest, UpdateInstaller};
+use swarmdrop_core::host::{
+    DeviceConfig, EventBus, FileAccess, Notifier, UpdateInstallRequest, UpdateInstaller,
+};
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_net::SecretKey;
-use swarmdrop_storage_sql::SqlSessionStore;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 
 use crate::AppError;
-use crate::device::{DeviceFilter, DeviceListResult, OsInfo, PairedDeviceInfo};
+use crate::database::TransferStoreState;
+use crate::device::{DeviceFilter, DeviceListResult, OsInfo};
 use crate::host::event_bus::TauriEventBus;
 use crate::network::{NetManagerState, NetworkStatus};
 use swarmdrop_core::network::NetworkRuntimeConfig;
@@ -25,11 +27,8 @@ use swarmdrop_core::network::NetworkRuntimeConfig;
 pub async fn start(
     app: AppHandle,
     secret_key: State<'_, SecretKey>,
-    paired_devices: Vec<PairedDeviceInfo>,
     network_options: Option<NetworkRuntimeConfig>,
 ) -> crate::AppResult<()> {
-    let paired_devices = load_host_paired_devices(&app, paired_devices).await?;
-
     // 准备 host adapters（在 NetManager 构造前必须就绪）
     let event_bus_struct = if let Some(bus) = app.try_state::<TauriEventBus>() {
         bus.inner().clone()
@@ -45,19 +44,28 @@ pub async fn start(
         .map(|s| Arc::new(s.inner().clone()))
         .ok_or_else(|| AppError::transfer("数据库未初始化"))?;
 
+    // 传输域持久化端口取自组装点托管的那一份，**不在这里新建**
+    // （openspec: inbox-store-port-completion design D5）：注入 `TransferManager` 的
+    // 与宿主自持的（收件箱命令 / MCP 工具 / 启动清理）是同一个 `Arc`，
+    // 不是两个包装同一条连接的实例。
+    let transfer_store: TransferStoreState = app
+        .try_state::<TransferStoreState>()
+        .map(|s| s.inner().clone())
+        .ok_or_else(|| AppError::transfer("传输存储未初始化"))?;
+
     let file_access: Arc<dyn FileAccess> =
         Arc::new(crate::host::file_source::TauriFileAccess::new(app.clone()));
 
     let event_bus_for_factory = event_bus.clone();
-    let db_for_factory = db.clone();
     let file_access_for_factory = file_access.clone();
 
-    let device_name = crate::host::device_config::load_device_name(&app).await;
     let keychain = crate::host::keychain_provider(&app)?;
     let webrtc_certificate_pem =
         swarmdrop_core::identity::load_or_create_webrtc_certificate(&*keychain).await?;
-    // os_info 由 host 供给：桌面走 `OsInfo::native` 的 env 探测（hostname/os/arch）+ 用户设备名。
-    let os_info = OsInfo::native(device_name);
+    // host 只供给平台探测部分（hostname / os / platform / arch）；用户设备名由 core 的
+    // 组合根从下面这个 `DeviceConfig` 端口读，桌面这侧没有 API 能把 name 塞进 OsInfo。
+    let os_info = OsInfo::default();
+    let device_config: Arc<dyn DeviceConfig> = Arc::new(crate::host::device_config(&app)?);
     // bootstrap_nodes 由桌面 host 注入；核心不再持有任何公共基础设施地址。
     let network_config = network_options.unwrap_or_default();
 
@@ -69,7 +77,8 @@ pub async fn start(
         (*secret_key).clone(),
         Some(webrtc_certificate_pem),
         os_info,
-        paired_devices,
+        device_config,
+        crate::host::paired_device_store(&app)?,
         network_config,
         swarmdrop_core::runtime::EndpointProfile::Native,
         event_bus.clone(),
@@ -81,7 +90,7 @@ pub async fn start(
             TransferManager::new(
                 endpoint,
                 Arc::new(CoreTransferEvents(event_bus_for_factory)),
-                Arc::new(SqlSessionStore::new(db_for_factory)),
+                transfer_store,
                 file_access_for_factory,
             )
         },
@@ -115,19 +124,6 @@ pub async fn start(
     crate::network::spawn_event_loop(events, shared, event_bus, router);
 
     Ok(())
-}
-
-async fn load_host_paired_devices(
-    app: &AppHandle,
-    fallback: Vec<PairedDeviceInfo>,
-) -> crate::AppResult<Vec<PairedDeviceInfo>> {
-    let provider = crate::host::keychain_provider(app)?;
-    let devices = swarmdrop_core::identity::load_paired_devices(&*provider).await?;
-    if devices.is_empty() {
-        Ok(fallback)
-    } else {
-        Ok(devices)
-    }
 }
 
 #[tauri::command]

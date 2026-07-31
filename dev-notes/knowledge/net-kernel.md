@@ -82,17 +82,29 @@ Web 端在上游合并前需要 WebRTC DataChannel 回调生命周期修复与�
 因此 workspace 暂时 pin `yexiyue/rust-libp2p`。该分支以 `libp2p/rust-libp2p:master`
 为基线；`Cargo.lock` 必须与精确 revision 一起提交。
 
-#### fork 到底比上游多什么（2026-07-28 更新）
+#### fork 到底比上游多什么（2026-07-31 更新）
 
-**全部自有补丁都已提交上游 PR，无未提项。**
+**有一条自有补丁尚未提交上游**（identify 运行时 agent_version setter，见表末行）。
+其余补丁都已提 PR。
 
-| fork commit | 补丁 | 上游 PR | 状态（2026-07-28） |
+| fork commit | 补丁 | 上游 PR | 状态（2026-07-31） |
 |---|---|---|---|
 | `db1bc23e` | `fix(webrtc-websys): defer data channel callback wakes` | [#6558](https://github.com/libp2p/rust-libp2p/pull/6558) | **OPEN** |
 | `c7d37a8d` | `feat(webrtc): negotiate data channel message limits` | [#6560](https://github.com/libp2p/rust-libp2p/pull/6560) | **OPEN** |
 | `9e3bcd9b` | `docs: add WebRTC message limit changelogs` | #6560（同 PR） | **OPEN** |
 | `c4c2c167` + `989cb610` | separate / configure receive buffer limit | #6560 的 `5984c716`（**squash 成单 commit**） | **OPEN** |
-| `262dea51` | `fix(relay): don't panic on circuit request without a matching reservation` | [#6570](https://github.com/libp2p/rust-libp2p/pull/6570)（issue [#6569](https://github.com/libp2p/rust-libp2p/issues/6569)） | **OPEN** |
+| `262dea51` | `fix(relay): don't panic on circuit request without a matching reservation` | 我们提的 [#6570](https://github.com/libp2p/rust-libp2p/pull/6570) 已 **CLOSED**，改跟上游自己的 [#6472](https://github.com/libp2p/rust-libp2p/pull/6472) | **#6472 已 MERGED** |
+| `d858435c` | `feat(identify): allow updating agent_version at runtime` | —— | **未提交（follow-up）** |
+
+末行那条**不是别人偷塞进来的**：它是本仓 `identify-agent-version-runtime-update` 变更的
+产物，分支 `feat/identify-runtime-agent-version`，基线正是上一版 pin 的 `262dea51`
+（刻意没 rebase 到上游 master，免得把上面几个 PR 的状态搅进这次变更、出问题时分不清是谁的锅）。
+给 identify 的 `Behaviour` 加 `set_agent_version` + `InEvent::AgentVersionChanged`，
+逐连接下发新值——**没有它，改设备名必须重启整个节点**（断开所有连接、中断进行中的传输），
+`crates/net` 侧绕不过去：`agent_version` 在每条连接建立时就被 clone 进了该连接的 Handler，
+只改 Behaviour 的 config 对已建立的连接无效。补丁按上游可接受的形态写（英文 doc、参数是裸
+`String`、不带任何 SwarmDrop 语义、附 smoke 测试与 CHANGELOG 条目），随时可提 PR，
+但**目前确实未提**。
 
 ##### relay panic（2026-07-28，线上实证）
 
@@ -128,9 +140,11 @@ assertion `left == right` failed
 > 同理，**两个 PR 分支互不包含**：#6558 与 #6560 各自基于上游 master 独立开分支，拿 fork master
 > 跟任一 PR 分支比，都会看到另一个 PR 的改动被列为「差异」——那不是遗漏。
 
-**唯一确实未进 PR 的内容**：`misc/webrtc-utils/src/stream.rs` 里 3 行文档注释（说明
-transport-local 聚合接收缓冲为何与协商的单条消息上限相互独立）。纯注释、零功能影响，
+**WebRTC 那批补丁里唯一未进 PR 的内容**：`misc/webrtc-utils/src/stream.rs` 里 3 行文档注释
+（说明 transport-local 聚合接收缓冲为何与协商的单条消息上限相互独立）。纯注释、零功能影响，
 上游合并后随 rebase 自然消失，**不构成退出阻塞**。
+
+（identify 那条是另一回事——它是**有功能的**未提项，见上表末行与下节退出条件。）
 
 #### 退出条件（两阶段，各自可判定）
 
@@ -140,12 +154,25 @@ transport-local 聚合接收缓冲为何与协商的单条消息上限相互独�
 # 主判据：三个 PR 均为 MERGED —— 此时上游 master 已含全部所需修复
 gh pr view 6558 --repo libp2p/rust-libp2p --json state --jq .state
 gh pr view 6560 --repo libp2p/rust-libp2p --json state --jq .state
-gh pr view 6570 --repo libp2p/rust-libp2p --json state --jq .state   # relay panic
+gh pr view 6472 --repo libp2p/rust-libp2p --json state --jq .state   # relay panic，已 MERGED
 ```
+
+> relay panic 那条要查的是**上游自己的 #6472**，不是我们提的 #6570——后者源码与 #6472 逐字节
+> 相同，2026-07-28 已按维护者要求关闭，**永远不会变成 MERGED**。照旧判据查 6570 会得到一个
+> 永不满足的退出条件。
 
 三个都 MERGED 后，把**五行** git 依赖（libp2p / -stream / -core / -swarm / -webrtc-utils）的
 URL 换回 `libp2p/rust-libp2p`、rev 换成上游 master 上含这三个 PR 的 commit，跑全量测试 +
-`./scripts/check-wasm.sh`，然后**删掉 fork pin**。
+`./scripts/check-wasm.sh`。
+
+> **identify 那条补丁是独立于上面三条的第四条，判定上要分开看。**
+> 它**不进阶段 1 的判据**——三个 WebRTC/relay PR 合不合并，与它毫无关系，别因为它没提 PR 就
+> 认为阶段 1 退不了。
+>
+> 但它**阻塞「删掉 fork pin」这个终局**：`set_agent_version` 只在 fork 上，pin 一删，
+> `crates/net` 的 `Endpoint::set_agent_version` 直接编不过，改设备名就退回「必须重启整个节点」。
+> 所以终局多一步 —— 要么把 `feat/identify-runtime-agent-version` 提上游并等它合并
+> （补丁已按上游形态写好，见上表），要么明确接受功能回退。**两条都没做之前，fork pin 不能删**。
 
 ```bash
 # 辅助判据（查漏用，不是合并信号）：确认 fork 上没有漏提的自有补丁。

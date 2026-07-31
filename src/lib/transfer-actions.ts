@@ -11,9 +11,16 @@ import { getErrorMessage } from "@/lib/errors";
 import { commands, type FileSource, type TransferProjection } from "@/lib/bindings";
 
 /** 暂停传输 */
-export async function doPauseTransfer(sessionId: string) {
+export async function doPauseTransfer(
+  sessionId: string,
+  direction: "send" | "receive",
+) {
   try {
-    await commands.pauseTransfer(sessionId);
+    if (direction === "send") {
+      await commands.pauseSend(sessionId);
+    } else {
+      await commands.pauseReceive(sessionId);
+    }
   } catch (err) {
     toast.error(getErrorMessage(err));
     throw err;

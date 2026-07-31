@@ -12,6 +12,7 @@ pub mod coordinator;
 pub mod epoch;
 pub mod events;
 pub mod flow;
+pub mod inbox;
 pub mod incoming;
 pub mod manager;
 pub mod peer;

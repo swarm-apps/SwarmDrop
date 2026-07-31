@@ -16,7 +16,7 @@ use swarmdrop_net::NodeId;
 
 pub use swarmdrop_host::*;
 
-use swarmdrop_host::device::{Device, PairedDeviceInfo};
+use swarmdrop_host::device::{Device, DeviceName, PairedDeviceInfo};
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{
     PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
@@ -56,6 +56,35 @@ pub enum CoreEvent {
     },
     PairedDeviceAdded {
         device: PairedDeviceInfo,
+    },
+    /// 已配对设备被解除（唯一触发点是
+    /// [`PairingManager::unpair`](crate::pairing::PairingManager::unpair)，且仅在集合
+    /// 真的变了时才发）。
+    ///
+    /// 与 [`DevicesChanged`](Self::DevicesChanged) 刻意分开：后者携带的是含 presence /
+    /// 连接态的设备视图，每秒可能刷新多次，表达不了「这台设备不再被信任了」。
+    ///
+    /// **host 不得在这个事件里再删一次持久化**——core 已经写过盘了，重复删虽然幂等，
+    /// 却会让「持久化失败」这个错误被第二次成功掩盖。移除方向的事件只承担通知职责。
+    PairedDeviceRemoved {
+        #[cfg_attr(feature = "specta", specta(type = String))]
+        peer_id: NodeId,
+    },
+    /// 本机设备名已变更（唯一触发点是
+    /// [`rename_device`](crate::device_name::rename_device)）。
+    ///
+    /// 设备名在三端都有多处显示（设置页、设备卡片、onboarding 回显），还有非 UI 消费者
+    /// （桌面 MCP server 的设备信息资源），所以由 core 广播一次、各处订阅，而不是让发起
+    /// 改名的那个界面自己刷新。
+    ///
+    /// `display_name` 是 [`OsInfo::display_name`](crate::device::OsInfo::display_name)
+    /// 的结果（`name` 空则回退 hostname），省得三端各写一遍 `name || hostname` 的回退。
+    /// **例外**：节点未启动时改名（onboarding 路径）core 拿不到本机 `OsInfo`——hostname
+    /// 的唯一装配点在 `runtime::start_node`——此时 `display_name` 退化为归一化后的名字
+    /// 本身，清空则为空串，调用方按自己那套 hostname 展示。
+    DeviceRenamed {
+        name: Option<String>,
+        display_name: String,
     },
     TransferOfferReceived {
         offer: TransferOfferEvent,
@@ -103,10 +132,9 @@ pub trait EventBus: Send + Sync {
 }
 
 /// 内存 host 适配器集合，供 core 单元测试和早期集成验证使用。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MemoryHost {
     inner: Arc<Mutex<MemoryHostInner>>,
-    paths: CoreAppPaths,
 }
 
 #[derive(Debug, Default)]
@@ -115,6 +143,7 @@ struct MemoryHostInner {
     webrtc_certificate_pem: Option<String>,
     migration_state: Option<IdentityMigrationState>,
     paired_devices: Vec<PairedDeviceInfo>,
+    device_name: Option<DeviceName>,
     events: Vec<CoreEvent>,
     sources: HashMap<FileSourceId, (HostFileMetadata, Vec<u8>)>,
     sinks: HashMap<FileSinkId, Vec<u8>>,
@@ -123,10 +152,9 @@ struct MemoryHostInner {
 }
 
 impl MemoryHost {
-    pub fn new(paths: CoreAppPaths) -> Self {
+    pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(MemoryHostInner::default())),
-            paths,
         }
     }
 
@@ -224,7 +252,10 @@ impl KeychainProvider for MemoryHost {
             .migration_state = Some(state);
         Ok(())
     }
+}
 
+#[async_trait]
+impl PairedDeviceStore for MemoryHost {
     async fn load_paired_devices(&self) -> AppResult<Vec<PairedDeviceInfo>> {
         Ok(self
             .inner
@@ -234,11 +265,27 @@ impl KeychainProvider for MemoryHost {
             .clone())
     }
 
-    async fn save_paired_devices(&self, devices: Vec<PairedDeviceInfo>) -> AppResult<()> {
+    async fn save_paired_devices(&self, devices: &[PairedDeviceInfo]) -> AppResult<()> {
         self.inner
             .lock()
             .expect("memory host poisoned")
-            .paired_devices = devices;
+            .paired_devices = devices.to_vec();
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DeviceConfig for MemoryHost {
+    async fn load_device_name(&self) -> Option<DeviceName> {
+        self.inner
+            .lock()
+            .expect("memory host poisoned")
+            .device_name
+            .clone()
+    }
+
+    async fn save_device_name(&self, name: Option<DeviceName>) -> AppResult<()> {
+        self.inner.lock().expect("memory host poisoned").device_name = name;
         Ok(())
     }
 }
@@ -252,12 +299,6 @@ impl EventBus for MemoryHost {
             .events
             .push(event);
         Ok(())
-    }
-}
-
-impl AppPaths for MemoryHost {
-    fn paths(&self) -> AppResult<CoreAppPaths> {
-        Ok(self.paths.clone())
     }
 }
 
@@ -396,26 +437,19 @@ impl UpdateInstaller for MemoryHost {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use swarmdrop_net::{NodeId, SecretKey};
 
     use super::{
-        AppPaths, CoreAppPaths, CoreEvent, CoreSaveLocation, DeviceIdentityBytes, EventBus,
-        FileAccess, FileSinkId, FileSourceId, HostFileMetadata, IdentityMigrationState,
-        KeychainProvider, MemoryHost,
+        CoreEvent, CoreSaveLocation, DeviceIdentityBytes, EventBus, FileAccess, FileSinkId,
+        FileSourceId, HostFileMetadata, IdentityMigrationState, KeychainProvider, MemoryHost,
+        PairedDeviceStore,
     };
     use crate::device::{OsInfo, PairedDeviceInfo};
     use crate::network::NetworkStatus;
     use crate::protocol::{PairingMethod, PairingRequest};
 
     fn memory_host() -> MemoryHost {
-        MemoryHost::new(CoreAppPaths {
-            data_dir: PathBuf::from("data"),
-            cache_dir: PathBuf::from("cache"),
-            temp_dir: PathBuf::from("temp"),
-            log_dir: PathBuf::from("log"),
-        })
+        MemoryHost::new()
     }
 
     fn peer_id() -> NodeId {
@@ -457,7 +491,7 @@ mod tests {
         );
 
         let device = PairedDeviceInfo::new(peer_id(), os_info("phone"), 42);
-        host.save_paired_devices(vec![device.clone()])
+        host.save_paired_devices(std::slice::from_ref(&device))
             .await
             .unwrap();
         assert_eq!(host.load_paired_devices().await.unwrap().len(), 1);
@@ -550,15 +584,5 @@ mod tests {
 
         host.cleanup_sink(&sink).await.unwrap();
         assert_eq!(host.sink_bytes(&sink), None);
-    }
-
-    #[test]
-    fn memory_host_should_return_configured_app_paths() {
-        let host = memory_host();
-        let paths = host.paths().unwrap();
-        assert_eq!(paths.data_dir, PathBuf::from("data"));
-        assert_eq!(paths.cache_dir, PathBuf::from("cache"));
-        assert_eq!(paths.temp_dir, PathBuf::from("temp"));
-        assert_eq!(paths.log_dir, PathBuf::from("log"));
     }
 }

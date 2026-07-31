@@ -111,6 +111,10 @@ pub(crate) struct EndpointConfig {
     /// （如 `/swarmdrop/2.0.0`）由上层经 `Builder::identify_protocol` 显式注入。
     pub identify_protocol: String,
     /// identify 的 agent_version（可含设备能力信息）。
+    ///
+    /// **运行时可变**（`Endpoint::set_agent_version`），不是只在构造期读一次的配置。
+    /// 权威副本在 identify 的 `Behaviour` 里——新连接的 handler 从那里取值；
+    /// 这里的字段只是内核自己的诊断镜像，两者由同一条 actor 命令一起更新。
     pub agent_version: String,
     pub ping_interval: Duration,
     pub ping_timeout: Duration,

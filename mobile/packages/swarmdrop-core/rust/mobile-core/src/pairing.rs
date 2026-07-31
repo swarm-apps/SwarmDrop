@@ -11,7 +11,6 @@
 //! 已经把「写 keychain + emit 给 JS」两件事一起做了，一次 publish 就够；JS 的
 //! `pairedDevicesCache` 只在收到事件时刷新。与桌面 `commands/pairing.rs` 对称。
 
-use swarmdrop_core::device::OsInfo;
 use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_core::protocol::{PairingMethod, PairingRefuseReason, PairingResponse};
 use swarmdrop_invite::{PairInvite, TransportPolicy};
@@ -88,6 +87,9 @@ fn pairing_result(response: PairingResponse) -> MobilePairingResult {
 impl MobileCore {
     /// 发起方：生成一次性签名邀请串（供二维码/链接分享）。
     /// `local_only=true` 走 LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。
+    ///
+    /// 邀请卡上的名字读 core 持有的本机 `OsInfo`，不由这里传入 —— 此前传的是
+    /// `OsInfo::default()`，于是对方看到的永远是 "Device" 这个占位主机名。
     pub async fn generate_pair_invite(&self, local_only: bool) -> FfiResult<String> {
         let secret = self.ensure_keypair().await?;
         let pairing = self.pairing_manager().await?;
@@ -96,9 +98,7 @@ impl MobileCore {
         } else {
             TransportPolicy::Auto
         };
-        Ok(pairing
-            .encode_invite(&secret, policy, &OsInfo::default())
-            .await)
+        Ok(pairing.encode_invite(&secret, policy).await)
     }
 
     /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。

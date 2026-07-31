@@ -5,7 +5,8 @@
 //! 注入 [`SqlSessionStore`]。Web 端不依赖本 crate（sea-orm 的 sqlx/tokio 链撞 wasm 硬墙，
 //! 见 dev-notes/knowledge/storage-abstraction.md）——这正是它从 core 摘出的原因。
 
-pub mod inbox;
+// 收件箱实现体：唯一入口是 `SqlSessionStore` 的 `InboxStore` impl，故不对外开放。
+mod inbox;
 pub mod invite;
 pub mod ops;
 pub mod store;

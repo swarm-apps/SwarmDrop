@@ -3,6 +3,11 @@
 //! 所有可变状态在后台 actor 里；Endpoint 只持命令通道、流控制柄与
 //! watch 读端。用户永不接触事件循环（对比旧栈把 `EventReceiver` 直接
 //! 交给上层消费）。
+//!
+//! identify 的字段里，**只有 `agent_version` 可以运行时修改**
+//! （[`Endpoint::set_agent_version`]）。`protocol_version` 刻意不开：它是
+//! 兼容性判别码（本仓用 `/swarmdrop/2.0.0`，上层拿它筛 SwarmDrop 节点），
+//! 运行期翻转会让对端的兼容判断在连接中途变卦，语义上是另一回事。
 
 pub mod builder;
 pub mod presets;
@@ -227,6 +232,22 @@ impl Endpoint {
     pub async fn add_external_addr(&self, addr: Addr) -> Result<(), Error> {
         self.request(|reply| ActorMessage::AddExternalAddr { addr, reply })
             .await
+    }
+
+    /// 运行期改写 identify 的 agent_version（构造期初值见 [`Builder::agent_version`]）。
+    ///
+    /// 返回时新值已经生效，并已向**所有已连接对端**主动 push 一次 identify，
+    /// 对端在一个 RTT 内即可看到新值——不必重启节点、不断开任何连接。
+    ///
+    /// 未连接的对端**不排队补推**：新连接建立时 handler 直接取当前值，天然是新的。
+    ///
+    /// 值未变时是 no-op，不产生任何网络行为。
+    pub async fn set_agent_version(&self, agent_version: String) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::SetAgentVersion {
+            agent_version,
+            reply,
+        })
+        .await
     }
 
     /// 保活白名单：白名单内对端的连接豁免空闲回收（已配对设备用）。

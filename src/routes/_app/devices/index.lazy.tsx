@@ -30,6 +30,7 @@ import { useTransferStore } from "@/stores/transfer-store";
 import { isProjectionActive } from "@/lib/transfer-projection";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { commands } from "@/lib/bindings";
+import { getErrorMessage } from "@/lib/errors";
 import { OfflineEmptyState } from "./-components/offline-empty-state";
 import { StartNodeSheet } from "@/components/network/start-node-sheet";
 import { StopNodeSheet } from "@/components/network/stop-node-sheet";
@@ -62,7 +63,6 @@ function DevicesPage() {
   const fetchDevices = useNetworkStore((s) => s.fetchDevices);
   const isOnline = status === "running" || status === "starting";
   const storedPairedDevices = useSecretStore((state) => state.pairedDevices);
-  const removePairedDevice = useSecretStore((state) => state.removePairedDevice);
   const upsertPairedDevice = useSecretStore((state) => state.upsertPairedDevice);
   const deviceOrganization = usePreferencesStore((state) => state.deviceOrganization);
   const setDeviceAlias = usePreferencesStore((state) => state.setDeviceAlias);
@@ -187,10 +187,15 @@ function DevicesPage() {
     directPairing(device.peerId);
   };
 
-  const handleUnpair = (device: Device) => {
-    // 同时更新后端运行时状态(节点未运行时静默成功)
-    commands.removePairedDevice(device.peerId);
-    removePairedDevice(device.peerId);
+  const handleUnpair = async (device: Device) => {
+    try {
+      // 后端 fail-closed:持久化失败会整体报错,此时设备仍在列表里,用户重试即可。
+      // 列表移除交给 paired-device-removed 事件(network-store 订阅),这里不重复删。
+      await commands.removePairedDevice(device.peerId);
+    } catch (err) {
+      toast.error(t`取消配对失败`, { description: getErrorMessage(err) });
+      return;
+    }
     clearDeviceOrganization(device.peerId);
   };
 

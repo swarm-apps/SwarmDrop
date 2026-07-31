@@ -1,19 +1,20 @@
-//! 数据库操作辅助函数
+//! 传输会话 / 文件记录的运行时写路径（SeaORM 实现）。
 //!
-//! 封装传输会话和文件记录的 CRUD 操作，供传输模块和命令层调用。
+//! 这里只放**运行时**那一半：建会话、写 checkpoint、落 outboard、按状态机转换持久化。
+//! 历史管理（列表投影 / 删除 / 清空 / 源路径 / 过期回收 / origin 标记）的实现本体在
+//! [`crate::store`] 的 `impl SessionStore`——它们是端口方法，没有第二个调用方，
+//! 不再多绕一层自由函数。
 
-use entity::{
-    FileStatus, SessionStatus, SuspendedReason, TerminalReason, TransferDirection, TransferPhase,
-};
+use entity::{FileStatus, TransferPhase};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityLoaderTrait, EntityTrait,
-    IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set,
+    IntoActiveModel, QueryFilter, QuerySelect, Set,
 };
 use uuid::Uuid;
 
 use swarmdrop_host::AppResult;
-use swarmdrop_host::{CoreSaveLocation, HostFileMetadata};
-use swarmdrop_transfer::{calc_total_chunks, expired_receive_reason};
+use swarmdrop_host::CoreSaveLocation;
+use swarmdrop_transfer::calc_total_chunks;
 // 持久化 DTO / 投影类型随 transfer 域迁出；ops 的实现函数（SqlSessionStore 委托目标）
 // 保留在 core。pub use 兼容再导出，保持 `database::ops::{TransferProjection, …}` 路径
 // 不变（src-tauri events / mcp / commands 复用），From<ModelEx> 投影转换也随类型迁到 transfer。
@@ -122,28 +123,6 @@ pub async fn update_session_save_path(
     Ok(())
 }
 
-/// 更新会话的 `origin`（provenance）。agent 代收接受入站 offer 后把 origin 标成 `Mcp`，
-/// 使完成后建的收件箱条目 `source_kind=mcp`（UI 显示「AI 代理」）——与落盘位置无关，
-/// 让代收文件既落在与手动一致的接收文件夹、又能在收件箱区分来源。
-pub async fn update_session_origin(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    origin: swarmdrop_transfer::protocol::TransferOrigin,
-) -> AppResult<()> {
-    let Some(session) = entity::TransferSession::find_by_id(session_id)
-        .one(db)
-        .await?
-    else {
-        return Err(swarmdrop_host::AppError::Transfer("会话不存在".into()));
-    };
-
-    let mut model = session.into_active_model();
-    model.origin = Set(Some(origin.to_db_string()));
-    model.updated_at = Set(now_ms());
-    model.update(db).await?;
-    Ok(())
-}
-
 /// 更新文件 range checkpoint 和已传输字节数（新 data-channel 数据面使用）。
 pub async fn update_file_checkpoint_ranges(
     db: &DatabaseConnection,
@@ -200,7 +179,7 @@ pub async fn reset_file_checkpoint(
 }
 
 /// 更新发送方文件的已传输字节数（不修改 bitmap，发送方不使用 bitmap）
-pub async fn update_sender_file_progress(
+async fn update_sender_file_progress(
     db: &DatabaseConnection,
     session_id: Uuid,
     file_id: i32,
@@ -260,104 +239,12 @@ pub async fn save_sender_file_progress(
     Ok(())
 }
 
-/// 过渡期桥接（反向）：旧 `mark_session_*` 写 status 时，同步写新 phase/reason/recoverable，
-/// 保持 DB 两种表示一致。后续 Coordinator 接线后状态决策收归 `dispatch`，这些 `mark_*` 将被替换。
-fn set_session_lifecycle(
-    model: &mut entity::transfer_session::ActiveModel,
-    phase: TransferPhase,
-    suspended_reason: Option<SuspendedReason>,
-    terminal_reason: Option<TerminalReason>,
-) {
-    model.recoverable = Set(!matches!(phase, TransferPhase::Terminal));
-    model.phase = Set(phase);
-    model.suspended_reason = Set(suspended_reason);
-    model.terminal_reason = Set(terminal_reason);
-}
-
-/// 标记传输完成
-pub async fn mark_session_completed(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
-    let now = now_ms();
-
-    entity::TransferFile::update_many()
-        .col_expr(
-            entity::transfer_file::Column::Status,
-            sea_orm::prelude::Expr::value(FileStatus::Completed),
-        )
-        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
-        .exec(db)
-        .await?;
-
-    if let Some(session) = entity::TransferSession::find_by_id(session_id)
-        .one(db)
-        .await?
-    {
-        let mut model = session.into_active_model();
-        model.status = Set(SessionStatus::Completed);
-        set_session_lifecycle(
-            &mut model,
-            TransferPhase::Terminal,
-            None,
-            Some(TerminalReason::Completed),
-        );
-        model.transferred_bytes = Set(*model.total_size.as_ref());
-        model.finished_at = Set(Some(now));
-        model.updated_at = Set(now);
-        model.update(db).await?;
-    }
-
-    Ok(())
-}
-
-/// 标记传输暂停
-pub async fn mark_session_paused(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
-    update_session_terminal(db, session_id, |model, now| {
-        model.status = Set(SessionStatus::Paused);
-        // 过渡期默认 LocalPaused；对端暂停的精确区分留待 Coordinator 接线（NetworkSignal::RemotePaused）。
-        set_session_lifecycle(
-            model,
-            TransferPhase::Suspended,
-            Some(SuspendedReason::LocalPaused),
-            None,
-        );
-        model.updated_at = Set(now);
-    })
-    .await
-}
-
-/// 查找 session 并应用状态更新，不存在时静默跳过（DB 可选场景）
-async fn update_session_terminal<F>(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    apply: F,
-) -> AppResult<()>
-where
-    F: FnOnce(&mut entity::transfer_session::ActiveModel, i64),
-{
-    if let Some(session) = entity::TransferSession::find_by_id(session_id)
-        .one(db)
-        .await?
-    {
-        let mut model = session.into_active_model();
-        apply(&mut model, now_ms());
-        model.update(db).await?;
-    }
-    Ok(())
-}
-
 // ============ 查询 API ============
 
 // ============ 生命周期投影（redesign-transfer-lifecycle）============
 //
 // `TransferProjection` / `TransferProjectionFile` / `content_root_of` 及 `From<ModelEx>`
 // 投影转换随 transfer 域迁入 [`swarmdrop_transfer::store`]；下面的查询函数直接消费。
-
-/// 查询所有传输投影（前端列表唯一数据源，按开始时间倒序）。
-pub async fn get_transfer_projections(
-    db: &DatabaseConnection,
-) -> AppResult<Vec<TransferProjection>> {
-    let sessions = load_sessions_with_files(db).await?;
-    Ok(sessions.into_iter().map(Into::into).collect())
-}
 
 /// 查询单个 session 的投影（状态转换后给前端 emit，避免全表 load）。
 pub async fn get_transfer_projection(
@@ -447,35 +334,6 @@ async fn active_session_ids(
         .collect())
 }
 
-/// 加载 session + files，按开始时间倒序。
-async fn load_sessions_with_files(
-    db: &DatabaseConnection,
-) -> AppResult<Vec<entity::transfer_session::ModelEx>> {
-    let query = entity::TransferSession::load()
-        .with(entity::TransferFile)
-        .order_by_desc(entity::transfer_session::Column::StartedAt);
-    Ok(query.all(db).await?)
-}
-
-/// 删除单个传输会话及关联文件（级联删除）
-pub async fn delete_session(db: &DatabaseConnection, session_id: Uuid) -> AppResult<()> {
-    if let Some(session) = entity::TransferSession::find_by_id(session_id)
-        .one(db)
-        .await?
-    {
-        session.cascade_delete(db).await?;
-    }
-
-    Ok(())
-}
-
-/// 清空所有传输历史
-pub async fn clear_all_history(db: &DatabaseConnection) -> AppResult<()> {
-    entity::TransferFile::delete_many().exec(db).await?;
-    entity::TransferSession::delete_many().exec(db).await?;
-    Ok(())
-}
-
 /// 获取 session 的文件列表（含 bitmap，供断点续传使用）
 pub async fn get_session_files(
     db: &DatabaseConnection,
@@ -485,78 +343,6 @@ pub async fn get_session_files(
         .filter(entity::transfer_file::Column::SessionId.eq(session_id))
         .all(db)
         .await?)
-}
-
-/// 获取 session 内有源路径的文件绝对路径（发送方向；「重新发送」重建载荷用）。
-/// 只查 source_path 一列并把 NULL 过滤下推到 SQL，避免物化 bitmap BLOB 等无关列。
-pub async fn get_session_source_paths(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-) -> AppResult<Vec<String>> {
-    Ok(entity::TransferFile::find()
-        .select_only()
-        .column(entity::transfer_file::Column::SourcePath)
-        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
-        .filter(entity::transfer_file::Column::SourcePath.is_not_null())
-        .into_tuple::<String>()
-        .all(db)
-        .await?)
-}
-
-/// 启动清理：回收超过保留期仍未恢复的 recoverable suspended **接收**会话。
-///
-/// 命中条件：`phase=Suspended` + `recoverable` + `direction=Receive` 且 `updated_at`
-/// 早于 `now - retention_secs`。命中会话转 `Terminal`/`FatalError`（带过期说明），
-/// 并返回其文件元数据，供调用方用本端 `FileAccess` 尽力清理 `.part`。
-///
-/// 保留期内的会话、发送会话、已 terminal 的会话都不受影响——正常断点续传不被打断。
-pub async fn reap_expired_suspended_receives(
-    db: &DatabaseConnection,
-    retention_secs: u64,
-) -> AppResult<Vec<ExpiredReceiverActor>> {
-    let threshold = now_ms() - (retention_secs as i64) * 1000;
-    let sessions = entity::TransferSession::find()
-        .filter(entity::transfer_session::Column::Phase.eq(TransferPhase::Suspended))
-        .filter(entity::transfer_session::Column::Recoverable.eq(true))
-        .filter(entity::transfer_session::Column::Direction.eq(TransferDirection::Receive))
-        .filter(entity::transfer_session::Column::UpdatedAt.lt(threshold))
-        .all(db)
-        .await?;
-
-    let mut reaped = Vec::with_capacity(sessions.len());
-    for session in sessions {
-        let session_id = session.session_id;
-        let save_dir = session.save_path.clone().map(CoreSaveLocation::from);
-        let files = get_session_files(db, session_id)
-            .await?
-            .into_iter()
-            .map(|f| HostFileMetadata {
-                name: f.name,
-                relative_path: f.relative_path,
-                size: f.size as u64,
-                modified_at: None,
-                checksum: Some(f.checksum),
-                save_dir: save_dir.clone(),
-            })
-            .collect();
-
-        let now = now_ms();
-        let mut model = session.into_active_model();
-        model.status = Set(SessionStatus::Failed);
-        set_session_lifecycle(
-            &mut model,
-            TransferPhase::Terminal,
-            None,
-            Some(TerminalReason::FatalError),
-        );
-        model.error_message = Set(Some(expired_receive_reason(retention_secs)));
-        model.finished_at = Set(Some(now));
-        model.updated_at = Set(now);
-        model.update(db).await?;
-
-        reaped.push(ExpiredReceiverActor { session_id, files });
-    }
-    Ok(reaped)
 }
 
 /// 持久化发送方某文件的 bao outboard（逐块验签 Merkle 树）。
@@ -589,144 +375,4 @@ pub async fn load_file_outboard(
         .into_tuple::<Vec<u8>>()
         .one(db)
         .await?)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use migration::MigratorTrait;
-    use sea_orm::{ConnectOptions, Database};
-    use swarmdrop_transfer::coordinator::TransferState;
-    use swarmdrop_transfer::protocol::FileInfo;
-
-    async fn test_db() -> DatabaseConnection {
-        // `:memory:` 每条物理连接是独立空库，钉死单连接保证 migration 与查询同库。
-        let mut opt = ConnectOptions::new("sqlite::memory:");
-        opt.max_connections(1).min_connections(1);
-        let db = Database::connect(opt)
-            .await
-            .expect("connect sqlite::memory:");
-        migration::Migrator::up(&db, None).await.expect("migrate");
-        db
-    }
-
-    async fn seed(
-        db: &DatabaseConnection,
-        id: Uuid,
-        direction: TransferDirection,
-        updated_at: i64,
-        terminal: bool,
-    ) {
-        let files = vec![FileInfo {
-            file_id: 0,
-            name: "a.bin".into(),
-            relative_path: "a.bin".into(),
-            size: 1024,
-            checksum: "deadbeef".into(),
-        }];
-        create_session(
-            db,
-            CreateSessionInput {
-                session_id: id,
-                direction,
-                peer_id: "peer",
-                peer_name: "name",
-                files: &files,
-                total_size: 1024,
-                save_path: Some(CoreSaveLocation::Path {
-                    path: "/recv".into(),
-                }),
-                source_paths: None,
-                lifecycle: TransferState::active(0),
-                policy: None,
-                origin: None,
-            },
-        )
-        .await
-        .expect("create_session");
-        if terminal {
-            mark_session_completed(db, id).await.expect("complete");
-        } else {
-            mark_session_paused(db, id).await.expect("pause");
-        }
-        // 覆盖 updated_at 到指定时间点（create/mark 都会写成 now）。
-        let mut m = find_session(db, id)
-            .await
-            .unwrap()
-            .unwrap()
-            .into_active_model();
-        m.updated_at = Set(updated_at);
-        m.update(db).await.expect("set updated_at");
-    }
-
-    #[tokio::test]
-    async fn reaps_only_expired_recoverable_receives() {
-        let db = test_db().await;
-        let now = now_ms();
-        let day = 24 * 60 * 60 * 1000;
-        let expired_recv = Uuid::from_u128(1);
-        let fresh_recv = Uuid::from_u128(2);
-        let expired_send = Uuid::from_u128(3);
-        let terminal_recv = Uuid::from_u128(4);
-
-        seed(
-            &db,
-            expired_recv,
-            TransferDirection::Receive,
-            now - 8 * day,
-            false,
-        )
-        .await;
-        seed(
-            &db,
-            fresh_recv,
-            TransferDirection::Receive,
-            now - 3 * day,
-            false,
-        )
-        .await;
-        seed(
-            &db,
-            expired_send,
-            TransferDirection::Send,
-            now - 8 * day,
-            false,
-        )
-        .await;
-        seed(
-            &db,
-            terminal_recv,
-            TransferDirection::Receive,
-            now - 30 * day,
-            true,
-        )
-        .await;
-
-        let retention = 7 * 24 * 60 * 60; // 7 天（秒）
-        let reaped = reap_expired_suspended_receives(&db, retention)
-            .await
-            .expect("reap");
-
-        // 只回收过期的 recoverable suspended receive。
-        assert_eq!(reaped.len(), 1);
-        assert_eq!(reaped[0].session_id, expired_recv);
-        assert_eq!(reaped[0].files.len(), 1);
-        assert_eq!(reaped[0].files[0].relative_path, "a.bin");
-        assert!(reaped[0].files[0].save_dir.is_some());
-
-        // 过期会话转 terminal、不可恢复、带过期 reason。
-        let m = find_session(&db, expired_recv).await.unwrap().unwrap();
-        assert_eq!(m.phase, TransferPhase::Terminal);
-        assert!(!m.recoverable);
-        assert_eq!(m.terminal_reason, Some(TerminalReason::FatalError));
-
-        // 保留期内 / 发送会话 / 已 terminal 均不受影响。
-        let fresh = find_session(&db, fresh_recv).await.unwrap().unwrap();
-        assert_eq!(fresh.phase, TransferPhase::Suspended);
-        assert!(fresh.recoverable);
-        let send = find_session(&db, expired_send).await.unwrap().unwrap();
-        assert_eq!(send.phase, TransferPhase::Suspended);
-        let term = find_session(&db, terminal_recv).await.unwrap().unwrap();
-        assert_eq!(term.terminal_reason, Some(TerminalReason::Completed));
-    }
 }

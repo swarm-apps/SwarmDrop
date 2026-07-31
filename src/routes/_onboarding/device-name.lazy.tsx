@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { hostname as readHostname } from "@tauri-apps/plugin-os";
 import { Input } from "@/components/ui/input";
-import { applyDeviceName } from "@/lib/device-name";
+import { applyDeviceName, DEVICE_NAME_MAX_CHARS } from "@/lib/device-name";
 import { getErrorMessage } from "@/lib/errors";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import {
@@ -54,6 +54,8 @@ function DeviceNameStep() {
     setSaving(true);
     setError(null);
     try {
+      // onboarding 阶段节点还没起来，后端走「只落盘」那条分支（不推网络也不报错）。
+      // 存不住会 throw，走下面的 catch。
       await applyDeviceName(trimmed);
       toast.success(t`设备名称已设置`);
       navigate({ to: "/devices" });
@@ -109,7 +111,7 @@ function DeviceNameStep() {
                   if (e.key === "Enter" && !disabled) onConfirm();
                 }}
                 autoFocus
-                maxLength={40}
+                maxLength={DEVICE_NAME_MAX_CHARS}
                 placeholder={t`例如：MacBook Pro`}
                 className="mt-2 h-12 rounded-[16px] bg-white/55 text-base dark:bg-white/[0.06]"
               />

@@ -1,9 +1,10 @@
 use crate::AppResult;
 use crate::device::DeviceFilter;
 use crate::events::{DevicesChanged, PairedDeviceAdded};
+use crate::host::event_bus::TauriEventBus;
 use crate::network::NetManagerState;
 use serde::Serialize;
-use swarmdrop_core::device::{DeviceReceivePolicy, DeviceTrustLevel, OsInfo, PairedDeviceInfo};
+use swarmdrop_core::device::{DeviceReceivePolicy, DeviceTrustLevel, PairedDeviceInfo};
 use swarmdrop_core::protocol::{PairingMethod, PairingResponse};
 use swarmdrop_invite::{PairInvite, TransportPolicy};
 use swarmdrop_net::{Addr, NodeId, SecretKey};
@@ -80,14 +81,15 @@ pub async fn generate_pair_invite(
         .ok_or_else(|| AppError::identity("设备身份未初始化"))?
         .inner()
         .clone();
-    let os_info = OsInfo::default();
     let policy = if local_only.unwrap_or(false) {
         TransportPolicy::LocalOnly
     } else {
         TransportPolicy::Auto
     };
+    // display 名取 `PairingManager` 持有的本机 OsInfo（组合根从 DeviceConfig 端口装配），
+    // 此处不再另传一份 `OsInfo::default()` —— 那正是邀请卡上恒显示占位主机名的成因。
     with_manager!(net, |m| AppResult::Ok(
-        m.pairing().encode_invite(&secret, policy, &os_info).await
+        m.pairing().encode_invite(&secret, policy).await
     ))
 }
 
@@ -247,7 +249,13 @@ pub async fn request_pairing(
     Ok(response)
 }
 
-/// 取消与指定设备的配对（同步更新运行时状态）
+/// 取消与指定设备的配对。
+///
+/// 「节点在不在跑」这条分支由 core 的 [`swarmdrop_core::paired_devices::unpair`] 吸收：节点在跑就走
+/// `PairingManager::unpair`（持久化 → 共享内存表 → 事件，**fail-closed**，不会再出现
+/// 「本次运行解除了、重启又复活」）；没跑则只删持久化并由 core 补发
+/// `PairedDeviceRemoved`（那条路径上 `PairingManager` 根本没起）。
+/// 桌面此前在这里手工补那条事件、移动端忘了补 —— 同一段分支写两遍必然漂。
 ///
 /// `peer_id` 为 base58 字符串，由命令内部解析为 `NodeId`。
 #[tauri::command]
@@ -258,18 +266,21 @@ pub async fn remove_paired_device(
     peer_id: String,
 ) -> AppResult<()> {
     let peer_id = parse_peer_id(&peer_id)?;
+    let store = crate::host::paired_device_store(&app)?;
+    let events = app.state::<TauriEventBus>();
+
     let guard = net.lock().await;
-    // 节点未运行时仍更新 host keychain 中的持久化列表。
-    if let Some(manager) = guard.as_ref() {
-        manager.pairing().remove_paired_device(&peer_id);
-    }
-    drop(guard);
-    persist_paired_device_removal(&app, &peer_id).await?;
-    publish_devices_changed(&app, &net).await;
+    swarmdrop_core::paired_devices::unpair(&peer_id, &*store, events.inner(), guard.as_ref())
+        .await?;
     Ok(())
 }
 
 /// 更新已配对设备的可信策略。
+///
+/// 落盘与「节点在跑时把新值推进共享内存表」都在 core 的
+/// [`swarmdrop_core::paired_devices::set_receive_policy`]（否则「策略已保存、本次运行仍按旧策略裁决入站
+/// offer」）。存在性检查也只在那一处 —— 它找不到时已经返回 `Err`，命令层再 `find` 一遍
+/// 是走不到的死分支。
 #[tauri::command]
 #[specta::specta]
 pub async fn update_paired_device_policy(
@@ -280,23 +291,17 @@ pub async fn update_paired_device_policy(
     receive_policy: Option<DeviceReceivePolicy>,
 ) -> AppResult<PairedDeviceInfo> {
     let peer_id = parse_peer_id(&peer_id)?;
-    let provider = crate::host::keychain_provider(&app)?;
-    let devices = swarmdrop_core::identity::update_paired_device_policy(
-        &*provider,
+    let store = crate::host::paired_device_store(&app)?;
+
+    let guard = net.lock().await;
+    let updated = swarmdrop_core::paired_devices::set_receive_policy(
         &peer_id,
         trust_level,
         receive_policy,
+        &*store,
+        guard.as_ref(),
     )
     .await?;
-    let updated = devices
-        .into_iter()
-        .find(|device| device.peer_id == peer_id)
-        .ok_or_else(|| AppError::identity("未找到已配对设备".to_string()))?;
-
-    let guard = net.lock().await;
-    if let Some(manager) = guard.as_ref() {
-        manager.pairing().add_paired_device(updated.clone());
-    }
     drop(guard);
 
     publish_devices_changed(&app, &net).await;
@@ -337,14 +342,8 @@ async fn persist_paired_device(
     app: &AppHandle,
     info: crate::device::PairedDeviceInfo,
 ) -> AppResult<()> {
-    let provider = crate::host::keychain_provider(app)?;
-    swarmdrop_core::identity::upsert_paired_device(&*provider, info).await?;
-    Ok(())
-}
-
-async fn persist_paired_device_removal(app: &AppHandle, peer_id: &NodeId) -> AppResult<()> {
-    let provider = crate::host::keychain_provider(app)?;
-    swarmdrop_core::identity::remove_paired_device(&*provider, peer_id).await?;
+    let store = crate::host::paired_device_store(app)?;
+    swarmdrop_core::paired_devices::upsert(&*store, info).await?;
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 //! 跨 wasm 边界的 JS 可见类型（`WebTransferEvent` / [`OfferJson`]）。
 //!
 //! 本模块**不受 `wasm_browser` 门控**（纯 serde + transfer 类型，无 wasm 依赖）——native
-//! 也可编，specta 导出 test（`tests/specta_export.rs`，生成 `static/types/bindings.ts`）
+//! 也可编，specta 导出 test（`tests/specta_export.rs`，生成 `bindings/bindings.ts`）
 //! 在 native target 上注册这些类型。TS 形状与运行期 serde 序列化（serde_wasm_bindgen /
 //! serde_json）逐字段一致。
 
@@ -9,7 +9,12 @@ use serde::Serialize;
 // `paired_devices()` 的 JS 返回类型：直接复用桌面同款读模型（已 Serialize + specta::Type），
 // 不再手写一份 Web 专属投影——字段（含在线状态/连接类型）语义与桌面一致，没有理由分叉。
 pub use swarmdrop_host::device::Device;
+// 收件箱 DTO 同理：领域模型住在 `swarmdrop_transfer::inbox`，三端共用一份形状，
+// Web 侧只把它们抬进 JS 可见类型层供 specta 导出，不另造投影。
 use swarmdrop_transfer::events::TransferEvent;
+pub use swarmdrop_transfer::inbox::{
+    InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary, InboxSearchHit,
+};
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{
     PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
@@ -121,6 +126,30 @@ pub struct InviteListItemJson {
     pub expires_at: String,
     /// 已被对方消费（仍显示到过期，让用户知道它被用过）。
     pub consumed: bool,
+}
+
+/// 邀请串解码后的展示投影（配对确认卡用）。
+///
+/// **不含 capability**：那是 128bit bearer 凭据，明文绝不出 wasm 边界——确认卡只需要
+/// 「这是谁、还有效多久、是不是仅局域网」，多给一个字段就多一条泄漏路径。
+///
+/// **TTL 由调用方按 `expiresAt` 判**，这里不放 `expired: bool`：确认卡会在屏幕上停留几十秒，
+/// 而布尔在序列化那一刻就开始变旧。权威判定本来也在发起端的 `InviteRegistry`，
+/// 解码侧的预检只为 UX（见 `PairInvite::decode` 的文档）。
+///
+/// `expiresAt` 用字符串承载 Unix 秒，与 [`InviteListItemJson`] 同一个理由。
+#[derive(Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PairInvitePreviewJson {
+    /// 发起方 NodeId（base58）。取自签名覆盖范围内的 `inviter_id`，伪造不了——
+    /// 自我过滤 / 已配对过滤都该以它为判据。
+    pub peer_id: String,
+    pub display_name: String,
+    pub display_platform: String,
+    pub expires_at: String,
+    /// LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。
+    pub local_only: bool,
 }
 
 /// 连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。

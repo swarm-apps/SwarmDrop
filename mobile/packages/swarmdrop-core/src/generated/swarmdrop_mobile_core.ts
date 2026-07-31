@@ -3087,6 +3087,8 @@ export enum MobileCoreEvent_Tags {
     PairingRequestReceived = "PairingRequestReceived",
     PairingCompleted = "PairingCompleted",
     PairedDeviceAdded = "PairedDeviceAdded",
+    PairedDeviceRemoved = "PairedDeviceRemoved",
+    DeviceRenamed = "DeviceRenamed",
     TransferOfferReceived = "TransferOfferReceived",
     TransferProgress = "TransferProgress",
     TransferAccepted = "TransferAccepted",
@@ -3246,6 +3248,72 @@ inner: {device: MobilePairedDevice }): PairedDeviceAdded_ {
 
         static instanceOf(obj: any): obj is PairedDeviceAdded_ {
             return obj.tag === MobileCoreEvent_Tags.PairedDeviceAdded;
+        }
+
+    }
+
+    type PairedDeviceRemoved__interface = {
+        tag: MobileCoreEvent_Tags.PairedDeviceRemoved;
+        inner: 
+Readonly<{peerId: string}>
+    };
+    class PairedDeviceRemoved_ extends UniffiEnum implements PairedDeviceRemoved__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.PairedDeviceRemoved;
+        readonly inner: 
+Readonly<{peerId: string}>;
+        constructor(
+inner: {peerId: string }) {
+            super("MobileCoreEvent", "PairedDeviceRemoved");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {peerId: string }): PairedDeviceRemoved_ {
+            return new PairedDeviceRemoved_(inner);
+        }
+
+        static instanceOf(obj: any): obj is PairedDeviceRemoved_ {
+            return obj.tag === MobileCoreEvent_Tags.PairedDeviceRemoved;
+        }
+
+    }
+
+    type DeviceRenamed__interface = {
+        tag: MobileCoreEvent_Tags.DeviceRenamed;
+        inner: 
+Readonly<{name?: string; displayName: string}>
+    };
+    /**
+     * 本机设备名已变更。`display_name` 是 core 算好的展示名（名字为空则回退
+     * hostname），JS 侧直接用，不要再写一遍 `name || hostname` 的回退。
+     */
+    class DeviceRenamed_ extends UniffiEnum implements DeviceRenamed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.DeviceRenamed;
+        readonly inner: 
+Readonly<{name?: string; displayName: string}>;
+        constructor(
+inner: {name?: string; displayName: string }) {
+            super("MobileCoreEvent", "DeviceRenamed");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {name?: string; displayName: string }): DeviceRenamed_ {
+            return new DeviceRenamed_(inner);
+        }
+
+        static instanceOf(obj: any): obj is DeviceRenamed_ {
+            return obj.tag === MobileCoreEvent_Tags.DeviceRenamed;
         }
 
     }
@@ -3633,6 +3701,8 @@ inner: {message: string }): Error_ {
   PairingRequestReceived: PairingRequestReceived_, 
   PairingCompleted: PairingCompleted_, 
   PairedDeviceAdded: PairedDeviceAdded_, 
+  PairedDeviceRemoved: PairedDeviceRemoved_, 
+  DeviceRenamed: DeviceRenamed_, 
   TransferOfferReceived: TransferOfferReceived_, 
   TransferProgress: TransferProgress_, 
   TransferAccepted: TransferAccepted_, 
@@ -3649,7 +3719,7 @@ inner: {message: string }): Error_ {
 
 })();
 export type MobileCoreEvent = InstanceType<
-    typeof MobileCoreEvent['NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'Error']
+    typeof MobileCoreEvent['NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'PairedDeviceRemoved' | 'DeviceRenamed' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'Error']
 >;
 
 // FfiConverter for enum MobileCoreEvent
@@ -3664,18 +3734,20 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                 case 3: return new MobileCoreEvent.PairingRequestReceived({peerId: FfiConverterString.read(from), pendingId: FfiConverterUInt64.read(from), code: FfiConverterOptionalString.read(from) });
                 case 4: return new MobileCoreEvent.PairingCompleted({peerId: FfiConverterString.read(from) });
                 case 5: return new MobileCoreEvent.PairedDeviceAdded({device: FfiConverterTypeMobilePairedDevice.read(from) });
-                case 6: return new MobileCoreEvent.TransferOfferReceived({offer: FfiConverterTypeMobileTransferOffer.read(from) });
-                case 7: return new MobileCoreEvent.TransferProgress({progress: FfiConverterTypeMobileTransferProgress.read(from) });
-                case 8: return new MobileCoreEvent.TransferAccepted({sessionId: FfiConverterString.read(from) });
-                case 9: return new MobileCoreEvent.TransferRejected({sessionId: FfiConverterString.read(from), reason: FfiConverterOptionalString.read(from) });
-                case 10: return new MobileCoreEvent.TransferCompleted({sessionId: FfiConverterString.read(from) });
-                case 11: return new MobileCoreEvent.TransferFailed({sessionId: FfiConverterString.read(from), error: FfiConverterString.read(from) });
-                case 12: return new MobileCoreEvent.TransferPaused({sessionId: FfiConverterString.read(from) });
-                case 13: return new MobileCoreEvent.TransferResumed({event: FfiConverterTypeMobileTransferResumed.read(from) });
-                case 14: return new MobileCoreEvent.TransferProjectionUpdate({projection: FfiConverterTypeMobileTransferProjection.read(from) });
-                case 15: return new MobileCoreEvent.TransferDbError({sessionId: FfiConverterString.read(from), message: FfiConverterString.read(from) });
-                case 16: return new MobileCoreEvent.PrepareProgress({event: FfiConverterTypeMobilePrepareProgress.read(from) });
-                case 17: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
+                case 6: return new MobileCoreEvent.PairedDeviceRemoved({peerId: FfiConverterString.read(from) });
+                case 7: return new MobileCoreEvent.DeviceRenamed({name: FfiConverterOptionalString.read(from), displayName: FfiConverterString.read(from) });
+                case 8: return new MobileCoreEvent.TransferOfferReceived({offer: FfiConverterTypeMobileTransferOffer.read(from) });
+                case 9: return new MobileCoreEvent.TransferProgress({progress: FfiConverterTypeMobileTransferProgress.read(from) });
+                case 10: return new MobileCoreEvent.TransferAccepted({sessionId: FfiConverterString.read(from) });
+                case 11: return new MobileCoreEvent.TransferRejected({sessionId: FfiConverterString.read(from), reason: FfiConverterOptionalString.read(from) });
+                case 12: return new MobileCoreEvent.TransferCompleted({sessionId: FfiConverterString.read(from) });
+                case 13: return new MobileCoreEvent.TransferFailed({sessionId: FfiConverterString.read(from), error: FfiConverterString.read(from) });
+                case 14: return new MobileCoreEvent.TransferPaused({sessionId: FfiConverterString.read(from) });
+                case 15: return new MobileCoreEvent.TransferResumed({event: FfiConverterTypeMobileTransferResumed.read(from) });
+                case 16: return new MobileCoreEvent.TransferProjectionUpdate({projection: FfiConverterTypeMobileTransferProjection.read(from) });
+                case 17: return new MobileCoreEvent.TransferDbError({sessionId: FfiConverterString.read(from), message: FfiConverterString.read(from) });
+                case 18: return new MobileCoreEvent.PrepareProgress({event: FfiConverterTypeMobilePrepareProgress.read(from) });
+                case 19: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -3711,77 +3783,90 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     FfiConverterTypeMobilePairedDevice.write(inner.device, into);
                     return;
                 }
-                case MobileCoreEvent_Tags.TransferOfferReceived: {
+                case MobileCoreEvent_Tags.PairedDeviceRemoved: {
                     ordinalConverter.write(6, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.peerId, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.DeviceRenamed: {
+                    ordinalConverter.write(7, into);
+                    const inner = value.inner;
+                    FfiConverterOptionalString.write(inner.name, into);
+                    FfiConverterString.write(inner.displayName, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.TransferOfferReceived: {
+                    ordinalConverter.write(8, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileTransferOffer.write(inner.offer, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferProgress: {
-                    ordinalConverter.write(7, into);
+                    ordinalConverter.write(9, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileTransferProgress.write(inner.progress, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferAccepted: {
-                    ordinalConverter.write(8, into);
+                    ordinalConverter.write(10, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferRejected: {
-                    ordinalConverter.write(9, into);
+                    ordinalConverter.write(11, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     FfiConverterOptionalString.write(inner.reason, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferCompleted: {
-                    ordinalConverter.write(10, into);
+                    ordinalConverter.write(12, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferFailed: {
-                    ordinalConverter.write(11, into);
+                    ordinalConverter.write(13, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     FfiConverterString.write(inner.error, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferPaused: {
-                    ordinalConverter.write(12, into);
+                    ordinalConverter.write(14, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferResumed: {
-                    ordinalConverter.write(13, into);
+                    ordinalConverter.write(15, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileTransferResumed.write(inner.event, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferProjectionUpdate: {
-                    ordinalConverter.write(14, into);
+                    ordinalConverter.write(16, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileTransferProjection.write(inner.projection, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferDbError: {
-                    ordinalConverter.write(15, into);
+                    ordinalConverter.write(17, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     FfiConverterString.write(inner.message, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.PrepareProgress: {
-                    ordinalConverter.write(16, into);
+                    ordinalConverter.write(18, into);
                     const inner = value.inner;
                     FfiConverterTypeMobilePrepareProgress.write(inner.event, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.Error: {
-                    ordinalConverter.write(17, into);
+                    ordinalConverter.write(19, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.message, into);
                     return;
@@ -3822,78 +3907,91 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     size += FfiConverterTypeMobilePairedDevice.allocationSize(inner.device);
                     return size;
                 }
-                case MobileCoreEvent_Tags.TransferOfferReceived: {
+                case MobileCoreEvent_Tags.PairedDeviceRemoved: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(6);
+                    size += FfiConverterString.allocationSize(inner.peerId);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.DeviceRenamed: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(7);
+                    size += FfiConverterOptionalString.allocationSize(inner.name);
+                    size += FfiConverterString.allocationSize(inner.displayName);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.TransferOfferReceived: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(8);
                     size += FfiConverterTypeMobileTransferOffer.allocationSize(inner.offer);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferProgress: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(7);
+                    let size = ordinalConverter.allocationSize(9);
                     size += FfiConverterTypeMobileTransferProgress.allocationSize(inner.progress);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferAccepted: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(8);
+                    let size = ordinalConverter.allocationSize(10);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferRejected: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(9);
+                    let size = ordinalConverter.allocationSize(11);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     size += FfiConverterOptionalString.allocationSize(inner.reason);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferCompleted: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(10);
+                    let size = ordinalConverter.allocationSize(12);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferFailed: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(11);
+                    let size = ordinalConverter.allocationSize(13);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     size += FfiConverterString.allocationSize(inner.error);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferPaused: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(12);
+                    let size = ordinalConverter.allocationSize(14);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferResumed: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(13);
+                    let size = ordinalConverter.allocationSize(15);
                     size += FfiConverterTypeMobileTransferResumed.allocationSize(inner.event);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferProjectionUpdate: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(14);
+                    let size = ordinalConverter.allocationSize(16);
                     size += FfiConverterTypeMobileTransferProjection.allocationSize(inner.projection);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferDbError: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(15);
+                    let size = ordinalConverter.allocationSize(17);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
                 }
                 case MobileCoreEvent_Tags.PrepareProgress: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(16);
+                    let size = ordinalConverter.allocationSize(18);
                     size += FfiConverterTypeMobilePrepareProgress.allocationSize(inner.event);
                     return size;
                 }
                 case MobileCoreEvent_Tags.Error: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(17);
+                    let size = ordinalConverter.allocationSize(19);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
                 }
@@ -4764,6 +4862,9 @@ const uniffiCallbackInterfaceForeignFileAccess: { vtable: any; register: () => v
     },
 };
 
+/**
+ * host 侧存储桥的跨 FFI 契约 —— **密钥与设备列表合在一起是刻意的**,见模块文档。
+ */
 export interface ForeignKeychainProvider {
     
     loadIdentity(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<ArrayBuffer | undefined>;
@@ -4777,6 +4878,9 @@ export interface ForeignKeychainProvider {
 }
 
 
+/**
+ * host 侧存储桥的跨 FFI 契约 —— **密钥与设备列表合在一起是刻意的**,见模块文档。
+ */
 export class ForeignKeychainProviderImpl extends UniffiAbstractObject implements ForeignKeychainProvider {
 
     readonly [uniffiTypeNameSymbol] = "ForeignKeychainProviderImpl";
@@ -5465,9 +5569,15 @@ export interface MobileCoreLike {
     acceptReceive(sessionId: string, saveLocationUri: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     archiveInboxItem(itemId: string, archived: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
- * 取消传输（自动判断是发送会话还是接收会话）
+ * 取消接收会话（含清理已落盘的半成品）。
  */
-    cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+    cancelReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * 取消发送会话。方向由调用方给（RN 侧 projection 带 direction），
+ * 不做「先试发送、失败再试接收」的探测 —— 取消有副作用（发 wire 帧、删半成品、写终态），
+ * 拿它当探针会误触发，错误也只能被拼成两句互相矛盾的话。
+ */
+    cancelSend(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     clearTransferActivity(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
  * 受邀方：用邀请串发起配对（解码验签 → 连接发起方 → 出示凭证握手）。
@@ -5482,12 +5592,29 @@ export interface MobileCoreLike {
 /**
  * 发起方：生成一次性签名邀请串（供二维码/链接分享）。
  * `local_only=true` 走 LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。
+ *
+ * 邀请卡上的名字读 core 持有的本机 `OsInfo`，不由这里传入 —— 此前传的是
+ * `OsInfo::default()`，于是对方看到的永远是 "Device" 这个占位主机名。
  */
     generatePairInvite(localOnly: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string>;
+/**
+ * 本机设备名 —— 用户设过的那个；未设过返回 `None`，UI 回退系统 hostname。
+ *
+ * 事实源在 Rust 侧的 `device_config.json`，JS 的 `preferences-store.deviceName`
+ * 只是显示镜像。
+ */
+    getDeviceName(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string | undefined>;
     getInboxItem(itemId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileInboxItemDetail | undefined>;
     getInboxItemByTransferSessionId(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileInboxItemDetail | undefined>;
     getTransferProjection(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileTransferProjection | undefined>;
     getTransferProjections(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileTransferProjection>>;
+/**
+ * 「从历史重新发送」重建载荷用：取会话内有源路径的文件绝对路径（发送方向）。
+ *
+ * 接收会话与没记源路径的历史会话返回空 Vec —— 前端据此回退到「预选设备后重新
+ * 挑文件」，而不是假装能一键重发（源路径可能已失效，见 `[sessionId].tsx`）。
+ */
+    getTransferSourcePaths(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<string>>;
     initializeIdentity(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileIdentity>;
 /**
  * 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
@@ -5508,8 +5635,11 @@ export interface MobileCoreLike {
  */
     listPairInvites(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileInviteListItem>>;
 /**
- * 直接读 keychain 里的已配对设备清单 —— 不依赖 NetManager,
+ * 直接读持久化的已配对设备清单 —— 不依赖 NetManager,
  * 节点未启动时也可调,用于 UI 离线兜底视图。
+ *
+ * 整份读没有算法可言，直接用端口；`paired_devices` 那层只在「读-改-写」时才有存在
+ * 意义（那才是三端会各写一遍并漂开的部分）。
  */
     listPairedDevices(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileDevice>>;
     markInboxFileMissing(itemId: string, fileId: number, missing: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
@@ -5520,15 +5650,50 @@ export interface MobileCoreLike {
  */
     pairDirect(peerId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobilePairingResult>;
 /**
- * 暂停传输（自动判断方向）
+ * 暂停接收会话。
  */
-    pauseTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+    pauseReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * 暂停发送会话。
+ */
+    pauseSend(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
  * 准备发送：流式 BLAKE3 hash + 通过 EventBus 推 PrepareProgress 事件
  */
     prepareSend(files: Array<MobileTransferFile>, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobilePreparedTransfer>;
     rejectReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * 解除配对。
+ *
+ * 编排在 core 的 [`unpair`](swarmdrop_core::paired_devices::unpair)：节点在跑时走
+ * [`PairingManager::unpair`](swarmdrop_core::pairing::PairingManager::unpair)（原子地
+ * 持久化 → 删共享内存表 → 发事件，删内存表是 presence 撤销的唯一开关，只删持久化
+ * 的话保活与重探会一直跑到进程退出）；节点没跑时只改持久化，**并由 core 补发**
+ * `PairedDeviceRemoved`。
+ *
+ * 本壳此前自己写这个 match，且漏了「没跑时补发事件」那半 —— 而
+ * [`MobileCoreEvent::PairedDeviceRemoved`](crate::events::MobileCoreEvent) 只由该事件
+ * 触发，于是节点没起时解除配对，RN 侧收不到任何移除事件，列表里的设备不会消失。
+ * 现在两条分支的事件语义由 core 统一保证。
+ */
     removePairedDevice(peerId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileDevice>>;
+/**
+ * 改本机设备名：写盘 + 让已连接的对端立刻看到 + 通知本端各处 UI。
+ *
+ * `None`（或归一化后为空）表示清空，回退系统 hostname。归一化只有
+ * [`DeviceName::parse`] 一个入口（trim、剥控制字符与 `;`、按 char 截到 40）；
+ * UI 的 `maxLength` 是提前拦，不是唯一防线。
+ *
+ * **返回归一化后的名字**（`None` = 已清空）。它可能与传进来的不同，而 JS 侧的
+ * 显示镜像要写的正是这个值 —— 不返回的话调用方只能紧接着再 `getDeviceName()`
+ * 回读一次，白跨一趟 FFI 去问一个这里本来就握在手里的结果。
+ *
+ * 编排在 core 的 [`rename_device`](swarmdrop_core::device_name::rename_device)：
+ * 节点在跑就顺带更新内存态并向已连接对端推 identify，节点没跑（onboarding、
+ * 或设置页早于 `start_node`）就只落盘。**两条分支都不由本壳判断** —— 本壳只把
+ * `Option<NetManager>` 原样交出去。
+ */
+    renameDevice(name: string | undefined, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string | undefined>;
     repairMissingInboxItems(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileInboxItemDetail>>;
     respondPairingRequest(pendingId: bigint, accept: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     resumeTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileTransferProjection>;
@@ -5559,13 +5724,24 @@ export interface MobileCoreLike {
  */
     setReceivingPaused(paused: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
-    startNode(deviceName: string | undefined, networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+    startNode(networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
  * 取出最近一次 Rust panic 的详情(location + payload + 可选 backtrace)。
  * 取过即清空 —— RN 端在 catch 到 uniffi `Rust panic` 错误后立即调一次,
  * 把内容打到 console 便于定位。无 panic 时返回 None。
  */
     takeLastPanic(): string | undefined;
+/**
+ * 改一台已配对设备的信任级别与收件策略。
+ *
+ * 编排在 core 的
+ * [`set_receive_policy`](swarmdrop_core::paired_devices::set_receive_policy)：落盘之外
+ * 还要在节点在跑时把新值推进共享内存表（`swarmdrop_transfer::policy` 裁决入站 offer
+ * 读的是那份，不推就是「策略已保存、本次运行仍按旧策略放行」）。**分支不由本壳判断。**
+ *
+ * 存在性检查也只在 core 那一处 —— 它找不到该 peer 时直接返回 `Err`，本壳不必再
+ * `find` 一遍。
+ */
     updatePairedDevicePolicy(peerId: string, trustLevel: MobileDeviceTrustLevel, receivePolicy: MobileDeviceReceivePolicy | undefined, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileDevice>;
 }
 /**
@@ -5664,15 +5840,47 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
- * 取消传输（自动判断是发送会话还是接收会话）
+ * 取消接收会话（含清理已落盘的半成品）。
  */
-    async cancelTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    async cancelReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_transfer(
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_receive(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(sessionId, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 取消发送会话。方向由调用方给（RN 侧 projection 带 direction），
+ * 不做「先试发送、失败再试接收」的探测 —— 取消有副作用（发 wire 帧、删半成品、写终态），
+ * 拿它当探针会误触发，错误也只能被拼成两句互相矛盾的话。
+ */
+    async cancelSend(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_send(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(sessionId, nativeModule().rustbuffer_alloc)
                 );
             },
@@ -5834,6 +6042,9 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
 /**
  * 发起方：生成一次性签名邀请串（供二维码/链接分享）。
  * `local_only=true` 走 LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。
+ *
+ * 邀请卡上的名字读 core 持有的本机 `OsInfo`，不由这里传入 —— 此前传的是
+ * `OsInfo::default()`，于是对方看到的永远是 "Device" 这个占位主机名。
  */
     async generatePairInvite(localOnly: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
@@ -5855,6 +6066,44 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             // export. The bytes the runtime hands back must be deserialized
             // here using the per-callable return-type converter.
             /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 本机设备名 —— 用户设过的那个；未设过返回 `None`，UI 回退系统 hostname。
+ *
+ * 事实源在 Rust 侧的 `device_config.json`，JS 的 `preferences-store.deviceName`
+ * 只是显示镜像。
+ */
+    async getDeviceName(asyncOpts_?: { signal: AbortSignal }): Promise<string | undefined> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_device_name(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterOptionalString.lift.bind(FfiConverterOptionalString),
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -5983,6 +6232,44 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             // export. The bytes the runtime hands back must be deserialized
             // here using the per-callable return-type converter.
             /*liftFunc:*/ FfiConverterSequenceTypeMobileTransferProjection.lift.bind(FfiConverterSequenceTypeMobileTransferProjection),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 「从历史重新发送」重建载荷用：取会话内有源路径的文件绝对路径（发送方向）。
+ *
+ * 接收会话与没记源路径的历史会话返回空 Vec —— 前端据此回退到「预选设备后重新
+ * 挑文件」，而不是假装能一键重发（源路径可能已失效，见 `[sessionId].tsx`）。
+ */
+    async getTransferSourcePaths(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<Array<string>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_source_paths(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(sessionId, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterSequenceString.lift.bind(FfiConverterSequenceString),
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -6188,8 +6475,11 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
- * 直接读 keychain 里的已配对设备清单 —— 不依赖 NetManager,
+ * 直接读持久化的已配对设备清单 —— 不依赖 NetManager,
  * 节点未启动时也可调,用于 UI 离线兜底视图。
+ *
+ * 整份读没有算法可言，直接用端口；`paired_devices` 那层只在「读-改-写」时才有存在
+ * 意义（那才是三端会各写一遍并漂开的部分）。
  */
     async listPairedDevices(asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileDevice>> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
@@ -6345,15 +6635,45 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
- * 暂停传输（自动判断方向）
+ * 暂停接收会话。
  */
-    async pauseTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    async pauseReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_transfer(
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_receive(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(sessionId, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 暂停发送会话。
+ */
+    async pauseSend(sessionId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_send(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(sessionId, nativeModule().rustbuffer_alloc)
                 );
             },
@@ -6436,6 +6756,20 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     }
     
+/**
+ * 解除配对。
+ *
+ * 编排在 core 的 [`unpair`](swarmdrop_core::paired_devices::unpair)：节点在跑时走
+ * [`PairingManager::unpair`](swarmdrop_core::pairing::PairingManager::unpair)（原子地
+ * 持久化 → 删共享内存表 → 发事件，删内存表是 presence 撤销的唯一开关，只删持久化
+ * 的话保活与重探会一直跑到进程退出）；节点没跑时只改持久化，**并由 core 补发**
+ * `PairedDeviceRemoved`。
+ *
+ * 本壳此前自己写这个 match，且漏了「没跑时补发事件」那半 —— 而
+ * [`MobileCoreEvent::PairedDeviceRemoved`](crate::events::MobileCoreEvent) 只由该事件
+ * 触发，于是节点没起时解除配对，RN 侧收不到任何移除事件，列表里的设备不会消失。
+ * 现在两条分支的事件语义由 core 统一保证。
+ */
     async removePairedDevice(peerId: string, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileDevice>> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -6456,6 +6790,54 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             // export. The bytes the runtime hands back must be deserialized
             // here using the per-callable return-type converter.
             /*liftFunc:*/ FfiConverterSequenceTypeMobileDevice.lift.bind(FfiConverterSequenceTypeMobileDevice),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 改本机设备名：写盘 + 让已连接的对端立刻看到 + 通知本端各处 UI。
+ *
+ * `None`（或归一化后为空）表示清空，回退系统 hostname。归一化只有
+ * [`DeviceName::parse`] 一个入口（trim、剥控制字符与 `;`、按 char 截到 40）；
+ * UI 的 `maxLength` 是提前拦，不是唯一防线。
+ *
+ * **返回归一化后的名字**（`None` = 已清空）。它可能与传进来的不同，而 JS 侧的
+ * 显示镜像要写的正是这个值 —— 不返回的话调用方只能紧接着再 `getDeviceName()`
+ * 回读一次，白跨一趟 FFI 去问一个这里本来就握在手里的结果。
+ *
+ * 编排在 core 的 [`rename_device`](swarmdrop_core::device_name::rename_device)：
+ * 节点在跑就顺带更新内存态并向已连接对端推 identify，节点没跑（onboarding、
+ * 或设置页早于 `start_node`）就只落盘。**两条分支都不由本壳判断** —— 本壳只把
+ * `Option<NetManager>` 原样交出去。
+ */
+    async renameDevice(name: string | undefined, asyncOpts_?: { signal: AbortSignal }): Promise<string | undefined> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_rename_device(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterOptionalString.lower(name, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterOptionalString.lift.bind(FfiConverterOptionalString),
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -6762,14 +7144,14 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     }
     
-    async startNode(deviceName: string | undefined, networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    async startNode(networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterOptionalString.lower(deviceName, nativeModule().rustbuffer_alloc),FfiConverterTypeMobileNetworkRuntimeConfig.lower(networkConfig, nativeModule().rustbuffer_alloc)
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterTypeMobileNetworkRuntimeConfig.lower(networkConfig, nativeModule().rustbuffer_alloc)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -6811,6 +7193,17 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     ));
     }
     
+/**
+ * 改一台已配对设备的信任级别与收件策略。
+ *
+ * 编排在 core 的
+ * [`set_receive_policy`](swarmdrop_core::paired_devices::set_receive_policy)：落盘之外
+ * 还要在节点在跑时把新值推进共享内存表（`swarmdrop_transfer::policy` 裁决入站 offer
+ * 读的是那份，不推就是「策略已保存、本次运行仍按旧策略放行」）。**分支不由本壳判断。**
+ *
+ * 存在性检查也只在 core 那一处 —— 它找不到该 peer 时直接返回 `Err`，本壳不必再
+ * `find` 一遍。
+ */
     async updatePairedDevicePolicy(peerId: string, trustLevel: MobileDeviceTrustLevel, receivePolicy: MobileDeviceReceivePolicy | undefined, asyncOpts_?: { signal: AbortSignal }): Promise<MobileDevice> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -7088,8 +7481,11 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item() !== 6529) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer() !== 8390) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_transfer");
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_receive() !== 58298) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_receive");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_send() !== 16009) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_send");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity() !== 63110) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity");
@@ -7106,8 +7502,11 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_record() !== 8237) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_record");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pair_invite() !== 63280) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pair_invite() !== 9446) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pair_invite");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_device_name() !== 62659) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_device_name");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item() !== 20504) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item");
@@ -7120,6 +7519,9 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_projections() !== 47946) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_projections");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_source_paths() !== 34774) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_transfer_source_paths");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity() !== 64600) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity");
@@ -7139,7 +7541,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_pair_invites() !== 33870) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_pair_invites");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices() !== 29003) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices() !== 10793) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing() !== 29289) {
@@ -7154,8 +7556,11 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pair_direct() !== 4933) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pair_direct");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer() !== 55790) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_transfer");
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_receive() !== 12291) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_receive");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_send() !== 49949) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_send");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send() !== 57064) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send");
@@ -7163,8 +7568,11 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive() !== 8223) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device() !== 10087) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device() !== 20356) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_rename_device() !== 865) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_rename_device");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items() !== 47796) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items");
@@ -7193,13 +7601,13 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node() !== 33806) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 2279) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 34031) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic() !== 20022) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy() !== 38720) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy() !== 61697) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy");
     }
 

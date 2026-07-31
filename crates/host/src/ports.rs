@@ -4,12 +4,10 @@
 //! 事件聚合（`CoreEvent` / `EventBus`）与测试用 `MemoryHost` 留在 `swarmdrop-core`
 //! ——它们引用 network / transfer 域的 DTO，下沉到本 crate 会成环。
 
-use std::path::PathBuf;
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::device::PairedDeviceInfo;
+use crate::device::{DeviceName, PairedDeviceInfo};
 use crate::error::AppResult;
 
 /// 设备身份密钥材料。
@@ -39,6 +37,9 @@ pub enum IdentityMigrationState {
 }
 
 /// 宿主提供的安全身份存储。
+///
+/// **只管密钥材料**（设备 Ed25519 身份 + WebRTC Direct 证书）。已配对设备列表不在这里，
+/// 见 [`PairedDeviceStore`]。
 #[async_trait]
 pub trait KeychainProvider: Send + Sync {
     async fn load_identity(&self) -> AppResult<Option<DeviceIdentityBytes>>;
@@ -55,25 +56,62 @@ pub trait KeychainProvider: Send + Sync {
 
     async fn load_migration_state(&self) -> AppResult<IdentityMigrationState>;
     async fn save_migration_state(&self, state: IdentityMigrationState) -> AppResult<()>;
+}
 
+/// 已配对设备列表的持久化端口（整份快照读写）。
+///
+/// **为什么它不属于 [`KeychainProvider`]。** 两者存的东西性质相反：密钥材料是不出进程的
+/// 秘密（宿主实现只负责把它交给系统钥匙串，任何人能读到都算泄露），而已配对设备列表是
+/// 可导出、会被整份覆写、将来还可能供用户备份的**业务数据**。合成一个 trait 的代价由
+/// 没有钥匙串的那一端付：浏览器为了存一份设备列表得实现六个永远不该被调用的密钥方法，
+/// 而 `load_identity()` 返回 `Ok(None)` 这种「实现了但不能用」的方法是最容易被误用的
+/// 形态——调用方编译通过、运行期静默无效。拆开之后 Web 端只实现这两个方法，也就没有
+/// 理由再在自己那侧长一套平行实现。
+///
+/// **端口刻意只有 load / save 两个方法。** upsert（保留既有信任策略）、改策略、移除
+/// 这些都是**业务规则**而非存储能力，统一实现在 `swarmdrop_core::paired_devices`，
+/// 对 `&dyn PairedDeviceStore` 操作。端口实现**不得自带业务判断**——规则一旦下放到端口，
+/// 三端就会各写一遍，而那正是「Web 的 upsert 整条替换、把用户设过的信任级别与收件策略
+/// 静默重置」这个 bug 的成因。
+///
+/// 代价明说：整份快照覆写存在 read-modify-write 竞态。现状即如此（三端全是整份覆写），
+/// 且调用点都在用户操作路径上（串行），故不加固；将来若真出现并发写，正确的修法是给
+/// core 的写操作加一把锁，而不是把算法推回端口。
+#[async_trait]
+pub trait PairedDeviceStore: Send + Sync {
     async fn load_paired_devices(&self) -> AppResult<Vec<PairedDeviceInfo>>;
-    async fn save_paired_devices(&self, devices: Vec<PairedDeviceInfo>) -> AppResult<()>;
+
+    /// 整份覆写。**收借用而非所有权**：三端实现拿到它只做一次
+    /// `serde_json::to_string(&devices)` 或 `.to_vec()`，而调用方（core 的
+    /// `paired_devices` 各写操作）既要交给端口、又要把同一份列表返给上层，
+    /// 收所有权就逼得每次写都整份 `clone()` 一遍。
+    async fn save_paired_devices(&self, devices: &[PairedDeviceInfo]) -> AppResult<()>;
 }
 
-/// 应用路径集合。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct CoreAppPaths {
-    pub data_dir: PathBuf,
-    pub cache_dir: PathBuf,
-    pub temp_dir: PathBuf,
-    pub log_dir: PathBuf,
-}
+/// 用户设备名的持久化端口（桌面 / 移动 = `device_config.json`，Web = IndexedDB）。
+///
+/// 端口只认已归一化的 [`DeviceName`]——未归一化的 `String` 在类型层面就传不进来，
+/// 而归一化的唯一入口是 [`DeviceName::parse`]。
+///
+/// 读取动作由 core 的组合根（`start_node`）承担，不由各 host 自己读完再把值塞进
+/// `OsInfo`——那正是这个端口要取代的旧形态：「三端各写各的」原封不动，本机 `OsInfo`
+/// 依然没有唯一装配点。
+///
+/// **load 不返回错误、save 返回错误，这个不对称是刻意的：**
+/// - [`load_device_name`](Self::load_device_name) 在节点启动路径上。一个被手改坏的
+///   JSON、一次 IndexedDB 打不开，若能让 `start_node` 返回 `Err`，代价是「节点起不来」；
+///   而正确行为显然是「用 hostname 兜底继续跑」。把降级写进 trait 契约，比指望每个调用点
+///   自己写 `.unwrap_or_default()` 更难被后来者写反。
+/// - [`save_device_name`](Self::save_device_name) 只在用户点保存时发生。静默失败等于
+///   「改了名字、重启又变回去」且没有任何信号，必须冒泡到 UI。
+#[async_trait]
+pub trait DeviceConfig: Send + Sync {
+    /// 读取持久化的设备名。**不返回错误**：无值 / 读失败 / 内容非法一律降级为 `None`
+    /// （调用方回退到 [`OsInfo::hostname`](crate::device::OsInfo::hostname)）。
+    async fn load_device_name(&self) -> Option<DeviceName>;
 
-/// 宿主应用路径。
-pub trait AppPaths: Send + Sync {
-    fn paths(&self) -> AppResult<CoreAppPaths>;
+    /// 写入设备名；`None` 表示清空，回退到 hostname。
+    async fn save_device_name(&self, name: Option<DeviceName>) -> AppResult<()>;
 }
 
 /// 文件 source 标识。

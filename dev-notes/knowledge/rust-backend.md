@@ -43,12 +43,168 @@ Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC �
 
 **相关文件**：`crates/core/src/lib.rs`、`src-tauri/src/lib.rs`、`dev-notes/architecture/core-desktop-mobile-boundaries.md`
 
+### 端口要有出口 —— 注入了却拿不回来的依赖会逼出宿主侧的影子副本
+
+依赖倒置只做一半，比不做更糟。`TransferManager` 的 `store` 字段长期是 `pub(crate)` 且没有
+accessor：宿主在组装点把 `Arc<dyn SessionStore>` 注进去，**之后再也拿不回来**。
+后果不是「少了个便利方法」，而是宿主要做同一件事只能另开一条路：
+
+| 端 | 影子副本 | 表现 |
+|---|---|---|
+| 桌面 | `app.manage(DatabaseConnection)` | 5 个传输命令 + 3 个 MCP 工具吃 `State<'_, DatabaseConnection>`，直接打 `storage-sql` 的自由函数 |
+| Web | `session_store: Arc<PersistentSessionStore>` | 字段留具体类型而非 `dyn`，历史查询绕过 trait 直调实现的 inherent 方法 |
+
+两条是同一个洞的两种长法：**端口存在、注入正确，但 trait 不是唯一的用法**。
+危害会复利：影子副本那条路上没有端口约束，于是顺着它长出来的功能（历史列表 / 删除 /
+清空）自然也不会进 trait —— 端口覆盖率因此永远补不齐，等到接第三端才发现
+「换一个存储实现」只换掉一半。
+
+**判据**：一个端口是不是真端口，看宿主**取回**它的路径是不是唯一。
+补 trait 方法与开 accessor 必须在同一个 change 里做完 —— 只补方法，宿主拿不到 store，
+照样打 ORM，账面覆盖率涨了而直连调用点一个没少，下一个人读到「端口已补齐」会得到完全
+错误的结论。
+
+**做法**（本仓现行形态）：
+
+- accessor 与同类的 `endpoint()` / `file_access()` 同形，返回 `&Arc<dyn Trait>`；
+  要跨 await 持有由调用方自己 `.clone()`
+- 字段类型写 `Arc<dyn Trait>` 而不是 `Arc<具体实现>`。自己注入的东西自己也只该按端口用，
+  留具体类型等于给未来的绕行留了门
+- accessor 只服务**纯读**与**无生命周期语义的写**；带生命周期语义的操作走域方法
+  （`TransferManager::delete_session`），判据函数（`is_deletable`）一处定义、
+  UI 与后端共用 —— 守卫放各端 UI 则 MCP 与 wasm 导出都绕得过
+
+**相关文件**：`crates/transfer/src/manager.rs`（`store()` / `delete_session()`）、
+`crates/transfer/src/store.rs`（`SessionStore` / `is_deletable`）、
+`src-tauri/src/database.rs`、`crates/web/src/node.rs`、
+`dev-notes/knowledge/storage-abstraction.md`（端口覆盖范围）
+
+### 账本类查询取 `State<TransferStoreState>`，不要经过 `NetManager`
+
+上一条开了 `TransferManager::store()` 之后出现了一个反向偏差：几个**只读账本**的命令
+顺手写成了 `get_transfer(&net).await?.store().xxx()`，于是**节点没启动就查不了历史**——
+`get_transfer` 在 `net` 为 `None` 时直接 `node_not_started()`。前端 `/transfer` 路由挂载即
+`loadProjections()`，start 失败或还没 start 时整页报错；MCP 那边则是「查一份账本却提示
+请先启动网络」。
+
+判据很简单：**这条命令碰不碰网络？** 碰 → 走 manager；不碰 → 直接吃
+`State<'_, TransferStoreState>`（`src-tauri/src/database.rs`，`setup.rs` 已 `app.manage`）。
+收件箱命令一直走的就是后者，传输那一半是漂过去的。
+
+例外是**带生命周期语义的写**：`delete_transfer_session` 仍走 manager，因为「进行中不可删」
+的域守卫在那里；`cancel` / `pause` / `resume` / `accept` / `reject` 同理真需要活 actor。
+
+MCP 侧同一条判据：`list_transfers` / `get_transfer_status` 用
+`app.try_state::<TransferStoreState>()`，未就绪的文案与其它 store 类工具对齐
+（「数据库尚未就绪」而不是「请先启动网络」）。
+
+**相关文件**：`src-tauri/src/commands/transfer.rs`、`src-tauri/src/mcp/tools.rs`、
+`src-tauri/src/database.rs`
+
+### 跨端共享的规则要有可执行锚点，不能只写「必须同义」
+
+`swarmdrop_transfer::inbox::inbox_matches` 自称检索命中判据的**规范定义**、文档要求
+`crates/storage-sql` 的 `LIKE` 复刻它。结果两者**从落地那天起就不一致**：SQL 匹配四列
+（多一个 `fts.extracted_text`），而 `inbox_matches` 根本没有这个入参。一句「改这里必须
+同步改那里」的注释，撑不过第一次改动。
+
+修法不是把注释写得更严厉，而是给它一个**可执行的锚点**：
+
+```rust
+pub struct InboxMatchCase { name, query, title, source_name, files_text, extracted_text, expected }
+pub const INBOX_MATCH_CASES: &[InboxMatchCase];   // 住在共享 crate
+```
+
+`crates/transfer` 的单测直调 `inbox_matches` 跑这批语料；`crates/storage-sql` 的单测把
+同一批语料灌进内存 SQLite 走 `search_inbox`，断言同一 `expected`。两端断言的是同一个
+常量，漂移当场变红。
+
+两条经验：
+
+1. **语料要能抓到真分叉，写完做一次变异验证**。这次做了两组：去掉 `escape_like` →
+   「`a%b` 不得命中 `axxb`」变红；把 `fts.extracted_text LIKE ?` 换成 `fts.title LIKE ?`
+   → 「extracted_text 独立命中」变红。没做过变异的 conformance 测试很容易是「永远绿」的。
+2. **允许的差异要在签名或文档里写死，不要试图消除**。`to_lowercase()` 折叠 Unicode，
+   SQLite 的 `LIKE` 默认只折叠 ASCII —— 「Ä」查「ä」Web 命中、桌面不命中。消除它要么给
+   SQLite 编 ICU 扩展、要么把 Web 端退化成 ASCII 折叠，两条都比差异本身贵。语料因此只放
+   ASCII 大小写用例，理由写进函数文档。
+   同理 `extracted_text` 收 `Option<&str>` 而不是 `&str`：`None` 是「这一端没有这个能力」，
+   空串是「抽过、没抽到」——**这条差异该在签名上看得见**。
+
+**相关文件**：`crates/transfer/src/inbox.rs`、`crates/storage-sql/src/inbox.rs`
+
+### 宿主端口层：`PairedDeviceStore` 与 `KeychainProvider` 的分工
+
+两个端口装的是两种东西，不要再合并：
+
+| 端口 | 装什么 | 桌面 | 移动 | Web |
+|---|---|---|---|---|
+| `KeychainProvider` | **秘密**：Ed25519 身份私钥、WebRTC 证书。不出进程、不可导出 | 系统钥匙串（dev 走 `dev-identity.json`） | iOS Keychain / Android EncryptedSharedPreferences | **没有实现** |
+| `PairedDeviceStore` | **业务数据**：已配对设备列表。可导出、每次写都是整份快照覆写 | 同上后端的一个条目 | 同一个存储桥 | IndexedDB 的 `kv` |
+
+**约定：端口只 load/save，算法在 core。** 列表语义（`load` / `save` / `upsert` /
+`update_policy` / `remove`）唯一实现在 `swarmdrop_core::paired_devices`，对
+`&dyn PairedDeviceStore` 操作；端口实现里不得出现任何业务判断。
+
+**不遵守会长出什么——有实例。** 这两件事此前合在 `KeychainProvider` 上
+（`load_paired_devices` / `save_paired_devices` 两个方法）。Web 端根本没有 keychain，
+实现不了这个 trait，于是在 `crates/web/src/identity.rs` 自己长了一套平行实现，
+其中 upsert 写的是 `*existing = device;`——整条替换。core 那份只更新 `os_info` /
+`paired_at`，**保留 `trust_level` / `receive_policy` / `trust_confirmed`**。后果是：
+对已配对设备再走一次邀请配对（`connect_invite` / `respond_pairing_request` 拿到的是
+`PairedDeviceInfo::new(...)`，恒为 `Collaborator`），用户设的信任策略被静默重置回默认。
+而 Web 的 `receive_policy` 不是展示字段——Web 与桌面共用 `runtime::start_node`，
+入站 offer 经 `crates/transfer/src/policy.rs` 真被裁决。
+
+**判据**：一个端口该不该拆，看两件事是不是同一种数据（秘密 vs 业务数据），
+以及**有没有一端只能实现其中一半**。后者一旦出现，「实现了但永远不该被调用」的假方法
+（`load_identity` 恒返回 `Ok(None)`）比编译错误更危险——它编译通过、运行时静默无效。
+反过来，移动端两个后端本来就是同一个存储桥，拆到 uniffi 的 `ForeignKeychainProvider`
+那一侧不产生解耦收益，所以拆分**止步于 Rust 端口层**。
+
+**当前边界**：`PairedDeviceStore` 目前只服务 `PairingManager::unpair` 这一条写路径；
+新增/刷新方向仍由三端 host 在 `CoreEvent::PairedDeviceAdded` 上各自回写（刻意的半步，
+那条路径已有唯一触发点、语义一致）。
+
+**相关文件**：`crates/host/src/ports.rs`（两个 trait）、`crates/core/src/paired_devices.rs`
+（唯一的列表算法）、`crates/core/src/identity.rs`（只剩密钥材料）、
+`src-tauri/src/host.rs`（`keychain_provider` / `paired_device_store` 两个工厂）、
+`crates/web/src/paired_devices.rs`
+
+### 端口层现有 trait 清单：六个，且没有一格是空的
+
+`crates/host/src/ports.rs` 现有 6 个 trait。动端口层之前先按这张表核一遍——
+「数一数端口层有什么」是很多重构的论证前提，表里多一格假的就会得出反向的结论：
+
+| 端口 | 装什么 | 桌面 | 移动 | Web |
+|---|---|---|---|---|
+| `KeychainProvider` | 密钥材料（Ed25519 身份 / WebRTC 证书） | `keyring`（dev 走 `dev-identity.json`） | iOS Keychain / Android EncryptedSharedPreferences | 无实现（身份自管在 `crates/web/src/identity.rs`） |
+| `PairedDeviceStore` | 已配对设备列表（整份快照覆写） | 同 keychain 后端的一个条目 | 同一个存储桥 | IndexedDB `kv` |
+| `DeviceConfig` | 用户设的设备名 | `device_config.json` | `data_dir/device_config.json`（同格式） | IndexedDB 键 `swarmdrop.deviceName.v1` |
+| `FileAccess` | 文件读写（source 上半区 + sink 下半区） | 本地 FS + Android SAF | `MobileFileAccessAdapter` | OPFS |
+| `Notifier` | 系统通知（core 发语义码、host 译） | `tauri-plugin-notification` | `expo-notifications` | 不传（`start_node` 收 `Option`） |
+| `UpdateInstaller` | 应用更新 | Tauri updater → SwarmHive | no-op | 不传 |
+
+`DeviceConfig` 的读取动作**由 core 的组合根 `start_node` 承担**，不是各 host 自己读完再把
+值塞进 `OsInfo` —— 后者是它取代掉的旧形态，那样本机 `OsInfo` 依然没有唯一装配点。
+配套的 `load` 不返回错误 / `save` 返回错误的不对称见 trait 上的 doc。
+
+**曾经有第七个 `AppPaths`，已删（2026-07）。** 它的唯一实现是测试替身 `MemoryHost`，
+唯一调用点在 `#[cfg(test)]` 里断言「MemoryHost 返回构造时传进去的路径」——一条只测自己的
+测试。零生产实现、零生产消费、零 IPC 暴露。这种端口的害处不是占空间，是**它让端口层的
+覆盖率看起来比实际高**。删它的连带改动全是机械的（`MemoryHost::new(paths)` →
+`MemoryHost::new()`，约 30 处），编译期兜底。将来真要「默认下载目录」，重建成本十几行；
+留一个假实现的成本是持续误导。
+
+**相关文件**：`crates/host/src/ports.rs`、`crates/core/src/host.rs`（`MemoryHost`）、
+`src-tauri/src/host.rs`（工厂 + `AppPaths` 的删除理由）
+
 ### 两个容易被臆测错的 API 事实
 
 - **`TransferManager` 没有名为 Offer / Send / Resume 的三个入口**。真实的流程入口是 `flow/`
   下的四个模块：`prepare.rs` / `send.rs` / `receive.rs` / `resume/`。`manager.rs` 上的 pub 方法
-  是 `new` / `set_receiving_paused` / `spawn_cleanup_task` / `client` / `db` / `event_bus` /
-  `file_access`；`handle_cancel` / `handle_pause` / `handle_peer_disconnected` /
+  是 `new` / `set_receiving_paused` / `spawn_cleanup_task` / `endpoint` / `file_access` /
+  `store` / `delete_session`；`handle_cancel` / `handle_pause` / `handle_peer_disconnected` /
   `cache_inbound_offer` 等都是私有 trait impl。
 - **没有名为 `FileSink` 的 trait**。sink 是 `FileAccess` trait（`crates/host/src/ports.rs`）的
   下半区（`create_sink` / `write_sink_chunk` / `finalize_sink` / `cleanup_sink`）；
@@ -79,6 +235,35 @@ Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC �
   `Channel<PrepareProgressEvent>`（传输准备进度），**与 NodeEvent 无关**
 
 **相关文件**：`crates/core/src/network/event_loop.rs`、`crates/core/src/host.rs`、`src-tauri/src/host/event_bus.rs`
+
+### 加 `CoreEvent` 变体是清单工作，不是编译期工作
+
+`CoreEvent`（`crates/core/src/host.rs`）是 `#[non_exhaustive]` 的，而三端消费点**全部**
+带 catch-all。加一个变体不会有任何编译错误提醒你去接线，漏接的表现是
+**「安静地什么都没发生」**——不是报错，也不是崩溃，是功能悄悄不生效。
+
+| 消费点 | catch-all | 漏接后果 |
+|---|---|---|
+| `src-tauri/src/host/event_bus.rs` | `_ => {}` | 桌面静默丢弃，前端收不到 tauri typed event |
+| `crates/web/src/event_bus.rs` | `other => tracing::debug!(…)` | Web 只多一行 debug 日志 |
+| `mobile-core/src/events.rs` 的 `map_event` | `_ => return None` | 连 `MobileCoreEvent` 都不产出，FFI 那侧无从谈起 |
+| `mobile/src/core/event-bus.ts` 的 switch | `default:` | RN 侧 `tsc` 同样不报错 |
+
+**做法**：加变体时四处一起改，且分支必须写在 catch-all **之前**。桌面还要在
+`src-tauri/src/events.rs` 定义 typed event、`setup.rs` 的 `collect_events!` 登记、
+重新导出 bindings；移动端要 `pnpm --filter react-native-swarmdrop-core build:ios`
+重生成 uniffi bindings，TS 侧才看得到新的 `MobileCoreEvent_Tags`。
+另有一处易漏的第五点：命令在**节点未运行**时走的是 host 直连端口的路径，
+core 的 event bus 根本不在场，typed event 得由命令自己补发
+（`src-tauri/src/commands/pairing.rs` 的 `remove_paired_device`）。
+
+**验收靠清单核对，不靠 `cargo check`。** 反过来记一笔：改端口 trait（例如从
+`KeychainProvider` 上删两个方法）才是真正的编译期广播，三端调用点会一起红。
+两件事的风险性质相反，别把「改 enum 就会红一片」的直觉套过来。
+
+**相关文件**：`crates/core/src/host.rs`、`src-tauri/src/host/event_bus.rs`、
+`crates/web/src/event_bus.rs`、`mobile/packages/swarmdrop-core/rust/mobile-core/src/events.rs`、
+`mobile/src/core/event-bus.ts`
 
 ### checkpoint 只有接收端写，且早已是 range set 而非线性 offset
 
@@ -153,12 +338,86 @@ panic `the subtree starting at 16384 contains at most 16384 bytes`。根因是�
 ### OsInfo 有 native/display_name helper，别手写设备名回退
 
 `OsInfo`（`crates/host/src/device.rs`）现有两个 helper，新代码优先用它们、别再手写：
-- `OsInfo::native(name)`：native 端（桌面/移动）装配入口，`{ name, ..Default::default() }` 的 env 探测封装。web 端另有 `web_os_info()`。
+- `OsInfo::native()`：native 端（桌面/移动）装配入口，纯 env 探测（hostname / os / platform / arch）。web 端另有 `web_os_info()`。
+  **它不收设备名**——`name` 由 `start_node` 从 `DeviceConfig` 端口填，宿主没有 API 可以注入，这是「本机 OsInfo 只有一个装配点」的编译期保证，不是口头约定。
 - `OsInfo::display_name()`：`name` 去空白后非空则用、否则回退 `hostname`，收敛 UI 显示名的回退语义。
 
 **不要做**：手写 `name.filter(|n| !n.is_empty()).unwrap_or_else(|| hostname.clone())`——仓库里已有几处历史副本（`transfer/incoming.rs` / `mobile events.rs` / `pairing/manager.rs`）对「空串是否回退 / 是否 trim」处理已分叉，是遇到就该收编进 `display_name()` 的技术债，别再添新副本。
 
-**相关文件**：`crates/host/src/device.rs`（`impl OsInfo`）
+**更不要做**：`OsInfo::default()`。它产出的是占位主机名，而**需要本机 OsInfo 的地方全在
+`PairingManager` 手上**（`self.os_info`，组合根注入的快照）：`request_pairing` 的
+`PairingRequest.os_info`、`encode_invite` 的 `display_name` / `display_platform`。
+这三处此前各自 `OsInfo::default()`，后果是**用户设的名字既进不了配对请求也进不了邀请串**
+——邀请卡上恒为占位名、对端配对弹窗恒显示「Device · unknown」。修完之后
+`encode_invite` 连 `display: &OsInfo` 参数都删了，取值来源在类型层面就传不错。
+本机 `OsInfo` **在节点运行期可变**，唯一写口是 `PairingManager::set_device_name`
+（字段是 `RwLock<OsInfo>`），编排在 `swarmdrop_core::device_name::rename_device`：
+落盘 → 改本机快照 → `Endpoint::set_agent_version`（identify 逐连接下发）→ publish
+`DeviceRenamed`。**改名不再重启节点**，连接不断、进行中的传输不中断。
+
+> 这一段之前写的是「本机 `OsInfo` 在节点生命周期内不变，改名要重启节点，这是刻意的」，
+> 理由是「若邀请能热更新而 `agent_version` 不能，会出现新邀请写新名字、对端 identify 到
+> 旧名字的中间态」。那个理由在当时成立 —— 因为 libp2p 的 identify 只能构造期设
+> `agent_version`。`identify-agent-version-runtime-update` 给 fork 加了
+> `Behaviour::set_agent_version`（逐连接下发）之后，两者是**一起**更新的，前提消失了。
+
+只开 `set_device_name` 这个窄写口、**不提供 `set_os_info(OsInfo)`**：整包替换会让
+`caps=lan-helper` 有机会被静默抹掉（消费点在 `network/event_loop.rs`，抹掉的表现只是
+「同网发现忽然变慢」，几乎不可能反查到改名这一步）。
+`set_device_name_only_touches_the_name_field` 钉住这条。
+
+**相关文件**：`crates/host/src/device.rs`（`impl OsInfo`）、`crates/core/src/runtime.rs`
+（`start_node` 里的初值装配点）、`crates/core/src/device_name.rs`（`rename_device` 编排）、
+`crates/core/src/pairing/manager.rs`（`os_info: RwLock<OsInfo>` + 回归测试）、
+`crates/net/src/endpoint.rs`（`set_agent_version`）
+
+### 设备名只能经 `DeviceName::parse` 构造 —— 它挡的是一条真实的注入路径
+
+`OsInfo::to_agent_version()` 把本机信息拼成一行，经 libp2p Identify 广播给每个对端：
+
+```
+swarmdrop/0.10.2; name=书房 Mac; caps=lan-helper; os=macos; platform=macos; arch=aarch64; host=MacBook-Pro
+```
+
+`from_agent_version()` 按 `"; "` 切片、再按 `name=` / `caps=` 前缀分派。**分隔符就在数据
+里，而设备名是用户能随便填的**：把设备名设成 `我的电脑; caps=lan-helper`，对端解析出的
+就是一个本机并不具备的 capability。
+
+这不是理论问题。`crates/core/src/network/event_loop.rs` 正是靠
+`has_capability(LAN_HELPER_CAPABILITY)` 决定要不要 `add_infrastructure_peer(kad_server:
+true, relay: true)`，于是一台自称 lan-helper 的普通设备会被同网对端当成基础设施节点，进
+kad server 与 relay 候选。影响面有限（要同网 + 对端开了 `auto_discover_lan_helpers`，结果
+是被当候选而非直接拿到数据），但它在桌面 / 移动上**一直是可触发的**——用户本来就能设任意
+设备名。
+
+**修法不是在每个入口 `replace(';', "")`。** 桌面命令、移动 uniffi 导出、wasm 导出、以及
+未来任何新入口都要各调一次归一化，漏一个就退回原样；而「漏了一个」不会有任何编译或运行
+信号。所以归一化做成 **newtype 的唯一构造入口**：
+
+- `DeviceName::parse(&str) -> Option<Self>`：trim → 剥控制字符与 `;` → 按 **char** 截到
+  40 → 空则 `None`。没有别的构造函数，字段私有。
+- `DeviceConfig` 端口签名吃 `Option<DeviceName>`，**未归一化的 `String` 在类型层面就传不
+  进去**。
+- FFI / IPC 边界仍用 `Option<String>`（uniffi 与 specta 不必认识这个类型），进来第一件事
+  就是 parse。
+
+**四条容易写错的细节：**
+
+- **截断按 char 不按 byte。** 中文名 40 字是 120 字节，按 byte 切会切碎 UTF-8 序列直接 panic。
+- **load 侧也要 parse 一次。** `device_config.json` 与 IndexedDB 都是用户 / 开发者工具可
+  手改的，只在 save 侧归一化等于没归一化。三端实现都在读出来之后再过一遍。
+- **空串归 `None` 而不是 `Some("")`。** `None` 正是端口「清空、回退 hostname」的语义。
+- **超长截断而不报错。** 三端 UI 一律 `maxLength=40` 拦在前面，后端截断只是防御纵深，为它
+  造一条跨三端的错误路径不划算。
+
+**回归锚点**：`crates/host/src/device.rs` 的
+`device_name_blocks_agent_version_capability_injection` —— 含 `"; caps=lan-helper"` 的原始
+串经 parse → `to_agent_version()` → `from_agent_version()` 走一圈，断言 `capabilities` 为
+空。**这条红了是去补归一化，不是改断言。**
+
+**相关文件**：`crates/host/src/device.rs`（`DeviceName` + 回归锚点）、
+`crates/host/src/ports.rs`（`DeviceConfig`）、`crates/core/src/network/event_loop.rs`（
+capability 的消费方）
 
 ## IPC 类型 (specta)
 

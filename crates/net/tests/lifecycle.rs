@@ -3,7 +3,9 @@
 mod common;
 
 use std::net::TcpListener;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use common::spawn_node;
 use futures::{AsyncReadExt, AsyncWriteExt};
@@ -80,21 +82,29 @@ async fn connect_timeout_aborts_orphaned_dial() {
         .set_nonblocking(true)
         .expect("make listener non-blocking");
     let port = listener.local_addr().expect("listener addr").port();
-    let accepted = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let mut sockets = Vec::new();
-        while Instant::now() < deadline {
-            match listener.accept() {
-                // 保持 TCP 打开但不参与 Noise 握手：每次 client 拨号都会留下一
-                // 条可计数连接，直到测试结束统一 drop。
-                Ok((socket, _)) => sockets.push(socket),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(5));
+    // 存活期由测试主体显式收口，**不能用 wall-clock deadline**：这个线程从 spawn 起就开始
+    // 计时，而下面的 `Endpoint::builder().bind()` 在慢机器上要好几秒（实测 5–8s）。用固定
+    // 时限的话 listener 会在 client 拨号之前就退出，于是拨号拿到的是 `Connection refused`
+    // 而不是本用例要断言的「挂起后超时」——测试变成了和机器速度赛跑，且失败信息完全指不到病因。
+    // CI 只跑 ubuntu，那里 bind 快，所以这条只在本地慢机器上红。
+    let stop = Arc::new(AtomicBool::new(false));
+    let accepted = std::thread::spawn({
+        let stop = Arc::clone(&stop);
+        move || {
+            let mut sockets = Vec::new();
+            while !stop.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    // 保持 TCP 打开但不参与 Noise 握手：每次 client 拨号都会留下一
+                    // 条可计数连接，直到测试结束统一 drop。
+                    Ok((socket, _)) => sockets.push(socket),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("accept hanging peer: {error}"),
                 }
-                Err(error) => panic!("accept hanging peer: {error}"),
             }
+            sockets.len()
         }
-        sockets.len()
     });
 
     let client = Endpoint::builder()
@@ -111,22 +121,28 @@ async fn connect_timeout_aborts_orphaned_dial() {
         ],
     );
     let result = client.connect(target.clone()).await;
-    assert!(
-        matches!(result, Err(ConnectError::Timeout)),
-        "hanging peer 应在调用方时限内超时，got: {result:?}"
-    );
     // 给 actor 一次 poll Swarm 的机会处理 libp2p abort；随后同 peer 再拨一次。
     tokio::time::sleep(Duration::from_millis(50)).await;
     let retry = client
         .connect_with_timeout(target, Duration::from_millis(100))
         .await;
+
+    // 两次拨号都发出去了，让 listener 收工。这一步排在断言**之前**：断言失败时线程同样能退出，
+    // 失败现场是一条清楚的断言消息，而不是一个挂住的测试进程。
+    stop.store(true, Ordering::Relaxed);
+    let dials = accepted.join().expect("hanging peer thread");
+
+    assert!(
+        matches!(result, Err(ConnectError::Timeout)),
+        "hanging peer 应在调用方时限内超时，got: {result:?}"
+    );
     assert!(
         matches!(retry, Err(ConnectError::Timeout)),
         "第二次拨号也应独立超时，got: {retry:?}"
     );
     assert!(
-        accepted.join().expect("hanging peer thread") >= 2,
-        "取消旧拨号后，同 peer 的新 connect 必须发起新的 TCP 拨号"
+        dials >= 2,
+        "取消旧拨号后，同 peer 的新 connect 必须发起新的 TCP 拨号，实际只有 {dials} 次"
     );
 
     client.close().await;

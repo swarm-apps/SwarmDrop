@@ -513,8 +513,12 @@ msgstr "Delete group “{0}”"
 #~ msgstr "Deleting a group won't unpair the devices in it."
 
 #: src/routes/_app/transfer/-session-row.tsx
-msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
-msgstr "Deleting will also clear this task's checkpoint, so it can no longer be resumed. Files already transferred are not affected."
+#~ msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
+#~ msgstr "Deleting will also clear this task's checkpoint, so it can no longer be resumed. Files already transferred are not affected."
+
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。若此刻它又恢复了传输，需先取消才能删除记录。"
+msgstr "Deleting will also clear this task's checkpoint, so it can no longer be resumed. Files already transferred are not affected. If it has resumed transferring by now, cancel it first before deleting the record."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "删除收件箱记录"
@@ -649,6 +653,10 @@ msgstr "Unarchive"
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "取消配对"
 msgstr "Unpair"
+
+#: src/routes/_app/devices/index.lazy.tsx
+msgid "取消配对失败"
+msgstr "Failed to unpair"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #~ msgid "另一台设备输入配对码后，本机仍会弹出确认请求。"
@@ -891,10 +899,13 @@ msgstr "Their Device"
 msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
 msgstr "Add the following JSON to your AI client's MCP configuration (e.g. Claude Desktop, Cursor)"
 
-#. placeholder {0}: counts.all
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
-msgstr "This will delete all {0} records, including checkpoints of resumable tasks. This cannot be undone; transferred files are not affected."
+#~ msgid "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
+#~ msgstr "This will delete all {0} records, including checkpoints of resumable tasks. This cannot be undone; transferred files are not affected."
+
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "将删除已结束的传输记录，此操作无法撤销；进行中与可继续续传的任务会保留，已传输的文件不受影响。"
+msgstr "This will delete records of finished transfers and cannot be undone. In-progress and resumable tasks are kept; transferred files are not affected."
 
 #. placeholder {0}: formatTimeLeft(remainingSeconds)
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -1035,8 +1046,12 @@ msgstr "Inbox checked"
 #~ msgstr "Cleaned up"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "已清空活动记录"
-msgstr "Activity cleared"
+msgid "已清空已结束的记录"
+msgstr "Finished records cleared"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+#~ msgid "已清空活动记录"
+#~ msgstr "Activity cleared"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 #~ msgid "已粘贴"
@@ -1709,12 +1724,20 @@ msgid "添加设备"
 msgstr "Add Device"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "清空全部传输记录？"
-msgstr "Clear all transfer records?"
+#~ msgid "清空全部传输记录？"
+#~ msgstr "Clear all transfer records?"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "清空活动记录"
-msgstr "Clear activity"
+msgid "清空已结束的传输记录？"
+msgstr "Clear finished transfer records?"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "清空已结束的记录"
+msgstr "Clear finished records"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+#~ msgid "清空活动记录"
+#~ msgstr "Clear activity"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "清空记录"
@@ -2046,8 +2069,12 @@ msgid "记住我的选择（之后可在「设置」中修改）"
 msgstr "Remember my choice (can be changed in Settings)"
 
 #: src/routes/_app/transfer/-session-row.tsx
-msgid "记录删除后无法恢复；已传输的文件不受影响。"
-msgstr "The record cannot be recovered after deletion; transferred files are not affected."
+#~ msgid "记录删除后无法恢复；已传输的文件不受影响。"
+#~ msgstr "The record cannot be recovered after deletion; transferred files are not affected."
+
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "记录删除后无法恢复；已传输的文件不受影响。若此刻它又恢复了传输，需先取消才能删除记录。"
+msgstr "The record cannot be recovered after deletion; transferred files are not affected. If it has resumed transferring by now, cancel it first before deleting the record."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "记录可能已被移除，或详情加载失败。请选择其它记录，或刷新收件箱。"
@@ -2077,6 +2104,10 @@ msgstr "Device alias and groups"
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "设备名称"
 msgstr "Device name"
+
+#: src/routes/_app/settings/-device-info-section.tsx
+#~ msgid "设备名称已保存，但节点重启失败，请手动重启"
+#~ msgstr "Device name saved, but the node failed to restart. Please restart it manually."
 
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "设备名称已更新"

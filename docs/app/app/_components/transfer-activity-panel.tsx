@@ -7,9 +7,10 @@
 // `generateStaticParams` 预生成，而 sessionId 是运行时 UUID，永远预生成不出来。
 // 详情就地展开而非另开页面：一次传输的信息量撑不起一整屏，展开足够，也省掉一次跳转。
 
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Trash2, XCircle } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, memo, useCallback, useMemo } from "react";
+import { type ReactNode, Suspense, memo, useCallback, useMemo } from "react";
+import { ConfirmAction, useConfirmAction } from "./confirm-action";
 import { PanelFallback } from "./panel-fallback";
 import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
@@ -20,12 +21,14 @@ import {
   formatFileSize,
   formatTransferRate,
   isActiveSession,
+  isDeletableSession,
   sessionEndedAt,
   sortByUpdatedDesc,
 } from "../_lib/format";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
-import { useWebNode } from "../_lib/store";
+import { useWebNode, webNodeActions } from "../_lib/store";
+import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import { type Device, type TransferProgressEvent, type TransferProjection, type WebError } from "../_lib/view-types";
 
@@ -136,6 +139,9 @@ function TransferActivityPanelInner() {
   const selectedId = useSearchParams().get(PARAM.session);
 
   const resumeAction = useKeyedAsyncAction();
+  const cancelAction = useKeyedAsyncAction();
+  const deleteAction = useKeyedAsyncAction();
+  const clearAction = useAsyncAction();
 
   // 排序只依赖 projections；裁剪才依赖选中项。分两个 memo，点选不会连排序一起重跑。
   const sorted = useMemo(() => sortByUpdatedDesc(Object.values(projections)), [projections]);
@@ -143,7 +149,30 @@ function TransferActivityPanelInner() {
   const connections = useMemo(() => connectionByPeer(devices), [devices]);
   const ready = nodeStatus === "running";
 
-  // 引用稳定：列表项是 memo 的，每次渲染新建回调会让 memo 彻底失效。
+  // 二次确认走 banner 形态：触发按钮在头部与计数并排，确认横幅在头部下方撑满整张卡，
+  // 两段节点分处两地，所以用 hook 而不是 <ConfirmAction />。
+  const clearConfirm = useConfirmAction({
+    icon: Trash2,
+    label: "清空记录",
+    pendingLabel: "清空中",
+    confirmLabel: "确认清空",
+    // 清空不可撤销，但它删的只是账本，文案必须把这条说清楚，
+    // 否则用户会以为收到的文件也一起没了。
+    warning: "只清空已结束的记录；已接收的文件仍在收件箱，不受影响。",
+    layout: "banner",
+    disabled: !ready,
+    pending: clearAction.pending,
+    onConfirm: () => {
+      const node = getNode();
+      if (!node) return;
+      clearAction.run(
+        () => node.clear_transfer_history(),
+        () => webNodeActions.clearTerminalProjections(),
+      );
+    },
+  });
+
+  // 三个动作都先取一次 node；取不到就静默返回——按钮已由 `ready` 禁用，这里只是兜底。
   const resume = useCallback(
     (sessionId: string) => {
       const node = getNode();
@@ -151,6 +180,39 @@ function TransferActivityPanelInner() {
       void resumeAction.run(sessionId, () => node.resume(sessionId));
     },
     [resumeAction.run],
+  );
+
+  // 方向由 projection 直接给出，不靠「先试 cancel_send，失败再试 cancel_receive」去猜：
+  // 取消是有副作用的操作（发 wire 帧、删半成品、写终态），拿它当探针会在第一条真失败时
+  // 顺手对另一个方向也来一遍。
+  //
+  // 取消成功后**不动任何本地状态**：终态由内核经 TransferProjection 事件回流
+  //（_lib/event-dispatch.ts），前端抢着改只会和回流的那份打架。
+  const cancel = useCallback(
+    (sessionId: string, direction: TransferProjection["direction"]) => {
+      const node = getNode();
+      if (!node) return;
+      void cancelAction.run(sessionId, () =>
+        direction === "send" ? node.cancel_send(sessionId) : node.cancel_receive(sessionId),
+      );
+    },
+    [cancelAction.run],
+  );
+
+  // 删除是**账本操作**：只清这一条记录，OPFS 里已接收的文件仍在收件箱里能看能下载。
+  //
+  // 与取消/续传的关键差别是**没有回流事件**——会话被删掉之后内核不会再为它发 projection，
+  // 所以成功后必须由前端把它从投影域摘掉，否则要等下一次刷新才消失（#104）。
+  const remove = useCallback(
+    (sessionId: string) => {
+      const node = getNode();
+      if (!node) return;
+      void deleteAction.run(sessionId, async () => {
+        await node.delete_transfer_session(sessionId);
+        webNodeActions.removeProjection(sessionId);
+      });
+    },
+    [deleteAction.run],
   );
 
   // 选中态只改 URL，不另存一份 state——刷新、前进后退、分享链接都自动一致。
@@ -166,29 +228,61 @@ function TransferActivityPanelInner() {
     [router],
   );
 
-  const renderItem = (item: TransferProjection) => (
-    <TransferActivityItem
-      key={item.sessionId}
-      projection={item}
-      progress={progress[item.sessionId]}
-      connection={connectionLabel(item, connections)}
-      expanded={item.sessionId === selectedId}
-      onSelect={select}
-      resumePending={resumeAction.isPending(item.sessionId)}
-      resumeError={resumeAction.errorFor(item.sessionId)}
-      resumeDisabled={!ready}
-      onResume={resume}
-    />
-  );
+  const renderItem = (item: TransferProjection) => {
+    const sessionId = item.sessionId;
+    const expanded = sessionId === selectedId;
+    return (
+      <TransferActivityItem
+        key={sessionId}
+        projection={item}
+        progress={progress[sessionId]}
+        connection={connectionLabel(item, connections)}
+        expanded={expanded}
+        onSelect={select}
+        // 未展开就不建动作区：`null` 是稳定引用，那些项的 memo 照旧不被打穿。展开的那一项
+        // 每次都拿到新 element 因而必然重渲染——它同时也是在逐帧显示进度明细的那一项，
+        // 本来就每帧都要重画，这里没有新增负担。
+        actions={
+          expanded ? (
+            <TransferItemActions
+              projection={item}
+              ready={ready}
+              resume={{
+                pending: resumeAction.isPending(sessionId),
+                error: resumeAction.errorFor(sessionId),
+                run: () => resume(sessionId),
+              }}
+              cancel={{
+                pending: cancelAction.isPending(sessionId),
+                error: cancelAction.errorFor(sessionId),
+                run: () => cancel(sessionId, item.direction),
+              }}
+              remove={{
+                pending: deleteAction.isPending(sessionId),
+                error: deleteAction.errorFor(sessionId),
+                run: () => remove(sessionId),
+              }}
+            />
+          ) : null
+        }
+      />
+    );
+  };
 
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-fd-foreground">会话</h2>
-        <p className="text-xs text-fd-muted-foreground">
-          {active.length} 个进行中 · {history.length} 个已结束
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-fd-muted-foreground">
+            {active.length} 个进行中 · {history.length} 个已结束
+          </p>
+          {history.length > 0 && clearConfirm.trigger}
+        </div>
       </div>
+
+      {clearConfirm.panel}
+      {clearAction.error && <WebErrorCard error={clearAction.error} className="mt-2 text-xs" />}
 
       {total === 0 ? (
         <p className="mt-2 text-xs text-fd-muted-foreground">还没有传输会话。</p>
@@ -216,20 +310,19 @@ const TransferActivityItem = memo(function TransferActivityItem({
   connection,
   expanded,
   onSelect,
-  resumePending,
-  resumeError,
-  resumeDisabled,
-  onResume,
+  actions,
 }: {
   projection: TransferProjection;
   progress?: TransferProgressEvent;
   connection: string;
   expanded: boolean;
   onSelect: (sessionId: string, isExpanded: boolean) => void;
-  resumePending: boolean;
-  resumeError?: WebError;
-  resumeDisabled: boolean;
-  onResume: (sessionId: string) => void;
+  /**
+   * 展开时的动作区（续传 / 取消 / 删除 + 各自的错误）。由父组件构造并在未展开时传 `null`——
+   * 三个动作的 pending/error/回调本来要 12 个 prop 从这里纯转发下去，而它们只在展开时可见，
+   * 且同时只有一项展开。放进 slot 之后这个组件对动作零依赖，memo 的比较面也小了一圈。
+   */
+  actions: ReactNode;
 }) {
   // `progress` 是**在途采样**：会话一进终态内核就不再下发，最后收到的那一帧会永远
   // 停在那儿。而下面每一处都让采样优先于 projection，于是终态被一个陈旧值盖住。
@@ -312,24 +405,95 @@ const TransferActivityItem = memo(function TransferActivityItem({
             })}
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-fd-muted-foreground">
-            <span>已用 {formatDuration(elapsedSeconds(projection))}</span>
-            {projection.recoverable && (
-              <button
-                type="button"
-                onClick={() => onResume(projection.sessionId)}
-                disabled={resumeDisabled || resumePending}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
-              >
-                <RotateCcw className="size-3" aria-hidden="true" />
-                {resumePending ? "续传中" : "续传"}
-              </button>
-            )}
-          </div>
-          {projection.errorMessage && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{projection.errorMessage}</p>}
-          {resumeError && <WebErrorCard error={resumeError} className="mt-2 text-xs" />}
+          {actions}
         </div>
       )}
     </li>
   );
 });
+
+/** 单个动作对外的全部状态：pending / error 来自调用方的 async-action hook，`run` 已绑好会话。 */
+type ItemAction = {
+  pending: boolean;
+  error?: WebError;
+  run: () => void;
+};
+
+// 展开项的动作区。抽成组件而不是留在 TransferActivityItem 里，是为了让那个 memo 组件对
+// 「有几个动作、各自什么状态」彻底无感——加一个动作不再是给它加四个 prop。
+//
+// 它只在展开时挂载，所以确认态会随折叠一起消失（此前 confirming 是 item 级 state，折叠
+// 期间会赖着，再展开时用户看到的是上一次没点完的确认条）。
+function TransferItemActions({
+  projection,
+  ready,
+  resume,
+  cancel,
+  remove,
+}: {
+  projection: TransferProjection;
+  /** 节点未就绪时三个动作都点不动——共用一个前置条件，不必各传一份。 */
+  ready: boolean;
+  resume: ItemAction;
+  cancel: ItemAction;
+  remove: ItemAction;
+}) {
+  return (
+    <>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-fd-muted-foreground">
+        <span>已用 {formatDuration(elapsedSeconds(projection))}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 续传是可重试的幂等动作，不设二次确认——只有不可逆的那两个才拦。 */}
+          {projection.recoverable && (
+            <button
+              type="button"
+              onClick={resume.run}
+              disabled={!ready || resume.pending}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
+            >
+              <RotateCcw className="size-3" aria-hidden="true" />
+              {resume.pending ? "续传中" : "续传"}
+            </button>
+          )}
+          {/* 判据用 isActiveSession——导航徽标与分组也用它，另写一份会在新增 phase 时对不上。 */}
+          {isActiveSession(projection) && (
+            <ConfirmAction
+              icon={XCircle}
+              label="取消"
+              pendingLabel="取消中"
+              confirmLabel="确认取消"
+              // 取消是不可逆的终态动作，却与「续传」并排——误点的代价不对称。
+              warning="取消后无法恢复"
+              disabled={!ready}
+              pending={cancel.pending}
+              onConfirm={cancel.run}
+            />
+          )}
+          {/* 只在可删的两种 phase 露出（判据与内核守卫同源）。进行中的会话要先取消——
+              它有活 actor 还在写 checkpoint，删掉记录只会留下孤儿。 */}
+          {isDeletableSession(projection) && (
+            <ConfirmAction
+              icon={Trash2}
+              label="删除"
+              pendingLabel="删除中"
+              confirmLabel="确认删除"
+              // suspended 那条连断点一起没，代价比删一条普通记录大，得分开说。
+              warning={
+                projection.phase === "suspended"
+                  ? "断点信息将一并清除，无法再续传；已接收的文件仍在收件箱"
+                  : "只删这条记录，已接收的文件仍在收件箱"
+              }
+              disabled={!ready}
+              pending={remove.pending}
+              onConfirm={remove.run}
+            />
+          )}
+        </div>
+      </div>
+      {projection.errorMessage && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{projection.errorMessage}</p>}
+      {resume.error && <WebErrorCard error={resume.error} className="mt-2 text-xs" />}
+      {cancel.error && <WebErrorCard error={cancel.error} className="mt-2 text-xs" />}
+      {remove.error && <WebErrorCard error={remove.error} className="mt-2 text-xs" />}
+    </>
+  );
+}

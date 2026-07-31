@@ -8,7 +8,7 @@ import { Platform, Pressable, TextInput, View } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { applyDeviceName } from "@/lib/device-name";
+import { applyDeviceName, DEVICE_NAME_MAX_CHARS } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { errorMessage, truncateMiddle } from "@/lib/utils";
@@ -55,6 +55,8 @@ export function DeviceInfoCard() {
     const trimmed = nameInput.trim();
     if (trimmed && trimmed !== deviceName) {
       try {
+        // 成败只有一种:core 的编排整条成功才算成功。失败一定从 AppResult 抛上来,
+        // 不再有「提示已更新、节点却停了」的中间态。
         await applyDeviceName(trimmed);
         toast.success(t`设备名称已更新`);
       } catch (err) {
@@ -101,6 +103,7 @@ export function DeviceInfoCard() {
               onBlur={handleSaveName}
               onSubmitEditing={handleSaveName}
               autoFocus
+              maxLength={DEVICE_NAME_MAX_CHARS}
               returnKeyType="done"
               style={
                 Platform.OS === "android"

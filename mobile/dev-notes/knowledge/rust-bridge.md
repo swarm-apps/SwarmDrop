@@ -61,6 +61,35 @@ has a checksum mismatch; this may signify previously undetected incompatible Uni
 - 但即使有人又忘了提交，`&& bob build` 也会在 generate 之后重编 `lib/`，把这条失败模式
   从根上掐掉。两道保险都留着。
 
+### 没有 Xcode / NDK 时怎么重生成 bindings
+
+改了 `#[uniffi::export]` 的签名但手边跑不了 `build:ios` / `build:android`（缺 Xcode 或
+NDK）时，不要手改 `src/generated`——它是生成物，手改必然与 `.a` 里的 checksum 对不上。
+用 ubrn 的 generate 子命令，它只需要一个**已编好的 cdylib**：
+
+```bash
+cargo build -p swarmdrop-mobile-core     # 产出 target/debug/libswarmdrop_mobile_core.dylib
+cd mobile/packages/swarmdrop-core/rust/mobile-core   # ⚠️ 必须在 Cargo.toml 所在目录跑
+../../../../node_modules/.bin/ubrn generate jsi bindings \
+  --library ../../../../../target/debug/libswarmdrop_mobile_core.dylib \
+  --ts-dir  ../../src/generated \
+  --cpp-dir ../../cpp/generated
+cd ../.. && ../../node_modules/.bin/bob build          # 刷新 lib/，见上一节
+```
+
+三个易踩点：
+
+- **cwd 必须是 rust crate 目录**。ubrn 会就地跑 `cargo metadata`，在别处跑只会报
+  `manifest path 'Cargo.toml' does not exist`——那条信息不会提示你 cd 去哪。
+- **`bob build` 不能省**。`pnpm typecheck` 与 Metro 看的都是 `lib/`（`lib/typescript/src/generated/*.d.ts`），
+  只重生成 `src/generated` 的话新签名根本不进 app 的类型视图，表现是「明明改了返回值，
+  tsc 还说是 void」。
+- 环境里没有 prettier / clang-format 时它会打印 `Skipping formatting…` 然后照常生成。
+  仓库里现存的产物本来就是未格式化的，所以这不会造成整文件 diff。
+
+`generate jsi bindings` **只**生成 TS + C++ bindings，不碰 turbo-module 胶水与
+`jniLibs/*.a`。真机产物仍需一次完整 `build:ios` / `build:android`。
+
 ### 镜像 core struct 的 `From` impl 必须用穷尽解构（drift guard）
 
 mobile-core 给每个跨 FFI 的 core 类型手写一个 `Mobile*` uniffi 镜像——这是 uniffi 官方推荐的

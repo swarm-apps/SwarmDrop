@@ -12,8 +12,10 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use swarmdrop_core::device::PairedDeviceInfo;
 use swarmdrop_core::error::{AppError as CoreError, AppResult as CoreResult};
-use swarmdrop_core::host::{DeviceIdentityBytes, IdentityMigrationState, KeychainProvider};
-use tauri::{AppHandle, Manager};
+use swarmdrop_core::host::{
+    DeviceIdentityBytes, IdentityMigrationState, KeychainProvider, PairedDeviceStore,
+};
+use tauri::AppHandle;
 use tokio::fs;
 use tracing::warn;
 
@@ -35,11 +37,11 @@ struct DevIdentityFile {
     paired_devices: Vec<PairedDeviceInfo>,
 }
 
-/// 文件后端的 [`KeychainProvider`] 实现（仅 debug build）。
+/// 文件后端的 [`KeychainProvider`] + [`PairedDeviceStore`] 实现（仅 debug build）。
 ///
 /// 与 [`DesktopKeychainProvider`](crate::host::keychain::DesktopKeychainProvider)
-/// 各自单一职责：前者文件、后者系统 keychain，由 [`crate::host::keychain_provider`]
-/// 工厂在编译期二选一。
+/// 各自单一职责：前者文件、后者系统 keychain，由 [`crate::host::keychain_provider`] /
+/// [`crate::host::paired_device_store`] 两个工厂在编译期二选一。
 #[derive(Debug, Clone)]
 pub struct FileKeychainProvider {
     path: PathBuf,
@@ -47,7 +49,7 @@ pub struct FileKeychainProvider {
 
 impl FileKeychainProvider {
     pub fn new(app: &AppHandle) -> CoreResult<Self> {
-        let dir = app.path().app_data_dir().map_err(|e| {
+        let dir = crate::host::paths::app_data_dir(app).map_err(|e| {
             CoreError::Identity(format!("dev identity: app_data_dir unavailable: {e}"))
         })?;
         Ok(Self {
@@ -142,14 +144,19 @@ impl KeychainProvider for FileKeychainProvider {
         file.migration_completed = matches!(state, IdentityMigrationState::Completed);
         self.write(&file).await
     }
+}
 
+/// 已配对设备列表仍写在同一个 dev 身份文件的 `pairedDevices` 字段里 ——
+/// 端口拆分不搬数据。
+#[async_trait]
+impl PairedDeviceStore for FileKeychainProvider {
     async fn load_paired_devices(&self) -> CoreResult<Vec<PairedDeviceInfo>> {
         Ok(self.read().await.paired_devices)
     }
 
-    async fn save_paired_devices(&self, devices: Vec<PairedDeviceInfo>) -> CoreResult<()> {
+    async fn save_paired_devices(&self, devices: &[PairedDeviceInfo]) -> CoreResult<()> {
         let mut file = self.read().await;
-        file.paired_devices = devices;
+        file.paired_devices = devices.to_vec();
         self.write(&file).await
     }
 }

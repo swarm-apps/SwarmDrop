@@ -48,6 +48,7 @@ interface TransferActions {
 
   clearAllHistory(): Promise<void>;
   deleteHistoryItem(sessionId: string): Promise<void>;
+  getSourcePaths(sessionId: string): Promise<string[]>;
   resumeHistoryItem(sessionId: string): Promise<string>;
 
   setError(message: string | null): void;
@@ -208,6 +209,17 @@ export const useTransferStore = create<TransferState & TransferActions>()(
         });
       } catch (err) {
         set({ lastError: errorMessage(err) });
+      }
+    },
+
+    // 「重新发送」重建载荷用的源文件路径。取不到（接收会话 / 没记源路径的旧会话 /
+    // 节点未启动）一律返回空数组，让调用方走「重新挑文件」的回退分支而不是弹错。
+    async getSourcePaths(sessionId) {
+      try {
+        return await getMobileCore().getTransferSourcePaths(sessionId);
+      } catch (err) {
+        set({ lastError: errorMessage(err) });
+        return [];
       }
     },
 

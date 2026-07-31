@@ -112,6 +112,65 @@ pub(crate) async fn open_writable(
         .map_err(|_| AppError::Transfer("createWritable 返回类型错误".into()))
 }
 
+/// 删除 `relative_path` 这一条 OPFS 文件条目。返回**是否真的删掉了一条**。
+///
+/// 「不存在」返回 `Ok(false)` 而非 `Err`：接收侧还没落过任何 chunk 就取消是常态，
+/// 清理不能把取消流程一起拖失败。真失败（写句柄的独占锁还没释放、存储层报错）才回 `Err`，
+/// 由调用方 `warn!`。**调用前必须先 `abort()` 掉该文件的 writable 句柄**——锁在
+/// `close()` / `abort()` 时才释放，只把句柄 drop 掉要等 GC，此刻删会撞
+/// `NoModificationAllowedError`。
+///
+/// 只删末段那条文件，不递归删目录：会话目录留着，下一条会话还要往里写。
+/// 与 [`opfs_root`] / [`export_blob_url`] 同款 5s 超时兜底，保证永不挂死。
+pub(crate) async fn remove_path(relative_path: &str) -> AppResult<bool> {
+    match n0_future::time::timeout(Duration::from_secs(5), remove_path_inner(relative_path)).await {
+        Ok(result) => result,
+        Err(_) => Err(AppError::Transfer(
+            "OPFS 删除 5s 超时——写句柄未释放，或 navigator.storage 未响应".into(),
+        )),
+    }
+}
+
+async fn remove_path_inner(relative_path: &str) -> AppResult<bool> {
+    let mut dir = opfs_root().await?;
+    let parts: Vec<&str> = relative_path.split('/').filter(|s| !s.is_empty()).collect();
+    let (file_name, dirs) = parts
+        .split_last()
+        .ok_or_else(|| AppError::Transfer("空 relative_path".into()))?;
+    // 逐段走到父目录（`create:false`——清理路径不该顺手建出目录来）。
+    for seg in dirs {
+        let opts = FileSystemGetDirectoryOptions::new();
+        opts.set_create(false);
+        let handle = match SendWrapper::new(JsFuture::from(
+            dir.get_directory_handle_with_options(seg, &opts),
+        ))
+        .await
+        {
+            Ok(handle) => handle,
+            // 目录都不在，末段文件自然也不在。
+            Err(e) if is_not_found(&e) => return Ok(false),
+            Err(e) => return Err(js_to_err(e)),
+        };
+        dir = handle
+            .dyn_into::<FileSystemDirectoryHandle>()
+            .map_err(|_| AppError::Transfer("子目录句柄类型错误".into()))?;
+    }
+    match SendWrapper::new(JsFuture::from(dir.remove_entry(file_name))).await {
+        Ok(_) => Ok(true),
+        Err(e) if is_not_found(&e) => Ok(false),
+        Err(e) => Err(js_to_err(e)),
+    }
+}
+
+/// JS 异常是否是 `NotFoundError`（OPFS 表达「这条目不存在」的标准形态）。
+///
+/// 按 `DomException::name` 判而非匹配 message：后者随浏览器与语言变，判据会静默失效。
+fn is_not_found(value: &JsValue) -> bool {
+    value
+        .dyn_ref::<web_sys::DomException>()
+        .is_some_and(|e| e.name() == "NotFoundError")
+}
+
 /// 读回 OPFS 文件建 blob URL（收件箱下载入口；调用方点一次下载生成一个、用完 revoke）。
 ///
 /// **快速失败**：文件不存在（会话未完成/不存在）→ `get_file_handle(create:false)` 立即 reject
@@ -168,6 +227,33 @@ mod tests {
         assert!(
             result.is_err(),
             "未就绪路径应快速失败返回 Err，实际: {result:?}"
+        );
+    }
+
+    /// `remove_path` 的往返：建 → 删 → 读不到；再删一次报 `Ok(false)` 而非 `Err`。
+    ///
+    /// 后半条是取消路径的硬要求：接收侧还没落过任何 chunk 就取消是常态，
+    /// 「文件不存在」若算错误就会把取消流程一起拖失败。
+    #[wasm_bindgen_test]
+    async fn remove_path_deletes_then_tolerates_missing() {
+        let path = "remove-path-test/partial.bin";
+        let writable = open_writable(path, false).await.expect("开写句柄");
+        SendWrapper::new(JsFuture::from(writable.close()))
+            .await
+            .expect("close 提交");
+
+        assert!(
+            export_blob_url(path).await.is_ok(),
+            "刚写完的文件应当读得回来"
+        );
+        assert!(
+            remove_path(path).await.expect("删除不应报错"),
+            "第一次删除应当删掉一条"
+        );
+        assert!(export_blob_url(path).await.is_err(), "删掉之后应当读不到");
+        assert!(
+            !remove_path(path).await.expect("重复删除不应报错"),
+            "不存在的路径应当返回 false 而不是 Err"
         );
     }
 }

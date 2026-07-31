@@ -93,6 +93,70 @@ export type FileProgressInfo = {
 
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 
+/**  收件箱内容类型。 */
+export type InboxContentKind = "files" | "text" | "clipboard" | "bundle";
+
+/**  搜索命中条目下的文件标识（供下钻定位）。 */
+export type InboxHitFile = {
+    name: string,
+    relativePath: string,
+};
+
+/**  收件箱详情 DTO。 */
+export type InboxItemDetail = {
+    files: InboxItemFileEntry[],
+    transfer: TransferProjection | null,
+} & InboxItemSummary;
+
+/**  收件箱文件 DTO。 */
+export type InboxItemFileEntry = {
+    id: number,
+    transferFileId: number | null,
+    relativePath: string,
+    name: string,
+    size: number,
+    checksum: string,
+    localPath: string,
+    missing: boolean,
+};
+
+/**  收件箱列表条目 DTO。 */
+export type InboxItemSummary = {
+    id: string,
+    transferSessionId: string | null,
+    sourcePeerId: string,
+    sourceName: string,
+    sourceKind: InboxSourceKind,
+    contentKind: InboxContentKind,
+    title: string,
+    itemCount: number,
+    totalSize: number,
+    rootPath: string | null,
+    contentHash: string | null,
+    receivedAt: number,
+    lastOpenedAt: number | null,
+    archivedAt: number | null,
+    deletedAt: number | null,
+    missing: boolean,
+};
+
+/**  收件箱搜索命中（item 粒度）。 */
+export type InboxSearchHit = {
+    id: string,
+    title: string,
+    sourceName: string,
+    itemCount: number,
+    rootPath: string | null,
+    receivedAt: number,
+    /**  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。 */
+    snippet: string,
+    /**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
+    files: InboxHitFile[],
+};
+
+/**  收件箱来源类型。 */
+export type InboxSourceKind = "paired_device" | "share_code" | "mcp" | "unknown";
+
 /**
  *  「已发出的邀请」列表条目（openspec: invite-persistence）。
  *
@@ -128,7 +192,8 @@ export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined"
  *  设备操作系统信息。
  *
  *  `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
- *  `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+ *  `name` 是用户在 onboarding / 设置里起的名字（持久化），由 core 的组合根从
+ *  [`DeviceConfig`](crate::ports::DeviceConfig) 端口填充，UI 显示按
  *  `name.as_deref().unwrap_or(&hostname)` 回退。
  */
 export type OsInfo = {
@@ -139,6 +204,31 @@ export type OsInfo = {
     platform: string,
     arch: string,
     capabilities?: string[],
+};
+
+/**
+ *  邀请串解码后的展示投影（配对确认卡用）。
+ *
+ *  **不含 capability**：那是 128bit bearer 凭据，明文绝不出 wasm 边界——确认卡只需要
+ *  「这是谁、还有效多久、是不是仅局域网」，多给一个字段就多一条泄漏路径。
+ *
+ *  **TTL 由调用方按 `expiresAt` 判**，这里不放 `expired: bool`：确认卡会在屏幕上停留几十秒，
+ *  而布尔在序列化那一刻就开始变旧。权威判定本来也在发起端的 `InviteRegistry`，
+ *  解码侧的预检只为 UX（见 `PairInvite::decode` 的文档）。
+ *
+ *  `expiresAt` 用字符串承载 Unix 秒，与 [`InviteListItemJson`] 同一个理由。
+ */
+export type PairInvitePreviewJson = {
+    /**
+     *  发起方 NodeId（base58）。取自签名覆盖范围内的 `inviter_id`，伪造不了——
+     *  自我过滤 / 已配对过滤都该以它为判据。
+     */
+    peerId: string,
+    displayName: string,
+    displayPlatform: string,
+    expiresAt: string,
+    /**  LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。 */
+    localOnly: boolean,
 };
 
 /**  连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。 */
@@ -421,6 +511,42 @@ export class WebNode {
      */
     accept_offer(session_id: string): Promise<void>;
     /**
+     * 归档 / 取消归档收件箱条目。条目不存在时静默成功。
+     */
+    archive_inbox_item(item_id: string, archived: boolean): Promise<void>;
+    /**
+     * 取消一条**接收**会话。
+     *
+     * 与 [`cancel_send`](Self::cancel_send) 同样只是导出：域层通知对端停发、
+     * dispatch `UserCommand::Cancel` 进不可续传终态，并调 `cleanup_part_files()`
+     * 逐个走 `FileAccess::cleanup_sink` 清掉本次会话开出来的半成品——在 Web 上那就是
+     * [`OpfsFileAccess::cleanup_sink`](crate::file_access)，OPFS 里的截断文件会被真删掉。
+     *
+     * **方向不自动判**（要发送就调 `cancel_send`）：取消是有副作用的操作（发帧、删文件、
+     * 写终态），拿它当探针试方向会把「dispatch 失败」误读成「不是这个方向」。
+     */
+    cancel_receive(session_id: string): Promise<void>;
+    /**
+     * 取消一条**发送**会话。
+     *
+     * 只是一条 wasm 边界上的线，取消语义整套在域层（`crates/transfer`）里做完：
+     * 按 wire 发 Cancel 帧通知对端（对方随即清掉自己的半成品）、dispatch
+     * `UserCommand::Cancel` 让协调器把会话写成**不可续传**的终态（`recoverable=false`，
+     * 故刷新后不会再冒出「续传」按钮）、并按 `session_id` 索引只动这一条会话。
+     * **Web 侧不要再补任何本地取消逻辑**，否则就有了第二条状态机路径。
+     *
+     * 覆盖「offer 已发出、对方还没接受」这条边界：此时没有 send actor，域层会回落到
+     * `outbound_offers`（`flow/send.rs`）——丢弃 prepared、照样 dispatch `Cancel`，
+     * 所以「发出去等半天对方不理」也止得住损，调用方无需区分。
+     */
+    cancel_send(session_id: string): Promise<void>;
+    /**
+     * 清空传输历史：删除所有**已结束**的会话记录，进行中与已中断的一条不动。
+     *
+     * 同样只清账本，收件箱里的文件不受影响（见 [`delete_transfer_session`](Self::delete_transfer_session)）。
+     */
+    clear_transfer_history(): Promise<void>;
+    /**
      * 关停节点：NetManager::shutdown 取消内部 token（停 presence / infra / event-loop +
      * transfer cleanup，drop Router 停路由）并关 Endpoint（drop Swarm → 断连）——
      * 与 `WebNode.endpoint` 是同一 handle，无需再显式关一次。
@@ -448,6 +574,42 @@ export class WebNode {
      */
     connect_invite(invite: string): Promise<string>;
     /**
+     * 解码并验签邀请串，返回对端展示信息 —— **不发起配对、不消费**。
+     *
+     * 供受邀方在粘贴 / 点链接进来之后先亮一张确认卡：篡改、伪造、格式不认的邀请在这里
+     * 就被拒掉，用户点「配对」才走 [`connect_invite`](Self::connect_invite)。
+     *
+     * **纯本地**：不拨号、不查 DHT、不碰 IndexedDB，全程零出网 —— 确认卡出现之前不该有
+     * 任何网络行为，这条是它成立的依据。
+     *
+     * **判不出「已撤销」**：撤销状态只在邀请方的注册表里，受邀方手上只有一段自包含的
+     * 签名串，那件事根本没传播过来。要判就得出网，与上一条冲突。所以撤销只能在
+     * `connect_invite` 阶段由邀请方拒绝，调用方把那个失败渲染成人话即可 ——
+     * **不要在本地发明撤销判据**（最容易发明的「查 `list_invites` 看在不在」尤其错：
+     * 那是本机自己发出的邀请，对受邀方永远为空，于是所有邀请都会被判成已撤销）。
+     *
+     * 同步返回：与 [`invite_qr_svg`](Self::invite_qr_svg) 一样是纯计算，`&self` 只是
+     * 可达性的代价（前端拿模块句柄的唯一路径是 `getNode()`）。
+     */
+    decode_invite_preview(invite: string): PairInvitePreviewJson;
+    /**
+     * 软删除收件箱条目：**只删记录**，OPFS 里的文件不动。
+     *
+     * 与桌面同一分工——是否连文件一起删由宿主在调用前决定，端口只管账本
+     * （Web 端目前不提供删文件的入口，OPFS 空间的释放待收件箱 UI 一并设计）。
+     */
+    delete_inbox_item(item_id: string): Promise<void>;
+    /**
+     * 删除一条传输记录。
+     *
+     * **只删记录**：OPFS 里已落盘的文件不动，收件箱照旧能看能下载——文件的生命周期归
+     * 收件箱侧管（三端一致的分工，别在这里发明 Web 特例）。
+     *
+     * 进行中的会话会被域层拒绝（`TransferManager::delete_session` 的守卫），错误经
+     * `WebError` 透出——UI 的按钮可见性只是第一道，绕过它直调导出同样删不掉。
+     */
+    delete_transfer_session(session_id: string): Promise<void>;
+    /**
      * 完成接收后，把 OPFS 里的文件读回成 blob URL 供 `<a download>` 下载。
      */
     download_url(relative_path: string): Promise<string>;
@@ -466,6 +628,25 @@ export class WebNode {
      * 后本机就不认识刚发出去的那条邀请了（注册表 fail-closed，查不到即拒绝）。
      */
     generate_invite(local_only: boolean): Promise<string>;
+    /**
+     * 单条收件箱详情（含文件清单与关联传输投影）；不存在或已软删返回 `null`。
+     */
+    inbox_item(item_id: string): Promise<InboxItemDetail | null>;
+    /**
+     * 按传输会话 id 取收件箱详情（「这次传输收到的东西」的反查）；无关联返回 `null`。
+     */
+    inbox_item_by_session(session_id: string): Promise<InboxItemDetail | null>;
+    /**
+     * 收件箱条目列表，按 `receivedAt` 倒序；`includeArchived=false` 时排除已归档项，
+     * 软删项一律不返回。
+     *
+     * **返回的是完整详情**（含文件清单与关联传输投影），不是 summary。前端此前拿到
+     * summary 后要 `Promise.all(summaries.map(inbox_item))` 逐条补详情——1 + N 次 wasm
+     * 调用，且拉详情与拉列表之间条目可能已被删（于是要 `filter(d => d !== null)` 去兜
+     * 一个自己制造出来的竞态）。而收件箱在浏览器侧是全内存表，列表与详情读的是同一份
+     * 数据，那 N 次调用买不到任何新鲜度。
+     */
+    inbox_items(include_archived: boolean): Promise<InboxItemDetail[]>;
     /**
      * 邀请二维码的 SVG 字符串（深模块 + 透明背景，渲染端自己套白卡）。
      *
@@ -490,6 +671,10 @@ export class WebNode {
      * 这个列表与 [`revoke_invite_by_id`](Self::revoke_invite_by_id) 是那段窗口的控制手段。
      */
     list_invites(): InviteListItemJson[];
+    /**
+     * 标记条目最近打开时间（用户点开详情/下载时调）。条目不存在时静默成功。
+     */
+    mark_inbox_item_opened(item_id: string): Promise<void>;
     /**
      * 本节点身份（base58）。
      */
@@ -549,6 +734,38 @@ export class WebNode {
      */
     relays_until_active(helper_id: string, signal?: AbortSignal | null): Promise<string>;
     /**
+     * 解除与某台已配对设备的配对（`peer_id` 为 base58 NodeId）。
+     *
+     * 走 core 的 `PairingManager::unpair`：**先落盘、再删共享内存表、最后发事件**。
+     * 持久化失败即整体报错且内存表不动——绝不出现「这次点了就没了、刷新一下又回来」。
+     * 删内存表这一步同时撤销 presence 保活与 `is_paired` 判定（一个 tick 内收敛），
+     * 所以本方法之后不需要再补任何本地清理。
+     *
+     * **单方语义**：只解除本机这一侧，对端仍然认得本机；对端再发起传输会被 `NotPaired`
+     * 拒掉，要恢复得重新走一次完整配对。
+     *
+     * 幂等：本来就没配对的 peer 直接返回成功，不发事件。
+     */
+    remove_paired_device(peer_id: string): Promise<void>;
+    /**
+     * 改本机设备名：落盘 → 本机 `OsInfo` → identify 的 `agent_version` → 发
+     * `DeviceRenamed`（编排在 core 的 `device_name::rename_device`，三端同一份）。
+     *
+     * **已连接的对端一个 RTT 内就看到新名字**：新值逐连接下发给每条已建立连接的
+     * identify handler，再向这些对端主动 push；未连接的对端下次连上时直接取到新值。
+     * 节点不重启、连接不断、传输不中断，页面也不必刷新。
+     *
+     * 返回归一化后的名字（`undefined` = 已清空，对外回落到
+     * [`default_device_name`](crate::device_config::default_device_name)）。入参经
+     * `DeviceName::parse` 归一化（trim、剥控制字符与 `;`、截断到 40 个 char），所以返回值
+     * 可能与传进来的不同——UI 要展示的是这个返回值，而不是用户的草稿。
+     *
+     * 与模块级 [`set_device_name`](crate::device_config::set_device_name) 的分工：那个只
+     * 落盘，供节点起不来时的设置页用；节点在跑就走这里。两者的分支在 JS 侧
+     * （`node-runtime.ts`）——节点句柄只活在那边，Rust 够不到。
+     */
+    rename_device(name?: string | null): Promise<string | undefined>;
+    /**
      * 响应一个入站配对请求（`accept=true` 接受并写配对记录、CAS 消费 invite / `false` 拒绝）。
      */
     respond_pairing_request(pending_id: string, accept: boolean): Promise<void>;
@@ -572,6 +789,11 @@ export class WebNode {
      */
     revoke_invite_by_id(id: string): Promise<boolean>;
     /**
+     * 收件箱子串检索：大小写不敏感，覆盖标题 / 来源设备名 / 文件名与相对路径。
+     * 空查询返回空列表；结果按 `receivedAt` 倒序并截断到 `limit`。
+     */
+    search_inbox(query: string, limit: number, include_archived: boolean): Promise<InboxSearchHit[]>;
+    /**
      * 向 `to`（base58 NodeId）发送用户选择的文件：登记文件源 → prepare（checksum + bao
      * outboard）→ 发 Offer。返回 session_id。
      */
@@ -583,17 +805,39 @@ export class WebNode {
      */
     static spawn(): Promise<WebNode>;
     /**
-     * 已持久化的传输会话投影（无序——收件箱与活动视图排法不同，排序留给调用方）。
+     * 已持久化的传输会话投影，**按 `startedAt` 倒序**（端口契约，三端一致）。
      *
      * 页面刷新后事件流从零开始，前端据此回补收件箱与传输活动视图（收件箱 = 其中
      * `direction=receive` 且 `terminalReason=completed` 的条目，文件仍在 OPFS，可继续
-     * [`download_url`](Self::download_url)）。
+     * [`download_url`](Self::download_url)）。各面板再按自己的维度（结束时间 / 更新时间）
+     * 重排是预期行为——端口保证的是确定性，不是最终展示序。
      *
      * **不含**非终态的发送会话与待决 offer：浏览器刷新后无法在不重新选择文件的前提下
      * 读回 `File`，待决 offer 也已无处应答，故它们本就不落库（见 `store.rs` 模块注释）。
      */
-    transfer_history(): TransferProjection[];
+    transfer_history(): Promise<TransferProjection[]>;
 }
+
+/**
+ * 未设设备名时对外展示的默认值（UA 派生的浏览器名，如 `"Chrome"`）。
+ *
+ * 导出它而不是让前端再解析一次 UA：两份判定表迟早漂成「设置页 placeholder 写 Safari、
+ * 对端看到 Browser」，既难发现又完全没有价值。这里返回的就是 `OsInfo::display_name()`
+ * 在 `name` 缺省时回退到的那个 `hostname`。
+ */
+export function default_device_name(): string;
+
+/**
+ * 当前持久化的设备名；未设过（或读失败 / 内容非法）返回 `undefined`。
+ */
+export function get_device_name(): Promise<string | undefined>;
+
+/**
+ * 设置设备名；`null` / 空串 / 归一化后为空一律视为清空，回落到
+ * [`default_device_name`]。入参经 `DeviceName::parse` 归一化（trim、剥控制字符与 `;`、
+ * 截断到 40 个 char），UI 侧的 `maxLength` 只是提前拦一道。
+ */
+export function set_device_name(name?: string | null): Promise<void>;
 
 /**
  * wasm 模块加载即初始化 panic hook + tracing（浏览器 console）。
@@ -604,16 +848,31 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
+    readonly default_device_name: () => [number, number];
+    readonly get_device_name: () => any;
+    readonly set_device_name: (a: number, b: number) => any;
     readonly webnode_accept_offer: (a: number, b: number, c: number) => any;
+    readonly webnode_archive_inbox_item: (a: number, b: number, c: number, d: number) => any;
+    readonly webnode_cancel_receive: (a: number, b: number, c: number) => any;
+    readonly webnode_cancel_send: (a: number, b: number, c: number) => any;
+    readonly webnode_clear_transfer_history: (a: number) => any;
     readonly webnode_close: (a: number) => any;
     readonly webnode_connect: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_connect_invite: (a: number, b: number, c: number) => any;
+    readonly webnode_decode_invite_preview: (a: number, b: number, c: number) => [number, number, number];
+    readonly webnode_delete_inbox_item: (a: number, b: number, c: number) => any;
+    readonly webnode_delete_transfer_session: (a: number, b: number, c: number) => any;
     readonly webnode_download_url: (a: number, b: number, c: number) => any;
     readonly webnode_events: (a: number) => [number, number, number];
     readonly webnode_generate_invite: (a: number, b: number) => any;
+    readonly webnode_inbox_item: (a: number, b: number, c: number) => any;
+    readonly webnode_inbox_item_by_session: (a: number, b: number, c: number) => any;
+    readonly webnode_inbox_items: (a: number, b: number) => any;
     readonly webnode_invite_qr_svg: (a: number, b: number, c: number) => [number, number, number, number];
     readonly webnode_list_invites: (a: number) => [number, number, number];
+    readonly webnode_mark_inbox_item_opened: (a: number, b: number, c: number) => any;
     readonly webnode_node_id: (a: number) => [number, number];
     readonly webnode_paired_devices: (a: number) => [number, number, number];
     readonly webnode_pending_offers: (a: number) => [number, number, number];
@@ -624,14 +883,16 @@ export interface InitOutput {
     readonly webnode_relays_ensure: (a: number, b: number, c: number) => [number, number, number, number];
     readonly webnode_relays_state: (a: number) => [number, number, number];
     readonly webnode_relays_until_active: (a: number, b: number, c: number, d: number) => any;
+    readonly webnode_remove_paired_device: (a: number, b: number, c: number) => any;
+    readonly webnode_rename_device: (a: number, b: number, c: number) => any;
     readonly webnode_respond_pairing_request: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_resume: (a: number, b: number, c: number) => any;
     readonly webnode_revoke_invite: (a: number, b: number, c: number) => any;
     readonly webnode_revoke_invite_by_id: (a: number, b: number, c: number) => any;
+    readonly webnode_search_inbox: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
-    readonly webnode_transfer_history: (a: number) => [number, number, number];
-    readonly start: () => void;
+    readonly webnode_transfer_history: (a: number) => any;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;

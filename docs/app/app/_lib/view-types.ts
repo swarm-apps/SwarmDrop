@@ -15,10 +15,15 @@ export type {
   TransferProgressEvent,
   PrepareProgressEvent,
   PendingPairingJson,
+  PairInvitePreviewJson,
   ConnectionJson,
   OfferRejectReason,
   PathKindJson,
   Device,
+  InboxItemDetail,
+  InboxItemFileEntry,
+  InboxSearchHit,
+  InboxHitFile,
 } from "swarmdrop-web";
 
 import type { OfferRejectReason, WebError } from "swarmdrop-web";

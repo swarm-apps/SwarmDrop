@@ -12,6 +12,7 @@ import {
   INVITE_TTL_HOURS,
   INVITE_URL_PREFIX,
   formatRemaining,
+  remainingSeconds,
   extractInviteLink,
 } from "../_lib/invite";
 import { NAV } from "../_lib/nav";
@@ -19,7 +20,12 @@ import { getNode } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import { useWebNode, webNodeActions } from "../_lib/store";
-import { type WebNode } from "../_lib/view-types";
+import {
+  toWebError,
+  type PairInvitePreviewJson,
+  type WebError,
+  type WebNode,
+} from "../_lib/view-types";
 import { useNowSeconds } from "../_lib/use-now-seconds";
 import type { InviteListItemJson } from "swarmdrop-web";
 
@@ -47,12 +53,88 @@ export function PairingPanel() {
   /** 这条是剪贴板感知填进来的（#105）——要说一句，否则输入框会莫名其妙自己有了内容。 */
   const [pastedFromClipboard, setPastedFromClipboard] = useState(false);
 
+  /**
+   * 邀请预览（#98）：确认卡数据 / 解码失败 / 本地拦下的成因，三者互斥，任一时刻至多一个非空。
+   *
+   * **刻意不进 store**：`_lib/create-store.ts` 是自研 store，「selector 里派生新对象 →
+   * 无限重渲染」的陷阱与 zustand 同款，而 `pnpm check:zustand-access` 只扫仓库根 `src/`、
+   * 不覆盖 docs/。预览态只有本面板一个消费者，没理由去冒那个没有机器兜底的风险。
+   */
+  const [preview, setPreview] = useState<PairInvitePreviewJson | null>(null);
+  const [previewError, setPreviewError] = useState<WebError | null>(null);
+  /** 解码成功但本地就该拦下的（自己发的邀请 / 已配过的设备）：说一句话，不亮确认卡。 */
+  const [previewNotice, setPreviewNotice] = useState<string | null>(null);
+  /** 三格永远一起变——收口成一个函数，免得某条路径漏清其中一格留下前一次的残影。 */
+  const resetPreview = () => {
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewNotice(null);
+  };
+  /** 已过期的邀请不给「配对」按钮：点了也只是白跑一趟发起端的 TTL 校验。 */
+  const previewExpired = preview !== null && remainingSeconds(preview.expiresAt, now) <= 0;
+
+  /**
+   * 把一条邀请串放进消费框的**唯一入口**。手打 / 剪贴板感知 / `/p/` 落地页 handoff
+   * 三条来路全部收口在这里，于是「解码 → 确认卡 → 用户点确认」这道闸没有旁路——
+   * #98 的硬约束原文：不要因为「用户点了链接」就当作已确认。
+   *
+   * 解码是**纯本地同步计算**（不拨号、不查 DHT、不碰 IndexedDB），所以敢挂在每一次输入
+   * 变化上；「确认卡出现之前零出网」也正是靠这一点成立。
+   */
+  const setInviteAndPreview = (link: string) => {
+    setInviteInput(link);
+    setConsumeSuccess(null);
+    resetPreview();
+    const node = getNode();
+    const trimmed = link.trim();
+    // 节点还没起来时先只把串收进框里，解码交给下面那个补偿 effect。
+    if (!node || !trimmed) return;
+
+    let decoded: PairInvitePreviewJson;
+    try {
+      decoded = node.decode_invite_preview(trimmed);
+    } catch (e) {
+      // 「前缀不认 / 编码损坏 / 验签不过」的分情况文案由 wasm 侧按 `InviteParseError` 给出，
+      // 这里不再拍成一句「邀请无效」。**注意它是 invalidInput 而非 network**——
+      // 确认卡这一步压根没出网。
+      setPreviewError(toWebError(e));
+      return;
+    }
+
+    // 两条本地过滤都发生在**解码之后、出网之前**：`node_id()` 与 `paired_devices()`
+    // 都是同步的本地读，不破坏「确认卡出现前零出网」。
+    if (decoded.peerId === node.node_id()) {
+      // 判据是签名覆盖范围内的 `inviter_id`，伪造不了。比对「当前生成的那一串」则漏得掉
+      // 历史生成的、隔壁标签页生成的、以及刷新之后的（那时本地根本没有那串可比）。
+      setPreviewNotice("这是本机生成的邀请——把它发给对方，不是自己用。");
+      return;
+    }
+    if (node.paired_devices().some((d) => d.peerId === decoded.peerId)) {
+      setPreviewNotice(
+        `已经和「${decoded.displayName || "对方设备"}」配过对了，去「发送」页直接选它就行。`,
+      );
+      return;
+    }
+    setPreview(decoded);
+  };
+
+  /**
+   * 清空消费框与预览态。**不调任何后端**：邀请只在 `connect_invite` 走通 capability 握手
+   * 时才被邀请方 CAS 消费，用户在确认卡上取消时它一个字节都没出网，那串仍然可以再用。
+   */
+  const clearInvite = () => {
+    setInviteInput("");
+    resetPreview();
+    setPastedFromClipboard(false);
+  };
+
   // 从配对落地页（/p/）过来时把邀请接过来预填。
   //
   // 主路径是 sessionStorage（落地页存完整 canonical 链接，capability 不进本页地址栏）；
   // 隐私模式下 storage 不可用，落地页会退回把 payload 挂在 fragment 上，故两处都读。
   // **读完立刻清掉**：capability 是一次性信任凭证，不该留在 storage 或地址栏里被刷新、
-  // 分享、截图二次带走。不自动发起配对——由用户按下「配对」，与桌面端的安全闸一致。
+  // 分享、截图二次带走。接过来的串走 `setInviteAndPreview` 这道闸，与手打、剪贴板同一条路：
+  // 先解码成确认卡，由用户看清对方是谁再按「配对」——「用户点了链接」不等于已确认（#98）。
   useEffect(() => {
     const KEY = "swarmdrop:pending-invite";
     let handoff: string | null = null;
@@ -78,19 +160,29 @@ export function PairingPanel() {
       // 表现为按浏览器后退键地址栏变了、页面不动。
       history.replaceState(history.state, "", location.pathname + location.search);
     }
-    setInviteInput(handoff);
+    setInviteAndPreview(handoff);
   }, []);
+
+  // 解码要 `getNode()`，而本面板挂载远早于 wasm spawn 完成——落地页 handoff 恰好落在这个
+  // 窗口里。就绪后补解码一次，否则那条邀请会停在「框里有串、却没有确认卡」，而「配对」按钮
+  // 只长在确认卡上：从落地页点进来的人正好走进一条死路。
+  //
+  // 条件里的「三格都空」是幂等闸：正常路径下 `setInviteAndPreview` 已经给出结论，这里不重跑。
+  useEffect(() => {
+    if (!ready || !inviteInput.trim() || preview || previewError || previewNotice) return;
+    setInviteAndPreview(inviteInput);
+  }, [ready, inviteInput]);
 
   const doConsumeInvite = () => {
     const node = getNode();
-    if (!node || !inviteInput.trim()) return;
+    // 只有确认卡在场（解码验签过、不是自己的、也没配过）才允许出网。
+    if (!node || preview === null) return;
     setConsumeSuccess(null);
     consumeAction.run(
       () => node.connect_invite(inviteInput.trim()),
       (peerId) => {
         setConsumeSuccess(peerId);
-        setInviteInput("");
-        setPastedFromClipboard(false);
+        clearInvite();
         refreshPairedDevices(node);
       },
     );
@@ -184,27 +276,25 @@ export function PairingPanel() {
 
   // —— 剪贴板邀请感知（#105）——
   //
-  // 它服务的是上面那个「消费邀请」输入框，写在这里只因为要读 `generatedInvite` 做自我过滤。
+  // 它服务的是上面那个「消费邀请」输入框。
   //
   // **监听 paste 而不是主动读剪贴板**：`navigator.clipboard.readText()` 会弹权限提示，
   // 页面一加载就读等于一进来就弹一个没有上下文的权限框。paste 事件是用户手势的直接产物，
   // 零权限、零新 UI（隐式优先，PRODUCT.md 原则 1）。非安全上下文下它照样能用，
   // 这也顺带绕开了 `navigator.clipboard` 在那种环境下压根是 undefined 的坑。
   //
-  // 与桌面端 `ClipboardInviteBanner` 的两处差距，都是缺 decode 能力所致（#98 会补上）：
-  //   1. 自我过滤只能比对**当前**这条生成的串。历史生成的、或隔壁标签页生成的漏得掉；
-  //      桌面端的判据是解码后 `preview.peerId === selfPeerId`，结构性的。
-  //   2. 没有「已配对过滤」——配完之后剪贴板里那条邀请还在，这里仍会填进输入框。
-  //      不算错（点了会被后端拒），但桌面端是不打扰的。
-  // 也因此这里只**预填**、不弹横幅、不自动发起：在能看清对方是谁之前，越安静越好。
+  // 自我过滤与已配对过滤都不在这里做——它们要先解码，统一在 `setInviteAndPreview` 里判，
+  // 于是三条来路一视同仁，不会有哪条漏掉。这里仍然只**预填**、不弹横幅、不自动发起：
+  // 在能看清对方是谁之前，越安静越好。
+  //
+  // 依赖为空即可：`setInviteAndPreview` 只用稳定的 setter 与 `getNode()` 现读，
+  // 捕获到哪一次渲染的实例都等价。
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       // 从整段文本里**提取**链接，而不是要求整段就是链接：IM 里复制常常连着说明文字
       // （「配对链接：https://…」），后端解码本来也是在任意文本里定位前缀的。
       const link = extractInviteLink(e.clipboardData?.getData("text") ?? "");
       if (link === null) return;
-      // 自己刚生成、正准备发给别人的那条，不该被当成「有人邀请你」。
-      if (link === generatedInvite) return;
       // 用户正往一个能接收输入的控件里粘贴时不插手，原生粘贴会做同样的事。
       // **`readonly` 不算**——码面右侧那个只读的「邀请链接」框接不住原生粘贴，
       // 在它上面早退等于让粘贴键看起来是坏的。
@@ -214,12 +304,12 @@ export function PairingPanel() {
       ) {
         return;
       }
-      setInviteInput(link);
+      setInviteAndPreview(link);
       setPastedFromClipboard(true);
     };
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
-  }, [generatedInvite]);
+  }, []);
 
   const revokeAction = useKeyedAsyncAction();
   const [revokeUnsaved, setRevokeUnsaved] = useState(false);
@@ -264,33 +354,86 @@ export function PairingPanel() {
         <p className="text-xs font-medium text-fd-muted-foreground">
           消费邀请（连接桌面 / 移动生成的邀请）
         </p>
-        <div className="mt-2 flex gap-2">
-          <input
-            className="flex-1 rounded-lg border border-fd-border bg-fd-background px-3 py-2 font-mono text-xs text-fd-foreground placeholder:text-fd-muted-foreground"
-            placeholder={`${INVITE_URL_PREFIX}...`}
-            value={inviteInput}
-            onChange={(e) => {
-              setInviteInput(e.target.value);
-              setPastedFromClipboard(false);
-            }}
-            disabled={!ready}
-          />
-          <button
-            type="button"
-            onClick={doConsumeInvite}
-            disabled={!ready || !inviteInput.trim() || consumeAction.pending}
-            className="shrink-0 rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
-          >
-            {consumeAction.pending ? "配对中…" : "配对"}
-          </button>
-        </div>
+        {/* 没有「配对」按钮：串一进框就地解码，动作长在下面那张确认卡上（#98）。 */}
+        <input
+          className="mt-2 w-full rounded-lg border border-fd-border bg-fd-background px-3 py-2 font-mono text-xs text-fd-foreground placeholder:text-fd-muted-foreground"
+          placeholder={`${INVITE_URL_PREFIX}...`}
+          value={inviteInput}
+          onChange={(e) => {
+            setInviteAndPreview(e.target.value);
+            setPastedFromClipboard(false);
+          }}
+          disabled={!ready}
+        />
         {/* 输入框自己有了内容总得有个交代，否则像是页面在替用户做主。 */}
         {pastedFromClipboard && !consumeAction.error && (
           <p className="mt-2 text-xs text-fd-muted-foreground" aria-live="polite">
-            已从剪贴板识别到一条邀请。确认无误后点「配对」。
+            已从剪贴板识别到一条邀请。
           </p>
         )}
-        {consumeAction.error && <WebErrorCard error={consumeAction.error} className="mt-2 text-xs" />}
+        {previewNotice && (
+          <p className="mt-2 text-xs text-fd-muted-foreground" aria-live="polite">
+            {previewNotice}
+          </p>
+        )}
+        {previewError && <WebErrorCard error={previewError} className="mt-2 text-xs" />}
+        {/* 确认卡：出网之前先把「对方是谁、还有效多久、是不是仅局域网」摆出来。 */}
+        {preview && (
+          <div className="mt-2 rounded-lg border border-fd-border bg-fd-background px-3 py-2.5">
+            <p className="text-xs text-fd-foreground">
+              <span className="font-medium">{preview.displayName || "对方设备"}</span>
+              <span className="ml-2 text-fd-muted-foreground">{preview.displayPlatform}</span>
+            </p>
+            {/* 只露末 8 位：够用来跟对方核一句，不必铺满一行 */}
+            <p className="mt-0.5 font-mono text-xs text-fd-muted-foreground">
+              {preview.peerId.slice(-8)}
+            </p>
+            <p className="mt-1 text-xs text-fd-muted-foreground">
+              {formatRemaining(preview.expiresAt, now)}
+              {preview.localOnly && " · 仅局域网可见（LocalOnly）"}
+            </p>
+            {previewExpired ? (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                这条邀请已过期，让对方重新生成一条。
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-fd-muted-foreground">
+                配对后双方可以互相发送文件。确认是这台设备再继续。
+              </p>
+            )}
+            <div className="mt-2 flex gap-2">
+              {!previewExpired && (
+                <button
+                  type="button"
+                  onClick={doConsumeInvite}
+                  disabled={!ready || consumeAction.pending}
+                  className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
+                >
+                  {consumeAction.pending ? "配对中…" : "确认配对"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={clearInvite}
+                disabled={consumeAction.pending}
+                className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+        {consumeAction.error && (
+          <>
+            <WebErrorCard error={consumeAction.error} className="mt-2 text-xs" />
+            {/* 「已撤销」在受邀方本地判不出来——撤销状态只在邀请方的注册表里，那条邀请一个
+                字节都没传播过来（要判就得出网，与「确认卡前零出网」冲突）。所以它只能在这一步
+                现形：邀请方拒绝之后，把可能的成因说成人话，而不是让人对着一句「配对未成功」猜。 */}
+            <p className="mt-1 text-xs text-fd-muted-foreground">
+              邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。
+            </p>
+          </>
+        )}
         {consumeSuccess && (
           <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
             已配对：<span className="font-mono">{consumeSuccess}</span>

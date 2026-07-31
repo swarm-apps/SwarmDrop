@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/net-kernel.md`](dev-notes/knowledge/net-kernel.md) — 网络内核 swarmdrop-net（2026-07 重构产物）：架构速览与事件双轨制、libp2p git pin 校准坑、wasm 工程约定、wire v2 契约点、已知负债。**碰 crates/net、crates/net-base、协议注册、relay、DHT、升级 libp2p rev 时必读**
 - [`dev-notes/knowledge/libp2p-wasm.md`](dev-notes/knowledge/libp2p-wasm.md) — Web 端（wasm）可行性调研（2026-07）。**结论已落地**：`crates/web` + `docs/app/app` 是其产物
 - [`dev-notes/knowledge/web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md) — Web 应用区**表现层**（`docs/app/app`）：运行时单例只挂 layout、静态导出三限制（无 redirect / 无动态段 / useSearchParams 要 Suspense）、basePath 与 next/link、自研 store 的 selector 约束。**碰 Web 端 React 代码时必读**
-- [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`，Web 端是 IndexedDB 写穿的 `SessionStore`（`crates/web/src/store.rs`）
+- [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`，Web 端是 IndexedDB 写穿的 `WebTransferStore`（`crates/web/src/store.rs` + `inbox.rs`）。另含端口体例：`SessionStore` / `InboxStore` 均已补全、收件箱领域规则住 `crates/transfer/src/inbox.rs` 由各存储实现调用、组装点建一次端口 `Arc` 注入与自持同一份
 - [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估（2026-07 调研）。**已决策：不迁移**，但 iroh 的 API 形态被 `crates/net` 借鉴。碰 P2P 选型或有人提「迁 iroh」时先读
 
 ## Design Context
@@ -135,9 +135,9 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | `crates/net-base` | 网络类型底座。`NodeId` / `Addr` / `NodeAddr` / `ProtocolId` / `NatStatus` —— libp2p 类型在此收口成 newtype，**不向上穿透** |
 | `crates/net` | 网络内核 `swarmdrop-net`。iroh 风格 `Endpoint` 门面 + 后台 actor，隐藏事件循环、连接管理、协议路由、地址选择 |
 | `crates/webrtc-p2p` | libp2p WebRTC 传输，**两种模式**：打洞（`/webrtc`，spec `/webrtc-signaling/0.0.1`，三端默认开启——打洞要两端都支持，只开一边等于没开）+ direct（`/webrtc-direct`，**已完全取代官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys`**，native 监听 + 拨号、浏览器拨号均已实测跑通）。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
-| `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖 |
+| `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖。现有 6 个端口：`KeychainProvider` / `PairedDeviceStore` / `DeviceConfig` / `FileAccess` / `Notifier` / `UpdateInstaller`（`AppPaths` 已删，零实现零消费）。设备名归一化的唯一入口 `DeviceName::parse` 也在这里 |
 | `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码。**wasm-clean，不依赖 core** |
-| `crates/transfer` | 文件传输域。经端口 trait 依赖倒置，**不依赖 sea-orm / pairing / network** |
+| `crates/transfer` | 文件传输域 + 收件箱领域模型（`inbox.rs` 的 DTO 与共享规则，各存储实现调它）。经端口 trait 依赖倒置，**不依赖 sea-orm / pairing / network** |
 | `crates/core` | 平台无关业务核心：identity / network / pairing / presence / device_manager / protocol / infra |
 | `crates/storage-sql` | `SessionStore` / `InboxStore` 端口的 SeaORM+SQLite 实现，**native-only** |
 | `crates/entity` | SeaORM entity。sea-orm 已 feature 解绑（Web 端可只吃类型宏） |
@@ -250,7 +250,7 @@ src-tauri/src/
 ├── host/               # Desktop adapter：keychain(keyring) / file_keychain / notifier / paths
 │                       #   / update_installer / event_bus / file_source / file_sink / device_config
 ├── network.rs          # NetManager 类型别名 + Tauri 事件转发
-├── database.rs         # SeaORM 连接初始化 + 启动清理
+├── database.rs         # SeaORM 连接初始化 + `TransferStoreState` 类型别名 + 启动清理
 ├── mcp/                # 桌面 MCP server（rmcp + axum）：server / tools / resources
 ├── external_open.rs    # macOS Open With / Windows·Linux argv → share-target
 ├── tray.rs             # 托盘
@@ -301,8 +301,16 @@ TTL 300s + 一次性消费）；链接走 Base64URL，二维码走同一 wire �
 
 `crates/web` 编成 wasm 后由文档站承载，入口 `docs/app/app`。走完整 `NetManager` + 3 协议，
 配对经 `pair_with_invite` 真 capability 握手；持久化是「内存读缓存 + IndexedDB 写穿」的
-`SessionStore` + OPFS 落盘（不吃 storage-sql），收件箱、传输历史与接收侧续传上下文跨刷新存活。
+`WebTransferStore` = `SessionStore`（会话表）+ **`InboxStore`（独立的 `inbox` 表）**，
+外加 OPFS 落盘（不吃 storage-sql），收件箱、传输历史与接收侧续传上下文跨刷新存活。
 浏览器侧传输依赖 WebRTC-Direct + relay circuit（+ WebRTC 打洞，见下）。
+
+**收件箱是真表，不是「已完成接收会话」的投影。** 会话表有 `HISTORY_CAP = 100` 淘汰，
+收件箱条目**不参与**——「清空传输历史不动收件箱」这条三端不变量在浏览器上才成立。
+加 object store 要同改三处（store 常量 / `DB_VERSION` / `onupgradeneeded` 清单），
+漏后两处只在运行时报错，见
+[`web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md)。
+schema 变更**直接换，不写迁移 / 回填 / 双写**（Web 端还没有真实用户）。
 
 **只有接收方向能续传**：浏览器无法在用户不重新选择的前提下再读同一个 `File`，
 因此非终态发送会话与待决 offer 一律不落库。
@@ -389,7 +397,10 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   1. **libp2p**（`libp2p` / `libp2p-stream` / `libp2p-core` / `libp2p-swarm` /
      `libp2p-webrtc-utils` 同 pin `github.com/yexiyue/rust-libp2p` 一个 rev）——**仍是个人
      fork**。待合并的上游 PR：Web 端要的 #6558 / #6560。（#6570 relay 崩溃已自行关闭——
-     上游 #6472 先修了同一问题。）退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 →
+     上游 #6472 先修了同一问题。）**另有一条自有补丁尚未提上游**：identify 的运行时
+     `agent_version` setter（分支 `feat/identify-runtime-agent-version`）——没有它，改设备名
+     必须重启整个节点。它独立于上面两个 PR，**不影响**「切官方 git」的判定，但**阻塞「删掉
+     fork pin」**。退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 →
      切版本号依赖。详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork
      集成策略」。
   2. **rtc**（`[patch.crates-io]`）——**已不再是 fork**：五个 webrtc-rs 补丁于 2026-07-29
@@ -430,7 +441,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | 宿主端口层 | `crates/host/` |
 | 配对邀请（PairInvite） | `crates/invite/` |
 | SQL 存储实现（native-only） | `crates/storage-sql/` |
-| Web 壳（wasm） | `crates/web/`（`store.rs` 是 IndexedDB 写穿的 `SessionStore`，`idb.rs` 是其底层），入口 `docs/app/app` |
+| Web 壳（wasm） | `crates/web/`（`store.rs` 是 IndexedDB 写穿的 `WebTransferStore`，`inbox.rs` 是它的收件箱表，`idb.rs` 是两者的底层），入口 `docs/app/app` |
 | Zustand stores | `src/stores/` |
 | Web 应用前端 | `docs/app/app/`（Next 应用区，非 fumadocs 文档；wasm 产物入库在 `docs/packages/swarmdrop-web/`） |
 | Web 应用区导航定义 | `docs/app/app/_lib/nav.ts`（路由/标题/图标/徽标单一事实源）+ `_components/app-nav.tsx` |

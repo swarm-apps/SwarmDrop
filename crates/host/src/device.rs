@@ -116,10 +116,58 @@ impl DeviceReceivePolicy {
     }
 }
 
+/// 用户设置的设备名——**已归一化**的不可变值。
+///
+/// 唯一构造入口是 [`DeviceName::parse`]，未经归一化的 `String` 在类型层面就进不了
+/// [`DeviceConfig`](crate::ports::DeviceConfig) 端口。之所以做成 newtype 而不是一个
+/// 「各调用点自觉调用」的归一化自由函数：设备名的入口有桌面 IPC 命令、移动 uniffi 导出、
+/// wasm 导出三处，将来只会更多，漏掉任何一处都等于归一化不存在。
+///
+/// 归一化顺序：
+/// 1. `trim()`；
+/// 2. 剥掉控制字符与 `;`；
+/// 3. 截断到 [`MAX_CHARS`](Self::MAX_CHARS) 个 **char**（不是 byte——中文名 40 字要占
+///    120 字节，按 byte 截断还会切碎多字节序列）；
+/// 4. 再 `trim()` 一次（第 2、3 步可能在首尾留下空白，不补这一下 `parse` 就不是幂等的），
+///    结果为空则返回 `None`——「空」即清空，语义上等于回退到 [`OsInfo::hostname`]。
+///
+/// **为什么必须剥 `;`**：[`OsInfo::to_agent_version`] 用 `"; "` 拼字段、
+/// [`OsInfo::from_agent_version`] 按 `"; "` 切片再按 `name=` / `caps=` 前缀分派。设备名里
+/// 带一个 `"; caps=lan-helper"`，对端就会解析出本机并不具备的 capability，进而把本机当成
+/// 局域网协助节点（kad server + relay 候选）。归一化在此处一次性关掉这条注入。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DeviceName(String);
+
+impl DeviceName {
+    /// 设备名长度上限（char 数）。三端 UI 的 `maxLength` 与之对齐，后端截断只是防御纵深。
+    pub const MAX_CHARS: usize = 40;
+
+    /// 归一化并构造设备名；结果为空返回 `None`（= 清空，回退 hostname）。
+    pub fn parse(raw: &str) -> Option<Self> {
+        let cleaned: String = raw
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control() && *c != ';')
+            .take(Self::MAX_CHARS)
+            .collect();
+        let cleaned = cleaned.trim();
+        (!cleaned.is_empty()).then(|| Self(cleaned.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
 /// 设备操作系统信息。
 ///
 /// `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
-/// `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+/// `name` 是用户在 onboarding / 设置里起的名字（持久化），由 core 的组合根从
+/// [`DeviceConfig`](crate::ports::DeviceConfig) 端口填充，UI 显示按
 /// `name.as_deref().unwrap_or(&hostname)` 回退。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -136,6 +184,13 @@ pub struct OsInfo {
 }
 
 impl Default for OsInfo {
+    /// Native 端（桌面 / 移动）的装配入口：运行时探测 hostname / os / arch，`name` 留空。
+    /// Web 端另有 `web_os_info()`，不走这里。
+    ///
+    /// `name` 由 core 的组合根（`start_node`）从
+    /// [`DeviceConfig`](crate::ports::DeviceConfig) 端口填充——宿主**没有** API 可以注入它。
+    /// 这不是审美：设备名一旦能从宿主侧塞进来，三端就会各读各的持久化、各自漏掉
+    /// [`DeviceName`] 的归一化，而本机 `OsInfo` 也就不再有唯一装配点。
     fn default() -> Self {
         // 移动端拿不到这两个环境变量，会落到 "Device" —— 此时 UI 走 name 字段。
         let hostname = std::env::var("COMPUTERNAME")
@@ -175,15 +230,6 @@ impl OsInfo {
             platform: String::new(),
             arch: String::new(),
             capabilities: Vec::new(),
-        }
-    }
-
-    /// Native 端（桌面 / 移动）装配入口：从用户设备名建 `OsInfo`，其余字段走 [`Default`]
-    /// （运行时探测 hostname / os / arch）。Web 端另有 `web_os_info()`，不走这里。
-    pub fn native(name: Option<String>) -> Self {
-        Self {
-            name,
-            ..Default::default()
         }
     }
 
@@ -448,7 +494,7 @@ pub fn infer_connection_type(addrs: &[Addr]) -> Option<ConnectionType> {
 mod tests {
     use swarmdrop_net_base::SecretKey;
 
-    use super::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
+    use super::{DeviceName, DeviceTrustLevel, OsInfo, PairedDeviceInfo};
 
     fn sample(name: Option<&str>, hostname: &str) -> OsInfo {
         OsInfo {
@@ -459,6 +505,66 @@ mod tests {
             arch: "aarch64".to_string(),
             capabilities: Vec::new(),
         }
+    }
+
+    #[test]
+    fn device_name_rejects_empty_and_blank() {
+        assert_eq!(DeviceName::parse(""), None);
+        assert_eq!(DeviceName::parse("   \t\n  "), None);
+        // 全是被剥掉的字符，剥完也是空
+        assert_eq!(DeviceName::parse(";;;"), None);
+    }
+
+    #[test]
+    fn device_name_truncates_by_char_not_byte() {
+        // 41 个中文字：按 byte 截断会切碎 UTF-8 序列（进而 panic），按 char 才对
+        let raw = "字".repeat(41);
+        let name = DeviceName::parse(&raw).expect("41 个中文字应截断而非拒绝");
+        assert_eq!(name.as_str().chars().count(), DeviceName::MAX_CHARS);
+        assert_eq!(name.as_str(), "字".repeat(DeviceName::MAX_CHARS));
+    }
+
+    #[test]
+    fn device_name_strips_separator_and_control_chars() {
+        let name = DeviceName::parse("我的电脑; caps=lan-helper\u{7}").expect("非空");
+        assert!(!name.as_str().contains(';'), "got: {}", name.as_str());
+        assert!(
+            !name.as_str().chars().any(char::is_control),
+            "got: {}",
+            name.as_str()
+        );
+    }
+
+    #[test]
+    fn device_name_parse_is_idempotent() {
+        for raw in ["我的电脑", "  书房 Mac ;  ", &"字".repeat(41)] {
+            let once = DeviceName::parse(raw).expect("非空");
+            let twice = DeviceName::parse(once.as_str()).expect("已归一化的串仍非空");
+            assert_eq!(once, twice, "parse 必须幂等: {raw}");
+        }
+    }
+
+    /// **回归锚点：agent_version 分隔符注入。**
+    ///
+    /// 这条测试红了，意味着设备名里的 `"; caps=..."` 又能穿过 [`DeviceName::parse`]
+    /// 被对端解析成 capability——对端会据此把本机当成局域网协助节点（kad server +
+    /// relay 候选）。修法是补归一化，**不是**改断言。
+    #[test]
+    fn device_name_blocks_agent_version_capability_injection() {
+        let injected = DeviceName::parse("我的电脑; caps=lan-helper").expect("非空");
+        let info = OsInfo {
+            name: Some(injected.into_string()),
+            ..sample(None, "MacBook-Pro")
+        };
+
+        let agent = info.to_agent_version();
+        let parsed = OsInfo::from_agent_version(&agent).expect("parse agent_version");
+
+        assert!(
+            parsed.capabilities.is_empty(),
+            "设备名不得注入 capability，got: {agent}"
+        );
+        assert!(!parsed.has_capability(OsInfo::LAN_HELPER_CAPABILITY));
     }
 
     #[test]

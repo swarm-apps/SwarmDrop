@@ -1,7 +1,10 @@
 "use client";
 
-// 应用外壳的生命周期挂载点（无渲染）：探测 secure-context → spawn 节点 → 接上两条事件源。
-// 挂在应用 layout 里，随 /app 存活。
+// 应用外壳的生命周期挂载点（无渲染）：探测 secure-context → 读设备名 → spawn 节点 →
+// 接上两条事件源。挂在应用 layout 里，随 /app 存活。
+//
+// **只在 layout 这一处做。** 下放到任何 page 就会变成每路由一份：同一事件被消费多次、
+// 轮询与 relay 登记也各起一份。
 //
 // StrictMode（`reactStrictMode: true`）会在开发期 mount→cleanup→mount。本组件**不在 cleanup
 // 里 closeNode()**——那会把刚 spawn（或正在 spawn）的页面级单例关掉，第二次 mount 再拿到一个已
@@ -10,7 +13,7 @@
 
 import { useEffect } from "react";
 import { startEventConsumption } from "../_lib/event-dispatch";
-import { getNode, spawnNode } from "../_lib/node-runtime";
+import { getModule, getNode, spawnNode } from "../_lib/node-runtime";
 import { WEB_RELAY_HELPERS } from "../_lib/relay-helpers";
 import { detectSecureContext } from "../_lib/secure-context";
 import { startStatePoll } from "../_lib/state-poll";
@@ -48,6 +51,28 @@ function ensureConfiguredRelays(node: ReturnType<typeof getNode>) {
   }
 }
 
+/**
+ * 灌一次设备名：当前值（用户设的，可能没有）+ 回退名（内核 UA 派生的默认值）。
+ *
+ * **刻意不挂在 spawn 成功之后。** 改名能力不依赖节点状态——节点起不来时设置页照样可达、
+ * 照样要显示当前名字，所以它只等 `getModule()`（wasm 模块加载）而不等 `spawnNode()`。
+ * 两者共用同一个 module promise，故这里不会多拉一次 wasm。
+ *
+ * 读失败只记日志：设备名是展示信息，拿不到就退化成「空 + 回退名占位」，不该把 layout 打成
+ * 错误态挡住收发主路径。
+ */
+async function loadDeviceName(isCancelled: () => boolean) {
+  try {
+    const mod = await getModule();
+    const current = await mod.get_device_name();
+    if (isCancelled()) return;
+    webNodeActions.setDeviceName(current ?? null);
+    webNodeActions.setDeviceNameFallback(mod.default_device_name());
+  } catch (e) {
+    console.error("[web] 设备名读取失败，本次以浏览器默认名展示", e);
+  }
+}
+
 export function WebNodeBootstrap() {
   useEffect(() => {
     let cancelled = false;
@@ -57,18 +82,25 @@ export function WebNodeBootstrap() {
     webNodeActions.setSecure(detectSecureContext());
     webNodeActions.setStatus("starting");
 
+    void loadDeviceName(() => cancelled);
+
     spawnNode()
-      .then((node) => {
+      .then(async (node) => {
         if (cancelled) return;
         webNodeActions.setNodeId(node.node_id());
         webNodeActions.setStatus("running");
-        // 源三先于源一：历史回补是同步快照，先灌进去就不会与随后的实时事件抢同一个
+        // 源三先于源一：历史回补是一次性快照，先灌进去就不会与随后的实时事件抢同一个
         // sessionId（#81 刷新后收件箱与传输活动仍在）。读不到历史不该挡住节点可用。
+        //
+        // `transfer_history()` 是 async（端口方法本就是 async），**这个 await 不能挪到
+        // `startEventConsumption` 之后**——顺序反了实时事件可能先落域，而 `setHistory`
+        // 的「已存在的不覆盖」策略正是靠这个顺序才对。
         try {
-          webNodeActions.setHistory(node.transfer_history());
+          webNodeActions.setHistory(await node.transfer_history());
         } catch (e) {
           console.error("[web] transfer_history() 失败，历史与收件箱本次不回补", e);
         }
+        if (cancelled) return;
         startEventConsumption(node); // 源一：transfer 事件流（单点消费）
         stopPoll = startStatePoll(node); // 源二：pairing 请求 + 已配对设备轮询
         ensureConfiguredRelays(node); // 公网可达 + DHT 接线，见函数注释

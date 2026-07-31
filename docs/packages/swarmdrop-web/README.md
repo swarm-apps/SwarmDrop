@@ -73,13 +73,18 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
 | `accept_offer(sid)` / `reject_offer(sid)` | 接受（落 OPFS）/ 拒绝 |
 | `resume(sid)` | 手动发起断点续传 |
 | `download_url(relative_path)` | 完成后读回 OPFS 建 blob URL 供下载 |
-| `transfer_history()` | 已持久化的会话投影 → `TransferProjection[]`（无序，排序留给调用方），刷新后回补收件箱与活动视图 |
+| `transfer_history()` | 已持久化的会话投影 → `TransferProjection[]`（按 `startedAt` 倒序），刷新后回补活动视图 |
+| `inbox_items(include_archived)` | 收件箱条目 → `InboxItemSummary[]`（`receivedAt` 倒序，排除软删项） |
+| `inbox_item(id)` / `inbox_item_by_session(sid)` | 收件箱详情（含文件清单与关联投影）→ `InboxItemDetail \| null` |
+| `search_inbox(query, limit, include_archived)` | 子串检索 → `InboxSearchHit[]`（判据与 SQL 侧同义） |
+| `mark_inbox_item_opened(id)` / `archive_inbox_item(id, archived)` / `delete_inbox_item(id)` | 标记打开 / 归档 / 软删（**只删记录，OPFS 文件不动**） |
 | `paired_devices()` | 已配对设备清单 → `Device[]`（与桌面 `list_devices` 同源的 `DeviceManager` 读模型，含在线状态/连接类型） |
+| `remove_paired_device(peer_id)` | 解除配对（core 的 `unpair`：先落盘 → 再删共享内存表 → 再发事件；持久化失败即报错且内存表不动） |
 | `events()` | `ReadableStream<WebTransferEvent>`（**只能取一次**） |
 | `close()` | 关停 |
 
 **TS 类型端到端**：`src/types.rs` 的 JS 可见类型（`WebTransferEvent` / `OfferJson` /
-`ConnectionJson` / `NodeAddrJson` / `WebError`）由 specta 导出成 `static/types/bindings.ts`
+`ConnectionJson` / `NodeAddrJson` / `WebError`）由 specta 导出成 `bindings/bindings.ts`
 （`cargo test -p swarmdrop-web --features specta` 生成，入库），node.rs 经
 `typescript_custom_section` 注入 .d.ts 并用 `typescript_type` 把方法签名接到具名类型——
 `.d.ts` 里无 `any`。错误 reject 的是 `WebError`（`{ kind, message }`），Worker 桥原样透传
@@ -87,14 +92,21 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
 
 ## 端口实现取舍
 
-- **PersistentSessionStore**（`SessionStore` + `InboxStore`）：**内存读缓存 + IndexedDB 写穿**。
+- **WebTransferStore**（`SessionStore` + `InboxStore`）：**内存读缓存 + IndexedDB 写穿**。
   entity `Model` 是纯 scalar 结构，直接手构造；投影直接构造 `TransferProjection`（绕开
   `ModelEx` 的 `HasMany`），故本 crate **不直接依赖 sea-orm**；`Model` 不可直接序列化
   （`#[sea_orm::model]` 不转发用户 derive），落库形态用 serde remote derive 声明在 `store.rs`
   末尾——entity 加列时那份声明**编译不过**，而手写 DTO 只会静默丢字段。
   **落库范围**：终态会话（收发双向，作历史与收件箱）+ 非终态的**接收**会话（OPFS 里的 `.part`
   与 checkpoint 都在，可续传）。非终态**发送**会话与待决 offer 不落库——见「遗留 / 取舍」。
-  InboxStore 仍 no-op：Web 壳没有独立收件箱表，收件箱就是「接收 + 已完成」的会话投影。
+  `InboxStore` 那一半整体委托给 `inbox.rs` 的 **`WebInboxTable`**：**独立的 `inbox` object
+  store**（一条条目一个 key），不是「接收 + 已完成」的会话投影。真表的实质收益是它**不参与
+  `HISTORY_CAP` 淘汰、也不随「清空传输历史」消失**——三端共有的那条不变量在浏览器上才成立。
+  条目的标题 / 内容指纹 / 聚合文本 / 命中判据 / 片段一律调 `swarmdrop_transfer::inbox` 的
+  共享规则，两端不各写一份。
+  **存量数据不迁移**（openspec: inbox-store-port-completion 的 D7）：升 `DB_VERSION` 只为让
+  `onupgradeneeded` 建出新 store，老库里已完成的接收会话不回填条目——落地后收件箱从空开始
+  是预期结果，不是 bug。
 - **OpfsFileAccess**：主线程 async OPFS（`navigator.storage.getDirectory / createWritable`；
   **禁用 SyncAccessHandle**——Worker-only，与 webrtc-websys 主线程约束冲突）。JsValue `!Send`
   用 `send_wrapper::SendWrapper` 裹 JsFuture 满足端口 Send。接收侧**流式落盘**：`create_sink`
@@ -103,7 +115,9 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
 - **WebEventSink**：`TransferEvent` 走无界 channel（`Send`）→ `events()` 的 ReadableStream 单点
   消费、serde-wasm-bindgen 序列化（镜像 `WebTransferEvent`，`tag="type"` camelCase）。
 - **身份**：`SecretKey` protobuf 编码 hex 存 localStorage。
-- **已配对设备**：`PairedDeviceInfo[]` 存 IndexedDB（`swarmdrop-web` / `kv` / `swarmdrop.pairedDevices.v1`），刷新后恢复并注入 `start_node`。
+- **已配对设备**：`PairedDeviceInfo[]` 存 IndexedDB（`swarmdrop-web` / `kv` / `swarmdrop.pairedDevices.v1`），刷新后由 `start_node` 经端口读回。
+  实现是 `src/paired_devices.rs` 的 `WebPairedDeviceStore`（`swarmdrop_host::PairedDeviceStore`），
+  **只有 load / save 两个动作**；upsert / 改策略 / 移除的语义统一在 `swarmdrop_core::paired_devices`。
 - **传输会话**：一条会话一个 key，存 IndexedDB 的 `sessions` store（同库 v2）。IndexedDB 的
   低层读写（开库 / 升级 / `IDBRequest` → future / 错误取人话）收在 `src/idb.rs`，身份、配对与
   会话三处共用；连接进程内缓存（接收侧 checkpoint ≈ 12 次/秒，每次重开会把
@@ -112,10 +126,12 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
 
 ## 遗留 / 取舍
 
-- **无配对**：`PeerDirectory` 对任意对端返回「陌生、需手动确认」的**合成** `PairedDeviceInfo`
-  （Collaborator，auto_accept=false → policy RequireConfirmation）。`incoming.rs` 对未配对
-  （`None`）offer 硬拒 `NotPaired`（桌面安全边界），故 Web 无配对时必须给个 `Some`——语义正是
-  「陌生设备手动确认」，**不改 transfer**。
+- ~~**无配对**：`PeerDirectory` 对任意对端返回合成 `PairedDeviceInfo`~~ —— **这条已作废**
+  （2026-07-19 的旧记录）。Web 现在走的是与桌面同源的 `runtime::start_node`，`build_router`
+  把**真的** `manager.pairing_arc()` 当作 `PeerDirectory` 交给 `TransferCtrlService`：
+  未配对对端照样被 `incoming.rs` 硬拒 `NotPaired`，已配对对端的 `receive_policy` 经
+  `swarmdrop_transfer::policy` **真被裁决**。别据此以为「信任策略在 Web 上只是展示」——
+  存储层的语义分叉在这里是会真出事的（见下面 `paired_devices()` 那条）。
 - **非终态发送会话与待决 offer 不跨刷新**（2026-07-27 `#81`，**物理约束不是取舍**）：发送侧的
   文件内容来自用户选中的 `File` 对象（`OpfsFileAccess::register_source`），页面刷新后 JS 上下文
   销毁、无法在未经用户重新选择的前提下再读同一个文件——恢复出来只能给一个点了必失败的
@@ -130,25 +146,35 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
   彻底的解法是把 checkpoint 拆成独立记录、value 用 `Uint8Array`（IndexedDB 结构化克隆原生支持
   二进制，零编码膨胀），或让 `persist` 只置脏标记、后台以 ≤2 Hz flush（顺带把 IDB 往返移出接收
   热路径）。当前量级下没做。
-- **`FileAccess::cleanup_sink` 在 Web 侧不删残件**（`file_access.rs` 只 drop writable 句柄）：
-  端口的 doc 没写「要删除部分产物」、默认实现是 no-op，所以这不是 Web 单方面偷懒，而是
-  **端口契约没写清**——桌面靠 `file_source.rs` 的 `part_file.cleanup()` 履约，`src-tauri` 的
-  过期回收甚至绕开 `FileAccess` 直接 `tokio::fs::remove_file`。后果：Web 侧**每一次取消 /
-  失败的接收**（`receiver.rs` 的取消路径也调 `cleanup_sink`）以及 7 天过期回收，都会在 OPFS
-  留下部分文件，只能靠浏览器的站点存储配额兜底。
-  修法在端口层而非 Web 层：给 `FileAccess` 加一条显式的「丢弃部分产物」方法（带默认实现，
-  不破坏现有实现），Web 用 `FileSystemDirectoryHandle::remove_entry` 实现，顺带把桌面那处
-  绕行收编回来。
-- **会话记录的过期回收已与桌面对齐**：`PersistentSessionStore::load` 用与
+- **`FileAccess::cleanup_sink` 的端口契约仍没写清**（Web 侧已不再留残件）：端口的 doc 没写
+  「要删除部分产物」、默认实现是 no-op，各端只能各自约定——桌面靠 `file_source.rs` 的
+  `part_file.cleanup()` 履约，`src-tauri` 的过期回收甚至绕开 `FileAccess` 直接
+  `tokio::fs::remove_file`，移动端未核实。
+  Web 侧已在 `file_access.rs` 补上：`abort()` 写句柄放锁 → `opfs::remove_path` 删掉那条
+  OPFS 文件（顺序不可换，锁没放 `remove_entry` 会撞 `NoModificationAllowedError`）。
+  这条尤其必要，因为 Web **没有 `.part` 中间态**，写的就是最终路径，残件是个文件名正确、
+  内容截断的东西。
+  **留给后续 change**：给 `FileAccess` 加一条显式的「丢弃部分产物」方法把语义写进契约，
+  顺带把桌面那处绕行收编回来——那要动端口、三端一起改，不该和一条用户可见缺陷绑在一起。
+- **会话记录的过期回收已与桌面对齐**：`WebTransferStore::load` 用与
   `reap_expired_suspended_receives` 相同的命中条件（recoverable + 接收 + 超
   `SUSPENDED_RECEIVE_RETENTION_SECS`），转 `Terminal`/`FatalError` 并写「超过 N 天未恢复」，
-  记录留在历史里而非凭空消失。差别只剩上面那条：不删残件。
+  记录留在历史里而非凭空消失。差别只剩**过期回收不清 OPFS 残件**：Web 不调
+  `swarmdrop_transfer::cleanup_expired_part_files`（它先 `open_or_create_sink` 再
+  `cleanup_sink`，随上面那条一起变成对 Web 真能工作了，接过来即可）。
 - DHT 查分享码需先连 DHT-capable helper（浏览器不可达 TCP bootstrap，故 spawn 不加 bootstrap）。
-- **2026-07-19 全 crate 审查记录为后续的项**：identity 未走 `KeychainProvider` 端口（trait 含
-  migration/配对持久化共 7 方法，Web 暂只需身份 3 个——配对持久化工程时做完整
-  `WebKeychainProvider`）；方法名 snake_case 与桌面 bindings.ts 的 camelCase 不一致（`js_name`
-  可改，随 React UI 一并）；`content_root_of` 与 transfer 版重复（泛化 transfer 签名可归一，
-  涉及三 crate 调用点）。
+- **配对持久化已走端口，但落地形态不是完整 keychain**（2026-07-31 修正 2026-07-19 的记录）：
+  已配对设备列表由 `swarmdrop_host::PairedDeviceStore` 这个**独立端口**承接，实现在
+  `src/paired_devices.rs`（`WebPairedDeviceStore`，IndexedDB `kv` store 整份快照）。
+  没有做 `WebKeychainProvider`：那个 trait 只管密钥材料，而浏览器根本没有钥匙串——为存一份
+  设备列表去实现六个永远不该被调用的密钥方法，只会多出一堆「实现了但不能用」的方法。
+  拆分理由见 `openspec/changes/atomic-unpair-and-paired-device-store/design.md` 的 D1 / D8。
+  列表算法（upsert / 改策略 / 移除）**不在本 crate**，统一在 `swarmdrop_core::paired_devices`。
+  **仍未走端口的是 identity 本身**：`SecretKey` 的读写还在 `src/identity.rs` 里直连
+  localStorage / OPFS（`KeychainProvider` 是 8 方法的密钥端口，Web 只用得上其中 3 个）。
+- **2026-07-19 全 crate 审查记录为后续的项**（其余两条）：方法名 snake_case 与桌面
+  bindings.ts 的 camelCase 不一致（`js_name` 可改，随 React UI 一并）；`content_root_of` 与
+  transfer 版重复（泛化 transfer 签名可归一，涉及三 crate 调用点）。
 - **`connect()` / `reserve()` 的 20 秒可取消超时**（2026-07-25 `#84`）：WebNode 在内核层
   设定等待上限。`connect()` 超时会清理 actor 等待者；若没有其他调用者或基础设施角色，直接
   abort libp2p pending dial。`reserve()` 超时还会撤销 circuit listener 与 relay 自动重建意图，
@@ -156,9 +182,10 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
   只取消 UI 等待，否则会重新制造后台残留。
 - **`paired_devices()` 复用桌面 `Device` 读模型，未做 Web 专属裁剪**（2026-07-21 `#77` 新增）：
   直接返回 `DeviceManager::get_devices(DeviceFilter::Paired)`，字段含 `trustLevel` /
-  `receivePolicy` 等桌面概念——Web 侧当前不实现按信任级别的收件策略（见上方"无配对"条，
-  `PeerDirectory` 恒返回合成值），这些字段对 Web UI 目前只是展示、无策略含义。若后续 Web 也要
-  支持信任分级，这里不用改后端，前端消费即可。
+  `receivePolicy` 等桌面概念。**它们不是展示字段**（2026-07-31 修正）：Web 与桌面共用
+  `runtime::start_node`，`receive_policy` 经 `swarmdrop_transfer::policy` 真被裁决。
+  缺的只是**调整信任级别的 UI**——后端能力已经在，前端消费即可；也正因为如此，存储层
+  绝不能自带一份「整条替换」的 upsert（那会是一次静默提权，而不只是显示不对）。
 - **`paired_devices()` 是轮询不是推送**（2026-07-21 `#77`）：`CoreEvent::DevicesChanged` /
   `PairedDeviceAdded` 已经带着桌面推送同款的完整数据，但 `WebEventBus::publish`
   （`src/event_bus.rs`）目前用一个 `other => { tracing::debug!(...) }` 通配分支把它们连同其他

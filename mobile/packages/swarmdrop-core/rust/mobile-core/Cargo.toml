@@ -21,6 +21,8 @@ swarmdrop-net = { workspace = true }
 async-trait = { workspace = true }
 sea-orm = { workspace = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 sea-orm-migration = { workspace = true }
+# 只用得到 serde_json（已配对设备清单的 JSON 编解码）；本 crate 自己没有类型再 derive
+# Serialize —— 设备名那份落盘结构随 `JsonFileDeviceConfig` 一起搬进 crates/host 了。
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }

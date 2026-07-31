@@ -66,6 +66,31 @@ function toPairedSummaries(devices: DeviceInfo[]): PairedDeviceSummary[] {
     }));
 }
 
+/**
+ * 对齐设备名的事实源 —— core 侧的 `device_config.json`。
+ *
+ * 含一次性迁移：设备名此前只存在 JS 侧的 AsyncStorage 镜像里，core 从没见过它。
+ * 升级到本版本后若不推一次,存量用户的设备名会静默变回系统 hostname。判据是
+ * 「core 没有值且镜像非空」,所以只会在升级后的第一次身份就绪时发生一次;之后
+ * core 有值,这里就只剩「把 core 的值回写镜像」这一件事。
+ *
+ * 迁移失败不阻断启动:设备名不对只是显示问题,不该让 app 起不来。
+ */
+async function syncDeviceNameWithCore(): Promise<void> {
+  try {
+    const core = await initMobileCore();
+    let name = await core.getDeviceName();
+    const mirror = usePreferencesStore.getState().deviceName.trim();
+    if (name === undefined && mirror) {
+      // 用返回值而非直接用 mirror:core 会归一化(剥 `;` 与控制字符、按 char 截到 40)。
+      name = await core.renameDevice(mirror);
+    }
+    usePreferencesStore.getState().setDeviceName(name ?? "");
+  } catch (err) {
+    console.warn("[mobile-core-store] syncDeviceNameWithCore failed:", err);
+  }
+}
+
 type MobileCoreState = {
   identityStatus: IdentityStatus;
   peerId: string | null;
@@ -136,6 +161,9 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           // **推而不拉**：反向 import 会成环（本文件已 import 那个 store），
           // 而 core 的 initializeIdentity 是异步的、没有同步 getter 可问。
           usePairingInviteStore.setState({ selfPeerId: identity.peerId });
+          // 设备名的事实源已下沉到 core,存量安装要把 AsyncStorage 镜像推下去。
+          // 必须在下面 autoStart 之前跑完,否则冷启动那一次节点用的还是旧名字。
+          await syncDeviceNameWithCore();
           // 身份就绪后立即拉一次 keychain paired 设备,
           // 保证主屏/选择接收设备页冷启动就有离线视图(不依赖节点是否启动)。
           await get().loadPairedDevicesCache();
@@ -197,8 +225,9 @@ export const useMobileCoreStore = create<MobileCoreState>()(
         try {
           const core = await initMobileCore();
           const prefs = usePreferencesStore.getState();
+          // 设备名不在这里传：core 的组合根从 device_config 端口自己读
+          // （`preferences-store.deviceName` 只是显示镜像）。
           await core.startNode(
-            prefs.deviceName?.trim() || undefined,
             buildNetworkRuntimeConfig({
               customBootstrapNodes: prefs.customBootstrapNodes,
               discoveryMode: prefs.discoveryMode,

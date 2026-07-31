@@ -161,8 +161,9 @@ function TransferPage() {
     setClearOpen(false);
     try {
       await commands.clearTransferHistory();
+      // 后端只删终态记录，非终态会被刷回来——这次 reload 就是让幸存项回到列表。
       await loadProjections();
-      toast.success(t`已清空活动记录`);
+      toast.success(t`已清空已结束的记录`);
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -205,10 +206,10 @@ function TransferPage() {
         <ConfirmDialog
           open
           onOpenChange={setClearOpen}
-          title={<Trans>清空全部传输记录？</Trans>}
+          title={<Trans>清空已结束的传输记录？</Trans>}
           description={
             <Trans>
-              将删除全部 {counts.all} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。
+              将删除已结束的传输记录，此操作无法撤销；进行中与可继续续传的任务会保留，已传输的文件不受影响。
             </Trans>
           }
           confirmLabel={<Trans>清空记录</Trans>}
@@ -271,7 +272,7 @@ function SessionRail({
             variant="ghost"
             className={DESTRUCTIVE_BTN_CLASS}
             onClick={onClear}
-            title={t`清空活动记录`}
+            title={t`清空已结束的记录`}
           >
             <Trash2 className="size-3.5" />
           </Button>

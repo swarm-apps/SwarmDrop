@@ -14,6 +14,8 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 # AppError::TaskJoin(#[from] tokio::task::JoinError) 需要 tokio 的 task 类型（rt feature）。
 tokio = { workspace = true, features = ["rt"] }
+# JsonFileDeviceConfig 的降级日志（读/解析失败不报错，只 warn）。
+tracing = { workspace = true }
 swarmdrop-net-base = { workspace = true }
 entity = { workspace = true }
 # AppError::Database(#[from] sea_orm::DbErr)——只吃类型（workspace 默认最小 features，无 runtime）。
@@ -24,6 +26,10 @@ specta = { version = "=2.0.0-rc.25", features = [
     "chrono",
     "serde_json",
 ], optional = true }
+
+[dev-dependencies]
+# JsonFileDeviceConfig 的端口方法是 async，单测需要 `#[tokio::test]`（macros + rt）。
+tokio = { workspace = true, features = ["rt", "macros"] }
 
 [features]
 default = []

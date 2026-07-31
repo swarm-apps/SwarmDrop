@@ -11,9 +11,9 @@ use swarmdrop_net::{
     Router, SecretKey, WebRtcP2pConfig, presets,
 };
 
-use crate::device::{OsInfo, PairedDeviceInfo};
+use crate::device::{DeviceName, OsInfo};
 use crate::error::{AppError, AppResult};
-use crate::host::{EventBus, Notifier};
+use crate::host::{DeviceConfig, EventBus, Notifier, PairedDeviceStore};
 use crate::network::NetManager;
 use crate::network::config::{
     NetworkRuntimeConfig, bootstrap_node_addrs, create_candidate_manager,
@@ -65,14 +65,21 @@ impl EndpointProfile {
 
 /// 启动 P2P 节点并装配 core 网络管理器与协议路由。
 ///
-/// `device_name` 来自 host 持久化层（桌面端的 device_config.json / 移动端的 RN
-/// settings），节点启动时塞入 `OsInfo.name`，通过 identify 的 `agent_version` 字段
-/// 广播给对端。Host 改名后需 stop + start 节点让新值上线。
+/// 设备名从 `device_config` 端口读出后塞入 `OsInfo.name`，经 identify 的 `agent_version`
+/// 广播给对端，同时随 `OsInfo` 一路传到 `PairingManager`（配对请求与邀请串的 display）。
+/// **本机 `OsInfo` 的装配点只此一处**——宿主传不进 `name`（`OsInfo::native()` 已去参）。
+/// 这里装配的是**初值**：运行期改名走
+/// [`device_name::rename_device`](crate::device_name::rename_device)，它同时更新
+/// `PairingManager` 的本机 `OsInfo` 与 identify 的 `agent_version`，不重启节点。
+///
+/// 已配对设备的事实源是 `paired_device_store` 这个端口，本函数内部 load 一次——调用方
+/// **不再预先加载、也不再传快照**。（此前桌面还在快照之上叠了一层「keychain 为空则回退
+/// 前端 IPC 传来的列表」的静默兜底，那份前端列表本身就是后端的镜像。）
 ///
 /// keychain 存量为 protobuf 编码，[`SecretKey`] 与之完全兼容。
-// 依赖注入组合根：参数都是三端各自供给的端口 / 身份 / 配置（secret / os_info / paired /
-// network_config / profile / event_bus / notifier / invite_store / transfer 工厂），打包成
-// struct 只是把同一组必填项换个容器、并不减少调用方负担，故直接放行。
+// 依赖注入组合根：参数都是三端各自供给的端口 / 身份 / 配置（secret / os_info /
+// device_config / paired / network_config / profile / event_bus / notifier / invite_store /
+// transfer 工厂），打包成 struct 只是把同一组必填项换个容器、并不减少调用方负担，故直接放行。
 #[expect(
     clippy::too_many_arguments,
     reason = "依赖注入组合根，参数都是三端必填的端口/身份/配置，打包成 struct 不减负担"
@@ -81,7 +88,8 @@ pub async fn start_node<F>(
     secret_key: SecretKey,
     webrtc_certificate_pem: Option<String>,
     os_info: OsInfo,
-    paired_devices: Vec<PairedDeviceInfo>,
+    device_config: Arc<dyn DeviceConfig>,
+    paired_device_store: Arc<dyn PairedDeviceStore>,
     network_config: NetworkRuntimeConfig,
     profile: EndpointProfile,
     event_bus: Arc<dyn EventBus>,
@@ -94,9 +102,21 @@ pub async fn start_node<F>(
 where
     F: FnOnce(Endpoint) -> TransferManager,
 {
-    // `os_info` 由 host 供给基础字段（native 走 `OsInfo::default()` 探测、wasm 走
-    // `web_os_info()`——env 探测在 wasm 恒 unknown 故必须由调用方注入）。LAN Helper
-    // 能力由 `network_config` 决定，仍在此处叠加，保持 `to_agent_version()` 契约。
+    // 宿主传进来的 `os_info` **只承载平台探测部分**（hostname / os / platform / arch）：
+    // native 走 `OsInfo::default()` 的 env 探测、wasm 走 `web_os_info()`——env 探测在 wasm
+    // 恒 unknown，故必须由调用方注入。
+    //
+    // `name`（用户设的设备名）则由本函数从 `DeviceConfig` 端口填充：宿主无法注入它
+    // （`OsInfo` 没有带 name 的构造入口），本机 `OsInfo` 于是只有这一个装配点。端口 load 不返回
+    // 错误——读坏时降级成 `None`（回退 hostname）继续跑，不能让节点起不来。
+    let mut os_info = os_info;
+    os_info.name = device_config
+        .load_device_name()
+        .await
+        .map(DeviceName::into_string);
+
+    // LAN Helper 能力由 `network_config` 决定，在算 agent_version 前叠加，保持
+    // `to_agent_version()` 契约。
     let os_info = if network_config.provide_lan_helper {
         os_info.with_capability(OsInfo::LAN_HELPER_CAPABILITY)
     } else {
@@ -133,8 +153,12 @@ where
 
     let transfer = create_transfer(endpoint.clone());
     let candidate_manager = create_candidate_manager(&network_config);
+    // 快照与端口一并交给 NetManager：构造是同步的，共享 DashMap 的初值只能由这里先
+    // load 出来，端口本身则转交 PairingManager 供 unpair 写回。两者同源，不是两个事实源。
+    let paired_devices = paired_device_store.load_paired_devices().await?;
     let manager = NetManager::new(
         endpoint.clone(),
+        os_info,
         paired_devices,
         transfer,
         network_config,
@@ -142,6 +166,7 @@ where
         event_bus,
         notifier.clone(),
         invite_store,
+        paired_device_store,
     );
 
     // 把落盘的邀请读回内存表。必须在对外服务之前完成：注册表是一次性消费的权威判定点，

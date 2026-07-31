@@ -513,8 +513,12 @@ msgstr "刪除群組「{0}」"
 #~ msgstr "刪除群組不會取消其中裝置的配對。"
 
 #: src/routes/_app/transfer/-session-row.tsx
-msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
-msgstr "刪除後該任務的斷點資訊將一併清除，無法再繼續續傳；已傳輸的檔案不受影響。"
+#~ msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
+#~ msgstr "刪除後該任務的斷點資訊將一併清除，無法再繼續續傳；已傳輸的檔案不受影響。"
+
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。若此刻它又恢复了传输，需先取消才能删除记录。"
+msgstr "刪除後該任務的斷點資訊將一併清除，無法再繼續續傳；已傳輸的檔案不受影響。若此刻它又恢復了傳輸，需先取消才能刪除記錄。"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "删除收件箱记录"
@@ -649,6 +653,10 @@ msgstr "取消封存"
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "取消配对"
 msgstr "取消配對"
+
+#: src/routes/_app/devices/index.lazy.tsx
+msgid "取消配对失败"
+msgstr "取消配對失敗"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #~ msgid "另一台设备输入配对码后，本机仍会弹出确认请求。"
@@ -891,10 +899,13 @@ msgstr "對方裝置"
 msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
 msgstr "將以下 JSON 加入 AI 用戶端（如 Claude Desktop、Cursor）的 MCP 設定中"
 
-#. placeholder {0}: counts.all
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
-msgstr "將刪除全部 {0} 條記錄，包括可恢復任務的斷點資訊，此操作無法復原；已傳輸的檔案不受影響。"
+#~ msgid "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
+#~ msgstr "將刪除全部 {0} 條記錄，包括可恢復任務的斷點資訊，此操作無法復原；已傳輸的檔案不受影響。"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "将删除已结束的传输记录，此操作无法撤销；进行中与可继续续传的任务会保留，已传输的文件不受影响。"
+msgstr "將刪除已結束的傳輸記錄，此操作無法復原；進行中與可繼續續傳的任務會保留，已傳輸的檔案不受影響。"
 
 #. placeholder {0}: formatTimeLeft(remainingSeconds)
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -1035,8 +1046,12 @@ msgstr "已檢查收件匣"
 #~ msgstr "已清理"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "已清空活动记录"
-msgstr "已清空活動記錄"
+msgid "已清空已结束的记录"
+msgstr "已清空已結束的記錄"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+#~ msgid "已清空活动记录"
+#~ msgstr "已清空活動記錄"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 #~ msgid "已粘贴"
@@ -1709,12 +1724,20 @@ msgid "添加设备"
 msgstr "新增裝置"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "清空全部传输记录？"
-msgstr "清空全部傳輸記錄？"
+#~ msgid "清空全部传输记录？"
+#~ msgstr "清空全部傳輸記錄？"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "清空活动记录"
-msgstr "清空活動記錄"
+msgid "清空已结束的传输记录？"
+msgstr "清空已結束的傳輸記錄？"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+msgid "清空已结束的记录"
+msgstr "清空已結束的記錄"
+
+#: src/routes/_app/transfer/index.lazy.tsx
+#~ msgid "清空活动记录"
+#~ msgstr "清空活動記錄"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "清空记录"
@@ -2046,8 +2069,12 @@ msgid "记住我的选择（之后可在「设置」中修改）"
 msgstr "記住我的選擇（之後可在「設定」中修改）"
 
 #: src/routes/_app/transfer/-session-row.tsx
-msgid "记录删除后无法恢复；已传输的文件不受影响。"
-msgstr "記錄刪除後無法復原；已傳輸的檔案不受影響。"
+#~ msgid "记录删除后无法恢复；已传输的文件不受影响。"
+#~ msgstr "記錄刪除後無法復原；已傳輸的檔案不受影響。"
+
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "记录删除后无法恢复；已传输的文件不受影响。若此刻它又恢复了传输，需先取消才能删除记录。"
+msgstr "記錄刪除後無法復原；已傳輸的檔案不受影響。若此刻它又恢復了傳輸，需先取消才能刪除記錄。"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "记录可能已被移除，或详情加载失败。请选择其它记录，或刷新收件箱。"
@@ -2077,6 +2104,10 @@ msgstr "裝置別名與群組"
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "设备名称"
 msgstr "裝置名稱"
+
+#: src/routes/_app/settings/-device-info-section.tsx
+#~ msgid "设备名称已保存，但节点重启失败，请手动重启"
+#~ msgstr "裝置名稱已儲存，但節點重新啟動失敗，請手動重新啟動"
 
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "设备名称已更新"

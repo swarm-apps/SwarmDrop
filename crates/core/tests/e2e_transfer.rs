@@ -25,8 +25,8 @@ use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 use swarmdrop_core::device::{OsInfo, PairedDeviceInfo};
 use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{
-    CoreAppPaths, CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, FileSourceId,
-    HostFileMetadata, MemoryHost,
+    CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, FileSourceId, HostFileMetadata,
+    MemoryHost,
 };
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
@@ -38,7 +38,7 @@ use swarmdrop_core::transfer::coordinator::{
 };
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
-use swarmdrop_core::transfer::store::CreateSessionInput;
+use swarmdrop_core::transfer::store::{CreateSessionInput, InboxStore, SessionStore};
 use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
 use swarmdrop_storage_sql::{SqlSessionStore, ops};
 
@@ -56,17 +56,6 @@ struct TestNode {
     db: Arc<DatabaseConnection>,
     /// 保活：drop 后入站流路由停止。
     _router: Router,
-}
-
-/// 测试用 app paths —— MemoryHost 不碰真实文件系统，随便给个目录即可。
-fn test_paths() -> CoreAppPaths {
-    let base = std::env::temp_dir();
-    CoreAppPaths {
-        data_dir: base.clone(),
-        cache_dir: base.clone(),
-        temp_dir: base.clone(),
-        log_dir: base,
-    }
 }
 
 /// 关 mDNS + 只监听 127.0.0.1 随机端口的测试 Endpoint（开 DHT server 供在线记录）。
@@ -141,6 +130,7 @@ async fn spawn_node(
     let candidate_manager = create_candidate_manager(&network_config);
     let manager = NetManager::new(
         endpoint.clone(),
+        OsInfo::default(),
         paired,
         transfer,
         network_config,
@@ -148,6 +138,7 @@ async fn spawn_node(
         event_bus.clone(),
         None,
         std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+        Arc::new(host.clone()),
     );
     let transfer = manager.transfer_arc();
 
@@ -244,8 +235,13 @@ async fn connected_paired_pair(host_a: MemoryHost, host_b: MemoryHost) -> (TestN
     (node_a, node_b)
 }
 
-/// 预置一个 active 接收会话（create_session 直接写 phase=Active），供清理 / 信号 / 断连测试复用。
-async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id: &str) {
+/// 预置一个单文件接收会话，phase 由 `lifecycle` 一次写到位（建会话即目标状态）。
+async fn seed_receive_session(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    peer_id: &str,
+    lifecycle: TransferState,
+) {
     let files = vec![FileInfo {
         file_id: 0,
         name: "a.bin".to_string(),
@@ -266,13 +262,18 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id:
                 path: "/recv".to_string(),
             }),
             source_paths: None,
-            lifecycle: TransferState::active(0),
+            lifecycle,
             policy: None,
             origin: None,
         },
     )
     .await
     .expect("create_session");
+}
+
+/// active 是最常用的一档（清理 / 信号 / 断连测试都要），单列一层薄壳。
+async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id: &str) {
+    seed_receive_session(db, session_id, peer_id, TransferState::active(0)).await;
 }
 
 #[expect(
@@ -301,16 +302,21 @@ async fn seed_suspended_session(
             total_size,
             save_path,
             source_paths,
-            lifecycle: TransferState::active(0),
+            // 建会话时一次写到 suspended：状态直写的旁路已删，fixture 走 lifecycle 入参。
+            lifecycle: TransferState {
+                phase: TransferPhase::Suspended,
+                suspended_reason: Some(SuspendedReason::LocalPaused),
+                terminal_reason: None,
+                epoch: 0,
+                recoverable: true,
+                error_message: None,
+            },
             policy: None,
             origin: None,
         },
     )
     .await
     .expect("create resume session");
-    ops::mark_session_paused(db, session_id)
-        .await
-        .expect("seed suspended session");
 }
 
 /// 节点的 host 是否收到过某个 offer 的 TransferOfferReceived 事件。
@@ -342,8 +348,7 @@ async fn wait_completed(db: &DatabaseConnection, session_id: Uuid, who: &str) {
 /// 连通性 smoke：两个真实节点关 mDNS + 显式 dial 能建连。坐实路径 B 的最小前提。
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_two_nodes_connect() {
-    let (node_a, node_b) =
-        connected_paired_pair(MemoryHost::new(test_paths()), MemoryHost::new(test_paths())).await;
+    let (node_a, node_b) = connected_paired_pair(MemoryHost::new(), MemoryHost::new()).await;
 
     assert!(node_a.manager.devices().is_connected(&node_b.peer_id));
     assert!(node_b.manager.devices().is_connected(&node_a.peer_id));
@@ -367,8 +372,8 @@ async fn e2e_single_file_transfer() {
     };
 
     // 发送方 host 预置源文件；接收方 host 空。
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     // A: 哈希准备 + 发 Offer。
     let prepared_id = Uuid::new_v4();
@@ -479,8 +484,8 @@ async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
         checksum: None,
         save_dir: None,
     };
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let prepared_id = Uuid::new_v4();
     node_a
@@ -534,13 +539,11 @@ async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
     wait_completed(node_b.db.as_ref(), session_id, "接收方").await;
 
     // 接收端：完成会话落 inbox，source_kind 应由 origin(mcp) 派生为 Mcp。
-    let detail = swarmdrop_storage_sql::inbox::ensure_inbox_item_for_completed_receive_session(
-        node_b.db.as_ref(),
-        session_id,
-    )
-    .await
-    .expect("ensure inbox item")
-    .expect("inbox item created");
+    let detail = SqlSessionStore::new(node_b.db.clone())
+        .ensure_inbox_item_for_completed_receive_session(session_id)
+        .await
+        .expect("ensure inbox item")
+        .expect("inbox item created");
     assert!(
         matches!(detail.item.source_kind, entity::InboxSourceKind::Mcp),
         "MCP 来源传输应在 inbox 记为 Mcp，实际 {:?}",
@@ -556,7 +559,7 @@ async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_startup_cleanup_active_to_suspended() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
 
     // 预置一个 active 会话（create_session 直接写 phase=Active）。
@@ -599,13 +602,96 @@ async fn e2e_startup_cleanup_active_to_suspended() {
     assert_eq!(again, 0, "第二次清理无 active 会话");
 }
 
+/// D4：「进行中不可删」是域不变量，守卫在 `TransferManager::delete_session`。
+///
+/// 三端的删除入口（桌面命令 / MCP 工具 / wasm 导出）都只调这一条域方法，所以拦截必须
+/// 在这里——UI 的按钮可见性拦不住 MCP 客户端，也拦不住一份陈旧的前端状态。放行 suspended
+/// 是刻意的：它没有活 actor，代价只是断点信息一并消失（确认文案已这么写）。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_delete_session_rejects_active_allows_terminal_and_suspended() {
+    let db = make_db().await;
+    let host = MemoryHost::new();
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
+    // 守卫只碰 store 与 phase，装一个裸 manager 即可（不需要 router / event_loop）。
+    let transfer = TransferManager::new(
+        test_endpoint(SecretKey::generate()).await,
+        Arc::new(CoreTransferEvents(event_bus)),
+        Arc::new(SqlSessionStore::new(db.clone())),
+        file_access,
+    );
+
+    let active = Uuid::new_v4();
+    let suspended = Uuid::new_v4();
+    let terminal = Uuid::new_v4();
+    seed_active_session(db.as_ref(), active, "peer").await;
+    seed_receive_session(
+        db.as_ref(),
+        suspended,
+        "peer",
+        TransferState {
+            phase: TransferPhase::Suspended,
+            suspended_reason: Some(SuspendedReason::LocalPaused),
+            terminal_reason: None,
+            epoch: 0,
+            recoverable: true,
+            error_message: None,
+        },
+    )
+    .await;
+    seed_receive_session(
+        db.as_ref(),
+        terminal,
+        "peer",
+        TransferState {
+            phase: TransferPhase::Terminal,
+            suspended_reason: None,
+            terminal_reason: Some(TerminalReason::Completed),
+            epoch: 0,
+            recoverable: false,
+            error_message: None,
+        },
+    )
+    .await;
+
+    let err = transfer
+        .delete_session(active)
+        .await
+        .expect_err("进行中的会话不可删");
+    assert!(
+        err.to_string().contains("取消"),
+        "错误应指向「请先取消」而不是一句无从下手的失败：{err}"
+    );
+    assert!(
+        ops::get_transfer_projection(db.as_ref(), active)
+            .await
+            .unwrap()
+            .is_some(),
+        "被拒绝的删除不能留下半删状态"
+    );
+
+    for (id, label) in [(terminal, "终态"), (suspended, "挂起")] {
+        transfer
+            .delete_session(id)
+            .await
+            .unwrap_or_else(|e| panic!("{label}会话应可删: {e}"));
+        assert!(
+            ops::get_transfer_projection(db.as_ref(), id)
+                .await
+                .unwrap()
+                .is_none(),
+            "{label}会话应已删除"
+        );
+    }
+}
+
 /// 轮 4 task 3.3：对端 Pause/Cancel 经 `dispatch_network_current` 写"对端"reason，
 /// 与本地 pause 的 LocalPaused 区分。这是 handle_pause_impl / handle_cancel_impl 接线的核心
 /// 逻辑（跨节点 mid-transfer 取消对小文件有竞态，故直接在 coordinator 层确定性验证）。
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_remote_signals_write_remote_reason() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let coordinator = TransferCoordinator::new(
         Arc::new(SqlSessionStore::new(db.clone())),
@@ -660,7 +746,7 @@ async fn e2e_peer_disconnect_interrupts_active() {
     let fake_peer = SecretKey::generate().node_id();
     let node = spawn_node(
         SecretKey::generate(),
-        MemoryHost::new(test_paths()),
+        MemoryHost::new(),
         make_db().await,
         vec![paired_info(fake_peer)],
     )
@@ -721,8 +807,8 @@ async fn e2e_receiver_initiated_resume_probe_commit_completes() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let session_id = Uuid::new_v4();
     let files = vec![FileInfo {
@@ -817,8 +903,8 @@ async fn e2e_sender_initiated_resume_probe_commit_completes() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let session_id = Uuid::new_v4();
     let files = vec![FileInfo {
@@ -912,8 +998,8 @@ async fn e2e_receiver_rejects_offer() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let prepared_id = Uuid::new_v4();
     node_a
@@ -1006,7 +1092,7 @@ async fn e2e_multichunk_multifile_transfer() {
         ("small.bin", patterned(123)),                // 单块小文件
     ];
 
-    let mut host_a = MemoryHost::new(test_paths());
+    let mut host_a = MemoryHost::new();
     let mut enumerated = Vec::new();
     for (idx, (name, data)) in specs.iter().enumerate() {
         let sid = FileSourceId(format!("src-{idx}"));
@@ -1030,7 +1116,7 @@ async fn e2e_multichunk_multifile_transfer() {
         });
     }
 
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let prepared_id = Uuid::new_v4();
     node_a
@@ -1104,8 +1190,8 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let session_id = Uuid::new_v4();
     let files = vec![FileInfo {
@@ -1208,7 +1294,7 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_reap_expired_receive_cleans_part() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
 
     let session_id = Uuid::new_v4();
@@ -1264,12 +1350,10 @@ async fn e2e_reap_expired_receive_cleans_part() {
         .expect("seed bytes");
     assert!(host.sink_bytes(&sink).is_some(), "回收前 sink 应存在");
 
-    let reaped = ops::reap_expired_suspended_receives(
-        db.as_ref(),
-        swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS,
-    )
-    .await
-    .expect("reap");
+    let reaped = SqlSessionStore::new(db.clone())
+        .reap_expired_suspended_receives(swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS)
+        .await
+        .expect("reap");
     assert_eq!(reaped.len(), 1, "应回收 1 个过期接收会话");
     swarmdrop_core::transfer::cleanup_expired_part_files(&file_access, &reaped).await;
 
@@ -1294,7 +1378,7 @@ async fn e2e_reap_expired_receive_cleans_part() {
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_fatal_error_persists_message() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let coordinator = TransferCoordinator::new(
         Arc::new(SqlSessionStore::new(db.clone())),
@@ -1338,7 +1422,7 @@ async fn e2e_fatal_error_persists_message() {
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_terminal_irreversible_under_concurrent_complete_cancel() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let coordinator = TransferCoordinator::new(
         Arc::new(SqlSessionStore::new(db.clone())),
@@ -1425,8 +1509,8 @@ async fn e2e_paused_offer_declined_then_resumes_on_resume() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     // —— 暂停接收 ——
     node_b.transfer.set_receiving_paused(true);
@@ -1546,8 +1630,7 @@ async fn e2e_paused_offer_declined_then_resumes_on_resume() {
 /// keep-alive 白名单钉死的僵尸连接骗成永久在线。
 #[tokio::test(flavor = "multi_thread")]
 async fn shutdown_node_goes_offline_on_peer() {
-    let (node_a, node_b) =
-        connected_paired_pair(MemoryHost::new(test_paths()), MemoryHost::new(test_paths())).await;
+    let (node_a, node_b) = connected_paired_pair(MemoryHost::new(), MemoryHost::new()).await;
     let id_b = node_b.peer_id;
 
     // 双方 presence 就绪：A 视角 B 在线

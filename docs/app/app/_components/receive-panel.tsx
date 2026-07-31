@@ -1,10 +1,12 @@
 "use client";
 
 // #79 接收：入站 offer 以非阻断通知形式浮现（不做「发送/接收」Tab 切换，PRODUCT.md 原则 1）——
-// accept_offer/reject_offer 决策；已完成接收的会话在「收件箱」展示（原则 2·状态诚实可见：
+// accept_offer/reject_offer 决策；已接收内容在「收件箱」展示（原则 2·状态诚实可见：
 // 落盘完成才给下载），点下载才读回 OPFS 建 blob URL。
-// 收件箱跨刷新仍在（#81）：内核把已完成的接收会话持久化到 IndexedDB，启动时经
-// `transfer_history()` 回补进 projections，文件本体一直在 OPFS。
+// 收件箱跨刷新仍在：内核侧是一张**独立的 IndexedDB 表**（不再是「过滤已完成接收会话投影」），
+// 前端经 `inbox_items()` 读它，文件本体一直在 OPFS。
+// 换真表带来两处行为差异，都是修正而非回归：清空传输历史不再清掉收件箱，传输历史触到
+// 100 条上限被淘汰时收件箱条目也不会跟着消失。
 //
 // 未配对对端的 offer 由内核在协议层硬拒 NotPaired，从不进入 `pending_offers()`——本机对此
 // 零可见性（符合「安全边界」设计，不是本面板的缺陷）。#79 验收标准里的「需先配对」提示因此
@@ -14,13 +16,13 @@
 // 两者混在一个卡里时，一条永久列表会把一条限时动作压下去。多路由后请求的可见性由导航徽标
 // 兜底（见 app-nav.tsx），用户不在收件箱页也知道有东西等着。
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { WebErrorCard } from "./web-error-view";
-import { formatFileSize, sessionEndedAt } from "../_lib/format";
+import { formatFileSize } from "../_lib/format";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
-import { type TransferProjection } from "../_lib/view-types";
+import { toWebError, type InboxItemDetail, type InboxItemFileEntry, type WebError } from "../_lib/view-types";
 
 /**
  * blob URL 的存活窗口。
@@ -32,8 +34,6 @@ import { type TransferProjection } from "../_lib/view-types";
  * 会让大文件下载中途失败。
  */
 const BLOB_URL_TTL_MS = 30_000;
-
-type ProjectionFile = TransferProjection["files"][number];
 
 export function IncomingOffersPanel() {
   const offers = useWebNode((s) => s.offers);
@@ -110,24 +110,54 @@ export function IncomingOffersPanel() {
   );
 }
 
+/**
+ * 收件箱真表的拉取。
+ *
+ * `inbox_items()` 直接给出 `InboxItemDetail[]`（文件行与传输投影都在同一把锁下批量补好），
+ * 一次调用就够——本面板要逐文件下载，正好吃这份完整结构。
+ *
+ * 拉取入口刻意留在本组件内，**不下放到 `WebNodeBootstrap`**——那里是运行时单例的位置
+ * （spawn 节点、接事件流），不是数据拉取的位置；收件箱只有这一页要看。
+ */
+async function fetchInboxItems(): Promise<InboxItemDetail[]> {
+  const node = getNode();
+  if (!node) return [];
+  return node.inbox_items(false);
+}
+
 export function InboxPanel() {
-  const projections = useWebNode((s) => s.projections);
+  const items = useWebNode((s) => s.inboxItems);
+  const status = useWebNode((s) => s.status);
+  const inboxRevision = useWebNode((s) => s.inboxRevision);
+  const [loadError, setLoadError] = useState<WebError | null>(null);
   const downloadAction = useKeyedAsyncAction();
 
-  // 显式按收到时间倒序：projections 混着实时事件与 #81 的启动回补，靠对象 key 的插入顺序
-  // 会让刷新前后的收件箱排法不一致。
-  const completed = useMemo(
-    () =>
-      Object.values(projections)
-        .filter((p) => p.direction === "receive" && p.phase === "terminal" && p.terminalReason === "completed")
-        .sort((a, b) => sessionEndedAt(b) - sessionEndedAt(a)),
-    [projections],
-  );
+  // 挂载时（节点就绪后）拉一次 + 每次「接收方向的传输完成」重拉一次。收件箱是低频写入，
+  // 一次 `inbox_items()` 的成本远低于为它新造一条订阅式推送通道。
+  useEffect(() => {
+    if (status !== "running") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const details = await fetchInboxItems();
+        if (cancelled) return;
+        webNodeActions.setInboxItems(details);
+        setLoadError(null);
+      } catch (e) {
+        if (cancelled) return;
+        console.error("[web] inbox_items() 失败", e);
+        setLoadError(toWebError(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, inboxRevision]);
 
-  const download = (sessionId: string, file: ProjectionFile) => {
+  const download = (itemId: string, file: InboxItemFileEntry) => {
     const node = getNode();
     if (!node) return;
-    void downloadAction.run(`${sessionId}:${file.fileId}`, async () => {
+    void downloadAction.run(`${itemId}:${file.id}`, async () => {
       try {
         const url = await node.download_url(file.relativePath);
         const anchor = document.createElement("a");
@@ -145,28 +175,29 @@ export function InboxPanel() {
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
       <h2 className="text-sm font-semibold text-fd-foreground">已接收</h2>
-      {completed.length === 0 ? (
+      {loadError && <WebErrorCard error={loadError} className="mt-2 text-xs" />}
+      {items.length === 0 ? (
         <p className="mt-2 text-xs text-fd-muted-foreground">还没有收到的文件。</p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {completed.map((p) => (
-            <li key={p.sessionId} className="rounded-lg border border-fd-border bg-fd-background px-3 py-2">
+          {items.map((item) => (
+            <li key={item.id} className="rounded-lg border border-fd-border bg-fd-background px-3 py-2">
               <p className="truncate text-xs text-fd-foreground">
-                来自 <span className="font-medium">{p.peerName}</span>
+                来自 <span className="font-medium">{item.sourceName}</span>
               </p>
               <ul className="mt-1 space-y-1">
-                {p.files.map((f) => {
-                  const key = `${p.sessionId}:${f.fileId}`;
+                {item.files.map((f) => {
+                  const key = `${item.id}:${f.id}`;
                   const error = downloadAction.errorFor(key);
                   return (
-                    <li key={f.fileId} className="text-xs">
+                    <li key={f.id} className="text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate text-fd-foreground">{f.name}</span>
                         <span className="flex shrink-0 items-center gap-2">
                           <span className="font-mono text-fd-muted-foreground">{formatFileSize(f.size)}</span>
                           <button
                             type="button"
-                            onClick={() => download(p.sessionId, f)}
+                            onClick={() => download(item.id, f)}
                             disabled={downloadAction.isPending(key)}
                             className="font-medium text-fd-foreground underline underline-offset-2 disabled:opacity-50"
                           >

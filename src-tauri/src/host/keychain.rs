@@ -1,10 +1,16 @@
 //! Desktop identity storage backed by the system keychain.
+//!
+//! 同一个结构体承载两个端口：[`KeychainProvider`]（密钥材料）与
+//! [`PairedDeviceStore`]（已配对设备列表）。桌面端两者恰好都落在系统钥匙串里，
+//! 但它们的性质不同（见 [`PairedDeviceStore`] 的文档），端口分开、实现共用。
 
 use async_trait::async_trait;
 use keyring::{Entry, Error as KeyringError};
 use swarmdrop_core::device::PairedDeviceInfo;
 use swarmdrop_core::error::{AppError as CoreError, AppResult as CoreResult};
-use swarmdrop_core::host::{DeviceIdentityBytes, IdentityMigrationState, KeychainProvider};
+use swarmdrop_core::host::{
+    DeviceIdentityBytes, IdentityMigrationState, KeychainProvider, PairedDeviceStore,
+};
 
 const SERVICE: &str = "com.yexiyue.swarmdrop";
 const IDENTITY_USER: &str = "device-identity";
@@ -84,7 +90,12 @@ impl KeychainProvider for DesktopKeychainProvider {
         })
         .await
     }
+}
 
+/// 已配对设备列表仍存在 `PAIRED_DEVICES_USER` 这条钥匙串条目里 —— 端口拆分不搬数据，
+/// 存量装机升级后读到的是同一份 JSON。
+#[async_trait]
+impl PairedDeviceStore for DesktopKeychainProvider {
     async fn load_paired_devices(&self) -> CoreResult<Vec<PairedDeviceInfo>> {
         run_keyring(|| {
             let Some(value) = optional_entry_password(PAIRED_DEVICES_USER)? else {
@@ -95,9 +106,11 @@ impl KeychainProvider for DesktopKeychainProvider {
         .await
     }
 
-    async fn save_paired_devices(&self, devices: Vec<PairedDeviceInfo>) -> CoreResult<()> {
+    async fn save_paired_devices(&self, devices: &[PairedDeviceInfo]) -> CoreResult<()> {
+        // 序列化必须在 spawn_blocking 之前：闭包要 'static，借来的切片进不去。
+        // 反正整份 JSON 本来就要构造一次，只是提前到了这里。
+        let value = serde_json::to_string(devices).map_err(CoreError::Serialization)?;
         run_keyring(move || {
-            let value = serde_json::to_string(&devices).map_err(CoreError::Serialization)?;
             entry(PAIRED_DEVICES_USER)?
                 .set_password(&value)
                 .map_err(map_keyring_error)

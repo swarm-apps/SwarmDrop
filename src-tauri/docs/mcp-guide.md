@@ -245,8 +245,8 @@ list_transfers → 发现 direction=receive & phase=Offered 的会话
 | `list_paired_devices`    | 只读列出全部已配对设备     | 节点运行中               |
 | `list_available_devices` | 列出已配对且在线的设备     | 节点运行中               |
 | `send_files`             | 向指定设备发送文件         | 节点运行中，目标设备在线 |
-| `list_transfers`         | 列出进行中/最近的传输会话  | 无                       |
-| `get_transfer_status`    | 查单个传输会话的状态       | 无                       |
+| `list_transfers`         | 列出进行中/最近的传输会话  | 节点运行中               |
+| `get_transfer_status`    | 查单个传输会话的状态       | 节点运行中               |
 | `cancel_transfer`        | 取消进行中的传输（破坏性） | 节点运行中               |
 | `pause_transfer`         | 暂停进行中的传输           | 节点运行中               |
 | `resume_transfer`        | 恢复已暂停的传输           | 节点运行中               |
@@ -262,5 +262,8 @@ list_transfers → 发现 direction=receive & phase=Offered 的会话
 ## 安全说明
 
 - MCP Server 仅监听本地（127.0.0.1），不接受外部连接
-- 文件传输使用端到端加密（XChaCha20-Poly1305）
+- 文件传输的保密由传输层承担（Noise / QUIC-TLS，relay 只见密文），完整性由 BLAKE3 + bao-tree 逐块验签保证
+  <!-- 原先这里写「端到端加密（XChaCha20-Poly1305）」，那层应用层加密已在 wire v2 整块删除：
+       密钥经同一条 Noise 信道分发（能读密文者必然能读密钥），且它与逐块验签不能共存
+       （加密后 checksum 会变成密文哈希，「root == 明文 blake3」这条不变量就塌了）。 -->
 - 传输请求需要对方在 SwarmDrop 应用中手动接受

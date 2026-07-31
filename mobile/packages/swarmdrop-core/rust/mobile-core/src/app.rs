@@ -8,13 +8,17 @@
 use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
-use swarmdrop_core::host::{FileAccess, KeychainProvider};
+use swarmdrop_core::host::{
+    DeviceConfig, EventBus, FileAccess, JsonFileDeviceConfig, KeychainProvider, PairedDeviceStore,
+};
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::pairing::manager::PairingManager;
 use swarmdrop_core::transfer::manager::TransferManager;
+use swarmdrop_core::transfer::store::TransferStore;
 use swarmdrop_net::SecretKey;
 use tokio::sync::{Mutex, MutexGuard};
 
+use crate::device_config::device_config_path;
 use crate::error::{FfiError, FfiResult};
 use crate::events::{ForeignEventBus, MobileEventBusAdapter};
 use crate::file_access::{ForeignFileAccess, MobileFileAccessAdapter};
@@ -27,11 +31,23 @@ pub struct MobileCore {
     file_access: Arc<MobileFileAccessAdapter>,
     /// SQLite 文件所在目录（启动时初始化 DB 用）
     data_dir: String,
+    /// 设备名持久化端口，落在同一个 `data_dir` 下的 `device_config.json`
+    device_config: Arc<JsonFileDeviceConfig>,
     keypair: Mutex<Option<SecretKey>>,
     /// 持有 TransferManager generic 的 NetManager
     net_manager: Mutex<Option<NetManager<TransferManager>>>,
-    /// SeaORM 连接，懒初始化（首次 start_node 时打开）
-    db: Mutex<Option<Arc<DatabaseConnection>>>,
+    /// SeaORM 连接 + 建立其上的持久化端口，懒初始化（首次 start_node 或收件箱查询时打开）
+    db: Mutex<Option<MobileDb>>,
+}
+
+/// 已打开的 SQLite 连接与建立在它之上的传输/收件箱持久化端口。
+///
+/// 两者放同一个 `Option` 而不是两个字段：`store` 就是这条连接的端口视图，
+/// 拆成两把锁就只能靠注释维持「同时有、同时无」。
+#[derive(Clone)]
+struct MobileDb {
+    connection: Arc<DatabaseConnection>,
+    store: Arc<dyn TransferStore>,
 }
 
 #[uniffi::export]
@@ -46,13 +62,14 @@ impl MobileCore {
     ) -> Arc<Self> {
         // 进程级 panic hook —— 只装一次,后续可用 take_last_panic() 取详情
         crate::panic_hook::install();
-        // keychain 先建好 Arc,事件总线也持有它一份 —— Identify 刷新的设备名
-        // 由事件总线写回 keychain(见 MobileEventBusAdapter::publish)。
+        // 适配器先建好 Arc,事件总线也持有它一份 —— Identify 刷新的设备名
+        // 由事件总线经 PairedDeviceStore 端口写回(见 MobileEventBusAdapter::publish)。
         let keychain = Arc::new(MobileKeychainAdapter::new(keychain));
         Arc::new(Self {
             event_bus: Arc::new(MobileEventBusAdapter::new(event_bus, keychain.clone())),
             keychain,
             file_access: Arc::new(MobileFileAccessAdapter::new(file_access)),
+            device_config: Arc::new(JsonFileDeviceConfig::new(device_config_path(&data_dir))),
             data_dir,
             keypair: Mutex::new(None),
             net_manager: Mutex::new(None),
@@ -76,6 +93,33 @@ impl MobileCore {
 impl MobileCore {
     pub(crate) fn keychain(&self) -> &dyn KeychainProvider {
         self.keychain.as_ref()
+    }
+
+    /// 已配对设备列表端口 —— 与 [`Self::keychain`] 同一个适配器的另一个 impl。
+    /// 列表算法都在 `swarmdrop_core::paired_devices`,这里只交出端口。
+    pub(crate) fn paired_device_store(&self) -> &dyn PairedDeviceStore {
+        self.keychain.as_ref()
+    }
+
+    /// 同上,`start_node` 这类要长期持有端口的调用方用 Arc 版本。
+    pub(crate) fn paired_device_store_arc(&self) -> Arc<dyn PairedDeviceStore> {
+        self.keychain.clone()
+    }
+
+    /// 设备名持久化端口 —— `get_device_name` / `rename_device` 两个导出直接用它。
+    pub(crate) fn device_config(&self) -> &dyn DeviceConfig {
+        self.device_config.as_ref()
+    }
+
+    /// 同上，`start_node` 这类要长期持有端口的调用方用 Arc 版本。
+    pub(crate) fn device_config_arc(&self) -> Arc<dyn DeviceConfig> {
+        self.device_config.clone()
+    }
+
+    /// 事件总线端口 —— 只在一次调用里用的场合取这个引用；
+    /// `start_node` 那种要长期持有的用 [`Self::event_bus_arc`]。
+    pub(crate) fn event_bus(&self) -> &dyn EventBus {
+        self.event_bus.as_ref()
     }
 
     pub(crate) fn event_bus_arc(&self) -> Arc<MobileEventBusAdapter> {
@@ -138,16 +182,35 @@ impl MobileCore {
     }
 
     pub(crate) async fn ensure_db(&self) -> FfiResult<Arc<DatabaseConnection>> {
-        {
-            let guard = self.db.lock().await;
-            if let Some(db) = guard.as_ref() {
-                return Ok(db.clone());
-            }
+        Ok(self.ensure_db_ready().await?.connection)
+    }
+
+    /// 传输 / 收件箱持久化端口 —— **全进程唯一的那一份**。
+    ///
+    /// 注入 `TransferManager` 的与 `MobileCore` 自持的是**同一个 `Arc`**，
+    /// 不是两个各自包装同一条连接的实例：只有这样「宿主经端口读收件箱」与
+    /// 「传输域经端口写收件箱」才是同一个对象上的两种用法，而不是两条平行的路。
+    /// 顺带的收益是收件箱查询不依赖节点是否启动 —— 它按定义就是与网络无关的内容账本。
+    pub(crate) async fn ensure_store(&self) -> FfiResult<Arc<dyn TransferStore>> {
+        Ok(self.ensure_db_ready().await?.store)
+    }
+
+    /// 整段持锁打开数据库：check-then-act 会让并发首调各开一次库、各建一个 store，
+    /// 正是上面那条纪律要杜绝的分叉。
+    async fn ensure_db_ready(&self) -> FfiResult<MobileDb> {
+        let mut guard = self.db.lock().await;
+        if let Some(ready) = guard.as_ref() {
+            return Ok(ready.clone());
         }
-        let db = open_db(&self.data_dir).await?;
-        let db_arc = Arc::new(db);
-        *self.db.lock().await = Some(db_arc.clone());
-        Ok(db_arc)
+        let connection = Arc::new(open_db(&self.data_dir).await?);
+        let ready = MobileDb {
+            store: Arc::new(swarmdrop_storage_sql::SqlSessionStore::new(
+                connection.clone(),
+            )),
+            connection,
+        };
+        *guard = Some(ready.clone());
+        Ok(ready)
     }
 }
 

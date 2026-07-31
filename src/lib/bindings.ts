@@ -7,7 +7,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	start: (pairedDevices: PairedDeviceInfo[], networkOptions: {
+	start: (networkOptions: {
 	/**
 	 *  由当前 host 提供的引导/中继节点完整地址。
 	 * 
@@ -26,7 +26,7 @@ export const commands = {
 	 *  跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
 	 */
 	publicReachability?: boolean,
-} | null) => __TAURI_INVOKE<null>("start", { pairedDevices, networkOptions }),
+} | null) => __TAURI_INVOKE<null>("start", { networkOptions }),
 	shutdown: () => __TAURI_INVOKE<null>("shutdown"),
 	listDevices: (filter: "all" | "connected" | "paired" | null) => __TAURI_INVOKE<DeviceListResult>("list_devices", { filter }),
 	getNetworkStatus: () => __TAURI_INVOKE<NetworkStatus>("get_network_status"),
@@ -36,7 +36,7 @@ export const commands = {
 	/**
 	 *  检索收件箱。`limit` 默认 20，`include_archived` 默认 false。
 	 * 
-	 *  数据库未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
+	 *  存储端口未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
 	 */
 	searchInbox: (query: string, limit: number | null, includeArchived: boolean | null) => __TAURI_INVOKE<InboxSearchHit[]>("search_inbox", { query, limit, includeArchived }),
 	getInboxItemDetail: (itemId: string) => __TAURI_INVOKE<({
@@ -62,15 +62,25 @@ export const commands = {
 	/**  读取持久化的设备名（onboarding 完成前为 `None`）。 */
 	getDeviceName: () => __TAURI_INVOKE<string | null>("get_device_name"),
 	/**
-	 *  设置设备名并持久化。
+	 *  设置设备名：落盘 + 让已连接的对端立刻看到新名字。
 	 * 
-	 *  仅写入 `device_config.json`。要让新名字通过 identify 协议的 `agent_version`
-	 *  重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
-	 *  paired_devices + network_options 上下文）。
+	 *  编排在 [`swarmdrop_core::device_name::rename_device`] 里（写盘 → 本机 `OsInfo` →
+	 *  identify `agent_version` 逐连接下发 + 主动 push → 发 `DeviceRenamed` 事件）。
+	 *  **节点不重启、连接不断、在途传输不中断。**
 	 * 
-	 *  `name = None`（或空串/纯空白）清空，回退到系统 hostname。
+	 *  「节点在不在跑」这件事由 core 的签名吸收：`guard.as_ref()` 本身就是
+	 *  `Option<&NetManager>`，节点未启动（onboarding，或设置页早于 `start`）时它是 `None`，
+	 *  core 走只落盘那条分支。宿主这侧因此不写 if/else。
+	 * 
+	 *  归一化（trim / 剥控制字符与 `;` / 40 char 截断 / 空则清空）全在
+	 *  [`DeviceName::parse`] 里，本命令不做任何就地处理 —— 三端共用同一个入口。
+	 *  `name = None`（或归一化后为空）清空，回退到系统 hostname。
+	 * 
+	 *  **返回归一化后的结果**（清空时 `None`），前端直接拿它更新本地状态。命令手里本来就握着
+	 *  `DeviceName::parse` 的产物，返回 `()` 只会逼调用方回读一次才知道真正落库的是什么。
+	 *  Web 端 `rename_device` 早就是这个形态，本次三端统一。
 	 */
-	setDeviceName: (name: string | null) => __TAURI_INVOKE<null>("set_device_name", { name }),
+	setDeviceName: (name: string | null) => __TAURI_INVOKE<string | null>("set_device_name", { name }),
 	/**
 	 *  生成一次性签名邀请串（供二维码/链接分享）。
 	 * 
@@ -135,12 +145,25 @@ export const commands = {
 	 */
 	respondPairingRequest: (pendingId: number, method: PairingMethod, response: PairingResponse) => __TAURI_INVOKE<null>("respond_pairing_request", { pendingId, method, response }),
 	/**
-	 *  取消与指定设备的配对（同步更新运行时状态）
+	 *  取消与指定设备的配对。
+	 * 
+	 *  「节点在不在跑」这条分支由 core 的 [`swarmdrop_core::paired_devices::unpair`] 吸收：节点在跑就走
+	 *  `PairingManager::unpair`（持久化 → 共享内存表 → 事件，**fail-closed**，不会再出现
+	 *  「本次运行解除了、重启又复活」）；没跑则只删持久化并由 core 补发
+	 *  `PairedDeviceRemoved`（那条路径上 `PairingManager` 根本没起）。
+	 *  桌面此前在这里手工补那条事件、移动端忘了补 —— 同一段分支写两遍必然漂。
 	 * 
 	 *  `peer_id` 为 base58 字符串，由命令内部解析为 `NodeId`。
 	 */
 	removePairedDevice: (peerId: string) => __TAURI_INVOKE<null>("remove_paired_device", { peerId }),
-	/**  更新已配对设备的可信策略。 */
+	/**
+	 *  更新已配对设备的可信策略。
+	 * 
+	 *  落盘与「节点在跑时把新值推进共享内存表」都在 core 的
+	 *  [`swarmdrop_core::paired_devices::set_receive_policy`]（否则「策略已保存、本次运行仍按旧策略裁决入站
+	 *  offer」）。存在性检查也只在那一处 —— 它找不到时已经返回 `Err`，命令层再 `find` 一遍
+	 *  是走不到的死分支。
+	 */
 	updatePairedDevicePolicy: (peerId: string, trustLevel: DeviceTrustLevel, receivePolicy: {
 	autoAccept: boolean,
 	requireConfirmation: boolean,
@@ -167,12 +190,15 @@ export const commands = {
 	rejectReceive: (sessionId: string) => __TAURI_INVOKE<null>("reject_receive", { sessionId }),
 	cancelSend: (sessionId: string) => __TAURI_INVOKE<null>("cancel_send", { sessionId }),
 	cancelReceive: (sessionId: string) => __TAURI_INVOKE<null>("cancel_receive", { sessionId }),
+	pauseSend: (sessionId: string) => __TAURI_INVOKE<null>("pause_send", { sessionId }),
+	pauseReceive: (sessionId: string) => __TAURI_INVOKE<null>("pause_receive", { sessionId }),
 	getTransferProjections: () => __TAURI_INVOKE<TransferProjection[]>("get_transfer_projections"),
 	/**  发送方向会话的源文件绝对路径（「重新发送」重建载荷用；接收方向返回空列表）。 */
 	getTransferSourcePaths: (sessionId: string) => __TAURI_INVOKE<string[]>("get_transfer_source_paths", { sessionId }),
+	/**  删除单条传输记录。走域方法而非 `store().delete_session()`——「进行中不可删」的守卫在那里。 */
 	deleteTransferSession: (sessionId: string) => __TAURI_INVOKE<null>("delete_transfer_session", { sessionId }),
+	/**  清空传输历史：只删已终态的记录，进行中与可续传的会话保留（端口契约）。 */
 	clearTransferHistory: () => __TAURI_INVOKE<null>("clear_transfer_history"),
-	pauseTransfer: (sessionId: string) => __TAURI_INVOKE<null>("pause_transfer", { sessionId }),
 	resumeTransfer: (sessionId: string) => __TAURI_INVOKE<ResumeTransferResult>("resume_transfer", { sessionId }),
 	/**
 	 *  设置全局「暂停接收」。`true`=暂停：节点保持在线可发现、配对不受影响，但对新 offer
@@ -214,11 +240,13 @@ export const commands = {
 
 /** Events */
 export const events = {
+	deviceRenamed: makeEvent<DeviceRenamed>("device-renamed"),
 	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
 	externalFileOpen: makeEvent<ExternalFileOpen>("external-file-open"),
 	externalPairInvite: makeEvent<ExternalPairInvite>("external-pair-invite"),
 	networkStatusChanged: makeEvent<NetworkStatusChanged>("network-status-changed"),
 	pairedDeviceAdded: makeEvent<PairedDeviceAdded>("paired-device-added"),
+	pairedDeviceRemoved: makeEvent<PairedDeviceRemoved>("paired-device-removed"),
 	pairingRequestReceived: makeEvent<PairingRequestReceived>("pairing-request-received"),
 	receivingPausedChanged: makeEvent<ReceivingPausedChanged>("receiving-paused-changed"),
 	transferAccepted: makeEvent<TransferAccepted>("transfer-accepted"),
@@ -314,6 +342,18 @@ export type DeviceReceivePolicy = {
 	 */
 	allowMcpAcceptFromDevice?: boolean,
 	expiresAt?: number | null,
+};
+
+/**
+ *  本机设备名已更新（落盘 + identify 广播都已完成）。事件名 `"device-renamed"`。
+ * 
+ *  前端更新设备名镜像的**唯一**入口：改名可能来自另一个窗口或 MCP 工具，让发起改名的
+ *  那个界面自己刷新覆盖不到这些来源。`displayName` 已含「空则回退 hostname」的语义
+ *  （core 的 `OsInfo::display_name()`），前端不必再写一遍那个回退。
+ */
+export type DeviceRenamed = {
+	name: string | null,
+	displayName: string,
 };
 
 /**  设备状态。 */
@@ -533,7 +573,8 @@ export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined"
  *  设备操作系统信息。
  * 
  *  `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
- *  `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+ *  `name` 是用户在 onboarding / 设置里起的名字（持久化），由 core 的组合根从
+ *  [`DeviceConfig`](crate::ports::DeviceConfig) 端口填充，UI 显示按
  *  `name.as_deref().unwrap_or(&hostname)` 回退。
  */
 export type OsInfo = {
@@ -585,6 +626,14 @@ export type PairedDeviceInfo = {
 	receivePolicy?: DeviceReceivePolicy,
 	trustConfirmed?: boolean,
 } & OsInfo;
+
+/**
+ *  已解除配对的设备 PeerId（base58）。事件名 `"paired-device-removed"`。
+ * 
+ *  它是前端移除该设备的**唯一**入口：命令自己不再顺手改本地状态，否则同一条记录
+ *  会被两条路径各删一次，谁先谁后取决于时序。
+ */
+export type PairedDeviceRemoved = string;
 
 /**
  *  配对方式。

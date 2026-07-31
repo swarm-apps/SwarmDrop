@@ -24,6 +24,20 @@ pub struct NetworkStatusChanged(pub NetworkStatus);
 #[serde(transparent)]
 pub struct DevicesChanged(pub Vec<Device>);
 
+// === 本机设备 ===
+
+/// 本机设备名已更新（落盘 + identify 广播都已完成）。事件名 `"device-renamed"`。
+///
+/// 前端更新设备名镜像的**唯一**入口：改名可能来自另一个窗口或 MCP 工具，让发起改名的
+/// 那个界面自己刷新覆盖不到这些来源。`displayName` 已含「空则回退 hostname」的语义
+/// （core 的 `OsInfo::display_name()`），前端不必再写一遍那个回退。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceRenamed {
+    pub name: Option<String>,
+    pub display_name: String,
+}
+
 // === 配对 ===
 
 /// 配对请求 payload：原 core 事件含 PeerId（非 specta-friendly），在此 host 层
@@ -44,6 +58,14 @@ pub struct PairingRequestReceived(pub PairingRequestPayload);
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 #[serde(transparent)]
 pub struct PairedDeviceAdded(pub PairedDeviceInfo);
+
+/// 已解除配对的设备 PeerId（base58）。事件名 `"paired-device-removed"`。
+///
+/// 它是前端移除该设备的**唯一**入口：命令自己不再顺手改本地状态，否则同一条记录
+/// 会被两条路径各删一次，谁先谁后取决于时序。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct PairedDeviceRemoved(pub String);
 
 // === 传输 ===
 

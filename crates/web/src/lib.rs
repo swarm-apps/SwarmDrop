@@ -15,6 +15,8 @@ pub mod types;
 #[cfg(wasm_browser)]
 mod abort;
 #[cfg(wasm_browser)]
+mod device_config;
+#[cfg(wasm_browser)]
 mod env;
 #[cfg(wasm_browser)]
 mod error;
@@ -29,11 +31,15 @@ mod idb;
 #[cfg(wasm_browser)]
 mod identity;
 #[cfg(wasm_browser)]
+mod inbox;
+#[cfg(wasm_browser)]
 mod invite_store;
 #[cfg(wasm_browser)]
 mod node;
 #[cfg(wasm_browser)]
 mod opfs;
+#[cfg(wasm_browser)]
+mod paired_devices;
 #[cfg(wasm_browser)]
 mod serialize;
 #[cfg(wasm_browser)]
@@ -42,8 +48,9 @@ mod store;
 #[cfg(wasm_browser)]
 pub use node::WebNode;
 pub use types::{
-    ConnectionJson, Device, InviteListItemJson, OfferJson, PendingPairingJson, RelayInfoJson,
-    RelayStateKind, WebError, WebTransferEvent,
+    ConnectionJson, Device, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
+    InboxSearchHit, InviteListItemJson, OfferJson, PairInvitePreviewJson, PendingPairingJson,
+    RelayInfoJson, RelayStateKind, WebError, WebTransferEvent,
 };
 
 /// wasm 模块加载即初始化 panic hook + tracing（浏览器 console）。

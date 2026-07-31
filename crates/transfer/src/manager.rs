@@ -261,6 +261,34 @@ impl TransferManager {
     pub fn file_access(&self) -> &Arc<dyn FileAccess> {
         &self.file_access
     }
+
+    /// 宿主取回自己注入的持久化端口。
+    ///
+    /// 分工：**纯读**（`list_transfer_projections` / `get_transfer_projection` /
+    /// `get_session_source_paths`）与**无生命周期语义的写**（`update_session_origin`）
+    /// 经此直接调；**带生命周期语义的删除**走 [`Self::delete_session`] 这类域方法，
+    /// 不许绕过守卫直接打 `store().delete_session()`。
+    ///
+    /// 宿主不得再另存一份 ORM 连接做传输查询——那是这个 accessor 缺席时被逼出来的影子副本。
+    pub fn store(&self) -> &Arc<dyn TransferStore> {
+        &self.store
+    }
+
+    /// 删除一条传输记录（域方法，三端删除的唯一入口）。
+    ///
+    /// 非终态一律拒绝：进行中的会话有活 actor 在写 checkpoint，删掉行只会留下孤儿。
+    /// 判据是 [`crate::store::is_deletable`]（terminal | suspended），与 UI 的按钮
+    /// 可见性同源。会话不存在时视作已删除，返回 `Ok`。
+    pub async fn delete_session(&self, session_id: Uuid) -> AppResult<()> {
+        if let Some(session) = self.store.find_session(session_id).await?
+            && !crate::store::is_deletable(&session)
+        {
+            return Err(crate::AppError::Transfer(
+                "传输进行中，无法删除记录；请先取消该传输".into(),
+            ));
+        }
+        self.store.delete_session(session_id).await
+    }
 }
 
 impl TransferRuntime for TransferManager {

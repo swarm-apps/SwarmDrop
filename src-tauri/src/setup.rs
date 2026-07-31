@@ -84,11 +84,12 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::reject_receive,
             commands::cancel_send,
             commands::cancel_receive,
+            commands::pause_send,
+            commands::pause_receive,
             commands::get_transfer_projections,
             commands::get_transfer_source_paths,
             commands::delete_transfer_session,
             commands::clear_transfer_history,
-            commands::pause_transfer,
             commands::resume_transfer,
             commands::set_receiving_paused,
             commands::is_receiving_paused,
@@ -108,6 +109,8 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::DevicesChanged,
             events::PairingRequestReceived,
             events::PairedDeviceAdded,
+            events::PairedDeviceRemoved,
+            events::DeviceRenamed,
             events::TransferOffer,
             events::TransferProgress,
             events::TransferAccepted,
@@ -244,11 +247,26 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
         // 数据库（SeaORM + SQLite）—— 同步执行 + 启动清理过期会话
         let handle = app.handle().clone();
         let db = tauri::async_runtime::block_on(crate::database::init_database(&handle))?;
+
+        // 传输域持久化端口的**唯一**构造点（openspec: inbox-store-port-completion design D5）。
+        //
+        // 注入 `TransferManager` 的（`commands::start` 的工厂闭包从 state 里取的就是这一份）
+        // 与宿主自持的（收件箱命令、MCP 工具、启动清理）**必须是同一个 `Arc`**，
+        // 不是两个包装同一条连接的实例——后者等于凭空多出一个事实源，
+        // 缓存、事务与将来的进程内状态都会在两份实例之间悄悄分叉。
+        //
+        // 托管端口而非节点：收件箱按定义是与网络无关的内容账本，
+        // 「没联网也能翻已经收到的东西」不该退化成「先启动节点」。
+        let transfer_store: crate::database::TransferStoreState = Arc::new(
+            swarmdrop_storage_sql::SqlSessionStore::new(Arc::new(db.clone())),
+        );
+
         let cleanup_event_bus: Arc<dyn swarmdrop_core::host::EventBus> = Arc::new(event_bus);
         tauri::async_runtime::block_on(crate::database::cleanup_stale_sessions(
-            &db,
+            &transfer_store,
             cleanup_event_bus,
         ))?;
+        app.manage(transfer_store);
         app.manage(db);
 
         // MCP server 状态容器

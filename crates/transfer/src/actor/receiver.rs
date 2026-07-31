@@ -706,6 +706,10 @@ impl ReceiverActor {
     }
 
     /// 接收完成后创建收件箱索引；失败只作为 DB 附加错误上报，不回滚已完成传输。
+    ///
+    /// 端口返回的 `Option<InboxItemDetail>` 在这条路径上刻意不消费（它是给
+    /// `repair_missing_inbox_items_for_completed_receives` 复用 `ensure_*` 用的）：
+    /// 接收侧只关心成功与否。
     async fn ensure_inbox_item_after_completion(&self) {
         if let Err(e) = self
             .store

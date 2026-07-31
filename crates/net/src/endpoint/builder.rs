@@ -68,6 +68,9 @@ impl Builder {
     }
 
     /// identify 的 agent_version（可携带设备能力信息）。
+    ///
+    /// 这里设的只是初值：运行期改用 [`Endpoint::set_agent_version`]，它会即时向
+    /// 已连接对端 push，无需重建节点。
     pub fn agent_version(mut self, agent: impl Into<String>) -> Self {
         self.config.agent_version = agent.into();
         self

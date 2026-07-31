@@ -25,6 +25,18 @@ export function isActiveSession(projection: TransferProjection): boolean {
   return projection.phase !== "terminal";
 }
 
+/**
+ * 会话记录是否可删除：仅已结束与已中断（suspended）。
+ *
+ * 与内核域层守卫 `swarmdrop_transfer::store::is_deletable` 同一判据——按钮可见性只是第一道，
+ * 绕过它直调 `delete_transfer_session()` 会被 `TransferManager::delete_session` 拒掉。
+ * **不要拿 `isActiveSession` 取反**：那条判的是「还没结束」（suspended 算在内，导航徽标要数它），
+ * 而 suspended 是可以删的——它没有活 actor，代价只是断点信息一并消失。
+ */
+export function isDeletableSession(projection: TransferProjection): boolean {
+  return projection.phase === "terminal" || projection.phase === "suspended";
+}
+
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

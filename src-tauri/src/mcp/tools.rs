@@ -15,13 +15,15 @@ use std::sync::Arc;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::{ErrorData, schemars, tool, tool_router};
-use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
+use swarmdrop_core::transfer::inbox::{InboxItemDetail, InboxItemSummary, InboxSearchHit};
 use swarmdrop_core::transfer::manager::TransferManager;
+use swarmdrop_core::transfer::store::TransferProjection;
 use tauri::Manager;
 use uuid::Uuid;
 
 use super::McpHandler;
+use crate::database::TransferStoreState;
 use crate::device::{DeviceFilter, DeviceStatus};
 use crate::host::file_source::{EnumeratedFile, FileSource};
 use crate::network::NetManagerState;
@@ -47,6 +49,22 @@ async fn resolve_transfer(app: &tauri::AppHandle) -> Option<Arc<TransferManager>
     let state = app.state::<NetManagerState>();
     let guard = state.lock().await;
     guard.as_ref().map(|m| m.transfer_arc())
+}
+
+/// 辅助：取会话的传输方向（cancel_transfer / pause_transfer 按方向分派共用）。
+///
+/// 方向是持久化里现成的事实，取一次即可分派；不做「先试发送失败再试接收」的试错——
+/// 那会把一条真实错误藏进两串拼接文案里，agent 拿到的诊断信息反而更差。
+/// 失败返回**已构造好**的 MCP 错误结果供调用方直接 `return`。
+async fn session_direction(
+    transfer: &TransferManager,
+    session_id: Uuid,
+) -> Result<entity::TransferDirection, Result<CallToolResult, ErrorData>> {
+    match transfer.store().find_session(session_id).await {
+        Ok(Some(session)) => Ok(session.direction),
+        Ok(None) => Err(mcp_error(format!("未找到传输会话: {session_id}"))),
+        Err(e) => Err(mcp_error(format!("查询失败: {e}"))),
+    }
 }
 
 /// 辅助：定位挂起入站 offer 并校验 MCP 代收门控（accept_transfer / reject_transfer 共用）。
@@ -376,17 +394,17 @@ impl McpHandler {
         &self,
         Parameters(params): Parameters<SearchInboxParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+        let Some(store) = self.app.try_state::<TransferStoreState>() else {
             return mcp_error("数据库尚未就绪，检索暂不可用");
         };
         let limit = params.limit.unwrap_or(20) as usize;
-        let hits = match crate::database::inbox::search_inbox(
-            &db,
-            &params.query,
-            limit,
-            params.include_archived.unwrap_or(false),
-        )
-        .await
+        let hits = match store
+            .search_inbox(
+                &params.query,
+                limit,
+                params.include_archived.unwrap_or(false),
+            )
+            .await
         {
             Ok(hits) => hits,
             Err(e) => return mcp_error(format!("检索失败: {e}")),
@@ -408,13 +426,13 @@ impl McpHandler {
         &self,
         Parameters(params): Parameters<GetInboxFileParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+        let Some(store) = self.app.try_state::<TransferStoreState>() else {
             return mcp_error("数据库尚未就绪，暂不可用");
         };
         let Ok(item_id) = Uuid::parse_str(&params.item_id) else {
             return mcp_error(format!("无效的条目 id: {}", params.item_id));
         };
-        let detail = match crate::database::inbox::get_inbox_item_detail(&db, item_id).await {
+        let detail = match store.get_inbox_item_detail(item_id).await {
             Ok(Some(detail)) => detail,
             Ok(None) => return mcp_error(format!("未找到收件箱条目: {item_id}")),
             Err(e) => return mcp_error(format!("查询失败: {e}")),
@@ -450,13 +468,17 @@ impl McpHandler {
         &self,
         Parameters(params): Parameters<ListTransfersParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+        // 账本查询不经 TransferManager：传输历史与节点在不在跑无关（见
+        // `commands::transfer` 的同一条注释）。cancel / pause / resume / accept / reject
+        // 才是真要 manager 的那几个。
+        let Some(store) = self.app.try_state::<TransferStoreState>() else {
             return mcp_error("数据库尚未就绪，暂不可用");
         };
-        let mut projections = match crate::database::ops::get_transfer_projections(&db).await {
+        let mut projections = match store.list_transfer_projections().await {
             Ok(p) => p,
             Err(e) => return mcp_error(format!("查询失败: {e}")),
         };
+        // 端口按 started_at 倒序给（确定性契约），MCP 要的是 updated_at 倒序 —— 两者并存。
         projections.sort_by_key(|p| std::cmp::Reverse(p.updated_at));
         let limit = params.limit.unwrap_or(20) as usize;
         let out: Vec<McpTransfer> = projections
@@ -477,13 +499,13 @@ impl McpHandler {
         &self,
         Parameters(params): Parameters<TransferSessionParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
-            return mcp_error("数据库尚未就绪，暂不可用");
-        };
         let Ok(session_id) = Uuid::parse_str(&params.session_id) else {
             return mcp_error(format!("无效的 session_id: {}", params.session_id));
         };
-        match crate::database::ops::get_transfer_projection(&db, session_id).await {
+        let Some(store) = self.app.try_state::<TransferStoreState>() else {
+            return mcp_error("数据库尚未就绪，暂不可用");
+        };
+        match store.get_transfer_projection(session_id).await {
             Ok(Some(p)) => {
                 let json = serde_json::to_string_pretty(&McpTransfer::from(p)).unwrap_or_default();
                 mcp_ok(json)
@@ -508,13 +530,17 @@ impl McpHandler {
         let Some(transfer) = resolve_transfer(&self.app).await else {
             return mcp_error("P2P 网络节点未启动，请先在 SwarmDrop 应用中启动网络");
         };
-        // 取消方向未知：先按发送方取消，失败再按接收方取消（与 commands::transfer::pause_transfer 同模式）。
-        match transfer.cancel_send(&session_id).await {
+        let direction = match session_direction(&transfer, session_id).await {
+            Ok(d) => d,
+            Err(err) => return err,
+        };
+        let result = match direction {
+            entity::TransferDirection::Send => transfer.cancel_send(&session_id).await,
+            entity::TransferDirection::Receive => transfer.cancel_receive(&session_id).await,
+        };
+        match result {
             Ok(()) => mcp_ok(format!("已取消传输 {session_id}")),
-            Err(send_err) => match transfer.cancel_receive(&session_id).await {
-                Ok(()) => mcp_ok(format!("已取消传输 {session_id}")),
-                Err(recv_err) => mcp_error(format!("取消失败: {send_err}; {recv_err}")),
-            },
+            Err(e) => mcp_error(format!("取消失败: {e}")),
         }
     }
 
@@ -530,12 +556,17 @@ impl McpHandler {
         let Some(transfer) = resolve_transfer(&self.app).await else {
             return mcp_error("P2P 网络节点未启动，请先在 SwarmDrop 应用中启动网络");
         };
-        match transfer.pause_send(&session_id).await {
+        let direction = match session_direction(&transfer, session_id).await {
+            Ok(d) => d,
+            Err(err) => return err,
+        };
+        let result = match direction {
+            entity::TransferDirection::Send => transfer.pause_send(&session_id).await,
+            entity::TransferDirection::Receive => transfer.pause_receive(&session_id).await,
+        };
+        match result {
             Ok(()) => mcp_ok(format!("已暂停传输 {session_id}")),
-            Err(send_err) => match transfer.pause_receive(&session_id).await {
-                Ok(()) => mcp_ok(format!("已暂停传输 {session_id}")),
-                Err(recv_err) => mcp_error(format!("暂停失败: {send_err}; {recv_err}")),
-            },
+            Err(e) => mcp_error(format!("暂停失败: {e}")),
         }
     }
 
@@ -579,11 +610,11 @@ impl McpHandler {
         &self,
         Parameters(params): Parameters<ListInboxParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+        let Some(store) = self.app.try_state::<TransferStoreState>() else {
             return mcp_error("数据库尚未就绪，暂不可用");
         };
         let include_archived = params.include_archived.unwrap_or(false);
-        let items = match crate::database::inbox::list_inbox_items(&db, include_archived).await {
+        let items = match store.list_inbox_items(include_archived).await {
             Ok(items) => items,
             Err(e) => return mcp_error(format!("查询失败: {e}")),
         };
@@ -609,13 +640,13 @@ impl McpHandler {
         &self,
         Parameters(params): Parameters<GetInboxItemParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+        let Some(store) = self.app.try_state::<TransferStoreState>() else {
             return mcp_error("数据库尚未就绪，暂不可用");
         };
         let Ok(item_id) = Uuid::parse_str(&params.item_id) else {
             return mcp_error(format!("无效的条目 id: {}", params.item_id));
         };
-        let detail = match crate::database::inbox::get_inbox_item_detail(&db, item_id).await {
+        let detail = match store.get_inbox_item_detail(item_id).await {
             Ok(Some(detail)) => detail,
             Ok(None) => return mcp_error(format!("未找到收件箱条目: {item_id}")),
             Err(e) => return mcp_error(format!("查询失败: {e}")),
@@ -670,14 +701,13 @@ impl McpHandler {
                     .peer
                     .peer_info()
                     .map(|info| info.client_info.name.clone());
-                if let Some(db) = self.app.try_state::<DatabaseConnection>() {
-                    let _ = crate::database::ops::update_session_origin(
-                        &db,
+                let _ = transfer
+                    .store()
+                    .update_session_origin(
                         session_id,
                         swarmdrop_core::protocol::TransferOrigin::Mcp { client },
                     )
                     .await;
-                }
                 let response = serde_json::json!({
                     "sessionId": session_id.to_string(),
                     "savePath": save_path,
@@ -762,13 +792,13 @@ impl McpHandler {
         &self,
         Parameters(params): Parameters<ArchiveInboxItemParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+        let Some(store) = self.app.try_state::<TransferStoreState>() else {
             return mcp_error("数据库尚未就绪，暂不可用");
         };
         let Ok(item_id) = Uuid::parse_str(&params.item_id) else {
             return mcp_error(format!("无效的条目 id: {}", params.item_id));
         };
-        match crate::database::inbox::archive_inbox_item(&db, item_id, params.archived).await {
+        match store.archive_inbox_item(item_id, params.archived).await {
             Ok(()) => mcp_ok(format!(
                 "已{}收件箱条目 {item_id}",
                 if params.archived {
@@ -790,15 +820,16 @@ impl McpHandler {
         &self,
         Parameters(params): Parameters<ExportInboxItemParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let Some(db) = self.app.try_state::<DatabaseConnection>() else {
+        let Some(store) = self.app.try_state::<TransferStoreState>() else {
             return mcp_error("数据库尚未就绪，暂不可用");
         };
         let Ok(item_id) = Uuid::parse_str(&params.item_id) else {
             return mcp_error(format!("无效的条目 id: {}", params.item_id));
         };
-        // 委托既有命令，别在此内联重写导出逻辑：命令经 `ensure_file_exists`，文件缺失时会
-        // 回写 DB 的 missing 标志、保持 DB 与磁盘一致——内联版漏了这个副作用。
-        match crate::commands::export_inbox_item(db, item_id, params.destination_dir.clone()).await
+        // 委托既有命令，别在此内联重写导出逻辑：命令经 `ensure_local_target_exists`，文件缺失时会
+        // 回写 missing 标志、保持账本与磁盘一致——内联版漏了这个副作用。
+        match crate::commands::export_inbox_item(store, item_id, params.destination_dir.clone())
+            .await
         {
             Ok(()) => mcp_ok(
                 serde_json::json!({
@@ -843,8 +874,8 @@ impl McpHandler {
             return mcp_error("设备身份未解锁，请先在 SwarmDrop 应用中解锁后重试");
         };
 
-        // 复用既有 start：内部从 keychain 自取已配对设备；network_options=None 走默认设置。
-        match crate::commands::start(self.app.clone(), secret_key, Vec::new(), None).await {
+        // 复用既有 start：已配对设备由 core 从端口自取；network_options=None 走默认设置。
+        match crate::commands::start(self.app.clone(), secret_key, None).await {
             Ok(()) => {
                 let state = self.app.state::<NetManagerState>();
                 let guard = state.lock().await;
@@ -1186,8 +1217,8 @@ struct McpInboxHitFile {
     relative_path: String,
 }
 
-impl From<crate::database::inbox::InboxSearchHit> for McpInboxHit {
-    fn from(hit: crate::database::inbox::InboxSearchHit) -> Self {
+impl From<InboxSearchHit> for McpInboxHit {
+    fn from(hit: InboxSearchHit) -> Self {
         Self {
             id: hit.id.to_string(),
             title: hit.title,
@@ -1280,8 +1311,8 @@ struct McpTransferFile {
     transferred_bytes: i64,
 }
 
-impl From<crate::database::ops::TransferProjection> for McpTransfer {
-    fn from(p: crate::database::ops::TransferProjection) -> Self {
+impl From<TransferProjection> for McpTransfer {
+    fn from(p: TransferProjection) -> Self {
         let direction = match p.direction {
             entity::TransferDirection::Send => "send",
             entity::TransferDirection::Receive => "receive",
@@ -1346,8 +1377,8 @@ struct McpInboxItem {
     missing: bool,
 }
 
-impl From<crate::database::inbox::InboxItemSummary> for McpInboxItem {
-    fn from(s: crate::database::inbox::InboxItemSummary) -> Self {
+impl From<InboxItemSummary> for McpInboxItem {
+    fn from(s: InboxItemSummary) -> Self {
         Self {
             id: s.id.to_string(),
             title: s.title,
@@ -1382,8 +1413,8 @@ struct McpInboxDetailFile {
     missing: bool,
 }
 
-impl From<crate::database::inbox::InboxItemDetail> for McpInboxItemDetail {
-    fn from(detail: crate::database::inbox::InboxItemDetail) -> Self {
+impl From<InboxItemDetail> for McpInboxItemDetail {
+    fn from(detail: InboxItemDetail) -> Self {
         let files = detail
             .files
             .into_iter()

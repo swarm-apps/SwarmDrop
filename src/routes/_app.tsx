@@ -21,6 +21,14 @@ import {
   setupTransferListeners,
   cleanupTransferListeners,
 } from "@/stores/transfer-store";
+import {
+  cleanupSecretListeners,
+  setupSecretListeners,
+} from "@/stores/secret-store";
+import {
+  cleanupDeviceNameListener,
+  setupDeviceNameListener,
+} from "@/lib/device-name";
 
 export const Route = createFileRoute("/_app")({
   component: AppLayout,
@@ -36,6 +44,22 @@ function AppLayout() {
     setupTransferListeners();
     return () => {
       cleanupTransferListeners();
+    };
+  }, []);
+
+  // 已配对设备的解除事件。挂应用生命周期(不是节点生命周期):节点停着时同样能解除配对。
+  useEffect(() => {
+    setupSecretListeners();
+    return () => {
+      cleanupSecretListeners();
+    };
+  }, []);
+
+  // 本机改名。同样挂应用生命周期:节点停着也能改名,且改名来源可能是另一个窗口或 MCP。
+  useEffect(() => {
+    setupDeviceNameListener();
+    return () => {
+      cleanupDeviceNameListener();
     };
   }, []);
 

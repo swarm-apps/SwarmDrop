@@ -4,10 +4,14 @@
 >
 > 落地结果：
 > - `crates/core` **零 sea-orm 依赖**
-> - 端口 trait（`SessionStore` / `InboxStore`）在 `crates/transfer/src/store.rs`
+> - 端口 trait（`SessionStore` / `InboxStore`）在 `crates/transfer/src/store.rs`；
+>   两者**都已补全** —— `SessionStore` 覆盖运行时写路径 + 历史管理，`InboxStore` 覆盖
+>   收件箱的全部 10 类操作，宿主经 `TransferManager::store()` 取回（见「端口覆盖范围」一节）
+> - 收件箱的**领域规则**（标题 / 内容指纹 / 聚合文本 / 来源分类 / 命中判据 / 片段）
+>   住在 `crates/transfer/src/inbox.rs`，各存储实现调它，不各写一份
 > - SQL 实现独立成 **`crates/storage-sql`**（native-only），宿主在组装点注入
 > - `crates/entity` 的 sea-orm 已 feature 解绑（Web 端可只吃类型宏）
-> - Web 端走内存 store + OPFS，不依赖 storage-sql
+> - Web 端走 IndexedDB（会话表 + **独立的收件箱表**）+ OPFS，不依赖 storage-sql
 >
 > **读法**：以「切割线为什么划在 `DatabaseConnection` 而不是 `entity`」「SendWrapper 为何
 > 免改 trait 签名」这类判断依据为主；文中「第 0 步 / trait 层未做」等进度描述已过时。
@@ -23,10 +27,13 @@
 
 网络侧的结论在 [libp2p-wasm.md](libp2p-wasm.md)，两份不重叠。
 
-> **当前状态（2026-07-27 更新）：Web 端 IndexedDB `SessionStore` 已落地（`#81`）。**
-> `crates/web/src/store.rs` 的 `PersistentSessionStore` = 内存读缓存 + IndexedDB 写穿，
-> 低层读写收在 `crates/web/src/idb.rs`。本文预判的两条都成立：**trait 签名一个字没改**，
-> `SendWrapper` 裹 JsFuture 满足 Send；**entity 的 `Model` 直接上签名**、wasm 编译无碍。
+> **当前状态（2026-07-31 更新）：Web 端 IndexedDB 已覆盖 `SessionStore` + `InboxStore`。**
+> `crates/web/src/store.rs` 的 `WebTransferStore`（原名 `PersistentSessionStore`，
+> 加了真收件箱表之后「SessionStore」这个名字就是个谎，改名对齐它满足的合并端口
+> `TransferStore`）= 内存读缓存 + IndexedDB 写穿；收件箱表拆在
+> `crates/web/src/inbox.rs`（`WebInboxTable`），低层读写仍收在 `crates/web/src/idb.rs`。
+> 本文预判的两条都成立：**trait 签名一个字没改**，`SendWrapper` 裹 JsFuture 满足 Send；
+> **entity 的 `Model` 直接上签名**、wasm 编译无碍。
 > 四条本文没预判到的实测细节见下方「Web 侧落地实测」。
 >
 > **（2026-07-19）sea-orm 已彻底摘出 core（openspec: core-wasm-ready）。**
@@ -119,9 +126,11 @@ wasm32 不开 atomics 时是单线程，永不触发；**一旦启用 wasm threa
    整个包在一个 pub fn 内。⇒ 只要 trait 取「用例级」粒度（`create_session` 而非
    `insert_session_row` + `insert_file_row`），事务就是实现细节。
 
-3. **`InboxStore` 可以先不实现**。core 内唯一调用点是 `transfer/actor/receiver.rs:657`，
+3. ~~**`InboxStore` 可以先不实现**~~（**2026-07-31 已推翻**，见「端口覆盖范围」一节的
+   收件箱那半）。当时的理由是：core 内唯一调用点是 `transfer/actor/receiver.rs:657`，
    而 `receiver.rs:656` 的注释已写明「失败只作为 DB 附加错误上报，**不回滚已完成传输**」——
-   现成的降级点。
+   现成的降级点。这条**只成立于「收件箱只有一个写入口」的时候**：它算漏了列表 / 检索 /
+   归档 / 软删这些**管理类**读写，那些没有降级点，不实现就是 Web 端根本没有收件箱。
 
 ### 第 0 步（零风险，无论 Web 走哪条路都该做）
 
@@ -232,6 +241,154 @@ pub trait SessionStore: Send + Sync {
 
 与既有 6 个 host trait 完全同构。错误类型沿用 `AppResult`。
 
+### 端口覆盖范围：运行时写路径 + 历史管理 + 收件箱，缺一不可
+
+**（2026-07-31 更新，openspec: `transfer-store-port-completion` + `inbox-store-port-completion`）**
+
+trait 抽出来之后，覆盖的其实只有一半：建会话、写 checkpoint、落 outboard、按状态机
+转换持久化 —— 全是**运行时写路径**。**历史管理**那六类（列表投影 / 删单条 / 清空 /
+取源路径 / 过期回收 / 标记 origin）整组留在 trait 之外，靠宿主直接打 `storage-sql` 的
+自由函数。后果是 Web 端补到一半就补不下去：它能续传，却删不掉一条历史（issue #104）。
+
+六类现已全部进 `SessionStore`，端口不再有「一半在 trait 外」的状态。两条配套纪律：
+
+1. **宿主取回 store 的唯一正路是 `TransferManager::store()`**（accessor 与 `file_access()`
+   同形，返回 `&Arc<dyn TransferStore>`）。宿主不得再另存一份 ORM 连接做传输查询 ——
+   那份影子副本正是 accessor 缺席时被逼出来的，推导见
+   [rust-backend.md 的「端口要有出口」](rust-backend.md)。
+2. **带生命周期语义的删除走域方法，不走端口。** `TransferManager::delete_session()`
+   先用共享判据 `transfer::store::is_deletable`（terminal | suspended）挡住进行中的会话，
+   再委托 `store().delete_session()`。守卫放存储实现里会重复两份、且存储层不该持有生命周期
+   策略；放各端 UI 则 MCP 与 wasm 导出都绕得过。accessor 因此只服务**纯读**与
+   **无生命周期语义的写**（`update_session_origin`）。
+
+顺带一条签名纪律：端口方法一律纯 DTO，`#[sea_orm::model]` 生成的 `ModelEx`
+（带 `HasOne` / `HasMany` 关系字段）**不许上 trait** —— 它会把 sea-orm 的关系机制拖进
+必须编 wasm 的 crate。`ModelEx → DTO` 的转换发生在 `SqlSessionStore` 的方法体内部。
+纯 scalar 的 `Model` 不受此限（见「总判决」第一条），`content_root_of` 的签名改吃
+`&[transfer_file::Model]` 之后，Web 侧那份「为避开 `ModelEx` 而抄的同语义副本」直接删掉了。
+**这条破功只在 wasm target 上暴露**，`cargo check --workspace` 抓不到 ——
+每个 Rust 阶段结束都要跑一次 `./scripts/check-wasm.sh`，别留到最后。
+
+**桌面的 `DatabaseConnection` State 已收窄到两处**：`database.rs` 的连接初始化，以及
+`lifecycle.rs` 里给 `SqlInviteStore` 用的那一份。传输与收件箱的读写一条不剩地走端口。
+
+#### 收件箱那半：`InboxStore` 1 → 10
+
+`InboxStore` 一度只有 `ensure_inbox_item_for_completed_receive_session` 一个方法，
+另外 9 类操作（列表 / 检索 / 详情 / 按会话查 / 标已读 / 归档 / 软删 / 标文件缺失 / 修复）
+是 `crates/storage-sql/src/inbox.rs` 里的 pub 自由函数，桌面、MCP、移动三端各自直调。
+病灶与历史管理那半完全同型：**端口比底下的能力弱，于是宿主绕过端口**。
+
+补全时定下的四条，都不止适用于收件箱：
+
+1. **端口不能比底层能力弱，否则复用会被逼成复制。**
+   `ensure_inbox_item_for_completed_receive_session` 原本返回 `()`（SQL 实现用 `.map(|_| ())`
+   把 `Option<InboxItemDetail>` 丢掉），于是 `repair_missing_inbox_items_for_completed_receives`
+   **没法用端口的 `ensure_*` 实现**，只能在每个存储实现里各写一遍「查重 + 构造条目」。
+   改成返回 `Option<InboxItemDetail>` 之后，两端的 repair 都是「循环里调 ensure」。
+   判据不是「信息更全更好」，是**「弱返回值会让上层能力没法用下层能力搭出来」**。
+2. **同一条安全检查只有一个宿主做，就说明它该进端口。**
+   `mark_inbox_item_file_missing` 原签名是 `(file_id, missing)` —— 靠 `inbox_item_files`
+   自增主键全局唯一。移动端桥接层自己补了归属校验（断言 `file_id` 属于该条目），桌面没有。
+   端口签名改成 `(item_id, file_id, missing)`，校验搬进实现，移动端那段删掉。
+   顺带解决 Web 的死结：IndexedDB 没有自增主键，文件 id 只能是**条目内序号**，
+   全局不唯一，单靠 `file_id` 在浏览器上根本定位不到。
+3. **领域规则住 `crates/transfer`，各存储实现调它**（下一小节展开）。
+4. **管理类语义也是端口的一部分。** `crates/transfer/src/store.rs` 的模块头曾把端口描述成
+   「运行时写路径」，那是漏了半张脸：列表 / 检索 / 归档 / 软删同样是端口契约。
+
+#### 领域规则住 `crates/transfer`，各存储实现调它
+
+补全过程中最有复用价值的一条体例。`storage-sql` 的收件箱实现里混着两类东西：
+
+| | 例子 | 归属 |
+|---|---|---|
+| **领域规则** | 条目标题怎么起、内容指纹怎么算、检索覆盖哪段文本、片段怎么截 | `crates/transfer/src/inbox.rs`，**各实现共用一份** |
+| **SQL 细节** | `escape_like`、`LIKE ... ESCAPE '\'` 的写法、`From<ModelEx>` 转换、FTS 虚表 | 留在 `crates/storage-sql`，跟着实现走 |
+
+分界判据是「**分叉了会不会让同一批数据在两端表现不同**」。
+`inbox_content_hash`（blake3 逐文件累加 `relative_path ‖ 0x00 ‖ checksum ‖ size_le`）
+是跨端去重的**唯一**判据，字节级不同就等于这个字段作废；`inbox_title` 分叉了同一批文件
+在桌面与浏览器显示不同的名字。这类必须共用。而 `escape_like` 分叉了没人看得出来 —— 它只是
+SQL 通配符的转义。
+
+三条配套纪律：
+
+- **共享规则一律吃中立视图，绝不吃 `ModelEx`。** 签名收在
+  `InboxFileFacts<'a> { name, relative_path, checksum, size }`，两端各自从自己的行类型构造。
+  `From<entity::inbox_item::ModelEx>` 之类的转换**留在 storage-sql**。破这条
+  `cargo check --workspace` 抓不到，只有 `./scripts/check-wasm.sh` 会红。
+- **规则要带已知向量的单测。** `inbox_content_hash` 在 `crates/transfer/src/inbox.rs` 里钉了
+  十六进制串 —— 它是跨端一致性的唯一机器保障，没有它「两端算出同一个哈希」只是口头约定。
+- **没法共用的那条，也要有个规范锚点。** `inbox_matches`（大小写不敏感子串）只有 Web 会真调用，
+  SQL 侧是数据库里的 `LIKE`。它仍然放在共享模块里，SQL 那段 raw SQL 的注释指向它 ——
+  于是「LIKE 必须复刻 `inbox_matches`」有了一个可读、可测的落点，而不是散在两处的默契。
+
+#### 宿主怎么拿到端口：组装点建一次，注入与自持是同一个 `Arc`
+
+上面纪律 1 说「取回 store 的唯一正路是 `TransferManager::store()`」，收件箱把它逼出了一条
+**必要的补充**：那条路只适用于「手里已经有 manager」的调用点。
+
+收件箱命令**不依赖节点启动** —— 桌面早早 `app.manage(db)`，而 `NetManagerState` 是
+`Mutex<Option<..>>`、`with_manager!` 在未启动时返回 `node_not_started`。改走 `manager.store()`
+会让「没联网也能翻已经收到的东西」变成「先启动节点」。收件箱按定义是**与网络无关的内容账本**，
+把它绑到节点生命周期上是方向性错误。
+
+所以形态是标准的**组合根**：组装点建一次 `Arc<dyn TransferStore>`，**同一个 `Arc`** 既注入
+`TransferManager` 的工厂闭包、也 `app.manage(...)` 给宿主自己用（移动端由 `MobileCore` 持有，
+与 `ensure_db()` 同生命周期）。
+
+**这和「宿主另存一份影子副本」不是一回事**，区别在存的是什么：
+
+| | 存的东西 | 判定 |
+|---|---|---|
+| 反面（此前的桌面 / Web） | `DatabaseConnection` / 具体类型 `Arc<PersistentSessionStore>` | 绕过端口的**第二条路**，是第二事实源 |
+| 正面（现在） | **端口本身**，且是**同一个实例** | 组合根的标准形态，没有第二事实源 |
+
+副产品是可度量的：`SqlSessionStore::new(...)` 在生产代码里的构造点从 **4 处降到 2 处**
+（桌面 `setup.rs` 一处、移动 `app.rs` 一处），各端各建一次。
+**两个组装点都要写明「注入的与自持的是同一个 `Arc`」** —— 那是这条纪律的全部内容，
+写成两个包装同一条连接的实例就白做了。
+
+### 两条刻意的平台差异（都不是待补的缺口）
+
+**删记录 ≠ 删文件，三端一致。** `delete_session` / `clear_all_history` 只清账本：
+
+- **不删收件箱条目** —— `inbox_items.transfer_session_id` 是 `ON DELETE SET NULL`
+  （`m20260627_000002_drop_inbox.rs`），条目留下、外键置空
+- **不删已落盘文件** —— 收件箱是「结果」，传输记录是「过程」，删过程不动结果
+
+Web 不因为「文件在 OPFS 里」就分叉。同一个「删传输记录」在桌面不删文件、在 Web 删文件，
+是最糟的那种平台分叉 —— 用户不会读两套文档。（`clear_all_history` 另有一条收窄：
+只删 `phase = Terminal`，非终态保留。删掉一个进行中会话的行只会留下仍在写 checkpoint
+的孤儿 actor，与「单条不可删」自相矛盾。）
+
+**Web 的过期回收只做 DB 侧，不清残件。** 桌面在 `database.rs` 里按真实路径直接
+`tokio::fs::remove_file` 删 `.part`，移动端走 `cleanup_expired_part_files`，Web 两条都不走 ——
+因为 Web **没有 `.part` 中间态**，sink 路径就是文件的最终路径，而
+`cleanup_expired_part_files` 按会话的**全部**文件元数据重建 sink 再 `cleanup_sink`：
+一个「A 已写完、B 只写了一半」的多文件会话会把 A 一起删掉。桌面能这么做，是因为它删的是
+`xxx.part`。
+
+回收的**调用时机**倒是三端对齐了：一律排在 `cleanup_recoverable_sessions()` **之后**，
+判据统一为 `phase = Suspended`。Web 此前把回收跑在 `WebTransferStore::load()`
+（当时还叫 `PersistentSessionStore`）里
+（节点起来之前，遗留的 `Active` 还没转 `Suspended`），被迫改用「非终态」判据 ——
+调用点一对齐，那条分叉的判据连同它的解释性注释一起消失。**这类分叉的根因往往是时序而不是平台**，
+下次看到「某端判据不一样」先查调用点排在哪。
+
+**已知负债（仍未修，`inbox-store-port-completion` 没有捎带它）**：删掉一个 suspended 的
+**接收**会话后，OPFS 里的残件成孤儿（DB 行没了，reap 再也扫不到它）。桌面上它躺在用户的
+接收目录里、可见可删；Web 上它占配额且用户完全看不见。清理要按「哪些文件真没写完」来做，
+与收件箱的文件生命周期（`opfs::remove_path` 已在 `web-cancel-and-invite-preview` 补上）
+一并处理。
+
+**相关文件**：`crates/transfer/src/store.rs`、`crates/transfer/src/inbox.rs`、
+`crates/transfer/src/manager.rs`、`crates/storage-sql/src/store.rs`、
+`crates/storage-sql/src/inbox.rs`、`crates/web/src/store.rs`、`crates/web/src/inbox.rs`、
+`crates/web/src/node.rs`、`src-tauri/src/database.rs`、`src-tauri/src/setup.rs`
+
 ---
 
 ## Web 侧落地实测（2026-07-27，`#81`）
@@ -285,6 +442,57 @@ SendWrapper::new(async move {
 的接收会话落库；非终态发送会话与待决 offer（`pending_offers()` 是内存态，刷新后无处应答）
 不落库。判定见 `store.rs` 的 `worth_persisting`。
 
+## Web 侧收件箱：建真表而不是投影（2026-07-31，`inbox-store-port-completion`）
+
+收件箱在 Web 端一度是「`direction=receive` 且 `terminalReason=completed` 的会话投影」
+（`docs/app/app/_components/receive-panel.tsx` 里对 projections 过滤一遍）。
+它有一处**结构性**缺陷，不是能靠打补丁修的：
+
+**会话表有 `HISTORY_CAP = 100` 淘汰，收件箱不该有。** 收件箱是**结果账本**，
+传输历史是**过程账本**，删过程不动结果 —— 这条在桌面有测试钉着
+（`clear_history_should_keep_inbox_records`）。投影方案下 Web 端**做不到**：
+过程记录被挤掉，结果就跟着消失。这是建真表最实质的收益，也是判断「投影够不够用」的通用问法：
+**被投影的那张表有没有独立于结果的生命周期？** 有，投影就是错的。
+
+落地形态（`crates/web/src/inbox.rs` 的 `WebInboxTable`）：
+
+- **第四个 object store `inbox`**（key = item uuid），与 `sessions` 平级，
+  `prune()` 只扫 sessions map，收件箱条目不在其列 —— 这句写死在 `prune()` 的文档注释里。
+- **拆文件的方式是「自包含的表」，不是「把 impl 块挪到另一个文件」。**
+  `WebInboxTable` 有自己的 `Mutex<HashMap<..>>` 与全部 IndexedDB 读写，不认识会话表；
+  唯一需要跨界的 `ensure_from_session(&session, &files)` 把会话行与文件行**作为参数收进来**，
+  依赖方向单向。反面（两个文件共同拥有一份可变状态）读起来要来回跳。
+  因此 `repair_missing_inbox_items_for_completed_receives` 实现在 `WebTransferStore` 上
+  —— 只有它同时握着两张表。
+- **没有自增主键，文件 id 用条目内序号**（0..n，写入时定、之后不变）。
+  全局不唯一，配合上面那条 `(item_id, file_id)` 双参数够用；造一个持久化的全局计数器
+  在跨标签页并发下并不安全，不值得。
+- **持久化形态复用 serde remote derive**（`entity::inbox_item::Model` +
+  `inbox_item_file::Model`），与 `store.rs` 的 `SessionRowDef` / `FileRowDef` 同一套 ——
+  entity 加列时**编译期**失败而不是运行期静默丢字段。不发明第二种存法。
+
+### schema 变更直接换，不写迁移 / 回填 / 双写 / 兼容层
+
+`DB_VERSION` 3 → 4 只为让 `onupgradeneeded` 建出新 store。**老库里已存在的「终态 +
+Completed 接收会话」不会被自动补出收件箱条目** —— 落地后第一次打开，收件箱是空的
+而传输历史是满的，那是预期结果不是 bug。
+
+判据（项目负责人的明确指示，作为决策记录）：**Web 端目前没有真实用户**，「保住旧数据」
+收益为零；回填 / 双写 / 兼容层不表达任何业务规则，只表达「我们曾经用过另一种存法」。
+具体到这次，回填还会引入一个纯属自找的排序约束 —— 它必须发生在 `prune()` **之前**，
+否则被 `HISTORY_CAP` 淘汰的会话回填不到。不做，这条约束连同它的注释一起不存在。
+
+**要与「实现 `repair_*` 端口方法」区分开**，两者看起来像但不是一回事：
+
+| | 加载期自动回填 | `repair_missing_inbox_items_for_completed_receives` |
+|---|---|---|
+| 触发 | 隐式，每次 `load()` | 显式，用户/宿主调用 |
+| 目的 | 兼容旧存储格式 | 修「`ensure_*` 当时写失败」——`receiver.rs` 只记日志不阻断，这个洞**长期存在**，不是历史遗留 |
+| 做不做 | **不做** | **做**，三端都实现；但 Web 侧**没有任何代码在启动路径上调它** |
+
+将来 Web 端真有了用户，需要的也不是把这段代码补回来，而是在那时按当时的 schema 变更单独
+评估 —— 不为一个还不存在的场景预留机制。
+
 ---
 
 ## 地雷
@@ -308,7 +516,11 @@ ResumeProbe 应答 → **跨版本续传静默失败**。
 两处都硬编码 `DbBackend::Sqlite`。IndexedDB 的事务是「微任务窗口内自动提交」，语义上不兼容
 `inbox.rs:202-258` 那种事务内穿插 `await` 的写法。
 
-⇒ 又一条「Web 端先不实现 `InboxStore`」的理由。真要做，全文检索得换实现（不是换后端）。
+⇒ ~~又一条「Web 端先不实现 `InboxStore`」的理由~~。**2026-07-31 已按当时那句「真要做，
+全文检索得换实现（不是换后端）」落地**：Web 侧不引 wasm 版 SQLite，改成内存线性子串扫描，
+判据由 `swarmdrop_transfer::inbox::inbox_matches` 规范定义，SQL 侧那段
+`LIKE ... ESCAPE '\'` 是它的复刻。规模上站得住——收件箱条目数与用户实际接收次数同阶
+（几十到几百），线性扫描比一次 IndexedDB 往返还便宜。
 
 ### `SendWrapper` + wasm threads
 
@@ -480,6 +692,83 @@ self.store.upsert(record).await;
 
 **相关文件**：`crates/invite/src/store.rs`、`crates/storage-sql/src/invite.rs`、
 `crates/web/src/invite_store.rs`、`crates/migration/src/m20260730_000001_pair_invites.rs`
+
+## `FileAccess::cleanup_sink` 的契约没写「要删除部分产物」，默认实现是 no-op
+
+端口这一层还有一处**语义没写进契约**的缺口，与上面几个 store 端口是同一类问题，但至今没修：
+
+`swarmdrop_host::FileAccess::cleanup_sink` 的 doc 只说「丢弃一条未最终化的 sink」，
+**默认实现是 no-op**。于是「要不要真把半成品从盘上删掉」全靠各端自己揣摩，三端的实际行为
+是散的：
+
+| 端 | 现状 |
+|---|---|
+| 桌面 | 删。`file_source.rs` 的 `part_file.cleanup()`；但 7 天过期回收**绕开端口**直接 `tokio::fs::remove_file` |
+| Web | 删（2026-07-31，`web-cancel-and-invite-preview`）。`abort()` 放锁 → `opfs::remove_path` |
+| 移动端 | **未核实** |
+
+Web 那次补的顺序有两条必须照抄：**`abort()` 而不是 `close()`**（close 会把 staging 提交
+上去，正好相反），**且必须 await 到 abort 完成再删**（`createWritable()` 持文件独占锁，
+只 drop 句柄要等 GC，锁没放 `remove_entry` 会撞 `NoModificationAllowedError`）。
+Web 比桌面更需要它，因为 Web **没有 `.part` 中间态**——写的就是最终路径，残件是个文件名
+正确、内容截断的东西。
+
+**留给后续端口层 change**：给 `FileAccess` 加一条显式的「丢弃部分产物」方法把语义写进契约，
+核实移动端，顺带把桌面那处绕行收编回来。在那之前，任何新写的 `FileAccess` 实现都要记得
+**默认实现帮不了你**——继承 no-op 的表现是「功能看起来正常，只是盘上慢慢堆残件」，
+没有任何测试会红。
+
+**相关文件**：`crates/host/src/ports.rs`（trait + 默认实现）、`crates/web/src/file_access.rs`、
+`crates/web/src/opfs.rs`、`src-tauri/src/host/file_source.rs`
+
+## 端口比底层弱时，用 crate 内 supertrait 扩展，别让宿主退回去持具体类型
+
+`InboxStore::list_inbox_items` 按契约只给 `InboxItemSummary`（桌面的列表要的就是它）。但
+Web 的收件箱本就是**全内存表**，`list()` 与 `detail()` 读同一份数据——为了拿 detail 而
+「先取 N 条 summary，再逐条 `inbox_item()` 补详情」是纯粹的 1+N 浪费，还自带一个竞态
+（两次调用之间条目可能已删，于是前端要 `filter(d => d !== null)`）。
+
+诱惑是让 `WebNode` 直接持 `Arc<WebTransferStore>` 具体类型。**别这么做**——那正是本文档
+反复点名的「影子副本」：宿主一旦持具体类型，端口就形同虚设，下一个功能会顺着这条路
+绕过端口再写一份。
+
+正确形态是在 **crate 内**加一条 supertrait：
+
+```rust
+// crates/web/src/store.rs
+pub trait WebStore: TransferStore {
+    fn list_inbox_details(&self, include_archived: bool) -> Vec<InboxItemDetail>;
+}
+```
+
+组装点建**一个** `Arc<WebTransferStore>`，强转出两个视图：注入 core 的仍是
+`Arc<dyn TransferStore>`（core 不该知道 Web 多一条批量读），`WebNode` 自持
+`Arc<dyn WebStore>`。同一个实例，不是两份状态。
+
+判据：**这条能力是不是所有端都该有？** 是 → 改端口（三端都要实现）；只有这一端的底层
+恰好做得到 → crate 内 supertrait。`list_inbox_details` 属于后者：SQL 端做同样的事要多打
+一轮 join，硬塞进端口是让桌面为 Web 的实现细节买单。
+
+**相关文件**：`crates/web/src/store.rs`、`crates/web/src/node.rs`、`crates/web/src/inbox.rs`
+
+## IndexedDB：批量写走一个事务，`open()` 必须做 in-flight 去重
+
+`crates/web/src/idb.rs` 早期每次 `delete()` / `put_string()` 都新建一个 readwrite 事务。
+于是「清空传输历史」= 最多 `HISTORY_CAP`(100) 个独立事务逐个 await，`prune()` 与
+`reap_expired_suspended_receives` 的回写循环同一形态。
+
+正确形态是 `write_batch`：开一个事务 → **同步**排完全部 request → 只 await 一次
+`oncomplete`。注意 `fill` 闭包**必须是同步的**——IndexedDB 事务在控制权交回事件循环后
+就失活，在闭包里 await 会撞 `TransactionInactiveError`。把这条约束写进签名（收同步
+闭包）比写进注释可靠。
+
+**另一个更隐蔽的坑**：`open()` 若没有 in-flight 去重，并发调用会各建一条连接。而 open
+路径通常会给连接 `forget()` 一个 `onversionchange` 闭包（注释写着「每进程最多一次」）
+——被 forget 的闭包**永久钉住**它所在的那条 live connection，于是多余连接永不关闭，
+后续 `onupgradeneeded` 会被 blocked。修法：open 完成后再查一次缓存，晚到的
+`db.close()` 并复用先到的连接。
+
+**相关文件**：`crates/web/src/idb.rs`、`crates/web/src/store.rs`
 
 ## 相关文件
 

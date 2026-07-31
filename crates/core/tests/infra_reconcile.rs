@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use swarmdrop_core::AppResult;
-use swarmdrop_core::host::{CoreEvent, EventBus};
+use swarmdrop_core::device::OsInfo;
+use swarmdrop_core::host::{CoreEvent, EventBus, MemoryHost};
 use swarmdrop_core::network::candidates::{
     BootstrapCandidateSource, CandidateRoles, CandidateScope,
 };
@@ -15,6 +16,11 @@ use swarmdrop_core::network::config::create_candidate_manager;
 use swarmdrop_core::network::event_loop::handle_core_node_event;
 use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
 use swarmdrop_net::{Addr, DhtConfig, Endpoint, RelayServerConfig, SecretKey};
+
+/// 已配对设备列表的持久化端口替身（本用例只关心 presence/infra，列表恒为空）。
+fn memory_host() -> MemoryHost {
+    MemoryHost::new()
+}
 
 struct NoopBus;
 
@@ -101,6 +107,7 @@ async fn reservation_rebuilds_after_helper_restart() {
     let bus: Arc<dyn EventBus> = Arc::new(NoopBus);
     let manager = NetManager::new(
         b_endpoint,
+        OsInfo::default(),
         Vec::new(),
         (),
         network_config,
@@ -108,6 +115,7 @@ async fn reservation_rebuilds_after_helper_restart() {
         bus.clone(),
         None,
         std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+        Arc::new(memory_host()),
     );
 
     let shared = manager.shared_refs();

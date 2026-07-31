@@ -444,6 +444,79 @@ pnpm i18n:extract
 
 `crates/core/Cargo.toml` 的 version 与两条线都无关，它是共享 core 自己的版本。
 
+## 跑 `crates/web` 的 wasm 测试：别用 `wasm-pack test`
+
+`wasm-pack test --headless --chrome` 有两个坑，叠在一起时报出来的错完全指不到病因：
+
+1. **它吃路径不吃 `-p`**。`wasm-pack test … -p swarmdrop-web` 会去解析仓库根的 `Cargo.toml`，
+   报 `failed to parse manifest: missing field package`（workspace 根没有 `[package]`）。
+   正确形式是 `wasm-pack test … crates/web`。
+2. **它强制用自己缓存的 ChromeDriver，且会覆盖你传的 `CHROMEDRIVER` 环境变量**。
+   缓存里那个 driver 的大版本与本机 Chrome 对不上时（写这条时是 driver 151 / Chrome 150），
+   driver 起来即被 SIGKILL，而 runner 报的是 **`Error: http status: 404`** ——
+   看着像网络或 URL 问题，其实是版本不匹配。别去 `codesign`，签名不是病因。
+
+**绕开 wasm-pack 直驱 cargo**，两个坑都不存在：
+
+```bash
+cd crates/web
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER="$HOME/Library/Caches/.wasm-pack/wasm-bindgen-cargo-install-<ver>/wasm-bindgen-test-runner" \
+CHROMEDRIVER=<与本机 Chrome 同大版本的 chromedriver> \
+WASM_BINDGEN_TEST_ONLY_WEB=1 \
+cargo test --target wasm32-unknown-unknown
+```
+
+chromedriver 按 Chrome 大版本从 <https://googlechromelabs.github.io/chrome-for-testing/> 取。
+
+**这些测试不在任何 CI 门禁里**：整个 `crates/web` 是 `#[cfg(wasm_browser)]`，
+进不了 `cargo test --workspace`；而 CI 也没有 headless Chrome。
+`scripts/check-wasm.sh` 只保证它们**编得过**（脚本末尾对 `swarmdrop-web` 单独加了一轮
+`--all-targets`，其余 crate 不能加 —— 它们的 dev-dependencies 里有 tokio/mio 这类
+native-only 的东西，wasm target 下直接编不过）。所以改 `crates/web` 的逻辑后，
+**编过 ≠ 测过**，要真跑一遍得用上面那条命令。
+
+## 三份自动生成的 bindings 都会静默漂移 —— 没有任何门禁拦它
+
+本仓有三份「由 Rust 生成的 TS」，**没有一份在 CI 里被校验**，于是它们会长期落后于源码
+而不报错：
+
+| 产物 | 谁生成 | 什么时候生成 |
+|---|---|---|
+| `src/lib/bindings.ts` | tauri-specta | `pnpm tauri dev`（debug 启动时）或 `cargo test -p swarmdrop export_ts_bindings` |
+| `crates/web/bindings/bindings.ts` | specta | `cargo test -p swarmdrop-web --features specta --test specta_export` |
+| `mobile/packages/swarmdrop-core/src/generated/` | uniffi (ubrn) | `ubrn build ios/android --and-generate`（要 Xcode / NDK） |
+
+2026-08-01 那次简化里，三份**同时**被发现落后于已提交的 Rust：桌面那份还带着已删的
+`pauseTransfer`、`start` 的参数个数也不对；uniffi 那份根本没有 `renameDevice` /
+`PairedDeviceRemoved` / `DeviceRenamed`，`startNode` 还带着已删的 `deviceName` 参数。
+前端能跑只是因为它调用的恰好是交集。**按移动端的失败模式，落后的 uniffi 绑定进 CI 会打出
+「启动即 checksum mismatch」的包。**
+
+**做法**：改了跨 IPC/FFI 边界的类型或命令签名，当场重生成对应那份并一起提交。不要指望
+「下次 `tauri dev` 会自动更新」——那只在有人恰好跑 dev 的时候才发生，而 CI 从不跑 dev。
+
+### 没有 Xcode / NDK 时怎么重生成 uniffi 绑定
+
+`ubrn build` 要原生工具链，但只重生成绑定不需要：
+
+```bash
+cargo build -p swarmdrop-mobile-core       # 先出 target/debug/libswarmdrop_mobile_core.dylib
+cd mobile/packages/swarmdrop-core/rust/mobile-core   # ⚠️ 必须 cd 到 Cargo.toml 所在目录
+../../../../node_modules/.bin/ubrn generate jsi bindings \
+  --library ../../../../../target/debug/libswarmdrop_mobile_core.dylib \
+  --ts-dir ../../src/generated --cpp-dir ../../cpp/generated
+cd ../.. && ../../node_modules/.bin/bob build   # ⚠️ 不能省
+```
+
+三个易踩点：cwd 不在 crate 目录会报 `manifest not exist`；**`bob build` 不能省**——
+`pnpm typecheck` 与 Metro 看的都是 `lib/typescript/src/generated/*.d.ts`，只重生成
+`src/generated` 的话 tsc 仍报旧类型；环境没有 prettier/clang-format 不影响 diff
+（仓库现存产物本来就是未格式化的）。跑两遍产物字节一致，是确定性的。
+
+**相关文件**：`src-tauri/src/setup.rs:293`（`export_ts_bindings` 测试）、
+`crates/web/tests/specta_export.rs`、`mobile/packages/swarmdrop-core/ubrn.config.yaml`、
+`mobile/dev-notes/knowledge/rust-bridge.md`
+
 ## 提交前 checklist
 
 ```bash
@@ -451,7 +524,10 @@ pnpm exec tsc --noEmit
 cargo check --workspace
 cargo fmt --all
 cargo clippy --workspace -- -D warnings   # 项目期望零 warning
+./scripts/check-wasm.sh                   # wasm 双 target；改了 crates/* 必跑
 ```
+
+改了跨边界类型还要**重生成三份 bindings 之一**（见上一节），CI 不会替你发现。
 
 ## CI / Release
 

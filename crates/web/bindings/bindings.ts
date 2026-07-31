@@ -84,6 +84,70 @@ export type FileProgressInfo = {
 
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 
+/**  收件箱内容类型。 */
+export type InboxContentKind = "files" | "text" | "clipboard" | "bundle";
+
+/**  搜索命中条目下的文件标识（供下钻定位）。 */
+export type InboxHitFile = {
+	name: string,
+	relativePath: string,
+};
+
+/**  收件箱详情 DTO。 */
+export type InboxItemDetail = {
+	files: InboxItemFileEntry[],
+	transfer: TransferProjection | null,
+} & InboxItemSummary;
+
+/**  收件箱文件 DTO。 */
+export type InboxItemFileEntry = {
+	id: number,
+	transferFileId: number | null,
+	relativePath: string,
+	name: string,
+	size: number,
+	checksum: string,
+	localPath: string,
+	missing: boolean,
+};
+
+/**  收件箱列表条目 DTO。 */
+export type InboxItemSummary = {
+	id: string,
+	transferSessionId: string | null,
+	sourcePeerId: string,
+	sourceName: string,
+	sourceKind: InboxSourceKind,
+	contentKind: InboxContentKind,
+	title: string,
+	itemCount: number,
+	totalSize: number,
+	rootPath: string | null,
+	contentHash: string | null,
+	receivedAt: number,
+	lastOpenedAt: number | null,
+	archivedAt: number | null,
+	deletedAt: number | null,
+	missing: boolean,
+};
+
+/**  收件箱搜索命中（item 粒度）。 */
+export type InboxSearchHit = {
+	id: string,
+	title: string,
+	sourceName: string,
+	itemCount: number,
+	rootPath: string | null,
+	receivedAt: number,
+	/**  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。 */
+	snippet: string,
+	/**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
+	files: InboxHitFile[],
+};
+
+/**  收件箱来源类型。 */
+export type InboxSourceKind = "paired_device" | "share_code" | "mcp" | "unknown";
+
 /**
  *  「已发出的邀请」列表条目（openspec: invite-persistence）。
  * 
@@ -119,7 +183,8 @@ export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined"
  *  设备操作系统信息。
  * 
  *  `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
- *  `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+ *  `name` 是用户在 onboarding / 设置里起的名字（持久化），由 core 的组合根从
+ *  [`DeviceConfig`](crate::ports::DeviceConfig) 端口填充，UI 显示按
  *  `name.as_deref().unwrap_or(&hostname)` 回退。
  */
 export type OsInfo = {
@@ -130,6 +195,31 @@ export type OsInfo = {
 	platform: string,
 	arch: string,
 	capabilities?: string[],
+};
+
+/**
+ *  邀请串解码后的展示投影（配对确认卡用）。
+ * 
+ *  **不含 capability**：那是 128bit bearer 凭据，明文绝不出 wasm 边界——确认卡只需要
+ *  「这是谁、还有效多久、是不是仅局域网」，多给一个字段就多一条泄漏路径。
+ * 
+ *  **TTL 由调用方按 `expiresAt` 判**，这里不放 `expired: bool`：确认卡会在屏幕上停留几十秒，
+ *  而布尔在序列化那一刻就开始变旧。权威判定本来也在发起端的 `InviteRegistry`，
+ *  解码侧的预检只为 UX（见 `PairInvite::decode` 的文档）。
+ * 
+ *  `expiresAt` 用字符串承载 Unix 秒，与 [`InviteListItemJson`] 同一个理由。
+ */
+export type PairInvitePreviewJson = {
+	/**
+	 *  发起方 NodeId（base58）。取自签名覆盖范围内的 `inviter_id`，伪造不了——
+	 *  自我过滤 / 已配对过滤都该以它为判据。
+	 */
+	peerId: string,
+	displayName: string,
+	displayPlatform: string,
+	expiresAt: string,
+	/**  LocalOnly 策略（受邀方只用私网地址、禁公网 fallback）。 */
+	localOnly: boolean,
 };
 
 /**  连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。 */

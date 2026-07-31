@@ -7,7 +7,9 @@
 //!   （单次 Promise 往返），`finalize_sink` 时 `close` 提交。不整文件缓冲入内存（大文件不 OOM）。
 //!   曾试过 Worker 侧用 SyncAccessHandle——**实测吞吐无增益**（瓶颈在网络链路），为免双写法
 //!   已移除（语义差异与坑见知识库 libp2p-wasm.md）。完成后经 [`crate::opfs::export_blob_url`]
-//!   读回建 blob URL 供下载。OPFS 原语（开句柄/建目录链/blob 导出）在 [`crate::opfs`]。
+//!   读回建 blob URL 供下载；取消 / 失败走 `cleanup_sink`——`abort` 掉句柄并**真删掉**那条
+//!   OPFS 文件（Web 写的是最终路径而非 `.part`，残件长得像正常文件）。
+//!   OPFS 原语（开句柄/建目录链/删条目/blob 导出）在 [`crate::opfs`]。
 //!
 //! JsValue `!Send`，而 [`FileAccess`] 是 `Send`：用 `send_wrapper::SendWrapper` 兜 Send（单线程
 //! wasm 永不触发其跨线程 panic）。映射表（含持有的 writable 句柄）裹 `SendWrapper<RefCell<..>>`
@@ -24,11 +26,12 @@ use send_wrapper::SendWrapper;
 use swarmdrop_host::{
     AppError, AppResult, FileAccess, FileSinkId, FileSourceId, FinalizedSink, HostFileMetadata,
 };
+use tracing::warn;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{File, FileSystemWritableFileStream, WriteCommandType, WriteParams};
 
-use crate::opfs::{js_to_err, open_writable};
+use crate::opfs::{js_to_err, open_writable, remove_path};
 
 /// OPFS + File 源的 [`FileAccess`] 实现。
 pub struct OpfsFileAccess {
@@ -152,9 +155,44 @@ impl FileAccess for OpfsFileAccess {
         })
     }
 
+    /// 丢弃一条未最终化的 sink：放弃 staging 写入 **并真删掉 OPFS 里的那条文件**。
+    ///
+    /// 端口的默认实现是 no-op，Web 曾经继承那个语义（只 drop 句柄），于是每一次取消 /
+    /// 失败的接收都在 OPFS 留下残件。而 Web 比桌面更糟的一点是**没有 `.part` 中间态**：
+    /// [`create_sink`](Self::create_sink) / [`open_or_create_sink`](Self::open_or_create_sink)
+    /// 直接开 `relative_path` 的写句柄，写的就是最终路径——残件是个**文件名正确、内容截断**
+    /// 的东西，桌面留下的至少还叫 `xxx.part` 一眼能看出没写完。这正是它必须被删掉的理由。
+    ///
+    /// 顺序不可调换，见下方注释；删除失败只告警不上抛（清理不该把取消流程一起拖失败）。
+    ///
+    /// **只删没写完的那个**：调用方 `ReceiverActor::cleanup_part_files` 遍历的是
+    /// `created_sinks`，而 `finalize_sink` 成功后该 sink 立刻被 `remove_created_sink` 摘掉，
+    /// 所以已提交的文件不在清单里。这条不变量此前被 no-op 掩盖着从没被检验过，现在它决定
+    /// 会不会误删用户文件——`finalized_file_survives_sibling_cleanup` 钉住它。
     async fn cleanup_sink(&self, sink: &FileSinkId) -> AppResult<()> {
-        // 移除即 drop writable 句柄；未 close 的 staging 写入被丢弃——正是取消/失败时该有的行为。
-        self.sinks.borrow_mut().remove(sink);
+        // `createWritable()` 持有该文件的**独占锁**，锁只在 close()/abort() 时释放——只把句柄
+        // 从表里 drop 掉要等 GC，时机不确定，锁没放就 remove_entry 会撞
+        // NoModificationAllowedError。所以先取出句柄 → abort → await → 再删条目。
+        //
+        // **必须是 abort() 不是 close()**：close 会把 staging 里的写入提交上去，
+        // 正好与「丢弃半成品」相反。
+        //
+        // 裸 Promise 是 !Send，取出来即刻裹进 SendWrapper——否则它以 Option 的形态活到 await
+        // 之后，整个 future 就不满足端口的 Send 了。
+        let aborting = self
+            .sinks
+            .borrow_mut()
+            .remove(sink)
+            .map(|writable| SendWrapper::new(JsFuture::from(writable.abort())));
+        if let Some(aborting) = aborting
+            && let Err(e) = aborting.await
+        {
+            // 不阻断删除：锁真没放的话下一步会再报一次，那条消息更贴近后果。
+            warn!("放弃 OPFS 写句柄失败: sink={}, {}", sink.0, js_to_err(e));
+        }
+        if let Err(e) = SendWrapper::new(remove_path(&sink.0)).await {
+            warn!("删除 OPFS 半成品失败: sink={}, {}", sink.0, e);
+        }
         Ok(())
     }
 }
@@ -187,5 +225,69 @@ impl OpfsFileAccess {
         let writable = SendWrapper::new(open_writable(&sink.0, keep_existing_data)).await?;
         self.sinks.borrow_mut().insert(sink.clone(), writable);
         Ok(sink)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    fn metadata(relative_path: &str) -> HostFileMetadata {
+        HostFileMetadata {
+            name: relative_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(relative_path)
+                .into(),
+            relative_path: relative_path.into(),
+            size: 8,
+            modified_at: None,
+            checksum: None,
+            save_dir: None,
+        }
+    }
+
+    /// 取消一条多文件接收会话时，**已提交的文件不能被连坐删掉**。
+    ///
+    /// 域层的保证是 `ReceiverActor` 在 `finalize_sink` 成功后立刻 `remove_created_sink`，
+    /// 于是 `cleanup_part_files` 的清单里只剩没写完的那些。这里按同样的顺序走一遍：
+    /// A 写完并 finalize、B 只写了一半，只对 B 调 `cleanup_sink` —— A 必须还在。
+    ///
+    /// `cleanup_sink` 变成真删之前这条无从检验（no-op 掩盖一切），而它现在决定的是
+    /// 会不会误删用户文件。
+    #[wasm_bindgen_test]
+    async fn finalized_file_survives_sibling_cleanup() {
+        let access = OpfsFileAccess::new();
+        let done = "cleanup-sink-test/done.bin";
+        let partial = "cleanup-sink-test/partial.bin";
+
+        let done_sink = access.create_sink(metadata(done)).await.expect("开 A");
+        access
+            .write_sink_chunk(&done_sink, 0, vec![1, 2, 3, 4])
+            .await
+            .expect("写 A");
+        access.finalize_sink(&done_sink).await.expect("提交 A");
+
+        let partial_sink = access.create_sink(metadata(partial)).await.expect("开 B");
+        access
+            .write_sink_chunk(&partial_sink, 0, vec![9; 4])
+            .await
+            .expect("写 B");
+
+        access.cleanup_sink(&partial_sink).await.expect("清理 B");
+
+        assert!(
+            crate::opfs::export_blob_url(done).await.is_ok(),
+            "已提交的文件不该被取消连坐删掉"
+        );
+        assert!(
+            crate::opfs::export_blob_url(partial).await.is_err(),
+            "半成品应当已被删掉"
+        );
+
+        let _ = crate::opfs::remove_path(done).await;
     }
 }

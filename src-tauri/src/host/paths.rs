@@ -6,7 +6,7 @@
 //! 默认目录，避免把 fixture 覆盖带进生产。
 //!
 //! 三个调用方（[`file_keychain`](super::file_keychain) /
-//! [`device_config`](super::device_config) / [`crate::database`]）统一经此取目录，
+//! [`device_config`](super::device_config) 工厂 / [`crate::database`]）统一经此取目录，
 //! `SWARMDROP_DATA_DIR` 的判断只在这里发生。
 
 use std::path::PathBuf;

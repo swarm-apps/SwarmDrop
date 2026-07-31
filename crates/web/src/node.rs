@@ -19,16 +19,16 @@ use swarmdrop_core::network::event_loop::spawn_event_loop;
 use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
 use swarmdrop_core::protocol::pairing::{PairingRefuseReason, PairingResponse};
 use swarmdrop_core::runtime::{EndpointProfile, start_node};
-use swarmdrop_host::device::OsInfo;
-use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId};
-use swarmdrop_invite::TransportPolicy;
+use swarmdrop_host::device::DeviceName;
+use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId, PairedDeviceStore};
+use swarmdrop_invite::{InviteParseError, PairInvite, TransportPolicy};
 use swarmdrop_net::{Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
-use swarmdrop_transfer::HostEnumeratedFile;
 use swarmdrop_transfer::coordinator::TransferCoordinator;
 use swarmdrop_transfer::events::TransferEventSink;
 use swarmdrop_transfer::manager::TransferManager;
 use swarmdrop_transfer::protocol::TransferOrigin;
 use swarmdrop_transfer::store::TransferStore;
+use swarmdrop_transfer::{HostEnumeratedFile, SUSPENDED_RECEIVE_RETENTION_SECS};
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 use web_sys::File;
@@ -38,17 +38,18 @@ use crate::event_bus::{PendingPairings, WebEventBus};
 use crate::events::WebEventSink;
 use crate::file_access::OpfsFileAccess;
 use crate::identity;
-use crate::store::PersistentSessionStore;
+use crate::paired_devices::WebPairedDeviceStore;
+use crate::store::{WebStore, WebTransferStore};
 use crate::types::{
-    ConnectionJson, InviteListItemJson, OfferJson, PendingPairingJson, RelayInfoJson,
-    RelayStateKind,
+    ConnectionJson, InviteListItemJson, OfferJson, PairInvitePreviewJson, PendingPairingJson,
+    RelayInfoJson, RelayStateKind,
 };
 
 /// 浏览器连接与 reservation 的最大等待时间。超时会通过 Endpoint 的取消路径
 /// 停止无主拨号/relay 重试，不是只 reject JavaScript Promise。
 const REACHABILITY_TIMEOUT: Duration = Duration::from_secs(20);
 
-// specta 导出的 TS 类型（static/types/bindings.ts，由 `cargo test -p swarmdrop-web
+// specta 导出的 TS 类型（bindings/bindings.ts，由 `cargo test -p swarmdrop-web
 // --features specta` 生成并入库）整体注入 .d.ts，供下方 typescript_type 引用——
 // wasm-bindgen 默认把 JsValue 返回值标成 any，这里把方法签名接到具名类型上。
 #[wasm_bindgen(typescript_custom_section)]
@@ -77,12 +78,25 @@ extern "C" {
     /// `list_invites()` 的返回：`InviteListItemJson[]`。
     #[wasm_bindgen(typescript_type = "InviteListItemJson[]")]
     pub type InviteListArray;
+    /// `decode_invite_preview()` 的返回。
+    #[wasm_bindgen(typescript_type = "PairInvitePreviewJson")]
+    pub type PairInvitePreviewJs;
     /// `relays_changed()` 的返回：每次 relay 状态变化产出一份全量快照。
     #[wasm_bindgen(typescript_type = "ReadableStream<RelayInfoJson[]>")]
     pub type RelayChangedStream;
     /// `transfer_history()` 的返回：`TransferProjection[]`。
     #[wasm_bindgen(typescript_type = "TransferProjection[]")]
     pub type TransferProjectionArray;
+    /// `inbox_items()` 的返回：`InboxItemDetail[]`（列表直接带文件清单与传输投影，
+    /// 前端不必再逐条 `inbox_item()`）。
+    #[wasm_bindgen(typescript_type = "InboxItemDetail[]")]
+    pub type InboxItemDetailArray;
+    /// `search_inbox()` 的返回：`InboxSearchHit[]`。
+    #[wasm_bindgen(typescript_type = "InboxSearchHit[]")]
+    pub type InboxSearchHitArray;
+    /// `inbox_item()` / `inbox_item_by_session()` 的返回（无匹配时为 `null`）。
+    #[wasm_bindgen(typescript_type = "InboxItemDetail | null")]
+    pub type InboxItemDetailJs;
 }
 
 /// `until_active` 的契约级默认超时：即便调用方不传 signal，Promise 也在
@@ -129,14 +143,21 @@ pub struct WebNode {
     manager: Arc<TransferManager>,
     /// core 网络管理器：pairing（invite 配对）+ devices + shutdown（含 cleanup task 生命周期）。
     net_manager: NetManager<TransferManager>,
+    /// NetManager 侧事件总线（`spawn` 注入 core 的那一个 Arc）。改名编排要往它发
+    /// [`CoreEvent::DeviceRenamed`](swarmdrop_core::host::CoreEvent::DeviceRenamed)，
+    /// 故这里留一份句柄——它是本 crate 唯一从 `WebNode` 直接发 core 事件的地方。
+    event_bus: Arc<dyn EventBus>,
     /// 本机私钥（`generate_invite` 签名邀请用；start_node 吃的是它的 clone）。
     secret: SecretKey,
-    /// 本机 OsInfo（`generate_invite` 的 display_hint 用）。
-    os_info: OsInfo,
     /// 入站配对请求队列（browser-as-inviter：桌面消费本机 invite 后本机弹确认）。
     pending_pairings: PendingPairings,
-    /// 传输会话持久化（IndexedDB 写穿）——`transfer_history()` 直读，无需经 manager。
-    session_store: Arc<PersistentSessionStore>,
+    /// 已配对设备列表的持久化端口（IndexedDB 整份快照）。配对成功后的写入经
+    /// `swarmdrop_core::paired_devices::upsert` 落到它上面——**Web 不再自带列表算法**。
+    paired_store: Arc<dyn PairedDeviceStore>,
+    /// 传输域持久化端口（IndexedDB 写穿）——传输历史与**收件箱**的查询、清空都经此。
+    /// 类型是 `dyn WebStore`（= `TransferStore` + 收件箱批量读）而非具体实现：宿主注入
+    /// 的东西宿主自己也只该按端口用，否则「换一个存储实现」这件事在 Web 侧就少换一半。
+    session_store: Arc<dyn WebStore>,
     file_access: Arc<OpfsFileAccess>,
     events_rx: RefCell<
         Option<
@@ -164,28 +185,40 @@ impl WebNode {
         // web_os_info() 自建（wasm 下 OsInfo::default() 的 env 探测恒 unknown）。agent_version 由
         // start_node 走 to_agent_version()（"swarmdrop/{ver}; os=…" 契约）——桌面 DeviceManager
         // 用 AGENT_PREFIX 过滤设备列表，前缀不符会让 Web 节点在对端设备列表里隐身。
+        //
+        // 这里只给平台探测部分（os / platform / hostname）：`name` 由 `start_node` 从
+        // [`IdbDeviceConfig`] 端口填，本机 OsInfo 于是只有组合根一个装配点。
         let os_info = web_os_info();
-        let paired_devices = identity::load_paired_devices().await?;
+        // 已配对设备的事实源是这个端口——`start_node` 自己 load，这里不再预加载快照。
+        let paired_store: Arc<dyn PairedDeviceStore> = Arc::new(WebPairedDeviceStore);
 
         // Web 端口：IndexedDB 写穿 store / OPFS 落盘 / WebEventSink（transfer 事件直连 events() 流）。
         let file_access_impl = Arc::new(OpfsFileAccess::new());
         let file_access: Arc<dyn FileAccess> = file_access_impl.clone();
         let (sink, events_rx) = WebEventSink::new();
         let transfer_events: Arc<dyn TransferEventSink> = Arc::new(sink);
-        let session_store = Arc::new(PersistentSessionStore::load().await);
+        // 一个实例、两个端口视图：注入 core 的是纯端口 `TransferStore`（core 不该知道
+        // Web 多出一条批量读），本节点自己持的是 `WebStore`（端口 + 那条批量读）。
+        // 两者由**同一个** `Arc` 强转而来，不是两份影子副本。
+        let store_impl = Arc::new(WebTransferStore::load().await);
+        let store_port: Arc<dyn TransferStore> = store_impl.clone();
+        let session_store: Arc<dyn WebStore> = store_impl;
         // NetManager 侧事件的 bus：捕获入站配对请求（browser-as-inviter），其余记日志。
         // transfer 事件不经此（走 WebEventSink → events() 流）。
-        let (event_bus_impl, pending_pairings) = WebEventBus::new();
+        let (event_bus_impl, pending_pairings) = WebEventBus::new(paired_store.clone());
         let event_bus: Arc<dyn EventBus> = Arc::new(event_bus_impl);
 
         let file_access_for_factory = file_access.clone();
-        let store_for_factory = session_store.clone();
+        let store_for_factory = store_port.clone();
         let events_for_factory = transfer_events.clone();
         let started = start_node(
             secret.clone(),
             None,
-            os_info.clone(),
-            paired_devices,
+            os_info,
+            // 设备名的事实源：IndexedDB 的 `kv` store。`start_node` 自己 load 并填进
+            // `OsInfo.name`，浏览器侧不再有第二份本机 OsInfo 副本。
+            Arc::new(crate::device_config::IdbDeviceConfig),
+            paired_store.clone(),
             // LanOnly：浏览器拨不了 TCP/QUIC 内置 bootstrap，跳过它免得 infra 反复空拨刷屏；
             // LAN 配对经直连 ws + invite，不需 DHT bootstrap（公网可达待 webrtc-direct bootstrap）。
             NetworkRuntimeConfig {
@@ -202,7 +235,7 @@ impl WebNode {
                 TransferManager::new(
                     endpoint,
                     events_for_factory,
-                    store_for_factory as Arc<dyn TransferStore>,
+                    store_for_factory,
                     file_access_for_factory,
                 )
             },
@@ -212,21 +245,34 @@ impl WebNode {
 
         // 启动清理：上次会话遗留的 active 接收会话经状态机统一转 recoverable
         // suspended(AppRestarted)——与桌面 `cleanup_stale_sessions`、移动
-        // `reconcile_stale_sessions` 同一条路径。漏做会让活动视图出现「永远在传」的幽灵
-        // 条目。过期回收（reap + 清 .part）是 SQL 侧原语，Web 的保留期判定在
-        // `PersistentSessionStore::load`。
-        match TransferCoordinator::new(
-            session_store.clone() as Arc<dyn TransferStore>,
-            transfer_events,
-        )
-        .cleanup_recoverable_sessions()
-        .await
+        // `reconcile_stale_sessions` 同一条路径。漏做会让活动视图出现「永远在传」的幽灵条目。
+        match TransferCoordinator::new(store_port, transfer_events)
+            .cleanup_recoverable_sessions()
+            .await
         {
             Ok(0) => {}
             Ok(n) => {
                 tracing::info!("启动清理: {n} 个遗留 active 会话转为 suspended(app_restarted)")
             }
             Err(e) => tracing::warn!("启动清理失败（历史会话状态可能不准）: {e}"),
+        }
+
+        // 过期回收**必须排在清理之后**：上一轮被强杀留下的 `Active` 会话要先转成
+        // `Suspended`，`phase = Suspended` 这条判据才看得见它们（顺序反了就会整类漏掉，
+        // Web 曾因回收跑在节点起来之前而不得不把判据改成「非终态」，与桌面分叉）。
+        //
+        // **只做 DB 侧回收，不调 `cleanup_expired_part_files`**：那个原语按会话的**全部**
+        // 文件元数据重建 sink 再 `cleanup_sink`，而 Web 的 sink 路径就是文件的最终路径
+        // （没有 `.part` 中间态，见 `file_access.rs` 模块注释）——一个「A 已写完、B 只写了
+        // 一半」的多文件会话会把 A 一起删掉。桌面能这么做是因为它删的是 `xxx.part`。
+        // OPFS 残件的清理要按「哪些文件真没写完」来做，与收件箱的文件生命周期一并处理。
+        match session_store
+            .reap_expired_suspended_receives(SUSPENDED_RECEIVE_RETENTION_SECS)
+            .await
+        {
+            Ok(reaped) if reaped.is_empty() => {}
+            Ok(reaped) => tracing::info!("启动清理: {} 个过期接收会话已回收", reaped.len()),
+            Err(e) => tracing::warn!("过期接收会话回收失败: {e}"),
         }
 
         let endpoint = started.endpoint.clone();
@@ -236,7 +282,7 @@ impl WebNode {
         spawn_event_loop(
             started.events,
             net_manager.shared_refs(),
-            event_bus,
+            event_bus.clone(),
             started.router,
         );
 
@@ -244,9 +290,10 @@ impl WebNode {
             endpoint,
             manager,
             net_manager,
+            event_bus,
             secret,
-            os_info,
             pending_pairings,
+            paired_store,
             session_store,
             file_access: file_access_impl,
             events_rx: RefCell::new(Some(events_rx)),
@@ -256,6 +303,34 @@ impl WebNode {
     /// 本节点身份（base58）。
     pub fn node_id(&self) -> String {
         self.endpoint.node_id().to_string()
+    }
+
+    /// 改本机设备名：落盘 → 本机 `OsInfo` → identify 的 `agent_version` → 发
+    /// `DeviceRenamed`（编排在 core 的 `device_name::rename_device`，三端同一份）。
+    ///
+    /// **已连接的对端一个 RTT 内就看到新名字**：新值逐连接下发给每条已建立连接的
+    /// identify handler，再向这些对端主动 push；未连接的对端下次连上时直接取到新值。
+    /// 节点不重启、连接不断、传输不中断，页面也不必刷新。
+    ///
+    /// 返回归一化后的名字（`undefined` = 已清空，对外回落到
+    /// [`default_device_name`](crate::device_config::default_device_name)）。入参经
+    /// `DeviceName::parse` 归一化（trim、剥控制字符与 `;`、截断到 40 个 char），所以返回值
+    /// 可能与传进来的不同——UI 要展示的是这个返回值，而不是用户的草稿。
+    ///
+    /// 与模块级 [`set_device_name`](crate::device_config::set_device_name) 的分工：那个只
+    /// 落盘，供节点起不来时的设置页用；节点在跑就走这里。两者的分支在 JS 侧
+    /// （`node-runtime.ts`）——节点句柄只活在那边，Rust 够不到。
+    pub async fn rename_device(&self, name: Option<String>) -> Result<Option<String>, JsValue> {
+        let parsed = name.as_deref().and_then(DeviceName::parse);
+        swarmdrop_core::device_name::rename_device(
+            parsed.clone(),
+            &crate::device_config::IdbDeviceConfig,
+            &*self.event_bus,
+            Some(&self.net_manager),
+        )
+        .await
+        .map_err(WebError::from)?;
+        Ok(parsed.map(DeviceName::into_string))
     }
 
     /// 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
@@ -288,6 +363,40 @@ impl WebNode {
         )
     }
 
+    /// 解码并验签邀请串，返回对端展示信息 —— **不发起配对、不消费**。
+    ///
+    /// 供受邀方在粘贴 / 点链接进来之后先亮一张确认卡：篡改、伪造、格式不认的邀请在这里
+    /// 就被拒掉，用户点「配对」才走 [`connect_invite`](Self::connect_invite)。
+    ///
+    /// **纯本地**：不拨号、不查 DHT、不碰 IndexedDB，全程零出网 —— 确认卡出现之前不该有
+    /// 任何网络行为，这条是它成立的依据。
+    ///
+    /// **判不出「已撤销」**：撤销状态只在邀请方的注册表里，受邀方手上只有一段自包含的
+    /// 签名串，那件事根本没传播过来。要判就得出网，与上一条冲突。所以撤销只能在
+    /// `connect_invite` 阶段由邀请方拒绝，调用方把那个失败渲染成人话即可 ——
+    /// **不要在本地发明撤销判据**（最容易发明的「查 `list_invites` 看在不在」尤其错：
+    /// 那是本机自己发出的邀请，对受邀方永远为空，于是所有邀请都会被判成已撤销）。
+    ///
+    /// 同步返回：与 [`invite_qr_svg`](Self::invite_qr_svg) 一样是纯计算，`&self` 只是
+    /// 可达性的代价（前端拿模块句柄的唯一路径是 `getNode()`）。
+    pub fn decode_invite_preview(&self, invite: String) -> Result<PairInvitePreviewJs, JsValue> {
+        // **分类成 invalidInput，不是 network。**「链接不对」与「网络错误」是两码事，
+        // 顶着网络错误的标题只会把用户和排查都引到完全无关的方向（桌面在
+        // `decode_pair_invite` 收尾时正是为这个改过分类）。技术细节只进日志。
+        let invite = PairInvite::decode(&invite).map_err(|e| {
+            tracing::debug!("decode_invite_preview 失败: {e}");
+            JsValue::from(WebError::invalid_input(invite_parse_message(&e)))
+        })?;
+        let preview = PairInvitePreviewJson {
+            peer_id: invite.inviter.id.to_string(),
+            display_name: invite.display_name,
+            display_platform: invite.display_platform,
+            expires_at: invite.expires_at.to_string(),
+            local_only: matches!(invite.transport_policy, TransportPolicy::LocalOnly),
+        };
+        to_js_typed(&preview, "邀请预览")
+    }
+
     /// 受邀方：消费邀请串完成**真配对握手**。
     ///
     /// `pair_with_invite` 解码验签 → TTL 预检 → 按 `TransportPolicy` 过滤地址 → 连邀请方出示
@@ -306,7 +415,12 @@ impl WebNode {
             PairingResponse::Success => {
                 if let Some(device) = paired {
                     let peer_id = device.peer_id.to_string();
-                    identity::upsert_paired_device(device).await?;
+                    // 走 core 的 upsert：已存在条目只刷新 os_info / paired_at，保留用户设过的
+                    // trust_level / receive_policy（这里拿到的 `device` 恒是默认策略的
+                    // `PairedDeviceInfo::new`，整条替换等于一次静默的策略重置）。
+                    swarmdrop_core::paired_devices::upsert(&*self.paired_store, device)
+                        .await
+                        .map_err(WebError::from)?;
                     Ok(peer_id)
                 } else {
                     Ok(String::new())
@@ -333,7 +447,7 @@ impl WebNode {
         Ok(self
             .net_manager
             .pairing()
-            .encode_invite(&self.secret, policy, &self.os_info)
+            .encode_invite(&self.secret, policy)
             .await)
     }
 
@@ -431,8 +545,32 @@ impl WebNode {
             .await
             .map_err(WebError::from)?;
         if let Some(device) = paired {
-            identity::upsert_paired_device(device).await?;
+            // 同 `connect_invite`：保留语义在 core 那一份 upsert 里，Web 不再自带列表算法。
+            swarmdrop_core::paired_devices::upsert(&*self.paired_store, device)
+                .await
+                .map_err(WebError::from)?;
         }
+        Ok(())
+    }
+
+    /// 解除与某台已配对设备的配对（`peer_id` 为 base58 NodeId）。
+    ///
+    /// 走 core 的 `PairingManager::unpair`：**先落盘、再删共享内存表、最后发事件**。
+    /// 持久化失败即整体报错且内存表不动——绝不出现「这次点了就没了、刷新一下又回来」。
+    /// 删内存表这一步同时撤销 presence 保活与 `is_paired` 判定（一个 tick 内收敛），
+    /// 所以本方法之后不需要再补任何本地清理。
+    ///
+    /// **单方语义**：只解除本机这一侧，对端仍然认得本机；对端再发起传输会被 `NotPaired`
+    /// 拒掉，要恢复得重新走一次完整配对。
+    ///
+    /// 幂等：本来就没配对的 peer 直接返回成功，不发事件。
+    pub async fn remove_paired_device(&self, peer_id: String) -> Result<(), JsValue> {
+        let id = parse_node_id(&peer_id)?;
+        self.net_manager
+            .pairing()
+            .unpair(&id)
+            .await
+            .map_err(WebError::from)?;
         Ok(())
     }
 
@@ -618,6 +756,44 @@ impl WebNode {
         Ok(())
     }
 
+    /// 取消一条**发送**会话。
+    ///
+    /// 只是一条 wasm 边界上的线，取消语义整套在域层（`crates/transfer`）里做完：
+    /// 按 wire 发 Cancel 帧通知对端（对方随即清掉自己的半成品）、dispatch
+    /// `UserCommand::Cancel` 让协调器把会话写成**不可续传**的终态（`recoverable=false`，
+    /// 故刷新后不会再冒出「续传」按钮）、并按 `session_id` 索引只动这一条会话。
+    /// **Web 侧不要再补任何本地取消逻辑**，否则就有了第二条状态机路径。
+    ///
+    /// 覆盖「offer 已发出、对方还没接受」这条边界：此时没有 send actor，域层会回落到
+    /// `outbound_offers`（`flow/send.rs`）——丢弃 prepared、照样 dispatch `Cancel`，
+    /// 所以「发出去等半天对方不理」也止得住损，调用方无需区分。
+    pub async fn cancel_send(&self, session_id: String) -> Result<(), JsValue> {
+        let sid = parse_session_id(&session_id)?;
+        self.manager
+            .cancel_send(&sid)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
+    /// 取消一条**接收**会话。
+    ///
+    /// 与 [`cancel_send`](Self::cancel_send) 同样只是导出：域层通知对端停发、
+    /// dispatch `UserCommand::Cancel` 进不可续传终态，并调 `cleanup_part_files()`
+    /// 逐个走 `FileAccess::cleanup_sink` 清掉本次会话开出来的半成品——在 Web 上那就是
+    /// [`OpfsFileAccess::cleanup_sink`](crate::file_access)，OPFS 里的截断文件会被真删掉。
+    ///
+    /// **方向不自动判**（要发送就调 `cancel_send`）：取消是有副作用的操作（发帧、删文件、
+    /// 写终态），拿它当探针试方向会把「dispatch 失败」误读成「不是这个方向」。
+    pub async fn cancel_receive(&self, session_id: String) -> Result<(), JsValue> {
+        let sid = parse_session_id(&session_id)?;
+        self.manager
+            .cancel_receive(&sid)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
     /// 手动发起断点续传（对某 suspended 会话）。
     pub async fn resume(&self, session_id: String) -> Result<(), JsValue> {
         let sid = parse_session_id(&session_id)?;
@@ -628,16 +804,153 @@ impl WebNode {
         Ok(())
     }
 
-    /// 已持久化的传输会话投影（无序——收件箱与活动视图排法不同，排序留给调用方）。
+    /// 已持久化的传输会话投影，**按 `startedAt` 倒序**（端口契约，三端一致）。
     ///
     /// 页面刷新后事件流从零开始，前端据此回补收件箱与传输活动视图（收件箱 = 其中
     /// `direction=receive` 且 `terminalReason=completed` 的条目，文件仍在 OPFS，可继续
-    /// [`download_url`](Self::download_url)）。
+    /// [`download_url`](Self::download_url)）。各面板再按自己的维度（结束时间 / 更新时间）
+    /// 重排是预期行为——端口保证的是确定性，不是最终展示序。
     ///
     /// **不含**非终态的发送会话与待决 offer：浏览器刷新后无法在不重新选择文件的前提下
     /// 读回 `File`，待决 offer 也已无处应答，故它们本就不落库（见 `store.rs` 模块注释）。
-    pub fn transfer_history(&self) -> Result<TransferProjectionArray, JsValue> {
-        to_js_typed(&self.session_store.all_projections(), "传输历史")
+    pub async fn transfer_history(&self) -> Result<TransferProjectionArray, JsValue> {
+        let projections = self
+            .session_store
+            .list_transfer_projections()
+            .await
+            .map_err(WebError::from)?;
+        to_js_typed(&projections, "传输历史")
+    }
+
+    /// 删除一条传输记录。
+    ///
+    /// **只删记录**：OPFS 里已落盘的文件不动，收件箱照旧能看能下载——文件的生命周期归
+    /// 收件箱侧管（三端一致的分工，别在这里发明 Web 特例）。
+    ///
+    /// 进行中的会话会被域层拒绝（`TransferManager::delete_session` 的守卫），错误经
+    /// `WebError` 透出——UI 的按钮可见性只是第一道，绕过它直调导出同样删不掉。
+    pub async fn delete_transfer_session(&self, session_id: String) -> Result<(), JsValue> {
+        let sid = parse_session_id(&session_id)?;
+        self.manager
+            .delete_session(sid)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
+    /// 清空传输历史：删除所有**已结束**的会话记录，进行中与已中断的一条不动。
+    ///
+    /// 同样只清账本，收件箱里的文件不受影响（见 [`delete_transfer_session`](Self::delete_transfer_session)）。
+    pub async fn clear_transfer_history(&self) -> Result<(), JsValue> {
+        self.session_store
+            .clear_all_history()
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
+    // ── 收件箱（「已接收内容」这本账）──────────────────────────────────────
+    //
+    // 与 [`transfer_history`](Self::transfer_history) 刻意分开：收件箱是**结果**
+    // （已落盘、可回看），传输历史是**过程**。两者是两张各自的表，清空历史与
+    // `HISTORY_CAP` 淘汰都不动收件箱（见 `store.rs` / `inbox.rs` 的模块注释）。
+    //
+    // **刻意不导出**两个端口方法：
+    // - `mark_inbox_item_file_missing`：浏览器侧没有「文件被外部移动/删除」这回事
+    //   （OPFS 只有本 origin 能写）。真会发生的是**配额驱逐**，那会让整个 OPFS 目录
+    //   一起消失，逐文件打 missing 标记没有意义。
+    // - `repair_missing_inbox_items_for_completed_receives`：它修的是「`ensure_*` 当时
+    //   写失败」，而 Web 端此刻没有承载它的 UI。端口实现照做（三端同构），导出等有
+    //   调用方再加——不预留死接口。
+
+    /// 收件箱条目列表，按 `receivedAt` 倒序；`includeArchived=false` 时排除已归档项，
+    /// 软删项一律不返回。
+    ///
+    /// **返回的是完整详情**（含文件清单与关联传输投影），不是 summary。前端此前拿到
+    /// summary 后要 `Promise.all(summaries.map(inbox_item))` 逐条补详情——1 + N 次 wasm
+    /// 调用，且拉详情与拉列表之间条目可能已被删（于是要 `filter(d => d !== null)` 去兜
+    /// 一个自己制造出来的竞态）。而收件箱在浏览器侧是全内存表，列表与详情读的是同一份
+    /// 数据，那 N 次调用买不到任何新鲜度。
+    pub async fn inbox_items(
+        &self,
+        include_archived: bool,
+    ) -> Result<InboxItemDetailArray, JsValue> {
+        let items = self.session_store.list_inbox_details(include_archived);
+        to_js_typed(&items, "收件箱条目")
+    }
+
+    /// 单条收件箱详情（含文件清单与关联传输投影）；不存在或已软删返回 `null`。
+    pub async fn inbox_item(&self, item_id: String) -> Result<InboxItemDetailJs, JsValue> {
+        let id = parse_uuid(&item_id, "item_id")?;
+        let detail = self
+            .session_store
+            .get_inbox_item_detail(id)
+            .await
+            .map_err(WebError::from)?;
+        optional_detail_to_js(detail)
+    }
+
+    /// 按传输会话 id 取收件箱详情（「这次传输收到的东西」的反查）；无关联返回 `null`。
+    pub async fn inbox_item_by_session(
+        &self,
+        session_id: String,
+    ) -> Result<InboxItemDetailJs, JsValue> {
+        let sid = parse_session_id(&session_id)?;
+        let detail = self
+            .session_store
+            .get_inbox_item_by_transfer_session_id(sid)
+            .await
+            .map_err(WebError::from)?;
+        optional_detail_to_js(detail)
+    }
+
+    /// 收件箱子串检索：大小写不敏感，覆盖标题 / 来源设备名 / 文件名与相对路径。
+    /// 空查询返回空列表；结果按 `receivedAt` 倒序并截断到 `limit`。
+    pub async fn search_inbox(
+        &self,
+        query: String,
+        limit: usize,
+        include_archived: bool,
+    ) -> Result<InboxSearchHitArray, JsValue> {
+        let hits = self
+            .session_store
+            .search_inbox(&query, limit, include_archived)
+            .await
+            .map_err(WebError::from)?;
+        to_js_typed(&hits, "收件箱检索结果")
+    }
+
+    /// 标记条目最近打开时间（用户点开详情/下载时调）。条目不存在时静默成功。
+    pub async fn mark_inbox_item_opened(&self, item_id: String) -> Result<(), JsValue> {
+        let id = parse_uuid(&item_id, "item_id")?;
+        self.session_store
+            .mark_inbox_item_opened(id)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
+    /// 归档 / 取消归档收件箱条目。条目不存在时静默成功。
+    pub async fn archive_inbox_item(&self, item_id: String, archived: bool) -> Result<(), JsValue> {
+        let id = parse_uuid(&item_id, "item_id")?;
+        self.session_store
+            .archive_inbox_item(id, archived)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
+    /// 软删除收件箱条目：**只删记录**，OPFS 里的文件不动。
+    ///
+    /// 与桌面同一分工——是否连文件一起删由宿主在调用前决定，端口只管账本
+    /// （Web 端目前不提供删文件的入口，OPFS 空间的释放待收件箱 UI 一并设计）。
+    pub async fn delete_inbox_item(&self, item_id: String) -> Result<(), JsValue> {
+        let id = parse_uuid(&item_id, "item_id")?;
+        self.session_store
+            .delete_inbox_item_record(id)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
     }
 
     /// 完成接收后，把 OPFS 里的文件读回成 blob URL 供 `<a download>` 下载。
@@ -672,7 +985,11 @@ impl WebNode {
 /// 浏览器环境的 [`OsInfo`]：UA 粗判 os、platform 固定 `"web"`、hostname 用浏览器名
 /// （UI 按 `name || hostname` 回退显示，浏览器名比占位 "Device" 有辨识度）。
 /// wasm 下 `OsInfo::default()` 的 env 探测恒 "unknown"，必须自建。
-fn web_os_info() -> swarmdrop_host::device::OsInfo {
+///
+/// `pub(crate)` 是为了让 [`default_device_name`](crate::device_config::default_device_name)
+/// 复用同一份 UA 判定：设置页 placeholder 与对端看到的默认名必须同源，否则会漂成
+/// 「placeholder 写 Safari、对端看到 Browser」。
+pub(crate) fn web_os_info() -> swarmdrop_host::device::OsInfo {
     let ua = crate::env::user_agent();
     let os = if ua.contains("Windows") {
         "windows"
@@ -708,8 +1025,42 @@ fn web_os_info() -> swarmdrop_host::device::OsInfo {
     }
 }
 
+/// [`InviteParseError`] → 给人看的一句话。
+///
+/// 分四种而不是拍成一句「邀请无效」：只有第一种是用户自己能修的（复制漏了、根本不是这类
+/// 链接），后三种要说的都是「别再试了，让对方重发一条」。内层的技术细节（base32 偏移、
+/// postcard 报错）对用户零信息量，只进 `tracing::debug!`。
+fn invite_parse_message(error: &InviteParseError) -> String {
+    match error {
+        InviteParseError::Kind => "这不是一条配对邀请链接（检查是否复制完整）".to_owned(),
+        InviteParseError::Encoding(_) => "邀请链接已损坏或被截断（试试重新复制一次）".to_owned(),
+        InviteParseError::Postcard(_) => "邀请格式无法解析（可能由更新版本生成）".to_owned(),
+        // Verify 的内层本就是给人看的一句话（签名无效 / 地址提示非法 …），原样透出。
+        InviteParseError::Verify(reason) => (*reason).to_owned(),
+    }
+}
+
 fn parse_session_id(s: &str) -> Result<Uuid, WebError> {
     Uuid::parse_str(s.trim()).map_err(|e| WebError::invalid_input(format!("非法 session_id: {e}")))
+}
+
+/// 解析 UUID 入参（收件箱条目 id 等），错误里带上字段名。
+fn parse_uuid(s: &str, what: &str) -> Result<Uuid, JsValue> {
+    Uuid::parse_str(s.trim())
+        .map_err(|e| WebError::invalid_input(format!("非法 {what}: {e}")).into())
+}
+
+/// `Option<InboxItemDetail>` → JS，`None` 落成 **null**。
+///
+/// 显式分支不是多余的：serde_wasm_bindgen 把 `None` 序列化成 `undefined`，
+/// 与 `.d.ts` 声明的 `InboxItemDetail | null` 对不上，JS 侧 `=== null` 会恒假。
+fn optional_detail_to_js(
+    detail: Option<swarmdrop_transfer::inbox::InboxItemDetail>,
+) -> Result<InboxItemDetailJs, JsValue> {
+    match detail {
+        Some(detail) => to_js_typed(&detail, "收件箱详情"),
+        None => Ok(JsValue::NULL.unchecked_into()),
+    }
 }
 
 /// 解析 base58 身份串为 [`NodeId`]（`relays_drop` / `relays_until_active` 入参）。

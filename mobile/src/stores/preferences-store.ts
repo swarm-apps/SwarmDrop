@@ -23,7 +23,14 @@ export const DEFAULT_FILE_BROWSER_VIEWS: Record<
 };
 
 interface PreferencesState {
-  /** 用户自定义设备名,空字符串走系统 hostname / Device.deviceName fallback */
+  /**
+   * 用户自定义设备名的**显示镜像**,空字符串走系统 hostname / Device.deviceName fallback。
+   *
+   * 事实源在 Rust 侧的 `device_config.json`(core 的 `DeviceConfig` 端口):节点启动时
+   * 由 core 读进本机 `OsInfo`,对端看到的是那一份。这里留一份镜像只为 UI 冷启动时
+   * 立刻有值可渲染,写入只有两个来源:`applyDeviceName`(先写 core 再回写镜像),以及
+   * core 广播的 `DeviceRenamed` 事件(改名可能由本页之外的地方发起)。
+   */
   deviceName: string;
   /** 本机对已配对设备的别名与分组,仅保存在本机,不同步到对端。 */
   deviceOrganization: DeviceOrganization;

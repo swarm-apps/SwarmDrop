@@ -31,12 +31,22 @@ pub async fn wait_listen_addrs(endpoint: &Endpoint) -> Vec<Addr> {
 
 /// 起一个只监听 127.0.0.1 TCP 的节点，返回 (endpoint, 就绪的监听地址)。
 pub async fn spawn_node() -> (Endpoint, Vec<Addr>) {
+    spawn_node_inner(None).await
+}
+
+/// 同 [`spawn_node`]，但指定 identify 的 agent_version 初值。
+pub async fn spawn_node_with_agent(agent_version: &str) -> (Endpoint, Vec<Addr>) {
+    spawn_node_inner(Some(agent_version)).await
+}
+
+async fn spawn_node_inner(agent_version: Option<&str>) -> (Endpoint, Vec<Addr>) {
     init_tracing();
-    let endpoint = Endpoint::builder()
-        .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().expect("valid")])
-        .bind()
-        .await
-        .expect("bind");
+    let mut builder =
+        Endpoint::builder().listen(vec!["/ip4/127.0.0.1/tcp/0".parse().expect("valid")]);
+    if let Some(agent) = agent_version {
+        builder = builder.agent_version(agent);
+    }
+    let endpoint = builder.bind().await.expect("bind");
     let addrs = wait_listen_addrs(&endpoint).await;
     (endpoint, addrs)
 }

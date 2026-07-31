@@ -1,7 +1,10 @@
 //! 传输活动投影 —— 暴露共享 `swarmdrop_core::transfer::store::TransferProjection`。
 //!
 //! 旧的 `MobileSessionStatus`/history item 模型已经不再是移动端状态源。本文件只保留
-//! Activity/Recovery 所需的 projection 查询、删除、清空和恢复命令。
+//! Activity/Recovery 所需的 projection 查询、删除、清空、源路径和恢复命令。
+//!
+//! 历史管理一律经 `TransferManager::store()` 取回持久化端口，不再直连 SeaORM 自由函数
+//! —— 端口有出口后，宿主侧就不该再存第二份数据库句柄做传输查询。
 
 use std::sync::Arc;
 
@@ -10,7 +13,7 @@ use uuid::Uuid;
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 use swarmdrop_core::host::{EventBus, FileAccess};
 use swarmdrop_core::transfer::coordinator::TransferCoordinator;
-use swarmdrop_storage_sql::ops;
+use swarmdrop_core::transfer::store::{TransferProjection, TransferProjectionFile, TransferStore};
 
 use crate::app::MobileCore;
 use crate::error::{FfiError, FfiResult};
@@ -101,10 +104,10 @@ pub struct MobileTransferProjectionFile {
     pub transferred_bytes: u64,
 }
 
-impl From<ops::TransferProjectionFile> for MobileTransferProjectionFile {
-    fn from(file: ops::TransferProjectionFile) -> Self {
+impl From<TransferProjectionFile> for MobileTransferProjectionFile {
+    fn from(file: TransferProjectionFile) -> Self {
         // 穷尽解构 drift guard：上游给 `TransferProjectionFile` 加字段时这里会编译失败。
-        let ops::TransferProjectionFile {
+        let TransferProjectionFile {
             file_id,
             name,
             relative_path,
@@ -147,10 +150,10 @@ pub struct MobileTransferProjection {
     pub files: Vec<MobileTransferProjectionFile>,
 }
 
-impl From<ops::TransferProjection> for MobileTransferProjection {
-    fn from(projection: ops::TransferProjection) -> Self {
+impl From<TransferProjection> for MobileTransferProjection {
+    fn from(projection: TransferProjection) -> Self {
         // 穷尽解构 drift guard：上游给 `TransferProjection` 加字段时这里会编译失败。
-        let ops::TransferProjection {
+        let TransferProjection {
             session_id,
             direction,
             peer_id,
@@ -202,25 +205,26 @@ impl From<ops::TransferProjection> for MobileTransferProjection {
 ///    coordinator dispatch 写 DB + 发 projection（漏发 projection 会让活动列表出现"永远在传"的幽灵条目）；
 /// 2. 超过保留期仍未恢复的 recoverable suspended 接收会话经共享 core 原语转 terminal，
 ///    并用本端 FileAccess 尽力清理遗留 `.part`，防止活动列表与磁盘无限堆积。
+///
+/// 本函数跑在 `start_node` 里、节点尚未起来，拿不到 `TransferManager::store()`，
+/// 故由调用方把 `MobileCore` 自持的那一份端口传进来 —— 不在这里另建一个同款实例。
 pub(crate) async fn reconcile_stale_sessions(
-    db: Arc<sea_orm::DatabaseConnection>,
+    store: Arc<dyn TransferStore>,
     event_bus: Arc<dyn EventBus>,
     file_access: &Arc<dyn FileAccess>,
 ) -> FfiResult<usize> {
     let converted = TransferCoordinator::new(
-        Arc::new(swarmdrop_storage_sql::SqlSessionStore::new(db.clone())),
+        store.clone(),
         Arc::new(swarmdrop_core::event_adapter::CoreTransferEvents(event_bus)),
     )
     .cleanup_recoverable_sessions()
     .await
     .map_err(FfiError::from)?;
 
-    let reaped = ops::reap_expired_suspended_receives(
-        &db,
-        swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS,
-    )
-    .await
-    .map_err(FfiError::from)?;
+    let reaped = store
+        .reap_expired_suspended_receives(swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS)
+        .await
+        .map_err(FfiError::from)?;
     swarmdrop_core::transfer::cleanup_expired_part_files(file_access, &reaped).await;
 
     Ok(converted)
@@ -233,8 +237,10 @@ fn parse_session_id(s: &str) -> FfiResult<Uuid> {
 #[uniffi::export(async_runtime = "tokio")]
 impl MobileCore {
     pub async fn get_transfer_projections(&self) -> FfiResult<Vec<MobileTransferProjection>> {
-        let db = self.ensure_db().await?;
-        let items = ops::get_transfer_projections(&db)
+        let manager = self.transfer_manager_arc().await?;
+        let items = manager
+            .store()
+            .list_transfer_projections()
             .await
             .map_err(FfiError::from)?;
         Ok(items.into_iter().map(Into::into).collect())
@@ -245,8 +251,10 @@ impl MobileCore {
         session_id: String,
     ) -> FfiResult<Option<MobileTransferProjection>> {
         let session_uuid = parse_session_id(&session_id)?;
-        let db = self.ensure_db().await?;
-        let item = ops::get_transfer_projection(&db, session_uuid)
+        let manager = self.transfer_manager_arc().await?;
+        let item = manager
+            .store()
+            .get_transfer_projection(session_uuid)
             .await
             .map_err(FfiError::from)?;
         Ok(item.map(Into::into))
@@ -254,20 +262,39 @@ impl MobileCore {
 
     pub async fn delete_transfer_record(&self, session_id: String) -> FfiResult<()> {
         let session_uuid = parse_session_id(&session_id)?;
-        let db = self.ensure_db().await?;
-        ops::delete_session(&db, session_uuid)
+        // 域方法而非 store()：进行中的会话不可删是域不变量，守卫在 TransferManager。
+        let manager = self.transfer_manager_arc().await?;
+        manager
+            .delete_session(session_uuid)
             .await
             .map_err(FfiError::from)
     }
 
     pub async fn clear_transfer_activity(&self) -> FfiResult<()> {
-        let db = self.ensure_db().await?;
-        ops::clear_all_history(&db).await.map_err(FfiError::from)
+        let manager = self.transfer_manager_arc().await?;
+        manager
+            .store()
+            .clear_all_history()
+            .await
+            .map_err(FfiError::from)
+    }
+
+    /// 「从历史重新发送」重建载荷用：取会话内有源路径的文件绝对路径（发送方向）。
+    ///
+    /// 接收会话与没记源路径的历史会话返回空 Vec —— 前端据此回退到「预选设备后重新
+    /// 挑文件」，而不是假装能一键重发（源路径可能已失效，见 `[sessionId].tsx`）。
+    pub async fn get_transfer_source_paths(&self, session_id: String) -> FfiResult<Vec<String>> {
+        let session_uuid = parse_session_id(&session_id)?;
+        let manager = self.transfer_manager_arc().await?;
+        manager
+            .store()
+            .get_session_source_paths(session_uuid)
+            .await
+            .map_err(FfiError::from)
     }
 
     pub async fn resume_transfer(&self, session_id: String) -> FfiResult<MobileTransferProjection> {
         let session_uuid = parse_session_id(&session_id)?;
-        let db = self.ensure_db().await?;
         // initiate_resume 已统一收发双向（内部按 session.direction 派生）+ 不存在 / 不可恢复
         // 校验（load_resumable_session），无需在此预加载 session 仅为取 direction。
         let manager = self.transfer_manager_arc().await?;
@@ -276,7 +303,9 @@ impl MobileCore {
             .await
             .map_err(FfiError::from)?;
 
-        let projection = ops::get_transfer_projection(&db, session_uuid)
+        let projection = manager
+            .store()
+            .get_transfer_projection(session_uuid)
             .await
             .map_err(FfiError::from)?
             .ok_or_else(|| FfiError::Transfer("会话不存在".into()))?;

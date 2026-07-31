@@ -297,6 +297,13 @@ impl PresenceSupervisor {
     ///
     /// - 新配对 → 进保活白名单 + 建立初始状态（已连接则 Connected，否则立即重探）
     /// - 解除配对 → 出白名单 + 断开连接 + 移除状态
+    ///
+    /// **撤销的触发判据是内存 `paired` 表**（`NetManager` 建的那份共享 `DashMap`），
+    /// 不是持久化列表：只把设备从 keychain / IndexedDB 里删掉，下面的
+    /// `presence − paired` 差集永远算不出它，保活与重探会一直跑到进程退出。
+    /// 解除配对因此必须走
+    /// [`PairingManager::unpair`](crate::pairing::PairingManager::unpair)——它删的正是这份表。
+    /// 另外撤销靠 1s tick 收敛、不是同步的，验收要写「一个 tick 内」而非「立即」。
     fn reconcile_whitelist(&self, now: Instant, is_connected: &(dyn Fn(&NodeId) -> bool + Sync)) {
         for entry in self.paired.iter() {
             let peer = *entry.key();
@@ -720,17 +727,27 @@ mod tests {
         assert!(!state.is_online());
     }
 
+    /// 撤销的触发判据是**内存 `paired` 表**：这里只从 `ctx.paired` 移走 peer
+    /// （持久化一个字节都没动），一轮 reconcile 后 presence 条目与失败计数都必须清干净。
+    ///
+    /// 反过来说，任何「只删持久化」的解除实现在这条链路上什么都不会发生——保活与重探
+    /// 会一直跑到进程退出。`PairingManager::unpair` 删这份共享 `DashMap` 因此不是可选优化。
     #[tokio::test(flavor = "multi_thread")]
-    async fn unpair_removes_presence_state() {
+    async fn unpair_removes_presence_state_and_ping_failures() {
         let ctx = test_ctx().await;
         let peer = pair(&ctx);
         ctx.presence.insert(peer, PresenceState::Connected);
+        ctx.supervisor.ping_failures.insert(peer, 2);
 
         ctx.paired.remove(&peer);
         ctx.supervisor.tick(Instant::now(), &|_| false).await;
         assert!(
             state_of(&ctx, &peer).is_none(),
             "解除配对后 presence 状态必须清理"
+        );
+        assert!(
+            ctx.supervisor.ping_failures.get(&peer).is_none(),
+            "失败计数必须一并清空，否则重新配对时会带着旧计数直接判死"
         );
     }
 

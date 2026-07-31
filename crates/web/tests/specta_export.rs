@@ -1,5 +1,5 @@
 //! TS 类型导出：把 [`WebTransferEvent`] / [`OfferJson`]（含整棵嵌套 transfer DTO 树）导成
-//! `static/types/bindings.ts`（生成物入库，node.rs 经 `typescript_custom_section` 注入 .d.ts）。
+//! `bindings/bindings.ts`（生成物入库，node.rs 经 `typescript_custom_section` 注入 .d.ts）。
 //!
 //! 跑法：`cargo test -p swarmdrop-web --features specta --test specta_export`（native）。
 //! bigint 处理：`u64/usize` 等重映射为 TS `number`（运行期 serde_wasm_bindgen 给的就是
@@ -14,8 +14,9 @@ use specta::datatype::{DataType, Primitive};
 use specta::{Format, FormatError, Type, Types};
 use specta_util::Remapper;
 use swarmdrop_web::{
-    ConnectionJson, Device, InviteListItemJson, OfferJson, PendingPairingJson, RelayInfoJson,
-    WebError, WebTransferEvent,
+    ConnectionJson, Device, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
+    InboxSearchHit, InviteListItemJson, OfferJson, PairInvitePreviewJson, PendingPairingJson,
+    RelayInfoJson, WebError, WebTransferEvent,
 };
 
 /// serde 形状（tagged enum / rename）+ bigint→number 重映射。
@@ -60,8 +61,16 @@ fn export_bindings() {
         .register::<ConnectionJson>()
         .register::<RelayInfoJson>()
         .register::<InviteListItemJson>()
+        .register::<PairInvitePreviewJson>()
         .register::<WebError>()
-        .register::<Device>();
+        .register::<Device>()
+        // 收件箱 DTO：**这条链不是自动扫描**，漏注册的类型不会出现在 bindings.ts 里
+        // （`InboxItemDetail` 会顺带带出嵌套的 Summary/FileEntry，但显式列全更经得起改动）。
+        .register::<InboxItemSummary>()
+        .register::<InboxItemFileEntry>()
+        .register::<InboxItemDetail>()
+        .register::<InboxSearchHit>()
+        .register::<InboxHitFile>();
 
     specta_typescript::Typescript::default()
         .header(

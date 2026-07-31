@@ -30,6 +30,7 @@ uniffi::setup_scaffolding!();
 
 mod app;
 mod device;
+mod device_config;
 mod error;
 mod events;
 mod file_access;

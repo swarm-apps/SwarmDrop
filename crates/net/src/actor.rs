@@ -66,6 +66,11 @@ pub(crate) enum ActorMessage {
         addr: Addr,
         reply: oneshot::Sender<Result<(), Error>>,
     },
+    /// 运行期改写 identify 的 agent_version，并立刻向已连接对端主动 push。
+    SetAgentVersion {
+        agent_version: String,
+        reply: oneshot::Sender<Result<(), Error>>,
+    },
     SetKeepAlive {
         node: NodeId,
         enabled: bool,
@@ -251,6 +256,47 @@ impl Actor {
                 });
                 if changed {
                     self.publish_addrs();
+                }
+                let _ = reply.send(Ok(()));
+            }
+            ActorMessage::SetAgentVersion {
+                agent_version,
+                reply,
+            } => {
+                // agent_version 有两份副本，真值归属必须记牢：
+                //   · identify `Behaviour` 内部那份是**权威**——新连接建立时
+                //     handler 从它 clone 一份自用；
+                //   · 这里的 `self.config.agent_version` 只是内核自己的诊断镜像
+                //     （tracing / Debug 用），没有任何对外语义。
+                // 两者必须由同一条命令一起更新，否则会长出「日志里的名字和线上广播
+                // 的不一样」这种两边各自自洽、最难查的偏差。也正因为始终同步，这里
+                // 可以拿镜像当幂等判据。
+                //
+                // 同值即空操作：不下发、不推送、不产生任何网络流量。少了这道短路，
+                // 一次无意义的调用会让每个已连接对端都收到一条内容相同的 identify
+                // push，白发一轮设备信息刷新。
+                if self.config.agent_version != agent_version {
+                    self.config.agent_version = agent_version.clone();
+
+                    // 以下两步顺序写死，不可交换：
+                    //   ① set_agent_version 逐连接压入 NotifyHandler::One(AgentVersionChanged)
+                    //   ② push 压入 NotifyHandler::Any(Push)
+                    // behaviour 的事件队列是 FIFO，先 set 后 push 才能让每条连接的 handler
+                    // 在见到 Push 之前就已经持有新值——这是一条不依赖任何时序假设的保证。
+                    //
+                    // 反过来写今天**碰巧**也成立，但那是在赌 handler 的实现细节：
+                    // `InEvent::Push` 只是排一次 OutboundSubstreamRequest，真正读
+                    // `self.agent_version` 的 `build_info()` 要等子流协商完才跑，
+                    // 那时 AgentVersionChanged 早到了。这个赌注一旦输掉，失败是**静默**的：
+                    // 对端收到一次「内容没变」的 push，两端日志都正常，名字就是不更新，
+                    // 要等 5 分钟后的周期交换才被纠正。集成测试也照不出来（它只能证明
+                    // push 发生过），所以正确性只能靠这里的顺序守住。
+                    self.swarm
+                        .behaviour_mut()
+                        .identify
+                        .set_agent_version(agent_version);
+                    let peers: Vec<PeerId> = self.conns.keys().copied().collect();
+                    self.swarm.behaviour_mut().identify.push(peers);
                 }
                 let _ = reply.send(Ok(()));
             }

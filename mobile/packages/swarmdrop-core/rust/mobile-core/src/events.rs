@@ -125,6 +125,15 @@ pub enum MobileCoreEvent {
     PairedDeviceAdded {
         device: MobilePairedDevice,
     },
+    PairedDeviceRemoved {
+        peer_id: String,
+    },
+    /// 本机设备名已变更。`display_name` 是 core 算好的展示名（名字为空则回退
+    /// hostname），JS 侧直接用，不要再写一遍 `name || hostname` 的回退。
+    DeviceRenamed {
+        name: Option<String>,
+        display_name: String,
+    },
     TransferOfferReceived {
         offer: MobileTransferOffer,
     },
@@ -173,16 +182,20 @@ pub trait ForeignEventBus: Send + Sync {
 
 pub(crate) struct MobileEventBusAdapter {
     foreign: Arc<dyn ForeignEventBus>,
-    /// 用于把新配对 / Identify 刷新后的已配对设备写回 keychain（对齐桌面 host 行为）。
-    keychain: Arc<MobileKeychainAdapter>,
+    /// 用于把新配对 / Identify 刷新后的已配对设备写回持久化（对齐桌面 host 行为）。
+    /// 与 `MobileCore::keychain` 是同一个适配器，这里只取它的 `PairedDeviceStore` 面。
+    paired_store: Arc<MobileKeychainAdapter>,
 }
 
 impl MobileEventBusAdapter {
     pub(crate) fn new(
         foreign: Arc<dyn ForeignEventBus>,
-        keychain: Arc<MobileKeychainAdapter>,
+        paired_store: Arc<MobileKeychainAdapter>,
     ) -> Self {
-        Self { foreign, keychain }
+        Self {
+            foreign,
+            paired_store,
+        }
     }
 }
 
@@ -190,15 +203,17 @@ impl MobileEventBusAdapter {
 impl EventBus for MobileEventBusAdapter {
     async fn publish(&self, event: CoreEvent) -> AppResult<()> {
         // PairedDeviceAdded 有两个来源:配对成功时 pairing.rs 主动 publish,以及对端经
-        // Identify 广播新设备名时共享 core publish。持久化是 host 职责(桌面在
-        // event_bus.rs 里 upsert),移动端在此把设备写回 keychain,使新配对的设备 / 刷新
-        // 后的名称在设备离线或应用重启后仍保留。
+        // Identify 广播新设备名时共享 core publish。新增方向的持久化仍是 host 职责
+        // (桌面在 event_bus.rs 里 upsert),移动端在此把设备写回,使新配对的设备 / 刷新
+        // 后的名称在设备离线或应用重启后仍保留。算法走 core 的 `paired_devices::upsert`
+        // ——已存在条目只更新 os_info / paired_at,不碰用户设过的信任级别与收件策略。
+        //
+        // 移除方向相反:PairedDeviceRemoved 到达时 core 已经写过盘了,host 不得再删一次
+        // (重复删虽幂等,却会让持久化失败被第二次成功掩盖)。
         if let CoreEvent::PairedDeviceAdded { device } = &event
-            && let Err(error) = swarmdrop_core::identity::upsert_paired_device(
-                self.keychain.as_ref(),
-                device.clone(),
-            )
-            .await
+            && let Err(error) =
+                swarmdrop_core::paired_devices::upsert(self.paired_store.as_ref(), device.clone())
+                    .await
         {
             tracing::warn!("持久化已配对设备失败: {error}");
         }
@@ -240,6 +255,12 @@ fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
                     .unwrap_or(device.os_info.hostname),
             },
         },
+        CoreEvent::PairedDeviceRemoved { peer_id } => MobileCoreEvent::PairedDeviceRemoved {
+            peer_id: peer_id.to_string(),
+        },
+        CoreEvent::DeviceRenamed { name, display_name } => {
+            MobileCoreEvent::DeviceRenamed { name, display_name }
+        }
         CoreEvent::TransferOfferReceived { offer } => MobileCoreEvent::TransferOfferReceived {
             offer: offer.into(),
         },

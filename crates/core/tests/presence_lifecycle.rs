@@ -3,6 +3,11 @@
 //! 使用真实的默认 idle_connection_timeout（60s），全程约 2 分钟，
 //! 默认 `#[ignore]`。本地验证：
 //! `cargo test -p swarmdrop-core --test presence_lifecycle -- --ignored`
+//!
+//! 另含一条**不** `#[ignore]` 的快测 [`unpair_clears_shared_paired_table`]：
+//! 它钉的是 presence 撤销的前置条件——解除配对必须把 peer 从 `NetManager` 那份共享
+//! paired 表里删掉，否则 `reconcile_whitelist` 的差集永远算不出它。放在本文件是因为
+//! 它属于 presence 撤销这条链路的上游，而不是 pairing 的内部行为。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,11 +15,16 @@ use std::time::Duration;
 use swarmdrop_core::AppResult;
 use swarmdrop_core::device::{DeviceStatus, OsInfo, PairedDeviceInfo};
 use swarmdrop_core::device_manager::DeviceFilter;
-use swarmdrop_core::host::{CoreEvent, EventBus};
+use swarmdrop_core::host::{CoreEvent, EventBus, MemoryHost, PairedDeviceStore};
 use swarmdrop_core::network::config::create_candidate_manager;
 use swarmdrop_core::network::event_loop::handle_core_node_event;
 use swarmdrop_core::network::{NetManager, NetworkRuntimeConfig};
 use swarmdrop_net::{Addr, DhtConfig, Endpoint, NodeAddr, NodeId, SecretKey};
+
+/// 已配对设备列表的持久化端口替身（本用例只关心 presence/infra，列表恒为空）。
+fn memory_host() -> MemoryHost {
+    MemoryHost::new()
+}
 
 struct NoopBus;
 
@@ -46,6 +56,8 @@ async fn test_endpoint(secret: SecretKey) -> Endpoint {
 struct TestNode {
     manager: NetManager<()>,
     pump: tokio::task::JoinHandle<()>,
+    /// 与 `NetManager` 共享同一份已配对设备持久化端口，供 unpair 用例断言落盘结果。
+    host: MemoryHost,
 }
 
 async fn spawn_node(secret: SecretKey, paired: Vec<PairedDeviceInfo>) -> TestNode {
@@ -55,8 +67,10 @@ async fn spawn_node(secret: SecretKey, paired: Vec<PairedDeviceInfo>) -> TestNod
     let network_config = NetworkRuntimeConfig::default();
     let candidates = create_candidate_manager(&network_config);
     let bus: Arc<dyn EventBus> = Arc::new(NoopBus);
+    let host = memory_host();
     let manager = NetManager::new(
         endpoint,
+        OsInfo::default(),
         paired,
         (),
         network_config,
@@ -64,6 +78,7 @@ async fn spawn_node(secret: SecretKey, paired: Vec<PairedDeviceInfo>) -> TestNod
         bus.clone(),
         None,
         std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+        Arc::new(host.clone()),
     );
 
     let shared = manager.shared_refs();
@@ -76,7 +91,11 @@ async fn spawn_node(secret: SecretKey, paired: Vec<PairedDeviceInfo>) -> TestNod
         }
     });
 
-    TestNode { manager, pump }
+    TestNode {
+        manager,
+        pump,
+        host,
+    }
 }
 
 fn paired_status(node: &TestNode, peer: &NodeId) -> Option<DeviceStatus> {
@@ -211,6 +230,49 @@ async fn paired_devices_survive_idle_then_offline_after_peer_death() {
         paired_status(&a, &peer_b),
         Some(DeviceStatus::Offline),
         "对端死亡后必须稳定离线"
+    );
+
+    a.manager.cancel_background_tasks();
+    a.pump.abort();
+}
+
+/// presence 撤销的前置条件：`unpair` 必须把 peer 从 `NetManager` 建的那份共享
+/// paired 表里删掉。
+///
+/// `PresenceSupervisor::reconcile_whitelist` 算的是 `presence − paired` 差集，
+/// `paired` 就是这份表（`DeviceManager` / `PeerDirectory` 也读它）。因此撤销能不能发生，
+/// 全取决于 unpair 这一侧有没有动内存——单测在 supervisor 里已把「表变了 → presence 收敛」
+/// 钉死，这里钉的是它的上游「unpair → 表真的变了」，两条合起来才是完整链路。
+///
+/// 顺带断言持久化也空了：两者必须同时成立，只成立一个就是 #100 那两种失败态之一
+/// （重启复活 / presence 永不撤销）。
+#[tokio::test(flavor = "multi_thread")]
+async fn unpair_clears_shared_paired_table() {
+    let secret_a = SecretKey::generate();
+    let peer_b = SecretKey::generate().node_id();
+    let device = PairedDeviceInfo::new(peer_b, OsInfo::default(), 0);
+
+    let a = spawn_node(secret_a, vec![device.clone()]).await;
+    a.host
+        .save_paired_devices(&[device])
+        .await
+        .expect("seed 持久化列表");
+    assert!(a.manager.pairing().is_paired(&peer_b));
+
+    let remaining = a.manager.pairing().unpair(&peer_b).await.expect("unpair");
+
+    assert!(remaining.is_empty(), "返回的是移除后的完整列表");
+    assert!(
+        !a.manager.pairing().is_paired(&peer_b),
+        "共享 paired 表必须不含该 peer——presence 撤销的唯一开关"
+    );
+    assert!(
+        paired_status(&a, &peer_b).is_none(),
+        "设备列表读模型与 presence 读同一份表，必须一起收敛"
+    );
+    assert!(
+        a.host.load_paired_devices().await.unwrap().is_empty(),
+        "持久化列表必须同时清空，否则重启后设备复活"
     );
 
     a.manager.cancel_background_tasks();

@@ -110,7 +110,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
     if (status === "running" || status === "starting") return true;
 
     // 检查 keypair 是否已初始化
-    const { deviceId, pairedDevices, initError } = useSecretStore.getState();
+    const { deviceId, initError } = useSecretStore.getState();
     if (!deviceId) {
       const reason = initError ?? "设备身份未初始化";
       set({ status: "error", error: reason });
@@ -144,7 +144,9 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
         provideLanHelper,
         publicReachability,
       };
-      await commands.start(pairedDevices, networkOptions);
+      // 已配对设备不再由前端传入：事实源是后端的 PairedDeviceStore 端口，
+      // core 在 start_node 内部自取（前端那份本来就是后端的镜像）。
+      await commands.start(networkOptions);
 
       // 如果启用了 MCP 自动启动，启动 MCP Server
       if (mcp.autoStart) {

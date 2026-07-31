@@ -1,15 +1,18 @@
 // Web 应用区的状态层：镜像桌面 `src/stores/network-store` 的思路，但事件源是「三轨」的——
 //   源一：transfer 域事件走 `events()` 的 ReadableStream（单点消费，见 event-dispatch.ts）；
 //   源二：pairing 入站请求、挂起 offer + 已配对设备走同步 getter 轮询（见 state-poll.ts）；
-//   源三：`transfer_history()` 在 spawn 后一次性回补 IndexedDB 里的历史投影（收件箱 + 活动
-//         视图跨刷新，见 web-node-bootstrap.tsx）。
-// 三者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
+//   源三：`transfer_history()` 在 spawn 后一次性回补 IndexedDB 里的历史投影（活动视图
+//         跨刷新，见 web-node-bootstrap.tsx）；
+//   源四：`inbox_items()` 按需拉取收件箱真表（**不是** projections 的派生物，见
+//         `inboxItems` 域的注释；拉取时机由 InboxPanel 自己掌握）。
+// 四者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
 
 import { createStore, useStore } from "./create-store";
 import type { SecureContextInfo } from "./secure-context";
 import type {
   ConnectionJson,
   Device,
+  InboxItemDetail,
   OfferJson,
   PendingPairingJson,
   PrepareProgressEvent,
@@ -62,12 +65,35 @@ export interface WebNodeState {
   error: WebError | null;
   /** secure-context 探测结果；null = 尚未探测（SSR 快照）。 */
   secure: SecureContextInfo | null;
+  /**
+   * 用户设定的设备名（内核 `get_device_name()`）；null = 未设，对外展示回落到
+   * `deviceNameFallback`。
+   *
+   * 它**不属于节点域的运行态**——改名能力不依赖节点是否起得来，故灌值时机与 spawn 解耦
+   * （见 web-node-bootstrap.tsx）。
+   *
+   * 写入点只有两个，都在改名成功之后：启动时的一次回灌，以及 `renameDevice()` 的返回值
+   * （node-panel.tsx）。**没有订阅式的 `DeviceRenamed` 通道，也不需要**——core 那条事件在
+   * Web 侧只落日志（device 域事件整体未 surface 到 JS），而浏览器一个标签页一个节点、
+   * 改名的唯一发起点就是本页 UI，那次调用本身就是最准的信号。
+   *
+   * 节点在跑时改名**即时生效**：`WebNode::rename_device` 落盘、更新本机 OsInfo 并经
+   * identify 把新 agent_version 逐连接下发给已连接的对端，不必等下一次 spawn。
+   */
+  deviceName: string | null;
+  /**
+   * 未设名时对外展示的默认值（内核 `default_device_name()`，UA 派生的浏览器名）。
+   * null = 尚未从 wasm 模块读到。**不在 TS 里另解析一份 UA**——两份判定表迟早漂。
+   */
+  deviceNameFallback: string | null;
 
   // —— transfer 域（以 projection 为主状态源）——
   /**
    * 传输投影：前端主状态源（内核逐步以 transferProjection 事件替代分散的终态事件）。
-   * 收件箱（`direction=receive` 且 `terminalReason=completed`）与传输活动视图都由它派生，
-   * 故 #81 的跨刷新持久化只需在启动时把 `transfer_history()` 回补进来（见 `setHistory`）。
+   * 传输活动视图由它派生，故 #81 的跨刷新持久化只需在启动时把 `transfer_history()`
+   * 回补进来（见 `setHistory`）。
+   *
+   * **收件箱不再由它派生**——那是另一张表，见 `inboxItems`。
    */
   projections: Record<string, TransferProjection>;
   /** 挂起入站 offer（按 sessionId）。#79：以非阻断通知/收件箱形式浮现，接受/拒绝后从此域移除。 */
@@ -93,6 +119,26 @@ export interface WebNodeState {
   /** 最近若干条原始事件，dev 可见；证明 11 种事件全部接住。 */
   eventLog: WebTransferEvent[];
 
+  // —— inbox 域 ——
+  /**
+   * 收件箱条目（内核 `inbox_items()` 的快照，一次调用即带文件行与传输投影）。
+   *
+   * **不再由 projections 派生**：收件箱在内核侧已是一张独立的 IndexedDB 表，
+   * 不参与传输历史的 `HISTORY_CAP` 淘汰，也不随「清空历史」消失。靠过滤投影拼出来的
+   * 旧做法在那两件事上都会说谎。
+   *
+   * 排序（`receivedAt` 倒序）在 `setInboxItems` 写入时做完——本 store 是自研实现，
+   * selector 里派生新数组会无限重渲染，且 `pnpm check:zustand-access` 不扫 `docs/`。
+   */
+  inboxItems: InboxItemDetail[];
+  /**
+   * 收件箱重拉信号：每收到一次**接收方向**的 `transferCompleted` 就自增。
+   *
+   * 收件箱是低频写入，不值得为它新造一条订阅式推送通道（一次 `inbox_items()` 的成本
+   * 远低于此）。面板 effect 依赖这个计数器即可「挂载拉一次 + 每次收完重拉」。
+   */
+  inboxRevision: number;
+
   // —— pairing 域 ——
   /** 入站配对请求（browser-as-inviter：桌面消费本机 invite 后到达）。轮询累积。 */
   pendingPairings: PendingPairingJson[];
@@ -114,6 +160,8 @@ const initialState: WebNodeState = {
   nodeId: null,
   error: null,
   secure: null,
+  deviceName: null,
+  deviceNameFallback: null,
   projections: {},
   offers: {},
   rejections: {},
@@ -121,6 +169,8 @@ const initialState: WebNodeState = {
   latestPrepareProgress: null,
   progress: {},
   eventLog: [],
+  inboxItems: [],
+  inboxRevision: 0,
   pendingPairings: [],
   pairedDevices: [],
   connection: null,
@@ -149,6 +199,13 @@ export const webNodeActions = {
   setError(error: WebError | null) {
     webNodeStore.setState((s) => ({ error, status: error ? "error" : s.status }));
   },
+  /** 用户设定的设备名；null = 清空（对外回落到 `deviceNameFallback`）。 */
+  setDeviceName(deviceName: string | null) {
+    webNodeStore.setState({ deviceName });
+  },
+  setDeviceNameFallback(deviceNameFallback: string | null) {
+    webNodeStore.setState({ deviceNameFallback });
+  },
   /** 事件源一：把一条 transfer 事件归约进对应域。 */
   applyEvent(event: WebTransferEvent) {
     webNodeStore.setState((s) => reduceEvent(s, event));
@@ -156,7 +213,8 @@ export const webNodeActions = {
   /**
    * 事件源三：`transfer_history()` 的一次性回补（#81 跨刷新持久化）。
    *
-   * 刷新后事件流从零开始，而 IndexedDB 里还留着收件箱、传输历史与接收侧续传上下文。
+   * 刷新后事件流从零开始，而 IndexedDB 里还留着传输历史与接收侧续传上下文
+   * （收件箱走自己那张表，不经这里）。
    * 已存在的 sessionId **不覆盖**——回补在 `startEventConsumption` 之前调用，理论上撞不上，
    * 但真撞上时实时事件必然比落库快照新。
    */
@@ -167,6 +225,44 @@ export const webNodeActions = {
       // 后置展开即「已存在的不覆盖」。
       projections: { ...Object.fromEntries(history.map((p) => [p.sessionId, p])), ...s.projections },
     }));
+  },
+  /**
+   * #104：一条传输记录已在内核侧删除，从投影域摘掉。
+   *
+   * 与取消/续传不同，删除**没有回流事件**可等——那条会话已经不存在了，内核不会再为它发
+   * projection。所以这里是前端唯一的状态更新点，且只该在导出调用成功后调。
+   */
+  removeProjection(sessionId: string) {
+    webNodeStore.setState((s) => {
+      if (!(sessionId in s.projections)) return {};
+      const projections = { ...s.projections };
+      delete projections[sessionId];
+      return { projections };
+    });
+  },
+  /**
+   * #104：清空已结束的记录。判据与内核 `clear_transfer_history()` 一致（只删 terminal），
+   * 进行中与已中断的一条不动——否则界面会比库先一步「清干净」，刷新又冒回来。
+   */
+  clearTerminalProjections() {
+    webNodeStore.setState((s) => {
+      const kept = Object.entries(s.projections).filter(([, p]) => p.phase !== "terminal");
+      if (kept.length === Object.keys(s.projections).length) return {};
+      return { projections: Object.fromEntries(kept) };
+    });
+  },
+  /**
+   * 收件箱快照落域。**排序在这里做完**，selector 只返回这个稳定引用。
+   *
+   * 内容未变时不换引用。它守的**不是**「接收完成后的重拉」——那次内容真的多了一条，本就该
+   * 换引用；守的是那几次拿回同一份内容的重拉：StrictMode 下 InboxPanel 的 effect
+   * double-invoke（同一份快照灌两遍）、收件箱为空时的首次拉取（`[]` → `[]`）、以及同一
+   * 会话重复终态事件把 `inboxRevision` 顶两下。少了它这些都各白掉一次全局重渲染
+   * ——`create-store` 的浅比较拦不住，`[...items].sort()` 每次都是新数组引用。
+   */
+  setInboxItems(items: InboxItemDetail[]) {
+    const next = [...items].sort((a, b) => b.receivedAt - a.receivedAt);
+    webNodeStore.setState((s) => (inboxItemsEqual(s.inboxItems, next) ? {} : { inboxItems: next }));
   },
   /** #79：offer 已被本机接受/拒绝，从「待处理」域移除（决策是一次性动作，同 removePendingPairing）。 */
   removeOffer(sessionId: string) {
@@ -209,9 +305,17 @@ export const webNodeActions = {
   setReservation(reservation: string | null) {
     webNodeStore.setState({ reservation });
   },
-  /** 关停后清空运行态，保留已探测的 secure 结果（环境不因关节点而改变）。 */
+  /**
+   * 关停后清空运行态，保留已探测的 secure 结果（环境不因关节点而改变）。
+   * 设备名同理：它持久化在 IndexedDB、回退名由 UA 派生，两者都不是节点的运行态。
+   */
   reset() {
-    webNodeStore.setState((s) => ({ ...initialState, secure: s.secure }));
+    webNodeStore.setState((s) => ({
+      ...initialState,
+      secure: s.secure,
+      deviceName: s.deviceName,
+      deviceNameFallback: s.deviceNameFallback,
+    }));
   },
 };
 
@@ -219,7 +323,9 @@ export const webNodeActions = {
 
 /**
  * 把一条 `WebTransferEvent` 归约进对应域，绝不丢弃（未命中的也入 eventLog 留痕）。
- * 结构化落域的只有 4 类：projection / offer / progress / prepare。**新增需要落域的事件在此加 case。**
+ * 结构化落域的有 5 类：projection / offer / progress / prepare / rejection，另加
+ * `transferCompleted` 只推一个收件箱重拉信号（不落数据，真表在内核侧）。
+ * **新增需要落域的事件在此加 case。**
  */
 function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeState> {
   const eventLog = appendLog(s.eventLog, ev);
@@ -242,13 +348,19 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
         latestPrepareProgress: ev.event,
         eventLog,
       };
+    case "transferCompleted":
+      // 只有**接收**方向会新增收件箱条目（发送完成不进这本账）。自增计数器让收件箱面板
+      // 重拉一次真表——收件箱不再由 projections 派生，projection 事件不足以让它更新。
+      return ev.event.direction === "receive"
+        ? { inboxRevision: s.inboxRevision + 1, eventLog }
+        : { eventLog };
     case "transferRejected":
       // TransferProjection 的 terminalReason 只到 "rejected" 粒度，不含 reason.type（区分
       // not_paired / user_declined / policy_rejected / receiving_paused）——发送侧要给出精确
       // 提示（尤其 #79 验收标准的「未配对」硬拒场景）必须落这个单独的域。
       return { rejections: { ...s.rejections, [ev.event.sessionId]: ev.event }, eventLog };
     default:
-      // 其余终态事件（accepted/completed/failed/paused/resumed/dbError）与 TransferProjection
+      // 其余终态事件（accepted/failed/paused/resumed/dbError）与 TransferProjection
       // 的 phase/terminalReason/errorMessage 冗余（内核每次状态转换重发 projection），基座只留痕；
       // 未知事件（.d.ts 未覆盖的新变体）同样留痕不吞。
       return { eventLog };
@@ -259,6 +371,28 @@ function appendLog(log: WebTransferEvent[], ev: WebTransferEvent): WebTransferEv
   const next = log.length >= EVENT_LOG_CAP ? log.slice(1) : log.slice();
   next.push(ev);
   return next;
+}
+
+/**
+ * 收件箱快照的内容比较（两侧都已按 `receivedAt` 倒序，故可逐位比）。
+ *
+ * 比的是 UI 真正会变的那几样：条目集合、接收时间、缺失标记、文件数。
+ * 归档 / 软删的条目根本不在列表里（内核侧已过滤），无需比它们的时间戳。
+ *
+ * **`transfer` 投影刻意不比**：那是每次 `inbox_items()` 现造的对象，比它（哪怕只比引用）
+ * 会让这个函数恒为 false，守卫退化成纯开销；而本面板压根不渲染它。
+ */
+function inboxItemsEqual(a: InboxItemDetail[], b: InboxItemDetail[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => {
+    const other = b[index];
+    return (
+      item.id === other.id &&
+      item.receivedAt === other.receivedAt &&
+      item.missing === other.missing &&
+      item.files.length === other.files.length
+    );
+  });
 }
 
 /** 与顺序无关的内容比较——DashMap 遍历顺序不保证跨调用稳定。 */

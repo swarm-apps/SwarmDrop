@@ -15,6 +15,7 @@ import {
 import { toast } from "@/lib/toast";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { useNotificationStore } from "@/stores/notification-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 type CoreEventListener = (event: MobileCoreEvent) => void;
@@ -74,6 +75,29 @@ function routeEventToStores(event: MobileCoreEvent): void {
       // 使新设备 / 新名称在节点未运行、设备离线或重启后仍展示。
       refreshDevices();
       void useMobileCoreStore.getState().loadPairedDevicesCache();
+      break;
+    }
+
+    case MobileCoreEvent_Tags.PairedDeviceRemoved: {
+      // 唯一触发点是 core 的 unpair,且只在集合真的变了时才发。
+      // 与 PairedDeviceAdded 对称:持久化已由 core 写完,这里只把两份读模型收敛回
+      // 桥的事实源 —— pairedDevicesCache 里该设备消失,devices 里它退回"仅发现、
+      // 未配对"。收敛而非本地删,是为了不依赖「谁发起的解除」:store action
+      // removePairedDevice 按命令返回值同步过一次,这里再收敛一次是幂等的。
+      refreshDevices();
+      void useMobileCoreStore.getState().loadPairedDevicesCache();
+      break;
+    }
+
+    case MobileCoreEvent_Tags.DeviceRenamed: {
+      // 本机改名的广播口 —— 发起改名的那处界面之外(设置页设备卡、onboarding 回显)
+      // 都靠它同步,不必各自轮询 core。
+      //
+      // 取的是 `name` 而不是 core 算好的 `displayName`:移动端 env 探测不到真 hostname,
+      // core 侧 OsInfo 的 hostname 是占位串 "Device"(见 mobile-core network.rs),
+      // 清空名字时 displayName 会退化成它。空串在 UI 层回退到 expo-device 的设备名,
+      // 那才是移动端该显示的东西。
+      usePreferencesStore.getState().setDeviceName(event.inner.name ?? "");
       break;
     }
 

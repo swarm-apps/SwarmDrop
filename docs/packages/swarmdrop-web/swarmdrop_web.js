@@ -151,6 +151,68 @@ export class WebNode {
         return ret;
     }
     /**
+     * 归档 / 取消归档收件箱条目。条目不存在时静默成功。
+     * @param {string} item_id
+     * @param {boolean} archived
+     * @returns {Promise<void>}
+     */
+    archive_inbox_item(item_id, archived) {
+        const ptr0 = passStringToWasm0(item_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_archive_inbox_item(this.__wbg_ptr, ptr0, len0, archived);
+        return ret;
+    }
+    /**
+     * 取消一条**接收**会话。
+     *
+     * 与 [`cancel_send`](Self::cancel_send) 同样只是导出：域层通知对端停发、
+     * dispatch `UserCommand::Cancel` 进不可续传终态，并调 `cleanup_part_files()`
+     * 逐个走 `FileAccess::cleanup_sink` 清掉本次会话开出来的半成品——在 Web 上那就是
+     * [`OpfsFileAccess::cleanup_sink`](crate::file_access)，OPFS 里的截断文件会被真删掉。
+     *
+     * **方向不自动判**（要发送就调 `cancel_send`）：取消是有副作用的操作（发帧、删文件、
+     * 写终态），拿它当探针试方向会把「dispatch 失败」误读成「不是这个方向」。
+     * @param {string} session_id
+     * @returns {Promise<void>}
+     */
+    cancel_receive(session_id) {
+        const ptr0 = passStringToWasm0(session_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_cancel_receive(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * 取消一条**发送**会话。
+     *
+     * 只是一条 wasm 边界上的线，取消语义整套在域层（`crates/transfer`）里做完：
+     * 按 wire 发 Cancel 帧通知对端（对方随即清掉自己的半成品）、dispatch
+     * `UserCommand::Cancel` 让协调器把会话写成**不可续传**的终态（`recoverable=false`，
+     * 故刷新后不会再冒出「续传」按钮）、并按 `session_id` 索引只动这一条会话。
+     * **Web 侧不要再补任何本地取消逻辑**，否则就有了第二条状态机路径。
+     *
+     * 覆盖「offer 已发出、对方还没接受」这条边界：此时没有 send actor，域层会回落到
+     * `outbound_offers`（`flow/send.rs`）——丢弃 prepared、照样 dispatch `Cancel`，
+     * 所以「发出去等半天对方不理」也止得住损，调用方无需区分。
+     * @param {string} session_id
+     * @returns {Promise<void>}
+     */
+    cancel_send(session_id) {
+        const ptr0 = passStringToWasm0(session_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_cancel_send(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * 清空传输历史：删除所有**已结束**的会话记录，进行中与已中断的一条不动。
+     *
+     * 同样只清账本，收件箱里的文件不受影响（见 [`delete_transfer_session`](Self::delete_transfer_session)）。
+     * @returns {Promise<void>}
+     */
+    clear_transfer_history() {
+        const ret = wasm.webnode_clear_transfer_history(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * 关停节点：NetManager::shutdown 取消内部 token（停 presence / infra / event-loop +
      * transfer cleanup，drop Router 停路由）并关 Endpoint（drop Swarm → 断连）——
      * 与 `WebNode.endpoint` 是同一 handle，无需再显式关一次。
@@ -198,6 +260,66 @@ export class WebNode {
         return ret;
     }
     /**
+     * 解码并验签邀请串，返回对端展示信息 —— **不发起配对、不消费**。
+     *
+     * 供受邀方在粘贴 / 点链接进来之后先亮一张确认卡：篡改、伪造、格式不认的邀请在这里
+     * 就被拒掉，用户点「配对」才走 [`connect_invite`](Self::connect_invite)。
+     *
+     * **纯本地**：不拨号、不查 DHT、不碰 IndexedDB，全程零出网 —— 确认卡出现之前不该有
+     * 任何网络行为，这条是它成立的依据。
+     *
+     * **判不出「已撤销」**：撤销状态只在邀请方的注册表里，受邀方手上只有一段自包含的
+     * 签名串，那件事根本没传播过来。要判就得出网，与上一条冲突。所以撤销只能在
+     * `connect_invite` 阶段由邀请方拒绝，调用方把那个失败渲染成人话即可 ——
+     * **不要在本地发明撤销判据**（最容易发明的「查 `list_invites` 看在不在」尤其错：
+     * 那是本机自己发出的邀请，对受邀方永远为空，于是所有邀请都会被判成已撤销）。
+     *
+     * 同步返回：与 [`invite_qr_svg`](Self::invite_qr_svg) 一样是纯计算，`&self` 只是
+     * 可达性的代价（前端拿模块句柄的唯一路径是 `getNode()`）。
+     * @param {string} invite
+     * @returns {PairInvitePreviewJson}
+     */
+    decode_invite_preview(invite) {
+        const ptr0 = passStringToWasm0(invite, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_decode_invite_preview(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * 软删除收件箱条目：**只删记录**，OPFS 里的文件不动。
+     *
+     * 与桌面同一分工——是否连文件一起删由宿主在调用前决定，端口只管账本
+     * （Web 端目前不提供删文件的入口，OPFS 空间的释放待收件箱 UI 一并设计）。
+     * @param {string} item_id
+     * @returns {Promise<void>}
+     */
+    delete_inbox_item(item_id) {
+        const ptr0 = passStringToWasm0(item_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_delete_inbox_item(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * 删除一条传输记录。
+     *
+     * **只删记录**：OPFS 里已落盘的文件不动，收件箱照旧能看能下载——文件的生命周期归
+     * 收件箱侧管（三端一致的分工，别在这里发明 Web 特例）。
+     *
+     * 进行中的会话会被域层拒绝（`TransferManager::delete_session` 的守卫），错误经
+     * `WebError` 透出——UI 的按钮可见性只是第一道，绕过它直调导出同样删不掉。
+     * @param {string} session_id
+     * @returns {Promise<void>}
+     */
+    delete_transfer_session(session_id) {
+        const ptr0 = passStringToWasm0(session_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_delete_transfer_session(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
      * 完成接收后，把 OPFS 里的文件读回成 blob URL 供 `<a download>` 下载。
      * @param {string} relative_path
      * @returns {Promise<string>}
@@ -233,6 +355,44 @@ export class WebNode {
      */
     generate_invite(local_only) {
         const ret = wasm.webnode_generate_invite(this.__wbg_ptr, local_only);
+        return ret;
+    }
+    /**
+     * 单条收件箱详情（含文件清单与关联传输投影）；不存在或已软删返回 `null`。
+     * @param {string} item_id
+     * @returns {Promise<InboxItemDetail | null>}
+     */
+    inbox_item(item_id) {
+        const ptr0 = passStringToWasm0(item_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_inbox_item(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * 按传输会话 id 取收件箱详情（「这次传输收到的东西」的反查）；无关联返回 `null`。
+     * @param {string} session_id
+     * @returns {Promise<InboxItemDetail | null>}
+     */
+    inbox_item_by_session(session_id) {
+        const ptr0 = passStringToWasm0(session_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_inbox_item_by_session(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * 收件箱条目列表，按 `receivedAt` 倒序；`includeArchived=false` 时排除已归档项，
+     * 软删项一律不返回。
+     *
+     * **返回的是完整详情**（含文件清单与关联传输投影），不是 summary。前端此前拿到
+     * summary 后要 `Promise.all(summaries.map(inbox_item))` 逐条补详情——1 + N 次 wasm
+     * 调用，且拉详情与拉列表之间条目可能已被删（于是要 `filter(d => d !== null)` 去兜
+     * 一个自己制造出来的竞态）。而收件箱在浏览器侧是全内存表，列表与详情读的是同一份
+     * 数据，那 N 次调用买不到任何新鲜度。
+     * @param {boolean} include_archived
+     * @returns {Promise<InboxItemDetail[]>}
+     */
+    inbox_items(include_archived) {
+        const ret = wasm.webnode_inbox_items(this.__wbg_ptr, include_archived);
         return ret;
     }
     /**
@@ -286,6 +446,17 @@ export class WebNode {
             throw takeFromExternrefTable0(ret[1]);
         }
         return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * 标记条目最近打开时间（用户点开详情/下载时调）。条目不存在时静默成功。
+     * @param {string} item_id
+     * @returns {Promise<void>}
+     */
+    mark_inbox_item_opened(item_id) {
+        const ptr0 = passStringToWasm0(item_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_mark_inbox_item_opened(this.__wbg_ptr, ptr0, len0);
+        return ret;
     }
     /**
      * 本节点身份（base58）。
@@ -433,6 +604,52 @@ export class WebNode {
         return ret;
     }
     /**
+     * 解除与某台已配对设备的配对（`peer_id` 为 base58 NodeId）。
+     *
+     * 走 core 的 `PairingManager::unpair`：**先落盘、再删共享内存表、最后发事件**。
+     * 持久化失败即整体报错且内存表不动——绝不出现「这次点了就没了、刷新一下又回来」。
+     * 删内存表这一步同时撤销 presence 保活与 `is_paired` 判定（一个 tick 内收敛），
+     * 所以本方法之后不需要再补任何本地清理。
+     *
+     * **单方语义**：只解除本机这一侧，对端仍然认得本机；对端再发起传输会被 `NotPaired`
+     * 拒掉，要恢复得重新走一次完整配对。
+     *
+     * 幂等：本来就没配对的 peer 直接返回成功，不发事件。
+     * @param {string} peer_id
+     * @returns {Promise<void>}
+     */
+    remove_paired_device(peer_id) {
+        const ptr0 = passStringToWasm0(peer_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_remove_paired_device(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * 改本机设备名：落盘 → 本机 `OsInfo` → identify 的 `agent_version` → 发
+     * `DeviceRenamed`（编排在 core 的 `device_name::rename_device`，三端同一份）。
+     *
+     * **已连接的对端一个 RTT 内就看到新名字**：新值逐连接下发给每条已建立连接的
+     * identify handler，再向这些对端主动 push；未连接的对端下次连上时直接取到新值。
+     * 节点不重启、连接不断、传输不中断，页面也不必刷新。
+     *
+     * 返回归一化后的名字（`undefined` = 已清空，对外回落到
+     * [`default_device_name`](crate::device_config::default_device_name)）。入参经
+     * `DeviceName::parse` 归一化（trim、剥控制字符与 `;`、截断到 40 个 char），所以返回值
+     * 可能与传进来的不同——UI 要展示的是这个返回值，而不是用户的草稿。
+     *
+     * 与模块级 [`set_device_name`](crate::device_config::set_device_name) 的分工：那个只
+     * 落盘，供节点起不来时的设置页用；节点在跑就走这里。两者的分支在 JS 侧
+     * （`node-runtime.ts`）——节点句柄只活在那边，Rust 够不到。
+     * @param {string | null} [name]
+     * @returns {Promise<string | undefined>}
+     */
+    rename_device(name) {
+        var ptr0 = isLikeNone(name) ? 0 : passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_rename_device(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
      * 响应一个入站配对请求（`accept=true` 接受并写配对记录、CAS 消费 invite / `false` 拒绝）。
      * @param {string} pending_id
      * @param {boolean} accept
@@ -485,6 +702,20 @@ export class WebNode {
         return ret;
     }
     /**
+     * 收件箱子串检索：大小写不敏感，覆盖标题 / 来源设备名 / 文件名与相对路径。
+     * 空查询返回空列表；结果按 `receivedAt` 倒序并截断到 `limit`。
+     * @param {string} query
+     * @param {number} limit
+     * @param {boolean} include_archived
+     * @returns {Promise<InboxSearchHit[]>}
+     */
+    search_inbox(query, limit, include_archived) {
+        const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_search_inbox(this.__wbg_ptr, ptr0, len0, limit, include_archived);
+        return ret;
+    }
+    /**
      * 向 `to`（base58 NodeId）发送用户选择的文件：登记文件源 → prepare（checksum + bao
      * outboard）→ 发 Offer。返回 session_id。
      * @param {string} to
@@ -510,25 +741,67 @@ export class WebNode {
         return ret;
     }
     /**
-     * 已持久化的传输会话投影（无序——收件箱与活动视图排法不同，排序留给调用方）。
+     * 已持久化的传输会话投影，**按 `startedAt` 倒序**（端口契约，三端一致）。
      *
      * 页面刷新后事件流从零开始，前端据此回补收件箱与传输活动视图（收件箱 = 其中
      * `direction=receive` 且 `terminalReason=completed` 的条目，文件仍在 OPFS，可继续
-     * [`download_url`](Self::download_url)）。
+     * [`download_url`](Self::download_url)）。各面板再按自己的维度（结束时间 / 更新时间）
+     * 重排是预期行为——端口保证的是确定性，不是最终展示序。
      *
      * **不含**非终态的发送会话与待决 offer：浏览器刷新后无法在不重新选择文件的前提下
      * 读回 `File`，待决 offer 也已无处应答，故它们本就不落库（见 `store.rs` 模块注释）。
-     * @returns {TransferProjection[]}
+     * @returns {Promise<TransferProjection[]>}
      */
     transfer_history() {
         const ret = wasm.webnode_transfer_history(this.__wbg_ptr);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
+        return ret;
     }
 }
 if (Symbol.dispose) WebNode.prototype[Symbol.dispose] = WebNode.prototype.free;
+
+/**
+ * 未设设备名时对外展示的默认值（UA 派生的浏览器名，如 `"Chrome"`）。
+ *
+ * 导出它而不是让前端再解析一次 UA：两份判定表迟早漂成「设置页 placeholder 写 Safari、
+ * 对端看到 Browser」，既难发现又完全没有价值。这里返回的就是 `OsInfo::display_name()`
+ * 在 `name` 缺省时回退到的那个 `hostname`。
+ * @returns {string}
+ */
+export function default_device_name() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.default_device_name();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * 当前持久化的设备名；未设过（或读失败 / 内容非法）返回 `undefined`。
+ * @returns {Promise<string | undefined>}
+ */
+export function get_device_name() {
+    const ret = wasm.get_device_name();
+    return ret;
+}
+
+/**
+ * 设置设备名；`null` / 空串 / 归一化后为空一律视为清空，回落到
+ * [`default_device_name`]。入参经 `DeviceName::parse` 归一化（trim、剥控制字符与 `;`、
+ * 截断到 40 个 char），UI 侧的 `maxLength` 只是提前拦一道。
+ * @param {string | null} [name]
+ * @returns {Promise<void>}
+ */
+export function set_device_name(name) {
+    var ptr0 = isLikeNone(name) ? 0 : passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    var len0 = WASM_VECTOR_LEN;
+    const ret = wasm.set_device_name(ptr0, len0);
+    return ret;
+}
 
 /**
  * wasm 模块加载即初始化 panic hook + tracing（浏览器 console）。
@@ -629,6 +902,13 @@ function __wbg_get_imports() {
         },
         __wbg__wbg_cb_unref_d9b87ff7982e3b21: function(arg0) {
             arg0._wbg_cb_unref();
+        },
+        __wbg_abort_5151361027dc87df: function() { return handleError(function (arg0) {
+            arg0.abort();
+        }, arguments); },
+        __wbg_abort_8e19e4e93d87a18d: function(arg0) {
+            const ret = arg0.abort();
+            return ret;
         },
         __wbg_aborted_0b67c37a14dbbc89: function(arg0) {
             const ret = arg0.aborted;
@@ -782,6 +1062,10 @@ function __wbg_get_imports() {
             var v0 = getArrayJsValueFromWasm0(arg0, arg1).slice();
             wasm.__wbindgen_free(arg0, arg1 * 4, 4);
             console.error(...v0);
+        },
+        __wbg_error_bf9fa99d609a0ce7: function(arg0) {
+            const ret = arg0.error;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
         __wbg_generateCertificate_451abc23dcbd6480: function() { return handleError(function (arg0) {
             const ret = RTCPeerConnection.generateCertificate(arg0);
@@ -1017,6 +1301,13 @@ function __wbg_get_imports() {
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
         },
+        __wbg_name_242753e5110cd756: function(arg0, arg1) {
+            const ret = arg1.name;
+            const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
         __wbg_navigator_43be698ba96fc088: function(arg0) {
             const ret = arg0.navigator;
             return ret;
@@ -1156,6 +1447,10 @@ function __wbg_get_imports() {
             const ret = arg0.readyState;
             return (__wbindgen_enum_RtcDataChannelState.indexOf(ret) + 1 || 5) - 1;
         },
+        __wbg_removeEntry_d1cc9710704217eb: function(arg0, arg1, arg2) {
+            const ret = arg0.removeEntry(getStringFromWasm0(arg1, arg2));
+            return ret;
+        },
         __wbg_removeEventListener_e63328781a5b9af9: function() { return handleError(function (arg0, arg1, arg2, arg3) {
             arg0.removeEventListener(getStringFromWasm0(arg1, arg2), arg3);
         }, arguments); },
@@ -1253,11 +1548,17 @@ function __wbg_get_imports() {
         __wbg_set_negotiated_8a48a71eb810cad0: function(arg0, arg1) {
             arg0.negotiated = arg1 !== 0;
         },
+        __wbg_set_onabort_5b85743a64489257: function(arg0, arg1) {
+            arg0.onabort = arg1;
+        },
         __wbg_set_onbufferedamountlow_2ae87a1aa500a50a: function(arg0, arg1) {
             arg0.onbufferedamountlow = arg1;
         },
         __wbg_set_onclose_cd1e79ee9a126bf3: function(arg0, arg1) {
             arg0.onclose = arg1;
+        },
+        __wbg_set_oncomplete_76d4a772a6c8cab6: function(arg0, arg1) {
+            arg0.oncomplete = arg1;
         },
         __wbg_set_onconnectionstatechange_662fb34d742b54af: function(arg0, arg1) {
             arg0.onconnectionstatechange = arg1;
@@ -1266,6 +1567,9 @@ function __wbg_get_imports() {
             arg0.ondatachannel = arg1;
         },
         __wbg_set_onerror_01fc830cd8567895: function(arg0, arg1) {
+            arg0.onerror = arg1;
+        },
+        __wbg_set_onerror_d0db7c6491b9399d: function(arg0, arg1) {
             arg0.onerror = arg1;
         },
         __wbg_set_onerror_dc0e606b09e1792f: function(arg0, arg1) {
@@ -1408,37 +1712,37 @@ function __wbg_get_imports() {
             return ret;
         }, arguments); },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2027, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2028, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2178, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2179, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2027, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2028, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2178, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2179, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2027, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2028, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2178, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2179, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000004: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2125, function: Function { arguments: [], shim_idx: 2126, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2276, function: Function { arguments: [], shim_idx: 2277, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______);
             return ret;
         },
         __wbindgen_cast_0000000000000005: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2675, function: Function { arguments: [Externref], shim_idx: 2676, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2827, function: Function { arguments: [Externref], shim_idx: 2828, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000006: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2729, function: Function { arguments: [], shim_idx: 2730, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2881, function: Function { arguments: [], shim_idx: 2882, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_);
             return ret;
         },
         __wbindgen_cast_0000000000000007: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 738, function: Function { arguments: [NamedExternref("Event")], shim_idx: 739, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 874, function: Function { arguments: [NamedExternref("Event")], shim_idx: 875, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent_____);
             return ret;
         },
