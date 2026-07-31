@@ -397,10 +397,13 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   1. **libp2p**（`libp2p` / `libp2p-stream` / `libp2p-core` / `libp2p-swarm` /
      `libp2p-webrtc-utils` 同 pin `github.com/yexiyue/rust-libp2p` 一个 rev）——**仍是个人
      fork**。待合并的上游 PR：Web 端要的 #6558 / #6560。（#6570 relay 崩溃已自行关闭——
-     上游 #6472 先修了同一问题。）**另有一条自有补丁尚未提上游**：identify 的运行时
-     `agent_version` setter（分支 `feat/identify-runtime-agent-version`）——没有它，改设备名
-     必须重启整个节点。它独立于上面两个 PR，**不影响**「切官方 git」的判定，但**阻塞「删掉
-     fork pin」**。退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 →
+     上游 #6472 先修了同一问题。）**第四条是 #6576**：identify 的运行时 `agent_version`
+     setter（2026-08-01 提）——没有它，改设备名必须重启整个节点。它独立于上面两个 PR，
+     **不影响**「切官方 git」的判定，但**阻塞「删掉 fork pin」**。
+     ⚠️ #6576 的 PR 分支（`feat/identify-set-agent-version`，rebase 到上游 master）与
+     **本仓 pin 的分支**（`feat/identify-runtime-agent-version` @ `d858435c`）**不是同一条**，
+     后者**绝不能 force-push**——commit 一游离就被 GC，构建当场断。
+     退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 →
      切版本号依赖。详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork
      集成策略」。
   2. **rtc**（`[patch.crates-io]`）——**已不再是 fork**：五个 webrtc-rs 补丁于 2026-07-29

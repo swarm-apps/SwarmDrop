@@ -51,7 +51,7 @@ swarmdrop-net = { path = "crates/net" }
 # 实证跑不通（spike/webrtc-direct-https）。修复在 master（PR 6429，2026-05-22 已合并），
 # 但至今未进任何 crates.io 发布版。
 #
-# 为什么是 fork 不是官方 master：三个尚未合并的修复 + 一条尚未提交上游的功能补丁。
+# 为什么是 fork 不是官方 master：四个尚未合并的 PR（三个修复 + 一条功能补丁）。
 #   PR #6558  fix(webrtc-websys): defer data channel callback wakes        （OPEN）
 #   PR #6560  feat(webrtc): negotiate data channel message limits          （OPEN）
 #             ↳ 含 receive buffer limit 修复（在 PR 分支上 squash 成 5984c716，
@@ -59,17 +59,20 @@ swarmdrop-net = { path = "crates/net" }
 #   PR #6472  fix(relay): avoid panic when dst has connections without     （OPEN，**上游自己的**）
 #             reservations —— 我们独立提的 #6570 与它源码逐字节相同，
 #             2026-07-28 已按维护者要求关闭，改跟 #6472
-#   （无 PR）feat(identify): allow updating `agent_version` at runtime     （**未提上游**）
-#             分支 feat/identify-runtime-agent-version，基线是上一版 pin 的 262dea51。
+#   PR #6576  feat(identify): allow updating `agent_version` at runtime    （OPEN，2026-08-01 提）
 #             给 identify 的 `Behaviour` 加 `set_agent_version`，逐连接下发新值 ——
 #             没有它，改设备名必须重启整个节点（断开所有连接、中断进行中的传输）。
-#             补丁写成了通用形态（英文 doc、无 SwarmDrop 语义、带测试与 CHANGELOG），
-#             随时可提 PR，但**目前确实未提**。它独立于上面三条，
-#             未合并不阻塞阶段 1 的判定，但阻塞「删掉 fork pin」这个终局。
+#             **PR 分支与 pin 的分支不是同一条**：pin 指向 fork 的
+#             `feat/identify-runtime-agent-version`（基线 262dea51，不在上游 master 线上）；
+#             PR 走的是 rebase 到上游 master 的 `feat/identify-set-agent-version`。
+#             两条内容等价、SHA 不同 —— 别按 SHA 对账。**pin 的那条不能 force-push**，
+#             否则 d858435c 变游离对象、被 GC 后本仓构建直接断。
+#             它独立于上面三条，未合并不阻塞阶段 1 的判定，但阻塞「删掉 fork pin」这个终局。
 #
 # 【退出条件】两阶段，各自可判定（完整判据 + 验证命令见 dev-notes/knowledge/net-kernel.md
 # 的「临时 fork 集成策略 —— 含退出条件」）：
 #   阶段 1 切回官方 git：#6558 / #6560 / #6472 均 MERGED 后，换回官方 URL + 上游 master rev
+#          （#6576 不进这条判据 —— 它管的是阶段 2 之后「删掉 fork pin」那一步）
 #          `gh pr view 6558 --repo libp2p/rust-libp2p --json state --jq .state`
 #   阶段 2 切回 crates.io：`cargo search libp2p` 显示 ≥ 0.57.0（webrtc ≥ 0.10.0-alpha、
 #                        stream ≥ 0.5.0-alpha）时，整体换成版本号依赖

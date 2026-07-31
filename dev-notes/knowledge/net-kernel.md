@@ -82,10 +82,9 @@ Web 端在上游合并前需要 WebRTC DataChannel 回调生命周期修复与�
 因此 workspace 暂时 pin `yexiyue/rust-libp2p`。该分支以 `libp2p/rust-libp2p:master`
 为基线；`Cargo.lock` 必须与精确 revision 一起提交。
 
-#### fork 到底比上游多什么（2026-07-31 更新）
+#### fork 到底比上游多什么（2026-08-01 更新）
 
-**有一条自有补丁尚未提交上游**（identify 运行时 agent_version setter，见表末行）。
-其余补丁都已提 PR。
+**四条补丁全部已提 PR，无一漏提。** 四个 PR 都还 OPEN。
 
 | fork commit | 补丁 | 上游 PR | 状态（2026-07-31） |
 |---|---|---|---|
@@ -94,7 +93,7 @@ Web 端在上游合并前需要 WebRTC DataChannel 回调生命周期修复与�
 | `9e3bcd9b` | `docs: add WebRTC message limit changelogs` | #6560（同 PR） | **OPEN** |
 | `c4c2c167` + `989cb610` | separate / configure receive buffer limit | #6560 的 `5984c716`（**squash 成单 commit**） | **OPEN** |
 | `262dea51` | `fix(relay): don't panic on circuit request without a matching reservation` | 我们提的 [#6570](https://github.com/libp2p/rust-libp2p/pull/6570) 已 **CLOSED**，改跟上游自己的 [#6472](https://github.com/libp2p/rust-libp2p/pull/6472) | **#6472 已 MERGED** |
-| `d858435c` | `feat(identify): allow updating agent_version at runtime` | —— | **未提交（follow-up）** |
+| `d858435c` | `feat(identify): allow updating agent_version at runtime` | [#6576](https://github.com/libp2p/rust-libp2p/pull/6576)（PR 分支另起，见下） | **OPEN**（2026-08-01 提） |
 
 末行那条**不是别人偷塞进来的**：它是本仓 `identify-agent-version-runtime-update` 变更的
 产物，分支 `feat/identify-runtime-agent-version`，基线正是上一版 pin 的 `262dea51`
@@ -103,8 +102,27 @@ Web 端在上游合并前需要 WebRTC DataChannel 回调生命周期修复与�
 逐连接下发新值——**没有它，改设备名必须重启整个节点**（断开所有连接、中断进行中的传输），
 `crates/net` 侧绕不过去：`agent_version` 在每条连接建立时就被 clone 进了该连接的 Handler，
 只改 Behaviour 的 config 对已建立的连接无效。补丁按上游可接受的形态写（英文 doc、参数是裸
-`String`、不带任何 SwarmDrop 语义、附 smoke 测试与 CHANGELOG 条目），随时可提 PR，
-但**目前确实未提**。
+`String`、不带任何 SwarmDrop 语义、附 smoke 测试与 CHANGELOG 条目），
+**2026-08-01 已提为 [#6576](https://github.com/libp2p/rust-libp2p/pull/6576)**。
+
+###### 提 PR 时另起了一条分支，别把两条搞混
+
+`262dea51` **不在上游 master 的历史上**（`git merge-base --is-ancestor` 判否）。直接从
+`feat/identify-runtime-agent-version` 提 PR 会把 **9 个 commit** 一起带进去 ——
+#6558 / #6560 两条 PR 的分支和 relay 修复全在里面。所以 PR 走的是另一条分支：
+
+| 分支 | 基线 | 用途 |
+|---|---|---|
+| `feat/identify-runtime-agent-version` @ `d858435c` | `262dea51`（fork 线） | **本仓 Cargo.toml pin 的就是它** |
+| `feat/identify-set-agent-version` @ `da9e151d` | 上游 master `3667c6c6` | 提给上游的 #6576（含 changelog 的 PR 链接 commit） |
+
+两条内容等价、SHA 不同。**pin 的那条永远不要 force-push 或删除** —— `d858435c` 一旦变成
+游离对象被 GitHub GC，`Cargo.lock` 就拉不到它，本仓构建当场断。要跟进 review 意见只改
+PR 那条（上游禁止 force push，只能追加 commit）。
+
+提交前在**上游最新 master 上**自测过：`cargo test -p libp2p-identify` 4 单测 + 9 smoke 全过
+（含新增的 `runtime_agent_version_update`）、`cargo fmt --check` 干净、
+`cargo clippy -p libp2p-identify --all-targets` 本 crate 零 warning。
 
 ##### relay panic（2026-07-28，线上实证）
 
@@ -171,8 +189,10 @@ URL 换回 `libp2p/rust-libp2p`、rev 换成上游 master 上含这三个 PR 的
 >
 > 但它**阻塞「删掉 fork pin」这个终局**：`set_agent_version` 只在 fork 上，pin 一删，
 > `crates/net` 的 `Endpoint::set_agent_version` 直接编不过，改设备名就退回「必须重启整个节点」。
-> 所以终局多一步 —— 要么把 `feat/identify-runtime-agent-version` 提上游并等它合并
-> （补丁已按上游形态写好，见上表），要么明确接受功能回退。**两条都没做之前，fork pin 不能删**。
+> 所以终局多一步 —— 等 [#6576](https://github.com/libp2p/rust-libp2p/pull/6576) 合并
+> （2026-08-01 已提，见上表），或明确接受功能回退。**两条都没成之前，fork pin 不能删**。
+>
+> 判定：`gh pr view 6576 --repo libp2p/rust-libp2p --json state --jq .state`
 
 ```bash
 # 辅助判据（查漏用，不是合并信号）：确认 fork 上没有漏提的自有补丁。
