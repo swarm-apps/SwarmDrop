@@ -7,7 +7,8 @@
 //         `inboxItems` 域的注释；拉取时机由 InboxPanel 自己掌握）。
 // 四者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
 
-import { createStore, useStore } from "./create-store";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 import type { SecureContextInfo } from "./secure-context";
 import type {
   ConnectionJson,
@@ -127,8 +128,8 @@ export interface WebNodeState {
    * 不参与传输历史的 `HISTORY_CAP` 淘汰，也不随「清空历史」消失。靠过滤投影拼出来的
    * 旧做法在那两件事上都会说谎。
    *
-   * 排序（`receivedAt` 倒序）在 `setInboxItems` 写入时做完——本 store 是自研实现，
-   * selector 里派生新数组会无限重渲染，且 `pnpm check:zustand-access` 不扫 `docs/`。
+   * 排序（`receivedAt` 倒序）在 `setInboxItems` 写入时做完，不放 selector——那里派生新数组
+   * 会无限重渲染（`pnpm check:zustand-access` 现在会拦）。
    */
   inboxItems: InboxItemDetail[];
   /**
@@ -179,14 +180,27 @@ const initialState: WebNodeState = {
   reservation: null,
 };
 
-export const webNodeStore = createStore<WebNodeState>(initialState);
+export const webNodeStore = createStore<WebNodeState>(() => initialState);
 
-/** React 侧订阅入口。selector 只选原始值或 store 内稳定引用（见 create-store 注释）。 */
+/**
+ * React 侧订阅入口。
+ *
+ * **selector 只许返回原始值或 store 内的稳定引用**——`map`/`filter`/`slice` 或对象字面量
+ * 每次都是新引用，`useSyncExternalStore` 于是每次快照都不等，直接无限重渲染。派生放组件体内
+ * 的 `useMemo`。`pnpm check:zustand-access` 现在覆盖本目录（它此前只扫仓库根 `src/`）。
+ */
 export function useWebNode<U>(selector: (state: WebNodeState) => U): U {
   return useStore(webNodeStore, selector);
 }
 
 // ── actions ────────────────────────────────────────────────────────────────
+//
+// 「内容没变」一律 `return s`（返回 state 本身），**不要 `return {}`**。
+// zustand 的 setState 判的是 `Object.is(partial, state)`：`{}` 是个新对象，判不等 → 照常
+// 广播一轮，所有 selector 白求值一次。返回 `s` 才真正短路。
+//
+// 这条与自研 store 的行为不同（那份实现逐键浅比较，`{}` 天然不通知），迁移时 6 处全部改过。
+// 空对象在 zustand 下不报错、类型也合法，纯靠这条约定守。
 
 export const webNodeActions = {
   setSecure(info: SecureContextInfo) {
@@ -236,7 +250,7 @@ export const webNodeActions = {
    */
   removeProjection(sessionId: string) {
     webNodeStore.setState((s) => {
-      if (!(sessionId in s.projections)) return {};
+      if (!(sessionId in s.projections)) return s;
       const projections = { ...s.projections };
       delete projections[sessionId];
       return { projections };
@@ -249,7 +263,7 @@ export const webNodeActions = {
   clearTerminalProjections() {
     webNodeStore.setState((s) => {
       const kept = Object.entries(s.projections).filter(([, p]) => p.phase !== "terminal");
-      if (kept.length === Object.keys(s.projections).length) return {};
+      if (kept.length === Object.keys(s.projections).length) return s;
       return { projections: Object.fromEntries(kept) };
     });
   },
@@ -260,11 +274,11 @@ export const webNodeActions = {
    * 换引用；守的是那几次拿回同一份内容的重拉：StrictMode 下 InboxPanel 的 effect
    * double-invoke（同一份快照灌两遍）、收件箱为空时的首次拉取（`[]` → `[]`）、以及同一
    * 会话重复终态事件把 `inboxRevision` 顶两下。少了它这些都各白掉一次全局重渲染
-   * ——`create-store` 的浅比较拦不住，`[...items].sort()` 每次都是新数组引用。
+   * ——`[...items].sort()` 每次都是新数组引用，zustand 的 `Object.is` 拦不住。
    */
   setInboxItems(items: InboxItemDetail[]) {
     const next = [...items].sort((a, b) => b.receivedAt - a.receivedAt);
-    webNodeStore.setState((s) => (inboxItemsEqual(s.inboxItems, next) ? {} : { inboxItems: next }));
+    webNodeStore.setState((s) => (inboxItemsEqual(s.inboxItems, next) ? s : { inboxItems: next }));
   },
   /**
    * 本机改动了收件箱（已读 / 归档 / 删除）后请求重拉。
@@ -283,7 +297,7 @@ export const webNodeActions = {
   /** #79：offer 已被本机接受/拒绝，从「待处理」域移除（决策是一次性动作，同 removePendingPairing）。 */
   removeOffer(sessionId: string) {
     webNodeStore.setState((s) => {
-      if (!(sessionId in s.offers)) return {};
+      if (!(sessionId in s.offers)) return s;
       const offers = { ...s.offers };
       delete offers[sessionId];
       return { offers };
@@ -296,7 +310,7 @@ export const webNodeActions = {
    */
   setPendingOffers(offers: OfferJson[]) {
     const next = Object.fromEntries(offers.map((offer) => [offer.sessionId, offerFromSnapshot(offer)]));
-    webNodeStore.setState((s) => (offersEqual(s.offers, next) ? {} : { offers: next }));
+    webNodeStore.setState((s) => (offersEqual(s.offers, next) ? s : { offers: next }));
   },
   /** 事件源二：轮询到的入站配对请求，累积（内核侧取出即清空，故这里追加不去重覆盖）。 */
   addPendingPairings(reqs: PendingPairingJson[]) {
@@ -313,7 +327,7 @@ export const webNodeActions = {
    * 订阅者会无谓重渲染。DashMap 遍历顺序不保证稳定，比较必须与顺序无关。
    */
   setPairedDevices(devices: Device[]) {
-    webNodeStore.setState((s) => (devicesEqual(s.pairedDevices, devices) ? {} : { pairedDevices: devices }));
+    webNodeStore.setState((s) => (devicesEqual(s.pairedDevices, devices) ? s : { pairedDevices: devices }));
   },
   setConnection(connection: ConnectionJson | null) {
     webNodeStore.setState({ connection });

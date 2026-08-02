@@ -179,18 +179,16 @@ Next 页面。
 隐私模式下 storage 可能不可用，落地页会**退回**把 payload 挂在 fragment 上传过去，所以
 消费端两条路径都要读（见 `pairing-panel.tsx` 的 handoff effect）。
 
-## `_lib/create-store.ts` 是自研 store，且不在 lint 兜底范围内
+## store 是 zustand（2026-08 起），selector 派生已有机器兜底
 
-零依赖的 `useSyncExternalStore` 外部 store（当时不引 zustand 的理由写在文件头）。
-它有和 zustand **完全相同的陷阱**：selector 里 `filter`/`map`/`slice` 或对象字面量派生新引用
-→ 每次快照不等 → 无限重渲染（`getSnapshot should be cached`）。
+`_lib/store.ts` 用 `zustand/vanilla` 的 `createStore` + `zustand` 的 `useStore`。
+此前是自研的 `_lib/create-store.ts`（零依赖 `useSyncExternalStore`），迁移时**调用面几乎没动**
+——两者的 `getState / setState / subscribe / getInitialState` 形状本就一致。
 
-**而 `pnpm check:zustand-access` 只扫仓库根的 `src/`，`docs/` 不在覆盖范围内**——
-这块目前没有机器兜底，只能靠约定：selector 一律只返回原始值（数字、字符串、布尔）
-或 store 内的稳定引用（整个 `projections` 对象、`pairedDevices` 数组）。
-
-派生放组件体内（`useMemo`）而不是 selector 里。计数这类可以在 selector 里算，
-因为返回的是数字——`Object.is(3, 3)` 为真，不会触发重渲染：
+陷阱不变：selector 里 `filter`/`map`/`slice` 或对象字面量派生新引用 → 每次快照不等 →
+无限重渲染。**但现在 `pnpm check:zustand-access` 会拦**（规则 B，覆盖 `src/` 与
+`docs/app/app`）。派生放组件体内的 `useMemo`；计数这类可以留在 selector 里，
+因为返回的是数字——`Object.is(3, 3)` 为真：
 
 ```ts
 // ✅ 返回数字
@@ -199,8 +197,16 @@ const offerCount = useWebNode((s) => Object.keys(s.offers).length);
 const offers = useWebNode((s) => Object.values(s.offers));
 ```
 
-**相关文件**：`docs/app/app/_lib/create-store.ts`、`docs/app/app/_lib/store.ts`、
-`docs/app/app/_components/app-nav.tsx`
+### 迁移时唯一改了语义的地方：`setState` 的「内容没变」写法
+
+自研版逐键浅比较，`return {}` 天然不通知；**zustand 判的是 `Object.is(partial, state)`**，
+`{}` 是个新对象、判不等 → 照常广播一轮，所有 selector 白求值一次。
+
+所以「内容没变」一律 **`return s`**（返回 state 本身），不要 `return {}`。迁移时 6 处全部改过。
+空对象在 zustand 下不报错、类型也合法，纯靠约定守——`setInboxItems` / `setOffers` /
+`setPairedDevices` 那三个内容比较守卫都依赖它。
+
+**相关文件**：`docs/app/app/_lib/store.ts`、`scripts/check-zustand-store-access.mjs`
 
 ## 拆多路由会藏起有时效的东西，导航徽标是补偿不是装饰
 

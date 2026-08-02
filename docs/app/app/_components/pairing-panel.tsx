@@ -56,9 +56,8 @@ export function PairingPanel() {
   /**
    * 邀请预览（#98）：确认卡数据 / 解码失败 / 本地拦下的成因，三者互斥，任一时刻至多一个非空。
    *
-   * **刻意不进 store**：`_lib/create-store.ts` 是自研 store，「selector 里派生新对象 →
-   * 无限重渲染」的陷阱与 zustand 同款，而 `pnpm check:zustand-access` 只扫仓库根 `src/`、
-   * 不覆盖 docs/。预览态只有本面板一个消费者，没理由去冒那个没有机器兜底的风险。
+   * **刻意不进 store**：预览态只有本面板一个消费者，进 store 只是把一份局部状态摊到全局，
+   * 换不来任何共享。
    */
   const [preview, setPreview] = useState<PairInvitePreviewJson | null>(null);
   const [previewError, setPreviewError] = useState<WebError | null>(null);
