@@ -297,6 +297,23 @@ trait 抽出来之后，覆盖的其实只有一半：建会话、写 checkpoint
 3. **领域规则住 `crates/transfer`，各存储实现调它**（下一小节展开）。
 4. **管理类语义也是端口的一部分。** `crates/transfer/src/store.rs` 的模块头曾把端口描述成
    「运行时写路径」，那是漏了半张脸：列表 / 检索 / 归档 / 软删同样是端口契约。
+5. **端口方法收确定值时，每个宿主都会自己发明一个默认值。**（#111）
+   `search_inbox(query, limit: usize, ..)` 收的是确定的 `usize`，于是四个宿主想出了四个答案
+   （Tauri 命令 20、桌面 MCP 20、移动 100、Web 50）。**注意「四个」里有两个在同一个进程**
+   ——同一台机器上「用 UI 搜」与「让 AI 搜」结果集不同，这种同宿主内的第二事实源比跨端分叉
+   更难发现。
+   修法是加一个 provided 方法把兜底收进端口：
+
+   ```rust
+   async fn search_inbox_capped(&self, q: &str, limit: Option<u32>, inc: bool) -> AppResult<..> {
+       let limit = limit.map_or(INBOX_SEARCH_LIMIT, |n| (n as usize).min(INBOX_SEARCH_LIMIT));
+       self.search_inbox(q, limit, inc).await
+   }
+   ```
+
+   要点有两个，缺一条都白做：**让 `Option` 成为宿主面对的类型**（「自带一个默认值」那条路
+   在类型上就不存在了）；**上限只能收窄不能放宽**（否则分叉只是从常量搬到了参数上）。
+   判据：端口参数如果有「合理默认值」，那个默认值就该在端口里，不该让每个宿主猜。
 
 #### 领域规则住 `crates/transfer`，各存储实现调它
 
@@ -312,6 +329,18 @@ trait 抽出来之后，覆盖的其实只有一半：建会话、写 checkpoint
 是跨端去重的**唯一**判据，字节级不同就等于这个字段作废；`inbox_title` 分叉了同一批文件
 在桌面与浏览器显示不同的名字。这类必须共用。而 `escape_like` 分叉了没人看得出来 —— 它只是
 SQL 通配符的转义。
+
+**「三端各判一遍同一件事」是内核没把话说完的信号**（#111）。`inbox_snippet` 原本在一个候选
+都不命中时**回退整个标题**，而三端的条目行上本来就显示着标题——于是桌面无条件渲染那行重复、
+移动端判真、Web 在前端比对字符串。后者尤其糟：它编码了 `snippet_window` 的窗口半径与省略号
+规则，改内核就静默失效，且没有测试守着。
+
+修法是让内核表达「不该渲染」这个状态本身（返回 `Option<String>`），而不是让每端从产出物
+反推。**判据是：如果每端都要写一段「这个返回值要不要用」的逻辑，那段逻辑属于产出它的那一层。**
+
+验证这条修得对不对有个便宜的办法：改完之后**桌面与移动前端一行都没动**——它们本来就写
+`hit.snippet &&` / `hit.snippet ?`。既有写法与新语义天然吻合，说明 `Option` 才是那个字段
+本来该有的形状。
 
 三条配套纪律：
 
@@ -718,8 +747,21 @@ Web 比桌面更需要它，因为 Web **没有 `.part` 中间态**——写的�
 **默认实现帮不了你**——继承 no-op 的表现是「功能看起来正常，只是盘上慢慢堆残件」，
 没有任何测试会红。
 
+**同一处还欠着「删收件箱条目连带删文件」的编排**（#111 只把入口补齐，没收口）。那段
+「取 detail → 逐文件删 → 软删记录」现在有**三份**：桌面 `src-tauri/src/commands/inbox.rs`、
+Web `crates/web/src/node.rs`、移动 `mobile/src/stores/inbox-store.ts`（TypeScript 那份）。
+已经漂出一处差异：移动端在 detail 取不到时**静默跳过**，另两端报「收件箱记录不存在」。
+收口的形状与上面那条相同——编排提到 `crates/transfer` 的自由函数，吃 `&dyn InboxStore` +
+`&dyn FileAccess`，两条负债一起还。
+
+⚠️ 收口时**删除键按端不同**这一点不能丢：Web 用 `relative_path`（OPFS 的键），
+桌面/移动用 `local_path`（真实文件系统路径），而 Web 的 `local_path` 是带 `opfs:/` 前缀的
+展示值，喂给 `remove_path` 会去找一个叫 `opfs:` 的目录。这条现已写进
+`InboxItemFileEntry` 两个字段各自的 doc——那是它该在的地方，别让宿主从别处推断。
+
 **相关文件**：`crates/host/src/ports.rs`（trait + 默认实现）、`crates/web/src/file_access.rs`、
-`crates/web/src/opfs.rs`、`src-tauri/src/host/file_source.rs`
+`crates/web/src/opfs.rs`、`src-tauri/src/host/file_source.rs`、`crates/transfer/src/inbox.rs`
+（`InboxItemFileEntry` 的路径字段 doc）
 
 ## 端口比底层弱时，用 crate 内 supertrait 扩展，别让宿主退回去持具体类型
 
