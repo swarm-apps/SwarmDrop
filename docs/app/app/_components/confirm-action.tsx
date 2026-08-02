@@ -5,6 +5,11 @@
 // 不用 window.confirm——它阻塞整页，而这里要拦的只是一次手滑。三处调用点（清空传输历史 /
 // 取消传输 / 删除记录）此前各写一份 `useState(false)` 加同构的三段 JSX，只有图标、文案与
 // 回调不同；confirming 收在这里之后，调用方连「有没有确认态」都不必知道。
+//
+// **应用区有第二个确认原语，那是刻意的**（#109 的结论）：`device-list.tsx` 的「取消配对」
+// 失败后要留在确认态，而本组件的核心设计是「点确认的同一拍就复位、不等异步结果」——两者在
+// 同一个轴上取相反的值，合并需要本组件同时管 error 的渲染位置，与现有三个调用点的布局冲突。
+// 完整推导写在 `device-list.tsx` 的文件头注释里，别再纠结第二遍。
 
 import type { LucideIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";

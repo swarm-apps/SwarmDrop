@@ -18,6 +18,7 @@ import { ProgressBar } from "./progress-bar";
 import { WebErrorCard } from "./web-error-view";
 import { calcPercent, formatFileSize } from "../_lib/format";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
+import { deviceDisplayName } from "../_lib/device-name";
 import { getNode } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode } from "../_lib/store";
@@ -116,7 +117,7 @@ function SendPanelInner() {
             <option value="">选择设备…</option>
             {devices.map((d) => (
               <option key={d.peerId} value={d.peerId} disabled={d.status !== "online"}>
-                {d.name ?? d.hostname}
+                {deviceDisplayName(d)}
                 {d.status !== "online" ? "（离线）" : ""}
               </option>
             ))}
