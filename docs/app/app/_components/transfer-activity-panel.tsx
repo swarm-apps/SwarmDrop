@@ -7,10 +7,11 @@
 // `generateStaticParams` 预生成，而 sessionId 是运行时 UUID，永远预生成不出来。
 // 详情就地展开而非另开页面：一次传输的信息量撑不起一整屏，展开足够，也省掉一次跳转。
 
-import { RotateCcw, Trash2, XCircle } from "lucide-react";
+import { Inbox, RotateCcw, Trash2, XCircle } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type ReactNode, Suspense, memo, useCallback, useMemo } from "react";
-import { ConfirmAction, useConfirmAction } from "./confirm-action";
+import { type ReactNode, Suspense, memo, useCallback, useEffect, useMemo, useState } from "react";
+import { ConfirmAction, INLINE_ACTION_CLASS, useConfirmAction } from "./confirm-action";
 import { PanelFallback } from "./panel-fallback";
 import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
@@ -25,7 +26,7 @@ import {
   sessionEndedAt,
   sortByUpdatedDesc,
 } from "../_lib/format";
-import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
+import { NAV, PARAM, inboxItemHref, transferSessionHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
@@ -443,13 +444,18 @@ function TransferItemActions({
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-fd-muted-foreground">
         <span>已用 {formatDuration(elapsedSeconds(projection))}</span>
         <div className="flex flex-wrap items-center gap-2">
+          {/* 传输页是「过程」、收件箱是「结果」（分工见 inbox/page.tsx），此前两者是两座孤岛：
+              一次接收在两处各出现一次，却没有任何一条边把它们连起来。 */}
+          {projection.direction === "receive" && (
+            <InboxItemLink sessionId={projection.sessionId} phase={projection.phase} ready={ready} />
+          )}
           {/* 续传是可重试的幂等动作，不设二次确认——只有不可逆的那两个才拦。 */}
           {projection.recoverable && (
             <button
               type="button"
               onClick={resume.run}
               disabled={!ready || resume.pending}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
+              className={INLINE_ACTION_CLASS}
             >
               <RotateCcw className="size-3" aria-hidden="true" />
               {resume.pending ? "续传中" : "续传"}
@@ -495,5 +501,61 @@ function TransferItemActions({
       {cancel.error && <WebErrorCard error={cancel.error} className="mt-2 text-xs" />}
       {remove.error && <WebErrorCard error={remove.error} className="mt-2 text-xs" />}
     </>
+  );
+}
+
+/**
+ * 「查看收到的文件」——按会话反查收件箱条目（`inbox_item_by_session`）。
+ *
+ * 查询挂在这里而不是列表层，因为动作区**只在展开时挂载**：一次只查一条，用户不展开就不查。
+ * 提到列表层就变成「每渲染一次列表，对每条接收会话各查一次」。
+ *
+ * 查不到就整个不渲染（返回 `null`），不留占位也不报错——这是**常态而非异常**：发送方向没有
+ * 条目、接收未完成没有条目、条目被用户删掉了也没有。为一件正常缺席的事挂一行「暂无」，
+ * 会让每条已取消的接收记录下面都多一句废话。
+ *
+ * 依赖里带 `phase` 是因为「接收中」展开时反查必然为空，而条目是在完成那一刻才建的——
+ * 不重查的话，用户得收起再展开才看得到链接。
+ */
+function InboxItemLink({
+  sessionId,
+  phase,
+  ready,
+}: {
+  sessionId: string;
+  phase: TransferProjection["phase"];
+  /** 节点未就绪时 `getNode()` 为 null；带上它，就绪后这条 effect 会重跑而不是永远空着。 */
+  ready: boolean;
+}) {
+  /** 反查结果：`undefined` = 还没查完，`null` = 确实没有对应条目。 */
+  const [target, setTarget] = useState<{ id: string; archived: boolean } | null | undefined>(undefined);
+
+  useEffect(() => {
+    const node = getNode();
+    if (!node) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const detail = await node.inbox_item_by_session(sessionId);
+        if (cancelled) return;
+        setTarget(detail ? { id: detail.id, archived: detail.archivedAt !== null } : null);
+      } catch (e) {
+        // 反查失败只是少一条快捷链接，收件箱页本身照常可达，不值得占用会话的错误位。
+        console.error("[web] inbox_item_by_session() 失败", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, phase, ready]);
+
+  if (!target) return null;
+  return (
+    // 归档状态一并编进链接：只带 id 的链接到不了已归档的条目（收件箱默认不显示它们）。
+    // 反查回来的本就是完整 detail，这里不用它就得让落地页去猜。
+    <Link href={inboxItemHref(target.id, target.archived)} className={INLINE_ACTION_CLASS}>
+      <Inbox className="size-3" aria-hidden="true" />
+      查看收到的文件
+    </Link>
   );
 }

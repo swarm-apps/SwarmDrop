@@ -84,6 +84,10 @@ export const PARAM = {
   peerId: "peerId",
   /** `/app/transfer`：选中的会话（静态导出不能用动态路由段，见 transfer-activity-panel.tsx）。 */
   session: "session",
+  /** `/app/inbox`：定位到的收件箱条目（同上，条目 id 也是运行时 UUID）。 */
+  item: "item",
+  /** `/app/inbox`：进入时是否显示已归档条目。见 `inboxItemHref` 说明为什么它必须能进链接。 */
+  archived: "archived",
 } as const;
 
 export function sendToPeerHref(peerId: string): string {
@@ -92,6 +96,21 @@ export function sendToPeerHref(peerId: string): string {
 
 export function transferSessionHref(sessionId: string): string {
   return `${NAV.transfer.href}?${PARAM.session}=${encodeURIComponent(sessionId)}`;
+}
+
+/**
+ * 定位到某条收件箱条目。
+ *
+ * `archived` 不是可选装饰：收件箱默认不显示已归档条目，所以一条只带 id 的链接**到不了**
+ * 已归档的目标——点进去看到的是一个没有它的列表。生产方通常已经知道目标的归档状态
+ * （反查拿到的是完整 detail），把它一并编进链接，比让落地页事后猜要诚实。
+ *
+ * 这与传输侧「选中项参与历史裁剪」（`groupSessions(sorted, selectedId)`）是同一条纪律：
+ * 深链要么保证能到达，要么就别给。
+ */
+export function inboxItemHref(itemId: string, archived = false): string {
+  const base = `${NAV.inbox.href}?${PARAM.item}=${encodeURIComponent(itemId)}`;
+  return archived ? `${base}&${PARAM.archived}=1` : base;
 }
 
 /** `trailingSlash: true` 下 usePathname() 会带尾斜杠，比较前统一抹平。 */

@@ -337,3 +337,37 @@ docs/app/app/_lib/view-types.ts        ← 手工再导出新类型（它刻意�
   用户照着粘出去，对方拿到一条必然失败的邀请。
 
 **相关文件**：`docs/app/app/_components/invite-share.tsx`
+
+## `useAsyncAction` 的 seq 不覆盖「转入无动作态」
+
+`_lib/use-async-action.ts` 用一个 seq 计数器丢弃过期结果，但**它只在 `run()` 里递增**——
+覆盖的是「新一轮顶掉旧一轮」，不是「退出这件事」。调用方若在不发起新调用的情况下离开
+（检索框被清空、面板收起、条件不再满足），在途 promise 的 `mySeq === seq.current` 仍成立，
+resolve 时会把结果写回一个已经不该显示它的界面，顺带把上一次的 `error` 也留在原地。
+
+这条路径必须显式 `cancel()`（#108 为此给该 hook 补了这个方法）。
+
+**它比手写的 `cancelled` 标志少覆盖一种情况**，这点反直觉：effect 里的 `let cancelled = false`
++ cleanup 置真，天然覆盖「依赖变了」与「卸载」；而 seq 只认「又调了一次」。所以把手写取消
+换成这个 hook 时，要单独确认「不再调用」的那条分支有没有人管——#108 的检索就是这么漏的，
+症状是搜索框已清空、列表却停在上一次的命中结果里。
+
+**相关文件**：`docs/app/app/_lib/use-async-action.ts`、`docs/app/app/_components/receive-panel.tsx`
+
+## 内容比较守卫会随域模型悄悄失真
+
+store 里给列表快照做的「内容没变就不换引用」守卫（`inboxItemsEqual` / `devicesEqual`）都是
+**手写的字段清单**。它写下来的那一刻编码的是当时 UI 会读的字段，而 UI 后来会读更多。
+
+`inboxItemsEqual` 原本比 `id / receivedAt / missing / files.length`，注释里还写明了理由
+（「归档 / 软删的条目根本不在列表里，无需比时间戳」）——那句话在收件箱只能读不能写的时候
+成立。#108 给它加了三个写入口之后，两条路径立刻漏网：下载后标已读（集合不变，只有
+`lastOpenedAt` 变）、以及「显示已归档」开着时取消归档（集合同样不变）。两者都被判等丢弃，
+UI 停在旧值不动。
+
+**症状不是报错，是「点了没反应」**，而且 `setState({})` 本身是合法路径，任何门禁都不会红。
+
+**规矩**：往 DTO 上加可变字段、或给一张表加写入口时，回头看一眼它的比较守卫。
+判断依据是「这个字段会不会在集合不变的前提下单独变化」——会，就必须进清单。
+
+**相关文件**：`docs/app/app/_lib/store.ts`

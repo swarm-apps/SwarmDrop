@@ -132,10 +132,12 @@ export interface WebNodeState {
    */
   inboxItems: InboxItemDetail[];
   /**
-   * 收件箱重拉信号：每收到一次**接收方向**的 `transferCompleted` 就自增。
+   * 收件箱失效票据：内容可能变了，该重拉一次。**两个生产者**——远端来的
+   * （接收方向的 `transferCompleted`）与本机改的（已读 / 归档 / 删除，走 `refreshInbox()`）。
    *
    * 收件箱是低频写入，不值得为它新造一条订阅式推送通道（一次 `inbox_items()` 的成本
-   * 远低于此）。面板 effect 依赖这个计数器即可「挂载拉一次 + 每次收完重拉」。
+   * 远低于此）。面板 effect 依赖这个计数器即可「挂载拉一次 + 此后每次失效重拉」，
+   * 拉取点因此始终只有一处，`include_archived` 这个视图状态也不必泄漏进 store。
    */
   inboxRevision: number;
 
@@ -264,6 +266,20 @@ export const webNodeActions = {
     const next = [...items].sort((a, b) => b.receivedAt - a.receivedAt);
     webNodeStore.setState((s) => (inboxItemsEqual(s.inboxItems, next) ? {} : { inboxItems: next }));
   },
+  /**
+   * 本机改动了收件箱（已读 / 归档 / 删除）后请求重拉。
+   *
+   * 与 `transferCompleted` 顶同一个计数器是刻意的：面板那条 effect 因此仍是**唯一**的拉取点，
+   * 而不是「事件走 effect、本机动作各自再 fetch 一遍」的两套。少了它，动作后要么各写一份
+   * `inbox_items()` + `setInboxItems()`，要么就得把 `include_archived` 这个当前视图状态
+   * 泄漏进 store。
+   *
+   * ⚠️ 它是**失效通知不是拉取**：没有收件箱面板挂载时顶计数器不会发生任何事，下次面板挂载
+   * 时那条 effect 本来也会拉。目前唯一的消费者就是它，别在其它页面把这个当「刷新收件箱」用。
+   */
+  refreshInbox() {
+    webNodeStore.setState((s) => ({ inboxRevision: s.inboxRevision + 1 }));
+  },
   /** #79：offer 已被本机接受/拒绝，从「待处理」域移除（决策是一次性动作，同 removePendingPairing）。 */
   removeOffer(sessionId: string) {
     webNodeStore.setState((s) => {
@@ -376,8 +392,15 @@ function appendLog(log: WebTransferEvent[], ev: WebTransferEvent): WebTransferEv
 /**
  * 收件箱快照的内容比较（两侧都已按 `receivedAt` 倒序，故可逐位比）。
  *
- * 比的是 UI 真正会变的那几样：条目集合、接收时间、缺失标记、文件数。
- * 归档 / 软删的条目根本不在列表里（内核侧已过滤），无需比它们的时间戳。
+ * 比的是 UI 真正会变的那几样：条目集合、接收时间、缺失标记、文件数，**以及已读与归档时间戳**。
+ *
+ * 后两个字段一度不在这里，理由是「归档 / 软删的条目根本不在列表里，无需比时间戳」——那句话
+ * 在收件箱只能读不能写的时候成立，#108 给它加了三个写入口之后就成了假设。两条真实的漏网路径：
+ * 下载后标已读（集合不变，只有 `lastOpenedAt` 从 null 变成时间戳）、以及「显示已归档」开着时
+ * 取消归档（集合同样不变）。两者都会被判等丢掉，于是未读点与「已归档」徽标停在旧值不动。
+ *
+ * 教训是这个守卫编码的是**当时的域模型**（「有哪些条目」），而 UI 后来开始读「条目带什么状态」。
+ * 往 `InboxItemDetail` 上加可变字段时要回来看一眼这里。
  *
  * **`transfer` 投影刻意不比**：那是每次 `inbox_items()` 现造的对象，比它（哪怕只比引用）
  * 会让这个函数恒为 false，守卫退化成纯开销；而本面板压根不渲染它。
@@ -390,7 +413,9 @@ function inboxItemsEqual(a: InboxItemDetail[], b: InboxItemDetail[]): boolean {
       item.id === other.id &&
       item.receivedAt === other.receivedAt &&
       item.missing === other.missing &&
-      item.files.length === other.files.length
+      item.files.length === other.files.length &&
+      item.lastOpenedAt === other.lastOpenedAt &&
+      item.archivedAt === other.archivedAt
     );
   });
 }
