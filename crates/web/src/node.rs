@@ -962,45 +962,24 @@ impl WebNode {
     /// 它了，配额却还占着，用户唯一的出路是浏览器的「清除站点数据」。所以这个入口不是锦上添花：
     /// 没有它，Web 端的每一次删除都在泄漏。
     ///
-    /// 文件不存在不算错误（`remove_path` 对缺失返回 `Ok(false)`），与桌面对
-    /// `ErrorKind::NotFound` 的处理一致。
-    ///
-    /// **删文件失败不阻断删记录。** 顺序仍是先文件后记录（反过来的话记录没了就再也定位不到
-    /// 那份副本），但失败只记日志、继续删账本——因为 Web 前端**不给「保留文件」选项**
-    /// （OPFS 副本用户无从访问，留着只是泄漏），所以一旦在这里 `?` 返回，用户就再没有任何
-    /// 办法删掉这条记录了；桌面上他至少还能取消勾选、只删账本。
-    ///
-    /// `remove_path` 的失败面是真的：5s 超时，以及 `createWritable()` 持独占锁时的
-    /// `NoModificationAllowedError`（三端都不做重名消歧，「新的接收正在写同名文件」时那把锁
-    /// 就开着）。代价是那份文件成孤儿——与「删掉 suspended 接收会话留下的残件」是同一个已知
-    /// 负债，将来一并按「哪些文件真没写完」收口。
+    /// 编排（顺序、失败处理、幂等）是**三端共用的领域规则**，住在
+    /// [`swarmdrop_transfer::inbox::delete_inbox_item`]——本方法只做参数解析与错误转换。
+    /// 「OPFS 的键要剥掉 `opfs:/` 前缀」那一层在 [`OpfsFileAccess::delete_finalized_file`]，
+    /// 编排不需要知道哪一端用哪个字段。
     pub async fn delete_inbox_item(
         &self,
         item_id: String,
         delete_local_files: bool,
     ) -> Result<(), JsValue> {
         let id = parse_uuid(&item_id, "item_id")?;
-        if delete_local_files {
-            let detail = self
-                .session_store
-                .get_inbox_item_detail(id)
-                .await
-                .map_err(WebError::from)?
-                .ok_or_else(|| WebError::not_found("收件箱记录不存在"))?;
-            for file in &detail.files {
-                if let Err(e) = crate::opfs::remove_path(&file.relative_path).await {
-                    tracing::warn!(
-                        path = %file.relative_path,
-                        error = %e,
-                        "删除 OPFS 文件失败，记录仍会删除（该文件将成为孤儿）"
-                    );
-                }
-            }
-        }
-        self.session_store
-            .delete_inbox_item_record(id)
-            .await
-            .map_err(WebError::from)?;
+        swarmdrop_transfer::inbox::delete_inbox_item(
+            self.session_store.as_ref(),
+            self.file_access.as_ref(),
+            id,
+            delete_local_files,
+        )
+        .await
+        .map_err(WebError::from)?;
         Ok(())
     }
 

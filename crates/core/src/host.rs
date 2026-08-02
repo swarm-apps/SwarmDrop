@@ -409,6 +409,17 @@ impl FileAccess for MemoryHost {
             .remove(sink);
         Ok(())
     }
+
+    /// 内存 host 的 `uri` 就是 sink id（见 [`Self::finalize_sink`]），所以「删已落盘文件」
+    /// 就是把那条 sink 的字节丢掉。不存在不报错——与端口契约一致（删除幂等）。
+    async fn delete_finalized_file(&self, uri: &str) -> AppResult<()> {
+        self.inner
+            .lock()
+            .expect("memory host poisoned")
+            .sinks
+            .remove(&FileSinkId(uri.to_string()));
+        Ok(())
+    }
 }
 
 #[async_trait]

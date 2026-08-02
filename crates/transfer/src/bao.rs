@@ -249,6 +249,9 @@ mod tests {
         async fn source_metadata(&self, _s: &FileSourceId) -> AppResult<HostFileMetadata> {
             unreachable!()
         }
+        async fn delete_finalized_file(&self, _uri: &str) -> AppResult<()> {
+            unreachable!()
+        }
         async fn read_source_chunk(
             &self,
             _s: &FileSourceId,

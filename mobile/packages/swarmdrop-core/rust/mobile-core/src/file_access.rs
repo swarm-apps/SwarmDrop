@@ -158,6 +158,17 @@ pub trait ForeignFileAccess: Send + Sync {
 
     /// 取消时清理临时文件
     async fn cleanup_sink(&self, sink_id: String) -> Result<(), FfiError>;
+
+    /// 删除一个**已最终化**的文件。`uri` 是 [`Self::finalize_sink`] 返回过的那个
+    /// （`file://` 或 SAF document URI），也就是落库到 `local_path` 的值。
+    ///
+    /// **文件已不存在不算错误**，按契约返回 `Ok`（删除幂等）。
+    ///
+    /// 这条此前不存在：删收件箱文件的编排整段写在 TS 侧（`inbox-store.ts` 的
+    /// `deleteLocalFiles`），于是同一段「取 detail → 逐文件删 → 软删记录」三端各一份，
+    /// 且这份在 detail 取不到时静默跳过、另两端报错。编排现已收进
+    /// `swarmdrop_transfer::inbox::delete_inbox_item`，TS 侧只剩「哪个 URI 怎么删」这一层。
+    async fn delete_finalized_file(&self, uri: String) -> Result<(), FfiError>;
 }
 
 /// 把 [`ForeignFileAccess`] 适配为 core 的 [`FileAccess`]
@@ -240,6 +251,13 @@ impl FileAccess for MobileFileAccessAdapter {
     async fn cleanup_sink(&self, sink: &FileSinkId) -> AppResult<()> {
         self.foreign
             .cleanup_sink(sink.0.clone())
+            .await
+            .map_err(to_app_error)
+    }
+
+    async fn delete_finalized_file(&self, uri: &str) -> AppResult<()> {
+        self.foreign
+            .delete_finalized_file(uri.to_string())
             .await
             .map_err(to_app_error)
     }

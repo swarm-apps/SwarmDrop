@@ -314,6 +314,7 @@ impl MobileCore {
             .map_err(FfiError::from)
     }
 
+    /// **只删账本**，不碰文件。要连文件一起删走 [`Self::delete_inbox_item`]。
     pub async fn delete_inbox_item_record(&self, item_id: String) -> FfiResult<()> {
         let item_uuid = parse_item_id(&item_id)?;
         let store = self.ensure_store().await?;
@@ -321,6 +322,33 @@ impl MobileCore {
             .delete_inbox_item_record(item_uuid)
             .await
             .map_err(FfiError::from)
+    }
+
+    /// 删除收件箱条目；`delete_local_files` 为真时连已落盘的文件一起删。
+    ///
+    /// 编排（先文件后记录、删文件失败不阻断、条目不存在报错）住在
+    /// [`swarmdrop_core::transfer::inbox::delete_inbox_item`]，三端共用。此前**这段编排在
+    /// TS 里**（`inbox-store.ts` 的 `deleteLocalFiles` + 手写的顺序），于是同一段逻辑
+    /// 三端各一份，且那份在 detail 取不到时静默跳过、另两端报错。
+    ///
+    /// 「`file://` / SAF URI 怎么删」那一层仍在 JS（`ForeignFileAccess::delete_finalized_file`）
+    /// ——那才是真正的平台细节。
+    pub async fn delete_inbox_item(
+        &self,
+        item_id: String,
+        delete_local_files: bool,
+    ) -> FfiResult<()> {
+        let item_uuid = parse_item_id(&item_id)?;
+        let store = self.ensure_store().await?;
+        let file_access = self.file_access_arc();
+        swarmdrop_core::transfer::inbox::delete_inbox_item(
+            store.as_ref(),
+            file_access.as_ref(),
+            item_uuid,
+            delete_local_files,
+        )
+        .await
+        .map_err(FfiError::from)
     }
 
     pub async fn mark_inbox_file_missing(

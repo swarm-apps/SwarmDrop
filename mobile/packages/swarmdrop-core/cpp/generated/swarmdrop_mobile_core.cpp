@@ -196,6 +196,14 @@ extern "C" {
     UniffiForeignFutureDroppedCallbackStruct * uniffi_out_dropped_callback
     );
     typedef void
+    (*UniffiCallbackInterfaceForeignFileAccessMethod7)(
+    uint64_t uniffi_handle, 
+    RustBuffer uri, 
+    UniffiForeignFutureCompleteVoid uniffi_future_callback, 
+    uint64_t uniffi_callback_data, 
+    UniffiForeignFutureDroppedCallbackStruct * uniffi_out_dropped_callback
+    );
+    typedef void
     (*UniffiCallbackInterfaceForeignKeychainProviderMethod0)(
     uint64_t uniffi_handle, 
     UniffiForeignFutureCompleteRustBuffer uniffi_future_callback, 
@@ -267,6 +275,7 @@ extern "C" {
         UniffiCallbackInterfaceForeignFileAccessMethod4 write_sink_chunk;
         UniffiCallbackInterfaceForeignFileAccessMethod5 finalize_sink;
         UniffiCallbackInterfaceForeignFileAccessMethod6 cleanup_sink;
+        UniffiCallbackInterfaceForeignFileAccessMethod7 delete_finalized_file;
     } UniffiVTableCallbackInterfaceForeignFileAccess;typedef struct UniffiVTableCallbackInterfaceForeignKeychainProvider {
         UniffiCallbackInterfaceFree uniffi_free;
         UniffiCallbackInterfaceClone uniffi_clone;
@@ -351,6 +360,11 @@ extern "C" {
         /*handle*/ uint64_t ptr, 
         RustBuffer item_id, 
         int8_t archived
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer item_id, 
+        int8_t delete_local_files
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record(
         /*handle*/ uint64_t ptr, 
@@ -536,6 +550,10 @@ extern "C" {
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(
         /*handle*/ uint64_t ptr, 
         RustBuffer sink_id
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer uri
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_clone_foreignkeychainprovider(
         /*handle*/ uint64_t handle, 
@@ -802,6 +820,8 @@ extern "C" {
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item(
     );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item(
+    );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_inbox_item(
@@ -877,6 +897,8 @@ extern "C" {
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity(
     );
@@ -4078,6 +4100,149 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         rsLambda = nullptr;
     }
 } // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod6::vtablecallbackinterfaceforeignfileaccess
+    // Implementation of CallbackInterfaceForeignFileAccessMethod7 for vtable field delete_finalized_file in VTableCallbackInterfaceForeignFileAccess
+
+
+// Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess::UniffiCallbackInterfaceForeignFileAccessMethod7
+//
+// We have the following constraints:
+// - we need to pass a function pointer to Rust.
+// - we need a jsi::Runtime and jsi::Function to call into JS.
+// - function pointers can't store state, so we can't use a lamda.
+//
+// For this, we store a lambda as a global, as `rsLambda`. The `callback` function calls
+// the lambda, which itself calls the `body` which then calls into JS.
+//
+// We then give the `callback` function pointer to Rust which will call the lambda sometime in the
+// future.
+namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess {
+    using namespace facebook;
+
+    // We need to store a lambda in a global so we can call it from
+    // a function pointer. The function pointer is passed to Rust.
+    static std::function<void(uint64_t, RustBuffer, UniffiForeignFutureCompleteVoid, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
+
+    // This is the main body of the callback. It's called from the lambda,
+    // which itself is called from the callback function which is passed to Rust.
+    static void body(jsi::Runtime &rt,
+                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
+                     std::shared_ptr<jsi::Value> callbackValue
+            ,uint64_t rs_uniffiHandle
+            ,RustBuffer rs_uri
+            ,UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback
+            ,uint64_t rs_uniffiCallbackData
+            ,UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+
+        // Convert the arguments from Rust, into jsi::Values.
+        // We'll use the Bridging class to do this…
+        auto js_uniffiHandle = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiHandle);
+        auto js_uri = uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, rs_uri);
+        auto js_uniffiFutureCallback = uniffi::swarmdrop_mobile_core::Bridging<UniffiForeignFutureCompleteVoid>::toJs(rt, callInvoker, rs_uniffiFutureCallback);
+        auto js_uniffiCallbackData = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiCallbackData);
+
+        // Now we are ready to call the callback.
+        // We are already on the JS thread, because this `body` function was
+        // invoked from the CallInvoker.
+        try {
+            // Getting the callback function
+            auto cb = callbackValue->asObject(rt).asFunction(rt);
+            auto uniffiResult = cb.call(rt, js_uniffiHandle, js_uri, js_uniffiFutureCallback, js_uniffiCallbackData
+            );
+
+            
+
+            
+            // return type is Struct("ForeignFutureDroppedCallbackStruct")
+            // Finally, we need to copy the return value back into the Rust pointer.
+            *rs_uniffiOutDroppedCallback =
+                uniffi::swarmdrop_mobile_core::Bridging<
+                    UniffiForeignFutureDroppedCallbackStruct
+                >::fromJs(
+                    rt, callInvoker, uniffiResult
+                );
+        } catch (const jsi::JSError &error) {
+            std::cout << "Error in callback UniffiCallbackInterfaceForeignFileAccessMethod7: "
+                    << error.what() << std::endl;
+            throw error;
+        }
+    }
+
+    static void callback(uint64_t rs_uniffiHandle, RustBuffer rs_uri, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+        // If the runtime has shutdown, then there is no point in trying to
+        // call into Javascript. BUT how do we tell if the runtime has shutdown?
+        //
+        // Answer: the module destructor calls into callback `cleanup` method,
+        // which nulls out the rsLamda.
+        //
+        // If rsLamda is null, then there is no runtime to call into.
+        if (rsLambda == nullptr) {
+            // This only occurs when destructors are calling into Rust free/drop,
+            // which causes the JS callback to be dropped.
+            return;
+        }
+
+        // The runtime, the actual callback jsi::funtion, and the callInvoker
+        // are all in the lambda.
+        rsLambda(
+            rs_uniffiHandle, 
+            rs_uri, 
+            rs_uniffiFutureCallback, 
+            rs_uniffiCallbackData, 
+            rs_uniffiOutDroppedCallback);
+    }
+
+    [[maybe_unused]] static UniffiCallbackInterfaceForeignFileAccessMethod7
+    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess
+                    jsi::Runtime &rt,
+                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
+                     const jsi::Value &value) {
+        if (rsLambda != nullptr) {
+            // `makeCallbackFunction` is called in two circumstances:
+            //
+            // 1. at startup, when initializing callback interface vtables.
+            // 2. when polling futures. This happens at least once per future that is
+            //    exposed to Javascript. We know that this is always the same function,
+            //    `uniffiFutureContinuationCallback` in `async-rust-calls.ts`.
+            //
+            // We can therefore return the callback function without making anything
+            // new if we've been initialized already.
+            return callback;
+        }
+        auto callbackFunction = value.asObject(rt).asFunction(rt);
+        auto callbackValue = std::make_shared<jsi::Value>(rt, callbackFunction);
+        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, RustBuffer rs_uri, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+                // We immediately make a lambda which will do the work of transforming the
+                // arguments into JSI values and calling the callback.
+                uniffi_runtime::UniffiCallFunc jsLambda = [
+                    callInvoker,
+                    callbackValue
+                    , rs_uniffiHandle
+                    , rs_uri
+                    , rs_uniffiFutureCallback
+                    , rs_uniffiCallbackData
+                    , rs_uniffiOutDroppedCallback](jsi::Runtime &rt) mutable {
+                    body(rt, callInvoker, callbackValue
+                        , rs_uniffiHandle
+                        , rs_uri
+                        , rs_uniffiFutureCallback
+                        , rs_uniffiCallbackData
+                        , rs_uniffiOutDroppedCallback);
+                };
+                // We'll then call that lambda from the callInvoker which will
+                // look after calling it on the correct thread.
+                callInvoker->invokeBlocking(rt, jsLambda);
+        };
+        return callback;
+    }
+
+    // This method is called from the destructor of NativeSwarmdropMobileCore, which only happens
+    // when the jsi::Runtime is being destroyed.
+    static void cleanup() {
+        // The lambda holds a reference to the the Runtime, so when this is nulled out,
+        // then the pointer will no longer be left dangling.
+        rsLambda = nullptr;
+    }
+} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess
 namespace uniffi::swarmdrop_mobile_core {
 using namespace facebook;
 using CallInvoker = uniffi_runtime::UniffiCallInvoker;
@@ -4125,6 +4290,9 @@ template <> struct Bridging<UniffiVTableCallbackInterfaceForeignFileAccess> {
         );
     rsObject.cleanup_sink = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod6::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
           rt, callInvoker, jsObject.getProperty(rt, "cleanup_sink")
+        );
+    rsObject.delete_finalized_file = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
+          rt, callInvoker, jsObject.getProperty(rt, "delete_finalized_file")
         );
 
     return rsObject;
@@ -5641,6 +5809,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_archive_inbox_item(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item"),
+        3,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record"),
@@ -5991,6 +6167,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
         2,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_clone_foreignkeychainprovider"] = jsi::Function::createFromHostFunction(
@@ -6585,6 +6769,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record"),
@@ -6889,6 +7081,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity"),
@@ -7131,6 +7331,7 @@ uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vt
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod4::vtablecallbackinterfaceforeignfileaccess::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod5::vtablecallbackinterfaceforeignfileaccess::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod6::vtablecallbackinterfaceforeignfileaccess::cleanup();
+uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceclone::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod0::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod1::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
@@ -7329,6 +7530,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_archive_inbox_item(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_archive_inbox_item(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging<int8_t>::fromJs(rt, callInvoker, args[2])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging<int8_t>::fromJs(rt, callInvoker, args[2])
         );
 
         
@@ -7678,6 +7886,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
         );
 
         
@@ -8253,6 +8468,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
         
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record(
         );
@@ -8514,6 +8736,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file(
         );
 
         

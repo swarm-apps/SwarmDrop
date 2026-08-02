@@ -722,44 +722,65 @@ self.store.upsert(record).await;
 **相关文件**：`crates/invite/src/store.rs`、`crates/storage-sql/src/invite.rs`、
 `crates/web/src/invite_store.rs`、`crates/migration/src/m20260730_000001_pair_invites.rs`
 
-## `FileAccess::cleanup_sink` 的契约没写「要删除部分产物」，默认实现是 no-op
+## 「删已落盘文件」曾是三份编排 + 一处绕过端口（2026-08 已收口）
 
-端口这一层还有一处**语义没写进契约**的缺口，与上面几个 store 端口是同一类问题，但至今没修：
+> **状态：已修（#111 的后续）。** 本节保留成因与形状，它是「端口比底层弱 → 宿主各写一份」
+> 这个模式最完整的一个案例：同一段逻辑漂到了三个语言、两个抽象层。
 
-`swarmdrop_host::FileAccess::cleanup_sink` 的 doc 只说「丢弃一条未最终化的 sink」，
-**默认实现是 no-op**。于是「要不要真把半成品从盘上删掉」全靠各端自己揣摩，三端的实际行为
-是散的：
+### 曾经的样子
 
-| 端 | 现状 |
+`FileAccess` 只有 `cleanup_sink`（丢弃**未最终化**的 sink），**没有**「删一个已落盘文件」。
+于是「删收件箱条目连带删文件」这段编排在三处各写一份，且**其中一份在 TypeScript 里**：
+
+| 端 | 编排在哪 | 怎么删 |
+|---|---|---|
+| 桌面 | `src-tauri/src/commands/inbox.rs` | 裸 `tokio::fs::remove_file`（绕过端口） |
+| Web | `crates/web/src/node.rs` | 直调 `opfs::remove_path` |
+| 移动 | `mobile/src/stores/inbox-store.ts` | `new File(localPath).delete()` |
+
+漂出的差异：移动端在 detail 取不到时**静默跳过**，另两端报「收件箱记录不存在」——
+而那恰恰是最不该静默的分支（拿不到 detail 就是不知道该删哪些文件，静默继续会让
+「删了记录、文件全留下」看起来像成功）。
+
+### 收口后的形状
+
+- **端口补一条 `delete_finalized_file(uri)`**，`uri` 是 `finalize_sink` 返回过的那个
+  （即落库的 `local_path`）。**刻意不给默认实现**——漏实现要在编译期红，而不是变成一条
+  静默泄漏。补上那天四个实现方（桌面 / Web / 移动 adapter / core 的 MemoryHost）全部编译
+  失败，正是想要的效果。
+- **编排提到 `swarmdrop_transfer::inbox::delete_inbox_item`**，吃 `&dyn InboxStore` +
+  `&dyn FileAccess`。三条不变量（先文件后记录 / 删文件失败不阻断 / 条目不存在报错）
+  此前只活在三份注释里，现在有 4 条单测钉着——假 store + 假 FileAccess，不需要真的
+  SQLite 或 OPFS。
+- **「哪个字段是删除键」留给实现方**。上层统一递 `local_path`，桌面拿到的是文件系统绝对
+  路径、移动是 `file://` 或 SAF URI、Web 是 `opfs:/` 前缀的键（实现里剥掉前缀）。
+  编排一行 `cfg` 都不需要——这正是端口该吸收的那种差异。
+- **桌面把 `FileAccess` 的构造提到 `setup.rs`**，`start()` 与收件箱命令取同一个 `Arc`。
+  此前它建在 `start()` 里，而收件箱命令**刻意不依赖节点启动**，够不着它。
+
+### `cleanup_sink` 那半：契约已写进 doc，三端都已实现
+
+原本 doc 只说「丢弃一条未最终化的 sink」、默认实现是 no-op，于是「要不要真把半成品从盘上
+删掉」全靠各端揣摩。现已写明「删掉部分产物是契约的一部分」。三端核对结果：
+
+| 端 | 实现 |
 |---|---|
-| 桌面 | 删。`file_source.rs` 的 `part_file.cleanup()`；但 7 天过期回收**绕开端口**直接 `tokio::fs::remove_file` |
-| Web | 删（2026-07-31，`web-cancel-and-invite-preview`）。`abort()` 放锁 → `opfs::remove_path` |
-| 移动端 | **未核实** |
+| 桌面 | `file_source.rs` 的 `part_file.cleanup()` |
+| Web | `abort()` 放锁 → `opfs::remove_path` |
+| 移动 | 转发 JS callback（**此前记作「未核实」，已确认接了**） |
 
-Web 那次补的顺序有两条必须照抄：**`abort()` 而不是 `close()`**（close 会把 staging 提交
+Web 那份的顺序有两条必须照抄：**`abort()` 而不是 `close()`**（close 会把 staging 提交
 上去，正好相反），**且必须 await 到 abort 完成再删**（`createWritable()` 持文件独占锁，
 只 drop 句柄要等 GC，锁没放 `remove_entry` 会撞 `NoModificationAllowedError`）。
 Web 比桌面更需要它，因为 Web **没有 `.part` 中间态**——写的就是最终路径，残件是个文件名
 正确、内容截断的东西。
 
-**留给后续端口层 change**：给 `FileAccess` 加一条显式的「丢弃部分产物」方法把语义写进契约，
-核实移动端，顺带把桌面那处绕行收编回来。在那之前，任何新写的 `FileAccess` 实现都要记得
-**默认实现帮不了你**——继承 no-op 的表现是「功能看起来正常，只是盘上慢慢堆残件」，
-没有任何测试会红。
+**仍欠着**：桌面 7 天过期回收那处**绕开端口**直接 `tokio::fs::remove_file`（`database.rs`），
+以及删掉 suspended 接收会话留下的 OPFS 孤儿残件。两者都该走
+`delete_finalized_file`，但它们的判据是「哪些文件真没写完」，与本次的「用户主动删条目」
+不是同一件事，留待单独收。
 
-**同一处还欠着「删收件箱条目连带删文件」的编排**（#111 只把入口补齐，没收口）。那段
-「取 detail → 逐文件删 → 软删记录」现在有**三份**：桌面 `src-tauri/src/commands/inbox.rs`、
-Web `crates/web/src/node.rs`、移动 `mobile/src/stores/inbox-store.ts`（TypeScript 那份）。
-已经漂出一处差异：移动端在 detail 取不到时**静默跳过**，另两端报「收件箱记录不存在」。
-收口的形状与上面那条相同——编排提到 `crates/transfer` 的自由函数，吃 `&dyn InboxStore` +
-`&dyn FileAccess`，两条负债一起还。
-
-⚠️ 收口时**删除键按端不同**这一点不能丢：Web 用 `relative_path`（OPFS 的键），
-桌面/移动用 `local_path`（真实文件系统路径），而 Web 的 `local_path` 是带 `opfs:/` 前缀的
-展示值，喂给 `remove_path` 会去找一个叫 `opfs:` 的目录。这条现已写进
-`InboxItemFileEntry` 两个字段各自的 doc——那是它该在的地方，别让宿主从别处推断。
-
-**相关文件**：`crates/host/src/ports.rs`（trait + 默认实现）、`crates/web/src/file_access.rs`、
+**相关文件**：`crates/host/src/ports.rs`（trait）、`crates/transfer/src/inbox.rs`（编排 + 不变量测试）、`crates/web/src/file_access.rs`、
 `crates/web/src/opfs.rs`、`src-tauri/src/host/file_source.rs`、`crates/transfer/src/inbox.rs`
 （`InboxItemFileEntry` 的路径字段 doc）
 
