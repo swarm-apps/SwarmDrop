@@ -53,8 +53,12 @@ pub async fn start(
         .map(|s| s.inner().clone())
         .ok_or_else(|| AppError::transfer("传输存储未初始化"))?;
 
-    let file_access: Arc<dyn FileAccess> =
-        Arc::new(crate::host::file_source::TauriFileAccess::new(app.clone()));
+    // 与收件箱命令自持的**是同一个 `Arc`**（组装点在 `setup.rs`），不是两个包装同一个
+    // AppHandle 的实例——`TauriFileAccess` 持有 `active_sinks`，两份实例意味着两张 sink 表。
+    let file_access: Arc<dyn FileAccess> = app
+        .try_state::<Arc<dyn FileAccess>>()
+        .map(|s| s.inner().clone())
+        .ok_or_else(|| AppError::transfer("文件访问端口未初始化"))?;
 
     let event_bus_for_factory = event_bus.clone();
     let file_access_for_factory = file_access.clone();

@@ -86,6 +86,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(uniffiSelf: bigint, sinkId: Uint8Array, offset: bigint, data: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(uniffiSelf: bigint, sinkId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(uniffiSelf: bigint, sinkId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file(uniffiSelf: bigint, uri: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_identity(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_identity(uniffiSelf: bigint, keypair: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_identity(uniffiSelf: bigint): bigint;
@@ -102,6 +103,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_clear_transfer_activity(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_consume_pair_invite(uniffiSelf: bigint, invite: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_decode_pair_invite(uniffiSelf: bigint, invite: Uint8Array, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item(uniffiSelf: bigint, itemId: Uint8Array, deleteLocalFiles: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record(uniffiSelf: bigint, itemId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_transfer_record(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_generate_pair_invite(uniffiSelf: bigint, localOnly: number): bigint;
@@ -149,6 +151,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_identity(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_delete_identity(): number;
@@ -165,6 +168,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_consume_pair_invite(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_decode_pair_invite(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_record(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_generate_pair_invite(): number;
@@ -249,6 +253,7 @@ export type UniffiForeignFutureCompletevoid = (callbackData: bigint, result: Uni
 type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod4 = (uniffiHandle: bigint, sinkId: Uint8Array, offset: bigint, data: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
 type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod5 = (uniffiHandle: bigint, sinkId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
 type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod6 = (uniffiHandle: bigint, sinkId: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
+type UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod7 = (uniffiHandle: bigint, uri: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
 type UniffiCallbackInterfaceCloneSwarmdropMobileCoreForeignFileAccess = (handle: bigint) => UniffiResult<void>;
 type UniffiCallbackInterfaceFreeSwarmdropMobileCoreForeignFileAccess = (handle: bigint) => void;
 export type UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignFileAccess = {
@@ -261,6 +266,7 @@ export type UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignFileAccess = 
   write_sink_chunk: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod4;
   finalize_sink: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod5;
   cleanup_sink: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod6;
+  delete_finalized_file: UniffiCallbackInterfaceSwarmdropMobileCoreForeignFileAccessMethod7;
 };
 type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod0 = (uniffiHandle: bigint, uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;
 type UniffiCallbackInterfaceSwarmdropMobileCoreForeignKeychainProviderMethod1 = (uniffiHandle: bigint, keypair: Uint8Array, uniffiFutureCallback: UniffiForeignFutureCompletevoid, uniffiCallbackData: bigint) => UniffiForeignFutureDroppedCallbackStruct;

@@ -195,6 +195,22 @@ impl FileAccess for OpfsFileAccess {
         }
         Ok(())
     }
+
+    /// 删除一个已最终化的文件。`uri` 是 [`finalize_sink`](Self::finalize_sink) 产出的
+    /// `opfs:/{relative_path}`，而 OPFS 的键是**不带前缀**的 `relative_path`——所以这里
+    /// 要剥掉它。
+    ///
+    /// **「哪个字段是删除键」由实现方回答，正是这条方法存在的理由。** 上层编排
+    /// （`swarmdrop_transfer::inbox::delete_inbox_item`）统一递 `local_path`，桌面拿到的是
+    /// 文件系统绝对路径、移动是 `file://` 或 SAF URI、这里是带前缀的 OPFS 键——三种解释
+    /// 各自留在各自的实现里，编排一行 `cfg` 都不需要。
+    ///
+    /// 兼容不带前缀的输入：老数据或调用方直接递 `relative_path` 时照样删得掉。
+    async fn delete_finalized_file(&self, uri: &str) -> AppResult<()> {
+        let key = uri.strip_prefix("opfs:/").unwrap_or(uri);
+        SendWrapper::new(remove_path(key)).await?;
+        Ok(())
+    }
 }
 
 impl OpfsFileAccess {

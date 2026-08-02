@@ -270,4 +270,18 @@ impl FileAccess for TauriFileAccess {
         }
         Ok(())
     }
+
+    /// 桌面的 `uri` 就是 [`finalize_sink`](Self::finalize_sink) 返回的**绝对路径**
+    /// （`.part` 重命名之后的那个），直接 `remove_file`。
+    ///
+    /// 文件已不存在按契约返回 `Ok`：删除幂等，而重试路径上「删两次」很常见。
+    /// 此前这段逻辑在 `commands/inbox.rs` 里裸写 `tokio::fs::remove_file` —— 那是绕过端口
+    /// 的第三份删除实现，现已收编到这里（编排在 `swarmdrop_transfer::inbox::delete_inbox_item`）。
+    async fn delete_finalized_file(&self, uri: &str) -> swarmdrop_core::AppResult<()> {
+        match tokio::fs::remove_file(uri).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
 }

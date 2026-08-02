@@ -177,6 +177,9 @@ mod tests {
         async fn source_metadata(&self, _source: &FileSourceId) -> AppResult<HostFileMetadata> {
             unreachable!("registry 测试不读文件")
         }
+        async fn delete_finalized_file(&self, _uri: &str) -> AppResult<()> {
+            unreachable!("registry 测试不删文件")
+        }
         async fn read_source_chunk(
             &self,
             _source: &FileSourceId,

@@ -4192,6 +4192,18 @@ export interface ForeignFileAccess {
  * 取消时清理临时文件
  */
     cleanupSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * 删除一个**已最终化**的文件。`uri` 是 [`Self::finalize_sink`] 返回过的那个
+ * （`file://` 或 SAF document URI），也就是落库到 `local_path` 的值。
+ *
+ * **文件已不存在不算错误**，按契约返回 `Ok`（删除幂等）。
+ *
+ * 这条此前不存在：删收件箱文件的编排整段写在 TS 侧（`inbox-store.ts` 的
+ * `deleteLocalFiles`），于是同一段「取 detail → 逐文件删 → 软删记录」三端各一份，
+ * 且这份在 detail 取不到时静默跳过、另两端报错。编排现已收进
+ * `swarmdrop_transfer::inbox::delete_inbox_item`，TS 侧只剩「哪个 URI 怎么删」这一层。
+ */
+    deleteFinalizedFile(uri: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 }
 
 
@@ -4436,6 +4448,44 @@ private constructor(pointer: UniffiHandle) {
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(
                     uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(sinkId, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 删除一个**已最终化**的文件。`uri` 是 [`Self::finalize_sink`] 返回过的那个
+ * （`file://` 或 SAF document URI），也就是落库到 `local_path` 的值。
+ *
+ * **文件已不存在不算错误**，按契约返回 `Ok`（删除幂等）。
+ *
+ * 这条此前不存在：删收件箱文件的编排整段写在 TS 侧（`inbox-store.ts` 的
+ * `deleteLocalFiles`），于是同一段「取 detail → 逐文件删 → 软删记录」三端各一份，
+ * 且这份在 detail 取不到时静默跳过、另两端报错。编排现已收进
+ * `swarmdrop_transfer::inbox::delete_inbox_item`，TS 侧只剩「哪个 URI 怎么删」这一层。
+ */
+    async deleteFinalizedFile(uri: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(uri, nativeModule().rustbuffer_alloc)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -4819,6 +4869,49 @@ const uniffiCallbackInterfaceForeignFileAccess: { vtable: any; register: () => v
                 const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
                 return await jsCallback.cleanupSink(
                     FfiConverterString.lift(sinkId), { signal }
+                )
+            };
+            const uniffiHandleSuccess = (returnValue: void) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        call_status: uniffiCaller.createCallStatus()
+                    }
+                );
+            };
+            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
+                uniffiFutureCallback.call(
+                    uniffiFutureCallback,
+                    uniffiCallbackData,
+                    /* UniffiForeignFutureResultVoid */{
+                        // TODO create callstatus with error.
+                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
+                    }
+                );
+            };
+            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                /*makeCall:*/ uniffiMakeCall,
+                /*handleSuccess:*/ uniffiHandleSuccess,
+                /*handleError:*/ uniffiHandleError,
+                /*isErrorType:*/ FfiError.instanceOf,
+                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
+                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
+                /*alloc:*/ nativeModule().rustbuffer_alloc,
+            );
+            return uniffiForeignFuture;
+        },
+        delete_finalized_file: (
+            uniffiHandle: bigint,
+            uri: Uint8Array,
+            uniffiFutureCallback: UniffiForeignFutureCompletevoid,
+            uniffiCallbackData: bigint) => {
+            const uniffiMakeCall = 
+            async (signal: AbortSignal)
+            : Promise<void> => {
+                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
+                return await jsCallback.deleteFinalizedFile(
+                    FfiConverterString.lift(uri), { signal }
                 )
             };
             const uniffiHandleSuccess = (returnValue: void) => {
@@ -5590,6 +5683,21 @@ export interface MobileCoreLike {
  * 解码并验签邀请串，返回对端展示信息（**不发起配对**）——扫码/粘贴后先看确认卡。
  */
     decodePairInvite(invite: string) /*throws*/: MobileInvitePreview;
+/**
+ * 删除收件箱条目；`delete_local_files` 为真时连已落盘的文件一起删。
+ *
+ * 编排（先文件后记录、删文件失败不阻断、条目不存在报错）住在
+ * [`swarmdrop_core::transfer::inbox::delete_inbox_item`]，三端共用。此前**这段编排在
+ * TS 里**（`inbox-store.ts` 的 `deleteLocalFiles` + 手写的顺序），于是同一段逻辑
+ * 三端各一份，且那份在 detail 取不到时静默跳过、另两端报错。
+ *
+ * 「`file://` / SAF URI 怎么删」那一层仍在 JS（`ForeignFileAccess::delete_finalized_file`）
+ * ——那才是真正的平台细节。
+ */
+    deleteInboxItem(itemId: string, deleteLocalFiles: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * **只删账本**，不碰文件。要连文件一起删走 [`Self::delete_inbox_item`]。
+ */
     deleteInboxItemRecord(itemId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     deleteTransferRecord(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
@@ -5991,6 +6099,47 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     ));
     }
     
+/**
+ * 删除收件箱条目；`delete_local_files` 为真时连已落盘的文件一起删。
+ *
+ * 编排（先文件后记录、删文件失败不阻断、条目不存在报错）住在
+ * [`swarmdrop_core::transfer::inbox::delete_inbox_item`]，三端共用。此前**这段编排在
+ * TS 里**（`inbox-store.ts` 的 `deleteLocalFiles` + 手写的顺序），于是同一段逻辑
+ * 三端各一份，且那份在 detail 取不到时静默跳过、另两端报错。
+ *
+ * 「`file://` / SAF URI 怎么删」那一层仍在 JS（`ForeignFileAccess::delete_finalized_file`）
+ * ——那才是真正的平台细节。
+ */
+    async deleteInboxItem(itemId: string, deleteLocalFiles: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(itemId, nativeModule().rustbuffer_alloc),FfiConverterBool.lower(deleteLocalFiles, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * **只删账本**，不碰文件。要连文件一起删走 [`Self::delete_inbox_item`]。
+ */
     async deleteInboxItemRecord(itemId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -7457,6 +7606,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink() !== 36565) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file() !== 63176) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity() !== 59813) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity");
     }
@@ -7505,7 +7657,10 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_decode_pair_invite() !== 46799) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_decode_pair_invite");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record() !== 43916) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item() !== 4191) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record() !== 27748) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_record() !== 8237) {

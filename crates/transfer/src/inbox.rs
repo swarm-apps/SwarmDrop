@@ -15,7 +15,9 @@
 
 use uuid::Uuid;
 
+use crate::host::FileAccess;
 use crate::store::TransferProjection;
+use crate::{AppError, AppResult};
 
 /// 收件箱列表条目 DTO。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -435,6 +437,49 @@ fn snippet_window(text: &str, needle_lower: &str) -> Option<String> {
     Some(out)
 }
 
+/// 删除一条收件箱条目：可选地连文件一起删，然后软删记录。**三端共用这一份编排。**
+///
+/// 此前它有三份（桌面 Tauri 命令、Web `WebNode`、移动端的 **TypeScript** store），
+/// 已经漂出一处可观测差异：移动端在 detail 取不到时静默跳过，另两端报错。
+/// 三份实现同一段「取 detail → 逐文件删 → 软删记录」，而这段里的每一条决定
+/// （顺序、失败处理、幂等）都是**领域规则**，不是平台细节——平台细节只有
+/// [`FileAccess::delete_finalized_file`] 对 uri 的解释那一层。
+///
+/// 三条钉死的规则：
+///
+/// 1. **先删文件，再删记录。** 反过来的话删文件失败时记录已经没了，那份副本就再也
+///    定位不到——软删项对 `list`/`search`/`detail` 一律不可见。
+/// 2. **删文件失败不阻断删记录**，只记 warn。宿主可能根本不给「保留文件」这个选项
+///    （Web 就不给：OPFS 副本用户无从访问，留着只是泄漏配额），那时在这里返回错误
+///    就意味着用户再没有任何办法删掉这条记录。代价是那份文件成孤儿——与「删掉
+///    suspended 接收会话留下的残件」是同一个已知负债，将来一并按「哪些文件真没写完」收口。
+/// 3. **条目不存在则报错，不静默成功。** 只在 `delete_local_files` 时才需要 detail，
+///    但那恰恰是最不该静默的分支：拿不到 detail 就等于不知道该删哪些文件，
+///    静默继续会让「删了记录、文件全留下」看起来像成功。
+pub async fn delete_inbox_item(
+    store: &dyn crate::store::InboxStore,
+    files: &dyn FileAccess,
+    item_id: Uuid,
+    delete_local_files: bool,
+) -> AppResult<()> {
+    if delete_local_files {
+        let detail = store
+            .get_inbox_item_detail(item_id)
+            .await?
+            .ok_or_else(|| AppError::Transfer("收件箱记录不存在".into()))?;
+        for file in &detail.files {
+            if let Err(e) = files.delete_finalized_file(&file.local_path).await {
+                tracing::warn!(
+                    path = %file.local_path,
+                    error = %e,
+                    "删除收件箱文件失败，记录仍会删除（该文件将成为孤儿）"
+                );
+            }
+        }
+    }
+    store.delete_inbox_item_record(item_id).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,6 +498,214 @@ mod tests {
             name: name.to_string(),
             relative_path: relative_path.to_string(),
         }
+    }
+
+    // ── delete_inbox_item 的编排测试 ────────────────────────────────────────
+    //
+    // 三条不变量此前只活在三份实现各自的注释里，没有任何测试钉着。收进领域层之后它们
+    // 变成可测的纯逻辑：假 store + 假 FileAccess，不需要真的 SQLite 或 OPFS。
+
+    use std::sync::Mutex;
+
+    /// 记录调用顺序的假件。`log` 同时被 store 与 file access 写，用来断言「先文件后记录」。
+    #[derive(Default)]
+    struct DeleteSpy {
+        log: Mutex<Vec<String>>,
+        detail: Mutex<Option<InboxItemDetail>>,
+        /// 让 `delete_finalized_file` 失败，验证「不阻断删记录」。
+        fail_file_delete: bool,
+    }
+
+    impl DeleteSpy {
+        fn with_files(paths: &[&str]) -> Self {
+            let files = paths
+                .iter()
+                .enumerate()
+                .map(|(i, p)| InboxItemFileEntry {
+                    id: i as i32,
+                    transfer_file_id: None,
+                    relative_path: p.to_string(),
+                    name: p.to_string(),
+                    size: 1,
+                    checksum: String::new(),
+                    local_path: format!("/store/{p}"),
+                    missing: false,
+                })
+                .collect();
+            let spy = Self::default();
+            *spy.detail.lock().unwrap() = Some(InboxItemDetail {
+                item: summary_stub(),
+                files,
+                transfer: None,
+            });
+            spy
+        }
+
+        fn calls(&self) -> Vec<String> {
+            self.log.lock().unwrap().clone()
+        }
+    }
+
+    fn summary_stub() -> InboxItemSummary {
+        InboxItemSummary {
+            id: Uuid::nil(),
+            transfer_session_id: None,
+            source_peer_id: String::new(),
+            source_name: String::new(),
+            source_kind: entity::InboxSourceKind::PairedDevice,
+            content_kind: entity::InboxContentKind::Files,
+            title: String::new(),
+            item_count: 0,
+            total_size: 0,
+            root_path: None,
+            content_hash: None,
+            received_at: 0,
+            last_opened_at: None,
+            archived_at: None,
+            deleted_at: None,
+            missing: false,
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FileAccess for DeleteSpy {
+        async fn source_metadata(
+            &self,
+            _s: &crate::host::FileSourceId,
+        ) -> AppResult<crate::host::HostFileMetadata> {
+            unimplemented!("编排不碰它")
+        }
+        async fn read_source_chunk(
+            &self,
+            _s: &crate::host::FileSourceId,
+            _o: u64,
+            _l: usize,
+        ) -> AppResult<Vec<u8>> {
+            unimplemented!("编排不碰它")
+        }
+        async fn create_sink(
+            &self,
+            _m: crate::host::HostFileMetadata,
+        ) -> AppResult<crate::host::FileSinkId> {
+            unimplemented!("编排不碰它")
+        }
+        async fn write_sink_chunk(
+            &self,
+            _s: &crate::host::FileSinkId,
+            _o: u64,
+            _d: Vec<u8>,
+        ) -> AppResult<()> {
+            unimplemented!("编排不碰它")
+        }
+        async fn finalize_sink(
+            &self,
+            _s: &crate::host::FileSinkId,
+        ) -> AppResult<crate::host::FinalizedSink> {
+            unimplemented!("编排不碰它")
+        }
+        async fn delete_finalized_file(&self, uri: &str) -> AppResult<()> {
+            self.log.lock().unwrap().push(format!("file:{uri}"));
+            if self.fail_file_delete {
+                return Err(AppError::Transfer("模拟删除失败".into()));
+            }
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::store::InboxStore for DeleteSpy {
+        async fn ensure_inbox_item_for_completed_receive_session(
+            &self,
+            _s: Uuid,
+        ) -> AppResult<Option<InboxItemDetail>> {
+            unimplemented!("编排不碰它")
+        }
+        async fn repair_missing_inbox_items_for_completed_receives(
+            &self,
+        ) -> AppResult<Vec<InboxItemDetail>> {
+            unimplemented!("编排不碰它")
+        }
+        async fn list_inbox_items(&self, _a: bool) -> AppResult<Vec<InboxItemSummary>> {
+            unimplemented!("编排不碰它")
+        }
+        async fn search_inbox(
+            &self,
+            _q: &str,
+            _l: usize,
+            _a: bool,
+        ) -> AppResult<Vec<InboxSearchHit>> {
+            unimplemented!("编排不碰它")
+        }
+        async fn get_inbox_item_detail(&self, _id: Uuid) -> AppResult<Option<InboxItemDetail>> {
+            Ok(self.detail.lock().unwrap().clone())
+        }
+        async fn get_inbox_item_by_transfer_session_id(
+            &self,
+            _s: Uuid,
+        ) -> AppResult<Option<InboxItemDetail>> {
+            unimplemented!("编排不碰它")
+        }
+        async fn mark_inbox_item_opened(&self, _id: Uuid) -> AppResult<()> {
+            unimplemented!("编排不碰它")
+        }
+        async fn archive_inbox_item(&self, _id: Uuid, _a: bool) -> AppResult<()> {
+            unimplemented!("编排不碰它")
+        }
+        async fn delete_inbox_item_record(&self, _id: Uuid) -> AppResult<()> {
+            self.log.lock().unwrap().push("record".to_string());
+            Ok(())
+        }
+        async fn mark_inbox_item_file_missing(&self, _i: Uuid, _f: i32, _m: bool) -> AppResult<()> {
+            unimplemented!("编排不碰它")
+        }
+    }
+
+    /// 不变量 1：先删文件、再删记录。顺序反了删文件失败就再也定位不到那份副本。
+    #[tokio::test]
+    async fn delete_removes_files_before_record() {
+        let spy = DeleteSpy::with_files(&["a.bin", "b.bin"]);
+        delete_inbox_item(&spy, &spy, Uuid::nil(), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            spy.calls(),
+            vec!["file:/store/a.bin", "file:/store/b.bin", "record"],
+            "文件必须全部先删，记录最后删"
+        );
+    }
+
+    /// 不变量 2：删文件失败**不阻断**删记录——宿主可能根本不给「保留文件」选项，
+    /// 在这里返回错误就意味着用户再也删不掉这条记录。
+    #[tokio::test]
+    async fn delete_keeps_removing_record_when_file_delete_fails() {
+        let mut spy = DeleteSpy::with_files(&["a.bin"]);
+        spy.fail_file_delete = true;
+        delete_inbox_item(&spy, &spy, Uuid::nil(), true)
+            .await
+            .expect("删文件失败不该让整个操作失败");
+        assert_eq!(spy.calls(), vec!["file:/store/a.bin", "record"]);
+    }
+
+    /// 不变量 3：`delete_local_files = false` 时**一个文件都不碰**，只删账本。
+    #[tokio::test]
+    async fn delete_record_only_never_touches_files() {
+        let spy = DeleteSpy::with_files(&["a.bin"]);
+        delete_inbox_item(&spy, &spy, Uuid::nil(), false)
+            .await
+            .unwrap();
+        assert_eq!(spy.calls(), vec!["record"], "不该读 detail，也不该删文件");
+    }
+
+    /// 条目不存在 → 报错而不是静默成功。拿不到 detail 就等于不知道该删哪些文件，
+    /// 静默继续会让「删了记录、文件全留下」看起来像成功。
+    #[tokio::test]
+    async fn delete_errors_when_item_missing() {
+        let spy = DeleteSpy::default();
+        let err = delete_inbox_item(&spy, &spy, Uuid::nil(), true)
+            .await
+            .expect_err("条目不存在应报错");
+        assert!(err.to_string().contains("收件箱记录不存在"));
+        assert!(spy.calls().is_empty(), "报错时不该删任何东西");
     }
 
     #[test]

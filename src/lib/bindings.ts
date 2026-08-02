@@ -52,6 +52,18 @@ export const commands = {
 	showInboxItemInFolder: (itemId: string, fileId: number | null) => __TAURI_INVOKE<null>("show_inbox_item_in_folder", { itemId, fileId }),
 	exportInboxItem: (itemId: string, destinationDir: string) => __TAURI_INVOKE<null>("export_inbox_item", { itemId, destinationDir }),
 	archiveInboxItem: (itemId: string, archived: boolean) => __TAURI_INVOKE<null>("archive_inbox_item", { itemId, archived }),
+	/**
+	 *  删除收件箱条目；`delete_local_files` 为真时连已落盘的文件一起删。
+	 * 
+	 *  编排（先文件后记录、删文件失败不阻断、条目不存在报错）是**三端共用的领域规则**，
+	 *  住在 [`swarmdrop_transfer::inbox::delete_inbox_item`]。此前这里裸写
+	 *  `tokio::fs::remove_file` —— 那是绕过 `FileAccess` 端口的第三份删除实现，
+	 *  现已收编到 `TauriFileAccess::delete_finalized_file`。
+	 * 
+	 *  `FileAccess` 从 state 取而不是现建一个：与 `start()` 注入给 `TransferManager` 的
+	 *  **是同一个 `Arc`**（组装点在 `setup.rs`）。收件箱命令刻意不经 `TransferManager`
+	 *  ——它是与网络无关的内容账本，绑到节点生命周期上会变成「没联网就翻不了已收到的东西」。
+	 */
 	deleteInboxItem: (itemId: string, deleteLocalFiles: boolean) => __TAURI_INVOKE<null>("delete_inbox_item", { itemId, deleteLocalFiles }),
 	/**  从系统 keychain 初始化设备身份，不再要求用户输入 Stronghold 密码。 */
 	initializeIdentity: () => __TAURI_INVOKE<IdentityState>("initialize_identity"),
@@ -443,10 +455,18 @@ export type InboxItemDetail = {
 export type InboxItemFileEntry = {
 	id: number,
 	transferFileId: number | null,
+	/**  条目根之下的相对路径。**Web 宿主删文件用这个**——OPFS 的键就是它。 */
 	relativePath: string,
 	name: string,
 	size: number,
 	checksum: string,
+	/**
+	 *  宿主可直接操作的完整路径。**桌面 / 移动删文件用这个**（那边是真实文件系统路径）；
+	 *  **Web 上它是带 `opfs:/` 前缀的展示值，喂给 `remove_path` 会去找一个叫 `opfs:` 的目录**。
+	 * 
+	 *  两个路径字段并存且「该用哪个」按端不同，是这个 DTO 最容易踩空的地方——所以写在这里，
+	 *  而不是让每个宿主自己从别处推断。
+	 */
 	localPath: string,
 	missing: boolean,
 };

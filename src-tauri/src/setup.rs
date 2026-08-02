@@ -269,6 +269,16 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
         app.manage(transfer_store);
         app.manage(db);
 
+        // 文件访问端口：**组装点建一次**，`start()` 注入给 TransferManager 的与收件箱命令
+        // 自持的是同一个 `Arc`（与上面 transfer_store 同一条纪律）。
+        //
+        // 建在这里而不是 `start()` 里，是因为收件箱命令**刻意不依赖节点启动**——它是与网络
+        // 无关的内容账本。`TauriFileAccess::new` 只需要 AppHandle，setup 阶段就已具备。
+        let file_access: Arc<dyn swarmdrop_core::host::FileAccess> = Arc::new(
+            crate::host::file_source::TauriFileAccess::new(app.handle().clone()),
+        );
+        app.manage(file_access);
+
         // MCP server 状态容器
         app.manage(crate::mcp::server::McpServerState::default());
 

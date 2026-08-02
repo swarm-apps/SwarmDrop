@@ -1,4 +1,3 @@
-import { File } from "expo-file-system";
 import type {
   MobileInboxFileEntry,
   MobileInboxItemDetail,
@@ -264,16 +263,14 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
       lastError: null,
     });
     try {
-      if (options.deleteLocalFiles) {
-        const detail =
-          get().selectedDetail?.item.id === itemId
-            ? get().selectedDetail
-            : await getMobileCore().getInboxItem(itemId);
-        if (detail) {
-          await deleteLocalFiles(detail.files);
-        }
-      }
-      await getMobileCore().deleteInboxItemRecord(itemId);
+      // 编排（先文件后记录、删文件失败不阻断、条目不存在报错）在 core 的
+      // `inbox::delete_inbox_item`，三端共用。此前这里自己编排：取 detail → 逐文件
+      // 按 localPath 逐个删文件 → 删记录，与桌面/Web 各写一份，且 detail 取不到时
+      // 这份静默跳过、另两端报错。现在只递意图，「URI 怎么删」留在 foreign-file-access。
+      await getMobileCore().deleteInboxItem(
+        itemId,
+        options.deleteLocalFiles ?? false,
+      );
       set((state) => ({
         items: state.items.filter((item) => item.id !== itemId),
         selectedDetail:
@@ -333,20 +330,3 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
     });
   },
 }));
-
-async function deleteLocalFiles(files: MobileInboxFileEntry[]): Promise<void> {
-  const failures: string[] = [];
-  for (const entry of files) {
-    try {
-      const file = new File(entry.localPath);
-      if (file.exists) {
-        file.delete();
-      }
-    } catch (err) {
-      failures.push(`${entry.name}: ${errorMessage(err)}`);
-    }
-  }
-  if (failures.length > 0) {
-    throw new Error(failures.join("\n"));
-  }
-}

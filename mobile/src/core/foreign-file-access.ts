@@ -193,6 +193,25 @@ export class ExpoFileAccess implements ForeignFileAccess {
     });
   }
 
+  /**
+   * 删除一个**已最终化**的文件。`uri` 是 finalizeSink 返回过的那个（file:// 或 SAF
+   * document URI），也就是落库到 localPath 的值。
+   *
+   * **文件已不存在不算错误**——删除幂等，重试路径上「删两次」很常见。
+   *
+   * 这里只回答「这个 URI 怎么删」这一层平台细节；「先删文件再删记录、失败不阻断」那套
+   * 编排在 core 的 `inbox::delete_inbox_item`，三端共用。此前编排整段写在
+   * `inbox-store.ts` 里，于是同一段逻辑三端各一份。
+   */
+  deleteFinalizedFile(uri: string): Promise<void> {
+    return wrapFfi("delete inbox file", () => {
+      const file = new File(uri);
+      if (file.exists) {
+        file.delete();
+      }
+    });
+  }
+
   private openSink(metadata: MobileFileMetadata, truncate: boolean): string {
     const baseUri = saveLocationUri(metadata.saveDir);
     const saf = isSafUri(baseUri);

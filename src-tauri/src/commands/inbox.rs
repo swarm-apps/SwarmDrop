@@ -6,7 +6,9 @@
 //! 平台动作**留在命令里**，端口只认「查询 + 标记」。
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use swarmdrop_core::host::FileAccess;
 use swarmdrop_core::transfer::inbox::{InboxItemDetail, InboxItemSummary, InboxSearchHit};
 use tauri::State;
 use uuid::Uuid;
@@ -138,28 +140,31 @@ pub async fn archive_inbox_item(
     Ok(store.archive_inbox_item(item_id, archived).await?)
 }
 
+/// 删除收件箱条目；`delete_local_files` 为真时连已落盘的文件一起删。
+///
+/// 编排（先文件后记录、删文件失败不阻断、条目不存在报错）是**三端共用的领域规则**，
+/// 住在 [`swarmdrop_transfer::inbox::delete_inbox_item`]。此前这里裸写
+/// `tokio::fs::remove_file` —— 那是绕过 `FileAccess` 端口的第三份删除实现，
+/// 现已收编到 `TauriFileAccess::delete_finalized_file`。
+///
+/// `FileAccess` 从 state 取而不是现建一个：与 `start()` 注入给 `TransferManager` 的
+/// **是同一个 `Arc`**（组装点在 `setup.rs`）。收件箱命令刻意不经 `TransferManager`
+/// ——它是与网络无关的内容账本，绑到节点生命周期上会变成「没联网就翻不了已收到的东西」。
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_inbox_item(
     store: State<'_, TransferStoreState>,
+    file_access: State<'_, Arc<dyn FileAccess>>,
     item_id: Uuid,
     delete_local_files: bool,
 ) -> crate::AppResult<()> {
-    let detail = load_inbox_detail(&store, item_id).await?;
-    if delete_local_files {
-        for file in &detail.files {
-            let path = PathBuf::from(&file.local_path);
-            // 文件已经不在了不是错误。**不再顺手标 missing**：紧接着这条记录就要被软删，
-            // 而软删项对 list / search / detail 一律不可见——那个标志没有任何读取者。
-            // 代价却是每个文件都要把整条条目的文件行拉一遍再 update（N 个文件 = O(N²) 行读）。
-            if let Err(e) = tokio::fs::remove_file(&path).await
-                && e.kind() != std::io::ErrorKind::NotFound
-            {
-                return Err(e.into());
-            }
-        }
-    }
-    Ok(store.delete_inbox_item_record(item_id).await?)
+    Ok(swarmdrop_core::transfer::inbox::delete_inbox_item(
+        store.inner().as_ref(),
+        file_access.inner().as_ref(),
+        item_id,
+        delete_local_files,
+    )
+    .await?)
 }
 
 async fn load_inbox_detail(
