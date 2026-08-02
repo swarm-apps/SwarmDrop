@@ -5,6 +5,11 @@
 // 不用 window.confirm——它阻塞整页，而这里要拦的只是一次手滑。三处调用点（清空传输历史 /
 // 取消传输 / 删除记录）此前各写一份 `useState(false)` 加同构的三段 JSX，只有图标、文案与
 // 回调不同；confirming 收在这里之后，调用方连「有没有确认态」都不必知道。
+//
+// **应用区有第二个确认原语，那是刻意的**（#109 的结论）：`device-list.tsx` 的「取消配对」
+// 失败后要留在确认态，而本组件的核心设计是「点确认的同一拍就复位、不等异步结果」——两者在
+// 同一个轴上取相反的值，合并需要本组件同时管 error 的渲染位置，与现有三个调用点的布局冲突。
+// 完整推导写在 `device-list.tsx` 的文件头注释里，别再纠结第二遍。
 
 import type { LucideIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -31,13 +36,22 @@ export type ConfirmActionOptions = {
   layout?: "inline" | "banner";
 };
 
+/**
+ * 列表项动作行里那些**不需要确认**的按钮（续传 / 归档 / 跳转链接）的皮肤。
+ *
+ * 与 `SKIN.inline.trigger` 是同一串，导出它是为了让同一行里「要确认的」与「不要确认的」
+ * 长得一样——此前那串 class 在仓库里被手抄了 4 份，`SKIN` 改一次要靠人肉找齐。
+ * `disabled:opacity-50` 留在这里，`<Link>` 这类没有 disabled 态的用它也无害。
+ */
+export const INLINE_ACTION_CLASS =
+  "inline-flex items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50";
+
 // 两套皮肤，差异都是既有的、用户看得见的，不是可以顺手抹平的：
 // - `banner` 用在面板层，自带 `text-xs`（外层没有），并与面板内其它按钮一样带 `cursor-pointer`；
 // - `inline` 用在列表项动作行，父级已是 `text-xs`，且同行的「续传」按钮也不带 `cursor-pointer`。
 const SKIN = {
   inline: {
-    trigger:
-      "inline-flex items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50",
+    trigger: INLINE_ACTION_CLASS,
     confirm:
       "inline-flex items-center gap-1.5 rounded-lg border border-red-500/40 px-2.5 py-1 font-medium text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400",
     back: "rounded-lg px-2 py-1 text-fd-muted-foreground hover:text-fd-foreground",

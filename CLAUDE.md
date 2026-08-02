@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、Vite/Tauri 端口、Lingui 实际 locale、版本号三处同步
 - [`dev-notes/knowledge/net-kernel.md`](dev-notes/knowledge/net-kernel.md) — 网络内核 swarmdrop-net（2026-07 重构产物）：架构速览与事件双轨制、libp2p git pin 校准坑、wasm 工程约定、wire v2 契约点、已知负债。**碰 crates/net、crates/net-base、协议注册、relay、DHT、升级 libp2p rev 时必读**
 - [`dev-notes/knowledge/libp2p-wasm.md`](dev-notes/knowledge/libp2p-wasm.md) — Web 端（wasm）可行性调研（2026-07）。**结论已落地**：`crates/web` + `docs/app/app` 是其产物
-- [`dev-notes/knowledge/web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md) — Web 应用区**表现层**（`docs/app/app`）：运行时单例只挂 layout、静态导出三限制（无 redirect / 无动态段 / useSearchParams 要 Suspense）、basePath 与 next/link、自研 store 的 selector 约束。**碰 Web 端 React 代码时必读**
+- [`dev-notes/knowledge/web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md) — Web 应用区**表现层**（`docs/app/app`）：运行时单例只挂 layout、静态导出三限制（无 redirect / 无动态段 / useSearchParams 要 Suspense）、basePath 与 next/link、zustand store 的 selector 与 `setState` 约束。**碰 Web 端 React 代码时必读**
 - [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`，Web 端是 IndexedDB 写穿的 `WebTransferStore`（`crates/web/src/store.rs` + `inbox.rs`）。另含端口体例：`SessionStore` / `InboxStore` 均已补全、收件箱领域规则住 `crates/transfer/src/inbox.rs` 由各存储实现调用、组装点建一次端口 `Arc` 注入与自持同一份
 - [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估（2026-07 调研）。**已决策：不迁移**，但 iroh 的 API 形态被 `crates/net` 借鉴。碰 P2P 选型或有人提「迁 iroh」时先读
 
@@ -52,7 +52,8 @@ pnpm tauri build        # Full app
 # 前端单测（vitest）
 pnpm test
 
-# Zustand store 访问模式检查（防 selector 派生数组导致的无限重渲染）
+# Zustand 两条规则：A 禁止绕过 selector 直接 getState/setState（仅 src/）；
+# B 禁止 selector 里派生新数组/对象（src/ 与 docs/app/app 都扫）
 pnpm check:zustand-access
 
 # Rust（在仓库根目录跑，workspace 一并覆盖）
@@ -205,8 +206,9 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 | `inbox-store` | 收件箱列表与搜索 | 运行时 |
 | `share-store` | 待发送文件选择（含 share-target 注入） | 运行时 |
 
-**Zustand 访问约束**：selector 里禁止派生新数组/对象（会无限重渲染）。
-`pnpm check:zustand-access` 是机器兜底，细节见 `dev-notes/knowledge/theme-and-styling.md`。
+**Zustand 访问约束**：selector 里禁止派生新数组/对象（会无限重渲染），除非包 `useShallow`。
+`pnpm check:zustand-access` 是机器兜底（两条规则，覆盖 `src/` 与 `docs/app/app`），
+细节见 `dev-notes/knowledge/theme-and-styling.md` 与 `zustand-store-usage.md`。
 
 **Responsive Design** — 桌面端**没有侧边栏，也没有底部导航**：全局导航是 `AppTopBar`
 的顶栏 + 面包屑（`src/components/layout/app-topbar.tsx`），导航深度靠面包屑表达。
@@ -338,9 +340,11 @@ wasm 是 CI 一等公民：`./scripts/check-wasm.sh` 在 PR 阶段拦截破坏�
    预生成不出来，故传输详情用 query param）；内部导航必须走 `next/link`（手写 `<a href>`
    不加 basePath，GitHub Pages 子路径下全 404）；`useSearchParams()` 必须套 `<Suspense>`，
    否则 `next build` 报 CSR bailout。
-3. **`_lib/create-store.ts` 是自研 store 不是 zustand**，同样有「selector 里派生新数组/对象
-   → 无限重渲染」的陷阱，而 `pnpm check:zustand-access` **只扫仓库根 `src/`，不覆盖 docs/**。
-   这块没有机器兜底，selector 一律只返回原始值或 store 内的稳定引用。
+3. **`_lib/store.ts` 用 zustand**（2026-08 从自研 `create-store.ts` 迁入，调用面几乎没动）。
+   selector 一律只返回原始值或 store 内的稳定引用，派生放 `useMemo`；
+   `pnpm check:zustand-access` 的规则 B 覆盖这里。另有一条 zustand 特有的约定：
+   **「内容没变」要 `return s` 而不是 `return {}`**——后者是新对象，`Object.is` 判不等，
+   照样广播一轮。
 
 ### Mobile (`mobile/`)
 

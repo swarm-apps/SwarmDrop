@@ -11,12 +11,10 @@
 import { useState } from "react";
 import { renameDevice } from "../_lib/node-runtime";
 import { IDENTITY_LOCATION, useWebNode, webNodeActions } from "../_lib/store";
+import { DEVICE_NAME_MAX_CHARS } from "../_lib/device-name";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { NodeStatusPill } from "./node-status-pill";
 import { WebErrorCard } from "./web-error-view";
-
-/** 与内核 `DeviceName::parse` 的截断上限一致（三端 UI 统一 40），这里只是提前拦一道。 */
-const DEVICE_NAME_MAX = 40;
 
 export function NodePanel() {
   const nodeId = useWebNode((s) => s.nodeId);
@@ -67,7 +65,7 @@ export function NodePanel() {
                 <input
                   className="w-full rounded-lg border border-fd-border bg-fd-background px-3 py-2 text-sm text-fd-foreground placeholder:text-fd-muted-foreground"
                   value={draft}
-                  maxLength={DEVICE_NAME_MAX}
+                  maxLength={DEVICE_NAME_MAX_CHARS}
                   placeholder={deviceNameFallback ?? ""}
                   onChange={(e) => setDraft(e.target.value)}
                   disabled={saveAction.pending}

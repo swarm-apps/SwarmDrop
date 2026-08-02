@@ -28,5 +28,18 @@ export function useAsyncAction() {
     );
   }
 
-  return { pending, error, run };
+  /**
+   * 作废在途结果并清空 pending / error。
+   *
+   * `run` 的 seq 只覆盖「新一轮顶掉旧一轮」，**不覆盖「转入无动作态」**——调用方若在不发起
+   * 新调用的情况下退出（检索框被清空、面板收起），旧 promise resolve 时 `mySeq` 仍等于
+   * `seq.current`，会把过期结果写回一个已经不该显示它的界面。那条路径必须显式作废。
+   */
+  function cancel() {
+    seq.current++;
+    setPending(false);
+    setError(null);
+  }
+
+  return { pending, error, run, cancel };
 }

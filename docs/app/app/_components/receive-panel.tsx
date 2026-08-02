@@ -15,14 +15,30 @@
 // #96 拆成两块并挂到 /app/inbox：待处理请求是**决策**（有时效），收件箱是**结果**（可回看）。
 // 两者混在一个卡里时，一条永久列表会把一条限时动作压下去。多路由后请求的可见性由导航徽标
 // 兜底（见 app-nav.tsx），用户不在收件箱页也知道有东西等着。
+//
+// #108 收件箱从「只能滚的列表」补成可用：检索 / 已读 / 归档 / 删除四件事各自接上内核既有的
+// 导出。此前那五个方法是完整实现却零调用方——能力在内核里，UI 上不存在。
 
-import { useEffect, useState } from "react";
+import { Archive, ArchiveRestore, Search, Trash2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
+import { PanelFallback } from "./panel-fallback";
+import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import { formatFileSize } from "../_lib/format";
+import { PARAM } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
+import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
-import { toWebError, type InboxItemDetail, type InboxItemFileEntry, type WebError } from "../_lib/view-types";
+import {
+  toWebError,
+  type InboxItemDetail,
+  type InboxItemFileEntry,
+  type InboxSearchHit,
+  type WebError,
+} from "../_lib/view-types";
 
 /**
  * blob URL 的存活窗口。
@@ -34,6 +50,19 @@ import { toWebError, type InboxItemDetail, type InboxItemFileEntry, type WebErro
  * 会让大文件下载中途失败。
  */
 const BLOB_URL_TTL_MS = 30_000;
+
+/**
+ * 检索结果上限。收件箱是浏览器内存表，50 条远超「找一样东西」需要过目的量。
+ *
+ * ⚠️ 三端目前三个值：桌面 20（`inbox.rs` 的 `limit.unwrap_or(20)`）、移动 100、这里 50，
+ * 而截断掉的永远是**最早收到**的那批（内核按 `receivedAt` 倒序后截断）。于是同一批数据、
+ * 同一个词，老条目在桌面上搜不到、在这里搜得到。该提为 `crates/transfer` 的共享常量，
+ * 与 `INBOX_MATCH_CASES` 同一个落点——见 #111。
+ */
+const SEARCH_LIMIT = 50;
+
+/** 检索防抖。与桌面端 `_app/inbox` 的 250ms 对齐——同一个动作在两端手感不该不同。 */
+const SEARCH_DEBOUNCE_MS = 250;
 
 export function IncomingOffersPanel() {
   const offers = useWebNode((s) => s.offers);
@@ -110,36 +139,102 @@ export function IncomingOffersPanel() {
   );
 }
 
+/** 一行收件箱：完整条目 + 检索态下 Rust 侧切出的命中片段。 */
+type InboxRow = {
+  item: InboxItemDetail;
+  snippet: string | null;
+};
+
 /**
- * 收件箱真表的拉取。
+ * 这条 snippet 是否只是把本行已经显示过的话再说一遍。
  *
- * `inbox_items()` 直接给出 `InboxItemDetail[]`（文件行与传输投影都在同一把锁下批量补好），
- * 一次调用就够——本面板要逐文件下载，正好吃这份完整结构。
+ * `inbox_snippet` 的候选顺序是 标题 → 来源名 → 文件文本，且一个都不命中时**回退整个标题**。
+ * 于是命中前两者（很常见）时切出来的窗口就是标题或来源名的一段，而这一行上面正好写着
+ * 「{title}」与「来自 {sourceName}」——照原样渲染就是同一句话说两遍。
  *
- * 拉取入口刻意留在本组件内，**不下放到 `WebNodeBootstrap`**——那里是运行时单例的位置
- * （spawn 节点、接事件流），不是数据拉取的位置；收件箱只有这一页要看。
+ * 判据用「去掉省略号后是子串」而不是全等：命中位置离两端超过窗口半径（16 字符）时，
+ * `snippet_window` 会切成 `…xxx…`，全等判据在长标题上直接失效，而长文件名很常见。
+ *
+ * ⚠️ 这里编码的是**内核的退化行为**，没有测试守着它。根治该在 `inbox_snippet` 里做——
+ * 退化成原样重复时返回 `None`、`InboxSearchHit.snippet` 改 `Option<String>`，三端就都不必
+ * 各自判一遍（目前桌面无条件渲染重复行、移动端判真、这里判子串，同一件事三种处理）。
  */
-async function fetchInboxItems(): Promise<InboxItemDetail[]> {
-  const node = getNode();
-  if (!node) return [];
-  return node.inbox_items(false);
+function redundantSnippet(snippet: string, item: InboxItemDetail): boolean {
+  const core = snippet.replaceAll("…", "");
+  if (!core) return true;
+  return item.title.includes(core) || item.sourceName.includes(core);
 }
 
+/** 一个条目级动作的全部对外状态。与 transfer-activity-panel 的 `ItemAction` 同形。 */
+type ItemAction = {
+  pending: boolean;
+  error: WebError | undefined;
+  run: () => void;
+};
+
+/** 读 `?item=` / `?archived=`（传输页反查过来的定位），故需要 Suspense 边界——静态导出下没有它 build 会红。 */
 export function InboxPanel() {
+  return (
+    <Suspense fallback={<PanelFallback>正在打开收件箱…</PanelFallback>}>
+      <InboxPanelInner />
+    </Suspense>
+  );
+}
+
+function InboxPanelInner() {
   const items = useWebNode((s) => s.inboxItems);
   const status = useWebNode((s) => s.status);
   const inboxRevision = useWebNode((s) => s.inboxRevision);
-  const [loadError, setLoadError] = useState<WebError | null>(null);
-  const downloadAction = useKeyedAsyncAction();
+  const searchParams = useSearchParams();
+  const focusedId = searchParams.get(PARAM.item);
 
-  // 挂载时（节点就绪后）拉一次 + 每次「接收方向的传输完成」重拉一次。收件箱是低频写入，
-  // 一次 `inbox_items()` 的成本远低于为它新造一条订阅式推送通道。
+  const archivedParam = searchParams.get(PARAM.archived) === "1";
+  // 归档可见性的初值来自 URL：只带 id 的链接到不了已归档的目标（见 `inboxItemHref`）。
+  // 勾选状态本身不写回 URL——检索词与勾选都只是本地视图状态，Web 端的 URL 目前只承担跨页深链。
+  const [showArchived, setShowArchived] = useState(archivedParam);
+  /** 已防抖的查询词（输入框自己防抖后才抬上来，见 `InboxSearchBox`）。 */
+  const [query, setQuery] = useState("");
+  /** `null` = 非检索态（展示全部）；空数组 = 检索了但零命中。两者的空态文案不同。 */
+  const [hits, setHits] = useState<InboxSearchHit[] | null>(null);
+  const [loadError, setLoadError] = useState<WebError | null>(null);
+  /**
+   * 首次拉取是否已回。只用来压住「要定位的条目不在当前视图」那条提示——`items` 初值是空数组，
+   * 少了它，从传输页跳进来的用户会先看到一帧「找不到」再看到条目。
+   */
+  const [loaded, setLoaded] = useState(false);
+  /** 本次挂载期间已标记过已读的条目，防同一条目多文件并发下载各标记一次（见 `download`）。 */
+  const markedOpened = useRef<Set<string>>(new Set());
+  const searchAction = useAsyncAction();
+  const downloadAction = useKeyedAsyncAction();
+  const itemAction = useKeyedAsyncAction();
+
+  const ready = status === "running";
+
+  // 同路由内 query 变化**不重挂组件**，所以初值之外还要跟着 param 走（知识库「静态导出的三条
+  // 硬限制」第 3 条记的正是这个坑）。今天 `?item=` 的唯一生产者在 `/app/transfer`，两次跳转
+  // 之间本页会卸载重挂，看似不需要——但那是导航图的偶然，不是机制保证：谁在收件箱内部加一条
+  // 「在列表中定位」的链接，脱钩就发生了。
+  //
+  // **单向**：只负责打开，不负责关。用户手动勾上之后点一条不带 `archived` 的链接，不该把他
+  // 正在看的视图关掉。
   useEffect(() => {
-    if (status !== "running") return;
+    if (archivedParam) setShowArchived(true);
+  }, [archivedParam]);
+
+  // 唯一的拉取点：挂载（节点就绪后）/ 收完一次 / 本机改过收件箱（`refreshInbox()` 顶计数器）。
+  //
+  // **恒拉全集**（`include_archived = true`），归档可见性由下面的 `rows` 在内存里过滤。
+  // 让 `showArchived` 参与这里会让勾一次开关就多一次 wasm 往返 + 一次全量重排，而那次重拉
+  // 买不到任何新数据。前端过滤在这里是安全的：判据只是 `archivedAt` 非空，没有会漂的语义
+  // ——与检索命中判据不同，后者必须留在内核（见下）。
+  useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     void (async () => {
+      const node = getNode();
+      if (!node) return;
       try {
-        const details = await fetchInboxItems();
+        const details = await node.inbox_items(true);
         if (cancelled) return;
         webNodeActions.setInboxItems(details);
         setLoadError(null);
@@ -147,73 +242,378 @@ export function InboxPanel() {
         if (cancelled) return;
         console.error("[web] inbox_items() 失败", e);
         setLoadError(toWebError(e));
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [status, inboxRevision]);
+  }, [ready, inboxRevision]);
 
-  const download = (itemId: string, file: InboxItemFileEntry) => {
+  // 检索走内核的 `search_inbox`，**不在前端 filter 这个内存数组**。命中判据在
+  // `crates/transfer/src/inbox.rs::inbox_matches` 有规范定义（大小写、四列覆盖面、
+  // `%`/`_` 转义），桌面端与 Web 端共用同一份 conformance 语料；前端自己写一套
+  // `includes()` 必然与它漂开，而漂开的症状是「同一批数据两端搜出不同结果」。
+  //
+  // 退出检索态必须**显式作废**在途请求：`run` 的 seq 只覆盖「新一轮顶掉旧一轮」，清空搜索框
+  // 不发起新调用，旧 promise resolve 时会把结果写回一个已经不该显示它的界面（顺带让上一次的
+  // 报错卡赖在非检索态的列表顶上）。Web 侧 `search_inbox` 是纯内存扫描、几乎同 tick 就 resolve，
+  // 所以这条路径靠时序侥幸也能对——但那是侥幸不是机制。
+  //
+  // `inboxRevision` 在依赖里：检索期间收到新文件，它该进得了当前命中集合。
+  // `searchAction` 不进依赖：`useAsyncAction` 每次渲染返回新对象，放进去就是无限循环。
+  useEffect(() => {
+    if (!query) {
+      searchAction.cancel();
+      setHits(null);
+      return;
+    }
+    if (!ready) return;
     const node = getNode();
     if (!node) return;
-    void downloadAction.run(`${itemId}:${file.id}`, async () => {
-      try {
-        const url = await node.download_url(file.relativePath);
+    searchAction.run(() => node.search_inbox(query, SEARCH_LIMIT, showArchived), setHits);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, showArchived, ready, inboxRevision]);
+
+  // 检索命中只取 id，再映射回已加载的完整条目。
+  //
+  // `InboxSearchHit` 是**另一种形状**：有 snippet，但没有文件大小、没有 `lastOpenedAt` /
+  // `archivedAt`。直接拿它渲染会让检索态少掉未读点、归档按钮与每个文件的体积——同一个列表
+  // 在搜与不搜之间能力不同。而按 id 逐条 `inbox_item()` 补详情就退回了 1+N（那正是这轮
+  // 端口重构刚删掉的东西）。收件箱是全内存表、列表已经在手，映射一次就够。
+  const rows = useMemo<InboxRow[]>(() => {
+    const visible = showArchived ? items : items.filter((item) => item.archivedAt === null);
+    if (!hits) return visible.map((item) => ({ item, snippet: null }));
+    const byId = new Map(visible.map((item) => [item.id, item]));
+    return hits.flatMap((hit) => {
+      const item = byId.get(hit.id);
+      return item ? [{ item, snippet: redundantSnippet(hit.snippet, item) ? null : hit.snippet }] : [];
+    });
+  }, [hits, items, showArchived]);
+
+  const isSearching = hits !== null;
+  /**
+   * 定位条目的三态。**「看不见」不等于「没有」**——归档只是可见性开关，说成「已不在收件箱」
+   * 就是对用户撒谎，而它恰恰会在用户自己刚归档这一条时触发（入口处的 `?archived=` 只兜住了
+   * 进来那一刻，兜不住会话中途的归档）。判据所需的数据一直在手：`items` 恒含已归档条目。
+   */
+  const focusState = useMemo<"visible" | "filtered-by-search" | "archived" | "gone">(() => {
+    if (rows.some((row) => row.item.id === focusedId)) return "visible";
+    const item = items.find((i) => i.id === focusedId);
+    if (!item) return "gone";
+    if (item.archivedAt !== null && !showArchived) return "archived";
+    return isSearching ? "filtered-by-search" : "gone";
+  }, [rows, items, focusedId, showArchived, isSearching]);
+
+  /** 三个条目级动作的共同外壳：取节点、跑 keyed action、成功后请求重拉。 */
+  const runOnItem = useCallback(
+    (key: string, call: (node: NonNullable<ReturnType<typeof getNode>>) => Promise<void>) => {
+      const node = getNode();
+      if (!node) return;
+      void itemAction.run(key, async () => {
+        await call(node);
+        webNodeActions.refreshInbox();
+      });
+    },
+    [itemAction.run],
+  );
+
+  const download = useCallback(
+    (item: InboxItemDetail, file: InboxItemFileEntry) => {
+      const node = getNode();
+      if (!node) return;
+      void downloadAction.run(`${item.id}:${file.id}`, async () => {
+        const url = await node.download_url(file.relativePath).catch((e: unknown) => {
+          // 控制台留一条带 relativePath 的诊断：错误卡片上只有一句话，定位不到是哪份 OPFS 路径。
+          console.error(`[web] download_url(${file.relativePath}) 失败`, e);
+          throw e;
+        });
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = file.name;
         anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), BLOB_URL_TTL_MS);
-      } catch (e) {
-        console.error(`[web] download_url(${file.relativePath}) 失败`, e);
-        throw e;
-      }
-    });
-  };
+
+        // 「打开过」= 用户真的把内容取走了，与桌面端 `open_inbox_item`（用系统程序打开文件）
+        // 同义。绑在「进过收件箱页」上会让未读点在第一次滚动时集体消失，那个标记就不再表达
+        // 任何东西。
+        //
+        // 去重用本地 ref 而不是读 store：store 要变新值得走完
+        // `mark` → `refreshInbox` → 重渲染 → 拉取 effect → `inbox_items()`，中间隔着两个渲染
+        // 周期。同一条目下连点两个文件时，两个 `download_url`（OPFS 读，几十到几百毫秒）几乎
+        // 同时 resolve，读 store 的话两个闭包看到的都还是 `null`。ref 在同步那一拍就闭合。
+        if (markedOpened.current.has(item.id) || item.lastOpenedAt !== null) return;
+        markedOpened.current.add(item.id);
+        try {
+          await node.mark_inbox_item_opened(item.id);
+          webNodeActions.refreshInbox();
+        } catch (e) {
+          // 下载本身已经成功，未读点没消掉不值得把这一行标红——那会让用户以为文件没拿到。
+          // 但要放行重试：标记失败还占着去重位，这条就再也标不上了。
+          markedOpened.current.delete(item.id);
+          console.error("[web] mark_inbox_item_opened() 失败", e);
+        }
+      });
+    },
+    [downloadAction.run],
+  );
 
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
-      <h2 className="text-sm font-semibold text-fd-foreground">已接收</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-fd-foreground">已接收</h2>
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-fd-muted-foreground">
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+          显示已归档
+        </label>
+      </div>
+
+      <InboxSearchBox disabled={!ready} searching={searchAction.pending} onChange={setQuery} />
+
       {loadError && <WebErrorCard error={loadError} className="mt-2 text-xs" />}
-      {items.length === 0 ? (
-        <p className="mt-2 text-xs text-fd-muted-foreground">还没有收到的文件。</p>
+      {searchAction.error && <WebErrorCard error={searchAction.error} className="mt-2 text-xs" />}
+
+      {/* 定位条目不在视图时给一句解释，而不是让用户对着一个「点了没反应」的链接发呆。
+          「被归档滤掉」这一态给逃生按钮——那不是补偿，是把「归档只是可见性开关」这条领域规则
+          在 UI 上兑现；条目真没了则只陈述事实，没有出路可给。 */}
+      {focusedId !== null && loaded && focusState !== "visible" && !loadError && (
+        <p className="mt-2 rounded-lg border border-fd-border bg-fd-muted/40 px-3 py-2 text-xs text-fd-muted-foreground">
+          {focusState === "archived" ? (
+            <>
+              要定位的条目已归档。
+              <button
+                type="button"
+                onClick={() => setShowArchived(true)}
+                className="ml-1 cursor-pointer font-medium text-fd-foreground underline underline-offset-2"
+              >
+                显示已归档
+              </button>
+            </>
+          ) : focusState === "filtered-by-search" ? (
+            "要定位的条目不在当前检索结果里。"
+          ) : (
+            "要定位的条目已不在收件箱。"
+          )}
+        </p>
+      )}
+
+      {rows.length === 0 ? (
+        <p className="mt-3 text-xs text-fd-muted-foreground">
+          {isSearching
+            ? "没有匹配的收件箱条目。"
+            : `还没有收到的文件${showArchived ? "" : "（已归档的未显示）"}。`}
+        </p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {items.map((item) => (
-            <li key={item.id} className="rounded-lg border border-fd-border bg-fd-background px-3 py-2">
-              <p className="truncate text-xs text-fd-foreground">
-                来自 <span className="font-medium">{item.sourceName}</span>
-              </p>
-              <ul className="mt-1 space-y-1">
-                {item.files.map((f) => {
-                  const key = `${item.id}:${f.id}`;
-                  const error = downloadAction.errorFor(key);
-                  return (
-                    <li key={f.id} className="text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-fd-foreground">{f.name}</span>
-                        <span className="flex shrink-0 items-center gap-2">
-                          <span className="font-mono text-fd-muted-foreground">{formatFileSize(f.size)}</span>
-                          <button
-                            type="button"
-                            onClick={() => download(item.id, f)}
-                            disabled={downloadAction.isPending(key)}
-                            className="font-medium text-fd-foreground underline underline-offset-2 disabled:opacity-50"
-                          >
-                            {downloadAction.isPending(key) ? "准备中…" : error ? "重试下载" : "下载"}
-                          </button>
-                        </span>
-                      </div>
-                      {error && <WebErrorCard error={error} className="mt-1 text-xs" />}
-                    </li>
-                  );
-                })}
-              </ul>
+          {/* 截断要说出来。命中正好等于上限时无法区分「刚好 50 条」与「还有更多」，
+              所以文案取保守说法——比静默丢掉让用户以为搜全了要诚实。 */}
+          {isSearching && hits.length >= SEARCH_LIMIT && (
+            <li className="text-[11px] text-fd-muted-foreground">
+              只显示最近 {SEARCH_LIMIT} 条匹配，更早的未列出——请把关键词写得更具体。
             </li>
-          ))}
+          )}
+          {rows.map(({ item, snippet }) => {
+            const archiveKey = `${item.id}:archive`;
+            const deleteKey = `${item.id}:delete`;
+            return (
+              <InboxItemRow
+                key={item.id}
+                item={item}
+                snippet={snippet}
+                focused={item.id === focusedId}
+                ready={ready}
+                downloadAction={downloadAction}
+                archive={{
+                  pending: itemAction.isPending(archiveKey),
+                  error: itemAction.errorFor(archiveKey),
+                  run: () =>
+                    runOnItem(archiveKey, (node) =>
+                      node.archive_inbox_item(item.id, item.archivedAt === null),
+                    ),
+                }}
+                remove={{
+                  pending: itemAction.isPending(deleteKey),
+                  error: itemAction.errorFor(deleteKey),
+                  run: () => runOnItem(deleteKey, (node) => node.delete_inbox_item(item.id)),
+                }}
+                onDownload={download}
+              />
+            );
+          })}
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * 检索框。**防抖归它自己**，抬给面板的已经是稳定后的查询词。
+ *
+ * 拆出来并 `memo` 的理由是逐键重渲染：输入值留在面板里的话，每敲一个字符都要重跑整张列表
+ * （N 条目 × M 文件行）——250ms 防抖只挡住了 wasm 调用，挡不住渲染。
+ */
+const InboxSearchBox = memo(function InboxSearchBox({
+  disabled,
+  searching,
+  onChange,
+}: {
+  disabled: boolean;
+  searching: boolean;
+  onChange: (query: string) => void;
+}) {
+  const [value, setValue] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => onChange(value.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [value, onChange]);
+
+  return (
+    <div className="relative mt-3">
+      <Search
+        className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fd-muted-foreground"
+        aria-hidden="true"
+      />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        disabled={disabled}
+        placeholder="搜索标题、来源设备或文件名"
+        aria-label="搜索收件箱"
+        className="w-full rounded-lg border border-fd-border bg-fd-background py-2 pl-8 pr-16 text-xs text-fd-foreground placeholder:text-fd-muted-foreground disabled:opacity-50"
+      />
+      {searching && (
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-fd-muted-foreground">
+          搜索中…
+        </span>
+      )}
+    </div>
+  );
+});
+
+function InboxItemRow({
+  item,
+  snippet,
+  focused,
+  ready,
+  downloadAction,
+  archive,
+  remove,
+  onDownload,
+}: {
+  item: InboxItemDetail;
+  snippet: string | null;
+  focused: boolean;
+  ready: boolean;
+  /**
+   * 下载是**逐文件**的（N 个键），没法像 archive/remove 那样在父层摊平成一个值对象，
+   * 故整份 handle 下传。它每次渲染都是新引用，因此本组件刻意不 `memo`——加了也会被打穿。
+   */
+  downloadAction: ReturnType<typeof useKeyedAsyncAction>;
+  archive: ItemAction;
+  remove: ItemAction;
+  onDownload: (item: InboxItemDetail, file: InboxItemFileEntry) => void;
+}) {
+  const unread = item.lastOpenedAt === null;
+  const archived = item.archivedAt !== null;
+  const ArchiveIcon = archived ? ArchiveRestore : Archive;
+  const ref = useRef<HTMLLIElement>(null);
+
+  // 深链要么保证能到达，要么就别给（同 `inboxItemHref` 的自述）——只换个边框色是「到达了但
+  // 看不见」：列表长了，从传输页点进来的用户落在页面顶部，屏幕上没有任何东西变化。
+  // `block: "nearest"` 让本来就在视口里的条目不跳动。
+  useEffect(() => {
+    if (focused) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [focused]);
+
+  return (
+    <li
+      ref={ref}
+      aria-current={focused ? "true" : undefined}
+      className={`scroll-mt-4 rounded-lg border bg-fd-background px-3 py-2 ${
+        focused ? "border-[var(--brand)]/40 ring-1 ring-[var(--brand)]/20" : "border-fd-border"
+      }`}
+    >
+      <div className="min-w-0">
+        <p className="flex items-center gap-1.5 text-xs">
+          {/* 未读点是「还没取走」的唯一表达——列表里其它一切在下载前后都长一样，故给 label。 */}
+          {unread && <StatusDot colorClass="bg-[var(--brand-solid)]" label="未打开" />}
+          <span className={`truncate text-fd-foreground ${unread ? "font-semibold" : ""}`}>{item.title}</span>
+          {archived && (
+            <span className="shrink-0 rounded-full border border-fd-border px-2 py-0.5 text-[11px] text-fd-muted-foreground">
+              已归档
+            </span>
+          )}
+        </p>
+        <p className="mt-0.5 truncate text-[11px] text-fd-muted-foreground">
+          来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
+        </p>
+      </div>
+
+      {/* 命中片段由 Rust 侧按子串位置切窗口生成，前端不重切——切法漂了，两端的「为什么这条
+          能搜到」就对不上。与标题相同时上游已置 null（那种情况它只是把标题重复一遍）。 */}
+      {snippet && (
+        <p className="mt-1 truncate rounded bg-fd-muted/40 px-2 py-1 font-mono text-[11px] text-fd-muted-foreground">
+          {snippet}
+        </p>
+      )}
+
+      <ul className="mt-1.5 space-y-1">
+        {item.files.map((f) => {
+          const key = `${item.id}:${f.id}`;
+          const error = downloadAction.errorFor(key);
+          return (
+            <li key={f.id} className="text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-fd-foreground">{f.name}</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="font-mono text-fd-muted-foreground">{formatFileSize(f.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => onDownload(item, f)}
+                    disabled={downloadAction.isPending(key)}
+                    className="font-medium text-fd-foreground underline underline-offset-2 disabled:opacity-50"
+                  >
+                    {downloadAction.isPending(key) ? "准备中…" : error ? "重试下载" : "下载"}
+                  </button>
+                </span>
+              </div>
+              {error && <WebErrorCard error={error} className="mt-1 text-xs" />}
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="mt-2 flex flex-wrap items-center justify-end gap-2 text-xs">
+        {/* 归档可逆，不设二次确认——与传输面板「续传不拦、取消才拦」同一条判据。 */}
+        <button
+          type="button"
+          onClick={archive.run}
+          disabled={!ready || archive.pending}
+          className={INLINE_ACTION_CLASS}
+        >
+          <ArchiveIcon className="size-3" aria-hidden="true" />
+          {archive.pending ? "处理中" : archived ? "取消归档" : "归档"}
+        </button>
+        <ConfirmAction
+          icon={Trash2}
+          label="删除"
+          pendingLabel="删除中"
+          confirmLabel="确认删除"
+          // 删的是**账本不是内容**：Web 侧 `delete_inbox_item` 只软删记录，OPFS 里那份副本
+          // 不动（内核尚未开放删文件的入口，`opfs::remove_path` 其实已经有了，见 #111）。
+          // 文案要说到底：不光是「没释放存储」，而是记录一删这份副本从此不可达也不可清理，
+          // 只剩浏览器的「清除站点数据」能连整个站点一起端掉。少说后半句就成了「准确但不完整」。
+          warning="只删这条记录，浏览器里的文件副本不会被删除，之后也无法再通过本应用访问或清理它"
+          disabled={!ready}
+          pending={remove.pending}
+          onConfirm={remove.run}
+        />
+      </div>
+      {archive.error && <WebErrorCard error={archive.error} className="mt-2 text-xs" />}
+      {remove.error && <WebErrorCard error={remove.error} className="mt-2 text-xs" />}
+    </li>
   );
 }

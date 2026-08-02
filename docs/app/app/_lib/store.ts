@@ -7,7 +7,8 @@
 //         `inboxItems` 域的注释；拉取时机由 InboxPanel 自己掌握）。
 // 四者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
 
-import { createStore, useStore } from "./create-store";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 import type { SecureContextInfo } from "./secure-context";
 import type {
   ConnectionJson,
@@ -127,15 +128,17 @@ export interface WebNodeState {
    * 不参与传输历史的 `HISTORY_CAP` 淘汰，也不随「清空历史」消失。靠过滤投影拼出来的
    * 旧做法在那两件事上都会说谎。
    *
-   * 排序（`receivedAt` 倒序）在 `setInboxItems` 写入时做完——本 store 是自研实现，
-   * selector 里派生新数组会无限重渲染，且 `pnpm check:zustand-access` 不扫 `docs/`。
+   * 排序（`receivedAt` 倒序）在 `setInboxItems` 写入时做完，不放 selector——那里派生新数组
+   * 会无限重渲染（`pnpm check:zustand-access` 现在会拦）。
    */
   inboxItems: InboxItemDetail[];
   /**
-   * 收件箱重拉信号：每收到一次**接收方向**的 `transferCompleted` 就自增。
+   * 收件箱失效票据：内容可能变了，该重拉一次。**两个生产者**——远端来的
+   * （接收方向的 `transferCompleted`）与本机改的（已读 / 归档 / 删除，走 `refreshInbox()`）。
    *
    * 收件箱是低频写入，不值得为它新造一条订阅式推送通道（一次 `inbox_items()` 的成本
-   * 远低于此）。面板 effect 依赖这个计数器即可「挂载拉一次 + 每次收完重拉」。
+   * 远低于此）。面板 effect 依赖这个计数器即可「挂载拉一次 + 此后每次失效重拉」，
+   * 拉取点因此始终只有一处，`include_archived` 这个视图状态也不必泄漏进 store。
    */
   inboxRevision: number;
 
@@ -177,14 +180,27 @@ const initialState: WebNodeState = {
   reservation: null,
 };
 
-export const webNodeStore = createStore<WebNodeState>(initialState);
+export const webNodeStore = createStore<WebNodeState>(() => initialState);
 
-/** React 侧订阅入口。selector 只选原始值或 store 内稳定引用（见 create-store 注释）。 */
+/**
+ * React 侧订阅入口。
+ *
+ * **selector 只许返回原始值或 store 内的稳定引用**——`map`/`filter`/`slice` 或对象字面量
+ * 每次都是新引用，`useSyncExternalStore` 于是每次快照都不等，直接无限重渲染。派生放组件体内
+ * 的 `useMemo`。`pnpm check:zustand-access` 现在覆盖本目录（它此前只扫仓库根 `src/`）。
+ */
 export function useWebNode<U>(selector: (state: WebNodeState) => U): U {
   return useStore(webNodeStore, selector);
 }
 
 // ── actions ────────────────────────────────────────────────────────────────
+//
+// 「内容没变」一律 `return s`（返回 state 本身），**不要 `return {}`**。
+// zustand 的 setState 判的是 `Object.is(partial, state)`：`{}` 是个新对象，判不等 → 照常
+// 广播一轮，所有 selector 白求值一次。返回 `s` 才真正短路。
+//
+// 这条与自研 store 的行为不同（那份实现逐键浅比较，`{}` 天然不通知），迁移时 6 处全部改过。
+// 空对象在 zustand 下不报错、类型也合法，纯靠这条约定守。
 
 export const webNodeActions = {
   setSecure(info: SecureContextInfo) {
@@ -234,7 +250,7 @@ export const webNodeActions = {
    */
   removeProjection(sessionId: string) {
     webNodeStore.setState((s) => {
-      if (!(sessionId in s.projections)) return {};
+      if (!(sessionId in s.projections)) return s;
       const projections = { ...s.projections };
       delete projections[sessionId];
       return { projections };
@@ -247,7 +263,7 @@ export const webNodeActions = {
   clearTerminalProjections() {
     webNodeStore.setState((s) => {
       const kept = Object.entries(s.projections).filter(([, p]) => p.phase !== "terminal");
-      if (kept.length === Object.keys(s.projections).length) return {};
+      if (kept.length === Object.keys(s.projections).length) return s;
       return { projections: Object.fromEntries(kept) };
     });
   },
@@ -258,16 +274,30 @@ export const webNodeActions = {
    * 换引用；守的是那几次拿回同一份内容的重拉：StrictMode 下 InboxPanel 的 effect
    * double-invoke（同一份快照灌两遍）、收件箱为空时的首次拉取（`[]` → `[]`）、以及同一
    * 会话重复终态事件把 `inboxRevision` 顶两下。少了它这些都各白掉一次全局重渲染
-   * ——`create-store` 的浅比较拦不住，`[...items].sort()` 每次都是新数组引用。
+   * ——`[...items].sort()` 每次都是新数组引用，zustand 的 `Object.is` 拦不住。
    */
   setInboxItems(items: InboxItemDetail[]) {
     const next = [...items].sort((a, b) => b.receivedAt - a.receivedAt);
-    webNodeStore.setState((s) => (inboxItemsEqual(s.inboxItems, next) ? {} : { inboxItems: next }));
+    webNodeStore.setState((s) => (inboxItemsEqual(s.inboxItems, next) ? s : { inboxItems: next }));
+  },
+  /**
+   * 本机改动了收件箱（已读 / 归档 / 删除）后请求重拉。
+   *
+   * 与 `transferCompleted` 顶同一个计数器是刻意的：面板那条 effect 因此仍是**唯一**的拉取点，
+   * 而不是「事件走 effect、本机动作各自再 fetch 一遍」的两套。少了它，动作后要么各写一份
+   * `inbox_items()` + `setInboxItems()`，要么就得把 `include_archived` 这个当前视图状态
+   * 泄漏进 store。
+   *
+   * ⚠️ 它是**失效通知不是拉取**：没有收件箱面板挂载时顶计数器不会发生任何事，下次面板挂载
+   * 时那条 effect 本来也会拉。目前唯一的消费者就是它，别在其它页面把这个当「刷新收件箱」用。
+   */
+  refreshInbox() {
+    webNodeStore.setState((s) => ({ inboxRevision: s.inboxRevision + 1 }));
   },
   /** #79：offer 已被本机接受/拒绝，从「待处理」域移除（决策是一次性动作，同 removePendingPairing）。 */
   removeOffer(sessionId: string) {
     webNodeStore.setState((s) => {
-      if (!(sessionId in s.offers)) return {};
+      if (!(sessionId in s.offers)) return s;
       const offers = { ...s.offers };
       delete offers[sessionId];
       return { offers };
@@ -280,7 +310,7 @@ export const webNodeActions = {
    */
   setPendingOffers(offers: OfferJson[]) {
     const next = Object.fromEntries(offers.map((offer) => [offer.sessionId, offerFromSnapshot(offer)]));
-    webNodeStore.setState((s) => (offersEqual(s.offers, next) ? {} : { offers: next }));
+    webNodeStore.setState((s) => (offersEqual(s.offers, next) ? s : { offers: next }));
   },
   /** 事件源二：轮询到的入站配对请求，累积（内核侧取出即清空，故这里追加不去重覆盖）。 */
   addPendingPairings(reqs: PendingPairingJson[]) {
@@ -297,7 +327,7 @@ export const webNodeActions = {
    * 订阅者会无谓重渲染。DashMap 遍历顺序不保证稳定，比较必须与顺序无关。
    */
   setPairedDevices(devices: Device[]) {
-    webNodeStore.setState((s) => (devicesEqual(s.pairedDevices, devices) ? {} : { pairedDevices: devices }));
+    webNodeStore.setState((s) => (devicesEqual(s.pairedDevices, devices) ? s : { pairedDevices: devices }));
   },
   setConnection(connection: ConnectionJson | null) {
     webNodeStore.setState({ connection });
@@ -376,8 +406,15 @@ function appendLog(log: WebTransferEvent[], ev: WebTransferEvent): WebTransferEv
 /**
  * 收件箱快照的内容比较（两侧都已按 `receivedAt` 倒序，故可逐位比）。
  *
- * 比的是 UI 真正会变的那几样：条目集合、接收时间、缺失标记、文件数。
- * 归档 / 软删的条目根本不在列表里（内核侧已过滤），无需比它们的时间戳。
+ * 比的是 UI 真正会变的那几样：条目集合、接收时间、缺失标记、文件数，**以及已读与归档时间戳**。
+ *
+ * 后两个字段一度不在这里，理由是「归档 / 软删的条目根本不在列表里，无需比时间戳」——那句话
+ * 在收件箱只能读不能写的时候成立，#108 给它加了三个写入口之后就成了假设。两条真实的漏网路径：
+ * 下载后标已读（集合不变，只有 `lastOpenedAt` 从 null 变成时间戳）、以及「显示已归档」开着时
+ * 取消归档（集合同样不变）。两者都会被判等丢掉，于是未读点与「已归档」徽标停在旧值不动。
+ *
+ * 教训是这个守卫编码的是**当时的域模型**（「有哪些条目」），而 UI 后来开始读「条目带什么状态」。
+ * 往 `InboxItemDetail` 上加可变字段时要回来看一眼这里。
  *
  * **`transfer` 投影刻意不比**：那是每次 `inbox_items()` 现造的对象，比它（哪怕只比引用）
  * 会让这个函数恒为 false，守卫退化成纯开销；而本面板压根不渲染它。
@@ -390,7 +427,9 @@ function inboxItemsEqual(a: InboxItemDetail[], b: InboxItemDetail[]): boolean {
       item.id === other.id &&
       item.receivedAt === other.receivedAt &&
       item.missing === other.missing &&
-      item.files.length === other.files.length
+      item.files.length === other.files.length &&
+      item.lastOpenedAt === other.lastOpenedAt &&
+      item.archivedAt === other.archivedAt
     );
   });
 }

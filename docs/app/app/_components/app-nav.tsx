@@ -30,7 +30,7 @@ type BadgeCounts = Record<NavBadgeKind, number>;
 
 /**
  * 徽标计数。两个 selector 都只返回**数字**——在 selector 里 filter/map 出新数组会让
- * `useSyncExternalStore` 每次拿到不等的快照，直接无限重渲染（见 create-store.ts 注释）。
+ * `useSyncExternalStore` 每次拿到不等的快照，直接无限重渲染（见 store.ts 的 `useWebNode`）。
  */
 function useBadgeCounts(): BadgeCounts {
   const offers = useWebNode((s) => Object.keys(s.offers).length);

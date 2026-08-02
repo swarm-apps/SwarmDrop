@@ -10,10 +10,33 @@
 // 不引入模态——应用区没有 dialog 原语，为一句确认引一套 focus trap 不划算。解除本身走内核的
 // `remove_paired_device()`（core 的原子 unpair：先落盘 → 再删共享内存表 → 再发事件），
 // 所以失败时设备**还在**清单里、错误也说得出来，不会出现「点完就没了、刷新又回来」。
+//
+// ## 为什么这份确认不用 `ConfirmAction`（#109 的结论：不合并）
+//
+// 应用区有两个确认原语，这是刻意的，不是没来得及收口。两者在**同一个轴上取了相反的值**：
+//
+// | | `ConfirmAction`（清空历史 / 取消传输 / 删除记录） | 这一份 |
+// |---|---|---|
+// | 复位时机 | 点确认的**同一拍**，不等异步结果 | `await` 成功**之后** |
+// | 失败后 | 已经复位了（压根没等结果） | **留在确认态**，错误就地显示，重试一次点击 |
+// | confirming | `boolean`，组件自持 | `string \| null`，记的是哪一行 |
+//
+// `ConfirmAction` 的核心设计就是「不等异步」——它的注释写明了理由：等结果会让确认条在整个
+// 请求期间赖着不走，多出一个此前没有的中间态。而这一份**要求**知道成败，因为取消配对是一次
+// 可失败的网络操作（节点没起来、内核报错都可能），失败后让用户重新点两次（触发 → 确认）
+// 才能重试是惩罚。
+//
+// 给 `ConfirmAction` 加个「失败保持确认态」开关就得把 `error` 也纳进去，而那三个调用点的
+// 错误卡位置各不相同（有的在横幅下方独立一行、有的与 `projection.errorMessage` 有固定先后），
+// 纳进组件就会挪动它们的展示位置。让调用方控制 confirming 则等于退回收口前的样子。
+//
+// 判据：**动作失败后用户还想不想留在「我要删这个」的状态里**。想 → 用这一份的形态；
+// 不想（失败率低、重来成本也低）→ 用 `ConfirmAction`。
 
 import Link from "next/link";
 import { useState } from "react";
 import { sendToPeerHref } from "../_lib/nav";
+import { deviceDisplayName } from "../_lib/device-name";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
@@ -60,7 +83,7 @@ export function DeviceList() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-medium text-fd-foreground">{d.name ?? d.hostname}</p>
+                    <p className="truncate text-xs font-medium text-fd-foreground">{deviceDisplayName(d)}</p>
                     <p className="truncate font-mono text-[11px] text-fd-muted-foreground">{d.peerId}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
