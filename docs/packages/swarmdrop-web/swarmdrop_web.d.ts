@@ -112,10 +112,18 @@ export type InboxItemDetail = {
 export type InboxItemFileEntry = {
     id: number,
     transferFileId: number | null,
+    /**  条目根之下的相对路径。**Web 宿主删文件用这个**——OPFS 的键就是它。 */
     relativePath: string,
     name: string,
     size: number,
     checksum: string,
+    /**
+     *  宿主可直接操作的完整路径。**桌面 / 移动删文件用这个**（那边是真实文件系统路径）；
+     *  **Web 上它是带 `opfs:/` 前缀的展示值，喂给 `remove_path` 会去找一个叫 `opfs:` 的目录**。
+     *
+     *  两个路径字段并存且「该用哪个」按端不同，是这个 DTO 最容易踩空的地方——所以写在这里，
+     *  而不是让每个宿主自己从别处推断。
+     */
     localPath: string,
     missing: boolean,
 };
@@ -148,8 +156,13 @@ export type InboxSearchHit = {
     itemCount: number,
     rootPath: string | null,
     receivedAt: number,
-    /**  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。 */
-    snippet: string,
+    /**
+     *  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
+     *
+     *  `None` = **不该渲染片段行**：命中的是标题或来源名（条目行上已经显示着），
+     *  或一个候选都没命中。判据在 [`inbox_snippet`]，三端不要各判一遍。
+     */
+    snippet: string | null,
     /**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
     files: InboxHitFile[],
 };
@@ -593,12 +606,29 @@ export class WebNode {
      */
     decode_invite_preview(invite: string): PairInvitePreviewJson;
     /**
-     * 软删除收件箱条目：**只删记录**，OPFS 里的文件不动。
+     * 软删除收件箱条目；`delete_local_files` 为真时连 OPFS 里的文件一起删。
      *
-     * 与桌面同一分工——是否连文件一起删由宿主在调用前决定，端口只管账本
-     * （Web 端目前不提供删文件的入口，OPFS 空间的释放待收件箱 UI 一并设计）。
+     * 与桌面 `delete_inbox_item(item_id, delete_local_files)` 同签名同语义：**是否连文件
+     * 一起删由宿主决定，端口只管账本**（`delete_inbox_item_record` 永远只软删记录）。
+     *
+     * 不删文件时那份 OPFS 副本会成为孤儿——记录一软删，`list`/`search`/`detail` 就都看不到
+     * 它了，配额却还占着，用户唯一的出路是浏览器的「清除站点数据」。所以这个入口不是锦上添花：
+     * 没有它，Web 端的每一次删除都在泄漏。
+     *
+     * 文件不存在不算错误（`remove_path` 对缺失返回 `Ok(false)`），与桌面对
+     * `ErrorKind::NotFound` 的处理一致。
+     *
+     * **删文件失败不阻断删记录。** 顺序仍是先文件后记录（反过来的话记录没了就再也定位不到
+     * 那份副本），但失败只记日志、继续删账本——因为 Web 前端**不给「保留文件」选项**
+     * （OPFS 副本用户无从访问，留着只是泄漏），所以一旦在这里 `?` 返回，用户就再没有任何
+     * 办法删掉这条记录了；桌面上他至少还能取消勾选、只删账本。
+     *
+     * `remove_path` 的失败面是真的：5s 超时，以及 `createWritable()` 持独占锁时的
+     * `NoModificationAllowedError`（三端都不做重名消歧，「新的接收正在写同名文件」时那把锁
+     * 就开着）。代价是那份文件成孤儿——与「删掉 suspended 接收会话留下的残件」是同一个已知
+     * 负债，将来一并按「哪些文件真没写完」收口。
      */
-    delete_inbox_item(item_id: string): Promise<void>;
+    delete_inbox_item(item_id: string, delete_local_files: boolean): Promise<void>;
     /**
      * 删除一条传输记录。
      *
@@ -790,9 +820,10 @@ export class WebNode {
     revoke_invite_by_id(id: string): Promise<boolean>;
     /**
      * 收件箱子串检索：大小写不敏感，覆盖标题 / 来源设备名 / 文件名与相对路径。
-     * 空查询返回空列表；结果按 `receivedAt` 倒序并截断到 `limit`。
+     * 空查询返回空列表；结果按 `receivedAt` 倒序并截断到 `limit`
+     * （缺省取三端共享的 `INBOX_SEARCH_LIMIT`，前端不必自带魔数）。
      */
-    search_inbox(query: string, limit: number, include_archived: boolean): Promise<InboxSearchHit[]>;
+    search_inbox(query: string, limit: number | null | undefined, include_archived: boolean): Promise<InboxSearchHit[]>;
     /**
      * 向 `to`（base58 NodeId）发送用户选择的文件：登记文件源 → prepare（checksum + bao
      * outboard）→ 发 Offer。返回 session_id。
@@ -833,6 +864,17 @@ export function default_device_name(): string;
 export function get_device_name(): Promise<string | undefined>;
 
 /**
+ * 检索条数上限（[`INBOX_SEARCH_LIMIT`](swarmdrop_transfer::inbox::INBOX_SEARCH_LIMIT) 的只读镜像）。
+ *
+ * `search_inbox` 的 `limit` 缺省就取这个值、传大了也会被钳回来，前端**不需要**传它。
+ * 导出它只为一件事：UI 要说「只显示了最近 N 条」时得知道 N 是几。
+ *
+ * 换句话说前端仍然不许自带这个数字——那正是 #111 修掉的分叉（此前四个宿主四个值，
+ * 而截断掉的永远是最早收到的那批）。wasm-bindgen 不导出常量，所以包成函数。
+ */
+export function inbox_search_limit(): number;
+
+/**
  * 设置设备名；`null` / 空串 / 归一化后为空一律视为清空，回落到
  * [`default_device_name`]。入参经 `DeviceName::parse` 归一化（trim、剥控制字符与 `;`、
  * 截断到 40 个 char），UI 侧的 `maxLength` 只是提前拦一道。
@@ -852,6 +894,7 @@ export interface InitOutput {
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_device_name: () => [number, number];
     readonly get_device_name: () => any;
+    readonly inbox_search_limit: () => number;
     readonly set_device_name: (a: number, b: number) => any;
     readonly webnode_accept_offer: (a: number, b: number, c: number) => any;
     readonly webnode_archive_inbox_item: (a: number, b: number, c: number, d: number) => any;
@@ -862,7 +905,7 @@ export interface InitOutput {
     readonly webnode_connect: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_connect_invite: (a: number, b: number, c: number) => any;
     readonly webnode_decode_invite_preview: (a: number, b: number, c: number) => [number, number, number];
-    readonly webnode_delete_inbox_item: (a: number, b: number, c: number) => any;
+    readonly webnode_delete_inbox_item: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_delete_transfer_session: (a: number, b: number, c: number) => any;
     readonly webnode_download_url: (a: number, b: number, c: number) => any;
     readonly webnode_events: (a: number) => [number, number, number];

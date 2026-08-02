@@ -238,6 +238,26 @@ opt-level = 3
 
 **不要做**：删除这段配置或把 `*` 改成具体 crate 列表——会漏掉新加的 crypto/网络依赖。
 
+### `target/` 是 10G 量级，跑全量测试要留够盘
+
+`opt-level = 3` + libp2p / webrtc-rs / tauri 三棵大依赖树的合并后果：`cargo clean` 之后
+跑一轮「check + 相关测试 + wasm 双 target + 桌面 bindings 导出 + mobile cdylib」就能重新
+长到 **10–11G**。`cargo test --workspace` 更吃——它要为每个 test target 各编一个二进制。
+
+盘紧时的取舍，按性价比排：
+
+| 手段 | 腾出 | 代价 |
+|---|---|---|
+| `rm -rf target/debug/incremental` | ~3.7G | 只影响下次增量编译速度，**最安全** |
+| `CARGO_INCREMENTAL=0` 跑 | 不再增长 | 单次编译略慢，适合一次性的门禁跑 |
+| `cargo clean` | ~10G | 全量重编（libp2p 那棵树十几分钟） |
+
+**`cargo clean` 治标不治本**：清完的余量若也只有 10G 出头，编一轮就又满了。真卡住时从
+项目外腾（Xcode DerivedData / Android 构建缓存都是纯派生物）比反复 clean 有效。
+
+跑不完全量测试时的降级顺序：先 `cargo test -p <改动的 crate>`（多数改动只需要一两个），
+完整 `--workspace` 交给 CI——它在 ubuntu runner 上跑，不受本机盘限制。
+
 ### wasm 构建：macOS 必须装 brew 的 LLVM，系统 clang 不行
 
 **任何要编到 `wasm32-unknown-unknown` 的活都会撞这个**（当前是 `spike/iroh-web`，M2/M6 也躲不掉）。

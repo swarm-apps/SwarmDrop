@@ -397,11 +397,13 @@ impl McpHandler {
         let Some(store) = self.app.try_state::<TransferStoreState>() else {
             return mcp_error("数据库尚未就绪，检索暂不可用");
         };
-        let limit = params.limit.unwrap_or(20) as usize;
+        // 走 `search_inbox_capped` 而不是自己 `unwrap_or(20)`：MCP 与 Tauri IPC 是**同一个进程、
+        // 同一个 store**，各带一个默认值就意味着同一台机器上「用 UI 搜」和「让 AI 搜」得到的
+        // 结果集不同——那正是 #111 要消灭的分叉，只不过这一处的两端在同一个宿主里。
         let hits = match store
-            .search_inbox(
+            .search_inbox_capped(
                 &params.query,
-                limit,
+                params.limit,
                 params.include_archived.unwrap_or(false),
             )
             .await
@@ -1180,7 +1182,8 @@ mod tests {
 pub struct SearchInboxParams {
     /// 检索关键词（支持中文，含 2 字词如"合同"）
     pub query: String,
-    /// 返回条数上限，默认 20
+    /// 返回条数上限。不填由服务端决定（三端共享的 `INBOX_SEARCH_LIMIT`）；
+    /// 填了也不会超过它——上限是展示契约，调用方只能收窄。
     pub limit: Option<u32>,
     /// 是否纳入已归档条目，默认 false
     pub include_archived: Option<bool>,
@@ -1206,7 +1209,8 @@ struct McpInboxHit {
     source_name: String,
     item_count: i32,
     received_at: i64,
-    snippet: String,
+    /// `None` = 命中的是标题或来源名（本结构里已有那两个字段），或一个候选都没命中。
+    snippet: Option<String>,
     files: Vec<McpInboxHitFile>,
 }
 

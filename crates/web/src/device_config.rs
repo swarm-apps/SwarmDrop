@@ -1,5 +1,8 @@
 //! 设备名的 Web 持久化：[`DeviceConfig`] 端口的 IndexedDB 实现 + 设置页用的三个模块级导出。
 //!
+//! **只放设备名相关的东西。** 「顺手也导出给前端」不是把函数放进来的理由——
+//! `#[wasm_bindgen]` 自由函数在 JS 模块上是平的，Rust 文件位置对 `mod.xxx()` 的可达性零影响。
+//!
 //! 与 [`crate::paired_devices`] 同一套路子：无状态零尺寸实现，直接读写
 //! [`kv`](crate::idb::KV_STORE) store 下的一个键。桌面把设备名落在 `device_config.json`，
 //! 浏览器没有文件系统语义可言，落 IndexedDB 是同一件事的浏览器写法。

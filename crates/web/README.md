@@ -76,8 +76,8 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
 | `transfer_history()` | 已持久化的会话投影 → `TransferProjection[]`（按 `startedAt` 倒序），刷新后回补活动视图 |
 | `inbox_items(include_archived)` | 收件箱条目 → `InboxItemSummary[]`（`receivedAt` 倒序，排除软删项） |
 | `inbox_item(id)` / `inbox_item_by_session(sid)` | 收件箱详情（含文件清单与关联投影）→ `InboxItemDetail \| null` |
-| `search_inbox(query, limit, include_archived)` | 子串检索 → `InboxSearchHit[]`（判据与 SQL 侧同义） |
-| `mark_inbox_item_opened(id)` / `archive_inbox_item(id, archived)` / `delete_inbox_item(id)` | 标记打开 / 归档 / 软删（**只删记录，OPFS 文件不动**） |
+| `search_inbox(query, limit?, include_archived)` | 子串检索 → `InboxSearchHit[]`（判据与 SQL 侧同义）。`limit` 可选，缺省/超限都取 `INBOX_SEARCH_LIMIT` |
+| `mark_inbox_item_opened(id)` / `archive_inbox_item(id, archived)` / `delete_inbox_item(id, delete_local_files)` | 标记打开 / 归档 / 软删。**删记录默认不动文件**，`delete_local_files=true` 时连 OPFS 副本一起删（前端恒传 true——OPFS 文件用户无从访问，留着只是泄漏配额） |
 | `paired_devices()` | 已配对设备清单 → `Device[]`（与桌面 `list_devices` 同源的 `DeviceManager` 读模型，含在线状态/连接类型） |
 | `remove_paired_device(peer_id)` | 解除配对（core 的 `unpair`：先落盘 → 再删共享内存表 → 再发事件；持久化失败即报错且内存表不动） |
 | `events()` | `ReadableStream<WebTransferEvent>`（**只能取一次**） |

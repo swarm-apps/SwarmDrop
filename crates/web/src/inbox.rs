@@ -930,7 +930,17 @@ mod tests {
         );
         assert_eq!(hits[0].files.len(), 1);
         assert_eq!(hits[0].files[0].relative_path, "invoices/c.pdf");
-        assert!(!hits[0].snippet.is_empty(), "命中要带可读片段");
+        // 「invoices」只在 relative_path 里，不在标题（单文件条目的标题就是 `c.pdf`）也不在
+        // 来源名里——所以这是**该给**片段的那种命中：用户要找的东西不在条目行上直接可见。
+        // 反过来命中标题/来源名时 `inbox_snippet` 返回 None，见它的文档与
+        // `swarmdrop-transfer` 的 `snippet_only_for_file_hits`。
+        assert!(
+            hits[0]
+                .snippet
+                .as_deref()
+                .is_some_and(|s| s.contains("invoices")),
+            "只命中文件文本时要带可读片段"
+        );
 
         assert_eq!(
             hit_ids(&table.search("invoices", 2, false)),

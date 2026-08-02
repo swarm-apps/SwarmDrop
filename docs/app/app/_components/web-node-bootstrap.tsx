@@ -64,6 +64,11 @@ function ensureConfiguredRelays(node: ReturnType<typeof getNode>) {
 async function loadDeviceName(isCancelled: () => boolean) {
   try {
     const mod = await getModule();
+    // 检索上限先读：它是纯常量 getter，不碰 IndexedDB、不可能失败。排在下面那个 await
+    // 之后的话，设备名读失败（该 catch 明说「只记日志」）会连带让它永远是 null，
+    // 于是「只显示最近 N 条」那条截断提示整场会话静默消失——而那条提示的全部意义
+    // 就是「截断要说出来」。
+    webNodeActions.setInboxSearchLimit(mod.inbox_search_limit());
     const current = await mod.get_device_name();
     if (isCancelled()) return;
     webNodeActions.setDeviceName(current ?? null);

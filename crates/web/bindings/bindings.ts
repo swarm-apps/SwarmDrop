@@ -103,10 +103,18 @@ export type InboxItemDetail = {
 export type InboxItemFileEntry = {
 	id: number,
 	transferFileId: number | null,
+	/**  条目根之下的相对路径。**Web 宿主删文件用这个**——OPFS 的键就是它。 */
 	relativePath: string,
 	name: string,
 	size: number,
 	checksum: string,
+	/**
+	 *  宿主可直接操作的完整路径。**桌面 / 移动删文件用这个**（那边是真实文件系统路径）；
+	 *  **Web 上它是带 `opfs:/` 前缀的展示值，喂给 `remove_path` 会去找一个叫 `opfs:` 的目录**。
+	 * 
+	 *  两个路径字段并存且「该用哪个」按端不同，是这个 DTO 最容易踩空的地方——所以写在这里，
+	 *  而不是让每个宿主自己从别处推断。
+	 */
 	localPath: string,
 	missing: boolean,
 };
@@ -139,8 +147,13 @@ export type InboxSearchHit = {
 	itemCount: number,
 	rootPath: string | null,
 	receivedAt: number,
-	/**  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。 */
-	snippet: string,
+	/**
+	 *  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
+	 * 
+	 *  `None` = **不该渲染片段行**：命中的是标题或来源名（条目行上已经显示着），
+	 *  或一个候选都没命中。判据在 [`inbox_snippet`]，三端不要各判一遍。
+	 */
+	snippet: string | null,
 	/**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
 	files: InboxHitFile[],
 };

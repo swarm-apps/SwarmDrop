@@ -14,8 +14,6 @@ export function supportsServerInboxSearch(): boolean {
   return typeof getMobileCore().searchInbox === "function";
 }
 
-const SEARCH_LIMIT = 100;
-
 type InboxAction =
   | "archive"
   | "delete-record"
@@ -118,9 +116,12 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
     const seq = ++searchSeq;
     set({ searching: true, lastError: null });
     try {
+      // limit 传 undefined：条数上限是三端共享的 `INBOX_SEARCH_LIMIT`，由 core 兜底。
+      // 端上各带一个魔数正是 #111 修掉的分叉（此前这里 100、桌面 20、Web 50，
+      // 而截断的永远是最早收到的那批，于是同一个词在两端搜出不同结果）。
       const hits = await getMobileCore().searchInbox(
         trimmed,
-        SEARCH_LIMIT,
+        undefined,
         includeArchived,
       );
       if (seq !== searchSeq) return; // 丢弃过期检索响应

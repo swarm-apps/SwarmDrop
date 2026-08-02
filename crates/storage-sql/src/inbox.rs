@@ -893,7 +893,34 @@ mod tests {
         let hit = by_title.iter().find(|h| h.id == id).unwrap();
         assert_eq!(hit.files.len(), 1);
         assert_eq!(hit.files[0].relative_path, "季度合同扫描.pdf");
-        assert!(!hit.snippet.is_empty(), "命中应带匹配片段");
+        // 单文件条目的标题**就是文件名**（`inbox_title`），所以「扫描」先命中标题——
+        // 而命中标题不产出片段：标题在三端的条目行上本来就显示着，再给一条内容相同的
+        // 片段只是把同一句话说两遍。片段判据的正面覆盖在 `swarmdrop-transfer` 的
+        // `snippet_only_for_file_hits`（领域层单测），这里只管「搜不搜得到」。
+        assert!(hit.snippet.is_none(), "命中标题时不该产出片段");
+    }
+
+    /// 只命中 `relative_path` 时**要**产出片段——与上一个测试的否定断言凑成一对。
+    ///
+    /// 单有否定断言不够：`build_search_hit` 里唯一能产出 `Some` 的分支就是文件文本命中，
+    /// 而「`files` 构造错了导致片段恒 `None`」在 SQL 端会一路绿到线上。Web 侧的对应测试是
+    /// `crates/web/src/inbox.rs` 的 `invoices` 用例，两端对同一判据一正一反才算对齐。
+    #[tokio::test]
+    async fn search_snippet_present_when_only_file_path_matches() {
+        let (_db, store) = make_env().await;
+        let id = make_inbox_item(&store, "Dave", &[file_info(0, "invoices/c.pdf", 12)]).await;
+
+        let hits = store.search_inbox("invoices", 10, false).await.unwrap();
+        let hit = hits.iter().find(|h| h.id == id).expect("路径词应命中");
+        // 「invoices」不在标题（单文件条目的标题是文件名 `c.pdf`）也不在来源名（Dave）里，
+        // 所以这是该给片段的那种命中：用户要找的东西不在条目行上直接可见。
+        assert!(
+            hit.snippet
+                .as_deref()
+                .is_some_and(|s| s.contains("invoices")),
+            "只命中文件路径时要带可读片段，实际: {:?}",
+            hit.snippet
+        );
     }
 
     #[tokio::test]

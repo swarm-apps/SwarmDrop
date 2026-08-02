@@ -42,7 +42,7 @@ pub async fn get_inbox_item_by_transfer_session_id(
         .await?)
 }
 
-/// 检索收件箱。`limit` 默认 20，`include_archived` 默认 false。
+/// 检索收件箱。`limit` 缺省取三端共享的 [`INBOX_SEARCH_LIMIT`]，`include_archived` 默认 false。
 ///
 /// 存储端口未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
 #[tauri::command]
@@ -53,9 +53,8 @@ pub async fn search_inbox(
     limit: Option<u32>,
     include_archived: Option<bool>,
 ) -> crate::AppResult<Vec<InboxSearchHit>> {
-    let limit = limit.unwrap_or(20) as usize;
     Ok(store
-        .search_inbox(&query, limit, include_archived.unwrap_or(false))
+        .search_inbox_capped(&query, limit, include_archived.unwrap_or(false))
         .await?)
 }
 

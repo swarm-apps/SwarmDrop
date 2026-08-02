@@ -210,7 +210,10 @@ pub struct MobileInboxSearchHit {
     pub root_path: Option<String>,
     pub received_at: i64,
     /// 命中所在文本的片段（core 端按子串位置切窗口生成）。
-    pub snippet: String,
+    ///
+    /// `None` = 不该渲染片段行：命中的是标题或来源名（条目行上已经显示着），或一个候选都
+    /// 没命中。判据在 core 的 `inbox_snippet`，端上不要再判一遍。
+    pub snippet: Option<String>,
     pub files: Vec<MobileInboxHitFile>,
 }
 
@@ -348,15 +351,18 @@ impl MobileCore {
 
     /// 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
     /// 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
+    /// `limit` 缺省取三端共享的 [`INBOX_SEARCH_LIMIT`]——端上不要自带这个数字。
+    /// 此前 JS 侧写死 100、桌面 20、Web 50，而截断掉的永远是最早收到的那批，
+    /// 于是同一个查询词在两端搜出不同结果（#111）。
     pub async fn search_inbox(
         &self,
         query: String,
-        limit: u32,
+        limit: Option<u32>,
         include_archived: bool,
     ) -> FfiResult<Vec<MobileInboxSearchHit>> {
         let store = self.ensure_store().await?;
         let hits = store
-            .search_inbox(&query, limit as usize, include_archived)
+            .search_inbox_capped(&query, limit, include_archived)
             .await
             .map_err(FfiError::from)?;
         Ok(hits.into_iter().map(Into::into).collect())

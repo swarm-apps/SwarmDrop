@@ -25,7 +25,7 @@ use uuid::Uuid;
 use crate::AppResult;
 use crate::coordinator::TransferState;
 use crate::host::{CoreSaveLocation, HostFileMetadata};
-use crate::inbox::{InboxItemDetail, InboxItemSummary, InboxSearchHit};
+use crate::inbox::{INBOX_SEARCH_LIMIT, InboxItemDetail, InboxItemSummary, InboxSearchHit};
 use crate::protocol::{FileInfo, TransferOrigin};
 
 /// 会话/文件级持久化端口（断点续传的事实来源 + 传输历史的唯一出口）。
@@ -224,6 +224,26 @@ pub trait InboxStore: Send + Sync {
         limit: usize,
         include_archived: bool,
     ) -> AppResult<Vec<InboxSearchHit>>;
+
+    /// **宿主该调的入口**：`limit` 缺省取 [`INBOX_SEARCH_LIMIT`]，且不允许超过它。
+    ///
+    /// 上面那个 `search_inbox` 收的是确定的 `usize`，于是每个宿主都得自己想「不传时用几」
+    /// ——#111 之前四个宿主想出了四个答案（Tauri 命令 20、MCP 20、移动 100、Web 50），
+    /// 而内核的截断是「按 `received_at` 倒序之后截断」，掉的永远是最早收到的那批：
+    /// 同一批数据、同一个词，老条目在一端搜不到、在另一端搜得到。
+    ///
+    /// 把兜底放在这里而不是各宿主，是为了让 `Option` 成为宿主面对的类型——「自带一个默认值」
+    /// 那条路在类型上就不存在了。**上限只能收窄不能放宽**：它是三端共享的展示契约，
+    /// 宿主传更大的数等于把分叉从常量搬到参数上。
+    async fn search_inbox_capped(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+        include_archived: bool,
+    ) -> AppResult<Vec<InboxSearchHit>> {
+        let limit = limit.map_or(INBOX_SEARCH_LIMIT, |n| (n as usize).min(INBOX_SEARCH_LIMIT));
+        self.search_inbox(query, limit, include_archived).await
+    }
 
     /// 加载收件箱详情。软删除后的条目对普通详情不可见。
     async fn get_inbox_item_detail(&self, item_id: Uuid) -> AppResult<Option<InboxItemDetail>>;
