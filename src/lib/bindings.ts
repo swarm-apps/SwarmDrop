@@ -34,7 +34,7 @@ export const commands = {
 	installUpdate: (url: string, isForce: boolean) => __TAURI_INVOKE<null>("install_update", { url, isForce }),
 	listInboxItems: (includeArchived: boolean) => __TAURI_INVOKE<InboxItemSummary[]>("list_inbox_items", { includeArchived }),
 	/**
-	 *  检索收件箱。`limit` 默认 20，`include_archived` 默认 false。
+	 *  检索收件箱。`limit` 缺省取三端共享的 [`INBOX_SEARCH_LIMIT`]，`include_archived` 默认 false。
 	 * 
 	 *  存储端口未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
 	 */
@@ -479,8 +479,13 @@ export type InboxSearchHit = {
 	itemCount: number,
 	rootPath: string | null,
 	receivedAt: number,
-	/**  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。 */
-	snippet: string,
+	/**
+	 *  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
+	 * 
+	 *  `None` = **不该渲染片段行**：命中的是标题或来源名（条目行上已经显示着），
+	 *  或一个候选都没命中。判据在 [`inbox_snippet`]，三端不要各判一遍。
+	 */
+	snippet: string | null,
 	/**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
 	files: InboxHitFile[],
 };

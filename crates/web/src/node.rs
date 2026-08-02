@@ -135,6 +135,18 @@ fn to_js_typed<T: serde::Serialize, R: JsCast>(value: &T, what: &str) -> Result<
         .map_err(|e| WebError::network(format!("序列化{what}失败: {e}")).into())
 }
 
+/// 检索条数上限（[`INBOX_SEARCH_LIMIT`](swarmdrop_transfer::inbox::INBOX_SEARCH_LIMIT) 的只读镜像）。
+///
+/// `search_inbox` 的 `limit` 缺省就取这个值、传大了也会被钳回来，前端**不需要**传它。
+/// 导出它只为一件事：UI 要说「只显示了最近 N 条」时得知道 N 是几。
+///
+/// 换句话说前端仍然不许自带这个数字——那正是 #111 修掉的分叉（此前四个宿主四个值，
+/// 而截断掉的永远是最早收到的那批）。wasm-bindgen 不导出常量，所以包成函数。
+#[wasm_bindgen]
+pub fn inbox_search_limit() -> usize {
+    swarmdrop_transfer::inbox::INBOX_SEARCH_LIMIT
+}
+
 /// 浏览器传输端节点。
 #[wasm_bindgen]
 pub struct WebNode {
@@ -905,16 +917,17 @@ impl WebNode {
     }
 
     /// 收件箱子串检索：大小写不敏感，覆盖标题 / 来源设备名 / 文件名与相对路径。
-    /// 空查询返回空列表；结果按 `receivedAt` 倒序并截断到 `limit`。
+    /// 空查询返回空列表；结果按 `receivedAt` 倒序并截断到 `limit`
+    /// （缺省取三端共享的 `INBOX_SEARCH_LIMIT`，前端不必自带魔数）。
     pub async fn search_inbox(
         &self,
         query: String,
-        limit: usize,
+        limit: Option<u32>,
         include_archived: bool,
     ) -> Result<InboxSearchHitArray, JsValue> {
         let hits = self
             .session_store
-            .search_inbox(&query, limit, include_archived)
+            .search_inbox_capped(&query, limit, include_archived)
             .await
             .map_err(WebError::from)?;
         to_js_typed(&hits, "收件箱检索结果")
@@ -940,12 +953,50 @@ impl WebNode {
         Ok(())
     }
 
-    /// 软删除收件箱条目：**只删记录**，OPFS 里的文件不动。
+    /// 软删除收件箱条目；`delete_local_files` 为真时连 OPFS 里的文件一起删。
     ///
-    /// 与桌面同一分工——是否连文件一起删由宿主在调用前决定，端口只管账本
-    /// （Web 端目前不提供删文件的入口，OPFS 空间的释放待收件箱 UI 一并设计）。
-    pub async fn delete_inbox_item(&self, item_id: String) -> Result<(), JsValue> {
+    /// 与桌面 `delete_inbox_item(item_id, delete_local_files)` 同签名同语义：**是否连文件
+    /// 一起删由宿主决定，端口只管账本**（`delete_inbox_item_record` 永远只软删记录）。
+    ///
+    /// 不删文件时那份 OPFS 副本会成为孤儿——记录一软删，`list`/`search`/`detail` 就都看不到
+    /// 它了，配额却还占着，用户唯一的出路是浏览器的「清除站点数据」。所以这个入口不是锦上添花：
+    /// 没有它，Web 端的每一次删除都在泄漏。
+    ///
+    /// 文件不存在不算错误（`remove_path` 对缺失返回 `Ok(false)`），与桌面对
+    /// `ErrorKind::NotFound` 的处理一致。
+    ///
+    /// **删文件失败不阻断删记录。** 顺序仍是先文件后记录（反过来的话记录没了就再也定位不到
+    /// 那份副本），但失败只记日志、继续删账本——因为 Web 前端**不给「保留文件」选项**
+    /// （OPFS 副本用户无从访问，留着只是泄漏），所以一旦在这里 `?` 返回，用户就再没有任何
+    /// 办法删掉这条记录了；桌面上他至少还能取消勾选、只删账本。
+    ///
+    /// `remove_path` 的失败面是真的：5s 超时，以及 `createWritable()` 持独占锁时的
+    /// `NoModificationAllowedError`（三端都不做重名消歧，「新的接收正在写同名文件」时那把锁
+    /// 就开着）。代价是那份文件成孤儿——与「删掉 suspended 接收会话留下的残件」是同一个已知
+    /// 负债，将来一并按「哪些文件真没写完」收口。
+    pub async fn delete_inbox_item(
+        &self,
+        item_id: String,
+        delete_local_files: bool,
+    ) -> Result<(), JsValue> {
         let id = parse_uuid(&item_id, "item_id")?;
+        if delete_local_files {
+            let detail = self
+                .session_store
+                .get_inbox_item_detail(id)
+                .await
+                .map_err(WebError::from)?
+                .ok_or_else(|| WebError::not_found("收件箱记录不存在"))?;
+            for file in &detail.files {
+                if let Err(e) = crate::opfs::remove_path(&file.relative_path).await {
+                    tracing::warn!(
+                        path = %file.relative_path,
+                        error = %e,
+                        "删除 OPFS 文件失败，记录仍会删除（该文件将成为孤儿）"
+                    );
+                }
+            }
+        }
         self.session_store
             .delete_inbox_item_record(id)
             .await

@@ -384,7 +384,7 @@ extern "C" {
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(
         /*handle*/ uint64_t ptr, 
         RustBuffer query, 
-        uint32_t limit, 
+        RustBuffer limit, 
         int8_t include_archived
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(
@@ -7384,7 +7384,7 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging<uint32_t>::fromJs(rt, callInvoker, args[2]), uniffi_jsi::Bridging<int8_t>::fromJs(rt, callInvoker, args[3])
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2]), uniffi_jsi::Bridging<int8_t>::fromJs(rt, callInvoker, args[3])
         );
 
         

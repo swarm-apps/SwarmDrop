@@ -289,17 +289,35 @@ export class WebNode {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
-     * 软删除收件箱条目：**只删记录**，OPFS 里的文件不动。
+     * 软删除收件箱条目；`delete_local_files` 为真时连 OPFS 里的文件一起删。
      *
-     * 与桌面同一分工——是否连文件一起删由宿主在调用前决定，端口只管账本
-     * （Web 端目前不提供删文件的入口，OPFS 空间的释放待收件箱 UI 一并设计）。
+     * 与桌面 `delete_inbox_item(item_id, delete_local_files)` 同签名同语义：**是否连文件
+     * 一起删由宿主决定，端口只管账本**（`delete_inbox_item_record` 永远只软删记录）。
+     *
+     * 不删文件时那份 OPFS 副本会成为孤儿——记录一软删，`list`/`search`/`detail` 就都看不到
+     * 它了，配额却还占着，用户唯一的出路是浏览器的「清除站点数据」。所以这个入口不是锦上添花：
+     * 没有它，Web 端的每一次删除都在泄漏。
+     *
+     * 文件不存在不算错误（`remove_path` 对缺失返回 `Ok(false)`），与桌面对
+     * `ErrorKind::NotFound` 的处理一致。
+     *
+     * **删文件失败不阻断删记录。** 顺序仍是先文件后记录（反过来的话记录没了就再也定位不到
+     * 那份副本），但失败只记日志、继续删账本——因为 Web 前端**不给「保留文件」选项**
+     * （OPFS 副本用户无从访问，留着只是泄漏），所以一旦在这里 `?` 返回，用户就再没有任何
+     * 办法删掉这条记录了；桌面上他至少还能取消勾选、只删账本。
+     *
+     * `remove_path` 的失败面是真的：5s 超时，以及 `createWritable()` 持独占锁时的
+     * `NoModificationAllowedError`（三端都不做重名消歧，「新的接收正在写同名文件」时那把锁
+     * 就开着）。代价是那份文件成孤儿——与「删掉 suspended 接收会话留下的残件」是同一个已知
+     * 负债，将来一并按「哪些文件真没写完」收口。
      * @param {string} item_id
+     * @param {boolean} delete_local_files
      * @returns {Promise<void>}
      */
-    delete_inbox_item(item_id) {
+    delete_inbox_item(item_id, delete_local_files) {
         const ptr0 = passStringToWasm0(item_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.webnode_delete_inbox_item(this.__wbg_ptr, ptr0, len0);
+        const ret = wasm.webnode_delete_inbox_item(this.__wbg_ptr, ptr0, len0, delete_local_files);
         return ret;
     }
     /**
@@ -703,16 +721,17 @@ export class WebNode {
     }
     /**
      * 收件箱子串检索：大小写不敏感，覆盖标题 / 来源设备名 / 文件名与相对路径。
-     * 空查询返回空列表；结果按 `receivedAt` 倒序并截断到 `limit`。
+     * 空查询返回空列表；结果按 `receivedAt` 倒序并截断到 `limit`
+     * （缺省取三端共享的 `INBOX_SEARCH_LIMIT`，前端不必自带魔数）。
      * @param {string} query
-     * @param {number} limit
+     * @param {number | null | undefined} limit
      * @param {boolean} include_archived
      * @returns {Promise<InboxSearchHit[]>}
      */
     search_inbox(query, limit, include_archived) {
         const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.webnode_search_inbox(this.__wbg_ptr, ptr0, len0, limit, include_archived);
+        const ret = wasm.webnode_search_inbox(this.__wbg_ptr, ptr0, len0, isLikeNone(limit) ? 0x100000001 : (limit) >>> 0, include_archived);
         return ret;
     }
     /**
@@ -787,6 +806,21 @@ export function default_device_name() {
 export function get_device_name() {
     const ret = wasm.get_device_name();
     return ret;
+}
+
+/**
+ * 检索条数上限（[`INBOX_SEARCH_LIMIT`](swarmdrop_transfer::inbox::INBOX_SEARCH_LIMIT) 的只读镜像）。
+ *
+ * `search_inbox` 的 `limit` 缺省就取这个值、传大了也会被钳回来，前端**不需要**传它。
+ * 导出它只为一件事：UI 要说「只显示了最近 N 条」时得知道 N 是几。
+ *
+ * 换句话说前端仍然不许自带这个数字——那正是 #111 修掉的分叉（此前四个宿主四个值，
+ * 而截断掉的永远是最早收到的那批）。wasm-bindgen 不导出常量，所以包成函数。
+ * @returns {number}
+ */
+export function inbox_search_limit() {
+    const ret = wasm.inbox_search_limit();
+    return ret >>> 0;
 }
 
 /**
@@ -1712,37 +1746,37 @@ function __wbg_get_imports() {
             return ret;
         }, arguments); },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2178, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2179, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2185, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2186, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2178, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2179, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2185, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2186, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2178, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2179, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2185, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2186, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000004: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2276, function: Function { arguments: [], shim_idx: 2277, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2283, function: Function { arguments: [], shim_idx: 2284, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______);
             return ret;
         },
         __wbindgen_cast_0000000000000005: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2827, function: Function { arguments: [Externref], shim_idx: 2828, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2834, function: Function { arguments: [Externref], shim_idx: 2835, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000006: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2881, function: Function { arguments: [], shim_idx: 2882, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2888, function: Function { arguments: [], shim_idx: 2889, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_);
             return ret;
         },
         __wbindgen_cast_0000000000000007: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 874, function: Function { arguments: [NamedExternref("Event")], shim_idx: 875, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 880, function: Function { arguments: [NamedExternref("Event")], shim_idx: 881, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent_____);
             return ret;
         },

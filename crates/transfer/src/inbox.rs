@@ -47,10 +47,16 @@ pub struct InboxItemSummary {
 pub struct InboxItemFileEntry {
     pub id: i32,
     pub transfer_file_id: Option<i32>,
+    /// 条目根之下的相对路径。**Web 宿主删文件用这个**——OPFS 的键就是它。
     pub relative_path: String,
     pub name: String,
     pub size: i64,
     pub checksum: String,
+    /// 宿主可直接操作的完整路径。**桌面 / 移动删文件用这个**（那边是真实文件系统路径）；
+    /// **Web 上它是带 `opfs:/` 前缀的展示值，喂给 `remove_path` 会去找一个叫 `opfs:` 的目录**。
+    ///
+    /// 两个路径字段并存且「该用哪个」按端不同，是这个 DTO 最容易踩空的地方——所以写在这里，
+    /// 而不是让每个宿主自己从别处推断。
     pub local_path: String,
     pub missing: bool,
 }
@@ -78,7 +84,10 @@ pub struct InboxSearchHit {
     pub root_path: Option<String>,
     pub received_at: i64,
     /// 命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
-    pub snippet: String,
+    ///
+    /// `None` = **不该渲染片段行**：命中的是标题或来源名（条目行上已经显示着），
+    /// 或一个候选都没命中。判据在 [`inbox_snippet`]，三端不要各判一遍。
+    pub snippet: Option<String>,
     /// 该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。
     pub files: Vec<InboxHitFile>,
 }
@@ -195,11 +204,23 @@ pub fn inbox_matches(
     if needle.is_empty() {
         return false;
     }
-    title.to_lowercase().contains(&needle)
-        || source_name.to_lowercase().contains(&needle)
-        || files_text.to_lowercase().contains(&needle)
-        || extracted_text.is_some_and(|text| text.to_lowercase().contains(&needle))
+    contains_ci(title, &needle)
+        || contains_ci(source_name, &needle)
+        || contains_ci(files_text, &needle)
+        || extracted_text.is_some_and(|text| contains_ci(text, &needle))
 }
+
+/// 检索结果条数上限的**唯一事实源**。
+///
+/// 此前四个宿主想出了四个值——Tauri 命令 20、桌面 MCP 20、移动 100、Web 50——而内核的截断是
+/// 「按 `received_at` 倒序之后截断」，掉的永远是**最早收到**的那批。于是同一批数据、同一个
+/// 查询词，一个老条目在一端「搜不到」、在另一端搜得到。这正是 [`INBOX_MATCH_CASES`] 那套
+/// 跨端语料想防的分叉，只不过分叉点在条数而不在判据，语料覆盖不到。
+///
+/// **宿主不传这个数**：一律走 [`search_inbox_capped`](crate::store::InboxStore::search_inbox_capped)，
+/// 那里收 `Option` 并在缺省时取本常量、传入时钳到本常量。TS 侧引不到 Rust const
+/// （specta 与 wasm-bindgen 都不导出常量），所以让 Rust 做决定，比让前端各抄一份数字可靠。
+pub const INBOX_SEARCH_LIMIT: usize = 50;
 
 /// [`INBOX_MATCH_CASES`] 的一条用例：一组索引文本 + 一个查询词 + 期望是否命中。
 #[derive(Debug, Clone, Copy)]
@@ -355,27 +376,43 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     },
 ];
 
-/// 在标题 / 来源名 / 文件文本里找首个命中子串，按字符切窗口生成片段（UTF-8 安全）。
+/// 在文件文本里找首个命中子串，按字符切窗口生成片段（UTF-8 安全）。
 ///
-/// 候选顺序即优先级：标题 → 来源名 → 各文件的 `"{name} {relative_path}"`。
-/// 一个都没命中时回退整个标题（搜索结果总要有一行可读的说明文本）。
+/// **命中标题或来源名时返回 `None`，不返回片段。** 那两样在三端的条目行上本来就直接显示着
+/// （标题一行、「来自 {sourceName}」一行），再给一条内容相同的片段只是把同一句话说两遍——
+/// 而片段行通常还带截断省略号，观感上更像是把标题截坏了。
+///
+/// 一个候选都不命中时同样返回 `None`：那种情况片段无从谈起（旧实现回退整个标题，理由是
+/// 「搜索结果总要有一行可读的说明文本」，但标题本来就在上面那行）。
+///
+/// 判据统一在这里，是因为它此前三端各判一遍：桌面无条件渲染、移动端判真、Web 端在前端
+/// 比对字符串——最后那种还编码了本函数的窗口半径与省略号规则，改这里就会静默失效。
 pub fn inbox_snippet(
     query: &str,
     title: &str,
     source_name: &str,
     files: &[InboxHitFile],
-) -> String {
-    let needle = query.to_lowercase();
-    let mut candidates: Vec<String> = vec![title.to_string(), source_name.to_string()];
-    for file in files {
-        candidates.push(format!("{} {}", file.name, file.relative_path));
+) -> Option<String> {
+    // 与 `inbox_matches` 同规地 trim。此前这里不 trim，只因为两个调用点都预先 trim 过——
+    // 而这是个 pub 的领域规则，靠调用点纪律维系的契约迟早会破。
+    let needle = query.trim().to_lowercase();
+    // 标题与来源名只用来**判断命中归属**，不产出片段：命中它们说明用户要找的东西已经在
+    // 条目行上可见了。判归属用 `contains_ci` 而不是 `snippet_window(..).is_some()`——
+    // 后者会把整个窗口串（含省略号、`Vec<char>` 收集）造出来只为取一个 bool，两次。
+    if contains_ci(title, &needle) || contains_ci(source_name, &needle) {
+        return None;
     }
-    for text in &candidates {
-        if let Some(snippet) = snippet_window(text, &needle) {
-            return snippet;
-        }
-    }
-    title.to_string()
+    files
+        .iter()
+        .find_map(|file| snippet_window(&format!("{} {}", file.name, file.relative_path), &needle))
+}
+
+/// 大小写不敏感子串——[`inbox_matches`] 与 [`inbox_snippet`] 共用的那一次折叠。
+///
+/// 「Rust 的 `to_lowercase` 按 Unicode 折叠、SQLite 的 `LIKE` 默认只折 ASCII」这条**刻意保留**
+/// 的两端差异（理由见 [`inbox_matches`] 的文档）于是只有一个落点，不必在两处各解释一遍。
+fn contains_ci(text: &str, needle_lower: &str) -> bool {
+    text.to_lowercase().contains(needle_lower)
 }
 
 fn snippet_window(text: &str, needle_lower: &str) -> Option<String> {
@@ -584,13 +621,15 @@ mod tests {
         )));
     }
 
+    /// 片段**只为文件命中而生**：标题与来源名在三端的条目行上本来就显示着，
+    /// 再给一条内容相同的片段只是把同一句话说两遍。
     #[test]
-    fn snippet_prefers_title_then_source_then_files() {
-        assert_eq!(
-            inbox_snippet("合同", "季度合同.pdf", "Bob", &[]),
-            "季度合同.pdf"
-        );
-        assert_eq!(inbox_snippet("Bob", "季度合同.pdf", "Bob", &[]), "Bob");
+    fn snippet_only_for_file_hits() {
+        // 命中标题 → 不给片段（旧实现在这里返回标题本身）。
+        assert_eq!(inbox_snippet("合同", "季度合同.pdf", "Bob", &[]), None);
+        // 命中来源名 → 同理。
+        assert_eq!(inbox_snippet("Bob", "季度合同.pdf", "Bob", &[]), None);
+        // 命中文件文本 → 这才是片段有信息量的场合：命中的东西不在条目行上。
         assert_eq!(
             inbox_snippet(
                 "readme",
@@ -598,23 +637,28 @@ mod tests {
                 "Bob",
                 &[hit("readme.md", "docs/readme.md")]
             ),
-            "readme.md docs/readme.…"
+            Some("readme.md docs/readme.…".to_string())
         );
-        // 一个候选都不命中 → 回退整个标题。
+        // 一个候选都不命中 → 无片段可言（旧实现回退整个标题）。
+        assert_eq!(inbox_snippet("zzz", "季度合同.pdf", "Bob", &[]), None);
+        // 标题与文件同时命中时仍不给片段：标题那条已经可见，优先级不变。
         assert_eq!(
-            inbox_snippet("zzz", "季度合同.pdf", "Bob", &[]),
-            "季度合同.pdf"
+            inbox_snippet("合同", "季度合同.pdf", "Bob", &[hit("合同附件.pdf", "")]),
+            None
         );
     }
 
     /// 窗口边界：命中在正中时首尾都加 `…`，贴边时对应一侧不加。
     /// 全程按**字符**切，CJK 不会被切成半个码点（切字节会直接 panic）。
+    ///
+    /// 长文本挂在**文件名**上而不是标题上——标题命中现在不产出片段（见上一个测试）。
     #[test]
     fn snippet_window_is_char_based_and_marks_truncated_sides() {
         // 命中词前后各 20 个 CJK 字符，两侧都超出 ±16 的窗口。
         let long =
             "甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉合同戌亥甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未";
-        let snippet = inbox_snippet("合同", long, "", &[]);
+        let snippet = inbox_snippet("合同", "无关标题", "", &[hit(long, "")])
+            .expect("文件文本命中应产出片段");
         assert!(snippet.starts_with('…'), "左侧被截断应带省略号");
         assert!(snippet.ends_with('…'), "右侧被截断应带省略号");
         assert!(snippet.contains("合同"));
@@ -622,6 +666,9 @@ mod tests {
         assert_eq!(snippet.chars().count(), 16 + 2 + 16 + 2);
 
         // 命中贴着开头 → 左侧不加省略号；文本短于窗口 → 右侧也不加。
-        assert_eq!(inbox_snippet("合同", "合同扫描件", "", &[]), "合同扫描件");
+        assert_eq!(
+            inbox_snippet("合同", "无关标题", "", &[hit("合同扫描件", "docs")]),
+            Some("合同扫描件 docs".to_string())
+        );
     }
 }

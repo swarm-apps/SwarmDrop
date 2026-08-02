@@ -51,16 +51,6 @@ import {
  */
 const BLOB_URL_TTL_MS = 30_000;
 
-/**
- * 检索结果上限。收件箱是浏览器内存表，50 条远超「找一样东西」需要过目的量。
- *
- * ⚠️ 三端目前三个值：桌面 20（`inbox.rs` 的 `limit.unwrap_or(20)`）、移动 100、这里 50，
- * 而截断掉的永远是**最早收到**的那批（内核按 `receivedAt` 倒序后截断）。于是同一批数据、
- * 同一个词，老条目在桌面上搜不到、在这里搜得到。该提为 `crates/transfer` 的共享常量，
- * 与 `INBOX_MATCH_CASES` 同一个落点——见 #111。
- */
-const SEARCH_LIMIT = 50;
-
 /** 检索防抖。与桌面端 `_app/inbox` 的 250ms 对齐——同一个动作在两端手感不该不同。 */
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -145,26 +135,6 @@ type InboxRow = {
   snippet: string | null;
 };
 
-/**
- * 这条 snippet 是否只是把本行已经显示过的话再说一遍。
- *
- * `inbox_snippet` 的候选顺序是 标题 → 来源名 → 文件文本，且一个都不命中时**回退整个标题**。
- * 于是命中前两者（很常见）时切出来的窗口就是标题或来源名的一段，而这一行上面正好写着
- * 「{title}」与「来自 {sourceName}」——照原样渲染就是同一句话说两遍。
- *
- * 判据用「去掉省略号后是子串」而不是全等：命中位置离两端超过窗口半径（16 字符）时，
- * `snippet_window` 会切成 `…xxx…`，全等判据在长标题上直接失效，而长文件名很常见。
- *
- * ⚠️ 这里编码的是**内核的退化行为**，没有测试守着它。根治该在 `inbox_snippet` 里做——
- * 退化成原样重复时返回 `None`、`InboxSearchHit.snippet` 改 `Option<String>`，三端就都不必
- * 各自判一遍（目前桌面无条件渲染重复行、移动端判真、这里判子串，同一件事三种处理）。
- */
-function redundantSnippet(snippet: string, item: InboxItemDetail): boolean {
-  const core = snippet.replaceAll("…", "");
-  if (!core) return true;
-  return item.title.includes(core) || item.sourceName.includes(core);
-}
-
 /** 一个条目级动作的全部对外状态。与 transfer-activity-panel 的 `ItemAction` 同形。 */
 type ItemAction = {
   pending: boolean;
@@ -185,6 +155,7 @@ function InboxPanelInner() {
   const items = useWebNode((s) => s.inboxItems);
   const status = useWebNode((s) => s.status);
   const inboxRevision = useWebNode((s) => s.inboxRevision);
+  const searchLimit = useWebNode((s) => s.inboxSearchLimit);
   const searchParams = useSearchParams();
   const focusedId = searchParams.get(PARAM.item);
 
@@ -272,7 +243,10 @@ function InboxPanelInner() {
     if (!ready) return;
     const node = getNode();
     if (!node) return;
-    searchAction.run(() => node.search_inbox(query, SEARCH_LIMIT, showArchived), setHits);
+    // limit 传 undefined：条数上限是三端共享的 `INBOX_SEARCH_LIMIT`，由内核兜底。
+    // 前端各带一个魔数正是 #111 修掉的分叉（此前桌面 20 / 移动 100 / 这里 50，而截断的
+    // 永远是最早收到的那批，于是同一个词在两端搜出不同结果）。
+    searchAction.run(() => node.search_inbox(query, undefined, showArchived), setHits);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, showArchived, ready, inboxRevision]);
 
@@ -288,7 +262,10 @@ function InboxPanelInner() {
     const byId = new Map(visible.map((item) => [item.id, item]));
     return hits.flatMap((hit) => {
       const item = byId.get(hit.id);
-      return item ? [{ item, snippet: redundantSnippet(hit.snippet, item) ? null : hit.snippet }] : [];
+      // snippet 是否该渲染由内核判（命中标题/来源名时给 `null`——那两样条目行上已经显示着）。
+      // 前端一度自己比对字符串，那份判据编码了 `inbox_snippet` 的窗口半径与省略号规则，
+      // 改内核就会静默失效；#111 把它推回领域层后这里只剩透传。
+      return item ? [{ item, snippet: hit.snippet }] : [];
     });
   }, [hits, items, showArchived]);
 
@@ -406,11 +383,12 @@ function InboxPanelInner() {
         </p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {/* 截断要说出来。命中正好等于上限时无法区分「刚好 50 条」与「还有更多」，
-              所以文案取保守说法——比静默丢掉让用户以为搜全了要诚实。 */}
-          {isSearching && hits.length >= SEARCH_LIMIT && (
+          {/* 截断要说出来。命中正好等于上限时无法区分「刚好这么多」与「还有更多」，
+              所以文案取保守说法——比静默丢掉让用户以为搜全了要诚实。
+              上限从内核读（`inbox_search_limit()`），前端不自带这个数字。 */}
+          {isSearching && searchLimit !== null && hits.length >= searchLimit && (
             <li className="text-[11px] text-fd-muted-foreground">
-              只显示最近 {SEARCH_LIMIT} 条匹配，更早的未列出——请把关键词写得更具体。
+              只显示最近 {searchLimit} 条匹配，更早的未列出——请把关键词写得更具体。
             </li>
           )}
           {rows.map(({ item, snippet }) => {
@@ -435,7 +413,16 @@ function InboxPanelInner() {
                 remove={{
                   pending: itemAction.isPending(deleteKey),
                   error: itemAction.errorFor(deleteKey),
-                  run: () => runOnItem(deleteKey, (node) => node.delete_inbox_item(item.id)),
+                  // **总是连文件一起删**（第二参恒 true），不像桌面那样给「保留本地文件」开关。
+                  //
+                  // 那个开关在桌面有意义：文件躺在用户的文件系统里，删了记录还能用文件管理器
+                  // 打开。OPFS 没有这层——记录一软删，`list`/`search`/`detail` 全看不到它，
+                  // 那份副本就**永久不可达也不可清理**，配额却一直占着。于是「只删记录」在
+                  // 浏览器上唯一的效果就是泄漏，把它做成选项是让用户选一个没有好处的坑。
+                  //
+                  // 这不是与桌面分叉：同一个开关在两端的**含义**不同（那边是「留着还能用」，
+                  // 这边是「留着但谁也碰不到」），行为跟着含义走才是对齐。
+                  run: () => runOnItem(deleteKey, (node) => node.delete_inbox_item(item.id, true)),
                 }}
                 onDownload={download}
               />
@@ -602,11 +589,10 @@ function InboxItemRow({
           label="删除"
           pendingLabel="删除中"
           confirmLabel="确认删除"
-          // 删的是**账本不是内容**：Web 侧 `delete_inbox_item` 只软删记录，OPFS 里那份副本
-          // 不动（内核尚未开放删文件的入口，`opfs::remove_path` 其实已经有了，见 #111）。
-          // 文案要说到底：不光是「没释放存储」，而是记录一删这份副本从此不可达也不可清理，
-          // 只剩浏览器的「清除站点数据」能连整个站点一起端掉。少说后半句就成了「准确但不完整」。
-          warning="只删这条记录，浏览器里的文件副本不会被删除，之后也无法再通过本应用访问或清理它"
+          // 文案要与实际行为一致：这里删的是**记录连同浏览器里的那份文件**（#111 之前只删
+          // 记录、副本留下泄漏，文案当时如实写了那个缺陷）。已经下载到本机的那份不受影响，
+          // 这点要说，否则用户会以为下载好的文件也会跟着没。
+          warning="删除这条记录和浏览器里保存的文件；已下载到本机的副本不受影响"
           disabled={!ready}
           pending={remove.pending}
           onConfirm={remove.run}

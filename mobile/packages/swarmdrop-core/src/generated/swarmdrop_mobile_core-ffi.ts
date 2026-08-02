@@ -133,7 +133,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_resume_transfer(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_revoke_pair_invite(uniffiSelf: bigint, invite: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_revoke_pair_invite_by_id(uniffiSelf: bigint, id: Uint8Array): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(uniffiSelf: bigint, query: Uint8Array, limit: number, includeArchived: number): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(uniffiSelf: bigint, query: Uint8Array, limit: Uint8Array, includeArchived: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(uniffiSelf: bigint, preparedId: Uint8Array, peerId: Uint8Array, peerName: Uint8Array, fileIds: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(uniffiSelf: bigint, paused: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(uniffiSelf: bigint): bigint;

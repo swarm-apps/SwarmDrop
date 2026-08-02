@@ -1333,8 +1333,11 @@ export type MobileInboxSearchHit = {
     receivedAt: bigint,
     /**
      * 命中所在文本的片段（core 端按子串位置切窗口生成）。
+     *
+     * `None` = 不该渲染片段行：命中的是标题或来源名（条目行上已经显示着），或一个候选都
+     * 没命中。判据在 core 的 `inbox_snippet`，端上不要再判一遍。
      */
-    snippet: string,
+    snippet?: string,
     files: Array<MobileInboxHitFile>
 }
 
@@ -1365,7 +1368,7 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
                 itemCount: FfiConverterUInt32.read(from), 
                 rootPath: FfiConverterOptionalString.read(from), 
                 receivedAt: FfiConverterInt64.read(from), 
-                snippet: FfiConverterString.read(from), 
+                snippet: FfiConverterOptionalString.read(from), 
                 files: FfiConverterSequenceTypeMobileInboxHitFile.read(from)
             };
         }
@@ -1376,7 +1379,7 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
             FfiConverterUInt32.write(value.itemCount, into);
             FfiConverterOptionalString.write(value.rootPath, into);
             FfiConverterInt64.write(value.receivedAt, into);
-            FfiConverterString.write(value.snippet, into);
+            FfiConverterOptionalString.write(value.snippet, into);
             FfiConverterSequenceTypeMobileInboxHitFile.write(value.files, into);
         }
         allocationSize(value: TypeName): number {
@@ -1386,7 +1389,7 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
              FfiConverterUInt32.allocationSize(value.itemCount) +
              FfiConverterOptionalString.allocationSize(value.rootPath) +
              FfiConverterInt64.allocationSize(value.receivedAt) +
-             FfiConverterString.allocationSize(value.snippet) +
+             FfiConverterOptionalString.allocationSize(value.snippet) +
              FfiConverterSequenceTypeMobileInboxHitFile.allocationSize(value.files);
             
         }
@@ -5712,8 +5715,11 @@ export interface MobileCoreLike {
 /**
  * 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
  * 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
+ * `limit` 缺省取三端共享的 [`INBOX_SEARCH_LIMIT`]——端上不要自带这个数字。
+ * 此前 JS 侧写死 100、桌面 20、Web 50，而截断掉的永远是最早收到的那批，
+ * 于是同一个查询词在两端搜出不同结果（#111）。
  */
-    searchInbox(query: string, limit: number, includeArchived: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileInboxSearchHit>>;
+    searchInbox(query: string, limit: number | undefined, includeArchived: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileInboxSearchHit>>;
 /**
  * 发送：构造 Offer 给对端（异步，结果通过 TransferAccepted/Rejected/Failed 事件回报）
  */
@@ -7018,15 +7024,18 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
 /**
  * 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
  * 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
+ * `limit` 缺省取三端共享的 [`INBOX_SEARCH_LIMIT`]——端上不要自带这个数字。
+ * 此前 JS 侧写死 100、桌面 20、Web 50，而截断掉的永远是最早收到的那批，
+ * 于是同一个查询词在两端搜出不同结果（#111）。
  */
-    async searchInbox(query: string, limit: number, includeArchived: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileInboxSearchHit>> /*throws*/ {
+    async searchInbox(query: string, limit: number | undefined, includeArchived: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileInboxSearchHit>> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(
-                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(query, nativeModule().rustbuffer_alloc),FfiConverterUInt32.lower(limit, nativeModule().rustbuffer_alloc),FfiConverterBool.lower(includeArchived, nativeModule().rustbuffer_alloc)
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(query, nativeModule().rustbuffer_alloc),FfiConverterOptionalUInt32.lower(limit, nativeModule().rustbuffer_alloc),FfiConverterBool.lower(includeArchived, nativeModule().rustbuffer_alloc)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
@@ -7589,7 +7598,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite_by_id() !== 64447) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite_by_id");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox() !== 7065) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox() !== 45739) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared() !== 28705) {

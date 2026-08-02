@@ -141,6 +141,14 @@ export interface WebNodeState {
    * 拉取点因此始终只有一处，`include_archived` 这个视图状态也不必泄漏进 store。
    */
   inboxRevision: number;
+  /**
+   * 检索结果条数上限（内核 `inbox_search_limit()`，= 三端共享的 `INBOX_SEARCH_LIMIT`）。
+   * `null` = 尚未从 wasm 模块读到。
+   *
+   * **前端不传这个数**——`search_inbox` 的 limit 缺省就是它。存它只为一件事：UI 要说
+   * 「只显示了最近 N 条」时得知道 N 是几。自己写一个 50 就又回到 #111 修掉的那种分叉了。
+   */
+  inboxSearchLimit: number | null;
 
   // —— pairing 域 ——
   /** 入站配对请求（browser-as-inviter：桌面消费本机 invite 后到达）。轮询累积。 */
@@ -174,6 +182,7 @@ const initialState: WebNodeState = {
   eventLog: [],
   inboxItems: [],
   inboxRevision: 0,
+  inboxSearchLimit: null,
   pendingPairings: [],
   pairedDevices: [],
   connection: null,
@@ -221,6 +230,9 @@ export const webNodeActions = {
   },
   setDeviceNameFallback(deviceNameFallback: string | null) {
     webNodeStore.setState({ deviceNameFallback });
+  },
+  setInboxSearchLimit(inboxSearchLimit: number) {
+    webNodeStore.setState({ inboxSearchLimit });
   },
   /** 事件源一：把一条 transfer 事件归约进对应域。 */
   applyEvent(event: WebTransferEvent) {
@@ -338,6 +350,9 @@ export const webNodeActions = {
   /**
    * 关停后清空运行态，保留已探测的 secure 结果（环境不因关节点而改变）。
    * 设备名同理：它持久化在 IndexedDB、回退名由 UA 派生，两者都不是节点的运行态。
+   *
+   * `inboxSearchLimit` 更不是——它是**编译期常量**的镜像。而重读它的唯一入口只在 layout
+   * mount 跑一次，抹成 `null` 就再也回不来，「只显示最近 N 条」那条提示会永久消失。
    */
   reset() {
     webNodeStore.setState((s) => ({
@@ -345,6 +360,7 @@ export const webNodeActions = {
       secure: s.secure,
       deviceName: s.deviceName,
       deviceNameFallback: s.deviceNameFallback,
+      inboxSearchLimit: s.inboxSearchLimit,
     }));
   },
 };
