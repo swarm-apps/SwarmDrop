@@ -453,8 +453,14 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   Lucide 图标，另注册了 `@aceternity` registry。
 - **Diagrams:** 一律用 Mermaid，不用 ASCII art。
 - **App identifier:** `com.yexiyue.swarmdrop`
-- **Version management:** 三处同步——`package.json`、`src-tauri/Cargo.toml`、
-  `src-tauri/tauri.conf.json`。CI 取 `tauri.conf.json` 的版本作为发布版本。
+- **Version management:** 两条版本线，各自有真源 + 跟随项，**同一条线内必须一起改**：
+  - 桌面（tag `v*`）：真源 `src-tauri/tauri.conf.json`，跟随 `package.json` + `src-tauri/Cargo.toml`
+  - 移动（tag `mobile-v*`）：真源 `mobile/app.json` 的 `expo.version`，跟随 `mobile/package.json`
+    （**别漏这个**——CI 的 `verify-versions` 会拦，但那是打完 tag 才发现）；发版还要递增
+    `expo.android.versionCode`
+
+  完整表格与「为什么不统一版本线」见 [`toolchain.md`](dev-notes/knowledge/toolchain.md) 的
+  「版本号同步」。
 
 ## Key File Locations
 
