@@ -804,3 +804,39 @@ channel 会随机变成 `Bad file descriptor`。传输层随后只看到 data st
 
 **相关文件**：`packages/shared-view/README.md`、`docs/next.config.mjs`、`mobile/metro.config.js`、
 `scripts/check-shared-view-imports.mjs`
+
+## 本地 expo module 的 Kotlin 不在任何门禁里（2026-08-03 实证）
+
+`mobile/modules/*` 下的原生模块（`content-share`、`lan-multicast`）**没有任何一条常规检查会
+碰它们的 Kotlin**：`pnpm typecheck` 只看 TS，`pnpm lint`（biome）只扫 `src/`，
+`cargo check --workspace` 与 Rust 无关，CI 的 `mobile-build-android.yml` 只在 `mobile-v*` tag
+或手动触发时跑。**改了 Kotlin 而不手动编一次，第一次发现问题就是在打 tag 之后。**
+
+改 `mobile/modules/*/android/**` 后至少跑一次单模块编译（不碰 Rust，约 20 秒）：
+
+```bash
+cd mobile/android && ./gradlew :<模块目录名>:compileDebugKotlin --console=plain
+```
+
+模块名就是 `mobile/modules/` 下的目录名（autolinking 用它当 gradle project 名）。
+新建模块后先确认它被发现：
+
+```bash
+cd mobile && npx expo-modules-autolinking search --platform android
+```
+
+### 坑：`Function` 的 body 里不能用裸 `return@Function`
+
+expo module 的 `Function(name) { … }` body 返回类型是 `Any?`（返回值要过 JSI 桥），而 Kotlin
+里**不带值的 `return` 只在返回类型为 Unit 时合法**：
+
+```kotlin
+Function("acquire") {
+  if (alreadyDone) return@Function                    // ❌ expected 'Any?', actual 'Unit'
+  val x = something() ?: return@Function              // ❌ 同上
+}
+```
+
+用嵌套判断表达同样的意思，或显式 `return@Function null`。前者更干净。
+
+**相关文件**：`mobile/modules/lan-multicast/`、`mobile/modules/content-share/`

@@ -25,19 +25,23 @@ class LanMulticastModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("LanMulticast")
 
+    // ⚠️ 这里**不能用裸 `return@Function` 提前退出**：`Function` 的 body 返回类型是
+    // `Any?`（返回值要过 JSI 桥），而不带值的 return 只在返回类型为 Unit 时合法，
+    // Kotlin 会报 "expected 'Any?', actual 'Unit'"。用嵌套判断表达同样的意思。
     Function("acquire") {
-      if (lock?.isHeld == true) return@Function
-      // 必须用 applicationContext：MulticastLock 的生命周期跨 Activity，
-      // 拿 Activity context 建锁会在旋转屏时泄漏那个 Activity。
-      val wifi = appContext.reactContext
-        ?.applicationContext
-        ?.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        ?: return@Function
-      lock = wifi.createMulticastLock(LOCK_TAG).apply {
-        // 非引用计数：acquire/release 变成幂等的开关，与 JS 侧「节点启停各调一次」
-        // 的用法对齐。计数模式下漏掉一次 release 就永远放不掉锁（持续耗电）。
-        setReferenceCounted(false)
-        acquire()
+      // 已持锁就什么都不做——非引用计数模式下重复 acquire 无意义
+      if (lock?.isHeld != true) {
+        // 必须用 applicationContext：MulticastLock 的生命周期跨 Activity，
+        // 拿 Activity context 建锁会在旋转屏时泄漏那个 Activity。
+        val wifi = appContext.reactContext
+          ?.applicationContext
+          ?.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        lock = wifi?.createMulticastLock(LOCK_TAG)?.apply {
+          // 非引用计数：acquire/release 变成幂等的开关，与 JS 侧「节点启停各调一次」
+          // 的用法对齐。计数模式下漏掉一次 release 就永远放不掉锁（持续耗电）。
+          setReferenceCounted(false)
+          acquire()
+        }
       }
     }
 
