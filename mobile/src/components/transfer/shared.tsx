@@ -202,7 +202,10 @@ export function ProgressBar({
  * 字节量与百分比已收口到 `@swarmdrop/shared-view`（三端同一份取整规则）。
  * `formatBytes` 是移动端沿用的名字，保留以免全量改调用点。
  */
-export { formatFileSize as formatBytes, calcPercent } from "@swarmdrop/shared-view";
+export {
+  calcPercent,
+  formatFileSize as formatBytes,
+} from "@swarmdrop/shared-view";
 
 /**
  * 速率：算不出来时显示 "—"。

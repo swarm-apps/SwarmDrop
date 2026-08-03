@@ -1,15 +1,15 @@
 import {
-  defaultReceivePolicy as coreDefaultReceivePolicy,
-  type MobileDevice,
-  type MobileDeviceReceivePolicy,
-  MobileDeviceTrustLevel,
-} from "react-native-swarmdrop-core";
-import {
   canSendToDevice as canSendToTrustedDevice,
   type PolicyNote,
   policyNoteFor,
   type TrustLevel,
 } from "@swarmdrop/shared-view";
+import {
+  defaultReceivePolicy as coreDefaultReceivePolicy,
+  type MobileDevice,
+  type MobileDeviceReceivePolicy,
+  MobileDeviceTrustLevel,
+} from "react-native-swarmdrop-core";
 import { resolveReceiveLocation } from "@/core/paths";
 
 /**

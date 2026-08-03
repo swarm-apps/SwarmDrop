@@ -1,4 +1,11 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import {
+  type DeviceOrganization,
+  deviceGroupNames,
+  deviceIdentityHint,
+  hasDuplicateOrganizedName,
+  organizedDeviceName,
+} from "@swarmdrop/shared-view";
 import { useRouter } from "expo-router";
 import {
   ArrowLeftRight,
@@ -53,13 +60,6 @@ import {
   isProjectionActive,
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import {
-  type DeviceOrganization,
-  deviceGroupNames,
-  deviceIdentityHint,
-  hasDuplicateOrganizedName,
-  organizedDeviceName,
-} from "@swarmdrop/shared-view";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { cn, errorMessage } from "@/lib/utils";

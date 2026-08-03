@@ -1,4 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  type DeviceOrganization,
+  emptyDeviceOrganization,
+  normalizeDeviceOrganization,
+} from "@swarmdrop/shared-view";
 import * as Crypto from "expo-crypto";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -7,11 +12,6 @@ import type {
   FileBrowserView,
 } from "@/components/file-browser/types";
 import type { DiscoveryModePreference } from "@/core/network-discovery";
-import {
-  type DeviceOrganization,
-  emptyDeviceOrganization,
-  normalizeDeviceOrganization,
-} from "@swarmdrop/shared-view";
 
 export const DEFAULT_FILE_BROWSER_VIEWS: Record<
   FileBrowserScope,

@@ -1,7 +1,7 @@
 import { Trans } from "@lingui/react/macro";
+import { transportLabel } from "@swarmdrop/shared-view";
 import { RadioTower, Wifi, Zap } from "lucide-react-native";
 import { View } from "react-native";
-import { transportLabel } from "@swarmdrop/shared-view";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";

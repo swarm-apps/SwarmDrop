@@ -17,16 +17,16 @@ import {
   startForegroundKeepAlive,
   stopForegroundKeepAlive,
 } from "@/core/foreground-service";
-import {
-  acquireMulticastLock,
-  releaseMulticastLock,
-} from "../../modules/lan-multicast";
 import { initMobileCore } from "@/core/mobile-core";
 import { buildNetworkRuntimeConfig } from "@/core/network-discovery";
 import { ensureNotificationPermission } from "@/core/notifier";
 import { errorMessage } from "@/lib/utils";
 import { usePairingInviteStore } from "@/stores/pairing-invite-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
+import {
+  acquireMulticastLock,
+  releaseMulticastLock,
+} from "../../modules/lan-multicast";
 
 export type RuntimeState = "stopped" | "starting" | "running" | "error";
 /** 设备身份加载状态 —— UI 端用 i18n 渲染对应文案 */

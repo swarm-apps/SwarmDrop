@@ -1,11 +1,11 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { transportLabel } from "@swarmdrop/shared-view";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { ChevronDown, ChevronRight, Copy } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 import type { MobileConnectionDetails } from "react-native-swarmdrop-core";
-import { transportLabel } from "@swarmdrop/shared-view";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";

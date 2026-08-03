@@ -4,6 +4,7 @@ import {
   BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { organizedDeviceName } from "@swarmdrop/shared-view";
 import { Directory } from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -65,7 +66,6 @@ import {
   trustLevelToNative,
 } from "@/core/device-trust";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { organizedDeviceName } from "@swarmdrop/shared-view";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { cn, errorMessage, lastPathSegment } from "@/lib/utils";

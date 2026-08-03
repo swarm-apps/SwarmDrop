@@ -9,8 +9,8 @@ import { usePreferencesStore } from "@/stores/preferences-store";
  */
 export {
   DEVICE_NAME_MAX_CHARS,
-  deviceDisplayName,
   type DeviceNameSource,
+  deviceDisplayName,
 } from "@swarmdrop/shared-view";
 
 /**

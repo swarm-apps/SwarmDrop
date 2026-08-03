@@ -10,6 +10,7 @@
 
 import { BottomSheetTextInput } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { sortDeviceGroups } from "@swarmdrop/shared-view";
 import { Plus, Tags } from "lucide-react-native";
 import {
   forwardRef,
@@ -29,7 +30,6 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { sortDeviceGroups } from "@swarmdrop/shared-view";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 /* ─────────────── 共享输入样式 ─────────────── */

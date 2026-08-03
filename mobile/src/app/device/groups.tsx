@@ -1,4 +1,5 @@
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
+import { type DeviceGroup, sortDeviceGroups } from "@swarmdrop/shared-view";
 import * as Haptics from "expo-haptics";
 import { GripVertical, Plus, Tags, Trash2 } from "lucide-react-native";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -22,10 +23,6 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import {
-  type DeviceGroup,
-  sortDeviceGroups,
-} from "@swarmdrop/shared-view";
 import {
   mergePairedDevicesWithCache,
   useMobileCoreStore,
