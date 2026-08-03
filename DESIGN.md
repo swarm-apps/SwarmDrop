@@ -265,6 +265,33 @@ most. Mobile renders both. This predates the contract and is deliberately out of
 change that introduced this section (`openspec/changes/web-ux-alignment` — its stated non-goal is
 leaving desktop and mobile rendering untouched); fix it as its own change.
 
+### Incoming Request Contract (cross-platform)
+
+**This section binds all three builds.** Two kinds of request arrive unsolicited — a pairing request
+and an inbound file offer — and both demand a decision from someone who was doing something else.
+
+**Global surface, not a page section.** Each build SHALL present these from a host mounted at the
+app shell (desktop `_app.tsx`, mobile `app/_layout.tsx`, web `app/app/layout.tsx`), so they appear
+on **every** route. A request rendered only inside one page is invisible to a user standing on any
+other page — which, on a multi-route build, is most of the time. (This is exactly what the web build
+did until the `lan-direct-upgrade` change: pairing requests lived inside the devices page, file
+offers inside the inbox page.)
+
+**Dismissal means opposite things for the two, and that is deliberate:**
+
+| | Closing the surface | Why |
+|---|---|---|
+| Pairing request | **= decline** | The other side is blocked waiting on this answer. Leaving it pending gives them a spinner with no end. |
+| File offer | **≠ decline** | The sender is queued, not blocked, and a mis-tap costing someone a whole transfer is far worse than one that costs a second click. |
+
+Because a file offer survives dismissal, a build that lets it be dismissed **SHALL** also give a
+place to find it again (web: the inbox's pending list). A dismissible request with no way back is a
+silently dropped transfer. Desktop currently has no such entry point — dismissed offers can only be
+waited out; that is a known gap, not the pattern to copy.
+
+**Queue, don't stack.** Show one request at a time; the next appears after the current is resolved.
+Say how many remain when more than one is waiting.
+
 ### Send Entry Contract (cross-platform)
 
 - **Sending starts from a device.** Triggering send on a paired, online device card enters the send

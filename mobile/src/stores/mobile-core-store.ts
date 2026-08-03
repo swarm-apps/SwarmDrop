@@ -403,6 +403,8 @@ export function summariesToOfflineDevices(
     arch: s.arch,
     status: "offline",
     connection: undefined,
+    connectionDetails: undefined,
+    lanUpgradeFailed: false,
     latencyMs: undefined,
     isPaired: true,
     trustLevel: s.trustLevel ?? undefined,

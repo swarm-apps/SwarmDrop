@@ -199,6 +199,9 @@ pub struct MobileDevice {
     pub connection: Option<String>,
     /// 链路详情（仅在线且内核报告过连接地址时有值）。
     pub connection_details: Option<MobileConnectionDetails>,
+    /// 内核尝试过局域网直连升级但失败了——与 `connection == "relay"` 一起看，
+    /// 呈现层据此提示「对方就在同一网段却没直连，去查防火墙」。
+    pub lan_upgrade_failed: bool,
     pub latency_ms: Option<u64>,
     pub is_paired: bool,
     pub trust_level: Option<MobileDeviceTrustLevel>,
@@ -215,6 +218,7 @@ impl From<Device> for MobileDevice {
             status,
             connection,
             connection_details,
+            lan_upgrade_failed,
             latency,
             is_paired,
             trust_level,
@@ -238,6 +242,7 @@ impl From<Device> for MobileDevice {
                 ConnectionType::Relay => "relay".to_string(),
             }),
             connection_details: connection_details.map(Into::into),
+            lan_upgrade_failed,
             latency_ms: latency,
             is_paired,
             trust_level: trust_level.map(Into::into),
@@ -268,6 +273,7 @@ impl From<PairedDeviceInfo> for MobileDevice {
             status: "offline".to_string(),
             connection: None,
             connection_details: None,
+            lan_upgrade_failed: false,
             latency_ms: None,
             is_paired: true,
             trust_level: Some(trust_level.into()),

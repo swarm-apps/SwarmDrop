@@ -126,6 +126,7 @@ function DevicesPage() {
           status: "offline" as const,
           connection: null,
           connectionDetails: null,
+          lanUpgradeFailed: false,
           latency: null,
           isPaired: true,
           trustLevel: stored.trustLevel ?? "collaborator",

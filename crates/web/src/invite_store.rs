@@ -49,13 +49,26 @@ impl InviteStore for IdbInviteStore {
                 return Vec::new();
             }
         };
+        // **必须与 `upsert` 的写法对称**：那边是 `serde_json::to_string` + `put_string`，
+        // 存进去的是一个 JSON **字符串**，不是结构化对象。此前这里用
+        // `serde_wasm_bindgen::from_value` 直接当对象读，于是每一行都以
+        // `invalid type: string "...", expected struct StoredInvite` 被丢掉——
+        // 结果是**已发出的邀请跨刷新全部消失**：用户看不到自己发过什么，也就无从撤销，
+        // 而那正是「邀请可撤销」这个能力唯一的入口。
+        //
+        // 症状极隐蔽：写入是成功的（IndexedDB 里躺着完整记录），只有读回来时静默丢弃，
+        // 且丢弃走的是「单行坏了只丢这一行」这条本来正确的容错路径。
+        // 收件箱表（`inbox.rs`）一直是对称的，可作对照。
         raw.into_iter()
-            .filter_map(|value| match serde_wasm_bindgen::from_value(value) {
-                Ok(stored) => to_record(stored),
-                Err(e) => {
-                    // 单行坏了只丢这一行：邀请是短时凭证，最坏结果是用户重新生成一次
-                    tracing::warn!("邀请记录反序列化失败，丢弃该行: {e}");
-                    None
+            .filter_map(|value| {
+                let json = value.as_string()?;
+                match serde_json::from_str(&json) {
+                    Ok(stored) => to_record(stored),
+                    Err(e) => {
+                        // 单行坏了只丢这一行：邀请是短时凭证，最坏结果是用户重新生成一次
+                        tracing::warn!("邀请记录反序列化失败，丢弃该行: {e}");
+                        None
+                    }
                 }
             })
             .collect()

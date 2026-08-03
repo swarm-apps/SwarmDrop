@@ -994,6 +994,17 @@ impl Actor {
                 error,
                 ..
             } => {
+                // 判在清标记之前：这是「对端就在同一网段、我们拨了、没成」的唯一信号，
+                // 上层拿它把一个沉默的「中继」徽标变成一句可行动的提示。
+                //
+                // 近似之处：`OutgoingConnectionError` 是 peer 级的，理论上可能来自同期
+                // 另一次拨号。实践中升级在途时该 peer 极少有别的拨号（presence 不重拨
+                // 已连接的 peer），且误报的代价只是多一句排障提示。
+                if self.upgrading_lan.contains(&peer) {
+                    self.emit(NetEvent::LanUpgradeFailed {
+                        node: NodeId::from_peer_id(peer),
+                    });
+                }
                 self.clear_upgrade_marks(&peer);
                 // 有消费者才格式化 DialError（断网时拨号失败成批出现，
                 // 多数事件既无 connect 等待者也非 infra relay）

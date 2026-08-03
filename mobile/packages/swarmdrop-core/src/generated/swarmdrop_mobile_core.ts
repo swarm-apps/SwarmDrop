@@ -388,6 +388,11 @@ export type MobileDevice = {
      * 链路详情（仅在线且内核报告过连接地址时有值）。
      */
     connectionDetails?: MobileConnectionDetails,
+    /**
+     * 内核尝试过局域网直连升级但失败了——与 `connection == "relay"` 一起看，
+     * 呈现层据此提示「对方就在同一网段却没直连，去查防火墙」。
+     */
+    lanUpgradeFailed: boolean,
     latencyMs?: bigint,
     isPaired: boolean,
     trustLevel?: MobileDeviceTrustLevel,
@@ -425,6 +430,7 @@ const FfiConverterTypeMobileDevice = (() => {
                 status: FfiConverterString.read(from), 
                 connection: FfiConverterOptionalString.read(from), 
                 connectionDetails: FfiConverterOptionalTypeMobileConnectionDetails.read(from), 
+                lanUpgradeFailed: FfiConverterBool.read(from), 
                 latencyMs: FfiConverterOptionalUInt64.read(from), 
                 isPaired: FfiConverterBool.read(from), 
                 trustLevel: FfiConverterOptionalTypeMobileDeviceTrustLevel.read(from), 
@@ -442,6 +448,7 @@ const FfiConverterTypeMobileDevice = (() => {
             FfiConverterString.write(value.status, into);
             FfiConverterOptionalString.write(value.connection, into);
             FfiConverterOptionalTypeMobileConnectionDetails.write(value.connectionDetails, into);
+            FfiConverterBool.write(value.lanUpgradeFailed, into);
             FfiConverterOptionalUInt64.write(value.latencyMs, into);
             FfiConverterBool.write(value.isPaired, into);
             FfiConverterOptionalTypeMobileDeviceTrustLevel.write(value.trustLevel, into);
@@ -458,6 +465,7 @@ const FfiConverterTypeMobileDevice = (() => {
              FfiConverterString.allocationSize(value.status) +
              FfiConverterOptionalString.allocationSize(value.connection) +
              FfiConverterOptionalTypeMobileConnectionDetails.allocationSize(value.connectionDetails) +
+             FfiConverterBool.allocationSize(value.lanUpgradeFailed) +
              FfiConverterOptionalUInt64.allocationSize(value.latencyMs) +
              FfiConverterBool.allocationSize(value.isPaired) +
              FfiConverterOptionalTypeMobileDeviceTrustLevel.allocationSize(value.trustLevel) +

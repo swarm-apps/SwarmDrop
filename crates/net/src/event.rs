@@ -58,6 +58,16 @@ pub enum NetEvent {
     PingSuccess { node: NodeId, rtt: Duration },
     /// ping 失败（presence 的死对端判定依赖此事件）。
     PingFailure { node: NodeId, error: String },
+    /// 局域网直连升级尝试失败（拨号候选全部耗尽）。
+    ///
+    /// **只在内核真发起过 LAN 升级拨号后才可能出现** ——也就是说，对端确实通告了
+    /// 本机够得着的私网地址，我们拨了，没成。上层据此告诉用户「对方就在同一网段，
+    /// 直连却没建起来」：那通常是某一端防火墙拦了入站，或（浏览器上）本地网络访问
+    /// 权限没给，而不是网络本身不通。
+    ///
+    /// 没有它，这个状态在 UI 上与「对端本来就在外网」完全无法区分——两者都只是
+    /// 一个沉默的「中继」徽标。
+    LanUpgradeFailed { node: NodeId },
     /// relay reservation 被接受（`renewal` 为 true 表示续约）。
     RelayReservationAccepted { relay: NodeId, renewal: bool },
     /// relay reservation 失效（circuit listener 关闭）。

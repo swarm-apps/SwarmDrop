@@ -6,6 +6,7 @@
 //     重复调用 spawnNode() 复用同一 Promise / 同一实例，绝不 spawn 出两个（events 只能取一次，
 //     两个节点会各起一条流互相抢）。
 
+import { webNodeActions } from "./store";
 import type {
   DeviceReceivePolicy,
   DeviceTrustLevel,
@@ -107,4 +108,22 @@ export async function closeNode(): Promise<void> {
   node = null;
   spawnPromise = null;
   if (current) await current.close();
+}
+
+/**
+ * 把内核的已配对设备快照写回 store。
+ *
+ * 配对成功后必须调它，否则设备清单要等下一轮轮询才认识刚配上的设备。**两个调用点**：
+ * 设备页的配对面板（本机主动配对成功后）与全局的入站配对宿主
+ * （`_components/pairing-request-host.tsx`，接受对方请求后）——后者挂在 layout 上、
+ * 拿不到页面组件里的局部函数，所以这段桥接必须住在这一层。
+ *
+ * 读失败静默忽略：节点没起来时读不到是正常的，轮询会补上。
+ */
+export function refreshPairedDevices(node: WebNode): void {
+  try {
+    webNodeActions.setPairedDevices(node.paired_devices());
+  } catch {
+    // ignore —— 轮询兜底
+  }
 }

@@ -510,6 +510,12 @@ pub struct Device {
     /// 链路详情。仅在线且内核报告过连接地址时有值——离线设备、以及只靠 mDNS
     /// 地址推断出 `connection` 的宽限期内，这里是 `None`（没连接就没有链路可谈）。
     pub connection_details: Option<ConnectionDetails>,
+    /// 内核尝试过局域网直连升级但失败了。
+    ///
+    /// 与 `connection == Relay` 一起看才有意义：那时它把「对端本来就在外网」与
+    /// 「对端就在同一网段却连不上」分开。后者呈现层应给出可行动的提示——查防火墙，
+    /// 或（浏览器上）允许本地网络访问。
+    pub lan_upgrade_failed: bool,
     pub latency: Option<u64>,
     pub is_paired: bool,
     pub trust_level: Option<DeviceTrustLevel>,

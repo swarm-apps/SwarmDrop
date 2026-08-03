@@ -493,3 +493,35 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 
 **相关文件**：`docs/app/app/_lib/use-copy.ts`、`docs/app/app/_components/connection-badge.tsx`、
 `docs/app/app/_components/invite-share.tsx`
+
+## IndexedDB 的写读必须对称 —— 存字符串就得按字符串读
+
+`idb::put_string` 存进去的是一个 **JSON 字符串**（`serde_json::to_string` 的结果），不是结构化
+对象。读的时候必须 `value.as_string()` + `serde_json::from_str`；用
+`serde_wasm_bindgen::from_value` 直接当对象读会**每一行都失败**：
+
+```
+invalid type: string "{\"capability_hash\":...}", expected struct StoredInvite
+```
+
+2026-08-03 在 `invite_store.rs` 实证到这个不对称，症状极其隐蔽：
+
+- **写入是成功的**——IndexedDB 里躺着完整记录，用 devtools 或 `indexedDB.open()` 探得到；
+- 只有读回来时静默丢弃，且丢弃走的是「单行坏了只丢这一行」这条**本来正确**的容错路径；
+- 用户看到的是「已发出的邀请跨刷新全部消失」，于是也就无从撤销——而撤销是这个能力唯一的入口。
+
+`inbox.rs` 的写读一直是对称的，可作对照模板。**新增任何一张 object store 时，把写与读放在
+一起看一眼**：这类错配编译期查不出来，运行时也只在日志里留一行 warn。
+
+**排查手法**（跨刷新丢数据这类问题通用）：先在浏览器 console 里数一遍 IndexedDB：
+
+```js
+(async () => {
+  const dbs = await indexedDB.databases();
+  // 逐个 open + objectStore(...).count()，看数据到底在不在
+})()
+```
+
+数据在库里 = 写入没问题，问题在读路径；库里就没有 = 才去查写入。这一步能立刻把范围砍一半。
+
+**相关文件**：`crates/web/src/invite_store.rs`、`crates/web/src/inbox.rs`、`crates/web/src/idb.rs`

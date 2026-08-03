@@ -2,7 +2,12 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { transportLabel } from "@swarmdrop/shared-view";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { ChevronDown, ChevronRight, Copy } from "lucide-react-native";
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  TriangleAlert,
+} from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 import type { MobileConnectionDetails } from "react-native-swarmdrop-core";
@@ -22,8 +27,11 @@ import { toast } from "@/lib/toast";
  */
 export function ConnectionDetailsSection({
   details,
+  lanUpgradeFailed,
 }: {
   details: MobileConnectionDetails;
+  /** 内核尝试过局域网直连升级但失败了——与「还挂着中继」一起看才有意义。 */
+  lanUpgradeFailed?: boolean;
 }) {
   const { t } = useLingui();
   const colors = useThemeColors();
@@ -57,6 +65,25 @@ export function ConnectionDetailsSection({
           <ChevronRight color={colors.mutedForeground} size={16} />
         )}
       </Pressable>
+
+      {lanUpgradeFailed ? (
+        // 折叠区外面就摆出来：它是可行动的，而用户不会为了看提示去点开一个折叠区。
+        // 这一句把两种在徽标上完全同形的状态分开——对端本来就在外网 vs 对端就在同一
+        // 网段却连不上。移动端不提浏览器权限（那是 Web 端的成因），只说防火墙。
+        <View className="flex-row gap-2 rounded-lg bg-warning/15 px-3 py-2.5">
+          <TriangleAlert color={colors.warning} size={14} />
+          <View className="min-w-0 flex-1 gap-0.5">
+            <Text className="text-[12px] font-medium text-warning-ink">
+              <Trans>对方就在同一网段，但直连没建起来</Trans>
+            </Text>
+            <Text className="text-[12px] leading-4 text-warning-ink opacity-90">
+              <Trans>
+                通常是某一端的防火墙拦了入站连接。文件仍会经中继送达，只是更慢。
+              </Trans>
+            </Text>
+          </View>
+        </View>
+      ) : null}
 
       {expanded ? (
         <View className="gap-2.5 rounded-lg bg-muted px-3.5 py-3">

@@ -862,6 +862,10 @@ msgstr "Website"
 msgid "客户端配置"
 msgstr "Client Configuration"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "对方就在同一网段，但直连没建起来"
+msgstr "That device is on your network, but no direct link came up"
+
 #: src/lib/transfer-notifications.ts
 msgid "对方已取消传输"
 msgstr "Peer canceled transfer"
@@ -2357,6 +2361,10 @@ msgstr "Select Folder"
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "选择设备"
 msgstr "Select Device"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "通常是某一端的防火墙拦了入站连接。文件仍会经中继送达，只是更慢。"
+msgstr "Usually a firewall on one side is blocking inbound connections. Files still arrive over the relay, just slower."
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "通用"

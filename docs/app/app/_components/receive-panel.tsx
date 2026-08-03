@@ -97,6 +97,12 @@ export function IncomingOffersPanel() {
           <Trans>暂无待处理的入站文件请求。</Trans>
         </p>
       ) : (
+        <>
+        {/* 请求到达时会先弹全局对话框（`transfer-offer-host.tsx`）。这里是**关掉之后**
+            的回看入口——说清楚，否则同一件事出现在两个地方会让人以为是重复。 */}
+        <p className="mt-2 text-xs text-muted-foreground">
+          <Trans>你关掉提示后，请求会留在这里等你决定。</Trans>
+        </p>
         <ul className="mt-3 space-y-2">
           {offerList.map((offer) => (
             <li key={offer.sessionId} className="rounded-lg border border-fd-border bg-fd-background px-3 py-2">
@@ -114,26 +120,28 @@ export function IncomingOffersPanel() {
                 ))}
               </ul>
               <div className="mt-2 flex gap-2">
-                <button
-                  type="button"
+                <Button
+                  size="sm"
                   onClick={() => decide(offer.sessionId, true)}
                   disabled={decideAction.isPending(offer.sessionId)}
-                  className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
+                  className="min-h-9"
                 >
                   <Trans>接受</Trans>
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
                   onClick={() => decide(offer.sessionId, false)}
                   disabled={decideAction.isPending(offer.sessionId)}
-                  className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
+                  className="min-h-9"
                 >
                   <Trans>拒绝</Trans>
-                </button>
+                </Button>
               </div>
             </li>
           ))}
         </ul>
+        </>
       )}
       {decideAction.latestError && <WebErrorCard error={decideAction.latestError} className="mt-2 text-xs" />}
     </div>

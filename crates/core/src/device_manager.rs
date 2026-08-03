@@ -20,6 +20,12 @@ pub(super) struct PeerInfo {
     pub is_connected: bool,
     /// 内核报告的连接路径（比地址推断更准确；断连时清空）。
     pub path: Option<PathKind>,
+    /// 内核尝试过局域网直连升级但失败了（对端通告了私网地址、我们拨了、没成）。
+    ///
+    /// **不是授权判据**，只喂给呈现层：连接停在中继时，它把「对端本来就在外网」
+    /// 与「对端就在同一网段却连不上」这两种在 UI 上无法区分的状态分开——后者
+    /// 该提示用户去查防火墙 / 浏览器的本地网络访问权限。
+    pub lan_upgrade_failed: bool,
     /// 当前最优连接的远端地址，与 `path` 成对更新。
     ///
     /// **与上面的 `addrs` 不是一回事**：那个是 mDNS 观测证据（`is_lan_discovered`
@@ -42,6 +48,7 @@ impl PeerInfo {
             rtt_ms: None,
             is_connected: false,
             path: None,
+            lan_upgrade_failed: false,
             conn_addr: None,
             discovered_at: chrono::Utc::now().timestamp_millis(),
             connected_at: None,
@@ -144,6 +151,17 @@ impl DeviceManager {
                 if let Some(mut entry) = self.peers.get_mut(node) {
                     entry.path = Some(*path);
                     entry.conn_addr = Some(addr.clone());
+                    // 升级成了就把失败痕迹抹掉——否则「已经是局域网直连」还挂着
+                    // 一句「直连没建起来」，比不提示更糟。
+                    if *path != PathKind::Relayed {
+                        entry.lan_upgrade_failed = false;
+                    }
+                }
+            }
+
+            NetEvent::LanUpgradeFailed { node } => {
+                if let Some(mut entry) = self.peers.get_mut(node) {
+                    entry.lan_upgrade_failed = true;
                 }
             }
 
@@ -153,6 +171,8 @@ impl DeviceManager {
                     entry.rtt_ms = None;
                     entry.path = None;
                     entry.conn_addr = None;
+                    // 断连后重来一次的条件全变了（换网、对端重启），旧结论不该留
+                    entry.lan_upgrade_failed = false;
                 }
             }
 
@@ -217,6 +237,7 @@ impl DeviceManager {
                         status: snapshot.status,
                         connection: snapshot.connection,
                         connection_details: snapshot.details,
+                        lan_upgrade_failed: snapshot.lan_upgrade_failed,
                         latency: snapshot.latency,
                         is_paired: true,
                         trust_level: Some(info.trust_level),
@@ -254,6 +275,7 @@ impl DeviceManager {
             status: snapshot.status,
             connection: snapshot.connection,
             connection_details: snapshot.details,
+            lan_upgrade_failed: snapshot.lan_upgrade_failed,
             latency: snapshot.latency,
             is_paired: paired.is_some(),
             trust_level: paired.as_ref().map(|info| info.trust_level),
@@ -341,6 +363,7 @@ struct ConnectionSnapshot {
     status: DeviceStatus,
     connection: Option<ConnectionType>,
     details: Option<ConnectionDetails>,
+    lan_upgrade_failed: bool,
     latency: Option<u64>,
 }
 
@@ -351,6 +374,7 @@ impl ConnectionSnapshot {
             status: DeviceStatus::Offline,
             connection: None,
             details: None,
+            lan_upgrade_failed: false,
             latency: None,
         }
     }
@@ -377,6 +401,7 @@ impl ConnectionSnapshot {
                 .map(path_to_connection)
                 .or_else(|| infer_connection_type(&peer.addrs)),
             details: peer.conn_addr.clone().map(ConnectionDetails::from_addr),
+            lan_upgrade_failed: peer.lan_upgrade_failed,
             latency: peer.rtt_ms,
         }
     }

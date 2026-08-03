@@ -17,6 +17,7 @@ const offlineDevice: Device = {
   status: "offline",
   connection: null,
   connectionDetails: null,
+  lanUpgradeFailed: false,
   latency: null,
   isPaired: true,
   trustLevel: "collaborator",

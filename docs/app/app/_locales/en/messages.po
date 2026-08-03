@@ -49,17 +49,26 @@ msgstr "{rate} · ETA {eta}"
 msgid "「{0}」发来的文件按这里的设定处置。 策略只保存在本机，对方看不到。"
 msgstr "Files from “{0}” are handled according to these settings. The policy stays on this device — the other side never sees it."
 
+#. placeholder {0}: current?.deviceName
+#: app/app/_components/pairing-request-host.tsx
+msgid "<0>{0}</0> 想与这台设备配对"
+msgstr "<0>{0}</0> wants to pair with this device"
+
+#. placeholder {0}: current?.deviceName
 #. placeholder {0}: offer.deviceName
+#. placeholder {1}: files.length
 #. placeholder {1}: offer.files.length
+#. placeholder {2}: formatFileSize(current?.totalSize ?? 0)
 #. placeholder {2}: formatFileSize(offer.totalSize)
 #: app/app/_components/receive-panel.tsx
+#: app/app/_components/transfer-offer-host.tsx
 msgid "<0>{0}</0> 想发送 {1} 个文件（{2}）"
 msgstr "<0>{0}</0> wants to send {1} file(s) ({2})"
 
 #. placeholder {0}: r.deviceName
 #: app/app/_components/pairing-panel.tsx
-msgid "<0>{0}</0> 请求配对"
-msgstr "<0>{0}</0> wants to pair"
+#~ msgid "<0>{0}</0> 请求配对"
+#~ msgstr "<0>{0}</0> wants to pair"
 
 #: app/app/_components/connection-panel.tsx
 msgid "circuit 可达地址（供 <0>设备</0> 页的「生成邀请」使用，刷新前有效）"
@@ -154,6 +163,10 @@ msgstr "Transfer session list"
 msgid "传输错误"
 msgstr "Transfer error"
 
+#: app/app/_components/receive-panel.tsx
+msgid "你关掉提示后，请求会留在这里等你决定。"
+msgstr "After you dismiss the prompt, requests wait here for your decision."
+
 #: app/app/_components/app-nav.tsx
 msgid "使用文档"
 msgstr "Documentation"
@@ -191,12 +204,16 @@ msgid "允许文件夹"
 msgstr "Allow folders"
 
 #: app/app/_components/pairing-panel.tsx
-msgid "入站配对请求"
-msgstr "Incoming pairing requests"
+#~ msgid "入站配对请求"
+#~ msgstr "Incoming pairing requests"
 
 #: app/app/_components/node-status-pill.tsx
 msgid "关停中"
 msgstr "stopping"
+
+#: app/app/_components/transfer-offer-host.tsx
+msgid "关掉这个窗口不会拒绝——请求会留在收件箱等你决定。"
+msgstr "Closing this does not decline it — the request waits in your inbox."
 
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "关闭后只接收单个文件，不接收整个目录。"
@@ -340,6 +357,11 @@ msgstr "Enter a helper's <0>webrtc-direct</0> address, including the trailing <1
 msgid "处理中"
 msgstr "Working"
 
+#: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/transfer-offer-host.tsx
+msgid "处理中…"
+msgstr "Working…"
+
 #: app/app/_components/connection-badge.tsx
 #: app/app/_components/invite-share.tsx
 msgid "复制失败，请手动选中"
@@ -365,6 +387,10 @@ msgstr "Storage error"
 msgid "对方尚未与你配对，请先完成配对后再试"
 msgstr "That device has not paired with you yet — pair first, then try again"
 
+#: app/app/_components/connection-badge.tsx
+msgid "对方就在同一网段，但直连没建起来"
+msgstr "That device is on your network, but no direct link came up"
+
 #: app/app/_lib/view-types.ts
 msgid "对方已暂停接收，请稍后再试"
 msgstr "That device has paused receiving — try again later"
@@ -384,6 +410,10 @@ msgstr "The other side's receive policy rejected this transfer"
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "对方离线"
 msgstr "Peer offline"
+
+#: app/app/_components/pairing-request-host.tsx
+msgid "对方节点 ID"
+msgstr "Their node ID"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "对方设备"
@@ -562,8 +592,9 @@ msgstr "Hole-punched direct"
 msgid "把文件拖到这里"
 msgstr "Drop files here"
 
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
 #: app/app/_components/receive-panel.tsx
+#: app/app/_components/transfer-offer-host.tsx
 msgid "拒绝"
 msgstr "Decline"
 
@@ -571,8 +602,9 @@ msgstr "Decline"
 msgid "排查连接问题时把这些贴进 issue"
 msgstr "Paste these into an issue when reporting a connection problem"
 
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
 #: app/app/_components/receive-panel.tsx
+#: app/app/_components/transfer-offer-host.tsx
 msgid "接受"
 msgstr "Accept"
 
@@ -613,6 +645,10 @@ msgstr "Inbox"
 #: app/app/_components/receive-panel.tsx
 msgid "收件箱列表"
 msgstr "Inbox list"
+
+#: app/app/_components/transfer-offer-host.tsx
+msgid "收到文件请求"
+msgstr "Incoming file request"
 
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "断点信息将一并清除，无法再续传；已接收的文件仍在收件箱"
@@ -735,6 +771,10 @@ msgstr "Ask every time"
 #: app/app/_components/receive-panel.tsx
 msgid "没有匹配的收件箱条目。"
 msgstr "No inbox items match."
+
+#: app/app/_components/connection-badge.tsx
+msgid "浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。 文件仍会经中继送达，只是更慢。"
+msgstr "Your browser may need you to allow local network access; a firewall on the other side could also be blocking inbound connections. Files still arrive over the relay, just slower."
 
 #: app/app/_components/secure-context-banner.tsx
 msgid "浏览器在此环境不提供 <0>navigator.storage</0> / <1>crypto.subtle</1>，接收方落盘无法完成。请改用 <2>https</2>、<3>http://localhost</3> 或 <4>http://127.0.0.1</4> 访问，不要用 http 私网 IP。"
@@ -912,6 +952,15 @@ msgstr "running"
 msgid "返回"
 msgstr "Back"
 
+#. placeholder {0}: pendingPairings.length - 1
+#: app/app/_components/pairing-request-host.tsx
+msgid "还有 {0} 个请求等待处理"
+msgstr "{0} more request(s) waiting"
+
+#: app/app/_components/transfer-offer-host.tsx
+msgid "还有 {rest} 个文件"
+msgstr "{rest} more file(s)"
+
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "还没有传输会话。"
 msgstr "No transfer sessions yet."
@@ -1032,9 +1081,17 @@ msgstr "Pairing"
 msgid "配对中…"
 msgstr "Pairing…"
 
+#: app/app/_components/pairing-request-host.tsx
+msgid "配对之后双方都能互发文件。确认这是你认识的设备再接受。"
+msgstr "Once paired, either side can send files. Make sure you recognise this device before accepting."
+
 #: app/app/_components/pairing-panel.tsx
 msgid "配对后双方可以互相发送文件。确认是这台设备再继续。"
 msgstr "After pairing, either side can send files. Make sure this is the right device before continuing."
+
+#: app/app/_components/pairing-request-host.tsx
+msgid "配对请求"
+msgstr "Pairing request"
 
 #: app/app/_components/invite-share.tsx
 msgid "配对邀请二维码"

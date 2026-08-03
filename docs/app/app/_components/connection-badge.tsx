@@ -10,7 +10,7 @@
 // （见 `crates/core/src/device_manager.rs` 的 `ConnectionSnapshot`）。
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, TriangleAlert } from "lucide-react";
 import { formatLatency, transportLabel } from "@swarmdrop/shared-view";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -68,6 +68,26 @@ export function ConnectionBadge({ device }: { device: Device }) {
             <Trans>排查连接问题时把这些贴进 issue</Trans>
           </p>
         </div>
+
+        {device.lanUpgradeFailed && (
+          // 只在「还挂着中继」时才有意义——升级成了 path 就不是 relay 了。
+          // 这一句把两种在徽标上完全同形的状态分开：对端本来就在外网 vs
+          // 对端就在同一网段却连不上。后者是可行动的，前者不是。
+          <div className="flex gap-2 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            <div className="space-y-1">
+              <p className="font-medium">
+                <Trans>对方就在同一网段，但直连没建起来</Trans>
+              </p>
+              <p className="opacity-90">
+                <Trans>
+                  浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。
+                  文件仍会经中继送达，只是更慢。
+                </Trans>
+              </p>
+            </div>
+          </div>
+        )}
 
         <dl className="space-y-2 text-xs">
           <DetailRow label={t`传输`}>

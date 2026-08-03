@@ -353,7 +353,10 @@ export default function DeviceDetailScreen() {
               />
             ) : null}
             {device.connectionDetails ? (
-              <ConnectionDetailsSection details={device.connectionDetails} />
+              <ConnectionDetailsSection
+                details={device.connectionDetails}
+                lanUpgradeFailed={device.lanUpgradeFailed}
+              />
             ) : null}
             <InfoRow
               label={<Trans>Peer ID</Trans>}

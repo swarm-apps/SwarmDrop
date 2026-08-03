@@ -1,5 +1,5 @@
 import { type ComponentType, useEffect, useRef, useState } from "react";
-import { Check, Copy, RadioTower, Wifi, Zap } from "lucide-react";
+import { Check, Copy, RadioTower, TriangleAlert, Wifi, Zap } from "lucide-react";
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -119,6 +119,27 @@ export function ConnectionBadge({ device }: { device: Device }) {
             <Trans>排查连接问题时把这些贴进 issue</Trans>
           </p>
         </div>
+
+        {device.lanUpgradeFailed && (
+          // 只在「还挂着中继」时才有意义——升级成了 path 就不是 relay 了。
+          // 这一句把两种在徽标上完全同形的状态分开：对端本来就在外网 vs
+          // 对端就在同一网段却连不上。后者是可行动的，前者不是。
+          //
+          // 桌面端不提浏览器权限（那是 Web 端的成因），只说防火墙。
+          <div className="flex gap-2 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+            <div className="space-y-1">
+              <p className="font-medium">
+                <Trans>对方就在同一网段，但直连没建起来</Trans>
+              </p>
+              <p className="opacity-90">
+                <Trans>
+                  通常是某一端的防火墙拦了入站连接。文件仍会经中继送达，只是更慢。
+                </Trans>
+              </p>
+            </div>
+          </div>
+        )}
 
         <dl className="space-y-2 text-xs">
           <DetailRow label={t`传输`}>

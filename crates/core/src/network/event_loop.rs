@@ -64,7 +64,9 @@ pub async fn handle_core_node_event<TTransfer>(
         NetEvent::PeerIdentified { .. }
         | NetEvent::Discovered { .. }
         | NetEvent::PingSuccess { .. }
-        | NetEvent::PathChanged { .. } => {
+        | NetEvent::PathChanged { .. }
+        // 升级失败要立刻推一轮：它改变的是设备卡片上那句提示，用户正盯着看
+        | NetEvent::LanUpgradeFailed { .. } => {
             // TODO(ui-rewrite): PingSuccess 触发全量 publish 待 UI 重写时按 rtt 阈值/去抖收敛
             publish_devices_and_status(shared, event_bus).await;
         }

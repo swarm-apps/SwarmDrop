@@ -17,7 +17,7 @@ import {
   extractInviteLink,
 } from "../_lib/invite";
 import { NAV } from "../_lib/nav";
-import { getNode } from "../_lib/node-runtime";
+import { getNode, refreshPairedDevices } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import { useWebNode, webNodeActions } from "../_lib/store";
@@ -31,14 +31,6 @@ import { useNowSeconds } from "../_lib/use-now-seconds";
 import type { InviteListItemJson } from "swarmdrop-web";
 
 /** 配对/消费邀请成功后刷新已配对设备清单；失败不影响主流程（下一轮 state-poll 会补上）。 */
-function refreshPairedDevices(node: WebNode) {
-  try {
-    webNodeActions.setPairedDevices(node.paired_devices());
-  } catch {
-    // ignore
-  }
-}
-
 export function PairingPanel() {
   const { t, i18n } = useLingui();
   const nodeStatus = useWebNode((s) => s.status);
@@ -230,6 +222,15 @@ export function PairingPanel() {
 
   useEffect(refreshInvites, [nodeStatus]);
 
+  // 入站配对请求被决策后，那条邀请可能已被消费（CAS）——码面要跟着更新，否则它会一直
+  // 亮着让人以为还能再扫一台（#101 的 consumed 态靠这次刷新拿到数据）。
+  //
+  // **决策本身已经搬去全局宿主** `pairing-request-host.tsx`（挂 layout，任何路由都能弹），
+  // 所以这里改成观察队列长度的变化，而不是在决策回调里顺手刷。拒绝时也会触发，代价只是
+  // 多读一次 localStorage。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 刷的是外部存储，依赖的是「队列变了」这个事实
+  useEffect(refreshInvites, [pendingPairings.length]);
+
   // generate / revoke 在 invite-persistence 里变成了 async（要写穿 IndexedDB，否则刷新后
   // 本机就不认识刚发出的邀请了）。revoke 保持 fire-and-forget：后端幂等，失败也不影响
   // 调用方要的终态。
@@ -321,22 +322,6 @@ export function PairingPanel() {
       // 返回值是「有没有写进 IndexedDB」。没写进去的话撤销只在本次会话内生效 ——
       // 刷新页面后那条邀请会复活，必须说出来。
       setRevokeUnsaved(!(await node.revoke_invite_by_id(id)));
-      refreshInvites();
-    });
-  };
-
-  // —— 入站配对请求确认（每条请求可独立并发处理，故按 pendingId 分键而非单一 id）——
-  const respondAction = useKeyedAsyncAction();
-
-  const respond = (pendingId: string, accept: boolean) => {
-    const node = getNode();
-    if (!node) return;
-    void respondAction.run(pendingId, async () => {
-      await node.respond_pairing_request(pendingId, accept);
-      webNodeActions.removePendingPairing(pendingId);
-      if (accept) refreshPairedDevices(node);
-      // 接受即消费掉那条邀请（CAS）。不刷新的话码面不会知道自己已经用掉了，
-      // 会一直亮着让人以为还能再扫一台（#101 的 consumed 态靠这次刷新拿到数据）。
       refreshInvites();
     });
   };
@@ -548,44 +533,6 @@ export function PairingPanel() {
         </div>
       )}
 
-      {pendingPairings.length > 0 && (
-        <div className="mt-5 border-t border-fd-border pt-4">
-          <p className="text-xs font-medium text-muted-foreground">
-            <Trans>入站配对请求</Trans>
-          </p>
-          <ul className="mt-2 space-y-2">
-            {pendingPairings.map((r) => (
-              <li key={r.pendingId} className="rounded-lg border border-fd-border bg-fd-background px-3 py-2">
-                <p className="text-xs text-fd-foreground">
-                  <Trans>
-                    <span className="font-medium">{r.deviceName}</span> 请求配对
-                  </Trans>
-                </p>
-                <p className="mt-0.5 truncate font-mono text-xs text-fd-muted-foreground">{r.peerId}</p>
-                <div className="mt-2 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => respond(r.pendingId, true)}
-                    disabled={respondAction.isPending(r.pendingId)}
-                    className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
-                  >
-                    <Trans>接受</Trans>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => respond(r.pendingId, false)}
-                    disabled={respondAction.isPending(r.pendingId)}
-                    className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
-                  >
-                    <Trans>拒绝</Trans>
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-          {respondAction.latestError && <WebErrorCard error={respondAction.latestError} className="mt-2 text-xs" />}
-        </div>
-      )}
     </div>
   );
 }

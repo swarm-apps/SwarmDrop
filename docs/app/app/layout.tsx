@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AppBottomNav, AppMobileHeader, AppSidebar } from "./_components/app-nav";
 import { AppI18nProvider } from "./_components/i18n-provider";
+import { PairingRequestHost } from "./_components/pairing-request-host";
+import { TransferOfferHost } from "./_components/transfer-offer-host";
 import { SecureContextBanner } from "./_components/secure-context-banner";
 import { WebErrorView } from "./_components/web-error-view";
 import { WebNodeBootstrap } from "./_components/web-node-bootstrap";
@@ -24,6 +26,10 @@ export const metadata: Metadata = {
 //
 // **不要把它们下放到任何 page.tsx**——那会让每个路由各起一份：节点被反复重启、
 // 同一事件被处理多次，locale 每次切页重解析一遍。
+//
+// 两个入站请求宿主（配对 / 文件）同样只能挂这里，但理由不同：它们要在**任何路由**下
+// 都能弹出来。此前这两块内联在设备页与收件箱页里，用户正在 /app/send 挑文件时收到请求
+// 就完全看不见——桌面与移动早就是全局宿主，Web 是三端里唯一的分叉。
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <AppI18nProvider>
@@ -31,6 +37,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           见 app/global.css 的 @layer base——不加这个属性，应用区的边框会落到 currentColor。 */}
       <div data-swarmdrop-app className="flex min-h-screen">
         <WebNodeBootstrap />
+        <PairingRequestHost />
+        <TransferOfferHost />
         <AppSidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <AppMobileHeader />

@@ -862,6 +862,10 @@ msgstr "官網"
 msgid "客户端配置"
 msgstr "用戶端設定"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "对方就在同一网段，但直连没建起来"
+msgstr "對方就在同一網段，但直連沒建起來"
+
 #: src/lib/transfer-notifications.ts
 msgid "对方已取消传输"
 msgstr "對方已取消傳輸"
@@ -2357,6 +2361,10 @@ msgstr "選擇資料夾"
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "选择设备"
 msgstr "選擇裝置"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "通常是某一端的防火墙拦了入站连接。文件仍会经中继送达，只是更慢。"
+msgstr "通常是某一端的防火牆擋了入站連線。檔案仍會經中繼送達，只是更慢。"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "通用"
