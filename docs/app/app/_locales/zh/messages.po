@@ -560,8 +560,11 @@ msgstr "已拒绝"
 msgid "已接收"
 msgstr "已接收"
 
-#. placeholder {0}: formatDuration(elapsed)
 #: app/app/_components/send-panel.tsx
+msgid "已暂停"
+msgstr "已暂停"
+
+#. placeholder {0}: formatDuration(elapsed)
 #: app/app/_components/transfer-activity-panel.tsx
 #~ msgid "已用 {0}"
 #~ msgstr "已用 {0}"
@@ -759,6 +762,14 @@ msgstr "显示全部 {0} 个文件"
 #: app/app/_components/receive-panel.tsx
 msgid "显示已归档"
 msgstr "显示已归档"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "暂停"
+msgstr "暂停"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "暂停中"
+msgstr "暂停中"
 
 #: app/app/_components/receive-panel.tsx
 msgid "暂无待处理的入站文件请求。"
@@ -1115,6 +1126,10 @@ msgstr "这台设备当前离线或已被阻止，换一台再试。"
 #: app/app/_components/pairing-panel.tsx
 msgid "这是本机生成的邀请——把它发给对方，不是自己用。"
 msgstr "这是本机生成的邀请——把它发给对方，不是自己用。"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "这条发送只能在本页继续：刷新或关闭标签页后，浏览器读不回你选过的文件，会话会一并消失。"
+msgstr "这条发送只能在本页继续：刷新或关闭标签页后，浏览器读不回你选过的文件，会话会一并消失。"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"

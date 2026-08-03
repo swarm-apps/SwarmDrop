@@ -55,6 +55,20 @@ export function isActiveSession(projection: TransferProjection): boolean {
 }
 
 /**
+ * 会话是否可暂停：**仅 `active`**。
+ *
+ * 与内核的转换守卫同一判据——`reduce_user` 里写的是
+ * `UserCommand::Pause if state.is_active()`，而 `is_active()` 就是 `phase == Active`。
+ * 按钮可见性只是第一道：绕过它直调 `pause_send()`，协调器会把它判成无效转换。
+ *
+ * **不要拿 `isActiveSession` 来判这件事**（名字很像，含义不同）：那条判的是「还没结束」，
+ * 等待对方接受、已中断都算在内——而那些阶段根本没有在跑的 actor，暂停无从谈起。
+ */
+export function isPausableSession(projection: TransferProjection): boolean {
+  return projection.phase === "active";
+}
+
+/**
  * 会话记录是否可删除：仅已结束与已中断（suspended）。
  *
  * 与内核域层守卫 `swarmdrop_transfer::store::is_deletable` 同一判据——按钮可见性只是第一道，

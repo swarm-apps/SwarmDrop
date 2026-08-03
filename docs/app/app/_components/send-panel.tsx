@@ -356,7 +356,14 @@ function SentSessionCard({
             ) : phase === "active" ? (
               <Trans>对方已接受，正在传输</Trans>
             ) : phase === "suspended" ? (
-              <Trans>传输已中断</Trans>
+              // 自己在传输页按的暂停要说「已暂停」——说成「中断」会让用户以为出了故障，
+              // 转头去查网络。其余几种中断（对方暂停 / 连接断 / 对方离线）对发送者而言
+              // 都是「传到一半停了」，不必在这张卡上逐一区分，详情侧有完整原因。
+              projection?.suspendedReason === "local_paused" ? (
+                <Trans>已暂停</Trans>
+              ) : (
+                <Trans>传输已中断</Trans>
+              )
             ) : (
               <Trans>已发出，等待对方接受</Trans>
             )}

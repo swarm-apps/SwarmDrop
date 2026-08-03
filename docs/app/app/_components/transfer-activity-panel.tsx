@@ -7,7 +7,7 @@
 // `generateStaticParams` 预生成，而 sessionId 是运行时 UUID，永远预生成不出来。
 // 详情就地展开而非另开页面：一次传输的信息量撑不起一整屏，展开足够，也省掉一次跳转。
 
-import { ArrowDownToLine, ArrowUpFromLine, Check, Copy, Inbox, RotateCcw, Trash2, XCircle } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, Copy, Inbox, Pause, RotateCcw, Trash2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -29,6 +29,7 @@ import { useCopyToClipboard } from "../_lib/use-copy";
 import {
   isActiveSession,
   isDeletableSession,
+  isPausableSession,
   sessionEndedAt,
   sortByUpdatedDesc,
   transferSample,
@@ -182,6 +183,7 @@ function TransferActivityPanelInner() {
   const router = useRouter();
   const selectedId = useSearchParams().get(PARAM.session);
 
+  const pauseAction = useKeyedAsyncAction();
   const resumeAction = useKeyedAsyncAction();
   const cancelAction = useKeyedAsyncAction();
   const deleteAction = useKeyedAsyncAction();
@@ -216,7 +218,25 @@ function TransferActivityPanelInner() {
     },
   });
 
-  // 三个动作都先取一次 node；取不到就静默返回——按钮已由 `ready` 禁用，这里只是兜底。
+  // 暂停：域层停 actor、把文件级进度落库、转 `suspended(LocalPaused)`（`recoverable = true`，
+  // 所以按钮会立刻换成「续传」），并通知对端。
+  //
+  // **方向不自动判**，与下面的 `cancel` 同一理由——暂停也是有副作用的操作（停 actor、
+  // 写状态、发帧），拿它当探针试方向会在第一条真失败时顺手对另一个方向也来一遍。
+  //
+  // 成功后同样**不动本地状态**：新阶段由内核经 projection 事件回流。
+  const pause = useCallback(
+    (sessionId: string, direction: TransferProjection["direction"]) => {
+      const node = getNode();
+      if (!node) return;
+      void pauseAction.run(sessionId, () =>
+        direction === "send" ? node.pause_send(sessionId) : node.pause_receive(sessionId),
+      );
+    },
+    [pauseAction.run],
+  );
+
+  // 下面几个动作都先取一次 node；取不到就静默返回——按钮已由 `ready` 禁用，这里只是兜底。
   const resume = useCallback(
     (sessionId: string) => {
       const node = getNode();
@@ -353,6 +373,11 @@ function TransferActivityPanelInner() {
             progress={progress[selected.sessionId]}
             connection={connectionLabel(selected, connections)}
             ready={ready}
+            pause={{
+              pending: pauseAction.isPending(selected.sessionId),
+              error: pauseAction.errorFor(selected.sessionId),
+              run: () => pause(selected.sessionId, selected.direction),
+            }}
             resume={{
               pending: resumeAction.isPending(selected.sessionId),
               error: resumeAction.errorFor(selected.sessionId),
@@ -526,6 +551,7 @@ function TransferDetailPanel({
   progress: liveProgress,
   connection,
   ready,
+  pause,
   resume,
   cancel,
   remove,
@@ -535,6 +561,7 @@ function TransferDetailPanel({
   progress?: TransferProgressEvent;
   connection: MessageDescriptor;
   ready: boolean;
+  pause: ItemAction;
   resume: ItemAction;
   cancel: ItemAction;
   remove: ItemAction;
@@ -585,6 +612,18 @@ function TransferDetailPanel({
 
       <TransferMetrics projection={projection} progress={live} />
 
+      {/* 暂停一条发送会给用户一个「待会儿再继续」的预期，而浏览器兑现不了跨刷新的那一半：
+          文件内容来自用户选中的 `File` 对象，页面一刷新 JS 上下文就没了，非终态发送会话
+          因此连库都不落（`crates/web/src/store.rs` 的落库范围表）。不说的话，用户回来
+          会发现整条会话凭空消失。接收方向没有这个限制——半成品在 OPFS 里，续得上。 */}
+      {projection.phase === "suspended" && projection.direction === "send" && (
+        <p className="rounded-lg border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+          <Trans>
+            这条发送只能在本页继续：刷新或关闭标签页后，浏览器读不回你选过的文件，会话会一并消失。
+          </Trans>
+        </p>
+      )}
+
       {/* key 绑会话：切到另一条会话时详情面板不卸载，展开态会跟着漂过去——上一条展开了
           四十行，下一条一进来也是全展开的。 */}
       <TransferFileList key={projection.sessionId} files={files} />
@@ -592,6 +631,7 @@ function TransferDetailPanel({
       <TransferItemActions
         projection={projection}
         ready={ready}
+        pause={pause}
         resume={resume}
         cancel={cancel}
         remove={remove}
@@ -790,13 +830,15 @@ type ItemAction = {
 function TransferItemActions({
   projection,
   ready,
+  pause,
   resume,
   cancel,
   remove,
 }: {
   projection: TransferProjection;
-  /** 节点未就绪时三个动作都点不动——共用一个前置条件，不必各传一份。 */
+  /** 节点未就绪时所有动作都点不动——共用一个前置条件，不必各传一份。 */
   ready: boolean;
+  pause: ItemAction;
   resume: ItemAction;
   cancel: ItemAction;
   remove: ItemAction;
@@ -814,7 +856,19 @@ function TransferItemActions({
           {projection.direction === "receive" && (
             <InboxItemLink sessionId={projection.sessionId} phase={projection.phase} ready={ready} />
           )}
-          {/* 续传是可重试的幂等动作，不设二次确认——只有不可逆的那两个才拦。 */}
+          {/* 暂停与续传是同一个开关的两半，判据互斥（`active` ↔ `suspended`），所以同一位置
+              永远只出现一个。两者都可逆，都不设二次确认——只有不可逆的那两个才拦。 */}
+          {isPausableSession(projection) && (
+            <button
+              type="button"
+              onClick={pause.run}
+              disabled={!ready || pause.pending}
+              className={INLINE_ACTION_CLASS}
+            >
+              <Pause className="size-3" aria-hidden="true" />
+              {pause.pending ? <Trans>暂停中</Trans> : <Trans>暂停</Trans>}
+            </button>
+          )}
           {projection.recoverable && (
             <button
               type="button"
@@ -862,6 +916,7 @@ function TransferItemActions({
         </div>
       </div>
       {projection.errorMessage && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{projection.errorMessage}</p>}
+      {pause.error && <WebErrorCard error={pause.error} className="mt-2 text-xs" />}
       {resume.error && <WebErrorCard error={resume.error} className="mt-2 text-xs" />}
       {cancel.error && <WebErrorCard error={cancel.error} className="mt-2 text-xs" />}
       {remove.error && <WebErrorCard error={remove.error} className="mt-2 text-xs" />}

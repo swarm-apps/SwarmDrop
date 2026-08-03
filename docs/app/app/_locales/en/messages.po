@@ -560,8 +560,11 @@ msgstr "Declined"
 msgid "已接收"
 msgstr "Received"
 
-#. placeholder {0}: formatDuration(elapsed)
 #: app/app/_components/send-panel.tsx
+msgid "已暂停"
+msgstr "Paused"
+
+#. placeholder {0}: formatDuration(elapsed)
 #: app/app/_components/transfer-activity-panel.tsx
 #~ msgid "已用 {0}"
 #~ msgstr "Elapsed {0}"
@@ -759,6 +762,14 @@ msgstr "Show all {0} files"
 #: app/app/_components/receive-panel.tsx
 msgid "显示已归档"
 msgstr "Show archived"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "暂停"
+msgstr "Pause"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "暂停中"
+msgstr "Pausing"
 
 #: app/app/_components/receive-panel.tsx
 msgid "暂无待处理的入站文件请求。"
@@ -1115,6 +1126,10 @@ msgstr "That device is offline or blocked — pick another one."
 #: app/app/_components/pairing-panel.tsx
 msgid "这是本机生成的邀请——把它发给对方，不是自己用。"
 msgstr "This invite came from this device — send it to someone else rather than using it here."
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "这条发送只能在本页继续：刷新或关闭标签页后，浏览器读不回你选过的文件，会话会一并消失。"
+msgstr "This send can only continue on this page: after a refresh or closing the tab, the browser cannot re-read the files you picked, and the session disappears with them."
 
 #: app/app/_components/pairing-panel.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"
