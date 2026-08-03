@@ -7,11 +7,10 @@
 // `generateStaticParams` 预生成，而 sessionId 是运行时 UUID，永远预生成不出来。
 // 详情就地展开而非另开页面：一次传输的信息量撑不起一整屏，展开足够，也省掉一次跳转。
 
-import { Inbox, RotateCcw, Trash2, XCircle } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, Copy, Inbox, RotateCcw, Trash2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  type ReactNode,
   Suspense,
   memo,
   useCallback,
@@ -23,13 +22,16 @@ import {
 import { ConfirmAction, INLINE_ACTION_CLASS, useConfirmAction } from "./confirm-action";
 import { PanelFallback } from "./panel-fallback";
 import { ProgressBar } from "./progress-bar";
+import { RelativeTime } from "./relative-time";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
+import { useCopyToClipboard } from "../_lib/use-copy";
 import {
   isActiveSession,
   isDeletableSession,
   sessionEndedAt,
   sortByUpdatedDesc,
+  transferSample,
 } from "../_lib/format";
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
@@ -53,6 +55,15 @@ type TransferFileRow = TransferProgressEvent["files"][number] | TransferProjecti
 
 /** 已结束会话的展示条数——再多就该去收件箱看结果，而不是在活动列表里翻页。 */
 const HISTORY_LIMIT = 8;
+
+/**
+ * 详情侧逐文件行的默认展示条数，其余折在「显示全部」后面。
+ *
+ * 一次传一整个文件夹（几十上百个文件）是常态，而每一行现在都带自己的进度条，进行中的会话
+ * 每秒还要重画一遍。全量渲染换不来可读性——超过十几行时用户已经在滚动里找不着自己关心的
+ * 那个文件了，真要逐个核对的人才需要展开。
+ */
+const FILE_LIST_LIMIT = 12;
 
 // 只管展示（标签 + 状态点色）。「是否进行中」的判定在 `_lib/format.ts` 的 `isActiveSession`——
 // 导航徽标也用它，两处各写一份就会在新增 phase 时对不上。
@@ -111,10 +122,6 @@ function groupSessions(sorted: TransferProjection[], selectedId: string | null) 
 
 function connectionByPeer(devices: Device[]) {
   return new Map(devices.map((device) => [device.peerId, device.connection]));
-}
-
-function transferPercent(projection: TransferProjection, progress?: TransferProgressEvent): number {
-  return calcPercent(progress?.transferredBytes ?? projection.transferredBytes, progress?.totalBytes ?? projection.totalSize);
 }
 
 /**
@@ -389,7 +396,10 @@ function TransferActivityPanelInner() {
 // memo：store 逐 key immutable 更新 projections/progress，未变动的会话保持原引用——
 // 一个会话每秒十余次的进度事件因此只重渲染它自己那一行，而不是整张活动 + 历史列表。
 //
-// 列表行只承载「认出这一条 + 看它到哪了」：方向·对端、连接方式、阶段、总进度。
+// 列表行只承载「认出这一条 + 看它到哪了」。**认出靠文件名，不是靠对端名**：一条会话在用户
+// 心里叫「我发给他的那个安装包」，而不是「发送 · MacBook」——同一台设备来回传几次之后，
+// 只写方向与对端的三行长得一模一样，选中哪条全靠猜。
+//
 // 逐文件进度与动作归详情侧（`TransferDetailPanel`）——那些东西在一栏列表里塞不下，
 // 塞进去就是此前那个手风琴：展开一条把其余全推到屏幕外。
 const TransferActivityItem = memo(function TransferActivityItem({
@@ -406,18 +416,12 @@ const TransferActivityItem = memo(function TransferActivityItem({
   onSelect: (sessionId: string) => void;
 }) {
   const { t } = useLingui();
-  // `progress` 是**在途采样**：会话一进终态内核就不再下发，最后收到的那一帧会永远
-  // 停在那儿。而下面每一处都让采样优先于 projection，于是终态被一个陈旧值盖住。
-  //
-  // projection 才是权威——它在终态已回填全量字节。2026-07-28 实测：16 MiB 传完、
-  // `projection.transferredBytes` 已是 16777216，采样却停在 3932160，界面显示
-  // 「已完成 · 23%」。
-  const ended = projection.phase === "terminal";
-  const progress = ended ? undefined : liveProgress;
-
-  const percent = transferPercent(projection, progress);
-  const bytesDone = progress?.transferredBytes ?? projection.transferredBytes;
-  const totalBytes = progress?.totalBytes ?? projection.totalSize;
+  // 「终态以 projection 为准」的取舍收在 `transferSample` 里（见那里的说明）。
+  const { live, done, total, percent } = transferSample(projection, liveProgress);
+  const DirectionIcon = projection.direction === "send" ? ArrowUpFromLine : ArrowDownToLine;
+  // 速率只在真的在传时才有意义。其余阶段（等待接受 / 已中断 / 已结束）给时间——
+  // 「什么时候的事」在那些阶段正是用户要问的（同桌面 `-session-row.tsx` 的右列）。
+  const rate = projection.phase === "active" ? formatTransferRate(live?.speed) : null;
 
   return (
     <li>
@@ -437,28 +441,84 @@ const TransferActivityItem = memo(function TransferActivityItem({
             colorClass={PHASE_META[projection.phase].dot}
             pulse={projection.phase === "active"}
           />
-          <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-            {t(DIRECTION_LABEL[projection.direction])} · {projection.peerName}
-          </p>
+          <SessionTitle files={projection.files} fallback={projection.peerName} />
           <span className="shrink-0 text-[11px] text-muted-foreground">{t(phaseLabel(projection))}</span>
         </div>
 
-        <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-          <span className="truncate">{t(connection)}</span>
+        <div className="mt-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span className="flex min-w-0 items-center gap-1">
+            {/* 方向此前是「发送 / 接收」两个字，与对端名抢同一行的宽度。图标表达同一件事
+                却只占一个字符；文字留在 `aria-label` 里，读屏拿到的信息不减。 */}
+            <DirectionIcon
+              className="size-3 shrink-0"
+              role="img"
+              aria-label={t(DIRECTION_LABEL[projection.direction])}
+            />
+            <span className="truncate">{projection.peerName}</span>
+          </span>
           <span className="shrink-0 font-mono tabular-nums">
-            {formatFileSize(bytesDone)} / {formatFileSize(totalBytes)} · {percent}%
+            {formatFileSize(done)} / {formatFileSize(total)}
           </span>
         </div>
-        <ProgressBar percent={percent} className="mt-1.5" />
+
+        <ProgressBar percent={percent} className="mt-1.5" label={t`传输进度`} />
+
+        <div className="mt-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span className="truncate">{t(connection)}</span>
+          {/* 同一个位置轮流放两样东西，而不是各占一行：正在传时问「多快」，其余阶段问
+              「什么时候的事」——两个问题不会同时成立，所以也不该同时占版面。 */}
+          <span className="flex shrink-0 items-center gap-1">
+            {rate ? (
+              <span className="font-mono tabular-nums">{rate}</span>
+            ) : (
+              <RelativeTime timestamp={sessionEndedAt(projection)} />
+            )}
+            <span aria-hidden>·</span>
+            <span className="font-mono tabular-nums">{percent}%</span>
+          </span>
+        </div>
       </button>
     </li>
   );
 });
 
 /**
+ * 会话标题：首个文件名 + 「还有几个」的计数徽标。
+ *
+ * 计数**不并进被截断的那段文字**（「a.zip 等 3 个文件」在窄列里必然被切掉尾巴，而尾巴才是
+ * 计数）——它自己占一个 `shrink-0` 的位，永远看得见。
+ *
+ * `files` 为空只可能出现在异常投影上，那时回落到对端名，至少还认得出是跟谁的会话。
+ */
+function SessionTitle({ files, fallback }: { files: TransferProjection["files"]; fallback: string }) {
+  const { t } = useLingui();
+  const first = files[0];
+  const rest = files.length - 1;
+
+  return (
+    <p className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium text-foreground">
+      <span className="truncate" title={first?.name ?? fallback}>
+        {first?.name ?? fallback}
+      </span>
+      {rest > 0 && (
+        <span
+          className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-normal text-muted-foreground"
+          title={t`共 ${files.length} 个文件`}
+        >
+          +{rest}
+        </span>
+      )}
+    </p>
+  );
+}
+
+/**
  * 详情侧 —— 选中会话的逐文件进度与可用操作。
  *
- * 速率与 ETA 只对进行中的会话有意义；终态显示「等待数据 · ETA 未知」是在报告一个不存在的等待。
+ * 速率与 ETA 只对**正在传**的会话有意义。此前的判据是「非终态」，于是「等待对方接受」与
+ * 「已中断」两个阶段也会摆出一行「等待数据 · ETA 未知」——那是在报告一个不存在的等待，
+ * 而这两个阶段恰恰是用户最想知道「到底卡在哪」的时候。现在这两档不给指标，给的是阶段本身
+ * 的说明（`phaseLabel` 已区分出「对方暂停 / 连接中断 / 对方离线」）。
  */
 function TransferDetailPanel({
   openList,
@@ -480,47 +540,35 @@ function TransferDetailPanel({
   remove: ItemAction;
 }) {
   const { t } = useLingui();
-  const ended = projection.phase === "terminal";
-  const progress = ended ? undefined : liveProgress;
-  const percent = transferPercent(projection, progress);
-  const bytesDone = progress?.transferredBytes ?? projection.transferredBytes;
-  const totalBytes = progress?.totalBytes ?? projection.totalSize;
-  const files: TransferFileRow[] = progress?.files ?? projection.files;
-  // 占位在这里给：共享的格式化函数算不出来时返回 null / 只收确定值，
-  // 「等待数据」「未知」是要翻译的 UI 文案（见 `_lib/format.ts` 的说明）。
-  const rate = formatTransferRate(progress?.speed) ?? t`等待数据`;
-  const eta =
-    progress?.eta != null && Number.isFinite(progress.eta) && progress.eta >= 0
-      ? formatDuration(progress.eta)
-      : t`未知`;
+  const { live, done, total, percent } = transferSample(projection, liveProgress);
+  const files: TransferFileRow[] = live?.files ?? projection.files;
+  const DirectionIcon = projection.direction === "send" ? ArrowUpFromLine : ArrowDownToLine;
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-6">
       <div className="flex items-start gap-2">
         <OpenListButton openList={openList} label={t`打开传输会话列表`} />
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
             <StatusDot
               colorClass={PHASE_META[projection.phase].dot}
               pulse={projection.phase === "active"}
             />
-            <span className="truncate">
-              {t(DIRECTION_LABEL[projection.direction])} · {projection.peerName}
+            <SessionTitle files={projection.files} fallback={projection.peerName} />
+          </div>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <DirectionIcon
+                className="size-3"
+                role="img"
+                aria-label={t(DIRECTION_LABEL[projection.direction])}
+              />
+              {projection.peerName}
             </span>
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {t(phaseLabel(projection))} · {t(connection)}
-            {!ended && (
-              <>
-                {" · "}
-                <Trans>
-                  {rate} · ETA {eta}
-                </Trans>
-              </>
-            )}
-          </p>
-          <p className="mt-1 font-mono text-[11px] break-all text-muted-foreground">
-            {projection.sessionId}
+            <span aria-hidden>·</span>
+            <span>{t(phaseLabel(projection))}</span>
+            <span aria-hidden>·</span>
+            <span>{t(connection)}</span>
           </p>
         </div>
       </div>
@@ -528,29 +576,18 @@ function TransferDetailPanel({
       <div>
         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <span className="font-mono tabular-nums">
-            {formatFileSize(bytesDone)} / {formatFileSize(totalBytes)}
+            {formatFileSize(done)} / {formatFileSize(total)}
           </span>
           <span className="font-mono tabular-nums">{percent}%</span>
         </div>
-        <ProgressBar percent={percent} className="mt-1.5" />
+        <ProgressBar percent={percent} className="mt-1.5" label={t`传输进度`} />
       </div>
 
-      <ul className="flex flex-col gap-1.5">
-        {files.map((file) => {
-          const done = "transferred" in file ? file.transferred : file.transferredBytes;
-          return (
-            <li
-              key={file.fileId}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border bg-background px-3 py-2 text-[11px]"
-            >
-              <span className="truncate text-foreground">{file.name}</span>
-              <span className="font-mono tabular-nums text-muted-foreground">
-                {formatFileSize(done)} / {formatFileSize(file.size)} · {calcPercent(done, file.size)}%
-              </span>
-            </li>
-          );
-        })}
-      </ul>
+      <TransferMetrics projection={projection} progress={live} />
+
+      {/* key 绑会话：切到另一条会话时详情面板不卸载，展开态会跟着漂过去——上一条展开了
+          四十行，下一条一进来也是全展开的。 */}
+      <TransferFileList key={projection.sessionId} files={files} />
 
       <TransferItemActions
         projection={projection}
@@ -559,6 +596,181 @@ function TransferDetailPanel({
         cancel={cancel}
         remove={remove}
       />
+
+      <SessionIdRow key={projection.sessionId} sessionId={projection.sessionId} />
+    </div>
+  );
+}
+
+/**
+ * 指标区。**只在数据真的存在的阶段出现**：
+ *
+ * - `active`：速率 + 剩余时间——这两个数只有内核在下发进度事件时才有。
+ * - `terminal`：用时 + 结束时刻——传完之后用户关心的是「花了多久」「什么时候的事」。
+ * - 其余（等待接受 / 已中断）：整块不渲染，由阶段文案自己说话。
+ *
+ * 单条指标算不出来时同样整格省掉，而不是摆一个「未知」——一格「速率：未知」传达的信息
+ * 与不摆这一格完全相同，却多占一份视觉重量。
+ */
+function TransferMetrics({
+  projection,
+  progress,
+}: {
+  projection: TransferProjection;
+  progress?: TransferProgressEvent;
+}) {
+  const { t } = useLingui();
+  const metrics: Array<{ label: string; value: string }> = [];
+
+  if (projection.phase === "active") {
+    const rate = formatTransferRate(progress?.speed);
+    if (rate) metrics.push({ label: t`速率`, value: rate });
+    if (progress?.eta != null && Number.isFinite(progress.eta) && progress.eta >= 0) {
+      metrics.push({ label: t`剩余`, value: formatDuration(progress.eta) });
+    }
+  } else if (projection.phase === "terminal") {
+    const elapsed = elapsedSeconds(projection);
+    if (elapsed !== null) metrics.push({ label: t`用时`, value: formatDuration(elapsed) });
+  }
+
+  const endedAt = projection.phase === "terminal" ? sessionEndedAt(projection) : null;
+  if (metrics.length === 0 && endedAt === null) return null;
+
+  return (
+    <dl className="flex flex-wrap gap-x-6 gap-y-2">
+      {metrics.map((metric) => (
+        <div key={metric.label} className="flex flex-col">
+          <dt className="text-[11px] text-muted-foreground">{metric.label}</dt>
+          <dd className="font-mono text-xs tabular-nums text-foreground">{metric.value}</dd>
+        </div>
+      ))}
+      {endedAt !== null && (
+        <div className="flex flex-col">
+          <dt className="text-[11px] text-muted-foreground">
+            <Trans>结束于</Trans>
+          </dt>
+          <dd className="text-xs text-foreground">
+            <RelativeTime timestamp={endedAt} />
+          </dd>
+        </div>
+      )}
+    </dl>
+  );
+}
+
+/**
+ * 逐文件清单。
+ *
+ * 每一行带自己的进度条与状态：`FileProgressInfo.status`（pending / transferring / completed）
+ * 此前一直在事件里躺着没人读——没有它，一个 40 个文件的会话在传输过程中每一行长得一模一样，
+ * 看不出「现在在传哪个」。projection 侧没有这个字段（那是持久化投影，不含在途状态），
+ * 故按百分比推断，两条路径归一到同一个渲染。
+ *
+ * 超过 `FILE_LIST_LIMIT` 折起来：见该常量的说明。
+ */
+function TransferFileList({ files }: { files: TransferFileRow[] }) {
+  const { t } = useLingui();
+  const [expanded, setExpanded] = useState(false);
+  const hidden = files.length - FILE_LIST_LIMIT;
+  const shown = expanded ? files : files.slice(0, FILE_LIST_LIMIT);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <ul className="flex flex-col gap-1.5">
+        {shown.map((file) => {
+          const done = "transferred" in file ? file.transferred : file.transferredBytes;
+          const percent = calcPercent(done, file.size);
+          const status = "status" in file ? file.status : percent >= 100 ? "completed" : "pending";
+          return (
+            <li key={file.fileId} className="rounded-lg border bg-background px-3 py-2 text-[11px]">
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  {status === "completed" ? (
+                    // 完成态给对勾而不是「100%」：一眼扫下去，形状比数字快。
+                    <Check
+                      className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400"
+                      role="img"
+                      aria-label={t`已完成`}
+                    />
+                  ) : (
+                    <StatusDot
+                      colorClass={status === "transferring" ? "bg-[var(--brand-solid)]" : "bg-muted-foreground/40"}
+                      pulse={status === "transferring"}
+                      label={status === "transferring" ? t`传输中` : t`等待中`}
+                    />
+                  )}
+                  <span
+                    className={cn("truncate", status === "pending" ? "text-muted-foreground" : "text-foreground")}
+                    title={file.name}
+                  >
+                    {file.name}
+                  </span>
+                </span>
+                <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                  {formatFileSize(done)} / {formatFileSize(file.size)}
+                </span>
+              </div>
+              {/* 只有真的传了一部分才画进度条：已完成的满格条把对勾又说了一遍，还没开始的
+                  空轨道则是一整行「零信息」——一次几十个文件的会话里，那是几十条空轨道。 */}
+              {status !== "completed" && percent > 0 && (
+                <ProgressBar percent={percent} className="mt-1.5" label={t`${file.name} 的进度`} />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="self-start rounded-lg px-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+        >
+          {expanded ? <Trans>收起文件</Trans> : <Trans>显示全部 {files.length} 个文件</Trans>}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 会话 ID 行。
+ *
+ * 它此前顶在标题下方、`break-all` 铺满三行——一串对用户毫无意义的 UUID 占据了详情侧最贵的
+ * 位置。但它也不能删：报 issue、翻日志、对事件流都靠它，那正是 DESIGN.md 对 multiaddr 的
+ * 同一条态度（「对普通用户是噪声，对排查的人是全部答案」，所以降级而不是丢弃）。
+ *
+ * 复制态住在本组件里，换代 `key` 由调用方挂在**本组件**上——挂在里面那个 `<button>` 的
+ * DOM 节点上什么也重置不了（知识库「复制态的换代 key」）。
+ */
+function SessionIdRow({ sessionId }: { sessionId: string }) {
+  const { t } = useLingui();
+  const { state, copy } = useCopyToClipboard();
+
+  return (
+    <div className="flex items-center gap-1.5 border-t pt-3 text-[11px] text-muted-foreground">
+      <span className="truncate font-mono" title={sessionId}>
+        {sessionId}
+      </span>
+      <button
+        type="button"
+        onClick={() => void copy(sessionId)}
+        // 成功只换了个图标——读屏用户看不见图标，所以可访问名要跟着换，否则那次点击对他们
+        // 而言没有任何反馈。
+        aria-label={state === "copied" ? t`已复制` : t`复制会话 ID`}
+        title={t`复制会话 ID`}
+        className="-m-2 flex size-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground"
+      >
+        {state === "copied" ? (
+          <Check className="size-3 text-emerald-600 dark:text-emerald-400" aria-hidden />
+        ) : (
+          <Copy className="size-3" aria-hidden />
+        )}
+      </button>
+      {state === "failed" && (
+        <span className="shrink-0 text-amber-600 dark:text-amber-400">
+          <Trans>复制失败</Trans>
+        </span>
+      )}
     </div>
   );
 }
@@ -590,14 +802,12 @@ function TransferItemActions({
   remove: ItemAction;
 }) {
   const { t } = useLingui();
-  const elapsed = elapsedSeconds(projection);
 
   return (
     <>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        {/* 已用时长只对算得出来的会话有意义；算不出来（没有 startedAt）就什么都不说，
-            而不是摆一个「已用 未知」。 */}
-        <span>{elapsed === null ? null : <Trans>已用 {formatDuration(elapsed)}</Trans>}</span>
+      {/* 已用时长归指标区（`TransferMetrics`）——它此前挤在动作行的左端，与右端那排按钮
+          是两件事，同一行里读起来像是某个按钮的说明。 */}
+      <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-muted-foreground">
         <div className="flex flex-wrap items-center gap-2">
           {/* 传输页是「过程」、收件箱是「结果」（分工见 inbox/page.tsx），此前两者是两座孤岛：
               一次接收在两处各出现一次，却没有任何一条边把它们连起来。 */}
@@ -710,7 +920,7 @@ function InboxItemLink({
     // 反查回来的本就是完整 detail，这里不用它就得让落地页去猜。
     <Link href={inboxItemHref(target.id, target.archived)} className={INLINE_ACTION_CLASS}>
       <Inbox className="size-3" aria-hidden="true" />
-      查看收到的文件
+      <Trans>查看收到的文件</Trans>
     </Link>
   );
 }

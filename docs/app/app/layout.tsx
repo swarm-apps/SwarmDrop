@@ -7,6 +7,7 @@ import { TransferOfferHost } from "./_components/transfer-offer-host";
 import { SecureContextBanner } from "./_components/secure-context-banner";
 import { WebErrorView } from "./_components/web-error-view";
 import { WebNodeBootstrap } from "./_components/web-node-bootstrap";
+import { WindowDropGuard } from "./_components/window-drop-guard";
 
 // 静态导出下 `metadata` 在**构建期**求值——那一刻没有「当前用户的 locale」可言，
 // `<title>` / `<meta>` 只能是源 locale。这不是漏翻，是这套部署形态的正确行为；
@@ -37,6 +38,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           见 app/global.css 的 @layer base——不加这个属性，应用区的边框会落到 currentColor。 */}
       <div data-swarmdrop-app className="flex min-h-screen">
         <WebNodeBootstrap />
+        {/* 窗口级的误投放护栏——拖偏了不该把整个节点连页面一起弄没。挂这里的理由与上面两个
+            宿主相同：它要在**任何路由**下都生效，而不只是发送页。 */}
+        <WindowDropGuard />
         <PairingRequestHost />
         <TransferOfferHost />
         <AppSidebar />

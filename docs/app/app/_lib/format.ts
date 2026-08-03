@@ -8,7 +8,30 @@
 // `formatDuration` 只收确定值——「等待数据」「未知」这类占位是要翻译的 UI 文案，
 // 而翻译宏只在组件里展开，放进本模块就成了永远的中文。调用点自己给。
 
-import type { TransferProjection } from "./view-types";
+import { calcPercent } from "@swarmdrop/shared-view";
+import type { TransferProgressEvent, TransferProjection } from "./view-types";
+
+/**
+ * 一条会话「传到哪了」的快照。
+ *
+ * 它存在的唯一理由是把一条**踩过的纪律**变成机制：**终态一律以 projection 为准**。
+ * `progress` 是在途采样，会话一进终态内核就不再下发，最后收到的那一帧会永远停在那儿；
+ * 而 projection 在终态已回填全量字节。2026-07-28 实测：16 MiB 传完、
+ * `projection.transferredBytes` 已是 16777216，采样却停在 3932160，界面显示
+ * 「已完成 · 23%」。
+ *
+ * 此前这段取舍在三个渲染点各写了一遍（活动列表行 / 会话详情 / 发送页的「已发出」卡片），
+ * 每一遍都靠一段注释提醒下一个人。第四个渲染点不会记得。
+ */
+export function transferSample(
+  projection: TransferProjection,
+  progress?: TransferProgressEvent,
+): { live: TransferProgressEvent | undefined; done: number; total: number; percent: number } {
+  const live = projection.phase === "terminal" ? undefined : progress;
+  const done = live?.transferredBytes ?? projection.transferredBytes;
+  const total = live?.totalBytes ?? projection.totalSize;
+  return { live, done, total, percent: calcPercent(done, total) };
+}
 
 /**
  * 会话「结束时刻」：终态会话有 `finishedAt`，非终态回退到最后更新。
