@@ -78,6 +78,7 @@ function SendPage() {
       capabilities: stored.capabilities ?? [],
       status: "offline" as const,
       connection: null,
+      connectionDetails: null,
       latency: null,
       isPaired: true,
       trustLevel: stored.trustLevel ?? "collaborator",

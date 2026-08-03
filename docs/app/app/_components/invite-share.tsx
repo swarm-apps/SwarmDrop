@@ -20,8 +20,9 @@ import type { MessageDescriptor } from "@lingui/core";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Check, Copy } from "lucide-react";
 import { Ban, CheckCircle2, TimerOff, WifiOff, type LucideIcon } from "lucide-react";
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useMemo } from "react";
 import { remainingLabel, remainingSeconds } from "../_lib/invite";
+import { useCopyToClipboard } from "../_lib/use-copy";
 import { getNode } from "../_lib/node-runtime";
 
 /** 码面边长（px）。手机扫描距离 20–30cm 下够用，也不至于把面板撑开。 */
@@ -207,34 +208,13 @@ function QrOverlay({ kind }: { kind: OverlayKind }) {
 }
 
 function CopyInviteButton({ invite }: { invite: string | null }) {
-  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-  const resetTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  // **同步的失败也要接住**：非安全上下文下 `navigator.clipboard` 直接是 undefined，
-  // 取 `.writeText` 就是一次同步 TypeError——挂在 promise 上的 onRejected 根本轮不到，
-  // 按钮会一动不动地骗人。而「非安全上下文」恰是复制不可用最常见的成因。
-  const copy = async () => {
-    if (invite === null) return;
-    try {
-      await navigator.clipboard.writeText(invite);
-      setState("copied");
-      // 只有「已复制」是一次性确认，该自动收回。放在 handler 里而不是 effect 里：
-      // 依赖 state 的 effect 在连点时写入同值会被 React bail out，那 2 秒不重新计时。
-      // 连点要顶掉上一个 timer，否则前一次的到点会把这一次的确认提前掐掉。
-      clearTimeout(resetTimer.current);
-      resetTimer.current = setTimeout(() => setState("idle"), 2000);
-    } catch {
-      // 不弹 toast（应用区没有 toast 系统），就地把失败说出来——下面那行输入框可以手选。
-      // 失败态**不自动清**：2 秒后自己消失的错误提示等于没提示，留到下次点击时覆盖。
-      clearTimeout(resetTimer.current);
-      setState("failed");
-    }
-  };
+  // 结果就地显示在按钮上（应用区没有 toast 系统），成败两态的取舍见 hook 的注释。
+  const { state, copy } = useCopyToClipboard();
 
   return (
     <button
       type="button"
-      onClick={() => void copy()}
+      onClick={() => invite !== null && void copy(invite)}
       disabled={invite === null}
       className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
     >

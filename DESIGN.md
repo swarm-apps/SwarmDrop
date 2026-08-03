@@ -224,8 +224,27 @@ codegens, so every field below is available everywhere.
 No build may drop a slot because "the layout is tight". Wrap, truncate, or move it to a secondary
 disclosure — do not discard information the user needs to judge a transfer.
 
+**Slot 6 disclosure — link details.** The connection badge SHALL be expandable into the link
+evidence behind it: transport (`TCP` / `QUIC` / `WebRTC` / `WebRTC Direct`), the remote multiaddr,
+and the relay's PeerId when one is in the path. That evidence is noise for an ordinary user and the
+whole answer for anyone debugging, so it lives *behind* the badge, never beside it. The badge itself
+may carry the transport name inline where the layout has room — it is one short token.
+
+Shape is a permitted divergence: desktop and web use a popover (both have pointers, so a floating
+layer costs nothing); mobile expands in place (an overlay on a touch device covers half the screen,
+and the mobile surface is already a full detail page). What may not diverge: the transport name is a
+proper noun and **is never translated** — users search it, paste it into issues, and diff it against
+logs. And when the address carries no transport (an inbound relay connection's `send_back_addr` is
+just `/p2p/<src>`), say "unknown" — do not invent a default.
+
+The remote address must be copyable and must not be truncated in the disclosure. A truncated
+multiaddr pasted into an issue is worthless.
+
 **Degradation.** When a field is absent (offline device has no `connection`/`latency`), that badge
-is simply not rendered; every other slot stays, and card height must not collapse or jitter.
+is simply not rendered; every other slot stays, and card height must not collapse or jitter. The
+same applies one level down: `connectionDetails` is null until the kernel has reported a connection
+address, and the badge then renders as a plain, non-interactive badge — an empty popover is worse
+than no popover.
 
 **Whole-card affordance.** A card body is clickable and does one of two things, consistently within
 a build: trigger the single primary action (desktop: send), or open a device detail view (mobile).

@@ -33,6 +33,28 @@ pub enum PathKind {
     Relayed,
 }
 
+/// 承载连接的传输协议（由 multiaddr 协议栈判定，见 [`Addr::transport`](crate::Addr::transport)）。
+///
+/// 与 [`PathKind`] **正交**，排障时要一起看：`PathKind` 回答「字节走不走中继」，
+/// 本枚举回答「字节跑在哪种传输上」。同是 `Relayed`，底层 TCP 还是 QUIC 指向
+/// 完全不同的排查方向；同是 `Direct`，`Webrtc` 说明是打洞来的、`Quic` 说明是公网直拨。
+///
+/// 变体名刻意不写成 `WebRtc`：camelCase 序列化后会变成 `"webRtc"`，而三端 UI 与
+/// 日志里这个词一直是 `webrtc`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum TransportKind {
+    /// TCP（上叠 Noise + Yamux）。
+    Tcp,
+    /// QUIC v1（传输层自带 TLS）。
+    Quic,
+    /// WebRTC 打洞：**信令**经 relay，数据面一个字节不过中继。
+    Webrtc,
+    /// WebRTC Direct：certhash 免信令免域名，浏览器够到原生端的唯一入口。
+    WebrtcDirect,
+}
+
 /// 地址的发现来源（AddressBook 与 `NetEvent::Discovered` 用）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +112,23 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&DiscoverySource::Manual).unwrap(),
             "\"manual\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransportKind::Tcp).unwrap(),
+            "\"tcp\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransportKind::Quic).unwrap(),
+            "\"quic\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransportKind::Webrtc).unwrap(),
+            "\"webrtc\"",
+            "变体名写成 WebRtc 会序列化成 webRtc，与三端 UI/日志用词不一致"
+        );
+        assert_eq!(
+            serde_json::to_string(&TransportKind::WebrtcDirect).unwrap(),
+            "\"webrtcDirect\""
         );
     }
 

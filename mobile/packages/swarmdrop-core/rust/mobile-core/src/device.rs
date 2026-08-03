@@ -4,8 +4,8 @@
 //! 域里唯一与列表无关的一对,落盘交给 [`crate::device_config`] 的端口实现。
 
 use swarmdrop_core::device::{
-    ConnectionType, Device, DeviceName, DeviceReceivePolicy, DeviceStatus, DeviceTrustLevel,
-    PairedDeviceInfo, ReceiveSaveBehavior,
+    ConnectionDetails, ConnectionType, Device, DeviceName, DeviceReceivePolicy, DeviceStatus,
+    DeviceTrustLevel, PairedDeviceInfo, ReceiveSaveBehavior, TransportKind,
 };
 use swarmdrop_core::device_manager::DeviceFilter;
 
@@ -152,6 +152,40 @@ impl From<MobileDeviceReceivePolicy> for DeviceReceivePolicy {
     }
 }
 
+/// 链路详情（[`ConnectionDetails`] 的 uniffi 形态）。
+///
+/// `transport` 走字符串而非枚举，与同文件的 `connection` 一致：这些值只用于
+/// 展示与日志比对，RN 侧按字符串 match 即可，没必要为它多生成一个跨语言枚举。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileConnectionDetails {
+    /// `tcp` / `quic` / `webrtc` / `webrtcDirect`；地址里读不出时为 `None`。
+    pub transport: Option<String>,
+    pub remote_addr: String,
+    /// 经中继时是那台 relay 的 PeerId。
+    pub relay: Option<String>,
+}
+
+impl From<ConnectionDetails> for MobileConnectionDetails {
+    fn from(details: ConnectionDetails) -> Self {
+        // 穷尽解构：上游加字段时这里会编译失败，强制同步。
+        let ConnectionDetails {
+            transport,
+            remote_addr,
+            relay,
+        } = details;
+        Self {
+            transport: transport.map(|t| match t {
+                TransportKind::Tcp => "tcp".to_string(),
+                TransportKind::Quic => "quic".to_string(),
+                TransportKind::Webrtc => "webrtc".to_string(),
+                TransportKind::WebrtcDirect => "webrtcDirect".to_string(),
+            }),
+            remote_addr: remote_addr.to_string(),
+            relay: relay.map(|id| id.to_string()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileDevice {
     pub peer_id: String,
@@ -163,6 +197,8 @@ pub struct MobileDevice {
     pub arch: String,
     pub status: String,
     pub connection: Option<String>,
+    /// 链路详情（仅在线且内核报告过连接地址时有值）。
+    pub connection_details: Option<MobileConnectionDetails>,
     pub latency_ms: Option<u64>,
     pub is_paired: bool,
     pub trust_level: Option<MobileDeviceTrustLevel>,
@@ -178,6 +214,7 @@ impl From<Device> for MobileDevice {
             os_info,
             status,
             connection,
+            connection_details,
             latency,
             is_paired,
             trust_level,
@@ -200,6 +237,7 @@ impl From<Device> for MobileDevice {
                 ConnectionType::Dcutr => "dcutr".to_string(),
                 ConnectionType::Relay => "relay".to_string(),
             }),
+            connection_details: connection_details.map(Into::into),
             latency_ms: latency,
             is_paired,
             trust_level: trust_level.map(Into::into),
@@ -229,6 +267,7 @@ impl From<PairedDeviceInfo> for MobileDevice {
             arch: os_info.arch,
             status: "offline".to_string(),
             connection: None,
+            connection_details: None,
             latency_ms: None,
             is_paired: true,
             trust_level: Some(trust_level.into()),

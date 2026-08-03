@@ -468,3 +468,28 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 
 解除配对时要 `preferencesActions.forgetDevice(peerId)`：别名与分组是本机偏好，内核不知道它们
 存在，不清就会留下幽灵条目——同一个 PeerId 再次配对时还会顶着上一段关系的名字回来。
+
+## 复制态的换代 key 必须挂在**持有状态的组件**上
+
+上面「剪贴板」那条说了「给按钮加 `key={内容}`」，但有个前提容易漏：**key 只重置它所在的那个
+组件**。如果复制态（`copied` / `state`）住在父组件里、key 挂在子 `<button>` 的 DOM 节点上，
+换代什么也重置不了——按钮重新挂载，state 原封不动。
+
+所以复制按钮要抽成自带状态的独立组件，key 挂在它身上：
+
+```tsx
+// ✅ state 与 key 在同一层
+<CopyAddressButton key={details.remoteAddr} address={details.remoteAddr} />
+
+// ❌ state 在父组件，key 白挂
+<button key={details.remoteAddr} onClick={() => copy(details.remoteAddr)}>
+```
+
+具体到链路详情：连接从 relay 升级成 LAN 直连后 `remoteAddr` 会换，而按钮还挂着上一条的
+「已复制」——用户照着粘出去的是一条已经不在用的地址。
+
+复制逻辑本身已收口在 `_lib/use-copy.ts` 的 `useCopyToClipboard`（同步 TypeError、只有成功态
+自动收回、连点顶掉旧 timer 三条取舍写在那里），两个调用点都用它。
+
+**相关文件**：`docs/app/app/_lib/use-copy.ts`、`docs/app/app/_components/connection-badge.tsx`、
+`docs/app/app/_components/invite-share.tsx`

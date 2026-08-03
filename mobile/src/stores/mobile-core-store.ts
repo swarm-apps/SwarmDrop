@@ -17,6 +17,10 @@ import {
   startForegroundKeepAlive,
   stopForegroundKeepAlive,
 } from "@/core/foreground-service";
+import {
+  acquireMulticastLock,
+  releaseMulticastLock,
+} from "../../modules/lan-multicast";
 import { initMobileCore } from "@/core/mobile-core";
 import { buildNetworkRuntimeConfig } from "@/core/network-discovery";
 import { ensureNotificationPermission } from "@/core/notifier";
@@ -198,6 +202,8 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           await core.shutdownNode();
           // 节点停 → 拆前台服务(node running ⇔ FGS up)
           void stopForegroundKeepAlive();
+          // 组播锁同一条生命周期：持着它 Wi-Fi 芯片不进省电态,白耗电。
+          releaseMulticastLock();
           set({
             runtimeState: "stopped",
             networkStatus: null,
@@ -250,6 +256,9 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             // 并拉起前台服务保活(Android;iOS 内部 no-op)。
             void ensureNotificationPermission();
             void startForegroundKeepAlive();
+            // mDNS 的组播帧在没有这把锁时会被 Wi-Fi 驱动丢掉(Android),
+            // 于是同网设备只能经公网 relay 相见。iOS 内部 no-op。
+            acquireMulticastLock();
           }
           if (nextRuntimeState !== "running") {
             const message = "节点未进入运行状态";

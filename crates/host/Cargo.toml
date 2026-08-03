@@ -33,4 +33,4 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 
 [features]
 default = []
-specta = ["dep:specta", "entity/specta"]
+specta = ["dep:specta", "entity/specta", "swarmdrop-net-base/specta"]

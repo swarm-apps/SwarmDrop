@@ -1,18 +1,14 @@
-import { useState, type ComponentType } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { deviceDisplayName } from "@/lib/device-name";
-import { formatLatency } from "@/lib/format";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   Link,
   MoreHorizontal,
-  RadioTower,
   Send,
   Settings2,
   Tags,
   Unlink,
-  Wifi,
-  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,50 +28,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { msg } from "@lingui/core/macro";
-import type { MessageDescriptor } from "@lingui/core";
 import { useLingui } from "@lingui/react/macro";
 import { Trans } from "@lingui/react/macro";
 import type {
   Device,
-  ConnectionType,
   DeviceReceivePolicy,
   DeviceTrustLevel,
 } from "@/lib/bindings";
+import { ConnectionBadge } from "./connection-badge";
 import { TrustPolicyDialog, trustConfig } from "./trust-policy-dialog";
 
 const statusTone = {
   unpaired:
     "bg-primary/10 text-brand ring-primary/10 dark:bg-primary/12 dark:ring-primary/15",
-};
-
-const connectionConfig: Record<
-  ConnectionType,
-  {
-    icon: ComponentType<{ className?: string }>;
-    label: MessageDescriptor;
-    bgColor: string;
-    textColor: string;
-  }
-> = {
-  lan: {
-    icon: Wifi,
-    label: msg`局域网`,
-    bgColor: "bg-green-100",
-    textColor: "text-green-600",
-  },
-  dcutr: {
-    icon: Zap,
-    label: msg`打洞`,
-    bgColor: "bg-sky-100",
-    textColor: "text-sky-600",
-  },
-  relay: {
-    icon: RadioTower,
-    label: msg`中继`,
-    bgColor: "bg-amber-100",
-    textColor: "text-amber-600",
-  },
 };
 
 interface DeviceCardProps {
@@ -110,7 +75,6 @@ export function DeviceCard({
   const { t } = useLingui();
   const DeviceIcon = getDeviceIcon(device.os);
   const isOnline = device.status === "online";
-  const connConfig = device.connection ? connectionConfig[device.connection] : null;
 
   const [unpairOpen, setUnpairOpen] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -224,24 +188,12 @@ export function DeviceCard({
 
         {/* Footer */}
         <div className="mt-auto flex items-center justify-between gap-2">
-          {/* Connection Badge */}
-          {connConfig && device.latency != null ? (
-            <div
-              className={cn(
-                "flex items-center gap-1 rounded-full px-2.5 py-1 ring-1 ring-black/[0.03]",
-                connConfig.bgColor
-              )}
-            >
-              <connConfig.icon className={cn("size-2.5", connConfig.textColor)} />
-              <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
-                {t(connConfig.label)}
-              </span>
-              {formatLatency(device.latency) && (
-                <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
-                  {formatLatency(device.latency)}
-                </span>
-              )}
-            </div>
+          {/* Connection Badge —— 徽标可点开链路详情，见 connection-badge.tsx。
+              条件只看 `connection`：延迟要等第一次 ping（30s 间隔），此前
+              `latency` 为 null，把它并进条件等于「刚连上的半分钟里连接方式不显示」。
+              延迟本身有就显示、没有就省掉，那是徽标内部的事。 */}
+          {device.connection ? (
+            <ConnectionBadge device={device} />
           ) : (
             <TrustBadge device={device} />
           )}

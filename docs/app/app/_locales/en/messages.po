@@ -81,11 +81,15 @@ msgstr "An invite works only once. Generate a new one to connect another device.
 msgid "下载"
 msgstr "Download"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/connection-panel.tsx
-#: app/app/_components/device-card.tsx
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "中继"
 msgstr "Relay"
+
+#: app/app/_components/connection-badge.tsx
+msgid "中继节点"
+msgstr "Relay node"
 
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "中继连接也自动接收"
@@ -132,6 +136,7 @@ msgstr "Pick a session on the left to see per-file progress and available action
 msgid "会话"
 msgstr "Sessions"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-activity-panel.tsx
 #: app/app/_lib/nav.ts
 msgid "传输"
@@ -335,9 +340,14 @@ msgstr "Enter a helper's <0>webrtc-direct</0> address, including the trailing <1
 msgid "处理中"
 msgstr "Working"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/invite-share.tsx
 msgid "复制失败，请手动选中"
 msgstr "Copy failed — select it manually"
+
+#: app/app/_components/connection-badge.tsx
+msgid "复制远端地址"
+msgstr "Copy remote address"
 
 #: app/app/_components/invite-share.tsx
 msgid "复制链接"
@@ -387,7 +397,7 @@ msgstr "This is the name peers see in pairing confirmations and transfer request
 msgid "对端在配对确认与传输请求里看到的就是这一行。未设置时用浏览器 UA 派生的默认名， 清空输入即回落到它。"
 msgstr "This is the name peers see in pairing confirmations and transfer requests. Left unset, it falls back to a name derived from your browser; clear the field to go back to it."
 
-#: app/app/_components/device-card.tsx
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "局域网"
 msgstr "LAN"
@@ -425,6 +435,7 @@ msgstr "Invites you sent (still valid)"
 msgid "已取消"
 msgstr "Cancelled"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/invite-share.tsx
 msgid "已复制"
 msgstr "Copied"
@@ -538,7 +549,7 @@ msgstr "Open transfer session list"
 msgid "打开收件箱列表"
 msgstr "Open inbox list"
 
-#: app/app/_components/device-card.tsx
+#: app/app/_components/connection-badge.tsx
 msgid "打洞"
 msgstr "Hole-punch"
 
@@ -555,6 +566,10 @@ msgstr "Drop files here"
 #: app/app/_components/receive-panel.tsx
 msgid "拒绝"
 msgstr "Decline"
+
+#: app/app/_components/connection-badge.tsx
+msgid "排查连接问题时把这些贴进 issue"
+msgstr "Paste these into an issue when reporting a connection problem"
 
 #: app/app/_components/pairing-panel.tsx
 #: app/app/_components/receive-panel.tsx
@@ -643,6 +658,7 @@ msgstr "not opened"
 msgid "未找到"
 msgstr "Not found"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "未知"
 msgstr "unknown"
@@ -678,6 +694,10 @@ msgstr "From {0} · {1} file(s) · {2}"
 #: app/app/_components/send-panel.tsx
 msgid "查看传输"
 msgstr "View transfer"
+
+#: app/app/_components/connection-badge.tsx
+msgid "查看链路详情"
+msgstr "View link details"
 
 #. placeholder {0}: prepareProgress.currentFile
 #. placeholder {1}: prepareProgress.completedFiles
@@ -944,6 +964,10 @@ msgstr "This invite has expired — ask for a new one."
 msgid "进行中与已结束的会话。选中一条查看文件明细与续传。"
 msgstr "Sessions in progress and finished. Pick one for per-file detail and resuming."
 
+#: app/app/_components/connection-badge.tsx
+msgid "远端地址"
+msgstr "Remote address"
+
 #: app/app/_components/connection-panel.tsx
 msgid "连接"
 msgstr "Connection"
@@ -1023,6 +1047,10 @@ msgstr "Generate again"
 #: app/app/_components/receive-panel.tsx
 msgid "重试下载"
 msgstr "Retry download"
+
+#: app/app/_components/connection-badge.tsx
+msgid "链路详情"
+msgstr "Link details"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "需先在 <0>设置</0> 页的「连接」区建立可达（circuit），否则邀请里无可拨地址。"

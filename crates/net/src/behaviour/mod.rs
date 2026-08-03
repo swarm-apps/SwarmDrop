@@ -97,15 +97,27 @@ impl Behaviour {
             kad
         }));
 
+        // mDNS 是**可选的发现加速手段**，不是必需品：绑不上 5353（iOS 上被
+        // mDNSResponder 占着且不一定给 SO_REUSEPORT、容器/无线网卡缺组播接口）
+        // 只该退化成「局域网设备发现得慢一点」，不该让整个节点起不来。
+        // 此前这里是 `expect`，等于把一个平台可选能力做成了启动的硬前提——
+        // 任何一个不给绑 5353 的环境都会在节点启动时直接 panic。
+        //
+        // 退化后局域网直连并没有丢：`actor.rs` 的 `try_upgrade_to_lan` 还能从
+        // identify 自报的私网地址把中转连接升级成直连，那条路径不碰组播。
         #[cfg(not(wasm_browser))]
-        let mdns = Toggle::from(if config.mdns {
-            Some(
-                mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)
-                    .expect("mDNS initialization failed"),
-            )
-        } else {
-            None
-        });
+        let mdns = Toggle::from(config.mdns.then(|| {
+            match mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id) {
+                Ok(behaviour) => Some(behaviour),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "mDNS unavailable; lan discovery falls back to identify-based upgrade"
+                    );
+                    None
+                }
+            }
+        }).flatten());
 
         #[cfg(not(wasm_browser))]
         let autonat = Toggle::from(config.autonat.then(autonat::v2::client::Behaviour::default));

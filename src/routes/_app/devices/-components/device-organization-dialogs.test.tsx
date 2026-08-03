@@ -144,6 +144,7 @@ describe("DeviceOrganizationDialog", () => {
     capabilities: [],
     status: "offline",
     connection: null,
+    connectionDetails: null,
     latency: null,
     isPaired: true,
     trustLevel: "collaborator",

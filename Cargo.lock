@@ -9293,7 +9293,7 @@ dependencies = [
 
 [[package]]
 name = "swarmdrop"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "async-trait",
  "axum",
@@ -9466,6 +9466,7 @@ dependencies = [
  "multiaddr",
  "serde",
  "serde_json",
+ "specta",
  "thiserror 2.0.19",
 ]
 

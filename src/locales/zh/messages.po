@@ -166,12 +166,13 @@ msgstr "不限制"
 msgid "个文件"
 msgstr "个文件"
 
-#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "中继"
 msgstr "中继"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "中继节点"
 msgstr "中继节点"
 
@@ -247,6 +248,7 @@ msgid "会话列表"
 msgstr "会话列表"
 
 #: src/components/layout/app-topbar.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "传输"
 msgstr "传输"
 
@@ -794,6 +796,7 @@ msgid "复制后可供浏览器端快速连接本机。"
 msgstr "复制后可供浏览器端快速连接本机。"
 
 #: src/components/network/lan-helper-address.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "复制失败"
 msgstr "复制失败"
 
@@ -813,6 +816,10 @@ msgstr "复制失败，请手动复制邀请"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "复制路径"
 msgstr "复制路径"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "复制远端地址"
+msgstr "复制远端地址"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -911,7 +918,7 @@ msgstr "将删除已结束的传输记录，此操作无法撤销；进行中与
 msgid "将在 {0} 后过期"
 msgstr "将在 {0} 后过期"
 
-#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "局域网"
 msgstr "局域网"
@@ -986,6 +993,7 @@ msgstr "已取消传输"
 msgid "已取消归档"
 msgstr "已取消归档"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -1229,7 +1237,7 @@ msgstr "打开文件"
 msgid "打开文件夹"
 msgstr "打开文件夹"
 
-#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "打洞"
 msgstr "打洞"
@@ -1262,6 +1270,10 @@ msgstr "拖动排序、重命名或删除分组。删除分组不会取消其中
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "拖拽文件或文件夹到这里"
 msgstr "拖拽文件或文件夹到这里"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "排查连接问题时把这些贴进 issue"
+msgstr "排查连接问题时把这些贴进 issue"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "接受配对"
@@ -1496,6 +1508,7 @@ msgid "未提供"
 msgstr "未提供"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "未知"
@@ -1590,6 +1603,10 @@ msgstr "来自 {0}"
 #: src/stores/pairing-store.ts
 #~ msgid "查找设备"
 #~ msgstr "查找设备"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "查看链路详情"
+msgstr "查看链路详情"
 
 #: src/components/file-browser/file-browser.tsx
 msgid "树形视图"
@@ -2268,6 +2285,10 @@ msgstr "进入 SwarmDrop"
 msgid "进行中"
 msgstr "进行中"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "远端地址"
+msgstr "远端地址"
+
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "连接"
 msgstr "连接"
@@ -2468,6 +2489,10 @@ msgstr "重新生成邀请"
 #: src/components/file-browser/item-actions.tsx
 msgid "重试"
 msgstr "重试"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "链路详情"
+msgstr "链路详情"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "错误"

@@ -4,7 +4,8 @@ use dashmap::DashMap;
 use swarmdrop_net::{Addr, DiscoverySource, NetEvent, NodeId, PathKind};
 
 use crate::device::{
-    ConnectionType, Device, DeviceStatus, OsInfo, PairedDeviceInfo, infer_connection_type,
+    ConnectionDetails, ConnectionType, Device, DeviceStatus, OsInfo, PairedDeviceInfo,
+    infer_connection_type,
 };
 use crate::presence::PresenceMap;
 
@@ -19,6 +20,12 @@ pub(super) struct PeerInfo {
     pub is_connected: bool,
     /// 内核报告的连接路径（比地址推断更准确；断连时清空）。
     pub path: Option<PathKind>,
+    /// 当前最优连接的远端地址，与 `path` 成对更新。
+    ///
+    /// **与上面的 `addrs` 不是一回事**：那个是 mDNS 观测证据（`is_lan_discovered`
+    /// 的授权判据，只认多播域实测），这个是链路快照（对端自报的地址也可能出现在
+    /// 这里）。混用会把授权判据交给对端自报——两者必须各存各的。
+    pub conn_addr: Option<Addr>,
     /// 发现时间戳，暂未使用但后续可用于超时清理
     #[expect(dead_code)]
     pub discovered_at: i64,
@@ -35,6 +42,7 @@ impl PeerInfo {
             rtt_ms: None,
             is_connected: false,
             path: None,
+            conn_addr: None,
             discovered_at: chrono::Utc::now().timestamp_millis(),
             connected_at: None,
         }
@@ -112,27 +120,30 @@ impl DeviceManager {
                 }
             },
 
-            NetEvent::PeerConnected { node, path } => {
+            NetEvent::PeerConnected { node, path, addr } => {
                 let now = chrono::Utc::now().timestamp_millis();
                 match self.peers.get_mut(node) {
                     Some(mut entry) => {
                         entry.is_connected = true;
                         entry.connected_at = Some(now);
                         entry.path = Some(*path);
+                        entry.conn_addr = Some(addr.clone());
                     }
                     None => {
                         let mut info = PeerInfo::new_discovered(*node, vec![]);
                         info.is_connected = true;
                         info.connected_at = Some(now);
                         info.path = Some(*path);
+                        info.conn_addr = Some(addr.clone());
                         self.peers.insert(*node, info);
                     }
                 }
             }
 
-            NetEvent::PathChanged { node, path } => {
+            NetEvent::PathChanged { node, path, addr } => {
                 if let Some(mut entry) = self.peers.get_mut(node) {
                     entry.path = Some(*path);
+                    entry.conn_addr = Some(addr.clone());
                 }
             }
 
@@ -141,6 +152,7 @@ impl DeviceManager {
                     entry.is_connected = false;
                     entry.rtt_ms = None;
                     entry.path = None;
+                    entry.conn_addr = None;
                 }
             }
 
@@ -189,23 +201,23 @@ impl DeviceManager {
                     let info = entry.value();
                     let peer_info = self.peers.get(&info.peer_id);
                     let is_connected = peer_info.as_deref().is_some_and(|p| p.is_connected);
-                    let (status, connection, latency) =
-                        if self.paired_peer_online(&info.peer_id, is_connected) {
-                            match peer_info.as_deref() {
-                                // 宽限期内连接详情沿用最近一次已知信息
-                                Some(p) => connection_info(&p.addrs, p.rtt_ms, p.path),
-                                None => (DeviceStatus::Online, None, None),
-                            }
-                        } else {
-                            (DeviceStatus::Offline, None, None)
-                        };
+                    let snapshot = if self.paired_peer_online(&info.peer_id, is_connected) {
+                        match peer_info.as_deref() {
+                            // 宽限期内沿用最近一次已知信息
+                            Some(p) => ConnectionSnapshot::from_peer(p),
+                            None => ConnectionSnapshot::online_unknown(),
+                        }
+                    } else {
+                        ConnectionSnapshot::offline()
+                    };
 
                     Device {
                         peer_id: info.peer_id,
                         os_info: info.os_info.clone(),
-                        status,
-                        connection,
-                        latency,
+                        status: snapshot.status,
+                        connection: snapshot.connection,
+                        connection_details: snapshot.details,
+                        latency: snapshot.latency,
                         is_paired: true,
                         trust_level: Some(info.trust_level),
                         receive_policy: Some(info.receive_policy.clone()),
@@ -231,17 +243,18 @@ impl DeviceManager {
         } else {
             peer.is_connected
         };
-        let (status, connection, latency) = if online {
-            connection_info(&peer.addrs, peer.rtt_ms, peer.path)
+        let snapshot = if online {
+            ConnectionSnapshot::from_peer(peer)
         } else {
-            (DeviceStatus::Offline, None, None)
+            ConnectionSnapshot::offline()
         };
         Device {
             peer_id: peer.peer_id,
             os_info,
-            status,
-            connection,
-            latency,
+            status: snapshot.status,
+            connection: snapshot.connection,
+            connection_details: snapshot.details,
+            latency: snapshot.latency,
             is_paired: paired.is_some(),
             trust_level: paired.as_ref().map(|info| info.trust_level),
             receive_policy: paired.as_ref().map(|info| info.receive_policy.clone()),
@@ -320,19 +333,53 @@ fn path_to_connection(path: PathKind) -> ConnectionType {
     }
 }
 
-/// 根据连接路径/地址提取 (DeviceStatus, ConnectionType, latency)
+/// 一台设备的连接侧快照。
 ///
-/// 内核报告的 `path` 优先（比地址推断准确）；断连宽限期内 path 已清空，
-/// 回退到 mDNS 地址推断（局域网设备据此仍显示 LAN）。
-fn connection_info(
-    addrs: &[Addr],
-    rtt_ms: Option<u64>,
-    path: Option<PathKind>,
-) -> (DeviceStatus, Option<ConnectionType>, Option<u64>) {
-    let connection = path
-        .map(path_to_connection)
-        .or_else(|| infer_connection_type(addrs));
-    (DeviceStatus::Online, connection, rtt_ms)
+/// 四个字段**必须一起产出**：分开算会配出「显示局域网直连，详情却是一条早已
+/// 失效的 circuit 地址」这类互相矛盾的组合。`list_devices` 的两条分支都经这里。
+struct ConnectionSnapshot {
+    status: DeviceStatus,
+    connection: Option<ConnectionType>,
+    details: Option<ConnectionDetails>,
+    latency: Option<u64>,
+}
+
+impl ConnectionSnapshot {
+    /// 离线：连接侧的一切都不适用。
+    fn offline() -> Self {
+        Self {
+            status: DeviceStatus::Offline,
+            connection: None,
+            details: None,
+            latency: None,
+        }
+    }
+
+    /// 在线但内核侧没有该 peer 的运行时记录（presence 宽限期内 peer 已被清出）。
+    fn online_unknown() -> Self {
+        Self {
+            status: DeviceStatus::Online,
+            ..Self::offline()
+        }
+    }
+
+    /// 由运行时 peer 记录派生。
+    ///
+    /// 内核报告的 `path` 优先（比地址推断准确）；断连宽限期内 `path` 与 `conn_addr`
+    /// 一起被清空，`connection` 回退到 mDNS 地址推断（局域网设备据此仍显示 LAN），
+    /// 而 `details` 就此为 `None`——**不回退**：链路已经没了，给出旧地址只会让人
+    /// 对着一条失效的连接排查。
+    fn from_peer(peer: &PeerInfo) -> Self {
+        Self {
+            status: DeviceStatus::Online,
+            connection: peer
+                .path
+                .map(path_to_connection)
+                .or_else(|| infer_connection_type(&peer.addrs)),
+            details: peer.conn_addr.clone().map(ConnectionDetails::from_addr),
+            latency: peer.rtt_ms,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -366,6 +413,7 @@ mod tests {
         mgr.handle_event(&NetEvent::PeerConnected {
             node: peer_id,
             path: PathKind::Relayed,
+            addr: "/ip4/198.51.100.7/tcp/4001/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp/p2p-circuit".parse().unwrap(),
         });
 
         assert!(mgr.is_connected(&peer_id), "前提：已连接");
@@ -418,6 +466,7 @@ mod tests {
         mgr.handle_event(&NetEvent::PeerConnected {
             node: peer_id,
             path: PathKind::Relayed,
+            addr: "/ip4/198.51.100.7/tcp/4001/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp/p2p-circuit".parse().unwrap(),
         });
         mgr.handle_event(&NetEvent::PeerIdentified {
             node: peer_id,

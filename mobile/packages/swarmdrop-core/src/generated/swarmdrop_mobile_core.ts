@@ -181,6 +181,65 @@ const stringConverter = (() => {
 })();
 const FfiConverterString = uniffiCreateFfiConverterString(stringConverter);
 
+/**
+ * 链路详情（[`ConnectionDetails`] 的 uniffi 形态）。
+ *
+ * `transport` 走字符串而非枚举，与同文件的 `connection` 一致：这些值只用于
+ * 展示与日志比对，RN 侧按字符串 match 即可，没必要为它多生成一个跨语言枚举。
+ */
+export type MobileConnectionDetails = {
+    /**
+     * `tcp` / `quic` / `webrtc` / `webrtcDirect`；地址里读不出时为 `None`。
+     */
+    transport?: string,
+    remoteAddr: string,
+    /**
+     * 经中继时是那台 relay 的 PeerId。
+     */
+    relay?: string
+}
+
+/**
+ * Generated factory for {@link MobileConnectionDetails} record objects.
+ */
+export const MobileConnectionDetails = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileConnectionDetails, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileConnectionDetails>,
+    });
+})();
+
+const FfiConverterTypeMobileConnectionDetails = (() => {
+    type TypeName = MobileConnectionDetails;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                transport: FfiConverterOptionalString.read(from), 
+                remoteAddr: FfiConverterString.read(from), 
+                relay: FfiConverterOptionalString.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterOptionalString.write(value.transport, into);
+            FfiConverterString.write(value.remoteAddr, into);
+            FfiConverterOptionalString.write(value.relay, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterOptionalString.allocationSize(value.transport) +
+             FfiConverterString.allocationSize(value.remoteAddr) +
+             FfiConverterOptionalString.allocationSize(value.relay);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
 export enum MobileDeviceTrustLevel {
     Owned,
     Collaborator,
@@ -325,6 +384,10 @@ export type MobileDevice = {
     arch: string,
     status: string,
     connection?: string,
+    /**
+     * 链路详情（仅在线且内核报告过连接地址时有值）。
+     */
+    connectionDetails?: MobileConnectionDetails,
     latencyMs?: bigint,
     isPaired: boolean,
     trustLevel?: MobileDeviceTrustLevel,
@@ -361,6 +424,7 @@ const FfiConverterTypeMobileDevice = (() => {
                 arch: FfiConverterString.read(from), 
                 status: FfiConverterString.read(from), 
                 connection: FfiConverterOptionalString.read(from), 
+                connectionDetails: FfiConverterOptionalTypeMobileConnectionDetails.read(from), 
                 latencyMs: FfiConverterOptionalUInt64.read(from), 
                 isPaired: FfiConverterBool.read(from), 
                 trustLevel: FfiConverterOptionalTypeMobileDeviceTrustLevel.read(from), 
@@ -377,6 +441,7 @@ const FfiConverterTypeMobileDevice = (() => {
             FfiConverterString.write(value.arch, into);
             FfiConverterString.write(value.status, into);
             FfiConverterOptionalString.write(value.connection, into);
+            FfiConverterOptionalTypeMobileConnectionDetails.write(value.connectionDetails, into);
             FfiConverterOptionalUInt64.write(value.latencyMs, into);
             FfiConverterBool.write(value.isPaired, into);
             FfiConverterOptionalTypeMobileDeviceTrustLevel.write(value.trustLevel, into);
@@ -392,6 +457,7 @@ const FfiConverterTypeMobileDevice = (() => {
              FfiConverterString.allocationSize(value.arch) +
              FfiConverterString.allocationSize(value.status) +
              FfiConverterOptionalString.allocationSize(value.connection) +
+             FfiConverterOptionalTypeMobileConnectionDetails.allocationSize(value.connectionDetails) +
              FfiConverterOptionalUInt64.allocationSize(value.latencyMs) +
              FfiConverterBool.allocationSize(value.isPaired) +
              FfiConverterOptionalTypeMobileDeviceTrustLevel.allocationSize(value.trustLevel) +
@@ -7502,6 +7568,9 @@ const FfiConverterTypeMobileCore = new FfiConverterObject(uniffiTypeMobileCoreOb
 // FfiConverter for string | undefined
 const FfiConverterOptionalString = new FfiConverterOptional(FfiConverterString);
 
+// FfiConverter for MobileConnectionDetails | undefined
+const FfiConverterOptionalTypeMobileConnectionDetails = new FfiConverterOptional(FfiConverterTypeMobileConnectionDetails);
+
 // FfiConverter for bigint | undefined
 const FfiConverterOptionalUInt64 = new FfiConverterOptional(FfiConverterUInt64);
 
@@ -7827,6 +7896,7 @@ export default Object.freeze({
     FfiConverterTypeForeignKeychainProvider,
     FfiConverterTypeMobileBootstrapCandidateSource,
     FfiConverterTypeMobileCandidateSourceStatus,
+    FfiConverterTypeMobileConnectionDetails,
     FfiConverterTypeMobileCore,
     FfiConverterTypeMobileCoreEvent,
     FfiConverterTypeMobileDevice,

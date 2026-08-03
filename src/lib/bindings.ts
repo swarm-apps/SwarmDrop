@@ -328,6 +328,32 @@ export type CandidateSourceStatus = {
 	count: number,
 };
 
+/**
+ *  链路详情：当前连接的可核对事实。
+ * 
+ *  与 [`ConnectionType`] 的分工——那个是给所有人看的一句话结论（局域网 / 打洞 /
+ *  中继），这个是「凭什么这么说」：走的哪条地址、哪种传输、经不经中继、经的是谁。
+ *  三端 UI 把它放在默认折叠的区块里，普通用户看不到，排障时一眼能拿到全部证据。
+ */
+export type ConnectionDetails = {
+	/**
+	 *  承载字节的传输协议。
+	 * 
+	 *  `None` 是真实存在的情况，不是缺陷：入站中继连接的 `send_back_addr` 只有
+	 *  `/p2p/<src>` 一段，地址里没有任何传输信息。呈现层照实显示「未知」。
+	 */
+	transport: TransportKind | null,
+	/**  当前最优连接的远端 multiaddr，原样给出——便于直接粘进 issue 或与日志比对。 */
+	remoteAddr: string,
+	/**
+	 *  中转身份：经中继时是那台 relay 的 PeerId，直连为 `None`。
+	 * 
+	 *  「经中继」三个字对排障几乎没用，得说清楚经的是哪一台——自建 relay 还是
+	 *  局域网里的 LanHelper，处理方式完全不同。
+	 */
+	relay: string | null,
+};
+
 /**  连接类型。 */
 export type ConnectionType = "lan" | "dcutr" | "relay";
 
@@ -346,6 +372,11 @@ export type Device = {
 	peerId: string,
 	status: DeviceStatus,
 	connection: ConnectionType | null,
+	/**
+	 *  链路详情。仅在线且内核报告过连接地址时有值——离线设备、以及只靠 mDNS
+	 *  地址推断出 `connection` 的宽限期内，这里是 `None`（没连接就没有链路可谈）。
+	 */
+	connectionDetails: ConnectionDetails | null,
 	latency: number | null,
 	isPaired: boolean,
 	trustLevel: DeviceTrustLevel | null,
@@ -970,6 +1001,26 @@ export type TransferResumedFileInfo = {
 	size: number,
 	isDirectory: boolean,
 };
+
+/**
+ *  承载连接的传输协议（由 multiaddr 协议栈判定，见 [`Addr::transport`](crate::Addr::transport)）。
+ * 
+ *  与 [`PathKind`] **正交**，排障时要一起看：`PathKind` 回答「字节走不走中继」，
+ *  本枚举回答「字节跑在哪种传输上」。同是 `Relayed`，底层 TCP 还是 QUIC 指向
+ *  完全不同的排查方向；同是 `Direct`，`Webrtc` 说明是打洞来的、`Quic` 说明是公网直拨。
+ * 
+ *  变体名刻意不写成 `WebRtc`：camelCase 序列化后会变成 `"webRtc"`，而三端 UI 与
+ *  日志里这个词一直是 `webrtc`。
+ */
+export type TransportKind = 
+/**  TCP（上叠 Noise + Yamux）。 */
+"tcp" | 
+/**  QUIC v1（传输层自带 TLS）。 */
+"quic" | 
+/**  WebRTC 打洞：**信令**经 relay，数据面一个字节不过中继。 */
+"webrtc" | 
+/**  WebRTC Direct：certhash 免信令免域名，浏览器够到原生端的唯一入口。 */
+"webrtcDirect";
 
 /**
  *  托盘「打开接收文件夹」：路径由前端 `savePath` 拥有，故由前端打开。

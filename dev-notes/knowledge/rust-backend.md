@@ -1033,3 +1033,31 @@ core 的系统通知从 `NotificationRequest{title,body}`（拼好的中文散�
 **相关文件**：`crates/host/src/device.rs`、`crates/core/src/paired_devices.rs`、
 `src-tauri/src/commands/pairing.rs`、`crates/web/src/node.rs`、
 `mobile/packages/swarmdrop-core/rust/mobile-core/src/device.rs`、`mobile/src/core/device-trust.ts`
+
+## 设备 DTO 的连接侧字段必须整份产出（2026-08-03）
+
+`Device` 的 `status` / `connection` / `connectionDetails` / `latency` 四项是**同一次连接快照的
+四个面**，不是四个独立字段。`device_manager` 有两条构造 `Device` 的分支
+（`DeviceFilter::Paired` 与 `peer_to_device`），此前各自拼三元组；加上链路详情后，分开算会配出
+「显示局域网直连，详情却是一条早已失效的 circuit 地址」这类互相矛盾的组合。
+
+**正确做法**：`ConnectionSnapshot` 三个构造函数覆盖三种情形，两条分支只能整份取用。
+
+- `offline()` —— 连接侧一切不适用
+- `online_unknown()` —— presence 宽限期内 peer 已被清出内核表
+- `from_peer(&PeerInfo)` —— 有运行时记录
+
+**降级刻意不对称**：断连宽限期内 `connection` 回退到 mDNS 地址推断（局域网设备据此仍显示 LAN），
+而 `details` 直接为 `None`——链路已经没了，给出旧地址只会让人对着一条失效的连接排查。
+
+### 两张地址表不能混
+
+`PeerInfo` 里 `addrs` 与 `conn_addr` 各存各的，**这条不能省**：
+
+- `addrs` 只由 mDNS `Discovered` 写入，是 `is_lan_discovered` 的授权判据
+  （`PairingMethod::Direct` 唯一的凭证——远程 peer 进不了本机多播域，因此伪造不了）；
+- `conn_addr` 是链路快照，**对端 identify 自报的地址也会出现在这里**。
+
+把后者并进前者，等于把配对授权判据交给对端自报。
+
+**相关文件**：`crates/core/src/device_manager.rs`、`crates/host/src/device.rs`

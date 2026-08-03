@@ -33,6 +33,7 @@ import {
   ConnectionBadge,
   normalizeConnectionKind,
 } from "@/components/connection-badge";
+import { ConnectionDetailsSection } from "@/components/connection-details";
 import {
   DeviceOrganizeSheet,
   type DeviceOrganizeSheetRef,
@@ -336,6 +337,7 @@ export default function DeviceDetailScreen() {
                   <View className="flex-row justify-end">
                     <ConnectionBadge
                       connection={device.connection}
+                      transport={device.connectionDetails?.transport}
                       latencyMs={device.latencyMs}
                     />
                   </View>
@@ -349,6 +351,9 @@ export default function DeviceDetailScreen() {
                 label={<Trans>延迟</Trans>}
                 value={`${Number(device.latencyMs)}ms`}
               />
+            ) : null}
+            {device.connectionDetails ? (
+              <ConnectionDetailsSection details={device.connectionDetails} />
             ) : null}
             <InfoRow
               label={<Trans>Peer ID</Trans>}

@@ -402,13 +402,68 @@ android target 依赖表）。
 覆盖中间值）。**依赖"看到每一次状态翻转"的逻辑必须走 `NetEvent` 边沿轨**；watch 只保证
 最终收敛值可见。对 until_active 这类"等终态"逻辑无影响（Failed/Active 会持续存在直到下轮）。
 
+### 连接路径由「谁先建成」定终身——所以升级必须主动发起（2026-08-03 修）
+
+**症状**：同一个局域网里的两台已配对设备，连接徽标长期停在「中继」——不是显示错了，字节真的
+在绕公网。
+
+**成因链**（三条缺一不可，改任一条都能复现）：
+
+1. presence 经 DHT 发现对端在线后立刻 `connect`，那一刻地址簿里往往只有 circuit 候选
+   （mDNS 还没到，或对端平台压根收发不了组播），relay 于是先赢；
+2. `handle_connect` 开头「已连接就返回当前快照」——之后再多的 `connect` 都不会重拨；
+3. `try_upgrade_to_direct` 只在 identify 的 `listen_addrs` 里 `find(is_webrtc)`，
+   **对端自报的私网地址被整个忽略**；mDNS `Discovered` 也只 `record_addr` + emit，不拨号。
+
+**修法**：`actor.rs` 新增 `try_upgrade_to_lan`，两个地址来源汇进来——identify 的 `listen_addrs`
+（**主路径，不依赖 mDNS**）与 mDNS `Discovered`（来得更早）。
+
+四个要点，改这块前逐条对：
+
+- **别只修 mDNS**。它在两个移动平台都要过平台的门（下一节），而 identify 自报的私网地址一个门
+  都不用过。mDNS 只是「来得更早的那份」。
+- **LAN 升级不做 `should_initiate` 定序，打洞继续做**。LAN 握手是毫秒级无信令，两端各拨最坏多
+  一条 idle 回收的连接；定序则会让「只有一端拨得通」（防火墙拦入站 / 一端 mDNS 瞎了）彻底没救。
+  打洞一次是数秒 ICE + 信令往返，那才值得定序。
+- **两条路径的在途标记必须分开存**（`upgrading_lan` / `upgrading_direct`）。共用一个的话，跨网
+  场景下「对端自报的私网地址必然拨不通 → 失败 → 下轮又先试 LAN」会把打洞永久锁死，而 identify
+  默认 5 分钟才来一轮。
+- **候选要排除 circuit**。局域网 helper 自己就监听在私网地址上，它派发的 circuit 地址前半段同样
+  `is_private_lan()`——不排除就会把「换一条中继」当成「升级为直连」。
+
+**相关文件**：`crates/net/src/actor.rs`（`try_upgrade_to_lan` / `only_relayed` /
+`clear_upgrade_marks` / `is_lan_candidate`）
+
+### mDNS 在 iOS / Android 上要过平台的门（2026-08-03）
+
+内核一直是开着的（`presets::Native` → `.mdns(true)`，移动端同一 profile），**但两个平台各自会
+把组播吃掉**，症状是「代码没问题、设备就是发现不了」：
+
+| 平台 | 必需项 | 缺失的后果 |
+|---|---|---|
+| iOS | `NSLocalNetworkUsageDescription` | iOS 14+ 连权限弹窗都不出现，组播静默丢弃 |
+| iOS | `NSBonjourServices` 含 `_p2p._udp` | libp2p mdns 的服务名，见其 `SERVICE_NAME` |
+| Android | `CHANGE_WIFI_MULTICAST_STATE` + `MulticastLock` | Wi-Fi 芯片省电态直接在驱动层丢组播帧 |
+
+Android 的锁在 `mobile/modules/lan-multicast`（expo module，`setReferenceCounted(false)`），
+生命周期绑节点启停——持锁期间芯片不进省电态，节点停了还持着只是白耗电。
+
+⚠️ **iOS 侧未验证的一层**：裸 socket 绑 5353 + 加入 `224.0.0.251` 组播组（libp2p-mdns 正是这么
+做的）可能还需要 Apple 特批的 `com.apple.developer.networking.multicast` entitlement——经系统
+Bonjour API 浏览不需要，裸 socket 大概率需要。**这不阻塞局域网直连**：上一节的 identify 升级路径
+不碰组播，mDNS 只影响「多快发现」。
+
+顺带修掉的地雷：`behaviour/mod.rs` 里 mDNS 构建曾是 `.expect("mDNS initialization failed")`——
+把一个平台可选能力做成了启动硬前提，任何不给绑 5353 的环境会在节点启动时直接 panic。现已降级
+为 warn + 无 mDNS 继续跑。
+
 ### 其余确认
 
 - `with_wasm_bindgen()` 在 master 仍在（删的是 cargo feature，不是方法）。
 - websocket phase 依赖 dns feature 的隐式耦合仍在（同开即可）。
 - `NetworkBehaviour` derive 的 **cfg 字段**（mdns/autonat/dcutr）双 target 编译均过；
   但 native 行为只有 relay/kad/identify/ping 被测试实证，**mdns/autonat/dcutr 的
-  运行时行为待真机冒烟确认**。
+  运行时行为待真机冒烟确认**（mdns 在移动端另有平台门，见上面那一节）。
 - ConnectionHandler 的关联类型（InboundOpenInfo 等）与 0.56 一致，keep_alive
   behaviour 近零改动移植。
 

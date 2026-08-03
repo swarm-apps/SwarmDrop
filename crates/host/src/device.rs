@@ -3,6 +3,10 @@
 use serde::{Deserialize, Serialize};
 use swarmdrop_net_base::{Addr, NodeId};
 
+// 链路详情的组成部分之一，随 `ConnectionDetails` 一起进 IPC/FFI——
+// 消费方（uniffi 桥接、wasm 壳）从这里取，不必再依赖 net-base。
+pub use swarmdrop_net_base::TransportKind;
+
 /// 已配对设备信任等级。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -456,6 +460,42 @@ pub enum ConnectionType {
     Relay,
 }
 
+/// 链路详情：当前连接的可核对事实。
+///
+/// 与 [`ConnectionType`] 的分工——那个是给所有人看的一句话结论（局域网 / 打洞 /
+/// 中继），这个是「凭什么这么说」：走的哪条地址、哪种传输、经不经中继、经的是谁。
+/// 三端 UI 把它放在默认折叠的区块里，普通用户看不到，排障时一眼能拿到全部证据。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionDetails {
+    /// 承载字节的传输协议。
+    ///
+    /// `None` 是真实存在的情况，不是缺陷：入站中继连接的 `send_back_addr` 只有
+    /// `/p2p/<src>` 一段，地址里没有任何传输信息。呈现层照实显示「未知」。
+    pub transport: Option<TransportKind>,
+    /// 当前最优连接的远端 multiaddr，原样给出——便于直接粘进 issue 或与日志比对。
+    #[cfg_attr(feature = "specta", specta(type = String))]
+    pub remote_addr: Addr,
+    /// 中转身份：经中继时是那台 relay 的 PeerId，直连为 `None`。
+    ///
+    /// 「经中继」三个字对排障几乎没用，得说清楚经的是哪一台——自建 relay 还是
+    /// 局域网里的 LanHelper，处理方式完全不同。
+    #[cfg_attr(feature = "specta", specta(type = Option<String>))]
+    pub relay: Option<NodeId>,
+}
+
+impl ConnectionDetails {
+    /// 由一条连接的远端地址派生。判据全部收口在 [`Addr`] 的谓词上。
+    pub fn from_addr(addr: Addr) -> Self {
+        Self {
+            transport: addr.transport(),
+            relay: addr.relay_node_id(),
+            remote_addr: addr,
+        }
+    }
+}
+
 /// 统一的设备输出类型。
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -467,6 +507,9 @@ pub struct Device {
     pub os_info: OsInfo,
     pub status: DeviceStatus,
     pub connection: Option<ConnectionType>,
+    /// 链路详情。仅在线且内核报告过连接地址时有值——离线设备、以及只靠 mDNS
+    /// 地址推断出 `connection` 的宽限期内，这里是 `None`（没连接就没有链路可谈）。
+    pub connection_details: Option<ConnectionDetails>,
     pub latency: Option<u64>,
     pub is_paired: bool,
     pub trust_level: Option<DeviceTrustLevel>,

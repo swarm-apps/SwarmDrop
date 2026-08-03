@@ -2,17 +2,21 @@
   "expo": {
     "name": "SwarmDrop",
     "slug": "swarmdrop-mobile",
-    "version": "0.10.2",
+    "version": "0.10.3",
     "orientation": "portrait",
     "scheme": "swarmdrop",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/images/icon.png",
     "ios": {
-      "bundleIdentifier": "com.yexiyue.swarmdrop"
+      "bundleIdentifier": "com.yexiyue.swarmdrop",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "SwarmDrop 需要访问本地网络，才能在同一 Wi-Fi 下直接发现并连接你的其他设备。不允许也能正常使用，但传输会绕行公网中继，更慢也更费流量。",
+        "NSBonjourServices": ["_p2p._udp"]
+      }
     },
     "android": {
       "package": "com.yexiyue.swarmdrop",
-      "versionCode": 34,
+      "versionCode": 35,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -80,6 +84,7 @@
       "./plugins/with-android-release-signing",
       "./plugins/with-android-install-permission",
       "./plugins/with-android-foreground-service",
+      "./plugins/with-android-multicast",
       "./plugins/with-android-notification-icon",
       "./plugins/with-android-gradle-memory",
       "expo-video",

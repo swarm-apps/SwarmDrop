@@ -1,6 +1,6 @@
 [package]
 name = "swarmdrop"
-version = "0.10.2"
+version = "0.10.3"
 description = "A Tauri App"
 authors = ["you"]
 edition.workspace = true

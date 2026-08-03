@@ -17,7 +17,6 @@ import { useState } from "react";
 import {
   canSendToDevice,
   deviceIdentityHint,
-  formatLatency,
   normalizeTrustLevel,
   organizedDeviceName,
   type DeviceOrganization,
@@ -32,9 +31,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cn";
-import { CONNECTION_META, TRUST_META, deviceIcon } from "../_lib/device-presentation";
+import { TRUST_META, deviceIcon } from "../_lib/device-presentation";
 import { sendToPeerHref } from "../_lib/nav";
 import type { Device } from "../_lib/view-types";
+import { ConnectionBadge } from "./connection-badge";
 import { StatusDot } from "./status-dot";
 import { UnpairDialog } from "./unpair-dialog";
 
@@ -65,8 +65,6 @@ export function DeviceCard({
   const isOnline = device.status === "online";
   const sendable = canSendToDevice(device);
   const trust = normalizeTrustLevel(device.trustLevel);
-  const connection = isOnline && device.connection ? CONNECTION_META[device.connection] : null;
-  const latency = formatLatency(device.latency);
   // 契约第 4 项：只在同名或有分组时出现，否则这一行是纯噪声。
   const identityLine =
     showIdentityHint || groupNames.length > 0
@@ -129,15 +127,9 @@ export function DeviceCard({
             )}
           </Badge>
 
-          {/* 契约第 6 项：在线且已知连接方式时，连接徽标与延迟一起出。
+          {/* 契约第 6 项：在线且已知连接方式时，连接徽标与延迟一起出（徽标可点开链路详情）。
               离线时它不渲染，但卡片其余部分不动——高度靠上面的 flex 结构撑住，不会抖。 */}
-          {connection && (
-            <Badge variant="secondary" className={cn("gap-1 border-transparent", connection.className)}>
-              <connection.Icon className="size-3" aria-hidden />
-              <ConnectionLabel connection={device.connection} />
-              {latency && <span className="font-mono tabular-nums">{latency}</span>}
-            </Badge>
-          )}
+          <ConnectionBadge device={device} />
         </div>
 
         {/* 契约的 Send Entry：发送从设备卡片进入，目标已预选。
@@ -232,18 +224,5 @@ function TrustLabel({ trust }: { trust: ReturnType<typeof normalizeTrustLevel> }
       return <Trans>已阻止</Trans>;
     default:
       return <Trans>协作者</Trans>;
-  }
-}
-
-function ConnectionLabel({ connection }: { connection: Device["connection"] }) {
-  switch (connection) {
-    case "lan":
-      return <Trans>局域网</Trans>;
-    case "dcutr":
-      return <Trans>打洞</Trans>;
-    case "relay":
-      return <Trans>中继</Trans>;
-    default:
-      return null;
   }
 }

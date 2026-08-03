@@ -704,6 +704,7 @@ mod tests {
         ctx.supervisor.handle_event(&NetEvent::PeerConnected {
             node: peer,
             path: PathKind::Local,
+            addr: "/ip4/192.168.1.2/tcp/4001".parse().unwrap(),
         });
         assert!(matches!(
             state_of(&ctx, &peer),

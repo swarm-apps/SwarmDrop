@@ -81,11 +81,15 @@ msgstr "一組邀請只能用一次。要再連一台裝置，請重新產生。
 msgid "下载"
 msgstr "下載"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/connection-panel.tsx
-#: app/app/_components/device-card.tsx
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "中继"
 msgstr "中繼"
+
+#: app/app/_components/connection-badge.tsx
+msgid "中继节点"
+msgstr "中繼節點"
 
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "中继连接也自动接收"
@@ -132,6 +136,7 @@ msgstr "從左側選一個工作階段，這裡會顯示逐檔進度與可用操
 msgid "会话"
 msgstr "工作階段"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-activity-panel.tsx
 #: app/app/_lib/nav.ts
 msgid "传输"
@@ -335,9 +340,14 @@ msgstr "填一個 helper 的 <0>webrtc-direct</0> 位址（含 <1>/p2p/<id></1> 
 msgid "处理中"
 msgstr "處理中"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/invite-share.tsx
 msgid "复制失败，请手动选中"
 msgstr "複製失敗，請手動選取"
+
+#: app/app/_components/connection-badge.tsx
+msgid "复制远端地址"
+msgstr "複製遠端位址"
 
 #: app/app/_components/invite-share.tsx
 msgid "复制链接"
@@ -387,7 +397,7 @@ msgstr "對端在配對確認與傳輸要求裡看到的就是這一行。未設
 msgid "对端在配对确认与传输请求里看到的就是这一行。未设置时用浏览器 UA 派生的默认名， 清空输入即回落到它。"
 msgstr "對端在配對確認與傳輸要求裡看到的就是這一行。未設定時使用瀏覽器 UA 衍生的預設名稱，清空欄位即回到它。"
 
-#: app/app/_components/device-card.tsx
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "局域网"
 msgstr "區域網路"
@@ -425,6 +435,7 @@ msgstr "已送出的邀請（未過期）"
 msgid "已取消"
 msgstr "已取消"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/invite-share.tsx
 msgid "已复制"
 msgstr "已複製"
@@ -538,7 +549,7 @@ msgstr "開啟傳輸工作階段清單"
 msgid "打开收件箱列表"
 msgstr "開啟收件匣清單"
 
-#: app/app/_components/device-card.tsx
+#: app/app/_components/connection-badge.tsx
 msgid "打洞"
 msgstr "打洞"
 
@@ -555,6 +566,10 @@ msgstr "把檔案拖到這裡"
 #: app/app/_components/receive-panel.tsx
 msgid "拒绝"
 msgstr "拒絕"
+
+#: app/app/_components/connection-badge.tsx
+msgid "排查连接问题时把这些贴进 issue"
+msgstr "排查連線問題時把這些貼進 issue"
 
 #: app/app/_components/pairing-panel.tsx
 #: app/app/_components/receive-panel.tsx
@@ -643,6 +658,7 @@ msgstr "未開啟"
 msgid "未找到"
 msgstr "找不到"
 
+#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "未知"
 msgstr "未知"
@@ -678,6 +694,10 @@ msgstr "來自 {0} · {1} 個檔案 · {2}"
 #: app/app/_components/send-panel.tsx
 msgid "查看传输"
 msgstr "查看傳輸"
+
+#: app/app/_components/connection-badge.tsx
+msgid "查看链路详情"
+msgstr "檢視鏈路詳情"
 
 #. placeholder {0}: prepareProgress.currentFile
 #. placeholder {1}: prepareProgress.completedFiles
@@ -944,6 +964,10 @@ msgstr "這組邀請已過期，請對方重新產生一組。"
 msgid "进行中与已结束的会话。选中一条查看文件明细与续传。"
 msgstr "進行中與已結束的工作階段。選一筆查看檔案明細與續傳。"
 
+#: app/app/_components/connection-badge.tsx
+msgid "远端地址"
+msgstr "遠端位址"
+
 #: app/app/_components/connection-panel.tsx
 msgid "连接"
 msgstr "連線"
@@ -1023,6 +1047,10 @@ msgstr "重新產生"
 #: app/app/_components/receive-panel.tsx
 msgid "重试下载"
 msgstr "重試下載"
+
+#: app/app/_components/connection-badge.tsx
+msgid "链路详情"
+msgstr "鏈路詳情"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "需先在 <0>设置</0> 页的「连接」区建立可达（circuit），否则邀请里无可拨地址。"

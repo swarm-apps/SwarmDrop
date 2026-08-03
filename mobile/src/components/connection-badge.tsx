@@ -1,6 +1,7 @@
 import { Trans } from "@lingui/react/macro";
 import { RadioTower, Wifi, Zap } from "lucide-react-native";
 import { View } from "react-native";
+import { transportLabel } from "@swarmdrop/shared-view";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
@@ -57,15 +58,20 @@ export function normalizeConnectionKind(
 
 /**
  * 设备连接质量徽标:把 core 的 lan/dcutr/relay 连接类型映射成本地化的
- * 局域网 / 打洞 / 中继 彩色徽标,并可选地附带测得的延迟(latencyMs 为 bigint)。
+ * 局域网 / 打洞 / 中继 彩色徽标,并可选地附带传输协议与测得的延迟(latencyMs 为 bigint)。
  * 连接类型未知时返回 null(交由调用方决定是否回退到「等待发现」)。
+ *
+ * `transport` 是专有名词(TCP/QUIC/WebRTC),三端同一份映射且刻意不进翻译 catalog
+ * ——用户拿它去搜索、比对日志。完整链路证据在设备详情页的「链路详情」区块。
  */
 export function ConnectionBadge({
   connection,
+  transport,
   latencyMs,
   compact,
 }: {
   connection?: string | null;
+  transport?: string | null;
   latencyMs?: bigint | null;
   compact?: boolean;
 }) {
@@ -76,6 +82,7 @@ export function ConnectionBadge({
   const Icon = meta.icon;
   const latency = latencyMs != null ? Number(latencyMs) : null;
   const Label = meta.label;
+  const transportName = transportLabel(transport);
 
   return (
     <View
@@ -89,6 +96,11 @@ export function ConnectionBadge({
       <Text className={cn("text-[11px] font-medium", meta.text)}>
         <Label />
       </Text>
+      {transportName ? (
+        <Text className={cn("text-[11px] opacity-70", meta.text)}>
+          {transportName}
+        </Text>
+      ) : null}
       {latency != null && Number.isFinite(latency) ? (
         <Text className={cn("text-[11px]", meta.text)}>{latency}ms</Text>
       ) : null}

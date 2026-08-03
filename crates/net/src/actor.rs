@@ -40,6 +40,13 @@ use self::queries::{PendingQueries, PendingQuery};
 /// 订阅者事件队列深度。满时丢弃并计数（presence 有 watch_conns 差分兜底）。
 const SUBSCRIBER_QUEUE: usize = 256;
 
+/// 一次 LAN 升级最多并发拨几个候选地址。
+///
+/// 对端可能自报一长串监听地址（多网卡 + IPv6 ULA + 容器网桥），全拨会把一次
+/// 升级变成对内网的批量探测。取前几个够用——同一台设备的多个私网地址通常
+/// 指向同一张网卡。
+const LAN_UPGRADE_MAX_CANDIDATES: usize = 4;
+
 pub(crate) enum ActorMessage {
     Connect {
         addr: NodeAddr,
@@ -159,8 +166,11 @@ pub(crate) struct Actor {
     /// 这个地址只是登记 listener，不向 relay 请求任何东西），混进去会让它的 ListenerClosed
     /// 被误判成 reservation 失效。
     webrtc_listeners: HashMap<PeerId, ListenerId>,
-    /// 正在尝试打洞升级的对端（去重，避免 identify 每次到达都重拨）。
-    upgrading: HashSet<PeerId>,
+    /// 正在尝试局域网直连升级的对端（去重，避免 identify / mDNS 每次到达都重拨）。
+    upgrading_lan: HashSet<PeerId>,
+    /// 正在尝试打洞升级的对端。**与 `upgrading_lan` 分开存**，理由见
+    /// [`Actor::clear_upgrade_marks`]。
+    upgrading_direct: HashSet<PeerId>,
     /// 承担 relay 角色的基础设施节点——identify 到达时幂等重建 reservation。
     infra_relay_peers: HashSet<PeerId>,
     /// pull 型地址解析源（bind 尾声注入）。
@@ -193,7 +203,8 @@ impl Actor {
             queries: PendingQueries::default(),
             relay_listeners: HashMap::new(),
             webrtc_listeners: HashMap::new(),
-            upgrading: HashSet::new(),
+            upgrading_lan: HashSet::new(),
+            upgrading_direct: HashSet::new(),
             infra_relay_peers: HashSet::new(),
             lookups: Arc::new(Vec::new()),
             self_tx,
@@ -627,6 +638,72 @@ impl Actor {
         }
     }
 
+    /// 该 peer 当前是否只挂在中转上——两条升级路径共同的前提。
+    fn only_relayed(&self, peer: PeerId) -> bool {
+        self.conns
+            .get(&peer)
+            .is_some_and(|c| !c.is_empty() && c.iter().all(|(_, i)| i.path == PathKind::Relayed))
+    }
+
+    /// 清掉该 peer 的两个升级在途标记（连接建立 / 拨号失败时调）。
+    ///
+    /// **两条路径的标记必须分开存**：跨网时对端 identify 里那些私网地址本就拨不通，
+    /// LAN 升级注定失败；若与打洞共用一个标记，一次失败就把打洞一起锁住，而
+    /// identify 默认 5 分钟才来一轮——等于跨网场景永远打不了洞。
+    fn clear_upgrade_marks(&mut self, peer: &PeerId) {
+        self.upgrading_lan.remove(peer);
+        self.upgrading_direct.remove(peer);
+    }
+
+    /// 把中转连接升级成**局域网直连**。
+    ///
+    /// **没有它，同一个局域网里的两台设备会一直经公网中继传文件。** 连接路径由
+    /// 「谁先建成」定终身：presence 经 DHT 发现对端在线后立刻 `connect`，那一刻
+    /// 地址簿里往往只有 circuit 候选（mDNS 还没到，或对端平台压根收发不了组播），
+    /// relay 于是先赢；而 `handle_connect` 对已连接的 peer 直接返回当前快照，
+    /// 之后再多的 `connect` 也不会重拨。
+    ///
+    /// 候选地址两个来源都汇到这里：
+    /// - identify 的 `listen_addrs`（对端自报）——**不依赖 mDNS**，iOS/Android 把
+    ///   组播挡掉时仍然有效，这是它比 mDNS 那条更要紧的原因；
+    /// - mDNS `Discovered`（本机多播域实测），来得比 identify 快。
+    ///
+    /// **不做 [`should_initiate`] 那样的定序**，与打洞刻意不同：LAN 握手是毫秒级、
+    /// 没有信令往返，两端各拨一次最坏只多一条 idle 后被回收的连接；而定序会让
+    /// 「只有一端拨得通」（一端防火墙拦入站、一端 mDNS 瞎了）这类局域网里很常见的
+    /// 情况彻底没救。打洞那边一次尝试是数秒 ICE + 信令往返，才值得定序。
+    ///
+    /// 安全性：拨的是**已过 Noise 认证的对端**自报的地址，libp2p 握手时校验 PeerId
+    /// ——拨到网段内的其他机器只会失败。这也不新增信任面：`is_lan_discovered`
+    /// （`PairingMethod::Direct` 的唯一授权依据）读的仍然只有 mDNS 来源的地址，
+    /// 本函数一个字节都不往那张表里写。
+    fn try_upgrade_to_lan(&mut self, peer: PeerId, candidates: &[libp2p::Multiaddr]) {
+        if self.upgrading_lan.contains(&peer) || !self.only_relayed(peer) {
+            return;
+        }
+        let lan: Vec<libp2p::Multiaddr> = candidates
+            .iter()
+            .filter(|a| is_lan_candidate(a))
+            .take(LAN_UPGRADE_MAX_CANDIDATES)
+            .cloned()
+            .collect();
+        if lan.is_empty() {
+            return;
+        }
+        // `PeerCondition::Always`：此刻已经连着中转，默认条件会直接否掉这次拨号。
+        let opts = DialOpts::peer_id(peer)
+            .addresses(lan.clone())
+            .condition(PeerCondition::Always)
+            .build();
+        match self.swarm.dial(opts) {
+            Ok(()) => {
+                self.upgrading_lan.insert(peer);
+                info!(%peer, ?lan, "upgrading relayed connection to lan direct");
+            }
+            Err(e) => debug!(%peer, error = %e, "lan upgrade dial rejected"),
+        }
+    }
+
     /// 把中转连接升级成打洞直连——webrtc-p2p 版的 DCUtR。
     ///
     /// **没有它打洞永远不会发生**：webrtc-p2p 只在拨一个 `/webrtc` 地址时才启动信令，
@@ -637,7 +714,7 @@ impl Actor {
     /// 只在 identify 到达时调用：对端的 `/webrtc` 地址只经 identify 传来
     /// （`NewExternalAddrOfPeer` 不进地址簿），别处拿不到。
     fn try_upgrade_to_direct(&mut self, peer: PeerId, remote_addrs: &[libp2p::Multiaddr]) {
-        if self.config.webrtc_p2p.is_none() || self.upgrading.contains(&peer) {
+        if self.config.webrtc_p2p.is_none() || self.upgrading_direct.contains(&peer) {
             return;
         }
         // 对端通告了 `/webrtc` 变体 = 它支持打洞且可被拨。没有就是对端不支持，静默跳过。
@@ -649,11 +726,7 @@ impl Actor {
         };
         // 走到这里说明「本可以打洞」，后面每个否决点都留痕——否则「为什么没打洞」
         // 在一条有五个否决条件的链上根本无从查起（实测吃过这个亏）。
-        let only_relayed = self
-            .conns
-            .get(&peer)
-            .is_some_and(|c| !c.is_empty() && c.iter().all(|(_, i)| i.path == PathKind::Relayed));
-        if !only_relayed {
+        if !self.only_relayed(peer) {
             debug!(%peer, "skip webrtc upgrade: already has a non-relayed path");
             return;
         }
@@ -673,7 +746,7 @@ impl Actor {
             .build();
         match self.swarm.dial(opts) {
             Ok(()) => {
-                self.upgrading.insert(peer);
+                self.upgrading_direct.insert(peer);
                 info!(%peer, %addr, "upgrading relayed connection via webrtc hole punch");
             }
             Err(e) => debug!(%peer, error = %e, "webrtc upgrade dial rejected"),
@@ -882,20 +955,27 @@ impl Actor {
                     .push((connection_id, info.clone()));
                 self.publish_conns();
 
-                // 本轮升级已有结果（无论这条是不是打洞连接）；成功则 only_relayed
-                // 转 false 自然不再重试，失败则等下一次 identify 重来。
-                self.upgrading.remove(&peer_id);
+                // 本轮升级已有结果（无论这条是不是升级建出来的）；成功则 only_relayed
+                // 转 false 自然不再重试，失败则等下一次 identify / mDNS 重来。
+                self.clear_upgrade_marks(&peer_id);
 
                 let node = NodeId::from_peer_id(peer_id);
                 if u32::from(num_established) == 1 {
-                    self.emit(NetEvent::PeerConnected { node, path });
+                    self.emit(NetEvent::PeerConnected {
+                        node,
+                        path,
+                        addr: info.addr.clone(),
+                    });
                 } else if let Some(prev) = prev_best {
-                    let new_best = self.best_conn(peer_id).map(|c| c.path).unwrap_or(path);
-                    if new_best != prev {
-                        // 例：dcutr 打洞成功后 direct 连接建立，Relayed → Direct
+                    // path 与 addr 必须取自同一条连接（`best_conn` 的同一次快照），
+                    // 分别求会在多连接并发建立时配出「Local + circuit 地址」这种组合。
+                    let best = self.best_conn(peer_id).unwrap_or_else(|| info.clone());
+                    if best.path != prev {
+                        // 例：打洞成功后 direct 连接建立，Relayed → Direct
                         self.emit(NetEvent::PathChanged {
                             node,
-                            path: new_best,
+                            path: best.path,
+                            addr: best.addr,
                         });
                     }
                 }
@@ -911,7 +991,7 @@ impl Actor {
                 error,
                 ..
             } => {
-                self.upgrading.remove(&peer);
+                self.clear_upgrade_marks(&peer);
                 // 有消费者才格式化 DialError（断网时拨号失败成批出现，
                 // 多数事件既无 connect 等待者也非 infra relay）
                 let has_waiters = self.dials.contains_key(&peer);
@@ -963,11 +1043,15 @@ impl Actor {
 
                 if num_established == 0 {
                     self.emit(NetEvent::PeerDisconnected { node });
-                } else if let (Some(prev), Some(now)) =
-                    (prev_best, self.best_conn(peer_id).map(|c| c.path))
-                    && now != prev
+                } else if let (Some(prev), Some(now)) = (prev_best, self.best_conn(peer_id))
+                    && now.path != prev
                 {
-                    self.emit(NetEvent::PathChanged { node, path: now });
+                    // 例：LAN 直连断了、只剩中转，Local → Relayed
+                    self.emit(NetEvent::PathChanged {
+                        node,
+                        path: now.path,
+                        addr: now.addr,
+                    });
                 }
             }
             SwarmEvent::NewListenAddr { address, .. } => {
@@ -1090,7 +1174,14 @@ impl Actor {
                 if self.infra_relay_peers.contains(&peer_id) {
                     self.request_relay_reservation(peer_id);
                 }
-                // 也是唯一能拿到对端 `/webrtc` 地址、进而升级中转连接的时机
+                // 也是唯一能拿到对端 `/webrtc` 地址、进而升级中转连接的时机；
+                // 对端的私网地址同样只经这里传来（mDNS 那条要看平台脸色）。
+                //
+                // 两条升级路径**都发起、互不阻塞**（标记分开存，见
+                // `clear_upgrade_marks`）。LAN 那条通常毫秒级就赢，打洞那条随后
+                // 建立的连接会因 path_rank 落选、idle 后自然回收——多一条短命连接，
+                // 换的是「LAN 拨不通时不用再等 5 分钟才轮到打洞」。
+                self.try_upgrade_to_lan(peer_id, &info.listen_addrs);
                 self.try_upgrade_to_direct(peer_id, &info.listen_addrs);
                 let protocols = info
                     .protocols
@@ -1168,6 +1259,11 @@ impl Actor {
                             .push(Addr::from_multiaddr(addr));
                     }
                     for (peer, addrs) in by_peer {
+                        // 多播域里看见了 = 对端确实和本机同网。此刻若还挂在中转上，
+                        // 这是最早的升级时机——identify 要等到下一轮（默认 5 分钟）。
+                        let candidates: Vec<libp2p::Multiaddr> =
+                            addrs.iter().map(|a| a.as_multiaddr().clone()).collect();
+                        self.try_upgrade_to_lan(peer, &candidates);
                         self.emit(NetEvent::Discovered {
                             node: NodeId::from_peer_id(peer),
                             addrs,
@@ -1364,6 +1460,16 @@ fn should_initiate(local: &PeerId, remote: &PeerId, local_reachable: bool) -> bo
     !local_reachable || local < remote
 }
 
+/// LAN 升级的候选判据：私网可达，且不是我们正想摆脱的那类 circuit 地址。
+///
+/// 排除 circuit 那半边不是多余的——LAN helper（局域网内的中继）自己就监听在
+/// 私网地址上，它派发的 circuit 地址前半段同样 `is_private_lan()`，不排除就会
+/// 把「换一条中继」当成「升级为直连」。
+fn is_lan_candidate(addr: &libp2p::Multiaddr) -> bool {
+    let addr = Addr::from_multiaddr(addr.clone());
+    addr.is_private_lan() && !addr.is_circuit()
+}
+
 /// 是否为 webrtc-p2p 打洞建立的连接（circuit 地址里带 `/webrtc` 段）。
 ///
 /// 判定复用 webrtc-p2p 自己的谓词——它同时是那个 transport 决定「收不收这个地址」的
@@ -1427,6 +1533,27 @@ mod tests {
             classify_path(&bare_peer, false),
             PathKind::Direct,
             "同一地址在非中继端点上仍是直连"
+        );
+    }
+
+    /// LAN 升级只认「私网且非 circuit」。少了后半个条件，LAN helper 派发的
+    /// circuit 地址（前半段也是私网）会被当成直连候选——那只是换了条中继。
+    #[test]
+    fn lan_upgrade_candidates_exclude_circuit_and_unreachable() {
+        let lan = |s: &str| is_lan_candidate(&s.parse().expect("valid multiaddr"));
+
+        assert!(lan("/ip4/192.168.1.5/tcp/4001"));
+        assert!(lan("/ip4/10.0.0.7/udp/4001/quic-v1"));
+        assert!(lan("/ip6/fd00::1/tcp/4001"));
+
+        assert!(!lan("/ip4/127.0.0.1/tcp/4001"), "loopback 对端拨不到");
+        assert!(!lan("/ip6/fe80::1/tcp/4001"), "link-local 需要 scope id");
+        assert!(!lan("/ip4/47.115.172.218/tcp/4001"), "公网归打洞路径");
+        assert!(
+            !lan(&format!(
+                "/ip4/192.168.1.9/tcp/4001/p2p/{RELAY}/p2p-circuit/p2p/{PEER}"
+            )),
+            "私网 LAN helper 的 circuit 地址不是直连，换中继不算升级"
         );
     }
 

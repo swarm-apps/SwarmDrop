@@ -1,3 +1,4 @@
+export { transportLabel } from "./connection";
 export { DEVICE_NAME_MAX_CHARS, deviceDisplayName, type DeviceNameSource } from "./name";
 export {
   deviceGroupNames,

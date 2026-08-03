@@ -20,11 +20,26 @@ use swarmdrop_net_base::{Addr, DiscoverySource, NodeId, PathKind, ProtocolId};
 #[derive(Debug, Clone)]
 pub enum NetEvent {
     /// 与对端建立了第一条连接。
-    PeerConnected { node: NodeId, path: PathKind },
+    ///
+    /// `addr` 是**当前最优连接**的远端地址，与 `path` 取自同一条连接。上层用它读
+    /// 传输类型（[`Addr::transport`]）与中转身份（[`Addr::relay_node_id`]）——
+    /// 「经中继」这三个字对排障几乎没用，得说清楚经的是谁、跑在什么传输上。
+    PeerConnected {
+        node: NodeId,
+        path: PathKind,
+        addr: Addr,
+    },
     /// 与对端的最后一条连接断开。
     PeerDisconnected { node: NodeId },
-    /// 连接路径变化（如 dcutr 打洞成功：Relayed → Direct）。
-    PathChanged { node: NodeId, path: PathKind },
+    /// 连接路径变化（如打洞成功：Relayed → Direct，或 LAN 升级：Relayed → Local）。
+    ///
+    /// `addr` 同样取自新的最优连接，与 `path` 成对——两者必须一起更新，
+    /// 否则详情面板会显示「局域网直连」配一条 circuit 地址。
+    PathChanged {
+        node: NodeId,
+        path: PathKind,
+        addr: Addr,
+    },
     /// identify 交换完成（agent/protocol 版本、对端地址、支持的协议）。
     PeerIdentified {
         node: NodeId,

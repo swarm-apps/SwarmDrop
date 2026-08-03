@@ -167,12 +167,13 @@ msgstr "No limit"
 msgid "个文件"
 msgstr " files"
 
-#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "中继"
 msgstr "Relay"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "中继节点"
 msgstr "Relay Node"
 
@@ -248,6 +249,7 @@ msgid "会话列表"
 msgstr "Session list"
 
 #: src/components/layout/app-topbar.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "传输"
 msgstr "Transfer"
 
@@ -795,6 +797,7 @@ msgid "复制后可供浏览器端快速连接本机。"
 msgstr "Copy to let a browser connect to this device quickly."
 
 #: src/components/network/lan-helper-address.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "复制失败"
 msgstr "Copy failed"
 
@@ -814,6 +817,10 @@ msgstr "Copy failed. Please copy the invite manually."
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "复制路径"
 msgstr "Copy path"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "复制远端地址"
+msgstr "Copy remote address"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -912,7 +919,7 @@ msgstr "This will delete records of finished transfers and cannot be undone. In-
 msgid "将在 {0} 后过期"
 msgstr "Expires in {0}"
 
-#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "局域网"
 msgstr "LAN"
@@ -987,6 +994,7 @@ msgstr "Transfer canceled"
 msgid "已取消归档"
 msgstr "Unarchived"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -1230,7 +1238,7 @@ msgstr "Open file"
 msgid "打开文件夹"
 msgstr "Open Folder"
 
-#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "打洞"
 msgstr "Direct"
@@ -1263,6 +1271,10 @@ msgstr "Drag to reorder, rename, or delete groups. Deleting a group won't unpair
 #: src/routes/_app/send/-components/file-drop-zone.tsx
 msgid "拖拽文件或文件夹到这里"
 msgstr "Drag files or folders here"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "排查连接问题时把这些贴进 issue"
+msgstr "Paste these into an issue when reporting a connection problem"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "接受配对"
@@ -1497,6 +1509,7 @@ msgid "未提供"
 msgstr "Not provided"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "未知"
@@ -1591,6 +1604,10 @@ msgstr "From {0}"
 #: src/stores/pairing-store.ts
 #~ msgid "查找设备"
 #~ msgstr "Find Device"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "查看链路详情"
+msgstr "View link details"
 
 #: src/components/file-browser/file-browser.tsx
 msgid "树形视图"
@@ -2269,6 +2286,10 @@ msgstr "Enter SwarmDrop"
 msgid "进行中"
 msgstr "Active"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "远端地址"
+msgstr "Remote address"
+
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "连接"
 msgstr "Connect"
@@ -2469,6 +2490,10 @@ msgstr "Regenerate Invite"
 #: src/components/file-browser/item-actions.tsx
 msgid "重试"
 msgstr "Retry"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "链路详情"
+msgstr "Link details"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "错误"
