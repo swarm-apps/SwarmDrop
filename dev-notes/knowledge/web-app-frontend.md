@@ -494,6 +494,47 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 **相关文件**：`docs/app/app/_lib/use-copy.ts`、`docs/app/app/_components/connection-badge.tsx`、
 `docs/app/app/_components/invite-share.tsx`
 
+## 本机跑双节点：`pnpm dev` 做不到，必须用静态产物起两个端口
+
+传输、配对这些**要两个节点才能验**的功能，本机的搭法有两条硬约束，都实测踩过。
+完整操作步骤（含本地 relay 怎么起）在
+[`prompts/web-transfer-pause-resume-verify.md`](../prompts/web-transfer-pause-resume-verify.md)，
+这里只记「为什么」与「症状长什么样」。
+
+### 两个节点必须是两个 origin，而 `pnpm dev` 拦跨 origin
+
+身份存 localStorage，同一 origin 的两个标签页共享它 —— 那是**同一个节点**，没法互相配对。
+所以要两个 origin：静态导出产物 + 两个端口（`python3 -m http.server 3010 -d out` /
+`3011`）最省事，都是 `localhost` 因而都满足 secure context（OPFS 与 WebCrypto 都要它）。
+
+**不能改用 `pnpm dev` + `127.0.0.1` 凑第二个 origin**：Next dev server 会拦跨 origin 访问，
+那一侧**页面根本不 hydrate**。症状极具误导性，且没有一条报错：
+
+| 现象 | 为什么看起来正常 |
+|---|---|
+| UI 渲染完整 | 那是 SSR 出来的 HTML |
+| 控件全 disabled | 服务端渲染时 `ready = false`，本就该 disabled |
+| console 干净 | 客户端 JS 没跑，自然没有报错 |
+| 节点停在「未启动」 | store 还是初始值，effect 一次都没执行 |
+
+一眼可判的判据是 **wasm 有没有被 fetch**：
+
+```js
+performance.getEntriesByType("resource").filter((r) => /wasm/.test(r.name)).length
+// 0 = 根本没 hydrate（不是 wasm 坏了）；1 = 正常
+```
+
+### 邀请带的是**全部** listen 地址，多一条公网 relay 就可能拨不通
+
+`generate_invite` 把本机所有可达地址都编进去。若本机同时连着公网 relay 与本地 relay，
+对端会先拨公网那条并失败——实测报的是
+`Unexpected peer ID <relay 的 id> at <整条 circuit 地址>`，看起来像身份校验出了问题，
+其实只是那条路不通。
+
+本机验证时用 `NEXT_PUBLIC_SWARMDROP_WEB_RELAY_HELPERS` 把 helper 收敛成本地一条
+（`_lib/relay-helpers.ts` 留了这个口子，**不必改源码**）。收敛之后**邀请串会明显变短**，
+那是「地址列表干净了」的现成自检点。
+
 ## 拖文件进窗口的默认行为会把节点一起弄没，而只拦 `drop` 是无效的
 
 浏览器对「把文件拖进窗口」的默认响应是**导航到那个文件**（地址栏变 `file:///…`），当前文档
