@@ -294,6 +294,45 @@ iroh 官方 browser-echo 示例里那个 `wasm-bindgen = "=0.2.122"` 精确 pin 
 
 **相关文件**：`spike/iroh-web/.cargo/config.toml`、`spike/iroh-web/README.md`
 
+### `crates/web` 的 wasm 测试要跑起来，chromedriver 主版本必须与本机 Chrome 一致
+
+`crates/web` 整个 crate 是 `#[cfg(wasm_browser)]`，**进不了 `cargo test --workspace`**；
+而 `check-wasm.sh` 的 `--all-targets` 只把 `#[wasm_bindgen_test]` 模块**编**进来。
+于是它那 20 条测试（IndexedDB 往返、OPFS、收件箱可见性与排序）长期处于
+「写了、编得过、**从没跑过**」的状态——2026-08-03 首次执行才发现这一点。
+
+代价是实打实的：`invite_store.rs` 的写读不对称（写 `serde_json::to_string` + `put_string`
+存字符串，读却用 `serde_wasm_bindgen::from_value` 当对象解析，于是**每一行都被静默丢弃**，
+已发出的邀请跨刷新全部消失）能活到被手动验证撞见——那条路径有往返测试覆盖，
+只要执行过一次就会当场红。**编得过给的是虚假的安全感。**
+
+**正确做法**：跑 `./scripts/test-wasm.sh`（CI 的 wasm job 里已接上）。它自己解析 Chrome
+版本并取匹配的 chromedriver，不信任 PATH 里碰巧存在的那个。
+
+**不要做**：直接 `wasm-pack test --headless --chrome crates/web` 而不管 driver 版本。
+chromedriver 主版本与 Chrome 不一致时，失败长这样：
+
+```
+Starting new webdriver session...
+Error: http status: 404
+driver status: signal: 9 (SIGKILL)
+```
+
+那个 404 是 driver 拒绝了 wasm-bindgen runner 的 W3C 端点，**与「测试挂了」看起来毫无
+区别**，极易误判成代码问题（Homebrew 的 chromedriver 跟着自己的节奏升级，与本机 Chrome
+常年错位——实测 brew 装的是 151，系统 Chrome 是 150）。后面那个 SIGKILL 是 runner 自己
+的清理，不是 Gatekeeper。
+
+另外两个只在 macOS 出现的坑，脚本里都处理了：
+
+- 下载来的 chromedriver 带 quarantine 且签名过不了 Gatekeeper，**启动即被 SIGKILL**。
+  `xattr -dr com.apple.quarantine` + `codesign --force --sign -` 自签名可放行。
+- wasm-pack 从 **PATH** 取 chromedriver，`CHROMEDRIVER` 环境变量会被它覆盖掉；且它内部
+  `cd crates/web` 再跑 cargo，所以前置进 PATH 的目录**必须是绝对路径**——相对路径的症状是
+  `No such file or directory (os error 2)`，同样与「driver 没装」无从区分。
+
+**相关文件**：`scripts/test-wasm.sh`、`scripts/check-wasm.sh`、`.github/workflows/rust.yml`
+
 ### docs 的 Next dev：浏览器必须用 localhost 访问，127.0.0.1 会静默死页
 
 Next.js dev server（`cd docs && pnpm dev`）以 `localhost:3000` 起，浏览器若用

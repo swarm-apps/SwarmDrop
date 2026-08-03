@@ -1253,4 +1253,49 @@ mod tests {
             "进行中的会话必须保留"
         );
     }
+
+    /// **生产启动路径的唯一覆盖**：`Self::load()` 用 `futures::join!` 并发读回两张表，
+    /// 两个 future 各自调一次 `idb::open()`——而本模块其余测试全部从 `default()` 起步
+    /// （纯内存 + 写穿），一条都不读库，于是那条并发路径此前零覆盖。
+    ///
+    /// 它红了意味着刷新页面后收件箱与传输历史一起空掉：数据在 IndexedDB 里躺着，界面上
+    /// 什么都没有，而且**没有任何报错**——`load()` 的两处读失败都刻意降级成 `warn` 继续
+    /// （隐私模式 / 配额拒绝时节点仍要能用），所以静默是设计的一部分，测试是唯一的哨兵。
+    ///
+    /// 断言按 id 取而不是比长度：同一个 IndexedDB 库被全部 wasm 测试共用，`load()` 读回
+    /// 的是所有测试的记录。末尾清掉自己的两条 key，别给别人留垃圾。
+    #[wasm_bindgen_test]
+    async fn load_restores_sessions_and_inbox_concurrently() {
+        let seeded = WebTransferStore::default();
+        let session_id = Uuid::new_v4();
+        let item_id = seed_inbox_item(&seeded, session_id, "Reload 验证机").await;
+
+        let reloaded = WebTransferStore::load().await;
+
+        let detail = reloaded
+            .list_inbox_details(true)
+            .into_iter()
+            .find(|d| d.item.id == item_id)
+            .expect("收件箱条目必须跨 load() 存活");
+        assert_eq!(detail.item.title, "报告.pdf");
+        assert_eq!(detail.files.len(), 1, "条目的文件行也要一起回来");
+        assert_eq!(detail.item.transfer_session_id, Some(session_id));
+        // 这一格由 `attach_transfers` 从**会话表**补——它非空即证明两张表都读回来了，
+        // 而不是只有收件箱那一张。
+        assert!(
+            detail.transfer.is_some(),
+            "关联会话也必须跨 load() 回来（否则 join! 里另一半没读到）"
+        );
+        assert!(
+            reloaded.find_session(session_id).await.unwrap().is_some(),
+            "会话表自身同样要能查到这条"
+        );
+
+        SendWrapper::new(idb::delete(idb::INBOX_STORE, &item_id.to_string()))
+            .await
+            .expect("清理收件箱测试记录");
+        SendWrapper::new(idb::delete(idb::SESSION_STORE, &session_id.to_string()))
+            .await
+            .expect("清理会话测试记录");
+    }
 }

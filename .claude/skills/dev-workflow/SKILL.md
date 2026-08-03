@@ -85,6 +85,11 @@ cargo clippy --workspace
 ./scripts/check-wasm.sh
 ./scripts/check-wasm.sh --clippy
 
+# crates/web 的 wasm 测试 —— 改 crates/web 后必跑（上面两条只保证「编得过」）
+# 它整个 crate 是 cfg(wasm_browser)，进不了 cargo test --workspace，
+# 这是它那 20 条测试唯一的执行者
+./scripts/test-wasm.sh
+
 # 单 crate
 cargo check -p swarmdrop-core --features specta
 cargo check -p swarmdrop            # 桌面壳（package 名 swarmdrop，lib 名 swarmdrop_lib）
@@ -118,7 +123,7 @@ cargo check -p swarmdrop            # 桌面壳（package 名 swarmdrop，lib �
 | 维度 | 检查点 |
 |---|---|
 | 分层边界 | `crates/core` 零 sea-orm、`crates/transfer` 零 network 依赖、`crates/invite` 零 core 依赖；libp2p 类型在 `crates/net-base` 收口成 newtype，不向上穿透 |
-| wasm | 动了 net / net-base / host / transfer / invite / core / web → `check-wasm.sh` 必须过；业务层不写 `cfg(wasm_browser)` 分支（门控归 `crates/web`） |
+| wasm | 动了 net / net-base / host / transfer / invite / core / web → `check-wasm.sh` 必须过；**动了 `crates/web` 还要 `test-wasm.sh`**（编得过 ≠ 跑得过，见 toolchain.md）；业务层不写 `cfg(wasm_browser)` 分支（门控归 `crates/web`） |
 | 传输安全 | **不新增应用层加密**（保密归传输层 Noise/QUIC-TLS，且会与 bao-tree 逐块验签冲突）；数据面校验 `stream.remote() == session.peer` |
 | IPC | 新增/改动的命令与事件已注册进 `src-tauri/src/setup.rs` 的 `collect_commands!` / `collect_events!`；`bindings.ts` 没被手改 |
 | 命令薄壳 | `src-tauri/src/commands/` 只解析参数 + 取 State + 调 manager，业务逻辑不许留在壳里 |

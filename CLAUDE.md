@@ -69,6 +69,11 @@ cargo fmt --all
 ./scripts/check-wasm.sh
 ./scripts/check-wasm.sh --clippy
 
+# crates/web 的 wasm 测试（headless Chrome；上面两条只保证「编得过」）
+# 自动取与本机 Chrome 主版本匹配的 chromedriver —— 版本错位会以一句 404 失败，
+# 看起来跟测试挂了一模一样，见 toolchain.md
+./scripts/test-wasm.sh
+
 # i18n — 提取前端翻译串到 .po
 pnpm i18n:extract
 
