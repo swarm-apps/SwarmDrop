@@ -20,7 +20,7 @@
 // **不要把 `useSearchParams()` 写在套边界的那一层**——那样边界在读取点外面才有用。
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { ArrowLeftRight, Paperclip, Send, X } from "lucide-react";
+import { ArrowLeftRight, Check, Paperclip, Send, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -33,12 +33,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { deviceIcon } from "../_lib/device-presentation";
+import { transferSample } from "../_lib/format";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { usePreferences } from "../_lib/preferences-store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode } from "../_lib/store";
-import { OFFER_REJECT_REASON_LABEL, type Device } from "../_lib/view-types";
+import {
+  OFFER_REJECT_REASON_LABEL,
+  type Device,
+  type TransferProgressEvent,
+  type TransferProjection,
+} from "../_lib/view-types";
 import { PanelFallback } from "./panel-fallback";
 import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
@@ -88,6 +94,12 @@ function SendPanelInner() {
   const sendAction = useAsyncAction();
   // 对方拒绝了刚发出的 offer（尤其未配对硬拒 NotPaired）——不能让「已发出」成功态永久悬空。
   const rejection = useWebNode((s) => (sentSessionId ? s.rejections[sentSessionId] : undefined));
+  // 刚发出那条会话的实时投影。**「已发出」不是终点**：此前无论对方是接受了、传完了还是中断了，
+  // 这里都永远停在「等待对方接受」，用户必须跳到传输页才知道后来怎么样了——一个说谎的成功态
+  // 比没有状态更糟（PRODUCT.md 原则 2·状态诚实可见）。
+  const sentProjection = useWebNode((s) => (sentSessionId ? s.projections[sentSessionId] : undefined));
+  /** 实时字节采样。projection 只在状态转换时重发，进度条要跟手就得读这一路。 */
+  const sentProgress = useWebNode((s) => (sentSessionId ? s.progress[sentSessionId] : undefined));
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // selector 只返回 store 内的稳定引用，派生放这里（`pnpm check:zustand-access` 规则 B）。
@@ -140,7 +152,33 @@ function SendPanelInner() {
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-6">
+    // **投放目标是整张卡片，不只是那个虚线框。** 拖到框外一点点松手，此前会走浏览器默认行为
+    // ——直接导航去打开那个文件，整个 SPA 连同正在跑的 P2P 节点一起没了。目标越大越难失手，
+    // 而高亮仍然只画在虚线框上，用户不必知道边界在哪。
+    // （落在应用区其它位置的误投由 layout 的 `WindowDropGuard` 兜底。）
+    <div
+      className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-6"
+      onDragOver={(event) => {
+        // 只接文件。从页面里拖一段选中的文字或一个链接过来不该点亮投放区，更不该被当成
+        // 一次空投放（`dataTransfer.files` 为空，addFiles 会静默什么也不做）。
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setDragOver(true);
+      }}
+      onDragLeave={(event) => {
+        // dragleave 从子元素冒泡上来：拖着文件从虚线框移到下面的文件列表，浏览器先发一条
+        // 「离开子元素」。只有 relatedTarget 真的落在卡片之外才算离开——否则高亮会在整个
+        // 拖动过程里随鼠标经过每个子元素闪烁。
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setDragOver(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragOver(false);
+        addFiles(event.dataTransfer.files);
+      }}
+    >
       <TargetSection
         target={target}
         targetValid={targetValid}
@@ -160,16 +198,6 @@ function SendPanelInner() {
           "rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors",
           dragOver ? "border-[var(--brand-solid)] bg-accent" : "border-border",
         )}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragOver(false);
-          addFiles(event.dataTransfer.files);
-        }}
       >
         <Paperclip className="mx-auto size-5 text-muted-foreground" aria-hidden />
         {/* 手机浏览器没有拖拽，所以按钮是独立的首要入口，不是「或者」后面的补充。 */}
@@ -247,6 +275,7 @@ function SendPanelInner() {
           </p>
           <ProgressBar
             percent={calcPercent(prepareProgress.bytesHashed, prepareProgress.totalBytes)}
+            label={t`准备文件的进度`}
           />
         </div>
       )}
@@ -254,22 +283,103 @@ function SendPanelInner() {
       {sendAction.error && <WebErrorCard error={sendAction.error} className="text-xs" />}
 
       {sentSessionId && !rejection && (
-        <p className="text-xs text-emerald-600 dark:text-emerald-400">
-          <Trans>已发出，等待对方接受。</Trans>{" "}
-          {/* 实时进度归传输页，这里只给入口——直接带上 session，落地即选中该条。 */}
-          <Link
-            href={transferSessionHref(sentSessionId)}
-            className="font-medium underline underline-offset-2"
-          >
-            <Trans>查看传输</Trans>
-          </Link>
-        </p>
+        <SentSessionCard
+          sessionId={sentSessionId}
+          projection={sentProjection}
+          progress={sentProgress}
+        />
       )}
 
       {rejection?.reason && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
           {t(OFFER_REJECT_REASON_LABEL[rejection.reason.type])}
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 刚发出那条会话的**去向**。
+ *
+ * 此前这里是一行固定的「已发出，等待对方接受。」——它在会话被接受、传完、中断、失败之后
+ * 全都一字不改，而发送页恰恰是用户点完发送后会停留几秒的地方。真实状态就在 store 里
+ * （投影 + 进度采样都按 sessionId 索引），不读它而摆一句永不更新的话，是自己制造了一个
+ * 说谎的成功态（PRODUCT.md 原则 2）。
+ *
+ * **判据统一、文案分叉**：阶段判定读的是与传输页同一个 `projection.phase`，但这里说的是
+ * 发送者视角的第一人称（「对方已接受」而不是中性的「传输中」）。分叉的是措辞，不是状态机。
+ *
+ * 完整的逐文件明细仍归传输页，这里只给一条链接——落地即选中该条会话。
+ */
+function SentSessionCard({
+  sessionId,
+  projection,
+  progress,
+}: {
+  sessionId: string;
+  /** 事件还没回流时为空：那一刻「已发出」就是全部已知事实。 */
+  projection?: TransferProjection;
+  progress?: TransferProgressEvent;
+}) {
+  const { t } = useLingui();
+  const phase = projection?.phase;
+  const ended = phase === "terminal";
+  // 「终态以 projection 为准」的取舍由 `transferSample` 统一承担（见 `_lib/format.ts`）。
+  const sample = projection ? transferSample(projection, progress) : null;
+  const completed = ended && projection?.terminalReason === "completed";
+  const failed = ended && projection?.terminalReason === "fatal_error";
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-xs",
+        completed
+          ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+          : failed
+            ? "border-red-500/30 bg-red-500/5 text-red-600 dark:text-red-400"
+            : "bg-background text-muted-foreground",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
+          {completed && <Check className="size-3.5 shrink-0" aria-hidden />}
+          <span className="truncate">
+            {completed ? (
+              <Trans>已送达</Trans>
+            ) : failed ? (
+              <Trans>发送失败</Trans>
+            ) : ended ? (
+              // 取消与拒绝都落在这里。拒绝另有一条带具体原因的提示（`rejections` 域），
+              // 由调用方渲染，本卡片此时根本不出场。
+              <Trans>已结束</Trans>
+            ) : phase === "active" ? (
+              <Trans>对方已接受，正在传输</Trans>
+            ) : phase === "suspended" ? (
+              // 自己在传输页按的暂停要说「已暂停」——说成「中断」会让用户以为出了故障，
+              // 转头去查网络。其余几种中断（对方暂停 / 连接断 / 对方离线）对发送者而言
+              // 都是「传到一半停了」，不必在这张卡上逐一区分，详情侧有完整原因。
+              projection?.suspendedReason === "local_paused" ? (
+                <Trans>已暂停</Trans>
+              ) : (
+                <Trans>传输已中断</Trans>
+              )
+            ) : (
+              <Trans>已发出，等待对方接受</Trans>
+            )}
+          </span>
+        </span>
+        <Link
+          href={transferSessionHref(sessionId)}
+          className="shrink-0 font-medium underline underline-offset-2"
+        >
+          <Trans>查看传输</Trans>
+        </Link>
+      </div>
+      {phase === "active" && sample && <ProgressBar percent={sample.percent} label={t`发送进度`} />}
+      {/* 失败原因就在投影上，不必让用户再跳一次页面才看得到。 */}
+      {failed && projection?.errorMessage && (
+        <p className="break-words">{projection.errorMessage}</p>
       )}
     </div>
   );

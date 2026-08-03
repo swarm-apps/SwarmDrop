@@ -36,8 +36,13 @@ import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { WebErrorCard } from "./web-error-view";
 
-/** 一次最多列几个文件名，其余折成「还有 N 个」——offer 可能带上百个文件。 */
-const FILE_PREVIEW_LIMIT = 5;
+/**
+ * 一次最多列几个文件名，其余折成「还有 N 个」——offer 可能带上百个文件。
+ *
+ * 导出给收件箱那份「待处理请求」列表共用（`receive-panel.tsx`）：两处呈现的是同一个 offer，
+ * 各带一个上限就会出现「对话框里说 5 个、列表里铺开 80 个」这种同一件事两副样子。
+ */
+export const OFFER_FILE_PREVIEW_LIMIT = 5;
 
 export function TransferOfferHost() {
   const { t } = useLingui();
@@ -69,8 +74,12 @@ export function TransferOfferHost() {
   };
 
   const files = current?.files ?? [];
-  const shown = files.slice(0, FILE_PREVIEW_LIMIT);
+  const shown = files.slice(0, OFFER_FILE_PREVIEW_LIMIT);
   const rest = files.length - shown.length;
+  // 队列里除当前这条之外还剩几条。DESIGN.md 的 Incoming Request Contract：
+  // 「Queue, don't stack — 一次只显示一条，**多于一条时要说还剩几条**」。
+  // 少了这句，处理完一条会突然又弹出一个一模一样的对话框，用户会以为自己刚才没点上。
+  const queued = Math.max(0, offerList.length - 1);
 
   return (
     <Dialog
@@ -112,6 +121,12 @@ export function TransferOfferHost() {
             </li>
           )}
         </ul>
+
+        {queued > 0 && (
+          <p className="text-center text-xs text-muted-foreground" role="status" aria-live="polite">
+            <Trans>处理完这条后，还有 {queued} 条请求在等待</Trans>
+          </p>
+        )}
 
         {decide.error && <WebErrorCard error={decide.error} className="text-xs" />}
 

@@ -897,7 +897,57 @@ impl WebNode {
         Ok(())
     }
 
+    /// 暂停一条**发送**会话。
+    ///
+    /// 与取消同样只是一条 wasm 边界上的线：域层停掉 sender actor、把文件级进度落库、
+    /// dispatch `UserCommand::Pause`（`active` → `suspended(LocalPaused)`，
+    /// **`recoverable = true`**），并通知对端。之后调 [`resume`](Self::resume) 接着传。
+    ///
+    /// ## 浏览器上它为什么恢复得了（与「发送不跨刷新」不矛盾）
+    ///
+    /// [`initiate_resume`] 要的两样东西在**同一个页面生命周期内**都还在：
+    ///
+    /// - **会话记录**：`WebTransferStore` 是「内存读缓存 + IndexedDB 写穿」，`create_session`
+    ///   无条件写内存，`worth_persisting` 只决定要不要**再**写 IndexedDB。所以非终态发送
+    ///   会话查得到，只是刷新后就没了。
+    /// - **文件内容**：用户选的 `File` 存在 [`OpfsFileAccess`](crate::file_access) 的源注册表
+    ///   里，登记后不移除，`read_source_chunk` 照常读得到。
+    ///
+    /// 刷新之后两样同时消失，`initiate_resume` 在 `find_session` 那一步就报「会话不存在」
+    /// ——那正是应有的行为，不需要在这里另设守卫（见 `store.rs` 的落库范围表）。
+    pub async fn pause_send(&self, session_id: String) -> Result<(), JsValue> {
+        let sid = parse_session_id(&session_id)?;
+        self.manager
+            .pause_send(&sid)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
+    /// 暂停一条**接收**会话。
+    ///
+    /// 与 [`pause_send`](Self::pause_send) 对称，但落盘的半成品**不清理**（那是取消才做的事）
+    /// ——OPFS 里已写入的部分连同 checkpoint 一起留着，`resume` 从断点续。
+    ///
+    /// 接收方向的 suspended 会话 `worth_persisting`，所以它**跨刷新也能续**：重新打开页面后
+    /// 会话仍在传输列表里，「续传」照常可点。
+    ///
+    /// **方向不自动判**，理由同 `cancel_*`：暂停有副作用（停 actor、写状态、通知对端），
+    /// 拿它当探针试方向会在第一条真失败时顺手对另一个方向也来一遍。
+    pub async fn pause_receive(&self, session_id: String) -> Result<(), JsValue> {
+        let sid = parse_session_id(&session_id)?;
+        self.manager
+            .pause_receive(&sid)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
     /// 手动发起断点续传（对某 suspended 会话）。
+    ///
+    /// 三种 suspended 都走这一条：用户自己暂停的（`LocalPaused`）、对端暂停的
+    /// （`RemotePaused`）、以及连接中断 / 对方离线。恢复需要对端在线并应答探测，
+    /// 失败时错误照常经 `WebError` 透出。
     pub async fn resume(&self, session_id: String) -> Result<(), JsValue> {
         let sid = parse_session_id(&session_id)?;
         self.manager

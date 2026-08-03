@@ -30,6 +30,8 @@ import { cn } from "@/lib/cn";
 import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
 import { MasterDetail, OpenListButton } from "./master-detail";
 import { PanelFallback } from "./panel-fallback";
+import { RelativeTime } from "./relative-time";
+import { OFFER_FILE_PREVIEW_LIMIT } from "./transfer-offer-host";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import { inboxItemHref, PARAM } from "../_lib/nav";
@@ -76,14 +78,14 @@ export function IncomingOffersPanel() {
   };
 
   return (
-    <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
+    <div className="rounded-xl border bg-card p-6 shadow-xs">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-foreground">
           <Trans>待处理请求</Trans>
         </h2>
         {offerList.length > 0 && (
           <p
-            className="rounded-full bg-fd-accent px-2 py-0.5 text-xs font-medium text-fd-foreground"
+            className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-foreground"
             role="status"
             aria-live="polite"
           >
@@ -104,8 +106,12 @@ export function IncomingOffersPanel() {
           <Trans>你关掉提示后，请求会留在这里等你决定。</Trans>
         </p>
         <ul className="mt-3 space-y-2">
-          {offerList.map((offer) => (
-            <li key={offer.sessionId} className="rounded-lg border border-fd-border bg-fd-background px-3 py-2">
+          {offerList.map((offer) => {
+            // 变量名参与 msgid（`还有 {rest} 个文件`）——与全局对话框那句取同一个名字，
+            // 两处才共用一条待翻译串，而不是各翻一遍同一句话。
+            const rest = offer.files.length - OFFER_FILE_PREVIEW_LIMIT;
+            return (
+            <li key={offer.sessionId} className="rounded-lg border bg-background px-3 py-2">
               <p className="text-xs text-foreground">
                 <Trans>
                   <span className="font-medium">{offer.deviceName}</span> 想发送{" "}
@@ -113,11 +119,18 @@ export function IncomingOffersPanel() {
                 </Trans>
               </p>
               <ul className="mt-1 space-y-0.5">
-                {offer.files.map((f) => (
-                  <li key={f.fileId} className="truncate font-mono text-[11px] text-fd-muted-foreground">
+                {/* 与全局对话框同一个上限：一个 offer 可以带上百个文件，全量铺开会把下面的
+                    「接受 / 拒绝」推到屏幕外——而那两个按钮才是这张卡存在的理由。 */}
+                {offer.files.slice(0, OFFER_FILE_PREVIEW_LIMIT).map((f) => (
+                  <li key={f.fileId} className="truncate font-mono text-[11px] text-muted-foreground">
                     {f.name}（{formatFileSize(f.size)}）
                   </li>
                 ))}
+                {rest > 0 && (
+                  <li className="text-[11px] text-muted-foreground">
+                    <Trans>还有 {rest} 个文件</Trans>
+                  </li>
+                )}
               </ul>
               <div className="mt-2 flex gap-2">
                 <Button
@@ -139,7 +152,8 @@ export function IncomingOffersPanel() {
                 </Button>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
         </>
       )}
@@ -550,7 +564,7 @@ const InboxSearchBox = memo(function InboxSearchBox({
   return (
     <div className="relative mt-3">
       <Search
-        className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fd-muted-foreground"
+        className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
         aria-hidden="true"
       />
       <input
@@ -560,10 +574,10 @@ const InboxSearchBox = memo(function InboxSearchBox({
         disabled={disabled}
         placeholder={t`搜索标题、来源设备或文件名`}
         aria-label={t`搜索收件箱`}
-        className="w-full rounded-lg border border-fd-border bg-fd-background py-2 pl-8 pr-16 text-xs text-fd-foreground placeholder:text-fd-muted-foreground disabled:opacity-50"
+        className="w-full rounded-lg border bg-background py-2 pl-8 pr-16 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
       />
       {searching && (
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-fd-muted-foreground">
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">
           <Trans>搜索中…</Trans>
         </span>
       )}
@@ -627,10 +641,15 @@ function InboxListRow({
             </span>
           )}
         </span>
-        <span className="truncate text-[11px] text-muted-foreground">
-          <Trans>
-            来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
-          </Trans>
+        <span className="flex items-baseline justify-between gap-2 text-[11px] text-muted-foreground">
+          <span className="truncate">
+            <Trans>
+              来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
+            </Trans>
+          </span>
+          {/* 「什么时候收到的」此前整个收件箱都没有——列表按 receivedAt 倒序排着，
+              却不给任何一行标出时间，用户只能靠顺序猜。桌面端的收件箱行一直有这个位。 */}
+          <RelativeTime timestamp={item.receivedAt} className="shrink-0" />
         </span>
         {/* 命中片段由 Rust 侧按子串位置切窗口生成，前端不重切——切法漂了，两端的「为什么这条
             能搜到」就对不上。与标题相同时上游已置 null（那种情况它只是把标题重复一遍）。 */}
@@ -680,11 +699,13 @@ function InboxDetailPanel({
             <Trans>
               来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
             </Trans>
+            {" · "}
+            <RelativeTime timestamp={item.receivedAt} />
           </p>
         </div>
         {archived && (
           <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-            已归档
+            <Trans>已归档</Trans>
           </span>
         )}
       </div>

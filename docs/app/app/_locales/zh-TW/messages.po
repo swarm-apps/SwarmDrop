@@ -25,6 +25,21 @@ msgstr "（瀏覽器預設）"
 msgid "（离线）"
 msgstr "（離線）"
 
+#. placeholder {0}: Math.floor(elapsed / MINUTE)
+#: app/app/_components/relative-time.tsx
+msgid "{0, plural, other {# 分钟前}}"
+msgstr "{0, plural, other {# 分鐘前}}"
+
+#. placeholder {0}: Math.floor(elapsed / DAY)
+#: app/app/_components/relative-time.tsx
+msgid "{0, plural, other {# 天前}}"
+msgstr "{0, plural, other {# 天前}}"
+
+#. placeholder {0}: Math.floor(elapsed / HOUR)
+#: app/app/_components/relative-time.tsx
+msgid "{0, plural, other {# 小时前}}"
+msgstr "{0, plural, other {# 小時前}}"
+
 #. placeholder {0}: offerList.length
 #: app/app/_components/receive-panel.tsx
 msgid "{0} 个待处理"
@@ -36,13 +51,18 @@ msgstr "{0} 筆待處理"
 msgid "{0} 个进行中 · {1} 个已结束"
 msgstr "{0} 筆進行中 · {1} 筆已結束"
 
+#. placeholder {0}: file.name
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "{0} 的进度"
+msgstr "{0} 的進度"
+
 #: app/app/_lib/invite.ts
 msgid "{left}后失效"
 msgstr "{left}後失效"
 
 #: app/app/_components/transfer-activity-panel.tsx
-msgid "{rate} · ETA {eta}"
-msgstr "{rate} · 預計剩餘 {eta}"
+#~ msgid "{rate} · ETA {eta}"
+#~ msgstr "{rate} · 預計剩餘 {eta}"
 
 #. placeholder {0}: organizedDeviceName(device, organization)
 #: app/app/_components/trust-policy-dialog.tsx
@@ -159,6 +179,14 @@ msgstr "傳輸中"
 msgid "传输会话列表"
 msgstr "傳輸工作階段清單"
 
+#: app/app/_components/send-panel.tsx
+msgid "传输已中断"
+msgstr "傳輸已中斷"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "传输进度"
+msgstr "傳輸進度"
+
 #: app/app/_lib/view-types.ts
 msgid "传输错误"
 msgstr "傳輸錯誤"
@@ -207,6 +235,11 @@ msgstr "允許資料夾"
 #~ msgid "入站配对请求"
 #~ msgstr "傳入的配對要求"
 
+#. placeholder {0}: files.length
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "共 {0} 个文件"
+msgstr "共 {0} 個檔案"
+
 #: app/app/_components/node-status-pill.tsx
 msgid "关停中"
 msgstr "關閉中"
@@ -231,9 +264,17 @@ msgstr "最近完成"
 msgid "准备中…"
 msgstr "準備中…"
 
+#: app/app/_components/send-panel.tsx
+msgid "准备文件的进度"
+msgstr "準備檔案的進度"
+
 #: app/app/_components/device-organization-dialog.tsx
 msgid "分组"
 msgstr "群組"
+
+#: app/app/_components/relative-time.tsx
+msgid "刚刚"
+msgstr "剛剛"
 
 #: app/app/_components/receive-panel.tsx
 #: app/app/_components/transfer-activity-panel.tsx
@@ -266,6 +307,10 @@ msgstr "別名與群組只存在本機，不會同步給對方，也不會改變
 msgid "刷新后保持不变"
 msgstr "重新整理後保持不變"
 
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "剩余"
+msgstr "剩餘"
+
 #: app/app/_components/device-card.tsx
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "协作者"
@@ -285,6 +330,14 @@ msgstr "傳送"
 #: app/app/_components/send-panel.tsx
 msgid "发送中…"
 msgstr "傳送中…"
+
+#: app/app/_components/send-panel.tsx
+msgid "发送失败"
+msgstr "傳送失敗"
+
+#: app/app/_components/send-panel.tsx
+msgid "发送进度"
+msgstr "傳送進度"
 
 #: app/app/_components/send-panel.tsx
 msgid "发送需要先与对方配对。到 <0>设备</0> 页完成一次配对，之后就能直接从设备卡片发送。"
@@ -362,6 +415,18 @@ msgstr "處理中"
 msgid "处理中…"
 msgstr "處理中…"
 
+#: app/app/_components/transfer-offer-host.tsx
+msgid "处理完这条后，还有 {queued} 条请求在等待"
+msgstr "處理完這筆後，還有 {queued} 筆請求在等待"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "复制会话 ID"
+msgstr "複製工作階段 ID"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "复制失败"
+msgstr "複製失敗"
+
 #: app/app/_components/connection-badge.tsx
 #: app/app/_components/invite-share.tsx
 msgid "复制失败，请手动选中"
@@ -390,6 +455,10 @@ msgstr "對方尚未與你配對，請先完成配對再試"
 #: app/app/_components/connection-badge.tsx
 msgid "对方就在同一网段，但直连没建起来"
 msgstr "對方就在同一網段，但直連沒建起來"
+
+#: app/app/_components/send-panel.tsx
+msgid "对方已接受，正在传输"
+msgstr "對方已接受，正在傳輸"
 
 #: app/app/_lib/view-types.ts
 msgid "对方已暂停接收，请稍后再试"
@@ -453,8 +522,12 @@ msgid "已保存。节点启动后，新名字会随本机身份一起广播出�
 msgstr "已儲存。節點啟動後，新名稱會隨本機身分一起廣播出去。"
 
 #: app/app/_components/send-panel.tsx
-msgid "已发出，等待对方接受。"
-msgstr "已送出，等待對方接受。"
+msgid "已发出，等待对方接受"
+msgstr "已送出，等待對方接受"
+
+#: app/app/_components/send-panel.tsx
+#~ msgid "已发出，等待对方接受。"
+#~ msgstr "已送出，等待對方接受。"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "已发出的邀请（未过期）"
@@ -467,6 +540,7 @@ msgstr "已取消"
 
 #: app/app/_components/connection-badge.tsx
 #: app/app/_components/invite-share.tsx
+#: app/app/_components/transfer-activity-panel.tsx
 msgid "已复制"
 msgstr "已複製"
 
@@ -486,16 +560,21 @@ msgstr "已拒絕"
 msgid "已接收"
 msgstr "已接收"
 
+#: app/app/_components/send-panel.tsx
+msgid "已暂停"
+msgstr "已暫停"
+
 #. placeholder {0}: formatDuration(elapsed)
 #: app/app/_components/transfer-activity-panel.tsx
-msgid "已用 {0}"
-msgstr "已用 {0}"
+#~ msgid "已用 {0}"
+#~ msgstr "已用 {0}"
 
 #. placeholder {0}: decoded.displayName || t`对方设备`
 #: app/app/_components/pairing-panel.tsx
 msgid "已经和「{0}」配过对了，去「发送」页直接选它就行。"
 msgstr "已經和「{0}」配對過了，到「傳送」頁直接選它就行。"
 
+#: app/app/_components/send-panel.tsx
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "已结束"
 msgstr "已結束"
@@ -511,6 +590,10 @@ msgstr "已被使用"
 #: app/app/_lib/invite.ts
 msgid "已过期"
 msgstr "已過期"
+
+#: app/app/_components/send-panel.tsx
+msgid "已送达"
+msgstr "已送達"
 
 #. placeholder {0}: files.length
 #. placeholder {1}: formatFileSize(totalBytes)
@@ -652,6 +735,10 @@ msgid "收到文件请求"
 msgstr "收到檔案請求"
 
 #: app/app/_components/transfer-activity-panel.tsx
+msgid "收起文件"
+msgstr "收起檔案"
+
+#: app/app/_components/transfer-activity-panel.tsx
 msgid "断点信息将一并清除，无法再续传；已接收的文件仍在收件箱"
 msgstr "續傳資訊將一併清除，無法再續傳；已接收的檔案仍在收件匣"
 
@@ -667,9 +754,22 @@ msgstr "新增群組"
 msgid "无需逐次确认，对方发来即开始接收。"
 msgstr "無需逐次確認，對方傳來即開始接收。"
 
+#. placeholder {0}: files.length
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "显示全部 {0} 个文件"
+msgstr "顯示全部 {0} 個檔案"
+
 #: app/app/_components/receive-panel.tsx
 msgid "显示已归档"
 msgstr "顯示已封存"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "暂停"
+msgstr "暫停"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "暂停中"
+msgstr "暫停中"
 
 #: app/app/_components/receive-panel.tsx
 msgid "暂无待处理的入站文件请求。"
@@ -696,7 +796,6 @@ msgid "未找到"
 msgstr "找不到"
 
 #: app/app/_components/connection-badge.tsx
-#: app/app/_components/transfer-activity-panel.tsx
 msgid "未知"
 msgstr "未知"
 
@@ -731,6 +830,10 @@ msgstr "來自 {0} · {1} 個檔案 · {2}"
 #: app/app/_components/send-panel.tsx
 msgid "查看传输"
 msgstr "查看傳輸"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "查看收到的文件"
+msgstr "查看收到的檔案"
 
 #: app/app/_components/connection-badge.tsx
 msgid "查看链路详情"
@@ -805,6 +908,10 @@ msgstr "產生邀請"
 msgid "生成邀请（让桌面 / 移动扫码或粘贴来配对本机）"
 msgstr "產生邀請（讓桌面 / 行動裝置掃碼或貼上來配對本機）"
 
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "用时"
+msgstr "用時"
+
 #: app/app/_components/locale-switcher.tsx
 msgid "界面语言"
 msgstr "介面語言"
@@ -858,6 +965,10 @@ msgid "移除 {0}"
 msgstr "移除 {0}"
 
 #: app/app/_components/transfer-activity-panel.tsx
+msgid "等待中"
+msgstr "等待中"
+
+#: app/app/_components/transfer-activity-panel.tsx
 msgid "等待处理"
 msgstr "等待處理"
 
@@ -870,8 +981,12 @@ msgid "等待对方接受"
 msgstr "等待對方接受"
 
 #: app/app/_components/transfer-activity-panel.tsx
-msgid "等待数据"
-msgstr "等待資料"
+#~ msgid "等待数据"
+#~ msgstr "等待資料"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "结束于"
+msgstr "結束於"
 
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "续传"
@@ -953,11 +1068,17 @@ msgstr "執行中"
 msgid "返回"
 msgstr "返回"
 
+#. placeholder {0}: offer.files.length - OFFER_FILE_PREVIEW_LIMIT
+#: app/app/_components/receive-panel.tsx
+#~ msgid "还有 {0} 个文件"
+#~ msgstr ""
+
 #. placeholder {0}: pendingPairings.length - 1
 #: app/app/_components/pairing-request-host.tsx
 msgid "还有 {0} 个请求等待处理"
 msgstr "還有 {0} 個請求等待處理"
 
+#: app/app/_components/receive-panel.tsx
 #: app/app/_components/transfer-offer-host.tsx
 msgid "还有 {rest} 个文件"
 msgstr "還有 {rest} 個檔案"
@@ -1006,6 +1127,10 @@ msgstr "這台裝置目前離線或已被封鎖，換一台再試。"
 msgid "这是本机生成的邀请——把它发给对方，不是自己用。"
 msgstr "這是本機產生的邀請——請把它傳給對方，不是自己用。"
 
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "这条发送只能在本页继续：刷新或关闭标签页后，浏览器读不回你选过的文件，会话会一并消失。"
+msgstr "這筆傳送只能在本頁繼續：重新整理或關閉分頁後，瀏覽器讀不回你選過的檔案，工作階段會一併消失。"
+
 #: app/app/_components/pairing-panel.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"
 msgstr "這組邀請已過期，請對方重新產生一組。"
@@ -1049,6 +1174,10 @@ msgstr "選擇檔案"
 #: app/app/_components/send-panel.tsx
 msgid "选择设备…"
 msgstr "選擇裝置…"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "速率"
+msgstr "速率"
 
 #: app/app/_components/invite-share.tsx
 msgid "邀请已撤销"

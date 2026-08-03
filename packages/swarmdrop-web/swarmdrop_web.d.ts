@@ -766,6 +766,40 @@ export class WebNode {
      */
     paired_devices(): Device[];
     /**
+     * 暂停一条**接收**会话。
+     *
+     * 与 [`pause_send`](Self::pause_send) 对称，但落盘的半成品**不清理**（那是取消才做的事）
+     * ——OPFS 里已写入的部分连同 checkpoint 一起留着，`resume` 从断点续。
+     *
+     * 接收方向的 suspended 会话 `worth_persisting`，所以它**跨刷新也能续**：重新打开页面后
+     * 会话仍在传输列表里，「续传」照常可点。
+     *
+     * **方向不自动判**，理由同 `cancel_*`：暂停有副作用（停 actor、写状态、通知对端），
+     * 拿它当探针试方向会在第一条真失败时顺手对另一个方向也来一遍。
+     */
+    pause_receive(session_id: string): Promise<void>;
+    /**
+     * 暂停一条**发送**会话。
+     *
+     * 与取消同样只是一条 wasm 边界上的线：域层停掉 sender actor、把文件级进度落库、
+     * dispatch `UserCommand::Pause`（`active` → `suspended(LocalPaused)`，
+     * **`recoverable = true`**），并通知对端。之后调 [`resume`](Self::resume) 接着传。
+     *
+     * ## 浏览器上它为什么恢复得了（与「发送不跨刷新」不矛盾）
+     *
+     * [`initiate_resume`] 要的两样东西在**同一个页面生命周期内**都还在：
+     *
+     * - **会话记录**：`WebTransferStore` 是「内存读缓存 + IndexedDB 写穿」，`create_session`
+     *   无条件写内存，`worth_persisting` 只决定要不要**再**写 IndexedDB。所以非终态发送
+     *   会话查得到，只是刷新后就没了。
+     * - **文件内容**：用户选的 `File` 存在 [`OpfsFileAccess`](crate::file_access) 的源注册表
+     *   里，登记后不移除，`read_source_chunk` 照常读得到。
+     *
+     * 刷新之后两样同时消失，`initiate_resume` 在 `find_session` 那一步就报「会话不存在」
+     * ——那正是应有的行为，不需要在这里另设守卫（见 `store.rs` 的落库范围表）。
+     */
+    pause_send(session_id: string): Promise<void>;
+    /**
      * 当前挂起（待确认）的入站 offer 列表。
      */
     pending_offers(): OfferJson[];
@@ -852,6 +886,10 @@ export class WebNode {
     respond_pairing_request(pending_id: string, accept: boolean): Promise<void>;
     /**
      * 手动发起断点续传（对某 suspended 会话）。
+     *
+     * 三种 suspended 都走这一条：用户自己暂停的（`LocalPaused`）、对端暂停的
+     * （`RemotePaused`）、以及连接中断 / 对方离线。恢复需要对端在线并应答探测，
+     * 失败时错误照常经 `WebError` 透出。
      */
     resume(session_id: string): Promise<void>;
     /**
@@ -974,9 +1012,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly default_device_name: () => [number, number];
-    readonly get_device_name: () => any;
-    readonly set_device_name: (a: number, b: number) => any;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1002,6 +1037,8 @@ export interface InitOutput {
     readonly webnode_mark_inbox_item_opened: (a: number, b: number, c: number) => any;
     readonly webnode_node_id: (a: number) => [number, number];
     readonly webnode_paired_devices: (a: number) => [number, number, number];
+    readonly webnode_pause_receive: (a: number, b: number, c: number) => any;
+    readonly webnode_pause_send: (a: number, b: number, c: number) => any;
     readonly webnode_pending_offers: (a: number) => [number, number, number];
     readonly webnode_pending_pairing_requests: (a: number) => [number, number, number];
     readonly webnode_reject_offer: (a: number, b: number, c: number) => any;
@@ -1021,6 +1058,9 @@ export interface InitOutput {
     readonly webnode_spawn: () => any;
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
+    readonly default_device_name: () => [number, number];
+    readonly get_device_name: () => any;
+    readonly set_device_name: (a: number, b: number) => any;
     readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;

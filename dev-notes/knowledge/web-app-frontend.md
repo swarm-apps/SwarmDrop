@@ -494,6 +494,61 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 **相关文件**：`docs/app/app/_lib/use-copy.ts`、`docs/app/app/_components/connection-badge.tsx`、
 `docs/app/app/_components/invite-share.tsx`
 
+## 拖文件进窗口的默认行为会把节点一起弄没，而只拦 `drop` 是无效的
+
+浏览器对「把文件拖进窗口」的默认响应是**导航到那个文件**（地址栏变 `file:///…`），当前文档
+连同它上面跑着的一切一起被销毁。对本应用这格外致命：没掉的不是「这次没加上文件」，而是
+**正在跑的 P2P 节点**——连接断开、进行中的传输中止，回来还要重新 spawn。
+
+而这恰恰是最容易发生的误操作：用户瞄准发送页那个虚线投放框、手抖偏两厘米就中。
+
+两条只有踩过才知道的：
+
+- **`dragover` 必须一起 `preventDefault`。** 只拦 `drop` 完全无效——不拦 `dragover`，浏览器
+  压根不把窗口当成有效投放目标，`drop` 事件不会派发，默认导航照常发生。
+- **拦下之后要改 `dropEffect`，否则等于换了种方式骗人。** 只 `preventDefault` 会让整个窗口
+  显示「可以放」的光标，放下去却什么都没发生。窗口级监听里设 `dropEffect = "none"`，
+  但要先判 `event.defaultPrevented`：真正的投放目标（发送卡片）已经处理过并设成了 `copy`，
+  而窗口监听跑在冒泡最末端，无条件覆盖会把投放区的光标也改回禁止符。
+
+护栏挂在 `app/app/layout.tsx`（`WindowDropGuard`），与两个入站请求宿主同样的理由：要在
+**任何路由**下生效。文档站其它页面不受影响。
+
+配套的一条：投放目标做成**整张发送卡片**而不只是虚线框（高亮仍只画在框上）。以及
+`dragleave` 要判 `currentTarget.contains(relatedTarget)`——它会从子元素冒泡上来，不判的话
+高亮会随鼠标经过每个子元素闪烁。
+
+**相关文件**：`docs/app/app/_components/window-drop-guard.tsx`、`docs/app/app/_components/send-panel.tsx`
+
+## 共享节拍的 hook：停表期间「现在」是冻住的，重新订阅要先拨表
+
+`_lib/use-now-seconds.ts` 从「每个调用点各建一个 `setInterval`」改成了一个进程内共享的
+`useSyncExternalStore`（相对时间进列表后同屏可以有几十个调用点，各自计时既是几十个定时器、
+相位还各不相同——相邻两行会在不同时刻翻页）。
+
+改造里唯一反直觉的地方：**最后一个订阅者走了要停表，而停表期间模块级的 `now` 就冻住了**。
+「没人看」可以持续很久——用户在设备页待十分钟再进传输页，第一个订阅者拿到的是十分钟前的
+「现在」，一屏的相对时间集体少算十分钟，还要等满一个节拍才自己纠正。所以 `subscribe` 里
+必须**先拨表再开表**。（React 会在 subscribe 之后重新读一次快照，改完不用另行通知。）
+
+`getServerSnapshot` 恒返回模块加载那一刻的值——它必须在一次渲染里稳定。当前没有调用点会进
+预渲染产物（相对时间与邀请倒计时读的都是运行时数据，构建期一条都没有），所以不会
+hydration mismatch；**将来若有构建期就有内容的调用点，这条要重新考虑**。
+
+## 漏包 `<Trans>` 的裸中文，三道门禁一道都拦不住
+
+`lingui extract` 只统计**被宏包住**的串——漏包的它根本看不见，于是「Missing 0」并不代表
+没有漏翻。`tsc` / `next build` / `check:zustand-access` 更与文案无关。
+
+实证：`transfer-activity-panel.tsx` 的「查看收到的文件」与 `receive-panel.tsx` 详情侧的
+「已归档」徽标都是裸中文，混在满屏 `<Trans>` 里活了很久。后者尤其隐蔽——**同一个词在列表行
+是包了的**，于是英文界面下列表显示 `Archived`、详情显示「已归档」，看起来像漏翻了一处翻译，
+而不是漏包了一个宏。
+
+**规矩**：新增 UI 串时自己扫一眼有没有裸中文（`aria-label` / `title` / `alt` 一并算），
+别指望 extract 的统计数字。DESIGN.md 的跨端 UI 复查清单里那条「New user-facing strings go
+through that build's i18n, including aria-label / title / alt」说的就是这件事。
+
 ## IndexedDB 的写读必须对称 —— 存字符串就得按字符串读
 
 `idb::put_string` 存进去的是一个 **JSON 字符串**（`serde_json::to_string` 的结果），不是结构化
