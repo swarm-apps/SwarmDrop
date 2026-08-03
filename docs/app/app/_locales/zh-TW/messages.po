@@ -638,6 +638,7 @@ msgstr "撤銷中…"
 msgid "撤销已生效，但没能写入本地存储 —— 刷新页面后它可能恢复可用，建议稍后再撤销一次。"
 msgstr "撤銷已生效，但沒能寫入本機儲存 —— 重新整理頁面後它可能恢復可用，建議稍後再撤銷一次。"
 
+#: app/app/_components/receive-panel.tsx
 #: app/app/_lib/nav.ts
 msgid "收件箱"
 msgstr "收件匣"

@@ -506,9 +506,12 @@ function InboxDetailEmpty({
     <div className="flex flex-col gap-3 rounded-xl border bg-card p-6 shadow-xs">
       <div className="flex items-center gap-2">
         <OpenListButton openList={openList} label={t`打开收件箱列表`} />
+        {/* **区域名，不是列表栏那个集合名。** 两边都写「已接收」时，宽屏下同一个词会
+            并排出现两次（列表栏一次、这里一次）——与传输页「会话」/「传输」的分法同构：
+            列表栏说的是「这堆东西叫什么」，详情侧说的是「你在哪个区」。 */}
         <h2 className="text-sm font-semibold text-foreground">
-              <Trans>已接收</Trans>
-            </h2>
+          <Trans>收件箱</Trans>
+        </h2>
       </div>
       <p className="text-xs text-muted-foreground">
         {hasRows ? (
