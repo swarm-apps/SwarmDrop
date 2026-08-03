@@ -24,8 +24,8 @@ import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import {
   type DeviceGroup,
-  sortedDeviceGroups,
-} from "@/lib/device-organization";
+  sortDeviceGroups,
+} from "@swarmdrop/shared-view";
 import {
   mergePairedDevicesWithCache,
   useMobileCoreStore,
@@ -78,7 +78,7 @@ export default function DeviceGroupsScreen() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const groups = useMemo(
-    () => sortedDeviceGroups(organization),
+    () => sortDeviceGroups(organization.groups),
     [organization],
   );
 

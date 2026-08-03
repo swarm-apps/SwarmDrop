@@ -987,3 +987,49 @@ core 的系统通知从 `NotificationRequest{title,body}`（拼好的中文散�
 改动对 RN 零即时影响。**动 core 的 host trait 前，先确认 RN 到底实不实现它、是不是传 None——别默认「改 core trait 必炸 RN」**。
 
 **相关文件**：`crates/core/src/host.rs`（`Notification` + `Notifier`）、`crates/core/src/network/event_loop.rs`、`src-tauri/src/host/notifier.rs`、`../SwarmDrop-RN/packages/swarmdrop-core/rust/mobile-core/src/events.rs`
+
+## 信任级别的默认接收策略：表只有一份，在内核
+
+`DeviceReceivePolicy::for_trust_level(level, previous)`（`crates/host/src/device.rs`）是**三端
+唯一的事实源**。三端各经自己的 binding 取它，**不许再抄一份到 JS**：
+
+| 端 | 入口 |
+|---|---|
+| 桌面 | `commands.defaultReceivePolicy(level, previous)`（tauri-specta，纯函数命令不取 State） |
+| 移动 | `defaultReceivePolicy(level, previous)`（uniffi 自由函数，**同步**，无 async 涟漪） |
+| Web | `node-runtime.ts` 的 `defaultReceivePolicy(level, previous)`（包一层 `getModule()`） |
+
+### 为什么值得专门收一次
+
+2026-08 之前是**三份各不相同**的实现：
+
+- 内核那份：切级别时一个字段都不保留。
+- 桌面 JS：保留 `defaultSaveLocation` 与 `allowMcpAcceptFromDevice`。
+- 移动 JS：注入 `resolveReceiveLocation()`，不保留 MCP 授权。
+
+于是「切换信任级别」这一个产品动作有三种行为，而**内核那份反而是错的**：
+`default_save_location` 为空时 `evaluate_receive_policy` 一律退回手动确认，所以「升到本人设备」
+会把自动接收静默关掉——UI 上那个开关还开着。两条内核路径
+（`PairedDeviceInfo::apply_trust_level_defaults`、`paired_devices::update_policy` 的
+`receive_policy = None` 分支）都踩着这个坑，桌面 UI 只是靠自己那份 JS 副本绕开了它。
+
+### 收口后的分工
+
+- **内核**：默认表 + carry-forward 规则（保留 `default_save_location` 与
+  `allow_mcp_accept_from_device`；`Blocked` 是唯一例外，两项都清零——「已阻止」必须是不留
+  后门的终态）。守卫在 `crates/host/src/device.rs` 的
+  `switching_trust_level_preserves_user_set_fields` / `blocking_clears_preserved_fields`。
+- **宿主**：只补内核知道不了的东西。目前只有一处——移动端的
+  `withHostSaveLocation()`：内核给不出「这台手机把文件放哪」，那是用户偏好 `receivePath` 加
+  应用文档目录的回退。**只在 `autoAccept` 时补**，所以 `blocked` 天然不会被补回一个落点。
+
+### 加字段时的连锁
+
+`MobileDeviceReceivePolicy`（uniffi Record）用**穷尽解构**镜像内核结构体，加字段时那里会编译
+失败，强制同步。注意它**刻意不携带** `allow_mcp_accept_from_device`（移动端不管理该策略，
+回写恒 fail-closed 为 false）——所以内核为该字段做的 carry-forward 在移动端这条路径上看不到。
+那是既有的类型边界，不是 bug。
+
+**相关文件**：`crates/host/src/device.rs`、`crates/core/src/paired_devices.rs`、
+`src-tauri/src/commands/pairing.rs`、`crates/web/src/node.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/device.rs`、`mobile/src/core/device-trust.ts`

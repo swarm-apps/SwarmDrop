@@ -4,6 +4,7 @@
 // 隐式优先（PRODUCT.md 原则 1）：配对是一次性动作，配完即长期信任，不做成每次传输都要选的
 // 模式——本面板只负责把「配对」这一次性动作走完，配对后的设备去下方「已配对设备」清单看。
 
+import { Trans, useLingui } from "@lingui/react/macro";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { InviteShare } from "./invite-share";
@@ -11,7 +12,7 @@ import { WebErrorCard } from "./web-error-view";
 import {
   INVITE_TTL_HOURS,
   INVITE_URL_PREFIX,
-  formatRemaining,
+  remainingLabel,
   remainingSeconds,
   extractInviteLink,
 } from "../_lib/invite";
@@ -39,6 +40,7 @@ function refreshPairedDevices(node: WebNode) {
 }
 
 export function PairingPanel() {
+  const { t, i18n } = useLingui();
   const nodeStatus = useWebNode((s) => s.status);
   const reservation = useWebNode((s) => s.reservation);
   const pendingPairings = useWebNode((s) => s.pendingPairings);
@@ -105,12 +107,12 @@ export function PairingPanel() {
     if (decoded.peerId === node.node_id()) {
       // 判据是签名覆盖范围内的 `inviter_id`，伪造不了。比对「当前生成的那一串」则漏得掉
       // 历史生成的、隔壁标签页生成的、以及刷新之后的（那时本地根本没有那串可比）。
-      setPreviewNotice("这是本机生成的邀请——把它发给对方，不是自己用。");
+      setPreviewNotice(t`这是本机生成的邀请——把它发给对方，不是自己用。`);
       return;
     }
     if (node.paired_devices().some((d) => d.peerId === decoded.peerId)) {
       setPreviewNotice(
-        `已经和「${decoded.displayName || "对方设备"}」配过对了，去「发送」页直接选它就行。`,
+        t`已经和「${decoded.displayName || t`对方设备`}」配过对了，去「发送」页直接选它就行。`,
       );
       return;
     }
@@ -340,18 +342,20 @@ export function PairingPanel() {
   };
 
   const generateLabel = generateAction.pending
-    ? "生成中…"
+    ? t`生成中…`
     : generatedInvite
-      ? "重新生成"
-      : "生成邀请";
+      ? t`重新生成`
+      : t`生成邀请`;
 
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
-      <h2 className="text-sm font-semibold text-fd-foreground">配对</h2>
+      <h2 className="text-sm font-semibold text-foreground">
+        <Trans>配对</Trans>
+      </h2>
 
       <div className="mt-4">
         <p className="text-xs font-medium text-fd-muted-foreground">
-          消费邀请（连接桌面 / 移动生成的邀请）
+          <Trans>消费邀请（连接桌面 / 移动生成的邀请）</Trans>
         </p>
         {/* 没有「配对」按钮：串一进框就地解码，动作长在下面那张确认卡上（#98）。 */}
         <input
@@ -367,7 +371,7 @@ export function PairingPanel() {
         {/* 输入框自己有了内容总得有个交代，否则像是页面在替用户做主。 */}
         {pastedFromClipboard && !consumeAction.error && (
           <p className="mt-2 text-xs text-fd-muted-foreground" aria-live="polite">
-            已从剪贴板识别到一条邀请。
+            <Trans>已从剪贴板识别到一条邀请。</Trans>
           </p>
         )}
         {previewNotice && (
@@ -380,7 +384,7 @@ export function PairingPanel() {
         {preview && (
           <div className="mt-2 rounded-lg border border-fd-border bg-fd-background px-3 py-2.5">
             <p className="text-xs text-fd-foreground">
-              <span className="font-medium">{preview.displayName || "对方设备"}</span>
+              <span className="font-medium">{preview.displayName || t`对方设备`}</span>
               <span className="ml-2 text-fd-muted-foreground">{preview.displayPlatform}</span>
             </p>
             {/* 只露末 8 位：够用来跟对方核一句，不必铺满一行 */}
@@ -388,16 +392,16 @@ export function PairingPanel() {
               {preview.peerId.slice(-8)}
             </p>
             <p className="mt-1 text-xs text-fd-muted-foreground">
-              {formatRemaining(preview.expiresAt, now)}
-              {preview.localOnly && " · 仅局域网可见（LocalOnly）"}
+              {t(remainingLabel(preview.expiresAt, now, i18n.locale))}
+              {preview.localOnly && <> · <Trans>仅局域网可见（LocalOnly）</Trans></>}
             </p>
             {previewExpired ? (
               <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                这条邀请已过期，让对方重新生成一条。
+                <Trans>这条邀请已过期，让对方重新生成一条。</Trans>
               </p>
             ) : (
               <p className="mt-2 text-xs text-fd-muted-foreground">
-                配对后双方可以互相发送文件。确认是这台设备再继续。
+                <Trans>配对后双方可以互相发送文件。确认是这台设备再继续。</Trans>
               </p>
             )}
             <div className="mt-2 flex gap-2">
@@ -408,7 +412,7 @@ export function PairingPanel() {
                   disabled={!ready || consumeAction.pending}
                   className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
                 >
-                  {consumeAction.pending ? "配对中…" : "确认配对"}
+                  {consumeAction.pending ? <Trans>配对中…</Trans> : <Trans>确认配对</Trans>}
                 </button>
               )}
               <button
@@ -417,7 +421,7 @@ export function PairingPanel() {
                 disabled={consumeAction.pending}
                 className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
               >
-                取消
+                <Trans>取消</Trans>
               </button>
             </div>
           </div>
@@ -429,13 +433,15 @@ export function PairingPanel() {
                 字节都没传播过来（要判就得出网，与「确认卡前零出网」冲突）。所以它只能在这一步
                 现形：邀请方拒绝之后，把可能的成因说成人话，而不是让人对着一句「配对未成功」猜。 */}
             <p className="mt-1 text-xs text-fd-muted-foreground">
-              邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。
+              <Trans>邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。</Trans>
             </p>
           </>
         )}
         {consumeSuccess && (
           <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
-            已配对：<span className="font-mono">{consumeSuccess}</span>
+            <Trans>
+              已配对：<span className="font-mono">{consumeSuccess}</span>
+            </Trans>
           </p>
         )}
       </div>
@@ -443,15 +449,17 @@ export function PairingPanel() {
 
       <div className="mt-5 border-t border-fd-border pt-4">
         <p className="text-xs font-medium text-fd-muted-foreground">
-          生成邀请（让桌面 / 移动扫码或粘贴来配对本机）
+          <Trans>生成邀请（让桌面 / 移动扫码或粘贴来配对本机）</Trans>
         </p>
         {!reservation && (
           <p className="mt-1 text-xs text-fd-muted-foreground">
+            <Trans>
             需先在{" "}
             <Link href={NAV.settings.href} className="font-medium text-fd-foreground underline underline-offset-2">
               设置
             </Link>{" "}
-            页的「连接」区建立可达（circuit），否则邀请里无可拨地址。
+              页的「连接」区建立可达（circuit），否则邀请里无可拨地址。
+          </Trans>
           </p>
         )}
         <label className="mt-2 flex items-center gap-1.5 text-xs text-fd-muted-foreground">
@@ -461,7 +469,7 @@ export function PairingPanel() {
             onChange={(e) => setLocalOnly(e.target.checked)}
             disabled={!ready}
           />
-          仅局域网可见（LocalOnly）——若 reserve 用的是公网 helper，保持不勾选，否则邀请可能不含可用地址
+          <Trans>仅局域网可见（LocalOnly）——若 reserve 用的是公网 helper，保持不勾选，否则邀请可能不含可用地址</Trans>
         </label>
         <button
           type="button"
@@ -492,11 +500,13 @@ export function PairingPanel() {
       {invites.length > 0 && (
         <div className="mt-5 border-t border-fd-border pt-4">
           <p className="text-xs font-medium text-fd-muted-foreground">
-            已发出的邀请（未过期）
+            <Trans>已发出的邀请（未过期）</Trans>
           </p>
-          <p className="mt-1 text-xs text-fd-muted-foreground">
-            邀请有效期 {INVITE_TTL_HOURS} 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存），
-            不想让它继续可用就撤销，需要再分享请重新生成。
+          <p className="mt-1 text-xs text-muted-foreground">
+            <Trans>
+              邀请有效期 {INVITE_TTL_HOURS} 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存），
+              不想让它继续可用就撤销，需要再分享请重新生成。
+            </Trans>
           </p>
           <ul className="mt-2 space-y-2">
             {invites.map((invite) => (
@@ -506,9 +516,9 @@ export function PairingPanel() {
               >
                 <div className="min-w-0">
                   <p className="text-xs text-fd-foreground">
-                    {invite.consumed ? "已被使用" : "等待对方使用"}
+                    {invite.consumed ? <Trans>已被使用</Trans> : <Trans>等待对方使用</Trans>}
                     <span className="ml-2 text-fd-muted-foreground">
-                      {formatRemaining(invite.expiresAt, now)}
+                      {t(remainingLabel(invite.expiresAt, now, i18n.locale))}
                     </span>
                   </p>
                   {/* 只露前 8 位：它是 capability 的哈希，够用来区分两条邀请，不必铺满整行 */}
@@ -522,14 +532,14 @@ export function PairingPanel() {
                   disabled={revokeAction.isPending(invite.id)}
                   className="shrink-0 rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
                 >
-                  {revokeAction.isPending(invite.id) ? "撤销中…" : "撤销"}
+                  {revokeAction.isPending(invite.id) ? <Trans>撤销中…</Trans> : <Trans>撤销</Trans>}
                 </button>
               </li>
             ))}
           </ul>
           {revokeUnsaved && (
             <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-              撤销已生效，但没能写入本地存储 —— 刷新页面后它可能恢复可用，建议稍后再撤销一次。
+              <Trans>撤销已生效，但没能写入本地存储 —— 刷新页面后它可能恢复可用，建议稍后再撤销一次。</Trans>
             </p>
           )}
           {revokeAction.latestError && (
@@ -540,12 +550,16 @@ export function PairingPanel() {
 
       {pendingPairings.length > 0 && (
         <div className="mt-5 border-t border-fd-border pt-4">
-          <p className="text-xs font-medium text-fd-muted-foreground">入站配对请求</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            <Trans>入站配对请求</Trans>
+          </p>
           <ul className="mt-2 space-y-2">
             {pendingPairings.map((r) => (
               <li key={r.pendingId} className="rounded-lg border border-fd-border bg-fd-background px-3 py-2">
                 <p className="text-xs text-fd-foreground">
-                  <span className="font-medium">{r.deviceName}</span> 请求配对
+                  <Trans>
+                    <span className="font-medium">{r.deviceName}</span> 请求配对
+                  </Trans>
                 </p>
                 <p className="mt-0.5 truncate font-mono text-xs text-fd-muted-foreground">{r.peerId}</p>
                 <div className="mt-2 flex gap-2">
@@ -555,7 +569,7 @@ export function PairingPanel() {
                     disabled={respondAction.isPending(r.pendingId)}
                     className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
                   >
-                    接受
+                    <Trans>接受</Trans>
                   </button>
                   <button
                     type="button"
@@ -563,7 +577,7 @@ export function PairingPanel() {
                     disabled={respondAction.isPending(r.pendingId)}
                     className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
                   >
-                    拒绝
+                    <Trans>拒绝</Trans>
                   </button>
                 </div>
               </li>

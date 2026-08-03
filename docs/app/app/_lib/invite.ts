@@ -1,6 +1,8 @@
 // 邀请相关的前端常量与推导。**Web 端前缀副本只有这一份**——组件里不要再写字面量。
 
-import { formatDuration } from "./format";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
+import { formatTimeLeft } from "@swarmdrop/shared-view";
 
 /**
  * 邀请有效期（秒），与 `crates/invite/src/invite.rs` 的 `INVITE_TTL_SECS` 一致。
@@ -64,12 +66,18 @@ export function remainingSeconds(expiresAt: string, now: number): number {
 }
 
 /**
- * 剩余有效期文案。
+ * 剩余有效期文案的**描述符 + 参数**。本模块不是组件，翻译宏在这里只能定义、不能展开。
  *
  * 已过期的条目本不该出现在注册表里（后端按 now 过滤），但时钟跳变或列表未刷新时会撞上，
- * 所以这里显式给一句而不是显示负数。
+ * 所以显式给一句而不是显示负数。
+ *
+ * 时长用 [`formatTimeLeft`] 而不是通用的 `formatDuration`：邀请 TTL 是 24 小时，紧凑形式会
+ * 渲染成「23h 59m 后失效」这种中英混排；`formatTimeLeft` 走 `Intl` 的 unit 样式，按量级切粒度
+ * （小时级只说小时），与桌面端邀请卡的说法一致。它需要一个 locale，故由调用点传入。
  */
-export function formatRemaining(expiresAt: string, now: number): string {
+export function remainingLabel(expiresAt: string, now: number, locale: string): MessageDescriptor {
   const seconds = remainingSeconds(expiresAt, now);
-  return seconds <= 0 ? "已过期" : `${formatDuration(seconds)}后失效`;
+  if (seconds <= 0) return msg`已过期`;
+  const left = formatTimeLeft(seconds, locale);
+  return msg`${left}后失效`;
 }

@@ -59,7 +59,7 @@ import {
   deviceIdentityHint,
   hasDuplicateOrganizedName,
   organizedDeviceName,
-} from "@/lib/device-organization";
+} from "@swarmdrop/shared-view";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { cn, errorMessage } from "@/lib/utils";

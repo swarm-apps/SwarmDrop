@@ -78,6 +78,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreigneventbus(vtable: UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignEventBus): void;
     ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreignfileaccess(vtable: UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignFileAccess): void;
     ubrn_uniffi_swarmdrop_mobile_core_fn_init_callback_vtable_foreignkeychainprovider(vtable: UniffiVTableCallbackInterfaceSwarmdropMobileCoreForeignKeychainProvider): void;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_func_default_receive_policy(trustLevel: Uint8Array, previous: Uint8Array, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreigneventbus_emit(uniffiSelf: bigint, event: Uint8Array, uniffi_out_err: UniffiRustCallStatus): void;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_source_metadata(uniffiSelf: bigint, sourceId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_read_source_chunk(uniffiSelf: bigint, sourceId: Uint8Array, offset: bigint, length: bigint): bigint;
@@ -143,6 +144,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(uniffiSelf: bigint, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_update_paired_device_policy(uniffiSelf: bigint, peerId: Uint8Array, trustLevel: Uint8Array, receivePolicy: Uint8Array): bigint;
     ubrn_ffi_swarmdrop_mobile_core_uniffi_contract_version(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_source_metadata(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk(): number;

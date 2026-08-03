@@ -7,6 +7,7 @@
 //         `inboxItems` 域的注释；拉取时机由 InboxPanel 自己掌握）。
 // 四者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
 
+import { msg } from "@lingui/core/macro";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type { SecureContextInfo } from "./secure-context";
@@ -36,7 +37,7 @@ const EVENT_LOG_CAP = 50;
  * `WebNode::spawn` 也要求主线程——见 node-runtime.ts 注释），故这是编译期常量，不是探测值；
  * Worker 模式落地时（对应 OPFS）需改为按运行环境派生。
  */
-export const IDENTITY_LOCATION = "localStorage（Window 主线程）";
+export const IDENTITY_LOCATION = msg`localStorage（Window 主线程）`;
 
 /**
  * 接收面板所需的稳定 offer 视图。

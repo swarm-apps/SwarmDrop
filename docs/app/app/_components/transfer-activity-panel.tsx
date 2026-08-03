@@ -10,23 +10,39 @@
 import { Inbox, RotateCcw, Trash2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type ReactNode, Suspense, memo, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  Suspense,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ConfirmAction, INLINE_ACTION_CLASS, useConfirmAction } from "./confirm-action";
 import { PanelFallback } from "./panel-fallback";
 import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import {
-  calcPercent,
-  formatDuration,
-  formatFileSize,
-  formatTransferRate,
   isActiveSession,
   isDeletableSession,
   sessionEndedAt,
   sortByUpdatedDesc,
 } from "../_lib/format";
-import { NAV, PARAM, inboxItemHref, transferSessionHref } from "../_lib/nav";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
+import { Trans, useLingui } from "@lingui/react/macro";
+import {
+  calcPercent,
+  formatDuration,
+  formatFileSize,
+  formatTransferRate,
+} from "@swarmdrop/shared-view";
+import { cn } from "@/lib/cn";
+import { MasterDetail, OpenListButton } from "./master-detail";
+import { PARAM, inboxItemHref, transferSessionHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
@@ -40,38 +56,38 @@ const HISTORY_LIMIT = 8;
 
 // 只管展示（标签 + 状态点色）。「是否进行中」的判定在 `_lib/format.ts` 的 `isActiveSession`——
 // 导航徽标也用它，两处各写一份就会在新增 phase 时对不上。
-const PHASE_META: Record<TransferProjection["phase"], { label: string; dot: string }> = {
-  offered: { label: "等待处理", dot: "bg-amber-500" },
-  waiting_accept: { label: "等待对方接受", dot: "bg-amber-500" },
-  active: { label: "传输中", dot: "bg-emerald-500" },
-  suspended: { label: "已中断", dot: "bg-sky-500" },
-  terminal: { label: "已结束", dot: "bg-fd-muted-foreground" },
+const PHASE_META: Record<TransferProjection["phase"], { label: MessageDescriptor; dot: string }> = {
+  offered: { label: msg`等待处理`, dot: "bg-amber-500" },
+  waiting_accept: { label: msg`等待对方接受`, dot: "bg-amber-500" },
+  active: { label: msg`传输中`, dot: "bg-emerald-500" },
+  suspended: { label: msg`已中断`, dot: "bg-sky-500" },
+  terminal: { label: msg`已结束`, dot: "bg-muted-foreground" },
 };
 
-const DIRECTION_LABEL: Record<TransferProjection["direction"], string> = {
-  send: "发送",
-  receive: "接收",
+const DIRECTION_LABEL: Record<TransferProjection["direction"], MessageDescriptor> = {
+  send: msg`发送`,
+  receive: msg`接收`,
 };
 
-const CONNECTION_LABEL: Record<NonNullable<Device["connection"]>, string> = {
-  lan: "局域网",
-  dcutr: "打洞直连",
-  relay: "中继",
+const CONNECTION_LABEL: Record<NonNullable<Device["connection"]>, MessageDescriptor> = {
+  lan: msg`局域网`,
+  dcutr: msg`打洞直连`,
+  relay: msg`中继`,
 };
 
-const SUSPENDED_LABEL: Record<NonNullable<TransferProjection["suspendedReason"]>, string> = {
-  local_paused: "本机暂停",
-  remote_paused: "对方暂停",
-  interrupted: "连接中断",
-  peer_offline: "对方离线",
-  app_restarted: "应用重启",
+const SUSPENDED_LABEL: Record<NonNullable<TransferProjection["suspendedReason"]>, MessageDescriptor> = {
+  local_paused: msg`本机暂停`,
+  remote_paused: msg`对方暂停`,
+  interrupted: msg`连接中断`,
+  peer_offline: msg`对方离线`,
+  app_restarted: msg`应用重启`,
 };
 
-const TERMINAL_LABEL: Record<NonNullable<TransferProjection["terminalReason"]>, string> = {
-  completed: "已完成",
-  cancelled: "已取消",
-  rejected: "已拒绝",
-  fatal_error: "失败",
+const TERMINAL_LABEL: Record<NonNullable<TransferProjection["terminalReason"]>, MessageDescriptor> = {
+  completed: msg`已完成`,
+  cancelled: msg`已取消`,
+  rejected: msg`已拒绝`,
+  fatal_error: msg`失败`,
 };
 
 /**
@@ -101,12 +117,29 @@ function transferPercent(projection: TransferProjection, progress?: TransferProg
   return calcPercent(progress?.transferredBytes ?? projection.transferredBytes, progress?.totalBytes ?? projection.totalSize);
 }
 
-function connectionLabel(projection: TransferProjection, connections: Map<string, Device["connection"]>): string {
+/**
+ * 未知连接方式的兜底标签。**必须是模块级常量**：`msg` 宏每次求值都新建一个对象，写在
+ * `connectionLabel` 的返回位上会让它每次调用返回新引用——而这个值是 `TransferActivityItem`
+ * 的 prop，那个组件靠 `memo` 让「每秒十余次的进度事件只重渲染它自己那一行」。
+ * 新引用会把整张表的 memo 打穿。
+ */
+const UNKNOWN_CONNECTION_LABEL = msg`连接类型未知`;
+
+/**
+ * 下面两个返回**描述符**而非字符串：它们是模块级纯函数，翻译宏在这里只能定义、不能展开
+ * （展开要 `useLingui()`，那是组件的事）。调用点拿到描述符自己 `t(...)`。
+ *
+ * 两者的返回值都必须是**稳定引用**（见上），所以只从模块级的映射表里取，不现造。
+ */
+function connectionLabel(
+  projection: TransferProjection,
+  connections: Map<string, Device["connection"]>,
+): MessageDescriptor {
   const connection = connections.get(projection.peerId);
-  return connection ? CONNECTION_LABEL[connection] : "连接类型未知";
+  return connection ? CONNECTION_LABEL[connection] : UNKNOWN_CONNECTION_LABEL;
 }
 
-function phaseLabel(projection: TransferProjection): string {
+function phaseLabel(projection: TransferProjection): MessageDescriptor {
   if (projection.phase === "suspended" && projection.suspendedReason) {
     return SUSPENDED_LABEL[projection.suspendedReason];
   }
@@ -124,13 +157,16 @@ function elapsedSeconds(projection: TransferProjection): number | null {
 
 export function TransferActivityPanel() {
   return (
-    <Suspense fallback={<PanelFallback>正在读取传输会话…</PanelFallback>}>
+    <Suspense fallback={<PanelFallback>
+        <Trans>正在读取传输会话…</Trans>
+      </PanelFallback>}>
       <TransferActivityPanelInner />
     </Suspense>
   );
 }
 
 function TransferActivityPanelInner() {
+  const { t } = useLingui();
   const projections = useWebNode((s) => s.projections);
   const progress = useWebNode((s) => s.progress);
   const devices = useWebNode((s) => s.pairedDevices);
@@ -154,12 +190,12 @@ function TransferActivityPanelInner() {
   // 两段节点分处两地，所以用 hook 而不是 <ConfirmAction />。
   const clearConfirm = useConfirmAction({
     icon: Trash2,
-    label: "清空记录",
-    pendingLabel: "清空中",
-    confirmLabel: "确认清空",
+    label: t`清空记录`,
+    pendingLabel: t`清空中`,
+    confirmLabel: t`确认清空`,
     // 清空不可撤销，但它删的只是账本，文案必须把这条说清楚，
     // 否则用户会以为收到的文件也一起没了。
-    warning: "只清空已结束的记录；已接收的文件仍在收件箱，不受影响。",
+    warning: t`只清空已结束的记录；已接收的文件仍在收件箱，不受影响。`,
     layout: "banner",
     disabled: !ready,
     pending: clearAction.pending,
@@ -218,113 +254,158 @@ function TransferActivityPanelInner() {
 
   // 选中态只改 URL，不另存一份 state——刷新、前进后退、分享链接都自动一致。
   // `replace` 而非 `push`：在列表里点几下不该在浏览器历史里堆出几十条记录。
-  // `scroll: false`：就地展开时页面不该跳回顶部。
+  // `scroll: false`：切换详情时页面不该跳回顶部。
   //
-  // 「当前是否已选中」由子组件回传，而不是在这里闭包捕获 `selectedId`：捕获的话每点一下
-  // select 就换一次引用，传给 memo 化的列表项后把整张表的 memo 打穿（实际只有两条的展开态变了）。
+  // **主从布局下点选即选中，不再 toggle**：此前是手风琴，点已展开的那条会收起；现在详情是
+  // 独立的一栏（窄屏下更是整屏），把它「收起」只会留下一个空面板，没有任何意义。
+  //
+  // **必须是稳定引用**：它是 `TransferActivityItem` 的 prop，而那个组件靠 `memo` 让一个会话
+  // 每秒十余次的进度事件只重渲染它自己那一行。每帧新建的箭头函数会把整张表的 memo 打穿。
+  // 窄屏下选中后还要收起抽屉，而 `closeDrawer` 只在 `list` 渲染回调里拿得到——用 ref 中转，
+  // 别把它并进依赖（那样每次渲染又换一次引用，等于没 memo）。
+  const closeDrawerRef = useRef<() => void>(() => {});
   const select = useCallback(
-    (sessionId: string, isExpanded: boolean) => {
-      router.replace(isExpanded ? NAV.transfer.href : transferSessionHref(sessionId), { scroll: false });
+    (sessionId: string) => {
+      router.replace(transferSessionHref(sessionId), { scroll: false });
+      closeDrawerRef.current();
     },
     [router],
   );
 
-  const renderItem = (item: TransferProjection) => {
-    const sessionId = item.sessionId;
-    const expanded = sessionId === selectedId;
-    return (
-      <TransferActivityItem
-        key={sessionId}
-        projection={item}
-        progress={progress[sessionId]}
-        connection={connectionLabel(item, connections)}
-        expanded={expanded}
-        onSelect={select}
-        // 未展开就不建动作区：`null` 是稳定引用，那些项的 memo 照旧不被打穿。展开的那一项
-        // 每次都拿到新 element 因而必然重渲染——它同时也是在逐帧显示进度明细的那一项，
-        // 本来就每帧都要重画，这里没有新增负担。
-        actions={
-          expanded ? (
-            <TransferItemActions
-              projection={item}
-              ready={ready}
-              resume={{
-                pending: resumeAction.isPending(sessionId),
-                error: resumeAction.errorFor(sessionId),
-                run: () => resume(sessionId),
-              }}
-              cancel={{
-                pending: cancelAction.isPending(sessionId),
-                error: cancelAction.errorFor(sessionId),
-                run: () => cancel(sessionId, item.direction),
-              }}
-              remove={{
-                pending: deleteAction.isPending(sessionId),
-                error: deleteAction.errorFor(sessionId),
-                run: () => remove(sessionId),
-              }}
-            />
-          ) : null
-        }
-      />
-    );
-  };
+  const selected = selectedId ? projections[selectedId] : undefined;
+
+  // `onSelect` 传的是稳定的 `select`（收抽屉由它内部经 ref 完成，见上）——**不要**在这里
+  // 现造箭头函数，那会打穿 `TransferActivityItem` 的 memo。
+  const renderRow = (item: TransferProjection) => (
+    <TransferActivityItem
+      key={item.sessionId}
+      projection={item}
+      progress={progress[item.sessionId]}
+      connection={connectionLabel(item, connections)}
+      selected={item.sessionId === selectedId}
+      onSelect={select}
+    />
+  );
 
   return (
-    <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-fd-foreground">会话</h2>
-        <div className="flex items-center gap-3">
-          <p className="text-xs text-fd-muted-foreground">
-            {active.length} 个进行中 · {history.length} 个已结束
+    <MasterDetail
+      testId="transfer-master-detail"
+      drawerLabel={t`传输会话列表`}
+      list={({ closeDrawer }) => {
+        // 渲染期写 ref：`select` 要在窄屏下顺带收抽屉，但 `closeDrawer` 只在这个回调里拿得到。
+        // 与 `master-detail.tsx` 里 `onCloseRef` 是同一个手法，理由也一样——不能进依赖。
+        closeDrawerRef.current = closeDrawer;
+        return (
+        <div className="flex min-h-0 flex-col gap-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-foreground">
+              <Trans>会话</Trans>
+            </h2>
+            {history.length > 0 && clearConfirm.trigger}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <Trans>
+              {active.length} 个进行中 · {history.length} 个已结束
+            </Trans>
           </p>
-          {history.length > 0 && clearConfirm.trigger}
-        </div>
-      </div>
 
-      {clearConfirm.panel}
-      {clearAction.error && <WebErrorCard error={clearAction.error} className="mt-2 text-xs" />}
+          {clearConfirm.panel}
+          {clearAction.error && <WebErrorCard error={clearAction.error} className="text-xs" />}
 
-      {total === 0 ? (
-        <p className="mt-2 text-xs text-fd-muted-foreground">还没有传输会话。</p>
-      ) : (
-        <div className="mt-3 space-y-4">
-          {active.length > 0 && <ul className="space-y-2">{active.map(renderItem)}</ul>}
-
-          {history.length > 0 && (
-            <div className="border-t border-fd-border pt-4">
-              <p className="text-xs font-medium text-fd-muted-foreground">最近完成</p>
-              <ul className="mt-2 space-y-2">{history.map(renderItem)}</ul>
+          {total === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              <Trans>还没有传输会话。</Trans>
+            </p>
+          ) : (
+            <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
+              {active.length > 0 && (
+                <ul className="flex flex-col gap-1.5">
+                  {active.map(renderRow)}
+                </ul>
+              )}
+              {history.length > 0 && (
+                <div className="border-t pt-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    <Trans>最近完成</Trans>
+                  </p>
+                  <ul className="mt-2 flex flex-col gap-1.5">
+                    {history.map(renderRow)}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
-    </div>
+        );
+      }}
+      detail={({ openList }) =>
+        selected ? (
+          <TransferDetailPanel
+            openList={openList}
+            projection={selected}
+            progress={progress[selected.sessionId]}
+            connection={connectionLabel(selected, connections)}
+            ready={ready}
+            resume={{
+              pending: resumeAction.isPending(selected.sessionId),
+              error: resumeAction.errorFor(selected.sessionId),
+              run: () => resume(selected.sessionId),
+            }}
+            cancel={{
+              pending: cancelAction.isPending(selected.sessionId),
+              error: cancelAction.errorFor(selected.sessionId),
+              run: () => cancel(selected.sessionId, selected.direction),
+            }}
+            remove={{
+              pending: deleteAction.isPending(selected.sessionId),
+              error: deleteAction.errorFor(selected.sessionId),
+              run: () => remove(selected.sessionId),
+            }}
+          />
+        ) : (
+          <div className="flex flex-col gap-3 rounded-xl border bg-card p-6 shadow-xs">
+            <div className="flex items-center gap-2">
+              <OpenListButton openList={openList} label={t`打开传输会话列表`} />
+              <h2 className="text-sm font-semibold text-foreground">
+                <Trans>传输</Trans>
+              </h2>
+            </div>
+            {/* 教学文案放详情侧，列表栏只说一行「这里是空的」——窄屏用户落在详情屏、
+                列表收在抽屉里；两边都摆整套空态则是宽屏下同一句话说两遍。 */}
+            <p className="text-xs text-muted-foreground">
+              {total > 0 ? (
+                <Trans>从左侧选一条会话，这里会显示逐文件进度与可用操作。</Trans>
+              ) : (
+                <Trans>还没有传输会话。到设备页点某台设备的「发送」即可开始一次传输。</Trans>
+              )}
+            </p>
+          </div>
+        )
+      }
+    />
   );
 }
 
 // memo：store 逐 key immutable 更新 projections/progress，未变动的会话保持原引用——
-// 一个会话每秒十余次的进度事件因此只重渲染它自己那一项，而不是整张活动 + 历史列表。
+// 一个会话每秒十余次的进度事件因此只重渲染它自己那一行，而不是整张活动 + 历史列表。
+//
+// 列表行只承载「认出这一条 + 看它到哪了」：方向·对端、连接方式、阶段、总进度。
+// 逐文件进度与动作归详情侧（`TransferDetailPanel`）——那些东西在一栏列表里塞不下，
+// 塞进去就是此前那个手风琴：展开一条把其余全推到屏幕外。
 const TransferActivityItem = memo(function TransferActivityItem({
   projection,
   progress: liveProgress,
   connection,
-  expanded,
+  selected,
   onSelect,
-  actions,
 }: {
   projection: TransferProjection;
   progress?: TransferProgressEvent;
-  connection: string;
-  expanded: boolean;
-  onSelect: (sessionId: string, isExpanded: boolean) => void;
-  /**
-   * 展开时的动作区（续传 / 取消 / 删除 + 各自的错误）。由父组件构造并在未展开时传 `null`——
-   * 三个动作的 pending/error/回调本来要 12 个 prop 从这里纯转发下去，而它们只在展开时可见，
-   * 且同时只有一项展开。放进 slot 之后这个组件对动作零依赖，memo 的比较面也小了一圈。
-   */
-  actions: ReactNode;
+  connection: MessageDescriptor;
+  selected: boolean;
+  onSelect: (sessionId: string) => void;
 }) {
+  const { t } = useLingui();
   // `progress` 是**在途采样**：会话一进终态内核就不再下发，最后收到的那一帧会永远
   // 停在那儿。而下面每一处都让采样优先于 projection，于是终态被一个陈旧值盖住。
   //
@@ -335,83 +416,152 @@ const TransferActivityItem = memo(function TransferActivityItem({
   const progress = ended ? undefined : liveProgress;
 
   const percent = transferPercent(projection, progress);
-  const phase = phaseLabel(projection);
   const bytesDone = progress?.transferredBytes ?? projection.transferredBytes;
   const totalBytes = progress?.totalBytes ?? projection.totalSize;
-  const files: TransferFileRow[] = progress?.files ?? projection.files;
 
   return (
-    <li
-      className={`rounded-lg border bg-fd-background transition-colors ${
-        expanded ? "border-[var(--brand)]/40" : "border-fd-border"
-      }`}
-    >
-      {/* 整行是一个按钮（键盘可达 + aria-expanded），续传按钮放在它外面——button 不能嵌套。 */}
+    <li>
       <button
         type="button"
-        onClick={() => onSelect(projection.sessionId, expanded)}
-        aria-expanded={expanded}
-        className="w-full cursor-pointer px-3 py-3 text-left"
+        onClick={() => onSelect(projection.sessionId)}
+        aria-current={selected ? "true" : undefined}
+        className={cn(
+          "w-full cursor-pointer rounded-lg border px-3 py-2.5 text-left transition-colors",
+          selected
+            ? "border-[var(--brand)]/40 bg-accent ring-1 ring-[var(--brand)]/20"
+            : "hover:bg-accent",
+        )}
       >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusDot colorClass={PHASE_META[projection.phase].dot} pulse={projection.phase === "active"} />
-              <p className="truncate text-xs font-medium text-fd-foreground">
-                {DIRECTION_LABEL[projection.direction]} · {projection.peerName}
-              </p>
-              <span className="rounded-full border border-fd-border px-2 py-0.5 text-[11px] text-fd-muted-foreground">
-                {connection}
-              </span>
-            </div>
-            {expanded && <p className="mt-1 font-mono text-[11px] break-all text-fd-muted-foreground">{projection.sessionId}</p>}
-          </div>
-          <div className="text-right text-xs">
-            <p className="font-medium text-fd-foreground">{phase}</p>
-            {/* 速率与 ETA 只对进行中的会话有意义——终态显示「等待数据 · ETA 未知」
-                是在报告一个不存在的等待。已用时长在下方单独展示。 */}
-            {!ended && (
-              <p className="mt-1 text-fd-muted-foreground">
-                {formatTransferRate(progress?.speed)} · ETA {formatDuration(progress?.eta)}
-              </p>
-            )}
-          </div>
+        <div className="flex items-center gap-2">
+          <StatusDot
+            colorClass={PHASE_META[projection.phase].dot}
+            pulse={projection.phase === "active"}
+          />
+          <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+            {t(DIRECTION_LABEL[projection.direction])} · {projection.peerName}
+          </p>
+          <span className="shrink-0 text-[11px] text-muted-foreground">{t(phaseLabel(projection))}</span>
         </div>
 
-        <div className="mt-3">
-          <div className="flex items-center justify-between gap-3 text-xs text-fd-muted-foreground">
-            <span>
-              {formatFileSize(bytesDone)} / {formatFileSize(totalBytes)}
-            </span>
-            <span>{percent}%</span>
-          </div>
-          <ProgressBar percent={percent} className="mt-1.5" />
+        <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span className="truncate">{t(connection)}</span>
+          <span className="shrink-0 font-mono tabular-nums">
+            {formatFileSize(bytesDone)} / {formatFileSize(totalBytes)} · {percent}%
+          </span>
         </div>
+        <ProgressBar percent={percent} className="mt-1.5" />
       </button>
-
-      {expanded && (
-        <div className="border-t border-fd-border px-3 py-3">
-          <div className="grid gap-1.5">
-            {files.map((file) => {
-              const done = "transferred" in file ? file.transferred : file.transferredBytes;
-              const filePercent = calcPercent(done, file.size);
-              return (
-                <div key={file.fileId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-[11px]">
-                  <span className="truncate text-fd-foreground">{file.name}</span>
-                  <span className="font-mono text-fd-muted-foreground">
-                    {formatFileSize(done)} / {formatFileSize(file.size)} · {filePercent}%
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {actions}
-        </div>
-      )}
     </li>
   );
 });
+
+/**
+ * 详情侧 —— 选中会话的逐文件进度与可用操作。
+ *
+ * 速率与 ETA 只对进行中的会话有意义；终态显示「等待数据 · ETA 未知」是在报告一个不存在的等待。
+ */
+function TransferDetailPanel({
+  openList,
+  projection,
+  progress: liveProgress,
+  connection,
+  ready,
+  resume,
+  cancel,
+  remove,
+}: {
+  openList: (() => void) | null;
+  projection: TransferProjection;
+  progress?: TransferProgressEvent;
+  connection: MessageDescriptor;
+  ready: boolean;
+  resume: ItemAction;
+  cancel: ItemAction;
+  remove: ItemAction;
+}) {
+  const { t } = useLingui();
+  const ended = projection.phase === "terminal";
+  const progress = ended ? undefined : liveProgress;
+  const percent = transferPercent(projection, progress);
+  const bytesDone = progress?.transferredBytes ?? projection.transferredBytes;
+  const totalBytes = progress?.totalBytes ?? projection.totalSize;
+  const files: TransferFileRow[] = progress?.files ?? projection.files;
+  // 占位在这里给：共享的格式化函数算不出来时返回 null / 只收确定值，
+  // 「等待数据」「未知」是要翻译的 UI 文案（见 `_lib/format.ts` 的说明）。
+  const rate = formatTransferRate(progress?.speed) ?? t`等待数据`;
+  const eta =
+    progress?.eta != null && Number.isFinite(progress.eta) && progress.eta >= 0
+      ? formatDuration(progress.eta)
+      : t`未知`;
+
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-6">
+      <div className="flex items-start gap-2">
+        <OpenListButton openList={openList} label={t`打开传输会话列表`} />
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <StatusDot
+              colorClass={PHASE_META[projection.phase].dot}
+              pulse={projection.phase === "active"}
+            />
+            <span className="truncate">
+              {t(DIRECTION_LABEL[projection.direction])} · {projection.peerName}
+            </span>
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t(phaseLabel(projection))} · {t(connection)}
+            {!ended && (
+              <>
+                {" · "}
+                <Trans>
+                  {rate} · ETA {eta}
+                </Trans>
+              </>
+            )}
+          </p>
+          <p className="mt-1 font-mono text-[11px] break-all text-muted-foreground">
+            {projection.sessionId}
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span className="font-mono tabular-nums">
+            {formatFileSize(bytesDone)} / {formatFileSize(totalBytes)}
+          </span>
+          <span className="font-mono tabular-nums">{percent}%</span>
+        </div>
+        <ProgressBar percent={percent} className="mt-1.5" />
+      </div>
+
+      <ul className="flex flex-col gap-1.5">
+        {files.map((file) => {
+          const done = "transferred" in file ? file.transferred : file.transferredBytes;
+          return (
+            <li
+              key={file.fileId}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border bg-background px-3 py-2 text-[11px]"
+            >
+              <span className="truncate text-foreground">{file.name}</span>
+              <span className="font-mono tabular-nums text-muted-foreground">
+                {formatFileSize(done)} / {formatFileSize(file.size)} · {calcPercent(done, file.size)}%
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      <TransferItemActions
+        projection={projection}
+        ready={ready}
+        resume={resume}
+        cancel={cancel}
+        remove={remove}
+      />
+    </div>
+  );
+}
 
 /** 单个动作对外的全部状态：pending / error 来自调用方的 async-action hook，`run` 已绑好会话。 */
 type ItemAction = {
@@ -439,10 +589,15 @@ function TransferItemActions({
   cancel: ItemAction;
   remove: ItemAction;
 }) {
+  const { t } = useLingui();
+  const elapsed = elapsedSeconds(projection);
+
   return (
     <>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-fd-muted-foreground">
-        <span>已用 {formatDuration(elapsedSeconds(projection))}</span>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        {/* 已用时长只对算得出来的会话有意义；算不出来（没有 startedAt）就什么都不说，
+            而不是摆一个「已用 未知」。 */}
+        <span>{elapsed === null ? null : <Trans>已用 {formatDuration(elapsed)}</Trans>}</span>
         <div className="flex flex-wrap items-center gap-2">
           {/* 传输页是「过程」、收件箱是「结果」（分工见 inbox/page.tsx），此前两者是两座孤岛：
               一次接收在两处各出现一次，却没有任何一条边把它们连起来。 */}
@@ -458,18 +613,18 @@ function TransferItemActions({
               className={INLINE_ACTION_CLASS}
             >
               <RotateCcw className="size-3" aria-hidden="true" />
-              {resume.pending ? "续传中" : "续传"}
+              {resume.pending ? <Trans>续传中</Trans> : <Trans>续传</Trans>}
             </button>
           )}
           {/* 判据用 isActiveSession——导航徽标与分组也用它，另写一份会在新增 phase 时对不上。 */}
           {isActiveSession(projection) && (
             <ConfirmAction
               icon={XCircle}
-              label="取消"
-              pendingLabel="取消中"
-              confirmLabel="确认取消"
+              label={t`取消`}
+              pendingLabel={t`取消中`}
+              confirmLabel={t`确认取消`}
               // 取消是不可逆的终态动作，却与「续传」并排——误点的代价不对称。
-              warning="取消后无法恢复"
+              warning={t`取消后无法恢复`}
               disabled={!ready}
               pending={cancel.pending}
               onConfirm={cancel.run}
@@ -480,14 +635,14 @@ function TransferItemActions({
           {isDeletableSession(projection) && (
             <ConfirmAction
               icon={Trash2}
-              label="删除"
-              pendingLabel="删除中"
-              confirmLabel="确认删除"
+              label={t`删除`}
+              pendingLabel={t`删除中`}
+              confirmLabel={t`确认删除`}
               // suspended 那条连断点一起没，代价比删一条普通记录大，得分开说。
               warning={
                 projection.phase === "suspended"
-                  ? "断点信息将一并清除，无法再续传；已接收的文件仍在收件箱"
-                  : "只删这条记录，已接收的文件仍在收件箱"
+                  ? t`断点信息将一并清除，无法再续传；已接收的文件仍在收件箱`
+                  : t`只删这条记录，已接收的文件仍在收件箱`
               }
               disabled={!ready}
               pending={remove.pending}

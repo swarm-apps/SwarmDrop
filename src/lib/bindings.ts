@@ -169,6 +169,38 @@ export const commands = {
 	 */
 	removePairedDevice: (peerId: string) => __TAURI_INVOKE<null>("remove_paired_device", { peerId }),
 	/**
+	 *  某信任级别的默认接收策略。
+	 * 
+	 *  **纯派生，不取任何 State**——它在节点没起来时也该能用（信任策略对话框可以先开着）。
+	 * 
+	 *  存在的全部理由是**不让前端再抄一份那张表**。此前 `trust-policy-dialog.tsx` 里有一份
+	 *  `defaultPolicyForTrust`、移动端 `device-trust.ts` 里另有一份，两份还长出了不同的
+	 *  「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
+	 *  现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处。
+	 * 
+	 *  `previous` 传该设备**当前**的策略；用户显式设过的保存位置与代收授权会被带过去
+	 *  （`blocked` 除外）。
+	 */
+	defaultReceivePolicy: (trustLevel: DeviceTrustLevel, previous: {
+	autoAccept: boolean,
+	requireConfirmation: boolean,
+	maxTransferBytes?: number | null,
+	allowDirectories: boolean,
+	allowRelayAutoAccept: boolean,
+	saveBehavior?: ReceiveSaveBehavior,
+	defaultSaveLocation?: string | null,
+	allowMcpSendToDevice: boolean,
+	/**
+	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
+	 * 
+	 *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
+	 *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+	 *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
+	 */
+	allowMcpAcceptFromDevice?: boolean,
+	expiresAt?: number | null,
+} | null) => __TAURI_INVOKE<DeviceReceivePolicy>("default_receive_policy", { trustLevel, previous }),
+	/**
 	 *  更新已配对设备的可信策略。
 	 * 
 	 *  落盘与「节点在跑时把新值推进共享内存表」都在 core 的

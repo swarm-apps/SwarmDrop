@@ -7,15 +7,18 @@
 // 把标签藏掉即可——不需要第二个组件。文字藏起来时读屏与悬停仍拿得到：
 // `title` / `aria-label` 常驻，「节点是否在跑」不因窗口窄而消失（PRODUCT.md 原则 2）。
 
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
+import { useLingui } from "@lingui/react/macro";
 import { useWebNode, type NodeStatus } from "../_lib/store";
 import { StatusDot } from "./status-dot";
 
-const STATUS_META: Record<NodeStatus, { label: string; dot: string; pulse?: boolean }> = {
-  idle: { label: "未启动", dot: "bg-fd-muted-foreground" },
-  starting: { label: "启动中", dot: "bg-amber-500", pulse: true },
-  running: { label: "运行中", dot: "bg-emerald-500" },
-  closing: { label: "关停中", dot: "bg-amber-500", pulse: true },
-  error: { label: "启动失败", dot: "bg-red-500" },
+const STATUS_META: Record<NodeStatus, { label: MessageDescriptor; dot: string; pulse?: boolean }> = {
+  idle: { label: msg`未启动`, dot: "bg-fd-muted-foreground" },
+  starting: { label: msg`启动中`, dot: "bg-amber-500", pulse: true },
+  running: { label: msg`运行中`, dot: "bg-emerald-500" },
+  closing: { label: msg`关停中`, dot: "bg-amber-500", pulse: true },
+  error: { label: msg`启动失败`, dot: "bg-red-500" },
 };
 
 export function NodeStatusPill({
@@ -25,9 +28,12 @@ export function NodeStatusPill({
   className?: string;
   labelClassName?: string;
 }) {
+  const { t } = useLingui();
   const status = useWebNode((s) => s.status);
   const meta = STATUS_META[status];
-  const label = `节点${meta.label}`;
+  const phase = t(meta.label);
+  // 「节点」+ 状态词拼在一起是给读屏与 tooltip 的完整句；可见文本只留状态词（空间有限）。
+  const label = t`节点${phase}`;
 
   return (
     <span
@@ -37,7 +43,7 @@ export function NodeStatusPill({
       className={`inline-flex items-center gap-1.5 rounded-full border border-fd-border bg-fd-card px-2.5 py-1 text-xs font-medium text-fd-muted-foreground shadow-xs ${className}`}
     >
       <StatusDot colorClass={meta.dot} pulse={meta.pulse} />
-      <span className={labelClassName}>{meta.label}</span>
+      <span className={labelClassName}>{phase}</span>
     </span>
   );
 }

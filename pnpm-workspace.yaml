@@ -1,5 +1,9 @@
 packages:
   - .
+  # packages/shared-view：三端共享的纯视图逻辑（设备显示投影 + 格式化）。
+  # 桌面以 workspace:* 引用；docs/ 与 mobile/ 是独立 workspace，各自用 link: 指过来
+  # （见它们的 package.json）——本行只让根 workspace 认得它。
+  - packages/*
 
 allowBuilds:
   esbuild: true

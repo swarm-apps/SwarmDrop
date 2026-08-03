@@ -97,6 +97,9 @@ importers:
       '@swarm-hive/sdk':
         specifier: ^0.4.0
         version: 0.4.0(@types/react@19.2.14)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
+      '@swarmdrop/shared-view':
+        specifier: link:../packages/shared-view
+        version: link:../packages/shared-view
       burnt:
         specifier: ^0.13.0
         version: 0.13.0(expo@56.0.12)(react-dom@19.2.3(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.0)(@react-native/metro-config@0.85.3(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)

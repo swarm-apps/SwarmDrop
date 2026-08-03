@@ -593,6 +593,11 @@ extern "C" {
         /*handle*/ uint64_t ptr, 
         RustBuffer devices_json
     );
+    RustBuffer uniffi_swarmdrop_mobile_core_fn_func_default_receive_policy(
+        RustBuffer trust_level, 
+        RustBuffer previous, 
+        RustCallStatus *uniffi_out_err
+    );
     RustBuffer ffi_swarmdrop_mobile_core_rustbuffer_alloc(
         uint64_t size, 
         RustCallStatus *uniffi_out_err
@@ -789,6 +794,8 @@ extern "C" {
     void ffi_swarmdrop_mobile_core_rust_future_complete_void(
         /*handle*/ uint64_t handle, 
         RustCallStatus *uniffi_out_err
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(
     );
@@ -6265,6 +6272,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_paired_devices_json(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_func_default_receive_policy"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_func_default_receive_policy"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_func_default_receive_policy(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_u8"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_u8"),
@@ -6647,6 +6662,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
         1,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_ffi_swarmdrop_mobile_core_rust_future_complete_void(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic"] = jsi::Function::createFromHostFunction(
@@ -7991,6 +8014,16 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
         
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_func_default_receive_policy(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        RustCallStatus status = uniffi::swarmdrop_mobile_core::Bridging<RustCallStatus>::rustSuccess(rt);
+        auto value = uniffi_swarmdrop_mobile_core_fn_func_default_receive_policy(uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), 
+            &status
+        );
+        uniffi::swarmdrop_mobile_core::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
+
+        
+        return uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_ffi_swarmdrop_mobile_core_rust_future_poll_u8(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         ffi_swarmdrop_mobile_core_rust_future_poll_u8(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<UniffiRustFutureContinuationCallback>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[2])
         );
@@ -8362,6 +8395,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_ffi_swarmdrop_mobile_core_rust_future_
 
         
         return jsi::Value::undefined();
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(

@@ -12,7 +12,7 @@
 
 ## 构建
 
-产物是一个 npm 包（`swarmdrop-web`），构建到 **`docs/packages/swarmdrop-web/`**（提交入库），
+产物是一个 npm 包（`swarmdrop-web`），构建到 **`packages/swarmdrop-web/`**（提交入库），
 docs 经 pnpm workspace 以 `workspace:*` 引用。UI 是 docs 里的 Web 应用区
 （`docs/app/app/`，路由 `/app`），本 crate 不自带 HTML/JS harness。
 
@@ -28,7 +28,7 @@ export AR_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/llvm-ar
 # 配置统一提供；不要在构建脚本或环境变量中重复设置，避免各端配置分叉。
 
 # 从仓库根跑（docs 是构建产物家；也可用 docs 的 `pnpm build:wasm` 便捷脚本）
-wasm-pack build crates/web --target web --release --out-dir ../../docs/packages/swarmdrop-web
+wasm-pack build crates/web --target web --release --out-dir ../../packages/swarmdrop-web
 
 # 跑测试页（docs 独立 workspace）
 cd docs && pnpm install && pnpm dev   # http://localhost:3000/app

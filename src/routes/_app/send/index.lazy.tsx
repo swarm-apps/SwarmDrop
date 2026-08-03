@@ -27,7 +27,7 @@ import {
   deviceGroupNames,
   deviceIdentityHint,
   organizedDeviceName,
-} from "@/lib/device-organization";
+} from "@swarmdrop/shared-view";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { FileDropZone } from "./-components/file-drop-zone";

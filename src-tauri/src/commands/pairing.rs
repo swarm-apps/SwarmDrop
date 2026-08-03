@@ -275,6 +275,26 @@ pub async fn remove_paired_device(
     Ok(())
 }
 
+/// 某信任级别的默认接收策略。
+///
+/// **纯派生，不取任何 State**——它在节点没起来时也该能用（信任策略对话框可以先开着）。
+///
+/// 存在的全部理由是**不让前端再抄一份那张表**。此前 `trust-policy-dialog.tsx` 里有一份
+/// `defaultPolicyForTrust`、移动端 `device-trust.ts` 里另有一份，两份还长出了不同的
+/// 「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
+/// 现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处。
+///
+/// `previous` 传该设备**当前**的策略；用户显式设过的保存位置与代收授权会被带过去
+/// （`blocked` 除外）。
+#[tauri::command]
+#[specta::specta]
+pub fn default_receive_policy(
+    trust_level: DeviceTrustLevel,
+    previous: Option<DeviceReceivePolicy>,
+) -> DeviceReceivePolicy {
+    DeviceReceivePolicy::for_trust_level(trust_level, previous.as_ref())
+}
+
 /// 更新已配对设备的可信策略。
 ///
 /// 落盘与「节点在跑时把新值推进共享内存表」都在 core 的

@@ -56,6 +56,9 @@ pnpm test
 # B 禁止 selector 里派生新数组/对象（src/ 与 docs/app/app 都扫）
 pnpm check:zustand-access
 
+# 共享包零平台依赖（两道门：import 纯度 + 无 DOM lib 的 tsc）
+pnpm check:shared-view
+
 # Rust（在仓库根目录跑，workspace 一并覆盖）
 cargo check --workspace --all-targets
 cargo test --workspace
@@ -74,7 +77,7 @@ pnpm changelog
 
 # 文档站 + Web 端（在 docs/ 下跑 —— 独立 pnpm workspace）
 pnpm dev                # Next.js dev server
-pnpm build:wasm         # wasm-pack build crates/web → docs/packages/swarmdrop-web
+pnpm build:wasm         # wasm-pack build crates/web → packages/swarmdrop-web
 pnpm build
 
 # 桌面 e2e / 录屏（在 e2e/desktop/ 下跑 —— 独立 pnpm workspace）
@@ -101,7 +104,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | Routing | TanStack Router (file-system based, auto code-splitting) |
 | State | Zustand 5 |
 | UI | shadcn/ui (new-york style), Lucide icons, Radix primitives |
-| i18n | 前端 Lingui 5（zh / zh-TW / en）+ 后端 rust-i18n（托盘与系统通知等原生串） |
+| i18n | 桌面 Lingui 5 · Web Lingui 6（SWC plugin）· 移动 Lingui 6（Metro transformer），三端同一组 locale（zh / zh-TW / en）、**三份独立 catalog** + 后端 rust-i18n（托盘与系统通知等原生串） |
 | IPC | tauri-specta v2 —— TS bindings 自动生成，**不手写 invoke 封装** |
 | Backend | Rust 2024, Tauri 2 |
 | P2P | 自研 `crates/net`（iroh 风格 API，libp2p 底层，native + wasm 双 target） |
@@ -130,6 +133,10 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 ### Workspace 布局（Cargo）
 
 根 workspace 有 12 个 crate + 桌面壳 + 移动桥接。分层自下而上：
+
+> **JS 侧另有 `packages/`**（不进 Cargo workspace）：`packages/shared-view` 是三端共享的纯视图
+> 逻辑（TS 源，零依赖），`packages/swarmdrop-web` 是 `crates/web` 的 wasm 产物（入库）。
+> `docs/` 与 `mobile/` 各自用 `link:` 引用它们——两者是独立 pnpm workspace，不是这里的成员。
 
 | Crate | 职责 |
 |---|---|
@@ -331,7 +338,15 @@ wasm 是 CI 一等公民：`./scripts/check-wasm.sh` 在 PR 阶段拦截破坏�
 | `/app/settings` | 节点身份 · helper 连接 · 事件日志 |
 
 导航项定义在 `docs/app/app/_lib/nav.ts`（**单一事实源**，标题/描述/图标/徽标都从它派生）。
-三条硬约束，改这块前必读：
+
+**底座与形态**（2026-08 的 `web-ux-alignment` 起）：组件走 **shadcn/ui**（不再手写原生元素），
+token 经 `@theme inline` 映射层从 fumadocs 的 `--color-fd-*` 接过来；**移动优先**，
+`(min-width: 920px)` 是全应用唯一的主从断点、与桌面 `MASTER_DETAIL_QUERY` 同一个数；
+文案全量走 **Lingui 6**（SWC plugin，locale 客户端选择 + localStorage 持久化）。
+设备呈现遵守 `DESIGN.md` 的 **Device Card Contract**（8 项信息位，三端同一份契约）。
+细节与踩坑见 [`web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md)。
+
+四条硬约束，改这块前必读：
 
 1. **运行时单例只挂 layout**。`WebNodeBootstrap` 一个组件里同时做 spawn 节点、
    `startEventConsumption`、`startStatePoll`、`ensureConfiguredRelays`。下放到任何 page
@@ -344,7 +359,12 @@ wasm 是 CI 一等公民：`./scripts/check-wasm.sh` 在 PR 阶段拦截破坏�
    selector 一律只返回原始值或 store 内的稳定引用，派生放 `useMemo`；
    `pnpm check:zustand-access` 的规则 B 覆盖这里。另有一条 zustand 特有的约定：
    **「内容没变」要 `return s` 而不是 `return {}`**——后者是新对象，`Object.is` 判不等，
-   照样广播一轮。
+   照样广播一轮。持久化偏好在**另一个 store**（`_lib/preferences-store.ts`，localStorage），
+   与运行时状态分开。
+4. **翻译宏只在组件里展开**。`_lib/` 下的标签映射与纯函数一律存 `msg`` ` 描述符、由组件
+   `t(...)` 展开；格式化函数**不许把 UI 占位烤进返回值**（`formatTransferRate` 算不出来返回
+   `null`，「等待数据」由调用点给）。`export const metadata` 在构建期求值，只能是源 locale
+   ——那是静态导出的正确行为，不是漏翻。
 
 ### Mobile (`mobile/`)
 
@@ -450,7 +470,9 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | SQL 存储实现（native-only） | `crates/storage-sql/` |
 | Web 壳（wasm） | `crates/web/`（`store.rs` 是 IndexedDB 写穿的 `WebTransferStore`，`inbox.rs` 是它的收件箱表，`idb.rs` 是两者的底层），入口 `docs/app/app` |
 | Zustand stores | `src/stores/` |
-| Web 应用前端 | `docs/app/app/`（Next 应用区，非 fumadocs 文档；wasm 产物入库在 `docs/packages/swarmdrop-web/`） |
+| Web 应用前端 | `docs/app/app/`（Next 应用区，非 fumadocs 文档） |
+| 三端共享的纯视图逻辑 | `packages/shared-view/`（**归属判据见该包 README**；跨 workspace 接线的坑见 `dev-notes/knowledge/toolchain.md`） |
+| wasm 产物（入库） | `packages/swarmdrop-web/` |
 | Web 应用区导航定义 | `docs/app/app/_lib/nav.ts`（路由/标题/图标/徽标单一事实源）+ `_components/app-nav.tsx` |
 | 路由页面 | `src/routes/` |
 | shadcn/ui 组件 | `src/components/ui/` |

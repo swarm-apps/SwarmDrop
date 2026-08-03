@@ -752,3 +752,55 @@ channel 会随机变成 `Bad file descriptor`。传输层随后只看到 data st
 
 **相关文件**：`mobile/patches/expo-file-system@56.0.8.patch`、
 `mobile/src/core/foreign-file-access.ts`、`mobile/pnpm-workspace.yaml`
+
+## 跨三个 workspace 共享 TS 包：`packages/shared-view`
+
+三端共享的**纯视图逻辑**（设备显示投影 + 格式化）住在仓库根的 `packages/shared-view`。
+「什么该进这个包、什么不该」的判据写在**该包自己的 README** 里，别在这里找；这一节只记
+跨 workspace 接线的坑。
+
+### 发布 TS 源，不预构建 —— 但那不是「零配置」
+
+包的 `exports` 直接指向 `src/index.ts`，三端各付一行构建配置：
+
+| 端 | 声明 | 构建配置 |
+|---|---|---|
+| 桌面（Vite） | 根 workspace member，`workspace:*` | 无 |
+| Web（Next / turbopack） | `link:../packages/shared-view` | `transpilePackages` + **`turbopack.root` 放到仓库根** |
+| 移动（Metro） | `link:../packages/shared-view` | `watchFolders` 加 `../packages` |
+
+### turbopack 的 `root` 是文件系统边界，不只是 lockfile 探测起点
+
+`docs/next.config.mjs` 的 `turbopack.root` 原先锁在 `docs/`（为消除多 lockfile 警告）。
+共享包在仓库根，落在那个边界之外，于是：
+
+- `pnpm typecheck` **全绿**（tsc 沿 symlink 解析得到）
+- `next build` 报 `Module not found: Can't resolve '@swarmdrop/shared-view'`
+
+**只有构建那一步会红**，类型检查给不了任何提示。修法是把 root 指向仓库根——显式指定同样没有
+多 lockfile 警告（歧义来自推断，不是位置）。
+
+**预构建成 `.js` 救不了这条**（实测验证过）：失败的是 *resolution*，与产物是 `.ts` 还是 `.js`
+无关。所以 tsdown / tsup 之类只能省掉 `transpilePackages` 一行，省不掉 root——权衡时别把它
+算成收益。
+
+### 「零平台依赖」要两道门，`lib` 一道不够
+
+包的 `tsconfig` 用 `lib: ["ES2022"]`（无 DOM、`types: []`）挡住 `document.` / `window.`，
+但**挡不住 `import { useState } from "react"`**：包嵌在仓库根之下，tsc 的模块解析会一路向上
+走到**仓库根的 `node_modules`** 并解析成功。pnpm 的 isolated 链接兜不住这件事。
+
+第二道是 `scripts/check-shared-view-imports.mjs`：非测试源文件只允许相对路径 import。
+两道合并在 `pnpm check:shared-view`，**要留在提交前清单里**——第一道只在对该包自身跑 tsc 时
+成立，三端各自 typecheck 用的是各自的 lib。
+
+### `packages/` 统一在仓库根
+
+`swarmdrop-web`（wasm 产物）此前住在 `docs/packages/`，现已移到 `packages/swarmdrop-web`，
+与 `shared-view` 同级。`docs/pnpm-workspace.yaml` 因此退化成只有 `.` 一个成员，两个共享包
+都用 `link:` 引用。
+
+这个移动**依赖上面那条 turbopack root 的放宽**——包移出 `docs/` 后同样落在原 root 之外。
+
+**相关文件**：`packages/shared-view/README.md`、`docs/next.config.mjs`、`mobile/metro.config.js`、
+`scripts/check-shared-view-imports.mjs`

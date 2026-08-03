@@ -75,6 +75,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::request_pairing,
             commands::respond_pairing_request,
             commands::remove_paired_device,
+            commands::default_receive_policy,
             commands::update_paired_device_policy,
             // transfer
             commands::scan_sources,

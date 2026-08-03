@@ -20,37 +20,46 @@ export type {
   OfferRejectReason,
   PathKindJson,
   Device,
+  DeviceTrustLevel,
+  DeviceReceivePolicy,
   InboxItemDetail,
   InboxItemFileEntry,
   InboxSearchHit,
   InboxHitFile,
 } from "swarmdrop-web";
 
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 import type { OfferRejectReason, WebError } from "swarmdrop-web";
 
 /** 动态 import 的模块类型：跟随生成的 .d.ts（含 default=init 与 `WebNode` class，带 static spawn）。 */
 export type SwarmdropWebModule = typeof import("swarmdrop-web");
 
-/** `WebError.kind` 的中文标签——错误呈现统一收口用（web-error-view.tsx / connection-panel.tsx 共用）。 */
-export const WEB_ERROR_KIND_LABEL: Record<WebError["kind"], string> = {
-  identity: "身份错误",
-  network: "网络错误",
-  transfer: "传输错误",
-  invalidInput: "输入无效",
-  aborted: "已取消",
-  notFound: "未找到",
-  storage: "存储错误",
+/**
+ * `WebError.kind` 的标签——错误呈现统一收口用（web-error-view.tsx / connection-panel.tsx 共用）。
+ *
+ * 值是**可翻译描述符**而不是字符串：本模块是纯类型/常量层，翻译宏在这里只能定义、不能展开
+ * （展开要 `useLingui()`，那是组件的事）。消费方拿到描述符后自己 `t(...)`。
+ */
+export const WEB_ERROR_KIND_LABEL: Record<WebError["kind"], MessageDescriptor> = {
+  identity: msg`身份错误`,
+  network: msg`网络错误`,
+  transfer: msg`传输错误`,
+  invalidInput: msg`输入无效`,
+  aborted: msg`已取消`,
+  notFound: msg`未找到`,
+  storage: msg`存储错误`,
 };
 
 /**
  * `OfferRejectReason["type"]` 的中文标签（#79：对端拒绝 offer 的提示，尤其 `notPaired` 那句
  * ——内核安全边界，不是「静默失败」，前端必须区分展示）。
  */
-export const OFFER_REJECT_REASON_LABEL: Record<OfferRejectReason["type"], string> = {
-  not_paired: "对方尚未与你配对，请先完成配对后再试",
-  user_declined: "对方拒绝了此次传输",
-  policy_rejected: "对方的接收策略拒绝了此次传输",
-  receiving_paused: "对方已暂停接收，请稍后再试",
+export const OFFER_REJECT_REASON_LABEL: Record<OfferRejectReason["type"], MessageDescriptor> = {
+  not_paired: msg`对方尚未与你配对，请先完成配对后再试`,
+  user_declined: msg`对方拒绝了此次传输`,
+  policy_rejected: msg`对方的接收策略拒绝了此次传输`,
+  receiving_paused: msg`对方已暂停接收，请稍后再试`,
 };
 
 /**

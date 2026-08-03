@@ -19,7 +19,7 @@ use swarmdrop_core::network::event_loop::spawn_event_loop;
 use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
 use swarmdrop_core::protocol::pairing::{PairingRefuseReason, PairingResponse};
 use swarmdrop_core::runtime::{EndpointProfile, start_node};
-use swarmdrop_host::device::DeviceName;
+use swarmdrop_host::device::{DeviceName, DeviceReceivePolicy, DeviceTrustLevel};
 use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId, PairedDeviceStore};
 use swarmdrop_invite::{InviteParseError, PairInvite, TransportPolicy};
 use swarmdrop_net::{Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
@@ -97,6 +97,19 @@ extern "C" {
     /// `inbox_item()` / `inbox_item_by_session()` 的返回（无匹配时为 `null`）。
     #[wasm_bindgen(typescript_type = "InboxItemDetail | null")]
     pub type InboxItemDetailJs;
+
+    // ── 入参侧 ──
+    //
+    // 上面全是返回值；下面两个是**入参**。同一套机制反过来用：`typescript_type` 把
+    // wasm-bindgen 默认的 `any` 换成具名类型，于是前端传错形状是编译错误而不是运行时
+    // 一句 serde 报错。两个类型都已经在 bindings.ts 里（`Device` 的传递类型），
+    // 不需要新增 specta 注册。
+    /// `update_paired_device_policy()` 的信任级别入参。
+    #[wasm_bindgen(typescript_type = "DeviceTrustLevel")]
+    pub type DeviceTrustLevelJs;
+    /// `update_paired_device_policy()` 的收件策略入参。
+    #[wasm_bindgen(typescript_type = "DeviceReceivePolicy")]
+    pub type DeviceReceivePolicyJs;
 }
 
 /// `until_active` 的契约级默认超时：即便调用方不传 signal，Promise 也在
@@ -135,6 +148,19 @@ fn to_js_typed<T: serde::Serialize, R: JsCast>(value: &T, what: &str) -> Result<
         .map_err(|e| WebError::network(format!("序列化{what}失败: {e}")).into())
 }
 
+/// 具名 TS 类型的 JsValue → serde 可反序列化值（[`to_js_typed`] 的反向）。
+///
+/// **错误归 `invalidInput` 而不是 `network`**：走到这里说明调用方递进来的形状与 `.d.ts`
+/// 声明的对不上，那是调用方的问题。出站方向的 `to_js_typed` 归 `network` 是因为那种失败
+/// 只可能是本机序列化器出了岔子，与调用方无关——两个方向的归因本来就不同。
+fn from_js_typed<T: for<'de> serde::Deserialize<'de>>(
+    value: JsValue,
+    what: &str,
+) -> Result<T, JsValue> {
+    crate::serialize::from_js(value)
+        .map_err(|e| WebError::invalid_input(format!("解析{what}失败: {e}")).into())
+}
+
 /// 检索条数上限（[`INBOX_SEARCH_LIMIT`](swarmdrop_transfer::inbox::INBOX_SEARCH_LIMIT) 的只读镜像）。
 ///
 /// `search_inbox` 的 `limit` 缺省就取这个值、传大了也会被钳回来，前端**不需要**传它。
@@ -142,6 +168,30 @@ fn to_js_typed<T: serde::Serialize, R: JsCast>(value: &T, what: &str) -> Result<
 ///
 /// 换句话说前端仍然不许自带这个数字——那正是 #111 修掉的分叉（此前四个宿主四个值，
 /// 而截断掉的永远是最早收到的那批）。wasm-bindgen 不导出常量，所以包成函数。
+/// 某信任级别的默认接收策略。
+///
+/// **纯派生，不碰节点**，所以是自由函数不是 `WebNode` 方法——它在节点还没起来时也该能用
+/// （信任策略对话框可以先开着）。
+///
+/// 存在的全部理由是**不让 JS 再抄一份那张表**。桌面与移动此前各抄了一份，两份还长出了不同的
+/// 「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
+/// 现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处，三端各经自己的 binding 调它。
+///
+/// `previous` 传该设备**当前**的策略，用户显式设过的保存位置与代收授权会被带过去
+/// （`blocked` 除外）。新配对或不关心时传 `undefined`。
+#[wasm_bindgen]
+pub fn default_receive_policy(
+    trust_level: DeviceTrustLevelJs,
+    previous: Option<DeviceReceivePolicyJs>,
+) -> Result<DeviceReceivePolicyJs, JsValue> {
+    let trust_level: DeviceTrustLevel = from_js_typed(trust_level.into(), "信任级别")?;
+    let previous: Option<DeviceReceivePolicy> = previous
+        .map(|value| from_js_typed(value.into(), "收件策略"))
+        .transpose()?;
+    let policy = DeviceReceivePolicy::for_trust_level(trust_level, previous.as_ref());
+    to_js_typed(&policy, "收件策略")
+}
+
 #[wasm_bindgen]
 pub fn inbox_search_limit() -> usize {
     swarmdrop_transfer::inbox::INBOX_SEARCH_LIMIT
@@ -583,6 +633,47 @@ impl WebNode {
             .unpair(&id)
             .await
             .map_err(WebError::from)?;
+        Ok(())
+    }
+
+    /// 更新已配对设备的信任级别与收件策略。
+    ///
+    /// 与桌面 `update_paired_device_policy` 命令**同一条路径**：落盘与「节点在跑时把新值推进
+    /// 共享内存表」都在 core 的
+    /// [`set_receive_policy`](swarmdrop_core::paired_devices::set_receive_policy)。
+    /// 后半句不能省——`swarmdrop_transfer::policy` 裁决入站 offer 时读的是内存表那份，
+    /// 只落盘会变成「策略已保存、本次运行仍按旧策略放行」。存在性检查也只在那一处。
+    ///
+    /// `receive_policy` 传 `undefined` 表示**按新信任级别取默认策略**（`for_trust_level`），
+    /// 这是「只改信任级别、策略跟着走」那条路径；传具体值则逐字段采用。
+    ///
+    /// **返回 `()`，调用方自己重取一次 `paired_devices()`**——与
+    /// [`remove_paired_device`](Self::remove_paired_device) 同一个约定。两个理由：
+    /// core 这条路径不发事件（没有对应的 `CoreEvent` 变体，补一条会波及三端全部 event
+    /// adapter 的穷尽 match，是独立增量）；而 `paired_devices()` 在 Web 侧是同步的内存查询，
+    /// 重取一次比把 `PairedDeviceInfo`（存储型）也搬进 Web 的类型面便宜——那一面目前只有
+    /// `Device` 这一个读模型，多一个就多一处要解释「这两个有什么区别」。
+    pub async fn update_paired_device_policy(
+        &self,
+        peer_id: String,
+        trust_level: DeviceTrustLevelJs,
+        receive_policy: Option<DeviceReceivePolicyJs>,
+    ) -> Result<(), JsValue> {
+        let id = parse_node_id(&peer_id)?;
+        let trust_level: DeviceTrustLevel = from_js_typed(trust_level.into(), "信任级别")?;
+        let receive_policy: Option<DeviceReceivePolicy> = receive_policy
+            .map(|value| from_js_typed(value.into(), "收件策略"))
+            .transpose()?;
+
+        swarmdrop_core::paired_devices::set_receive_policy(
+            &id,
+            trust_level,
+            receive_policy,
+            &*self.paired_store,
+            Some(&self.net_manager),
+        )
+        .await
+        .map_err(WebError::from)?;
         Ok(())
     }
 

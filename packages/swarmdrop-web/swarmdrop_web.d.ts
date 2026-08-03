@@ -839,6 +839,26 @@ export class WebNode {
      * 读回 `File`，待决 offer 也已无处应答，故它们本就不落库（见 `store.rs` 模块注释）。
      */
     transfer_history(): Promise<TransferProjection[]>;
+    /**
+     * 更新已配对设备的信任级别与收件策略。
+     *
+     * 与桌面 `update_paired_device_policy` 命令**同一条路径**：落盘与「节点在跑时把新值推进
+     * 共享内存表」都在 core 的
+     * [`set_receive_policy`](swarmdrop_core::paired_devices::set_receive_policy)。
+     * 后半句不能省——`swarmdrop_transfer::policy` 裁决入站 offer 时读的是内存表那份，
+     * 只落盘会变成「策略已保存、本次运行仍按旧策略放行」。存在性检查也只在那一处。
+     *
+     * `receive_policy` 传 `undefined` 表示**按新信任级别取默认策略**（`for_trust_level`），
+     * 这是「只改信任级别、策略跟着走」那条路径；传具体值则逐字段采用。
+     *
+     * **返回 `()`，调用方自己重取一次 `paired_devices()`**——与
+     * [`remove_paired_device`](Self::remove_paired_device) 同一个约定。两个理由：
+     * core 这条路径不发事件（没有对应的 `CoreEvent` 变体，补一条会波及三端全部 event
+     * adapter 的穷尽 match，是独立增量）；而 `paired_devices()` 在 Web 侧是同步的内存查询，
+     * 重取一次比把 `PairedDeviceInfo`（存储型）也搬进 Web 的类型面便宜——那一面目前只有
+     * `Device` 这一个读模型，多一个就多一处要解释「这两个有什么区别」。
+     */
+    update_paired_device_policy(peer_id: string, trust_level: DeviceTrustLevel, receive_policy?: DeviceReceivePolicy | null): Promise<void>;
 }
 
 /**
@@ -851,11 +871,6 @@ export class WebNode {
 export function default_device_name(): string;
 
 /**
- * 当前持久化的设备名；未设过（或读失败 / 内容非法）返回 `undefined`。
- */
-export function get_device_name(): Promise<string | undefined>;
-
-/**
  * 检索条数上限（[`INBOX_SEARCH_LIMIT`](swarmdrop_transfer::inbox::INBOX_SEARCH_LIMIT) 的只读镜像）。
  *
  * `search_inbox` 的 `limit` 缺省就取这个值、传大了也会被钳回来，前端**不需要**传它。
@@ -863,7 +878,25 @@ export function get_device_name(): Promise<string | undefined>;
  *
  * 换句话说前端仍然不许自带这个数字——那正是 #111 修掉的分叉（此前四个宿主四个值，
  * 而截断掉的永远是最早收到的那批）。wasm-bindgen 不导出常量，所以包成函数。
+ * 某信任级别的默认接收策略。
+ *
+ * **纯派生，不碰节点**，所以是自由函数不是 `WebNode` 方法——它在节点还没起来时也该能用
+ * （信任策略对话框可以先开着）。
+ *
+ * 存在的全部理由是**不让 JS 再抄一份那张表**。桌面与移动此前各抄了一份，两份还长出了不同的
+ * 「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
+ * 现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处，三端各经自己的 binding 调它。
+ *
+ * `previous` 传该设备**当前**的策略，用户显式设过的保存位置与代收授权会被带过去
+ * （`blocked` 除外）。新配对或不关心时传 `undefined`。
  */
+export function default_receive_policy(trust_level: DeviceTrustLevel, previous?: DeviceReceivePolicy | null): DeviceReceivePolicy;
+
+/**
+ * 当前持久化的设备名；未设过（或读失败 / 内容非法）返回 `undefined`。
+ */
+export function get_device_name(): Promise<string | undefined>;
+
 export function inbox_search_limit(): number;
 
 /**
@@ -882,12 +915,13 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly start: () => void;
-    readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_device_name: () => [number, number];
     readonly get_device_name: () => any;
-    readonly inbox_search_limit: () => number;
     readonly set_device_name: (a: number, b: number) => any;
+    readonly __wbg_webnode_free: (a: number, b: number) => void;
+    readonly default_receive_policy: (a: any, b: number) => [number, number, number];
+    readonly inbox_search_limit: () => number;
+    readonly start: () => void;
     readonly webnode_accept_offer: (a: number, b: number, c: number) => any;
     readonly webnode_archive_inbox_item: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_cancel_receive: (a: number, b: number, c: number) => any;
@@ -928,6 +962,7 @@ export interface InitOutput {
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
     readonly webnode_transfer_history: (a: number) => any;
+    readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;

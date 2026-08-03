@@ -11,7 +11,7 @@ import {
   type DeviceOrganization,
   emptyDeviceOrganization,
   normalizeDeviceOrganization,
-} from "@/lib/device-organization";
+} from "@swarmdrop/shared-view";
 
 export const DEFAULT_FILE_BROWSER_VIEWS: Record<
   FileBrowserScope,

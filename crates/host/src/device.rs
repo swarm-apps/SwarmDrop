@@ -57,12 +57,32 @@ pub struct DeviceReceivePolicy {
 
 impl Default for DeviceReceivePolicy {
     fn default() -> Self {
-        Self::for_trust_level(DeviceTrustLevel::Collaborator)
+        Self::for_trust_level(DeviceTrustLevel::Collaborator, None)
     }
 }
 
 impl DeviceReceivePolicy {
-    pub fn for_trust_level(level: DeviceTrustLevel) -> Self {
+    /// 某信任级别的接收策略。**三端唯一的事实源**——桌面、移动、Web 都经各自的 binding
+    /// 调这里，不许再抄一份到 JS（那正是本函数收 `previous` 之前的状态：两份 JS 副本各自
+    /// 长出了不同的「保留哪些字段」规则，而内核这一份一个都不保留）。
+    ///
+    /// `previous` 是该设备**当前**的策略；新配对传 `None`。切换信任级别时，两项
+    /// **用户显式设过的东西**要带过去，不能被默认值抹掉：
+    ///
+    /// - `default_save_location` —— 用户选的自动接收落点。丢了它 `auto_accept` 就是一张
+    ///   空头支票：[`evaluate_receive_policy`](crate::device) 的消费方在这一项为空时一律
+    ///   退回手动确认（「未配置自动接收保存位置」）。也就是说「升到本人设备」这个动作会
+    ///   悄悄关掉自动接收——用户看到的开关还开着。
+    /// - `allow_mcp_accept_from_device` —— 代 AI 收件的授权。它只能由用户显式开启
+    ///   （见字段注释），那么级别变化既不该替他重新授权，也不该替他撤销。
+    ///
+    /// **`Blocked` 是唯一例外**：两项都清零。「已阻止」必须是一个不留后门的终态，
+    /// 而不是「阻止了但保存位置和代收授权还留着」。
+    pub fn for_trust_level(level: DeviceTrustLevel, previous: Option<&Self>) -> Self {
+        // 非 blocked 分支统一从这里取；blocked 分支不看它们。
+        let default_save_location = previous.and_then(|p| p.default_save_location.clone());
+        let allow_mcp_accept_from_device = previous.is_some_and(|p| p.allow_mcp_accept_from_device);
+
         match level {
             DeviceTrustLevel::Owned => Self {
                 auto_accept: true,
@@ -71,9 +91,9 @@ impl DeviceReceivePolicy {
                 allow_directories: true,
                 allow_relay_auto_accept: true,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
-                default_save_location: None,
+                default_save_location,
                 allow_mcp_send_to_device: true,
-                allow_mcp_accept_from_device: false,
+                allow_mcp_accept_from_device,
                 expires_at: None,
             },
             DeviceTrustLevel::Collaborator => Self {
@@ -83,9 +103,9 @@ impl DeviceReceivePolicy {
                 allow_directories: true,
                 allow_relay_auto_accept: false,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
-                default_save_location: None,
+                default_save_location,
                 allow_mcp_send_to_device: false,
-                allow_mcp_accept_from_device: false,
+                allow_mcp_accept_from_device,
                 expires_at: None,
             },
             DeviceTrustLevel::Temporary => Self {
@@ -95,9 +115,9 @@ impl DeviceReceivePolicy {
                 allow_directories: false,
                 allow_relay_auto_accept: false,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
-                default_save_location: None,
+                default_save_location,
                 allow_mcp_send_to_device: false,
-                allow_mcp_accept_from_device: false,
+                allow_mcp_accept_from_device,
                 expires_at: Some(chrono::Utc::now().timestamp_millis() + 24 * 60 * 60 * 1000),
             },
             DeviceTrustLevel::Blocked => Self {
@@ -387,14 +407,21 @@ impl PairedDeviceInfo {
             os_info,
             paired_at,
             trust_level,
-            receive_policy: DeviceReceivePolicy::for_trust_level(trust_level),
+            // 新配对，没有「上一份策略」可带。
+            receive_policy: DeviceReceivePolicy::for_trust_level(trust_level, None),
             trust_confirmed: true,
         }
     }
 
+    /// 换信任级别并把接收策略重置为该级别的默认值。
+    ///
+    /// **带上当前策略**：用户显式设过的保存位置与代收授权要留住，理由见
+    /// [`DeviceReceivePolicy::for_trust_level`]。此前这里传的是「没有上一份」，
+    /// 于是「升到本人设备」会顺手把自动接收落点清掉，而 UI 上那个开关还开着。
     pub fn apply_trust_level_defaults(&mut self, trust_level: DeviceTrustLevel) {
         self.trust_level = trust_level;
-        self.receive_policy = DeviceReceivePolicy::for_trust_level(trust_level);
+        self.receive_policy =
+            DeviceReceivePolicy::for_trust_level(trust_level, Some(&self.receive_policy));
         self.trust_confirmed = true;
     }
 
@@ -659,12 +686,67 @@ mod tests {
             DeviceTrustLevel::Temporary,
             DeviceTrustLevel::Blocked,
         ] {
-            let policy = super::DeviceReceivePolicy::for_trust_level(level);
+            let policy = super::DeviceReceivePolicy::for_trust_level(level, None);
             assert!(
                 !policy.allow_mcp_accept_from_device,
                 "代收默认应关闭: {level:?}"
             );
         }
+    }
+
+    /// 切换信任级别时，用户**显式设过**的两项要带过去。
+    ///
+    /// 这条规则此前只活在桌面与移动各自的 JS 副本里（且两份还不一样），内核这一份一个都不
+    /// 保留——于是同一个产品动作有两种行为。规则收进内核后，这里是它唯一的守卫。
+    ///
+    /// `default_save_location` 尤其要紧：它为空时消费方一律退回手动确认，所以丢了它等于
+    /// 「升到本人设备」把自动接收静默关掉，而 UI 上那个开关还开着。
+    #[test]
+    fn switching_trust_level_preserves_user_set_fields() {
+        let previous = super::DeviceReceivePolicy {
+            default_save_location: Some("/Users/me/Downloads".to_string()),
+            allow_mcp_accept_from_device: true,
+            ..super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Collaborator, None)
+        };
+
+        for level in [
+            DeviceTrustLevel::Owned,
+            DeviceTrustLevel::Collaborator,
+            DeviceTrustLevel::Temporary,
+        ] {
+            let policy = super::DeviceReceivePolicy::for_trust_level(level, Some(&previous));
+            assert_eq!(
+                policy.default_save_location.as_deref(),
+                Some("/Users/me/Downloads"),
+                "保存位置应带过去: {level:?}"
+            );
+            assert!(
+                policy.allow_mcp_accept_from_device,
+                "代收授权应带过去: {level:?}"
+            );
+        }
+    }
+
+    /// `Blocked` 是唯一例外：两项都清零。
+    ///
+    /// 「已阻止」必须是不留后门的终态——保留一个自动落点或一份代收授权，都会让「阻止」
+    /// 这个词名不副实。
+    #[test]
+    fn blocking_clears_preserved_fields() {
+        let previous = super::DeviceReceivePolicy {
+            default_save_location: Some("/Users/me/Downloads".to_string()),
+            allow_mcp_accept_from_device: true,
+            ..super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Owned, None)
+        };
+
+        let policy =
+            super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Blocked, Some(&previous));
+        assert_eq!(policy.default_save_location, None, "阻止后不该留下自动落点");
+        assert!(
+            !policy.allow_mcp_accept_from_device,
+            "阻止后不该留下代收授权"
+        );
+        assert_eq!(policy.max_transfer_bytes, Some(0), "阻止即拒收一切");
     }
 
     #[test]

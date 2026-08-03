@@ -11,6 +11,7 @@
 // 徽标存在的理由：单页时入站 offer 与页面其它内容同屏可见，拆成多路由后它会藏进 /app/inbox。
 // 没有徽标，用户停在发送页时对「有人要发文件给我」零感知——这是重构自己引入的退化，不是新功能。
 
+import { useLingui } from "@lingui/react/macro";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookText } from "lucide-react";
@@ -76,6 +77,7 @@ function CountBadge({ count, className = "" }: { count: number; className?: stri
 // ── 侧栏（≥768px）──────────────────────────────────────────────────────────
 
 export function AppSidebar() {
+  const { t } = useLingui();
   const active = useActiveHref();
   const counts = useBadgeCounts();
 
@@ -85,7 +87,7 @@ export function AppSidebar() {
         <BrandMark labelClassName="hidden lg:inline" />
       </div>
 
-      <nav aria-label="应用导航" className="flex-1 space-y-1 overflow-y-auto p-2">
+      <nav aria-label={t`应用导航`} className="flex-1 space-y-1 overflow-y-auto p-2">
         {APP_NAV.map((item) => (
           <SidebarLink
             key={item.href}
@@ -100,11 +102,11 @@ export function AppSidebar() {
         <NodeStatusPill labelClassName="hidden lg:inline" />
         <Link
           href="/docs"
-          title="使用文档"
+          title={t`使用文档`}
           className="inline-flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-fd-muted-foreground transition-colors hover:bg-fd-accent hover:text-fd-foreground md:justify-center lg:justify-start"
         >
           <BookText className="size-4 shrink-0" aria-hidden="true" />
-          <span className="hidden lg:inline">使用文档</span>
+          <span className="hidden lg:inline">{t`使用文档`}</span>
         </Link>
       </div>
     </aside>
@@ -120,11 +122,12 @@ function SidebarLink({
   active: boolean;
   count: number;
 }) {
+  const { t } = useLingui();
   const Icon = item.icon;
   return (
     <Link
       href={item.href}
-      title={item.label}
+      title={t(item.label)}
       aria-current={active ? "page" : undefined}
       className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors md:justify-center lg:justify-start ${
         active
@@ -137,7 +140,7 @@ function SidebarLink({
         {/* 图标档没有行尾可放徽标，贴到图标右上角；展开档则走行尾那枚。 */}
         {count > 0 && <CountBadge count={count} className="absolute -top-1.5 -right-2 lg:hidden" />}
       </span>
-      <span className="hidden lg:inline">{item.label}</span>
+      <span className="hidden lg:inline">{t(item.label)}</span>
       {count > 0 && <CountBadge count={count} className="ml-auto hidden lg:inline-flex" />}
     </Link>
   );
@@ -158,6 +161,7 @@ export function AppMobileHeader() {
 }
 
 export function AppBottomNav() {
+  const { t } = useLingui();
   const active = useActiveHref();
   const counts = useBadgeCounts();
 
@@ -167,7 +171,7 @@ export function AppBottomNav() {
           写死一个 padding：知道高度的人和补偿高度的人应当是同一个。 */}
       <div aria-hidden="true" className="md:hidden" style={{ height: BOTTOM_NAV_HEIGHT }} />
       <nav
-        aria-label="应用导航"
+        aria-label={t`应用导航`}
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         className="fixed inset-x-0 bottom-0 z-20 border-t border-fd-border bg-fd-background/95 backdrop-blur md:hidden"
       >
@@ -189,7 +193,7 @@ export function AppBottomNav() {
                     <Icon className="size-5" aria-hidden="true" />
                     {count > 0 && <CountBadge count={count} className="absolute -top-1.5 -right-2.5" />}
                   </span>
-                  {item.label}
+                  {t(item.label)}
                 </Link>
               </li>
             );

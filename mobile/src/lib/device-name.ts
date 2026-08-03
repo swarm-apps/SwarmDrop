@@ -3,28 +3,15 @@ import { initMobileCore } from "@/core/mobile-core";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 /**
- * 设备名长度上限 —— Rust 侧 `DeviceName::MAX_CHARS` 的镜像，改上限要**同时改 Rust**
- * （`crates/host/src/device.rs`，那边是事实源，UI 这层只是提前拦一下）。
- *
- * 单位是 **char 不是 byte**：中文名可以起满 40 个字。RN `TextInput` 的 `maxLength`
- * 按 UTF-16 code unit 计数，对 BMP 内字符（含全部常用汉字）与 Rust 的 char 计数一致。
- *
- * uniffi 不导出 Rust 的关联常量，所以这个值只能手抄一份，没法从 generated 里拿。
+ * 移动端设备名模块。**纯规则（显示名、长度上限）已收口到 `@swarmdrop/shared-view`**，
+ * 这里只留移动端特有的名字建议与改名编排，并把共享规则原样再导出——调用方仍从
+ * `@/lib/device-name` 一处拿全套。
  */
-export const DEVICE_NAME_MAX_CHARS = 40;
-
-/**
- * 设备显示名 —— 优先用用户起的 name，缺省时回退到系统 hostname。
- *
- * 适用于 MobileDevice / MobileRemoteDeviceInfo / 任何含 `{ name?, hostname }`
- * 形状的对象。
- */
-export function deviceDisplayName(d: {
-  name?: string | null;
-  hostname: string;
-}): string {
-  return d.name?.trim() || d.hostname;
-}
+export {
+  DEVICE_NAME_MAX_CHARS,
+  deviceDisplayName,
+  type DeviceNameSource,
+} from "@swarmdrop/shared-view";
 
 /**
  * 给 onboarding 输入框的默认值 —— 优先 expo-device 的 deviceName（Android 一般

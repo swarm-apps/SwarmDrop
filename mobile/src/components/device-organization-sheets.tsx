@@ -29,7 +29,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { sortedDeviceGroups } from "@/lib/device-organization";
+import { sortDeviceGroups } from "@swarmdrop/shared-view";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 /* ─────────────── 共享输入样式 ─────────────── */
@@ -122,7 +122,7 @@ export const DeviceOrganizeSheet = forwardRef<DeviceOrganizeSheetRef, object>(
     }, [alias, device, groupIds, setDeviceAlias, setDeviceGroups]);
 
     const sortedGroups = useMemo(
-      () => sortedDeviceGroups(organization),
+      () => sortDeviceGroups(organization.groups),
       [organization],
     );
 

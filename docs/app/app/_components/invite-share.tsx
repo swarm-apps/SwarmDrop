@@ -15,10 +15,13 @@
 // 的一切文字都得用固定深色，**不能**用 `text-fd-muted-foreground` 这类主题 token——
 // 暗色主题下它会变浅灰，压在白底上不可读。
 
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { Check, Copy } from "lucide-react";
 import { Ban, CheckCircle2, TimerOff, WifiOff, type LucideIcon } from "lucide-react";
 import { memo, useMemo, useRef, useState } from "react";
-import { formatRemaining, remainingSeconds } from "../_lib/invite";
+import { remainingLabel, remainingSeconds } from "../_lib/invite";
 import { getNode } from "../_lib/node-runtime";
 
 /** 码面边长（px）。手机扫描距离 20–30cm 下够用，也不至于把面板撑开。 */
@@ -69,6 +72,7 @@ export const InviteShare = memo(function InviteShare({
   reachable,
   now,
 }: InviteShareProps) {
+  const { t, i18n } = useLingui();
   // 同步计算：`invite_qr_svg` 是纯计算（不碰 IndexedDB、不碰网络），一帧就出结果，
   // 不需要桌面端那套 loading 态——那边的 loading 是跨 Tauri IPC 才有的。
   //
@@ -116,7 +120,7 @@ export const InviteShare = memo(function InviteShare({
         {html ? (
           <div
             role="img"
-            aria-label="配对邀请二维码"
+            aria-label={t`配对邀请二维码`}
             // 压到扫不动为止：失效的码若还能被读到，对方只会白跑一趟失败流程。
             className={`size-full [&>svg]:size-full ${overlay ? "opacity-[0.09]" : ""}`}
             // SVG 由 wasm 侧受信任生成（纯几何 path，无脚本），内联安全。
@@ -125,7 +129,7 @@ export const InviteShare = memo(function InviteShare({
         ) : (
           // 白卡内固定深色，理由见文件头
           <p className="px-2 text-center text-xs text-slate-500">
-            {invite === null ? "正在生成…" : "二维码生成失败，请用下方链接配对"}
+            {invite === null ? <Trans>正在生成…</Trans> : <Trans>二维码生成失败，请用下方链接配对</Trans>}
           </p>
         )}
         {overlay && <QrOverlay kind={overlay} />}
@@ -134,14 +138,14 @@ export const InviteShare = memo(function InviteShare({
       <div className="flex w-full min-w-0 flex-col gap-2">
         {/* 扫码只有手机端做得到（桌面端无相机，见 `_app/pairing/input.lazy.tsx`），
             所以两条路径要分端说清楚，不能笼统写「扫码或粘贴」。 */}
-        <p className="text-xs text-fd-muted-foreground">
-          手机上用 SwarmDrop 的「扫码」对准它；桌面端没有相机，复制链接发过去用「粘贴邀请」。
+        <p className="text-xs text-muted-foreground">
+          <Trans>手机上用 SwarmDrop 的「扫码」对准它；桌面端没有相机，复制链接发过去用「粘贴邀请」。</Trans>
         </p>
         {/* 剩余有效期贴着说明走，不写死「24 小时内有效」——那句话在码已经躺了半天之后
             仍然照说不误，等于没说。失效后交给码面上的覆盖层，这里不再重复。 */}
         {overlay === null && expiresAt !== null && (
           <p className="text-xs text-fd-muted-foreground" aria-live="polite">
-            {formatRemaining(expiresAt, now)}
+            {t(remainingLabel(expiresAt, now, i18n.locale))}
           </p>
         )}
         {/* `key` 让按钮随邀请换代重挂：否则「已复制」会在点了「重新生成」之后继续挂着，
@@ -152,7 +156,7 @@ export const InviteShare = memo(function InviteShare({
         <input
           readOnly
           value={invite ?? ""}
-          aria-label="邀请链接"
+          aria-label={t`邀请链接`}
           onFocus={(e) => e.currentTarget.select()}
           className="w-full truncate rounded-lg border border-fd-border bg-fd-background px-2 py-1.5 font-mono text-xs text-fd-muted-foreground"
         />
@@ -164,20 +168,23 @@ export const InviteShare = memo(function InviteShare({
 const OVERLAY = {
   consumed: {
     icon: CheckCircle2,
-    title: "邀请已被使用",
-    hint: "一条邀请只能用一次。要再连一台设备，请重新生成。",
+    title: msg`邀请已被使用`,
+    hint: msg`一条邀请只能用一次。要再连一台设备，请重新生成。`,
   },
-  expired: { icon: TimerOff, title: "邀请已过期", hint: "有效期已过，重新生成一条即可。" },
-  revoked: { icon: Ban, title: "邀请已撤销", hint: "这个码已经作废，请重新生成一条。" },
+  expired: { icon: TimerOff, title: msg`邀请已过期`, hint: msg`有效期已过，重新生成一条即可。` },
+  revoked: { icon: Ban, title: msg`邀请已撤销`, hint: msg`这个码已经作废，请重新生成一条。` },
   unreachable: {
     // 只说「已撤销」不说「已断开」：这个分支唯一的成因是用户在设置页主动撤销了可达，
     // 而 store 里的 `reservation` 目前**感知不到真实断线**（helper 掉线不会把它置回 null），
     // 所以不能拿它当断线检测来承诺。
     icon: WifiOff,
-    title: "本机可达已撤销",
-    hint: "circuit 已撤销，对方扫这个码也拨不回来。重新建立可达后请重新生成。",
+    title: msg`本机可达已撤销`,
+    hint: msg`circuit 已撤销，对方扫这个码也拨不回来。重新建立可达后请重新生成。`,
   },
-} satisfies Record<OverlayKind, { icon: LucideIcon; title: string; hint: string }>;
+} satisfies Record<
+  OverlayKind,
+  { icon: LucideIcon; title: MessageDescriptor; hint: MessageDescriptor }
+>;
 
 /**
  * 码面覆盖层。白底之上，所以文字用固定的 `slate` 深色而非主题 token（见文件头）。
@@ -185,6 +192,7 @@ const OVERLAY = {
  * 在这里再放一个等于同一屏出现两个同义主动作。
  */
 function QrOverlay({ kind }: { kind: OverlayKind }) {
+  const { t } = useLingui();
   const { icon: Icon, title, hint } = OVERLAY[kind];
   return (
     <div
@@ -192,8 +200,8 @@ function QrOverlay({ kind }: { kind: OverlayKind }) {
       className="absolute inset-3 flex flex-col items-center justify-center gap-1.5 rounded-lg bg-white/85 px-3 text-center"
     >
       <Icon className="size-6 text-slate-400" aria-hidden="true" />
-      <p className="text-xs font-medium text-slate-700">{title}</p>
-      <p className="text-[11px] leading-snug text-slate-500">{hint}</p>
+      <p className="text-xs font-medium text-slate-700">{t(title)}</p>
+      <p className="text-[11px] leading-snug text-slate-500">{t(hint)}</p>
     </div>
   );
 }
@@ -231,7 +239,13 @@ function CopyInviteButton({ invite }: { invite: string | null }) {
       className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
     >
       {state === "copied" ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {state === "copied" ? "已复制" : state === "failed" ? "复制失败，请手动选中" : "复制链接"}
+      {state === "copied" ? (
+        <Trans>已复制</Trans>
+      ) : state === "failed" ? (
+        <Trans>复制失败，请手动选中</Trans>
+      ) : (
+        <Trans>复制链接</Trans>
+      )}
     </button>
   );
 }

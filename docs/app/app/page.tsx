@@ -6,6 +6,7 @@
 // next.config 的 `redirects()` 都用不了——只能在客户端跳。渲染的不是空白 loading 而是一条
 // 真链接：JS 尚未加载或被禁用时，用户仍然点得进去，不会卡在一个永远转圈的页面上。
 
+import { Trans } from "@lingui/react/macro";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -19,12 +20,14 @@ export default function AppIndexPage() {
   }, [router]);
 
   return (
-    <p className="text-sm text-fd-muted-foreground">
-      正在进入{" "}
-      <Link href={APP_HOME} className="font-medium text-fd-foreground underline underline-offset-2">
-        设备
-      </Link>
-      …
+    <p className="text-sm text-muted-foreground">
+      <Trans>
+        正在进入{" "}
+        <Link href={APP_HOME} className="font-medium text-foreground underline underline-offset-2">
+          设备
+        </Link>
+        …
+      </Trans>
     </p>
   );
 }

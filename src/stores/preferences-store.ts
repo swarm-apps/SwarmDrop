@@ -11,8 +11,9 @@ import { dynamicActivate, defaultLocale, type LocaleKey } from "@/lib/i18n";
 import { commands } from "@/lib/bindings";
 import {
   emptyDeviceOrganization,
+  normalizeDeviceOrganization,
   type DeviceOrganization,
-} from "@/lib/device-organization";
+} from "@swarmdrop/shared-view";
 import type {
   FileBrowserScope,
   FileBrowserView,
@@ -22,48 +23,6 @@ export type DiscoveryMode = "auto" | "lanOnly";
 
 /** 点窗口 ✕ 时的行为：每次询问 / 最小化到托盘 / 退出应用。 */
 export type CloseBehavior = "ask" | "tray" | "quit";
-
-export function normalizeDeviceOrganization(value: unknown): DeviceOrganization {
-  if (!value || typeof value !== "object") {
-    return { aliases: {}, groups: [], groupDeviceIds: {} };
-  }
-
-  const source = value as Record<string, unknown>;
-  const groups = Array.isArray(source.groups)
-    ? source.groups.flatMap((group, sortOrder) => {
-      if (!group || typeof group !== "object") return [];
-      const candidate = group as Record<string, unknown>;
-      if (typeof candidate.id !== "string" || typeof candidate.name !== "string") {
-        return [];
-      }
-      return [{
-        id: candidate.id,
-        name: candidate.name,
-        sortOrder: typeof candidate.sortOrder === "number"
-          ? candidate.sortOrder
-          : sortOrder,
-      }];
-    })
-    : [];
-  const groupIds = new Set(groups.map((group) => group.id));
-  const aliases = Object.fromEntries(
-    Object.entries(source.aliases ?? {}).filter(
-      ([, alias]) => typeof alias === "string" && alias.trim(),
-    ),
-  ) as Record<string, string>;
-  const groupDeviceIds = Object.fromEntries(
-    Object.entries(source.groupDeviceIds ?? {})
-      .filter(([groupId]) => groupIds.has(groupId))
-      .map(([groupId, peerIds]) => [
-        groupId,
-        Array.isArray(peerIds)
-          ? peerIds.filter((peerId): peerId is string => typeof peerId === "string")
-          : [],
-      ]),
-  ) as Record<string, string[]>;
-
-  return { aliases, groups, groupDeviceIds };
-}
 
 interface PreferencesState {
   /** 语言 */

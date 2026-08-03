@@ -8,15 +8,17 @@
 // 看到任何价值就先被要求填表；而不改名的后果只是对端列表里出现一行「Chrome」，可读、不阻断、
 // 随时可补救。两者代价不对称，故默认值立刻可用，想区分的人自己来这里改。
 
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 import { renameDevice } from "../_lib/node-runtime";
 import { IDENTITY_LOCATION, useWebNode, webNodeActions } from "../_lib/store";
-import { DEVICE_NAME_MAX_CHARS } from "../_lib/device-name";
+import { DEVICE_NAME_MAX_CHARS } from "@swarmdrop/shared-view";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { NodeStatusPill } from "./node-status-pill";
 import { WebErrorCard } from "./web-error-view";
 
 export function NodePanel() {
+  const { t } = useLingui();
   const nodeId = useWebNode((s) => s.nodeId);
   const deviceName = useWebNode((s) => s.deviceName);
   const deviceNameFallback = useWebNode((s) => s.deviceNameFallback);
@@ -53,12 +55,16 @@ export function NodePanel() {
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-fd-foreground">本机节点</h2>
+        <h2 className="text-sm font-semibold text-foreground">
+          <Trans>本机节点</Trans>
+        </h2>
         <NodeStatusPill />
       </div>
       <dl className="mt-4 space-y-3">
         <div>
-          <dt className="text-xs font-medium text-fd-muted-foreground">设备名</dt>
+          <dt className="text-xs font-medium text-muted-foreground">
+            <Trans>设备名</Trans>
+          </dt>
           <dd className="mt-1 text-sm text-fd-foreground">
             {editing ? (
               <>
@@ -77,7 +83,7 @@ export function NodePanel() {
                     disabled={saveAction.pending}
                     className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
                   >
-                    {saveAction.pending ? "保存中…" : "保存"}
+                    {saveAction.pending ? <Trans>保存中…</Trans> : <Trans>保存</Trans>}
                   </button>
                   <button
                     type="button"
@@ -85,7 +91,7 @@ export function NodePanel() {
                     disabled={saveAction.pending}
                     className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
                   >
-                    取消
+                    <Trans>取消</Trans>
                   </button>
                 </div>
               </>
@@ -93,42 +99,63 @@ export function NodePanel() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="break-all">{deviceName ?? deviceNameFallback ?? "—"}</span>
                 {!deviceName && deviceNameFallback && (
-                  <span className="text-xs text-fd-muted-foreground">（浏览器默认）</span>
+                  <span className="text-xs text-muted-foreground">
+                    <Trans>（浏览器默认）</Trans>
+                  </span>
                 )}
                 <button
                   type="button"
                   onClick={startEdit}
                   className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent"
                 >
-                  修改
+                  <Trans>修改</Trans>
                 </button>
               </div>
             )}
-            <p className="mt-1.5 text-xs text-fd-muted-foreground">
-              对端在配对确认与传输请求里看到的就是这一行。未设置时用浏览器 UA 派生的默认名
-              {deviceNameFallback ? `（当前是「${deviceNameFallback}」）` : ""}，清空输入即回落到它。
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {deviceNameFallback ? (
+                <Trans>
+                  对端在配对确认与传输请求里看到的就是这一行。未设置时用浏览器 UA 派生的默认名
+                  （当前是「{deviceNameFallback}」），清空输入即回落到它。
+                </Trans>
+              ) : (
+                <Trans>
+                  对端在配对确认与传输请求里看到的就是这一行。未设置时用浏览器 UA 派生的默认名，
+                  清空输入即回落到它。
+                </Trans>
+              )}
             </p>
             {justSaved && (
               <p className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-                {nodeRunning
-                  ? "已保存，已连接的对端立刻就能看到新名字——不必刷新页面，连接与进行中的传输都不受影响。"
-                  : "已保存。节点启动后，新名字会随本机身份一起广播出去。"}
+                {nodeRunning ? (
+                  <Trans>
+                    已保存，已连接的对端立刻就能看到新名字——不必刷新页面，连接与进行中的传输都不受影响。
+                  </Trans>
+                ) : (
+                  <Trans>已保存。节点启动后，新名字会随本机身份一起广播出去。</Trans>
+                )}
               </p>
             )}
             {saveAction.error && <WebErrorCard error={saveAction.error} className="mt-2 text-xs" />}
           </dd>
         </div>
         <div>
-          <dt className="text-xs font-medium text-fd-muted-foreground">节点 ID</dt>
+          <dt className="text-xs font-medium text-muted-foreground">
+            <Trans>节点 ID</Trans>
+          </dt>
           <dd className="mt-1 font-mono text-xs tabular-nums break-all text-fd-foreground">
             {nodeId ?? "—"}
           </dd>
         </div>
         <div>
-          <dt className="text-xs font-medium text-fd-muted-foreground">身份持久化</dt>
+          <dt className="text-xs font-medium text-muted-foreground">
+            <Trans>身份持久化</Trans>
+          </dt>
           <dd className="mt-1 text-sm text-fd-foreground">
-            <span className="font-mono">{IDENTITY_LOCATION}</span>{" "}
-            <span className="text-fd-muted-foreground">· 刷新后保持不变</span>
+            <span className="font-mono">{t(IDENTITY_LOCATION)}</span>{" "}
+            <span className="text-muted-foreground">
+              · <Trans>刷新后保持不变</Trans>
+            </span>
           </dd>
         </div>
       </dl>

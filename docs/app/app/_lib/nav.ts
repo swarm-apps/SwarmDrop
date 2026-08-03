@@ -9,6 +9,8 @@
 // 是持久侧边栏 / 底部导航——浏览器里没有窗口标题栏可借，且 tab 会被文档站其它页面复用，
 // 常驻导航是唯一能表达「这是一个应用而不是一篇文档」的结构。
 
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 import {
   ArrowLeftRight,
   Inbox,
@@ -24,10 +26,31 @@ export type NavBadgeKind = "offers" | "activeTransfers";
 export interface AppNavItem {
   /** 不带尾斜杠；`<Link>` 会按 next.config 的 trailingSlash 自行补全。 */
   href: string;
-  label: string;
-  description: string;
+  /**
+   * 页面标题与描述的**可翻译描述符**。渲染时用 `useLingui()` 的 `t(item.label)` 展开。
+   *
+   * 为什么是描述符而不是字符串：这份定义同时服务两处，而两处的时机不同——
+   * 组件在**运行时**渲染（跟随用户 locale），`export const metadata` 在**构建时**求值
+   * （静态导出，没有服务端，`<title>` 只能是源 locale）。描述符两边都能用：
+   * 组件展开它，metadata 取它的 `message` 字段（即源 locale 原文）。
+   *
+   * 反过来若存两份（一份纯字符串给 metadata、一份描述符给 UI），改文案时漏掉一份不会有
+   * 任何提示——这正是这份「单一事实源」要避免的东西。
+   */
+  label: MessageDescriptor;
+  description: MessageDescriptor;
   icon: LucideIcon;
   badge?: NavBadgeKind;
+}
+
+/**
+ * 取描述符的源 locale 原文，供**构建期**求值的 `metadata` 使用。
+ *
+ * 静态导出下 `<title>` 在构建时就烤进 HTML，没有「当前用户的 locale」可言——所以这里
+ * 取源文是正确行为，不是降级。运行时的 UI 一律走 `t(descriptor)`。
+ */
+export function navTitle(item: AppNavItem): string {
+  return item.label.message ?? "";
 }
 
 /**
@@ -37,34 +60,34 @@ export interface AppNavItem {
 export const NAV = {
   devices: {
     href: "/app/devices",
-    label: "设备",
-    description: "已配对设备与配对入口。配对是一次性动作，配完即长期信任。",
+    label: msg`设备`,
+    description: msg`已配对设备与配对入口。配对是一次性动作，配完即长期信任。`,
     icon: MonitorSmartphone,
   },
   send: {
     href: "/app/send",
-    label: "发送",
-    description: "选一台已配对设备，拖文件进来直接送达。",
+    label: msg`发送`,
+    description: msg`选一台已配对设备，拖文件进来直接送达。`,
     icon: Send,
   },
   inbox: {
     href: "/app/inbox",
-    label: "收件箱",
-    description: "已落盘的接收文件；待处理的入站请求也在这里决策。",
+    label: msg`收件箱`,
+    description: msg`已落盘的接收文件；待处理的入站请求也在这里决策。`,
     icon: Inbox,
     badge: "offers",
   },
   transfer: {
     href: "/app/transfer",
-    label: "传输",
-    description: "进行中与已结束的会话。选中一条查看文件明细与续传。",
+    label: msg`传输`,
+    description: msg`进行中与已结束的会话。选中一条查看文件明细与续传。`,
     icon: ArrowLeftRight,
     badge: "activeTransfers",
   },
   settings: {
     href: "/app/settings",
-    label: "设置",
-    description: "本机节点身份、helper 连接与开发事件日志。",
+    label: msg`设置`,
+    description: msg`本机节点身份、helper 连接与开发事件日志。`,
     icon: Settings,
   },
 } satisfies Record<string, AppNavItem>;

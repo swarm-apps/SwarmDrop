@@ -11,6 +11,7 @@
 // 同一个轴上取相反的值，合并需要本组件同时管 error 的渲染位置，与现有三个调用点的布局冲突。
 // 完整推导写在 `device-list.tsx` 的文件头注释里，别再纠结第二遍。
 
+import { Trans } from "@lingui/react/macro";
 import type { LucideIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
@@ -129,7 +130,7 @@ export function useConfirmAction({
 
   const backButton = (
     <button type="button" onClick={() => setConfirming(false)} className={skin.back}>
-      返回
+      <Trans>返回</Trans>
     </button>
   );
 

@@ -11,6 +11,9 @@
 // 2），配色沿用桌面 device-card 的语义编码：局域网 emerald / 打洞 sky / 中继 amber
 // （DESIGN.md：这三色是状态语义编码，在 one-accent 规则之外）。
 
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
+import { Trans, useLingui } from "@lingui/react/macro";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { StatusDot } from "./status-dot";
@@ -22,13 +25,14 @@ import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { type PathKindJson } from "../_lib/view-types";
 
-const PATH_META: Record<PathKindJson, { label: string; dot: string }> = {
-  local: { label: "局域网直连", dot: "bg-emerald-500" },
-  direct: { label: "打洞直连", dot: "bg-sky-500" },
-  relayed: { label: "中继", dot: "bg-amber-500" },
+const PATH_META: Record<PathKindJson, { label: MessageDescriptor; dot: string }> = {
+  local: { label: msg`局域网直连`, dot: "bg-emerald-500" },
+  direct: { label: msg`打洞直连`, dot: "bg-sky-500" },
+  relayed: { label: msg`中继`, dot: "bg-amber-500" },
 };
 
 export function ConnectionPanel() {
+  const { t } = useLingui();
   const nodeStatus = useWebNode((s) => s.status);
   const connection = useWebNode((s) => s.connection);
   const reservation = useWebNode((s) => s.reservation);
@@ -79,11 +83,15 @@ export function ConnectionPanel() {
 
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
-      <h2 className="text-sm font-semibold text-fd-foreground">连接</h2>
-      <p className="mt-1 text-xs text-fd-muted-foreground">
-        填一个 helper 的 <code className="font-mono">webrtc-direct</code> 地址（带{" "}
-        <code className="font-mono">/p2p/&lt;id&gt;</code>{" "}
-        尾段）。浏览器不 listen 本地 socket，要被对端拨回得先建立 circuit 可达地址。
+      <h2 className="text-sm font-semibold text-foreground">
+        <Trans>连接</Trans>
+      </h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        <Trans>
+          填一个 helper 的 <code className="font-mono">webrtc-direct</code> 地址（带{" "}
+          <code className="font-mono">/p2p/&lt;id&gt;</code>{" "}
+          尾段）。浏览器不 listen 本地 socket，要被对端拨回得先建立 circuit 可达地址。
+        </Trans>
       </p>
 
       <input
@@ -101,7 +109,7 @@ export function ConnectionPanel() {
           disabled={!ready || !addr.trim() || connectAction.pending}
           className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
         >
-          {connectAction.pending ? "连接中…" : "connect"}
+          {connectAction.pending ? <Trans>连接中…</Trans> : "connect"}
         </button>
         <button
           type="button"
@@ -109,7 +117,7 @@ export function ConnectionPanel() {
           disabled={!ready || !addr.trim() || reserveAction.pending}
           className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
         >
-          {reserveAction.pending ? "建立中…" : "建立可达（circuit）"}
+          {reserveAction.pending ? <Trans>建立中…</Trans> : <Trans>建立可达（circuit）</Trans>}
         </button>
         {reservation && (
           <button
@@ -118,7 +126,7 @@ export function ConnectionPanel() {
             disabled={!ready || dropAction.pending}
             className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
           >
-            {dropAction.pending ? "撤销中…" : "撤销"}
+            {dropAction.pending ? <Trans>撤销中…</Trans> : <Trans>撤销</Trans>}
           </button>
         )}
       </div>
@@ -128,7 +136,7 @@ export function ConnectionPanel() {
       {connection && (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-fd-border bg-fd-background px-3 py-2">
           <StatusDot colorClass={PATH_META[connection.path].dot} />
-          <span className="text-xs font-medium text-fd-foreground">{PATH_META[connection.path].label}</span>
+          <span className="text-xs font-medium text-foreground">{t(PATH_META[connection.path].label)}</span>
           <span className="truncate font-mono text-xs text-fd-muted-foreground">{connection.addr}</span>
         </div>
       )}
@@ -138,12 +146,14 @@ export function ConnectionPanel() {
 
       {reservation && (
         <div className="mt-3">
-          <p className="text-xs font-medium text-fd-muted-foreground">
-            circuit 可达地址（供{" "}
-            <Link href={NAV.devices.href} className="underline underline-offset-2">
-              设备
-            </Link>{" "}
-            页的「生成邀请」使用，刷新前有效）
+          <p className="text-xs font-medium text-muted-foreground">
+            <Trans>
+              circuit 可达地址（供{" "}
+              <Link href={NAV.devices.href} className="underline underline-offset-2">
+                设备
+              </Link>{" "}
+              页的「生成邀请」使用，刷新前有效）
+            </Trans>
           </p>
           <p className="mt-1 break-all rounded-lg border border-fd-border bg-fd-background px-3 py-2 font-mono text-xs text-fd-foreground">
             {reservation}

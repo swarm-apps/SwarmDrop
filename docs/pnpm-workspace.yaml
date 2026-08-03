@@ -5,12 +5,20 @@
 # 不会再向上找到仓库根的 pnpm-workspace.yaml（其 `packages: - .` 不含 docs）而
 # “劫持”本目录的安装——被劫持时会按根依赖装进根 node_modules、docs/node_modules 为空，
 # 导致 CI 里 `next build` 报 next: not found。
+#
+# **本 workspace 只有 docs 自己一个成员。** 两个共享包都住在仓库根的 `packages/`，
+# docs 一律用 `link:` 引用，不作为本 workspace 的成员——同一个包同时属于两个 workspace
+# 会让「谁负责装它的依赖」变得含糊：
+#
+#   packages/swarmdrop-web    crates/web 经 wasm-pack 构建的产物（提交入库）。
+#                             由 docs 的 `pnpm build:wasm` 输出到此，见 crates/web/README。
+#                             macOS 另需 export CC/AR_wasm32_unknown_unknown 指向 homebrew llvm。
+#   packages/shared-view      三端共享的纯视图逻辑（TS 源，见该包 README）。
+#
+# 两者都在 docs/ 之外，所以 `next.config.mjs` 的 `turbopack.root` 必须是仓库根——
+# turbopack 的 root 是文件系统边界，落在外面的文件进不了模块图。
 packages:
   - .
-  # swarmdrop-web：crates/web 经 wasm-pack 构建的产物包（提交入库，`workspace:*` 引用）。
-  # 由 docs 的 `pnpm build:wasm`（见 crates/web/README）输出到此，/try 测试页 import 它。
-  # macOS 另需 export CC/AR_wasm32_unknown_unknown 指向 homebrew llvm。
-  - packages/*
 
 # pnpm 10+ 默认不执行未批准依赖的 build 脚本，且在 frozen 安装下会以非零码退出
 # （ERR_PNPM_IGNORED_BUILDS）。这里批准 docs 依赖里带 native 二进制的包运行其构建脚本，

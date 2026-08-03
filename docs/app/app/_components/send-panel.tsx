@@ -1,28 +1,48 @@
 "use client";
 
-// #78 发送面板：选已配对设备 → 拖拽/选择文件 → send_files() → prepare 进度实时展示。
-// 隐式优先 + 极客高效（PRODUCT.md 原则 1/3）：选设备、拖文件、送达，路径尽量短，不堆确认
-// 层级；prepare 是真实阶段而非假 loading（原则 2·状态诚实可见）。
-// 发送完成（Offer 已发出）后的实时进度视图交给 ⑥（#80）；本面板只多接了 #79 的一项——对方拒绝
-// （尤其未配对硬拒 NotPaired）不能悬空成永远的「已发出」，见下方 rejection 分支。
+// 发送面板：选目标 → 拖/选文件 → `send_files()` → prepare 进度实时展示。
 //
-// #92：设备页点「发送」会带 `?peerId=` 进来预选目标。读 query 就必须有 Suspense 边界
-// （静态导出下预渲染阶段拿不到 query，没边界 `next build` 直接报 CSR bailout）——边界包在
-// 本文件导出的 `SendPanel` 里，调用方拿到的就是安全的版本，不必记得自己套。
+// ## 目标选择器是**落点与纠错**，不是入口（DESIGN.md 的 Send Entry Contract）
+//
+// 正常路径是从设备卡片点「发送」进来，`?peerId=` 已经把目标带好了——那时这里呈现的是一张
+// **已确认的目标卡**，而不是一个还要再选一次的下拉框。下拉框只在两种情况下出场：
+// 直接访问本页（没带 peerId），或用户主动点「更换」。
+//
+// 此前这里是「表单优先」：进来先面对一个 `<select>`，与桌面/移动的「设备优先」心智分叉。
+//
+// 隐式优先 + 极客高效（PRODUCT.md 原则 1/3）：路径尽量短、不堆确认层级；
+// prepare 是真实阶段而非假 loading（原则 2·状态诚实可见）。
+//
+// ## 读 query 必须有 Suspense 边界
+//
+// 静态导出下预渲染阶段拿不到 query，没边界 `next build` 直接报 CSR bailout。边界包在本文件
+// 导出的 `SendPanel` 里，调用方拿到的就是安全的版本，不必记得自己套。
+// **不要把 `useSearchParams()` 写在套边界的那一层**——那样边界在读取点外面才有用。
 
+import { Trans, useLingui } from "@lingui/react/macro";
+import { ArrowLeftRight, Paperclip, Send, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
-import { PanelFallback } from "./panel-fallback";
-import { ProgressBar } from "./progress-bar";
-import { WebErrorCard } from "./web-error-view";
-import { calcPercent, formatFileSize } from "../_lib/format";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  calcPercent,
+  canSendToDevice,
+  formatFileSize,
+  organizedDeviceName,
+} from "@swarmdrop/shared-view";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
+import { deviceIcon } from "../_lib/device-presentation";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
-import { deviceDisplayName } from "../_lib/device-name";
 import { getNode } from "../_lib/node-runtime";
+import { usePreferences } from "../_lib/preferences-store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode } from "../_lib/store";
-import { OFFER_REJECT_REASON_LABEL } from "../_lib/view-types";
+import { OFFER_REJECT_REASON_LABEL, type Device } from "../_lib/view-types";
+import { PanelFallback } from "./panel-fallback";
+import { ProgressBar } from "./progress-bar";
+import { StatusDot } from "./status-dot";
+import { WebErrorCard } from "./web-error-view";
 
 /** 待发送文件项——配 id 而非数组下标做 key，移除文件时不会因下标前移而错位复用。 */
 interface PendingFile {
@@ -34,45 +54,58 @@ let nextFileId = 0;
 
 export function SendPanel() {
   return (
-    <Suspense fallback={<PanelFallback>正在准备发送…</PanelFallback>}>
+    <Suspense fallback={<PanelFallback>
+          <Trans>正在准备发送…</Trans>
+        </PanelFallback>}>
       <SendPanelInner />
     </Suspense>
   );
 }
 
 function SendPanelInner() {
+  const { t } = useLingui();
   const nodeStatus = useWebNode((s) => s.status);
   const devices = useWebNode((s) => s.pairedDevices);
+  const organization = usePreferences((s) => s.deviceOrganization);
   const prepareProgress = useWebNode((s) => s.latestPrepareProgress);
   const ready = nodeStatus === "running";
 
   // 同一路由内 `?peerId=` 变化（如从设备页改点另一台设备的「发送」）不会重挂本组件，
   // 故初始值之外还要跟随 query 同步。
-  // 注意这只在 query **变化**时生效：手动改选后又点回同一台设备（query 没变）不会重置选择，
-  // 那种情况下下拉框里改回去就是了，不值得为它引入一个额外的「链接点击」信号。
   const requestedPeerId = useSearchParams().get(PARAM.peerId) ?? "";
   const [peerId, setPeerId] = useState(requestedPeerId);
+  /** 用户主动点「更换」后才展开选择器；带着有效 peerId 进来时它是收起的。 */
+  const [pickerOpen, setPickerOpen] = useState(false);
   useEffect(() => {
-    if (requestedPeerId) setPeerId(requestedPeerId);
+    if (!requestedPeerId) return;
+    setPeerId(requestedPeerId);
+    setPickerOpen(false);
   }, [requestedPeerId]);
 
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [sentSessionId, setSentSessionId] = useState<string | null>(null);
   const sendAction = useAsyncAction();
-  // #79：对方拒绝了刚发出的 offer（尤其未配对硬拒 NotPaired）——不能让「已发出」成功态
-  // 永久悬空显示，必须替换成清晰的拒绝提示。
+  // 对方拒绝了刚发出的 offer（尤其未配对硬拒 NotPaired）——不能让「已发出」成功态永久悬空。
   const rejection = useWebNode((s) => (sentSessionId ? s.rejections[sentSessionId] : undefined));
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // selector 只返回 store 内的稳定引用，派生放这里（`pnpm check:zustand-access` 规则 B）。
+  const target = useMemo(
+    () => devices.find((device) => device.peerId === peerId) ?? null,
+    [devices, peerId],
+  );
+  // `?peerId=` 是**外部输入**：链接可能来自已解除配对、已下线的设备，也可能是手输的。
+  // 只判 `!!peerId` 会让按钮在必然失败的目标上亮着，用户点完只收到一条内核报错。
+  // 同时兜住「选好设备后对方转离线」这个时间窗。
+  const targetValid = target !== null && canSendToDevice(target);
+  const totalBytes = useMemo(() => files.reduce((sum, f) => sum + f.file.size, 0), [files]);
+  const canSend = ready && targetValid && files.length > 0 && !sendAction.pending;
 
   const addFiles = (list: FileList | null) => {
     if (!list || list.length === 0) return;
     setFiles((prev) => [...prev, ...Array.from(list, (file) => ({ id: nextFileId++, file }))]);
     setSentSessionId(null);
-  };
-
-  const removeFile = (id: number) => {
-    setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
   const doSend = () => {
@@ -87,152 +120,271 @@ function SendPanelInner() {
     );
   };
 
-  // `?peerId=` 是**外部输入**：链接可能来自已解除配对、已下线的设备，也可能是手输的。
-  // 手动 select 选出来的必然有效（离线项是 disabled 的），但 query 带进来的不是——
-  // 只判 `!!peerId` 会让按钮在必然失败的目标上亮着，用户点完只收到一条内核报错。
-  // 同时兜住「选好设备后对方转离线」这个时间窗。
-  const targetValid = devices.some((d) => d.peerId === peerId && d.status === "online");
-  const canSend = ready && targetValid && files.length > 0 && !sendAction.pending;
+  if (devices.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed bg-card/50 px-6 py-10 text-center">
+        <p className="text-sm font-medium text-foreground">
+          <Trans>还没有可发送的设备</Trans>
+        </p>
+        <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+          <Trans>
+            发送需要先与对方配对。到{" "}
+            <Link href={NAV.devices.href} className="font-medium text-brand underline underline-offset-2">
+              设备
+            </Link>{" "}
+            页完成一次配对，之后就能直接从设备卡片发送。
+          </Trans>
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
-      {devices.length === 0 ? (
-        <p className="text-xs text-fd-muted-foreground">
-          还没有已配对设备，先去{" "}
-          <Link href={NAV.devices.href} className="font-medium text-fd-foreground underline underline-offset-2">
+    <div className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-6">
+      <TargetSection
+        target={target}
+        targetValid={targetValid}
+        pickerOpen={pickerOpen || target === null}
+        devices={devices}
+        organization={organization}
+        disabled={!ready || sendAction.pending}
+        onPick={(id) => {
+          setPeerId(id);
+          setPickerOpen(false);
+        }}
+        onChangeRequest={() => setPickerOpen(true)}
+      />
+
+      <div
+        className={cn(
+          "rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors",
+          dragOver ? "border-[var(--brand-solid)] bg-accent" : "border-border",
+        )}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragOver(false);
+          addFiles(event.dataTransfer.files);
+        }}
+      >
+        <Paperclip className="mx-auto size-5 text-muted-foreground" aria-hidden />
+        {/* 手机浏览器没有拖拽，所以按钮是独立的首要入口，不是「或者」后面的补充。 */}
+        <p className="mt-2 text-xs text-muted-foreground">
+          <Trans>把文件拖到这里</Trans>
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          className="mt-2 min-h-11 sm:min-h-9"
+        >
+          <Trans>选择文件</Trans>
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            addFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
+      </div>
+
+      {files.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">
+            <Trans>
+              已选 {files.length} 个文件 · 共 {formatFileSize(totalBytes)}
+            </Trans>
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {files.map(({ id, file }) => (
+              <li
+                key={id}
+                className="flex items-center justify-between gap-2 rounded-lg border bg-background px-3 py-2 text-xs"
+              >
+                <span className="truncate text-foreground">{file.name}</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="font-mono tabular-nums text-muted-foreground">
+                    {formatFileSize(file.size)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setFiles((prev) => prev.filter((f) => f.id !== id))}
+                    disabled={sendAction.pending}
+                    aria-label={t`移除 ${file.name}`}
+                    className="-m-2 flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                  >
+                    <X className="size-4" aria-hidden />
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <Button onClick={doSend} disabled={!canSend} className="min-h-11 gap-1.5 sm:min-h-9">
+        <Send className="size-4" aria-hidden />
+        {sendAction.pending ? <Trans>发送中…</Trans> : <Trans>发送</Trans>}
+      </Button>
+
+      {sendAction.pending && prepareProgress && (
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-muted-foreground">
+            <Trans>
+              正在准备 {prepareProgress.currentFile}（{prepareProgress.completedFiles}/
+              {prepareProgress.totalFiles} 文件 · {formatFileSize(prepareProgress.bytesHashed)}/
+              {formatFileSize(prepareProgress.totalBytes)}）
+            </Trans>
+          </p>
+          <ProgressBar
+            percent={calcPercent(prepareProgress.bytesHashed, prepareProgress.totalBytes)}
+          />
+        </div>
+      )}
+
+      {sendAction.error && <WebErrorCard error={sendAction.error} className="text-xs" />}
+
+      {sentSessionId && !rejection && (
+        <p className="text-xs text-emerald-600 dark:text-emerald-400">
+          <Trans>已发出，等待对方接受。</Trans>{" "}
+          {/* 实时进度归传输页，这里只给入口——直接带上 session，落地即选中该条。 */}
+          <Link
+            href={transferSessionHref(sentSessionId)}
+            className="font-medium underline underline-offset-2"
+          >
+            <Trans>查看传输</Trans>
+          </Link>
+        </p>
+      )}
+
+      {rejection?.reason && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          {t(OFFER_REJECT_REASON_LABEL[rejection.reason.type])}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 目标区。两种形态：
+ *
+ * - **已确认**（带着有效 `?peerId=` 进来）：一张只读的目标卡 + 一个「更换」入口。
+ *   用户已经在设备页做过选择，这里再摆一个下拉框等于让他确认自己刚做过的事。
+ * - **待选**（直接访问本页，或点了「更换」）：出下拉框，并同时给一条回设备页的路——
+ *   那才是契约里的主路径。
+ */
+function TargetSection({
+  target,
+  targetValid,
+  pickerOpen,
+  devices,
+  organization,
+  disabled,
+  onPick,
+  onChangeRequest,
+}: {
+  target: Device | null;
+  targetValid: boolean;
+  pickerOpen: boolean;
+  devices: Device[];
+  organization: Parameters<typeof organizedDeviceName>[1];
+  disabled: boolean;
+  onPick: (peerId: string) => void;
+  onChangeRequest: () => void;
+}) {
+  const { t } = useLingui();
+
+  if (target && !pickerOpen) {
+    const Icon = deviceIcon(target.os);
+    const online = target.status === "online";
+    return (
+      <div className="flex items-center gap-3 rounded-lg border bg-background p-3">
+        <div
+          className={cn(
+            "flex size-10 shrink-0 items-center justify-center rounded-lg",
+            online ? "bg-[var(--brand-solid)]/12 text-brand" : "bg-muted text-muted-foreground",
+          )}
+        >
+          <Icon className="size-5" aria-hidden />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <p className="truncate text-sm font-medium text-foreground">
+            {organizedDeviceName(target, organization)}
+          </p>
+          <span className="flex items-center gap-1.5 text-xs">
+            <StatusDot colorClass={online ? "bg-emerald-500" : "bg-muted-foreground"} />
+            <span
+              className={online ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}
+            >
+              {online ? <Trans>在线</Trans> : <Trans>离线</Trans>}
+            </span>
+          </span>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onChangeRequest}
+          disabled={disabled}
+          className="min-h-11 shrink-0 gap-1.5 sm:min-h-9"
+        >
+          <ArrowLeftRight className="size-4" aria-hidden />
+          <Trans>更换</Trans>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-foreground">
+          <Trans>目标设备</Trans>
+        </span>
+        <select
+          aria-label={t`目标设备`}
+          className="h-11 rounded-md border bg-background px-3 text-sm text-foreground sm:h-9"
+          value={target?.peerId ?? ""}
+          onChange={(event) => onPick(event.target.value)}
+          disabled={disabled}
+        >
+          <option value="">{t`选择设备…`}</option>
+          {devices.map((device) => (
+            <option key={device.peerId} value={device.peerId} disabled={device.status !== "online"}>
+              {organizedDeviceName(device, organization)}
+              {device.status !== "online" ? t`（离线）` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {target && !targetValid && (
+        // 选了目标却发不出去时，把原因说出来——否则「发送」按钮只是灰着，而灰按钮不解释自己
+        // （PRODUCT.md 原则 2·状态诚实可见）。
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          <Trans>这台设备当前离线或已被阻止，换一台再试。</Trans>
+        </p>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        <Trans>
+          也可以直接从{" "}
+          <Link href={NAV.devices.href} className="font-medium text-brand underline underline-offset-2">
             设备
           </Link>{" "}
-          页完成配对。
-        </p>
-      ) : (
-        <>
-          <select
-            aria-label="目标设备"
-            className="w-full rounded-lg border border-fd-border bg-fd-background px-3 py-2 text-xs text-fd-foreground"
-            value={peerId}
-            onChange={(e) => setPeerId(e.target.value)}
-            // 选设备/移除文件不受「是否已选目标」约束，故不复用 canSend——只挡节点未就绪/发送中。
-            disabled={!ready || sendAction.pending}
-          >
-            <option value="">选择设备…</option>
-            {devices.map((d) => (
-              <option key={d.peerId} value={d.peerId} disabled={d.status !== "online"}>
-                {deviceDisplayName(d)}
-                {d.status !== "online" ? "（离线）" : ""}
-              </option>
-            ))}
-          </select>
-
-          {/* 选了目标却发不出去时，把原因说出来——否则「发送」按钮只是灰着，
-              而灰按钮不解释自己（PRODUCT.md 原则 2·状态诚实可见）。 */}
-          {peerId && !targetValid && (
-            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-              这台设备不在已配对列表里，或当前离线——请重新选择。
-            </p>
-          )}
-
-          <div
-            className={`mt-3 rounded-lg border-2 border-dashed px-4 py-6 text-center text-xs transition-colors ${
-              dragOver ? "border-[var(--brand-solid)] bg-fd-accent" : "border-fd-border"
-            }`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              addFiles(e.dataTransfer.files);
-            }}
-          >
-            <p className="text-fd-muted-foreground">
-              拖拽文件到此处，或{" "}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="font-medium text-fd-foreground underline underline-offset-2"
-              >
-                选择文件
-              </button>
-            </p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                addFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-          </div>
-
-          {files.length > 0 && (
-            <ul className="mt-2 space-y-1">
-              {files.map(({ id, file }) => (
-                <li
-                  key={id}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-fd-border bg-fd-background px-3 py-1.5 text-xs"
-                >
-                  <span className="truncate text-fd-foreground">{file.name}</span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <span className="font-mono text-fd-muted-foreground">{formatFileSize(file.size)}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeFile(id)}
-                      disabled={sendAction.pending}
-                      className="text-fd-muted-foreground hover:text-fd-foreground disabled:opacity-50"
-                      aria-label={`移除 ${file.name}`}
-                    >
-                      ×
-                    </button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <button
-            type="button"
-            onClick={doSend}
-            disabled={!canSend}
-            className="mt-3 rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
-          >
-            {sendAction.pending ? "发送中…" : "发送"}
-          </button>
-
-          {sendAction.pending && prepareProgress && (
-            <div className="mt-3">
-              <p className="text-xs text-fd-muted-foreground">
-                正在准备 {prepareProgress.currentFile}（{prepareProgress.completedFiles}/
-                {prepareProgress.totalFiles} 文件 · {formatFileSize(prepareProgress.bytesHashed)}/
-                {formatFileSize(prepareProgress.totalBytes)}）
-              </p>
-              <ProgressBar
-                percent={calcPercent(prepareProgress.bytesHashed, prepareProgress.totalBytes)}
-                className="mt-1"
-              />
-            </div>
-          )}
-
-          {sendAction.error && <WebErrorCard error={sendAction.error} className="mt-3 text-xs" />}
-          {sentSessionId && !rejection && (
-            <p className="mt-3 text-xs text-emerald-600 dark:text-emerald-400">
-              已发出：<span className="font-mono">{sentSessionId}</span>（对方接受后即可传输）·{" "}
-              {/* 实时进度归传输页，这里只给入口——直接带上 session，落地即选中该条。 */}
-              <Link href={transferSessionHref(sentSessionId)} className="font-medium underline underline-offset-2">
-                查看传输
-              </Link>
-            </p>
-          )}
-          {rejection && (
-            <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
-              {rejection.reason ? OFFER_REJECT_REASON_LABEL[rejection.reason.type] : "对方拒绝了此次传输"}
-            </p>
-          )}
-        </>
-      )}
+          页点某台设备的「发送」，目标会自动带过来。
+        </Trans>
+      </p>
     </div>
   );
 }

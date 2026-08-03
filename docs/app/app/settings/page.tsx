@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { ConnectionPanel } from "../_components/connection-panel";
 import { DevEventLog } from "../_components/dev-event-log";
+import { LocaleSwitcher } from "../_components/locale-switcher";
 import { NodePanel } from "../_components/node-panel";
 import { PageHeader } from "../_components/page-header";
-import { NAV } from "../_lib/nav";
+import { NAV, navTitle } from "../_lib/nav";
 
-export const metadata: Metadata = { title: NAV.settings.label };
+export const metadata: Metadata = { title: navTitle(NAV.settings) };
 
 // 低频配置 + 诊断区（#94）。这三块原先与收发主路径并列在单页里，使用频率却差两个数量级。
 //
@@ -14,7 +15,8 @@ export const metadata: Metadata = { title: NAV.settings.label };
 export default function SettingsPage() {
   return (
     <>
-      <PageHeader item={NAV.settings} />
+      <PageHeader nav="settings" />
+      <LocaleSwitcher />
       <NodePanel />
       <ConnectionPanel />
       <DevEventLog />

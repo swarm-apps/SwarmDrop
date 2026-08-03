@@ -6,6 +6,7 @@
  */
 
 import { Trans } from "@lingui/react/macro";
+import { formatTransferRate } from "@swarmdrop/shared-view";
 import { Download, Send } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";
@@ -197,30 +198,20 @@ export function ProgressBar({
 
 /* ─── 格式化函数 ─── */
 
-export function formatBytes(bytes: number | bigint): string {
-  const n = typeof bytes === "bigint" ? Number(bytes) : bytes;
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
+/**
+ * 字节量与百分比已收口到 `@swarmdrop/shared-view`（三端同一份取整规则）。
+ * `formatBytes` 是移动端沿用的名字，保留以免全量改调用点。
+ */
+export { formatFileSize as formatBytes, calcPercent } from "@swarmdrop/shared-view";
 
-/** 速率：null / 非正数显示 "—"（与桌面 formatSpeed 行为一致）。 */
+/**
+ * 速率：算不出来时显示 "—"。
+ *
+ * 共享的 [`formatTransferRate`] 返回 `null` 而非占位串——占位是一句要翻译的文案，
+ * 三端各有各的说法，不该烤进格式化函数。这里补上移动端的破折号。
+ */
 export function formatSpeed(bytesPerSec: number | bigint | null): string {
-  if (bytesPerSec == null) return "—";
-  const n = typeof bytesPerSec === "bigint" ? Number(bytesPerSec) : bytesPerSec;
-  if (!Number.isFinite(n) || n <= 0) return "—";
-  return `${formatBytes(n)}/s`;
-}
-
-export function calcPercent(
-  transferred: number | bigint,
-  total: number | bigint,
-): number {
-  const t = typeof total === "bigint" ? Number(total) : total;
-  const tr =
-    typeof transferred === "bigint" ? Number(transferred) : transferred;
-  return t > 0 ? Math.min(100, Math.round((tr / t) * 100)) : 0;
+  return formatTransferRate(bytesPerSec) ?? "—";
 }
 
 /** 相对时间，不引入 dayjs/date-fns，保持依赖最小 */

@@ -1,9 +1,10 @@
-//! Rust → JS 的统一序列化器。
+//! 跨 wasm 边界的统一 serde 编解码器。
 //!
-//! **所有跨 wasm 边界的 serde 序列化都必须走这里**，不要直接调
-//! [`serde_wasm_bindgen::to_value`]。
+//! **所有跨边界的 serde 转换都必须走这里**，不要直接调 [`serde_wasm_bindgen`] 的
+//! `to_value` / `from_value`——出站那一侧有一个必须带的选项（见 [`to_js`]），
+//! 而入站那一侧要的是统一的错误形态。
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::JsValue;
@@ -31,6 +32,17 @@ pub(crate) fn to_js<T: Serialize + ?Sized>(
     value: &T,
 ) -> Result<JsValue, serde_wasm_bindgen::Error> {
     value.serialize(&serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true))
+}
+
+/// JS → Rust。入站方向**没有**出站那个 `serialize_maps_as_objects` 的对应项：
+/// 反序列化器本来就接受普通对象，普通对象正是 `.d.ts` 声明的形状。
+///
+/// 存在的理由只有一条：入口收在一处，于是「跨边界的 serde 转换都走 `crate::serialize`」
+/// 这句话对两个方向都成立，不必让读代码的人去分辨哪个方向有讲究、哪个没有。
+pub(crate) fn from_js<T: for<'de> Deserialize<'de>>(
+    value: JsValue,
+) -> Result<T, serde_wasm_bindgen::Error> {
+    serde_wasm_bindgen::from_value(value)
 }
 
 #[cfg(test)]
@@ -94,6 +106,69 @@ mod tests {
             get("platform").and_then(|v| v.as_string()).as_deref(),
             Some("web"),
             "被 flatten 展开的字段同样要能按名读取"
+        );
+    }
+
+    /// `DeviceReceivePolicy` 能从**普通 JS 对象**反序列化回来。
+    ///
+    /// 这是 [`from_js`] 的守卫，与上面那条序列化守卫成对：出站那条钉的是「别输出成 `Map`」，
+    /// 这条钉的是「`.d.ts` 声明的那个形状真的收得回来」。
+    ///
+    /// 它守的是一条**没有编译期保护**的缝：`typescript_type = "DeviceReceivePolicy"` 里那个
+    /// 类型名是个**字符串，wasm-bindgen 不校验**——TS 那侧按 `.d.ts` 传得再对，Rust 这侧的
+    /// serde 属性（`rename_all` / `#[serde(default)]`）改了也不会有人报错，只会在运行时
+    /// 变成一句「解析收件策略失败」。
+    ///
+    /// 断言分三层：必填字段收得到、`#[serde(default)]` 的字段缺席时不报错（前端只发它编辑过
+    /// 的那几项时正是这样）、`Option<u64>` 收得到 JS 的 Number（`.d.ts` 里它被重映射成
+    /// `number`，不是 BigInt）。
+    ///
+    /// 跑法见 `dev-notes/knowledge/toolchain.md` 的「跑 crates/web 的 wasm 测试」。
+    #[wasm_bindgen_test]
+    fn receive_policy_deserializes_from_plain_object() {
+        use swarmdrop_host::device::DeviceReceivePolicy;
+
+        let obj = js_sys::Object::new();
+        let set = |k: &str, v: JsValue| {
+            js_sys::Reflect::set(&obj, &JsValue::from_str(k), &v).expect("set 不应失败");
+        };
+        set("autoAccept", JsValue::TRUE);
+        set("requireConfirmation", JsValue::FALSE);
+        set("allowDirectories", JsValue::TRUE);
+        set("allowRelayAutoAccept", JsValue::FALSE);
+        set("allowMcpSendToDevice", JsValue::FALSE);
+        set("maxTransferBytes", JsValue::from_f64(536_870_912.0));
+        // saveBehavior / defaultSaveLocation / allowMcpAcceptFromDevice / expiresAt 刻意不给：
+        // 它们都带 `#[serde(default)]`，缺席必须能过。
+
+        let policy: DeviceReceivePolicy = from_js(obj.into()).expect("普通对象应能反序列化");
+
+        assert!(policy.auto_accept);
+        assert!(!policy.require_confirmation);
+        assert!(policy.allow_directories);
+        assert_eq!(policy.max_transfer_bytes, Some(536_870_912));
+        assert_eq!(policy.expires_at, None, "缺席的可选字段应落到默认值");
+    }
+
+    /// `DeviceTrustLevel` 能从**裸字符串**反序列化回来（`.d.ts` 里它是字符串字面量联合）。
+    #[wasm_bindgen_test]
+    fn trust_level_deserializes_from_string() {
+        use swarmdrop_host::device::DeviceTrustLevel;
+
+        for (text, expected) in [
+            ("owned", DeviceTrustLevel::Owned),
+            ("collaborator", DeviceTrustLevel::Collaborator),
+            ("temporary", DeviceTrustLevel::Temporary),
+            ("blocked", DeviceTrustLevel::Blocked),
+        ] {
+            let level: DeviceTrustLevel =
+                from_js(JsValue::from_str(text)).expect("字符串应能反序列化");
+            assert_eq!(level, expected, "{text} 应映射到对应级别");
+        }
+
+        assert!(
+            from_js::<DeviceTrustLevel>(JsValue::from_str("nonsense")).is_err(),
+            "未知级别应报错而不是静默落到某个默认值"
         );
     }
 }

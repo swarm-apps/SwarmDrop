@@ -76,8 +76,15 @@ where
     };
 
     device.trust_level = trust_level;
-    device.receive_policy =
-        receive_policy.unwrap_or_else(|| DeviceReceivePolicy::for_trust_level(trust_level));
+    // `None` = 「按新级别取默认」。**带上这台设备当前的策略**——用户显式设过的保存位置与
+    // 代收授权要留住，判据见 [`DeviceReceivePolicy::for_trust_level`]。
+    //
+    // 此前这里传的是「没有上一份」，于是同一个产品动作有两种行为：桌面 UI 走自己那份 JS
+    // 副本会保留保存位置，而任何直接传 `None` 的路径（MCP 工具、将来的批量操作）会把它清掉，
+    // 表现是自动接收静默失效而开关还开着。规则收进内核之后这条缝没了。
+    device.receive_policy = receive_policy.unwrap_or_else(|| {
+        DeviceReceivePolicy::for_trust_level(trust_level, Some(&device.receive_policy))
+    });
     device.trust_confirmed = true;
     let updated = device.clone();
 

@@ -40,9 +40,9 @@ import {
   deviceIdentityHint,
   hasDuplicateOrganizedName,
   organizedDeviceName,
-  sortGroups,
+  sortDeviceGroups,
   type DeviceOrganization,
-} from "@/lib/device-organization";
+} from "@swarmdrop/shared-view";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import {
   DeviceGroupsDialog,
@@ -477,7 +477,7 @@ function PairedDevicesSection({
           >
             <Trans>未分组</Trans>
           </GroupFilterButton>
-          {sortGroups(organization.groups).map((group) => (
+          {sortDeviceGroups(organization.groups).map((group) => (
               <GroupFilterButton
                 key={group.id}
                 selected={selectedGroupId === group.id}

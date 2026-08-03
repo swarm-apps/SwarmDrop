@@ -3,6 +3,8 @@
 
 # generated content
 .source
+# Lingui 编译产物（.po 是事实源，入库；.ts 由 `lingui compile` 从它生成）
+/app/app/_locales/*/messages.ts
 
 # test & build
 /coverage

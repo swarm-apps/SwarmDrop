@@ -1,19 +1,35 @@
 @import "tailwindcss";
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
+/* shadcn/ui 的进出场动画（animate-in / fade-in / slide-in-from-*）来自这里，
+   dialog / dropdown / sheet 缺了它就是硬切。与桌面 src/index.css 同一个 import。 */
+@import "tw-animate-css";
 
 /*
- * SwarmDrop 品牌色：青绿主体 + 赤铜中心（取自新 logo 的双色方案），与桌面应用主题同源。
+ * SwarmDrop 品牌色：青绿主体 + 赤铜中心（取自新 logo 的双色方案），与桌面应用主题**同源**。
  * 青绿实心底 --brand-solid 恒配 --brand-ink 深墨字（4.9:1），避免小字白字对比不足；
  * 强调文字/图标用 --brand（亮模式加深到白底 5.3:1，暗模式切亮青绿）。
  * --tile 是应用暗色画布的深藏蓝，用于 CTA 等「深底品牌图形」场景，两种模式不变。
  * Fumadocs 自带 --color-fd-* 前缀变量，两套互不冲突。
+ *
+ * ## 三个青绿与桌面的对应关系（改任一个都要同改桌面 src/index.css）
+ *
+ * | 这里          | 桌面 src/index.css   | 用途           |
+ * |---------------|----------------------|----------------|
+ * | --brand       | --brand              | 强调文字/图标  |
+ * | --brand-solid | --primary            | 实心底         |
+ * | --brand-ink   | --primary-foreground | 实心底上的文字 |
+ *
+ * **值写成与桌面逐字相同的 oklch 表达式**，而不是它们的 hex 转换结果。此前这里是 hex
+ * （#087968 / #5ee0c8 / #0f8f7a / #13a38c），实测与桌面 oklch 的 sRGB 转换最大通道差 0–1，
+ * 即本来就是同一组颜色——但「同一组」这件事只能靠人去转换才看得出来，改一边漏另一边不会有
+ * 任何提示。写成同样的表达式后，两份文件的这几行可以直接肉眼比对。
  */
 :root {
-  --brand: #087968; /* 强调文字/图标/描边，白底 5.3:1 */
+  --brand: oklch(0.516 0.093 178.2); /* 强调文字/图标/描边，白底 5.3:1 */
   --brand-strong: #066457;
-  --brand-solid: #0f8f7a; /* 实心按钮/面板底色，恒配 --brand-ink */
-  --brand-ink: #020817; /* 青绿底上的文字 */
+  --brand-solid: oklch(0.583 0.105 177.1); /* 实心按钮/面板底色，恒配 --brand-ink */
+  --brand-ink: oklch(0.136 0.036 259.2); /* 青绿底上的文字 */
   --brand-soft: #e3f7f1;
   --brand-warm: #c56a42; /* logo 中心赤铜色，小面积品牌温度 */
   --sky: #0ea5e9; /* sky-500：天蓝点缀保留 */
@@ -21,14 +37,89 @@
 }
 
 .dark {
-  --brand: #5ee0c8; /* 暗底亮青绿 12:1+ */
+  --brand: oklch(0.828 0.12 179); /* 暗底亮青绿 12:1+ */
   --brand-strong: #8af0dd;
-  --brand-solid: #13a38c;
-  --brand-ink: #020817;
+  --brand-solid: oklch(0.641 0.115 177.6);
+  --brand-ink: oklch(0.136 0.036 259.2);
   --brand-soft: #0d3b34;
   --brand-warm: #e18762;
   --sky: #38bdf8; /* sky-400 */
   --tile: #0d111a;
+}
+
+/*
+ * ── shadcn/ui 语义 token 映射层 ────────────────────────────────────────────
+ *
+ * Web 应用区（app/app）用 shadcn/ui 作组件底座，而 shadcn 读的是 --color-background /
+ * --color-border 这类**无前缀**的语义 token；文档站的皮肤则由 fumadocs 的 --color-fd-*
+ * 提供。这一层把后者映射成前者，于是：
+ *
+ *   · 应用区拿到 shadcn 要的全套 token，不必自建第三套值；
+ *   · 文档区读的仍是 --color-fd-*，读不到这里的别名，呈现分毫不动；
+ *   · 明暗模式只有一份实现（fumadocs 的），不会出现两区不同步的瞬态。
+ *
+ * **只新增别名，绝不改写任何 --color-fd-* 的值**——那是文档区零影响的全部依据。
+ *
+ * fumadocs 没有覆盖的几个（destructive / input / chart-* / sidebar-*）在下面自给，
+ * 明暗各一。它们不参与文档区呈现，只服务应用区。
+ */
+:root {
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0.002 260);
+  --radius: 0.625rem;
+}
+
+.dark {
+  --destructive: oklch(0.67 0.19 25.723);
+  --destructive-foreground: oklch(0.985 0.002 260);
+}
+
+@theme inline {
+  --color-background: var(--color-fd-background);
+  --color-foreground: var(--color-fd-foreground);
+  --color-card: var(--color-fd-card);
+  --color-card-foreground: var(--color-fd-card-foreground);
+  --color-popover: var(--color-fd-popover);
+  --color-popover-foreground: var(--color-fd-popover-foreground);
+  --color-muted: var(--color-fd-muted);
+  --color-muted-foreground: var(--color-fd-muted-foreground);
+  --color-accent: var(--color-fd-accent);
+  --color-accent-foreground: var(--color-fd-accent-foreground);
+  --color-secondary: var(--color-fd-secondary);
+  --color-secondary-foreground: var(--color-fd-secondary-foreground);
+  --color-border: var(--color-fd-border);
+  --color-ring: var(--color-fd-ring);
+
+  /* primary 走**品牌色**而不是 fumadocs 的 primary：应用区的主按钮是产品身份的一部分，
+     跟着文档站主题走会让三端的主色对不上。 */
+  --color-primary: var(--brand-solid);
+  --color-primary-foreground: var(--brand-ink);
+  --color-brand: var(--brand);
+
+  /* fumadocs 没有 input，借 border——两者在这套皮肤里本就是同一个灰。 */
+  --color-input: var(--color-fd-border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  /*
+   * shadcn 的组件写的是裸 `border` / `outline`，默认颜色由这条 base 规则给出——
+   * 缺了它边框会落到 Tailwind 的 `currentColor`，表现为「边框跟着文字颜色变」。
+   *
+   * **作用域限定在应用区**（`[data-swarmdrop-app]`，挂在 app/app/layout.tsx 的根节点）。
+   * 桌面端那份是全局 `*`，因为整个 app 都归它管；这里不行——全局套用会把文档区每个元素的
+   * 默认边框色一起换掉，那正是「文档区零影响」的反面。
+   */
+  [data-swarmdrop-app],
+  [data-swarmdrop-app] * {
+    @apply border-border outline-ring/50;
+  }
 }
 
 html {

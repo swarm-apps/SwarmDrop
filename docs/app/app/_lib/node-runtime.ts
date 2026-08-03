@@ -6,7 +6,12 @@
 //     重复调用 spawnNode() 复用同一 Promise / 同一实例，绝不 spawn 出两个（events 只能取一次，
 //     两个节点会各起一条流互相抢）。
 
-import type { SwarmdropWebModule, WebNode } from "./view-types";
+import type {
+  DeviceReceivePolicy,
+  DeviceTrustLevel,
+  SwarmdropWebModule,
+  WebNode,
+} from "./view-types";
 
 let modulePromise: Promise<SwarmdropWebModule> | null = null;
 let node: WebNode | null = null;
@@ -74,6 +79,26 @@ export async function renameDevice(name: string | null): Promise<string | null> 
   await mod.set_device_name(name);
   // 模块级导出只落盘、不回传归一化结果，回读一次拿真正落库的那个值。
   return (await mod.get_device_name()) ?? null;
+}
+
+/**
+ * 某信任级别的默认接收策略。
+ *
+ * **纯派生，不需要节点**——所以走 `getModule()` 而不是 `getNode()`：信任策略界面在节点
+ * 起不来时也该能打开（同 `renameDevice` 的降级路径，理由见那里）。
+ *
+ * 表在内核（`DeviceReceivePolicy::for_trust_level`），前端不抄。`previous` 传该设备当前的
+ * 策略，用户显式设过的落点会被带过去（`blocked` 除外）。
+ *
+ * **必须是这层包装，不能在组件里静态 import**——本模块顶部那条约束：预渲染在 Node 里
+ * 加载 wasm 会挂，一律动态 import。
+ */
+export async function defaultReceivePolicy(
+  level: DeviceTrustLevel,
+  previous?: DeviceReceivePolicy,
+): Promise<DeviceReceivePolicy> {
+  const mod = await getModule();
+  return mod.default_receive_policy(level, previous);
 }
 
 /** 显式关停（NetManager::shutdown + 关 Endpoint）。供设置/退出流程调用。 */

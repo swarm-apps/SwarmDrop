@@ -8,11 +8,11 @@ vi.mock("@/lib/tauri-store", () => ({
   }),
 }));
 
+import { usePreferencesStore } from "./preferences-store";
 import {
+  emptyDeviceOrganization,
   normalizeDeviceOrganization,
-  usePreferencesStore,
-} from "./preferences-store";
-import { emptyDeviceOrganization } from "@/lib/device-organization";
+} from "@swarmdrop/shared-view";
 
 describe("file browser preferences", () => {
   beforeEach(() => {

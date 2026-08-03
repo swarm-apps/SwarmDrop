@@ -50,7 +50,7 @@ import {
 } from "@/core/file-access";
 import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { organizedDeviceName } from "@/lib/device-organization";
+import { organizedDeviceName } from "@swarmdrop/shared-view";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { cn, errorMessage } from "@/lib/utils";

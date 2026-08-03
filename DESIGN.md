@@ -200,6 +200,78 @@ The system runs two elevation languages side by side, and the split is deliberat
 - **Focus:** border shifts to `ring` color plus a 3px `ring-ring/50` halo — no glow, no color change beyond the ring.
 - **Error / Disabled:** invalid state adds a destructive-tinted ring; disabled drops to 50% opacity and disables pointer events.
 
+### Device Card Contract (cross-platform)
+
+**This section binds all three builds — desktop, mobile, and web.** They are three separate
+implementations (React DOM / React Native / React DOM under a different bundler), so the shared
+artifact is this spec, not a shared component. Data is not the constraint: the `Device` DTO all
+three receive is generated from the same Rust struct (`crates/host/src/device.rs`) through three
+codegens, so every field below is available everywhere.
+
+**Required information slots.** A paired-device card SHALL present all eight:
+
+| # | Slot | Source | Notes |
+|---|---|---|---|
+| 1 | Device-type icon | `os` / `platform` | |
+| 2 | Display name | alias → peer `name` → hostname → short PeerId | via `@swarmdrop/shared-view` |
+| 3 | Online state | `status` | **dot *and* word** — a bare colored dot does not satisfy this |
+| 4 | Secondary identity line | groups + `hostname · shortPeerId` | only when names collide or groups exist |
+| 5 | Trust badge | `trustLevel`, `trustConfirmed` | includes the "unconfirmed" state |
+| 6 | Connection badge | `connection` + `latency` | latency shown whenever online and known |
+| 7 | Send action | — | see Send Entry Contract |
+| 8 | Overflow entry | — | unpair at minimum; trust policy and alias/groups where supported |
+
+No build may drop a slot because "the layout is tight". Wrap, truncate, or move it to a secondary
+disclosure — do not discard information the user needs to judge a transfer.
+
+**Degradation.** When a field is absent (offline device has no `connection`/`latency`), that badge
+is simply not rendered; every other slot stays, and card height must not collapse or jitter.
+
+**Whole-card affordance.** A card body is clickable and does one of two things, consistently within
+a build: trigger the single primary action (desktop: send), or open a device detail view (mobile).
+If it opens a detail view, the send action MUST still be directly reachable on the card itself —
+otherwise "sending starts from a device" quietly becomes "sending starts two taps from a device".
+Nested controls (overflow menu, badges) stop propagation. When the card's action is unavailable
+(device offline), the card is not clickable and visually degrades.
+
+**Permitted divergence.** Each build chooses its own card orientation and grid, material (glass vs
+flat), overflow container (dropdown menu / action sheet / inline second-step confirm / a device
+detail screen), and confirmation shape (modal vs inline). None of these may remove a slot or change
+what the primary action means.
+
+**Known gap (desktop, tracked separately).** `src/routes/_app/devices/-components/device-card.tsx`
+renders slots 5 and 6 as a ternary — the trust badge appears *only when* the connection badge does
+not. Connected devices therefore never show their trust level, which is the one moment it matters
+most. Mobile renders both. This predates the contract and is deliberately out of scope for the
+change that introduced this section (`openspec/changes/web-ux-alignment` — its stated non-goal is
+leaving desktop and mobile rendering untouched); fix it as its own change.
+
+### Send Entry Contract (cross-platform)
+
+- **Sending starts from a device.** Triggering send on a paired, online device card enters the send
+  flow with that target already selected. The user never picks the same device twice.
+- **The send page's target selector is a landing spot, not the main path.** It exists for deep links
+  (`?peerId=`) and for correcting a wrong target — not as the way a user normally sends.
+- **Offline devices do not offer send.** Disable or omit the action; never let someone click into a
+  guaranteed failure and learn about it from a kernel error.
+- **Deep-linked targets are untrusted input.** A `?peerId=` may point at a device that was unpaired
+  or went offline since the link was made — say so in place and keep submit disabled.
+
+### Cross-platform UI Review Checklist
+
+Run this when adding or changing device-related UI in **any** build. It is a gate before visual
+review, not after.
+
+- [ ] All eight Device Card slots present (or explicitly absent because the data is)
+- [ ] Online state shows a dot **and** a word
+- [ ] Latency rendered whenever the device is online and `connection` is known
+- [ ] Send reachable from the device card, target pre-selected
+- [ ] Offline devices: send disabled, whole-card click disabled, visual degradation applied
+- [ ] Destructive actions (unpair) require one explicit confirmation, and can report failure
+- [ ] Display name / grouping / trust normalization come from `@swarmdrop/shared-view`, not a local copy
+- [ ] Every interactive control reachable without hover; touch targets ≥ 44×44 CSS px
+- [ ] New user-facing strings go through that build's i18n, including `aria-label` / `title` / `alt`
+
 ### Navigation — Desktop shell (Topbar + Breadcrumb)
 - Desktop uses a single top bar: an unclickable logo mark, a node-status pill, a breadcrumb trail (home icon → intermediate clickable segments → unclickable current page), and window controls. There is no persistent sidebar in the current build — navigation depth is expressed through the breadcrumb, not through a nav rail.
 - The topbar's only structural line is a 1px `rgb(255 255 255 / 0.34)` (light) / `rgb(255 255 255 / 0.08)` (dark) bottom hairline — no shadow, no background fill of its own beyond the ambient shell.
@@ -234,6 +306,7 @@ Individual pairing-code digits render as `glass-control` chips (`18px` radius, `
 - **Don't** build a generic SaaS dashboard: no gradient hero blocks, no identical repeated card grids, no dashboard chrome added for its own sake (PRODUCT.md anti-reference).
 - **Don't** build a heavy enterprise back-office: no dense grey-on-grey tables, no Windows-style management-panel density (PRODUCT.md anti-reference).
 - **Don't** apply `backdrop-filter` to a button, input, or any control someone clicks or types into — glass is for containers, not controls.
+- **Don't** drop a Device Card Contract information slot because a layout got tight — wrap, truncate, or move it behind a disclosure, but don't leave the user unable to see how a device is connected or how much trust it has. (See "Device Card Contract"; it binds all three builds.)
 - **Don't** add a second saturated accent color to the static UI chrome; if a screen feels flat, that's a signal to lean on the ambient background or an icon, not a new hex.
 - **Don't** re-derive Harbor Teal from scratch or let Copper Core become a general UI accent — `oklch(0.583 0.105 177.1)` (light fill) / `oklch(0.641 0.115 177.6)` (dark fill) / `text-brand` for text form; treat these as fixed (The Brand Fidelity Rule). And never use the fill teal as small text on white — that's what `text-brand` exists for.
 - **Don't** add a persistent sidebar nav rail to the **desktop shell** without checking against the current breadcrumb-only pattern first — it's a deliberate simplification, not an oversight. (The Web app area already went through that check and forked; see "Navigation — Web app area". A fork granted there is not a precedent for the desktop shell.)

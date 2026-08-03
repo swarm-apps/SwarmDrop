@@ -377,3 +377,94 @@ UI 停在旧值不动。
 判断依据是「这个字段会不会在集合不变的前提下单独变化」——会，就必须进清单。
 
 **相关文件**：`docs/app/app/_lib/store.ts`
+
+## 组件底座是 shadcn/ui，token 走映射层（2026-08 起）
+
+应用区不再手写原生元素 + fumadocs 的 `--color-fd-*`，改用 **shadcn/ui**（`docs/components.json`，
+`new-york` / `neutral`）。组件是**从桌面 `src/components/ui/` 复制过来的**，不是 CLI 装的——
+shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` 引 `zod/v3` 子路径，
+3.4.0 与 latest 同样报 `ERR_PACKAGE_PATH_NOT_EXPORTED`）。复制反而更好：桌面那份已经是当前形态
+（统一 `radix-ui` 包，docs 早就装了同一个），离线确定，且两端组件行为逐字一致。
+唯一要改的是 `@/lib/utils` → `@/lib/cn`。
+
+### token 映射层：只新增别名，绝不改写 `--color-fd-*`
+
+`docs/app/global.css` 有一层 `@theme inline`，把 fumadocs 的 `--color-fd-*` 映射成 shadcn 要的
+无前缀语义 token。**「文档区零影响」的全部依据就是「只新增别名」**——文档区读的仍是原变量，
+读不到这些别名。
+
+三条必须知道的：
+
+- **`primary` 走品牌色**（`--brand-solid` / `--brand-ink`），不跟 fumadocs 的 primary——
+  应用区的主按钮是产品身份的一部分。
+- **fumadocs 没有的自给**：`destructive` / `input` / `radius`。它们不参与文档区呈现。
+- **`@layer base` 的默认边框色必须限定作用域**：shadcn 组件写裸 `border`，需要
+  `* { @apply border-border }` 兜底。桌面那份是全局 `*`（整个 app 都归它管），**这里不能照抄**
+  ——全局套用会把文档区每个元素的默认边框色一起换掉。作用域锚点是 layout 根节点上的
+  `data-swarmdrop-app` 属性。
+
+### 品牌色与桌面同源，写成同一组 oklch 表达式
+
+`--brand` / `--brand-solid` / `--brand-ink` 分别对应桌面 `src/index.css` 的
+`--brand` / `--primary` / `--primary-foreground`。此前这边是 hex、那边是 oklch，实测**本来就是
+同一组颜色**（最大通道差 0–1，取整误差）——但「同一组」这件事只能靠人去转换才看得出来。
+现在两份文件的这几行可以直接肉眼比对，改一边漏另一边会显眼。
+
+**相关文件**：`docs/components.json`、`docs/app/global.css`、`docs/lib/cn.ts`
+
+## 移动优先 + 920 断点，与桌面同一个数
+
+应用区的基线视口是**手机浏览器**：单栏、无 hover 依赖、触摸目标 ≥44×44 CSS px。宽屏是渐进增强。
+
+`(min-width: 920px)` 是全应用唯一的主从断点（`_lib/use-media-query.ts` 的 `MASTER_DETAIL_QUERY`），
+**与桌面 `src/hooks/use-media-query.ts` 的同名常量是同一个数**。理由是 Windows 常见的 125% 缩放下
+1200 物理像素只有 960 CSS 宽——正好落在 920 与 1024 之间，用 `lg:`(1024) 会让同一台机器上
+桌面版分栏、Web 版堆叠。设备网格也在这个宽度升到三列，整个应用区一起换形态。
+
+`useMediaQuery` 用 `useSyncExternalStore` 且**服务端快照显式返回窄屏**：静态导出的预渲染 HTML
+与客户端首帧因此一致，不会 hydration mismatch。
+
+`_components/master-detail.tsx` 与桌面 `MasterDetailShell` 是**两份实现、同一套交互标准**——
+桌面那份用玻璃拟态和为鼠标调的尺寸，搬过来要把整套玻璃 token 一起搬。
+
+## Lingui 接 Next：SWC plugin 可用，但有三条硬约束
+
+`@lingui/swc-plugin@6.6.0` 与 Next 16.2.6 的 `swc_core` ABI 兼容（宏编译 / `lingui extract` /
+静态导出三件事都验过）。**升 Next 时要一起验**——不匹配的表现是构建期 panic 而不是一句清晰的
+版本错误。
+
+1. **源 locale 的目录静态 import 并在模块加载时同步激活**（`_lib/i18n.ts`）。预渲染发生在构建期，
+   那一刻不能 await；不同步激活则预渲染出来的 HTML 是空壳。另两个 locale 按需动态 import，
+   且**显式列成三条**而非拼模板字符串——后者会让打包器生成 context 模块。
+2. **catalog 的 `.ts` 是产物不入库**，`.po` 才是事实源。`lingui compile --typescript` 挂在
+   `postinstall` 与 `build` 两处，保证 IDE 与 CI 都拿得到。
+3. **非组件模块只能定义描述符，不能展开**。`_lib/` 下的标签映射（`WEB_ERROR_KIND_LABEL`、
+   `PHASE_META` 等）一律存 `msg\`\`` 描述符，由组件 `t(...)` 展开。同理，格式化函数**不许把 UI
+   占位烤进返回值**——`formatTransferRate` 算不出来就返回 `null`，「等待数据」由调用点给。
+
+### `metadata` 只能是源 locale，那是正确行为
+
+`export const metadata` 在**构建期**求值，静态导出下没有「当前用户的 locale」。所以 `<title>`
+走 `navTitle()` 取描述符的源文。运行时界面全部走 i18n。
+
+### 连带的一个坑：client component 收不了带函数的 prop
+
+`PageHeader` 因为要展开描述符而变成 client component，于是**不能再收整个导航项**——
+`AppNavItem` 带一个 `icon` 函数组件，函数跨不了 RSC 边界，`next build` 在预渲染时直接报
+`Functions cannot be passed directly to Client Components`。改成收一个 key，查表在客户端做。
+
+**相关文件**：`docs/app/app/_lib/i18n.ts`、`docs/app/app/_components/i18n-provider.tsx`、
+`docs/lingui.config.ts`
+
+## 持久化偏好独立成 store，不塞进运行时 store
+
+`_lib/store.ts` 是运行时节点状态（节点一关就该没了），`_lib/preferences-store.ts` 是本机设置
+（关标签页也要留着，走 localStorage）。混在一起会让「什么该在刷新后还在」变成一道要逐字段
+判断的题。目前偏好里只有设备组织（别名 + 分组）。
+
+**它不会 hydration mismatch**：组织只影响已配对设备的渲染，而设备来自运行时节点——构建期一台
+都没有，预渲染出来的必然是空态。**将来若有别的东西也读这份偏好、且它在预渲染时就有内容，
+这条要重新考虑。**
+
+解除配对时要 `preferencesActions.forgetDevice(peerId)`：别名与分组是本机偏好，内核不知道它们
+存在，不清就会留下幽灵条目——同一个 PeerId 再次配对时还会顶着上一段关系的名字回来。

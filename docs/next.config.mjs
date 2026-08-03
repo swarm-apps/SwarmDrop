@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { createMDX } from "fumadocs-mdx/next";
 
 const withMDX = createMDX();
@@ -28,9 +29,27 @@ const config = {
   images: { unoptimized: true },
   // 避免 GitHub Pages 目录路由 404
   trailingSlash: true,
-  // 仓库根有主 app 的 pnpm-lock.yaml，Next 会误把上级当 workspace root；
-  // 显式锁到 docs 目录，消除多 lockfile 警告并稳定产物追踪。
-  turbopack: { root: import.meta.dirname },
+  // turbopack 的 `root` 是**文件系统边界**，不只是 lockfile 探测的起点：落在它之外的
+  // 文件进不了模块图。`@swarmdrop/shared-view` 经 `link:` 指向仓库根的
+  // `packages/shared-view`，所以 root 必须放到仓库根——锁在 docs/ 时，`pnpm typecheck`
+  // 全绿（tsc 沿 symlink 解析得到）但 `next build` 报 `Module not found`，
+  // 只有构建那一步会红。
+  //
+  // 这一行原先锁在 `import.meta.dirname`，为的是消除「仓库根还有一份 pnpm-lock.yaml」
+  // 触发的多 lockfile 警告。显式指向仓库根同样没有该警告（歧义来自推断，不是位置），
+  // 所以那个目的没有丢。
+  turbopack: { root: join(import.meta.dirname, "..") },
+  // 共享包发布的是 **TS 源**而非预构建产物（openspec: web-ux-alignment 的 design D2）。
+  // Next 默认不转译 node_modules 下的包，必须显式登记；否则解析 `.ts` 时直接报语法错误。
+  transpilePackages: ["@swarmdrop/shared-view"],
+  experimental: {
+    // Lingui 的宏（`<Trans>` / `` t`` ``）是编译期展开的，需要一个编译器插件。
+    // 走 Next 原生的 SWC 管线，不额外挂 babel——后者会让整个 `app/` 多一层转译。
+    //
+    // ⚠️ SWC 插件的 ABI 与 Next 内置的 `swc_core` 版本绑定，**升 Next 时要一起验**：
+    // 不匹配的表现是构建期 panic 而不是一句清晰的版本错误。
+    swcPlugins: [["@lingui/swc-plugin", {}]],
+  },
 };
 
 export default withMDX(config);

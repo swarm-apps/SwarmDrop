@@ -97,6 +97,7 @@ class NativeSwarmdropMobileCore : public jsi::HostObject {
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_delete_webrtc_certificate_pem(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_load_paired_devices_json(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_paired_devices_json(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_func_default_receive_policy(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_ffi_swarmdrop_mobile_core_rust_future_poll_u8(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_ffi_swarmdrop_mobile_core_rust_future_cancel_u8(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_ffi_swarmdrop_mobile_core_rust_future_free_u8(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
@@ -145,6 +146,7 @@ class NativeSwarmdropMobileCore : public jsi::HostObject {
     jsi::Value cpp_ffi_swarmdrop_mobile_core_rust_future_cancel_void(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_ffi_swarmdrop_mobile_core_rust_future_free_void(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_ffi_swarmdrop_mobile_core_rust_future_complete_void(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_get_device_name(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_devices(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);

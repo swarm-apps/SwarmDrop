@@ -26,8 +26,8 @@ import type { Device } from "@/lib/bindings";
 import {
   type DeviceGroup,
   type DeviceOrganization,
-  sortGroups,
-} from "@/lib/device-organization";
+  sortDeviceGroups,
+} from "@swarmdrop/shared-view";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,7 +101,7 @@ export function DeviceOrganizationDialog({
   }, [device, open]);
 
   const sortedGroups = useMemo(
-    () => sortGroups(organization.groups),
+    () => sortDeviceGroups(organization.groups),
     [organization.groups],
   );
 
@@ -255,7 +255,7 @@ export function DeviceGroupsDialog({
   const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
   const groups = useMemo(
-    () => sortGroups(organization.groups),
+    () => sortDeviceGroups(organization.groups),
     [organization.groups],
   );
   const ids = useMemo(() => groups.map((group) => group.id), [groups]);

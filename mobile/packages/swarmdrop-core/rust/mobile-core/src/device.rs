@@ -109,6 +109,30 @@ impl From<DeviceReceivePolicy> for MobileDeviceReceivePolicy {
     }
 }
 
+/// 某信任级别的默认接收策略。
+///
+/// **纯派生，不需要 app 实例**，所以是自由函数——它在节点没起来时也该能用
+/// （信任策略界面可以先打开）。
+///
+/// 存在的全部理由是**不让 TS 再抄一份那张表**。此前 `src/core/device-trust.ts` 里有一份
+/// `defaultReceivePolicy`、桌面 `trust-policy-dialog.tsx` 里另有一份，两份还长出了不同的
+/// 「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
+/// 现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处。
+///
+/// `previous` 传该设备**当前**的策略，用户显式设过的保存位置会被带过去（`blocked` 除外）。
+///
+/// ⚠️ 代收授权（`allow_mcp_accept_from_device`）**不在** [`MobileDeviceReceivePolicy`] 里
+/// （见下面 `From` 的注释：移动端不管理该策略，回写恒 fail-closed 为 false）。所以内核为它
+/// 做的 carry-forward 在移动端这条路径上看不到——这是既有的类型边界，不是本函数的行为。
+#[uniffi::export]
+pub fn default_receive_policy(
+    trust_level: MobileDeviceTrustLevel,
+    previous: Option<MobileDeviceReceivePolicy>,
+) -> MobileDeviceReceivePolicy {
+    let previous: Option<DeviceReceivePolicy> = previous.map(Into::into);
+    DeviceReceivePolicy::for_trust_level(trust_level.into(), previous.as_ref()).into()
+}
+
 impl From<MobileDeviceReceivePolicy> for DeviceReceivePolicy {
     fn from(policy: MobileDeviceReceivePolicy) -> Self {
         Self {

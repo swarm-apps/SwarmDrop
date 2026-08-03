@@ -4,6 +4,7 @@
 // 结构化渲染在各自的面板（连接/发送/传输活动/接收），这里只留原始事件名与各域计数——
 // 排查「界面没反应」时第一眼看它：事件流为 0 而传输有条目，就说明数据来自启动回补而非实时流。
 
+import { Trans } from "@lingui/react/macro";
 import { useWebNode } from "../_lib/store";
 
 export function DevEventLog() {
@@ -15,11 +16,13 @@ export function DevEventLog() {
   return (
     <details className="rounded-xl border border-fd-border bg-fd-card/50 p-4">
       <summary className="cursor-pointer text-xs font-medium text-fd-muted-foreground">
-        事件流 {eventLog.length} · offer {Object.keys(offers).length} · 传输{" "}
-        {Object.keys(projections).length} · 配对请求 {pendingPairings.length}
+        <Trans>
+          事件流 {eventLog.length} · offer {Object.keys(offers).length} · 传输{" "}
+          {Object.keys(projections).length} · 配对请求 {pendingPairings.length}
+        </Trans>
       </summary>
       <ul className="mt-3 space-y-1 font-mono text-xs text-fd-muted-foreground">
-        {eventLog.length === 0 && <li>（暂无事件）</li>}
+        {eventLog.length === 0 && <li><Trans>（暂无事件）</Trans></li>}
         {eventLog
           .slice(-12)
           .reverse()

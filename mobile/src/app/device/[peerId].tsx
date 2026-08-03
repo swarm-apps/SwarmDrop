@@ -59,13 +59,12 @@ import {
   type PolicyNote,
   policyForDevice,
   policySummaryForDevice,
-  policyWithTrustDefaults,
   resolveTrustLevel,
   type TrustLevel,
   trustLevelToNative,
 } from "@/core/device-trust";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { organizedDeviceName } from "@/lib/device-organization";
+import { organizedDeviceName } from "@swarmdrop/shared-view";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { toast } from "@/lib/toast";
 import { cn, errorMessage, lastPathSegment } from "@/lib/utils";
@@ -454,9 +453,10 @@ export default function DeviceDetailScreen() {
           draftPolicy={draftPolicy}
           onLevelChange={(level) => {
             setDraftLevel(level);
-            setDraftPolicy((current) =>
-              policyWithTrustDefaults(level, current),
-            );
+            // 带上当前草稿：用户显式设过的落点由内核带过去（`blocked` 除外）。
+            // 在 updater 外算：`defaultReceivePolicy` 会走一次 FFI，而 updater 在
+            // StrictMode 下可能被调用两次。它是同步的（uniffi 自由函数），没有竞态。
+            setDraftPolicy(defaultReceivePolicy(level, draftPolicy));
           }}
           onPolicyChange={setDraftPolicy}
           onValidityChange={setPolicyValid}

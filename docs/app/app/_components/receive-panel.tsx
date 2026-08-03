@@ -19,15 +19,20 @@
 // #108 收件箱从「只能滚的列表」补成可用：检索 / 已读 / 归档 / 删除四件事各自接上内核既有的
 // 导出。此前那五个方法是完整实现却零调用方——能力在内核里，UI 上不存在。
 
+import { Trans, useLingui } from "@lingui/react/macro";
+import { formatFileSize } from "@swarmdrop/shared-view";
 import { Archive, ArchiveRestore, Search, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
 import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
+import { MasterDetail, OpenListButton } from "./master-detail";
 import { PanelFallback } from "./panel-fallback";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
-import { formatFileSize } from "../_lib/format";
-import { PARAM } from "../_lib/nav";
+import { inboxItemHref, PARAM } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
@@ -73,27 +78,33 @@ export function IncomingOffersPanel() {
   return (
     <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-fd-foreground">待处理请求</h2>
+        <h2 className="text-sm font-semibold text-foreground">
+          <Trans>待处理请求</Trans>
+        </h2>
         {offerList.length > 0 && (
           <p
             className="rounded-full bg-fd-accent px-2 py-0.5 text-xs font-medium text-fd-foreground"
             role="status"
             aria-live="polite"
           >
-            {offerList.length} 个待处理
+            <Trans>{offerList.length} 个待处理</Trans>
           </p>
         )}
       </div>
 
       {offerList.length === 0 ? (
-        <p className="mt-2 text-xs text-fd-muted-foreground">暂无待处理的入站文件请求。</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          <Trans>暂无待处理的入站文件请求。</Trans>
+        </p>
       ) : (
         <ul className="mt-3 space-y-2">
           {offerList.map((offer) => (
             <li key={offer.sessionId} className="rounded-lg border border-fd-border bg-fd-background px-3 py-2">
-              <p className="text-xs text-fd-foreground">
-                <span className="font-medium">{offer.deviceName}</span> 想发送 {offer.files.length} 个文件（
-                {formatFileSize(offer.totalSize)}）
+              <p className="text-xs text-foreground">
+                <Trans>
+                  <span className="font-medium">{offer.deviceName}</span> 想发送{" "}
+                  {offer.files.length} 个文件（{formatFileSize(offer.totalSize)}）
+                </Trans>
               </p>
               <ul className="mt-1 space-y-0.5">
                 {offer.files.map((f) => (
@@ -109,7 +120,7 @@ export function IncomingOffersPanel() {
                   disabled={decideAction.isPending(offer.sessionId)}
                   className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
                 >
-                  接受
+                  <Trans>接受</Trans>
                 </button>
                 <button
                   type="button"
@@ -117,7 +128,7 @@ export function IncomingOffersPanel() {
                   disabled={decideAction.isPending(offer.sessionId)}
                   className="rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
                 >
-                  拒绝
+                  <Trans>拒绝</Trans>
                 </button>
               </div>
             </li>
@@ -145,13 +156,16 @@ type ItemAction = {
 /** 读 `?item=` / `?archived=`（传输页反查过来的定位），故需要 Suspense 边界——静态导出下没有它 build 会红。 */
 export function InboxPanel() {
   return (
-    <Suspense fallback={<PanelFallback>正在打开收件箱…</PanelFallback>}>
+    <Suspense fallback={<PanelFallback>
+        <Trans>正在打开收件箱…</Trans>
+      </PanelFallback>}>
       <InboxPanelInner />
     </Suspense>
   );
 }
 
 function InboxPanelInner() {
+  const { t } = useLingui();
   const items = useWebNode((s) => s.inboxItems);
   const status = useWebNode((s) => s.status);
   const inboxRevision = useWebNode((s) => s.inboxRevision);
@@ -336,100 +350,165 @@ function InboxPanelInner() {
     [downloadAction.run],
   );
 
+  /** 当前选中的条目。`?item=` 既是深链参数也是选中态——不再多引一个本地 state。 */
+  const selected = useMemo(
+    () => rows.find((row) => row.item.id === focusedId) ?? null,
+    [rows, focusedId],
+  );
+
   return (
-    <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-fd-foreground">已接收</h2>
-        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-fd-muted-foreground">
-          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-          显示已归档
-        </label>
-      </div>
-
-      <InboxSearchBox disabled={!ready} searching={searchAction.pending} onChange={setQuery} />
-
-      {loadError && <WebErrorCard error={loadError} className="mt-2 text-xs" />}
-      {searchAction.error && <WebErrorCard error={searchAction.error} className="mt-2 text-xs" />}
-
-      {/* 定位条目不在视图时给一句解释，而不是让用户对着一个「点了没反应」的链接发呆。
-          「被归档滤掉」这一态给逃生按钮——那不是补偿，是把「归档只是可见性开关」这条领域规则
-          在 UI 上兑现；条目真没了则只陈述事实，没有出路可给。 */}
-      {focusedId !== null && loaded && focusState !== "visible" && !loadError && (
-        <p className="mt-2 rounded-lg border border-fd-border bg-fd-muted/40 px-3 py-2 text-xs text-fd-muted-foreground">
-          {focusState === "archived" ? (
-            <>
-              要定位的条目已归档。
-              <button
-                type="button"
-                onClick={() => setShowArchived(true)}
-                className="ml-1 cursor-pointer font-medium text-fd-foreground underline underline-offset-2"
-              >
-                显示已归档
-              </button>
-            </>
-          ) : focusState === "filtered-by-search" ? (
-            "要定位的条目不在当前检索结果里。"
-          ) : (
-            "要定位的条目已不在收件箱。"
-          )}
-        </p>
-      )}
-
-      {rows.length === 0 ? (
-        <p className="mt-3 text-xs text-fd-muted-foreground">
-          {isSearching
-            ? "没有匹配的收件箱条目。"
-            : `还没有收到的文件${showArchived ? "" : "（已归档的未显示）"}。`}
-        </p>
-      ) : (
-        <ul className="mt-3 space-y-2">
-          {/* 截断要说出来。命中正好等于上限时无法区分「刚好这么多」与「还有更多」，
-              所以文案取保守说法——比静默丢掉让用户以为搜全了要诚实。
-              上限从内核读（`inbox_search_limit()`），前端不自带这个数字。 */}
-          {isSearching && searchLimit !== null && hits.length >= searchLimit && (
-            <li className="text-[11px] text-fd-muted-foreground">
-              只显示最近 {searchLimit} 条匹配，更早的未列出——请把关键词写得更具体。
-            </li>
-          )}
-          {rows.map(({ item, snippet }) => {
-            const archiveKey = `${item.id}:archive`;
-            const deleteKey = `${item.id}:delete`;
-            return (
-              <InboxItemRow
-                key={item.id}
-                item={item}
-                snippet={snippet}
-                focused={item.id === focusedId}
-                ready={ready}
-                downloadAction={downloadAction}
-                archive={{
-                  pending: itemAction.isPending(archiveKey),
-                  error: itemAction.errorFor(archiveKey),
-                  run: () =>
-                    runOnItem(archiveKey, (node) =>
-                      node.archive_inbox_item(item.id, item.archivedAt === null),
-                    ),
-                }}
-                remove={{
-                  pending: itemAction.isPending(deleteKey),
-                  error: itemAction.errorFor(deleteKey),
-                  // **总是连文件一起删**（第二参恒 true），不像桌面那样给「保留本地文件」开关。
-                  //
-                  // 那个开关在桌面有意义：文件躺在用户的文件系统里，删了记录还能用文件管理器
-                  // 打开。OPFS 没有这层——记录一软删，`list`/`search`/`detail` 全看不到它，
-                  // 那份副本就**永久不可达也不可清理**，配额却一直占着。于是「只删记录」在
-                  // 浏览器上唯一的效果就是泄漏，把它做成选项是让用户选一个没有好处的坑。
-                  //
-                  // 这不是与桌面分叉：同一个开关在两端的**含义**不同（那边是「留着还能用」，
-                  // 这边是「留着但谁也碰不到」），行为跟着含义走才是对齐。
-                  run: () => runOnItem(deleteKey, (node) => node.delete_inbox_item(item.id, true)),
-                }}
-                onDownload={download}
+    <MasterDetail
+      testId="inbox-master-detail"
+      drawerLabel={t`收件箱列表`}
+      list={({ closeDrawer }) => (
+        <div className="flex min-h-0 flex-col gap-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-foreground">
+              <Trans>已接收</Trans>
+            </h2>
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
               />
-            );
-          })}
-        </ul>
+              <Trans>显示已归档</Trans>
+            </label>
+          </div>
+
+          <InboxSearchBox disabled={!ready} searching={searchAction.pending} onChange={setQuery} />
+
+          {loadError && <WebErrorCard error={loadError} className="text-xs" />}
+          {searchAction.error && <WebErrorCard error={searchAction.error} className="text-xs" />}
+
+          {/* 定位条目不在视图时给一句解释，而不是让用户对着一个「点了没反应」的链接发呆。
+              「被归档滤掉」这一态给逃生按钮——那不是补偿，是把「归档只是可见性开关」这条领域
+              规则在 UI 上兑现；条目真没了则只陈述事实，没有出路可给。 */}
+          {focusedId !== null && loaded && focusState !== "visible" && !loadError && (
+            <p className="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              {focusState === "archived" ? (
+                <>
+                  <Trans>要定位的条目已归档。</Trans>
+                  <button
+                    type="button"
+                    onClick={() => setShowArchived(true)}
+                    className="ml-1 cursor-pointer font-medium text-foreground underline underline-offset-2"
+                  >
+                    <Trans>显示已归档</Trans>
+                  </button>
+                </>
+              ) : focusState === "filtered-by-search" ? (
+                <Trans>要定位的条目不在当前检索结果里。</Trans>
+              ) : (
+                <Trans>要定位的条目已不在收件箱。</Trans>
+              )}
+            </p>
+          )}
+
+          {rows.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {isSearching ? (
+                <Trans>没有匹配的收件箱条目。</Trans>
+              ) : showArchived ? (
+                <Trans>还没有收到的文件。</Trans>
+              ) : (
+                <Trans>还没有收到的文件（已归档的未显示）。</Trans>
+              )}
+            </p>
+          ) : (
+            <ul className="flex min-h-0 flex-col gap-1.5 overflow-y-auto">
+              {/* 截断要说出来。命中正好等于上限时无法区分「刚好这么多」与「还有更多」，
+                  所以文案取保守说法——比静默丢掉让用户以为搜全了要诚实。
+                  上限从内核读（`inbox_search_limit()`），前端不自带这个数字。 */}
+              {isSearching && searchLimit !== null && hits.length >= searchLimit && (
+                <li className="text-[11px] text-muted-foreground">
+                  <Trans>
+                    只显示最近 {searchLimit} 条匹配，更早的未列出——请把关键词写得更具体。
+                  </Trans>
+                </li>
+              )}
+              {rows.map(({ item, snippet }) => (
+                <InboxListRow
+                  key={item.id}
+                  item={item}
+                  snippet={snippet}
+                  selected={item.id === focusedId}
+                  onSelect={closeDrawer}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
       )}
+      detail={({ openList }) =>
+        selected ? (
+          <InboxDetailPanel
+            openList={openList}
+            item={selected.item}
+            ready={ready}
+            downloadAction={downloadAction}
+            archive={{
+              pending: itemAction.isPending(`${selected.item.id}:archive`),
+              error: itemAction.errorFor(`${selected.item.id}:archive`),
+              run: () =>
+                runOnItem(`${selected.item.id}:archive`, (node) =>
+                  node.archive_inbox_item(selected.item.id, selected.item.archivedAt === null),
+                ),
+            }}
+            remove={{
+              pending: itemAction.isPending(`${selected.item.id}:delete`),
+              error: itemAction.errorFor(`${selected.item.id}:delete`),
+              // **总是连文件一起删**（第二参恒 true），不像桌面那样给「保留本地文件」开关。
+              //
+              // 那个开关在桌面有意义：文件躺在用户的文件系统里，删了记录还能用文件管理器
+              // 打开。OPFS 没有这层——记录一软删，`list`/`search`/`detail` 全看不到它，
+              // 那份副本就**永久不可达也不可清理**，配额却一直占着。于是「只删记录」在
+              // 浏览器上唯一的效果就是泄漏，把它做成选项是让用户选一个没有好处的坑。
+              //
+              // 这不是与桌面分叉：同一个开关在两端的**含义**不同（那边是「留着还能用」，
+              // 这边是「留着但谁也碰不到」），行为跟着含义走才是对齐。
+              run: () =>
+                runOnItem(`${selected.item.id}:delete`, (node) =>
+                  node.delete_inbox_item(selected.item.id, true),
+                ),
+            }}
+            onDownload={download}
+          />
+        ) : (
+          <InboxDetailEmpty openList={openList} hasRows={rows.length > 0} />
+        )
+      }
+    />
+  );
+}
+
+/**
+ * 详情侧的空态。**教学文案放这里而不是列表栏**——窄屏用户落在详情屏、列表收在抽屉里，
+ * 两边都摆整套空态则是宽屏下同一句话说两遍（与桌面端同一条约定）。
+ */
+function InboxDetailEmpty({
+  openList,
+  hasRows,
+}: {
+  openList: (() => void) | null;
+  hasRows: boolean;
+}) {
+  const { t } = useLingui();
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border bg-card p-6 shadow-xs">
+      <div className="flex items-center gap-2">
+        <OpenListButton openList={openList} label={t`打开收件箱列表`} />
+        <h2 className="text-sm font-semibold text-foreground">
+              <Trans>已接收</Trans>
+            </h2>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {hasRows ? (
+          <Trans>从左侧选一条，这里会显示它的文件与操作。</Trans>
+        ) : (
+          <Trans>还没有收到的文件。对方发起传输并被你接受后，文件会出现在这里。</Trans>
+        )}
+      </p>
     </div>
   );
 }
@@ -449,6 +528,7 @@ const InboxSearchBox = memo(function InboxSearchBox({
   searching: boolean;
   onChange: (query: string) => void;
 }) {
+  const { t } = useLingui();
   const [value, setValue] = useState("");
 
   useEffect(() => {
@@ -467,32 +547,104 @@ const InboxSearchBox = memo(function InboxSearchBox({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         disabled={disabled}
-        placeholder="搜索标题、来源设备或文件名"
-        aria-label="搜索收件箱"
+        placeholder={t`搜索标题、来源设备或文件名`}
+        aria-label={t`搜索收件箱`}
         className="w-full rounded-lg border border-fd-border bg-fd-background py-2 pl-8 pr-16 text-xs text-fd-foreground placeholder:text-fd-muted-foreground disabled:opacity-50"
       />
       {searching && (
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-fd-muted-foreground">
-          搜索中…
+          <Trans>搜索中…</Trans>
         </span>
       )}
     </div>
   );
 });
 
-function InboxItemRow({
+/**
+ * 列表行 —— 只承载「认出这一条」所需的信息：未读点、标题、归档态、来源与体量、检索片段。
+ * 文件清单与操作归详情侧，不在这里重复。
+ *
+ * 选中态由 `?item=` 承载，所以它是一条 `<Link>` 而不是按钮：可中键新开、可复制链接、
+ * 刷新后还在同一条上。**必须走 `next/link`**——手写 `<a href>` 不加 basePath，
+ * GitHub Pages 子路径下会 404。
+ */
+function InboxListRow({
   item,
   snippet,
-  focused,
+  selected,
+  onSelect,
+}: {
+  item: InboxItemDetail;
+  snippet: string | null;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { t } = useLingui();
+  const unread = item.lastOpenedAt === null;
+  const archived = item.archivedAt !== null;
+  const ref = useRef<HTMLLIElement>(null);
+
+  // 深链要么保证能到达，要么就别给——只换个边框色是「到达了但看不见」：列表长了，
+  // 从传输页点进来的用户落在顶部，屏幕上没有任何东西变化。
+  // `block: "nearest"` 让本来就在视口里的条目不跳动。
+  useEffect(() => {
+    if (selected) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+
+  return (
+    <li ref={ref} className="scroll-mt-4">
+      <Link
+        href={inboxItemHref(item.id, archived)}
+        onClick={onSelect}
+        aria-current={selected ? "true" : undefined}
+        className={cn(
+          "flex min-h-11 flex-col gap-0.5 rounded-lg border px-3 py-2 transition-colors",
+          selected
+            ? "border-[var(--brand)]/40 bg-accent ring-1 ring-[var(--brand)]/20"
+            : "hover:bg-accent",
+        )}
+      >
+        <span className="flex items-center gap-1.5 text-xs">
+          {/* 未读点是「还没取走」的唯一表达——列表里其它一切在下载前后都长一样，故给 label。 */}
+          {unread && <StatusDot colorClass="bg-[var(--brand-solid)]" label={t`未打开`} />}
+          <span className={cn("truncate text-foreground", unread && "font-semibold")}>
+            {item.title}
+          </span>
+          {archived && (
+            <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+              <Trans>已归档</Trans>
+            </span>
+          )}
+        </span>
+        <span className="truncate text-[11px] text-muted-foreground">
+          <Trans>
+            来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
+          </Trans>
+        </span>
+        {/* 命中片段由 Rust 侧按子串位置切窗口生成，前端不重切——切法漂了，两端的「为什么这条
+            能搜到」就对不上。与标题相同时上游已置 null（那种情况它只是把标题重复一遍）。 */}
+        {snippet && (
+          <span className="truncate rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+            {snippet}
+          </span>
+        )}
+      </Link>
+    </li>
+  );
+}
+
+/** 详情侧 —— 选中条目的文件清单与条目级操作。 */
+function InboxDetailPanel({
+  openList,
+  item,
   ready,
   downloadAction,
   archive,
   remove,
   onDownload,
 }: {
+  openList: (() => void) | null;
   item: InboxItemDetail;
-  snippet: string | null;
-  focused: boolean;
   ready: boolean;
   /**
    * 下载是**逐文件**的（N 个键），没法像 archive/remove 那样在父层摊平成一个值对象，
@@ -503,68 +655,57 @@ function InboxItemRow({
   remove: ItemAction;
   onDownload: (item: InboxItemDetail, file: InboxItemFileEntry) => void;
 }) {
-  const unread = item.lastOpenedAt === null;
+  const { t } = useLingui();
   const archived = item.archivedAt !== null;
   const ArchiveIcon = archived ? ArchiveRestore : Archive;
-  const ref = useRef<HTMLLIElement>(null);
-
-  // 深链要么保证能到达，要么就别给（同 `inboxItemHref` 的自述）——只换个边框色是「到达了但
-  // 看不见」：列表长了，从传输页点进来的用户落在页面顶部，屏幕上没有任何东西变化。
-  // `block: "nearest"` 让本来就在视口里的条目不跳动。
-  useEffect(() => {
-    if (focused) ref.current?.scrollIntoView({ block: "nearest" });
-  }, [focused]);
 
   return (
-    <li
-      ref={ref}
-      aria-current={focused ? "true" : undefined}
-      className={`scroll-mt-4 rounded-lg border bg-fd-background px-3 py-2 ${
-        focused ? "border-[var(--brand)]/40 ring-1 ring-[var(--brand)]/20" : "border-fd-border"
-      }`}
-    >
-      <div className="min-w-0">
-        <p className="flex items-center gap-1.5 text-xs">
-          {/* 未读点是「还没取走」的唯一表达——列表里其它一切在下载前后都长一样，故给 label。 */}
-          {unread && <StatusDot colorClass="bg-[var(--brand-solid)]" label="未打开" />}
-          <span className={`truncate text-fd-foreground ${unread ? "font-semibold" : ""}`}>{item.title}</span>
-          {archived && (
-            <span className="shrink-0 rounded-full border border-fd-border px-2 py-0.5 text-[11px] text-fd-muted-foreground">
-              已归档
-            </span>
-          )}
-        </p>
-        <p className="mt-0.5 truncate text-[11px] text-fd-muted-foreground">
-          来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
-        </p>
+    <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs sm:p-6">
+      <div className="flex items-start gap-2">
+        <OpenListButton openList={openList} label={t`打开收件箱列表`} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            <Trans>
+              来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
+            </Trans>
+          </p>
+        </div>
+        {archived && (
+          <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+            已归档
+          </span>
+        )}
       </div>
 
-      {/* 命中片段由 Rust 侧按子串位置切窗口生成，前端不重切——切法漂了，两端的「为什么这条
-          能搜到」就对不上。与标题相同时上游已置 null（那种情况它只是把标题重复一遍）。 */}
-      {snippet && (
-        <p className="mt-1 truncate rounded bg-fd-muted/40 px-2 py-1 font-mono text-[11px] text-fd-muted-foreground">
-          {snippet}
-        </p>
-      )}
-
-      <ul className="mt-1.5 space-y-1">
+      <ul className="flex flex-col gap-1.5">
         {item.files.map((f) => {
           const key = `${item.id}:${f.id}`;
           const error = downloadAction.errorFor(key);
           return (
-            <li key={f.id} className="text-xs">
+            <li key={f.id} className="rounded-lg border bg-background px-3 py-2 text-xs">
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-fd-foreground">{f.name}</span>
+                <span className="truncate text-foreground">{f.name}</span>
                 <span className="flex shrink-0 items-center gap-2">
-                  <span className="font-mono text-fd-muted-foreground">{formatFileSize(f.size)}</span>
-                  <button
+                  <span className="font-mono tabular-nums text-muted-foreground">
+                    {formatFileSize(f.size)}
+                  </span>
+                  <Button
                     type="button"
+                    variant="secondary"
+                    size="sm"
                     onClick={() => onDownload(item, f)}
                     disabled={downloadAction.isPending(key)}
-                    className="font-medium text-fd-foreground underline underline-offset-2 disabled:opacity-50"
+                    className="min-h-9"
                   >
-                    {downloadAction.isPending(key) ? "准备中…" : error ? "重试下载" : "下载"}
-                  </button>
+                    {downloadAction.isPending(key) ? (
+                      <Trans>准备中…</Trans>
+                    ) : error ? (
+                      <Trans>重试下载</Trans>
+                    ) : (
+                      <Trans>下载</Trans>
+                    )}
+                  </Button>
                 </span>
               </div>
               {error && <WebErrorCard error={error} className="mt-1 text-xs" />}
@@ -573,7 +714,7 @@ function InboxItemRow({
         })}
       </ul>
 
-      <div className="mt-2 flex flex-wrap items-center justify-end gap-2 text-xs">
+      <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
         {/* 归档可逆，不设二次确认——与传输面板「续传不拦、取消才拦」同一条判据。 */}
         <button
           type="button"
@@ -582,24 +723,29 @@ function InboxItemRow({
           className={INLINE_ACTION_CLASS}
         >
           <ArchiveIcon className="size-3" aria-hidden="true" />
-          {archive.pending ? "处理中" : archived ? "取消归档" : "归档"}
+          {archive.pending ? (
+            <Trans>处理中</Trans>
+          ) : archived ? (
+            <Trans>取消归档</Trans>
+          ) : (
+            <Trans>归档</Trans>
+          )}
         </button>
         <ConfirmAction
           icon={Trash2}
-          label="删除"
-          pendingLabel="删除中"
-          confirmLabel="确认删除"
-          // 文案要与实际行为一致：这里删的是**记录连同浏览器里的那份文件**（#111 之前只删
-          // 记录、副本留下泄漏，文案当时如实写了那个缺陷）。已经下载到本机的那份不受影响，
-          // 这点要说，否则用户会以为下载好的文件也会跟着没。
-          warning="删除这条记录和浏览器里保存的文件；已下载到本机的副本不受影响"
+          label={t`删除`}
+          pendingLabel={t`删除中`}
+          confirmLabel={t`确认删除`}
+          // 文案要与实际行为一致：这里删的是**记录连同浏览器里的那份文件**。
+          // 已经下载到本机的那份不受影响，这点要说，否则用户会以为下载好的文件也会跟着没。
+          warning={t`删除这条记录和浏览器里保存的文件；已下载到本机的副本不受影响`}
           disabled={!ready}
           pending={remove.pending}
           onConfirm={remove.run}
         />
       </div>
-      {archive.error && <WebErrorCard error={archive.error} className="mt-2 text-xs" />}
-      {remove.error && <WebErrorCard error={remove.error} className="mt-2 text-xs" />}
-    </li>
+      {archive.error && <WebErrorCard error={archive.error} className="text-xs" />}
+      {remove.error && <WebErrorCard error={remove.error} className="text-xs" />}
+    </div>
   );
 }
