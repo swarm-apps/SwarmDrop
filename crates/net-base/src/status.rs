@@ -41,7 +41,8 @@ pub enum PathKind {
 ///
 /// 变体名刻意不写成 `WebRtc`：camelCase 序列化后会变成 `"webRtc"`，而三端 UI 与
 /// 日志里这个词一直是 `webrtc`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+// `Hash`：内核按传输给候选地址分组时要拿它当 map 键（`actor.rs` 的 `lan_candidates`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum TransportKind {

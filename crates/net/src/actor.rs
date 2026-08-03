@@ -23,7 +23,7 @@ use libp2p::swarm::{ConnectionId, SwarmEvent};
 use libp2p::{PeerId, Swarm, identify, kad, ping};
 #[cfg(not(wasm_browser))]
 use swarmdrop_net_base::DiscoverySource;
-use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId};
+use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, TransportKind};
 use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
@@ -40,12 +40,20 @@ use self::queries::{PendingQueries, PendingQuery};
 /// 订阅者事件队列深度。满时丢弃并计数（presence 有 watch_conns 差分兜底）。
 const SUBSCRIBER_QUEUE: usize = 256;
 
-/// 一次 LAN 升级最多并发拨几个候选地址。
+/// 一次 LAN 升级里，**每种传输**最多带几个候选地址。
 ///
-/// 对端可能自报一长串监听地址（多网卡 + IPv6 ULA + 容器网桥），全拨会把一次
-/// 升级变成对内网的批量探测。取前几个够用——同一台设备的多个私网地址通常
-/// 指向同一张网卡。
-const LAN_UPGRADE_MAX_CANDIDATES: usize = 4;
+/// **必须按传输分组，不能简单取前 N 个。** 原生端的 preset 同时监听
+/// tcp / quic-v1 / webrtc-direct 三种，每种再乘以网卡数与 IPv4/IPv6——对端自报的
+/// 私网地址轻易就有六条以上。而 webrtc-direct 是 listen 列表里最后注册的一种，
+/// 于是「取前几个」截掉的往往正是它。
+///
+/// 那一刀砍在最要紧的地方：**浏览器拨不了裸 TCP/QUIC，webrtc-direct 是它够到
+/// 局域网内原生端的唯一路径**。截掉它，「浏览器 ↔ 同网段的手机/桌面」这一格就
+/// 永远升级不了，而那正是 Web 端最常见的局域网场景。
+///
+/// 分组取仍然挡得住原来要挡的东西：对端报一长串地址时，一次升级不会变成对内网的
+/// 批量探测。
+const LAN_UPGRADE_MAX_PER_TRANSPORT: usize = 2;
 
 pub(crate) enum ActorMessage {
     Connect {
@@ -681,12 +689,7 @@ impl Actor {
         if self.upgrading_lan.contains(&peer) || !self.only_relayed(peer) {
             return;
         }
-        let lan: Vec<libp2p::Multiaddr> = candidates
-            .iter()
-            .filter(|a| is_lan_candidate(a))
-            .take(LAN_UPGRADE_MAX_CANDIDATES)
-            .cloned()
-            .collect();
+        let lan = lan_candidates(candidates);
         if lan.is_empty() {
             return;
         }
@@ -1460,6 +1463,26 @@ fn should_initiate(local: &PeerId, remote: &PeerId, local_reachable: bool) -> bo
     !local_reachable || local < remote
 }
 
+/// 从对端自报的地址里挑出 LAN 升级候选。
+///
+/// **每种传输各留几个**（`LAN_UPGRADE_MAX_PER_TRANSPORT`），而不是笼统取前 N 个——
+/// 理由见那个常量：截掉 webrtc-direct 等于把浏览器那一格整个关掉。
+fn lan_candidates(addrs: &[libp2p::Multiaddr]) -> Vec<libp2p::Multiaddr> {
+    let mut taken: HashMap<Option<TransportKind>, usize> = HashMap::new();
+    addrs
+        .iter()
+        .filter(|a| is_lan_candidate(a))
+        .filter(|a| {
+            let slot = taken
+                .entry(Addr::from_multiaddr((*a).clone()).transport())
+                .or_default();
+            *slot += 1;
+            *slot <= LAN_UPGRADE_MAX_PER_TRANSPORT
+        })
+        .cloned()
+        .collect()
+}
+
 /// LAN 升级的候选判据：私网可达，且不是我们正想摆脱的那类 circuit 地址。
 ///
 /// 排除 circuit 那半边不是多余的——LAN helper（局域网内的中继）自己就监听在
@@ -1555,6 +1578,54 @@ mod tests {
             )),
             "私网 LAN helper 的 circuit 地址不是直连，换中继不算升级"
         );
+    }
+
+    /// **浏览器那一格全靠这条**：浏览器拨不了裸 TCP/QUIC，webrtc-direct 是它够到
+    /// 局域网内原生端的唯一路径；而 webrtc-direct 是 native preset 里最后注册的
+    /// listener，对端自报的地址表里它排在最后。笼统「取前 N 个」正好把它截掉，
+    /// 于是「浏览器 ↔ 同网段的手机」永远停在中继——症状是纯粹的「就是不升级」，
+    /// 没有任何报错可查。
+    #[test]
+    fn lan_candidates_keep_one_of_every_transport() {
+        // 一张网卡上的典型自报：三种传输 × IPv4/IPv6 ULA
+        let addrs: Vec<libp2p::Multiaddr> = [
+            "/ip4/192.168.1.5/tcp/54321",
+            "/ip6/fd00::5/tcp/54321",
+            "/ip4/192.168.1.5/udp/54322/quic-v1",
+            "/ip6/fd00::5/udp/54322/quic-v1",
+            "/ip4/192.168.1.5/udp/54323/webrtc-direct",
+            "/ip6/fd00::5/udp/54323/webrtc-direct",
+        ]
+        .iter()
+        .map(|s| s.parse().expect("valid multiaddr"))
+        .collect();
+
+        let picked = lan_candidates(&addrs);
+        let kinds: Vec<_> = picked
+            .iter()
+            .map(|a| Addr::from_multiaddr(a.clone()).transport())
+            .collect();
+
+        assert!(
+            kinds.contains(&Some(TransportKind::WebrtcDirect)),
+            "webrtc-direct 被截掉 = 浏览器再也升级不了：{picked:?}"
+        );
+        assert!(kinds.contains(&Some(TransportKind::Tcp)));
+        assert!(kinds.contains(&Some(TransportKind::Quic)));
+    }
+
+    /// 分组取仍要挡住「对端报一长串地址 → 一次升级变成对内网批量探测」。
+    #[test]
+    fn lan_candidates_cap_each_transport() {
+        let addrs: Vec<libp2p::Multiaddr> = (1..=6)
+            .map(|i| {
+                format!("/ip4/192.168.1.{i}/tcp/4001")
+                    .parse()
+                    .expect("valid multiaddr")
+            })
+            .collect();
+
+        assert_eq!(lan_candidates(&addrs).len(), LAN_UPGRADE_MAX_PER_TRANSPORT);
     }
 
     fn peer(seed: u8) -> PeerId {

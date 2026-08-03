@@ -430,6 +430,12 @@ android target 依赖表）。
   默认 5 分钟才来一轮。
 - **候选要排除 circuit**。局域网 helper 自己就监听在私网地址上，它派发的 circuit 地址前半段同样
   `is_private_lan()`——不排除就会把「换一条中继」当成「升级为直连」。
+- **候选上限必须按传输分组，不能笼统 `take(N)`**。原生端同时监听 tcp / quic-v1 /
+  webrtc-direct，各自再乘网卡数与 IPv4/IPv6，一台手机自报六条私网地址是常态；而
+  webrtc-direct 是 listen 列表里**最后**注册的，笼统截断砍掉的正是它。
+  **那一刀正好打死浏览器**：浏览器拨不了裸 TCP/QUIC，webrtc-direct 是它够到局域网内原生端的
+  唯一路径。症状是「浏览器 ↔ 同网段的手机永远停在中继」，且没有任何报错可查
+  （`lan_candidates` 按 `Addr::transport()` 分组，两条单测钉死）。
 
 **相关文件**：`crates/net/src/actor.rs`（`try_upgrade_to_lan` / `only_relayed` /
 `clear_upgrade_marks` / `is_lan_candidate`）

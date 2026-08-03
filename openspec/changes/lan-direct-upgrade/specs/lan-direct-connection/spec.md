@@ -13,6 +13,11 @@ mDNS——移动平台可能整个禁用组播，只挂在 mDNS 上等于在那�
 打洞路径，circuit 正是要摆脱的东西（局域网 helper 派发的 circuit 地址前半段也是私网，换一条
 中继不算升级）。
 
+候选数量若需设上限，SHALL **按传输分别计数**，使每种传输都保留代表；**SHALL NOT** 对整个
+地址表笼统取前 N 个。原生端同时监听 tcp / quic-v1 / webrtc-direct，各自再乘以网卡数与
+IPv4/IPv6，笼统截断会砍掉排在末位的 webrtc-direct——而那是浏览器够到局域网内原生端的唯一
+传输（浏览器拨不了裸 TCP/QUIC）。
+
 #### Scenario: 同网段设备经中继连上后升级为直连
 
 - **WHEN** 两台同一局域网的已配对设备先经公网 relay 建立连接，随后 identify 到达并携带对端的
@@ -29,6 +34,13 @@ mDNS——移动平台可能整个禁用组播，只挂在 mDNS 上等于在那�
 - **WHEN** 对端自报的私网地址对本端不可达（两端不在同一网络），LAN 升级拨号失败
 - **THEN** 打洞升级 SHALL 仍在**同一轮** identify 中被发起，**SHALL NOT** 因 LAN 升级占用在途
   标记而被跳过
+
+#### Scenario: 浏览器与同网段原生端之间升级为 webrtc-direct 直连
+
+- **WHEN** 浏览器与同一局域网内的原生端（桌面 / 移动）经 relay 连上，原生端 identify 自报的
+  地址里含私网 `webrtc-direct` 监听地址
+- **THEN** 该地址 SHALL 出现在升级候选中（不得因候选上限被截掉），升级成功后路径 SHALL 为
+  `PathKind::Local`、传输 SHALL 报告为 WebRTC Direct
 
 #### Scenario: 已有非中转路径时不重复升级
 
