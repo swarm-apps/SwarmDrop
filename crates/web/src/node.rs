@@ -788,21 +788,45 @@ impl WebNode {
         if files.is_empty() {
             return Err(WebError::invalid_input("未选择文件").into());
         }
+        // prepared_id 提到登记之前：它同时充当本批源 id 的命名空间。
+        let prepared_id = Uuid::new_v4();
+
         let mut entries = Vec::with_capacity(files.len());
-        for file in &files {
+        let mut sources = Vec::with_capacity(files.len());
+        for (idx, file) in files.iter().enumerate() {
             let name = file.name();
-            let source_id = FileSourceId(name.clone());
-            self.file_access
-                .register_source(source_id.clone(), file.clone());
+            // 选文件夹时浏览器把目录内路径挂在非标准属性 `webkitRelativePath` 上
+            // （`<input webkitdirectory>`）。web-sys 0.3 没生成它，所以走 Reflect 直取；
+            // 单选文件时它是空串，回落到文件名。
+            //
+            // 值是浏览器构造的、永远不含 `..` 或绝对路径；接收侧另有
+            // `is_safe_relative_path` 把关，那道校验防的是**恶意对端**而不是这里。
+            let relative_path =
+                js_sys::Reflect::get(file, &JsValue::from_str("webkitRelativePath"))
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| name.clone());
+            // **源 id 必须每次登记唯一，不能用文件名。** 源注册表是 map，用文件名当 key 时
+            // 一次发送里挑两个同名文件（不同目录下的 `report.pdf` 很常见）后者会顶掉前者，
+            // 两条 entry 于是指向同一个 `File` 却各自声明着不同的 size——`prepare` 要么报
+            // 「read_source_chunk 返回长度异常」，要么**发出错误的文件内容**。
+            //
+            // 形如 `{prepared_id}/{idx}`：唯一、跨多次发送不冲突，且在日志与
+            // `transfer_file.source_path`（续传时由 `build_prepared_files_from_db` 读回）
+            // 里仍然认得出是哪一批的第几个。对端看到的路径走 `relative_path`，与 id 无关。
+            let source_id = FileSourceId(format!("{prepared_id}/{idx}"));
+            sources.push((source_id.clone(), relative_path.clone(), file.clone()));
             entries.push(HostEnumeratedFile {
                 source_id,
-                name: name.clone(),
-                relative_path: name,
+                name,
+                relative_path,
                 size: file.size() as u64,
             });
         }
+        // 整批一次登记：源表按**批**淘汰上限（半批淘汰会让一次续传读到一半才发现源没了）。
+        self.file_access.register_batch(sources);
 
-        let prepared_id = Uuid::new_v4();
         let prepared = self
             .manager
             .prepare(prepared_id, entries)

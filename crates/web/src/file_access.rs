@@ -19,7 +19,7 @@
 //! 裹 SendWrapper。
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
 use send_wrapper::SendWrapper;
@@ -33,9 +33,30 @@ use web_sys::{File, FileSystemWritableFileStream, WriteCommandType, WriteParams}
 
 use crate::opfs::{js_to_err, open_writable, remove_path};
 
+/// 一条已登记的发送源。
+///
+/// **`relative_path` 必须单独存，不能从 [`FileSourceId`] 反推。** 两者曾经是同一个字符串
+/// （id 就是文件名），代价是同名文件互相覆盖：`sources` 是个 map，一次发送里挑两个
+/// `report.pdf`（不同目录下极常见）后者直接顶掉前者，两条 entry 于是指向同一个 `File`
+/// 却各自声明着不同的 size —— 轻则 `prepare` 报「read_source_chunk 返回长度异常」，
+/// 重则**发出错误的文件内容**。现在 id 是每次登记唯一的不透明值，路径归这里。
+struct SourceEntry {
+    file: File,
+    /// 发送方声明给对端的路径。将来支持选目录时它才会真的带目录段，现在等于文件名。
+    relative_path: String,
+}
+
+/// 发送源保留多少**批**（一次 `send_files` 是一批）。
+///
+/// 32 远超任何真实的单页会话——它的作用是把一个「只增不减」的结构变成有界的，而不是去逼近
+/// 某个真实上限。见 [`OpfsFileAccess::register_batch`] 的推导。
+const MAX_SOURCE_BATCHES: usize = 32;
+
 /// OPFS + File 源的 [`FileAccess`] 实现。
 pub struct OpfsFileAccess {
-    sources: SendWrapper<RefCell<HashMap<FileSourceId, File>>>,
+    sources: SendWrapper<RefCell<HashMap<FileSourceId, SourceEntry>>>,
+    /// 各批的 id 清单，按登记先后。只为按批淘汰而存——见 [`Self::register_batch`]。
+    source_batches: SendWrapper<RefCell<VecDeque<Vec<FileSourceId>>>>,
     /// 接收侧流式写句柄：`create_sink` 时开、每 chunk positioned 直写、`finalize` 时 close。
     /// key（[`FileSinkId`]）就是 relative_path，无需另存。
     sinks: SendWrapper<RefCell<HashMap<FileSinkId, FileSystemWritableFileStream>>>,
@@ -51,23 +72,61 @@ impl OpfsFileAccess {
     pub fn new() -> Self {
         Self {
             sources: SendWrapper::new(RefCell::new(HashMap::new())),
+            source_batches: SendWrapper::new(RefCell::new(VecDeque::new())),
             sinks: SendWrapper::new(RefCell::new(HashMap::new())),
         }
     }
 
-    /// 登记一个发送源（用户选的 File），返回其 [`FileSourceId`]（用 relative-path 作 id）。
-    pub fn register_source(&self, id: FileSourceId, file: File) {
-        self.sources.borrow_mut().insert(id, file);
+    /// 登记一批发送源（用户这一次选中的 File 集合）。
+    ///
+    /// `entries` 的 id 由调用方保证**每次登记唯一**（见 [`SourceEntry`]），`relative_path`
+    /// 是要告诉对端的路径。
+    ///
+    /// # 为什么按「批」登记而不是逐条
+    ///
+    /// 源登记后**不能随发送结束就删**：同一页面生命周期内的续传要靠它把 `File` 找回来
+    /// （浏览器不允许在用户未重新选择的前提下再读同一个文件，所以这份表就是唯一的来源）。
+    /// 于是它只增不减——而 id 从「文件名」换成「每次唯一」之后，重复发送同一批文件不再复用
+    /// key，长会话里会线性堆积，每条钉住一个 OS 文件引用。
+    ///
+    /// 上限因此按**批**算：淘汰整批，绝不淘汰半批（半批会让一次续传读到一半才发现源没了）。
+    /// [`MAX_SOURCE_BATCHES`] 之外的旧批被丢弃，其后果与「刷新页面后源全没了」完全同类——
+    /// 那是这份表本来就有的语义，用户见到的是同一句「文件源不存在」。
+    pub fn register_batch(&self, entries: Vec<(FileSourceId, String, File)>) {
+        let ids: Vec<FileSourceId> = entries.iter().map(|(id, _, _)| id.clone()).collect();
+        {
+            let mut sources = self.sources.borrow_mut();
+            for (id, relative_path, file) in entries {
+                sources.insert(
+                    id,
+                    SourceEntry {
+                        file,
+                        relative_path,
+                    },
+                );
+            }
+        }
+
+        let mut batches = self.source_batches.borrow_mut();
+        batches.push_back(ids);
+        while batches.len() > MAX_SOURCE_BATCHES {
+            if let Some(evicted) = batches.pop_front() {
+                let mut sources = self.sources.borrow_mut();
+                for id in evicted {
+                    sources.remove(&id);
+                }
+            }
+        }
     }
 }
 
 #[async_trait]
 impl FileAccess for OpfsFileAccess {
     async fn source_metadata(&self, source: &FileSourceId) -> AppResult<HostFileMetadata> {
-        let file = self.source(source)?;
+        let (file, relative_path) = self.source(source)?;
         Ok(HostFileMetadata {
             name: file.name(),
-            relative_path: source.0.clone(),
+            relative_path,
             size: file.size() as u64,
             modified_at: Some(file.last_modified() as i64),
             checksum: None,
@@ -84,7 +143,7 @@ impl FileAccess for OpfsFileAccess {
         // 所有 !Send 的 JsValue 都在 await 前拿到 promise 后即丢，只让 SendWrapper<JsFuture>
         // 跨 await——保证方法返回的 future 满足端口的 Send。
         let promise = {
-            let file = self.source(source)?;
+            let (file, _) = self.source(source)?;
             let end = offset + length as u64;
             let blob = file
                 .slice_with_f64_and_f64(offset as f64, end as f64)
@@ -214,11 +273,12 @@ impl FileAccess for OpfsFileAccess {
 }
 
 impl OpfsFileAccess {
-    fn source(&self, source: &FileSourceId) -> AppResult<File> {
+    /// 查表取源（`File` 的 clone 只是 wasm-bindgen 堆表引用计数，非数据拷贝）。
+    fn source(&self, source: &FileSourceId) -> AppResult<(File, String)> {
         self.sources
             .borrow()
             .get(source)
-            .cloned()
+            .map(|entry| (entry.file.clone(), entry.relative_path.clone()))
             .ok_or_else(|| AppError::Transfer(format!("文件源不存在: {}", source.0)))
     }
 
@@ -305,5 +365,75 @@ mod tests {
         );
 
         let _ = crate::opfs::remove_path(done).await;
+    }
+
+    /// 建一个内容为 `bytes` 的 `File`，文件名 `name`。
+    fn file_of(name: &str, bytes: &[u8]) -> File {
+        let parts = js_sys::Array::new();
+        parts.push(&js_sys::Uint8Array::from(bytes).into());
+        File::new_with_u8_array_sequence(&parts, name).expect("建 File")
+    }
+
+    /// **同名文件不能互相覆盖。**
+    ///
+    /// 源 id 曾经就是文件名，于是一次发送里挑两个 `report.pdf` 时后者顶掉前者，两条 entry
+    /// 指向同一个 `File`——发出去的内容是错的，而这件事在发送侧没有任何报错（接收端验签才
+    /// 暴露，且归因指向网络）。这条测试钉住「id 与 relative_path 是两件事」。
+    #[wasm_bindgen_test]
+    async fn same_name_sources_do_not_collide() {
+        let access = OpfsFileAccess::new();
+        let a = FileSourceId("batch/0".into());
+        let b = FileSourceId("batch/1".into());
+
+        access.register_batch(vec![
+            (
+                a.clone(),
+                "report.pdf".into(),
+                file_of("report.pdf", b"AAAA"),
+            ),
+            (
+                b.clone(),
+                "report.pdf".into(),
+                file_of("report.pdf", b"BBBBBB"),
+            ),
+        ]);
+
+        // 读到的必须是各自那个 File 的内容——这才是 bug 的真身。
+        assert_eq!(
+            access.read_source_chunk(&a, 0, 4).await.expect("读 A"),
+            b"AAAA",
+            "同一批里的第二个同名文件不该改写第一条源"
+        );
+        assert_eq!(
+            access.read_source_chunk(&b, 0, 6).await.expect("读 B"),
+            b"BBBBBB"
+        );
+    }
+
+    /// 源表只增不减，所以按**批**设了上限。这条钉住两件事：超限的旧批真的被丢掉，
+    /// 且淘汰是**整批**——半批淘汰会让一次续传读到一半才发现源没了。
+    #[wasm_bindgen_test]
+    async fn oldest_source_batches_are_evicted_whole() {
+        let access = OpfsFileAccess::new();
+        let id = |batch: usize, idx: usize| FileSourceId(format!("b{batch}/{idx}"));
+
+        for batch in 0..=MAX_SOURCE_BATCHES {
+            access.register_batch(vec![
+                (id(batch, 0), "a.bin".into(), file_of("a.bin", b"xx")),
+                (id(batch, 1), "b.bin".into(), file_of("b.bin", b"yy")),
+            ]);
+        }
+
+        // 第 0 批整批被淘汰——两条都不在了，不是只掉一条。
+        assert!(access.read_source_chunk(&id(0, 0), 0, 2).await.is_err());
+        assert!(access.read_source_chunk(&id(0, 1), 0, 2).await.is_err());
+        // 最新那批完好。
+        assert_eq!(
+            access
+                .read_source_chunk(&id(MAX_SOURCE_BATCHES, 0), 0, 2)
+                .await
+                .expect("最新批必须还在"),
+            b"xx"
+        );
     }
 }

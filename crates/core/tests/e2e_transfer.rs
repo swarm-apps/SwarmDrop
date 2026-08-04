@@ -1713,6 +1713,101 @@ async fn e2e_paused_offer_declined_then_resumes_on_resume() {
     .await;
 }
 
+/// 安全回归：对端声明的 `relative_path` 若会逃出保存目录，整条 Offer 必须被拒。
+///
+/// 接收侧最终做的是 `save_dir.join(relative_path)`，而 `Path::join` 遇到绝对路径会把 base
+/// **整段丢弃**、`..` 会向上穿越，`create_dir_all(parent)` 还会把目标目录建出来——这条校验
+/// 缺席时，一个已配对的对端可以往本机任意位置写文件（`~/.ssh/authorized_keys`、
+/// `/etc/cron.d/...`）。配对不蕴含这个权限：产品自己就有 `temporary` / `collaborator`
+/// 这些低于 `owned` 的信任级别。
+///
+/// 断言的三件事与「暂停接收」那条同构：A 拿到 `UnsafePath`、B **不弹给用户**、B **不落库**。
+/// 后两条同样重要——一条被拒的攻击不该在受害者的收件箱里留下痕迹。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_offer_with_escaping_relative_path_is_rejected() {
+    let data = b"evil payload".to_vec();
+    let source_id = FileSourceId("src-evil".to_string());
+    // 宿主侧的元数据用正常路径：攻击点在 **wire 上声明的 relative_path**，
+    // 由下面的 `HostEnumeratedFile` 直接给出，不经过本机文件系统。
+    let meta = HostFileMetadata {
+        name: "authorized_keys".to_string(),
+        relative_path: "authorized_keys".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id,
+            vec![HostEnumeratedFile {
+                source_id: source_id.clone(),
+                name: "authorized_keys".to_string(),
+                relative_path: "../../../../.ssh/authorized_keys".to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare");
+
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Human,
+        )
+        .await
+        .expect("send_offer");
+
+    poll_until(
+        || {
+            node_a.host.events().iter().any(|e| {
+                matches!(
+                    e,
+                    CoreEvent::TransferRejected { event } if event.session_id == session_id
+                )
+            })
+        },
+        Duration::from_secs(10),
+        "A 收到 TransferRejected(UnsafePath)",
+    )
+    .await;
+
+    let rejected_reason = node_a.host.events().iter().find_map(|e| match e {
+        CoreEvent::TransferRejected { event } if event.session_id == session_id => {
+            Some(event.reason.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(
+        rejected_reason,
+        Some(Some(OfferRejectReason::UnsafePath)),
+        "路径逃逸的拒绝原因必须是 UnsafePath——并进 PolicyRejected 会让发送方以为\
+         是对方的偏好设置问题，而这其实是「你的客户端发了非法数据」"
+    );
+
+    assert!(
+        !received_offer(&node_b, session_id),
+        "路径逃逸的 offer 不得弹给用户——用户没有能力判断这件事，问了也只是把风险转嫁给他"
+    );
+    assert!(
+        ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+            .await
+            .expect("query b")
+            .is_none(),
+        "路径逃逸的 offer 不得落库：一条被拒的攻击不该在受害者的记录里留下痕迹"
+    );
+}
+
 /// 回归（僵尸节点治本）：停止节点后 run_event_loop 随 cancel_token 退出，
 /// swarm 被释放、连接断开——对端必须在宽限期后判其离线，而不是被
 /// keep-alive 白名单钉死的僵尸连接骗成永久在线。
