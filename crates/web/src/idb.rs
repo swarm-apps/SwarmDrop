@@ -30,6 +30,7 @@ use web_sys::{
 };
 
 use crate::error::{WebError, WebResult};
+use crate::js_guard::JsGuard;
 
 const DB_NAME: &str = "swarmdrop-web";
 /// v1 = 仅 `kv`；v2 新增 `sessions`（传输会话持久化）；v3 新增 `invites`（邀请注册表落盘）；
@@ -160,6 +161,11 @@ async fn transaction_done(tx: IdbTransaction) -> WebResult<()> {
     tx.set_oncomplete(Some(on_complete.as_ref().unchecked_ref()));
     tx.set_onerror(Some(on_failure.as_ref().unchecked_ref()));
     tx.set_onabort(Some(on_failure.as_ref().unchecked_ref()));
+    let _guard = JsGuard::new(tx, [on_complete, on_failure], |tx, _| {
+        tx.set_oncomplete(None);
+        tx.set_onerror(None);
+        tx.set_onabort(None);
+    });
 
     match rx.await {
         Ok(Ok(())) => Ok(()),
@@ -243,10 +249,11 @@ async fn open() -> WebResult<IdbDatabase> {
 
 /// 建缺失的 object store。逐个判存在性而非按版本号分支——老库升级与新库首建走同一段代码。
 ///
-/// 返回 `Closure` 句柄由调用方持有：`forget()` 会永久泄漏 Box 及其捕获的 `JsValue`
-/// （连带钉住那条连接），而这个函数在写路径上被高频调用。
-#[must_use = "闭包 drop 后回调即失效，须持有到 open 请求 settle"]
-fn install_upgrade_handler(open_request: &IdbOpenDbRequest) -> Closure<dyn FnMut(Event)> {
+/// 返回的 guard 由调用方持有到 open 请求 settle：`forget()` 会永久泄漏 Box 及其捕获的
+/// `JsValue`（连带钉住那条连接），而这个函数在写路径上被高频调用。
+fn install_upgrade_handler(
+    open_request: &IdbOpenDbRequest,
+) -> JsGuard<IdbOpenDbRequest, Closure<dyn FnMut(Event)>> {
     let upgrade_request = open_request.clone();
     let on_upgrade = Closure::wrap(Box::new(move |_event: Event| {
         if let Ok(db) = upgrade_request
@@ -261,7 +268,9 @@ fn install_upgrade_handler(open_request: &IdbOpenDbRequest) -> Closure<dyn FnMut
         }
     }) as Box<dyn FnMut(_)>);
     open_request.set_onupgradeneeded(Some(on_upgrade.as_ref().unchecked_ref()));
-    on_upgrade
+    JsGuard::new(open_request.clone(), on_upgrade, |open_request, _| {
+        open_request.set_onupgradeneeded(None);
+    })
 }
 
 fn object_store(
@@ -308,6 +317,14 @@ async fn request(request: IdbRequest) -> WebResult<JsValue> {
 
     request.set_onsuccess(Some(on_success.as_ref().unchecked_ref()));
     request.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+    // 正常路径下请求已 settle、不会再有事件，摘不摘都一样；但 future 一旦在 `await` 处被
+    // **取消**（外层 select 落到另一分支、超时），请求仍在飞——那时就全靠这里摘干净，
+    // 否则事件会打到已释放的闭包上。眼下 Web 壳还没有取消存储操作的路径，这是把不变量
+    // 钉住，免得日后加超时时静默踩雷。
+    let _guard = JsGuard::new(request, [on_success, on_error], |request, _| {
+        request.set_onsuccess(None);
+        request.set_onerror(None);
+    });
 
     match rx.await {
         Ok(Ok(value)) => Ok(value),

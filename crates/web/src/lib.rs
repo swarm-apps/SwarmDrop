@@ -35,6 +35,8 @@ mod inbox;
 #[cfg(wasm_browser)]
 mod invite_store;
 #[cfg(wasm_browser)]
+mod js_guard;
+#[cfg(wasm_browser)]
 mod node;
 #[cfg(wasm_browser)]
 mod opfs;

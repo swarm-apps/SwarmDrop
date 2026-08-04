@@ -11,26 +11,7 @@ use futures::future::{Either, select};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
 
-/// "abort" 事件监听的 RAII guard：drop 时摘监听（Closure 一并回收）。
-struct ListenerGuard {
-    signal: web_sys::AbortSignal,
-    closure: Closure<dyn FnMut()>,
-}
-
-impl ListenerGuard {
-    fn attach(signal: web_sys::AbortSignal, closure: Closure<dyn FnMut()>) -> Self {
-        let _ = signal.add_event_listener_with_callback("abort", closure.as_ref().unchecked_ref());
-        Self { signal, closure }
-    }
-}
-
-impl Drop for ListenerGuard {
-    fn drop(&mut self) {
-        let _ = self
-            .signal
-            .remove_event_listener_with_callback("abort", self.closure.as_ref().unchecked_ref());
-    }
-}
+use crate::js_guard::JsGuard;
 
 /// 业务 future 与可选 abort 信号赛跑（select 编排的单点收口）。
 ///
@@ -65,7 +46,11 @@ pub async fn wait_abort(signal: web_sys::AbortSignal) {
             let _ = tx.send(());
         }
     }) as Box<dyn FnMut()>);
-    let _guard = ListenerGuard::attach(signal, closure);
+    let _ = signal.add_event_listener_with_callback("abort", closure.as_ref().unchecked_ref());
+    let _guard = JsGuard::new(signal, closure, |signal, closure| {
+        let _ =
+            signal.remove_event_listener_with_callback("abort", closure.as_ref().unchecked_ref());
+    });
     // sender 已在 guard 存活期内：rx 出错（不可能路径）也按 aborted 处理
     let _ = rx.await;
 }

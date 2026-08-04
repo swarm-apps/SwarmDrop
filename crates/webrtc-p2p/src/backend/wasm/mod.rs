@@ -32,11 +32,13 @@ use web_sys::{
     RtcPeerConnectionIceEvent, RtcPeerConnectionState, RtcSdpType, RtcSessionDescriptionInit,
 };
 
+use self::callbacks::JsCallbacks;
 use self::muxer::{INIT_CHANNEL_LABEL, Muxer};
 use super::{Backend, BackendError, BackendEvent};
 use crate::config::Config;
 use crate::protocol::MessageType;
 
+mod callbacks;
 mod data_channel;
 pub(crate) mod direct;
 mod muxer;
@@ -65,16 +67,21 @@ struct Inner {
     /// 进行中的操作。同一时刻至多一个，保证 SDP 状态机的调用顺序。
     running: Option<LocalBoxFuture<'static, Result<(), BackendError>>>,
     events_tx: mpsc::UnboundedSender<BackendEvent>,
-    /// 对端开来的 DataChannel，建连后交给 muxer。
-    inbound_dc_rx: Option<mpsc::UnboundedReceiver<RtcDataChannel>>,
-    /// 回调闭包。drop 掉它们 JS 侧回调就失效，且没有任何错误提示。
-    _callbacks: Callbacks,
+    /// 建连成功后整体交给数据面的东西。`None` = 已移交。
+    handover: Option<Handover>,
 }
 
-struct Callbacks {
-    _onicecandidate: Closure<dyn FnMut(RtcPeerConnectionIceEvent)>,
-    _onstatechange: Closure<dyn FnMut()>,
-    _ondatachannel: Closure<dyn FnMut(RtcDataChannelEvent)>,
+/// 随 [`Backend::take_muxer`] 一并移交给数据面的东西。
+///
+/// 两者必须同进同退，故绑成一个 `Option`：本类型的寿命只到信令会话结束
+/// （`Action::Connected` 一发，`connection_keep_alive()` 就转 false，那条 relay 上的
+/// 信令连接随即被关），而数据面还要活很久。留一样在这边，它就会先于连接死掉——
+/// 回调是静默失效，接收端是 `poll_inbound` 当场报「连接已关闭」。
+struct Handover {
+    /// 对端开来的 DataChannel。
+    incoming: mpsc::UnboundedReceiver<RtcDataChannel>,
+    /// `pc` 上注册的回调闭包，详见 [`muxer::Inner::_callbacks`]。
+    callbacks: JsCallbacks<RtcPeerConnection>,
 }
 
 impl std::fmt::Debug for WasmBackend {
@@ -134,18 +141,26 @@ impl WasmBackend {
         pc.set_onconnectionstatechange(Some(onstatechange.as_ref().unchecked_ref()));
         pc.set_ondatachannel(Some(ondatachannel.as_ref().unchecked_ref()));
 
+        let callbacks = JsCallbacks::new(
+            pc.clone(),
+            |pc: &RtcPeerConnection| {
+                pc.set_onicecandidate(None);
+                pc.set_onconnectionstatechange(None);
+                pc.set_ondatachannel(None);
+            },
+            (onicecandidate, onstatechange, ondatachannel),
+        );
+
         Ok(Self {
             inner: SendWrapper::new(Inner {
                 pc,
                 queued: VecDeque::new(),
                 running: None,
                 events_tx,
-                inbound_dc_rx: Some(dc_rx),
-                _callbacks: Callbacks {
-                    _onicecandidate: onicecandidate,
-                    _onstatechange: onstatechange,
-                    _ondatachannel: ondatachannel,
-                },
+                handover: Some(Handover {
+                    incoming: dc_rx,
+                    callbacks,
+                }),
             }),
             events_rx,
         })
@@ -154,6 +169,17 @@ impl WasmBackend {
     /// 供 [`crate::Factory`] 使用的便捷构造。
     pub fn factory() -> crate::Factory {
         std::sync::Arc::new(|config: &Config| Ok(Box::new(Self::new(config)?) as Box<dyn Backend>))
+    }
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        // 信令会话失败（或根本没走到建连）时，这条 `RTCPeerConnection` 无人接手，
+        // 而浏览器不会回收一条还在跑 ICE 的连接——必须显式关。已移交时**绝不能关**：
+        // 那正是刚建好的连接，此后归数据面管（见 [`Handover`]）。
+        if self.handover.is_some() {
+            self.pc.close();
+        }
     }
 }
 
@@ -253,9 +279,15 @@ impl Backend for WasmBackend {
 
     fn take_muxer(&mut self) -> Option<StreamMuxerBox> {
         let inner = &mut *self.inner;
-        // 接收端只有一个，take 掉即表示所有权已交出——再次调用返回 None。
-        let incoming = inner.inbound_dc_rx.take()?;
-        Some(StreamMuxerBox::new(Muxer::new(inner.pc.clone(), incoming)))
+        // take 掉即表示所有权已交出——再次调用返回 None。
+        let handover = inner.handover.take()?;
+        // 打洞路径没有 Noise 握手，也就没有可协商的消息尺寸上限，取默认值。
+        Some(StreamMuxerBox::new(Muxer::new(
+            inner.pc.clone(),
+            handover.incoming,
+            libp2p_webrtc_utils::StreamConfig::default(),
+            handover.callbacks,
+        )))
     }
 
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<BackendEvent> {

@@ -33,6 +33,7 @@ use web_sys::{
     RtcPeerConnectionState, RtcSdpType,
 };
 
+use super::callbacks::JsCallbacks;
 use super::muxer::{Muxer, NOISE_CHANNEL_ID, Substream};
 use crate::config::DirectConfig;
 use crate::error::Error;
@@ -91,19 +92,77 @@ async fn outbound(
     server_fingerprint: Fingerprint,
     config: DirectConfig,
 ) -> Result<(PeerId, Connection), Error> {
+    // 证书的摘要算法必须与对端 certhash 用的一致，否则 DTLS 校验必然失配。
+    let mut pending =
+        PendingConnection::new(new_peer_connection(&server_fingerprint.algorithm()).await?);
+    let connected = upgrade(pending.pc(), remote, server_fingerprint, config).await?;
+    // 成功了，连接归 muxer 管（见它的 `Drop`）。
+    pending.disarm();
+    Ok(connected)
+}
+
+/// 建连期间持有 `RTCPeerConnection`：只要没走到 [`Self::disarm`]，drop 就 `close()`。
+///
+/// 浏览器不会回收一条还在跑 ICE 的连接，光 drop 掉 Rust 句柄会攒下僵尸连接。
+/// 而**只在错误分支关是不够的**：本函数的返回值是 libp2p `Transport::dial` 的
+/// `Upgrade` future，`ConcurrentDial` 在同时拨的另一个地址先成功时会把它**直接丢弃**
+/// ——那条路径上错误分支根本不执行。取消、`?` 早退、panic 三条路只有 RAII 一起覆盖得住。
+struct PendingConnection {
+    pc: RtcPeerConnection,
+    armed: bool,
+}
+
+impl PendingConnection {
+    fn new(pc: RtcPeerConnection) -> Self {
+        Self { pc, armed: true }
+    }
+
+    fn pc(&self) -> &RtcPeerConnection {
+        &self.pc
+    }
+
+    /// 交出所有权：此后由数据面负责关闭。
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for PendingConnection {
+    fn drop(&mut self) {
+        if self.armed {
+            self.pc.close();
+        }
+    }
+}
+
+/// 建连主体。中间八个 `?` 的失败路径与整个 future 被取消的路径，都由调用方那个
+/// [`PendingConnection`] 兜底关闭连接，这里只管把流程走完。
+async fn upgrade(
+    pc: &RtcPeerConnection,
+    remote: SocketAddr,
+    server_fingerprint: Fingerprint,
+    config: DirectConfig,
+) -> Result<(PeerId, Connection), Error> {
     let ufrag = libp2p_webrtc_utils::sdp::random_ufrag();
     tracing::debug!(%remote, "webrtc-direct: 浏览器发起出站连接");
 
-    // 证书的摘要算法必须与对端 certhash 用的一致，否则 DTLS 校验必然失配。
-    let pc = new_peer_connection(&server_fingerprint.algorithm()).await?;
     // 两个闭包**不能只绑在局部量上**——函数一返回它们就 drop，JS 侧回调随之静默失效。
     // `ondatachannel` 尤其致命：连接看着是好的，但 `incoming` 再也收不到对端开的子流。
-    // 建连完成后连同 muxer 一起移交（见 `Muxer` 的 `_callbacks`）。
-    let (inbound_dc, on_data_channel) = attach_data_channel_sink(&pc);
-    let (mut states, on_state_change) = attach_state_sink(&pc);
+    // 建连完成后连同 muxer 一起移交（见 `Muxer` 的 `_callbacks`）；中途失败则由
+    // `JsCallbacks` 在此处 drop 时先解绑再释放。
+    let (inbound_dc, on_data_channel) = attach_data_channel_sink(pc);
+    let (mut states, on_state_change) = attach_state_sink(pc);
+    let callbacks = JsCallbacks::new(
+        pc.clone(),
+        |pc: &RtcPeerConnection| {
+            pc.set_ondatachannel(None);
+            pc.set_onconnectionstatechange(None);
+        },
+        (on_data_channel, on_state_change),
+    );
 
     // **必须在 create_offer 之前建**，否则 offer 里不带 m=application 行。
-    let noise_channel = new_negotiated_channel(&pc);
+    let noise_channel = new_negotiated_channel(pc);
 
     let offer = JsFuture::from(pc.create_offer())
         .await
@@ -131,7 +190,7 @@ async fn outbound(
 
     // 本端指纹只能从 local description 里读——浏览器不把证书内容交出来。
     // 取 munge 之后的那份（`local_description()`），不是 `create_offer` 的原始返回。
-    let client_fingerprint = local_fingerprint(&pc)?;
+    let client_fingerprint = local_fingerprint(pc)?;
 
     // 等 DTLS 握手完成再动 DataChannel。
     //
@@ -155,12 +214,7 @@ async fn outbound(
 
     tracing::debug!(%remote, %peer, "webrtc-direct: 浏览器出站连接就绪");
 
-    let muxer = Muxer::with_config(
-        pc,
-        inbound_dc,
-        stream_config,
-        vec![Box::new(on_data_channel), Box::new(on_state_change)],
-    );
+    let muxer = Muxer::new(pc.clone(), inbound_dc, stream_config, callbacks);
     Ok((peer, Connection::new(peer, StreamMuxerBox::new(muxer))))
 }
 

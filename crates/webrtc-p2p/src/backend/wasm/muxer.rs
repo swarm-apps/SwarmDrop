@@ -8,7 +8,7 @@
 
 use std::io;
 use std::pin::Pin;
-use std::task::{Context, Poll, ready};
+use std::task::{Context, Poll, Waker, ready};
 
 use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
@@ -17,7 +17,8 @@ use libp2p_core::muxing::{StreamMuxer, StreamMuxerEvent};
 use send_wrapper::SendWrapper;
 use web_sys::{RtcDataChannel, RtcPeerConnection};
 
-use super::data_channel::PollDataChannel;
+use super::callbacks::JsCallbacks;
+use super::data_channel::{DEFAULT_MAX_READ_BUFFER, PollDataChannel};
 use crate::error::Error;
 
 /// spec 步骤 4 那条只为让 SDP 带上 ICE 信息而建的通道。
@@ -50,8 +51,10 @@ impl Substream {
         dc: RtcDataChannel,
         config: libp2p_webrtc_utils::StreamConfig,
     ) -> Self {
-        let (stream, drop_listener) =
-            libp2p_webrtc_utils::Stream::with_config(PollDataChannel::new(dc), config);
+        let (stream, drop_listener) = libp2p_webrtc_utils::Stream::with_config(
+            PollDataChannel::new(dc, read_buffer_limit(config)),
+            config,
+        );
         drop(drop_listener);
         Self {
             inner: SendWrapper::new(stream),
@@ -102,39 +105,47 @@ struct Inner {
     /// 连接上会积累永不释放的 DataChannel。
     drop_listeners:
         FuturesUnordered<SendWrapper<libp2p_webrtc_utils::DropListener<PollDataChannel>>>,
-    /// 建连期间注册的 JS 回调闭包。
+    /// `drop_listeners` 空时存下的 waker。
     ///
-    /// **必须由连接持有到最后。** `Closure` 一被 drop，JS 侧那个回调就静默失效——
-    /// direct 的建连流程在函数局部量里注册 `ondatachannel`，若不移交给这里，
-    /// `outbound()` 一返回回调就没了，`incoming` 从此永远收不到对端开的子流：
-    /// 连接看着是好的，只是再也开不出入站流来。
-    _callbacks: Vec<Box<dyn std::any::Any>>,
+    /// `FuturesUnordered::poll_next` 返回 `Ready(None)`（集合空）时**不注册 waker**，
+    /// 于是之后 `wrap()` 推进去的 listener 要等连接因别的事件被唤醒才会被 poll 到。
+    /// 而它没被 poll 完，`PollDataChannel` 的那份 clone 就不释放——**回调迟迟不解绑、
+    /// Reset 也迟迟不发**，连接安静下来时尤其明显。故 push 之后主动唤醒。
+    no_drop_listeners_waker: Option<Waker>,
+    /// 建连期间在 `RTCPeerConnection` 上注册的 JS 回调闭包。
+    ///
+    /// **必须由连接持有到最后**，两条路径都是：闭包一 drop，JS 侧那个回调就静默失效。
+    /// `ondatachannel` 尤其致命——`incoming` 从此永远收不到对端开的子流，连接看着是好的，
+    /// 只是再也开不出入站流来。两处踩过的坑各不相同：
+    ///
+    /// - **direct**：在 `outbound()` 的局部量里注册，函数一返回闭包就没了；
+    /// - **打洞**：闭包曾留在 `WasmBackend` 里，而信令会话一完成
+    ///   （`connection_keep_alive() == false`）那条 relay 上的信令连接就会被关掉，
+    ///   handler → session → backend 顺次 drop，数据面还活着回调却已经死了。
+    ///
+    /// 收在这里，回调与数据面同寿；drop 时由 [`JsCallbacks`] 负责先解绑再释放。
+    _callbacks: JsCallbacks<RtcPeerConnection>,
+}
+
+/// 累计读缓冲上限：不得低于单条消息上限，否则一条合法的大消息永远进不来。
+///
+/// 与单条消息上限**不能混用**：`onmessage` 在 Rust task 再次 poll 之前可能已经攒下多条
+/// 各自合法的消息，拿单条上限当累计上限会把正常流量误判成过载。
+fn read_buffer_limit(config: libp2p_webrtc_utils::StreamConfig) -> usize {
+    DEFAULT_MAX_READ_BUFFER.max(config.max_message_size())
 }
 
 impl Muxer {
-    /// 打洞模式用：消息尺寸取默认值（那条路径没有 Noise 握手，也就没有可协商的上限）。
+    /// `stream_config` 是子流的消息尺寸上限：direct 沿用 Noise 握手**协商出来**的值
+    /// （两端必须一致，否则合法的大消息会被一侧判成协议违规而重置子流），打洞路径没有
+    /// 握手可协商，取默认值。
+    ///
+    /// `callbacks` 是建连期间注册的 JS 闭包，交给连接续命（见 [`Inner::_callbacks`]）。
     pub(crate) fn new(
         pc: RtcPeerConnection,
         incoming: mpsc::UnboundedReceiver<RtcDataChannel>,
-    ) -> Self {
-        // 打洞路径的回调由 `WasmBackend` 自己续命，这里不接管。
-        Self::with_config(
-            pc,
-            incoming,
-            libp2p_webrtc_utils::StreamConfig::default(),
-            Vec::new(),
-        )
-    }
-
-    /// direct 模式用：沿用 Noise 握手**协商出来**的消息尺寸上限。
-    ///
-    /// 两端必须一致，否则合法的大消息会被一侧判成协议违规而重置子流。
-    /// `callbacks` 是建连期间注册的 JS 闭包，交给连接续命（见 [`Inner::_callbacks`]）。
-    pub(crate) fn with_config(
-        pc: RtcPeerConnection,
-        incoming: mpsc::UnboundedReceiver<RtcDataChannel>,
         stream_config: libp2p_webrtc_utils::StreamConfig,
-        callbacks: Vec<Box<dyn std::any::Any>>,
+        callbacks: JsCallbacks<RtcPeerConnection>,
     ) -> Self {
         Self {
             inner: SendWrapper::new(Inner {
@@ -143,17 +154,35 @@ impl Muxer {
                 next_outbound_id: 0,
                 stream_config,
                 drop_listeners: FuturesUnordered::new(),
+                no_drop_listeners_waker: None,
                 _callbacks: callbacks,
             }),
         }
     }
 }
 
+impl Drop for Inner {
+    fn drop(&mut self) {
+        // 浏览器不会回收一条还在跑 ICE/DTLS 的 `RTCPeerConnection`：Rust 侧 drop 掉句柄
+        // 只是撤掉一个引用，连接本身照跑。**数据面是它的最后一个持有者**，由这里负责关。
+        //
+        // 光靠 `poll_close` 不够——那要 libp2p 走正常关闭流程才会调到，连接异常终止时
+        // muxer 是直接被 drop 的，僵尸连接会一条条攒下来。重复 close 无害（W3C 规定幂等）。
+        self.pc.close();
+    }
+}
+
 impl Inner {
     fn wrap(&mut self, dc: RtcDataChannel) -> Substream {
-        let (stream, drop_listener) =
-            libp2p_webrtc_utils::Stream::with_config(PollDataChannel::new(dc), self.stream_config);
+        let (stream, drop_listener) = libp2p_webrtc_utils::Stream::with_config(
+            PollDataChannel::new(dc, read_buffer_limit(self.stream_config)),
+            self.stream_config,
+        );
         self.drop_listeners.push(SendWrapper::new(drop_listener));
+        // 集合刚才可能是空的（那时 poll 拿不到 waker），主动把连接叫醒来 poll 新成员。
+        if let Some(waker) = self.no_drop_listeners_waker.take() {
+            waker.wake();
+        }
         Substream {
             inner: SendWrapper::new(stream),
         }
@@ -211,7 +240,17 @@ impl StreamMuxer for Muxer {
     ) -> Poll<Result<StreamMuxerEvent, Self::Error>> {
         let inner = &mut *self.get_mut().inner;
         // 驱动 drop 通知：子流被 drop 时靠它关闭底层 DataChannel。
-        while let Poll::Ready(Some(_)) = inner.drop_listeners.poll_next_unpin(cx) {}
+        loop {
+            match inner.drop_listeners.poll_next_unpin(cx) {
+                Poll::Ready(Some(_)) => continue,
+                // 集合空了，`FuturesUnordered` 不会替我们注册 waker，自己存下。
+                Poll::Ready(None) => {
+                    inner.no_drop_listeners_waker = Some(cx.waker().clone());
+                    break;
+                }
+                Poll::Pending => break,
+            }
+        }
         Poll::Pending
     }
 }

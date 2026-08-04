@@ -557,6 +557,104 @@ muxer 一交出去上层就开始写，此刻必然还是 `Connecting`——把�
 唤醒（**没有 onopen 就永远等不到通知**）。native 侧无此问题：`webrtc-rs` 的 `send` 是
 async，内部等 SCTP。
 
+### ⚠️ JS 回调闭包：释放之前**必须先解绑**，唤醒**必须延后**（2026-08-04 修）
+
+症状是浏览器 console 刷屏：
+
+```
+Uncaught Error: closure invoked recursively or after being dropped
+    at RTCDataChannel.i (...)
+```
+
+它是 **JS 侧的 Uncaught，不会 panic 掉 wasm**——节点照常跑（relay reservation 也照样
+accepted），所以极容易被当成网络问题查半天。真正发生的事：
+
+1. libp2p 子流被 drop（日志里那句 `Stream dropped without graceful close, sending Reset`）；
+2. `DropListener` 发完 Reset flag，最后一个 `PollDataChannel` 副本释放，wasm-bindgen
+   回收 `Closure`；
+3. 但 **JS 侧 `RTCDataChannel.onmessage` 还指着它**——浏览器事件队列里排着的、或对端随后
+   发来的消息照样触发，于是抛错并丢消息。
+
+**三条一起才算修好**（缺任何一条都会以不同形式复发）：
+
+| # | 约束 | 漏掉的后果 |
+|---|---|---|
+| 1 | 闭包要活到目标对象不再产生事件 | 回调**静默**失效，无任何报错 |
+| 2 | 释放之前先 `set_onxxx(None)` | 就是上面那个刷屏 |
+| 3 | 唤醒 waker 要延后到回调栈之外（`spawn_local`），且**先释放 `RefCell` 借用** | 重入 executor：轻则同一个报错，重则 `already borrowed` panic |
+
+`crates/webrtc-p2p/src/backend/wasm/callbacks.rs` 的 `JsCallbacks<T>` 把 1、2 收口成类型
+保证；3 是 `data_channel.rs` 的 `defer_wake`。`crates/web` 侧同一条不变量由
+`crates/web/src/js_guard.rs` 的 `JsGuard<T, C>` 承担（IndexedDB 的三个 handler 站点 +
+`AbortSignal` 的监听器）。
+
+两处都把 `detach` 做成**参数**而不是 target 类型上的 trait：解绑动作写在注册点旁边，
+加一个 handler 时两行相邻。曾写成 trait（一份「这个 JS 类型的全部 handler」清单），
+但那份清单在另一个文件里，注册点加了 handler 却忘记回来补清单，正是它要防的失效模式。
+
+**这是同一个错误犯第二次。** 官方 `webrtc-websys` 里这三条正是本仓提的
+[#6558](https://github.com/libp2p/rust-libp2p/pull/6558)（见上文 fork 台账），
+2026-07-28 自研 `crates/webrtc-p2p` 重写 wasm 后端时只带过来第 1 条。
+**以后凡是「自研替换掉一个曾打过补丁的上游实现」，先把那些补丁逐条对照过来**——
+补丁在 fork 里躺着，不会自己跟着走。
+
+同批漏抄的还有**累计读缓冲上限**（#6560 的 receive buffer 部分）：`onmessage` 在 Rust task
+再次 poll 之前能攒下多条各自合法的消息，没有上限就是浏览器 OOM，且它**不能拿单条消息
+上限来代替**（连续合法的 8 KiB 消息会被误判成对端过载）。
+
+⚠️ **但也不能照抄官方的 256 KiB**——那个值比本端自己的发送高水位
+`MAX_BUFFERED_AMOUNT`（1 MiB）还小。对端可以合法地让 1 MiB 在途，而浏览器接收侧每读满
+一个应用块（`CHUNK_SIZE` 也是 256 KiB）就要 await OPFS 落盘 + bao 校验，那一下停顿就够
+越限——**正常的快速传输会被判成「对端过载」并重置子流**。现取
+`max(4 MiB, max_message_size)`。定这类阈值时先看一眼对面允许多少在途。
+
+##### 两种终态错误相对读缓冲的顺序**相反**，不能合并成一个字段
+
+`errored`（`onerror`）与 `overloaded`（读缓冲越限）看着都是「通道废了」，一度合并成一个
+`fatal`。但：
+
+- **越限**丢过消息，缓冲里是**有洞的**字节流，接着解帧只会解出垃圾 → 必须**先于**缓冲报错；
+- **onerror** 一个字节都没丢，缓冲是完整合法的前缀 → 必须**后于**缓冲报错。
+
+合并后症状是常态路径出问题：发送方一关连接（SCTP ABORT → 浏览器 `error` 事件），接收侧
+就把已收到但没读完的尾部连同 FIN flag 一起丢掉，**正常收尾被报成流被 reset**。
+`poll_read` 的判定顺序现在是 `overloaded` → 缓冲 → `eof` → `errored`，四者顺序都是语义。
+
+### ⚠️ `RTCPeerConnection` 必须显式 `close()`，drop 掉句柄不算数
+
+浏览器不会回收一条还在跑 ICE/DTLS 的连接——Rust 侧 drop 只是撤掉一个引用。官方
+`webrtc-websys` 的 `Connection` 为此有 `impl Drop`；自研版一度只在 `Muxer::poll_close`
+里关，于是三条路径漏关、每次失败/异常终止都攒一条僵尸连接：
+
+| 路径 | 谁负责关 |
+|---|---|
+| 连接正常存活期 | `muxer::Inner` 的 `Drop`（数据面是最后持有者，异常终止时 libp2p 不会调 `poll_close`） |
+| 打洞信令失败 | `backend::wasm::Inner` 的 `Drop`，判据是 `Handover` 还在不在（已移交 = 连接归数据面，绝不能关） |
+| direct 建连失败**或被取消** | `direct::PendingConnection` 的 `Drop`，成功时 `disarm()` |
+
+最后一行是 RAII 而不是错误分支，这点**不能省成 `inspect_err`**：`Transport::dial` 返回的
+`Upgrade` future 会被 libp2p 的 `ConcurrentDial` **直接丢弃**（同时拨的另一个地址先成功，
+浏览器拨一个通告了多个 webrtc-direct 地址的 peer 就会走到），那条路径上错误分支根本不执行。
+取消、`?` 早退、panic 三条路只有 RAII 一起覆盖得住。
+
+第二条要特别小心：`WasmBackend` 的寿命**只到信令会话结束**（`Action::Connected` 后
+`connection_keep_alive()` 立刻转 false，那条 relay 上的信令连接被关，handler → session →
+backend 顺次 drop），而数据面还要活很久。同一个时序此前已经埋了一个更隐蔽的 bug：
+`ondatachannel` 闭包连同它捕获的 `dc_tx` 留在 backend 里，backend 一死，muxer 的
+`incoming` 立刻结束 → `poll_inbound` 报「连接已关闭」→ **刚建好的打洞连接自己塌了**。
+现在回调随 `take_muxer` 一并移交，与数据面同寿。
+
+### `FuturesUnordered` 空集时不注册 waker —— DropListener 会被晾着
+
+`while let Poll::Ready(Some(_)) = drop_listeners.poll_next_unpin(cx) {}` 这个写法有个洞：
+集合为空时 `poll_next` 返回 `Ready(None)` 且**不注册 waker**，循环以它收尾，本轮的 `cx`
+就白给了。之后 push 进去的 listener 要等连接因别的事情被唤醒才轮得到 poll。
+
+在 wasm 侧这不只是「晚一点」：`DropListener` 持着 `PollDataChannel` 的一份 clone，它不被
+poll 完，`Rc` 就不归零——**JS 回调迟迟不解绑、Reset 也迟迟不发**，连接安静下来（子流都关完、
+没有 identify/ping 活动）时尤其明显。故 `Ready(None)` 要自己把 waker 存下，push 之后主动
+`wake()`（官方 `webrtc-websys` 的 `no_drop_listeners_waker` 同款）。
+
 ### webrtc-p2p 的 `Transport::listen_on` 必须唤醒 poll
 
 `listen_on` / `remove_listener` 是外部**同步**调用，往 `pending` 队列塞事件时没有任何东西
