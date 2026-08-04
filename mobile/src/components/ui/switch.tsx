@@ -25,9 +25,17 @@ function Switch({
           Platform.select({
             web: "pointer-events-none block ring-0",
           }),
-          props.checked
-            ? "dark:bg-primary-foreground translate-x-3.5"
-            : "dark:bg-foreground translate-x-0",
+          // 拨钮两态**都是浅色**，只有位置在变——它是「旋钮」，不是状态色的载体，
+          // 状态由轨道（`bg-primary` / `bg-input`）表达。
+          //
+          // 开态曾经写 `dark:bg-primary-foreground`，那时它恰好是白色所以看不出问题；
+          // 2026-08-04 把 `--primary-foreground` 对齐成深墨（青绿实心底恒配深墨字，
+          // 见 DESIGN.md 的 Brand Fidelity Rule）之后，暗色下一拨到「开」拨钮就从近白
+          // 翻成近黑——同一个控件两个状态明暗颠倒，读起来像坏了。
+          //
+          // **别再让拨钮引用 `--primary-foreground`**：那个 token 的语义是「青绿实心底上的
+          // 文字色」，拨钮压的是轨道不是文字。
+          props.checked ? "translate-x-3.5" : "translate-x-0",
         )}
       />
     </SwitchPrimitives.Root>

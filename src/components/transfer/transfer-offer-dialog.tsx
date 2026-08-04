@@ -27,28 +27,50 @@ export function TransferOfferDialog() {
   const navigate = useNavigate();
   const [savePath, setSavePath] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [dismissedSessionId, setDismissedSessionId] = useState<string | null>(
-    null,
-  );
   const configuredSavePath = usePreferencesStore((s) => s.transfer.savePath);
   const fileView = usePreferencesStore((s) => s.fileBrowserViews.transfer);
   const setFileBrowserView = usePreferencesStore((s) => s.setFileBrowserView);
 
-  const { shiftOffer, pendingOffers, loadProjections } = useTransferStore(
+  const {
+    pendingOffers,
+    dismissedOfferIds,
+    dismissOffer,
+    removeOffer,
+    loadProjections,
+  } = useTransferStore(
     useShallow((s) => ({
-      shiftOffer: s.shiftOffer,
       pendingOffers: s.pendingOffers,
+      dismissedOfferIds: s.dismissedOfferIds,
+      dismissOffer: s.dismissOffer,
+      removeOffer: s.removeOffer,
       loadProjections: s.loadProjections,
     })),
   );
 
-  // 获取当前要显示的 offer（队列第一个且未被用户关闭的）
-  const currentOffer = useMemo(() => {
-    if (pendingOffers.length === 0) return null;
-    const first = pendingOffers[0];
-    if (first.sessionId === dismissedSessionId) return null;
-    return first;
-  }, [pendingOffers, dismissedSessionId]);
+  // 队列里**第一条还没被关掉的**。此前是「队首，且队首没被关掉」——关掉一条就把后面
+  // 所有 offer 一起堵死，第二条要等第一条被处理才见得到。
+  const currentOffer = useMemo(
+    () =>
+      pendingOffers.find(
+        (offer) => !dismissedOfferIds.includes(offer.sessionId),
+      ) ?? null,
+    [pendingOffers, dismissedOfferIds],
+  );
+
+  // 契约要求「等着的还有几条」要说出来（DESIGN.md Incoming Request Contract）。
+  // 只数还没被关掉的：已关掉的那些在收件箱里找得到，不该在这里制造压迫感。
+  const waitingCount = useMemo(
+    () =>
+      pendingOffers.reduce(
+        (n, offer) =>
+          dismissedOfferIds.includes(offer.sessionId) ||
+          offer.sessionId === currentOffer?.sessionId
+            ? n
+            : n + 1,
+        0,
+      ),
+    [pendingOffers, dismissedOfferIds, currentOffer],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -65,16 +87,6 @@ export function TransferOfferDialog() {
       cancelled = true;
     };
   }, [configuredSavePath]);
-
-  // 当 dismissedSessionId 对应的 offer 被移除后，清除 dismissedSessionId
-  useEffect(() => {
-    if (
-      dismissedSessionId &&
-      !pendingOffers.some((o) => o.sessionId === dismissedSessionId)
-    ) {
-      setDismissedSessionId(null);
-    }
-  }, [pendingOffers, dismissedSessionId]);
 
   const offerItems = useMemo(() => {
     if (!currentOffer) return [];
@@ -98,7 +110,7 @@ export function TransferOfferDialog() {
       await loadProjections();
 
       // 成功后才出队 + 跳转活动中心并选中该会话；失败时保留 offer 供重试（不在 finally 出队）。
-      shiftOffer();
+      removeOffer(currentOffer.sessionId);
       navigate({
         to: "/transfer",
         search: { session: currentOffer.sessionId },
@@ -108,7 +120,7 @@ export function TransferOfferDialog() {
     } finally {
       setProcessing(false);
     }
-  }, [currentOffer, savePath, loadProjections, navigate, shiftOffer]);
+  }, [currentOffer, savePath, loadProjections, navigate, removeOffer]);
 
   const handleReject = useCallback(async () => {
     if (!currentOffer) return;
@@ -117,32 +129,42 @@ export function TransferOfferDialog() {
       await commands.rejectReceive(currentOffer.sessionId);
       await loadProjections();
       // 成功后才出队；失败时保留 offer 供重试（不在 finally 出队）。
-      shiftOffer();
+      removeOffer(currentOffer.sessionId);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
       setProcessing(false);
     }
-  }, [currentOffer, loadProjections, shiftOffer]);
+  }, [currentOffer, loadProjections, removeOffer]);
 
+  /**
+   * 关闭弹窗 **≠ 拒绝**（DESIGN.md 的 Incoming Request Contract）。
+   *
+   * 此前这里直接调 `handleReject()`，而弹窗同时关掉了关闭按钮与「点外部关闭」，
+   * 唯一出口是 Esc——按下去作废对方整次传输。对方只是在排队等，不是被阻塞着等答复，
+   * 所以误点一下的代价必须远小于一次传输。
+   *
+   * 关闭后它仍在 `pendingOffers` 里，从收件箱的「待处理请求」区可以重新唤出。
+   */
   const handleOpenChange = useCallback(
     (open: boolean) => {
-      if (!open && !processing) {
-        handleReject();
+      if (!open && !processing && currentOffer) {
+        dismissOffer(currentOffer.sessionId);
       }
     },
-    [processing, handleReject],
+    [processing, currentOffer, dismissOffer],
   );
 
   if (!currentOffer) return null;
 
   return (
     <Dialog open={true} onOpenChange={handleOpenChange}>
+      {/* 关闭按钮与「点外部关闭」都恢复了：关闭现在只是「待会儿再说」，不再作废传输。
+          此前两者被堵死是与「关闭 = 拒绝」配套的防误触措施——那条语义一改，它们就从
+          保护变成了牢笼（唯一出口是 Esc，而 Esc 恰恰是最容易误按的那个）。 */}
       <DialogContent
         data-testid="transfer-offer-dialog"
         className="flex max-h-[min(820px,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden rounded-[20px] p-0 sm:max-w-2xl"
-        showCloseButton={false}
-        onPointerDownOutside={(e) => e.preventDefault()}
       >
         <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 text-left sm:text-left">
           <div className="flex min-w-0 items-start gap-3.5">
@@ -197,7 +219,18 @@ export function TransferOfferDialog() {
           />
         </div>
 
-        <DialogFooter className="shrink-0 flex-row gap-3 border-t border-border/60 bg-muted/20 px-5 py-4 sm:justify-end">
+        <DialogFooter className="shrink-0 flex-row items-center gap-3 border-t border-border/60 bg-muted/20 px-5 py-4 sm:justify-end">
+          {/* 「还有几条在等」——契约明文要求（DESIGN.md Incoming Request Contract 的
+              Queue, don't stack）。没有它，处理完一条会突然又弹一个一模一样的框，
+              用户无从知道这是队列还是重复弹窗。aria-live 让读屏也听得到。 */}
+          {waitingCount > 0 && (
+            <span
+              aria-live="polite"
+              className="mr-auto text-xs text-muted-foreground"
+            >
+              <Trans>还有 {waitingCount} 条在等待</Trans>
+            </span>
+          )}
           <Button
             variant="outline"
             onClick={handleReject}

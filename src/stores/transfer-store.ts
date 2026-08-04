@@ -12,11 +12,28 @@ interface TransferState {
   projections: Record<string, TransferProjection>;
   progressBySession: Record<string, TransferProgressEvent>;
   pendingOffers: TransferOfferEvent[];
+  /**
+   * 被用户关掉、但**没有被拒绝**的入站 offer。
+   *
+   * DESIGN.md 的 Incoming Request Contract：配对请求关闭 = 拒绝（对方在等这个答复），
+   * 文件 offer 关闭 **≠** 拒绝（对方只是排着队，而误点一下作废整次传输的代价远大于
+   * 多点一次）。所以关闭只把它挪到这里，条目仍留在 `pendingOffers` 里。
+   *
+   * 它必须住在 store 而不是弹窗的局部 state：契约同时要求「可关闭就必须有地方找回来」，
+   * 而那个入口在收件箱页——两个组件得看同一份。
+   */
+  dismissedOfferIds: string[];
 
   applyProjection: (projection: TransferProjection) => void;
   updateProgress: (event: TransferProgressEvent) => void;
   pushOffer: (offer: TransferOfferEvent) => void;
-  shiftOffer: () => TransferOfferEvent | undefined;
+  /** 关闭（≠拒绝）：移出弹窗视野，仍可从收件箱找回。 */
+  dismissOffer: (sessionId: string) => void;
+  /** 从收件箱重新唤出一条已关闭的 offer。 */
+  restoreOffer: (sessionId: string) => void;
+  /** 真正处理完（接收 / 拒绝成功）后出队。**按 id 删，不能按队首**——用户关掉队首后
+   *  弹窗展示的是队列里的下一条，此时出队队首会删错人。 */
+  removeOffer: (sessionId: string) => void;
   loadProjections: () => Promise<void>;
 }
 
@@ -73,10 +90,11 @@ export function useSessionProgress(
 // 并发 loadProjections 的单调序号：迟到的旧快照不得覆盖新结果。
 let loadSeq = 0;
 
-export const useTransferStore = create<TransferState>()((set, get) => ({
+export const useTransferStore = create<TransferState>()((set) => ({
   projections: {},
   progressBySession: {},
   pendingOffers: [],
+  dismissedOfferIds: [],
 
   applyProjection(projection) {
     set((state) => {
@@ -84,13 +102,42 @@ export const useTransferStore = create<TransferState>()((set, get) => ({
         ...state.projections,
         [projection.sessionId]: projection,
       };
+      if (projection.phase !== "terminal") return { projections };
+
       // 终态会话清掉高频进度快照：避免无界堆积，也防止残留旧进度。
-      if (projection.phase === "terminal") {
-        const { [projection.sessionId]: _drop, ...progressBySession } =
-          state.progressBySession;
+      const { [projection.sessionId]: _drop, ...progressBySession } =
+        state.progressBySession;
+
+      // **待决 offer 也随之出队。**
+      //
+      // `removeOffer` 只在用户 accept / reject 成功后调用，于是会话被**动**结束时那条
+      // offer 会永久留在队列里：弹窗反复弹一条已经死掉的请求，点「接受」只会撞上内核的
+      // 「会话不存在」。它被关闭后更持久——收件箱的「待处理请求」区是常驻列表，
+      // 不像弹窗还能被关掉。
+      //
+      // 被动结束的三条真实来路：对端取消、对端下线、**本端决策窗口耗尽**
+      // （`PENDING_OFFER_TIMEOUT_SECS`，内核清理任务发 `TimeoutSignal::OfferExpired`
+      // 把会话推成 `terminal(expired)`）。最后一条是最常撞上的：170 秒没人管就到期，
+      // 而在内核补上那条终态之前，这里写的清理**从来没有被触发过**——offer 卡死在列表里，
+      // 接受和拒绝双双报错。
+      //
+      // projection 是生命周期的唯一权威源（后端每次状态转换都重发），所以清理挂在这里，
+      // 而不是再去订阅 failed/cancelled 那几条冗余事件。
+      const pendingOffers = state.pendingOffers.filter(
+        (offer) => offer.sessionId !== projection.sessionId,
+      );
+      if (pendingOffers.length === state.pendingOffers.length) {
         return { projections, progressBySession };
       }
-      return { projections };
+      return {
+        projections,
+        progressBySession,
+        pendingOffers,
+        // 关闭标记跟着条目一起走，否则这张表会随被动结束的会话无界增长。
+        dismissedOfferIds: state.dismissedOfferIds.filter(
+          (id) => id !== projection.sessionId,
+        ),
+      };
     });
   },
 
@@ -111,12 +158,40 @@ export const useTransferStore = create<TransferState>()((set, get) => ({
     }));
   },
 
-  shiftOffer() {
-    const { pendingOffers } = get();
-    if (pendingOffers.length === 0) return undefined;
-    const [first, ...rest] = pendingOffers;
-    set({ pendingOffers: rest });
-    return first;
+  dismissOffer(sessionId) {
+    set((state) =>
+      state.dismissedOfferIds.includes(sessionId)
+        ? state
+        : { dismissedOfferIds: [...state.dismissedOfferIds, sessionId] },
+    );
+  },
+
+  restoreOffer(sessionId) {
+    set((state) =>
+      state.dismissedOfferIds.includes(sessionId)
+        ? {
+            dismissedOfferIds: state.dismissedOfferIds.filter(
+              (id) => id !== sessionId,
+            ),
+          }
+        : state,
+    );
+  },
+
+  removeOffer(sessionId) {
+    set((state) => {
+      const pendingOffers = state.pendingOffers.filter(
+        (offer) => offer.sessionId !== sessionId,
+      );
+      if (pendingOffers.length === state.pendingOffers.length) return state;
+      // 一并摘掉它的关闭标记：同一个 sessionId 不会复用，留着只会让这张表无界增长。
+      return {
+        pendingOffers,
+        dismissedOfferIds: state.dismissedOfferIds.filter(
+          (id) => id !== sessionId,
+        ),
+      };
+    });
   },
 
   async loadProjections() {

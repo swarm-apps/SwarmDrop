@@ -100,7 +100,7 @@ export function DeviceCard({
             <span className="flex items-center gap-1.5 text-xs">
               {/* 契约第 3 项：状态点**与**文案同时在场。只有色点不满足——色盲用户读不到它。 */}
               <StatusDot colorClass={isOnline ? "bg-emerald-500" : "bg-muted-foreground"} />
-              <span className={isOnline ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+              <span className={isOnline ? "text-success-ink" : "text-muted-foreground"}>
                 {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
               </span>
             </span>
@@ -136,14 +136,14 @@ export function DeviceCard({
             离线设备**不给可点的入口**——点进去也只会收到一条内核报错。 */}
         <div className="mt-auto">
           {sendable ? (
-            <Button asChild size="sm" className="w-full min-h-11 gap-1.5 sm:min-h-9">
+            <Button asChild size="sm" className="w-full gap-1.5">
               <Link href={sendToPeerHref(device.peerId)} data-testid="device-send-action">
                 <Send className="size-4" aria-hidden />
                 <Trans>发送</Trans>
               </Link>
             </Button>
           ) : (
-            <Button size="sm" variant="secondary" disabled className="w-full min-h-11 gap-1.5 sm:min-h-9">
+            <Button size="sm" variant="secondary" disabled className="w-full gap-1.5">
               <Send className="size-4" aria-hidden />
               {trust === "blocked" ? <Trans>已阻止</Trans> : <Trans>离线</Trans>}
             </Button>

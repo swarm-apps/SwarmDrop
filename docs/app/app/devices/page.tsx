@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DeviceGrid } from "../_components/device-grid";
 import { PageHeader } from "../_components/page-header";
+import { PageShell } from "../_components/page-shell";
 import { PairingPanel } from "../_components/pairing-panel";
 import { NAV, navTitle } from "../_lib/nav";
 
@@ -21,10 +22,10 @@ export const metadata: Metadata = { title: navTitle(NAV.devices) };
 // 让人以为自己需要管它。
 export default function DevicesPage() {
   return (
-    <>
+    <PageShell>
       <PageHeader nav="devices" />
       <DeviceGrid />
       <PairingPanel />
-    </>
+    </PageShell>
   );
 }

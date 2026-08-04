@@ -158,7 +158,7 @@ export function DeviceOrganizationDialog({
                 variant="secondary"
                 onClick={addGroup}
                 disabled={!newGroupName.trim()}
-                className="min-h-11 shrink-0 sm:min-h-9"
+                className="shrink-0"
               >
                 <Plus className="size-4" aria-hidden />
                 <Trans>新建</Trans>
@@ -168,10 +168,10 @@ export function DeviceOrganizationDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="min-h-11 sm:min-h-9">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
             <Trans>取消</Trans>
           </Button>
-          <Button onClick={save} className="min-h-11 sm:min-h-9">
+          <Button onClick={save}>
             <Trans>保存</Trans>
           </Button>
         </DialogFooter>

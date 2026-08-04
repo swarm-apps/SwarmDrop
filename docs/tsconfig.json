@@ -5,6 +5,10 @@
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
+    // 拆分大文件后残留了 40+ 个死 import，而 docs 没有 ESLint、typecheck 也不管——
+    // 没有任何一道门会红。这两条就是那道门（`_` 前缀仍可用于「刻意不用」的参数）。
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "esModuleInterop": true,

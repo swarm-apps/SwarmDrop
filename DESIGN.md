@@ -147,6 +147,46 @@ Dark mode remaps every neutral (background → `oklch(0.18 0.01 260)` ≈ `#0F12
 
 **The Brand Fidelity Rule.** ✅ Re-anchored after logo palette selection (2026-07): the brand primary is **Harbor Teal** (`#0F8F7A`) with a **Copper Core** (`#C56A42`) only inside the logo/small brand accents. The fixed anchors are `oklch(0.583 0.105 177.1)` (light fill), `oklch(0.641 0.115 177.6)` (dark fill), `oklch(0.516 0.093 178.2)` (light text form), and `oklch(0.828 0.12 179)` (dark text form). Contrast verified: Deep Ink on teal 5.0:1 (light) and 6.3:1 (dark), `text-brand` on white 5.3:1, on dark canvas 12:1+. **The two-token split (fill vs. text) is load-bearing: never use the fill teal as small text on white, and keep Copper Core out of ordinary UI state/action roles.**
 
+**The State Ink Rule.** Semantic state colors have a **fill form and a text form**, exactly like
+the brand teal, and for the same reason: the fill values do not clear AA as small text
+(measured on white: success 3.30:1, warning **2.13:1**). Dots, fills and icons use the base color;
+**anything set as text uses the `-ink` variant** (`--success-ink` / `--warning-ink` /
+`--destructive-ink`, 4.9–6.3:1 on the app surfaces). Mobile introduced this split; desktop and web
+adopted it 2026-08-04. A bare `text-amber-600` / `text-emerald-600` in a diff is the tell that
+someone reached past the token.
+
+### Cross-platform token unification
+
+Three builds, three CSS dialects (desktop Tailwind v4 + oklch · web the same under fumadocs ·
+mobile NativeWind, which needs raw HSL triples for `hsl(var(--x))`). **The values are one system;
+only the notation differs.** Desktop and web write the *same oklch expressions verbatim* so the two
+files can be diffed by eye; mobile carries converted HSL and a mapping note in `mobile/CLAUDE.md`.
+
+What **must** match across all three — divergence here is a bug, not a fork:
+
+| | Why |
+|---|---|
+| Brand fill / brand text / ink-on-fill | The Brand Fidelity Rule. Mobile shipped the *text* value as `--primary` (plus white ink) until 2026-08-04, which made every primary button a shade darker there than on desktop. |
+| The `-ink` variants of success / warning / destructive | The State Ink Rule above. |
+| Dark neutrals tinted **cool navy** (hue ~260) | Named below; the web build sat on fumadocs' pure-neutral `#121212` and mobile on a teal-blue hue 209 until 2026-08-04 — three products' worth of dark mode. |
+| Card elevates *above* its surface | Light mode contrast between the two is inherently ~1.0:1; what carries elevation is direction + hairline + shadow. A card **darker** than its background reads as recessed and lands straight on the "grey on grey" anti-reference. |
+| Focus ring uses the brand, not a neutral | A neutral ring measured 2.31:1 on the web surface — below SC 1.4.11's 3:1 and effectively invisible. |
+| `--radius` scale and the two-radius vocabulary | 6–14px for controls, 18–24px for panels (§5). |
+
+What **may** diverge, with the reason recorded next to it:
+
+- **Dark focus ring on mobile** uses the bright text teal rather than the fill (10.5:1 vs 5.4:1 on
+  that darker canvas). A focus ring's job is to be seen.
+- **The WebGL ambient background is desktop-only.** Web deliberately ships the CSS glass layer
+  without it: `ogl` is ~30KB plus continuous GPU on a surface whose baseline viewport is a phone
+  browser and whose typical session is "open a tab, move one file."
+- **Navigation shape** (desktop breadcrumb-only topbar vs. web sidebar) — see §5.
+
+**Never** re-derive any of these by hand-converting one platform's value into another's notation
+without writing the source expression down. The teal in web's `global.css` was hex for months and
+*happened* to be the same color as desktop's oklch — nobody could tell without doing the math,
+so nobody would have noticed it drifting.
+
 ## 3. Typography
 
 **Body/UI Font:** system font stack — `ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` (no custom webfont is loaded; this is a deliberate zero-font-loading choice, not an oversight, and matches "no telemetry, no external calls" restraint).
@@ -258,12 +298,17 @@ flat), overflow container (dropdown menu / action sheet / inline second-step con
 detail screen), and confirmation shape (modal vs inline). None of these may remove a slot or change
 what the primary action means.
 
-**Known gap (desktop, tracked separately).** `src/routes/_app/devices/-components/device-card.tsx`
-renders slots 5 and 6 as a ternary — the trust badge appears *only when* the connection badge does
-not. Connected devices therefore never show their trust level, which is the one moment it matters
-most. Mobile renders both. This predates the contract and is deliberately out of scope for the
-change that introduced this section (`openspec/changes/web-ux-alignment` — its stated non-goal is
-leaving desktop and mobile rendering untouched); fix it as its own change.
+**Trust normalization comes from the shared package.** `normalizeTrustLevel` and
+`canSendToDevice` live in `@swarmdrop/shared-view`; no build re-derives them. The send affordance
+is gated on `canSendToDevice`, not on `status === "online"` alone — an *online but blocked* device
+must not offer send, and must not turn its whole card into a send target. (Desktop shipped the
+online-only check until 2026-08-04; `device-card.test.tsx` now pins both.)
+
+**Closed: the desktop trust/connection ternary.** Desktop used to render slots 5 and 6 as a
+ternary — the trust badge appeared *only when* the connection badge did not, so connected devices
+never showed their trust level, which is the one moment it matters most. All three builds now
+render both. If a build ever needs to save space here, it wraps or truncates; it does not choose
+one badge over the other.
 
 ### Incoming Request Contract (cross-platform)
 
@@ -285,12 +330,17 @@ offers inside the inbox page.)
 | File offer | **≠ decline** | The sender is queued, not blocked, and a mis-tap costing someone a whole transfer is far worse than one that costs a second click. |
 
 Because a file offer survives dismissal, a build that lets it be dismissed **SHALL** also give a
-place to find it again (web: the inbox's pending list). A dismissible request with no way back is a
-silently dropped transfer. Desktop currently has no such entry point — dismissed offers can only be
-waited out; that is a known gap, not the pattern to copy.
+place to find it again — both desktop and web put it at the top of the inbox list. A dismissible
+request with no way back is a silently dropped transfer.
+
+**The two clauses ship together.** Desktop shipped "close = decline" *and* no way back until
+2026-08-04, with the close button and outside-click suppressed on top of it — the only exit was
+Esc, which silently killed the sender's whole transfer. Whichever half you are changing, check the
+other: "close ≠ decline" without a retrieval point loses the offer, and a retrieval point while
+close still declines is dead code.
 
 **Queue, don't stack.** Show one request at a time; the next appears after the current is resolved.
-Say how many remain when more than one is waiting.
+Say how many remain when more than one is waiting — all three builds do.
 
 ### Send Entry Contract (cross-platform)
 

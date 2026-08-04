@@ -16,6 +16,7 @@ import { startEventConsumption } from "../_lib/event-dispatch";
 import { getModule, getNode, spawnNode } from "../_lib/node-runtime";
 import { WEB_RELAY_HELPERS } from "../_lib/relay-helpers";
 import { detectSecureContext } from "../_lib/secure-context";
+import { startRelayWatch } from "../_lib/relay-watch";
 import { startStatePoll } from "../_lib/state-poll";
 import { webNodeActions } from "../_lib/store";
 import { toWebError } from "../_lib/view-types";
@@ -38,14 +39,10 @@ function ensureConfiguredRelays(node: ReturnType<typeof getNode>) {
   if (!node) return;
   for (const addr of WEB_RELAY_HELPERS) {
     try {
-      const helperId = node.relays_ensure(addr);
-      // 首次 active 时回填 circuit 地址给「连接」区展示。单个 helper 起不来不该挡住
-      // 其余功能（局域网直连、已有会话都不依赖它），故只记日志。
-      void node
-        .relays_until_active(helperId)
-        .then((circuit) => webNodeActions.setReservation(circuit))
-        .catch((e) => console.error("[web] relay helper 未能建立可达", addr, e));
+      node.relays_ensure(addr);
     } catch (e) {
+      // 单个 helper 登记失败不该挡住其余功能（局域网直连、已有会话都不依赖它）。
+      // 后续的连接/失败/重试状态由「连接」区订阅 `relays_changed()` 呈现，这里只管登记。
       console.error("[web] relay helper 登记失败", addr, e);
     }
   }
@@ -82,6 +79,7 @@ export function WebNodeBootstrap() {
   useEffect(() => {
     let cancelled = false;
     let stopPoll: (() => void) | undefined;
+    let stopRelayWatch: (() => void) | undefined;
 
     // 客户端真值校正 SSR 乐观默认；横幅只在此之后才可能出现。
     webNodeActions.setSecure(detectSecureContext());
@@ -109,6 +107,10 @@ export function WebNodeBootstrap() {
         startEventConsumption(node); // 源一：transfer 事件流（单点消费）
         stopPoll = startStatePoll(node); // 源二：pairing 请求 + 已配对设备轮询
         ensureConfiguredRelays(node); // 公网可达 + DHT 接线，见函数注释
+        // 源四：relay 状态流。**必须在这里而不是「连接」面板里**——它有两个跨路由的
+        // 消费者（设置页列清单、设备页读可达地址判断能否生成邀请），绑在某一页上会让
+        // 直接进设备页的用户看到一个永远禁用的「生成邀请」。见 relay-watch.ts。
+        stopRelayWatch = startRelayWatch(node);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -118,6 +120,7 @@ export function WebNodeBootstrap() {
     return () => {
       cancelled = true;
       stopPoll?.();
+      stopRelayWatch?.();
     };
   }, []);
 

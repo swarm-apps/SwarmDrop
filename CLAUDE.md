@@ -304,7 +304,9 @@ mixed content 拦，`wss://` 又要域名 + CA）。
 
 **配对：PairInvite（一次性签名邀请）。**
 6 位数字分享码已废弃。现在是自包含邀请串 `sd:…`（Ed25519 签名 + 128bit capability +
-TTL 300s + 一次性消费）；链接走 Base64URL，二维码走同一 wire 的 `SD…` Base32 表现。
+TTL 24h + 一次性消费）；链接走 Base64URL，二维码走同一 wire 的 `SD…` Base32 表现。
+**24 小时（`INVITE_TTL_SECS = 86_400`）不是笔误**：邀请跨重启存活（openspec: invite-persistence），
+所以三端都必须提供「已发出的邀请」清单与撤销入口，位置统一贴着生成入口（不进设置页）。
 签名尾置以覆盖版本判别码防降级。
 实现在 `crates/invite`，设计见 `openspec/changes/pair-invite-protocol/design.md`。
 

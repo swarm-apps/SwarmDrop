@@ -19,10 +19,13 @@ export type {
   ConnectionJson,
   OfferRejectReason,
   PathKindJson,
+  RelayInfoJson,
+  RelayStateKind,
   Device,
   DeviceTrustLevel,
   DeviceReceivePolicy,
   InboxItemDetail,
+  InboxItemSummary,
   InboxItemFileEntry,
   InboxSearchHit,
   InboxHitFile,
@@ -30,7 +33,10 @@ export type {
 
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
-import type { OfferRejectReason, WebError } from "swarmdrop-web";
+// 上面那段是**纯再导出**（`export type {...}`），本模块自己用不到那些名字——
+// 下面的标签映射要按枚举取值建 Record，所以另 import 一次。
+import type { InboxItemSummary, OfferRejectReason, WebError } from "swarmdrop-web";
+import type { TimeBucketKey } from "@swarmdrop/shared-view";
 
 /** 动态 import 的模块类型：跟随生成的 .d.ts（含 default=init 与 `WebNode` class，带 static spawn）。 */
 export type SwarmdropWebModule = typeof import("swarmdrop-web");
@@ -60,6 +66,41 @@ export const OFFER_REJECT_REASON_LABEL: Record<OfferRejectReason["type"], Messag
   user_declined: msg`对方拒绝了此次传输`,
   policy_rejected: msg`对方的接收策略拒绝了此次传输`,
   receiving_paused: msg`对方已暂停接收，请稍后再试`,
+  // 合法客户端永远不会触发它：这条 offer 里有文件路径会逃出对方的保存目录。
+  // 措辞指向「客户端有问题」而不是「对方设置有问题」，因为后者会让用户去改一个
+  // 改不好的设置。
+  unsafe_path: msg`此次传输被对方判定为不合法（文件路径异常），请检查客户端版本`,
+};
+
+/**
+ * 收件箱条目的**来源身份**与**内容类型**。两者都是 DTO 里一直有、Web 端此前从没读过的字段。
+ *
+ * 存描述符不存字符串：本模块是 `_lib/` 下的纯数据，翻译宏在这里只能定义、不能展开
+ * （展开要 `useLingui()`，那是组件的事）。调用点拿到描述符自己 `t(...)`。
+ */
+export const INBOX_SOURCE_KIND_LABEL: Record<InboxItemSummary["sourceKind"], MessageDescriptor> = {
+  paired_device: msg`已配对设备`,
+  share_code: msg`配对码`,
+  mcp: msg`AI 代理`,
+  unknown: msg`来源未知`,
+};
+
+export const INBOX_CONTENT_KIND_LABEL: Record<InboxItemSummary["contentKind"], MessageDescriptor> = {
+  files: msg`文件`,
+  text: msg`文本`,
+  clipboard: msg`剪贴板`,
+  bundle: msg`打包内容`,
+};
+
+/**
+ * 时间分组的组头文案。分桶逻辑本身在 `@swarmdrop/shared-view`（`groupByTimeBucket`），
+ * 它只给判别式 key——**文案不进那个包**，那是各端本地化的事（同该包 README 的归属判据）。
+ */
+export const TIME_BUCKET_LABEL: Record<TimeBucketKey, MessageDescriptor> = {
+  today: msg`今天`,
+  yesterday: msg`昨天`,
+  week: msg`本周内`,
+  earlier: msg`更早`,
 };
 
 /**
@@ -81,3 +122,18 @@ export function toWebError(e: unknown): WebError {
     message: e instanceof Error ? e.message : String(e),
   };
 }
+
+/**
+ * 一个**条目级动作**对外的全部状态：pending / error 来自调用方的 async-action hook
+ * （`useAsyncAction` / `useKeyedAsyncAction`），`run` 已经绑好它作用的那个 id。
+ *
+ * 这个形状是「编排层持有动作、表现层只渲染」这条分工的接缝：收件箱与传输详情各自把
+ * 「哪个方向该调 `pause_send` 还是 `pause_receive`」留在编排层，传下来的只有这三格。
+ * 两边曾各自定义一份（一份写 `error: WebError | undefined`、一份写 `error?: WebError`），
+ * 同形不同写法，改一处不会牵动另一处——同一个接缝只该有一份定义。
+ */
+export type ItemAction = {
+  pending: boolean;
+  error?: WebError;
+  run: () => void;
+};

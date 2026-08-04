@@ -33,7 +33,10 @@ import { getDeviceIcon } from "@/components/pairing/device-icon";
 export function ClipboardInviteBanner() {
   const navigate = useNavigate();
   const isNodeRunning = useNetworkStore((s) => s.status === "running");
-  const selfPeerId = useNetworkStore((s) => s.networkStatus?.peerId ?? null);
+  // 本机 id 取身份而非网络状态：身份在首启就有，`networkStatus` 要等节点起来。
+  // 这里恰好被 `isNodeRunning` 挡着看不出差别，但两处判据必须同源——否则哪天这个门
+  // 一松，剪贴板横幅就会开始抬自己发出去的邀请。同 `pairing-store.previewInvite`。
+  const selfPeerId = useSecretStore((s) => s.deviceId);
   const previewInvite = usePairingStore((s) => s.previewInvite);
   const phase = usePairingStore((s) => s.current.phase);
 

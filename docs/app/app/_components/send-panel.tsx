@@ -20,7 +20,15 @@
 // **不要把 `useSearchParams()` 写在套边界的那一层**——那样边界在读取点外面才有用。
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { ArrowLeftRight, Check, Paperclip, Send, X } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Check,
+  Loader2,
+  MonitorSmartphone,
+  Paperclip,
+  Send,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -31,7 +39,16 @@ import {
   organizedDeviceName,
 } from "@swarmdrop/shared-view";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/cn";
+import { PANEL_SURFACE } from "./section";
+import { CenteredEmptyState } from "./empty-state";
 import { deviceIcon } from "../_lib/device-presentation";
 import { transferSample } from "../_lib/format";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
@@ -101,6 +118,7 @@ function SendPanelInner() {
   /** 实时字节采样。projection 只在状态转换时重发，进度条要跟手就得读这一路。 */
   const sentProgress = useWebNode((s) => (sentSessionId ? s.progress[sentSessionId] : undefined));
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   // selector 只返回 store 内的稳定引用，派生放这里（`pnpm check:zustand-access` 规则 B）。
   const target = useMemo(
@@ -133,20 +151,35 @@ function SendPanelInner() {
   };
 
   if (devices.length === 0) {
+    // **「节点还没起来」必须与「你没有设备」分开**：`pairedDevices` 初值是空数组，
+    // 而状态轮询要等 wasm 拉完 `_bg.wasm` 才第一次 tick——此前这个早返回跑在任何
+    // `ready` 判断之前，于是每次刷新，已配对的老用户都先看到一句「还没有可发送的设备」
+    // 外加一条去配对的教学。那是在断言一件当时并不成立的事。
     return (
-      <div className="rounded-xl border border-dashed bg-card/50 px-6 py-10 text-center">
-        <p className="text-sm font-medium text-foreground">
-          <Trans>还没有可发送的设备</Trans>
-        </p>
-        <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-          <Trans>
-            发送需要先与对方配对。到{" "}
-            <Link href={NAV.devices.href} className="font-medium text-brand underline underline-offset-2">
-              设备
-            </Link>{" "}
-            页完成一次配对，之后就能直接从设备卡片发送。
-          </Trans>
-        </p>
+      <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", PANEL_SURFACE)}>
+        {ready ? (
+          <CenteredEmptyState
+            icon={MonitorSmartphone}
+            title={<Trans>还没有可发送的设备</Trans>}
+            description={
+              <Trans>发送需要先与对方配对。配对是一次性动作，配完即长期信任，之后可以直接从设备卡片发送。</Trans>
+            }
+            action={
+              <Button asChild size="sm">
+                <Link href={NAV.devices.href}>
+                  <MonitorSmartphone className="size-4" aria-hidden />
+                  <Trans>去配对设备</Trans>
+                </Link>
+              </Button>
+            }
+          />
+        ) : (
+          <CenteredEmptyState
+            icon={Loader2}
+            title={<Trans>正在启动节点…</Trans>}
+            description={<Trans>节点起来后，已配对的设备会出现在这里。</Trans>}
+          />
+        )}
       </div>
     );
   }
@@ -182,6 +215,7 @@ function SendPanelInner() {
       <TargetSection
         target={target}
         targetValid={targetValid}
+        requestedPeerId={requestedPeerId}
         pickerOpen={pickerOpen || target === null}
         devices={devices}
         organization={organization}
@@ -204,15 +238,27 @@ function SendPanelInner() {
         <p className="mt-2 text-xs text-muted-foreground">
           <Trans>把文件拖到这里</Trans>
         </p>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => fileInputRef.current?.click()}
-          className="mt-2 min-h-11 sm:min-h-9"
-        >
-          <Trans>选择文件</Trans>
-        </Button>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+                      >
+            <Trans>选择文件</Trans>
+          </Button>
+          {/* 选文件夹：桌面早就有（后端递归枚举），浏览器靠 `webkitdirectory`——非标准但
+              Chrome / Safari / Firefox 全支持，是这件事在 Web 上唯一的做法。
+              目录结构由 `webkitRelativePath` 带过来，见 `addFiles`。 */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => folderInputRef.current?.click()}
+                      >
+            <Trans>选择文件夹</Trans>
+          </Button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -223,15 +269,42 @@ function SendPanelInner() {
             event.target.value = "";
           }}
         />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          // React 不认这两个非标准属性的驼峰写法，要用 ref 在 effect 里设——但直接写成
+          // 小写字符串属性同样有效且更短，TS 需要一次断言。
+          {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+          onChange={(event) => {
+            addFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
       </div>
 
       {files.length > 0 && (
         <div className="flex flex-col gap-2">
-          <p className="text-xs text-muted-foreground">
-            <Trans>
-              已选 {files.length} 个文件 · 共 {formatFileSize(totalBytes)}
-            </Trans>
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              <Trans>
+                已选 {files.length} 个文件 · 共{" "}
+                <span className="font-mono tabular-nums">{formatFileSize(totalBytes)}</span>
+              </Trans>
+            </p>
+            {/* 逐个点 X 清十几个文件是桌面端早就避免了的事（它有 `clear()`）。 */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setFiles([])}
+              disabled={sendAction.pending}
+              className="shrink-0 text-xs"
+            >
+              <Trans>清空</Trans>
+            </Button>
+          </div>
           <ul className="flex flex-col gap-1.5">
             {files.map(({ id, file }) => (
               <li
@@ -259,7 +332,7 @@ function SendPanelInner() {
         </div>
       )}
 
-      <Button onClick={doSend} disabled={!canSend} className="min-h-11 gap-1.5 sm:min-h-9">
+      <Button onClick={doSend} disabled={!canSend} className="gap-1.5">
         <Send className="size-4" aria-hidden />
         {sendAction.pending ? <Trans>发送中…</Trans> : <Trans>发送</Trans>}
       </Button>
@@ -291,7 +364,9 @@ function SendPanelInner() {
       )}
 
       {rejection?.reason && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
+        // 语义状态色走 `-ink` 变体：`text-amber-600` 在白底只有 3.87:1，而这句话恰恰是
+        // 最需要被读到的（对方为什么拒了）。见 global.css 的 State Ink 说明。
+        <p className="text-xs text-warning-ink">
           {t(OFFER_REJECT_REASON_LABEL[rejection.reason.type])}
         </p>
       )}
@@ -335,9 +410,9 @@ function SentSessionCard({
       className={cn(
         "flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-xs",
         completed
-          ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+          ? "border-success/30 bg-success/5 text-success-ink"
           : failed
-            ? "border-red-500/30 bg-red-500/5 text-red-600 dark:text-red-400"
+            ? "border-destructive/30 bg-destructive/5 text-destructive-ink"
             : "bg-background text-muted-foreground",
       )}
     >
@@ -396,6 +471,7 @@ function SentSessionCard({
 function TargetSection({
   target,
   targetValid,
+  requestedPeerId,
   pickerOpen,
   devices,
   organization,
@@ -405,6 +481,8 @@ function TargetSection({
 }: {
   target: Device | null;
   targetValid: boolean;
+  /** 链接带来的目标（`?peerId=`）。用来区分「没选」与「选了但那台设备已经不在了」。 */
+  requestedPeerId: string;
   pickerOpen: boolean;
   devices: Device[];
   organization: Parameters<typeof organizedDeviceName>[1];
@@ -434,7 +512,7 @@ function TargetSection({
           <span className="flex items-center gap-1.5 text-xs">
             <StatusDot colorClass={online ? "bg-emerald-500" : "bg-muted-foreground"} />
             <span
-              className={online ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}
+              className={online ? "text-success-ink" : "text-muted-foreground"}
             >
               {online ? <Trans>在线</Trans> : <Trans>离线</Trans>}
             </span>
@@ -446,7 +524,7 @@ function TargetSection({
           size="sm"
           onClick={onChangeRequest}
           disabled={disabled}
-          className="min-h-11 shrink-0 gap-1.5 sm:min-h-9"
+          className="shrink-0 gap-1.5"
         >
           <ArrowLeftRight className="size-4" aria-hidden />
           <Trans>更换</Trans>
@@ -457,32 +535,54 @@ function TargetSection({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-foreground">
+      <div className="flex flex-col gap-1.5">
+        <span id="send-target-label" className="text-xs font-medium text-foreground">
           <Trans>目标设备</Trans>
         </span>
-        <select
-          aria-label={t`目标设备`}
-          className="h-11 rounded-md border bg-background px-3 text-sm text-foreground sm:h-9"
+        {/* shadcn `Select` 而不是裸 `<select>`：同屏的设备卡、信任策略、解除配对都已经是
+            shadcn 底座，一个原生下拉框在里面是明显的异物（焦点环、圆角、高度、暗色表现全
+            不一样）。product register 那条「同一套组件词汇」说的就是这个。 */}
+        <Select
           value={target?.peerId ?? ""}
-          onChange={(event) => onPick(event.target.value)}
+          onValueChange={onPick}
           disabled={disabled}
         >
-          <option value="">{t`选择设备…`}</option>
-          {devices.map((device) => (
-            <option key={device.peerId} value={device.peerId} disabled={device.status !== "online"}>
-              {organizedDeviceName(device, organization)}
-              {device.status !== "online" ? t`（离线）` : ""}
-            </option>
-          ))}
-        </select>
-      </label>
+          <SelectTrigger
+            aria-labelledby="send-target-label"
+            className="h-11 w-full sm:h-9"
+            data-testid="send-target-select"
+          >
+            <SelectValue placeholder={t`选择设备…`} />
+          </SelectTrigger>
+          <SelectContent>
+            {devices.map((device) => (
+              <SelectItem
+                key={device.peerId}
+                value={device.peerId}
+                disabled={device.status !== "online"}
+              >
+                {organizedDeviceName(device, organization)}
+                {device.status !== "online" ? t`（离线）` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
+      {/* 选了目标却发不出去时，把原因说出来——否则「发送」按钮只是灰着，而灰按钮不解释自己
+          （PRODUCT.md 原则 2·状态诚实可见）。
+          **两种情况要分开说**：设备还在但离线/被阻止，与设备已经不在配对列表里了。
+          后者此前一句话都没有——守卫写的是 `target && !targetValid`，而设备被解除配对后
+          `target === null`，条件根本不成立，用户点着一条别人给的 `?peerId=` 链接进来，
+          看到的只是一个空下拉框。DESIGN.md 的 Send Entry Contract 第 4 条点名要求「say so in place」。 */}
       {target && !targetValid && (
-        // 选了目标却发不出去时，把原因说出来——否则「发送」按钮只是灰着，而灰按钮不解释自己
-        // （PRODUCT.md 原则 2·状态诚实可见）。
-        <p className="text-xs text-amber-600 dark:text-amber-400">
+        <p className="text-xs text-warning-ink">
           <Trans>这台设备当前离线或已被阻止，换一台再试。</Trans>
+        </p>
+      )}
+      {!target && requestedPeerId && (
+        <p className="text-xs text-warning-ink">
+          <Trans>链接指向的设备不在已配对列表里（可能已解除配对）。从下面挑一台，或回设备页重新配对。</Trans>
         </p>
       )}
 

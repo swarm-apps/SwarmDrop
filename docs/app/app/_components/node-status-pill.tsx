@@ -14,11 +14,11 @@ import { useWebNode, type NodeStatus } from "../_lib/store";
 import { StatusDot } from "./status-dot";
 
 const STATUS_META: Record<NodeStatus, { label: MessageDescriptor; dot: string; pulse?: boolean }> = {
-  idle: { label: msg`未启动`, dot: "bg-fd-muted-foreground" },
+  idle: { label: msg`未启动`, dot: "bg-muted-foreground" },
   starting: { label: msg`启动中`, dot: "bg-amber-500", pulse: true },
   running: { label: msg`运行中`, dot: "bg-emerald-500" },
   closing: { label: msg`关停中`, dot: "bg-amber-500", pulse: true },
-  error: { label: msg`启动失败`, dot: "bg-red-500" },
+  error: { label: msg`启动失败`, dot: "bg-destructive" },
 };
 
 export function NodeStatusPill({
@@ -40,7 +40,7 @@ export function NodeStatusPill({
       role="status"
       title={label}
       aria-label={label}
-      className={`inline-flex items-center gap-1.5 rounded-full border border-fd-border bg-fd-card px-2.5 py-1 text-xs font-medium text-fd-muted-foreground shadow-xs ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-xs ${className}`}
     >
       <StatusDot colorClass={meta.dot} pulse={meta.pulse} />
       <span className={labelClassName}>{phase}</span>

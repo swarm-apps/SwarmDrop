@@ -5,9 +5,8 @@ import { AppI18nProvider } from "./_components/i18n-provider";
 import { PairingRequestHost } from "./_components/pairing-request-host";
 import { ReloadGuard } from "./_components/reload-guard";
 import { TransferOfferHost } from "./_components/transfer-offer-host";
-import { SecureContextBanner } from "./_components/secure-context-banner";
-import { WebErrorView } from "./_components/web-error-view";
 import { WebNodeBootstrap } from "./_components/web-node-bootstrap";
+import { Toaster } from "@/components/ui/sonner";
 import { WindowDropGuard } from "./_components/window-drop-guard";
 
 // 静态导出下 `metadata` 在**构建期**求值——那一刻没有「当前用户的 locale」可言，
@@ -35,9 +34,23 @@ export const metadata: Metadata = {
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <AppI18nProvider>
-      {/* `data-swarmdrop-app` 是 shadcn base 规则（默认边框/描边色）的作用域锚点，
-          见 app/global.css 的 @layer base——不加这个属性，应用区的边框会落到 currentColor。 */}
-      <div data-swarmdrop-app className="flex min-h-screen">
+      {/*
+        `h-dvh` 而不是 `min-h-screen`：这是**整个应用区滚动行为的根**。
+        原先是 min-h-screen + 内容自然流，于是各面板里写的 `min-h-0 + overflow-y-auto`
+        全是死代码——祖先链上没有一个确定高度的包含块，它们永远不会独立滚动，只会把整页
+        撑长（列表一滚，筛选条与操作按钮一起滚走）。桌面端对应的是 `_app.tsx` 的
+        `h-svh flex flex-col` + `main flex-1 overflow-hidden`。
+
+        用 `dvh` 不用 `svh`：移动浏览器地址栏收起时可视高度会变，dvh 跟随它，避免底部
+        导航被顶出屏幕。
+
+        `data-swarmdrop-app` 是 shadcn base 规则（默认边框/描边色）的作用域锚点，
+        见 app/global.css 的 @layer base——不加这个属性，应用区的边框会落到 currentColor。
+      */}
+      <div
+        data-swarmdrop-app
+        className="flex h-dvh overflow-hidden bg-[var(--app-shell-background)]"
+      >
         <WebNodeBootstrap />
         {/* 窗口级的误投放护栏——拖偏了不该把整个节点连页面一起弄没。挂这里的理由与上面两个
             宿主相同：它要在**任何路由**下都生效，而不只是发送页。 */}
@@ -47,14 +60,18 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <ReloadGuard />
         <PairingRequestHost />
         <TransferOfferHost />
+        {/* toast 宿主。挂 layout 与两个请求宿主同理：任何路由下的动作都要能给出反馈。
+            **只在应用区挂**，文档站不需要也不该被它影响。 */}
+        <Toaster />
         <AppSidebar />
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <AppMobileHeader />
-          <main className="mx-auto w-full max-w-4xl flex-1 space-y-4 px-4 py-6">
-            <SecureContextBanner />
-            <WebErrorView />
-            {children}
-          </main>
+          {/*
+            `main` 只提供**受限高度**，自己不滚——滚动归页面，由 `PageShell` 的
+            `scroll` / `fill` 两个变体决定（限宽、边距、全局提示条也在那里）。
+            只有页面知道自己是「整页一起滚」还是「内部分区各滚各的」。
+          */}
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
           {/* fixed 导航 + 自带的等高 spacer，高度定义在 app-nav 里，layout 不参与。 */}
           <AppBottomNav />
         </div>

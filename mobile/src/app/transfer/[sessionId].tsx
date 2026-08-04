@@ -575,7 +575,10 @@ function TransferProgressBlock({
   }
 
   // 其余挂起/终态(中断/离线/已取消/已拒绝):中性 chip,可恢复时给一句安心话。
-  const Icon = status === "cancelled" || status === "rejected" ? X : Pause;
+  const Icon =
+    status === "cancelled" || status === "rejected" || status === "expired"
+      ? X
+      : Pause;
   return (
     <StatusBanner
       chip={

@@ -116,6 +116,12 @@ const STATUS_META: Record<string, StatusMeta> = {
     bg: "bg-muted",
     text: "text-muted-foreground",
   },
+  // 与「已取消 / 已拒绝」同为中性：没传成，但没出错。
+  expired: {
+    key: "expired",
+    bg: "bg-muted",
+    text: "text-muted-foreground",
+  },
 };
 
 const FALLBACK_META: StatusMeta = {
@@ -160,6 +166,8 @@ export function StatusLabel({ status }: { status: AnyStatus }) {
       return <Trans>已取消</Trans>;
     case "rejected":
       return <Trans>已拒绝</Trans>;
+    case "expired":
+      return <Trans>未及时处理</Trans>;
     case "waiting_accept":
       return <Trans>等待响应</Trans>;
     case "interrupted":
@@ -316,6 +324,9 @@ export function projectionReasonLabel(
   }
   if (projection.terminalReason === MobileTerminalReason.FatalError) {
     return <Trans>传输失败</Trans>;
+  }
+  if (projection.terminalReason === MobileTerminalReason.Expired) {
+    return <Trans>请求超时未处理，让对方重发一次</Trans>;
   }
   return null;
 }

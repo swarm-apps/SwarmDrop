@@ -121,6 +121,9 @@ export function projectionStatusClassName(
           return STATUS_CLASSNAMES.completed;
         case "cancelled":
         case "rejected":
+        // 过期与取消同色：都是「没传成，但没出错」。走 default 会染成失败色，
+        // 在列表里与真正的传输故障混成一片。
+        case "expired":
           return STATUS_CLASSNAMES.cancelled;
         default:
           return STATUS_CLASSNAMES.failed;

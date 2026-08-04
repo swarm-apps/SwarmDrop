@@ -26,6 +26,7 @@ import {
   findNetworkDeviceSnapshot,
   startNetworkFromStore,
 } from "@/stores/network-store";
+import { useSecretStore } from "@/stores/secret-store";
 
 export type { PairingRequestPayload };
 
@@ -206,6 +207,22 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
     set({ activeInvite: null, inviteError: null, isGeneratingInvite: false });
   },
 
+  /**
+   * 解码一条邀请并进入确认态。
+   *
+   * ## 三道本地过滤，全部在出网之前
+   *
+   * 解码是纯本地计算（不拨号、不查 DHT），所以「确认卡出现之前零出网」这条成立。
+   * 过期、**自我邀请**、**已配对**三条都在这里拦下：
+   *
+   * 后两条此前只存在于剪贴板感知那条路径（`use-clipboard-invite.ts`），而**手动粘贴
+   * 完全绕过**——用户把自己刚复制、准备发给别人的邀请误粘进 `/pairing/input`，桌面会
+   * 一路放行到「确认配对」，点下去才由内核报错。Web 端把三条来路（手打 / 剪贴板 /
+   * 落地页 handoff）全部收口在同一个函数里，这里跟上。
+   *
+   * 判据用签名覆盖范围内的 `peerId`，伪造不了；比对「当前生成的那一串」则漏得掉历史
+   * 生成的、以及重启之后的（那时本地根本没有那串可比）。
+   */
   async previewInvite(invite: string) {
     try {
       const preview = await commands.decodePairInvite(invite.trim());
@@ -215,6 +232,30 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
         toast.error(message);
         return;
       }
+
+      // 判据取 `secret-store.deviceId`（= 本机 `node_id`，`initializeIdentity()` 在首启
+      // 就写好了），**不取 `networkStatus.peerId`**：后者只有节点跑起来之后才有值，而
+      // 「粘一条邀请看看是谁的」在节点没起来时照样可达——那时过滤会静默失效，用户对着
+      // 自己发的邀请走完确认卡，再撞上一句无从解释的配对失败。
+      const selfPeerId = useSecretStore.getState().deviceId;
+      if (selfPeerId !== null && preview.peerId === selfPeerId) {
+        set({ current: { phase: "idle" } });
+        toast.info(t`这是本机生成的邀请`, {
+          description: t`把它发给对方，不是自己用。`,
+        });
+        return;
+      }
+
+      const paired = useSecretStore.getState().pairedDevices;
+      const already = paired.find((device) => device.peerId === preview.peerId);
+      if (already) {
+        set({ current: { phase: "idle" } });
+        toast.info(t`已经和这台设备配过对了`, {
+          description: t`去「发送」页直接选它就行。`,
+        });
+        return;
+      }
+
       set({ current: { phase: "previewing", invite: invite.trim(), preview } });
     } catch (err) {
       const message = getErrorMessage(err);

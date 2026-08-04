@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { InviteQr, type InviteQrOverlay } from "@/components/pairing/invite-qr";
 import { PairingModeTabs } from "@/components/pairing/pairing-mode-tabs";
 import { PairingSteps } from "@/components/pairing/pairing-steps";
+import { SentInvites } from "@/components/pairing/sent-invites";
 import { Switch } from "@/components/ui/switch";
 import {
   CommandDock,
@@ -246,6 +247,10 @@ function PairingGeneratePage() {
                   <Trans>切换后会立即重新生成邀请，此前展示的二维码随即失效。</Trans>
                 </p>
               </div>
+
+              {/* 撤销贴着生成入口：邀请是一次性信任凭证，「刚发错人了」是它最需要被撤回
+                  的时刻，而那一刻用户就在这一屏。此前它收在设置页，见该组件的头注释。 */}
+              <SentInvites />
             </div>
           </TaskHeroPanel>
         </div>

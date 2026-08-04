@@ -135,14 +135,14 @@ export function TransferOfferHost() {
             variant="outline"
             onClick={() => respond(false)}
             disabled={decide.pending}
-            className="min-h-11 flex-1 sm:min-h-9"
+            className="flex-1"
           >
             <Trans>拒绝</Trans>
           </Button>
           <Button
             onClick={() => respond(true)}
             disabled={decide.pending}
-            className="min-h-11 flex-1 sm:min-h-9"
+            className="flex-1"
             data-testid="offer-accept"
           >
             {decide.pending ? t`处理中…` : t`接受`}

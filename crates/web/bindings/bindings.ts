@@ -108,6 +108,11 @@ export type DeviceTrustLevel = "owned" | "collaborator" | "temporary" | "blocked
 export type FileInfo = {
 	fileId: number,
 	name: string,
+	/**
+	 *  对端声明的相对路径，接收方据此在保存目录下建文件。
+	 * 
+	 *  **这是对端完全可控的字符串，落盘前必须过 [`is_safe_relative_path`]。**
+	 */
 	relativePath: string,
 	size: number,
 	checksum: string,
@@ -229,7 +234,15 @@ export type OfferJson = {
 /**  Offer 被拒绝的原因。 */
 export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined" } | { type: "policy_rejected" } | 
 /**  接收方处于全局「暂停接收」状态，婉拒新 offer。 */
-{ type: "receiving_paused" };
+{ type: "receiving_paused" } | 
+/**
+ *  Offer 里有文件的 `relative_path` 会逃出保存目录（绝对路径、盘符或 `..` 穿越）。
+ * 
+ *  独立成一个变体而不是并进 `PolicyRejected`：这**不是**接收方的偏好设置拒绝了你，
+ *  而是这条 offer 本身不合法。两者对发送方的含义完全不同——前者「换个设置或问问对方」，
+ *  后者「你的客户端发了非法数据」。合法客户端永远不会触发它。
+ */
+{ type: "unsafe_path" };
 
 /**
  *  设备操作系统信息。
@@ -334,7 +347,16 @@ export type RuntimeTransferDirection = "send" | "receive" | "unknown";
 export type SuspendedReason = "local_paused" | "remote_paused" | "interrupted" | "peer_offline" | "app_restarted";
 
 /**  terminal 原因（phase=Terminal 时有值）。 */
-export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_error";
+export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_error" | 
+/**
+ *  入站 offer 的决策窗口耗尽，本端从未作答。
+ * 
+ *  **与 `Rejected` 分开是必要的，不是措辞讲究。** 对端看到的确实是一次婉拒（清理任务
+ *  drop 掉 responder，RPC handler 据此回复），但本端用户**什么都没做**——把它记成
+ *  「已拒绝」等于在他自己的传输历史里写一条他没做过的决定，而这恰恰是他下次想不起来
+ *  「我拒过这个人吗」时会去查的地方。
+ */
+"expired";
 
 /**  对方接受 Offer 的事件 payload */
 export type TransferAcceptedEvent = {

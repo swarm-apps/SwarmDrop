@@ -98,4 +98,65 @@ describe("DeviceCard connection badge", () => {
     expect(screen.queryByTestId("connection-badge")).toBeNull();
     expect(screen.getByText("中继")).toBeTruthy();
   });
+
+  // DESIGN.md 的 Device Card Contract 要求信息位 5（信任）与 6（连接）**同时在场**。
+  // 此前这里是三元二选一，于是连上的设备永远看不到自己的信任级别——而那正是它最要紧的
+  // 时刻。契约把这条记为 Known gap，这两条测试把它钉死。
+  it("shows the trust badge alongside the connection badge", () => {
+    render(
+      <I18nProvider i18n={i18n}>
+        <DeviceCard device={onlineDevice} displayName="Remote Mac" />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByTestId("connection-badge")).toBeTruthy();
+    expect(screen.getByText("协作者")).toBeTruthy();
+  });
+
+  it("keeps the unconfirmed trust hint visible while connected", () => {
+    render(
+      <I18nProvider i18n={i18n}>
+        <DeviceCard
+          device={{ ...onlineDevice, trustConfirmed: false }}
+          displayName="Remote Mac"
+        />
+      </I18nProvider>,
+    );
+
+    // 徽标里是「· 待确认」（前缀点与文案在同一个 span），所以按子串匹配。
+    expect(screen.getByText(/待确认/)).toBeTruthy();
+  });
+});
+
+// 「阻止」是用户明确表态过不要跟这台设备来往的一档。此前整卡点击与发送按钮只判在线，
+// 于是一台**在线的已阻止设备**卡片可点、按钮高亮，点下去才由内核拒绝。
+describe("DeviceCard blocked device", () => {
+  const blockedDevice: Device = {
+    ...offlineDevice,
+    status: "online",
+    trustLevel: "blocked",
+  };
+
+  it("disables sending even when the device is online", () => {
+    render(
+      <I18nProvider i18n={i18n}>
+        <DeviceCard device={blockedDevice} displayName="Remote Mac" onSend={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByTestId("device-send-action").hasAttribute("disabled")).toBe(true);
+  });
+
+  it("does not turn the whole card into a send target", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <I18nProvider i18n={i18n}>
+        <DeviceCard device={blockedDevice} displayName="Remote Mac" onSend={onSend} />
+      </I18nProvider>,
+    );
+
+    await user.click(screen.getByTestId("device-card"));
+    expect(onSend).not.toHaveBeenCalled();
+  });
 });

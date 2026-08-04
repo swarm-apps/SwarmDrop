@@ -18,6 +18,7 @@
 import { PanelLeft } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { PANEL_SURFACE } from "./section";
 import { useIsWideLayout } from "../_lib/use-media-query";
 
 /** 从左侧滑出的内容抽屉。窄屏下列表住在这里。 */
@@ -119,12 +120,19 @@ export function MasterDetail({
 
   if (isWide) {
     return (
+      // `min-h-0 flex-1` + `grid-rows-1` 让两栏各自拿到确定高度，于是列内的
+      // `overflow-y-auto` 真的生效——**滚列表不会把详情带走**。
+      //
+      // 这曾经是死代码：外壳是 `min-h-screen`、内容自然流，祖先链上没有任何确定高度的
+      // 包含块，列里写的 `min-h-0 + overflow-y-auto` 一行也没起作用，长列表只会把整页撑长。
+      // 现在外壳是 `h-dvh`、页面用 `PageShell variant="fill"`，这条链才接上。
+      // 列表列宽 minmax(300px,360px) 与桌面 `master-detail-shell.tsx` 对齐。
       <div
         data-testid={testId}
-        className="grid gap-4"
-        style={{ gridTemplateColumns: "minmax(260px, 340px) minmax(0, 1fr)" }}
+        className="grid min-h-0 flex-1 grid-rows-1 gap-4"
+        style={{ gridTemplateColumns: "minmax(300px, 360px) minmax(0, 1fr)" }}
       >
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-xs">
+        <section className={cn("flex min-h-0 flex-col overflow-hidden", PANEL_SURFACE)}>
           {list({ closeDrawer })}
         </section>
         {detail({ openList: null })}
@@ -133,7 +141,8 @@ export function MasterDetail({
   }
 
   return (
-    <div data-testid={testId} className="flex flex-col">
+    // 窄屏：详情占满，列表在抽屉里。`min-h-0 flex-1` 同样是为了让详情内部能自己滚。
+    <div data-testid={testId} className="flex min-h-0 flex-1 flex-col">
       {detail({ openList: () => setDrawerOpen(true) })}
       <SlideDrawer open={drawerOpen} onClose={closeDrawer} label={drawerLabel}>
         {list({ closeDrawer })}

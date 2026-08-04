@@ -1115,3 +1115,99 @@ hash 一致，纯显示问题）。
 文件大小）。
 
 **相关文件**：`crates/transfer/src/actor/sender.rs`、`crates/transfer/src/wire/data_plane.rs`
+
+## 对端声明的 `relative_path` 必须过 `is_safe_relative_path`（安全）
+
+接收侧最终做的是 `save_dir.join(relative_path)`（桌面
+`src-tauri/src/host/file_sink/path_ops.rs:70`，Web 是 OPFS 的目录链）。而
+`Path::join` **遇到绝对路径会把 base 整段丢弃**：
+
+```
+/Users/me/Downloads/SwarmDrop  .join("/etc/cron.d/evil")   →  /etc/cron.d/evil
+/Users/me/Downloads/SwarmDrop  .join("../../../../.ssh/x") →  …/../../../../.ssh/x
+```
+
+`resolve_paths` 还会 `create_dir_all(parent)` 把目标目录建出来。这条校验缺席时（2026-08-04
+之前），一个**已配对的对端可以往接收方磁盘任意位置写文件**。配对不蕴含这个权限——产品自己
+就定义了 `temporary` / `collaborator` 这些低于 `owned` 的信任级别。
+
+**收口点只有一个**：`crates/transfer/src/incoming.rs` 的 `TransferRequest::Offer` 分支，
+即 wire 数据进入领域层的唯一入口。放在这里三端（桌面 `join`、移动 SAF、Web OPFS）一次覆盖，
+没有哪个宿主可能忘记。
+
+三条不显见的取舍：
+
+- **必须在策略评估之前**。`evaluate_receive_policy` 要读 `files`（按扩展名 / 目录判定），
+  拿一条 `../../..` 去比对「允许的文件夹」是拿脏数据做安全决策。
+- **判据是纯字符串的，故意不用 `std::path`**。`std::path` 的语义随目标平台变：`..\..\x`
+  在 Unix 上是**一个**普通文件名，在 Windows 上是两级穿越。收这条 offer 的可能是任意一端，
+  判据必须三端逐字一致，否则同一条恶意路径在 Linux 上被放行、到了 Windows 才生效。
+  所以两种分隔符都当分隔符，盘符前缀（`C:\x` 与 `C:x`）一并拒。
+- **拒绝而不是「修正」**。静默归一化会把攻击变成一次「文件莫名其妙落在别处」的怪事，
+  而合法发送端**永远**不会产生这些路径——浏览器的 `webkitRelativePath` 与桌面的枚举器都不会。
+
+拒绝原因单独给了 `OfferRejectReason::UnsafePath`，不并进 `PolicyRejected`：前者对发送方是
+「你的客户端发了非法数据」，后者是「换个设置或问问对方」，含义完全不同。
+
+**相关文件**：`crates/transfer/src/protocol.rs`（判据 + 单测）、
+`crates/transfer/src/incoming.rs`（收口点）、
+`crates/core/tests/e2e_transfer.rs::e2e_offer_with_escaping_relative_path_is_rejected`
+
+## Web 发送源的 id 不能用文件名
+
+`crates/web/src/file_access.rs` 的源表是 `HashMap<FileSourceId, SourceEntry>`。id 曾经就是
+`file.name()`，于是一次发送里挑两个同名文件（不同目录下的 `report.pdf` 极常见）时**后者
+顶掉前者**：两条 entry 指向同一个 `File` 却各自声明着不同的 size——轻则 `prepare` 报
+「read_source_chunk 返回长度异常」，重则**发出错误的文件内容**，而发送侧没有任何报错
+（接收端验签才暴露，且归因指向网络）。
+
+现在 id 是 `{prepared_id}/{idx}`（唯一、跨多次发送不冲突、日志与
+`transfer_file.source_path` 里认得出是哪一批的第几个），**路径单独存在 `SourceEntry` 里**。
+桌面不会撞是因为它的 id 本来就是绝对路径。
+
+配套：`source_path` 会随会话落库，续传时由 `build_prepared_files_from_db` 读回重建
+`FileSourceId`——所以 id 只要能往返就行，不需要有语义。
+
+**相关文件**：`crates/web/src/file_access.rs`、`crates/web/src/node.rs::send_files`
+
+## 挂起的入站 offer 有两条命必须一起收：内存条目 + 会话状态（2026-08-04）
+
+`TransferManager::run_cleanup` 每 60 秒回收超过 `PENDING_OFFER_TIMEOUT_SECS`（170s）的
+挂起 offer。**只摘内存条目是不够的**，因为一条 offer 在 `cache_inbound_offer` 时就已经
+做了两件事：
+
+1. `create_offered_inbound_session` —— 会话**落库**成 `offered`
+2. `publish_projection` —— UI 据此把它挂进「待处理请求」
+
+对端那侧是自洽的：`PendingOffer.responder` 一 drop，transfer-ctrl 的 handler 就得
+`RecvError` 并回复婉拒。**本端 UI 完全在这条链之外**——它只订阅 projection。所以旧实现下
+超时之后：
+
+- 待处理请求永远挂在收件箱列表里（那是常驻列表，不像弹窗还能关掉）
+- 点「接受」「拒绝」都撞上「会话不存在」，怎么点都消不掉
+- 会话记录永远停在 `offered`，成为一条谁都推不动的僵尸
+
+**正确做法**：`remove_expired` 返回被摘掉的 id，调用方逐条
+`coordinator.dispatch(id, CoordinatorInput::Timeout(TimeoutSignal::OfferExpired))`。
+状态机把 `offered` 推成 `terminal(TerminalReason::Expired)`，projection 随之下发，
+三端前端的「终态时丢掉待决 offer」那条归约才有东西可吃——在此之前那段代码**从未被触发过**。
+
+### `TerminalReason::Expired` 不能并进 `Rejected`
+
+对端看到的确实是一次婉拒，但**本端用户什么都没做**。记成「已拒绝」等于在他自己的传输
+历史里写一条他没做过的决定，而那正是他事后想确认「我拒过这个人吗」时会去查的地方。
+新增变体的连锁面（都有编译期或类型检查兜底）：
+
+| 位置 | 改什么 |
+|---|---|
+| `crates/entity/src/lib.rs` | 枚举 + `legacy_status` 映射（归 `Cancelled`：旧扁平枚举没有「没答复」这档） |
+| `src/lib/bindings.ts` | `cargo test -p swarmdrop export_ts_bindings` 自动再生 |
+| `crates/web/bindings/bindings.ts` | `cargo test -p swarmdrop-web --features specta --test specta_export`，**再 `pnpm build:wasm`**，否则 `packages/swarmdrop-web/*.d.ts` 还是旧的 |
+| uniffi | `cargo build -p swarmdrop-mobile-core` → `ubrn generate jsi bindings --library <dylib>`（在 `rust/mobile-core` 目录里跑）→ `npx bob build`。**必须做**：TS 侧枚举是 ordinal 映射，少一个变体时 `FfiConverter.read` 遇到新 ordinal 会抛 |
+| 三端 UI | 桌面 `transfer-projection.ts` + `session-panel.tsx`；Web `TERMINAL_LABEL`（Record 是 exhaustive 的，漏了编译期就红）；移动 `ProjectionStatus` + 三处判断 |
+
+`default:` 分支是这类改动的头号陷阱——它让「漏了一个变体」编译期看不出来，运行时静默
+落进「失败」。上面桌面那两处、移动那三处**都是**这种形态。
+
+**相关文件**：`crates/transfer/src/manager.rs`、`crates/transfer/src/coordinator.rs`、
+`crates/entity/src/lib.rs`

@@ -33,8 +33,13 @@ msgstr "{0} 个文件 · {1}"
 msgid "{0} 个自定义节点"
 msgstr "{0} 个自定义节点"
 
-#. placeholder {0}: formatTimeLeft(remaining, i18n.locale)
-#: src/components/pairing/invite-exchange.tsx:182
+#. placeholder {0}: formatTimeLeft(seconds, i18n.locale)
+#: src/components/pairing/sent-invites.tsx:187
+msgid "{0} 后失效"
+msgstr "{0} 后失效"
+
+#. placeholder {0}: formatCountdown(remaining)
+#: src/components/pairing/invite-exchange.tsx:190
 msgid "{0} 后过期"
 msgstr "{0} 后过期"
 
@@ -55,7 +60,7 @@ msgstr "{0}，{1}，{statusText}{2}"
 msgid "{count} 项"
 msgstr "{count} 项"
 
-#: src/components/transfer/shared.tsx:240
+#: src/components/transfer/shared.tsx:248
 msgid "{d} 天前"
 msgstr "{d} 天前"
 
@@ -80,11 +85,11 @@ msgstr "{fileCount} 项"
 msgid "{filesCount} 个文件"
 msgstr "{filesCount} 个文件"
 
-#: src/components/transfer/shared.tsx:236
+#: src/components/transfer/shared.tsx:244
 msgid "{h} 小时前"
 msgstr "{h} 小时前"
 
-#: src/components/transfer/shared.tsx:232
+#: src/components/transfer/shared.tsx:240
 msgid "{m} 分钟前"
 msgstr "{m} 分钟前"
 
@@ -97,7 +102,7 @@ msgstr "{name} 文件夹，{fileCount} 项，{0}"
 msgid "/ip4/.../tcp/.../p2p/..."
 msgstr "/ip4/.../tcp/.../p2p/..."
 
-#: src/components/inbox/inbox-list.tsx:273
+#: src/components/inbox/inbox-list.tsx:293
 msgid "AI 代理"
 msgstr "AI 代理"
 
@@ -191,7 +196,7 @@ msgstr "中继"
 msgid "中继尚未就绪，非同一网络的设备可能无法直连。"
 msgstr "中继尚未就绪，非同一网络的设备可能无法直连。"
 
-#: src/components/connection-details.tsx:96
+#: src/components/connection-details.tsx:101
 msgid "中继节点"
 msgstr "中继节点"
 
@@ -248,16 +253,16 @@ msgid "会话不存在或已结束"
 msgstr "会话不存在或已结束"
 
 #: src/app/settings/general.tsx:75
-#: src/components/connection-details.tsx:85
+#: src/components/connection-details.tsx:90
 msgid "传输"
 msgstr "传输"
 
-#: src/components/transfer/shared.tsx:152
+#: src/components/transfer/shared.tsx:158
 msgid "传输中"
 msgstr "传输中"
 
 #: src/app/transfer/[sessionId].tsx:556
-#: src/components/transfer/shared.tsx:318
+#: src/components/transfer/shared.tsx:326
 #: src/core/event-bus.ts:160
 msgid "传输失败"
 msgstr "传输失败"
@@ -270,8 +275,8 @@ msgstr "传输失败：{error}"
 msgid "传输完成"
 msgstr "传输完成"
 
-#: src/components/transfer/shared.tsx:264
-#: src/components/transfer/shared.tsx:315
+#: src/components/transfer/shared.tsx:272
+#: src/components/transfer/shared.tsx:323
 msgid "传输已取消"
 msgstr "传输已取消"
 
@@ -283,7 +288,7 @@ msgstr "传输记录"
 msgid "传输详情"
 msgstr "传输详情"
 
-#: src/components/transfer/shared.tsx:280
+#: src/components/transfer/shared.tsx:288
 msgid "传输过程中出错了,请重试"
 msgstr "传输过程中出错了,请重试"
 
@@ -390,7 +395,7 @@ msgstr "全程端到端加密，路上没人能看到内容"
 #: src/app/(main)/index.tsx:537
 #: src/app/(main)/index.tsx:945
 #: src/app/activity.tsx:33
-#: src/components/inbox/inbox-list.tsx:102
+#: src/components/inbox/inbox-list.tsx:103
 msgid "全部"
 msgstr "全部"
 
@@ -502,7 +507,7 @@ msgstr "分组名称"
 msgid "切换上方筛选范围，或进入搜索页查找历史内容。"
 msgstr "切换上方筛选范围，或进入搜索页查找历史内容。"
 
-#: src/components/transfer/shared.tsx:229
+#: src/components/transfer/shared.tsx:237
 msgid "刚刚"
 msgstr "刚刚"
 
@@ -573,11 +578,11 @@ msgstr "别名与分组"
 
 #: src/app/(main)/inbox.tsx:130
 #: src/app/(main)/inbox.tsx:171
-#: src/components/pairing/invite-exchange.tsx:203
+#: src/components/pairing/invite-exchange.tsx:211
 msgid "刷新"
 msgstr "刷新"
 
-#: src/components/inbox/inbox-list.tsx:402
+#: src/components/inbox/inbox-list.tsx:422
 msgid "剪贴板"
 msgstr "剪贴板"
 
@@ -585,7 +590,7 @@ msgstr "剪贴板"
 msgid "剪贴板内容"
 msgstr "剪贴板内容"
 
-#: src/components/pairing/invite-exchange.tsx:308
+#: src/components/pairing/invite-exchange.tsx:316
 msgid "剪贴板里没有内容"
 msgstr "剪贴板里没有内容"
 
@@ -708,7 +713,7 @@ msgstr "发送给 {0}"
 #: src/app/pairing/found-device.tsx:126
 #: src/app/send/select-device.tsx:296
 #: src/app/settings/bootstrap-nodes.tsx:203
-#: src/app/transfer/[sessionId].tsx:678
+#: src/app/transfer/[sessionId].tsx:681
 #: src/components/device-organization-sheets.tsx:239
 #: src/components/node-control-sheet.tsx:279
 #: src/components/ui/confirm-dialog.tsx:61
@@ -755,7 +760,7 @@ msgstr "另一台设备请求与你建立配对"
 msgid "只清空传输过程记录；收件箱里已收到的内容不受影响。该操作不可撤销。"
 msgstr "只清空传输过程记录；收件箱里已收到的内容不受影响。该操作不可撤销。"
 
-#: src/app/transfer/[sessionId].tsx:591
+#: src/app/transfer/[sessionId].tsx:594
 msgid "可从断点继续，无需重新传输"
 msgstr "可从断点继续，无需重新传输"
 
@@ -763,7 +768,7 @@ msgstr "可从断点继续，无需重新传输"
 msgid "可恢复"
 msgstr "可恢复"
 
-#: src/components/transfer/shared.tsx:166
+#: src/components/transfer/shared.tsx:174
 msgid "可恢复中断"
 msgstr "可恢复中断"
 
@@ -776,7 +781,7 @@ msgstr "可达"
 msgid "可配对"
 msgstr "可配对"
 
-#: src/components/inbox/inbox-list.tsx:404
+#: src/components/inbox/inbox-list.tsx:424
 msgid "合集"
 msgstr "合集"
 
@@ -819,8 +824,8 @@ msgstr "启动节点后才能发现和连接其他设备"
 msgid "启动节点失败"
 msgstr "启动节点失败"
 
-#: src/components/inbox/inbox-list.tsx:104
-#: src/components/inbox/inbox-list.tsx:396
+#: src/components/inbox/inbox-list.tsx:105
+#: src/components/inbox/inbox-list.tsx:416
 msgid "图片"
 msgstr "图片"
 
@@ -828,7 +833,7 @@ msgstr "图片"
 msgid "在你的设备之间,安全地传文件"
 msgstr "在你的设备之间,安全地传文件"
 
-#: src/app/transfer/[sessionId].tsx:706
+#: src/app/transfer/[sessionId].tsx:709
 #: src/components/activity-projection-card.tsx:123
 msgid "在收件箱查看"
 msgstr "在收件箱查看"
@@ -868,7 +873,7 @@ msgstr "复制 Peer ID"
 msgid "复制 PeerID"
 msgstr "复制 PeerID"
 
-#: src/components/connection-details.tsx:98
+#: src/components/connection-details.tsx:103
 msgid "复制中继节点 ID"
 msgstr "复制中继节点 ID"
 
@@ -880,11 +885,11 @@ msgstr "复制协助地址"
 msgid "复制后可供浏览器端快速连接本机。"
 msgstr "复制后可供浏览器端快速连接本机。"
 
-#: src/components/connection-details.tsx:107
+#: src/components/connection-details.tsx:112
 msgid "复制远端地址"
 msgstr "复制远端地址"
 
-#: src/components/pairing/invite-exchange.tsx:213
+#: src/components/pairing/invite-exchange.tsx:221
 msgid "复制链接"
 msgstr "复制链接"
 
@@ -893,11 +898,11 @@ msgstr "复制链接"
 msgid "外观"
 msgstr "外观"
 
-#: src/components/transfer/shared.tsx:158
+#: src/components/transfer/shared.tsx:164
 msgid "失败"
 msgstr "失败"
 
-#: src/components/transfer/shared.tsx:272
+#: src/components/transfer/shared.tsx:280
 msgid "存储空间不足,清理后重试"
 msgstr "存储空间不足,清理后重试"
 
@@ -927,7 +932,7 @@ msgstr "完成文件检查"
 msgid "容量"
 msgstr "容量"
 
-#: src/components/connection-details.tsx:72
+#: src/components/connection-details.tsx:77
 msgid "对方就在同一网段，但直连没建起来"
 msgstr "对方就在同一网段，但直连没建起来"
 
@@ -947,7 +952,7 @@ msgstr "对方拒绝了传输请求"
 msgid "对方拒绝了传输请求：{reason}"
 msgstr "对方拒绝了传输请求：{reason}"
 
-#: src/components/transfer/shared.tsx:263
+#: src/components/transfer/shared.tsx:271
 msgid "对方拒绝了这次传输"
 msgstr "对方拒绝了这次传输"
 
@@ -963,7 +968,7 @@ msgstr "对方无响应，请重试"
 msgid "对方确认后立即开始传输"
 msgstr "对方确认后立即开始传输"
 
-#: src/components/transfer/shared.tsx:268
+#: src/components/transfer/shared.tsx:276
 msgid "对方设备已离线,重新上线后可继续"
 msgstr "对方设备已离线,重新上线后可继续"
 
@@ -971,12 +976,12 @@ msgstr "对方设备已离线,重新上线后可继续"
 msgid "对端"
 msgstr "对端"
 
-#: src/components/transfer/shared.tsx:300
+#: src/components/transfer/shared.tsx:308
 msgid "对端暂停"
 msgstr "对端暂停"
 
-#: src/components/transfer/shared.tsx:168
-#: src/components/transfer/shared.tsx:306
+#: src/components/transfer/shared.tsx:176
+#: src/components/transfer/shared.tsx:314
 msgid "对端离线"
 msgstr "对端离线"
 
@@ -984,7 +989,7 @@ msgstr "对端离线"
 msgid "将配对二维码放入框内"
 msgstr "将配对二维码放入框内"
 
-#: src/components/pairing/invite-exchange.tsx:153
+#: src/components/pairing/invite-exchange.tsx:161
 msgid "尚未生成邀请"
 msgstr "尚未生成邀请"
 
@@ -1014,7 +1019,7 @@ msgstr "局域网"
 msgid "局域网协助地址"
 msgstr "局域网协助地址"
 
-#: src/components/pairing/invite-exchange.tsx:70
+#: src/components/pairing/invite-exchange.tsx:71
 msgid "展示我的邀请"
 msgstr "展示我的邀请"
 
@@ -1034,6 +1039,10 @@ msgstr "已删除记录"
 msgid "已删除记录和本地文件"
 msgstr "已删除记录和本地文件"
 
+#: src/components/pairing/sent-invites.tsx:102
+msgid "已发出的邀请"
+msgstr "已发出的邀请"
+
 #: src/app/settings/network.tsx:154
 msgid "已发现节点"
 msgstr "已发现节点"
@@ -1042,7 +1051,7 @@ msgstr "已发现节点"
 msgid "已发现设备"
 msgstr "已发现设备"
 
-#: src/components/transfer/shared.tsx:160
+#: src/components/transfer/shared.tsx:166
 msgid "已取消"
 msgstr "已取消"
 
@@ -1062,17 +1071,17 @@ msgstr "已取消配对"
 msgid "已复制 Peer ID"
 msgstr "已复制 Peer ID"
 
-#: src/components/connection-details.tsx:42
+#: src/components/connection-details.tsx:47
 #: src/components/device-info-card.tsx:75
 msgid "已复制到剪贴板"
 msgstr "已复制到剪贴板"
 
-#: src/components/pairing/invite-exchange.tsx:144
+#: src/components/pairing/invite-exchange.tsx:152
 msgid "已复制邀请链接"
 msgstr "已复制邀请链接"
 
 #: src/app/activity.tsx:141
-#: src/components/transfer/shared.tsx:156
+#: src/components/transfer/shared.tsx:162
 msgid "已完成"
 msgstr "已完成"
 
@@ -1082,12 +1091,12 @@ msgstr "已开始恢复传输"
 
 #: src/app/inbox/[itemId].tsx:180
 #: src/app/inbox/[itemId].tsx:607
-#: src/components/inbox/inbox-list.tsx:108
-#: src/components/inbox/inbox-list.tsx:351
+#: src/components/inbox/inbox-list.tsx:109
+#: src/components/inbox/inbox-list.tsx:371
 msgid "已归档"
 msgstr "已归档"
 
-#: src/components/transfer/shared.tsx:162
+#: src/components/transfer/shared.tsx:168
 msgid "已拒绝"
 msgstr "已拒绝"
 
@@ -1099,7 +1108,7 @@ msgstr "已拒绝文件"
 msgid "已是最新"
 msgstr "已是最新"
 
-#: src/components/transfer/shared.tsx:154
+#: src/components/transfer/shared.tsx:160
 msgid "已暂停"
 msgstr "已暂停"
 
@@ -1107,11 +1116,16 @@ msgstr "已暂停"
 msgid "已清空传输记录"
 msgstr "已清空传输记录"
 
+#: src/components/pairing/sent-invites.tsx:125
+msgid "已被对方使用"
+msgstr "已被对方使用"
+
 #: src/app/device/[peerId].tsx:169
 msgid "已解除阻止"
 msgstr "已解除阻止"
 
 #: src/components/pairing-request-host.tsx:97
+#: src/components/pairing/sent-invites.tsx:186
 msgid "已过期"
 msgstr "已过期"
 
@@ -1176,11 +1190,11 @@ msgstr "应用、网络、外观和设备信息"
 msgid "应用私有目录（默认）"
 msgstr "应用私有目录（默认）"
 
-#: src/components/transfer/shared.tsx:170
+#: src/components/transfer/shared.tsx:178
 msgid "应用重启"
 msgstr "应用重启"
 
-#: src/components/transfer/shared.tsx:309
+#: src/components/transfer/shared.tsx:317
 msgid "应用重启后可恢复"
 msgstr "应用重启后可恢复"
 
@@ -1200,7 +1214,7 @@ msgstr "开始使用"
 msgid "开始时间"
 msgstr "开始时间"
 
-#: src/components/inbox/inbox-list.tsx:107
+#: src/components/inbox/inbox-list.tsx:108
 msgid "异常"
 msgstr "异常"
 
@@ -1241,12 +1255,12 @@ msgstr "当前状态"
 msgid "当前筛选下没有内容"
 msgstr "当前筛选下没有内容"
 
-#: src/components/transfer/shared.tsx:150
+#: src/components/transfer/shared.tsx:156
 #: src/components/trust-badge.tsx:35
 msgid "待确认"
 msgstr "待确认"
 
-#: src/app/transfer/[sessionId].tsx:692
+#: src/app/transfer/[sessionId].tsx:695
 msgid "恢复"
 msgstr "恢复"
 
@@ -1280,7 +1294,7 @@ msgstr "我的 iPhone"
 msgid "我的设备"
 msgstr "我的设备"
 
-#: src/components/pairing/invite-exchange.tsx:102
+#: src/components/pairing/invite-exchange.tsx:110
 msgid "或"
 msgstr "或"
 
@@ -1311,7 +1325,7 @@ msgstr "打开手电筒"
 #: src/app/inbox/[itemId].tsx:717
 #: src/app/inbox/[itemId].tsx:1017
 #: src/app/inbox/[itemId].tsx:1023
-#: src/app/transfer/[sessionId].tsx:720
+#: src/app/transfer/[sessionId].tsx:723
 msgid "打开文件夹"
 msgstr "打开文件夹"
 
@@ -1319,11 +1333,11 @@ msgstr "打开文件夹"
 msgid "打洞"
 msgstr "打洞"
 
-#: src/components/pairing/invite-exchange.tsx:95
+#: src/components/pairing/invite-exchange.tsx:103
 msgid "扫描对方的二维码"
 msgstr "扫描对方的二维码"
 
-#: src/components/pairing/invite-exchange.tsx:76
+#: src/components/pairing/invite-exchange.tsx:77
 msgid "扫码或粘贴"
 msgstr "扫码或粘贴"
 
@@ -1335,7 +1349,7 @@ msgstr "扫码配对"
 msgid "扫码需要访问相机。SwarmDrop 只用相机识别配对二维码，不拍照、不录像、不上传。"
 msgstr "扫码需要访问相机。SwarmDrop 只用相机识别配对二维码，不拍照、不录像、不上传。"
 
-#: src/components/transfer/shared.tsx:276
+#: src/components/transfer/shared.tsx:284
 msgid "找不到要传输的文件,可能已被移动或删除"
 msgstr "找不到要传输的文件,可能已被移动或删除"
 
@@ -1471,6 +1485,18 @@ msgstr "搜索结果"
 msgid "搜索设备或文件名"
 msgstr "搜索设备或文件名"
 
+#: src/components/pairing/sent-invites.tsx:155
+msgid "撤销"
+msgstr "撤销"
+
+#: src/components/pairing/sent-invites.tsx:89
+msgid "撤销失败"
+msgstr "撤销失败"
+
+#: src/components/pairing/sent-invites.tsx:141
+msgid "撤销这条邀请"
+msgstr "撤销这条邀请"
+
 #: src/app/settings/general.tsx:133
 #: src/app/settings/general.tsx:186
 msgid "操作失败"
@@ -1537,7 +1563,7 @@ msgid "收到的内容都替你放在这儿"
 msgstr "收到的内容都替你放在这儿"
 
 #: src/app/(main)/index.tsx:755
-#: src/components/inbox/inbox-list.tsx:183
+#: src/components/inbox/inbox-list.tsx:184
 msgid "收起"
 msgstr "收起"
 
@@ -1561,8 +1587,8 @@ msgstr "放弃选择？"
 #: src/app/transfer/[sessionId].tsx:280
 #: src/components/activity-projection-card.tsx:108
 #: src/components/file-browser/file-browser-toolbar.tsx:37
-#: src/components/inbox/inbox-list.tsx:103
-#: src/components/inbox/inbox-list.tsx:406
+#: src/components/inbox/inbox-list.tsx:104
+#: src/components/inbox/inbox-list.tsx:426
 #: src/components/recent-transfer-row.tsx:73
 #: src/components/transfer-offer-host.tsx:236
 msgid "文件"
@@ -1586,8 +1612,8 @@ msgstr "文件直接进入收件箱和默认保存位置"
 msgid "文件缺失"
 msgstr "文件缺失"
 
-#: src/components/inbox/inbox-list.tsx:106
-#: src/components/inbox/inbox-list.tsx:400
+#: src/components/inbox/inbox-list.tsx:107
+#: src/components/inbox/inbox-list.tsx:420
 msgid "文本"
 msgstr "文本"
 
@@ -1630,7 +1656,7 @@ msgstr "明文不经过任何服务器"
 msgid "映射成功"
 msgstr "映射成功"
 
-#: src/app/transfer/[sessionId].tsx:666
+#: src/app/transfer/[sessionId].tsx:669
 #: src/core/foreground-service.ts:196
 msgid "暂停"
 msgstr "暂停"
@@ -1680,7 +1706,7 @@ msgstr "更多"
 msgid "更多操作"
 msgstr "更多操作"
 
-#: src/components/inbox/inbox-list.tsx:183
+#: src/components/inbox/inbox-list.tsx:184
 msgid "更多筛选"
 msgstr "更多筛选"
 
@@ -1716,6 +1742,10 @@ msgstr "有新版可用"
 msgid "未分组"
 msgstr "未分组"
 
+#: src/components/transfer/shared.tsx:170
+msgid "未及时处理"
+msgstr "未及时处理"
+
 #: src/components/status-pill.tsx:66
 msgid "未启动"
 msgstr "未启动"
@@ -1731,16 +1761,20 @@ msgstr "未就绪"
 
 #: src/app/inbox/[itemId].tsx:1128
 #: src/app/settings/network.tsx:145
-#: src/components/connection-details.tsx:90
+#: src/components/connection-details.tsx:95
 #: src/components/device-info-card.tsx:179
 #: src/components/node-control-sheet.tsx:231
-#: src/components/transfer/shared.tsx:172
+#: src/components/transfer/shared.tsx:180
 msgid "未知"
 msgstr "未知"
 
 #: src/app/inbox/[itemId].tsx:1083
 msgid "未记录"
 msgstr "未记录"
+
+#: src/components/inbox/inbox-list.tsx:228
+msgid "未读"
+msgstr "未读"
 
 #: src/app/settings/network.tsx:180
 #: src/components/node-control-sheet.tsx:249
@@ -1768,11 +1802,11 @@ msgstr "本机 LAN Helper"
 msgid "本机可拨号地址"
 msgstr "本机可拨号地址"
 
-#: src/components/transfer/shared.tsx:297
+#: src/components/transfer/shared.tsx:305
 msgid "本机暂停"
 msgstr "本机暂停"
 
-#: src/components/pairing/invite-exchange.tsx:167
+#: src/components/pairing/invite-exchange.tsx:175
 msgid "本机配对邀请"
 msgstr "本机配对邀请"
 
@@ -1913,7 +1947,7 @@ msgstr "每一笔传输的过程都记在这里；收好的东西请到收件箱
 msgid "每次传输临时生成密钥，用完即弃"
 msgstr "每次传输临时生成密钥，用完即弃"
 
-#: src/components/transfer/shared.tsx:274
+#: src/components/transfer/shared.tsx:282
 msgid "没有写入权限,请检查保存位置"
 msgstr "没有写入权限,请检查保存位置"
 
@@ -2005,7 +2039,7 @@ msgstr "照片"
 msgid "现在没有正在进行的传输"
 msgstr "现在没有正在进行的传输"
 
-#: src/components/pairing/invite-exchange.tsx:232
+#: src/components/pairing/invite-exchange.tsx:240
 msgid "生成邀请"
 msgstr "生成邀请"
 
@@ -2068,8 +2102,8 @@ msgid "确认配对"
 msgstr "确认配对"
 
 #: src/app/send/select-device.tsx:389
-#: src/components/inbox/inbox-list.tsx:105
-#: src/components/inbox/inbox-list.tsx:397
+#: src/components/inbox/inbox-list.tsx:106
+#: src/components/inbox/inbox-list.tsx:417
 msgid "视频"
 msgstr "视频"
 
@@ -2114,9 +2148,13 @@ msgstr "第 {0} 步,共 3 步"
 msgid "等待发现"
 msgstr "等待发现"
 
-#: src/components/transfer/shared.tsx:164
+#: src/components/transfer/shared.tsx:172
 msgid "等待响应"
 msgstr "等待响应"
+
+#: src/components/pairing/sent-invites.tsx:127
+msgid "等待对方使用"
+msgstr "等待对方使用"
 
 #: src/app/device/[peerId].tsx:174
 msgid "策略保存失败"
@@ -2130,16 +2168,16 @@ msgstr "策略设置"
 msgid "管理分组"
 msgstr "管理分组"
 
-#: src/components/pairing/invite-exchange.tsx:361
+#: src/components/pairing/invite-exchange.tsx:369
 msgid "粘贴"
 msgstr "粘贴"
 
 #: src/app/pairing/scan.tsx:304
-#: src/components/pairing/invite-exchange.tsx:361
+#: src/components/pairing/invite-exchange.tsx:369
 msgid "粘贴邀请"
 msgstr "粘贴邀请"
 
-#: src/components/pairing/invite-exchange.tsx:331
+#: src/components/pairing/invite-exchange.tsx:339
 msgid "粘贴配对邀请"
 msgstr "粘贴配对邀请"
 
@@ -2159,7 +2197,7 @@ msgstr "给设备取个名字"
 #: src/app/onboarding/device-name.tsx:61
 #: src/app/onboarding/device-name.tsx:65
 #: src/app/transfer/[sessionId].tsx:306
-#: src/components/pairing/invite-exchange.tsx:374
+#: src/components/pairing/invite-exchange.tsx:382
 msgid "继续"
 msgstr "继续"
 
@@ -2171,7 +2209,7 @@ msgstr "继续选择"
 msgid "编辑设备名"
 msgstr "编辑设备名"
 
-#: src/components/inbox/inbox-list.tsx:349
+#: src/components/inbox/inbox-list.tsx:369
 msgid "缺失"
 msgstr "缺失"
 
@@ -2184,7 +2222,7 @@ msgstr "网格视图"
 msgid "网络"
 msgstr "网络"
 
-#: src/components/transfer/shared.tsx:303
+#: src/components/transfer/shared.tsx:311
 msgid "网络中断"
 msgstr "网络中断"
 
@@ -2201,7 +2239,7 @@ msgstr "网络节点"
 msgid "网络诊断"
 msgstr "网络诊断"
 
-#: src/components/transfer/shared.tsx:270
+#: src/components/transfer/shared.tsx:278
 msgid "网络连接中断,请确认两端在线后重试"
 msgstr "网络连接中断,请确认两端在线后重试"
 
@@ -2269,7 +2307,7 @@ msgstr "节点状态"
 msgid "解除阻止"
 msgstr "解除阻止"
 
-#: src/components/pairing/invite-exchange.tsx:170
+#: src/components/pairing/invite-exchange.tsx:178
 msgid "让另一台设备扫码或粘贴此邀请"
 msgstr "让另一台设备扫码或粘贴此邀请"
 
@@ -2332,7 +2370,7 @@ msgstr "设备未找到"
 msgid "设备策略"
 msgstr "设备策略"
 
-#: src/core/transfer-types.ts:205
+#: src/core/transfer-types.ts:209
 msgid "设备策略已拒绝"
 msgstr "设备策略已拒绝"
 
@@ -2340,11 +2378,11 @@ msgstr "设备策略已拒绝"
 msgid "设备策略已更新"
 msgstr "设备策略已更新"
 
-#: src/core/transfer-types.ts:203
+#: src/core/transfer-types.ts:207
 msgid "设备策略自动接收"
 msgstr "设备策略自动接收"
 
-#: src/core/transfer-types.ts:204
+#: src/core/transfer-types.ts:208
 msgid "设备策略要求确认"
 msgstr "设备策略要求确认"
 
@@ -2401,9 +2439,13 @@ msgstr "语言已更新"
 msgid "请先完成 SwarmDrop 设置"
 msgstr "请先完成 SwarmDrop 设置"
 
-#: src/components/transfer/shared.tsx:312
+#: src/components/transfer/shared.tsx:320
 msgid "请求被拒绝"
 msgstr "请求被拒绝"
+
+#: src/components/transfer/shared.tsx:329
+msgid "请求超时未处理，让对方重发一次"
+msgstr "请求超时未处理，让对方重发一次"
 
 #: src/app/onboarding/setup.tsx:86
 msgid "请稍后重试,或检查存储权限"
@@ -2417,7 +2459,7 @@ msgstr "请输入大于 0 的数字，留空表示不限制"
 msgid "请重新选择要发送的文件"
 msgstr "请重新选择要发送的文件"
 
-#: src/components/transfer/shared.tsx:278
+#: src/components/transfer/shared.tsx:286
 msgid "读写文件时出错,请重试"
 msgstr "读写文件时出错,请重试"
 
@@ -2492,7 +2534,7 @@ msgstr "这只删除收件箱索引，不会删除本地文件。"
 
 #: src/app/_layout.tsx:279
 #: src/app/pairing/scan.tsx:93
-#: src/components/pairing/invite-exchange.tsx:293
+#: src/components/pairing/invite-exchange.tsx:301
 msgid "这是你自己的邀请"
 msgstr "这是你自己的邀请"
 
@@ -2500,7 +2542,7 @@ msgstr "这是你自己的邀请"
 msgid "进入 SwarmDrop"
 msgstr "进入 SwarmDrop"
 
-#: src/components/connection-details.tsx:105
+#: src/components/connection-details.tsx:110
 msgid "远端地址"
 msgstr "远端地址"
 
@@ -2508,7 +2550,7 @@ msgstr "远端地址"
 msgid "连接状态"
 msgstr "连接状态"
 
-#: src/components/transfer/shared.tsx:266
+#: src/components/transfer/shared.tsx:274
 msgid "连接超时,请确认对方设备在线后重试"
 msgstr "连接超时,请确认对方设备在线后重试"
 
@@ -2548,7 +2590,7 @@ msgstr "选择设备"
 msgid "选择语言"
 msgstr "选择语言"
 
-#: src/components/connection-details.tsx:75
+#: src/components/connection-details.tsx:80
 msgid "通常是某一端的防火墙拦了入站连接。文件仍会经中继送达，只是更慢。"
 msgstr "通常是某一端的防火墙拦了入站连接。文件仍会经中继送达，只是更慢。"
 
@@ -2571,24 +2613,40 @@ msgstr "通知已开启"
 msgid "通知提醒"
 msgstr "通知提醒"
 
-#: src/components/pairing/invite-exchange.tsx:152
+#: src/components/pairing/sent-invites.tsx:161
+msgid "邀请凭证不会被保存，所以这里只能显示状态。需要再分享请重新生成一条。"
+msgstr "邀请凭证不会被保存，所以这里只能显示状态。需要再分享请重新生成一条。"
+
+#: src/components/pairing/sent-invites.tsx:80
+msgid "邀请已撤销"
+msgstr "邀请已撤销"
+
+#: src/components/pairing/sent-invites.tsx:84
+msgid "邀请已撤销，但没能保存"
+msgstr "邀请已撤销，但没能保存"
+
+#: src/components/pairing/invite-exchange.tsx:160
 msgid "邀请已过期"
 msgstr "邀请已过期"
 
 #: src/app/_layout.tsx:281
 #: src/app/pairing/scan.tsx:95
-#: src/components/pairing/invite-exchange.tsx:295
+#: src/components/pairing/invite-exchange.tsx:303
 msgid "邀请已过期，请让对方重新生成"
 msgstr "邀请已过期，请让对方重新生成"
 
 #: src/app/_layout.tsx:282
-#: src/components/pairing/invite-exchange.tsx:296
+#: src/components/pairing/invite-exchange.tsx:304
 msgid "邀请无效或已被使用"
 msgstr "邀请无效或已被使用"
 
 #: src/app/pairing/scan.tsx:115
 msgid "邀请无效或已过期，请对准另一台设备的邀请二维码"
 msgstr "邀请无效或已过期，请对准另一台设备的邀请二维码"
+
+#: src/components/pairing/sent-invites.tsx:113
+msgid "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
+msgstr "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
 
 #: src/app/(main)/index.tsx:848
 #: src/components/device-info-card.tsx:176
@@ -2636,6 +2694,10 @@ msgstr "配置节点"
 msgid "重启中"
 msgstr "重启中"
 
+#: src/components/pairing/sent-invites.tsx:85
+msgid "重启应用后它可能恢复可用，建议稍后再撤销一次。"
+msgstr "重启应用后它可能恢复可用，建议稍后再撤销一次。"
+
 #: src/app/settings/bootstrap-nodes.tsx:249
 #: src/app/settings/network.tsx:285
 msgid "重启节点"
@@ -2655,11 +2717,11 @@ msgstr "重启节点失败"
 msgid "重命名 {0}"
 msgstr "重命名 {0}"
 
-#: src/app/transfer/[sessionId].tsx:739
+#: src/app/transfer/[sessionId].tsx:742
 msgid "重新发送"
 msgstr "重新发送"
 
-#: src/components/pairing/invite-exchange.tsx:234
+#: src/components/pairing/invite-exchange.tsx:242
 msgid "重新生成邀请"
 msgstr "重新生成邀请"
 
@@ -2676,7 +2738,7 @@ msgstr "重试"
 msgid "重试 {0}"
 msgstr "重试 {0}"
 
-#: src/components/connection-details.tsx:55
+#: src/components/connection-details.tsx:60
 msgid "链路详情"
 msgstr "链路详情"
 
@@ -2724,7 +2786,7 @@ msgstr "需要确认"
 
 #: src/app/inbox/[itemId].tsx:593
 #: src/app/inbox/search.tsx:385
-#: src/components/inbox/inbox-list.tsx:237
+#: src/components/inbox/inbox-list.tsx:257
 msgid "项"
 msgstr "项"
 

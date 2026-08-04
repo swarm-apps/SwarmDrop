@@ -45,26 +45,36 @@ export type ConfirmActionOptions = {
  * `disabled:opacity-50` 留在这里，`<Link>` 这类没有 disabled 态的用它也无害。
  */
 export const INLINE_ACTION_CLASS =
-  "inline-flex items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50";
+  "focus-ring inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-2.5 font-medium text-foreground hover:bg-accent disabled:opacity-50 sm:min-h-8";
 
 // 两套皮肤，差异都是既有的、用户看得见的，不是可以顺手抹平的：
 // - `banner` 用在面板层，自带 `text-xs`（外层没有），并与面板内其它按钮一样带 `cursor-pointer`；
 // - `inline` 用在列表项动作行，父级已是 `text-xs`，且同行的「续传」按钮也不带 `cursor-pointer`。
+//
+// ## 两条共同的修正（2026-08-04）
+//
+// 1. **触摸目标**：原先是 `px-2.5 py-1` + `text-xs` ≈ 24px 高，而这串皮肤是暂停 / 续传 /
+//    取消 / 删除 / 「查看收到的文件」**全部动作**的外观——Web 应用区的基线视口是手机浏览器，
+//    要求 ≥44×44。改成 `min-h-11`，宽屏（有指针）降回 `sm:min-h-8` 保持列表密度。
+// 2. **语义色走 token**：确认按钮原先是裸 `red-500/red-600`，而 `--destructive` 与
+//    `--destructive-ink` 早就定义好了。`-ink` 是文字形态——`destructive` 本色当小字
+//    在浅底上过不了 AA。
+const DESTRUCTIVE_SKIN =
+  "focus-ring inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-destructive/40 px-2.5 font-medium text-destructive-ink hover:bg-destructive/10 disabled:opacity-50 sm:min-h-8";
+
 const SKIN = {
   inline: {
     trigger: INLINE_ACTION_CLASS,
-    confirm:
-      "inline-flex items-center gap-1.5 rounded-lg border border-red-500/40 px-2.5 py-1 font-medium text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400",
-    back: "rounded-lg px-2 py-1 text-fd-muted-foreground hover:text-fd-foreground",
+    confirm: DESTRUCTIVE_SKIN,
+    back: "focus-ring min-h-11 rounded-lg px-2 text-muted-foreground hover:text-foreground sm:min-h-8",
     warning: "text-[11px]",
   },
   banner: {
     trigger:
-      "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent hover:text-fd-foreground disabled:opacity-50",
-    confirm:
-      "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-red-500/40 px-2.5 py-1 font-medium text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400",
-    back: "cursor-pointer rounded-lg px-2 py-1 text-fd-muted-foreground hover:text-fd-foreground",
-    warning: "text-fd-muted-foreground",
+      "focus-ring inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 sm:min-h-8",
+    confirm: `${DESTRUCTIVE_SKIN} cursor-pointer`,
+    back: "focus-ring min-h-11 cursor-pointer rounded-lg px-2 text-muted-foreground hover:text-foreground sm:min-h-8",
+    warning: "text-muted-foreground",
   },
 } as const;
 
@@ -136,7 +146,7 @@ export function useConfirmAction({
 
   const panel =
     layout === "banner" ? (
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-fd-border bg-fd-muted/40 px-3 py-2 text-xs">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs">
         <span className={skin.warning}>{warning}</span>
         <div className="flex items-center gap-2">
           {confirmButton}

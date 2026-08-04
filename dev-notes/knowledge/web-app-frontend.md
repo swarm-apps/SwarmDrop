@@ -70,9 +70,17 @@ setInterval(() => {
 UUID——永远生成不出来。传输详情因此走 `?session=…` + 就地展开，而不是照搬桌面端的
 `_app/transfer/$sessionId`。
 
-顺带一个非显见项：**选中项要参与历史列表的裁剪**。活动列表只留最近 8 条已结束会话，
-若 `?session=` 指向第 20 条，用户点「查看传输」进来会看到一个「什么都没选中」的列表。
-`groupSessions(projections, selectedId)` 因此显式保留选中项。
+> **2026-08-04 更新**：历史列表的 8 条硬截断**已删除**，`groupSessions` 的第二个参数
+> 从 `selectedId` 换成了筛选档（全部 / 进行中 / 可恢复 / 已结束，与桌面同名同义）。
+>
+> 原先的做法是「只留最近 8 条已结束会话，并显式保留选中项，免得深链指向第 20 条时进来
+> 看到一个什么都没选中的列表」。那个补丁修的是症状：**第 9 条起在 UI 里根本够不着**，
+> 只有带 `?session=` 的深链能捞回来，而那条链接的唯一生产者是发送页刚发完那一下。
+> 当时的理由「再多就该去收件箱看结果」也不成立——收件箱只有**接收**方向，发出去的
+> 历史在那里一条都没有。
+>
+> 连带的一条仍然有效、且更普遍：**深链要么保证能到达，要么就别给**（同
+> `inboxItemHref` 的 `archived` 参数）。现在它由「不截断」来保证。
 
 **相关文件**：`docs/app/app/_components/transfer-activity-panel.tsx`
 
@@ -117,11 +125,14 @@ query param 名只在 `PARAM` 里定义一次（生产方与 `useSearchParams().
 **组件里写 `` `/app/transfer?session=${id}` `` 会让这份事实源退化成一句注释**——改路由段时
 这里改完、字面量静默失效，而静态导出没有死链检查，构建照过、线上 404。
 
-## 底部导航的高度补偿归导航自己
+## ~~底部导航的高度补偿归导航自己~~（2026-08-04 起不再适用）
 
-`AppBottomNav` 是 `fixed` 的，它同时渲染一块等高 spacer（高度常量在同一文件）。
-不要在 layout 里写 `pb-24` 这类魔数去补偿——知道高度的人和补偿高度的人应当是同一个，
-否则导航行高或 safe-area 一变，那个数就悄悄失准。
+> 原文：`AppBottomNav` 是 `fixed` 的，它同时渲染一块等高 spacer，「知道高度的人和补偿高度的
+> 人应当是同一个」。
+>
+> **这条约定连同那个高度常量一起没了。** 应用外壳改成受限高度（`h-dvh`）之后，侧栏 / 顶栏 /
+> 底栏都是 flex 里的 `shrink-0` 子元素，滚动只发生在 `main` 里——不需要 `fixed`，也就不需要
+> 补偿。没有补偿，就没有失准的可能。详见下面「应用外壳必须是受限高度」一节。
 
 ## 内部导航一律 next/link（子路径下这条是致命的）
 
@@ -697,3 +708,120 @@ ev.defaultPrevented; // true = 有人拦了
    `addEventListener` 传的是匿名函数就更摘不掉了。测完刷新页面再进行下一轮。
 
 **相关文件**：`docs/app/app/_components/reload-guard.tsx`
+
+## 应用外壳必须是**受限高度**，否则面板里的 `overflow-y-auto` 全是死代码
+
+`app/app/layout.tsx` 的根是 `h-dvh` + `overflow-hidden`，`main` 是 `flex min-h-0 flex-1`
+且**自己不滚**——滚动归页面，由 `PageShell` 的两个变体决定。
+
+它曾经是 `min-h-screen` + 内容自然流。后果是**祖先链上没有任何确定高度的包含块**，于是
+`transfer-activity-panel` 与 `receive-panel` 里写的 `min-h-0 + overflow-y-auto` 一行也没生效：
+列表不会独立滚动，只会把整页撑长（滚列表时筛选条与操作按钮一起滚走）。这类失效**没有任何
+报错**——CSS 不会告诉你 `overflow` 落在了一个高度不受限的盒子上。
+
+排查手法：在 console 里数一遍页面上真正的滚动容器。
+
+```js
+[...document.querySelectorAll('*')]
+  .filter(e => e.scrollHeight > e.clientHeight + 20 && getComputedStyle(e).overflowY !== 'visible')
+  .map(e => e.className)
+// 期望：只有一个，且是 PageShell 的那层；出现 <html>/<body> 就说明外壳没兜住
+```
+
+配套的两条：
+
+- **`dvh` 不是 `svh`**：移动浏览器地址栏收起时可视高度会变，`dvh` 跟随它，`svh` 会让底部
+  导航被顶出屏幕。
+- **导航不再需要 `fixed` + 等高 spacer**。外壳受限之后，侧栏 / 顶栏 / 底栏都是 flex 里的
+  `shrink-0` 子元素，那个「知道高度的人和补偿高度的人应当是同一个」的约定连同高度常量
+  一起消失了——没有补偿，就没有失准的可能。
+
+**相关文件**：`docs/app/app/layout.tsx`、`docs/app/app/_components/page-shell.tsx`
+
+## 「还没加载出来」与「你什么都没有」必须分开判
+
+`pairedDevices` / `projections` / `inboxItems` 的初值都是空集合，而 `startStatePoll` 要等
+wasm 拉完 `_bg.wasm` 才第一次 tick。只看 `length === 0` 的空态，于是**每次刷新，老用户都先
+看到一个带教学文案的确定性空态**——它在断言一件当时并不成立的事。
+
+设备页、发送页、传输页三处都踩过（发送页那个 `devices.length === 0` 的早返回甚至跑在任何
+`ready` 判断之前）。判据一律是 `status === "running"` 之后才谈「空」，此前给
+`PanelSkeleton`。骨架而非 spinner：它保持内容的形状，切到真内容时不跳版。
+
+**相关文件**：`docs/app/app/_components/empty-state.tsx`
+
+## 应用区不再跟 fumadocs 的 `--color-fd-*`
+
+`app/global.css` 现在给应用区一套**自己的**无前缀语义 token（值与桌面 `src/index.css` 逐字
+相同的 oklch 表达式），只有文档区仍读 `--color-fd-*`。两套名字互不相交，所以「文档区零影响」
+的依据比从前更强——不是「我们小心地只新增别名」，而是**文档区根本不使用无前缀 utility**
+（`app/`、`components/`、`content/` 下除 `app/app` 与 `components/ui` 外零命中）。
+
+跟着文档皮肤走曾经带来三条量得出来的后果，都不是调一个数能解决的：
+`muted-foreground` 在卡片内 4.20:1、焦点环 2.31:1、以及**卡片比背景还暗**（`#F1F1F1` on
+`#F5F5F5`，看起来是凹陷的，正好撞上 PRODUCT.md 反面参照里的「灰上加灰」）。
+
+一条容易漏的配套：**Radix 把 dialog / dropdown / popover / sheet / tooltip 的内容 portal 到
+`document.body`**，落在 `[data-swarmdrop-app]` 作用域之外。`@layer base` 那条默认边框色规则
+因此要额外覆盖 `[data-slot$="-content"]`，否则那些浮层拿的是 fumadocs 在
+`css/lib/base.css` 里设的全局值——亮色下两者接近看不出，**暗色下差得很明显**。
+
+**相关文件**：`docs/app/global.css`
+
+## `role="progressbar"` 放进 `<button>` 等于没写
+
+ARIA 对 `button` 规定 **Children Presentational: True**：它的后代角色会被辅助技术整个丢弃。
+传输列表的每一行是个 `<button>`，里面那条进度条于是既不播报变化、也不被当成进度条——
+而 `aria-label` 明明写着，维护者会以为它生效了。
+
+`ProgressBar` 的 `label` 因此是 `string | null` 且**必填**：`null` 表示「我在一个可交互控件
+内部」，组件退成 `aria-hidden` 的纯装饰，进度信息由按钮自己的可访问名承担（名字由后代文本
+算出，百分比数字本来就在旁边那行里）。做成必填是刻意的——有默认值的话这个取舍就会被漏掉。
+
+**相关文件**：`docs/app/app/_components/progress-bar.tsx`
+
+## `PageShell variant="fill"` 之上的兄弟块必须自己限高（2026-08-04）
+
+`fill` 变体给主从布局提供确定高度，自己**不滚**。收件箱页在主从之上还挂着
+`IncomingOffersPanel`（待处理请求），它的高度随请求条数增长。请求一多：
+
+- 主从被压到接近 0（`min-h-0` 允许压到 0）
+- 「已收到的文件」整块够不着，而页面上**没有任何滚动条**提示还有东西
+
+两道一起才够：
+
+1. **请求区自己限高自滚** —— `max-h-[min(38dvh,340px)] overflow-y-auto`
+2. **`fill` 外壳留可滚兜底** —— 外层 `overflow-y-auto`，内层
+   `h-full min-h-[560px]`。`h-full` 而非 `flex-1`：两者正常视口下等价，但 `h-full` 是
+   确定高度，极矮视口时内容可以超出它由外层兜住
+
+**不要做**：把 `fill` 直接改成 `scroll`。那会让主从两栏失去确定高度，列内的
+`overflow-y-auto` 重新变成死代码（同本文件「应用外壳必须是受限高度」那条）。
+
+**相关文件**：`docs/app/app/_components/page-shell.tsx`、`incoming-offers-panel.tsx`
+
+## 异步反查的结果要连「它属于谁」一起存
+
+`InboxItemLink` 用 sessionId 反查收件箱条目。只存反查结果时，切到另一个会话后旧结果会
+在新反查回来之前继续渲染——那条链接指向的是**上一个会话**的条目，点下去打开的是另一批
+文件。effect 会重跑，但 state 不会自己回到「还没查」；节点未就绪时 effect 更是直接早退，
+旧链接能一直挂着。
+
+**正确做法**：`useState<{ sessionId, target } | null>` + 渲染期比对
+`resolved?.sessionId === sessionId`。
+
+**不要做**：在 effect 里先 `setTarget(undefined)` 清空——那对 `phase` 变化也会清一次，
+链接会闪一下再回来。
+
+**相关文件**：`docs/app/app/_components/transfer-detail.tsx`
+
+## `prefers-reduced-transparency` 降级：没有 border 的玻璃面会整个消失
+
+四个玻璃类里 `.glass-panel` 是**唯一没有 border** 的——它靠 blur + 半透明背景与页面分开。
+降级块把 `background` 换成 `var(--card)`、`backdrop-filter: none` 之后，它就成了一块
+与页面同色、无边、无阴影的矩形，面板边界整个消失。另外三个（card / control / accent）
+自带 border，不受影响。
+
+降级块里要单独给它补 `border: 1px solid var(--border)`。
+
+**相关文件**：`docs/app/global.css`

@@ -12,6 +12,7 @@ import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type { SecureContextInfo } from "./secure-context";
 import type {
+  RelayInfoJson,
   ConnectionJson,
   Device,
   InboxItemDetail,
@@ -161,10 +162,13 @@ export interface WebNodeState {
   /** 最近一次 `connect()` 成功的结果——浏览器不 listen socket，这只是「拨出去」的连接。 */
   connection: ConnectionJson | null;
   /**
-   * 最近一次 `reserve()` 成功拿到的 circuit 可达地址。浏览器唯一的被动接收入口，
-   * #77（配对）生成邀请前需要它——存进 store 而非局部 state，避免 #77 重复 reserve。
+   * 全部 relay 意图的状态快照，来自 `relays_changed()`（见 `_lib/relay-watch.ts`）。
+   *
+   * 它有两个跨路由的消费者：设置页「连接」区列清单与移除，设备页「配对」区读其中的
+   * circuit 地址判断能不能生成邀请。**可达地址是从这里派生的**（`selectReservation`），
+   * 不再单独存一份——两份会在多 helper 时对不上（旧实现是循环回填，只留最后一条）。
    */
-  reservation: string | null;
+  relays: RelayInfoJson[];
 }
 
 const initialState: WebNodeState = {
@@ -187,7 +191,7 @@ const initialState: WebNodeState = {
   pendingPairings: [],
   pairedDevices: [],
   connection: null,
-  reservation: null,
+  relays: [],
 };
 
 export const webNodeStore = createStore<WebNodeState>(() => initialState);
@@ -211,6 +215,20 @@ export function useWebNode<U>(selector: (state: WebNodeState) => U): U {
 //
 // 这条与自研 store 的行为不同（那份实现逐键浅比较，`{}` 天然不通知），迁移时 6 处全部改过。
 // 空对象在 zustand 下不报错、类型也合法，纯靠这条约定守。
+
+/**
+ * 本机当前的 circuit 可达地址（任意一条已 active 的 relay 给出），没有则 `null`。
+ *
+ * **是派生而非独立字段**：此前它单独存一份，由启动时的 `relays_until_active` 回填，多个
+ * helper 时循环覆写只留最后一条——一条挂了就可能显示成「不可达」，而另一条明明是好的。
+ * 从清单里现取则多一条少一条都对得上。
+ *
+ * selector 返回的是**字符串**，符合「不在 selector 里派生新数组/对象」那条约束
+ * （`Object.is` 对相同字符串为真，不会每帧换引用）。
+ */
+export function selectReservation(s: WebNodeState): string | null {
+  return s.relays.find((r) => r.state === "active")?.circuitAddr ?? null;
+}
 
 export const webNodeActions = {
   setSecure(info: SecureContextInfo) {
@@ -345,8 +363,8 @@ export const webNodeActions = {
   setConnection(connection: ConnectionJson | null) {
     webNodeStore.setState({ connection });
   },
-  setReservation(reservation: string | null) {
-    webNodeStore.setState({ reservation });
+  setRelays(relays: RelayInfoJson[]) {
+    webNodeStore.setState({ relays });
   },
   /**
    * 关停后清空运行态，保留已探测的 secure 结果（环境不因关节点而改变）。
@@ -377,11 +395,29 @@ export const webNodeActions = {
 function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeState> {
   const eventLog = appendLog(s.eventLog, ev);
   switch (ev.type) {
-    case "transferProjection":
-      return {
-        projections: { ...s.projections, [ev.projection.sessionId]: ev.projection },
-        eventLog,
-      };
+    case "transferProjection": {
+      const { sessionId, phase } = ev.projection;
+      const projections = { ...s.projections, [sessionId]: ev.projection };
+      // **待决 offer 必须随会话转终态一起消失。**
+      //
+      // `offers` 此前只由 accept / reject 成功后的 `removeOffer` 清理，于是会话被**动**
+      // 结束时那条 offer 会永久留在队列里：全局对话框反复弹一条已经死掉的请求，
+      // 点「接受」只会撞上内核的「会话不存在」。收件箱的「待处理请求」区让它更持久
+      // ——那是一条常驻列表，不像弹窗还能被关掉。
+      //
+      // 被动结束的三条真实来路：对端取消、对端下线、**本端决策窗口耗尽**
+      // （`PENDING_OFFER_TIMEOUT_SECS`，内核清理任务发 `TimeoutSignal::OfferExpired`
+      // 把会话推成 `terminal(expired)`）。最后一条是最常撞上的：170 秒没人管就到期，
+      // 而在内核补上那条终态之前，这里写的清理**从来没有被触发过**。
+      //
+      // projection 是生命周期的唯一权威源（内核每次状态转换都重发），所以清理挂在这里，
+      // 而不是再去订阅 failed/cancelled 那几个冗余事件。
+      if (phase === "terminal" && sessionId in s.offers) {
+        const { [sessionId]: _resolved, ...offers } = s.offers;
+        return { projections, offers, eventLog };
+      }
+      return { projections, eventLog };
+    }
     case "transferOfferReceived":
       return {
         offers: { ...s.offers, [ev.offer.sessionId]: offerFromEvent(ev.offer) },

@@ -72,6 +72,14 @@ const allowlist = [
     reason: "store hydration helper outside React",
   },
   {
+    file: "src/stores/pairing-store.ts",
+    pattern: /useSecretStore\s*\.\s*getState\s*\(/,
+    // `previewInvite` 是所有粘贴路径的收口点，要在**出网之前**拦下自我邀请与已配对
+    // 的邀请。两条判据（本机 id、已配对清单）都在 secret-store，而它是 store action
+    // 不是组件——拿不到 hook。读的是一次性快照，不订阅。
+    reason: "invite preview guards need an identity snapshot outside React",
+  },
+  {
     file: "src/lib/device-name.ts",
     pattern: /use(Preferences|Network)Store\s*\.\s*(getState|setState)\s*\(/,
     reason: "synchronous device-name utility outside React",

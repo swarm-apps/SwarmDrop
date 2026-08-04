@@ -189,7 +189,7 @@ export function TrustPolicyDialog({
                   onClick={() => changeLevel(candidate)}
                   disabled={action.pending}
                   className={cn(
-                    "min-h-11 rounded-full border px-4 text-xs transition-colors disabled:opacity-50 sm:min-h-9",
+                    "focus-ring min-h-11 rounded-full border px-4 text-xs transition-colors disabled:opacity-50 sm:min-h-9",
                     level === candidate
                       ? "border-transparent bg-[var(--brand-solid)] text-[var(--brand-ink)]"
                       : "text-muted-foreground hover:bg-accent",
@@ -252,7 +252,7 @@ export function TrustPolicyDialog({
                   aria-invalid={limitInvalid}
                 />
                 {limitInvalid && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                  <p className="text-xs text-warning-ink">
                     <Trans>请填一个大于 0 的数字，或留空表示不限制。</Trans>
                   </p>
                 )}
@@ -268,11 +268,10 @@ export function TrustPolicyDialog({
             variant="ghost"
             onClick={() => onOpenChange(false)}
             disabled={action.pending}
-            className="min-h-11 sm:min-h-9"
-          >
+                      >
             <Trans>取消</Trans>
           </Button>
-          <Button onClick={save} disabled={limitInvalid || action.pending} className="min-h-11 sm:min-h-9">
+          <Button onClick={save} disabled={limitInvalid || action.pending}>
             {action.pending ? <Trans>保存中…</Trans> : <Trans>保存</Trans>}
           </Button>
         </DialogFooter>

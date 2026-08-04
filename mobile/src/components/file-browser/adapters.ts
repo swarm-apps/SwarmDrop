@@ -125,7 +125,8 @@ function projectionFileStatus(
       }
       if (
         projection.terminalReason === MobileTerminalReason.Cancelled ||
-        projection.terminalReason === MobileTerminalReason.Rejected
+        projection.terminalReason === MobileTerminalReason.Rejected ||
+        projection.terminalReason === MobileTerminalReason.Expired
       ) {
         return "cancelled";
       }

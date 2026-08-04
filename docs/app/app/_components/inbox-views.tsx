@@ -1,0 +1,373 @@
+"use client";
+
+// 收件箱的**呈现层**：列表行、详情面板、空态、元信息胶囊。
+//
+// 从 `receive-panel.tsx` 抽出来的，那边只留编排（拉取、检索、归档/删除的分发、主从布局）。
+// 分界线是「谁持有异步动作」：本文件收到的是已经绑好条目 id 的 `ItemAction`，只渲染它的
+// pending / error / 触发——判断哪个条目该调 `archive_inbox_item(id, true)` 还是 `false`
+// 留在编排层，因为那里才知道当前的归档可见性。
+
+import { Trans, useLingui } from "@lingui/react/macro";
+import { formatFileSize } from "@swarmdrop/shared-view";
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowLeftRight,
+  Inbox,
+  MonitorSmartphone,
+  Search,
+  Trash2,
+} from "lucide-react";
+import Link from "next/link";
+import { memo, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
+import { PANEL_SURFACE, selectedRowClass } from "./section";
+import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
+import { CenteredEmptyState } from "./empty-state";
+import { OpenListButton } from "./master-detail";
+import { RelativeTime } from "./relative-time";
+import { StatusDot } from "./status-dot";
+import { WebErrorCard } from "./web-error-view";
+import { NAV, inboxItemHref, transferSessionHref } from "../_lib/nav";
+import type { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
+import {
+  INBOX_CONTENT_KIND_LABEL,
+  INBOX_SOURCE_KIND_LABEL,
+  type ItemAction,
+  type InboxItemDetail,
+  type InboxItemFileEntry,
+} from "../_lib/view-types";
+
+/** 检索防抖。与桌面端 `_app/inbox` 的 250ms 对齐——同一个动作在两端手感不该不同。 */
+const SEARCH_DEBOUNCE_MS = 250;
+
+/**
+ * 元信息胶囊。三条并排（来源 / 内容 / 传输链接），形态一致才读得出「这是同一组事实」。
+ */
+function MetaChip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+/**
+ * 详情侧的空态。**教学文案放这里而不是列表栏**——窄屏用户落在详情屏、列表收在抽屉里，
+ * 两边都摆整套空态则是宽屏下同一句话说两遍（与桌面端同一条约定）。
+ */
+export function InboxDetailEmpty({
+  openList,
+  hasRows,
+}: {
+  openList: (() => void) | null;
+  hasRows: boolean;
+}) {
+  const { t } = useLingui();
+  return (
+    <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", PANEL_SURFACE)}>
+      <div className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
+        <OpenListButton openList={openList} label={t`打开收件箱列表`} />
+        {/* **区域名，不是列表栏那个集合名。** 两边都写「已接收」时，宽屏下同一个词会
+            并排出现两次（列表栏一次、这里一次）——与传输页「会话」/「传输」的分法同构：
+            列表栏说的是「这堆东西叫什么」，详情侧说的是「你在哪个区」。 */}
+        <h2 className="text-sm font-semibold text-foreground">
+          <Trans>收件箱</Trans>
+        </h2>
+      </div>
+      {hasRows ? (
+        <CenteredEmptyState
+          icon={Inbox}
+          title={<Trans>选一条查看</Trans>}
+          description={<Trans>选中后这里会显示它的文件、来源与可用操作。</Trans>}
+        />
+      ) : (
+        <CenteredEmptyState
+          icon={Inbox}
+          title={<Trans>还没有收到的文件</Trans>}
+          description={
+            <Trans>对方发起传输、你接受之后，文件会落在这里，可以随时下载或归档。</Trans>
+          }
+          action={
+            <Button asChild size="sm" variant="secondary">
+              <Link href={NAV.devices.href}>
+                <MonitorSmartphone className="size-4" aria-hidden />
+                <Trans>去设备页</Trans>
+              </Link>
+            </Button>
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 检索框。**防抖归它自己**，抬给面板的已经是稳定后的查询词。
+ *
+ * 拆出来并 `memo` 的理由是逐键重渲染：输入值留在面板里的话，每敲一个字符都要重跑整张列表
+ * （N 条目 × M 文件行）——250ms 防抖只挡住了 wasm 调用，挡不住渲染。
+ */
+export const InboxSearchBox = memo(function InboxSearchBox({
+  disabled,
+  searching,
+  onChange,
+}: {
+  disabled: boolean;
+  searching: boolean;
+  onChange: (query: string) => void;
+}) {
+  const { t } = useLingui();
+  const [value, setValue] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => onChange(value.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [value, onChange]);
+
+  return (
+    <div className="relative mt-3">
+      <Search
+        className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        disabled={disabled}
+        placeholder={t`搜索标题、来源设备或文件名`}
+        aria-label={t`搜索收件箱`}
+        className="w-full rounded-lg border bg-background py-2 pl-8 pr-16 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
+      />
+      {searching && (
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">
+          <Trans>搜索中…</Trans>
+        </span>
+      )}
+    </div>
+  );
+});
+
+/**
+ * 列表行 —— 只承载「认出这一条」所需的信息：未读点、标题、归档态、来源与体量、检索片段。
+ * 文件清单与操作归详情侧，不在这里重复。
+ *
+ * 选中态由 `?item=` 承载，所以它是一条 `<Link>` 而不是按钮：可中键新开、可复制链接、
+ * 刷新后还在同一条上。**必须走 `next/link`**——手写 `<a href>` 不加 basePath，
+ * GitHub Pages 子路径下会 404。
+ */
+export function InboxListRow({
+  item,
+  snippet,
+  selected,
+  onSelect,
+}: {
+  item: InboxItemDetail;
+  snippet: string | null;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { t } = useLingui();
+  const unread = item.lastOpenedAt === null;
+  const archived = item.archivedAt !== null;
+  const ref = useRef<HTMLLIElement>(null);
+
+  // 深链要么保证能到达，要么就别给——只换个边框色是「到达了但看不见」：列表长了，
+  // 从传输页点进来的用户落在顶部，屏幕上没有任何东西变化。
+  // `block: "nearest"` 让本来就在视口里的条目不跳动。
+  useEffect(() => {
+    if (selected) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+
+  return (
+    <li ref={ref} className="scroll-mt-4">
+      <Link
+        href={inboxItemHref(item.id, archived)}
+        onClick={onSelect}
+        aria-current={selected ? "true" : undefined}
+        // 键盘导航靠它取「屏幕上的顺序」——分桶之后数据顺序与渲染顺序不再一致，
+        // 查 DOM 是唯一不会漂的来源。见列表容器的 `onListKeyDown`。
+        data-inbox-row
+        className={cn(
+          "focus-ring flex min-h-11 flex-col gap-0.5 rounded-lg border px-3 py-2 transition-colors",
+          selectedRowClass(selected),
+        )}
+      >
+        <span className="flex items-center gap-1.5 text-xs">
+          {/* 未读点是「还没取走」的唯一表达——列表里其它一切在下载前后都长一样，故给 label。 */}
+          {unread && <StatusDot colorClass="bg-[var(--brand-solid)]" label={t`未打开`} />}
+          <span className={cn("truncate text-foreground", unread && "font-semibold")}>
+            {item.title}
+          </span>
+          {archived && (
+            <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+              <Trans>已归档</Trans>
+            </span>
+          )}
+        </span>
+        <span className="flex items-baseline justify-between gap-2 text-[11px] text-muted-foreground">
+          <span className="truncate">
+            <Trans>
+              来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
+            </Trans>
+          </span>
+          {/* 「什么时候收到的」此前整个收件箱都没有——列表按 receivedAt 倒序排着，
+              却不给任何一行标出时间，用户只能靠顺序猜。桌面端的收件箱行一直有这个位。 */}
+          <RelativeTime timestamp={item.receivedAt} className="shrink-0" />
+        </span>
+        {/* 命中片段由 Rust 侧按子串位置切窗口生成，前端不重切——切法漂了，两端的「为什么这条
+            能搜到」就对不上。与标题相同时上游已置 null（那种情况它只是把标题重复一遍）。 */}
+        {snippet && (
+          <span className="truncate rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+            {snippet}
+          </span>
+        )}
+      </Link>
+    </li>
+  );
+}
+
+/** 详情侧 —— 选中条目的文件清单与条目级操作。 */
+export function InboxDetailPanel({
+  openList,
+  item,
+  ready,
+  downloadAction,
+  archive,
+  remove,
+  onDownload,
+}: {
+  openList: (() => void) | null;
+  item: InboxItemDetail;
+  ready: boolean;
+  /**
+   * 下载是**逐文件**的（N 个键），没法像 archive/remove 那样在父层摊平成一个值对象，
+   * 故整份 handle 下传。它每次渲染都是新引用，因此本组件刻意不 `memo`——加了也会被打穿。
+   */
+  downloadAction: ReturnType<typeof useKeyedAsyncAction>;
+  archive: ItemAction;
+  remove: ItemAction;
+  onDownload: (item: InboxItemDetail, file: InboxItemFileEntry) => void;
+}) {
+  const { t } = useLingui();
+  const archived = item.archivedAt !== null;
+  const ArchiveIcon = archived ? ArchiveRestore : Archive;
+
+  return (
+    // 详情自己是滚动容器：宽屏下滚它不会带走左边的列表，窄屏下也不会把页头顶走。
+    // 面板级圆角走 18px 词汇，与控件的 8px 分开（DESIGN.md 的两套圆角）。
+    <div className={cn("flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6", PANEL_SURFACE)}>
+      <div className="flex items-start gap-2">
+        <OpenListButton openList={openList} label={t`打开收件箱列表`} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            <Trans>
+              来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
+            </Trans>
+            {" · "}
+            <RelativeTime timestamp={item.receivedAt} />
+          </p>
+        </div>
+        {archived && (
+          <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+            <Trans>已归档</Trans>
+          </span>
+        )}
+      </div>
+
+      {/*
+        来源类型 / 内容类型 / 关联传输——三样 DTO 里一直都有（`sourceKind`、`contentKind`、
+        `transfer`），Web 端此前一个都没读，而桌面三样齐全。
+
+        「这份东西是谁、以什么身份、通过哪次传输送来的」正是收件箱要回答的问题；少了它，
+        一条 AI 代理代收的文件与一条当面配对传来的文件在界面上长得一模一样。
+      */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <MetaChip>{t(INBOX_SOURCE_KIND_LABEL[item.sourceKind])}</MetaChip>
+        <MetaChip>{t(INBOX_CONTENT_KIND_LABEL[item.contentKind])}</MetaChip>
+        {/* 传输页 → 收件箱的链路一直是通的，反向此前是断的（单向）。 */}
+        {item.transfer && (
+          <Link
+            href={transferSessionHref(item.transfer.sessionId)}
+            className="focus-ring inline-flex min-h-11 items-center gap-1 rounded-full border px-2.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:min-h-7"
+          >
+            <ArrowLeftRight className="size-3" aria-hidden />
+            <Trans>查看传输记录</Trans>
+          </Link>
+        )}
+      </div>
+
+      <ul className="flex flex-col gap-1.5">
+        {item.files.map((f) => {
+          const key = `${item.id}:${f.id}`;
+          const error = downloadAction.errorFor(key);
+          return (
+            <li key={f.id} className="rounded-lg border bg-background px-3 py-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-foreground">{f.name}</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="font-mono tabular-nums text-muted-foreground">
+                    {formatFileSize(f.size)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => onDownload(item, f)}
+                    disabled={downloadAction.isPending(key)}
+                    className="min-h-9"
+                  >
+                    {downloadAction.isPending(key) ? (
+                      <Trans>准备中…</Trans>
+                    ) : error ? (
+                      <Trans>重试下载</Trans>
+                    ) : (
+                      <Trans>下载</Trans>
+                    )}
+                  </Button>
+                </span>
+              </div>
+              {error && <WebErrorCard error={error} className="mt-1 text-xs" />}
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+        {/* 归档可逆，不设二次确认——与传输面板「续传不拦、取消才拦」同一条判据。 */}
+        <button
+          type="button"
+          onClick={archive.run}
+          disabled={!ready || archive.pending}
+          className={INLINE_ACTION_CLASS}
+        >
+          <ArchiveIcon className="size-3" aria-hidden="true" />
+          {archive.pending ? (
+            <Trans>处理中</Trans>
+          ) : archived ? (
+            <Trans>取消归档</Trans>
+          ) : (
+            <Trans>归档</Trans>
+          )}
+        </button>
+        <ConfirmAction
+          icon={Trash2}
+          label={t`删除`}
+          pendingLabel={t`删除中`}
+          confirmLabel={t`确认删除`}
+          // 文案要与实际行为一致：这里删的是**记录连同浏览器里的那份文件**。
+          // 已经下载到本机的那份不受影响，这点要说，否则用户会以为下载好的文件也会跟着没。
+          warning={t`删除这条记录和浏览器里保存的文件；已下载到本机的副本不受影响`}
+          disabled={!ready}
+          pending={remove.pending}
+          onConfirm={remove.run}
+        />
+      </div>
+      {archive.error && <WebErrorCard error={archive.error} className="text-xs" />}
+      {remove.error && <WebErrorCard error={remove.error} className="text-xs" />}
+    </div>
+  );
+}

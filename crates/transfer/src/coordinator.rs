@@ -180,13 +180,24 @@ pub enum StartupSignal {
     FoundActiveSession,
 }
 
+/// 本端定时器信号（清理任务发出，不来自用户、对端或 actor）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TimeoutSignal {
+    /// 入站 offer 的决策窗口耗尽（见 `PENDING_OFFER_TIMEOUT_SECS`）。
+    OfferExpired,
+}
+
 /// Coordinator 统一输入。actor / network 事件携带 epoch，用于防旧消息污染。
+///
+/// 变体按**信号来源**分类（用户 / actor / 对端 / 启动清理 / 本端定时器），不按具体事件——
+/// 新增一种超时时加进 [`TimeoutSignal`]，而不是给这个枚举再挂一个平级变体。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoordinatorInput {
     User(UserCommand),
     Actor { epoch: i64, report: ActorReport },
     Network { epoch: i64, signal: NetworkSignal },
     Startup(StartupSignal),
+    Timeout(TimeoutSignal),
 }
 
 /// 状态机 reducer（纯函数）。
@@ -214,6 +225,7 @@ pub fn reduce(state: &TransferState, input: &CoordinatorInput) -> Option<Transfe
         CoordinatorInput::Actor { report, .. } => reduce_actor(state, report),
         CoordinatorInput::Network { signal, .. } => reduce_network(state, signal),
         CoordinatorInput::Startup(sig) => reduce_startup(state, sig),
+        CoordinatorInput::Timeout(sig) => reduce_timeout(state, sig),
     }
 }
 
@@ -318,6 +330,18 @@ fn reduce_startup(state: &TransferState, sig: &StartupSignal) -> Option<Transfer
             state.epoch,
             SuspendedReason::AppRestarted,
         )),
+        _ => None,
+    }
+}
+
+fn reduce_timeout(state: &TransferState, sig: &TimeoutSignal) -> Option<TransferState> {
+    match sig {
+        // 决策窗口耗尽：只对**还挂在 offered 的入站会话**有意义。用户已经接受过
+        // （active / suspended）之后清理任务不该再碰它——那时 pending 条目早就被
+        // `accept_cached_inbound_offer` 取走了，这里的守卫是第二道。
+        TimeoutSignal::OfferExpired if state.phase == TransferPhase::Offered => Some(
+            TransferState::terminal(state.epoch, TerminalReason::Expired),
+        ),
         _ => None,
     }
 }
@@ -652,6 +676,47 @@ mod tests {
             assert_eq!(s.phase, TransferPhase::Terminal);
             assert_eq!(s.terminal_reason, Some(TerminalReason::Cancelled));
             assert!(!s.recoverable);
+        }
+    }
+
+    /// 决策窗口耗尽 → terminal(Expired)。
+    ///
+    /// 这条转换是「过期 offer 从待处理列表里消失」的**唯一**驱动力：清理任务只摘内存条目，
+    /// UI 是靠这里产出的 projection 才知道那条请求已经作废。断言 reason 是 `Expired` 而不是
+    /// `Rejected`——用户没有拒绝过，历史里不该那么写。
+    #[test]
+    fn offer_timeout_terminates_as_expired() {
+        let s = reduce(
+            &TransferState::offered(1),
+            &CoordinatorInput::Timeout(TimeoutSignal::OfferExpired),
+        )
+        .unwrap();
+        assert_eq!(s.phase, TransferPhase::Terminal);
+        assert_eq!(s.terminal_reason, Some(TerminalReason::Expired));
+        assert!(!s.recoverable);
+    }
+
+    /// 已经离开 offered 的会话不受超时影响。
+    ///
+    /// 用户按下「接受」之后，pending 条目已被 `accept_cached_inbound_offer` 取走，
+    /// 清理任务本就够不着它。这条守卫防的是**将来**有人把超时清理扩到别的表上时，
+    /// 顺手把一个正在传的会话判成过期——那会当场掐断一次正常传输。
+    #[test]
+    fn offer_timeout_ignores_sessions_past_offered() {
+        for state in [
+            TransferState::waiting_accept(1),
+            TransferState::active(1),
+            TransferState::suspended(1, SuspendedReason::Interrupted),
+        ] {
+            assert!(
+                reduce(
+                    &state,
+                    &CoordinatorInput::Timeout(TimeoutSignal::OfferExpired),
+                )
+                .is_none(),
+                "phase={:?} 不该被 offer 超时改动",
+                state.phase
+            );
         }
     }
 }

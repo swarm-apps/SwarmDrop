@@ -92,14 +92,14 @@ export function PairingRequestHost() {
             variant="outline"
             onClick={() => decide(false)}
             disabled={respond.pending}
-            className="min-h-11 flex-1 sm:min-h-9"
+            className="flex-1"
           >
             <Trans>拒绝</Trans>
           </Button>
           <Button
             onClick={() => decide(true)}
             disabled={respond.pending}
-            className="min-h-11 flex-1 sm:min-h-9"
+            className="flex-1"
             data-testid="pairing-accept"
           >
             {respond.pending ? t`处理中…` : t`接受`}

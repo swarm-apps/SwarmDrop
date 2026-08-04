@@ -82,6 +82,8 @@ pub enum MobileTerminalReason {
     Cancelled,
     Rejected,
     FatalError,
+    /// 入站 offer 的决策窗口耗尽，本端从未作答（≠ 用户拒绝，见 `entity::TerminalReason`）。
+    Expired,
 }
 
 impl From<TerminalReason> for MobileTerminalReason {
@@ -91,6 +93,7 @@ impl From<TerminalReason> for MobileTerminalReason {
             TerminalReason::Cancelled => Self::Cancelled,
             TerminalReason::Rejected => Self::Rejected,
             TerminalReason::FatalError => Self::FatalError,
+            TerminalReason::Expired => Self::Expired,
         }
     }
 }

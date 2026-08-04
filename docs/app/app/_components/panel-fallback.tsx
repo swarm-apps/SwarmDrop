@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 
 export function PanelFallback({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-fd-border bg-fd-card p-6 text-xs text-fd-muted-foreground shadow-xs">
+    <div className="rounded-xl border border-border bg-card p-6 text-xs text-muted-foreground shadow-xs">
       {children}
     </div>
   );

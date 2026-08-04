@@ -48,76 +48,292 @@
 }
 
 /*
- * ── shadcn/ui 语义 token 映射层 ────────────────────────────────────────────
+ * ── SwarmDrop 应用区的语义 token ───────────────────────────────────────────
  *
  * Web 应用区（app/app）用 shadcn/ui 作组件底座，而 shadcn 读的是 --color-background /
- * --color-border 这类**无前缀**的语义 token；文档站的皮肤则由 fumadocs 的 --color-fd-*
- * 提供。这一层把后者映射成前者，于是：
+ * --color-border 这类**无前缀**的语义 token。
  *
- *   · 应用区拿到 shadcn 要的全套 token，不必自建第三套值；
- *   · 文档区读的仍是 --color-fd-*，读不到这里的别名，呈现分毫不动；
- *   · 明暗模式只有一份实现（fumadocs 的），不会出现两区不同步的瞬态。
+ * ## 为什么不再跟 fumadocs 的 --color-fd-*（2026-08-04 改）
  *
- * **只新增别名，绝不改写任何 --color-fd-* 的值**——那是文档区零影响的全部依据。
+ * 这一层原先把 shadcn 的语义 token 映射到 fumadocs 的文档皮肤上，只有 primary 接了品牌色。
+ * 那套值服务的是**长文阅读**，拿来当应用界面有三条量得出来的后果：
  *
- * fumadocs 没有覆盖的几个（destructive / input / chart-* / sidebar-*）在下面自给，
- * 明暗各一。它们不参与文档区呈现，只服务应用区。
+ *   | 项                        | 跟 fumadocs 时 | 现在（与桌面同源） | 标准 |
+ *   |---------------------------|----------------|--------------------|------|
+ *   | muted-foreground 在卡片内 | 4.20:1 ❌      | 4.74:1             | AA 4.5:1 |
+ *   | 键盘焦点环                | 2.31:1 ❌      | 4.02:1             | WCAG 2.2 SC 1.4.11 → 3:1 |
+ *   | 卡片 vs 背景分层          | 1.04:1 ❌      | 白卡浮在壳色上 + 边框/玻璃质感 | 需可辨 |
+ *
+ * 第三条尤其修不了：fumadocs 的卡片（#F1F1F1）**比背景（#F5F5F5）还暗**，卡片看起来是凹的，
+ * 正好撞上 PRODUCT.md 反面参照里的「灰上加灰」。只调其中一个数会连带动到文档区。
+ *
+ * 所以应用区改用自己的一套，**值与桌面 `src/index.css` 逐字相同**（同一条纪律：写成同样的
+ * oklch 表达式而不是它的 hex 转换结果，好让两份文件能直接肉眼比对）。
+ *
+ * ## 文档区仍然零影响，依据变了但更强
+ *
+ * 旧依据是「只新增别名，不改写 --color-fd-*」。现在的依据是**两套 token 名互不相交**：
+ * 文档区读 `--color-fd-*`（本文件一个字都没动），应用区读这里的无前缀名，而文档区的
+ * 组件从不使用无前缀 utility（`bg-background` / `text-muted-foreground` 这类在
+ * `app/`、`components/`、`content/` 下除 `app/app` 与 `components/ui` 外零命中）。
+ * fumadocs 自身也不定义任何无前缀 token 名，不存在被顶掉的风险。
  */
 :root {
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0.002 260);
+  /* 中性色阶：与桌面 src/index.css 的 :root 同源 */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  /* 焦点环走品牌色（= --brand-solid），不是中性灰。桌面同此。 */
+  --ring: oklch(0.583 0.105 177.1);
   --radius: 0.625rem;
+
+  /* 应用外壳底色：比纯白凉一丝，让卡片「浮」得出来 */
+  --app-shell-background: oklch(0.99 0.001 210);
+
+  /*
+   * 侧栏是**第二中性层**（product register：sidebar / toolbar / panel 应当与内容面不同层）。
+   * 此前是 `bg-fd-card/40` 压在文档皮肤的灰底上 ≈ #F3F3F3，与内容区几乎无差别。
+   *
+   * 桌面 `src/index.css` 也有一组同名 token，但**那个壳里根本没有侧栏**（刻意的
+   * breadcrumb-only，见 DESIGN.md），所以那份值从未被真正看过。这里的亮色值按实际使用
+   * 调过一档（0.975 而非 0.985），让它在 0.99 的壳色上分得出来；暗色与桌面一致。
+   */
+  --sidebar: oklch(0.975 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+
+  /*
+   * 状态色的双 token：**填充/圆点用本色，当文字一律用 ink 变体**。
+   *
+   * 状态色本身当小字都过不了 AA——实测白底上 success 3.30:1、warning 只有 2.13:1。
+   * ink 变体是移动端先做出来的（`mobile/src/global.css` 的「State Ink Rule」），
+   * 桌面与 Web 此前都没跟，于是三端同一句「在线」「已拒绝」的可读性各不相同。
+   * 这几个值就是移动端那组 HSL 的 oklch 写法，在本区底色上实测 4.88–6.25:1。
+   */
+  --success: oklch(0.627 0.17 149.2);
+  --success-ink: oklch(0.527 0.137 150.1);
+  --warning: oklch(0.77 0.165 70.6);
+  --warning-ink: oklch(0.554 0.145 49.2);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-ink: oklch(0.508 0.192 27.6);
+  --destructive-foreground: oklch(0.985 0.002 260);
+
+  /*
+   * 玻璃拟态（DESIGN.md 的 signature layer）。**只给结构容器**——面板、外壳、包着图标的
+   * 控件片；按钮和输入框一律扁平（Flat-Control, Glass-Chrome Rule）。
+   * 值与桌面 src/index.css 同源。
+   */
+  --glass-panel-bg: rgb(255 255 255 / 0.58);
+  --glass-card-bg: rgb(255 255 255 / 0.58);
+  --glass-control-bg: rgb(255 255 255 / 0.64);
+  --glass-accent-bg: linear-gradient(
+    135deg,
+    rgb(240 251 247 / 0.72),
+    rgb(255 255 255 / 0.56)
+  );
+  --glass-card-border: rgb(255 255 255 / 0.34);
+  --glass-control-border: rgb(15 23 42 / 0.055);
+  --glass-accent-border: rgb(15 143 122 / 0.16);
+  --glass-highlight: rgb(255 255 255 / 0.84);
+  --glass-shadow: 0 18px 56px rgb(15 23 42 / 0.07);
+  --glass-card-shadow: 0 12px 32px rgb(15 23 42 / 0.045);
 }
 
 .dark {
+  /*
+   * 暗色是**冷藏蓝**（hue 260），不是纯中性黑。DESIGN.md 写明这是刻意的
+   * （"The cool navy-tinted dark neutrals deliberately stay"）——深藏蓝 + 青绿让产品
+   * 读起来像安全工具。跟 fumadocs 时这里是 #121212 纯中性，三端暗色于是有三个色相。
+   */
+  --background: oklch(0.18 0.01 260);
+  --foreground: oklch(0.965 0.002 260);
+  --card: oklch(0.27 0.008 260);
+  --card-foreground: oklch(0.965 0.002 260);
+  --popover: oklch(0.25 0.008 260);
+  --popover-foreground: oklch(0.965 0.002 260);
+  --secondary: oklch(0.32 0.009 260);
+  --secondary-foreground: oklch(0.955 0.002 260);
+  --muted: oklch(0.32 0.009 260);
+  --muted-foreground: oklch(0.79 0.007 260);
+  --accent: oklch(0.34 0.01 260);
+  --accent-foreground: oklch(0.955 0.002 260);
+  --border: oklch(0.39 0.01 260);
+  --input: oklch(0.39 0.01 260);
+  --ring: oklch(0.641 0.115 177.6);
+
+  --app-shell-background: oklch(0.145 0.012 260);
+  --sidebar: oklch(0.22 0.008 260);
+  --sidebar-border: oklch(0.39 0.01 260);
+
+  /* 暗色下状态色本身就够亮（7–11:1），ink 变体的差别只剩色相微调；两者都留是为了让
+     「填充用本色、文字用 ink」这条规矩在明暗两侧写法一致，调用点不必分支。 */
+  --success: oklch(0.723 0.192 149.6);
+  --success-ink: oklch(0.8 0.182 151.7);
+  --warning: oklch(0.861 0.173 92);
+  --warning-ink: oklch(0.833 0.164 83.9);
   --destructive: oklch(0.67 0.19 25.723);
+  --destructive-ink: oklch(0.711 0.166 22.2);
   --destructive-foreground: oklch(0.985 0.002 260);
+
+  --glass-panel-bg: oklch(0.31 0.01 260 / 0.56);
+  --glass-card-bg: oklch(0.31 0.01 260 / 0.56);
+  --glass-control-bg: oklch(0.34 0.01 260 / 0.58);
+  --glass-accent-bg: linear-gradient(
+    135deg,
+    oklch(0.34 0.055 177.6 / 0.56),
+    oklch(0.25 0.01 260 / 0.54)
+  );
+  --glass-card-border: oklch(1 0 0 / 0.1);
+  --glass-control-border: oklch(1 0 0 / 0.12);
+  --glass-accent-border: oklch(0.641 0.115 177.6 / 0.18);
+  --glass-highlight: oklch(1 0 0 / 0.12);
+  --glass-shadow: 0 24px 84px rgb(0 0 0 / 0.28);
+  --glass-card-shadow: 0 16px 40px rgb(0 0 0 / 0.18);
 }
 
 @theme inline {
-  --color-background: var(--color-fd-background);
-  --color-foreground: var(--color-fd-foreground);
-  --color-card: var(--color-fd-card);
-  --color-card-foreground: var(--color-fd-card-foreground);
-  --color-popover: var(--color-fd-popover);
-  --color-popover-foreground: var(--color-fd-popover-foreground);
-  --color-muted: var(--color-fd-muted);
-  --color-muted-foreground: var(--color-fd-muted-foreground);
-  --color-accent: var(--color-fd-accent);
-  --color-accent-foreground: var(--color-fd-accent-foreground);
-  --color-secondary: var(--color-fd-secondary);
-  --color-secondary-foreground: var(--color-fd-secondary-foreground);
-  --color-border: var(--color-fd-border);
-  --color-ring: var(--color-fd-ring);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
-  /* primary 走**品牌色**而不是 fumadocs 的 primary：应用区的主按钮是产品身份的一部分，
-     跟着文档站主题走会让三端的主色对不上。 */
+  /* primary 走**品牌色**：应用区的主按钮是产品身份的一部分，跟着文档站主题走会让三端
+     的主色对不上。 */
   --color-primary: var(--brand-solid);
   --color-primary-foreground: var(--brand-ink);
   --color-brand: var(--brand);
 
-  /* fumadocs 没有 input，借 border——两者在这套皮肤里本就是同一个灰。 */
-  --color-input: var(--color-fd-border);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-border: var(--sidebar-border);
+
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  /* 状态色：`bg-success` / `text-success-ink` 这类 utility 由此生成。
+     **文字一律用 -ink**，见上面 :root 里的说明。 */
+  --color-success: var(--success);
+  --color-success-ink: var(--success-ink);
+  --color-warning: var(--warning);
+  --color-warning-ink: var(--warning-ink);
+  --color-destructive-ink: var(--destructive-ink);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  /* 面板级圆角词汇（DESIGN.md：控件 6–14px / 面板 18–24px 是两套词汇，不是一套复用）。
+     Web 应用区此前全部塌成 rounded-lg / rounded-xl，面板与按钮的圆角一样大。 */
+  --radius-panel-sm: 18px;
+  --radius-panel: 24px;
+}
+
+@layer components {
+  /* 键盘焦点环——全站统一一份，别再逐个组件抄 focus-visible:outline-* 三件套。
+     与桌面 src/index.css 的 .focus-ring 同形。 */
+  .focus-ring:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .glass-panel,
+  .glass-card,
+  .glass-control,
+  .glass-accent {
+    backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+  }
+
+  .glass-panel {
+    --glass-blur: 20px;
+    background: var(--glass-panel-bg);
+    box-shadow:
+      var(--glass-shadow),
+      inset 0 1px 0 var(--glass-highlight);
+  }
+
+  .glass-card {
+    --glass-blur: 16px;
+    border: 1px solid var(--glass-card-border);
+    background: var(--glass-card-bg);
+    box-shadow:
+      var(--glass-card-shadow),
+      inset 0 1px 0 var(--glass-highlight);
+  }
+
+  .glass-control {
+    --glass-blur: 12px;
+    border: 1px solid var(--glass-control-border);
+    background: var(--glass-control-bg);
+    box-shadow: inset 0 1px 0 var(--glass-highlight);
+  }
+
+  .glass-accent {
+    --glass-blur: 18px;
+    border: 1px solid var(--glass-accent-border);
+    background: var(--glass-accent-bg);
+    box-shadow:
+      var(--glass-card-shadow),
+      inset 0 1px 0 var(--glass-highlight);
+  }
+
+  /* 降级路径与新玻璃面同批交付，是 DESIGN.md 的硬要求（Reduced-Transparency Fallback），
+     不是后续补丁。 */
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-panel,
+    .glass-card,
+    .glass-control,
+    .glass-accent {
+      background: var(--card);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    /* `.glass-panel` 是四个里**唯一没有 border** 的：它靠 blur + 半透明背景与页面分开。
+       降级把这两样都拿掉之后，它就成了一块与页面同色、无边、无阴影的矩形——面板边界
+       整个消失。另外三个自带 border，不受影响。 */
+    .glass-panel {
+      border: 1px solid var(--border);
+    }
+  }
 }
 
 @layer base {
   /*
-   * shadcn 的组件写的是裸 `border` / `outline`，默认颜色由这条 base 规则给出——
-   * 缺了它边框会落到 Tailwind 的 `currentColor`，表现为「边框跟着文字颜色变」。
+   * shadcn 的组件写的是裸 `border` / `outline`，默认颜色由这条 base 规则给出。
    *
    * **作用域限定在应用区**（`[data-swarmdrop-app]`，挂在 app/app/layout.tsx 的根节点）。
    * 桌面端那份是全局 `*`，因为整个 app 都归它管；这里不行——全局套用会把文档区每个元素的
-   * 默认边框色一起换掉，那正是「文档区零影响」的反面。
+   * 默认边框色一起换掉。
+   *
+   * 后半段那几个 `[data-slot$="-content"]` 是必需的：Radix 把 dialog / dropdown /
+   * popover / sheet / tooltip 的内容 **portal 到 `document.body`**，落在应用区锚点之外，
+   * 于是拿到的是 fumadocs 在 `css/lib/base.css` 里设的全局默认边框色。亮色下两者接近看不出，
+   * **暗色下差得很明显**（这边 oklch(0.39 0.01 260) ≈ #42454b，那边 ≈ #2a2a2a）。
    */
   [data-swarmdrop-app],
-  [data-swarmdrop-app] * {
+  [data-swarmdrop-app] *,
+  [data-slot$="-content"],
+  [data-slot$="-content"] * {
     @apply border-border outline-ring/50;
   }
 }

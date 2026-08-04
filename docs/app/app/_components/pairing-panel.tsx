@@ -5,9 +5,16 @@
 // 模式——本面板只负责把「配对」这一次性动作走完，配对后的设备去下方「已配对设备」清单看。
 
 import { Trans, useLingui } from "@lingui/react/macro";
+import { Link2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
 import { InviteShare } from "./invite-share";
+import { SectionHeader, SectionShell } from "./section";
 import { WebErrorCard } from "./web-error-view";
 import {
   INVITE_TTL_HOURS,
@@ -20,12 +27,11 @@ import { NAV } from "../_lib/nav";
 import { getNode, refreshPairedDevices } from "../_lib/node-runtime";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
-import { useWebNode, webNodeActions } from "../_lib/store";
+import { selectReservation, useWebNode } from "../_lib/store";
 import {
   toWebError,
   type PairInvitePreviewJson,
   type WebError,
-  type WebNode,
 } from "../_lib/view-types";
 import { useNowSeconds } from "../_lib/use-now-seconds";
 import type { InviteListItemJson } from "swarmdrop-web";
@@ -34,7 +40,9 @@ import type { InviteListItemJson } from "swarmdrop-web";
 export function PairingPanel() {
   const { t, i18n } = useLingui();
   const nodeStatus = useWebNode((s) => s.status);
-  const reservation = useWebNode((s) => s.reservation);
+  // 可达地址从 relay 清单派生（`selectReservation`）——它由 layout 单点订阅写入，
+  // 所以不进设置页也是对的。此前它是设置页写、这里读，用户直接进设备页时恒为 null。
+  const reservation = useWebNode(selectReservation);
   const pendingPairings = useWebNode((s) => s.pendingPairings);
   const ready = nodeStatus === "running";
   /** 本面板所有剩余有效期共读这一个时钟：码上的倒计时与列表里每一行不会各走各的。 */
@@ -314,15 +322,25 @@ export function PairingPanel() {
   }, []);
 
   const revokeAction = useKeyedAsyncAction();
-  const [revokeUnsaved, setRevokeUnsaved] = useState(false);
   const doRevokeInvite = (id: string) => {
     const node = getNode();
     if (!node) return;
     void revokeAction.run(id, async () => {
       // 返回值是「有没有写进 IndexedDB」。没写进去的话撤销只在本次会话内生效 ——
       // 刷新页面后那条邀请会复活，必须说出来。
-      setRevokeUnsaved(!(await node.revoke_invite_by_id(id)));
+      const persisted = await node.revoke_invite_by_id(id);
       refreshInvites();
+      if (persisted) {
+        toast.success(t`邀请已撤销`);
+      } else {
+        // **必须是 toast，不能是列表里的一行内联提示。** 这条告警此前渲染在
+        // `invites.length > 0` 的块内，于是撤销掉**最后一条**（最常见的场景）时列表清空、
+        // 整块卸载，这句话永远看不到——用户以为撤干净了，而外面还飘着一条能用满 24 小时的
+        // 一次性凭证。toast 的生命周期与列表无关，从结构上免疫这个问题。
+        toast.warning(t`邀请已撤销，但没能保存`, {
+          description: t`刷新页面后它可能恢复可用，建议稍后再撤销一次。`,
+        });
+      }
     });
   };
 
@@ -333,19 +351,22 @@ export function PairingPanel() {
       : t`生成邀请`;
 
   return (
-    <div className="rounded-xl border border-fd-border bg-fd-card p-6 shadow-xs">
-      <h2 className="text-sm font-semibold text-foreground">
-        <Trans>配对</Trans>
-      </h2>
+    <SectionShell>
+      <SectionHeader
+        icon={Link2}
+        title={<Trans>配对</Trans>}
+        description={<Trans>与另一台设备互换一次邀请即可，之后长期有效。</Trans>}
+      />
 
-      <div className="mt-4">
-        <p className="text-xs font-medium text-fd-muted-foreground">
-          <Trans>消费邀请（连接桌面 / 移动生成的邀请）</Trans>
+      <div>
+        <p className="text-xs font-medium text-muted-foreground">
+          <Trans>粘贴对方给你的邀请</Trans>
         </p>
         {/* 没有「配对」按钮：串一进框就地解码，动作长在下面那张确认卡上（#98）。 */}
-        <input
-          className="mt-2 w-full rounded-lg border border-fd-border bg-fd-background px-3 py-2 font-mono text-xs text-fd-foreground placeholder:text-fd-muted-foreground"
+        <Input
+          className="mt-2 h-11 font-mono text-xs sm:h-9"
           placeholder={`${INVITE_URL_PREFIX}...`}
+          aria-label={t`对方的邀请链接`}
           value={inviteInput}
           onChange={(e) => {
             setInviteAndPreview(e.target.value);
@@ -355,59 +376,58 @@ export function PairingPanel() {
         />
         {/* 输入框自己有了内容总得有个交代，否则像是页面在替用户做主。 */}
         {pastedFromClipboard && !consumeAction.error && (
-          <p className="mt-2 text-xs text-fd-muted-foreground" aria-live="polite">
+          <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
             <Trans>已从剪贴板识别到一条邀请。</Trans>
           </p>
         )}
         {previewNotice && (
-          <p className="mt-2 text-xs text-fd-muted-foreground" aria-live="polite">
+          <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
             {previewNotice}
           </p>
         )}
         {previewError && <WebErrorCard error={previewError} className="mt-2 text-xs" />}
         {/* 确认卡：出网之前先把「对方是谁、还有效多久、是不是仅局域网」摆出来。 */}
         {preview && (
-          <div className="mt-2 rounded-lg border border-fd-border bg-fd-background px-3 py-2.5">
-            <p className="text-xs text-fd-foreground">
+          <div className="mt-2 rounded-lg border bg-background px-3 py-2.5">
+            <p className="text-xs text-foreground">
               <span className="font-medium">{preview.displayName || t`对方设备`}</span>
-              <span className="ml-2 text-fd-muted-foreground">{preview.displayPlatform}</span>
+              <span className="ml-2 text-muted-foreground">{preview.displayPlatform}</span>
             </p>
             {/* 只露末 8 位：够用来跟对方核一句，不必铺满一行 */}
-            <p className="mt-0.5 font-mono text-xs text-fd-muted-foreground">
+            <p className="mt-0.5 font-mono text-xs text-muted-foreground">
               {preview.peerId.slice(-8)}
             </p>
-            <p className="mt-1 text-xs text-fd-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               {t(remainingLabel(preview.expiresAt, now, i18n.locale))}
-              {preview.localOnly && <> · <Trans>仅局域网可见（LocalOnly）</Trans></>}
+              {preview.localOnly && <> · <Trans>仅同一网络内可用</Trans></>}
             </p>
             {previewExpired ? (
-              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              <p className="mt-2 text-xs text-warning-ink">
                 <Trans>这条邀请已过期，让对方重新生成一条。</Trans>
               </p>
             ) : (
-              <p className="mt-2 text-xs text-fd-muted-foreground">
+              <p className="mt-2 text-xs text-muted-foreground">
                 <Trans>配对后双方可以互相发送文件。确认是这台设备再继续。</Trans>
               </p>
             )}
             <div className="mt-2 flex gap-2">
               {!previewExpired && (
-                <button
-                  type="button"
+                <Button
+                  size="sm"
                   onClick={doConsumeInvite}
                   disabled={!ready || consumeAction.pending}
-                  className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
-                >
+                                  >
                   {consumeAction.pending ? <Trans>配对中…</Trans> : <Trans>确认配对</Trans>}
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={clearInvite}
                 disabled={consumeAction.pending}
-                className="rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
-              >
+                              >
                 <Trans>取消</Trans>
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -417,13 +437,13 @@ export function PairingPanel() {
             {/* 「已撤销」在受邀方本地判不出来——撤销状态只在邀请方的注册表里，那条邀请一个
                 字节都没传播过来（要判就得出网，与「确认卡前零出网」冲突）。所以它只能在这一步
                 现形：邀请方拒绝之后，把可能的成因说成人话，而不是让人对着一句「配对未成功」猜。 */}
-            <p className="mt-1 text-xs text-fd-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               <Trans>邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。</Trans>
             </p>
           </>
         )}
         {consumeSuccess && (
-          <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+          <p className="mt-2 text-xs text-success-ink">
             <Trans>
               已配对：<span className="font-mono">{consumeSuccess}</span>
             </Trans>
@@ -432,38 +452,53 @@ export function PairingPanel() {
       </div>
 
 
-      <div className="mt-5 border-t border-fd-border pt-4">
-        <p className="text-xs font-medium text-fd-muted-foreground">
-          <Trans>生成邀请（让桌面 / 移动扫码或粘贴来配对本机）</Trans>
+      <div className="border-t pt-4">
+        <p className="text-xs font-medium text-muted-foreground">
+          <Trans>生成一条邀请发给对方</Trans>
         </p>
         {!reservation && (
-          <p className="mt-1 text-xs text-fd-muted-foreground">
+          <p className="mt-1 text-xs text-warning-ink">
+            {/* 原文是「需先在设置页的「连接」区建立可达（circuit），否则邀请里无可拨地址」——
+                circuit / reserve / helper 都是内核词汇，对着它用户无从判断自己该做什么。
+                这里说清楚**为什么**（浏览器不监听端口）与**该做什么**（去连一个中继）。 */}
             <Trans>
-            需先在{" "}
-            <Link href={NAV.settings.href} className="font-medium text-fd-foreground underline underline-offset-2">
-              设置
-            </Link>{" "}
-              页的「连接」区建立可达（circuit），否则邀请里无可拨地址。
-          </Trans>
+              浏览器不能被直接拨号，需要先连上一个中继，对方才找得到你。到{" "}
+              <Link href={NAV.settings.href} className="font-medium underline underline-offset-2">
+                设置
+              </Link>{" "}
+              页连接后再生成邀请。
+            </Trans>
           </p>
         )}
-        <label className="mt-2 flex items-center gap-1.5 text-xs text-fd-muted-foreground">
-          <input
-            type="checkbox"
+
+        <div className="mt-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <Label htmlFor="pairing-local-only" className="text-xs font-medium text-foreground">
+              <Trans>仅同一网络内可用</Trans>
+            </Label>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+              <Trans>限制这条邀请只能被同一网络里的设备使用。通过公网中继连接时请保持关闭，否则邀请里可能没有对方拨得通的地址。</Trans>
+            </p>
+          </div>
+          {/* 它改变的是邀请的可达范围，属于「安全边界」级的开关——此前是个 13px 的裸
+              checkbox，全页最小的可点目标却承担着最重的语义。 */}
+          <Switch
+            id="pairing-local-only"
             checked={localOnly}
-            onChange={(e) => setLocalOnly(e.target.checked)}
+            onCheckedChange={setLocalOnly}
             disabled={!ready}
+            className="mt-0.5 shrink-0"
           />
-          <Trans>仅局域网可见（LocalOnly）——若 reserve 用的是公网 helper，保持不勾选，否则邀请可能不含可用地址</Trans>
-        </label>
-        <button
-          type="button"
+        </div>
+
+        <Button
+          size="sm"
           onClick={doGenerateInvite}
           disabled={!ready || !reservation || generateAction.pending}
-          className="mt-2 rounded-lg border border-fd-border px-3 py-1.5 text-xs font-medium text-fd-foreground hover:bg-fd-accent disabled:opacity-50"
+          className="mt-3"
         >
           {generateLabel}
-        </button>
+        </Button>
         {generateAction.error && (
           <WebErrorCard error={generateAction.error} className="mt-2 text-xs" />
         )}
@@ -482,57 +517,64 @@ export function PairingPanel() {
         )}
       </div>
 
-      {invites.length > 0 && (
-        <div className="mt-5 border-t border-fd-border pt-4">
-          <p className="text-xs font-medium text-fd-muted-foreground">
-            <Trans>已发出的邀请（未过期）</Trans>
+      {/*
+        「已发出的邀请」贴着生成入口，不进设置页——邀请是一次性信任凭证，「刚发错人了」
+        是它最需要被撤回的时刻，而那一刻用户就站在这一屏上。三端同此位置。
+      */}
+      <div className="border-t pt-4">
+        <p className="text-xs font-medium text-muted-foreground">
+          <Trans>已发出的邀请（未过期）</Trans>
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          <Trans>
+            邀请有效期 {INVITE_TTL_HOURS} 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存），
+            不想让它继续可用就撤销，需要再分享请重新生成。
+          </Trans>
+        </p>
+
+        {/* 「撤销了但没保存」走 toast（见 `doRevokeInvite`）——它必须活过列表的卸载。
+            这里只留出网失败的错误卡，那个错误发生时列表还在。 */}
+        {revokeAction.latestError && (
+          <WebErrorCard error={revokeAction.latestError} className="mt-2 text-xs" />
+        )}
+
+        {invites.length === 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            <Trans>当前没有在外面等待使用的邀请。</Trans>
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            <Trans>
-              邀请有效期 {INVITE_TTL_HOURS} 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存），
-              不想让它继续可用就撤销，需要再分享请重新生成。
-            </Trans>
-          </p>
+        ) : (
           <ul className="mt-2 space-y-2">
             {invites.map((invite) => (
               <li
                 key={invite.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-fd-border bg-fd-background px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2"
               >
                 <div className="min-w-0">
-                  <p className="text-xs text-fd-foreground">
+                  <p className="text-xs text-foreground">
                     {invite.consumed ? <Trans>已被使用</Trans> : <Trans>等待对方使用</Trans>}
-                    <span className="ml-2 text-fd-muted-foreground">
+                    <span className="ml-2 text-muted-foreground">
                       {t(remainingLabel(invite.expiresAt, now, i18n.locale))}
                     </span>
                   </p>
                   {/* 只露前 8 位：它是 capability 的哈希，够用来区分两条邀请，不必铺满整行 */}
-                  <p className="mt-0.5 truncate font-mono text-xs text-fd-muted-foreground">
+                  <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                     {invite.id.slice(0, 8)}
                   </p>
                 </div>
-                <button
-                  type="button"
+                <Button
+                  size="sm"
+                  variant="ghost"
                   onClick={() => doRevokeInvite(invite.id)}
                   disabled={revokeAction.isPending(invite.id)}
-                  className="shrink-0 rounded-lg border border-fd-border px-2.5 py-1 text-xs font-medium text-fd-muted-foreground hover:bg-fd-accent disabled:opacity-50"
+                  className="shrink-0 text-xs"
                 >
                   {revokeAction.isPending(invite.id) ? <Trans>撤销中…</Trans> : <Trans>撤销</Trans>}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
-          {revokeUnsaved && (
-            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-              <Trans>撤销已生效，但没能写入本地存储 —— 刷新页面后它可能恢复可用，建议稍后再撤销一次。</Trans>
-            </p>
-          )}
-          {revokeAction.latestError && (
-            <WebErrorCard error={revokeAction.latestError} className="mt-2 text-xs" />
-          )}
-        </div>
-      )}
-
-    </div>
+        )}
+      </div>
+    </SectionShell>
   );
 }

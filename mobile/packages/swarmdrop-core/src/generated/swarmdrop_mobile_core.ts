@@ -1178,7 +1178,11 @@ export enum MobileTerminalReason {
     Completed,
     Cancelled,
     Rejected,
-    FatalError
+    FatalError,
+    /**
+     * 入站 offer 的决策窗口耗尽，本端从未作答（≠ 用户拒绝，见 `entity::TerminalReason`）。
+     */
+    Expired
 }
 
 const FfiConverterTypeMobileTerminalReason = (() => {
@@ -1191,6 +1195,7 @@ const FfiConverterTypeMobileTerminalReason = (() => {
                 case 2: return MobileTerminalReason.Cancelled;
                 case 3: return MobileTerminalReason.Rejected;
                 case 4: return MobileTerminalReason.FatalError;
+                case 5: return MobileTerminalReason.Expired;
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -1200,6 +1205,7 @@ const FfiConverterTypeMobileTerminalReason = (() => {
                 case MobileTerminalReason.Cancelled: return ordinalConverter.write(2, into);
                 case MobileTerminalReason.Rejected: return ordinalConverter.write(3, into);
                 case MobileTerminalReason.FatalError: return ordinalConverter.write(4, into);
+                case MobileTerminalReason.Expired: return ordinalConverter.write(5, into);
             }
         }
         allocationSize(value: TypeName): number {

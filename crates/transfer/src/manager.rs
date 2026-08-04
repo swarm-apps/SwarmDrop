@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 use crate::AppResult;
 use crate::actor::registry::ActorRegistry;
+use crate::coordinator::{CoordinatorInput, TimeoutSignal};
 use crate::events::TransferEventSink;
 use crate::host::{CoreSaveLocation, FileAccess, FileSourceId};
 use crate::incoming::IncomingTransferRuntime;
@@ -226,25 +227,44 @@ impl TransferManager {
                         break;
                     }
                     _ = n0_future::time::sleep(interval) => {
-                        this.run_cleanup();
+                        this.run_cleanup().await;
                     }
                 }
             }
         });
     }
 
-    fn run_cleanup(&self) {
+    async fn run_cleanup(&self) {
         let now = Instant::now();
         remove_expired(
             &self.prepared,
             |v| now.duration_since(v.created_at).as_secs() > PREPARED_TIMEOUT_SECS,
             "prepared transfers",
         );
-        remove_expired(
+        // 回收挂起的入站 offer。**回收之后必须把会话推到终态**：这条 offer 在
+        // `cache_inbound_offer` 时就已经落库成 `offered` 并发过 projection，UI 据此把它
+        // 挂在「待处理请求」里。只 drop 掉内存条目的话，对端确实收到了婉拒（responder
+        // 一 drop，RPC handler 就得 RecvError），而**本端界面毫不知情**——那条请求会一直
+        // 挂着，用户去点「接受」或「拒绝」都只会撞上一句「会话不存在」，且怎么点都消不掉。
+        // 会话记录也会永远停在 `offered`，成为一条谁都推不动的僵尸。
+        let expired_offers = remove_expired(
             &self.pending,
             |v| now.duration_since(v.created_at).as_secs() > PENDING_OFFER_TIMEOUT_SECS,
             "pending offers",
         );
+        for session_id in expired_offers {
+            if let Err(e) = self
+                .coordinator
+                .dispatch(
+                    session_id,
+                    CoordinatorInput::Timeout(TimeoutSignal::OfferExpired),
+                )
+                .await
+            {
+                // 单条推进失败不该中断本轮清理的其余部分（内存条目已经收掉了）。
+                warn!("过期 offer 转终态失败 session={}: {}", session_id, e);
+            }
+        }
         let idle_ids = self.actors.idle_send_ids(SEND_SESSION_IDLE_TIMEOUT_MS);
         for id in &idle_ids {
             if let Some(session) = self.actors.remove_send(id) {
@@ -393,7 +413,13 @@ impl IncomingTransferRuntime for TransferManager {
     }
 }
 
-fn remove_expired<V>(map: &DashMap<Uuid, V>, is_expired: impl Fn(&V) -> bool, label: &str) {
+/// 摘掉所有过期条目，返回它们的 id——调用方常常还要为「它没了」这件事做点什么
+/// （发事件、推状态机），而那件事只有调用方知道。
+fn remove_expired<V>(
+    map: &DashMap<Uuid, V>,
+    is_expired: impl Fn(&V) -> bool,
+    label: &str,
+) -> Vec<Uuid> {
     let expired: Vec<Uuid> = map
         .iter()
         .filter(|r| is_expired(r.value()))
@@ -404,5 +430,47 @@ fn remove_expired<V>(map: &DashMap<Uuid, V>, is_expired: impl Fn(&V) -> bool, la
     }
     if !expired.is_empty() {
         info!("清理 {} 个过期的 {}", expired.len(), label);
+    }
+    expired
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `remove_expired` 必须**同时**做两件事：摘掉条目、把 id 交出去。
+    ///
+    /// 这条测试守的是后者。它返回 `()` 的那一版，过期的入站 offer 会被静默丢弃——
+    /// 对端收到婉拒（responder 一 drop 就有），本端界面却什么都不知道，那条请求永远
+    /// 挂在「待处理」里，接受和拒绝都只会撞上「会话不存在」。调用点靠这个返回值才能
+    /// 把会话推进终态，所以「摘了但没返回」是一种编译期看不出来的回归。
+    #[test]
+    fn remove_expired_returns_the_ids_it_dropped() {
+        let map: DashMap<Uuid, u32> = DashMap::new();
+        let stale_a = Uuid::new_v4();
+        let stale_b = Uuid::new_v4();
+        let fresh = Uuid::new_v4();
+        map.insert(stale_a, 1);
+        map.insert(stale_b, 1);
+        map.insert(fresh, 0);
+
+        let mut dropped = remove_expired(&map, |age| *age > 0, "test entries");
+        dropped.sort();
+        let mut expected = vec![stale_a, stale_b];
+        expected.sort();
+
+        assert_eq!(dropped, expected, "过期 id 必须原样返回给调用方");
+        assert_eq!(map.len(), 1, "过期条目应已从表中摘掉");
+        assert!(map.contains_key(&fresh), "未过期的条目不该被牵连");
+    }
+
+    /// 没有过期条目时返回空 vec —— 调用方的 `for` 循环因此是零成本的 no-op，
+    /// 不需要在外面再包一层 `if !empty`。
+    #[test]
+    fn remove_expired_returns_empty_when_nothing_expired() {
+        let map: DashMap<Uuid, u32> = DashMap::new();
+        map.insert(Uuid::new_v4(), 0);
+        assert!(remove_expired(&map, |age| *age > 0, "test entries").is_empty());
+        assert_eq!(map.len(), 1);
     }
 }

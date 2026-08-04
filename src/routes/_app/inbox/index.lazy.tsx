@@ -25,6 +25,7 @@ import {
   Bot,
   ChevronDown,
   Copy,
+  Download,
   FileArchive,
   FolderOpen,
   Inbox,
@@ -44,6 +45,8 @@ import {
 } from "@/lib/bindings";
 import { getFileIcon, getFileIconColor } from "@/lib/file-icon";
 import { useInboxStore } from "@/stores/inbox-store";
+import { useTransferStore } from "@/stores/transfer-store";
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -73,6 +76,11 @@ import {
 import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
+import {
+  groupByTimeBucket,
+  type TimeBucket,
+  type TimeBucketKey,
+} from "@swarmdrop/shared-view";
 import { projectionStatusLabel } from "@/lib/transfer-projection";
 import {
   MasterDetailShell,
@@ -449,7 +457,10 @@ function InboxRail({
   const searchResults = useInboxStore((s) => s.searchResults);
 
   const isSearching = query.trim() !== "";
-  const groups = useMemo(() => groupInboxByTime(items), [items]);
+  // 分桶逻辑住在 `@swarmdrop/shared-view`（`groupByTimeBucket`）——Web 端也用同一份。
+  // 桶的边界（今天从几点起、本周算几天）三端不该有不同答案；本地只保留 `groupLabel`，
+  // 因为那是返回 `<Trans>` 的本地化文案，按该包的归属判据进不去。
+  const groups = useMemo(() => groupByTimeBucket(items, (i) => i.receivedAt), [items]);
   const railScrollRef = useRef<HTMLDivElement>(null);
 
   const visibleIds = useMemo(
@@ -569,6 +580,12 @@ function InboxRail({
         data-testid="inbox-list"
         className="mt-3 min-h-0 flex-1 scroll-pt-10 overflow-auto px-1 pb-1"
       >
+        {/* 被关掉的入站请求的找回入口。**它是「关闭 ≠ 拒绝」的配套条款**，不是附加功能：
+            DESIGN.md 的 Incoming Request Contract 写明「可关闭就必须有地方找回来，
+            否则那是一次被静默丢弃的传输」。放在检索之外——检索找的是已收到的内容，
+            而这些还没落盘。 */}
+        <DismissedOffersGroup />
+
         {isSearching ? (
           searching ? (
             <ListSkeleton />
@@ -613,12 +630,84 @@ function InboxRail({
   );
 }
 
+/**
+ * 已关闭但未拒绝的入站文件请求。
+ *
+ * 只在有条目时占版面——空的时候连标题都不渲染，避免收件箱平时多出一块永远是空的区域
+ * （Web 端那块空的「待处理请求」卡就是反例）。
+ *
+ * 点一条即 `restoreOffer`，全局的 `TransferOfferDialog` 会重新把它弹出来：决策界面只有
+ * 一处，这里只负责把它叫回来。
+ */
+function DismissedOffersGroup() {
+  const { pendingOffers, dismissedOfferIds, restoreOffer } = useTransferStore(
+    useShallow((s) => ({
+      pendingOffers: s.pendingOffers,
+      dismissedOfferIds: s.dismissedOfferIds,
+      restoreOffer: s.restoreOffer,
+    })),
+  );
+
+  // selector 里 filter 会每次返回新数组导致无限重渲染，派生放这里。
+  const dismissed = useMemo(
+    () =>
+      pendingOffers.filter((offer) =>
+        dismissedOfferIds.includes(offer.sessionId),
+      ),
+    [pendingOffers, dismissedOfferIds],
+  );
+
+  if (dismissed.length === 0) return null;
+
+  return (
+    <div className="mb-5 flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 px-1.5 pb-1">
+        <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+          <Trans>待处理请求</Trans>
+        </h3>
+        <span className="rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-brand">
+          {dismissed.length}
+        </span>
+      </div>
+      {dismissed.map((offer) => (
+        <button
+          key={offer.sessionId}
+          type="button"
+          data-testid="dismissed-offer-row"
+          onClick={() => restoreOffer(offer.sessionId)}
+          className="focus-ring glass-control flex w-full items-center gap-2.5 rounded-[14px] px-2.5 py-2 text-left transition-colors hover:bg-accent/40"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-brand">
+            <Download className="size-3.5" />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-[13px] font-medium text-foreground">
+              <Trans>来自 {offer.deviceName}</Trans>
+            </span>
+            <span className="truncate text-[11px] text-muted-foreground">
+              <Plural
+                value={offer.files.length}
+                one="# 个文件"
+                other="# 个文件"
+              />
+              {" · "}
+              <span className="font-mono tabular-nums">
+                {formatFileSize(offer.totalSize)}
+              </span>
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function RailGroup({
   group,
   selectedId,
   onSelect,
 }: {
-  group: InboxTimeGroup;
+  group: TimeBucket<InboxItemSummary>;
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
@@ -708,7 +797,28 @@ function InboxRailRow({
       onSelect={onSelect}
     >
       <span className="flex min-w-0 items-center gap-1.5">
-        <span className="truncate text-sm font-medium text-foreground">
+        {/*
+          未读点。**后端一直在写 `lastOpenedAt`**（`open_inbox_item` 内部调
+          `mark_inbox_item_opened`），但整个 `src/` 从来没有读过它——于是「哪些是我还没
+          看过的」这件事在桌面端完全不可见，而 Web 端做全了。收件箱的价值有一半来自
+          「有没有新东西」，那正是这个点在回答的问题。
+
+          标题在未读时加重：色点对色盲用户不成立，字重是它的第二通道（同设备卡「状态点
+          **与**文案同时在场」那条契约的思路）。
+        */}
+        {item.lastOpenedAt === null && (
+          <span
+            role="img"
+            aria-label={t`未读`}
+            className="size-1.5 shrink-0 rounded-full bg-primary"
+          />
+        )}
+        <span
+          className={cn(
+            "truncate text-sm text-foreground",
+            item.lastOpenedAt === null ? "font-semibold" : "font-medium",
+          )}
+        >
           {item.title}
         </span>
         {item.sourceKind === "mcp" && (
@@ -1204,56 +1314,7 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
 
 /* ─────────────────── 数据：时间分组 + 标签 ─────────────────── */
 
-type InboxTimeGroupKey = "today" | "yesterday" | "week" | "earlier";
-
-interface InboxTimeGroup {
-  key: InboxTimeGroupKey;
-  items: InboxItemSummary[];
-}
-
-/**
- * 按 receivedAt（毫秒时间戳）把条目分到 今天 / 昨天 / 本周 / 更早 四桶。
- * 边界用日历运算（new Date(y,m,d-n)）而非固定 24h，避开夏令时当日的 1h 偏移。
- * 后端已按接收时间倒序返回，桶内保持该顺序。
- */
-function groupInboxByTime(items: InboxItemSummary[]): InboxTimeGroup[] {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const d = now.getDate();
-  const startOfToday = new Date(y, m, d).getTime();
-  const startOfYesterday = new Date(y, m, d - 1).getTime();
-  const startOfWeek = new Date(y, m, d - 6).getTime();
-
-  const buckets: Record<InboxTimeGroupKey, InboxItemSummary[]> = {
-    today: [],
-    yesterday: [],
-    week: [],
-    earlier: [],
-  };
-
-  for (const item of items) {
-    const ts = item.receivedAt;
-    if (Number.isNaN(ts)) {
-      buckets.earlier.push(item);
-    } else if (ts >= startOfToday) {
-      buckets.today.push(item);
-    } else if (ts >= startOfYesterday) {
-      buckets.yesterday.push(item);
-    } else if (ts >= startOfWeek) {
-      buckets.week.push(item);
-    } else {
-      buckets.earlier.push(item);
-    }
-  }
-
-  const order: InboxTimeGroupKey[] = ["today", "yesterday", "week", "earlier"];
-  return order
-    .filter((k) => buckets[k].length > 0)
-    .map((k) => ({ key: k, items: buckets[k] }));
-}
-
-function groupLabel(key: InboxTimeGroupKey) {
+function groupLabel(key: TimeBucketKey) {
   switch (key) {
     case "today":
       return <Trans>今天</Trans>;

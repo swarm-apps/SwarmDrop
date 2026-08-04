@@ -20,14 +20,16 @@ export default function AppIndexPage() {
   }, [router]);
 
   return (
-    <p className="text-sm text-muted-foreground">
-      <Trans>
-        正在进入{" "}
-        <Link href={APP_HOME} className="font-medium text-foreground underline underline-offset-2">
-          设备
-        </Link>
-        …
-      </Trans>
-    </p>
+    <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+      <p className="text-sm text-muted-foreground">
+        <Trans>
+          正在进入{" "}
+          <Link href={APP_HOME} className="font-medium text-foreground underline underline-offset-2">
+            设备
+          </Link>
+          …
+        </Trans>
+      </p>
+    </div>
   );
 }

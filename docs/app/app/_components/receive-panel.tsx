@@ -20,26 +20,27 @@
 // 导出。此前那五个方法是完整实现却零调用方——能力在内核里，UI 上不存在。
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { formatFileSize } from "@swarmdrop/shared-view";
-import { Archive, ArchiveRestore, Search, Trash2 } from "lucide-react";
-import Link from "next/link";
+import { groupByTimeBucket } from "@swarmdrop/shared-view";
 import { useSearchParams } from "next/navigation";
-import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/cn";
-import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
-import { MasterDetail, OpenListButton } from "./master-detail";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { MasterDetail } from "./master-detail";
+// 呈现层（列表行 / 详情 / 空态 / 检索框）住在 `inbox-views.tsx`——本文件只做编排。
+import {
+  InboxDetailEmpty,
+  InboxDetailPanel,
+  InboxListRow,
+  InboxSearchBox,
+} from "./inbox-views";
 import { PanelFallback } from "./panel-fallback";
-import { RelativeTime } from "./relative-time";
-import { OFFER_FILE_PREVIEW_LIMIT } from "./transfer-offer-host";
-import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
-import { inboxItemHref, PARAM } from "../_lib/nav";
+import { PARAM } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import {
+  TIME_BUCKET_LABEL,
   toWebError,
   type InboxItemDetail,
   type InboxItemFileEntry,
@@ -58,121 +59,10 @@ import {
  */
 const BLOB_URL_TTL_MS = 30_000;
 
-/** 检索防抖。与桌面端 `_app/inbox` 的 250ms 对齐——同一个动作在两端手感不该不同。 */
-const SEARCH_DEBOUNCE_MS = 250;
-
-export function IncomingOffersPanel() {
-  const offers = useWebNode((s) => s.offers);
-  const decideAction = useKeyedAsyncAction();
-
-  const offerList = Object.values(offers);
-
-  const decide = (sessionId: string, accept: boolean) => {
-    const node = getNode();
-    if (!node) return;
-    void decideAction.run(sessionId, async () => {
-      if (accept) await node.accept_offer(sessionId);
-      else await node.reject_offer(sessionId);
-      webNodeActions.removeOffer(sessionId);
-    });
-  };
-
-  return (
-    <div className="rounded-xl border bg-card p-6 shadow-xs">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-foreground">
-          <Trans>待处理请求</Trans>
-        </h2>
-        {offerList.length > 0 && (
-          <p
-            className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-foreground"
-            role="status"
-            aria-live="polite"
-          >
-            <Trans>{offerList.length} 个待处理</Trans>
-          </p>
-        )}
-      </div>
-
-      {offerList.length === 0 ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          <Trans>暂无待处理的入站文件请求。</Trans>
-        </p>
-      ) : (
-        <>
-        {/* 请求到达时会先弹全局对话框（`transfer-offer-host.tsx`）。这里是**关掉之后**
-            的回看入口——说清楚，否则同一件事出现在两个地方会让人以为是重复。 */}
-        <p className="mt-2 text-xs text-muted-foreground">
-          <Trans>你关掉提示后，请求会留在这里等你决定。</Trans>
-        </p>
-        <ul className="mt-3 space-y-2">
-          {offerList.map((offer) => {
-            // 变量名参与 msgid（`还有 {rest} 个文件`）——与全局对话框那句取同一个名字，
-            // 两处才共用一条待翻译串，而不是各翻一遍同一句话。
-            const rest = offer.files.length - OFFER_FILE_PREVIEW_LIMIT;
-            return (
-            <li key={offer.sessionId} className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-xs text-foreground">
-                <Trans>
-                  <span className="font-medium">{offer.deviceName}</span> 想发送{" "}
-                  {offer.files.length} 个文件（{formatFileSize(offer.totalSize)}）
-                </Trans>
-              </p>
-              <ul className="mt-1 space-y-0.5">
-                {/* 与全局对话框同一个上限：一个 offer 可以带上百个文件，全量铺开会把下面的
-                    「接受 / 拒绝」推到屏幕外——而那两个按钮才是这张卡存在的理由。 */}
-                {offer.files.slice(0, OFFER_FILE_PREVIEW_LIMIT).map((f) => (
-                  <li key={f.fileId} className="truncate font-mono text-[11px] text-muted-foreground">
-                    {f.name}（{formatFileSize(f.size)}）
-                  </li>
-                ))}
-                {rest > 0 && (
-                  <li className="text-[11px] text-muted-foreground">
-                    <Trans>还有 {rest} 个文件</Trans>
-                  </li>
-                )}
-              </ul>
-              <div className="mt-2 flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => decide(offer.sessionId, true)}
-                  disabled={decideAction.isPending(offer.sessionId)}
-                  className="min-h-9"
-                >
-                  <Trans>接受</Trans>
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => decide(offer.sessionId, false)}
-                  disabled={decideAction.isPending(offer.sessionId)}
-                  className="min-h-9"
-                >
-                  <Trans>拒绝</Trans>
-                </Button>
-              </div>
-            </li>
-            );
-          })}
-        </ul>
-        </>
-      )}
-      {decideAction.latestError && <WebErrorCard error={decideAction.latestError} className="mt-2 text-xs" />}
-    </div>
-  );
-}
-
 /** 一行收件箱：完整条目 + 检索态下 Rust 侧切出的命中片段。 */
 type InboxRow = {
   item: InboxItemDetail;
   snippet: string | null;
-};
-
-/** 一个条目级动作的全部对外状态。与 transfer-activity-panel 的 `ItemAction` 同形。 */
-type ItemAction = {
-  pending: boolean;
-  error: WebError | undefined;
-  run: () => void;
 };
 
 /** 读 `?item=` / `?archived=`（传输页反查过来的定位），故需要 Suspense 边界——静态导出下没有它 build 会红。 */
@@ -306,6 +196,50 @@ function InboxPanelInner() {
   }, [hits, items, showArchived]);
 
   const isSearching = hits !== null;
+
+  /**
+   * 按时间分桶。分桶逻辑住在 `@swarmdrop/shared-view`（`groupByTimeBucket`），与桌面同一份
+   * ——桶的边界（今天从几点起、本周算几天）三端不该有不同答案。
+   *
+   * 检索态不分桶（下面的渲染分支跳过它）：命中按相关度排列，套上时间组头会暗示一个并不
+   * 存在的时序。
+   */
+  const groupedRows = useMemo(
+    () => groupByTimeBucket(rows, (row) => row.item.receivedAt),
+    [rows],
+  );
+
+  /**
+   * ↑/↓ 在列表里移动。桌面一直有，Web 端此前只能用鼠标。
+   *
+   * **移动的是焦点，不是选中态**：每一行本身就是 `<Link>`，选中由 URL 承载。把焦点挪到
+   * 相邻那条链接、让 Enter 走浏览器原生的「激活链接」，比自己算下一个 id 再 `router.replace`
+   * 少一套需要与渲染顺序保持同步的状态——分桶之后 `rows` 的顺序与屏幕顺序已经不一致，
+   * 那套算法会让按一次下键跳到别处去。
+   *
+   * 用 DOM 查询取顺序也就顺带正确处理了检索态与分组态的差异：屏幕上是什么顺序就是什么顺序。
+   */
+  const listRef = useRef<HTMLDivElement>(null);
+  const onListKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const links = Array.from(
+      listRef.current?.querySelectorAll<HTMLAnchorElement>("a[data-inbox-row]") ?? [],
+    );
+    if (links.length === 0) return;
+    event.preventDefault();
+    const current = links.indexOf(document.activeElement as HTMLAnchorElement);
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const next =
+      current < 0
+        ? delta > 0
+          ? 0
+          : links.length - 1
+        : Math.min(links.length - 1, Math.max(0, current + delta));
+    // `block: "nearest"` 让本来就在视口里的条目不跳动。
+    links[next]?.focus();
+    links[next]?.scrollIntoView({ block: "nearest" });
+  }, []);
+
   /**
    * 定位条目的三态。**「看不见」不等于「没有」**——归档只是可见性开关，说成「已不在收件箱」
    * 就是对用户撒谎，而它恰恰会在用户自己刚归档这一条时触发（入口处的 `?archived=` 只兜住了
@@ -348,6 +282,11 @@ function InboxPanelInner() {
         anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), BLOB_URL_TTL_MS);
 
+        // 下载是**结果完全不在本页**的动作：文件去了浏览器的下载目录，而下载栏在不少
+        // 浏览器/设置下根本不弹。没有这条确认，用户点完只看到按钮闪了一下，无从判断
+        // 是成功了还是什么都没发生。
+        toast.success(t`已开始下载 ${file.name}`);
+
         // 「打开过」= 用户真的把内容取走了，与桌面端 `open_inbox_item`（用系统程序打开文件）
         // 同义。绑在「进过收件箱页」上会让未读点在第一次滚动时集体消失，那个标记就不再表达
         // 任何东西。
@@ -369,7 +308,7 @@ function InboxPanelInner() {
         }
       });
     },
-    [downloadAction.run],
+    [downloadAction.run, t],
   );
 
   /** 当前选中的条目。`?item=` 既是深链参数也是选中态——不再多引一个本地 state。 */
@@ -438,27 +377,60 @@ function InboxPanelInner() {
               )}
             </p>
           ) : (
-            <ul className="flex min-h-0 flex-col gap-1.5 overflow-y-auto">
+            <div
+              ref={listRef}
+              onKeyDown={onListKeyDown}
+              className="flex min-h-0 flex-col gap-4 overflow-y-auto"
+            >
               {/* 截断要说出来。命中正好等于上限时无法区分「刚好这么多」与「还有更多」，
                   所以文案取保守说法——比静默丢掉让用户以为搜全了要诚实。
                   上限从内核读（`inbox_search_limit()`），前端不自带这个数字。 */}
               {isSearching && searchLimit !== null && hits.length >= searchLimit && (
-                <li className="text-[11px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   <Trans>
                     只显示最近 {searchLimit} 条匹配，更早的未列出——请把关键词写得更具体。
                   </Trans>
-                </li>
+                </p>
               )}
-              {rows.map(({ item, snippet }) => (
-                <InboxListRow
-                  key={item.id}
-                  item={item}
-                  snippet={snippet}
-                  selected={item.id === focusedId}
-                  onSelect={closeDrawer}
-                />
-              ))}
-            </ul>
+
+              {/*
+                检索态**不分组**：命中已按相关度而非时间排列，套上「今天 / 昨天」会暗示
+                一个并不存在的时序。桌面同此。
+              */}
+              {isSearching ? (
+                <ul className="flex flex-col gap-1.5">
+                  {rows.map(({ item, snippet }) => (
+                    <InboxListRow
+                      key={item.id}
+                      item={item}
+                      snippet={snippet}
+                      selected={item.id === focusedId}
+                      onSelect={closeDrawer}
+                    />
+                  ))}
+                </ul>
+              ) : (
+                groupedRows.map((group) => (
+                  <div key={group.key}>
+                    {/* 吸顶：滚动时组头压在内容上方，一屏里始终知道自己在看哪一段。 */}
+                    <p className="sticky top-0 z-10 bg-card/95 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur">
+                      {t(TIME_BUCKET_LABEL[group.key])}
+                    </p>
+                    <ul className="mt-1 flex flex-col gap-1.5">
+                      {group.items.map(({ item, snippet }) => (
+                        <InboxListRow
+                          key={item.id}
+                          item={item}
+                          snippet={snippet}
+                          selected={item.id === focusedId}
+                          onSelect={closeDrawer}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                ))
+              )}
+            </div>
           )}
         </div>
       )}
@@ -501,283 +473,5 @@ function InboxPanelInner() {
         )
       }
     />
-  );
-}
-
-/**
- * 详情侧的空态。**教学文案放这里而不是列表栏**——窄屏用户落在详情屏、列表收在抽屉里，
- * 两边都摆整套空态则是宽屏下同一句话说两遍（与桌面端同一条约定）。
- */
-function InboxDetailEmpty({
-  openList,
-  hasRows,
-}: {
-  openList: (() => void) | null;
-  hasRows: boolean;
-}) {
-  const { t } = useLingui();
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-card p-6 shadow-xs">
-      <div className="flex items-center gap-2">
-        <OpenListButton openList={openList} label={t`打开收件箱列表`} />
-        {/* **区域名，不是列表栏那个集合名。** 两边都写「已接收」时，宽屏下同一个词会
-            并排出现两次（列表栏一次、这里一次）——与传输页「会话」/「传输」的分法同构：
-            列表栏说的是「这堆东西叫什么」，详情侧说的是「你在哪个区」。 */}
-        <h2 className="text-sm font-semibold text-foreground">
-          <Trans>收件箱</Trans>
-        </h2>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        {hasRows ? (
-          <Trans>从左侧选一条，这里会显示它的文件与操作。</Trans>
-        ) : (
-          <Trans>还没有收到的文件。对方发起传输并被你接受后，文件会出现在这里。</Trans>
-        )}
-      </p>
-    </div>
-  );
-}
-
-/**
- * 检索框。**防抖归它自己**，抬给面板的已经是稳定后的查询词。
- *
- * 拆出来并 `memo` 的理由是逐键重渲染：输入值留在面板里的话，每敲一个字符都要重跑整张列表
- * （N 条目 × M 文件行）——250ms 防抖只挡住了 wasm 调用，挡不住渲染。
- */
-const InboxSearchBox = memo(function InboxSearchBox({
-  disabled,
-  searching,
-  onChange,
-}: {
-  disabled: boolean;
-  searching: boolean;
-  onChange: (query: string) => void;
-}) {
-  const { t } = useLingui();
-  const [value, setValue] = useState("");
-
-  useEffect(() => {
-    const timer = setTimeout(() => onChange(value.trim()), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [value, onChange]);
-
-  return (
-    <div className="relative mt-3">
-      <Search
-        className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-        aria-hidden="true"
-      />
-      <input
-        type="search"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        disabled={disabled}
-        placeholder={t`搜索标题、来源设备或文件名`}
-        aria-label={t`搜索收件箱`}
-        className="w-full rounded-lg border bg-background py-2 pl-8 pr-16 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
-      />
-      {searching && (
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">
-          <Trans>搜索中…</Trans>
-        </span>
-      )}
-    </div>
-  );
-});
-
-/**
- * 列表行 —— 只承载「认出这一条」所需的信息：未读点、标题、归档态、来源与体量、检索片段。
- * 文件清单与操作归详情侧，不在这里重复。
- *
- * 选中态由 `?item=` 承载，所以它是一条 `<Link>` 而不是按钮：可中键新开、可复制链接、
- * 刷新后还在同一条上。**必须走 `next/link`**——手写 `<a href>` 不加 basePath，
- * GitHub Pages 子路径下会 404。
- */
-function InboxListRow({
-  item,
-  snippet,
-  selected,
-  onSelect,
-}: {
-  item: InboxItemDetail;
-  snippet: string | null;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const { t } = useLingui();
-  const unread = item.lastOpenedAt === null;
-  const archived = item.archivedAt !== null;
-  const ref = useRef<HTMLLIElement>(null);
-
-  // 深链要么保证能到达，要么就别给——只换个边框色是「到达了但看不见」：列表长了，
-  // 从传输页点进来的用户落在顶部，屏幕上没有任何东西变化。
-  // `block: "nearest"` 让本来就在视口里的条目不跳动。
-  useEffect(() => {
-    if (selected) ref.current?.scrollIntoView({ block: "nearest" });
-  }, [selected]);
-
-  return (
-    <li ref={ref} className="scroll-mt-4">
-      <Link
-        href={inboxItemHref(item.id, archived)}
-        onClick={onSelect}
-        aria-current={selected ? "true" : undefined}
-        className={cn(
-          "flex min-h-11 flex-col gap-0.5 rounded-lg border px-3 py-2 transition-colors",
-          selected
-            ? "border-[var(--brand)]/40 bg-accent ring-1 ring-[var(--brand)]/20"
-            : "hover:bg-accent",
-        )}
-      >
-        <span className="flex items-center gap-1.5 text-xs">
-          {/* 未读点是「还没取走」的唯一表达——列表里其它一切在下载前后都长一样，故给 label。 */}
-          {unread && <StatusDot colorClass="bg-[var(--brand-solid)]" label={t`未打开`} />}
-          <span className={cn("truncate text-foreground", unread && "font-semibold")}>
-            {item.title}
-          </span>
-          {archived && (
-            <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-              <Trans>已归档</Trans>
-            </span>
-          )}
-        </span>
-        <span className="flex items-baseline justify-between gap-2 text-[11px] text-muted-foreground">
-          <span className="truncate">
-            <Trans>
-              来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
-            </Trans>
-          </span>
-          {/* 「什么时候收到的」此前整个收件箱都没有——列表按 receivedAt 倒序排着，
-              却不给任何一行标出时间，用户只能靠顺序猜。桌面端的收件箱行一直有这个位。 */}
-          <RelativeTime timestamp={item.receivedAt} className="shrink-0" />
-        </span>
-        {/* 命中片段由 Rust 侧按子串位置切窗口生成，前端不重切——切法漂了，两端的「为什么这条
-            能搜到」就对不上。与标题相同时上游已置 null（那种情况它只是把标题重复一遍）。 */}
-        {snippet && (
-          <span className="truncate rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground">
-            {snippet}
-          </span>
-        )}
-      </Link>
-    </li>
-  );
-}
-
-/** 详情侧 —— 选中条目的文件清单与条目级操作。 */
-function InboxDetailPanel({
-  openList,
-  item,
-  ready,
-  downloadAction,
-  archive,
-  remove,
-  onDownload,
-}: {
-  openList: (() => void) | null;
-  item: InboxItemDetail;
-  ready: boolean;
-  /**
-   * 下载是**逐文件**的（N 个键），没法像 archive/remove 那样在父层摊平成一个值对象，
-   * 故整份 handle 下传。它每次渲染都是新引用，因此本组件刻意不 `memo`——加了也会被打穿。
-   */
-  downloadAction: ReturnType<typeof useKeyedAsyncAction>;
-  archive: ItemAction;
-  remove: ItemAction;
-  onDownload: (item: InboxItemDetail, file: InboxItemFileEntry) => void;
-}) {
-  const { t } = useLingui();
-  const archived = item.archivedAt !== null;
-  const ArchiveIcon = archived ? ArchiveRestore : Archive;
-
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs sm:p-6">
-      <div className="flex items-start gap-2">
-        <OpenListButton openList={openList} label={t`打开收件箱列表`} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            <Trans>
-              来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
-            </Trans>
-            {" · "}
-            <RelativeTime timestamp={item.receivedAt} />
-          </p>
-        </div>
-        {archived && (
-          <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-            <Trans>已归档</Trans>
-          </span>
-        )}
-      </div>
-
-      <ul className="flex flex-col gap-1.5">
-        {item.files.map((f) => {
-          const key = `${item.id}:${f.id}`;
-          const error = downloadAction.errorFor(key);
-          return (
-            <li key={f.id} className="rounded-lg border bg-background px-3 py-2 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-foreground">{f.name}</span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span className="font-mono tabular-nums text-muted-foreground">
-                    {formatFileSize(f.size)}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => onDownload(item, f)}
-                    disabled={downloadAction.isPending(key)}
-                    className="min-h-9"
-                  >
-                    {downloadAction.isPending(key) ? (
-                      <Trans>准备中…</Trans>
-                    ) : error ? (
-                      <Trans>重试下载</Trans>
-                    ) : (
-                      <Trans>下载</Trans>
-                    )}
-                  </Button>
-                </span>
-              </div>
-              {error && <WebErrorCard error={error} className="mt-1 text-xs" />}
-            </li>
-          );
-        })}
-      </ul>
-
-      <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-        {/* 归档可逆，不设二次确认——与传输面板「续传不拦、取消才拦」同一条判据。 */}
-        <button
-          type="button"
-          onClick={archive.run}
-          disabled={!ready || archive.pending}
-          className={INLINE_ACTION_CLASS}
-        >
-          <ArchiveIcon className="size-3" aria-hidden="true" />
-          {archive.pending ? (
-            <Trans>处理中</Trans>
-          ) : archived ? (
-            <Trans>取消归档</Trans>
-          ) : (
-            <Trans>归档</Trans>
-          )}
-        </button>
-        <ConfirmAction
-          icon={Trash2}
-          label={t`删除`}
-          pendingLabel={t`删除中`}
-          confirmLabel={t`确认删除`}
-          // 文案要与实际行为一致：这里删的是**记录连同浏览器里的那份文件**。
-          // 已经下载到本机的那份不受影响，这点要说，否则用户会以为下载好的文件也会跟着没。
-          warning={t`删除这条记录和浏览器里保存的文件；已下载到本机的副本不受影响`}
-          disabled={!ready}
-          pending={remove.pending}
-          onConfirm={remove.run}
-        />
-      </div>
-      {archive.error && <WebErrorCard error={archive.error} className="text-xs" />}
-      {remove.error && <WebErrorCard error={remove.error} className="text-xs" />}
-    </div>
   );
 }

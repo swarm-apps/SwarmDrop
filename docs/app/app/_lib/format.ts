@@ -69,6 +69,17 @@ export function isPausableSession(projection: TransferProjection): boolean {
 }
 
 /**
+ * 会话是否可续传：`suspended` 且内核判定断点仍然可用。
+ *
+ * `recoverable` 是内核给的事实（源文件还在、checkpoint 没失效），不是 UI 能推的——
+ * 所以判据只做「读它」这一件事，收在这里是为了让传输页的筛选与详情侧的按钮可见性
+ * 用同一句话。两处各写一遍的话，筛出来的「可恢复」里会混进没有续传按钮的条目。
+ */
+export function isRecoverableSession(projection: TransferProjection): boolean {
+  return projection.phase === "suspended" && projection.recoverable;
+}
+
+/**
  * 这条会话**刷新页面后会不会消失**：非终态的发送会话都会。
  *
  * 判据与内核落库规则同源——`crates/web/src/store.rs` 的 `worth_persisting` 在发送方向上

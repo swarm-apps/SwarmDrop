@@ -25,10 +25,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, View } from "react-native";
 import { SegmentedControl } from "@/components/mobile/screen";
 import { InviteQr, type InviteQrOverlay } from "@/components/pairing/invite-qr";
+import { SentInvites } from "@/components/pairing/sent-invites";
 import { Text } from "@/components/ui/text";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { i18n } from "@/i18n/lingui";
+import { formatCountdown } from "@/lib/format-countdown";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import {
@@ -81,7 +82,14 @@ export function InviteExchange({
       />
 
       {mode === "show" ? (
-        <InviteCard />
+        <>
+          <InviteCard />
+          {/* 撤销贴着生成入口：邀请是一次性信任凭证，「刚发错人了」是它最需要被撤回的
+              时刻，而那一刻用户就在这一屏。移动端此前完全没有这个入口——uniffi 侧
+              `listPairInvites` / `revokePairInviteById` 早就导出了但前端零调用，
+              手机上发出去的邀请在 24 小时内撤不回来。三端同此位置。 */}
+          <SentInvites />
+        </>
       ) : (
         <View className="gap-3">
           <Pressable
@@ -179,7 +187,7 @@ function InviteCard() {
                 : "text-muted-foreground",
             )}
           >
-            {t`${formatTimeLeft(remaining, i18n.locale)} 后过期`}
+            {t`${formatCountdown(remaining)} 后过期`}
           </Text>
         ) : null}
       </View>
@@ -378,26 +386,4 @@ function PasteInviteInput({ onResolved }: { onResolved: () => void }) {
       </View>
     </View>
   );
-}
-
-/**
- * 剩余有效期。TTL 是 24h，`mm:ss` 会显示成「1439:59」这种荒唐数字，所以按量级换单位。
- *
- * 走 `Intl.NumberFormat` 的 unit style 而不是拼中文串：英文 / 繁中界面下拼串会露出
- * 「23 小时」这样的混排。**只给时长、不带方向词**，「…后过期」由调用处的 `t` 组装
- * （`RelativeTimeFormat` 会自带「后」，与外层文案叠成「23 小时后 后过期」）。
- *
- * 最后一小时内保留 `mm:ss`：那时用户多半正盯着屏幕当面配对，秒级跳动是有用的反馈。
- */
-function formatTimeLeft(seconds: number, locale: string): string {
-  if (seconds < 3600) {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  }
-  return new Intl.NumberFormat(locale, {
-    style: "unit",
-    unit: "hour",
-    unitDisplay: "long",
-  }).format(Math.round(seconds / 3600));
 }

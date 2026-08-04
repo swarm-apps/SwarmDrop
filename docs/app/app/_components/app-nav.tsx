@@ -3,7 +3,10 @@
 // Web 应用区的常驻导航，三档形态（#90）：
 //   ≥1024px  展开侧栏（图标 + 文字）
 //   768–1023 图标侧栏（w-16，文字降级为 title/aria-label）
-//   <768px   底部导航（fixed + 等高 spacer），配顶部品牌 + 状态条
+//   <768px   底部导航，配顶部品牌 + 状态条
+//
+// 三者都是**外壳 flex 布局里的常规子元素**（`shrink-0`），不用 fixed/sticky——
+// 应用外壳（layout.tsx）是 `h-dvh` 的受限高度容器，滚动只发生在 `main` 里。
 //
 // 所有内部跳转必须用 next/link——手写 <a href="/app/devices"> 不会被加上 basePath，
 // GitHub Pages 子路径（/SwarmDrop）下会整片 404。
@@ -20,12 +23,6 @@ import { isActiveSession } from "../_lib/format";
 import { APP_NAV, normalizePath, type AppNavItem, type NavBadgeKind } from "../_lib/nav";
 import { useWebNode } from "../_lib/store";
 import { NodeStatusPill } from "./node-status-pill";
-
-/**
- * 底部导航高度（含 safe-area）。spacer 与 nav 都从这里取，**尺寸只此一处**——
- * layout 不该知道别人的高度，那种魔数会在导航行高一变时悄悄失准。
- */
-const BOTTOM_NAV_HEIGHT = "calc(3.75rem + env(safe-area-inset-bottom))";
 
 type BadgeCounts = Record<NavBadgeKind, number>;
 
@@ -53,11 +50,11 @@ function useActiveHref(): string {
  *  （离开 /app 会卸载节点单例，正在进行的传输随之中断）。 */
 function BrandMark({ labelClassName = "" }: { labelClassName?: string }) {
   return (
-    <span className="inline-flex items-center gap-2 text-sm font-semibold text-fd-foreground">
+    <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
       <img src={appIconPath} alt="" className="size-5 shrink-0" />
       <span className={labelClassName}>
         {appName}
-        <span className="ml-1 font-normal text-fd-muted-foreground">Web</span>
+        <span className="ml-1 font-normal text-muted-foreground">Web</span>
       </span>
     </span>
   );
@@ -67,7 +64,7 @@ function BrandMark({ labelClassName = "" }: { labelClassName?: string }) {
 function CountBadge({ count, className = "" }: { count: number; className?: string }) {
   return (
     <span
-      className={`inline-flex min-w-4 items-center justify-center rounded-full bg-[var(--brand-solid)] px-1 text-[10px] font-semibold tabular-nums text-[var(--brand-ink)] ${className}`}
+      className={`inline-flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground ${className}`}
     >
       {count > 99 ? "99+" : count}
     </span>
@@ -82,12 +79,16 @@ export function AppSidebar() {
   const counts = useBadgeCounts();
 
   return (
-    <aside className="sticky top-0 hidden h-screen shrink-0 flex-col border-r border-fd-border bg-fd-card/40 md:flex md:w-16 lg:w-56">
-      <div className="flex h-14 shrink-0 items-center border-b border-fd-border px-3 md:justify-center lg:justify-start">
+    // `h-full` 而不是 `sticky top-0 h-screen`：外壳（layout.tsx）现在是 `h-dvh` 的
+    // flex 行，侧栏作为它的直接子元素自然满高，不需要 sticky 去模拟。
+    // 底色走 `--sidebar`（第二中性层），与内容区的壳色分得开——此前是 `bg-fd-card/40`
+    // 压在文档皮肤上，实际 ≈ #F3F3F3，跟内容区几乎一个色。
+    <aside className="hidden h-full shrink-0 flex-col border-r bg-sidebar md:flex md:w-16 lg:w-56">
+      <div className="flex h-14 shrink-0 items-center border-b px-3 md:justify-center lg:justify-start">
         <BrandMark labelClassName="hidden lg:inline" />
       </div>
 
-      <nav aria-label={t`应用导航`} className="flex-1 space-y-1 overflow-y-auto p-2">
+      <nav aria-label={t`应用导航`} className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
         {APP_NAV.map((item) => (
           <SidebarLink
             key={item.href}
@@ -98,12 +99,12 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      <div className="shrink-0 space-y-2 border-t border-fd-border p-3 md:flex md:flex-col md:items-center lg:items-stretch">
+      <div className="shrink-0 space-y-2 border-t p-3 md:flex md:flex-col md:items-center lg:items-stretch">
         <NodeStatusPill labelClassName="hidden lg:inline" />
         <Link
           href="/docs"
           title={t`使用文档`}
-          className="inline-flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-fd-muted-foreground transition-colors hover:bg-fd-accent hover:text-fd-foreground md:justify-center lg:justify-start"
+          className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:justify-center lg:justify-start"
         >
           <BookText className="size-4 shrink-0" aria-hidden="true" />
           <span className="hidden lg:inline">{t`使用文档`}</span>
@@ -129,10 +130,10 @@ function SidebarLink({
       href={item.href}
       title={t(item.label)}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors md:justify-center lg:justify-start ${
+      className={`focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm transition-colors md:justify-center lg:justify-start ${
         active
-          ? "bg-fd-accent font-medium text-[var(--brand)]"
-          : "text-fd-muted-foreground hover:bg-fd-accent/60 hover:text-fd-foreground"
+          ? "bg-accent font-medium text-brand"
+          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
       }`}
     >
       <span className="relative shrink-0">
@@ -151,7 +152,9 @@ function SidebarLink({
 /** 窄屏没有侧栏，品牌与节点状态改由顶栏承担。 */
 export function AppMobileHeader() {
   return (
-    <header className="sticky top-0 z-10 border-b border-fd-border bg-fd-background/95 backdrop-blur md:hidden">
+    // 外壳已是受限高度、滚动发生在 main 里，所以顶栏是常规 flex 子元素（`shrink-0`）
+    // 而不再需要 `sticky top-0`——它本来就不会随内容滚走了。
+    <header className="shrink-0 border-b bg-sidebar md:hidden">
       <div className="flex items-center justify-between px-4 py-3">
         <BrandMark />
         <NodeStatusPill />
@@ -166,40 +169,39 @@ export function AppBottomNav() {
   const counts = useBadgeCounts();
 
   return (
-    <>
-      {/* nav 是 fixed 的，这块等高占位让内容不被压在导航下面。放在这里而不是让 layout
-          写死一个 padding：知道高度的人和补偿高度的人应当是同一个。 */}
-      <div aria-hidden="true" className="md:hidden" style={{ height: BOTTOM_NAV_HEIGHT }} />
-      <nav
-        aria-label={t`应用导航`}
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-fd-border bg-fd-background/95 backdrop-blur md:hidden"
-      >
-        <ul className="mx-auto flex max-w-lg">
-          {APP_NAV.map((item) => {
-            const Icon = item.icon;
-            const isActive = active === item.href;
-            const count = badgeCount(item, counts);
-            return (
-              <li key={item.href} className="flex-1">
-                <Link
-                  href={item.href}
-                  aria-current={isActive ? "page" : undefined}
-                  className={`flex flex-col items-center gap-1 px-1 py-2 text-[11px] transition-colors ${
-                    isActive ? "font-medium text-[var(--brand)]" : "text-fd-muted-foreground"
-                  }`}
-                >
-                  <span className="relative">
-                    <Icon className="size-5" aria-hidden="true" />
-                    {count > 0 && <CountBadge count={count} className="absolute -top-1.5 -right-2.5" />}
-                  </span>
-                  {t(item.label)}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-    </>
+    // **不再是 `fixed` + 等高 spacer**：外壳（layout.tsx）现在是 `h-dvh` 的 flex 列，
+    // 导航作为最后一个 `shrink-0` 子元素天然贴底，滚动只发生在 `main` 里。
+    // 于是「知道高度的人和补偿高度的人应当是同一个」这条约定连同那个高度常量一起消失了
+    // ——没有补偿，就没有失准的可能。
+    <nav
+      aria-label={t`应用导航`}
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      className="shrink-0 border-t bg-sidebar md:hidden"
+    >
+      <ul className="mx-auto flex max-w-lg">
+        {APP_NAV.map((item) => {
+          const Icon = item.icon;
+          const isActive = active === item.href;
+          const count = badgeCount(item, counts);
+          return (
+            <li key={item.href} className="flex-1">
+              <Link
+                href={item.href}
+                aria-current={isActive ? "page" : undefined}
+                className={`focus-ring flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-[11px] transition-colors ${
+                  isActive ? "font-medium text-brand" : "text-muted-foreground"
+                }`}
+              >
+                <span className="relative">
+                  <Icon className="size-5" aria-hidden="true" />
+                  {count > 0 && <CountBadge count={count} className="absolute -top-1.5 -right-2.5" />}
+                </span>
+                {t(item.label)}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }

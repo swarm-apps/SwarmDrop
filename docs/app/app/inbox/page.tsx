@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { PageHeader } from "../_components/page-header";
-import { IncomingOffersPanel, InboxPanel } from "../_components/receive-panel";
+import { PageShell } from "../_components/page-shell";
+import { IncomingOffersPanel } from "../_components/incoming-offers-panel";
+import { InboxPanel } from "../_components/receive-panel";
 import { NAV, navTitle } from "../_lib/nav";
 
 export const metadata: Metadata = { title: navTitle(NAV.inbox) };
@@ -18,10 +20,11 @@ export const metadata: Metadata = { title: navTitle(NAV.inbox) };
 // 而不是在「过程」页删掉「结果」页还在展示、还能下载的东西。
 export default function InboxPage() {
   return (
-    <>
+    // `fill`：宽屏下收件箱是主从布局，左列表与右详情各滚各的——滚列表不该把详情带走。
+    <PageShell variant="fill">
       <PageHeader nav="inbox" />
       <IncomingOffersPanel />
       <InboxPanel />
-    </>
+    </PageShell>
   );
 }
