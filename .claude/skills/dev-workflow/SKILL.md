@@ -130,7 +130,7 @@ cargo check -p swarmdrop            # 桌面壳（package 名 swarmdrop，lib �
 | 前端状态 | selector 不许派生新数组/对象（除非包 `useShallow`）；`check:zustand-access` 两端都扫。Web 应用区另有一条：「内容没变」要 `return s` 不是 `return {}`（zustand 判 `Object.is(partial, state)`） |
 | Web 应用区 | 运行时单例（节点 spawn / 事件消费 / 轮询）只挂 layout，不下放到 page；静态导出三限制：无 `redirect()`、运行时 ID 不进路由段、`useSearchParams()` 套 `<Suspense>`；内部导航走 `next/link` |
 | 文案 | 新增 UI 串走 Lingui（源 locale `zh`）并已 `pnpm i18n:extract`；托盘/通知等原生串走 rust-i18n |
-| 依赖 pin | 没有擅自动 libp2p / rtc / webrtc 三处 pin（升 rev 必须独立 PR + 全量测试 + wasm check） |
+| 依赖 pin | 没有擅自动 libp2p 那处 git pin（升 rev 必须独立 PR + 全量测试 + wasm check）；`rtc` / `webrtc` 不得降回 `0.20.0-rc.*`（补丁只在 0.20.0 正式版里） |
 | 版本号 | 改版本时三处同步：`package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` |
 
 审查结论要落到「改了什么 / 为什么不改」，不要只报告发现。

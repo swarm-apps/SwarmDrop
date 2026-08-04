@@ -262,6 +262,13 @@ async fn build(
     // 详见 `udp_mux::MuxedRuntime` 关于 four-tuple `local_addr` 的说明。
     //
     // dialer 侧：真的要用这个 socket，按本机网卡绑。
+    //
+    // ⚠️ **listener 侧那个地址列表必须恰好一个元素。** `PeerConnection` 按列表里每个
+    // 地址绑一个 socket，而 `MuxedRuntime` 会把**同一个** `Arc<MuxedSocket>` 发回给每次
+    // 调用；两个 socket 就意味着两个 recv future 抢同一个 mpsc `Receiver`，而它的
+    // `AtomicWaker` 只记得最后注册的那个——另一个永远醒不来，包也会被打上错误的
+    // `local_addr`。症状正是 `MuxedRuntime` 上面记的那种静默握手超时。
+    // 这条前提由 `MuxedSocket` 那侧的 `debug_assert` 兜底。
     let (runtime, bind_addrs) = match socket {
         Some(socket) => (
             MuxedRuntime::wrap(ctx.runtime.clone(), socket),

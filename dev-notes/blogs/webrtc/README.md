@@ -67,7 +67,10 @@
 ## 相关材料
 
 - **代码**：`crates/webrtc-p2p/`（自研传输，刻意不依赖任何 swarmdrop crate，将来要独立发布）
-- **依赖治理**：`Cargo.toml` 的 `[patch.crates-io]` 段落——每条 pin 的原因与**可判定的退出条件**
+- **依赖治理**：五个补丁的两条 `[patch.crates-io]` pin **已于 2026-08-04 兑现退出条件并删除**
+  （补丁随 `rtc` / `webrtc` 0.20.0 正式版进了 crates.io）。方法论与这次兑现的后记见
+  [07 篇「fork pin 是负债」](07-upstream-methodology.md)；`crates/webrtc-p2p/Cargo.toml`
+  现在记录的是**版本下限**——降回 `0.20.0-rc.*` 等于把这五个坑一起请回来
 - **决策背景**：[`dev-notes/research/2026-07-webrtc-native-ice.md`](../../research/2026-07-webrtc-native-ice.md)
 - **姊妹系列**：
   - [`browser-platform/`](../browser-platform/) —— 浏览器平台侧的约束（能不能 listen、

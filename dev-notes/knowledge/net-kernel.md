@@ -611,13 +611,19 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 填占位值（`Fingerprint::FF`），身份改由 DataChannel 之上的 Noise 握手认证（spec FAQ
 第一条）。开关失效时 DTLS 在 Flight 4 报 `ErrNoMatchingCertificateFingerprint`。
 
-修复已提上游 <https://github.com/webrtc-rs/rtc/pull/137>，根 `Cargo.toml` 的
-`[patch.crates-io]` 临时 pin 个人 fork，**退出条件写在那段注释里**（两条可判定命令）。
+修复见 <https://github.com/webrtc-rs/rtc/pull/137>，**已随 rtc 0.20.0 正式版发布**
+（2026-07-31），本仓的 fork pin 已删除。这也是 `rtc` / `webrtc` **不得降回
+`0.20.0-rc.*`** 的原因之一：rc 版里这个开关仍是死代码，direct 监听端直接起不来。
 
-### 上游缺口台账（2026-07-28）
+### 上游缺口台账（2026-07-28，pin 状态更新于 2026-08-04）
 
 做 direct 期间踩到的上游问题都已提出去。**关键区分：只有下表标「阻塞」的两项影响本仓的
 依赖 pin**，其余是反哺与待改进——看到「5 个上游 PR」不要以为退出条件从 3 个变成 5 个。
+
+> **webrtc-rs 那五条已全部出清**（下表标「已 pin」/「阻塞」的 rtc·webrtc 条目）：
+> 补丁 2026-07-29 合并进上游 master，2026-07-31 随 **0.20.0 正式版**发到 crates.io，
+> 本仓的两条 `[patch.crates-io]` 于 2026-08-04 整段删除。表里的「已 pin」现在读作
+> 「已在 0.20.0 里」。**剩下的 pin 只有 libp2p 一处。**
 
 | 仓 | 编号 | 内容 | 对本仓的意义 |
 |---|---|---|---|
@@ -627,6 +633,7 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 | webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | **已 pin**（见下）；muxer 的 `local_channels` 仍保留，它是不变式不是补丁 |
 | webrtc-rs/**rtc** | [PR 138](https://github.com/webrtc-rs/rtc/pull/138) | `send()` 在通道 open 前/关闭后返回 `Ok` 但**静默丢数据**（issue 826） | **已 pin**；`data_channel::await_open` **无论如何都要留** |
 | webrtc-rs/webrtc | [PR 828](https://github.com/webrtc-rs/webrtc/pull/828) | 加 `remote_certificate_fingerprint`（issue 827） | **已 pin**，`remote_fingerprint()` 收成一行 |
+| webrtc-rs/webrtc | [PR 850](https://github.com/webrtc-rs/webrtc/pull/850) | `gro_recv_buf_len` / `is_retryable_socket_recv_error` 是 `pub(crate)`，实现自定义 `AsyncUdpSocket` 只能照源码抄 | 反哺（2026-08-04 提，待审）— 合并后 `udp_mux.rs` 里我们抄的那两份可删 |
 | libp2p/rust-libp2p | [PR 6571](https://github.com/libp2p/rust-libp2p/pull/6571) | `Fingerprint::from_sdp_format` | 纯反哺 — 合并后 `protocol/addr.rs` 的手写解析可删 |
 | libp2p/rust-libp2p | [PR 6572](https://github.com/libp2p/rust-libp2p/pull/6572) | offer SDP 模板搬进 `libp2p-webrtc-utils` | 纯反哺 — 合并后 `native/direct/sdp.rs` 的模板副本可删 |
 
@@ -685,24 +692,22 @@ Noise prologue 绑定**双方**指纹（`libp2p-webrtc-noise:<client><server>`�
 「一端看到的 remote == 另一端的 local」，防的是取反了还静默通过——
 拿本端指纹去做 pin 校验等于自己跟自己比，会接受任何 peer。
 
-### webrtc 也 pin 了 fork（2026-07-28）
+### ~~webrtc 也 pin 了 fork（2026-07-28）~~ → 已于 2026-08-04 解除
 
-`[patch.crates-io]` 现在有**两条**：`rtc` 与 `webrtc`。后者指向集成分支
-`yexiyue/webrtc@swarmdrop-integration` = upstream/master + PR 825 + PR 828 + 一行本地改动。
+**两条 `[patch.crates-io]`（`rtc` + `webrtc`）都已删除**，依赖是普通的
+`rtc = "0.20.0"` / `webrtc = "0.20.0"`，声明在 `crates/webrtc-p2p/Cargo.toml`。
 
-⚠️ **那一行本地改动不能省，也不能带进上游 PR**：上游 `webrtc` 用
-`rtc = { version = "...", path = "rtc" }` 指向 submodule，而 **`[patch.crates-io]` 不作用于
-path 依赖**。保留 path 的话，`webrtc` 的 rtc 来自 submodule、`webrtc-p2p` 的 rtc 来自 patch，
-两个 source id = 两个互不兼容的同名 crate，`webrtc` 返回的类型对不上 `use rtc::...` 的类型，
-直接编译失败。集成分支把 path 去掉，让它也从 crates.io 解析、被同一条 patch 命中。
+保留这段是因为**同源约束本身没变**，只是不再靠 patch 维持：`webrtc` 与 `webrtc-p2p`
+必须解析到**同一份** `rtc`，否则两个 source id = 两个互不兼容的同名 crate，`webrtc`
+返回的类型对不上 `use rtc::...` 的类型，直接编译失败。crates.io 上的 `webrtc 0.20.0`
+声明 `rtc = "^0.20.0"`（发布版剥掉了上游 master 里指向 submodule 的 `path`），
+所以现在天然同源——**这也正是能删掉 fork 的前提**，当初那一行本地改动做的就是这件事。
 
 验证收敛的命令（应只有一行 rtc）：
 
 ```bash
 cargo tree -p webrtc-p2p -i rtc
 ```
-
-退出条件写在根 `Cargo.toml` 那段注释里（两个 PR 均 MERGED 即可删）。
 
 ### webrtc 0.20 没有 UDPMux —— 改从 `Runtime::wrap_udp_socket` 注入
 
@@ -716,6 +721,70 @@ socket，收包从自己的支路取。官方那 579 行 `udp_mux.rs` 里的 tra
 
 **分流依据**：首包按 STUN `USERNAME` 里的 local ufrag（`<对端>:<本端>`，取**冒号前**
 那一半），其余按源地址。
+
+### ⚠️ 坑：udp_mux 必须自己拆 GRO —— 这是**旧代码一直漏做**的，不是升级引入的
+
+2026-08-04 切到 crates.io 0.20.0 时，上游把 socket 原语从 `async fn recv_from` 换成了
+quinn 风格的 `poll_recv(cx, bufs, meta)`（`recv_from` 降级成基于它的默认方法）。适配
+过程中才发现 udp_mux 一直缺一件事：**按 `RecvMeta::stride` 拆开内核 GRO 合并的数据报**。
+
+**因果别搞反**（这份文档里一度就记错了）：GRO 不是 0.20.0 才有的。旧 pin
+（`webrtc@3d6391cd`）的 `wrap_udp_socket` 就已经调
+`quinn_udp::UdpSocketState::new(...)`，那会在 socket 上**打开 UDP_GRO sockopt**；而
+当时 `UdpMux` 读包走 `recv_from`，底层是裸的 `tokio::UdpSocket::recv_from`，
+**不解析承载 stride 的 cmsg**。sockopt 开着，内核照样合并——只是 stride 信息被丢弃。
+
+于是 **0.20.0 之前的 Linux 构建（含已发布的 v0.10.4）在这条路径上是有缺陷的**：
+同一对端连发的数据报会被当成一个巨包投给支路（DTLS 记录层校验失败 / SCTP 解析失败，
+两者都静默丢弃），且缓冲只有 8 KiB，超出的尾部段被内核直接丢掉。表现为「偶发的、
+无日志的丢包」，极难归因。macOS / Windows 无 GRO，所以本机开发永远看不到。
+
+换成 poll 式 API 只是让这个约束**显式**了（`recv_from` 的文档明写「不要在可能发生
+GRO 的地方用它」）。现在 `UdpMux::poll` 是：`poll_recv` 收一批 → 按 `stride` 切成单个
+数据报入队 → 逐个 dispatch。
+
+⚠️ **本机 loopback 通常不触发 GRO**，`direct_loopback.rs` 那几条真链路测试走不到这条
+分支——覆盖它的是 `udp_mux.rs` 里 `split_datagrams` 的单测。改那段逻辑时别指望集成
+测试会红。
+
+同批还有两处纯签名变动：`Runtime::spawn` 返回 `Box<dyn JoinHandle>`（不再是具体类型），
+`spawn_reactor` 多了 `reactor_pool_size: usize` 首参；`Runtime` 另新增
+`resolve_host` / `sleep` / `interval` / `block_on` 四个必需方法，`MuxedRuntime` 一律转交
+`inner`（这层垫片只替换 UDP socket）。
+
+### ⚠️ 坑：瞬时读错误的判据漏一种，公网监听端口就会被远程掀掉
+
+`UdpMux::poll` 收到读错误时要判断「是某个对端的事」还是「端口废了」——后者会顺着
+`UdpMuxEvent::Error` 冒到 `Transport::poll`，那里 `listeners.remove()` + `ListenerClosed`，
+**4003 端口就此消失，进程还活着但再没人连得进来，且没有重试路径**。
+
+判据必须与 webrtc-rs 的 `is_retryable_socket_recv_error` 一致：
+`Interrupted | WouldBlock | ConnectionRefused | ConnectionReset | TimedOut`。
+
+**最容易漏的是 `ConnectionRefused`**：ICMP port unreachable 在 **Linux 上是它**，
+Windows 上才是 `ConnectionReset`。只认后者等于在 Linux 上留了个远程可触发的开关——
+随便哪个对端关掉进程，回来的 ICMP 就能掀掉整个监听端口。本仓一度就是这样
+（2026-08-04 修）。
+
+### 坑：`Transport::poll` 里的读循环必须有 burst 上限
+
+`UdpMux::poll` 的读循环开在 swarm 的 poll 线程上。没有上限的话，公网 4003 上一股持续
+流量（或一个刷包的扫描器）就能把 `Transport::poll` 永久留在里面，**节点其余所有传输、
+连接、behaviour 一起饿死**——而这是个未认证的输入源。
+
+修法与 webrtc-rs 的 `MAX_UDP_RECV_BURST` 一致：读满 64 轮就 `cx.waker().wake_by_ref()`
+后返回 `Pending`。自唤醒不能省——`pending` 队列里可能还有货，否则要等下一个数据报
+才会被处理。
+
+另有一条相关契约：`poll_recv` 返回 **`Ok(0)` 意思是「什么都没准备好」，不是「收到 0 条
+消息」**（上游 `runtime/primitives.rs` 明写）。当成后者会转出一轮没有 waker 的空循环。
+
+### 坑：GRO 缓冲按**段长**算，不是按单包上限算
+
+`gro_recv_buf_len` 要对齐上游：`max_gro.min(64) * 1500`，无 GRO 时退化成单包上限。
+拿 `RECEIVE_MTU`（8192）当段长去乘会把缓冲算大 5 倍多（64 段时 512 KiB vs 94 KiB）
+——GRO 的段不可能超过一个路径 MTU。另外 `max_gro_segments()` 是 `AsyncUdpSocket`
+实现给的值，**不能直接当分配乘数**，必须 clamp。
 
 ### 坑：mDNS socket 也走 `wrap_udp_socket`
 
@@ -811,9 +880,12 @@ wasm 侧不受影响：浏览器 `createDataChannel` 按规范默认 `ordered: t
 ### 用 `rtc::` 转出子 crate，不要直接依赖 `rtc-ice` / `rtc-stun`
 
 rtc `pub use` 了全套子 crate（`rtc::ice` / `rtc::stun` / `rtc::dtls` / …）。直接依赖
-`rtc-ice` 看似等价，但 **rtc 一旦被 `[patch]` 换成 git 源**，直接依赖仍从 crates.io
-解析，同名类型就分叉成两个，报「expected `rtc::rtc_ice::X`, found `rtc_ice::X`」
-这种极绕的错。经 `rtc::` 转一手天然同源。
+`rtc-ice` 看似等价，但只要两边解析到的不是同一份，同名类型就分叉成两个，报
+「expected `rtc::rtc_ice::X`, found `rtc_ice::X`」这种极绕的错。经 `rtc::` 转一手
+天然同源。
+
+（2026-07 那阵 rtc 被 `[patch]` 换成 git 源时这是必然发生的；patch 虽已删除，但换成
+版本号解析后，任何一次版本漂移都能重演同样的分叉，所以这条约束照旧。）
 
 ### direct 的 UDP 读循环挂在 `Transport::poll` 上
 
@@ -865,7 +937,8 @@ API、在这里必须绕：
 **相关文件**：`crates/webrtc-p2p/src/backend/native/direct/{udp_mux,upgrade,sdp,certificate,transport}.rs`、
 `crates/webrtc-p2p/src/backend/wasm/direct.rs`、
 `crates/webrtc-p2p/src/{config.rs,swarm/{transport,direct}.rs}`、
-`crates/webrtc-p2p/examples/direct_listener.rs`、根 `Cargo.toml` 的 `[patch.crates-io]`
+`crates/webrtc-p2p/examples/direct_listener.rs`、`crates/webrtc-p2p/Cargo.toml`（`rtc` /
+`webrtc` 的版本下限说明；根 `Cargo.toml` 的 `[patch.crates-io]` 已于 2026-08-04 删除）
 
 ## wasm 工程约定
 

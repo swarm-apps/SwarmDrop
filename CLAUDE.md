@@ -421,28 +421,29 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 
 - **Rust library naming:** lib 名为 `swarmdrop_lib`（非 `swarmdrop`），避开 Windows 上 cargo
   的 lib/bin 命名冲突。
-- **三处依赖 pin（本项目最大的单点依赖风险）。** 退出条件都写死在 `Cargo.toml` 对应注释里，
-  且都可判定：
-  1. **libp2p**（`libp2p` / `libp2p-stream` / `libp2p-core` / `libp2p-swarm` /
-     `libp2p-webrtc-utils` 同 pin `github.com/yexiyue/rust-libp2p` 一个 rev）——**仍是个人
-     fork**。待合并的上游 PR：Web 端要的 #6558 / #6560。（#6570 relay 崩溃已自行关闭——
-     上游 #6472 先修了同一问题。）**第四条是 #6576**：identify 的运行时 `agent_version`
-     setter（2026-08-01 提）——没有它，改设备名必须重启整个节点。它独立于上面两个 PR，
-     **不影响**「切官方 git」的判定，但**阻塞「删掉 fork pin」**。
-     ⚠️ #6576 的 PR 分支（`feat/identify-set-agent-version`，rebase 到上游 master）与
-     **本仓 pin 的分支**（`feat/identify-runtime-agent-version` @ `d858435c`）**不是同一条**，
-     后者**绝不能 force-push**——commit 一游离就被 GC，构建当场断。
-     退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 →
-     切版本号依赖。详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork
-     集成策略」。
-  2. **rtc**（`[patch.crates-io]`）——**已不再是 fork**：五个 webrtc-rs 补丁于 2026-07-29
-     全部合并，这条 pin 现在直接指**官方** `webrtc-rs/rtc` 的 master commit。只欠 crates.io
-     发版（当前仍是 `0.20.0-rc.4`）。退出：`cargo search rtc` > `0.20.0-rc.4`。
-  3. **webrtc**（`[patch.crates-io]` → `github.com/yexiyue/webrtc`）——功能补丁（#825 /
-     #828）已全部进上游，fork 只剩**一行集成适配**：去掉 `rtc` 的 `path` 依赖。那行不能
-     进上游（`[patch.crates-io]` 不作用于 path 依赖，保留它会让 rtc 分叉成两个互不兼容的
-     实例）。所以这条 pin 比 rtc 那条活得久，同样等发版。
-  **升级任一 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
+- **一处依赖 pin：libp2p（本项目最大的单点依赖风险）。** `libp2p` / `libp2p-stream` /
+  `libp2p-core` / `libp2p-swarm` / `libp2p-webrtc-utils` 同 pin
+  `github.com/yexiyue/rust-libp2p` 一个 rev——**仍是个人 fork**。退出条件写死在
+  `Cargo.toml` 对应注释里，且可判定。
+  待合并的上游 PR：Web 端要的 #6558 / #6560。（#6570 relay 崩溃已自行关闭——
+  上游 #6472 先修了同一问题。）**第三条是 #6576**：identify 的运行时 `agent_version`
+  setter（2026-08-01 提）——没有它，改设备名必须重启整个节点。它独立于上面两个 PR，
+  **不影响**「切官方 git」的判定，但**阻塞「删掉 fork pin」**。
+  ⚠️ #6576 的 PR 分支（`feat/identify-set-agent-version`，rebase 到上游 master）与
+  **本仓 pin 的分支**（`feat/identify-runtime-agent-version` @ `d858435c`）**不是同一条**，
+  后者**绝不能 force-push**——commit 一游离就被 GC，构建当场断。
+  退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 → 切版本号依赖。
+  详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork 集成策略」。
+  **升级 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
+- **webrtc-rs 的两条 `[patch.crates-io]` 已于 2026-08-04 删除。** 五个补丁
+  （rtc #137 / #138 / #140、webrtc #825 / #828）随 `rtc` / `webrtc` 的 **0.20.0 正式版**
+  发到 crates.io，依赖回到普通版本号，声明在 `crates/webrtc-p2p/Cargo.toml`。
+  ⚠️ **0.20.0 是硬下限，别降回 `0.20.0-rc.*`**——rc 版不含这些补丁，direct 监听端会起不来、
+  数据面会静默丢包。该版本同时把 `AsyncUdpSocket` 换成了 quinn 式 poll API，适配时连带
+  修掉了 `udp_mux` 三个既有缺陷（GRO 合并包没拆、瞬时读错误判据漏 `ConnectionRefused`
+  导致 Linux 上监听端口可被远程掀掉、读循环无 burst 上限会饿死 swarm）。
+  **前两个影响已发布的 v0.10.4 Linux 构建**，细节与是否需要补丁版的判断见
+  [`net-kernel.md`](dev-notes/knowledge/net-kernel.md)。
   五个补丁的完整复盘见 [`dev-notes/blogs/webrtc/`](dev-notes/blogs/webrtc/README.md)。
 - **官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys` 已于 2026-07-28 移除。** webrtc-direct
   改由自研的 `crates/webrtc-p2p` 提供，native 依赖树里的 webrtc-rs 从两套（0.17 + 0.20）

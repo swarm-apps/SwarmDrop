@@ -26,24 +26,50 @@
 //! **给每条连接发一个假 socket**（[`MuxedSocket`]）——发包转给共享 socket，收包从
 //! 自己的支路取。那套 trait 适配层随之消失，只剩下真正的分流逻辑。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::io;
+use std::io::IoSliceMut;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
+use futures::StreamExt;
 use futures::channel::mpsc;
-use futures::future::BoxFuture;
-use futures::{FutureExt, StreamExt};
 use rtc::stun::attributes::ATTR_USERNAME;
 use rtc::stun::message::{Message as StunMessage, is_stun_message};
-use webrtc::runtime::{AsyncTcpListener, AsyncTcpStream, AsyncUdpSocket, JoinHandle, Runtime};
+use webrtc::runtime::{
+    AsyncInterval, AsyncTcpListener, AsyncTcpStream, AsyncUdpSocket, JoinHandle, RecvMeta, Runtime,
+    Transmit,
+};
 
 /// 单个数据报的接收上限。WebRTC 的包远小于此（受 MTU 约束），取值对齐官方实现。
 const RECEIVE_MTU: usize = 8192;
+
+/// GRO 单段的长度上限，等于一个路径 MTU——**合并出来的段不可能比这更大**。
+///
+/// 用它而不是 [`RECEIVE_MTU`] 去乘段数：后者是「单个数据报的上限」，拿来当段长会把
+/// 缓冲算大 5 倍多（64 段时 512 KiB vs 94 KiB）。取值对齐 webrtc-rs 的
+/// `GRO_RECV_SEGMENT_LEN`。
+const GRO_SEGMENT_LEN: usize = 1500;
+
+/// 一次读最多接受多少个 GRO 段。
+///
+/// 同时是**分配上限**：`max_gro_segments()` 来自 `AsyncUdpSocket` 实现，不该被直接
+/// 当成分配乘数。取值对齐 webrtc-rs 的 `MAX_GRO_SEGMENTS`（内核的合并上限）。
+const MAX_GRO_SEGMENTS: usize = 64;
+
+/// 一次 [`UdpMux::poll`] 最多连续读多少轮就让出。
+///
+/// 没有这个上限，公网 4003 端口上一股持续的流量就能把 `Transport::poll` 永久留在
+/// 读循环里——**节点其余所有传输、连接、behaviour 一起饿死**，而这是个未认证的
+/// 输入源。达到上限时立刻自唤醒并让出，数据不会滞留。取值对齐 webrtc-rs 的
+/// `MAX_UDP_RECV_BURST`。
+const MAX_RECV_BURST: usize = 64;
 
 /// 每条支路的收包缓冲深度。
 ///
@@ -68,8 +94,18 @@ pub(crate) struct UdpMux {
     /// 按地址去重会把「同一个 NAT 端口换新 ufrag 再来」（客户端重连、NAT 重绑）
     /// 静默吞掉——那恰恰是必须上报的新连接。
     announced: HashSet<String>,
-    /// 正在进行的一次 `recv_from`。
-    recv: Option<BoxFuture<'static, io::Result<Datagram>>>,
+    /// 复用的接收缓冲。
+    ///
+    /// 尺寸**必须**按 GRO 上限放大（见 [`AsyncUdpSocket::max_gro_segments`]）：内核会把
+    /// 同一对端的多个数据报合并进一条 message，装不下的部分是**被丢掉**而不是留到下次读。
+    /// 所以这里不能为了省内存去缩小它——Linux 上 64 段即约 94 KiB，而一个监听端口
+    /// 只有一份。无 GRO 的平台（macOS / Windows）退化成一个 [`RECEIVE_MTU`]。
+    recv_buf: Vec<u8>,
+    /// 已从内核收下、尚未分流完的数据报。
+    ///
+    /// 一次 `poll_recv` 可能带回多个数据报（见 [`UdpMux::poll`] 里的 GRO 拆分），
+    /// 而 `poll` 一次只产出一个事件，故先切分入队、再逐个 dispatch。
+    pending: VecDeque<Datagram>,
 }
 
 /// 一个数据报：内容 + 来源。
@@ -103,6 +139,7 @@ impl UdpMux {
         std_socket.set_nonblocking(true)?;
         let listen_addr = std_socket.local_addr()?;
         let socket = runtime.wrap_udp_socket(std_socket)?;
+        let recv_buf = vec![0u8; gro_recv_buf_len(socket.max_gro_segments())];
 
         Ok(Self {
             socket,
@@ -110,7 +147,8 @@ impl UdpMux {
             conns: HashMap::new(),
             by_addr: HashMap::new(),
             announced: HashSet::new(),
-            recv: None,
+            recv_buf,
+            pending: VecDeque::new(),
         })
     }
 
@@ -128,7 +166,7 @@ impl UdpMux {
         Arc::new(MuxedSocket {
             shared: self.socket.clone(),
             listen_addr: self.listen_addr,
-            inbox: futures::lock::Mutex::new(rx),
+            inbox: Mutex::new(rx),
         })
     }
 
@@ -164,42 +202,44 @@ impl UdpMux {
     ///
     /// 由 `Transport::poll` 调用——与官方实现一致，本 crate 全程无 `spawn`。
     pub(crate) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<UdpMuxEvent> {
-        loop {
-            let fut = self.recv.get_or_insert_with(|| {
-                let socket = self.socket.clone();
-                async move {
-                    let mut buf = vec![0u8; RECEIVE_MTU];
-                    let (n, from) = socket.recv_from(&mut buf).await?;
-                    buf.truncate(n);
-                    Ok((buf, from))
+        for _ in 0..MAX_RECV_BURST {
+            while let Some((packet, from)) = self.pending.pop_front() {
+                if let Some(event) = self.dispatch(packet, from) {
+                    return Poll::Ready(event);
                 }
-                .boxed()
-            });
+            }
 
-            let (packet, from) = match futures::ready!(fut.poll_unpin(cx)) {
-                Ok(datagram) => {
-                    self.recv = None;
-                    datagram
-                }
-                Err(e) => {
-                    self.recv = None;
-                    // 单个对端不可达不该拆掉整个监听端口——ICMP port unreachable 在
-                    // Windows 上会以 ConnectionReset 冒到这里，它只说明那个对端没了。
-                    if matches!(
-                        e.kind(),
-                        io::ErrorKind::ConnectionReset | io::ErrorKind::TimedOut
-                    ) {
+            let mut meta = [RecvMeta::default(); 1];
+            let count = {
+                let mut bufs = [IoSliceMut::new(&mut self.recv_buf)];
+                match futures::ready!(self.socket.poll_recv(cx, &mut bufs, &mut meta)) {
+                    Ok(count) => count,
+                    Err(e) if is_retryable_recv_error(&e) => {
                         tracing::debug!("忽略瞬时读错误：{e}");
                         continue;
                     }
-                    return Poll::Ready(UdpMuxEvent::Error(e));
+                    Err(e) => return Poll::Ready(UdpMuxEvent::Error(e)),
                 }
             };
 
-            if let Some(event) = self.dispatch(packet, from) {
-                return Poll::Ready(event);
+            // 契约上 `Ok(0)` 是「什么都没准备好」，**不是**「收到 0 条消息」。当成后者
+            // 会转出一轮没有 waker 的空循环——socket 不会再唤醒我们，而我们也不会停。
+            // 让出并自唤醒：既不空转，也不挂死。
+            if count == 0 {
+                break;
+            }
+
+            // `count` 与 `len` / `stride` 一样来自 socket 实现，一律不盲信：
+            // 越界切片会 panic，而这条路径上跑的是公网端口的收包循环。
+            for m in &meta[..count.min(meta.len())] {
+                split_datagrams(&self.recv_buf, m, &mut self.pending);
             }
         }
+
+        // 读满一轮 burst（或撞上 `Ok(0)`）就让出，别把 swarm 的 poll 线程占住。
+        // `pending` 里可能还有货，所以必须自唤醒——否则这些包要等下一个数据报才被处理。
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 
     /// 把一个数据报投递到对应支路；无处可去时判断是不是一条新连接。
@@ -268,6 +308,62 @@ impl UdpMux {
     }
 }
 
+/// 接收缓冲该多大——**必须装得下内核一次能合并出来的全部段**。
+///
+/// 装不下的尾部段是被内核**丢掉**的，不会留到下次读，所以这个值宁大勿小。
+/// 但也不能拿 [`RECEIVE_MTU`] 当段长去乘：GRO 的段不会超过一个路径 MTU
+/// （见 [`GRO_SEGMENT_LEN`]）。算法对齐 webrtc-rs 的 `gro_recv_buf_len`。
+fn gro_recv_buf_len(max_gro: usize) -> usize {
+    // 无 GRO 的平台（macOS / Windows）按单个数据报的上限来，这也是本函数的下限：
+    // 即便有 GRO，一条 message 也至少要装得下一个完整数据报。
+    (max_gro.min(MAX_GRO_SEGMENTS) * GRO_SEGMENT_LEN).max(RECEIVE_MTU)
+}
+
+/// 这个读错误是不是「某个对端的事」，而不是「端口废了」。
+///
+/// ⚠️ **判据必须与 webrtc-rs 的 `is_retryable_socket_recv_error` 保持一致。** 漏一种就
+/// 意味着：一次本该忽略的瞬时错误会顺着 `UdpMuxEvent::Error` 冒到 `Transport::poll`，
+/// 那里会 `listeners.remove()` 并发 `ListenerClosed`——**公网 4003 端口就此消失，
+/// 进程活着但再没人能连进来**，也没有重试路径。
+///
+/// 尤其是 `ConnectionRefused`：ICMP port unreachable 在 **Linux 上是这个**，
+/// Windows 上才是 `ConnectionReset`。只认后者等于在 Linux 上留了个远程可触发的开关
+/// ——随便哪个对端关掉进程，回来的 ICMP 就能掀掉整个监听端口。
+fn is_retryable_recv_error(e: &io::Error) -> bool {
+    matches!(
+        e.kind(),
+        io::ErrorKind::Interrupted            // 信号打断 recvmsg（EINTR）
+            | io::ErrorKind::WouldBlock       // 没数据；poll 式 socket 下不该出现，兜底
+            | io::ErrorKind::ConnectionRefused // ICMP port unreachable（Linux）
+            | io::ErrorKind::ConnectionReset  // 同上（Windows）
+            | io::ErrorKind::TimedOut
+    )
+}
+
+/// 把一次 `poll_recv` 填好的缓冲切成一个个数据报，追加到 `out`。
+///
+/// 一条 message 里可能粘着同一对端的**多个**数据报——内核 GRO 把它们合并了，
+/// [`RecvMeta::stride`] 是切回来的唯一依据（末段可以更短）。
+///
+/// ⚠️ **这一步不能省。** 不切分等于把 N 个 UDP 包当成一个巨包投给支路，DTLS 记录层
+/// 与 SCTP 都会当场解析失败。
+///
+/// ⚠️ **这不是 webrtc 0.20.0 才有的约束，是这里一直漏做的一件事。** 旧版的
+/// `wrap_udp_socket` 就已经用 `quinn_udp::UdpSocketState::new` 在 socket 上打开了
+/// UDP_GRO，只是当时读包走 `recv_from`（底层是裸的 `tokio::UdpSocket::recv_from`）
+/// ——**sockopt 开着，内核照样合并，只是承载 stride 的 cmsg 被丢弃了**。所以
+/// 0.20.0 之前的 Linux 构建会把合并包整个投给 DTLS/SCTP，且缓冲只有 8 KiB，
+/// 超出的尾部段被内核直接丢掉。换成 poll 式 API 只是让这个约束**显式**了。
+/// 别把它读成「升级带来的新问题」——按那个因果去查旧分支的丢包会查不到。
+fn split_datagrams(buf: &[u8], meta: &RecvMeta, out: &mut VecDeque<Datagram>) {
+    // `stride` 至少取 1：零长数据报会让它是 0，那是 `chunks` 的 panic 条件。
+    // `len` 同样不能盲信——它来自 socket 实现，越界切片会 panic。
+    let filled = &buf[..meta.len.min(buf.len())];
+    for datagram in filled.chunks(meta.stride.max(1)) {
+        out.push_back((datagram.to_vec(), meta.addr));
+    }
+}
+
 /// 从 STUN 消息里取出 **local** ufrag。
 ///
 /// `USERNAME` 的格式是 `<对端ufrag>:<本端ufrag>`（RFC 8445 §7.2.2）。对入站的
@@ -294,9 +390,11 @@ pub(crate) struct MuxedSocket {
     listen_addr: SocketAddr,
     /// 支路收件箱。
     ///
-    /// `AsyncUdpSocket::recv_from` 收的是 `&self`，而取包要改 receiver 的状态，
+    /// `AsyncUdpSocket::poll_recv` 收的是 `&self`，而取包要改 receiver 的状态，
     /// 故加锁。驱动同一条连接的只有它自己的 driver 任务，实际零竞争。
-    inbox: futures::lock::Mutex<mpsc::Receiver<Datagram>>,
+    ///
+    /// 用**同步**锁：poll 路径上没有 await 点，异步锁在这里既用不上也拿不住。
+    inbox: Mutex<mpsc::Receiver<Datagram>>,
 }
 
 impl fmt::Debug for MuxedSocket {
@@ -308,32 +406,76 @@ impl fmt::Debug for MuxedSocket {
 }
 
 impl AsyncUdpSocket for MuxedSocket {
-    fn send_to<'a>(
-        &'a self,
-        buf: &'a [u8],
-        target: SocketAddr,
-    ) -> Pin<Box<dyn Future<Output = io::Result<usize>> + Send + 'a>> {
-        self.shared.send_to(buf, target)
-    }
-
-    fn recv_from<'a>(
-        &'a self,
-        buf: &'a mut [u8],
-    ) -> Pin<Box<dyn Future<Output = io::Result<(usize, SocketAddr)>> + Send + 'a>> {
-        Box::pin(async move {
-            let mut inbox = self.inbox.lock().await;
-            let (packet, from) = inbox
-                .next()
-                .await
-                .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "udp mux 支路已关闭"))?;
-            let n = packet.len().min(buf.len());
-            buf[..n].copy_from_slice(&packet[..n]);
-            Ok((n, from))
-        })
-    }
-
     fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok(self.listen_addr)
+    }
+
+    /// 发包不经支路，直接走共享 socket——出方向本来就不需要分流。
+    fn poll_send(&self, cx: &mut Context<'_>, transmit: &Transmit<'_>) -> Poll<io::Result<usize>> {
+        self.shared.poll_send(cx, transmit)
+    }
+
+    fn poll_recv(
+        &self,
+        cx: &mut Context<'_>,
+        bufs: &mut [IoSliceMut<'_>],
+        meta: &mut [RecvMeta],
+    ) -> Poll<io::Result<usize>> {
+        // 调用方没给地方放，等于「这次收不了」。返回 `Ok(0)` 会被读成「收到 0 条」，
+        // 那是另一回事（见 `UdpMux::poll` 里对 `count == 0` 的处理）。
+        if bufs.is_empty() || meta.is_empty() {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+
+        let mut inbox = self.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            let (packet, from) = match inbox.poll_next_unpin(cx) {
+                Poll::Ready(Some(datagram)) => datagram,
+                Poll::Ready(None) => {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "udp mux 支路已关闭",
+                    )));
+                }
+                Poll::Pending => return Poll::Pending,
+            };
+
+            // 装不下就**整个丢掉**，不要截断后投出去。
+            //
+            // 截断出来的是个「长度合法、内容残缺」的数据报：DTLS 记录层校验 MAC 失败、
+            // SCTP 解析 chunk 失败，两者都只是静默丢弃，于是现象是「莫名其妙的丢包」，
+            // 全链路没有一行日志指向这里。宁可在这儿说清楚。
+            if packet.len() > bufs[0].len() {
+                tracing::warn!(
+                    datagram = packet.len(),
+                    buffer = bufs[0].len(),
+                    %from,
+                    "数据报超出接收缓冲，丢弃"
+                );
+                continue;
+            }
+
+            let n = packet.len();
+            bufs[0][..n].copy_from_slice(&packet);
+            // `RecvMeta` 是 `#[non_exhaustive]`，crate 外构造不出结构体字面量，只能逐字段写。
+            meta[0] = RecvMeta::default();
+            meta[0].addr = from;
+            meta[0].len = n;
+            // `stride` 必须 ≥ 1：调用方拿它做去分段的除数，0 会当场除零。
+            meta[0].stride = n.max(1);
+            return Poll::Ready(Ok(1));
+        }
+    }
+
+    /// GSO 能力取决于**真正发包**的那个 socket。
+    fn max_gso_segments(&self) -> usize {
+        self.shared.max_gso_segments()
+    }
+
+    /// 支路里投的永远是 [`UdpMux::poll`] 切分好的单个数据报，不存在 GRO 合并。
+    fn max_gro_segments(&self) -> usize {
+        1
     }
 }
 
@@ -352,6 +494,8 @@ impl AsyncUdpSocket for MuxedSocket {
 pub(crate) struct MuxedRuntime {
     inner: Arc<dyn Runtime>,
     socket: Arc<MuxedSocket>,
+    /// 支路被交出去几次——见 [`MuxedRuntime::wrap_udp_socket`]，必须恰好一次。
+    handed_out: AtomicUsize,
 }
 
 impl fmt::Debug for MuxedRuntime {
@@ -364,22 +508,44 @@ impl MuxedRuntime {
     /// 包一层垫片。返回 `Arc<dyn Runtime>` 而非 `Self`——调用方只会拿它喂
     /// `PeerConnectionBuilder::with_runtime`，暴露具体类型没有意义。
     pub(crate) fn wrap(inner: Arc<dyn Runtime>, socket: Arc<MuxedSocket>) -> Arc<dyn Runtime> {
-        Arc::new(Self { inner, socket })
+        Arc::new(Self {
+            inner,
+            socket,
+            handed_out: AtomicUsize::new(0),
+        })
     }
 }
 
 impl Runtime for MuxedRuntime {
-    fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) -> JoinHandle {
+    fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) -> Box<dyn JoinHandle> {
         self.inner.spawn(future)
     }
 
-    fn spawn_reactor(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) -> JoinHandle {
-        self.inner.spawn_reactor(future)
+    fn spawn_reactor(
+        &self,
+        reactor_pool_size: usize,
+        future: Pin<Box<dyn Future<Output = ()> + Send>>,
+    ) -> Box<dyn JoinHandle> {
+        self.inner.spawn_reactor(reactor_pool_size, future)
     }
 
     fn wrap_udp_socket(&self, socket: std::net::UdpSocket) -> io::Result<Arc<dyn AsyncUdpSocket>> {
         // 丢弃它。端口在 `PeerConnection` 构造时已经绑上，这里只是不用而已。
         drop(socket);
+
+        // 同一条支路只能交出去一次。第二次意味着 `PeerConnection` 绑了多个 UDP 地址，
+        // 于是会有两个 recv future 抢同一个 mpsc `Receiver`——它的 `AtomicWaker` 只留
+        // 最后注册的那个，另一个永远醒不来，表现为静默的握手超时。
+        // 调用点的前提（`upgrade.rs` 里恰好一个 bind 地址）在这里兜底。
+        let handed_out = self.handed_out.fetch_add(1, Ordering::Relaxed);
+        debug_assert_eq!(
+            handed_out, 0,
+            "MuxedSocket 被交给了多个 PeerConnection socket——调用点必须只绑一个 UDP 地址"
+        );
+        if handed_out > 0 {
+            tracing::error!("同一条 mux 支路被重复交出，收包会静默饥饿");
+        }
+
         Ok(self.socket.clone())
     }
 
@@ -395,6 +561,35 @@ impl Runtime for MuxedRuntime {
         remote_addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = io::Result<Arc<dyn AsyncTcpStream>>> + Send + 'a>> {
         self.inner.connect_tcp(remote_addr)
+    }
+
+    // 以下全是原样转交：这层垫片只替换 UDP socket，其余能力没有理由改写。
+
+    fn resolve_host<'a>(
+        &'a self,
+        host: &'a str,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<SocketAddr>>> + Send + 'a>> {
+        self.inner.resolve_host(host)
+    }
+
+    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        self.inner.sleep(duration)
+    }
+
+    fn interval(&self, period: Duration) -> Box<dyn AsyncInterval> {
+        self.inner.interval(period)
+    }
+
+    fn block_on(&self, future: Pin<Box<dyn Future<Output = ()> + '_>>) {
+        self.inner.block_on(future);
+    }
+
+    fn yield_now(&self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        self.inner.yield_now()
+    }
+
+    fn name(&self) -> &'static str {
+        self.inner.name()
     }
 }
 
@@ -464,5 +659,242 @@ mod tests {
         assert!(is_stun_message(&stun_with_username("a:b")));
         assert!(!is_stun_message(&[0u8; 20]));
         assert!(!is_stun_message(&[]));
+    }
+
+    /// `RecvMeta` 是 `#[non_exhaustive]`，crate 外只能 default 完再逐字段赋值。
+    fn meta(len: usize, stride: usize) -> RecvMeta {
+        let mut m = RecvMeta::default();
+        m.addr = "203.0.113.7:4003".parse().unwrap();
+        m.len = len;
+        m.stride = stride;
+        m
+    }
+
+    fn split(buf: &[u8], meta: &RecvMeta) -> Vec<Vec<u8>> {
+        let mut out = VecDeque::new();
+        split_datagrams(buf, meta, &mut out);
+        out.into_iter().map(|(packet, _)| packet).collect()
+    }
+
+    /// 内核 GRO 把同一对端的连续包合并进一条 message，`stride` 是切回来的唯一依据。
+    ///
+    /// **本机 loopback 通常不触发 GRO**，所以 `direct_loopback` 那几条真链路测试
+    /// 走不到这条分支——它只有这里能覆盖。切错的症状是 DTLS/SCTP 收到粘包直接
+    /// 解析失败，而且全链路零报错。
+    #[test]
+    fn splits_gro_coalesced_message_by_stride() {
+        let buf = [b"aaaa".as_slice(), b"bbbb", b"cc"].concat();
+        assert_eq!(
+            split(&buf, &meta(10, 4)),
+            vec![b"aaaa".to_vec(), b"bbbb".to_vec(), b"cc".to_vec()],
+            "末段允许短于 stride"
+        );
+    }
+
+    /// 常态（没发生合并）：`stride == len`，原样切出一个包。
+    #[test]
+    fn single_datagram_passes_through_unsplit() {
+        let buf = b"one-datagram".to_vec();
+        assert_eq!(split(&buf, &meta(buf.len(), buf.len())), vec![buf]);
+    }
+
+    /// 缓冲比 `len` 大是常态（缓冲按 GRO 上限预分配），尾部的零不能被当成数据。
+    #[test]
+    fn trailing_buffer_space_is_not_emitted() {
+        let mut buf = b"hi".to_vec();
+        buf.resize(RECEIVE_MTU, 0);
+        assert_eq!(split(&buf, &meta(2, 2)), vec![b"hi".to_vec()]);
+    }
+
+    /// socket 实现给出的 `len` / `stride` 是外部输入，畸形值不能 panic。
+    ///
+    /// `stride == 0`（零长数据报，quinn-udp 会把 `len` 原样镜像进 `stride`）是
+    /// `chunks` 的 panic 条件；`len` 超过缓冲则是越界切片。
+    #[test]
+    fn malformed_meta_does_not_panic() {
+        assert!(split(b"abc", &meta(0, 0)).is_empty());
+        assert_eq!(split(b"abc", &meta(3, 0)), vec![b"a", b"b", b"c"]);
+        assert_eq!(split(b"abc", &meta(usize::MAX, 8)), vec![b"abc".to_vec()]);
+    }
+
+    /// 缓冲尺寸要装得下内核一次能合并出来的全部段，且不拿单包上限当段长去乘。
+    #[test]
+    fn gro_buf_sized_by_segment_not_by_mtu() {
+        // 无 GRO：退化成单个数据报的上限。
+        assert_eq!(gro_recv_buf_len(1), RECEIVE_MTU);
+        // 有 GRO：按段长乘段数，而不是 RECEIVE_MTU * 段数（那会大 5 倍多）。
+        assert_eq!(gro_recv_buf_len(64), 64 * GRO_SEGMENT_LEN);
+        // `max_gro_segments()` 来自 socket 实现，不能直接当分配乘数。
+        assert_eq!(
+            gro_recv_buf_len(usize::MAX),
+            MAX_GRO_SEGMENTS * GRO_SEGMENT_LEN
+        );
+    }
+
+    /// 判据漏一种，公网监听端口就会被一次瞬时错误永久掀掉。
+    ///
+    /// `ConnectionRefused` 尤其关键：ICMP port unreachable 在 **Linux 上是它**，
+    /// 只认 Windows 的 `ConnectionReset` 等于留了个远程可触发的开关。
+    #[test]
+    fn transient_recv_errors_do_not_kill_the_listener() {
+        for kind in [
+            io::ErrorKind::Interrupted,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::ConnectionRefused,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::TimedOut,
+        ] {
+            assert!(
+                is_retryable_recv_error(&io::Error::from(kind)),
+                "{kind:?} 该被忽略，而不是关掉端口"
+            );
+        }
+        // 真正说明端口废了的错误必须上报。
+        for kind in [io::ErrorKind::AddrNotAvailable, io::ErrorKind::NotConnected] {
+            assert!(!is_retryable_recv_error(&io::Error::from(kind)), "{kind:?}");
+        }
+    }
+
+    // ── MuxedSocket::poll_recv ────────────────────────────────────────────
+    //
+    // 每个 DTLS / SCTP 字节都从这里过。loopback 测试只跑 ≤1200 字节的正常包，
+    // 走不到截断、零长、支路关闭这几条分支，只有这里能覆盖。
+
+    /// 只实现三个必需方法的桩，用来当 `MuxedSocket` 的共享 socket。
+    #[derive(Debug)]
+    struct DummyShared;
+
+    impl AsyncUdpSocket for DummyShared {
+        fn local_addr(&self) -> io::Result<SocketAddr> {
+            Ok("0.0.0.0:4003".parse().unwrap())
+        }
+        fn poll_send(&self, _: &mut Context<'_>, t: &Transmit<'_>) -> Poll<io::Result<usize>> {
+            Poll::Ready(Ok(t.contents.len()))
+        }
+        fn poll_recv(
+            &self,
+            _: &mut Context<'_>,
+            _: &mut [IoSliceMut<'_>],
+            _: &mut [RecvMeta],
+        ) -> Poll<io::Result<usize>> {
+            Poll::Pending
+        }
+    }
+
+    /// 造一条支路，返回投递端与 socket 本身。
+    fn branch() -> (mpsc::Sender<Datagram>, MuxedSocket) {
+        let (tx, rx) = mpsc::channel(BRANCH_CAPACITY);
+        (
+            tx,
+            MuxedSocket {
+                shared: Arc::new(DummyShared),
+                listen_addr: "0.0.0.0:4003".parse().unwrap(),
+                inbox: Mutex::new(rx),
+            },
+        )
+    }
+
+    /// poll 一次 `poll_recv`，返回 `(结果, 收到的 meta)`。
+    fn poll_once_recv(
+        socket: &MuxedSocket,
+        buf_len: usize,
+    ) -> (Poll<io::Result<usize>>, RecvMeta, Vec<u8>) {
+        let mut buf = vec![0u8; buf_len];
+        let mut meta = [RecvMeta::default(); 1];
+        let waker = std::task::Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        let out = {
+            let mut bufs = [IoSliceMut::new(&mut buf)];
+            socket.poll_recv(&mut cx, &mut bufs, &mut meta)
+        };
+        (out, meta[0], buf)
+    }
+
+    /// 常态：投什么收什么，`stride == len`（支路里不存在 GRO 合并）。
+    #[test]
+    fn branch_delivers_datagram_with_stride_equal_len() {
+        let (mut tx, socket) = branch();
+        let from: SocketAddr = "198.51.100.9:1234".parse().unwrap();
+        tx.try_send((b"hello".to_vec(), from)).unwrap();
+
+        let (out, meta, buf) = poll_once_recv(&socket, 2000);
+        assert!(matches!(out, Poll::Ready(Ok(1))));
+        assert_eq!(meta.len, 5);
+        assert_eq!(meta.stride, 5, "调用方拿 stride 去分段，必须等于 len");
+        assert_eq!(meta.addr, from);
+        assert_eq!(&buf[..5], b"hello");
+    }
+
+    /// 零长数据报的 `stride` 必须仍 ≥ 1——调用方拿它当除数。
+    #[test]
+    fn zero_length_datagram_still_reports_stride_at_least_one() {
+        let (mut tx, socket) = branch();
+        tx.try_send((Vec::new(), "198.51.100.9:1".parse().unwrap()))
+            .unwrap();
+
+        let (out, meta, _) = poll_once_recv(&socket, 2000);
+        assert!(matches!(out, Poll::Ready(Ok(1))));
+        assert_eq!(meta.len, 0);
+        assert_eq!(meta.stride, 1, "stride 为 0 会让调用方除零");
+    }
+
+    /// 装不下的数据报要**整个丢掉**，不能截断后当成合法包投出去。
+    ///
+    /// 截断出来的残包会被 DTLS/SCTP 静默拒绝，现象是「莫名丢包」且无日志。
+    #[test]
+    fn oversized_datagram_is_dropped_not_truncated() {
+        let (mut tx, socket) = branch();
+        let from: SocketAddr = "198.51.100.9:1".parse().unwrap();
+        tx.try_send((vec![0xAB; 3000], from)).unwrap();
+        tx.try_send((b"small".to_vec(), from)).unwrap();
+
+        // 超大的那个被跳过，直接拿到后面那个完整的包。
+        let (out, meta, buf) = poll_once_recv(&socket, 2000);
+        assert!(matches!(out, Poll::Ready(Ok(1))));
+        assert_eq!(meta.len, 5, "不该出现 len == 2000 的截断残包");
+        assert_eq!(&buf[..5], b"small");
+    }
+
+    /// 支路对端已 drop → `BrokenPipe`，让 driver 知道这条连接没了。
+    #[test]
+    fn closed_branch_reports_broken_pipe() {
+        let (tx, socket) = branch();
+        drop(tx);
+
+        let (out, ..) = poll_once_recv(&socket, 2000);
+        match out {
+            Poll::Ready(Err(e)) => assert_eq!(e.kind(), io::ErrorKind::BrokenPipe),
+            other => panic!("期望 BrokenPipe，实际 {other:?}"),
+        }
+    }
+
+    /// 支路空着时是 `Pending`，**不是** `Ok(0)`——后者会被读成「收到一个空包」。
+    #[test]
+    fn empty_branch_is_pending_not_zero_count() {
+        let (_tx, socket) = branch();
+        let (out, ..) = poll_once_recv(&socket, 2000);
+        assert!(matches!(out, Poll::Pending));
+    }
+
+    /// 调用方没给缓冲同样是「收不了」，而不是「收到 0 条」。
+    #[test]
+    fn empty_buffers_yield_pending_not_zero_count() {
+        let (mut tx, socket) = branch();
+        tx.try_send((b"x".to_vec(), "198.51.100.9:1".parse().unwrap()))
+            .unwrap();
+
+        let waker = std::task::Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        let out = socket.poll_recv(&mut cx, &mut [], &mut []);
+        assert!(matches!(out, Poll::Pending));
+    }
+
+    /// 支路只投单个数据报，所以如实申报「不会 GRO 合并」；GSO 则取决于真正发包的
+    /// 那个 socket，必须跟着它走。
+    #[test]
+    fn branch_reports_own_gro_and_delegates_gso() {
+        let (_tx, socket) = branch();
+        assert_eq!(socket.max_gro_segments(), 1);
+        assert_eq!(socket.max_gso_segments(), DummyShared.max_gso_segments());
     }
 }

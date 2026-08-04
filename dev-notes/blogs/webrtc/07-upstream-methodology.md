@@ -15,6 +15,7 @@
 | **webrtc** | [#824](https://github.com/webrtc-rs/webrtc/pull/824) | 抬高读缓冲默认值 | 自行关闭 |
 | | [#825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 回报本端通道（[第 05 篇](05-who-opened-this-channel.md)） | **已合并** |
 | | [#828](https://github.com/webrtc-rs/webrtc/pull/828) | 统计类型叫不出名字（[第 06 篇](06-remote-fingerprint-via-stats.md)） | **已合并** |
+| | [#850](https://github.com/webrtc-rs/webrtc/pull/850) | 实现自定义 `AsyncUdpSocket` 所需的两个 helper 是 `pub(crate)`（见文末后记） | 待审（2026-08-04 提） |
 | **rust-libp2p** | [#6558](https://github.com/libp2p/rust-libp2p/pull/6558) | websys 回调重入 panic | 待审 |
 | | [#6560](https://github.com/libp2p/rust-libp2p/pull/6560) | 协商 DataChannel 消息上限 | 待审 |
 | | [#6570](https://github.com/libp2p/rust-libp2p/pull/6570) | relay 无 reservation 时 panic | 自行关闭 |
@@ -186,6 +187,31 @@ cargo search webrtc --limit 1     # 期望 > 0.20.0-rc.4
 「能不能拆」。合并前那一版写的是 `gh pr view … --jq .state`，同样可判定——
 **条件会变，但永远保持可执行**：PR 合并后就把它换成版本号检查，而不是留着一条
 已经恒为真的旧条件。
+
+> **后记（2026-08-04）：这条还款条件在 4 天后兑现了。** `rtc` / `webrtc` 双双发布
+> 0.20.0 正式版（2026-07-31），上面那两条命令一跑就成立，两条 `[patch.crates-io]`
+> 连同这段注释整体删除，依赖回到普通版本号——**本仓的 git pin 从三条降到一条**（只剩
+> libp2p）。写下可判定条件的收益就在这一刻：不用重读五个 PR、不用回忆当初为什么 pin，
+> 跑两行命令即可确认。
+>
+> 拆 pin 不是零成本：正式版顺带把 `AsyncUdpSocket` 换成了 quinn 风格的 poll API，
+> `udp_mux` 得跟着改。适配过程中还查出**三个既有缺陷**（GRO 合并包一直没拆、瞬时读
+> 错误判据漏了 `ConnectionRefused`、读循环没有 burst 上限），前两个影响已发布的
+> v0.10.4 Linux 构建。这恰好印证了上面第 3 条（升 rev 必须走独立 PR + 全量测试）：
+> 这类改动躲在「换个版本号」背后，混进功能 PR 就再也二分不出来了。
+>
+> **第 12 个 PR 也是这么长出来的**：修那三个缺陷时发现，正确实现所需的
+> `gro_recv_buf_len`（缓冲尺寸公式）与 `is_retryable_socket_recv_error`（错误分类）
+> 都是 `pub(crate)`，下游只能照着源码抄——**而我两个都抄错了**（缓冲大 5.5 倍、
+> 错误集漏三个变体）。于是提了
+> [webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850)。
+>
+> 它的论据完全长在判断一那张表的最后一行（「上游行为与自己的文档矛盾」）：上游新增的
+> `examples/custom-runtime/README.md` 一边承诺「No `#[cfg]` edits, no fork, and **no
+> changes to library internals**」，一边把想做 production runtime 的人指向「照着
+> `src/runtime/tokio.rs` 抄」——而那份源码依赖的正是这两个私有 item。**自己踩的坑
+> 变成了论据本身**：不必论证「这个 API 应该公开」，只需指出「你们承诺了下游不用碰内部，
+> 但照文档做就得碰」。
 
 **2. 每条 pin 都要写清楚「为什么非它不可」。**
 注释里记的是症状、根因、以及不修会怎样——而不是「见 PR #137」。链接会失效，
