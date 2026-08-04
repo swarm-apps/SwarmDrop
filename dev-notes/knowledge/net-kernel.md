@@ -735,7 +735,7 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 | webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | **已 pin**（见下）；muxer 的 `local_channels` 仍保留，它是不变式不是补丁 |
 | webrtc-rs/**rtc** | [PR 138](https://github.com/webrtc-rs/rtc/pull/138) | `send()` 在通道 open 前/关闭后返回 `Ok` 但**静默丢数据**（issue 826） | **已 pin**；`data_channel::await_open` **无论如何都要留** |
 | webrtc-rs/webrtc | [PR 828](https://github.com/webrtc-rs/webrtc/pull/828) | 加 `remote_certificate_fingerprint`（issue 827） | **已 pin**，`remote_fingerprint()` 收成一行 |
-| webrtc-rs/webrtc | [PR 853](https://github.com/webrtc-rs/webrtc/pull/853) | `gro_recv_buf_len` / `is_retryable_socket_recv_error` 是 `pub(crate)`，实现自定义 `AsyncUdpSocket` 只能照源码抄 | **阻塞**（2026-08-04 提，待审）— 它是当前两条 webrtc pin 的唯一理由；合并后 `udp_mux.rs` 里我们抄的那两份可删。**原 #850（base=master）已 CLOSED**，维护者要求改投 `v0.20.x` 补丁线 |
+| webrtc-rs/webrtc | [PR 850](https://github.com/webrtc-rs/webrtc/pull/850) → [853](https://github.com/webrtc-rs/webrtc/pull/853) | `gro_recv_buf_len` / `is_retryable_socket_recv_error` 是 `pub(crate)`，实现自定义 `AsyncUdpSocket` 只能照源码抄 | **已拒绝（2026-08-04）** — driver 策略不属 socket 契约，`pub` 会冻结内部分配策略。上游改为把规则写进公开文档，本仓按文档在 `udp_mux.rs` 自持一份。两条 pin 随之删除 |
 | libp2p/rust-libp2p | [PR 6571](https://github.com/libp2p/rust-libp2p/pull/6571) | `Fingerprint::from_sdp_format` | 纯反哺 — 合并后 `protocol/addr.rs` 的手写解析可删 |
 | libp2p/rust-libp2p | [PR 6572](https://github.com/libp2p/rust-libp2p/pull/6572) | offer SDP 模板搬进 `libp2p-webrtc-utils` | 纯反哺 — 合并后 `native/direct/sdp.rs` 的模板副本可删 |
 
@@ -804,6 +804,23 @@ Noise prologue 绑定**双方**指纹（`libp2p-webrtc-noise:<client><server>`�
 | 2026-08-04 上午 | **删除** | 补丁随 0.20.0 正式版进 crates.io |
 | 2026-08-04 下午 | **重新 pin** | 等 [#850](https://github.com/webrtc-rs/webrtc/pull/850) 公开两个 helper |
 | 2026-08-04 晚 | pin 不变，**PR 改投** | 维护者要求投 `v0.20.x`（无 breaking change，合并后他自行 merge 回 master）→ 重开为 [#853](https://github.com/webrtc-rs/webrtc/pull/853)，#850 CLOSED。集成分支**没动**（那条绝不 force-push），故 `Cargo.toml` 的 rev 不变 |
+| 2026-08-04 深夜 | **再次删除，回 crates.io 0.20.0** | 上游拒绝公开那两个 helper（见下），pin 失去唯一理由 |
+
+**终局：两条 pin 已删，webrtc / rtc 都走 crates.io `0.20.0`。** 下面那段「等 API」的推理
+保留，因为结论被推翻的**方式**本身值得记：我们要的不是补丁而是「把内部函数提为 `pub`」，
+而这类请求的成败取决于**它是否属于对方的公开契约**，与它对下游多有用无关。维护者的划界是：
+`gro_recv_buf_len` / `is_retryable_socket_recv_error` 都由 **driver** 消费，而不是由
+`AsyncUdpSocket` 的**实现者**消费，所以它们是 driver 策略、不是 socket 契约的一部分；
+设成 `pub` 就等于把内部分配策略冻进 1.0 的兼容承诺。
+
+**但他接住了真实需求**：指出我们这种「一个 UDP socket 多路复用给多个 PeerConnection」的用法
+其实是在扮演 driver，本来就该自己拥有缓冲尺寸与错误分类；同时把两条规则补进了**公开文档**
+（commit `ef8ba660`）——`poll_recv` 的 `# Errors` 列出五个 transient 变体，
+`max_gro_segments` 的 `# Buffer sizing` 写死「合并段受路径 MTU 约束而非应用最大数据报」，
+并点名「跨连接多路复用的共享 socket 要在自己的循环里负责同样的 MTU 上界」。
+
+于是本仓按文档在 `udp_mux.rs` 自持一份（**不是照源码抄**），护栏是那个文件里的两条测试。
+这比 pin 一个 fork 更可持续：文档是契约，源码不是。
 
 第二次不是等修复，是**等一个新公开的 API**。`gro_recv_buf_len`（GRO 缓冲尺寸公式）
 与 `is_retryable_socket_recv_error`（读错误分类）在上游是 `pub(crate)`，而

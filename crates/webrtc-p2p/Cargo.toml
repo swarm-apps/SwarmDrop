@@ -38,18 +38,21 @@ unsigned-varint = { workspace = true }
 # 原生 RTCPeerConnection）。用 target 表而非 feature——feature 是加性的，双 target
 # 下会在 workspace unification 时互相污染。
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-# ⚠️ **0.21.0 目前 crates.io 上并不存在**，由根 `Cargo.toml` 的 `[patch.crates-io]`
-# 提供（fork 集成分支 = 上游 master + webrtc#853）。要的是 #853 公开出来的
-# `gro_recv_buf_len` / `is_retryable_socket_recv_error` —— 退出条件写在那段注释里。
+# 直接吃 crates.io，**没有任何 pin**。
 #
-# ⚠️ 那个提交投在上游 **`v0.20.x`** 补丁线上，所以很可能**先有 0.20.x 补丁版、后有
-# 0.21.0**。走那条路退出时，这里的版本号要**改回 0.20.x**，不是留着 0.21.0——
-# patch 一删就没人提供 0.21.0 了。
+# 2026-08-04 曾短暂 pin 过 fork 的集成分支，为的是提前用上
+# [webrtc#853](https://github.com/webrtc-rs/webrtc/pull/853)（原 #850）想公开的两个
+# helper。**上游拒绝公开**——它们是 driver 的分配/分类策略，不属于 `AsyncUdpSocket`
+# 契约，公开等于把内部策略冻进 1.0。理由成立，PR 已关，两条 patch 随之整段删除。
+#
+# 那两件事改由 `native/direct/udp_mux.rs` 自己持有，依据是上游同时补进公开文档的两条
+# 规则（`poll_recv` 的 `# Errors`、`max_gro_segments` 的 `# Buffer sizing`）。
+# 细节与护栏测试见那个文件顶部的注释块。
 #
 # ⚠️ **不要降回 0.20.0-rc.\***：本仓依赖的五个补丁（rtc #137 / #138 / #140、
 # webrtc #825 / #828）直到 0.20.0 正式版才进 crates.io。少了它们 direct 监听端起不来、
 # 数据面静默丢包，且全链路零报错——复盘见 `dev-notes/blogs/webrtc/`。
-webrtc = "0.21.0"
+webrtc = "0.20.0"
 # 只为**打开 pem feature**：`RTCCertificate::{from_pem, serialize_pem}` 挂在它下面，
 # 而 rtc 的默认 feature 不含 pem、`webrtc` 也没有透传它。direct 模式要把证书持久化
 # （certhash 写在 multiaddr 里，换一次证书存量地址就全失效），少了它做不到。
@@ -60,7 +63,7 @@ webrtc = "0.21.0"
 # **不要改成直接依赖 `rtc-ice` / `rtc-stun`。** 那样一旦两边解析到不同版本，同名类型
 # 就分叉成两个，报「expected rtc::rtc_ice::X, found rtc_ice::X」这种极绕的错
 # （曾经 rtc 被 `[patch]` 换成 git 源时必然如此）。经 `rtc::` 转一手就天然同源。
-rtc = { version = "0.21.0", features = ["pem"] }
+rtc = { version = "0.20.0", features = ["pem"] }
 # `RTCCertificate::from_key_pair` 收的是 `rcgen::KeyPair`，而 rtc 不 re-export rcgen，
 # 只能直接依赖。**版本必须与 rtc 同线**（当前 0.14），否则是两个不同的 `KeyPair` 类型。
 # `default-features = false`：加密后端（ring / aws-lc-rs）由 rtc 的 feature 决定，

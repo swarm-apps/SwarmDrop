@@ -435,21 +435,22 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 → 切版本号依赖。
   详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork 集成策略」。
   **升级 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
-- **webrtc-rs 两条 `[patch.crates-io]`：等 #853 合并发版。** 五个功能补丁
-  （rtc #137 / #138 / #140、webrtc #825 / #828）已随 **0.20.0 正式版**进 crates.io，
-  那两条 pin 一度删除；**2026-08-04 又加回来，理由不同**——不是等修复，是等一个新公开的
-  API：[webrtc#853](https://github.com/webrtc-rs/webrtc/pull/853) 把 `gro_recv_buf_len`
-  与 `is_retryable_socket_recv_error` 提为 `pub`。没有它们，`udp_mux` 就得自己抄一份，
-  而这两件事都没有反馈回路（缓冲算小了内核静默丢包、错误判据漏一种就把公网监听端口
-  永久关掉），本仓抄过一版**两个都抄错了**。
-  （原为 #850，base 是 master；维护者要求改投 `v0.20.x`——无 breaking change，合并后他
-  自行 merge 回 master。**#850 已 CLOSED**，查状态只看 #853。）
-  `rtc` 指官方仓库 submodule commit（无自有补丁），`webrtc` 指 fork 的
-  `swarmdrop-integration-0.21` = 上游 master + 该提交 + 一行「rtc 走 crates.io」适配。
-  ⚠️ **两者都是未发布的 0.21.0**，由 patch 提供；**那条集成分支不能 force-push**。
-  退出：#853 MERGED 且 crates.io 有含它的版本 → 整段删除。**很可能先来 0.20.x 补丁版**
-  （提交就投在那条线上），走那条路时 `crates/webrtc-p2p` 的版本号要**从 0.21.0 改回
-  0.20.x**；若 0.21.0 先发则版本号不动。
+- **webrtc-rs 现在零 pin，直接吃 crates.io `0.20.0`**（`rtc` 同版本）。五个功能补丁
+  （rtc #137 / #138 / #140、webrtc #825 / #828）已随 **0.20.0 正式版**进 crates.io。
+  2026-08-04 曾短暂 pin 过 fork 集成分支，为的是提前用上
+  [webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850) →
+  [#853](https://github.com/webrtc-rs/webrtc/pull/853) 想公开的
+  `gro_recv_buf_len` / `is_retryable_socket_recv_error`。**上游拒绝公开、PR 已关**：
+  它们是 driver 的分配/分类策略，不属于 `AsyncUdpSocket` 契约，`pub` 等于把内部策略冻进
+  1.0。理由成立，故两条 patch 整段删除、版本号退回 0.20.0。
+  那两件事改由 `crates/webrtc-p2p/src/backend/native/direct/udp_mux.rs` **自己持有**
+  （本 mux 把一个 UDP socket 多路复用给多个 PeerConnection，扮演的正是 driver 角色），
+  依据是上游同时补进公开文档的两条规则：`AsyncUdpSocket::poll_recv` 的 `# Errors`
+  （五个 transient 变体）与 `max_gro_segments` 的 `# Buffer sizing`（段长按路径 MTU
+  1500，不按应用最大数据报）。**两者都没有反馈回路**（缓冲算小了内核静默丢尾部段、
+  判据漏一种就把公网监听端口永久关掉），本仓最早那版两个都错了——那个文件里的两条护栏
+  测试是唯一的兜底，**改实现必须同时改测试**。
+  ⚠️ **别降回 `0.20.0-rc.*`**——rc 版不含五个补丁。
   ⚠️ **别降回 `0.20.0-rc.*`**——rc 版不含五个补丁，direct 监听端会起不来、数据面静默丢包。
   0.20.0 把 `AsyncUdpSocket` 换成 quinn 式 poll API，适配时连带修掉 `udp_mux` 三个既有
   缺陷（GRO 合并包没拆、判据漏 `ConnectionRefused` 使 Linux 监听端口可被远程掀掉、

@@ -15,7 +15,7 @@
 | **webrtc** | [#824](https://github.com/webrtc-rs/webrtc/pull/824) | 抬高读缓冲默认值 | 自行关闭 |
 | | [#825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 回报本端通道（[第 05 篇](05-who-opened-this-channel.md)） | **已合并** |
 | | [#828](https://github.com/webrtc-rs/webrtc/pull/828) | 统计类型叫不出名字（[第 06 篇](06-remote-fingerprint-via-stats.md)） | **已合并** |
-| | [#850](https://github.com/webrtc-rs/webrtc/pull/850) → [#853](https://github.com/webrtc-rs/webrtc/pull/853) | 实现自定义 `AsyncUdpSocket` 所需的两个 helper 是 `pub(crate)`（见文末后记） | 待审 — 改投 `v0.20.x` 后重开为 #853，#850 已关 |
+| | [#850](https://github.com/webrtc-rs/webrtc/pull/850) → [#853](https://github.com/webrtc-rs/webrtc/pull/853) | 实现自定义 `AsyncUdpSocket` 所需的两个 helper 是 `pub(crate)`（见文末后记） | **被拒** — 改投 `v0.20.x` 后仍被判为 driver 策略而非 socket 契约；上游改以文档承接，两条 pin 随之删除 |
 | **rust-libp2p** | [#6558](https://github.com/libp2p/rust-libp2p/pull/6558) | websys 回调重入 panic | 待审 |
 | | [#6560](https://github.com/libp2p/rust-libp2p/pull/6560) | 协商 DataChannel 消息上限 | 待审 |
 | | [#6570](https://github.com/libp2p/rust-libp2p/pull/6570) | relay 无 reservation 时 panic | 自行关闭 |
@@ -233,6 +233,29 @@ cargo search webrtc --limit 1     # 期望 > 0.20.0-rc.4
 > 连带一个容易漏的后果：投在 0.20.x 补丁线意味着**很可能先有 0.20.x 补丁版、后有
 > 0.21.0**，而集成分支基于 master（0.21.0）。所以退出时 `crates/webrtc-p2p` 的版本号
 > 要往**回**走到 0.20.x，不是留着 0.21.0——退出条件里写清楚了这一条。
+>
+> ### 结局：被拒了，而拒绝的方式比合并更有价值
+>
+> 改投当晚维护者给了结论：**不公开**。理由不在「这个函数好不好用」，而在**它属不属于
+> 公开契约**——两个 helper 都由 **driver** 消费，不由 `AsyncUdpSocket` 的**实现者**消费，
+> 所以它们是 driver 策略；设成 `pub` 等于把内部分配策略冻进 1.0 的兼容承诺。
+>
+> 这条划界是对的，而我此前的论据恰好没打在这上面。前面那节说「自己踩的坑变成了论据本身」
+> ——「你们承诺下游不用碰内部，但照文档做就得碰」——这个论据成立，但它证明的是**文档与
+> 实现之间有缺口**，不是**这两个 item 应该进公开 API**。缺口可以用文档补，不必用 `pub` 补。
+> 维护者正是这么做的：同一天补了 `poll_recv` 的 `# Errors`（列全五个 transient 变体）与
+> `max_gro_segments` 的 `# Buffer sizing`（写死「合并段受路径 MTU 约束，不受应用最大数据报
+> 约束」），并点名「跨连接多路复用的共享 socket 要在自己的循环里负责同样的 MTU 上界」。
+>
+> **提 API 公开请求前先问一句：我要的是「这段知识」还是「这个符号」？** 如果是前者，
+> 文档就够，而文档比 `pub` 更容易被接受——它不占兼容承诺的额度。这次真正缺的确实是知识
+> （MTU 上界规则、transient 错误集），拿到文档之后本仓自持一份实现完全够用，
+> 还顺带甩掉了一条 fork pin。
+>
+> 于是两条 patch 整段删除、`webrtc` / `rtc` 都退回 crates.io `0.20.0`，那两个函数回到
+> `udp_mux.rs`——**依据是文档而非源码**，护栏是随实现一起回来的两条测试。
+> 「宁可背一条 pin 也不维护复制品」那个判断在当时是对的（那时没有文档可依），
+> 拿到文档之后就不成立了：**可依据的规则**和**照抄的源码**是两回事，前者能自持，后者不能。
 
 **2. 每条 pin 都要写清楚「为什么非它不可」。**
 注释里记的是症状、根因、以及不修会怎样——而不是「见 PR #137」。链接会失效，
