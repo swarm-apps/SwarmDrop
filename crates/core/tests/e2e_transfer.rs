@@ -465,6 +465,40 @@ async fn e2e_single_file_transfer() {
         emitted_terminal_projection(&node_b),
         "接收方应发 Terminal/Completed projection（3.3 对称性）"
     );
+
+    // 回归锚点：传完之后**两侧**的 transferredBytes 都应等于文件大小。
+    //
+    // 发送方向曾经恒为 0：projection 的 transferredBytes 是文件级 SUM
+    // （`store::projection_of`），而发送侧的进度只活在内存 ProgressTracker 里——接收侧有
+    // `persist_chunk` 逐块增量落库，发送侧只在 pause / interrupted 两条终态路径批量落一次，
+    // **完成路径漏了**。表现是传完的会话在发送方 UI 上显示「已完成 0 B / 500 MB 0%」，
+    // 接收方同一条却是 100%（2026-08-04 Web 端双 origin 实测）。修复是让
+    // `SenderActor::on_completed` 与 `on_interrupted` 对称地先落进度再转终态。
+    let transferred = |node: &TestNode| {
+        node.host
+            .events()
+            .iter()
+            .filter_map(|e| match e {
+                CoreEvent::TransferProjection { projection }
+                    if projection.session_id == session_id
+                        && projection.phase == TransferPhase::Terminal =>
+                {
+                    Some(projection.transferred_bytes)
+                }
+                _ => None,
+            })
+            .next_back()
+    };
+    assert_eq!(
+        transferred(&node_a),
+        Some(data.len() as i64),
+        "发送方终态 projection 的 transferredBytes 应等于文件大小，而不是 0"
+    );
+    assert_eq!(
+        transferred(&node_b),
+        Some(data.len() as i64),
+        "接收方终态 projection 的 transferredBytes 应等于文件大小"
+    );
 }
 
 /// MCP 来源的传输完成后，接收端 inbox 应记为 `source_kind = Mcp`。
@@ -683,6 +717,60 @@ async fn e2e_delete_session_rejects_active_allows_terminal_and_suspended() {
             "{label}会话应已删除"
         );
     }
+}
+
+/// 回归锚点：**先到的 `Interrupted` 会把后到的 `RemotePaused` 永久挡在门外。**
+///
+/// `reduce_network` 的两条守卫都要求 `state.is_active()`，所以一旦 Interrupted 先把会话转成
+/// suspended，随后到达的 RemotePaused 就不再满足守卫、被静默丢弃——会话永远停在
+/// 「连接中断」而不是「对方暂停」。
+///
+/// 这正是 `pause_send` / `pause_receive` 里 **`notify_pause` 必须早于 cancel actor** 的
+/// 全部理由：关闭数据流不携带原因，对端只会当成 Interrupted，而控制帧要走一个 RTT，永远晚
+/// 一步。那不是偶发竞态，是确定性的顺序错误（2026-08-04 Web 端双 origin 实测：接收方显示
+/// 「连接中断」，console 里只有 `data channel 在完成前关闭`，没有任何暂停通知）。
+///
+/// 本测试**不主张这条守卫应该放宽**——放宽会让「某些 suspended 可被覆盖」渗进状态机语义。
+/// 它锁定的是后果，好让下一个想重排那两个函数的人先看到代价。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_interrupted_first_shuts_out_late_remote_paused() {
+    let db = make_db().await;
+    let host = MemoryHost::new();
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
+
+    let session_id = Uuid::new_v4();
+    seed_active_session(db.as_ref(), session_id, "peer").await;
+
+    // 数据流先断（本地立即生效）。
+    coordinator
+        .dispatch_network_current(session_id, NetworkSignal::Interrupted)
+        .await
+        .expect("dispatch interrupted")
+        .expect("active → suspended 应发生转换");
+
+    // 控制帧一个 RTT 之后才到——此时会话已非 active。
+    let transition = coordinator
+        .dispatch_network_current(session_id, NetworkSignal::RemotePaused)
+        .await
+        .expect("dispatch remote paused");
+    assert!(
+        transition.is_none(),
+        "会话已是 suspended，RemotePaused 不应再触发转换"
+    );
+
+    let p = ops::get_transfer_projection(db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        p.suspended_reason,
+        Some(SuspendedReason::Interrupted),
+        "迟到的 RemotePaused 覆盖不了 Interrupted —— 所以通知必须发在关流之前"
+    );
 }
 
 /// 轮 4 task 3.3：对端 Pause/Cancel 经 `dispatch_network_current` 写"对端"reason，

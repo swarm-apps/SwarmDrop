@@ -1061,3 +1061,57 @@ core 的系统通知从 `NotificationRequest{title,body}`（拼好的中文散�
 把后者并进前者，等于把配对授权判据交给对端自报。
 
 **相关文件**：`crates/core/src/device_manager.rs`、`crates/host/src/device.rs`
+
+## 暂停必须「先告知对端，再关流」——关闭数据流不携带原因
+
+`pause_send` / `pause_receive` 里 **`notify_pause` 必须排在 cancel actor 之前**。这不是风格
+偏好，是因果约束：
+
+- 关闭数据流这个动作本身**不携带原因**，对端只看到「流没了」，按
+  [`NetworkSignal::Interrupted`] 处理；
+- 而 `reduce_network` 的两条守卫都要求 `state.is_active()`——先到的 Interrupted 把会话钉死在
+  `suspended(Interrupted)` 之后，随后到达的 `RemotePaused` 守卫不满足、**被静默丢弃**。
+
+`cancel()` 是本地立即生效，控制帧要走一个 RTT，所以旧顺序下 Interrupted **永远**先到。
+这不是偶发竞态而是确定性错误。表现是对端 UI 显示「连接中断」而非「对方暂停」，用户转头去查
+网络——`SUSPENDED_LABEL` 那条注释早就写过这个误导，只是没人想到暂停路径自己会踩中。
+2026-08-04 Web 端双 origin 实测确认：接收方 console 里只有
+`data channel 在完成前关闭`，没有任何暂停通知。
+
+修复后的顺序（两个方向一致）：
+
+1. `dispatch(Pause)` —— 本机状态先转，UI 立即响应，不必等 RTT
+2. `notify_pause` —— 告知对端，等 Ack
+3. cancel actor
+4. 落进度（仅发送方向）→ remove actor
+
+第 1、2 步之间 actor 仍在发数据，两条路都安全：若这期间恰好传完则转 completed（用户确实晚了
+一步）；若因对端已 suspended 而写入失败，`on_interrupted` 的 Interrupted 也会因本机已非
+active 被忽略。
+
+**不要改成放宽 `reduce_network` 的守卫来容忍乱序**——那会让「某些 suspended 可被覆盖」渗进
+状态机语义，而真正的问题是发送方没在关流前说明意图。锚点测试
+`e2e_interrupted_first_shuts_out_late_remote_paused` 锁的就是这条推导。
+
+**相关文件**：`crates/transfer/src/flow/send.rs`、`crates/transfer/src/flow/receive.rs`、
+`crates/transfer/src/coordinator.rs`
+
+## 发送侧进度只在终态批量落库，完成路径曾经漏了
+
+projection 的 `transferredBytes` 是**文件级 SUM**（`store::projection_of`），而两个方向的进度
+落库方式不对称：
+
+| 方向 | 落库方式 |
+|---|---|
+| 接收 | `persist_chunk` 逐块增量落库，任何时刻都是准的 |
+| 发送 | 只活在内存 `ProgressTracker`，仅在**终态路径**批量落一次 |
+
+于是发送方向每多一条终态路径，就多一个「忘了落库」的机会。`on_completed` 就漏了——传完的会话
+在发送方 UI 上显示「已完成 0 B / 500 MB 0%」，接收方同一条却是 100%（文件本身是好的，
+hash 一致，纯显示问题）。
+
+修复是让 `on_completed` 与 `on_interrupted` **对称**：都先落进度再转终态。新增发送侧终态路径
+时照这个模式来。回归锚点在 `e2e_single_file_transfer` 尾部（断言两侧 transferredBytes 都等于
+文件大小）。
+
+**相关文件**：`crates/transfer/src/actor/sender.rs`、`crates/transfer/src/wire/data_plane.rs`

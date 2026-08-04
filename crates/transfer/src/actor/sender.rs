@@ -280,7 +280,29 @@ impl SenderActor {
     ///
     /// session 终态经状态机 `dispatch(Actor{epoch, Completed})`，享受 epoch + terminal
     /// 不可逆守卫（旧 epoch / 已取消的会话不被覆盖）；仅真正转入 completed 才发完成事件。
-    pub async fn on_completed(&self, epoch: i64, coordinator: &TransferCoordinator) {
+    ///
+    /// **落进度与 [`on_interrupted`](Self::on_interrupted) 对称，不是可选步骤。**
+    /// 发送侧的进度只活在内存 `ProgressTracker` 里——接收侧有 `persist_chunk` 逐块增量
+    /// 落库，发送侧没有对应物，只在几个终态路径批量落一次。完成路径此前漏了这一步，于是
+    /// `transfer_file.transferred_bytes` 永远停在 0，而 projection 的 `transferredBytes`
+    /// 是**文件级 SUM**（见 `store::projection_of`），结果传完的会话在发送方 UI 上显示成
+    /// 「已完成 0 B / 500 MB 0%」，接收方同一条却是 100%（2026-08-04 实测，三条会话无一例外）。
+    pub async fn on_completed(
+        &self,
+        epoch: i64,
+        coordinator: &TransferCoordinator,
+        store: &dyn SessionStore,
+    ) {
+        let progress = self.get_file_progress();
+        if let Err(error) = store
+            .save_sender_file_progress(self.session_id, &progress)
+            .await
+        {
+            warn!(
+                "保存发送方完成进度失败: session={}, error={}",
+                self.session_id, error
+            );
+        }
         match coordinator
             .dispatch(
                 self.session_id,

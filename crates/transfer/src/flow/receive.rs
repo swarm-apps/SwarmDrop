@@ -228,22 +228,28 @@ impl TransferManager {
         Ok(())
     }
 
+    /// 暂停一条接收会话。
+    ///
+    /// 顺序与 [`pause_send`](Self::pause_send) 一致，**`notify_pause` 必须早于关闭 actor**
+    /// ——完整推导写在那里，一句话是：关流不携带原因，对端只会当成 `Interrupted`，而那条
+    /// 守卫先满足之后 `RemotePaused` 就再也进不来了。
+    ///
+    /// 接收方向不必落进度：文件进度由 `persist_chunk` 增量落库，projection 的
+    /// transferredBytes 直接 SUM 文件级，本来就是准的。
     pub async fn pause_receive(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
             .get_receive_actor(session_id)
             .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
 
-        session.cancel_and_wait().await;
-        // projection 的 transferredBytes 直接 SUM 文件级（文件进度已增量落库），
-        // 无需在 dispatch 前手工 sync session 级。
         self.coordinator
             .dispatch(
                 *session_id,
                 crate::coordinator::CoordinatorInput::User(crate::coordinator::UserCommand::Pause),
             )
             .await?;
-        self.remove_receive_actor(session_id);
         self.notify_pause(session.peer_id, *session_id).await;
+        session.cancel_and_wait().await;
+        self.remove_receive_actor(session_id);
 
         info!("Receive session paused: session={}", session_id);
         Ok(())

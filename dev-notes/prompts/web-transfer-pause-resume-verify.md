@@ -26,10 +26,14 @@
 
 - `initiate_resume` 是一次**协议往返**——ResumeProbe → 校验 report → 注册新 epoch actor →
   ResumeCommit → dispatch `ResumeCommitted` → spawn 数据面。静态审查覆盖不到时序与
-  epoch 守卫。
-- 发送方向恢复要**重建 SenderActor**：从 DB 行重建 `prepared_files`，outboard 缺失时
-  按源文件重算（`build_sender_actor_for_resume`）。浏览器上源文件是 `File` 句柄，
-  这条重算路径没被跑过。
+  epoch 守卫。**这是本任务真正的风险所在。**
+- 发送方向恢复要**重建 SenderActor**（`build_sender_actor_for_resume`）：从 DB 行重建
+  `prepared_files`。
+
+> ⚠️ **2026-08-04 更正**：本文早先把「outboard 缺失时按源文件重算」列为最大未验风险，
+> 说那条路径在浏览器上没跑过。查证后不成立——那段代码有 `if pf.outboard.is_empty()` 守卫，
+> 而 `flow/send.rs` 在发送启动时就 `save_file_outboard`、Web 实现是写内存，同页面暂停时
+> outboard 一直在。**同页面续传根本不会走重算路径**，验证时不必围着它转。
 
 推导（为什么浏览器上恢复得了、以及恢复不了的那一半）写在 `crates/web/src/node.rs`
 的 `pause_send` 文档注释里，先读它再动手。
@@ -42,11 +46,20 @@
 ### 1. 本地 relay
 
 ```bash
+# ⚠️ external-ip 必须是本机局域网 IP（`ipconfig getifaddr en0`），不能是 127.0.0.1
 cargo run -p swarm-bootstrap -- run \
-  --external-ip 127.0.0.1 --listen-ip 127.0.0.1 \
+  --external-ip 192.168.x.x --listen-ip 0.0.0.0 \
   --tcp-port 14001 --quic-port 14001 --webrtc-port 14003 \
   --key-file /tmp/relay/identity.key --webrtc-cert-file /tmp/relay/webrtc.pem
 ```
+
+> **2026-08-04 更正：本文早先写的 `--external-ip 127.0.0.1` 配对走不通。**
+> `select_invite_addrs`（`crates/core/src/pairing/manager.rs:50`）第一步就把
+> `is_loopback_or_unspecified()` 的地址整条丢弃，而 circuit 地址的外层就是 relay 的 IP
+> ——relay 挂在 loopback 上，A 的三条 circuit 地址会被全部过滤，**邀请里一个地址都不剩**。
+> 症状是 B 侧报 `Network error: 发送配对请求失败: dial failed: Dial error: no addresses
+> for peer.`，而两端 `relay_ready` 都是 true、circuit 也确实建起来了，极易误判成 relay 挂了。
+> 一眼可判的自检点：**邀请串长度**。带地址的约 600 字符，不带的只有 ~230。
 
 首次编译几分钟。日志里 grep「已公告公网地址」拿 webrtc-direct multiaddr，**末尾补
 `/p2p/<relay 的 PeerId>`**（PeerId 在启动日志里，`12D3Koo…`）。
@@ -103,23 +116,81 @@ A 若同时连着公网 relay，邀请里就有两条 circuit 地址，对端会
 
 ## 验收标准
 
+> **2026-08-04 已执行**（Chrome 双 origin，500 MB 文件，本地 relay）。下面的勾选是实测结果。
+
 发送方向（A 暂停自己发出的会话）：
 
-- [ ] 点「暂停」后 A 侧 phase → `suspended`、suspendedReason → `local_paused`，
-      「暂停」按钮换成「续传」
-- [ ] B 侧同一会话也转 suspended（`notify_pause` 通知到位），reason 是 `remote_paused`
-- [ ] 点「续传」后两侧回到 `active`，**字节从断点继续而不是从 0 重来**
-      （看 `transferredBytes` 与逐文件进度）
-- [ ] 续传后 `epoch` 递增（事件日志里看 projection）
-- [ ] 传完后收件箱条目正常、文件可下载且内容正确（比对 hash）
-- [ ] **暂停后刷新 A 的页面：会话消失，不给「续传」按钮**——这是预期行为不是 bug
-      （非终态发送会话不落 IndexedDB，详情侧那句提示说的就是它）
+- [x] 点「暂停」后 A 侧 phase → `suspended`、suspendedReason → `local_paused`，
+      「暂停」按钮换成「续传」。实测停在 `128.0 MB / 500.0 MB 26%`，
+      日志 `Send session paused: session=8126ea46…`
+- [ ] ~~B 侧同一会话也转 suspended，reason 是 `remote_paused`~~
+      **未通过**：B 转的是 `interrupted`（UI 显示「连接中断」）。B 的 console 里
+      没有任何暂停通知，只有
+      `WARN swarmdrop_net::router: protocol handler failed
+      protocol=/swarmdrop/transfer-data/2 error=Transfer error: data channel 在完成前关闭`
+      ——B 是靠数据通道被关自己推断的。详见下面「实测发现的缺陷」
+- [x] 点「续传」后回到 `active`，**字节从断点继续而不是从 0 重来**：
+      26% 暂停 → 续传后 46% → 直至 B 侧 `500.0 MB / 500.0 MB 100%`。
+      日志 `发送方发起探测式恢复: session=8126ea46…`
+- [x] 传完后文件内容正确：B 的 OPFS 里 `big5.bin` 大小 524288000 字节、
+      sha256 `2abe04d7…496a04`，与源文件**逐字节一致**。断点拼接没有错位/重复/丢失
+- [x] **刷新 A 的页面：非终态发送会话消失，只剩终态的**——预期行为不是 bug
+      （非终态发送会话不落 IndexedDB）
+- [x] 刷新前浏览器**弹出离开确认**（`ReloadGuard` 的 `beforeunload`）。
+      验证手法：`beforeunload` 会被自动接受、看不到弹窗，改用合成事件断言
+      `const ev = new Event('beforeunload', {cancelable: true});
+      window.dispatchEvent(ev); ev.defaultPrevented`。
+      **同一页面同一次加载**下的对照：只有终态会话 → `false`；发出一条非终态发送会话后
+      → `true`。⚠️ 测完记得刷新页面清掉自己注册的探针监听器，否则下一轮的
+      `defaultPrevented` 是被自己污染的
+- [x] 只有接收/终态会话时**不拦截**（B 侧实测 `false`）——接收方向续得上，拦截纯打扰
+- [x] 传输**进行中**（不只 suspended）详情侧就显示「这条发送只能在本页完成…」提示条；
+      `waiting_accept` 阶段同样显示
 
 接收方向（B 暂停自己在收的会话）：
 
 - [ ] 暂停 → 续传同样走通
 - [ ] **暂停后刷新 B 的页面：会话仍在**（suspended 的接收会话 `worth_persisting`），
       「续传」可点且能续上——OPFS 里的半成品与 checkpoint 都还在
+
+## 实测发现的缺陷（2026-08-04，**当天已修**）
+
+> 两条都已定位根因并修复，附回归测试；下面保留现象与推导。修复要点入库
+> [`rust-backend.md`](../knowledge/rust-backend.md)。
+>
+> - **1** → `pause_send` / `pause_receive` 把 `notify_pause` 提到 cancel actor 之前。
+>   锚点测试 `e2e_interrupted_first_shuts_out_late_remote_paused`。
+> - **2** → `SenderActor::on_completed` 与 `on_interrupted` 对称地先落进度再转终态。
+>   锚点测试在 `e2e_single_file_transfer` 尾部（回退修复后确实红：`left: Some(0)`）。
+>
+> **浏览器复验已完成**（2026-08-04 当天，重建 wasm + 双 origin + 500 MB）：
+>
+> - 暂停后 A「本机暂停 154.3 MB / 500.0 MB 31%」，**B「对方暂停 149.0 MB / 500.0 MB 30%」**
+>   ——修复前这里是「连接中断」；
+> - 续传 31% → 68% → 完成，**两侧都是「已完成 500.0 MB / 500.0 MB 100%」**
+>   ——修复前发送方是「0 B / 0%」；
+> - 接收文件 sha256 `37bd7e58…ce625`，与源文件一致。
+>
+> ⚠️ 改了 `crates/transfer` 之类被 `crates/web` 依赖的 crate 后，**必须先
+> `pnpm build:wasm` 再 `pnpm build`**，否则浏览器加载的还是旧 wasm，验的是修复前的代码。
+
+### 1. `notify_pause` 没到对端，接收方被显示成「连接中断」
+
+发送方暂停后，接收方 console 里**没有任何暂停通知**，只有数据通道被关的 warn。于是 B 侧
+`suspendedReason` 落成 `interrupted`、UI 显示「连接中断」，而不是 `remote_paused`「对方暂停」。
+
+后果不是显示不精确而已：`SUSPENDED_LABEL` 那条注释自己说过「说成中断会让用户以为出了故障，
+转头去查网络」——这里正好踩中。用户看到「连接中断」会去排查 WiFi，实际上对面只是按了暂停。
+
+排查从发送侧的 `notify_pause` 调用点开始，确认它是否真的发了帧、以及接收侧
+`transfer-data` 协议处理器是不是在收到暂停帧之前就因通道关闭而退出了。
+
+### 2. 发送侧终态 projection 的 `transferredBytes` 不回填
+
+传完之后 A 侧列表显示 `big5.bin 已完成 发送 0 B / 500.0 MB 0%`，而 B 侧同一条是
+`500.0 MB / 500.0 MB 100%`。文件本身是好的（hash 一致），纯显示问题：发送方向的会话进终态时
+没把最终字节数写回 projection，于是 `transferSample` 的「终态一律以 projection 为准」拿到的是
+一个从没被更新过的 0。三条会话（120 MB / 300 MB / 500 MB）无一例外。
 
 ## 失败时去哪看
 

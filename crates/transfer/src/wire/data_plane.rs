@@ -88,7 +88,9 @@ impl TransferManager {
             actors.remove_send_if_epoch(&session_id, epoch);
             match result {
                 Ok(()) => {
-                    session.on_completed(epoch, coordinator.as_ref()).await;
+                    session
+                        .on_completed(epoch, coordinator.as_ref(), store.as_ref())
+                        .await;
                 }
                 Err(e) if session.cancel_token().is_cancelled() => {
                     info!("transfer-data 发送任务已取消: session={session_id}, {e}");
