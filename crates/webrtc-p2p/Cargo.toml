@@ -38,11 +38,14 @@ unsigned-varint = { workspace = true }
 # 原生 RTCPeerConnection）。用 target 表而非 feature——feature 是加性的，双 target
 # 下会在 workspace unification 时互相污染。
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-# ⚠️ **0.20.0 是硬下限，不要降回任何 0.20.0-rc.\***：本仓依赖的五个补丁
-# （rtc #137 / #138 / #140、webrtc #825 / #828）直到 0.20.0 正式版才进 crates.io。
-# 少了它们 direct 监听端起不来、数据面静默丢包，且全链路零报错——复盘见
-# `dev-notes/blogs/webrtc/`。
-webrtc = "0.20.0"
+# ⚠️ **0.21.0 目前 crates.io 上并不存在**，由根 `Cargo.toml` 的 `[patch.crates-io]`
+# 提供（fork 集成分支 = 上游 master + webrtc#850）。要的是 #850 公开出来的
+# `gro_recv_buf_len` / `is_retryable_socket_recv_error` —— 退出条件写在那段注释里。
+#
+# ⚠️ **不要降回 0.20.0-rc.\***：本仓依赖的五个补丁（rtc #137 / #138 / #140、
+# webrtc #825 / #828）直到 0.20.0 正式版才进 crates.io。少了它们 direct 监听端起不来、
+# 数据面静默丢包，且全链路零报错——复盘见 `dev-notes/blogs/webrtc/`。
+webrtc = "0.21.0"
 # 只为**打开 pem feature**：`RTCCertificate::{from_pem, serialize_pem}` 挂在它下面，
 # 而 rtc 的默认 feature 不含 pem、`webrtc` 也没有透传它。direct 模式要把证书持久化
 # （certhash 写在 multiaddr 里，换一次证书存量地址就全失效），少了它做不到。
@@ -53,7 +56,7 @@ webrtc = "0.20.0"
 # **不要改成直接依赖 `rtc-ice` / `rtc-stun`。** 那样一旦两边解析到不同版本，同名类型
 # 就分叉成两个，报「expected rtc::rtc_ice::X, found rtc_ice::X」这种极绕的错
 # （曾经 rtc 被 `[patch]` 换成 git 源时必然如此）。经 `rtc::` 转一手就天然同源。
-rtc = { version = "0.20.0", features = ["pem"] }
+rtc = { version = "0.21.0", features = ["pem"] }
 # `RTCCertificate::from_key_pair` 收的是 `rcgen::KeyPair`，而 rtc 不 re-export rcgen，
 # 只能直接依赖。**版本必须与 rtc 同线**（当前 0.14），否则是两个不同的 `KeyPair` 类型。
 # `default-features = false`：加密后端（ring / aws-lc-rs）由 rtc 的 feature 决定，

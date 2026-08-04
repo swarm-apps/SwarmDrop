@@ -42,26 +42,16 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use rtc::stun::attributes::ATTR_USERNAME;
 use rtc::stun::message::{Message as StunMessage, is_stun_message};
+// `gro_recv_buf_len` / `is_retryable_socket_recv_error` 是 webrtc-rs 自己的 driver 用的
+// 那两份，经 [webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850) 公开出来。
+//
+// **不要在本仓重新实现它们。** 这两件事都没有反馈回路：缓冲算小了内核静默丢尾部段、
+// 错误判据漏一种就把公网监听端口永久关掉，两者都不会报错。本仓抄过一版，两个都抄错了
+// （缓冲大 5.5 倍、错误集漏三个变体），那正是提 #850 的起因。
 use webrtc::runtime::{
     AsyncInterval, AsyncTcpListener, AsyncTcpStream, AsyncUdpSocket, JoinHandle, RecvMeta, Runtime,
-    Transmit,
+    Transmit, gro_recv_buf_len, is_retryable_socket_recv_error,
 };
-
-/// 单个数据报的接收上限。WebRTC 的包远小于此（受 MTU 约束），取值对齐官方实现。
-const RECEIVE_MTU: usize = 8192;
-
-/// GRO 单段的长度上限，等于一个路径 MTU——**合并出来的段不可能比这更大**。
-///
-/// 用它而不是 [`RECEIVE_MTU`] 去乘段数：后者是「单个数据报的上限」，拿来当段长会把
-/// 缓冲算大 5 倍多（64 段时 512 KiB vs 94 KiB）。取值对齐 webrtc-rs 的
-/// `GRO_RECV_SEGMENT_LEN`。
-const GRO_SEGMENT_LEN: usize = 1500;
-
-/// 一次读最多接受多少个 GRO 段。
-///
-/// 同时是**分配上限**：`max_gro_segments()` 来自 `AsyncUdpSocket` 实现，不该被直接
-/// 当成分配乘数。取值对齐 webrtc-rs 的 `MAX_GRO_SEGMENTS`（内核的合并上限）。
-const MAX_GRO_SEGMENTS: usize = 64;
 
 /// 一次 [`UdpMux::poll`] 最多连续读多少轮就让出。
 ///
@@ -96,10 +86,10 @@ pub(crate) struct UdpMux {
     announced: HashSet<String>,
     /// 复用的接收缓冲。
     ///
-    /// 尺寸**必须**按 GRO 上限放大（见 [`AsyncUdpSocket::max_gro_segments`]）：内核会把
-    /// 同一对端的多个数据报合并进一条 message，装不下的部分是**被丢掉**而不是留到下次读。
-    /// 所以这里不能为了省内存去缩小它——Linux 上 64 段即约 94 KiB，而一个监听端口
-    /// 只有一份。无 GRO 的平台（macOS / Windows）退化成一个 [`RECEIVE_MTU`]。
+    /// 尺寸由上游的 [`gro_recv_buf_len`] 按 [`AsyncUdpSocket::max_gro_segments`] 算出：
+    /// 内核会把同一对端的多个数据报合并进一条 message，装不下的部分是**被丢掉**而不是
+    /// 留到下次读。所以这里不能为了省内存去缩小它——Linux 上 64 段即约 94 KiB，而一个
+    /// 监听端口只有一份。无 GRO 的平台（macOS / Windows）退化成 [`UDP_RECV_BUF_LEN`]。
     recv_buf: Vec<u8>,
     /// 已从内核收下、尚未分流完的数据报。
     ///
@@ -214,7 +204,9 @@ impl UdpMux {
                 let mut bufs = [IoSliceMut::new(&mut self.recv_buf)];
                 match futures::ready!(self.socket.poll_recv(cx, &mut bufs, &mut meta)) {
                     Ok(count) => count,
-                    Err(e) if is_retryable_recv_error(&e) => {
+                    // 判据交给上游那份：漏一种就把公网监听端口永久关掉，
+                    // 而 `ConnectionRefused`（Linux 的 ICMP port unreachable）最容易漏。
+                    Err(e) if is_retryable_socket_recv_error(&e) => {
                         tracing::debug!("忽略瞬时读错误：{e}");
                         continue;
                     }
@@ -306,38 +298,6 @@ impl UdpMux {
             }
         }
     }
-}
-
-/// 接收缓冲该多大——**必须装得下内核一次能合并出来的全部段**。
-///
-/// 装不下的尾部段是被内核**丢掉**的，不会留到下次读，所以这个值宁大勿小。
-/// 但也不能拿 [`RECEIVE_MTU`] 当段长去乘：GRO 的段不会超过一个路径 MTU
-/// （见 [`GRO_SEGMENT_LEN`]）。算法对齐 webrtc-rs 的 `gro_recv_buf_len`。
-fn gro_recv_buf_len(max_gro: usize) -> usize {
-    // 无 GRO 的平台（macOS / Windows）按单个数据报的上限来，这也是本函数的下限：
-    // 即便有 GRO，一条 message 也至少要装得下一个完整数据报。
-    (max_gro.min(MAX_GRO_SEGMENTS) * GRO_SEGMENT_LEN).max(RECEIVE_MTU)
-}
-
-/// 这个读错误是不是「某个对端的事」，而不是「端口废了」。
-///
-/// ⚠️ **判据必须与 webrtc-rs 的 `is_retryable_socket_recv_error` 保持一致。** 漏一种就
-/// 意味着：一次本该忽略的瞬时错误会顺着 `UdpMuxEvent::Error` 冒到 `Transport::poll`，
-/// 那里会 `listeners.remove()` 并发 `ListenerClosed`——**公网 4003 端口就此消失，
-/// 进程活着但再没人能连进来**，也没有重试路径。
-///
-/// 尤其是 `ConnectionRefused`：ICMP port unreachable 在 **Linux 上是这个**，
-/// Windows 上才是 `ConnectionReset`。只认后者等于在 Linux 上留了个远程可触发的开关
-/// ——随便哪个对端关掉进程，回来的 ICMP 就能掀掉整个监听端口。
-fn is_retryable_recv_error(e: &io::Error) -> bool {
-    matches!(
-        e.kind(),
-        io::ErrorKind::Interrupted            // 信号打断 recvmsg（EINTR）
-            | io::ErrorKind::WouldBlock       // 没数据；poll 式 socket 下不该出现，兜底
-            | io::ErrorKind::ConnectionRefused // ICMP port unreachable（Linux）
-            | io::ErrorKind::ConnectionReset  // 同上（Windows）
-            | io::ErrorKind::TimedOut
-    )
 }
 
 /// 把一次 `poll_recv` 填好的缓冲切成一个个数据报，追加到 `out`。
@@ -596,6 +556,7 @@ impl Runtime for MuxedRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use webrtc::runtime::UDP_RECV_BUF_LEN;
 
     /// 造一条最小的 STUN binding request，USERNAME = `<local>:<remote>`。
     fn stun_with_username(username: &str) -> Vec<u8> {
@@ -702,7 +663,7 @@ mod tests {
     #[test]
     fn trailing_buffer_space_is_not_emitted() {
         let mut buf = b"hi".to_vec();
-        buf.resize(RECEIVE_MTU, 0);
+        buf.resize(UDP_RECV_BUF_LEN, 0);
         assert_eq!(split(&buf, &meta(2, 2)), vec![b"hi".to_vec()]);
     }
 
@@ -717,43 +678,9 @@ mod tests {
         assert_eq!(split(b"abc", &meta(usize::MAX, 8)), vec![b"abc".to_vec()]);
     }
 
-    /// 缓冲尺寸要装得下内核一次能合并出来的全部段，且不拿单包上限当段长去乘。
-    #[test]
-    fn gro_buf_sized_by_segment_not_by_mtu() {
-        // 无 GRO：退化成单个数据报的上限。
-        assert_eq!(gro_recv_buf_len(1), RECEIVE_MTU);
-        // 有 GRO：按段长乘段数，而不是 RECEIVE_MTU * 段数（那会大 5 倍多）。
-        assert_eq!(gro_recv_buf_len(64), 64 * GRO_SEGMENT_LEN);
-        // `max_gro_segments()` 来自 socket 实现，不能直接当分配乘数。
-        assert_eq!(
-            gro_recv_buf_len(usize::MAX),
-            MAX_GRO_SEGMENTS * GRO_SEGMENT_LEN
-        );
-    }
-
-    /// 判据漏一种，公网监听端口就会被一次瞬时错误永久掀掉。
-    ///
-    /// `ConnectionRefused` 尤其关键：ICMP port unreachable 在 **Linux 上是它**，
-    /// 只认 Windows 的 `ConnectionReset` 等于留了个远程可触发的开关。
-    #[test]
-    fn transient_recv_errors_do_not_kill_the_listener() {
-        for kind in [
-            io::ErrorKind::Interrupted,
-            io::ErrorKind::WouldBlock,
-            io::ErrorKind::ConnectionRefused,
-            io::ErrorKind::ConnectionReset,
-            io::ErrorKind::TimedOut,
-        ] {
-            assert!(
-                is_retryable_recv_error(&io::Error::from(kind)),
-                "{kind:?} 该被忽略，而不是关掉端口"
-            );
-        }
-        // 真正说明端口废了的错误必须上报。
-        for kind in [io::ErrorKind::AddrNotAvailable, io::ErrorKind::NotConnected] {
-            assert!(!is_retryable_recv_error(&io::Error::from(kind)), "{kind:?}");
-        }
-    }
+    // 缓冲尺寸与读错误判据的测试**不在这里**——那两份实现已随
+    // [webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850) 回到上游，
+    // 测试跟着走（`gro_buf_tests` / `recv_error_tests`）。本仓只负责正确调用它们。
 
     // ── MuxedSocket::poll_recv ────────────────────────────────────────────
     //

@@ -623,7 +623,11 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 > **webrtc-rs 那五条已全部出清**（下表标「已 pin」/「阻塞」的 rtc·webrtc 条目）：
 > 补丁 2026-07-29 合并进上游 master，2026-07-31 随 **0.20.0 正式版**发到 crates.io，
 > 本仓的两条 `[patch.crates-io]` 于 2026-08-04 整段删除。表里的「已 pin」现在读作
-> 「已在 0.20.0 里」。**剩下的 pin 只有 libp2p 一处。**
+> 「已在 0.20.0 里」。
+>
+> ⚠️ **当天下午两条 pin 又加回来了，但与这五个补丁无关**——是为了等
+> [#850](https://github.com/webrtc-rs/webrtc/pull/850) 公开两个 helper，见下面
+> 「webrtc 的 fork pin：删掉又加回来」。别把它读成「五个补丁又退回去了」。
 
 | 仓 | 编号 | 内容 | 对本仓的意义 |
 |---|---|---|---|
@@ -692,16 +696,39 @@ Noise prologue 绑定**双方**指纹（`libp2p-webrtc-noise:<client><server>`�
 「一端看到的 remote == 另一端的 local」，防的是取反了还静默通过——
 拿本端指纹去做 pin 校验等于自己跟自己比，会接受任何 peer。
 
-### ~~webrtc 也 pin 了 fork（2026-07-28）~~ → 已于 2026-08-04 解除
+### webrtc 的 fork pin：删掉又加回来（2026-08-04）
 
-**两条 `[patch.crates-io]`（`rtc` + `webrtc`）都已删除**，依赖是普通的
-`rtc = "0.20.0"` / `webrtc = "0.20.0"`，声明在 `crates/webrtc-p2p/Cargo.toml`。
+时间线值得记清楚，因为**两次 pin 的理由完全不同**：
 
-保留这段是因为**同源约束本身没变**，只是不再靠 patch 维持：`webrtc` 与 `webrtc-p2p`
-必须解析到**同一份** `rtc`，否则两个 source id = 两个互不兼容的同名 crate，`webrtc`
-返回的类型对不上 `use rtc::...` 的类型，直接编译失败。crates.io 上的 `webrtc 0.20.0`
-声明 `rtc = "^0.20.0"`（发布版剥掉了上游 master 里指向 submodule 的 `path`），
-所以现在天然同源——**这也正是能删掉 fork 的前提**，当初那一行本地改动做的就是这件事。
+| 时间 | 状态 | 理由 |
+|---|---|---|
+| 2026-07-28 | pin fork | 五个功能补丁未合并 |
+| 2026-08-04 上午 | **删除** | 补丁随 0.20.0 正式版进 crates.io |
+| 2026-08-04 下午 | **重新 pin** | 等 [#850](https://github.com/webrtc-rs/webrtc/pull/850) 公开两个 helper |
+
+第二次不是等修复，是**等一个新公开的 API**。`gro_recv_buf_len`（GRO 缓冲尺寸公式）
+与 `is_retryable_socket_recv_error`（读错误分类）在上游是 `pub(crate)`，而
+`crates/webrtc-p2p` 的 udp_mux 两个都要用。不 pin 就得在下游各抄一份，**而这两件事
+都没有反馈回路**：缓冲算小了内核静默丢尾部段、判据漏一种就把公网监听端口永久关掉，
+两者都不报错。本仓抄过一版，**两个都抄错了**（缓冲大 5.5 倍、错误集漏三个变体，
+见上面两条坑）。宁可背一条 pin，也不要在下游维护这两份复制品。
+
+- `rtc` → **官方** `webrtc-rs/rtc` 的 submodule commit `b47f82fe`，无自有补丁
+- `webrtc` → fork 分支 `swarmdrop-integration-0.21` = 上游 master + #850 + 一行适配
+
+⚠️ **两者都是未发布的 0.21.0**（crates.io 最高 0.20.0），故 `crates/webrtc-p2p` 的
+版本号也写 0.21.0，由这两条 patch 提供。
+⚠️ **`swarmdrop-integration-0.21` 不能 force-push**——commit 一游离就被 GC，构建当场断。
+#850 若被要求改形态，**另开分支**重建，不要改写这条。
+
+**同源约束**（两次 pin 都适用）：`webrtc` 与 `webrtc-p2p` 必须解析到**同一份** `rtc`，
+否则两个 source id = 两个互不兼容的同名 crate，`webrtc` 返回的类型对不上
+`use rtc::...` 的类型，直接编译失败。上游 master 用 `rtc = { version, path = "rtc" }`
+指 submodule，而 **`[patch.crates-io]` 不作用于 path 依赖**，所以集成分支必须把 `path`
+去掉——那就是「一行适配」，它**不能进上游**。
+
+（发布到 crates.io 的 `webrtc 0.20.0` 声明的是 `rtc = "^0.20.0"`，发布流程自动剥掉了
+`path`，所以走 crates.io 时天然同源、无需适配——这正是上午能删掉 pin 的前提。）
 
 验证收敛的命令（应只有一行 rtc）：
 
@@ -781,10 +808,16 @@ Windows 上才是 `ConnectionReset`。只认后者等于在 Linux 上留了个�
 
 ### 坑：GRO 缓冲按**段长**算，不是按单包上限算
 
-`gro_recv_buf_len` 要对齐上游：`max_gro.min(64) * 1500`，无 GRO 时退化成单包上限。
-拿 `RECEIVE_MTU`（8192）当段长去乘会把缓冲算大 5 倍多（64 段时 512 KiB vs 94 KiB）
-——GRO 的段不可能超过一个路径 MTU。另外 `max_gro_segments()` 是 `AsyncUdpSocket`
-实现给的值，**不能直接当分配乘数**，必须 clamp。
+`gro_recv_buf_len` 是 `max_gro.min(64) * 1500`，无 GRO 时退化成 `UDP_RECV_BUF_LEN`
+（2000）。拿 8192（单包上限）当段长去乘会把缓冲算大 5 倍多（64 段时 512 KiB vs
+94 KiB）——GRO 的段不可能超过一个路径 MTU。另外 `max_gro_segments()` 是
+`AsyncUdpSocket` 实现给的值，**不能直接当分配乘数**，必须 clamp。
+
+> **这两条坑（缓冲尺寸 + 错误判据）现在都不用自己实现了。** 本仓一度各抄一份、
+> 两份都抄错，于是提了 [#850](https://github.com/webrtc-rs/webrtc/pull/850) 把上游
+> 那两个 `pub(crate)` 提为 `pub`，`udp_mux.rs` 改为直接
+> `use webrtc::runtime::{gro_recv_buf_len, is_retryable_socket_recv_error}`。
+> **不要再在本仓重新实现它们**——留这两条记录只为解释「为什么它们值得一条 pin」。
 
 ### 坑：mDNS socket 也走 `wrap_udp_socket`
 
@@ -938,7 +971,7 @@ API、在这里必须绕：
 `crates/webrtc-p2p/src/backend/wasm/direct.rs`、
 `crates/webrtc-p2p/src/{config.rs,swarm/{transport,direct}.rs}`、
 `crates/webrtc-p2p/examples/direct_listener.rs`、`crates/webrtc-p2p/Cargo.toml`（`rtc` /
-`webrtc` 的版本下限说明；根 `Cargo.toml` 的 `[patch.crates-io]` 已于 2026-08-04 删除）
+`webrtc` 的版本下限说明）、根 `Cargo.toml` 的 `[patch.crates-io]`（两条 pin 与退出条件）
 
 ## wasm 工程约定
 

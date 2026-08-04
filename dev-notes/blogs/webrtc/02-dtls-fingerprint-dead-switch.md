@@ -228,8 +228,8 @@ grep 一次就能看到。**问对问题只是一半，另一半是去读那段�
 **下一篇**：[`send` 返回 `Ok(())`，数据却蒸发了](03-datachannel-silent-send.md)
 
 **上游**：[rtc#137](https://github.com/webrtc-rs/rtc/pull/137) ·
-**本仓**：这条补丁已随 rtc 0.20.0 正式版发布，pin 于 2026-08-04 删除；
-`crates/webrtc-p2p/Cargo.toml` 现在记录的是**版本下限**及其理由
+**本仓**：这条补丁已随 rtc 0.20.0 正式版发布，**不再需要为它 pin**
+（当前那条 rtc pin 是为 [webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850)，与本文无关）
 
 ---
 
@@ -237,5 +237,5 @@ grep 一次就能看到。**问对问题只是一半，另一半是去读那段�
 **下一篇**：[`send` 返回 `Ok(())`，数据却蒸发了](03-datachannel-silent-send.md)
 
 **上游**：[rtc#137](https://github.com/webrtc-rs/rtc/pull/137) ·
-**本仓**：这条补丁已随 rtc 0.20.0 正式版发布，pin 于 2026-08-04 删除；
-`crates/webrtc-p2p/Cargo.toml` 现在记录的是**版本下限**及其理由
+**本仓**：这条补丁已随 rtc 0.20.0 正式版发布，**不再需要为它 pin**
+（当前那条 rtc pin 是为 [webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850)，与本文无关）

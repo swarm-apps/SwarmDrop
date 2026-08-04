@@ -421,7 +421,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 
 - **Rust library naming:** lib 名为 `swarmdrop_lib`（非 `swarmdrop`），避开 Windows 上 cargo
   的 lib/bin 命名冲突。
-- **一处依赖 pin：libp2p（本项目最大的单点依赖风险）。** `libp2p` / `libp2p-stream` /
+- **libp2p git pin（本项目最大的单点依赖风险）。** `libp2p` / `libp2p-stream` /
   `libp2p-core` / `libp2p-swarm` / `libp2p-webrtc-utils` 同 pin
   `github.com/yexiyue/rust-libp2p` 一个 rev——**仍是个人 fork**。退出条件写死在
   `Cargo.toml` 对应注释里，且可判定。
@@ -435,15 +435,22 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 → 切版本号依赖。
   详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork 集成策略」。
   **升级 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
-- **webrtc-rs 的两条 `[patch.crates-io]` 已于 2026-08-04 删除。** 五个补丁
-  （rtc #137 / #138 / #140、webrtc #825 / #828）随 `rtc` / `webrtc` 的 **0.20.0 正式版**
-  发到 crates.io，依赖回到普通版本号，声明在 `crates/webrtc-p2p/Cargo.toml`。
-  ⚠️ **0.20.0 是硬下限，别降回 `0.20.0-rc.*`**——rc 版不含这些补丁，direct 监听端会起不来、
-  数据面会静默丢包。该版本同时把 `AsyncUdpSocket` 换成了 quinn 式 poll API，适配时连带
-  修掉了 `udp_mux` 三个既有缺陷（GRO 合并包没拆、瞬时读错误判据漏 `ConnectionRefused`
-  导致 Linux 上监听端口可被远程掀掉、读循环无 burst 上限会饿死 swarm）。
-  **前两个影响已发布的 v0.10.4 Linux 构建**，细节与是否需要补丁版的判断见
-  [`net-kernel.md`](dev-notes/knowledge/net-kernel.md)。
+- **webrtc-rs 两条 `[patch.crates-io]`：等 0.21.0 发版。** 五个功能补丁
+  （rtc #137 / #138 / #140、webrtc #825 / #828）已随 **0.20.0 正式版**进 crates.io，
+  那两条 pin 一度删除；**2026-08-04 又加回来，理由不同**——不是等修复，是等一个新公开的
+  API：[webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850) 把 `gro_recv_buf_len`
+  与 `is_retryable_socket_recv_error` 提为 `pub`。没有它们，`udp_mux` 就得自己抄一份，
+  而这两件事都没有反馈回路（缓冲算小了内核静默丢包、错误判据漏一种就把公网监听端口
+  永久关掉），本仓抄过一版**两个都抄错了**。
+  `rtc` 指官方仓库 submodule commit（无自有补丁），`webrtc` 指 fork 的
+  `swarmdrop-integration-0.21` = 上游 master + #850 + 一行「rtc 走 crates.io」适配。
+  ⚠️ **两者都是未发布的 0.21.0**，由 patch 提供；**那条集成分支不能 force-push**。
+  退出：#850 MERGED 且 `cargo search webrtc` ≥ 0.21.0 → 整段删除。
+  ⚠️ **别降回 `0.20.0-rc.*`**——rc 版不含五个补丁，direct 监听端会起不来、数据面静默丢包。
+  0.20.0 把 `AsyncUdpSocket` 换成 quinn 式 poll API，适配时连带修掉 `udp_mux` 三个既有
+  缺陷（GRO 合并包没拆、判据漏 `ConnectionRefused` 使 Linux 监听端口可被远程掀掉、
+  读循环无 burst 上限会饿死 swarm）。**前两个影响已发布的 v0.10.4 Linux 构建**，
+  细节见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md)。
   五个补丁的完整复盘见 [`dev-notes/blogs/webrtc/`](dev-notes/blogs/webrtc/README.md)。
 - **官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys` 已于 2026-07-28 移除。** webrtc-direct
   改由自研的 `crates/webrtc-p2p` 提供，native 依赖树里的 webrtc-rs 从两套（0.17 + 0.20）
