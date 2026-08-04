@@ -69,6 +69,27 @@ export function isPausableSession(projection: TransferProjection): boolean {
 }
 
 /**
+ * 这条会话**刷新页面后会不会消失**：非终态的发送会话都会。
+ *
+ * 判据与内核落库规则同源——`crates/web/src/store.rs` 的 `worth_persisting` 在发送方向上
+ * 只对 `Terminal` 返回 true，其余（`Offered` / `WaitingAccept` / `Active` / `Suspended`）
+ * 一律不落 IndexedDB，所以刷新后连记录都不在了。
+ *
+ * 根因是浏览器的物理约束而非实现取舍：发送侧的文件内容来自用户选中的 `File` 对象，页面一
+ * 刷新 JS 上下文就销毁，浏览器不允许在用户未重新选择的前提下再读同一个文件。落库反而更糟
+ * ——用户会看到一个点了必失败的「续传」按钮。
+ *
+ * **接收方向不在此列**：半成品与 checkpoint 都在 OPFS 里，刷新后续得上。这个不对称是本判据
+ * 存在的全部意义，别用 `isActiveSession` 之类的方向无关判据代替它。
+ *
+ * 接收方向的待决 offer（`offered`）同样不落库，但**刻意不算在这里**：它还没有任何进度可丢，
+ * 重来的成本只是让对端再发一次，为它拦截刷新是纯打扰。本判据的语义是「有进度会丢」。
+ */
+export function isLostOnReload(projection: TransferProjection): boolean {
+  return projection.direction === "send" && projection.phase !== "terminal";
+}
+
+/**
  * 会话记录是否可删除：仅已结束与已中断（suspended）。
  *
  * 与内核域层守卫 `swarmdrop_transfer::store::is_deletable` 同一判据——按钮可见性只是第一道，

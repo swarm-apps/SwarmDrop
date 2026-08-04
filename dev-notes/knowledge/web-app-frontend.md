@@ -621,3 +621,79 @@ invalid type: string "{\"capability_hash\":...}", expected struct StoredInvite
 数据在库里 = 写入没问题，问题在读路径；库里就没有 = 才去查写入。这一步能立刻把范围砍一半。
 
 **相关文件**：`crates/web/src/invite_store.rs`、`crates/web/src/inbox.rs`、`crates/web/src/idb.rs`
+
+## 「发送不跨刷新」是产品级约束，UI 要在三个层面表达它
+
+浏览器上**发送方向的传输不跨页面刷新**，接收方向跨。这个不对称不是待补的缺口，是物理约束：
+发送侧的文件内容来自用户选中的 `File` 对象，页面一刷新 JS 上下文销毁，浏览器不允许在用户未
+重新选择的前提下再读同一个文件。所以非终态发送会话**连库都不落**（`crates/web/src/store.rs`
+的 `worth_persisting`）——落了反而更糟，用户会看到一个点了必失败的「续传」按钮。
+
+**2026-08-04 决策：不实现刷新后恢复发送。** 理论出路是 File System Access API——
+`showOpenFilePicker()` 返回的 `FileSystemFileHandle` 可结构化克隆存进 IndexedDB，刷新后
+`requestPermission()` 重新授权即可读回同一个文件。否决理由是它只有 Chromium 系支持
+（Safari / Firefox 只有 OPFS 那部分），上了就得双路径 + 一句「为什么你的浏览器刷新后续不了」
+的解释。要重新评估时先查这条支持面变了没有。
+
+**同一页面生命周期内的暂停 / 续传是完整的**（2026-08-04 双 origin 实测：500 MB 文件在
+26% 暂停、续传后跑到 100%，接收侧 sha256 与源文件逐字节一致），别把上面那条读成
+「Web 端不支持暂停发送」。
+`initiate_resume` 要的三样东西都在：会话记录（`create_session` 无条件写内存，
+`worth_persisting` 只决定要不要**再**写 IndexedDB）、`File`（`OpfsFileAccess` 源注册表登记后
+不移除）、bao outboard（`flow/send.rs` 在发送启动时就 `save_file_outboard`，Web 实现是写内存）。
+连带一条：`build_sender_actor_for_resume` 里那段「outboard 缺失就按源文件重算」**在同页面暂停
+场景根本不触发**——它有 `if pf.outboard.is_empty()` 守卫，而 outboard 一直在内存里。
+
+UI 上由三件事共同表达，缺一不可：
+
+| 层面 | 做法 | 为什么不能省 |
+|---|---|---|
+| 判据 | `_lib/format.ts` 的 `isLostOnReload`，与 `worth_persisting` 同源 | 手写 `direction === "send" && phase === …` 散在各处必然漂移 |
+| 告知 | 传输详情侧提示条，判据是 `isLostOnReload` 而**不是** `phase === "suspended"` | 等暂停完再说就晚了——「待会儿再继续」的预期在点下那一刻已经形成，而传输中刷新同样整条丢 |
+| 拦截 | `ReloadGuard` 挂 layout，有风险会话时注册 `beforeunload` | 面板那句话只有正看着会话时才可见，而关标签页可以发生在任何路由下 |
+
+后两者是**互补不是重复**：浏览器早已不允许自定义 `beforeunload` 文案（一律显示厂商措辞），
+所以拦截说不出原因，「为什么」只能由面板那句话讲；反过来面板那句话拦不住任何操作。
+
+**发送页的「已发出」卡片刻意不重复这句话**：它的定位是「去向摘要 + 一条链接」，明细归传输页、
+防损失归全局护栏。同一句话在两处说，就是窄屏空态那条约定反对的东西。
+
+**相关文件**：`docs/app/app/_lib/format.ts`、`docs/app/app/_components/reload-guard.tsx`、
+`docs/app/app/_components/transfer-activity-panel.tsx`、`crates/web/src/store.rs`
+
+## 本机双节点：relay 的 `--external-ip` 不能是 127.0.0.1
+
+`select_invite_addrs`（`crates/core/src/pairing/manager.rs:50`）**第一步就丢弃**
+`is_loopback_or_unspecified()` 的地址。浏览器自己不 listen，它的可达地址全是
+`/ip4/<relay-ip>/…/p2p-circuit/p2p/<自己>` —— 外层是 relay 的 IP。relay 挂在 loopback 上，
+这些 circuit 地址就**整批**被过滤，邀请里一个地址都不剩。
+
+症状极具误导性：两端 `relay_ready: true`、circuit 也确实建起来了、邀请也正常生成，只有对端
+拨号时报 `Dial error: no addresses for peer`——看起来像 relay 或对端的问题，实际是本机邀请
+从一开始就是空的。**一眼可判的自检点是邀请串长度**：带地址约 600 字符，不带只有 ~230。
+
+用本机局域网 IP 起 relay（`--external-ip $(ipconfig getifaddr en0) --listen-ip 0.0.0.0`）即可。
+
+**相关文件**：`crates/core/src/pairing/manager.rs`、`dev-notes/prompts/web-transfer-pause-resume-verify.md`
+
+## 验证 `beforeunload` 要用合成事件，且探针会污染下一轮
+
+自动化驱动（agent-browser / Playwright 一类）**默认自动接受 `beforeunload`**，所以看不到弹窗，
+没法用「有没有弹框」判断拦截是否生效。改成断言事件是否被 `preventDefault`：
+
+```js
+const ev = new Event("beforeunload", { cancelable: true });
+window.dispatchEvent(ev);
+ev.defaultPrevented; // true = 有人拦了
+```
+
+两个坑：
+
+1. **必须同一次页面加载内做对照**。`ReloadGuard` 只在存在非终态发送会话时才注册监听器，
+   而会话状态一直在变——传输跑完转 terminal 之后返回 `false` 是**正确**行为。曾据此误判成
+   「组件没生效」，实际只是测晚了几秒。正确做法是先测 baseline（仅终态 → `false`），再发一条
+   会话后立刻复测（→ `true`）。
+2. **自己注册的探针监听器会留在页面上**，之后每一轮 `defaultPrevented` 都被它污染成 `true`。
+   `addEventListener` 传的是匿名函数就更摘不掉了。测完刷新页面再进行下一轮。
+
+**相关文件**：`docs/app/app/_components/reload-guard.tsx`

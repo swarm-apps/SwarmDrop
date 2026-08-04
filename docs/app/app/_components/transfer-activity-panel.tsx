@@ -29,6 +29,7 @@ import { useCopyToClipboard } from "../_lib/use-copy";
 import {
   isActiveSession,
   isDeletableSession,
+  isLostOnReload,
   isPausableSession,
   sessionEndedAt,
   sortByUpdatedDesc,
@@ -612,14 +613,15 @@ function TransferDetailPanel({
 
       <TransferMetrics projection={projection} progress={live} />
 
-      {/* 暂停一条发送会给用户一个「待会儿再继续」的预期，而浏览器兑现不了跨刷新的那一半：
-          文件内容来自用户选中的 `File` 对象，页面一刷新 JS 上下文就没了，非终态发送会话
-          因此连库都不落（`crates/web/src/store.rs` 的落库范围表）。不说的话，用户回来
-          会发现整条会话凭空消失。接收方向没有这个限制——半成品在 OPFS 里，续得上。 */}
-      {projection.phase === "suspended" && projection.direction === "send" && (
+      {/* 「本页限定」要在用户**做决定之前**就说，所以判据是 `isLostOnReload` 而不是
+          `phase === "suspended"`：等暂停完再说就晚了——「待会儿再继续」的预期在点下那一刻
+          就已经形成，而传输中刷新同样整条丢失（非终态发送会话一律不落库，见
+          `crates/web/src/store.rs` 的落库范围表）。接收方向没有这个限制，半成品在 OPFS 里
+          续得上，故本提示天然不出现在那一侧。 */}
+      {isLostOnReload(projection) && (
         <p className="rounded-lg border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
           <Trans>
-            这条发送只能在本页继续：刷新或关闭标签页后，浏览器读不回你选过的文件，会话会一并消失。
+            这条发送只能在本页完成：刷新或关闭标签页后，浏览器读不回你选过的文件，会话与进度会一并消失。暂停后也只能在本页续传。
           </Trans>
         </p>
       )}

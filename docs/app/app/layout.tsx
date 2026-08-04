@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { AppBottomNav, AppMobileHeader, AppSidebar } from "./_components/app-nav";
 import { AppI18nProvider } from "./_components/i18n-provider";
 import { PairingRequestHost } from "./_components/pairing-request-host";
+import { ReloadGuard } from "./_components/reload-guard";
 import { TransferOfferHost } from "./_components/transfer-offer-host";
 import { SecureContextBanner } from "./_components/secure-context-banner";
 import { WebErrorView } from "./_components/web-error-view";
@@ -41,6 +42,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         {/* 窗口级的误投放护栏——拖偏了不该把整个节点连页面一起弄没。挂这里的理由与上面两个
             宿主相同：它要在**任何路由**下都生效，而不只是发送页。 */}
         <WindowDropGuard />
+        {/* 「非终态发送会话不跨刷新」的离开拦截。挂这里的理由与 WindowDropGuard 一样：
+            关标签页可以发生在任何路由下，而传输页那句说明只有正看着会话时才可见。 */}
+        <ReloadGuard />
         <PairingRequestHost />
         <TransferOfferHost />
         <AppSidebar />
