@@ -435,17 +435,21 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 → 切版本号依赖。
   详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork 集成策略」。
   **升级 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
-- **webrtc-rs 两条 `[patch.crates-io]`：等 0.21.0 发版。** 五个功能补丁
+- **webrtc-rs 两条 `[patch.crates-io]`：等 #853 合并发版。** 五个功能补丁
   （rtc #137 / #138 / #140、webrtc #825 / #828）已随 **0.20.0 正式版**进 crates.io，
   那两条 pin 一度删除；**2026-08-04 又加回来，理由不同**——不是等修复，是等一个新公开的
-  API：[webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850) 把 `gro_recv_buf_len`
+  API：[webrtc#853](https://github.com/webrtc-rs/webrtc/pull/853) 把 `gro_recv_buf_len`
   与 `is_retryable_socket_recv_error` 提为 `pub`。没有它们，`udp_mux` 就得自己抄一份，
   而这两件事都没有反馈回路（缓冲算小了内核静默丢包、错误判据漏一种就把公网监听端口
   永久关掉），本仓抄过一版**两个都抄错了**。
+  （原为 #850，base 是 master；维护者要求改投 `v0.20.x`——无 breaking change，合并后他
+  自行 merge 回 master。**#850 已 CLOSED**，查状态只看 #853。）
   `rtc` 指官方仓库 submodule commit（无自有补丁），`webrtc` 指 fork 的
-  `swarmdrop-integration-0.21` = 上游 master + #850 + 一行「rtc 走 crates.io」适配。
+  `swarmdrop-integration-0.21` = 上游 master + 该提交 + 一行「rtc 走 crates.io」适配。
   ⚠️ **两者都是未发布的 0.21.0**，由 patch 提供；**那条集成分支不能 force-push**。
-  退出：#850 MERGED 且 `cargo search webrtc` ≥ 0.21.0 → 整段删除。
+  退出：#853 MERGED 且 crates.io 有含它的版本 → 整段删除。**很可能先来 0.20.x 补丁版**
+  （提交就投在那条线上），走那条路时 `crates/webrtc-p2p` 的版本号要**从 0.21.0 改回
+  0.20.x**；若 0.21.0 先发则版本号不动。
   ⚠️ **别降回 `0.20.0-rc.*`**——rc 版不含五个补丁，direct 监听端会起不来、数据面静默丢包。
   0.20.0 把 `AsyncUdpSocket` 换成 quinn 式 poll API，适配时连带修掉 `udp_mux` 三个既有
   缺陷（GRO 合并包没拆、判据漏 `ConnectionRefused` 使 Linux 监听端口可被远程掀掉、

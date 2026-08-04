@@ -39,8 +39,12 @@ unsigned-varint = { workspace = true }
 # 下会在 workspace unification 时互相污染。
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 # ⚠️ **0.21.0 目前 crates.io 上并不存在**，由根 `Cargo.toml` 的 `[patch.crates-io]`
-# 提供（fork 集成分支 = 上游 master + webrtc#850）。要的是 #850 公开出来的
+# 提供（fork 集成分支 = 上游 master + webrtc#853）。要的是 #853 公开出来的
 # `gro_recv_buf_len` / `is_retryable_socket_recv_error` —— 退出条件写在那段注释里。
+#
+# ⚠️ 那个提交投在上游 **`v0.20.x`** 补丁线上，所以很可能**先有 0.20.x 补丁版、后有
+# 0.21.0**。走那条路退出时，这里的版本号要**改回 0.20.x**，不是留着 0.21.0——
+# patch 一删就没人提供 0.21.0 了。
 #
 # ⚠️ **不要降回 0.20.0-rc.\***：本仓依赖的五个补丁（rtc #137 / #138 / #140、
 # webrtc #825 / #828）直到 0.20.0 正式版才进 crates.io。少了它们 direct 监听端起不来、

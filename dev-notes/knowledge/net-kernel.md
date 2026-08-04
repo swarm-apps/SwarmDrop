@@ -724,7 +724,7 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 > 「已在 0.20.0 里」。
 >
 > ⚠️ **当天下午两条 pin 又加回来了，但与这五个补丁无关**——是为了等
-> [#850](https://github.com/webrtc-rs/webrtc/pull/850) 公开两个 helper，见下面
+> [#853](https://github.com/webrtc-rs/webrtc/pull/853) 公开两个 helper，见下面
 > 「webrtc 的 fork pin：删掉又加回来」。别把它读成「五个补丁又退回去了」。
 
 | 仓 | 编号 | 内容 | 对本仓的意义 |
@@ -735,7 +735,7 @@ direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地
 | webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | **已 pin**（见下）；muxer 的 `local_channels` 仍保留，它是不变式不是补丁 |
 | webrtc-rs/**rtc** | [PR 138](https://github.com/webrtc-rs/rtc/pull/138) | `send()` 在通道 open 前/关闭后返回 `Ok` 但**静默丢数据**（issue 826） | **已 pin**；`data_channel::await_open` **无论如何都要留** |
 | webrtc-rs/webrtc | [PR 828](https://github.com/webrtc-rs/webrtc/pull/828) | 加 `remote_certificate_fingerprint`（issue 827） | **已 pin**，`remote_fingerprint()` 收成一行 |
-| webrtc-rs/webrtc | [PR 850](https://github.com/webrtc-rs/webrtc/pull/850) | `gro_recv_buf_len` / `is_retryable_socket_recv_error` 是 `pub(crate)`，实现自定义 `AsyncUdpSocket` 只能照源码抄 | 反哺（2026-08-04 提，待审）— 合并后 `udp_mux.rs` 里我们抄的那两份可删 |
+| webrtc-rs/webrtc | [PR 853](https://github.com/webrtc-rs/webrtc/pull/853) | `gro_recv_buf_len` / `is_retryable_socket_recv_error` 是 `pub(crate)`，实现自定义 `AsyncUdpSocket` 只能照源码抄 | **阻塞**（2026-08-04 提，待审）— 它是当前两条 webrtc pin 的唯一理由；合并后 `udp_mux.rs` 里我们抄的那两份可删。**原 #850（base=master）已 CLOSED**，维护者要求改投 `v0.20.x` 补丁线 |
 | libp2p/rust-libp2p | [PR 6571](https://github.com/libp2p/rust-libp2p/pull/6571) | `Fingerprint::from_sdp_format` | 纯反哺 — 合并后 `protocol/addr.rs` 的手写解析可删 |
 | libp2p/rust-libp2p | [PR 6572](https://github.com/libp2p/rust-libp2p/pull/6572) | offer SDP 模板搬进 `libp2p-webrtc-utils` | 纯反哺 — 合并后 `native/direct/sdp.rs` 的模板副本可删 |
 
@@ -803,6 +803,7 @@ Noise prologue 绑定**双方**指纹（`libp2p-webrtc-noise:<client><server>`�
 | 2026-07-28 | pin fork | 五个功能补丁未合并 |
 | 2026-08-04 上午 | **删除** | 补丁随 0.20.0 正式版进 crates.io |
 | 2026-08-04 下午 | **重新 pin** | 等 [#850](https://github.com/webrtc-rs/webrtc/pull/850) 公开两个 helper |
+| 2026-08-04 晚 | pin 不变，**PR 改投** | 维护者要求投 `v0.20.x`（无 breaking change，合并后他自行 merge 回 master）→ 重开为 [#853](https://github.com/webrtc-rs/webrtc/pull/853)，#850 CLOSED。集成分支**没动**（那条绝不 force-push），故 `Cargo.toml` 的 rev 不变 |
 
 第二次不是等修复，是**等一个新公开的 API**。`gro_recv_buf_len`（GRO 缓冲尺寸公式）
 与 `is_retryable_socket_recv_error`（读错误分类）在上游是 `pub(crate)`，而

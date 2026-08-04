@@ -15,7 +15,7 @@
 | **webrtc** | [#824](https://github.com/webrtc-rs/webrtc/pull/824) | 抬高读缓冲默认值 | 自行关闭 |
 | | [#825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 回报本端通道（[第 05 篇](05-who-opened-this-channel.md)） | **已合并** |
 | | [#828](https://github.com/webrtc-rs/webrtc/pull/828) | 统计类型叫不出名字（[第 06 篇](06-remote-fingerprint-via-stats.md)） | **已合并** |
-| | [#850](https://github.com/webrtc-rs/webrtc/pull/850) | 实现自定义 `AsyncUdpSocket` 所需的两个 helper 是 `pub(crate)`（见文末后记） | 待审（2026-08-04 提） |
+| | [#850](https://github.com/webrtc-rs/webrtc/pull/850) → [#853](https://github.com/webrtc-rs/webrtc/pull/853) | 实现自定义 `AsyncUdpSocket` 所需的两个 helper 是 `pub(crate)`（见文末后记） | 待审 — 改投 `v0.20.x` 后重开为 #853，#850 已关 |
 | **rust-libp2p** | [#6558](https://github.com/libp2p/rust-libp2p/pull/6558) | websys 回调重入 panic | 待审 |
 | | [#6560](https://github.com/libp2p/rust-libp2p/pull/6560) | 协商 DataChannel 消息上限 | 待审 |
 | | [#6570](https://github.com/libp2p/rust-libp2p/pull/6570) | relay 无 reservation 时 panic | 自行关闭 |
@@ -222,6 +222,17 @@ cargo search webrtc --limit 1     # 期望 > 0.20.0-rc.4
 > 反馈回路（算错了不报错，只静默丢包或关端口），而 pin 有可判定的退出条件、且 CI 每次
 > 都在验证。判断二（一个 PR 只做一件事）在这里的对应物是：**PR 分支与 pin 分支必须
 >分开**——#850 若被要求改形态，另开分支重建集成分支，绝不 force-push 已被 pin 的那条。
+>
+> **当天晚上这条预案就兑现了。** 维护者要求把 PR 改投 `v0.20.x`（无 breaking change，
+> 该进补丁线；合并后他自行 merge 回 master），于是从上游 `v0.20.x` 拉新分支、
+> cherry-pick 同一个 commit、重开为
+> [#853](https://github.com/webrtc-rs/webrtc/pull/853)，#850 关闭。
+> **集成分支一根手指都没动**，`Cargo.toml` 的 rev 因而不变、构建不受影响——如果当初图省事
+> 把 PR 直接开在 pin 分支上，这一步就得 force-push，commit 一游离就被 GC，构建当场断。
+>
+> 连带一个容易漏的后果：投在 0.20.x 补丁线意味着**很可能先有 0.20.x 补丁版、后有
+> 0.21.0**，而集成分支基于 master（0.21.0）。所以退出时 `crates/webrtc-p2p` 的版本号
+> 要往**回**走到 0.20.x，不是留着 0.21.0——退出条件里写清楚了这一条。
 
 **2. 每条 pin 都要写清楚「为什么非它不可」。**
 注释里记的是症状、根因、以及不修会怎样——而不是「见 PR #137」。链接会失效，
