@@ -11,7 +11,7 @@
 // 不是事件流）。
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { MonitorSmartphone, Tags } from "lucide-react";
+import { MonitorSmartphone, Plus, Tags } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   deviceGroupNames,
@@ -30,6 +30,47 @@ import { GroupManagerDialog } from "./group-manager-dialog";
 import { NodeNotReadyState } from "./node-not-ready-state";
 import { SectionHeader, SectionShell } from "./section";
 import { TrustPolicyDialog } from "./trust-policy-dialog";
+
+/**
+ * 网格末尾的「添加设备」卡片——配对的入口。
+ *
+ * ## 为什么它长在网格里，而不是页头的一个按钮
+ *
+ * 配对要回答的问题是「我还想让哪台设备进这个列表」，而那个列表就在眼前。入口长在它末尾，
+ * 位置本身就说明了会发生什么；页头按钮离列表最远，反而要靠文案解释。
+ *
+ * ## 为什么是虚线描边而不是一张实心卡
+ *
+ * 它是**占位**不是**内容**：实心卡片会读成「已经有这么一台设备」。虚线 + 无玻璃底
+ * （`glass-panel` 留给真的承载内容的面）是通行的「这一格还空着」的写法，
+ * 与 DESIGN.md「交互控件一律 flat，玻璃留给结构 chrome」也一致。
+ *
+ * 几何**逐项对齐 DeviceCard**（`rounded-xl` / `p-4` / `min-h-[136px]`）：它要占的是网格里
+ * 与真卡片等价的一格，圆角或内边距差一点就会看出来是两种东西。
+ * ⚠️ 别写成 `rounded-[var(--radius-card)]` / `p-[var(--space-card)]`——**那两个变量不存在**
+ * （`global.css` 里只有 `--radius-panel{,-sm}` 与 `--space-{in-group,in-panel,panel,section}`），
+ * 写了不会报错，只会静默解析失败、圆角和内边距一起归零。
+ */
+function AddDeviceCard({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="focus-ring group flex min-h-[136px] w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 p-4 text-muted-foreground transition-colors hover:border-[var(--brand)]/50 hover:bg-accent hover:text-foreground"
+    >
+      <Plus
+        className="size-6 transition-colors group-hover:text-[var(--brand)]"
+        aria-hidden="true"
+      />
+      <span className="text-sm font-medium">
+        <Trans>添加设备</Trans>
+      </span>
+      <span className="text-xs">
+        <Trans>互换一次邀请</Trans>
+      </span>
+    </button>
+  );
+}
 
 /** 分组筛选的胶囊。`aria-pressed` 而非 `radio`：它过滤的是同一份列表，不是切换视图。 */
 function FilterChip({
@@ -61,7 +102,17 @@ function FilterChip({
 /** 分组筛选的取值：全部 / 未分组 / 某个分组 id。 */
 type GroupFilter = "all" | "ungrouped" | (string & {});
 
-export function DeviceGrid() {
+export interface DeviceGridProps {
+  /**
+   * 「添加设备」被按下——由 `DevicesSection` 转成对配对面板的 `open()`。
+   *
+   * 网格自己不渲染配对表单：那是一整个面板（邀请输入 + 生成 + 已发出清单），塞进
+   * `minmax(280px,1fr)` 的卡片轨道里只会把它压成一条缝。卡片是**入口**，落点在下面。
+   */
+  onAddDevice: () => void;
+}
+
+export function DeviceGrid({ onAddDevice }: DeviceGridProps) {
   const { t } = useLingui();
   const devices = useWebNode((s) => s.pairedDevices);
   const ready = useWebNode((s) => s.status === "running");
@@ -187,7 +238,16 @@ export function DeviceGrid() {
               title={<Trans>还没有已配对的设备</Trans>}
               // 教学文案说「怎么让它变得非空」。**不复述页头那句话**——页头已经说过
               //「配对是一次性动作，配完即长期信任」，在同一屏里再说一遍是纯噪音。
-              description={<Trans>用下面的「配对」区生成一条邀请发给对方，或把对方给你的邀请粘进去。</Trans>}
+              //
+              // 也不再说「用下面的『配对』区」：那句话预设配对面板常驻在下方，而它现在
+              // 默认收起、由这里的按钮唤出。**空态的出口要是能按的东西，不是指路**。
+              description={<Trans>生成一条邀请发给对方，或把对方给你的邀请粘进来。</Trans>}
+              action={
+                <Button onClick={onAddDevice} className="gap-1.5">
+                  <Plus className="size-4" aria-hidden="true" />
+                  <Trans>添加设备</Trans>
+                </Button>
+              }
             />
           )
         ) : (
@@ -234,6 +294,15 @@ export function DeviceGrid() {
                     />
                   </li>
                 ))}
+                {/* 只在「全部」下出现：分组筛选里它会读成「往这个分组加设备」，而配对与分组
+                    毫无关系——加完仍然要手动归组。
+                    筛选态下唯一的配对入口因此是下方那块面板（默认收起）。这是**刻意的**：
+                    正在按分组看设备的人不是在找「怎么加一台新的」。 */}
+                {filter === "all" && (
+                  <li className="flex">
+                    <AddDeviceCard onClick={onAddDevice} />
+                  </li>
+                )}
               </ul>
             )}
           </>

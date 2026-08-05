@@ -18,7 +18,7 @@
 // 因为它承担的是**层级**而不是氛围。
 
 import { ChevronDown, type LucideIcon } from "lucide-react";
-import type { HTMLAttributes, ReactNode } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 /**
@@ -46,12 +46,20 @@ export function selectedRowClass(selected: boolean): string {
     : "hover:bg-accent";
 }
 
-/** 页面级面板外壳：玻璃 + 24px 圆角。 */
+/**
+ * 页面级面板外壳：玻璃 + 24px 圆角。
+ *
+ * 用 `ComponentPropsWithRef` 而不是 `HTMLAttributes`：后者不含 `ref`，而 React 19 起
+ * 函数组件的 `ref` 就是一个普通 prop——`{...props}` 本来就会把它转发到 `<section>`，
+ * 差的只是类型放行。配对面板要拿它滚到视口里。
+ */
 export function SectionShell({
   children,
   className,
   ...props
-}: { children: ReactNode; className?: string } & HTMLAttributes<HTMLElement>) {
+  // 左半边只为把 `children` 变必填——`ComponentPropsWithRef<"section">` 自带的是可选的，
+  // 而没有内容的面板外壳没有意义。`className` 不必重复声明，那边已经有了。
+}: { children: ReactNode } & ComponentPropsWithRef<"section">) {
   return (
     <section
       {...props}

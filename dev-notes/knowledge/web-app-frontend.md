@@ -540,6 +540,25 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
   ——全局套用会把文档区每个元素的默认边框色一起换掉。作用域锚点是 layout 根节点上的
   `data-swarmdrop-app` 属性。
 
+### ⚠️ `size="icon"` 的 44px 触达档，在只于 `md:` 以上渲染的组件里**永远不命中**（2026-08-06）
+
+`button.tsx` 的每个 size 都是「移动端 44px、桌面收窄」的形态，`icon` 是 `size-11 sm:size-9`。
+那条规则本身是对的（它属于按钮而不属于调用点，文件头注释还写着「从桌面同步这个文件时不要
+覆盖掉这段」），**但断点是 `sm:`（640px）**。
+
+于是任何只在 `md:`（768px）以上渲染的组件——侧栏 `RailTools`、`AppSidebar` 里的一切——
+它可见的每一个视口都已经越过 `sm:`，拿到的恒是 `size-9`（36px）。写 `size="icon"` 会让人
+以为触达达标了，实际没有，而且**没有任何门禁会提**。
+
+这不是「改一下 class 就行」：图标侧栏那一档宽 64px（`md:w-16`），减掉容器的 `p-3` 只剩 40px，
+44px 的按钮塞不进去。要满足触达标准得先加宽侧栏，而 64px 是 DESIGN.md 定死的三档形态之一。
+
+**规矩**：在侧栏（或任何 `md:` 才出现的容器）里放图标按钮时，
+① 仍然用 `size="icon"`（尺寸规则该归按钮）；
+② 但**别在注释里声称它拿到了 44px**——如实记下这一档是 36px 与原因，否则下一次 a11y 审计
+会因为看到 `size="icon"` 而跳过这里。
+③ 真要修，入口是侧栏宽度，不是按钮常量。
+
 ### 品牌色与桌面同源，写成同一组 oklch 表达式
 
 `--brand` / `--brand-solid` / `--brand-ink` 分别对应桌面 `src/index.css` 的
@@ -933,6 +952,68 @@ wasm 拉完 `_bg.wasm` 才第一次 tick。只看 `length === 0` 的空态，于
 `PanelSkeleton`。骨架而非 spinner：它保持内容的形状，切到真内容时不跳版。
 
 **相关文件**：`docs/app/app/_components/empty-state.tsx`
+
+## `setState` 之后同步读几何，读到的是**更新前**的那份（2026-08-06）
+
+「点一下 → 展开某块 → 滚过去让它可见」这个组合有个陷阱：
+
+```tsx
+function open() {
+  setExpanded(true);
+  panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });  // ❌
+}
+```
+
+`setExpanded` 是批处理的，状态要到事件处理器**返回之后**才 flush、DOM 才更新。所以
+`scrollIntoView` 量到的是**收起态**的几何（一个只有标题行的外壳，约 100px）。
+
+配合 `block: "nearest"` 就成了静默失效：规范说「元素已完全可见就什么都不做」，
+而那 100px 的收起态**通常确实完全可见**——于是页面纹丝不动，展开出来的内容整个落在折线
+以下。`behavior: "smooth"` 还把失准固化：滚动目标在调用时刻就算死了，之后元素长高不会
+重新寻的。
+
+**正确写法是把读几何推到下一帧**：
+
+```tsx
+setExpanded(true);
+requestAnimationFrame(() => {
+  panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  inputRef.current?.focus({ preventScroll: true });
+});
+```
+
+### 配套的一条：目标本来就展开时，滚动不是反馈
+
+同一个入口常常有两条来路，其中一条的目标**已经是展开的**（比如空态下配对面板默认就开）。
+那条路上 `setExpanded(true)` 值没变、不重渲染，`scrollIntoView` 又因已可见而不滚——
+两个动作都是 no-op，用户点了按钮屏幕毫无变化。
+
+**聚焦目标里的第一个输入框**是唯一在所有来路上都成立的反馈：它有可见的焦点环，
+对键盘用户还直接把光标放到了该打字的地方。`preventScroll: true` 让滚动仍由上面那次
+`scrollIntoView` 统一负责，不叠加浏览器自己的聚焦滚动（两者节奏不同，叠起来会抖一下）。
+
+**相关文件**：`docs/app/app/_components/pairing-panel.tsx` 的 `useImperativeHandle`
+
+## 编错 CSS 变量名不会报错，只会静默把那条样式归零（2026-08-05）
+
+写 `rounded-[var(--radius-card)]` / `p-[var(--space-card)]` 时**那两个变量并不存在**。
+Tailwind 的任意值语法照样生成 `border-radius: var(--radius-card)`，浏览器解析不出来就丢掉
+整条声明——圆角和内边距一起变 0，而 `tsc`、`next build`、`biome` 一个都不会响。
+表现是「这张卡片看起来有点怪」，不是任何一条错误。
+
+应用区实际有的只有这几个（`docs/app/global.css` 的 `@theme` 块）：
+
+| 族 | 全集 |
+|---|---|
+| 圆角 | `--radius-panel-sm`(18px) · `--radius-panel`(24px)，外加 shadcn 的 `--radius{,-sm,-md,-lg,-xl}` |
+| 间距 | `--space-in-group`(8) · `--space-in-panel`(16) · `--space-panel`(20) · `--space-section`(32) |
+
+**没有 `--radius-card` / `--space-card`**：卡片级几何走 Tailwind 原生类（`rounded-xl` + `p-4`，
+见 `device-card.tsx`），因为「面板 18–24px / 控件 6–14px」是 DESIGN.md 的两套词汇，
+卡片属于后者、不需要单独一档 token。
+
+**判据**：写 `var(--x)` 之前先 `grep -- '--x:' docs/app/global.css`。凭印象取名的变量名
+（尤其 `--radius-card` 这种「听起来就该有」的）是最容易漏的一类，因为它读起来完全合理。
 
 ## 应用区不再跟 fumadocs 的 `--color-fd-*`
 
