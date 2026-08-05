@@ -11,7 +11,6 @@ import {
   ArrowDownToLine,
   ArrowLeftRight,
   ArrowUpFromLine,
-  Loader2,
   MonitorSmartphone,
   Trash2,
 } from "lucide-react";
@@ -28,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useConfirmAction } from "./confirm-action";
 import { CenteredEmptyState, PanelSkeleton, RailEmptyHint } from "./empty-state";
+import { NodeNotReadyState } from "./node-not-ready-state";
 import { PanelFallback } from "./panel-fallback";
 import { ProgressBar } from "./progress-bar";
 import { RelativeTime } from "./relative-time";
@@ -59,7 +59,8 @@ import { cn } from "@/lib/cn";
 import { PANEL_SURFACE, selectedRowClass } from "./section";
 import { MasterDetail, OpenListButton } from "./master-detail";
 // 详情侧整块住在 `transfer-detail.tsx`——本文件只做编排（主从布局、筛选、动作分发）与列表行。
-import { SessionTitle, TransferDetailPanel } from "./transfer-detail";
+import { SessionTitle } from "./session-title";
+import { TransferDetailPanel } from "./transfer-detail";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
@@ -348,9 +349,7 @@ function TransferActivityPanelInner() {
                 有没有会话」。用筛选后的数会让点一下「可恢复」就在右边说「还没有传输」，
                 而左边的历史明明还在。 */}
             {!ready && grandTotal === 0 ? (
-              <CenteredEmptyState
-                icon={Loader2}
-                title={<Trans>正在启动节点…</Trans>}
+              <NodeNotReadyState
                 description={<Trans>节点起来后，进行中与已结束的会话会出现在这里。</Trans>}
               />
             ) : grandTotal > 0 ? (

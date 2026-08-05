@@ -9,7 +9,7 @@
 // 随时可补救。两者代价不对称，故默认值立刻可用，想区分的人自己来这里改。
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Check, Copy, Fingerprint } from "lucide-react";
+import { Fingerprint } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,8 +17,8 @@ import { renameDevice } from "../_lib/node-runtime";
 import { IDENTITY_LOCATION, useWebNode, webNodeActions } from "../_lib/store";
 import { DEVICE_NAME_MAX_CHARS } from "@swarmdrop/shared-view";
 import { useAsyncAction } from "../_lib/use-async-action";
-import { useCopyToClipboard } from "../_lib/use-copy";
-import { NodeStatusPill } from "./node-status-pill";
+import { CopyButton } from "./copy-button";
+import { NodeStatusDialog } from "./node-status-dialog";
 import { SectionHeader, SectionShell } from "./section";
 import { WebErrorCard } from "./web-error-view";
 
@@ -62,7 +62,7 @@ export function NodePanel() {
       <SectionHeader
         icon={Fingerprint}
         title={<Trans>本机节点</Trans>}
-        action={<NodeStatusPill />}
+        action={<NodeStatusDialog />}
       />
       <dl className="space-y-3">
         <div>
@@ -165,7 +165,7 @@ export function NodePanel() {
             </span>
             {/* 它是用来跟对方核对身份、贴进 issue 的机器真值——桌面点一下就能复制，
                 这里此前只能手动选中一串 52 字符的 base58。 */}
-            {nodeId && <CopyNodeIdButton key={nodeId} nodeId={nodeId} />}
+            {nodeId && <CopyButton key={nodeId} value={nodeId} label={t`复制节点 ID`} />}
           </dd>
         </div>
       </dl>
@@ -182,39 +182,5 @@ export function NodePanel() {
         </p>
       </details>
     </SectionShell>
-  );
-}
-
-/**
- * 节点 ID 的复制按钮。
- *
- * **自带状态并由 `key` 换代**：复制态若住在父组件、`key` 挂在 DOM 节点上，换代什么也重置
- * 不了（知识库「复制态的换代 key 必须挂在持有状态的组件」）。这里 nodeId 几乎不变，
- * 但形态与 `connection-badge` / `invite-share` 保持一致，免得下一个人照着抄错那两处。
- */
-function CopyNodeIdButton({ nodeId }: { nodeId: string }) {
-  const { t } = useLingui();
-  const { state, copy } = useCopyToClipboard();
-  return (
-    <Button
-      size="sm"
-      variant="ghost"
-      onClick={() => void copy(nodeId)}
-      aria-label={t`复制节点 ID`}
-      className="shrink-0 gap-1.5 text-xs"
-    >
-      {state === "copied" ? (
-        <Check className="size-3.5" aria-hidden />
-      ) : (
-        <Copy className="size-3.5" aria-hidden />
-      )}
-      {state === "copied" ? (
-        <Trans>已复制</Trans>
-      ) : state === "failed" ? (
-        <Trans>复制失败</Trans>
-      ) : (
-        <Trans>复制</Trans>
-      )}
-    </Button>
   );
 }

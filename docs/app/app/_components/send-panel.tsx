@@ -23,7 +23,6 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import {
   ArrowLeftRight,
   Check,
-  Loader2,
   MonitorSmartphone,
   Paperclip,
   Send,
@@ -49,6 +48,7 @@ import {
 import { cn } from "@/lib/cn";
 import { PANEL_SURFACE } from "./section";
 import { CenteredEmptyState } from "./empty-state";
+import { NodeNotReadyState } from "./node-not-ready-state";
 import { deviceIcon } from "../_lib/device-presentation";
 import { transferSample } from "../_lib/format";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
@@ -175,9 +175,7 @@ function SendPanelInner() {
             }
           />
         ) : (
-          <CenteredEmptyState
-            icon={Loader2}
-            title={<Trans>正在启动节点…</Trans>}
+          <NodeNotReadyState
             description={<Trans>节点起来后，已配对的设备会出现在这里。</Trans>}
           />
         )}

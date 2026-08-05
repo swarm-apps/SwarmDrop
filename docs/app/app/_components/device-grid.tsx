@@ -11,7 +11,7 @@
 // 不是事件流）。
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Loader2, MonitorSmartphone, Tags } from "lucide-react";
+import { MonitorSmartphone, Tags } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   deviceGroupNames,
@@ -27,6 +27,7 @@ import { DeviceCard } from "./device-card";
 import { DeviceOrganizationDialog } from "./device-organization-dialog";
 import { CenteredEmptyState, RailEmptyHint } from "./empty-state";
 import { GroupManagerDialog } from "./group-manager-dialog";
+import { NodeNotReadyState } from "./node-not-ready-state";
 import { SectionHeader, SectionShell } from "./section";
 import { TrustPolicyDialog } from "./trust-policy-dialog";
 
@@ -173,9 +174,7 @@ export function DeviceGrid() {
           // 要等 wasm 拉完 `_bg.wasm` 才第一次 tick。此前这里只看 `rows.length`，于是每次刷新，
           // 已配对的老用户都先看到一句确定性的「还没有已配对的设备」加一整段配对教学。
           !ready ? (
-            <CenteredEmptyState
-              icon={Loader2}
-              title={<Trans>正在启动节点…</Trans>}
+            <NodeNotReadyState
               description={<Trans>节点起来后，已配对的设备会出现在这里。</Trans>}
             />
           ) : (

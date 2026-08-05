@@ -42,6 +42,7 @@ import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
 import { OpenListButton } from "./master-detail";
 import { ProgressBar } from "./progress-bar";
 import { RelativeTime } from "./relative-time";
+import { SessionTitle } from "./session-title";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import {
@@ -525,35 +526,5 @@ function InboxItemLink({
       <Inbox className="size-3" aria-hidden="true" />
       <Trans>查看收到的文件</Trans>
     </Link>
-  );
-}
-
-/**
- * 会话标题：首个文件名 + 「还有几个」的计数徽标。
- *
- * 计数**不并进被截断的那段文字**（「a.zip 等 3 个文件」在窄列里必然被切掉尾巴，而尾巴才是
- * 计数）——它自己占一个 `shrink-0` 的位，永远看得见。
- *
- * `files` 为空只可能出现在异常投影上，那时回落到对端名，至少还认得出是跟谁的会话。
- */
-export function SessionTitle({ files, fallback }: { files: TransferProjection["files"]; fallback: string }) {
-  const { t } = useLingui();
-  const first = files[0];
-  const rest = files.length - 1;
-
-  return (
-    <p className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium text-foreground">
-      <span className="truncate" title={first?.name ?? fallback}>
-        {first?.name ?? fallback}
-      </span>
-      {rest > 0 && (
-        <span
-          className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-normal text-muted-foreground"
-          title={t`共 ${files.length} 个文件`}
-        >
-          +{rest}
-        </span>
-      )}
-    </p>
   );
 }

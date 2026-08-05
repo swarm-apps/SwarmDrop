@@ -341,16 +341,28 @@ wasm 是 CI 一等公民：`./scripts/check-wasm.sh` 在 PR 阶段拦截破坏�
 
 **前端形态（#90 起）：持久侧边栏 + 五条路由**，分区对齐桌面端但导航形态有意分叉：
 
-| 路由 | 内容 |
-|---|---|
-| `/app` | 客户端重定向到 `/app/devices`（静态导出没有服务端，`redirect()` 用不了） |
-| `/app/devices` | 已配对设备 + 配对（应用首页） |
-| `/app/send` | 发送，接受 `?peerId=` 预选目标 |
-| `/app/inbox` | 待处理入站请求 + 已接收文件 |
-| `/app/transfer` | 传输会话，选中态走 `?session=` |
-| `/app/settings` | 节点身份 · helper 连接 · 事件日志 |
+| 路由 | 常驻导航 | 内容 |
+|---|---|---|
+| `/app` | — | 客户端重定向到 `/app/devices`（静态导出没有服务端，`redirect()` 用不了） |
+| `/app/devices` | ✅ | 已配对设备 + 活跃传输 + 配对（应用首页） |
+| `/app/send` | 子页面 | 发送，接受 `?peerId=` 预选目标 |
+| `/app/inbox` | ✅ | 待处理入站请求 + 已接收文件 |
+| `/app/transfer` | 子页面 | 传输会话，选中态走 `?session=` |
+| `/app/settings` | ✅ | 节点身份 · helper 连接 · 事件日志 |
 
-导航项定义在 `docs/app/app/_lib/nav.ts`（**单一事实源**，标题/描述/图标/徽标都从它派生）。
+**常驻导航只有三项**（设备 / 收件箱 / 设置），与移动端 tab 同项同序（2026-08-05）。发送与传输
+是**设备的子页面**（`parent: "devices"`），从设备页进入、侧栏在它们上面高亮「设备」、页头带一条
+返回链接。另外两端本来就是这个形状：桌面顶栏没有「发送」，移动端 tab 也没有发送与传输。
+「发送」尤其不该进导航——DESIGN.md 的 **Send Entry Contract** 写死了「Sending starts from a
+device」，常驻入口只会把用户领到那条本用于纠错的目标选择器上。
+
+导航项定义在 `docs/app/app/_lib/nav.ts`（**单一事实源**，标题/描述/图标/徽标/父子关系都从它派生；
+给某项加 `parent` 就等于把它移出常驻导航）。
+
+**节点状态徽章可点**，弹出节点状态弹窗（`node-status-dialog.tsx`）：状态 / 运行时长 / 已配对与
+在线数 / 中继，诊断（节点 ID、circuit 可达地址、身份存放位置）折叠，并提供**启停节点**。
+三端同一件事的第三份实现（桌面 `StopNodeSheet`、移动 `NodeControlSheet`），信息分层一致。
+启停编排收在 `_lib/node-lifecycle.ts`——`WebNodeBootstrap` 与弹窗共用同一套启动序列。
 
 **底座与形态**（2026-08 的 `web-ux-alignment` 起）：组件走 **shadcn/ui**（不再手写原生元素），
 token 经 `@theme inline` 映射层从 fumadocs 的 `--color-fd-*` 接过来；**移动优先**，

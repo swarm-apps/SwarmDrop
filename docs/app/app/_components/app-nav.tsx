@@ -13,37 +13,29 @@
 //
 // 徽标存在的理由：单页时入站 offer 与页面其它内容同屏可见，拆成多路由后它会藏进 /app/inbox。
 // 没有徽标，用户停在发送页时对「有人要发文件给我」零感知——这是重构自己引入的退化，不是新功能。
+//
+// **只有三项**（设备 / 收件箱 / 设置），与移动端 tab 同项同序。发送与传输是设备的子页面，
+// 在这里不占位；侧栏在那两条路由上高亮「设备」（`activeNavHref`）。理由写在 `_lib/nav.ts`。
 
 import { useLingui } from "@lingui/react/macro";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookText } from "lucide-react";
 import { appIconPath, appName } from "@/lib/shared";
-import { isActiveSession } from "../_lib/format";
-import { APP_NAV, normalizePath, type AppNavItem, type NavBadgeKind } from "../_lib/nav";
-import { useWebNode } from "../_lib/store";
-import { NodeStatusPill } from "./node-status-pill";
-
-type BadgeCounts = Record<NavBadgeKind, number>;
+import { APP_NAV, activeNavHref, type AppNavItem } from "../_lib/nav";
+import { selectOfferCount, useWebNode } from "../_lib/store";
+import { NodeStatusDialog } from "./node-status-dialog";
 
 /**
- * 徽标计数。两个 selector 都只返回**数字**——在 selector 里 filter/map 出新数组会让
- * `useSyncExternalStore` 每次拿到不等的快照，直接无限重渲染（见 store.ts 的 `useWebNode`）。
+ * 该项的徽标数。计数在**列表外**订阅一次再传进来——hook 不能在 `APP_NAV.map` 里调。
+ * selector 返回的是数字，符合「selector 只许返回原始值或稳定引用」（见 store.ts）。
  */
-function useBadgeCounts(): BadgeCounts {
-  const offers = useWebNode((s) => Object.keys(s.offers).length);
-  const activeTransfers = useWebNode((s) =>
-    Object.values(s.projections).reduce((n, p) => (isActiveSession(p) ? n + 1 : n), 0),
-  );
-  return { offers, activeTransfers };
-}
-
-function badgeCount(item: AppNavItem, counts: BadgeCounts): number {
-  return item.badge ? counts[item.badge] : 0;
+function badgeCount(item: AppNavItem, offers: number): number {
+  return item.badge === "offers" ? offers : 0;
 }
 
 function useActiveHref(): string {
-  return normalizePath(usePathname());
+  return activeNavHref(usePathname());
 }
 
 /** 品牌标记。不可点——对齐桌面端「unclickable logo mark」，也避免误点直接退出应用区
@@ -76,7 +68,7 @@ function CountBadge({ count, className = "" }: { count: number; className?: stri
 export function AppSidebar() {
   const { t } = useLingui();
   const active = useActiveHref();
-  const counts = useBadgeCounts();
+  const offers = useWebNode(selectOfferCount);
 
   return (
     // `h-full` 而不是 `sticky top-0 h-screen`：外壳（layout.tsx）现在是 `h-dvh` 的
@@ -94,13 +86,13 @@ export function AppSidebar() {
             key={item.href}
             item={item}
             active={active === item.href}
-            count={badgeCount(item, counts)}
+            count={badgeCount(item, offers)}
           />
         ))}
       </nav>
 
       <div className="shrink-0 space-y-2 border-t p-3 md:flex md:flex-col md:items-center lg:items-stretch">
-        <NodeStatusPill labelClassName="hidden lg:inline" />
+        <NodeStatusDialog labelClassName="hidden lg:inline" />
         <Link
           href="/docs"
           title={t`使用文档`}
@@ -157,7 +149,7 @@ export function AppMobileHeader() {
     <header className="shrink-0 border-b bg-sidebar md:hidden">
       <div className="flex items-center justify-between px-4 py-3">
         <BrandMark />
-        <NodeStatusPill />
+        <NodeStatusDialog />
       </div>
     </header>
   );
@@ -166,7 +158,7 @@ export function AppMobileHeader() {
 export function AppBottomNav() {
   const { t } = useLingui();
   const active = useActiveHref();
-  const counts = useBadgeCounts();
+  const offers = useWebNode(selectOfferCount);
 
   return (
     // **不再是 `fixed` + 等高 spacer**：外壳（layout.tsx）现在是 `h-dvh` 的 flex 列，
@@ -182,7 +174,7 @@ export function AppBottomNav() {
         {APP_NAV.map((item) => {
           const Icon = item.icon;
           const isActive = active === item.href;
-          const count = badgeCount(item, counts);
+          const count = badgeCount(item, offers);
           return (
             <li key={item.href} className="flex-1">
               <Link

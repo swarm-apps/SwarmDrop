@@ -219,16 +219,80 @@ const offers = useWebNode((s) => Object.values(s.offers));
 
 **相关文件**：`docs/app/app/_lib/store.ts`、`scripts/check-zustand-store-access.mjs`
 
-## 拆多路由会藏起有时效的东西，导航徽标是补偿不是装饰
+## 从 chrome 上拿掉的东西，必须在用户已经在的地方重新出现
 
 单页时入站 offer 与其它内容同屏可见；拆成五条路由后它躲进了 `/app/inbox`，用户停在发送页
-对「有人要发文件给我」零感知。导航项上的计数徽标（待处理 offer / 进行中传输）是这次退化的
-**补偿**，不是顺手加的装饰——删掉它等于把可见性还回去。
+对「有人要发文件给我」零感知。导航项上的计数徽标是这次退化的**补偿**，不是顺手加的装饰。
 
-同理，节点状态在三档断点里都必须在场：宽屏是完整 pill，图标侧栏降级成裸状态点
-（文字进 `title`/`aria-label`），窄屏回到顶栏 pill。
+**2026-08-05 又发生了一次，形态不同**：常驻导航收敛成三项（设备 / 收件箱 / 设置，对齐移动端
+tab）时，「传输」离开侧栏，它那枚活跃计数徽标也跟着没了。补偿是设备页的
+`active-transfers-section.tsx`——**几行真内容而不是一个数字**：既然设备页本来就是首页，
+直接把进行中的会话连进度一起摆出来，比在导航上挂一个「3」更有用。
 
-**相关文件**：`docs/app/app/_components/app-nav.tsx`、`docs/app/app/_components/node-status-pill.tsx`
+所以这条规矩比「徽标不是装饰」更普遍：**动导航结构时，先问被拿掉的那一项在补偿谁的可见性，
+再决定补偿放哪儿**。补偿的形态可以变，存不存在不能变。
+
+两条配套：
+
+- **子页面必须能高亮父项、且页面上有返回出口**。`_lib/nav.ts` 的 `parent` 字段同时喂两处：
+  `activeNavHref()`（侧栏在 `/app/send`、`/app/transfer` 上高亮「设备」）与 `PageHeader` 的
+  返回链接。少了前者，离首页最远的两个页面上侧栏三项全灭——常驻导航的全部意义就是随时回答
+  「我在哪」；少了后者，用户只能按浏览器后退。
+- 节点状态在三档断点里都必须在场：宽屏是完整 pill，图标侧栏降级成裸状态点
+  （文字进 `title`/`aria-label`），窄屏回到顶栏 pill。
+
+**相关文件**：`docs/app/app/_lib/nav.ts`、`docs/app/app/_components/app-nav.tsx`、
+`docs/app/app/_components/active-transfers-section.tsx`、`docs/app/app/_components/page-header.tsx`
+
+## 节点可以停可以起之后，三处「隐含节点只启动一次」的假设会同时失效
+
+Web 端此前节点只在 layout 挂载时 spawn 一次、永不关停。节点状态弹窗（`node-status-dialog.tsx`）
+加了启停之后，下面三件事一起变成了 bug 面——**都不是编译错误，两条还没有任何报错**：
+
+| # | 原本的写法 | 节点能重启之后 |
+|---|---|---|
+| 1 | `event-dispatch.ts` 用一个模块级布尔 `consuming` 防重复取流 | `events()` 每个实例只能取一次，但守卫记的是「有没有人在消费」。旧流的 `done` 还没落地时新实例就撞上「已经在消费了」被静默跳过——**节点在跑、传输事件一条不到、进度永远 0** |
+| 2 | 启动序列（spawn → 回补历史 → 三条订阅 → relay 登记 → 置状态）写在 `WebNodeBootstrap` 的 effect 里 | 弹窗那条路径只能照抄一遍，漏任何一步都不报错 |
+| 3 | 各页空态判 `status !== "running"` 就说「正在启动节点…」 | 用户刚亲手停掉节点，界面却告诉他正在启动，而他等不到任何结果 |
+
+修法分别是：守卫**按节点实例换代**（`current?.node === node` 才幂等，换实例先停旧的）；
+启动序列收进 `_lib/node-lifecycle.ts`（`startNodeRuntime` / `stopNodeRuntime`，两个调用方共用）；
+空态收进 `node-not-ready-state.tsx` 按四种状态分说，且 `idle` / `error` 直接给一颗启动按钮
+（而不是「去点某个角落那枚徽章」——那种方位指代在窄屏就是错的，徽章那时在顶栏）。
+
+还有一条是 review 时才抓出来的：**装配中途失败必须回滚，连节点一起**。
+
+启动序列有五步，任何一步都可能抛。原先的写法是一次性赋值
+
+```ts
+subscriptions = { stopPoll: startStatePoll(n), stopRelayWatch: startRelayWatch(n) };
+```
+
+——后一个调用抛错会让整条赋值作废，而前一个已经起了的 `setInterval` 再也收不回来，且
+`subscriptions` 仍是 `null`，下一次启动会若无其事地再起一个。改成往数组里逐个 push，
+失败时照着回滚。
+
+更隐蔽的是**节点本身也要关掉**：spawn 成功而后续装配失败时它还活着，而 `spawnNode()` 是
+记忆化的——下一次启动拿到同一个实例，`events()` 却已经被上一次取走过了（每实例只能取一次），
+于是那条流再也接不上：节点看着在跑，传输进度永远是 0。这条与上表第 1 行是同一个坑的两个入口。
+
+另外三条只有写的时候会想到的：
+
+- **启停要串行化**。两者动的是同一份订阅句柄，交叠执行时后发的 stop 会停掉先发的 start 刚挂上的
+  订阅，留下一个「状态是运行中、却没有任何事件进来」的节点。UI 按钮的禁用条件将来会变，
+  机制兜底不会（`node-lifecycle.ts` 的 `transition` 队列）。
+- **停止的顺序是「停订阅 → 关节点 → 清运行态」**。轮询打在已关停的节点上会逐 tick 抛错；
+  而 `reset()` 若排在关节点之前，界面先一步清空、关停还在途——中间那段用户看到的是一个
+  「没有任何设备的运行中节点」。
+- **`WebNodeBootstrap` 的 effect 不再有 cleanup**，这是刻意的：运行时是页面级单例，StrictMode 的
+  mount→cleanup→mount 不该把它停掉再起一遍。启动幂等，关停只有一个来路——用户显式停。
+  此前那个 `cancelled` 标志兜的就是这件事，现在由模块级幂等兜。
+
+**验证过**（2026-08-05，静态产物 + 真 relay）：停 → 起一轮之后节点 ID 不变、relay reservation
+重建、`relays_changed()` 与轮询都重新接上、JS 侧零报错。
+
+**相关文件**：`docs/app/app/_lib/node-lifecycle.ts`、`docs/app/app/_lib/event-dispatch.ts`、
+`docs/app/app/_components/node-status-dialog.tsx`、`docs/app/app/_components/node-not-ready-state.tsx`
 
 ## 手测坑：Next Dev Tools 浮标会挡住底部导航
 

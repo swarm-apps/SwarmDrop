@@ -13,55 +13,9 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: app/app/_lib/view-types.ts
-msgid "{title} 等 {itemCount} 个文件"
-msgstr "{title} 等 {itemCount} 個檔案"
-
 #: app/app/_components/node-panel.tsx
 msgid "· 刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
 msgstr "· 重新整理後保持不變。清除瀏覽器資料會讓本機換一個新身分，已配對的裝置需要重新配對。"
-
-#. placeholder {0}: failure.fileName
-#: app/app/_lib/view-types.ts
-msgid "「{0}」没能完整保存，请重新接收"
-msgstr "「{0}」未能完整儲存，請重新接收"
-
-#: app/app/_lib/view-types.ts
-msgid "发送请求没能送达对方，请确认对方在线后重试"
-msgstr "傳送請求未能送達對方，請確認對方在線後重試"
-
-#: app/app/_lib/view-types.ts
-msgid "对方已取消这次传输，无法继续"
-msgstr "對方已取消這次傳輸，無法繼續"
-
-#: app/app/_lib/view-types.ts
-msgid "对方已经没有这次传输的记录了"
-msgstr "對方已經沒有這次傳輸的紀錄了"
-
-#: app/app/_lib/view-types.ts
-msgid "对方暂时不可用，请稍后再试"
-msgstr "對方暫時無法使用，請稍後再試"
-
-#: app/app/_lib/view-types.ts
-msgid "对方那边出错了，无法继续"
-msgstr "對方那邊發生錯誤，無法繼續"
-
-#: app/app/_lib/view-types.ts
-msgid "源文件已变更，无法继续，请重新发送"
-msgstr "來源檔案已變更，無法繼續，請重新傳送"
-
-#: app/app/_lib/view-types.ts
-msgid "空传输"
-msgstr "空傳輸"
-
-#: app/app/_lib/view-types.ts
-msgid "续传进度已失效，请重新发送"
-msgstr "續傳進度已失效，請重新傳送"
-
-#. placeholder {0}: failure.retentionDays
-#: app/app/_lib/view-types.ts
-msgid "超过 {0} 天未恢复，已自动清理"
-msgstr "超過 {0} 天未恢復，已自動清理"
 
 #: app/app/_components/dev-event-log.tsx
 msgid "（暂无事件）"
@@ -95,6 +49,11 @@ msgstr "{0, plural, other {# 小時前}}"
 msgid "{0} 个待处理"
 msgstr "{0} 筆待處理"
 
+#. placeholder {0}: devices.length
+#: app/app/_components/node-status-dialog.tsx
+msgid "{0} 台 · 在线 {onlineCount}"
+msgstr "{0} 台 · 線上 {onlineCount}"
+
 #. placeholder {0}: memberCount[group.id] ?? 0
 #: app/app/_components/group-manager-dialog.tsx
 msgid "{0} 台设备"
@@ -105,14 +64,40 @@ msgstr "{0} 台裝置"
 msgid "{0} 的进度"
 msgstr "{0} 的進度"
 
+#: app/app/_components/node-status-dialog.tsx
+msgid "{activeRelayCount} 条可达"
+msgstr "{activeRelayCount} 條可達"
+
+#. placeholder {0}: minutes % 60
+#: app/app/_components/node-status-dialog.tsx
+msgid "{hours} 小时 {0} 分钟"
+msgstr "{hours} 小時 {0} 分鐘"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "{label}，点开查看详情"
+msgstr "{label}，點開檢視詳情"
+
 #: app/app/_lib/invite.ts
 msgid "{left}后失效"
 msgstr "{left}後失效"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "{minutes} 分钟"
+msgstr "{minutes} 分鐘"
+
+#: app/app/_lib/view-types.ts
+msgid "{title} 等 {itemCount} 个文件"
+msgstr "{title} 等 {itemCount} 個檔案"
 
 #. placeholder {0}: organizedDeviceName(device, organization)
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "「{0}」发来的文件按这里的设定处置。 策略只保存在本机，对方看不到。"
 msgstr "「{0}」傳來的檔案按這裡的設定處置。策略只存在本機，對方看不到。"
+
+#. placeholder {0}: failure.fileName
+#: app/app/_lib/view-types.ts
+msgid "「{0}」没能完整保存，请重新接收"
+msgstr "「{0}」未能完整儲存，請重新接收"
 
 #. placeholder {0}: current?.deviceName
 #: app/app/_components/pairing-request-host.tsx
@@ -156,9 +141,14 @@ msgstr "與另一台裝置互換一次邀請即可，之後長期有效。"
 
 #: app/app/_components/connection-badge.tsx
 #: app/app/_components/connection-panel.tsx
+#: app/app/_components/node-status-dialog.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "中继"
 msgstr "中繼"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "中继的增删与连通性测试在 <0>设置</0> 的「连接」区。"
+msgstr "中繼的新增、移除與連線測試在 <0>設定</0> 的「連線」區。"
 
 #: app/app/_components/connection-badge.tsx
 #: app/app/_components/connection-panel.tsx
@@ -290,6 +280,18 @@ msgstr "信任等級"
 msgid "修改"
 msgstr "修改"
 
+#: app/app/_components/node-status-dialog.tsx
+msgid "停止中…"
+msgstr "停止中…"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "停止后会断开所有连接，进行中的传输将中断。"
+msgstr "停止後會中斷所有連線，進行中的傳輸也會一併中斷。"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "停止节点"
+msgstr "停止節點"
+
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "允许文件夹"
 msgstr "允許資料夾"
@@ -300,7 +302,7 @@ msgid "全部"
 msgstr "全部"
 
 #. placeholder {0}: files.length
-#: app/app/_components/transfer-detail.tsx
+#: app/app/_components/session-title.tsx
 msgid "共 {0} 个文件"
 msgstr "共 {0} 個檔案"
 
@@ -347,6 +349,10 @@ msgstr "群組名稱"
 #: app/app/_components/relative-time.tsx
 msgid "刚刚"
 msgstr "剛剛"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "刚刚启动"
+msgstr "剛剛啟動"
 
 #. placeholder {0}: group.name
 #: app/app/_components/group-manager-dialog.tsx
@@ -444,6 +450,10 @@ msgstr "傳送中…"
 msgid "发送失败"
 msgstr "傳送失敗"
 
+#: app/app/_lib/view-types.ts
+msgid "发送请求没能送达对方，请确认对方在线后重试"
+msgstr "傳送請求未能送達對方，請確認對方在線後重試"
+
 #: app/app/_components/send-panel.tsx
 msgid "发送进度"
 msgstr "傳送進度"
@@ -507,13 +517,25 @@ msgstr "可恢復"
 msgid "可达"
 msgstr "可達"
 
+#: app/app/_components/node-status-dialog.tsx
+msgid "可达地址"
+msgstr "可達位址"
+
 #: app/app/_components/node-status-pill.tsx
 msgid "启动中"
 msgstr "啟動中"
 
+#: app/app/_components/start-node-button.tsx
+msgid "启动中…"
+msgstr "啟動中…"
+
 #: app/app/_components/node-status-pill.tsx
 msgid "启动失败"
 msgstr "啟動失敗"
+
+#: app/app/_components/start-node-button.tsx
+msgid "启动节点"
+msgstr "啟動節點"
 
 #: app/app/_components/device-card.tsx
 #: app/app/_components/send-panel.tsx
@@ -533,7 +555,7 @@ msgstr "處理中…"
 msgid "处理完这条后，还有 {queued} 条请求在等待"
 msgstr "處理完這筆後，還有 {queued} 筆請求在等待"
 
-#: app/app/_components/node-panel.tsx
+#: app/app/_components/copy-button.tsx
 msgid "复制"
 msgstr "複製"
 
@@ -541,7 +563,11 @@ msgstr "複製"
 msgid "复制会话 ID"
 msgstr "複製工作階段 ID"
 
-#: app/app/_components/node-panel.tsx
+#: app/app/_components/node-status-dialog.tsx
+msgid "复制可达地址"
+msgstr "複製可達位址"
+
+#: app/app/_components/copy-button.tsx
 #: app/app/_components/transfer-detail.tsx
 msgid "复制失败"
 msgstr "複製失敗"
@@ -552,6 +578,7 @@ msgid "复制失败，请手动选中"
 msgstr "複製失敗，請手動選取"
 
 #: app/app/_components/node-panel.tsx
+#: app/app/_components/node-status-dialog.tsx
 msgid "复制节点 ID"
 msgstr "複製節點 ID"
 
@@ -591,6 +618,10 @@ msgstr "對方尚未與你配對，請先完成配對再試"
 msgid "对方就在同一网段，但直连没建起来"
 msgstr "對方就在同一網段，但直連沒建起來"
 
+#: app/app/_lib/view-types.ts
+msgid "对方已取消这次传输，无法继续"
+msgstr "對方已取消這次傳輸，無法繼續"
+
 #: app/app/_components/send-panel.tsx
 msgid "对方已接受，正在传输"
 msgstr "對方已接受，正在傳輸"
@@ -598,6 +629,10 @@ msgstr "對方已接受，正在傳輸"
 #: app/app/_lib/view-types.ts
 msgid "对方已暂停接收，请稍后再试"
 msgstr "對方已暫停接收，請稍後再試"
+
+#: app/app/_lib/view-types.ts
+msgid "对方已经没有这次传输的记录了"
+msgstr "對方已經沒有這次傳輸的紀錄了"
 
 #: app/app/_lib/view-types.ts
 msgid "对方拒绝了此次传输"
@@ -610,6 +645,10 @@ msgstr "對方拒絕了這次配對"
 #: app/app/_components/transfer-labels.ts
 msgid "对方暂停"
 msgstr "對方暫停"
+
+#: app/app/_lib/view-types.ts
+msgid "对方暂时不可用，请稍后再试"
+msgstr "對方暫時無法使用，請稍後再試"
 
 #: app/app/_lib/view-types.ts
 msgid "对方的接收策略拒绝了此次传输"
@@ -630,6 +669,10 @@ msgstr "對方節點 ID"
 #: app/app/_components/pairing-panel.tsx
 msgid "对方设备"
 msgstr "對方裝置"
+
+#: app/app/_lib/view-types.ts
+msgid "对方那边出错了，无法继续"
+msgstr "對方那邊發生錯誤，無法繼續"
 
 #: app/app/_components/node-panel.tsx
 msgid "对端在配对确认与传输请求里看到的就是这一行。未设置时用浏览器 UA 派生的默认名 （当前是「{deviceNameFallback}」），清空输入即回落到它。"
@@ -678,8 +721,8 @@ msgid "已取消"
 msgstr "已取消"
 
 #: app/app/_components/connection-badge.tsx
+#: app/app/_components/copy-button.tsx
 #: app/app/_components/invite-share.tsx
-#: app/app/_components/node-panel.tsx
 #: app/app/_components/transfer-detail.tsx
 msgid "已复制"
 msgstr "已複製"
@@ -761,6 +804,7 @@ msgstr "已配對：<0>{0}</0>"
 #~ msgstr "已配對：<0>{consumeSuccess}</0>"
 
 #: app/app/_components/device-grid.tsx
+#: app/app/_components/node-status-dialog.tsx
 #: app/app/_lib/view-types.ts
 msgid "已配对设备"
 msgstr "已配對裝置"
@@ -987,6 +1031,10 @@ msgstr "未及時處理"
 msgid "未启动"
 msgstr "未啟動"
 
+#: app/app/_components/active-transfers-section.tsx
+msgid "未命名传输"
+msgstr "未命名傳輸"
+
 #: app/app/_components/inbox-views.tsx
 msgid "未打开"
 msgstr "未開啟"
@@ -1043,6 +1091,10 @@ msgstr "查看傳輸"
 msgid "查看传输记录"
 msgstr "檢視傳輸紀錄"
 
+#: app/app/_components/active-transfers-section.tsx
+msgid "查看全部"
+msgstr "檢視全部"
+
 #: app/app/_components/transfer-detail.tsx
 msgid "查看收到的文件"
 msgstr "查看收到的檔案"
@@ -1050,6 +1102,10 @@ msgstr "查看收到的檔案"
 #: app/app/_components/connection-badge.tsx
 msgid "查看链路详情"
 msgstr "檢視鏈路詳情"
+
+#: app/app/_components/node-not-ready-state.tsx
+msgid "正在停止节点…"
+msgstr "正在停止節點…"
 
 #. placeholder {0}: prepareProgress.currentFile
 #. placeholder {1}: prepareProgress.completedFiles
@@ -1064,9 +1120,7 @@ msgstr "正在準備 {0}（{1}/{2} 檔案 · {3}/{4}）"
 msgid "正在准备发送…"
 msgstr "正在準備傳送…"
 
-#: app/app/_components/device-grid.tsx
-#: app/app/_components/send-panel.tsx
-#: app/app/_components/transfer-activity-panel.tsx
+#: app/app/_components/node-not-ready-state.tsx
 msgid "正在启动节点…"
 msgstr "正在啟動節點…"
 
@@ -1097,6 +1151,10 @@ msgstr "每次確認"
 #: app/app/_components/receive-panel.tsx
 msgid "没有匹配的收件箱条目。"
 msgstr "沒有符合的收件匣項目。"
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "活跃传输"
+msgstr "進行中的傳輸"
 
 #: app/app/_components/appearance-panel.tsx
 msgid "浅色"
@@ -1154,9 +1212,17 @@ msgstr "清空中"
 msgid "清空记录"
 msgstr "清空記錄"
 
+#: app/app/_lib/view-types.ts
+msgid "源文件已变更，无法继续，请重新发送"
+msgstr "來源檔案已變更，無法繼續，請重新傳送"
+
 #: app/app/_components/about-panel.tsx
 msgid "源码仓库"
 msgstr "原始碼儲存庫"
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "现在没有正在进行的传输。"
+msgstr "目前沒有正在進行的傳輸。"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "生成一条邀请发给对方"
@@ -1238,6 +1304,10 @@ msgstr "移除 {0}"
 msgid "移除中…"
 msgstr "移除中…"
 
+#: app/app/_lib/view-types.ts
+msgid "空传输"
+msgstr "空傳輸"
+
 #: app/app/_components/transfer-detail.tsx
 msgid "等待中"
 msgstr "等待中"
@@ -1280,6 +1350,18 @@ msgid "续传中"
 msgstr "續傳中"
 
 #: app/app/_lib/view-types.ts
+msgid "续传进度已失效，请重新发送"
+msgstr "續傳進度已失效，請重新傳送"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "网络节点"
+msgstr "網路節點"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "网络诊断"
+msgstr "網路診斷"
+
+#: app/app/_lib/view-types.ts
 msgid "网络错误"
 msgstr "網路錯誤"
 
@@ -1288,16 +1370,33 @@ msgid "自动接收"
 msgstr "自動接收"
 
 #: app/app/_components/node-panel.tsx
+#: app/app/_components/node-status-dialog.tsx
 msgid "节点 ID"
 msgstr "節點 ID"
 
-#: app/app/_components/node-status-pill.tsx
+#: app/app/_components/node-status-dialog.tsx
 msgid "节点{phase}"
 msgstr "節點{phase}"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "节点停着时收不到任何请求，已配对的设备会把你看作离线。"
+msgstr "節點停著時收不到任何請求，已配對的裝置會把你看作離線。"
 
 #: app/app/_components/connection-panel.tsx
 msgid "节点启动后会自动连接中继。"
 msgstr "節點啟動後會自動連線中繼。"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "节点在跑时，已配对的设备才能找到你并发起传输。"
+msgstr "節點在跑時，已配對的裝置才找得到你並發起傳輸。"
+
+#: app/app/_components/node-not-ready-state.tsx
+msgid "节点已停止"
+msgstr "節點已停止"
+
+#: app/app/_components/node-not-ready-state.tsx
+msgid "节点没能启动"
+msgstr "節點沒能啟動"
 
 #: app/app/_components/device-grid.tsx
 #: app/app/_components/send-panel.tsx
@@ -1307,6 +1406,10 @@ msgstr "節點起來後，已配對的裝置會出現在這裡。"
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "节点起来后，进行中与已结束的会话会出现在这里。"
 msgstr "節點起來後，進行中與已結束的工作階段會出現在這裡。"
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "节点起来后，进行中的传输会出现在这里。"
+msgstr "節點起來後，進行中的傳輸會出現在這裡。"
 
 #: app/app/_components/receive-panel.tsx
 msgid "要定位的条目不在当前检索结果里。"
@@ -1344,6 +1447,11 @@ msgstr "語言"
 msgid "请填一个大于 0 的数字，或留空表示不限制。"
 msgstr "請填一個大於 0 的數字，或留空表示不限制。"
 
+#. placeholder {0}: failure.retentionDays
+#: app/app/_lib/view-types.ts
+msgid "超过 {0} 天未恢复，已自动清理"
+msgstr "超過 {0} 天未恢復，已自動清理"
+
 #: app/app/_components/appearance-panel.tsx
 msgid "跟随系统"
 msgstr "跟隨系統"
@@ -1351,6 +1459,10 @@ msgstr "跟隨系統"
 #: app/app/_components/node-panel.tsx
 msgid "身份存在哪里？"
 msgstr "身分存在哪裡？"
+
+#: app/app/_components/node-status-dialog.tsx
+#~ msgid "身份存放于"
+#~ msgstr "身分存放於"
 
 #: app/app/_lib/view-types.ts
 msgid "身份错误"
@@ -1364,6 +1476,10 @@ msgstr "輸入無效"
 msgid "运行中"
 msgstr "執行中"
 
+#: app/app/_components/node-status-dialog.tsx
+msgid "运行时长"
+msgstr "運行時長"
+
 #: app/app/_components/confirm-action.tsx
 msgid "返回"
 msgstr "返回"
@@ -1372,6 +1488,10 @@ msgstr "返回"
 #: app/app/_components/pairing-request-host.tsx
 msgid "还有 {0} 个请求等待处理"
 msgstr "還有 {0} 個請求等待處理"
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "还有 {hidden} 条进行中，<0>去传输页</0>查看。"
+msgstr "還有 {hidden} 條進行中，<0>去傳輸頁</0>檢視。"
 
 #: app/app/_components/incoming-offers-panel.tsx
 #: app/app/_components/transfer-offer-host.tsx
@@ -1401,6 +1521,10 @@ msgstr "還沒有群組。裝置多起來之後，群組能讓「傳給誰」這
 #: app/app/_components/send-panel.tsx
 msgid "还没有可发送的设备"
 msgstr "還沒有可傳送的裝置"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "还没有可达地址，对方暂时拨不进来。"
+msgstr "還沒有可達位址，對方暫時撥不進來。"
 
 #: app/app/_components/device-grid.tsx
 msgid "还没有已配对的设备"
@@ -1473,6 +1597,10 @@ msgstr "連線"
 #: app/app/_components/connection-panel.tsx
 msgid "连接中"
 msgstr "連線中"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "连接中…"
+msgstr "連線中…"
 
 #: app/app/_components/transfer-labels.ts
 msgid "连接中断"

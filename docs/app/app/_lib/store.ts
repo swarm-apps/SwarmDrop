@@ -10,6 +10,7 @@
 import { msg } from "@lingui/core/macro";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
+import { isActiveSession } from "./format";
 import type { SecureContextInfo } from "./secure-context";
 import type {
   RelayInfoJson,
@@ -65,6 +66,13 @@ export interface WebNodeState {
   status: NodeStatus;
   /** base58 身份；刷新后不变（内核 identity::load_or_create 持久化到 localStorage）。 */
   nodeId: string | null;
+  /**
+   * 本次启动的时刻（Unix 毫秒）；非 running 时为 null。
+   *
+   * 只服务节点状态弹窗那一行「已运行多久」。**不从 `nodeId` 或事件推**——身份跨重启不变，
+   * 而这里要的恰恰是「这一次跑了多久」。
+   */
+  startedAt: number | null;
   error: WebError | null;
   /** secure-context 探测结果；null = 尚未探测（SSR 快照）。 */
   secure: SecureContextInfo | null;
@@ -174,6 +182,7 @@ export interface WebNodeState {
 const initialState: WebNodeState = {
   status: "idle",
   nodeId: null,
+  startedAt: null,
   error: null,
   secure: null,
   deviceName: null,
@@ -230,6 +239,24 @@ export function selectReservation(s: WebNodeState): string | null {
   return s.relays.find((r) => r.state === "active")?.circuitAddr ?? null;
 }
 
+/**
+ * 待处理入站 offer 数（收件箱徽标）与进行中的会话数（设备页的「活跃传输」区块）。
+ *
+ * 两个都**返回数字**，所以放在 selector 里是安全的（`Object.is(3, 3)` 为真）——同一条规矩
+ * 的反面是 `Object.values(...)`，那会每帧换引用、直接打穿 `useSyncExternalStore`。
+ *
+ * 收在这里而不是各组件内联一份 lambda：内联的 `(s) => Object.keys(s.offers).length` 每次
+ * 渲染都是新函数，多个调用点也无法共享；更要紧的是「进行中」的判据必须只有一处
+ * （`isActiveSession`），否则将来加一个非 terminal 的 phase，两处数字就会对不上。
+ */
+export function selectOfferCount(s: WebNodeState): number {
+  return Object.keys(s.offers).length;
+}
+
+export function selectActiveTransferCount(s: WebNodeState): number {
+  return Object.values(s.projections).reduce((n, p) => (isActiveSession(p) ? n + 1 : n), 0);
+}
+
 export const webNodeActions = {
   setSecure(info: SecureContextInfo) {
     webNodeStore.setState({ secure: info });
@@ -237,8 +264,12 @@ export const webNodeActions = {
   setStatus(status: NodeStatus) {
     webNodeStore.setState({ status });
   },
-  setNodeId(nodeId: string) {
-    webNodeStore.setState({ nodeId });
+  /**
+   * 节点已就绪。**三个字段一次落定**——身份、本次启动时刻、状态本就是同一件事的三面，
+   * 分成三个 action 调用只会多两轮广播，还给「先置 running 后置 id」这种中间态留了口子。
+   */
+  markRunning(nodeId: string) {
+    webNodeStore.setState({ nodeId, startedAt: Date.now(), status: "running" });
   },
   setError(error: WebError | null) {
     webNodeStore.setState((s) => ({ error, status: error ? "error" : s.status }));
