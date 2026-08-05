@@ -458,11 +458,31 @@ export function PairingPanel({ ref }: { ref?: Ref<PairingPanelHandle> }) {
   //
   // 滚动而不只是展开：卡片在设备网格里，面板在网格**下方**，设备一多就在视口外——
   // 点了卡片却什么都没动，看起来像按钮坏了。
+  //
+  // ## 两条都必须在下一帧做，不能跟 `setOverride` 挤在同一个同步块里
+  //
+  // `setOverride(true)` 是批处理的，DOM 要到事件处理器返回之后才更新。同步调
+  // `scrollIntoView` 量到的是**收起态**那 ~100px 的外壳，`block: "nearest"` 据此判定
+  // 「已经完全可见」就一动不动——展开后的表单全部落在折线以下，正是上面那句注释要避免的
+  // 现象。`behavior: "smooth"` 还会把这个失准固化：滚动目标在调用时刻就算死了。
+  //
+  // ## 聚焦输入框是这里唯一在所有路径上都成立的反馈
+  //
+  // 空态（`pairedCount === 0`）时面板**本来就是展开的**（见下面 `open` 的推导），点「添加
+  // 设备」既没有状态变化也没有滚动——只有焦点落进输入框这一件事是可见的。它同时也是
+  // 对键盘用户唯一有意义的响应：光标已经在该打字的地方。
+  //
+  // `preventScroll: true` 让滚动只由上面那次 `scrollIntoView` 负责，不叠加浏览器
+  // 自己的聚焦滚动（两者节奏不同，叠起来会抖一下）。
   const panelRef = useRef<HTMLElement>(null);
+  const inviteInputRef = useRef<HTMLInputElement>(null);
   useImperativeHandle(ref, () => ({
     open() {
       setOverride(true);
-      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      requestAnimationFrame(() => {
+        panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        inviteInputRef.current?.focus({ preventScroll: true });
+      });
     },
   }), []);
 
@@ -491,6 +511,7 @@ export function PairingPanel({ ref }: { ref?: Ref<PairingPanelHandle> }) {
         </p>
         {/* 没有「配对」按钮：串一进框就地解码，动作长在下面那张确认卡上（#98）。 */}
         <Input
+          ref={inviteInputRef}
           className="mt-2 h-11 font-mono text-xs sm:h-9"
           placeholder={`${INVITE_URL_PREFIX}...`}
           aria-label={t`对方的邀请链接`}
