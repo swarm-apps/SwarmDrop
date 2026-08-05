@@ -13,8 +13,9 @@
 //
 // ## 两者并在一块，对齐桌面的「外观」区
 //
-// 桌面 `settings/index.lazy.tsx` 的 `AppearanceSection` 就是「主题 + 语言」。它们是同一类
-// 东西（跟内容无关的呈现偏好），分成两块会让本就只有四块的设置页更碎。
+// 桌面 `settings/index.lazy.tsx` 的 `AppearanceSection` 就是「主题 + 语言」，连控件形态
+// 都对齐：主题是三张固定预览缩略图、语言是一个 `Select`。它们是同一类东西（跟内容无关的
+// 呈现偏好），分成两块会让本就只有四块的设置页更碎。
 //
 // ## 主题预览缩略图**固定展示该主题的样子**，不跟随当前主题
 //
@@ -23,13 +24,20 @@
 
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Languages, Palette } from "lucide-react";
+import { Palette } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/cn";
 import { LOCALES, type Locale } from "../_lib/i18n";
 import { useLocaleSwitcher } from "./i18n-provider";
-import { SectionHeader, SectionShell } from "./section";
+import { SettingsCard, SettingsRow, SettingsSection } from "./settings-primitives";
 
 /** 语言的**自称**（endonym）：给英语用户看 "English" 而不是「英语」，才认得出来。 */
 const LOCALE_ENDONYM: Record<Locale, string> = {
@@ -61,65 +69,54 @@ export function AppearancePanel() {
   useEffect(() => setMounted(true), []);
 
   return (
-    <SectionShell>
-      <SectionHeader icon={Palette} title={<Trans>外观</Trans>} />
+    <SettingsSection icon={Palette} title={<Trans>外观</Trans>}>
+      <SettingsCard>
+        {/* 主题走整行：三张缩略图是**看**的，塞进右侧控件位会小到看不清预览的是什么。 */}
+        <SettingsRow
+          title={<Trans>主题</Trans>}
+          description={<Trans>选择应用的外观主题</Trans>}
+        >
+          <div role="radiogroup" aria-label={t`应用主题`} className="grid grid-cols-3 gap-2">
+            {THEMES.map((value) => (
+              <ThemeOption
+                key={value}
+                value={value}
+                label={t(THEME_LABEL[value])}
+                active={mounted && theme === value}
+                onSelect={() => setTheme(value)}
+              />
+            ))}
+          </div>
+        </SettingsRow>
 
-      <div className="flex flex-col gap-2">
-        <div>
-          <p className="text-sm font-medium text-foreground">
-            <Trans>主题</Trans>
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            <Trans>选择应用的外观主题。</Trans>
-          </p>
-        </div>
-        <div role="radiogroup" aria-label={t`应用主题`} className="grid grid-cols-3 gap-2">
-          {THEMES.map((value) => (
-            <ThemeOption
-              key={value}
-              value={value}
-              label={t(THEME_LABEL[value])}
-              active={mounted && theme === value}
-              onSelect={() => setTheme(value)}
-            />
-          ))}
-        </div>
-      </div>
+        {/*
+          语言改用 `Select`（此前是三枚胶囊按钮），与桌面 `AppearanceSection` 一致。
+          胶囊把三个选项全摊开，在只有两行的设置卡里比标题本身还占地方；下拉是设置页的
+          常规控件形态，也让这张卡矮到能和「关于」在同一行齐平。
 
-      <div className="flex flex-col gap-2 border-t pt-4">
-        <div className="flex items-center gap-2">
-          <Languages className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <p className="text-sm font-medium text-foreground">
-            <Trans>语言</Trans>
-          </p>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          <Trans>选择后会记住；未选择时跟随浏览器的语言偏好。</Trans>
-        </p>
-        <div role="radiogroup" aria-label={t`界面语言`} className="flex flex-wrap gap-2">
-          {LOCALES.map((candidate) => {
-            const active = locale === candidate;
-            return (
-              <button
-                key={candidate}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onClick={() => void switchTo(candidate)}
-                className={cn(
-                  "focus-ring min-h-11 rounded-full border px-4 text-xs transition-colors sm:min-h-9",
-                  active
-                    ? "border-transparent bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent",
-                )}
-              >
-                {LOCALE_ENDONYM[candidate]}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </SectionShell>
+          选项文案仍是**自称**（endonym）：给英语用户看 "English" 而不是「英语」，
+          否则切错了就找不回来。
+        */}
+        <SettingsRow
+          title={<Trans>语言</Trans>}
+          description={<Trans>选择后会记住；未选择时跟随浏览器的语言偏好</Trans>}
+          action={
+            <Select value={locale} onValueChange={(value) => void switchTo(value as Locale)}>
+              <SelectTrigger className="w-full min-h-11 sm:min-h-9 sm:w-35" aria-label={t`界面语言`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LOCALES.map((candidate) => (
+                  <SelectItem key={candidate} value={candidate}>
+                    {LOCALE_ENDONYM[candidate]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
+        />
+      </SettingsCard>
+    </SettingsSection>
   );
 }
 

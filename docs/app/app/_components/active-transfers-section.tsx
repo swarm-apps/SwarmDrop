@@ -23,7 +23,6 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { calcPercent } from "@swarmdrop/shared-view";
 import { INLINE_ACTION_CLASS } from "./confirm-action";
-import { RailEmptyHint } from "./empty-state";
 import { PANEL_SURFACE, SectionHeader, SectionShell } from "./section";
 import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
@@ -50,12 +49,50 @@ export function ActiveTransfersSection() {
   const shown = active.slice(0, PREVIEW_LIMIT);
   const hidden = active.length - shown.length;
 
+  // 空的时候整块塌成一行。
+  //
+  // 此前空态是「面板标题 + 一行居中灰字」，撑出约 175px 的空腔——而这块区块**大部分时间
+  // 都是空的**（传输是偶发事件，不是常驻内容）。于是设备页的稳定形态就是三个等大的空盒子。
+  //
+  // 但不能整块不渲染：它是传输页离开常驻导航后**唯一**的入口，藏起来等于让 `/app/transfer`
+  // 从应用里消失（DESIGN.md：从 chrome 里拿掉的东西必须在用户已经在的地方重新出现）。
+  // 所以留一行——出口还在，空腔没了。
+  if (shown.length === 0) {
+    return (
+      <SectionShell className="flex-row items-center justify-between gap-[var(--space-in-group)] py-3">
+        <p className="flex min-w-0 items-center gap-2.5 text-sm text-muted-foreground">
+          <span className="glass-control flex size-7 shrink-0 items-center justify-center rounded-full text-brand">
+            <ArrowLeftRight className="size-3.5" aria-hidden />
+          </span>
+          {/* 「没有」得是真的没有：节点没起来时历史还没回补，这时说「现在没有正在进行的
+              传输」是在断言一件当时并不成立的事（同 device-grid 与 send-panel 那两处）。 */}
+          <span className="truncate">
+            {ready ? (
+              <Trans>现在没有正在进行的传输</Trans>
+            ) : (
+              <Trans>节点起来后，进行中的传输会出现在这里</Trans>
+            )}
+          </span>
+        </p>
+        {/* `aria-label` 而不是光靠可见文案：塌成一行后这块不再渲染 `SectionHeader`，
+            section 没有可访问名，读屏的链接列表里这条「查看全部」与别处的无法区分。 */}
+        <Link
+          href={NAV.transfer.href}
+          aria-label={t`查看全部传输`}
+          className={`${INLINE_ACTION_CLASS} shrink-0 text-xs`}
+        >
+          {t`查看全部`}
+        </Link>
+      </SectionShell>
+    );
+  }
+
   return (
     <SectionShell>
       <SectionHeader
         icon={ArrowLeftRight}
         title={<Trans>活跃传输</Trans>}
-        count={active.length > 0 ? active.length : undefined}
+        count={active.length}
         action={
           <Link href={NAV.transfer.href} className={`${INLINE_ACTION_CLASS} text-xs`}>
             {t`查看全部`}
@@ -63,30 +100,13 @@ export function ActiveTransfersSection() {
         }
       />
 
-      {shown.length === 0 ? (
-        // 一行就够：这里是「确认确实没有」，而不是教学位。想知道怎么开始传输的人，
-        // 上面那块设备网格才是答案（教学归详情侧，见 empty-state.tsx 的分工）。
-        //
-        // 但「没有」得是真的没有：节点没起来时历史还没回补，这时说「现在没有正在进行的传输」
-        // 是在断言一件当时并不成立的事（同 device-grid 与 send-panel 那两处）。这里不摆
-        // `NodeNotReadyState` ——设备页已经有一个了，一屏两个大空态是同一句话说两遍；
-        // 次级区块换一行字就够。
-        <RailEmptyHint>
-          {ready ? (
-            <Trans>现在没有正在进行的传输。</Trans>
-          ) : (
-            <Trans>节点起来后，进行中的传输会出现在这里。</Trans>
-          )}
-        </RailEmptyHint>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {shown.map((projection) => (
-            <li key={projection.sessionId}>
-              <ActiveTransferRow projection={projection} />
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul className="flex flex-col gap-[var(--space-in-group)]">
+        {shown.map((projection) => (
+          <li key={projection.sessionId}>
+            <ActiveTransferRow projection={projection} />
+          </li>
+        ))}
+      </ul>
 
       {hidden > 0 && (
         <p className="text-center text-[11px] text-muted-foreground">

@@ -30,14 +30,25 @@ import { StartNodeButton } from "./start-node-button";
 /**
  * @param description 「节点起来后**这一页**会有什么」——各页自己说，因为答案不同
  *                    （设备清单 / 传输会话 / 可发送的目标）。
+ * @param fill        透传给 [`CenteredEmptyState`]：满高居中（详情栏）还是收到内容高度
+ *                    （面板里的一段）。判据与那里一致，不要在这里另立一套。
  */
-export function NodeNotReadyState({ description }: { description: ReactNode }) {
+export function NodeNotReadyState({
+  description,
+  fill = true,
+}: {
+  description: ReactNode;
+  fill?: boolean;
+}) {
   const status = useWebNode((s) => s.status);
 
   if (status === "starting" || status === "closing") {
     return (
       <CenteredEmptyState
         icon={Loader2}
+        // 唯一一处图标本身要转的空态：它说的是「正在发生」，静止的转圈图标是自相矛盾的。
+        iconClassName="animate-spin"
+        fill={fill}
         title={
           status === "starting" ? <Trans>正在启动节点…</Trans> : <Trans>正在停止节点…</Trans>
         }
@@ -49,6 +60,7 @@ export function NodeNotReadyState({ description }: { description: ReactNode }) {
   return (
     <CenteredEmptyState
       icon={Power}
+      fill={fill}
       title={
         status === "error" ? <Trans>节点没能启动</Trans> : <Trans>节点已停止</Trans>
       }

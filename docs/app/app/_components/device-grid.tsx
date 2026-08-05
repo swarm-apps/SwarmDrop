@@ -174,11 +174,15 @@ export function DeviceGrid() {
           // 要等 wasm 拉完 `_bg.wasm` 才第一次 tick。此前这里只看 `rows.length`，于是每次刷新，
           // 已配对的老用户都先看到一句确定性的「还没有已配对的设备」加一整段配对教学。
           !ready ? (
+            // `fill={false}`：这是**面板里的一段**，不是一栏的全部内容。撑满会在设备网格
+            // 该在的位置留出一块 320px 的空腔，一屏三块都这样就是三个等大的空盒子。
             <NodeNotReadyState
+              fill={false}
               description={<Trans>节点起来后，已配对的设备会出现在这里。</Trans>}
             />
           ) : (
             <CenteredEmptyState
+              fill={false}
               icon={MonitorSmartphone}
               title={<Trans>还没有已配对的设备</Trans>}
               // 教学文案说「怎么让它变得非空」。**不复述页头那句话**——页头已经说过
@@ -188,9 +192,26 @@ export function DeviceGrid() {
           )
         ) : (
           /*
-            移动优先的响应式网格：<640 单列 · 640–919 两列 · ≥920 三列。
-            920 不是随手挑的——它是三端统一的主从断点（`MASTER_DETAIL_QUERY`），
-            设备网格在这里升到三列，与收件箱/传输在同一个宽度上升成双栏，整个应用区一起换形态。
+            设备网格按**卡片自己的最小可用宽度**分列，不挂断点。
+
+            ## 为什么不再写 `sm:grid-cols-2 min-[920px]:grid-cols-3`
+
+            两个原因，各自都足够：
+
+            1. **那句话里的第二半从来没生效过。** Tailwind v4 把任意值断点 `min-[…]` 排在
+               具名断点**之前**，于是 1440px 下 `sm:`(640) 与 `min-[920px]:` 同时匹配、
+               `sm:` 在后面赢，网格永远是两列。实测：`min-[920px]:grid-cols-3` 单独用得到
+               三列，与 `sm:grid-cols-2` 并列就只剩两列。**并列写这两族断点是错的**，
+               要么全用具名（`lg:`），要么像这里一样不用断点。
+               （`src/` 里那几处是 `min-[920px]:` + `lg:`，顺序恰好就是想要的，不受影响。）
+            2. **就算它生效了，结果也不对。** 视口 920 时内容列 ≈ 608px，三列 = 每张
+               189px —— Device Card Contract 要求八项信息位，189px 装不下。
+
+            `auto-fill` 而不是 `auto-fit`：后者会把空轨道折叠掉，于是**只有一台设备时那张卡
+            会横跨整行**（1098px 宽的卡片，里面一条 1098px 的实心发送按钮）。auto-fill 保留
+            轨道，一张卡就老实占一格。
+
+            280px 是卡片的下限：图标 40 + 名称/状态 + 两枚徽标一行 + 发送按钮，再窄徽标就换行。
           */
           <>
             {visibleRows.length === 0 ? (
@@ -200,7 +221,7 @@ export function DeviceGrid() {
                 <Trans>这个分组下还没有设备。</Trans>
               </RailEmptyHint>
             ) : (
-              <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 min-[920px]:grid-cols-3">
+              <ul className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-[var(--space-in-group)]">
                 {visibleRows.map(({ device, groupNames, showIdentityHint }) => (
                   <li key={device.peerId} className="flex">
                     <DeviceCard

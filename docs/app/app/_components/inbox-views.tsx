@@ -91,7 +91,10 @@ export function InboxDetailEmpty({
             <Trans>对方发起传输、你接受之后，文件会落在这里，可以随时下载或归档。</Trans>
           }
           action={
-            <Button asChild size="sm" variant="secondary">
+            // 与传输页空态的同一颗按钮保持同一个 variant（默认 primary）。此前这里是
+            // `secondary`、那边是默认——同一个动作、同一句文案、同一个去处，在两条路由上
+            // 一个灰一个青绿。空态的动作是那一屏**唯一**的出口，没有理由降权。
+            <Button asChild size="sm">
               <Link href={NAV.devices.href}>
                 <MonitorSmartphone className="size-4" aria-hidden />
                 <Trans>去设备页</Trans>

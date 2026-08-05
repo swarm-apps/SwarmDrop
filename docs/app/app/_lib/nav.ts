@@ -134,7 +134,7 @@ export const NAV: Record<NavKey, AppNavItem> = {
   settings: {
     href: "/app/settings",
     label: msg`设置`,
-    description: msg`本机身份、中继连接与外观偏好。`,
+    description: msg`设备信息、引导节点与外观偏好。`,
     icon: Settings,
   },
 };

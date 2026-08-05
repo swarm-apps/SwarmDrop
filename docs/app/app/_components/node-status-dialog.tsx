@@ -190,11 +190,11 @@ function NodeStatusDialogContent() {
               </dl>
               <p className="mt-2.5 text-[11px] text-muted-foreground">
                 <Trans>
-                  中继的增删与连通性测试在{" "}
+                  引导节点的增删与连通性测试在{" "}
                   <Link href={NAV.settings.href} className="underline underline-offset-2">
                     设置
                   </Link>{" "}
-                  的「连接」区。
+                  的「引导节点」区。
                 </Trans>
               </p>
             </details>

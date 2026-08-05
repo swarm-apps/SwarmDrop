@@ -166,6 +166,16 @@ export interface WebNodeState {
   /** 已配对设备清单（#77）。轮询快照，非事件驱动——`paired_devices()` 是同步查询非事件流。 */
   pairedDevices: Device[];
 
+  /**
+   * 已连接的 **SwarmDrop 客户端**数（`connected_peers()` 的轮询快照，与桌面/移动的
+   * `NetworkStatus.connected_peers` 同一个函数）。
+   *
+   * **与 `pairedDevices` 里 `status === "online"` 的台数不是一回事**：这个数含**未配对**
+   * 的对端，那个只数已配对的。两者都不含 bootstrap/relay（内核按 `is_swarmdrop_agent`
+   * 过滤掉了）。设置页的设备信息卡两项都摆，因为它们回答的是两个问题。
+   */
+  connectedPeers: number;
+
   // —— connection 域（#76）——
   /** 最近一次 `connect()` 成功的结果——浏览器不 listen socket，这只是「拨出去」的连接。 */
   connection: ConnectionJson | null;
@@ -199,6 +209,7 @@ const initialState: WebNodeState = {
   inboxSearchLimit: null,
   pendingPairings: [],
   pairedDevices: [],
+  connectedPeers: 0,
   connection: null,
   relays: [],
 };
@@ -390,6 +401,10 @@ export const webNodeActions = {
    */
   setPairedDevices(devices: Device[]) {
     webNodeStore.setState((s) => (devicesEqual(s.pairedDevices, devices) ? s : { pairedDevices: devices }));
+  },
+  /** 内容没变时 `return s`——不是 `return {}`：后者是新对象，`Object.is` 判不等，照样广播一轮。 */
+  setConnectedPeers(connectedPeers: number) {
+    webNodeStore.setState((s) => (s.connectedPeers === connectedPeers ? s : { connectedPeers }));
   },
   setConnection(connection: ConnectionJson | null) {
     webNodeStore.setState({ connection });

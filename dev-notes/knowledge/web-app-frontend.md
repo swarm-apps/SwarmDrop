@@ -52,6 +52,54 @@ setInterval(() => {
 
 **相关文件**：`docs/app/app/_components/web-node-bootstrap.tsx`、`docs/app/app/layout.tsx`
 
+### 第二个单例：环境层（WebGL 极光，2026-08-05 起）
+
+`AppAmbientBackground` 同样只能挂 layout，但理由更硬：它持有 **WebGL context**，
+浏览器对同时存活的 context 数有上限，超了会**静默丢掉最老的那个**——表现是切几轮路由后
+背景变白，没有任何报错。
+
+它拆成两个文件，两条都省不掉：
+
+- `_components/ambient-canvas.tsx` —— 本体（着色器 + 两个 Renderer），**默认导出**
+- `_components/app-ambient-background.tsx` —— 只做 `dynamic(() => import("./ambient-canvas"), { ssr: false })`
+
+`ssr: false` 只能写在 client component 里（layout 是 server component，写那儿直接构建报错），
+而 `dynamic()` 必须 import **另一个模块**代码分割才发生——写在同一个文件里，ogl 与两段着色器
+照样进首屏 chunk。分割是有意义的：实测该 chunk **15.6 KB gzip**，且不在
+`/app/devices/index.html` 引用的首屏 chunk 里——用户打开标签页要的是拉 `_bg.wasm` 起节点，
+不是看背景。验证方法：
+
+```bash
+grep -o 'chunks/[a-z0-9]*\.js' out/app/devices/index.html | sort -u | while read c; do
+  grep -q auroraGlow "out/_next/static/$c" && echo "⚠️ 极光进首屏了: $c"; done
+```
+
+着色器与 `*_CONFIG` **逐字取自桌面** `src/components/layout/app-ambient-background.tsx`，
+不要单边改（分叉在截图里看不出来，两边都是「一片流动的光」）。允许分叉的只有加载方式、
+DPR、帧率、层不透明度与遮罩，理由与数值见 DESIGN.md 的 Ambient WebGL Background 一节。
+
+## 「Web 端没有 X」之前先分清：是浏览器没有，还是绑定没导
+
+三端对齐时反复撞到的一个坑。`crates/web` 只导出了 `WebNode` 上手动写出来的那些方法，
+**内核有的能力不等于 JS 拿得到**。2026-08-05 判错过一次：把「连接数」和「NAT 状态」
+一起当成「浏览器没有的概念」，其实两者的成因完全不同。
+
+| | 内核有没有 | wasm 下成立吗 | 结论 |
+|---|---|---|---|
+| `connected_peers` | 有（`Endpoint::watch_conns`，无 cfg 门控） | 成立 | **只是没导出**。2026-08-05 补了 `WebNode::connected_peers()` |
+| `nat_status` | 有（`Endpoint::watch_nat`） | **不成立** | `WatchSenders::nat` 上挂着 `cfg_attr(wasm_browser, expect(dead_code))`——唯一写入点是 autonat 事件，而 autonat 是 native-only，wasm 下恒为 `Unknown` |
+
+判定方法：在 `crates/net` 里 grep 那个 watch 的**写入点**有没有 `cfg`。有 → 真不成立，
+别在界面上摆一个永远不变的占位；没有 → 加个 `#[wasm_bindgen]` 方法就有了。
+
+「浏览器有 WebRTC，为什么没有 NAT 状态」这个问法要拆开：WebRTC 给的是 ICE 候选，
+而 `natStatus` 回答的是「我公网可拨吗」——浏览器压根不监听端口，这个问题对它不成立。
+它的等价物是 **circuit 预留有没有建起来**（`relays_state()` / `selectReservation`）。
+
+**加导出的代价**：改 `crates/web` 公开面要重跑三条生成链路且都要入库，见下文
+「改 `crates/web` 的公开面，有三条生成链路要重跑且都要入库」。`pnpm build:wasm` 在 macOS 上
+需要 `CC` / `AR_wasm32_unknown_unknown` 指向 homebrew llvm。
+
 ## 静态导出的三条硬限制
 
 ### 1. 没有服务端，重定向只能在客户端做
@@ -487,6 +535,34 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 
 **相关文件**：`docs/components.json`、`docs/app/global.css`、`docs/lib/cn.ts`
 
+## `scrollbar-gutter: stable` 会在应用区右边留一条永远空的死边
+
+`global.css` 里 `html { scrollbar-gutter: stable }` 是给**文档站**的：长短不一的文档页之间
+跳转时不左右抖。但应用外壳是 `h-dvh overflow-hidden`，**文档永远不溢出**，那条槽从头到尾
+是空的，Chrome 还在里面画一条滚不动的轨道——看起来就是「滚动条没贴边、悬在那儿」。
+
+判据（在应用区任一路由 eval）：
+
+```js
+// 死边存在时：deClientW 1440 / bodyW 1425（差的 15px 就是那条槽）
+// 且 docScrollH === docClientH ——> 文档根本没滚，槽是白留的
+JSON.stringify({ deClientW: document.documentElement.clientWidth,
+                 bodyW: document.body.offsetWidth,
+                 docScrollH: document.documentElement.scrollHeight,
+                 docClientH: document.documentElement.clientHeight })
+```
+
+修法是 `html:has([data-swarmdrop-app]) { scrollbar-gutter: auto }`——用 `:has()` 而不是在
+客户端 effect 里给 `<html>` 加类，后者会在首帧闪一下 15px。真正的滚动发生在 `PageShell`
+内部那个 `overflow-y-auto` 里，它的滚动条本来就贴着内容区右缘。
+
+**滚动条外观不用装包**：`scrollbar-width: thin` + `scrollbar-color`（Chrome 121+ / Firefox）
+加 `::-webkit-scrollbar` 伪元素兜底旧 Safari，值与桌面 `src/index.css` 同源。
+**作用域必须限定在 `[data-swarmdrop-app]`**，别用 `*`——文档站是 fumadocs 的观感，
+不该被应用区的选择顺手改掉（同 base 层那条默认边框色规则的分寸）。
+注意两套写法互斥：设了标准属性后 Chromium 会忽略 `::-webkit-scrollbar`，所以伪元素那版
+只对旧 Safari 生效，两边都留是兜底不是叠加。
+
 ## 移动优先 + 920 断点，与桌面同一个数
 
 应用区的基线视口是**手机浏览器**：单栏、无 hover 依赖、触摸目标 ≥44×44 CSS px。宽屏是渐进增强。
@@ -494,7 +570,37 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 `(min-width: 920px)` 是全应用唯一的主从断点（`_lib/use-media-query.ts` 的 `MASTER_DETAIL_QUERY`），
 **与桌面 `src/hooks/use-media-query.ts` 的同名常量是同一个数**。理由是 Windows 常见的 125% 缩放下
 1200 物理像素只有 960 CSS 宽——正好落在 920 与 1024 之间，用 `lg:`(1024) 会让同一台机器上
-桌面版分栏、Web 版堆叠。设备网格也在这个宽度升到三列，整个应用区一起换形态。
+桌面版分栏、Web 版堆叠。
+
+### ⚠️ 但 `min-[920px]:` 不能和具名断点并列写——后者永远赢（2026-08-05 实测）
+
+Tailwind v4 把**任意值断点 `min-[…]` 整族排在具名断点之前**。于是
+
+```jsx
+<ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 min-[920px]:grid-cols-3">
+```
+
+在 1440px 下两条规则都匹配，`sm:`(640) 排在后面赢——**设备网格从上线起就没有过三列**，
+一直是两列。实测判据（在跑着的页面上 eval 即可复现）：
+
+| 写法 | 视口 1440 下的 `gridTemplateColumns` |
+|---|---|
+| `min-[920px]:grid-cols-3` 单独 | `475px 475px 475px` ✅ 规则生成了也匹配 |
+| `sm:grid-cols-2 min-[920px]:grid-cols-3` | `543px 543px` ❌ |
+
+所以规则本身没问题，**并列写这两族才是错的**。三条出路，按优先级：
+
+1. **不用断点。** 网格类布局用 `grid-cols-[repeat(auto-fill,minmax(280px,1fr))]`，
+   让内容的最小可用宽度自己决定列数——设备网格现在就是这么写的。
+   （`auto-fill` 不是 `auto-fit`：后者折叠空轨道，**只有一台设备时那张卡会横跨整行**。）
+2. 全用具名断点（`sm:` / `lg:`）。
+3. 全用任意值断点。
+
+`src/`（桌面）里那几处是 `min-[920px]:` + `lg:`，顺序恰好就是想要的（920 先、1024 后覆盖），
+**不受影响**——别顺手一起改。
+
+顺带：就算那条 `min-[920px]:grid-cols-3` 生效了，结果也是错的——视口 920 时内容列约 608px，
+三列每张 189px，而 Device Card Contract 要求八项信息位，189px 装不下。
 
 `useMediaQuery` 用 `useSyncExternalStore` 且**服务端快照显式返回窄屏**：静态导出的预渲染 HTML
 与客户端首帧因此一致，不会 hydration mismatch。

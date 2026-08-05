@@ -7,7 +7,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,9 +45,26 @@ export function PairingPanel() {
   // 所以不进设置页也是对的。此前它是设置页写、这里读，用户直接进设备页时恒为 null。
   const reservation = useWebNode(selectReservation);
   const pendingPairings = useWebNode((s) => s.pendingPairings);
+  // 只要数量，用来推导折叠默认态（见下方 `open`）。selector 返回原始值，符合规则 B。
+  const pairedCount = useWebNode((s) => s.pairedDevices.length);
   const ready = nodeStatus === "running";
   /** 本面板所有剩余有效期共读这一个时钟：码上的倒计时与列表里每一行不会各走各的。 */
   const now = useNowSeconds();
+
+  /**
+   * 折叠面板的用户覆盖值。`null` = 还没手动开合过，用推导的默认态（见下方 `open`）。
+   *
+   * 声明在这里而不是贴着 `open` 一起写：`doGenerateInvite` 要用 `setOverride`，
+   * 那个函数在文件里更靠前，声明在后会踩 use-before-declaration。
+   */
+  const [override, setOverride] = useState<boolean | null>(null);
+  /**
+   * 「这一条我看过了，先收起来」。压过 `needsAttention`，**但不碰内容**（见下方 `open`）。
+   *
+   * 与 `override` 一样声明在这里而不是贴着 `open`：`setInviteAndPreview` 要用它，
+   * 那个函数在文件里更靠前。
+   */
+  const [dismissed, setDismissed] = useState(false);
 
   // —— 消费邀请（受邀方）——
   const [inviteInput, setInviteInput] = useState("");
@@ -99,6 +116,9 @@ export function PairingPanel() {
     setInviteInput(link);
     setConsumeOutcome(null);
     resetPreview();
+    // 新到的邀请要压过之前的「收起」——`dismissed` 说的是「这一条我看过了」，
+    // 不是「以后都别弹」。三条来路里有两条不经过点击，藏起来等于用户不知道它来了。
+    setDismissed(false);
     const node = getNode();
     const trimmed = link.trim();
     // 节点还没起来时先只把串收进框里，解码交给下面那个补偿 effect。
@@ -284,6 +304,10 @@ export function PairingPanel() {
     setActiveExpiresAt(null);
 
     // 生成前的 id 集合，用来在生成后认出「新出现的那条就是我的」（见 activeInviteId 注释）。
+    // 生成是明确的「我要看这个码」，把面板钉开（见 `forceOpen` 上方那段：码本身不进
+    // forceOpen，靠这里的显式 override 撑开，于是用户随时能再关掉它）。
+    setOverride(true);
+
     const before = new Set(readInvites()?.map((i) => i.id) ?? []);
     generateAction.run(
       () => node.generate_invite(localOnly),
@@ -374,14 +398,65 @@ export function PairingPanel() {
       ? t`重新生成`
       : t`生成邀请`;
 
+  // —— 折叠：配对是一次性动作，不该常年占着设备页的半屏 ——
+  //
+  // 本文件开头那句「配对是一次性动作，配完即长期信任」此前只写在注释里，版面没有体现：
+  // 这个面板（消费邀请 + 生成邀请 + 已发出的邀请三段）是设备页最高的一块，而它的使用频率
+  // 比上面的设备清单低两个数量级。
+  //
+  // 默认态**由状态推导，不落 state**：
+  //   · 一台设备都没有 → 配对就是这一页唯一能做的事，展开。
+  //   · 已经有设备 → 收起成一行。
+  // 用户手动开合后 `override` 接管，此后不再被推导值改写。
+  //
+  // `forceOpen` 压过一切，收的是**用户没主动要求看、却必须看见**的两类东西：
+  //
+  //   1. 一条待决的邀请。三条来路里有两条不经过点击（剪贴板感知、`/p/` 落地页 handoff），
+  //      确认卡就长在这块面板里——收起等于用户看不见自己刚粘进来的东西。同「导航徽标是
+  //      补偿不是装饰」那条理由：有时效的入站信号不能被藏起来。
+  //   2. `consumeOutcome`。**这条不是可有可无的**：配对成功那一刻 `pairedCount` 从 0 变 1，
+  //      推导出的默认态随即翻成「收起」——不压住的话，成功提示会在出现的同一帧被折走。
+  //
+  // 生成出来的码**不在**这份清单里：那是用户自己按出来的，看不看由他决定。改成生成时
+  // 显式 `setOverride(true)`，于是它开着是因为用户开了它，随时能关。
+  const needsAttention =
+    inviteInput.trim() !== "" ||
+    preview !== null ||
+    previewError !== null ||
+    previewNotice !== null ||
+    consumeOutcome !== null;
+  // `dismissed` 压过 `needsAttention`，**但不碰内容**。
+  //
+  // 此前 `onToggle` 在强开态下调 `clearInvite()` 才能关掉面板，那是一次**不可恢复的删除**：
+  // `/p/` 落地页 handoff 那条路径已经 `sessionStorage.removeItem` 并 `history.replaceState`
+  // 抹掉了 fragment，React state 是那条邀请在世上唯一的副本；剪贴板感知那条同理
+  // （用户压根没主动输入过，更不会想到点一下标题会删东西）。而收起态整行可点，
+  // 恰恰是这一屏最像「关掉它」的东西。
+  //
+  // 现在收起只是收起，再点开内容还在。真要放弃那条邀请，出口是确认卡自己的「取消」——
+  // 用户按下它时知道自己在放弃什么。
+  const open = (needsAttention && !dismissed) || (override ?? (ready && pairedCount === 0));
+  const bodyId = useId();
+
   return (
     <SectionShell>
       <SectionHeader
         icon={Link2}
         title={<Trans>配对</Trans>}
         description={<Trans>与另一台设备互换一次邀请即可，之后长期有效。</Trans>}
+        disclosure={{
+          open,
+          controls: bodyId,
+          // 关：`dismissed` 压住 `needsAttention`（内容留着）。开：清掉 dismissed 再置 override。
+          onToggle: () => {
+            setDismissed(open);
+            setOverride(!open);
+          },
+        }}
       />
 
+      {open && (
+        <div id={bodyId} className="flex flex-col gap-[var(--space-in-panel)]">
       <div>
         <p className="text-xs font-medium text-muted-foreground">
           <Trans>粘贴对方给你的邀请</Trans>
@@ -498,9 +573,9 @@ export function PairingPanel() {
           <p className="mt-1 text-xs text-warning-ink">
             {/* 原文是「需先在设置页的「连接」区建立可达（circuit），否则邀请里无可拨地址」——
                 circuit / reserve / helper 都是内核词汇，对着它用户无从判断自己该做什么。
-                这里说清楚**为什么**（浏览器不监听端口）与**该做什么**（去连一个中继）。 */}
+                这里说清楚**为什么**（浏览器不监听端口）与**该做什么**（去连一个引导节点）。 */}
             <Trans>
-              浏览器不能被直接拨号，需要先连上一个中继，对方才找得到你。到{" "}
+              浏览器不能被直接拨号，需要先连上一个引导节点，对方才找得到你。到{" "}
               <Link href={NAV.settings.href} className="font-medium underline underline-offset-2">
                 设置
               </Link>{" "}
@@ -612,7 +687,9 @@ export function PairingPanel() {
             ))}
           </ul>
         )}
-      </div>
+          </div>
+        </div>
+      )}
     </SectionShell>
   );
 }

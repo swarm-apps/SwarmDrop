@@ -73,9 +73,12 @@ export function AppSidebar() {
   return (
     // `h-full` 而不是 `sticky top-0 h-screen`：外壳（layout.tsx）现在是 `h-dvh` 的
     // flex 行，侧栏作为它的直接子元素自然满高，不需要 sticky 去模拟。
-    // 底色走 `--sidebar`（第二中性层），与内容区的壳色分得开——此前是 `bg-fd-card/40`
-    // 压在文档皮肤上，实际 ≈ #F3F3F3，跟内容区几乎一个色。
-    <aside className="hidden h-full shrink-0 flex-col border-r bg-sidebar md:flex md:w-16 lg:w-56">
+    //
+    // 材质是 `glass-rail`（半透明 + 模糊）而不是实心 `bg-sidebar`：外壳底下现在有一层
+    // WebGL 极光，一条 224px 宽的不透明色块会把整个左边缘的光切掉。
+    // `relative z-10` 是它压在环境层之上的方式——`.app-shell` 刻意不做通配提升，
+    // 理由见 global.css。
+    <aside className="glass-rail relative z-10 hidden h-full shrink-0 flex-col border-r md:flex md:w-16 lg:w-56">
       <div className="flex h-14 shrink-0 items-center border-b px-3 md:justify-center lg:justify-start">
         <BrandMark labelClassName="hidden lg:inline" />
       </div>
@@ -146,7 +149,7 @@ export function AppMobileHeader() {
   return (
     // 外壳已是受限高度、滚动发生在 main 里，所以顶栏是常规 flex 子元素（`shrink-0`）
     // 而不再需要 `sticky top-0`——它本来就不会随内容滚走了。
-    <header className="shrink-0 border-b bg-sidebar md:hidden">
+    <header className="glass-rail shrink-0 border-b md:hidden">
       <div className="flex items-center justify-between px-4 py-3">
         <BrandMark />
         <NodeStatusDialog />
@@ -168,7 +171,7 @@ export function AppBottomNav() {
     <nav
       aria-label={t`应用导航`}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-      className="shrink-0 border-t bg-sidebar md:hidden"
+      className="glass-rail shrink-0 border-t md:hidden"
     >
       <ul className="mx-auto flex max-w-lg">
         {APP_NAV.map((item) => {

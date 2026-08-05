@@ -759,6 +759,29 @@ export class WebNode {
      */
     connect_invite(invite: string): Promise<PairingOutcomeJson>;
     /**
+     * 当前已连接的 **SwarmDrop 客户端**数。
+     *
+     * 与桌面/移动的 `NetworkStatus.connected_peers` **走同一个函数**
+     * （`crates/core/src/network/manager.rs` 也是 `self.devices.connected_count()`），
+     * 所以三端这个数的口径天然一致。Web 此前没有这个绑定，设置页只能拿「已配对设备里
+     * 在线的台数」凑数——那是 presence 快照，未配对的对端不在里面。
+     *
+     * **不要改成读 `Endpoint::watch_conns()` 的长度。** 那是原始连接表，
+     * `publish_conns` 对每个 `ConnectionEstablished` 都建条目，不区分对端类型；
+     * 而浏览器启动时必然会连上至少一条 relay（`ensureConfiguredRelays`，那是公网可达的
+     * 前提），于是空载稳态就会显示「已连接 1 · 已配对 0」——一台设备都没配对却说连着一个。
+     * `connected_count()` 过滤 `is_swarmdrop_agent`，而 bootstrap/relay 的
+     * `agent_version` 是 `swarm-bootstrap/` 前缀（`crates/host/src/device.rs`），
+     * 正好被排除。代价是它依赖 identify 完成，比原始连接表晚约一个 RTT——桌面同此。
+     *
+     * **不一并导出 NAT 状态**：`Endpoint::watch_nat()` 的唯一写入点是 autonat 事件，
+     * 而 autonat 是 native-only（见 `crates/net/src/actor.rs` 的 `WatchSenders::nat`，
+     * 那里挂着 `cfg_attr(wasm_browser, expect(dead_code))`），wasm 下它恒为 `Unknown`。
+     * 导出一个永远不变的常量只是给界面添一行假状态；浏览器版的「别人能不能拨到我」
+     * 由 circuit 预留回答，那条已经有了（`relays_state`）。
+     */
+    connected_peers(): number;
+    /**
      * 解码并验签邀请串，返回对端展示信息 —— **不发起配对、不消费**。
      *
      * 供受邀方在粘贴 / 点链接进来之后先亮一张确认卡：篡改、伪造、格式不认的邀请在这里
@@ -1125,9 +1148,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly default_device_name: () => [number, number];
-    readonly get_device_name: () => any;
-    readonly set_device_name: (a: number, b: number) => any;
+    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1139,6 +1160,7 @@ export interface InitOutput {
     readonly webnode_close: (a: number) => any;
     readonly webnode_connect: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_connect_invite: (a: number, b: number, c: number) => any;
+    readonly webnode_connected_peers: (a: number) => number;
     readonly webnode_decode_invite_preview: (a: number, b: number, c: number) => [number, number, number];
     readonly webnode_delete_inbox_item: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_delete_transfer_session: (a: number, b: number, c: number) => any;
@@ -1174,7 +1196,9 @@ export interface InitOutput {
     readonly webnode_spawn: () => any;
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly start: () => void;
+    readonly default_device_name: () => [number, number];
+    readonly get_device_name: () => any;
+    readonly set_device_name: (a: number, b: number) => any;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;

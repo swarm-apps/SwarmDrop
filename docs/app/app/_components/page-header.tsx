@@ -39,7 +39,19 @@ export function PageHeader({ nav }: { nav: NavKey }) {
           {t(parent.label)}
         </Link>
       )}
-      <h1 className="text-base font-semibold text-foreground">{t(item.label)}</h1>
+      {/*
+        20px 而不是此前的 `text-base`（16px）。区块标题（`SectionHeader`）是 15px ——
+        页标题只比它大 1px 时，「这一页叫什么」和「这一块叫什么」在视觉上是同一档，
+        层级只剩位置在暗示。20 / 15 / 14 / 12 才是四档能分辨的梯子。
+
+        `tracking-[-0.02em]`：字号一上去，默认字距就显得松。收紧的下限是 -0.04em
+        （再紧字会粘住），20px 上取一半足够。
+      */}
+      <h1 className="text-xl font-semibold tracking-[-0.02em] text-foreground">
+        {t(item.label)}
+      </h1>
+      {/* `mt-1`（4px）是组内距：这句描述属于上面那个标题，不是页面的下一块内容。
+          它与区块间距（32px）之间那个 8 倍的差就是「谁和谁是一组」的全部说明。 */}
       <p className="mt-1 text-sm text-muted-foreground">{t(item.description)}</p>
     </header>
   );
