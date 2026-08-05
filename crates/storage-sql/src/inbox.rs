@@ -1116,6 +1116,42 @@ mod tests {
         }
     }
 
+    /// **内容指纹只取决于 `file_id`，与对端 manifest 的排列无关。**
+    ///
+    /// `inbox_content_hash` 是跨端去重的唯一判据，它逐个文件累加、顺序即字节序。
+    /// 而 `file_id` 是**对端可控**字段（协议层声明，从 0 递增只是诚实发送端的自律），
+    /// 乱序的 offer 完全构造得出来。两端若按各自的本地顺序（SQL 的 rowid / Web 的数组
+    /// 下标）喂给它，同一批文件在桌面与浏览器就会算出不同的指纹。
+    ///
+    /// 这条测试灌两份**文件完全相同、manifest 排列相反**的会话，断言指纹一致——
+    /// 删掉 `ensure_*` 里那行 `sort_by_key(file_id)` 就会红。
+    /// Web 侧的对应约束由 `crates/web/src/inbox.rs` 的同名规则承担。
+    #[tokio::test]
+    async fn content_hash_is_independent_of_manifest_order() {
+        let (_db, store) = make_env().await;
+
+        let ascending = [file_info(0, "a.txt", 1), file_info(1, "b.txt", 2)];
+        let descending = [file_info(1, "b.txt", 2), file_info(0, "a.txt", 1)];
+
+        let first = make_inbox_item(&store, "Alice", &ascending).await;
+        let second = make_inbox_item(&store, "Alice", &descending).await;
+
+        let hash_of = async |id| {
+            get_inbox_item_detail(&_db, id)
+                .await
+                .expect("detail")
+                .expect("item")
+                .item
+                .content_hash
+                .expect("content_hash")
+        };
+        assert_eq!(
+            hash_of(first).await,
+            hash_of(second).await,
+            "manifest 排列不同、文件相同的两批，指纹必须一致"
+        );
+    }
+
     /// 条目标题**不是索引列**：拿标题原文当查询词必须一条都搜不到。
     ///
     /// 守的是「删掉 `inbox_search_index.title` 之后没人把它加回来」。加回来不会让任何

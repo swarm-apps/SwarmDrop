@@ -105,6 +105,21 @@ pub struct InboxHitFile {
 
 /// 收件箱规则的中立文件视图——两端各自从自己的行类型（SQL 的 `ModelEx` /
 /// Web 的 IndexedDB 记录）构造，规则本身不认识任何存储类型。
+///
+/// # 顺序契约
+///
+/// **调用方必须按协议层的 `file_id` 升序传入。** 下面两条规则读的是顺序本身：
+/// [`inbox_content_hash`] 逐个累加（顺序变了哈希就变），[`inbox_primary_file_name`]
+/// 取第 0 个。而 `content_hash` 是**跨端去重的唯一判据**——两端排序方式不同，
+/// 同一批文件在桌面与浏览器就会得到不同的指纹，那个字段随即作废。
+///
+/// 排序键取 `file_id`（协议层定义、从 0 递增）而不是各端的本地主键：后者在 SQL 侧是
+/// 自增 rowid、在 Web 侧是数组下标，两者与 `file_id` 一致纯属「诚实发送端按序发」的
+/// 副作用。`file_id` 是对端可控字段，乱序的 offer 完全构造得出来。
+///
+/// 这条契约无法用类型表达（facts 里没有序号字段，加一个只为排序会污染三条规则的入参），
+/// 所以它由两端的构造点各自遵守，并由 `content_hash_is_independent_of_row_order`
+/// 一类的测试兜住。
 pub struct InboxFileFacts<'a> {
     pub name: &'a str,
     pub relative_path: &'a str,
