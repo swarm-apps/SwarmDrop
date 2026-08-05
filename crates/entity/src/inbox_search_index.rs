@@ -2,6 +2,11 @@ use sea_orm::entity::prelude::*;
 
 /// 收件箱检索索引：每条 `inbox_items` 一行的预聚合文本。
 ///
+/// **没有 `title` 列，这是刻意的。** `inbox_items.title` 是首个文件名，而它必然是
+/// `files_text`（全部文件的 `name` + `relative_path` 拼接）的子串 —— 两列做同一个
+/// `LIKE '%needle%'`，前者能命中的后者一个不落。见
+/// `m20260807_000001_drop_search_index_title` 的模块文档。
+///
 /// **曾是 FTS5 虚表 `inbox_fts`，现在是普通表。** 检索从来没用过 FTS5 的 `MATCH` / bm25
 /// —— trigram 分词器对 <3 字的查询无法命中（「合同」这类 2 字中文词会返回空），所以命中
 /// 判据一直是对下面四个文本列做 `LIKE` 子串匹配（规范定义在
@@ -27,7 +32,6 @@ pub struct Model {
     pub item_id: Uuid,
     #[sea_orm(belongs_to, from = "item_id", to = "id", on_delete = "Cascade")]
     pub item: HasOne<super::inbox_item::Entity>,
-    pub title: String,
     pub source_name: String,
     /// 该条目全部文件的 `name` + `relative_path` 聚合文本（空格分隔）。
     pub files_text: String,

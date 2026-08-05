@@ -1,93 +1,87 @@
 ## Why
 
-`crates/transfer/src/inbox.rs::inbox_title` 产出「空传输」/「`a.pdf` 等 3 个文件」这样的**中文散文**，
-直接写进 `inbox_items.title` **落库**，并进 `inbox_fts.title` 参与检索。前端拿到的
-`InboxItemDetail.item.title` 已经是成品字符串，Lingui 无从下手。
+**主干已在别处落地。** 本 change 原本要做的事——把 `inbox_title` 产出的中文散文
+（「空传输」/「`a.pdf` 等 3 个文件」）从领域层与数据库里摘掉、展示串交三端 catalog
+——已由 `rust-string-boundary`（commit `c6db98e1`）实现：`inbox_title` 变成
+`inbox_primary_file_name`，`inbox_items.title` 改存首个文件名，
+`m20260806_000001_inbox_title_to_file_name` 做了回填。
 
-这与本仓早已确立的一条原则**正面冲突**——`localize-backend-strings` 的决策 1：
+两边的判断一致到函数名都撞了，剩下的差异只是取舍：那边保留列名 `title`、返回空串，
+本 change 原计划改名 `primary_file_name` 并返回 `Option<String>`。**改名不做**——
+收益是名实相符，代价是在新迁移之上再叠一条改名迁移、三份 bindings 全部重生成、
+三端调用点再改一遍。
 
-> 后端 / core 只发「稳定语义码 + 结构化参数」，永不产出本地化散文。翻译发生在呈现边缘。
-
-那次 change 把错误消息、托盘、系统通知三桶都收拢到这条原则下，`inbox_title` 是**漏网的第四桶**，
-且是最深的一桶：另外三桶只在运行时产出散文，它还把散文**持久化**了。
-
-后果有三层，一层比一层不显眼：
-
-1. **#102 做完之后收件箱那一栏仍然是中文**——应用区其余部分接了 Lingui，标题接不了。
-2. **移动端已经在拿 title 当文件名用**（`mobile/src/components/inbox/inbox-list.tsx:393-397`
-   的 `isImageFile(item.title)` / `isVideoFile(item.title)`）。这依赖一条从未写下来的隐含契约
-   「单文件条目的 title 就是文件名」，**在多文件条目上本来就是坏的**——title 是「`a.pdf` 等 3 个文件」，
-   扩展名匹配不上，媒体图标静默退化成通用图标。
-3. **FTS 的 title 列在制造检索噪音**。真实 title 只有三种形态，逐一比对
-   `inbox_files_text`（`"{name} {relative_path}"` 逐文件拼接）就会发现它对检索**完全冗余**，
-   而多出来的那截还有害：所有多文件条目的 title 都含「个文件」，搜「文件」会命中全部。
-
-扩散面还在扩大：这条规则原本住在 `crates/storage-sql`，`inbox-store-port-completion`
-为三端共用把它上提到了共享领域层，于是现在有两个调用方（`crates/storage-sql/src/inbox.rs:133`、
-`crates/web/src/inbox.rs:166`），每多接一端就多一批存量脏数据。
+于是本 change 收窄成四条那边没做、但同一批推导必然指向的收尾。它们各自独立，
+且都不改变任何展示行为。
 
 ## What Changes
 
-**领域层只给结构，展示串交呈现边缘生成。** 与 `localize-backend-strings` 的决策 1 同构，
-不是新原则，是把已有原则贯彻到最后一处。
+**1. 检索索引删掉 `title` 列**（issue #110 的落点，且**不**新起 `search_text` 列）
 
-- **`inbox_title` 删除。** `InboxItemSummary.title: String` 替换为
-  `primary_file_name: Option<String>`；`item_count: i32` 本来就在，两者合起来足以让任何一端
-  还原现有的三种展示形态。三端各用自己的 i18n（Web / 桌面 Lingui、移动 Lingui）生成展示串。
+`inbox_search_index.title` 现在存首文件名，而同表 `files_text` 是全部文件的
+`name` + `relative_path` 拼接——首文件名必然是它的子串。两列做同一个
+`LIKE '%needle%'`，前者能命中的后者一个不落。#110 预设「检索需要文本就单起一列」，
+实际推导下来那一列没有独立信息。
 
-- **FTS 的 `title` 列直接删掉，不新起 `search_text` 列。** issue #110 预设的方向是「检索需要文本
-  就单起一列」，实际推导下来那一列是多余的：单文件条目的 title 被 `files_text` 完全覆盖，
-  多文件条目只多出「等 N 个文件」，空条目只多出「空传输」——两者都是噪音而非功能。
-  删掉之后检索语义的唯一变化是「搜『空传输』『个文件』不再命中」，那是修复不是回退。
-  连带 `inbox_matches` 去掉 `title` 入参、`INBOX_MATCH_CASES` 语料去掉 `title` 列。
+删列后**检索语义零变化**（散文时代那截「等 N 个文件」噪音已随上一条迁移消失）。
+`inbox_matches` 随之四列变三列，`INBOX_MATCH_CASES` 语料同步——其中「2 字中文词」
+那条把词挪进文件名而非删掉用例：它守的是「trigram 对 <3 字查询返回空」这个换用
+`LIKE` 的原因，与哪一列无关。
 
-- **`inbox_snippet` 的归属判断改吃首文件名。** 它现在用 title 判断「命中的东西是不是条目行上
-  已经显示着的」，换成 `primary_file_name` 之后语义**更准**：多文件条目下命中第二个文件仍然给片段，
-  命中首文件名不给——与现在等价，但不依赖成品串。
+**2. Web 端存量脏行**（`develop` 上的现存缺陷）
 
-- **存量数据按端分办，且都不需要解析旧的中文串。** 桌面（有真实用户）走 migration，
-  从 `inbox_item_files` 回填 `primary_file_name`——首文件名是**结构数据**，能从现存文件行精确重建。
-  Web 直接换 schema（`DB_VERSION` +1，无迁移无回填，依 `CLAUDE.md` 的既定判据）。
+`crates/web/src/idb.rs` 的 `DB_VERSION` 停在 4，而 `inbox` 行里 `title` 的含义已经变了。
+v4 与 v5 的行结构**逐字段相同**，旧行会反序列化成功、然后被前端再拼一次后缀，显示成
+「a.pdf 等 3 个文件 等 3 个文件」——无 warn 无报错。`onupgradeneeded` 是唯一知道旧版本号、
+因而唯一能丢掉旧行的地方，所以版本号照样要提。
 
-- **顺带修掉移动端的媒体判断。** `isImageFile` / `isVideoFile` 此前吃 `item.title`，
-  多文件条目的「a.jpg 等 3 个文件」被按扩展名「个文件」判断，恒为假。改吃
-  `primaryFileName`，**但只对单文件条目判**——`isImageFile` 是文件级谓词，用首文件代表
-  一个混合内容的多文件条目，会让「图片」筛选捞出一堆 zip 和 pdf。桌面 `ItemIcon` 早就是
-  「多文件一律归档图标」，两端就此同规。
+**3. 文件顺序此前没有任何强制**（既存缺陷，与标题无关）
 
-**非目标**：不改 `inbox_content_hash`（跨端去重契约，字节级不可动）；不改检索的匹配算法
-（仍是大小写不敏感子串，仍保留「Rust 折 Unicode / SQLite 折 ASCII」那条刻意差异）；
+`inbox_content_hash` 逐文件累加，顺序是**跨端去重的字节级契约**（有 known vector 钉着），
+`inbox_primary_file_name` 取第 0 个也依赖它。但 `TransferSession::load().with(TransferFile)`
+的关系加载没有 `ORDER BY`，整个契约一直靠 SQLite「不加排序时按 rowid 返回」这一实现行为
+兜着。加 join、改查询计划或换后端都会静默改掉 `content_hash`，而那是不报错的一类损坏。
+
+**4. 移动端媒体判定用首文件代表整个条目**（既存缺陷）
+
+`isImageFile(item.title)` / `isVideoFile(item.title)` 是**文件级**谓词，产物却是**条目级**
+断言——同时喂给图标、「图片」标签与筛选器。散文时代它在多文件条目上恒为假（拿「个文件」
+当扩展名）；标题换成首文件名之后反而变成**假阳性**：「封面.jpg + 50 个 zip」会被归成图片、
+进「图片」筛选。加单文件前置判断，与桌面 `ItemIcon` 的「多文件一律归档图标」同规。
+
+**非目标**：不改 `inbox_content_hash`（字节级契约）；不改检索匹配算法（仍是大小写不敏感
+子串，仍保留「Rust 折 Unicode / SQLite 折 ASCII」那条刻意差异）；不改列名 `inbox_items.title`；
 不新增 locale；不碰 `extracted_text` 那一列。
 
 ## Capabilities
 
 ### New Capabilities
 
-- `inbox-item-presentation`: 收件箱条目的展示标题由各端从结构化字段（首文件名 + 文件数）按当前
-  locale 生成；领域层与持久化层不产出、不存储任何本地化散文。
+- `inbox-item-presentation`: 条目级的内容类型判定不得由单个文件代表——文件级谓词
+  （扩展名判断）只在单文件条目上成立，多文件条目一律走通用形态。
 
 ### Modified Capabilities
 
-- `inbox-search`: 检索索引不再覆盖条目标题列（该列被文件名文本完全覆盖，且为多文件条目引入噪音）；
-  索引覆盖面收窄为来源名 + 文件名 + 相对路径 + 抽取正文。
+- `inbox-search`: 检索索引不覆盖由已索引内容派生的展示字段；覆盖面为来源名 + 文件名与
+  相对路径 + 抽取正文三列。
 
 ## Impact
 
-- **领域层** `crates/transfer/src/inbox.rs`：删 `inbox_title`；`InboxItemSummary` /
-  `InboxSearchHit` 的 `title` 字段换成 `primary_file_name`；`inbox_matches` 与 `inbox_snippet`
-  签名变更；`INBOX_MATCH_CASES` 语料改列。
-- **SQL 存储** `crates/storage-sql/src/inbox.rs`：FTS 写入与检索 SQL 去掉 title 列；
-  条目写入改存 `primary_file_name`。
-- **Web 存储** `crates/web/src/inbox.rs` + `idb.rs`：同上，`DB_VERSION` +1。
-- **迁移** `crates/migration/`：新增**一条** `m20260804_000001_inbox_structural_title`
-  ——加列 + 回填 + 删列 + 重建 `inbox_fts`。两件事必须同条：拆开后回滚按注册逆序执行，
-  删列的先跑、重建索引的读不到 `i.title`，「索引镜像该列」就落到了不实现它的人身上。
-- **实体** `crates/entity/src/inbox_item.rs`：`title` → `primary_file_name`。
-- **三端前端**：桌面 `src/routes/_app/inbox/`、Web `docs/app/app/_components/inbox-views.tsx`、
-  移动 `mobile/src/components/inbox/` + `mobile/src/app/inbox/`——各自新增一处标题生成，
-  移动端另修媒体判断。
-- **bindings**：`src/lib/bindings.ts`、`crates/web/bindings/bindings.ts`、
-  `mobile/packages/swarmdrop-core/src/generated/` 三份重新生成。
-- **i18n**：三端各加 3 条文案（空 / 单 / 多），源 locale `zh`，需补 `en` / `zh-TW`。
-- **零改动确认**：`inbox_content_hash`（跨端去重契约）、`inbox_files_text`、`is_completed_receive`、
-  `INBOX_SEARCH_LIMIT`、传输链、端口 trait 的方法签名均不改。
+- **领域层** `crates/transfer/src/inbox.rs`：`inbox_matches` 去掉 `title` 入参（四列 → 三列）；
+  `INBOX_MATCH_CASES` 语料去掉 `title` 列并复核每条 `expected`。
+  `inbox_snippet` **不动**——它用标题判「命中的东西是不是条目行上已经显示着的」，那是
+  归属判断而非命中判断。
+- **实体** `crates/entity/src/inbox_search_index.rs`：删 `title` 字段。
+- **迁移** 新增 `m20260807_000001_drop_search_index_title`（`drop_column`，带 up/down 测试）。
+  顺带纠正 `crates/migration/src/lib.rs` 里「SQLite 不支持删列」的过时注释——那是 3.35
+  之前的事实。
+- **SQL 存储** `crates/storage-sql/src/inbox.rs`：索引写入与检索 SQL 去 `title` 列；
+  文件行加载显式按 `id` 排序；新增 `title_is_not_indexed`（用只存在于 `inbox_items.title`
+  的哨兵词钉住，否则测不出来）。
+- **Web 存储** `crates/web/src/inbox.rs` + `idb.rs`：`inbox_matches` 调用点跟签名；
+  `DB_VERSION` 4 → 5 并在 `onupgradeneeded` 里按 `old_version` 丢掉旧 `inbox` store。
+- **移动前端** `mobile/src/components/inbox/inbox-list.tsx`：`isImageLike` / `isVideoLike`
+  加 `isSingleFileItem` 前置。
+- **零改动确认**：`inbox_content_hash`、`inbox_files_text`、`inbox_primary_file_name`、
+  `inbox_snippet`、`is_completed_receive`、`INBOX_SEARCH_LIMIT`、三份 bindings、
+  三端 i18n catalog、`inbox_items.title` 列本身均不改。

@@ -4,7 +4,11 @@
 
 ### Requirement: inbox 检索索引
 
-共享 core SHALL 在 SQLite 中维护一张 standalone FTS5（trigram tokenizer）虚拟表，索引 inbox 内容。索引 SHALL 覆盖来源设备名（`inbox_items.source_name`）、该条目下所有文件的文件名（`inbox_item_files.name`）与相对路径（`inbox_item_files.relative_path`），以及文档正文抽取结果（`extracted_text`，仅具备抽取能力的平台），以 inbox 条目（item）为粒度聚合为一行。索引 SHALL NOT 覆盖条目的展示标题——该标题由首文件名与文件数派生，其中文件名已被文件文本列覆盖，余下的模板文字（如「等 N 个文件」「空传输」）会使无关条目被整批命中。索引 SHALL 在收件箱写入条目时维护、并由迁移对存量数据一次性回填；维护机制对调用方透明，调用方无需手动维护。索引内容 SHALL 与当前 inbox 保持一致。
+共享 core SHALL 在 SQLite 中维护一张以 inbox 条目（item）为粒度的预聚合文本表，索引 inbox 内容。索引 SHALL 覆盖来源设备名（`inbox_items.source_name`）、该条目下所有文件的文件名（`inbox_item_files.name`）与相对路径（`inbox_item_files.relative_path`），以及文档正文抽取结果（`extracted_text`，仅具备抽取能力的平台）。
+
+索引 SHALL NOT 收录**可由其他已索引字段完全派生**的展示字段。判据是该字段相对于已索引内容有无**独立信息**：条目的展示标题取自首个文件名，而文件名已在文件文本列中（该列以 `"{name} {relative_path}"` 逐文件拼接，必然以首文件名开头），故它 SHALL NOT 作为独立索引列存在。
+
+索引 SHALL 在收件箱写入条目时维护、并由迁移对存量数据一次性回填；维护机制对调用方透明，调用方无需手动维护。索引内容 SHALL 与当前 inbox 保持一致。
 
 #### Scenario: 新收到的条目进入索引
 
@@ -21,10 +25,13 @@
 - **WHEN** 检索包含中文关键词，特别是 2 个汉字的常见词（如"合同""发票"）
 - **THEN** 系统 SHALL 能对中文内容产生匹配；实现 SHALL 通过子串匹配兜底少于 3 个字符的查询，不得因 trigram 的 3-gram 下限或纯空格分词而对中文短词整体失配
 
-#### Scenario: 标题模板文字不产生命中
+#### Scenario: 展示标题不作为独立索引列
 
-- **WHEN** 用户检索多文件条目标题中的模板文字（如「个文件」）
-- **THEN** 系统 SHALL NOT 因此返回全部多文件条目；命中 SHALL 仅由来源名、文件名、相对路径或抽取正文产生
+- **WHEN** 检索一个只出现在条目展示标题字段、而不出现在来源名 / 文件名 / 相对路径 / 抽取正文中的词
+- **THEN** 系统 SHALL NOT 返回任何条目；命中 SHALL 仅由来源名、文件名、相对路径或抽取正文产生
+
+> 这条只能用「只存在于标题字段」的词来验证。标题的正常内容（首文件名）本就在文件文本列里，
+> 拿它做查询词，加不加索引列都会命中。
 
 ### Requirement: search_inbox 查询 API
 
@@ -60,9 +67,9 @@
 - **WHEN** `include_archived` 为 false，且某命中条目 `archived_at` 非空
 - **THEN** 系统 SHALL NOT 返回该条目
 
-### Requirement: FTS schema 前向兼容文本抽取
+### Requirement: 索引 schema 前向兼容文本抽取
 
-FTS 索引 schema SHALL 预留一个 `extracted_text` 文本列用于未来承载 OCR / 文档文本抽取的结果，但本能力 SHALL NOT 在本期填充该列。当该列为空时，检索行为 SHALL 与不存在该列时一致，不得因空列影响匹配或排序。
+索引 schema SHALL 预留一个 `extracted_text` 文本列用于未来承载 OCR / 文档文本抽取的结果，但本能力 SHALL NOT 在本期填充该列。当该列为空时，检索行为 SHALL 与不存在该列时一致，不得因空列影响匹配或排序。
 
 #### Scenario: extracted_text 为空时检索正常
 

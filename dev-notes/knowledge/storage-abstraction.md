@@ -353,42 +353,48 @@ trait 抽出来之后，覆盖的其实只有一半：建会话、写 checkpoint
    多文件条目的扩展名变成「个文件」，于是「收了 3 张图」既进不了「图片」筛选、
    也拿不到对应图标，且**不报错**。
 
-现在领域层只给结构：`primary_file_name: Option<String>`（`inbox_primary_file_name` 取第 0 个）
-+ 既有的 `item_count`，展示串由三端各按当前 locale 生成。这与 `localize-backend-strings`
-的「后端只发稳定语义码 + 结构化参数，翻译发生在呈现边缘」是同一条原则——`inbox_title`
-是那次遗漏的第四桶，也是唯一一桶把散文**持久化**了的。
+现在领域层只给结构：`inbox_primary_file_name(files) -> String` 取第 0 个文件的名字
+（零文件 → 空串），配上既有的 `item_count`，展示串由三端各按当前 locale 生成。
+这与 `localize-backend-strings` 的「后端只发稳定语义码 + 结构化参数，翻译发生在呈现边缘」
+是同一条原则——`inbox_title` 是那次遗漏的第四桶，也是唯一一桶把散文**持久化**了的。
+
+**列名仍叫 `inbox_items.title`，存的却是文件名。** 名实不符是笔明账：改名要在
+`m20260806` 之上再叠一条改名迁移、三份 bindings 全部重生成、三端调用点再改一遍，
+而收益只有「读代码时少一次愣神」。⚠️ 因此**看到 `item.title` 不要假设它是拼好的标题**
+——它是首文件名，`isImageFile(item.title)` 这类扩展名判断在**单文件条目上**才成立。
 
 **三端各写一份三分支，刻意不收进 `packages/shared-view`**：能共享的只有
 `itemCount === 0 / === 1 / > 1` 这个判别，真正的内容是文案，而文案本就分属三套独立
 catalog（桌面 Lingui 5、Web Lingui 6、移动 Lingui 6）。为省三行引入跨 workspace 依赖不划算。
 
-**`Option` 而不是空串**：「没有文件」与「文件名恰好是空串」必须在类型上分得开，
-与 `inbox_matches` 的 `extracted_text: Option<&str>` 同一条纪律。
-⚠️ 两套 codegen 对 `Option<T>` 的映射**不同**：specta（桌面 / Web）给 `string | null`，
-uniffi（移动）给可选属性 `primaryFileName?: string`。移动端那个 hook 因此收
-`string | undefined`（它的调用点全是 uniffi 生成的类型），桌面 / Web 那两份收
-`string | null`——这不是可以统一掉的东西。**跨端复制展示逻辑时，类型签名是最后才暴露
-问题的地方**：逻辑照抄能跑，`?? ""` 也照样工作，只有 `tsc` 会拦。
+**Web 端换的是「字段含义」而不是「字段结构」，于是踩到一条新坑。** IndexedDB 的 `inbox`
+行 v4 与 v5 逐字段相同，只有 `title` 的语义变了，所以旧行**反序列化成功**、然后被前端
+再拼一次后缀，显示成「a.pdf 等 3 个文件 等 3 个文件」——无 warn 无报错。
+`DB_VERSION` 因此照样要 +1：`onupgradeneeded` 是唯一知道旧版本号、因而唯一能丢掉旧行的
+地方。**「加 store 才提版本号」这条既有认知不够用**，改记录含义同样要提。
 
 ##### 由已索引字段派生的展示串，不进检索索引
 
-同一次改动删掉了 `inbox_fts.title` 列，**没有**按原计划另起一个 `search_text` 列。
-推导只用到包含关系：设 `T = inbox_title(files)`、`F = inbox_files_text(files)`
-（`"{name} {relative_path}"` 逐文件拼接），
+标题结构化之后，`inbox_search_index.title` 就成了纯冗余，`m20260807_000001_drop_search_index_title`
+把它删了（**没有**按 #110 预设的方向另起一个 `search_text` 列）。推导只用到包含关系：
+设 `T` = 条目标题、`F = inbox_files_text(files)`（`"{name} {relative_path}"` 逐文件拼接），
 
-| files | `T` 相对 `F` 独有的可搜文本 |
-|---|---|
-| `[]` | `"空传输"` |
-| `[f]` | **无**（`F` 以 `f.name` 开头） |
-| `[first, ..]` | `" 等 N 个文件"` |
+| 阶段 | `T` | `T` 相对 `F` 独有的可搜文本 |
+|---|---|---|
+| 散文标题时代 | 「空传输」/`f.name`/「X 等 N 个文件」 | 「空传输」、「 等 N 个文件」——**噪音**：所有多文件条目都含「个文件」，搜「文件」整批命中 |
+| 结构化之后 | 首文件名 | **无**（`F` 必以首文件名开头）——纯冗余 |
 
-所以删列后检索行为的变化**恰好两条**：搜「空传输」不再命中零文件条目、搜「个文件」
-不再命中全部多文件条目。后者是**修复**——所有多文件条目的标题都含「个文件」，
-用户搜「文件」会把它们整批捞出来。
+两个阶段删这一列的理由不同：前者是消噪音，后者是消冗余。等到删的时候散文早已不在，
+所以**检索语义一条都没变**——`title_is_not_indexed` 用一个只存在于 `inbox_items.title`
+的哨兵词钉着这件事（不用哨兵测不出来：那一列的内容本来就在 `files_text` 里，
+加回去不会让任何断言变红）。
 
 **可复用的判据：一个派生字段该不该进索引，看它相对已索引内容有没有独立信息。**
 纯函数派生且有损的投影不可能带来新信息，只可能带来模板噪音。
-`storage-sql` 的 `title_template_words_no_longer_match` 钉着这条。
+
+⚠️ 顺带纠正一条过时认知：`crates/migration/src/lib.rs` 里曾写着「删列 SQLite 不支持，
+只能建新表拷数据」。那是 3.35（2021）之前的事实，现在 `Table::alter().drop_column()`
+直接可用，上面那条迁移的测试钉着这一点。
 
 ##### 顺带补上的既存缺陷：文件顺序此前没有任何强制
 

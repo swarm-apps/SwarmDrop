@@ -26,7 +26,7 @@ use std::cell::RefCell;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{
     Event, IdbDatabase, IdbObjectStore, IdbOpenDbRequest, IdbRequest, IdbTransaction,
-    IdbTransactionMode,
+    IdbTransactionMode, IdbVersionChangeEvent,
 };
 
 use crate::error::{WebError, WebResult};
@@ -34,9 +34,20 @@ use crate::js_guard::JsGuard;
 
 const DB_NAME: &str = "swarmdrop-web";
 /// v1 = 仅 `kv`；v2 新增 `sessions`（传输会话持久化）；v3 新增 `invites`（邀请注册表落盘）；
-/// v4 新增 `inbox`（收件箱条目独立成表，不再是已完成接收会话的投影）。
-/// **加 store 必须同时提版本号**，否则 `onupgradeneeded` 不触发、新 store 建不出来。
-const DB_VERSION: u32 = 4;
+/// v4 新增 `inbox`（收件箱条目独立成表，不再是已完成接收会话的投影）；
+/// v5 = `inbox` 行里 `title` 的**含义**变了：从拼好的整句标题变成首文件名。
+///
+/// **加 store 要提版本号**（否则 `onupgradeneeded` 不触发、新 store 建不出来），
+/// **换字段含义同样要提**——v5 一个 store 都没加，但不提就没有任何地方能丢掉旧行。
+const DB_VERSION: u32 = 5;
+
+/// `inbox` 行的记录格式**最后一次变更**时的库版本——低于它的旧行在升级时被丢弃。
+///
+/// **这不是 `DB_VERSION` 的别名，别把它改成 `DB_VERSION`。** 下次因为别的原因提版本号
+/// （比如新增一个 store）时，v5 写下的 `inbox` 行仍然是好的；跟着 `DB_VERSION` 走会把
+/// 它们一并清掉，而且清得悄无声息。只有当 `inbox` 行的形状或字段含义再次改变时，
+/// 这个数才跟着改。
+const INBOX_ROW_FORMAT_VERSION: u32 = 5;
 
 /// 单例键值 store（身份 / 已配对设备）。
 pub const KV_STORE: &str = "kv";
@@ -247,7 +258,16 @@ async fn open() -> WebResult<IdbDatabase> {
     Ok(db)
 }
 
-/// 建缺失的 object store。逐个判存在性而非按版本号分支——老库升级与新库首建走同一段代码。
+/// 建缺失的 object store，并丢掉记录含义已变的旧 `inbox` 行。
+///
+/// 建表那半**逐个判存在性而非按版本号分支**——老库升级与新库首建走同一段代码。
+/// 丢弃那半反过来**必须**看 `old_version`：这是「Web 端 schema 变更直接换、不写迁移」
+/// （`CLAUDE.md` 的既定判据）唯一能落地的地方，因为只有 `onupgradeneeded` 知道旧版本号。
+///
+/// **不能指望反序列化失败来过滤旧行。** v4 与 v5 的 `inbox` 行结构逐字段相同，变的只是
+/// `title` 的含义（整句标题 → 首文件名），旧行会**成功**读回来，然后被前端再拼一次
+/// 「等 N 个文件」，显示成「a.pdf 等 3 个文件 等 3 个文件」——无 warn 无报错，
+/// 比读失败难查得多。
 ///
 /// 返回的 guard 由调用方持有到 open 请求 settle：`forget()` 会永久泄漏 Box 及其捕获的
 /// `JsValue`（连带钉住那条连接），而这个函数在写路径上被高频调用。
@@ -255,11 +275,23 @@ fn install_upgrade_handler(
     open_request: &IdbOpenDbRequest,
 ) -> JsGuard<IdbOpenDbRequest, Closure<dyn FnMut(Event)>> {
     let upgrade_request = open_request.clone();
-    let on_upgrade = Closure::wrap(Box::new(move |_event: Event| {
+    let on_upgrade = Closure::wrap(Box::new(move |event: Event| {
         if let Ok(db) = upgrade_request
             .result()
             .and_then(|value| value.dyn_into::<IdbDatabase>())
         {
+            // `old_version == 0` 是新库首建，没有旧行可丢。拿不到事件就按「不丢」走：
+            // 多留一批脏行只是显示难看，误删是真丢用户数据。
+            let old_version = event
+                .dyn_ref::<IdbVersionChangeEvent>()
+                .map_or(0.0, IdbVersionChangeEvent::old_version);
+            if old_version > 0.0
+                && old_version < f64::from(INBOX_ROW_FORMAT_VERSION)
+                && db.object_store_names().contains(INBOX_STORE)
+            {
+                let _ = db.delete_object_store(INBOX_STORE);
+            }
+
             for name in [KV_STORE, SESSION_STORE, INVITE_STORE, INBOX_STORE] {
                 if !db.object_store_names().contains(name) {
                     let _ = db.create_object_store(name);

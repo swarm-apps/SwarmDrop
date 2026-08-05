@@ -390,12 +390,23 @@ function isTextLike(item: InboxPreviewItem): boolean {
   );
 }
 
+/**
+ * `isImageFile` / `isVideoFile` 是**文件级**谓词，而这两个函数的产物是**条目级**断言
+ * ——它同时喂给图标、「图片」标签与筛选器。多文件条目里首文件只是第一个，不代表其余：
+ * 一个「封面.jpg + 50 个 zip」的条目按首文件判会被归成图片，进「图片」筛选。
+ * 故只对单文件条目判，多文件一律走通用图标——桌面 `ItemIcon` 早就是这个规矩。
+ */
 function isImageLike(item: InboxPreviewItem): boolean {
-  return isImageFile(item.title);
+  return isSingleFileItem(item) && isImageFile(item.title);
 }
 
 function isVideoLike(item: InboxPreviewItem): boolean {
-  return isVideoFile(item.title);
+  return isSingleFileItem(item) && isVideoFile(item.title);
+}
+
+/** 单文件条目：`title` 此时就是那个文件的名字，扩展名判断才成立。 */
+function isSingleFileItem(item: InboxPreviewItem): boolean {
+  return item.itemCount === 1;
 }
 
 function contentIcon(item: InboxPreviewItem) {

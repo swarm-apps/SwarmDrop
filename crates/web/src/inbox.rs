@@ -266,7 +266,6 @@ impl WebInboxTable {
                 let files_text = inbox_files_text(&facts);
                 if !inbox_matches(
                     trimmed,
-                    &stored.item.title,
                     &stored.item.source_name,
                     &files_text,
                     // 抽取正文恒 `None`：浏览器没有文本抽取能力。**不是空串**——空串意为

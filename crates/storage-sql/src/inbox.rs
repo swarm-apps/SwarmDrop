@@ -107,7 +107,13 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
     // 先把关系字段摘下来，再把 `ModelEx` 摊成纯 scalar 的 `Model`：共享判据
     // `is_completed_receive` 只吃 `Model`（关系机制编不进 wasm）。两步都是移动而非
     // 深拷——文件行里的 `completed_chunks` 位图与 `outboard` BLOB 不会被复制一份。
-    let file_rows = std::mem::take(&mut loaded.files);
+    // `HasMany` 只 Deref 到 `&[_]`，排序要先摊成 Vec；`into_iter` 是移动，不深拷。
+    let mut file_rows: Vec<_> = std::mem::take(&mut loaded.files).into_iter().collect();
+    // `load().with()` 不带 ORDER BY，行序是 SQLite 的实现细节（当前是 rowid 升序）。
+    // 而下面三条领域规则里 `inbox_content_hash` 按顺序累加、`inbox_primary_file_name`
+    // 取第 0 个——**跨端字节级契约靠一个未承诺的默认顺序兜着**。显式按主键排序钉死它；
+    // 这不改变现有哈希（rowid 顺序本就等于 id 升序），只是把巧合变成保证。
+    file_rows.sort_unstable_by_key(|file| file.id);
     let session: entity::transfer_session::Model = loaded.into();
 
     // 「哪些会话进收件箱」是跨端共享的一条判据（接收 + 终态 + 完成），三处存储实现
@@ -201,7 +207,6 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
     let index_row: entity::inbox_search_index::ActiveModel =
         entity::inbox_search_index::ActiveModel::builder()
             .set_item_id(inbox_id)
-            .set_title(title)
             .set_source_name(session.peer_name.clone())
             .set_files_text(files_text)
             // 预留给未来的 OCR / 文本抽取，这一端没有抽取能力，恒为空串。
@@ -319,7 +324,7 @@ pub(crate) async fn search_inbox(
     //
     // 下面这段 `LIKE ... ESCAPE '\'` 是 [`swarmdrop_transfer::inbox::inbox_matches`]
     // 的 SQL 复刻：那个函数是检索命中判据的规范定义（大小写不敏感子串，覆盖
-    // title / source_name / files_text / extracted_text 四列），Web 端直接调它。
+    // source_name / files_text / extracted_text 三列），Web 端直接调它。
     // 两者语义必须同义——同一个查询词在两端给出不同的命中集合，就是同一次搜索在
     // 两端结果不同。改这里必须同步改那里，反之亦然，而
     // `sql_like_matches_shared_corpus_same_as_inbox_matches` 用共享语料
@@ -333,8 +338,7 @@ pub(crate) async fn search_inbox(
         WHERE i.deleted_at IS NULL
           AND (? = 1 OR i.archived_at IS NULL)
           AND (
-              s.title LIKE ? ESCAPE '\'
-              OR s.source_name LIKE ? ESCAPE '\'
+              s.source_name LIKE ? ESCAPE '\'
               OR s.files_text LIKE ? ESCAPE '\'
               OR s.extracted_text LIKE ? ESCAPE '\'
           )
@@ -343,7 +347,6 @@ pub(crate) async fn search_inbox(
         "#,
         [
             include_archived.into(),
-            pattern.clone().into(),
             pattern.clone().into(),
             pattern.clone().into(),
             pattern.into(),
@@ -887,7 +890,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_finds_item_by_title_and_source_after_insert() {
+    async fn search_finds_item_by_file_name_and_source_after_insert() {
         let (_db, store) = make_env().await;
         let id = make_inbox_item(
             &store,
@@ -896,19 +899,20 @@ mod tests {
         )
         .await;
 
-        let by_title = store.search_inbox("扫描", 10, false).await.unwrap();
-        assert!(by_title.iter().any(|h| h.id == id), "标题/文件名应命中");
+        let by_file_name = store.search_inbox("扫描", 10, false).await.unwrap();
+        assert!(by_file_name.iter().any(|h| h.id == id), "文件名应命中");
 
         let by_source = store.search_inbox("Alice", 10, false).await.unwrap();
         assert!(by_source.iter().any(|h| h.id == id), "来源设备名应命中");
 
-        let hit = by_title.iter().find(|h| h.id == id).unwrap();
+        let hit = by_file_name.iter().find(|h| h.id == id).unwrap();
         assert_eq!(hit.files.len(), 1);
         assert_eq!(hit.files[0].relative_path, "季度合同扫描.pdf");
-        // 标题列存的**就是首个文件名**（`inbox_primary_file_name`），所以「扫描」先命中标题——
-        // 而命中标题不产出片段：标题在三端的条目行上本来就显示着，再给一条内容相同的
-        // 片段只是把同一句话说两遍。片段判据的正面覆盖在 `swarmdrop-transfer` 的
-        // `snippet_only_for_file_hits`（领域层单测），这里只管「搜不搜得到」。
+        // **命中来自 `files_text`，不是标题**——索引里已经没有 title 列了（见
+        // `title_is_not_indexed`）。但片段的**归属判断**仍看标题：条目行上显示的
+        // 就是这个首文件名，命中它再给一条内容相同的片段只是把同一句话说两遍。
+        // 片段判据的正面覆盖在 `swarmdrop-transfer` 的 `snippet_only_for_file_hits`
+        // （领域层单测），这里只管「搜不搜得到」。
         assert!(hit.snippet.is_none(), "命中标题时不该产出片段");
     }
 
@@ -1019,13 +1023,19 @@ mod tests {
         );
     }
 
+    /// 条目行 `title` 的哨兵值：**它不在任何索引列里**，所以拿它当查询词必须搜不到。
+    /// `title_is_not_indexed` 靠这一点把「标题不参与检索」钉成可执行断言。
+    const TITLE_SENTINEL: &str = "哨兵标题不该被检索到";
+
     /// 按语料直接造一条收件箱条目 + 对应的索引行，返回 item id。
     ///
-    /// 不走 `ensure_*`：那条路径的 title / files_text 由文件行派生，摆不出语料要的四列
+    /// 不走 `ensure_*`：那条路径的 files_text 由文件行派生，摆不出语料要的三列
     /// 任意组合（尤其 `extracted_text`——SQL 侧目前没有任何写入它的生产路径）。
+    ///
+    /// 条目行的 `title` 一律填 [`TITLE_SENTINEL`]：它是展示字段，不进 `inbox_search_index`，
+    /// 语料里因此没有它的位置。
     async fn insert_indexed_item(
         db: &DatabaseConnection,
-        title: &str,
         source_name: &str,
         files_text: &str,
         extracted_text: Option<&str>,
@@ -1038,7 +1048,7 @@ mod tests {
             .set_source_name(source_name.to_string())
             .set_source_kind(entity::InboxSourceKind::PairedDevice)
             .set_content_kind(InboxContentKind::Files)
-            .set_title(title.to_string())
+            .set_title(TITLE_SENTINEL.to_string())
             .set_item_count(1)
             .set_total_size(1)
             .set_root_path(None)
@@ -1049,7 +1059,6 @@ mod tests {
             .expect("insert inbox item");
         entity::inbox_search_index::ActiveModel::builder()
             .set_item_id(id)
-            .set_title(title.to_string())
             .set_source_name(source_name.to_string())
             .set_files_text(files_text.to_string())
             // 语料的 `None`（「这一端没有文本抽取」）在 SQL 侧落成空串：唯一的生产写入
@@ -1080,14 +1089,8 @@ mod tests {
         let mut ids = Vec::with_capacity(INBOX_MATCH_CASES.len());
         for case in INBOX_MATCH_CASES {
             ids.push(
-                insert_indexed_item(
-                    &db,
-                    case.title,
-                    case.source_name,
-                    case.files_text,
-                    case.extracted_text,
-                )
-                .await,
+                insert_indexed_item(&db, case.source_name, case.files_text, case.extracted_text)
+                    .await,
             );
         }
 
@@ -1105,6 +1108,39 @@ mod tests {
                 case.name, case.query
             );
         }
+    }
+
+    /// 条目标题**不是索引列**：拿标题原文当查询词必须一条都搜不到。
+    ///
+    /// 守的是「删掉 `inbox_search_index.title` 之后没人把它加回来」。加回来不会让任何
+    /// 现有断言变红——那一列存的是首文件名，而首文件名已经在 `files_text` 里，
+    /// 多一列只是把同一个词再匹配一遍。用一个**只存在于 `inbox_items.title`** 的哨兵词
+    /// 才能把这件事测出来。
+    #[tokio::test]
+    async fn title_is_not_indexed() {
+        let (db, store) = make_env().await;
+        let id = insert_indexed_item(&db, "Alice", "a.pdf a.pdf", None).await;
+
+        let hits = store
+            .search_inbox(TITLE_SENTINEL, 1000, false)
+            .await
+            .expect("search inbox");
+        assert!(
+            !hits.iter().any(|hit| hit.id == id),
+            "标题不该参与检索，却命中了：{TITLE_SENTINEL}"
+        );
+
+        // 反向对照：同一条条目按文件名仍然搜得到，证明它确实进了索引、
+        // 上面那条不命中不是因为条目本身没被索引。
+        assert!(
+            store
+                .search_inbox("a.pdf", 1000, false)
+                .await
+                .expect("search inbox")
+                .iter()
+                .any(|hit| hit.id == id),
+            "文件名应当仍能命中"
+        );
     }
 
     #[tokio::test]

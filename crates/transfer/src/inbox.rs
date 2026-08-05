@@ -177,8 +177,14 @@ pub fn is_completed_receive(session: &entity::transfer_session::Model) -> bool {
         && session.terminal_reason == Some(entity::TerminalReason::Completed)
 }
 
-/// 检索命中判据的**规范定义**：大小写不敏感子串，覆盖 title / source_name / files_text /
-/// extracted_text 四列。
+/// 检索命中判据的**规范定义**：大小写不敏感子串，覆盖 source_name / files_text /
+/// extracted_text 三列。
+///
+/// **不含 title。** 条目标题是首个文件名，而 `files_text` 是全部文件的 `name` +
+/// `relative_path` 拼接 —— 首文件名必然是它的子串，多匹配一次改变不了任何命中集合。
+/// 索引侧那一列已随 `m20260807_000001_drop_search_index_title` 删除。
+/// （标题**仍参与** [`inbox_snippet`] 的归属判断，那是另一回事：那里问的是
+/// 「命中的东西是不是条目行上已经显示着的」，不是「命不命中」。）
 ///
 /// SQL 侧不调用它（那边的匹配在数据库里由 `LIKE ... ESCAPE '\'` 完成），
 /// 但 **SQL 的那段 `LIKE` 必须复刻本函数的语义**：同一个查询词在两端要给出同一个
@@ -186,7 +192,7 @@ pub fn is_completed_receive(session: &entity::transfer_session::Model) -> bool {
 /// 而不是散在两处的口头约定——[`INBOX_MATCH_CASES`] 是那个锚点的可执行形式，
 /// 两端的单测灌同一批语料、断言同一批 expected。
 ///
-/// **`extracted_text` 为什么是 `Option`。** 它是 SQL 侧 `inbox_search_index` 的第四列（文档正文
+/// **`extracted_text` 为什么是 `Option`。** 它是 SQL 侧 `inbox_search_index` 的第三列（文档正文
 /// 抽取结果）。浏览器没有文本抽取，Web 侧恒传 `None`——不是「传空串」：空串在语义上是
 /// 「抽过、没抽到东西」，`None` 才是「这一端没有这个能力」，而这条差异该在签名上看得见。
 /// 此前本函数**根本没有这个入参**，于是它自称规范定义、SQL 却多匹配一列，规范与实现
@@ -201,7 +207,6 @@ pub fn is_completed_receive(session: &entity::transfer_session::Model) -> bool {
 /// 而 CJK 根本没有大小写。[`INBOX_MATCH_CASES`] 因此只放 ASCII 的大小写用例。
 pub fn inbox_matches(
     query: &str,
-    title: &str,
     source_name: &str,
     files_text: &str,
     extracted_text: Option<&str>,
@@ -210,8 +215,7 @@ pub fn inbox_matches(
     if needle.is_empty() {
         return false;
     }
-    contains_ci(title, &needle)
-        || contains_ci(source_name, &needle)
+    contains_ci(source_name, &needle)
         || contains_ci(files_text, &needle)
         || extracted_text.is_some_and(|text| contains_ci(text, &needle))
 }
@@ -234,7 +238,6 @@ pub struct InboxMatchCase {
     /// 断言失败时打印，说明这条守的是什么。
     pub name: &'static str,
     pub query: &'static str,
-    pub title: &'static str,
     pub source_name: &'static str,
     pub files_text: &'static str,
     pub extracted_text: Option<&'static str>,
@@ -250,14 +253,13 @@ pub struct InboxMatchCase {
 /// 覆盖面是刻意的，每一类都对应一种真实分叉：
 /// - **大小写**（ASCII）——两端都要不敏感；
 /// - **`%` / `_` / `\`** —— SQL 侧忘了 `escape_like` 就会把它们当通配符，凭空多出命中；
-/// - **四列各自独立命中 + 多列同时命中** —— 少接一列就是少一批结果；
+/// - **三列各自独立命中 + 多列同时命中** —— 少接一列就是少一批结果；
 /// - **`extracted_text = None`** —— Web 端的常态，同一个查询词在那边应当**不**命中；
 /// - **空 / 全空白 query** —— 恒不命中（SQL 侧直接短路返回空列表）。
 pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "来源名大小写不敏感",
         query: "alice",
-        title: "季度报告",
         source_name: "Alice 的工作站",
         files_text: "a.pdf a.pdf",
         extracted_text: None,
@@ -266,43 +268,41 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "文件文本大小写不敏感（查询词是大写）",
         query: "A.PDF",
-        title: "季度报告",
         source_name: "Alice 的工作站",
         files_text: "a.pdf a.pdf",
         extracted_text: None,
         expected: true,
     },
     InboxMatchCase {
-        name: "标题命中 2 字中文词（SQL 侧改用 LIKE 正为此）",
+        // 这条原先靠 `title: "季度报告"` 命中。索引去掉 title 列之后，2 字中文词的覆盖
+        // 必须由文件名承担 —— **把词挪进 files_text，而不是删掉用例**：它守的是
+        // 「trigram 分词器对 <3 字查询返回空」这个换用 LIKE 的原因，与哪一列无关。
+        name: "2 字中文词命中文件名（SQL 侧改用 LIKE 正为此）",
         query: "报告",
-        title: "季度报告",
         source_name: "Alice 的工作站",
-        files_text: "a.pdf a.pdf",
+        files_text: "季度报告.pdf 季度报告.pdf",
         extracted_text: None,
         expected: true,
     },
     InboxMatchCase {
-        name: "标题与文件文本同时命中，仍是一次命中",
+        name: "来源名与文件文本同时命中，仍是一次命中",
         query: "合同",
-        title: "合同.pdf",
-        source_name: "Bob",
+        source_name: "合同组的工作站",
         files_text: "合同.pdf 合同.pdf",
         extracted_text: None,
         expected: true,
     },
     InboxMatchCase {
-        name: "四列都不含查询词",
+        name: "三列都不含查询词",
         query: "zzz",
-        title: "季度报告",
         source_name: "Alice 的工作站",
         files_text: "a.pdf a.pdf",
         extracted_text: Some("正文里也没有"),
         expected: false,
     },
     InboxMatchCase {
-        name: "extracted_text 独立命中（其余三列都不含）",
+        name: "extracted_text 独立命中（其余两列都不含）",
         query: "发票编号",
-        title: "scan-0001.pdf",
         source_name: "Bob",
         files_text: "scan-0001.pdf scan-0001.pdf",
         extracted_text: Some("发票编号 2026-07-31"),
@@ -311,16 +311,14 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "Web 端没有文本抽取：同一查询词在 extracted_text 缺席时不得命中",
         query: "发票编号",
-        title: "scan-0001.pdf",
         source_name: "Bob",
         files_text: "scan-0001.pdf scan-0001.pdf",
         extracted_text: None,
         expected: false,
     },
     InboxMatchCase {
-        name: "% 是字面量：命中真的含 % 的标题",
+        name: "% 是字面量：命中真的含 % 的文件名",
         query: "50%",
-        title: "预算 50% 完成.pdf",
         source_name: "Bob",
         files_text: "预算 50% 完成.pdf 预算 50% 完成.pdf",
         extracted_text: None,
@@ -329,7 +327,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "% 不是通配符：a%b 不得命中 axxb（SQL 侧漏 escape_like 即在此变红）",
         query: "a%b",
-        title: "axxb.txt",
         source_name: "Bob",
         files_text: "axxb.txt axxb.txt",
         extracted_text: None,
@@ -338,7 +335,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "_ 是字面量：命中真的含下划线的文件名",
         query: "a_b",
-        title: "data_backup.zip",
         source_name: "Bob",
         files_text: "data_backup.zip data_backup.zip",
         extracted_text: None,
@@ -347,7 +343,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "_ 不是单字符通配：a_b 不得命中 axb",
         query: "a_b",
-        title: "axb.txt",
         source_name: "Bob",
         files_text: "axb.txt axb.txt",
         extracted_text: None,
@@ -356,7 +351,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "反斜杠（SQL 的 ESCAPE 字符本身）当字面量命中",
         query: r"C:\Users",
-        title: r"C:\Users\a.txt",
         source_name: "Bob",
         files_text: r"a.txt C:\Users\a.txt",
         extracted_text: None,
@@ -365,7 +359,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "空查询恒不命中",
         query: "",
-        title: "合同.pdf",
         source_name: "Bob",
         files_text: "合同.pdf 合同.pdf",
         extracted_text: Some("合同正文"),
@@ -374,7 +367,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "全空白查询恒不命中",
         query: "   ",
-        title: "合同.pdf",
         source_name: "Bob",
         files_text: "合同.pdf 合同.pdf",
         extracted_text: Some("合同正文"),
@@ -815,7 +807,6 @@ mod tests {
             assert_eq!(
                 inbox_matches(
                     case.query,
-                    case.title,
                     case.source_name,
                     case.files_text,
                     case.extracted_text,

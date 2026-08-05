@@ -118,7 +118,7 @@ impl From<TransferOfferEvent> for MobileTransferOffer {
 
 ### `Option<T>` 在 uniffi 与 specta 下生成的 TS 类型不一样
 
-同一个 Rust `Option<String>`：
+同一个 Rust `Option<String>`（现成的例子：`InboxItemSummary.root_path`、`last_opened_at`）：
 
 | codegen | 消费端 | 生成的 TS |
 |---|---|---|
@@ -134,7 +134,7 @@ impl From<TransferOfferEvent> for MobileTransferOffer {
 和上游打架。**留意点在「抄」上**：从桌面的 hook / 工具函数复制一份到 `mobile/src` 时，
 类型签名往往是最后才暴露问题的地方（逻辑照抄能跑，`?? ""` 也照样工作）。
 
-首次撞见：2026-08-04 收件箱标题结构化（`primaryFileName`，openspec `inbox-title-structural`）。
+记于 2026-08-05（收件箱标题结构化那次改动的副产物）。
 
 ## Callback 错误必须包成 uniffi enum 形状
 
