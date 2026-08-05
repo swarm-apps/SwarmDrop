@@ -112,13 +112,17 @@ pub struct InboxFileFacts<'a> {
     pub size: i64,
 }
 
-/// 条目标题：0 个文件 →「空传输」，1 个 → 文件名，多个 →「X 等 N 个文件」。
-pub fn inbox_title(files: &[InboxFileFacts<'_>]) -> String {
-    match files {
-        [] => "空传输".to_string(),
-        [file] => file.name.to_string(),
-        [first, ..] => format!("{} 等 {} 个文件", first.name, files.len()),
-    }
+/// 条目标题所需的**唯一事实**：首个文件的名字（无文件时为空串）。
+///
+/// **返回的不是标题，是渲染标题的原料。** 这个函数曾经直接返回
+/// 「空传输」/「X 等 N 个文件」并把结果**落库**到 `inbox_items.title` —— 于是条目标题
+/// 永远冻结在写入时的语言，切界面语言不会变。现在库里只存文件名（本来就与语言无关），
+/// 「等 N 个文件」这句由三端各自的 catalog 生成；`item_count` 已是独立列，够用了。
+pub fn inbox_primary_file_name(files: &[InboxFileFacts<'_>]) -> String {
+    files
+        .first()
+        .map(|file| file.name.to_string())
+        .unwrap_or_default()
 }
 
 /// 条目内容指纹：逐文件累加 `relative_path ‖ 0x00 ‖ checksum ‖ size_le` 的 blake3。
@@ -709,20 +713,35 @@ mod tests {
     }
 
     #[test]
-    fn title_covers_empty_single_and_multi() {
-        assert_eq!(inbox_title(&[]), "空传输");
+    fn primary_file_name_covers_empty_single_and_multi() {
+        // 空传输返回空串而不是「空传输」：那句话是**文案**，归三端 catalog。
+        assert_eq!(inbox_primary_file_name(&[]), "");
         assert_eq!(
-            inbox_title(&[facts("a.txt", "a.txt", "sum-a")]),
-            "a.txt".to_string()
+            inbox_primary_file_name(&[facts("a.txt", "a.txt", "sum-a")]),
+            "a.txt"
         );
+        // 多文件也只给首个名字——「等 3 个文件」由前端配 `item_count` 生成。
         assert_eq!(
-            inbox_title(&[
+            inbox_primary_file_name(&[
                 facts("a.txt", "a.txt", "sum-a"),
                 facts("b.txt", "docs/b.txt", "sum-b"),
                 facts("c.txt", "docs/c.txt", "sum-c"),
             ]),
-            "a.txt 等 3 个文件"
+            "a.txt"
         );
+    }
+
+    /// 这条钉的是「标题列不许再含语言」。落库的值必须与界面语言无关，
+    /// 否则历史条目会永久冻结在写入时的 locale——那正是本次改动要消掉的东西。
+    #[test]
+    fn primary_file_name_is_language_neutral() {
+        let multi = [
+            facts("报告.pdf", "报告.pdf", "sum-a"),
+            facts("b.txt", "b.txt", "sum-b"),
+        ];
+        let stored = inbox_primary_file_name(&multi);
+        assert_eq!(stored, "报告.pdf", "只能是文件名本身");
+        assert!(!stored.contains('等'), "「等 N 个文件」不许落库");
     }
 
     /// 已知向量：钉死十六进制串，防两端（SQL 与 Web）的累加顺序静默漂移。

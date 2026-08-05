@@ -1,21 +1,25 @@
-//! 原生后端：`webrtc-rs` 0.20。
+//! Native backend: `webrtc-rs` 0.20.
 //!
-//! 参数与坑均来自 spike 实测（`dev-notes/research/2026-07-webrtc-native-ice.md`）：
-//! 0.20 是完整 ICE agent（会主动打 STUN 产出 srflx），host 路径实测 50 MiB/s。
+//! The parameters and pitfalls below all come from spike measurements
+//! (`dev-notes/research/2026-07-webrtc-native-ice.md`): 0.20 is a full ICE agent (it
+//! actively queries STUN and produces srflx candidates), and the host path measured
+//! 50 MiB/s.
 //!
-//! # 三个不能省的设置
+//! # Three settings that cannot be skipped
 //!
-//! | 设置 | 默认值的问题 |
+//! | Setting | What the default gets wrong |
 //! |---|---|
-//! | `with_sctp_receive_buffer_size` | 默认 1 MiB，LAN 高带宽下几百毫秒撑爆，**断连而非降速** |
-//! | `with_data_channel_send_buffer_limit` | 默认无界，快生产者可撑爆内存；但 < 4 MiB 会饿着管道 |
-//! | `with_udp_addrs` 传具体网卡 IP | 传 `0.0.0.0` 时不展开网卡，host candidate 写成字面量 `0.0.0.0`，对端无法使用 |
+//! | `with_sctp_receive_buffer_size` | Defaults to 1 MiB, which a high-bandwidth LAN overruns within a few hundred milliseconds — **the connection drops rather than slowing down** |
+//! | `with_data_channel_send_buffer_limit` | Unbounded by default, so a fast producer can exhaust memory; but below 4 MiB it starves the pipe |
+//! | `with_udp_addrs` given concrete interface IPs | Passing `0.0.0.0` does not expand to interfaces; the host candidate is written as the literal `0.0.0.0`, which the remote cannot use |
 //!
-//! # 为什么不需要 spawn
+//! # Why no spawn is needed
 //!
-//! `webrtc-rs` 自带 runtime 抽象并自行管理内部任务；本模块只在 [`Backend::poll`] 里驱动
-//! 少量一次性 future，并用 channel 接住回调事件。因此本 crate 全程无 `spawn`，也不需要
-//! 运行时垫片——但**要求调用方处于 tokio（或 smol）运行时中**，`default_runtime()` 靠它。
+//! `webrtc-rs` carries its own runtime abstraction and manages its internal tasks; this
+//! module only drives a handful of one-shot futures inside [`Backend::poll`] and catches
+//! callback events over a channel. The crate therefore never calls `spawn` and needs no
+//! runtime shim — but it **requires the caller to be inside a tokio (or smol) runtime**,
+//! which `default_runtime()` relies on.
 
 use std::collections::VecDeque;
 use std::net::IpAddr;
@@ -44,16 +48,20 @@ pub(crate) mod data_channel;
 pub mod direct;
 pub(crate) mod muxer;
 
-/// SCTP 接收窗口。默认 1 MiB 在 LAN 上会导致连接直接断掉（spike 实测 4 MiB 处 failed）。
+/// SCTP receive window. The 1 MiB default drops the connection outright on a LAN (the
+/// spike observed failures at 4 MiB).
 const SCTP_RECEIVE_BUFFER: u32 = 8 * 1024 * 1024;
 
-/// 发送缓冲上限。默认无界；实测 1 MiB 吞吐腰斩、4 MiB 与无界持平且内存封顶。
+/// Send buffer limit. Unbounded by default; measurements showed 1 MiB halves throughput
+/// while 4 MiB matches unbounded and caps memory.
 const SEND_BUFFER_LIMIT: usize = 4 * 1024 * 1024;
 
-/// 排队中的操作。
+/// A queued operation.
 ///
-/// `PeerConnection` 的构造与各项操作都是 async，而 [`Backend`] 接口是同步的；因此把调用
-/// 记下来，待 [`Backend::poll`] 驱动。这样复杂度收在后端内部，不必让 trait 变成 async。
+/// Constructing a `PeerConnection` and each of its operations are async, while the
+/// [`Backend`] interface is synchronous; the call is therefore recorded and driven later
+/// by [`Backend::poll`]. That keeps the complexity inside the backend instead of turning
+/// the trait async.
 #[derive(Debug)]
 enum Op {
     StartOffer,
@@ -62,20 +70,22 @@ enum Op {
     AddCandidate(String),
 }
 
-/// `webrtc-rs` 后端。
+/// The `webrtc-rs` backend.
 pub struct NativeBackend {
     state: State,
     queued: VecDeque<Op>,
-    /// 正在执行的操作。同一时刻至多一个，保证 SDP 状态机的调用顺序。
+    /// The operation in flight. At most one at a time, which preserves the SDP state
+    /// machine's call ordering.
     running: Option<BoxFuture<'static, Result<(), BackendError>>>,
     events_tx: mpsc::UnboundedSender<BackendEvent>,
     events_rx: mpsc::UnboundedReceiver<BackendEvent>,
-    /// 对端开来的 DataChannel，建连后连同 PeerConnection 一起交给 muxer。
+    /// The DataChannel opened by the remote; handed to the muxer along with the
+    /// PeerConnection once connected.
     inbound_dc_rx: Option<mpsc::UnboundedReceiver<Arc<dyn DataChannel>>>,
 }
 
 enum State {
-    /// `PeerConnection` 仍在构造（`build()` 是 async）。
+    /// The `PeerConnection` is still being built (`build()` is async).
     Building(BoxFuture<'static, Result<Arc<dyn PeerConnection>, BackendError>>),
     Ready(Arc<dyn PeerConnection>),
     Failed,
@@ -97,7 +107,8 @@ impl std::fmt::Debug for NativeBackend {
 }
 
 impl NativeBackend {
-    /// 同步构造；真正的 `PeerConnection` 在首次 [`Backend::poll`] 时建好。
+    /// Constructs synchronously; the real `PeerConnection` is built on the first
+    /// [`Backend::poll`].
     pub fn new(config: &Config) -> Self {
         let (events_tx, events_rx) = mpsc::unbounded();
         let (inbound_dc_tx, inbound_dc_rx) = mpsc::unbounded();
@@ -113,7 +124,7 @@ impl NativeBackend {
         }
     }
 
-    /// 供 [`crate::Factory`] 使用的便捷构造。
+    /// Convenience constructor for use by [`crate::Factory`].
     pub fn factory() -> crate::Factory {
         Arc::new(|config: &Config| Ok(Box::new(Self::new(config)) as Box<dyn Backend>))
     }
@@ -127,7 +138,7 @@ impl NativeBackend {
             .unbounded_send(BackendEvent::Failed(err.to_string()));
     }
 
-    /// 把一个排队操作变成可驱动的 future。
+    /// Turns a queued operation into a drivable future.
     fn spawn_op(&mut self, pc: Arc<dyn PeerConnection>, op: Op) {
         let tx = self.events_tx.clone();
         self.running = Some(
@@ -272,7 +283,7 @@ impl Backend for NativeBackend {
     }
 }
 
-/// 把回调事件转发到 channel。
+/// Forwards callback events onto the channel.
 #[derive(Clone)]
 struct EventForwarder {
     tx: mpsc::UnboundedSender<BackendEvent>,
@@ -312,7 +323,7 @@ impl PeerConnectionEventHandler for EventForwarder {
     }
 }
 
-/// 异步构造 `PeerConnection`。
+/// Builds the `PeerConnection` asynchronously.
 async fn build_peer_connection(
     config: Config,
     events_tx: mpsc::UnboundedSender<BackendEvent>,
@@ -355,14 +366,15 @@ async fn build_peer_connection(
     Ok(Arc::new(pc))
 }
 
-/// ICE 要绑定的本地地址。
+/// The local addresses ICE should bind to.
 ///
-/// **不能传 `0.0.0.0`**：webrtc-rs 不会据此展开网卡，而是把字面量写进 host candidate，
-/// 对端拿到一个不可连接的地址，于是 host 路径整条作废、只能退到 srflx 走 NAT hairpin
-/// （spike 实测吞吐从 50 MiB/s 掉到 0.6 MiB/s）。
+/// **Never pass `0.0.0.0`**: webrtc-rs does not expand it into interfaces; it writes the
+/// literal into the host candidate, so the remote receives an unconnectable address, the
+/// entire host path is void, and traffic falls back to srflx through NAT hairpinning
+/// (measured in a spike: throughput dropped from 50 MiB/s to 0.6 MiB/s).
 ///
-/// 这个坑在 webrtc-direct 模式下不存在（ICE-lite + 确定性 SDP 不需要枚举网卡），
-/// 切完整 ICE 后才会暴露。
+/// This pitfall does not exist in webrtc-direct mode (ICE-lite plus a deterministic SDP
+/// needs no interface enumeration); it only surfaces once full ICE is in play.
 fn bind_addrs(config: &Config) -> Vec<String> {
     if !config.udp_bind_addrs().is_empty() {
         return config

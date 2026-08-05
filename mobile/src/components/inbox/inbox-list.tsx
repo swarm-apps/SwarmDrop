@@ -21,6 +21,7 @@ import { FilterChip, FilterChipRail } from "@/components/filter-chip";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { inboxItemTitle } from "@/lib/inbox-title";
 import { cn } from "@/lib/utils";
 import type { InboxPreviewItem } from "@/stores/inbox-store";
 
@@ -230,7 +231,7 @@ function InboxRowComponent({
             />
           )}
           <HighlightedText
-            text={item.title}
+            text={inboxItemTitle(item.title, item.itemCount)}
             query={highlight}
             className={cn(
               "min-w-0 flex-1 text-[14px] text-foreground",

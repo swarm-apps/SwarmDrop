@@ -255,7 +255,7 @@ impl SessionStore for SqlSessionStore {
             model.suspended_reason = Set(None);
             model.terminal_reason = Set(Some(TerminalReason::FatalError));
             model.recoverable = Set(false);
-            model.error_message = Set(Some(expired_receive_reason(retention_secs)));
+            model.error_message = Set(Some(expired_receive_reason(retention_secs).to_column()));
             model.finished_at = Set(Some(now));
             model.updated_at = Set(now);
             model.update(self.db()).await?;
@@ -376,7 +376,7 @@ mod tests {
             terminal_reason: None,
             epoch: 0,
             recoverable: true,
-            error_message: None,
+            failure: None,
         }
     }
 
@@ -387,7 +387,7 @@ mod tests {
             terminal_reason: Some(TerminalReason::Completed),
             epoch: 0,
             recoverable: false,
-            error_message: None,
+            failure: None,
         }
     }
 

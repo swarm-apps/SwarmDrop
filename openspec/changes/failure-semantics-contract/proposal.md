@@ -86,8 +86,14 @@ return Err(WebError::network("邀请方拒绝了配对或配对未成功").into(
 
 **`TransferFailedEvent.error: String` 这条通道不动。** 会话级失败原因（bao 验签失败、
 源文件变更、对端中止）走的是**另一条链路** —— 不是命令返回值，而是事件 + `session.error_message`
-落库，三端 UI 直接渲染那个 String。它同样是「Rust 中文串直达 UI」，但改它要动 wire、DB 列、
-恢复逻辑与三端详情页，跟本 change 的命令返回路径没有共用代码。**单独立项**，不塞进来。
+落库，三端 UI 直接渲染那个 String。它同样是「Rust 中文串直达 UI」，跟本 change 的命令
+返回路径没有共用代码。**单独立项**，不塞进来。
+
+> **勘误（2026-08-05）**：上句原写作「改它要动 **wire**、DB 列、恢复逻辑与三端详情页」。
+> **wire 那条是错的** —— `error_message` 不进跨端协议
+> （`grep error_message crates/transfer/src/wire/ crates/transfer/src/protocol.rs` 零命中），
+> 它是纯本地的 DB 列 + 本地事件。真实成本比这里估的低。
+> 完整通道分析见 [`dev-notes/research/2026-08-rust-side-user-strings.md`](../../../dev-notes/research/2026-08-rust-side-user-strings.md)。
 
 **Android 原生库不在本 change 的产物里。** `jniLibs/` 是 gitignore 的构建产物，跨平台绑定
 （`src/generated/*.ts`、`cpp/generated/*`）由 `--and-generate` 一次生成、已随上次改动入库。

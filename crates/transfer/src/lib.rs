@@ -11,6 +11,7 @@ pub mod bao;
 pub mod coordinator;
 pub mod epoch;
 pub mod events;
+pub mod failure;
 pub mod flow;
 pub mod inbox;
 pub mod incoming;
@@ -46,13 +47,15 @@ pub const CHUNK_SIZE: usize = 256 * 1024;
 /// 并清理 `.part`，防止活动列表与磁盘临时文件无限堆积。两端一致。
 pub const SUSPENDED_RECEIVE_RETENTION_SECS: u64 = 7 * 24 * 60 * 60;
 
-/// 过期回收写进 `error_message` 的说明文案。
+/// 过期回收写进 `error_message` 列的判别码。
 ///
 /// 两端的回收各自改自己的模型（native 是 sea-orm `ActiveModel`，Web 是 `entity::Model`），
-/// 字段赋值没法共享；但这句是用户在传输历史里直接读到的文案，散成两处硬编码时，
-/// 改一处就成了静默的口径漂移。
-pub fn expired_receive_reason(retention_secs: u64) -> String {
-    format!("会话超过 {} 天未恢复，已过期回收", retention_secs / 86_400)
+/// 字段赋值没法共享；但「过期回收」这个判别码与它的天数参数是同一件事，散成两处
+/// 硬编码时，改一处就成了静默的口径漂移。
+pub fn expired_receive_reason(retention_secs: u64) -> crate::failure::FailureCode {
+    crate::failure::FailureCode::SessionExpired {
+        retention_days: (retention_secs / 86_400) as u32,
+    }
 }
 
 /// 计算文件总分块数。

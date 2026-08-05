@@ -19,8 +19,8 @@ use crate::ops::{get_transfer_projection, now_ms};
 use swarmdrop_host::{AppResult, CoreSaveLocation};
 use swarmdrop_transfer::inbox::{
     InboxFileFacts, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
-    InboxSearchHit, inbox_content_hash, inbox_files_text, inbox_snippet, inbox_source_kind,
-    inbox_title, is_completed_receive,
+    InboxSearchHit, inbox_content_hash, inbox_files_text, inbox_primary_file_name, inbox_snippet,
+    inbox_source_kind, is_completed_receive,
 };
 
 /// `ModelEx` → 中立 DTO。写成自由函数而非 `From` impl：两端类型都不属于本 crate
@@ -130,7 +130,7 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
     // 标题 / 内容指纹 / 检索聚合文本三条都是**跨端共享的领域规则**，一律调
     // swarmdrop_transfer::inbox 的那一份，本文件只负责把行类型摊成中立视图。
     let facts: Vec<InboxFileFacts<'_>> = file_rows.iter().map(file_facts).collect();
-    let title = inbox_title(&facts);
+    let title = inbox_primary_file_name(&facts);
     // root_path = 真实容器目录(与传输投影 content_root 同一 core 解析:缺 local_dir 时
     // 回退存储根)。兜底收口在 content_root_of 一处,不再重复;它只读 `local_dir` 一列,
     // 故直接把这一列的迭代器递过去——为读一个字段深拷整份文件行,等于把位图与 outboard
@@ -561,7 +561,7 @@ mod tests {
             terminal_reason: Some(TerminalReason::Completed),
             epoch: 0,
             recoverable: false,
-            error_message: None,
+            failure: None,
         }
     }
 
@@ -905,7 +905,7 @@ mod tests {
         let hit = by_title.iter().find(|h| h.id == id).unwrap();
         assert_eq!(hit.files.len(), 1);
         assert_eq!(hit.files[0].relative_path, "季度合同扫描.pdf");
-        // 单文件条目的标题**就是文件名**（`inbox_title`），所以「扫描」先命中标题——
+        // 标题列存的**就是首个文件名**（`inbox_primary_file_name`），所以「扫描」先命中标题——
         // 而命中标题不产出片段：标题在三端的条目行上本来就显示着，再给一条内容相同的
         // 片段只是把同一句话说两遍。片段判据的正面覆盖在 `swarmdrop-transfer` 的
         // `snippet_only_for_file_hits`（领域层单测），这里只管「搜不搜得到」。

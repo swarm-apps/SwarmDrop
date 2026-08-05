@@ -58,6 +58,7 @@ import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode } from "../_lib/store";
 import {
   OFFER_REJECT_REASON_LABEL,
+  failureCodeLabel,
   type Device,
   type TransferProgressEvent,
   type TransferProjection,
@@ -404,6 +405,7 @@ function SentSessionCard({
   const sample = projection ? transferSample(projection, progress) : null;
   const completed = ended && projection?.terminalReason === "completed";
   const failed = ended && projection?.terminalReason === "fatal_error";
+  const failureLabel = failureCodeLabel(projection?.failure ?? null);
 
   return (
     <div
@@ -453,9 +455,7 @@ function SentSessionCard({
       </div>
       {phase === "active" && sample && <ProgressBar percent={sample.percent} label={t`发送进度`} />}
       {/* 失败原因就在投影上，不必让用户再跳一次页面才看得到。 */}
-      {failed && projection?.errorMessage && (
-        <p className="break-words">{projection.errorMessage}</p>
-      )}
+      {failed && failureLabel && <p className="break-words">{t(failureLabel)}</p>}
     </div>
   );
 }

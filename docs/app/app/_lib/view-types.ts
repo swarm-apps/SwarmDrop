@@ -29,6 +29,8 @@ export type {
   InboxItemFileEntry,
   InboxSearchHit,
   InboxHitFile,
+  FailureCode,
+  ResumeRejectReason,
 } from "swarmdrop-web";
 
 import { msg } from "@lingui/core/macro";
@@ -39,6 +41,8 @@ import type {
   InboxItemSummary,
   OfferRejectReason,
   PairingRefusedJson,
+  ResumeRejectReason,
+  TransferProjection,
   WebError,
 } from "swarmdrop-web";
 import type { TimeBucketKey } from "@swarmdrop/shared-view";
@@ -75,6 +79,59 @@ export const WEB_ERROR_KIND_LABEL: Record<WebError["kind"], MessageDescriptor> =
 export const PAIRING_REFUSED_LABEL: Record<PairingRefusedJson["type"], MessageDescriptor> = {
   user_rejected: msg`对方拒绝了这次配对`,
 };
+
+/**
+ * 会话失败判别码 → 可翻译描述符。
+ *
+ * 与 `WEB_ERROR_KIND_LABEL` 是**两条独立通道**：那条是命令返回值（`WebError.kind`），
+ * 这条是 `TransferProjection.failure`（本地会话状态，不进 wire）。两者共用同一条契约 ——
+ * 内核回答「是什么失败」，措辞归三端各自的 catalog。
+ *
+ * 这里曾经是**裸渲染** `projection.errorMessage`：一句 Rust 侧拼好的中文，英文界面上照样弹。
+ *
+ * 返回描述符而不是字符串，同 `WEB_ERROR_KIND_LABEL` 的理由：本模块是纯类型/常量层，
+ * 翻译宏只能定义、展开是组件的事。带参数的那几条由 `msg` 把值一起烤进描述符。
+ */
+export function failureCodeLabel(
+  failure: TransferProjection["failure"],
+): MessageDescriptor | null {
+  if (!failure) return null;
+  switch (failure.code) {
+    case "fileFinalizeFailed":
+      return msg`「${failure.fileName}」没能完整保存，请重新接收`;
+    case "sessionExpired":
+      return msg`超过 ${failure.retentionDays} 天未恢复，已自动清理`;
+    case "resumeRejected":
+      return RESUME_REJECT_LABEL[failure.reason.type];
+    case "offerFailed":
+      return msg`发送请求没能送达对方，请确认对方在线后重试`;
+    case "legacy":
+      // 判别码引入之前落库的自由文本，原样展示（多为简体中文）。
+      return { id: failure.message, message: failure.message };
+  }
+}
+
+/** 续传被对端拒绝的原因 → 描述符。 */
+const RESUME_REJECT_LABEL: Record<ResumeRejectReason["type"], MessageDescriptor> = {
+  cancelled: msg`对方已取消这次传输，无法继续`,
+  fatal_error: msg`对方那边出错了，无法继续`,
+  source_modified: msg`源文件已变更，无法继续，请重新发送`,
+  checkpoint_invalid: msg`续传进度已失效，请重新发送`,
+  peer_unavailable: msg`对方暂时不可用，请稍后再试`,
+  session_not_found: msg`对方已经没有这次传输的记录了`,
+};
+
+/**
+ * 收件箱条目标题：`title` 是**首个文件名**，「等 N 个文件」这句由这里生成。
+ *
+ * 曾经是内核渲染好整句再落库（`inbox_title`），于是历史条目的标题永远冻结在写入时的
+ * 语言。库里现在只存与语言无关的文件名。
+ */
+export function inboxItemTitleLabel(title: string, itemCount: number): MessageDescriptor {
+  if (itemCount === 0) return msg`空传输`;
+  if (itemCount === 1) return { id: title, message: title };
+  return msg`${title} 等 ${itemCount} 个文件`;
+}
 
 /**
  * `OfferRejectReason["type"]` 的中文标签（#79：对端拒绝 offer 的提示，尤其 `notPaired` 那句

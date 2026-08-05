@@ -1301,7 +1301,12 @@ struct McpTransfer {
     started_at: i64,
     updated_at: i64,
     finished_at: Option<i64>,
-    error_message: Option<String>,
+    /// 失败判别码的 JSON（如 `{"code":"fileFinalizeFailed","fileName":"报告.pdf"}`）。
+    ///
+    /// 给 agent 的是**结构化判别码**而不是散文——它本来就更好解释给用户，也不会像
+    /// 自由文本那样在改一句措辞时把下游的匹配逻辑打掉。判别码引入之前落库的会话
+    /// 仍是自由文本，原样透传。
+    failure: Option<String>,
     files: Vec<McpTransferFile>,
 }
 
@@ -1339,7 +1344,7 @@ impl From<TransferProjection> for McpTransfer {
             started_at: p.started_at,
             updated_at: p.updated_at,
             finished_at: p.finished_at,
-            error_message: p.error_message,
+            failure: p.failure.as_ref().map(|f| f.to_column()),
             files: p
                 .files
                 .into_iter()

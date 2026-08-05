@@ -735,6 +735,18 @@ function RailGroup({
   );
 }
 
+/**
+ * 条目标题：`title` 列存的是**首个文件名**，「等 N 个文件」这句由这里生成。
+ *
+ * 曾经是 Rust 侧渲染好整句再落库（`inbox_title`），于是历史条目的标题永远冻结在
+ * 写入时的语言。库里现在只存与语言无关的文件名，切语言立刻生效。
+ */
+function inboxItemTitle(title: string, itemCount: number): string {
+  if (itemCount === 0) return t`空传输`;
+  if (itemCount === 1) return title;
+  return t`${title} 等 ${itemCount} 个文件`;
+}
+
 function RailRowShell({
   id,
   iconTitle,
@@ -819,7 +831,7 @@ function InboxRailRow({
             item.lastOpenedAt === null ? "font-semibold" : "font-medium",
           )}
         >
-          {item.title}
+          {inboxItemTitle(item.title, item.itemCount)}
         </span>
         {item.sourceKind === "mcp" && (
           <Bot
@@ -871,7 +883,7 @@ function SearchRow({
       onSelect={onSelect}
     >
       <span className="block truncate text-sm font-medium text-foreground">
-        {hit.title}
+        {inboxItemTitle(hit.title, hit.itemCount)}
       </span>
       <span className="mt-1 block truncate text-xs text-muted-foreground">
         <Trans>来自 {hit.sourceName}</Trans>
@@ -1036,7 +1048,7 @@ function ReaderContent({
           {leading}
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-lg font-semibold tracking-tight text-foreground">
-              {detail.title}
+              {inboxItemTitle(detail.title, detail.itemCount)}
             </h2>
             <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
               <span>

@@ -380,7 +380,7 @@ impl SessionStore for WebTransferStore {
             started_at: now,
             updated_at: now,
             finished_at: None,
-            error_message: lifecycle.error_message.clone(),
+            error_message: lifecycle.failure.as_ref().map(|f| f.to_column()),
             policy_action,
             policy_reason,
             origin: origin.map(|o| o.to_db_string()),
@@ -517,8 +517,8 @@ impl SessionStore for WebTransferStore {
                 if state.is_terminal() {
                     s.session.finished_at = Some(Self::now_ms());
                 }
-                if let Some(msg) = &state.error_message {
-                    s.session.error_message = Some(msg.clone());
+                if let Some(failure) = &state.failure {
+                    s.session.error_message = Some(failure.to_column());
                 }
             }
         }
@@ -683,7 +683,8 @@ impl SessionStore for WebTransferStore {
                     s.session.terminal_reason = Some(entity::TerminalReason::FatalError);
                     s.session.status = entity::SessionStatus::Failed;
                     s.session.recoverable = false;
-                    s.session.error_message = Some(expired_receive_reason(retention_secs));
+                    s.session.error_message =
+                        Some(expired_receive_reason(retention_secs).to_column());
                     s.session.finished_at = Some(now);
                     s.session.updated_at = now;
                     ExpiredReceiverActor {
@@ -935,7 +936,7 @@ mod tests {
             terminal_reason: Some(entity::TerminalReason::Completed),
             epoch: 0,
             recoverable: false,
-            error_message: None,
+            failure: None,
         }
     }
 

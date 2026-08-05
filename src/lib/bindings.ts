@@ -492,6 +492,52 @@ export type ExternalPairInvite = {
 	invite: string,
 };
 
+/**
+ *  会话失败原因。持久化进 `transfer_sessions.error_message` 列（类型不变，存 JSON）。
+ * 
+ *  变体数量刻意贴着**实际构造点**（三处 `ActorReport::FatalError` + 一处过期回收），
+ *  不预留「将来可能用到」的码 —— `failure-semantics-contract` 的 D3 已经吃过一次亏：
+ *  造出来到不了 UI 的判别码只是三端文案表里的死条目。
+ */
+export type FailureCode = 
+/**
+ *  落盘最终化失败 —— 含 bao 逐块验签不通过、sink 写入失败。
+ * 
+ *  用户能做的是重新传一次，所以三端文案落在「文件没能完整保存，请重新接收」。
+ */
+{ code: "fileFinalizeFailed"; fileName: string } | 
+/**
+ *  超过保留期仍未恢复，被启动清理回收。
+ * 
+ *  `retention_days` 进文案（「超过 N 天」），所以它是参数而不是常量 ——
+ *  保留期是配置项，两端可能不同。
+ */
+{ code: "sessionExpired"; retentionDays: number } | 
+/**
+ *  对端拒绝了续传请求。
+ * 
+ *  **直接内嵌 [`ResumeRejectReason`]，不再压成字符串。** 这条通道此前经
+ *  `resume_reject_message()` 把一个六变体的枚举摊平成六句中文 —— 判别信息在
+ *  wire 上本来就是结构化的，落库时降级成自由文本，到了 UI 又没法还原。
+ */
+{ code: "resumeRejected"; reason: ResumeRejectReason } | 
+/**
+ *  发送方的 Offer 没能送达对端（发送失败或收到非预期响应）。
+ * 
+ *  两个调用点的技术细节（IO 错误、响应类型）对用户是同一件事：对方没收到你的请求。
+ *  细节进 `warn!`。
+ */
+{ code: "offerFailed" } | 
+/**
+ *  **存量数据**：本判别码引入之前写入的自由文本。
+ * 
+ *  不写回填迁移 —— 失败原因是过程账本上的一句解释，重算不出来（原始错误早没了），
+ *  猜也猜不准。存量行原样展示旧串即可，新行一律是判别码；随着历史滚动它自然消失。
+ *  这与收件箱标题的处置不同（那边**回填**了），区别在于标题可以从文件列表重算，
+ *  失败原因不能。
+ */
+{ code: "legacy"; message: string };
+
 export type FileProgressInfo = {
 	fileId: number,
 	name: string,
@@ -838,6 +884,9 @@ export type ReceiveSaveBehavior =
  */
 export type ReceivingPausedChanged = boolean;
 
+/**  断点续传被拒绝的原因。 */
+export type ResumeRejectReason = { type: "cancelled" } | { type: "fatal_error" } | { type: "source_modified" } | { type: "checkpoint_invalid" } | { type: "peer_unavailable" } | { type: "session_not_found" };
+
 export type ResumeTransferResult = {
 	sessionId: string,
 	direction: string,
@@ -997,7 +1046,8 @@ export type TransferProjection = {
 	startedAt: number,
 	updatedAt: number,
 	finishedAt: number | null,
-	errorMessage: string | null,
+	/**  失败判别码（见 [`crate::failure`]）。曾是直达三端 UI 的自由中文文本。 */
+	failure: FailureCode | null,
 	policyAction: string | null,
 	policyReason: string | null,
 	savePath: CoreSaveLocation | null,

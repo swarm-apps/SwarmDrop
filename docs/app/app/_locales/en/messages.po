@@ -13,9 +13,55 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: app/app/_lib/view-types.ts
+msgid "{title} 等 {itemCount} 个文件"
+msgstr "{title} and {itemCount} files"
+
 #: app/app/_components/node-panel.tsx
 msgid "· 刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
 msgstr "· Survives a page refresh. Clearing browser data gives this device a new identity, and paired devices will need to pair again."
+
+#. placeholder {0}: failure.fileName
+#: app/app/_lib/view-types.ts
+msgid "「{0}」没能完整保存，请重新接收"
+msgstr "“{0}” wasn’t saved completely. Please receive it again."
+
+#: app/app/_lib/view-types.ts
+msgid "发送请求没能送达对方，请确认对方在线后重试"
+msgstr "Your request didn’t reach them. Make sure they’re online and try again."
+
+#: app/app/_lib/view-types.ts
+msgid "对方已取消这次传输，无法继续"
+msgstr "They cancelled this transfer, so it can’t continue."
+
+#: app/app/_lib/view-types.ts
+msgid "对方已经没有这次传输的记录了"
+msgstr "They no longer have a record of this transfer."
+
+#: app/app/_lib/view-types.ts
+msgid "对方暂时不可用，请稍后再试"
+msgstr "They’re unavailable right now. Please try again later."
+
+#: app/app/_lib/view-types.ts
+msgid "对方那边出错了，无法继续"
+msgstr "Something went wrong on their side, so it can’t continue."
+
+#: app/app/_lib/view-types.ts
+msgid "源文件已变更，无法继续，请重新发送"
+msgstr "The source file changed, so it can’t continue. Please send it again."
+
+#: app/app/_lib/view-types.ts
+msgid "空传输"
+msgstr "Empty transfer"
+
+#: app/app/_lib/view-types.ts
+msgid "续传进度已失效，请重新发送"
+msgstr "The resume progress is no longer valid. Please send it again."
+
+#. placeholder {0}: failure.retentionDays
+#: app/app/_lib/view-types.ts
+msgid "超过 {0} 天未恢复，已自动清理"
+msgstr "Not resumed for over {0} days, so it was cleaned up automatically."
 
 #: app/app/_components/dev-event-log.tsx
 msgid "（暂无事件）"

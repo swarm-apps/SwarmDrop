@@ -1,21 +1,26 @@
-//! [`Transport`] 实现。
+//! [`Transport`] implementation.
 //!
-//! 一个 Transport 同时承载**两种模式**，按 multiaddr 的协议段分派：
+//! A single Transport carries **both modes**, dispatched on the multiaddr's protocol
+//! segments:
 //!
-//! | 地址 | 路径 |
+//! | Address | Path |
 //! |---|---|
-//! | `…/p2p-circuit/webrtc/p2p/<target>` | 打洞：交给配对的 behaviour 去 relay 上开信令流 |
-//! | `/ip4/…/udp/…/webrtc-direct/certhash/…` | direct：自己绑端口 / 直接拨 |
+//! | `…/p2p-circuit/webrtc/p2p/<target>` | Hole punching: hand off to the paired behaviour to open a signaling stream over the relay |
+//! | `/ip4/…/udp/…/webrtc-direct/certhash/…` | Direct: bind the port / dial directly, in-transport |
 //!
-//! 打洞路径**不自己建连接**——建连所需的信令必须跑在一条已建立的 relay 连接上，而开流
-//! 是 behaviour 的能力。故那条路径的 dial 实质是「把请求交给 behaviour，等它回送结果」，
-//! 见 [`crate::swarm::channel`]。direct 路径反过来，完全在 transport 内闭环（无信令）。
+//! The hole-punching path **does not establish the connection itself** — the signaling it
+//! requires must run over an already established relay connection, and opening streams is
+//! a behaviour's capability. So a dial on that path amounts to "hand the request to the
+//! behaviour and wait for the result"; see [`crate::swarm::channel`]. The direct path is
+//! the reverse: entirely self-contained within the transport (no signaling).
 //!
-//! # 分派是唯一的架构风险点
+//! # Dispatch is the one architectural risk
 //!
-//! 两种地址被认错的后果都是静默的：direct 地址被打洞路径收下会一直等一个永远不来的
-//! 信令流；反之则会去拨一个不存在的 UDP 端口。`rejects_foreign_addrs` 与
-//! `dispatches_by_address_family` 对两个方向都做了断言，改分派逻辑前先看它们。
+//! Misclassifying either address fails silently: a direct address taken by the
+//! hole-punching path waits forever for a signaling stream that never arrives, while the
+//! converse dials a UDP port that does not exist. `rejects_foreign_addrs` and
+//! `dispatches_by_address_family` assert both directions — read them before changing the
+//! dispatch logic.
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -34,33 +39,37 @@ use crate::protocol::addr;
 use crate::swarm::channel::{ToBehaviour, ToTransport, TransportSide};
 use crate::swarm::connection::Connection;
 
-/// direct 模式的实现按 target 选取：native 能监听也能拨，浏览器只能拨。
+/// The direct-mode implementation is chosen per target: native can both listen and dial,
+/// the browser can only dial.
 ///
-/// 这是本 crate 里唯一一处按 target 选实现的地方——两侧形状相同，其余代码不必再 cfg。
+/// This is the only place in the crate where an implementation is selected by target — the
+/// two sides share a shape, so no other code needs a `cfg`.
 #[cfg(not(target_family = "wasm"))]
 use crate::backend::native::direct::transport::DirectTransport;
 #[cfg(target_family = "wasm")]
 use crate::backend::wasm::direct::DirectTransport;
 
-/// 本传输产出的连接。
+/// The connection produced by this transport.
 pub type Output = (PeerId, Connection);
 
-/// WebRTC 传输（打洞 + direct）。
+/// WebRTC transport (hole punching + direct).
 ///
-/// 必须与 [`crate::Behaviour`] 由 [`crate::new`] 配对产出，并注册进**同一个** Swarm。
-/// direct 模式不需要 behaviour，但两者共用一个 Transport，注册方式不变。
+/// Must be produced together with [`crate::Behaviour`] by [`crate::new`] and registered
+/// with **the same** Swarm. Direct mode needs no behaviour, but both modes share one
+/// Transport, so registration is unchanged.
 #[derive(Debug)]
 pub struct Transport {
     channel: TransportSide,
     listeners: Vec<Listener>,
-    /// direct 模式的传输平面。
+    /// Transport plane for direct mode.
     direct: DirectPlane,
     pending: VecDeque<TransportEvent<BoxFuture<'static, Result<Output, Error>>, Error>>,
-    /// 上一次 `poll` 挂起时留下的 waker。
+    /// The waker left behind when `poll` last returned Pending.
     ///
-    /// `listen_on` / `remove_listener` 是**外部同步调用**，它们往 `pending` 塞事件时
-    /// 没有任何东西会唤醒 poll——只有 `from_behaviour` 有消息才会。少了这个唤醒，
-    /// 新监听地址要等到下一次因别的原因被 poll 才通告得出去。
+    /// `listen_on` / `remove_listener` are **external synchronous calls**; when they push
+    /// events into `pending`, nothing would otherwise wake the poll — only a message on
+    /// `from_behaviour` does. Without this wakeup, a new listen address would not be
+    /// advertised until the next poll happened to occur for some other reason.
     waker: Option<std::task::Waker>,
 }
 
@@ -70,19 +79,22 @@ struct Listener {
     addr: Multiaddr,
 }
 
-/// direct 平面的三种状态。
+/// The three states of the direct plane.
 ///
-/// **`Disabled` 与 `Failed` 必须分开。** 两者都让 `/webrtc-direct` 拨不通，但成因相反：
-/// 前者是「没开这个模式，地址留给别的实现」，后者是「开了但起不来（证书是坏的 PEM、
-/// 不在 async 运行时里）」。折叠成一个 `None` 会让配置错误伪装成
-/// `MultiaddrNotSupported`——而 direct 是浏览器够到原生端的唯一入口，静默降级的代价
-/// 比多一个枚举变体大得多。
+/// **`Disabled` and `Failed` must stay distinct.** Both make `/webrtc-direct` undialable,
+/// but for opposite reasons: the former is "this mode is off, the address is left to
+/// another implementation", the latter is "it is on but failed to start (broken PEM
+/// certificate, not inside an async runtime)". Collapsing them into a single `None` would
+/// disguise a configuration error as `MultiaddrNotSupported` — and direct is the browser's
+/// only way to reach a native peer, so silently degrading costs far more than an extra
+/// enum variant.
 #[derive(Debug)]
 enum DirectPlane {
-    /// 未配置 [`crate::DirectConfig`]。
+    /// No [`crate::DirectConfig`] was supplied.
     Disabled,
     Ready(Box<DirectTransport>),
-    /// 配了但初始化失败。整个 Transport 不该因此起不来——打洞那一半仍然可用。
+    /// Configured but failed to initialize. That must not take the whole Transport down —
+    /// the hole-punching half remains usable.
     Failed(Error),
 }
 
@@ -108,23 +120,23 @@ impl Transport {
         }
     }
 
-    /// 事件入队并唤醒 poll。
+    /// Enqueues an event and wakes the poll.
     fn queue(&mut self, event: TransportEvent<BoxFuture<'static, Result<Output, Error>>, Error>) {
         self.pending.push_back(event);
         self.wake();
     }
 
-    /// 唤醒挂起中的 poll。
+    /// Wakes a pending poll.
     ///
-    /// `listen_on` / `remove_listener` 走的是外部同步调用，不唤醒的话新事件要等到
-    /// 下一次因别的原因被 poll 才交付得出去。
+    /// `listen_on` / `remove_listener` are external synchronous calls; without this, new
+    /// events would not be delivered until the next poll happened for some other reason.
     fn wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
     }
 
-    /// 取 direct 平面，把「没开」与「起不来」区分成两种错误。
+    /// Retrieves the direct plane, distinguishing "not enabled" from "failed to start".
     fn direct_plane(
         &mut self,
         addr: &Multiaddr,
@@ -140,9 +152,10 @@ impl Transport {
         }
     }
 
-    /// 找出能承接某个入站连接的监听器。
+    /// Finds a listener that can accept a given inbound connection.
     ///
-    /// 入站连接经 relay 而来，与具体监听地址无关，故取第一个仍在的监听器即可。
+    /// Inbound connections arrive over the relay and are unrelated to any specific listen
+    /// address, so the first surviving listener will do.
     fn listener_for_incoming(&self) -> Option<&Listener> {
         self.listeners.first()
     }
@@ -154,11 +167,12 @@ impl CoreTransport for Transport {
     type ListenerUpgrade = BoxFuture<'static, Result<Output, Error>>;
     type Dial = BoxFuture<'static, Result<Output, Error>>;
 
-    /// 监听地址形如 `<relay-addr>/p2p-circuit/webrtc/p2p/<本机>`。
+    /// A listen address has the shape `<relay-addr>/p2p-circuit/webrtc/p2p/<self>`.
     ///
-    /// **本机 `/p2p` 段要调用方自己补**——swarm 不会代劳（relay client transport 同样是
-    /// 自己补的，见其 `priv_client/handler.rs`）。省略它地址仍能被接受，但通告出去后
-    /// 对端拨不动，因为解析不出目标节点。
+    /// **The local `/p2p` segment is the caller's job** — the swarm will not add it (the
+    /// relay client transport appends its own too; see its `priv_client/handler.rs`).
+    /// Omitting it still yields an accepted address, but once advertised the remote cannot
+    /// dial it, because the target peer cannot be parsed out.
     fn listen_on(
         &mut self,
         id: ListenerId,
@@ -216,9 +230,10 @@ impl CoreTransport for Transport {
         true
     }
 
-    /// 拨 `<relay-addr>/p2p-circuit/webrtc/p2p/<target>`。
+    /// Dials `<relay-addr>/p2p-circuit/webrtc/p2p/<target>`.
     ///
-    /// 本方法只负责把请求投递给 behaviour；真正的信令与打洞在那边完成。
+    /// This method only delivers the request to the behaviour; the actual signaling and
+    /// hole punching happen there.
     fn dial(
         &mut self,
         addr: Multiaddr,

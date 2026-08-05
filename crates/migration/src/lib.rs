@@ -1,7 +1,7 @@
 //! 数据库迁移。
 //!
-//! **当前只有一个迁移** —— 2026-08-05 把此前的 12 个增量迁移 squash 成了一份全量初始化
-//! （成因与存量库的处理见 [`m20260805_000001_init`] 的模块文档）。
+//! 2026-08-05 把此前的 12 个增量迁移 squash 成了一份全量初始化
+//! （成因与存量库的处理见 [`m20260805_000001_init`] 的模块文档），其后的都是增量。
 //!
 //! ## 加新迁移时
 //!
@@ -18,13 +18,17 @@
 pub use sea_orm_migration::prelude::*;
 
 mod m20260805_000001_init;
+mod m20260806_000001_inbox_title_to_file_name;
 
 pub struct Migrator;
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m20260805_000001_init::Migration)]
+        vec![
+            Box::new(m20260805_000001_init::Migration),
+            Box::new(m20260806_000001_inbox_title_to_file_name::Migration),
+        ]
     }
 }
 

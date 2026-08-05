@@ -25,7 +25,7 @@ import {
   formatSpeed,
   formatRelativeTime,
 } from "@/lib/format";
-import { getErrorMessage } from "@/lib/errors";
+import { failureCodeMessage, getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -234,7 +234,8 @@ export const SessionRow = memo(function SessionRow({
             <div className="flex items-center gap-1.5 text-[12px] text-destructive">
               <XCircle className="size-3.5 shrink-0" />
               <span className="truncate">
-                {projection.errorMessage || projectionStatusLabel(projection)}
+                {failureCodeMessage(projection.failure) ||
+                  projectionStatusLabel(projection)}
               </span>
             </div>
           )}

@@ -1215,6 +1215,330 @@ const FfiConverterTypeMobileTerminalReason = (() => {
     return new FFIConverter();
 })();
 
+/**
+ * 续传被对端拒绝的原因（`swarmdrop_transfer::protocol::ResumeRejectReason` 的镜像）。
+ */
+export enum MobileResumeRejectReason {
+    Cancelled,
+    FatalError,
+    SourceModified,
+    CheckpointInvalid,
+    PeerUnavailable,
+    SessionNotFound
+}
+
+const FfiConverterTypeMobileResumeRejectReason = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileResumeRejectReason;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileResumeRejectReason.Cancelled;
+                case 2: return MobileResumeRejectReason.FatalError;
+                case 3: return MobileResumeRejectReason.SourceModified;
+                case 4: return MobileResumeRejectReason.CheckpointInvalid;
+                case 5: return MobileResumeRejectReason.PeerUnavailable;
+                case 6: return MobileResumeRejectReason.SessionNotFound;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileResumeRejectReason.Cancelled: return ordinalConverter.write(1, into);
+                case MobileResumeRejectReason.FatalError: return ordinalConverter.write(2, into);
+                case MobileResumeRejectReason.SourceModified: return ordinalConverter.write(3, into);
+                case MobileResumeRejectReason.CheckpointInvalid: return ordinalConverter.write(4, into);
+                case MobileResumeRejectReason.PeerUnavailable: return ordinalConverter.write(5, into);
+                case MobileResumeRejectReason.SessionNotFound: return ordinalConverter.write(6, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+// Enum: MobileFailureCode
+export enum MobileFailureCode_Tags {
+    FileFinalizeFailed = "FileFinalizeFailed",
+    SessionExpired = "SessionExpired",
+    ResumeRejected = "ResumeRejected",
+    OfferFailed = "OfferFailed",
+    Legacy = "Legacy"
+}
+/**
+ * 失败判别码的 uniffi 镜像（见 `swarmdrop_transfer::failure::FailureCode`）。
+ *
+ * 它取代的是一个直达 UI 的自由中文串。TS 侧过去用 9 条**英文**关键词正则去猜它的语义，
+ * 而消息里拼着文件名——一个叫 `Q3-cancel.xlsx` 的文件校验失败会被显示成「传输已取消」。
+ * 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
+ */
+export const MobileFailureCode = (() => {
+
+    type FileFinalizeFailed__interface = {
+        tag: MobileFailureCode_Tags.FileFinalizeFailed;
+        inner: 
+Readonly<{fileName: string}>
+    };
+    class FileFinalizeFailed_ extends UniffiEnum implements FileFinalizeFailed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
+        readonly tag = MobileFailureCode_Tags.FileFinalizeFailed;
+        readonly inner: 
+Readonly<{fileName: string}>;
+        constructor(
+inner: {fileName: string }) {
+            super("MobileFailureCode", "FileFinalizeFailed");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {fileName: string }): FileFinalizeFailed_ {
+            return new FileFinalizeFailed_(inner);
+        }
+
+        static instanceOf(obj: any): obj is FileFinalizeFailed_ {
+            return obj.tag === MobileFailureCode_Tags.FileFinalizeFailed;
+        }
+
+    }
+
+    type SessionExpired__interface = {
+        tag: MobileFailureCode_Tags.SessionExpired;
+        inner: 
+Readonly<{retentionDays: number}>
+    };
+    class SessionExpired_ extends UniffiEnum implements SessionExpired__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
+        readonly tag = MobileFailureCode_Tags.SessionExpired;
+        readonly inner: 
+Readonly<{retentionDays: number}>;
+        constructor(
+inner: {retentionDays: number }) {
+            super("MobileFailureCode", "SessionExpired");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {retentionDays: number }): SessionExpired_ {
+            return new SessionExpired_(inner);
+        }
+
+        static instanceOf(obj: any): obj is SessionExpired_ {
+            return obj.tag === MobileFailureCode_Tags.SessionExpired;
+        }
+
+    }
+
+    type ResumeRejected__interface = {
+        tag: MobileFailureCode_Tags.ResumeRejected;
+        inner: 
+Readonly<{reason: MobileResumeRejectReason}>
+    };
+    class ResumeRejected_ extends UniffiEnum implements ResumeRejected__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
+        readonly tag = MobileFailureCode_Tags.ResumeRejected;
+        readonly inner: 
+Readonly<{reason: MobileResumeRejectReason}>;
+        constructor(
+inner: {reason: MobileResumeRejectReason }) {
+            super("MobileFailureCode", "ResumeRejected");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {reason: MobileResumeRejectReason }): ResumeRejected_ {
+            return new ResumeRejected_(inner);
+        }
+
+        static instanceOf(obj: any): obj is ResumeRejected_ {
+            return obj.tag === MobileFailureCode_Tags.ResumeRejected;
+        }
+
+    }
+
+    type OfferFailed__interface = {
+        tag: MobileFailureCode_Tags.OfferFailed
+    };
+    class OfferFailed_ extends UniffiEnum implements OfferFailed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
+        readonly tag = MobileFailureCode_Tags.OfferFailed;
+        constructor() {
+            super("MobileFailureCode", "OfferFailed");
+        }
+
+        static new(): OfferFailed_ {
+            return new OfferFailed_();
+        }
+
+        static instanceOf(obj: any): obj is OfferFailed_ {
+            return obj.tag === MobileFailureCode_Tags.OfferFailed;
+        }
+
+    }
+
+    type Legacy__interface = {
+        tag: MobileFailureCode_Tags.Legacy;
+        inner: 
+Readonly<{message: string}>
+    };
+    /**
+     * 判别码引入之前落库的自由文本，原样透传给 UI。
+     */
+    class Legacy_ extends UniffiEnum implements Legacy__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
+        readonly tag = MobileFailureCode_Tags.Legacy;
+        readonly inner: 
+Readonly<{message: string}>;
+        constructor(
+inner: {message: string }) {
+            super("MobileFailureCode", "Legacy");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {message: string }): Legacy_ {
+            return new Legacy_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Legacy_ {
+            return obj.tag === MobileFailureCode_Tags.Legacy;
+        }
+
+    }
+
+    function instanceOf(obj: any): obj is MobileFailureCode {
+        return obj[uniffiTypeNameSymbol] === "MobileFailureCode";
+    }
+
+    return Object.freeze({
+        instanceOf,
+  FileFinalizeFailed: FileFinalizeFailed_, 
+  SessionExpired: SessionExpired_, 
+  ResumeRejected: ResumeRejected_, 
+  OfferFailed: OfferFailed_, 
+  Legacy: Legacy_
+    });
+
+})();
+/**
+ * 失败判别码的 uniffi 镜像（见 `swarmdrop_transfer::failure::FailureCode`）。
+ *
+ * 它取代的是一个直达 UI 的自由中文串。TS 侧过去用 9 条**英文**关键词正则去猜它的语义，
+ * 而消息里拼着文件名——一个叫 `Q3-cancel.xlsx` 的文件校验失败会被显示成「传输已取消」。
+ * 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
+ */
+export type MobileFailureCode = InstanceType<
+    typeof MobileFailureCode['FileFinalizeFailed' | 'SessionExpired' | 'ResumeRejected' | 'OfferFailed' | 'Legacy']
+>;
+
+// FfiConverter for enum MobileFailureCode
+const FfiConverterTypeMobileFailureCode = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileFailureCode;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return new MobileFailureCode.FileFinalizeFailed({fileName: FfiConverterString.read(from) });
+                case 2: return new MobileFailureCode.SessionExpired({retentionDays: FfiConverterUInt32.read(from) });
+                case 3: return new MobileFailureCode.ResumeRejected({reason: FfiConverterTypeMobileResumeRejectReason.read(from) });
+                case 4: return new MobileFailureCode.OfferFailed();
+                case 5: return new MobileFailureCode.Legacy({message: FfiConverterString.read(from) });
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value.tag) {
+                case MobileFailureCode_Tags.FileFinalizeFailed: {
+                    ordinalConverter.write(1, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.fileName, into);
+                    return;
+                }
+                case MobileFailureCode_Tags.SessionExpired: {
+                    ordinalConverter.write(2, into);
+                    const inner = value.inner;
+                    FfiConverterUInt32.write(inner.retentionDays, into);
+                    return;
+                }
+                case MobileFailureCode_Tags.ResumeRejected: {
+                    ordinalConverter.write(3, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileResumeRejectReason.write(inner.reason, into);
+                    return;
+                }
+                case MobileFailureCode_Tags.OfferFailed: {
+                    ordinalConverter.write(4, into);
+                    return;
+                }
+                case MobileFailureCode_Tags.Legacy: {
+                    ordinalConverter.write(5, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.message, into);
+                    return;
+                }
+                default:
+                    // Throwing from here means that MobileFailureCode_Tags hasn't matched an ordinal.
+                    throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        allocationSize(value: TypeName): number {
+            switch (value.tag) {
+                case MobileFailureCode_Tags.FileFinalizeFailed: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(1);
+                    size += FfiConverterString.allocationSize(inner.fileName);
+                    return size;
+                }
+                case MobileFailureCode_Tags.SessionExpired: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(2);
+                    size += FfiConverterUInt32.allocationSize(inner.retentionDays);
+                    return size;
+                }
+                case MobileFailureCode_Tags.ResumeRejected: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(3);
+                    size += FfiConverterTypeMobileResumeRejectReason.allocationSize(inner.reason);
+                    return size;
+                }
+                case MobileFailureCode_Tags.OfferFailed: {
+                    return ordinalConverter.allocationSize(4);
+                }
+                case MobileFailureCode_Tags.Legacy: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(5);
+                    size += FfiConverterString.allocationSize(inner.message);
+                    return size;
+                }
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+    }
+    return new FFIConverter();
+})();
+
 export type MobileTransferProjectionFile = {
     fileId: number,
     name: string,
@@ -1285,7 +1609,7 @@ export type MobileTransferProjection = {
     startedAt: bigint,
     updatedAt: bigint,
     finishedAt?: bigint,
-    errorMessage?: string,
+    failure?: MobileFailureCode,
     policyAction?: string,
     policyReason?: string,
     saveLocation?: MobileSaveLocation,
@@ -1332,7 +1656,7 @@ const FfiConverterTypeMobileTransferProjection = (() => {
                 startedAt: FfiConverterInt64.read(from), 
                 updatedAt: FfiConverterInt64.read(from), 
                 finishedAt: FfiConverterOptionalInt64.read(from), 
-                errorMessage: FfiConverterOptionalString.read(from), 
+                failure: FfiConverterOptionalTypeMobileFailureCode.read(from), 
                 policyAction: FfiConverterOptionalString.read(from), 
                 policyReason: FfiConverterOptionalString.read(from), 
                 saveLocation: FfiConverterOptionalTypeMobileSaveLocation.read(from), 
@@ -1355,7 +1679,7 @@ const FfiConverterTypeMobileTransferProjection = (() => {
             FfiConverterInt64.write(value.startedAt, into);
             FfiConverterInt64.write(value.updatedAt, into);
             FfiConverterOptionalInt64.write(value.finishedAt, into);
-            FfiConverterOptionalString.write(value.errorMessage, into);
+            FfiConverterOptionalTypeMobileFailureCode.write(value.failure, into);
             FfiConverterOptionalString.write(value.policyAction, into);
             FfiConverterOptionalString.write(value.policyReason, into);
             FfiConverterOptionalTypeMobileSaveLocation.write(value.saveLocation, into);
@@ -1377,7 +1701,7 @@ const FfiConverterTypeMobileTransferProjection = (() => {
              FfiConverterInt64.allocationSize(value.startedAt) +
              FfiConverterInt64.allocationSize(value.updatedAt) +
              FfiConverterOptionalInt64.allocationSize(value.finishedAt) +
-             FfiConverterOptionalString.allocationSize(value.errorMessage) +
+             FfiConverterOptionalTypeMobileFailureCode.allocationSize(value.failure) +
              FfiConverterOptionalString.allocationSize(value.policyAction) +
              FfiConverterOptionalString.allocationSize(value.policyReason) +
              FfiConverterOptionalTypeMobileSaveLocation.allocationSize(value.saveLocation) +
@@ -7924,6 +8248,9 @@ const FfiConverterOptionalTypeMobileSuspendedReason = new FfiConverterOptional(F
 // FfiConverter for MobileTerminalReason | undefined
 const FfiConverterOptionalTypeMobileTerminalReason = new FfiConverterOptional(FfiConverterTypeMobileTerminalReason);
 
+// FfiConverter for MobileFailureCode | undefined
+const FfiConverterOptionalTypeMobileFailureCode = new FfiConverterOptional(FfiConverterTypeMobileFailureCode);
+
 // FfiConverter for Array<MobileTransferProjectionFile>
 const FfiConverterSequenceTypeMobileTransferProjectionFile = new FfiConverterArray(FfiConverterTypeMobileTransferProjectionFile);
 
@@ -8226,6 +8553,7 @@ export default Object.freeze({
     FfiConverterTypeMobileDeviceReceivePolicy,
     FfiConverterTypeMobileDeviceTrustLevel,
     FfiConverterTypeMobileDiscoveryMode,
+    FfiConverterTypeMobileFailureCode,
     FfiConverterTypeMobileFileMetadata,
     FfiConverterTypeMobileFileProgress,
     FfiConverterTypeMobileFinalizedSink,
@@ -8248,6 +8576,7 @@ export default Object.freeze({
     FfiConverterTypeMobilePreparedTransfer,
     FfiConverterTypeMobileQrMatrix,
     FfiConverterTypeMobileReceiveSaveBehavior,
+    FfiConverterTypeMobileResumeRejectReason,
     FfiConverterTypeMobileSaveLocation,
     FfiConverterTypeMobileSendResult,
     FfiConverterTypeMobileSuspendedReason,

@@ -1,7 +1,8 @@
-//! `/webrtc-signaling/0.0.1` 的 wire format。
+//! Wire format of `/webrtc-signaling/0.0.1`.
 //!
-//! spec 定义（`webrtc/webrtc.md` 的 Signaling Protocol 一节）：消息以 protobuf 编码，
-//! 前缀是 unsigned-varint 的字节长度。
+//! As defined by the spec (the Signaling Protocol section of `webrtc/webrtc.md`):
+//! messages are protobuf-encoded and prefixed with their byte length as an
+//! unsigned-varint.
 //!
 //! ```protobuf
 //! message Message {
@@ -15,41 +16,47 @@
 //! }
 //! ```
 //!
-//! # 为什么手写编解码而不用 protobuf codegen
+//! # Why the codec is hand-written instead of generated
 //!
-//! 两个字段、两种 wire type，手写不到 100 行，换来零 codegen 步骤与更小的 wasm 体积。
-//! 代价是必须自己守住 proto3 的两条语义（见下），故测试用**黄金字节**逐字节钉死——
-//! 与 js-libp2p 互通的前提就是 wire format 一致，这里错一个字节就永远握不上手。
+//! Two fields and two wire types come to fewer than 100 hand-written lines, in exchange
+//! for zero codegen steps and a smaller wasm binary. The cost is having to uphold two
+//! proto3 semantics by hand (see below), which is why the tests pin the encoding
+//! byte-for-byte with **golden bytes** — interoperating with js-libp2p requires an
+//! identical wire format, and a single wrong byte here means the handshake never
+//! succeeds.
 
 use std::fmt;
 
-/// spec 规定的协议 ID。
+/// The protocol ID mandated by the spec.
 pub const SIGNALING_PROTOCOL: &str = "/webrtc-signaling/0.0.1";
 
-/// 单条信令消息的长度上限。
+/// Upper bound on the length of a single signaling message.
 ///
-/// spec 未规定。SDP 通常几 KB，ICE candidate 几百字节；64 KiB 留足余量，同时避免
-/// 恶意对端用一个超长 varint 头把我们拖进大分配。
+/// Not specified by the spec. An SDP is usually a few KB and an ICE candidate a few
+/// hundred bytes; 64 KiB leaves ample headroom while preventing a malicious peer from
+/// dragging us into a huge allocation with an oversized varint header.
 pub const MAX_MESSAGE_LEN: usize = 64 * 1024;
 
-/// protobuf 字段 tag（spec 定义，不可改——改了就与 js-libp2p 互不相认）。
+/// protobuf field tags (defined by the spec; immutable — change one and js-libp2p no
+/// longer recognizes us).
 ///
-/// tag = `(字段号 << 3) | wire_type`，这里直接写线上字节，便于与黄金测试对照。
+/// tag = `(field number << 3) | wire_type`. The on-the-wire bytes are written out
+/// literally here so they can be compared against the golden tests.
 mod field {
-    /// `optional Type type = 1;` → `(1 << 3) | 0`（varint）
+    /// `optional Type type = 1;` → `(1 << 3) | 0` (varint)
     pub const TYPE_TAG: u8 = 0x08;
-    /// `optional string data = 2;` → `(2 << 3) | 2`（length-delimited）
+    /// `optional string data = 2;` → `(2 << 3) | 2` (length-delimited)
     pub const DATA_TAG: u8 = 0x12;
 }
 
-/// 消息类型。判别值由 spec 固定。
+/// Message type. The discriminants are fixed by the spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageType {
-    /// `RTCSessionDescription.sdp` 字符串。
+    /// The `RTCSessionDescription.sdp` string.
     SdpOffer = 0,
-    /// `RTCSessionDescription.sdp` 字符串。
+    /// The `RTCSessionDescription.sdp` string.
     SdpAnswer = 1,
-    /// `RTCIceCandidate.toJSON()` 的 JSON 字符串。
+    /// The JSON string from `RTCIceCandidate.toJSON()`.
     IceCandidate = 2,
 }
 
@@ -64,10 +71,11 @@ impl MessageType {
     }
 }
 
-/// 一条信令消息。
+/// A single signaling message.
 ///
-/// 两个字段都是 proto3 `optional`（有 presence），故用 `Option` 如实表达——
-/// 「未设置」与「设为默认值」是两种不同的线上表示，不能合并。
+/// Both fields are proto3 `optional` (they have presence), so `Option` represents them
+/// faithfully — "unset" and "set to the default value" are two different on-the-wire
+/// encodings and must not be collapsed into one.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Message {
     pub ty: Option<MessageType>,
@@ -75,7 +83,7 @@ pub struct Message {
 }
 
 impl Message {
-    /// SDP offer（spec 步骤 4）。
+    /// SDP offer (spec step 4).
     pub fn offer(sdp: impl Into<String>) -> Self {
         Self {
             ty: Some(MessageType::SdpOffer),
@@ -83,7 +91,7 @@ impl Message {
         }
     }
 
-    /// SDP answer（spec 步骤 5）。
+    /// SDP answer (spec step 5).
     pub fn answer(sdp: impl Into<String>) -> Self {
         Self {
             ty: Some(MessageType::SdpAnswer),
@@ -91,7 +99,8 @@ impl Message {
         }
     }
 
-    /// trickle ICE 候选（spec 步骤 7）。`json` 是 `RTCIceCandidate.toJSON()` 的结果。
+    /// Trickle ICE candidate (spec step 7). `json` is the result of
+    /// `RTCIceCandidate.toJSON()`.
     pub fn ice_candidate(json: impl Into<String>) -> Self {
         Self {
             ty: Some(MessageType::IceCandidate),
@@ -99,7 +108,7 @@ impl Message {
         }
     }
 
-    /// 编码为 protobuf（不含长度前缀）。
+    /// Encodes to protobuf (without the length prefix).
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         // ⚠️ proto3 presence 语义：`optional` 字段一旦 set 就必须写入，**即使值等于
@@ -119,9 +128,11 @@ impl Message {
         out
     }
 
-    /// 从 protobuf 解码（不含长度前缀）。
+    /// Decodes from protobuf (without the length prefix).
     ///
-    /// 未知字段按 wire type 跳过而非报错——spec 将来加字段时，旧实现仍能读懂它认识的部分。
+    /// Unknown fields are skipped according to their wire type rather than rejected — when
+    /// the spec adds fields later, older implementations can still read the parts they
+    /// understand.
     pub fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
         let mut msg = Self::default();
         while !bytes.is_empty() {
@@ -148,7 +159,8 @@ impl Message {
         Ok(msg)
     }
 
-    /// 编码为带 unsigned-varint 长度前缀的完整帧（spec 的线上形态）。
+    /// Encodes a complete frame with the unsigned-varint length prefix (the spec's
+    /// on-the-wire shape).
     pub fn encode_framed(&self) -> Vec<u8> {
         let body = self.encode();
         let mut buf = unsigned_varint::encode::usize_buffer();
@@ -159,10 +171,12 @@ impl Message {
         out
     }
 
-    /// 从字节流前部解出一帧，返回消息与本帧消耗的字节数。
+    /// Decodes one frame from the front of a byte stream, returning the message and how
+    /// many bytes the frame consumed.
     ///
-    /// 数据不足时返回 [`Error::Incomplete`]——调用方应继续读取再重试，**不要**当作
-    /// 协议错误 reset 流。
+    /// Returns [`Error::Incomplete`] when there is not enough data — the caller should read
+    /// more and retry, and **must not** treat it as a protocol error and reset the
+    /// stream.
     pub fn decode_framed(input: &[u8]) -> Result<(Self, usize), Error> {
         let (len, rest) = match unsigned_varint::decode::usize(input) {
             Ok(v) => v,
@@ -181,7 +195,7 @@ impl Message {
     }
 }
 
-/// 跳过未知字段，返回剩余字节。
+/// Skips an unknown field and returns the remaining bytes.
 fn skip_unknown_field(tag: u8, bytes: &[u8]) -> Result<&[u8], Error> {
     match tag & 0x07 {
         // varint
@@ -199,28 +213,29 @@ fn skip_unknown_field(tag: u8, bytes: &[u8]) -> Result<&[u8], Error> {
     }
 }
 
-/// 信令消息的编解码错误。
+/// Errors from encoding or decoding a signaling message.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("帧尚未接收完整")]
+    #[error("frame is incomplete")]
     Incomplete,
-    #[error("字段被截断")]
+    #[error("field is truncated")]
     Truncated,
-    #[error("消息长度 {0} 超过上限 {MAX_MESSAGE_LEN}")]
+    #[error("message length {0} exceeds the limit of {MAX_MESSAGE_LEN}")]
     TooLong(usize),
-    #[error("data 字段不是合法 UTF-8")]
+    #[error("the `data` field is not valid UTF-8")]
     InvalidUtf8,
-    #[error("未知的消息类型判别值：{0}")]
+    #[error("unknown message type discriminant: {0}")]
     UnknownMessageType(u64),
-    #[error("未知的 protobuf wire type：{0}")]
+    #[error("unknown protobuf wire type: {0}")]
     UnknownWireType(u8),
-    #[error("varint 解码失败：{0}")]
+    #[error("varint decoding failed: {0}")]
     Varint(#[from] unsigned_varint::decode::Error),
-    /// 信令流本身的 IO 错误。
+    /// An I/O error on the signaling stream itself.
     ///
-    /// `asynchronous-codec` 要求 codec 的错误类型可由 `io::Error` 转换（它把底层读写
-    /// 错误也经此上报），故这里必须有此变体。
-    #[error("信令流 IO 失败：{0}")]
+    /// `asynchronous-codec` requires a codec's error type to be convertible from
+    /// `io::Error` (it reports underlying read/write errors through the same channel), so
+    /// this variant has to exist.
+    #[error("signaling stream I/O failed: {0}")]
     Io(#[from] std::io::Error),
 }
 

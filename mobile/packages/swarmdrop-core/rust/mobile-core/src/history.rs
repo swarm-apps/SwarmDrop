@@ -13,6 +13,8 @@ use uuid::Uuid;
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 use swarmdrop_core::host::{EventBus, FileAccess};
 use swarmdrop_core::transfer::coordinator::TransferCoordinator;
+use swarmdrop_core::transfer::failure::FailureCode;
+use swarmdrop_core::transfer::protocol::ResumeRejectReason;
 use swarmdrop_core::transfer::store::{TransferProjection, TransferProjectionFile, TransferStore};
 
 use crate::app::MobileCore;
@@ -127,6 +129,69 @@ impl From<TransferProjectionFile> for MobileTransferProjectionFile {
     }
 }
 
+/// 失败判别码的 uniffi 镜像（见 `swarmdrop_transfer::failure::FailureCode`）。
+///
+/// 它取代的是一个直达 UI 的自由中文串。TS 侧过去用 9 条**英文**关键词正则去猜它的语义，
+/// 而消息里拼着文件名——一个叫 `Q3-cancel.xlsx` 的文件校验失败会被显示成「传输已取消」。
+/// 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum MobileFailureCode {
+    FileFinalizeFailed {
+        file_name: String,
+    },
+    SessionExpired {
+        retention_days: u32,
+    },
+    ResumeRejected {
+        reason: MobileResumeRejectReason,
+    },
+    OfferFailed,
+    /// 判别码引入之前落库的自由文本，原样透传给 UI。
+    Legacy {
+        message: String,
+    },
+}
+
+/// 续传被对端拒绝的原因（`swarmdrop_transfer::protocol::ResumeRejectReason` 的镜像）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MobileResumeRejectReason {
+    Cancelled,
+    FatalError,
+    SourceModified,
+    CheckpointInvalid,
+    PeerUnavailable,
+    SessionNotFound,
+}
+
+impl From<ResumeRejectReason> for MobileResumeRejectReason {
+    fn from(reason: ResumeRejectReason) -> Self {
+        match reason {
+            ResumeRejectReason::Cancelled => Self::Cancelled,
+            ResumeRejectReason::FatalError => Self::FatalError,
+            ResumeRejectReason::SourceModified => Self::SourceModified,
+            ResumeRejectReason::CheckpointInvalid => Self::CheckpointInvalid,
+            ResumeRejectReason::PeerUnavailable => Self::PeerUnavailable,
+            ResumeRejectReason::SessionNotFound => Self::SessionNotFound,
+        }
+    }
+}
+
+impl From<FailureCode> for MobileFailureCode {
+    fn from(code: FailureCode) -> Self {
+        match code {
+            FailureCode::FileFinalizeFailed { file_name } => Self::FileFinalizeFailed { file_name },
+            FailureCode::SessionExpired { retention_days } => {
+                Self::SessionExpired { retention_days }
+            }
+            FailureCode::ResumeRejected { reason } => Self::ResumeRejected {
+                reason: reason.into(),
+            },
+            FailureCode::OfferFailed => Self::OfferFailed,
+            FailureCode::Legacy { message } => Self::Legacy { message },
+        }
+    }
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileTransferProjection {
     pub session_id: String,
@@ -143,7 +208,7 @@ pub struct MobileTransferProjection {
     pub started_at: i64,
     pub updated_at: i64,
     pub finished_at: Option<i64>,
-    pub error_message: Option<String>,
+    pub failure: Option<MobileFailureCode>,
     pub policy_action: Option<String>,
     pub policy_reason: Option<String>,
     pub save_location: Option<MobileSaveLocation>,
@@ -171,7 +236,7 @@ impl From<TransferProjection> for MobileTransferProjection {
             started_at,
             updated_at,
             finished_at,
-            error_message,
+            failure,
             policy_action,
             policy_reason,
             save_path,
@@ -193,7 +258,7 @@ impl From<TransferProjection> for MobileTransferProjection {
             started_at,
             updated_at,
             finished_at,
-            error_message,
+            failure: failure.map(Into::into),
             policy_action,
             policy_reason,
             save_location: save_path.map(Into::into),

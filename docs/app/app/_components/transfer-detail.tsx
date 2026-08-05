@@ -63,6 +63,7 @@ import {
 import { inboxItemHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { useCopyToClipboard } from "../_lib/use-copy";
+import { failureCodeLabel } from "../_lib/view-types";
 import type {
   ItemAction,
   TransferProgressEvent,
@@ -372,6 +373,7 @@ function TransferItemActions({
   remove: ItemAction;
 }) {
   const { t } = useLingui();
+  const failureLabel = failureCodeLabel(projection.failure);
 
   return (
     <>
@@ -443,7 +445,9 @@ function TransferItemActions({
           )}
         </div>
       </div>
-      {projection.errorMessage && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{projection.errorMessage}</p>}
+      {failureLabel && (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{t(failureLabel)}</p>
+      )}
       {pause.error && <WebErrorCard error={pause.error} className="mt-2 text-xs" />}
       {resume.error && <WebErrorCard error={resume.error} className="mt-2 text-xs" />}
       {cancel.error && <WebErrorCard error={cancel.error} className="mt-2 text-xs" />}

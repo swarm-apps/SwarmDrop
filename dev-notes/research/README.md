@@ -23,5 +23,6 @@
 |---|---|---|
 | [自研 WebRTC transport：浏览器直连 NAT 后设备](2026-07-webrtc-native-ice.md) | 🟢 已决策采纳 | webrtc-rs 0.20 有完整 ICE 能力，地基已实测；驱动理由是能力建设与生态缺口，非投入产出比 |
 | [Web 应用区 i18n 选型](2026-08-web-app-i18n.md) | 🟡 已给结论待实施 | Lingui + 运行时切换、不引 `[lang]` 段；macro 在 Next 16 Turbopack 下已实测可编译（#102） |
+| [Rust 侧的中文串：它是不是 i18n 问题](2026-08-rust-side-user-strings.md) | 🟢 已决策并落地 | 1466 处里到得了用户的只有 3 条通道；推荐判别码化而非 Rust 侧 i18n。附带发现一个真 bug（文件名参与错误匹配） |
 
 状态图例：🟢 已决策采纳 · 🟡 验证中 / 待决策 · 🔴 已否决（保留论证）

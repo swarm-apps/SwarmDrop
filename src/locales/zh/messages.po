@@ -56,6 +56,15 @@ msgstr "{firstFileName} 等 {fileCount} 个文件"
 msgid "{label}超时（{0}s）"
 msgstr "{label}超时（{0}s）"
 
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "{title} 等 {itemCount} 个文件"
+msgstr "{title} 等 {itemCount} 个文件"
+
+#. placeholder {0}: failure.fileName
+#: src/lib/errors.ts
+msgid "「{0}」没能完整保存，请重新接收"
+msgstr "「{0}」没能完整保存，请重新接收"
+
 #: src/components/pairing/clipboard-invite-banner.tsx
 msgid "<0>{deviceName}</0> 想和你配对，点此确认"
 msgstr "<0>{deviceName}</0> 想和你配对，点此确认"
@@ -532,6 +541,10 @@ msgstr "发送更多"
 msgid "发送给 {0}"
 msgstr "发送给 {0}"
 
+#: src/lib/errors.ts
+msgid "发送请求没能送达对方，请确认对方在线后重试"
+msgstr "发送请求没能送达对方，请确认对方在线后重试"
+
 #: src/components/network/stop-node-sheet.tsx
 #: src/components/ui/confirm-dialog.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
@@ -758,9 +771,17 @@ msgstr "对方就在同一网段，但直连没建起来"
 msgid "对方已取消传输"
 msgstr "对方已取消传输"
 
+#: src/lib/errors.ts
+msgid "对方已取消这次传输，无法继续"
+msgstr "对方已取消这次传输，无法继续"
+
 #: src/lib/transfer-notifications.ts
 msgid "对方已暂停传输"
 msgstr "对方已暂停传输"
+
+#: src/lib/errors.ts
+msgid "对方已经没有这次传输的记录了"
+msgstr "对方已经没有这次传输的记录了"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "对方扫码或粘贴邀请后，本机仍会弹出确认请求。"
@@ -782,6 +803,10 @@ msgstr "对方拒绝了配对请求"
 msgid "对方暂停"
 msgstr "对方暂停"
 
+#: src/lib/errors.ts
+msgid "对方暂时不可用，请稍后再试"
+msgstr "对方暂时不可用，请稍后再试"
+
 #: src/lib/transfer-projection.ts
 msgid "对方离线"
 msgstr "对方离线"
@@ -789,6 +814,10 @@ msgstr "对方离线"
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "对方设备"
 msgstr "对方设备"
+
+#: src/lib/errors.ts
+msgid "对方那边出错了，无法继续"
+msgstr "对方那边出错了，无法继续"
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
@@ -1502,6 +1531,10 @@ msgstr "清空已结束的记录"
 msgid "清空记录"
 msgstr "清空记录"
 
+#: src/lib/errors.ts
+msgid "源文件已变更，无法继续，请重新发送"
+msgstr "源文件已变更，无法继续，请重新发送"
+
 #: src/components/network/lan-helper-address.tsx
 msgid "点击复制"
 msgstr "点击复制"
@@ -1572,6 +1605,10 @@ msgstr "离线"
 #: src/components/file-browser/item-actions.tsx
 msgid "移除"
 msgstr "移除"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "空传输"
+msgstr "空传输"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "端到端加密"
@@ -1650,6 +1687,10 @@ msgstr "给设备取个名字"
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "继续"
 msgstr "继续"
+
+#: src/lib/errors.ts
+msgid "续传进度已失效，请重新发送"
+msgstr "续传进度已失效，请重新发送"
 
 #: src/components/file-browser/file-row.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
@@ -1878,6 +1919,11 @@ msgstr "请先完成 SwarmDrop 设置"
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "请输入大于 0 的数字，留空表示不限制"
 msgstr "请输入大于 0 的数字，留空表示不限制"
+
+#. placeholder {0}: failure.retentionDays
+#: src/lib/errors.ts
+msgid "超过 {0} 天未恢复，已自动清理"
+msgstr "超过 {0} 天未恢复，已自动清理"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "跟随系统"

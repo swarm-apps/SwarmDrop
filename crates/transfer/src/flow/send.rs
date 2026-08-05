@@ -409,14 +409,17 @@ impl TransferManager {
         }
     }
 
-    async fn mark_offer_fatal(&self, session_id: Uuid, message: &str) {
+    /// Offer 未送达对端。`detail` 只进日志——对用户而言「发送失败」与「响应类型意外」
+    /// 是同一件事，且它曾经拼进 `error_message` 直达 UI。
+    async fn mark_offer_fatal(&self, session_id: Uuid, detail: &str) {
+        warn!("Offer 未送达: session={}, {}", session_id, detail);
         if let Err(e) = self
             .coordinator
             .dispatch(
                 session_id,
                 CoordinatorInput::Actor {
                     epoch: 0,
-                    report: ActorReport::FatalError(message.into()),
+                    report: ActorReport::FatalError(crate::failure::FailureCode::OfferFailed),
                 },
             )
             .await

@@ -1,7 +1,7 @@
-//! [`ConnectionHandler`] 适配：把 [`Session`] 接到 libp2p 的 poll 模型上。
+//! [`ConnectionHandler`] adapter: wiring [`Session`] onto libp2p's poll model.
 //!
-//! **这里只做 IO 与事件翻译，不含协议决策**——「收到什么该做什么」全在 [`Session`]。
-//! 一条 relay 连接配一个 handler。
+//! **This does I/O and event translation only, no protocol decisions** — "what to do on
+//! each input" lives entirely in [`Session`]. One handler per relay connection.
 
 use std::task::{Context, Poll};
 
@@ -21,26 +21,26 @@ use crate::error::Error;
 use crate::protocol::{Codec, SIGNALING_PROTOCOL};
 use crate::swarm::session::{Action, Role, Session};
 
-/// 本传输的信令协议标识。
+/// Signaling protocol identifier for this transport.
 pub const PROTOCOL: StreamProtocol = StreamProtocol::new(SIGNALING_PROTOCOL);
 
 /// behaviour → handler。
 #[derive(Debug)]
 pub enum Command {
-    /// 作为发起方开始信令。
+    /// Begin signaling as the initiator.
     Start,
 }
 
 /// handler → behaviour。
 #[derive(Debug)]
 pub enum Event {
-    /// 直连建立（spec 步骤 8），附数据面。
+    /// A direct connection was established (spec step 8), with the data plane attached.
     Connected(StreamMuxerBox),
-    /// 信令或建连失败。
+    /// Signaling or connection establishment failed.
     Failed(Error),
 }
 
-/// 信令流的 poll 适配器。
+/// Poll adapter for the signaling stream.
 #[derive(Debug)]
 pub struct Handler {
     session: Session,
@@ -55,7 +55,7 @@ impl Handler {
         }
     }
 
-    /// 待发消息 → 流。返回是否有推进。
+    /// Pending messages → stream. Returns whether progress was made.
     fn flush_outgoing(&mut self, cx: &mut Context<'_>) -> bool {
         let Some(stream) = self.stream.as_mut() else {
             return false;
@@ -88,7 +88,7 @@ impl Handler {
         progressed
     }
 
-    /// 流 → 会话。返回是否有推进。
+    /// Stream → session. Returns whether progress was made.
     fn read_incoming(&mut self, cx: &mut Context<'_>) -> bool {
         let mut progressed = false;
         loop {

@@ -336,7 +336,7 @@ impl TransferManager {
                         CoordinatorInput::Actor {
                             epoch: session.epoch,
                             report: ActorReport::FatalError(
-                                resume_reject_message(&reason).to_string(),
+                                crate::failure::FailureCode::ResumeRejected { reason },
                             ),
                         },
                     )

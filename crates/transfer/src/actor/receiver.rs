@@ -22,6 +22,7 @@ use crate::actor::checkpoint::{
 use crate::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
 use crate::epoch::EpochGuard;
 use crate::events::{TransferEvent, TransferEventSink};
+use crate::failure::FailureCode;
 use crate::host::{CoreSaveLocation, FileAccess, FileSinkId, HostFileMetadata};
 use crate::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent, TransferFailedEvent,
@@ -581,12 +582,22 @@ impl ReceiverActor {
                             file_info.file_id, e2
                         );
                     }
-                    let msg = format!(
+                    // 用户串只带文件名（要显示）；file_id 与底层错误对用户没有意义，
+                    // 留在日志里。旧实现把三者拼成一句中文再交给 UI，移动端又拿整串
+                    // 跑英文关键词正则——文件名里的 `cancel` 会让用户看到「传输已取消」。
+                    let detail = format!(
                         "文件最终化失败: {} (file_id={}): {}",
                         file_info.name, file_info.file_id, e
                     );
-                    self.fail_session(epoch, msg.clone()).await;
-                    return Err(AppError::Transfer(msg));
+                    warn!("{detail}");
+                    self.fail_session(
+                        epoch,
+                        FailureCode::FileFinalizeFailed {
+                            file_name: file_info.name.clone(),
+                        },
+                    )
+                    .await;
+                    return Err(AppError::Transfer(detail));
                 }
             };
             self.remove_created_sink(&sink_id).await;
@@ -674,14 +685,14 @@ impl ReceiverActor {
 
     /// 标记会话失败：终态经状态机 dispatch(Actor{FatalError}) 写 terminal/failed + 发 projection。
     /// 具体失败事件统一由 `start_data_channel` 发一次，避免最终化错误在内外两层重复上报。
-    async fn fail_session(&self, epoch: i64, msg: String) {
+    async fn fail_session(&self, epoch: i64, failure: FailureCode) {
         if let Err(error) = self
             .coordinator
             .dispatch(
                 self.session_id,
                 CoordinatorInput::Actor {
                     epoch,
-                    report: ActorReport::FatalError(msg),
+                    report: ActorReport::FatalError(failure),
                 },
             )
             .await

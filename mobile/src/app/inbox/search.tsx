@@ -24,6 +24,7 @@ import { SearchHeader } from "@/components/search-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { inboxItemTitle } from "@/lib/inbox-title";
 import {
   type InboxPreviewItem,
   type InboxSearchHit,
@@ -366,7 +367,7 @@ function InboxHitRow({
       <View className="min-w-0 flex-1 gap-1">
         <View className="flex-row items-center gap-2">
           <HighlightedText
-            text={hit.title}
+            text={inboxItemTitle(hit.title, hit.itemCount)}
             query={query}
             className="min-w-0 flex-1 text-[14px] font-semibold text-foreground"
             numberOfLines={1}

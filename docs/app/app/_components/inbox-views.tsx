@@ -34,6 +34,7 @@ import type { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import {
   INBOX_CONTENT_KIND_LABEL,
   INBOX_SOURCE_KIND_LABEL,
+  inboxItemTitleLabel,
   type ItemAction,
   type InboxItemDetail,
   type InboxItemFileEntry,
@@ -199,7 +200,7 @@ export function InboxListRow({
           {/* 未读点是「还没取走」的唯一表达——列表里其它一切在下载前后都长一样，故给 label。 */}
           {unread && <StatusDot colorClass="bg-[var(--brand-solid)]" label={t`未打开`} />}
           <span className={cn("truncate text-foreground", unread && "font-semibold")}>
-            {item.title}
+            {t(inboxItemTitleLabel(item.title, item.itemCount))}
           </span>
           {archived && (
             <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -262,7 +263,9 @@ export function InboxDetailPanel({
       <div className="flex items-start gap-2">
         <OpenListButton openList={openList} label={t`打开收件箱列表`} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
+          <p className="truncate text-sm font-semibold text-foreground">
+            {t(inboxItemTitleLabel(item.title, item.itemCount))}
+          </p>
           <p className="truncate text-xs text-muted-foreground">
             <Trans>
               来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}

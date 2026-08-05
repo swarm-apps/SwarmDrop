@@ -555,7 +555,7 @@ function TransferProgressBlock({
           </View>
         }
         title={<Trans>传输失败</Trans>}
-        subtitle={<LocalizedError message={projection.errorMessage} />}
+        subtitle={<LocalizedError failure={projection.failure} />}
       />
     );
   }

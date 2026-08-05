@@ -37,8 +37,8 @@ use serde::{Deserialize, Serialize};
 use swarmdrop_host::{AppError, AppResult, CoreSaveLocation};
 use swarmdrop_transfer::inbox::{
     InboxFileFacts, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
-    InboxSearchHit, inbox_content_hash, inbox_files_text, inbox_matches, inbox_snippet,
-    inbox_source_kind, inbox_title, is_completed_receive,
+    InboxSearchHit, inbox_content_hash, inbox_files_text, inbox_matches, inbox_primary_file_name,
+    inbox_snippet, inbox_source_kind, is_completed_receive,
 };
 use swarmdrop_transfer::store::content_root_of;
 use uuid::Uuid;
@@ -163,7 +163,7 @@ impl WebInboxTable {
         // 标题 / 内容指纹两条都是跨端共享的领域规则，一律调 swarmdrop_transfer::inbox
         // 的那一份，本文件只负责把行类型摊成中立视图。
         let facts: Vec<InboxFileFacts<'_>> = files.iter().map(file_facts).collect();
-        let title = inbox_title(&facts);
+        let title = inbox_primary_file_name(&facts);
         let content_hash = inbox_content_hash(&facts);
         // root_path = 真实容器目录（与传输投影 content_root 同一处解析：缺 local_dir 时
         // 回退存储根）。兜底收口在 content_root_of 一处，不再重复。
@@ -773,10 +773,12 @@ mod tests {
             Some("d574ff2b0c617b92d1d827e0f3cf5410d2d3e5c1a165393969338c15f67c9a04"),
             "Web 侧构造条目必须落到与 SQL 侧同一个已知向量上"
         );
-        assert_eq!(
-            detail.item.title, "hello.txt 等 2 个文件",
-            "标题同样是共享规则，不能在 Web 侧另写一份"
-        );
+        // 标题列存的是**首个文件名**，不是渲染好的句子。「等 N 个文件」由三端各自的
+        // catalog 生成——落库的值必须与界面语言无关，否则历史条目会永久冻结在写入时的
+        // locale。取哪一个文件名仍是共享规则（`inbox_primary_file_name`），不能在
+        // Web 侧另写一份。
+        assert_eq!(detail.item.title, "hello.txt");
+        assert_eq!(detail.item.item_count, 2, "「等 N 个」的 N 由这一列提供");
     }
 
     /// 跨「重启」存活：写穿 IndexedDB → 新实例 `load()` → 条目逐字段一致。

@@ -1,24 +1,27 @@
-//! 传输配置。
+//! Transport configuration.
 
 use std::net::SocketAddr;
 use std::time::Duration;
 
-/// STUN 服务器。
+/// STUN servers.
 ///
-/// spec 的 STUN 一节：浏览器节点无法用 identify 发现自己的公网地址（每条 WebRTC 连接
-/// 用新端口），**只能靠 STUN**。因此这不是可选优化——没有 STUN 就只有 host candidate，
-/// 跨 NAT 必然打不通。
+/// From the STUN section of the spec: a browser node cannot discover its own public
+/// address via identify (every WebRTC connection uses a fresh port), so it **can only
+/// rely on STUN**. This is therefore not an optional optimization — without STUN there
+/// are only host candidates, and crossing a NAT is guaranteed to fail.
 ///
-/// 收发双方不必用同一台。
+/// The two sides need not use the same server.
 pub const DEFAULT_STUN_SERVERS: &[&str] = &["stun:stun.l.google.com:19302"];
 
-/// 信令交换的整体超时。
+/// Overall timeout for the signaling exchange.
 ///
-/// 覆盖「开流 → offer → answer → ICE 收敛」全过程。超时后 reset 信令流并让 dial 失败，
-/// 由上层决定是否退回 relay 中转（spec 步骤 8 明确把这个回退策略留给应用）。
+/// Covers the whole "open stream → offer → answer → ICE converges" sequence. On timeout
+/// the signaling stream is reset and the dial fails, leaving it to the layer above to
+/// decide whether to fall back to relaying (spec step 8 explicitly leaves that fallback
+/// policy to the application).
 pub const DEFAULT_SIGNALING_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// 传输配置。
+/// Transport configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
     stun_servers: Vec<String>,
@@ -38,10 +41,11 @@ impl Default for Config {
     }
 }
 
-/// direct 模式（`/webrtc-direct`）的配置。
+/// Configuration for direct mode (`/webrtc-direct`).
 ///
-/// 不配它，本传输只处理打洞地址；配了才会接管 `/webrtc-direct`。两种模式共用一个
-/// [`Transport`](crate::Transport)，按地址段分派。
+/// Without it this transport only handles hole-punching addresses; with it, it also
+/// takes over `/webrtc-direct`. Both modes share a single
+/// [`Transport`](crate::Transport), dispatched on the address segments.
 #[derive(Debug, Clone)]
 pub struct DirectConfig {
     id_keys: libp2p_identity::Keypair,
@@ -50,10 +54,13 @@ pub struct DirectConfig {
 }
 
 impl DirectConfig {
-    /// direct 模式必须知道本机身份——它要在 DataChannel 之上再跑一次 Noise 握手。
+    /// Direct mode must know the local identity — it runs a second Noise handshake on
+    /// top of the DataChannel.
     ///
-    /// 打洞模式不需要，因为那边的证书指纹经**已认证**的 relay 连接交换；direct 的
-    /// certhash 写在 multiaddr 里，可能经任何不可信信道传播（spec FAQ 第一条）。
+    /// Hole-punching mode does not, because there the certificate fingerprint is
+    /// exchanged over an **authenticated** relay connection; a direct-mode certhash sits
+    /// in the multiaddr and may travel over any untrusted channel (spec FAQ, first
+    /// entry).
     pub fn new(id_keys: libp2p_identity::Keypair) -> Self {
         Self {
             id_keys,
@@ -62,22 +69,26 @@ impl DirectConfig {
         }
     }
 
-    /// 指定持久化的 DTLS 证书（PEM，含私钥）。
+    /// Supplies a persisted DTLS certificate (PEM, private key included).
     ///
-    /// **强烈建议配置。** 通告地址里的 certhash 由这张证书决定，不配就等于每次启动
-    /// 换一个地址，对端记下的旧地址全部拨不通。宿主应把它存起来跨重启复用——
-    /// 首次可用 `Certificate::generate().serialize_pem()` 生成（native）。
+    /// **Strongly recommended.** The certhash in the advertised address is derived from
+    /// this certificate, so leaving it unset means a new address on every start and every
+    /// previously recorded address becoming undialable. The host should store it and
+    /// reuse it across restarts — generate the first one with
+    /// `Certificate::generate().serialize_pem()` (native).
     pub fn with_certificate_pem(mut self, pem: impl Into<String>) -> Self {
         self.certificate_pem = Some(pem.into());
         self
     }
 
-    /// 声明本端单条编码 DataChannel 消息的上限。
+    /// Declares this side's upper bound on a single encoded DataChannel message.
     ///
-    /// Noise 握手后两端**自动协商取较小值**，所以这只是「本端愿意收多大」。留空则用
-    /// `libp2p-webrtc-utils` 的默认值。
+    /// After the Noise handshake both sides **negotiate down to the smaller value**, so
+    /// this is only "how large a message this side is willing to receive". Leave it unset
+    /// to use the `libp2p-webrtc-utils` default.
     ///
-    /// 多端部署时应当各端声明同一个值——浏览器的安全上限最紧，让它决定全局。
+    /// In a multi-platform deployment every end should declare the same value — the
+    /// browser's safety limit is the tightest, so let it set the global one.
     pub fn with_max_message_size(mut self, size: std::num::NonZeroUsize) -> Self {
         self.max_message_size = Some(size);
         self
@@ -100,20 +111,21 @@ impl DirectConfig {
 }
 
 impl Config {
-    /// 默认配置（公共 STUN + 30s 信令超时）。
+    /// Default configuration (public STUN + 30s signaling timeout).
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 覆盖 STUN 服务器清单。
+    /// Overrides the STUN server list.
     ///
-    /// 传空表示不做 STUN——**只会产出 host candidate**，仅适用于同局域网。
+    /// Passing an empty list disables STUN — **only host candidates will be produced**,
+    /// which is usable on the same LAN only.
     pub fn with_stun_servers(mut self, servers: impl IntoIterator<Item = String>) -> Self {
         self.stun_servers = servers.into_iter().collect();
         self
     }
 
-    /// 覆盖信令超时。
+    /// Overrides the signaling timeout.
     pub fn with_signaling_timeout(mut self, timeout: Duration) -> Self {
         self.signaling_timeout = timeout;
         self
@@ -127,11 +139,12 @@ impl Config {
         self.signaling_timeout
     }
 
-    /// 覆盖 ICE 绑定的本地地址。
+    /// Overrides the local addresses ICE binds to.
     ///
-    /// 留空则由后端枚举本机网卡。**不要传 `0.0.0.0`**——webrtc-rs 不会据此展开网卡，
-    /// 而是把字面量写进 host candidate，对端无法使用，host 路径整条作废
-    /// （spike 实测吞吐从 50 MiB/s 掉到 0.6 MiB/s）。
+    /// Leave it empty to let the backend enumerate the local interfaces. **Do not pass
+    /// `0.0.0.0`** — webrtc-rs does not expand it into interfaces; it writes the literal
+    /// into the host candidate, which the remote cannot use, invalidating the entire host
+    /// path (measured in a spike: throughput dropped from 50 MiB/s to 0.6 MiB/s).
     pub fn with_udp_bind_addrs(mut self, addrs: impl IntoIterator<Item = SocketAddr>) -> Self {
         self.udp_bind_addrs = addrs.into_iter().collect();
         self
@@ -141,10 +154,10 @@ impl Config {
         &self.udp_bind_addrs
     }
 
-    /// 启用 direct 模式（`/webrtc-direct`）。
+    /// Enables direct mode (`/webrtc-direct`).
     ///
-    /// 不调用它，`/webrtc-direct` 地址会被本传输拒绝（留给官方 `libp2p-webrtc` 或
-    /// 其他实现处理）。
+    /// Without this call, `/webrtc-direct` addresses are rejected by this transport
+    /// (left to the official `libp2p-webrtc` or another implementation).
     pub fn with_direct(mut self, direct: DirectConfig) -> Self {
         self.direct = Some(direct);
         self
@@ -164,7 +177,7 @@ mod tests {
         let c = Config::new();
         assert!(
             !c.stun_servers().is_empty(),
-            "默认必须带 STUN，否则跨 NAT 打不通"
+            "the default must include STUN, or crossing a NAT cannot work"
         );
         assert_eq!(c.signaling_timeout(), DEFAULT_SIGNALING_TIMEOUT);
     }

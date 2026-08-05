@@ -169,6 +169,38 @@ ubrn 的 `UniffiError` 只把 `EnumName.Variant` 塞进 `message`，payload 在 
 **相关文件**：[src/lib/errors.ts](../../src/lib/errors.ts),
 [src/core/event-bus.ts](../../src/core/event-bus.ts)
 
+### 会话失败原因也是判别码：`projection.failure`，别再猜 `errorMessage`（2026-08-05）
+
+上一条讲的是**命令返回值**（`FfiError`）。会话级失败原因走的是**另一条通道**
+——`TransferProjection` 的一个字段，落在 DB 里、不进 wire。它同样已经判别码化：
+`MobileFailureCode`（`FileFinalizeFailed` / `SessionExpired` / `ResumeRejected` /
+`OfferFailed` / `Legacy`），渲染走 `failureCodeLabel()` 的穷尽 `switch`。
+
+**这里曾经是 `friendlyTransferError` 的 9 条英文关键词正则，而且它会误命中。**
+输入是 `format!("文件最终化失败: {name} (file_id={id}): {e}")` —— **文件名拼在串里**，
+正则对整串跑：
+
+| 文件叫 | 命中 | 显示 | 真实原因 |
+|---|---|---|---|
+| `Q3-cancel.xlsx` | `/(cancel\|abort)/` | 「传输已取消」 | 校验失败 |
+| `network-diagram.png` | `/(network\|connect…)/` | 「网络连接中断」 | 校验失败 |
+
+确定性复现，不是概率。**「传输已取消」把一次数据损坏说成用户自己的操作** —— 比看到
+兜底文案糟得多。这也是「别对自由文本做匹配」这条规则的第二次翻车（第一次见上条的
+`event-bus.ts`），区别在于上一次是**静默失效**，这次是**自信地给错答案**。
+
+`Legacy { message }` 是判别码引入之前落库的老会话，原样展示；**不写回填** ——
+失败原因的原始错误早已不存在，重算不出来。（收件箱标题相反，那边**回填**了，
+因为标题能从文件列表重算。）
+
+**加新 code 要三步**：`crates/transfer/src/failure.rs` 加变体 → `history.rs` 的
+`MobileFailureCode` 镜像跟上（`From` impl 是穷尽 match，漏了编译不过）→ 重新生成绑定
+→ `failureCodeLabel` 补分支（穷尽 switch，漏了 tsc 会红）。三道门都是编译期的，
+比 `KIND_MESSAGES` 那条安全。
+
+**相关文件**：[src/components/transfer/shared.tsx](../../src/components/transfer/shared.tsx)、
+`crates/transfer/src/failure.rs`
+
 ## Panic 可见性
 
 ### 用 take_last_panic() 拉 Rust panic 详情

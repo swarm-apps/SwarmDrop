@@ -1,20 +1,23 @@
-//! 信令会话状态机。
+//! Signaling session state machine.
 //!
-//! **纯逻辑，不碰 IO，不依赖 `libp2p-swarm`**：吃「命令 / 对端消息 / 后端事件」，吐
-//! 「宿主该做什么」（[`Action`]）。真正的读写由 [`super::handler`] 完成。
+//! **Pure logic: no I/O, no dependency on `libp2p-swarm`.** It consumes commands, remote
+//! messages and backend events, and produces "what the host should do" ([`Action`]). The
+//! actual reads and writes are performed by [`super::handler`].
 //!
-//! 这样切开是因为状态机是本 crate 最容易出错的部分——摘出来后可以用同步方式逐步驱动、
-//! 逐条断言，不必构造真实的 `Stream`，也不必进 poll 模型。
+//! The split exists because the state machine is the most bug-prone part of this crate —
+//! lifted out, it can be driven step by step synchronously and asserted on one transition
+//! at a time, with no real `Stream` to construct and no poll model to enter.
 //!
-//! # 角色对称
+//! # Role symmetry
 //!
-//! spec 步骤 4 是 MUST：每一侧都要能 offer 也能 answer。「由 A 发起」只是防止双方同时
-//! 发起而建出两条连接的约定，不是能力划分。
+//! Spec step 4 is a MUST: each side must be able to both offer and answer. "A initiates"
+//! is only a convention to stop both sides from starting at once and building two
+//! connections; it is not a division of capability.
 //!
-//! | 角色 | 由谁触发 | 首个动作 |
+//! | Role | Triggered by | First action |
 //! |---|---|---|
-//! | [`Role::Initiator`] | behaviour 下达命令 | [`Action::OpenStream`] → `start_offer` |
-//! | [`Role::Responder`] | 对端开来入站流 | 等 offer → `accept_offer` |
+//! | [`Role::Initiator`] | a command from the behaviour | [`Action::OpenStream`] → `start_offer` |
+//! | [`Role::Responder`] | an inbound stream from the remote | await the offer → `accept_offer` |
 
 use std::collections::VecDeque;
 use std::task::{Context, Poll};
@@ -27,61 +30,66 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::protocol::{Message, MessageType};
 
-/// 本端在这轮信令中的角色。
+/// This side's role in the current round of signaling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
-    /// 主动发起：开出站流并送出 offer。
+    /// Initiating: opens an outbound stream and sends the offer.
     Initiator,
-    /// 被动应答：受理入站流并回 answer。
+    /// Responding: accepts an inbound stream and replies with the answer.
     Responder,
 }
 
-/// 会话要求宿主执行的动作。
+/// Actions the session asks the host to perform.
 #[derive(Debug)]
 pub enum Action {
-    /// 需要一条出站信令流（仅发起方）。
+    /// An outbound signaling stream is needed (initiator only).
     OpenStream,
-    /// 直连已建立（spec 步骤 8）。
+    /// The direct connection is established (spec step 8).
     Connected,
-    /// 会话失败。
+    /// The session failed.
     Failed(Error),
 }
 
-/// 会话生命周期。
+/// Session lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
-    /// 角色未定，尚未开始。
+    /// Role not yet determined; not started.
     Idle,
-    /// 信令进行中。
+    /// Signaling in progress.
     Signaling,
-    /// 已终结（成功或失败），不再产生任何动作。
+    /// Terminated (successfully or not); produces no further actions.
     Finished,
 }
 
-/// 信令会话。
+/// A signaling session.
 pub struct Session {
     config: Config,
     factory: Factory,
     state: State,
     role: Option<Role>,
     backend: Option<Box<dyn Backend>>,
-    /// 待发往对端的消息。宿主在流可写时用 [`Session::next_outgoing`] 取。
+    /// Messages queued for the remote. The host drains them with
+    /// [`Session::next_outgoing`] once the stream is writable.
     ///
-    /// 由会话而非宿主持有：候选是**陆续**产生的，流未就绪时必须攒着而不是丢弃——
-    /// trickle ICE 少一条候选就可能少一条可用路径。
+    /// Owned by the session rather than the host: candidates arrive **incrementally**, and
+    /// while the stream is not ready they must be buffered rather than dropped — one lost
+    /// trickle-ICE candidate can mean one fewer usable path.
     outbox: VecDeque<Message>,
-    /// 已要求宿主开过出站流，避免每轮 poll 重复要求。
+    /// Whether the host has already been asked to open an outbound stream, so the request
+    /// is not repeated on every poll.
     stream_requested: bool,
     stream_attached: bool,
-    /// 信令超时计时器。会话真正开始（角色确定）时启动，终结时丢弃。
+    /// Signaling timeout timer. Started when the session actually begins (once the role is
+    /// determined) and dropped on termination.
     ///
-    /// 没有它，一个不响应的对端会把会话与其所在的 relay 连接一起永久占住——
-    /// handler 的 keep-alive 是「会话未结束就保持」，而会话永远不结束。
+    /// Without it, an unresponsive remote would pin the session — and the relay connection
+    /// it lives on — forever: the handler's keep-alive rule is "hold while the session is
+    /// unfinished", and the session would never finish.
     timeout: Option<Delay>,
-    /// 待宿主取走的终结动作（Connected / Failed）。
+    /// The terminal action (Connected / Failed) waiting to be picked up by the host.
     ///
-    /// `fail()` 可能在 poll 之外被调用（开流失败、流读写出错），故动作要先存起来，
-    /// 等下一次 poll 交出去。
+    /// `fail()` may be called outside of a poll (opening the stream failed, a stream read or
+    /// write errored), so the action is stashed and handed over on the next poll.
     pending_action: Option<Action>,
 }
 

@@ -12,6 +12,8 @@ import { i18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 
+import type { TransferProjection } from "@/lib/bindings";
+
 /** 后端 AppError 序列化格式 */
 export interface AppError {
   kind: string;
@@ -80,4 +82,56 @@ export function getErrorMessage(err: unknown): string {
   }
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/* ─── 会话失败原因（FailureCode）─── */
+
+/**
+ * 会话级失败原因的判别码 → 本地化文案。
+ *
+ * 与上面的 `AppError.kind` 是**两条独立通道**：那条是命令返回值，这条是
+ * `session.errorMessage` 列（不进 wire，纯本地）。它们共用同一条契约 ——
+ * Rust 回答「是什么失败」，措辞归三端 catalog。
+ *
+ * `legacy` 是判别码引入之前落库的自由文本，原样展示。
+ */
+export function failureCodeMessage(
+  failure: TransferProjection["failure"],
+): string | null {
+  if (!failure) return null;
+  switch (failure.code) {
+    case "fileFinalizeFailed":
+      return i18n._(msg`「${failure.fileName}」没能完整保存，请重新接收`);
+    case "sessionExpired":
+      return i18n._(msg`超过 ${failure.retentionDays} 天未恢复，已自动清理`);
+    case "resumeRejected":
+      return i18n._(resumeRejectMessage(failure.reason.type));
+    case "offerFailed":
+      return i18n._(msg`发送请求没能送达对方，请确认对方在线后重试`);
+    case "legacy":
+      return failure.message;
+  }
+}
+
+/** 续传被拒的原因 → 描述符。 */
+function resumeRejectMessage(
+  reason: Extract<
+    NonNullable<TransferProjection["failure"]>,
+    { code: "resumeRejected" }
+  >["reason"]["type"],
+): MessageDescriptor {
+  switch (reason) {
+    case "cancelled":
+      return msg`对方已取消这次传输，无法继续`;
+    case "fatal_error":
+      return msg`对方那边出错了，无法继续`;
+    case "source_modified":
+      return msg`源文件已变更，无法继续，请重新发送`;
+    case "checkpoint_invalid":
+      return msg`续传进度已失效，请重新发送`;
+    case "peer_unavailable":
+      return msg`对方暂时不可用，请稍后再试`;
+    case "session_not_found":
+      return msg`对方已经没有这次传输的记录了`;
+  }
 }

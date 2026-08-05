@@ -1,14 +1,15 @@
-//! 信令流的 framed 编解码。
+//! Framed codec for the signaling stream.
 //!
-//! 把 [`signaling`](crate::signaling) 的字节级编解码接到 `asynchronous-codec` 上，
-//! 使信令流可以按 [`Message`] 收发而不必自己维护缓冲状态机。
+//! Wires the byte-level encoding of [`signaling`](crate::signaling) into
+//! `asynchronous-codec`, so the signaling stream can be read and written in terms of
+//! [`Message`] without maintaining a buffering state machine by hand.
 
 use asynchronous_codec::{Decoder, Encoder};
 use bytes::BytesMut;
 
 use crate::protocol::message::{self, Message};
 
-/// `/webrtc-signaling/0.0.1` 的 codec。
+/// Codec for `/webrtc-signaling/0.0.1`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Codec;
 

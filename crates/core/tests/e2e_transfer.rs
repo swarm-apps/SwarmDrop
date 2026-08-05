@@ -36,6 +36,7 @@ use swarmdrop_core::runtime::build_router;
 use swarmdrop_core::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState, UserCommand,
 };
+use swarmdrop_core::transfer::failure::FailureCode;
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::store::{CreateSessionInput, InboxStore, SessionStore};
@@ -309,7 +310,7 @@ async fn seed_suspended_session(
                 terminal_reason: None,
                 epoch: 0,
                 recoverable: true,
-                error_message: None,
+                failure: None,
             },
             policy: None,
             origin: None,
@@ -669,7 +670,7 @@ async fn e2e_delete_session_rejects_active_allows_terminal_and_suspended() {
             terminal_reason: None,
             epoch: 0,
             recoverable: true,
-            error_message: None,
+            failure: None,
         },
     )
     .await;
@@ -683,7 +684,7 @@ async fn e2e_delete_session_rejects_active_allows_terminal_and_suspended() {
             terminal_reason: Some(TerminalReason::Completed),
             epoch: 0,
             recoverable: false,
-            error_message: None,
+            failure: None,
         },
     )
     .await;
@@ -1481,7 +1482,7 @@ async fn e2e_fatal_error_persists_message() {
             session_id,
             CoordinatorInput::Actor {
                 epoch: 0,
-                report: ActorReport::FatalError("发送 Offer 失败: 对端不可达".into()),
+                report: ActorReport::FatalError(FailureCode::OfferFailed),
             },
         )
         .await
@@ -1495,9 +1496,9 @@ async fn e2e_fatal_error_persists_message() {
     assert_eq!(model.phase, TransferPhase::Terminal);
     assert_eq!(model.terminal_reason, Some(TerminalReason::FatalError));
     assert_eq!(
-        model.error_message.as_deref(),
-        Some("发送 Offer 失败: 对端不可达"),
-        "fatal_error 应把失败原因持久化到 error_message"
+        model.error_message.as_deref().map(FailureCode::from_column),
+        Some(FailureCode::OfferFailed),
+        "fatal_error 应把失败判别码持久化到 error_message 列"
     );
 }
 

@@ -1207,6 +1207,55 @@ keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立
 
 **相关文件**：`src/lib/errors.ts`、`crates/host/src/error.rs`、`src-tauri/locales/`、`src-tauri/src/i18n.rs`
 
+### 一个 Rust 串要不要判别码化：两问（2026-08-05）
+
+「后端发码」这条原则的**执行判据**。全仓 1466 处中文字符串字面量，按这两问筛下来
+真正要动的只有 3 条通道 —— 完整清点见
+[`dev-notes/research/2026-08-rust-side-user-strings.md`](../research/2026-08-rust-side-user-strings.md)。
+
+1. **它会原样出现在用户眼前吗？** `tracing` 日志、`expect` / panic 消息、测试数据、
+   MCP 工具描述（受众是 AI agent）**都不会** —— 那些保持中文，它们是开发者语言。
+   翻译日志只会让搜 issue 变难。
+2. **它跨过存储或进程边界了吗？** 跨过就**不能存渲染结果，只能存判别码** ——
+   否则它会永久冻结在写入时的 locale，用户切语言不生效。
+
+两问都「是」→ 判别码化。第一问「否」→ 保持中文。
+
+**已落地的三条通道**（`openspec/changes/rust-string-boundary/`）：
+
+| 曾经的形态 | 现在 |
+|---|---|
+| `ActorReport::FatalError(String)` → `error_message` 列 → 三端裸渲染 | `FailureCode` enum，列类型不变仍是 TEXT、存 JSON |
+| `inbox_title()` 返回「X 等 N 个文件」并落库 | `inbox_primary_file_name()` 只返回文件名，「等 N 个」归三端 catalog |
+| `resume_reject_message()` 把六变体枚举摊平成六句中文 | `FailureCode::ResumeRejected` **直接内嵌** `ResumeRejectReason` |
+
+第三条最值得记：**判别信息在 wire 上本来就是结构化的，落库时降级成自由文本，
+到了 UI 又还原不回来。** 遇到「enum → String → 展示」的链路，中间那步基本都是多余的。
+
+### 自由文本匹配会**误命中**，不只是「失效」（2026-08-05）
+
+移动端曾用 9 条英文关键词正则去猜 `errorMessage` 的语义。它的输入是
+`format!("文件最终化失败: {name} (file_id={id}): {e}")` —— **文件名拼在里面**，
+而正则对整串跑：
+
+| 文件叫 | 命中 | 显示 | 真实原因 |
+|---|---|---|---|
+| `Q3-cancel.xlsx` | `/(cancel\|abort)/` | 「传输已取消」 | 校验失败 |
+| `network-diagram.png` | `/(network\|connect…)/` | 「网络连接中断」 | 校验失败 |
+
+确定性复现。「传输已取消」尤其有害 —— 把一次**数据损坏**说成用户自己的操作。
+
+教训有两层。表层是本仓已经吃过第二次的那个（第一次是 `event-bus.ts` 的
+`msg.includes("NodeNotStarted")`）：**对自由文本做匹配，源头改一个字就静默失效**。
+深一层是这次才看清的：失效不是最坏的结果，**误命中**才是 —— 前者用户看到兜底文案，
+后者用户看到一句自信而错误的解释。
+
+推论：**用户可见的错误数据结构里不要拼入用户数据**（文件名、路径、设备名）。
+需要显示就作为**独立字段**给出（`FileFinalizeFailed { file_name }`），
+让渲染层决定怎么摆；拼进一整句，下游就再也分不开了。
+
+**相关文件**：`crates/transfer/src/failure.rs`、`mobile/src/components/transfer/shared.tsx`
+
 ### rust-i18n 集成：`i18n!` 在 lib.rs 根、per-locale TOML、`%{var}` 插值
 
 托盘 + 通知用 `rust-i18n = "4"`。**只覆盖 Rust 直接渲染的 ~20 条字符串**，不与前端 Lingui 重叠。

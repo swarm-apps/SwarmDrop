@@ -138,7 +138,7 @@ mod tests {
             terminal_reason: None,
             epoch: 0,
             recoverable: true,
-            error_message: None,
+            failure: None,
         }
     }
 
