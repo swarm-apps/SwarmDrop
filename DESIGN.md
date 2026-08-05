@@ -292,6 +292,18 @@ proper noun and **is never translated** — users search it, paste it into issue
 logs. And when the address carries no transport (an inbound relay connection's `send_back_addr` is
 just `/p2p/<src>`), say "unknown" — do not invent a default.
 
+**`WebRTC` and `WebRTC Direct` are two transports, not one abbreviated.** The first needs hole
+punching and a signalling path; the second dials a public bare IP directly and is the browser's only
+public entry point. Collapsing them reads as "swap the node and hole punching works too," which is
+false. Any address-to-label helper MUST test `/webrtc-direct` **before** `/webrtc`, or the longer
+one never matches — both builds' helpers had this ordering hazard, and desktop labelled
+`webrtc-direct` as plain `WebRTC` until 2026-08-05.
+
+**A truncated address must show where it was cut.** Both builds shorten bootstrap addresses for
+display; dropping the middle without an ellipsis produces a string that still parses as a plausible
+multiaddr (`/ip4/…/udp/4001/q/p2p/…` — the `quic-v1` segment silently gone), and users paste it into
+issues believing it complete.
+
 The remote address must be copyable and must not be truncated in the disclosure. A truncated
 multiaddr pasted into an issue is worthless.
 

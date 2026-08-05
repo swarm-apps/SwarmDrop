@@ -253,6 +253,40 @@ loading 用骨架镜像真实布局）。
 
 **相关文件**：`src/components/layout/master-detail-shell.tsx`（含 `SlideDrawer`）、`src/routes/_app/inbox/index.lazy.tsx`、`src/routes/_app/transfer/index.lazy.tsx`、`src/routes/_app/send/index.lazy.tsx`、`src/routes/_app/send/share-target.lazy.tsx`、`src/components/transfer/transfer-offer-dialog.tsx`、`src/hooks/use-media-query.ts`
 
+## ⚠️ `min-h-full` 不能烤进容器原语——同栏放第二块就溢出（2026-08-05 实测）
+
+`SectionShell`（`src/components/layout/section-primitives.tsx`）曾经带 `min-h-full`，
+用意是「让独占一栏的面板把玻璃铺到栏底」。**这个用意对，位置错**：
+`min-height: 100%` 解析的是父栏高度，于是**每一个**面板都要求整栏那么高。
+
+设备页左栏正好放了两块（已配对设备 + 活跃传输），实测：
+
+```
+网格行 = 1468px（按右栏内容定高）
+两个面板各 min-height:1468 + gap 20 = 2956
+→ 左栏 clientHeight 1468 / scrollHeight 2956，溢出 1488px
+```
+
+`overflow: visible` 让它们一路画到网格 `py-5` 的底部内边距之外、也画到滚动容器之外——
+**表现是「滚到最底下卡片贴着窗口边、像漏了 padding」**，而 padding 明明写着。
+
+**正确做法**：容器原语只管材质与内距（`glass-panel flex flex-col gap-4 rounded-[24px] p-4`）；
+需要铺满整栏的调用点自己写 `className="flex-1"`——在定高的 flex 列里它表达「分配剩余空间」，
+两个都写只是平分，不会各要 100%。
+
+**排查手法**（贴底类问题通用）：在 webview 里对每个滚动容器量
+`scrollHeight - clientHeight`，再看**最低的、画了背景/边框的后代**离容器底多远。
+直接量「容器底 − 直接子元素底」会误报：`TaskContent` 那种把 padding 放在内层 wrapper 的形态
+本来就是 0，而真正的内容还在 wrapper 的 padding 之内。
+
+**顺带排除的两个猜想**（都不成立，别再往这两个方向查）：
+- WKWebView 不是不认滚动容器的 `padding-bottom`——块级 / flex 列 / flex+gap / grid 四种形态实测都正确计入。
+- 也不是某个页面漏写 padding：全路由扫下来只有设备页有问题，其余（设置 / 配对生成 / TaskContent 系）
+  滚到底都稳定留 20px。
+
+**相关文件**：`src/components/layout/section-primitives.tsx`、
+`src/routes/_app/devices/-components/add-device-section.tsx`（`flex-1` 的调用点）
+
 ## 设置页（settings）布局与基元
 
 ### 设置页统一走「Section → Card → Row」基元 + bento 卡片网格

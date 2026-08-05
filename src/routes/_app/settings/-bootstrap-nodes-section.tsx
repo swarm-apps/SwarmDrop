@@ -26,23 +26,38 @@ function isValidMultiaddr(addr: string): boolean {
   return addr.startsWith("/") && addr.includes("/p2p/");
 }
 
-/** 截断 Multiaddr 用于显示 */
+/**
+ * 截断 Multiaddr 用于显示。与 Web 端 `docs/app/app/_lib/relay-helpers.ts` 的同名函数同形。
+ *
+ * `p2pIdx > 30` 时**必须补省略号**：本仓的内置地址正好命中，不补的话输出是
+ * `/ip4/47.115.172.218/udp/4003/w/p2p/12D3Ko…1utep` —— certhash 整段消失、切口处毫无提示，
+ * 看起来像一条完整但写错的 multiaddr，而用户会照着它去 issue 里贴。
+ */
 function truncateAddr(addr: string): string {
   if (addr.length <= 60) return addr;
   // 保留协议头和末尾 peer id
   const p2pIdx = addr.indexOf("/p2p/");
-  if (p2pIdx === -1) return `${addr.slice(0, 30)}...${addr.slice(-20)}`;
-  const prefix = addr.slice(0, Math.min(p2pIdx, 30));
+  if (p2pIdx === -1) return `${addr.slice(0, 30)}…${addr.slice(-20)}`;
+  const prefix = p2pIdx > 30 ? `${addr.slice(0, 30)}…` : addr.slice(0, p2pIdx);
   const peerId = addr.slice(p2pIdx + 5);
   const shortPeerId = peerId.length > 12
-    ? `${peerId.slice(0, 6)}...${peerId.slice(-6)}`
+    ? `${peerId.slice(0, 6)}…${peerId.slice(-6)}`
     : peerId;
   return `${prefix}/p2p/${shortPeerId}`;
 }
 
+/**
+ * 传输名。**是专有名词，永不翻译**（DESIGN.md 的 Device Card Contract）。
+ *
+ * `webrtc-direct` 标成 `WebRTC Direct` 而不是 `WebRTC`：契约里这是两种传输
+ * （前者要打洞与信令，后者直接拨公网裸 IP），混称会让人以为换个节点也能用打洞地址。
+ * 判定按**特异性从高到低**——`/webrtc-direct` 必须排在 `/webrtc` 前面，否则永远匹配不到。
+ */
 function getTransportLabel(addr: string): string {
+  if (addr.includes("/webrtc-direct")) return "WebRTC Direct";
+  if (addr.includes("/webrtc")) return "WebRTC";
+  if (addr.includes("/wss")) return "WSS";
   if (addr.includes("/ws")) return "WebSocket";
-  if (addr.includes("/webrtc-direct")) return "WebRTC";
   if (addr.includes("/quic")) return "QUIC";
   if (addr.includes("/tcp/")) return "TCP";
   return "P2P";

@@ -52,7 +52,10 @@ export function AddDeviceSection({
   const isFilteredEmpty = devices.length > 0 && filteredDevices.length === 0;
 
   return (
-    <SectionShell data-testid="add-device-section" className="gap-3.5">
+    // `flex-1`：这块独占右栏，要把玻璃铺到栏底与左栏齐平。
+    // **不能写 `min-h-full`**——那是「每个面板都要求整栏高」，同栏放第二块就溢出，
+    // 理由见 `SectionShell` 的文档。
+    <SectionShell data-testid="add-device-section" className="flex-1 gap-3.5">
       <SectionHeader
         title={<Trans>添加设备</Trans>}
         count={devices.length}

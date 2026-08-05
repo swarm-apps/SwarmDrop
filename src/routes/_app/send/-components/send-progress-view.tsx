@@ -66,7 +66,9 @@ export function SendProgressView({
 
       <TaskContent
         scrollTestId="send-progress-scroll-region"
-        className="flex min-h-full flex-col gap-5"
+        // 不写 `min-h-full`——`TaskContent` 的内容 wrapper 本来就带（那里它是安全的：
+        // 作用在滚动容器的**唯一**子元素上，不是同栏多个面板各要 100%，见 `SectionShell` 的文档）。
+        className="flex flex-col gap-5"
         footer={
           <CommandDock>
             {/* 传输进行/暂停期间离开不打断：后台继续，可回活动中心查看 */}

@@ -45,6 +45,19 @@ export function SectionHeader({
   );
 }
 
+/**
+ * 页面级面板外壳：玻璃 + 24px 圆角。
+ *
+ * **不要在这里放 `min-h-full`。** 它曾经烤在这个原语里，理由是「让独占一栏的面板把玻璃
+ * 铺到栏底」——但那对**同一栏里放两个面板**的场合是错的：`min-height: 100%` 解析的是
+ * 父栏高度，于是**每一个**面板都要求整栏那么高。设备页左栏正好是两个
+ * （已配对设备 + 活跃传输），实测网格行 1468px、两个面板各 1468 加 20 的 gap = 2956，
+ * 溢出 1488px —— `overflow: visible` 让它们一路画到网格的 `py-5` 底部内边距之外、
+ * 也画到滚动容器之外，滚到底就是「卡片贴着窗口底边、像漏了 padding」。
+ *
+ * 需要「铺满整栏」的调用点自己写 `className="flex-1"`：在定高的 flex 列里它表达的是
+ * 「分配剩余空间」，两个都写也只是**平分**，不会各自要求 100%。
+ */
 export function SectionShell({
   children,
   className,
@@ -56,10 +69,7 @@ export function SectionShell({
   return (
     <section
       {...props}
-      className={cn(
-        "glass-panel flex min-h-full flex-col gap-4 rounded-[24px] p-4",
-        className,
-      )}
+      className={cn("glass-panel flex flex-col gap-4 rounded-[24px] p-4", className)}
     >
       {children}
     </section>
