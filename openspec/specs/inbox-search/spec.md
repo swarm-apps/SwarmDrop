@@ -5,7 +5,9 @@ TBD - created by archiving change add-inbox-search-and-mcp-find. Update Purpose 
 ## Requirements
 ### Requirement: inbox 检索索引
 
-共享 core SHALL 在 SQLite 中维护一张 standalone FTS5（trigram tokenizer）虚拟表，索引 inbox 内容。索引 SHALL 覆盖条目标题（`inbox_items.title`）、来源设备名（`inbox_items.source_name`）、以及该条目下所有文件的文件名（`inbox_item_files.name`）与相对路径（`inbox_item_files.relative_path`），以 inbox 条目（item）为粒度聚合为一行。索引 SHALL 在收件箱写入条目时维护、并由迁移对存量数据一次性回填；维护机制对调用方透明，调用方无需手动维护。索引内容 SHALL 与当前 inbox 保持一致。
+共享 core SHALL 在 SQLite 中维护一张检索索引表（`inbox_search_index`），索引 inbox 内容。索引 SHALL 覆盖条目标题（`inbox_items.title`）、来源设备名（`inbox_items.source_name`）、以及该条目下所有文件的文件名（`inbox_item_files.name`）与相对路径（`inbox_item_files.relative_path`），以 inbox 条目（item）为粒度聚合为一行。索引 SHALL 在收件箱写入条目时于**同一事务内**维护；维护机制对调用方透明，调用方无需手动维护。索引内容 SHALL 与当前 inbox 保持一致。
+
+> 该表一度是 FTS5（trigram tokenizer）虚拟表。检索从未使用 FTS5 的 `MATCH`/bm25（trigram 对 <3 字的查询无法命中，见下方「中文与两字词检索」），虚表仅提供了一层 ≥3 字查询的索引加速；2026-08-05 改为普通表，使建表得以全部由 sea-orm schema builder 从 entity 生成。命中判据不受影响。
 
 #### Scenario: 新收到的条目进入索引
 
@@ -14,17 +16,17 @@ TBD - created by archiving change add-inbox-search-and-mcp-find. Update Purpose 
 
 #### Scenario: 索引与收件箱内容保持一致
 
-- **WHEN** 检索任一已存在条目（无论是本版本新写入的，还是升级前由回填导入的存量条目）
+- **WHEN** 检索任一已存在条目
 - **THEN** 检索结果 SHALL 与当前 inbox 内容一致，调用方无需手动重建或维护索引
 
 #### Scenario: 中文与两字词检索
 
 - **WHEN** 检索包含中文关键词，特别是 2 个汉字的常见词（如"合同""发票"）
-- **THEN** 系统 SHALL 能对中文内容产生匹配；实现 SHALL 通过子串匹配兜底少于 3 个字符的查询，不得因 trigram 的 3-gram 下限或纯空格分词而对中文短词整体失配
+- **THEN** 系统 SHALL 能对中文内容产生匹配；实现 SHALL 采用子串匹配，不得因分词器的 n-gram 下限或纯空格分词而对中文短词整体失配
 
 ### Requirement: search_inbox 查询 API
 
-共享 core SHALL 暴露 `search_inbox(query, limit, include_archived) -> Vec<InboxSearchHit>` 查询接口。结果 SHALL 以 inbox 条目（item）为粒度，按接收时间（`received_at`）倒序排序，并截断到 `limit`。检索 SHALL 采用子串匹配（对索引文本列做 `LIKE`，≥3 个字符的查询可经 trigram 索引加速、更短的查询退化为全表扫描但结果正确），不依赖 FTS bm25 排序。每个 `InboxSearchHit` SHALL 至少包含：条目 id、标题、来源设备名、接收时间、文件数、根路径，以及命中所在字段的匹配片段（snippet，由实现生成）。查询 SHALL 排除 `deleted_at` 非空的条目；默认 SHALL 排除 `archived_at` 非空的条目，除非 `include_archived` 显式要求包含已归档项。
+共享 core SHALL 暴露 `search_inbox(query, limit, include_archived) -> Vec<InboxSearchHit>` 查询接口。结果 SHALL 以 inbox 条目（item）为粒度，按接收时间（`received_at`）倒序排序，并截断到 `limit`。检索 SHALL 采用子串匹配（对索引文本列做 `LIKE`），不依赖全文检索的 bm25 排序。每个 `InboxSearchHit` SHALL 至少包含：条目 id、标题、来源设备名、接收时间、文件数、根路径，以及命中所在字段的匹配片段（snippet，由实现生成）。查询 SHALL 排除 `deleted_at` 非空的条目；默认 SHALL 排除 `archived_at` 非空的条目，除非 `include_archived` 显式要求包含已归档项。
 
 #### Scenario: 两字中文词命中标题或文件名
 

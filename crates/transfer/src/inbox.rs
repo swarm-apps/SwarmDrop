@@ -139,7 +139,7 @@ pub fn inbox_content_hash(files: &[InboxFileFacts<'_>]) -> String {
 
 /// 检索索引的聚合文本：每个文件取 `"{name} {relative_path}"`，条目内以空格拼接。
 ///
-/// 它就是「检索覆盖面」的定义：SQL 侧把它写进 `inbox_fts.files_text`，
+/// 它就是「检索覆盖面」的定义：SQL 侧把它写进 `inbox_search_index.files_text`，
 /// Web 侧在内存里对同一段文本做子串扫描——两端扫的必须是同一段文本，
 /// 否则同一次搜索的命中集合会分叉。
 pub fn inbox_files_text(files: &[InboxFileFacts<'_>]) -> String {
@@ -182,7 +182,7 @@ pub fn is_completed_receive(session: &entity::transfer_session::Model) -> bool {
 /// 而不是散在两处的口头约定——[`INBOX_MATCH_CASES`] 是那个锚点的可执行形式，
 /// 两端的单测灌同一批语料、断言同一批 expected。
 ///
-/// **`extracted_text` 为什么是 `Option`。** 它是 SQL 侧 `inbox_fts` 的第四列（文档正文
+/// **`extracted_text` 为什么是 `Option`。** 它是 SQL 侧 `inbox_search_index` 的第四列（文档正文
 /// 抽取结果）。浏览器没有文本抽取，Web 侧恒传 `None`——不是「传空串」：空串在语义上是
 /// 「抽过、没抽到东西」，`None` 才是「这一端没有这个能力」，而这条差异该在签名上看得见。
 /// 此前本函数**根本没有这个入参**，于是它自称规范定义、SQL 却多匹配一列，规范与实现
@@ -240,7 +240,7 @@ pub struct InboxMatchCase {
 /// 检索命中判据的**跨端一致性语料**（conformance corpus）。
 ///
 /// 本 crate 的单测直接对 [`inbox_matches`] 跑它；`swarmdrop-storage-sql` 把同一批数据
-/// 灌进 `inbox_fts` 再走 `search_inbox`，断言同一批 `expected`。两端各写各的测试数据时，
+/// 灌进 `inbox_search_index` 再走 `search_inbox`，断言同一批 `expected`。两端各写各的测试数据时，
 /// 「SQL 是 `inbox_matches` 的复刻」只是一句注释；共用一份语料，它才是可执行的约束。
 ///
 /// 覆盖面是刻意的，每一类都对应一种真实分叉：

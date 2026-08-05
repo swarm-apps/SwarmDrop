@@ -9,8 +9,7 @@
 
 use std::sync::Arc;
 
-use sea_orm::{Database, DatabaseConnection};
-use sea_orm_migration::MigratorTrait;
+use sea_orm::DatabaseConnection;
 use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{CoreSaveLocation, EventBus};
 use swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS;
@@ -32,14 +31,12 @@ pub async fn init_database(app: &AppHandle) -> AppResult<DatabaseConnection> {
     std::fs::create_dir_all(&data_dir)?;
 
     let db_path = data_dir.join("swarmdrop.db");
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+    tracing::info!("初始化数据库: {}", db_path.display());
 
-    tracing::info!("初始化数据库: {}", db_url);
-
-    let db = Database::connect(&db_url).await?;
-
-    // 执行所有待处理的 migration
-    migration::Migrator::up(&db, None).await?;
+    // 连接 + 迁移 + 「迁移历史过时就删库重建」的自愈都在 core 的编排里（移动端共用同一条），
+    // 见 `migration::connect_and_migrate`。2026-08-05 的迁移 squash 让所有存量库都会走一次
+    // 那条重建路径。
+    let db = migration::connect_and_migrate(&db_path).await?;
 
     tracing::info!("数据库 migration 完成");
 
@@ -96,7 +93,10 @@ mod tests {
     use super::*;
 
     use entity::{SuspendedReason, TransferDirection, TransferPhase};
-    use sea_orm::{ActiveModelTrait, ConnectOptions, IntoActiveModel, Set};
+    // 生产路径经 `migration::connect_and_migrate` 建库（它自带自愈），测试要的是一个
+    // 干净的内存库，所以这两个只在测试里用得到。
+    use sea_orm::{ActiveModelTrait, ConnectOptions, Database, IntoActiveModel, Set};
+    use sea_orm_migration::MigratorTrait;
     use swarmdrop_core::host::{CoreSaveLocation, MemoryHost};
     use swarmdrop_core::transfer::coordinator::TransferState;
     use swarmdrop_core::transfer::store::CreateSessionInput;

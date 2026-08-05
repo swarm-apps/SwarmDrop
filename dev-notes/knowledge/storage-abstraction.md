@@ -61,7 +61,7 @@
 只需把 sea-orm 换成：
 
 ```toml
-sea-orm = { version = "2.0.0-rc", default-features = false, features = [
+sea-orm = { version = "2.0.1", default-features = false, features = [
     "macros", "with-chrono", "with-uuid", "with-json",
 ] }
 ```
@@ -142,7 +142,7 @@ wasm32 不开 atomics 时是单线程，永不触发；**一旦启用 wasm threa
 ```toml
 # crates/entity/Cargo.toml
 [dependencies]
-sea-orm = { version = "2.0.0-rc", default-features = false, features = [
+sea-orm = { version = "2.0.1", default-features = false, features = [
     "macros", "with-chrono", "with-uuid", "with-json",
 ] }
 
@@ -539,11 +539,18 @@ ResumeProbe 应答 → **跨版本续传静默失败**。
 
 ### `inbox.rs` 有硬编码的 SQLite 裸 SQL
 
-- `database/inbox.rs:245-256` —— FTS 全文检索写入
-- `database/inbox.rs:347-372` —— FTS 检索 + trigram 虚表
+> **状态（2026-08-05 更新）**：写入侧的裸 SQL 已经没了 —— 索引表从 FTS5 虚表改成普通表
+> `inbox_search_index`（entity 化），写入走 `Entity::insert(..).exec_without_returning`。
+> **检索那段 `LIKE ... ESCAPE '\'` 仍是裸 SQL**（`crates/storage-sql/src/inbox.rs` 的
+> `search_inbox`），仍硬编码 `DbBackend::Sqlite`。
+>
+> FTS5 的 `MATCH` / bm25 **从来没被用过**（trigram 对 <3 字查询无法命中，「合同」这类 2 字
+> 中文词会返回空），虚表只提供了一层 ≥3 字查询的索引加速；换普通表后那层加速没了，
+> 换来的是迁移零裸 SQL、约束可由 entity 表达，以及写入侧不必再为 200 KB 的 `files_text`
+> 生成约 20 万条 trigram 索引项。
 
-两处都硬编码 `DbBackend::Sqlite`。IndexedDB 的事务是「微任务窗口内自动提交」，语义上不兼容
-`inbox.rs:202-258` 那种事务内穿插 `await` 的写法。
+原文（描述 FTS5 时期的形态）：两处都硬编码 `DbBackend::Sqlite`。IndexedDB 的事务是
+「微任务窗口内自动提交」，语义上不兼容那种事务内穿插 `await` 的写法。
 
 ⇒ ~~又一条「Web 端先不实现 `InboxStore`」的理由~~。**2026-07-31 已按当时那句「真要做，
 全文检索得换实现（不是换后端）」落地**：Web 侧不引 wasm 版 SQLite，改成内存线性子串扫描，

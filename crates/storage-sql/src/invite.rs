@@ -1,11 +1,16 @@
 //! 邀请注册表的 SQL 落盘实现（`InviteStore` 端口的桌面 / 移动后端）。
 //!
-//! 端口的方法**都不返回错误**（内存表是权威判定点，落盘只是写穿备份 ——
-//! 见 `openspec/changes/invite-persistence/design.md` D2），所以本实现内部把每个错误
-//! 就地降级成一条 `tracing::warn` 并继续。这不是偷懒：写库失败时唯一正确的用户可见行为
-//! 就是「配对照样成功」，把错误上报给调用方它也只能忽略。
+//! **写方法返回「成没成」，调用方据此 fail-closed。** 早期这里写的是「端口方法都不返回
+//! 错误，写库失败时正确的用户可见行为就是配对照样成功」—— 那个判断已被推翻（详见
+//! `swarmdrop_invite::store` 的模块文档与 `dev-notes/knowledge/storage-abstraction.md`）：
+//! `register` 已经把 `Pending` 写进库了，此后任何一次写穿失败都留下同一个结果 ——
+//! 库里仍是 `Pending`，重启 `load` 把它放回内存，那份一次性凭证于是能被消费第二次。
+//! 所以 `upsert` / `remove` 报 `false`，`try_consume` 在收到 `false` 时中止本次配对。
 //!
-//! 表结构见 `entity::pair_invite`，迁移见 `migration::m20260730_000001_pair_invites`。
+//! 读路径仍就地降级（`load_all` 失败按「无记录」继续）：邀请是短时凭证，最坏结果是用户
+//! 重新生成一条，比启动失败好。
+//!
+//! 表结构见 `entity::pair_invite`，建表在 `migration::m20260805_000001_init`。
 //! **表里没有 capability 明文，也没有邀请全串**，只有前者的 sha256。
 
 use async_trait::async_trait;
@@ -155,7 +160,10 @@ fn from_hex_lower(text: &str) -> Option<[u8; 32]> {
     }
     let mut out = [0u8; 32];
     for (index, slot) in out.iter_mut().enumerate() {
-        *slot = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).ok()?;
+        // `get` 而非 `&text[a..b]`：长度校验的是**字节**数，含多字节字符的 64 字节串
+        // 会让切片落在字符中间而 panic。这一列由本实现自己写入（纯 hex），但读回来的
+        // 是外部可改的库文件，不值得赌。
+        *slot = u8::from_str_radix(text.get(index * 2..index * 2 + 2)?, 16).ok()?;
     }
     Some(out)
 }

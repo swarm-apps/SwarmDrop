@@ -8,10 +8,16 @@ use crate::FileStatus;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
+    /// 与 `file_id` 组成复合唯一键（`session_file`）：同一会话内文件序号不可重复。
+    #[sea_orm(unique_key = "session_file")]
     pub session_id: Uuid,
+    // 刻意**不加** `on_delete`：文件行的删除由应用层负责（`delete_session` 走
+    // `cascade_delete`、`clear_all_history` 先删子行再删会话）。加一条 DB 级 CASCADE
+    // 会让同一件事有两套机制，且与既有行为不是逐字等价。
     #[sea_orm(belongs_to, from = "session_id", to = "session_id")]
     pub session: HasOne<super::transfer_session::Entity>,
     /// 会话内文件 ID（来自协议层，从 0 递增）
+    #[sea_orm(unique_key = "session_file")]
     pub file_id: i32,
     pub name: String,
     pub relative_path: String,
