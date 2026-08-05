@@ -550,7 +550,14 @@ export type InboxItemSummary = {
 	sourceName: string,
 	sourceKind: InboxSourceKind,
 	contentKind: InboxContentKind,
-	title: string,
+	/**
+	 *  条目内第一个文件的文件名（「第一个」的定义见 [`InboxFileFacts`] 的顺序契约）；
+	 *  零文件条目为 `None`。
+	 * 
+	 *  **展示标题由各端从它 + [`item_count`](Self::item_count) 生成**，理由见模块文档。
+	 *  `Option` 而不是空串：「没有文件」与「文件名恰好是空串」必须在类型上分得开。
+	 */
+	primaryFileName: string | null,
 	itemCount: number,
 	totalSize: number,
 	rootPath: string | null,
@@ -565,7 +572,11 @@ export type InboxItemSummary = {
 /**  收件箱搜索命中（item 粒度）。 */
 export type InboxSearchHit = {
 	id: string,
-	title: string,
+	/**
+	 *  同 [`InboxItemSummary::primary_file_name`]：命中条目的展示标题由调用方按当前
+	 *  locale 从它 + `item_count` 生成，命中结果里不带预拼接的标题。
+	 */
+	primaryFileName: string | null,
 	sourceName: string,
 	itemCount: number,
 	rootPath: string | null,
@@ -573,8 +584,9 @@ export type InboxSearchHit = {
 	/**
 	 *  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
 	 * 
-	 *  `None` = **不该渲染片段行**：命中的是标题或来源名（条目行上已经显示着），
-	 *  或一个候选都没命中。判据在 [`inbox_snippet`]，三端不要各判一遍。
+	 *  `None` = **不该渲染片段行**：命中的是首文件名或来源名（条目行上已经显示着——
+	 *  标题的内容就是首文件名），或一个候选都没命中。
+	 *  判据在 [`inbox_snippet`]，三端不要各判一遍。
 	 */
 	snippet: string | null,
 	/**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */

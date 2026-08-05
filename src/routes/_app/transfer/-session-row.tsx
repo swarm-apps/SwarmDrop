@@ -21,6 +21,7 @@ import { commands } from "@/lib/bindings";
 import { useSessionProgress, useTransferStore } from "@/stores/transfer-store";
 import {
   calcPercent,
+  fileGroupLabel,
   formatFileSize,
   formatSpeed,
   formatRelativeTime,
@@ -122,7 +123,7 @@ export const SessionRow = memo(function SessionRow({
   const fileCount = projection.files.length;
   const firstFileName = projection.files[0]?.name || t`未知文件`;
   const displayFileName =
-    fileCount > 1 ? t`${firstFileName} 等 ${fileCount} 个文件` : firstFileName;
+    fileCount > 1 ? fileGroupLabel(firstFileName, fileCount) : firstFileName;
 
   const progressPercent = progress
     ? calcPercent(progress.transferredBytes, progress.totalBytes)

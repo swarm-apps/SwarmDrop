@@ -977,7 +977,11 @@ export type MobileInboxItemSummary = {
     sourceName: string,
     sourceKind: MobileInboxSourceKind,
     contentKind: MobileInboxContentKind,
-    title: string,
+    /**
+     * 首文件名（零文件条目为 `None`）。展示标题由 RN 侧按当前 locale 从它 +
+     * `item_count` 生成——core 不产出本地化散文。
+     */
+    primaryFileName?: string,
     itemCount: number,
     totalSize: bigint,
     rootPath?: string,
@@ -1016,7 +1020,7 @@ const FfiConverterTypeMobileInboxItemSummary = (() => {
                 sourceName: FfiConverterString.read(from), 
                 sourceKind: FfiConverterTypeMobileInboxSourceKind.read(from), 
                 contentKind: FfiConverterTypeMobileInboxContentKind.read(from), 
-                title: FfiConverterString.read(from), 
+                primaryFileName: FfiConverterOptionalString.read(from), 
                 itemCount: FfiConverterUInt32.read(from), 
                 totalSize: FfiConverterUInt64.read(from), 
                 rootPath: FfiConverterOptionalString.read(from), 
@@ -1035,7 +1039,7 @@ const FfiConverterTypeMobileInboxItemSummary = (() => {
             FfiConverterString.write(value.sourceName, into);
             FfiConverterTypeMobileInboxSourceKind.write(value.sourceKind, into);
             FfiConverterTypeMobileInboxContentKind.write(value.contentKind, into);
-            FfiConverterString.write(value.title, into);
+            FfiConverterOptionalString.write(value.primaryFileName, into);
             FfiConverterUInt32.write(value.itemCount, into);
             FfiConverterUInt64.write(value.totalSize, into);
             FfiConverterOptionalString.write(value.rootPath, into);
@@ -1053,7 +1057,7 @@ const FfiConverterTypeMobileInboxItemSummary = (() => {
              FfiConverterString.allocationSize(value.sourceName) +
              FfiConverterTypeMobileInboxSourceKind.allocationSize(value.sourceKind) +
              FfiConverterTypeMobileInboxContentKind.allocationSize(value.contentKind) +
-             FfiConverterString.allocationSize(value.title) +
+             FfiConverterOptionalString.allocationSize(value.primaryFileName) +
              FfiConverterUInt32.allocationSize(value.itemCount) +
              FfiConverterUInt64.allocationSize(value.totalSize) +
              FfiConverterOptionalString.allocationSize(value.rootPath) +
@@ -1441,7 +1445,10 @@ const FfiConverterTypeMobileInboxItemDetail = (() => {
  */
 export type MobileInboxSearchHit = {
     id: string,
-    title: string,
+    /**
+     * 同 [`MobileInboxItemSummary::primary_file_name`]。
+     */
+    primaryFileName?: string,
     sourceName: string,
     itemCount: number,
     rootPath?: string,
@@ -1478,7 +1485,7 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
         read(from: RustBuffer): TypeName {
             return {
                 id: FfiConverterString.read(from), 
-                title: FfiConverterString.read(from), 
+                primaryFileName: FfiConverterOptionalString.read(from), 
                 sourceName: FfiConverterString.read(from), 
                 itemCount: FfiConverterUInt32.read(from), 
                 rootPath: FfiConverterOptionalString.read(from), 
@@ -1489,7 +1496,7 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterString.write(value.id, into);
-            FfiConverterString.write(value.title, into);
+            FfiConverterOptionalString.write(value.primaryFileName, into);
             FfiConverterString.write(value.sourceName, into);
             FfiConverterUInt32.write(value.itemCount, into);
             FfiConverterOptionalString.write(value.rootPath, into);
@@ -1499,7 +1506,7 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.id) +
-             FfiConverterString.allocationSize(value.title) +
+             FfiConverterOptionalString.allocationSize(value.primaryFileName) +
              FfiConverterString.allocationSize(value.sourceName) +
              FfiConverterUInt32.allocationSize(value.itemCount) +
              FfiConverterOptionalString.allocationSize(value.rootPath) +

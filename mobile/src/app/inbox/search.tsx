@@ -23,6 +23,7 @@ import { AppScreen, EmptyState } from "@/components/mobile/screen";
 import { SearchHeader } from "@/components/search-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
+import { useInboxItemTitle } from "@/hooks/useInboxItemTitle";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import {
   type InboxPreviewItem,
@@ -353,6 +354,7 @@ function InboxHitRow({
   onPress: (itemId: string) => void;
 }) {
   const colors = useThemeColors();
+  const itemTitle = useInboxItemTitle();
   return (
     <Pressable
       accessibilityRole="button"
@@ -366,7 +368,7 @@ function InboxHitRow({
       <View className="min-w-0 flex-1 gap-1">
         <View className="flex-row items-center gap-2">
           <HighlightedText
-            text={hit.title}
+            text={itemTitle(hit.primaryFileName, hit.itemCount)}
             query={query}
             className="min-w-0 flex-1 text-[14px] font-semibold text-foreground"
             numberOfLines={1}

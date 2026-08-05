@@ -1106,7 +1106,7 @@ mod tests {
             .await
             .unwrap()
             .expect("收件箱条目不该随会话一起被淘汰");
-        assert_eq!(detail.item.title, "报告.pdf");
+        assert_eq!(detail.item.primary_file_name.as_deref(), Some("报告.pdf"));
         assert_eq!(detail.files.len(), 1, "条目的文件行也必须还在");
         assert!(
             detail.transfer.is_none(),
@@ -1277,7 +1277,7 @@ mod tests {
             .into_iter()
             .find(|d| d.item.id == item_id)
             .expect("收件箱条目必须跨 load() 存活");
-        assert_eq!(detail.item.title, "报告.pdf");
+        assert_eq!(detail.item.primary_file_name.as_deref(), Some("报告.pdf"));
         assert_eq!(detail.files.len(), 1, "条目的文件行也要一起回来");
         assert_eq!(detail.item.transfer_session_id, Some(session_id));
         // 这一格由 `attach_transfers` 从**会话表**补——它非空即证明两张表都读回来了，

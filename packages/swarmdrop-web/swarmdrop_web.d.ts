@@ -180,7 +180,14 @@ export type InboxItemSummary = {
     sourceName: string,
     sourceKind: InboxSourceKind,
     contentKind: InboxContentKind,
-    title: string,
+    /**
+     *  条目内第一个文件的文件名（「第一个」的定义见 [`InboxFileFacts`] 的顺序契约）；
+     *  零文件条目为 `None`。
+     *
+     *  **展示标题由各端从它 + [`item_count`](Self::item_count) 生成**，理由见模块文档。
+     *  `Option` 而不是空串：「没有文件」与「文件名恰好是空串」必须在类型上分得开。
+     */
+    primaryFileName: string | null,
     itemCount: number,
     totalSize: number,
     rootPath: string | null,
@@ -195,7 +202,11 @@ export type InboxItemSummary = {
 /**  收件箱搜索命中（item 粒度）。 */
 export type InboxSearchHit = {
     id: string,
-    title: string,
+    /**
+     *  同 [`InboxItemSummary::primary_file_name`]：命中条目的展示标题由调用方按当前
+     *  locale 从它 + `item_count` 生成，命中结果里不带预拼接的标题。
+     */
+    primaryFileName: string | null,
     sourceName: string,
     itemCount: number,
     rootPath: string | null,
@@ -203,8 +214,9 @@ export type InboxSearchHit = {
     /**
      *  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
      *
-     *  `None` = **不该渲染片段行**：命中的是标题或来源名（条目行上已经显示着），
-     *  或一个候选都没命中。判据在 [`inbox_snippet`]，三端不要各判一遍。
+     *  `None` = **不该渲染片段行**：命中的是首文件名或来源名（条目行上已经显示着——
+     *  标题的内容就是首文件名），或一个候选都没命中。
+     *  判据在 [`inbox_snippet`]，三端不要各判一遍。
      */
     snippet: string | null,
     /**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
@@ -1034,6 +1046,9 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly default_device_name: () => [number, number];
+    readonly get_device_name: () => any;
+    readonly set_device_name: (a: number, b: number) => any;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1080,9 +1095,6 @@ export interface InitOutput {
     readonly webnode_spawn: () => any;
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly default_device_name: () => [number, number];
-    readonly get_device_name: () => any;
-    readonly set_device_name: (a: number, b: number) => any;
     readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
@@ -1097,15 +1109,15 @@ export interface InitOutput {
     readonly intounderlyingsink_abort: (a: number, b: any) => any;
     readonly intounderlyingsink_close: (a: number) => any;
     readonly intounderlyingsink_write: (a: number, b: any) => any;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;

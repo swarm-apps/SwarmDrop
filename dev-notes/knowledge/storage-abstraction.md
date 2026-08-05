@@ -321,14 +321,15 @@ trait 抽出来之后，覆盖的其实只有一半：建会话、写 checkpoint
 
 | | 例子 | 归属 |
 |---|---|---|
-| **领域规则** | 条目标题怎么起、内容指纹怎么算、检索覆盖哪段文本、片段怎么截 | `crates/transfer/src/inbox.rs`，**各实现共用一份** |
+| **领域规则** | 首文件名取哪个、内容指纹怎么算、检索覆盖哪段文本、片段怎么截 | `crates/transfer/src/inbox.rs`，**各实现共用一份** |
 | **SQL 细节** | `escape_like`、`LIKE ... ESCAPE '\'` 的写法、`From<ModelEx>` 转换、FTS 虚表 | 留在 `crates/storage-sql`，跟着实现走 |
+| **展示串** | 「空传输」/「X 等 N 个文件」怎么拼 | **各端自己**，见下方「派生展示串」一节 |
 
 分界判据是「**分叉了会不会让同一批数据在两端表现不同**」。
 `inbox_content_hash`（blake3 逐文件累加 `relative_path ‖ 0x00 ‖ checksum ‖ size_le`）
-是跨端去重的**唯一**判据，字节级不同就等于这个字段作废；`inbox_title` 分叉了同一批文件
-在桌面与浏览器显示不同的名字。这类必须共用。而 `escape_like` 分叉了没人看得出来 —— 它只是
-SQL 通配符的转义。
+是跨端去重的**唯一**判据，字节级不同就等于这个字段作废；`inbox_primary_file_name`
+分叉了同一批文件在桌面与浏览器指向不同的文件。这类必须共用。而 `escape_like` 分叉了没人
+看得出来 —— 它只是 SQL 通配符的转义。
 
 **「三端各判一遍同一件事」是内核没把话说完的信号**（#111）。`inbox_snippet` 原本在一个候选
 都不命中时**回退整个标题**，而三端的条目行上本来就显示着标题——于是桌面无条件渲染那行重复、
@@ -337,6 +338,70 @@ SQL 通配符的转义。
 
 修法是让内核表达「不该渲染」这个状态本身（返回 `Option<String>`），而不是让每端从产出物
 反推。**判据是：如果每端都要写一段「这个返回值要不要用」的逻辑，那段逻辑属于产出它的那一层。**
+
+#### 派生展示串既不该共用，更不该落库（2026-08-04，openspec: `inbox-title-structural`）
+
+上一条说「领域规则必须共用」，但**展示串是例外，且方向相反**——它根本不该在领域层产出。
+
+收件箱条目的标题曾经由 `crates/transfer/src/inbox.rs::inbox_title` 拼成中文散文
+（「空传输」/ 文件名 /「X 等 N 个文件」）并**写进 `inbox_items.title` 落库**。三层后果，
+一层比一层不显眼：
+
+1. 三端的 Lingui 都够不着它，切语言时收件箱那一栏纹丝不动；
+2. 存量条目的语言被**写入时刻**钉死，改生成逻辑也救不回来；
+3. 移动端把它当文件名用（`isImageFile(item.title)`）——单文件条目恰好成立，
+   多文件条目的扩展名变成「个文件」，于是「收了 3 张图」既进不了「图片」筛选、
+   也拿不到对应图标，且**不报错**。
+
+现在领域层只给结构：`primary_file_name: Option<String>`（`inbox_primary_file_name` 取第 0 个）
++ 既有的 `item_count`，展示串由三端各按当前 locale 生成。这与 `localize-backend-strings`
+的「后端只发稳定语义码 + 结构化参数，翻译发生在呈现边缘」是同一条原则——`inbox_title`
+是那次遗漏的第四桶，也是唯一一桶把散文**持久化**了的。
+
+**三端各写一份三分支，刻意不收进 `packages/shared-view`**：能共享的只有
+`itemCount === 0 / === 1 / > 1` 这个判别，真正的内容是文案，而文案本就分属三套独立
+catalog（桌面 Lingui 5、Web Lingui 6、移动 Lingui 6）。为省三行引入跨 workspace 依赖不划算。
+
+**`Option` 而不是空串**：「没有文件」与「文件名恰好是空串」必须在类型上分得开，
+与 `inbox_matches` 的 `extracted_text: Option<&str>` 同一条纪律。
+⚠️ 两套 codegen 对 `Option<T>` 的映射**不同**：specta（桌面 / Web）给 `string | null`，
+uniffi（移动）给可选属性 `primaryFileName?: string`。移动端那个 hook 因此收
+`string | undefined`（它的调用点全是 uniffi 生成的类型），桌面 / Web 那两份收
+`string | null`——这不是可以统一掉的东西。**跨端复制展示逻辑时，类型签名是最后才暴露
+问题的地方**：逻辑照抄能跑，`?? ""` 也照样工作，只有 `tsc` 会拦。
+
+##### 由已索引字段派生的展示串，不进检索索引
+
+同一次改动删掉了 `inbox_fts.title` 列，**没有**按原计划另起一个 `search_text` 列。
+推导只用到包含关系：设 `T = inbox_title(files)`、`F = inbox_files_text(files)`
+（`"{name} {relative_path}"` 逐文件拼接），
+
+| files | `T` 相对 `F` 独有的可搜文本 |
+|---|---|
+| `[]` | `"空传输"` |
+| `[f]` | **无**（`F` 以 `f.name` 开头） |
+| `[first, ..]` | `" 等 N 个文件"` |
+
+所以删列后检索行为的变化**恰好两条**：搜「空传输」不再命中零文件条目、搜「个文件」
+不再命中全部多文件条目。后者是**修复**——所有多文件条目的标题都含「个文件」，
+用户搜「文件」会把它们整批捞出来。
+
+**可复用的判据：一个派生字段该不该进索引，看它相对已索引内容有没有独立信息。**
+纯函数派生且有损的投影不可能带来新信息，只可能带来模板噪音。
+`storage-sql` 的 `title_template_words_no_longer_match` 钉着这条。
+
+##### 顺带补上的既存缺陷：文件顺序此前没有任何强制
+
+`inbox_content_hash` 逐文件累加，**顺序是字节级契约**（有 known vector 钉着），
+`primary_file_name` 取第 0 个也依赖它。但 `crates/storage-sql/src/inbox.rs` 里
+`TransferSession::load().with(TransferFile)` 的关系加载**没有任何排序**——整个契约
+一直靠 SQLite「不加 `ORDER BY` 时按 rowid 返回」这一实现行为兜着。加 join、改查询计划
+或换后端都会静默改掉 `content_hash`（跨端去重的唯一判据），而那是不会报错的一类损坏。
+
+现已在构造 facts 前显式 `file_rows.sort_unstable_by_key(|f| f.id)`，顺序契约也写进了
+`InboxFileFacts` 的文档。注意源头是 **`transfer_files`** 而不是 `inbox_item_files`
+——后者是按前者顺序插入的产物，所以迁移回填用 `ORDER BY inbox_item_files.id`
+与运行时天然一致。
 
 验证这条修得对不对有个便宜的办法：改完之后**桌面与移动前端一行都没动**——它们本来就写
 `hit.snippet &&` / `hit.snippet ?`。既有写法与新语义天然吻合，说明 `Option` 才是那个字段

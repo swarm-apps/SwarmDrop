@@ -7,7 +7,12 @@
 //!
 //! 这里的规则由**所有存储实现共用**：SQL 侧（`swarmdrop-storage-sql`）与 Web 侧
 //! （`crates/web`）各自从自己的行类型构造 [`InboxFileFacts`] 再调它们。分叉即意味着
-//! 同一批文件在两端得到不同的标题、不同的内容指纹、不同的检索命中集合。
+//! 同一批文件在两端得到不同的内容指纹、不同的检索命中集合。
+//!
+//! **本模块不产出面向用户的展示串。** 条目的展示标题由各端按当前 locale 从
+//! [`InboxItemSummary::primary_file_name`] + `item_count` 生成；曾经有一个 `inbox_title`
+//! 在这里拼中文散文并落库，那是「后端只发结构化参数、翻译发生在呈现边缘」这条原则
+//! （见 openspec `localize-backend-strings`）的最后一处缺口，已于 2026-08 删除。
 //!
 //! **wasm 硬约束**：本模块只吃纯 scalar 类型，绝不出现 `entity::*::ModelEx`
 //! —— 它是 `HasMany` / `HasOne` 的宿主，一旦上签名就把 sea-orm 的关系机制拖进 wasm
@@ -30,7 +35,12 @@ pub struct InboxItemSummary {
     pub source_name: String,
     pub source_kind: entity::InboxSourceKind,
     pub content_kind: entity::InboxContentKind,
-    pub title: String,
+    /// 条目内第一个文件的文件名（「第一个」的定义见 [`InboxFileFacts`] 的顺序契约）；
+    /// 零文件条目为 `None`。
+    ///
+    /// **展示标题由各端从它 + [`item_count`](Self::item_count) 生成**，理由见模块文档。
+    /// `Option` 而不是空串：「没有文件」与「文件名恰好是空串」必须在类型上分得开。
+    pub primary_file_name: Option<String>,
     pub item_count: i32,
     pub total_size: i64,
     pub root_path: Option<String>,
@@ -80,15 +90,18 @@ pub struct InboxItemDetail {
 #[serde(rename_all = "camelCase")]
 pub struct InboxSearchHit {
     pub id: Uuid,
-    pub title: String,
+    /// 同 [`InboxItemSummary::primary_file_name`]：命中条目的展示标题由调用方按当前
+    /// locale 从它 + `item_count` 生成，命中结果里不带预拼接的标题。
+    pub primary_file_name: Option<String>,
     pub source_name: String,
     pub item_count: i32,
     pub root_path: Option<String>,
     pub received_at: i64,
     /// 命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
     ///
-    /// `None` = **不该渲染片段行**：命中的是标题或来源名（条目行上已经显示着），
-    /// 或一个候选都没命中。判据在 [`inbox_snippet`]，三端不要各判一遍。
+    /// `None` = **不该渲染片段行**：命中的是首文件名或来源名（条目行上已经显示着——
+    /// 标题的内容就是首文件名），或一个候选都没命中。
+    /// 判据在 [`inbox_snippet`]，三端不要各判一遍。
     pub snippet: Option<String>,
     /// 该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。
     pub files: Vec<InboxHitFile>,
@@ -105,6 +118,17 @@ pub struct InboxHitFile {
 
 /// 收件箱规则的中立文件视图——两端各自从自己的行类型（SQL 的 `ModelEx` /
 /// Web 的 IndexedDB 记录）构造，规则本身不认识任何存储类型。
+///
+/// **顺序契约**：调用方递进来的切片顺序**就是**该条目的文件顺序，两处依赖它：
+/// [`inbox_content_hash`] 按此顺序累加（字节级契约，顺序一变哈希就变），
+/// `primary_file_name` 取第 0 个。两端的顺序来源分别是——
+/// SQL 侧 `transfer_files.id` 升序（条目由**传输文件行**建成，`crates/storage-sql`
+/// 在构造 facts 前显式排一次；`inbox_item_files` 随后按同一顺序插入，故它的自增 id
+/// 升序与此一致，迁移回填即依赖这条），Web 侧条目内序号 0..n（写入时定、之后不变）。
+///
+/// 这条契约一直被依赖，但直到 2026-08 才写下来，且 SQL 侧当时**没有任何排序**
+/// ——靠 SQLite「不排序时按 rowid 返回」这一实现行为兜着。加 join、改查询计划或换后端
+/// 都会静默改掉哈希，所以那处已补上显式排序。
 pub struct InboxFileFacts<'a> {
     pub name: &'a str,
     pub relative_path: &'a str,
@@ -112,13 +136,14 @@ pub struct InboxFileFacts<'a> {
     pub size: i64,
 }
 
-/// 条目标题：0 个文件 →「空传输」，1 个 → 文件名，多个 →「X 等 N 个文件」。
-pub fn inbox_title(files: &[InboxFileFacts<'_>]) -> String {
-    match files {
-        [] => "空传输".to_string(),
-        [file] => file.name.to_string(),
-        [first, ..] => format!("{} 等 {} 个文件", first.name, files.len()),
-    }
+/// 条目的首文件名：零文件条目为 `None`。
+///
+/// **它只负责「取第 0 个」，不负责「第 0 个是谁」**——顺序由调用方保证，见
+/// [`InboxFileFacts`] 的顺序契约。之所以仍收成一个具名函数而不是让两端各写
+/// `files.first()`：将来若要改「哪个文件算首文件」（比如跳过隐藏文件、取最大的那个），
+/// 这里是唯一的落点，而分散的 `.first()` 会漏改一端且不报错。
+pub fn inbox_primary_file_name(files: &[InboxFileFacts<'_>]) -> Option<String> {
+    files.first().map(|file| file.name.to_string())
 }
 
 /// 条目内容指纹：逐文件累加 `relative_path ‖ 0x00 ‖ checksum ‖ size_le` 的 blake3。
@@ -173,8 +198,14 @@ pub fn is_completed_receive(session: &entity::transfer_session::Model) -> bool {
         && session.terminal_reason == Some(entity::TerminalReason::Completed)
 }
 
-/// 检索命中判据的**规范定义**：大小写不敏感子串，覆盖 title / source_name / files_text /
-/// extracted_text 四列。
+/// 检索命中判据的**规范定义**：大小写不敏感子串，覆盖 source_name / files_text /
+/// extracted_text 三列。
+///
+/// **为什么没有「标题」列。** 展示标题是 `files` 的纯函数、且是有损投影——单文件条目的
+/// 标题就是文件名（已被 `files_text` 覆盖），多文件条目只多出「等 N 个文件」，
+/// 零文件条目只多出「空传输」。它不可能带来 `files_text` 没有的信息，只可能带来模板噪音：
+/// 所有多文件条目的标题都含「个文件」，搜「文件」会把它们整批捞出来。
+/// **判据可复用**：由已索引字段派生的展示串一律不进索引。
 ///
 /// SQL 侧不调用它（那边的匹配在数据库里由 `LIKE ... ESCAPE '\'` 完成），
 /// 但 **SQL 的那段 `LIKE` 必须复刻本函数的语义**：同一个查询词在两端要给出同一个
@@ -197,7 +228,6 @@ pub fn is_completed_receive(session: &entity::transfer_session::Model) -> bool {
 /// 而 CJK 根本没有大小写。[`INBOX_MATCH_CASES`] 因此只放 ASCII 的大小写用例。
 pub fn inbox_matches(
     query: &str,
-    title: &str,
     source_name: &str,
     files_text: &str,
     extracted_text: Option<&str>,
@@ -206,8 +236,7 @@ pub fn inbox_matches(
     if needle.is_empty() {
         return false;
     }
-    contains_ci(title, &needle)
-        || contains_ci(source_name, &needle)
+    contains_ci(source_name, &needle)
         || contains_ci(files_text, &needle)
         || extracted_text.is_some_and(|text| contains_ci(text, &needle))
 }
@@ -230,7 +259,6 @@ pub struct InboxMatchCase {
     /// 断言失败时打印，说明这条守的是什么。
     pub name: &'static str,
     pub query: &'static str,
-    pub title: &'static str,
     pub source_name: &'static str,
     pub files_text: &'static str,
     pub extracted_text: Option<&'static str>,
@@ -246,14 +274,18 @@ pub struct InboxMatchCase {
 /// 覆盖面是刻意的，每一类都对应一种真实分叉：
 /// - **大小写**（ASCII）——两端都要不敏感；
 /// - **`%` / `_` / `\`** —— SQL 侧忘了 `escape_like` 就会把它们当通配符，凭空多出命中；
-/// - **四列各自独立命中 + 多列同时命中** —— 少接一列就是少一批结果；
+/// - **三列各自独立命中 + 多列同时命中** —— 少接一列就是少一批结果；
 /// - **`extracted_text = None`** —— Web 端的常态，同一个查询词在那边应当**不**命中；
 /// - **空 / 全空白 query** —— 恒不命中（SQL 侧直接短路返回空列表）。
+///
+/// **语料里没有「标题」列**，因为索引里也没有（理由见 [`inbox_matches`]）。删列时
+/// 每条用例的承载物都改挂到 `files_text` 上，覆盖意图逐条保持不变——尤其是
+/// 「2 字中文词」那条：它守的是「trigram 的 3-gram 下限不得让中文短词整体失配」，
+/// 与那个词恰好出现在哪一列无关。
 pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "来源名大小写不敏感",
         query: "alice",
-        title: "季度报告",
         source_name: "Alice 的工作站",
         files_text: "a.pdf a.pdf",
         extracted_text: None,
@@ -262,43 +294,39 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "文件文本大小写不敏感（查询词是大写）",
         query: "A.PDF",
-        title: "季度报告",
         source_name: "Alice 的工作站",
         files_text: "a.pdf a.pdf",
         extracted_text: None,
         expected: true,
     },
     InboxMatchCase {
-        name: "标题命中 2 字中文词（SQL 侧改用 LIKE 正为此）",
+        name: "文件名命中 2 字中文词（SQL 侧改用 LIKE 正为此）",
         query: "报告",
-        title: "季度报告",
         source_name: "Alice 的工作站",
-        files_text: "a.pdf a.pdf",
+        files_text: "季度报告.pdf 季度报告.pdf",
         extracted_text: None,
         expected: true,
     },
     InboxMatchCase {
-        name: "标题与文件文本同时命中，仍是一次命中",
-        query: "合同",
-        title: "合同.pdf",
-        source_name: "Bob",
-        files_text: "合同.pdf 合同.pdf",
+        // 刻意用 3 字词：2 字中文那条意图归上一条用例独占，两条各守一件事。
+        name: "来源名与文件文本同时命中，仍是一次命中",
+        query: "设计稿",
+        source_name: "设计稿中转站",
+        files_text: "设计稿.fig 设计稿.fig",
         extracted_text: None,
         expected: true,
     },
     InboxMatchCase {
-        name: "四列都不含查询词",
+        name: "三列都不含查询词",
         query: "zzz",
-        title: "季度报告",
         source_name: "Alice 的工作站",
         files_text: "a.pdf a.pdf",
         extracted_text: Some("正文里也没有"),
         expected: false,
     },
     InboxMatchCase {
-        name: "extracted_text 独立命中（其余三列都不含）",
+        name: "extracted_text 独立命中（其余两列都不含）",
         query: "发票编号",
-        title: "scan-0001.pdf",
         source_name: "Bob",
         files_text: "scan-0001.pdf scan-0001.pdf",
         extracted_text: Some("发票编号 2026-07-31"),
@@ -307,16 +335,14 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "Web 端没有文本抽取：同一查询词在 extracted_text 缺席时不得命中",
         query: "发票编号",
-        title: "scan-0001.pdf",
         source_name: "Bob",
         files_text: "scan-0001.pdf scan-0001.pdf",
         extracted_text: None,
         expected: false,
     },
     InboxMatchCase {
-        name: "% 是字面量：命中真的含 % 的标题",
+        name: "% 是字面量：命中真的含 % 的文件名",
         query: "50%",
-        title: "预算 50% 完成.pdf",
         source_name: "Bob",
         files_text: "预算 50% 完成.pdf 预算 50% 完成.pdf",
         extracted_text: None,
@@ -325,7 +351,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "% 不是通配符：a%b 不得命中 axxb（SQL 侧漏 escape_like 即在此变红）",
         query: "a%b",
-        title: "axxb.txt",
         source_name: "Bob",
         files_text: "axxb.txt axxb.txt",
         extracted_text: None,
@@ -334,7 +359,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "_ 是字面量：命中真的含下划线的文件名",
         query: "a_b",
-        title: "data_backup.zip",
         source_name: "Bob",
         files_text: "data_backup.zip data_backup.zip",
         extracted_text: None,
@@ -343,7 +367,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "_ 不是单字符通配：a_b 不得命中 axb",
         query: "a_b",
-        title: "axb.txt",
         source_name: "Bob",
         files_text: "axb.txt axb.txt",
         extracted_text: None,
@@ -352,7 +375,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "反斜杠（SQL 的 ESCAPE 字符本身）当字面量命中",
         query: r"C:\Users",
-        title: r"C:\Users\a.txt",
         source_name: "Bob",
         files_text: r"a.txt C:\Users\a.txt",
         extracted_text: None,
@@ -361,7 +383,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "空查询恒不命中",
         query: "",
-        title: "合同.pdf",
         source_name: "Bob",
         files_text: "合同.pdf 合同.pdf",
         extracted_text: Some("合同正文"),
@@ -370,7 +391,6 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
     InboxMatchCase {
         name: "全空白查询恒不命中",
         query: "   ",
-        title: "合同.pdf",
         source_name: "Bob",
         files_text: "合同.pdf 合同.pdf",
         extracted_text: Some("合同正文"),
@@ -380,28 +400,36 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
 
 /// 在文件文本里找首个命中子串，按字符切窗口生成片段（UTF-8 安全）。
 ///
-/// **命中标题或来源名时返回 `None`，不返回片段。** 那两样在三端的条目行上本来就直接显示着
-/// （标题一行、「来自 {sourceName}」一行），再给一条内容相同的片段只是把同一句话说两遍——
-/// 而片段行通常还带截断省略号，观感上更像是把标题截坏了。
+/// **命中首文件名或来源名时返回 `None`，不返回片段。** 那两样在三端的条目行上本来就直接
+/// 显示着（标题一行——其内容就是首文件名、「来自 {sourceName}」一行），再给一条内容相同的
+/// 片段只是把同一句话说两遍——而片段行通常还带截断省略号，观感上更像是把标题截坏了。
 ///
 /// 一个候选都不命中时同样返回 `None`：那种情况片段无从谈起（旧实现回退整个标题，理由是
 /// 「搜索结果总要有一行可读的说明文本」，但标题本来就在上面那行）。
+///
+/// **归属判断此前收的是拼好的标题**，那让「搜索模板文字」（如多文件条目标题里的「个文件」）
+/// 被误判成「用户要找的东西已在条目行上可见」。改收首文件名之后这种查询根本不该命中
+/// （见 [`inbox_matches`] 为什么标题不进索引），两处是同一个根因的两面。
+/// 对真实查询的行为不变：单文件条目标题就是文件名；多文件条目命中首文件名照旧不给片段、
+/// 命中第二个文件照旧给。
 ///
 /// 判据统一在这里，是因为它此前三端各判一遍：桌面无条件渲染、移动端判真、Web 端在前端
 /// 比对字符串——最后那种还编码了本函数的窗口半径与省略号规则，改这里就会静默失效。
 pub fn inbox_snippet(
     query: &str,
-    title: &str,
+    primary_file_name: Option<&str>,
     source_name: &str,
     files: &[InboxHitFile],
 ) -> Option<String> {
     // 与 `inbox_matches` 同规地 trim。此前这里不 trim，只因为两个调用点都预先 trim 过——
     // 而这是个 pub 的领域规则，靠调用点纪律维系的契约迟早会破。
     let needle = query.trim().to_lowercase();
-    // 标题与来源名只用来**判断命中归属**，不产出片段：命中它们说明用户要找的东西已经在
+    // 首文件名与来源名只用来**判断命中归属**，不产出片段：命中它们说明用户要找的东西已经在
     // 条目行上可见了。判归属用 `contains_ci` 而不是 `snippet_window(..).is_some()`——
     // 后者会把整个窗口串（含省略号、`Vec<char>` 收集）造出来只为取一个 bool，两次。
-    if contains_ci(title, &needle) || contains_ci(source_name, &needle) {
+    if primary_file_name.is_some_and(|name| contains_ci(name, &needle))
+        || contains_ci(source_name, &needle)
+    {
         return None;
     }
     files
@@ -554,7 +582,7 @@ mod tests {
             source_name: String::new(),
             source_kind: entity::InboxSourceKind::PairedDevice,
             content_kind: entity::InboxContentKind::Files,
-            title: String::new(),
+            primary_file_name: None,
             item_count: 0,
             total_size: 0,
             root_path: None,
@@ -708,20 +736,25 @@ mod tests {
         assert!(spy.calls().is_empty(), "报错时不该删任何东西");
     }
 
+    /// 首文件名只有两种结果：没有文件 → `None`，否则 → 第 0 个的 `name`。
+    ///
+    /// 三种展示形态（空 / 单 / 多）的判别交给各端按 `item_count` 做，领域层不再有
+    /// 「标题」这个概念——这条测试守的正是它**不该**再长回来。
     #[test]
-    fn title_covers_empty_single_and_multi() {
-        assert_eq!(inbox_title(&[]), "空传输");
+    fn primary_file_name_is_none_only_when_empty() {
+        assert_eq!(inbox_primary_file_name(&[]), None);
         assert_eq!(
-            inbox_title(&[facts("a.txt", "a.txt", "sum-a")]),
-            "a.txt".to_string()
+            inbox_primary_file_name(&[facts("a.txt", "a.txt", "sum-a")]),
+            Some("a.txt".to_string())
         );
+        // 多文件时取第 0 个，与 inbox_content_hash 的累加起点是同一个顺序契约。
         assert_eq!(
-            inbox_title(&[
+            inbox_primary_file_name(&[
                 facts("a.txt", "a.txt", "sum-a"),
                 facts("b.txt", "docs/b.txt", "sum-b"),
                 facts("c.txt", "docs/c.txt", "sum-c"),
             ]),
-            "a.txt 等 3 个文件"
+            Some("a.txt".to_string())
         );
     }
 
@@ -796,7 +829,6 @@ mod tests {
             assert_eq!(
                 inbox_matches(
                     case.query,
-                    case.title,
                     case.source_name,
                     case.files_text,
                     case.extracted_text,
@@ -874,43 +906,59 @@ mod tests {
         )));
     }
 
-    /// 片段**只为文件命中而生**：标题与来源名在三端的条目行上本来就显示着，
-    /// 再给一条内容相同的片段只是把同一句话说两遍。
+    /// 片段**只为「条目行上看不见的东西」而生**：首文件名（即标题的内容）与来源名
+    /// 在三端的条目行上本来就显示着，再给一条内容相同的片段只是把同一句话说两遍。
     #[test]
     fn snippet_only_for_file_hits() {
-        // 命中标题 → 不给片段（旧实现在这里返回标题本身）。
-        assert_eq!(inbox_snippet("合同", "季度合同.pdf", "Bob", &[]), None);
+        // 命中首文件名 → 不给片段（旧实现在这里返回标题本身）。
+        assert_eq!(
+            inbox_snippet("合同", Some("季度合同.pdf"), "Bob", &[]),
+            None
+        );
         // 命中来源名 → 同理。
-        assert_eq!(inbox_snippet("Bob", "季度合同.pdf", "Bob", &[]), None);
+        assert_eq!(inbox_snippet("Bob", Some("季度合同.pdf"), "Bob", &[]), None);
         // 命中文件文本 → 这才是片段有信息量的场合：命中的东西不在条目行上。
         assert_eq!(
             inbox_snippet(
                 "readme",
-                "季度合同.pdf",
+                Some("季度合同.pdf"),
                 "Bob",
                 &[hit("readme.md", "docs/readme.md")]
             ),
             Some("readme.md docs/readme.…".to_string())
         );
         // 一个候选都不命中 → 无片段可言（旧实现回退整个标题）。
-        assert_eq!(inbox_snippet("zzz", "季度合同.pdf", "Bob", &[]), None);
-        // 标题与文件同时命中时仍不给片段：标题那条已经可见，优先级不变。
+        assert_eq!(inbox_snippet("zzz", Some("季度合同.pdf"), "Bob", &[]), None);
+        // 首文件与其它文件同时命中时仍不给片段：条目行上那条已经可见，优先级不变。
         assert_eq!(
-            inbox_snippet("合同", "季度合同.pdf", "Bob", &[hit("合同附件.pdf", "")]),
+            inbox_snippet(
+                "合同",
+                Some("季度合同.pdf"),
+                "Bob",
+                &[hit("合同附件.pdf", "")]
+            ),
             None
+        );
+        // 零文件条目没有首文件名：归属判断跳过它，片段照常由文件命中产出。
+        // 收 `Option` 而不是「空条目传空串」，是为了让调用点能直接 `.as_deref()` 递
+        // `InboxItemSummary::primary_file_name`，不必 `unwrap_or_default()`——
+        // 那种转换每出现一次，就是一处「没有」与「空的」被抹平的地方。
+        assert_eq!(
+            inbox_snippet("readme", None, "Bob", &[hit("readme.md", "docs/readme.md")]),
+            Some("readme.md docs/readme.…".to_string())
         );
     }
 
     /// 窗口边界：命中在正中时首尾都加 `…`，贴边时对应一侧不加。
     /// 全程按**字符**切，CJK 不会被切成半个码点（切字节会直接 panic）。
     ///
-    /// 长文本挂在**文件名**上而不是标题上——标题命中现在不产出片段（见上一个测试）。
+    /// 长文本挂在**非首文件**上——首文件名命中现在不产出片段（见上一个测试）。
     #[test]
     fn snippet_window_is_char_based_and_marks_truncated_sides() {
         // 命中词前后各 20 个 CJK 字符，两侧都超出 ±16 的窗口。
         let long =
             "甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉合同戌亥甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未";
-        let snippet = inbox_snippet("合同", "无关标题", "", &[hit(long, "")])
+        let snippet = inbox_snippet("合同", Some("无关文件.txt"), "", &[hit(long, "")])
             .expect("文件文本命中应产出片段");
         assert!(snippet.starts_with('…'), "左侧被截断应带省略号");
         assert!(snippet.ends_with('…'), "右侧被截断应带省略号");
@@ -920,7 +968,12 @@ mod tests {
 
         // 命中贴着开头 → 左侧不加省略号；文本短于窗口 → 右侧也不加。
         assert_eq!(
-            inbox_snippet("合同", "无关标题", "", &[hit("合同扫描件", "docs")]),
+            inbox_snippet(
+                "合同",
+                Some("无关文件.txt"),
+                "",
+                &[hit("合同扫描件", "docs")]
+            ),
             Some("合同扫描件 docs".to_string())
         );
     }

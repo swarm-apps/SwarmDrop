@@ -26,7 +26,7 @@ use std::cell::RefCell;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{
     Event, IdbDatabase, IdbObjectStore, IdbOpenDbRequest, IdbRequest, IdbTransaction,
-    IdbTransactionMode,
+    IdbTransactionMode, IdbVersionChangeEvent,
 };
 
 use crate::error::{WebError, WebResult};
@@ -34,9 +34,14 @@ use crate::js_guard::JsGuard;
 
 const DB_NAME: &str = "swarmdrop-web";
 /// v1 = 仅 `kv`；v2 新增 `sessions`（传输会话持久化）；v3 新增 `invites`（邀请注册表落盘）；
-/// v4 新增 `inbox`（收件箱条目独立成表，不再是已完成接收会话的投影）。
+/// v4 新增 `inbox`（收件箱条目独立成表，不再是已完成接收会话的投影）；
+/// v5 = 收件箱条目行的 `title`（拼好的中文标题）换成 `primary_file_name`（结构化首文件名）。
+///
 /// **加 store 必须同时提版本号**，否则 `onupgradeneeded` 不触发、新 store 建不出来。
-const DB_VERSION: u32 = 4;
+/// **改记录格式同样要提**——v5 没有加 store，但 `inbox` 里的行变了形状，
+/// 而 `onupgradeneeded` 是唯一知道旧版本号、因而唯一能丢掉旧行的地方
+/// （见 [`install_upgrade_handler`]，那里也写了「为什么不能靠反序列化失败过滤」）。
+const DB_VERSION: u32 = 5;
 
 /// 单例键值 store（身份 / 已配对设备）。
 pub const KV_STORE: &str = "kv";
@@ -247,7 +252,16 @@ async fn open() -> WebResult<IdbDatabase> {
     Ok(db)
 }
 
-/// 建缺失的 object store。逐个判存在性而非按版本号分支——老库升级与新库首建走同一段代码。
+/// 建缺失的 object store，并丢弃记录格式已变的旧 store。
+///
+/// 建表那半**逐个判存在性而非按版本号分支**——老库升级与新库首建走同一段代码。
+/// 丢弃那半必须看 `old_version`：这里是「Web 端 schema 变更直接换、不写迁移」
+/// （`CLAUDE.md` 的既定判据）唯一能落地的地方，因为只有 `onupgradeneeded` 知道旧版本号。
+///
+/// **不能指望反序列化失败来过滤旧记录**：`InboxItemRowDef` 是普通 serde derive，
+/// 没有 `deny_unknown_fields`，多出来的 `title` 会被忽略、缺失的 `primary_file_name`
+/// 走 serde 对 `Option` 的缺省特例变成 `None`。于是老行**成功**读回来、以「空传输」
+/// 的形态永久占着配额，无 warn 无报错——比读失败难查得多。
 ///
 /// 返回的 guard 由调用方持有到 open 请求 settle：`forget()` 会永久泄漏 Box 及其捕获的
 /// `JsValue`（连带钉住那条连接），而这个函数在写路径上被高频调用。
@@ -255,11 +269,19 @@ fn install_upgrade_handler(
     open_request: &IdbOpenDbRequest,
 ) -> JsGuard<IdbOpenDbRequest, Closure<dyn FnMut(Event)>> {
     let upgrade_request = open_request.clone();
-    let on_upgrade = Closure::wrap(Box::new(move |_event: Event| {
+    let on_upgrade = Closure::wrap(Box::new(move |event: Event| {
         if let Ok(db) = upgrade_request
             .result()
             .and_then(|value| value.dyn_into::<IdbDatabase>())
         {
+            // v5 起收件箱条目行存 `primary_file_name` 而不是拼好的 `title`。
+            // `old_version == 0` 是新库首建，没有旧数据可丢。
+            let old_version = event
+                .dyn_ref::<IdbVersionChangeEvent>()
+                .map_or(0.0, IdbVersionChangeEvent::old_version);
+            if (1.0..5.0).contains(&old_version) {
+                let _ = db.delete_object_store(INBOX_STORE);
+            }
             for name in [KV_STORE, SESSION_STORE, INVITE_STORE, INBOX_STORE] {
                 if !db.object_store_names().contains(name) {
                     let _ = db.create_object_store(name);

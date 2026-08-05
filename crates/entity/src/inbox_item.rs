@@ -19,7 +19,12 @@ pub struct Model {
     pub source_name: String,
     pub source_kind: InboxSourceKind,
     pub content_kind: InboxContentKind,
-    pub title: String,
+    /// 条目内第一个文件的文件名；零文件条目为 `None`。
+    ///
+    /// **不是展示标题。** 三端各自按当前 locale 从它 + `item_count` 生成标题；
+    /// 此前这里是 `title: String`，存的是拼好的中文散文
+    /// （见 `m20260804_000001_inbox_structural_title`）。
+    pub primary_file_name: Option<String>,
     pub item_count: i32,
     pub total_size: i64,
     pub root_path: Option<String>,

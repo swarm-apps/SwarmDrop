@@ -48,14 +48,22 @@ msgstr "{0} items · {1}"
 msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgstr "{deviceCount, plural, one {# device} other {# devices}}"
 
+#: src/lib/format.ts
+msgid "{firstFileName} 等 {count} 个文件"
+msgstr "{firstFileName} and {count} files in total"
+
 #: src/routes/_app/transfer/-session-row.tsx
-msgid "{firstFileName} 等 {fileCount} 个文件"
-msgstr "{firstFileName} and {fileCount} files"
+#~ msgid "{firstFileName} 等 {fileCount} 个文件"
+#~ msgstr "{firstFileName} and {fileCount} files"
 
 #. placeholder {0}: ms / 1000
 #: src/stores/pairing-store.ts
 msgid "{label}超时（{0}s）"
 msgstr "{label} timed out ({0}s)"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+#~ msgid "{primaryFileName} 等 {itemCount} 个文件"
+#~ msgstr "{primaryFileName} and {itemCount} files"
 
 #: src/components/pairing/clipboard-invite-banner.tsx
 msgid "<0>{deviceName}</0> 想和你配对，点此确认"
@@ -1342,7 +1350,6 @@ msgid "未连接"
 msgstr "Not connected"
 
 #: src/routes/_app/devices/-components/device-card.tsx
-#: src/routes/_app/devices/-components/device-card.tsx
 msgid "未配对"
 msgstr "Not Paired"
 
@@ -1563,6 +1570,10 @@ msgstr "Offline"
 #: src/components/file-browser/item-actions.tsx
 msgid "移除"
 msgstr "Remove"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "空传输"
+msgstr "Empty transfer"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "端到端加密"

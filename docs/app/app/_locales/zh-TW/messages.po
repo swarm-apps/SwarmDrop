@@ -63,6 +63,10 @@ msgstr "{0} 的進度"
 msgid "{left}后失效"
 msgstr "{left}後失效"
 
+#: app/app/_components/inbox-views.tsx
+msgid "{primaryFileName} 等 {itemCount} 个文件"
+msgstr "{primaryFileName} 等 {itemCount} 個檔案"
+
 #. placeholder {0}: organizedDeviceName(device, organization)
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "「{0}」发来的文件按这里的设定处置。 策略只保存在本机，对方看不到。"
@@ -1169,6 +1173,10 @@ msgstr "移除 {0}"
 #: app/app/_components/connection-panel.tsx
 msgid "移除中…"
 msgstr "移除中…"
+
+#: app/app/_components/inbox-views.tsx
+msgid "空传输"
+msgstr "空傳輸"
 
 #: app/app/_components/transfer-detail.tsx
 msgid "等待中"
