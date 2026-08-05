@@ -9,7 +9,10 @@
 //!
 //! - 加列 / 加索引 / 加表 → `Table::alter()` / `Index::create()` / `Table::create()`，
 //!   都是 sea-query DSL。**不要 `execute_unprepared`**，这次清理的就是它。
-//! - 删列 / 改列类型 → SQLite 不支持，只能建新表拷数据。这是唯一还需要裸 SQL 的场景；
+//! - **删列 → `Table::alter().drop_column()` 就行**，SQLite 3.35（2021）起支持，本仓
+//!   捆绑的版本够新（`m20260807_000001_drop_search_index_title` 的测试钉着这一点）。
+//!   此处原先写着「SQLite 不支持删列」—— 那是 3.35 之前的事实，照它办会白建一张新表。
+//! - 改列类型 → 仍不支持，只能建新表拷数据。这是唯一还需要裸 SQL 的场景；
 //!   真遇到时先想想是不是可以再 squash 一次（本仓对存量库的取舍是「删库重建」，
 //!   代价只有传输历史与收件箱）。
 //! - **加了新 entity 或改了列，init 的冻结快照不要跟着改** —— 它是历史的固定形态，
@@ -19,6 +22,7 @@ pub use sea_orm_migration::prelude::*;
 
 mod m20260805_000001_init;
 mod m20260806_000001_inbox_title_to_file_name;
+mod m20260807_000001_drop_search_index_title;
 
 pub struct Migrator;
 
@@ -28,6 +32,7 @@ impl MigratorTrait for Migrator {
         vec![
             Box::new(m20260805_000001_init::Migration),
             Box::new(m20260806_000001_inbox_title_to_file_name::Migration),
+            Box::new(m20260807_000001_drop_search_index_title::Migration),
         ]
     }
 }

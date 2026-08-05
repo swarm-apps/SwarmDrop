@@ -408,17 +408,31 @@ docs/app/app/_lib/view-types.ts        ← 手工再导出新类型（它刻意�
 |---|---|---|
 | 1 | `pub const XXX_STORE: &str = "…"` | 编译错误（唯一会红的一处，也是最没威胁的一处） |
 | 2 | `DB_VERSION` 提一档 | `onupgradeneeded` **根本不触发** ——老库里那张表永远不存在 |
-| 3 | `install_upgrade_handler` 的 `for name in [KV_STORE, SESSION_STORE, INVITE_STORE, INBOX_STORE]` | 版本提了、回调也进了，但**不建这张表** |
+| 3 | `STORES` 表加一行 `(XXX_STORE, 引入时的版本号)` | 版本提了、回调也进了，但**不建这张表** |
 
 2 与 3 都只在**运行时**暴露，且症状一模一样：第一次读写这张表拿一个 DOM 异常
 （`NotFoundError: One of the specified object stores was not found`）。
 `cargo check` / `check-wasm.sh` / `pnpm build` 全绿，跑起来才炸 —— 而这三样是平时唯一的门。
 
+### 换字段含义同样要提版本号（2026-08-05）
+
+上面说的是「加表」。**改一张已有表的记录格式**是另一件事，而且更隐蔽：
+`inbox` 行的 `title` 从「拼好的整句标题」换成「首文件名」时，v4 与 v5 的行结构
+**逐字段相同**——旧行会**成功**反序列化，然后被前端再拼一次后缀，显示成
+「a.pdf 等 3 个文件 等 3 个文件」，**无 warn 无报错**。
+
+所以**不能指望反序列化失败来过滤旧行**，判据只能是版本号；而 `onupgradeneeded` 是唯一
+知道 `old_version` 的地方。`STORES` 表里每个 store 的第二个数字就是它的**记录格式版本**：
+低于它的旧行在升级时整表丢弃。
+
+⚠️ 这个数**不是 `DB_VERSION` 的别名**。下次为别的原因提版本号（比如加一张新表）时，
+各 store 已写下的行仍然是好的；跟着 `DB_VERSION` 走会把它们一并清掉，而且清得悄无声息。
+
 两条配套：
 
-- **`onupgradeneeded` 里只做「建缺失的 store」，逐个判存在性、不按版本号分支。**
-  老库升级与新库首建因此走同一段代码，不需要 `if old_version < 4` 这类阶梯。
-  加新表时**不要**为它开特例。
+- **建表那半只做「建缺失的 store」，逐个判存在性、不按版本号分支。**
+  老库升级与新库首建因此走同一段代码。丢弃那半才看版本号，两者在同一个循环里各司其职。
+  拿不到 `IdbVersionChangeEvent` 时一个都不丢——多留脏行只是难看，误删是真丢数据。
 - **schema 变更不写迁移 / 回填 / 双写。** Web 端目前没有真实用户，
   升版本号只为把新表建出来，旧数据直接丢弃（`inbox-store-port-completion` 的 design D7）。
   实际观感是「传输历史满的、收件箱空的」，那是**预期结果不是 bug** ——

@@ -160,9 +160,16 @@ impl WebInboxTable {
 
         let item_count = i32::try_from(files.len())
             .map_err(|_| AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
+        // 顺序契约：领域规则要求按协议层的 `file_id` 升序（见 `InboxFileFacts` 的文档）。
+        // **这里排序不是可选项**——SQL 侧同样按 `file_id` 排，两端一旦分叉，同一批文件
+        // 就会得到不同的 `content_hash`，而那是跨端去重的唯一判据。
+        // 传入的 `files` 顺序是对端 manifest 的原始顺序，`file_id` 由对端填，不保证有序。
+        let mut ordered: Vec<&entity::transfer_file::Model> = files.iter().collect();
+        ordered.sort_by_key(|file| file.file_id);
+        let files = &ordered[..];
         // 标题 / 内容指纹两条都是跨端共享的领域规则，一律调 swarmdrop_transfer::inbox
         // 的那一份，本文件只负责把行类型摊成中立视图。
-        let facts: Vec<InboxFileFacts<'_>> = files.iter().map(file_facts).collect();
+        let facts: Vec<InboxFileFacts<'_>> = files.iter().map(|file| file_facts(file)).collect();
         let title = inbox_primary_file_name(&facts);
         let content_hash = inbox_content_hash(&facts);
         // root_path = 真实容器目录（与传输投影 content_root 同一处解析：缺 local_dir 时
@@ -266,7 +273,6 @@ impl WebInboxTable {
                 let files_text = inbox_files_text(&facts);
                 if !inbox_matches(
                     trimmed,
-                    &stored.item.title,
                     &stored.item.source_name,
                     &files_text,
                     // 抽取正文恒 `None`：浏览器没有文本抽取能力。**不是空串**——空串意为
@@ -779,6 +785,50 @@ mod tests {
         // Web 侧另写一份。
         assert_eq!(detail.item.title, "hello.txt");
         assert_eq!(detail.item.item_count, 2, "「等 N 个」的 N 由这一列提供");
+    }
+
+    /// **指纹只取决于 `file_id`，与对端 manifest 的排列无关。**
+    ///
+    /// `file_id` 是对端声明的字段（从 0 递增只是诚实发送端的自律），乱序的 offer 构造得出来。
+    /// 上一条测试喂的是已排好序的 manifest，所以它**测不出**「这一端有没有排序」——
+    /// 两端各按自己的本地顺序（SQL 的 rowid / 这里的数组下标）喂给共享规则时，同一批文件
+    /// 会算出不同的指纹，而 `content_hash` 是跨端去重的唯一判据。
+    ///
+    /// 这里把同一组文件倒序喂进来，期望值仍是那个已知向量。
+    /// SQL 侧的对应约束是 `content_hash_is_independent_of_manifest_order`。
+    #[wasm_bindgen_test]
+    async fn content_hash_is_independent_of_manifest_order() {
+        let table = WebInboxTable::default();
+        let session_id = Uuid::new_v4();
+        let session = receive_session(session_id, "小明的 Mac", 1_000);
+        // 与 `content_hash_matches_shared_known_vector` 同一组文件，**manifest 顺序相反**。
+        let files = vec![
+            received_file(
+                session_id,
+                1,
+                "readme.md",
+                "docs/readme.md",
+                "checksum-1",
+                8,
+            ),
+            received_file(session_id, 0, "hello.txt", "hello.txt", "checksum-0", 12),
+        ];
+
+        let detail = table
+            .ensure_from_session(&session, &files)
+            .await
+            .expect("建条目")
+            .expect("条目");
+
+        assert_eq!(
+            detail.item.content_hash.as_deref(),
+            Some("d574ff2b0c617b92d1d827e0f3cf5410d2d3e5c1a165393969338c15f67c9a04"),
+            "manifest 倒序不得改变指纹——否则同一份东西在两端会被认成两份"
+        );
+        assert_eq!(
+            detail.item.title, "hello.txt",
+            "首文件同样按 file_id 取，不是 manifest 的第一个"
+        );
     }
 
     /// 跨「重启」存活：写穿 IndexedDB → 新实例 `load()` → 条目逐字段一致。

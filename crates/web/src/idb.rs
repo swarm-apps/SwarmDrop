@@ -26,7 +26,7 @@ use std::cell::RefCell;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{
     Event, IdbDatabase, IdbObjectStore, IdbOpenDbRequest, IdbRequest, IdbTransaction,
-    IdbTransactionMode,
+    IdbTransactionMode, IdbVersionChangeEvent,
 };
 
 use crate::error::{WebError, WebResult};
@@ -34,9 +34,12 @@ use crate::js_guard::JsGuard;
 
 const DB_NAME: &str = "swarmdrop-web";
 /// v1 = 仅 `kv`；v2 新增 `sessions`（传输会话持久化）；v3 新增 `invites`（邀请注册表落盘）；
-/// v4 新增 `inbox`（收件箱条目独立成表，不再是已完成接收会话的投影）。
-/// **加 store 必须同时提版本号**，否则 `onupgradeneeded` 不触发、新 store 建不出来。
-const DB_VERSION: u32 = 4;
+/// v4 新增 `inbox`（收件箱条目独立成表，不再是已完成接收会话的投影）；
+/// v5 = `inbox` 行里 `title` 的**含义**变了：从拼好的整句标题变成首文件名。
+///
+/// **加 store 要提版本号**（否则 `onupgradeneeded` 不触发、新 store 建不出来），
+/// **换字段含义同样要提**——v5 一个 store 都没加，但不提就没有任何地方能丢掉旧行。
+const DB_VERSION: u32 = 5;
 
 /// 单例键值 store（身份 / 已配对设备）。
 pub const KV_STORE: &str = "kv";
@@ -46,6 +49,25 @@ pub const SESSION_STORE: &str = "sessions";
 pub const INVITE_STORE: &str = "invites";
 /// 收件箱 store（key = inbox item uuid 字符串）。
 pub const INBOX_STORE: &str = "inbox";
+
+/// 全部 object store 及其**记录格式版本**——建表清单与丢弃判据的单一事实源。
+///
+/// 第二个数字是「这个 store 的记录格式**最后一次变更**时的库版本」：低于它的旧行在升级时
+/// 被丢弃，高于等于它的原样保留。它**不是** [`DB_VERSION`] 的别名——下次因为别的原因提
+/// 版本号（比如新增一个 store）时，各 store 已写下的行仍然是好的；跟着 `DB_VERSION` 走会
+/// 把它们一并清掉，而且清得悄无声息。
+///
+/// 收成一张表而不是散成「一个名字数组 + 一条 `if`」，是因为后者要求下一个改记录格式的人
+/// **照抄一个 `if` 分支**；表让同一件事变成改一个数字。`CLAUDE.md` 记的「加 store 要同改
+/// 三处」也随之收敛为两处：本表 + [`DB_VERSION`]。
+const STORES: &[(&str, u32)] = &[
+    // kv / sessions / invites 的记录格式自诞生起没变过，格式版本即它们的引入版本。
+    (KV_STORE, 1),
+    (SESSION_STORE, 2),
+    (INVITE_STORE, 3),
+    // v4 引入，v5 换了 `title` 的含义（拼好的整句 → 首文件名）。
+    (INBOX_STORE, 5),
+];
 
 /// 读一个键（不存在 → `None`）。
 async fn get(store_name: &str, key: &str) -> WebResult<Option<JsValue>> {
@@ -247,20 +269,42 @@ async fn open() -> WebResult<IdbDatabase> {
     Ok(db)
 }
 
-/// 建缺失的 object store。逐个判存在性而非按版本号分支——老库升级与新库首建走同一段代码。
+/// 按 [`STORES`] 建缺失的 object store，并丢掉记录格式已过时的旧 store。
+///
+/// 建表那半**逐个判存在性而非按版本号分支**——老库升级与新库首建走同一段代码。
+/// 丢弃那半反过来**必须**看 `old_version`：这是「Web 端 schema 变更直接换、不写迁移」
+/// （`CLAUDE.md` 的既定判据，丢掉旧 store 正是那个「直接换」）唯一能落地的地方，
+/// 因为只有 `onupgradeneeded` 知道旧版本号。
+///
+/// **不能指望反序列化失败来过滤旧行。** `inbox` 的 v4 与 v5 行结构逐字段相同，变的只是
+/// `title` 的含义（整句标题 → 首文件名），旧行会**成功**读回来，然后被前端再拼一次
+/// 「等 N 个文件」，显示成「a.pdf 等 3 个文件 等 3 个文件」——无 warn 无报错，
+/// 比读失败难查得多。所以判据只能是版本号。
+///
+/// 拿不到 `IdbVersionChangeEvent` 就一个都不丢：多留一批脏行只是显示难看，误删是真丢
+/// 用户数据。（新库首建不必特判——它一个 store 都没有，删除对它是空操作。）
 ///
 /// 返回的 guard 由调用方持有到 open 请求 settle：`forget()` 会永久泄漏 Box 及其捕获的
-/// `JsValue`（连带钉住那条连接），而这个函数在写路径上被高频调用。
+/// `JsValue`，连带钉住那条连接。
 fn install_upgrade_handler(
     open_request: &IdbOpenDbRequest,
 ) -> JsGuard<IdbOpenDbRequest, Closure<dyn FnMut(Event)>> {
     let upgrade_request = open_request.clone();
-    let on_upgrade = Closure::wrap(Box::new(move |_event: Event| {
+    let on_upgrade = Closure::wrap(Box::new(move |event: Event| {
         if let Ok(db) = upgrade_request
             .result()
             .and_then(|value| value.dyn_into::<IdbDatabase>())
         {
-            for name in [KV_STORE, SESSION_STORE, INVITE_STORE, INBOX_STORE] {
+            let old_version = event
+                .dyn_ref::<IdbVersionChangeEvent>()
+                .map(IdbVersionChangeEvent::old_version);
+
+            for &(name, format_version) in STORES {
+                // 旧行的格式已经过时 → 整个 store 丢掉重建。不存在时 `deleteObjectStore`
+                // 抛的 `NotFoundError` 被这里咽掉，与「本来就没有」同义。
+                if old_version.is_some_and(|old| old < f64::from(format_version)) {
+                    let _ = db.delete_object_store(name);
+                }
                 if !db.object_store_names().contains(name) {
                     let _ = db.create_object_store(name);
                 }

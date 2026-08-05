@@ -1148,6 +1148,9 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly default_device_name: () => [number, number];
+    readonly get_device_name: () => any;
+    readonly set_device_name: (a: number, b: number) => any;
     readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
@@ -1196,9 +1199,6 @@ export interface InitOutput {
     readonly webnode_spawn: () => any;
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly default_device_name: () => [number, number];
-    readonly get_device_name: () => any;
-    readonly set_device_name: (a: number, b: number) => any;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;
@@ -1212,15 +1212,15 @@ export interface InitOutput {
     readonly intounderlyingsink_abort: (a: number, b: any) => any;
     readonly intounderlyingsink_close: (a: number) => any;
     readonly intounderlyingsink_write: (a: number, b: any) => any;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
