@@ -44,30 +44,43 @@
 
 ## 3. 文件顺序契约
 
-- [x] 3.1 `crates/storage-sql/src/inbox.rs`：构造 facts 前 `sort_unstable_by_key(|f| f.id)`
-      （`HasMany` 只 Deref 到 `&[_]`，先 `into_iter().collect()` 摊成 Vec——是移动不是深拷）
-- [x] 3.2 注释写清这不改变现有哈希（rowid 顺序本就等于 id 升序），只是把巧合变成保证
+- [x] 3.1 `crates/storage-sql/src/inbox.rs`：构造 facts 前按 **`file_id`** 排序
+      （`HasMany` 是 enum，先 `into_iter().collect()` 摊成 Vec——是移动不是深拷）。
+      **不是主键 `id`**：那是本地自增代理键，`file_id` 才是协议层定义、两端共有的序号
+- [x] 3.2 **`crates/web/src/inbox.rs` 必须同步排序**——单边加排序反而制造跨端分叉：
+      改动前两端都用 manifest 顺序（一致），只改一侧会让乱序 offer 在两端算出不同的
+      `content_hash`。顺序契约写进 `InboxFileFacts` 文档（类型表达不了）
+- [x] 3.3 两端各加「同一批文件、manifest 排列相反 → 指纹相同」的测试，
+      并**实际验证它能抓到回归**（临时删掉排序看它是否变红）。
+      此前没有任何测试覆盖「行取出顺序」——`inbox_content_hash_known_vector` 直接构造
+      facts，根本不经过存储层
 
 ## 4. 移动端媒体判定
 
 - [x] 4.1 `isImageLike` / `isVideoLike` 加 `isSingleFileItem` 前置判断
-- [x] 4.2 注释说明「文件级谓词 vs 条目级断言」，并指出桌面 `ItemIcon` 早就是这个规矩
+- [x] 4.2 注释说明「文件级谓词 vs 条目级断言」。**别写成与桌面「同规」**——桌面是
+      `count > 1` 出归档图标，这里是 `=== 1` 才判扩展名，对 `itemCount === 0` 两端图标
+      不同（都不会认成图片/视频，而那正是这条判据要保证的）
 
 ## 5. 三道关与收尾
 
 - [x] 5.1 机器门禁：`cargo fmt --all` / `cargo test --workspace` / `cargo clippy --workspace` /
-      `./scripts/check-wasm.sh [--clippy]` / `./scripts/test-wasm.sh`（22 passed）
-- [ ] 5.2 前端门禁：桌面 `pnpm exec tsc --noEmit` + `pnpm test` + `pnpm check:zustand-access`；
+      `./scripts/check-wasm.sh [--clippy]` / `./scripts/test-wasm.sh`（23 passed）
+- [x] 5.2 前端门禁：桌面 `pnpm exec tsc --noEmit` + `pnpm test` + `pnpm check:zustand-access`；
       `docs/` 与 `mobile/` 各自 `pnpm typecheck`
-- [ ] 5.3 `/simplify` 与 `/code-review`
-- [ ] 5.4 手测：多文件条目在移动端不进「图片」筛选、不出图片图标；单文件条目仍按扩展名出图标；
-      搜文件名仍命中且非首文件命中时仍给片段；Web 端带存量 v4 数据的库升级后旧条目消失
-      而不是显示成「a.pdf 等 3 个文件 等 3 个文件」
+- [x] 5.3 `/simplify` 与 `/code-review`
+- [x] 5.4 手测 **未做**（需真机 / 真实存量库），archive 时确认四条都另有覆盖：
+      - 移动端媒体判定 → `isSingleFileItem` 的类型前提经代码审查确认（`itemCount` 是
+        uniffi 的 `number` 而非 bigint，`=== 1` 成立），`pnpm typecheck` 通过
+      - 检索不再命中标题 → `title_is_not_indexed`（哨兵词，删了索引列的守卫会红）
+      - 非首文件命中仍给片段 → `search_snippet_present_when_only_file_path_matches`（既有）
+      - Web v4 → v5 升级 → `STORES` 表的逐版本真值表经审查推演（v4 库只丢 `inbox`，
+        v1/v2/v3 删的都是尚不存在的 store）。**真实存量库上的行为仍未观测过**
 - [x] 5.5 更新知识库：`dev-notes/knowledge/storage-abstraction.md`（派生展示串不进检索索引、
       Web 换字段含义也要提 `DB_VERSION`、文件顺序契约）、
       `mobile/dev-notes/knowledge/rust-bridge.md`（uniffi 与 specta 对 `Option<T>` 的映射差异，
       锚点换成真实存在的 `root_path`）
-- [ ] 5.6 主 spec 同步**由 archive 流程做**，不手改。⚠️ OpenSpec 的 sync 规则是「保留 delta
+- [x] 5.6 主 spec 同步**由 archive 流程做**，不手改。⚠️ OpenSpec 的 sync 规则是「保留 delta
       未提及的内容」，而本 change 改了 `inbox-search` 里一条 scenario 的标题——archive 后
       要确认旧的那条没有与新的并存
 - [ ] 5.7 关闭 #110；在 #102 下说明收件箱标题已由 `rust-string-boundary` 解决

@@ -67,9 +67,13 @@
 - **WHEN** `include_archived` 为 false，且某命中条目 `archived_at` 非空
 - **THEN** 系统 SHALL NOT 返回该条目
 
-### Requirement: 索引 schema 前向兼容文本抽取
+### Requirement: FTS schema 前向兼容文本抽取
 
 索引 schema SHALL 预留一个 `extracted_text` 文本列用于未来承载 OCR / 文档文本抽取的结果，但本能力 SHALL NOT 在本期填充该列。当该列为空时，检索行为 SHALL 与不存在该列时一致，不得因空列影响匹配或排序。
+
+> Requirement 标题里的「FTS」是历史称谓：该表 2026-08-05 起已是普通表。标题**刻意不改**——
+> 改标题会让同步后的主 spec 里新旧两条并存（delta 的同步规则是「保留未提及的内容」），
+> 而重命名不值得为此单开一次 REMOVED + ADDED。
 
 #### Scenario: extracted_text 为空时检索正常
 
