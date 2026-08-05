@@ -141,22 +141,33 @@ async function wrapFfi<T>(fn: () => Promise<T> | T): Promise<T> {
 
 **相关文件**：[src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts)
 
-### 读 UniffiError.message 时必须展开 .inner
+### `UniffiError` 的 message 与 inner **都不能给用户看**（2026-08-05 修正）
 
-ubrn 的 `UniffiError` 只把 `EnumName.Variant` 塞进 `message`，真正的 payload 在 `.inner` 数组（
-uniffi enum variant 的关联字段）。直接读 `err.message` 给用户看会显示 `"FfiError.Transfer"` 这种
-没信息量的字符串。
+ubrn 的 `UniffiError` 只把 `EnumName.Variant` 塞进 `message`，payload 在 `.inner` 数组
+（uniffi enum variant 的关联字段）。
 
-**正确做法**：用 `errorMessage()` helper，它自动展开 inner。
+> **本条推翻了旧版规则。** 旧文写的是「用 `errorMessage()` helper 展开 inner」，把展开后的
+> 串当成给用户看的文案 —— 那正是问题本身：展开出来的是 **Rust 侧写的中文技术描述**
+> （`FfiError.Transfer: 收件箱条目不存在`），英文界面上原样弹出。当时有 20 处 `toast.error`
+> 这么用。`errorMessage()` 已从 `lib/utils.ts` 删除。
 
-```ts
-const inner = (err as { inner?: unknown }).inner;
-if (Array.isArray(inner) && inner.length > 0) {
-  return `${err.message}: ${inner.map(String).join(", ")}`;
-}
-```
+`err.tag` 才是**稳定的语言无关判别码**（与 Rust `AppError` 的变体名一一对应）。规则两条：
 
-**相关文件**：[src/lib/utils.ts](../../src/lib/utils.ts)
+- **用户文案** → `getErrorMessage(err)`：查 `KIND_MESSAGES` 表拿 Lingui 描述符，
+  未命中的 kind 落通用兜底。桌面 `src/lib/errors.ts` 是同构的另一份。
+- **技术细节** → 只进 `console`。`getErrorMessage` 内部已经 log 了一份，调用点不必重复；
+  需要单独取时用 `errorDetail(err)`。
+
+**判别某个 kind 也用 `tag`，不要对 message 做子串匹配。** `event-bus.ts` 曾写
+`msg.includes("NodeNotStarted")` 来静默节点切换窗口期的预期错误 —— Rust 那句话改一个字
+这条静默就失效，表现是切换节点时冒出一串无害的 warn。现在是 `isErrorKind(err, "NodeNotStarted")`。
+
+**加了新 kind 要做两件事**：Rust 侧 `FfiError` 补变体 + 双向映射，然后**重新生成绑定**
+（`FfiError_Tags` 是生成物）；JS 侧在 `KIND_MESSAGES` 加一条并补 en 译文。
+漏掉后者不会报错，只会静默落到「出错了，请重试」。
+
+**相关文件**：[src/lib/errors.ts](../../src/lib/errors.ts),
+[src/core/event-bus.ts](../../src/core/event-bus.ts)
 
 ## Panic 可见性
 

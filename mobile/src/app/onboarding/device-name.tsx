@@ -15,6 +15,7 @@ import {
   DEVICE_NAME_MAX_CHARS,
   suggestedDeviceName,
 } from "@/lib/device-name";
+import { getErrorMessage } from "@/lib/errors";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
@@ -47,7 +48,7 @@ export default function DeviceName() {
       nextStep();
       router.push("/onboarding/setup" as never);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }

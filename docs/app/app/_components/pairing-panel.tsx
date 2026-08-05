@@ -29,6 +29,7 @@ import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import { selectReservation, useWebNode } from "../_lib/store";
 import {
+  PAIRING_REFUSED_LABEL,
   toWebError,
   type PairInvitePreviewJson,
   type WebError,
@@ -51,13 +52,16 @@ export function PairingPanel() {
   // —— 消费邀请（受邀方）——
   const [inviteInput, setInviteInput] = useState("");
   /**
-   * 消费邀请成功后的结果。
+   * 消费邀请的结果 —— **成功与「对方拒绝」共用这一个 state**，因为后者不是错误。
+   *
+   * `refused !== null`：对方在确认卡上点了拒绝，或那条邀请已被撤销/用掉。网络一切正常，
+   * 所以它不能走 `WebErrorCard`（那会显示标题「网络错误」）。
    *
    * `persisted === false` 是一种「一半成功」：对端已经把本机加进它的已配对列表、本页面
    * 也能立刻用，只是这条记录没写进 IndexedDB，刷新后会不见。既不能报成失败（那会和
    * 对端的认知分叉），也不能当普通成功——所以两条信息都要显示。
    */
-  const [consumeSuccess, setConsumeSuccess] = useState<PairingOutcomeJson | null>(
+  const [consumeOutcome, setConsumeOutcome] = useState<PairingOutcomeJson | null>(
     null,
   );
   const consumeAction = useAsyncAction();
@@ -93,7 +97,7 @@ export function PairingPanel() {
    */
   const setInviteAndPreview = (link: string) => {
     setInviteInput(link);
-    setConsumeSuccess(null);
+    setConsumeOutcome(null);
     resetPreview();
     const node = getNode();
     const trimmed = link.trim();
@@ -187,16 +191,17 @@ export function PairingPanel() {
     const node = getNode();
     // 只有确认卡在场（解码验签过、不是自己的、也没配过）才允许出网。
     if (!node || preview === null) return;
-    setConsumeSuccess(null);
+    setConsumeOutcome(null);
     consumeAction.run(
       () => node.connect_invite(inviteInput.trim()),
       (outcome) => {
-        setConsumeSuccess(outcome);
+        setConsumeOutcome(outcome);
         clearInvite();
+        if (outcome.refused) return;
         refreshPairedDevices(node);
         if (!outcome.persisted) {
           // **必须是 toast，不能只靠下面那行内联提示** —— 同 `doRevokeInvite` 的理由：
-          // `consumeSuccess` 是本组件的 state，而本组件只挂在 `/app/devices`。用户配完对
+          // `consumeOutcome` 是本组件的 state，而本组件只挂在 `/app/devices`。用户配完对
           // 最自然的下一步就是去 `/app/send` 发文件，一切页组件卸载，这条**需要他记住并
           // 采取行动**的信息就没了，切回来也不再显示。文案与 `pairing-request-host.tsx`
           // 共用同一组 msgid。
@@ -450,25 +455,32 @@ export function PairingPanel() {
             </div>
           </div>
         )}
+        {/* 真错误（连不上、握手失败）才走这里。「对方拒绝」不在其中——它是正常结果，
+            连同「邀请可能已被撤销/用掉」那句解释一起挂在下面的 refused 分支上：
+            「已撤销」在受邀方本地判不出来（撤销状态只在邀请方的注册表里，那条邀请一个字节
+            都没传播过来），所以只能在拿到拒绝之后说。 */}
         {consumeAction.error && (
+          <WebErrorCard error={consumeAction.error} className="mt-2 text-xs" />
+        )}
+        {consumeOutcome?.refused && (
           <>
-            <WebErrorCard error={consumeAction.error} className="mt-2 text-xs" />
-            {/* 「已撤销」在受邀方本地判不出来——撤销状态只在邀请方的注册表里，那条邀请一个
-                字节都没传播过来（要判就得出网，与「确认卡前零出网」冲突）。所以它只能在这一步
-                现形：邀请方拒绝之后，把可能的成因说成人话，而不是让人对着一句「配对未成功」猜。 */}
+            {/* 对方拒绝**不是错误**：不走 WebErrorCard（那会给出「网络错误」这个标题）。 */}
+            <p className="mt-2 text-xs text-warning-ink">
+              {t(PAIRING_REFUSED_LABEL[consumeOutcome.refused.type])}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              <Trans>邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。</Trans>
+              <Trans>邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，也会走到这里——让对方重新生成一条。</Trans>
             </p>
           </>
         )}
-        {consumeSuccess && (
+        {consumeOutcome && !consumeOutcome.refused && (
           <>
             <p className="mt-2 text-xs text-success-ink">
               <Trans>
-                已配对：<span className="font-mono">{consumeSuccess.peerId}</span>
+                已配对：<span className="font-mono">{consumeOutcome.peerId}</span>
               </Trans>
             </p>
-            {!consumeSuccess.persisted && (
+            {!consumeOutcome.persisted && (
               <p className="mt-1 text-xs text-warning-ink">
                 <Trans>但这条记录没能存进浏览器，刷新页面后需要重新配对。</Trans>
               </p>

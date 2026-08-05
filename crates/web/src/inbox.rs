@@ -354,7 +354,7 @@ impl WebInboxTable {
             let stored = tables
                 .items
                 .get_mut(&item_id)
-                .ok_or_else(|| AppError::Transfer("收件箱条目不存在".into()))?;
+                .ok_or_else(|| AppError::SessionNotFound("收件箱条目不存在".into()))?;
             let Some(file) = stored.files.iter_mut().find(|file| file.id == file_id) else {
                 return Err(AppError::Transfer("收件箱文件不属于该条目".into()));
             };

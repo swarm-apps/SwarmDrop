@@ -23,4 +23,7 @@ pub use invite::{
     PairInvite, TransportPolicy,
 };
 pub use qr::{QrError, invite_qr_matrix, invite_qr_svg};
-pub use store::{InviteRecord, InviteStore, NoopInviteStore, PersistedInviteState};
+pub use store::{
+    InviteRecord, InviteStore, NoopInviteStore, PersistedInviteState, capability_hash_from_hex,
+    capability_hash_to_hex,
+};

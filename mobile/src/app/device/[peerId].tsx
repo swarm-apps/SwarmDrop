@@ -67,8 +67,9 @@ import {
 } from "@/core/device-trust";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
+import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
-import { cn, errorMessage, lastPathSegment } from "@/lib/utils";
+import { cn, lastPathSegment } from "@/lib/utils";
 import {
   summariesToOfflineDevices,
   useMobileCoreStore,
@@ -171,7 +172,7 @@ export default function DeviceDetailScreen() {
         );
         policySheetRef.current?.dismiss();
       } catch (err) {
-        toast.error(t`策略保存失败`, errorMessage(err));
+        toast.error(t`策略保存失败`, getErrorMessage(err));
       } finally {
         setSavingAction(null);
       }
@@ -210,7 +211,7 @@ export default function DeviceDetailScreen() {
       toast.success(t`已取消配对`);
       router.back();
     } catch (err) {
-      toast.error(t`取消配对失败`, errorMessage(err));
+      toast.error(t`取消配对失败`, getErrorMessage(err));
     } finally {
       setSavingAction(null);
     }
@@ -589,12 +590,12 @@ function PolicyEditor({
       try {
         dir.list();
       } catch (probeErr) {
-        toast.error(t`此目录不可读`, errorMessage(probeErr));
+        toast.error(t`此目录不可读`, getErrorMessage(probeErr));
         return;
       }
       patchPolicy({ defaultSaveLocation: dir.uri });
     } catch (err) {
-      toast.error(t`选择失败`, errorMessage(err));
+      toast.error(t`选择失败`, getErrorMessage(err));
     }
   };
 

@@ -724,7 +724,7 @@ impl InboxStore for WebTransferStore {
         session_id: Uuid,
     ) -> AppResult<Option<InboxItemDetail>> {
         let Some((session, files)) = self.session_rows(session_id) else {
-            return Err(AppError::Transfer("传输会话不存在".into()));
+            return Err(AppError::SessionNotFound("传输会话不存在".into()));
         };
         let detail = self.inbox.ensure_from_session(&session, &files).await?;
         Ok(detail.map(|detail| self.attach_transfer(detail)))

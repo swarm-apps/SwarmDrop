@@ -102,7 +102,7 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
         .with(entity::TransferFile)
         .one(db)
         .await?
-        .ok_or_else(|| swarmdrop_host::AppError::Transfer("传输会话不存在".into()))?;
+        .ok_or_else(|| swarmdrop_host::AppError::SessionNotFound("传输会话不存在".into()))?;
 
     // 先把关系字段摘下来，再把 `ModelEx` 摊成纯 scalar 的 `Model`：共享判据
     // `is_completed_receive` 只吃 `Model`（关系机制编不进 wasm）。两步都是移动而非

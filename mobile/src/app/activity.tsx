@@ -180,10 +180,7 @@ export default function ActivityScreen() {
         toast.success(t`已开始恢复传输`);
         goDetail(nextSessionId);
       } catch (err) {
-        toast.error(
-          t`恢复失败`,
-          err instanceof Error ? err.message : String(err),
-        );
+        toast.error(t`恢复失败`, err);
       }
     },
     [goDetail, resumeHistoryItem, t],

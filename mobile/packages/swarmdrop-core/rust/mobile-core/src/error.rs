@@ -29,6 +29,10 @@ pub enum FfiError {
     ExpiredCode,
     #[error("invalid pairing code")]
     InvalidCode,
+    #[error("not found: {0}")]
+    SessionNotFound(String),
+    #[error("storage error: {0}")]
+    StorageFailed(String),
     #[error("transfer error: {0}")]
     Transfer(String),
     #[error("database error: {0}")]
@@ -50,6 +54,8 @@ impl From<AppError> for FfiError {
             AppError::ExpiredCode => Self::ExpiredCode,
             AppError::InvalidCode => Self::InvalidCode,
             AppError::TaskJoin(error) => Self::Network(error.to_string()),
+            AppError::SessionNotFound(message) => Self::SessionNotFound(message),
+            AppError::StorageFailed(message) => Self::StorageFailed(message),
             AppError::Transfer(message) => Self::Transfer(message),
             AppError::Database(error) => Self::Database(error.to_string()),
         }
@@ -73,6 +79,8 @@ impl From<FfiError> for AppError {
             FfiError::NodeNotStarted => AppError::NodeNotStarted,
             FfiError::ExpiredCode => AppError::ExpiredCode,
             FfiError::InvalidCode => AppError::InvalidCode,
+            FfiError::SessionNotFound(message) => AppError::SessionNotFound(message),
+            FfiError::StorageFailed(message) => AppError::StorageFailed(message),
             FfiError::Transfer(message) => AppError::Transfer(message),
             // sea_orm::DbErr::Custom 接受 String，可如实保留 Database 类型
             FfiError::Database(message) => AppError::Database(sea_orm::DbErr::Custom(message)),

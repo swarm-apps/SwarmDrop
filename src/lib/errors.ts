@@ -45,6 +45,9 @@ const KIND_MESSAGES: Record<string, MessageDescriptor> = {
   InvalidCode: msg`邀请无效或已被使用`,
   Network: msg`网络连接出现问题，请稍后重试`,
   Transfer: msg`文件传输失败，请重试`,
+  // 会话 / 挂起 offer / 收件箱条目已经不在了——用户的动作是回列表重来，不是重试这一次。
+  SessionNotFound: msg`这条记录已经不在了，请返回列表重新开始`,
+  StorageFailed: msg`保存失败，请检查磁盘空间或更换保存位置`,
   // **只在密钥材料真的读写失败时出现**。它一度是配对路径的垃圾桶（peer_id 解析、
   // 二维码生成、邀请状态没落盘、设备找不到全都包成它），于是用户在「点接受配对」时
   // 会看到一句与真实原因毫无关系的「设备身份初始化失败」。那些已各自拆出 kind。

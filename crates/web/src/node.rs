@@ -21,7 +21,9 @@ use swarmdrop_core::protocol::pairing::{PairingRefuseReason, PairingResponse};
 use swarmdrop_core::runtime::{EndpointProfile, start_node};
 use swarmdrop_host::device::{DeviceName, DeviceReceivePolicy, DeviceTrustLevel};
 use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId, PairedDeviceStore};
-use swarmdrop_invite::{InviteParseError, PairInvite, TransportPolicy};
+use swarmdrop_invite::{
+    InviteParseError, PairInvite, TransportPolicy, capability_hash_from_hex, capability_hash_to_hex,
+};
 use swarmdrop_net::{Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
 use swarmdrop_transfer::coordinator::TransferCoordinator;
 use swarmdrop_transfer::events::TransferEventSink;
@@ -42,7 +44,7 @@ use crate::paired_devices::WebPairedDeviceStore;
 use crate::store::{WebStore, WebTransferStore};
 use crate::types::{
     ConnectionJson, InviteListItemJson, OfferJson, PairInvitePreviewJson, PairingOutcomeJson,
-    PendingPairingJson, RelayInfoJson, RelayStateKind,
+    PairingRefusedJson, PendingPairingJson, RelayInfoJson, RelayStateKind,
 };
 
 /// 浏览器连接与 reservation 的最大等待时间。超时会通过 Endpoint 的取消路径
@@ -473,10 +475,11 @@ impl WebNode {
     /// 侧，浏览器侧无需交互。配对后该对端进入本机信任表，双向传输（收 / 发）不再被
     /// `NotPaired` 拦。
     ///
-    /// 返回 [`PairingOutcomeJson`]：`peerId` 是已配对对端的 NodeId，`persisted` 为 `false` 时
-    /// 表示配对成功了但没写进 IndexedDB —— 刷新页面后这台设备会不见（对端仍记着）。
+    /// 返回 [`PairingOutcomeJson`]：`refused` 非空表示对方拒绝了（**不是错误**），
+    /// 否则 `peerId` 是已配对对端的 NodeId，`persisted` 为 `false` 时表示配对成功了但没写进
+    /// IndexedDB —— 刷新页面后这台设备会不见（对端仍记着）。
     pub async fn connect_invite(&self, invite: String) -> Result<PairingOutcomeJs, JsValue> {
-        let (_, paired) = self
+        let (response, paired) = self
             .net_manager
             .pairing()
             .pair_with_invite(&invite)
@@ -484,9 +487,36 @@ impl WebNode {
             .map_err(WebError::from)?;
 
         // `paired.is_some()` 与「响应是 Success」是同一件事 —— core 只在成功那一臂构造
-        // commit（`PairingManager::request_pairing`），所以不必把 response 再判一遍。
-        let Some(commit) = paired else {
-            return Err(WebError::network("邀请方拒绝了配对或配对未成功").into());
+        // commit（`PairingManager::request_pairing`），所以拒绝原因只能从 response 取。
+        //
+        // **不再包成 `WebError`。** 「对方点了拒绝」是一次完全正常的交互，压成 `network`
+        // kind 会让用户看到「网络错误」加一句写死的简体中文；桌面 `pairing-store.ts` 一直
+        // 是按 reason 出文案的，Web 这条分叉纯属遗漏。
+        let commit = match paired {
+            Some(commit) => commit,
+            None => {
+                // 穷尽 match：内核加一个拒绝原因，这里编译失败 —— 那正是本地投影
+                // `PairingRefusedJson` 的安全性来源（见其文档）。
+                let refused = Some(match response {
+                    PairingResponse::Refused {
+                        reason: PairingRefuseReason::UserRejected,
+                    } => PairingRefusedJson::UserRejected,
+                    // 走不到：core 在 Success 那一臂必构造 commit。真到了这里说明上游变了，
+                    // 按「对方拒绝」处理是最不误导的降级。
+                    PairingResponse::Success => {
+                        tracing::warn!("配对响应为 Success 但没有 commit，按拒绝处理");
+                        PairingRefusedJson::UserRejected
+                    }
+                });
+                return to_js_typed(
+                    &PairingOutcomeJson {
+                        refused,
+                        peer_id: String::new(),
+                        persisted: true,
+                    },
+                    "配对结果",
+                );
+            }
         };
 
         // 落盘 / 共享内存表 / `PairedDeviceAdded` 事件都已由 core 的
@@ -496,6 +526,7 @@ impl WebNode {
         // receive_policy 不会被静默重置。
         to_js_typed(
             &PairingOutcomeJson {
+                refused: None,
                 peer_id: commit.device.peer_id.to_string(),
                 persisted: commit.persisted,
             },
@@ -568,7 +599,7 @@ impl WebNode {
             .list_invites()
             .into_iter()
             .map(|summary| InviteListItemJson {
-                id: hex_lower(&summary.capability_hash),
+                id: capability_hash_to_hex(&summary.capability_hash),
                 created_at: summary.created_at.to_string(),
                 expires_at: summary.expires_at.to_string(),
                 consumed: summary.consumed,
@@ -582,7 +613,7 @@ impl WebNode {
     pub async fn revoke_invite_by_id(&self, id: String) -> Result<bool, JsValue> {
         // 入参格式错不是网络错误 —— `kind` 是前端渲染文案的判别码，报 `network` 会让用户
         // 看到「网络连接出现问题，请稍后重试」。桌面/移动同一处用的是 `InvalidArgument`。
-        let hash = parse_hex32(&id)
+        let hash = capability_hash_from_hex(&id)
             .ok_or_else(|| JsValue::from(WebError::invalid_input("邀请标识格式非法")))?;
         Ok(self.net_manager.pairing().revoke_invite_by_hash(hash).await)
     }
@@ -1291,26 +1322,4 @@ fn split_p2p_addr(s: &str) -> Result<(NodeId, swarmdrop_net::Addr), JsValue> {
         .p2p_node_id()
         .ok_or_else(|| WebError::invalid_input("地址须含 /p2p/<node-id>"))?;
     Ok((id, addr))
-}
-
-/// `[u8; 32]` → 小写 hex（邀请列表条目的不透明 ID）。
-fn hex_lower(bytes: &[u8; 32]) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
-/// 小写 hex → `[u8; 32]`（[`hex_lower`] 的逆），长度或字符非法返回 `None`。
-fn parse_hex32(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (index, slot) in out.iter_mut().enumerate() {
-        *slot = u8::from_str_radix(text.get(index * 2..index * 2 + 2)?, 16).ok()?;
-    }
-    Some(out)
 }

@@ -49,7 +49,7 @@ async fn opfs_root() -> AppResult<FileSystemDirectoryHandle> {
     {
         Ok(r) => r.map_err(js_to_err)?,
         Err(_) => {
-            return Err(AppError::Transfer(
+            return Err(AppError::StorageFailed(
                 "OPFS getDirectory 5s 超时——navigator.storage 未响应（非 secure context？）".into(),
             ));
         }
@@ -125,7 +125,7 @@ pub(crate) async fn open_writable(
 pub(crate) async fn remove_path(relative_path: &str) -> AppResult<bool> {
     match n0_future::time::timeout(Duration::from_secs(5), remove_path_inner(relative_path)).await {
         Ok(result) => result,
-        Err(_) => Err(AppError::Transfer(
+        Err(_) => Err(AppError::StorageFailed(
             "OPFS 删除 5s 超时——写句柄未释放，或 navigator.storage 未响应".into(),
         )),
     }
@@ -181,7 +181,7 @@ pub async fn export_blob_url(relative_path: &str) -> AppResult<String> {
         .await
     {
         Ok(result) => result,
-        Err(_) => Err(AppError::Transfer(
+        Err(_) => Err(AppError::StorageFailed(
             "下载失败：OPFS 文件未就绪（会话未完成？）——5s 超时".into(),
         )),
     }
@@ -202,7 +202,7 @@ async fn export_blob_url_inner(relative_path: &str) -> AppResult<String> {
 /// 消息提取与 IndexedDB 侧共用 [`crate::error::js_message`]——这些错误（配额不足、
 /// NotFoundError…）会一路渲染到收件箱的错误卡片上，不能是 `JsValue` 的 Debug 噪音。
 pub(crate) fn js_to_err(v: JsValue) -> AppError {
-    AppError::Transfer(format!(
+    AppError::StorageFailed(format!(
         "OPFS 错误: {}",
         crate::error::js_message(&v, "未知 JS 异常")
     ))

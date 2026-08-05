@@ -41,8 +41,9 @@ import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
+import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
-import { cn, errorMessage } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   mergePairedDevicesWithCache,
   useMobileCoreStore,
@@ -147,7 +148,7 @@ export default function ShareTargetScreen() {
       try {
         panicDetail = getMobileCore().takeLastPanic() ?? undefined;
       } catch {}
-      toast.error(t`发送失败`, panicDetail ?? errorMessage(err));
+      toast.error(t`发送失败`, panicDetail ?? getErrorMessage(err));
     } finally {
       setSending(false);
       setPrepareProgress(null);

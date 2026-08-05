@@ -10,8 +10,9 @@ import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { applyDeviceName, DEVICE_NAME_MAX_CHARS } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
+import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
-import { errorMessage, truncateMiddle } from "@/lib/utils";
+import { truncateMiddle } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
@@ -60,7 +61,7 @@ export function DeviceInfoCard() {
         await applyDeviceName(trimmed);
         toast.success(t`设备名称已更新`);
       } catch (err) {
-        toast.error(errorMessage(err));
+        toast.error(getErrorMessage(err));
         return;
       }
     }

@@ -2718,6 +2718,8 @@ export enum FfiError_Tags {
     NodeNotStarted = "NodeNotStarted",
     ExpiredCode = "ExpiredCode",
     InvalidCode = "InvalidCode",
+    SessionNotFound = "SessionNotFound",
+    StorageFailed = "StorageFailed",
     Transfer = "Transfer",
     Database = "Database"
 }
@@ -3100,6 +3102,92 @@ Readonly<
 
     }
 
+    type SessionNotFound__interface = {
+        tag: FfiError_Tags.SessionNotFound;
+        inner: 
+Readonly<
+[string
+]>
+    };
+    class SessionNotFound_ extends UniffiError implements SessionNotFound__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "FfiError";
+        readonly tag = FfiError_Tags.SessionNotFound;
+        readonly inner: 
+Readonly<
+[string
+]>;
+        constructor(v0: string) {
+            super("FfiError", "SessionNotFound");
+
+            this.inner = Object.freeze([v0]);
+        }
+        static new(v0: string): SessionNotFound_ {
+            return new SessionNotFound_(v0);
+        }
+
+        static instanceOf(obj: any): obj is SessionNotFound_ {
+            return obj.tag === FfiError_Tags.SessionNotFound;
+        }
+        static hasInner(obj: any): obj is SessionNotFound_ {
+            return SessionNotFound_.instanceOf(obj);
+        }
+
+        static getInner(obj: SessionNotFound_): 
+Readonly<
+[string
+]> {
+            return obj.inner;
+        }
+
+    }
+
+    type StorageFailed__interface = {
+        tag: FfiError_Tags.StorageFailed;
+        inner: 
+Readonly<
+[string
+]>
+    };
+    class StorageFailed_ extends UniffiError implements StorageFailed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "FfiError";
+        readonly tag = FfiError_Tags.StorageFailed;
+        readonly inner: 
+Readonly<
+[string
+]>;
+        constructor(v0: string) {
+            super("FfiError", "StorageFailed");
+
+            this.inner = Object.freeze([v0]);
+        }
+        static new(v0: string): StorageFailed_ {
+            return new StorageFailed_(v0);
+        }
+
+        static instanceOf(obj: any): obj is StorageFailed_ {
+            return obj.tag === FfiError_Tags.StorageFailed;
+        }
+        static hasInner(obj: any): obj is StorageFailed_ {
+            return StorageFailed_.instanceOf(obj);
+        }
+
+        static getInner(obj: StorageFailed_): 
+Readonly<
+[string
+]> {
+            return obj.inner;
+        }
+
+    }
+
     type Transfer__interface = {
         tag: FfiError_Tags.Transfer;
         inner: 
@@ -3203,13 +3291,15 @@ Readonly<
   NodeNotStarted: NodeNotStarted_, 
   ExpiredCode: ExpiredCode_, 
   InvalidCode: InvalidCode_, 
+  SessionNotFound: SessionNotFound_, 
+  StorageFailed: StorageFailed_, 
   Transfer: Transfer_, 
   Database: Database_
     });
 
 })();
 export type FfiError = InstanceType<
-    typeof FfiError['Io' | 'Serialization' | 'Network' | 'Identity' | 'IdentityNotReady' | 'InvalidArgument' | 'InvitePersistFailed' | 'DeviceNotFound' | 'NodeNotStarted' | 'ExpiredCode' | 'InvalidCode' | 'Transfer' | 'Database']
+    typeof FfiError['Io' | 'Serialization' | 'Network' | 'Identity' | 'IdentityNotReady' | 'InvalidArgument' | 'InvitePersistFailed' | 'DeviceNotFound' | 'NodeNotStarted' | 'ExpiredCode' | 'InvalidCode' | 'SessionNotFound' | 'StorageFailed' | 'Transfer' | 'Database']
 >;
 
 // FfiConverter for enum FfiError
@@ -3230,8 +3320,10 @@ const FfiConverterTypeFfiError = (() => {
                 case 9: return new FfiError.NodeNotStarted();
                 case 10: return new FfiError.ExpiredCode();
                 case 11: return new FfiError.InvalidCode();
-                case 12: return new FfiError.Transfer(FfiConverterString.read(from));
-                case 13: return new FfiError.Database(FfiConverterString.read(from));
+                case 12: return new FfiError.SessionNotFound(FfiConverterString.read(from));
+                case 13: return new FfiError.StorageFailed(FfiConverterString.read(from));
+                case 14: return new FfiError.Transfer(FfiConverterString.read(from));
+                case 15: return new FfiError.Database(FfiConverterString.read(from));
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -3291,14 +3383,26 @@ const FfiConverterTypeFfiError = (() => {
                     ordinalConverter.write(11, into);
                     return;
                 }
-                case FfiError_Tags.Transfer: {
+                case FfiError_Tags.SessionNotFound: {
                     ordinalConverter.write(12, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
                 }
-                case FfiError_Tags.Database: {
+                case FfiError_Tags.StorageFailed: {
                     ordinalConverter.write(13, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner[0], into);
+                    return;
+                }
+                case FfiError_Tags.Transfer: {
+                    ordinalConverter.write(14, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner[0], into);
+                    return;
+                }
+                case FfiError_Tags.Database: {
+                    ordinalConverter.write(15, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
@@ -3358,15 +3462,27 @@ const FfiConverterTypeFfiError = (() => {
                 case FfiError_Tags.InvalidCode: {
                     return ordinalConverter.allocationSize(11);
                 }
-                case FfiError_Tags.Transfer: {
+                case FfiError_Tags.SessionNotFound: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(12);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }
-                case FfiError_Tags.Database: {
+                case FfiError_Tags.StorageFailed: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(13);
+                    size += FfiConverterString.allocationSize(inner[0]);
+                    return size;
+                }
+                case FfiError_Tags.Transfer: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(14);
+                    size += FfiConverterString.allocationSize(inner[0]);
+                    return size;
+                }
+                case FfiError_Tags.Database: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(15);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }

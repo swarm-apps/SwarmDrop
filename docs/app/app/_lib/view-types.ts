@@ -35,7 +35,12 @@ import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 // 上面那段是**纯再导出**（`export type {...}`），本模块自己用不到那些名字——
 // 下面的标签映射要按枚举取值建 Record，所以另 import 一次。
-import type { InboxItemSummary, OfferRejectReason, WebError } from "swarmdrop-web";
+import type {
+  InboxItemSummary,
+  OfferRejectReason,
+  PairingRefusedJson,
+  WebError,
+} from "swarmdrop-web";
 import type { TimeBucketKey } from "@swarmdrop/shared-view";
 
 /** 动态 import 的模块类型：跟随生成的 .d.ts（含 default=init 与 `WebNode` class，带 static spawn）。 */
@@ -53,8 +58,22 @@ export const WEB_ERROR_KIND_LABEL: Record<WebError["kind"], MessageDescriptor> =
   transfer: msg`传输错误`,
   invalidInput: msg`输入无效`,
   aborted: msg`已取消`,
-  notFound: msg`未找到`,
-  storage: msg`存储错误`,
+  // 这两条对应内核的 `SessionNotFound` / `StorageFailed`（见 crates/web/src/error.rs 的映射）。
+  // 写成动作而不是名词：「未找到」「存储错误」说完等于没说。
+  notFound: msg`这条记录已经不在了，请返回列表重新开始`,
+  storage: msg`保存失败，浏览器存储可能已满或被拒绝`,
+};
+
+/**
+ * `PairingRefusedJson["type"]` 的标签 —— **对方拒绝配对不是错误**，所以它有自己的文案表，
+ * 不走 `WEB_ERROR_KIND_LABEL`。
+ *
+ * 这里曾经根本不存在：`connect_invite` 把拒绝包成 `WebError::network(中文串)`，于是用户
+ * 看到的是标题「网络错误」加一句未经本地化的简体中文，而网络完全正常。桌面
+ * （`src/stores/pairing-store.ts`）一直是按 reason 出文案的，Web 这条是遗漏。
+ */
+export const PAIRING_REFUSED_LABEL: Record<PairingRefusedJson["type"], MessageDescriptor> = {
+  user_rejected: msg`对方拒绝了这次配对`,
 };
 
 /**

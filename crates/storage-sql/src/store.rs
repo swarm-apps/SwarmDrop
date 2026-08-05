@@ -274,7 +274,9 @@ impl SessionStore for SqlSessionStore {
             .one(self.db())
             .await?
         else {
-            return Err(swarmdrop_host::AppError::Transfer("会话不存在".into()));
+            return Err(swarmdrop_host::AppError::SessionNotFound(
+                "会话不存在".into(),
+            ));
         };
 
         let mut model = session.into_active_model();

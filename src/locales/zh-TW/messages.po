@@ -266,6 +266,10 @@ msgstr "儲存位置"
 msgid "保存到"
 msgstr "儲存到"
 
+#: src/lib/errors.ts
+msgid "保存失败，请检查磁盘空间或更换保存位置"
+msgstr "儲存失敗，請檢查磁碟空間或更換儲存位置"
+
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "保存策略"
 msgstr "儲存策略"
@@ -1929,6 +1933,10 @@ msgstr "這些資訊僅儲存在本機，不會同步給對端。"
 #: src/stores/pairing-store.ts
 msgid "这是本机生成的邀请"
 msgstr "這是本機產生的邀請"
+
+#: src/lib/errors.ts
+msgid "这条记录已经不在了，请返回列表重新开始"
+msgstr "這筆記錄已經不在了，請返回列表重新開始"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "进入 SwarmDrop"

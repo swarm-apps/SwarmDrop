@@ -61,9 +61,10 @@ import {
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
+import { getErrorMessage } from "@/lib/errors";
 import { warnIfPairingNotPersisted } from "@/lib/pairing-feedback";
 import { toast } from "@/lib/toast";
-import { cn, errorMessage } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   mergePairedDevicesWithCache,
   type RuntimeState,
@@ -239,7 +240,7 @@ export default function DevicesScreen() {
         toast.error(t`启动节点失败`, result.error);
       }
     } catch (err) {
-      toast.error(t`启动节点失败`, errorMessage(err));
+      toast.error(t`启动节点失败`, getErrorMessage(err));
     }
   }, [startNode, t]);
 
@@ -638,7 +639,7 @@ const AddDeviceSheet = forwardRef<
         if (pairingAttemptRef.current !== attempt) return;
         clearPairingTimeout();
         setPairingPeer(null);
-        setPairingError(errorMessage(err));
+        setPairingError(getErrorMessage(err));
       }
     },
     [onSend, pairingPeer, router, t, clearPairingTimeout],

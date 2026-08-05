@@ -466,7 +466,7 @@ pub async fn delete_inbox_item(
         let detail = store
             .get_inbox_item_detail(item_id)
             .await?
-            .ok_or_else(|| AppError::Transfer("收件箱记录不存在".into()))?;
+            .ok_or_else(|| AppError::SessionNotFound("收件箱记录不存在".into()))?;
         for file in &detail.files {
             if let Err(e) = files.delete_finalized_file(&file.local_path).await {
                 tracing::warn!(

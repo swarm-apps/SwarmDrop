@@ -227,6 +227,10 @@ msgstr "儲存中…"
 msgid "保存分组名"
 msgstr "儲存群組名稱"
 
+#: app/app/_lib/view-types.ts
+msgid "保存失败，浏览器存储可能已满或被拒绝"
+msgstr "儲存失敗，瀏覽器儲存空間可能已滿或被拒絕"
+
 #: app/app/_components/device-card.tsx
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "信任策略"
@@ -522,8 +526,8 @@ msgid "失败"
 msgstr "失敗"
 
 #: app/app/_lib/view-types.ts
-msgid "存储错误"
-msgstr "儲存錯誤"
+#~ msgid "存储错误"
+#~ msgstr "儲存錯誤"
 
 #: app/app/_components/group-manager-dialog.tsx
 msgid "完成"
@@ -552,6 +556,10 @@ msgstr "對方已暫停接收，請稍後再試"
 #: app/app/_lib/view-types.ts
 msgid "对方拒绝了此次传输"
 msgstr "對方拒絕了這次傳輸"
+
+#: app/app/_lib/view-types.ts
+msgid "对方拒绝了这次配对"
+msgstr "對方拒絕了這次配對"
 
 #: app/app/_components/transfer-labels.ts
 msgid "对方暂停"
@@ -697,7 +705,7 @@ msgstr "已送達"
 msgid "已选 {0} 个文件 · 共 <0>{1}</0>"
 msgstr "已選 {0} 個檔案 · 共 <0>{1}</0>"
 
-#. placeholder {0}: consumeSuccess.peerId
+#. placeholder {0}: consumeOutcome.peerId
 #: app/app/_components/pairing-panel.tsx
 msgid "已配对：<0>{0}</0>"
 msgstr "已配對：<0>{0}</0>"
@@ -938,8 +946,8 @@ msgid "未打开"
 msgstr "未開啟"
 
 #: app/app/_lib/view-types.ts
-msgid "未找到"
-msgstr "找不到"
+#~ msgid "未找到"
+#~ msgstr "找不到"
 
 #: app/app/_components/connection-badge.tsx
 msgid "未知"
@@ -1392,6 +1400,10 @@ msgstr "這是本機產生的邀請——請把它傳給對方，不是自己用
 msgid "这条发送只能在本页完成：刷新或关闭标签页后，浏览器读不回你选过的文件，会话与进度会一并消失。暂停后也只能在本页续传。"
 msgstr "這筆傳送只能在本頁完成：重新整理或關閉分頁後，瀏覽器讀不回你選過的檔案，工作階段與進度會一併消失。暫停後也只能在本頁續傳。"
 
+#: app/app/_lib/view-types.ts
+msgid "这条记录已经不在了，请返回列表重新开始"
+msgstr "這筆記錄已經不在了，請返回列表重新開始"
+
 #: app/app/_components/pairing-panel.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"
 msgstr "這組邀請已過期，請對方重新產生一組。"
@@ -1490,8 +1502,12 @@ msgid "邀请已过期"
 msgstr "邀請已過期"
 
 #: app/app/_components/pairing-panel.tsx
-msgid "邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。"
-msgstr "邀請是一次性的：若對方已撤銷它、或它已被別的裝置用掉，就會走到這裡——請對方重新產生一組。"
+msgid "邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，也会走到这里——让对方重新生成一条。"
+msgstr "邀請是一次性的：若對方已撤銷它、或它已被別的裝置用掉，也會走到這裡——讓對方重新產生一條。"
+
+#: app/app/_components/pairing-panel.tsx
+#~ msgid "邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。"
+#~ msgstr "邀請是一次性的：若對方已撤銷它、或它已被別的裝置用掉，就會走到這裡——請對方重新產生一組。"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "邀请有效期 {INVITE_TTL_HOURS} 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存）， 不想让它继续可用就撤销，需要再分享请重新生成。"

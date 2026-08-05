@@ -488,7 +488,7 @@ async fn load_resumable_session(
     let session = store
         .find_session(session_id)
         .await?
-        .ok_or_else(|| AppError::Transfer("会话不存在".into()))?;
+        .ok_or_else(|| AppError::SessionNotFound("会话不存在".into()))?;
 
     if !matches!(session.phase, TransferPhase::Suspended) || !session.recoverable {
         return Err(AppError::Transfer(format!(

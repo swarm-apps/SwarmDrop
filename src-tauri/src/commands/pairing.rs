@@ -156,7 +156,7 @@ pub async fn list_pair_invites(
             .list_invites()
             .into_iter()
             .map(|summary| PairInviteListItem {
-                id: hex_lower(&summary.capability_hash),
+                id: swarmdrop_invite::capability_hash_to_hex(&summary.capability_hash),
                 created_at: summary.created_at as i64,
                 expires_at: summary.expires_at as i64,
                 consumed: summary.consumed,
@@ -176,61 +176,21 @@ pub async fn revoke_pair_invite_by_id(
     net: State<'_, NetManagerState>,
     id: String,
 ) -> AppResult<bool> {
-    let hash = parse_hex32(&id)?;
+    let hash = parse_invite_id(&id)?;
     with_manager!(net, |m| AppResult::Ok(
         m.pairing().revoke_invite_by_hash(hash).await
     ))
 }
 
-fn hex_lower(bytes: &[u8; 32]) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
-fn parse_hex32(text: &str) -> AppResult<[u8; 32]> {
-    let invalid = || AppError::invalid_argument("邀请标识格式非法");
-    if text.len() != 64 {
-        return Err(invalid());
-    }
-    let mut out = [0u8; 32];
-    for (index, slot) in out.iter_mut().enumerate() {
-        // **用 `get` 而不是 `&text[a..b]`。** `text.len()` 是**字节**数，64 字节的串完全
-        // 可能含多字节字符（如 `"aé" + 61 个 ASCII`），那时按 2 字节切片会落在字符中间
-        // 直接 panic —— 而这个入参来自前端 IPC，是用户可控的。`get` 在非字符边界返回
-        // `None`，退化成一次干净的「格式非法」。另外三处同款解码（`crates/web` ×2、
-        // mobile-core）本来就是 `get`，这里对齐。
-        let pair = text.get(index * 2..index * 2 + 2).ok_or_else(invalid)?;
-        *slot = u8::from_str_radix(pair, 16).map_err(|_| invalid())?;
-    }
-    Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_hex32;
-
-    /// 回归锚点：64 **字节**但含多字节字符的输入，必须是「格式非法」而不是 panic。
-    ///
-    /// 这条红了说明有人把 `text.get(..)` 换回了 `&text[..]`。入口是
-    /// `revoke_pair_invite_by_id` 这个 IPC 命令，字符串由前端给。
-    #[test]
-    fn rejects_multibyte_input_without_panicking() {
-        let text = format!("a\u{e9}{}", "0".repeat(61));
-        assert_eq!(text.len(), 64, "构造的必须是 64 字节");
-        assert!(parse_hex32(&text).is_err());
-    }
-
-    #[test]
-    fn round_trips_valid_hex() {
-        let hex = "ab".repeat(32);
-        assert_eq!(parse_hex32(&hex).unwrap(), [0xab; 32]);
-        assert!(parse_hex32("short").is_err());
-        assert!(parse_hex32(&"z".repeat(64)).is_err());
-    }
+/// 邀请标识（capability 哈希 hex）→ 字节。编解码本身收在
+/// [`swarmdrop_invite::capability_hash_from_hex`]（含多字节输入不 panic 的回归测试），
+/// 这里只负责把 `None` 翻成 IPC 边界该有的那个 `kind`。
+///
+/// **`InvalidArgument` 不是 `Network`**：`kind` 是前端渲染文案的判别码，落错分类就是
+/// 给用户一句与真实原因无关的提示。
+fn parse_invite_id(text: &str) -> AppResult<[u8; 32]> {
+    swarmdrop_invite::capability_hash_from_hex(text)
+        .ok_or_else(|| AppError::invalid_argument("邀请标识格式非法"))
 }
 
 /// 用邀请串发起配对（受邀方）：解码验签 → 连接发起方 → 出示凭证。

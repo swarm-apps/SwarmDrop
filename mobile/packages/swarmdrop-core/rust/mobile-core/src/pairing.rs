@@ -14,7 +14,9 @@
 
 use swarmdrop_core::pairing::PairedDeviceCommit;
 use swarmdrop_core::protocol::{PairingMethod, PairingRefuseReason, PairingResponse};
-use swarmdrop_invite::{PairInvite, TransportPolicy};
+use swarmdrop_invite::{
+    PairInvite, TransportPolicy, capability_hash_from_hex, capability_hash_to_hex,
+};
 
 use crate::app::MobileCore;
 use crate::error::{FfiError, FfiResult};
@@ -135,7 +137,7 @@ impl MobileCore {
             .list_invites()
             .into_iter()
             .map(|summary| MobileInviteListItem {
-                id: hex_lower(&summary.capability_hash),
+                id: capability_hash_to_hex(&summary.capability_hash),
                 created_at: summary.created_at as i64,
                 expires_at: summary.expires_at as i64,
                 consumed: summary.consumed,
@@ -145,7 +147,7 @@ impl MobileCore {
 
     /// 按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
     pub async fn revoke_pair_invite_by_id(&self, id: String) -> FfiResult<bool> {
-        let hash = parse_hex32(&id)
+        let hash = capability_hash_from_hex(&id)
             .ok_or_else(|| FfiError::InvalidArgument("邀请标识格式非法".to_owned()))?;
         Ok(self
             .pairing_manager()
@@ -226,26 +228,4 @@ impl MobileCore {
             paired.as_ref(),
         ))
     }
-}
-
-/// `[u8; 32]` → 小写 hex（邀请列表条目的不透明 ID）。
-fn hex_lower(bytes: &[u8; 32]) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
-/// 小写 hex → `[u8; 32]`（[`hex_lower`] 的逆），长度或字符非法返回 `None`。
-fn parse_hex32(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (index, slot) in out.iter_mut().enumerate() {
-        *slot = u8::from_str_radix(text.get(index * 2..index * 2 + 2)?, 16).ok()?;
-    }
-    Some(out)
 }

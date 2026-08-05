@@ -211,12 +211,81 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase];   // 住在共享 crate
 落盘路径（`paired_devices::upsert`）与失败回退（`commit_paired_device`）共用同一份，
 由 `commit_keeps_user_policy_in_memory_when_persist_fails` 钉着。
 
-> **同型问题仍在传输接受路径上（未修，值得单独立项）**：
-> `crates/transfer/src/flow/receive.rs` 里 `responder.send(OfferResult { accepted: true })`
-> 之后还有 `self.coordinator.dispatch(..).await?` —— 写库失败会让本端 UI 报「接受失败」，
-> 而对端已收到 `accepted:true` 并开始推数据；更糟的是 pending 表里那条 offer 已被消费，
-> 用户连重试都做不到。判据与配对完全相同：**越过「对方已经知道了」这条线之后，
-> 本地失败不能再表达成整体失败**。修法也同构 —— 降级成事件 + 返回值。
+同型问题在传输接受路径上也有一份，已于 2026-08-05 一并修掉 ——
+**但修法不同构，见下一条**。
+
+### 「越线」规则有优先级：先问能不能挪，挪不动才谈怎么表达降级（2026-08-05）
+
+上一条立了判据（越过「对方已经知道了」这条线之后，本地失败不能表达成整体失败），但**没说
+该怎么办**，于是配对那次的答案「降级成返回值」被当成了唯一解。传输接受路径按同一个套路改完
+才发现它是次优的。完整规则按优先级排：
+
+1. **能挪的可失败步骤，全部挪到越线之前。** 这是最强的满足方式 —— 越线之后没有可失败的
+   步骤，就没有「已经发生却报失败」的可能。
+2. **越线之前**的失败必须**可重试**：消费掉一次性资源（`pending.remove`）之后若还有可失败的
+   步骤，失败路径必须把资源**放回去**。否则 offer 从 UI 上消失、`responder` 随之 drop
+   （对端 RPC 当场断），用户连重试的入口都没有 —— 这一条比「报错文案不对」严重得多，
+   而它藏在同一个函数里，只盯着越线之后会整个漏掉。
+3. **确实挪不动的**（收尾动作本身就依赖已经越线这件事）才谈降级：记 `warn!`，
+   或把「一半成功」变成返回值。
+
+`accept_and_start_receive` 走的是第 1 条：`dispatch(Accept)` 只写本机 DB，挪到应答之前，
+于是越线之后**一个可失败的步骤都不剩**。`handle_cancel_impl` / `handle_pause_impl` /
+`handle_peer_disconnected_impl` 走第 3 条 —— 它们是对端信号的处理器，「已经发生」是入参
+而不是自己造成的，没有「挪到之前」这个选项。
+
+**代价是一个白做的 API。** 按旧套路先设计了 `AcceptOutcome { recorded: bool }` 并铺到三端
+（Tauri 命令返回 `bool`、MCP 工具加 JSON 字段、uniffi 改签名），挪完 dispatch 才发现那个位
+恒为 `true`。整条回滚。**先问「能不能挪」，再设计降级的表达形式。**
+
+**还有一个反向补偿分支容易漏**：`responder.send` 自己失败 = 对端**没有**收到接受
+（RPC 早就超时、handler 已 drop），越线**没有发生**。此时本机会话已是 `active`、actor 已注册，
+必须回滚（撤 actor + 推终态 + 返回 Err），否则它一直挂在活动列表里等一份不会来的数据。
+原实现是 `let _ =` 直接忽略。
+
+**测试怎么造这两种失败**（都用真实路径，不要往生产代码塞注入点）：
+
+- 越线前失败 → 删掉库里的会话行，`update_session_save_path` 自然报 `SessionNotFound`。
+  ⚠️ 得**先删 `transfer_files`**：那条外键刻意没有 `ON DELETE`，直接删父行会被 SQLite 拦。
+- 越线未发生 → `drop` 掉 `cache_inbound_offer` 返回的应答接收端。
+- ⚠️ **拒绝路径不能用删行**：`dispatch` 查不到 session 时返回的是 `Ok(None)`（视作无事可做），
+  拒绝会静默成功，什么都测不到。改用 `db.close_by_ref()` 让 `find_session` 报错。
+
+写完务必**反向验证一次**：把实现改回旧形态，确认测试真的会红。这三条里有两条是我先写了
+测试、看它绿了才发现测的根本不是那件事。
+
+**相关文件**：`crates/transfer/src/flow/receive.rs`（`prepare_accept` + 三段注释）、
+`crates/core/tests/e2e_transfer.rs` 末尾三条测试、
+`openspec/changes/failure-semantics-contract/design.md` D1
+
+### `AppError` 加 kind 的判据是两问，第二问最容易漏（2026-08-05）
+
+第一问众所周知：**UI 能据此给出与其他 kind 不同的、用户真能照做的建议吗？** 能就拆，
+不能就留在所在域的「其余」变体里（传输域是 `Transfer`，它现在有 doc 写明这条）。
+
+**第二问才是坑：这个 kind 到得了 UI 吗？** 本仓的后端失败有**两条独立通道**：
+
+| 通道 | 载体 | 三端怎么渲染 |
+|---|---|---|
+| 命令返回值 | `AppError` → `{ kind, message }` | 按 `kind` 查本地化文案表 |
+| 会话失败原因 | `ActorReport::FatalError(String)` → 落库 `error_message` | 详情页直接渲染那个 String |
+
+第二条通道**完全不经过 `kind`**。所以「内容校验失败（bao 验签 / checksum 不匹配）」这个
+看起来教科书级合格的候选 —— 用户动作明确且唯一，就是重传一次 —— 造出来会是一个**永远不会被
+任何文案表命中的判别码**：它只发生在 `ReceiverActor` 里，走的是第二条通道。已砍掉。
+
+判断方法很简单：**顺着调用链往上走，看它是从某个 `#[tauri::command]` / wasm 导出 /
+uniffi 方法返回出去的，还是变成了 `FatalError(String)`。**
+
+同理，`SessionNotFound` 的迁移只覆盖了「命令能直接收到」的 12 处；深在 actor 里的
+「文件不存在: file_id=3」「checkpoint bitmap 不存在」留在 `Transfer` —— 它们是内部不变量
+被破坏，不是「你指的那条不在了」。
+
+> 第二条通道本身也该收成判别码（移动端已经在用 `friendlyTransferError` 对它做**正则匹配**
+> 来出文案，桌面与 Web 干脆没有）。要动 wire、DB 列、恢复逻辑与三端详情页，单独立项。
+
+**相关文件**：`crates/host/src/error.rs`（`Transfer` 变体的 doc 就是这两问）、
+`openspec/changes/failure-semantics-contract/design.md` D3
 
 ### 端口层现有 trait 清单：六个，且没有一格是空的
 

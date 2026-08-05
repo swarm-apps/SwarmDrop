@@ -826,20 +826,37 @@ ARIA 对 `button` 规定 **Children Presentational: True**：它的后代角色�
 
 **相关文件**：`docs/app/global.css`
 
-## 已知问题：「对方拒绝配对」被渲染成「网络错误」+ 一句未翻译的简体中文
+## 结构化的业务结果不能压成 `WebError`（2026-08-05 修复）
 
-`crates/web/src/node.rs` 的 `connect_invite` 在对端拒绝时返回
-`WebError::network("邀请方拒绝了配对或配对未成功")`，前端 `WebErrorCard` 于是渲染出标题
-「网络错误」加一行 mono 字体的**简体中文** —— 那句来自 Rust，不在任何 `.po` 里，
-**en / zh-TW 用户看到的就是中文**。下方的解释性提示还只列「已撤销 / 已被别的设备用掉」，
-恰恰漏了最常见的成因（对方点了拒绝），把排查引向错误方向。
+`connect_invite` 曾在对端拒绝时返回 `WebError::network("邀请方拒绝了配对或配对未成功")`，
+于是 `WebErrorCard` 渲染出标题「网络错误」加一行 mono 字体的**简体中文** —— 那句来自 Rust、
+不在任何 `.po` 里，**en / zh-TW 用户看到的就是中文**；而真实原因是对方点了拒绝，
+一个网络完全正常的场景。桌面（`src/stores/pairing-store.ts` 的 `getPairingRefuseMessage`）
+与移动端一直是按判别码出 Lingui 文案的，只有 Web 把它当错误抛。
 
-桌面同一条路径走 `getPairingRefuseMessage()`（`src/stores/pairing-store.ts`）出 Lingui 文案，
-移动端 `MobilePairingResult.reason` 带 snake_case 判别码由 JS 本地化 —— **只有 Web 把它
-当错误抛**。
+**判据：内核已经用结构化类型表达的结果，宿主层不许压成「某个错误 kind + 一句写死的自然语言」。**
+那一步同时丢掉两样东西 —— 判别信息（reason 是什么）与本地化能力（那句话钉死在一种语言上），
+而且往往落到语义相反的 kind 上。同形的还有 `OfferResult { accepted: false, reason }`。
 
-修法（未做，需要一次独立的三端对齐）：`PairingOutcomeJson` 加 `refuseReason`
-（`null` = 成功，`"user_rejected"` = 对方拒绝），`connect_invite` 拒绝时返回 `Ok` 而不是
-`Err`，前端按判别码渲染 Lingui 文案。这会让三端的「配对被拒」形状一致。
+现在 `PairingOutcomeJson` 带 `refused: PairingRefusedJson | null`，拒绝时返回 `Ok`，
+前端查 `PAIRING_REFUSED_LABEL`。
 
-**相关文件**：`crates/web/src/node.rs`、`docs/app/app/_components/pairing-panel.tsx`
+**`crates/web/src/types.rs` 里的判别码只能是本地投影，不能直接用内核类型** ——
+`swarmdrop-core` 在 `crates/web` 是 **wasm-only 依赖**（Cargo.toml 的
+`[target.'cfg(target_family = "wasm")'.dependencies]`），而 `types.rs` **native 也要编**
+（specta 导出跑在 native）。直接引用会报 `unresolved module swarmdrop_core`，
+且只在跑 specta 导出时才暴露，wasm check 是绿的。
+
+重复的安全性由**唯一构造点的穷尽 match** 保证：`node.rs` 里
+`match response { PairingResponse::Refused { reason: PairingRefuseReason::UserRejected } => … }`
+—— 内核加一个拒绝原因，那里编译失败。**别写成 `Option<String>` 的判别码**，
+那只会在运行时静默落到兜底分支。
+
+**加了新类型记得三步**：`types.rs` 定义 → `lib.rs` 导出（specta 导出 test 从 crate root 取）
+→ `tests/specta_export.rs` 的 `register::<T>()`。嵌套类型会被自动带出来，但顶层的必须手动注册。
+最后 `pnpm build:wasm` 重新生成 `packages/swarmdrop-web/*.d.ts`，否则 `docs` 的 tsc 会说
+「Module 'swarmdrop-web' has no exported member」。
+
+**相关文件**：`crates/web/src/types.rs`、`crates/web/src/node.rs`、
+`docs/app/app/_lib/view-types.ts`（`PAIRING_REFUSED_LABEL`）、
+`docs/app/app/_components/pairing-panel.tsx`

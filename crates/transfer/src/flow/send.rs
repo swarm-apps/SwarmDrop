@@ -45,7 +45,7 @@ impl TransferManager {
             .get(prepared_id)
             .map(|r| r.value().clone())
             .ok_or_else(|| {
-                AppError::Transfer(format!("PreparedTransfer not found: {prepared_id}"))
+                AppError::SessionNotFound(format!("PreparedTransfer not found: {prepared_id}"))
             })?;
 
         let selected_prepared: Vec<PreparedFile> = prepared
@@ -296,7 +296,7 @@ impl TransferManager {
     pub async fn pause_send(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
             .get_send_actor(session_id)
-            .ok_or_else(|| AppError::Transfer(format!("发送会话不存在: {session_id}")))?;
+            .ok_or_else(|| AppError::SessionNotFound(format!("发送会话不存在: {session_id}")))?;
 
         self.coordinator
             .dispatch(
@@ -337,7 +337,9 @@ impl TransferManager {
                 return Ok(());
             }
 
-            return Err(AppError::Transfer(format!("发送会话不存在: {session_id}")));
+            return Err(AppError::SessionNotFound(format!(
+                "发送会话不存在: {session_id}"
+            )));
         };
 
         session.cancel();

@@ -56,9 +56,10 @@ import {
   projectionTransferredBytes,
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { getErrorMessage } from "@/lib/errors";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
-import { errorMessage, lastPathSegment, truncateMiddle } from "@/lib/utils";
+import { lastPathSegment, truncateMiddle } from "@/lib/utils";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useShareStore } from "@/stores/share-store";
 import { useTransferStore } from "@/stores/transfer-store";
@@ -131,7 +132,7 @@ export default function TransferDetailScreen() {
         : core.pauseReceive(sessionId));
       await refreshAfterTransition(sessionId);
     } catch (err) {
-      toast.error(t`暂停失败`, errorMessage(err));
+      toast.error(t`暂停失败`, getErrorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -150,7 +151,7 @@ export default function TransferDetailScreen() {
       toast.success(t`已取消传输`);
       router.replace("/transfer" as never);
     } catch (err) {
-      toast.error(t`取消失败`, errorMessage(err));
+      toast.error(t`取消失败`, getErrorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -168,7 +169,7 @@ export default function TransferDetailScreen() {
         } as never);
       }
     } catch (err) {
-      toast.error(t`恢复失败`, errorMessage(err));
+      toast.error(t`恢复失败`, getErrorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -181,7 +182,7 @@ export default function TransferDetailScreen() {
       await deleteHistoryItem(sessionId);
       router.back();
     } catch (err) {
-      toast.error(t`删除失败`, errorMessage(err));
+      toast.error(t`删除失败`, getErrorMessage(err));
     } finally {
       setBusy(null);
     }

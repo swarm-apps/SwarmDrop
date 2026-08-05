@@ -9,6 +9,7 @@
 import type { MobileInvitePreview } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { getMobileCore } from "@/core/mobile-core";
+import { getErrorMessage } from "@/lib/errors";
 import { warnIfPairingNotPersisted } from "@/lib/pairing-feedback";
 
 /**
@@ -163,7 +164,7 @@ export const usePairingInviteStore = create<PairingInviteState>()(
         set({
           activeInvite: null,
           generating: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
         });
         console.warn("[pairing-invite] generate failed:", err);
       }

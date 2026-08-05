@@ -86,7 +86,7 @@ impl PartFile {
 
         tokio::task::spawn_blocking(move || write_all_at(&handle, &data, offset))
             .await?
-            .map_err(|e: std::io::Error| AppError::Transfer(format!("写入分块失败: {e}")))
+            .map_err(|e: std::io::Error| AppError::StorageFailed(format!("写入分块失败: {e}")))
     }
 
     /// 关闭写入句柄

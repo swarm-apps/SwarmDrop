@@ -33,11 +33,12 @@ impl From<AppError> for WebError {
             | AppError::InvalidCode => Self::Identity { message },
             // 入参非法：地址格式、标识格式等，用户无能为力。
             AppError::InvalidArgument(_) => Self::InvalidInput { message },
-            AppError::DeviceNotFound => Self::NotFound { message },
-            // 邀请状态没写进 IndexedDB —— 本质就是一次存储失败。
-            AppError::InvitePersistFailed | AppError::Database(_) | AppError::Io(_) => {
-                Self::Storage { message }
-            }
+            AppError::DeviceNotFound | AppError::SessionNotFound(_) => Self::NotFound { message },
+            // 邀请状态没写进 IndexedDB / OPFS 写不进去 —— 本质都是一次存储失败。
+            AppError::InvitePersistFailed
+            | AppError::StorageFailed(_)
+            | AppError::Database(_)
+            | AppError::Io(_) => Self::Storage { message },
             AppError::Serialization(_) | AppError::TaskJoin(_) | AppError::Transfer(_) => {
                 Self::Transfer { message }
             }

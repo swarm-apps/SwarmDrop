@@ -227,6 +227,10 @@ msgstr "Saving…"
 msgid "保存分组名"
 msgstr "Save group name"
 
+#: app/app/_lib/view-types.ts
+msgid "保存失败，浏览器存储可能已满或被拒绝"
+msgstr "Saving failed. Browser storage may be full or blocked."
+
 #: app/app/_components/device-card.tsx
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "信任策略"
@@ -522,8 +526,8 @@ msgid "失败"
 msgstr "Failed"
 
 #: app/app/_lib/view-types.ts
-msgid "存储错误"
-msgstr "Storage error"
+#~ msgid "存储错误"
+#~ msgstr "Storage error"
 
 #: app/app/_components/group-manager-dialog.tsx
 msgid "完成"
@@ -552,6 +556,10 @@ msgstr "That device has paused receiving — try again later"
 #: app/app/_lib/view-types.ts
 msgid "对方拒绝了此次传输"
 msgstr "The other side declined this transfer"
+
+#: app/app/_lib/view-types.ts
+msgid "对方拒绝了这次配对"
+msgstr "They declined the pairing request"
 
 #: app/app/_components/transfer-labels.ts
 msgid "对方暂停"
@@ -697,7 +705,7 @@ msgstr "Delivered"
 msgid "已选 {0} 个文件 · 共 <0>{1}</0>"
 msgstr "{0} files selected · <0>{1}</0> total"
 
-#. placeholder {0}: consumeSuccess.peerId
+#. placeholder {0}: consumeOutcome.peerId
 #: app/app/_components/pairing-panel.tsx
 msgid "已配对：<0>{0}</0>"
 msgstr "Paired: <0>{0}</0>"
@@ -938,8 +946,8 @@ msgid "未打开"
 msgstr "not opened"
 
 #: app/app/_lib/view-types.ts
-msgid "未找到"
-msgstr "Not found"
+#~ msgid "未找到"
+#~ msgstr "Not found"
 
 #: app/app/_components/connection-badge.tsx
 msgid "未知"
@@ -1392,6 +1400,10 @@ msgstr "This invite came from this device — send it to someone else rather tha
 msgid "这条发送只能在本页完成：刷新或关闭标签页后，浏览器读不回你选过的文件，会话与进度会一并消失。暂停后也只能在本页续传。"
 msgstr "This send can only be completed in this tab. Once you reload or close it, the browser can no longer read the files you picked, and the session and its progress are gone with them. Pausing still only lets you resume here."
 
+#: app/app/_lib/view-types.ts
+msgid "这条记录已经不在了，请返回列表重新开始"
+msgstr "This entry is no longer there. Go back to the list and start over."
+
 #: app/app/_components/pairing-panel.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"
 msgstr "This invite has expired — ask for a new one."
@@ -1490,8 +1502,12 @@ msgid "邀请已过期"
 msgstr "Invite expired"
 
 #: app/app/_components/pairing-panel.tsx
-msgid "邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。"
-msgstr "Invites are single-use. If it was revoked, or another device already used it, you land here — ask for a new one."
+msgid "邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，也会走到这里——让对方重新生成一条。"
+msgstr "Invites are single-use: you also land here if they revoked it or another device already used it. Ask them to generate a new one."
+
+#: app/app/_components/pairing-panel.tsx
+#~ msgid "邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。"
+#~ msgstr "Invites are single-use. If it was revoked, or another device already used it, you land here — ask for a new one."
 
 #: app/app/_components/pairing-panel.tsx
 msgid "邀请有效期 {INVITE_TTL_HOURS} 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存）， 不想让它继续可用就撤销，需要再分享请重新生成。"

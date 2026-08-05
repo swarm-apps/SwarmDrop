@@ -79,7 +79,39 @@ pub enum AppError {
     #[error("Task join error: {0}")]
     TaskJoin(#[from] tokio::task::JoinError),
 
-    /// 文件传输错误
+    /// 指向的会话 / 挂起 offer / 收件箱条目 / 预备传输**不存在**。
+    ///
+    /// 用户看到的是「这条记录已经不在了」——它已完成、已取消、已被清理，或是另一个窗口
+    /// 抢先处理掉了。用户的动作是回列表重来，而不是重试这一次。
+    #[error("not found: {0}")]
+    SessionNotFound(String),
+
+    /// 落盘失败：写文件、OPFS、sink 写入。
+    ///
+    /// 与 [`Self::Database`] 的区别是「写用户的数据」与「写我们的账本」：这个用户能处置
+    /// （清空间、换保存位置、给权限），那个不能。
+    #[error("Storage error: {0}")]
+    StorageFailed(String),
+
+    /// 传输域的**其余**失败。
+    ///
+    /// **它不是垃圾桶，它是「其余」——区别在于有判据。** 新增一种传输失败时先问：
+    /// **UI 能据此给出与其他 kind 不同的、用户真能照做的建议吗？**
+    ///
+    /// 能 → 拆一个 kind 出去（已拆的两个：[`Self::SessionNotFound`]「回列表重来」、
+    /// [`Self::StorageFailed`]「清空间或换位置」）。不能 → 留在这里。锁中毒、JS 句柄类型
+    /// 异常、range 溢出、序列化失败、协议帧不合法都属于后者：它们对用户是同一件事
+    /// 「出了个你处理不了的问题」，各造一个 kind 只会让三端文案表膨胀，而每条文案都只能
+    /// 写成「出错了，请重试」的同义句。
+    ///
+    /// **判据还有第二问：这个 kind 真的到得了 UI 吗？** 内容校验失败（bao 逐块验签、
+    /// checksum 比对）看着完全够格 —— 用户动作明确且唯一，就是重传一次。但它只发生在
+    /// ReceiverActor 里，那条路径的失败走 `ActorReport::FatalError(String)` → 落库
+    /// `error_message` → 详情页渲染那个 String，**根本不经过 `kind`**。给它造一个 kind
+    /// 等于造一个永远不会被任何文案表命中的判别码。要修的是那条 String 通道，不是这里。
+    ///
+    /// 反面教材是 [`Self::Identity`]：它当年的问题不是承载得多，是**没有判据**，
+    /// 于是 peer_id 解析失败也往里塞。
     #[error("Transfer error: {0}")]
     Transfer(String),
 
@@ -111,6 +143,8 @@ impl Serialize for AppError {
             AppError::ExpiredCode => ("ExpiredCode", self.to_string()),
             AppError::InvalidCode => ("InvalidCode", self.to_string()),
             AppError::TaskJoin(e) => ("TaskJoin", e.to_string()),
+            AppError::SessionNotFound(msg) => ("SessionNotFound", msg.clone()),
+            AppError::StorageFailed(msg) => ("StorageFailed", msg.clone()),
             AppError::Transfer(msg) => ("Transfer", msg.clone()),
             AppError::Database(e) => ("Database", e.to_string()),
         };

@@ -266,6 +266,10 @@ msgstr "Save Location"
 msgid "保存到"
 msgstr "Save to"
 
+#: src/lib/errors.ts
+msgid "保存失败，请检查磁盘空间或更换保存位置"
+msgstr "Saving failed. Check your disk space or pick a different save location."
+
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "保存策略"
 msgstr "Save policy"
@@ -1929,6 +1933,10 @@ msgstr "This info is stored only on this device and never shared with peers."
 #: src/stores/pairing-store.ts
 msgid "这是本机生成的邀请"
 msgstr "This invite was generated on this device"
+
+#: src/lib/errors.ts
+msgid "这条记录已经不在了，请返回列表重新开始"
+msgstr "This entry is no longer there. Go back to the list and start over."
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "进入 SwarmDrop"

@@ -1856,3 +1856,201 @@ async fn shutdown_node_goes_offline_on_peer() {
     )
     .await;
 }
+
+// ===== 越线规则（openspec: failure-semantics-contract）=====
+//
+// 「越线点」= `responder.send(OfferResult)`：过了它对端的状态就已经改变，本机撤不回来。
+// 这两条测试守的是它两侧的行为，**互为对偶**，改 `accept_and_start_receive` 的语句顺序
+// 一定会红掉其中一条。
+
+/// 装一个只有 store 的裸 manager（不起 router / event_loop）。
+///
+/// 越线规则只涉及 pending 表、store 与 coordinator，不需要真连上对端。
+async fn bare_manager(db: Arc<DatabaseConnection>) -> (Arc<TransferManager>, MemoryHost) {
+    let host = MemoryHost::new();
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
+    let transfer = Arc::new(TransferManager::new(
+        test_endpoint(SecretKey::generate()).await,
+        Arc::new(CoreTransferEvents(event_bus)),
+        Arc::new(SqlSessionStore::new(db)),
+        file_access,
+    ));
+    (transfer, host)
+}
+
+/// 删掉一条会话及其文件行。**顺序不能反** —— `transfer_files → transfer_sessions`
+/// 的外键刻意没带 `ON DELETE`，先删父行会被 SQLite 的 FK 约束拦下。
+async fn drop_session_rows(db: &DatabaseConnection, session_id: Uuid) {
+    use sea_orm::{ColumnTrait, QueryFilter};
+    entity::TransferFile::delete_many()
+        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .exec(db)
+        .await
+        .expect("删除文件行");
+    entity::TransferSession::delete_by_id(session_id)
+        .exec(db)
+        .await
+        .expect("删除会话行");
+}
+
+/// 缓存一条待用户决定的入站 offer，返回它的应答通道。
+async fn cache_offer(
+    transfer: &TransferManager,
+    session_id: Uuid,
+    peer_id: NodeId,
+) -> tokio::sync::oneshot::Receiver<swarmdrop_core::protocol::TransferResponse> {
+    transfer
+        .cache_inbound_offer(
+            peer_id,
+            "对端".to_string(),
+            session_id,
+            vec![FileInfo {
+                file_id: 0,
+                name: "a.bin".to_string(),
+                relative_path: "a.bin".to_string(),
+                size: 1024,
+                checksum: "deadbeef".to_string(),
+            }],
+            1024,
+            TransferOrigin::Human,
+            swarmdrop_core::transfer::policy::ReceivePolicyDecision {
+                action: swarmdrop_core::transfer::policy::ReceivePolicyAction::RequireConfirmation,
+                reason: "测试".to_string(),
+                save_location: None,
+            },
+        )
+        .await
+        .expect("cache_inbound_offer")
+}
+
+/// **越线之前**失败 → offer 必须能重试。
+///
+/// 回归的是这条真实路径：`pending.remove` 之后还有可失败的步骤，一旦失败，那条 offer
+/// 从 UI 上消失、`responder` 随 `offer` 一起 drop（对端 RPC 当场断），用户想再点一次
+/// 「接受」都没得点。修法是失败时把 offer 放回 `pending`。
+///
+/// 造失败的方式是删掉库里的会话行，让 `update_session_save_path` 报 `SessionNotFound`
+/// —— 用真实的失败路径，而不是往代码里塞一个测试专用的注入点。
+///
+/// 删之前要先删 `transfer_files`：那条外键**故意没有** `ON DELETE`（删会话是应用层的事，
+/// 见 `entity::transfer_file`），所以直接删父行会被 SQLite 拦下。
+#[tokio::test(flavor = "multi_thread")]
+async fn accept_before_the_line_keeps_the_offer_retryable() {
+    let db = make_db().await;
+    let (transfer, _host) = bare_manager(db.clone()).await;
+    let session_id = Uuid::new_v4();
+    let peer_id = SecretKey::generate().node_id();
+    let mut rx = cache_offer(&transfer, session_id, peer_id).await;
+
+    // 抽掉会话行 → 越线前的第一步必失败。
+    drop_session_rows(db.as_ref(), session_id).await;
+
+    let err = transfer
+        .accept_and_start_receive(
+            &session_id,
+            CoreSaveLocation::Path {
+                path: "/tmp".to_string(),
+            },
+        )
+        .await
+        .expect_err("越线前失败必须冒泡");
+    assert!(
+        matches!(err, swarmdrop_core::AppError::SessionNotFound(_)),
+        "应报「不存在」而不是别的 kind: {err}"
+    );
+
+    assert_eq!(
+        transfer.pending_offer_peer(&session_id),
+        Some(peer_id),
+        "越线还没发生，offer 必须留在待决表里让用户重试"
+    );
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ),
+        "对端不该收到任何应答 —— 通道既没送值也没被 drop"
+    );
+}
+
+/// **越线未发生**（应答通道已关闭）→ 回滚，不留活的会话。
+///
+/// 对端 RPC 超时后 handler 会 drop 掉接收端，此时 `responder.send` 失败 = 对端根本没收到
+/// 「接受」。原实现是 `let _ =` 直接忽略，于是本机会话停在 `active`、ReceiverActor 挂着
+/// 等一份永远不会来的数据。现在要求：撤掉 actor、把会话推到终态、返回 Err。
+#[tokio::test(flavor = "multi_thread")]
+async fn accept_rolls_back_when_the_peer_already_hung_up() {
+    let db = make_db().await;
+    let (transfer, _host) = bare_manager(db.clone()).await;
+    let session_id = Uuid::new_v4();
+    let peer_id = SecretKey::generate().node_id();
+
+    // drop 应答通道的接收端 = 模拟对端 RPC 已超时、handler 已退出。
+    drop(cache_offer(&transfer, session_id, peer_id).await);
+
+    let err = transfer
+        .accept_and_start_receive(
+            &session_id,
+            CoreSaveLocation::Path {
+                path: "/tmp".to_string(),
+            },
+        )
+        .await
+        .expect_err("对端已断开，接受送不出去");
+    assert!(
+        err.to_string().contains("对端已断开"),
+        "错误该指向对端断开，而不是一句泛泛的传输失败: {err}"
+    );
+
+    assert!(
+        transfer.get_receive_actor(&session_id).is_none(),
+        "回滚必须撤掉已注册的 ReceiverActor，否则它会一直等一份不会来的数据"
+    );
+    let projection = ops::get_transfer_projection(db.as_ref(), session_id)
+        .await
+        .expect("查询 projection")
+        .expect("会话仍在");
+    assert_eq!(
+        projection.phase,
+        TransferPhase::Terminal,
+        "会话必须落到终态，不能停在 active"
+    );
+}
+
+/// 拒绝路径同样把状态转换放在越线之前：转换失败时 offer 放回，用户可以再点一次。
+///
+/// 反过来（转换写在应答之后）的后果是：用户看到「拒绝失败」，而对端已经按拒绝收尾了，
+/// 再点一次只会得到「offer 不存在」。
+#[tokio::test(flavor = "multi_thread")]
+async fn reject_before_the_line_keeps_the_offer_retryable() {
+    let db = make_db().await;
+    let (transfer, _host) = bare_manager(db.clone()).await;
+    let session_id = Uuid::new_v4();
+    let peer_id = SecretKey::generate().node_id();
+    let mut rx = cache_offer(&transfer, session_id, peer_id).await;
+
+    // 关掉连接池 → `dispatch` 的第一句 `find_session` 直接报错。
+    //
+    // 这里**不能**照 accept 那条测试删会话行：`dispatch` 查不到 session 时返回的是
+    // `Ok(None)`（视作「无事可做」），拒绝会静默成功，测不到任何东西。
+    db.close_by_ref().await.expect("关闭连接池");
+
+    transfer
+        .reject_and_respond(&session_id)
+        .await
+        .expect_err("越线前失败必须冒泡");
+
+    assert_eq!(
+        transfer.pending_offer_peer(&session_id),
+        Some(peer_id),
+        "拒绝没写成，offer 必须留着"
+    );
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ),
+        "对端不该收到拒绝应答"
+    );
+}
