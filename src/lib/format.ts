@@ -1,5 +1,4 @@
 import { i18n } from "@lingui/core";
-import { t } from "@lingui/core/macro";
 import {
   formatTimeLeft as formatTimeLeftIn,
   formatTransferRate,
@@ -33,20 +32,6 @@ export function formatSpeed(bytesPerSec: number | null): string {
  */
 export function formatTimeLeft(seconds: number): string {
   return formatTimeLeftIn(seconds, i18n.locale || "zh");
-}
-
-/**
- * 「首文件名 等 N 个文件」——一批文件的统称，收件箱条目与传输会话共用同一句。
- *
- * 收在这里是因为 Lingui 的 msgid 由模板 + **占位名**生成：两处各写各的
- * （`{firstFileName} 等 {fileCount} 个文件` vs `{primaryFileName} 等 {itemCount} 个文件`）
- * 会在三份 catalog 里各留下两条内容相同的条目，zh-TW 一度真的把同一句翻译了两遍。
- *
- * 调用方各自保留自己的单数分支与兜底文案（收件箱是「空传输」、传输会话是「未知文件」）
- * ——那两句语义不同，不该被这个函数吸进来。
- */
-export function fileGroupLabel(firstFileName: string, count: number): string {
-  return t`${firstFileName} 等 ${count} 个文件`;
 }
 
 /**

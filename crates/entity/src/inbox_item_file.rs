@@ -6,12 +6,22 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
+    /// 按条目取文件行是最热的读法，故建索引。
+    #[sea_orm(indexed)]
     pub inbox_item_id: Uuid,
-    #[sea_orm(belongs_to, from = "inbox_item_id", to = "id")]
+    /// 文件行依附于条目，条目没了就该跟着走。
+    #[sea_orm(belongs_to, from = "inbox_item_id", to = "id", on_delete = "Cascade")]
     pub inbox_item: HasOne<super::inbox_item::Entity>,
     /// 关联的过程账本文件记录。活动账本被清理后这里会置空。
+    #[sea_orm(indexed)]
     pub transfer_file_id: Option<i32>,
-    #[sea_orm(belongs_to, from = "transfer_file_id", to = "id")]
+    /// 与 [`super::inbox_item::Model::transfer_session`] 同一条理由：删过程不动结果。
+    #[sea_orm(
+        belongs_to,
+        from = "transfer_file_id",
+        to = "id",
+        on_delete = "SetNull"
+    )]
     pub transfer_file: HasOne<super::transfer_file::Entity>,
     pub relative_path: String,
     pub name: String,

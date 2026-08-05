@@ -1,19 +1,24 @@
-//! libp2p 集成层：把信令会话接到 `Transport` / `NetworkBehaviour` 两个平面上。
+//! libp2p integration layer: wiring the signaling session into the `Transport` and
+//! `NetworkBehaviour` planes.
 //!
-//! # 为什么要分成四块
+//! # Why this is split into four pieces
 //!
-//! libp2p 把「拨号」与「协议流」放在互不相通的两个平面，而本传输的建连需要**先有一条
-//! 已建立的连接**才能换 SDP。于是职责被迫拆开，各块的边界是：
+//! libp2p keeps "dialing" and "protocol streams" on two planes that cannot reach each
+//! other, while establishing a connection through this transport requires **an already
+//! established connection** before SDP can be exchanged. That forces the responsibilities
+//! apart; the boundaries are:
 //!
-//! | 模块 | 职责 | 依赖 libp2p 吗 |
+//! | Module | Responsibility | Depends on libp2p |
 //! |---|---|---|
-//! | [`session`] | 信令会话状态机——收到什么就该做什么 | **否**（纯逻辑，可独立测试） |
-//! | [`handler`] | 把 session 接到 `ConnectionHandler` 的 poll 模型上 | 是 |
-//! | [`behaviour`] | 连接管理、拨号记账、与 transport 的往返 | 是 |
-//! | [`transport`] | `Transport` trait 实现，地址分派 | 是 |
+//! | [`session`] | Signaling session state machine — what to do on each input | **No** (pure logic, independently testable) |
+//! | [`handler`] | Adapts the session onto the `ConnectionHandler` poll model | Yes |
+//! | [`behaviour`] | Connection management, dial bookkeeping, round trips with the transport | Yes |
+//! | [`transport`] | `Transport` trait implementation, address dispatch | Yes |
 //!
-//! **[`session`] 与 libp2p 解耦是刻意的**：状态机是最容易出错的部分，把它从 poll 适配里
-//! 摘出来后，可以用同步的方式逐步驱动、逐条断言，不必构造真实的 `Stream`。
+//! **Decoupling [`session`] from libp2p is deliberate**: the state machine is the part
+//! most prone to bugs, and lifting it out of the poll adapter lets it be driven step by
+//! step synchronously and asserted on one transition at a time, with no need to construct
+//! a real `Stream`.
 
 pub mod behaviour;
 pub(crate) mod channel;

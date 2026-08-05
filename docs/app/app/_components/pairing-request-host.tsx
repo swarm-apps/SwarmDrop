@@ -12,6 +12,7 @@
 
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,10 +43,17 @@ export function PairingRequestHost() {
     const pendingId = current.pendingId;
     respond.run(
       () => node.respond_pairing_request(pendingId, accept),
-      () => {
+      (persisted) => {
         webNodeActions.removePendingPairing(pendingId);
         // 接受后设备清单要立刻认识它，否则要等下一轮轮询才出现在设备页
         if (accept) refreshPairedDevices(node);
+        // 「一半成功」：对端已经认了本机、本页也能用，但记录没写进 IndexedDB。
+        // 报成失败会和对端的认知分叉，静默略过则用户不知道自己还得再配一次。
+        if (accept && !persisted) {
+          toast.warning(t`配对成功，但这条记录没能存进浏览器`, {
+            description: t`刷新页面后需要重新配对。`,
+          });
+        }
       },
     );
   };

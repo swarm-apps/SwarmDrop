@@ -52,6 +52,54 @@ setInterval(() => {
 
 **相关文件**：`docs/app/app/_components/web-node-bootstrap.tsx`、`docs/app/app/layout.tsx`
 
+### 第二个单例：环境层（WebGL 极光，2026-08-05 起）
+
+`AppAmbientBackground` 同样只能挂 layout，但理由更硬：它持有 **WebGL context**，
+浏览器对同时存活的 context 数有上限，超了会**静默丢掉最老的那个**——表现是切几轮路由后
+背景变白，没有任何报错。
+
+它拆成两个文件，两条都省不掉：
+
+- `_components/ambient-canvas.tsx` —— 本体（着色器 + 两个 Renderer），**默认导出**
+- `_components/app-ambient-background.tsx` —— 只做 `dynamic(() => import("./ambient-canvas"), { ssr: false })`
+
+`ssr: false` 只能写在 client component 里（layout 是 server component，写那儿直接构建报错），
+而 `dynamic()` 必须 import **另一个模块**代码分割才发生——写在同一个文件里，ogl 与两段着色器
+照样进首屏 chunk。分割是有意义的：实测该 chunk **15.6 KB gzip**，且不在
+`/app/devices/index.html` 引用的首屏 chunk 里——用户打开标签页要的是拉 `_bg.wasm` 起节点，
+不是看背景。验证方法：
+
+```bash
+grep -o 'chunks/[a-z0-9]*\.js' out/app/devices/index.html | sort -u | while read c; do
+  grep -q auroraGlow "out/_next/static/$c" && echo "⚠️ 极光进首屏了: $c"; done
+```
+
+着色器与 `*_CONFIG` **逐字取自桌面** `src/components/layout/app-ambient-background.tsx`，
+不要单边改（分叉在截图里看不出来，两边都是「一片流动的光」）。允许分叉的只有加载方式、
+DPR、帧率、层不透明度与遮罩，理由与数值见 DESIGN.md 的 Ambient WebGL Background 一节。
+
+## 「Web 端没有 X」之前先分清：是浏览器没有，还是绑定没导
+
+三端对齐时反复撞到的一个坑。`crates/web` 只导出了 `WebNode` 上手动写出来的那些方法，
+**内核有的能力不等于 JS 拿得到**。2026-08-05 判错过一次：把「连接数」和「NAT 状态」
+一起当成「浏览器没有的概念」，其实两者的成因完全不同。
+
+| | 内核有没有 | wasm 下成立吗 | 结论 |
+|---|---|---|---|
+| `connected_peers` | 有（`Endpoint::watch_conns`，无 cfg 门控） | 成立 | **只是没导出**。2026-08-05 补了 `WebNode::connected_peers()` |
+| `nat_status` | 有（`Endpoint::watch_nat`） | **不成立** | `WatchSenders::nat` 上挂着 `cfg_attr(wasm_browser, expect(dead_code))`——唯一写入点是 autonat 事件，而 autonat 是 native-only，wasm 下恒为 `Unknown` |
+
+判定方法：在 `crates/net` 里 grep 那个 watch 的**写入点**有没有 `cfg`。有 → 真不成立，
+别在界面上摆一个永远不变的占位；没有 → 加个 `#[wasm_bindgen]` 方法就有了。
+
+「浏览器有 WebRTC，为什么没有 NAT 状态」这个问法要拆开：WebRTC 给的是 ICE 候选，
+而 `natStatus` 回答的是「我公网可拨吗」——浏览器压根不监听端口，这个问题对它不成立。
+它的等价物是 **circuit 预留有没有建起来**（`relays_state()` / `selectReservation`）。
+
+**加导出的代价**：改 `crates/web` 公开面要重跑三条生成链路且都要入库，见下文
+「改 `crates/web` 的公开面，有三条生成链路要重跑且都要入库」。`pnpm build:wasm` 在 macOS 上
+需要 `CC` / `AR_wasm32_unknown_unknown` 指向 homebrew llvm。
+
 ## 静态导出的三条硬限制
 
 ### 1. 没有服务端，重定向只能在客户端做
@@ -219,16 +267,80 @@ const offers = useWebNode((s) => Object.values(s.offers));
 
 **相关文件**：`docs/app/app/_lib/store.ts`、`scripts/check-zustand-store-access.mjs`
 
-## 拆多路由会藏起有时效的东西，导航徽标是补偿不是装饰
+## 从 chrome 上拿掉的东西，必须在用户已经在的地方重新出现
 
 单页时入站 offer 与其它内容同屏可见；拆成五条路由后它躲进了 `/app/inbox`，用户停在发送页
-对「有人要发文件给我」零感知。导航项上的计数徽标（待处理 offer / 进行中传输）是这次退化的
-**补偿**，不是顺手加的装饰——删掉它等于把可见性还回去。
+对「有人要发文件给我」零感知。导航项上的计数徽标是这次退化的**补偿**，不是顺手加的装饰。
 
-同理，节点状态在三档断点里都必须在场：宽屏是完整 pill，图标侧栏降级成裸状态点
-（文字进 `title`/`aria-label`），窄屏回到顶栏 pill。
+**2026-08-05 又发生了一次，形态不同**：常驻导航收敛成三项（设备 / 收件箱 / 设置，对齐移动端
+tab）时，「传输」离开侧栏，它那枚活跃计数徽标也跟着没了。补偿是设备页的
+`active-transfers-section.tsx`——**几行真内容而不是一个数字**：既然设备页本来就是首页，
+直接把进行中的会话连进度一起摆出来，比在导航上挂一个「3」更有用。
 
-**相关文件**：`docs/app/app/_components/app-nav.tsx`、`docs/app/app/_components/node-status-pill.tsx`
+所以这条规矩比「徽标不是装饰」更普遍：**动导航结构时，先问被拿掉的那一项在补偿谁的可见性，
+再决定补偿放哪儿**。补偿的形态可以变，存不存在不能变。
+
+两条配套：
+
+- **子页面必须能高亮父项、且页面上有返回出口**。`_lib/nav.ts` 的 `parent` 字段同时喂两处：
+  `activeNavHref()`（侧栏在 `/app/send`、`/app/transfer` 上高亮「设备」）与 `PageHeader` 的
+  返回链接。少了前者，离首页最远的两个页面上侧栏三项全灭——常驻导航的全部意义就是随时回答
+  「我在哪」；少了后者，用户只能按浏览器后退。
+- 节点状态在三档断点里都必须在场：宽屏是完整 pill，图标侧栏降级成裸状态点
+  （文字进 `title`/`aria-label`），窄屏回到顶栏 pill。
+
+**相关文件**：`docs/app/app/_lib/nav.ts`、`docs/app/app/_components/app-nav.tsx`、
+`docs/app/app/_components/active-transfers-section.tsx`、`docs/app/app/_components/page-header.tsx`
+
+## 节点可以停可以起之后，三处「隐含节点只启动一次」的假设会同时失效
+
+Web 端此前节点只在 layout 挂载时 spawn 一次、永不关停。节点状态弹窗（`node-status-dialog.tsx`）
+加了启停之后，下面三件事一起变成了 bug 面——**都不是编译错误，两条还没有任何报错**：
+
+| # | 原本的写法 | 节点能重启之后 |
+|---|---|---|
+| 1 | `event-dispatch.ts` 用一个模块级布尔 `consuming` 防重复取流 | `events()` 每个实例只能取一次，但守卫记的是「有没有人在消费」。旧流的 `done` 还没落地时新实例就撞上「已经在消费了」被静默跳过——**节点在跑、传输事件一条不到、进度永远 0** |
+| 2 | 启动序列（spawn → 回补历史 → 三条订阅 → relay 登记 → 置状态）写在 `WebNodeBootstrap` 的 effect 里 | 弹窗那条路径只能照抄一遍，漏任何一步都不报错 |
+| 3 | 各页空态判 `status !== "running"` 就说「正在启动节点…」 | 用户刚亲手停掉节点，界面却告诉他正在启动，而他等不到任何结果 |
+
+修法分别是：守卫**按节点实例换代**（`current?.node === node` 才幂等，换实例先停旧的）；
+启动序列收进 `_lib/node-lifecycle.ts`（`startNodeRuntime` / `stopNodeRuntime`，两个调用方共用）；
+空态收进 `node-not-ready-state.tsx` 按四种状态分说，且 `idle` / `error` 直接给一颗启动按钮
+（而不是「去点某个角落那枚徽章」——那种方位指代在窄屏就是错的，徽章那时在顶栏）。
+
+还有一条是 review 时才抓出来的：**装配中途失败必须回滚，连节点一起**。
+
+启动序列有五步，任何一步都可能抛。原先的写法是一次性赋值
+
+```ts
+subscriptions = { stopPoll: startStatePoll(n), stopRelayWatch: startRelayWatch(n) };
+```
+
+——后一个调用抛错会让整条赋值作废，而前一个已经起了的 `setInterval` 再也收不回来，且
+`subscriptions` 仍是 `null`，下一次启动会若无其事地再起一个。改成往数组里逐个 push，
+失败时照着回滚。
+
+更隐蔽的是**节点本身也要关掉**：spawn 成功而后续装配失败时它还活着，而 `spawnNode()` 是
+记忆化的——下一次启动拿到同一个实例，`events()` 却已经被上一次取走过了（每实例只能取一次），
+于是那条流再也接不上：节点看着在跑，传输进度永远是 0。这条与上表第 1 行是同一个坑的两个入口。
+
+另外三条只有写的时候会想到的：
+
+- **启停要串行化**。两者动的是同一份订阅句柄，交叠执行时后发的 stop 会停掉先发的 start 刚挂上的
+  订阅，留下一个「状态是运行中、却没有任何事件进来」的节点。UI 按钮的禁用条件将来会变，
+  机制兜底不会（`node-lifecycle.ts` 的 `transition` 队列）。
+- **停止的顺序是「停订阅 → 关节点 → 清运行态」**。轮询打在已关停的节点上会逐 tick 抛错；
+  而 `reset()` 若排在关节点之前，界面先一步清空、关停还在途——中间那段用户看到的是一个
+  「没有任何设备的运行中节点」。
+- **`WebNodeBootstrap` 的 effect 不再有 cleanup**，这是刻意的：运行时是页面级单例，StrictMode 的
+  mount→cleanup→mount 不该把它停掉再起一遍。启动幂等，关停只有一个来路——用户显式停。
+  此前那个 `cancelled` 标志兜的就是这件事，现在由模块级幂等兜。
+
+**验证过**（2026-08-05，静态产物 + 真 relay）：停 → 起一轮之后节点 ID 不变、relay reservation
+重建、`relays_changed()` 与轮询都重新接上、JS 侧零报错。
+
+**相关文件**：`docs/app/app/_lib/node-lifecycle.ts`、`docs/app/app/_lib/event-dispatch.ts`、
+`docs/app/app/_components/node-status-dialog.tsx`、`docs/app/app/_components/node-not-ready-state.tsx`
 
 ## 手测坑：Next Dev Tools 浮标会挡住底部导航
 
@@ -423,6 +535,34 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 
 **相关文件**：`docs/components.json`、`docs/app/global.css`、`docs/lib/cn.ts`
 
+## `scrollbar-gutter: stable` 会在应用区右边留一条永远空的死边
+
+`global.css` 里 `html { scrollbar-gutter: stable }` 是给**文档站**的：长短不一的文档页之间
+跳转时不左右抖。但应用外壳是 `h-dvh overflow-hidden`，**文档永远不溢出**，那条槽从头到尾
+是空的，Chrome 还在里面画一条滚不动的轨道——看起来就是「滚动条没贴边、悬在那儿」。
+
+判据（在应用区任一路由 eval）：
+
+```js
+// 死边存在时：deClientW 1440 / bodyW 1425（差的 15px 就是那条槽）
+// 且 docScrollH === docClientH ——> 文档根本没滚，槽是白留的
+JSON.stringify({ deClientW: document.documentElement.clientWidth,
+                 bodyW: document.body.offsetWidth,
+                 docScrollH: document.documentElement.scrollHeight,
+                 docClientH: document.documentElement.clientHeight })
+```
+
+修法是 `html:has([data-swarmdrop-app]) { scrollbar-gutter: auto }`——用 `:has()` 而不是在
+客户端 effect 里给 `<html>` 加类，后者会在首帧闪一下 15px。真正的滚动发生在 `PageShell`
+内部那个 `overflow-y-auto` 里，它的滚动条本来就贴着内容区右缘。
+
+**滚动条外观不用装包**：`scrollbar-width: thin` + `scrollbar-color`（Chrome 121+ / Firefox）
+加 `::-webkit-scrollbar` 伪元素兜底旧 Safari，值与桌面 `src/index.css` 同源。
+**作用域必须限定在 `[data-swarmdrop-app]`**，别用 `*`——文档站是 fumadocs 的观感，
+不该被应用区的选择顺手改掉（同 base 层那条默认边框色规则的分寸）。
+注意两套写法互斥：设了标准属性后 Chromium 会忽略 `::-webkit-scrollbar`，所以伪元素那版
+只对旧 Safari 生效，两边都留是兜底不是叠加。
+
 ## 移动优先 + 920 断点，与桌面同一个数
 
 应用区的基线视口是**手机浏览器**：单栏、无 hover 依赖、触摸目标 ≥44×44 CSS px。宽屏是渐进增强。
@@ -430,7 +570,37 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 `(min-width: 920px)` 是全应用唯一的主从断点（`_lib/use-media-query.ts` 的 `MASTER_DETAIL_QUERY`），
 **与桌面 `src/hooks/use-media-query.ts` 的同名常量是同一个数**。理由是 Windows 常见的 125% 缩放下
 1200 物理像素只有 960 CSS 宽——正好落在 920 与 1024 之间，用 `lg:`(1024) 会让同一台机器上
-桌面版分栏、Web 版堆叠。设备网格也在这个宽度升到三列，整个应用区一起换形态。
+桌面版分栏、Web 版堆叠。
+
+### ⚠️ 但 `min-[920px]:` 不能和具名断点并列写——后者永远赢（2026-08-05 实测）
+
+Tailwind v4 把**任意值断点 `min-[…]` 整族排在具名断点之前**。于是
+
+```jsx
+<ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 min-[920px]:grid-cols-3">
+```
+
+在 1440px 下两条规则都匹配，`sm:`(640) 排在后面赢——**设备网格从上线起就没有过三列**，
+一直是两列。实测判据（在跑着的页面上 eval 即可复现）：
+
+| 写法 | 视口 1440 下的 `gridTemplateColumns` |
+|---|---|
+| `min-[920px]:grid-cols-3` 单独 | `475px 475px 475px` ✅ 规则生成了也匹配 |
+| `sm:grid-cols-2 min-[920px]:grid-cols-3` | `543px 543px` ❌ |
+
+所以规则本身没问题，**并列写这两族才是错的**。三条出路，按优先级：
+
+1. **不用断点。** 网格类布局用 `grid-cols-[repeat(auto-fill,minmax(280px,1fr))]`，
+   让内容的最小可用宽度自己决定列数——设备网格现在就是这么写的。
+   （`auto-fill` 不是 `auto-fit`：后者折叠空轨道，**只有一台设备时那张卡会横跨整行**。）
+2. 全用具名断点（`sm:` / `lg:`）。
+3. 全用任意值断点。
+
+`src/`（桌面）里那几处是 `min-[920px]:` + `lg:`，顺序恰好就是想要的（920 先、1024 后覆盖），
+**不受影响**——别顺手一起改。
+
+顺带：就算那条 `min-[920px]:grid-cols-3` 生效了，结果也是错的——视口 920 时内容列约 608px，
+三列每张 189px，而 Device Card Contract 要求八项信息位，189px 装不下。
 
 `useMediaQuery` 用 `useSyncExternalStore` 且**服务端快照显式返回窄屏**：静态导出的预渲染 HTML
 与客户端首帧因此一致，不会 hydration mismatch。
@@ -825,3 +995,38 @@ ARIA 对 `button` 规定 **Children Presentational: True**：它的后代角色�
 降级块里要单独给它补 `border: 1px solid var(--border)`。
 
 **相关文件**：`docs/app/global.css`
+
+## 结构化的业务结果不能压成 `WebError`（2026-08-05 修复）
+
+`connect_invite` 曾在对端拒绝时返回 `WebError::network("邀请方拒绝了配对或配对未成功")`，
+于是 `WebErrorCard` 渲染出标题「网络错误」加一行 mono 字体的**简体中文** —— 那句来自 Rust、
+不在任何 `.po` 里，**en / zh-TW 用户看到的就是中文**；而真实原因是对方点了拒绝，
+一个网络完全正常的场景。桌面（`src/stores/pairing-store.ts` 的 `getPairingRefuseMessage`）
+与移动端一直是按判别码出 Lingui 文案的，只有 Web 把它当错误抛。
+
+**判据：内核已经用结构化类型表达的结果，宿主层不许压成「某个错误 kind + 一句写死的自然语言」。**
+那一步同时丢掉两样东西 —— 判别信息（reason 是什么）与本地化能力（那句话钉死在一种语言上），
+而且往往落到语义相反的 kind 上。同形的还有 `OfferResult { accepted: false, reason }`。
+
+现在 `PairingOutcomeJson` 带 `refused: PairingRefusedJson | null`，拒绝时返回 `Ok`，
+前端查 `PAIRING_REFUSED_LABEL`。
+
+**`crates/web/src/types.rs` 里的判别码只能是本地投影，不能直接用内核类型** ——
+`swarmdrop-core` 在 `crates/web` 是 **wasm-only 依赖**（Cargo.toml 的
+`[target.'cfg(target_family = "wasm")'.dependencies]`），而 `types.rs` **native 也要编**
+（specta 导出跑在 native）。直接引用会报 `unresolved module swarmdrop_core`，
+且只在跑 specta 导出时才暴露，wasm check 是绿的。
+
+重复的安全性由**唯一构造点的穷尽 match** 保证：`node.rs` 里
+`match response { PairingResponse::Refused { reason: PairingRefuseReason::UserRejected } => … }`
+—— 内核加一个拒绝原因，那里编译失败。**别写成 `Option<String>` 的判别码**，
+那只会在运行时静默落到兜底分支。
+
+**加了新类型记得三步**：`types.rs` 定义 → `lib.rs` 导出（specta 导出 test 从 crate root 取）
+→ `tests/specta_export.rs` 的 `register::<T>()`。嵌套类型会被自动带出来，但顶层的必须手动注册。
+最后 `pnpm build:wasm` 重新生成 `packages/swarmdrop-web/*.d.ts`，否则 `docs` 的 tsc 会说
+「Module 'swarmdrop-web' has no exported member」。
+
+**相关文件**：`crates/web/src/types.rs`、`crates/web/src/node.rs`、
+`docs/app/app/_lib/view-types.ts`（`PAIRING_REFUSED_LABEL`）、
+`docs/app/app/_components/pairing-panel.tsx`

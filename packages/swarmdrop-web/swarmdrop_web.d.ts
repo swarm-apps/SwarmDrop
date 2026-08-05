@@ -113,6 +113,52 @@ export type DeviceStatus = "online" | "offline";
 /**  已配对设备信任等级。 */
 export type DeviceTrustLevel = "owned" | "collaborator" | "temporary" | "blocked";
 
+/**
+ *  会话失败原因。持久化进 `transfer_sessions.error_message` 列（类型不变，存 JSON）。
+ *
+ *  变体数量刻意贴着**实际构造点**（三处 `ActorReport::FatalError` + 一处过期回收），
+ *  不预留「将来可能用到」的码 —— `failure-semantics-contract` 的 D3 已经吃过一次亏：
+ *  造出来到不了 UI 的判别码只是三端文案表里的死条目。
+ */
+export type FailureCode =
+/**
+ *  落盘最终化失败 —— 含 bao 逐块验签不通过、sink 写入失败。
+ *
+ *  用户能做的是重新传一次，所以三端文案落在「文件没能完整保存，请重新接收」。
+ */
+{ code: "fileFinalizeFailed"; fileName: string } |
+/**
+ *  超过保留期仍未恢复，被启动清理回收。
+ *
+ *  `retention_days` 进文案（「超过 N 天」），所以它是参数而不是常量 ——
+ *  保留期是配置项，两端可能不同。
+ */
+{ code: "sessionExpired"; retentionDays: number } |
+/**
+ *  对端拒绝了续传请求。
+ *
+ *  **直接内嵌 [`ResumeRejectReason`]，不再压成字符串。** 这条通道此前经
+ *  `resume_reject_message()` 把一个六变体的枚举摊平成六句中文 —— 判别信息在
+ *  wire 上本来就是结构化的，落库时降级成自由文本，到了 UI 又没法还原。
+ */
+{ code: "resumeRejected"; reason: ResumeRejectReason } |
+/**
+ *  发送方的 Offer 没能送达对端（发送失败或收到非预期响应）。
+ *
+ *  两个调用点的技术细节（IO 错误、响应类型）对用户是同一件事：对方没收到你的请求。
+ *  细节进 `warn!`。
+ */
+{ code: "offerFailed" } |
+/**
+ *  **存量数据**：本判别码引入之前写入的自由文本。
+ *
+ *  不写回填迁移 —— 失败原因是过程账本上的一句解释，重算不出来（原始错误早没了），
+ *  猜也猜不准。存量行原样展示旧串即可，新行一律是判别码；随着历史滚动它自然消失。
+ *  这与收件箱标题的处置不同（那边**回填**了），区别在于标题可以从文件列表重算，
+ *  失败原因不能。
+ */
+{ code: "legacy"; message: string };
+
 /**  传输文件元信息。 */
 export type FileInfo = {
     fileId: number,
@@ -180,14 +226,7 @@ export type InboxItemSummary = {
     sourceName: string,
     sourceKind: InboxSourceKind,
     contentKind: InboxContentKind,
-    /**
-     *  条目内第一个文件的文件名（「第一个」的定义见 [`InboxFileFacts`] 的顺序契约）；
-     *  零文件条目为 `None`。
-     *
-     *  **展示标题由各端从它 + [`item_count`](Self::item_count) 生成**，理由见模块文档。
-     *  `Option` 而不是空串：「没有文件」与「文件名恰好是空串」必须在类型上分得开。
-     */
-    primaryFileName: string | null,
+    title: string,
     itemCount: number,
     totalSize: number,
     rootPath: string | null,
@@ -202,11 +241,7 @@ export type InboxItemSummary = {
 /**  收件箱搜索命中（item 粒度）。 */
 export type InboxSearchHit = {
     id: string,
-    /**
-     *  同 [`InboxItemSummary::primary_file_name`]：命中条目的展示标题由调用方按当前
-     *  locale 从它 + `item_count` 生成，命中结果里不带预拼接的标题。
-     */
-    primaryFileName: string | null,
+    title: string,
     sourceName: string,
     itemCount: number,
     rootPath: string | null,
@@ -214,9 +249,8 @@ export type InboxSearchHit = {
     /**
      *  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
      *
-     *  `None` = **不该渲染片段行**：命中的是首文件名或来源名（条目行上已经显示着——
-     *  标题的内容就是首文件名），或一个候选都没命中。
-     *  判据在 [`inbox_snippet`]，三端不要各判一遍。
+     *  `None` = **不该渲染片段行**：命中的是标题或来源名（条目行上已经显示着），
+     *  或一个候选都没命中。判据在 [`inbox_snippet`]，三端不要各判一遍。
      */
     snippet: string | null,
     /**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
@@ -308,6 +342,43 @@ export type PairInvitePreviewJson = {
     localOnly: boolean,
 };
 
+/**
+ *  一次配对尝试的结果（与桌面 `PairingOutcome` / 移动 `MobilePairingResult` 同构）。
+ *
+ *  两个字段各自表达一种**不能压成错误的结果**：
+ *
+ *  - `refused` —— 对方点了拒绝。这是一次完全正常的交互，不是失败。它曾经被包成
+ *    `WebError::network("邀请方拒绝了配对或配对未成功")`，于是用户看到标题「网络错误」
+ *    配一句写死的简体中文（英文界面下尤其突兀），而网络其实一切正常。**判别码进结构体，
+ *    文案归前端**。
+ *  - `persisted` —— 走到这一步对端已经收到 `Success` 并把本机加进了它的已配对列表，
+ *    本机此时若报失败，两台设备对同一件事的认知就永久分叉了。真实后果只有一个 ——
+ *    这台设备刷新/重启后会从本机列表消失（对端仍记着），UI 该照这个说。
+ */
+export type PairingOutcomeJson = {
+    /**  对方拒绝时的原因判别码；`None` = 配对达成。 */
+    refused: PairingRefusedJson | null,
+    /**  已配对对端的 NodeId（base58）。`refused` 非空时是空串。 */
+    peerId: string,
+    /**
+     *  设备是否已落盘。`false` = 刷新页面后这台设备会不见（对端仍记着）。
+     *  仅在配对达成时有意义，被拒时恒为 `true`。
+     */
+    persisted: boolean,
+};
+
+/**
+ *  对方拒绝配对的原因判别码 —— 内核 `PairingRefuseReason` 的投影，wire 形状逐字相同
+ *  （`{ type: "user_rejected" }`，与桌面 bindings 里那个类型可互换）。
+ *
+ *  **为什么是投影而不是直接用内核类型**：`swarmdrop-core` 在本 crate 里是 wasm-only
+ *  依赖（见 Cargo.toml），而本模块 native 也要编（specta 导出跑在 native）。
+ *
+ *  **为什么这份重复是安全的**：唯一的构造点是 `node.rs` 里那个**穷尽 match**，内核加一个
+ *  拒绝原因就会在那里编译失败。判别码不能靠字符串传 —— 那只会在运行时静默落到兜底分支。
+ */
+export type PairingRefusedJson = { type: "user_rejected" };
+
 /**  连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。 */
 export type PathKindJson = "local" | "direct" | "relayed";
 
@@ -361,6 +432,9 @@ export type RelayInfoJson = {
 
 /**  relay reservation 状态类别（[`swarmdrop_net::RelayState`] 的 JS 投影，TS 侧字符串联合）。 */
 export type RelayStateKind = "connecting" | "active" | "failed";
+
+/**  断点续传被拒绝的原因。 */
+export type ResumeRejectReason = { type: "cancelled" } | { type: "fatal_error" } | { type: "source_modified" } | { type: "checkpoint_invalid" } | { type: "peer_unavailable" } | { type: "session_not_found" };
 
 export type RuntimeTransferDirection = "send" | "receive" | "unknown";
 
@@ -478,7 +552,8 @@ export type TransferProjection = {
     startedAt: number,
     updatedAt: number,
     finishedAt: number | null,
-    errorMessage: string | null,
+    /**  失败判别码（见 [`crate::failure`]）。曾是直达三端 UI 的自由中文文本。 */
+    failure: FailureCode | null,
     policyAction: string | null,
     policyReason: string | null,
     savePath: CoreSaveLocation | null,
@@ -674,11 +749,38 @@ export class WebNode {
      *
      * `pair_with_invite` 解码验签 → TTL 预检 → 按 `TransportPolicy` 过滤地址 → 连邀请方出示
      * capability（`PairingMethod::Invite`）→ 邀请方（桌面）校验 CAS 一次性消费 + 用户确认 →
-     * 双方写配对记录。身份 pin 由握手强制（连到的必然是 `inviter_id`）。成功返回已配对对端的
-     * NodeId（base58）；确认发生在**邀请方**侧，浏览器侧无需交互。配对后该对端进入本机信任
-     * 表，双向传输（收 / 发）不再被 `NotPaired` 拦。
+     * 双方写配对记录。身份 pin 由握手强制（连到的必然是 `inviter_id`）。确认发生在**邀请方**
+     * 侧，浏览器侧无需交互。配对后该对端进入本机信任表，双向传输（收 / 发）不再被
+     * `NotPaired` 拦。
+     *
+     * 返回 [`PairingOutcomeJson`]：`refused` 非空表示对方拒绝了（**不是错误**），
+     * 否则 `peerId` 是已配对对端的 NodeId，`persisted` 为 `false` 时表示配对成功了但没写进
+     * IndexedDB —— 刷新页面后这台设备会不见（对端仍记着）。
      */
-    connect_invite(invite: string): Promise<string>;
+    connect_invite(invite: string): Promise<PairingOutcomeJson>;
+    /**
+     * 当前已连接的 **SwarmDrop 客户端**数。
+     *
+     * 与桌面/移动的 `NetworkStatus.connected_peers` **走同一个函数**
+     * （`crates/core/src/network/manager.rs` 也是 `self.devices.connected_count()`），
+     * 所以三端这个数的口径天然一致。Web 此前没有这个绑定，设置页只能拿「已配对设备里
+     * 在线的台数」凑数——那是 presence 快照，未配对的对端不在里面。
+     *
+     * **不要改成读 `Endpoint::watch_conns()` 的长度。** 那是原始连接表，
+     * `publish_conns` 对每个 `ConnectionEstablished` 都建条目，不区分对端类型；
+     * 而浏览器启动时必然会连上至少一条 relay（`ensureConfiguredRelays`，那是公网可达的
+     * 前提），于是空载稳态就会显示「已连接 1 · 已配对 0」——一台设备都没配对却说连着一个。
+     * `connected_count()` 过滤 `is_swarmdrop_agent`，而 bootstrap/relay 的
+     * `agent_version` 是 `swarm-bootstrap/` 前缀（`crates/host/src/device.rs`），
+     * 正好被排除。代价是它依赖 identify 完成，比原始连接表晚约一个 RTT——桌面同此。
+     *
+     * **不一并导出 NAT 状态**：`Endpoint::watch_nat()` 的唯一写入点是 autonat 事件，
+     * 而 autonat 是 native-only（见 `crates/net/src/actor.rs` 的 `WatchSenders::nat`，
+     * 那里挂着 `cfg_attr(wasm_browser, expect(dead_code))`），wasm 下它恒为 `Unknown`。
+     * 导出一个永远不变的常量只是给界面添一行假状态；浏览器版的「别人能不能拨到我」
+     * 由 circuit 预留回答，那条已经有了（`relays_state`）。
+     */
+    connected_peers(): number;
     /**
      * 解码并验签邀请串，返回对端展示信息 —— **不发起配对、不消费**。
      *
@@ -917,7 +1019,7 @@ export class WebNode {
     /**
      * 响应一个入站配对请求（`accept=true` 接受并写配对记录、CAS 消费 invite / `false` 拒绝）。
      */
-    respond_pairing_request(pending_id: string, accept: boolean): Promise<void>;
+    respond_pairing_request(pending_id: string, accept: boolean): Promise<boolean>;
     /**
      * 手动发起断点续传（对某 suspended 会话）。
      *
@@ -1046,9 +1148,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly default_device_name: () => [number, number];
-    readonly get_device_name: () => any;
-    readonly set_device_name: (a: number, b: number) => any;
+    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1060,6 +1160,7 @@ export interface InitOutput {
     readonly webnode_close: (a: number) => any;
     readonly webnode_connect: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_connect_invite: (a: number, b: number, c: number) => any;
+    readonly webnode_connected_peers: (a: number) => number;
     readonly webnode_decode_invite_preview: (a: number, b: number, c: number) => [number, number, number];
     readonly webnode_delete_inbox_item: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_delete_transfer_session: (a: number, b: number, c: number) => any;
@@ -1095,7 +1196,9 @@ export interface InitOutput {
     readonly webnode_spawn: () => any;
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly start: () => void;
+    readonly default_device_name: () => [number, number];
+    readonly get_device_name: () => any;
+    readonly set_device_name: (a: number, b: number) => any;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;
@@ -1109,15 +1212,15 @@ export interface InitOutput {
     readonly intounderlyingsink_abort: (a: number, b: any) => any;
     readonly intounderlyingsink_close: (a: number) => any;
     readonly intounderlyingsink_write: (a: number, b: any) => any;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_9ac2f0c40ea89be0___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______: (a: number, b: number) => void;
     readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;

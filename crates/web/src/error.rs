@@ -18,19 +18,30 @@ impl WebError {
 
 impl From<AppError> for WebError {
     fn from(e: AppError) -> Self {
-        // AppError 已有 kind 语义；Web 侧收敛到 Network/Transfer/Identity 三类 + 兜底。
+        // **穷尽 match，不留 catch-all。** 这里曾是 `_ => Transfer`，于是内核每加一个
+        // kind，Web 就默默把它显示成「文件传输失败，请重试」——`kind` 是前端渲染文案的
+        // 判别码，落错分类就是给用户一句与真实原因无关的提示。写成穷尽之后，
+        // 新增变体会在这里编译失败，逼调用方想一下「浏览器该怎么说这件事」。
+        let message = e.to_string();
         match &e {
-            AppError::Network(_) | AppError::NodeNotStarted => Self::Network {
-                message: e.to_string(),
-            },
-            AppError::Identity(_) | AppError::ExpiredCode | AppError::InvalidCode => {
-                Self::Identity {
-                    message: e.to_string(),
-                }
+            AppError::Network(_) | AppError::NodeNotStarted => Self::Network { message },
+            // 身份类：密钥材料读写失败 / 还没就绪；邀请凭证本身的问题（过期、无效）
+            // 沿用既有归类。
+            AppError::Identity(_)
+            | AppError::IdentityNotReady
+            | AppError::ExpiredCode
+            | AppError::InvalidCode => Self::Identity { message },
+            // 入参非法：地址格式、标识格式等，用户无能为力。
+            AppError::InvalidArgument(_) => Self::InvalidInput { message },
+            AppError::DeviceNotFound | AppError::SessionNotFound(_) => Self::NotFound { message },
+            // 邀请状态没写进 IndexedDB / OPFS 写不进去 —— 本质都是一次存储失败。
+            AppError::InvitePersistFailed
+            | AppError::StorageFailed(_)
+            | AppError::Database(_)
+            | AppError::Io(_) => Self::Storage { message },
+            AppError::Serialization(_) | AppError::TaskJoin(_) | AppError::Transfer(_) => {
+                Self::Transfer { message }
             }
-            _ => Self::Transfer {
-                message: e.to_string(),
-            },
         }
     }
 }

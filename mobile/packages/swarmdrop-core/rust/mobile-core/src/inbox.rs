@@ -64,9 +64,7 @@ pub struct MobileInboxItemSummary {
     pub source_name: String,
     pub source_kind: MobileInboxSourceKind,
     pub content_kind: MobileInboxContentKind,
-    /// 首文件名（零文件条目为 `None`）。展示标题由 RN 侧按当前 locale 从它 +
-    /// `item_count` 生成——core 不产出本地化散文。
-    pub primary_file_name: Option<String>,
+    pub title: String,
     pub item_count: u32,
     pub total_size: u64,
     pub root_path: Option<String>,
@@ -88,7 +86,7 @@ impl From<InboxItemSummary> for MobileInboxItemSummary {
             source_name,
             source_kind,
             content_kind,
-            primary_file_name,
+            title,
             item_count,
             total_size,
             root_path,
@@ -106,7 +104,7 @@ impl From<InboxItemSummary> for MobileInboxItemSummary {
             source_name,
             source_kind: source_kind.into(),
             content_kind: content_kind.into(),
-            primary_file_name,
+            title,
             item_count: item_count.max(0) as u32,
             total_size: total_size.max(0) as u64,
             root_path,
@@ -206,8 +204,7 @@ impl From<InboxHitFile> for MobileInboxHitFile {
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileInboxSearchHit {
     pub id: String,
-    /// 同 [`MobileInboxItemSummary::primary_file_name`]。
-    pub primary_file_name: Option<String>,
+    pub title: String,
     pub source_name: String,
     pub item_count: u32,
     pub root_path: Option<String>,
@@ -225,7 +222,7 @@ impl From<InboxSearchHit> for MobileInboxSearchHit {
         // 穷尽解构（drift guard）：上游 InboxSearchHit 新增字段时此处会编译失败。
         let InboxSearchHit {
             id,
-            primary_file_name,
+            title,
             source_name,
             item_count,
             root_path,
@@ -235,7 +232,7 @@ impl From<InboxSearchHit> for MobileInboxSearchHit {
         } = hit;
         Self {
             id: id.to_string(),
-            primary_file_name,
+            title,
             source_name,
             item_count: item_count.max(0) as u32,
             root_path,

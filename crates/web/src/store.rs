@@ -380,7 +380,7 @@ impl SessionStore for WebTransferStore {
             started_at: now,
             updated_at: now,
             finished_at: None,
-            error_message: lifecycle.error_message.clone(),
+            error_message: lifecycle.failure.as_ref().map(|f| f.to_column()),
             policy_action,
             policy_reason,
             origin: origin.map(|o| o.to_db_string()),
@@ -517,8 +517,8 @@ impl SessionStore for WebTransferStore {
                 if state.is_terminal() {
                     s.session.finished_at = Some(Self::now_ms());
                 }
-                if let Some(msg) = &state.error_message {
-                    s.session.error_message = Some(msg.clone());
+                if let Some(failure) = &state.failure {
+                    s.session.error_message = Some(failure.to_column());
                 }
             }
         }
@@ -683,7 +683,8 @@ impl SessionStore for WebTransferStore {
                     s.session.terminal_reason = Some(entity::TerminalReason::FatalError);
                     s.session.status = entity::SessionStatus::Failed;
                     s.session.recoverable = false;
-                    s.session.error_message = Some(expired_receive_reason(retention_secs));
+                    s.session.error_message =
+                        Some(expired_receive_reason(retention_secs).to_column());
                     s.session.finished_at = Some(now);
                     s.session.updated_at = now;
                     ExpiredReceiverActor {
@@ -724,7 +725,7 @@ impl InboxStore for WebTransferStore {
         session_id: Uuid,
     ) -> AppResult<Option<InboxItemDetail>> {
         let Some((session, files)) = self.session_rows(session_id) else {
-            return Err(AppError::Transfer("传输会话不存在".into()));
+            return Err(AppError::SessionNotFound("传输会话不存在".into()));
         };
         let detail = self.inbox.ensure_from_session(&session, &files).await?;
         Ok(detail.map(|detail| self.attach_transfer(detail)))
@@ -935,7 +936,7 @@ mod tests {
             terminal_reason: Some(entity::TerminalReason::Completed),
             epoch: 0,
             recoverable: false,
-            error_message: None,
+            failure: None,
         }
     }
 
@@ -1106,7 +1107,7 @@ mod tests {
             .await
             .unwrap()
             .expect("收件箱条目不该随会话一起被淘汰");
-        assert_eq!(detail.item.primary_file_name.as_deref(), Some("报告.pdf"));
+        assert_eq!(detail.item.title, "报告.pdf");
         assert_eq!(detail.files.len(), 1, "条目的文件行也必须还在");
         assert!(
             detail.transfer.is_none(),
@@ -1277,7 +1278,7 @@ mod tests {
             .into_iter()
             .find(|d| d.item.id == item_id)
             .expect("收件箱条目必须跨 load() 存活");
-        assert_eq!(detail.item.primary_file_name.as_deref(), Some("报告.pdf"));
+        assert_eq!(detail.item.title, "报告.pdf");
         assert_eq!(detail.files.len(), 1, "条目的文件行也要一起回来");
         assert_eq!(detail.item.transfer_session_id, Some(session_id));
         // 这一格由 `attach_transfers` 从**会话表**补——它非空即证明两张表都读回来了，

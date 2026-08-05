@@ -26,8 +26,9 @@ import {
   discoveryModeFromNative,
 } from "@/core/network-discovery";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
-import { cn, errorMessage } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
@@ -128,7 +129,7 @@ export default function NetworkScreen() {
         setError(null);
       }
     } catch (err) {
-      toast.error(t`重启节点失败`, errorMessage(err));
+      toast.error(t`重启节点失败`, getErrorMessage(err));
     } finally {
       setRestarting(false);
     }

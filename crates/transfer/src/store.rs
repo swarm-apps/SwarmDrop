@@ -329,7 +329,8 @@ pub struct TransferProjection {
     pub started_at: i64,
     pub updated_at: i64,
     pub finished_at: Option<i64>,
-    pub error_message: Option<String>,
+    /// 失败判别码（见 [`crate::failure`]）。曾是直达三端 UI 的自由中文文本。
+    pub failure: Option<crate::failure::FailureCode>,
     pub policy_action: Option<String>,
     pub policy_reason: Option<String>,
     pub save_path: Option<CoreSaveLocation>,
@@ -432,7 +433,10 @@ pub fn projection_of(
         started_at: session.started_at,
         updated_at: session.updated_at,
         finished_at: session.finished_at,
-        error_message: session.error_message.clone(),
+        failure: session
+            .error_message
+            .as_deref()
+            .map(crate::failure::FailureCode::from_column),
         policy_action: session.policy_action.clone(),
         policy_reason: session.policy_reason.clone(),
         save_path,

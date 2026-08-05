@@ -9,6 +9,8 @@
 import type { MobileInvitePreview } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { getMobileCore } from "@/core/mobile-core";
+import { getErrorMessage } from "@/lib/errors";
+import { warnIfPairingNotPersisted } from "@/lib/pairing-feedback";
 
 /**
  * 邀请有效期（秒），与 core `INVITE_TTL_SECS` 一致 —— **改这里必须同步 Rust 常量**。
@@ -87,8 +89,14 @@ interface PairingInviteState {
    * snake_case 码（不再是 `{reason:?}` 的 Rust 裸标识符），未知码一律降级到通用文案。
    */
   confirmReject: ConfirmReject | null;
-  /** 确认后发起配对；返回 accepted（失败原因见 `confirmReject`） */
-  confirmInvite: () => Promise<boolean>;
+  /**
+   * 确认后发起配对。
+   *
+   * 返回 `accepted`（失败原因见 `confirmReject`）与 `persisted` —— 后者为 `false` 时
+   * 表示**配对成功了但这条记录没落盘**，调用方要把它带进成功页如实告知
+   * （只弹 toast 不够：转场动画会盖掉它，而成功页通篇是绿色对勾）。
+   */
+  confirmInvite: () => Promise<{ accepted: boolean; persisted: boolean }>;
   cancelPreview: () => void;
 }
 
@@ -156,7 +164,7 @@ export const usePairingInviteStore = create<PairingInviteState>()(
         set({
           activeInvite: null,
           generating: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
         });
         console.warn("[pairing-invite] generate failed:", err);
       }
@@ -224,7 +232,8 @@ export const usePairingInviteStore = create<PairingInviteState>()(
 
       async confirmInvite() {
         const { pending } = get();
-        if (!pending) return false;
+        // 没有 pending = 没配成，也就没有「该落盘的东西」，persisted 报 true。
+        if (!pending) return { accepted: false, persisted: true };
         set({ confirming: true, error: null, confirmReject: null });
         try {
           const result = await getMobileCore().consumePairInvite(
@@ -234,6 +243,8 @@ export const usePairingInviteStore = create<PairingInviteState>()(
             // 成功才清 pending——由确认页 router.replace(success) 导航，避免与
             // found-device 的「pending===null → back()」竞态。
             set({ confirming: false, pending: null });
+            // toast 只是即时提醒，持久的那句由成功页承担（见 `pairing/success.tsx`）。
+            warnIfPairingNotPersisted(result.persisted);
           } else {
             // 拒绝：保留 pending，让确认页展示原因（否则一闪即弹回主屏）。
             set({
@@ -242,12 +253,12 @@ export const usePairingInviteStore = create<PairingInviteState>()(
                 result.reason === "user_rejected" ? "userRejected" : "failed",
             });
           }
-          return result.accepted;
+          return { accepted: result.accepted, persisted: result.persisted };
         } catch (err) {
           // 技术细节只进 console —— 抛上来的是 Rust 侧的错误串。
           console.warn("[pairing] confirmInvite 失败:", err);
           set({ confirming: false, confirmReject: "failed" });
-          return false;
+          return { accepted: false, persisted: true };
         }
       },
 

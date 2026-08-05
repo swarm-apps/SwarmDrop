@@ -10,14 +10,18 @@ export function useAsyncAction() {
   const [error, setError] = useState<WebError | null>(null);
   const seq = useRef(0);
 
-  function run<T>(fn: () => Promise<T>, onSuccess: (value: T) => void) {
+  /**
+   * `onSuccess` 可省：动作的全部结果已经由 store 表达（如节点启停）时，调用方没有额外要做的
+   * ——此时传一个空函数只是噪音。绝大多数调用点仍然需要它（把返回值落进 store）。
+   */
+  function run<T>(fn: () => Promise<T>, onSuccess?: (value: T) => void) {
     const mySeq = ++seq.current;
     setPending(true);
     setError(null);
     fn().then(
       (value) => {
         if (mySeq !== seq.current) return;
-        onSuccess(value);
+        onSuccess?.(value);
         setPending(false);
       },
       (e) => {

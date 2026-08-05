@@ -101,6 +101,43 @@ pub trait InviteStore: Send + Sync {
     async fn prune_expired(&self, now: u64);
 }
 
+/// [`InviteRecord::capability_hash`] → 小写 hex（64 字符）。
+///
+/// 这个 hex 串是 `capability_hash` 唯一的对外形态：SQL 主键、IndexedDB 键、
+/// 邀请列表条目暴露给三端 UI 的不透明 ID（撤销时原样回传）。**四个用途必须编出同一个串**，
+/// 所以它归本 crate —— 函数跟着类型走，`capability_hash` 就定义在上面。
+///
+/// 曾经有 5 份各自为政的拷贝（web ×2 / storage-sql / src-tauri / mobile-core），
+/// 其中一份被发现会 panic（见 [`capability_hash_from_hex`]）而只修了那一份。
+pub fn capability_hash_to_hex(bytes: &[u8; 32]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// [`capability_hash_to_hex`] 的逆。长度不对、非 hex 字符、非字符边界一律返回 `None`。
+///
+/// **必须用 `str::get` 而不是 `&text[a..b]`。** `text.len()` 是**字节**数，一个 64 字节的串
+/// 完全可能含多字节字符（`"aé" + 61 个 ASCII` 就是），那时按 2 字节切片会落在字符中间
+/// **直接 panic**。而输入未必可信：桌面的 `revoke_pair_invite_by_id` 是 IPC 命令、串由前端给；
+/// 存储实现读的是用户能改的库文件。`get` 在非边界返回 `None`，退化成一次干净的「格式非法」。
+///
+/// 不记日志：本 crate 无 tracing 依赖（wasm-clean），且「该说什么」因调用点而异
+/// —— 读库读到坏行是「丢弃该行」，IPC 传坏值是「入参非法」。
+pub fn capability_hash_from_hex(text: &str) -> Option<[u8; 32]> {
+    if text.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (index, slot) in out.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(text.get(index * 2..index * 2 + 2)?, 16).ok()?;
+    }
+    Some(out)
+}
+
 /// 不落盘的实现 —— 保持旧的「重启丢邀请」语义。
 ///
 /// 给两类调用方用：不需要持久化的宿主（测试、CLI 工具），以及落盘实现尚未就绪时的占位。
@@ -122,4 +159,38 @@ impl InviteStore for NoopInviteStore {
         true
     }
     async fn prune_expired(&self, _now: u64) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{capability_hash_from_hex, capability_hash_to_hex};
+
+    #[test]
+    fn round_trips() {
+        let hash = [0xabu8; 32];
+        let hex = capability_hash_to_hex(&hash);
+        assert_eq!(hex.len(), 64);
+        assert_eq!(hex, "ab".repeat(32));
+        assert_eq!(capability_hash_from_hex(&hex), Some(hash));
+    }
+
+    #[test]
+    fn rejects_wrong_length_and_non_hex() {
+        assert_eq!(capability_hash_from_hex("short"), None);
+        assert_eq!(capability_hash_from_hex(&"z".repeat(64)), None);
+        assert_eq!(capability_hash_from_hex(&"a".repeat(63)), None);
+        assert_eq!(capability_hash_from_hex(&"a".repeat(65)), None);
+    }
+
+    /// 回归锚点：64 **字节**但含多字节字符的输入必须是 `None`，不是 panic。
+    ///
+    /// 这条红了说明有人把 `str::get` 换回了 `&text[..]`。入口之一是
+    /// `revoke_pair_invite_by_id` 这个 IPC 命令，字符串由前端给。
+    #[test]
+    fn rejects_multibyte_input_without_panicking() {
+        let text = format!("a\u{e9}{}", "0".repeat(61));
+        assert_eq!(text.len(), 64, "构造的必须是 64 字节");
+        assert_eq!(text.chars().count(), 63, "且不是 64 个字符");
+        assert_eq!(capability_hash_from_hex(&text), None);
+    }
 }

@@ -1,9 +1,10 @@
-//! 建立完成的 WebRTC 连接。
+//! An established WebRTC connection.
 //!
-//! 它是 [`Transport::Output`](libp2p_core::Transport::Output) 的载荷：既带对端身份，
-//! 也**就是**数据面——直接实现 [`StreamMuxer`]，委托给后端交出的 [`StreamMuxerBox`]。
+//! It is the payload of [`Transport::Output`](libp2p_core::Transport::Output): it carries
+//! the remote's identity and **is** the data plane — it implements [`StreamMuxer`]
+//! directly, delegating to the [`StreamMuxerBox`] handed over by the backend.
 //!
-//! 接入 swarm 时按 libp2p 惯例再包一层：
+//! Following libp2p convention, it gets one more wrapper when plugged into the swarm:
 //! `.map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn)))`。
 
 use std::pin::Pin;
@@ -13,7 +14,7 @@ use libp2p_core::muxing::{StreamMuxer, StreamMuxerEvent};
 use libp2p_core::muxing::{StreamMuxerBox, SubstreamBox};
 use libp2p_identity::PeerId;
 
-/// 一条建立完成的 WebRTC 连接。
+/// An established WebRTC connection.
 #[derive(Debug)]
 pub struct Connection {
     peer: PeerId,
@@ -25,10 +26,12 @@ impl Connection {
         Self { peer, muxer }
     }
 
-    /// 对端身份。
+    /// The remote's identity.
     ///
-    /// 由信令所经的**已认证** relay 连接确定，而非对端自报——SDP 里的 DTLS 指纹在
-    /// 握手时被验证，两者共同完成身份绑定（见 crate 文档「为什么不需要额外的 Noise」）。
+    /// Determined by the **authenticated** relay connection the signaling travelled over,
+    /// not self-reported by the remote — the DTLS fingerprint in the SDP is verified during
+    /// the handshake, and together the two bind the identity (see the crate docs on why no
+    /// extra Noise handshake is needed).
     pub fn peer(&self) -> PeerId {
         self.peer
     }

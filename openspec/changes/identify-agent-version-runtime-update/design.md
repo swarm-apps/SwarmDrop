@@ -184,9 +184,15 @@ crates/core/src/network/event_loop.rs:84-94  refresh_paired_device_from_identify
       ↓ crates/core/src/pairing/manager.rs:468  refresh_paired_device_os_info
       ↓ crates/host/src/device.rs:358-363       refresh_os_info —— 相等则返回 false（短路）
       ↓
-crates/core/src/network/event_loop.rs:76-81   CoreEvent::PairedDeviceAdded { device }
-      ↓ host 各自持久化（桌面 host/event_bus.rs:111 / 移动 events.rs:196 / Web event_bus.rs:60）
+crates/core/src/network/event_loop.rs         PairingManager::commit_paired_device
+      ↓ 落盘 + 写共享内存表 + publish CoreEvent::PairedDeviceAdded（都在 core 里）
+      ↓ host 只把事件转给 UI，**不再各自持久化**
 ```
+
+> ⚠️ **上面这段在 2026-08-05 改过**：持久化曾散在三端 host（桌面 `host/event_bus.rs` /
+> 移动 `events.rs` / Web `event_bus.rs` 各回写一次），于是同一个动作有三种失败语义。
+> 现已收进 `PairingManager::commit_paired_device`，是新增/刷新已配对设备的唯一入口。
+> 本变更若还没实施完，按新形态接线。
 
 三条结论：
 

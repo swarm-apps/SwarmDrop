@@ -58,8 +58,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { canOpenSaveFolder } from "@/core/saf-intent";
-import { useInboxItemTitle } from "@/hooks/useInboxItemTitle";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { inboxItemTitle } from "@/lib/inbox-title";
 import { openFileWithSystem, shareFileWithSystem } from "@/lib/open-file";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
@@ -68,7 +68,6 @@ import { type InboxFileEntry, useInboxStore } from "@/stores/inbox-store";
 
 export default function InboxDetailScreen() {
   const { t } = useLingui();
-  const itemTitle = useInboxItemTitle();
   const router = useRouter();
   const colors = useThemeColors();
   const actionsSheetRef = useRef<AppBottomSheetRef>(null);
@@ -141,7 +140,7 @@ export default function InboxDetailScreen() {
 
   const archived = detail?.item.archivedAt != null;
   const title = detail
-    ? itemTitle(detail.item.primaryFileName, detail.item.itemCount)
+    ? inboxItemTitle(detail.item.title, detail.item.itemCount)
     : t`收件箱详情`;
   const fileCount = detail?.files.length ?? 0;
   const primaryFile = detail?.files.length === 1 ? detail.files[0] : null;

@@ -49,7 +49,7 @@ pub(crate) fn answer(
 
 /// SDP 构造失败。模板是常量、参数已校验，实践中只会因 rtc 侧解析器变更而出现。
 #[derive(Debug, thiserror::Error)]
-#[error("构造 SDP 失败：{0}")]
+#[error("failed to build SDP: {0}")]
 pub(crate) struct Error(String);
 
 /// 客户端 offer 的模板。

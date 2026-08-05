@@ -23,7 +23,6 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import {
   ArrowLeftRight,
   Check,
-  Loader2,
   MonitorSmartphone,
   Paperclip,
   Send,
@@ -49,6 +48,7 @@ import {
 import { cn } from "@/lib/cn";
 import { PANEL_SURFACE } from "./section";
 import { CenteredEmptyState } from "./empty-state";
+import { NodeNotReadyState } from "./node-not-ready-state";
 import { deviceIcon } from "../_lib/device-presentation";
 import { transferSample } from "../_lib/format";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
@@ -58,6 +58,7 @@ import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode } from "../_lib/store";
 import {
   OFFER_REJECT_REASON_LABEL,
+  failureCodeLabel,
   type Device,
   type TransferProgressEvent,
   type TransferProjection,
@@ -156,6 +157,9 @@ function SendPanelInner() {
     // `ready` 判断之前，于是每次刷新，已配对的老用户都先看到一句「还没有可发送的设备」
     // 外加一条去配对的教学。那是在断言一件当时并不成立的事。
     return (
+      // 保留 `flex-1` 撑满高度：此刻这一栏的全部内容就是这个空态，缩起来只会在下面
+      // 留一片无主的空白。宽度同样由页面的 `column="form"` 决定，两种状态才不会在
+      // 「配对完第一台设备」的瞬间横向跳一下版。
       <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", PANEL_SURFACE)}>
         {ready ? (
           <CenteredEmptyState
@@ -174,9 +178,7 @@ function SendPanelInner() {
             }
           />
         ) : (
-          <CenteredEmptyState
-            icon={Loader2}
-            title={<Trans>正在启动节点…</Trans>}
+          <NodeNotReadyState
             description={<Trans>节点起来后，已配对的设备会出现在这里。</Trans>}
           />
         )}
@@ -189,8 +191,10 @@ function SendPanelInner() {
     // ——直接导航去打开那个文件，整个 SPA 连同正在跑的 P2P 节点一起没了。目标越大越难失手，
     // 而高亮仍然只画在虚线框上，用户不必知道边界在哪。
     // （落在应用区其它位置的误投由 layout 的 `WindowDropGuard` 兜底。）
+    // 列宽由页面给（`send/page.tsx` 的 `column="form"`），这里不自己 `mx-auto max-w-*`
+    // ——面板自己缩会让页头仍是满宽、两者左边缘对不齐。
     <div
-      className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-6"
+      className="flex flex-col gap-[var(--space-in-panel)] rounded-xl border bg-card p-4 shadow-xs sm:p-6"
       onDragOver={(event) => {
         // 只接文件。从页面里拖一段选中的文字或一个链接过来不该点亮投放区，更不该被当成
         // 一次空投放（`dataTransfer.files` 为空，addFiles 会静默什么也不做）。
@@ -332,10 +336,25 @@ function SendPanelInner() {
         </div>
       )}
 
-      <Button onClick={doSend} disabled={!canSend} className="gap-1.5">
-        <Send className="size-4" aria-hidden />
-        {sendAction.pending ? <Trans>发送中…</Trans> : <Trans>发送</Trans>}
-      </Button>
+      {/*
+        表单页脚，不是横幅。此前这颗按钮直接躺在 `flex-col` 里——flex 默认 `align-items:
+        stretch`，于是它被拉成整块面板那么宽（1240px 限宽下实测 1100px），一条满饱和度的
+        青绿长条成了全页最重的东西，而它多数时候还是 disabled 的。
+        （product register 明写：非激活态不用满饱和度重色。）
+
+        `w-full sm:w-auto`：窄屏保留整宽（拇指够得着是硬要求），指针端收回自然宽度并右对齐
+        ——右下角是表单主动作的常规落点，用户不必重新找。
+      */}
+      <div className="flex sm:justify-end">
+        <Button
+          onClick={doSend}
+          disabled={!canSend}
+          className="w-full gap-1.5 sm:w-auto sm:min-w-32"
+        >
+          <Send className="size-4" aria-hidden />
+          {sendAction.pending ? <Trans>发送中…</Trans> : <Trans>发送</Trans>}
+        </Button>
+      </div>
 
       {sendAction.pending && prepareProgress && (
         <div className="flex flex-col gap-1">
@@ -404,6 +423,7 @@ function SentSessionCard({
   const sample = projection ? transferSample(projection, progress) : null;
   const completed = ended && projection?.terminalReason === "completed";
   const failed = ended && projection?.terminalReason === "fatal_error";
+  const failureLabel = failureCodeLabel(projection?.failure ?? null);
 
   return (
     <div
@@ -453,9 +473,7 @@ function SentSessionCard({
       </div>
       {phase === "active" && sample && <ProgressBar percent={sample.percent} label={t`发送进度`} />}
       {/* 失败原因就在投影上，不必让用户再跳一次页面才看得到。 */}
-      {failed && projection?.errorMessage && (
-        <p className="break-words">{projection.errorMessage}</p>
-      )}
+      {failed && failureLabel && <p className="break-words">{t(failureLabel)}</p>}
     </div>
   );
 }

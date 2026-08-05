@@ -20,8 +20,8 @@ import { isImageFile, isVideoFile } from "@/components/file-browser";
 import { FilterChip, FilterChipRail } from "@/components/filter-chip";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
-import { useInboxItemTitle } from "@/hooks/useInboxItemTitle";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { inboxItemTitle } from "@/lib/inbox-title";
 import { cn } from "@/lib/utils";
 import type { InboxPreviewItem } from "@/stores/inbox-store";
 
@@ -81,11 +81,7 @@ export function filterInboxItems(
   return items.filter((item) => {
     if (!matchesInboxFilter(item, filter)) return false;
     if (!trimmedQuery) return true;
-    // 本地快速过滤扫的是**原始文本**（首文件名 + 来源名），不是生成的展示标题——
-    // 后者含「等 N 个文件」这类模板词，会让用户搜「文件」时捞出全部多文件条目。
-    // 与内核检索的覆盖面（source_name / files_text）同规。
-    const haystack =
-      `${item.primaryFileName ?? ""} ${item.sourceName}`.toLowerCase();
+    const haystack = `${item.title} ${item.sourceName}`.toLowerCase();
     return haystack.includes(trimmedQuery);
   });
 }
@@ -205,7 +201,6 @@ function InboxRowComponent({
   highlight?: string;
 }) {
   const { t } = useLingui();
-  const itemTitle = useInboxItemTitle();
   const colors = useThemeColors();
   const Icon = contentIcon(item);
   return (
@@ -236,7 +231,7 @@ function InboxRowComponent({
             />
           )}
           <HighlightedText
-            text={itemTitle(item.primaryFileName, item.itemCount)}
+            text={inboxItemTitle(item.title, item.itemCount)}
             query={highlight}
             className={cn(
               "min-w-0 flex-1 text-[14px] text-foreground",
@@ -395,24 +390,12 @@ function isTextLike(item: InboxPreviewItem): boolean {
   );
 }
 
-// 媒体判断吃**首文件名**而不是展示标题——此前吃 `item.title`，多文件条目的
-// 「a.jpg 等 3 个文件」被按扩展名「个文件」判断，恒为假。
-//
-// 但只对**单文件条目**判：`isImageFile` 是**文件级**谓词，而这两个函数的产物是关于
-// **整个条目**的断言（图标、"图片"这个标签、以及「图片」筛选的计数）。拿首文件代表
-// 一个 50 文件的混合条目，会让用户点「图片」筛出一堆 zip 和 pdf。
-// 桌面端 `ItemIcon` 早就是这么定的（`count > 1` 一律归档图标，不看扩展名），
-// 两端同规才不会出现「同一条数据在手机上是图片、在桌面是归档」。
-function isSingleFileItem(item: InboxPreviewItem): boolean {
-  return item.itemCount <= 1;
-}
-
 function isImageLike(item: InboxPreviewItem): boolean {
-  return isSingleFileItem(item) && isImageFile(item.primaryFileName ?? "");
+  return isImageFile(item.title);
 }
 
 function isVideoLike(item: InboxPreviewItem): boolean {
-  return isSingleFileItem(item) && isVideoFile(item.primaryFileName ?? "");
+  return isVideoFile(item.title);
 }
 
 function contentIcon(item: InboxPreviewItem) {

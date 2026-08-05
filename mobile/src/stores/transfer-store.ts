@@ -14,7 +14,7 @@ import {
   isProjectionActive,
   isProjectionTerminal,
 } from "@/core/transfer-types";
-import { errorMessage } from "@/lib/utils";
+import { getErrorMessage } from "@/lib/errors";
 
 interface TransferState {
   /** 入站 offer 队列（接收方等用户响应；首条会被 transfer-offer-host 弹窗显示） */
@@ -124,7 +124,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       } catch (err) {
         console.warn(
           "[transfer-store] loadProjection failed:",
-          errorMessage(err),
+          getErrorMessage(err),
         );
       }
     },
@@ -152,7 +152,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       } catch (err) {
         console.warn(
           "[transfer-store] loadProjections failed:",
-          errorMessage(err),
+          getErrorMessage(err),
         );
         set({ lastError: t`加载传输活动失败` });
       }
@@ -191,7 +191,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       try {
         await getMobileCore().clearTransferActivity();
       } catch (err) {
-        set({ lastError: errorMessage(err) });
+        set({ lastError: getErrorMessage(err) });
       } finally {
         await get().loadProjections();
       }
@@ -208,7 +208,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
           return { projections, progressBySession };
         });
       } catch (err) {
-        set({ lastError: errorMessage(err) });
+        set({ lastError: getErrorMessage(err) });
       }
     },
 
@@ -218,7 +218,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       try {
         return await getMobileCore().getTransferSourcePaths(sessionId);
       } catch (err) {
-        set({ lastError: errorMessage(err) });
+        set({ lastError: getErrorMessage(err) });
         return [];
       }
     },

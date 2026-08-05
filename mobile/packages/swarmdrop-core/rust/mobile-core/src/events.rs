@@ -16,7 +16,6 @@ use swarmdrop_core::transfer::progress::FileTransferStatus;
 use swarmdrop_net::{Events, Router};
 
 use crate::history::MobileTransferProjection;
-use crate::keychain::MobileKeychainAdapter;
 use crate::network::MobileNetworkStatus;
 use crate::transfer::MobileTransferOffer;
 
@@ -180,43 +179,27 @@ pub trait ForeignEventBus: Send + Sync {
     fn emit(&self, event: MobileCoreEvent);
 }
 
+/// 纯转发：`CoreEvent` → `MobileCoreEvent` → JS。
+///
+/// **不持有任何存储端口。** 它一度持有 `PairedDeviceStore` 来回写新配对/刷新的设备，
+/// 那份职责已经收进 core 的 `PairingManager::commit_paired_device`（与桌面、Web 同一个入口）。
 pub(crate) struct MobileEventBusAdapter {
     foreign: Arc<dyn ForeignEventBus>,
-    /// 用于把新配对 / Identify 刷新后的已配对设备写回持久化（对齐桌面 host 行为）。
-    /// 与 `MobileCore::keychain` 是同一个适配器，这里只取它的 `PairedDeviceStore` 面。
-    paired_store: Arc<MobileKeychainAdapter>,
 }
 
 impl MobileEventBusAdapter {
-    pub(crate) fn new(
-        foreign: Arc<dyn ForeignEventBus>,
-        paired_store: Arc<MobileKeychainAdapter>,
-    ) -> Self {
-        Self {
-            foreign,
-            paired_store,
-        }
+    pub(crate) fn new(foreign: Arc<dyn ForeignEventBus>) -> Self {
+        Self { foreign }
     }
 }
 
 #[async_trait]
 impl EventBus for MobileEventBusAdapter {
     async fn publish(&self, event: CoreEvent) -> AppResult<()> {
-        // PairedDeviceAdded 有两个来源:配对成功时 pairing.rs 主动 publish,以及对端经
-        // Identify 广播新设备名时共享 core publish。新增方向的持久化仍是 host 职责
-        // (桌面在 event_bus.rs 里 upsert),移动端在此把设备写回,使新配对的设备 / 刷新
-        // 后的名称在设备离线或应用重启后仍保留。算法走 core 的 `paired_devices::upsert`
-        // ——已存在条目只更新 os_info / paired_at,不碰用户设过的信任级别与收件策略。
-        //
-        // 移除方向相反:PairedDeviceRemoved 到达时 core 已经写过盘了,host 不得再删一次
-        // (重复删虽幂等,却会让持久化失败被第二次成功掩盖)。
-        if let CoreEvent::PairedDeviceAdded { device } = &event
-            && let Err(error) =
-                swarmdrop_core::paired_devices::upsert(self.paired_store.as_ref(), device.clone())
-                    .await
-        {
-            tracing::warn!("持久化已配对设备失败: {error}");
-        }
+        // **两个方向都只转发，host 不再回写。** `PairedDeviceAdded` 到达时 core 的
+        // `PairingManager::commit_paired_device` 已经写过盘（配对达成与 identify 刷新
+        // 走同一个入口），`PairedDeviceRemoved` 同理由 `unpair` 写过。重复写虽幂等，
+        // 却会让持久化失败被第二次成功掩盖 —— 而「写盘成没成」正是上层要如实告诉用户的。
         if let Some(mobile_event) = map_event(event) {
             self.foreign.emit(mobile_event);
         }

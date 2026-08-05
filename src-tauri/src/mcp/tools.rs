@@ -387,7 +387,7 @@ impl McpHandler {
 
     /// 检索收件箱（已接收文件）
     #[tool(
-        description = "按关键词检索本机已接收的收件箱内容，返回命中条目（首文件名 primaryFileName + 文件数 itemCount、来源设备、文件列表含相对路径、接收时间、匹配片段）。先用它定位条目，再用 get_inbox_file 取本地路径。仅覆盖本机 inbox，不跨设备。支持中文（含'合同'这类 2 字词）。默认排除已归档条目，include_archived=true 时纳入。",
+        description = "按关键词检索本机已接收的收件箱内容，返回命中条目（标题、来源设备、文件列表含相对路径、接收时间、匹配片段）。先用它定位条目，再用 get_inbox_file 取本地路径。仅覆盖本机 inbox，不跨设备。支持中文（含'合同'这类 2 字词）。默认排除已归档条目，include_archived=true 时纳入。",
         annotations(read_only_hint = true)
     )]
     pub async fn search_inbox(
@@ -635,7 +635,7 @@ impl McpHandler {
 
     /// 取收件箱条目完整详情
     #[tool(
-        description = "按条目 id 取完整详情（首文件名 primaryFileName + 文件数 itemCount、来源、接收时间、文件列表含 relativePath/size/missing/localPath），补全 search_inbox/list_inbox → 详情 → get_inbox_file 的闭环。",
+        description = "按条目 id 取完整详情（标题、来源、接收时间、文件列表含 relativePath/size/missing/localPath），补全 search_inbox/list_inbox → 详情 → get_inbox_file 的闭环。",
         annotations(read_only_hint = true)
     )]
     pub async fn get_inbox_item(
@@ -1205,13 +1205,11 @@ pub struct GetInboxFileParams {
 #[serde(rename_all = "camelCase")]
 struct McpInboxHit {
     id: String,
-    /// 首文件名（零文件条目为 `None`）。**刻意不给拼好的标题**：MCP 的消费者是 agent
-    /// 而不是 UI，结构化字段既让它自己组织语言，也不必被某个 locale 的散文绑住。
-    primary_file_name: Option<String>,
+    title: String,
     source_name: String,
     item_count: i32,
     received_at: i64,
-    /// `None` = 命中的是首文件名或来源名（本结构里已有那两个字段），或一个候选都没命中。
+    /// `None` = 命中的是标题或来源名（本结构里已有那两个字段），或一个候选都没命中。
     snippet: Option<String>,
     files: Vec<McpInboxHitFile>,
 }
@@ -1227,7 +1225,7 @@ impl From<InboxSearchHit> for McpInboxHit {
     fn from(hit: InboxSearchHit) -> Self {
         Self {
             id: hit.id.to_string(),
-            primary_file_name: hit.primary_file_name,
+            title: hit.title,
             source_name: hit.source_name,
             item_count: hit.item_count,
             received_at: hit.received_at,
@@ -1303,7 +1301,12 @@ struct McpTransfer {
     started_at: i64,
     updated_at: i64,
     finished_at: Option<i64>,
-    error_message: Option<String>,
+    /// 失败判别码的 JSON（如 `{"code":"fileFinalizeFailed","fileName":"报告.pdf"}`）。
+    ///
+    /// 给 agent 的是**结构化判别码**而不是散文——它本来就更好解释给用户，也不会像
+    /// 自由文本那样在改一句措辞时把下游的匹配逻辑打掉。判别码引入之前落库的会话
+    /// 仍是自由文本，原样透传。
+    failure: Option<String>,
     files: Vec<McpTransferFile>,
 }
 
@@ -1341,7 +1344,7 @@ impl From<TransferProjection> for McpTransfer {
             started_at: p.started_at,
             updated_at: p.updated_at,
             finished_at: p.finished_at,
-            error_message: p.error_message,
+            failure: p.failure.as_ref().map(|f| f.to_column()),
             files: p
                 .files
                 .into_iter()
@@ -1374,8 +1377,7 @@ struct McpResumeResult {
 #[serde(rename_all = "camelCase")]
 struct McpInboxItem {
     id: String,
-    /// 同 [`McpInboxHit::primary_file_name`]：给结构不给散文。
-    primary_file_name: Option<String>,
+    title: String,
     source_name: String,
     item_count: i32,
     total_size: i64,
@@ -1388,7 +1390,7 @@ impl From<InboxItemSummary> for McpInboxItem {
     fn from(s: InboxItemSummary) -> Self {
         Self {
             id: s.id.to_string(),
-            primary_file_name: s.primary_file_name,
+            title: s.title,
             source_name: s.source_name,
             item_count: s.item_count,
             total_size: s.total_size,

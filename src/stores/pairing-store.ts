@@ -17,7 +17,6 @@ import {
   type PairInvitePreview,
   type PairingRefuseReason,
   type PairingRequestPayload,
-  type PairingResponse,
 } from "@/lib/bindings";
 import type { PeerId } from "@/lib/types";
 import { isErrorKind, getErrorMessage } from "@/lib/errors";
@@ -69,6 +68,25 @@ function getPairingRefuseMessage(reason: PairingRefuseReason): string {
     case "user_rejected":
       return t`对方拒绝了配对请求`;
   }
+}
+
+/**
+ * 配对成功后的提示。
+ *
+ * `persisted === false` 是一种**「一半成功」**：对端已经把本机加进它的已配对列表、本机
+ * 这次运行内也能正常用，只是这条记录没写进钥匙串，重启后会不见。
+ *
+ * 它既不能报成失败（那会让两台设备对同一件事的认知永久分叉——对方明明成功了），
+ * 也不能当成普通成功（用户不知道自己还得再配一次）。所以照实说。
+ */
+function notifyPaired(deviceName: string, persisted: boolean) {
+  if (persisted) {
+    toast.success(t`已与 ${deviceName} 配对成功`);
+    return;
+  }
+  toast.warning(t`已与 ${deviceName} 配对成功`, {
+    description: t`但这条记录没能保存下来，重启后需要重新配对。`,
+  });
 }
 
 /**
@@ -271,7 +289,7 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
     set({ current: { phase: "requesting" } });
 
     try {
-      const response: PairingResponse = await withTimeout(
+      const { response, persisted } = await withTimeout(
         commands.consumePairInvite(invite),
         REQUEST_TIMEOUT_MS,
         t`配对请求`,
@@ -280,7 +298,7 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
       if (response.status === "success") {
         const deviceName = preview.displayName || preview.peerId.slice(-8);
         set({ current: { phase: "success" } });
-        toast.success(t`已与 ${deviceName} 配对成功`);
+        notifyPaired(deviceName, persisted);
       } else {
         const message = getPairingRefuseMessage(response.reason);
         set({ current: { phase: "idle" } });
@@ -311,9 +329,10 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
     // 立即清空，防止双击重复响应（pending channel 只能消费一次）
     set({ incomingRequest: null });
     try {
-      await commands.respondPairingRequest(pendingId, method, { status: "success" });
-      const deviceName = deviceDisplayName(osInfo);
-      toast.success(t`已与 ${deviceName} 配对成功`);
+      const persisted = await commands.respondPairingRequest(pendingId, method, {
+        status: "success",
+      });
+      notifyPaired(deviceDisplayName(osInfo), persisted);
       get().processNextInbound();
       return true;
     } catch (err) {
@@ -347,7 +366,7 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
   async directPairing(peerId: PeerId) {
     set({ current: { phase: "requesting" } });
     try {
-      const response: PairingResponse = await withTimeout(
+      const { response, persisted } = await withTimeout(
         commands.requestPairing(peerId, { type: "direct" }, null),
         REQUEST_TIMEOUT_MS,
         t`配对请求`,
@@ -357,7 +376,7 @@ export const usePairingStore = create<PairingState>()((set, get) => ({
         const device = findNetworkDeviceSnapshot(peerId);
         const deviceName = device ? deviceDisplayName(device) : peerId.slice(-8);
         set({ current: { phase: "success" } });
-        toast.success(t`已与 ${deviceName} 配对成功`);
+        notifyPaired(deviceName, persisted);
       } else {
         const message = getPairingRefuseMessage(response.reason);
         set({ current: { phase: "idle" } });

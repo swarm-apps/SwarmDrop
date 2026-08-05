@@ -162,14 +162,130 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase];   // 住在共享 crate
 反过来，移动端两个后端本来就是同一个存储桥，拆到 uniffi 的 `ForeignKeychainProvider`
 那一侧不产生解耦收益，所以拆分**止步于 Rust 端口层**。
 
-**当前边界**：`PairedDeviceStore` 目前只服务 `PairingManager::unpair` 这一条写路径；
-新增/刷新方向仍由三端 host 在 `CoreEvent::PairedDeviceAdded` 上各自回写（刻意的半步，
-那条路径已有唯一触发点、语义一致）。
+**当前边界（2026-08-05 起）：三个写方向都在 core。** 新增与刷新走
+`PairingManager::commit_paired_device`（配对达成的三个点 + `event_loop` 的 identify 刷新
+共用它），移除走 `PairingManager::unpair`。**三端 host 只转发事件，不碰存储** ——
+`MobileEventBusAdapter` 与 `WebEventBus` 因此都不再持有 `PairedDeviceStore` 字段。
+
+> 它曾是「刻意的半步」：新增/刷新由三端 host 各自在 `CoreEvent::PairedDeviceAdded` 上回写。
+> 收口的直接原因见下面「同一个写动作散在三端，会长出三种失败语义」。
 
 **相关文件**：`crates/host/src/ports.rs`（两个 trait）、`crates/core/src/paired_devices.rs`
 （唯一的列表算法）、`crates/core/src/identity.rs`（只剩密钥材料）、
 `src-tauri/src/host.rs`（`keychain_provider` / `paired_device_store` 两个工厂）、
 `crates/web/src/paired_devices.rs`
+
+### 同一个写动作散在三端，会长出三种失败语义
+
+「配对成功 → 把设备写进持久化 → 通知 UI」这段编排一度在三端各写一遍，结果是同一个产品动作
+有三种失败行为：
+
+| 端 | 落盘位置 | 写盘失败时 |
+|---|---|---|
+| 桌面 | 命令层，**逐字重复 3 遍** | `?` 冒泡 → 报错 |
+| Web | 命令层，重复 2 遍 | `?` 冒泡 → 报错 |
+| 移动 | event bus 里 | 只记一条 `warn` → 静默丢失 |
+
+两种失败都是错的，但错法不同：
+
+- **静默丢失**：用户以为配对好了，重启后设备不见，且没有任何线索。
+- **报错更糟** —— 这是本条的重点：走到落盘那一步时**对端已经收到 `Success` 并把本机写进了
+  它的列表**。本机此时报「配对失败」，两台设备对同一件事的认知就永久分叉了，而且没有任何
+  一端会去纠正。用户看到失败去重试，对面却显示「已配对」。
+
+**判据：一个动作跨过了「对方已经知道了」这条线之后，本地的后续失败就不能再表达成整体失败。**
+它的真实后果要如实说（这里是「这台设备重启后会丢」），形态就是把「一半成功」变成返回值而不是
+错误 —— `commit_paired_device` 返回 `PairedDeviceCommit { device, persisted }`，三端 UI 在
+`persisted == false` 时提示「配对成功，但这条记录没保存下来」。仓里早有同构的先例：
+`revoke_pair_invite_by_id` 返回「是否已落盘」，理由一模一样（本次运行内已生效、重启后会复活）。
+
+**收口的副产品可以当验收信号**：把落盘移进 core 之后，`MobileEventBusAdapter` 和 `WebEventBus`
+的 `paired_store` 字段双双变成 dead code，编译器直接报 `field is never read`。
+**如果收口做对了，host 侧应该有东西变成死代码**；一个都没少，说明只是加了一层转发。
+
+**落盘失败的回退路径也要走同一份合并规则。** 配对收口时踩过：失败分支直接把手里的
+`device` 写进共享内存表，而它恒是 `PairedDeviceInfo::new` 的产物（`Collaborator` + 默认
+收件策略）。那张表正是 `swarmdrop_transfer::policy` 裁决入站 offer 的事实源 ——
+一次写库失败就会把用户设的 `Owned` 降回 `Collaborator`、收紧过的策略放回默认，
+**本次运行内立即生效**。合并规则现在住在 `PairedDeviceInfo::merge_observation`，
+落盘路径（`paired_devices::upsert`）与失败回退（`commit_paired_device`）共用同一份，
+由 `commit_keeps_user_policy_in_memory_when_persist_fails` 钉着。
+
+同型问题在传输接受路径上也有一份，已于 2026-08-05 一并修掉 ——
+**但修法不同构，见下一条**。
+
+### 「越线」规则有优先级：先问能不能挪，挪不动才谈怎么表达降级（2026-08-05）
+
+上一条立了判据（越过「对方已经知道了」这条线之后，本地失败不能表达成整体失败），但**没说
+该怎么办**，于是配对那次的答案「降级成返回值」被当成了唯一解。传输接受路径按同一个套路改完
+才发现它是次优的。完整规则按优先级排：
+
+1. **能挪的可失败步骤，全部挪到越线之前。** 这是最强的满足方式 —— 越线之后没有可失败的
+   步骤，就没有「已经发生却报失败」的可能。
+2. **越线之前**的失败必须**可重试**：消费掉一次性资源（`pending.remove`）之后若还有可失败的
+   步骤，失败路径必须把资源**放回去**。否则 offer 从 UI 上消失、`responder` 随之 drop
+   （对端 RPC 当场断），用户连重试的入口都没有 —— 这一条比「报错文案不对」严重得多，
+   而它藏在同一个函数里，只盯着越线之后会整个漏掉。
+3. **确实挪不动的**（收尾动作本身就依赖已经越线这件事）才谈降级：记 `warn!`，
+   或把「一半成功」变成返回值。
+
+`accept_and_start_receive` 走的是第 1 条：`dispatch(Accept)` 只写本机 DB，挪到应答之前，
+于是越线之后**一个可失败的步骤都不剩**。`handle_cancel_impl` / `handle_pause_impl` /
+`handle_peer_disconnected_impl` 走第 3 条 —— 它们是对端信号的处理器，「已经发生」是入参
+而不是自己造成的，没有「挪到之前」这个选项。
+
+**代价是一个白做的 API。** 按旧套路先设计了 `AcceptOutcome { recorded: bool }` 并铺到三端
+（Tauri 命令返回 `bool`、MCP 工具加 JSON 字段、uniffi 改签名），挪完 dispatch 才发现那个位
+恒为 `true`。整条回滚。**先问「能不能挪」，再设计降级的表达形式。**
+
+**还有一个反向补偿分支容易漏**：`responder.send` 自己失败 = 对端**没有**收到接受
+（RPC 早就超时、handler 已 drop），越线**没有发生**。此时本机会话已是 `active`、actor 已注册，
+必须回滚（撤 actor + 推终态 + 返回 Err），否则它一直挂在活动列表里等一份不会来的数据。
+原实现是 `let _ =` 直接忽略。
+
+**测试怎么造这两种失败**（都用真实路径，不要往生产代码塞注入点）：
+
+- 越线前失败 → 删掉库里的会话行，`update_session_save_path` 自然报 `SessionNotFound`。
+  ⚠️ 得**先删 `transfer_files`**：那条外键刻意没有 `ON DELETE`，直接删父行会被 SQLite 拦。
+- 越线未发生 → `drop` 掉 `cache_inbound_offer` 返回的应答接收端。
+- ⚠️ **拒绝路径不能用删行**：`dispatch` 查不到 session 时返回的是 `Ok(None)`（视作无事可做），
+  拒绝会静默成功，什么都测不到。改用 `db.close_by_ref()` 让 `find_session` 报错。
+
+写完务必**反向验证一次**：把实现改回旧形态，确认测试真的会红。这三条里有两条是我先写了
+测试、看它绿了才发现测的根本不是那件事。
+
+**相关文件**：`crates/transfer/src/flow/receive.rs`（`prepare_accept` + 三段注释）、
+`crates/core/tests/e2e_transfer.rs` 末尾三条测试、
+`openspec/changes/failure-semantics-contract/design.md` D1
+
+### `AppError` 加 kind 的判据是两问，第二问最容易漏（2026-08-05）
+
+第一问众所周知：**UI 能据此给出与其他 kind 不同的、用户真能照做的建议吗？** 能就拆，
+不能就留在所在域的「其余」变体里（传输域是 `Transfer`，它现在有 doc 写明这条）。
+
+**第二问才是坑：这个 kind 到得了 UI 吗？** 本仓的后端失败有**两条独立通道**：
+
+| 通道 | 载体 | 三端怎么渲染 |
+|---|---|---|
+| 命令返回值 | `AppError` → `{ kind, message }` | 按 `kind` 查本地化文案表 |
+| 会话失败原因 | `ActorReport::FatalError(String)` → 落库 `error_message` | 详情页直接渲染那个 String |
+
+第二条通道**完全不经过 `kind`**。所以「内容校验失败（bao 验签 / checksum 不匹配）」这个
+看起来教科书级合格的候选 —— 用户动作明确且唯一，就是重传一次 —— 造出来会是一个**永远不会被
+任何文案表命中的判别码**：它只发生在 `ReceiverActor` 里，走的是第二条通道。已砍掉。
+
+判断方法很简单：**顺着调用链往上走，看它是从某个 `#[tauri::command]` / wasm 导出 /
+uniffi 方法返回出去的，还是变成了 `FatalError(String)`。**
+
+同理，`SessionNotFound` 的迁移只覆盖了「命令能直接收到」的 12 处；深在 actor 里的
+「文件不存在: file_id=3」「checkpoint bitmap 不存在」留在 `Transfer` —— 它们是内部不变量
+被破坏，不是「你指的那条不在了」。
+
+> 第二条通道本身也该收成判别码（移动端已经在用 `friendlyTransferError` 对它做**正则匹配**
+> 来出文案，桌面与 Web 干脆没有）。要动 wire、DB 列、恢复逻辑与三端详情页，单独立项。
+
+**相关文件**：`crates/host/src/error.rs`（`Transfer` 变体的 doc 就是这两问）、
+`openspec/changes/failure-semantics-contract/design.md` D3
 
 ### 端口层现有 trait 清单：六个，且没有一格是空的
 
@@ -482,6 +598,59 @@ specta + chrono 会把 `DateTime<Utc>` 映射成 ISO 8601 字符串（前端 `st
 
 **相关文件**：`crates/host/src/error.rs`、`src-tauri/src/error.rs`
 
+### `AppError` 的 `kind` 是**用户文案的判别码**，不是日志分类
+
+桌面按 `kind` 查表渲染本地化文案（`src/lib/errors.ts` 的 `KIND_MESSAGES`），`message` 只进
+日志 —— 它是 Rust 侧的中文串，直接展示会在英文界面露馅。所以**给一个失败选 kind，
+等于在选用户会看到的那句话**。
+
+> ⚠️ **这条只在桌面完全成立。** Web 侧把 `AppError` 收敛成 `WebError` 的七个变体（有
+> `kind` 但前端多数调用点直接显示 `message`）；**移动端根本没有 kind → 文案表** ——
+> `mobile/src/lib/utils.ts` 的 `errorMessage` 只是把 `FfiError.Variant: inner` 拼成一个串
+> 丢给 toast，于是 Rust 侧那些中文 message 会**原样出现在英文界面上**。
+> 这是已知负债，不是这次能顺带修的（要给移动端补一张 variant → Lingui 文案的表）。
+> 新增错误变体时**别假设移动端会本地化它**。
+
+反面教材是 `Identity`。它一度是配对路径的垃圾桶，兜着 8 处毫不相关的失败：peer_id 解析、
+multiaddr 解析、二维码生成、邀请标识 hex 格式、`SecretKey` 未就绪、邀请状态没落盘、
+设备找不到。于是**用户点「接受配对」失败时，看到的是一句「设备身份初始化失败」** ——
+与真实原因毫无关系，把排查引向钥匙串，而真凶在数据库写入。
+
+讽刺的是这个坑被发现过一次：`decode_pair_invite` 的注释明确写着「包成 Identity 会让用户看到
+『设备身份初始化失败』」并改成了 `InvalidCode` —— **但只修了那一处**，同文件里另外 5 处照旧。
+单点修复对这类问题无效，因为病根是「有一个万能 kind 可以塞」。
+
+现在的划分（`crates/host/src/error.rs`）：
+
+| kind | 什么时候用 | 用户看到 |
+|---|---|---|
+| `Identity` | 密钥材料**真的**读写失败 | 设备身份读写失败 |
+| `IdentityNotReady` | 私钥还没加载进内存 | 请重启应用后重试 |
+| `InvalidArgument` | 参数解析失败（peer_id / multiaddr / hex） | 通用兜底（用户无能为力） |
+| `InvitePersistFailed` | 邀请「已消费」状态没写成库 | 请重新生成邀请 |
+| `DeviceNotFound` | 找不到指定的已配对设备 | 未找到该设备 |
+
+两条纪律：
+
+1. **新增失败模式时先问一句「这句话对用户成立吗」。** 不成立就别复用那个 kind，
+   哪怕它在类型上装得下。
+2. **`From<AppError>` 的转换写成穷尽 match，不留 `_ =>` catch-all。**
+   Web 侧那个 catch-all 会把每一个新 kind 默默显示成「文件传输失败，请重试」；
+   改成穷尽之后，加变体会在编译期逼人想一下「浏览器该怎么说这件事」。
+
+**改 kind 时三端一起改，否则就是同一个坑再踩一次。** 这次修完桌面的 5 处之后，移动端
+`utils.rs` / `pairing.rs` / `device.rs` 还留着 4 处一模一样的误用（同一句「邀请标识格式非法」
+在三端是三个 kind），Web 的 `revoke_invite_by_id` 则把它报成 `network`（用户看到
+「网络连接出现问题，请稍后重试」）。**单点修复对这类问题无效** —— 病根是有个万能 kind
+可以塞，而三端各有各的万能 kind。
+
+> **仍未清的同型负债**：`AppError::Transfer` 已经是新的垃圾桶，规模比 `Identity` 大 ——
+> `crates/web/src/opfs.rs` 全文件（浏览器存储失败）、`crates/web/src/inbox.rs`、
+> `crates/core/src/host.rs`、`crates/transfer/src/flow/receive.rs` 都在用它兜「找不到条目」
+> 「序列化失败」「内部不变量」。桌面把 `Transfer` 渲染成「文件传输失败，请重试」，
+> 于是用户打不开一条收件箱记录时看到的就是这句。该补的是 `Storage` 与
+> `NotFound { resource }`（Web 侧已有无人可达的 `WebError::NotFound` 正好接上）。
+
 ### crates/web 的 specta 导出不支持 `skip_serializing_if`
 
 `swarmdrop-web` 的 TS 导出（`tests/specta_export.rs`）走 `specta_serde::Format`，
@@ -506,6 +675,98 @@ pub fn insert_session(...) { ... }
 ```
 
 **相关文件**：`crates/storage-sql/src/ops.rs`、`crates/transfer/src/flow/receive.rs`
+
+## 数据库 schema 与迁移
+
+> 2026-08-05 把 12 个增量迁移 squash 成了一份全量 init（`m20260805_000001_init`），
+> 并且**整个 migration crate 零 `execute_unprepared`**。下面两条是那次的产物。
+
+### schema 约束尽量写在 entity 上，migration 只负责「把它建出来」
+
+sea-orm 2.0 的 entity 能表达的约束比直觉多，本仓 7 个索引里 6 个都能声明式表达：
+
+| 属性 | 生成什么 | 本仓例子 |
+|---|---|---|
+| `#[sea_orm(indexed)]` | 单列非唯一索引，名字是 `idx-{table}-{col}` | `inbox_item.received_at` |
+| `#[sea_orm(unique)]` | 单列唯一索引 | `inbox_item.transfer_session_id` |
+| `#[sea_orm(unique_key = "名字")]` | **复合唯一索引**——同名的多个列合成一条 | `transfer_file` 的 `(session_id, file_id)` |
+| `belongs_to` 上的 `on_delete = "SetNull"` / `"Cascade"` | 外键的删除行为 | `inbox_item.transfer_session` |
+
+`db.get_schema_builder().register(E).apply(db)` 会把这些一并建出来，并按外键依赖**自动拓扑
+排序**建表顺序（SQLite 不支持后加外键，顺序错就是硬错误，别手写顺序）。
+
+**entity 唯一表达不了的是复合非唯一索引**（`indexed` 是列级属性、`unique_key` 只组唯一键）。
+本仓只有一条 `(deleted_at, archived_at)`，用 `Index::create()` 的 sea-query DSL 补 ——
+仍然不是裸 SQL。
+
+**为什么值得较真**：约束只写在 migration 的裸 SQL 里、entity 不表达，会形成一种
+**只在「从零建库」时才暴露的漂移**。本仓踩过：`inbox_items.transfer_session_id` 的
+`ON DELETE SET NULL`——「清空传输历史不动收件箱」这条三端不变量的实现基础——此前只存在于
+`m20260627_000002_drop_inbox` 的裸 SQL 里，entity 从未写过 `on_delete`。改用 schema builder
+从 entity 建表的那一刻，这条约束会**静默消失**：不报错、不失败，只是删会话时行为变了。
+
+判据：**凡是数据库强制的约束，entity 上必须读得到。**
+钉法是行为级测试（真删一行看结果），不是解析 DDL 文本 ——
+见 `m20260805_000001_init` 的 `deleting_a_session_nulls_the_inbox_link_instead_of_cascading`。
+
+### squash 迁移会让所有存量库「启动即失败」，必须配自愈
+
+sea-orm 的 `get_migration_with_status` 算 `已应用 − 代码里有的` 差集，非空就返回
+`DbErr::Custom("Migration file of version '…' is missing, this migration has been applied
+but its file is missing")`。这发生在任何 DDL 之前 ——
+**库本身是好的，只是这份代码认不出它的历史**。但 `Migrator::up` 的错误直接冒泡到 setup，
+所以表现不是「数据丢了」而是**应用打不开**。删迁移文件前必须想清楚这一条。
+
+本仓的处理是 `migration::connect_and_migrate()`：连库 → 迁移 → 撞上这条错误就删库重建。
+桌面与移动共用它（两端的启动路径本来逐字相同）。三个细节：
+
+- **判据要窄**。只认 `DbErr::Custom` + 那句固定措辞。把任意 `Custom` 当成「该删库」，
+  会让真正的迁移失败（写坏的 DDL、磁盘满、权限）变成一次静默的数据清除。
+- **先关连接再删文件**。Windows 上打开中的文件删不掉，而「删了个寂寞又重连到同一个旧库」
+  会再报同样的错 —— 变成启动死循环。
+- **`-wal` / `-shm` 一起删**。journal 模式是写在库文件头里的持久设置，
+  只删主文件而留下历史版本的 `-wal`，新库会读到一段本该消失的旧事务。
+
+代价的边界值得写清楚（用户会问）：丢的是**这个库里的**传输历史、收件箱、邀请注册表；
+设备身份与已配对设备在 keychain / `dev-identity.json` / 平台安全存储里，**配对关系不丢**，
+已落盘的文件也不动。
+
+### 目录式迁移**不能**用 `DeriveMigrationName` —— 它会把版本名变成 `mod`
+
+`DeriveMigrationName` 展开成 `get_file_stem(file!())`。迁移写成单文件时没问题
+（`m20260730_000001_pair_invites.rs` → 版本名就是文件名）；但**时间胶囊必须是目录 +
+`mod.rs`**，于是 stem 变成 `"mod"` —— 而历史上每一个目录式迁移记进 `seaql_migrations`
+的都是同一个 `"mod"`。
+
+这次 squash 就踩了：新 init 与被删掉的旧 `m20260228_000001_init/mod.rs` **撞名**。
+后果静默且致命 —— 停在 v0.3.3 ~ v0.4.2 的库里只有一行 `mod`，升级后
+`migration_in_fs` 与 `migration_in_db` 都是 `{mod}`，pending 空、missing 也空，
+`Migrator::up` 返回 `Ok(())`，[`connect_and_migrate`] 的自愈**永不触发**，
+应用继续跑在 2026-02 的两表 schema 上，第一次查收件箱就 `no such table`。
+
+**正确做法**：目录式迁移手写名字。
+
+```rust
+pub struct Migration;   // 不要 #[derive(DeriveMigrationName)]
+
+impl MigrationName for Migration {
+    fn name(&self) -> &str { "m20260805_000001_init" }
+}
+```
+
+**两类测试都发现不了它**，别指望：空库上跑 `Migrator::up` 一切正常；往
+`seaql_migrations` 塞一条「未来版本」也只覆盖到 missing 那条分支。要钉住它需要
+**按古董库的真实形态**造数据（塞 `('mod', 0)` 且不建任何本版表），见
+`connect_and_migrate_rebuilds_ancient_database_named_mod`。
+
+### `crates/migration` 的冻结 entity 快照不要改成 `use entity::...`
+
+`m20260805_000001_init/entity/` 是**时间胶囊**：主 crate 的 entity 之后怎么演进，这个迁移
+建出来的表都不变。直接引用主 entity 会让「从零建库」跟着最新 entity 走、而「增量升级」走
+历史路径，两条路建出不同的 schema。这是 sea-orm 官方对「migration 里用 SchemaBuilder」的
+既定要求。
+
+推论：**加了新列或新表，不要回头改 init 的快照**，写一个新的增量迁移。
 
 ## P2P / 异步
 
@@ -945,6 +1206,55 @@ keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立
 原则一句话：**后端发码、边缘翻译**。错误 `kind` 与通知语义枚举同构。
 
 **相关文件**：`src/lib/errors.ts`、`crates/host/src/error.rs`、`src-tauri/locales/`、`src-tauri/src/i18n.rs`
+
+### 一个 Rust 串要不要判别码化：两问（2026-08-05）
+
+「后端发码」这条原则的**执行判据**。全仓 1466 处中文字符串字面量，按这两问筛下来
+真正要动的只有 3 条通道 —— 完整清点见
+[`dev-notes/research/2026-08-rust-side-user-strings.md`](../research/2026-08-rust-side-user-strings.md)。
+
+1. **它会原样出现在用户眼前吗？** `tracing` 日志、`expect` / panic 消息、测试数据、
+   MCP 工具描述（受众是 AI agent）**都不会** —— 那些保持中文，它们是开发者语言。
+   翻译日志只会让搜 issue 变难。
+2. **它跨过存储或进程边界了吗？** 跨过就**不能存渲染结果，只能存判别码** ——
+   否则它会永久冻结在写入时的 locale，用户切语言不生效。
+
+两问都「是」→ 判别码化。第一问「否」→ 保持中文。
+
+**已落地的三条通道**（`openspec/changes/rust-string-boundary/`）：
+
+| 曾经的形态 | 现在 |
+|---|---|
+| `ActorReport::FatalError(String)` → `error_message` 列 → 三端裸渲染 | `FailureCode` enum，列类型不变仍是 TEXT、存 JSON |
+| `inbox_title()` 返回「X 等 N 个文件」并落库 | `inbox_primary_file_name()` 只返回文件名，「等 N 个」归三端 catalog |
+| `resume_reject_message()` 把六变体枚举摊平成六句中文 | `FailureCode::ResumeRejected` **直接内嵌** `ResumeRejectReason` |
+
+第三条最值得记：**判别信息在 wire 上本来就是结构化的，落库时降级成自由文本，
+到了 UI 又还原不回来。** 遇到「enum → String → 展示」的链路，中间那步基本都是多余的。
+
+### 自由文本匹配会**误命中**，不只是「失效」（2026-08-05）
+
+移动端曾用 9 条英文关键词正则去猜 `errorMessage` 的语义。它的输入是
+`format!("文件最终化失败: {name} (file_id={id}): {e}")` —— **文件名拼在里面**，
+而正则对整串跑：
+
+| 文件叫 | 命中 | 显示 | 真实原因 |
+|---|---|---|---|
+| `Q3-cancel.xlsx` | `/(cancel\|abort)/` | 「传输已取消」 | 校验失败 |
+| `network-diagram.png` | `/(network\|connect…)/` | 「网络连接中断」 | 校验失败 |
+
+确定性复现。「传输已取消」尤其有害 —— 把一次**数据损坏**说成用户自己的操作。
+
+教训有两层。表层是本仓已经吃过第二次的那个（第一次是 `event-bus.ts` 的
+`msg.includes("NodeNotStarted")`）：**对自由文本做匹配，源头改一个字就静默失效**。
+深一层是这次才看清的：失效不是最坏的结果，**误命中**才是 —— 前者用户看到兜底文案，
+后者用户看到一句自信而错误的解释。
+
+推论：**用户可见的错误数据结构里不要拼入用户数据**（文件名、路径、设备名）。
+需要显示就作为**独立字段**给出（`FileFinalizeFailed { file_name }`），
+让渲染层决定怎么摆；拼进一整句，下游就再也分不开了。
+
+**相关文件**：`crates/transfer/src/failure.rs`、`mobile/src/components/transfer/shared.tsx`
 
 ### rust-i18n 集成：`i18n!` 在 lib.rs 根、per-locale TOML、`%{var}` 插值
 

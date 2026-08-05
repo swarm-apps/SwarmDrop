@@ -20,7 +20,7 @@ import {
 import { initMobileCore } from "@/core/mobile-core";
 import { buildNetworkRuntimeConfig } from "@/core/network-discovery";
 import { ensureNotificationPermission } from "@/core/notifier";
-import { errorMessage } from "@/lib/utils";
+import { getErrorMessage } from "@/lib/errors";
 import { usePairingInviteStore } from "@/stores/pairing-invite-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import {
@@ -177,7 +177,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           }
         } catch (error) {
           set({
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
             identityStatus: "failed",
           });
         }
@@ -214,7 +214,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           usePairingInviteStore.getState().clearActiveInvite();
           return { ok: true, state: "stopped" };
         } catch (err) {
-          const message = errorMessage(err);
+          const message = getErrorMessage(err);
           console.warn("[mobile-core-store] shutdownNode failed:", err);
           set({ error: message });
           return { ok: false, state: get().runtimeState, error: message };
@@ -267,7 +267,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           }
           return { ok: true, state: nextRuntimeState };
         } catch (err) {
-          const message = errorMessage(err);
+          const message = getErrorMessage(err);
           set({
             error: message,
             runtimeState: "error",
@@ -288,7 +288,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             runtimeState: toRuntimeState(networkStatus.status),
           });
         } catch (err) {
-          set({ error: errorMessage(err) });
+          set({ error: getErrorMessage(err) });
         }
       },
 
@@ -301,7 +301,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             runtimeState: toRuntimeState(networkStatus.status),
           });
         } catch (err) {
-          set({ error: errorMessage(err) });
+          set({ error: getErrorMessage(err) });
         }
       },
 
@@ -321,7 +321,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           await get().loadPairedDevicesCache();
           return updated;
         } catch (err) {
-          set({ error: errorMessage(err) });
+          set({ error: getErrorMessage(err) });
           throw err;
         }
       },
@@ -335,7 +335,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             devices: state.devices.filter((device) => device.peerId !== peerId),
           }));
         } catch (err) {
-          set({ error: errorMessage(err) });
+          set({ error: getErrorMessage(err) });
           throw err;
         }
       },

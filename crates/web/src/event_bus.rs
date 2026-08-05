@@ -9,8 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use swarmdrop_core::host::{CoreEvent, EventBus};
-use swarmdrop_core::paired_devices;
-use swarmdrop_host::{AppResult, PairedDeviceStore};
+use swarmdrop_host::AppResult;
 
 use crate::types::PendingPairingJson;
 
@@ -18,21 +17,20 @@ use crate::types::PendingPairingJson;
 pub type PendingPairings = Arc<Mutex<Vec<PendingPairingJson>>>;
 
 /// 捕获入站配对请求的 EventBus。
+///
+/// **不持有任何存储端口。** 它一度持有 `PairedDeviceStore` 来回写新配对/刷新的设备，
+/// 那份职责已经收进 core 的 `PairingManager::commit_paired_device`（与桌面、移动同一个入口）。
 pub struct WebEventBus {
     pending_pairings: PendingPairings,
-    /// 已配对设备列表的持久化端口——只在**新增/刷新**方向用（移除方向由 core 的
-    /// `unpair` 自己写完，见下面的 `PairedDeviceRemoved` 分支）。
-    paired_store: Arc<dyn PairedDeviceStore>,
 }
 
 impl WebEventBus {
     /// 建 bus 与配套的共享队列句柄（后者交给 `WebNode` 供 `pending_pairing_requests` 读取）。
-    pub fn new(paired_store: Arc<dyn PairedDeviceStore>) -> (Self, PendingPairings) {
+    pub fn new() -> (Self, PendingPairings) {
         let q: PendingPairings = Arc::new(Mutex::new(Vec::new()));
         (
             Self {
                 pending_pairings: q.clone(),
-                paired_store,
             },
             q,
         )
@@ -67,14 +65,10 @@ impl EventBus for WebEventBus {
             // 返回的是共享 DashMap 里那条记录的 clone，`trust_level` / `receive_policy` 本来就
             // 带着正确值。成因是配对成功那两处（它们拿到的是默认策略的 `PairedDeviceInfo::new`），
             // 复现要走「对已配对设备再走一次邀请配对」，拿这里去试是试不出来的。
-            CoreEvent::PairedDeviceAdded { device } => {
-                let store = self.paired_store.clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    if let Err(err) = paired_devices::upsert(&*store, device).await {
-                        tracing::warn!("持久化已配对设备失败: {err:?}");
-                    }
-                });
-            }
+            // 新增/刷新方向**不再在这里回写**：core 的 `PairingManager::commit_paired_device`
+            // 已经写过盘（配对达成与 identify 刷新走同一个入口），再写一次是第二条写路径，
+            // 会让「写盘失败」被第二次成功掩盖 —— 与下面移除方向同一条理由。
+            CoreEvent::PairedDeviceAdded { .. } => {}
             // 解除配对的通知。**这里不删持久化**：core 的 `PairingManager::unpair` 已经按
             // 「先落盘 → 再删内存表 → 再发事件」写过一遍了，再删一次虽然幂等，却会让
             // 「持久化失败」这个错误被第二次成功掩盖。

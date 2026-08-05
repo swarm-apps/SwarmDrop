@@ -1,11 +1,16 @@
 //! 邀请注册表的 SQL 落盘实现（`InviteStore` 端口的桌面 / 移动后端）。
 //!
-//! 端口的方法**都不返回错误**（内存表是权威判定点，落盘只是写穿备份 ——
-//! 见 `openspec/changes/invite-persistence/design.md` D2），所以本实现内部把每个错误
-//! 就地降级成一条 `tracing::warn` 并继续。这不是偷懒：写库失败时唯一正确的用户可见行为
-//! 就是「配对照样成功」，把错误上报给调用方它也只能忽略。
+//! **写方法返回「成没成」，调用方据此 fail-closed。** 早期这里写的是「端口方法都不返回
+//! 错误，写库失败时正确的用户可见行为就是配对照样成功」—— 那个判断已被推翻（详见
+//! `swarmdrop_invite::store` 的模块文档与 `dev-notes/knowledge/storage-abstraction.md`）：
+//! `register` 已经把 `Pending` 写进库了，此后任何一次写穿失败都留下同一个结果 ——
+//! 库里仍是 `Pending`，重启 `load` 把它放回内存，那份一次性凭证于是能被消费第二次。
+//! 所以 `upsert` / `remove` 报 `false`，`try_consume` 在收到 `false` 时中止本次配对。
 //!
-//! 表结构见 `entity::pair_invite`，迁移见 `migration::m20260730_000001_pair_invites`。
+//! 读路径仍就地降级（`load_all` 失败按「无记录」继续）：邀请是短时凭证，最坏结果是用户
+//! 重新生成一条，比启动失败好。
+//!
+//! 表结构见 `entity::pair_invite`，建表在 `migration::m20260805_000001_init`。
 //! **表里没有 capability 明文，也没有邀请全串**，只有前者的 sha256。
 
 use async_trait::async_trait;
@@ -14,7 +19,10 @@ use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, IntoActiveModel, QueryFilter,
     sea_query::OnConflict,
 };
-use swarmdrop_invite::{InviteRecord, InviteStore, PersistedInviteState};
+use swarmdrop_invite::{
+    InviteRecord, InviteStore, PersistedInviteState, capability_hash_from_hex,
+    capability_hash_to_hex,
+};
 use swarmdrop_net_base::NodeId;
 
 /// `InviteStore` 的 SeaORM 实现。
@@ -42,7 +50,7 @@ impl InviteStore for SqlInviteStore {
 
     async fn upsert(&self, record: InviteRecord) -> bool {
         let model = entity::pair_invite::ActiveModel::builder()
-            .set_capability_hash(hex_lower(&record.capability_hash))
+            .set_capability_hash(capability_hash_to_hex(&record.capability_hash))
             .set_inviter_id(entity::PeerId(record.inviter_id.to_string()))
             .set_expires_at(to_i64(record.expires_at))
             .set_state(to_db_state(record.state))
@@ -68,7 +76,7 @@ impl InviteStore for SqlInviteStore {
     }
 
     async fn remove(&self, capability_hash: [u8; 32]) -> bool {
-        let result = entity::PairInvite::delete_by_id(hex_lower(&capability_hash))
+        let result = entity::PairInvite::delete_by_id(capability_hash_to_hex(&capability_hash))
             .exec(&self.db)
             .await;
         match result {
@@ -94,7 +102,7 @@ impl InviteStore for SqlInviteStore {
 /// 行 → 端口记录。**无法解析的行直接丢弃**（记一条 warn）：邀请是短时凭证，
 /// 与其让一条脏数据把整批读取拖垮，不如少认一条，最坏结果是用户重新生成一次。
 fn to_record(row: &entity::pair_invite::Model) -> Option<InviteRecord> {
-    let capability_hash = from_hex_lower(&row.capability_hash)?;
+    let capability_hash = parse_hash_column(&row.capability_hash)?;
     let inviter_id = match row.inviter_id.as_str().parse::<NodeId>() {
         Ok(id) => id,
         Err(e) => {
@@ -136,28 +144,13 @@ fn to_i64(secs: u64) -> i64 {
     i64::try_from(secs).unwrap_or(i64::MAX)
 }
 
-fn hex_lower(bytes: &[u8; 32]) -> String {
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        use std::fmt::Write;
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
-fn from_hex_lower(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 {
-        tracing::warn!(
-            "邀请记录的 capability_hash 长度异常，丢弃该行: {}",
-            text.len()
-        );
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (index, slot) in out.iter_mut().enumerate() {
-        *slot = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).ok()?;
-    }
-    Some(out)
+/// 解不出来就丢弃该行并记 warn —— 编解码本身收在 `swarmdrop_invite`，
+/// 这里只负责「读库读到坏行时该说什么」。
+fn parse_hash_column(text: &str) -> Option<[u8; 32]> {
+    capability_hash_from_hex(text).or_else(|| {
+        tracing::warn!("邀请记录的 capability_hash 无法解析，丢弃该行: {text:?}");
+        None
+    })
 }
 
 #[cfg(test)]
@@ -253,22 +246,12 @@ mod tests {
         );
     }
 
+    /// 坏行被丢弃、好行照读 —— hex 编解码本身的边界在 `swarmdrop_invite::store` 测，
+    /// 这里只钉「读库读到坏值不会把整批拖垮」。
     #[test]
-    fn hex_roundtrip() {
-        let bytes = [0x00, 0x0f, 0xff, 0xa5]
-            .iter()
-            .cycle()
-            .take(32)
-            .copied()
-            .collect::<Vec<_>>();
-        let mut fixed = [0u8; 32];
-        fixed.copy_from_slice(&bytes);
-        assert_eq!(from_hex_lower(&hex_lower(&fixed)), Some(fixed));
-    }
-
-    #[test]
-    fn malformed_hex_is_rejected() {
-        assert_eq!(from_hex_lower("short"), None);
-        assert_eq!(from_hex_lower(&"z".repeat(64)), None);
+    fn malformed_hash_column_is_dropped() {
+        assert_eq!(parse_hash_column("short"), None);
+        assert_eq!(parse_hash_column(&"z".repeat(64)), None);
+        assert_eq!(parse_hash_column(&"ab".repeat(32)), Some([0xab; 32]));
     }
 }

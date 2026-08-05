@@ -24,13 +24,13 @@ edition = "2024"
 # default-features=false + 最小 features：entity 只吃类型宏，不吃 runtime——
 # Web 端依赖 entity 时不再撞 mio/sqlite 编译墙（storage-abstraction.md 第 0 步）。
 # runtime features（runtime-tokio-rustls/sqlx-sqlite）由需要连库的 crate 自己增量补。
-sea-orm = { version = "2.0.0-rc", default-features = false, features = [
+sea-orm = { version = "2.0.1", default-features = false, features = [
     "macros",
     "with-chrono",
     "with-uuid",
     "with-json",
 ] }
-sea-orm-migration = { version = "2.0.0-rc", features = [
+sea-orm-migration = { version = "2.0.1", features = [
     "runtime-tokio-rustls",
     "sqlx-sqlite",
 ] }

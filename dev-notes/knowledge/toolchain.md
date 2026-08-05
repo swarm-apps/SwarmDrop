@@ -480,6 +480,52 @@ pnpm i18n:extract
 
 漏跑会导致 `src/locales/*/messages.po` 缺少新加的字符串，运行时降级显示原文。
 
+### ⚠️ Web 应用区漏跑不会「降级显示原文」，会直接显示 msgid（2026-08-05 踩到）
+
+桌面（Vite + babel macro）漏跑时确实降级成源文；**Web 应用区不是**。`docs` 的 `pnpm build`
+第一步就是 `lingui compile --typescript`，编出来的 catalog 里查不到某条 id 时，界面上出现的是
+**生成的 msgid 本身**——像 `YfX8tg` 这样一串六位随机字符，看起来像个会话号或错误码，
+完全不像缺翻译。
+
+更阴的是**只有生产构建会暴露**：dev 下同一句话显示正常，所以「改完在 dev 里看了一眼没问题」
+挡不住它。
+
+触发条件比想象中低——**改标点就够了**。把「现在没有正在进行的传输。」的句号去掉，
+Lingui 眼里就是一条全新的 msgid，旧译文自动进 `#~` 废弃区，en / zh-TW 当场缺两条。
+
+所以：**动了任何 `<Trans>` / `` t`` `` 里的字符（哪怕只是标点），必须**
+
+```bash
+cd docs && pnpm i18n:extract     # 看 Missing 那一列
+# 补完 en / zh-TW 的 msgstr 后再跑一次，Missing 必须归零
+cd docs && pnpm i18n:extract
+```
+
+改标点时旧译文就在同一个文件的 `#~ msgid` 里，照抄改标点即可，不用重译。
+
+## dev server 与 `next build` 抢 `.next/`，产物 CSS 会是旧的（2026-08-05 实证）
+
+`next dev` 与 `next build` **共用 `docs/.next/`**。dev server 开着跑 `pnpm build`，构建会
+「成功」并写出完整的 `out/`，但里面的 CSS 可能是**改动之前的**——没有任何警告。
+
+实证：改了 `app/global.css` 的十来处（新 token + 新组件类），`pnpm build` 后产物里
+`--app-shell-background` 还是旧值 `#fbfcfc`，`--space-section` / `--glass-rail-bg` /
+`--scrollbar-thumb` 一条都没有，而改动前就存在的 `--radius-panel:24px` 在。
+**停掉 dev server + `rm -rf .next out` 后重建，全部正确。**
+
+危险的不是构建失败，是构建**看起来成功**：验证「我的 CSS 改动进产物了吗」时会得到一个
+假阴性（以为没生效，去改代码），而 CI 里没有 dev server、构建是对的，于是本地与线上表现不一致。
+
+**所以：验证产物前先停 dev server。** 判据（grep 一个只在新代码里出现的 token 即可）：
+
+```bash
+cd docs && CSS=$(find out -name "*.css")
+grep -o -- "--你新加的-token:[^;}]*" $CSS   # 空 = 产物是旧的
+```
+
+这也是「一次只起一个 server」那条纪律的具体成因之一。要看真实形态用 `pnpm start`
+（`serve out`，只读静态产物，不碰 `.next`），别再开一个 dev。
+
 ## 版本号同步：两条独立版本线
 
 单仓但**两条版本线**，各自打 tag、各自发版，互不干扰：
@@ -822,6 +868,32 @@ channel 会随机变成 `Bad file descriptor`。传输层随后只看到 data st
 **预构建成 `.js` 救不了这条**（实测验证过）：失败的是 *resolution*，与产物是 `.ts` 还是 `.js`
 无关。所以 tsdown / tsup 之类只能省掉 `transpilePackages` 一行，省不掉 root——权衡时别把它
 算成收益。
+
+### 那条放宽的代价：Next < 16.3 的 dev 会吃光内存把机器搞重启（2026-08-05 实测）
+
+root 放到仓库根意味着 turbopack 把**整个仓库**纳入文件系统边界——包括 173G 的 `target/`、
+15G 的 `mobile/` 和散落的 686 个 `node_modules`。Next **16.2.6** 下这笔账在**首次编译任意
+路由**时结清（不是启动时——`Ready in 136ms` 之后内存才起飞，容易误判成「启动没问题」）：
+
+| 配置（同一路由 `/docs/`，16G 机器） | 峰值 | 结果 |
+|---|---|---|
+| 16.2.6 turbopack，root=仓库根 | **11 G 仍在陡升** | 熔断前未编译完；不干预即吃光内存**系统重启** |
+| 16.2.6 turbopack，root=`docs/` | 4.9 G | 完成 |
+| 16.2.6 **webpack**（`next dev --webpack`） | 2.5 G | 完成 |
+| **16.3.0 turbopack，root=仓库根** | **2.4 G** | 完成 |
+
+**修法就是升到 Next ≥ 16.3.0**，配置一行不用动——16.3 的 Turbopack 加了内存驱逐（非活跃
+路由换出到磁盘），官方口径「大型应用 dev 内存降约 90%」，本仓实测降幅同量级。
+
+两条别走弯路的结论：
+
+- **元凶不是 `target/`**。把 173G 的 `target/` 整个移出仓库再跑，照样爆到 11G——代价来自
+  root 变宽这件事本身（解析面 + 686 个 `node_modules`），不是某个大目录。所以
+  「清 target 就好了」是错的。
+- **`--webpack` 是留给旧版本的应急阀**，不是长期方案：它同样能编完且只吃 2.5G，但拿不到
+  turbopack 的编译速度。升上 16.3 之后不需要它。
+
+**相关文件**：`docs/next.config.mjs`、`docs/package.json`
 
 ### 「零平台依赖」要两道门，`lib` 一道不够
 

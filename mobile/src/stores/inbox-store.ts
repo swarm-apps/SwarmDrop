@@ -6,7 +6,7 @@ import type {
 } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { getMobileCore } from "@/core/mobile-core";
-import { errorMessage } from "@/lib/utils";
+import { getErrorMessage } from "@/lib/errors";
 
 /** mobile-core 是否导出了服务端 FTS 检索(旧原生无此绑定时回退客户端过滤)。 */
 export function supportsServerInboxSearch(): boolean {
@@ -127,8 +127,8 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
       set({ searchResults: hits });
     } catch (err) {
       if (seq !== searchSeq) return;
-      set({ searchResults: null, lastError: errorMessage(err) });
-      console.warn("[inbox-store] search failed:", errorMessage(err));
+      set({ searchResults: null, lastError: getErrorMessage(err) });
+      console.warn("[inbox-store] search failed:", getErrorMessage(err));
     } finally {
       if (seq === searchSeq) set({ searching: false });
     }
@@ -149,8 +149,8 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
       set({ items, lastRefreshedAt: Date.now() });
     } catch (err) {
       if (seq !== refreshSeq) return;
-      set({ lastError: errorMessage(err) });
-      console.warn("[inbox-store] refresh failed:", errorMessage(err));
+      set({ lastError: getErrorMessage(err) });
+      console.warn("[inbox-store] refresh failed:", getErrorMessage(err));
     } finally {
       if (seq === refreshSeq) set({ loading: false });
     }
@@ -163,7 +163,7 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
       await get().refresh();
       return repaired.length;
     } catch (err) {
-      set({ lastError: errorMessage(err) });
+      set({ lastError: getErrorMessage(err) });
       throw err;
     } finally {
       set({ action: null });
@@ -189,10 +189,10 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
       }));
       return detail.item.id;
     } catch (err) {
-      set({ lastError: errorMessage(err) });
+      set({ lastError: getErrorMessage(err) });
       console.warn(
         "[inbox-store] resolve by transfer session failed:",
-        errorMessage(err),
+        getErrorMessage(err),
       );
       return null;
     }
@@ -205,8 +205,8 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
       set({ selectedDetail: detail ?? null });
       return detail ?? null;
     } catch (err) {
-      set({ selectedDetail: null, lastError: errorMessage(err) });
-      console.warn("[inbox-store] loadDetail failed:", errorMessage(err));
+      set({ selectedDetail: null, lastError: getErrorMessage(err) });
+      console.warn("[inbox-store] loadDetail failed:", getErrorMessage(err));
       return null;
     } finally {
       set({ detailLoading: false });
@@ -221,7 +221,7 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
     try {
       await getMobileCore().markInboxItemOpened(itemId);
     } catch (err) {
-      console.warn("[inbox-store] markOpened failed:", errorMessage(err));
+      console.warn("[inbox-store] markOpened failed:", getErrorMessage(err));
     }
   },
 
@@ -250,7 +250,7 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
             : state.selectedDetail,
       }));
     } catch (err) {
-      set({ lastError: errorMessage(err) });
+      set({ lastError: getErrorMessage(err) });
       throw err;
     } finally {
       set({ action: null });
@@ -281,7 +281,7 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
           state.selectedItemId === itemId ? null : state.selectedItemId,
       }));
     } catch (err) {
-      set({ lastError: errorMessage(err) });
+      set({ lastError: getErrorMessage(err) });
       throw err;
     } finally {
       set({ action: null });
@@ -308,7 +308,7 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
             : state.selectedDetail,
       }));
     } catch (err) {
-      set({ lastError: errorMessage(err) });
+      set({ lastError: getErrorMessage(err) });
       throw err;
     } finally {
       set({ action: null });

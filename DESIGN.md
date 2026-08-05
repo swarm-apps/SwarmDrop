@@ -177,9 +177,24 @@ What **may** diverge, with the reason recorded next to it:
 
 - **Dark focus ring on mobile** uses the bright text teal rather than the fill (10.5:1 vs 5.4:1 on
   that darker canvas). A focus ring's job is to be seen.
-- **The WebGL ambient background is desktop-only.** Web deliberately ships the CSS glass layer
-  without it: `ogl` is ~30KB plus continuous GPU on a surface whose baseline viewport is a phone
-  browser and whose typical session is "open a tab, move one file."
+- **Light `--app-shell-background` is web-only tinted** — desktop `oklch(0.99 0.001 210)`, web
+  `oklch(0.99 0.005 195)`. That layer is now the aurora's canvas on web; the extra chroma (toward
+  the midpoint of brand teal 178 and aurora cyan ~207) is what lets the glass read as a layer in
+  light mode. **Lightness stays 0.99 on both** — `--muted-foreground` sits directly on this layer
+  and 0.985 measured 4.54:1, only 0.9% over AA. Do not "fix" the web value back to desktop's.
+- **Two tokens exist on web only**: `--ambient-aurora-opacity` (0.7 dark / 0.48 light — the shader
+  emits additive light, so a glow on near-black is a smudge on near-white) and `--glass-rail-bg`
+  (the nav rail must be translucent or it clips the whole left edge of the ambient layer; desktop
+  has no rail).
+- ~~**The WebGL ambient background is desktop-only.**~~ **Overturned 2026-08-05.** The web build
+  now ships it too; see "Ambient WebGL Background" in §5 for the shared contract and the web's
+  five deltas. The original reasoning (`ogl` weight plus continuous GPU on a phone-browser
+  baseline) was sound about *cost* and wrong about *what was being kept*: web dropped the
+  background but **kept the glass layer**, and `backdrop-filter: blur()` over a flat fill returns
+  that same flat fill. Measured: light `rgb(255 255 255 / 0.58)` over `oklch(0.99)` composites back
+  to 0.99; dark `oklch(0.31 / 0.56)` over `oklch(0.145)` lands at ≈0.24 against a `--card` of 0.27.
+  So the browser was paying for a compositing layer and receiving nothing — the same inbox
+  empty-state code read as a finished product on desktop and as a skeleton screen on web.
 - **Navigation shape** (desktop breadcrumb-only topbar vs. web sidebar) — see §5.
 
 **Never** re-derive any of these by hand-converting one platform's value into another's notation
@@ -353,6 +368,69 @@ Say how many remain when more than one is waiting — all three builds do.
 - **Deep-linked targets are untrusted input.** A `?peerId=` may point at a device that was unpaired
   or went offline since the link was made — say so in place and keep submit disabled.
 
+### Layout Density Contract
+
+Written from the web build's 2026-08 rework, but the failure it names is not web-specific — check
+any build against it.
+
+**Spacing encodes grouping, so the steps must differ.** The web app area shipped for months with
+three identical 16px values: section-to-section gap, in-panel gap, and panel padding. When those
+collapse to one number, Gestalt proximity carries no information and grouping can only be stated by
+drawing boxes — which is exactly what the pages looked like, a stack of equally sized containers.
+The ratio now is **8 : 16 : 32** (`--space-in-group` / `--space-in-panel` / `--space-section`), with
+panel padding on its own step at 20px (`--space-panel`) because container padding follows the
+container's *role*, not its contents.
+
+- Between-group distance MUST be visibly greater than within-group distance.
+- Panel padding MUST NOT equal the panel's internal gap, or the panel stops reading as a container.
+- Verify by blur test: blur the screen until text is illegible; grouping must still be readable.
+- Reach for spacing before a divider. A hairline that exists because two blocks sit 16px apart is
+  spacing that gave up.
+
+**Type steps must be distinguishable.** Page title was 16px against a 15px section title — a 1px
+step is not a hierarchy, it just puts the burden on position. The ladder is **20 / 15 / 14 / 12**
+(page title with `-0.02em` tracking · section headline · body and list-item titles · labels), plus
+mono at 11–13px for machine values (The Mono Truth Rule is unchanged).
+
+**Column width follows content type, and the page decides it — not the panel.** Boards (grids,
+master-detail) get the full 1240px; settings gets 1040px (its bento grid needs the width to
+resolve a second column); forms get 860px. At 1240px a 12px Chinese
+paragraph runs to roughly 100 characters per line. A panel that constrains itself while the page
+header stays full width just misaligns the two left edges — which is what the send page did.
+
+**Empty states size to their role.** An empty state that IS the whole column (a master-detail
+detail pane) fills and centers. An empty state that is one section *inside* a panel must not — a
+filled one leaves a ~320px cavity where content belongs, and three of those on a page is the
+"stack of equal empty boxes" look again. Sections that are usually empty (in-flight transfers)
+should collapse to a single row rather than render a titled panel around a void — but they may not
+disappear, because the entry point they carry has to survive.
+
+**Full-bleed primary buttons are a landing-page move.** A form's primary action belongs in a
+right-aligned footer at its natural width (full width below `sm:`, where thumb reach wins). A
+1100px saturated fill, usually rendered disabled, is the loudest thing on the page and says nothing.
+
+**Settings runs its own primitives, and that split is deliberate.** Desktop and web both build
+settings from `SettingsSection → SettingsCard → SettingsRow` (`src/routes/_app/settings/-settings-primitives.tsx`
+and `docs/app/app/_components/settings-primitives.tsx` — two implementations, one standard) rather
+than the page-panel primitive the rest of the app uses. The reason is content shape: list-and-grid
+pages need a container with presence, while settings is a run of small labelled rows whose grouping
+comes from hairlines inside one card. Wrapping every settings group in a page-level panel produces
+the stack of oversized cards both builds started with. Section titles drop a step to match (14px
+semibold + a bare brand icon, not the panel primitive's icon chip), and the bento grid tiers
+(`md:grid-cols-2` / `lg:grid-cols-6` with spans, 1040px column) are shared.
+
+Desktop pairs cards by height to keep row bottoms level; that only works when a column has enough
+sections to stack. Where it doesn't — web's preferences row is one short card beside one tall one —
+size to content instead. Stretching leaves a third of a card as empty glass, which reads as
+unfinished, not as breathing room. **Copy the rule, not the conclusion.**
+
+**Section names are cross-platform.** The same concept gets the same title and icon in every build:
+web's settings say 设备信息 / 引导节点 with `MonitorSmartphone` / `RadioTower` because desktop does.
+Renaming is a **presentation-layer** change only — the web build still calls its component
+`ConnectionPanel` and its store domain `relays`, because those are kernel facts (it really does
+register relays). Two names for one thing in the UI makes users think there are two things to
+configure; two names between UI and kernel is just accurate.
+
 ### Cross-platform UI Review Checklist
 
 Run this when adding or changing device-related UI in **any** build. It is a gate before visual
@@ -377,14 +455,39 @@ The browser build (`docs/app/app`, hosted inside the docs site) uses a **persist
 
 Why the fork: the desktop app owns its entire window and can borrow the native title bar for chrome, so a breadcrumb is enough to say "you are inside an app". A browser tab has no such frame — the same tab renders marketing pages and docs — so persistent nav is the only structure that reads as an application rather than another document page. Deep-linkable routes also require a visible place to return to.
 
-- **Sections** mirror the desktop information architecture exactly — devices / send / inbox / transfer / settings — so the two builds stay conceptually one product. Only the navigation *shape* differs.
+- **Sections** mirror the desktop information architecture — devices / send / inbox / transfer / settings — so the two builds stay conceptually one product. Only the navigation *shape* differs.
+- **Persistent nav lists three of them: devices / inbox / settings.** Send and transfer are *sub-pages of devices*: entered from the devices page, they keep "devices" highlighted in the rail and carry a back link in the page header. This matches what the other two builds already did — the desktop topbar has no send entry, and the mobile tab bar has neither send nor transfer. Send in particular must never become a persistent nav item: the Send Entry Contract above says sending starts from a device, so a standing entry can only land the user on the target picker that exists for *correcting* a target. The parent/child relation lives in `docs/app/app/_lib/nav.ts`; giving an item a `parent` removes it from the rail.
 - **Three responsive tiers:** ≥1024px expanded rail (icon + label, 224px) · 768–1023px icon rail (64px, label degrades to `title`/`aria-label`) · <768px fixed bottom nav with a sticky brand+status header. The single source of truth for the items is `docs/app/app/_lib/nav.ts`.
 - **Active state** is `bg-fd-accent` + `text-[var(--brand)]` + `aria-current="page"` — the one-accent rule still holds; no second saturated color enters the chrome.
-- **Count badges** (pending offers, in-flight transfers) use the brand solid fill with `--brand-ink` text. They exist because splitting one page into five routes hides time-sensitive inbound requests behind a route — the badge is the compensation for that, not decoration.
-- **Node status stays visible in every tier** (pill when there's room, bare status dot in the icon rail): "state is honestly visible" does not get dropped because the window got narrow.
+- **The count badge** (pending offers) uses the brand solid fill with `--brand-ink` text. It exists because splitting one page into five routes hides time-sensitive inbound requests behind a route — the badge is the compensation for that, not decoration. In-flight transfers get the same compensation in a different form: the devices page carries an "active transfers" section with live rows, which is what replaced their nav badge when transfer left the rail. **Whatever is taken out of the chrome has to reappear somewhere the user already is** — that rule is what both of these are instances of.
+- **Node status stays visible in every tier** (pill when there's room, bare status dot in the icon rail): "state is honestly visible" does not get dropped because the window got narrow. The pill is also the **entry point to node control** — status, uptime, relay reachability and diagnostics, plus start/stop. Node control is deliberately *behind* it rather than on any page: visible when looked for, never stumbled into.
 
 ### Ambient WebGL Background (signature component)
 A `Renderer`-driven (`ogl`) full-bleed canvas sits behind every app screen: a slow Perlin-noise "soft aurora" gradient (`aurora-mist` → `aurora-cyan`) always on, plus a teal/light-blue "side rays" overlay that appears only in dark mode. The loop is gated by `IntersectionObserver` + `visibilitychange` (pauses when off-screen or the tab is hidden) and fully respects `prefers-reduced-motion` by freezing on the first frame instead of skipping the effect outright — the texture stays, the motion doesn't. This is the system's single biggest personality investment; everything else in the UI stays deliberately quiet so this can carry the "alive network" feeling.
+
+**Desktop and web both ship it** (web since 2026-08-05 — see the overturned bullet in
+"Cross-platform token unification"). Two implementations, one standard: the **shaders and the
+`*_CONFIG` blocks are copied verbatim** between `src/components/layout/app-ambient-background.tsx`
+and `docs/app/app/_components/ambient-canvas.tsx`. Never tune one side only — a drifted aurora is
+invisible in isolation (both are "a moving light") and only shows up side by side.
+
+The web deltas are all forced by the browser baseline, not by taste:
+
+| | Desktop | Web |
+|---|---|---|
+| Load | direct import | `next/dynamic` + `ssr:false` — pulling `_bg.wasm` to start the node outranks decoration. Measured: 15.6 KB gzip, absent from the route's first-load chunks |
+| DPR | aurora unset (1), rays capped at 2 | both capped by `ambientDpr()`: 1 below 768px, else ≤1.5 |
+| Frame rate | full RAF | throttled to 30 fps. The motion is second-scale; 30 and 60 are indistinguishable and the GPU work halves |
+| Layer opacity | 1 | `--ambient-aurora-opacity`: 0.7 dark / 0.48 light. The shader emits additive light — a glow on near-black is a smudge on near-white |
+| Mask | none | radial `mask-image` keeps the light at the edges. The shader pins a horizontal band at mid-height; on a 1240px column with 32px section gaps it shows through raw and reads as a colored bar across the middle |
+
+**Reduced-transparency drops the ambient layer entirely** (`display: none`), whereas
+reduced-motion freezes the first frame. The two preferences ask different questions: motion asks
+for stillness (keep the texture), transparency asks not to look through things — and once glass
+degrades to a flat fill, nothing behind it is visible anyway.
+
+**Mount it at the shell only.** It holds a WebGL context plus a RAF loop; per-route instances hit
+the browser's live-context cap, which fails by silently discarding the oldest context.
 
 ### Pairing Code Cell (signature component)
 Individual pairing-code digits render as `glass-control` chips (`18px` radius, `font-mono text-3xl`, inset top highlight) rather than a plain OTP input row — the one place glass chrome and mono type meet directly, appropriate for the single most "trust me with a secret" moment in the product.

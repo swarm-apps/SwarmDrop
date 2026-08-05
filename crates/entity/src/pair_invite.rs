@@ -19,6 +19,7 @@ pub struct Model {
     /// 发起方身份（当前恒为本机；留字段是为了将来多身份场景不必改表）。
     pub inviter_id: super::PeerId,
     /// 过期时刻（Unix 秒）。清理与 TTL 判定都读它，故建了索引。
+    #[sea_orm(indexed)]
     pub expires_at: i64,
     pub state: InviteState,
     /// 创建时刻（Unix 秒）。邀请列表按它倒序。

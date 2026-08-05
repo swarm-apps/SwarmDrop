@@ -39,6 +39,7 @@ import {
   type TransferOfferQueueItem,
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
 import { lastPathSegment } from "@/lib/utils";
 import {
@@ -120,7 +121,7 @@ export function TransferOfferHost() {
         params: { sessionId },
       });
     } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+      setError(getErrorMessage(error));
     } finally {
       setBusy(null);
     }

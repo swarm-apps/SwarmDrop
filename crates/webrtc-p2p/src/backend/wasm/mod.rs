@@ -1,21 +1,22 @@
-//! 浏览器后端：原生 `RTCPeerConnection`。
+//! Browser backend: the native `RTCPeerConnection`.
 //!
-//! 与 [native 侧](crate::backend::native) 实现同一个 [`Backend`] 契约，但底层完全不同——
-//! webrtc-rs 编不到 wasm（它自带 UDP/SCTP/DTLS 栈），浏览器侧只能用 W3C API。
+//! Implements the same [`Backend`] contract as the [native side](crate::backend::native),
+//! but on a completely different foundation — webrtc-rs does not compile to wasm (it ships
+//! its own UDP/SCTP/DTLS stack), so the browser side can only use the W3C API.
 //!
-//! # 三处与 native 的实质差异
+//! # Three substantive differences from native
 //!
-//! | | native | 浏览器 |
+//! | | Native | Browser |
 //! |---|---|---|
-//! | 事件 | `async fn poll()` 事件流 | **回调**（`onicecandidate` 等），须用闭包推进队列 |
-//! | 建连接 | `build().await` | 构造函数同步返回 |
-//! | 网卡绑定 | 必须自己枚举（否则 host candidate 作废） | 浏览器全权代管，无从也无需干预 |
+//! | Events | an `async fn poll()` event stream | **callbacks** (`onicecandidate` and friends), which must push into a queue from a closure |
+//! | Constructing the connection | `build().await` | the constructor returns synchronously |
+//! | Interface binding | must be enumerated by hand (otherwise the host candidate is void) | fully managed by the browser; neither possible nor necessary to influence |
 //!
 //! # `Send`
 //!
-//! `Backend: Send` 是 libp2p 的硬约束，而 JS 对象都不是 `Send`。wasm 是单线程，
-//! `SendWrapper` 在非创建线程访问时 panic，因此包起来是安全的——官方 `webrtc-websys`
-//! 同款做法。
+//! `Backend: Send` is a hard libp2p constraint, and no JS object is `Send`. wasm is
+//! single-threaded and `SendWrapper` panics when accessed from another thread, which makes
+//! wrapping sound — the same approach the official `webrtc-websys` takes.
 
 use std::collections::VecDeque;
 use std::task::{Context, Poll};
@@ -43,10 +44,11 @@ mod data_channel;
 pub(crate) mod direct;
 mod muxer;
 
-/// 排队中的操作。
+/// A queued operation.
 ///
-/// 浏览器的 SDP 操作返回 Promise，而 [`Backend`] 接口是同步的；故把调用记下来，
-/// 待 [`Backend::poll`] 驱动。与 native 侧同构。
+/// The browser's SDP operations return Promises while the [`Backend`] interface is
+/// synchronous, so the call is recorded and driven later by [`Backend::poll`] — the same
+/// shape as on the native side.
 enum Op {
     StartOffer,
     AcceptOffer(String),
@@ -54,33 +56,37 @@ enum Op {
     AddCandidate(String),
 }
 
-/// 浏览器 `RTCPeerConnection` 后端。
+/// Browser `RTCPeerConnection` backend.
 pub struct WasmBackend {
     inner: SendWrapper<Inner>,
-    /// `BackendEvent` 本身是 `Send`，无需包装。
+    /// `BackendEvent` is itself `Send`, so no wrapping is needed.
     events_rx: mpsc::UnboundedReceiver<BackendEvent>,
 }
 
 struct Inner {
     pc: RtcPeerConnection,
     queued: VecDeque<Op>,
-    /// 进行中的操作。同一时刻至多一个，保证 SDP 状态机的调用顺序。
+    /// The operation in flight. At most one at a time, which preserves the SDP state
+    /// machine's call ordering.
     running: Option<LocalBoxFuture<'static, Result<(), BackendError>>>,
     events_tx: mpsc::UnboundedSender<BackendEvent>,
-    /// 建连成功后整体交给数据面的东西。`None` = 已移交。
+    /// Everything handed to the data plane once the connection succeeds. `None` = already
+    /// handed over.
     handover: Option<Handover>,
 }
 
-/// 随 [`Backend::take_muxer`] 一并移交给数据面的东西。
+/// The things handed to the data plane together with [`Backend::take_muxer`].
 ///
-/// 两者必须同进同退，故绑成一个 `Option`：本类型的寿命只到信令会话结束
-/// （`Action::Connected` 一发，`connection_keep_alive()` 就转 false，那条 relay 上的
-/// 信令连接随即被关），而数据面还要活很久。留一样在这边，它就会先于连接死掉——
-/// 回调是静默失效，接收端是 `poll_inbound` 当场报「连接已关闭」。
+/// They must live and die together, hence a single `Option`: this type only lives until the
+/// signaling session ends (the moment `Action::Connected` fires, `connection_keep_alive()`
+/// flips to false and the signaling connection on that relay is closed), while the data
+/// plane must live much longer. Leave either one behind and it dies before the connection
+/// does — the callbacks fail silently, and the receiving side gets an immediate "connection
+/// closed" out of `poll_inbound`.
 struct Handover {
-    /// 对端开来的 DataChannel。
+    /// The DataChannel opened by the remote.
     incoming: mpsc::UnboundedReceiver<RtcDataChannel>,
-    /// `pc` 上注册的回调闭包，详见 [`muxer::Inner::_callbacks`]。
+    /// The callback closures registered on `pc`; see [`muxer::Inner::_callbacks`].
     callbacks: JsCallbacks<RtcPeerConnection>,
 }
 
@@ -166,7 +172,7 @@ impl WasmBackend {
         })
     }
 
-    /// 供 [`crate::Factory`] 使用的便捷构造。
+    /// Convenience constructor for use by [`crate::Factory`].
     pub fn factory() -> crate::Factory {
         std::sync::Arc::new(|config: &Config| Ok(Box::new(Self::new(config)?) as Box<dyn Backend>))
     }
@@ -184,7 +190,7 @@ impl Drop for Inner {
 }
 
 impl Inner {
-    /// 把一个排队操作变成可驱动的 future。
+    /// Turns a queued operation into a drivable future.
     fn start_op(&mut self, op: Op) {
         let pc = self.pc.clone();
         let tx = self.events_tx.clone();
@@ -339,7 +345,7 @@ fn new_peer_connection(config: &Config) -> Result<RtcPeerConnection, BackendErro
         .map_err(|e| js_err("构造 RTCPeerConnection", e))
 }
 
-/// 从 `createOffer`/`createAnswer` 的结果里取 SDP 文本。
+/// Extracts the SDP text from the result of `createOffer`/`createAnswer`.
 fn sdp_of(desc: &JsValue) -> Result<String, BackendError> {
     js_sys::Reflect::get(desc, &JsValue::from_str("sdp"))
         .ok()

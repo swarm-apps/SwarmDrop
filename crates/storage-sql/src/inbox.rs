@@ -3,15 +3,15 @@
 //! 收件箱是“已接收内容索引”，与 transfer_sessions / transfer_files 的过程账本分开维护。
 //!
 //! 本文件的函数**全部私有**：唯一入口是 `crate::store` 里 `SqlSessionStore` 的
-//! `InboxStore` impl。DTO 与共享领域规则（首文件名 / 内容指纹 / 聚合文本 / 来源分类 /
+//! `InboxStore` impl。DTO 与共享领域规则（标题 / 内容指纹 / 聚合文本 / 来源分类 /
 //! 片段）住在 [`swarmdrop_transfer::inbox`]，本文件只负责「SQL 行 ↔ 中立 DTO」的
 //! 转换与查询本身。
 
 use entity::{InboxContentKind, TerminalReason, TransferDirection, TransferPhase};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend,
-    EntityLoaderTrait, EntityTrait, FromQueryResult, IntoActiveModel, QueryFilter, QueryOrder,
-    QuerySelect, Set, Statement, TransactionTrait, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbBackend, EntityLoaderTrait, EntityTrait,
+    FromQueryResult, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set, Statement,
+    TransactionTrait, sea_query::Expr,
 };
 use uuid::Uuid;
 
@@ -47,7 +47,7 @@ fn item_summary(item: &entity::inbox_item::ModelEx) -> InboxItemSummary {
         source_name: item.source_name.clone(),
         source_kind: item.source_kind.clone(),
         content_kind: item.content_kind.clone(),
-        primary_file_name: item.primary_file_name.clone(),
+        title: item.title.clone(),
         item_count: item.item_count,
         total_size: item.total_size,
         root_path: item.root_path.clone(),
@@ -102,16 +102,12 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
         .with(entity::TransferFile)
         .one(db)
         .await?
-        .ok_or_else(|| swarmdrop_host::AppError::Transfer("传输会话不存在".into()))?;
+        .ok_or_else(|| swarmdrop_host::AppError::SessionNotFound("传输会话不存在".into()))?;
 
     // 先把关系字段摘下来，再把 `ModelEx` 摊成纯 scalar 的 `Model`：共享判据
     // `is_completed_receive` 只吃 `Model`（关系机制编不进 wasm）。两步都是移动而非
     // 深拷——文件行里的 `completed_chunks` 位图与 `outboard` BLOB 不会被复制一份。
-    let mut file_rows: Vec<_> = std::mem::take(&mut loaded.files).into_iter().collect();
-    // 顺序契约见 `InboxFileFacts` 的文档。关系加载不带 `ORDER BY`，此前全靠 SQLite
-    // 「不排序时按 rowid 返回」这一实现行为兜着——而顺序一变 `content_hash` 就变，
-    // 且不报错。显式排一次，把它钉死；`inbox_item_files` 随后按同一顺序插入。
-    file_rows.sort_unstable_by_key(|file| file.id);
+    let file_rows = std::mem::take(&mut loaded.files);
     let session: entity::transfer_session::Model = loaded.into();
 
     // 「哪些会话进收件箱」是跨端共享的一条判据（接收 + 终态 + 完成），三处存储实现
@@ -131,11 +127,10 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
     let inbox_id = Uuid::new_v4();
     let item_count = i32::try_from(file_rows.len())
         .map_err(|_| swarmdrop_host::AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
-    // 首文件名 / 内容指纹 / FTS 聚合文本三条都是**跨端共享的领域规则**，一律调
+    // 标题 / 内容指纹 / 检索聚合文本三条都是**跨端共享的领域规则**，一律调
     // swarmdrop_transfer::inbox 的那一份，本文件只负责把行类型摊成中立视图。
     let facts: Vec<InboxFileFacts<'_>> = file_rows.iter().map(file_facts).collect();
-    // 存的是结构（首文件名），不是拼好的标题——展示串由三端按当前 locale 生成。
-    let primary_file_name = inbox_primary_file_name(&facts);
+    let title = inbox_primary_file_name(&facts);
     // root_path = 真实容器目录(与传输投影 content_root 同一 core 解析:缺 local_dir 时
     // 回退存储根)。兜底收口在 content_root_of 一处,不再重复;它只读 `local_dir` 一列,
     // 故直接把这一列的迭代器递过去——为读一个字段深拷整份文件行,等于把位图与 outboard
@@ -148,7 +143,7 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
     let content_hash = inbox_content_hash(&facts);
     let now = now_ms();
 
-    // FTS 聚合文本：该 item 所有文件名 + 相对路径空格拼接（与迁移回填 SQL 语义一致）。
+    // 检索聚合文本：该 item 所有文件名 + 相对路径空格拼接。
     let files_text = inbox_files_text(&facts);
 
     // 由会话发起来源派生：MCP/代理来源记为 Mcp，否则 PairedDevice。
@@ -163,7 +158,7 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
         .set_source_name(session.peer_name.clone())
         .set_source_kind(source_kind)
         .set_content_kind(InboxContentKind::Files)
-        .set_primary_file_name(primary_file_name)
+        .set_title(title.clone())
         .set_item_count(item_count)
         .set_total_size(session.total_size)
         .set_root_path(root_path)
@@ -196,18 +191,25 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
             .await?;
     }
 
-    // inline 维护 FTS 索引：item + 全部 file 已在同一事务内，一次写入聚合行。
-    txn.execute_raw(Statement::from_sql_and_values(
-        DbBackend::Sqlite,
-        "INSERT INTO inbox_fts(item_id, source_name, files_text, extracted_text) \
-         VALUES(?, ?, ?, '')",
-        [
-            inbox_id.into(),
-            session.peer_name.clone().into(),
-            files_text.into(),
-        ],
-    ))
-    .await?;
+    // inline 维护检索索引：item + 全部 file 已在同一事务内，一次写入聚合行。
+    //
+    // **走 `Entity::insert(..).exec_without_returning`，不是 builder 的 `.insert(&txn)`。**
+    // 后者会 `db.begin()`（在事务里 = 多一对 SAVEPOINT / RELEASE）并以
+    // `INSERT ... RETURNING <全部列>` 把刚写进去的整行读回来立刻丢掉 —— 而 `files_text`
+    // 是**无界**的（该条目每个文件的 `name + relative_path` 拼接，2000 个文件约 200 KB）。
+    // 一条语句能办的事不值得付 3 条语句 + 一次全行回读。
+    let index_row: entity::inbox_search_index::ActiveModel =
+        entity::inbox_search_index::ActiveModel::builder()
+            .set_item_id(inbox_id)
+            .set_title(title)
+            .set_source_name(session.peer_name.clone())
+            .set_files_text(files_text)
+            // 预留给未来的 OCR / 文本抽取，这一端没有抽取能力，恒为空串。
+            .set_extracted_text(String::new())
+            .into();
+    entity::InboxSearchIndex::insert(index_row)
+        .exec_without_returning(&txn)
+        .await?;
 
     txn.commit().await?;
     get_inbox_item_detail(db, inbox_id).await
@@ -280,19 +282,24 @@ pub(crate) async fn list_inbox_items(
     Ok(query.all(db).await?.iter().map(item_summary).collect())
 }
 
-/// FTS 命中的 item_id（仅用于保留按接收时间倒序的命中顺序）。
+/// 检索命中的 item_id（仅用于保留按接收时间倒序的命中顺序）。
 ///
-/// inbox_items.id 在 SQLite 里以 BLOB 存储，FTS 的 item_id 也存同一 BLOB，按 Uuid 解码。
+/// `inbox_items.id` 在 SQLite 里以 BLOB 存储，索引表的 `item_id` 存同一 BLOB，按 Uuid 解码。
 #[derive(FromQueryResult)]
-struct InboxFtsHitId {
+struct InboxSearchHitId {
     item_id: Uuid,
 }
 
 /// inbox 子串检索：以 item 为粒度，按接收时间倒序，截断到 `limit`。
 ///
-/// 不使用 FTS5 MATCH/bm25（trigram 对 <3 字查询无法命中，会让"合同"这类 2 字中文词返回空），
-/// 统一对索引文本列做 `LIKE` 子串匹配：≥3 字经 trigram 索引加速、更短查询退化为全表扫描但结果正确。
-/// 排除软删条目；`include_archived=false` 时排除已归档项。
+/// 对索引表的四个文本列做 `LIKE` 子串匹配。排除软删条目；
+/// `include_archived=false` 时排除已归档项。
+///
+/// **判据从来不是 FTS5 的 `MATCH`。** 索引表一度是 FTS5 虚表（trigram 分词），但
+/// trigram 对 <3 字的查询无法命中——「合同」这类 2 字中文词会返回空——所以命中一直
+/// 由这里的 `LIKE` 承担，虚表只提供了一层 ≥3 字查询的索引加速。表改成普通表之后
+/// 那层加速没了，查询退化为全表扫描；收件箱条目数与用户实际接收次数同阶，
+/// 代价可忽略（Web 端本就是纯内存线性扫描）。
 pub(crate) async fn search_inbox(
     db: &DatabaseConnection,
     query: &str,
@@ -308,34 +315,35 @@ pub(crate) async fn search_inbox(
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     let include_archived = i64::from(include_archived);
 
-    // 第一步：FTS 子串匹配，取回按接收时间倒序的命中 item_id。
+    // 第一步：子串匹配，取回按接收时间倒序的命中 item_id。
     //
     // 下面这段 `LIKE ... ESCAPE '\'` 是 [`swarmdrop_transfer::inbox::inbox_matches`]
     // 的 SQL 复刻：那个函数是检索命中判据的规范定义（大小写不敏感子串，覆盖
-    // source_name / files_text / extracted_text 三列），Web 端直接调它。
-    // **没有 title 列**，理由同样写在那个函数的文档里。
+    // title / source_name / files_text / extracted_text 四列），Web 端直接调它。
     // 两者语义必须同义——同一个查询词在两端给出不同的命中集合，就是同一次搜索在
     // 两端结果不同。改这里必须同步改那里，反之亦然，而
     // `sql_like_matches_shared_corpus_same_as_inbox_matches` 用共享语料
     // `INBOX_MATCH_CASES` 把这句话钉成可执行的断言。
-    let ordered = InboxFtsHitId::find_by_statement(Statement::from_sql_and_values(
+    let ordered = InboxSearchHitId::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         r#"
-        SELECT fts.item_id AS item_id
-        FROM inbox_fts AS fts
-        JOIN inbox_items AS i ON i.id = fts.item_id
+        SELECT s.item_id AS item_id
+        FROM inbox_search_index AS s
+        JOIN inbox_items AS i ON i.id = s.item_id
         WHERE i.deleted_at IS NULL
           AND (? = 1 OR i.archived_at IS NULL)
           AND (
-              fts.source_name LIKE ? ESCAPE '\'
-              OR fts.files_text LIKE ? ESCAPE '\'
-              OR fts.extracted_text LIKE ? ESCAPE '\'
+              s.title LIKE ? ESCAPE '\'
+              OR s.source_name LIKE ? ESCAPE '\'
+              OR s.files_text LIKE ? ESCAPE '\'
+              OR s.extracted_text LIKE ? ESCAPE '\'
           )
         ORDER BY i.received_at DESC
         LIMIT ?
         "#,
         [
             include_archived.into(),
+            pattern.clone().into(),
             pattern.clone().into(),
             pattern.clone().into(),
             pattern.into(),
@@ -517,15 +525,10 @@ fn build_search_hit(item: entity::inbox_item::ModelEx, query: &str) -> InboxSear
             relative_path: file.relative_path.clone(),
         })
         .collect();
-    let snippet = inbox_snippet(
-        query,
-        item.primary_file_name.as_deref(),
-        &item.source_name,
-        &files,
-    );
+    let snippet = inbox_snippet(query, &item.title, &item.source_name, &files);
     InboxSearchHit {
         id: item.id,
-        primary_file_name: item.primary_file_name.clone(),
+        title: item.title.clone(),
         source_name: item.source_name.clone(),
         item_count: item.item_count,
         root_path: item.root_path.clone(),
@@ -558,7 +561,7 @@ mod tests {
             terminal_reason: Some(TerminalReason::Completed),
             epoch: 0,
             recoverable: false,
-            error_message: None,
+            failure: None,
         }
     }
 
@@ -758,7 +761,8 @@ mod tests {
 
     /// D5：删单条传输记录只清活动账本——收件箱条目留下，外键被置空。
     ///
-    /// 保证来自 migration 的 `ON DELETE SET NULL`（`m20260627_000002_drop_inbox.rs`）。
+    /// 保证来自 `entity::inbox_item` 上声明的 `on_delete = "SetNull"`
+    /// （schema builder 据此建外键）。
     /// 两条断言缺一不可：只断言「行还在」的话，外键写成 `RESTRICT`（根本删不掉）或
     /// FK 未生效（留一个指向已删会话的悬垂 id）都照样绿。
     #[tokio::test]
@@ -883,7 +887,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_finds_item_by_file_name_and_source_after_insert() {
+    async fn search_finds_item_by_title_and_source_after_insert() {
         let (_db, store) = make_env().await;
         let id = make_inbox_item(
             &store,
@@ -892,53 +896,20 @@ mod tests {
         )
         .await;
 
-        let by_file = store.search_inbox("扫描", 10, false).await.unwrap();
-        assert!(by_file.iter().any(|h| h.id == id), "文件名应命中");
+        let by_title = store.search_inbox("扫描", 10, false).await.unwrap();
+        assert!(by_title.iter().any(|h| h.id == id), "标题/文件名应命中");
 
         let by_source = store.search_inbox("Alice", 10, false).await.unwrap();
         assert!(by_source.iter().any(|h| h.id == id), "来源设备名应命中");
 
-        let hit = by_file.iter().find(|h| h.id == id).unwrap();
+        let hit = by_title.iter().find(|h| h.id == id).unwrap();
         assert_eq!(hit.files.len(), 1);
         assert_eq!(hit.files[0].relative_path, "季度合同扫描.pdf");
-        assert_eq!(hit.primary_file_name.as_deref(), Some("季度合同扫描.pdf"));
-        // 单文件条目的首文件名**就是**那个文件名，而命中首文件名不产出片段：
-        // 它在三端的条目行上（作为标题）本来就显示着，再给一条内容相同的片段
-        // 只是把同一句话说两遍。片段判据的正面覆盖在 `swarmdrop-transfer` 的
+        // 标题列存的**就是首个文件名**（`inbox_primary_file_name`），所以「扫描」先命中标题——
+        // 而命中标题不产出片段：标题在三端的条目行上本来就显示着，再给一条内容相同的
+        // 片段只是把同一句话说两遍。片段判据的正面覆盖在 `swarmdrop-transfer` 的
         // `snippet_only_for_file_hits`（领域层单测），这里只管「搜不搜得到」。
-        assert!(hit.snippet.is_none(), "命中首文件名时不该产出片段");
-    }
-
-    /// 标题模板文字不再是索引内容：搜「个文件」不得把多文件条目整批捞出来。
-    ///
-    /// 这是删掉 `inbox_fts.title` 列**唯一**改变的可见行为（另一条是「空传输」），
-    /// 且方向是修复——此前所有多文件条目的标题都含「个文件」。
-    #[tokio::test]
-    async fn title_template_words_no_longer_match() {
-        let (_db, store) = make_env().await;
-        make_inbox_item(
-            &store,
-            "Alice",
-            &[file_info(0, "a.pdf", 5), file_info(1, "b.pdf", 5)],
-        )
-        .await;
-
-        assert!(
-            store
-                .search_inbox("个文件", 10, false)
-                .await
-                .unwrap()
-                .is_empty(),
-            "「个文件」是旧标题模板的固定文字，不该命中任何条目"
-        );
-        assert!(
-            store
-                .search_inbox("空传输", 10, false)
-                .await
-                .unwrap()
-                .is_empty(),
-            "「空传输」同理"
-        );
+        assert!(hit.snippet.is_none(), "命中标题时不该产出片段");
     }
 
     /// 只命中 `relative_path` 时**要**产出片段——与上一个测试的否定断言凑成一对。
@@ -953,7 +924,7 @@ mod tests {
 
         let hits = store.search_inbox("invoices", 10, false).await.unwrap();
         let hit = hits.iter().find(|h| h.id == id).expect("路径词应命中");
-        // 「invoices」不在首文件名（`c.pdf`）也不在来源名（Dave）里，
+        // 「invoices」不在标题（单文件条目的标题是文件名 `c.pdf`）也不在来源名（Dave）里，
         // 所以这是该给片段的那种命中：用户要找的东西不在条目行上直接可见。
         assert!(
             hit.snippet
@@ -1048,12 +1019,13 @@ mod tests {
         );
     }
 
-    /// 按语料直接造一条收件箱条目 + 对应的 FTS 行，返回 item id。
+    /// 按语料直接造一条收件箱条目 + 对应的索引行，返回 item id。
     ///
-    /// 不走 `ensure_*`：那条路径的 files_text 由文件行派生，摆不出语料要的三列
+    /// 不走 `ensure_*`：那条路径的 title / files_text 由文件行派生，摆不出语料要的四列
     /// 任意组合（尤其 `extracted_text`——SQL 侧目前没有任何写入它的生产路径）。
     async fn insert_indexed_item(
         db: &DatabaseConnection,
+        title: &str,
         source_name: &str,
         files_text: &str,
         extracted_text: Option<&str>,
@@ -1066,7 +1038,7 @@ mod tests {
             .set_source_name(source_name.to_string())
             .set_source_kind(entity::InboxSourceKind::PairedDevice)
             .set_content_kind(InboxContentKind::Files)
-            .set_primary_file_name(None)
+            .set_title(title.to_string())
             .set_item_count(1)
             .set_total_size(1)
             .set_root_path(None)
@@ -1075,22 +1047,18 @@ mod tests {
             .insert(db)
             .await
             .expect("insert inbox item");
-        db.execute_raw(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
-            "INSERT INTO inbox_fts(item_id, source_name, files_text, extracted_text) \
-             VALUES(?, ?, ?, ?)",
-            [
-                id.into(),
-                source_name.into(),
-                files_text.into(),
-                // 语料的 `None`（「这一端没有文本抽取」）在 SQL 侧落成空串：两条生产
-                // 写入路径（`ensure_*` 与 FTS 迁移回填）对没有抽取结果的条目写的都是 ''，
-                // 库里根本不存在 NULL 的 extracted_text。
-                extracted_text.unwrap_or_default().into(),
-            ],
-        ))
-        .await
-        .expect("insert fts row");
+        entity::inbox_search_index::ActiveModel::builder()
+            .set_item_id(id)
+            .set_title(title.to_string())
+            .set_source_name(source_name.to_string())
+            .set_files_text(files_text.to_string())
+            // 语料的 `None`（「这一端没有文本抽取」）在 SQL 侧落成空串：唯一的生产写入
+            // 路径（`ensure_*`）对没有抽取结果的条目写的就是 ''，库里不存在 NULL 的
+            // extracted_text，列本身也是 NOT NULL。
+            .set_extracted_text(extracted_text.unwrap_or_default().to_string())
+            .insert(db)
+            .await
+            .expect("insert search index row");
         id
     }
 
@@ -1112,8 +1080,14 @@ mod tests {
         let mut ids = Vec::with_capacity(INBOX_MATCH_CASES.len());
         for case in INBOX_MATCH_CASES {
             ids.push(
-                insert_indexed_item(&db, case.source_name, case.files_text, case.extracted_text)
-                    .await,
+                insert_indexed_item(
+                    &db,
+                    case.title,
+                    case.source_name,
+                    case.files_text,
+                    case.extracted_text,
+                )
+                .await,
             );
         }
 
@@ -1137,7 +1111,7 @@ mod tests {
     async fn search_works_with_empty_extracted_text() {
         let (_db, store) = make_env().await;
         let id = make_inbox_item(&store, "Grace", &[file_info(0, "笔记.txt", 5)]).await;
-        // 所有 extracted_text 为空：仅靠来源名/文件名仍能命中，且无关词不凭空命中。
+        // 所有 extracted_text 为空：仅靠标题/来源名/文件名仍能命中，且无关词不凭空命中。
         assert!(
             store
                 .search_inbox("笔记", 10, false)

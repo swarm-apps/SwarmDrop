@@ -9,7 +9,8 @@ export const metadata: Metadata = { title: navTitle(NAV.send) };
 // `SendPanel` 读 `?peerId=`（设备页带过来的预选目标），Suspense 边界包在面板自身里。
 export default function SendPage() {
   return (
-    <PageShell>
+    // `column="form"`：这一页是「选设备 / 选文件 / 发送」三步的表单，不是内容板。
+    <PageShell column="form">
       <PageHeader nav="send" />
       <SendPanel />
     </PageShell>

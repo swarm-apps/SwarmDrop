@@ -17,8 +17,9 @@ import {
 } from "@/core/notifier";
 import { getMobilePaths } from "@/core/paths";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
-import { errorMessage, lastPathSegment } from "@/lib/utils";
+import { lastPathSegment } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
@@ -130,7 +131,7 @@ function PauseReceivingRow() {
       await core.setReceivingPaused(next);
     } catch (err) {
       setPaused(!next); // 失败回滚
-      toast.error(t`操作失败`, errorMessage(err));
+      toast.error(t`操作失败`, getErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -183,7 +184,7 @@ function NotificationRow() {
         toast.success(t`通知已开启`);
       }
     } catch (err) {
-      toast.error(t`操作失败`, errorMessage(err));
+      toast.error(t`操作失败`, getErrorMessage(err));
     }
   };
 

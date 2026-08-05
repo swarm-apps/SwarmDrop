@@ -111,6 +111,36 @@ fn append_invite_transports(selected: &mut Vec<Addr>, paths: &[Addr]) {
     }
 }
 
+/// 一次配对达成的产物：设备信息 + 它有没有落盘。
+///
+/// **为什么 `persisted` 是返回值而不是错误。** 走到这里时配对已经是**双方共识**
+/// —— 对端收到了 `Success` 并把本机写进了它的已配对列表。此刻本机若因写盘失败而向上
+/// 报 `Err`，用户看到的是「配对失败」，而对方看到的是「配对成功」：两台设备对同一件事
+/// 的认知从此分叉，且没有任何一端会去纠正它。
+///
+/// 真实后果只有一个 —— **这台设备重启后会从本机列表里消失**（对端仍记着）。UI 该照这个
+/// 说，而不是说配对没成。形态与 [`revoke_invite_by_hash`](PairingManager::revoke_invite_by_hash)
+/// 的返回值同构：那里也是「本次运行内已生效、但重启后会复活」，同样由 UI 如实告知。
+#[derive(Debug, Clone)]
+pub struct PairedDeviceCommit {
+    /// **合并后**的设备信息（保留用户此前设过的信任级别与收件策略）。
+    pub device: PairedDeviceInfo,
+    /// `false` = 本次运行内可用，但重启后会丢。
+    pub persisted: bool,
+}
+
+/// 从一次配对尝试的结果里取「设备有没有落盘」。
+///
+/// **没配成（`None`）⇒ `true`**。这条约定是反直觉的，所以只在这里写一次：对端拒绝或
+/// 婉拒时根本没有「该落盘的东西」，此时报 `false` 会让 UI 弹一句无从解释的警告
+/// （「配对成功但没保存」——可它压根没配成）。
+///
+/// 三端都调它，不要各写一遍 `is_none_or`：真正容易漂的不是那一行，而是这条约定本身，
+/// 任一端写成 `map_or(false, ..)` 就会在用户点「拒绝」时弹出那句无解提示。
+pub fn persisted_or_absent(commit: Option<&PairedDeviceCommit>) -> bool {
+    commit.is_none_or(|commit| commit.persisted)
+}
+
 /// 入站配对请求的待决上下文。
 ///
 /// 新内核 RPC handler 天然长 await：handler 存 `responder` 后 await 用户决策，
@@ -155,8 +185,12 @@ pub struct PairingManager {
     notifier: Option<Arc<dyn Notifier>>,
     /// 一次性邀请状态表（发起端：TTL + capability 哈希 + CAS 消费）
     invite_registry: InviteRegistry,
-    /// 已配对设备列表的持久化端口。当前**只服务 [`Self::unpair`] 这一条写路径**
-    /// （新增/刷新方向仍在三端 host 的 event bus 里回写，见下）。
+    /// 已配对设备列表的持久化端口。**三个写方向都在这里**：新增与刷新走
+    /// [`Self::commit_paired_device`]，移除走 [`Self::unpair`]。
+    ///
+    /// 新增/刷新曾经是三端 host 各自在 `CoreEvent::PairedDeviceAdded` 上回写的（那时这里
+    /// 只服务 `unpair`），后果是同一个动作长出三种失败语义：桌面/Web 在命令层 `?` 冒泡
+    /// （配对报错，而对端已成功），移动端在 event bus 里只记一条 warn（静默丢失）。
     paired_store: Arc<dyn PairedDeviceStore>,
 }
 
@@ -316,7 +350,7 @@ impl PairingManager {
     pub async fn pair_with_invite(
         &self,
         invite_str: &str,
-    ) -> AppResult<(PairingResponse, Option<PairedDeviceInfo>)> {
+    ) -> AppResult<(PairingResponse, Option<PairedDeviceCommit>)> {
         let invite = PairInvite::decode(invite_str).map_err(|e| {
             tracing::warn!("邀请解码失败: {e}");
             AppError::InvalidCode
@@ -343,7 +377,7 @@ impl PairingManager {
         peer_id: NodeId,
         method: PairingMethod,
         addrs: Option<Vec<Addr>>,
-    ) -> AppResult<(PairingResponse, Option<PairedDeviceInfo>)> {
+    ) -> AppResult<(PairingResponse, Option<PairedDeviceCommit>)> {
         if let Some(addrs) = addrs.filter(|a| !a.is_empty()) {
             self.endpoint
                 .add_addrs(peer_id, addrs)
@@ -378,9 +412,10 @@ impl PairingManager {
                 let os_info = OsInfo::unknown_from_peer_id(&peer_id);
                 let info =
                     PairedDeviceInfo::new(peer_id, os_info, chrono::Utc::now().timestamp_millis());
-                self.paired_devices.insert(peer_id, info.clone());
+                // 落盘 / 内存表 / 事件三件事都在 commit 里，宿主不再各做一遍。
+                let commit = self.commit_paired_device(info).await;
 
-                Ok((PairingResponse::Success, Some(info)))
+                Ok((PairingResponse::Success, Some(commit)))
             }
             resp => Ok((resp, None)),
         }
@@ -469,7 +504,7 @@ impl PairingManager {
         &self,
         pending_id: u64,
         response: PairingResponse,
-    ) -> AppResult<Option<PairedDeviceInfo>> {
+    ) -> AppResult<Option<PairedDeviceCommit>> {
         let Some((_, pending)) = self.pending_inbound.remove(&pending_id) else {
             return Err(AppError::Network("配对请求已过期或不存在".into()));
         };
@@ -491,9 +526,11 @@ impl PairingManager {
                             // 不是「邀请无效」——是本机没能把「已消费」落盘，所以宁可让
                             // 这次配对失败也不能放行（否则重启后同一凭证还能再用一次）。
                             // 这里排在 responder.send(Success) 之前，报失败是诚实的。
-                            InviteRejectReason::NotPersisted => AppError::Identity(
-                                "邀请状态未能保存，本次配对已中止，请重新生成邀请".into(),
-                            ),
+                            //
+                            // 用**专属 kind** 而不是 `Identity`：文案由前端按 kind 渲染，
+                            // 包成 Identity 会让用户在点「接受配对」时看到一句
+                            // 「设备身份初始化失败」——与真实原因毫无关系。
+                            InviteRejectReason::NotPersisted => AppError::InvitePersistFailed,
                             InviteRejectReason::Unknown | InviteRejectReason::Unavailable => {
                                 AppError::InvalidCode
                             }
@@ -515,8 +552,7 @@ impl PairingManager {
             pending.os_info,
             chrono::Utc::now().timestamp_millis(),
         );
-        self.paired_devices.insert(info.peer_id, info.clone());
-        Ok(Some(info))
+        Ok(Some(self.commit_paired_device(info).await))
     }
 
     // === 已配对设备管理 ===
@@ -535,10 +571,111 @@ impl PairingManager {
         self.paired_devices.insert(info.peer_id, info);
     }
 
+    /// **新增/刷新一台已配对设备的唯一提交入口**：落盘 → 共享内存表 → 发事件。
+    ///
+    /// 两个调用方向都走它：配对刚达成（本模块的三个达成点），以及对端经 identify
+    /// 广播了新设备名（`network::event_loop`）。此前这三件事散在三端 host 各写一遍，
+    /// 于是同一个动作长出了三种失败语义 —— 桌面/Web 在命令层 `?` 冒泡（配对报错，
+    /// 而对端已成功）、移动端在 event bus 里只记一条 warn（静默丢失）。
+    ///
+    /// **落盘失败不阻断**，返回 `false`（理由见 [`PairedDeviceCommit`]）。
+    ///
+    /// 三个动作的顺序是有讲究的：
+    ///
+    /// 1. **先 upsert 拿到合并后的版本。** [`paired_devices::upsert`] 对已存在的条目只刷新
+    ///    `os_info` / `paired_at`，**保留用户设过的 `trust_level` / `receive_policy`**。
+    ///    配对达成那条路径交上来的 `device` 是 `PairedDeviceInfo::new` 的产物（默认策略），
+    ///    直接拿它整条替换，就是对「重新配对一台已配对设备」做了一次静默的策略重置 ——
+    ///    而 `receive_policy` 是被 `swarmdrop_transfer::policy` 真正裁决的，不是展示字段。
+    ///    （identify 刷新那条交的是内存表里的版本，本来就带着完整策略；两条都走同一套
+    ///    合并规则，不必分辨来源。）
+    /// 2. **再写内存表**，写的是合并后的版本（同一理由）。内存表是 `is_paired` /
+    ///    presence 白名单 / 入站 offer 裁决的事实源，它和库里那份必须是同一个东西。
+    /// 3. **最后发事件**，无论落盘成没成 —— 设备在本次运行内确实可用，UI 必须看得见它。
+    pub(crate) async fn commit_paired_device(
+        &self,
+        device: PairedDeviceInfo,
+    ) -> PairedDeviceCommit {
+        let peer_id = device.peer_id;
+
+        // **先写内存表，再落盘。** `respond_pairing_request` 在此之前已经把 `Success`
+        // 回给了对端，而落盘是一次真实 I/O（桌面钥匙串 / Web IndexedDB 往返 / 移动平台
+        // 安全存储）—— 那段窗口里对端可能已经发来 offer，而本机 `is_paired` 还是 false，
+        // 会被 `NotPaired` 拒掉。写在 await 之前，这条缝就不存在。
+        //
+        // 写进去的是**合并结果**而不是入参：入参恒是 `PairedDeviceInfo::new` 的产物
+        // （`Collaborator` + 默认收件策略），而这张表正是 `swarmdrop_transfer::policy`
+        // 裁决入站 offer 的事实源 —— 直接盖上去会把用户设的 `Owned` 降回 `Collaborator`、
+        // 把收紧过的策略放回默认。合并规则与 `upsert` 共用同一份（`merge_observation`）。
+        let optimistic = self.merge_into_memory(peer_id, device.clone());
+        self.paired_devices.insert(peer_id, optimistic.clone());
+
+        let (merged, persisted) = match paired_devices::upsert(&*self.paired_store, device).await {
+            Ok(merged) => {
+                // 库里那份是权威合并结果（它见过完整的历史条目），覆盖乐观写入。
+                self.paired_devices.insert(peer_id, merged.clone());
+                (merged, true)
+            }
+            Err(error) => {
+                tracing::warn!("持久化已配对设备失败（本次运行内仍可用，重启后会丢）: {error}");
+                (optimistic, false)
+            }
+        };
+
+        let _ = self
+            .event_bus
+            .publish(CoreEvent::PairedDeviceAdded {
+                device: merged.clone(),
+            })
+            .await;
+        PairedDeviceCommit {
+            device: merged,
+            persisted,
+        }
+    }
+
+    /// identify 刷新专用的提交入口：**设备仍在已配对表里才提交**。
+    ///
+    /// 刷新语义本来就不该带「新增」。不做这个复检的话，「用户点了解除配对」与「identify
+    /// 刷新到达」交错时（两者之间隔着 `event_loop` 的
+    /// `publish_devices_and_status(..).await`，窗口是真实存在的），刚解除的设备会被
+    /// `upsert` 重新 push 回持久化列表、insert 回内存表，还会发一条 `PairedDeviceAdded`
+    /// —— presence 继续保活、入站 offer 重新受理、UI 上它又冒出来。
+    ///
+    /// **残留窗口**：复检与随后的 insert 之间仍可能被 `unpair` 插入（`paired_store` 这一层
+    /// 没有写锁，read-modify-write 不是原子的）。彻底根治要给端口加锁 —— 收口之后那只需
+    /// 改一处。复检把窗口从「两次事件发布 + 一次落盘 I/O」缩到几条指令。
+    pub(crate) async fn refresh_paired_device(&self, device: PairedDeviceInfo) {
+        if !self.paired_devices.contains_key(&device.peer_id) {
+            tracing::debug!(
+                "identify 刷新到达时设备已解除配对，忽略: {}",
+                device.peer_id
+            );
+            return;
+        }
+        self.commit_paired_device(device).await;
+    }
+
+    /// 把一次新观测合进共享内存表里已有的那条（若有），返回合并结果。
+    ///
+    /// 只用在 [`Self::commit_paired_device`] 的**落盘失败回退**上 —— 成功路径的合并结果
+    /// 由 `paired_devices::upsert` 给出。**这里不写表**：写表统一由 commit 做，
+    /// 免得同一个 peer 在两处各插一次。
+    fn merge_into_memory(&self, peer_id: NodeId, observed: PairedDeviceInfo) -> PairedDeviceInfo {
+        // `get` 的 Ref 先 clone 出来再放手：DashMap 的读锁跨到随后的 `insert` 会死锁。
+        match self.paired_devices.get(&peer_id).map(|entry| entry.clone()) {
+            Some(mut existing) => {
+                existing.merge_observation(observed);
+                existing
+            }
+            None => observed,
+        }
+    }
+
     /// 用 Identify 中收到的最新设备信息刷新已配对设备。
     ///
-    /// 返回 `Some` 表示信息已变化，调用方应经 [`paired_devices::upsert`] 落到
-    /// [`PairedDeviceStore`] 端口（**不是 keychain**——设备列表与密钥材料已分属两个端口）。
+    /// 返回 `Some` 表示信息已变化，调用方应把它交给 [`Self::commit_paired_device`]
+    /// ——**不要自己 upsert**，那正是这条路径此前散在三端 host 里的做法。
     pub fn refresh_paired_device_os_info(
         &self,
         peer_id: &NodeId,
@@ -573,9 +710,8 @@ impl PairingManager {
     /// 「事件 == 集合真的变了」这个不变量，避免下游把重复点击当成两次变更），
     /// 返回当前列表。
     ///
-    /// 注意本端口当前**只服务移除这一条写路径**：新增/刷新方向仍由三端 host 在
-    /// [`CoreEvent::PairedDeviceAdded`] 上各自回写。这是刻意的半步——那条路径已经有唯一
-    /// 触发点、语义一致，收进 core 是一条独立的后续增量。
+    /// 新增/刷新方向见 [`Self::commit_paired_device`]，两个方向现在都在 core 里
+    /// （host 只转发事件，不再回写）。
     pub async fn unpair(&self, peer_id: &NodeId) -> AppResult<Vec<PairedDeviceInfo>> {
         let devices = self.paired_store.load_paired_devices().await?;
         let persisted = devices.iter().any(|item| &item.peer_id == peer_id);
@@ -639,7 +775,7 @@ mod tests {
     use swarmdrop_net::{Router, SecretKey};
 
     use super::*;
-    use crate::device::OsInfo;
+    use crate::device::{DeviceTrustLevel, OsInfo};
     use crate::host::{MemoryHost, PairedDeviceStore};
     use crate::presence::PresenceMap;
     use crate::protocol::PAIRING_PROTOCOL;
@@ -741,8 +877,115 @@ mod tests {
         }
 
         async fn save_paired_devices(&self, _devices: &[PairedDeviceInfo]) -> AppResult<()> {
-            Err(AppError::Identity("保存已配对设备失败".to_string()))
+            // 存储 I/O 失败，**不是**身份错误 —— `Identity` 不该再当通用垃圾桶用
+            // （判据见 `crates/host/src/error.rs` 上的说明）。
+            Err(AppError::Io(std::io::Error::other("保存已配对设备失败")))
         }
+    }
+
+    /// 落盘失败时，共享内存表里**用户设过的策略不能被默认值冲掉**。
+    ///
+    /// 走到 commit 时手里的 `device` 恒是 [`PairedDeviceInfo::new`] 的产物
+    /// （`Collaborator` + 默认收件策略）。直接把它 `insert` 进 DashMap 的话，一次写库失败
+    /// 就会让用户设的 `Owned` 降回 `Collaborator`、把收紧过的收件策略放回默认，
+    /// 而那张表正是 `swarmdrop_transfer::policy` 裁决入站 offer 的事实源 ——
+    /// **本次运行内立即生效**。这条红了说明失败分支又在拿未合并的观测覆盖内存表。
+    #[tokio::test]
+    async fn commit_keeps_user_policy_in_memory_when_persist_fails() {
+        let peer_id = SecretKey::generate().node_id();
+
+        let mut owned = paired_device(peer_id);
+        owned.trust_level = DeviceTrustLevel::Owned;
+        owned.receive_policy.auto_accept = false;
+        let paired: Arc<DashMap<NodeId, PairedDeviceInfo>> = Arc::new(DashMap::new());
+        paired.insert(peer_id, owned);
+
+        let store = Arc::new(FailingStore {
+            devices: Mutex::new(Vec::new()),
+        });
+        let manager = test_manager(paired.clone(), Arc::new(memory_host()), store).await;
+
+        // 再走一次配对：回调交上来的是默认策略的新观测。
+        let observed = PairedDeviceInfo::new(peer_id, OsInfo::default(), 99);
+        let commit = manager.commit_paired_device(observed).await;
+
+        assert!(!commit.persisted, "写库失败必须如实报 false，不能压成成功");
+        let in_memory = paired.get(&peer_id).expect("设备仍在内存表").clone();
+        assert_eq!(
+            in_memory.trust_level,
+            DeviceTrustLevel::Owned,
+            "用户设的信任级别不能被默认值冲掉"
+        );
+        assert!(
+            !in_memory.receive_policy.auto_accept,
+            "收紧过的收件策略同理"
+        );
+        assert_eq!(in_memory.paired_at, 99, "os_info / paired_at 仍该被刷新");
+    }
+
+    /// identify 刷新**不得让已解除配对的设备复活**。
+    ///
+    /// 时序：刷新事件在途 → 用户点解除配对（`unpair` 删库 + 删内存表）→ 刷新落到
+    /// `refresh_paired_device`。若它直接 commit，`upsert` 会把设备 push 回持久化列表、
+    /// insert 回内存表，presence 继续保活、入站 offer 重新受理、UI 上它又冒出来。
+    #[tokio::test]
+    async fn refresh_does_not_resurrect_an_unpaired_device() {
+        let host = memory_host();
+        let peer_id = SecretKey::generate().node_id();
+
+        // 内存表与库都已不含该 peer（= 刚被 unpair 过）。
+        let paired: Arc<DashMap<NodeId, PairedDeviceInfo>> = Arc::new(DashMap::new());
+        let manager = test_manager(
+            paired.clone(),
+            Arc::new(host.clone()),
+            Arc::new(host.clone()),
+        )
+        .await;
+
+        manager.refresh_paired_device(paired_device(peer_id)).await;
+
+        assert!(paired.is_empty(), "刷新不该把已解除配对的设备写回内存表");
+        assert!(
+            host.load_paired_devices().await.unwrap().is_empty(),
+            "更不该写回持久化列表"
+        );
+    }
+
+    /// 成功路径：落盘、内存表、返回值三者拿到的都是**合并后**的版本。
+    #[tokio::test]
+    async fn commit_persists_and_publishes_merged_device() {
+        let host = memory_host();
+        let peer_id = SecretKey::generate().node_id();
+
+        let mut owned = paired_device(peer_id);
+        owned.trust_level = DeviceTrustLevel::Owned;
+        host.save_paired_devices(std::slice::from_ref(&owned))
+            .await
+            .expect("seed store");
+
+        let paired: Arc<DashMap<NodeId, PairedDeviceInfo>> = Arc::new(DashMap::new());
+        paired.insert(peer_id, owned);
+        let manager = test_manager(
+            paired.clone(),
+            Arc::new(host.clone()),
+            Arc::new(host.clone()),
+        )
+        .await;
+
+        let observed = PairedDeviceInfo::new(peer_id, OsInfo::default(), 77);
+        let commit = manager.commit_paired_device(observed).await;
+
+        assert!(commit.persisted);
+        assert_eq!(commit.device.trust_level, DeviceTrustLevel::Owned);
+        assert_eq!(commit.device.paired_at, 77);
+        assert_eq!(
+            paired.get(&peer_id).expect("in memory").trust_level,
+            DeviceTrustLevel::Owned
+        );
+        let stored = host.load_paired_devices().await.expect("load");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].trust_level, DeviceTrustLevel::Owned);
+        assert_eq!(stored[0].paired_at, 77);
     }
 
     #[tokio::test]

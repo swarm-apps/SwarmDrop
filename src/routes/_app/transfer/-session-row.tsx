@@ -21,12 +21,11 @@ import { commands } from "@/lib/bindings";
 import { useSessionProgress, useTransferStore } from "@/stores/transfer-store";
 import {
   calcPercent,
-  fileGroupLabel,
   formatFileSize,
   formatSpeed,
   formatRelativeTime,
 } from "@/lib/format";
-import { getErrorMessage } from "@/lib/errors";
+import { failureCodeMessage, getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -123,7 +122,7 @@ export const SessionRow = memo(function SessionRow({
   const fileCount = projection.files.length;
   const firstFileName = projection.files[0]?.name || t`未知文件`;
   const displayFileName =
-    fileCount > 1 ? fileGroupLabel(firstFileName, fileCount) : firstFileName;
+    fileCount > 1 ? t`${firstFileName} 等 ${fileCount} 个文件` : firstFileName;
 
   const progressPercent = progress
     ? calcPercent(progress.transferredBytes, progress.totalBytes)
@@ -235,7 +234,8 @@ export const SessionRow = memo(function SessionRow({
             <div className="flex items-center gap-1.5 text-[12px] text-destructive">
               <XCircle className="size-3.5 shrink-0" />
               <span className="truncate">
-                {projection.errorMessage || projectionStatusLabel(projection)}
+                {failureCodeMessage(projection.failure) ||
+                  projectionStatusLabel(projection)}
               </span>
             </div>
           )}

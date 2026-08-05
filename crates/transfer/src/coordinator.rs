@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::AppResult;
 use crate::epoch::EpochGuard;
 use crate::events::{TransferEvent, TransferEventSink};
+use crate::failure::FailureCode;
 use crate::store::TransferStore;
 
 /// 传输生命周期状态（镜像 entity 持久化字段）。
@@ -25,8 +26,10 @@ pub struct TransferState {
     pub terminal_reason: Option<TerminalReason>,
     pub epoch: i64,
     pub recoverable: bool,
-    /// terminal/fatal_error 的人类可读原因（仅 FatalError 携带，持久化到 DB 供活动详情展示）。
-    pub error_message: Option<String>,
+    /// 失败判别码（仅 FatalError 携带，持久化到 DB 供活动详情展示）。
+    ///
+    /// 曾是 `Option<String>` 的自由中文文本，直达三端 UI；见 [`crate::failure`]。
+    pub failure: Option<FailureCode>,
 }
 
 impl TransferState {
@@ -38,7 +41,7 @@ impl TransferState {
             terminal_reason: None,
             epoch,
             recoverable: true,
-            error_message: None,
+            failure: None,
         }
     }
 
@@ -50,7 +53,7 @@ impl TransferState {
             terminal_reason: None,
             epoch,
             recoverable: true,
-            error_message: None,
+            failure: None,
         }
     }
 
@@ -62,7 +65,7 @@ impl TransferState {
             terminal_reason: None,
             epoch,
             recoverable: true,
-            error_message: None,
+            failure: None,
         }
     }
 
@@ -85,7 +88,7 @@ impl TransferState {
             terminal_reason: None,
             epoch,
             recoverable: true,
-            error_message: None,
+            failure: None,
         }
     }
 
@@ -96,19 +99,19 @@ impl TransferState {
             terminal_reason: Some(reason),
             epoch,
             recoverable: false,
-            error_message: None,
+            failure: None,
         }
     }
 
-    /// terminal/fatal_error 且携带失败原因（持久化到 DB error_message）。
-    fn terminal_failed(epoch: i64, error: String) -> Self {
+    /// terminal/fatal_error 且携带失败判别码（持久化到 DB error_message 列）。
+    fn terminal_failed(epoch: i64, failure: FailureCode) -> Self {
         Self {
             phase: TransferPhase::Terminal,
             suspended_reason: None,
             terminal_reason: Some(TerminalReason::FatalError),
             epoch,
             recoverable: false,
-            error_message: Some(error),
+            failure: Some(failure),
         }
     }
 }
@@ -121,7 +124,7 @@ impl From<&entity::transfer_session::Model> for TransferState {
             terminal_reason: m.terminal_reason.clone(),
             epoch: m.epoch,
             recoverable: m.recoverable,
-            error_message: m.error_message.clone(),
+            failure: m.error_message.as_deref().map(FailureCode::from_column),
         }
     }
 }
@@ -153,7 +156,7 @@ pub enum ActorReport {
     /// 所有文件传输完成。
     Completed,
     /// 不可恢复错误（源文件变更、校验失败、协议不兼容）。
-    FatalError(String),
+    FatalError(FailureCode),
 }
 
 /// 网络 / 对端信号。
@@ -501,7 +504,9 @@ mod tests {
             &active(1),
             &CoordinatorInput::Actor {
                 epoch: 1,
-                report: ActorReport::FatalError("source changed".into()),
+                report: ActorReport::FatalError(FailureCode::Legacy {
+                    message: "source changed".into(),
+                }),
             },
         )
         .unwrap();

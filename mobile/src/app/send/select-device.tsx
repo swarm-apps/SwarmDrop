@@ -52,8 +52,9 @@ import {
 import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
+import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
-import { cn, errorMessage } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   summariesToOfflineDevices,
   useMobileCoreStore,
@@ -154,7 +155,7 @@ export default function SendPreparePage() {
               : await pickFromMediaLibrary(kind);
         if (files.length > 0) appendFiles(files);
       } catch (err) {
-        toast.error(t`选择失败`, errorMessage(err));
+        toast.error(t`选择失败`, getErrorMessage(err));
       }
     },
     [appendFiles, t],
@@ -183,7 +184,7 @@ export default function SendPreparePage() {
         panicDetail = getMobileCore().takeLastPanic() ?? undefined;
       } catch {}
       console.error("[send-prepare] send failed:", err, panicDetail);
-      toast.error(t`发送失败`, panicDetail ?? errorMessage(err));
+      toast.error(t`发送失败`, panicDetail ?? getErrorMessage(err));
     } finally {
       setSending(false);
       setPrepareProgress(null);

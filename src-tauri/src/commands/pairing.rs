@@ -1,10 +1,11 @@
 use crate::AppResult;
 use crate::device::DeviceFilter;
-use crate::events::{DevicesChanged, PairedDeviceAdded};
+use crate::events::DevicesChanged;
 use crate::host::event_bus::TauriEventBus;
 use crate::network::NetManagerState;
 use serde::Serialize;
 use swarmdrop_core::device::{DeviceReceivePolicy, DeviceTrustLevel, PairedDeviceInfo};
+use swarmdrop_core::pairing::PairedDeviceCommit;
 use swarmdrop_core::protocol::{PairingMethod, PairingResponse};
 use swarmdrop_invite::{PairInvite, TransportPolicy};
 use swarmdrop_net::{Addr, NodeId, SecretKey};
@@ -13,11 +14,25 @@ use tauri_specta::Event as _;
 
 use crate::AppError;
 
-/// 把前端传来的 base58 字符串解析为 [`NodeId`]，失败归一化为 identity 错误。
+/// 把前端传来的 base58 字符串解析为 [`NodeId`]。
 fn parse_peer_id(peer_id: &str) -> AppResult<NodeId> {
     peer_id
         .parse()
-        .map_err(|e| AppError::identity(format!("invalid peer_id: {e}")))
+        .map_err(|e| AppError::invalid_argument(format!("invalid peer_id: {e}")))
+}
+
+/// 一次配对尝试的结果。
+///
+/// `persisted` 与 [`revoke_pair_invite_by_id`] 的返回值同构：**本次运行内已生效，但重启后
+/// 会变回去**。这类「一半成功」不能压成 `Err` —— 配对达成时对端已经把本机加进它的列表，
+/// 本机再报失败只会让两台设备对同一件事的认知永久分叉。UI 该说的是「这台设备重启后会丢，
+/// 建议重新配对」，不是「配对失败」。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingOutcome {
+    pub response: PairingResponse,
+    /// 设备是否已落盘。**仅当 `response` 为成功时有意义**，其余情况恒为 `true`。
+    pub persisted: bool,
 }
 
 /// 邀请串解码后的展示投影（用于配对确认卡；不含 capability 等敏感字段）。
@@ -40,7 +55,7 @@ pub struct PairInvitePreview {
 #[specta::specta]
 pub fn invite_qr_svg(invite: String) -> AppResult<String> {
     swarmdrop_invite::invite_qr_svg(&invite)
-        .map_err(|e| AppError::identity(format!("二维码生成失败: {e}")))
+        .map_err(|e| AppError::invalid_argument(format!("二维码生成失败: {e}")))
 }
 
 /// 解码并验签邀请串，返回对端展示信息（**不发起配对、不消费**）。
@@ -76,9 +91,10 @@ pub async fn generate_pair_invite(
     net: State<'_, NetManagerState>,
     local_only: Option<bool>,
 ) -> AppResult<String> {
+    // 身份「还没就绪」不是「读写身份失败」——用户的正确动作是重启应用，不是去查钥匙串。
     let secret = app
         .try_state::<SecretKey>()
-        .ok_or_else(|| AppError::identity("设备身份未初始化"))?
+        .ok_or_else(AppError::identity_not_ready)?
         .inner()
         .clone();
     let policy = if local_only.unwrap_or(false) {
@@ -140,7 +156,7 @@ pub async fn list_pair_invites(
             .list_invites()
             .into_iter()
             .map(|summary| PairInviteListItem {
-                id: hex_lower(&summary.capability_hash),
+                id: swarmdrop_invite::capability_hash_to_hex(&summary.capability_hash),
                 created_at: summary.created_at as i64,
                 expires_at: summary.expires_at as i64,
                 consumed: summary.consumed,
@@ -160,53 +176,46 @@ pub async fn revoke_pair_invite_by_id(
     net: State<'_, NetManagerState>,
     id: String,
 ) -> AppResult<bool> {
-    let hash = parse_hex32(&id)?;
+    let hash = parse_invite_id(&id)?;
     with_manager!(net, |m| AppResult::Ok(
         m.pairing().revoke_invite_by_hash(hash).await
     ))
 }
 
-fn hex_lower(bytes: &[u8; 32]) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
-fn parse_hex32(text: &str) -> AppResult<[u8; 32]> {
-    if text.len() != 64 {
-        return Err(AppError::identity("邀请标识格式非法"));
-    }
-    let mut out = [0u8; 32];
-    for (index, slot) in out.iter_mut().enumerate() {
-        *slot = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16)
-            .map_err(|_| AppError::identity("邀请标识格式非法"))?;
-    }
-    Ok(out)
+/// 邀请标识（capability 哈希 hex）→ 字节。编解码本身收在
+/// [`swarmdrop_invite::capability_hash_from_hex`]（含多字节输入不 panic 的回归测试），
+/// 这里只负责把 `None` 翻成 IPC 边界该有的那个 `kind`。
+///
+/// **`InvalidArgument` 不是 `Network`**：`kind` 是前端渲染文案的判别码，落错分类就是
+/// 给用户一句与真实原因无关的提示。
+fn parse_invite_id(text: &str) -> AppResult<[u8; 32]> {
+    swarmdrop_invite::capability_hash_from_hex(text)
+        .ok_or_else(|| AppError::invalid_argument("邀请标识格式非法"))
 }
 
 /// 用邀请串发起配对（受邀方）：解码验签 → 连接发起方 → 出示凭证。
 ///
-/// 配对成功后自动加入已配对设备并 emit `paired-device-added`。
+/// 配对成功后由 core 落盘并 emit `paired-device-added`。
+///
+/// 返回 [`PairingOutcome`]：`response` 是对端的答复，`persisted` 为 `false` 时表示
+/// **配对成功了但这条记录没写进钥匙串** —— 本次运行内可用，重启后这台设备会从列表消失
+/// （对端仍记着）。UI 必须如实告知，不能当成普通成功。
 #[tauri::command]
 #[specta::specta]
 pub async fn consume_pair_invite(
     app: AppHandle,
     net: State<'_, NetManagerState>,
     invite: String,
-) -> AppResult<PairingResponse> {
+) -> AppResult<PairingOutcome> {
     let (response, paired_info) =
         with_manager!(net, |m| m.pairing().pair_with_invite(&invite).await)?;
 
-    if let Some(info) = paired_info {
-        persist_paired_device(&app, info.clone()).await?;
-        let _ = PairedDeviceAdded(info).emit(&app);
-        publish_devices_changed(&app, &net).await;
-    }
+    let persisted = finish_pairing(&app, &net, paired_info.as_ref()).await;
 
-    Ok(response)
+    Ok(PairingOutcome {
+        response,
+        persisted,
+    })
 }
 
 /// 向对端发起配对请求
@@ -224,7 +233,7 @@ pub async fn request_pairing(
     peer_id: String,
     method: PairingMethod,
     addrs: Option<Vec<String>>,
-) -> AppResult<PairingResponse> {
+) -> AppResult<PairingOutcome> {
     let peer_id = parse_peer_id(&peer_id)?;
     let addrs = addrs
         .map(|list| {
@@ -233,20 +242,19 @@ pub async fn request_pairing(
                 .collect::<Result<Vec<_>, _>>()
         })
         .transpose()
-        .map_err(|e| AppError::identity(format!("invalid multiaddr: {e}")))?;
+        .map_err(|e| AppError::invalid_argument(format!("invalid multiaddr: {e}")))?;
 
     let (response, paired_info) = with_manager!(net, |m| m
         .pairing()
         .request_pairing(peer_id, method, addrs)
         .await)?;
 
-    if let Some(info) = paired_info {
-        persist_paired_device(&app, info.clone()).await?;
-        let _ = PairedDeviceAdded(info).emit(&app);
-        publish_devices_changed(&app, &net).await;
-    }
+    let persisted = finish_pairing(&app, &net, paired_info.as_ref()).await;
 
-    Ok(response)
+    Ok(PairingOutcome {
+        response,
+        persisted,
+    })
 }
 
 /// 取消与指定设备的配对。
@@ -328,9 +336,12 @@ pub async fn update_paired_device_policy(
     Ok(updated)
 }
 
-/// 处理收到的配对请求（接受/拒绝）
+/// 处理收到的配对请求（接受/拒绝）。
 ///
-/// 接受配对后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
+/// 接受后由 core 落盘并 emit `paired-device-added` 事件通知前端。
+///
+/// **返回是否已落盘**（响应本身是入参，不必回传）：`false` = 配对成功但记录没写进钥匙串，
+/// 重启后这台设备会不见（对端仍记着）。语义与 [`PairingOutcome::persisted`] 同。
 #[tauri::command]
 #[specta::specta]
 pub async fn respond_pairing_request(
@@ -339,7 +350,7 @@ pub async fn respond_pairing_request(
     pending_id: u64,
     method: PairingMethod,
     response: PairingResponse,
-) -> AppResult<()> {
+) -> AppResult<bool> {
     // 新内核里配对方式已随入站请求缓存在 core 的 pending 表，respond 无需回传；
     // 保留 `method` 参数仅为 IPC 签名稳定（避免前端 bindings 变更）。
     let _ = method;
@@ -349,22 +360,28 @@ pub async fn respond_pairing_request(
             .await
     })?;
 
-    if let Some(info) = paired_info {
-        persist_paired_device(&app, info.clone()).await?;
-        let _ = PairedDeviceAdded(info).emit(&app);
-        publish_devices_changed(&app, &net).await;
-    }
-
-    Ok(())
+    // 返回是否已落盘（响应本身是入参，不必回传）。语义见 [`PairingOutcome::persisted`]。
+    Ok(finish_pairing(&app, &net, paired_info.as_ref()).await)
 }
 
-async fn persist_paired_device(
+/// 配对达成后宿主侧还剩的唯一一件事：广播设备列表变化。
+///
+/// **落盘与 `PairedDeviceAdded` 事件都不在这里了** —— 它们由 core 的
+/// [`PairingManager::commit_paired_device`](swarmdrop_core::pairing::PairingManager) 一并完成
+/// （事件经 `host::event_bus` 转成 tauri typed event）。此前这段编排在本文件里逐字重复三遍、
+/// 在 Web 里两遍、移动端又是另一种时机与失败语义，同一个产品动作长出了三种行为。
+///
+/// 返回**是否已落盘**（含「没配成时报 `true`」那条约定，判据在
+/// [`swarmdrop_core::pairing::persisted_or_absent`] —— 三端共用，别在这里重写）。
+async fn finish_pairing(
     app: &AppHandle,
-    info: crate::device::PairedDeviceInfo,
-) -> AppResult<()> {
-    let store = crate::host::paired_device_store(app)?;
-    swarmdrop_core::paired_devices::upsert(&*store, info).await?;
-    Ok(())
+    net: &State<'_, NetManagerState>,
+    commit: Option<&PairedDeviceCommit>,
+) -> bool {
+    if commit.is_some() {
+        publish_devices_changed(app, net).await;
+    }
+    swarmdrop_core::pairing::persisted_or_absent(commit)
 }
 
 async fn publish_devices_changed(app: &AppHandle, net: &State<'_, NetManagerState>) {

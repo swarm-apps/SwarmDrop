@@ -12,21 +12,15 @@
 //! 同理，`InboxItemDetail.transfer` 这一格由 `WebTransferStore` 在委托返回后补，
 //! 本模块一律留 `None`。
 //!
-//! 条目的首文件名 / 内容指纹 / 聚合文本 / 来源分类 / 命中判据 / 片段全部调
+//! 条目的标题 / 内容指纹 / 聚合文本 / 来源分类 / 命中判据 / 片段全部调
 //! [`swarmdrop_transfer::inbox`] 的共享规则，**Web 侧一行都不重写**——分叉了同一批文件
-//! 在浏览器与桌面就会得到不同的首文件名与不同的内容指纹，而后者是跨端去重的唯一判据。
-//!
-//! **本模块不产出展示标题**：条目行存的是结构（首文件名 + 文件数），
-//! 「空传输」/ 文件名 /「X 等 N 个文件」由 `docs/app/app` 按当前 locale 生成。
+//! 在浏览器与桌面就会得到不同的标题与不同的内容指纹，而后者是跨端去重的唯一判据。
 //!
 //! ## 存量数据：不迁移、不回填、不双写（本 change 的 design D7）
 //!
-//! `DB_VERSION` 提到 4 只为让 `onupgradeneeded` 建出 `inbox` store；v5 是条目行的
-//! `title` 换成 `primary_file_name`，**旧 store 在 `onupgradeneeded` 里被整个丢弃**
-//! （老行不会读失败——serde 对缺失的 `Option` 给 `None`、忽略多余的 `title`，
-//! 于是它们会以「空传输」的形态活下来。判据与做法见 `idb.rs`）。
-//! **老库里已经存在的「终态 + Completed 接收会话」不会被自动补出收件箱条目**：
-//! 落地后第一次打开 Web 应用，收件箱是空的而传输历史是满的——那是预期结果，不是 bug。
+//! `DB_VERSION` 提到 4 只为让 `onupgradeneeded` 建出 `inbox` store。**老库里已经存在的
+//! 「终态 + Completed 接收会话」不会被自动补出收件箱条目**：落地后第一次打开 Web 应用，
+//! 收件箱是空的而传输历史是满的——那是预期结果，不是 bug。
 //!
 //! 理由是 Web 端目前没有真实用户，「保住旧数据」的收益是零，而回填 / 双写 / 兼容层
 //! 不表达任何业务规则，只表达「我们曾经用过另一种存法」。
@@ -166,11 +160,10 @@ impl WebInboxTable {
 
         let item_count = i32::try_from(files.len())
             .map_err(|_| AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
-        // 首文件名 / 内容指纹两条都是跨端共享的领域规则，一律调 swarmdrop_transfer::inbox
+        // 标题 / 内容指纹两条都是跨端共享的领域规则，一律调 swarmdrop_transfer::inbox
         // 的那一份，本文件只负责把行类型摊成中立视图。
         let facts: Vec<InboxFileFacts<'_>> = files.iter().map(file_facts).collect();
-        // 存的是结构（首文件名），不是拼好的标题——展示串由三端按当前 locale 生成。
-        let primary_file_name = inbox_primary_file_name(&facts);
+        let title = inbox_primary_file_name(&facts);
         let content_hash = inbox_content_hash(&facts);
         // root_path = 真实容器目录（与传输投影 content_root 同一处解析：缺 local_dir 时
         // 回退存储根）。兜底收口在 content_root_of 一处，不再重复。
@@ -189,7 +182,7 @@ impl WebInboxTable {
             source_name: session.peer_name.clone(),
             source_kind,
             content_kind: entity::InboxContentKind::Files,
-            primary_file_name,
+            title,
             item_count,
             total_size: session.total_size,
             root_path,
@@ -273,6 +266,7 @@ impl WebInboxTable {
                 let files_text = inbox_files_text(&facts);
                 if !inbox_matches(
                     trimmed,
+                    &stored.item.title,
                     &stored.item.source_name,
                     &files_text,
                     // 抽取正文恒 `None`：浏览器没有文本抽取能力。**不是空串**——空串意为
@@ -284,7 +278,7 @@ impl WebInboxTable {
                 let files = hit_files(stored);
                 let snippet = inbox_snippet(
                     trimmed,
-                    stored.item.primary_file_name.as_deref(),
+                    &stored.item.title,
                     &stored.item.source_name,
                     &files,
                 );
@@ -292,7 +286,7 @@ impl WebInboxTable {
                     stored.item.received_at,
                     InboxSearchHit {
                         id: stored.item.id,
-                        primary_file_name: stored.item.primary_file_name.clone(),
+                        title: stored.item.title.clone(),
                         source_name: stored.item.source_name.clone(),
                         item_count: stored.item.item_count,
                         root_path: stored.item.root_path.clone(),
@@ -360,7 +354,7 @@ impl WebInboxTable {
             let stored = tables
                 .items
                 .get_mut(&item_id)
-                .ok_or_else(|| AppError::Transfer("收件箱条目不存在".into()))?;
+                .ok_or_else(|| AppError::SessionNotFound("收件箱条目不存在".into()))?;
             let Some(file) = stored.files.iter_mut().find(|file| file.id == file_id) else {
                 return Err(AppError::Transfer("收件箱文件不属于该条目".into()));
             };
@@ -478,7 +472,7 @@ fn summary_of(stored: &StoredInboxItem) -> InboxItemSummary {
         source_name: item.source_name.clone(),
         source_kind: item.source_kind.clone(),
         content_kind: item.content_kind.clone(),
-        primary_file_name: item.primary_file_name.clone(),
+        title: item.title.clone(),
         item_count: item.item_count,
         total_size: item.total_size,
         root_path: item.root_path.clone(),
@@ -543,7 +537,7 @@ struct InboxItemRowDef {
     source_name: String,
     source_kind: entity::InboxSourceKind,
     content_kind: entity::InboxContentKind,
-    primary_file_name: Option<String>,
+    title: String,
     item_count: i32,
     total_size: i64,
     root_path: Option<String>,
@@ -779,12 +773,12 @@ mod tests {
             Some("d574ff2b0c617b92d1d827e0f3cf5410d2d3e5c1a165393969338c15f67c9a04"),
             "Web 侧构造条目必须落到与 SQL 侧同一个已知向量上"
         );
-        assert_eq!(
-            detail.item.primary_file_name.as_deref(),
-            Some("hello.txt"),
-            "首文件名同样是共享规则（取第 0 个），不能在 Web 侧另写一份"
-        );
-        assert_eq!(detail.item.item_count, 2, "展示标题由前端从这两个字段生成");
+        // 标题列存的是**首个文件名**，不是渲染好的句子。「等 N 个文件」由三端各自的
+        // catalog 生成——落库的值必须与界面语言无关，否则历史条目会永久冻结在写入时的
+        // locale。取哪一个文件名仍是共享规则（`inbox_primary_file_name`），不能在
+        // Web 侧另写一份。
+        assert_eq!(detail.item.title, "hello.txt");
+        assert_eq!(detail.item.item_count, 2, "「等 N 个」的 N 由这一列提供");
     }
 
     /// 跨「重启」存活：写穿 IndexedDB → 新实例 `load()` → 条目逐字段一致。

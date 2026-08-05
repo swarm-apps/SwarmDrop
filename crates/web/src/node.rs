@@ -21,7 +21,9 @@ use swarmdrop_core::protocol::pairing::{PairingRefuseReason, PairingResponse};
 use swarmdrop_core::runtime::{EndpointProfile, start_node};
 use swarmdrop_host::device::{DeviceName, DeviceReceivePolicy, DeviceTrustLevel};
 use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId, PairedDeviceStore};
-use swarmdrop_invite::{InviteParseError, PairInvite, TransportPolicy};
+use swarmdrop_invite::{
+    InviteParseError, PairInvite, TransportPolicy, capability_hash_from_hex, capability_hash_to_hex,
+};
 use swarmdrop_net::{Endpoint, NodeAddr, NodeId, RelayState, SecretKey};
 use swarmdrop_transfer::coordinator::TransferCoordinator;
 use swarmdrop_transfer::events::TransferEventSink;
@@ -41,8 +43,8 @@ use crate::identity;
 use crate::paired_devices::WebPairedDeviceStore;
 use crate::store::{WebStore, WebTransferStore};
 use crate::types::{
-    ConnectionJson, InviteListItemJson, OfferJson, PairInvitePreviewJson, PendingPairingJson,
-    RelayInfoJson, RelayStateKind,
+    ConnectionJson, InviteListItemJson, OfferJson, PairInvitePreviewJson, PairingOutcomeJson,
+    PairingRefusedJson, PendingPairingJson, RelayInfoJson, RelayStateKind,
 };
 
 /// 浏览器连接与 reservation 的最大等待时间。超时会通过 Endpoint 的取消路径
@@ -63,6 +65,9 @@ extern "C" {
     /// `pending_pairing_requests()` 的返回：`PendingPairingJson[]`。
     #[wasm_bindgen(typescript_type = "PendingPairingJson[]")]
     pub type PendingPairingArray;
+    /// `connect_invite()` 的返回。
+    #[wasm_bindgen(typescript_type = "PairingOutcomeJson")]
+    pub type PairingOutcomeJs;
     /// `events()` 的返回：逐条产出 [`WebTransferEvent`] 序列化对象的流。
     #[wasm_bindgen(typescript_type = "ReadableStream<WebTransferEvent>")]
     pub type TransferEventStream;
@@ -213,8 +218,11 @@ pub struct WebNode {
     secret: SecretKey,
     /// 入站配对请求队列（browser-as-inviter：桌面消费本机 invite 后本机弹确认）。
     pending_pairings: PendingPairings,
-    /// 已配对设备列表的持久化端口（IndexedDB 整份快照）。配对成功后的写入经
-    /// `swarmdrop_core::paired_devices::upsert` 落到它上面——**Web 不再自带列表算法**。
+    /// 已配对设备列表的持久化端口（IndexedDB 整份快照）。
+    ///
+    /// **配对与 identify 刷新的写入不在这里** —— 那两条都由 core 的
+    /// `PairingManager::commit_paired_device` 落盘（三端同一入口）。本 crate 只在
+    /// `set_receive_policy` 用它，且走 core 的列表算法，**Web 不自带一份**。
     paired_store: Arc<dyn PairedDeviceStore>,
     /// 传输域持久化端口（IndexedDB 写穿）——传输历史与**收件箱**的查询、清空都经此。
     /// 类型是 `dyn WebStore`（= `TransferStore` + 收件箱批量读）而非具体实现：宿主注入
@@ -267,7 +275,7 @@ impl WebNode {
         let session_store: Arc<dyn WebStore> = store_impl;
         // NetManager 侧事件的 bus：捕获入站配对请求（browser-as-inviter），其余记日志。
         // transfer 事件不经此（走 WebEventSink → events() 流）。
-        let (event_bus_impl, pending_pairings) = WebEventBus::new(paired_store.clone());
+        let (event_bus_impl, pending_pairings) = WebEventBus::new();
         let event_bus: Arc<dyn EventBus> = Arc::new(event_bus_impl);
 
         let file_access_for_factory = file_access.clone();
@@ -367,6 +375,30 @@ impl WebNode {
         self.endpoint.node_id().to_string()
     }
 
+    /// 当前已连接的 **SwarmDrop 客户端**数。
+    ///
+    /// 与桌面/移动的 `NetworkStatus.connected_peers` **走同一个函数**
+    /// （`crates/core/src/network/manager.rs` 也是 `self.devices.connected_count()`），
+    /// 所以三端这个数的口径天然一致。Web 此前没有这个绑定，设置页只能拿「已配对设备里
+    /// 在线的台数」凑数——那是 presence 快照，未配对的对端不在里面。
+    ///
+    /// **不要改成读 `Endpoint::watch_conns()` 的长度。** 那是原始连接表，
+    /// `publish_conns` 对每个 `ConnectionEstablished` 都建条目，不区分对端类型；
+    /// 而浏览器启动时必然会连上至少一条 relay（`ensureConfiguredRelays`，那是公网可达的
+    /// 前提），于是空载稳态就会显示「已连接 1 · 已配对 0」——一台设备都没配对却说连着一个。
+    /// `connected_count()` 过滤 `is_swarmdrop_agent`，而 bootstrap/relay 的
+    /// `agent_version` 是 `swarm-bootstrap/` 前缀（`crates/host/src/device.rs`），
+    /// 正好被排除。代价是它依赖 identify 完成，比原始连接表晚约一个 RTT——桌面同此。
+    ///
+    /// **不一并导出 NAT 状态**：`Endpoint::watch_nat()` 的唯一写入点是 autonat 事件，
+    /// 而 autonat 是 native-only（见 `crates/net/src/actor.rs` 的 `WatchSenders::nat`，
+    /// 那里挂着 `cfg_attr(wasm_browser, expect(dead_code))`），wasm 下它恒为 `Unknown`。
+    /// 导出一个永远不变的常量只是给界面添一行假状态；浏览器版的「别人能不能拨到我」
+    /// 由 circuit 预留回答，那条已经有了（`relays_state`）。
+    pub fn connected_peers(&self) -> usize {
+        self.net_manager.devices().connected_count()
+    }
+
     /// 改本机设备名：落盘 → 本机 `OsInfo` → identify 的 `agent_version` → 发
     /// `DeviceRenamed`（编排在 core 的 `device_name::rename_device`，三端同一份）。
     ///
@@ -463,33 +495,67 @@ impl WebNode {
     ///
     /// `pair_with_invite` 解码验签 → TTL 预检 → 按 `TransportPolicy` 过滤地址 → 连邀请方出示
     /// capability（`PairingMethod::Invite`）→ 邀请方（桌面）校验 CAS 一次性消费 + 用户确认 →
-    /// 双方写配对记录。身份 pin 由握手强制（连到的必然是 `inviter_id`）。成功返回已配对对端的
-    /// NodeId（base58）；确认发生在**邀请方**侧，浏览器侧无需交互。配对后该对端进入本机信任
-    /// 表，双向传输（收 / 发）不再被 `NotPaired` 拦。
-    pub async fn connect_invite(&self, invite: String) -> Result<String, JsValue> {
+    /// 双方写配对记录。身份 pin 由握手强制（连到的必然是 `inviter_id`）。确认发生在**邀请方**
+    /// 侧，浏览器侧无需交互。配对后该对端进入本机信任表，双向传输（收 / 发）不再被
+    /// `NotPaired` 拦。
+    ///
+    /// 返回 [`PairingOutcomeJson`]：`refused` 非空表示对方拒绝了（**不是错误**），
+    /// 否则 `peerId` 是已配对对端的 NodeId，`persisted` 为 `false` 时表示配对成功了但没写进
+    /// IndexedDB —— 刷新页面后这台设备会不见（对端仍记着）。
+    pub async fn connect_invite(&self, invite: String) -> Result<PairingOutcomeJs, JsValue> {
         let (response, paired) = self
             .net_manager
             .pairing()
             .pair_with_invite(&invite)
             .await
             .map_err(WebError::from)?;
-        match response {
-            PairingResponse::Success => {
-                if let Some(device) = paired {
-                    let peer_id = device.peer_id.to_string();
-                    // 走 core 的 upsert：已存在条目只刷新 os_info / paired_at，保留用户设过的
-                    // trust_level / receive_policy（这里拿到的 `device` 恒是默认策略的
-                    // `PairedDeviceInfo::new`，整条替换等于一次静默的策略重置）。
-                    swarmdrop_core::paired_devices::upsert(&*self.paired_store, device)
-                        .await
-                        .map_err(WebError::from)?;
-                    Ok(peer_id)
-                } else {
-                    Ok(String::new())
-                }
+
+        // `paired.is_some()` 与「响应是 Success」是同一件事 —— core 只在成功那一臂构造
+        // commit（`PairingManager::request_pairing`），所以拒绝原因只能从 response 取。
+        //
+        // **不再包成 `WebError`。** 「对方点了拒绝」是一次完全正常的交互，压成 `network`
+        // kind 会让用户看到「网络错误」加一句写死的简体中文；桌面 `pairing-store.ts` 一直
+        // 是按 reason 出文案的，Web 这条分叉纯属遗漏。
+        let commit = match paired {
+            Some(commit) => commit,
+            None => {
+                // 穷尽 match：内核加一个拒绝原因，这里编译失败 —— 那正是本地投影
+                // `PairingRefusedJson` 的安全性来源（见其文档）。
+                let refused = Some(match response {
+                    PairingResponse::Refused {
+                        reason: PairingRefuseReason::UserRejected,
+                    } => PairingRefusedJson::UserRejected,
+                    // 走不到：core 在 Success 那一臂必构造 commit。真到了这里说明上游变了，
+                    // 按「对方拒绝」处理是最不误导的降级。
+                    PairingResponse::Success => {
+                        tracing::warn!("配对响应为 Success 但没有 commit，按拒绝处理");
+                        PairingRefusedJson::UserRejected
+                    }
+                });
+                return to_js_typed(
+                    &PairingOutcomeJson {
+                        refused,
+                        peer_id: String::new(),
+                        persisted: true,
+                    },
+                    "配对结果",
+                );
             }
-            _ => Err(WebError::network("邀请方拒绝了配对或配对未成功").into()),
-        }
+        };
+
+        // 落盘 / 共享内存表 / `PairedDeviceAdded` 事件都已由 core 的
+        // `commit_paired_device` 一并完成（三端同一个入口），这里不再自己 upsert。
+        // 顺带解决了「拿到的 `device` 恒是默认策略的 `PairedDeviceInfo::new`」那个坑：
+        // commit 写回内存表的是**合并后**的版本，用户设过的 trust_level /
+        // receive_policy 不会被静默重置。
+        to_js_typed(
+            &PairingOutcomeJson {
+                refused: None,
+                peer_id: commit.device.peer_id.to_string(),
+                persisted: commit.persisted,
+            },
+            "配对结果",
+        )
     }
 
     /// 发起方（browser-as-inviter）：生成一次性签名邀请串，供桌面/移动扫码或粘贴消费。
@@ -557,7 +623,7 @@ impl WebNode {
             .list_invites()
             .into_iter()
             .map(|summary| InviteListItemJson {
-                id: hex_lower(&summary.capability_hash),
+                id: capability_hash_to_hex(&summary.capability_hash),
                 created_at: summary.created_at.to_string(),
                 expires_at: summary.expires_at.to_string(),
                 consumed: summary.consumed,
@@ -569,8 +635,10 @@ impl WebNode {
     /// 按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
     /// 返回**是否已落盘**：`false` 时刷新后那条邀请会复活，调用方应当提示用户。
     pub async fn revoke_invite_by_id(&self, id: String) -> Result<bool, JsValue> {
-        let hash = parse_hex32(&id)
-            .ok_or_else(|| JsValue::from(WebError::network("邀请标识格式非法".to_owned())))?;
+        // 入参格式错不是网络错误 —— `kind` 是前端渲染文案的判别码，报 `network` 会让用户
+        // 看到「网络连接出现问题，请稍后重试」。桌面/移动同一处用的是 `InvalidArgument`。
+        let hash = capability_hash_from_hex(&id)
+            .ok_or_else(|| JsValue::from(WebError::invalid_input("邀请标识格式非法")))?;
         Ok(self.net_manager.pairing().revoke_invite_by_hash(hash).await)
     }
 
@@ -589,7 +657,7 @@ impl WebNode {
         &self,
         pending_id: String,
         accept: bool,
-    ) -> Result<(), JsValue> {
+    ) -> Result<bool, JsValue> {
         let id: u64 = pending_id
             .parse()
             .map_err(|_| WebError::invalid_input("无效的 pending_id"))?;
@@ -606,13 +674,12 @@ impl WebNode {
             .respond_pairing_request(id, response)
             .await
             .map_err(WebError::from)?;
-        if let Some(device) = paired {
-            // 同 `connect_invite`：保留语义在 core 那一份 upsert 里，Web 不再自带列表算法。
-            swarmdrop_core::paired_devices::upsert(&*self.paired_store, device)
-                .await
-                .map_err(WebError::from)?;
-        }
-        Ok(())
+        // 同 `connect_invite`：落盘与事件都在 core 的 `commit_paired_device` 里。
+        // 返回是否已落盘（`false` = 刷新后这台设备会不见，对端仍记着）；
+        // 「没配成时报 true」那条约定的判据在 core，三端共用。
+        Ok(swarmdrop_core::pairing::persisted_or_absent(
+            paired.as_ref(),
+        ))
     }
 
     /// 解除与某台已配对设备的配对（`peer_id` 为 base58 NodeId）。
@@ -1279,26 +1346,4 @@ fn split_p2p_addr(s: &str) -> Result<(NodeId, swarmdrop_net::Addr), JsValue> {
         .p2p_node_id()
         .ok_or_else(|| WebError::invalid_input("地址须含 /p2p/<node-id>"))?;
     Ok((id, addr))
-}
-
-/// `[u8; 32]` → 小写 hex（邀请列表条目的不透明 ID）。
-fn hex_lower(bytes: &[u8; 32]) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
-/// 小写 hex → `[u8; 32]`（[`hex_lower`] 的逆），长度或字符非法返回 `None`。
-fn parse_hex32(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (index, slot) in out.iter_mut().enumerate() {
-        *slot = u8::from_str_radix(text.get(index * 2..index * 2 + 2)?, 16).ok()?;
-    }
-    Some(out)
 }

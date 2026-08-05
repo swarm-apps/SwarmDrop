@@ -38,6 +38,12 @@ const config = {
   // 这一行原先锁在 `import.meta.dirname`，为的是消除「仓库根还有一份 pnpm-lock.yaml」
   // 触发的多 lockfile 警告。显式指向仓库根同样没有该警告（歧义来自推断，不是位置），
   // 所以那个目的没有丢。
+  //
+  // ⚠️ **它把整个仓库纳入 turbopack 的文件系统边界，因此 Next 有版本下限：≥ 16.3.0。**
+  // 16.2.6 下首次编译任意路由就会一路吃到 11G+ 仍不收敛，16G 机器直接被拖到系统重启
+  // （启动阶段看不出来——`Ready in` 之后才起飞）。16.3 的 turbopack 内存驱逐把峰值压回
+  // 2.4G。**降级 Next 前先读 `dev-notes/knowledge/toolchain.md` 的实测表**；真要在旧版本
+  // 上开发，应急阀是 `next dev --webpack`（2.5G，能编完，但没有 turbopack 的速度）。
   turbopack: { root: join(import.meta.dirname, "..") },
   // 共享包发布的是 **TS 源**而非预构建产物（openspec: web-ux-alignment 的 design D2）。
   // Next 默认不转译 node_modules 下的包，必须显式登记；否则解析 `.ts` 时直接报语法错误。

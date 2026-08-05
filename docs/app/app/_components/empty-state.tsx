@@ -35,6 +35,8 @@ export function CenteredEmptyState({
   title,
   description,
   action,
+  fill = true,
+  iconClassName,
   className,
 }: {
   icon: LucideIcon;
@@ -42,22 +44,49 @@ export function CenteredEmptyState({
   description?: ReactNode;
   /** 主出口。空态没有出口就只是一句通知，用户还得自己去找路。 */
   action?: ReactNode;
+  /**
+   * 撑满父级剩余高度并垂直居中（默认）。
+   *
+   * **只有「这一栏此刻的全部内容就是这个空态」才该撑满**——主从布局的详情栏属于这类：
+   * 那一栏本来就是满高的，空态缩起来只会在下面留一片无主的空白。
+   *
+   * `fill={false}` 用于**面板里的一段**（设备网格空时的那一段）。此前没有这个开关，
+   * 于是设备页的空态在一块 320px 的面板里居中，看起来像还没加载完的骨架；
+   * 一屏三块都这样，整页就是几个等大的空腔在堆叠。
+   */
+  fill?: boolean;
+  /** 加到图标上的额外类。目前唯一用途是给「正在启动」那颗 `Loader2` 加 `animate-spin`
+   *  ——一个不转的加载图标是在说反话。 */
+  iconClassName?: string;
   className?: string;
 }) {
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center",
+        "flex flex-col items-center justify-center gap-3 px-6 text-center",
+        fill ? "min-h-0 flex-1 py-12" : "py-8",
         className,
       )}
     >
-      <div className="flex size-14 items-center justify-center rounded-full bg-muted">
-        <Icon className="size-7 text-muted-foreground" aria-hidden />
+      <div
+        className={cn(
+          "flex items-center justify-center rounded-full bg-muted",
+          fill ? "size-14" : "size-12",
+        )}
+      >
+        <Icon
+          className={cn("text-muted-foreground", fill ? "size-7" : "size-6", iconClassName)}
+          aria-hidden
+        />
       </div>
       <div className="flex flex-col gap-1">
         <p className="text-sm font-medium text-foreground">{title}</p>
+        {/* `text-pretty` 收掉孤字行：这些文案两三行长，末行只剩「进去。」两个字时
+            读起来像被截断了。 */}
         {description && (
-          <p className="mx-auto max-w-sm text-xs leading-5 text-muted-foreground">{description}</p>
+          <p className="mx-auto max-w-sm text-xs leading-5 text-pretty text-muted-foreground">
+            {description}
+          </p>
         )}
       </div>
       {action && <div className="mt-1">{action}</div>}

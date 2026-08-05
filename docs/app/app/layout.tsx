@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { AppAmbientBackground } from "./_components/app-ambient-background";
 import { AppBottomNav, AppMobileHeader, AppSidebar } from "./_components/app-nav";
 import { AppI18nProvider } from "./_components/i18n-provider";
 import { PairingRequestHost } from "./_components/pairing-request-host";
@@ -47,10 +48,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         `data-swarmdrop-app` 是 shadcn base 规则（默认边框/描边色）的作用域锚点，
         见 app/global.css 的 @layer base——不加这个属性，应用区的边框会落到 currentColor。
       */}
-      <div
-        data-swarmdrop-app
-        className="flex h-dvh overflow-hidden bg-[var(--app-shell-background)]"
-      >
+      <div data-swarmdrop-app className="app-shell flex h-dvh">
+        {/*
+          环境层（WebGL 极光）。它是 z-0，其余结构件靠自己的 `relative z-10` 压在上面
+          ——`.app-shell` 不做通配提升，理由写在 global.css 那条规则旁边。
+
+          挂 layout 与下面几个宿主同理，但它多一条硬理由：它持有 WebGL context，
+          每路由一份会撞浏览器对同时存活 context 数的上限。
+        */}
+        <AppAmbientBackground />
         <WebNodeBootstrap />
         {/* 窗口级的误投放护栏——拖偏了不该把整个节点连页面一起弄没。挂这里的理由与上面两个
             宿主相同：它要在**任何路由**下都生效，而不只是发送页。 */}
@@ -64,7 +70,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             **只在应用区挂**，文档站不需要也不该被它影响。 */}
         <Toaster />
         <AppSidebar />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col">
           <AppMobileHeader />
           {/*
             `main` 只提供**受限高度**，自己不滚——滚动归页面，由 `PageShell` 的

@@ -29,6 +29,7 @@ import { shareFilesToTransferFiles } from "@/core/share-intent";
 import { useNavTheme } from "@/hooks/useThemeColors";
 import { LinguiProvider } from "@/i18n/LinguiProvider";
 import { i18n, initI18n } from "@/i18n/lingui";
+import { getErrorMessage } from "@/lib/errors";
 import { restoreThemePreference } from "@/lib/theme-persistence";
 import { toast } from "@/lib/toast";
 import {
@@ -63,7 +64,7 @@ export default function RootLayout() {
         initNotifications();
       } catch (err) {
         console.error("[boot] init failed:", err);
-        setBootError(err instanceof Error ? err.message : String(err));
+        setBootError(getErrorMessage(err));
       } finally {
         setReady(true);
         SplashScreen.hideAsync().catch(() => {});

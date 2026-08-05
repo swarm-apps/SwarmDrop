@@ -17,7 +17,10 @@
 use async_trait::async_trait;
 use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
-use swarmdrop_invite::{InviteRecord, InviteStore, PersistedInviteState};
+use swarmdrop_invite::{
+    InviteRecord, InviteStore, PersistedInviteState, capability_hash_from_hex,
+    capability_hash_to_hex,
+};
 use swarmdrop_net_base::NodeId;
 
 use crate::idb;
@@ -75,7 +78,7 @@ impl InviteStore for IdbInviteStore {
     }
 
     async fn upsert(&self, record: InviteRecord) -> bool {
-        let key = hex_lower(&record.capability_hash);
+        let key = capability_hash_to_hex(&record.capability_hash);
         let stored = StoredInvite {
             capability_hash: key.clone(),
             inviter_id: record.inviter_id.to_string(),
@@ -104,7 +107,7 @@ impl InviteStore for IdbInviteStore {
     }
 
     async fn remove(&self, capability_hash: [u8; 32]) -> bool {
-        let key = hex_lower(&capability_hash);
+        let key = capability_hash_to_hex(&capability_hash);
         match SendWrapper::new(idb::delete(idb::INVITE_STORE, &key)).await {
             Ok(()) => true,
             Err(e) => {
@@ -126,7 +129,10 @@ impl InviteStore for IdbInviteStore {
 }
 
 fn to_record(stored: StoredInvite) -> Option<InviteRecord> {
-    let capability_hash = from_hex_lower(&stored.capability_hash)?;
+    let capability_hash = capability_hash_from_hex(&stored.capability_hash).or_else(|| {
+        tracing::warn!("邀请记录的 capability_hash 无法解析，丢弃该行");
+        None
+    })?;
     let inviter_id = stored
         .inviter_id
         .parse::<NodeId>()
@@ -150,25 +156,4 @@ fn to_record(stored: StoredInvite) -> Option<InviteRecord> {
         state,
         created_at: stored.created_at,
     })
-}
-
-fn hex_lower(bytes: &[u8; 32]) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
-fn from_hex_lower(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 {
-        tracing::warn!("邀请记录的 capability_hash 长度异常: {}", text.len());
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (index, slot) in out.iter_mut().enumerate() {
-        *slot = u8::from_str_radix(text.get(index * 2..index * 2 + 2)?, 16).ok()?;
-    }
-    Some(out)
 }

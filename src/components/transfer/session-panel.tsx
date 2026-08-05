@@ -39,7 +39,7 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { openTransferResult } from "@/lib/file-picker";
-import { getErrorMessage } from "@/lib/errors";
+import { failureCodeMessage, getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   FileBrowser,
@@ -203,6 +203,7 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
   const progressPercent = progress
     ? calcPercent(progress.transferredBytes, progress.totalBytes)
     : 0;
+  const failureMessage = failureCodeMessage(projection.failure);
 
   // 可恢复 / 中断的 suspended 会话
   if (projection.phase === "suspended") {
@@ -319,9 +320,9 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
         >
           <Trans>传输失败</Trans>
         </h3>
-        {projection.errorMessage && (
+        {failureMessage && (
           <p className="max-w-xs text-center text-xs leading-5 text-foreground/80 md:max-w-sm">
-            {projection.errorMessage}
+            {failureMessage}
           </p>
         )}
         <p className="max-w-xs text-center text-[11px] text-muted-foreground md:max-w-sm md:text-xs">

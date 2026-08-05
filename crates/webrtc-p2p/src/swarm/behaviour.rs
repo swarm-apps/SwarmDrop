@@ -1,18 +1,22 @@
-//! [`NetworkBehaviour`] 实现：在 relay 连接上跑 `/webrtc-signaling/0.0.1`。
+//! [`NetworkBehaviour`] implementation: running `/webrtc-signaling/0.0.1` over a relay
+//! connection.
 //!
-//! 与 [`crate::Transport`] 配对工作——transport 收到 dial 请求后转交这里，因为「在已有
-//! 连接上开协议流」只有 behaviour 做得到（原委见 [`crate::swarm::channel`]）。
+//! Works in tandem with [`crate::Transport`] — the transport forwards dial requests here,
+//! because only a behaviour can open a protocol stream on an existing connection (the
+//! reasoning lives in [`crate::swarm::channel`]).
 //!
-//! # 对称性
+//! # Symmetry
 //!
-//! 出入两个方向都必须走通，这是 spec 的 MUST 而非优化：
+//! Both directions must work; this is a spec MUST, not an optimization:
 //!
-//! - **出站**：收到 [`ToBehaviour::Dial`] → 确保有到对端的连接 → 下达
-//!   [`Command::Start`] → handler 开流发 offer
-//! - **入站**：对端开来信令流 → handler **自行受理**（不经本 behaviour 触发）→
-//!   建连后经 [`ToTransport::Incoming`] 交给 transport
+//! - **Outbound**: receive [`ToBehaviour::Dial`] → ensure a connection to the peer exists →
+//!   issue [`Command::Start`] → the handler opens a stream and sends the offer
+//! - **Inbound**: the remote opens a signaling stream → the handler **accepts it on its
+//!   own** (not triggered through this behaviour) → once connected, hands it to the
+//!   transport via [`ToTransport::Incoming`]
 //!
-//! 只做前者，本端就只能拨别人、不能被拨，覆盖矩阵里「web ↔ NAT 后原生端」那一格会塌。
+//! Implement only the first and this side can dial but never be dialed, which collapses
+//! the "web ↔ peer behind NAT" cell of the coverage matrix.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::task::{Context, Poll};
@@ -35,31 +39,34 @@ use crate::swarm::channel::{BehaviourSide, ToBehaviour, ToTransport};
 use crate::swarm::connection::Connection;
 use crate::swarm::handler::{self, Handler};
 
-/// behaviour 对外抛出的事件。
+/// Events emitted by the behaviour.
 #[derive(Debug)]
 pub enum Event {
-    /// 与某节点的 WebRTC 直连已建立（打洞成功）。
+    /// A direct WebRTC connection to a peer has been established (hole punching succeeded).
     DirectConnectionEstablished { peer: PeerId },
-    /// 信令或打洞失败。上层可据此决定是否继续用 relay 中转——
-    /// spec 步骤 8 明确把这个回退策略留给应用。
+    /// Signaling or hole punching failed. The layer above can use this to decide whether
+    /// to keep relaying — spec step 8 explicitly leaves that fallback policy to the
+    /// application.
     Failed { peer: PeerId, error: Error },
 }
 
-/// WebRTC 打洞的信令 behaviour。
+/// Signaling behaviour for WebRTC hole punching.
 ///
-/// 必须与 [`crate::Transport`] 由 [`crate::new`] 配对产出，并注册进**同一个** Swarm。
+/// Must be produced together with [`crate::Transport`] by [`crate::new`] and registered
+/// with **the same** Swarm.
 pub struct Behaviour {
     config: Config,
     factory: Factory,
     channel: BehaviourSide,
-    /// 等待信令完成的拨号请求。
+    /// Dial requests waiting for signaling to complete.
     ///
-    /// 键是目标节点：spec 约定由发起方开流，同一对节点同时只跑一轮信令。
+    /// Keyed by target peer: the spec has the initiator open the stream, and only one
+    /// round of signaling runs between a given pair at a time.
     pending_dials: HashMap<PeerId, oneshot::Sender<Result<Connection, Error>>>,
-    /// 已有连接、但尚未下达 [`Command::Start`] 的目标。
+    /// Targets that are connected but have not yet been issued a [`Command::Start`].
     ///
-    /// 信令要跑在**已建立**的连接上，故拨号请求到来时若还没连上，得先等
-    /// `ConnectionEstablished` 再发命令。
+    /// Signaling runs over an **established** connection, so if a dial request arrives
+    /// before the connection exists, the command must wait for `ConnectionEstablished`.
     awaiting_connection: HashSet<PeerId>,
     connected: HashSet<PeerId>,
     queued: VecDeque<ToSwarm<Event, THandlerInEvent<Self>>>,
@@ -89,7 +96,7 @@ impl Behaviour {
         }
     }
 
-    /// 处理来自 transport 的拨号请求。
+    /// Handles a dial request coming from the transport.
     fn on_dial_request(
         &mut self,
         target: PeerId,
@@ -131,7 +138,7 @@ impl Behaviour {
         });
     }
 
-    /// 结束一次拨号，把结果回送给 transport 的 dial future。
+    /// Finishes a dial, delivering the result back to the transport's dial future.
     fn finish_dial(&mut self, peer: PeerId, outcome: Result<Connection, Error>) {
         if let Some(tx) = self.pending_dials.remove(&peer) {
             let _ = tx.send(outcome);

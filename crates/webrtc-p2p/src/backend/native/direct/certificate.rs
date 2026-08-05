@@ -1,34 +1,39 @@
-//! direct 模式的 DTLS 证书与 certhash。
+//! DTLS certificate and certhash for direct mode.
 //!
-//! # 为什么证书必须持久化
+//! # Why the certificate must be persisted
 //!
-//! direct 地址把证书指纹**写在 multiaddr 里**
-//! （`/ip4/…/udp/…/webrtc-direct/certhash/uEi…`）。换一次证书，所有已被对端记下的
-//! 地址就全部拨不通——它们会拿旧 certhash 去校验新证书的 DTLS 指纹，必然失配。
-//! 所以宿主要把 PEM 存下来，重启后原样加载（[`Certificate::from_pem`]）。
+//! A direct address carries the certificate fingerprint **inside the multiaddr**
+//! (`/ip4/…/udp/…/webrtc-direct/certhash/uEi…`). Replace the certificate once and every
+//! address a remote has recorded becomes undialable — they will check the old certhash
+//! against the new certificate's DTLS fingerprint and necessarily mismatch. The host must
+//! therefore store the PEM and load it back verbatim after a restart
+//! ([`Certificate::from_pem`]).
 //!
-//! 这与打洞模式相反：那边的指纹每次经 SDP 现场交换，证书是不是同一份无所谓。
+//! This is the opposite of hole-punching mode, where the fingerprint is exchanged over SDP
+//! on every attempt and it makes no difference whether the certificate is the same one.
 
 use webrtc::peer_connection::RTCCertificate;
 
 use libp2p_webrtc_utils::Fingerprint;
 
-/// direct 模式使用的自签 DTLS 证书。
+/// The self-signed DTLS certificate used by direct mode.
 ///
-/// 薄封装，存在的意义是**不把 `webrtc` 类型泄漏到本 crate 的公开 API**——
-/// 它要独立发布，用户不该被迫依赖某个特定版本的 webrtc-rs。
+/// A thin wrapper whose purpose is to **keep `webrtc` types out of this crate's public
+/// API** — the crate is meant to be published on its own, and users should not be forced
+/// to depend on one particular version of webrtc-rs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Certificate {
     inner: RTCCertificate,
 }
 
 impl Certificate {
-    /// 生成一张新的自签证书。
+    /// Generates a new self-signed certificate.
     ///
-    /// **ECDSA P-256，不要换成 Ed25519。** 浏览器的 WebRTC DTLS 实现以 P-256 为事实
-    /// 标准（`RTCPeerConnection` 自生成的证书就是它），Ed25519 的支持面不确定；而
-    /// direct 模式的服务端要面对的正是浏览器。官方 `libp2p-webrtc` 同样用 P-256
-    /// （`rcgen::KeyPair::generate()` 的默认）。
+    /// **ECDSA P-256 — do not switch to Ed25519.** P-256 is the de facto standard in
+    /// browser WebRTC DTLS implementations (it is what `RTCPeerConnection` generates for
+    /// itself), while Ed25519 support is uncertain — and browsers are exactly who a
+    /// direct-mode server has to face. The official `libp2p-webrtc` uses P-256 as well
+    /// (the default of `rcgen::KeyPair::generate()`).
     pub fn generate() -> Result<Self, Error> {
         let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
             .map_err(|e| Error(Kind::KeyGen(e.to_string())))?;
@@ -37,28 +42,34 @@ impl Certificate {
         Ok(Self { inner })
     }
 
-    /// 从 PEM 加载（含私钥），格式与 [`Certificate::serialize_pem`] 对应。
+    /// Loads from PEM (private key included), in the format produced by
+    /// [`Certificate::serialize_pem`].
     pub fn from_pem(pem: &str) -> Result<Self, Error> {
         let inner =
             RTCCertificate::from_pem(pem).map_err(|e| Error(Kind::InvalidPem(e.to_string())))?;
         Ok(Self { inner })
     }
 
-    /// 序列化成 PEM（含私钥）供宿主持久化。
+    /// Serializes to PEM (private key included) for the host to persist.
     pub fn serialize_pem(&self) -> String {
         self.inner.serialize_pem()
     }
 
-    /// 本证书的 SHA-256 指纹，也就是 multiaddr 里那个 certhash 的来源。
+    /// This certificate's SHA-256 fingerprint — the source of the certhash in the
+    /// multiaddr.
     ///
-    /// 直接对 DER 做 SHA-256，与 `RTCCertificate::get_fingerprints()` 等价但少一次
-    /// 「格式化成冒号 hex 再解析回来」的往返。两条路径的一致性由单测钉死——
-    /// 万一 rtc 改了摘要算法，那个测试会红，而不是等到线上握手失败才发现。
+    /// Hashes the DER directly with SHA-256. Equivalent to
+    /// `RTCCertificate::get_fingerprints()` but without the "format as colon-separated hex,
+    /// then parse it back" round trip. A unit test pins the two paths to agree — should rtc
+    /// ever change its digest algorithm, that test goes red instead of the failure surfacing
+    /// as a broken handshake in production.
     ///
     /// # Panics
     ///
-    /// 证书链为空时 panic。`RTCCertificate` 的两个构造入口都保证至少一张证书，
-    /// 走到这里说明底层坏了，继续跑只会在 DTLS 握手时报更难懂的错。
+    /// Panics when the certificate chain is empty. Both `RTCCertificate` constructors
+    /// guarantee at least one certificate, so reaching this point means the layer beneath is
+    /// broken, and carrying on would only surface a more cryptic error during the DTLS
+    /// handshake.
     pub fn fingerprint(&self) -> Fingerprint {
         let der = self
             .inner
@@ -69,26 +80,26 @@ impl Certificate {
         Fingerprint::from_certificate(der.as_ref())
     }
 
-    /// 取出底层类型交给 `PeerConnection`。
+    /// Hands the underlying type to `PeerConnection`.
     ///
-    /// `pub(crate)` 是刻意的——见类型文档。
+    /// `pub(crate)` is deliberate — see the type-level docs.
     pub(crate) fn to_rtc(&self) -> RTCCertificate {
         self.inner.clone()
     }
 }
 
-/// 证书错误。
+/// Certificate error.
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct Error(#[from] Kind);
 
 #[derive(Debug, thiserror::Error)]
 enum Kind {
-    #[error("生成密钥对失败：{0}")]
+    #[error("failed to generate key pair: {0}")]
     KeyGen(String),
-    #[error("由密钥对构造证书失败：{0}")]
+    #[error("failed to build certificate from key pair: {0}")]
     Build(String),
-    #[error("解析 PEM 失败：{0}")]
+    #[error("failed to parse PEM: {0}")]
     InvalidPem(String),
 }
 

@@ -12,6 +12,7 @@ import {
   fireNotifyPairingRequest,
   fireNotifyTransferOffer,
 } from "@/core/notifier";
+import { isErrorKind } from "@/lib/errors";
 import { toast } from "@/lib/toast";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { useNotificationStore } from "@/stores/notification-store";
@@ -206,9 +207,10 @@ async function refreshDevices(): Promise<void> {
     const devices = await getMobileCore().listDevices("all");
     useMobileCoreStore.getState().applyDevices(devices);
   } catch (err) {
-    // NodeNotStarted 在节点状态切换的窗口期是预期错误,静默忽略
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("NodeNotStarted")) return;
+    // NodeNotStarted 在节点状态切换的窗口期是预期错误,静默忽略。
+    // **按 tag 判别，不是按 message 找子串** —— message 是 Rust 侧写的自然语言，
+    // 改一个字这条静默就失效，表现为切换节点时冒出一串无害的 warn。
+    if (isErrorKind(err, "NodeNotStarted")) return;
     console.warn("[event-bus] listDevices failed:", err);
   }
 }

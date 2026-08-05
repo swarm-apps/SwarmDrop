@@ -1,32 +1,36 @@
-//! 本传输两种模式的 multiaddr 解析与构造。
+//! Parsing and construction of multiaddrs for both modes of this transport.
 //!
-//! # 打洞（`/webrtc`）
+//! # Hole punching (`/webrtc`)
 //!
-//! spec 规定被拨方在自己的 relayed multiaddr 后追加 `/webrtc` 来通告支持本模式。
-//! 线上的完整形态（与 js-libp2p `private-to-private/transport.ts` 对齐）：
+//! The spec has the dialed side append `/webrtc` to its own relayed multiaddr to
+//! advertise support for this mode. The full on-the-wire shape (matching js-libp2p's
+//! `private-to-private/transport.ts`):
 //!
 //! ```text
 //! /ip4/1.2.3.4/tcp/4001/p2p/<relay>/p2p-circuit/webrtc/p2p/<target>
 //!                                   ^^^^^^^^^^^^ ^^^^^^^ ^^^^^^^^^^
-//!                                   circuit 段   本模式   目标节点
+//!                                   circuit part  mode    target peer
 //! ```
 //!
-//! **`/webrtc` 夹在 `p2p-circuit` 与目标 `/p2p/` 之间**，不是缀在最末尾。位置错了
-//! 就与 js-libp2p 互不相认，故这里按它的 `splitAddr` 语义实现并用测试钉死。
+//! **`/webrtc` sits between `p2p-circuit` and the target `/p2p/`**, not at the very end.
+//! Put it in the wrong place and js-libp2p will no longer recognize the address, so this
+//! module follows its `splitAddr` semantics and pins them with tests.
 //!
-//! # direct（`/webrtc-direct`）
+//! # Direct (`/webrtc-direct`)
 //!
 //! ```text
 //! /ip4/1.2.3.4/udp/4001/webrtc-direct/certhash/uEi…/p2p/<target>
 //!               ^^^^^^^ ^^^^^^^^^^^^^ ^^^^^^^^^^^^^ ^^^^^^^^^^^^
-//!               UDP     本模式         证书指纹      可选
+//!               UDP     mode           cert digest   optional
 //! ```
 //!
-//! # 两者互不误认
+//! # The two are never confused for each other
 //!
-//! `Protocol::WebRTC` 与 `Protocol::WebRTCDirect` 是 multiaddr 的两个不同协议段，
-//! 判别天然不冲突。但一个 [`crate::Transport`] 同时处理两者，分派点是**唯一的架构风险**
-//! ——测试对两个方向都做了反向断言（`/webrtc` 不被 direct 认领，反之亦然）。
+//! `Protocol::WebRTC` and `Protocol::WebRTCDirect` are two distinct multiaddr protocol
+//! segments, so telling them apart is unambiguous by construction. But a single
+//! [`crate::Transport`] handles both, which makes the dispatch point **the one
+//! architectural risk** — the tests assert in both directions (a `/webrtc` address is
+//! never claimed by the direct path, and vice versa).
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -34,18 +38,22 @@ use libp2p_core::multiaddr::{Multiaddr, Protocol};
 use libp2p_identity::PeerId;
 use libp2p_webrtc_utils::Fingerprint;
 
-/// 判断是否为本传输能处理的地址（含 `/webrtc` 段）。
+/// Whether this is an address this transport can handle (contains a `/webrtc` segment).
 pub fn is_webrtc(addr: &Multiaddr) -> bool {
     addr.iter().any(|p| p == Protocol::WebRTC)
 }
 
-/// 拆出「用于建立信令通道的地址」与「目标节点」。
+/// Splits an address into "the address used to establish the signaling channel" and
+/// "the target peer".
 ///
-/// 语义对齐 js-libp2p 的 `splitAddr`：
-/// - 目标 = **最后一个** `/p2p/` 段（circuit 地址里 relay 自己也占一个 `/p2p/`）
-/// - 信令地址 = 原地址**剔除 `/webrtc` 段**，其余原样保留
+/// Semantics match js-libp2p's `splitAddr`:
+/// - target = the **last** `/p2p/` segment (in a circuit address the relay occupies one
+///   `/p2p/` of its own)
+/// - signaling address = the original address **with the `/webrtc` segment removed**,
+///   everything else left as-is
 ///
-/// 剔除后得到的正是一个标准 circuit 地址，可直接交给 relay transport 拨号。
+/// What remains after the removal is exactly a standard circuit address, ready to be
+/// handed to the relay transport to dial.
 pub fn split(addr: &Multiaddr) -> Result<(Multiaddr, PeerId), Error> {
     if !is_webrtc(addr) {
         return Err(Error::NotWebRtc(addr.clone()));
@@ -68,10 +76,11 @@ pub fn split(addr: &Multiaddr) -> Result<(Multiaddr, PeerId), Error> {
     Ok((signaling, target))
 }
 
-/// 由 circuit 地址与目标节点构造本传输的可拨地址。
+/// Builds a dialable address for this transport from a circuit address and a target peer.
 ///
-/// `circuit` 应是 `…/p2p/<relay>/p2p-circuit` 形态；目标 `/p2p/<target>` 由本函数补在
-/// `/webrtc` 之后，故传入的 circuit **不应**已含目标段。
+/// `circuit` should have the shape `…/p2p/<relay>/p2p-circuit`; the target `/p2p/<target>`
+/// is appended by this function after `/webrtc`, so the circuit passed in **must not**
+/// already contain the target segment.
 pub fn from_circuit(circuit: &Multiaddr, target: PeerId) -> Multiaddr {
     let mut addr = circuit.clone();
     addr.push(Protocol::WebRTC);
@@ -79,12 +88,15 @@ pub fn from_circuit(circuit: &Multiaddr, target: PeerId) -> Multiaddr {
     addr
 }
 
-/// 把本传输地址里的目标节点换成 `peer`。
+/// Replaces the target peer in an address of this transport with `peer`.
 ///
-/// 用途是由本端的**监听地址**推出「对端经同一 relay 回拨过来」的地址：监听地址形如
-/// `…/p2p-circuit/webrtc/p2p/<self>`，换掉末位的 `/p2p/<self>` 即得对端视角的地址。
+/// Its purpose is to derive, from this side's **listen address**, the address the remote
+/// would use to dial back through the same relay: a listen address has the shape
+/// `…/p2p-circuit/webrtc/p2p/<self>`, and swapping the trailing `/p2p/<self>` yields the
+/// address as seen from the remote.
 ///
-/// 末位不是 `/p2p` 段时直接追加——监听地址允许省略本机段，两种形态都能得到正确结果。
+/// If the last segment is not `/p2p`, it is simply appended — a listen address may omit
+/// the local peer segment, and both shapes must produce the correct result.
 pub fn with_peer(addr: &Multiaddr, peer: PeerId) -> Multiaddr {
     let mut parts: Vec<Protocol> = addr.iter().collect();
     if matches!(parts.last(), Some(Protocol::P2p(_))) {
@@ -98,27 +110,32 @@ pub fn with_peer(addr: &Multiaddr, peer: PeerId) -> Multiaddr {
 
 // ── direct 模式（`/webrtc-direct`）──────────────────────────────────────────
 
-/// 判断是否为 direct 模式的地址（含 `/webrtc-direct` 段）。
+/// Whether this is a direct-mode address (contains a `/webrtc-direct` segment).
 ///
-/// 与 [`is_webrtc`] 互斥：两者是 multiaddr 的不同协议段，同一地址不会同时命中。
+/// Mutually exclusive with [`is_webrtc`]: the two are distinct multiaddr protocol
+/// segments, so no single address matches both.
 pub fn is_webrtc_direct(addr: &Multiaddr) -> bool {
     addr.iter().any(|p| p == Protocol::WebRTCDirect)
 }
 
-/// 解析 direct 模式的**可拨**地址，取出目标 socket 与证书指纹。
+/// Parses a **dialable** direct-mode address, yielding the target socket and the
+/// certificate fingerprint.
 ///
-/// 直接复用 `libp2p-webrtc-utils` 的实现，**不要自己抄一份**：certhash 的编码
-/// （multihash + 只认 SHA2-256）必须与官方逐位一致，否则存量地址全部失效。
-/// 末尾的 `/p2p/<id>` 可有可无。
+/// This reuses the `libp2p-webrtc-utils` implementation directly — **do not copy one in**:
+/// the certhash encoding (multihash, SHA2-256 only) must be bit-for-bit identical to the
+/// official one, or every existing address stops working. A trailing `/p2p/<id>` is
+/// optional.
 pub fn parse_direct_dial(addr: &Multiaddr) -> Option<(SocketAddr, Fingerprint)> {
     libp2p_webrtc_utils::parse_webrtc_dial_addr(addr)
 }
 
-/// 解析 direct 模式的**监听**地址。
+/// Parses a **listen** address for direct mode.
 ///
-/// 与可拨地址的区别：监听地址**不带 certhash**（本机指纹由本机证书决定，写在地址里
-/// 是多余的，官方 `parse_webrtc_listen_addr` 同样拒绝），也不带 `/p2p` 段。
-/// 允许通配 IP 与 0 端口——`/ip4/0.0.0.0/udp/0/webrtc-direct` 是最常见的写法。
+/// How it differs from a dialable address: a listen address **carries no certhash** (the
+/// local fingerprint is determined by the local certificate, so putting it in the address
+/// is redundant — the official `parse_webrtc_listen_addr` rejects it too) and no `/p2p`
+/// segment. Wildcard IPs and port 0 are allowed — `/ip4/0.0.0.0/udp/0/webrtc-direct` is
+/// the most common form.
 pub fn parse_direct_listen(addr: &Multiaddr) -> Option<SocketAddr> {
     let mut iter = addr.iter();
 
@@ -141,10 +158,12 @@ pub fn parse_direct_listen(addr: &Multiaddr) -> Option<SocketAddr> {
     Some(SocketAddr::new(ip, port))
 }
 
-/// 由 socket 地址与本机证书指纹构造 direct 模式的可通告地址。
+/// Builds an advertisable direct-mode address from a socket address and the local
+/// certificate fingerprint.
 ///
-/// `certhash` 为 `None` 时产出的是「对端视角的来源地址」（`send_back_addr`）——
-/// 那一侧的指纹我们无从得知，官方同样留空。
+/// When `certhash` is `None` the result is the "source address as the remote sees it"
+/// (`send_back_addr`) — that side's fingerprint is unknowable to us, and the official
+/// implementation leaves it out as well.
 pub fn direct_addr(socket: SocketAddr, certhash: Option<Fingerprint>) -> Multiaddr {
     let addr = Multiaddr::empty()
         .with(socket.ip().into())
@@ -157,17 +176,21 @@ pub fn direct_addr(socket: SocketAddr, certhash: Option<Fingerprint>) -> Multiad
     }
 }
 
-/// 解析 SDP 形态的 SHA-256 指纹（`aa:bb:…` 或连写，大小写不敏感）。
+/// Parses an SDP-form SHA-256 fingerprint (`aa:bb:…` or unseparated, case-insensitive).
 ///
-/// 两侧都要它、但取值来源不同：native 从 rtc 的 stats 报告里读，浏览器从
-/// `localDescription` 的 `a=fingerprint` 行里切。取值那半是平台相关的，**解码这半不是**，
-/// 所以放在这里共用。
+/// Both sides need it but obtain it differently: native reads it from rtc's stats report,
+/// the browser slices it out of the `a=fingerprint` line of `localDescription`. Obtaining
+/// it is platform-specific; **decoding it is not**, so the decoding half lives here and is
+/// shared.
 ///
-/// 只认 SHA-256（32 字节）——与 certhash 的约定一致。畸形输入返回 `None` 而不是 panic：
-/// 这条数据一侧来自浏览器、一侧来自库的统计接口，都不该假定它永远规整。
+/// SHA-256 (32 bytes) only — matching the certhash convention. Malformed input returns
+/// `None` rather than panicking: this value comes from the browser on one side and from a
+/// library's statistics API on the other, and neither should be assumed to always be
+/// well-formed.
 ///
-/// `libp2p-webrtc-utils` 的 [`Fingerprint`] 只有 `to_sdp_format()` 单向输出，没有反解，
-/// 所以自己写；官方 `webrtc-websys` 里也抄了一份（还带 `unwrap`）。
+/// The [`Fingerprint`] in `libp2p-webrtc-utils` only offers one-way `to_sdp_format()`
+/// output with no inverse, hence this implementation; the official `webrtc-websys` carries
+/// a copy of its own (with an `unwrap`, no less).
 pub fn parse_sdp_fingerprint(value: &str) -> Option<Fingerprint> {
     let nibbles: Vec<u8> = value
         .bytes()
@@ -190,12 +213,12 @@ pub fn parse_sdp_fingerprint(value: &str) -> Option<Fingerprint> {
     Some(Fingerprint::raw(out))
 }
 
-/// 地址解析错误。
+/// Address parsing error.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("不是 /webrtc 地址：{0}")]
+    #[error("not a /webrtc address: {0}")]
     NotWebRtc(Multiaddr),
-    #[error("地址缺少目标节点的 /p2p 段：{0}")]
+    #[error("address is missing the target peer's /p2p segment: {0}")]
     MissingTargetPeer(Multiaddr),
 }
 

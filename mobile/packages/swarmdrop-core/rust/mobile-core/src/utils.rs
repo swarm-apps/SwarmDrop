@@ -7,5 +7,5 @@ use crate::error::{FfiError, FfiResult};
 pub(crate) fn parse_peer_id(value: &str) -> FfiResult<NodeId> {
     value
         .parse()
-        .map_err(|error| FfiError::Identity(format!("invalid peer id: {error}")))
+        .map_err(|error| FfiError::InvalidArgument(format!("invalid peer id: {error}")))
 }

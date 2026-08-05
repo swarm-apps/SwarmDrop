@@ -11,6 +11,8 @@ import { Download, Send } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import {
+  type MobileFailureCode,
+  MobileResumeRejectReason,
   MobileSuspendedReason,
   MobileTerminalReason,
   MobileTransferDirection,
@@ -258,44 +260,63 @@ function pad(n: number) {
 /* ─── 错误/原因 i18n 映射 ─── */
 
 /**
- * 把后端(Rust FfiError:io/network/transfer/database error…)抛出的技术错误串
- * 映射成"友好房东"口吻的中文。核心错误多为英文自由文本、无法穷举,所以用关键词
- * 启发式命中常见失败类别,未命中时降级到通用兜底 —— 绝不把原始英文直接甩给用户。
+ * 会话失败判别码 → 文案。
+ *
+ * **这里曾经是 9 条英文关键词正则。** 它匹配的输入是
+ * `format!("文件最终化失败: {name} (file_id={id}): {e}")` —— **文件名就拼在里面**，
+ * 于是一个叫 `Q3-cancel.xlsx` 的文件校验失败会命中 `/(cancel|abort)/`，
+ * 用户看到「传输已取消」：一次数据损坏被说成他自己的操作。确定性复现。
+ *
+ * 判别码把「是什么失败」和「怎么措辞」分开之后，猜测这件事根本不存在了。
+ * `Legacy` 是判别码引入之前落库的自由文本，原样展示。
  */
-export function friendlyTransferError(
-  message: string | null | undefined,
+export function failureCodeLabel(
+  failure: MobileFailureCode | null | undefined,
 ): ReactNode {
-  if (!message) return null;
-  const m = message.toLowerCase();
+  if (!failure) return null;
+  switch (failure.tag) {
+    case "FileFinalizeFailed":
+      return (
+        <Trans>「{failure.inner.fileName}」没能完整保存，请重新接收</Trans>
+      );
+    case "SessionExpired":
+      return (
+        <Trans>超过 {failure.inner.retentionDays} 天未恢复，已自动清理</Trans>
+      );
+    case "ResumeRejected":
+      return resumeRejectLabel(failure.inner.reason);
+    case "OfferFailed":
+      return <Trans>发送请求没能送达对方，请确认对方在线后重试</Trans>;
+    case "Legacy":
+      return failure.inner.message;
+  }
+}
 
-  if (/reject/.test(m)) return <Trans>对方拒绝了这次传输</Trans>;
-  if (/(cancel|abort)/.test(m)) return <Trans>传输已取消</Trans>;
-  if (/(timeout|timed out|deadline)/.test(m))
-    return <Trans>连接超时,请确认对方设备在线后重试</Trans>;
-  if (/(offline|disconnect|not connected|peer.*(gone|left|closed))/.test(m))
-    return <Trans>对方设备已离线,重新上线后可继续</Trans>;
-  if (/(network|connection|connect|reset|broken pipe|unreachable|dial)/.test(m))
-    return <Trans>网络连接中断,请确认两端在线后重试</Trans>;
-  if (/(no space|disk full|enospc|quota)/.test(m))
-    return <Trans>存储空间不足,清理后重试</Trans>;
-  if (/(permission|denied|eacces|forbidden|unauthor)/.test(m))
-    return <Trans>没有写入权限,请检查保存位置</Trans>;
-  if (/(not found|enoent|no such file|missing file)/.test(m))
-    return <Trans>找不到要传输的文件,可能已被移动或删除</Trans>;
-  if (/(io error|read|write)/.test(m))
-    return <Trans>读写文件时出错,请重试</Trans>;
-
-  return <Trans>传输过程中出错了,请重试</Trans>;
+function resumeRejectLabel(reason: MobileResumeRejectReason): ReactNode {
+  switch (reason) {
+    case MobileResumeRejectReason.Cancelled:
+      return <Trans>对方已取消这次传输，无法继续</Trans>;
+    case MobileResumeRejectReason.FatalError:
+      return <Trans>对方那边出错了，无法继续</Trans>;
+    case MobileResumeRejectReason.SourceModified:
+      return <Trans>源文件已变更，无法继续，请重新发送</Trans>;
+    case MobileResumeRejectReason.CheckpointInvalid:
+      return <Trans>续传进度已失效，请重新发送</Trans>;
+    case MobileResumeRejectReason.PeerUnavailable:
+      return <Trans>对方暂时不可用，请稍后再试</Trans>;
+    case MobileResumeRejectReason.SessionNotFound:
+      return <Trans>对方已经没有这次传输的记录了</Trans>;
+  }
 }
 
 export function LocalizedError({
-  message,
+  failure,
 }: {
-  message: string | null | undefined;
+  failure: MobileFailureCode | null | undefined;
 }) {
-  const friendly = friendlyTransferError(message);
-  if (!friendly) return null;
-  return <Text>{friendly}</Text>;
+  const label = failureCodeLabel(failure);
+  if (!label) return null;
+  return <Text>{label}</Text>;
 }
 
 export function projectionReasonLabel(

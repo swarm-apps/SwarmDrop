@@ -75,11 +75,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
-import {
-  fileGroupLabel,
-  formatFileSize,
-  formatRelativeTime,
-} from "@/lib/format";
+import { formatFileSize, formatRelativeTime } from "@/lib/format";
 import {
   groupByTimeBucket,
   type TimeBucket,
@@ -104,23 +100,6 @@ type RunAndRefresh = (
   success?: string,
   detailId?: string | null,
 ) => Promise<InboxItemSummary[] | null>;
-
-/**
- * 收件箱条目的展示标题。
- *
- * 领域层只给结构（首文件名 + 文件数），拼串是**呈现边缘**的事——这样切语言时存量条目
- * 跟着变，而不是被写入时刻的语言钉死。三端各写一份同形的判别（Web / 移动同此），
- * 刻意不收进 `packages/shared-view`：能共享的只有这个三分支，真正的内容是文案，
- * 而文案本就分属三套独立 catalog。
- */
-function inboxItemTitle(
-  primaryFileName: string | null,
-  itemCount: number,
-): string {
-  if (!primaryFileName) return t`空传输`;
-  if (itemCount <= 1) return primaryFileName;
-  return fileGroupLabel(primaryFileName, itemCount);
-}
 
 /**
  * 可复制的本地路径：单文件取文件自身，多文件取所在目录，与 Rust 侧
@@ -756,9 +735,21 @@ function RailGroup({
   );
 }
 
+/**
+ * 条目标题：`title` 列存的是**首个文件名**，「等 N 个文件」这句由这里生成。
+ *
+ * 曾经是 Rust 侧渲染好整句再落库（`inbox_title`），于是历史条目的标题永远冻结在
+ * 写入时的语言。库里现在只存与语言无关的文件名，切语言立刻生效。
+ */
+function inboxItemTitle(title: string, itemCount: number): string {
+  if (itemCount === 0) return t`空传输`;
+  if (itemCount === 1) return title;
+  return t`${title} 等 ${itemCount} 个文件`;
+}
+
 function RailRowShell({
   id,
-  iconFileName,
+  iconTitle,
   iconCount,
   receivedAt,
   selected,
@@ -766,7 +757,7 @@ function RailRowShell({
   children,
 }: {
   id: string;
-  iconFileName: string | null;
+  iconTitle: string;
   iconCount: number;
   receivedAt: number;
   selected: boolean;
@@ -789,7 +780,7 @@ function RailRowShell({
       )}
     >
       <span className="glass-control flex size-10 shrink-0 items-center justify-center rounded-[14px] text-brand">
-        <ItemIcon fileName={iconFileName} count={iconCount} />
+        <ItemIcon title={iconTitle} count={iconCount} />
       </span>
       <span className="min-w-0 flex-1">{children}</span>
       <span className="shrink-0 self-start pt-0.5 text-[11px] tabular-nums text-muted-foreground">
@@ -811,7 +802,7 @@ function InboxRailRow({
   return (
     <RailRowShell
       id={item.id}
-      iconFileName={item.primaryFileName}
+      iconTitle={item.title}
       iconCount={item.itemCount}
       receivedAt={item.receivedAt}
       selected={selected}
@@ -840,7 +831,7 @@ function InboxRailRow({
             item.lastOpenedAt === null ? "font-semibold" : "font-medium",
           )}
         >
-          {inboxItemTitle(item.primaryFileName, item.itemCount)}
+          {inboxItemTitle(item.title, item.itemCount)}
         </span>
         {item.sourceKind === "mcp" && (
           <Bot
@@ -885,14 +876,14 @@ function SearchRow({
   return (
     <RailRowShell
       id={hit.id}
-      iconFileName={hit.primaryFileName}
+      iconTitle={hit.title}
       iconCount={hit.itemCount}
       receivedAt={hit.receivedAt}
       selected={selected}
       onSelect={onSelect}
     >
       <span className="block truncate text-sm font-medium text-foreground">
-        {inboxItemTitle(hit.primaryFileName, hit.itemCount)}
+        {inboxItemTitle(hit.title, hit.itemCount)}
       </span>
       <span className="mt-1 block truncate text-xs text-muted-foreground">
         <Trans>来自 {hit.sourceName}</Trans>
@@ -1057,7 +1048,7 @@ function ReaderContent({
           {leading}
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-lg font-semibold tracking-tight text-foreground">
-              {inboxItemTitle(detail.primaryFileName, detail.itemCount)}
+              {inboxItemTitle(detail.title, detail.itemCount)}
             </h2>
             <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
               <span>
@@ -1301,21 +1292,10 @@ function Pill({
   );
 }
 
-/**
- * 多文件条目一律归档图标；单文件才按扩展名取图标——所以这里要的是**文件名**，
- * 不是展示标题（后者在多文件时是「X 等 N 个文件」，扩展名匹配的会是「个文件」）。
- */
-function ItemIcon({
-  fileName,
-  count,
-}: {
-  fileName: string | null;
-  count: number;
-}) {
+function ItemIcon({ title, count }: { title: string; count: number }) {
   if (count > 1) return <FileArchive className="size-4.5 text-amber-500" />;
-  const name = fileName ?? "";
-  const Icon = getFileIcon(name);
-  return <Icon className={`size-4.5 ${getFileIconColor(name)}`} />;
+  const Icon = getFileIcon(title);
+  return <Icon className={`size-4.5 ${getFileIconColor(title)}`} />;
 }
 
 /** 把 snippet 里匹配查询词的部分高亮（大小写不敏感）。 */

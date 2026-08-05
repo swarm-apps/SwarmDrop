@@ -34,6 +34,7 @@ import type { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import {
   INBOX_CONTENT_KIND_LABEL,
   INBOX_SOURCE_KIND_LABEL,
+  inboxItemTitleLabel,
   type ItemAction,
   type InboxItemDetail,
   type InboxItemFileEntry,
@@ -41,24 +42,6 @@ import {
 
 /** 检索防抖。与桌面端 `_app/inbox` 的 250ms 对齐——同一个动作在两端手感不该不同。 */
 const SEARCH_DEBOUNCE_MS = 250;
-
-/**
- * 收件箱条目的展示标题：内核只给结构（首文件名 + 文件数），拼串是呈现边缘的事。
- *
- * 写成 hook 而不是 `_lib/` 的纯函数，是在两条等价路径里选了一条——`_lib/invite.ts`
- * 的 `remainingLabel` 证明「存 `msg` 描述符、由组件 `t(...)` 展开」同样支持插值。
- * 选组件内展开只因为调用点全在本文件，没有第二个消费者。
- */
-function useInboxItemTitle() {
-  const { t } = useLingui();
-  // 不包 useCallback：两个调用点都是渲染期内联调用，既不进依赖数组也不作 prop，
-  // 记账成本比重建闭包还高。
-  return (primaryFileName: string | null, itemCount: number) => {
-    if (!primaryFileName) return t`空传输`;
-    if (itemCount <= 1) return primaryFileName;
-    return t`${primaryFileName} 等 ${itemCount} 个文件`;
-  };
-}
 
 /**
  * 元信息胶囊。三条并排（来源 / 内容 / 传输链接），形态一致才读得出「这是同一组事实」。
@@ -108,7 +91,10 @@ export function InboxDetailEmpty({
             <Trans>对方发起传输、你接受之后，文件会落在这里，可以随时下载或归档。</Trans>
           }
           action={
-            <Button asChild size="sm" variant="secondary">
+            // 与传输页空态的同一颗按钮保持同一个 variant（默认 primary）。此前这里是
+            // `secondary`、那边是默认——同一个动作、同一句文案、同一个去处，在两条路由上
+            // 一个灰一个青绿。空态的动作是那一屏**唯一**的出口，没有理由降权。
+            <Button asChild size="sm">
               <Link href={NAV.devices.href}>
                 <MonitorSmartphone className="size-4" aria-hidden />
                 <Trans>去设备页</Trans>
@@ -188,7 +174,6 @@ export function InboxListRow({
   onSelect: () => void;
 }) {
   const { t } = useLingui();
-  const itemTitle = useInboxItemTitle();
   const unread = item.lastOpenedAt === null;
   const archived = item.archivedAt !== null;
   const ref = useRef<HTMLLIElement>(null);
@@ -218,7 +203,7 @@ export function InboxListRow({
           {/* 未读点是「还没取走」的唯一表达——列表里其它一切在下载前后都长一样，故给 label。 */}
           {unread && <StatusDot colorClass="bg-[var(--brand-solid)]" label={t`未打开`} />}
           <span className={cn("truncate text-foreground", unread && "font-semibold")}>
-            {itemTitle(item.primaryFileName, item.itemCount)}
+            {t(inboxItemTitleLabel(item.title, item.itemCount))}
           </span>
           {archived && (
             <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -271,7 +256,6 @@ export function InboxDetailPanel({
   onDownload: (item: InboxItemDetail, file: InboxItemFileEntry) => void;
 }) {
   const { t } = useLingui();
-  const itemTitle = useInboxItemTitle();
   const archived = item.archivedAt !== null;
   const ArchiveIcon = archived ? ArchiveRestore : Archive;
 
@@ -283,7 +267,7 @@ export function InboxDetailPanel({
         <OpenListButton openList={openList} label={t`打开收件箱列表`} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-foreground">
-            {itemTitle(item.primaryFileName, item.itemCount)}
+            {t(inboxItemTitleLabel(item.title, item.itemCount))}
           </p>
           <p className="truncate text-xs text-muted-foreground">
             <Trans>
