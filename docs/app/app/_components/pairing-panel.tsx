@@ -34,7 +34,7 @@ import {
   type WebError,
 } from "../_lib/view-types";
 import { useNowSeconds } from "../_lib/use-now-seconds";
-import type { InviteListItemJson } from "swarmdrop-web";
+import type { InviteListItemJson, PairingOutcomeJson } from "swarmdrop-web";
 
 /** 配对/消费邀请成功后刷新已配对设备清单；失败不影响主流程（下一轮 state-poll 会补上）。 */
 export function PairingPanel() {
@@ -50,7 +50,16 @@ export function PairingPanel() {
 
   // —— 消费邀请（受邀方）——
   const [inviteInput, setInviteInput] = useState("");
-  const [consumeSuccess, setConsumeSuccess] = useState<string | null>(null);
+  /**
+   * 消费邀请成功后的结果。
+   *
+   * `persisted === false` 是一种「一半成功」：对端已经把本机加进它的已配对列表、本页面
+   * 也能立刻用，只是这条记录没写进 IndexedDB，刷新后会不见。既不能报成失败（那会和
+   * 对端的认知分叉），也不能当普通成功——所以两条信息都要显示。
+   */
+  const [consumeSuccess, setConsumeSuccess] = useState<PairingOutcomeJson | null>(
+    null,
+  );
   const consumeAction = useAsyncAction();
   /** 这条是剪贴板感知填进来的（#105）——要说一句，否则输入框会莫名其妙自己有了内容。 */
   const [pastedFromClipboard, setPastedFromClipboard] = useState(false);
@@ -181,10 +190,20 @@ export function PairingPanel() {
     setConsumeSuccess(null);
     consumeAction.run(
       () => node.connect_invite(inviteInput.trim()),
-      (peerId) => {
-        setConsumeSuccess(peerId);
+      (outcome) => {
+        setConsumeSuccess(outcome);
         clearInvite();
         refreshPairedDevices(node);
+        if (!outcome.persisted) {
+          // **必须是 toast，不能只靠下面那行内联提示** —— 同 `doRevokeInvite` 的理由：
+          // `consumeSuccess` 是本组件的 state，而本组件只挂在 `/app/devices`。用户配完对
+          // 最自然的下一步就是去 `/app/send` 发文件，一切页组件卸载，这条**需要他记住并
+          // 采取行动**的信息就没了，切回来也不再显示。文案与 `pairing-request-host.tsx`
+          // 共用同一组 msgid。
+          toast.warning(t`配对成功，但这条记录没能存进浏览器`, {
+            description: t`刷新页面后需要重新配对。`,
+          });
+        }
       },
     );
   };
@@ -443,11 +462,18 @@ export function PairingPanel() {
           </>
         )}
         {consumeSuccess && (
-          <p className="mt-2 text-xs text-success-ink">
-            <Trans>
-              已配对：<span className="font-mono">{consumeSuccess}</span>
-            </Trans>
-          </p>
+          <>
+            <p className="mt-2 text-xs text-success-ink">
+              <Trans>
+                已配对：<span className="font-mono">{consumeSuccess.peerId}</span>
+              </Trans>
+            </p>
+            {!consumeSuccess.persisted && (
+              <p className="mt-1 text-xs text-warning-ink">
+                <Trans>但这条记录没能存进浏览器，刷新页面后需要重新配对。</Trans>
+              </p>
+            )}
+          </>
         )}
       </div>
 

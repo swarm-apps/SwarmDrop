@@ -439,6 +439,22 @@ impl PairedDeviceInfo {
         self.os_info = os_info;
         true
     }
+
+    /// 用一次**新观测**刷新本条目：只动 `os_info` / `paired_at`，
+    /// **保留** `trust_level` / `receive_policy` / `trust_confirmed`。
+    ///
+    /// 「新观测」指配对成功回调或 identify 刷新交上来的 [`Self::new`] 产物 —— 它恒为默认
+    /// 信任级别与默认收件策略。整条替换等于把用户手工设过的值静默重置，而
+    /// `receive_policy` 是被 `swarmdrop_transfer::policy` **真正裁决**的字段，不是展示项：
+    /// `Owned` 掉回 `Collaborator`、收紧过的策略放回默认，都会立刻改变入站 offer 的处置。
+    ///
+    /// 这条规则有两个调用点 —— `paired_devices::upsert`（写库）与
+    /// `PairingManager::commit_paired_device` 的**落盘失败回退**（写共享内存表）。
+    /// 两边必须是同一份：分叉出来就是「库里守着用户的策略、本次运行却按默认裁决」。
+    pub fn merge_observation(&mut self, observed: Self) {
+        self.os_info = observed.os_info;
+        self.paired_at = observed.paired_at;
+    }
 }
 
 /// 设备状态。

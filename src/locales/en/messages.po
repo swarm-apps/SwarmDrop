@@ -238,6 +238,10 @@ msgstr "Transfer Failed"
 msgid "传输活动"
 msgstr "Transfers"
 
+#: src/stores/pairing-store.ts
+msgid "但这条记录没能保存下来，重启后需要重新配对。"
+msgstr "But this record could not be saved — you'll need to pair again after a restart."
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "使用同网段已开启协助能力的桌面端"
 msgstr "Use a desktop on the same subnet with assistance enabled"
@@ -818,7 +822,6 @@ msgstr "Show Invite"
 
 #: src/stores/pairing-store.ts
 #: src/stores/pairing-store.ts
-#: src/stores/pairing-store.ts
 msgid "已与 {deviceName} 配对成功"
 msgstr "Paired with {deviceName} successfully"
 
@@ -1313,6 +1316,10 @@ msgstr "Stopped"
 msgid "未找到匹配项"
 msgstr "No matches found"
 
+#: src/lib/errors.ts
+msgid "未找到该设备"
+msgstr "Device not found"
+
 #: src/components/network/stop-node-sheet.tsx
 msgid "未提供"
 msgstr "Not provided"
@@ -1341,7 +1348,6 @@ msgstr "Unread"
 msgid "未连接"
 msgstr "Not connected"
 
-#: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "未配对"
 msgstr "Not Paired"
@@ -1819,8 +1825,16 @@ msgid "设备身份"
 msgstr "Device identity"
 
 #: src/lib/errors.ts
-msgid "设备身份初始化失败"
-msgstr "Failed to initialize device identity"
+#~ msgid "设备身份初始化失败"
+#~ msgstr "Failed to initialize device identity"
+
+#: src/lib/errors.ts
+msgid "设备身份尚未就绪，请重启应用后重试"
+msgstr "Device identity isn't ready yet. Restart the app and try again."
+
+#: src/lib/errors.ts
+msgid "设备身份读写失败"
+msgstr "Could not read or write the device identity"
 
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
@@ -2013,6 +2027,10 @@ msgstr "This invite is invalid or has already been used"
 #: src/components/pairing/sent-invites.tsx
 msgid "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
 msgstr "Invites stay valid for 24 hours. Once generated they show up here and can be revoked at any time."
+
+#: src/lib/errors.ts
+msgid "邀请状态未能保存，本次配对已中止，请重新生成邀请"
+msgstr "The invite state could not be saved, so pairing was aborted. Please generate a new invite."
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "邀请经本地签名验证，真正建立信任仍需要双方确认。"

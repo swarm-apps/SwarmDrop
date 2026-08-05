@@ -195,6 +195,10 @@ msgstr "傳輸進度"
 msgid "传输错误"
 msgstr "傳輸錯誤"
 
+#: app/app/_components/pairing-panel.tsx
+msgid "但这条记录没能存进浏览器，刷新页面后需要重新配对。"
+msgstr "但這筆記錄沒能存進瀏覽器，重新整理頁面後需要重新配對。"
+
 #: app/app/_components/incoming-offers-panel.tsx
 msgid "你关掉提示后，请求会留在这里等你决定。"
 msgstr "你關掉提示後，請求會留在這裡等你決定。"
@@ -339,6 +343,11 @@ msgstr "到裝置頁點某台在線裝置的「傳送」，傳輸開始後會即
 #: app/app/_components/pairing-panel.tsx
 msgid "刷新页面后它可能恢复可用，建议稍后再撤销一次。"
 msgstr "重新整理頁面後它可能恢復可用，建議稍後再撤銷一次。"
+
+#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
+msgid "刷新页面后需要重新配对。"
+msgstr "重新整理頁面後需要重新配對。"
 
 #: app/app/_lib/view-types.ts
 msgid "剪贴板"
@@ -688,9 +697,14 @@ msgstr "已送達"
 msgid "已选 {0} 个文件 · 共 <0>{1}</0>"
 msgstr "已選 {0} 個檔案 · 共 <0>{1}</0>"
 
+#. placeholder {0}: consumeSuccess.peerId
 #: app/app/_components/pairing-panel.tsx
-msgid "已配对：<0>{consumeSuccess}</0>"
-msgstr "已配對：<0>{consumeSuccess}</0>"
+msgid "已配对：<0>{0}</0>"
+msgstr "已配對：<0>{0}</0>"
+
+#: app/app/_components/pairing-panel.tsx
+#~ msgid "已配对：<0>{consumeSuccess}</0>"
+#~ msgstr "已配對：<0>{consumeSuccess}</0>"
 
 #: app/app/_components/device-grid.tsx
 #: app/app/_lib/view-types.ts
@@ -1502,6 +1516,11 @@ msgstr "配對之後雙方都能互傳檔案。確認這是你認識的裝置再
 #: app/app/_components/pairing-panel.tsx
 msgid "配对后双方可以互相发送文件。确认是这台设备再继续。"
 msgstr "配對後雙方可以互相傳送檔案。確認是這台裝置再繼續。"
+
+#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
+msgid "配对成功，但这条记录没能存进浏览器"
+msgstr "配對成功，但這筆記錄沒能存進瀏覽器"
 
 #: app/app/_lib/view-types.ts
 msgid "配对码"

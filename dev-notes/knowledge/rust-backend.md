@@ -162,14 +162,61 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase];   // 住在共享 crate
 反过来，移动端两个后端本来就是同一个存储桥，拆到 uniffi 的 `ForeignKeychainProvider`
 那一侧不产生解耦收益，所以拆分**止步于 Rust 端口层**。
 
-**当前边界**：`PairedDeviceStore` 目前只服务 `PairingManager::unpair` 这一条写路径；
-新增/刷新方向仍由三端 host 在 `CoreEvent::PairedDeviceAdded` 上各自回写（刻意的半步，
-那条路径已有唯一触发点、语义一致）。
+**当前边界（2026-08-05 起）：三个写方向都在 core。** 新增与刷新走
+`PairingManager::commit_paired_device`（配对达成的三个点 + `event_loop` 的 identify 刷新
+共用它），移除走 `PairingManager::unpair`。**三端 host 只转发事件，不碰存储** ——
+`MobileEventBusAdapter` 与 `WebEventBus` 因此都不再持有 `PairedDeviceStore` 字段。
+
+> 它曾是「刻意的半步」：新增/刷新由三端 host 各自在 `CoreEvent::PairedDeviceAdded` 上回写。
+> 收口的直接原因见下面「同一个写动作散在三端，会长出三种失败语义」。
 
 **相关文件**：`crates/host/src/ports.rs`（两个 trait）、`crates/core/src/paired_devices.rs`
 （唯一的列表算法）、`crates/core/src/identity.rs`（只剩密钥材料）、
 `src-tauri/src/host.rs`（`keychain_provider` / `paired_device_store` 两个工厂）、
 `crates/web/src/paired_devices.rs`
+
+### 同一个写动作散在三端，会长出三种失败语义
+
+「配对成功 → 把设备写进持久化 → 通知 UI」这段编排一度在三端各写一遍，结果是同一个产品动作
+有三种失败行为：
+
+| 端 | 落盘位置 | 写盘失败时 |
+|---|---|---|
+| 桌面 | 命令层，**逐字重复 3 遍** | `?` 冒泡 → 报错 |
+| Web | 命令层，重复 2 遍 | `?` 冒泡 → 报错 |
+| 移动 | event bus 里 | 只记一条 `warn` → 静默丢失 |
+
+两种失败都是错的，但错法不同：
+
+- **静默丢失**：用户以为配对好了，重启后设备不见，且没有任何线索。
+- **报错更糟** —— 这是本条的重点：走到落盘那一步时**对端已经收到 `Success` 并把本机写进了
+  它的列表**。本机此时报「配对失败」，两台设备对同一件事的认知就永久分叉了，而且没有任何
+  一端会去纠正。用户看到失败去重试，对面却显示「已配对」。
+
+**判据：一个动作跨过了「对方已经知道了」这条线之后，本地的后续失败就不能再表达成整体失败。**
+它的真实后果要如实说（这里是「这台设备重启后会丢」），形态就是把「一半成功」变成返回值而不是
+错误 —— `commit_paired_device` 返回 `PairedDeviceCommit { device, persisted }`，三端 UI 在
+`persisted == false` 时提示「配对成功，但这条记录没保存下来」。仓里早有同构的先例：
+`revoke_pair_invite_by_id` 返回「是否已落盘」，理由一模一样（本次运行内已生效、重启后会复活）。
+
+**收口的副产品可以当验收信号**：把落盘移进 core 之后，`MobileEventBusAdapter` 和 `WebEventBus`
+的 `paired_store` 字段双双变成 dead code，编译器直接报 `field is never read`。
+**如果收口做对了，host 侧应该有东西变成死代码**；一个都没少，说明只是加了一层转发。
+
+**落盘失败的回退路径也要走同一份合并规则。** 配对收口时踩过：失败分支直接把手里的
+`device` 写进共享内存表，而它恒是 `PairedDeviceInfo::new` 的产物（`Collaborator` + 默认
+收件策略）。那张表正是 `swarmdrop_transfer::policy` 裁决入站 offer 的事实源 ——
+一次写库失败就会把用户设的 `Owned` 降回 `Collaborator`、收紧过的策略放回默认，
+**本次运行内立即生效**。合并规则现在住在 `PairedDeviceInfo::merge_observation`，
+落盘路径（`paired_devices::upsert`）与失败回退（`commit_paired_device`）共用同一份，
+由 `commit_keeps_user_policy_in_memory_when_persist_fails` 钉着。
+
+> **同型问题仍在传输接受路径上（未修，值得单独立项）**：
+> `crates/transfer/src/flow/receive.rs` 里 `responder.send(OfferResult { accepted: true })`
+> 之后还有 `self.coordinator.dispatch(..).await?` —— 写库失败会让本端 UI 报「接受失败」，
+> 而对端已收到 `accepted:true` 并开始推数据；更糟的是 pending 表里那条 offer 已被消费，
+> 用户连重试都做不到。判据与配对完全相同：**越过「对方已经知道了」这条线之后，
+> 本地失败不能再表达成整体失败**。修法也同构 —— 降级成事件 + 返回值。
 
 ### 端口层现有 trait 清单：六个，且没有一格是空的
 
@@ -482,6 +529,59 @@ specta + chrono 会把 `DateTime<Utc>` 映射成 ISO 8601 字符串（前端 `st
 
 **相关文件**：`crates/host/src/error.rs`、`src-tauri/src/error.rs`
 
+### `AppError` 的 `kind` 是**用户文案的判别码**，不是日志分类
+
+桌面按 `kind` 查表渲染本地化文案（`src/lib/errors.ts` 的 `KIND_MESSAGES`），`message` 只进
+日志 —— 它是 Rust 侧的中文串，直接展示会在英文界面露馅。所以**给一个失败选 kind，
+等于在选用户会看到的那句话**。
+
+> ⚠️ **这条只在桌面完全成立。** Web 侧把 `AppError` 收敛成 `WebError` 的七个变体（有
+> `kind` 但前端多数调用点直接显示 `message`）；**移动端根本没有 kind → 文案表** ——
+> `mobile/src/lib/utils.ts` 的 `errorMessage` 只是把 `FfiError.Variant: inner` 拼成一个串
+> 丢给 toast，于是 Rust 侧那些中文 message 会**原样出现在英文界面上**。
+> 这是已知负债，不是这次能顺带修的（要给移动端补一张 variant → Lingui 文案的表）。
+> 新增错误变体时**别假设移动端会本地化它**。
+
+反面教材是 `Identity`。它一度是配对路径的垃圾桶，兜着 8 处毫不相关的失败：peer_id 解析、
+multiaddr 解析、二维码生成、邀请标识 hex 格式、`SecretKey` 未就绪、邀请状态没落盘、
+设备找不到。于是**用户点「接受配对」失败时，看到的是一句「设备身份初始化失败」** ——
+与真实原因毫无关系，把排查引向钥匙串，而真凶在数据库写入。
+
+讽刺的是这个坑被发现过一次：`decode_pair_invite` 的注释明确写着「包成 Identity 会让用户看到
+『设备身份初始化失败』」并改成了 `InvalidCode` —— **但只修了那一处**，同文件里另外 5 处照旧。
+单点修复对这类问题无效，因为病根是「有一个万能 kind 可以塞」。
+
+现在的划分（`crates/host/src/error.rs`）：
+
+| kind | 什么时候用 | 用户看到 |
+|---|---|---|
+| `Identity` | 密钥材料**真的**读写失败 | 设备身份读写失败 |
+| `IdentityNotReady` | 私钥还没加载进内存 | 请重启应用后重试 |
+| `InvalidArgument` | 参数解析失败（peer_id / multiaddr / hex） | 通用兜底（用户无能为力） |
+| `InvitePersistFailed` | 邀请「已消费」状态没写成库 | 请重新生成邀请 |
+| `DeviceNotFound` | 找不到指定的已配对设备 | 未找到该设备 |
+
+两条纪律：
+
+1. **新增失败模式时先问一句「这句话对用户成立吗」。** 不成立就别复用那个 kind，
+   哪怕它在类型上装得下。
+2. **`From<AppError>` 的转换写成穷尽 match，不留 `_ =>` catch-all。**
+   Web 侧那个 catch-all 会把每一个新 kind 默默显示成「文件传输失败，请重试」；
+   改成穷尽之后，加变体会在编译期逼人想一下「浏览器该怎么说这件事」。
+
+**改 kind 时三端一起改，否则就是同一个坑再踩一次。** 这次修完桌面的 5 处之后，移动端
+`utils.rs` / `pairing.rs` / `device.rs` 还留着 4 处一模一样的误用（同一句「邀请标识格式非法」
+在三端是三个 kind），Web 的 `revoke_invite_by_id` 则把它报成 `network`（用户看到
+「网络连接出现问题，请稍后重试」）。**单点修复对这类问题无效** —— 病根是有个万能 kind
+可以塞，而三端各有各的万能 kind。
+
+> **仍未清的同型负债**：`AppError::Transfer` 已经是新的垃圾桶，规模比 `Identity` 大 ——
+> `crates/web/src/opfs.rs` 全文件（浏览器存储失败）、`crates/web/src/inbox.rs`、
+> `crates/core/src/host.rs`、`crates/transfer/src/flow/receive.rs` 都在用它兜「找不到条目」
+> 「序列化失败」「内部不变量」。桌面把 `Transfer` 渲染成「文件传输失败，请重试」，
+> 于是用户打不开一条收件箱记录时看到的就是这句。该补的是 `Storage` 与
+> `NotFound { resource }`（Web 侧已有无人可达的 `WebError::NotFound` 正好接上）。
+
 ### crates/web 的 specta 导出不支持 `skip_serializing_if`
 
 `swarmdrop-web` 的 TS 导出（`tests/specta_export.rs`）走 `specta_serde::Format`，
@@ -506,6 +606,98 @@ pub fn insert_session(...) { ... }
 ```
 
 **相关文件**：`crates/storage-sql/src/ops.rs`、`crates/transfer/src/flow/receive.rs`
+
+## 数据库 schema 与迁移
+
+> 2026-08-05 把 12 个增量迁移 squash 成了一份全量 init（`m20260805_000001_init`），
+> 并且**整个 migration crate 零 `execute_unprepared`**。下面两条是那次的产物。
+
+### schema 约束尽量写在 entity 上，migration 只负责「把它建出来」
+
+sea-orm 2.0 的 entity 能表达的约束比直觉多，本仓 7 个索引里 6 个都能声明式表达：
+
+| 属性 | 生成什么 | 本仓例子 |
+|---|---|---|
+| `#[sea_orm(indexed)]` | 单列非唯一索引，名字是 `idx-{table}-{col}` | `inbox_item.received_at` |
+| `#[sea_orm(unique)]` | 单列唯一索引 | `inbox_item.transfer_session_id` |
+| `#[sea_orm(unique_key = "名字")]` | **复合唯一索引**——同名的多个列合成一条 | `transfer_file` 的 `(session_id, file_id)` |
+| `belongs_to` 上的 `on_delete = "SetNull"` / `"Cascade"` | 外键的删除行为 | `inbox_item.transfer_session` |
+
+`db.get_schema_builder().register(E).apply(db)` 会把这些一并建出来，并按外键依赖**自动拓扑
+排序**建表顺序（SQLite 不支持后加外键，顺序错就是硬错误，别手写顺序）。
+
+**entity 唯一表达不了的是复合非唯一索引**（`indexed` 是列级属性、`unique_key` 只组唯一键）。
+本仓只有一条 `(deleted_at, archived_at)`，用 `Index::create()` 的 sea-query DSL 补 ——
+仍然不是裸 SQL。
+
+**为什么值得较真**：约束只写在 migration 的裸 SQL 里、entity 不表达，会形成一种
+**只在「从零建库」时才暴露的漂移**。本仓踩过：`inbox_items.transfer_session_id` 的
+`ON DELETE SET NULL`——「清空传输历史不动收件箱」这条三端不变量的实现基础——此前只存在于
+`m20260627_000002_drop_inbox` 的裸 SQL 里，entity 从未写过 `on_delete`。改用 schema builder
+从 entity 建表的那一刻，这条约束会**静默消失**：不报错、不失败，只是删会话时行为变了。
+
+判据：**凡是数据库强制的约束，entity 上必须读得到。**
+钉法是行为级测试（真删一行看结果），不是解析 DDL 文本 ——
+见 `m20260805_000001_init` 的 `deleting_a_session_nulls_the_inbox_link_instead_of_cascading`。
+
+### squash 迁移会让所有存量库「启动即失败」，必须配自愈
+
+sea-orm 的 `get_migration_with_status` 算 `已应用 − 代码里有的` 差集，非空就返回
+`DbErr::Custom("Migration file of version '…' is missing, this migration has been applied
+but its file is missing")`。这发生在任何 DDL 之前 ——
+**库本身是好的，只是这份代码认不出它的历史**。但 `Migrator::up` 的错误直接冒泡到 setup，
+所以表现不是「数据丢了」而是**应用打不开**。删迁移文件前必须想清楚这一条。
+
+本仓的处理是 `migration::connect_and_migrate()`：连库 → 迁移 → 撞上这条错误就删库重建。
+桌面与移动共用它（两端的启动路径本来逐字相同）。三个细节：
+
+- **判据要窄**。只认 `DbErr::Custom` + 那句固定措辞。把任意 `Custom` 当成「该删库」，
+  会让真正的迁移失败（写坏的 DDL、磁盘满、权限）变成一次静默的数据清除。
+- **先关连接再删文件**。Windows 上打开中的文件删不掉，而「删了个寂寞又重连到同一个旧库」
+  会再报同样的错 —— 变成启动死循环。
+- **`-wal` / `-shm` 一起删**。journal 模式是写在库文件头里的持久设置，
+  只删主文件而留下历史版本的 `-wal`，新库会读到一段本该消失的旧事务。
+
+代价的边界值得写清楚（用户会问）：丢的是**这个库里的**传输历史、收件箱、邀请注册表；
+设备身份与已配对设备在 keychain / `dev-identity.json` / 平台安全存储里，**配对关系不丢**，
+已落盘的文件也不动。
+
+### 目录式迁移**不能**用 `DeriveMigrationName` —— 它会把版本名变成 `mod`
+
+`DeriveMigrationName` 展开成 `get_file_stem(file!())`。迁移写成单文件时没问题
+（`m20260730_000001_pair_invites.rs` → 版本名就是文件名）；但**时间胶囊必须是目录 +
+`mod.rs`**，于是 stem 变成 `"mod"` —— 而历史上每一个目录式迁移记进 `seaql_migrations`
+的都是同一个 `"mod"`。
+
+这次 squash 就踩了：新 init 与被删掉的旧 `m20260228_000001_init/mod.rs` **撞名**。
+后果静默且致命 —— 停在 v0.3.3 ~ v0.4.2 的库里只有一行 `mod`，升级后
+`migration_in_fs` 与 `migration_in_db` 都是 `{mod}`，pending 空、missing 也空，
+`Migrator::up` 返回 `Ok(())`，[`connect_and_migrate`] 的自愈**永不触发**，
+应用继续跑在 2026-02 的两表 schema 上，第一次查收件箱就 `no such table`。
+
+**正确做法**：目录式迁移手写名字。
+
+```rust
+pub struct Migration;   // 不要 #[derive(DeriveMigrationName)]
+
+impl MigrationName for Migration {
+    fn name(&self) -> &str { "m20260805_000001_init" }
+}
+```
+
+**两类测试都发现不了它**，别指望：空库上跑 `Migrator::up` 一切正常；往
+`seaql_migrations` 塞一条「未来版本」也只覆盖到 missing 那条分支。要钉住它需要
+**按古董库的真实形态**造数据（塞 `('mod', 0)` 且不建任何本版表），见
+`connect_and_migrate_rebuilds_ancient_database_named_mod`。
+
+### `crates/migration` 的冻结 entity 快照不要改成 `use entity::...`
+
+`m20260805_000001_init/entity/` 是**时间胶囊**：主 crate 的 entity 之后怎么演进，这个迁移
+建出来的表都不变。直接引用主 entity 会让「从零建库」跟着最新 entity 走、而「增量升级」走
+历史路径，两条路建出不同的 schema。这是 sea-orm 官方对「migration 里用 SchemaBuilder」的
+既定要求。
+
+推论：**加了新列或新表，不要回头改 init 的快照**，写一个新的增量迁移。
 
 ## P2P / 异步
 

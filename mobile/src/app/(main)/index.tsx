@@ -61,6 +61,7 @@ import {
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
+import { warnIfPairingNotPersisted } from "@/lib/pairing-feedback";
 import { toast } from "@/lib/toast";
 import { cn, errorMessage } from "@/lib/utils";
 import {
@@ -616,6 +617,9 @@ const AddDeviceSheet = forwardRef<
           setPairingError(result.reason ?? t`配对被拒绝`);
           return;
         }
+        // toast 只是即时提醒；持久的那句由成功页承担（转场动画会盖掉 toast，
+        // 而那一屏通篇是绿色对勾，用户带走的结论会是「成了」）。
+        warnIfPairingNotPersisted(result.persisted);
         // 成功先收起 sheet 再跳成功页,返回时不残留半开的 sheet
         sheetRef.current?.dismiss();
         router.push({
@@ -627,6 +631,7 @@ const AddDeviceSheet = forwardRef<
             os: device.os,
             platform: device.platform,
             arch: device.arch,
+            persisted: result.persisted ? "1" : "0",
           },
         });
       } catch (err) {

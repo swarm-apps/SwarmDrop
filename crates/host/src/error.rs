@@ -18,9 +18,41 @@ pub enum AppError {
     #[error("Network error: {0}")]
     Network(String),
 
-    /// 身份/密钥对错误
+    /// 身份存储（keychain / 密钥材料）的读写**真的失败了**。
+    ///
+    /// **不要拿它当配对路径的垃圾桶。** 它一度承载了 8 处毫不相关的失败——peer_id 解析、
+    /// multiaddr 解析、二维码生成、邀请标识格式、邀请状态没落盘、设备找不到——而前端按
+    /// `kind` 渲染文案，于是用户在「点接受配对」时会看到一句「设备身份初始化失败」。
+    /// 那条提示与真实原因毫无关系，把排查引向完全错误的方向。新增失败模式时先问一句：
+    /// **这真的是密钥材料的问题吗？**
     #[error("Identity error: {0}")]
     Identity(String),
+
+    /// 设备身份尚未就绪（私钥还没加载进内存）。
+    ///
+    /// 与 [`Self::Identity`] 的区别是「没走到」与「做了但失败」：这个通常意味着启动时的
+    /// `initialize_identity` 失败过或还没调用，用户的正确动作是重启应用，而不是排查钥匙串。
+    #[error("identity not ready")]
+    IdentityNotReady,
+
+    /// 调用方传入的参数不合法：peer_id / multiaddr / 邀请标识等的解析失败。
+    ///
+    /// 这类错误**用户无能为力也看不懂**——要么是 UI 传错了值（bug），要么是内部标识格式
+    /// 不对。前端不为它单独渲染文案，走通用兜底；技术细节只进日志。
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
+
+    /// 一次性邀请的「已消费」状态没能落盘，本次配对**已中止**。
+    ///
+    /// **不是 [`Self::InvalidCode`]**：凭证本身是好的，是本机没写成库，所以宁可让这次配对
+    /// 失败也不放行——否则重启后同一份一次性凭证还能再被消费一次。两者的用户动作也不同：
+    /// 这个要重新生成一条邀请，那个要换一条来源。
+    #[error("invite state not persisted")]
+    InvitePersistFailed,
+
+    /// 找不到指定的已配对设备。
+    #[error("paired device not found")]
+    DeviceNotFound,
 
     /// 节点未启动
     #[error("Node not started")]
@@ -71,6 +103,10 @@ impl Serialize for AppError {
             AppError::Serialization(e) => ("Serialization", e.to_string()),
             AppError::Network(msg) => ("Network", msg.clone()),
             AppError::Identity(msg) => ("Identity", msg.clone()),
+            AppError::IdentityNotReady => ("IdentityNotReady", self.to_string()),
+            AppError::InvalidArgument(msg) => ("InvalidArgument", msg.clone()),
+            AppError::InvitePersistFailed => ("InvitePersistFailed", self.to_string()),
+            AppError::DeviceNotFound => ("DeviceNotFound", self.to_string()),
             AppError::NodeNotStarted => ("NodeNotStarted", self.to_string()),
             AppError::ExpiredCode => ("ExpiredCode", self.to_string()),
             AppError::InvalidCode => ("InvalidCode", self.to_string()),

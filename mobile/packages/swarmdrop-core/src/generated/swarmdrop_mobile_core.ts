@@ -1903,7 +1903,15 @@ const FfiConverterTypeMobilePairedDevice = (() => {
 
 export type MobilePairingResult = {
     accepted: boolean,
-    reason?: string
+    reason?: string,
+    /**
+     * 设备是否已落盘。**仅当 `accepted` 为真时有意义**，其余情况恒为 `true`。
+     *
+     * `false` = 配对成功了、本次运行内这台设备可用，但重启后它会从本机列表消失
+     * （对端仍记着）。不能压成错误：走到这一步对端已经把本机加进它的列表，
+     * 本机报「配对失败」只会让两台设备的认知永久分叉。UI 该说的是「重启后会丢」。
+     */
+    persisted: boolean
 }
 
 /**
@@ -1928,16 +1936,19 @@ const FfiConverterTypeMobilePairingResult = (() => {
         read(from: RustBuffer): TypeName {
             return {
                 accepted: FfiConverterBool.read(from), 
-                reason: FfiConverterOptionalString.read(from)
+                reason: FfiConverterOptionalString.read(from), 
+                persisted: FfiConverterBool.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterBool.write(value.accepted, into);
             FfiConverterOptionalString.write(value.reason, into);
+            FfiConverterBool.write(value.persisted, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterBool.allocationSize(value.accepted) +
-             FfiConverterOptionalString.allocationSize(value.reason);
+             FfiConverterOptionalString.allocationSize(value.reason) +
+             FfiConverterBool.allocationSize(value.persisted);
             
         }
     };
@@ -2700,6 +2711,10 @@ export enum FfiError_Tags {
     Serialization = "Serialization",
     Network = "Network",
     Identity = "Identity",
+    IdentityNotReady = "IdentityNotReady",
+    InvalidArgument = "InvalidArgument",
+    InvitePersistFailed = "InvitePersistFailed",
+    DeviceNotFound = "DeviceNotFound",
     NodeNotStarted = "NodeNotStarted",
     ExpiredCode = "ExpiredCode",
     InvalidCode = "InvalidCode",
@@ -2876,6 +2891,130 @@ Readonly<
 [string
 ]> {
             return obj.inner;
+        }
+
+    }
+
+    type IdentityNotReady__interface = {
+        tag: FfiError_Tags.IdentityNotReady
+    };
+    class IdentityNotReady_ extends UniffiError implements IdentityNotReady__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "FfiError";
+        readonly tag = FfiError_Tags.IdentityNotReady;
+        constructor() {
+            super("FfiError", "IdentityNotReady");
+        }
+
+        static new(): IdentityNotReady_ {
+            return new IdentityNotReady_();
+        }
+
+        static instanceOf(obj: any): obj is IdentityNotReady_ {
+            return obj.tag === FfiError_Tags.IdentityNotReady;
+        }
+        static hasInner(obj: any): obj is IdentityNotReady_ {
+            return false;
+        }
+
+    }
+
+    type InvalidArgument__interface = {
+        tag: FfiError_Tags.InvalidArgument;
+        inner: 
+Readonly<
+[string
+]>
+    };
+    class InvalidArgument_ extends UniffiError implements InvalidArgument__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "FfiError";
+        readonly tag = FfiError_Tags.InvalidArgument;
+        readonly inner: 
+Readonly<
+[string
+]>;
+        constructor(v0: string) {
+            super("FfiError", "InvalidArgument");
+
+            this.inner = Object.freeze([v0]);
+        }
+        static new(v0: string): InvalidArgument_ {
+            return new InvalidArgument_(v0);
+        }
+
+        static instanceOf(obj: any): obj is InvalidArgument_ {
+            return obj.tag === FfiError_Tags.InvalidArgument;
+        }
+        static hasInner(obj: any): obj is InvalidArgument_ {
+            return InvalidArgument_.instanceOf(obj);
+        }
+
+        static getInner(obj: InvalidArgument_): 
+Readonly<
+[string
+]> {
+            return obj.inner;
+        }
+
+    }
+
+    type InvitePersistFailed__interface = {
+        tag: FfiError_Tags.InvitePersistFailed
+    };
+    class InvitePersistFailed_ extends UniffiError implements InvitePersistFailed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "FfiError";
+        readonly tag = FfiError_Tags.InvitePersistFailed;
+        constructor() {
+            super("FfiError", "InvitePersistFailed");
+        }
+
+        static new(): InvitePersistFailed_ {
+            return new InvitePersistFailed_();
+        }
+
+        static instanceOf(obj: any): obj is InvitePersistFailed_ {
+            return obj.tag === FfiError_Tags.InvitePersistFailed;
+        }
+        static hasInner(obj: any): obj is InvitePersistFailed_ {
+            return false;
+        }
+
+    }
+
+    type DeviceNotFound__interface = {
+        tag: FfiError_Tags.DeviceNotFound
+    };
+    class DeviceNotFound_ extends UniffiError implements DeviceNotFound__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "FfiError";
+        readonly tag = FfiError_Tags.DeviceNotFound;
+        constructor() {
+            super("FfiError", "DeviceNotFound");
+        }
+
+        static new(): DeviceNotFound_ {
+            return new DeviceNotFound_();
+        }
+
+        static instanceOf(obj: any): obj is DeviceNotFound_ {
+            return obj.tag === FfiError_Tags.DeviceNotFound;
+        }
+        static hasInner(obj: any): obj is DeviceNotFound_ {
+            return false;
         }
 
     }
@@ -3057,6 +3196,10 @@ Readonly<
   Serialization: Serialization_, 
   Network: Network_, 
   Identity: Identity_, 
+  IdentityNotReady: IdentityNotReady_, 
+  InvalidArgument: InvalidArgument_, 
+  InvitePersistFailed: InvitePersistFailed_, 
+  DeviceNotFound: DeviceNotFound_, 
   NodeNotStarted: NodeNotStarted_, 
   ExpiredCode: ExpiredCode_, 
   InvalidCode: InvalidCode_, 
@@ -3066,7 +3209,7 @@ Readonly<
 
 })();
 export type FfiError = InstanceType<
-    typeof FfiError['Io' | 'Serialization' | 'Network' | 'Identity' | 'NodeNotStarted' | 'ExpiredCode' | 'InvalidCode' | 'Transfer' | 'Database']
+    typeof FfiError['Io' | 'Serialization' | 'Network' | 'Identity' | 'IdentityNotReady' | 'InvalidArgument' | 'InvitePersistFailed' | 'DeviceNotFound' | 'NodeNotStarted' | 'ExpiredCode' | 'InvalidCode' | 'Transfer' | 'Database']
 >;
 
 // FfiConverter for enum FfiError
@@ -3080,11 +3223,15 @@ const FfiConverterTypeFfiError = (() => {
                 case 2: return new FfiError.Serialization(FfiConverterString.read(from));
                 case 3: return new FfiError.Network(FfiConverterString.read(from));
                 case 4: return new FfiError.Identity(FfiConverterString.read(from));
-                case 5: return new FfiError.NodeNotStarted();
-                case 6: return new FfiError.ExpiredCode();
-                case 7: return new FfiError.InvalidCode();
-                case 8: return new FfiError.Transfer(FfiConverterString.read(from));
-                case 9: return new FfiError.Database(FfiConverterString.read(from));
+                case 5: return new FfiError.IdentityNotReady();
+                case 6: return new FfiError.InvalidArgument(FfiConverterString.read(from));
+                case 7: return new FfiError.InvitePersistFailed();
+                case 8: return new FfiError.DeviceNotFound();
+                case 9: return new FfiError.NodeNotStarted();
+                case 10: return new FfiError.ExpiredCode();
+                case 11: return new FfiError.InvalidCode();
+                case 12: return new FfiError.Transfer(FfiConverterString.read(from));
+                case 13: return new FfiError.Database(FfiConverterString.read(from));
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -3114,26 +3261,44 @@ const FfiConverterTypeFfiError = (() => {
                     FfiConverterString.write(inner[0], into);
                     return;
                 }
-                case FfiError_Tags.NodeNotStarted: {
+                case FfiError_Tags.IdentityNotReady: {
                     ordinalConverter.write(5, into);
                     return;
                 }
-                case FfiError_Tags.ExpiredCode: {
+                case FfiError_Tags.InvalidArgument: {
                     ordinalConverter.write(6, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner[0], into);
                     return;
                 }
-                case FfiError_Tags.InvalidCode: {
+                case FfiError_Tags.InvitePersistFailed: {
                     ordinalConverter.write(7, into);
                     return;
                 }
-                case FfiError_Tags.Transfer: {
+                case FfiError_Tags.DeviceNotFound: {
                     ordinalConverter.write(8, into);
+                    return;
+                }
+                case FfiError_Tags.NodeNotStarted: {
+                    ordinalConverter.write(9, into);
+                    return;
+                }
+                case FfiError_Tags.ExpiredCode: {
+                    ordinalConverter.write(10, into);
+                    return;
+                }
+                case FfiError_Tags.InvalidCode: {
+                    ordinalConverter.write(11, into);
+                    return;
+                }
+                case FfiError_Tags.Transfer: {
+                    ordinalConverter.write(12, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
                 }
                 case FfiError_Tags.Database: {
-                    ordinalConverter.write(9, into);
+                    ordinalConverter.write(13, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
@@ -3169,24 +3334,39 @@ const FfiConverterTypeFfiError = (() => {
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }
-                case FfiError_Tags.NodeNotStarted: {
+                case FfiError_Tags.IdentityNotReady: {
                     return ordinalConverter.allocationSize(5);
                 }
+                case FfiError_Tags.InvalidArgument: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(6);
+                    size += FfiConverterString.allocationSize(inner[0]);
+                    return size;
+                }
+                case FfiError_Tags.InvitePersistFailed: {
+                    return ordinalConverter.allocationSize(7);
+                }
+                case FfiError_Tags.DeviceNotFound: {
+                    return ordinalConverter.allocationSize(8);
+                }
+                case FfiError_Tags.NodeNotStarted: {
+                    return ordinalConverter.allocationSize(9);
+                }
                 case FfiError_Tags.ExpiredCode: {
-                    return ordinalConverter.allocationSize(6);
+                    return ordinalConverter.allocationSize(10);
                 }
                 case FfiError_Tags.InvalidCode: {
-                    return ordinalConverter.allocationSize(7);
+                    return ordinalConverter.allocationSize(11);
                 }
                 case FfiError_Tags.Transfer: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(8);
+                    let size = ordinalConverter.allocationSize(12);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }
                 case FfiError_Tags.Database: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(9);
+                    let size = ordinalConverter.allocationSize(13);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }
@@ -5921,7 +6101,11 @@ export interface MobileCoreLike {
  */
     renameDevice(name: string | undefined, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string | undefined>;
     repairMissingInboxItems(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileInboxItemDetail>>;
-    respondPairingRequest(pendingId: bigint, accept: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * 响应入站配对请求。**返回是否已落盘**（语义见
+ * [`MobilePairingResult::persisted`]）—— 响应本身是入参，不必回传。
+ */
+    respondPairingRequest(pendingId: bigint, accept: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<boolean>;
     resumeTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileTransferProjection>;
 /**
  * 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
@@ -7152,7 +7336,11 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     }
     
-    async respondPairingRequest(pendingId: bigint, accept: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+/**
+ * 响应入站配对请求。**返回是否已落盘**（语义见
+ * [`MobilePairingResult::persisted`]）—— 响应本身是入参，不必回传。
+ */
+    async respondPairingRequest(pendingId: bigint, accept: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<boolean> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
@@ -7162,11 +7350,16 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterUInt64.lower(pendingId, nativeModule().rustbuffer_alloc),FfiConverterBool.lower(accept, nativeModule().rustbuffer_alloc)
                 );
             },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
-            /*liftFunc:*/ (_v) => {},
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_i8,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_i8,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_i8,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_i8,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterBool.lift.bind(FfiConverterBool),
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -7862,7 +8055,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items() !== 47796) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request() !== 7292) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request() !== 62453) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_respond_pairing_request");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer() !== 29332) {

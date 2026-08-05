@@ -4,8 +4,11 @@
 //! 的业务层。两个高度，读的时候分开看：
 //!
 //! - **列表算法** —— [`upsert`] / [`update_policy`] / [`remove`]：纯粹的 load-改-save，
-//!   不认识 `NetManager`，也不发事件。三端 host 都调这里，语义分叉在结构上不可能再发生
-//!   （历史教训：Web 曾自己写过一份 upsert，把用户设的信任策略整条替换掉）。
+//!   不认识 `NetManager`，也不发事件。语义分叉在结构上不可能再发生（历史教训：Web 曾自己
+//!   写过一份 upsert，把用户设的信任策略整条替换掉）。
+//!   ⚠️ **host 不直接调 [`upsert`]** —— 新增/刷新已配对设备的唯一入口是
+//!   [`PairingManager::commit_paired_device`](crate::pairing::PairingManager)，它在这之上
+//!   还管共享内存表与事件。本函数现在只有那一个调用方。
 //! - **宿主编排** —— [`unpair`] / [`set_receive_policy`]：收 `Option<&NetManager>`，把
 //!   「节点在跑 → 走内存表 + 事件；没跑 → 只改持久化」这条分支收进 core。形态照抄
 //!   [`rename_device`](crate::device_name::rename_device)，理由也一样：分支留在宿主侧，
@@ -26,10 +29,16 @@ use crate::error::{AppError, AppResult};
 use crate::host::{CoreEvent, EventBus, PairedDeviceStore};
 use crate::network::{NetManager, TransferRuntime};
 
-/// 添加或刷新一个已配对设备，并返回更新后的列表。
+/// 添加或刷新一个已配对设备，返回**合并后的那一台**。
 ///
 /// 已存在的条目**只更新 `os_info` / `paired_at`**，保留 `trust_level` /
 /// `receive_policy` / `trust_confirmed`。
+///
+/// 返回单台而非整份列表，与 [`update_policy`] 同一条理由：唯一调用方
+/// （[`PairingManager::commit_paired_device`](crate::pairing::PairingManager)）要的
+/// 就是这一台，而「返回列表 + 调用方 `find(peer_id).unwrap_or(原值)`」是第二遍查找，
+/// 且那个兜底分支**构造上不可达**（要么更新已有、要么 push，`find` 必中）——
+/// 不可达的兜底只会在将来合并逻辑变化时静默吞掉本该不可能的状态。
 ///
 /// **为什么不整条替换。** 调用方传进来的 `device` 来自
 /// [`PairedDeviceInfo::new`](crate::device::PairedDeviceInfo::new)——配对成功回调构造的
@@ -38,22 +47,31 @@ use crate::network::{NetManager, TransferRuntime};
 /// `Owned` 掉回 `Collaborator`，用户收紧过的 `receive_policy` 也会被放回默认。而
 /// `receive_policy` 是**被真正裁决的**（入站 offer 经 `swarmdrop_transfer::policy`
 /// 判定），不是展示字段，所以这不是显示问题，是一次静默的策略变更。
-pub async fn upsert<S>(store: &S, device: PairedDeviceInfo) -> AppResult<Vec<PairedDeviceInfo>>
+pub async fn upsert<S>(store: &S, device: PairedDeviceInfo) -> AppResult<PairedDeviceInfo>
 where
     S: PairedDeviceStore + ?Sized,
 {
     let mut devices = store.load_paired_devices().await?;
-    if let Some(existing) = devices
-        .iter_mut()
-        .find(|item| item.peer_id == device.peer_id)
+    // 用 `position` 而不是 `iter_mut().find()`：后者的可变借用会活到分支之外，
+    // 挡住随后的 `devices[slot].clone()`。
+    let slot = match devices
+        .iter()
+        .position(|item| item.peer_id == device.peer_id)
     {
-        existing.os_info = device.os_info;
-        existing.paired_at = device.paired_at;
-    } else {
-        devices.push(device);
-    }
+        Some(index) => {
+            // 合并规则住在 `PairedDeviceInfo::merge_observation` —— `commit_paired_device`
+            // 的落盘失败回退要用同一份，见那里的注释。
+            devices[index].merge_observation(device);
+            index
+        }
+        None => {
+            devices.push(device);
+            devices.len() - 1
+        }
+    };
+    let merged = devices[slot].clone();
     store.save_paired_devices(&devices).await?;
-    Ok(devices)
+    Ok(merged)
 }
 
 /// 更新已配对设备的可信策略，返回**更新后的那台设备**。
@@ -72,7 +90,7 @@ where
 {
     let mut devices = store.load_paired_devices().await?;
     let Some(device) = devices.iter_mut().find(|item| &item.peer_id == peer_id) else {
-        return Err(AppError::Identity("未找到已配对设备".to_string()));
+        return Err(AppError::DeviceNotFound);
     };
 
     device.trust_level = trust_level;
@@ -203,16 +221,25 @@ mod tests {
         let mut device = paired_device("first");
         let peer_id = device.peer_id;
 
-        let devices = super::upsert(&host, device.clone()).await.unwrap();
-        assert_eq!(devices.len(), 1);
+        super::upsert(&host, device.clone()).await.unwrap();
 
         device.os_info.hostname = "second".to_string();
         device.trust_level = DeviceTrustLevel::Owned;
-        let devices = super::upsert(&host, device).await.unwrap();
-        assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0].peer_id, peer_id);
-        assert_eq!(devices[0].os_info.hostname, "second");
-        assert_eq!(devices[0].trust_level, DeviceTrustLevel::Collaborator);
+        let merged = super::upsert(&host, device).await.unwrap();
+
+        assert_eq!(merged.peer_id, peer_id);
+        assert_eq!(merged.os_info.hostname, "second");
+        assert_eq!(
+            merged.trust_level,
+            DeviceTrustLevel::Collaborator,
+            "已存在条目的 trust_level 必须保留，不能被入参的默认值覆盖"
+        );
+
+        // 返回值是合并结果，落盘的是整份列表——两者都要断言，否则「返回对了但没写进去」
+        // 或「写重复了一行」都测不出来。
+        let stored = host.load_paired_devices().await.unwrap();
+        assert_eq!(stored.len(), 1, "同一 peer 只应留一行");
+        assert_eq!(stored[0].os_info.hostname, "second");
     }
 
     /// upsert 的保留语义必须覆盖 `receive_policy`，而不只是 `trust_level`。
@@ -233,15 +260,22 @@ mod tests {
 
         // 再次配对：回调构造的是默认策略的 PairedDeviceInfo::new(...)
         let repaired = PairedDeviceInfo::new(peer_id, OsInfo::default(), 2);
-        let devices = super::upsert(&host, repaired).await.unwrap();
+        let merged = super::upsert(&host, repaired).await.unwrap();
 
-        assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0].trust_level, DeviceTrustLevel::Owned);
-        assert!(!devices[0].receive_policy.auto_accept);
-        assert_eq!(devices[0].receive_policy.max_transfer_bytes, Some(1024));
-        assert!(!devices[0].receive_policy.allow_relay_auto_accept);
-        assert!(!devices[0].trust_confirmed);
-        assert_eq!(devices[0].paired_at, 2);
+        assert_eq!(merged.trust_level, DeviceTrustLevel::Owned);
+        assert!(!merged.receive_policy.auto_accept);
+        assert_eq!(merged.receive_policy.max_transfer_bytes, Some(1024));
+        assert!(!merged.receive_policy.allow_relay_auto_accept);
+        assert!(!merged.trust_confirmed);
+        assert_eq!(merged.paired_at, 2, "os_info / paired_at 是该被刷新的两项");
+
+        // 返回值合并对了还不够——落盘的那份也必须是合并结果。
+        // `commit_paired_device` 把返回值写进共享内存表、把落盘结果留给下次启动，
+        // 两者分叉就是「本次运行守着用户策略、重启后退回默认」。
+        let stored = host.load_paired_devices().await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].trust_level, DeviceTrustLevel::Owned);
+        assert_eq!(stored[0].receive_policy.max_transfer_bytes, Some(1024));
     }
 
     #[tokio::test]

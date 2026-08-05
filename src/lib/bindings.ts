@@ -137,9 +137,13 @@ export const commands = {
 	/**
 	 *  用邀请串发起配对（受邀方）：解码验签 → 连接发起方 → 出示凭证。
 	 * 
-	 *  配对成功后自动加入已配对设备并 emit `paired-device-added`。
+	 *  配对成功后由 core 落盘并 emit `paired-device-added`。
+	 * 
+	 *  返回 [`PairingOutcome`]：`response` 是对端的答复，`persisted` 为 `false` 时表示
+	 *  **配对成功了但这条记录没写进钥匙串** —— 本次运行内可用，重启后这台设备会从列表消失
+	 *  （对端仍记着）。UI 必须如实告知，不能当成普通成功。
 	 */
-	consumePairInvite: (invite: string) => __TAURI_INVOKE<PairingResponse>("consume_pair_invite", { invite }),
+	consumePairInvite: (invite: string) => __TAURI_INVOKE<PairingOutcome>("consume_pair_invite", { invite }),
 	/**
 	 *  向对端发起配对请求
 	 * 
@@ -149,13 +153,16 @@ export const commands = {
 	 *  内核 newtype，方便通过 specta 生成 TypeScript bindings（内核类型本身不实现
 	 *  `specta::Type`）。
 	 */
-	requestPairing: (peerId: string, method: PairingMethod, addrs: string[] | null) => __TAURI_INVOKE<PairingResponse>("request_pairing", { peerId, method, addrs }),
+	requestPairing: (peerId: string, method: PairingMethod, addrs: string[] | null) => __TAURI_INVOKE<PairingOutcome>("request_pairing", { peerId, method, addrs }),
 	/**
-	 *  处理收到的配对请求（接受/拒绝）
+	 *  处理收到的配对请求（接受/拒绝）。
 	 * 
-	 *  接受配对后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
+	 *  接受后由 core 落盘并 emit `paired-device-added` 事件通知前端。
+	 * 
+	 *  **返回是否已落盘**（响应本身是入参，不必回传）：`false` = 配对成功但记录没写进钥匙串，
+	 *  重启后这台设备会不见（对端仍记着）。语义与 [`PairingOutcome::persisted`] 同。
 	 */
-	respondPairingRequest: (pendingId: number, method: PairingMethod, response: PairingResponse) => __TAURI_INVOKE<null>("respond_pairing_request", { pendingId, method, response }),
+	respondPairingRequest: (pendingId: number, method: PairingMethod, response: PairingResponse) => __TAURI_INVOKE<boolean>("respond_pairing_request", { pendingId, method, response }),
 	/**
 	 *  取消与指定设备的配对。
 	 * 
@@ -753,6 +760,20 @@ export type PairedDeviceRemoved = string;
 export type PairingMethod = { type: "direct" } | { type: "invite"; 
 /**  128bit bearer 凭证明文。发起端以其 SHA-256 查询状态表，明文不落盘。 */
 capability: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] };
+
+/**
+ *  一次配对尝试的结果。
+ * 
+ *  `persisted` 与 [`revoke_pair_invite_by_id`] 的返回值同构：**本次运行内已生效，但重启后
+ *  会变回去**。这类「一半成功」不能压成 `Err` —— 配对达成时对端已经把本机加进它的列表，
+ *  本机再报失败只会让两台设备对同一件事的认知永久分叉。UI 该说的是「这台设备重启后会丢，
+ *  建议重新配对」，不是「配对失败」。
+ */
+export type PairingOutcome = {
+	response: PairingResponse,
+	/**  设备是否已落盘。**仅当 `response` 为成功时有意义**，其余情况恒为 `true`。 */
+	persisted: boolean,
+};
 
 /**  配对被拒绝的原因。 */
 export type PairingRefuseReason = { type: "user_rejected" };

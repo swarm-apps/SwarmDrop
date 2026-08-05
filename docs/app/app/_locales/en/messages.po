@@ -195,6 +195,10 @@ msgstr "Transfer progress"
 msgid "传输错误"
 msgstr "Transfer error"
 
+#: app/app/_components/pairing-panel.tsx
+msgid "但这条记录没能存进浏览器，刷新页面后需要重新配对。"
+msgstr "But this record could not be stored in the browser — you'll need to pair again after a refresh."
+
 #: app/app/_components/incoming-offers-panel.tsx
 msgid "你关掉提示后，请求会留在这里等你决定。"
 msgstr "After you dismiss the prompt, requests wait here for your decision."
@@ -339,6 +343,11 @@ msgstr "Hit Send on an online device, and the transfer shows up here live."
 #: app/app/_components/pairing-panel.tsx
 msgid "刷新页面后它可能恢复可用，建议稍后再撤销一次。"
 msgstr "It may come back after a page refresh — revoke it again later."
+
+#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
+msgid "刷新页面后需要重新配对。"
+msgstr "You'll need to pair again after refreshing the page."
 
 #: app/app/_lib/view-types.ts
 msgid "剪贴板"
@@ -688,9 +697,14 @@ msgstr "Delivered"
 msgid "已选 {0} 个文件 · 共 <0>{1}</0>"
 msgstr "{0} files selected · <0>{1}</0> total"
 
+#. placeholder {0}: consumeSuccess.peerId
 #: app/app/_components/pairing-panel.tsx
-msgid "已配对：<0>{consumeSuccess}</0>"
-msgstr "Paired: <0>{consumeSuccess}</0>"
+msgid "已配对：<0>{0}</0>"
+msgstr "Paired: <0>{0}</0>"
+
+#: app/app/_components/pairing-panel.tsx
+#~ msgid "已配对：<0>{consumeSuccess}</0>"
+#~ msgstr "Paired: <0>{consumeSuccess}</0>"
 
 #: app/app/_components/device-grid.tsx
 #: app/app/_lib/view-types.ts
@@ -1502,6 +1516,11 @@ msgstr "Once paired, either side can send files. Make sure you recognise this de
 #: app/app/_components/pairing-panel.tsx
 msgid "配对后双方可以互相发送文件。确认是这台设备再继续。"
 msgstr "After pairing, either side can send files. Make sure this is the right device before continuing."
+
+#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
+msgid "配对成功，但这条记录没能存进浏览器"
+msgstr "Paired, but the record could not be stored in the browser"
 
 #: app/app/_lib/view-types.ts
 msgid "配对码"

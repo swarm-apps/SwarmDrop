@@ -110,6 +110,22 @@ pub struct PendingPairingJson {
     pub device_name: String,
 }
 
+/// 一次配对尝试的结果（与桌面 `PairingOutcome` / 移动 `MobilePairingResult` 同构）。
+///
+/// `persisted` 表达的是一种**不能压成错误的「一半成功」**：走到这一步对端已经收到
+/// `Success` 并把本机加进了它的已配对列表，本机此时若报失败，两台设备对同一件事的认知
+/// 就永久分叉了。真实后果只有一个 —— 这台设备刷新/重启后会从本机列表消失（对端仍记着），
+/// UI 该照这个说。
+#[derive(Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PairingOutcomeJson {
+    /// 已配对对端的 NodeId（base58）。
+    pub peer_id: String,
+    /// 设备是否已落盘。`false` = 刷新页面后这台设备会不见（对端仍记着）。
+    pub persisted: bool,
+}
+
 /// 「已发出的邀请」列表条目（openspec: invite-persistence）。
 ///
 /// **没有邀请串本身**：capability 明文不落盘也不出注册表，刷新后拼不回原始链接。

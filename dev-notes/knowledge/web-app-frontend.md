@@ -825,3 +825,21 @@ ARIA 对 `button` 规定 **Children Presentational: True**：它的后代角色�
 降级块里要单独给它补 `border: 1px solid var(--border)`。
 
 **相关文件**：`docs/app/global.css`
+
+## 已知问题：「对方拒绝配对」被渲染成「网络错误」+ 一句未翻译的简体中文
+
+`crates/web/src/node.rs` 的 `connect_invite` 在对端拒绝时返回
+`WebError::network("邀请方拒绝了配对或配对未成功")`，前端 `WebErrorCard` 于是渲染出标题
+「网络错误」加一行 mono 字体的**简体中文** —— 那句来自 Rust，不在任何 `.po` 里，
+**en / zh-TW 用户看到的就是中文**。下方的解释性提示还只列「已撤销 / 已被别的设备用掉」，
+恰恰漏了最常见的成因（对方点了拒绝），把排查引向错误方向。
+
+桌面同一条路径走 `getPairingRefuseMessage()`（`src/stores/pairing-store.ts`）出 Lingui 文案，
+移动端 `MobilePairingResult.reason` 带 snake_case 判别码由 JS 本地化 —— **只有 Web 把它
+当错误抛**。
+
+修法（未做，需要一次独立的三端对齐）：`PairingOutcomeJson` 加 `refuseReason`
+（`null` = 成功，`"user_rejected"` = 对方拒绝），`connect_invite` 拒绝时返回 `Ok` 而不是
+`Err`，前端按判别码渲染 Lingui 文案。这会让三端的「配对被拒」形状一致。
+
+**相关文件**：`crates/web/src/node.rs`、`docs/app/app/_components/pairing-panel.tsx`

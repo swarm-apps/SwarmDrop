@@ -296,6 +296,21 @@ export type PairInvitePreviewJson = {
     localOnly: boolean,
 };
 
+/**
+ *  一次配对尝试的结果（与桌面 `PairingOutcome` / 移动 `MobilePairingResult` 同构）。
+ *
+ *  `persisted` 表达的是一种**不能压成错误的「一半成功」**：走到这一步对端已经收到
+ *  `Success` 并把本机加进了它的已配对列表，本机此时若报失败，两台设备对同一件事的认知
+ *  就永久分叉了。真实后果只有一个 —— 这台设备刷新/重启后会从本机列表消失（对端仍记着），
+ *  UI 该照这个说。
+ */
+export type PairingOutcomeJson = {
+    /**  已配对对端的 NodeId（base58）。 */
+    peerId: string,
+    /**  设备是否已落盘。`false` = 刷新页面后这台设备会不见（对端仍记着）。 */
+    persisted: boolean,
+};
+
 /**  连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。 */
 export type PathKindJson = "local" | "direct" | "relayed";
 
@@ -662,11 +677,14 @@ export class WebNode {
      *
      * `pair_with_invite` 解码验签 → TTL 预检 → 按 `TransportPolicy` 过滤地址 → 连邀请方出示
      * capability（`PairingMethod::Invite`）→ 邀请方（桌面）校验 CAS 一次性消费 + 用户确认 →
-     * 双方写配对记录。身份 pin 由握手强制（连到的必然是 `inviter_id`）。成功返回已配对对端的
-     * NodeId（base58）；确认发生在**邀请方**侧，浏览器侧无需交互。配对后该对端进入本机信任
-     * 表，双向传输（收 / 发）不再被 `NotPaired` 拦。
+     * 双方写配对记录。身份 pin 由握手强制（连到的必然是 `inviter_id`）。确认发生在**邀请方**
+     * 侧，浏览器侧无需交互。配对后该对端进入本机信任表，双向传输（收 / 发）不再被
+     * `NotPaired` 拦。
+     *
+     * 返回 [`PairingOutcomeJson`]：`peerId` 是已配对对端的 NodeId，`persisted` 为 `false` 时
+     * 表示配对成功了但没写进 IndexedDB —— 刷新页面后这台设备会不见（对端仍记着）。
      */
-    connect_invite(invite: string): Promise<string>;
+    connect_invite(invite: string): Promise<PairingOutcomeJson>;
     /**
      * 解码并验签邀请串，返回对端展示信息 —— **不发起配对、不消费**。
      *
@@ -905,7 +923,7 @@ export class WebNode {
     /**
      * 响应一个入站配对请求（`accept=true` 接受并写配对记录、CAS 消费 invite / `false` 拒绝）。
      */
-    respond_pairing_request(pending_id: string, accept: boolean): Promise<void>;
+    respond_pairing_request(pending_id: string, accept: boolean): Promise<boolean>;
     /**
      * 手动发起断点续传（对某 suspended 会话）。
      *
@@ -1034,6 +1052,10 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly start: () => void;
+    readonly default_device_name: () => [number, number];
+    readonly get_device_name: () => any;
+    readonly set_device_name: (a: number, b: number) => any;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1080,10 +1102,6 @@ export interface InitOutput {
     readonly webnode_spawn: () => any;
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly default_device_name: () => [number, number];
-    readonly get_device_name: () => any;
-    readonly set_device_name: (a: number, b: number) => any;
-    readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;

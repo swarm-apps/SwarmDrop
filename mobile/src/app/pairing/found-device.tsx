@@ -33,7 +33,7 @@ export default function FoundDevice() {
   const preview = pending?.preview;
 
   const onConfirm = async () => {
-    const accepted = await confirmInvite();
+    const { accepted, persisted } = await confirmInvite();
     if (accepted && preview) {
       router.replace({
         pathname: "/pairing/success" as never,
@@ -44,6 +44,9 @@ export default function FoundDevice() {
           os: preview.displayPlatform,
           platform: preview.displayPlatform,
           arch: "",
+          // 「配对成功但没落盘」要出现在成功页上 —— 只弹 toast 会被转场动画盖住，
+          // 而那一屏通篇是绿色对勾。route param 只能是字符串。
+          persisted: persisted ? "1" : "0",
         },
       } as never);
     }

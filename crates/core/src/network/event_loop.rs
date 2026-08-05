@@ -76,10 +76,18 @@ pub async fn handle_core_node_event<TTransfer>(
         }
     }
     if let Some(device) = refreshed_paired_device {
-        // 已配对设备的名称/系统信息来自对端 identify；由 host 消费此事件后写入持久化存储。
-        let _ = event_bus
-            .publish(CoreEvent::PairedDeviceAdded { device })
-            .await;
+        // 已配对设备的名称/系统信息来自对端 identify。**落盘与发事件都在 commit 里**
+        // （与配对刚达成时走同一个入口），host 不再各自回写——那正是同一个动作在三端
+        // 长出三种失败语义的成因。
+        //
+        // 走 `refresh_paired_device` 而不是 `commit_paired_device`：**刷新不该带「新增」
+        // 语义**。上面那句 `publish_devices_and_status(..).await` 是个真实窗口，期间用户
+        // 可能刚解除了这台设备的配对；直接 commit 会把它重新写回内存表与库、还发一条
+        // `PairedDeviceAdded`，于是刚解除的设备立刻复活。
+        //
+        // 无返回值：没有用户动作在等这次刷新，写盘失败只意味着「新名字下次启动会退回
+        // 旧的」，commit 内部已记 warn。
+        shared.pairing.refresh_paired_device(device).await;
     }
 }
 

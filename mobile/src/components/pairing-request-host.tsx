@@ -17,6 +17,7 @@ import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { warnIfPairingNotPersisted } from "@/lib/pairing-feedback";
 import { toast } from "@/lib/toast";
 import { truncateMiddle } from "@/lib/utils";
 import { useNotificationStore } from "@/stores/notification-store";
@@ -47,7 +48,11 @@ export function PairingRequestHost() {
       if (!current || !payload || responding) return;
       setResponding(true);
       try {
-        await getMobileCore().respondPairingRequest(payload.pendingId, accept);
+        const persisted = await getMobileCore().respondPairingRequest(
+          payload.pendingId,
+          accept,
+        );
+        if (accept) warnIfPairingNotPersisted(persisted);
       } catch (err) {
         console.warn(
           `[pairing-host] ${accept ? "accept" : "reject"} failed:`,

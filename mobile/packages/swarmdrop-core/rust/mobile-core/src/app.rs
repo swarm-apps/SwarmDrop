@@ -62,11 +62,11 @@ impl MobileCore {
     ) -> Arc<Self> {
         // 进程级 panic hook —— 只装一次,后续可用 take_last_panic() 取详情
         crate::panic_hook::install();
-        // 适配器先建好 Arc,事件总线也持有它一份 —— Identify 刷新的设备名
-        // 由事件总线经 PairedDeviceStore 端口写回(见 MobileEventBusAdapter::publish)。
+        // 事件总线只转发,不再持有 PairedDeviceStore —— 新配对与 Identify 刷新的写回
+        // 已收进 core 的 `PairingManager::commit_paired_device`(三端同一个入口)。
         let keychain = Arc::new(MobileKeychainAdapter::new(keychain));
         Arc::new(Self {
-            event_bus: Arc::new(MobileEventBusAdapter::new(event_bus, keychain.clone())),
+            event_bus: Arc::new(MobileEventBusAdapter::new(event_bus)),
             keychain,
             file_access: Arc::new(MobileFileAccessAdapter::new(file_access)),
             device_config: Arc::new(JsonFileDeviceConfig::new(device_config_path(&data_dir))),
@@ -215,23 +215,17 @@ impl MobileCore {
 }
 
 async fn open_db(data_dir: &str) -> FfiResult<DatabaseConnection> {
-    use sea_orm::Database;
-    use sea_orm_migration::MigratorTrait;
-
     // 去掉 file:// 前缀（expo Paths.document.uri 是 file:///path/to/dir）
     let dir = data_dir
         .strip_prefix("file://")
         .unwrap_or(data_dir)
         .trim_end_matches('/');
-    let db_path = format!("{dir}/swarmdrop.db");
-    let db_url = format!("sqlite:{db_path}?mode=rwc");
-    tracing::info!("初始化 mobile-core 数据库: {db_url}");
+    let db_path = std::path::Path::new(dir).join("swarmdrop.db");
+    tracing::info!("初始化 mobile-core 数据库: {}", db_path.display());
 
-    let db = Database::connect(&db_url)
+    // 连接 + 迁移 + 「迁移历史过时就删库重建」的自愈与桌面共用同一条编排，
+    // 见 `migration::connect_and_migrate`。
+    migration::connect_and_migrate(&db_path)
         .await
-        .map_err(|e| FfiError::Database(e.to_string()))?;
-    migration::Migrator::up(&db, None)
-        .await
-        .map_err(|e| FfiError::Database(e.to_string()))?;
-    Ok(db)
+        .map_err(|e| FfiError::Database(e.to_string()))
 }

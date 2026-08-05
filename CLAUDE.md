@@ -160,7 +160,13 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | `src-tauri` | 桌面壳 |
 | `mobile/packages/swarmdrop-core/rust/mobile-core` | uniffi 移动桥接 |
 
-**关键边界：** `crates/core` 零 sea-orm、`crates/transfer` 零 network 依赖、`crates/invite` 零 core 依赖。
+**关键边界：** `crates/core` 零 sea-orm、`crates/transfer` **零 core 依赖**、`crates/invite` 零 core 依赖。
+
+> 这里曾写作「`crates/transfer` 零 network 依赖」，**是错的**（2026-08-05 核实修正）：
+> transfer 的 `Cargo.toml:21` 就有 `swarmdrop-net`，`protocol.rs` / `incoming.rs` /
+> `manager.rs` 直接用 `Endpoint` / `RpcService` / `NodeId` —— 它要收发数据，不可能不认识网络。
+> 真正成立的那条是**零 core 依赖**（`grep swarmdrop_core crates/transfer/src` 零命中），
+> 它依赖的是 net + host + entity。
 这不是审美，是 wasm 能编过的硬约束——破坏它 `./scripts/check-wasm.sh` 会红。
 
 ### Frontend → Backend Communication

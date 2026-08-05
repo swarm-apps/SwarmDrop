@@ -15,6 +15,14 @@ pub enum FfiError {
     Network(String),
     #[error("identity error: {0}")]
     Identity(String),
+    #[error("identity not ready")]
+    IdentityNotReady,
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
+    #[error("invite state not persisted")]
+    InvitePersistFailed,
+    #[error("paired device not found")]
+    DeviceNotFound,
     #[error("node not started")]
     NodeNotStarted,
     #[error("pairing code expired")]
@@ -34,6 +42,10 @@ impl From<AppError> for FfiError {
             AppError::Serialization(error) => Self::Serialization(error.to_string()),
             AppError::Network(message) => Self::Network(message),
             AppError::Identity(message) => Self::Identity(message),
+            AppError::IdentityNotReady => Self::IdentityNotReady,
+            AppError::InvalidArgument(message) => Self::InvalidArgument(message),
+            AppError::InvitePersistFailed => Self::InvitePersistFailed,
+            AppError::DeviceNotFound => Self::DeviceNotFound,
             AppError::NodeNotStarted => Self::NodeNotStarted,
             AppError::ExpiredCode => Self::ExpiredCode,
             AppError::InvalidCode => Self::InvalidCode,
@@ -54,6 +66,10 @@ impl From<FfiError> for AppError {
             }
             FfiError::Network(message) => AppError::Network(message),
             FfiError::Identity(message) => AppError::Identity(message),
+            FfiError::IdentityNotReady => AppError::IdentityNotReady,
+            FfiError::InvalidArgument(message) => AppError::InvalidArgument(message),
+            FfiError::InvitePersistFailed => AppError::InvitePersistFailed,
+            FfiError::DeviceNotFound => AppError::DeviceNotFound,
             FfiError::NodeNotStarted => AppError::NodeNotStarted,
             FfiError::ExpiredCode => AppError::ExpiredCode,
             FfiError::InvalidCode => AppError::InvalidCode,

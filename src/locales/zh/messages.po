@@ -237,6 +237,10 @@ msgstr "传输失败"
 msgid "传输活动"
 msgstr "传输活动"
 
+#: src/stores/pairing-store.ts
+msgid "但这条记录没能保存下来，重启后需要重新配对。"
+msgstr "但这条记录没能保存下来，重启后需要重新配对。"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "使用同网段已开启协助能力的桌面端"
 msgstr "使用同网段已开启协助能力的桌面端"
@@ -817,7 +821,6 @@ msgstr "展示邀请"
 
 #: src/stores/pairing-store.ts
 #: src/stores/pairing-store.ts
-#: src/stores/pairing-store.ts
 msgid "已与 {deviceName} 配对成功"
 msgstr "已与 {deviceName} 配对成功"
 
@@ -1312,6 +1315,10 @@ msgstr "未启动"
 msgid "未找到匹配项"
 msgstr "未找到匹配项"
 
+#: src/lib/errors.ts
+msgid "未找到该设备"
+msgstr "未找到该设备"
+
 #: src/components/network/stop-node-sheet.tsx
 msgid "未提供"
 msgstr "未提供"
@@ -1340,7 +1347,6 @@ msgstr "未读"
 msgid "未连接"
 msgstr "未连接"
 
-#: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "未配对"
 msgstr "未配对"
@@ -1818,8 +1824,16 @@ msgid "设备身份"
 msgstr "设备身份"
 
 #: src/lib/errors.ts
-msgid "设备身份初始化失败"
-msgstr "设备身份初始化失败"
+#~ msgid "设备身份初始化失败"
+#~ msgstr "设备身份初始化失败"
+
+#: src/lib/errors.ts
+msgid "设备身份尚未就绪，请重启应用后重试"
+msgstr "设备身份尚未就绪，请重启应用后重试"
+
+#: src/lib/errors.ts
+msgid "设备身份读写失败"
+msgstr "设备身份读写失败"
 
 #: src/components/layout/app-topbar.tsx
 #: src/components/layout/app-topbar.tsx
@@ -2012,6 +2026,10 @@ msgstr "邀请无效或已被使用"
 #: src/components/pairing/sent-invites.tsx
 msgid "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
 msgstr "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
+
+#: src/lib/errors.ts
+msgid "邀请状态未能保存，本次配对已中止，请重新生成邀请"
+msgstr "邀请状态未能保存，本次配对已中止，请重新生成邀请"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "邀请经本地签名验证，真正建立信任仍需要双方确认。"

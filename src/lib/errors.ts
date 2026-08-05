@@ -45,7 +45,17 @@ const KIND_MESSAGES: Record<string, MessageDescriptor> = {
   InvalidCode: msg`邀请无效或已被使用`,
   Network: msg`网络连接出现问题，请稍后重试`,
   Transfer: msg`文件传输失败，请重试`,
-  Identity: msg`设备身份初始化失败`,
+  // **只在密钥材料真的读写失败时出现**。它一度是配对路径的垃圾桶（peer_id 解析、
+  // 二维码生成、邀请状态没落盘、设备找不到全都包成它），于是用户在「点接受配对」时
+  // 会看到一句与真实原因毫无关系的「设备身份初始化失败」。那些已各自拆出 kind。
+  Identity: msg`设备身份读写失败`,
+  IdentityNotReady: msg`设备身份尚未就绪，请重启应用后重试`,
+  // 邀请凭证是好的，是本机没能把「已消费」写进库。宁可让这次配对失败也不放行——
+  // 否则重启后同一份一次性凭证还能再被用一次。
+  InvitePersistFailed: msg`邀请状态未能保存，本次配对已中止，请重新生成邀请`,
+  DeviceNotFound: msg`未找到该设备`,
+  // InvalidArgument 刻意不列：入参解析失败对用户没有意义（要么是 UI 传错了值，
+  // 要么是内部标识格式不对），走下面的通用兜底，技术细节留在 err.message 供日志。
 };
 
 /** 通用兜底提示（技术细节仅留在 err.message 供日志/详情）。 */
