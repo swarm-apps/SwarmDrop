@@ -7,7 +7,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,8 +37,21 @@ import {
 import { useNowSeconds } from "../_lib/use-now-seconds";
 import type { InviteListItemJson, PairingOutcomeJson } from "swarmdrop-web";
 
+/**
+ * 外部唤起配对区的句柄——设备网格里那张「添加设备」卡片按下时调 `open()`。
+ *
+ * **是命令式句柄而不是受控 prop**：要表达的是一次**点击事件**，不是一个状态。
+ * 做成 `open: boolean` 会撞上下面那套三层开合规则（`needsAttention` 强开、`dismissed`
+ * 压过它、`override` 是用户意志），受控化等于让每个调用方都复刻这三层；做成「请求计数 +
+ * useEffect」则是拿 effect 当事件处理器——为了绕开「effect 只在依赖变化时重跑」，得额外
+ * 编一个只增不减的数字和一个首帧守卫，再用两处注释解释那个数字为什么存在。
+ */
+export interface PairingPanelHandle {
+  open: () => void;
+}
+
 /** 配对/消费邀请成功后刷新已配对设备清单；失败不影响主流程（下一轮 state-poll 会补上）。 */
-export function PairingPanel() {
+export function PairingPanel({ ref }: { ref?: Ref<PairingPanelHandle> }) {
   const { t, i18n } = useLingui();
   const nodeStatus = useWebNode((s) => s.status);
   // 可达地址从 relay 清单派生（`selectReservation`）——它由 layout 单点订阅写入，
@@ -438,8 +451,23 @@ export function PairingPanel() {
   const open = (needsAttention && !dismissed) || (override ?? (ready && pairedCount === 0));
   const bodyId = useId();
 
+  // 「添加设备」卡片按下 → 开面板并滚到它。
+  //
+  // 只置 `override`，**不动 `dismissed`**：`override === true` 时上面那个 `||` 的右操作数
+  // 直接为真，`dismissed` 根本不参与求值，清它是死代码。
+  //
+  // 滚动而不只是展开：卡片在设备网格里，面板在网格**下方**，设备一多就在视口外——
+  // 点了卡片却什么都没动，看起来像按钮坏了。
+  const panelRef = useRef<HTMLElement>(null);
+  useImperativeHandle(ref, () => ({
+    open() {
+      setOverride(true);
+      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    },
+  }), []);
+
   return (
-    <SectionShell>
+    <SectionShell ref={panelRef}>
       <SectionHeader
         icon={Link2}
         title={<Trans>配对</Trans>}

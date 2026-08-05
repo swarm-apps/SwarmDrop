@@ -20,11 +20,11 @@
 import { useLingui } from "@lingui/react/macro";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookText } from "lucide-react";
 import { appIconPath, appName } from "@/lib/shared";
 import { APP_NAV, activeNavHref, type AppNavItem } from "../_lib/nav";
 import { selectOfferCount, useWebNode } from "../_lib/store";
 import { NodeStatusDialog } from "./node-status-dialog";
+import { RailTools } from "./rail-tools";
 
 /**
  * 该项的徽标数。计数在**列表外**订阅一次再传进来——hook 不能在 `APP_NAV.map` 里调。
@@ -94,16 +94,12 @@ export function AppSidebar() {
         ))}
       </nav>
 
+      {/* 底部分两层：**节点状态**（这台机器现在怎么样）与**环境开关**（主题 / 语言 / 文档）。
+          前者是状态，后者是调节，混在一起会让那枚状态 pill 读起来也像个设置项——
+          而它其实是本页唯一诚实汇报运行时的地方，也是节点启停的唯一入口。 */}
       <div className="shrink-0 space-y-2 border-t p-3 md:flex md:flex-col md:items-center lg:items-stretch">
         <NodeStatusDialog labelClassName="hidden lg:inline" />
-        <Link
-          href="/docs"
-          title={t`使用文档`}
-          className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:justify-center lg:justify-start"
-        >
-          <BookText className="size-4 shrink-0" aria-hidden="true" />
-          <span className="hidden lg:inline">{t`使用文档`}</span>
-        </Link>
+        <RailTools />
       </div>
     </aside>
   );

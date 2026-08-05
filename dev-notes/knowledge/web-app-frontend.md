@@ -934,6 +934,27 @@ wasm 拉完 `_bg.wasm` 才第一次 tick。只看 `length === 0` 的空态，于
 
 **相关文件**：`docs/app/app/_components/empty-state.tsx`
 
+## 编错 CSS 变量名不会报错，只会静默把那条样式归零（2026-08-05）
+
+写 `rounded-[var(--radius-card)]` / `p-[var(--space-card)]` 时**那两个变量并不存在**。
+Tailwind 的任意值语法照样生成 `border-radius: var(--radius-card)`，浏览器解析不出来就丢掉
+整条声明——圆角和内边距一起变 0，而 `tsc`、`next build`、`biome` 一个都不会响。
+表现是「这张卡片看起来有点怪」，不是任何一条错误。
+
+应用区实际有的只有这几个（`docs/app/global.css` 的 `@theme` 块）：
+
+| 族 | 全集 |
+|---|---|
+| 圆角 | `--radius-panel-sm`(18px) · `--radius-panel`(24px)，外加 shadcn 的 `--radius{,-sm,-md,-lg,-xl}` |
+| 间距 | `--space-in-group`(8) · `--space-in-panel`(16) · `--space-panel`(20) · `--space-section`(32) |
+
+**没有 `--radius-card` / `--space-card`**：卡片级几何走 Tailwind 原生类（`rounded-xl` + `p-4`，
+见 `device-card.tsx`），因为「面板 18–24px / 控件 6–14px」是 DESIGN.md 的两套词汇，
+卡片属于后者、不需要单独一档 token。
+
+**判据**：写 `var(--x)` 之前先 `grep -- '--x:' docs/app/global.css`。凭印象取名的变量名
+（尤其 `--radius-card` 这种「听起来就该有」的）是最容易漏的一类，因为它读起来完全合理。
+
 ## 应用区不再跟 fumadocs 的 `--color-fd-*`
 
 `app/global.css` 现在给应用区一套**自己的**无前缀语义 token（值与桌面 `src/index.css` 逐字
