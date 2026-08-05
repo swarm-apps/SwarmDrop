@@ -823,6 +823,32 @@ channel 会随机变成 `Bad file descriptor`。传输层随后只看到 data st
 无关。所以 tsdown / tsup 之类只能省掉 `transpilePackages` 一行，省不掉 root——权衡时别把它
 算成收益。
 
+### 那条放宽的代价：Next < 16.3 的 dev 会吃光内存把机器搞重启（2026-08-05 实测）
+
+root 放到仓库根意味着 turbopack 把**整个仓库**纳入文件系统边界——包括 173G 的 `target/`、
+15G 的 `mobile/` 和散落的 686 个 `node_modules`。Next **16.2.6** 下这笔账在**首次编译任意
+路由**时结清（不是启动时——`Ready in 136ms` 之后内存才起飞，容易误判成「启动没问题」）：
+
+| 配置（同一路由 `/docs/`，16G 机器） | 峰值 | 结果 |
+|---|---|---|
+| 16.2.6 turbopack，root=仓库根 | **11 G 仍在陡升** | 熔断前未编译完；不干预即吃光内存**系统重启** |
+| 16.2.6 turbopack，root=`docs/` | 4.9 G | 完成 |
+| 16.2.6 **webpack**（`next dev --webpack`） | 2.5 G | 完成 |
+| **16.3.0 turbopack，root=仓库根** | **2.4 G** | 完成 |
+
+**修法就是升到 Next ≥ 16.3.0**，配置一行不用动——16.3 的 Turbopack 加了内存驱逐（非活跃
+路由换出到磁盘），官方口径「大型应用 dev 内存降约 90%」，本仓实测降幅同量级。
+
+两条别走弯路的结论：
+
+- **元凶不是 `target/`**。把 173G 的 `target/` 整个移出仓库再跑，照样爆到 11G——代价来自
+  root 变宽这件事本身（解析面 + 686 个 `node_modules`），不是某个大目录。所以
+  「清 target 就好了」是错的。
+- **`--webpack` 是留给旧版本的应急阀**，不是长期方案：它同样能编完且只吃 2.5G，但拿不到
+  turbopack 的编译速度。升上 16.3 之后不需要它。
+
+**相关文件**：`docs/next.config.mjs`、`docs/package.json`
+
 ### 「零平台依赖」要两道门，`lib` 一道不够
 
 包的 `tsconfig` 用 `lib: ["ES2022"]`（无 DOM、`types: []`）挡住 `document.` / `window.`，
