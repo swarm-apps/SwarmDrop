@@ -285,10 +285,12 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
         expected: true,
     },
     InboxMatchCase {
+        // 刻意用 ASCII 词：这条守的是「多列同时命中仍是一次命中」，与查询词是不是 CJK 无关。
+        // 用中文会让它与上一条共享「2 字中文词」这个轴，两条守同一件事等于少守一件。
         name: "来源名与文件文本同时命中，仍是一次命中",
-        query: "合同",
-        source_name: "合同组的工作站",
-        files_text: "合同.pdf 合同.pdf",
+        query: "bob",
+        source_name: "Bob 的工作站",
+        files_text: "bob-report.pdf bob-report.pdf",
         extracted_text: None,
         expected: true,
     },

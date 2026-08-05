@@ -79,32 +79,31 @@ mod tests {
 
     use crate::Migrator;
 
-    /// SQLite 的 `DROP COLUMN` 要到 3.35 才有，而本仓此前所有删列都是「建新表 → 拷数据
-    /// → 删旧表 → 改名」的手工重建（`m20260805_000001_init` 的文档里还写着「它不支持
-    /// DROP COLUMN」）。这条测试钉的是「捆绑的 SQLite 确实支持」——不支持就会在这里红，
-    /// 而不是在用户升级时红。
+    /// up / down 往返，两半各钉一件事。
+    ///
+    /// **up 那半钉的是「捆绑的 SQLite 支持 `DROP COLUMN`」**：它要到 3.35（2021）才有，
+    /// 而本仓此前所有删列都是「建新表 → 拷数据 → 删旧表 → 改名」的手工重建。
+    /// 不支持就在这里红，而不是在用户升级时红。
+    ///
+    /// **down 那半钉的是回滚真能跑通**：`MigrationTrait::down` 有默认实现（兄弟迁移
+    /// `m20260806` 的 down 就是空的），所以「写了 down」不等于「down 是对的」。
     #[tokio::test]
     async fn up_drops_title_and_down_adds_it_back() {
         let db = Database::connect("sqlite::memory:").await.unwrap();
         Migrator::up(&db, None).await.unwrap();
-
         assert!(
-            !columns_of(&db, "inbox_search_index")
-                .await
-                .contains(&"title".to_string()),
+            !has_column(&db, "inbox_search_index", "title").await,
             "up 之后 title 列应当已被删除"
         );
 
         Migrator::down(&db, Some(1)).await.unwrap();
         assert!(
-            columns_of(&db, "inbox_search_index")
-                .await
-                .contains(&"title".to_string()),
+            has_column(&db, "inbox_search_index", "title").await,
             "down 之后 title 列应当被加回"
         );
     }
 
-    async fn columns_of(db: &sea_orm::DatabaseConnection, table: &str) -> Vec<String> {
+    async fn has_column(db: &sea_orm::DatabaseConnection, table: &str, column: &str) -> bool {
         db.query_all_raw(Statement::from_string(
             db.get_database_backend(),
             format!("PRAGMA table_info({table})"),
@@ -112,7 +111,6 @@ mod tests {
         .await
         .unwrap()
         .iter()
-        .map(|row| row.try_get::<String>("", "name").unwrap())
-        .collect()
+        .any(|row| row.try_get::<String>("", "name").unwrap() == column)
     }
 }

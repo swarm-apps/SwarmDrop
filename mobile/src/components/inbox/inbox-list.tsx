@@ -394,7 +394,11 @@ function isTextLike(item: InboxPreviewItem): boolean {
  * `isImageFile` / `isVideoFile` 是**文件级**谓词，而这两个函数的产物是**条目级**断言
  * ——它同时喂给图标、「图片」标签与筛选器。多文件条目里首文件只是第一个，不代表其余：
  * 一个「封面.jpg + 50 个 zip」的条目按首文件判会被归成图片，进「图片」筛选。
- * 故只对单文件条目判，多文件一律走通用图标——桌面 `ItemIcon` 早就是这个规矩。
+ * 故只对单文件条目判，其余一律走通用形态。
+ *
+ * 桌面 `ItemIcon`（`src/routes/_app/inbox/index.lazy.tsx`）表达的是同一条规矩的另一半
+ * ——它写 `count > 1` 就出归档图标。两边对 `itemCount === 0` 走的路径不同（桌面仍去判
+ * 空串的扩展名），但空串判不出任何类型，落点都是通用图标。
  */
 function isImageLike(item: InboxPreviewItem): boolean {
   return isSingleFileItem(item) && isImageFile(item.title);

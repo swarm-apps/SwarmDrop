@@ -1,7 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const start: () => void;
 export const __wbg_webnode_free: (a: number, b: number) => void;
 export const default_receive_policy: (a: any, b: number) => [number, number, number];
 export const inbox_search_limit: () => number;
@@ -52,6 +51,7 @@ export const webnode_update_paired_device_policy: (a: number, b: number, c: numb
 export const default_device_name: () => [number, number];
 export const get_device_name: () => any;
 export const set_device_name: (a: number, b: number) => any;
+export const start: () => void;
 export const __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
 export const intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
 export const intounderlyingbytesource_cancel: (a: number) => void;

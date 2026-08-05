@@ -9,7 +9,8 @@ use sea_orm::entity::prelude::*;
 ///
 /// **曾是 FTS5 虚表 `inbox_fts`，现在是普通表。** 检索从来没用过 FTS5 的 `MATCH` / bm25
 /// —— trigram 分词器对 <3 字的查询无法命中（「合同」这类 2 字中文词会返回空），所以命中
-/// 判据一直是对下面四个文本列做 `LIKE` 子串匹配（规范定义在
+/// 判据一直是对下面那几个文本列做 `LIKE` 子串匹配（**以 `inbox_matches` 的入参为准**，
+/// 别在这里数列数——那个数字改起来会漏，规范定义在
 /// `swarmdrop_transfer::inbox::inbox_matches`，Web 端直接调它）。既然虚表的检索能力一个
 /// 都没用上，它就只是一张预聚合文本表；改回普通表之后建表得以全部走 sea-orm schema
 /// builder，`CREATE VIRTUAL TABLE ... USING fts5(...)` 是迁移里最后一处无法用 DSL 表达的

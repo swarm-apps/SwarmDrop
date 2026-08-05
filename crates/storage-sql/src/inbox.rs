@@ -107,13 +107,9 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
     // 先把关系字段摘下来，再把 `ModelEx` 摊成纯 scalar 的 `Model`：共享判据
     // `is_completed_receive` 只吃 `Model`（关系机制编不进 wasm）。两步都是移动而非
     // 深拷——文件行里的 `completed_chunks` 位图与 `outboard` BLOB 不会被复制一份。
-    // `HasMany` 只 Deref 到 `&[_]`，排序要先摊成 Vec；`into_iter` 是移动，不深拷。
+    // `HasMany` 是 enum（`Unloaded` | `Loaded(Vec<_>)`），没有原地排序的入口，先摊成 Vec；
+    // `into_iter` 是移动，不深拷。
     let mut file_rows: Vec<_> = std::mem::take(&mut loaded.files).into_iter().collect();
-    // `load().with()` 不带 ORDER BY，行序是 SQLite 的实现细节（当前是 rowid 升序）。
-    // 而下面三条领域规则里 `inbox_content_hash` 按顺序累加、`inbox_primary_file_name`
-    // 取第 0 个——**跨端字节级契约靠一个未承诺的默认顺序兜着**。显式按主键排序钉死它；
-    // 这不改变现有哈希（rowid 顺序本就等于 id 升序），只是把巧合变成保证。
-    file_rows.sort_unstable_by_key(|file| file.id);
     let session: entity::transfer_session::Model = loaded.into();
 
     // 「哪些会话进收件箱」是跨端共享的一条判据（接收 + 终态 + 完成），三处存储实现
@@ -133,6 +129,15 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
     let inbox_id = Uuid::new_v4();
     let item_count = i32::try_from(file_rows.len())
         .map_err(|_| swarmdrop_host::AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
+    // `load().with()` 不带 ORDER BY，行序是 SQLite 的实现细节（当前是 rowid 升序）。
+    // 而下面三条领域规则里 `inbox_content_hash` 按顺序累加、`inbox_primary_file_name`
+    // 取第 0 个——**跨端字节级契约靠一个未承诺的默认顺序兜着**。
+    //
+    // 排序键取 `file_id` 而不是主键 `id`：前者是**协议层**定义的会话内文件序号（从 0 递增，
+    // 见 `entity::transfer_file`），是两端共有的那个顺序；`id` 只是本地自增代理键，
+    // 它与 `file_id` 一致纯属插入顺序的副作用，换个写入路径就不成立了。
+    // 这不改变现有哈希（既有数据里两者同序），只是把巧合换成契约本身。
+    file_rows.sort_unstable_by_key(|file| file.file_id);
     // 标题 / 内容指纹 / 检索聚合文本三条都是**跨端共享的领域规则**，一律调
     // swarmdrop_transfer::inbox 的那一份，本文件只负责把行类型摊成中立视图。
     let facts: Vec<InboxFileFacts<'_>> = file_rows.iter().map(file_facts).collect();
@@ -164,7 +169,7 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
         .set_source_name(session.peer_name.clone())
         .set_source_kind(source_kind)
         .set_content_kind(InboxContentKind::Files)
-        .set_title(title.clone())
+        .set_title(title)
         .set_item_count(item_count)
         .set_total_size(session.total_size)
         .set_root_path(root_path)
@@ -297,7 +302,8 @@ struct InboxSearchHitId {
 
 /// inbox 子串检索：以 item 为粒度，按接收时间倒序，截断到 `limit`。
 ///
-/// 对索引表的四个文本列做 `LIKE` 子串匹配。排除软删条目；
+/// 对索引表的文本列做 `LIKE` 子串匹配（**覆盖面以 `inbox_matches` 的入参为准**，
+/// 别在这里数列数）。排除软删条目；
 /// `include_archived=false` 时排除已归档项。
 ///
 /// **判据从来不是 FTS5 的 `MATCH`。** 索引表一度是 FTS5 虚表（trigram 分词），但
