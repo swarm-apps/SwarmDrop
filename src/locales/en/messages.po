@@ -1518,6 +1518,10 @@ msgstr "The source file changed, so it can’t continue. Please send it again."
 msgid "点击复制"
 msgstr "Click to copy"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "点击查看远端地址"
+msgstr "Click for the remote address"
+
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "点窗口关闭按钮（✕）后的行为"
 msgstr "What clicking the window close button (✕) does"

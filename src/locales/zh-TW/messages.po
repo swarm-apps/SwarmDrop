@@ -1518,6 +1518,10 @@ msgstr "來源檔案已變更，無法繼續，請重新傳送"
 msgid "点击复制"
 msgstr "點擊複製"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "点击查看远端地址"
+msgstr "點擊查看遠端位址"
+
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "点窗口关闭按钮（✕）后的行为"
 msgstr "點視窗關閉按鈕（✕）後的行為"

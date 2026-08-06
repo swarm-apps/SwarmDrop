@@ -619,9 +619,14 @@ export function PairingPanel({
         )}
         {consumeOutcome && !consumeOutcome.refused && (
           <>
+            {/* `break-all` 不能省：PeerId 是 52 个字符的连续 base58，没有断点。
+                这一栏在 xl 档只有 360px，一条不换行的等宽串会把**整个页面**顶出一条
+                横向滚动条（实测于 1400px 视口：`documentElement.scrollWidth` 2800 → 页面
+                整体可横向拖动）。溢出的是 flex 子项，父容器的 `overflow-hidden` 拦不住它，
+                只有让字符串自己允许断行才行。 */}
             <p className="mt-2 text-xs text-success-ink">
               <Trans>
-                已配对：<span className="font-mono">{consumeOutcome.peerId}</span>
+                已配对：<span className="font-mono break-all">{consumeOutcome.peerId}</span>
               </Trans>
             </p>
             {!consumeOutcome.persisted && (

@@ -225,7 +225,13 @@ export function DeviceCard({
                 onSend?.(device);
               }}
               className={cn(
-                "h-auto shrink-0 gap-1.5 rounded-full px-3 py-1.5 text-xs transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]",
+                // `ml-auto` 是**折行时的兜底**：这一行是 `flex-wrap justify-between`，
+                // 徽标与按钮同处一行时它不起作用（`justify-between` 已经把按钮推到右端）；
+                // 一旦窄到折行，没有它按钮会孤零零贴在第二行左端，读起来像一枚掉队的标签。
+                // 有了它，即使折行也是「徽标一行、动作右对齐一行」的页脚形态。
+                //
+                // 正常情况下不该折行——列宽由 `index.lazy.tsx` 的 `minmax(280px,1fr)` 保证。
+                "ml-auto h-auto shrink-0 gap-1.5 rounded-full px-3 py-1.5 text-xs transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]",
                 canSend
                   ? "shadow-[0_8px_18px_rgba(219,163,65,0.18)]"
                   : "glass-control border-transparent text-muted-foreground"
@@ -236,8 +242,8 @@ export function DeviceCard({
                   离线由状态行的「● 离线」说，已阻止由上面恒在场的信任徽标说（它此前被
                   连接徽标顶掉，才让按钮不得不兼职解释）。在一张 132px 高的卡里把同一句话
                   说两遍，比不说更糟。
-                  Web 的卡片是另一种版式（按钮独占底部一整行、状态在顶部），那边由按钮承担
-                  这句话是合适的——契约允许版式分叉，不允许信息缺失。 */}
+                  Web 端 2026-08-06 起同此（它此前是按钮独占底部一整行、由按钮兼职解释禁用
+                  原因；那一行满宽实心块是整张卡上最响的东西，已改回同一行右对齐）。 */}
               <Trans>发送</Trans>
             </Button>
           ) : (

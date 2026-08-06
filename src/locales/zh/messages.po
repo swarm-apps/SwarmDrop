@@ -1517,6 +1517,10 @@ msgstr "源文件已变更，无法继续，请重新发送"
 msgid "点击复制"
 msgstr "点击复制"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "点击查看远端地址"
+msgstr "点击查看远端地址"
+
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "点窗口关闭按钮（✕）后的行为"
 msgstr "点窗口关闭按钮（✕）后的行为"

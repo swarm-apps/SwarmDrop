@@ -1313,6 +1313,10 @@ msgstr "清空記錄"
 msgid "源文件已变更，无法继续，请重新发送"
 msgstr "來源檔案已變更，無法繼續，請重新傳送"
 
+#: app/app/_components/connection-badge.tsx
+msgid "点击查看远端地址"
+msgstr "點擊查看遠端位址"
+
 #: app/app/_components/active-transfers-section.tsx
 msgid "现在没有正在进行的传输"
 msgstr "目前沒有正在進行的傳輸"

@@ -291,7 +291,7 @@ codegens, so every field below is available everywhere.
 | 3 | Online state | `status` | **dot *and* word** — a bare colored dot does not satisfy this |
 | 4 | Secondary identity line | groups + `hostname · shortPeerId` | only when names collide or groups exist |
 | 5 | Trust badge | `trustLevel`, `trustConfirmed` | includes the "unconfirmed" state |
-| 6 | Connection badge | `connection` + `latency` | latency shown whenever online and known |
+| 6 | Connection badge | `connection` + `latency` | latency shown whenever online and known; transport name is **not** inline — see below |
 | 7 | Send action | — | see Send Entry Contract |
 | 8 | Overflow entry | — | unpair at minimum; trust policy and alias/groups where supported |
 
@@ -310,6 +310,29 @@ and the mobile surface is already a full detail page). What may not diverge: the
 proper noun and **is never translated** — users search it, paste it into issues, and diff it against
 logs. And when the address carries no transport (an inbound relay connection's `send_back_addr` is
 just `/p2p/<src>`), say "unknown" — do not invent a default.
+
+**On a device card the badge carries connection type + latency and stops there** (2026-08-06; this
+clause previously read "may carry the transport name inline where the layout has room"). Both DOM
+builds tried the inline form on cards and neither has the room: `WebRTC Direct` is 13 characters,
+wider than the icon, the type word and the latency put together, and device cards live in narrow
+grid columns. What it pushed off the row was the trust badge and the send action — slot 5 and slot 7
+losing their place to a detail of slot 6. Measured on web: 180px badge → 96px ("局域网 5ms").
+
+So on the DOM builds the disclosure gained a middle step: **badge → hover summary → popover**, cost
+rising with curiosity. The hover summary states the transport and says the popover holds the address.
+
+**Mobile is already conformant and needs no hover substitute**: its cards never passed `transport`
+to the badge. Its *device detail page* does keep the transport inline, and that is correct rather
+than a fork — a detail page is not a grid cell, and its link-details block is collapsed by default,
+so the badge is the only place the transport is visible without an expand. Room plus "the
+alternative is hidden" is the test; a grid card fails both.
+
+**The hover layer may never be the only route to anything.** The transport is still in the popover's
+"transport" row, reachable by click and by keyboard — which is what the checklist item "every
+interactive control reachable without hover" requires. A tooltip is a preview of a disclosure that
+exists, never a disclosure of its own. Desktop pins both halves (`device-card.test.tsx`: the badge
+does not contain the transport; a click reveals it) — pin them together or deleting the information
+outright stays green.
 
 **`WebRTC` and `WebRTC Direct` are two transports, not one abbreviated.** The first needs hole
 punching and a signalling path; the second dials a public bare IP directly and is the browser's only
@@ -331,6 +354,19 @@ is simply not rendered; every other slot stays, and card height must not collaps
 same applies one level down: `connectionDetails` is null until the kernel has reported a connection
 address, and the badge then renders as a plain, non-interactive badge — an empty popover is worse
 than no popover.
+
+**The send action shares a row with the badges; it never owns one** (2026-08-06). Slot 7 sits in the
+card's footer row beside slots 5 and 6, at its natural width, right-aligned. Web shipped it as a
+`w-full` button on a row of its own until this date: inside a ~300px card that is a full-bleed
+saturated block, the loudest thing on the card, and all it says is "send" — the same failure the
+Layout Density Contract names under "Full-bleed primary buttons are a landing-page move". The other
+two builds were already right (desktop right-aligns in a `justify-between` footer, mobile uses a
+44×44 icon button in that row), so this was web rejoining them, not a new rule. Below `sm:` the
+button does go full width — that tier is thumb reach.
+
+A corollary the web build learned the hard way: **a footer row only holds if slot 6 stays short.**
+The full-width button was partly a consequence of the badge overflowing the row, not an independent
+choice. Fix the length before adding a row.
 
 **Whole-card affordance.** A card body is clickable and does one of two things, consistently within
 a build: trigger the single primary action (desktop: send), or open a device detail view (mobile).

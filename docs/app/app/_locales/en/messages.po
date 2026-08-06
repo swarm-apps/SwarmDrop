@@ -1313,6 +1313,10 @@ msgstr "Clear records"
 msgid "源文件已变更，无法继续，请重新发送"
 msgstr "The source file changed, so it can’t continue. Please send it again."
 
+#: app/app/_components/connection-badge.tsx
+msgid "点击查看远端地址"
+msgstr "Click for the remote address"
+
 #: app/app/_components/active-transfers-section.tsx
 msgid "现在没有正在进行的传输"
 msgstr "Nothing is transferring right now"

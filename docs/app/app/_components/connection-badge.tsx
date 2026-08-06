@@ -1,10 +1,22 @@
 "use client";
 
-// 连接徽标（Device Card Contract 的 slot 6）+ 点开后的链路详情。
+// 连接徽标（Device Card Contract 的 slot 6）+ 悬停摘要 + 点开后的链路详情。
 //
 // 徽标本身回答「怎么连的」一句话；详情回答「凭什么这么说」——走的哪条地址、哪种传输、
 // 经不经中继、经的是谁。后者对普通用户是噪音，所以收在 Popover 里，徽标看起来仍是一枚徽标。
 // 桌面端 `src/routes/_app/devices/-components/connection-badge.tsx` 是同一形态的另一份实现。
+//
+// ## 传输名为什么不再印在徽标上（2026-08-06）
+//
+// 徽标此前是「图标 + 连接方式 + 传输名 + 延迟」四段，其中传输名最长——`WebRTC Direct`
+// 一个词就 13 个字符，比前面两段加起来还宽。设备卡在网格里是窄列，这一段挤掉的是同一行
+// 上信任徽标的位置。现在它退到**悬停摘要**里：徽标只留「连接方式 + 延迟」。
+//
+// DESIGN.md 的 Device Card Contract 本来就写着传输名是**可选**内联的——这里的结论是
+// 网格布局里没有那个 room。桌面端同批同改。
+//
+// ⚠️ **悬停不是唯一路径。** 传输名在 Popover 的「传输」一行里也在，点击可达；触屏与键盘
+// 用户走的是那条。Tooltip 只做摘要，绝不能成为某条信息的唯一去处。
 //
 // `connection` 与 `connectionDetails` 由内核同一次快照产出，不会互相矛盾
 // （见 `crates/core/src/device_manager.rs` 的 `ConnectionSnapshot`）。
@@ -18,6 +30,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
 import { CONNECTION_META } from "../_lib/device-presentation";
 import { useCopyToClipboard } from "../_lib/use-copy";
@@ -49,7 +67,6 @@ export function ConnectionBadge({ device }: { device: Device }) {
     >
       <meta.Icon className="size-3" aria-hidden />
       <ConnectionLabel connection={device.connection} />
-      {transport && <span className="opacity-70">{transport}</span>}
       {latency && <span className="font-mono tabular-nums">{latency}</span>}
     </Badge>
   );
@@ -59,74 +76,98 @@ export function ConnectionBadge({ device }: { device: Device }) {
   if (!details) return badge;
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          // `focus-ring` 是全站统一的焦点表现（`global.css`，与桌面 `src/index.css` 同形），
-          // 换掉此前手写的 `outline-none` + `focus-visible:ring-2`——手写那份少了 offset，
-          // 描边贴着徽标边缘，在语义色底上几乎看不出来。
-          className="focus-ring group rounded-full"
-          aria-label={t`查看链路详情`}
-          data-testid="connection-badge"
-        >
-          {badge}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] space-y-3">
-        <div className="space-y-0.5">
-          <p className="text-sm font-medium">
-            <Trans>链路详情</Trans>
-          </p>
-          <p className="text-xs text-muted-foreground">
-            <Trans>排查连接问题时把这些贴进 issue</Trans>
-          </p>
-        </div>
+    // `delayDuration` 不用 Provider 默认的 0：设备是网格，鼠标横穿一行会顺路掠过好几枚
+    // 徽标，零延迟下它们会挨个闪一遍。300ms 只有停下来看的人才等得到。
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <Popover>
+          {/* 两个 `asChild` 叠在同一个 button 上是 Radix 的既定组合方式：外层 Tooltip
+              管悬停、内层 Popover 管点击，props 合并到同一个真实节点。 */}
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                // `focus-ring` 是全站统一的焦点表现（`global.css`，与桌面 `src/index.css` 同形），
+                // 换掉此前手写的 `outline-none` + `focus-visible:ring-2`——手写那份少了 offset，
+                // 描边贴着徽标边缘，在语义色底上几乎看不出来。
+                className="focus-ring group rounded-full"
+                aria-label={t`查看链路详情`}
+                data-testid="connection-badge"
+              >
+                {badge}
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
 
-        {device.lanUpgradeFailed && (
+          <TooltipContent side="top" className="max-w-[16rem] space-y-0.5">
+            {/* 标签用 `传输` 与下面 Popover 里那一行同名——悬停看到的是详情的**预览**，
+                两处说同一件事就该用同一个词。 */}
+            <p>
+              <Trans>传输</Trans>
+              {"："}
+              <span className="font-mono">{transport ?? t`未知`}</span>
+            </p>
+            <p className="opacity-70">
+              <Trans>点击查看远端地址</Trans>
+            </p>
+          </TooltipContent>
+
+          <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] space-y-3">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">
+                <Trans>链路详情</Trans>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <Trans>排查连接问题时把这些贴进 issue</Trans>
+              </p>
+            </div>
+
+            {device.lanUpgradeFailed && (
           // 只在「还挂着中继」时才有意义——升级成了 path 就不是 relay 了。
           // 这一句把两种在徽标上完全同形的状态分开：对端本来就在外网 vs
           // 对端就在同一网段却连不上。后者是可行动的，前者不是。
-          <div className="flex gap-2 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
-            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            <div className="space-y-1">
-              <p className="font-medium">
-                <Trans>对方就在同一网段，但直连没建起来</Trans>
-              </p>
-              <p className="opacity-90">
-                <Trans>
-                  浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。
-                  文件仍会经中继送达，只是更慢。
-                </Trans>
-              </p>
-            </div>
-          </div>
-        )}
-
-        <dl className="space-y-2 text-xs">
-          <DetailRow label={t`传输`}>
-            {transport ?? (
-              <span className="text-muted-foreground">
-                <Trans>未知</Trans>
-              </span>
+              <div className="flex gap-2 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <div className="space-y-1">
+                  <p className="font-medium">
+                    <Trans>对方就在同一网段，但直连没建起来</Trans>
+                  </p>
+                  <p className="opacity-90">
+                    <Trans>
+                      浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。
+                      文件仍会经中继送达，只是更慢。
+                    </Trans>
+                  </p>
+                </div>
+              </div>
             )}
-          </DetailRow>
-          {details.relay && (
-            <DetailRow label={t`中继节点`}>
-              <span className="font-mono break-all">{details.relay}</span>
-            </DetailRow>
-          )}
-          <DetailRow label={t`远端地址`}>
-            <span className="font-mono break-all">{details.remoteAddr}</span>
-          </DetailRow>
-        </dl>
 
-        {/* key 绑地址、且必须挂在**持有复制态的那个组件**上：链路升级（relay → LAN）
-            后地址会换，而按钮上还挂着上一条的「已复制」，用户照着粘出去的是一条已经
-            不在用的地址。key 挂在按钮 DOM 上没用——state 在父组件里，换代重置不到它。 */}
-        <CopyAddressButton key={details.remoteAddr} address={details.remoteAddr} />
-      </PopoverContent>
-    </Popover>
+            <dl className="space-y-2 text-xs">
+              <DetailRow label={t`传输`}>
+                {transport ?? (
+                  <span className="text-muted-foreground">
+                    <Trans>未知</Trans>
+                  </span>
+                )}
+              </DetailRow>
+              {details.relay && (
+                <DetailRow label={t`中继节点`}>
+                  <span className="font-mono break-all">{details.relay}</span>
+                </DetailRow>
+              )}
+              <DetailRow label={t`远端地址`}>
+                <span className="font-mono break-all">{details.remoteAddr}</span>
+              </DetailRow>
+            </dl>
+
+            {/* key 绑地址、且必须挂在**持有复制态的那个组件**上：链路升级（relay → LAN）
+                后地址会换，而按钮上还挂着上一条的「已复制」，用户照着粘出去的是一条已经
+                不在用的地址。key 挂在按钮 DOM 上没用——state 在父组件里，换代重置不到它。 */}
+            <CopyAddressButton key={details.remoteAddr} address={details.remoteAddr} />
+          </PopoverContent>
+        </Popover>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

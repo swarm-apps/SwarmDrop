@@ -117,35 +117,53 @@ export function DeviceCard({
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant="secondary" className={cn("gap-1 border-transparent", TRUST_META[trust].className)}>
-            <TrustLabel trust={trust} />
-            {device.trustConfirmed === false && (
-              <span className="opacity-70">
-                · <Trans>待确认</Trans>
-              </span>
-            )}
-          </Badge>
+        {/* 徽标与主动作**同一行**（2026-08-06）。
+            此前发送按钮是 `w-full` 独占卡片底部一整行——在一张 ~300px 宽的卡里，那是一块
+            满宽的品牌色实心块，成了整张卡上最响的东西，而它说的只是「发送」。DESIGN.md
+            的 Layout Density Contract 已经点过这个形态：「Full-bleed primary buttons are
+            a landing-page move」，主动作该待在右对齐的页脚里、用它自己的自然宽度。
+            另外两端本来就是这个形状（桌面 `justify-between` 一行、移动是 44×44 图标按钮），
+            所以这不是给 Web 定新规矩，是把它拉回三端本来一致的形态。
 
-          {/* 契约第 6 项：在线且已知连接方式时，连接徽标与延迟一起出（徽标可点开链路详情）。
-              离线时它不渲染，但卡片其余部分不动——高度靠上面的 flex 结构撑住，不会抖。 */}
-          <ConnectionBadge device={device} />
-        </div>
+            `sm:` 以下退回满宽——那一档是拇指区，触达优先。 */}
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-2">
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <Badge variant="secondary" className={cn("gap-1 border-transparent", TRUST_META[trust].className)}>
+              <TrustLabel trust={trust} />
+              {device.trustConfirmed === false && (
+                <span className="opacity-70">
+                  · <Trans>待确认</Trans>
+                </span>
+              )}
+            </Badge>
 
-        {/* 契约的 Send Entry：发送从设备卡片进入，目标已预选。
-            离线设备**不给可点的入口**——点进去也只会收到一条内核报错。 */}
-        <div className="mt-auto">
+            {/* 契约第 6 项：在线且已知连接方式时，连接徽标与延迟一起出（徽标可点开链路详情）。
+                离线时它不渲染，但卡片其余部分不动——高度靠上面的 flex 结构撑住，不会抖。 */}
+            <ConnectionBadge device={device} />
+          </span>
+
+          {/* 契约的 Send Entry：发送从设备卡片进入，目标已预选。
+              离线设备**不给可点的入口**——点进去也只会收到一条内核报错。
+
+              禁用态**不再由按钮解释原因**（此前写「离线」/「已阻止」）：这两句在这张卡上
+              各自已有出处——离线由上面的状态行说，已阻止由左边恒在场的信任徽标说。
+              桌面端早就是这么处理的，理由同它那条注释：一张卡里同一句话说两遍比不说更糟。 */}
           {sendable ? (
-            <Button asChild size="sm" className="w-full gap-1.5">
+            <Button asChild size="sm" className="w-full shrink-0 gap-1.5 sm:w-auto">
               <Link href={sendToPeerHref(device.peerId)} data-testid="device-send-action">
                 <Send className="size-4" aria-hidden />
                 <Trans>发送</Trans>
               </Link>
             </Button>
           ) : (
-            <Button size="sm" variant="secondary" disabled className="w-full gap-1.5">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled
+              className="w-full shrink-0 gap-1.5 sm:w-auto"
+            >
               <Send className="size-4" aria-hidden />
-              {trust === "blocked" ? <Trans>已阻止</Trans> : <Trans>离线</Trans>}
+              <Trans>发送</Trans>
             </Button>
           )}
         </div>

@@ -79,9 +79,35 @@ describe("DeviceCard connection badge", () => {
       </I18nProvider>,
     );
 
-    const badge = screen.getByTestId("connection-badge");
-    expect(badge.textContent).toContain("中继");
-    expect(badge.textContent).toContain("QUIC");
+    expect(screen.getByTestId("connection-badge").textContent).toContain("中继");
+  });
+
+  // 传输名（`WebRTC Direct` 这类）2026-08-06 起**不再印在徽标上**——它是四段里最长的
+  // 一段，把网格里的窄列撑满，挤掉同一行的信任徽标。它退到悬停摘要 + Popover 里。
+  //
+  // 这条钉的是「短」这一半；另一半（它没有消失、点击仍可达）由下面那条钉。
+  // 两条必须成对：只钉前者，有人把它整段删掉也是绿的。
+  it("keeps the transport name out of the badge itself", () => {
+    render(
+      <I18nProvider i18n={i18n}>
+        <DeviceCard device={onlineDevice} displayName="Remote Mac" />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByTestId("connection-badge").textContent).not.toContain("QUIC");
+  });
+
+  it("still exposes the transport on click, without hover", async () => {
+    const user = userEvent.setup();
+    render(
+      <I18nProvider i18n={i18n}>
+        <DeviceCard device={onlineDevice} displayName="Remote Mac" />
+      </I18nProvider>,
+    );
+
+    // 点击——不是悬停。契约要求每个交互控件都能不靠 hover 到达，触屏与键盘走的是这条。
+    await user.click(screen.getByTestId("connection-badge"));
+    expect(await screen.findByText("QUIC")).toBeTruthy();
   });
 
   it("degrades to a plain badge when the kernel has not reported a link yet", () => {
