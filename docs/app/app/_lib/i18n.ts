@@ -45,7 +45,17 @@ export function localeEndonym(locale: string): string {
 /** 源 locale：msgid 就是中文原文，所以它永远不需要翻译目录也能正确显示。 */
 export const SOURCE_LOCALE: Locale = "zh";
 
-/** 用户显式选择的 locale 存这里；没有这一项表示「跟随浏览器」。 */
+/**
+ * 用户显式选择的 locale 存这里；没有这一项表示「跟随浏览器」。
+ *
+ * ⚠️ **这把 key 有第二个读者，而它 import 不到本模块**：配对落地页
+ * `docs/public/p/index.html` 是 `public/` 下的裸 HTML（不经构建，理由见那份文件的头部），
+ * 只能硬编码同一个字面量。改名不会有任何编译错误，只会让落地页从此静默忽略用户选过的
+ * 语言 —— `pnpm check:landing` 会核对这一条。
+ *
+ * 同一形状的还有 `swarmdrop:pending-invite`（sessionStorage，落地页写、
+ * `_components/pairing-panel.tsx` 读）——**那把没有门禁**，只在知识库里记着。
+ */
 const STORAGE_KEY = "swarmdrop:locale";
 
 /**
@@ -91,15 +101,30 @@ export function storedLocale(): Locale | null {
 /**
  * 从浏览器语言偏好挑一个最接近的受支持 locale。
  *
- * 两轮匹配：先精确（`zh-TW` → `zh-TW`），再按主语言（`zh-HK` / `zh-Hant` → `zh`）。
- * 一个都不沾则回退源 locale——**不猜**，英语用户在这里拿到的是中文，比拿到一个他也读不懂的
- * 第三种语言强。
+ * **外层按用户的偏好顺序、内层才定匹配精度**（精确 → 繁体变体 → 主语言）。顺序不能反：
+ * 此前是「先把整个列表精确扫一遍，再扫主语言」，于是靠后但精确的 tag 会压过靠前但不精确的
+ * ——`["zh-CN", "en-US", "en"]`（Chrome 上中文用户最常见的一种列表）里 `en` 精确命中，
+ * 首选简体中文的用户拿到的是**英文界面**。偏好顺序是用户表达的意图，精度只是我们的实现细节。
+ *
+ * 繁体那一档也不能省。繁体的写法远不止 `zh-TW`——`zh-HK` / `zh-MO` / `zh-Hant-*` 都是繁体，
+ * 而按主语言归类会把它们全归进简体 `zh`。这种错法比「没匹配上」更难发现：它**匹配上了**，
+ * 只是给了香港用户一屏简体字。
+ *
+ * 一个都不沾则回退源 locale。配对落地页（`docs/public/p/index.html`）有一份手写副本，
+ * 除这最后一步（那边给 `en`，理由见那份文件）外**每个输入都必须同解**。
  */
 export function preferredLocale(languages: readonly string[]): Locale {
   for (const tag of languages) {
     if (isSupported(tag)) return tag;
-  }
-  for (const tag of languages) {
+
+    const lower = tag.toLowerCase();
+    // `yue`（粤语）一并按繁体处理：不认它就会落进主语言轮或源 locale，又是给港澳用户简体。
+    if (lower.startsWith("zh") || lower.startsWith("yue")) {
+      // `hans` 要先判：`-hk` / `-mo` 是**地区**不是字形，而 `zh-Hans-HK` 明说了简体。
+      if (lower.includes("hans")) return "zh";
+      return /hant|-hk|-mo|-tw|^yue/.test(lower) ? "zh-TW" : "zh";
+    }
+
     const primary = tag.split("-")[0];
     if (isSupported(primary)) return primary;
   }
