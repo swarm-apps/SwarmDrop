@@ -4,47 +4,62 @@
 // （关标签页也要留着）。桌面端同样是这个分工——`network-store` 运行时、`preferences-store`
 // 持久化——混在一起会让「什么该在刷新后还在」变成一道要逐字段判断的题。
 //
-// 目前只有设备组织（别名 + 分组）。它**不同步给对端**，纯本机显示投影，所以放 localStorage
-// 就够，不必进 IndexedDB。
+// 目前有两样：设备组织（别名 + 分组）与文件浏览器的视图偏好。两者都**不同步给对端**，
+// 纯本机显示投影，所以放 localStorage 就够，不必进 IndexedDB。
 //
 // ## 静态导出下的 hydration
 //
-// 预渲染发生在构建期，那时没有 localStorage，`persist` 会以初始值（空组织）渲染，客户端挂载
-// 后再 rehydrate。这里**不会**产生 hydration mismatch：组织只影响已配对设备的渲染，而设备来自
-// 运行时节点——构建期一台都没有，预渲染出来的必然是空态。将来若有别的东西也读这份偏好，
-// 且它在预渲染时就有内容，就要重新考虑这一条。
+// 预渲染发生在构建期，那时没有 localStorage，`persist` 会以初始值（空组织 + 默认视图）渲染，
+// 客户端挂载后再 rehydrate。这里**不会**产生 hydration mismatch：组织只影响已配对设备的渲染，
+// 而设备来自运行时节点——构建期一台都没有，预渲染出来的必然是空态；视图偏好同理，
+// 没有文件时文件浏览器整块不渲染。将来若有别的东西也读这份偏好，且它在预渲染时就有内容，
+// 就要重新考虑这一条。
 
 import { useStore } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import {
+  DEFAULT_FILE_BROWSER_VIEWS,
   emptyDeviceOrganization,
   normalizeDeviceOrganization,
+  normalizeFileBrowserViews,
   sortDeviceGroups,
   type DeviceOrganization,
+  type FileBrowserScope,
+  type FileBrowserView,
 } from "@swarmdrop/shared-view";
 
 export interface PreferencesState {
   /** 本机对已配对设备的别名与分组。不同步到对端。 */
   deviceOrganization: DeviceOrganization;
+  /**
+   * 文件浏览器的视图偏好，**按场景分别记忆**。默认值与归一规则都在共享包里
+   * （三端同一份，见 `@swarmdrop/shared-view` 的 `view-preference.ts`）。
+   */
+  fileBrowserViews: Record<FileBrowserScope, FileBrowserView>;
 }
 
 const STORAGE_KEY = "swarmdrop:preferences";
 
 export const preferencesStore = createStore<PreferencesState>()(
   persist(
-    () => ({ deviceOrganization: emptyDeviceOrganization }),
+    () => ({
+      deviceOrganization: emptyDeviceOrganization,
+      fileBrowserViews: { ...DEFAULT_FILE_BROWSER_VIEWS },
+    }),
     {
       name: STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
-      // 磁盘上的值可能是旧版本写的、缺字段、或被手改坏。归一放在共享包里，三端同一份
+      // 磁盘上的值可能是旧版本写的、缺字段、或被手改坏。组织的归一放在共享包里，三端同一份
       // 降级规则（丢弃非法分组、剔除悬空成员关系与空别名）。
-      merge: (persisted, current) => ({
-        ...current,
-        deviceOrganization: normalizeDeviceOrganization(
-          (persisted as Partial<PreferencesState> | undefined)?.deviceOrganization,
-        ),
-      }),
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<PreferencesState> | undefined;
+        return {
+          ...current,
+          deviceOrganization: normalizeDeviceOrganization(saved?.deviceOrganization),
+          fileBrowserViews: normalizeFileBrowserViews(saved?.fileBrowserViews),
+        };
+      },
     },
   ),
 );
@@ -57,8 +72,19 @@ export function usePreferences<U>(selector: (state: PreferencesState) => U): U {
   return useStore(preferencesStore, selector);
 }
 
-/** 组织的写入口。全部走这里，组件不直接 `setState`。 */
+/** 偏好的写入口。全部走这里，组件不直接 `setState`。 */
 export const preferencesActions = {
+  /** 记住某个场景下用户选的视图。 */
+  setFileBrowserView(scope: FileBrowserScope, view: FileBrowserView) {
+    preferencesStore.setState((s) =>
+      s.fileBrowserViews[scope] === view
+        ? // 「内容没变」返回 state 本身（同下面 forgetDevice 的理由）——视图切换按钮的
+          // 每次点击都会调到这里，其中「点当前视图」那一半本该是无操作。
+          s
+        : { fileBrowserViews: { ...s.fileBrowserViews, [scope]: view } },
+    );
+  },
+
   /** 设别名；传空串/纯空白即清除。 */
   setDeviceAlias(peerId: string, alias: string) {
     preferencesStore.setState((s) => {

@@ -15,14 +15,7 @@ import {
   isRecoverableSession,
   sessionEndedAt,
 } from "../_lib/format";
-import type {
-  Device,
-  TransferProgressEvent,
-  TransferProjection,
-} from "../_lib/view-types";
-
-
-export type TransferFileRow = TransferProgressEvent["files"][number] | TransferProjection["files"][number];
+import type { Device, TransferProjection } from "../_lib/view-types";
 
 /**
  * 会话筛选。与桌面 `_app/transfer/index.lazy.tsx` 的四档同名同义。
@@ -38,15 +31,6 @@ export const FILTER_LABEL: Record<SessionFilter, MessageDescriptor> = {
   recoverable: msg`可恢复`,
   ended: msg`已结束`,
 };
-
-/**
- * 详情侧逐文件行的默认展示条数，其余折在「显示全部」后面。
- *
- * 一次传一整个文件夹（几十上百个文件）是常态，而每一行现在都带自己的进度条，进行中的会话
- * 每秒还要重画一遍。全量渲染换不来可读性——超过十几行时用户已经在滚动里找不着自己关心的
- * 那个文件了，真要逐个核对的人才需要展开。
- */
-export const FILE_LIST_LIMIT = 12;
 
 // 只管展示（标签 + 状态点色）。「是否进行中」的判定在 `_lib/format.ts` 的 `isActiveSession`——
 // 导航徽标也用它，两处各写一份就会在新增 phase 时对不上。

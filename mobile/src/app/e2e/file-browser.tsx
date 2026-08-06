@@ -1,3 +1,4 @@
+import { DEFAULT_FILE_BROWSER_VIEWS } from "@swarmdrop/shared-view";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
@@ -28,10 +29,7 @@ import {
   sessionFileId,
 } from "@/components/file-browser";
 import { Text } from "@/components/ui/text";
-import {
-  DEFAULT_FILE_BROWSER_VIEWS,
-  usePreferencesStore,
-} from "@/stores/preferences-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 
 const FIXTURE_ASSERTIONS_PASS = fixtureAssertionsPass();
 
@@ -324,9 +322,9 @@ function fixtureAssertionsPass() {
     completed[0]?.status === "completed" &&
     cancelled[0]?.status === "cancelled" &&
     failed[0]?.status === "error" &&
-    selectedItems[0]?.localUri === "fixture://source/0" &&
-    inbox[0]?.localUri === "file:///fixture/photo.jpg" &&
-    inbox[1]?.localUri === undefined &&
+    selectedItems[0]?.previewSource === "fixture://source/0" &&
+    inbox[0]?.previewSource === "file:///fixture/photo.jpg" &&
+    inbox[1]?.previewSource === undefined &&
     inbox[1]?.status === "missing" &&
     duplicateRows.length === 3 &&
     duplicateRows[1]?.id !== duplicateRows[2]?.id

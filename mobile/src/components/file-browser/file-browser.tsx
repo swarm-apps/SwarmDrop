@@ -30,7 +30,7 @@ export function FileBrowser({
   );
 
   const totalSize = useMemo(
-    () => items.reduce((total, item) => total + item.size, 0n),
+    () => items.reduce((total, item) => total + item.size, 0),
     [items],
   );
 
@@ -63,7 +63,7 @@ export function FileBrowser({
         <FileBrowserToolbar
           title={title}
           count={0}
-          totalSize={0n}
+          totalSize={0}
           view={view}
           onViewChange={changeView}
           testID={`${testID}-toolbar`}

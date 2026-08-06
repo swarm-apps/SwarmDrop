@@ -19,7 +19,7 @@ interface FolderRowProps {
   relativePath: string;
   depth: number;
   fileCount: number;
-  size: bigint;
+  size: number;
   expanded: boolean;
   actions?: FileBrowserActions;
   onToggle: (id: string) => void;

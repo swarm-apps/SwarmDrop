@@ -1222,6 +1222,20 @@ impl WebNode {
             .map_err(|e| WebError::from(e).into())
     }
 
+    /// 打开 OPFS 里的一个文件，返回 `File` 句柄（**不读字节**）。
+    ///
+    /// 缩略图管线的取图入口：`createImageBitmap` 只吃 `Blob`，所以这里给的是 `File` 本身
+    /// 而不是 [`download_url`](Self::download_url) 那样的 blob URL——后者还得 `fetch` 一次
+    /// 绕回 Blob，多一次拷贝，中间那个 URL 也必须记得 revoke。
+    ///
+    /// 非 secure origin 下 OPFS 整个不可用，这里会明确报错（而不是永久 pending），
+    /// 前端据此降级到类型图标。
+    pub async fn open_file(&self, relative_path: String) -> Result<web_sys::File, JsValue> {
+        crate::opfs::open_file(&relative_path)
+            .await
+            .map_err(|e| WebError::from(e).into())
+    }
+
     /// 传输事件流（逐条产出 `WebTransferEvent` 序列化对象）。**只能取一次**（单点消费）。
     pub fn events(&self) -> Result<TransferEventStream, JsValue> {
         let rx = self

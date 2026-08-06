@@ -32,10 +32,10 @@ describe("FileBrowser", () => {
     expect(onViewChange).toHaveBeenCalledWith("grid");
   });
 
-  it("falls back to an available view and hides the toggle", () => {
-    renderBrowser(<FileBrowser items={items} view="grid" availableViews={["tree"]} />);
-    expect(screen.getByTestId("file-browser-tree")).toBeTruthy();
+  it("hides the toggle when there is nothing to show", () => {
+    renderBrowser(<FileBrowser items={[]} view="tree" />);
     expect(screen.queryByRole("button", { name: "网格视图" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "树形视图" })).toBeNull();
   });
 
   it("renders an empty state without a view toggle", () => {

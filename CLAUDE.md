@@ -109,7 +109,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | Routing | TanStack Router (file-system based, auto code-splitting) |
 | State | Zustand 5 |
 | UI | shadcn/ui (new-york style), Lucide icons, Radix primitives |
-| i18n | 桌面 Lingui 5 · Web Lingui 6（SWC plugin）· 移动 Lingui 6（Metro transformer），三端同一组 locale（zh / zh-TW / en）、**三份独立 catalog** + 后端 rust-i18n（托盘与系统通知等原生串） |
+| i18n | **三端同为 Lingui 6**（桌面 Babel macro · Web SWC plugin · 移动 Metro transformer）。桌面与 Web 同一组 locale（zh / zh-TW / en），移动是 zh-Hans / en；**三份独立 catalog** + 后端 rust-i18n（托盘与系统通知等原生串） |
 | IPC | tauri-specta v2 —— TS bindings 自动生成，**不手写 invoke 封装** |
 | Backend | Rust 2024, Tauri 2 |
 | P2P | 自研 `crates/net`（iroh 风格 API，libp2p 底层，native + wasm 双 target） |
@@ -140,7 +140,9 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 根 workspace 有 12 个 crate + 桌面壳 + 移动桥接。分层自下而上：
 
 > **JS 侧另有 `packages/`**（不进 Cargo workspace）：`packages/shared-view` 是三端共享的纯视图
-> 逻辑（TS 源，零依赖），`packages/swarmdrop-web` 是 `crates/web` 的 wasm 产物（入库）。
+> 逻辑（TS 源，零依赖），`packages/file-browser` 是桌面与 Web 共享的**文件浏览器组件**
+> （React DOM；移动端不吃它，RN 与 DOM 不共用 JSX），`packages/swarmdrop-web` 是
+> `crates/web` 的 wasm 产物（入库）。
 > `docs/` 与 `mobile/` 各自用 `link:` 引用它们——两者是独立 pnpm workspace，不是这里的成员。
 
 | Crate | 职责 |
@@ -250,9 +252,11 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 > （#88/#90 已落地，决策与理由写在 `DESIGN.md` 的「Navigation — Web app area」）。
 > 别把两边的导航描述混用。
 
-**i18n** — 前端 Lingui + Babel macro，源 locale `zh`，实际 locale 为 **zh / zh-TW / en**
+**i18n** — 前端 Lingui 6 + Babel macro，源 locale `zh`，实际 locale 为 **zh / zh-TW / en**
 （ja/ko/es/fr/de 是路线图，尚未添加）。`pnpm i18n:extract` 提取，catalog 在
-`src/locales/{locale}/messages.po`。
+`src/locales/{locale}/messages.po`。**`lingui.config.ts` 的 `include` 还含
+`packages/file-browser/src`**——共享组件自带 `<Trans>`，同一句话在桌面与 Web 的 catalog
+里各存一份（三端 catalog 独立这条既定约定的必然结果）。
 后端原生串（托盘、系统通知）走 rust-i18n，catalog 在 `src-tauri/locales/*.toml`，
 由 `set_locale` 命令跟随前端偏好切换。两者不重叠。
 
@@ -517,6 +521,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | Zustand stores | `src/stores/` |
 | Web 应用前端 | `docs/app/app/`（Next 应用区，非 fumadocs 文档） |
 | 三端共享的纯视图逻辑 | `packages/shared-view/`（**归属判据见该包 README**；跨 workspace 接线的坑见 `dev-notes/knowledge/toolchain.md`） |
+| 桌面 + Web 共享的文件浏览器 | `packages/file-browser/`（React DOM 组件 + 缩略图管线。**依赖协议必须 `file:` 不能 `link:`**，且改完要在 `docs/` 重装——理由见该包 README） |
 | wasm 产物（入库） | `packages/swarmdrop-web/` |
 | Web 应用区导航定义 | `docs/app/app/_lib/nav.ts`（路由/标题/图标/徽标单一事实源）+ `_components/app-nav.tsx` |
 | 路由页面 | `src/routes/` |

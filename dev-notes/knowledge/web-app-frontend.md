@@ -1030,3 +1030,57 @@ ARIA 对 `button` 规定 **Children Presentational: True**：它的后代角色�
 **相关文件**：`crates/web/src/types.rs`、`crates/web/src/node.rs`、
 `docs/app/app/_lib/view-types.ts`（`PAIRING_REFUSED_LABEL`）、
 `docs/app/app/_components/pairing-panel.tsx`
+
+## 文件浏览器：三端共用 `@swarmdrop/file-browser`，取数走 adapter 不做形状嗅探（2026-08-06）
+
+Web 的三处文件清单（传输详情 / 收件箱详情 / 发送面板）以及入站 offer 对话框，现在都用
+`packages/file-browser` 的 `<FileBrowser>`（树形 + 网格），与桌面同一份组件。取数一律经
+`_lib/file-browser-adapters.ts` 转成 `FileBrowserItem[]`。
+
+**为什么必须走 adapter**：传输详情此前写的是 `live?.files ?? projection.files`——进度与投影
+**二选一**。于是同一份数据有两种形状（`FileProgressInfo.transferred` vs
+`TransferProjectionFile.transferredBytes`），渲染点得靠 `"transferred" in file` 现场嗅探；
+更糟的是行的**身份与数量**在两种形状下由不同的东西决定，而进度域是按 sessionId 常驻的，
+切换会话那一瞬取到的可能是另一条会话的采样。
+
+现在的不变量在 `@swarmdrop/shared-view` 的 `fromProjectionFiles` 里，有回归测试钉着：
+
+1. **投影是骨架，progress 只是覆盖层**。条目的身份/数量/名称/大小/路径永远来自 projection，
+   progress 只按 `fileId` 覆盖「传了多少」与「什么状态」。
+2. **终态忽略进度**，判定收在函数内部，不靠调用方自觉带上 `transferSample` 的 `live`。
+
+`transferSample` 仍在，但只管**会话级**字节与百分比了。
+
+**取图源两条分支**（`_lib/thumbnail-source.ts`）。`ThumbnailResolver` 收的是
+`previewSource` **字符串**、返回 `Blob`——不是整个 item（item 每秒都在重建，传它会逼 hook
+再养一个 ref 去躲开依赖），也不是 URL（管线第一步 `createImageBitmap` 只吃 `Blob`）：
+
+- 收件箱 → `previewSource` 是 `file.relativePath`（OPFS 的键，与 `download_url` 同一个字段。
+  **不要用 `localPath`**——Web 上它是带 `opfs:/` 前缀的展示值）→ `node.open_file()` 拿 `File`。
+- 发送侧 → 待发文件的字节只活在内存里的 `File` 句柄上，**没有任何路径指得到它**。
+  所以 `previewSource` 存的是自增序号，由 `createPendingFileThumbnailSource()` 按它回查。
+  那个工厂**不收 `files` 参数**：收了的话每加一个文件就产出新 resolver 引用，而它是
+  `useThumbnail` 的 effect 依赖——于是每加一个文件，已渲染的每张卡片都要重跑一遍取图。
+  现在 resolver 引用恒定，变的是它内部那份 ref（调用点每次渲染 `setFiles(files)`）。
+
+**桌面根本不走这条路**：它给的是 `previewUrl`（`convertFileSrc` 的 asset URL，直接能渲染）。
+`previewUrl` 与 `previewSource` 是 `FileBrowserItem` 上**两个不同的字段**，不是两个名字——
+合成一个的话，`FileCard` 只能靠「调用方有没有传取图源函数」反推自己拿到的是哪一种。
+
+**非 secure origin 提前判掉**（`detectSecureContext()`，且**只算一次**——那三个属性在一个
+文档的生命周期内不会变），不要让 `open_file` 去报错：那条路径每张图都要付一次 5s 超时的等待。
+
+**相关文件**：`docs/app/app/_lib/file-browser-adapters.ts`、`docs/app/app/_lib/thumbnail-source.ts`、
+`packages/shared-view/src/file-browser/adapters.ts`、`packages/file-browser/README.md`
+
+## 改了 `packages/file-browser` 就必须在 `docs/` 重装（2026-08-06 实证）
+
+`docs` 用 `file:` 协议引它（不能用 `link:`，理由见 `toolchain.md` 的实例分裂那条），而 pnpm
+对 `file:` 目录依赖用**硬链接**——硬链接理论上共享 inode，但编辑器/工具几乎都是写临时文件再
+`rename()` 覆盖，新文件是新 inode，链接当场断。
+
+**症状会伪装成别的问题**：新增文件 → Next 报 `Module not found`；改了已有文件 → `docs` 的
+`tsc` 报「某属性不存在于类型上」，而源文件里明明有。两种都是先 `cd docs && pnpm install`
+（几秒），再怀疑代码。
+
+**相关文件**：`docs/package.json`、`packages/file-browser/README.md`

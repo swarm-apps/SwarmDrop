@@ -1,8 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  DEFAULT_FILE_BROWSER_VIEWS,
   type DeviceOrganization,
   emptyDeviceOrganization,
   normalizeDeviceOrganization,
+  normalizeFileBrowserViews,
 } from "@swarmdrop/shared-view";
 import * as Crypto from "expo-crypto";
 import { create } from "zustand";
@@ -12,15 +14,6 @@ import type {
   FileBrowserView,
 } from "@/components/file-browser/types";
 import type { DiscoveryModePreference } from "@/core/network-discovery";
-
-export const DEFAULT_FILE_BROWSER_VIEWS: Record<
-  FileBrowserScope,
-  FileBrowserView
-> = {
-  send: "tree",
-  transfer: "tree",
-  inbox: "grid",
-};
 
 interface PreferencesState {
   /**
@@ -101,7 +94,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       publicReachability: true,
       customBootstrapNodes: [],
       receivePath: null,
-      fileBrowserViews: DEFAULT_FILE_BROWSER_VIEWS,
+      fileBrowserViews: { ...DEFAULT_FILE_BROWSER_VIEWS },
 
       setDeviceName(name) {
         set({ deviceName: name.trim() });
@@ -336,21 +329,9 @@ export const usePreferencesStore = create<PreferencesState>()(
           stored.receivePath === null
             ? { receivePath: stored.receivePath }
             : {}),
-          fileBrowserViews: mergeFileBrowserViews(stored.fileBrowserViews),
+          fileBrowserViews: normalizeFileBrowserViews(stored.fileBrowserViews),
         };
       },
     },
   ),
 );
-
-function mergeFileBrowserViews(
-  stored: PersistedPreferences["fileBrowserViews"],
-): Record<FileBrowserScope, FileBrowserView> {
-  const views = { ...DEFAULT_FILE_BROWSER_VIEWS };
-  if (!stored || typeof stored !== "object") return views;
-  for (const scope of ["send", "transfer", "inbox"] as const) {
-    const value = stored[scope];
-    if (value === "tree" || value === "grid") views[scope] = value;
-  }
-  return views;
-}

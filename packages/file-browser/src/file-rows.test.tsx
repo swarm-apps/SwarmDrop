@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderRow } from "./folder-row";
 import { FileRow } from "./file-row";
 import { FileCard } from "./file-card";
-import type { FileBrowserItem, FileBrowserTreeNode } from "./types";
+import type { FileBrowserItem } from "@swarmdrop/shared-view";
 
 afterEach(cleanup);
 
@@ -14,7 +14,7 @@ function renderWithI18n(node: React.ReactNode) {
   return render(<I18nProvider i18n={i18n}>{node}</I18nProvider>);
 }
 
-const directory: FileBrowserTreeNode = {
+const directory = {
   id: "directory:docs/",
   name: "docs",
   type: "directory",
@@ -82,7 +82,7 @@ describe("file cards", () => {
       name: "photo.png",
       relativePath: "images/photo.png",
       size: 42,
-      previewUrl: "asset://photo.png",
+      previewSource: "asset://photo.png",
       status: "completed",
     };
     renderWithI18n(<FileCard item={item} actions={{ onOpen, onReveal }} />);

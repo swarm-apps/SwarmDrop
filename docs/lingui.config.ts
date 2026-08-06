@@ -16,7 +16,8 @@ export default defineConfig({
   catalogs: [
     {
       path: "<rootDir>/app/app/_locales/{locale}/messages",
-      include: ["app/app"],
+      // `packages/file-browser` 同理并入（说明见桌面 `../lingui.config.ts` 的同一处）。
+      include: ["app/app", "../packages/file-browser/src"],
     },
   ],
   format: formatter({ lineNumbers: false }),

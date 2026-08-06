@@ -16,7 +16,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
@@ -43,7 +42,6 @@ import {
   type InboxItemSummary,
   type InboxSearchHit,
 } from "@/lib/bindings";
-import { getFileIcon, getFileIconColor } from "@/lib/file-icon";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useTransferStore } from "@/stores/transfer-store";
 import { useShallow } from "zustand/react/shallow";
@@ -87,7 +85,9 @@ import {
   OpenListButton,
 } from "@/components/layout/master-detail-shell";
 import { getErrorMessage } from "@/lib/errors";
-import { FileBrowser, fromInboxFiles } from "@/components/file-browser";
+import { FileBrowser, getFileIconStyle } from "@swarmdrop/file-browser";
+import type { FileBrowserItem } from "@swarmdrop/shared-view";
+import { itemsFromInbox } from "@/lib/file-browser-adapters";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 export const Route = createLazyFileRoute("/_app/inbox/")({
@@ -1026,16 +1026,16 @@ function ReaderContent({
   const view = usePreferencesStore((state) => state.fileBrowserViews.inbox);
   const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
   const items = useMemo(
-    () => fromInboxFiles(detail.files, {
-      getPreviewUrl: (file) => {
-        try {
-          return convertFileSrc(file.localPath);
-        } catch {
-          return undefined;
-        }
-      },
+    () => itemsFromInbox(detail.id, detail.files),
+    [detail.id, detail.files],
+  );
+  // 动作对象沿 FileBrowser → 视图 → 行/卡 一路下传，内联字面量会在每一层打穿 memo。
+  const actions = useMemo(
+    () => ({
+      onOpen: (item: FileBrowserItem) => onFileOpen(Number(item.sourceId)),
+      onReveal: (item: FileBrowserItem) => onFileReveal(Number(item.sourceId)),
     }),
-    [detail.files],
+    [onFileOpen, onFileReveal],
   );
 
   return (
@@ -1144,15 +1144,9 @@ function ReaderContent({
 
       <FileBrowser
         items={items}
-        title={<Trans>文件</Trans>}
         view={view}
         onViewChange={(nextView) => setFileBrowserView("inbox", nextView)}
-        actions={{
-          onOpen: (item) => onFileOpen(Number(item.sourceId)),
-          onReveal: (item) => onFileReveal(Number(item.sourceId)),
-        }}
-        testId="inbox-file-grid"
-        cardTestId="inbox-file-card"
+        actions={actions}
         className={cn(
           "@container px-7 py-6",
           contained && "min-h-0 flex-1",
@@ -1294,8 +1288,8 @@ function Pill({
 
 function ItemIcon({ title, count }: { title: string; count: number }) {
   if (count > 1) return <FileArchive className="size-4.5 text-amber-500" />;
-  const Icon = getFileIcon(title);
-  return <Icon className={`size-4.5 ${getFileIconColor(title)}`} />;
+  const { icon: Icon, color } = getFileIconStyle(title);
+  return <Icon className={`size-4.5 ${color}`} />;
 }
 
 /** 把 snippet 里匹配查询词的部分高亮（大小写不敏感）。 */

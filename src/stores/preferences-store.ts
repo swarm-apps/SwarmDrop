@@ -13,11 +13,11 @@ import {
   emptyDeviceOrganization,
   normalizeDeviceOrganization,
   type DeviceOrganization,
+  DEFAULT_FILE_BROWSER_VIEWS,
+  normalizeFileBrowserViews,
+  type FileBrowserScope,
+  type FileBrowserView,
 } from "@swarmdrop/shared-view";
-import type {
-  FileBrowserScope,
-  FileBrowserView,
-} from "@/components/file-browser";
 
 export type DiscoveryMode = "auto" | "lanOnly";
 
@@ -132,11 +132,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       transfer: {
         savePath: "",
       },
-      fileBrowserViews: {
-        send: "tree",
-        inbox: "grid",
-        transfer: "tree",
-      },
+      fileBrowserViews: { ...DEFAULT_FILE_BROWSER_VIEWS },
       mcp: {
         port: 19527,
         autoStart: false,
@@ -358,6 +354,9 @@ export const usePreferencesStore = create<PreferencesState>()(
           deviceOrganization: normalizeDeviceOrganization(
             persisted.deviceOrganization,
           ),
+          // 与 deviceOrganization 同理：磁盘上的值可能缺 scope 或被手改坏，
+          // 归一规则在共享包里，三端同一份（默认值也是）。
+          fileBrowserViews: normalizeFileBrowserViews(persisted.fileBrowserViews),
         };
       },
       partialize: (state) => ({

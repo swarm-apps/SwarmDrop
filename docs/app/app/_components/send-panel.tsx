@@ -26,7 +26,6 @@ import {
   MonitorSmartphone,
   Paperclip,
   Send,
-  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -37,6 +36,7 @@ import {
   formatFileSize,
   organizedDeviceName,
 } from "@swarmdrop/shared-view";
+import { FileBrowser, type FileBrowserTarget } from "@swarmdrop/file-browser";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -50,10 +50,16 @@ import { PANEL_SURFACE } from "./section";
 import { CenteredEmptyState } from "./empty-state";
 import { NodeNotReadyState } from "./node-not-ready-state";
 import { deviceIcon } from "../_lib/device-presentation";
+import {
+  itemsFromPendingFiles,
+  removePendingTarget,
+  type PendingFileInput,
+} from "../_lib/file-browser-adapters";
 import { transferSample } from "../_lib/format";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
-import { usePreferences } from "../_lib/preferences-store";
+import { preferencesActions, usePreferences } from "../_lib/preferences-store";
+import { createPendingFileThumbnailSource } from "../_lib/thumbnail-source";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useWebNode } from "../_lib/store";
 import {
@@ -68,11 +74,13 @@ import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 
-/** 待发送文件项——配 id 而非数组下标做 key，移除文件时不会因下标前移而错位复用。 */
-interface PendingFile {
-  id: number;
-  file: File;
-}
+/**
+ * 待发送文件项——配 id 而非数组下标做 key，移除文件时不会因下标前移而错位复用。
+ *
+ * 类型体在 `_lib/file-browser-adapters.ts`（`PendingFileInput`），因为那里要按它构造
+ * 展示模型；这里只取个短名字用。
+ */
+type PendingFile = PendingFileInput;
 
 let nextFileId = 0;
 
@@ -91,6 +99,7 @@ function SendPanelInner() {
   const nodeStatus = useWebNode((s) => s.status);
   const devices = useWebNode((s) => s.pairedDevices);
   const organization = usePreferences((s) => s.deviceOrganization);
+  const view = usePreferences((s) => s.fileBrowserViews.send);
   const prepareProgress = useWebNode((s) => s.latestPrepareProgress);
   const ready = nodeStatus === "running";
 
@@ -130,8 +139,24 @@ function SendPanelInner() {
   // 只判 `!!peerId` 会让按钮在必然失败的目标上亮着，用户点完只收到一条内核报错。
   // 同时兜住「选好设备后对方转离线」这个时间窗。
   const targetValid = target !== null && canSendToDevice(target);
-  const totalBytes = useMemo(() => files.reduce((sum, f) => sum + f.file.size, 0), [files]);
   const canSend = ready && targetValid && files.length > 0 && !sendAction.pending;
+  const fileItems = useMemo(() => itemsFromPendingFiles(files), [files]);
+  // 待发文件的字节只在内存里的 `File` 句柄上，取图要按来源键回查（见 thumbnail-source.ts）。
+  // resolver 建一次就不再换引用——它是 `useThumbnail` 的 effect 依赖，每加一个文件换一次
+  // 会让已渲染的每张卡片都重跑一遍取图。变的只有它内部那份 ref。
+  const thumbnails = useRef(createPendingFileThumbnailSource()).current;
+  thumbnails.setFiles(files);
+
+  // 移除逻辑是 `itemsFromPendingFiles` 的逆运算，搬去 `_lib` 与它并排，这里只留接线
+  // （顺带让它可单测——内联在 JSX prop 里的三元没法测）。`useMemo` 空依赖：`setFiles`
+  // 是稳定的，回调本身也不该每次渲染换引用，否则会打穿行/卡的 memo。
+  const removeActions = useMemo(
+    () => ({
+      onRemove: (target: FileBrowserTarget) =>
+        setFiles((prev) => removePendingTarget(prev, target)),
+    }),
+    [],
+  );
 
   const addFiles = (list: FileList | null) => {
     if (!list || list.length === 0) return;
@@ -290,14 +315,9 @@ function SendPanelInner() {
 
       {files.length > 0 && (
         <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
-              <Trans>
-                已选 {files.length} 个文件 · 共{" "}
-                <span className="font-mono tabular-nums">{formatFileSize(totalBytes)}</span>
-              </Trans>
-            </p>
-            {/* 逐个点 X 清十几个文件是桌面端早就避免了的事（它有 `clear()`）。 */}
+          {/* 「N 项 · 共 X」由 `FileBrowser` 的表头自己说，这里不再重复一遍；
+              逐个点 X 清十几个文件是桌面端早就避免了的事（它有 `clear()`）。 */}
+          <div className="flex justify-end">
             <Button
               type="button"
               variant="ghost"
@@ -309,30 +329,19 @@ function SendPanelInner() {
               <Trans>清空</Trans>
             </Button>
           </div>
-          <ul className="flex flex-col gap-1.5">
-            {files.map(({ id, file }) => (
-              <li
-                key={id}
-                className="flex items-center justify-between gap-2 rounded-lg border bg-background px-3 py-2 text-xs"
-              >
-                <span className="truncate text-foreground">{file.name}</span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span className="font-mono tabular-nums text-muted-foreground">
-                    {formatFileSize(file.size)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setFiles((prev) => prev.filter((f) => f.id !== id))}
-                    disabled={sendAction.pending}
-                    aria-label={t`移除 ${file.name}`}
-                    className="-m-2 flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-                  >
-                    <X className="size-4" aria-hidden />
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
+          {/* 三端共用的 `FileBrowser`。此前是一列扁平文件名——而「选择文件夹」按钮就在
+              上面，选完一个几十文件的目录后，这里读不出任何层级，也没法整目录移除。
+              移除动作只在发送前有意义，发送中整块禁用（不传 `onRemove` 即不渲染按钮）。 */}
+          <FileBrowser
+            items={fileItems}
+            title={<Trans>已选文件</Trans>}
+            view={view}
+            onViewChange={(nextView) => preferencesActions.setFileBrowserView("send", nextView)}
+            thumbnailSource={thumbnails.resolver}
+            actions={sendAction.pending ? undefined : removeActions}
+            className="flex-none"
+            contentClassName="min-h-[280px]"
+          />
         </div>
       )}
 

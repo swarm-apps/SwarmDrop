@@ -8,4 +8,5 @@
  */
 
 export * from "./device";
+export * from "./file-browser";
 export * from "./format";

@@ -20,8 +20,9 @@
 
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Download } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatFileSize } from "@swarmdrop/shared-view";
+import { FileBrowser } from "@swarmdrop/file-browser";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,18 +32,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { itemsFromOffer } from "../_lib/file-browser-adapters";
 import { getNode } from "../_lib/node-runtime";
+import { preferencesActions, usePreferences } from "../_lib/preferences-store";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { WebErrorCard } from "./web-error-view";
-
-/**
- * 一次最多列几个文件名，其余折成「还有 N 个」——offer 可能带上百个文件。
- *
- * 导出给收件箱那份「待处理请求」列表共用（`receive-panel.tsx`）：两处呈现的是同一个 offer，
- * 各带一个上限就会出现「对话框里说 5 个、列表里铺开 80 个」这种同一件事两副样子。
- */
-export const OFFER_FILE_PREVIEW_LIMIT = 5;
 
 export function TransferOfferHost() {
   const { t } = useLingui();
@@ -74,8 +69,11 @@ export function TransferOfferHost() {
   };
 
   const files = current?.files ?? [];
-  const shown = files.slice(0, OFFER_FILE_PREVIEW_LIMIT);
-  const rest = files.length - shown.length;
+  const view = usePreferences((s) => s.fileBrowserViews.transfer);
+  const offerItems = useMemo(
+    () => (current ? itemsFromOffer(current.sessionId, current.files) : []),
+    [current],
+  );
   // 队列里除当前这条之外还剩几条。DESIGN.md 的 Incoming Request Contract：
   // 「Queue, don't stack — 一次只显示一条，**多于一条时要说还剩几条**」。
   // 少了这句，处理完一条会突然又弹出一个一模一样的对话框，用户会以为自己刚才没点上。
@@ -106,21 +104,17 @@ export function TransferOfferHost() {
           </DialogDescription>
         </DialogHeader>
 
-        <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg bg-muted px-3 py-2.5">
-          {shown.map((f) => (
-            <li key={f.fileId} className="flex items-baseline justify-between gap-3 text-xs">
-              <span className="truncate font-mono text-foreground">{f.name}</span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">
-                {formatFileSize(f.size)}
-              </span>
-            </li>
-          ))}
-          {rest > 0 && (
-            <li className="text-xs text-muted-foreground">
-              <Trans>还有 {rest} 个文件</Trans>
-            </li>
-          )}
-        </ul>
+        {/* 三端共用的 `FileBrowser`（与桌面 `TransferOfferDialog` 同一形态）。
+            此前是「列前 5 个 + 还有 N 个」——而这一屏正是用户决定收不收的唯一依据，
+            对方发一整个文件夹时，那 5 行既读不出结构也说不清体量。
+            高度钳在 clamp 里：对话框不能被一个几百文件的 offer 撑穿。 */}
+        <FileBrowser
+          items={offerItems}
+          title={<Trans>文件</Trans>}
+          view={view}
+          onViewChange={(nextView) => preferencesActions.setFileBrowserView("transfer", nextView)}
+          className="h-[clamp(240px,38vh,380px)] min-h-0 flex-none"
+        />
 
         {queued > 0 && (
           <p className="text-center text-xs text-muted-foreground" role="status" aria-live="polite">

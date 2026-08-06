@@ -913,7 +913,75 @@ root 放到仓库根意味着 turbopack 把**整个仓库**纳入文件系统边
 
 这个移动**依赖上面那条 turbopack root 的放宽**——包移出 `docs/` 后同样落在原 root 之外。
 
-**相关文件**：`packages/shared-view/README.md`、`docs/next.config.mjs`、`mobile/metro.config.js`、
+### 有运行时 import 的共享包，独立 workspace 必须用 `file:` 而不是 `link:`（2026-08-06 实证）
+
+上面「零平台依赖要两道门」那条说的是 **tsc** 会一路向上解析到仓库根的 `node_modules`。
+**同一个机制在运行时同样成立，而且后果严重得多。**
+
+`shared-view` 一直用 `link:` 没出过事，是因为它**零运行时 import**。第一个有运行时依赖的
+共享包（`packages/file-browser`，React DOM 组件）照抄 `link:` 后，`docs` 的 `next build`
+在**预渲染阶段**炸：
+
+```
+✓ Compiled successfully in 3.7s        ← 宏展开、转译全都正常
+...
+TypeError: Cannot destructure property 'i18n' of 'j(...)' as it is null.
+  at ../packages/file-browser/src/xxx.tsx
+```
+
+不是没编译，是**运行时实例分裂**。`link:` 只是软链，解析真实路径后从
+`packages/file-browser/src/` 向上找 `node_modules`：
+
+| 解析起点 | 落到 |
+|---|---|
+| `packages/file-browser/src` | 仓库根 `@lingui/react@5.9`、`react@19.2.4` |
+| `docs/app/app` | `docs/node_modules` 的 `@lingui/react@6.6`、`react@19.2.7` |
+
+两个物理副本 = 两个 `React.createContext` = 组件读到的 context 恒为 `null`。
+
+**别以为对齐版本就能修**：根 workspace 与 `docs/` 各有自己的 `.pnpm` 目录，同版本也是两份
+物理副本，React 按文件路径判定模块身份。
+
+**也别以为这只是 Lingui 的事**：`react` 本身就在分裂名单里，所以**任何带 hooks 的共享组件**
+都会撞上（`useState` 从错误的 dispatcher 读 → "Invalid hook call"）。上面这个 case 先炸在
+Lingui 上纯属巧合——探针组件只用了 `useLingui`。
+
+**修法**：独立 workspace 侧改用 `file:`。
+
+```jsonc
+// docs/package.json
+"@swarmdrop/shared-view": "link:../packages/shared-view",   // 零 import，link: 够用
+"@swarmdrop/file-browser": "file:../packages/file-browser", // 有运行时 import，必须 file:
+```
+
+`file:` 让 pnpm 把包装进 **docs 自己的虚拟 store**
+（`docs/node_modules/.pnpm/@swarmdrop+file-browser@file+..+packages+file-browser/`），
+解析上下文随之变成 docs 的依赖树，两边落回同一份副本。
+
+**代价（会咬人的那条）**：pnpm 对 `file:` 目录依赖用**硬链接**，而硬链接在实践中根本不同步
+——**改了共享包就必须重跑 `cd docs && pnpm install`，无一例外**。
+
+硬链接共享 inode，所以「原地改内容」两边确实都能看到。问题是几乎没有工具原地改：编辑器、
+`Edit` 工具、格式化器都是写临时文件再 `rename()` 覆盖，新文件是新 inode，链接当场断，
+`docs/node_modules/` 里留着的还是旧副本。2026-08-06 实测：给 `FileBrowserActions` 加了个
+`onDownload`，docs 侧 `tsc` 报「`onDownload` does not exist in type」，源文件里明明有；
+`ls -li` 两边 inode 已经不同。
+
+**症状会伪装成别的问题**，别顺着表象查下去：
+
+| 症状 | 真因 |
+|---|---|
+| Next `Module not found` | 新增了文件 |
+| `tsc` 说某属性不存在，可你刚加了它 | 改了已有文件 |
+
+两种都是先 `pnpm install`（几秒），再怀疑代码——别去查 `transpilePackages` 或 turbopack root。
+
+**判据**：`packages/*` 下的包，**只要有任何非类型的 `import`**，被 `docs/` 或 `mobile/` 消费时
+就得用 `file:`。反过来，能守住「零运行时 import」的包（如 `shared-view`）继续用 `link:`——
+它少一层硬链接同步的麻烦。
+
+**相关文件**：`packages/shared-view/README.md`、`packages/file-browser/README.md`、
+`docs/next.config.mjs`、`docs/package.json`、`mobile/metro.config.js`、
 `scripts/check-shared-view-imports.mjs`
 
 ## 本地 expo module 的 Kotlin 不在任何门禁里（2026-08-03 实证）

@@ -1,11 +1,8 @@
-import { FolderOpen, LocateFixed, RotateCcw, X } from "lucide-react";
+import { Download, FolderOpen, LoaderCircle, LocateFixed, RotateCcw, X } from "lucide-react";
 import { useLingui } from "@lingui/react/macro";
-import { cn } from "@/lib/utils";
-import type {
-  FileBrowserActions,
-  FileBrowserItem,
-  FileBrowserTarget,
-} from "./types";
+import { cn } from "./cn";
+import type { FileBrowserItem } from "@swarmdrop/shared-view";
+import type { FileBrowserActions, FileBrowserTarget } from "./types";
 
 interface ActionButtonProps {
   label: string;
@@ -71,6 +68,7 @@ export function FileItemActions({
 }) {
   const { t } = useLingui();
   const isMissing = item.status === "missing";
+  const isPending = actions?.pendingIds?.has(item.id) ?? false;
   if (!actions) return null;
 
   return (
@@ -78,6 +76,19 @@ export function FileItemActions({
       className={cn("flex items-center gap-0.5", className)}
       onClick={(event) => event.stopPropagation()}
     >
+      {actions.onDownload && (
+        <ActionButton
+          label={isPending ? t`正在准备下载` : t`下载`}
+          disabled={isMissing || isPending}
+          onClick={() => actions.onDownload?.(item)}
+        >
+          {isPending ? (
+            <LoaderCircle className="size-3.5 animate-spin" />
+          ) : (
+            <Download className="size-3.5" />
+          )}
+        </ActionButton>
+      )}
       {actions.onOpen && (
         <ActionButton
           label={t`打开文件`}

@@ -13,11 +13,20 @@
 import { Trans } from "@lingui/react/macro";
 import { formatFileSize } from "@swarmdrop/shared-view";
 import { Button } from "@/components/ui/button";
-import { OFFER_FILE_PREVIEW_LIMIT } from "./transfer-offer-host";
 import { WebErrorCard } from "./web-error-view";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
+
+/**
+ * 每条 offer 最多列几个文件名，其余折成「还有 N 个」——offer 可能带上百个文件。
+ *
+ * **这里刻意不用 `FileBrowser`**（全局对话框用了）。两处的问题不同：对话框回答「这一堆
+ * 到底是什么，我收不收」，需要完整结构与体量；本面板是多条 offer 的**索引**，每条只要
+ * 认得出「这是谁发的哪一堆」，真要细看就去开对话框。给每条都塞一个带视图切换的浏览器，
+ * 会让「接受 / 拒绝」两个按钮——这张卡存在的理由——被推到屏幕外。
+ */
+const OFFER_FILE_PREVIEW_LIMIT = 5;
 
 export function IncomingOffersPanel() {
   const offers = useWebNode((s) => s.offers);
@@ -72,8 +81,6 @@ export function IncomingOffersPanel() {
             前者让它在大屏上也只占约三分之一，后者防止在超高视口里长成一面墙。 */}
         <ul className="mt-3 max-h-[min(38dvh,340px)] space-y-2 overflow-y-auto">
           {offerList.map((offer) => {
-            // 变量名参与 msgid（`还有 {rest} 个文件`）——与全局对话框那句取同一个名字，
-            // 两处才共用一条待翻译串，而不是各翻一遍同一句话。
             const rest = offer.files.length - OFFER_FILE_PREVIEW_LIMIT;
             return (
             <li key={offer.sessionId} className="rounded-lg border bg-background px-3 py-2">
@@ -84,8 +91,6 @@ export function IncomingOffersPanel() {
                 </Trans>
               </p>
               <ul className="mt-1 space-y-0.5">
-                {/* 与全局对话框同一个上限：一个 offer 可以带上百个文件，全量铺开会把下面的
-                    「接受 / 拒绝」推到屏幕外——而那两个按钮才是这张卡存在的理由。 */}
                 {offer.files.slice(0, OFFER_FILE_PREVIEW_LIMIT).map((f) => (
                   <li key={f.fileId} className="truncate font-mono text-[11px] text-muted-foreground">
                     {f.name}（{formatFileSize(f.size)}）

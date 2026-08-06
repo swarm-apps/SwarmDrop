@@ -7,3 +7,12 @@ packages:
 
 allowBuilds:
   esbuild: true
+
+# pnpm 10 起，settings 从 package.json 的 `pnpm` 字段搬到了这里；写在那边 pnpm 11 会
+# 直接忽略（只发一句 "no longer read by pnpm" 的 WARN，install 照常成功）。
+overrides:
+  # @lingui/vite-plugin@6.6.0 的 peer 是 `^7.29.0 || ^8.0.0`，而 @vitejs/plugin-react
+  # 只把 @babel/core 带到 7.28.6。pnpm 对这种不匹配只发一句
+  # "Issues with peer dependencies found" 就放过，不会失败——所以显式提升。
+  # 移除前先确认 vite-plugin 的 peer 范围已能被传递依赖满足。
+  "@babel/core": ^7.29.0

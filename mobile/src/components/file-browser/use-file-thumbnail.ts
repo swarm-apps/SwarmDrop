@@ -11,12 +11,16 @@ const videoThumbMemo = new Map<string, string>();
 
 /**
  * 解析一个 file-browser item 的网格缩略图 uri。
- * - 无 `localUri` / 非 `file://` / 类型不支持 → undefined(调用方画类型图标)
+ * - 无 `previewSource` / 非 `file://` / 类型不支持 → undefined(调用方画类型图标)
  * - 图片 → 直接返回本地路径(由 expo-image 负责降采样),同步
  * - 视频 → 异步解析首帧海报,解析出来前返回 undefined(图标占位)
+ *
+ * `previewSource` 是三端统一的字段名(此前本端叫 `localUri`)。**语义按端不同**:
+ * 这里是 `file://` URI,桌面是资源协议 URL,Web 是 OPFS 相对路径——所以要先判前缀
+ * 再用,不能假定它一定能直接喂给 `<Image>`。
  */
 export function useFileThumbnail(item: FileBrowserItem): string | undefined {
-  const localUri = item.localUri;
+  const localUri = item.previewSource;
   const usable = !!localUri && localUri.startsWith("file://");
   const isImage = usable && isImageFile(item.name);
   const isVideo = usable && isVideoFile(item.name);

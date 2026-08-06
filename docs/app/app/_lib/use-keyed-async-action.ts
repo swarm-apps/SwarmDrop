@@ -6,7 +6,7 @@
 // 单一错误卡片展示（配对确认 / offer 决策）——后者与被替换的手写实现同语义：每次发起清空、
 // 失败时覆盖。
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toWebError, type WebError } from "./view-types";
 
 export function useKeyedAsyncAction() {
@@ -40,10 +40,18 @@ export function useKeyedAsyncAction() {
     }
   }, []);
 
-  return {
-    isPending: (key: string) => pendingKeys.has(key),
-    errorFor: (key: string): WebError | undefined => errors[key],
-    latestError,
-    run,
-  };
+  // **返回值本身要 memo**。调用方拿它派生集合（收件箱按待处理的 key 算 `pendingIds`），
+  // 每次渲染换一个新对象就等于宣告「什么都变了」，那些派生只能跟着每帧重算，
+  // 下游行组件的 memo 也一起被打穿。三个字段真正变化的时机是 pending / errors 变化时。
+  return useMemo(
+    () => ({
+      isPending: (key: string) => pendingKeys.has(key),
+      errorFor: (key: string): WebError | undefined => errors[key],
+      /** 原始的待处理键集合，供调用方自己做派生（比逐个 `isPending` 快，也能进依赖）。 */
+      pendingKeys,
+      latestError,
+      run,
+    }),
+    [pendingKeys, errors, latestError, run],
+  );
 }

@@ -15,7 +15,8 @@ import { useTransferStore } from "@/stores/transfer-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { commands } from "@/lib/bindings";
 import type { SaveLocation } from "@/lib/types";
-import { FileBrowser, fromOfferFiles } from "@/components/file-browser";
+import { FileBrowser } from "@swarmdrop/file-browser";
+import { itemsFromOffer } from "@/lib/file-browser-adapters";
 import { PolicyReasonBadge } from "@/components/transfer/policy-reason-badge";
 import { Badge } from "@/components/ui/badge";
 import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
@@ -90,7 +91,7 @@ export function TransferOfferDialog() {
 
   const offerItems = useMemo(() => {
     if (!currentOffer) return [];
-    return fromOfferFiles(currentOffer.files);
+    return itemsFromOffer(currentOffer.sessionId, currentOffer.files);
   }, [currentOffer]);
 
   const handleChangePath = useCallback(async () => {

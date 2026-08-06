@@ -7,6 +7,7 @@
 //! JsValue `!Send` 的 Send 兜底纪律见 `file_access` 模块 doc（本模块的 async fn 内部
 //! 直接跨 await 持 !Send 句柄，由调用方整段裹 `SendWrapper`）。
 
+use std::cell::RefCell;
 use std::time::Duration;
 
 use send_wrapper::SendWrapper;
@@ -35,8 +36,22 @@ fn ensure_secure_context() -> AppResult<()> {
     Ok(())
 }
 
+thread_local! {
+    /// 根句柄缓存。
+    ///
+    /// `navigator.storage.getDirectory()` 每次都是一次异步往返 + 一个超时定时器，而句柄在
+    /// 整个文档生命周期内恒有效。此前 `export_blob_url` 只在用户点下载时偶尔调一次，
+    /// 现在缩略图管线会**成批**调 [`open_file`]（一屏网格十几张图），那笔往返就成了常态开销。
+    ///
+    /// wasm 是单线程的，`thread_local` + `RefCell` 在这里没有并发问题。
+    static OPFS_ROOT: RefCell<Option<FileSystemDirectoryHandle>> = const { RefCell::new(None) };
+}
+
 /// OPFS 根目录（`navigator.storage.getDirectory()`，Window / Worker 通吃）。
 async fn opfs_root() -> AppResult<FileSystemDirectoryHandle> {
+    if let Some(cached) = OPFS_ROOT.with(|cell| cell.borrow().clone()) {
+        return Ok(cached);
+    }
     ensure_secure_context()?;
     let storage = crate::env::storage_manager()
         .ok_or_else(|| AppError::Transfer("navigator.storage 不可达（未知全局环境）".into()))?;
@@ -54,8 +69,11 @@ async fn opfs_root() -> AppResult<FileSystemDirectoryHandle> {
             ));
         }
     };
-    root.dyn_into::<FileSystemDirectoryHandle>()
-        .map_err(|_| AppError::Transfer("getDirectory 返回非目录句柄".into()))
+    let handle = root
+        .dyn_into::<FileSystemDirectoryHandle>()
+        .map_err(|_| AppError::Transfer("getDirectory 返回非目录句柄".into()))?;
+    OPFS_ROOT.with(|cell| *cell.borrow_mut() = Some(handle.clone()));
+    Ok(handle)
 }
 
 /// 沿 `relative_path` 逐段建目录，返回末段文件句柄（`create:true`）。
@@ -171,29 +189,39 @@ fn is_not_found(value: &JsValue) -> bool {
         .is_some_and(|e| e.name() == "NotFoundError")
 }
 
-/// 读回 OPFS 文件建 blob URL（收件箱下载入口；调用方点一次下载生成一个、用完 revoke）。
+/// 打开 OPFS 里的一个文件，返回 `File` 句柄。
+///
+/// **不读字节**：`File` 是对底层内容的惰性引用（一个带 name / size / type 的 `Blob`），
+/// 真正的读取发生在调用方对它 `arrayBuffer()` / `createImageBitmap()` / `createObjectURL()`
+/// 的时候。缩略图管线要的正是这个——`createImageBitmap` 只吃 `Blob`，给它一个 blob URL
+/// 还得 `fetch` 一次绕回来，多一次拷贝，中间那个 URL 还必须记得 revoke。
 ///
 /// **快速失败**：文件不存在（会话未完成/不存在）→ `get_file_handle(create:false)` 立即 reject
 /// → 返回错误。外加超时兜底——保证**永不永久挂起**（team-lead 实测到 1800s+ 挂死，用超时封顶：
 /// 无论底层 OPFS 因何不响应，都在 5s 内明确失败，而非 await 永不解决）。
-pub async fn export_blob_url(relative_path: &str) -> AppResult<String> {
-    match n0_future::time::timeout(Duration::from_secs(5), export_blob_url_inner(relative_path))
-        .await
-    {
+pub async fn open_file(relative_path: &str) -> AppResult<File> {
+    match n0_future::time::timeout(Duration::from_secs(5), open_file_inner(relative_path)).await {
         Ok(result) => result,
         Err(_) => Err(AppError::StorageFailed(
-            "下载失败：OPFS 文件未就绪（会话未完成？）——5s 超时".into(),
+            "读取失败：OPFS 文件未就绪（会话未完成？）——5s 超时".into(),
         )),
     }
 }
 
-async fn export_blob_url_inner(relative_path: &str) -> AppResult<String> {
+async fn open_file_inner(relative_path: &str) -> AppResult<File> {
     let handle = opfs_file_handle(relative_path, false).await?;
-    let file = SendWrapper::new(JsFuture::from(handle.get_file()))
+    SendWrapper::new(JsFuture::from(handle.get_file()))
         .await
         .map_err(js_to_err)?
         .dyn_into::<File>()
-        .map_err(|_| AppError::Transfer("getFile 返回类型错误".into()))?;
+        .map_err(|_| AppError::Transfer("getFile 返回类型错误".into()))
+}
+
+/// 读回 OPFS 文件建 blob URL（收件箱下载入口；调用方点一次下载生成一个、用完 revoke）。
+///
+/// 就是 [`open_file`] + `createObjectURL`。超时兜底在 `open_file` 那一层——建 URL 本身是同步的。
+pub async fn export_blob_url(relative_path: &str) -> AppResult<String> {
+    let file = open_file(relative_path).await?;
     web_sys::Url::create_object_url_with_blob(&file).map_err(js_to_err)
 }
 
@@ -218,7 +246,7 @@ mod tests {
     /// Bug 2 回归：对未就绪（会话未完成 / 文件不存在）的路径，`export_blob_url` 必须**返回**
     /// 一个 `Err`，绝不永久挂起（team-lead 实测到 1800s+ 挂死）。
     ///
-    /// 本测试自身能跑完即证明「不永久挂起」：export_blob_url 内 5s 超时封顶，无论 OPFS 因何
+    /// 本测试自身能跑完即证明「不永久挂起」：超时封顶在 `open_file` 那一层，无论 OPFS 因何
     /// 不响应（含 harness 里 OPFS 不可用时 opfs_root 直接报错）都会在有限时间内落到 `Err`。
     /// 跑法：`wasm-pack test --headless --chrome -p swarmdrop-web`。
     #[wasm_bindgen_test]
@@ -227,6 +255,18 @@ mod tests {
         assert!(
             result.is_err(),
             "未就绪路径应快速失败返回 Err，实际: {result:?}"
+        );
+    }
+
+    /// 同一条护栏对 [`open_file`] 也必须成立——缩略图管线走的是它，而网格视图会对一屏
+    /// 十几个条目同时取图。少了这条超时，一个未就绪的路径就能挂住一个并发槽不放。
+    #[wasm_bindgen_test]
+    async fn open_file_missing_file_fails_fast() {
+        let result = open_file("does-not-exist/never-written.bin").await;
+        assert!(
+            result.is_err(),
+            "未就绪路径应快速失败返回 Err，实际: {:?}",
+            result.map(|_| "File")
         );
     }
 

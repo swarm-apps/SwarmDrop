@@ -17,10 +17,6 @@ msgstr ""
 msgid "· 刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
 msgstr "· Survives a page refresh. Clearing browser data gives this device a new identity, and paired devices will need to pair again."
 
-#: app/app/_components/dev-event-log.tsx
-#~ msgid "（暂无事件）"
-#~ msgstr "(no events yet)"
-
 #: app/app/_components/node-panel.tsx
 msgid "（浏览器默认）"
 msgstr "(browser default)"
@@ -59,10 +55,21 @@ msgstr "{0} paired · {onlineCount} online"
 msgid "{0} 台设备"
 msgstr "{0} devices"
 
-#. placeholder {0}: file.name
-#: app/app/_components/transfer-detail.tsx
+#. placeholder {0}: item.name
+#: ../packages/file-browser/src/file-row.tsx
 msgid "{0} 的进度"
 msgstr "Progress of {0}"
+
+#. placeholder {0}: node.fileCount
+#: ../packages/file-browser/src/folder-row.tsx
+msgid "{0} 项"
+msgstr "{0} items"
+
+#. placeholder {0}: items.length
+#. placeholder {1}: formatFileSize(totalSize)
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "{0} 项 · {1}"
+msgstr "{0} items · {1}"
 
 #: app/app/_components/node-status-dialog.tsx
 msgid "{activeRelayCount} 条可达"
@@ -139,9 +146,14 @@ msgstr "localStorage (main window thread)"
 msgid "一条邀请只能用一次。要再连一台设备，请重新生成。"
 msgstr "An invite works only once. Generate a new one to connect another device."
 
-#: app/app/_components/inbox-views.tsx
+#: ../packages/file-browser/src/item-actions.tsx
 msgid "下载"
 msgstr "Download"
+
+#. placeholder {0}: file.name
+#: app/app/_components/inbox-views.tsx
+msgid "下载「{0}」失败"
+msgstr "Failed to download “{0}”"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "与另一台设备互换一次邀请即可，之后长期有效。"
@@ -154,17 +166,9 @@ msgstr "Exchange one invite with another device — the pairing then lasts."
 msgid "中继"
 msgstr "Relay"
 
-#: app/app/_components/node-status-dialog.tsx
-#~ msgid "中继的增删与连通性测试在 <0>设置</0> 的「连接」区。"
-#~ msgstr "Add, remove and test relays under Connection in <0>Settings</0>."
-
 #: app/app/_components/connection-badge.tsx
 msgid "中继节点"
 msgstr "Relay node"
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "中继节点地址"
-#~ msgstr "Relay address"
 
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "中继连接也自动接收"
@@ -183,14 +187,6 @@ msgstr "Theme"
 msgid "也可以直接从 <0>设备</0> 页点某台设备的「发送」，目标会自动带过来。"
 msgstr "You can also hit “Send” on a device from the <0>Devices</0> page — the target comes along automatically."
 
-#. placeholder {0}: eventLog.length
-#. placeholder {1}: Object.keys(offers).length
-#. placeholder {2}: Object.keys(projections).length
-#. placeholder {3}: pendingPairings.length
-#: app/app/_components/dev-event-log.tsx
-#~ msgid "事件流 {0} · offer {1} · 传输 {2} · 配对请求 {3}"
-#~ msgstr "Events {0} · offers {1} · transfers {2} · pairing requests {3}"
-
 #: app/app/_components/invite-share.tsx
 msgid "二维码生成失败，请用下方链接配对"
 msgstr "Could not render the QR code — pair with the link below"
@@ -207,10 +203,6 @@ msgstr "Add only when you need to join a private or backup network."
 msgid "今天"
 msgstr "Today"
 
-#: app/app/_components/inbox-views.tsx
-#~ msgid "从左侧选一条，这里会显示它的文件与操作。"
-#~ msgstr "Pick an item on the left to see its files and actions here."
-
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "会话"
 msgstr "Sessions"
@@ -221,7 +213,7 @@ msgstr "Sessions"
 msgid "传输"
 msgstr "Transfers"
 
-#: app/app/_components/transfer-detail.tsx
+#: ../packages/file-browser/src/file-card.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "传输中"
 msgstr "Transferring"
@@ -254,10 +246,6 @@ msgstr "After you dismiss the prompt, requests wait here for your decision."
 msgid "你的可达地址"
 msgstr "Your reachable address"
 
-#: app/app/_components/connection-panel.tsx
-#~ msgid "你的可达地址（<0>生成邀请</0>时会写进去）"
-#~ msgstr "Your reachable address (written into the invite when you <0>generate one</0>)"
-
 #: app/app/_components/about-panel.tsx
 #: app/app/_components/app-nav.tsx
 msgid "使用文档"
@@ -288,10 +276,6 @@ msgstr "Trust policy"
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "信任级别"
 msgstr "Trust level"
-
-#: app/app/_components/node-panel.tsx
-#~ msgid "修改"
-#~ msgstr "Edit"
 
 #: app/app/_components/node-status-dialog.tsx
 msgid "停止中…"
@@ -340,8 +324,8 @@ msgid "关闭后经中继来的传输一律要确认，即使开了自动接收�
 msgstr "Off means relayed transfers always ask, even with auto-accept on."
 
 #: app/app/_components/inbox-views.tsx
-msgid "准备中…"
-msgstr "Preparing…"
+#~ msgid "准备中…"
+#~ msgstr "Preparing…"
 
 #: app/app/_components/send-panel.tsx
 msgid "准备文件的进度"
@@ -556,6 +540,10 @@ msgstr "failed to start"
 msgid "启动节点"
 msgstr "Start node"
 
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "在文件夹中显示"
+msgstr "Show in Folder"
+
 #: app/app/_components/device-card.tsx
 #: app/app/_components/send-panel.tsx
 msgid "在线"
@@ -621,10 +609,6 @@ msgstr "Appearance"
 #: app/app/_components/transfer-labels.ts
 msgid "失败"
 msgstr "Failed"
-
-#: app/app/_lib/view-types.ts
-#~ msgid "存储错误"
-#~ msgstr "Storage error"
 
 #: app/app/_components/group-manager-dialog.tsx
 msgid "完成"
@@ -699,14 +683,6 @@ msgid "对方那边出错了，无法继续"
 msgstr "Something went wrong on their side, so it can’t continue."
 
 #: app/app/_components/node-panel.tsx
-#~ msgid "对端在配对确认与传输请求里看到的就是这一行。未设置时用浏览器 UA 派生的默认名 （当前是「{deviceNameFallback}」），清空输入即回落到它。"
-#~ msgstr "This is the name peers see in pairing confirmations and transfer requests. Left unset, it falls back to a name derived from your browser (currently “{deviceNameFallback}”); clear the field to go back to it."
-
-#: app/app/_components/node-panel.tsx
-#~ msgid "对端在配对确认与传输请求里看到的就是这一行。未设置时用浏览器 UA 派生的默认名， 清空输入即回落到它。"
-#~ msgstr "This is the name peers see in pairing confirmations and transfer requests. Left unset, it falls back to a name derived from your browser; clear the field to go back to it."
-
-#: app/app/_components/node-panel.tsx
 msgid "对端在配对确认与传输请求里看到的就是这一行。清空即回落到浏览器 UA 派生的默认名 （当前是「{deviceNameFallback}」）。"
 msgstr "This is the name peers see in pairing confirmations and transfer requests. Clear it to fall back to the browser's UA-derived default (currently “{deviceNameFallback}”)."
 
@@ -730,14 +706,6 @@ msgstr "Interrupted"
 #: app/app/_components/pairing-panel.tsx
 msgid "已从剪贴板识别到一条邀请。"
 msgstr "Picked up an invite from your clipboard."
-
-#: app/app/_components/node-panel.tsx
-#~ msgid "已保存，已连接的对端立刻就能看到新名字——不必刷新页面，连接与进行中的传输都不受影响。"
-#~ msgstr "Saved. Connected peers see the new name right away — no reload needed, and connections and in-flight transfers are unaffected."
-
-#: app/app/_components/node-panel.tsx
-#~ msgid "已保存。节点启动后，新名字会随本机身份一起广播出去。"
-#~ msgstr "Saved. Once the node starts, the new name goes out with this device's identity."
 
 #: app/app/_components/send-panel.tsx
 msgid "已发出，等待对方接受"
@@ -763,7 +731,6 @@ msgstr "Copied"
 msgid "已复制节点 ID"
 msgstr "Node ID copied"
 
-#: app/app/_components/transfer-detail.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "已完成"
 msgstr "Completed"
@@ -794,16 +761,8 @@ msgid "已暂停"
 msgstr "Paused"
 
 #: app/app/_components/connection-panel.tsx
-#~ msgid "已添加中继，正在连接…"
-#~ msgstr "Relay added, connecting…"
-
-#: app/app/_components/connection-panel.tsx
 msgid "已添加引导节点，正在连接…"
 msgstr "Bootstrap node added, connecting…"
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "已移除中继"
-#~ msgstr "Relay removed"
 
 #: app/app/_components/connection-panel.tsx
 msgid "已移除引导节点"
@@ -847,8 +806,12 @@ msgstr "Delivered"
 #. placeholder {0}: files.length
 #. placeholder {1}: formatFileSize(totalBytes)
 #: app/app/_components/send-panel.tsx
-msgid "已选 {0} 个文件 · 共 <0>{1}</0>"
-msgstr "{0} files selected · <0>{1}</0> total"
+#~ msgid "已选 {0} 个文件 · 共 <0>{1}</0>"
+#~ msgstr "{0} files selected · <0>{1}</0> total"
+
+#: app/app/_components/send-panel.tsx
+msgid "已选文件"
+msgstr "Selected Files"
 
 #: app/app/_components/node-panel.tsx
 msgid "已配对"
@@ -858,10 +821,6 @@ msgstr "Paired"
 #: app/app/_components/pairing-panel.tsx
 msgid "已配对：<0>{0}</0>"
 msgstr "Paired: <0>{0}</0>"
-
-#: app/app/_components/pairing-panel.tsx
-#~ msgid "已配对：<0>{consumeSuccess}</0>"
-#~ msgstr "Paired: <0>{consumeSuccess}</0>"
 
 #: app/app/_components/device-grid.tsx
 #: app/app/_components/node-status-dialog.tsx
@@ -951,6 +910,10 @@ msgstr "Open transfer session list"
 msgid "打开收件箱列表"
 msgstr "Open inbox list"
 
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "打开文件"
+msgstr "Open file"
+
 #: app/app/_components/connection-badge.tsx
 msgid "打洞"
 msgstr "Hole-punch"
@@ -1026,12 +989,24 @@ msgid "收到文件请求"
 msgstr "Incoming file request"
 
 #: app/app/_components/transfer-detail.tsx
-msgid "收起文件"
-msgstr "Collapse files"
+#~ msgid "收起文件"
+#~ msgstr "Collapse files"
 
+#: ../packages/file-browser/src/file-browser.tsx
+#: app/app/_components/inbox-views.tsx
+#: app/app/_components/transfer-detail.tsx
+#: app/app/_components/transfer-offer-host.tsx
 #: app/app/_lib/view-types.ts
 msgid "文件"
 msgstr "Files"
+
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "文件视图"
+msgstr "File view"
+
+#: ../packages/file-browser/src/file-card.tsx
+msgid "文件缺失"
+msgstr "File missing"
 
 #: app/app/_lib/view-types.ts
 msgid "文本"
@@ -1076,8 +1051,8 @@ msgstr "Yes"
 
 #. placeholder {0}: files.length
 #: app/app/_components/transfer-detail.tsx
-msgid "显示全部 {0} 个文件"
-msgstr "Show all {0} files"
+#~ msgid "显示全部 {0} 个文件"
+#~ msgstr "Show all {0} files"
 
 #: app/app/_components/receive-panel.tsx
 msgid "显示已归档"
@@ -1091,9 +1066,9 @@ msgstr "Pause"
 msgid "暂停中"
 msgstr "Pausing"
 
-#: app/app/_components/incoming-offers-panel.tsx
-#~ msgid "暂无待处理的入站文件请求。"
-#~ msgstr "No inbound file requests waiting."
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "暂无文件"
+msgstr "No files"
 
 #: app/app/_components/send-panel.tsx
 msgid "更换"
@@ -1131,10 +1106,6 @@ msgstr "Untitled transfer"
 msgid "未打开"
 msgstr "not opened"
 
-#: app/app/_lib/view-types.ts
-#~ msgid "未找到"
-#~ msgstr "Not found"
-
 #: app/app/_components/connection-badge.tsx
 msgid "未知"
 msgstr "unknown"
@@ -1159,14 +1130,6 @@ msgstr "Your reachability was revoked"
 #: app/app/_components/transfer-labels.ts
 msgid "本机暂停"
 msgstr "Paused here"
-
-#: app/app/_components/node-panel.tsx
-#~ msgid "本机节点"
-#~ msgstr "This node"
-
-#: app/app/_lib/nav.ts
-#~ msgid "本机身份、中继连接与外观偏好。"
-#~ msgstr "This device's identity, relay connection and appearance."
 
 #: app/app/_lib/view-types.ts
 msgid "来源未知"
@@ -1203,6 +1166,14 @@ msgstr "View received files"
 msgid "查看链路详情"
 msgstr "View link details"
 
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "树形视图"
+msgstr "Tree view"
+
+#: ../packages/file-browser/src/file-card.tsx
+msgid "根目录"
+msgstr "Root directory"
+
 #: app/app/_components/node-not-ready-state.tsx
 msgid "正在停止节点…"
 msgstr "Stopping the node…"
@@ -1215,6 +1186,10 @@ msgstr "Stopping the node…"
 #: app/app/_components/send-panel.tsx
 msgid "正在准备 {0}（{1}/{2} 文件 · {3}/{4}）"
 msgstr "Preparing {0} ({1}/{2} files · {3}/{4})"
+
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "正在准备下载"
+msgstr "Preparing download"
 
 #: app/app/_components/send-panel.tsx
 msgid "正在准备发送…"
@@ -1269,20 +1244,8 @@ msgid "测试连通性"
 msgstr "Test connection"
 
 #: app/app/_components/pairing-panel.tsx
-#~ msgid "浏览器不能被直接拨号，需要先连上一个中继，对方才找得到你。到 <0>设置</0> 页连接后再生成邀请。"
-#~ msgstr "A browser cannot be dialed directly — connect to a relay first so others can reach you. Connect on the <0>Settings</0> page, then generate an invite."
-
-#: app/app/_components/pairing-panel.tsx
 msgid "浏览器不能被直接拨号，需要先连上一个引导节点，对方才找得到你。到 <0>设置</0> 页连接后再生成邀请。"
 msgstr "A browser cannot be dialed directly — connect to a bootstrap node first so others can reach you. Connect on the <0>Settings</0> page, then generate an invite."
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "浏览器不能被直接拨号，需要经中继节点建立一个可达地址，对方才找得到你。"
-#~ msgstr "A browser cannot be dialed directly. It needs a relay to build a reachable address so others can find you."
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "浏览器不能被直接拨号，需要经引导节点建立一个可达地址，对方才找得到你。"
-#~ msgstr "A browser cannot be dialled directly. It needs a bootstrap node to establish a reachable address before anyone can find you."
 
 #: app/app/_components/connection-panel.tsx
 msgid "浏览器不能被直接拨号，需要经引导节点建立一个可达地址，对方才找得到你。内置节点会自动连接，通常无需调整。"
@@ -1309,10 +1272,6 @@ msgid "添加中…"
 msgstr "Adding…"
 
 #: app/app/_components/connection-panel.tsx
-#~ msgid "添加中继"
-#~ msgstr "Add a relay"
-
-#: app/app/_components/connection-panel.tsx
 msgid "添加自定义引导节点"
 msgstr "Add a custom bootstrap node"
 
@@ -1332,17 +1291,9 @@ msgstr "Clear records"
 msgid "源文件已变更，无法继续，请重新发送"
 msgstr "The source file changed, so it can’t continue. Please send it again."
 
-#: app/app/_components/about-panel.tsx
-#~ msgid "源码仓库"
-#~ msgstr "Source code"
-
 #: app/app/_components/active-transfers-section.tsx
 msgid "现在没有正在进行的传输"
 msgstr "Nothing is transferring right now"
-
-#: app/app/_components/active-transfers-section.tsx
-#~ msgid "现在没有正在进行的传输。"
-#~ msgstr "Nothing is transferring right now."
 
 #: app/app/_components/pairing-panel.tsx
 msgid "生成一条邀请发给对方"
@@ -1411,18 +1362,14 @@ msgstr "Confirm pairing"
 msgid "离线"
 msgstr "Offline"
 
-#: app/app/_components/connection-panel.tsx
-#~ msgid "移除"
-#~ msgstr "Remove"
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "移除"
+msgstr "Remove"
 
 #. placeholder {0}: file.name
 #: app/app/_components/send-panel.tsx
-msgid "移除 {0}"
-msgstr "Remove {0}"
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "移除中…"
-#~ msgstr "Removing…"
+#~ msgid "移除 {0}"
+#~ msgstr "Remove {0}"
 
 #: app/app/_components/connection-panel.tsx
 msgid "移除引导节点"
@@ -1437,8 +1384,8 @@ msgid "端到端加密"
 msgstr "End-to-end encrypted"
 
 #: app/app/_components/transfer-detail.tsx
-msgid "等待中"
-msgstr "Waiting"
+#~ msgid "等待中"
+#~ msgstr "Waiting"
 
 #: app/app/_components/transfer-labels.ts
 msgid "等待处理"
@@ -1456,14 +1403,6 @@ msgstr "Waiting for acceptance"
 #: app/app/_components/group-manager-dialog.tsx
 msgid "管理分组"
 msgstr "Manage groups"
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "粘贴一个中继节点的地址。自建节点的地址形如 <0>/ip4/…/udp/…/webrtc-direct/certhash/…/p2p/12D3Koo…</0>"
-#~ msgstr "Paste a relay address. A self-hosted node looks like <0>/ip4/…/udp/…/webrtc-direct/certhash/…/p2p/12D3Koo…</0>"
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "粘贴一个引导节点的地址。自建节点的地址形如 <0>/ip4/…/udp/…/webrtc-direct/certhash/…/p2p/12D3Koo…</0>"
-#~ msgstr "Paste a bootstrap node address. A self-hosted one looks like <0>/ip4/…/udp/…/webrtc-direct/certhash/…/p2p/12D3Koo…</0>"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "粘贴对方给你的邀请"
@@ -1486,12 +1425,16 @@ msgid "续传进度已失效，请重新发送"
 msgstr "The resume progress is no longer valid. Please send it again."
 
 #: app/app/_components/node-panel.tsx
-#~ msgid "编辑设备名"
-#~ msgstr "Edit device name"
-
-#: app/app/_components/node-panel.tsx
 msgid "编辑设备名：{displayName}"
 msgstr "Edit device name: {displayName}"
+
+#: ../packages/file-browser/src/file-row.tsx
+msgid "缺失"
+msgstr "Missing"
+
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "网格视图"
+msgstr "Grid view"
 
 #: app/app/_components/node-status-dialog.tsx
 msgid "网络节点"
@@ -1538,14 +1481,6 @@ msgstr "While the node is stopped nothing reaches you, and paired devices see yo
 msgid "节点启动后，新名字会随本机身份一起广播出去。"
 msgstr "Once the node starts, the new name is broadcast with this device's identity."
 
-#: app/app/_components/connection-panel.tsx
-#~ msgid "节点启动后会自动连接中继。"
-#~ msgstr "Relays connect automatically once the node starts."
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "节点启动后会自动连接引导节点。"
-#~ msgstr "Bootstrap nodes connect automatically once the node starts."
-
 #: app/app/_components/node-status-dialog.tsx
 msgid "节点在跑时，已配对的设备才能找到你并发起传输。"
 msgstr "Paired devices can only find you and start a transfer while the node is running."
@@ -1570,10 +1505,6 @@ msgstr "Active and finished sessions appear here once the node is up."
 #: app/app/_components/active-transfers-section.tsx
 msgid "节点起来后，进行中的传输会出现在这里"
 msgstr "Transfers in flight will show up here once the node is running"
-
-#: app/app/_components/active-transfers-section.tsx
-#~ msgid "节点起来后，进行中的传输会出现在这里。"
-#~ msgstr "Transfers in flight will show up here once the node is running."
 
 #: app/app/_components/receive-panel.tsx
 msgid "要定位的条目不在当前检索结果里。"
@@ -1636,10 +1567,6 @@ msgstr "System"
 msgid "身份存在哪里？"
 msgstr "Where is this identity stored?"
 
-#: app/app/_components/node-status-dialog.tsx
-#~ msgid "身份存放于"
-#~ msgstr "Identity stored in"
-
 #: app/app/_lib/view-types.ts
 msgid "身份错误"
 msgstr "Identity error"
@@ -1670,13 +1597,8 @@ msgid "还有 {hidden} 条进行中，<0>去传输页</0>查看。"
 msgstr "{hidden} more in flight — see them <0>in Transfers</0>."
 
 #: app/app/_components/incoming-offers-panel.tsx
-#: app/app/_components/transfer-offer-host.tsx
 msgid "还有 {rest} 个文件"
 msgstr "{rest} more file(s)"
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "还没有中继。默认会自动连接内置的中继，也可以在下面添加自己的。"
-#~ msgstr "No relays yet. The built-in relay connects automatically; you can also add your own below."
 
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "还没有传输"
@@ -1706,10 +1628,6 @@ msgstr "No reachable address yet, so nobody can dial you."
 msgid "还没有已配对的设备"
 msgstr "No paired devices yet"
 
-#: app/app/_components/connection-panel.tsx
-#~ msgid "还没有引导节点。默认会自动连接内置的节点，也可以在下面添加自己的。"
-#~ msgstr "No bootstrap nodes yet. The built-in ones connect automatically; you can also add your own below."
-
 #: app/app/_components/inbox-views.tsx
 msgid "还没有收到的文件"
 msgstr "Nothing received yet"
@@ -1717,10 +1635,6 @@ msgstr "Nothing received yet"
 #: app/app/_components/receive-panel.tsx
 msgid "还没有收到的文件。"
 msgstr "No files received yet."
-
-#: app/app/_components/inbox-views.tsx
-#~ msgid "还没有收到的文件。对方发起传输并被你接受后，文件会出现在这里。"
-#~ msgstr "No files received yet. Once someone sends and you accept, they show up here."
 
 #: app/app/_components/receive-panel.tsx
 msgid "还没有收到的文件（已归档的未显示）。"
@@ -1754,6 +1668,10 @@ msgstr "This send can only be completed in this tab. Once you reload or close it
 msgid "这条记录已经不在了，请返回列表重新开始"
 msgstr "This entry is no longer there. Go back to the list and start over."
 
+#: app/app/_components/inbox-views.tsx
+msgid "这条记录里没有文件"
+msgstr "This entry has no files"
+
 #: app/app/_components/pairing-panel.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"
 msgstr "This invite has expired — ask for a new one."
@@ -1769,10 +1687,6 @@ msgstr "Sessions in progress and finished. Pick one for per-file detail and resu
 #: app/app/_components/connection-badge.tsx
 msgid "远端地址"
 msgstr "Remote address"
-
-#: app/app/_components/connection-panel.tsx
-#~ msgid "连接"
-#~ msgstr "Connection"
 
 #: app/app/_components/connection-panel.tsx
 msgid "连接中"
@@ -1819,16 +1733,8 @@ msgid "选择后会记住；未选择时跟随浏览器的语言偏好"
 msgstr "Remembered once chosen; follows your browser's language preference until then"
 
 #: app/app/_components/appearance-panel.tsx
-#~ msgid "选择后会记住；未选择时跟随浏览器的语言偏好。"
-#~ msgstr "Your choice is remembered. Without one, this follows your browser's language preference."
-
-#: app/app/_components/appearance-panel.tsx
 msgid "选择应用的外观主题"
 msgstr "Pick the app's appearance"
-
-#: app/app/_components/appearance-panel.tsx
-#~ msgid "选择应用的外观主题。"
-#~ msgstr "Choose the app's appearance."
 
 #: app/app/_components/send-panel.tsx
 msgid "选择文件"
@@ -1866,10 +1772,6 @@ msgstr "Invite expired"
 #: app/app/_components/pairing-panel.tsx
 msgid "邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，也会走到这里——让对方重新生成一条。"
 msgstr "Invites are single-use: you also land here if they revoked it or another device already used it. Ask them to generate a new one."
-
-#: app/app/_components/pairing-panel.tsx
-#~ msgid "邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，就会走到这里——让对方重新生成一条。"
-#~ msgstr "Invites are single-use. If it was revoked, or another device already used it, you land here — ask for a new one."
 
 #: app/app/_components/pairing-panel.tsx
 msgid "邀请有效期 {INVITE_TTL_HOURS} 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存）， 不想让它继续可用就撤销，需要再分享请重新生成。"
@@ -1925,9 +1827,13 @@ msgstr "Generate again"
 msgid "重新连接"
 msgstr "Reconnect"
 
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "重试"
+msgstr "Retry"
+
 #: app/app/_components/inbox-views.tsx
-msgid "重试下载"
-msgstr "Retry download"
+#~ msgid "重试下载"
+#~ msgstr "Retry download"
 
 #: app/app/_components/send-panel.tsx
 msgid "链接指向的设备不在已配对列表里（可能已解除配对）。从下面挑一台，或回设备页重新配对。"

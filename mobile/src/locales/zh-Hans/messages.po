@@ -24,7 +24,7 @@ msgstr "{0} 个文件"
 
 #. placeholder {0}: selectedFiles.length
 #. placeholder {1}: formatBytes(totalSize)
-#: src/app/send/select-device.tsx:279
+#: src/app/send/select-device.tsx:281
 msgid "{0} 个文件 · {1}"
 msgstr "{0} 个文件 · {1}"
 
@@ -52,7 +52,7 @@ msgstr "{0}，{1}"
 #. placeholder {0}: item.name
 #. placeholder {1}: formatBytes(item.size)
 #. placeholder {2}: item.status === "transferring" || item.status === "paused" ? `，${progress}%` : ""
-#: src/components/file-browser/file-row.tsx:48
+#: src/components/file-browser/file-row.tsx:50
 msgid "{0}，{1}，{statusText}{2}"
 msgstr "{0}，{1}，{statusText}{2}"
 
@@ -266,6 +266,7 @@ msgstr "会话不存在或已结束"
 msgid "传输"
 msgstr "传输"
 
+#: src/components/file-browser/file-row.tsx:207
 #: src/components/transfer/shared.tsx:160
 msgid "传输中"
 msgstr "传输中"
@@ -477,7 +478,7 @@ msgstr "最近"
 msgid "最近接收"
 msgstr "最近接收"
 
-#: src/app/send/select-device.tsx:316
+#: src/app/send/select-device.tsx:318
 #: src/app/send/share-target.tsx:275
 msgid "准备中"
 msgstr "准备中"
@@ -496,7 +497,7 @@ msgstr "分享"
 
 #. placeholder {0}: item.name
 #: src/components/file-browser/file-card.tsx:118
-#: src/components/file-browser/file-row.tsx:139
+#: src/components/file-browser/file-row.tsx:141
 msgid "分享 {0}"
 msgstr "分享 {0}"
 
@@ -506,8 +507,8 @@ msgstr "分享失败"
 
 #: src/app/inbox/[itemId].tsx:208
 #: src/app/inbox/[itemId].tsx:234
-#: src/app/send/shared-files.tsx:39
-#: src/app/send/shared-files.tsx:44
+#: src/app/send/shared-files.tsx:41
+#: src/app/send/shared-files.tsx:46
 msgid "分享文件"
 msgstr "分享文件"
 
@@ -685,8 +686,8 @@ msgid "发给 {0}"
 msgstr "发给 {0}"
 
 #: src/app/(main)/index.tsx:854
-#: src/app/send/select-device.tsx:229
-#: src/app/send/select-device.tsx:316
+#: src/app/send/select-device.tsx:231
+#: src/app/send/select-device.tsx:318
 #: src/app/transfer/[sessionId].tsx:409
 msgid "发送"
 msgstr "发送"
@@ -700,11 +701,11 @@ msgstr "发送中"
 msgid "发送到"
 msgstr "发送到"
 
-#: src/app/send/select-device.tsx:252
+#: src/app/send/select-device.tsx:254
 msgid "发送到 {displayName}"
 msgstr "发送到 {displayName}"
 
-#: src/app/send/select-device.tsx:187
+#: src/app/send/select-device.tsx:189
 #: src/app/send/share-target.tsx:151
 msgid "发送失败"
 msgstr "发送失败"
@@ -731,7 +732,7 @@ msgstr "发送请求没能送达对方，请确认对方在线后重试"
 #: src/app/(main)/index.tsx:847
 #: src/app/pairing/found-device.tsx:125
 #: src/app/pairing/found-device.tsx:129
-#: src/app/send/select-device.tsx:297
+#: src/app/send/select-device.tsx:299
 #: src/app/settings/bootstrap-nodes.tsx:203
 #: src/app/transfer/[sessionId].tsx:682
 #: src/components/device-organization-sheets.tsx:239
@@ -869,7 +870,7 @@ msgstr "在本地网络发现可协助连接的节点。"
 msgid "在线"
 msgstr "在线"
 
-#: src/app/send/select-device.tsx:359
+#: src/app/send/select-device.tsx:361
 msgid "在线 · 可接收"
 msgstr "在线 · 可接收"
 
@@ -918,6 +919,7 @@ msgstr "复制链接"
 msgid "外观"
 msgstr "外观"
 
+#: src/components/file-browser/file-row.tsx:211
 #: src/components/transfer/shared.tsx:166
 msgid "失败"
 msgstr "失败"
@@ -932,7 +934,7 @@ msgstr "安全与加密"
 
 #: src/app/pairing/success.tsx:79
 #: src/app/pairing/success.tsx:83
-#: src/app/send/shared-files.tsx:55
+#: src/app/send/shared-files.tsx:57
 msgid "完成"
 msgstr "完成"
 
@@ -940,7 +942,7 @@ msgstr "完成"
 msgid "完成接收后，可以在这里搜索标题或来源。"
 msgstr "完成接收后，可以在这里搜索标题或来源。"
 
-#: src/app/send/shared-files.tsx:51
+#: src/app/send/shared-files.tsx:53
 msgid "完成文件检查"
 msgstr "完成文件检查"
 
@@ -1075,6 +1077,7 @@ msgstr "已发现节点"
 msgid "已发现设备"
 msgstr "已发现设备"
 
+#: src/components/file-browser/file-row.tsx:210
 #: src/components/transfer/shared.tsx:168
 msgid "已取消"
 msgstr "已取消"
@@ -1105,6 +1108,7 @@ msgid "已复制邀请链接"
 msgstr "已复制邀请链接"
 
 #: src/app/activity.tsx:141
+#: src/components/file-browser/file-row.tsx:209
 #: src/components/transfer/shared.tsx:164
 msgid "已完成"
 msgstr "已完成"
@@ -1132,6 +1136,7 @@ msgstr "已拒绝文件"
 msgid "已是最新"
 msgstr "已是最新"
 
+#: src/components/file-browser/file-row.tsx:208
 #: src/components/transfer/shared.tsx:162
 msgid "已暂停"
 msgstr "已暂停"
@@ -1167,11 +1172,11 @@ msgstr "已连接节点"
 msgid "已连接设备"
 msgstr "已连接设备"
 
-#: src/app/send/select-device.tsx:258
+#: src/app/send/select-device.tsx:260
 msgid "已选文件"
 msgstr "已选文件"
 
-#: src/app/send/select-device.tsx:205
+#: src/app/send/select-device.tsx:207
 msgid "已选的文件将被清空。"
 msgstr "已选的文件将被清空。"
 
@@ -1193,7 +1198,7 @@ msgstr "已配对设备"
 msgid "已阻止"
 msgstr "已阻止"
 
-#: src/app/send/select-device.tsx:357
+#: src/app/send/select-device.tsx:359
 msgid "已阻止 · 不可发送"
 msgstr "已阻止 · 不可发送"
 
@@ -1595,15 +1600,15 @@ msgstr "收起诊断详情"
 msgid "改用粘贴邀请"
 msgstr "改用粘贴邀请"
 
-#: src/app/send/select-device.tsx:208
+#: src/app/send/select-device.tsx:210
 msgid "放弃"
 msgstr "放弃"
 
-#: src/app/send/select-device.tsx:205
+#: src/app/send/select-device.tsx:207
 msgid "放弃选择？"
 msgstr "放弃选择？"
 
-#: src/app/send/select-device.tsx:387
+#: src/app/send/select-device.tsx:389
 #: src/app/transfer/[sessionId].tsx:281
 #: src/components/activity-projection-card.tsx:108
 #: src/components/file-browser/file-browser-toolbar.tsx:37
@@ -1619,7 +1624,7 @@ msgid "文件传输失败，请重试"
 msgstr "文件传输失败，请重试"
 
 #: src/app/device/[peerId].tsx:389
-#: src/app/send/select-device.tsx:388
+#: src/app/send/select-device.tsx:390
 msgid "文件夹"
 msgstr "文件夹"
 
@@ -1633,6 +1638,7 @@ msgid "文件直接进入收件箱和默认保存位置"
 msgstr "文件直接进入收件箱和默认保存位置"
 
 #: src/app/inbox/[itemId].tsx:607
+#: src/components/file-browser/file-row.tsx:212
 msgid "文件缺失"
 msgstr "文件缺失"
 
@@ -1782,6 +1788,10 @@ msgstr "未启用"
 #: src/components/node-control-sheet.tsx:241
 msgid "未就绪"
 msgstr "未就绪"
+
+#: src/components/file-browser/file-row.tsx:205
+msgid "未开始"
+msgstr "未开始"
 
 #: src/lib/errors.ts:64
 msgid "未找到该设备"
@@ -1941,7 +1951,7 @@ msgstr "正在留意附近的设备"
 
 #. placeholder {0}: progress.completedFiles.toString()
 #. placeholder {1}: progress.totalFiles.toString()
-#: src/app/send/select-device.tsx:427
+#: src/app/send/select-device.tsx:429
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "正在计算校验和 ({0}/{1})"
 
@@ -2059,7 +2069,7 @@ msgstr "点下方「添加设备」，把你的电脑或另一台手机接进来
 msgid "点对点直连"
 msgstr "点对点直连"
 
-#: src/app/send/select-device.tsx:389
+#: src/app/send/select-device.tsx:391
 msgid "照片"
 msgstr "照片"
 
@@ -2129,7 +2139,7 @@ msgstr "确认这是你要配对的设备?"
 msgid "确认配对"
 msgstr "确认配对"
 
-#: src/app/send/select-device.tsx:390
+#: src/app/send/select-device.tsx:392
 #: src/components/inbox/inbox-list.tsx:107
 #: src/components/inbox/inbox-list.tsx:418
 msgid "视频"
@@ -2141,13 +2151,13 @@ msgstr "视频"
 msgid "离线"
 msgstr "离线"
 
-#: src/app/send/select-device.tsx:363
+#: src/app/send/select-device.tsx:365
 msgid "离线 · 等待对端上线"
 msgstr "离线 · 等待对端上线"
 
 #. placeholder {0}: item.name
 #: src/components/file-browser/file-card.tsx:138
-#: src/components/file-browser/file-row.tsx:150
+#: src/components/file-browser/file-row.tsx:152
 msgid "移除 {0}"
 msgstr "移除 {0}"
 
@@ -2175,6 +2185,10 @@ msgstr "端到端加密,只有你和对方能看到"
 #: src/components/onboarding/onboarding-scaffold.tsx:79
 msgid "第 {0} 步,共 3 步"
 msgstr "第 {0} 步,共 3 步"
+
+#: src/components/file-browser/file-row.tsx:206
+msgid "等待中"
+msgstr "等待中"
 
 #: src/app/device/[peerId].tsx:346
 msgid "等待发现"
@@ -2233,7 +2247,7 @@ msgstr "给设备取个名字"
 msgid "继续"
 msgstr "继续"
 
-#: src/app/send/select-device.tsx:206
+#: src/app/send/select-device.tsx:208
 msgid "继续选择"
 msgstr "继续选择"
 
@@ -2327,7 +2341,7 @@ msgstr "节点已按新发现设置重启"
 msgid "节点已重启"
 msgstr "节点已重启"
 
-#: src/app/send/select-device.tsx:361
+#: src/app/send/select-device.tsx:363
 #: src/lib/errors.ts:51
 msgid "节点未启动"
 msgstr "节点未启动"
@@ -2397,7 +2411,7 @@ msgid "设备当前不可发送"
 msgstr "设备当前不可发送"
 
 #: src/app/device/[peerId].tsx:262
-#: src/app/send/select-device.tsx:232
+#: src/app/send/select-device.tsx:234
 msgid "设备未找到"
 msgstr "设备未找到"
 
@@ -2544,7 +2558,7 @@ msgstr "运行时长"
 #: src/app/pairing/found-device.tsx:72
 #: src/app/pairing/scan.tsx:267
 #: src/app/pairing/scan.tsx:328
-#: src/app/send/select-device.tsx:240
+#: src/app/send/select-device.tsx:242
 #: src/components/search-header.tsx:38
 #: src/components/settings-header.tsx:26
 msgid "返回"
@@ -2618,13 +2632,13 @@ msgid "选择外观"
 msgstr "选择外观"
 
 #: src/app/device/[peerId].tsx:598
-#: src/app/send/select-device.tsx:158
+#: src/app/send/select-device.tsx:160
 #: src/app/settings/general.tsx:236
 #: src/components/transfer-offer-host.tsx:104
 msgid "选择失败"
 msgstr "选择失败"
 
-#: src/app/send/select-device.tsx:283
+#: src/app/send/select-device.tsx:285
 msgid "选择要发送的内容"
 msgstr "选择要发送的内容"
 
@@ -2794,7 +2808,7 @@ msgstr "重试"
 
 #. placeholder {0}: item.name
 #: src/components/file-browser/file-card.tsx:128
-#: src/components/file-browser/file-row.tsx:128
+#: src/components/file-browser/file-row.tsx:130
 msgid "重试 {0}"
 msgstr "重试 {0}"
 

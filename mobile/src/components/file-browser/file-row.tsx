@@ -1,3 +1,5 @@
+import type { MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react/macro";
 import {
   Check,
@@ -43,7 +45,7 @@ function FileRowComponent({ item, depth = 0, actions, testID }: FileRowProps) {
   const colors = useThemeColors();
   const Icon = fileBrowserIcon(item.name);
   const openable = Boolean(actions?.openItem) && item.status !== "missing";
-  const statusText = fileStatusText(item.status, t);
+  const statusText = t(STATUS_TEXT[item.status]);
   const progress = Math.round(item.progress ?? 0);
   const accessibilityLabel = t`${item.name}，${formatBytes(item.size)}，${statusText}${
     item.status === "transferring" || item.status === "paused"
@@ -187,28 +189,27 @@ function statusIconColor(status: FileBrowserStatus, colors: ThemeColors) {
   }
 }
 
-function fileStatusText(
-  status: FileBrowserStatus,
-  t: ReturnType<typeof useLingui>["t"],
-): string {
-  switch (status) {
-    case "idle":
-      return t`已选择`;
-    case "waiting":
-      return t`等待中`;
-    case "transferring":
-      return t`传输中`;
-    case "paused":
-      return t`已暂停`;
-    case "completed":
-      return t`已完成`;
-    case "cancelled":
-      return t`已取消`;
-    case "error":
-      return t`失败`;
-    case "missing":
-      return t`文件缺失`;
-  }
-}
+/**
+ * 状态文案。
+ *
+ * **存 `msg` 描述符，不存字符串。** 这里此前是个把 `t` 当参数收的函数——babel 宏只认词法
+ * 作用域里的 `useLingui()` 解构，`t` 一旦变成形参就展不开，于是这八条从来没被 extract 到
+ * catalog 里，英文界面上一直原样显示中文。模块级 Record + 调用点 `t(...)` 是三端一致的
+ * 写法（Web 的 `_lib/view-types.ts`、桌面的 `transfer-labels.ts` 都是这个形状）。
+ *
+ * **`idle` 不能写「已选择」**：它现在有两个来源——发送侧的已选文件，以及**入站 offer**
+ * （统一模型把 offer 从 `waiting` 修成了 `idle`，理由是它还没进传输队列，挂等待图标会暗示
+ * 传输已经开始）。offer 那一堆文件是对方选的，说「已选择」是替用户记了一笔他没做过的动作。
+ */
+const STATUS_TEXT: Record<FileBrowserStatus, MessageDescriptor> = {
+  idle: msg`未开始`,
+  waiting: msg`等待中`,
+  transferring: msg`传输中`,
+  paused: msg`已暂停`,
+  completed: msg`已完成`,
+  cancelled: msg`已取消`,
+  error: msg`失败`,
+  missing: msg`文件缺失`,
+};
 
 export const FileRow = memo(FileRowComponent);

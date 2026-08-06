@@ -9,6 +9,7 @@
 
 import { Trans, useLingui } from "@lingui/react/macro";
 import { formatFileSize } from "@swarmdrop/shared-view";
+import { FileBrowser } from "@swarmdrop/file-browser";
 import {
   Archive,
   ArchiveRestore,
@@ -19,7 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { PANEL_SURFACE, selectedRowClass } from "./section";
@@ -29,7 +30,10 @@ import { OpenListButton } from "./master-detail";
 import { RelativeTime } from "./relative-time";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
+import { itemsFromInbox } from "../_lib/file-browser-adapters";
 import { NAV, inboxItemHref, transferSessionHref } from "../_lib/nav";
+import { preferencesActions, usePreferences } from "../_lib/preferences-store";
+import { opfsThumbnailSource } from "../_lib/thumbnail-source";
 import type { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import {
   INBOX_CONTENT_KIND_LABEL,
@@ -258,6 +262,40 @@ export function InboxDetailPanel({
   const { t } = useLingui();
   const archived = item.archivedAt !== null;
   const ArchiveIcon = archived ? ArchiveRestore : Archive;
+  const view = usePreferences((s) => s.fileBrowserViews.inbox);
+  const items = useMemo(() => itemsFromInbox(item.id, item.files), [item.id, item.files]);
+  /** 逐文件下载键，与 `receive-panel` 的 `runDownload` 用的是同一个拼法。 */
+  const downloadKey = (fileId: number) => `${item.id}:${fileId}`;
+  const { pendingKeys } = downloadAction;
+  // 这个 Set 一路传到每一行去判「我在不在下载中」，所以它的引用必须稳——否则行组件的
+  // memo 全被打穿。依赖只有真正会变的两样。
+  const pendingIds = useMemo(
+    () =>
+      new Set(
+        items
+          .filter((entry) => pendingKeys.has(`${item.id}:${entry.sourceId}`))
+          .map((entry) => entry.id),
+      ),
+    [items, item.id, pendingKeys],
+  );
+  const failures = item.files.flatMap((file) => {
+    const error = downloadAction.errorFor(downloadKey(file.id));
+    return error ? [{ file, error }] : [];
+  });
+
+  // 动作对象也要稳：它沿 FileBrowser → 视图 → 行/卡 一路下传，内联字面量会在每一层
+  // 打穿 memo。浏览器里「取回」只有下载这一种，没有「打开」「在文件夹中显示」——那两个
+  // 需要真实文件系统，不传即不渲染（见 `FileBrowserActions` 的并集说明）。
+  const actions = useMemo(
+    () => ({
+      onDownload: (entry: { sourceId?: string }) => {
+        const file = item.files.find((f) => String(f.id) === entry.sourceId);
+        if (file) onDownload(item, file);
+      },
+      pendingIds,
+    }),
+    [item, onDownload, pendingIds],
+  );
 
   return (
     // 详情自己是滚动容器：宽屏下滚它不会带走左边的列表，窄屏下也不会把页头顶走。
@@ -306,41 +344,33 @@ export function InboxDetailPanel({
         )}
       </div>
 
-      <ul className="flex flex-col gap-1.5">
-        {item.files.map((f) => {
-          const key = `${item.id}:${f.id}`;
-          const error = downloadAction.errorFor(key);
-          return (
-            <li key={f.id} className="rounded-lg border bg-background px-3 py-2 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-foreground">{f.name}</span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span className="font-mono tabular-nums text-muted-foreground">
-                    {formatFileSize(f.size)}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => onDownload(item, f)}
-                    disabled={downloadAction.isPending(key)}
-                    className="min-h-9"
-                  >
-                    {downloadAction.isPending(key) ? (
-                      <Trans>准备中…</Trans>
-                    ) : error ? (
-                      <Trans>重试下载</Trans>
-                    ) : (
-                      <Trans>下载</Trans>
-                    )}
-                  </Button>
-                </span>
-              </div>
-              {error && <WebErrorCard error={error} className="mt-1 text-xs" />}
-            </li>
-          );
-        })}
-      </ul>
+      {/* 文件清单走三端共用的 `FileBrowser`（树形 / 网格）。此前是一列扁平文件名——
+          对方发一整个文件夹时，收件箱里读不出任何目录结构，而那正是「我收到了什么」
+          最要紧的一半。key 绑条目：换一条时树的展开态不该漂过去。 */}
+      <FileBrowser
+        key={item.id}
+        items={items}
+        title={<Trans>文件</Trans>}
+        view={view}
+        onViewChange={(nextView) => preferencesActions.setFileBrowserView("inbox", nextView)}
+        thumbnailSource={opfsThumbnailSource}
+        actions={actions}
+        emptyState={{ title: <Trans>这条记录里没有文件</Trans> }}
+        // 详情侧自己是滚动容器，本区块按内容定高；树形视图内部虚拟滚动，需要确定高度。
+        className="flex-none"
+        contentClassName="min-h-[320px]"
+      />
+
+      {/* 下载失败逐条报，且带上是哪个文件——`FileBrowser` 的行里塞不下错误卡片，
+          而「哪个失败了」比「有东西失败了」有用得多。 */}
+      {failures.map(({ file, error }) => (
+        <WebErrorCard
+          key={file.id}
+          error={error}
+          className="text-xs"
+          title={t`下载「${file.name}」失败`}
+        />
+      ))}
 
       <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
         {/* 归档可逆，不设二次确认——与传输面板「续传不拦、取消才拦」同一条判据。 */}

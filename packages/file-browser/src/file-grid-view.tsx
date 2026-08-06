@@ -1,7 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FileCard } from "./file-card";
-import type { FileBrowserActions, FileBrowserItem } from "./types";
+import type { FileBrowserItem } from "@swarmdrop/shared-view";
+import type { FileBrowserActions, ThumbnailResolver } from "./types";
 
 const CARD_MIN_WIDTH = 168;
 const GRID_GAP = 12;
@@ -14,13 +15,11 @@ export function calculateGridColumns(width: number): number {
 export function FileGridView({
   items,
   actions,
-  cardTestId,
-  testId = "file-browser-grid",
+  thumbnailSource,
 }: {
   items: FileBrowserItem[];
   actions?: FileBrowserActions;
-  cardTestId?: string;
-  testId?: string;
+  thumbnailSource?: ThumbnailResolver;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -57,7 +56,7 @@ export function FileGridView({
   return (
     <div
       ref={scrollRef}
-      data-testid={testId}
+      data-testid="file-browser-grid"
       className="min-h-0 flex-1 overflow-auto rounded-[14px] bg-foreground/[0.018] p-1.5 dark:bg-white/[0.025]"
     >
       <div
@@ -82,7 +81,7 @@ export function FileGridView({
                   key={item.id}
                   item={item}
                   actions={actions}
-                  testId={cardTestId}
+                  thumbnailSource={thumbnailSource}
                 />
               ))}
             </div>

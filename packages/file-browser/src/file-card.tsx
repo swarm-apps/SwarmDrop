@@ -1,48 +1,64 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Check, CircleAlert, ImageOff, Timer } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
-import { Progress } from "@/components/ui/progress";
-import { cn } from "@/lib/utils";
-import { formatFileSize } from "@/lib/format";
-import { getFileIcon, getFileIconColor } from "@/lib/file-icon";
+import { Progress } from "./progress";
+import { cn } from "./cn";
+import { formatFileSize } from "@swarmdrop/shared-view";
+import { getFileIconStyle } from "./file-icon";
 import { FileItemActions } from "./item-actions";
-import { getParentPath } from "./tree-data";
-import type { FileBrowserActions, FileBrowserItem } from "./types";
+import { useThumbnail } from "./use-thumbnail";
+import { getParentPath } from "@swarmdrop/shared-view";
+import type { FileBrowserItem } from "@swarmdrop/shared-view";
+import type { FileBrowserActions, ThumbnailResolver } from "./types";
 
-export function FileCard({
+function FileCardComponent({
   item,
   actions,
-  testId = "file-browser-card",
+  thumbnailSource,
 }: {
   item: FileBrowserItem;
   actions?: FileBrowserActions;
-  testId?: string;
+  thumbnailSource?: ThumbnailResolver;
 }) {
   const [failedPreviewUrl, setFailedPreviewUrl] = useState<string>();
-  const Icon = getFileIcon(item.name);
+  const { icon: Icon, color: iconColor } = getFileIconStyle(item.name);
   const directory = getParentPath(item.relativePath);
   const progress = Math.round(item.progress ?? 0);
   const canOpen = Boolean(actions?.onOpen) && item.status !== "missing";
-  const showPreview = Boolean(item.previewUrl)
-    && item.previewUrl !== failedPreviewUrl
+  const { ref: previewRef, url: thumbnailUrl } = useThumbnail(item, thumbnailSource);
+  /**
+   * 两条取图路径**由字段本身区分**，组件不推断自己跑在哪一端：
+   *
+   * - `previewUrl`：已经能直接渲染（桌面的 asset URL）。
+   * - `previewSource`：要经 resolver + 缩放管线（Web 的 OPFS 路径），产物是上面的 `thumbnailUrl`。
+   *
+   * 这里曾写作 `thumbnailSource ? thumbnailUrl : item.previewSource`——把「调用方有没有传
+   * 取图源函数」当成「我在哪一端」的代理变量，而类型系统一个字都表达不出那条不变量。
+   */
+  const previewUrl = item.previewUrl ?? thumbnailUrl;
+  const showPreview = Boolean(previewUrl)
+    && previewUrl !== failedPreviewUrl
     && item.status !== "missing";
 
   const preview = (
-    <div className="relative aspect-[4/3] overflow-hidden bg-foreground/[0.035] dark:bg-white/[0.04]">
+    <div
+      ref={previewRef}
+      className="relative aspect-[4/3] overflow-hidden bg-foreground/[0.035] dark:bg-white/[0.04]"
+    >
       {showPreview ? (
         <img
-          src={item.previewUrl}
+          src={previewUrl}
           alt=""
           loading="lazy"
           className="size-full object-cover"
-          onError={() => setFailedPreviewUrl(item.previewUrl)}
+          onError={() => setFailedPreviewUrl(previewUrl)}
         />
       ) : (
         <div className="flex size-full items-center justify-center">
           {item.status === "missing" ? (
             <ImageOff className="size-10 text-muted-foreground/55" />
           ) : (
-            <Icon className={cn("size-11", getFileIconColor(item.name))} />
+            <Icon className={cn("size-11", iconColor)} />
           )}
         </div>
       )}
@@ -54,7 +70,9 @@ export function FileCard({
           onClick={() => actions?.onOpen?.(item)}
         />
       )}
-      <div className="absolute right-2 top-2 z-20 rounded-lg border border-white/40 bg-background/75 p-0.5 opacity-0 shadow-sm backdrop-blur-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:border-white/10">
+      {/* 悬停才露出的动作条。`pointer-coarse:opacity-100`：触摸屏上没有 hover，第一次点
+          只是把按钮显出来、第二次才真的触发——而 Web 端是移动优先的，那等于把动作藏起来。 */}
+      <div className="absolute right-2 top-2 z-20 rounded-lg border border-white/40 bg-background/75 p-0.5 opacity-0 shadow-sm backdrop-blur-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 dark:border-white/10">
         <FileItemActions item={item} actions={actions} />
       </div>
       {item.status === "transferring" && (
@@ -63,7 +81,9 @@ export function FileCard({
             <Trans>传输中</Trans>
             <span>{progress}%</span>
           </div>
-          <Progress value={progress} className="h-1" />
+          {/* 上面那行已经写着「传输中 X%」，进度条在这里是同一信息的第二次表达——
+              所以是装饰性的（`label={null}`），不再挂一个 progressbar 角色。 */}
+          <Progress value={progress} className="h-1" label={null} />
         </div>
       )}
       {item.status === "missing" && (
@@ -76,7 +96,7 @@ export function FileCard({
 
   return (
     <article
-      data-testid={testId}
+      data-testid="file-browser-card"
       className={cn(
         "group min-w-0 overflow-hidden rounded-[14px] border border-border/55 bg-background/44 shadow-[0_8px_24px_rgba(15,23,42,0.045)] transition-colors",
         "hover:border-primary/25 focus-within:border-primary/35",
@@ -104,3 +124,20 @@ export function FileCard({
     </article>
   );
 }
+
+/** 同 `FileRow`：默认浅比较对每秒重建的 `item` 永远判不等，必须自定义比较器。 */
+export const FileCard = memo(FileCardComponent, (prev, next) => {
+  const a = prev.item;
+  const b = next.item;
+  return (
+    prev.actions === next.actions &&
+    prev.thumbnailSource === next.thumbnailSource &&
+    a.id === b.id &&
+    a.status === b.status &&
+    a.progress === b.progress &&
+    a.name === b.name &&
+    a.size === b.size &&
+    a.previewUrl === b.previewUrl &&
+    a.previewSource === b.previewSource
+  );
+});

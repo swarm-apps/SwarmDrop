@@ -897,6 +897,17 @@ export class WebNode {
      */
     node_id(): string;
     /**
+     * 打开 OPFS 里的一个文件，返回 `File` 句柄（**不读字节**）。
+     *
+     * 缩略图管线的取图入口：`createImageBitmap` 只吃 `Blob`，所以这里给的是 `File` 本身
+     * 而不是 [`download_url`](Self::download_url) 那样的 blob URL——后者还得 `fetch` 一次
+     * 绕回 Blob，多一次拷贝，中间那个 URL 也必须记得 revoke。
+     *
+     * 非 secure origin 下 OPFS 整个不可用，这里会明确报错（而不是永久 pending），
+     * 前端据此降级到类型图标。
+     */
+    open_file(relative_path: string): Promise<File>;
+    /**
      * 已配对设备清单——与桌面 `list_devices` 同源的 [`DeviceManager::get_devices`] 读模型
      * （含在线状态/连接类型，presence 在 Web 侧同样运作）。
      */
@@ -1148,7 +1159,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1174,6 +1184,7 @@ export interface InitOutput {
     readonly webnode_list_invites: (a: number) => [number, number, number];
     readonly webnode_mark_inbox_item_opened: (a: number, b: number, c: number) => any;
     readonly webnode_node_id: (a: number) => [number, number];
+    readonly webnode_open_file: (a: number, b: number, c: number) => any;
     readonly webnode_paired_devices: (a: number) => [number, number, number];
     readonly webnode_pause_receive: (a: number, b: number, c: number) => any;
     readonly webnode_pause_send: (a: number, b: number, c: number) => any;
@@ -1199,6 +1210,7 @@ export interface InitOutput {
     readonly default_device_name: () => [number, number];
     readonly get_device_name: () => any;
     readonly set_device_name: (a: number, b: number) => any;
+    readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;

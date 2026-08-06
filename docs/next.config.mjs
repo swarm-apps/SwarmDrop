@@ -47,7 +47,7 @@ const config = {
   turbopack: { root: join(import.meta.dirname, "..") },
   // 共享包发布的是 **TS 源**而非预构建产物（openspec: web-ux-alignment 的 design D2）。
   // Next 默认不转译 node_modules 下的包，必须显式登记；否则解析 `.ts` 时直接报语法错误。
-  transpilePackages: ["@swarmdrop/shared-view"],
+  transpilePackages: ["@swarmdrop/shared-view", "@swarmdrop/file-browser"],
   experimental: {
     // Lingui 的宏（`<Trans>` / `` t`` ``）是编译期展开的，需要一个编译器插件。
     // 走 Next 原生的 SWC 管线，不额外挂 babel——后者会让整个 `app/` 多一层转译。

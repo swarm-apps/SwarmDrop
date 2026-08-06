@@ -27,15 +27,15 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Trans, useLingui } from "@lingui/react/macro";
 import type { MessageDescriptor } from "@lingui/core";
 import {
-  calcPercent,
   formatDuration,
   formatFileSize,
   formatTransferRate,
 } from "@swarmdrop/shared-view";
+import { FileBrowser } from "@swarmdrop/file-browser";
 import { cn } from "@/lib/cn";
 import { PANEL_SURFACE } from "./section";
 import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
@@ -47,11 +47,9 @@ import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import {
   DIRECTION_LABEL,
-  FILE_LIST_LIMIT,
   PHASE_META,
   elapsedSeconds,
   phaseLabel,
-  type TransferFileRow,
 } from "./transfer-labels";
 import {
   isActiveSession,
@@ -61,8 +59,10 @@ import {
   sessionEndedAt,
   transferSample,
 } from "../_lib/format";
+import { itemsFromProjection } from "../_lib/file-browser-adapters";
 import { inboxItemHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
+import { preferencesActions, usePreferences } from "../_lib/preferences-store";
 import { useCopyToClipboard } from "../_lib/use-copy";
 import { failureCodeLabel } from "../_lib/view-types";
 import type {
@@ -101,8 +101,9 @@ export function TransferDetailPanel({
   remove: ItemAction;
 }) {
   const { t } = useLingui();
+  // `transferSample` 仍然管**会话级**的字节数与百分比（它那条「终态一律以 projection 为准」
+  // 的纪律对整条进度条依然成立）。逐文件那一路已经不走它了——见下面 `fileItems` 的说明。
   const { live, done, total, percent } = transferSample(projection, liveProgress);
-  const files: TransferFileRow[] = live?.files ?? projection.files;
   const DirectionIcon = projection.direction === "send" ? ArrowUpFromLine : ArrowDownToLine;
 
   return (
@@ -161,9 +162,13 @@ export function TransferDetailPanel({
         </p>
       )}
 
-      {/* key 绑会话：切到另一条会话时详情面板不卸载，展开态会跟着漂过去——上一条展开了
-          四十行，下一条一进来也是全展开的。 */}
-      <TransferFileList key={projection.sessionId} files={files} />
+      {/* key 绑会话：切到另一条会话时详情面板不卸载，树的展开态与视图内部状态会跟着漂过去
+          ——上一条展开了四十行，下一条一进来也是全展开的。 */}
+      <SessionFileSection
+        key={projection.sessionId}
+        projection={projection}
+        progress={liveProgress}
+      />
 
       <TransferItemActions
         projection={projection}
@@ -236,76 +241,47 @@ function TransferMetrics({
 }
 
 /**
- * 逐文件清单。
+ * 逐文件清单 —— 三端共用的 `FileBrowser`（树形 / 网格），与桌面 `SessionFileSection` 同构。
  *
- * 每一行带自己的进度条与状态：`FileProgressInfo.status`（pending / transferring / completed）
- * 此前一直在事件里躺着没人读——没有它，一个 40 个文件的会话在传输过程中每一行长得一模一样，
- * 看不出「现在在传哪个」。projection 侧没有这个字段（那是持久化投影，不含在途状态），
- * 故按百分比推断，两条路径归一到同一个渲染。
+ * ## 取数根治：投影是骨架，进度只是覆盖层
  *
- * 超过 `FILE_LIST_LIMIT` 折起来：见该常量的说明。
+ * 这里此前写的是 `live?.files ?? projection.files`——**二选一**。于是同一份数据有两种形状
+ * （`FileProgressInfo.transferred` vs `TransferProjectionFile.transferredBytes`），渲染点要靠
+ * `"transferred" in file` 现场嗅探；更糟的是行的**身份与数量**在两种形状下由不同的东西决定，
+ * 而进度域是按 sessionId 常驻的，切换会话那一瞬取到的可能是另一条会话的采样。
+ *
+ * 现在两者都交给 `itemsFromProjection`：行永远来自 projection，progress 只按 `fileId` 覆盖
+ * 「传了多少」与「什么状态」；终态忽略陈旧进度的判定也收在 L1 里，不再依赖调用点自觉。
+ * 那条不变量有回归测试钉着（`packages/shared-view/src/file-browser/adapters.test.ts`）。
+ *
+ * 顺带解决的还有两件事：目录层级（此前是一列扁平文件名，一次传整个文件夹时读不出结构）、
+ * 以及「超过 12 条折起来」那个截断——树形视图是虚拟滚动的，几百个文件也不必藏。
  */
-function TransferFileList({ files }: { files: TransferFileRow[] }) {
-  const { t } = useLingui();
-  const [expanded, setExpanded] = useState(false);
-  const hidden = files.length - FILE_LIST_LIMIT;
-  const shown = expanded ? files : files.slice(0, FILE_LIST_LIMIT);
+function SessionFileSection({
+  projection,
+  progress,
+}: {
+  projection: TransferProjection;
+  progress?: TransferProgressEvent;
+}) {
+  const view = usePreferences((s) => s.fileBrowserViews.transfer);
+  const items = useMemo(
+    () => itemsFromProjection(projection, progress),
+    [projection, progress],
+  );
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <ul className="flex flex-col gap-1.5">
-        {shown.map((file) => {
-          const done = "transferred" in file ? file.transferred : file.transferredBytes;
-          const percent = calcPercent(done, file.size);
-          const status = "status" in file ? file.status : percent >= 100 ? "completed" : "pending";
-          return (
-            <li key={file.fileId} className="rounded-lg border bg-background px-3 py-2 text-[11px]">
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  {status === "completed" ? (
-                    // 完成态给对勾而不是「100%」：一眼扫下去，形状比数字快。
-                    <Check
-                      className="size-3 shrink-0 text-success-ink"
-                      role="img"
-                      aria-label={t`已完成`}
-                    />
-                  ) : (
-                    <StatusDot
-                      colorClass={status === "transferring" ? "bg-[var(--brand-solid)]" : "bg-muted-foreground/40"}
-                      pulse={status === "transferring"}
-                      label={status === "transferring" ? t`传输中` : t`等待中`}
-                    />
-                  )}
-                  <span
-                    className={cn("truncate", status === "pending" ? "text-muted-foreground" : "text-foreground")}
-                    title={file.name}
-                  >
-                    {file.name}
-                  </span>
-                </span>
-                <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
-                  {formatFileSize(done)} / {formatFileSize(file.size)}
-                </span>
-              </div>
-              {/* 只有真的传了一部分才画进度条：已完成的满格条把对勾又说了一遍，还没开始的
-                  空轨道则是一整行「零信息」——一次几十个文件的会话里，那是几十条空轨道。 */}
-              {status !== "completed" && percent > 0 && (
-                <ProgressBar percent={percent} className="mt-1.5" label={t`${file.name} 的进度`} />
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {hidden > 0 && (
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          className="self-start rounded-lg px-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-        >
-          {expanded ? <Trans>收起文件</Trans> : <Trans>显示全部 {files.length} 个文件</Trans>}
-        </button>
-      )}
-    </div>
+    <FileBrowser
+      items={items}
+      title={<Trans>文件</Trans>}
+      view={view}
+      onViewChange={(nextView) => preferencesActions.setFileBrowserView("transfer", nextView)}
+      // 详情侧自己是滚动容器，本区块按内容定高（`flex-none` 覆盖组件默认的 `flex-1`——
+      // 那个默认是给「文件浏览器就是整屏主体」的布局用的，这里它只是详情里的一节）。
+      // 树形视图内部是虚拟滚动，必须有确定高度才算得出可见行，故给内容区一个下限。
+      className="flex-none"
+      contentClassName="min-h-[320px]"
+    />
   );
 }
 

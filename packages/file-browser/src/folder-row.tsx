@@ -1,19 +1,34 @@
+import { memo } from "react";
 import { ChevronRight, Folder, FolderOpen } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
-import { cn } from "@/lib/utils";
-import { formatFileSize } from "@/lib/format";
+import { cn } from "./cn";
+import { formatFileSize } from "@swarmdrop/shared-view";
 import { RemoveAction } from "./item-actions";
-import type { FileBrowserActions, FileBrowserTreeNode } from "./types";
+import type { FileBrowserActions } from "./types";
 
 interface FolderRowProps {
-  node: FileBrowserTreeNode;
+  /**
+   * 只声明用到的字段，不绑定具体的节点类型——树的节点在 L1 是嵌套形态、在
+   * `headless-tree-adapter` 里又多一个虚拟根变体，写死任一种都会逼另一种做断言。
+   */
+  node: {
+    id: string;
+    name: string;
+    relativePath: string;
+    fileCount: number;
+    size: number;
+  };
   level: number;
   expanded: boolean;
-  onToggle: () => void;
+  /**
+   * 收 `nodeId` 而不是无参——这样调用方可以传**一个稳定的**回调给所有行，而不是每行现造
+   * 一个箭头函数。本组件是 memo 的，每行新引用会把它整片打穿。
+   */
+  onToggle: (nodeId: string) => void;
   onRemove?: FileBrowserActions["onRemove"];
 }
 
-export function FolderRow({
+function FolderRowComponent({
   node,
   level,
   expanded,
@@ -32,11 +47,11 @@ export function FolderRow({
         "transition-colors hover:bg-foreground/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/55",
       )}
       style={{ paddingLeft: `${level * 22 + 8}px` }}
-      onClick={onToggle}
+      onClick={() => onToggle(node.id)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          onToggle();
+          onToggle(node.id);
         }
       }}
     >
@@ -51,7 +66,7 @@ export function FolderRow({
         {node.name}
       </span>
       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-        <Trans>{node.fileCount ?? 0} 项</Trans>
+        <Trans>{node.fileCount} 项</Trans>
         {node.size > 0 && ` · ${formatFileSize(node.size)}`}
       </span>
       <div
@@ -66,3 +81,23 @@ export function FolderRow({
     </div>
   );
 }
+
+/**
+ * 同 `FileRow`。`node` 每次建树都是新对象，所以比较的是它的字段；`onToggle` 由调用方
+ * 保持稳定（见 `file-tree-view.tsx` 的 `toggle`）。
+ */
+export const FolderRow = memo(FolderRowComponent, (prev, next) => {
+  const a = prev.node;
+  const b = next.node;
+  return (
+    prev.level === next.level &&
+    prev.expanded === next.expanded &&
+    prev.onToggle === next.onToggle &&
+    prev.onRemove === next.onRemove &&
+    a.id === b.id &&
+    a.relativePath === b.relativePath &&
+    a.name === b.name &&
+    a.fileCount === b.fileCount &&
+    a.size === b.size
+  );
+});

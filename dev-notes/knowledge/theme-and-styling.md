@@ -83,6 +83,39 @@ Lingui 配置 `sourceLocale: "zh"`，意味着代码里写 `<Trans>添加设备<
 
 ja / ko / es / fr / de 是规划目标，**当前实际只有 zh / zh-TW / en**（见 `lingui.config.ts` 与 `src/locales/`）。加新语言前先确认 Aurora / 字体 fallback 等下游是否准备好。
 
+### 共享组件包里的 `<Trans>` 要靠 `include` 才提取得到（2026-08-06）
+
+`packages/file-browser`（桌面 + Web 共用的 React DOM 组件）**组件内联 `<Trans>` 与
+`useLingui()` 的 `t`**，不通过 props 接收 UI 文案——那样每个调用点都要传一遍十几条串。
+
+代价是两端的 `lingui.config.ts` 都要把它纳入 `include`，**而两份配置的 rootDir 不同**：
+
+```ts
+// 仓库根 lingui.config.ts —— rootDir 就是仓库根，**没有** `../`
+include: ["src", "packages/file-browser/src"]
+
+// docs/lingui.config.ts —— rootDir 是 docs/，所以要 `../`
+include: ["app/app", "../packages/file-browser/src"]
+```
+
+写错的表现是 `i18n:extract` **静默少提取**（不报错，只是那几条不出现），第一次踩的就是在根
+配置里照抄了 `../`。
+
+同一句话在两端的 `.po` 里各存一份。这不是重复劳动，是「三端 catalog 独立」这条既定约定的
+必然结果——给这个包单独一份 catalog 意味着各端运行时要加载并管理第二个 i18n 实例。
+
+### `t` 不能当形参往纯函数里传（移动端踩的，但三端同理）
+
+`function statusText(status, t) { return t\`已完成\` }` 看起来在国际化，实际一条都提取不到：
+babel 宏认的是**词法作用域**里的 `const { t } = useLingui()`，`t` 一旦变成形参，模板串就只是
+个普通模板串。catalog 里没有对应 msgid，运行时回落到 msgid 本身——于是英文界面上原样显示中文。
+
+**这个失败模式完全静默**：typecheck 过、lint 过、`i18n:extract` 也不报错（它根本没看见）。
+
+**正确做法**：模块级 `Record<K, MessageDescriptor>` 存 `` msg`…` ``，组件里 `t(TABLE[key])`
+展开。三端同一个写法（`src/components/.../transfer-labels`、Web 的 `_lib/view-types.ts`、
+移动的 `file-row.tsx`）。
+
 ## Zustand selector 与派生数组
 
 ### filter / map 派生值必须套 useShallow

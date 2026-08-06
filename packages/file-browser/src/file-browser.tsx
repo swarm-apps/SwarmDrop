@@ -1,57 +1,56 @@
+import { useMemo } from "react";
 import { LayoutGrid, ListTree } from "lucide-react";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { cn } from "@/lib/utils";
-import { formatFileSize } from "@/lib/format";
+import { cn } from "./cn";
+import { formatFileSize } from "@swarmdrop/shared-view";
 import { FileGridView } from "./file-grid-view";
 import { FileTreeView } from "./file-tree-view";
+import type { FileBrowserItem, FileBrowserView } from "@swarmdrop/shared-view";
 import type {
   FileBrowserActions,
   FileBrowserEmptyState,
-  FileBrowserItem,
-  FileBrowserView,
+  ThumbnailResolver,
 } from "./types";
 
 interface FileBrowserProps {
   items: FileBrowserItem[];
   title?: React.ReactNode;
   view: FileBrowserView;
-  availableViews?: readonly FileBrowserView[];
   onViewChange?: (view: FileBrowserView) => void;
   actions?: FileBrowserActions;
+  /**
+   * 网格缩略图的取图源。**不传即不生成缩略图**，卡片画类型图标。
+   * 桌面不传（它的 `previewSource` 已经是可直接渲染的 asset URL），Web 传 OPFS 取图。
+   */
+  thumbnailSource?: ThumbnailResolver;
   emptyState?: FileBrowserEmptyState;
   className?: string;
   contentClassName?: string;
-  testId?: string;
-  gridTestId?: string;
-  cardTestId?: string;
 }
-
-const DEFAULT_VIEWS = ["tree", "grid"] as const;
-const TREE_ONLY_VIEW = ["tree"] as const;
 
 export function FileBrowser({
   items,
   title = <Trans>文件</Trans>,
   view,
-  availableViews = DEFAULT_VIEWS,
   onViewChange,
   actions,
+  thumbnailSource,
   emptyState,
   className,
   contentClassName,
-  testId = "file-browser",
-  gridTestId,
-  cardTestId,
 }: FileBrowserProps) {
   const { t } = useLingui();
-  const safeViews = availableViews.length > 0 ? availableViews : TREE_ONLY_VIEW;
-  const resolvedView = safeViews.includes(view) ? view : safeViews[0];
-  const totalSize = items.reduce((sum, item) => sum + item.size, 0);
-  const showToggle = items.length > 0 && safeViews.length > 1;
+  // 表头的总计随 items 变（传输中每秒一次），但重算是 O(n) 加法——memo 掉，避免视图切换
+  // 按钮的 hover 之类的无关重渲染也去扫一遍几百个文件。
+  const totalSize = useMemo(
+    () => items.reduce((sum, item) => sum + item.size, 0),
+    [items],
+  );
+  const showToggle = items.length > 0;
 
   return (
     <section
-      data-testid={testId}
+      data-testid="file-browser"
       className={cn("flex min-h-0 flex-1 flex-col gap-2.5", className)}
     >
       <header className="flex min-h-8 items-center justify-between gap-3">
@@ -73,11 +72,11 @@ export function FileBrowser({
               type="button"
               data-testid="file-browser-tree-toggle"
               aria-label={t`树形视图`}
-              aria-pressed={resolvedView === "tree"}
+              aria-pressed={view === "tree"}
               onClick={() => onViewChange?.("tree")}
               className={cn(
                 "inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-                resolvedView === "tree" && "bg-background text-foreground shadow-sm",
+                view === "tree" && "bg-background text-foreground shadow-sm",
               )}
             >
               <ListTree className="size-3.5" />
@@ -86,11 +85,11 @@ export function FileBrowser({
               type="button"
               data-testid="file-browser-grid-toggle"
               aria-label={t`网格视图`}
-              aria-pressed={resolvedView === "grid"}
+              aria-pressed={view === "grid"}
               onClick={() => onViewChange?.("grid")}
               className={cn(
                 "inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-                resolvedView === "grid" && "bg-background text-foreground shadow-sm",
+                view === "grid" && "bg-background text-foreground shadow-sm",
               )}
             >
               <LayoutGrid className="size-3.5" />
@@ -112,15 +111,13 @@ export function FileBrowser({
         </div>
       ) : (
         <div className={cn("flex min-h-0 flex-1 flex-col", contentClassName)}>
-          {resolvedView === "tree" ? (
-            <FileTreeView key="tree" items={items} actions={actions} />
+          {view === "tree" ? (
+            <FileTreeView items={items} actions={actions} />
           ) : (
             <FileGridView
-              key="grid"
               items={items}
               actions={actions}
-              testId={gridTestId}
-              cardTestId={cardTestId}
+              thumbnailSource={thumbnailSource}
             />
           )}
         </div>

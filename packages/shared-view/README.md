@@ -23,6 +23,32 @@ L2 是 `DESIGN.md` 的跨端交互契约，L3 是各端各写的表现层。
 「算不出速率」时返回 `null`，由调用方给自己的 `—` / `等待数据` / `Unknown`——
 否则这个函数就同时是格式化器和一句待翻译的文案，两端一定会想要不同的那句。
 
+### 一个用得上的分界示例：`file-browser/`
+
+`file-browser/` 收的是文件浏览器的纯逻辑（建树、路径归一与展示 ID、媒体类型判定、
+四种数据来源归一、缩略图**契约**）。分界线画在这里：
+
+| 进本包（L1） | 不进本包 |
+|---|---|
+| `buildFileBrowserTree`：按 `relativePath` 派生目录层级、递归累计 size/fileCount、排序 | 树的**消费形态**——桌面要 `@headless-tree` 的 `dataLoader`，移动要 FlashList 的扁平行。产出中立嵌套树，两端各自投影 |
+| `shouldGenerateThumbnail` / 目标长边 / 缓存 key | 缩略图**管线**（`createImageBitmap`、`OffscreenCanvas`）与它的并发上限——DOM API 与那个 JS 解码闸门的旋钮都属于 L2 |
+| `DEFAULT_FILE_BROWSER_VIEWS` + 归一：视图偏好的默认值是**产品决策**（收件箱默认网格、发送与传输默认树形），且是纯数据 | 存哪里（tauri-plugin-store / AsyncStorage / localStorage） |
+| `fromProjectionFiles`：progress 逐文件覆盖 projection、终态忽略 progress | 取图源（桌面 Tauri 资源协议 / 移动 `file://` / Web OPFS）与业务动作 |
+
+判据 3（输出跨端一致）在这里体现为**枚举也走结构化**：`phase` / `terminalReason` /
+逐文件 `status` 都声明成字面量联合，各端在调用点映射一次。在本包里放适配层，就等于把
+「哪一端叫什么」这个知识带进平台中立的包。
+
+但**字面量的拼写要逐字沿用内核**（`waiting_accept` / `fatal_error` 这类 snake_case 就是
+wire 的写法）：桌面与 Web 的 codegen 产出的正是同一个字符串联合，结构上直传即可，真正需要
+映射的只有 uniffi 那一端。这里试过给 `fatal_error` 改个「更中立」的名字，结果是两个直传的端
+各留一段十几行、逐字相同的改名 switch——**改名不会让本包更平台无关**（它照样得认识那套取值），
+只会给两端各买一份样板。已回退。
+
+React DOM 组件本身在**另一个包**（`@swarmdrop/file-browser`），它有运行时依赖，
+被独立 workspace 消费时还必须走 `file:` 而不是 `link:`——那个坑与本包无关，
+因为本包零运行时 import。理由见那个包的 README。
+
 ## 类型边界：结构化入参，不 import 任何一端的 bindings
 
 三端的 `Device` 由三条 codegen 产出（tauri-specta / wasm-bindgen / uniffi）。本包若 import
@@ -50,6 +76,23 @@ L2 是 `DESIGN.md` 的跨端交互契约，L3 是各端各写的表现层。
 
 第一道只在**对本包自身**跑 tsc 时成立——三端各自 typecheck 用的是各自的 lib，跟进来的源文件
 不受它约束。所以 `pnpm check:shared-view` 必须留在提交前清单里。
+
+### 那道 lib 的方向反过来也会咬人：**只能用三端 lib 的交集**（2026-08-06 实测）
+
+本包的 `lib` 是 ES2022，但**发布的是 TS 源**，由三端各自的 tsconfig 编译。所以本包能用的
+语言特性上限不是自己的 ES2022，而是**三端里最低的那个**。
+
+`file-browser/identity.ts` 最初用了 `String.prototype.replaceAll`（ES2021）：
+
+- `tsc -p packages/shared-view` ✅ 放行（本包 lib 是 ES2022）
+- `pnpm check:shared-view` ✅ 通过（它跑的就是上面那条）
+- 桌面 `pnpm build` ❌ **`error TS2550: Property 'replaceAll' does not exist`**
+
+也就是说，**两道门禁都拦不住它，只有三端各自的构建才会红**。它还会连锁出一串误导性的
+`TS7006: implicitly has an 'any' type`——链式调用在报错处断掉，后面的推断全塌。
+
+写法上退回一档即可（`replace(/\\/g, "/")` 之类）。心里的判据是：**新 API 用之前先想
+「桌面的 lib 到不到」**，而不是「本包的 lib 到不到」。
 
 ## 三端怎么接
 
