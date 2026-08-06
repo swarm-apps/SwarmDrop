@@ -611,6 +611,10 @@ msgstr "複製連結"
 msgid "外观"
 msgstr "外觀"
 
+#: app/app/_components/rail-tools.tsx
+msgid "外观与语言"
+msgstr "外觀與語言"
+
 #: app/app/_components/transfer-labels.ts
 msgid "失败"
 msgstr "失敗"

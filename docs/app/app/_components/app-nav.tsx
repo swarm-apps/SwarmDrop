@@ -94,11 +94,30 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      {/* 底部分两层：**节点状态**（这台机器现在怎么样）与**环境开关**（主题 / 语言 / 文档）。
-          前者是状态，后者是调节，混在一起会让那枚状态 pill 读起来也像个设置项——
-          而它其实是本页唯一诚实汇报运行时的地方，也是节点启停的唯一入口。 */}
-      <div className="shrink-0 space-y-2 border-t p-3 md:flex md:flex-col md:items-center lg:items-stretch">
-        <NodeStatusDialog labelClassName="hidden lg:inline" />
+      {/* 底部是一条底栏：左端**节点状态**（这台机器现在怎么样），右端**环境入口**
+          （主题 / 语言 / 文档收在一枚菜单后）。前者是状态，后者是调节；一行两端分置，
+          比上下堆两块更能说清它们不是同一类东西——而那枚 pill 其实是本页唯一诚实汇报
+          运行时的地方，也是节点启停的唯一入口。
+
+          三条排版约束（2026-08-06）：
+
+          1. **lg 一行、md 竖排。** 一行只在环境入口收成**一枚**按钮之后才成立：
+             三枚并排时最长的状态词（"failed to start"）会溢出 32px，把第三枚图标切掉一半。
+             实测数据与取舍写在 `rail-tools.tsx` 头部。图标档（64px 宽）横竖都放不下两个
+             36px，仍竖排。
+          2. **左边线对齐。** 容器 `px-2.5`(10)：导航图标落在 8+12=20，状态点落在
+             10+1(pill 边框)+10=21。实测 20/21，那 1px 是 pill 自己的描边，不值得为它写个
+             越界的 padding。动任一侧的 padding 都要重算这两个数。
+          3. **不要退回 `items-stretch`。** 它曾是这里的写法，而 `<button>` 默认居中内容
+             ——70px 的 pill 会被拉成 199px 的按钮再居中，圆点飘到 x=88，与上方导航图标
+             差了 66px。焦点环同样跟着整行走，与看得见的那 70px 对不上。这是本轮修的起点。 */}
+      <div className="flex shrink-0 flex-col gap-3 border-t px-2.5 py-3 md:items-center lg:flex-row lg:justify-between lg:gap-2">
+        {/* 图标档（768–1023）把 pill 收成 36×36 的正圆，与下面那枚菜单按钮同尺寸竖排对齐——
+            此前那一档是个 26×26、只剩边框没有文字的空胶囊，像没画完。 */}
+        <NodeStatusDialog
+          labelClassName="hidden lg:inline"
+          pillClassName="md:size-9 md:justify-center md:px-0 lg:h-auto lg:w-auto lg:justify-start lg:px-2.5"
+        />
         <RailTools />
       </div>
     </aside>

@@ -35,7 +35,18 @@ export function ConnectionBadge({ device }: { device: Device }) {
   const transport = transportLabel(details?.transport);
 
   const badge = (
-    <Badge variant="secondary" className={cn("gap-1 border-transparent", meta.className)}>
+    <Badge
+      variant="secondary"
+      // `group-hover:border-current/30` 是这枚徽标可点时的 hover 反馈，只有被下面那个
+      // `group` 按钮包起来时才生效（详情缺席时它是静态徽标，不该有任何 hover 表现）。
+      //
+      // **用描边而不是换底色**：侧栏那枚节点状态 pill 的 hover 是 `bg-accent`，但这里的底色
+      // 是语义色（局域网绿 / 打洞蓝 / 中继琥珀，见 `CONNECTION_META`），盖成中性 accent 等于
+      // 在 hover 的一瞬间把「怎么连的」这条信息抹掉。`current` 取的是徽标自己的文字色，
+      // 于是三种连接各自得到自己那个颜色的描边——同一种交互语言（hover 有可见变化），
+      // 各自说自己的话。
+      className={cn("gap-1 border-transparent transition-colors group-hover:border-current/30", meta.className)}
+    >
       <meta.Icon className="size-3" aria-hidden />
       <ConnectionLabel connection={device.connection} />
       {transport && <span className="opacity-70">{transport}</span>}
@@ -52,7 +63,10 @@ export function ConnectionBadge({ device }: { device: Device }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="rounded-full outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+          // `focus-ring` 是全站统一的焦点表现（`global.css`，与桌面 `src/index.css` 同形），
+          // 换掉此前手写的 `outline-none` + `focus-visible:ring-2`——手写那份少了 offset，
+          // 描边贴着徽标边缘，在语义色底上几乎看不出来。
+          className="focus-ring group rounded-full"
           aria-label={t`查看链路详情`}
           data-testid="connection-badge"
         >

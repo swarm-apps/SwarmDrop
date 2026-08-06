@@ -31,6 +31,17 @@ export const LOCALE_ENDONYM: Record<Locale, string> = {
   en: "English",
 };
 
+/**
+ * 当前 locale 的自称，接受任意字符串。
+ *
+ * 存在的理由是 `useLocaleSwitcher().locale` 转发的是 lingui 的 `i18n.locale`——一个裸
+ * `string`，类型上不保证落在 [`LOCALES`] 里。直接拿它索引 [`LOCALE_ENDONYM`] 要么被 tsc
+ * 拦下，要么靠断言把「认不出来就崩」埋进调用点。这里统一回退源 locale 的名字。
+ */
+export function localeEndonym(locale: string): string {
+  return LOCALE_ENDONYM[isSupported(locale) ? locale : SOURCE_LOCALE];
+}
+
 /** 源 locale：msgid 就是中文原文，所以它永远不需要翻译目录也能正确显示。 */
 export const SOURCE_LOCALE: Locale = "zh";
 

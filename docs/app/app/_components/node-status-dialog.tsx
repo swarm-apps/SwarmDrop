@@ -48,10 +48,12 @@ import { StartNodeButton } from "./start-node-button";
 import { WebErrorCard } from "./web-error-view";
 
 export function NodeStatusDialog({
-  className = "",
+  pillClassName = "",
   labelClassName = "",
 }: {
-  className?: string;
+  /** 透传给 pill 的形态类（侧栏两档尺寸不同）。触发按钮自己不接 className——它只是个
+   *  贴合 pill 的透明包装，形状要跟着 pill 走，两处都能改只会让它们对不齐。 */
+  pillClassName?: string;
   labelClassName?: string;
 }) {
   const { t } = useLingui();
@@ -72,9 +74,17 @@ export function NodeStatusDialog({
           aria-label={t`${label}，点开查看详情`}
           data-testid="node-status-trigger"
           data-node-status={status}
-          className={`focus-ring rounded-full transition-opacity hover:opacity-80 ${className}`}
+          // hover 反馈走**底色**（`group-hover:bg-accent`，画在 pill 上）而不是此前的
+          // `hover:opacity-80`：侧栏底部同一块里还有三枚 ghost 按钮，它们的 hover 就是底色，
+          // 两种语言并存会让唯一那个重要入口反而看着最不像能点的。透明度在半透明的
+          // `glass-rail` 上本来也几乎看不出变化。
+          className="focus-ring group rounded-full"
         >
-          <NodeStatusPill status={status} labelClassName={labelClassName} />
+          <NodeStatusPill
+            status={status}
+            labelClassName={labelClassName}
+            className={`transition-colors group-hover:border-foreground/20 group-hover:bg-accent ${pillClassName}`}
+          />
         </button>
       </DialogTrigger>
       <NodeStatusDialogContent />

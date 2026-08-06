@@ -44,7 +44,10 @@ export function NodeStatusPill({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-xs ${className}`}
+      // 文字用 `text-foreground` 而不是 muted：状态词是**事实**不是标签，它也必须比同处
+      // 侧栏底部的三枚灰工具图标重一档，否则「本页唯一诚实汇报运行时的地方」和「调一下环境」
+      // 在视觉上同级。muted 在 12px + `bg-card` 上本来也刚压着 AA 线。
+      className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground shadow-xs ${className}`}
     >
       <StatusDot colorClass={meta.dot} pulse={meta.pulse} />
       <span className={labelClassName}>{label}</span>
