@@ -414,6 +414,7 @@ token 经 `@theme inline` 映射层从 fumadocs 的 `--color-fd-*` 接过来；*
 | `dev-notes/` | 知识库、博客、调研、归档；`archive/` 存重构前设计与已完成 roadmap |
 | `dev-notes/prompts/` | **给新会话的启动提示词**（跨会话交接用）。与 `research/` 的区别：那边记「为什么这么决策」，这边记「接下来怎么开工」——含前置阅读、硬约束、已知坑、验收标准 |
 | `dev-notes/research/` | **未落地方案**的调研与 spike 结论，每篇带决策状态。与 `knowledge/` 分开是刻意的——后者被 `/dev-workflow` 当「现行架构的事实」加载，混入调研会让人把「评估中的方案」读成「已有的能力」 |
+| `dev-notes/incubation/` | **不属于本仓的独立项目构想**，每篇带孵化状态。与 `research/` 的区别：那边问「要不要在 SwarmDrop 里做」，这边问「要不要单独立项做」——`research/` 的每篇都隐含「落地点是本仓」，混进去会让人以为 SwarmDrop 要长出一个它不该有的子系统 |
 
 ### Auto-Update System
 
