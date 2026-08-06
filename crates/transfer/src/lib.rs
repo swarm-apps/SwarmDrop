@@ -41,6 +41,19 @@ use crate::store::ExpiredReceiverActor;
 /// 传输分块大小：256 KiB。
 pub const CHUNK_SIZE: usize = 256 * 1024;
 
+/// 数据面流控窗口：发送方每写这么多块就停下等接收方确认（见
+/// [`TransferDataFrame::Window`](crate::wire::data_frame::TransferDataFrame::Window)）。
+///
+/// 16 × 256 KiB = **4 MiB 在途上限**，是接收侧缓冲的硬约束推出来的，不是拍的：浏览器
+/// WebRTC 适配层的读缓冲上限 16 MiB（`webrtc-p2p` 的 `DEFAULT_MAX_READ_BUFFER`），
+/// 留 4× 余量吸收 bao proof 开销、帧头，以及「已进读缓冲但 Window 尚未回出」的瞬时堆积。
+/// **调大它必须同时抬那个上限**，否则又会退回越限重置。
+///
+/// 吞吐代价是每窗一个 RTT：20 MB 只需 5 次往返，跨网 RTT 50 ms 也不过 0.25 s，而
+/// 稳态吞吐由接收端的处理速率决定（发送端在等 Window 时接收端正忙着验签落盘），
+/// 窗口本身不是瓶颈。
+pub const WINDOW_CHUNKS: u32 = 16;
+
 /// 遗留 suspended 接收会话的过期保留期（秒），默认 7 天。
 ///
 /// 超过此时长仍未恢复的 recoverable suspended 接收会话，在启动清理时转 terminal

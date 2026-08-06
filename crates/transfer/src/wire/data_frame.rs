@@ -13,6 +13,14 @@ use crate::protocol::{FileInfo, FileRange};
 use crate::{AppError, AppResult};
 
 /// Hello 帧中的协议版本（wire v2）。
+///
+/// **加 tag 不动这个数，动的是协议名。** 这个字段校验的是「共有帧怎么编码」，而 v3 只是
+/// 多认一个 tag、既有帧的编码逐字未变；能力差异由 multistream-select 协商的协议名承载
+/// （[`TRANSFER_DATA_PROTOCOL`](crate::protocol::TRANSFER_DATA_PROTOCOL)），在 payload
+/// 里再做一遍版本协商是重复的。
+///
+/// 更实际的一条：退回 `/2` 的链路上 Hello 必须仍然写 2，否则旧对端当场判「不支持的
+/// version」——把回退路径自己堵死。
 pub const TRANSFER_DATA_VERSION: u16 = 2;
 
 /// 单帧最大 payload。256KiB 明文块 + 帧头，8MiB 给协议扩展和测试留余量。
@@ -23,6 +31,7 @@ const TAG_HELLO: u8 = 1;
 const TAG_BLOCK_DATA: u8 = 2;
 const TAG_ABORT: u8 = 5;
 const TAG_FINISH: u8 = 6;
+const TAG_WINDOW: u8 = 7;
 
 /// 数据通道握手角色。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +92,24 @@ pub enum TransferDataFrame {
         session_id: Uuid,
         epoch: i64,
     },
+    /// 流控窗口同步点。**双向同一帧**：发送方每写满
+    /// [`WINDOW_CHUNKS`](crate::WINDOW_CHUNKS) 个块发一帧然后停下等待，接收方把窗口内
+    /// 所有块**验签落盘完毕后**回一帧，发送方收到才继续下一窗。
+    ///
+    /// 它是数据面唯一的端到端流控。传输层给不了：webrtc-direct 链路上 SCTP 之上没有
+    /// yamux（WebRTC 自身就是 muxer），而浏览器的 `RTCDataChannel` 是**推模型**——
+    /// `onmessage` 一到就把字节交给 JS 并释放 SCTP 接收缓冲，于是 SCTP 的接收窗口
+    /// 永远不满、背压永远不触发，堆积全部落在传输适配层的读缓冲里。实测：桌面向
+    /// 浏览器发 20 MB，浏览器读缓冲在 ~4 MiB 处越限重置子流，传输在 12–22% 中断。
+    ///
+    /// ⚠️ **只在协商到 `/swarmdrop/transfer-data/3` 的流上发。** v2 的解码器遇到这个 tag
+    /// 直接判协议错误并中止会话，所以向 v0.12.0 及更早的对端发一帧就等于打断整次传输。
+    /// 发送端的判据收在 `WindowPacer::for_protocol`（`actor::sender`）；接收端不必分辨，
+    /// 它只是「收到才回」。
+    Window {
+        session_id: Uuid,
+        epoch: i64,
+    },
 }
 
 impl TransferDataFrame {
@@ -91,7 +118,8 @@ impl TransferDataFrame {
             Self::Hello { session_id, .. }
             | Self::BlockData { session_id, .. }
             | Self::Abort { session_id, .. }
-            | Self::Finish { session_id, .. } => *session_id,
+            | Self::Finish { session_id, .. }
+            | Self::Window { session_id, .. } => *session_id,
         }
     }
 
@@ -100,7 +128,8 @@ impl TransferDataFrame {
             Self::Hello { epoch, .. }
             | Self::BlockData { epoch, .. }
             | Self::Abort { epoch, .. }
-            | Self::Finish { epoch, .. } => *epoch,
+            | Self::Finish { epoch, .. }
+            | Self::Window { epoch, .. } => *epoch,
         }
     }
 }
@@ -243,6 +272,9 @@ fn encode_frame(frame: &TransferDataFrame) -> AppResult<Vec<u8>> {
         TransferDataFrame::Finish { session_id, epoch } => {
             push_context(&mut buf, TAG_FINISH, *session_id, *epoch);
         }
+        TransferDataFrame::Window { session_id, epoch } => {
+            push_context(&mut buf, TAG_WINDOW, *session_id, *epoch);
+        }
     }
     Ok(buf)
 }
@@ -297,6 +329,7 @@ fn decode_frame(payload: &[u8]) -> AppResult<TransferDataFrame> {
             reason: cursor.take_string()?,
         },
         TAG_FINISH => TransferDataFrame::Finish { session_id, epoch },
+        TAG_WINDOW => TransferDataFrame::Window { session_id, epoch },
         _ => {
             return Err(protocol_error(format!(
                 "未知 transfer-data frame tag: {tag}"
@@ -463,6 +496,9 @@ fn frame_io_error(operation: &str, frame: &TransferDataFrame, err: io::Error) ->
         TransferDataFrame::Finish { session_id, epoch } => {
             format!("Finish, session={session_id}, epoch={epoch}")
         }
+        TransferDataFrame::Window { session_id, epoch } => {
+            format!("Window, session={session_id}, epoch={epoch}")
+        }
     };
     AppError::Transfer(format!(
         "transfer-data IO 错误（{operation} {context}）: {err}"
@@ -571,6 +607,24 @@ mod tests {
         io.set_position(0);
 
         assert_eq!(read_frame(&mut io).await.unwrap().unwrap(), frame);
+    }
+
+    #[tokio::test]
+    async fn window_roundtrip_preserves_context() {
+        let frame = TransferDataFrame::Window {
+            session_id: session_id(),
+            epoch: 9,
+        };
+
+        let mut io = IoCursor::new(Vec::new());
+        write_frame(&mut io, &frame).await.unwrap();
+        io.set_position(0);
+
+        let decoded = read_frame(&mut io).await.unwrap().unwrap();
+        assert_eq!(decoded, frame);
+        // 流控确认要靠 session/epoch 认领，串了就会把别的会话的确认当成自己的。
+        assert_eq!(decoded.session_id(), session_id());
+        assert_eq!(decoded.epoch(), 9);
     }
 
     #[tokio::test]

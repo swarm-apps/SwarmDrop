@@ -40,15 +40,26 @@ const LOW_WATER_MARK: u32 = MAX_BUFFERED_AMOUNT / 2;
 
 /// 累计读缓冲的默认上限（本地资源上限，不参与协商）。
 ///
-/// **不能取官方 `webrtc-websys` 的 256 KiB。** 那个值比本端自己的发送高水位
-/// [`MAX_BUFFERED_AMOUNT`]（1 MiB）还小——对端可以合法地让 1 MiB 数据在途，接收侧的
-/// Rust task 只要停顿一下（浏览器侧是 OPFS 落盘 + bao 逐块校验，一个应用块 256 KiB），
-/// 堆积就会越过 256 KiB，于是**正常的快速传输被判成「对端过载」并重置子流**。
-/// 取 4 MiB：高于在途上限一个数量级的余量，又远低于会把标签页撑爆的量级。
+/// **浏览器的 `RTCDataChannel` 没有接收侧背压，这个上限是最后一道墙，不是流控。**
+/// `onmessage` 一触发就把字节交给 JS 并释放 SCTP 接收缓冲，于是 SCTP 的接收窗口
+/// 永不收缩、逐跳流控永不触发——对端能发多快就堆多快。这是 W3C 承认了十余年的 API
+/// 缺口（[webrtc-pc#1732]，2014 年提的 `setReadEnabled` 至今未采纳），libp2p 的 WebRTC
+/// spec 也明确写着 framing「is not concerned with flow-control」。**真正的流控只能由
+/// 应用层做**，本仓在数据面用信用窗口实现（`swarmdrop-transfer` 的 `WINDOW_CHUNKS`）。
+///
+/// 取 16 MiB：与 Chromium 自己的接收缓冲量级一致，且是应用层在途上限（4 MiB）的 4 倍，
+/// 余量吸收 bao proof 开销与「已入缓冲但窗口确认尚未发出」的瞬时堆积。
+///
+/// 曾取 4 MiB，并在注释里把「本端发送高水位 1 MiB」当成对端的在途上限——**那个推理是
+/// 错的**：[`MAX_BUFFERED_AMOUNT`] 约束的是本端往外发，与对端往里灌毫无关系，后者在
+/// 应用层窗口出现之前根本没有上限。实测桌面向浏览器发 20 MB，读缓冲精确撞在
+/// `buffered=4194171 + incoming=8190 > 4194304`，子流被重置、传输在 12–22% 中断。
 ///
 /// 实际上限由调用方给（见 `muxer::read_buffer_limit`）——本类型只是字节流包装，
 /// 不认识 libp2p 的 framing 配置。
-pub(crate) const DEFAULT_MAX_READ_BUFFER: usize = 4 * 1024 * 1024;
+///
+/// [webrtc-pc#1732]: https://github.com/w3c/webrtc-pc/issues/1732
+pub(crate) const DEFAULT_MAX_READ_BUFFER: usize = 16 * 1024 * 1024;
 
 /// 在**当前 JS 回调栈之外**唤醒任务。
 ///

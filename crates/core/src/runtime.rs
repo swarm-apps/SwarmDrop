@@ -22,7 +22,7 @@ use crate::pairing::{PairingManager, PairingService};
 use crate::presence::OnlineRecordLookup;
 use crate::protocol::{
     IDENTIFY_PROTOCOL, PAIRING, PAIRING_PROTOCOL, TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL,
-    TRANSFER_DATA_PROTOCOL,
+    TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2,
 };
 use crate::transfer::incoming::TransferCtrlService;
 use crate::transfer::manager::TransferManager;
@@ -189,11 +189,12 @@ where
     })
 }
 
-/// 装配三协议入站 [`Router`] 并 spawn。
+/// 装配入站 [`Router`] 并 spawn。
 ///
 /// pairing 与 transfer 控制面是 typed RPC（[`PAIRING`] / [`TRANSFER_CTRL`]），数据面
-/// （[`TRANSFER_DATA_PROTOCOL`]）是裸流。runtime 与 e2e 测试共用同一套装配，避免协议
-/// 注册漂移。返回的 `Router` 需与 `endpoint` 同生命周期。
+/// （[`TRANSFER_DATA_PROTOCOL`] 与其兼容用的 [`TRANSFER_DATA_PROTOCOL_V2`]）是裸流。
+/// runtime 与 e2e 测试共用同一套装配，避免协议注册漂移。返回的 `Router` 需与 `endpoint`
+/// 同生命周期。
 pub fn build_router(
     endpoint: &Endpoint,
     pairing: Arc<PairingManager>,
@@ -214,7 +215,17 @@ pub fn build_router(
                 notifier,
             )),
         )
-        .accept(TRANSFER_DATA_PROTOCOL, TransferDataHandler::new(transfer))
+        // 数据面同时挂新旧两版协议名，**同一个 handler**：两版的差别只在「发送端会不会
+        // 发窗口帧」，接收端的读循环对有没有窗口帧都成立（没有就一帧也读不到）。
+        // 旧客户端只会拨 `/2`，摘掉它等于对 v0.12.0 及更早整体断供。
+        .accept(
+            TRANSFER_DATA_PROTOCOL,
+            TransferDataHandler::new(transfer.clone()),
+        )
+        .accept(
+            TRANSFER_DATA_PROTOCOL_V2,
+            TransferDataHandler::new(transfer),
+        )
         .spawn()
 }
 

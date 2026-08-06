@@ -15,7 +15,25 @@ pub const TRANSFER_CTRL_PROTOCOL: ProtocolId =
     ProtocolId::from_static("/swarmdrop/transfer-ctrl/2");
 
 /// 传输数据面协议名（裸流 + 自带帧协议，见 [`wire`](crate::wire)）。
+///
+/// **v3 = v2 + 流控窗口帧**（[`TransferDataFrame::Window`](crate::wire::data_frame::TransferDataFrame::Window)）。
+///
+/// 加一个帧 tag 就必须换协议名，因为解码器对未知 tag 是**硬失败**：v2 的
+/// `decode_frame` 遇到 tag 7 返回协议错误，接收端随即中止整个会话。若沿用 `/2`，
+/// v0.12.1 的发送端会在第一个窗口边界（4 MiB）静默打断每一个 v0.12.0 接收端——
+/// 而移动端的更新永远滞后于桌面端，那正是「桌面发照片到手机」这条最常走的路径。
 pub const TRANSFER_DATA_PROTOCOL: ProtocolId =
+    ProtocolId::from_static("/swarmdrop/transfer-data/3");
+
+/// 上一版数据面协议，**仍在服务**（v0.12.0 及更早只认它）。
+///
+/// 两个方向各要它一次：旧发送端只会拨 `/2`，所以接收侧必须继续注册；新发送端拨 `/3`
+/// 被拒时退回这里（见 `wire::data_plane` 的 `open_data_stream`），退回后整条链路不发
+/// 窗口帧。
+///
+/// 删除它的条件：不再需要兼容 v0.12.0——即 SwarmHive 上桌面与移动的 stable 都已越过
+/// 那一版足够久。**不要凭桌面端单独判断**，移动端是滞后的那一端。
+pub const TRANSFER_DATA_PROTOCOL_V2: ProtocolId =
     ProtocolId::from_static("/swarmdrop/transfer-data/2");
 
 /// 传输控制面 typed RPC：`TransferRequest → TransferResponse`。

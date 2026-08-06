@@ -8,14 +8,14 @@
 
 use std::sync::Arc;
 
-use swarmdrop_net::{AcceptError, P2pStream, ProtocolHandler};
+use swarmdrop_net::{AcceptError, Endpoint, NodeId, OpenError, P2pStream, ProtocolHandler};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::epoch::EpochGuard;
 use crate::manager::TransferManager;
 use crate::progress::{RuntimeTransferDirection, TransferFailedEvent};
-use crate::protocol::{FileRange, TRANSFER_DATA_PROTOCOL};
+use crate::protocol::{FileRange, TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2};
 use crate::wire::data_frame::{TransferDataFrame, TransferDataRole, read_frame, write_frame};
 use crate::{AppError, AppResult};
 
@@ -51,6 +51,31 @@ impl ProtocolHandler for TransferDataHandler {
     }
 }
 
+/// 打开数据面流：先拨 [`TRANSFER_DATA_PROTOCOL`]，对端不认识就退回
+/// [`TRANSFER_DATA_PROTOCOL_V2`]。
+///
+/// 只有 `UnsupportedProtocol` 才退回——那是 multistream-select 明确答复的「我没有这个
+/// 协议」。**其余错误一律原样上抛**：拨号超时、连接被拒这些换个协议名重试一遍同样会失败，
+/// 退回只会把一次失败变成两次、并且把真正的错误换成第二次那条更没信息量的。
+///
+/// 返回的流带着协商结果（[`P2pStream::protocol`]），发送端据此决定发不发窗口帧——
+/// 见 [`SenderActor::run_data_channel`](crate::actor::sender::SenderActor::run_data_channel)。
+async fn open_data_stream(endpoint: &Endpoint, peer: NodeId) -> AppResult<P2pStream> {
+    match endpoint.open(peer, TRANSFER_DATA_PROTOCOL).await {
+        Ok(stream) => Ok(stream),
+        Err(OpenError::UnsupportedProtocol(_)) => {
+            info!(
+                "对端不支持 {TRANSFER_DATA_PROTOCOL}，退回 {TRANSFER_DATA_PROTOCOL_V2}（无流控窗口）: peer={peer}"
+            );
+            endpoint
+                .open(peer, TRANSFER_DATA_PROTOCOL_V2)
+                .await
+                .map_err(|e| AppError::Transfer(format!("打开 data channel 失败: {e}")))
+        }
+        Err(e) => Err(AppError::Transfer(format!("打开 data channel 失败: {e}"))),
+    }
+}
+
 impl TransferManager {
     /// 打开出站数据面流，绑定发送会话并按 fetch_plan 连续推送。
     pub(crate) fn spawn_send_data_channel(
@@ -73,10 +98,7 @@ impl TransferManager {
 
         n0_future::task::spawn(async move {
             let result = async {
-                let stream = endpoint
-                    .open(peer_id, TRANSFER_DATA_PROTOCOL)
-                    .await
-                    .map_err(|e| AppError::Transfer(format!("打开 data channel 失败: {e}")))?;
+                let stream = open_data_stream(&endpoint, peer_id).await?;
                 session.run_data_channel(epoch, stream, fetch_plan).await
             }
             .await;

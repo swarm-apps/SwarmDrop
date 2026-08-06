@@ -354,6 +354,24 @@ impl ReceiverActor {
                     .await?;
                     return Ok(true);
                 }
+                // 流控窗口确认。读到它时，本窗内每一块都已走完
+                // `handle_block_data`（验签 → 落盘）——读循环是严格串行的，所以「读到
+                // Window」与「窗内块全部消化完」是同一件事，回帧即释放对端下一窗。
+                // **不能提前回、也不能异步回**：那会让确认与实际消费速率脱钩，在途量
+                // 重新失控，正是本机制要防的东西。
+                Some(TransferDataFrame::Window {
+                    session_id,
+                    epoch: frame_epoch,
+                }) if session_id == self.session_id && EpochGuard::matches(frame_epoch, epoch) => {
+                    write_frame(
+                        &mut *stream,
+                        &TransferDataFrame::Window {
+                            session_id: self.session_id,
+                            epoch,
+                        },
+                    )
+                    .await?;
+                }
                 Some(TransferDataFrame::Abort { reason, .. }) => {
                     return Err(AppError::Transfer(format!("对端中止传输: {reason}")));
                 }

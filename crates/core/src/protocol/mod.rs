@@ -16,6 +16,6 @@ pub use ids::{IDENTIFY_PROTOCOL, PAIRING, PAIRING_PROTOCOL};
 pub use pairing::{PairingMethod, PairingRefuseReason, PairingRequest, PairingResponse};
 pub use swarmdrop_transfer::protocol::{
     FileCheckpoint, FileInfo, FileRange, OfferRejectReason, ResumePhaseReport, ResumeRejectReason,
-    ResumeReport, TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL, TRANSFER_DATA_PROTOCOL, TransferOrigin,
-    TransferRequest, TransferResponse,
+    ResumeReport, TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL, TRANSFER_DATA_PROTOCOL,
+    TRANSFER_DATA_PROTOCOL_V2, TransferOrigin, TransferRequest, TransferResponse,
 };
