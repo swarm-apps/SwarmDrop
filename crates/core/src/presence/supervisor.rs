@@ -393,10 +393,22 @@ impl PresenceSupervisor {
             }
 
             // 直拨失败 → relay hint 多步恢复：先修与 relay 的直连再拨 circuit
-            for hint in online.relays.iter().take(MAX_RELAY_HINTS) {
-                if hint.addrs.is_empty() {
-                    continue;
-                }
+            let me = endpoint.node_id();
+            // **先筛后截**：`MAX_RELAY_HINTS` 限的是「试几次」，不是「看前几条」。
+            //
+            // 两类 hint 连试都不该试：没有地址的（拨不动），以及**以本机为中转**的——
+            // 同网浏览器直连桌面后就向它要了 reservation，那条 hint 于是原样写进了对端的
+            // 在线记录，走一遍「先连 relay 再拨 circuit」第一步就是拨自己。实测日志里它
+            // 每轮固定报一次「relay <本机> 不可达」。
+            //
+            // 若把筛放在截之后，这些废条目照样占掉名额，真正该试的 hint 被挤出去——
+            // 那正是本次要修的症状，只是换了个地方发生。
+            for hint in online
+                .relays
+                .iter()
+                .filter(|hint| !hint.addrs.is_empty() && hint.peer_id != me)
+                .take(MAX_RELAY_HINTS)
+            {
                 let _ = endpoint.add_addrs(hint.peer_id, hint.addrs.clone()).await;
                 if let Err(e) = endpoint.connect(NodeAddr::new(hint.peer_id)).await {
                     tracing::debug!("重探 {peer}: relay {} 不可达: {e}", hint.peer_id);

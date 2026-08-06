@@ -25,7 +25,7 @@ use libp2p::{PeerId, Swarm, identify, kad, ping};
 use swarmdrop_net_base::DiscoverySource;
 use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, TransportKind};
 use tokio::sync::{mpsc, oneshot, watch};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::config::EndpointConfig;
@@ -1342,7 +1342,17 @@ impl Actor {
     }
 
     /// 地址进簿（去重）+ 广播给 behaviour（kad 等各自决定是否收录）。
+    ///
+    /// **以本机为中转的 circuit 地址一律丢弃。** 它是四条进簿路径（`AddAddrs` /
+    /// `AddInfraPeer` / `Connect` 显式候选 / mDNS）的共同下游，故过滤收在这一处。
     fn record_addr(&mut self, peer: PeerId, addr: libp2p::Multiaddr) {
+        // `trace` 而非 `debug`：默认 filter 就是 `swarmdrop_net=debug`，而这条在对端反复
+        // 断连重连时是每秒上万条的量级（实测一次 11 分钟的重连风暴写了 640 MB 日志，
+        // 其中 99.9% 是它）。要看被丢了什么，开 `swarmdrop_net=trace`。
+        if is_relayed_by(&addr, self.node_id) {
+            trace!(%peer, %addr, "skip circuit address relayed by self");
+            return;
+        }
         let entry = self.address_book.entry(peer).or_default();
         if !entry.contains(&addr) {
             entry.push(addr.clone());
@@ -1436,6 +1446,21 @@ fn circuit_base(addr: libp2p::Multiaddr, relay: PeerId) -> libp2p::Multiaddr {
         addr.with(libp2p::multiaddr::Protocol::P2p(relay))
     };
     base.with(libp2p::multiaddr::Protocol::P2pCircuit)
+}
+
+/// 这条地址的中转跳是不是 `node`。
+///
+/// 真实来路：浏览器与桌面同网直连后向桌面申请了 circuit reservation，于是它的可达地址里
+/// 多出一条 `…/p2p/<桌面>/p2p-circuit/p2p/<浏览器>`，再原样广告回桌面。桌面拿它去拨，
+/// 第一跳拨的就是自己——实测报 `Dial error: Unexpected peer ID`，offer 随之失败。
+///
+/// 这类地址**永远拨不通，也永远不需要拨**：本机能当对端的中转，前提就是两者之间已经有
+/// 一条连接。留着它只会挤掉同批候选里真正可用的那些。
+///
+/// 判据落在中转跳而非末位：末位是自己时 libp2p 自己就拒（`DialError::LocalPeerId`），
+/// 漏的正是中间这一跳。
+fn is_relayed_by(addr: &libp2p::Multiaddr, node: NodeId) -> bool {
+    Addr::from_multiaddr(addr.clone()).relay_node_id() == Some(node)
 }
 
 /// 由连接的远端地址与端点信息推断路径分类。
@@ -1567,6 +1592,49 @@ mod tests {
             classify_path(&bare_peer, false),
             PathKind::Direct,
             "同一地址在非中继端点上仍是直连"
+        );
+    }
+
+    /// 以本机为中转的 circuit 地址不进地址簿。
+    ///
+    /// 它红了意味着桌面会拿「经桌面自己中转到浏览器」这条地址去拨号——第一跳拨的就是自己，
+    /// 实测 `Dial error: Unexpected peer ID`，而它还占着同批候选里的位置。
+    ///
+    /// 三条反例各钉一种误伤：中转是别人的照收（这是中继的正常形态）、末位是本机的不归它管
+    /// （libp2p 自己拒）、以及**本机的直连地址照收**——`relay_node_id()` 只在 circuit 段
+    /// 之前取 `/p2p/`，若误写成「地址里出现过本机 id 就丢」，`/p2p/<本机>` 结尾的普通地址
+    /// 会一起被丢掉。
+    #[test]
+    fn self_relayed_circuit_addr_is_rejected() {
+        let me = NodeId::from_peer_id(RELAY.parse::<PeerId>().expect("valid peer id"));
+        let by_me = |s: &str| is_relayed_by(&s.parse().expect("valid multiaddr"), me);
+
+        assert!(
+            by_me(&format!(
+                "/ip4/192.168.1.9/tcp/4001/p2p/{RELAY}/p2p-circuit/p2p/{PEER}"
+            )),
+            "中转跳是本机：拨它等于拨自己"
+        );
+        assert!(
+            by_me(&format!(
+                "/ip4/192.168.1.9/udp/4001/webrtc-direct/p2p/{RELAY}/p2p-circuit/p2p/{PEER}"
+            )),
+            "浏览器场景的真实形态：前半段是 webrtc-direct 到本机"
+        );
+
+        assert!(
+            !by_me(&format!(
+                "/ip4/1.2.3.4/tcp/4001/p2p/{PEER}/p2p-circuit/p2p/{RELAY}"
+            )),
+            "中转是别人、目标才是本机——这是正常的中继地址"
+        );
+        assert!(
+            !by_me(&format!("/ip4/192.168.1.9/tcp/4001/p2p/{RELAY}")),
+            "本机的直连地址不含 circuit 段，不能一起丢"
+        );
+        assert!(
+            !by_me("/ip4/192.168.1.9/tcp/4001"),
+            "无 /p2p/ 段的裸地址同上"
         );
     }
 
