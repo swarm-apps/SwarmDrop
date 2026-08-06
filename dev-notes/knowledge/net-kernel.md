@@ -549,6 +549,154 @@ Web 端曾是全局 `DEBUG`，libp2p 各层的日志（multistream 协商、每�
 「对端毫无响应」。现按 target 分层（`crates/web/src/lib.rs` 的 `Targets`），日志量降两个
 数量级。**碰 Web 端排障先确认 filter，别对着被冲掉的日志下结论。**
 
+### ⚠️ 浏览器接收侧**没有背压**——大文件的流控只能由应用层做（2026-08-06 修）
+
+**症状**：桌面向浏览器发 20 MB，传到 12–22% 断，发送侧会话消失。小文件（3 MB 以下）
+一路正常，所以很容易误判成偶发网络问题。
+
+**实测现场**（浏览器 console）：
+
+```
+对端消息堆积超过读缓冲上限，重置子流 buffered=4194171 incoming=8190 max_read_buffer=4194304
+```
+
+精确撞在 4 MiB 上。`4 MiB / 20 MB ≈ 20%`，与观察到的中断点吻合。
+
+**根因是 WebRTC 的 API 缺口，不是本仓的 bug**。背压链有三层，这条链路上只有第三层能补：
+
+| 层 | 机制 | 实际 |
+|---|---|---|
+| SCTP 逐跳 | `a_rwnd` 收缩 → 发送端停发 | **被短路**：浏览器 `onmessage` 一触发就把字节交给 JS 并释放 SCTP 接收缓冲，窗口永不收缩 |
+| 本地发送队列 | `SEND_BUFFER_LIMIT`（已配 4 MiB） | 防的是**本端 OOM**，管不到「已送达对端 JS 但未被消费」的量 |
+| 应用层端到端 | 逐块 Ack | wire v2 删掉了 → **缺口在这一层** |
+
+这是 W3C 承认了十余年的缺口：[2014 年的 public-webrtc 提案](https://lists.w3.org/Archives/Public/public-webrtc/2014Mar/0063.html)
+就写明「底层 SCTP 完全支持背压，只是 `DataChannelInterface` 这层 API 不支持」，请求加
+`setReadEnabled(bool)`，至今未采纳（[webrtc-pc#1732](https://github.com/w3c/webrtc-pc/issues/1732)
+仍开着）。libp2p 的 WebRTC spec 也明确写着 message framing「is not concerned with
+flow-control」——**显式把流控推给上层**。js-libp2p 同样只做了发送侧 `bufferedAmount`
+背压，接收侧是无界 `Pushable` 队列。
+
+**为什么只有一个方向坏**：native 侧 webrtc-rs 是**拉模型**（`dc.poll().await`），不读就真不读，
+SCTP 窗口会收缩 → 浏览器→桌面天然有背压；桌面→浏览器是推模型，没有。
+
+**修法**：`swarmdrop-transfer` 在数据面加信用窗口（`WINDOW_CHUNKS = 16`，即 4 MiB 在途）——
+发送方每满一窗发一帧 `TransferDataFrame::Window` 并停下，接收方**把窗内每一块验签落盘完毕后**
+回同款帧才放行。停等而非滑动：滑动要在写的同时读确认，与数据面「整流顺序读写、不 split」
+的硬约束冲突；代价是每窗一个 RTT，20 MB 只停 5 次。
+
+**两个数是绑死的**：`WINDOW_CHUNKS × CHUNK_SIZE`（4 MiB）必须显著小于 `webrtc-p2p` 的
+`DEFAULT_MAX_READ_BUFFER`（16 MiB）。**调大窗口必须同时抬那个上限**，否则退回越限重置。
+护栏是 `actor::sender::tests::sender_stops_after_one_window_until_peer_acks`——删掉窗口后
+native↔native 照样跑得通（yamux/QUIC 顶着），只有浏览器会被撑爆，那是跑不进 CI 的失效模式，
+这条断言是它唯一的机器守卫。
+
+**别把 `MAX_BUFFERED_AMOUNT` 当成对端的在途上限。** 旧注释里就是这么推的（「对端可以合法地
+让 1 MiB 数据在途」），**是错的**：那个常量约束的是本端往外发，与对端往里灌毫无关系；后者
+在应用层窗口出现之前根本没有上限。这个错误推理正是 `DEFAULT_MAX_READ_BUFFER` 当初被定成
+4 MiB 的原因。
+
+#### ⚠️ 加一个帧 tag 就必须换协议名——`decode_frame` 对未知 tag 是**硬失败**
+
+窗口帧最初是直接加进 `/swarmdrop/transfer-data/2` 的，`TRANSFER_DATA_VERSION` 也留在 2。
+那样发出去，**已发布的 v0.12.0 会在 4 MiB 处被全部打断**：它的解码器读到 tag 7 返回
+「未知 transfer-data frame tag」，接收端随即中止整个会话。小于一窗的文件照常成功，所以
+症状是「小文件行、大文件到 20% 就断」——与本节开头那个 bug 一模一样，极容易误判成没修好。
+
+**这不是理论风险**：桌面与移动是两条独立版本线，移动端的更新永远滞后，而「桌面发照片到
+手机」正是最常走的路径。
+
+**修法**（都在 `crates/transfer`）：
+
+- `TRANSFER_DATA_PROTOCOL` 提到 `/swarmdrop/transfer-data/3`，同时保留
+  `TRANSFER_DATA_PROTOCOL_V2` 常量；
+- `core::runtime::build_router` 用**同一个 handler** 注册两个协议名——接收端的读循环对有没有
+  窗口帧都成立（没有就一帧也读不到），差别只在发送端；
+- 出站在 `wire::data_plane::open_data_stream` 里先拨 `/3`，**只有** `OpenError::UnsupportedProtocol`
+  才退回 `/2`（其余错误换个协议名重试同样失败，只会把真错误换成更没信息量的第二条）；
+- 发不发窗口帧由流自己带的协商结果决定（`WindowPacer::for_protocol` 读 `P2pStream::protocol()`），
+  **不由调用方传参**——这个判断只该有一个来源。
+
+**`TRANSFER_DATA_VERSION` 保持 2 是刻意的**：它校验的是「共有帧怎么编码」，而 v3 只是多认
+一个 tag、既有帧编码逐字未变。更实际的一条——退回 `/2` 时 Hello 必须仍然写 2，跟着提就把
+回退路径自己堵死了。能力协商交给 multistream-select，别在 payload 里再做一遍。
+
+护栏：`unpaced_stream_emits_no_window_frames`（v2 链路上一帧都不许发）与
+`pacer_only_paces_on_the_negotiated_v3_protocol`。
+
+### ⚠️ 不关闭的 `PeerConnection` 会把 CPU 烧光（2026-08-06 修）
+
+**症状**：桌面端「卡死」——webview 对任何 JS 都超时，看起来像前端挂了。实际是
+**CPU 被吃光**：`ps` 显示 948%，webview 只是抢不到时间片。
+
+**定位手法记一笔**（下次省半小时）：`sample <pid> 3 -mayDie -file out.txt`，然后读
+`Sort by top of stack` 那一段。这次的结论一眼可见——前十几项全是
+`PeerConnectionDriver::event_loop` / `RTCPeerConnection::poll_write` / `poll_timeout` /
+`mach_absolute_time`。**注意 `pgrep` 拿到的第一个 pid 往往是 pnpm 的 wrapper**，
+按 `ps aux | awk '$3 > 50'` 挑真正吃 CPU 的那个。
+
+**根因**：`webrtc-rs` 的 `PeerConnection` 背后是一个独立的 driver 任务，只有 `close()`
+之后才退出。上游的 `Drop` **只在 `dedicated_reactor` 模式下**设 shutdown 标志，并把
+general-runtime（我们用的那条）注释为「detach harmlessly onto the application's own
+worker pool」——**对已死的连接不成立**：detach 的 driver 不 park，而是在 `poll_timeout`
+上空转。
+
+泄漏有两条来源，**只堵一条没用**：
+
+1. **握手失败**：`direct::upgrade` 的 `inbound`/`outbound` 在 `finish()` 之前有八个 `?`
+   早退点。而拨号**会重试**（拨到非 webrtc-direct 的端口、certhash 不匹配、Noise 认证
+   失败都很常见），泄漏按重试次数累积——这是主因。
+2. **连接异常终止**：`StreamMuxer::poll_close` 只在 libp2p 走正常关闭流程时才被调到；
+   对端掉线或 Swarm 直接丢弃连接时，muxer 是**直接被 drop** 的。
+
+**修法**：`backend/native/managed.rs` 的 `ManagedPeerConnection` —— 一个 RAII 守卫，
+`Deref` 到 `Arc<dyn PeerConnection>`，drop 时把 `close()` 派给 runtime。握手路径、打洞
+backend 的 `State::Ready`、muxer 三处都用它持有连接，不变式收敛成一条：**只要连接被
+`ManagedPeerConnection` 持有，它就一定会被关闭**。所有权移交用 `into_inner()` 解除守卫，
+否则守卫会在函数返回时把刚建好的连接关掉。
+
+**这条与 wasm 侧的 `Drop` 是同一个道理的两面**（见 `backend::wasm::muxer`），但后果不
+对称：浏览器那边泄漏的是浏览器自己管的对象，native 这边泄漏的是**本进程的 CPU**。
+所以 native 侧漏掉它的代价大得多，而它恰恰是后加的。
+
+### 以本机为中转的 circuit 地址：拨不通、拨了还会挤掉真候选（2026-08-06）
+
+**症状**：桌面向浏览器发 offer 反复失败，日志里是
+`Dial error: Unexpected peer ID 12D3KooWRkj1…`（那串正是**桌面自己**）。
+
+**成因**：浏览器与桌面同网直连后，向桌面申请了 circuit reservation（桌面是开着
+relay server 的）。于是浏览器的可达地址里多出
+`…/p2p/<桌面>/p2p-circuit/p2p/<浏览器>`——**桌面自己的每条 listener 地址各一条**
+（tcp / quic / webrtc-direct 三份），再原样广告回桌面。桌面拿它去拨，第一跳拨的就是自己。
+
+这类地址**永远拨不通，也永远不需要拨**：本机能当对端的中转，前提就是两者之间已经有一条
+连接。留着它只会挤掉同批候选里真正可用的那些（relay hint 还有 `MAX_RELAY_HINTS` 上限，
+自指那条会把名额占掉）。
+
+**两处修复，各管一层**：
+
+- `crates/net` 的 `record_addr`（**地址进簿的唯一入口**，四条路径 `AddAddrs` /
+  `AddInfraPeer` / `Connect` 显式候选 / mDNS 的共同下游）丢弃 `is_relayed_by(addr, self)`
+  的地址。判据落在**中转跳**而非末位：末位是自己时 libp2p 自己就拒
+  （`DialError::LocalPeerId`），漏的正是中间这一跳。
+- `crates/core` 的 `presence::supervisor::spawn_probe` 跳过 `hint.peer_id == 本机` 的
+  relay hint——否则每轮固定浪费一次「先连 relay 再拨 circuit」，而第一步就是拨自己。
+
+  ⚠️ **筛必须在 `take(MAX_RELAY_HINTS)` 之前**。第一版写成了循环体里 `continue`，于是
+  自指的那条照样占掉三个名额之一——「真候选被挤掉」这个正要修的症状原样保留，只是换了个
+  地方发生。同一处 `hint.addrs.is_empty()` 的跳过是**存量的同类错误**，一并挪进 `filter`。
+  判据：`take(N)` 里的 N 表达的是「试几次」，那就只能截在**可试的**条目上。
+
+**⚠️ 这条过滤的日志必须是 `trace` 不能是 `debug`。** 默认 filter 就是
+`swarmdrop_net=debug`，而对端反复断连重连时它是**每秒上万条**的量级：实测一次 11 分钟的
+重连风暴写了 **640 MB** 日志，99.9% 是这一条。
+
+**顺带暴露的、尚未查清的问题**：那 640 MB 说明有个上游循环在以 ~4000 次/秒 的频率重放
+同一批地址（每 250µs 一次，四条一组）。加过滤之前它完全静默（`entry.contains` 去重后什么
+都不做），是这条日志第一次让它可见。过滤让它不再产生失败拨号，但**调用本身还在烧 CPU**，
+触发点是「ping 连续失败 → 主动断连重探」。要查它请开 `swarmdrop_net=trace` 并从
+`record_addr` 的四个调用方入手。
+
 ### DataChannel 的 `Connecting` 不是错误（wasm 侧）
 
 `PeerConnection` 的 `connected`（DTLS 完成）**早于** DataChannel 的 `open`（SCTP 完成）。

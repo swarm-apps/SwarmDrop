@@ -361,6 +361,38 @@ pnpm build && python3 -m http.server 3210 -d out   # 保持 trailingSlash 目录
 拆页后它们全部失真。迁移面板时顺手把位置指代换成带 `<Link>` 的页面指代
 （「设置页的『连接』区」），否则用户会在当前页找一个根本不在这里的东西。
 
+## ⚠️ 跨 wasm 边界的**形状**，类型层一个字都保证不了（2026-08-06）
+
+`.d.ts` 是生成物，TS 按它写得再对，运行时拿到的仍可能是另一种东西——因为
+`serde_wasm_bindgen` 的默认输出形状与 `.d.ts` 声明的形状本来就不一致。两条差异都已经
+真实咬过一次，修法都是**序列化器的一个选项**，收在 `crates/web/src/serialize.rs` 的
+`to_js` 一处：
+
+| 默认行为 | `.d.ts` 声明 | 症状 | 选项 |
+|---|---|---|---|
+| `Option::None` → `undefined` | `T \| null` | JS 侧 `=== null` **恒假**、`!== null` **恒真** | `serialize_missing_as_null(true)` |
+| serde map（含 `#[serde(flatten)]` 的结构体）→ JS `Map` | 普通对象 | 字段**一个都读不到** | `serialize_maps_as_objects(true)` |
+
+第一条 2026-08-06 的表现：**收件箱恒显示「还没有收到的文件」，而 IndexedDB 里躺着 3 条
+正常条目**。`inbox_items()` 确实返回了那 3 条，是列表那句
+`items.filter((item) => item.archivedAt === null)` 把它们全滤掉了——3 条的 `archivedAt`
+都是 `undefined`。同一个洞还让「已读」标记每次下载都重打一遍
+（`item.lastOpenedAt !== null` 恒真）。
+
+**判据都很硬，且方向一致：以 `.d.ts` 为准。** 它里面没有 `undefined`、没有 `Map<`、
+没有 `Record<`，所以任何跨边界的缺席值都该是 `null`，任何跨边界的值都该是普通对象。
+
+**排查顺序**（这一类 bug 的共同特征是「数据在、界面空」，别一上来怀疑取数）：
+
+1. 先确认数据在不在库里（DevTools → Application → IndexedDB，或 `indexedDB.open()` 数一下）
+2. 在不在 → 那就是**读侧或呈现侧**，不是写侧。此时先看那条记录**长什么样**，
+   再逐层往上找哪一步把它滤掉了
+3. 特别检查所有 `=== null` / `!== null`：跨边界的可选字段全是这个洞的候选
+
+入站方向不必对称处理——`from_js` 对 `null` 与 `undefined` 一视同仁地收成 `None`，往返安全。
+守卫测试是 `serialize.rs` 的 `none_serializes_as_null_not_undefined` 与
+`flattened_struct_serializes_as_plain_object`，跑法见 `./scripts/test-wasm.sh`。
+
 ## 改 `crates/web` 的公开面，有三条生成链路要重跑且都要入库
 
 前端拿到的类型与方法全部是生成物，链路有三条、彼此不串联，**跑漏任何一条都是前端拿着

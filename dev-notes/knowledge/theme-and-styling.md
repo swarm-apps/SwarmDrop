@@ -35,6 +35,45 @@
 
 **相关文件**：`src/index.css`、`src/components/layout/app-topbar.tsx`
 
+### fumadocs 的 `--color-fd-muted-foreground` 在亮色下过不了 AA（2026-08-06 实测）
+
+文档站（含官网首页）的次级文字用 fumadocs 自带的 `--color-fd-muted-foreground`，亮色是
+`#737373`，落在页面底色 `#f5f5f5` 上实测 **4.35:1**——低于 WCAG AA 的 4.5，而 PRODUCT.md
+把 AA 写成了本项目的标准。**暗色那侧没问题**（`#b3b3b3cc` on `#121212` = 8.93:1），
+所以这是个单侧缺陷，只看暗色截图永远发现不了。
+
+这与 `global.css` 里记的「应用区不跟 fumadocs token」是同一个根因的两面：那套值服务的是
+长文阅读，拿来当界面文字就贴着线走。应用区已经换成自己的一套（muted 在卡片内 4.74），
+文档区仍在用 fumadocs 的。
+
+**正确做法**：覆盖变量，而不是逐个换 class——`text-fd-muted-foreground` 编译成
+`color: var(--color-fd-muted-foreground)`，覆盖一次所有用到它的地方一起跟上，将来新增的
+段落也自动落在合规值上：
+
+```css
+html:not(.dark) {
+  --color-fd-muted-foreground: #6a6a6a; /* on #f5f5f5 = 4.75 · on #f1f1f1 = 4.64 */
+}
+```
+
+**作用域是整站**（2026-08-06 从只覆盖首页扩到根）。一开始只挂在 `[data-swarmdrop-home]` 上，
+理由是「动整站观感属于另一件事」——但那个数在文档区同样是 4.35，缺陷本来就是全站的；
+两处用不同的灰还会让首页与文档之间出现说不出理由的色差。
+
+**量的时候注意两件事**，两条都真的把人骗过：
+
+1. **`getComputedStyle().color` 不含元素自身的 `opacity`。** 首页收尾那条品牌色带上，
+   正文满强度是 4.98，加了 `opacity-80` 之后是 **4.08**——按 computed color 量会显示合格。
+   要把祖先链上的 opacity 连乘进去再合成。
+2. **现代浏览器会返回 `oklab(...)` / `color(...)`。** 拿正则抠三个数会得到 oklab 分量，
+   算出来的对比度纯属虚构（实测把一条 4.98 报成 1.4）。可靠做法是画进 1×1 canvas
+   再 `getImageData` 读回 sRGB。
+
+**推论**：实心品牌青绿底上没有「淡一点」的余地——deep ink on teal 满强度就是 ~5.0，
+那是全部余量。层次靠字号和字重给，不要靠不透明度。
+
+**相关文件**：`docs/app/global.css`、`docs/app/(home)/page.tsx`
+
 ### 连接类型徽章三色保持语义可辨
 
 设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=green、打洞=sky、中继=amber。品牌主色现在也是青绿色，任何新的 success/online 语义用法都要先确认与 `text-brand` / `bg-primary` 拉得开距离；赤铜只留给 logo/品牌小点缀，不参与状态编码。
