@@ -140,6 +140,25 @@ The palette is almost monochrome by design — near-white/near-black neutrals do
 - **Glass Brand Rim** (`rgb(15 143 122 / 0.16)`): the border on `glass-accent` surfaces — a translucent rim of Harbor Teal that marks emphasized glass areas (pairing code, active device card).
 - **Aurora Mist / Aurora Cyan** (`#f7f7f7` / `#22d3ee`): the two colors driving the ambient WebGL background gradient; decorative only, never used in foreground UI.
 
+**Glass needs something behind it, and it needs the unprefixed property.** Two failure modes cost
+the web build its glass for months, and both are invisible in a token diff:
+
+1. `backdrop-filter: blur()` over a flat colour returns that same flat colour. Glass is only glass
+   when the ambient layer is actually reaching it — which is why the aurora's mask must not hollow
+   out the centre of the screen, where the panels are. Suppressing the ambient layer while keeping
+   the glass classes buys the compositing cost and none of the effect.
+2. The build can delete the standard property and keep only `-webkit-backdrop-filter`, which modern
+   Chrome no longer honours. Same tokens, same classes, no blur. See the web knowledge base entry —
+   the fix is to wrap the standard declaration in `@supports`, including the
+   `prefers-reduced-transparency` reset.
+
+**Panels are glass; rows inside them are solid.** Outer translucent, inner opaque is how depth is
+stated here — a master-detail column and the list rows inside it must not both be glass (that is
+the nested-card ban in another guise). Web keeps this as two constants, `PANEL_SURFACE` (glass) and
+`ROW_SURFACE` (solid). Prior to 2026-08-06 both columns of inbox and transfer were solid, which
+left those two routes with no glass at all while devices and settings had it — the same product
+reading as two.
+
 Dark mode remaps every neutral (background → `oklch(0.18 0.01 260)` ≈ `#0F1216`, foreground → `oklch(0.965 0.002 260)` ≈ `#F3F3F5`, border → `oklch(0.39 0.01 260)` ≈ `#42454B`) and lifts Harbor Teal for glow against the near-black canvas. The cool navy-tinted dark neutrals deliberately stay: deep navy plus teal/copper keeps the product feeling secure without returning to the old heavy-blue identity.
 
 ### Named Rules
@@ -404,11 +423,22 @@ step is not a hierarchy, it just puts the burden on position. The ladder is **20
 (page title with `-0.02em` tracking · section headline · body and list-item titles · labels), plus
 mono at 11–13px for machine values (The Mono Truth Rule is unchanged).
 
-**Column width follows content type, and the page decides it — not the panel.** Boards (grids,
-master-detail) get the full 1240px; settings gets 1040px (its bento grid needs the width to
-resolve a second column); forms get 860px. At 1240px a 12px Chinese
-paragraph runs to roughly 100 characters per line. A panel that constrains itself while the page
-header stays full width just misaligns the two left edges — which is what the send page did.
+**Column width is one number site-wide; line length belongs to the text, not the page.**
+(Revised 2026-08-06 — this clause previously specified three tiers: 1240 boards / 1040 settings /
+860 forms.) Tiering by content type was the right instinct, but all three were centred with
+`mx-auto`, so the content's left edge **jumped between routes**: measured at a 1440 viewport,
+devices/inbox/transfer sat at 224, settings at 307, send at 402 — up to 178px of travel between
+entries that sit next to each other in the rail. A stable left edge does more for "this is an
+application" than each page's ideal measure does.
+
+So the page gives one width (1240, same as the desktop `master-detail-shell.tsx`) and **the text
+constrains itself**: a form panel that should stay narrow sets its own `max-w`. That is the correct
+layer anyway — measure is a typographic property, and binding it to the page container makes a
+paragraph's readability depend on which route it happens to live on.
+
+One rule survives from the old clause, and it is the reason tiering was tried in the first place:
+**a panel that constrains itself must not centre itself.** Full-width header above a centred panel
+misaligns the two left edges. Constrain left-aligned instead.
 
 **Empty states size to their role.** An empty state that IS the whole column (a master-detail
 detail pane) fills and centers. An empty state that is one section *inside* a panel must not — a
@@ -435,6 +465,33 @@ Desktop pairs cards by height to keep row bottoms level; that only works when a 
 sections to stack. Where it doesn't — web's preferences row is one short card beside one tall one —
 size to content instead. Stretching leaves a third of a card as empty glass, which reads as
 unfinished, not as breathing room. **Copy the rule, not the conclusion.**
+
+**The devices page splits at 1280px, and that is a second breakpoint on purpose.** 920 measures
+*master-detail* (list ↔ detail, both panes are content). The web devices page is a different
+shape — main content plus one column of auxiliary tooling (pairing) — and the web app area carries
+a navigation rail of its own, which 920 does not account for. The rail has three tiers
+(≥1024 expanded 224px · 768–1023 icon 64px · <768 bottom nav), so **the same viewport width leaves
+different content width on desktop and web**: the desktop devices page can split at 920 precisely
+because it has no rail.
+
+At 1280: `1280 − 224 (rail) − 48 (page padding) = 1008` content, minus a 360 pairing column and a
+32 gutter leaves a 616px main column — exactly two device cards (280×2 + 8). One tier down (1024
+viewport) the main column is 376px, which fits one card; a single-card main column beside a 360px
+sidebar reads as two things side by side rather than one main and one aside.
+
+Below 1280 the page stacks in the previous order (grid → active transfers → pairing), and pairing
+collapses to a single header row. **The CSS `xl:` grid and the JS `DEVICES_SPLIT_QUERY` are the same
+number and must flip together** — pairing's default-open state is tied to the layout, so a mismatch
+of one tier produces a 360px column containing nothing but a collapsed title.
+
+Pairing stays *in the page* in both tiers — not a dialog, not a drawer, not a sub-route. During
+pairing the user moves between two surfaces (send my invite out, paste theirs back in), and an
+overlay repeatedly covers the paired-device list, which is exactly where they are watching for the
+result. A sub-route is the same problem taken further: the whole list is gone. Splitting improves on
+the older in-place disclosure — both blocks are visible *at once*, so a newly paired device appears
+in the next column without collapsing anything first. Desktop diverges here (its pairing lives at
+`/pairing/generate` and `/pairing/input`) because its right column carries nearby-device discovery
+as well, and the browser has no mDNS to put there.
 
 **Section names are cross-platform.** The same concept gets the same title and icon in every build:
 web's settings say 设备信息 / 引导节点 with `MonitorSmartphone` / `RadioTower` because desktop does.
@@ -468,11 +525,30 @@ The browser build (`docs/app/app`, hosted inside the docs site) uses a **persist
 Why the fork: the desktop app owns its entire window and can borrow the native title bar for chrome, so a breadcrumb is enough to say "you are inside an app". A browser tab has no such frame — the same tab renders marketing pages and docs — so persistent nav is the only structure that reads as an application rather than another document page. Deep-linkable routes also require a visible place to return to.
 
 - **Sections** mirror the desktop information architecture — devices / send / inbox / transfer / settings — so the two builds stay conceptually one product. Only the navigation *shape* differs.
-- **Persistent nav lists three of them: devices / inbox / settings.** Send and transfer are *sub-pages of devices*: entered from the devices page, they keep "devices" highlighted in the rail and carry a back link in the page header. This matches what the other two builds already did — the desktop topbar has no send entry, and the mobile tab bar has neither send nor transfer. Send in particular must never become a persistent nav item: the Send Entry Contract above says sending starts from a device, so a standing entry can only land the user on the target picker that exists for *correcting* a target. The parent/child relation lives in `docs/app/app/_lib/nav.ts`; giving an item a `parent` removes it from the rail.
+- **Persistent nav lists three of them: devices / inbox / settings.** Send and transfer are *sub-pages of devices*: entered from the devices page, they keep "devices" highlighted in the rail and state the parent in the page title as a breadcrumb (`设备 › 传输`, the parent segment being the link back). That title form is shared with the desktop shell on purpose: what the web build forks is the shape of the *persistent* navigation (rail vs breadcrumb trail), not how a page states its own parent — that should read the same in both. It replaced a separate `← 设备` row above the title, which put the visual weight of a two-line header on a small back arrow. This matches what the other two builds already did — the desktop topbar has no send entry, and the mobile tab bar has neither send nor transfer. Send in particular must never become a persistent nav item: the Send Entry Contract above says sending starts from a device, so a standing entry can only land the user on the target picker that exists for *correcting* a target. The parent/child relation lives in `docs/app/app/_lib/nav.ts`; giving an item a `parent` removes it from the rail.
 - **Three responsive tiers:** ≥1024px expanded rail (icon + label, 224px) · 768–1023px icon rail (64px, label degrades to `title`/`aria-label`) · <768px fixed bottom nav with a sticky brand+status header. The single source of truth for the items is `docs/app/app/_lib/nav.ts`.
 - **Active state** is `bg-fd-accent` + `text-[var(--brand)]` + `aria-current="page"` — the one-accent rule still holds; no second saturated color enters the chrome.
 - **The count badge** (pending offers) uses the brand solid fill with `--brand-ink` text. It exists because splitting one page into five routes hides time-sensitive inbound requests behind a route — the badge is the compensation for that, not decoration. In-flight transfers get the same compensation in a different form: the devices page carries an "active transfers" section with live rows, which is what replaced their nav badge when transfer left the rail. **Whatever is taken out of the chrome has to reappear somewhere the user already is** — that rule is what both of these are instances of.
 - **Node status stays visible in every tier** (pill when there's room, bare status dot in the icon rail): "state is honestly visible" does not get dropped because the window got narrow. The pill is also the **entry point to node control** — status, uptime, relay reachability and diagnostics, plus start/stop. Node control is deliberately *behind* it rather than on any page: visible when looked for, never stumbled into.
+- **The rail costs 224px of content width, and page layouts must budget for it.** This is the one structural consequence of the fork that is easy to forget: a viewport width that splits comfortably on desktop may not on web. The devices page's 1280 split breakpoint is the worked example — see "The devices page splits at 1280px" under the Layout Density Contract.
+
+### Page overview stats (devices)
+
+The devices page header carries three counters on its right — **online / paired / in-transit**.
+Desktop's equivalent (`HomeOverview`) reads *nearby* / paired / in-transit; **web replaces "nearby"
+because it does not exist there** (mDNS discovery is a native capability). A counter that is
+permanently zero is worse than an absent one: it reads as "nothing is nearby" rather than "this
+build does not look".
+
+"Online" earns its slot on its own: offline devices offer no send action (Send Entry Contract), so
+"how many can I actually reach right now" is the page's most load-bearing number, and the section
+header's count only gives the total. Paired overlaps that count deliberately — with only "online 2"
+a user cannot tell 2-of-2 from 2-of-9.
+
+**It goes in the existing page header, not in a banner of its own.** Desktop's overview block
+carries its own title and positioning line; the web `PageHeader` already renders both, so a separate
+block would say the same sentence twice and cost a screenful of height. Desktop's block is itself
+"title left, stats right" — web is adding the missing half, not cloning the whole.
 
 ### Ambient WebGL Background (signature component)
 A `Renderer`-driven (`ogl`) full-bleed canvas sits behind every app screen: a slow Perlin-noise "soft aurora" gradient (`aurora-mist` → `aurora-cyan`) always on, plus a teal/light-blue "side rays" overlay that appears only in dark mode. The loop is gated by `IntersectionObserver` + `visibilitychange` (pauses when off-screen or the tab is hidden) and fully respects `prefers-reduced-motion` by freezing on the first frame instead of skipping the effect outright — the texture stays, the motion doesn't. This is the system's single biggest personality investment; everything else in the UI stays deliberately quiet so this can carry the "alive network" feeling.
@@ -490,8 +566,33 @@ The web deltas are all forced by the browser baseline, not by taste:
 | Load | direct import | `next/dynamic` + `ssr:false` — pulling `_bg.wasm` to start the node outranks decoration. Measured: 15.6 KB gzip, absent from the route's first-load chunks |
 | DPR | aurora unset (1), rays capped at 2 | both capped by `ambientDpr()`: 1 below 768px, else ≤1.5 |
 | Frame rate | full RAF | throttled to 30 fps. The motion is second-scale; 30 and 60 are indistinguishable and the GPU work halves |
-| Layer opacity | 1 | `--ambient-aurora-opacity`: 0.7 dark / 0.48 light. The shader emits additive light — a glow on near-black is a smudge on near-white |
-| Mask | none | radial `mask-image` keeps the light at the edges. The shader pins a horizontal band at mid-height; on a 1240px column with 32px section gaps it shows through raw and reads as a colored bar across the middle |
+| Layer opacity | 1 | **dark 1 (same as desktop) · light 0.34.** See below — the split is contrast, not taste |
+| Mask | none | radial `mask-image`, two strengths by theme. The shader pins a horizontal band at mid-height; on a 1240px column with 32px section gaps it shows through raw and reads as a colored bar across the middle. Dark keeps 45% at the centre so panels have something to refract; light hollows the centre out entirely |
+
+**The light/dark split here is a measured constraint, not a preference** (revised 2026-08-06; the
+table previously read "0.7 dark / 0.48 light" while the code said 0.34, and the dark value was
+holding the aurora below the level at which glass works at all).
+
+Additive light on a near-white surface has almost no headroom before `--muted-foreground` on a
+glass card drops under WCAG AA. Sampled by colour mode over the text's own background, worst of
+3 frames — the layer drifts, so **single-frame sampling lies** (one frame of the 0.34 + soft-mask
+combination measured 4.566 and looked safe; its worst frame was 4.413):
+
+| Light configuration | Worst | |
+|---|---|---|
+| 0.34 + hollow mask | **4.645** | 3.2% headroom — shipped |
+| 0.24 + soft mask | 4.518 | 0.4% headroom, i.e. none |
+| 0.28 / 0.34 + soft mask | 4.443 / 4.413 | below AA |
+
+Dark has room to spare: full strength with the soft mask measures **7.3–8.4:1**. So dark runs at
+desktop parity and light stays clamped. Turning the *opacity* down was the wrong lever for the
+"colored bar" problem in the first place — it removes the light behind the panels too, which is
+the one thing glass needs. The mask attenuates **by position**, which is what that problem
+actually called for.
+
+**Desktop does not take the mask.** Its window is narrow and its panels tile the viewport, so
+there are no gaps for a band to show through — the aurora is already washed through glass. Adding
+the mask there only dims the reference implementation.
 
 **Reduced-transparency drops the ambient layer entirely** (`display: none`), whereas
 reduced-motion freezes the first frame. The two preferences ask different questions: motion asks

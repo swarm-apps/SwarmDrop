@@ -183,9 +183,9 @@ function SendPanelInner() {
     // 外加一条去配对的教学。那是在断言一件当时并不成立的事。
     return (
       // 保留 `flex-1` 撑满高度：此刻这一栏的全部内容就是这个空态，缩起来只会在下面
-      // 留一片无主的空白。宽度同样由页面的 `column="form"` 决定，两种状态才不会在
-      // 「配对完第一台设备」的瞬间横向跳一下版。
-      <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", PANEL_SURFACE)}>
+      // 留一片无主的空白。**限宽要与下面的表单同一个数**（860，同样不居中），
+      // 否则「配对完第一台设备」的瞬间版面会横向跳一下。
+      <div className={cn("flex min-h-0 max-w-[860px] flex-1 flex-col overflow-hidden", PANEL_SURFACE)}>
         {ready ? (
           <CenteredEmptyState
             icon={MonitorSmartphone}
@@ -216,10 +216,14 @@ function SendPanelInner() {
     // ——直接导航去打开那个文件，整个 SPA 连同正在跑的 P2P 节点一起没了。目标越大越难失手，
     // 而高亮仍然只画在虚线框上，用户不必知道边界在哪。
     // （落在应用区其它位置的误投由 layout 的 `WindowDropGuard` 兜底。）
-    // 列宽由页面给（`send/page.tsx` 的 `column="form"`），这里不自己 `mx-auto max-w-*`
-    // ——面板自己缩会让页头仍是满宽、两者左边缘对不齐。
+    //
+    // **`max-w-[860px]` 而且刻意不加 `mx-auto`**（2026-08-06）：页宽已统一成全站的 1240，
+    // 而「选设备 / 选文件 / 发送」三步落在一个焦点里比横跨全屏好读，所以窄这件事由面板
+    // 自己负责。但**不能居中**——居中会让页头仍是满宽、面板缩在中间，两者左边缘对不齐，
+    // 那正是这一页此前的毛病（当时是页面级 `column="form"` 造成的，见 `page-shell.tsx`）。
+    // 左对齐限宽同时满足两条：表单不铺满，左缘与页头、与其它路由一致。
     <div
-      className="flex flex-col gap-[var(--space-in-panel)] rounded-xl border bg-card p-4 shadow-xs sm:p-6"
+      className="flex max-w-[860px] flex-col gap-[var(--space-in-panel)] rounded-xl border bg-card p-4 shadow-xs sm:p-6"
       onDragOver={(event) => {
         // 只接文件。从页面里拖一段选中的文字或一个链接过来不该点亮投放区，更不该被当成
         // 一次空投放（`dataTransfer.files` 为空，addFiles 会静默什么也不做）。

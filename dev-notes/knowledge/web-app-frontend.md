@@ -524,6 +524,59 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 （统一 `radix-ui` 包，docs 早就装了同一个），离线确定，且两端组件行为逐字一致。
 唯一要改的是 `@/lib/utils` → `@/lib/cn`。
 
+### ⚠️ 构建会删掉带前缀历史的**标准**属性，只留 `-webkit-`——玻璃因此整片失效过（2026-08-06）
+
+源码里规规矩矩写了两条：
+
+```css
+.glass-panel, … , .glass-rail {
+  backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+}
+```
+
+产物里**只剩前缀那条**。成因是 Lightning CSS（Tailwind v4 内置）按 browserslist
+**合并同一属性的前缀族**，而 `docs/` 没有 browserslist 配置，吃的是 Next 的默认目标
+（含 Chrome 64 / Safari 12）——那两个都只认前缀版，于是它判定标准属性没人需要。
+
+**而现代 Chrome 已经不认 `-webkit-backdrop-filter`**（实测：手写一条前缀声明，computed
+`backdropFilter` 仍是 `none`，且 computed style 里根本没有 `webkitBackdropFilter` 这个键）。
+
+净结果：**整个 Web 应用区的玻璃在 Chrome 上完全失效了**，而且失效得极其隐蔽——同一个块里的
+`background` 照常生效，只有模糊那一半没了，玻璃退化成一块半透明色板。桌面端没这个病，
+它跑在 WKWebView（Safari 内核）里，前缀版本本就是那儿的正解。**两端观感差异的大头在这里。**
+
+排查时最容易走错的一步是**怀疑 token**：两端的 `--glass-*` 值逐字相同，对着它们比对半天也
+看不出问题。判据要落在 computed style 上：
+
+```js
+getComputedStyle(document.querySelector('.glass-rail')).backdropFilter
+// "none" = 规则没生效（不是 token 不对，也不是 prefers-reduced-transparency）
+```
+
+**修法**：标准属性包进 `@supports`，前缀版留在外面。条件要留到运行时判定，Lightning CSS
+不能把块内声明挪出去合并：
+
+```css
+.glass-… { -webkit-backdrop-filter: blur(…) saturate(145%); }
+@supports (backdrop-filter: blur(1px)) {
+  .glass-… { backdrop-filter: blur(…) saturate(145%); }
+}
+```
+
+**关闭也要走同一条通道。** `@media (prefers-reduced-transparency: reduce)` 里那条
+`backdrop-filter: none` 同样被删过，于是无障碍降级在现代 Chrome 上**根本关不掉玻璃**——
+用户开了「减少透明度」，模糊还在。重置必须同样包在 `@supports` 里。
+
+**根治是给 `docs/` 配一份现代 browserslist**（这个应用要 wasm + WebRTC + OPFS，本来就跑不了
+Chrome 64 / Safari 12），但那会改变整个站点（含文档区）的 CSS 输出，是独立决策。在那之前，
+**新增任何有前缀历史的现代属性都要按上面的写法来，并去产物里 grep 一次确认**：
+
+```bash
+curl -s "$(浏览器里读 link[rel=stylesheet].href)" | grep -o '[^-]backdrop-filter'
+# dev 与 build 两套管线都要看，它们的 CSS 处理不是同一条
+```
+
 ### token 映射层：只新增别名，绝不改写 `--color-fd-*`
 
 `docs/app/global.css` 有一层 `@theme inline`，把 fumadocs 的 `--color-fd-*` 映射成 shadcn 要的
@@ -604,6 +657,73 @@ JSON.stringify({ deClientW: document.documentElement.clientWidth,
 **与桌面 `src/hooks/use-media-query.ts` 的同名常量是同一个数**。理由是 Windows 常见的 125% 缩放下
 1200 物理像素只有 960 CSS 宽——正好落在 920 与 1024 之间，用 `lg:`(1024) 会让同一台机器上
 桌面版分栏、Web 版堆叠。
+
+### 页宽全站一个数，行长控制归文字（2026-08-06）
+
+`PageShell` 此前按「这一页装的是什么」分三档（board 1240 / settings 1040 / form 860）。
+分档的出发点没错，但**三档都 `mx-auto` 居中**，于是内容左缘随路由跳——1440 视口实测
+设备/收件箱/传输在 224、设置 307、发送 402，**最远 178px**，而这几个入口在侧栏里挨着。
+
+一个稳定的左缘对「这是一个应用」的观感比每页各自的理想行长更要紧。合并成一档之后，
+行长换到它本来该在的层：**归文字自己**（`max-w-[860px]` 之类写在面板上），不再绑在页面容器上。
+
+⚠️ 面板自己限宽时**不要 `mx-auto`**：页头满宽、面板居中会让两者左边缘对不齐，那正是
+发送页此前的毛病（只不过当时是页面级 `column` 造成的）。**左对齐限宽**同时满足两条：
+表单不铺满、左缘与页头和其它路由一致。
+
+### 断点不止 920：导航侧栏占掉的宽度必须算进去（2026-08-06）
+
+920 是**主从**断点（列表 ↔ 详情，两栏都是内容）。设备页那种「主内容 + 一栏辅助工具」不是主从，
+而且**Web 应用区比桌面端多一条导航侧栏**——它有三档（≥1024 展开 224px · 768–1023 图标 64px ·
+<768 底栏 0）。于是同一个视口宽度在两端剩下的内容宽并不一样：桌面设备页能在 920 就分栏，
+正是因为那边没有侧栏。
+
+照抄 920 的后果是主栏被压到装不下内容。设备页的实际账（`DEVICES_SPLIT_QUERY = 1280`）：
+
+```
+1280 − 224(侧栏) − 48(sm:px-6 两侧) = 1008 内容宽
+1008 − 360(配对栏) − 32(栏间距)     =  616 主栏 → 正好两列设备卡（280×2 + 8）
+```
+
+再低一档（1024 视口）主栏只剩 376px，一列卡片配一条 360 的侧栏——两边宽度接近，
+读起来是并列的两块而不是一主一辅。
+
+**注意 `max-w-[1240px]` 是 border-box，含 padding。** 1600 视口下内容可用宽是
+`1240 − 48 = 1192` 而不是 1240，主栏因此是 800 不是 848。算分栏时漏掉这 48px，
+结论会差出小半列。
+
+**新增布局断点时同时问两句**：① 这一页量的是主从还是主辅？② 导航侧栏在这一档占多少？
+
+#### CSS 断点与 JS 断点必须是同一个数，且一起翻转
+
+设备页的配对面板**默认是否展开由版式决定**（分栏时它独占一栏，收起只剩一栏空玻璃；竖排时
+展开会把页面拉长半屏）。所以 `xl:` 栅格与 `useIsDevicesSplit()` 必须同时翻。
+
+这也是**没用容器查询**的原因——容器查询更准（量的是内容宽而不是视口宽，天然免疫侧栏那三档），
+但 JS 拿不到它的结果，折叠态就跟不上。用视口断点是在「准确」与「CSS/JS 一致」之间选了后者，
+因为侧栏宽度本身是固定三档，视口断点在这里推得出来。
+
+**相关文件**：`docs/app/app/_lib/use-media-query.ts`、`docs/app/app/_components/devices-section.tsx`
+
+### ⚠️ `flex-1` 的 basis 是 0，所以它永远不会触发 `flex-wrap`（2026-08-06）
+
+页头做成「标题组 + 右侧统计」并指望窄屏换行时踩的。写法是
+
+```jsx
+<header className="flex flex-wrap items-end justify-between">
+  <div className="min-w-0 flex-1">…标题与描述…</div>
+  <DeviceStats />
+</header>
+```
+
+`flex-1` 展开是 `flex: 1 1 0%`——**basis 为 0 意味着这一项可以一直收缩到零宽**，于是
+「子项理想宽度之和超过容器」这个换行条件永远不成立。375px 手机上的实际表现是描述被压成一条
+5 行的窄柱、右边杵着三格统计，而不是统计换行到下一行。
+
+修法是给它一个理想宽度：`flex-1 basis-64`（256px）。空间不够时才真的换行。
+
+**判据**：只要 `flex-wrap` 的容器里有 `flex-1` 子项，就要问一句「它的 basis 是多少」。
+要换行就必须给 basis，`min-w-0` 只管收缩下限，管不了换行。
 
 ### ⚠️ 但 `min-[920px]:` 不能和具名断点并列写——后者永远赢（2026-08-05 实测）
 

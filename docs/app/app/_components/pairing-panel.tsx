@@ -51,7 +51,21 @@ export interface PairingPanelHandle {
 }
 
 /** 配对/消费邀请成功后刷新已配对设备清单；失败不影响主流程（下一轮 state-poll 会补上）。 */
-export function PairingPanel({ ref }: { ref?: Ref<PairingPanelHandle> }) {
+export function PairingPanel({
+  ref,
+  defaultOpen = false,
+}: {
+  ref?: Ref<PairingPanelHandle>;
+  /**
+   * 用户还没手动开合过时，这块是不是展开的。**由版式决定，所以由调用方给**——
+   * 宽屏下它独占一条侧栏，收起只会留下一栏空玻璃；窄屏下它排在设备网格底下，
+   * 展开就会把页面拉长半屏（那正是下面那段折叠注释里的原始理由）。
+   *
+   * 它只参与**默认态**：`override`（用户手动开合）与 `needsAttention`（有待决邀请）
+   * 都排在它前面，见下方 `open` 的推导。
+   */
+  defaultOpen?: boolean;
+}) {
   const { t, i18n } = useLingui();
   const nodeStatus = useWebNode((s) => s.status);
   // 可达地址从 relay 清单派生（`selectReservation`）——它由 layout 单点订阅写入，
@@ -414,12 +428,16 @@ export function PairingPanel({ ref }: { ref?: Ref<PairingPanelHandle> }) {
   // —— 折叠：配对是一次性动作，不该常年占着设备页的半屏 ——
   //
   // 本文件开头那句「配对是一次性动作，配完即长期信任」此前只写在注释里，版面没有体现：
-  // 这个面板（消费邀请 + 生成邀请 + 已发出的邀请三段）是设备页最高的一块，而它的使用频率
-  // 比上面的设备清单低两个数量级。
+  // 这个面板（消费邀请 + 生成邀请 + 已发出的邀请三段）是**竖排版式下**设备页最高的一块，
+  // 而它的使用频率比上面的设备清单低两个数量级。
+  //
+  // ⚠️ 上面那句限定语是后加的，别再把它去掉：≥1280px 时这块独占一条 360px 侧栏
+  // （`devices-section.tsx`），既不与设备清单争版面，收起反而只剩一栏空玻璃——
+  // 那一档由调用方传 `defaultOpen` 翻转过来。**折叠的理由是版式，不是这块内容本身。**
   //
   // 默认态**由状态推导，不落 state**：
   //   · 一台设备都没有 → 配对就是这一页唯一能做的事，展开。
-  //   · 已经有设备 → 收起成一行。
+  //   · 已经有设备 → 看版式（`defaultOpen`）：分栏展开、竖排收起成一行。
   // 用户手动开合后 `override` 接管，此后不再被推导值改写。
   //
   // `forceOpen` 压过一切，收的是**用户没主动要求看、却必须看见**的两类东西：
@@ -448,7 +466,9 @@ export function PairingPanel({ ref }: { ref?: Ref<PairingPanelHandle> }) {
   //
   // 现在收起只是收起，再点开内容还在。真要放弃那条邀请，出口是确认卡自己的「取消」——
   // 用户按下它时知道自己在放弃什么。
-  const open = (needsAttention && !dismissed) || (override ?? (ready && pairedCount === 0));
+  const open =
+    (needsAttention && !dismissed)
+    || (override ?? (defaultOpen || (ready && pairedCount === 0)));
   const bodyId = useId();
 
   // 「添加设备」卡片按下 → 开面板并滚到它。

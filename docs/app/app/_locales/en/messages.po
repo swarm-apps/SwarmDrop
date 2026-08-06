@@ -219,6 +219,7 @@ msgid "传输"
 msgstr "Transfers"
 
 #: ../packages/file-browser/src/file-card.tsx
+#: app/app/_components/device-stats.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "传输中"
 msgstr "Transferring"
@@ -550,6 +551,7 @@ msgid "在文件夹中显示"
 msgstr "Show in Folder"
 
 #: app/app/_components/device-card.tsx
+#: app/app/_components/device-stats.tsx
 #: app/app/_components/send-panel.tsx
 msgid "在线"
 msgstr "Online"
@@ -822,6 +824,7 @@ msgstr "Delivered"
 msgid "已选文件"
 msgstr "Selected Files"
 
+#: app/app/_components/device-stats.tsx
 #: app/app/_components/node-panel.tsx
 msgid "已配对"
 msgstr "Paired"

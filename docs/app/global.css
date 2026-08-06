@@ -134,8 +134,36 @@
    * 0.48 时实测（截图逐像素采样，18 秒跨 6 帧）四张卡的最差背景是 `rgb(247,250,250)`，
    * 对比度 **4.518:1**——只比 AA 高 0.4%，等于没有余量。见下方 `--app-shell-background`
    * 的注释：那里当初量的是**裸壳**，漏了这一层合成。
+   *
+   * **2026-08-06 复测确认了这条，并否掉了「亮色也柔化遮罩」**（暗色那侧已经柔化，见 `.dark`）。
+   * 众数采样、跨 3 帧取最差，量的是 `--muted-foreground` 段落自己的背景：
+   *
+   * | 亮色配置 | 跨帧最差 | |
+   * |---|---|---|
+   * | 0.34 + 硬遮罩（现状） | **4.645** | 余量 3.2% |
+   * | 0.24 + 柔遮罩 | 4.518 | 余量 0.4%，等于没有 |
+   * | 0.28 + 柔遮罩 | 4.443 | 不达标 |
+   * | 0.34 + 柔遮罩 | 4.413 | 不达标 |
+   *
+   * 也就是说**柔化遮罩在亮色下换不来任何空间**：想保住中心的光就得把总量压到 0.24，
+   * 而那时余量已经归零。所以亮暗两侧的遮罩是分开的，那不是审美分叉——
+   * 加色光叠白底本来就没有空间，叠黑底才是发光。
+   *
+   * ⚠️ 单帧采样会骗人：0.34 + 柔遮罩在某一帧上量到 4.566（看着是过的），跨帧最差是 4.413。
+   * 极光在流动，**这类测量必须跨帧取最差**。
    */
   --ambient-aurora-opacity: 0.34;
+
+  /*
+   * 极光的遮罩。亮色这档把画面中心整个让出来（`transparent 8%`），理由见上方那张表：
+   * 中心是卡片所在，也就是 `--muted-foreground` 的落点，亮色下那里一点加色光都摊不起。
+   */
+  --ambient-aurora-mask: radial-gradient(
+    118% 88% at 50% 42%,
+    transparent 8%,
+    rgb(0 0 0 / 0.32) 52%,
+    #000 100%
+  );
 
   /*
    * 侧栏玻璃。侧栏是**结构容器**（DESIGN.md 的 Flat-Control, Glass-Chrome Rule），
@@ -224,11 +252,34 @@
   --sidebar-border: oklch(0.39 0.01 260);
 
   /*
-   * 暗色是极光的主场，但**不是满强度**。桌面用 1，那里的窗口更窄、面板铺得更满，
-   * 极光大部分被玻璃洗过一道；这里是 1240px 限宽 + 32px 的区块间距，光带正好从缝隙里
-   * 原样透出来，满强度会烧成一条横贯全屏的亮带。0.7 让它退回「身后有东西」的程度。
+   * 暗色是极光的主场，**用满强度 1，与桌面一致**（2026-08-06 起）。
+   *
+   * 此前是 0.7，理由写着「1240px 限宽 + 32px 区块间距会让光带从缝隙里原样透出来，
+   * 满强度会烧成一条横贯全屏的亮带」。那个顾虑是真的，**但压不透明度是拿错了工具**：
+   * 它同时压掉了卡片背后的光，而那正是玻璃唯一的原料。结果是
+   * `ambient-canvas.tsx` 文件头说「有了这一层，玻璃才重新开始工作」，
+   * 而实际观感仍是「一块不透明的深灰砖」——两处自相矛盾了好几个月。
+   *
+   * 「光带横穿画面」交给下面那条**遮罩**去解，它按位置压、不按总量压：中心留 45%，
+   * 卡片背后因此有光可透，而缝隙里的光带不再是原样满强度。
+   *
+   * 对比度实测（众数采样、跨帧取最差，同亮色那套方法）：满强度 + 柔遮罩下
+   * `--muted-foreground` 的最差落点是 **5.767:1**，AA 余量 28%。暗色这侧空间很大——
+   * 深底上加一点光，前景（浅色字）与背景的距离反而是先拉开再收窄的。
    */
-  --ambient-aurora-opacity: 0.7;
+  --ambient-aurora-opacity: 1;
+
+  /*
+   * 暗色遮罩：中心留 45% 而不是亮色那档的全挖空。**这是玻璃质感的唯一来源**——
+   * `backdrop-filter: blur()` 作用在一块纯色上产出的还是那块纯色，中心挖空
+   * 就等于把卡片背后的东西全部拿走，玻璃只剩合成层开销。
+   */
+  --ambient-aurora-mask: radial-gradient(
+    118% 88% at 50% 42%,
+    rgb(0 0 0 / 0.45) 8%,
+    rgb(0 0 0 / 0.66) 52%,
+    #000 100%
+  );
   --glass-rail-bg: oklch(0.26 0.01 260 / 0.58);
 
   /* 暗色下状态色本身就够亮（7–11:1），ink 变体的差别只剩色相微调；两者都留是为了让
@@ -459,28 +510,19 @@
     z-index: 0;
     opacity: var(--ambient-aurora-opacity);
     /*
-     * 中心让出来，光留在四周。
+     * 中心压一档，光留在四周。**两档强度按主题分**，值见 `:root` / `.dark` 里的
+     * `--ambient-aurora-mask`（那里也写着为什么亮色必须挖空、暗色必须留 45%）。
      *
-     * 着色器画的是一条水平光带（`bandHeight: 0.5` 把它钉在画面中线），桌面窗口窄、面板铺得满，
-     * 它大部分被玻璃洗掉；这里是 1240px 限宽的内容列 + 32px 的区块间距，光带正好从缝隙里
-     * 原样透出来，读起来像「屏幕中间横着一条彩带」，而不是氛围。而且它恰好压在活跃传输那一行上，
-     * 让一条本该安静的行看起来被高亮了。
+     * 遮罩本身要解的问题：着色器画的是一条水平光带（`bandHeight: 0.5` 把它钉在画面中线），
+     * 桌面窗口窄、面板铺得满，它大部分被玻璃洗掉；这里是 1240px 限宽的内容列 + 32px 的
+     * 区块间距，光带正好从缝隙里原样透出来，读起来像「屏幕中间横着一条彩带」而不是氛围，
+     * 还恰好压在活跃传输那一行上，让一条本该安静的行看起来被高亮了。
      *
-     * 解法不是改着色器（那会与桌面分叉，且分叉在截图里看不出来），是**在合成层上遮**：
-     * 环境光归边缘，中间留给阅读。顺带也压掉了亮色下正文区域被染色的风险。
+     * 解法不是改着色器（那会与桌面分叉，且分叉在截图里看不出来），是**在合成层上遮**——
+     * 按位置压，不按总量压。后者（压 opacity）会连卡片背后的光一起拿走，而那是玻璃的原料。
      */
-    -webkit-mask-image: radial-gradient(
-      118% 88% at 50% 42%,
-      transparent 8%,
-      rgb(0 0 0 / 0.32) 52%,
-      #000 100%
-    );
-    mask-image: radial-gradient(
-      118% 88% at 50% 42%,
-      transparent 8%,
-      rgb(0 0 0 / 0.32) 52%,
-      #000 100%
-    );
+    -webkit-mask-image: var(--ambient-aurora-mask);
+    mask-image: var(--ambient-aurora-mask);
   }
 
   /* 侧光从右上角斜射进来，稍微放大并推出画外，避免看见 canvas 的直边。同桌面。 */
@@ -489,13 +531,50 @@
     transform-origin: top right;
   }
 
+  /*
+   * ⚠️ **标准属性必须包在 `@supports` 里，否则构建时会被整条删掉**（2026-08-06 实测）。
+   *
+   * 这两行原本是并排写的（`backdrop-filter` + `-webkit-backdrop-filter`），源码没问题，
+   * 但产物里只剩前缀那条：
+   *
+   *   .glass-panel,…,.glass-rail { -webkit-backdrop-filter: blur(…) saturate(145%) }
+   *
+   * 成因是 Lightning CSS（Tailwind v4 内置）按 browserslist **合并同一属性的前缀族**，
+   * 而 docs 没有 browserslist 配置，用的是 Next 的默认目标（含 Chrome 64 / Safari 12）——
+   * 那两个都只认前缀版，于是它判定标准属性没人需要，删掉。
+   *
+   * 而**现代 Chrome 已经不认 `-webkit-backdrop-filter` 了**（实测：手写一条前缀声明，
+   * computed `backdropFilter` 仍是 `none`，且 computed style 里根本没有 `webkitBackdropFilter`
+   * 这个键）。净结果是**整个 Web 应用区的玻璃在 Chrome 上完全失效**：`.glass-rail` /
+   * `.glass-panel` 的 `background` 照常生效（同一个块里的另一条声明），只有模糊那一半没了，
+   * 于是玻璃退化成一块半透明色板——正是「卡片不像玻璃、暗色下看着不透明」的根因。
+   *
+   * 桌面端没这个病：它跑在 WKWebView（Safari 内核）里，前缀版本本就是那儿的正解。
+   * **两端观感差异的大头在这里，不在极光。**
+   *
+   * `@supports` 让这一条免疫合并：条件本身要留到运行时判定，Lightning CSS 不能把块内的
+   * 声明挪出去与外面那条合并。前缀版留在外面给老 Safari，标准版在块内给现代浏览器。
+   *
+   * **根治是给 docs 配一份现代 browserslist**（这个应用要 wasm + WebRTC + OPFS，本来就
+   * 跑不了 Chrome 64 / Safari 12），但那会改变整个站点（含文档区）的 CSS 输出，是独立决策。
+   * 在那之前，新增任何有前缀历史的现代属性都要按这个写法来，并去产物里 grep 一次确认。
+   */
   .glass-panel,
   .glass-card,
   .glass-control,
   .glass-accent,
   .glass-rail {
-    backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
     -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+  }
+
+  @supports (backdrop-filter: blur(1px)) {
+    .glass-panel,
+    .glass-card,
+    .glass-control,
+    .glass-accent,
+    .glass-rail {
+      backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+    }
   }
 
   /* 常驻导航（侧栏 / 窄屏顶栏 / 底部导航）的材质。比面板更实、更钝：
@@ -546,15 +625,31 @@
     .glass-control,
     .glass-accent {
       background: var(--card);
-      backdrop-filter: none;
       -webkit-backdrop-filter: none;
     }
 
     /* 导航退回实心的第二中性层，不是 `--card`——它是 chrome，不是内容面。 */
     .glass-rail {
       background: var(--sidebar);
-      backdrop-filter: none;
       -webkit-backdrop-filter: none;
+    }
+
+    /*
+     * ⚠️ 同上面那条注释的坑，**降级这一侧同样中招过**：并排写两条时产物里只剩
+     * `-webkit-backdrop-filter: none`，于是在现代 Chrome 上这个降级**根本关不掉玻璃**
+     * ——用户开了「减少透明度」，模糊却还在。
+     *
+     * 关闭必须走与开启同一条通道：上面用 `@supports` 设的标准属性，只能用 `@supports`
+     * 里的标准属性来重置。少了这一块，无障碍偏好就是个摆设。
+     */
+    @supports (backdrop-filter: blur(1px)) {
+      .glass-panel,
+      .glass-card,
+      .glass-control,
+      .glass-accent,
+      .glass-rail {
+        backdrop-filter: none;
+      }
     }
 
     /*

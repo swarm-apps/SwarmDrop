@@ -22,16 +22,37 @@ import type { ComponentPropsWithRef, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 /**
- * 主从两栏（列表栏 / 详情栏）共用的**面板皮**：18px 圆角 + 1px 边框 + 卡底 + 一层浅投影。
+ * 主从两栏（列表栏 / 详情栏）共用的**面板皮**：玻璃 + 18px 圆角。
  *
  * 只收敛「皮」，布局（flex 方向、min-h-0、怎么滚、内边距）留在调用点——因为那部分**本来
  * 就各不相同**：列表栏 `overflow-hidden`（内部自己有滚动区），详情栏 `overflow-y-auto`
  * 且带 24px 内边距。把差异也塞进一个吃 variant 的组件，读的人反而要跳一次才知道这一栏怎么滚。
  *
- * 与 [`SectionShell`] 的分工：那个是**页面级**面板（玻璃 + 24px 圆角），用在竖向内容页；
- * 这个是主从布局里的栏，不上玻璃（它装满了列表行，玻璃会和行的边框打架）。
+ * 与 [`SectionShell`] 的分工只剩**圆角**：那个是页面级面板（24px），这个是主从布局里的栏
+ * （18px，`--radius-panel-sm`）。两者同为「装着别的东西」的结构容器，所以同为玻璃。
+ *
+ * ## 它此前是 `bg-card`（实心），2026-08-06 改玻璃
+ *
+ * 旧注释写的理由是「它装满了列表行，玻璃会和行的边框打架」。那个顾虑没有成立：
+ * `SectionShell`（同样是玻璃）里本来就放着一模一样的列表行（见 `active-transfers-section`），
+ * 玻璃面 + 实心行恰恰是这套设计里表达层级的标准写法——**外层透、内层实**。
+ *
+ * 而代价是实打实的：收件箱与传输页整页只有主从两栏，它们一实心，那两页就完全没有玻璃，
+ * 与设备/设置页并排看像两个产品。
+ *
+ * ⚠️ **行不要用这个常量**，否则就是玻璃套玻璃（DESIGN.md 明确禁止卡片套卡片）。行用
+ * [`ROW_SURFACE`]。
  */
-export const PANEL_SURFACE = "rounded-[var(--radius-panel-sm)] border bg-card shadow-xs";
+export const PANEL_SURFACE = "glass-panel rounded-[var(--radius-panel-sm)]";
+
+/**
+ * 面板**内部**一行的皮：实心卡底 + 1px 边框 + 一层浅投影。
+ *
+ * 与 [`PANEL_SURFACE`] 是一对：外层透（玻璃承担层级），内层实（内容坐在实底上才读得清）。
+ * 这正是 `PANEL_SURFACE` 改玻璃之前它自己的值——那时两者共用一个常量，于是「栏」和「行」
+ * 想分开调都做不到。
+ */
+export const ROW_SURFACE = "rounded-[var(--radius-panel-sm)] border bg-card shadow-xs";
 
 /**
  * 主从列表里「这一行是当前选中项」的表达（品牌色边框 + accent 底 + 一圈淡 ring）。

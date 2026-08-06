@@ -23,7 +23,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { calcPercent } from "@swarmdrop/shared-view";
 import { INLINE_ACTION_CLASS } from "./confirm-action";
-import { PANEL_SURFACE, SectionHeader, SectionShell } from "./section";
+import { ROW_SURFACE, SectionHeader, SectionShell } from "./section";
 import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
 import { SessionTitle } from "./session-title";
@@ -135,7 +135,7 @@ function ActiveTransferRow({ projection }: { projection: TransferProjection }) {
   return (
     <Link
       href={transferSessionHref(projection.sessionId)}
-      className={`${PANEL_SURFACE} flex min-h-11 flex-col gap-1.5 px-3 py-2.5 transition-colors hover:bg-accent`}
+      className={`${ROW_SURFACE} flex min-h-11 flex-col gap-1.5 px-3 py-2.5 transition-colors hover:bg-accent`}
     >
       <div className="flex min-w-0 items-center gap-2">
         <DirectionIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />

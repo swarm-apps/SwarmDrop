@@ -20,8 +20,10 @@ export const metadata: Metadata = { title: navTitle(NAV.settings) };
 //   ≥768px   两列（`md:grid-cols-2`，满宽卡跨两列）
 //   ≥1024px  六列（`lg:grid-cols-6`，靠 col-span 拼出不规则行）
 //
-// 限宽 **1040px** 也取自桌面——不是 `PageShell` 默认的 1240（那是给设备网格与主从两栏的），
-// 也不是表单页的 860（bento 在那个宽度下拼不出第二列）。
+// 限宽跟全站走 `PageShell` 的 1240（2026-08-06 起）。此前这里单独用 1040（取自桌面），
+// 但三档不同的 `max-w` 都居中，结果是内容左缘随路由跳——本页当时比设备/收件箱/传输页
+// 右移 83px。理由与取舍见 `page-shell.tsx` 的 `COLUMN`。bento 的三档栅格不受影响：
+// 它按 `md:` / `lg:` 分列，1240 只是让 `lg:grid-cols-6` 那档每格宽一点。
 //
 // ## 行的划分与顺序：与桌面逐行对应
 //
@@ -48,7 +50,7 @@ export const metadata: Metadata = { title: navTitle(NAV.settings) };
 // 排查事件流用浏览器控制台或 store 快照，不需要一块常驻 UI。
 export default function SettingsPage() {
   return (
-    <PageShell column="settings">
+    <PageShell>
       <PageHeader nav="settings" />
 
       {/* 卡与卡之间用 `--space-in-panel`(16px)，不是 `--space-section`(32px)：

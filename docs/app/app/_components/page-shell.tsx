@@ -30,35 +30,32 @@ const CONTENT =
   "mx-auto flex w-full flex-col gap-[var(--space-section)] px-4 py-6 sm:px-6";
 
 /**
- * 内容列宽。**由这一页装的是什么决定，不是由「统一」决定。**
+ * 内容列宽。**全站一个数**（2026-08-06 起），与桌面 `master-detail-shell.tsx` 同源。
  *
- * · `board`（默认，1240px）—— 装网格或主从两栏的页：设备、收件箱、传输。宽度是它们的资源，
- *                             设备网格靠它多排一列，主从靠它把列表和详情同时放下。
- *                             1240 与桌面 `master-detail-shell.tsx` 同一个数。
- * · `settings`（1040px）    —— 设置页的 bento 网格。取自桌面 `settings/index.lazy.tsx` 的
- *                             同一个数：再窄拼不出第二列，再宽单条设置行就成了长条。
- * · `form` （860px）        —— 装表单和说明文字的页：发送。宽度在这里是负债：
- *                             中文 12px 正文在 1240px 下约 100 字一行，眼睛要横扫一整屏
- *                             才读完一句；860 收到约 60 字，仍宽裕但不再是长条。
- *                             控件也一样——「选设备 / 选文件 / 发送」三步落在同一个焦点里，
- *                             比横跨全屏的三条长条好读。
+ * ## 它此前是三档，为什么合并
  *
- * 这一层必须**由页面统一决定**，不能让面板自己 `mx-auto max-w-*`：那样页头还是满宽、
- * 面板已经缩了，两者左边缘对不齐——发送页此前就是这样。
+ * 原来是 `board` 1240 / `settings` 1040 / `form` 860，按「这一页装的是什么」分。分档的
+ * 出发点是对的（行长该受控），但**落地方式**有个它自己解决不了的副作用：三个宽度都
+ * `mx-auto` 居中，于是内容左缘随路由跳——实测 1440 视口下设备/收件箱/传输在 224，
+ * 设置在 307，发送在 402，**最远跳 178px**。而这四个入口就在侧栏里挨着，用户是连续切的。
+ *
+ * 一个稳定的左缘对「这是一个应用」的观感，比每页各自的理想行长更要紧；居中又是明确要保的，
+ * 那么在「居中 + 左缘稳定」之下，唯一的解就是同宽。
+ *
+ * ## 行长控制没有丢，它换了层
+ *
+ * 行长本来就是**排版**属性，不是容器属性——绑在 `max-w` 上等于让一段文字的可读性取决于
+ * 它碰巧住在哪个页面。现在归文字自己：正文块用 `max-w-[65ch]` 一类的字符宽度限制
+ * （见 `send-panel.tsx`）。这样同一段说明无论放在哪一页都不会拉成长条，
+ * 而网格、主从这些**该吃满宽度**的东西也不再被页面级 `max-w` 连坐。
  */
-const COLUMN = {
-  board: "max-w-[1240px]",
-  settings: "max-w-[1040px]",
-  form: "max-w-[860px]",
-} as const;
+const COLUMN = "max-w-[1240px]";
 
 export function PageShell({
   variant = "scroll",
-  column = "board",
   children,
 }: {
   variant?: "scroll" | "fill";
-  column?: keyof typeof COLUMN;
   children: ReactNode;
 }) {
   // 全局提示条跟着页面走：它们是内容的一部分（讲的是「这一屏为什么不好使」），
@@ -83,7 +80,7 @@ export function PageShell({
       // `min-h-[560px]`：请求区上限 + 页头 + 主从最小可用高。低于它就该出滚动条了，
       // 硬塞只会让每一块都不可用。
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className={cn(CONTENT, COLUMN[column], "h-full min-h-[560px]")}>
+        <div className={cn(CONTENT, COLUMN, "h-full min-h-[560px]")}>
           {notices}
           {children}
         </div>
@@ -93,7 +90,7 @@ export function PageShell({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className={cn(CONTENT, COLUMN[column], "min-h-full")}>
+      <div className={cn(CONTENT, COLUMN, "min-h-full")}>
         {notices}
         {children}
       </div>
