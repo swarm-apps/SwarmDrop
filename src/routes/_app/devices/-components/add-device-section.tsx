@@ -52,10 +52,19 @@ export function AddDeviceSection({
   const isFilteredEmpty = devices.length > 0 && filteredDevices.length === 0;
 
   return (
-    // `flex-1`：这块独占右栏，要把玻璃铺到栏底与左栏齐平。
-    // **不能写 `min-h-full`**——那是「每个面板都要求整栏高」，同栏放第二块就溢出，
+    // **按内容高，不跟左栏齐平**（2026-08-06）。
+    //
+    // 这里此前是 `flex-1`，注释写着「要把玻璃铺到栏底与左栏齐平」。那条在左栏很短时看不出
+    // 问题，设备一多就塌了：16 台设备时左栏 1280px，而本块内容只有 478px——**底部 1206px
+    // 是空玻璃，占整张卡的 82%**。玻璃铺到栏底不会读成「呼吸感」，只会读成没写完。
+    //
+    // DESIGN.md 的 Layout Density Contract 正好写着这条：桌面端靠等高对齐行底，前提是那一栏
+    // **有足够的块可以竖叠**；这一栏只有一块，就该按内容收（「Copy the rule, not the
+    // conclusion」）。右栏下方露出的是页面背景（那层极光），不是一张没填满的卡。
+    //
+    // **不能改回 `min-h-full`**——那是「每个面板都要求整栏高」，同栏放第二块就溢出，
     // 理由见 `SectionShell` 的文档。
-    <SectionShell data-testid="add-device-section" className="flex-1 gap-3.5">
+    <SectionShell data-testid="add-device-section" className="gap-3.5">
       <SectionHeader
         title={<Trans>添加设备</Trans>}
         count={devices.length}
@@ -97,7 +106,19 @@ export function AddDeviceSection({
             </p>
           </div>
         ) : (
-          <div data-testid="nearby-devices-list" className="flex flex-col gap-2">
+          /* 限高 + 内部滚动：这一列的长度由**局域网里有多少台机器**决定，办公室里上双位数
+             很正常，而右栏现在是 `sticky` 的（见 `index.lazy.tsx`）——粘住的元素一旦高过
+             视口，超出的部分就再也滚不到，底部那两个配对入口会被顶出屏幕。
+
+             限的是这个列表而不是整张卡：滚动条落在真正会变长的那一段上，卡片的圆角与玻璃
+             投影保持完整（给 `SectionShell` 加 `overflow` 会把它们裁掉）。
+
+             `min(40vh, 340px)`：矮窗口按比例收，高窗口不让它一直长——这一列是「就近发现」
+             的取景框，不是完整清单。 */
+          <div
+            data-testid="nearby-devices-list"
+            className="flex max-h-[min(40vh,340px)] flex-col gap-2 overflow-y-auto"
+          >
             {filteredDevices.map((device) => (
               <NearbyDeviceRow
                 key={device.peerId}

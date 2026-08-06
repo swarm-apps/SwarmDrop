@@ -466,6 +466,19 @@ sections to stack. Where it doesn't — web's preferences row is one short card 
 size to content instead. Stretching leaves a third of a card as empty glass, which reads as
 unfinished, not as breathing room. **Copy the rule, not the conclusion.**
 
+Desktop's own devices page violated this until 2026-08-06 and much more severely: the right-hand
+"add device" panel was `flex-1`, so with 16 paired devices it stretched to 1468px around 278px of
+content — **1206px of empty glass, 82% of the card**. The tell that it is the wrong lever: the
+emptiness scales with *the other column's* content.
+
+**A short aside column beside a long list should follow the scroll.** Once it sizes to content, the
+entry points in it (pairing, and a *live-updating* nearby-device list) scroll out of view while the
+user is still working through the list — and content that changes on its own is worthless where it
+cannot be seen. Make it `sticky` with `self-start`; a stretched grid item has no slack to stick with
+and the rule silently does nothing. Cap the one section inside it that grows without bound (nearby
+devices) rather than the card — a sticky element taller than the viewport puts its own bottom
+permanently out of reach, and capping the card instead would clip its glass corners.
+
 **The devices page splits at 1280px, and that is a second breakpoint on purpose.** 920 measures
 *master-detail* (list ↔ detail, both panes are content). The web devices page is a different
 shape — main content plus one column of auxiliary tooling (pairing) — and the web app area carries

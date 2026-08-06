@@ -342,7 +342,19 @@ function DesktopDevicesView({
               <ActiveTransfersSection items={activeItems} />
             </div>
 
-            <aside className="flex min-w-0 flex-col gap-5">
+            {/*
+              右栏跟随滚动。左栏是「已配对设备 + 活跃传输」，设备一多就有一两千像素高
+              （16 台时 1280px），而右栏这块按内容只有 ~280px——不跟随的话，用户往下翻
+              设备列表时，配对入口与**实时发现中**的附近设备一起滚出视野。后者尤其不该走：
+              它是会自己变化的内容，看不见就等于没有。
+
+              `self-start` 是必需的：grid item 默认 `align-self: stretch`，被拉伸的元素
+              没有「粘」的余地，`sticky` 会静默失效（不报错，就是不动）。
+
+              `top-5` 与容器的 `py-5` 对齐，粘住时与顶栏保持同一道间距。**只在分栏档生效**
+              ——窄屏是单列堆叠，那时粘住会让它压在设备列表上。
+            */}
+            <aside className="flex min-w-0 flex-col gap-5 min-[920px]:sticky min-[920px]:top-5 min-[920px]:self-start">
               <AddDeviceSection
                 devices={nearbyDevices}
                 onSend={onSend}
