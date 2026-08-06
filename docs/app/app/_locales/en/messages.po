@@ -142,6 +142,10 @@ msgstr "The circuit was dropped, so scanning this code can no longer reach you. 
 msgid "localStorage（Window 主线程）"
 msgstr "localStorage (main window thread)"
 
+#: app/app/_components/app-nav.tsx
+msgid "SwarmDrop 官网首页"
+msgstr "SwarmDrop home"
+
 #: app/app/_components/invite-share.tsx
 msgid "一条邀请只能用一次。要再连一台设备，请重新生成。"
 msgstr "An invite works only once. Generate a new one to connect another device."

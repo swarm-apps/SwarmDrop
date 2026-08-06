@@ -21,7 +21,7 @@ import { useLingui } from "@lingui/react/macro";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { appIconPath, appName } from "@/lib/shared";
-import { APP_HOME, APP_NAV, activeNavHref, type AppNavItem } from "../_lib/nav";
+import { APP_NAV, activeNavHref, type AppNavItem } from "../_lib/nav";
 import { selectOfferCount, useWebNode } from "../_lib/store";
 import { NodeStatusDialog } from "./node-status-dialog";
 import { RailTools } from "./rail-tools";
@@ -39,21 +39,31 @@ function useActiveHref(): string {
 }
 
 /**
- * 品牌标记 —— 指向应用首页的链接。
+ * 品牌标记 —— **回官网首页的入口**。
  *
- * **落点是 `APP_HOME`（/app/devices），不是站点根 `/`。** 这条区别是硬的，不是偏好：
- * 节点单例挂在 `/app` 的 layout 上，用 `next/link` 跳出应用区是客户端路由，layout 一卸载
- * 节点就跟着关，正在进行的传输当场断——而 `ReloadGuard` 只拦 `beforeunload`（整页卸载），
- * 对客户端跳转一声不吭。也就是说指向 `/` 会**在没有任何提示的情况下**弄丢传输。
- * 想去文档站有正经出口：设置页的「关于」面板。
+ * 应用区住在文档站里面，但进了 `/app` 就没有回头路：侧栏三项全在 `/app` 之内，唯一通向
+ * 站内别处的是底部菜单里的「使用文档」，而那是文档不是首页。点 logo 回首页是浏览器里
+ * 唯一不用教的约定，缺的这个入口就补在它身上。与桌面端「unclickable logo mark」分叉，
+ * 理由很实在：桌面壳根本没有「官网」可回。
  *
- * 与桌面端「unclickable logo mark」分叉，理由同 DESIGN.md 里 Web 导航整体分叉那条：
- * 桌面顶栏的面包屑自带一枚首页图标，logo 不必再兼这个职；Web 侧栏没有面包屑，
- * 而「点 logo 回首页」是浏览器里唯一不用教的约定。
+ * ## 离开 `/app` 不会中断传输（2026-08-06 实测 + 静态核对推翻旧说法）
  *
- * 品牌名后原本缀着一个灰色的 "Web"。去掉了：它要澄清的「这是浏览器端不是你装的那个」
- * 由地址栏和站点本身回答得更早，挂在产品名后面反而像个版本尾巴。这个身份信息没有丢——
- * 「关于」面板里仍写明 Web 端没有「已安装版本」的概念。
+ * 节点运行时是**模块级**单例（`node-runtime.ts` 里的 `let node`），寿命跟着**页面**而不是
+ * React 树：`WebNodeBootstrap` 刻意没有 cleanup，全仓唯一调 `closeNode()` 的是
+ * `stopNodeRuntime()`，而它只有一个调用点——节点状态弹窗里的「停止节点」。于是客户端跳到
+ * `/` 只是卸载 DOM，事件消费与状态轮询照跑，回来时 `startNodeRuntime()` 幂等直接返回。
+ *
+ * 实测：`/app/devices` → `/docs` → 返回，全程同一个 document（`window` 上的标记存活），
+ * 返回后每 100ms 采样 4 秒，状态恒为「运行中」。这个判据是紧的——`stopNodeRuntime()` 会
+ * 连带 `reset()`，节点真被关过的话 pill 会掉到「未启动」，不可能瞒过采样。
+ *
+ * ⚠️ **这条此前反着写，而且真的挡下过设计。** 本文件与 `rail-tools.tsx` 都曾断言「离开
+ * `/app` 会卸载节点单例、中断正在进行的传输」；本轮最初正是因为信了它，把 logo 指向了
+ * `/app/devices`。要在这里重新引入「离开有代价」的结论前，先把上面那条实测重跑一遍。
+ *
+ * 品牌名后原本还缀着一个灰色的 "Web"。去掉了：它要澄清的「这是浏览器端、不是你装的那个」
+ * 由地址栏和站点本身回答得更早，挂在产品名后面反而像个版本尾巴。这个身份信息没丢——
+ * 设置页的「关于」面板仍写明 Web 端没有「已安装版本」这个概念。
  */
 function BrandMark({
   labelClassName = "",
@@ -62,15 +72,20 @@ function BrandMark({
   labelClassName?: string;
   className?: string;
 }) {
+  const { t } = useLingui();
+  // 可见文字只有 "SwarmDrop"，读屏与悬停拿到的是带落点的完整说法——图标档（768–1023）
+  // 文字是 `display:none`，那一档它是**唯一**的可访问名。「SwarmDrop」是它的子串，
+  // 满足 WCAG 2.5.3（可见标签必须包含在可访问名里）。
+  const label = t`SwarmDrop 官网首页`;
   return (
     // `min-h-11` + 由外层给的宽度 = 44px 起的点按区（DESIGN 的触达尺寸条）。
     // `gap-3` / `px-3` 与下方 `SidebarLink` 同值，于是展开档里品牌图标与导航图标落在同一条
     // 左边线上（都是容器 8 + 自身 12 = 20px）——此前品牌是 `px-3` 直接贴容器，比导航图标靠左 8px。
     // 图标档没有可见文字（`labelClassName` 把它藏掉），读屏与悬停靠 `aria-label` / `title`。
     <Link
-      href={APP_HOME}
-      title={appName}
-      aria-label={appName}
+      href="/"
+      title={label}
+      aria-label={label}
       className={`focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-foreground transition-colors hover:text-brand ${className}`}
     >
       <img src={appIconPath} alt="" className="size-5 shrink-0" />

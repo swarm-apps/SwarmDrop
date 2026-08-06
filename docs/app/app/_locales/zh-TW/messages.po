@@ -142,6 +142,10 @@ msgstr "circuit 已撤銷，對方掃這個碼也連不回來。重新建立可�
 msgid "localStorage（Window 主线程）"
 msgstr "localStorage（Window 主執行緒）"
 
+#: app/app/_components/app-nav.tsx
+msgid "SwarmDrop 官网首页"
+msgstr "SwarmDrop 官網首頁"
+
 #: app/app/_components/invite-share.tsx
 msgid "一条邀请只能用一次。要再连一台设备，请重新生成。"
 msgstr "一組邀請只能用一次。要再連一台裝置，請重新產生。"
