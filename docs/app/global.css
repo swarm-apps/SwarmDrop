@@ -747,6 +747,31 @@ html > body[data-scroll-locked] {
   --removed-body-scroll-bar-size: 0px !important;
 }
 
+/*
+ * ── 首页的次级文字色 ───────────────────────────────────────────────────
+ *
+ * fumadocs 的 `--color-fd-muted-foreground` 亮色是 `#737373`，落在页面底色 `#f5f5f5` 上
+ * 实测 **4.35:1**——低于 WCAG AA 的 4.5，而 PRODUCT.md 把 AA 写成了本项目的标准。
+ * 暗色那侧不受影响（`#b3b3b3cc` on `#121212` = 8.93:1），所以这条**只在亮色生效**。
+ *
+ * 首页比文档页更吃这条：区块导语、图注、等宽地址全是次级文字，是这一页的主要正文。
+ *
+ * `#6a6a6a` 是量出来的下限再留一点余量：
+ *   on #f5f5f5（页面底）4.75 · on #f1f1f1（`bg-fd-card` 面板）4.64
+ *
+ * **覆盖变量而不是逐个换 class**：`text-fd-muted-foreground` 编译成
+ * `color: var(--color-fd-muted-foreground)`（可在构建产物里 grep 到），所以在页面根上
+ * 换一次变量，整页所有用到它的地方一起跟上，将来新增的段落也自动落在合规值上。
+ *
+ * **整站生效**（2026-08-06 从只覆盖首页扩到根）。fumadocs 的默认值在文档区同样是
+ * 4.35，那不是首页的局部问题而是全站的无障碍缺陷；两处用不同的灰还会让首页与文档
+ * 之间出现说不出理由的色差。扩大后逐元素复核过亮色文档页，最低 4.6+（见
+ * `dev-notes/knowledge/theme-and-styling.md`）。
+ */
+html:not(.dark) {
+  --color-fd-muted-foreground: #6a6a6a;
+}
+
 /* ── 首页动效：纯 CSS，尊重 prefers-reduced-motion ──────────────────── */
 
 @media (prefers-reduced-motion: no-preference) {
@@ -764,22 +789,15 @@ html > body[data-scroll-locked] {
       animation-range: entry 0% cover 28%;
     }
   }
-
-  /* 蜂群节点呼吸 + 传输脉冲 */
-  .node-pulse {
-    animation: pulse 3.2s ease-in-out infinite;
-    animation-delay: var(--d, 0s);
-  }
-  .packet {
-    animation: travel 3.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-    animation-delay: var(--d, 0s);
-  }
-  .link-flow {
-    stroke-dasharray: 4 8;
-    animation: flow 1.4s linear infinite;
-  }
 }
 
+/*
+ * 首页只剩这一条关键帧。
+ *
+ * 此前还有 `pulse` / `travel` / `flow` 三条，服务于 hero 里那张手绘六边形蜂群图
+ * （`components/swarm-visual.tsx`）。2026-08 重写首页时那张插画整个删掉了——
+ * 一个文件传输工具的首页应当展示自己真实的界面，而不是一张示意图。
+ */
 @keyframes rise {
   from {
     opacity: 0;
@@ -791,37 +809,3 @@ html > body[data-scroll-locked] {
   }
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scale(0.94);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes travel {
-  0% {
-    offset-distance: 0%;
-    opacity: 0;
-  }
-  12% {
-    opacity: 1;
-  }
-  88% {
-    opacity: 1;
-  }
-  100% {
-    offset-distance: 100%;
-    opacity: 0;
-  }
-}
-
-@keyframes flow {
-  to {
-    stroke-dashoffset: -12;
-  }
-}

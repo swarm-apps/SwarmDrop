@@ -6,18 +6,18 @@ import {
   getDownloadCatalog,
   selectBestDownload,
 } from "@swarm-hive/sdk";
-import {
-  ArrowRight,
-  Download,
-  ExternalLink,
-  Loader2,
-  MonitorDown,
-  PackageOpen,
-} from "lucide-react";
+import { ArrowRight, ExternalLink, Loader2, MonitorDown, PackageOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
+/**
+ * 桌面端下载卡片。**只是卡片本身**——区块标题、留白与栅格归首页
+ * （`app/(home)/page.tsx` 的下载区块），它和移动端那张并排在同一个区块里。
+ *
+ * 此前这里自带 `<section>` + eyebrow + 标题，移动端那份也自带一套，于是首页中段
+ * 是两个几乎同形的灰盒子上下堆着，各说一遍「stable 最新版本」。
+ */
 interface DownloadPanelProps {
   baseUrl: string;
   appSlug: string;
@@ -87,34 +87,16 @@ export function DownloadPanel({
   }, [catalog]);
 
   return (
-    <section id="download" className="border-y border-fd-border bg-fd-card/30 scroll-mt-20">
-      <div className="mx-auto grid w-full max-w-6xl gap-8 px-6 py-16 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
-        <div className="reveal">
-          <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-fd-border bg-fd-card px-3 py-1 text-xs font-medium text-fd-muted-foreground">
-            <Download className="size-3.5 text-[var(--brand)]" strokeWidth={2.25} />
-            公开下载
-          </span>
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            自动匹配你的平台安装包
-          </h2>
-          <p className="mt-4 max-w-md text-fd-muted-foreground">
-            官网下载项直接来自 SwarmHive stable channel。桌面端显示安装包，应用内更新仍走独立 updater
-            端点。
-          </p>
-        </div>
-
-        <div className="reveal overflow-hidden rounded-2xl border border-fd-border bg-fd-card">
-          <DownloadPanelBody
-            state={state}
-            catalog={catalog}
-            primary={primary}
-            error={error}
-            fallbackUrl={fallbackUrl}
-            onRetry={allowClientRefresh ? () => void load() : undefined}
-          />
-        </div>
-      </div>
-    </section>
+    <div className="overflow-hidden rounded-2xl border border-fd-border bg-fd-card">
+      <DownloadPanelBody
+        state={state}
+        catalog={catalog}
+        primary={primary}
+        error={error}
+        fallbackUrl={fallbackUrl}
+        onRetry={allowClientRefresh ? () => void load() : undefined}
+      />
+    </div>
   );
 }
 

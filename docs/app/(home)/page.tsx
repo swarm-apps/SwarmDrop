@@ -1,27 +1,56 @@
 import { getDownloadCatalog, type DownloadCatalog } from "@swarm-hive/sdk";
-import {
-  ArrowRight,
-  Fingerprint,
-  Github,
-  KeyRound,
-  Languages,
-  Lock,
-  MonitorSmartphone,
-  Network,
-  Radio,
-  Route,
-  ServerOff,
-  ShieldCheck,
-  Webhook,
-} from "lucide-react";
+import { ArrowRight, Github } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { DownloadPanel } from "@/components/download-panel";
 import { MobileDownloadCard } from "@/components/mobile-download-card";
-import { SwarmVisual } from "@/components/swarm-visual";
 import { appName, links, swarmhiveConfig } from "@/lib/shared";
 // 落地页 CTA 直接指向应用区落点，绕开 `/app` 那一跳（它只是给手输地址的人兜底的重定向壳）。
 import { APP_HOME } from "@/app/app/_lib/nav";
+import { Mono, Section, SectionHead, SHELL } from "./_components/home-primitives";
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 官网首页（2026-08-06 重写）
+ *
+ * ## 上一版为什么要整个换掉
+ *
+ * 两个层面的问题，其中第二个更严重。
+ *
+ * **一、它在宣传不存在的功能。** 上一版写着「每次传输独立生成 256-bit 密钥，
+ * XChaCha20-Poly1305 加密」「私钥落 Stronghold 加密保险库」「生物识别解锁
+ * TouchID / FaceID / Windows Hello」「跨网络输入 6 位配对码」「设一个安全密码」。
+ * 这五条**全部已经不成立**：应用层加密在 wire v2 整块删除、Stronghold 移除、
+ * 生物识别 2026-07-27 移除、6 位分享码被 PairInvite 取代、密码解锁流程整体移除。
+ * 官网是这些说法唯一还活着的地方。首页最重要的属性不是好看，是**说的话是真的**。
+ *
+ * **二、它是 AI 落地页模板的标准形态。** 徽章 pill + 大标题 + 三个 CTA + 右侧插画，
+ * 接一排 `5 / 0 / 0 / MIT` 四格数字（impeccable 明令禁止的 hero-metric 模板），
+ * 再接三个「圆角图标片 + 标题 + 灰描述」的卡片网格区块——同一个版式在一页里用了三次，
+ * 四个区块各顶一枚小号全大写 eyebrow。PRODUCT.md 的反面参照第一条就是
+ * 「通用 SaaS 后台套路：渐变色 hero、无脑铺满的卡片网格」。
+ *
+ * ## 这一版的取舍
+ *
+ * **真图，不画插画。** 上一版整页没有一张产品截图，hero 是手绘的六边形 SVG 蜂群图。
+ * 一个文件传输工具的首页从不展示自己长什么样，是最贵的那种「省事」。现在 hero 与
+ * 「三端」区块用的都是**现场截的真实界面**（`public/shots/`，见那里的 README）。
+ * 仓库里那支 `public/hero/swarmdrop-hero.mp4` **刻意不用**：它是 Remotion 画的
+ * 模拟界面（不是真产品），配色还停在旧的深蓝身份，文案里带着一个没转义的 `\n`。
+ *
+ * **机器值当质感用。** 页面上出现的 multiaddr 全部取自一台真实运行的节点，只截断不编造
+ * （The Mono Truth Rule）。这个产品的可信度来自「把真实链路摊开给你看」，
+ * 而不是来自形容词——所以 `~2 ms / 10-100 ms / 100-500 ms` 那种没有出处的
+ * 精确数字也一并删掉了。
+ *
+ * **一处深色，不做明暗交替。** 整页跟随主题，只有 hero 恒定是应用自己的深藏蓝画布
+ * （`--tile`）。这是刻意的单点重心，不是「深浅区块交替」——后者会让人以为中途换了网站。
+ *
+ * **八个区块，八种版式。** hero 分栏 / 平台细条 / 三段链路 / 错位截图 / 定义列表 /
+ * 代码分栏 / 下载面板 / 品牌色收尾。同一种版式家族在一页里不重复出现；全页零 eyebrow。
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
 
 async function getInitialCatalog(appSlug: string): Promise<DownloadCatalog | null> {
   try {
@@ -43,29 +72,17 @@ export default async function HomePage() {
   ]);
 
   return (
-    <main className="flex flex-1 flex-col overflow-hidden">
+    // `data-swarmdrop-home` 是 `global.css` 里那条次级文字色覆盖的锚点——
+    // fumadocs 的亮色 muted 在这页底色上只有 4.35:1，低于 AA。理由与实测值见那里。
+    <main data-swarmdrop-home className="flex flex-1 flex-col overflow-hidden">
       <Hero />
-      <Stats />
-      <DownloadPanel
-        baseUrl={swarmhiveConfig.baseUrl}
-        appSlug={swarmhiveConfig.appSlug}
-        channel={swarmhiveConfig.channel}
-        fallbackUrl={links.releases}
-        initialCatalog={initialCatalog}
-        allowClientRefresh={swarmhiveConfig.baseUrl.startsWith("https://")}
-      />
-      <MobileDownloadCard
-        baseUrl={swarmhiveConfig.baseUrl}
-        appSlug={swarmhiveConfig.appSlugMobile}
-        channel={swarmhiveConfig.channel}
-        fallbackUrl={links.mobile}
-        initialCatalog={initialMobileCatalog}
-        allowClientRefresh={swarmhiveConfig.baseUrl.startsWith("https://")}
-      />
-      <Features />
-      <HowItWorks />
-      <Security />
-      <FinalCta />
+      <PlatformStrip />
+      <Routing />
+      <ThreeHosts />
+      <SecurityLedger />
+      <Agents />
+      <Downloads catalog={initialCatalog} mobileCatalog={initialMobileCatalog} />
+      <Closing />
       <Footer />
     </main>
   );
@@ -73,359 +90,577 @@ export default async function HomePage() {
 
 /* ─────────────────────────────  HERO  ───────────────────────────── */
 
+/**
+ * 全页唯一恒定深色的区块，底色取应用自己的暗色画布 `--tile`。
+ *
+ * **为什么值得破一次主题一致性**：产品最好看的样子就是它的暗色界面，而 hero 里那张图
+ * 正是暗色截图——放在亮色底上要额外画一层框才不突兀，放在同色底上它自己就融进去了。
+ * 「一页一次刻意的整块换色」是被允许的手法，「区块之间深浅交替」不是。
+ *
+ * 文字元素**四件**封顶（标题 / 副文 / 两个 CTA），没有 eyebrow、没有 CTA 下面那行小字、
+ * 没有「已被 XX 团队使用」——那些一律下沉到后面的区块。上一版 hero 有三个 CTA，
+ * 第三个（「阅读文档」）现在在页脚与顶栏里。
+ */
 function Hero() {
   return (
-    <section className="relative border-b border-fd-border">
-      {/* 品牌径向辉光（品牌蓝，非 AI 紫），双模自适应 */}
+    <section className="relative isolate overflow-hidden bg-[var(--tile)] text-white">
+      {/* 品牌青绿从右上斜射进来，与应用里那层极光同源同向。低饱和、大半径——
+          它是底色的一部分，不是一枚「发光球」。 */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10 opacity-70"
+        className="pointer-events-none absolute inset-0 -z-10"
         style={{
           background:
-            "radial-gradient(60% 55% at 78% 30%, color-mix(in oklch, var(--brand) 22%, transparent), transparent 70%)",
+            "radial-gradient(62% 58% at 76% 18%, color-mix(in oklch, var(--brand-solid) 30%, transparent), transparent 72%)",
         }}
       />
-      <div className="mx-auto grid w-full max-w-6xl items-center gap-10 px-6 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:py-24">
-        {/* 左：文案 */}
+      {/* 赤铜是 logo 中心色，整页只在这里出现一次、且只作为环境光的一丝暖度
+          （DESIGN.md：Copper Core 不做一般 UI 强调色）。 */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 opacity-40"
+        style={{
+          background:
+            "radial-gradient(46% 46% at 8% 92%, color-mix(in oklch, var(--brand-warm) 22%, transparent), transparent 70%)",
+        }}
+      />
+      {/* 极细颗粒。深底大面积纯色会显出色带，这一层同时压掉色带、给玻璃一点可揉的东西。 */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 opacity-[0.22] mix-blend-overlay"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E\")",
+        }}
+      />
+
+      {/* 文案列略宽于图（1.05 : 0.95）。图是向右出血的，右侧本来就有视觉延伸，
+          再让它占更大栅格份额会把标题挤成三行——见下面 `clamp` 上限那条注释。 */}
+      <div className={`${SHELL} grid items-center gap-x-12 gap-y-14 pt-16 pb-20 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:pt-24 lg:pb-28`}>
         <div className="flex flex-col items-start">
-          <span
-            className="anim-rise mb-6 inline-flex items-center gap-2 rounded-full border border-fd-border bg-fd-card/70 px-3 py-1 text-xs font-medium text-fd-muted-foreground backdrop-blur"
+          {/* **上限 3.5rem（56px）是量出来的，不是审美**：1440 视口下文案列宽 554px，
+              这句 17 个字在 56px 下正好落成 2 行（17×56 = 952，952/554 = 1.72）。
+              之前是 4.25rem（68px），同一列里排成 **3 行**——「hero 标题桌面端不超过 2 行」
+              这条不是排版洁癖，三行标题配一张大图会把首屏的重心从「说了什么」挪到「有多大」。
+              旁边有大图时字号本来就该收一档。改大这个数之前先在 1440 下数行数。 */}
+          <h1
+            className="anim-rise text-balance text-[clamp(2.25rem,4.6vw,3.5rem)] font-bold leading-[1.08] tracking-[-0.03em]"
             style={{ "--d": "0s" } as React.CSSProperties}
           >
-            <ShieldCheck className="size-3.5 text-[var(--brand)]" strokeWidth={2.25} />
-            去中心化 · 端到端加密
-          </span>
-          <h1
-            className="anim-rise max-w-xl text-balance text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl"
-            style={{ "--d": "0.06s" } as React.CSSProperties}
-          >
-            把文件丢到任何地方。
-            <br />
-            <span className="text-[var(--brand)]">不上云，不限速。</span>
+            传个文件，不必先交给别人的服务器。
           </h1>
+
           <p
-            className="anim-rise mt-6 max-w-md text-pretty text-lg text-fd-muted-foreground"
-            style={{ "--d": "0.12s" } as React.CSSProperties}
+            className="anim-rise mt-7 max-w-[44ch] text-pretty text-[17px] leading-8 text-white/72"
+            style={{ "--d": "0.07s" } as React.CSSProperties}
           >
-            {appName} 让设备点对点直连，文件只有收发双方能解密。桌面、移动端和浏览器都能作为真正的传输端。
+            无账号，无中央服务器。桌面、手机和浏览器都是真正的传输端；配一次对，之后一直有效。
           </p>
+
           <div
-            className="anim-rise mt-9 flex flex-wrap items-center gap-3"
-            style={{ "--d": "0.18s" } as React.CSSProperties}
+            className="anim-rise mt-10 flex flex-wrap items-center gap-3"
+            style={{ "--d": "0.14s" } as React.CSSProperties}
           >
+            {/* 主 CTA 指向浏览器端而不是下载：它是**零安装**的完整客户端，
+                「不用装就能试」是这个产品最强的一句话。 */}
             <Link
               href={APP_HOME}
-              className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-[var(--brand-ink)] shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-[0.98]"
+              className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-[var(--brand-ink)] transition-[transform,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:shadow-[0_16px_40px_-8px_color-mix(in_oklch,var(--brand-solid)_60%,transparent)] active:scale-[0.98] motion-reduce:transition-none"
             >
-              在浏览器里试用
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+              在浏览器里直接用
+              <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-0.5 motion-reduce:transition-none" />
             </Link>
+            {/* 次级按钮在深底上**自带一层底色**，不只靠描边。`border-white/18` 单看只有
+                约 1.5:1，够不上 SC 1.4.11 的 3:1；加一层 6% 白底之后，这枚按钮即使描边
+                看不清也仍然读得出是一个控件，而不是一段带框的文字。 */}
             <a
               href={links.downloads}
-              className="inline-flex h-12 items-center justify-center rounded-xl border border-fd-border bg-fd-card px-7 text-sm font-semibold transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground active:scale-[0.98]"
+              className="inline-flex h-12 items-center justify-center rounded-xl border border-white/25 bg-white/[0.06] px-7 text-sm font-semibold text-white transition-colors hover:border-white/40 hover:bg-white/[0.12] active:scale-[0.98]"
             >
-              下载 {appName}
+              下载桌面端
             </a>
-            <Link
-              href="/docs"
-              className="inline-flex h-12 items-center justify-center px-3 text-sm font-semibold text-fd-muted-foreground transition-colors hover:text-fd-foreground active:scale-[0.98]"
-            >
-              阅读文档
-            </Link>
           </div>
         </div>
 
-        {/* 右：蜂群可视化 */}
+        {/* 截图向右出血：大屏上它被视口切掉一角，读起来像「界面还在继续」，
+            而不是一张摆正居中的产品照。玻璃边框是整页唯一一处玻璃——
+            DESIGN.md 把玻璃留给结构容器，一张图的外框正好是结构容器。 */}
         <div
-          className="anim-rise relative mx-auto aspect-square w-full max-w-md"
-          style={{ "--d": "0.22s" } as React.CSSProperties}
+          className="anim-rise relative lg:-mr-[16vw] xl:-mr-[12vw]"
+          style={{ "--d": "0.2s" } as React.CSSProperties}
         >
-          <SwarmVisual />
+          <div className="rounded-[20px] border border-white/12 bg-white/[0.04] p-1.5 shadow-[0_48px_120px_-24px_rgba(0,0,0,0.75)] backdrop-blur-sm">
+            <Image
+              src="/shots/desktop-devices.png"
+              alt="SwarmDrop 桌面端的设备页：已配对设备网格，第一张卡显示对端在线、信任级别为协作者、经局域网连接，右侧是附近设备与配对入口。"
+              width={1680}
+              height={920}
+              priority
+              className="h-auto w-full rounded-[14px]"
+            />
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-/* ─────────────────────────────  STATS  ──────────────────────────── */
+/* ────────────────────────  PLATFORM STRIP  ──────────────────────── */
 
-const STATS: Array<{ value: string; label: string }> = [
-  { value: "5", label: "平台支持" },
-  { value: "0", label: "中央服务器" },
-  { value: "0", label: "账号注册" },
-  { value: "MIT", label: "开源协议" },
-];
+const PLATFORMS = ["macOS", "Windows", "Linux", "Android", "浏览器"];
 
-function Stats() {
+/**
+ * hero 与正文之间的一条细带。
+ *
+ * 它承接的是 hero 里**不允许**放的那类信息（平台清单、版本、协议）——
+ * 「hero 只留一个重心，佐证下沉到紧邻的区块」。做成一行细带而不是一排数字方块，
+ * 是因为上一版那排 `5 / 0 / 0 / MIT` 恰好是最典型的模板痕迹：
+ * 「0 个中央服务器」既不是度量也不是卖点，只是把一句话排成了大字。
+ */
+function PlatformStrip() {
   return (
-    <section className="border-b border-fd-border bg-fd-card/30">
-      <div className="mx-auto grid w-full max-w-6xl grid-cols-2 divide-fd-border px-6 py-10 sm:grid-cols-4 sm:divide-x">
-        {STATS.map((s) => (
-          <div key={s.label} className="reveal flex flex-col items-center gap-1 px-2 py-3 text-center">
-            <span className="text-3xl font-bold tracking-tight text-[var(--brand)]">{s.value}</span>
-            <span className="text-sm text-fd-muted-foreground">{s.label}</span>
-          </div>
-        ))}
+    <div className="border-b border-fd-border bg-fd-card/40">
+      <div
+        className={`${SHELL} flex flex-wrap items-center justify-between gap-x-8 gap-y-3 py-5 text-[13px] text-fd-muted-foreground`}
+      >
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          {PLATFORMS.map((name) => (
+            <span key={name} className="font-medium text-fd-foreground/80">
+              {name}
+            </span>
+          ))}
+        </div>
+        {/* 两项之间**用间距分开，不画分隔符**。此前这里有一枚 `text-fd-border` 的斜杠，
+            实测与底色只有 1.21:1——它没被判为无障碍问题（`aria-hidden` 的装饰），
+            但也确实看不见，等于花了一个字符什么也没说。 */}
+        <div className="flex items-center gap-6">
+          <span>开源 · MIT</span>
+          <a
+            href={links.repo}
+            className="inline-flex items-center gap-1.5 transition-colors hover:text-fd-foreground"
+          >
+            <Github className="size-3.5" />
+            源码
+          </a>
+        </div>
       </div>
-    </section>
-  );
-}
-
-/* ───────────────────────────  FEATURES  ─────────────────────────── */
-
-const ROUTES: Array<{ icon: ReactNode; name: string; latency: string }> = [
-  { icon: <Radio className="size-4" />, name: "局域网直连", latency: "~2 ms" },
-  { icon: <Route className="size-4" />, name: "NAT 打洞 (DCUtR)", latency: "10-100 ms" },
-  { icon: <Network className="size-4" />, name: "中继转发兜底", latency: "100-500 ms" },
-];
-
-function Features() {
-  return (
-    <section className="mx-auto w-full max-w-6xl px-6 py-20">
-      <div className="reveal mb-12 max-w-2xl">
-        <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-          一套连接，自己找到最快的路
-        </h2>
-        <p className="mt-3 text-fd-muted-foreground">
-          从同一间办公室到地球另一端，{appName} 在局域网、NAT 打洞与中继之间自动选优，全程加密。
-        </p>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-6">
-        {/* 端到端加密（tinted） */}
-        <Cell className="lg:col-span-2 bg-[var(--brand)]/[0.06]">
-          <CellIcon>
-            <Lock className="size-5" />
-          </CellIcon>
-          <CellTitle>端到端加密</CellTitle>
-          <CellDesc>
-            每次传输独立生成 256-bit 密钥，XChaCha20-Poly1305 加密。引导节点、中继都看不到明文。
-          </CellDesc>
-        </Cell>
-
-        {/* 跨网络自动选路（brand gradient，含路由清单） */}
-        <Cell className="relative overflow-hidden lg:col-span-4">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-16 -top-16 size-56 rounded-full opacity-60"
-            style={{
-              background:
-                "radial-gradient(circle, color-mix(in oklch, var(--sky) 30%, transparent), transparent 70%)",
-            }}
-          />
-          <CellIcon>
-            <Route className="size-5" />
-          </CellIcon>
-          <CellTitle>跨网络自动选路</CellTitle>
-          <CellDesc>mDNS 发现局域网设备，分享码经 DHT 定位对端，DCUtR 打洞，失败再走中继。</CellDesc>
-          <ul className="mt-5 grid gap-2 sm:grid-cols-3">
-            {ROUTES.map((r) => (
-              <li
-                key={r.name}
-                className="flex flex-col gap-1 rounded-lg border border-fd-border bg-fd-card/70 p-3"
-              >
-                <span className="flex items-center gap-2 text-sm font-medium text-[var(--brand)]">
-                  {r.icon}
-                  {r.name}
-                </span>
-                <span className="font-mono text-xs text-fd-muted-foreground">{r.latency}</span>
-              </li>
-            ))}
-          </ul>
-        </Cell>
-
-        {/* 零配置 */}
-        <Cell className="lg:col-span-2">
-          <CellIcon>
-            <ServerOff className="size-5" />
-          </CellIcon>
-          <CellTitle>零配置无服务器</CellTitle>
-          <CellDesc>不要账号，不要中央服务器。装好即用，数据只在你的设备之间流动。</CellDesc>
-        </Cell>
-
-        {/* 全平台 */}
-        <Cell className="lg:col-span-2 bg-[var(--brand)]/[0.06]">
-          <CellIcon>
-            <MonitorSmartphone className="size-5" />
-          </CellIcon>
-          <CellTitle>全平台覆盖</CellTitle>
-          <CellDesc>Windows · macOS · Linux 桌面端，Android 移动端共用同一套 Rust 核心。</CellDesc>
-        </Cell>
-
-        {/* 自托管 + 开源 */}
-        <Cell className="lg:col-span-2">
-          <CellIcon>
-            <Github className="size-5" />
-          </CellIcon>
-          <CellTitle>开源可自托管</CellTitle>
-          <CellDesc>MIT 协议，代码全公开。可自建引导节点，连发现层都不必依赖别人。</CellDesc>
-        </Cell>
-      </div>
-    </section>
-  );
-}
-
-function Cell({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return (
-    <div
-      className={`reveal flex flex-col rounded-2xl border border-fd-border bg-fd-card p-6 transition-colors hover:border-[var(--brand)]/40 ${className}`}
-    >
-      {children}
     </div>
   );
 }
-function CellIcon({ children }: { children: ReactNode }) {
-  return (
-    <div className="mb-4 inline-flex size-10 items-center justify-center rounded-xl bg-[var(--brand)]/10 text-[var(--brand)]">
-      {children}
-    </div>
-  );
-}
-function CellTitle({ children }: { children: ReactNode }) {
-  return <h3 className="mb-1.5 text-lg font-semibold">{children}</h3>;
-}
-function CellDesc({ children }: { children: ReactNode }) {
-  return <p className="text-sm leading-relaxed text-fd-muted-foreground">{children}</p>;
-}
 
-/* ─────────────────────────  HOW IT WORKS  ───────────────────────── */
+/* ───────────────────────────  ROUTING  ──────────────────────────── */
 
-const STEPS: Array<{ title: string; desc: string }> = [
-  { title: "启动节点", desc: "设一个安全密码，开启本地 P2P 节点。私钥落 Stronghold 加密保险库。" },
-  { title: "配对设备", desc: "跨网络输入 6 位配对码，同一 Wi-Fi 自动发现。一次配对，长期信任。" },
-  { title: "拖拽发送", desc: "选中对方设备，把文件拖进窗口。加密直传，实时进度，完成即通知。" },
+/**
+ * 三条链路是**有序的**：先试局域网，不行打洞，都不行才中继。
+ *
+ * 这是本页唯一使用序号标记的地方，理由也只有这一条——它真的是一个顺序，序号携带了
+ * 「先后」这条信息。给每个区块都编号（01 · 关于 / 02 · 功能）才是模板痕迹。
+ */
+const ROUTES: Array<{ name: string; how: string; transports: string }> = [
+  {
+    name: "局域网直连",
+    how: "mDNS 在同一网段里发现对方，数据不出这间屋子。",
+    transports: "TCP · QUIC · WebRTC Direct",
+  },
+  {
+    name: "NAT 打洞",
+    how: "两端同时朝对方发包，在中间会合（DCUtR）。跨网络的常态就落在这里。",
+    transports: "QUIC · WebRTC",
+  },
+  {
+    name: "中继兜底",
+    how: "前两条都不通才走。中继只转发密文，看不到内容，也不留副本。",
+    transports: "p2p-circuit",
+  },
 ];
 
-function HowItWorks() {
+/**
+ * 真实地址取自一台正在运行的节点（`get_network_status` 的 `listenAddrs`），
+ * **只做截断**。截断处留 `…`：一条把中段悄悄去掉的 multiaddr 仍然像一条完整地址，
+ * 会被原样粘进 issue——这条规则写在 DESIGN.md 的 Device Card Contract 里。
+ */
+const REAL_ADDRS: Array<{ label: string; addr: string }> = [
+  {
+    label: "局域网",
+    addr: "/ip4/192.168.50.105/udp/61961/webrtc-direct/certhash/uEiD7XGPe…/p2p/12D3KooW…",
+  },
+  {
+    label: "公网中继",
+    addr: "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCkaj…/p2p-circuit/p2p/12D3KooW…",
+  },
+  {
+    label: "浏览器入口",
+    addr: "/ip4/47.115.172.218/udp/4003/webrtc-direct/certhash/uEiBuBPte…/p2p-circuit/p2p/12D3KooW…",
+  },
+];
+
+function Routing() {
   return (
-    <section className="border-y border-fd-border bg-fd-card/30">
-      <div className="mx-auto w-full max-w-6xl px-6 py-20">
-        <h2 className="reveal mb-12 text-3xl font-bold tracking-tight sm:text-4xl">三步开始传输</h2>
-        <ol className="grid gap-8 md:grid-cols-3">
-          {STEPS.map((s, i) => (
-            <li key={s.title} className="reveal relative flex flex-col">
-              <div className="mb-4 flex items-center gap-3">
-                <span className="inline-flex size-9 items-center justify-center rounded-full bg-[var(--brand-solid)] font-mono text-sm font-bold text-[var(--brand-ink)]">
-                  {i + 1}
-                </span>
-                {i < STEPS.length - 1 && (
-                  <span className="hidden h-px flex-1 bg-gradient-to-r from-[var(--brand)]/50 to-transparent md:block" />
-                )}
-              </div>
-              <h3 className="mb-2 text-xl font-semibold">{s.title}</h3>
-              <p className="text-sm leading-relaxed text-fd-muted-foreground">{s.desc}</p>
+    <Section>
+      <SectionHead
+        title="文件走的哪条路，页面上写着"
+        lead="多数工具只告诉你「已发送」。SwarmDrop 把链路摊开：哪种传输、对端地址是什么、经不经中继。排查的时候可以整段复制进 issue。"
+      />
+
+      {/* **版式刻意不是「左文右盒」的两栏**——那个家族这一页已经给了「agent 也是一台设备」
+          区块。这里是「有序清单在上、整幅数据条在下」：链路本来就是有先后的三段，
+          而底下那三条 multiaddr 是长字符串，横着铺满比塞进 0.85fr 的窄栏少折好几行。 */}
+      <div className="mt-14">
+        <ol className="reveal grid gap-x-12 sm:grid-cols-2 lg:grid-cols-3">
+          {ROUTES.map((route, i) => (
+            <li key={route.name} className="border-t border-fd-border pt-5">
+              {/* 序号是这一页唯一一处编号，因为这里真的是顺序：先试局域网，不行打洞，
+                  都不行才中继。给每个区块都编号（01 关于 / 02 功能）才是模板痕迹。 */}
+              <span className="font-mono text-xs tabular-nums text-[var(--brand)]">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <h3 className="mt-3 text-lg font-semibold tracking-tight">{route.name}</h3>
+              <p className="mt-2 text-[15px] leading-7 text-fd-muted-foreground">{route.how}</p>
+              {/* 不加 `/80`：12px 的次级色本来就贴着 AA，再乘一层透明度实测掉到
+                  **3.34:1**。这一行是传输协议名（TCP / QUIC / WebRTC Direct），
+                  正是用户会去比对日志的那种字，不该比旁边的说明还淡。 */}
+              <p className="mt-3 font-mono text-xs text-fd-muted-foreground">{route.transports}</p>
             </li>
           ))}
         </ol>
+
+        <div className="reveal mt-14 rounded-2xl border border-fd-border bg-fd-card p-5 sm:p-7">
+          <p className="text-[13px] font-medium">一台真实节点当前监听的地址</p>
+          <p className="mt-1 text-xs text-fd-muted-foreground">
+            原样取自运行中的节点，中段已截断。三条分别对应上面三种路径。
+          </p>
+          {/* 地址是长字符串，`overflow-x-auto` 让它在自己这块里横滚，
+              绝不允许把整页顶出横向滚动条。 */}
+          <dl className="mt-6 grid gap-5 overflow-x-auto lg:grid-cols-3 lg:gap-8">
+            {REAL_ADDRS.map((item) => (
+              <div key={item.label} className="min-w-0">
+                <dt className="text-xs font-medium text-[var(--brand)]">{item.label}</dt>
+                <dd className="mt-1.5">
+                  <Mono>{item.addr}</Mono>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <p className="reveal mt-6 max-w-[68ch] text-[13px] leading-6 text-fd-muted-foreground">
+          浏览器只能走 WebRTC Direct —— https 页面拨公网裸 IP 的 <Mono>ws://</Mono>{" "}
+          会被 mixed content 拦下，<Mono>wss://</Mono>{" "}
+          又要域名和证书。所以引导节点在 4003 端口上专门为它开了一条。
+        </p>
       </div>
-    </section>
+    </Section>
   );
 }
 
-/* ───────────────────────────  SECURITY  ─────────────────────────── */
+/* ─────────────────────────  THREE HOSTS  ────────────────────────── */
 
-const SECURITY: Array<{ icon: ReactNode; title: string; desc: string }> = [
+/**
+ * 错位双图。**不做等大三宫格**——那是本页要避开的「相同卡片网格」，
+ * 也不是这两张图的真实关系：桌面端是主场，浏览器端是「连这个都能是完整客户端」的证据，
+ * 两者权重不等，版面就该不等。
+ */
+function ThreeHosts() {
+  return (
+    <Section tone="sunken">
+      <SectionHead
+        title="三端，同一个内核"
+        lead="桌面端与移动端共用同一份 Rust 核心，浏览器端把它编成 wasm。浏览器不是「网页版精简功能」，它跑完整的节点、协议和配对握手，只是没有 mDNS。"
+      />
+
+      <div className="mt-14 grid items-end gap-8 lg:grid-cols-12">
+        <figure className="reveal lg:col-span-7">
+          <div className="overflow-hidden rounded-2xl border border-fd-border shadow-[0_28px_70px_-30px_rgb(15_23_42_/_0.45)]">
+            <Image
+              src="/shots/web-devices.png"
+              alt="SwarmDrop 浏览器端的设备页：左侧持久侧边栏，主区是已配对设备与配对面板，设备卡显示在线状态、信任级别与局域网连接延迟。"
+              width={2800}
+              height={1300}
+              className="h-auto w-full"
+            />
+          </div>
+          <figcaption className="mt-4 text-[13px] text-fd-muted-foreground">
+            浏览器端 —— 零安装。打开网页就是一个节点，配对、收发、断点续传都在这一页里。
+          </figcaption>
+        </figure>
+
+        <figure className="reveal lg:col-span-5">
+          <div className="overflow-hidden rounded-2xl border border-fd-border shadow-[0_28px_70px_-30px_rgb(15_23_42_/_0.45)]">
+            <Image
+              src="/shots/desktop-pairing.png"
+              alt="SwarmDrop 桌面端的配对页：中间是邀请二维码与 24 小时倒计时，左侧列出已发出的邀请及其状态，每条都可撤销。"
+              width={1680}
+              height={960}
+              className="h-auto w-full"
+            />
+          </div>
+          <figcaption className="mt-4 text-[13px] text-fd-muted-foreground">
+            桌面端 —— 邀请是一次性的，发出去的每一条都能在这里撤销。
+          </figcaption>
+        </figure>
+      </div>
+    </Section>
+  );
+}
+
+/* ────────────────────────  SECURITY LEDGER  ─────────────────────── */
+
+const SECURITY: Array<{ term: string; detail: ReactNode }> = [
   {
-    icon: <KeyRound className="size-5" />,
-    title: "设备身份 Ed25519",
-    desc: "每台设备一对密钥，私钥永不离开 Stronghold 加密保险库。",
+    term: "设备身份",
+    detail: (
+      <>
+        Ed25519 密钥对。私钥交给系统钥匙串（macOS Keychain / Windows 凭据管理器 / Linux Secret
+        Service），不落进应用自己的文件。
+      </>
+    ),
   },
   {
-    icon: <ShieldCheck className="size-5" />,
-    title: "一次一密",
-    desc: "每次传输独立生成 256-bit 对称密钥，XChaCha20-Poly1305。",
+    term: "传输加密",
+    detail: <>Noise 与 QUIC-TLS，在传输层完成。中继节点全程只经手密文。</>,
   },
   {
-    icon: <Fingerprint className="size-5" />,
-    title: "生物识别解锁",
-    desc: "TouchID / FaceID / Windows Hello，本地校验，密钥不出设备。",
+    term: "逐块校验",
+    detail: (
+      <>
+        BLAKE3 + bao-tree。每收到一块立刻可验，不必等整个文件收完才发现它被动过；续传也因此不需要「信任对端」。
+      </>
+    ),
   },
   {
-    icon: <Webhook className="size-5" />,
-    title: "零遥测",
-    desc: "不收集任何用户数据，不连分析后台。连接全在你掌控之中。",
+    term: "配对",
+    detail: (
+      <>
+        一次性签名邀请：Ed25519 签名 + 128 位凭证，24 小时有效，用掉即作废。没有可被猜到的短码。
+      </>
+    ),
+  },
+  {
+    term: "遥测",
+    detail: <>没有。不连任何分析后台，也不加载外部字体或脚本。</>,
+  },
+  {
+    term: "源码",
+    detail: <>MIT，全部公开。引导节点也可以自建，连发现层都不必依赖别人。</>,
   },
 ];
 
-function Security() {
+/**
+ * 定义列表，**没有图标片**。
+ *
+ * 「圆角方块图标 + 标题 + 灰描述」在上一版首页出现了三个区块共 9 次，是本页要清掉的
+ * 主要模板痕迹之一（brand register 明确把「每个标题上方一枚大圆角图标」列为 tell）。
+ * 安全条目本来就是「术语 → 解释」，定义列表是它的原生形态，也更密、更好扫。
+ */
+function SecurityLedger() {
   return (
-    <section className="mx-auto grid w-full max-w-6xl gap-12 px-6 py-20 lg:grid-cols-2">
-      <div className="reveal">
-        <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-fd-border bg-fd-card px-3 py-1 text-xs font-medium text-fd-muted-foreground">
-          <Lock className="size-3.5 text-[var(--brand)]" strokeWidth={2.25} />
-          安全模型
-        </span>
-        <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-          中继也帮不上忙，因为它看不到内容
-        </h2>
-        <p className="mt-4 max-w-md text-fd-muted-foreground">
-          所有加密在收发两端完成。哪怕流量经过中继节点，密文之外什么都拿不到。
-        </p>
-        <div className="mt-6 flex items-center gap-2 text-sm text-fd-muted-foreground">
-          <Languages className="size-4 text-[var(--brand)]" />
-          已支持简体中文 · 繁体中文 · English
-        </div>
-      </div>
+    <Section>
+      <SectionHead
+        title="安全模型写在这里，不写在标语里"
+        lead="下面每一条都能在源码里对上号。没有「军工级」，也没有「银行级」——那些词不携带任何可核对的信息。"
+      />
 
-      <ul className="grid gap-px overflow-hidden rounded-2xl border border-fd-border bg-fd-border sm:grid-cols-2">
-        {SECURITY.map((s) => (
-          <li key={s.title} className="reveal flex flex-col bg-fd-card p-6">
-            <div className="mb-3 inline-flex size-10 items-center justify-center rounded-xl bg-[var(--brand)]/10 text-[var(--brand)]">
-              {s.icon}
-            </div>
-            <h3 className="mb-1.5 font-semibold">{s.title}</h3>
-            <p className="text-sm leading-relaxed text-fd-muted-foreground">{s.desc}</p>
-          </li>
+      <dl className="reveal mt-14 grid gap-x-14 sm:grid-cols-2">
+        {SECURITY.map((item) => (
+          <div key={item.term} className="border-t border-fd-border py-6">
+            <dt className="text-[15px] font-semibold tracking-tight">{item.term}</dt>
+            <dd className="mt-2 max-w-[46ch] text-[15px] leading-7 text-fd-muted-foreground">
+              {item.detail}
+            </dd>
+          </div>
         ))}
-      </ul>
-    </section>
+      </dl>
+
+      {/* 这一块是整页最不像落地页的东西，也是刻意留的。
+          安全工具的可信度来自「愿意说自己拆掉了什么、为什么」，而不是来自罗列加密算法。
+
+          强调用**顶边**而不是左侧色条：后者（`border-left` 当装饰色条）是被明令禁止的
+          那类 callout 形态。顶边是这一页上「区块用横线分隔」这套语言的延续。 */}
+      <div className="reveal mt-6 border-t-2 border-[var(--brand)] bg-fd-card/50 p-6 sm:p-8">
+        <h3 className="text-lg font-semibold tracking-tight">我们删掉过一层加密</h3>
+        <div className="mt-3 max-w-[62ch] space-y-3 text-[15px] leading-7 text-fd-muted-foreground">
+          <p>
+            早期版本在传输层之上又套了一层 XChaCha20-Poly1305。后来把它整块删了，因为它是自引用的冗余：
+            密钥经同一条 Noise 信道分发，能读到密文的攻击者必然也能读到密钥。
+          </p>
+          <p>
+            更要命的是它和逐块校验不能共存——加密之后校验和会变成密文的哈希，「根哈希 == 明文
+            BLAKE3」这条不变量当场就塌了。宁可少一层，也不要一层看起来很安全的装饰。
+          </p>
+        </div>
+        <Link
+          href="/docs"
+          className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--brand)] transition-opacity hover:opacity-80"
+        >
+          完整推导在文档里
+          <ArrowRight className="size-3.5" />
+        </Link>
+      </div>
+    </Section>
   );
 }
 
-/* ──────────────────────────  FINAL CTA  ─────────────────────────── */
+/* ────────────────────────────  AGENTS  ──────────────────────────── */
 
-function FinalCta() {
+/** 20 个工具里挑 6 个有代表性的。列全 20 条是数据倾倒，不是信息。 */
+const MCP_TOOLS = [
+  "send_files",
+  "list_paired_devices",
+  "search_inbox",
+  "get_transfer_status",
+  "accept_transfer",
+  "export_inbox_item",
+];
+
+const MCP_CONFIG = `{
+  "mcpServers": {
+    "swarmdrop": {
+      "url": "http://127.0.0.1:19527"
+    }
+  }
+}`;
+
+function Agents() {
   return (
-    <section className="mx-auto w-full max-w-6xl px-6 pb-20">
-      <div className="relative overflow-hidden rounded-3xl border border-fd-border bg-[var(--tile)] px-8 py-16 text-center">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-40"
-          style={{
-            background:
-              "radial-gradient(50% 80% at 50% 0%, color-mix(in oklch, white 25%, transparent), transparent 70%)",
-          }}
+    <Section tone="sunken">
+      <div className="grid gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-center">
+        <div>
+          <SectionHead
+            title="agent 也是一台设备"
+            lead="桌面端内置一个本地 MCP server，20 个工具。agent 用的是和你完全相同的那条通道——发文件、查收件箱、看传输状态。它不是贴上去的「AI 功能」，就是另一个正常客户端。"
+          />
+
+          <ul className="reveal mt-8 flex flex-wrap gap-2">
+            {MCP_TOOLS.map((tool) => (
+              <li
+                key={tool}
+                className="rounded-full border border-fd-border bg-fd-card px-3 py-1 font-mono text-xs text-fd-muted-foreground"
+              >
+                {tool}
+              </li>
+            ))}
+            <li className="px-1 py-1 text-xs text-fd-muted-foreground">共 20 个</li>
+          </ul>
+
+          {/* 这条是实测出来的，写在这里因为它正好回答了「让 AI 碰我的文件安全吗」：
+              权限是按设备给的，而且默认不给。 */}
+          <p className="reveal mt-6 max-w-[52ch] text-[15px] leading-7 text-fd-muted-foreground">
+            每台已配对设备单独控制允不允许 MCP 向它发送，
+            <span className="font-medium text-fd-foreground">默认关闭</span>
+            。没开的时候 agent 收到的是一句明确的拒绝，而不是一次静默的发送。
+          </p>
+        </div>
+
+        <div className="reveal">
+          <div className="overflow-hidden rounded-2xl border border-fd-border bg-fd-card">
+            <div className="border-b border-fd-border px-5 py-3 font-mono text-xs text-fd-muted-foreground">
+              claude_desktop_config.json
+            </div>
+            <pre className="overflow-x-auto px-5 py-5">
+              <code className="font-mono text-[13px] leading-6">{MCP_CONFIG}</code>
+            </pre>
+          </div>
+          <p className="mt-4 text-xs leading-6 text-fd-muted-foreground">
+            端口在设置页里可改；服务只监听 <Mono>127.0.0.1</Mono>，不对外暴露。
+          </p>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/* ───────────────────────────  DOWNLOADS  ────────────────────────── */
+
+/**
+ * 桌面与移动**合并成一个区块**。
+ *
+ * 上一版是两个各自带标题的灰盒子上下堆着，各说一遍「stable 最新版本」，
+ * 占掉页面中段一大半。两张卡现在并排，标题只说一次。
+ */
+function Downloads({
+  catalog,
+  mobileCatalog,
+}: {
+  catalog: DownloadCatalog | null;
+  mobileCatalog: DownloadCatalog | null;
+}) {
+  const allowClientRefresh = swarmhiveConfig.baseUrl.startsWith("https://");
+
+  return (
+    <Section id="download">
+      <SectionHead
+        title="装到你的设备上"
+        lead="下载项直接来自 SwarmHive stable channel，发版后官网零改动就指向最新包。应用内更新走独立的 updater 端点。"
+      />
+
+      <div className="reveal mt-12 grid gap-6 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] lg:items-start">
+        <DownloadPanel
+          baseUrl={swarmhiveConfig.baseUrl}
+          appSlug={swarmhiveConfig.appSlug}
+          channel={swarmhiveConfig.channel}
+          fallbackUrl={links.releases}
+          initialCatalog={catalog}
+          allowClientRefresh={allowClientRefresh}
         />
-        <h2 className="relative mx-auto max-w-2xl text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl">
-          准备好把文件丢出去了吗
-        </h2>
-        <p className="relative mx-auto mt-4 max-w-md text-balance text-white/80">
-          免费开源，所有平台都能装。两分钟跑起你的第一台节点。
-        </p>
-        <div className="relative mt-9 flex flex-wrap items-center justify-center gap-3">
+        <MobileDownloadCard
+          baseUrl={swarmhiveConfig.baseUrl}
+          appSlug={swarmhiveConfig.appSlugMobile}
+          channel={swarmhiveConfig.channel}
+          fallbackUrl={links.mobile}
+          initialCatalog={mobileCatalog}
+          allowClientRefresh={allowClientRefresh}
+        />
+      </div>
+    </Section>
+  );
+}
+
+/* ───────────────────────────  CLOSING  ──────────────────────────── */
+
+/**
+ * 收尾用**品牌色整幅铺满**，不用「深色圆角大盒子 + 中心白色径向光」——后者是
+ * 落地页收尾区最标准的那个模板（上一版正是它）。整幅铺满也让页面在结束处
+ * 有一次明确的换气，而不是又一张卡片。
+ */
+function Closing() {
+  return (
+    <Section tone="brand">
+      <div className="flex flex-col items-start gap-8 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="max-w-[18ch] text-balance text-[clamp(1.9rem,3.8vw,3rem)] font-bold leading-[1.1] tracking-[-0.03em]">
+            配一次对，之后它就一直在那儿。
+          </h2>
+          {/* 「接收是后台默认行为」是 PRODUCT.md 的第一条设计原则，整页只在这里说一次——
+              它是收尾处最该留下的那句：用户真正要的不是「一个传文件的 App」，
+              是「不用再想传文件这件事」。 */}
+          {/* **这里不能用 `opacity-80`**：品牌青绿底 + 深墨字满强度是 4.98:1，压到 80%
+              就掉到 **4.08**，低于 AA——而在实心品牌色上，任何「让它淡一点」的写法都会
+              直接吃掉本就不宽裕的那点余量（DESIGN.md：deep ink on teal ≈ 5.0，就是全部）。
+              层次靠字号给：48px 粗体标题 vs 15px 正文，已经足够。 */}
+          <p className="mt-4 max-w-[46ch] text-[15px] leading-7">
+            没有「发送模式」和「接收模式」——配过对的设备发来东西，后台就收下了。浏览器端连装都不用，
+            不合用关掉标签页即可，什么都没留下。
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
           <Link
             href={APP_HOME}
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-solid)] px-7 text-sm font-semibold text-[var(--brand-ink)] shadow-sm transition-transform hover:shadow-md active:scale-[0.98]"
+            className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[var(--brand-ink)] px-7 text-sm font-semibold text-white transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98] motion-reduce:transition-none"
           >
-            在浏览器里试用
-            <ArrowRight className="size-4" />
+            在浏览器里直接用
+            <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-0.5 motion-reduce:transition-none" />
           </Link>
           <a
-            href={links.downloads}
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/30 px-7 text-sm font-semibold text-white transition-colors hover:bg-white/10 active:scale-[0.98]"
-          >
-            下载 {appName}
-          </a>
-          <a
             href={links.repo}
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/30 px-7 text-sm font-semibold text-white transition-colors hover:bg-white/10 active:scale-[0.98]"
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-[var(--brand-ink)]/25 px-7 text-sm font-semibold transition-colors hover:bg-[var(--brand-ink)]/10 active:scale-[0.98]"
           >
             <Github className="size-4" />
             查看源码
           </a>
         </div>
       </div>
-    </section>
+    </Section>
   );
 }
 
@@ -434,10 +669,10 @@ function FinalCta() {
 function Footer() {
   return (
     <footer className="border-t border-fd-border">
-      <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 text-sm text-fd-muted-foreground sm:flex-row">
-        <span>
-          © {appName} Contributors · MIT License
-        </span>
+      <div
+        className={`${SHELL} flex flex-col items-center justify-between gap-4 py-8 text-sm text-fd-muted-foreground sm:flex-row`}
+      >
+        <span>© {appName} Contributors · MIT License</span>
         <div className="flex items-center gap-6">
           <Link href="/docs" className="transition-colors hover:text-fd-foreground">
             文档
