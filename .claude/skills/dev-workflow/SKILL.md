@@ -69,9 +69,12 @@ description: |
 ```bash
 # 前端
 pnpm exec tsc --noEmit
-pnpm test                  # vitest
+pnpm test                  # vitest。⚠️ 根 vitest.config.ts 显式 exclude 了 docs/**，
+                           #   Web 应用区的测试要单独跑（见下面 docs 那条）
 pnpm check:zustand-access  # selector 派生 + store API 访问检查（src/ 与 docs/app/app）
 pnpm check:clipboard       # 禁止绕过 src/lib/clipboard.ts 直接用 navigator.clipboard
+pnpm check:shared-view     # 共享包零平台依赖（import 纯度 + 无 DOM lib 的 tsc）
+pnpm check:landing         # 配对落地页体积（≤10KB gzip，含注释）+ 字典完整性
 pnpm i18n:extract          # 新增/修改翻译字符串后
                            # ⚠️ 提取完要**补 en / zh-TW 译文**，否则那两个语言静默回落中文
 

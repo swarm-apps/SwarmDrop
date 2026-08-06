@@ -59,6 +59,12 @@ pnpm check:zustand-access
 # 共享包零平台依赖（两道门：import 纯度 + 无 DOM lib 的 tsc）
 pnpm check:shared-view
 
+# 禁止绕过 src/lib/clipboard.ts 直接用 navigator.clipboard
+pnpm check:clipboard
+
+# 配对落地页（docs/public/p/）体积 ≤10KB gzip（注释也算）+ en/zh-TW 字典完整性
+pnpm check:landing
+
 # Rust（在仓库根目录跑，workspace 一并覆盖）
 cargo check --workspace --all-targets
 cargo test --workspace
@@ -84,6 +90,8 @@ pnpm changelog
 pnpm dev                # Next.js dev server
 pnpm build:wasm         # wasm-pack build crates/web → packages/swarmdrop-web
 pnpm build
+pnpm test               # vitest。**根 vitest 显式 exclude 了 docs/**，只有这条能跑到它们
+pnpm typecheck          # fumadocs-mdx + lingui compile + next typegen + tsc
 
 # 桌面 e2e / 录屏（在 e2e/desktop/ 下跑 —— 独立 pnpm workspace）
 pnpm wdio
