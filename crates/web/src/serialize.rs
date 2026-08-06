@@ -11,9 +11,28 @@ use wasm_bindgen::JsValue;
 
 /// 与生成的 `.d.ts` 契约一致的序列化器。
 ///
-/// ⚠️ `serialize_maps_as_objects(true)` 这一行是本模块存在的全部理由。
+/// ⚠️ 那两行选项是本模块存在的全部理由。两条都在修同一类缝：`serde_wasm_bindgen` 的默认
+/// 输出形状与 `.d.ts` 声明的形状不一致，而**类型层看不出任何问题**——TS 按 `.d.ts` 写得
+/// 再对，运行时读到的也是另一种东西。
 ///
-/// `serde_wasm_bindgen` 默认把 serde 的 **map** 序列化成 JS `Map`。这对真正的
+/// ## `serialize_missing_as_null(true)`
+///
+/// 默认把 `Option::None` 序列化成 `undefined`，而 `.d.ts` 里每个可选字段声明的都是
+/// `T | null`。于是 JS 侧对它们的 `=== null` **恒假**、`!== null` **恒真**。
+///
+/// 2026-08-06 实证：收件箱页恒显示「还没有收到的文件」，而 IndexedDB 里躺着 3 条正常条目。
+/// `inbox_items()` 确实返回了那 3 条，是列表那句
+/// `items.filter((item) => item.archivedAt === null)` 把它们全滤掉了——3 条的
+/// `archivedAt` 都是 `undefined`。同一个洞还让「已读」标记每次下载都重打一遍
+/// （`item.lastOpenedAt !== null` 恒真）。
+///
+/// 判据同样很硬：`.d.ts` 里**没有 `undefined`**，只有 `| null`。所以任何跨边界的缺席值
+/// 都该是 `null`。入站方向不必对称处理——`from_js` 对 `null` 与 `undefined` 一视同仁地
+/// 收成 `None`，往返是安全的。
+///
+/// ## `serialize_maps_as_objects(true)`
+///
+/// 默认把 serde 的 **map** 序列化成 JS `Map`。这对真正的
 /// `HashMap` 尚可争论，但带 `#[serde(flatten)]` 的**结构体走的正是 map 路径**
 /// ——serde 无法静态知道展开后的键，只能按 map 输出。本仓有两个这样的类型跨边界：
 /// [`Device`](crate::types::Device) 与 `PairedDeviceInfo`（都 flatten 了 `OsInfo`）。
@@ -31,7 +50,11 @@ use wasm_bindgen::JsValue;
 pub(crate) fn to_js<T: Serialize + ?Sized>(
     value: &T,
 ) -> Result<JsValue, serde_wasm_bindgen::Error> {
-    value.serialize(&serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true))
+    value.serialize(
+        &serde_wasm_bindgen::Serializer::new()
+            .serialize_missing_as_null(true)
+            .serialize_maps_as_objects(true),
+    )
 }
 
 /// JS → Rust。入站方向**没有**出站那个 `serialize_maps_as_objects` 的对应项：
@@ -106,6 +129,61 @@ mod tests {
             get("platform").and_then(|v| v.as_string()).as_deref(),
             Some("web"),
             "被 flatten 展开的字段同样要能按名读取"
+        );
+    }
+
+    /// 结构体里的 `Option::None` 必须落成 **`null`**，不能是 `undefined`。
+    ///
+    /// 这是 2026-08-06 那个「收件箱恒空、库里却躺着 3 条」的回归守卫：`.d.ts` 把可选字段
+    /// 声明成 `T | null`，而默认序列化器给的是 `undefined`，于是前端
+    /// `item.archivedAt === null` 恒假，整张列表被自己的可见性过滤器清空。
+    ///
+    /// 断言分两层：**必须存在这个键**（`in` 为真——`undefined` 值也会让 `Reflect::get`
+    /// 返回 `undefined`，只查取值区分不出「落成 undefined」与「键根本没输出」），
+    /// 且它的值严格是 `null`。顶层裸 `None` 一并钉住：`inbox_item()` 那类「不存在返回
+    /// null」的导出直接依赖它。
+    #[wasm_bindgen_test]
+    fn none_serializes_as_null_not_undefined() {
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct WithOptionals {
+            archived_at: Option<i64>,
+            last_opened_at: Option<i64>,
+            received_at: i64,
+        }
+
+        let value = to_js(&WithOptionals {
+            archived_at: None,
+            last_opened_at: Some(42),
+            received_at: 1,
+        })
+        .expect("序列化不应失败");
+
+        let obj: &js_sys::Object = value.unchecked_ref();
+        let key = JsValue::from_str("archivedAt");
+        assert!(
+            js_sys::Reflect::has(obj, &key).expect("has 不应失败"),
+            "缺席的可选字段必须仍然输出这个键"
+        );
+        assert!(
+            js_sys::Reflect::get(obj, &key)
+                .expect("get 不应失败")
+                .is_null(),
+            "None 必须落成 null——落成 undefined 会让前端所有 `=== null` 恒假"
+        );
+        assert_eq!(
+            js_sys::Reflect::get(obj, &JsValue::from_str("lastOpenedAt"))
+                .expect("get 不应失败")
+                .as_f64(),
+            Some(42.0),
+            "有值的可选字段不受影响"
+        );
+
+        assert!(
+            to_js(&None::<i64>)
+                .expect("顶层 None 序列化不应失败")
+                .is_null(),
+            "顶层裸 None 同样是 null——`inbox_item()` 的「不存在返回 null」依赖它"
         );
     }
 

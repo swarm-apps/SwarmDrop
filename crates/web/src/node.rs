@@ -1131,7 +1131,7 @@ impl WebNode {
             .get_inbox_item_detail(id)
             .await
             .map_err(WebError::from)?;
-        optional_detail_to_js(detail)
+        to_js_typed(&detail, "收件箱详情")
     }
 
     /// 按传输会话 id 取收件箱详情（「这次传输收到的东西」的反查）；无关联返回 `null`。
@@ -1145,7 +1145,7 @@ impl WebNode {
             .get_inbox_item_by_transfer_session_id(sid)
             .await
             .map_err(WebError::from)?;
-        optional_detail_to_js(detail)
+        to_js_typed(&detail, "收件箱详情")
     }
 
     /// 收件箱子串检索：大小写不敏感，覆盖标题 / 来源设备名 / 文件名与相对路径。
@@ -1324,19 +1324,6 @@ fn parse_session_id(s: &str) -> Result<Uuid, WebError> {
 fn parse_uuid(s: &str, what: &str) -> Result<Uuid, JsValue> {
     Uuid::parse_str(s.trim())
         .map_err(|e| WebError::invalid_input(format!("非法 {what}: {e}")).into())
-}
-
-/// `Option<InboxItemDetail>` → JS，`None` 落成 **null**。
-///
-/// 显式分支不是多余的：serde_wasm_bindgen 把 `None` 序列化成 `undefined`，
-/// 与 `.d.ts` 声明的 `InboxItemDetail | null` 对不上，JS 侧 `=== null` 会恒假。
-fn optional_detail_to_js(
-    detail: Option<swarmdrop_transfer::inbox::InboxItemDetail>,
-) -> Result<InboxItemDetailJs, JsValue> {
-    match detail {
-        Some(detail) => to_js_typed(&detail, "收件箱详情"),
-        None => Ok(JsValue::NULL.unchecked_into()),
-    }
 }
 
 /// 解析 base58 身份串为 [`NodeId`]（`relays_drop` / `relays_until_active` 入参）。
