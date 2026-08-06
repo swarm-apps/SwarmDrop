@@ -708,6 +708,9 @@ msgstr "Copy to let a browser connect to this device quickly."
 
 #: src/components/network/lan-helper-address.tsx
 #: src/routes/_app/devices/-components/connection-badge.tsx
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/settings/-device-info-section.tsx
+#: src/routes/_app/settings/-mcp-section.tsx
 msgid "复制失败"
 msgstr "Copy failed"
 
@@ -1011,6 +1014,10 @@ msgstr "Once you start sending or receiving files, the current task appears here
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点"
 msgstr "Bootstrap Nodes"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点地址已复制"
+msgstr "Bootstrap node address copied"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点已变更，需重启节点生效"

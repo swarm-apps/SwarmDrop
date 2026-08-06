@@ -105,13 +105,18 @@ export function DeviceInfoSection() {
     setEditing(false);
   }, [nameInput, deviceName, t]);
 
+  // 失败必须显式报出来：`copyText` reject 时若不接 catch，Check 图标不亮、toast 也不弹，
+  // 表现和「没点到」完全一样（见 theme-and-styling.md 的静默 catch 教训）。
   const handleCopyPeerId = useCallback(() => {
     if (!deviceId) return;
-    copyText(deviceId).then(() => {
-      setCopied(true);
-      toast.success(t`已复制到剪贴板`);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    copyText(deviceId).then(
+      () => {
+        setCopied(true);
+        toast.success(t`已复制到剪贴板`);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => toast.error(t`复制失败`),
+    );
   }, [deviceId, t]);
 
   const connectedPeers = networkStatus?.connectedPeers ?? 0;

@@ -708,6 +708,9 @@ msgstr "複製後可供瀏覽器快速連線至本機。"
 
 #: src/components/network/lan-helper-address.tsx
 #: src/routes/_app/devices/-components/connection-badge.tsx
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/settings/-device-info-section.tsx
+#: src/routes/_app/settings/-mcp-section.tsx
 msgid "复制失败"
 msgstr "複製失敗"
 
@@ -1011,6 +1014,10 @@ msgstr "開始傳送或接收檔案後，目前任務會顯示在這裡。"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点"
 msgstr "引導節點"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点地址已复制"
+msgstr "引導節點位址已複製"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点已变更，需重启节点生效"

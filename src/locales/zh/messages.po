@@ -707,6 +707,9 @@ msgstr "复制后可供浏览器端快速连接本机。"
 
 #: src/components/network/lan-helper-address.tsx
 #: src/routes/_app/devices/-components/connection-badge.tsx
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/settings/-device-info-section.tsx
+#: src/routes/_app/settings/-mcp-section.tsx
 msgid "复制失败"
 msgstr "复制失败"
 
@@ -1010,6 +1013,10 @@ msgstr "开始发送或接收文件后，当前任务会显示在这里。"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点"
 msgstr "引导节点"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点地址已复制"
+msgstr "引导节点地址已复制"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点已变更，需重启节点生效"

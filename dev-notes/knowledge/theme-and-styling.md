@@ -410,7 +410,35 @@ loading 用骨架镜像真实布局）。
 
 **教训**：静默 catch + 未经实测的平台行为假设 = 一条能在知识库里活很久的错误记录。增强型功能失败时可以不打扰用户，但**必须留一条 debug 痕迹**，否则它坏没坏你都不知道。
 
-**相关文件**：`src/lib/clipboard.ts`、`src/hooks/use-clipboard-invite.ts`、`scripts/check-clipboard-access.mjs`、用到 `copyText` 的 `-device-info-section.tsx` / `-mcp-section.tsx` / `pairing/generate.lazy.tsx` / `inbox/index.lazy.tsx` / `network/lan-helper-address.tsx`
+**相关文件**：`src/lib/clipboard.ts`、`src/hooks/use-clipboard-invite.ts`、`scripts/check-clipboard-access.mjs`、用到 `copyText` 的 `-device-info-section.tsx` / `-mcp-section.tsx` / `pairing/generate.lazy.tsx` / `inbox/index.lazy.tsx` / `network/lan-helper-address.tsx` / `-bootstrap-nodes-section.tsx`
+
+### 展示地址的块要么可复制、要么别长得像可点（2026-08-06）
+
+设置页原有三处 multiaddr 展示，形态几乎一样（等宽灰色长地址 + 圆角边框块），但**只有两处接了
+onClick**（局域网协助地址、设备信息 Peer ID），引导节点那两张卡是纯 `<div>`。于是用户点了没反应，
+第一反应是「复制功能坏了」——而排查要跨 clipboard 插件注册 / capability / Toaster 挂载三层，
+才能确认真相是「那里从来没接过交互」。**同页同形不同命，是最贵的一类 UI 缺陷。**
+
+**正确做法**：
+- 新增地址 / ID 展示块时直接沿用 `LanHelperAddress` 的形态：`<button>` + 右侧 `Copy` 图标 +
+  `hover:bg-accent/40` + toast。别自己画一个只读的。
+- **屏幕上显示截断值时，`copyText` 与 `title` 都必须给完整值**。`truncateAddr()` 的产物中间被
+  省略号吃掉一段，复制出去是一条**写错的** multiaddr；外层 `truncate` 还会再截一次，两重遮蔽下
+  UI 上根本拿不到原值（引导节点那两条此前就是这样，用户没有任何途径拿到完整地址）。
+- 行内已有别的按钮（如删除）时，只把地址本身包成 button——嵌套 `<button>` 非法。
+- button 的 cursor 全项目统一是 `default`（Tailwind v4 preflight 基线，项目未覆盖），
+  别单独给某一处加 `cursor-pointer`；可点性靠 hover 背景 + `Copy` 图标表达。
+
+**不要做**：
+- `copyText(x).then(onOk)` 不接错误分支。reject 时按钮不变态、toast 不弹，**现象和「压根没接
+  onClick」完全一样**，比本文件上面记的静默 catch 更难查。用 `.then(ok, err)` 而不是
+  `.then(ok).catch(err)`——后者会把 `onOk` 内部抛的错也吞成「复制失败」，误报。
+
+**待办（未做）**：设置页三处 multiaddr 展示可抽成一个 `<CopyableAddress>`，根除「有的能点有的不能点」。
+同理 6 处 `copyText` 调用点可抽 `useCopyToClipboard`，但各处行为差异真实（有的带 `copied` 态 +
+timeout，有的只 toast），需先统一语义再抽。
+
+**相关文件**：`src/routes/_app/settings/-bootstrap-nodes-section.tsx`（`handleCopyAddr`）、`src/components/network/lan-helper-address.tsx`（形态样板）
 
 ## LAN 协助地址展示：数据源是 networkStatus.lanHelperAdvertisedAddrs，需自己拼 /p2p/<peerId>
 

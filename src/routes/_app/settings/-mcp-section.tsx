@@ -89,12 +89,17 @@ export function McpSection() {
     2,
   );
 
+  // 失败必须显式报出来：`copyText` reject 时若不接 catch，按钮既不进 copied 态也不弹
+  // toast，表现和「没点到」完全一样（见 theme-and-styling.md 的静默 catch 教训）。
   const handleCopy = useCallback(() => {
-    copyText(mcpConfig).then(() => {
-      setCopied(true);
-      toast.success(t`已复制到剪贴板`);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    copyText(mcpConfig).then(
+      () => {
+        setCopied(true);
+        toast.success(t`已复制到剪贴板`);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => toast.error(t`复制失败`),
+    );
   }, [mcpConfig, t]);
 
   return (
