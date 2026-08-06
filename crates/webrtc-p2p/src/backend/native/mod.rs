@@ -39,6 +39,7 @@ use webrtc::runtime::default_runtime;
 use libp2p_core::muxing::StreamMuxerBox;
 use webrtc::data_channel::DataChannel;
 
+use self::managed::ManagedPeerConnection;
 use self::muxer::{INIT_CHANNEL_LABEL as MUXER_INIT_LABEL, Muxer};
 use super::{Backend, BackendError, BackendEvent};
 use crate::config::Config;
@@ -46,6 +47,7 @@ use crate::protocol::MessageType;
 
 pub(crate) mod data_channel;
 pub mod direct;
+pub(crate) mod managed;
 pub(crate) mod muxer;
 
 /// SCTP receive window. The 1 MiB default drops the connection outright on a LAN (the
@@ -86,8 +88,14 @@ pub struct NativeBackend {
 
 enum State {
     /// The `PeerConnection` is still being built (`build()` is async).
-    Building(BoxFuture<'static, Result<Arc<dyn PeerConnection>, BackendError>>),
-    Ready(Arc<dyn PeerConnection>),
+    Building(BoxFuture<'static, Result<ManagedPeerConnection, BackendError>>),
+    /// 经 [`ManagedPeerConnection`] 持有：信令会话可能在任何一步失败或被丢弃，
+    /// 那时 backend 连同这个 `State` 一起 drop，不关闭连接就会泄漏一个空转的
+    /// driver 任务（见 [`managed`] 的模块文档）。
+    Ready(ManagedPeerConnection),
+    /// 连接已交给 muxer（见 [`NativeBackend::take_muxer`]）。与 `Failed` 分开是为了
+    /// 不把「成功交付」记成失败——两者都让 backend 停止接受新操作，但含义相反。
+    Taken,
     Failed,
 }
 
@@ -96,6 +104,7 @@ impl std::fmt::Debug for NativeBackend {
         let state = match self.state {
             State::Building(_) => "building",
             State::Ready(_) => "ready",
+            State::Taken => "taken",
             State::Failed => "failed",
         };
         f.debug_struct("NativeBackend")
@@ -229,12 +238,16 @@ impl Backend for NativeBackend {
     }
 
     fn take_muxer(&mut self) -> Option<StreamMuxerBox> {
-        let State::Ready(pc) = &self.state else {
+        if !matches!(self.state, State::Ready(_)) {
             return None;
-        };
+        }
         // 接收端只有一个，take 掉即表示所有权已交出——再次调用返回 None。
         let incoming = self.inbound_dc_rx.take()?;
-        Some(StreamMuxerBox::new(Muxer::new(pc.clone(), incoming)))
+        // 连接的所有权交给 muxer，由它继续保证关闭；本 backend 的信令使命到此为止。
+        let State::Ready(pc) = std::mem::replace(&mut self.state, State::Taken) else {
+            unreachable!("刚判过 Ready")
+        };
+        Some(StreamMuxerBox::new(Muxer::new(pc, incoming)))
     }
 
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<BackendEvent> {
@@ -269,7 +282,8 @@ impl Backend for NativeBackend {
             let Some(op) = self.queued.pop_front() else {
                 break;
             };
-            let pc = pc.clone();
+            // `Deref` 到内层 `Arc`，clone 的是连接句柄而非守卫——守卫仍归 `State` 所有。
+            let pc = (**pc).clone();
             self.spawn_op(pc, op);
         }
 
@@ -328,7 +342,7 @@ async fn build_peer_connection(
     config: Config,
     events_tx: mpsc::UnboundedSender<BackendEvent>,
     dc_tx: mpsc::UnboundedSender<Arc<dyn DataChannel>>,
-) -> Result<Arc<dyn PeerConnection>, BackendError> {
+) -> Result<ManagedPeerConnection, BackendError> {
     let runtime = default_runtime().ok_or_else(|| {
         BackendError::new("未检测到 async 运行时：native 后端需在 tokio 或 smol 中运行")
     })?;
@@ -355,7 +369,7 @@ async fn build_peer_connection(
             tx: events_tx,
             dc_tx,
         }))
-        .with_runtime(runtime)
+        .with_runtime(runtime.clone())
         .with_udp_addrs(bind_addrs(&config))
         .with_sctp_receive_buffer_size(SCTP_RECEIVE_BUFFER)
         .with_data_channel_send_buffer_limit(SEND_BUFFER_LIMIT)
@@ -363,7 +377,7 @@ async fn build_peer_connection(
         .await
         .map_err(|e| BackendError::new(format!("构造 PeerConnection 失败：{e}")))?;
 
-    Ok(Arc::new(pc))
+    Ok(ManagedPeerConnection::new(Arc::new(pc), runtime))
 }
 
 /// The local addresses ICE should bind to.

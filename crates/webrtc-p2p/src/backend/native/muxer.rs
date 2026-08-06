@@ -14,7 +14,8 @@ use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
 use libp2p_core::muxing::{StreamMuxer, StreamMuxerEvent};
 use webrtc::data_channel::DataChannel;
-use webrtc::peer_connection::PeerConnection;
+
+use super::managed::ManagedPeerConnection;
 
 use rtc::data_channel::RTCDataChannelId;
 
@@ -54,7 +55,12 @@ pub(crate) fn ordered_reliable() -> rtc::data_channel::RTCDataChannelInit {
 
 /// 一条 WebRTC 连接的数据面。
 pub(crate) struct Muxer {
-    pc: Arc<dyn PeerConnection>,
+    /// 经 [`ManagedPeerConnection`] 持有：**muxer 被 drop 时连接必须被关掉**。
+    ///
+    /// `poll_close` 覆盖不了这件事——它只在 libp2p 走正常关闭流程时被调到，而连接
+    /// 异常终止（对端掉线、Swarm 直接丢弃连接）时 muxer 是直接被 drop 的。放任不管的
+    /// 后果不是「多占一点内存」，而是一个空转的 driver 任务，见 [`managed`] 的模块文档。
+    pc: ManagedPeerConnection,
     /// `on_data_channel` 投递来的通道。
     ///
     /// ⚠️ 名字里的「入站」不能当保证：webrtc 0.20 的 driver 对**每一个** `OnOpen`
@@ -98,7 +104,7 @@ impl Muxer {
     ///
     /// 那条路径没有 Noise 握手，也就没有可协商的上限。
     pub(crate) fn new(
-        pc: Arc<dyn PeerConnection>,
+        pc: ManagedPeerConnection,
         incoming: mpsc::UnboundedReceiver<Arc<dyn DataChannel>>,
     ) -> Self {
         // 打洞路径的 init 通道靠 label 过滤（它的 id 是自动分配的，事先不知道）。
@@ -116,7 +122,7 @@ impl Muxer {
     /// `local_channels` 是建连期间由本端开出、不应被当成子流的通道 id
     /// （direct 模式的 Noise 通道）。
     pub(crate) fn with_config(
-        pc: Arc<dyn PeerConnection>,
+        pc: ManagedPeerConnection,
         incoming: mpsc::UnboundedReceiver<Arc<dyn DataChannel>>,
         stream_config: libp2p_webrtc_utils::StreamConfig,
         local_channels: HashSet<RTCDataChannelId>,

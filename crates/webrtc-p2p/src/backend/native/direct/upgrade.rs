@@ -49,6 +49,7 @@ use super::sdp;
 use super::udp_mux::{MuxedRuntime, MuxedSocket};
 use crate::backend::native::data_channel;
 // 两个调优常量与打洞路径共用——它们来自同一次 spike 实测，分两份写迟早只改一处。
+use crate::backend::native::managed::ManagedPeerConnection;
 use crate::backend::native::muxer::Muxer;
 use crate::backend::native::{SCTP_RECEIVE_BUFFER, SEND_BUFFER_LIMIT};
 use crate::error::Error;
@@ -95,6 +96,9 @@ pub(crate) async fn inbound(
         .map_err(|e| Error::Connection(format!("设置 DTLS 角色失败：{e}")))?;
 
     let (pc, mut events, inbound_dc) = build(se, Some(socket), remote, &ctx).await?;
+    // 守卫必须紧跟 `build`：到 `finish` 之间的每个 `?` 都会 drop 掉 pc，而不关闭它
+    // 就等于泄漏一个空转的 driver 任务（见 `managed` 模块文档）。
+    let pc = ManagedPeerConnection::new(pc, ctx.runtime.clone());
     let noise_channel = create_noise_channel(pc.as_ref()).await?;
 
     // 顺序与 dialer 相反：先收下（构造的）offer，再生成真 answer。
@@ -155,6 +159,9 @@ pub(crate) async fn outbound(
     // 官方实现强制 dialer 借用 listener 的 mux（没有 listener 就报 `NoListeners`），
     // 我们不需要那条限制——纯客户端（比如只拨不收的工具）照样能用。
     let (pc, mut events, inbound_dc) = build(se, None, remote, &ctx).await?;
+    // 同 inbound 的守卫。这条路径上**拨号失败是常态**（拨到非 webrtc-direct 的端口、
+    // certhash 不匹配、Noise 认证失败），而拨号会重试，泄漏按重试次数累积。
+    let pc = ManagedPeerConnection::new(pc, ctx.runtime.clone());
     let noise_channel = create_noise_channel(pc.as_ref()).await?;
 
     // 先生成真 offer，再收下（构造的）answer——后者会启动 ICE。
@@ -373,12 +380,14 @@ fn wrap_noise_channel(
 /// `on_data_channel`，不挡住就会被当成第一条入站子流交给上层（它握手完就关了，
 /// 上层一读即 EOF）。
 fn finish(
-    pc: Arc<dyn PeerConnection>,
+    pc: ManagedPeerConnection,
     inbound_dc: mpsc::UnboundedReceiver<Arc<dyn DataChannel>>,
     stream_config: StreamConfig,
     peer: PeerId,
     noise_channel_id: RTCDataChannelId,
 ) -> Connection {
+    // 握手成功：把**守卫本身** move 给 muxer，由它继续保证关闭——而不是在这里解除守卫
+    // 再交裸连接（那样中间会有一段没人负责关闭的窗口）。
     let muxer = Muxer::with_config(
         pc,
         inbound_dc,
