@@ -566,12 +566,22 @@ The web deltas are all forced by the browser baseline, not by taste:
 | Load | direct import | `next/dynamic` + `ssr:false` — pulling `_bg.wasm` to start the node outranks decoration. Measured: 15.6 KB gzip, absent from the route's first-load chunks |
 | DPR | aurora unset (1), rays capped at 2 | both capped by `ambientDpr()`: 1 below 768px, else ≤1.5 |
 | Frame rate | full RAF | throttled to 30 fps. The motion is second-scale; 30 and 60 are indistinguishable and the GPU work halves |
-| Layer opacity | 1 | **dark 1 (same as desktop) · light 0.34.** See below — the split is contrast, not taste |
-| Mask | none | radial `mask-image`, two strengths by theme. The shader pins a horizontal band at mid-height; on a 1240px column with 32px section gaps it shows through raw and reads as a colored bar across the middle. Dark keeps 45% at the centre so panels have something to refract; light hollows the centre out entirely |
+| Layer opacity | — | **Shared, no longer a delta:** dark 1 · light 0.34 |
+| Mask | — | **Shared:** radial `mask-image`, two strengths by theme. Dark keeps 45% at the centre so panels have something to refract; light hollows it out entirely |
 
-**The light/dark split here is a measured constraint, not a preference** (revised 2026-08-06; the
-table previously read "0.7 dark / 0.48 light" while the code said 0.34, and the dark value was
-holding the aurora below the level at which glass works at all).
+**Opacity and mask are now shared by both builds** (2026-08-06). They were a web-only delta, which
+had it backwards in both directions: web's dark value (0.7) held the aurora below the level at
+which glass works at all, while desktop ran unmasked and let the shader's mid-height band cross the
+card area as the brightest thing on screen. An ambient layer's job is to be *sensed*, not seen
+first — "everything else stays quiet so this can carry the feeling" means legible, not loud.
+
+**Attenuate by position, not by amount.** Turning opacity down removes the light *behind the
+panels* too, and that light is the only thing glass has to work with. The mask presses on the
+centre, which is what the band problem actually called for.
+
+**The light/dark split that remains is a measured constraint, not a preference** (the table also
+read "0.7 dark / 0.48 light" for a while when the code said 0.34 — three places stating this, so
+check all three when changing it).
 
 Additive light on a near-white surface has almost no headroom before `--muted-foreground` on a
 glass card drops under WCAG AA. Sampled by colour mode over the text's own background, worst of
@@ -584,15 +594,9 @@ combination measured 4.566 and looked safe; its worst frame was 4.413):
 | 0.24 + soft mask | 4.518 | 0.4% headroom, i.e. none |
 | 0.28 / 0.34 + soft mask | 4.443 / 4.413 | below AA |
 
-Dark has room to spare: full strength with the soft mask measures **7.3–8.4:1**. So dark runs at
-desktop parity and light stays clamped. Turning the *opacity* down was the wrong lever for the
-"colored bar" problem in the first place — it removes the light behind the panels too, which is
-the one thing glass needs. The mask attenuates **by position**, which is what that problem
-actually called for.
-
-**Desktop does not take the mask.** Its window is narrow and its panels tile the viewport, so
-there are no gaps for a band to show through — the aurora is already washed through glass. Adding
-the mask there only dims the reference implementation.
+Dark has room to spare: full strength with the soft mask measures **7.3–8.4:1**. Desktop light,
+which previously ran unmasked at full strength, measured 4.693 before and 4.653 after — the mask
+moves it toward safety, not away.
 
 **Reduced-transparency drops the ambient layer entirely** (`display: none`), whereas
 reduced-motion freezes the first frame. The two preferences ask different questions: motion asks

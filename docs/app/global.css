@@ -532,32 +532,32 @@
   }
 
   /*
-   * ⚠️ **标准属性必须包在 `@supports` 里，否则构建时会被整条删掉**（2026-08-06 实测）。
+   * ⚠️ **顺序有意义：`-webkit-` 在前、标准属性在后。写反了标准属性会被构建删掉。**
    *
-   * 这两行原本是并排写的（`backdrop-filter` + `-webkit-backdrop-filter`），源码没问题，
-   * 但产物里只剩前缀那条：
+   * Lightning CSS（Tailwind v4 内置）把前缀版与标准版当作**同一个属性的两次声明**，
+   * 去重时只留**最后一条**。这两行此前是反着写的（标准在前），于是产物里只剩：
    *
    *   .glass-panel,…,.glass-rail { -webkit-backdrop-filter: blur(…) saturate(145%) }
    *
-   * 成因是 Lightning CSS（Tailwind v4 内置）按 browserslist **合并同一属性的前缀族**，
-   * 而 docs 没有 browserslist 配置，用的是 Next 的默认目标（含 Chrome 64 / Safari 12）——
-   * 那两个都只认前缀版，于是它判定标准属性没人需要，删掉。
+   * 而**现代 Chrome 已经不认那个前缀**（实测：手写一条前缀声明，computed `backdropFilter`
+   * 仍是 `none`，computed style 里根本没有 `webkitBackdropFilter` 这个键）。净结果是整个
+   * Web 应用区的玻璃在 Chrome 上从未生效——而同一个块里的 `background` 照常工作，所以
+   * 看起来只是「玻璃有点不透明」，一路查到构建产物才能定位。
    *
-   * 而**现代 Chrome 已经不认 `-webkit-backdrop-filter` 了**（实测：手写一条前缀声明，
-   * computed `backdropFilter` 仍是 `none`，且 computed style 里根本没有 `webkitBackdropFilter`
-   * 这个键）。净结果是**整个 Web 应用区的玻璃在 Chrome 上完全失效**：`.glass-rail` /
-   * `.glass-panel` 的 `background` 照常生效（同一个块里的另一条声明），只有模糊那一半没了，
-   * 于是玻璃退化成一块半透明色板——正是「卡片不像玻璃、暗色下看着不透明」的根因。
+   * 排查时最容易走错的一步是**怀疑 token**：两端的 `--glass-*` 值逐字相同，对着比半天也
+   * 看不出问题。判据要落在 computed style 上：
    *
-   * 桌面端没这个病：它跑在 WKWebView（Safari 内核）里，前缀版本本就是那儿的正解。
-   * **两端观感差异的大头在这里，不在极光。**
+   *   getComputedStyle(document.querySelector('.glass-rail')).backdropFilter
+   *   // "none" = 规则没生效（既不是 token 不对，也不是 prefers-reduced-transparency）
    *
-   * `@supports` 让这一条免疫合并：条件本身要留到运行时判定，Lightning CSS 不能把块内的
-   * 声明挪出去与外面那条合并。前缀版留在外面给老 Safari，标准版在块内给现代浏览器。
+   * **归因更正（同日）**：这里一度写着「Lightning CSS 按 browserslist 裁剪前缀族，因为
+   * docs 的目标含 Chrome 64」，据此加了 `docs/.browserslistrc`。隔离实测推翻了它——
+   * 移走 browserslist 后，只要顺序是对的，两条照样都在。**browserslist 与这个缺陷无关**
+   * （Tailwind v4 本来也不读它）。那份配置留着是因为它自身合理，不是因为它修了什么。
    *
-   * **根治是给 docs 配一份现代 browserslist**（这个应用要 wasm + WebRTC + OPFS，本来就
-   * 跑不了 Chrome 64 / Safari 12），但那会改变整个站点（含文档区）的 CSS 输出，是独立决策。
-   * 在那之前，新增任何有前缀历史的现代属性都要按这个写法来，并去产物里 grep 一次确认。
+   * 判据（新增任何有前缀历史的属性都跑一次，dev 与 build 是两套管线，都要看）：
+   *
+   *   grep -oE '(^|[^-])backdrop-filter' out/_next/static/chunks/*.css
    */
   .glass-panel,
   .glass-card,
@@ -565,16 +565,7 @@
   .glass-accent,
   .glass-rail {
     -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
-  }
-
-  @supports (backdrop-filter: blur(1px)) {
-    .glass-panel,
-    .glass-card,
-    .glass-control,
-    .glass-accent,
-    .glass-rail {
-      backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
-    }
+    backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
   }
 
   /* 常驻导航（侧栏 / 窄屏顶栏 / 底部导航）的材质。比面板更实、更钝：
@@ -620,36 +611,27 @@
   /* 降级路径与新玻璃面同批交付，是 DESIGN.md 的硬要求（Reduced-Transparency Fallback），
      不是后续补丁。 */
   @media (prefers-reduced-transparency: reduce) {
+    /*
+     * ⚠️ 同上：`-webkit-` 在前、标准在后，写反了标准那条会被去重删掉。
+     *
+     * 降级这一侧中过同一枪，而且更没人会发现：产物里只剩 `-webkit-backdrop-filter: none`
+     * 时，现代 Chrome 上这个降级**根本关不掉玻璃**——用户开了「减少透明度」，模糊还在。
+     * 无障碍偏好这样失灵是不会有人来报的。
+     */
     .glass-panel,
     .glass-card,
     .glass-control,
     .glass-accent {
       background: var(--card);
       -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
 
     /* 导航退回实心的第二中性层，不是 `--card`——它是 chrome，不是内容面。 */
     .glass-rail {
       background: var(--sidebar);
       -webkit-backdrop-filter: none;
-    }
-
-    /*
-     * ⚠️ 同上面那条注释的坑，**降级这一侧同样中招过**：并排写两条时产物里只剩
-     * `-webkit-backdrop-filter: none`，于是在现代 Chrome 上这个降级**根本关不掉玻璃**
-     * ——用户开了「减少透明度」，模糊却还在。
-     *
-     * 关闭必须走与开启同一条通道：上面用 `@supports` 设的标准属性，只能用 `@supports`
-     * 里的标准属性来重置。少了这一块，无障碍偏好就是个摆设。
-     */
-    @supports (backdrop-filter: blur(1px)) {
-      .glass-panel,
-      .glass-card,
-      .glass-control,
-      .glass-accent,
-      .glass-rail {
-        backdrop-filter: none;
-      }
+      backdrop-filter: none;
     }
 
     /*

@@ -1,0 +1,39 @@
+# 这个站点的浏览器目标。
+#
+# ## 它修的不是玻璃那个缺陷
+#
+# 先把这条写在最前面，免得下一个人误读因果：本文件是 2026-08-06 排查「Chrome 上玻璃
+# 整片失效」时加的，当时判断是「Lightning CSS 按 browserslist 裁剪前缀族，而默认目标
+# 含 Chrome 64」。**那个判断是错的**，隔离实测推翻了它——移走本文件后，只要
+# `-webkit-backdrop-filter` 写在标准属性**前面**，两条声明照样都在产物里。
+#
+# 真正的成因是**声明顺序**：Lightning CSS 把前缀版与标准版当同一属性的两次声明，去重
+# 只留最后一条。修法记在 `app/global.css` 的玻璃规则注释里。Tailwind v4 本来也不读
+# browserslist（它有固定的现代目标）。
+#
+# ## 那为什么还留着
+#
+# 因为它**自身是对的**，与那个缺陷无关：不配时吃的是 Next 的默认目标（含 Chrome 64 /
+# Safari 12），而这个站的应用区跑的是 wasm P2P 节点，那两个版本本来就跑不动它。让构建
+# 目标与「谁真的能用这个产品」一致，收益是 JS 输出少一批用不上的降级与 polyfill。
+#
+# ## 这几个数是怎么来的
+#
+# 下限由**应用区实际需要的 Web 平台能力**决定：
+#
+#   · OPFS（`createWritable` / `createSyncAccessHandle`，接收落盘用）
+#       Chrome 102+ · Safari 15.2+ · **Firefox 111+** ← 最晚落地的一个，下限由它定
+#   · WebAssembly + WebRTC DataChannel + Web Crypto + IndexedDB —— 都早于上面这条
+#
+# Safari 取 16.4 而不是 15.2：15.x 有一批 CSS 缺陷（含 `:has()` 缺席），把下限压在那里
+# 只会让所有产物迁就一个本来也跑不动这个应用的版本。
+#
+# 文档区（fumadocs 那部分）在更老的浏览器上仍然可读，这份目标只影响它的 CSS 前缀与语法
+# 降级程度。
+#
+# ⚠️ 改这里会改变整站的 CSS 输出。改完确认一次玻璃还在：
+#     grep -oE '(^|[^-])backdrop-filter' out/_next/static/chunks/*.css
+chrome >= 111
+edge >= 111
+firefox >= 111
+safari >= 16.4

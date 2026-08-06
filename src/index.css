@@ -60,6 +60,39 @@
   --glass-card-shadow: 0 12px 32px rgb(15 23 42 / 0.045);
   --scrollbar-thumb: rgb(15 23 42 / 0.22);
   --scrollbar-thumb-hover: rgb(15 23 42 / 0.34);
+
+  /*
+   * 极光层的强度与遮罩。**与 Web 端 `docs/app/global.css` 的同名变量逐字相同**
+   * （2026-08-06 起两端同参），改一边必须改另一边——同着色器与 `*_CONFIG` 的纪律。
+   *
+   * ## 桌面端此前是满强度、无遮罩，那是**过亮**
+   *
+   * 着色器把光带钉在画面中线（`bandHeight: 0.5`），不压的话它会横穿卡片区，成为整屏最亮
+   * 的东西——环境层的本职是「身后有东西」，一旦先被看见就是在跟内容抢注意力。
+   * DESIGN.md 那句「其余 UI 保持安静，好让环境层承载个性」说的是让它**可感**，不是让它显眼。
+   *
+   * 遮罩按**位置**衰减而不是按总量：压 opacity 会连卡片背后的光一起拿走，而那是玻璃唯一
+   * 的原料（`backdrop-filter: blur()` 作用在一块纯色上，产出的还是那块纯色）。
+   *
+   * ## 亮色 0.34 是对比度定的，不是审美定的
+   *
+   * 极光是加色层，它叠在壳上、也透过 58% 白的玻璃卡透进卡面，而 `--muted-foreground` 的
+   * 绝大多数落点正是卡面。Web 端实测（众数采样、跨 3 帧取最差，量文字自己的背景）：
+   *
+   *   0.34 + 硬遮罩   4.645   AA 余量 3.2%
+   *   0.24 + 柔遮罩   4.518   余量 0.4%，等于没有
+   *   0.28 + 柔遮罩   4.443   不达标
+   *
+   * ⚠️ 单帧采样会骗人：0.34 + 柔遮罩有一帧量到 4.566 看着是过的，跨帧最差 4.413。
+   * 这类测量必须跨帧——极光在流动。
+   */
+  --ambient-aurora-opacity: 0.34;
+  --ambient-aurora-mask: radial-gradient(
+    118% 88% at 50% 42%,
+    transparent 8%,
+    rgb(0 0 0 / 0.32) 52%,
+    #000 100%
+  );
 }
 
 .dark {
@@ -111,6 +144,21 @@
   --glass-card-shadow: 0 16px 40px rgb(0 0 0 / 0.18);
   --scrollbar-thumb: rgb(255 255 255 / 0.26);
   --scrollbar-thumb-hover: rgb(255 255 255 / 0.38);
+
+  /*
+   * 暗色是极光的主场：满强度，但中心仍留 45% 而不是全开。
+   *
+   * 暗色这侧的对比度空间很大（满强度 + 本遮罩实测 7.3–8.4:1），所以不压总量；压的是
+   * **位置**——中心那 45% 既让卡片背后有光可折（玻璃靠它工作），又不至于让光带成为
+   * 整屏第一眼看到的东西。与亮色那档的差别只在这一个数：亮色中心是全挖空的。
+   */
+  --ambient-aurora-opacity: 1;
+  --ambient-aurora-mask: radial-gradient(
+    118% 88% at 50% 42%,
+    rgb(0 0 0 / 0.45) 8%,
+    rgb(0 0 0 / 0.66) 52%,
+    #000 100%
+  );
 }
 
 @theme inline {
@@ -160,12 +208,25 @@
     outline-offset: 2px;
   }
 
+  /*
+   * ⚠️ **顺序有意义：`-webkit-` 在前、标准属性在后**（本文件四处 backdrop-filter 同此）。
+   *
+   * Lightning CSS（Tailwind v4 内置）把前缀版与标准版当作同一属性的两次声明，去重只留
+   * **最后一条**。写反了产物里就只剩 `-webkit-backdrop-filter`，而现代 Chrome 已经不认
+   * 那个前缀——玻璃会整片失效，且失效得隐蔽：同一个块里的 `background` 照常工作，
+   * 看起来只是「玻璃有点不透明」。
+   *
+   * 桌面端此前四处都写反了，只是**没暴露**：它跑在 WKWebView（Safari 内核）里，前缀版
+   * 正是那儿的正解。会暴露的两个场合：在 Chrome 里跑 `pnpm dev` 调前端（看不到玻璃），
+   * 以及 Safari 18 起标准属性才是那边的首选。Web 端同一处缺陷是真炸了的，
+   * 详见 `docs/app/global.css` 的同名注释。
+   */
   .glass-panel,
   .glass-card,
   .glass-control,
   .glass-accent {
-    backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
     -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+    backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
   }
 
   .glass-panel {
@@ -208,8 +269,8 @@
     .glass-control,
     .glass-accent {
       background: var(--card);
-      backdrop-filter: none;
       -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
   }
 
@@ -217,15 +278,15 @@
      滚动时把行内容柔化遮住；reduced-transparency 下退化为纯色。 */
   .inbox-sticky-heading {
     background: var(--glass-panel-bg);
-    backdrop-filter: blur(16px) saturate(145%);
     -webkit-backdrop-filter: blur(16px) saturate(145%);
+    backdrop-filter: blur(16px) saturate(145%);
   }
 
   @media (prefers-reduced-transparency: reduce) {
     .inbox-sticky-heading {
       background: var(--card);
-      backdrop-filter: none;
       -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
   }
 
@@ -304,6 +365,14 @@
 
   .app-ambient-aurora {
     z-index: 0;
+    /*
+     * 强度与遮罩走变量，**与 Web 端 `docs/app/global.css` 同参**（2026-08-06 起）。
+     * 此前桌面端是满强度、无遮罩，光带横穿卡片区、抢在内容前面被看见。
+     * 值与推导见上方两处 `--ambient-aurora-*` 的注释。
+     */
+    opacity: var(--ambient-aurora-opacity);
+    -webkit-mask-image: var(--ambient-aurora-mask);
+    mask-image: var(--ambient-aurora-mask);
   }
 
   .app-ambient-light-overlay {

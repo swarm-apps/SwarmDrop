@@ -524,9 +524,9 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 （统一 `radix-ui` 包，docs 早就装了同一个），离线确定，且两端组件行为逐字一致。
 唯一要改的是 `@/lib/utils` → `@/lib/cn`。
 
-### ⚠️ 构建会删掉带前缀历史的**标准**属性，只留 `-webkit-`——玻璃因此整片失效过（2026-08-06）
+### ⚠️ 前缀属性要写在标准属性**前面**，否则标准那条会被构建删掉（2026-08-06）
 
-源码里规规矩矩写了两条：
+源码里规规矩矩写了两条，顺序是「标准在前、前缀在后」：
 
 ```css
 .glass-panel, … , .glass-rail {
@@ -535,9 +535,19 @@ shadcn CLI 在 Node 24 下起不来（传递依赖 `@modelcontextprotocol/sdk` �
 }
 ```
 
-产物里**只剩前缀那条**。成因是 Lightning CSS（Tailwind v4 内置）按 browserslist
-**合并同一属性的前缀族**，而 `docs/` 没有 browserslist 配置，吃的是 Next 的默认目标
-（含 Chrome 64 / Safari 12）——那两个都只认前缀版，于是它判定标准属性没人需要。
+产物里**只剩前缀那条**。成因是 Lightning CSS（Tailwind v4 内置）把前缀版与标准版当作
+**同一个属性的两次声明**，去重时只留**最后一条**。把顺序调过来（`-webkit-` 在前）
+两条就都在了。
+
+> **归因更正。** 这条最初写的是「Lightning CSS 按 browserslist 裁剪前缀族，而 `docs/`
+> 没配 browserslist、吃的是 Next 默认目标（含 Chrome 64 / Safari 12）」，并据此加了
+> `docs/.browserslistrc`。**隔离实测推翻了它**：移走那份配置后，只要顺序是对的，两条
+> 照样都在产物里；Tailwind v4 本来也不读 browserslist（它有固定的现代目标）。
+> browserslist 那份配置留着是因为它自身合理（见该文件注释），不是因为它修了什么。
+>
+> 教训与这条缺陷本身同样值得记：**「产物少了东西」有两类成因——按目标裁剪、按重复去重**，
+> 两者的现象一模一样。先做隔离实验（移走一个变量再构建）再下结论，别拿第一个说得通的
+> 机制当答案。
 
 **而现代 Chrome 已经不认 `-webkit-backdrop-filter`**（实测：手写一条前缀声明，computed
 `backdropFilter` 仍是 `none`，且 computed style 里根本没有 `webkitBackdropFilter` 这个键）。
@@ -554,23 +564,24 @@ getComputedStyle(document.querySelector('.glass-rail')).backdropFilter
 // "none" = 规则没生效（不是 token 不对，也不是 prefers-reduced-transparency）
 ```
 
-**修法**：标准属性包进 `@supports`，前缀版留在外面。条件要留到运行时判定，Lightning CSS
-不能把块内声明挪出去合并：
+**修法就是调顺序**：
 
 ```css
-.glass-… { -webkit-backdrop-filter: blur(…) saturate(145%); }
-@supports (backdrop-filter: blur(1px)) {
-  .glass-… { backdrop-filter: blur(…) saturate(145%); }
+.glass-… {
+  -webkit-backdrop-filter: blur(…) saturate(145%);  /* 前缀在前 */
+  backdrop-filter: blur(…) saturate(145%);          /* 标准在后，才留得下 */
 }
 ```
 
 **关闭也要走同一条通道。** `@media (prefers-reduced-transparency: reduce)` 里那条
-`backdrop-filter: none` 同样被删过，于是无障碍降级在现代 Chrome 上**根本关不掉玻璃**——
-用户开了「减少透明度」，模糊还在。重置必须同样包在 `@supports` 里。
+`backdrop-filter: none` 中了同一枪，于是无障碍降级在现代 Chrome 上**根本关不掉玻璃**——
+用户开了「减少透明度」，模糊还在。那种失灵是不会有人来报的。
 
-**根治是给 `docs/` 配一份现代 browserslist**（这个应用要 wasm + WebRTC + OPFS，本来就跑不了
-Chrome 64 / Safari 12），但那会改变整个站点（含文档区）的 CSS 输出，是独立决策。在那之前，
-**新增任何有前缀历史的现代属性都要按上面的写法来，并去产物里 grep 一次确认**：
+**桌面端 `src/index.css` 四处同样写反了**，只是没暴露（WKWebView 是 Safari 内核，前缀版
+正是那儿的正解）。会暴露的场合有两个：在 Chrome 里跑 `pnpm dev` 调前端，以及 Safari 18 起
+标准属性才是首选。已一并调顺序。
+
+**新增任何有前缀历史的现代属性都要按这个顺序写，并去产物里 grep 一次确认**：
 
 ```bash
 curl -s "$(浏览器里读 link[rel=stylesheet].href)" | grep -o '[^-]backdrop-filter'
