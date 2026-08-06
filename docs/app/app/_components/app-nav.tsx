@@ -21,7 +21,7 @@ import { useLingui } from "@lingui/react/macro";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { appIconPath, appName } from "@/lib/shared";
-import { APP_NAV, activeNavHref, type AppNavItem } from "../_lib/nav";
+import { APP_HOME, APP_NAV, activeNavHref, type AppNavItem } from "../_lib/nav";
 import { selectOfferCount, useWebNode } from "../_lib/store";
 import { NodeStatusDialog } from "./node-status-dialog";
 import { RailTools } from "./rail-tools";
@@ -38,17 +38,44 @@ function useActiveHref(): string {
   return activeNavHref(usePathname());
 }
 
-/** 品牌标记。不可点——对齐桌面端「unclickable logo mark」，也避免误点直接退出应用区
- *  （离开 /app 会卸载节点单例，正在进行的传输随之中断）。 */
-function BrandMark({ labelClassName = "" }: { labelClassName?: string }) {
+/**
+ * 品牌标记 —— 指向应用首页的链接。
+ *
+ * **落点是 `APP_HOME`（/app/devices），不是站点根 `/`。** 这条区别是硬的，不是偏好：
+ * 节点单例挂在 `/app` 的 layout 上，用 `next/link` 跳出应用区是客户端路由，layout 一卸载
+ * 节点就跟着关，正在进行的传输当场断——而 `ReloadGuard` 只拦 `beforeunload`（整页卸载），
+ * 对客户端跳转一声不吭。也就是说指向 `/` 会**在没有任何提示的情况下**弄丢传输。
+ * 想去文档站有正经出口：设置页的「关于」面板。
+ *
+ * 与桌面端「unclickable logo mark」分叉，理由同 DESIGN.md 里 Web 导航整体分叉那条：
+ * 桌面顶栏的面包屑自带一枚首页图标，logo 不必再兼这个职；Web 侧栏没有面包屑，
+ * 而「点 logo 回首页」是浏览器里唯一不用教的约定。
+ *
+ * 品牌名后原本缀着一个灰色的 "Web"。去掉了：它要澄清的「这是浏览器端不是你装的那个」
+ * 由地址栏和站点本身回答得更早，挂在产品名后面反而像个版本尾巴。这个身份信息没有丢——
+ * 「关于」面板里仍写明 Web 端没有「已安装版本」的概念。
+ */
+function BrandMark({
+  labelClassName = "",
+  className = "",
+}: {
+  labelClassName?: string;
+  className?: string;
+}) {
   return (
-    <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+    // `min-h-11` + 由外层给的宽度 = 44px 起的点按区（DESIGN 的触达尺寸条）。
+    // `gap-3` / `px-3` 与下方 `SidebarLink` 同值，于是展开档里品牌图标与导航图标落在同一条
+    // 左边线上（都是容器 8 + 自身 12 = 20px）——此前品牌是 `px-3` 直接贴容器，比导航图标靠左 8px。
+    // 图标档没有可见文字（`labelClassName` 把它藏掉），读屏与悬停靠 `aria-label` / `title`。
+    <Link
+      href={APP_HOME}
+      title={appName}
+      aria-label={appName}
+      className={`focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-foreground transition-colors hover:text-brand ${className}`}
+    >
       <img src={appIconPath} alt="" className="size-5 shrink-0" />
-      <span className={labelClassName}>
-        {appName}
-        <span className="ml-1 font-normal text-muted-foreground">Web</span>
-      </span>
-    </span>
+      <span className={labelClassName}>{appName}</span>
+    </Link>
   );
 }
 
@@ -79,8 +106,14 @@ export function AppSidebar() {
     // `relative z-10` 是它压在环境层之上的方式——`.app-shell` 刻意不做通配提升，
     // 理由见 global.css。
     <aside className="glass-rail relative z-10 hidden h-full shrink-0 flex-col border-r md:flex md:w-16 lg:w-56">
-      <div className="flex h-14 shrink-0 items-center border-b px-3 md:justify-center lg:justify-start">
-        <BrandMark labelClassName="hidden lg:inline" />
+      {/* 容器退到 `px-2`（与下方 `nav` 的 `p-2` 同值），把水平内边距让给品牌链接自己——
+          点按区因此与一条导航项等宽等高（实测两档都是 207×44 与 47×44，与 `SidebarLink`
+          逐像素相同），而不是只有文字那一小块。 */}
+      <div className="flex h-14 shrink-0 items-center border-b px-2">
+        <BrandMark
+          labelClassName="hidden lg:inline"
+          className="w-full md:justify-center lg:justify-start"
+        />
       </div>
 
       <nav aria-label={t`应用导航`} className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
@@ -165,8 +198,10 @@ export function AppMobileHeader() {
     // 外壳已是受限高度、滚动发生在 main 里，所以顶栏是常规 flex 子元素（`shrink-0`）
     // 而不再需要 `sticky top-0`——它本来就不会随内容滚走了。
     <header className="glass-rail shrink-0 border-b md:hidden">
-      <div className="flex items-center justify-between px-4 py-3">
-        <BrandMark />
+      {/* `h-14` 与侧栏品牌行同高；品牌链接用 `-mx-3` 抵掉自身内边距，图标仍落在 16px
+          （与页面内容的 `px-4` 同一条左边线），点按区却比文字宽出 24px。 */}
+      <div className="flex h-14 items-center justify-between px-4">
+        <BrandMark className="-mx-3" />
         <NodeStatusDialog />
       </div>
     </header>
