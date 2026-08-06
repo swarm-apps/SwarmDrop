@@ -331,6 +331,33 @@ driver status: signal: 9 (SIGKILL)
   `cd crates/web` 再跑 cargo，所以前置进 PATH 的目录**必须是绝对路径**——相对路径的症状是
   `No such file or directory (os error 2)`，同样与「driver 没装」无从区分。
 
+#### ⚠️ driver 缓存在 `target/` 下，会被 rust-cache 掏空成骨架（2026-08-06 修）
+
+**症状**：CI 的 `wasm` job 连红，`./scripts/test-wasm.sh` 报
+
+```
+All providers failed for chromedriver 150.0.7871.128:
+  - DefaultProvider: The browser folder (target/wasm-test-driver/chromedriver/linux-150.0.7871.128)
+    exists but the executable (…/chromedriver-linux64/chromedriver) is missing
+```
+
+**成因**：`DRIVER_ROOT` 在 `target/` 下，而 `swatinem/rust-cache` 会缓存并**清理** `target/`
+——它不认识非 cargo 产物，于是恢复回来的是**只有目录、没有二进制**的骨架。而
+`@puppeteer/browsers install` 见到版本目录已存在就拒绝安装，不会自愈。
+
+净效果：**CI 上第一次跑完之后每一次都必然失败**，且报错长得像网络问题。develop 在
+2026-08-06 连红三次都是它，期间那 25 条 wasm 测试一次都没在 CI 跑过——正是这个脚本当初
+要消灭的「写了、编得过、从没跑过」，换了个地方复发。
+
+**修法**：脚本发现「缓存里没有匹配当前 Chrome 版本的 driver」时，先 `rm -rf "$DRIVER_ROOT"`
+再装。走到那一步就已经确定缓存无用，清掉无损；不做定点删除是为了不把 puppeteer 的目录
+布局（`<root>/chromedriver/<platform>-<version>/…`，且 `<platform>` 在 Apple Silicon 上是
+`mac_arm` 不是 `mac`）抄进脚本。
+
+**复现方式**（照着做能精确重演，别用「随便造个空目录」——目录名不对就撞不上）：
+先正常跑一次让它装好，再 `rm -f $(find target/wasm-test-driver -name chromedriver -type f)`，
+然后重跑。修复前报上面那条，修复后自愈并 25 passed。
+
 **相关文件**：`scripts/test-wasm.sh`、`scripts/check-wasm.sh`、`.github/workflows/rust.yml`
 
 ### docs 的 Next dev：浏览器必须用 localhost 访问，127.0.0.1 会静默死页

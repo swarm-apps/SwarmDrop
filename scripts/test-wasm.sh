@@ -57,6 +57,15 @@ else
   }
   DRIVER_DIR="$(find_cached_driver)"
   if [[ -z "$DRIVER_DIR" ]]; then
+    # **先把缓存目录整个清掉再装。** `@puppeteer/browsers install` 见到版本目录已存在
+    # 就拒绝安装（`The browser folder (…) exists but the executable (…) is missing`），
+    # 而 `swatinem/rust-cache` 恢复 `target/` 时只带回目录骨架、不带回这个二进制——
+    # 它不认识非 cargo 产物。于是 CI 上第一次跑完之后**每一次都必然失败**，且报错长得
+    # 像网络问题。develop 连红三次（2026-08-06）就是这么来的，期间 wasm 测试一次都没跑。
+    #
+    # 走到这里就已经确定「本机没有可用于当前 Chrome 版本的 driver」，缓存里剩下的都是
+    # 别的版本，清掉无损。不做定点删除是为了不把 puppeteer 的目录布局抄进这里。
+    rm -rf "$DRIVER_ROOT"
     echo "为 Chrome $CHROME_VERSION 取匹配的 chromedriver…"
     npx -y @puppeteer/browsers install "chromedriver@$CHROME_VERSION" --path "$DRIVER_ROOT" >/dev/null
     DRIVER_DIR="$(find_cached_driver)"
