@@ -116,6 +116,26 @@ impl From<TransferOfferEvent> for MobileTransferOffer {
 
 **相关文件**：`packages/swarmdrop-core/rust/mobile-core/src/{transfer,events,network,history,device,inbox,file_access}.rs`
 
+### `Option<T>` 在 uniffi 与 specta 下生成的 TS 类型不一样
+
+同一个 Rust `Option<String>`（现成的例子：`InboxItemSummary.root_path`、`last_opened_at`）：
+
+| codegen | 消费端 | 生成的 TS |
+|---|---|---|
+| **uniffi**（移动） | `src/generated/*.ts` | `field?: string` —— 可选属性，缺席是 `undefined` |
+| **specta**（桌面 / Web） | `src/lib/bindings.ts`、`crates/web/bindings/bindings.ts` | `field: string \| null` |
+
+所以**跨端共用的展示逻辑签名不能照抄桌面的 `string | null`**——移动端传进来的是
+`string | undefined`，`tsc` 会直接报 TS2345。移动端这一侧写 `string | undefined` 即可
+（调用点全是 uniffi 生成的类型）；只有当同一个函数要同时吃两套 codegen 的产物时，
+才需要 `string | null | undefined` 并用 falsy 判别覆盖两种缺席。
+
+这不是可以统一掉的东西：两套 codegen 对 `Option<T>` 的映射约定本来就不同，改任一边都是
+和上游打架。**留意点在「抄」上**：从桌面的 hook / 工具函数复制一份到 `mobile/src` 时，
+类型签名往往是最后才暴露问题的地方（逻辑照抄能跑，`?? ""` 也照样工作）。
+
+记于 2026-08-05（收件箱标题结构化那次改动的副产物）。
+
 ## Callback 错误必须包成 uniffi enum 形状
 
 ### 抛错前用 `FfiError.Variant.new(msg)` 包装

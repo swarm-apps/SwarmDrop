@@ -180,6 +180,7 @@ msgid "临时设备"
 msgstr "Temporary"
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "主题"
 msgstr "Theme"
 
@@ -190,6 +191,10 @@ msgstr "You can also hit “Send” on a device from the <0>Devices</0> page —
 #: app/app/_components/invite-share.tsx
 msgid "二维码生成失败，请用下方链接配对"
 msgstr "Could not render the QR code — pair with the link below"
+
+#: app/app/_components/device-grid.tsx
+msgid "互换一次邀请"
+msgstr "Swap an invite once"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "仅同一网络内可用"
@@ -247,7 +252,7 @@ msgid "你的可达地址"
 msgstr "Your reachable address"
 
 #: app/app/_components/about-panel.tsx
-#: app/app/_components/app-nav.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "使用文档"
 msgstr "Documentation"
 
@@ -1232,6 +1237,7 @@ msgid "活跃传输"
 msgstr "Active transfers"
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "浅色"
 msgstr "Light"
 
@@ -1260,6 +1266,7 @@ msgid "浏览器在此环境不提供 <0>navigator.storage</0> / <1>crypto.subtl
 msgstr "Here the browser does not provide <0>navigator.storage</0> or <1>crypto.subtle</1>, so the receiving side cannot write to disk. Use <2>https</2>, <3>http://localhost</3>, or <4>http://127.0.0.1</4> instead — not a plain-http private IP."
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "深色"
 msgstr "Dark"
 
@@ -1274,6 +1281,10 @@ msgstr "Adding…"
 #: app/app/_components/connection-panel.tsx
 msgid "添加自定义引导节点"
 msgstr "Add a custom bootstrap node"
+
+#: app/app/_components/device-grid.tsx
+msgid "添加设备"
+msgstr "Add device"
 
 #: app/app/_components/send-panel.tsx
 msgid "清空"
@@ -1299,6 +1310,10 @@ msgstr "Nothing is transferring right now"
 msgid "生成一条邀请发给对方"
 msgstr "Generate an invite to send"
 
+#: app/app/_components/device-grid.tsx
+msgid "生成一条邀请发给对方，或把对方给你的邀请粘进来。"
+msgstr "Generate an invite and send it over, or paste in the one they gave you."
+
 #: app/app/_components/pairing-panel.tsx
 msgid "生成中…"
 msgstr "Generating…"
@@ -1308,8 +1323,8 @@ msgid "生成邀请"
 msgstr "Generate invite"
 
 #: app/app/_components/device-grid.tsx
-msgid "用下面的「配对」区生成一条邀请发给对方，或把对方给你的邀请粘进去。"
-msgstr "Use the Pairing section below to generate an invite, or paste the one you were given."
+#~ msgid "用下面的「配对」区生成一条邀请发给对方，或把对方给你的邀请粘进去。"
+#~ msgstr "Use the Pairing section below to generate an invite, or paste the one you were given."
 
 #: app/app/_components/transfer-detail.tsx
 msgid "用时"
@@ -1547,6 +1562,7 @@ msgid "设置"
 msgstr "Settings"
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "语言"
 msgstr "Language"
 
@@ -1560,6 +1576,7 @@ msgid "超过 {0} 天未恢复，已自动清理"
 msgstr "Not resumed for over {0} days, so it was cleaned up automatically."
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "跟随系统"
 msgstr "System"
 

@@ -180,6 +180,7 @@ msgid "临时设备"
 msgstr "臨時裝置"
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "主题"
 msgstr "主題"
 
@@ -190,6 +191,10 @@ msgstr "也可以直接從 <0>裝置</0> 頁點某台裝置的「傳送」，目
 #: app/app/_components/invite-share.tsx
 msgid "二维码生成失败，请用下方链接配对"
 msgstr "QR 碼產生失敗，請用下方連結配對"
+
+#: app/app/_components/device-grid.tsx
+msgid "互换一次邀请"
+msgstr "互換一次邀請"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "仅同一网络内可用"
@@ -247,7 +252,7 @@ msgid "你的可达地址"
 msgstr "你的可達位址"
 
 #: app/app/_components/about-panel.tsx
-#: app/app/_components/app-nav.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "使用文档"
 msgstr "使用說明"
 
@@ -1232,6 +1237,7 @@ msgid "活跃传输"
 msgstr "進行中的傳輸"
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "浅色"
 msgstr "淺色"
 
@@ -1260,6 +1266,7 @@ msgid "浏览器在此环境不提供 <0>navigator.storage</0> / <1>crypto.subtl
 msgstr "瀏覽器在此環境不提供 <0>navigator.storage</0> / <1>crypto.subtle</1>，接收端無法寫入檔案。請改用 <2>https</2>、<3>http://localhost</3> 或 <4>http://127.0.0.1</4> 存取，不要用 http 私網 IP。"
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "深色"
 msgstr "深色"
 
@@ -1274,6 +1281,10 @@ msgstr "新增中…"
 #: app/app/_components/connection-panel.tsx
 msgid "添加自定义引导节点"
 msgstr "新增自訂引導節點"
+
+#: app/app/_components/device-grid.tsx
+msgid "添加设备"
+msgstr "新增裝置"
 
 #: app/app/_components/send-panel.tsx
 msgid "清空"
@@ -1299,6 +1310,10 @@ msgstr "目前沒有正在進行的傳輸"
 msgid "生成一条邀请发给对方"
 msgstr "產生一條邀請傳給對方"
 
+#: app/app/_components/device-grid.tsx
+msgid "生成一条邀请发给对方，或把对方给你的邀请粘进来。"
+msgstr "產生一條邀請傳給對方，或把對方給你的邀請貼進來。"
+
 #: app/app/_components/pairing-panel.tsx
 msgid "生成中…"
 msgstr "產生中…"
@@ -1308,8 +1323,8 @@ msgid "生成邀请"
 msgstr "產生邀請"
 
 #: app/app/_components/device-grid.tsx
-msgid "用下面的「配对」区生成一条邀请发给对方，或把对方给你的邀请粘进去。"
-msgstr "用下面的「配對」區產生一條邀請傳給對方，或把對方給你的邀請貼進去。"
+#~ msgid "用下面的「配对」区生成一条邀请发给对方，或把对方给你的邀请粘进去。"
+#~ msgstr "用下面的「配對」區產生一條邀請傳給對方，或把對方給你的邀請貼進去。"
 
 #: app/app/_components/transfer-detail.tsx
 msgid "用时"
@@ -1547,6 +1562,7 @@ msgid "设置"
 msgstr "設定"
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "语言"
 msgstr "語言"
 
@@ -1560,6 +1576,7 @@ msgid "超过 {0} 天未恢复，已自动清理"
 msgstr "超過 {0} 天未恢復，已自動清理"
 
 #: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
 msgid "跟随系统"
 msgstr "跟隨系統"
 

@@ -333,8 +333,10 @@ TTL 24h + 一次性消费）；链接走 Base64URL，二维码走同一 wire 的
 
 **收件箱是真表，不是「已完成接收会话」的投影。** 会话表有 `HISTORY_CAP = 100` 淘汰，
 收件箱条目**不参与**——「清空传输历史不动收件箱」这条三端不变量在浏览器上才成立。
-加 object store 要同改三处（store 常量 / `DB_VERSION` / `onupgradeneeded` 清单），
-漏后两处只在运行时报错，见
+加 object store 要同改三处（store 常量 / `DB_VERSION` / `idb.rs` 的 `STORES` 表），
+漏后两处只在运行时报错。**换一张已有表的记录格式同样要提 `DB_VERSION`**，并把 `STORES`
+里那个 store 的格式版本一起改——结构没变、只有字段含义变时，旧行会**成功**反序列化，
+坏得无声无息。两件事都见
 [`web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md)。
 schema 变更**直接换，不写迁移 / 回填 / 双写**（Web 端还没有真实用户）。
 

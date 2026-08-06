@@ -14,6 +14,23 @@ export const LOCALES = ["zh", "zh-TW", "en"] as const;
 
 export type Locale = (typeof LOCALES)[number];
 
+/**
+ * 语言的**自称**（endonym）：给英语用户看 "English" 而不是「英语」，才认得出来。
+ *
+ * **刻意不走 Lingui。** 每种语言的名字要以**它自己**的形式出现，与界面当前是什么语言无关
+ * ——切到英文时这一列仍然是「简体中文 / 繁體中文 / English」。翻译它等于把「用户能不能
+ * 认出自己的母语」交给他此刻看不懂的那个 locale。
+ *
+ * 与 [`LOCALES`] 放在一起，是因为它们是同一件事的两半：加一种语言时这里必须同时长出一行，
+ * `Record<Locale, string>` 会强制这一点。此前它在设置页与侧栏工具条各存了一份逐字相同的
+ * 副本，两份都写着「与另一处同一份判断」——而它们不是一份。
+ */
+export const LOCALE_ENDONYM: Record<Locale, string> = {
+  zh: "简体中文",
+  "zh-TW": "繁體中文",
+  en: "English",
+};
+
 /** 源 locale：msgid 就是中文原文，所以它永远不需要翻译目录也能正确显示。 */
 export const SOURCE_LOCALE: Locale = "zh";
 

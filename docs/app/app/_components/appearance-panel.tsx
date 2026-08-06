@@ -26,7 +26,6 @@ import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Palette } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
 import {
   Select,
   SelectContent,
@@ -35,16 +34,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/cn";
-import { LOCALES, type Locale } from "../_lib/i18n";
+import { LOCALE_ENDONYM, LOCALES, type Locale } from "../_lib/i18n";
+import { useMounted } from "../_lib/use-mounted";
 import { useLocaleSwitcher } from "./i18n-provider";
 import { SettingsCard, SettingsRow, SettingsSection } from "./settings-primitives";
-
-/** 语言的**自称**（endonym）：给英语用户看 "English" 而不是「英语」，才认得出来。 */
-const LOCALE_ENDONYM: Record<Locale, string> = {
-  zh: "简体中文",
-  "zh-TW": "繁體中文",
-  en: "English",
-};
 
 type ThemeValue = "system" | "light" | "dark";
 
@@ -62,11 +55,9 @@ export function AppearancePanel() {
   const { locale, switchTo } = useLocaleSwitcher();
   const { theme, setTheme } = useTheme();
 
-  // next-themes 在服务端/首帧读不到已选主题（它存在 localStorage）。静态导出下预渲染出来的
-  // HTML 一定是「未选中任何一项」，直接渲染 `theme` 会 hydration mismatch。挂载后再显示选中
-  // 态——这一帧的代价是三个按钮短暂都不高亮，比整棵子树报 mismatch 好。
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // 挂载后才显示选中态——这一帧的代价是三个按钮短暂都不高亮。
+  // 为什么必须这样（静态导出 + localStorage 主题 = hydration mismatch）见 `useMounted`。
+  const mounted = useMounted();
 
   return (
     <SettingsSection icon={Palette} title={<Trans>外观</Trans>}>
