@@ -203,7 +203,10 @@ mod tests {
         });
 
         let out = String::from_utf8_lossy(&sink.0.lock().unwrap()).into_owned();
-        assert!(out.contains("after"), "装载后应当能写入日志，实际输出: {out:?}");
+        assert!(
+            out.contains("after"),
+            "装载后应当能写入日志，实际输出: {out:?}"
+        );
         assert!(!out.contains("before"), "装载前的日志不该出现");
     }
 
