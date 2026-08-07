@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest an improvement or a new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before writing: the [roadmap](https://github.com/swarm-apps/SwarmDrop#roadmap)
+        lists what's already planned.
+
+        SwarmDrop deliberately stays narrow — device-to-device transfer with no accounts
+        and no servers. Continuous folder sync, cloud storage and public file sharing are
+        out of scope by design, not by omission.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part does this touch?
+      options:
+        - Desktop app
+        - Mobile app
+        - Browser build
+        - MCP / AI agent tooling
+        - Pairing & device management
+        - Transfer & inbox
+        - Networking
+        - Docs
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you running into?
+      description: >
+        Describe the situation rather than the solution. "I have to re-select the same
+        folder every time I send from my laptop" tells us more than "add a default
+        folder setting" — there may be a better fix than the one you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: If you already have a shape in mind, describe it here.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything you tried or considered?
+      description: Workarounds you're using today, or other tools that handle this well.
