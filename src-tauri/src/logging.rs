@@ -49,6 +49,18 @@ const FILE_LEVEL: LevelFilter = LevelFilter::INFO;
 ///
 /// **必须是 `Box<dyn Layer<..>>` 而不是具体的 `fmt::Layer<..>`**：后者会把 writer 类型
 /// 烤进签名，等到 [`install_file_layer`] 真正装载时就对不上了。
+///
+/// ⚠️ **这里面不能带 per-layer filter（`.with_filter()`）**。`Filtered` layer 的
+/// `FilterId` 由 registry 在 `.with()` 注册那一刻分配，而经 reload 后期塞进来的拿不到，
+/// 一使用就 panic：
+///
+/// ```text
+/// a `Filtered` layer was used, but it had no `FilterId`; was it registered with the subscriber?
+/// ```
+///
+/// 更糟的是它发生在 `did_finish_launching` 这个 ObjC 回调里，会变成 non-unwinding panic
+/// 直接 abort——应用一启动就崩。所以文件层的级别过滤挂在**空位外层**（见 [`init`]），
+/// 注册时就分配好 FilterId；装进来的内层是不带 filter 的裸 layer。
 type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync>;
 type ReloadHandle = reload::Handle<Option<BoxedLayer>, Registry>;
 
@@ -64,7 +76,9 @@ pub fn init() {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER));
 
     let registered = tracing_subscriber::registry()
-        .with(slot)
+        // 文件层的级别过滤挂在**空位外层**：`Filtered` 的 FilterId 必须在注册时分配，
+        // 放进 reload 内层会在装载后 panic（详见 `BoxedLayer` 的注释）。
+        .with(slot.with_filter(FILE_LEVEL))
         .with(fmt::layer())
         .with(filter)
         .try_init()
@@ -101,17 +115,21 @@ pub fn install_file_layer(dir: &Path) -> Option<WorkerGuard> {
 
     let (writer, guard) = tracing_appender::non_blocking(appender);
 
+    // 不带 filter —— 级别过滤在 `init()` 里挂在空位外层了。这里再加一层 `.with_filter()`
+    // 会因为拿不到 FilterId 而在首次写日志时 panic。
     let layer = fmt::layer()
         .with_writer(writer)
         // 文件不是终端，ANSI 转义只会变成乱码。
         .with_ansi(false)
-        .with_target(true)
-        .with_filter(FILE_LEVEL);
+        .with_target(true);
 
-    handle
-        .modify(|slot| *slot = Some(Box::new(layer)))
-        .ok()
-        .map(|()| guard)
+    handle.modify(|slot| *slot = Some(Box::new(layer))).ok()?;
+
+    // 立刻写一行。没有它，用户在「刚启动就打开日志文件夹」时会看到一个 0 字节文件，
+    // 看起来像功能坏了。这一行同时标明日志何时开始、落在哪，排查时是有用的锚点。
+    tracing::info!(dir = %dir.display(), "文件日志已装载");
+
+    Some(guard)
 }
 
 #[cfg(test)]
@@ -124,11 +142,78 @@ mod tests {
     /// 那正是 design D2 警告的那个坑：类型烤死后装载时对不上。
     #[test]
     fn boxed_layer_slot_accepts_a_file_layer() {
-        let layer = fmt::layer()
-            .with_writer(std::io::sink)
-            .with_ansi(false)
-            .with_filter(FILE_LEVEL);
+        let layer = fmt::layer().with_writer(std::io::sink).with_ansi(false);
         let _boxed: BoxedLayer = Box::new(layer);
+    }
+
+    /// 走完整的 reload 流程并**真的写一条日志**。
+    ///
+    /// 这条是 2026-08-07 补的，起因是原先只有上面那个「类型能装下」的编译期测试，
+    /// 它给了虚假的安全感：装进去的 layer 带了 `.with_filter()`，类型完全合法、编译通过、
+    /// 测试全绿，但一到运行时就
+    ///
+    /// ```text
+    /// a `Filtered` layer was used, but it had no `FilterId`
+    /// ```
+    ///
+    /// 而且发生在 `did_finish_launching` 的 ObjC 回调里 → non-unwinding panic → 应用
+    /// 一启动就 abort。**只测类型是不够的，必须让日志真的流过一遍。**
+    #[test]
+    fn reload_slot_actually_logs_after_installation() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone)]
+        struct Buf(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for Buf {
+            type Writer = Self;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let sink = Buf(Arc::new(Mutex::new(Vec::new())));
+        let (slot, handle) = reload::Layer::new(None::<BoxedLayer>);
+
+        // 与 `init()` 同构：filter 挂在空位**外层**。
+        let subscriber = tracing_subscriber::registry().with(slot.with_filter(FILE_LEVEL));
+
+        tracing::subscriber::with_default(subscriber, || {
+            // 装载前不该有输出。
+            tracing::info!("before");
+            assert!(sink.0.lock().unwrap().is_empty(), "装载前不应产生输出");
+
+            // 与 `install_file_layer()` 同构：装进去的是**不带 filter** 的裸 layer。
+            let layer = fmt::layer().with_writer(sink.clone()).with_ansi(false);
+            handle
+                .modify(|s| *s = Some(Box::new(layer)))
+                .expect("装载文件层失败");
+
+            // 关键：这一行若 panic，就是 FilterId 那个坑复发了。
+            tracing::info!("after");
+        });
+
+        let out = String::from_utf8_lossy(&sink.0.lock().unwrap()).into_owned();
+        assert!(out.contains("after"), "装载后应当能写入日志，实际输出: {out:?}");
+        assert!(!out.contains("before"), "装载前的日志不该出现");
+    }
+
+    /// 文件层的级别必须真的比控制台保守，否则 D3 的控量意图落空。
+    #[test]
+    fn file_level_filters_out_debug() {
+        assert!(
+            FILE_LEVEL < LevelFilter::DEBUG,
+            "FILE_LEVEL 应比 DEBUG 保守，否则 swarmdrop_net 的高频事件会撑爆用户磁盘"
+        );
     }
 
     /// 目录不可写时返回 None 而不是 panic —— 日志不该让应用起不来。
