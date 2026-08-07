@@ -1303,7 +1303,6 @@ const FfiConverterTypeMobileResumeRejectReason = (() => {
 
 // Enum: MobileFailureCode
 export enum MobileFailureCode_Tags {
-    FileFinalizeFailed = "FileFinalizeFailed",
     SessionExpired = "SessionExpired",
     ResumeRejected = "ResumeRejected",
     OfferFailed = "OfferFailed",
@@ -1317,37 +1316,6 @@ export enum MobileFailureCode_Tags {
  * 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
  */
 export const MobileFailureCode = (() => {
-
-    type FileFinalizeFailed__interface = {
-        tag: MobileFailureCode_Tags.FileFinalizeFailed;
-        inner: 
-Readonly<{fileName: string}>
-    };
-    class FileFinalizeFailed_ extends UniffiEnum implements FileFinalizeFailed__interface {
-        /**
-         * @private
-         * This field is private and should not be used, use `tag` instead.
-         */
-        readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
-        readonly tag = MobileFailureCode_Tags.FileFinalizeFailed;
-        readonly inner: 
-Readonly<{fileName: string}>;
-        constructor(
-inner: {fileName: string }) {
-            super("MobileFailureCode", "FileFinalizeFailed");
-
-            this.inner = Object.freeze(inner);
-        }
-        static new(
-inner: {fileName: string }): FileFinalizeFailed_ {
-            return new FileFinalizeFailed_(inner);
-        }
-
-        static instanceOf(obj: any): obj is FileFinalizeFailed_ {
-            return obj.tag === MobileFailureCode_Tags.FileFinalizeFailed;
-        }
-
-    }
 
     type SessionExpired__interface = {
         tag: MobileFailureCode_Tags.SessionExpired;
@@ -1475,7 +1443,6 @@ inner: {message: string }): Legacy_ {
 
     return Object.freeze({
         instanceOf,
-  FileFinalizeFailed: FileFinalizeFailed_, 
   SessionExpired: SessionExpired_, 
   ResumeRejected: ResumeRejected_, 
   OfferFailed: OfferFailed_, 
@@ -1491,7 +1458,7 @@ inner: {message: string }): Legacy_ {
  * 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
  */
 export type MobileFailureCode = InstanceType<
-    typeof MobileFailureCode['FileFinalizeFailed' | 'SessionExpired' | 'ResumeRejected' | 'OfferFailed' | 'Legacy']
+    typeof MobileFailureCode['SessionExpired' | 'ResumeRejected' | 'OfferFailed' | 'Legacy']
 >;
 
 // FfiConverter for enum MobileFailureCode
@@ -1501,40 +1468,33 @@ const FfiConverterTypeMobileFailureCode = (() => {
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             switch (ordinalConverter.read(from)) {
-                case 1: return new MobileFailureCode.FileFinalizeFailed({fileName: FfiConverterString.read(from) });
-                case 2: return new MobileFailureCode.SessionExpired({retentionDays: FfiConverterUInt32.read(from) });
-                case 3: return new MobileFailureCode.ResumeRejected({reason: FfiConverterTypeMobileResumeRejectReason.read(from) });
-                case 4: return new MobileFailureCode.OfferFailed();
-                case 5: return new MobileFailureCode.Legacy({message: FfiConverterString.read(from) });
+                case 1: return new MobileFailureCode.SessionExpired({retentionDays: FfiConverterUInt32.read(from) });
+                case 2: return new MobileFailureCode.ResumeRejected({reason: FfiConverterTypeMobileResumeRejectReason.read(from) });
+                case 3: return new MobileFailureCode.OfferFailed();
+                case 4: return new MobileFailureCode.Legacy({message: FfiConverterString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
         write(value: TypeName, into: RustBuffer): void {
             switch (value.tag) {
-                case MobileFailureCode_Tags.FileFinalizeFailed: {
-                    ordinalConverter.write(1, into);
-                    const inner = value.inner;
-                    FfiConverterString.write(inner.fileName, into);
-                    return;
-                }
                 case MobileFailureCode_Tags.SessionExpired: {
-                    ordinalConverter.write(2, into);
+                    ordinalConverter.write(1, into);
                     const inner = value.inner;
                     FfiConverterUInt32.write(inner.retentionDays, into);
                     return;
                 }
                 case MobileFailureCode_Tags.ResumeRejected: {
-                    ordinalConverter.write(3, into);
+                    ordinalConverter.write(2, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileResumeRejectReason.write(inner.reason, into);
                     return;
                 }
                 case MobileFailureCode_Tags.OfferFailed: {
-                    ordinalConverter.write(4, into);
+                    ordinalConverter.write(3, into);
                     return;
                 }
                 case MobileFailureCode_Tags.Legacy: {
-                    ordinalConverter.write(5, into);
+                    ordinalConverter.write(4, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.message, into);
                     return;
@@ -1546,30 +1506,24 @@ const FfiConverterTypeMobileFailureCode = (() => {
         }
         allocationSize(value: TypeName): number {
             switch (value.tag) {
-                case MobileFailureCode_Tags.FileFinalizeFailed: {
-                    const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(1);
-                    size += FfiConverterString.allocationSize(inner.fileName);
-                    return size;
-                }
                 case MobileFailureCode_Tags.SessionExpired: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(2);
+                    let size = ordinalConverter.allocationSize(1);
                     size += FfiConverterUInt32.allocationSize(inner.retentionDays);
                     return size;
                 }
                 case MobileFailureCode_Tags.ResumeRejected: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(3);
+                    let size = ordinalConverter.allocationSize(2);
                     size += FfiConverterTypeMobileResumeRejectReason.allocationSize(inner.reason);
                     return size;
                 }
                 case MobileFailureCode_Tags.OfferFailed: {
-                    return ordinalConverter.allocationSize(4);
+                    return ordinalConverter.allocationSize(3);
                 }
                 case MobileFailureCode_Tags.Legacy: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(5);
+                    let size = ordinalConverter.allocationSize(4);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
                 }
@@ -4945,32 +4899,30 @@ export interface ForeignFileAccess {
  */
     readSourceChunk(sourceId: string, offset: bigint, length: bigint, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<ArrayBuffer>;
 /**
- * 创建写入目标，返回 sink_id
+ * 把一个已收齐的暂存文件发布到 SAF (`content://`) 目标目录下。
+ *
+ * **只有 SAF 目标会走到这里。** `file://` 目标由 Rust 侧直接 rename/copy——
+ * 这个 port 存在的唯一理由是 `ContentResolver`：建 document、拿 document URI，
+ * 只有平台侧做得到。接收的随机写则完全不经过 JS（见 `file_staging` 的模块文档）。
+ *
+ * `staging_uri` 是应用私有目录下暂存文件的 **`file://` URI**（percent-encoded）。
+ * **必须带 scheme**：expo 的 `JavaFile` 构造是 `File(URI.create(uri))`，
+ * 无 scheme 的裸路径会抛 `IllegalArgumentException: URI is not absolute`，
+ * 于是每一次 SAF 发布都失败——正是这个改动要修的那个配置。
+ *
+ * 实现方读它、顺序写进目标，**不要**在目标上做定位写。
+ *
+ * 返回文件的最终落盘 URI **及其父目录 URI**——core 会原样落库，收件箱
+ * 「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir，**不能**用目录 + 相对路径
+ * 拼接代替（SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
+ *
+ * 必须**可重入**：目标已存在时覆盖它，而不是生成带序号的副本——进程在拷贝中途
+ * 被杀之后，续传会重新发布一次。失败时应尽力删掉目标位置的半成品。
  */
-    createSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string>;
+    publishToTarget(stagingUri: string, metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileFinalizedSink>;
 /**
- * 打开已有 sink 或创建新 sink（断点续传用）
- */
-    openOrCreateSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string>;
-/**
- * 写入指定偏移
- */
-    writeSinkChunk(sinkId: string, offset: bigint, data: ArrayBuffer, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
-/**
- * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
- * 返回文件的最终落盘 URI **及其父目录 URI**（file:// 或 SAF document URI）——core
- * 会原样落库,收件箱「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir,**不能**用
- * 目录 + 相对路径拼接代替(SAF document id 有独立编码,重名冲突还会被系统改写成
- * "foo (1).txt")。
- */
-    finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileFinalizedSink>;
-/**
- * 取消时清理临时文件
- */
-    cleanupSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
-/**
- * 删除一个**已最终化**的文件。`uri` 是 [`Self::finalize_sink`] 返回过的那个
- * （`file://` 或 SAF document URI），也就是落库到 `local_path` 的值。
+ * 删除一个**已最终化**的文件。`uri` 是发布时返回过的那个（`file://` 或 SAF
+ * document URI），也就是落库到 `local_path` 的值。
  *
  * **文件已不存在不算错误**，按契约返回 `Ok`（删除幂等）。
  *
@@ -5075,120 +5027,34 @@ private constructor(pointer: UniffiHandle) {
     }
     
 /**
- * 创建写入目标，返回 sink_id
+ * 把一个已收齐的暂存文件发布到 SAF (`content://`) 目标目录下。
+ *
+ * **只有 SAF 目标会走到这里。** `file://` 目标由 Rust 侧直接 rename/copy——
+ * 这个 port 存在的唯一理由是 `ContentResolver`：建 document、拿 document URI，
+ * 只有平台侧做得到。接收的随机写则完全不经过 JS（见 `file_staging` 的模块文档）。
+ *
+ * `staging_uri` 是应用私有目录下暂存文件的 **`file://` URI**（percent-encoded）。
+ * **必须带 scheme**：expo 的 `JavaFile` 构造是 `File(URI.create(uri))`，
+ * 无 scheme 的裸路径会抛 `IllegalArgumentException: URI is not absolute`，
+ * 于是每一次 SAF 发布都失败——正是这个改动要修的那个配置。
+ *
+ * 实现方读它、顺序写进目标，**不要**在目标上做定位写。
+ *
+ * 返回文件的最终落盘 URI **及其父目录 URI**——core 会原样落库，收件箱
+ * 「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir，**不能**用目录 + 相对路径
+ * 拼接代替（SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
+ *
+ * 必须**可重入**：目标已存在时覆盖它，而不是生成带序号的副本——进程在拷贝中途
+ * 被杀之后，续传会重新发布一次。失败时应尽力删掉目标位置的半成品。
  */
-    async createSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
+    async publishToTarget(stagingUri: string, metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }): Promise<MobileFinalizedSink> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterTypeMobileFileMetadata.lower(metadata, nativeModule().rustbuffer_alloc)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            // Async returns always go through the JS-side converter: the
-            // FFI symbol returns the future handle (u64), and the user-level
-            // RustBuffer comes back via the shared `rust_future_complete_*`
-            // export. The bytes the runtime hands back must be deserialized
-            // here using the per-callable return-type converter.
-            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-/**
- * 打开已有 sink 或创建新 sink（断点续传用）
- */
-    async openOrCreateSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterTypeMobileFileMetadata.lower(metadata, nativeModule().rustbuffer_alloc)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            // Async returns always go through the JS-side converter: the
-            // FFI symbol returns the future handle (u64), and the user-level
-            // RustBuffer comes back via the shared `rust_future_complete_*`
-            // export. The bytes the runtime hands back must be deserialized
-            // here using the per-callable return-type converter.
-            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-/**
- * 写入指定偏移
- */
-    async writeSinkChunk(sinkId: string, offset: bigint, data: ArrayBuffer, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(sinkId, nativeModule().rustbuffer_alloc),FfiConverterUInt64.lower(offset, nativeModule().rustbuffer_alloc),FfiConverterArrayBuffer.lower(data, nativeModule().rustbuffer_alloc)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
-            /*liftFunc:*/ (_v) => {},
-            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-/**
- * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
- * 返回文件的最终落盘 URI **及其父目录 URI**（file:// 或 SAF document URI）——core
- * 会原样落库,收件箱「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir,**不能**用
- * 目录 + 相对路径拼接代替(SAF document id 有独立编码,重名冲突还会被系统改写成
- * "foo (1).txt")。
- */
-    async finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileFinalizedSink> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(sinkId, nativeModule().rustbuffer_alloc)
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_publish_to_target(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(stagingUri, nativeModule().rustbuffer_alloc),FfiConverterTypeMobileFileMetadata.lower(metadata, nativeModule().rustbuffer_alloc)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
@@ -5214,38 +5080,8 @@ private constructor(pointer: UniffiHandle) {
     }
     
 /**
- * 取消时清理临时文件
- */
-    async cleanupSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(sinkId, nativeModule().rustbuffer_alloc)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
-            /*liftFunc:*/ (_v) => {},
-            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-/**
- * 删除一个**已最终化**的文件。`uri` 是 [`Self::finalize_sink`] 返回过的那个
- * （`file://` 或 SAF document URI），也就是落库到 `local_path` 的值。
+ * 删除一个**已最终化**的文件。`uri` 是发布时返回过的那个（`file://` 或 SAF
+ * document URI），也就是落库到 `local_path` 的值。
  *
  * **文件已不存在不算错误**，按契约返回 `Ok`（删除幂等）。
  *
@@ -5452,154 +5288,19 @@ const uniffiCallbackInterfaceForeignFileAccess: { vtable: any; register: () => v
             );
             return uniffiForeignFuture;
         },
-        create_sink: (
+        publish_to_target: (
             uniffiHandle: bigint,
+            stagingUri: Uint8Array,
             metadata: Uint8Array,
-            uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer,
-            uniffiCallbackData: bigint) => {
-            const uniffiMakeCall = 
-            async (signal: AbortSignal)
-            : Promise<string> => {
-                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.createSink(
-                    FfiConverterTypeMobileFileMetadata.lift(metadata), { signal }
-                )
-            };
-            const uniffiHandleSuccess = (returnValue: string) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultRustBuffer */{
-                        return_value: FfiConverterString.lower(returnValue, nativeModule().rustbuffer_alloc),
-                        call_status: uniffiCaller.createCallStatus()
-                    }
-                );
-            };
-            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultRustBuffer */{
-                        return_value: /*empty*/ new Uint8Array(0),
-                        // TODO create callstatus with error.
-                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
-                    }
-                );
-            };
-            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
-                /*makeCall:*/ uniffiMakeCall,
-                /*handleSuccess:*/ uniffiHandleSuccess,
-                /*handleError:*/ uniffiHandleError,
-                /*isErrorType:*/ FfiError.instanceOf,
-                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
-                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
-                /*alloc:*/ nativeModule().rustbuffer_alloc,
-            );
-            return uniffiForeignFuture;
-        },
-        open_or_create_sink: (
-            uniffiHandle: bigint,
-            metadata: Uint8Array,
-            uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer,
-            uniffiCallbackData: bigint) => {
-            const uniffiMakeCall = 
-            async (signal: AbortSignal)
-            : Promise<string> => {
-                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.openOrCreateSink(
-                    FfiConverterTypeMobileFileMetadata.lift(metadata), { signal }
-                )
-            };
-            const uniffiHandleSuccess = (returnValue: string) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultRustBuffer */{
-                        return_value: FfiConverterString.lower(returnValue, nativeModule().rustbuffer_alloc),
-                        call_status: uniffiCaller.createCallStatus()
-                    }
-                );
-            };
-            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultRustBuffer */{
-                        return_value: /*empty*/ new Uint8Array(0),
-                        // TODO create callstatus with error.
-                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
-                    }
-                );
-            };
-            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
-                /*makeCall:*/ uniffiMakeCall,
-                /*handleSuccess:*/ uniffiHandleSuccess,
-                /*handleError:*/ uniffiHandleError,
-                /*isErrorType:*/ FfiError.instanceOf,
-                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
-                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
-                /*alloc:*/ nativeModule().rustbuffer_alloc,
-            );
-            return uniffiForeignFuture;
-        },
-        write_sink_chunk: (
-            uniffiHandle: bigint,
-            sinkId: Uint8Array,
-            offset: bigint,
-            data: Uint8Array,
-            uniffiFutureCallback: UniffiForeignFutureCompletevoid,
-            uniffiCallbackData: bigint) => {
-            const uniffiMakeCall = 
-            async (signal: AbortSignal)
-            : Promise<void> => {
-                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.writeSinkChunk(
-                    FfiConverterString.lift(sinkId), 
-                    FfiConverterUInt64.lift(offset), 
-                    FfiConverterArrayBuffer.lift(data), { signal }
-                )
-            };
-            const uniffiHandleSuccess = (returnValue: void) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
-                        call_status: uniffiCaller.createCallStatus()
-                    }
-                );
-            };
-            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
-                        // TODO create callstatus with error.
-                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
-                    }
-                );
-            };
-            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
-                /*makeCall:*/ uniffiMakeCall,
-                /*handleSuccess:*/ uniffiHandleSuccess,
-                /*handleError:*/ uniffiHandleError,
-                /*isErrorType:*/ FfiError.instanceOf,
-                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
-                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
-                /*alloc:*/ nativeModule().rustbuffer_alloc,
-            );
-            return uniffiForeignFuture;
-        },
-        finalize_sink: (
-            uniffiHandle: bigint,
-            sinkId: Uint8Array,
             uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer,
             uniffiCallbackData: bigint) => {
             const uniffiMakeCall = 
             async (signal: AbortSignal)
             : Promise<MobileFinalizedSink> => {
                 const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.finalizeSink(
-                    FfiConverterString.lift(sinkId), { signal }
+                return await jsCallback.publishToTarget(
+                    FfiConverterString.lift(stagingUri), 
+                    FfiConverterTypeMobileFileMetadata.lift(metadata), { signal }
                 )
             };
             const uniffiHandleSuccess = (returnValue: MobileFinalizedSink) => {
@@ -5618,49 +5319,6 @@ const uniffiCallbackInterfaceForeignFileAccess: { vtable: any; register: () => v
                     uniffiCallbackData,
                     /* UniffiForeignFutureResultRustBuffer */{
                         return_value: /*empty*/ new Uint8Array(0),
-                        // TODO create callstatus with error.
-                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
-                    }
-                );
-            };
-            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
-                /*makeCall:*/ uniffiMakeCall,
-                /*handleSuccess:*/ uniffiHandleSuccess,
-                /*handleError:*/ uniffiHandleError,
-                /*isErrorType:*/ FfiError.instanceOf,
-                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
-                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
-                /*alloc:*/ nativeModule().rustbuffer_alloc,
-            );
-            return uniffiForeignFuture;
-        },
-        cleanup_sink: (
-            uniffiHandle: bigint,
-            sinkId: Uint8Array,
-            uniffiFutureCallback: UniffiForeignFutureCompletevoid,
-            uniffiCallbackData: bigint) => {
-            const uniffiMakeCall = 
-            async (signal: AbortSignal)
-            : Promise<void> => {
-                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.cleanupSink(
-                    FfiConverterString.lift(sinkId), { signal }
-                )
-            };
-            const uniffiHandleSuccess = (returnValue: void) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
-                        call_status: uniffiCaller.createCallStatus()
-                    }
-                );
-            };
-            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
                         // TODO create callstatus with error.
                         call_status: uniffiCaller.createErrorStatus(code, errorBuf),
                     }
@@ -8397,22 +8055,10 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk() !== 58751) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink() !== 15892) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink");
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target() !== 3812) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink() !== 42405) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk() !== 54574) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink() !== 46445) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink() !== 36565) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file() !== 63176) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file() !== 47656) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity() !== 59813) {

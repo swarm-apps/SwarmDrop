@@ -378,7 +378,14 @@ export type ConnectionType = "lan" | "dcutr" | "relay";
  *  暴露到公共 API 上。DB 边界用 [`From`] 与 `entity::SaveLocation` 双向转换。
  */
 export type CoreSaveLocation = 
-/**  文件系统绝对路径（桌面）或 `Paths.document` 子路径（移动端）。 */
+/**
+ *  宿主自己解释的保存位置串，**core 视其为不透明**。
+ * 
+ *  桌面是文件系统绝对路径；移动端是 expo-file-system 的 URI，**可能是 `file://`，
+ *  也可能是 Android SAF 的 `content://` tree**（用户在设置里选了系统公共目录时）；
+ *  Web 是 OPFS 的相对路径。名字叫 `Path` 是历史，别据此假设它一定是文件系统路径——
+ *  移动端的发布路径正是靠嗅探 `content://` 前缀来分派的。
+ */
 { type: "path"; path: string };
 
 /**  统一的设备输出类型。 */
@@ -502,17 +509,11 @@ export type ExternalPairInvite = {
 /**
  *  会话失败原因。持久化进 `transfer_sessions.error_message` 列（类型不变，存 JSON）。
  * 
- *  变体数量刻意贴着**实际构造点**（三处 `ActorReport::FatalError` + 一处过期回收），
+ *  变体数量刻意贴着**实际构造点**（两处 `ActorReport::FatalError` + 一处过期回收），
  *  不预留「将来可能用到」的码 —— `failure-semantics-contract` 的 D3 已经吃过一次亏：
  *  造出来到不了 UI 的判别码只是三端文案表里的死条目。
  */
 export type FailureCode = 
-/**
- *  落盘最终化失败 —— 含 bao 逐块验签不通过、sink 写入失败。
- * 
- *  用户能做的是重新传一次，所以三端文案落在「文件没能完整保存，请重新接收」。
- */
-{ code: "fileFinalizeFailed"; fileName: string } | 
 /**
  *  超过保留期仍未恢复，被启动清理回收。
  * 

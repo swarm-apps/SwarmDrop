@@ -107,8 +107,8 @@ msgstr "「{0}」傳來的檔案按這裡的設定處置。策略只存在本機
 
 #. placeholder {0}: failure.fileName
 #: app/app/_lib/view-types.ts
-msgid "「{0}」没能完整保存，请重新接收"
-msgstr "「{0}」未能完整儲存，請重新接收"
+#~ msgid "「{0}」没能完整保存，请重新接收"
+#~ msgstr "「{0}」未能完整儲存，請重新接收"
 
 #. placeholder {0}: shown?.deviceName
 #: app/app/_components/pairing-request-host.tsx

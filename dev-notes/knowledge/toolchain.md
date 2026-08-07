@@ -248,9 +248,23 @@ opt-level = 3
 
 | 手段 | 腾出 | 代价 |
 |---|---|---|
-| `rm -rf target/debug/incremental` | ~3.7G | 只影响下次增量编译速度，**最安全** |
+| `rm -rf target/*/debug/incremental target/debug/incremental` | 见下 | 只影响下次增量编译速度，**最安全** |
 | `CARGO_INCREMENTAL=0` 跑 | 不再增长 | 单次编译略慢，适合一次性的门禁跑 |
-| `cargo clean` | ~10G | 全量重编（libp2p 那棵树十几分钟） |
+| `cargo clean` | 全部 | 全量重编（libp2p 那棵树十几分钟） |
+
+**「10G 量级」是 `cargo clean` 之后的一轮，不是长期稳态。** 2026-08-07 实测：长期开发
+（多 target × 多 profile 累积）后 `target/` 到了 **176G**，其中 `debug/deps` 101G、
+各 target 的 `incremental` 合计 39G、`wasm32-unknown-unknown` 11G，直接把 466G 的盘塞到
+只剩 467Mi，`cargo test --workspace` 与 clippy 全线报 `No space left on device`
+（症状是成片的 "could not compile ... due to 1 previous error"，**看着像代码问题**，
+要往上翻才看得到真正的 `couldn't create a temp dir` / `failed to write`）。
+
+删 incremental 那一条别只删 `target/debug/incremental`——iOS / Android / wasm 各 target
+都有自己的一份，那次合计 39G 里 `debug` 只占 26G。一条命令覆盖全部：
+
+```bash
+rm -rf target/debug/incremental target/*/debug/incremental
+```
 
 **`cargo clean` 治标不治本**：清完的余量若也只有 10G 出头，编一轮就又满了。真卡住时从
 项目外腾（Xcode DerivedData / Android 构建缓存都是纯派生物）比反复 clean 有效。

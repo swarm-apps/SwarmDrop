@@ -475,15 +475,6 @@ impl SessionStore for WebTransferStore {
         self.persist(session_id).await
     }
 
-    async fn reset_file_checkpoint(&self, session_id: Uuid, file_id: i32) -> AppResult<()> {
-        self.mutate_file(session_id, file_id, |f| {
-            f.completed_chunks = vec![];
-            f.completed_ranges = "[]".to_string();
-            f.transferred_bytes = 0;
-        });
-        self.persist(session_id).await
-    }
-
     async fn save_sender_file_progress(
         &self,
         session_id: Uuid,

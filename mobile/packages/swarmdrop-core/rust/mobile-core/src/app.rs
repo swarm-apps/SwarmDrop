@@ -76,7 +76,8 @@ impl MobileCore {
         Arc::new(Self {
             event_bus: Arc::new(MobileEventBusAdapter::new(event_bus)),
             keychain,
-            file_access: Arc::new(MobileFileAccessAdapter::new(file_access)),
+            // 接收暂存区挂在 data_dir 下（与 SQLite 同级），故必须在 data_dir 解析之后建。
+            file_access: Arc::new(MobileFileAccessAdapter::new(file_access, &data_dir)),
             device_config: Arc::new(JsonFileDeviceConfig::new(device_config_path(&data_dir))),
             data_dir,
             keypair: Mutex::new(None),

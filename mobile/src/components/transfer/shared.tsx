@@ -275,10 +275,6 @@ export function failureCodeLabel(
 ): ReactNode {
   if (!failure) return null;
   switch (failure.tag) {
-    case "FileFinalizeFailed":
-      return (
-        <Trans>「{failure.inner.fileName}」没能完整保存，请重新接收</Trans>
-      );
     case "SessionExpired":
       return (
         <Trans>超过 {failure.inner.retentionDays} 天未恢复，已自动清理</Trans>

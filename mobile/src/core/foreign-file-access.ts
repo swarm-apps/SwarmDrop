@@ -1,29 +1,32 @@
 /**
- * ForeignFileAccess 实现：把 expo-file-system v56 的 next API 暴露给 Rust core。
+ * ForeignFileAccess 实现：把 expo-file-system v56 的能力暴露给 Rust core。
  *
- * 用 `File.open(mode)` 拿 FileHandle，靠 `offset` + `readBytes/writeBytes` 真正
- * 按 chunk 读写，不会把整个文件加载到内存。
+ * ## 这一层只做 Rust 做不到的事
  *
- * ## SAF (content://) 支持
+ * 接收侧的随机写**不在这里**。数据块由 Rust 直接写进应用私有的暂存区
+ * （`mobile-core/src/file_staging.rs`），一次都不跨语言边界。本文件保留的是三件
+ * 平台独占的能力：
  *
- * Android 用户在「设置 → 接收位置」选系统目录时，saveDir 是 SAF
- * `content://com.android.externalstorage.documents/tree/...`。expo-file-system 56
- * 通过 ContentResolver.openFileDescriptor + FileChannel 真正支持 SAF chunk write，
- * 但有两个限制：
+ * 1. 读发送源 —— 源 URI 不受我们控制。Android 上「选目录发送」走
+ *    `Directory.pickDirectoryAsync()` → SAF tree，子项是 `content://`，只有
+ *    expo-file-system 读得了。
+ * 2. 发布到 SAF 目标 —— 只有 `ContentResolver` 能在用户选的公共目录里建 document。
+ * 3. 删除 SAF 上已落地的文件。
  *
- * 1. 上游 56.0.8 不允许 SAF 使用 `FileMode.ReadWrite`；项目补丁为只写场景接通了
- *    `"rw"` FileChannel，使续传可以随机写且不会在 reopen 时截断已有内容
- * 2. SAF 不能拼路径 `new File(dir, "a/b/c.txt")`，要 `dir.createDirectory(name)`
- *    递归建子目录，叶子用 `dir.createFile(name, null)`
+ * `file://` 目标的发布（建目录 + rename）同样在 Rust 侧，不经过这里。
  *
- * 更关键：SAF 的 "w" mode 在大多数 DocumentsProvider 下会 truncate-on-open。
- * 因此新传输用 "wt" 明确清空，续传用 "rw" 保留内容；sink 生命周期内始终保持
- * handle 打开，所有 chunk 复用同一个 handle。
+ * ## 为什么接收不再直接写 SAF
  *
- * file:// 路径同样按新建/续传选择 `Truncate` / `ReadWrite`，并持久复用 handle。
+ * `ContentResolver.openFileDescriptor` 拿到的 fd 不归本进程所有，它指向
+ * `/storage/emulated/0` 的 FUSE 挂载。长时间大文件写入期间它会失效，而 `FileChannel`
+ * 无从知晓：下一次 `lseek` 直接 `EBADF`，channel 自己却仍报告为 open。
+ * 2026-08-07 实测 311 MB 接收稳定在 45 MB 处崩掉，换应用私有目录则完全正常。
+ *
+ * 所以外部位置只在发布时被**顺序**写一次（见 `copyIntoTarget`——它只用 read/write
+ * 推进偏移，从不 `setOffset`）。
  */
 
-import { Directory, File, type FileHandle, FileMode } from "expo-file-system";
+import { Directory, File, FileMode } from "expo-file-system";
 import {
   FfiError,
   type ForeignFileAccess,
@@ -48,7 +51,18 @@ async function wrapFfi<T>(
   }
 }
 
+/**
+ * 只取错误消息的**首行**。
+ *
+ * expo 的原生异常把整段 Java stacktrace 塞在 `message` 里，而这串会一路冒到
+ * Rust、进传输失败事件、最后原样显示在 UI 的 toast 上（2026-08-07 截图里就是
+ * 二十行 `at expo.modules...`）。栈对用户没有意义，对诊断也已经有日志兜底。
+ */
 function errorDetail(err: unknown): string {
+  return rawMessage(err).split("\n")[0].trim();
+}
+
+function rawMessage(err: unknown): string {
   if (err instanceof Error) return `${err.name}: ${err.message}`;
   if (typeof err === "object" && err !== null && "message" in err) {
     return String(err.message);
@@ -56,33 +70,14 @@ function errorDetail(err: unknown): string {
   return String(err);
 }
 
-interface OpenSink {
-  metadata: MobileFileMetadata;
-  file: File;
-  /** sink 生命周期内保持打开的 handle；SAF 下不能每 chunk 重新 open（会 truncate） */
-  handle: FileHandle;
-  /**
-   * 文件父目录 URI（file:// 目录 / SAF 目录 document URI）—— finalize 时随文件 URI
-   * 一起返回给 core 落库,供「打开文件夹」定位真实容器目录。SAF 下无法由文件 URI
-   * 字符串推导,必须在建 sink 时就从 expo-fs 的 Directory 拿到。
-   */
-  dir: string;
-}
-
-/** 建 sink 时确定的落盘目标:文件 + 其父目录 URI(事实源,非字符串推导)。 */
-interface SinkTarget {
-  file: File;
-  dir: string;
-}
+/** 发布到 SAF 时的搬运块大小。大块少往返，同时留出让 UI 喘气的间隙。 */
+const PUBLISH_CHUNK_BYTES = 4 * 1024 * 1024;
 
 function isSafUri(uri: string): boolean {
   return uri.startsWith("content://");
 }
 
 export class ExpoFileAccess implements ForeignFileAccess {
-  /** 已 create 但未 finalize 的 sink；持有 FileHandle 直到 finalize/cleanup */
-  private readonly sinks = new Map<string, OpenSink>();
-
   sourceMetadata(sourceId: string): Promise<MobileFileMetadata> {
     return wrapFfi("read source metadata", () => {
       const file = new File(sourceId);
@@ -128,80 +123,51 @@ export class ExpoFileAccess implements ForeignFileAccess {
     );
   }
 
-  createSink(metadata: MobileFileMetadata): Promise<string> {
-    return wrapFfi("create receive file", () =>
-      this.openSink(metadata, /* truncate */ true),
-    );
-  }
-
-  openOrCreateSink(metadata: MobileFileMetadata): Promise<string> {
-    return wrapFfi("open receive file for resume", () =>
-      this.openSink(metadata, /* truncate */ false),
-    );
-  }
-
-  writeSinkChunk(
-    sinkId: string,
-    offset: bigint,
-    data: ArrayBuffer,
-  ): Promise<void> {
-    return wrapFfi(
-      `write receive chunk at offset ${offset} (${data.byteLength} bytes)`,
-      () => {
-        const sink = this.sinks.get(sinkId);
-        if (!sink) {
-          throw new Error("receive file handle does not exist");
-        }
-        sink.handle.offset = Number(offset);
-        sink.handle.writeBytes(new Uint8Array(data));
-      },
-    );
-  }
-
-  async finalizeSink(sinkId: string): Promise<MobileFinalizedSink> {
-    // host 已按 chunk 写入完整文件；core 端通过 BLAKE3 校验，
-    // 若失败会调 cleanup_sink。这里关掉 handle + 清掉内存引用。
-    // 返回最终落盘 URI + 其父目录 URI 供 core 落库:uri 即 createFile 返回的 file.uri
-    // （SAF 下是真实 document URI，含系统对重名的 "foo (1)" 改写);dir 是建 sink 时
-    // 从 expo-fs Directory 拿到的父目录 URI(SAF 合法可打开),供「打开文件夹」定位。
-    return wrapFfi("finalize receive file", () => {
-      const sink = this.sinks.get(sinkId);
-      if (!sink) {
-        throw new Error("receive file handle does not exist");
+  /**
+   * 把 Rust 侧收齐的暂存文件发布到 SAF 目标目录。
+   *
+   * **只有 `content://` 目标会走到这里**——`file://` 目标由 Rust 直接 rename。
+   *
+   * 可重入：目标同名文件存在时复用它并整体覆盖（`FileMode.Truncate`），
+   * 不生成 `foo (1).txt`。失败时删掉半成品，暂存仍在 Rust 侧、上层可重试。
+   */
+  publishToTarget(
+    stagingUri: string,
+    metadata: MobileFileMetadata,
+  ): Promise<MobileFinalizedSink> {
+    return wrapFfi("publish received file", async () => {
+      const baseUri = saveLocationUri(metadata.saveDir);
+      if (!isSafUri(baseUri)) {
+        // Rust 侧只在 SAF 目标时才委托过来；走到这里说明分派逻辑漂了。
+        throw new Error(`publish target is not a SAF tree: ${baseUri}`);
       }
-      // close 失败意味着系统未确认写入句柄已正常收尾，不能再伪装成 finalize 成功。
-      // 保留 map 条目，允许上层 cleanup/retry 继续处理。
-      sink.handle.close();
-      this.sinks.delete(sinkId);
-      return { uri: sinkId, dir: sink.dir };
-    });
-  }
-
-  cleanupSink(sinkId: string): Promise<void> {
-    return wrapFfi("cleanup receive file", () => {
-      const sink = this.sinks.get(sinkId);
-      if (!sink) return;
+      const { file, dir } = ensureSafTargetFile(baseUri, metadata.relativePath);
       try {
-        sink.handle.close();
-      } catch {
-        // best-effort
+        await copyIntoTarget(stagingUri, file);
+      } catch (err) {
+        // 半成品必须删掉：暂存还在、上层会重试，留一个长度不足的文件在用户目录里
+        // 只会误导（文件管理器里看着像收到了）。
+        try {
+          if (file.exists) file.delete();
+        } catch {
+          // best-effort
+        }
+        throw err;
       }
-      if (sink.file.exists) {
-        sink.file.delete();
-      }
-      this.sinks.delete(sinkId);
+      // uri 必须是 createFile 实际返回的 document URI（系统可能改写重名），
+      // dir 必须来自 Directory 对象——两者都推导不出来，见 core 的 finalize_sink 契约。
+      return { uri: file.uri, dir };
     });
   }
 
   /**
-   * 删除一个**已最终化**的文件。`uri` 是 finalizeSink 返回过的那个（file:// 或 SAF
-   * document URI），也就是落库到 localPath 的值。
+   * 删除一个**已最终化**的文件。`uri` 是 publish 返回过的那个（`file://` 或 SAF
+   * document URI），也就是落库到 `localPath` 的值。
    *
    * **文件已不存在不算错误**——删除幂等，重试路径上「删两次」很常见。
    *
    * 这里只回答「这个 URI 怎么删」这一层平台细节；「先删文件再删记录、失败不阻断」那套
-   * 编排在 core 的 `inbox::delete_inbox_item`，三端共用。此前编排整段写在
-   * `inbox-store.ts` 里，于是同一段逻辑三端各一份。
+   * 编排在 core 的 `inbox::delete_inbox_item`，三端共用。
    */
   deleteFinalizedFile(uri: string): Promise<void> {
     return wrapFfi("delete inbox file", () => {
@@ -211,74 +177,60 @@ export class ExpoFileAccess implements ForeignFileAccess {
       }
     });
   }
+}
 
-  private openSink(metadata: MobileFileMetadata, truncate: boolean): string {
-    const baseUri = saveLocationUri(metadata.saveDir);
-    const saf = isSafUri(baseUri);
-    const { file, dir } = saf
-      ? ensureSafSinkFile(baseUri, metadata.relativePath)
-      : ensureLocalSinkFile(baseUri, metadata.relativePath);
-
-    const sinkId = file.uri;
-
-    const existing = this.sinks.get(sinkId);
-    if (existing) {
-      if (truncate) {
-        throw new Error("receive file is already open by another transfer");
+/**
+ * 把暂存文件顺序搬进目标。
+ *
+ * **只用 `readBytes` / `writeBytes` 推进偏移，绝不 `setOffset`。** 这是刻意的：
+ * SAF 的 fd 由外部 provider 持有，`lseek` 正是它失效时炸掉的那个调用
+ * （`FileChannelImpl.position0` → `EBADF`）。顺序写把风险面压到最小。
+ *
+ * **不用 expo 的 `File.copy()`**，它的两条路径都不可用：
+ * - copy 到具体文件（`isContainer=false`）会先 `deleteRecursively()` 再写，
+ *   而 SAF document 删掉之后 uri 就失效了；
+ * - copy 到目录（`isContainer=true`）会拿 **source 的文件名**建目标，
+ *   而我们的暂存文件名是一串 hash。
+ *
+ * 每块之间让出一次事件循环：4 MiB 的同步 JSI 读写会阻塞 JS 线程几十毫秒，
+ * 一个 300 MB 的文件连续搬完足以让界面卡死数秒。
+ */
+async function copyIntoTarget(stagingUri: string, target: File): Promise<void> {
+  // `stagingUri` **带 `file://` scheme**——expo 的 `JavaFile` 走
+  // `File(URI.create(uri))`，裸路径会抛 `URI is not absolute`。
+  const source = new File(stagingUri).open(FileMode.ReadOnly);
+  try {
+    const sink = target.open(FileMode.Truncate);
+    try {
+      for (;;) {
+        const bytes = source.readBytes(PUBLISH_CHUNK_BYTES);
+        if (bytes.byteLength === 0) break;
+        sink.writeBytes(bytes);
+        await new Promise((resolve) => setTimeout(resolve, 0));
       }
-      if (
-        existing.metadata.size !== metadata.size ||
-        existing.metadata.checksum !== metadata.checksum
-      ) {
-        throw new Error("resume metadata does not match the open receive file");
-      }
-      // 同一进程内的恢复直接复用原 handle：既避免泄漏，也不触发 DocumentsProvider
-      // 的 reopen 行为。进程重启后的恢复则由下面的 ReadWrite("rw") 无截断打开。
-      return sinkId;
+    } finally {
+      sink.close();
     }
-
-    // 新传输用 "wt" 明确清空同名旧文件；续传用项目补丁接通的 "rw"，保留已有内容并
-    // 支持按 checkpoint offset 定位写。handle 必须贯穿整个 sink 生命周期。
-    const mode = truncate ? FileMode.Truncate : FileMode.ReadWrite;
-    const handle = file.open(mode);
-    this.sinks.set(sinkId, { metadata, file, handle, dir });
-    return sinkId;
+  } finally {
+    source.close();
   }
 }
 
 /**
- * file:// 路径：用 metadata.saveDir + relativePath 拼最终 File，递归建父目录。
- * 返回文件及其父目录 URI(`parentDirectory.uri`)——file:// 下父目录即容器目录。
+ * SAF tree URI 下按 `relativePath` 逐层建目录，返回叶子文件及其父目录 URI。
+ *
+ * SAF 不能拼路径 `new File(dir, "a/b/c.txt")`，要 `dir.createDirectory(name)`
+ * 递归建子目录，叶子用 `dir.createFile(name, mime)`。
+ *
+ * `relativePath` 形如 `SwarmNote/sub/foo.txt`。
  */
-function ensureLocalSinkFile(
+function ensureSafTargetFile(
   baseUri: string,
   relativePath: string,
-): SinkTarget {
-  const baseDir = new Directory(baseUri);
-  if (!baseDir.exists) {
-    baseDir.create({ intermediates: true });
-  }
-  const file = new File(baseDir, relativePath);
-  const parent = file.parentDirectory;
-  if (!parent.exists) {
-    parent.create({ intermediates: true });
-  }
-  if (!file.exists) {
-    file.create();
-  }
-  return { file, dir: parent.uri };
-}
-
-/**
- * SAF tree URI 路径：不能拼路径，要逐层 createDirectory + 叶子 createFile。
- *
- * relativePath 形如 "SwarmNote/sub/foo.txt"。在 SAF tree 下顺次寻找/创建
- * 「SwarmNote」「sub」目录，最后在 sub 下 createFile("foo.txt", null)。
- */
-function ensureSafSinkFile(baseUri: string, relativePath: string): SinkTarget {
+): { file: File; dir: string } {
   const segments = relativePath.split("/").filter(Boolean);
   if (segments.length === 0) {
-    throw new Error(`SAF sink relativePath is empty: ${relativePath}`);
+    throw new Error(`SAF publish relativePath is empty: ${relativePath}`);
   }
   const fileName = segments[segments.length - 1];
   const dirSegments = segments.slice(0, -1);
@@ -294,11 +246,11 @@ function ensureSafSinkFile(baseUri: string, relativePath: string): SinkTarget {
 
   const existingFile = findChildFile(currentDir, fileName);
   if (existingFile) {
-    // 已存在时一律复用 —— 不论 truncate：
-    // - truncate=true：让 open(Truncate) 以 "wt" 明确清空。先 delete + 再 createFile 会触发 SAF
-    //   异步 delete 没生效就被 createFile 命中 race，生成 "foo (1).txt" 或者
-    //   返回不可写 fd，后续 writeBytes 报 "Bad file descriptor"。
-    // - truncate=false：用项目补丁支持的 "rw" 打开，断点续传保留旧内容
+    // 已存在时一律复用，由 `FileMode.Truncate` 整体覆盖 —— **不要 delete + 重建**：
+    // SAF 的异步 delete 没生效就被 createFile 命中 race，会生成 "foo (1).txt"
+    // 或者返回不可写 fd（后续 writeBytes 报 "Bad file descriptor"）。
+    // 覆盖同时也是 publish 可重入的实现方式：进程在搬运中途被杀之后，
+    // 续传会重新发布一次并盖掉那个长度不足的产物。
     return { file: existingFile, dir };
   }
   // mimeType 必须传 "application/octet-stream"。看似 null 等价，但 expo-file-system

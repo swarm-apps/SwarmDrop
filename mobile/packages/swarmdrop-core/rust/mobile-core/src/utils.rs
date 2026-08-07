@@ -24,13 +24,38 @@ pub(crate) fn parse_peer_id(value: &str) -> FfiResult<NodeId> {
 ///
 /// 忘了会怎样：`Path::new("file:///x")` 得到的是一个名为 `file:` 的**相对**目录，
 /// 写进去的东西下次启动读不回来。设备名那次的症状是「改了名字，重启又变回去」。
+///
+/// **必须 percent-decode。** expo 交出来的 URI 是编码过的：一个名叫 `我的 下载` 的
+/// 目录会是 `file:///.../%E6%88%91%E7%9A%84%20%E4%B8%8B%E8%BD%BD`。不解码就会得到一个
+/// 字面含 `%E6%88%91` 的路径，`create_dir_all` 会**新建**那个怪名字的目录，
+/// 用户选的那个反而一个文件都收不到。
 pub(crate) fn parse_host_dir(uri: &str) -> PathBuf {
+    let raw = uri
+        .strip_prefix("file://")
+        .unwrap_or(uri)
+        .trim_end_matches('/');
     PathBuf::from(
-        uri.strip_prefix("file://")
-            .unwrap_or(uri)
-            .trim_end_matches('/'),
+        percent_encoding::percent_decode_str(raw)
+            .decode_utf8_lossy()
+            .as_ref(),
     )
 }
+
+/// `file://` 路径段里必须被编码的字符集。
+///
+/// **不含 `/`**——它是分隔符，编码掉就把整条路径压成了一个段。`%` 必须在里面，
+/// 否则一个真叫 `50% off.pdf` 的文件会编出无法二次解析的串。
+const PATH_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'`')
+    .add(b'{')
+    .add(b'}')
+    .add(b'%');
 
 /// [`parse_host_dir`] 的反向：把内部路径转回宿主认识的 `file://` URI。
 ///
@@ -38,9 +63,18 @@ pub(crate) fn parse_host_dir(uri: &str) -> PathBuf {
 /// `Sharing.shareAsync` 都只认它），Rust 内部的世界是 [`Path`]。跨 FFI 出去时转回去，
 /// 调用方就不必知道我们内部存的是什么形状。
 ///
+/// **必须 percent-encode**，理由与 [`parse_host_dir`] 对称：这个串会落进
+/// `transfer_files.local_path`，随后被三端当 URI 用——iOS `Sharing.shareAsync` 走
+/// `URL(string:)`（遇到未编码的空格返回 nil）、Android `new File(uri)` 走
+/// `URI.create`（遇到非法字符抛 `IllegalArgumentException`）、RN `<Image source={{uri}}>`
+/// 同理。此前这里直接拼原始路径，而旧的 JS 实现返回的是 expo 编码过的 `file.uri`，
+/// 于是「接收一个名字里带空格或中文的文件」之后，打开 / 分享 / 预览会全线失效。
+///
 /// [`Path`]: std::path::Path
 pub(crate) fn to_host_uri(path: &std::path::Path) -> String {
-    format!("file://{}", path.display())
+    let raw = path.to_string_lossy();
+    let encoded = percent_encoding::utf8_percent_encode(&raw, PATH_ENCODE_SET);
+    format!("file://{encoded}")
 }
 
 #[cfg(test)]
@@ -66,7 +100,25 @@ mod tests {
         );
     }
 
-    /// 已经是裸路径时原样返回——调用方不必先判断格式，这正是「边界解析」的意义。
+    /// 含空格 / 非 ASCII 的名字必须能原样往返——这是「打开 / 分享 / 删除」的前提。
+    #[test]
+    fn percent_encoding_round_trips_for_spaces_and_cjk() {
+        let path = PathBuf::from("/var/app/transfers/我的 报告 (1).pdf");
+        let uri = to_host_uri(&path);
+        assert!(
+            uri.contains("%20") && !uri.contains(' '),
+            "空格必须被编码，实际: {uri}"
+        );
+        assert_eq!(parse_host_dir(&uri), path, "编码后必须能解回原路径");
+    }
+
+    /// 名字里真的含 `%` 时不能二次解析成别的字符。
+    #[test]
+    fn literal_percent_survives_round_trip() {
+        let path = PathBuf::from("/var/app/transfers/50% off.pdf");
+        assert_eq!(parse_host_dir(&to_host_uri(&path)), path);
+    }
+
     #[test]
     fn leaves_plain_paths_untouched() {
         assert_eq!(

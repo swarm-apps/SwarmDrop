@@ -102,11 +102,6 @@ msgstr "{name} 文件夹，{fileCount} 项，{0}"
 msgid "{title} 等 {itemCount} 个文件"
 msgstr "{title} 等 {itemCount} 个文件"
 
-#. placeholder {0}: failure.inner.fileName
-#: src/components/transfer/shared.tsx:280
-msgid "「{0}」没能完整保存，请重新接收"
-msgstr "「{0}」没能完整保存，请重新接收"
-
 #: src/app/settings/bootstrap-nodes.tsx:186
 msgid "/ip4/.../tcp/.../p2p/..."
 msgstr "/ip4/.../tcp/.../p2p/..."
@@ -272,7 +267,7 @@ msgid "传输中"
 msgstr "传输中"
 
 #: src/app/transfer/[sessionId].tsx:557
-#: src/components/transfer/shared.tsx:347
+#: src/components/transfer/shared.tsx:343
 #: src/core/event-bus.ts:161
 msgid "传输失败"
 msgstr "传输失败"
@@ -285,7 +280,7 @@ msgstr "传输失败：{error}"
 msgid "传输完成"
 msgstr "传输完成"
 
-#: src/components/transfer/shared.tsx:344
+#: src/components/transfer/shared.tsx:340
 msgid "传输已取消"
 msgstr "传输已取消"
 
@@ -725,7 +720,7 @@ msgstr "发送文件给 {displayName}"
 msgid "发送给 {0}"
 msgstr "发送给 {0}"
 
-#: src/components/transfer/shared.tsx:289
+#: src/components/transfer/shared.tsx:285
 msgid "发送请求没能送达对方，请确认对方在线后重试"
 msgstr "发送请求没能送达对方，请确认对方在线后重试"
 
@@ -958,7 +953,7 @@ msgstr "对方就在同一网段，但直连没建起来"
 msgid "对方已取消传输"
 msgstr "对方已取消传输"
 
-#: src/components/transfer/shared.tsx:298
+#: src/components/transfer/shared.tsx:294
 msgid "对方已取消这次传输，无法继续"
 msgstr "对方已取消这次传输，无法继续"
 
@@ -966,7 +961,7 @@ msgstr "对方已取消这次传输，无法继续"
 msgid "对方已暂停传输"
 msgstr "对方已暂停传输"
 
-#: src/components/transfer/shared.tsx:308
+#: src/components/transfer/shared.tsx:304
 msgid "对方已经没有这次传输的记录了"
 msgstr "对方已经没有这次传输的记录了"
 
@@ -986,7 +981,7 @@ msgstr "对方拒绝了配对请求"
 msgid "对方无响应，请重试"
 msgstr "对方无响应，请重试"
 
-#: src/components/transfer/shared.tsx:306
+#: src/components/transfer/shared.tsx:302
 msgid "对方暂时不可用，请稍后再试"
 msgstr "对方暂时不可用，请稍后再试"
 
@@ -994,7 +989,7 @@ msgstr "对方暂时不可用，请稍后再试"
 msgid "对方确认后立即开始传输"
 msgstr "对方确认后立即开始传输"
 
-#: src/components/transfer/shared.tsx:300
+#: src/components/transfer/shared.tsx:296
 msgid "对方那边出错了，无法继续"
 msgstr "对方那边出错了，无法继续"
 
@@ -1002,12 +997,12 @@ msgstr "对方那边出错了，无法继续"
 msgid "对端"
 msgstr "对端"
 
-#: src/components/transfer/shared.tsx:329
+#: src/components/transfer/shared.tsx:325
 msgid "对端暂停"
 msgstr "对端暂停"
 
 #: src/components/transfer/shared.tsx:178
-#: src/components/transfer/shared.tsx:335
+#: src/components/transfer/shared.tsx:331
 msgid "对端离线"
 msgstr "对端离线"
 
@@ -1232,7 +1227,7 @@ msgstr "应用私有目录（默认）"
 msgid "应用重启"
 msgstr "应用重启"
 
-#: src/components/transfer/shared.tsx:338
+#: src/components/transfer/shared.tsx:334
 msgid "应用重启后可恢复"
 msgstr "应用重启后可恢复"
 
@@ -1857,7 +1852,7 @@ msgstr "本机 LAN Helper"
 msgid "本机可拨号地址"
 msgstr "本机可拨号地址"
 
-#: src/components/transfer/shared.tsx:326
+#: src/components/transfer/shared.tsx:322
 msgid "本机暂停"
 msgstr "本机暂停"
 
@@ -2074,7 +2069,7 @@ msgstr "清除搜索"
 msgid "清除筛选"
 msgstr "清除筛选"
 
-#: src/components/transfer/shared.tsx:302
+#: src/components/transfer/shared.tsx:298
 msgid "源文件已变更，无法继续，请重新发送"
 msgstr "源文件已变更，无法继续，请重新发送"
 
@@ -2268,7 +2263,7 @@ msgstr "继续"
 msgid "继续选择"
 msgstr "继续选择"
 
-#: src/components/transfer/shared.tsx:304
+#: src/components/transfer/shared.tsx:300
 msgid "续传进度已失效，请重新发送"
 msgstr "续传进度已失效，请重新发送"
 
@@ -2289,7 +2284,7 @@ msgstr "网格视图"
 msgid "网络"
 msgstr "网络"
 
-#: src/components/transfer/shared.tsx:332
+#: src/components/transfer/shared.tsx:328
 msgid "网络中断"
 msgstr "网络中断"
 
@@ -2519,11 +2514,11 @@ msgstr "语言已更新"
 msgid "请先完成 SwarmDrop 设置"
 msgstr "请先完成 SwarmDrop 设置"
 
-#: src/components/transfer/shared.tsx:341
+#: src/components/transfer/shared.tsx:337
 msgid "请求被拒绝"
 msgstr "请求被拒绝"
 
-#: src/components/transfer/shared.tsx:350
+#: src/components/transfer/shared.tsx:346
 msgid "请求超时未处理，让对方重发一次"
 msgstr "请求超时未处理，让对方重发一次"
 
@@ -2544,7 +2539,7 @@ msgid "资源"
 msgstr "资源"
 
 #. placeholder {0}: failure.inner.retentionDays
-#: src/components/transfer/shared.tsx:284
+#: src/components/transfer/shared.tsx:280
 msgid "超过 {0} 天未恢复，已自动清理"
 msgstr "超过 {0} 天未恢复，已自动清理"
 

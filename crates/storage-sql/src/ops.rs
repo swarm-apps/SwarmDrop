@@ -163,23 +163,6 @@ pub async fn mark_file_completed(
     .await
 }
 
-/// 重置文件的 checkpoint（bitmap 清零 + transferred_bytes 归零）
-///
-/// 校验失败后调用——.part 文件已被删除，需要清除 DB 中的 bitmap，
-/// 确保下次恢复时重新下载该文件的所有 chunk。
-pub async fn reset_file_checkpoint(
-    db: &DatabaseConnection,
-    session_id: Uuid,
-    file_id: i32,
-) -> AppResult<()> {
-    update_file(db, session_id, file_id, |model| {
-        model.completed_chunks = Set(vec![]);
-        model.completed_ranges = Set("[]".to_string());
-        model.transferred_bytes = Set(0);
-    })
-    .await
-}
-
 /// 更新发送方文件的已传输字节数（不修改 bitmap，发送方不使用 bitmap）
 async fn update_sender_file_progress(
     db: &DatabaseConnection,

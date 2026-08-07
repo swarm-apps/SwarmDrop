@@ -140,6 +140,17 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 > 不变量就塌了）。删除后归属校验由传输层身份补上：数据面必须校验
 > `stream.remote() == session.peer`。完整推导见
 > [`blogs/transfer-architecture/05-removing-encryption-layer.md`](dev-notes/blogs/transfer-architecture/05-removing-encryption-layer.md)。
+>
+> **接收是「暂存 → 发布」两段，且 finalize 只发布不校验（2026-08-07）。** 数据块先随机写进
+> 一个**本进程完全拥有**的暂存位置（桌面 `<dst>/x.part`、移动 `<data_dir>/staging/`），
+> 单个文件**收齐即发布**到用户目标位置。两条不变量不能破：
+> ①「DB 里 bitmap 完整 ⟺ 该文件已发布」——所以末块**不刷** checkpoint，完整 bitmap 只由
+> 发布成功后的 `mark_file_completed` 写；②finalize 失败只意味着「数据是好的、只是搬不过去」，
+> **不得 reset checkpoint**（会让对端重传整个文件），直接上抛走可恢复的 Interrupted。
+> 移动端的接收写盘因此**整条在 Rust 侧**，`ForeignFileAccess` 只剩读发送源与 SAF 相关的三件事。
+> 根因（SAF 的 fd 不归本进程所有，`lseek` 会 `EBADF`）与完整推导见
+> [`knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md) 与
+> `openspec/changes/receive-staging-publish/`。
 
 ## Architecture
 

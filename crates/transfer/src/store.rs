@@ -62,9 +62,6 @@ pub trait SessionStore: Send + Sync {
         local_dir: String,
     ) -> AppResult<()>;
 
-    /// 重置文件 checkpoint（bitmap 清零 + transferred_bytes 归零）。
-    async fn reset_file_checkpoint(&self, session_id: Uuid, file_id: i32) -> AppResult<()>;
-
     /// 批量保存发送方 per-file 进度（`(file_id, chunks_done, transferred_bytes)`）。
     async fn save_sender_file_progress(
         &self,

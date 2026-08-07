@@ -34,6 +34,7 @@ mod device_config;
 mod error;
 mod events;
 mod file_access;
+mod file_staging;
 mod history;
 mod identity;
 mod inbox;

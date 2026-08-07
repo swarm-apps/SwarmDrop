@@ -264,14 +264,41 @@ await DocumentPicker.getDocumentAsync({
 
 **相关文件**：[src/core/file-access.ts](../../src/core/file-access.ts)
 
-### Sink 写入时保持 FileHandle 打开，直到 finalize/cleanup
+### 接收的随机写不经过 JS —— 暂存恒在应用私有目录（2026-08-07 起）
 
-`ExpoFileAccess.sinks` Map 必须保存打开的 `FileHandle`。尤其是 Android SAF 的 `content://`
-tree，`openFileDescriptor("w")` 在不少 DocumentsProvider 上会 truncate；如果每个 chunk 都
-open/close，同一个文件会被反复截断，最后只剩尾块。正确生命周期是 create/open 阶段拿 handle，
-`writeSinkChunk` 只做 seek + write，`finalizeSink` / `cleanupSink` 再 close。
+**这条取代了旧的「`ExpoFileAccess.sinks` Map 必须保存打开的 FileHandle」。** 那套做法
+（create 阶段拿 handle → `writeSinkChunk` 做 seek + write → finalize 再 close）在 SAF 目标下
+是错的，实测会在传输中途以 `java.io.IOException: Bad file descriptor` 崩掉。
 
-**相关文件**：[src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts)
+**根因**：`ContentResolver.openFileDescriptor` 拿到的 fd **不归本进程所有**——它指向
+`/storage/emulated/0` 的 FUSE 挂载，真正的持有者在 DocumentsProvider 那一侧。长时间大文件
+写入期间它会失效，而 `FileChannel` 无从知晓：下一次 `lseek` 直接 `EBADF`，channel 自己却
+仍报告为 open。崩溃栈落在 `FileSystemFileHandle.setOffset` → `FileChannelImpl.position0`。
+2026-08-07 实测接收 311 MB 稳定在 45 MB 处崩，Web 与桌面两个发送端都能复现；接收目录换成
+应用私有目录则完全正常。
+
+**正确做法**：接收分「暂存 → 发布」两段。
+
+- 数据块由 **Rust** 直接写进 `<data_dir>/staging/`（`mobile-core/src/file_staging.rs`），
+  暂存文件名是 `blake3(save_dir ‖ 0x00 ‖ relative_path)` 的 hex——扁平、确定性，
+  续传只凭 `HostFileMetadata` 就能重算出来（那里面没有 session_id）。
+- 整个文件收齐后才 publish：`file://` 目标 Rust 直接 rename（同卷零拷贝），
+  `content://` 目标才委托 JS 的 `publishToTarget`。
+- **发布只做顺序写**（`readBytes`/`writeBytes` 推进偏移，绝不 `setOffset`）——
+  `lseek` 正是外部 fd 失效时炸掉的那个调用。
+
+**不要做**：
+- 不要把 `writeSinkChunk` 加回 `ForeignFileAccess`。私有目录是普通 POSIX 路径，
+  绕一圈 uniffi → JS 线程 → JSI → Kotlin 没有任何理由，而且每 256 KB 一次。
+- 不要用 expo 的 `File.copy()` 做发布：copy 到具体文件会先 `deleteRecursively()` 再写，
+  SAF document 删掉后 uri 就失效；copy 到目录则会拿 **暂存的 hash 文件名**当目标名。
+- 不要在 Rust 侧用同步 `std::fs` 写盘。mobile-core 从不自建 runtime，所有 async 挤在
+  async-compat 那根 `new_current_thread` 线程上，同步写会把整个网络事件循环卡住——
+  必须走 `spawn_blocking`（pwrite）或 `tokio::fs`。
+
+**相关文件**：`mobile-core/src/file_staging.rs`、`mobile-core/src/file_access.rs`、
+[src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts)、
+`openspec/changes/receive-staging-publish/`
 
 ### MobileFileMetadata.saveDir 必须由 core 注入
 

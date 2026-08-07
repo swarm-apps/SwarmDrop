@@ -107,8 +107,8 @@ msgstr "Files from “{0}” are handled according to these settings. The policy
 
 #. placeholder {0}: failure.fileName
 #: app/app/_lib/view-types.ts
-msgid "「{0}」没能完整保存，请重新接收"
-msgstr "“{0}” wasn’t saved completely. Please receive it again."
+#~ msgid "「{0}」没能完整保存，请重新接收"
+#~ msgstr "“{0}” wasn’t saved completely. Please receive it again."
 
 #. placeholder {0}: shown?.deviceName
 #: app/app/_components/pairing-request-host.tsx

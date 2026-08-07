@@ -718,6 +718,9 @@ mod tests {
         async fn create_sink(&self, _metadata: HostFileMetadata) -> AppResult<FileSinkId> {
             unreachable!("本组测试不写文件")
         }
+        async fn open_or_create_sink(&self, _metadata: HostFileMetadata) -> AppResult<FileSinkId> {
+            unreachable!("本组测试不写文件")
+        }
         async fn write_sink_chunk(
             &self,
             _sink: &FileSinkId,

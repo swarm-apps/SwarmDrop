@@ -16,13 +16,12 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::actor::checkpoint::{
-    bytes_from_bitmap, count_completed_in_bitmap, ensure_files_complete, mark_chunk_completed,
-    ranges_from_bitmap, validate_block_range,
+    bytes_from_bitmap, count_completed_in_bitmap, ensure_files_complete, file_is_complete,
+    mark_chunk_completed, ranges_from_bitmap, validate_block_range,
 };
 use crate::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
 use crate::epoch::EpochGuard;
 use crate::events::{TransferEvent, TransferEventSink};
-use crate::failure::FailureCode;
 use crate::host::{CoreSaveLocation, FileAccess, FileSinkId, HostFileMetadata};
 use crate::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent, TransferFailedEvent,
@@ -340,9 +339,16 @@ impl ReceiverActor {
                     session_id,
                     epoch: frame_epoch,
                 }) if session_id == self.session_id && EpochGuard::matches(frame_epoch, epoch) => {
+                    // 协议级断言：Finish 帧到达时每个文件都必须收齐。它看的是内存 bitmap，
+                    // 与「DB bitmap 只在 publish 后才完整」这条持久化纪律无关，两者不冲突。
                     ensure_files_complete(&self.files, &bitmaps)?;
-                    self.finish_data_channel(epoch, &progress, sinks, bitmaps)
+                    self.publish_pending_empty_files(&mut sinks, &mut bitmaps, is_resume)
                         .await?;
+                    debug_assert!(
+                        sinks.is_empty(),
+                        "收齐即发布之后，Finish 时不该还有未发布的 sink: {sinks:?}"
+                    );
+                    self.finish_data_channel(epoch, &progress).await?;
                     // 回写 Finish 确认：发送方读到它即视为完成（已无逐块 Ack）。
                     write_frame(
                         &mut *stream,
@@ -389,8 +395,8 @@ impl ReceiverActor {
         clippy::too_many_arguments,
         reason = "单个 BlockData 处理需要传入运行时上下文"
     )]
-    /// 处理一个入站 BlockData：逐块验签 → 落盘 → 节流刷 checkpoint → 发进度。
-    /// 各步拆成聚焦的小方法，避免协议/持久化两层揉在一个 async fn。
+    /// 处理一个入站 BlockData：逐块验签 → 落盘 → 节流刷 checkpoint → 发进度 →
+    /// **收齐即发布**。各步拆成聚焦的小方法，避免协议/持久化两层揉在一个 async fn。
     async fn handle_block_data(
         &self,
         progress: &Arc<Mutex<ProgressTracker>>,
@@ -402,12 +408,80 @@ impl ReceiverActor {
         proof: Option<Vec<u8>>,
     ) -> AppResult<()> {
         let (file_info, data) = self.verify_block(&range, proof)?;
+        // **已发布的文件不接受任何后续块。** 放行会让 `ensure_sink` 为它新建一条空暂存、
+        // 只写进这一块、再发布一次——把用户目录里那个完整文件覆盖成残片。会话末尾统一
+        // finalize 的旧实现没有这个窗口（重复块只是重复写同一个 sink），是「收齐即发布」
+        // 引入的，必须挡住。
+        //
+        // 判据直接问位图（`file_is_complete`），不另存一份「已发布」集合：发布成功后
+        // `mark_file_completed` 就把位图写成完整，两者恒等价，而多一份状态就多一处会漂。
+        //
+        // 断流优于静默丢数据——走到这里说明对端与本端对「哪些文件已收齐」的认知已经分叉。
+        if file_is_complete(&file_info, bitmaps) {
+            return Err(AppError::Transfer(format!(
+                "文件已发布后仍收到数据块（协议违规）: file_id={}, offset={}",
+                range.file_id, range.offset
+            )));
+        }
         let sink_id = self
             .ensure_sink(&file_info, sinks, started_files, progress, is_resume)
             .await?;
-        self.persist_chunk(&file_info, &sink_id, &range, data, bitmaps)
+        let completed_bitmap = self
+            .persist_chunk(&file_info, &sink_id, &range, data, bitmaps)
             .await?;
         self.emit_chunk_progress(progress, &range).await;
+        if let Some(bitmap) = completed_bitmap {
+            self.publish_file(&file_info, sinks, bitmap).await?;
+        }
+        Ok(())
+    }
+
+    /// 补发布那些**没有数据块可等**的空文件。
+    ///
+    /// 空文件是「收齐即发布」唯一覆盖不到的情形。首次传输时它还能走通常路径——
+    /// `full_fetch_plan` 会给它一条 `length == 0` 的 range，发送端据此发一个空块；
+    /// 但**续传的 `build_fetch_plan` 是按字节 range 推导的**（`cursor < file.size`），
+    /// 对 `size == 0` 产生不出任何 range。于是「首次传输在空文件的块到达前中断」之后，
+    /// 它永远等不到自己的块，而 `ensure_files_complete` 又对 `size == 0` 直接放行——
+    /// 会话报完成，文件却从未落地。
+    ///
+    /// 所以在 Finish 处补一次。**幂等**：已发布的文件位图完整，直接跳过。
+    ///
+    /// 这是被删掉的那段会话末尾兜底唯一还成立的职责。原来那段还要照顾「上次收完但没
+    /// finalize」，那个状态已随 `persist_chunk` 不为末块刷 checkpoint 而消失。
+    async fn publish_pending_empty_files(
+        &self,
+        sinks: &mut HashMap<u32, FileSinkId>,
+        bitmaps: &mut HashMap<u32, Vec<u8>>,
+        is_resume: bool,
+    ) -> AppResult<()> {
+        for file_info in &self.files {
+            if file_info.size != 0 || file_is_complete(file_info, bitmaps) {
+                continue;
+            }
+            let metadata = HostFileMetadata {
+                name: file_info.name.clone(),
+                relative_path: file_info.relative_path.clone(),
+                size: 0,
+                modified_at: None,
+                checksum: Some(file_info.checksum.clone()),
+                save_dir: Some(self.save_location.clone()),
+            };
+            let sink_id = if is_resume {
+                self.file_access.open_or_create_sink(metadata).await
+            } else {
+                self.file_access.create_sink(metadata).await
+            }?;
+            self.created_sinks.lock().await.push(sink_id.clone());
+            sinks.insert(file_info.file_id, sink_id);
+
+            let bitmap = bitmaps
+                .get_mut(&file_info.file_id)
+                .ok_or_else(|| AppError::Transfer("空文件 checkpoint bitmap 不存在".into()))?;
+            mark_chunk_completed(bitmap, 0);
+            let bitmap = bitmap.clone();
+            self.publish_file(file_info, sinks, bitmap).await?;
+        }
         Ok(())
     }
 
@@ -494,7 +568,18 @@ impl ReceiverActor {
         Ok(sink_id)
     }
 
-    /// 落盘明文 → 标记 bitmap → 节流刷 DB checkpoint（每 N 块或末块）。
+    /// 落盘明文 → 标记 bitmap → 节流刷 DB checkpoint。返回**该文件是否已收齐**。
+    ///
+    /// 节流：仅每 `CHECKPOINT_INTERVAL` 块刷一次 DB（含全量 clone + ranges 重算 + 同步写），
+    /// 其余只更新内存 bitmap。中断时最近不足 N 块由续传重拉，避免每块 O(n) clone/重算拖垮吞吐。
+    ///
+    /// **收齐那一块刻意不刷**——完整 bitmap 只由 publish 成功后的
+    /// [`mark_file_completed`](crate::store::SessionStore::mark_file_completed) 写入，
+    /// 于是「DB 里 bitmap 完整」⟺「该文件已 publish」。若在这里就把完整 bitmap 落库、
+    /// 而随后的 publish 失败，续传时 `first_missing_range` 会跳过该文件，
+    /// **再也不会有 block 到达、也就再也不会触发 publish**，文件永久停在 staging，
+    /// 却被 `ensure_files_complete` 判为完成。代价是 publish 失败后续传要重拉最多
+    /// `CHECKPOINT_INTERVAL - 1` 块，远好过静默丢文件。
     async fn persist_chunk(
         &self,
         file_info: &FileInfo,
@@ -502,27 +587,28 @@ impl ReceiverActor {
         range: &FileRange,
         data: Vec<u8>,
         bitmaps: &mut HashMap<u32, Vec<u8>>,
-    ) -> AppResult<()> {
+    ) -> AppResult<Option<Vec<u8>>> {
         self.file_access
             .write_sink_chunk(sink_id, range.offset, data)
             .await?;
 
         let chunk_index = (range.offset / CHUNK_SIZE as u64) as u32;
         let total_chunks = calc_total_chunks(file_info.size);
-        let (transferred, checkpoint_bitmap) = {
+        let (transferred, checkpoint_bitmap, completed_bitmap) = {
             let bitmap = bitmaps
                 .get_mut(&range.file_id)
                 .ok_or_else(|| AppError::Transfer("checkpoint bitmap 不存在".into()))?;
             mark_chunk_completed(bitmap, chunk_index);
             let transferred = bytes_from_bitmap(bitmap, file_info.size, total_chunks);
-            // 节流：仅每 CHECKPOINT_INTERVAL 块或文件最后一块才刷 DB（含全量 clone + ranges
-            // 重算 + 同步写），其余只更新内存 bitmap。中断时最近不足 N 块由续传重拉，完成时
-            // mark_file_completed 写最终状态，不丢数据；避免每块 O(n) clone/重算拖垮吞吐。
             let completed = count_completed_in_bitmap(bitmap, total_chunks);
+            let file_completed = completed >= total_chunks;
+            // 两个 clone 互斥：满窗刷 checkpoint 与收齐发布不会同时发生
+            // （末块刻意不刷，见上文）。
             let checkpoint_bitmap = (completed.is_multiple_of(CHECKPOINT_INTERVAL)
-                || completed >= total_chunks)
+                && !file_completed)
                 .then(|| bitmap.clone());
-            (transferred, checkpoint_bitmap)
+            let completed_bitmap = file_completed.then(|| bitmap.clone());
+            (transferred, checkpoint_bitmap, completed_bitmap)
         };
         if let Some(checkpoint_bitmap) = checkpoint_bitmap {
             let completed_ranges =
@@ -537,6 +623,46 @@ impl ReceiverActor {
                 )
                 .await?;
         }
+        Ok(completed_bitmap)
+    }
+
+    /// 单个文件收齐 → 立即发布到用户选定的目标位置，并写下完整 checkpoint 与落盘位置。
+    ///
+    /// 这是「暂存 → 发布」两阶段里的第二阶段，也是文件唯一的落地时刻：host 把 staging 搬到
+    /// 目标位置并回报它**最终**在哪（SAF document URI 有独立编码、重名还会被系统改写成
+    /// `foo (1).txt`，拼接推导不出来，见 [`FileAccess::finalize_sink`] 的契约）。
+    ///
+    /// **`finalize_sink` 与 `mark_file_completed` 之间不得插入任何其他 await**：那个窗口里
+    /// 进程被杀会留下「staging 已消失、bitmap 却不完整」的状态（design D10 的已知限制）。
+    ///
+    /// 失败一律 `?` 上抛。publish 不再做校验，失败只意味着「数据是好的，只是搬不过去」
+    /// （空间不足 / 权限被撤 / fd 失效），冒泡到
+    /// [`start_data_channel`](Self::start_data_channel) 的 Err 分支即是可恢复的 Interrupted。
+    /// **不要在这里 reset checkpoint**——数据完好躺在 staging 里，重置只会让对端重传整个文件。
+    ///
+    /// [`FileAccess::finalize_sink`]: crate::host::FileAccess::finalize_sink
+    async fn publish_file(
+        &self,
+        file_info: &FileInfo,
+        sinks: &mut HashMap<u32, FileSinkId>,
+        bitmap: Vec<u8>,
+    ) -> AppResult<()> {
+        let sink_id = sinks.remove(&file_info.file_id).ok_or_else(|| {
+            AppError::Transfer(format!("发布时 sink 不存在: file_id={}", file_info.file_id))
+        })?;
+
+        let finalized = self.file_access.finalize_sink(&sink_id).await?;
+        self.store
+            .mark_file_completed(
+                self.session_id,
+                file_info.file_id as i32,
+                bitmap,
+                file_info.size as i64,
+                finalized.uri,
+                finalized.dir,
+            )
+            .await?;
+        self.remove_created_sink(&sink_id).await;
         Ok(())
     }
 
@@ -554,88 +680,15 @@ impl ReceiverActor {
         }
     }
 
+    /// 会话级终态收尾。**不做任何文件级工作**——每个文件在收齐那一刻就已由
+    /// [`publish_file`](Self::publish_file) 发布并写库，空文件由
+    /// [`publish_pending_empty_files`](Self::publish_pending_empty_files) 兜住。
     async fn finish_data_channel(
         &self,
         epoch: i64,
         progress: &Arc<Mutex<ProgressTracker>>,
-        mut sinks: HashMap<u32, FileSinkId>,
-        mut bitmaps: HashMap<u32, Vec<u8>>,
     ) -> AppResult<()> {
-        for file_info in &self.files {
-            // 本会话未收到任何 block 但 bitmap 已完整的文件（上次续传已收完未 finalize、
-            // 或 size==0 空文件）也必须 open_or_create + finalize，否则 .part 永不校验落地
-            // 却被 mark_file_completed/mark_session_completed→UI 报成功而文件静默丢失。
-            // finish 前已 ensure_files_complete，到这里的非空文件 bitmap 必然完整。
-            let sink_id = match sinks.get(&file_info.file_id).cloned() {
-                Some(sink_id) => sink_id,
-                None => {
-                    let metadata = HostFileMetadata {
-                        name: file_info.name.clone(),
-                        relative_path: file_info.relative_path.clone(),
-                        size: file_info.size,
-                        modified_at: None,
-                        checksum: Some(file_info.checksum.clone()),
-                        save_dir: Some(self.save_location.clone()),
-                    };
-                    let sink_id = self.file_access.open_or_create_sink(metadata).await?;
-                    self.created_sinks.lock().await.push(sink_id.clone());
-                    sinks.insert(file_info.file_id, sink_id.clone());
-                    sink_id
-                }
-            };
-
-            let finalized = match self.file_access.finalize_sink(&sink_id).await {
-                Ok(finalized) => finalized,
-                Err(e) => {
-                    self.remove_created_sink(&sink_id).await;
-                    // 校验失败时 .part 已被删除，但 DB bitmap 仍完整：必须 reset，否则续传/完成
-                    // 路径会把该文件当作已完成跳过→丢数据。校验失败经 fail_session 转 terminal/failed。
-                    if let Err(e2) = self
-                        .store
-                        .reset_file_checkpoint(self.session_id, file_info.file_id as i32)
-                        .await
-                    {
-                        warn!(
-                            "重置文件 checkpoint 失败: file_id={}, {}",
-                            file_info.file_id, e2
-                        );
-                    }
-                    // 用户串只带文件名（要显示）；file_id 与底层错误对用户没有意义，
-                    // 留在日志里。旧实现把三者拼成一句中文再交给 UI，移动端又拿整串
-                    // 跑英文关键词正则——文件名里的 `cancel` 会让用户看到「传输已取消」。
-                    let detail = format!(
-                        "文件最终化失败: {} (file_id={}): {}",
-                        file_info.name, file_info.file_id, e
-                    );
-                    warn!("{detail}");
-                    self.fail_session(
-                        epoch,
-                        FailureCode::FileFinalizeFailed {
-                            file_name: file_info.name.clone(),
-                        },
-                    )
-                    .await;
-                    return Err(AppError::Transfer(detail));
-                }
-            };
-            self.remove_created_sink(&sink_id).await;
-
-            let bitmap = bitmaps
-                .remove(&file_info.file_id)
-                .ok_or_else(|| AppError::Transfer("完成 bitmap 不存在".into()))?;
-            self.store
-                .mark_file_completed(
-                    self.session_id,
-                    file_info.file_id as i32,
-                    bitmap,
-                    file_info.size as i64,
-                    finalized.uri,
-                    finalized.dir,
-                )
-                .await?;
-        }
-
-        // 终态经状态机：文件级 mark_file_completed 已在上面完成，session 终态由
+        // 终态经状态机：文件级 mark_file_completed 已在 publish_file 完成，session 终态由
         // dispatch(Actor{epoch, Completed}) 统一写（带 epoch + terminal 不可逆守卫）。
         // 仅真正转入 completed 才建收件箱索引 + 发完成事件（被取消/旧 epoch 抢先则不发）。
         let transitioned = self
@@ -699,27 +752,6 @@ impl ReceiverActor {
             }
         }
         self.created_sinks.lock().await.clear();
-    }
-
-    /// 标记会话失败：终态经状态机 dispatch(Actor{FatalError}) 写 terminal/failed + 发 projection。
-    /// 具体失败事件统一由 `start_data_channel` 发一次，避免最终化错误在内外两层重复上报。
-    async fn fail_session(&self, epoch: i64, failure: FailureCode) {
-        if let Err(error) = self
-            .coordinator
-            .dispatch(
-                self.session_id,
-                CoordinatorInput::Actor {
-                    epoch,
-                    report: ActorReport::FatalError(failure),
-                },
-            )
-            .await
-        {
-            warn!(
-                "dispatch 接收终态失败: session={}, error={}",
-                self.session_id, error
-            );
-        }
     }
 
     /// UI 事件投递失败不改变传输状态，但必须留诊断，避免状态已落库而界面无反馈。

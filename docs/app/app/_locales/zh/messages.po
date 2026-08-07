@@ -107,8 +107,8 @@ msgstr "「{0}」发来的文件按这里的设定处置。 策略只保存在�
 
 #. placeholder {0}: failure.fileName
 #: app/app/_lib/view-types.ts
-msgid "「{0}」没能完整保存，请重新接收"
-msgstr "「{0}」没能完整保存，请重新接收"
+#~ msgid "「{0}」没能完整保存，请重新接收"
+#~ msgstr "「{0}」没能完整保存，请重新接收"
 
 #. placeholder {0}: shown?.deviceName
 #: app/app/_components/pairing-request-host.tsx

@@ -269,6 +269,9 @@ mod tests {
         async fn create_sink(&self, _m: HostFileMetadata) -> AppResult<FileSinkId> {
             unreachable!()
         }
+        async fn open_or_create_sink(&self, _m: HostFileMetadata) -> AppResult<FileSinkId> {
+            unreachable!()
+        }
         async fn write_sink_chunk(&self, _s: &FileSinkId, _o: u64, _d: Vec<u8>) -> AppResult<()> {
             unreachable!()
         }

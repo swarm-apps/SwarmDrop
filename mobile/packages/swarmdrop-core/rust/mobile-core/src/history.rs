@@ -136,9 +136,6 @@ impl From<TransferProjectionFile> for MobileTransferProjectionFile {
 /// 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum MobileFailureCode {
-    FileFinalizeFailed {
-        file_name: String,
-    },
     SessionExpired {
         retention_days: u32,
     },
@@ -179,7 +176,6 @@ impl From<ResumeRejectReason> for MobileResumeRejectReason {
 impl From<FailureCode> for MobileFailureCode {
     fn from(code: FailureCode) -> Self {
         match code {
-            FailureCode::FileFinalizeFailed { file_name } => Self::FileFinalizeFailed { file_name },
             FailureCode::SessionExpired { retention_days } => {
                 Self::SessionExpired { retention_days }
             }

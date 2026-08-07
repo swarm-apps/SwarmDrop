@@ -100,8 +100,6 @@ export function failureCodeMessage(
 ): string | null {
   if (!failure) return null;
   switch (failure.code) {
-    case "fileFinalizeFailed":
-      return i18n._(msg`「${failure.fileName}」没能完整保存，请重新接收`);
     case "sessionExpired":
       return i18n._(msg`超过 ${failure.retentionDays} 天未恢复，已自动清理`);
     case "resumeRejected":

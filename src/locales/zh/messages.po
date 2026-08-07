@@ -65,8 +65,8 @@ msgstr "{title} 等 {itemCount} 个文件"
 
 #. placeholder {0}: failure.fileName
 #: src/lib/errors.ts
-msgid "「{0}」没能完整保存，请重新接收"
-msgstr "「{0}」没能完整保存，请重新接收"
+#~ msgid "「{0}」没能完整保存，请重新接收"
+#~ msgstr "「{0}」没能完整保存，请重新接收"
 
 #: src/components/pairing/clipboard-invite-banner.tsx
 msgid "<0>{deviceName}</0> 想和你配对，点此确认"

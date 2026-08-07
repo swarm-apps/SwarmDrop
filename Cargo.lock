@@ -9437,8 +9437,10 @@ name = "swarmdrop-mobile-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "blake3",
  "entity",
  "migration",
+ "percent-encoding",
  "sea-orm",
  "sea-orm-migration",
  "serde_json",

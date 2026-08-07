@@ -97,8 +97,6 @@ export function failureCodeLabel(
 ): MessageDescriptor | null {
   if (!failure) return null;
   switch (failure.code) {
-    case "fileFinalizeFailed":
-      return msg`「${failure.fileName}」没能完整保存，请重新接收`;
     case "sessionExpired":
       return msg`超过 ${failure.retentionDays} 天未恢复，已自动清理`;
     case "resumeRejected":

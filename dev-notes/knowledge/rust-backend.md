@@ -427,6 +427,104 @@ fallback，仅在 `parse_completed_ranges` 为空时生效，不构成「线性�
 
 **相关文件**：`crates/transfer/src/lib.rs`、`crates/transfer/src/{actor,flow,wire}/mod.rs`、`crates/transfer/src/epoch.rs`
 
+### 接收是「暂存 → 发布」两段，随机写只施加于本进程拥有的 fd（2026-08-07）
+
+`FileAccess` 的三段式（`create_sink → write_sink_chunk(offset) → finalize_sink`）语义上
+一直是「开一个**可随机写的暂存** → 写 → 发布到目标并回报它最终在哪」。桌面早就这么实现
+（`<dst>/x.part` + rename），移动端与 Web 却把 staging 退化成了目标本身——移动端那次退化
+是致命的，因为它同时占了两个坏条件：写的是最终位置 + 需要 `lseek`。
+
+**事故**：接收目录设为系统公共目录（SAF `content://`）时，311 MB 的接收稳定在 45 MB 处
+以 `java.io.IOException: Bad file descriptor` 崩掉，Web 与桌面两个发送端都能复现。
+栈落在 `FileSystemFileHandle.setOffset` → `FileChannelImpl.position0`。
+关键判据：`position(long)` 会**先** `ensureOpen()`，抛出的却是 `EBADF` 而不是
+`ClosedChannelException` ⟹ **channel 自己还开着，是底层 fd 在内核层失效了**。
+`ContentResolver.openFileDescriptor` 的 fd 指向 `/storage/emulated/0` 的 FUSE 挂载，
+真正的持有者在 DocumentsProvider 那侧。
+
+**正确做法**：
+
+- 接收暂存**恒在应用私有目录**（移动端是 `<data_dir>/staging/`），外部位置只在发布时被
+  **顺序**写一次。发布到 `file://` 目标是同卷 rename（原子、零拷贝），到 SAF 才是真拷贝。
+- 暂存位置必须是 `f(save_dir, relative_path)` 的**确定性函数**——续传靠
+  `open_or_create_sink(metadata)` 重建句柄，而 `HostFileMetadata` 里**没有 session_id**。
+- 私有目录是普通 POSIX 路径，写入不该绕 JS/FFI。移动端因此把 `create_sink` /
+  `write_sink_chunk` / `cleanup_sink` / 本地发布整条下沉进 Rust，`ForeignFileAccess`
+  只剩「读发送源 + 发布到 SAF + 删 SAF 文件」三件平台独占的事。
+
+**不要做**：
+- 不要为了「少一层拷贝」把 staging 直接指向用户选的外部目录。省下的那次 rename
+  换来的是一个不属于你的 fd。
+- 发布路径不要漏掉**实地**逃逸校验：词法检查（`is_safe_relative_path`）看不见文件系统，
+  保存目录下一个指向外部的符号链接能让完全合法的 `sub/x.txt` 写到目录外。
+  `create_dir_all` 之后 `canonicalize` 断言仍在 save_dir 内（桌面 `path_ops::ensure_within`
+  一直有，移动端 2026-08-07 才补上）。
+
+**相关文件**：`crates/transfer/src/actor/receiver.rs`（`publish_file`）、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/file_staging.rs`、
+`src-tauri/src/host/file_sink/`、`openspec/changes/receive-staging-publish/`
+
+### 单个文件收齐即发布，会话终态不做文件级工作（2026-08-07）
+
+`finish_data_channel` 曾把**所有**文件的 finalize 堆在会话 Finish 之后。代价有三：
+所有 sink 从首块一直开到会话结束（N 个 fd）；暂存磁盘峰值是整批总大小；
+更麻烦的是它制造了「bitmap 完整但未 finalize」这个中间态，需要一段 30 行的兜底伺候。
+
+改成收齐即发布之后那个状态消失，兜底整段删除。**但有一个必须同时改的点**：
+
+`persist_chunk` 的 checkpoint 刷新条件原本是 `完成数 % N == 0 || 完成数 >= 总数`，
+**末块一定会刷**。于是「收齐 → 完整 bitmap 落库 → 发布失败 → 中断」之后，续传时
+`first_missing_range` 跳过该文件、`fetch_plan` 不含它，**再也不会触发发布**，
+而 `ensure_files_complete` 只看 bitmap 会让 UI 报完成——文件永久停在暂存里。
+
+**正确做法**：末块**不刷** checkpoint，完整 bitmap 只由发布成功后的
+`mark_file_completed` 写。于是不变量成立：**DB 里 bitmap 完整 ⟺ 该文件已发布**。
+发布失败时 DB 停在上一个节流点，续传重拉最多 `CHECKPOINT_INTERVAL - 1` 块后重试，自愈。
+
+连带的失败语义：逐块验签接管完整性之后 finalize 不再校验（桌面那遍整文件 BLAKE3 是
+bao 落地前的遗留，已删），所以它失败**只可能**是「数据是好的、只是搬不过去」。
+因此**不得 `reset_file_checkpoint`**——那会让对端重传整个文件。直接 `?` 上抛即可，
+冒泡到 `start_data_channel` 的 Err 分支就是既有的可恢复 Interrupted 路径。
+
+**已知限制**：发布成功与 `mark_file_completed` 之间有一个 await 的窗口，进程在此被杀会
+留下「暂存已消失、bitmap 却不完整」的状态，续传会新建空暂存只补末几块、产出有洞的文件。
+这是既有缺陷（`.part` 时代同样存在），修它需要 `open_or_create_sink` 回报「是新建还是续上」，
+属于端口签名变更，单独立项。实现上的纪律是：**那两步之间不插入任何其他 await**。
+
+### 空文件是唯一无法靠数据块触发的情形——删兜底时最容易漏掉它
+
+改成「收齐即发布」时，会话末尾那段兜底被整段删除，理由是它照顾的状态已不可达。
+**但那段兜底照顾的是两种情形，只有一种消失了。**
+
+`size == 0` 的文件没有数据块可等，而全仓有两处对它特判、方向相反：
+
+| 判据 | 对 `size == 0` | 问的问题 |
+|---|---|---|
+| `first_missing_range` / `ensure_files_complete` | 直接跳过，**恒为完成** | 还差哪段字节？空文件没有字节可缺 |
+| `build_fetch_plan`（续传） | `cursor < file.size` 恒 false，**产生不出任何 range** | 要向对端要哪些字节？ |
+| `full_fetch_plan`（首次） | 给一条 `length == 0` 的 range | —— |
+| `checkpoint::file_is_complete` | 要求那唯一一块被标记 | 这个文件**发布**了吗？ |
+
+于是：首次传输时空文件还能靠那条 `length == 0` 的 range 走通常路径（发送端发一个空块）；
+但**只要首次传输在它的块到达前中断**，续传就再也不会为它产生 range，它永远等不到自己的块，
+而 `ensure_files_complete` 又放行——会话报完成，文件却从未落地、`local_path` 为空。
+
+**正确做法**：在 Finish 处补一次发布（`ReceiverActor::publish_pending_empty_files`），
+只针对空文件、且幂等。这比原来那段「遍历所有文件补 finalize」的兜底聚焦得多。
+
+**教训**：删兜底之前要问「它当初照顾的是**哪几种**情形」，逐条确认每一种都真的不可达——
+而不是只问「现在还可达吗」。这次漏掉是因为设计文档里专门讨论过空文件，但只验证了
+「首次传输能走通」，没验证「中断后续传」。
+
+**相关文件**：`crates/transfer/src/actor/receiver.rs`、`crates/transfer/src/actor/checkpoint.rs`
+（`empty_file_is_byte_complete_but_not_yet_published` 钉住那两条判据的差异）、
+`crates/core/tests/e2e_transfer.rs`（`e2e_empty_file_is_published_even_when_interrupted_before_its_block`）
+
+**相关文件**：`crates/transfer/src/actor/receiver.rs`、
+`crates/core/tests/e2e_transfer.rs`（`e2e_publish_failure_keeps_checkpoint_and_resumes`
+钉住失败语义，`e2e_multichunk_multifile_transfer` 用 `MemoryHost::sink_ops()` 的**时序**
+钉住收齐即发布——这条从终态观察不到）
+
 ### `FileAccess::read_source_chunk` 的 (offset, length) 是严格契约——宿主违约会炸进 blake3
 
 2026-07 事故：桌面→移动传 >16KiB 文件（用户报「图片」）在发送端 prepare 直接

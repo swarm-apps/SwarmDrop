@@ -134,6 +134,22 @@ pub(crate) fn build_resume_file_infos(
     (infos, transferred_bytes)
 }
 
+/// 从 DB 行重建 `FileInfo` 与接收侧的分块位图。
+///
+/// # 载入时必须把「位图完整却从未发布」的行降级
+///
+/// 接收侧的核心不变量是**「位图完整 ⟺ 该文件已发布」**——收齐即发布，且末块刻意不刷
+/// checkpoint，完整位图只由 `mark_file_completed` 在发布成功后写。
+///
+/// 但**存量数据破坏这条不变量**：旧实现在每个文件的末块就刷完整位图，而发布推迟到会话
+/// 结束统一做。于是「末块落库后、会话结束前」中断的行，在库里就是「位图完整 + `local_path`
+/// 为空」。原样载入的话，续传的 `first_missing_range` 会跳过它、`fetch_plan` 不含它、
+/// 于是永远不会有块到达来触发发布，而 `ensure_files_complete` 又判它完成——
+/// 会话报成功，文件却留在暂存里，`local_path` 永远是 NULL。**静默丢文件。**
+///
+/// `local_path` 是发布的唯一凭证（只由 `mark_file_completed` 写），所以这里用它做判据：
+/// 未发布的行清掉最后一块，让它重新走一遍「收齐 → 发布」。代价是重传一个 chunk，
+/// 换回不变量成立。
 pub(crate) fn build_file_infos_and_bitmaps(
     files: &[entity::transfer_file::Model],
 ) -> (Vec<FileInfo>, HashMap<u32, Vec<u8>>) {
@@ -142,7 +158,16 @@ pub(crate) fn build_file_infos_and_bitmaps(
     for f in files {
         let fid = f.file_id as u32;
         file_infos.push(FileInfo::from(f));
-        bitmaps.insert(fid, f.completed_chunks.clone());
+
+        let mut bitmap = f.completed_chunks.clone();
+        if f.local_path.is_none() {
+            let total_chunks = calc_total_chunks(f.size as u64);
+            crate::actor::checkpoint::clear_chunk_completed(
+                &mut bitmap,
+                total_chunks.saturating_sub(1),
+            );
+        }
+        bitmaps.insert(fid, bitmap);
     }
     (file_infos, bitmaps)
 }

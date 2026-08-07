@@ -602,6 +602,12 @@ mod tests {
         ) -> AppResult<crate::host::FileSinkId> {
             unimplemented!("编排不碰它")
         }
+        async fn open_or_create_sink(
+            &self,
+            _m: crate::host::HostFileMetadata,
+        ) -> AppResult<crate::host::FileSinkId> {
+            unimplemented!("编排不碰它")
+        }
         async fn write_sink_chunk(
             &self,
             _s: &crate::host::FileSinkId,
