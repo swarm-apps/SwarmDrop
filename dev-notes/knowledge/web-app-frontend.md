@@ -189,14 +189,27 @@ query param 名只在 `PARAM` 里定义一次（生产方与 `useSearchParams().
 
 两条配套约束（`basePath` 仍在，见本文开头的更正，所以它们都还有效）：
 
-- **非框架管辖的纯字符串路径要手拼 `BASE_PATH`**。`next/link` 与 `next/image` 会自动加，
-  但 `<img src="/x">`、metadata 里的 `/x` 不会——`/x` 解析时会把 base path 整段替换掉。
-  已知需要拼的：`docs/lib/shared.ts` 的 `appIconPath`（`${BASE_PATH}/app-icon.png`）。
+- **非框架管辖的纯字符串路径要手拼 `BASE_PATH`**。`/x` 解析时会把 base path 整段替换掉。
+  一律走 `docs/lib/shared.ts` 的 `assetPath()`，别手写 `/x.png`。
+
+  > ⚠️ **本条 2026-08-07 更正，此前写的是「`next/link` 与 `next/image` 会自动加」——
+  > `next/image` 那半句是错的，并且直接导致了线上事故。** `next/link` 确实会自动加；
+  > `next/image` 只在 optimized 模式下才间接带上前缀（src 被转成 `/_next/image?url=…`），
+  > 而本站 `images: { unoptimized: true }`（静态导出的硬性要求）会让字符串 src **原样输出**。
+  >
+  > 首页三张截图 `src="/shots/*.png"` 就是这么在 Pages 上 404 的，hero 图整块空白。
+  > 静态导入（`import shot from "./x.png"`）不受影响——它走 webpack 资源管线。
+  >
+  > **本地看不出来**：本地 `BASE_PATH` 为空，`/shots/x.png` 正好是对的，只有部署到子路径
+  > 才炸。所以下面那条「本地验证子路径部署」必须连 `src` 一起 grep，不能只 grep `href`。
 - **本地验证子路径部署**：`PAGES_BASE_PATH=/SwarmDrop pnpm build`，然后 grep 导出产物里的
   `href` 确认全部带前缀：
 
   ```bash
-  grep -o 'href="/app[^"]*"' out/app/*/index.html   # 应当为空（都该带 /SwarmDrop 前缀）
+  # 导航：应当为空（都该带 /SwarmDrop 前缀）
+  grep -o 'href="/app[^"]*"' out/app/*/index.html
+  # 静态资源：同样应当为空 —— 只 grep href 会漏掉 <Image>，2026-08-07 就是这么漏的
+  grep -ro 'src="/[^"]*\.\(png\|jpg\|svg\|webp\)"' out/ | grep -v '/SwarmDrop/'
   ```
 
   路径大小写必须精确匹配仓库名 `SwarmDrop`（Pages 区分大小写）。
