@@ -13,6 +13,7 @@ pub mod events;
 pub mod external_open;
 pub mod host;
 pub mod i18n;
+pub mod logging;
 pub(crate) mod mcp;
 pub(crate) mod network;
 pub mod setup;

@@ -32,6 +32,11 @@ swarmdrop-storage-sql = { workspace = true, features = ["specta"] }
 swarmdrop-invite = { workspace = true }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+# 文件层：按天轮转 + 保留数上限。与移动端同一套写法（见 mobile-core 的 logging 模块），
+# 参数保持一致以免两端日志行为分叉。
+# ⚠️ `non_blocking()` 返回的 guard 一旦 drop，后台写线程就停、日志静默消失且不报错，
+# 它必须存进 Tauri managed state。
+tracing-appender = { workspace = true }
 tauri-plugin-fs = "2"
 tauri-plugin-os = "2"
 tauri-plugin-store = "2"

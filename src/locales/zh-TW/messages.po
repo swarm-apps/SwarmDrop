@@ -1096,6 +1096,14 @@ msgstr "開啟檔案"
 msgid "打开文件夹"
 msgstr "開啟資料夾"
 
+#: src/routes/_app/settings/-about-section.tsx
+msgid "打开日志文件夹"
+msgstr "開啟日誌資料夾"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "打开日志文件夹失败"
+msgstr "開啟日誌資料夾失敗"
+
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "打洞"
@@ -2023,6 +2031,10 @@ msgstr "通常是某一端的防火牆擋了入站連線。檔案仍會經中繼
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "通用"
 msgstr "一般"
+
+#: src/routes/_app/settings/-about-section.tsx
+msgid "遇到问题时，日志能帮我们定位。它包含设备 ID 与网络地址，发送前请自行过目。"
+msgstr "遇到問題時，日誌能幫我們定位。它包含裝置 ID 與網路位址，傳送前請自行過目。"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "邀请一次性有效，过期后可立即重新生成。"

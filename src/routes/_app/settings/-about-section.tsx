@@ -12,6 +12,7 @@ import {
   Bot,
   Download,
   ExternalLink,
+  FolderOpen,
   Github,
   Globe2,
   Info,
@@ -22,7 +23,9 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { toast } from "sonner";
 import { MarkdownContent } from "@/components/ui/markdown-content";
+import { commands } from "@/lib/bindings";
 import { Progress } from "@/components/ui/progress";
 import { useUpdate } from "@/hooks/use-update";
 import { SettingsCard, SettingsSection } from "./-settings-primitives";
@@ -112,6 +115,17 @@ export function AboutPanel({ className }: { className?: string }) {
           <FeatureTag icon={Bot} label={<Trans>AI 原生 · MCP</Trans>} />
           <FeatureTag icon={RefreshCw} label={<Trans>断点续传</Trans>} />
         </div>
+
+        {/* 诊断日志。说明常驻而非点击后弹窗——用户在按下去之前就该知道里面有什么。 */}
+        <div className="flex flex-col gap-2 border-t border-border pt-4 min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between">
+          <p className="max-w-[52ch] text-xs leading-5 text-muted-foreground">
+            <Trans>
+              遇到问题时，日志能帮我们定位。它包含设备 ID
+              与网络地址，发送前请自行过目。
+            </Trans>
+          </p>
+          <OpenLogDirButton />
+        </div>
       </div>
 
       {/* Update Banner / Progress */}
@@ -128,6 +142,34 @@ export function AboutPanel({ className }: { className?: string }) {
         />
       )}
     </SettingsCard>
+  );
+}
+
+/**
+ * 打开应用日志目录。
+ *
+ * 跨网络的故障几乎都依赖具体网络环境（NAT 类型、运营商、是否走中继），我们本地
+ * 复现不出来——日志是唯一的现场。给「打开文件夹」而不是「一键发送」，是为了让
+ * 用户能先看一眼再决定发不发。
+ */
+function OpenLogDirButton() {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        commands.openLogDir().catch((e: unknown) => {
+          const message =
+            typeof e === "object" && e !== null && "message" in e
+              ? String((e as { message: unknown }).message)
+              : String(e);
+          toast.error(t`打开日志文件夹失败`, { description: message });
+        });
+      }}
+      className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+    >
+      <FolderOpen className="size-3.5" />
+      <Trans>打开日志文件夹</Trans>
+    </button>
   );
 }
 
