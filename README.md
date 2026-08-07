@@ -176,15 +176,15 @@ pnpm tauri build    # package
 
 ## Contributing
 
-Issues and PRs welcome. A few conventions:
+Issues and pull requests are welcome. [**CONTRIBUTING.md**](CONTRIBUTING.md) covers setup,
+the pre-commit checks, and the conventions you can't infer from the code — the repo has
+four separate pnpm workspaces and `src/lib/bindings.ts` is generated, to name two.
 
-- [Conventional Commits](https://www.conventionalcommits.org) (`feat:` / `fix:` / `chore:` …).
-- Before committing: `cargo fmt && cargo clippy` for Rust, `pnpm exec tsc --noEmit` for
-  the frontend.
-- IPC bindings (`src/lib/bindings.ts`) are auto-generated — don't hand-edit them; run
-  `pnpm tauri dev` to regenerate.
-- Translations use [Lingui](https://lingui.dev) (`pnpm i18n:extract`). New-language
-  README contributions are welcome too — see [README.zh-CN.md](README.zh-CN.md) for the format.
+Participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md).
+
+**Found a security issue?** Please use
+[private vulnerability reporting](https://github.com/swarm-apps/SwarmDrop/security/advisories/new)
+rather than a public issue. Scope and threat model are in [SECURITY.md](SECURITY.md).
 
 ## Related
 

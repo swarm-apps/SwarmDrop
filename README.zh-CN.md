@@ -161,13 +161,15 @@ pnpm tauri build    # 打包
 
 ## 参与贡献
 
-欢迎提 Issue 和 PR。几条约定：
+欢迎提 Issue 和 PR。[**CONTRIBUTING.md**](CONTRIBUTING.md) 写了环境搭建、提交前的门禁清单，
+以及那些看代码看不出来的约定 —— 比如本仓有四个彼此独立的 pnpm workspace，
+以及 `src/lib/bindings.ts` 是自动生成的。
 
-- 遵循 [Conventional Commits](https://www.conventionalcommits.org)（`feat:` / `fix:` / `chore:` …）。
-- 提交前：Rust 跑 `cargo fmt && cargo clippy`，前端跑 `pnpm exec tsc --noEmit`。
-- IPC bindings（`src/lib/bindings.ts`）是自动生成的，**不要手改** —— 跑 `pnpm tauri dev` 重新生成。
-- 翻译用 [Lingui](https://lingui.dev) 管理（`pnpm i18n:extract`）。也欢迎贡献新语言的 README，
-  格式参照本文件。
+参与本项目需遵守[行为准则](CODE_OF_CONDUCT.md)。
+
+**发现安全问题？** 请走
+[私密漏洞报告](https://github.com/swarm-apps/SwarmDrop/security/advisories/new)，
+不要开公开 Issue。适用范围与威胁模型见 [SECURITY.md](SECURITY.md)。
 
 ## 相关项目
 
