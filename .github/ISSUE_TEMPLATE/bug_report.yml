@@ -87,8 +87,11 @@ body:
     attributes:
       label: Logs (optional, but very helpful)
       description: |
-        There is no log file — the desktop app writes to stdout, so you only see logs if you
-        launch it from a terminal:
+        **On mobile**: Settings → About → Diagnostics → **Export logs**. That opens the
+        system share sheet with the log file attached.
+
+        **On desktop** there is no log file yet — the app writes to stdout, so you only see
+        logs if you launch it from a terminal:
 
         - **macOS**: `/Applications/swarmdrop.app/Contents/MacOS/swarmdrop`
         - **Linux**: run the AppImage or `swarmdrop` binary from a shell
@@ -97,7 +100,7 @@ body:
         For more detail, prefix with `RUST_LOG=swarmdrop=trace,swarmdrop_net=trace`.
         In the browser build, the Settings page has an event log.
 
-        **Please skim before pasting** — logs contain your device ID and network addresses.
+        **Please skim before sending** — logs contain your device ID and network addresses.
       render: shell
 
   - type: checkboxes

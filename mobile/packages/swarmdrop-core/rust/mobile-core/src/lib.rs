@@ -38,6 +38,7 @@ mod history;
 mod identity;
 mod inbox;
 mod keychain;
+mod logging;
 mod network;
 mod pairing;
 mod panic_hook;

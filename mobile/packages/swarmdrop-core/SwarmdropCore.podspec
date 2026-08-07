@@ -18,7 +18,14 @@ Pod::Spec.new do |s|
   s.source_files = "ios/**/*.{h,m,mm,swift}", "cpp/**/*.{hpp,cpp,c,h}", "cpp/generated/**/*.{hpp,cpp,c,h}"
   s.vendored_frameworks = "SwarmdropCoreFramework.xcframework"
   s.frameworks    = "SystemConfiguration"
-  s.dependency    "uniffi-bindgen-react-native", "0.31.0-2"
+  # 版本从 package.json 读，不在这里再抄一份。
+  #
+  # 本文件在 ubrn.config.yaml 的 `noOverwrite` 名单里 —— `ubrn build --and-generate`
+  # 不会覆盖它，所以写死的版本号在升级 npm 包时不会被同步，注定漂移。2026-08-07 就是
+  # 这么坏的：package.json 已是 0.31.0-3，这里还锁着 0.31.0-2，CocoaPods 按后者
+  # 从 git tag 拉了旧运行时，而生成的 C++ 调用的是新接口，最终以
+  # `no member named 'string_from_buffer'` 的形式在 xcodebuild 阶段才炸出来。
+  s.dependency    "uniffi-bindgen-react-native", package["devDependencies"]["uniffi-bindgen-react-native"]
 
   install_modules_dependencies(s)
 end

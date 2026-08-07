@@ -147,6 +147,10 @@ msgstr "NAT"
 msgid "NAT 状态"
 msgstr "NAT 状态"
 
+#: src/app/settings/about.tsx:122
+msgid "Noise 或 TLS 1.3，中继全程只经手密文"
+msgstr "Noise 或 TLS 1.3，中继全程只经手密文"
+
 #: src/app/device/[peerId].tsx:363
 #: src/components/node-control-sheet.tsx:199
 msgid "Peer ID"
@@ -160,15 +164,11 @@ msgstr "SwarmDrop 正在后台运行"
 msgid "SwarmDrop 还没上线"
 msgstr "SwarmDrop 还没上线"
 
-#: src/app/settings/about.tsx:100
-msgid "XChaCha20-Poly1305，路上没人能看到内容"
-msgstr "XChaCha20-Poly1305，路上没人能看到内容"
-
 #: src/app/onboarding/setup.tsx:80
 msgid "一切就绪"
 msgstr "一切就绪"
 
-#: src/app/settings/about.tsx:105
+#: src/app/settings/about.tsx:127
 msgid "一次一密"
 msgstr "一次一密"
 
@@ -438,7 +438,7 @@ msgid "公网引导尚未连接，跨网络发现可能暂时不可用。"
 msgstr "公网引导尚未连接，跨网络发现可能暂时不可用。"
 
 #: src/app/(main)/settings.tsx:61
-#: src/app/settings/about.tsx:63
+#: src/app/settings/about.tsx:85
 msgid "关于"
 msgstr "关于"
 
@@ -599,7 +599,7 @@ msgstr "别名与分组"
 msgid "刷新"
 msgstr "刷新"
 
-#: src/components/inbox/inbox-list.tsx:423
+#: src/components/inbox/inbox-list.tsx:439
 msgid "剪贴板"
 msgstr "剪贴板"
 
@@ -651,7 +651,7 @@ msgstr "协助地址已复制"
 msgid "原始文件已不可用"
 msgstr "原始文件已不可用"
 
-#: src/app/settings/about.tsx:89
+#: src/app/settings/about.tsx:111
 msgid "去中心化、跨网络、端到端加密文件传输"
 msgstr "去中心化、跨网络、端到端加密文件传输"
 
@@ -659,7 +659,7 @@ msgstr "去中心化、跨网络、端到端加密文件传输"
 msgid "去系统设置开启"
 msgstr "去系统设置开启"
 
-#: src/app/settings/about.tsx:167
+#: src/app/settings/about.tsx:191
 msgid "反馈"
 msgstr "反馈"
 
@@ -802,7 +802,7 @@ msgstr "可达"
 msgid "可配对"
 msgstr "可配对"
 
-#: src/components/inbox/inbox-list.tsx:425
+#: src/components/inbox/inbox-list.tsx:441
 msgid "合集"
 msgstr "合集"
 
@@ -846,7 +846,7 @@ msgid "启动节点失败"
 msgstr "启动节点失败"
 
 #: src/components/inbox/inbox-list.tsx:106
-#: src/components/inbox/inbox-list.tsx:417
+#: src/components/inbox/inbox-list.tsx:433
 msgid "图片"
 msgstr "图片"
 
@@ -928,7 +928,7 @@ msgstr "失败"
 msgid "它可能已经被删除。"
 msgstr "它可能已经被删除。"
 
-#: src/app/settings/about.tsx:94
+#: src/app/settings/about.tsx:116
 msgid "安全与加密"
 msgstr "安全与加密"
 
@@ -1010,6 +1010,15 @@ msgstr "对端暂停"
 #: src/components/transfer/shared.tsx:335
 msgid "对端离线"
 msgstr "对端离线"
+
+#: src/app/settings/about.tsx:77
+#: src/app/settings/about.tsx:219
+msgid "导出日志"
+msgstr "导出日志"
+
+#: src/app/settings/about.tsx:79
+msgid "导出日志失败"
+msgstr "导出日志失败"
 
 #: src/app/pairing/scan.tsx:249
 msgid "将配对二维码放入框内"
@@ -1132,7 +1141,7 @@ msgstr "已拒绝"
 msgid "已拒绝文件"
 msgstr "已拒绝文件"
 
-#: src/app/settings/about.tsx:144
+#: src/app/settings/about.tsx:168
 msgid "已是最新"
 msgstr "已是最新"
 
@@ -1613,7 +1622,7 @@ msgstr "放弃选择？"
 #: src/components/activity-projection-card.tsx:108
 #: src/components/file-browser/file-browser-toolbar.tsx:37
 #: src/components/inbox/inbox-list.tsx:105
-#: src/components/inbox/inbox-list.tsx:427
+#: src/components/inbox/inbox-list.tsx:443
 #: src/components/recent-transfer-row.tsx:73
 #: src/components/transfer-offer-host.tsx:237
 msgid "文件"
@@ -1643,7 +1652,7 @@ msgid "文件缺失"
 msgstr "文件缺失"
 
 #: src/components/inbox/inbox-list.tsx:108
-#: src/components/inbox/inbox-list.tsx:421
+#: src/components/inbox/inbox-list.tsx:437
 msgid "文本"
 msgstr "文本"
 
@@ -1651,7 +1660,7 @@ msgstr "文本"
 msgid "文本内容"
 msgstr "文本内容"
 
-#: src/app/settings/about.tsx:161
+#: src/app/settings/about.tsx:185
 msgid "文档"
 msgstr "文档"
 
@@ -1668,7 +1677,7 @@ msgstr "新设备请求配对"
 msgid "无法打开文件夹"
 msgstr "无法打开文件夹"
 
-#: src/app/settings/about.tsx:52
+#: src/app/settings/about.tsx:55
 msgid "无法打开链接"
 msgstr "无法打开链接"
 
@@ -1676,7 +1685,11 @@ msgstr "无法打开链接"
 msgid "无需账号,设备身份只存在本机"
 msgstr "无需账号,设备身份只存在本机"
 
-#: src/app/settings/about.tsx:111
+#: src/app/settings/about.tsx:73
+msgid "日志尚未生成，请先使用一段时间再试"
+msgstr "日志尚未生成，请先使用一段时间再试"
+
+#: src/app/settings/about.tsx:135
 msgid "明文不经过任何服务器"
 msgstr "明文不经过任何服务器"
 
@@ -1715,6 +1728,10 @@ msgstr "暂无"
 #: src/app/activity.tsx:280
 msgid "暂无传输记录"
 msgstr "暂无传输记录"
+
+#: src/app/settings/about.tsx:73
+msgid "暂无日志"
+msgstr "暂无日志"
 
 #: src/app/device/groups.tsx:361
 msgid "暂无设备"
@@ -1756,7 +1773,7 @@ msgstr "更新失败"
 msgid "更新归档状态失败"
 msgstr "更新归档状态失败"
 
-#: src/app/settings/about.tsx:175
+#: src/app/settings/about.tsx:199
 msgid "更新日志"
 msgstr "更新日志"
 
@@ -1764,7 +1781,7 @@ msgstr "更新日志"
 msgid "有效期"
 msgstr "有效期"
 
-#: src/app/settings/about.tsx:128
+#: src/app/settings/about.tsx:152
 msgid "有新版可用"
 msgstr "有新版可用"
 
@@ -1903,11 +1920,11 @@ msgstr "查看诊断详情"
 msgid "树形视图"
 msgstr "树形视图"
 
-#: src/app/settings/about.tsx:138
+#: src/app/settings/about.tsx:162
 msgid "检查失败"
 msgstr "检查失败"
 
-#: src/app/settings/about.tsx:121
+#: src/app/settings/about.tsx:145
 msgid "检查更新"
 msgstr "检查更新"
 
@@ -1981,9 +1998,9 @@ msgstr "此设备需要手动确认后才会开始接收。"
 msgid "每一笔传输的过程都记在这里；收好的东西请到收件箱找"
 msgstr "每一笔传输的过程都记在这里；收好的东西请到收件箱找"
 
-#: src/app/settings/about.tsx:106
-msgid "每次传输临时生成密钥，用完即弃"
-msgstr "每次传输临时生成密钥，用完即弃"
+#: src/app/settings/about.tsx:129
+msgid "每条连接独立握手，会话密钥仅存内存"
+msgstr "每条连接独立握手，会话密钥仅存内存"
 
 #: src/app/activity.tsx:290
 #: src/app/transfer/search.tsx:89
@@ -2065,7 +2082,7 @@ msgstr "源文件已变更，无法继续，请重新发送"
 msgid "点下方「添加设备」，把你的电脑或另一台手机接进来。"
 msgstr "点下方「添加设备」，把你的电脑或另一台手机接进来。"
 
-#: src/app/settings/about.tsx:110
+#: src/app/settings/about.tsx:134
 msgid "点对点直连"
 msgstr "点对点直连"
 
@@ -2141,7 +2158,7 @@ msgstr "确认配对"
 
 #: src/app/send/select-device.tsx:392
 #: src/components/inbox/inbox-list.tsx:107
-#: src/components/inbox/inbox-list.tsx:418
+#: src/components/inbox/inbox-list.tsx:434
 msgid "视频"
 msgstr "视频"
 
@@ -2173,7 +2190,7 @@ msgstr "空传输"
 msgid "端到端 · 本次传输专用密钥"
 msgstr "端到端 · 本次传输专用密钥"
 
-#: src/app/settings/about.tsx:98
+#: src/app/settings/about.tsx:120
 msgid "端到端加密"
 msgstr "端到端加密"
 
@@ -2459,6 +2476,10 @@ msgstr "设备身份读写失败"
 msgid "设置"
 msgstr "设置"
 
+#: src/app/settings/about.tsx:208
+msgid "诊断"
+msgstr "诊断"
+
 #: src/app/(main)/index.tsx:323
 msgid "该分组还没有设备"
 msgstr "该分组还没有设备"
@@ -2518,7 +2539,7 @@ msgstr "请输入大于 0 的数字，留空表示不限制"
 msgid "请重新选择要发送的文件"
 msgstr "请重新选择要发送的文件"
 
-#: src/app/settings/about.tsx:152
+#: src/app/settings/about.tsx:176
 msgid "资源"
 msgstr "资源"
 
@@ -2536,7 +2557,7 @@ msgstr "跟随系统"
 msgid "跨网络直连,不同 WiFi 也能传"
 msgstr "跨网络直连,不同 WiFi 也能传"
 
-#: src/app/settings/about.tsx:118
+#: src/app/settings/about.tsx:142
 msgid "软件更新"
 msgstr "软件更新"
 
@@ -2672,6 +2693,10 @@ msgstr "通知已开启"
 #: src/app/settings/general.tsx:204
 msgid "通知提醒"
 msgstr "通知提醒"
+
+#: src/app/settings/about.tsx:211
+msgid "遇到问题时，日志能帮我们定位。它包含设备 ID 与网络地址，发送前请自行过目。"
+msgstr "遇到问题时，日志能帮我们定位。它包含设备 ID 与网络地址，发送前请自行过目。"
 
 #: src/components/pairing/sent-invites.tsx:161
 msgid "邀请凭证不会被保存，所以这里只能显示状态。需要再分享请重新生成一条。"

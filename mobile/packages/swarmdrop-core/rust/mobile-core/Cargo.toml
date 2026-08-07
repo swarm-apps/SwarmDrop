@@ -27,9 +27,22 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
 tracing = { workspace = true }
+# 日志订阅端。此前本 crate 只有 `tracing` 门面而没有任何 subscriber，
+# 导致 crates/* 的 tracing 宏在移动端全是空操作 —— 日志不是难取得，是从未产生。
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
 uuid = { workspace = true }
 
 uniffi = { version = "0.31.0", features = ["bindgen", "build", "cli", "tokio"] }
+
+# iOS 的平台原生日志层，输出到 os_log（Console.app / Xcode 可见）。
+#
+# Android 侧**刻意不加依赖**：现成的 tracing-logcat（停更 2 年）与 tracing-android
+# （停更 4 年）都不再维护，而这层的全部工作只是把字节交给 NDK 的
+# `__android_log_write`，自己声明 extern "C" 即可（liblog 在 Android 上默认链接）。
+# 实现见 `src/logging/android.rs`，决策见 openspec 的 mobile-logging design D2。
+[target.'cfg(target_os = "ios")'.dependencies]
+tracing-oslog = "0.3"
 
 # release profile 见 workspace root 的 `[profile.mobile-release]` —— 写在这里会被
 # Cargo 忽略（非 root package 的 profile 不生效）。

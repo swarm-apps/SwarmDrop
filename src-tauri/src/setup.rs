@@ -8,22 +8,21 @@
 
 use std::sync::Arc;
 
+use crate::{commands, events};
 use tauri::{Builder, Manager, Wry};
 use tauri_specta::{Builder as SpectaBuilder, ErrorHandlingMode, collect_commands, collect_events};
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
-
-use crate::{commands, events};
 
 /// 初始化 tracing 订阅器（默认 `swarmdrop=debug,swarmdrop_net=debug`，可被
-/// `RUST_LOG` 覆盖）
+/// `RUST_LOG` 覆盖）。
+///
+/// 实现搬进 [`crate::logging`]：控制台层在这里立即生效，**文件层留一个空位**——
+/// 此刻还在 `tauri::Builder` 之前，`app_log_dir()` 拿不到。等 setup hook 里
+/// 取到目录后再由 `install_file_layer` 装载。
+///
+/// 之所以不把整个初始化推迟到 setup hook：那会丢掉启动早期的日志，而 keychain
+/// 读取与节点 bind 恰好在那之前，且它们正是最容易出问题的阶段。
 pub fn init_tracing() {
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("swarmdrop=debug,swarmdrop_net=debug")),
-        )
-        .init();
+    crate::logging::init();
 }
 
 /// 构造 tauri-specta [`SpectaBuilder`]：所有 IPC 命令在此集中注册。
@@ -98,6 +97,8 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::quit_app,
             // 语言（托盘 + 系统通知等原生字符串本地化）
             commands::set_locale,
+            // 诊断日志
+            commands::open_log_dir,
             // mcp
             commands::get_mcp_status,
             commands::start_mcp_server,
@@ -203,6 +204,20 @@ fn register_plugins(builder: Builder<Wry>) -> Builder<Wry> {
 /// tauri-specta event mount。
 fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<Wry> {
     builder.setup(move |app| {
+        // 日志文件层：`init_tracing()` 只装了控制台层，文件层留了个空位——那时还在
+        // `tauri::Builder` 之前，`app_log_dir()` 拿不到。这里是能取到目录的最早时机，
+        // 所以放在 setup hook 的第一步，让后续所有初始化的日志都落盘。
+        //
+        // ⚠️ guard 必须 `manage` 住：它一旦被 drop，`non_blocking` 的后台写线程就停止，
+        // 日志静默消失且**不产生任何错误**。这里不 manage 的话，它会在本闭包结束时 drop。
+        //
+        // 取不到目录或目录不可写时静默跳过——日志是诊断设施，不该让应用起不来。
+        if let Ok(log_dir) = app.path().app_log_dir()
+            && let Some(guard) = crate::logging::install_file_layer(&log_dir)
+        {
+            app.manage(guard);
+        }
+
         // tauri-specta events —— 当前未声明事件，为将来扩展预留 mount 钩子。
         specta.mount_events(app);
 

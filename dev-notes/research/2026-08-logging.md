@@ -1,10 +1,17 @@
 # 三端日志：给用户一份能交出来的现场
 
-> **状态：🟡 已调研，待决策（2026-08-07）。**
-> 触发点是补 issue 模板时发现：bug 报告里根本没法要求用户附日志。
-> 结论倾向 **`tracing-appender` 做文件层、三端共用**，平台侧各挂各的 layer。
-> 桌面选型被技术栈单方面决定（官方 `tauri-plugin-log` 只吃 `log` crate，本仓全是
-> `tracing`）；**移动端的缺口比桌面更大，且更刚需**。
+> **状态：🟢 移动端已落地并实测（2026-08-07）· 🟡 桌面端已实现，待打包验证。**
+>
+> 触发点是补 issue 模板时发现：bug 报告里根本没法要求用户附日志。结论
+> （`tracing-appender` 做文件层三端共用、平台侧各挂各的 layer）已按 openspec 的
+> `mobile-logging` / `desktop-logging` 两个 change 实施。
+>
+> **实测结果（iOS 模拟器 + Android Pixel_7）**：日志双端落盘、iOS os_log 与
+> Android logcat 均有输出、级别映射正确。唯一未自动验证的是「导出/打开」那一步的
+> UI 点击（Expo 坐标点击不生效，iOS 侧要 WebDriverAgent）。
+>
+> **落地时推翻的两处本文原判**，已在正文对应位置更正：Android 侧现成 crate 全部停更、
+> 改为自实现；`EnvFilter` 的前缀匹配没有问题（曾怀疑是空日志的原因，实测不是）。
 
 ## 缺口在哪
 
@@ -81,9 +88,17 @@ Rust 侧 `tracing_subscriber::registry()` 挂三层：
 
 | 层 | Android | iOS |
 |---|---|---|
-| 平台原生 | [`tracing-logcat`](https://docs.rs/tracing-logcat)（直连 logd，不链 liblog） | [`tracing-oslog`](https://crates.io/crates/tracing-oslog)（输出到 os_log，Console.app 可见） |
+| 平台原生 | ~~`tracing-logcat`~~ → **自实现 `MakeWriter`**（见下） | [`tracing-oslog`](https://crates.io/crates/tracing-oslog)（输出到 os_log，Console.app 可见） |
 | 文件 | `tracing-appender`，落在 app sandbox | 同左 |
 | 过滤 | `EnvFilter`，与桌面同一套默认值 | 同左 |
+
+> **⚠️ 2026-08-07 实施时推翻**：Android 侧两个候选 crate 都已停更
+> （`tracing-logcat` 168K 下载 / 2024-07，`tracing-android` 675K / 2022-01），
+> 改为**自实现约 50 行的 `MakeWriter`** 直调 NDK 的 `__android_log_write`
+> ——这层的全部工作只是把字节交给 liblog，不值得为它背一个停更依赖。
+> 纯逻辑与 FFI 分离，级别映射、NUL 替换、UTF-8 边界截断都能在开发机上跑测试。
+> 实现见 `mobile-core/src/logging/android.rs`，决策见 openspec `mobile-logging` design D2。
+> 已在 Pixel_7 实测：`adb logcat -s SwarmDrop` 有输出且优先级为 `I`（INFO），映射正确。
 
 平台原生那层给的是**开发者**用的（`adb logcat` / Xcode Console），文件层给的是**用户**用的。
 移动端用户无法从终端启动应用，所以**文件层 + 应用内导出是唯一途径**——这条比桌面端刚需得多。

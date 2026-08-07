@@ -5,6 +5,7 @@
 //!   通过 `impl MobileCore` 跨模块挂接(Rust 允许多个 impl 块,ubrn proc-macro 都能扫到)
 //! - 私有 fields 用 `pub(crate)` 访问器暴露给同 crate 内的业务模块,不暴露给外部
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
@@ -29,8 +30,11 @@ pub struct MobileCore {
     keychain: Arc<MobileKeychainAdapter>,
     event_bus: Arc<MobileEventBusAdapter>,
     file_access: Arc<MobileFileAccessAdapter>,
-    /// SQLite 文件所在目录（启动时初始化 DB 用）
-    data_dir: String,
+    /// SQLite 文件所在目录（启动时初始化 DB 用）。
+    ///
+    /// 存 [`PathBuf`] 而非 `String`：宿主传进来的是 `file://` URI，在
+    /// [`MobileCore::new`] 的边界就已解析完毕，此后内部一律按路径处理。
+    data_dir: PathBuf,
     /// 设备名持久化端口，落在同一个 `data_dir` 下的 `device_config.json`
     device_config: Arc<JsonFileDeviceConfig>,
     keypair: Mutex<Option<SecretKey>>,
@@ -52,7 +56,9 @@ struct MobileDb {
 
 #[uniffi::export]
 impl MobileCore {
-    /// `data_dir` 是 host 提供的 SQLite 文件父目录（RN 用 `Paths.document.uri`）
+    /// `data_dir` 是 host 提供的 SQLite 文件父目录（RN 传 `Paths.document.uri`，
+    /// 即 `file:///...`）。它在这里被解析成 [`PathBuf`] 一次，之后内部不再有
+    /// 「这个字符串是 URI 还是路径」的歧义。
     #[uniffi::constructor]
     pub fn new(
         keychain: Arc<dyn ForeignKeychainProvider>,
@@ -65,6 +71,8 @@ impl MobileCore {
         // 事件总线只转发,不再持有 PairedDeviceStore —— 新配对与 Identify 刷新的写回
         // 已收进 core 的 `PairingManager::commit_paired_device`(三端同一个入口)。
         let keychain = Arc::new(MobileKeychainAdapter::new(keychain));
+        // 边界解析：跨 FFI 进来的 String 在此转成可信的 PathBuf，下游不再各剥一遍前缀。
+        let data_dir = crate::utils::parse_host_dir(&data_dir);
         Arc::new(Self {
             event_bus: Arc::new(MobileEventBusAdapter::new(event_bus)),
             keychain,
@@ -214,13 +222,10 @@ impl MobileCore {
     }
 }
 
-async fn open_db(data_dir: &str) -> FfiResult<DatabaseConnection> {
-    // 去掉 file:// 前缀（expo Paths.document.uri 是 file:///path/to/dir）
-    let dir = data_dir
-        .strip_prefix("file://")
-        .unwrap_or(data_dir)
-        .trim_end_matches('/');
-    let db_path = std::path::Path::new(dir).join("swarmdrop.db");
+async fn open_db(data_dir: &Path) -> FfiResult<DatabaseConnection> {
+    // `data_dir` 已在 `MobileCore::new` 的边界解析过（`utils::parse_host_dir`），
+    // 这里拿到的一定是文件系统路径，不必再判断格式。
+    let db_path = data_dir.join("swarmdrop.db");
     tracing::info!("初始化 mobile-core 数据库: {}", db_path.display());
 
     // 连接 + 迁移 + 「迁移历史过时就删库重建」的自愈与桌面共用同一条编排，

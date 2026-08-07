@@ -269,6 +269,13 @@ export const commands = {
 	quitApp: () => __TAURI_INVOKE<void>("quit_app"),
 	/**  应用当前 locale：更新 rust-i18n 全局 locale 并即时重绘托盘菜单文案。 */
 	setLocale: (locale: string) => __TAURI_INVOKE<null>("set_locale", { locale }),
+	/**
+	 *  用系统文件管理器打开应用日志目录。
+	 * 
+	 *  目录不存在时返回错误而非静默成功——那通常意味着文件层没装上（见
+	 *  [`crate::logging::install_file_layer`]），让用户看到比假装打开了更有用。
+	 */
+	openLogDir: () => __TAURI_INVOKE<null>("open_log_dir"),
 	/**  查询 MCP Server 当前状态 */
 	getMcpStatus: () => __TAURI_INVOKE<McpStatus>("get_mcp_status"),
 	/**

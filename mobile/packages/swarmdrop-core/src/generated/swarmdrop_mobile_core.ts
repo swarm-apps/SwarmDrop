@@ -54,6 +54,47 @@ export function defaultReceivePolicy(trustLevel: MobileDeviceTrustLevel, previou
     ));
     }
 
+/**
+ * 初始化日志。幂等：重复调用直接返回，不 panic、不重复注册订阅器。
+ *
+ * `dir` 由宿主传入而非在此推导平台目录——RN 侧本来就持有 `expo-file-system` 的目录
+ * 常量，传进来比在 Rust 里分叉两套平台代码更直接，也更好测。它是 `file://` URI，
+ * 与 `MobileCore::new` 一样在边界经 [`crate::utils::parse_host_dir`] 解析。
+ *
+ * 任何失败（目录不可写、订阅器已被别处注册）都就地吞掉：日志是诊断设施，
+ * 不该让应用起不来。
+ */
+export function initLogging(dir: string): void {uniffiCaller.rustCall(
+            /*caller:*/ (callStatus) => { nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_func_init_logging(
+        FfiConverterString.lower(dir, nativeModule().rustbuffer_alloc),
+                callStatus);
+            },
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+    );
+    }
+
+/**
+ * 当前日志文件的 `file://` URI。未初始化时返回 `None`，供调用方展示空状态。
+ *
+ * 返回 URI 而非裸路径：宿主的世界是 URI（`Sharing.shareAsync` 只认它），
+ * 与 [`init_logging`] 收 URI 的契约对称，调用方不必知道我们内部存的是 [`PathBuf`]。
+ */
+export function logFilePath(): string | undefined {
+    return ((__rb: Uint8Array) => {
+        try {
+            return FfiConverterOptionalString.lift(__rb);
+        } finally {
+            nativeModule().rustbuffer_free(__rb);
+        }
+    })(uniffiCaller.rustCall(
+            /*caller:*/ (callStatus) => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_func_log_file_path(
+                callStatus);
+            },
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+    ));
+    }
+
 export enum MobileBootstrapCandidateSource {
     HostConfigured,
     MdnsLanHelper,
@@ -6609,7 +6650,9 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     readonly [destructorGuardSymbol]: UniffiGcObject;
     readonly [pointerLiteralSymbol]: UniffiHandle;
 /**
- * `data_dir` 是 host 提供的 SQLite 文件父目录（RN 用 `Paths.document.uri`）
+ * `data_dir` 是 host 提供的 SQLite 文件父目录（RN 传 `Paths.document.uri`，
+ * 即 `file:///...`）。它在这里被解析成 [`PathBuf`] 一次，之后内部不再有
+ * 「这个字符串是 URI 还是路径」的歧义。
  */
     constructor(keychain: ForeignKeychainProvider, eventBus: ForeignEventBus, fileAccess: ForeignFileAccess, dataDir: string) {
         super();
@@ -8339,6 +8382,12 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy() !== 62186) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_func_init_logging() !== 7941) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_func_init_logging");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_func_log_file_path() !== 39458) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_func_log_file_path");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit() !== 40391) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit");
     }
@@ -8390,7 +8439,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json() !== 44226) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new() !== 27705) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new() !== 61385) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive() !== 33535) {
