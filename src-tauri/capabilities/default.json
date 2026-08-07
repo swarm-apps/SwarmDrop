@@ -35,7 +35,6 @@
     "fs:allow-remove",
     "fs:allow-app-read",
     "fs:allow-app-write",
-    "biometry:default",
     "os:default",
     "os:allow-hostname",
     "store:default",
@@ -43,6 +42,8 @@
     "updater:default",
     "process:allow-restart",
     "dialog:default",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text",
     "mcp-bridge:default",
     "wdio-webdriver:default",
     "wdio:default"

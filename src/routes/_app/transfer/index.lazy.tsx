@@ -27,7 +27,10 @@ import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { CenteredEmptyState } from "@/components/layout/section-primitives";
+import {
+  CenteredEmptyState,
+  RailEmptyHint,
+} from "@/components/layout/section-primitives";
 import {
   MasterDetailShell,
   OpenListButton,
@@ -158,8 +161,9 @@ function TransferPage() {
     setClearOpen(false);
     try {
       await commands.clearTransferHistory();
+      // 后端只删终态记录，非终态会被刷回来——这次 reload 就是让幸存项回到列表。
       await loadProjections();
-      toast.success(t`已清空活动记录`);
+      toast.success(t`已清空已结束的记录`);
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -202,10 +206,10 @@ function TransferPage() {
         <ConfirmDialog
           open
           onOpenChange={setClearOpen}
-          title={<Trans>清空全部传输记录？</Trans>}
+          title={<Trans>清空已结束的传输记录？</Trans>}
           description={
             <Trans>
-              将删除全部 {counts.all} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。
+              将删除已结束的传输记录，此操作无法撤销；进行中与可继续续传的任务会保留，已传输的文件不受影响。
             </Trans>
           }
           confirmLabel={<Trans>清空记录</Trans>}
@@ -268,7 +272,7 @@ function SessionRail({
             variant="ghost"
             className={DESTRUCTIVE_BTN_CLASS}
             onClick={onClear}
-            title={t`清空活动记录`}
+            title={t`清空已结束的记录`}
           >
             <Trash2 className="size-3.5" />
           </Button>
@@ -300,16 +304,13 @@ function SessionRail({
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 pt-0"
       >
         {totalCount === 0 ? (
-          <p
-            data-testid="transfer-empty-state"
-            className="px-2 py-8 text-center text-xs text-muted-foreground"
-          >
+          <RailEmptyHint data-testid="transfer-empty-state">
             <Trans>暂无传输活动</Trans>
-          </p>
+          </RailEmptyHint>
         ) : items.length === 0 ? (
-          <p className="px-2 py-8 text-center text-xs text-muted-foreground">
+          <RailEmptyHint>
             <Trans>此分类下暂无记录</Trans>
-          </p>
+          </RailEmptyHint>
         ) : (
           items.map((item) => (
             <SessionRow

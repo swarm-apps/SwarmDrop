@@ -20,7 +20,7 @@
 
 [English](README.md) · **简体中文**
 
-[官网](https://swarm-apps.github.io/SwarmDrop/) · [特性](#-特性) · [下载](#-下载) · [开发](#-开发) · [桌面端](https://github.com/swarm-apps/SwarmDrop)
+[官网](https://swarmapp.cn/) · [特性](#-特性) · [下载](#-下载) · [开发](#-开发) · [桌面端](https://github.com/swarm-apps/SwarmDrop)
 
 </div>
 
@@ -50,7 +50,7 @@ SwarmDrop Mobile 把 SwarmDrop 的**跨网络 P2P 文件传输**带到 Android �
 
 ## 📦 下载
 
-**[前往官网下载 →](https://swarm-apps.github.io/SwarmDrop/)** —— 桌面与移动端，全平台一站获取。
+**[前往官网下载 →](https://swarmapp.cn/)** —— 桌面与移动端，全平台一站获取。
 
 | 平台 | 格式 |
 |---|---|

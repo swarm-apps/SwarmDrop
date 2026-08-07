@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { usePreferencesStore, type DiscoveryMode } from "@/stores/preferences-store";
+import { LanHelperAddress } from "@/components/network/lan-helper-address";
 import { useNodeRestart } from "@/hooks/use-node-restart";
 import {
   NodeRestartBanner,
@@ -124,6 +125,8 @@ export function NetworkSettingsSection() {
           }
         />
       </SettingsCard>
+
+      <LanHelperAddress />
 
       {showBanner && (
         <NodeRestartBanner

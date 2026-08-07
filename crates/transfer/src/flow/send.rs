@@ -45,7 +45,7 @@ impl TransferManager {
             .get(prepared_id)
             .map(|r| r.value().clone())
             .ok_or_else(|| {
-                AppError::Transfer(format!("PreparedTransfer not found: {prepared_id}"))
+                AppError::SessionNotFound(format!("PreparedTransfer not found: {prepared_id}"))
             })?;
 
         let selected_prepared: Vec<PreparedFile> = prepared
@@ -273,26 +273,48 @@ impl TransferManager {
         self.actors.remove_send(session_id)
     }
 
+    /// 暂停一条发送会话。
+    ///
+    /// ## 四步的顺序是有约束的，别重排
+    ///
+    /// 关键约束是 **`notify_pause` 必须早于 `cancel()`**。关闭数据流这个动作本身不携带
+    /// 原因，对端只会看到「流没了」并按 [`NetworkSignal::Interrupted`] 处理；而
+    /// [`reduce_network`](crate::coordinator) 的两条守卫都要求 `state.is_active()`，
+    /// 所以先到的 Interrupted 会把会话钉死在 `suspended(Interrupted)`，随后到达的
+    /// `RemotePaused` 守卫不满足、被静默丢弃。
+    ///
+    /// 这不是偶发竞态而是确定性的：`cancel()` 是本地立即生效，控制帧要走一个 RTT，
+    /// 后者永远晚。表现是对端 UI 显示「连接中断」而不是「对方暂停」——用户会转头去查
+    /// 网络，而实际上只是这边按了暂停（2026-08-04 双 origin 实测确认）。
+    ///
+    /// `dispatch(Pause)` 排在最前是为了让本机 UI 立即响应，不必等那个 RTT。它与
+    /// `notify_pause` 之间的窗口里 actor 仍在发数据：若这期间传输恰好完成，会话转
+    /// completed —— 那是正确的（用户确实晚了一步）；若对端已 suspended 导致写入失败，
+    /// `on_interrupted` 的 Interrupted 也会因本机已非 active 而被忽略。两条路都安全。
+    ///
+    /// [`pause_receive`](Self::pause_receive) 是同一套顺序，理由相同。
     pub async fn pause_send(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
             .get_send_actor(session_id)
-            .ok_or_else(|| AppError::Transfer(format!("发送会话不存在: {session_id}")))?;
+            .ok_or_else(|| AppError::SessionNotFound(format!("发送会话不存在: {session_id}")))?;
 
-        session.cancel();
-        let progress = session.get_file_progress();
-        // 落库文件级进度即可：projection 的 transferredBytes 直接 SUM 文件级，无需再
-        // 手工 sync 到 session 列。
-        self.store
-            .save_sender_file_progress(*session_id, &progress)
-            .await?;
         self.coordinator
             .dispatch(
                 *session_id,
                 crate::coordinator::CoordinatorInput::User(crate::coordinator::UserCommand::Pause),
             )
             .await?;
-        self.remove_send_actor(session_id);
         self.notify_pause(session.peer_id, *session_id).await;
+        session.cancel();
+        // cancel 只是拨了 token，actor 可能还在收尾几个块，所以这里取到的进度可能略小于
+        // 实际已发出的量——那是安全的方向：续传时多重传一小段，bao 逐块验签不会因此出错。
+        // 落库文件级即可：projection 的 transferredBytes 直接 SUM 文件级，无需手工 sync
+        // 到 session 列。
+        let progress = session.get_file_progress();
+        self.store
+            .save_sender_file_progress(*session_id, &progress)
+            .await?;
+        self.remove_send_actor(session_id);
 
         info!("Send session paused: session={}", session_id);
         Ok(())
@@ -315,7 +337,9 @@ impl TransferManager {
                 return Ok(());
             }
 
-            return Err(AppError::Transfer(format!("发送会话不存在: {session_id}")));
+            return Err(AppError::SessionNotFound(format!(
+                "发送会话不存在: {session_id}"
+            )));
         };
 
         session.cancel();
@@ -385,14 +409,17 @@ impl TransferManager {
         }
     }
 
-    async fn mark_offer_fatal(&self, session_id: Uuid, message: &str) {
+    /// Offer 未送达对端。`detail` 只进日志——对用户而言「发送失败」与「响应类型意外」
+    /// 是同一件事，且它曾经拼进 `error_message` 直达 UI。
+    async fn mark_offer_fatal(&self, session_id: Uuid, detail: &str) {
+        warn!("Offer 未送达: session={}, {}", session_id, detail);
         if let Err(e) = self
             .coordinator
             .dispatch(
                 session_id,
                 CoordinatorInput::Actor {
                     epoch: 0,
-                    report: ActorReport::FatalError(message.into()),
+                    report: ActorReport::FatalError(crate::failure::FailureCode::OfferFailed),
                 },
             )
             .await

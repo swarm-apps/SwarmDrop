@@ -3,11 +3,15 @@ use serde::{Deserialize, Serialize};
 
 pub mod inbox_item;
 pub mod inbox_item_file;
+pub mod inbox_search_index;
+pub mod pair_invite;
 pub mod transfer_file;
 pub mod transfer_session;
 
 pub use inbox_item::Entity as InboxItem;
 pub use inbox_item_file::Entity as InboxItemFile;
+pub use inbox_search_index::Entity as InboxSearchIndex;
+pub use pair_invite::Entity as PairInvite;
 pub use transfer_file::Entity as TransferFile;
 pub use transfer_session::Entity as TransferSession;
 
@@ -163,6 +167,13 @@ pub enum TerminalReason {
     Cancelled,
     Rejected,
     FatalError,
+    /// 入站 offer 的决策窗口耗尽，本端从未作答。
+    ///
+    /// **与 `Rejected` 分开是必要的，不是措辞讲究。** 对端看到的确实是一次婉拒（清理任务
+    /// drop 掉 responder，RPC handler 据此回复），但本端用户**什么都没做**——把它记成
+    /// 「已拒绝」等于在他自己的传输历史里写一条他没做过的决定，而这恰恰是他下次想不起来
+    /// 「我拒过这个人吗」时会去查的地方。
+    Expired,
 }
 
 /// 收件箱来源类型。
@@ -215,9 +226,11 @@ impl TransferPhase {
             TransferPhase::Suspended => SessionStatus::Paused,
             TransferPhase::Terminal => match terminal_reason {
                 Some(TerminalReason::Completed) => SessionStatus::Completed,
-                Some(TerminalReason::Cancelled) | Some(TerminalReason::Rejected) => {
-                    SessionStatus::Cancelled
-                }
+                // Expired 归 Cancelled：旧扁平枚举没有「没答复」这一档，而它离
+                // 「没传成，但也不是错误」最近。新路径读 terminal_reason，不受这个粗粒度影响。
+                Some(TerminalReason::Cancelled)
+                | Some(TerminalReason::Rejected)
+                | Some(TerminalReason::Expired) => SessionStatus::Cancelled,
                 Some(TerminalReason::FatalError) | None => SessionStatus::Failed,
             },
         }

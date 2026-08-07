@@ -1,22 +1,35 @@
 //! Keychain bridge —— host 平台(iOS Keychain / Android EncryptedSharedPreferences)
 //! 持久化身份密钥和配对设备清单。Rust 侧把 host 的 `ForeignKeychainProvider`
-//! 适配成 core 的 `KeychainProvider` trait。
+//! 适配成 core 的两个端口：`KeychainProvider`(密钥材料) 与 `PairedDeviceStore`
+//! (已配对设备列表)。
+//!
+//! **一个适配器两个 impl,FFI 边界不拆。** core 侧把两者拆开是因为 Web 端压根没有
+//! keychain——它为了存一份设备列表得实现六个永远不该被调用的密钥方法。移动端的情形
+//! 相反:两个后端(iOS Keychain / Android EncryptedSharedPreferences)本来就是同一个
+//! 存储桥,拆 `ForeignKeychainProvider` 只会改到 `MobileCore::new` 的构造签名、bindings
+//! 与 RN 侧实现类,而换不到任何解耦收益。所以拆分止步于 Rust 端口层。
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use swarmdrop_core::device::PairedDeviceInfo;
-use swarmdrop_core::host::{DeviceIdentityBytes, IdentityMigrationState, KeychainProvider};
+use swarmdrop_core::host::{
+    DeviceIdentityBytes, IdentityMigrationState, KeychainProvider, PairedDeviceStore,
+};
 use swarmdrop_core::{AppError, AppResult};
 
 use crate::error::FfiError;
 
+/// host 侧存储桥的跨 FFI 契约 —— **密钥与设备列表合在一起是刻意的**,见模块文档。
 #[uniffi::export(with_foreign)]
 #[async_trait]
 pub trait ForeignKeychainProvider: Send + Sync {
     async fn load_identity(&self) -> Result<Option<Vec<u8>>, FfiError>;
     async fn save_identity(&self, keypair: Vec<u8>) -> Result<(), FfiError>;
     async fn delete_identity(&self) -> Result<(), FfiError>;
+    async fn load_webrtc_certificate_pem(&self) -> Result<Option<String>, FfiError>;
+    async fn save_webrtc_certificate_pem(&self, pem: String) -> Result<(), FfiError>;
+    async fn delete_webrtc_certificate_pem(&self) -> Result<(), FfiError>;
     async fn load_paired_devices_json(&self) -> Result<String, FfiError>;
     async fn save_paired_devices_json(&self, devices_json: String) -> Result<(), FfiError>;
 }
@@ -52,6 +65,27 @@ impl KeychainProvider for MobileKeychainAdapter {
         self.foreign.delete_identity().await.map_err(Into::into)
     }
 
+    async fn load_webrtc_certificate_pem(&self) -> AppResult<Option<String>> {
+        self.foreign
+            .load_webrtc_certificate_pem()
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn save_webrtc_certificate_pem(&self, pem: String) -> AppResult<()> {
+        self.foreign
+            .save_webrtc_certificate_pem(pem)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn delete_webrtc_certificate_pem(&self) -> AppResult<()> {
+        self.foreign
+            .delete_webrtc_certificate_pem()
+            .await
+            .map_err(Into::into)
+    }
+
     // mobile 没有 Stronghold → keychain 迁移路径,直接返回 Completed
     async fn load_migration_state(&self) -> AppResult<IdentityMigrationState> {
         Ok(IdentityMigrationState::Completed)
@@ -60,7 +94,10 @@ impl KeychainProvider for MobileKeychainAdapter {
     async fn save_migration_state(&self, _state: IdentityMigrationState) -> AppResult<()> {
         Ok(())
     }
+}
 
+#[async_trait]
+impl PairedDeviceStore for MobileKeychainAdapter {
     async fn load_paired_devices(&self) -> AppResult<Vec<PairedDeviceInfo>> {
         let value = self.foreign.load_paired_devices_json().await?;
         if value.trim().is_empty() {
@@ -69,8 +106,8 @@ impl KeychainProvider for MobileKeychainAdapter {
         serde_json::from_str(&value).map_err(AppError::Serialization)
     }
 
-    async fn save_paired_devices(&self, devices: Vec<PairedDeviceInfo>) -> AppResult<()> {
-        let value = serde_json::to_string(&devices).map_err(AppError::Serialization)?;
+    async fn save_paired_devices(&self, devices: &[PairedDeviceInfo]) -> AppResult<()> {
+        let value = serde_json::to_string(devices).map_err(AppError::Serialization)?;
         self.foreign
             .save_paired_devices_json(value)
             .await

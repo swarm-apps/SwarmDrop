@@ -7,12 +7,14 @@ import { useState } from "react";
 import { Trans } from "@lingui/react/macro";
 import { useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
-import { Plus, Trash2, RadioTower, ShieldCheck } from "lucide-react";
+import { Copy, Plus, Trash2, RadioTower, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useNodeRestart } from "@/hooks/use-node-restart";
+import { DESKTOP_BOOTSTRAP_NODES } from "@/lib/bootstrap-nodes";
+import { copyText } from "@/lib/clipboard";
 import { toast } from "sonner";
 import {
   NodeRestartBanner,
@@ -20,32 +22,43 @@ import {
   SettingsSection,
 } from "./-settings-primitives";
 
-/** 默认引导节点（与后端 BOOTSTRAP_NODES 对应，只读展示） */
-const DEFAULT_BOOTSTRAP_NODES = [
-  "/ip4/47.115.172.218/tcp/4001/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
-  "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX",
-];
-
 /** 简单的 Multiaddr 格式校验：必须包含 /p2p/ 且以 / 开头 */
 function isValidMultiaddr(addr: string): boolean {
   return addr.startsWith("/") && addr.includes("/p2p/");
 }
 
-/** 截断 Multiaddr 用于显示 */
+/**
+ * 截断 Multiaddr 用于显示。与 Web 端 `docs/app/app/_lib/relay-helpers.ts` 的同名函数同形。
+ *
+ * `p2pIdx > 30` 时**必须补省略号**：本仓的内置地址正好命中，不补的话输出是
+ * `/ip4/47.115.172.218/udp/4003/w/p2p/12D3Ko…1utep` —— certhash 整段消失、切口处毫无提示，
+ * 看起来像一条完整但写错的 multiaddr，而用户会照着它去 issue 里贴。
+ */
 function truncateAddr(addr: string): string {
   if (addr.length <= 60) return addr;
   // 保留协议头和末尾 peer id
   const p2pIdx = addr.indexOf("/p2p/");
-  if (p2pIdx === -1) return `${addr.slice(0, 30)}...${addr.slice(-20)}`;
-  const prefix = addr.slice(0, Math.min(p2pIdx, 30));
+  if (p2pIdx === -1) return `${addr.slice(0, 30)}…${addr.slice(-20)}`;
+  const prefix = p2pIdx > 30 ? `${addr.slice(0, 30)}…` : addr.slice(0, p2pIdx);
   const peerId = addr.slice(p2pIdx + 5);
   const shortPeerId = peerId.length > 12
-    ? `${peerId.slice(0, 6)}...${peerId.slice(-6)}`
+    ? `${peerId.slice(0, 6)}…${peerId.slice(-6)}`
     : peerId;
   return `${prefix}/p2p/${shortPeerId}`;
 }
 
+/**
+ * 传输名。**是专有名词，永不翻译**（DESIGN.md 的 Device Card Contract）。
+ *
+ * `webrtc-direct` 标成 `WebRTC Direct` 而不是 `WebRTC`：契约里这是两种传输
+ * （前者要打洞与信令，后者直接拨公网裸 IP），混称会让人以为换个节点也能用打洞地址。
+ * 判定按**特异性从高到低**——`/webrtc-direct` 必须排在 `/webrtc` 前面，否则永远匹配不到。
+ */
 function getTransportLabel(addr: string): string {
+  if (addr.includes("/webrtc-direct")) return "WebRTC Direct";
+  if (addr.includes("/webrtc")) return "WebRTC";
+  if (addr.includes("/wss")) return "WSS";
+  if (addr.includes("/ws")) return "WebSocket";
   if (addr.includes("/quic")) return "QUIC";
   if (addr.includes("/tcp/")) return "TCP";
   return "P2P";
@@ -74,7 +87,7 @@ export function BootstrapNodesSection() {
 
     if (
       customBootstrapNodes.includes(addr) ||
-      DEFAULT_BOOTSTRAP_NODES.includes(addr)
+      DESKTOP_BOOTSTRAP_NODES.includes(addr)
     ) {
       toast.error(t(msg`该节点已存在`));
       return;
@@ -89,6 +102,20 @@ export function BootstrapNodesSection() {
   function handleRemove(addr: string) {
     removeBootstrapNode(addr);
     markRestartNeeded();
+  }
+
+  /**
+   * 复制的是**完整** `addr`，不是屏幕上那串 `truncateAddr(addr)`——后者中间被省略号
+   * 吃掉一段，贴到别处就是一条写错的 multiaddr。同理 `title` 也给全值：这两处是设置页
+   * 里唯一拿不到完整引导地址的地方（截断 + CSS truncate 双重遮蔽）。
+   */
+  async function handleCopyAddr(addr: string) {
+    try {
+      await copyText(addr);
+      toast.success(t(msg`引导节点地址已复制`));
+    } catch {
+      toast.error(t(msg`复制失败`));
+    }
   }
 
   return (
@@ -124,10 +151,13 @@ export function BootstrapNodesSection() {
           </div>
 
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {DEFAULT_BOOTSTRAP_NODES.map((addr) => (
-              <div
+            {DESKTOP_BOOTSTRAP_NODES.map((addr) => (
+              <button
                 key={addr}
-                className="min-w-0 rounded-xl border border-border/70 bg-background/55 p-3 dark:bg-white/[0.035]"
+                type="button"
+                onClick={() => handleCopyAddr(addr)}
+                title={addr}
+                className="group min-w-0 rounded-xl border border-border/70 bg-background/55 p-3 text-left transition-colors hover:bg-accent/40 dark:bg-white/[0.035]"
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
@@ -138,10 +168,13 @@ export function BootstrapNodesSection() {
                     {getTransportLabel(addr)}
                   </span>
                 </div>
-                <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                  {truncateAddr(addr)}
-                </span>
-              </div>
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+                    {truncateAddr(addr)}
+                  </span>
+                  <Copy className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                </div>
+              </button>
             ))}
           </div>
         </div>
@@ -162,9 +195,19 @@ export function BootstrapNodesSection() {
                   key={addr}
                   className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/55 p-3 dark:bg-white/[0.035]"
                 >
-                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
-                    {truncateAddr(addr)}
-                  </span>
+                  {/* 这行右侧已有删除按钮，整行不能做成 button（嵌套 button 非法），
+                      故只把地址本身包成可复制按钮。 */}
+                  <button
+                    type="button"
+                    onClick={() => handleCopyAddr(addr)}
+                    title={addr}
+                    className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
+                      {truncateAddr(addr)}
+                    </span>
+                    <Copy className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                  </button>
                   <Button
                     variant="ghost"
                     size="icon"

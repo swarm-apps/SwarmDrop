@@ -92,17 +92,17 @@ describe("network-store", () => {
     const ok = await useNetworkStore.getState().startNetwork();
 
     expect(ok).toBe(true);
-    expect(mocks.start).toHaveBeenCalledWith(
-      useSecretStore.getState().pairedDevices,
-      {
-        customBootstrapNodes: [
-          "/ip4/192.168.1.10/tcp/4001/p2p/12D3KooWBootstrap",
-        ],
-        discoveryMode: "lanOnly",
-        autoDiscoverLanHelpers: false,
-        provideLanHelper: true,
-        publicReachability: true,
-      },
-    );
+    // 已配对设备不再作为实参传入：后端从 PairedDeviceStore 端口自取。
+    expect(mocks.start).toHaveBeenCalledWith({
+      bootstrapNodes: [
+        "/ip4/47.115.172.218/tcp/4001/p2p/12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep",
+        "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep",
+        "/ip4/192.168.1.10/tcp/4001/p2p/12D3KooWBootstrap",
+      ],
+      discoveryMode: "lanOnly",
+      autoDiscoverLanHelpers: false,
+      provideLanHelper: true,
+      publicReachability: true,
+    });
   });
 });

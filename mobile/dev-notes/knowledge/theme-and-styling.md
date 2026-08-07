@@ -165,6 +165,38 @@ NativeWind 5 preview 给 `ScrollView` 注册了 `contentContainerClassName`（`A
 `rounded-full`;行首内容类型 chip(收件箱行/文件行/sheet 行)=`rounded-xl`;徽标/pill=`rounded-full`。
 不要写字面量圆角(`rounded-[28px]` 这类);完整规则与已知豁免见 DESIGN.md「The Radius Vocabulary Rule」。
 
+### 二维码白卡是「主题真空区」,内部文字色必须写死
+
+配对二维码一律深模块 + 固定白底(不随暗色反色,摄像头对反色 QR 识别差),所以压在白卡上的
+覆盖层文案 / 图标一律写死 slate 深色(`text-slate-700`、`#64748b`),错误态用 `red-600`。
+用 `text-muted-foreground` 这类主题 token 会在暗色主题下翻成浅灰、在白底上不可读。
+
+码位的四种失效态(生成中 / 已过期 / 生成失败 / 尚未生成)用**覆盖层**压在码面上
+(码本体降到 `opacity 0.14`),不要把 `<InviteQr>` 整个换成一行灰字——那既撞
+「空态不要裸一行灰字」,也让卡片高度跳变。动作按钮不放码面,放下方拇指区
+(有效时=刷新 / 复制,失效时=整宽「重新生成邀请」),一屏只出现一个主动作。
+
+矩阵渲染按**行游程合并**成 `<Rect width=w>`(而不是每个深模块一个 1×1 Rect):
+v11-12 的码约 2600 个格子,合并后 SVG 节点降到 1/3 左右。
+
+**相关文件**:[src/components/pairing/invite-qr.tsx](../../src/components/pairing/invite-qr.tsx)、
+[src/components/pairing/invite-exchange.tsx](../../src/components/pairing/invite-exchange.tsx)
+
+### 扫码屏:压暗四周 + 四角标记 + 常驻手电筒,粘贴是同级备用通路
+
+取景不用「一个白色描边方框」,用**四周 scrim(`rgba(0,0,0,0.45)`)挖出中央取景窗 + 四角
+L 形标记**:暗场把注意力推到中央,四角在浅色背景(白纸/白屏上的二维码)下也不会糊掉。
+提示文案与 scrim 同层放在取景窗正下方,位置随取景窗走,不靠猜垂直间距。
+
+低光是扫码失败的头号原因 → `CameraView` 的 `enableTorch` 接一个**常驻**手电筒按钮
+(右上角,开启时反白),不要藏进二级菜单。命中有效邀请时 `Haptics.notificationAsync(Success)`。
+
+扫码与粘贴共用一条 `consumeInvite(raw, invalidHint)` 通路(加锁 → 验签 → 成功 replace /
+失败去抖解锁);**相机屏底部按钮是「粘贴邀请」而不是「返回」**——改造前那里是
+ClipboardPaste 图标配「返回」文案、行为却是 `router.back()`,图标/文案/行为三者不一致。
+
+**相关文件**:[src/app/pairing/scan.tsx](../../src/app/pairing/scan.tsx)
+
 ### 空态两档:全屏 EmptyState / 行内 InlineEmptyState,不要裸一行灰字
 
 `@/components/mobile/screen` 提供两档空态,同一空态语言(dashed 边框 + muted 圆 chip):

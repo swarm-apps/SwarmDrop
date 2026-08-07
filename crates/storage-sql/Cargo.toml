@@ -10,6 +10,9 @@ edition.workspace = true
 [dependencies]
 swarmdrop-transfer = { workspace = true }
 swarmdrop-host = { workspace = true }
+# 邀请注册表落盘（InviteStore 端口 + 记录类型）
+swarmdrop-invite = { workspace = true }
+swarmdrop-net-base = { workspace = true }
 entity = { workspace = true }
 sea-orm = { workspace = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 serde = { workspace = true }

@@ -1,0 +1,115 @@
+[package]
+name = "webrtc-p2p"
+version = "0.1.0"
+edition.workspace = true
+
+# libp2p WebRTC 打洞传输（spec: libp2p/specs 的 webrtc/webrtc.md）。
+#
+# 两个都无法 listen 的节点（浏览器、NAT 后的原生端）经 relay 交换 SDP + ICE candidate，
+# 打洞建立直连。与官方 `libp2p-webrtc`（webrtc-direct，ICE-lite 不打洞）是**两个不同的
+# 传输**，可共存。
+#
+# **刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate。** 它现在长在本仓里只是为了
+# 借 crates/net 做集成测试、迭代快；稳定后要 subtree split 出去独立发布。任何反向依赖
+# 都会把这条路堵死——评审时优先看这一条。
+#
+# 决策与背景：dev-notes/research/2026-07-webrtc-native-ice.md
+
+[dependencies]
+# 与 libp2p 生态同款 framed 编解码（libp2p-webrtc-utils 亦用它），避免自己维护
+# 一套 buffer 状态机。
+asynchronous-codec = "0.7"
+bytes = "1"
+libp2p-core = { workspace = true }
+libp2p-identity = { workspace = true }
+libp2p-swarm = { workspace = true }
+# DataChannel 之上的 libp2p framing。泛型且不依赖具体 WebRTC 实现，故两个 target 共用。
+libp2p-webrtc-utils = { workspace = true }
+futures = { workspace = true }
+# 信令超时的计时器。选它而非 n0-future：rust-libp2p 自己就用它（upnp behaviour 即是），
+# 且我们只需要 time、不需要 spawn。
+futures-timer = "3"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+unsigned-varint = { workspace = true }
+
+# ── native 后端 ──
+# 只在非 wasm 上编：webrtc-rs 自带 UDP/SCTP/DTLS 栈，编不到 wasm（浏览器侧将用
+# 原生 RTCPeerConnection）。用 target 表而非 feature——feature 是加性的，双 target
+# 下会在 workspace unification 时互相污染。
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+# 直接吃 crates.io，**没有任何 pin**。
+#
+# 2026-08-04 曾短暂 pin 过 fork 的集成分支，为的是提前用上
+# [webrtc#853](https://github.com/webrtc-rs/webrtc/pull/853)（原 #850）想公开的两个
+# helper。**上游拒绝公开**——它们是 driver 的分配/分类策略，不属于 `AsyncUdpSocket`
+# 契约，公开等于把内部策略冻进 1.0。理由成立，PR 已关，两条 patch 随之整段删除。
+#
+# 那两件事改由 `native/direct/udp_mux.rs` 自己持有，依据是上游同时补进公开文档的两条
+# 规则（`poll_recv` 的 `# Errors`、`max_gro_segments` 的 `# Buffer sizing`）。
+# 细节与护栏测试见那个文件顶部的注释块。
+#
+# ⚠️ **不要降回 0.20.0-rc.\***：本仓依赖的五个补丁（rtc #137 / #138 / #140、
+# webrtc #825 / #828）直到 0.20.0 正式版才进 crates.io。少了它们 direct 监听端起不来、
+# 数据面静默丢包，且全链路零报错——复盘见 `dev-notes/blogs/webrtc/`。
+webrtc = "0.20.0"
+# 只为**打开 pem feature**：`RTCCertificate::{from_pem, serialize_pem}` 挂在它下面，
+# 而 rtc 的默认 feature 不含 pem、`webrtc` 也没有透传它。direct 模式要把证书持久化
+# （certhash 写在 multiaddr 里，换一次证书存量地址就全失效），少了它做不到。
+# 另外 direct 模式还要几个 `webrtc` 没有 re-export 的类型（`RTCDataChannelInit`、
+# `RTCDtlsRole`、stats、以及 STUN 解析与 `NetworkType`），也从这里取——rtc 自己
+# re-export 了全套子 crate（`rtc::ice` / `rtc::stun` / …）。
+#
+# **不要改成直接依赖 `rtc-ice` / `rtc-stun`。** 那样一旦两边解析到不同版本，同名类型
+# 就分叉成两个，报「expected rtc::rtc_ice::X, found rtc_ice::X」这种极绕的错
+# （曾经 rtc 被 `[patch]` 换成 git 源时必然如此）。经 `rtc::` 转一手就天然同源。
+rtc = { version = "0.20.0", features = ["pem"] }
+# `RTCCertificate::from_key_pair` 收的是 `rcgen::KeyPair`，而 rtc 不 re-export rcgen，
+# 只能直接依赖。**版本必须与 rtc 同线**（当前 0.14），否则是两个不同的 `KeyPair` 类型。
+# `default-features = false`：加密后端（ring / aws-lc-rs）由 rtc 的 feature 决定，
+# 这里跟着走，别自己指定。
+rcgen = { version = "0.14", default-features = false }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+# 枚举本机网卡地址。绑 `0.0.0.0` 时 webrtc-rs **不会展开网卡**，会把字面量 0.0.0.0
+# 写进 host candidate，对端无法使用 → host 路径整条作废（spike 实测，见
+# dev-notes/research/2026-07-webrtc-native-ice.md）。
+if-addrs = "0.13"
+
+# ── wasm 后端 ──
+# 浏览器原生 RTCPeerConnection。web-sys 的 feature 清单以官方 webrtc-websys 为底，
+# 另加 ICE 相关几项——它是 direct 模式不做 trickle，我们要。
+[target.'cfg(target_family = "wasm")'.dependencies]
+js-sys = "0.3"
+# 浏览器上没有系统计时器，Delay 要走 setTimeout。
+futures-timer = { version = "3", features = ["wasm-bindgen"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+# 浏览器对象不是 Send，而 libp2p 的 ConnectionHandler 要求 Send。wasm 单线程，
+# 非创建线程访问会 panic，因此包起来是安全的（官方 webrtc-websys 同款做法）。
+send_wrapper = { version = "0.6", features = ["futures"] }
+web-sys = { version = "0.3", features = [
+    "MessageEvent",
+    "RtcConfiguration",
+    "RtcDataChannel",
+    "RtcDataChannelEvent",
+    "RtcDataChannelInit",
+    "RtcDataChannelState",
+    "RtcDataChannelType",
+    "RtcIceCandidate",
+    "RtcIceCandidateInit",
+    "RtcIceConnectionState",
+    "RtcPeerConnection",
+    "RtcPeerConnectionIceEvent",
+    "RtcPeerConnectionState",
+    "RtcSdpType",
+    "RtcSessionDescription",
+    "RtcSessionDescriptionInit",
+] }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+# native 后端要求宿主处于 async 运行时中（webrtc-rs 的 default_runtime 靠它探测）。
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+libp2p-core = { workspace = true }
+# 排 direct 建连要同时看到我们自己的 tracing 与 webrtc-rs 的 `log`，故带 tracing-log 桥。
+tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }

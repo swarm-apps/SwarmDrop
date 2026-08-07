@@ -10,7 +10,12 @@ import {
 } from "@/components/onboarding/onboarding-scaffold";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { applyDeviceName, suggestedDeviceName } from "@/lib/device-name";
+import {
+  applyDeviceName,
+  DEVICE_NAME_MAX_CHARS,
+  suggestedDeviceName,
+} from "@/lib/device-name";
+import { getErrorMessage } from "@/lib/errors";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
@@ -37,11 +42,13 @@ export default function DeviceName() {
     setSaving(true);
     setError(null);
     try {
+      // onboarding 阶段节点还没起来,core 的改名编排走「只落盘」分支并正常返回;
+      // 名字会在随后 startNode 时进本机 OsInfo。存不住会 throw,走下面的 catch。
       await applyDeviceName(trimmed);
       nextStep();
       router.push("/onboarding/setup" as never);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -95,7 +102,7 @@ export default function DeviceName() {
             value={name}
             onChangeText={setName}
             autoFocus
-            maxLength={40}
+            maxLength={DEVICE_NAME_MAX_CHARS}
             accessibilityLabel={t`设备名称`}
             placeholder={t`我的 iPhone`}
             placeholderTextColor={colors.mutedForeground}

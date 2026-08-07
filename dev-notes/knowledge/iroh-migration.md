@@ -1,5 +1,14 @@
 # iroh 迁移评估
 
+> **状态：已决策——不迁移。** 本文是 2026-07 的**调研快照**，保留作决策依据。
+>
+> 最终选择：**继续用 libp2p，但自建网络内核 `crates/net` 借鉴 iroh 的 API 形态**
+> （`Endpoint` 门面 + 后台 actor + 隐藏事件循环 + preset）。也就是说，拿走了 iroh 的
+> 心智模型，没有拿它的运行时。决策全文见 `dev-notes/why-libp2p-not-iroh.md`。
+>
+> **仍然有效**：`n0-future` 替换 tokio 的落地细节以本文件为准（wasm 侧 spawn/time 走它）。
+> **注意**：本仓**不依赖 iroh**；`/iroh` skill 仅供选型参考，不要照它写本项目代码。
+
 ## 概览
 
 2026-07 对 [iroh](https://github.com/n0-computer/iroh) 1.0.2 生态做了两轮源码级调研（48 个 agent，

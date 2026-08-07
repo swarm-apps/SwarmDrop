@@ -26,7 +26,13 @@ pub enum PresenceState {
         attempts: u32,
     },
     /// 宽限期内未拨通，低频重探中（UI 呈现离线）
-    Unreachable { next_probe_at: Instant },
+    Unreachable {
+        next_probe_at: Instant,
+        /// 连续重探失败次数，决定下次重探的退避档位。
+        ///
+        /// 只增不减：重探成功后状态整体被 `Connected` 覆盖，计数随之消失。
+        attempts: u32,
+    },
 }
 
 impl PresenceState {
@@ -246,8 +252,11 @@ impl PresenceSupervisor {
                     attempts,
                 } => {
                     if now.duration_since(since) >= self.timings.grace {
+                        // 继承宽限期的重拨次数：那几次已经证明拨不通，重探不该从
+                        // 最短档重来（真离线的设备会因此被密集重探）。
                         *entry.value_mut() = PresenceState::Unreachable {
-                            next_probe_at: now + self.probe_interval(&peer),
+                            next_probe_at: now + self.probe_backoff(&peer, attempts),
+                            attempts,
                         };
                         went_offline = true;
                     } else if now >= next_dial_at {
@@ -263,10 +272,17 @@ impl PresenceSupervisor {
                         });
                     }
                 }
-                PresenceState::Unreachable { next_probe_at } => {
+                PresenceState::Unreachable {
+                    next_probe_at,
+                    attempts,
+                } => {
                     if now >= next_probe_at {
+                        // 排期先于探测：spawn_probe 是 fire-and-forget，成功与否不回写
+                        // 这里——成功由 PeerConnected 事件把状态整体翻成 Connected，
+                        // 于是这份递增的 attempts 只会作用于「确实还没连上」的情形。
                         *entry.value_mut() = PresenceState::Unreachable {
-                            next_probe_at: now + self.probe_interval(&peer),
+                            next_probe_at: now + self.probe_backoff(&peer, attempts),
+                            attempts: attempts.saturating_add(1),
                         };
                         drop(entry);
                         self.spawn_probe(peer);
@@ -281,6 +297,13 @@ impl PresenceSupervisor {
     ///
     /// - 新配对 → 进保活白名单 + 建立初始状态（已连接则 Connected，否则立即重探）
     /// - 解除配对 → 出白名单 + 断开连接 + 移除状态
+    ///
+    /// **撤销的触发判据是内存 `paired` 表**（`NetManager` 建的那份共享 `DashMap`），
+    /// 不是持久化列表：只把设备从 keychain / IndexedDB 里删掉，下面的
+    /// `presence − paired` 差集永远算不出它，保活与重探会一直跑到进程退出。
+    /// 解除配对因此必须走
+    /// [`PairingManager::unpair`](crate::pairing::PairingManager::unpair)——它删的正是这份表。
+    /// 另外撤销靠 1s tick 收敛、不是同步的，验收要写「一个 tick 内」而非「立即」。
     fn reconcile_whitelist(&self, now: Instant, is_connected: &(dyn Fn(&NodeId) -> bool + Sync)) {
         for entry in self.paired.iter() {
             let peer = *entry.key();
@@ -288,7 +311,10 @@ impl PresenceSupervisor {
                 let initial = if is_connected(&peer) {
                     PresenceState::Connected
                 } else {
-                    PresenceState::Unreachable { next_probe_at: now }
+                    PresenceState::Unreachable {
+                        next_probe_at: now,
+                        attempts: 0,
+                    }
                 };
                 self.presence.entry(peer).or_insert(initial);
                 self.spawn_keep_alive(peer);
@@ -323,6 +349,21 @@ impl PresenceSupervisor {
             + Duration::from_secs(hash % self.timings.probe_jitter_secs.max(1))
     }
 
+    /// 重探退避：2s 起步逐次翻倍，封顶在 [`probe_interval`](Self::probe_interval)。
+    ///
+    /// **为什么不直接用固定周期。** 启动序列必然让首探撞空：presence 装载把每台已配对
+    /// 设备排成「立即重探」，而那一刻 relay reservation 还没建立、DHT 也没连上任何节点
+    /// ——首探注定失败。若失败也排一个完整周期，第二次机会就在 75~90s 之后。
+    /// 2026-07-28 实测：浏览器刷新页面后，已配对设备要 **89s** 才翻回在线，正是这个周期。
+    ///
+    /// 退避让首探失败的代价降到 2s，同时保留对真正离线设备的保护——它的 `attempts`
+    /// 每轮递增，很快封顶回基础周期，不会退化成拨号风暴。
+    ///
+    /// 与 [`announce_backoff`] 同构：那边早就是这么做的，只有重探漏了。
+    fn probe_backoff(&self, peer: &NodeId, attempts: u32) -> Duration {
+        Duration::from_secs(2u64 << attempts.min(6)).min(self.probe_interval(peer))
+    }
+
     /// 重探一台离线设备（多步编排）：
     ///
     /// 1. 查 DHT 在线记录，注册 direct+circuit 地址后直拨；
@@ -352,10 +393,22 @@ impl PresenceSupervisor {
             }
 
             // 直拨失败 → relay hint 多步恢复：先修与 relay 的直连再拨 circuit
-            for hint in online.relays.iter().take(MAX_RELAY_HINTS) {
-                if hint.addrs.is_empty() {
-                    continue;
-                }
+            let me = endpoint.node_id();
+            // **先筛后截**：`MAX_RELAY_HINTS` 限的是「试几次」，不是「看前几条」。
+            //
+            // 两类 hint 连试都不该试：没有地址的（拨不动），以及**以本机为中转**的——
+            // 同网浏览器直连桌面后就向它要了 reservation，那条 hint 于是原样写进了对端的
+            // 在线记录，走一遍「先连 relay 再拨 circuit」第一步就是拨自己。实测日志里它
+            // 每轮固定报一次「relay <本机> 不可达」。
+            //
+            // 若把筛放在截之后，这些废条目照样占掉名额，真正该试的 hint 被挤出去——
+            // 那正是本次要修的症状，只是换了个地方发生。
+            for hint in online
+                .relays
+                .iter()
+                .filter(|hint| !hint.addrs.is_empty() && hint.peer_id != me)
+                .take(MAX_RELAY_HINTS)
+            {
                 let _ = endpoint.add_addrs(hint.peer_id, hint.addrs.clone()).await;
                 if let Err(e) = endpoint.connect(NodeAddr::new(hint.peer_id)).await {
                     tracing::debug!("重探 {peer}: relay {} 不可达: {e}", hint.peer_id);
@@ -462,7 +515,10 @@ impl PresenceSupervisor {
             let peer = *entry.key();
             self.presence
                 .entry(peer)
-                .or_insert(PresenceState::Unreachable { next_probe_at: now });
+                .or_insert(PresenceState::Unreachable {
+                    next_probe_at: now,
+                    attempts: 0,
+                });
             self.spawn_keep_alive(peer);
         }
 
@@ -660,6 +716,7 @@ mod tests {
         ctx.supervisor.handle_event(&NetEvent::PeerConnected {
             node: peer,
             path: PathKind::Local,
+            addr: "/ip4/192.168.1.2/tcp/4001".parse().unwrap(),
         });
         assert!(matches!(
             state_of(&ctx, &peer),
@@ -683,17 +740,27 @@ mod tests {
         assert!(!state.is_online());
     }
 
+    /// 撤销的触发判据是**内存 `paired` 表**：这里只从 `ctx.paired` 移走 peer
+    /// （持久化一个字节都没动），一轮 reconcile 后 presence 条目与失败计数都必须清干净。
+    ///
+    /// 反过来说，任何「只删持久化」的解除实现在这条链路上什么都不会发生——保活与重探
+    /// 会一直跑到进程退出。`PairingManager::unpair` 删这份共享 `DashMap` 因此不是可选优化。
     #[tokio::test(flavor = "multi_thread")]
-    async fn unpair_removes_presence_state() {
+    async fn unpair_removes_presence_state_and_ping_failures() {
         let ctx = test_ctx().await;
         let peer = pair(&ctx);
         ctx.presence.insert(peer, PresenceState::Connected);
+        ctx.supervisor.ping_failures.insert(peer, 2);
 
         ctx.paired.remove(&peer);
         ctx.supervisor.tick(Instant::now(), &|_| false).await;
         assert!(
             state_of(&ctx, &peer).is_none(),
             "解除配对后 presence 状态必须清理"
+        );
+        assert!(
+            ctx.supervisor.ping_failures.get(&peer).is_none(),
+            "失败计数必须一并清空，否则重新配对时会带着旧计数直接判死"
         );
     }
 
@@ -702,17 +769,85 @@ mod tests {
         let ctx = test_ctx().await;
         let peer = pair(&ctx);
         let now = Instant::now();
-        ctx.presence
-            .insert(peer, PresenceState::Unreachable { next_probe_at: now });
+        ctx.presence.insert(
+            peer,
+            PresenceState::Unreachable {
+                next_probe_at: now,
+                attempts: 0,
+            },
+        );
 
         let went_offline = ctx.supervisor.tick(now, &|_| false).await;
         assert!(!went_offline, "已离线设备的重探不重复上报离线");
         match state_of(&ctx, &peer).unwrap() {
-            PresenceState::Unreachable { next_probe_at } => {
+            PresenceState::Unreachable {
+                next_probe_at,
+                attempts,
+            } => {
                 assert!(next_probe_at > now, "重探后必须重新排期");
+                assert_eq!(attempts, 1, "每轮重探都要累加失败计数，退避才涨得起来");
             }
             other => panic!("状态不应改变: {other:?}"),
         }
+    }
+
+    /// 首探失败后**不能**等满一个完整重探周期。
+    ///
+    /// 这是 2026-07-28 那个「浏览器刷新页面后已配对设备要 89s 才翻回在线」的回归守卫。
+    /// 根因是排期与探测结果无关：`Unreachable` 分支无条件把 `next_probe_at` 排到
+    /// `probe_interval + jitter`（75~90s）之后，而启动序列必然让首探撞上网络未就绪。
+    ///
+    /// 判据取「首探排期 < 基础周期」而非某个具体秒数——退避档位可以调，
+    /// 「首探失败要等满一整个周期」这件事不能回来。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn first_probe_failure_retries_fast() {
+        let ctx = test_ctx().await;
+        let peer = pair(&ctx);
+        let now = Instant::now();
+        ctx.presence.insert(
+            peer,
+            PresenceState::Unreachable {
+                next_probe_at: now,
+                attempts: 0,
+            },
+        );
+
+        ctx.supervisor.tick(now, &|_| false).await;
+
+        let PresenceState::Unreachable { next_probe_at, .. } = state_of(&ctx, &peer).unwrap()
+        else {
+            panic!("重探中的设备应保持 Unreachable");
+        };
+        let waited = next_probe_at.duration_since(now);
+        let full_cycle = ctx.supervisor.probe_interval(&peer);
+        assert!(
+            waited < full_cycle,
+            "首探失败后等了 {waited:?}，不应达到完整周期 {full_cycle:?}——\
+             启动序列的首探必然撞上网络未就绪，等满一轮就是那 89s"
+        );
+
+        // 连续失败要退回低频，否则真离线的设备会被 2s 一次地密集重探。
+        let mut state = PresenceState::Unreachable {
+            next_probe_at: now,
+            attempts: 0,
+        };
+        for _ in 0..10 {
+            let PresenceState::Unreachable { attempts, .. } = state else {
+                unreachable!()
+            };
+            state = PresenceState::Unreachable {
+                next_probe_at: now + ctx.supervisor.probe_backoff(&peer, attempts),
+                attempts: attempts + 1,
+            };
+        }
+        let PresenceState::Unreachable { next_probe_at, .. } = state else {
+            unreachable!()
+        };
+        assert_eq!(
+            next_probe_at.duration_since(now),
+            full_cycle,
+            "连续失败后退避必须封顶回基础周期"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

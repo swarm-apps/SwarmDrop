@@ -12,6 +12,14 @@ libp2p-identity = { workspace = true, features = ["ed25519", "peerid", "rand"] }
 multiaddr = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+specta = { version = "=2.0.0-rc.25", features = ["derive"], optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+
+[features]
+default = []
+# 桌面 IPC 的类型导出（tauri-specta）。默认关闭 —— 移动端与 wasm 都不需要它，
+# 上面「依赖极小」的底座约束因此仍然成立。只有 TransportKind 这类会随
+# swarmdrop-host 的 DTO 进 bindings.ts 的枚举需要它。
+specta = ["dep:specta"]

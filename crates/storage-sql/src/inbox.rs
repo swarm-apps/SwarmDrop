@@ -1,172 +1,120 @@
-//! Drop Inbox 数据访问。
+//! Drop Inbox 数据访问（[`swarmdrop_transfer::store::InboxStore`] 的 SeaORM 实现体）。
 //!
 //! 收件箱是“已接收内容索引”，与 transfer_sessions / transfer_files 的过程账本分开维护。
+//!
+//! 本文件的函数**全部私有**：唯一入口是 `crate::store` 里 `SqlSessionStore` 的
+//! `InboxStore` impl。DTO 与共享领域规则（标题 / 内容指纹 / 聚合文本 / 来源分类 /
+//! 片段）住在 [`swarmdrop_transfer::inbox`]，本文件只负责「SQL 行 ↔ 中立 DTO」的
+//! 转换与查询本身。
 
-use entity::{InboxContentKind, InboxSourceKind, TerminalReason, TransferDirection, TransferPhase};
+use entity::{InboxContentKind, TerminalReason, TransferDirection, TransferPhase};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend,
-    EntityLoaderTrait, EntityTrait, FromQueryResult, IntoActiveModel, QueryFilter, QueryOrder, Set,
-    Statement, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbBackend, EntityLoaderTrait, EntityTrait,
+    FromQueryResult, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set, Statement,
+    TransactionTrait, sea_query::Expr,
 };
 use uuid::Uuid;
 
 use crate::ops::{get_transfer_projection, now_ms};
-use swarmdrop_host::AppResult;
-use swarmdrop_transfer::store::TransferProjection;
+use swarmdrop_host::{AppResult, CoreSaveLocation};
+use swarmdrop_transfer::inbox::{
+    InboxFileFacts, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
+    InboxSearchHit, inbox_content_hash, inbox_files_text, inbox_primary_file_name, inbox_snippet,
+    inbox_source_kind, is_completed_receive,
+};
 
-/// 收件箱列表条目 DTO。
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct InboxItemSummary {
-    pub id: Uuid,
-    pub transfer_session_id: Option<Uuid>,
-    pub source_peer_id: String,
-    pub source_name: String,
-    pub source_kind: InboxSourceKind,
-    pub content_kind: InboxContentKind,
-    pub title: String,
-    pub item_count: i32,
-    pub total_size: i64,
-    pub root_path: Option<String>,
-    pub content_hash: Option<String>,
-    pub received_at: i64,
-    pub last_opened_at: Option<i64>,
-    pub archived_at: Option<i64>,
-    pub deleted_at: Option<i64>,
-    pub missing: bool,
-}
-
-/// 收件箱文件 DTO。
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct InboxItemFileEntry {
-    pub id: i32,
-    pub transfer_file_id: Option<i32>,
-    pub relative_path: String,
-    pub name: String,
-    pub size: i64,
-    pub checksum: String,
-    pub local_path: String,
-    pub missing: bool,
-}
-
-/// 收件箱详情 DTO。
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct InboxItemDetail {
-    #[serde(flatten)]
-    pub item: InboxItemSummary,
-    pub files: Vec<InboxItemFileEntry>,
-    pub transfer: Option<TransferProjection>,
-}
-
-/// 收件箱搜索命中（item 粒度）。
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct InboxSearchHit {
-    pub id: Uuid,
-    pub title: String,
-    pub source_name: String,
-    pub item_count: i32,
-    pub root_path: Option<String>,
-    pub received_at: i64,
-    /// 命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
-    pub snippet: String,
-    /// 该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。
-    pub files: Vec<InboxHitFile>,
-}
-
-/// 搜索命中条目下的文件标识（供下钻定位）。
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct InboxHitFile {
-    pub name: String,
-    pub relative_path: String,
-}
-
-impl From<entity::inbox_item_file::ModelEx> for InboxItemFileEntry {
-    fn from(file: entity::inbox_item_file::ModelEx) -> Self {
-        Self {
-            id: file.id,
-            transfer_file_id: file.transfer_file_id,
-            relative_path: file.relative_path,
-            name: file.name,
-            size: file.size,
-            checksum: file.checksum,
-            local_path: file.local_path,
-            missing: file.missing,
-        }
+/// `ModelEx` → 中立 DTO。写成自由函数而非 `From` impl：两端类型都不属于本 crate
+/// （DTO 在 swarmdrop-transfer、`ModelEx` 在 entity），孤儿规则不允许在这里 impl 外部 trait。
+fn file_entry(file: entity::inbox_item_file::ModelEx) -> InboxItemFileEntry {
+    InboxItemFileEntry {
+        id: file.id,
+        transfer_file_id: file.transfer_file_id,
+        relative_path: file.relative_path,
+        name: file.name,
+        size: file.size,
+        checksum: file.checksum,
+        local_path: file.local_path,
+        missing: file.missing,
     }
 }
 
-impl From<&entity::inbox_item::ModelEx> for InboxItemSummary {
-    fn from(item: &entity::inbox_item::ModelEx) -> Self {
-        Self {
-            id: item.id,
-            transfer_session_id: item.transfer_session_id,
-            source_peer_id: item.source_peer_id.0.clone(),
-            source_name: item.source_name.clone(),
-            source_kind: item.source_kind.clone(),
-            content_kind: item.content_kind.clone(),
-            title: item.title.clone(),
-            item_count: item.item_count,
-            total_size: item.total_size,
-            root_path: item.root_path.clone(),
-            content_hash: item.content_hash.clone(),
-            received_at: item.received_at,
-            last_opened_at: item.last_opened_at,
-            archived_at: item.archived_at,
-            deleted_at: item.deleted_at,
-            missing: item.files.iter().any(|file| file.missing),
-        }
+/// 同上：`ModelEx` → 列表条目 DTO。`missing` 由文件行聚合而来，故必须吃带关系的 `ModelEx`。
+fn item_summary(item: &entity::inbox_item::ModelEx) -> InboxItemSummary {
+    InboxItemSummary {
+        id: item.id,
+        transfer_session_id: item.transfer_session_id,
+        source_peer_id: item.source_peer_id.0.clone(),
+        source_name: item.source_name.clone(),
+        source_kind: item.source_kind.clone(),
+        content_kind: item.content_kind.clone(),
+        title: item.title.clone(),
+        item_count: item.item_count,
+        total_size: item.total_size,
+        root_path: item.root_path.clone(),
+        content_hash: item.content_hash.clone(),
+        received_at: item.received_at,
+        last_opened_at: item.last_opened_at,
+        archived_at: item.archived_at,
+        deleted_at: item.deleted_at,
+        missing: item.files.iter().any(|file| file.missing),
     }
 }
 
-impl InboxItemDetail {
-    async fn from_model(
-        db: &DatabaseConnection,
-        item: entity::inbox_item::ModelEx,
-    ) -> AppResult<Self> {
-        let transfer = match item.transfer_session_id {
-            Some(session_id) => get_transfer_projection(db, session_id).await?,
-            None => None,
-        };
-        let files = item.files.clone().into_iter().map(Into::into).collect();
-        Ok(Self {
-            item: InboxItemSummary::from(&item),
-            files,
-            transfer,
-        })
+/// 传输文件行 → 收件箱规则的中立视图。`ModelEx` 到此为止，不越过本 crate。
+fn file_facts(file: &entity::transfer_file::ModelEx) -> InboxFileFacts<'_> {
+    InboxFileFacts {
+        name: &file.name,
+        relative_path: &file.relative_path,
+        checksum: &file.checksum,
+        size: file.size,
     }
+}
+
+async fn detail_from_model(
+    db: &DatabaseConnection,
+    item: entity::inbox_item::ModelEx,
+) -> AppResult<InboxItemDetail> {
+    let transfer = match item.transfer_session_id {
+        Some(session_id) => get_transfer_projection(db, session_id).await?,
+        None => None,
+    };
+    let files = item.files.clone().into_iter().map(file_entry).collect();
+    Ok(InboxItemDetail {
+        item: item_summary(&item),
+        files,
+        transfer,
+    })
 }
 
 /// 从已完成接收会话幂等创建收件箱条目。
 ///
 /// 非 receive、未完成、失败/暂停/取消会话返回 `Ok(None)`，不会创建内容记录。
-pub async fn ensure_inbox_item_for_completed_receive_session(
+pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
     db: &DatabaseConnection,
     session_id: Uuid,
 ) -> AppResult<Option<InboxItemDetail>> {
     if let Some(existing) = find_inbox_item_by_session(db, session_id).await? {
-        return Ok(Some(InboxItemDetail::from_model(db, existing).await?));
+        return Ok(Some(detail_from_model(db, existing).await?));
     }
 
-    let session = entity::TransferSession::load()
+    let mut loaded = entity::TransferSession::load()
         .filter_by_id(session_id)
         .with(entity::TransferFile)
         .one(db)
         .await?
-        .ok_or_else(|| swarmdrop_host::AppError::Transfer("传输会话不存在".into()))?;
+        .ok_or_else(|| swarmdrop_host::AppError::SessionNotFound("传输会话不存在".into()))?;
 
-    let is_completed_receive = session.direction == TransferDirection::Receive
-        && session.phase == TransferPhase::Terminal
-        && session.terminal_reason == Some(TerminalReason::Completed);
-    if !is_completed_receive {
+    // 先把关系字段摘下来，再把 `ModelEx` 摊成纯 scalar 的 `Model`：共享判据
+    // `is_completed_receive` 只吃 `Model`（关系机制编不进 wasm）。两步都是移动而非
+    // 深拷——文件行里的 `completed_chunks` 位图与 `outboard` BLOB 不会被复制一份。
+    // `HasMany` 是 enum（`Unloaded` | `Loaded(Vec<_>)`），没有原地排序的入口，先摊成 Vec；
+    // `into_iter` 是移动，不深拷。
+    let mut file_rows: Vec<_> = std::mem::take(&mut loaded.files).into_iter().collect();
+    let session: entity::transfer_session::Model = loaded.into();
+
+    // 「哪些会话进收件箱」是跨端共享的一条判据（接收 + 终态 + 完成），三处存储实现
+    // 一律调 swarmdrop_transfer::inbox 的那一份，不在这里重写三段合取。
+    if !is_completed_receive(&session) {
         return Ok(None);
     }
 
@@ -179,28 +127,38 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
     }
 
     let inbox_id = Uuid::new_v4();
-    let files: Vec<&entity::transfer_file::ModelEx> = session.files.iter().collect();
-    let item_count = i32::try_from(files.len())
+    let item_count = i32::try_from(file_rows.len())
         .map_err(|_| swarmdrop_host::AppError::Transfer("收件箱文件数量超出可表示范围".into()))?;
-    let title = inbox_title(&files);
+    // `load().with()` 不带 ORDER BY，行序是 SQLite 的实现细节（当前是 rowid 升序）。
+    // 而下面三条领域规则里 `inbox_content_hash` 按顺序累加、`inbox_primary_file_name`
+    // 取第 0 个——**跨端字节级契约靠一个未承诺的默认顺序兜着**。
+    //
+    // 排序键取 `file_id` 而不是主键 `id`：前者是**协议层**定义的会话内文件序号（从 0 递增，
+    // 见 `entity::transfer_file`），是两端共有的那个顺序；`id` 只是本地自增代理键，
+    // 它与 `file_id` 一致纯属插入顺序的副作用，换个写入路径就不成立了。
+    // 这不改变现有哈希（既有数据里两者同序），只是把巧合换成契约本身。
+    file_rows.sort_unstable_by_key(|file| file.file_id);
+    // 标题 / 内容指纹 / 检索聚合文本三条都是**跨端共享的领域规则**，一律调
+    // swarmdrop_transfer::inbox 的那一份，本文件只负责把行类型摊成中立视图。
+    let facts: Vec<InboxFileFacts<'_>> = file_rows.iter().map(file_facts).collect();
+    let title = inbox_primary_file_name(&facts);
     // root_path = 真实容器目录(与传输投影 content_root 同一 core 解析:缺 local_dir 时
-    // 回退存储根)。兜底收口在 content_root_of 一处,不再重复。
+    // 回退存储根)。兜底收口在 content_root_of 一处,不再重复;它只读 `local_dir` 一列,
+    // 故直接把这一列的迭代器递过去——为读一个字段深拷整份文件行,等于把位图与 outboard
+    // BLOB 白复制一遍(每完成一次接收数百 KB～数 MB)。
+    let save_location = session.save_path.clone().map(CoreSaveLocation::from);
     let root_path = swarmdrop_transfer::store::content_root_of(
-        session.files.iter(),
-        session.save_path.as_ref(),
+        file_rows.iter().map(|f| f.local_dir.as_deref()),
+        save_location.as_ref(),
     );
-    let content_hash = inbox_content_hash(&files);
+    let content_hash = inbox_content_hash(&facts);
     let now = now_ms();
 
-    // FTS 聚合文本：该 item 所有文件名 + 相对路径空格拼接（与迁移回填 SQL 语义一致）。
-    let files_text = files
-        .iter()
-        .map(|file| format!("{} {}", file.name, file.relative_path))
-        .collect::<Vec<_>>()
-        .join(" ");
+    // 检索聚合文本：该 item 所有文件名 + 相对路径空格拼接。
+    let files_text = inbox_files_text(&facts);
 
     // 由会话发起来源派生：MCP/代理来源记为 Mcp，否则 PairedDevice。
-    let source_kind = source_kind_for_origin(session.origin.as_deref());
+    let source_kind = inbox_source_kind(session.origin.as_deref());
 
     let txn = db.begin().await?;
 
@@ -211,7 +169,7 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         .set_source_name(session.peer_name.clone())
         .set_source_kind(source_kind)
         .set_content_kind(InboxContentKind::Files)
-        .set_title(title.clone())
+        .set_title(title)
         .set_item_count(item_count)
         .set_total_size(session.total_size)
         .set_root_path(root_path)
@@ -220,7 +178,7 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
         .insert(&txn)
         .await?;
 
-    for file in files {
+    for file in file_rows.iter() {
         // finalize_sink 记录的最终落盘位置是唯一事实源（SAF document URI /
         // 重名冲突改写都无法由「目录 + 相对路径」拼接推导）。已完成接收会话的
         // 文件必然写过它——缺失即数据异常（如旧版本残留库），显式报错不做推导。
@@ -244,54 +202,75 @@ pub async fn ensure_inbox_item_for_completed_receive_session(
             .await?;
     }
 
-    // inline 维护 FTS 索引：item + 全部 file 已在同一事务内，一次写入聚合行。
-    txn.execute_raw(Statement::from_sql_and_values(
-        DbBackend::Sqlite,
-        "INSERT INTO inbox_fts(item_id, title, source_name, files_text, extracted_text) \
-         VALUES(?, ?, ?, ?, '')",
-        [
-            inbox_id.into(),
-            title.into(),
-            session.peer_name.clone().into(),
-            files_text.into(),
-        ],
-    ))
-    .await?;
+    // inline 维护检索索引：item + 全部 file 已在同一事务内，一次写入聚合行。
+    //
+    // **走 `Entity::insert(..).exec_without_returning`，不是 builder 的 `.insert(&txn)`。**
+    // 后者会 `db.begin()`（在事务里 = 多一对 SAVEPOINT / RELEASE）并以
+    // `INSERT ... RETURNING <全部列>` 把刚写进去的整行读回来立刻丢掉 —— 而 `files_text`
+    // 是**无界**的（该条目每个文件的 `name + relative_path` 拼接，2000 个文件约 200 KB）。
+    // 一条语句能办的事不值得付 3 条语句 + 一次全行回读。
+    let index_row: entity::inbox_search_index::ActiveModel =
+        entity::inbox_search_index::ActiveModel::builder()
+            .set_item_id(inbox_id)
+            .set_source_name(session.peer_name.clone())
+            .set_files_text(files_text)
+            // 预留给未来的 OCR / 文本抽取，这一端没有抽取能力，恒为空串。
+            .set_extracted_text(String::new())
+            .into();
+    entity::InboxSearchIndex::insert(index_row)
+        .exec_without_returning(&txn)
+        .await?;
 
     txn.commit().await?;
     get_inbox_item_detail(db, inbox_id).await
 }
 
 /// 补建所有已完成 receive 会话缺失的收件箱条目。
-pub async fn repair_missing_inbox_items_for_completed_receives(
+pub(crate) async fn repair_missing_inbox_items_for_completed_receives(
     db: &DatabaseConnection,
 ) -> AppResult<Vec<InboxItemDetail>> {
-    let sessions = entity::TransferSession::find()
+    // 下面三个 filter 是 [`swarmdrop_transfer::inbox::is_completed_receive`] 的 SQL 手抄本
+    // ——数据库里调不到 Rust 函数，只能复刻。**改那边必须同步改这里**，否则「哪些会话
+    // 进收件箱」在扫描路径与建条目路径上会给出不同答案（表现是补建扫描漏掉 / 多捞会话，
+    // 不报错）。只取主键：这里除了 session_id 什么都不用。
+    let session_ids: Vec<Uuid> = entity::TransferSession::find()
+        .select_only()
+        .column(entity::transfer_session::Column::SessionId)
         .filter(entity::transfer_session::Column::Direction.eq(TransferDirection::Receive))
         .filter(entity::transfer_session::Column::Phase.eq(TransferPhase::Terminal))
         .filter(
             entity::transfer_session::Column::TerminalReason.eq(Some(TerminalReason::Completed)),
         )
+        .into_tuple()
         .all(db)
         .await?;
 
+    // 已有条目的会话一次查清，不逐会话查一遍：`ensure_*` 进门第一件事就是查重，
+    // 外层再查一次等于每个会话两趟相同查询（且 `find_inbox_item_by_session` 会连
+    // 文件行一起拉）。这层预筛不能省——`ensure_*` 对「新建」与「本来就有」都返回
+    // `Ok(Some(detail))`，只靠它的返回值分不出本次到底补了什么。
+    let already_indexed: std::collections::HashSet<Uuid> = entity::InboxItem::find()
+        .select_only()
+        .column(entity::inbox_item::Column::TransferSessionId)
+        .filter(entity::inbox_item::Column::TransferSessionId.is_not_null())
+        .into_tuple()
+        .all(db)
+        .await?
+        .into_iter()
+        .collect();
+
     let mut repaired = Vec::new();
-    for session in sessions {
-        if find_inbox_item_by_session(db, session.session_id)
-            .await?
-            .is_none()
-        {
-            // 尽力补建：单个会话失败（如 local_path 为 NULL 的旧数据）只跳过，
-            // 不掐断整批——否则一个坏会话会让其后所有可补会话永远建不出来。
-            match ensure_inbox_item_for_completed_receive_session(db, session.session_id).await {
-                Ok(Some(detail)) => repaired.push(detail),
-                Ok(None) => {}
-                Err(e) => {
-                    tracing::warn!(
-                        "补建收件箱条目失败，跳过: session={}, {e}",
-                        session.session_id
-                    );
-                }
+    for session_id in session_ids {
+        if already_indexed.contains(&session_id) {
+            continue;
+        }
+        // 尽力补建：单个会话失败（如 local_path 为 NULL 的旧数据）只跳过，
+        // 不掐断整批——否则一个坏会话会让其后所有可补会话永远建不出来。
+        match ensure_inbox_item_for_completed_receive_session(db, session_id).await {
+            Ok(Some(detail)) => repaired.push(detail),
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("补建收件箱条目失败，跳过: session={session_id}, {e}");
             }
         }
     }
@@ -299,7 +278,7 @@ pub async fn repair_missing_inbox_items_for_completed_receives(
 }
 
 /// 列出收件箱条目，默认由命令层传入是否包含归档项。
-pub async fn list_inbox_items(
+pub(crate) async fn list_inbox_items(
     db: &DatabaseConnection,
     include_archived: bool,
 ) -> AppResult<Vec<InboxItemSummary>> {
@@ -310,28 +289,29 @@ pub async fn list_inbox_items(
     if !include_archived {
         query = query.filter(entity::inbox_item::Column::ArchivedAt.is_null());
     }
-    Ok(query
-        .all(db)
-        .await?
-        .iter()
-        .map(InboxItemSummary::from)
-        .collect())
+    Ok(query.all(db).await?.iter().map(item_summary).collect())
 }
 
-/// FTS 命中的 item_id（仅用于保留按接收时间倒序的命中顺序）。
+/// 检索命中的 item_id（仅用于保留按接收时间倒序的命中顺序）。
 ///
-/// inbox_items.id 在 SQLite 里以 BLOB 存储，FTS 的 item_id 也存同一 BLOB，按 Uuid 解码。
+/// `inbox_items.id` 在 SQLite 里以 BLOB 存储，索引表的 `item_id` 存同一 BLOB，按 Uuid 解码。
 #[derive(FromQueryResult)]
-struct InboxFtsHitId {
+struct InboxSearchHitId {
     item_id: Uuid,
 }
 
 /// inbox 子串检索：以 item 为粒度，按接收时间倒序，截断到 `limit`。
 ///
-/// 不使用 FTS5 MATCH/bm25（trigram 对 <3 字查询无法命中，会让"合同"这类 2 字中文词返回空），
-/// 统一对索引文本列做 `LIKE` 子串匹配：≥3 字经 trigram 索引加速、更短查询退化为全表扫描但结果正确。
-/// 排除软删条目；`include_archived=false` 时排除已归档项。
-pub async fn search_inbox(
+/// 对索引表的文本列做 `LIKE` 子串匹配（**覆盖面以 `inbox_matches` 的入参为准**，
+/// 别在这里数列数）。排除软删条目；
+/// `include_archived=false` 时排除已归档项。
+///
+/// **判据从来不是 FTS5 的 `MATCH`。** 索引表一度是 FTS5 虚表（trigram 分词），但
+/// trigram 对 <3 字的查询无法命中——「合同」这类 2 字中文词会返回空——所以命中一直
+/// 由这里的 `LIKE` 承担，虚表只提供了一层 ≥3 字查询的索引加速。表改成普通表之后
+/// 那层加速没了，查询退化为全表扫描；收件箱条目数与用户实际接收次数同阶，
+/// 代价可忽略（Web 端本就是纯内存线性扫描）。
+pub(crate) async fn search_inbox(
     db: &DatabaseConnection,
     query: &str,
     limit: usize,
@@ -346,27 +326,33 @@ pub async fn search_inbox(
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     let include_archived = i64::from(include_archived);
 
-    // 第一步：FTS 子串匹配，取回按接收时间倒序的命中 item_id。
-    let ordered = InboxFtsHitId::find_by_statement(Statement::from_sql_and_values(
+    // 第一步：子串匹配，取回按接收时间倒序的命中 item_id。
+    //
+    // 下面这段 `LIKE ... ESCAPE '\'` 是 [`swarmdrop_transfer::inbox::inbox_matches`]
+    // 的 SQL 复刻：那个函数是检索命中判据的规范定义（大小写不敏感子串，覆盖
+    // source_name / files_text / extracted_text 三列），Web 端直接调它。
+    // 两者语义必须同义——同一个查询词在两端给出不同的命中集合，就是同一次搜索在
+    // 两端结果不同。改这里必须同步改那里，反之亦然，而
+    // `sql_like_matches_shared_corpus_same_as_inbox_matches` 用共享语料
+    // `INBOX_MATCH_CASES` 把这句话钉成可执行的断言。
+    let ordered = InboxSearchHitId::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         r#"
-        SELECT fts.item_id AS item_id
-        FROM inbox_fts AS fts
-        JOIN inbox_items AS i ON i.id = fts.item_id
+        SELECT s.item_id AS item_id
+        FROM inbox_search_index AS s
+        JOIN inbox_items AS i ON i.id = s.item_id
         WHERE i.deleted_at IS NULL
           AND (? = 1 OR i.archived_at IS NULL)
           AND (
-              fts.title LIKE ? ESCAPE '\'
-              OR fts.source_name LIKE ? ESCAPE '\'
-              OR fts.files_text LIKE ? ESCAPE '\'
-              OR fts.extracted_text LIKE ? ESCAPE '\'
+              s.source_name LIKE ? ESCAPE '\'
+              OR s.files_text LIKE ? ESCAPE '\'
+              OR s.extracted_text LIKE ? ESCAPE '\'
           )
         ORDER BY i.received_at DESC
         LIMIT ?
         "#,
         [
             include_archived.into(),
-            pattern.clone().into(),
             pattern.clone().into(),
             pattern.clone().into(),
             pattern.into(),
@@ -403,7 +389,7 @@ pub async fn search_inbox(
 }
 
 /// 加载收件箱详情。软删除后的条目对普通详情不可见。
-pub async fn get_inbox_item_detail(
+pub(crate) async fn get_inbox_item_detail(
     db: &DatabaseConnection,
     item_id: Uuid,
 ) -> AppResult<Option<InboxItemDetail>> {
@@ -416,14 +402,14 @@ pub async fn get_inbox_item_detail(
     else {
         return Ok(None);
     };
-    Ok(Some(InboxItemDetail::from_model(db, item).await?))
+    Ok(Some(detail_from_model(db, item).await?))
 }
 
 /// 加载与指定传输会话关联的可见收件箱详情。
 ///
 /// 与幂等创建路径使用的 `find_inbox_item_by_session` 不同，这个查询面向 UI/API，
 /// 会排除已软删除的收件箱条目。
-pub async fn get_inbox_item_by_transfer_session_id(
+pub(crate) async fn get_inbox_item_by_transfer_session_id(
     db: &DatabaseConnection,
     session_id: Uuid,
 ) -> AppResult<Option<InboxItemDetail>> {
@@ -436,11 +422,14 @@ pub async fn get_inbox_item_by_transfer_session_id(
     else {
         return Ok(None);
     };
-    Ok(Some(InboxItemDetail::from_model(db, item).await?))
+    Ok(Some(detail_from_model(db, item).await?))
 }
 
 /// 标记收件箱条目最近打开时间。
-pub async fn mark_inbox_item_opened(db: &DatabaseConnection, item_id: Uuid) -> AppResult<()> {
+pub(crate) async fn mark_inbox_item_opened(
+    db: &DatabaseConnection,
+    item_id: Uuid,
+) -> AppResult<()> {
     if let Some(item) = entity::InboxItem::find_by_id(item_id).one(db).await? {
         let mut model = item.into_active_model();
         model.last_opened_at = Set(Some(now_ms()));
@@ -450,7 +439,7 @@ pub async fn mark_inbox_item_opened(db: &DatabaseConnection, item_id: Uuid) -> A
 }
 
 /// 归档或取消归档收件箱条目。
-pub async fn archive_inbox_item(
+pub(crate) async fn archive_inbox_item(
     db: &DatabaseConnection,
     item_id: Uuid,
     archived: bool,
@@ -464,7 +453,10 @@ pub async fn archive_inbox_item(
 }
 
 /// 软删除收件箱记录；是否删除本地文件由 host command 在调用前完成。
-pub async fn delete_inbox_item_record(db: &DatabaseConnection, item_id: Uuid) -> AppResult<()> {
+pub(crate) async fn delete_inbox_item_record(
+    db: &DatabaseConnection,
+    item_id: Uuid,
+) -> AppResult<()> {
     if let Some(item) = entity::InboxItem::find_by_id(item_id).one(db).await? {
         let mut model = item.into_active_model();
         model.deleted_at = Set(Some(now_ms()));
@@ -474,15 +466,36 @@ pub async fn delete_inbox_item_record(db: &DatabaseConnection, item_id: Uuid) ->
 }
 
 /// 标记收件箱文件缺失状态。
-pub async fn mark_inbox_item_file_missing(
+///
+/// 归属校验就是 `WHERE` 的第二个条件：`file_id` 是 `inbox_item_files` 的全局自增主键，
+/// 不带 `inbox_item_id` 一起过滤的话，传任意 `item_id` 都能改到别的条目下的文件。
+/// 这条检查此前只有移动端桥接层做了，桌面没做——端口收口后由本实现统一承担
+/// （见 `InboxStore` 的方法文档）。
+///
+/// 一条 UPDATE 顶掉「读整条条目（含全部文件行）→ 内存里找 → 再写回」的三趟查询：
+/// 桌面 `delete_inbox_item(delete_local_files=true)` 会在文件循环里逐个调本函数，
+/// 500 个文件按旧写法就是 500 × 3 趟、且每趟都把该条目的全部文件行读一遍。
+pub(crate) async fn mark_inbox_item_file_missing(
     db: &DatabaseConnection,
+    item_id: Uuid,
     file_id: i32,
     missing: bool,
 ) -> AppResult<()> {
-    if let Some(file) = entity::InboxItemFile::find_by_id(file_id).one(db).await? {
-        let mut model = file.into_active_model();
-        model.missing = Set(missing);
-        model.update(db).await?;
+    let updated = entity::InboxItemFile::update_many()
+        .col_expr(
+            entity::inbox_item_file::Column::Missing,
+            Expr::value(missing),
+        )
+        .filter(entity::inbox_item_file::Column::Id.eq(file_id))
+        .filter(entity::inbox_item_file::Column::InboxItemId.eq(item_id))
+        .exec(db)
+        .await?;
+    // 0 行受影响 = 文件不存在 or 不属于该条目。两种情况本就都是「这个 (item, file)
+    // 组合不成立」，对调用方是同一个错误。
+    if updated.rows_affected == 0 {
+        return Err(swarmdrop_host::AppError::Transfer(
+            "收件箱文件不属于该条目".into(),
+        ));
     }
     Ok(())
 }
@@ -498,35 +511,9 @@ async fn find_inbox_item_by_session(
         .await?)
 }
 
-fn inbox_title(files: &[&entity::transfer_file::ModelEx]) -> String {
-    match files {
-        [] => "空传输".to_string(),
-        [file] => file.name.clone(),
-        [first, ..] => format!("{} 等 {} 个文件", first.name, files.len()),
-    }
-}
-
-fn inbox_content_hash(files: &[&entity::transfer_file::ModelEx]) -> String {
-    let mut hasher = blake3::Hasher::new();
-    for file in files {
-        hasher.update(file.relative_path.as_bytes());
-        hasher.update(&[0]);
-        hasher.update(file.checksum.as_bytes());
-        hasher.update(&file.size.to_le_bytes());
-    }
-    hasher.finalize().to_hex().to_string()
-}
-
-/// 由接收会话的 `origin` 列派生收件箱 `source_kind`：MCP/代理来源 → `Mcp`，否则 `PairedDevice`。
-/// 历史 NULL / 未知值经 `TransferOrigin::from_db_string` 回退 `Human` → `PairedDevice`。
-fn source_kind_for_origin(origin: Option<&str>) -> InboxSourceKind {
-    match swarmdrop_transfer::protocol::TransferOrigin::from_db_string(origin.unwrap_or("human")) {
-        swarmdrop_transfer::protocol::TransferOrigin::Mcp { .. } => InboxSourceKind::Mcp,
-        swarmdrop_transfer::protocol::TransferOrigin::Human => InboxSourceKind::PairedDevice,
-    }
-}
-
 /// 转义 LIKE 通配符（`\` `%` `_`），避免用户输入被当成通配模式（配合 SQL 的 `ESCAPE '\'`）。
+///
+/// 不上提到 `swarmdrop_transfer::inbox`：它是 SQL `LIKE` 的通配语法细节，不是领域规则。
 fn escape_like(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for ch in input.chars() {
@@ -547,7 +534,7 @@ fn build_search_hit(item: entity::inbox_item::ModelEx, query: &str) -> InboxSear
             relative_path: file.relative_path.clone(),
         })
         .collect();
-    let snippet = make_snippet(query, &item, &files);
+    let snippet = inbox_snippet(query, &item.title, &item.source_name, &files);
     InboxSearchHit {
         id: item.id,
         title: item.title.clone(),
@@ -560,59 +547,36 @@ fn build_search_hit(item: entity::inbox_item::ModelEx, query: &str) -> InboxSear
     }
 }
 
-/// 在标题 / 来源名 / 文件文本里找首个命中子串，按字符切窗口生成片段（UTF-8 安全）。
-fn make_snippet(query: &str, item: &entity::inbox_item::ModelEx, files: &[InboxHitFile]) -> String {
-    let needle = query.to_lowercase();
-    let mut candidates: Vec<String> = vec![item.title.clone(), item.source_name.clone()];
-    for file in files {
-        candidates.push(format!("{} {}", file.name, file.relative_path));
-    }
-    for text in &candidates {
-        if let Some(snippet) = snippet_window(text, &needle) {
-            return snippet;
-        }
-    }
-    item.title.clone()
-}
-
-fn snippet_window(text: &str, needle_lower: &str) -> Option<String> {
-    let hay = text.to_lowercase();
-    let byte_pos = hay.find(needle_lower)?;
-    let char_start = hay[..byte_pos].chars().count();
-    let chars: Vec<char> = text.chars().collect();
-    let needle_len = needle_lower.chars().count();
-    const CTX: usize = 16;
-    let start = char_start.saturating_sub(CTX);
-    let end = (char_start + needle_len + CTX).min(chars.len());
-    let mut out = String::new();
-    if start > 0 {
-        out.push('…');
-    }
-    out.extend(chars[start..end].iter());
-    if end < chars.len() {
-        out.push('…');
-    }
-    Some(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use std::sync::Arc;
+
     use migration::{Migrator, MigratorTrait};
     use sea_orm::{ConnectOptions, Database};
 
-    use crate::ops::{
-        clear_all_history, create_session, mark_file_completed, mark_session_completed,
-    };
-    use swarmdrop_host::CoreSaveLocation;
+    use crate::store::SqlSessionStore;
     use swarmdrop_transfer::coordinator::TransferState;
     use swarmdrop_transfer::protocol::FileInfo;
-    use swarmdrop_transfer::store::CreateSessionInput;
+    use swarmdrop_transfer::store::{CreateSessionInput, InboxStore, SessionStore};
+
+    /// 已完成接收的终态 fixture：收件箱落库只认 `phase=terminal + reason=completed`，
+    /// 建会话时一次写到位，不再走额外的 `mark_*` 直写。
+    fn completed_state() -> TransferState {
+        TransferState {
+            phase: TransferPhase::Terminal,
+            suspended_reason: None,
+            terminal_reason: Some(TerminalReason::Completed),
+            epoch: 0,
+            recoverable: false,
+            failure: None,
+        }
+    }
 
     /// 模拟 receiver 的文件级完成：真实链路里 finalize_sink 的返回值经
     /// `mark_file_completed` 写入 local_path，收件箱落库依赖它。
-    async fn mark_files_completed(db: &DatabaseConnection, session_id: Uuid, files: &[FileInfo]) {
+    async fn mark_files_completed(store: &SqlSessionStore, session_id: Uuid, files: &[FileInfo]) {
         for file in files {
             let local_path = format!("/tmp/swarmdrop-inbox-test/{}", file.relative_path);
             // 父目录 = local_path 的 dirname(模拟 finalize_sink 的 dir 返回)。
@@ -620,48 +584,31 @@ mod tests {
                 .rsplit_once('/')
                 .map(|(d, _)| d.to_string())
                 .unwrap_or_default();
-            mark_file_completed(
-                db,
-                session_id,
-                file.file_id as i32,
-                vec![],
-                file.size as i64,
-                local_path,
-                local_dir,
-            )
-            .await
-            .expect("mark file completed");
+            store
+                .mark_file_completed(
+                    session_id,
+                    file.file_id as i32,
+                    vec![],
+                    file.size as i64,
+                    local_path,
+                    local_dir,
+                )
+                .await
+                .expect("mark file completed");
         }
     }
 
-    #[test]
-    fn source_kind_derived_from_origin() {
-        assert!(matches!(
-            source_kind_for_origin(None),
-            InboxSourceKind::PairedDevice
-        ));
-        assert!(matches!(
-            source_kind_for_origin(Some("human")),
-            InboxSourceKind::PairedDevice
-        ));
-        assert!(matches!(
-            source_kind_for_origin(Some("mcp")),
-            InboxSourceKind::Mcp
-        ));
-        assert!(matches!(
-            source_kind_for_origin(Some("mcp:claude-desktop")),
-            InboxSourceKind::Mcp
-        ));
-    }
-
-    async fn make_db() -> DatabaseConnection {
+    /// 测试一律经端口调用——被测的是「`InboxStore` 的行为」，不是私有函数的实现细节。
+    /// 少数断言（改 `received_at`、直查行、灌 FTS）没有对应端口方法，那几处才用裸连接。
+    async fn make_env() -> (DatabaseConnection, SqlSessionStore) {
         let mut opt = ConnectOptions::new("sqlite::memory:");
         opt.max_connections(1)
             .min_connections(1)
             .sqlx_logging(false);
         let db = Database::connect(opt).await.expect("connect sqlite memory");
         Migrator::up(&db, None).await.expect("run migrations");
-        db
+        let store = SqlSessionStore::new(Arc::new(db.clone()));
+        (db, store)
     }
 
     fn file_info(id: u32, relative_path: &str, size: u64) -> FileInfo {
@@ -679,7 +626,7 @@ mod tests {
     }
 
     async fn create_receive_session(
-        db: &DatabaseConnection,
+        store: &SqlSessionStore,
         session_id: Uuid,
         lifecycle: TransferState,
     ) {
@@ -687,9 +634,8 @@ mod tests {
             file_info(0, "hello.txt", 12),
             file_info(1, "docs/readme.md", 8),
         ];
-        create_session(
-            db,
-            CreateSessionInput {
+        store
+            .create_session(CreateSessionInput {
                 session_id,
                 direction: TransferDirection::Receive,
                 peer_id: "peer-a",
@@ -703,27 +649,25 @@ mod tests {
                 lifecycle,
                 policy: None,
                 origin: None,
-            },
-        )
-        .await
-        .expect("create receive session");
-        mark_files_completed(db, session_id, &files).await;
+            })
+            .await
+            .expect("create receive session");
+        mark_files_completed(store, session_id, &files).await;
     }
 
     #[tokio::test]
     async fn completed_receive_should_create_inbox_item_idempotently() {
-        let db = make_db().await;
+        let (_db, store) = make_env().await;
         let session_id = Uuid::new_v4();
-        create_receive_session(&db, session_id, TransferState::active(0)).await;
-        mark_session_completed(&db, session_id)
-            .await
-            .expect("mark completed");
+        create_receive_session(&store, session_id, completed_state()).await;
 
-        let first = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+        let first = store
+            .ensure_inbox_item_for_completed_receive_session(session_id)
             .await
             .expect("create inbox item")
             .expect("inbox item");
-        let second = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+        let second = store
+            .ensure_inbox_item_for_completed_receive_session(session_id)
             .await
             .expect("create inbox item again")
             .expect("same inbox item");
@@ -735,23 +679,24 @@ mod tests {
         assert_eq!(first.files.len(), 2);
         assert!(first.files.iter().all(|file| !file.missing));
 
-        let list = list_inbox_items(&db, false).await.expect("list inbox");
+        let list = store.list_inbox_items(false).await.expect("list inbox");
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, first.item.id);
     }
 
     #[tokio::test]
     async fn inbox_item_can_be_loaded_by_transfer_session_id() {
-        let db = make_db().await;
+        let (_db, store) = make_env().await;
         let session_id = Uuid::new_v4();
-        create_receive_session(&db, session_id, TransferState::active(0)).await;
-        mark_session_completed(&db, session_id).await.unwrap();
-        let item = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+        create_receive_session(&store, session_id, completed_state()).await;
+        let item = store
+            .ensure_inbox_item_for_completed_receive_session(session_id)
             .await
             .unwrap()
             .unwrap();
 
-        let queried = get_inbox_item_by_transfer_session_id(&db, session_id)
+        let queried = store
+            .get_inbox_item_by_transfer_session_id(session_id)
             .await
             .unwrap()
             .unwrap();
@@ -763,18 +708,19 @@ mod tests {
 
     #[tokio::test]
     async fn inbox_item_by_transfer_session_id_hides_deleted_records() {
-        let db = make_db().await;
+        let (_db, store) = make_env().await;
         let session_id = Uuid::new_v4();
-        create_receive_session(&db, session_id, TransferState::active(0)).await;
-        mark_session_completed(&db, session_id).await.unwrap();
-        let item = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+        create_receive_session(&store, session_id, completed_state()).await;
+        let item = store
+            .ensure_inbox_item_for_completed_receive_session(session_id)
             .await
             .unwrap()
             .unwrap();
 
-        delete_inbox_item_record(&db, item.item.id).await.unwrap();
+        store.delete_inbox_item_record(item.item.id).await.unwrap();
 
-        let queried = get_inbox_item_by_transfer_session_id(&db, session_id)
+        let queried = store
+            .get_inbox_item_by_transfer_session_id(session_id)
             .await
             .unwrap();
         assert!(queried.is_none());
@@ -782,50 +728,134 @@ mod tests {
 
     #[tokio::test]
     async fn unfinished_receive_should_not_create_inbox_item() {
-        let db = make_db().await;
+        let (_db, store) = make_env().await;
         let session_id = Uuid::new_v4();
-        create_receive_session(&db, session_id, TransferState::offered(0)).await;
+        create_receive_session(&store, session_id, TransferState::offered(0)).await;
 
-        let item = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+        let item = store
+            .ensure_inbox_item_for_completed_receive_session(session_id)
             .await
             .expect("ensure inbox item");
         assert!(item.is_none());
-        assert!(list_inbox_items(&db, false).await.unwrap().is_empty());
+        assert!(store.list_inbox_items(false).await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn clear_history_should_keep_inbox_records() {
-        let db = make_db().await;
+        let (_db, store) = make_env().await;
         let session_id = Uuid::new_v4();
-        create_receive_session(&db, session_id, TransferState::active(0)).await;
-        mark_session_completed(&db, session_id).await.unwrap();
-        let item = ensure_inbox_item_for_completed_receive_session(&db, session_id)
+        create_receive_session(&store, session_id, completed_state()).await;
+        let item = store
+            .ensure_inbox_item_for_completed_receive_session(session_id)
             .await
             .unwrap()
             .unwrap();
 
-        clear_all_history(&db)
+        store
+            .clear_all_history()
             .await
             .expect("clear activity history");
 
-        let list = list_inbox_items(&db, false).await.expect("list inbox");
+        let list = store.list_inbox_items(false).await.expect("list inbox");
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, item.item.id);
         assert!(
-            get_transfer_projection(&db, session_id)
+            store
+                .get_transfer_projection(session_id)
                 .await
                 .expect("query projection")
                 .is_none()
         );
     }
 
+    /// D5：删单条传输记录只清活动账本——收件箱条目留下，外键被置空。
+    ///
+    /// 保证来自 `entity::inbox_item` 上声明的 `on_delete = "SetNull"`
+    /// （schema builder 据此建外键）。
+    /// 两条断言缺一不可：只断言「行还在」的话，外键写成 `RESTRICT`（根本删不掉）或
+    /// FK 未生效（留一个指向已删会话的悬垂 id）都照样绿。
+    #[tokio::test]
+    async fn delete_session_should_keep_inbox_record_and_null_the_link() {
+        let (db, store) = make_env().await;
+        let session_id = Uuid::new_v4();
+        create_receive_session(&store, session_id, completed_state()).await;
+        let item = store
+            .ensure_inbox_item_for_completed_receive_session(session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        store
+            .delete_session(session_id)
+            .await
+            .expect("delete transfer session");
+
+        // 外键置空是行级事实，端口 DTO 看不到，故这条断言直查行。
+        let row = entity::InboxItem::find_by_id(item.item.id)
+            .one(&db)
+            .await
+            .expect("query inbox row")
+            .expect("收件箱条目不应随传输记录消失");
+        assert!(
+            row.transfer_session_id.is_none(),
+            "外键应被置空，而非留一个指向已删会话的悬垂 id"
+        );
+        assert_eq!(store.list_inbox_items(false).await.unwrap().len(), 1);
+        assert!(
+            store
+                .get_transfer_projection(session_id)
+                .await
+                .expect("query projection")
+                .is_none(),
+            "活动账本这一侧应已删干净"
+        );
+    }
+
+    /// 归属校验（D4）：`file_id` 全局唯一不代表它属于传进来的条目。
+    #[tokio::test]
+    async fn mark_file_missing_rejects_file_from_another_item() {
+        let (_db, store) = make_env().await;
+        let mine = make_inbox_item(&store, "Zoe", &[file_info(0, "我的.pdf", 5)]).await;
+        let other = make_inbox_item(&store, "Zoe", &[file_info(1, "别人的.pdf", 5)]).await;
+
+        let other_file_id = store
+            .get_inbox_item_detail(other)
+            .await
+            .unwrap()
+            .unwrap()
+            .files[0]
+            .id;
+
+        assert!(
+            store
+                .mark_inbox_item_file_missing(mine, other_file_id, true)
+                .await
+                .is_err(),
+            "不属于该条目的 file_id 必须报错，不能悄悄改到别人的文件上"
+        );
+
+        let my_file_id = store
+            .get_inbox_item_detail(mine)
+            .await
+            .unwrap()
+            .unwrap()
+            .files[0]
+            .id;
+        store
+            .mark_inbox_item_file_missing(mine, my_file_id, true)
+            .await
+            .expect("自己的文件应可标记");
+        let detail = store.get_inbox_item_detail(mine).await.unwrap().unwrap();
+        assert!(detail.files[0].missing);
+        assert!(detail.item.missing, "条目级 missing 由文件行聚合");
+    }
+
     /// 创建一个已完成接收会话并落库为收件箱条目，返回 item id。
-    async fn make_inbox_item(db: &DatabaseConnection, peer_name: &str, files: &[FileInfo]) -> Uuid {
+    async fn make_inbox_item(store: &SqlSessionStore, peer_name: &str, files: &[FileInfo]) -> Uuid {
         let session_id = Uuid::new_v4();
         let total: u64 = files.iter().map(|file| file.size).sum();
-        create_session(
-            db,
-            CreateSessionInput {
+        store
+            .create_session(CreateSessionInput {
                 session_id,
                 direction: TransferDirection::Receive,
                 peer_id: "peer-search",
@@ -836,18 +866,15 @@ mod tests {
                     path: "/tmp/swarmdrop-inbox-search-test".to_string(),
                 }),
                 source_paths: None,
-                lifecycle: TransferState::active(0),
+                lifecycle: completed_state(),
                 policy: None,
                 origin: None,
-            },
-        )
-        .await
-        .expect("create receive session");
-        mark_files_completed(db, session_id, files).await;
-        mark_session_completed(db, session_id)
+            })
             .await
-            .expect("mark completed");
-        ensure_inbox_item_for_completed_receive_session(db, session_id)
+            .expect("create receive session");
+        mark_files_completed(store, session_id, files).await;
+        store
+            .ensure_inbox_item_for_completed_receive_session(session_id)
             .await
             .expect("ensure inbox item")
             .expect("inbox item")
@@ -855,6 +882,8 @@ mod tests {
             .id
     }
 
+    /// 建条目时 `received_at` 一律写成会话完成时刻，排序测试要的时序只能事后校准
+    /// ——没有对应的端口方法，故直改行。
     async fn set_received_at(db: &DatabaseConnection, id: Uuid, ts: i64) {
         let item = entity::InboxItem::find_by_id(id)
             .one(db)
@@ -867,33 +896,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_finds_item_by_title_and_source_after_insert() {
-        let db = make_db().await;
+    async fn search_finds_item_by_file_name_and_source_after_insert() {
+        let (_db, store) = make_env().await;
         let id = make_inbox_item(
-            &db,
+            &store,
             "Alice 的工作站",
             &[file_info(0, "季度合同扫描.pdf", 12)],
         )
         .await;
 
-        let by_title = search_inbox(&db, "扫描", 10, false).await.unwrap();
-        assert!(by_title.iter().any(|h| h.id == id), "标题/文件名应命中");
+        let by_file_name = store.search_inbox("扫描", 10, false).await.unwrap();
+        assert!(by_file_name.iter().any(|h| h.id == id), "文件名应命中");
 
-        let by_source = search_inbox(&db, "Alice", 10, false).await.unwrap();
+        let by_source = store.search_inbox("Alice", 10, false).await.unwrap();
         assert!(by_source.iter().any(|h| h.id == id), "来源设备名应命中");
 
-        let hit = by_title.iter().find(|h| h.id == id).unwrap();
+        let hit = by_file_name.iter().find(|h| h.id == id).unwrap();
         assert_eq!(hit.files.len(), 1);
         assert_eq!(hit.files[0].relative_path, "季度合同扫描.pdf");
-        assert!(!hit.snippet.is_empty(), "命中应带匹配片段");
+        // **命中来自 `files_text`，不是标题**——索引里已经没有 title 列了（见
+        // `title_is_not_indexed`）。但片段的**归属判断**仍看标题：条目行上显示的
+        // 就是这个首文件名，命中它再给一条内容相同的片段只是把同一句话说两遍。
+        // 片段判据的正面覆盖在 `swarmdrop-transfer` 的 `snippet_only_for_file_hits`
+        // （领域层单测），这里只管「搜不搜得到」。
+        assert!(hit.snippet.is_none(), "命中标题时不该产出片段");
+    }
+
+    /// 只命中 `relative_path` 时**要**产出片段——与上一个测试的否定断言凑成一对。
+    ///
+    /// 单有否定断言不够：`build_search_hit` 里唯一能产出 `Some` 的分支就是文件文本命中，
+    /// 而「`files` 构造错了导致片段恒 `None`」在 SQL 端会一路绿到线上。Web 侧的对应测试是
+    /// `crates/web/src/inbox.rs` 的 `invoices` 用例，两端对同一判据一正一反才算对齐。
+    #[tokio::test]
+    async fn search_snippet_present_when_only_file_path_matches() {
+        let (_db, store) = make_env().await;
+        let id = make_inbox_item(&store, "Dave", &[file_info(0, "invoices/c.pdf", 12)]).await;
+
+        let hits = store.search_inbox("invoices", 10, false).await.unwrap();
+        let hit = hits.iter().find(|h| h.id == id).expect("路径词应命中");
+        // 「invoices」不在标题（单文件条目的标题是文件名 `c.pdf`）也不在来源名（Dave）里，
+        // 所以这是该给片段的那种命中：用户要找的东西不在条目行上直接可见。
+        assert!(
+            hit.snippet
+                .as_deref()
+                .is_some_and(|s| s.contains("invoices")),
+            "只命中文件路径时要带可读片段，实际: {:?}",
+            hit.snippet
+        );
     }
 
     #[tokio::test]
     async fn search_cjk_two_char_word_matches() {
-        let db = make_db().await;
-        let id = make_inbox_item(&db, "Bob", &[file_info(0, "合同.pdf", 8)]).await;
+        let (_db, store) = make_env().await;
+        let id = make_inbox_item(&store, "Bob", &[file_info(0, "合同.pdf", 8)]).await;
         // 招牌回归点：2 字中文词在 trigram MATCH 下会返回空，必须靠 LIKE 兜底命中。
-        let hits = search_inbox(&db, "合同", 10, false).await.unwrap();
+        let hits = store.search_inbox("合同", 10, false).await.unwrap();
         assert!(
             hits.iter().any(|h| h.id == id),
             "2 字中文词 '合同' 必须命中，不能返回空"
@@ -902,15 +959,16 @@ mod tests {
 
     #[tokio::test]
     async fn search_excludes_deleted_and_archived_by_default() {
-        let db = make_db().await;
-        let kept = make_inbox_item(&db, "Carol", &[file_info(0, "报告.pdf", 5)]).await;
-        let deleted = make_inbox_item(&db, "Carol", &[file_info(1, "报告草稿.pdf", 5)]).await;
-        let archived = make_inbox_item(&db, "Carol", &[file_info(2, "报告归档.pdf", 5)]).await;
+        let (_db, store) = make_env().await;
+        let kept = make_inbox_item(&store, "Carol", &[file_info(0, "报告.pdf", 5)]).await;
+        let deleted = make_inbox_item(&store, "Carol", &[file_info(1, "报告草稿.pdf", 5)]).await;
+        let archived = make_inbox_item(&store, "Carol", &[file_info(2, "报告归档.pdf", 5)]).await;
 
-        delete_inbox_item_record(&db, deleted).await.unwrap();
-        archive_inbox_item(&db, archived, true).await.unwrap();
+        store.delete_inbox_item_record(deleted).await.unwrap();
+        store.archive_inbox_item(archived, true).await.unwrap();
 
-        let default_ids: Vec<Uuid> = search_inbox(&db, "报告", 10, false)
+        let default_ids: Vec<Uuid> = store
+            .search_inbox("报告", 10, false)
             .await
             .unwrap()
             .iter()
@@ -920,7 +978,8 @@ mod tests {
         assert!(!default_ids.contains(&deleted), "软删条目不应返回");
         assert!(!default_ids.contains(&archived), "默认不返回已归档条目");
 
-        let with_archived_ids: Vec<Uuid> = search_inbox(&db, "报告", 10, true)
+        let with_archived_ids: Vec<Uuid> = store
+            .search_inbox("报告", 10, true)
             .await
             .unwrap()
             .iter()
@@ -935,15 +994,15 @@ mod tests {
 
     #[tokio::test]
     async fn search_orders_by_received_at_desc_and_respects_limit() {
-        let db = make_db().await;
-        let a = make_inbox_item(&db, "Dave", &[file_info(0, "票据A.pdf", 5)]).await;
-        let b = make_inbox_item(&db, "Dave", &[file_info(1, "票据B.pdf", 5)]).await;
-        let c = make_inbox_item(&db, "Dave", &[file_info(2, "票据C.pdf", 5)]).await;
+        let (db, store) = make_env().await;
+        let a = make_inbox_item(&store, "Dave", &[file_info(0, "票据A.pdf", 5)]).await;
+        let b = make_inbox_item(&store, "Dave", &[file_info(1, "票据B.pdf", 5)]).await;
+        let c = make_inbox_item(&store, "Dave", &[file_info(2, "票据C.pdf", 5)]).await;
         set_received_at(&db, a, 100).await;
         set_received_at(&db, b, 200).await;
         set_received_at(&db, c, 300).await;
 
-        let hits = search_inbox(&db, "票据", 2, false).await.unwrap();
+        let hits = store.search_inbox("票据", 2, false).await.unwrap();
         assert_eq!(hits.len(), 2, "limit 应截断到 2");
         assert_eq!(hits[0].id, c, "最新（received_at 最大）排最前");
         assert_eq!(hits[1].id, b);
@@ -951,76 +1010,229 @@ mod tests {
 
     #[tokio::test]
     async fn search_empty_query_and_no_match_return_empty() {
-        let db = make_db().await;
-        make_inbox_item(&db, "Erin", &[file_info(0, "发票.pdf", 5)]).await;
-        assert!(search_inbox(&db, "", 10, false).await.unwrap().is_empty());
+        let (_db, store) = make_env().await;
+        make_inbox_item(&store, "Erin", &[file_info(0, "发票.pdf", 5)]).await;
+        assert!(store.search_inbox("", 10, false).await.unwrap().is_empty());
         assert!(
-            search_inbox(&db, "   ", 10, false)
+            store
+                .search_inbox("   ", 10, false)
                 .await
                 .unwrap()
                 .is_empty()
         );
         assert!(
-            search_inbox(&db, "不存在的关键词zzz", 10, false)
+            store
+                .search_inbox("不存在的关键词zzz", 10, false)
                 .await
                 .unwrap()
                 .is_empty()
         );
     }
 
-    #[tokio::test]
-    async fn backfill_repopulates_fts_for_existing_items() {
-        let db = make_db().await;
-        let id = make_inbox_item(&db, "Frank", &[file_info(0, "合同附件.pdf", 5)]).await;
+    /// 条目行 `title` 的哨兵值：**它不在任何索引列里**，所以拿它当查询词必须搜不到。
+    /// `title_is_not_indexed` 靠这一点把「标题不参与检索」钉成可执行断言。
+    const TITLE_SENTINEL: &str = "哨兵标题不该被检索到";
 
-        // 模拟"有数据但无索引"的存量库
-        db.execute_unprepared("DELETE FROM inbox_fts")
+    /// 按语料直接造一条收件箱条目 + 对应的索引行，返回 item id。
+    ///
+    /// 不走 `ensure_*`：那条路径的 files_text 由文件行派生，摆不出语料要的三列
+    /// 任意组合（尤其 `extracted_text`——SQL 侧目前没有任何写入它的生产路径）。
+    ///
+    /// 条目行的 `title` 一律填 [`TITLE_SENTINEL`]：它是展示字段，不进 `inbox_search_index`，
+    /// 语料里因此没有它的位置。
+    async fn insert_indexed_item(
+        db: &DatabaseConnection,
+        source_name: &str,
+        files_text: &str,
+        extracted_text: Option<&str>,
+    ) -> Uuid {
+        let id = Uuid::new_v4();
+        entity::inbox_item::ActiveModel::builder()
+            .set_id(id)
+            .set_transfer_session_id(None)
+            .set_source_peer_id(entity::PeerId("peer-corpus".to_string()))
+            .set_source_name(source_name.to_string())
+            .set_source_kind(entity::InboxSourceKind::PairedDevice)
+            .set_content_kind(InboxContentKind::Files)
+            .set_title(TITLE_SENTINEL.to_string())
+            .set_item_count(1)
+            .set_total_size(1)
+            .set_root_path(None)
+            .set_content_hash(None)
+            .set_received_at(now_ms())
+            .insert(db)
             .await
-            .unwrap();
-        assert!(
-            search_inbox(&db, "合同", 10, false)
+            .expect("insert inbox item");
+        entity::inbox_search_index::ActiveModel::builder()
+            .set_item_id(id)
+            .set_source_name(source_name.to_string())
+            .set_files_text(files_text.to_string())
+            // 语料的 `None`（「这一端没有文本抽取」）在 SQL 侧落成空串：唯一的生产写入
+            // 路径（`ensure_*`）对没有抽取结果的条目写的就是 ''，库里不存在 NULL 的
+            // extracted_text，列本身也是 NOT NULL。
+            .set_extracted_text(extracted_text.unwrap_or_default().to_string())
+            .insert(db)
+            .await
+            .expect("insert search index row");
+        id
+    }
+
+    /// 跨端一致性（conformance）：同一批 [`INBOX_MATCH_CASES`] 灌进真实 SQLite 走
+    /// `search_inbox`，断言与 [`swarmdrop_transfer::inbox::inbox_matches`] 同一批 `expected`。
+    ///
+    /// 「SQL 的 `LIKE` 是 `inbox_matches` 的复刻」此前只是一句注释——SQL 多匹配了
+    /// `extracted_text` 一列而那个函数根本没有这个入参，规范与实现从一开始就是错位的。
+    /// 这条测试是那句注释的可执行形式：任一端改判据（少接一列、忘了 `escape_like`、
+    /// 换回 FTS5 `MATCH`）都会在这里变红。
+    #[tokio::test]
+    async fn sql_like_matches_shared_corpus_same_as_inbox_matches() {
+        use swarmdrop_transfer::inbox::INBOX_MATCH_CASES;
+
+        let (db, store) = make_env().await;
+
+        // 一条语料一条条目，全部灌进同一个库：断言只看「自己那条在不在结果里」。
+        // 别的条目顺带命中同一个词无所谓——真实库里本来就有别的条目，判据是逐条目的。
+        let mut ids = Vec::with_capacity(INBOX_MATCH_CASES.len());
+        for case in INBOX_MATCH_CASES {
+            ids.push(
+                insert_indexed_item(&db, case.source_name, case.files_text, case.extracted_text)
+                    .await,
+            );
+        }
+
+        for (case, id) in INBOX_MATCH_CASES.iter().zip(ids) {
+            // limit 取得远大于语料条数，避免命中被截断而误判成「不命中」。
+            let matched = store
+                .search_inbox(case.query, 1000, false)
                 .await
-                .unwrap()
-                .is_empty(),
-            "清空索引后应搜不到"
+                .expect("search inbox")
+                .iter()
+                .any(|hit| hit.id == id);
+            assert_eq!(
+                matched, case.expected,
+                "SQL 的 LIKE 与 inbox_matches 分叉: {}（query={:?}）",
+                case.name, case.query
+            );
+        }
+    }
+
+    /// **内容指纹只取决于 `file_id`，与对端 manifest 的排列无关。**
+    ///
+    /// `inbox_content_hash` 是跨端去重的唯一判据，它逐个文件累加、顺序即字节序。
+    /// 而 `file_id` 是**对端可控**字段（协议层声明，从 0 递增只是诚实发送端的自律），
+    /// 乱序的 offer 完全构造得出来。两端若按各自的本地顺序（SQL 的 rowid / Web 的数组
+    /// 下标）喂给它，同一批文件在桌面与浏览器就会算出不同的指纹。
+    ///
+    /// 这条测试灌两份**文件完全相同、manifest 排列相反**的会话，断言指纹一致——
+    /// 删掉 `ensure_*` 里那行 `sort_by_key(file_id)` 就会红。
+    /// Web 侧的对应约束由 `crates/web/src/inbox.rs` 的同名规则承担。
+    #[tokio::test]
+    async fn content_hash_is_independent_of_manifest_order() {
+        let (_db, store) = make_env().await;
+
+        let ascending = [file_info(0, "a.txt", 1), file_info(1, "b.txt", 2)];
+        let descending = [file_info(1, "b.txt", 2), file_info(0, "a.txt", 1)];
+
+        let first = make_inbox_item(&store, "Alice", &ascending).await;
+        let second = make_inbox_item(&store, "Alice", &descending).await;
+
+        let hash_of = async |id| {
+            get_inbox_item_detail(&_db, id)
+                .await
+                .expect("detail")
+                .expect("item")
+                .item
+                .content_hash
+                .expect("content_hash")
+        };
+        assert_eq!(
+            hash_of(first).await,
+            hash_of(second).await,
+            "manifest 排列不同、文件相同的两批，指纹必须一致"
+        );
+    }
+
+    /// 条目标题**不是索引列**：拿标题原文当查询词必须一条都搜不到。
+    ///
+    /// 守的是「删掉 `inbox_search_index.title` 之后没人把它加回来」。加回来不会让任何
+    /// 现有断言变红——那一列存的是首文件名，而首文件名已经在 `files_text` 里，
+    /// 多一列只是把同一个词再匹配一遍。用一个**只存在于 `inbox_items.title`** 的哨兵词
+    /// 才能把这件事测出来。
+    #[tokio::test]
+    async fn title_is_not_indexed() {
+        let (db, store) = make_env().await;
+        let id = insert_indexed_item(&db, "Alice", "a.pdf a.pdf", None).await;
+
+        let hits = store
+            .search_inbox(TITLE_SENTINEL, 1000, false)
+            .await
+            .expect("search inbox");
+        assert!(
+            !hits.iter().any(|hit| hit.id == id),
+            "标题不该参与检索，却命中了：{TITLE_SENTINEL}"
         );
 
-        // 执行与迁移等价的回填 SQL
-        db.execute_unprepared(
-            r#"
-            INSERT INTO inbox_fts(item_id, title, source_name, files_text, extracted_text)
-            SELECT i.id, i.title, i.source_name,
-                   COALESCE(group_concat(f.name || ' ' || f.relative_path, ' '), ''), ''
-            FROM inbox_items i
-            LEFT JOIN inbox_item_files f ON f.inbox_item_id = i.id
-            GROUP BY i.id, i.title, i.source_name
-            "#,
-        )
-        .await
-        .unwrap();
-
-        let hits = search_inbox(&db, "合同", 10, false).await.unwrap();
-        assert!(hits.iter().any(|h| h.id == id), "回填后历史条目应可搜");
+        // 反向对照：同一条条目按文件名仍然搜得到，证明它确实进了索引、
+        // 上面那条不命中不是因为条目本身没被索引。
+        assert!(
+            store
+                .search_inbox("a.pdf", 1000, false)
+                .await
+                .expect("search inbox")
+                .iter()
+                .any(|hit| hit.id == id),
+            "文件名应当仍能命中"
+        );
     }
 
     #[tokio::test]
     async fn search_works_with_empty_extracted_text() {
-        let db = make_db().await;
-        let id = make_inbox_item(&db, "Grace", &[file_info(0, "笔记.txt", 5)]).await;
+        let (_db, store) = make_env().await;
+        let id = make_inbox_item(&store, "Grace", &[file_info(0, "笔记.txt", 5)]).await;
         // 所有 extracted_text 为空：仅靠标题/来源名/文件名仍能命中，且无关词不凭空命中。
         assert!(
-            search_inbox(&db, "笔记", 10, false)
+            store
+                .search_inbox("笔记", 10, false)
                 .await
                 .unwrap()
                 .iter()
                 .any(|h| h.id == id)
         );
         assert!(
-            search_inbox(&db, "OCR内容xyz", 10, false)
+            store
+                .search_inbox("OCR内容xyz", 10, false)
                 .await
                 .unwrap()
                 .is_empty(),
             "extracted_text 为空，不应凭空命中"
         );
+    }
+
+    /// `repair_*` 是修复「`ensure_*` 当时写失败」的通道，不是存储格式迁移：
+    /// 已完成接收会话缺条目时补出来，已有条目的会话不重复补。
+    #[tokio::test]
+    async fn repair_backfills_only_missing_items() {
+        let (_db, store) = make_env().await;
+        let with_item = Uuid::new_v4();
+        create_receive_session(&store, with_item, completed_state()).await;
+        store
+            .ensure_inbox_item_for_completed_receive_session(with_item)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let without_item = Uuid::new_v4();
+        create_receive_session(&store, without_item, completed_state()).await;
+        // 未完成接收不参与补建。
+        let unfinished = Uuid::new_v4();
+        create_receive_session(&store, unfinished, TransferState::offered(0)).await;
+
+        let repaired = store
+            .repair_missing_inbox_items_for_completed_receives()
+            .await
+            .expect("repair");
+        assert_eq!(repaired.len(), 1);
+        assert_eq!(repaired[0].item.transfer_session_id, Some(without_item));
+        assert_eq!(store.list_inbox_items(false).await.unwrap().len(), 2);
     }
 }

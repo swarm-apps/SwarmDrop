@@ -18,13 +18,21 @@ pub struct Native;
 
 impl Preset for Native {
     fn apply(self, builder: Builder) -> Builder {
+        let listen = vec![
+            "/ip4/0.0.0.0/tcp/0".parse().expect("valid multiaddr"),
+            "/ip4/0.0.0.0/udp/0/quic-v1"
+                .parse()
+                .expect("valid multiaddr"),
+            // 浏览器到原生端的局域网直连入口。certhash 由持久化 PEM 在 transport
+            // 层补入最终监听地址，邀请会随 dialable 地址集自然携带它。
+            "/ip4/0.0.0.0/udp/0/webrtc-direct"
+                .parse()
+                .expect("valid multiaddr"),
+        ];
+        // 浏览器拨不了裸 TCP/QUIC，webrtc-direct 是它够到本机的唯一路径——certhash
+        // 免域名免 CA，私网公网同一条。（WebSocket 曾兼任此职，2026-07-28 已移除。）
         builder
-            .listen(vec![
-                "/ip4/0.0.0.0/tcp/0".parse().expect("valid multiaddr"),
-                "/ip4/0.0.0.0/udp/0/quic-v1"
-                    .parse()
-                    .expect("valid multiaddr"),
-            ])
+            .listen(listen)
             .mdns(true)
             .autonat(true)
             .dcutr(true)
@@ -34,11 +42,17 @@ impl Preset for Native {
 
 /// 浏览器端默认：不 listen 本地 socket（做不到），relay 客户端开——
 /// 被动接收连接靠 circuit relay listen（`ensure_relay_reservation` 触发）。
+///
+/// connect 超时下调到 15s（默认 30s 对浏览器交互太长）——这是「任何 JS
+/// Promise 在有限时间内 settle」不变量的内核兜底，不依赖调用方传 AbortSignal。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Browser;
 
 impl Preset for Browser {
     fn apply(self, builder: Builder) -> Builder {
-        builder.listen(Vec::new()).relay_client(true)
+        builder
+            .listen(Vec::new())
+            .relay_client(true)
+            .connect_timeout(std::time::Duration::from_secs(15))
     }
 }

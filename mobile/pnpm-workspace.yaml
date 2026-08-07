@@ -32,5 +32,12 @@ allowBuilds:
 overrides:
   lightningcss: 1.30.1
 
+# expo-file-system 56.0.8 的 SAF FileHandle 只保留了 FileChannel，未持有创建它的
+# ParcelFileDescriptor；PFD 被 GC 回收后会连带关闭底层 fd，表现为大文件写入到随机位置
+# 后报 Bad file descriptor。PFD 生命周期修复来自上游 expo/expo#47176；补丁还允许以
+# "rw" 打开 SAF 的可定位写通道，避免续传时 "w" 再次截断已有文件。升级时需逐项核对后删除。
+patchedDependencies:
+  expo-file-system@56.0.8: patches/expo-file-system@56.0.8.patch
+
 # ubrn 的 dunce patch 已随 0.31.0-3（PR #367）合入上游，patch 删除。
 # 仍需的 Node-24 exports 兼容修复见 .pnpmfile.cjs（readPackage 给 ubrn 补 ./package.json 导出）。

@@ -11,59 +11,18 @@ import { dynamicActivate, defaultLocale, type LocaleKey } from "@/lib/i18n";
 import { commands } from "@/lib/bindings";
 import {
   emptyDeviceOrganization,
+  normalizeDeviceOrganization,
   type DeviceOrganization,
-} from "@/lib/device-organization";
-import type {
-  FileBrowserScope,
-  FileBrowserView,
-} from "@/components/file-browser";
+  DEFAULT_FILE_BROWSER_VIEWS,
+  normalizeFileBrowserViews,
+  type FileBrowserScope,
+  type FileBrowserView,
+} from "@swarmdrop/shared-view";
 
 export type DiscoveryMode = "auto" | "lanOnly";
 
 /** 点窗口 ✕ 时的行为：每次询问 / 最小化到托盘 / 退出应用。 */
 export type CloseBehavior = "ask" | "tray" | "quit";
-
-export function normalizeDeviceOrganization(value: unknown): DeviceOrganization {
-  if (!value || typeof value !== "object") {
-    return { aliases: {}, groups: [], groupDeviceIds: {} };
-  }
-
-  const source = value as Record<string, unknown>;
-  const groups = Array.isArray(source.groups)
-    ? source.groups.flatMap((group, sortOrder) => {
-      if (!group || typeof group !== "object") return [];
-      const candidate = group as Record<string, unknown>;
-      if (typeof candidate.id !== "string" || typeof candidate.name !== "string") {
-        return [];
-      }
-      return [{
-        id: candidate.id,
-        name: candidate.name,
-        sortOrder: typeof candidate.sortOrder === "number"
-          ? candidate.sortOrder
-          : sortOrder,
-      }];
-    })
-    : [];
-  const groupIds = new Set(groups.map((group) => group.id));
-  const aliases = Object.fromEntries(
-    Object.entries(source.aliases ?? {}).filter(
-      ([, alias]) => typeof alias === "string" && alias.trim(),
-    ),
-  ) as Record<string, string>;
-  const groupDeviceIds = Object.fromEntries(
-    Object.entries(source.groupDeviceIds ?? {})
-      .filter(([groupId]) => groupIds.has(groupId))
-      .map(([groupId, peerIds]) => [
-        groupId,
-        Array.isArray(peerIds)
-          ? peerIds.filter((peerId): peerId is string => typeof peerId === "string")
-          : [],
-      ]),
-  ) as Record<string, string[]>;
-
-  return { aliases, groups, groupDeviceIds };
-}
 
 interface PreferencesState {
   /** 语言 */
@@ -173,11 +132,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       transfer: {
         savePath: "",
       },
-      fileBrowserViews: {
-        send: "tree",
-        inbox: "grid",
-        transfer: "tree",
-      },
+      fileBrowserViews: { ...DEFAULT_FILE_BROWSER_VIEWS },
       mcp: {
         port: 19527,
         autoStart: false,
@@ -390,13 +345,18 @@ export const usePreferencesStore = create<PreferencesState>()(
         };
       },
       merge: (persistedState, currentState) => {
-        const persisted = persistedState as Partial<PreferencesState>;
+        // 首次启动时 Store 文件可能存在但尚无此 key，此时 persistedState 为 undefined。
+        // 必须按空对象处理，否则读取 deviceOrganization 会让 hydration 中断，首屏永久空白。
+        const persisted = (persistedState ?? {}) as Partial<PreferencesState>;
         return {
           ...currentState,
           ...persisted,
           deviceOrganization: normalizeDeviceOrganization(
             persisted.deviceOrganization,
           ),
+          // 与 deviceOrganization 同理：磁盘上的值可能缺 scope 或被手改坏，
+          // 归一规则在共享包里，三端同一份（默认值也是）。
+          fileBrowserViews: normalizeFileBrowserViews(persisted.fileBrowserViews),
         };
       },
       partialize: (state) => ({

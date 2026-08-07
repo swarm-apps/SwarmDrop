@@ -24,6 +24,20 @@ pub struct NetworkStatusChanged(pub NetworkStatus);
 #[serde(transparent)]
 pub struct DevicesChanged(pub Vec<Device>);
 
+// === 本机设备 ===
+
+/// 本机设备名已更新（落盘 + identify 广播都已完成）。事件名 `"device-renamed"`。
+///
+/// 前端更新设备名镜像的**唯一**入口：改名可能来自另一个窗口或 MCP 工具，让发起改名的
+/// 那个界面自己刷新覆盖不到这些来源。`displayName` 已含「空则回退 hostname」的语义
+/// （core 的 `OsInfo::display_name()`），前端不必再写一遍那个回退。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceRenamed {
+    pub name: Option<String>,
+    pub display_name: String,
+}
+
 // === 配对 ===
 
 /// 配对请求 payload：原 core 事件含 PeerId（非 specta-friendly），在此 host 层
@@ -44,6 +58,14 @@ pub struct PairingRequestReceived(pub PairingRequestPayload);
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 #[serde(transparent)]
 pub struct PairedDeviceAdded(pub PairedDeviceInfo);
+
+/// 已解除配对的设备 PeerId（base58）。事件名 `"paired-device-removed"`。
+///
+/// 它是前端移除该设备的**唯一**入口：命令自己不再顺手改本地状态，否则同一条记录
+/// 会被两条路径各删一次，谁先谁后取决于时序。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct PairedDeviceRemoved(pub String);
 
 // === 传输 ===
 
@@ -96,7 +118,7 @@ pub struct TransferProjectionUpdate(pub TransferProjection);
 #[serde(transparent)]
 pub struct ReceivingPausedChanged(pub bool);
 
-// === 外部文件打开（Open With → share-target 反向发送）===
+// === 外部入口（Open With → share-target 反向发送；深链 → 配对）===
 
 /// 外部「用 SwarmDrop 打开」文件/文件夹后归一化的本地绝对路径列表。
 /// 事件名 `"external-file-open"`，前端根处理器据此扫描并跳转选设备屏。
@@ -104,6 +126,17 @@ pub struct ReceivingPausedChanged(pub bool);
 #[serde(rename_all = "camelCase")]
 pub struct ExternalFileOpen {
     pub paths: Vec<String>,
+}
+
+/// 深链（`swarmdrop://…`）送达的配对邀请链接原文。
+///
+/// 事件名 `"external-pair-invite"`。**未解码未验签** —— 宿主层只递文本，前端照常走
+/// 「解码验签 → 确认卡 → 用户确认」的安全闸，与扫码/粘贴同一条路
+/// （openspec: pair-deep-link）。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalPairInvite {
+    pub invite: String,
 }
 
 // === 托盘信号（Rust 托盘 → 前端执行依赖前端状态的动作）===

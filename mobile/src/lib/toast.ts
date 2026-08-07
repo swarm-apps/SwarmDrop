@@ -1,7 +1,7 @@
 import { toast as burntToast } from "burnt";
 import * as Haptics from "expo-haptics";
 import { Platform } from "react-native";
-import { errorMessage } from "./utils";
+import { getErrorMessage } from "./errors";
 
 const DEFAULT_DURATION_S = 4;
 const isIOS = Platform.OS === "ios";
@@ -66,10 +66,14 @@ export const toast = {
     show("none", message, opts?.description, opts?.duration);
   },
 
-  /** Pass `err` to expand `errorMessage(err)` into the description. */
+  /** Pass `err` to expand `getErrorMessage(err)` into the description. */
   error(message: string, err?: unknown) {
     errorHaptic();
-    show("error", message, err === undefined ? undefined : errorMessage(err));
+    show(
+      "error",
+      message,
+      err === undefined ? undefined : getErrorMessage(err),
+    );
   },
 
   /**

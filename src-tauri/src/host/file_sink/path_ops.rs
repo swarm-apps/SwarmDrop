@@ -65,16 +65,49 @@ pub(crate) async fn open_or_create_part_file(
     ))
 }
 
-/// 解析最终路径和 .part 路径，并确保父目录存在
+/// 把对端声明的相对路径落到保存目录下（含建父目录），并**实地确认它没有跑出去**。
+///
+/// # 两道防线，缺一不可
+///
+/// 1. **词法**：`relative_path` 在领域层就过了
+///    [`is_safe_relative_path`](swarmdrop_core::transfer_protocol::is_safe_relative_path)，
+///    绝对路径、盘符、`..` 记号进不到这里。
+/// 2. **实地**（本函数）：词法检查**看不见文件系统**。保存目录下若存在一个指向外部的
+///    符号链接（`~/Downloads/SwarmDrop/sub` → `/etc`），一条完全合法的 `sub/x.txt`
+///    照样写到目录外——路径字符串里没有任何可疑之处。
+///
+/// 所以建完目录后 `canonicalize` 一次父目录，断言它仍在 `save_dir` 之内。一次 syscall，
+/// 换掉「词法检查等于封死逃逸」这个不成立的假设。
+///
+/// **`canonicalize` 必须在 `create_dir_all` 之后**：它要求路径已存在。
+///
+/// 不管的一类：`create_dir_all` 与 `File::create` 之间的 TOCTOU（本机攻击者在那一瞬把目录
+/// 换成符号链接）。防它需要 `openat2(RESOLVE_BENEATH)` 一类的平台原语，而本仓的威胁模型是
+/// **远端已配对对端**——能在本机抢时序的攻击者早已有更直接的手段。
 async fn resolve_paths(save_dir: &Path, relative_path: &str) -> AppResult<(PathBuf, PathBuf)> {
     let final_path = save_dir.join(relative_path);
     let part_path = compute_part_path(&final_path);
 
     if let Some(parent) = final_path.parent() {
         tokio::fs::create_dir_all(parent).await?;
+        ensure_within(save_dir, parent).await?;
     }
 
     Ok((part_path, final_path))
+}
+
+/// 断言 `candidate` 解析后仍在 `root` 之内（两侧都 `canonicalize`，因此穿透符号链接）。
+async fn ensure_within(root: &Path, candidate: &Path) -> AppResult<()> {
+    let real_root = tokio::fs::canonicalize(root).await?;
+    let real_candidate = tokio::fs::canonicalize(candidate).await?;
+    if real_candidate.starts_with(&real_root) {
+        return Ok(());
+    }
+    Err(AppError::Transfer(format!(
+        "拒绝写入保存目录之外：{} 解析到 {}",
+        candidate.display(),
+        real_candidate.display()
+    )))
 }
 
 /// 创建新的 .part 文件并预分配大小
@@ -291,6 +324,52 @@ mod tests {
         let _ = tokio::fs::remove_file(&part.part_path).await;
         assert!(!part.part_path.exists());
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 保存目录下存在指向外部的符号链接时，一条**字面上完全合法**的相对路径不得写出去。
+    ///
+    /// 这是词法校验（`is_safe_relative_path`）天生看不见的一类：`"link/evil.conf"` 里没有
+    /// 任何 `..`、没有绝对路径、没有盘符——逃逸完全发生在文件系统层。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn refuses_to_write_through_a_symlink_out_of_save_dir() {
+        let base = std::env::temp_dir().join("swarmdrop_test_symlink_escape");
+        let _ = std::fs::remove_dir_all(&base);
+        let save_dir = base.join("save");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&save_dir).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, save_dir.join("link")).unwrap();
+
+        let err = create_part_file(&save_dir, "link/evil.conf", 8)
+            .await
+            .expect_err("经符号链接写出保存目录必须被拒");
+        assert!(
+            err.to_string().contains("保存目录之外"),
+            "错误要说清是包含性检查拦下的，而不是一句泛泛的 IO 失败：{err}"
+        );
+        assert!(
+            !outside.join("evil.conf").exists(),
+            "目标文件不得被创建——拦截必须发生在建文件之前"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 与上一条对照：保存目录内的**普通**子目录照常放行，别把正常的目录传输一起拦了。
+    #[tokio::test]
+    async fn allows_ordinary_nested_paths() {
+        let dir = std::env::temp_dir().join("swarmdrop_test_nested_ok");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let part = create_part_file(&dir, "photos/2026/a.jpg", 4)
+            .await
+            .expect("保存目录内的嵌套路径应当放行");
+        assert!(part.part_path.starts_with(&dir));
+
+        part.close_write_handle();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

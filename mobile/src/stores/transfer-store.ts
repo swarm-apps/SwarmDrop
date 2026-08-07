@@ -14,7 +14,7 @@ import {
   isProjectionActive,
   isProjectionTerminal,
 } from "@/core/transfer-types";
-import { errorMessage } from "@/lib/utils";
+import { getErrorMessage } from "@/lib/errors";
 
 interface TransferState {
   /** 入站 offer 队列（接收方等用户响应；首条会被 transfer-offer-host 弹窗显示） */
@@ -48,6 +48,7 @@ interface TransferActions {
 
   clearAllHistory(): Promise<void>;
   deleteHistoryItem(sessionId: string): Promise<void>;
+  getSourcePaths(sessionId: string): Promise<string[]>;
   resumeHistoryItem(sessionId: string): Promise<string>;
 
   setError(message: string | null): void;
@@ -123,7 +124,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       } catch (err) {
         console.warn(
           "[transfer-store] loadProjection failed:",
-          errorMessage(err),
+          getErrorMessage(err),
         );
       }
     },
@@ -151,7 +152,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       } catch (err) {
         console.warn(
           "[transfer-store] loadProjections failed:",
-          errorMessage(err),
+          getErrorMessage(err),
         );
         set({ lastError: t`加载传输活动失败` });
       }
@@ -190,7 +191,7 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       try {
         await getMobileCore().clearTransferActivity();
       } catch (err) {
-        set({ lastError: errorMessage(err) });
+        set({ lastError: getErrorMessage(err) });
       } finally {
         await get().loadProjections();
       }
@@ -207,7 +208,18 @@ export const useTransferStore = create<TransferState & TransferActions>()(
           return { projections, progressBySession };
         });
       } catch (err) {
-        set({ lastError: errorMessage(err) });
+        set({ lastError: getErrorMessage(err) });
+      }
+    },
+
+    // 「重新发送」重建载荷用的源文件路径。取不到（接收会话 / 没记源路径的旧会话 /
+    // 节点未启动）一律返回空数组，让调用方走「重新挑文件」的回退分支而不是弹错。
+    async getSourcePaths(sessionId) {
+      try {
+        return await getMobileCore().getTransferSourcePaths(sessionId);
+      } catch (err) {
+        set({ lastError: getErrorMessage(err) });
+        return [];
       }
     },
 

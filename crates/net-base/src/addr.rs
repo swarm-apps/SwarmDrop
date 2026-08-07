@@ -10,7 +10,7 @@ use std::str::FromStr;
 use multiaddr::{Multiaddr, Protocol};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::NodeId;
+use crate::{NodeId, TransportKind};
 
 /// 地址字符串解析失败。
 #[derive(Debug, thiserror::Error)]
@@ -55,11 +55,35 @@ impl Addr {
         })
     }
 
-    /// 公网可路由地址（含 DNS 名）：排除 loopback/unspecified/私网/ULA/link-local。
+    /// 是否位于运营商共享地址空间（100.64.0.0/10）。Tailscale 等 mesh VPN 常用此段，
+    /// 它不是公网，即使标准库的 `is_private` 不会把它归为 RFC1918 私网。
+    pub fn is_shared_address_space(&self) -> bool {
+        self.0.iter().any(|p| match p {
+            Protocol::Ip4(ip) => is_v4_shared(&ip),
+            _ => false,
+        })
+    }
+
+    /// 是否为 RFC 2544 基准测试网段（198.18.0.0/15）。它不是互联网可路由地址，
+    /// 但某些虚拟网络会显式使用它，邀请筛选应把它作为受限候选而非直接丢弃。
+    pub fn is_benchmarking_address(&self) -> bool {
+        self.0.iter().any(|p| match p {
+            Protocol::Ip4(ip) => is_v4_benchmarking(&ip),
+            _ => false,
+        })
+    }
+
+    /// 公网可路由地址（含 DNS 名）：排除 loopback/unspecified/私网/ULA/link-local、
+    /// 共享地址空间与 RFC 2544 基准测试网段。
     pub fn is_public_routable(&self) -> bool {
         self.0.iter().any(|p| match p {
             Protocol::Ip4(ip) => {
-                !ip.is_private() && !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified()
+                !ip.is_private()
+                    && !ip.is_loopback()
+                    && !ip.is_link_local()
+                    && !ip.is_unspecified()
+                    && !is_v4_shared(&ip)
+                    && !is_v4_benchmarking(&ip)
             }
             Protocol::Ip6(ip) => {
                 !ip.is_loopback()
@@ -83,6 +107,67 @@ impl Addr {
     /// 是否为中继地址（含 p2p-circuit 段）。
     pub fn is_circuit(&self) -> bool {
         self.circuit_hops() > 0
+    }
+
+    /// 该地址是否包含 QUIC v1 传输段。
+    pub fn is_quic_v1(&self) -> bool {
+        self.0.iter().any(|p| p == Protocol::QuicV1)
+    }
+
+    /// 该地址是否包含 TCP 传输段。
+    pub fn is_tcp(&self) -> bool {
+        self.0.iter().any(|p| matches!(p, Protocol::Tcp(_)))
+    }
+
+    /// 该地址是否包含浏览器可用的 WebRTC 传输段（直连或 relay circuit）。
+    pub fn is_webrtc(&self) -> bool {
+        self.0
+            .iter()
+            .any(|p| matches!(p, Protocol::WebRTC | Protocol::WebRTCDirect))
+    }
+
+    /// 承载这条地址的传输协议。
+    ///
+    /// **WebRTC 两个变体必须先判**：打洞地址天生带 circuit 段（信令确实经 relay），
+    /// 它的 `/webrtc` 在整条地址的**后半段**，而前半段是到 relay 的 `/tcp` 或
+    /// `/quic-v1`——按协议栈顺序找会把打洞连接报成 TCP。同一个陷阱在
+    /// `classify_path` 里也有（那里的解法是 `is_hole_punched` 排在 `relayed` 之前）。
+    ///
+    /// 纯 circuit 地址（无 `/webrtc`）返回的正是**承载中转字节的那条连接**的传输
+    /// ——本端 ↔ relay 之间的 TCP/QUIC，这是排障要看的东西。
+    ///
+    /// 返回 `None` 的一种真实情况：入站中继连接的 `send_back_addr` 只有
+    /// `/p2p/<src>` 一段，libp2p 就是这么填的，地址里没有任何传输信息可读。
+    /// 呈现层据此显示「未知」，不要编一个默认值。
+    pub fn transport(&self) -> Option<TransportKind> {
+        if self.0.iter().any(|p| p == Protocol::WebRTC) {
+            return Some(TransportKind::Webrtc);
+        }
+        if self.0.iter().any(|p| p == Protocol::WebRTCDirect) {
+            return Some(TransportKind::WebrtcDirect);
+        }
+        self.0.iter().find_map(|p| match p {
+            Protocol::QuicV1 => Some(TransportKind::Quic),
+            Protocol::Tcp(_) => Some(TransportKind::Tcp),
+            _ => None,
+        })
+    }
+
+    /// 中转身份：circuit 地址里 `/p2p-circuit` **之前**的那个 `/p2p/<id>` 段。
+    ///
+    /// 与 [`p2p_node_id`](Self::p2p_node_id) 互补——那个取末位（目标身份），
+    /// 这个取中转身份。非 circuit 地址返回 `None`。
+    pub fn relay_node_id(&self) -> Option<NodeId> {
+        let mut last = None;
+        for p in self.0.iter() {
+            match p {
+                Protocol::P2p(peer_id) => last = Some(NodeId::from_peer_id(peer_id)),
+                // circuit 段之后的 P2p 是目标，不是中继——就此打住
+                Protocol::P2pCircuit => return last,
+                _ => {}
+            }
+        }
+        None
     }
 
     /// 提取地址内嵌的节点身份（`/p2p/<id>` 段）。
@@ -198,6 +283,16 @@ fn is_v6_link_local(ip: &std::net::Ipv6Addr) -> bool {
     (ip.segments()[0] & 0xffc0) == 0xfe80
 }
 
+fn is_v4_shared(ip: &std::net::Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 100 && (octets[1] & 0b1100_0000) == 0b0100_0000
+}
+
+fn is_v4_benchmarking(ip: &std::net::Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 198 && (octets[1] & 0b1111_1110) == 18
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,7 +318,17 @@ mod tests {
         // 公网
         assert!(addr("/ip4/203.0.113.7/tcp/1").is_public_routable());
         assert!(addr("/dns4/relay.example.com/tcp/1").is_public_routable());
+        assert!(addr("/ip4/100.100.200.77/tcp/1").is_shared_address_space());
+        assert!(
+            !addr("/ip4/100.100.200.77/tcp/1").is_public_routable(),
+            "Tailscale 默认共享地址空间不能当公网"
+        );
+        assert!(addr("/ip4/198.18.0.1/tcp/1").is_benchmarking_address());
+        assert!(!addr("/ip4/198.18.0.1/tcp/1").is_public_routable());
         assert!(!addr("/ip4/192.168.1.2/tcp/1").is_public_routable());
+        assert!(addr("/ip4/192.168.1.2/tcp/1").is_tcp());
+        assert!(addr("/ip4/192.168.1.2/udp/1/quic-v1").is_quic_v1());
+        assert!(addr("/ip4/192.168.1.2/udp/1/webrtc-direct").is_webrtc());
         assert!(
             !addr("/ip6/fe80::1/tcp/1").is_public_routable(),
             "IPv6 link-local 不是公网"
@@ -269,6 +374,68 @@ mod tests {
 
         // 无 /p2p/ 段：None
         assert!(addr("/ip4/1.2.3.4/tcp/1").p2p_node_id().is_none());
+    }
+
+    #[test]
+    fn transport_reads_the_hop_that_actually_carries_bytes() {
+        const RELAY: &str = "12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp";
+        const TARGET: &str = "12D3KooWQYhTNQdmr3ArTeUHRYzFg94BKyTkoWBDWez9kSCVe2Xo";
+
+        assert_eq!(
+            addr("/ip4/192.168.1.2/tcp/4001").transport(),
+            Some(TransportKind::Tcp)
+        );
+        assert_eq!(
+            addr("/ip4/192.168.1.2/udp/4001/quic-v1").transport(),
+            Some(TransportKind::Quic)
+        );
+        assert_eq!(
+            addr("/ip4/47.115.172.218/udp/4003/webrtc-direct").transport(),
+            Some(TransportKind::WebrtcDirect)
+        );
+
+        // 纯中继：读到的是本端 ↔ relay 那条连接的传输
+        assert_eq!(
+            addr(&format!(
+                "/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit/p2p/{TARGET}"
+            ))
+            .transport(),
+            Some(TransportKind::Tcp)
+        );
+
+        // 打洞：/webrtc 在 circuit 段之后，前半段的 /tcp 是到 relay 的信令通道。
+        // 按协议栈顺序找会报成 Tcp——数据面明明一个字节不过中继。
+        assert_eq!(
+            addr(&format!(
+                "/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit/webrtc/p2p/{TARGET}"
+            ))
+            .transport(),
+            Some(TransportKind::Webrtc),
+            "打洞地址必须报 webrtc，不能被 circuit 前半段的 tcp 盖掉"
+        );
+
+        // 入站中继连接的 send_back_addr：libp2p 只填 /p2p/<src>，无传输信息可读
+        assert_eq!(addr(&format!("/p2p/{TARGET}")).transport(), None);
+    }
+
+    #[test]
+    fn relay_node_id_takes_the_segment_before_circuit() {
+        const RELAY: &str = "12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp";
+        const TARGET: &str = "12D3KooWQYhTNQdmr3ArTeUHRYzFg94BKyTkoWBDWez9kSCVe2Xo";
+
+        let circuit = addr(&format!(
+            "/ip4/1.2.3.4/tcp/1/p2p/{RELAY}/p2p-circuit/p2p/{TARGET}"
+        ));
+        assert_eq!(circuit.relay_node_id().unwrap().to_string(), RELAY);
+        assert_eq!(
+            circuit.p2p_node_id().unwrap().to_string(),
+            TARGET,
+            "两个方法必须取到不同的段，否则 UI 会把中继当成对端"
+        );
+
+        // 直连地址没有中转身份，末位的 /p2p/ 是对端自己
+        let direct = addr(&format!("/ip4/1.2.3.4/tcp/1/p2p/{TARGET}"));
+        assert!(direct.relay_node_id().is_none());
     }
 
     #[test]

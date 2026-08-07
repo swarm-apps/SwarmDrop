@@ -28,6 +28,7 @@ export type ProjectionStatus =
   | "completed"
   | "cancelled"
   | "rejected"
+  | "expired"
   | "failed";
 
 export type ProjectionGroup =
@@ -108,6 +109,9 @@ function terminalStatus(
       return "rejected";
     case MobileTerminalReason.FatalError:
       return "failed";
+    // 「没答复」自成一档：落到 default 的 "failed" 会把一次正常的超时说成故障。
+    case MobileTerminalReason.Expired:
+      return "expired";
     default:
       return "failed";
   }

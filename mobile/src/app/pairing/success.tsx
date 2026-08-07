@@ -21,8 +21,12 @@ export default function PairingSuccess() {
     os: string;
     platform: string;
     arch: string;
+    /** `"0"` = 配对成功但记录没落盘（见下方 caveat）。route param 只能是字符串。 */
+    persisted?: string;
   }>();
   const displayName = peerDisplayName(params.name, params.hostname);
+  // 缺省视为已落盘：老的导航调用点没带这个 param 时不该凭空吓用户一跳。
+  const notPersisted = params.persisted === "0";
 
   const finish = () => {
     router.dismissAll();
@@ -44,6 +48,19 @@ export default function PairingSuccess() {
         <Text className="mb-3 text-center text-sm text-muted-foreground">
           <Trans>已与 {displayName} 建立安全连接</Trans>
         </Text>
+
+        {/*
+          「一半成功」必须出现在这一屏上。此前只在跳转**之前**弹一条 toast，而转场动画会
+          盖掉它的前半段、这一屏又通篇是绿色对勾 + 「配对成功」——用户带走的结论是「成了」，
+          重启后设备消失时无从解释。
+        */}
+        {notPersisted && (
+          <View className="mb-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3">
+            <Text className="text-center text-xs text-warning-ink">
+              <Trans>但这条记录没能保存，重启应用后需要重新配对。</Trans>
+            </Text>
+          </View>
+        )}
 
         <PeerSummaryCard
           name={params.name}

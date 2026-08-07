@@ -5,6 +5,8 @@ description: |
   (1) 编写或修改任何 src/ / src-tauri/src/ / crates/core/src/ 下的代码
   (2) 添加新依赖或修改配置文件（Cargo.toml / package.json / tauri.conf.json）
   (3) 完成一个 feature 或修复一个 bug
+  覆盖全流程：开发前加载知识库 → 开发中遵循最佳实践 → 开发后「机器门禁 → /simplify → /code-review」
+  三道关 → 收尾更新知识库。任务完成不等于代码通过，三道关缺一不算完。
   触发关键词：组件开发、bug 修复、重构、新功能、依赖升级、配置变更、Tauri command、P2P、配对、传输
 ---
 
@@ -18,41 +20,133 @@ description: |
 
 | 主题文件 | 适用场景 |
 |---|---|
-| [theme-and-styling.md](../../../dev-notes/knowledge/theme-and-styling.md) | shadcn/ui 用法、Tailwind v4 token、主题切换、窗口装饰（macOS Overlay / Win 自定义标题栏）、Aurora 背景等 UI 层约束 |
-| [rust-backend.md](../../../dev-notes/knowledge/rust-backend.md) | Tauri command 约定、`crates/core` ↔ `src-tauri` 边界、SeaORM/SQLite、P2P/async、tracing、specta + chrono 类型映射 |
-| [toolchain.md](../../../dev-notes/knowledge/toolchain.md) | pnpm/Vite/Tauri CLI、Biome、Cargo workspace、Lingui 提取、git submodule（libs/）、CI、版本号同步 |
-| [iroh-migration.md](../../../dev-notes/knowledge/iroh-migration.md) | libp2p → iroh 迁移评估结论（**已决策暂不迁移**，保留为调研记录）：能力差、被推翻的旧认知、relay/配对取舍、生态选型否决清单。碰 P2P 选型、n0-* 依赖或有人提「迁 iroh」时先读。**n0-future 替换的落地细节以本文件为准** |
-| [libp2p-wasm.md](../../../dev-notes/knowledge/libp2p-wasm.md) | Web 端（wasm）可行性（**未决策**）：**局域网路线**（绕开跨网全部难点，最可行起点）、**webrtc-direct 与用户自建 relay**（certhash 免域名，libp2p vs iroh 的真实差距所在）、浏览器公网零可达入口、mixed content / Chrome LNA 平台门、rust-wasm 与 js-libp2p 取舍、tokio → n0-future 用量盘点、getrandom 双版本等 wasm 编译的坑。碰 Web 端、wasm、LAN helper、自建中继、`libs/core` transport 层或 tokio 替换时先读 |
-| [storage-abstraction.md](../../../dev-notes/knowledge/storage-abstraction.md) | 把 sea-orm 从 `crates/core` 摘出去（**第 0 步已落地**——entity 的 sea-orm 已 feature 解绑；trait 层未做）：切割线在 `DatabaseConnection` 不在 `entity`、SendWrapper 免改 trait 签名、31 个 pub fn / 3 个注入点 / 1 处事务的耦合面量化。`TerminalReason` 的 wire 地雷已随 v2 拆除。碰存储 trait、`database/ops.rs`、entity 依赖或 Web 端持久化时先读 |
-| [net-kernel.md](../../../dev-notes/knowledge/net-kernel.md) | 网络内核 `swarmdrop-net`（2026-07 重构产物，替代 libs/ 的 swarm-p2p-core）：架构速览（Endpoint/actor/双轨事件/扩展点四件套）、**libp2p git master pin 93c5059 的 6 条校准坑**（relay HOP status 默认不广告、NoAddressesInReservation、add_peer_address 非地址簿、DialPeerConditionFalse、circuit listen 时序、kad Instant 分叉）、wasm 工程约定（check-wasm.sh / 业务层零 cfg 硬约束）、wire v2 契约点（DhtKey 域分离 / BlockData proof 扩展位 / RPC 帧上限）。**碰 crates/net、crates/net-base、协议注册、relay、DHT、升级 libp2p rev 时必读** |
+| [theme-and-styling.md](../../../dev-notes/knowledge/theme-and-styling.md) | shadcn/ui 用法、Tailwind v4 token、主题切换、窗口装饰（macOS Overlay / Win 自定义标题栏）、Aurora 背景、**Zustand selector 派生数组陷阱**等 UI 层约束 |
+| [rust-backend.md](../../../dev-notes/knowledge/rust-backend.md) | Tauri command 约定、`crates/core` ↔ `src-tauri` 边界、SeaORM/SQLite、async、tracing、specta + chrono 类型映射、外部打开（share-target）反向流 |
+| [toolchain.md](../../../dev-notes/knowledge/toolchain.md) | pnpm/Vite/Tauri CLI、Cargo workspace 与 profile、Lingui 提取与实际 locale、CI、版本号三处同步 |
+| [net-kernel.md](../../../dev-notes/knowledge/net-kernel.md) | 网络内核 `swarmdrop-net`（2026-07 重构产物，取代已删除的 `libs/` swarm-p2p-core）：架构速览（Endpoint/actor/双轨事件/扩展点四件套）、**libp2p git pin 的 6 条校准坑**（relay HOP status 默认不广告、NoAddressesInReservation、add_peer_address 非地址簿、DialPeerConditionFalse、circuit listen 时序、kad Instant 分叉）、wasm 工程约定（check-wasm.sh / 业务层零 cfg 硬约束）、wire v2 契约点（DhtKey 域分离 / BlockData proof 扩展位 / RPC 帧上限）、已知负债。**碰 crates/net、crates/net-base、协议注册、relay、DHT、升级 libp2p rev 时必读** |
+| [libp2p-wasm.md](../../../dev-notes/knowledge/libp2p-wasm.md) | Web 端（wasm）可行性调研（2026-07）。**结论已落地**——`crates/web` + `docs/app/app` 就是它的产物。仍有效的部分：webrtc-direct 与自建 relay、浏览器公网零可达入口、mixed content / Chrome LNA 平台门、tokio → n0-future、getrandom 双版本等 wasm 编译的坑。碰 Web 端、wasm、自建中继、transport 层时先读 |
+| [web-app-frontend.md](../../../dev-notes/knowledge/web-app-frontend.md) | Web 应用区**表现层**（`docs/app/app` 的 React/Next 代码）：运行时单例只能挂 layout（以及怎么验证「切页没重启节点」）、静态导出三条硬限制（没有 `redirect()`、运行时 ID 不能进路由段、`useSearchParams()` 要 Suspense）、basePath 与 `next/link`、zustand store 的 selector 与 setState 约束、Next Dev Tools 浮标挡住底部导航这类手测坑。**改 `docs/app/app` 下任何 React 代码前必读** |
+| [storage-abstraction.md](../../../dev-notes/knowledge/storage-abstraction.md) | 把 sea-orm 从 `crates/core` 摘出去。**已落地**——core 零 sea-orm，SQL 实现独立成 `crates/storage-sql`，端口 trait 在 `crates/transfer/src/store.rs`。文件保留调研过程：切割线在 `DatabaseConnection` 不在 `entity`、SendWrapper 免改 trait 签名、耦合面量化。碰存储端口、entity 依赖或 Web 端持久化时先读 |
+| [iroh-migration.md](../../../dev-notes/knowledge/iroh-migration.md) | libp2p → iroh 迁移评估（2026-07）。**已决策：不迁移**——但 iroh 的 API 形态被 `crates/net` 借鉴（Endpoint 门面 + 隐藏事件循环）。能力差、被推翻的旧认知、生态选型否决清单。碰 P2P 选型、n0-* 依赖或有人提「迁 iroh」时先读。**n0-future 替换的落地细节以本文件为准** |
+| [demo-recording.md](../../../dev-notes/knowledge/demo-recording.md) · [file-browser.md](../../../dev-notes/knowledge/file-browser.md) | 演示录制流程 / 文件浏览组件（按需） |
 
 **读取方式**：用 Read 工具读取对应文件，遵循其中记录的最佳实践和注意事项。
 
 如果不确定读哪个，先读 `dev-notes/knowledge/` 目录列表按文件名判断。
+
+> **注意时效**：`libp2p-wasm.md` / `storage-abstraction.md` / `iroh-migration.md` 是**调研快照**，
+> 记录的是当时的判断与实测。其结论已分别落地或被否决（见上表标注），读时以「为什么这么选」
+> 为主，不要把里面的待办清单当作未完成工作。当前架构以 `CLAUDE.md` 为准。
 
 ### 2. 开发中：遵循最佳实践
 
 同时参考以下通用 skill（如果与当前任务相关，自动调用）：
 
 - `/tauri-v2` — Tauri v2 IPC、capabilities、配置（**桌面壳的所有改动都先查**）
+- `/tauri-specta` — IPC 类型与 typed events（**改跨 IPC 边界类型时必查**：`collect_commands!` /
+  `collect_events!` 在 `src-tauri/src/setup.rs`，bindings 自动导出）
 - `/sea-orm-2` — SeaORM 2.0 entity / migration / 嵌套 ActiveModel（数据库相关都查）
 - `/vercel-react-best-practices` — React 性能（re-render、bundle、waterfalls）
 - `/rust-best-practices` — Rust 通用规范（写新 Rust 代码或审查时）
 - `/rust-async-patterns` — Tokio、异步事件循环、取消/并发
 - `/frontend` — 项目内置：TanStack Router / Zustand / Lingui 用法
-- `/lingui-best-practices` — i18n（新增 `<Trans>` / `t``...```、提取 catalog）
-- `/tailwind-css-patterns` / `/tailwind-design-system` — Tailwind v4 utility 和 design token
-- `/uniffi-bindgen-rn` — `mobile/` 经 uniffi 共享 `crates/core` 的桥接约束（仅相关时）
+- `/uniffi-bindgen-react-native` — `mobile/` 经 uniffi 共享 `crates/*` 的桥接约束（仅相关时）
+- `/ui-ux-pro-max`、`/impeccable` — UI/视觉工作（先读 `PRODUCT.md` + `DESIGN.md`）
+- `/iroh` — 仅在评估 P2P 选型时参考；**本项目未使用 iroh**，网络栈是自研 `crates/net`
 
 **优先级**：项目知识库 > 项目级 skill（`.claude/skills/*`）> 通用 skill > Claude 自身知识。当项目知识库中有明确记录时，以项目知识库为准。
 
-### 3. 开发后：更新知识库
+### 3. 开发后：门禁 → 简化 → 审查
+
+**三步都不能省，顺序固定。** 机器门禁先保证「能编过」，`/simplify` 再收拾形态，
+`/code-review` 最后审最终代码。顺序反了等于拿中间态浪费一轮审查。
+
+#### 3.1 机器门禁
+
+**前端这几条没有 CI 兜底**（`.github/workflows/` 下只有 `rust.yml` 管 Rust，前端零 workflow），
+所以这份清单就是它们唯一的执行者 —— 漏跑没人会告诉你。
+
+```bash
+# 前端
+pnpm exec tsc --noEmit
+pnpm test                  # vitest。⚠️ 根 vitest.config.ts 显式 exclude 了 docs/**，
+                           #   Web 应用区的测试要单独跑（见下面 docs 那条）
+pnpm check:zustand-access  # selector 派生 + store API 访问检查（src/ 与 docs/app/app）
+pnpm check:clipboard       # 禁止绕过 src/lib/clipboard.ts 直接用 navigator.clipboard
+pnpm check:shared-view     # 共享包零平台依赖（import 纯度 + 无 DOM lib 的 tsc）
+pnpm check:landing         # 配对落地页体积（≤10KB gzip，含注释）+ 字典完整性
+pnpm i18n:extract          # 新增/修改翻译字符串后
+                           # ⚠️ 提取完要**补 en / zh-TW 译文**，否则那两个语言静默回落中文
+
+# Rust（在仓库根目录跑即可，workspace 会一并 check）
+cargo fmt --all
+cargo check --workspace --all-targets
+cargo test --workspace
+cargo clippy --workspace
+
+# wasm 双 target 门禁 —— 改 net / net-base / host / transfer / invite / core / web 后必跑
+./scripts/check-wasm.sh
+./scripts/check-wasm.sh --clippy
+
+# crates/web 的 wasm 测试 —— 改 crates/web 后必跑（上面两条只保证「编得过」）
+# 它整个 crate 是 cfg(wasm_browser)，进不了 cargo test --workspace，
+# 这是它那 20 条测试唯一的执行者
+./scripts/test-wasm.sh
+
+# 单 crate
+cargo check -p swarmdrop-core --features specta
+cargo check -p swarmdrop            # 桌面壳（package 名 swarmdrop，lib 名 swarmdrop_lib）
+```
+
+**约束**：
+
+1. 提交前 `cargo check --workspace` + `tsc --noEmit` 必须通过。
+2. 动了 wasm 侧 7 个 crate 中任何一个，`./scripts/check-wasm.sh` 也必须过——CI 会拦。
+3. `pnpm tauri dev` 启动时 specta 自动重新导出 `src/lib/bindings.ts`——改了 Rust 端 IPC 类型
+   **不要**手动改 bindings.ts，让它自动生成。
+4. `cargo clippy` 当前在 CI 里是 `continue-on-error`（存量 warning 基线未清），
+   所以**别指望 CI 帮你拦 clippy 问题**，新代码自己保证干净。
+
+#### 3.2 `/simplify` —— 质量清理
+
+复用、简化、效率、抽象层次（altitude）四个维度，发现即改。
+
+**它明确不找 bug。** 跑完 `/simplify` 不代表代码是对的——正确性由 3.3 负责，两者不可互相替代。
+
+#### 3.3 `/code-review` —— 正确性 · 架构 · 逻辑
+
+在 `/simplify` 之后跑，审的是最终形态。发现问题 → 修 → **重跑 3.1 的门禁**。
+
+改动较大或跨层（同时动 `crates/*` 与前端、或碰网络内核 / 协议 wire）时，按并行审查做：
+派多个 agent 各审一块（前端表现层 / Rust 业务域 / 分层边界与协议契约），主线汇总去重后定结论。
+单个 agent 一次扫全 diff 会漏掉跨层不一致。
+
+**项目专属自检清单**（通用 review 抓不到，逐条过）：
+
+| 维度 | 检查点 |
+|---|---|
+| 分层边界 | `crates/core` 零 sea-orm、`crates/transfer` **零 core 依赖**（它依赖 net + host + entity，不是「零 network」——那条断言 2026-08-05 已证伪并修正）、`crates/invite` 零 core 依赖；libp2p 类型在 `crates/net-base` 收口成 newtype，不向上穿透 |
+| wasm | 动了 net / net-base / host / transfer / invite / core / web → `check-wasm.sh` 必须过；**动了 `crates/web` 还要 `test-wasm.sh`**（编得过 ≠ 跑得过，见 toolchain.md）；业务层不写 `cfg(wasm_browser)` 分支（门控归 `crates/web`） |
+| 传输安全 | **不新增应用层加密**（保密归传输层 Noise/QUIC-TLS，且会与 bao-tree 逐块验签冲突）；数据面校验 `stream.remote() == session.peer` |
+| IPC | 新增/改动的命令与事件已注册进 `src-tauri/src/setup.rs` 的 `collect_commands!` / `collect_events!`；`bindings.ts` 没被手改 |
+| 命令薄壳 | `src-tauri/src/commands/` 只解析参数 + 取 State + 调 manager，业务逻辑不许留在壳里 |
+| 前端状态 | selector 不许派生新数组/对象（除非包 `useShallow`）；`check:zustand-access` 两端都扫。Web 应用区另有一条：「内容没变」要 `return s` 不是 `return {}`（zustand 判 `Object.is(partial, state)`） |
+| Web 应用区 | 运行时单例（节点 spawn / 事件消费 / 轮询）只挂 layout，不下放到 page；静态导出三限制：无 `redirect()`、运行时 ID 不进路由段、`useSearchParams()` 套 `<Suspense>`；内部导航走 `next/link` |
+| 文案 | 新增 UI 串走 Lingui（源 locale `zh`）并已 `pnpm i18n:extract`；托盘/通知等原生串走 rust-i18n |
+| 依赖 pin | 没有擅自动 libp2p / rtc / webrtc 三处 pin（升 rev 必须独立 PR + 全量测试 + wasm check）；`swarmdrop-integration-0.21` 不得 force-push；不得降回 `0.20.0-rc.*` |
+| 版本号 | 改版本时三处同步：`package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` |
+
+审查结论要落到「改了什么 / 为什么不改」，不要只报告发现。
+
+### 4. 收尾：更新知识库
+
+**3.3 里审出来的非显见问题，往往正是该记的知识**——趁上下文还热记下来。
 
 完成代码修改后，**检查是否产生了新的项目知识**：
 
 **需要记录的内容**：
 - 新引入的依赖及其正确用法
-- 发现的配置坑和 workaround（尤其是 `crates/core` ↔ `src-tauri` / `swarm-p2p-core` / Tauri plugin 交互）
+- 发现的配置坑和 workaround（尤其是 `crates/core` ↔ `src-tauri` 边界、`crates/net` 内核、Tauri plugin 交互）
 - 做出的架构决策及原因（含桌面 / `mobile/` 两端的取舍）
 - 与通用最佳实践不同的项目特定做法
 - 解决的非显见 bug 的根因
@@ -84,24 +178,3 @@ description: |
 
 **相关文件**：`path/to/file`
 ```
-
-### 4. 代码质量检查
-
-开发完成后，运行 `/simplify` 检查代码质量。lint / format / typecheck 命令：
-
-```bash
-# 前端
-pnpm exec tsc --noEmit
-pnpm i18n:extract   # 新增/修改翻译字符串后
-
-# Rust（在仓库根目录跑即可，workspace 会一并 check）
-cargo fmt --all
-cargo clippy --workspace -- -D warnings
-cargo check --workspace
-
-# 单 crate
-cargo check -p swarmdrop-core --features specta
-cargo check -p swarmdrop
-```
-
-**约束**：提交前 cargo check + tsc 必须通过。`pnpm tauri dev` 启动时 specta 会自动重新导出 `src/lib/bindings.ts`——改了 Rust 端 IPC 类型时**不要**手动改 bindings.ts，让它自动生成。

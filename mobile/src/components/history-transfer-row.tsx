@@ -2,7 +2,7 @@
  * 活动卡片 —— 在「传输活动」section 渲染一条 MobileTransferProjection。
  *
  * 与活跃卡片 [recent-transfer-row.tsx] 分开实现：数据形态不同
- * （history 含 finishedAt / errorMessage，active 含 speed / eta）。
+ * （history 含 finishedAt / failure，active 含 speed / eta）。
  */
 
 import { Trans } from "@lingui/react/macro";
@@ -29,7 +29,7 @@ function HistoryTransferRowComponent({ item, onPress }: Props) {
   const direction = projectionDirection(item);
   const status = projectionStatus(item);
   const filesCount = item.files.length;
-  const failedAndHasMessage = status === "failed" && !!item.errorMessage;
+  const failedAndHasMessage = status === "failed" && !!item.failure;
   const reason = projectionReasonLabel(item);
 
   return (
@@ -67,7 +67,7 @@ function HistoryTransferRowComponent({ item, onPress }: Props) {
 
         {failedAndHasMessage ? (
           <Text className="text-[12px] text-destructive-ink" numberOfLines={1}>
-            <LocalizedError message={item.errorMessage} />
+            <LocalizedError failure={item.failure} />
           </Text>
         ) : null}
       </View>

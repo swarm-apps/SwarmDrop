@@ -25,7 +25,7 @@ import {
   formatSpeed,
   formatRelativeTime,
 } from "@/lib/format";
-import { getErrorMessage } from "@/lib/errors";
+import { failureCodeMessage, getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -87,7 +87,9 @@ export const SessionRow = memo(function SessionRow({
       void runSafe(action);
     };
 
-  const onPause = withAction(() => doPauseTransfer(sessionId));
+  const onPause = withAction(() =>
+    doPauseTransfer(sessionId, projection.direction),
+  );
   const onResume = withAction(async () => {
     const newSessionId = await doResumeTransfer(sessionId);
     onSessionChange(newSessionId);
@@ -232,7 +234,8 @@ export const SessionRow = memo(function SessionRow({
             <div className="flex items-center gap-1.5 text-[12px] text-destructive">
               <XCircle className="size-3.5 shrink-0" />
               <span className="truncate">
-                {projection.errorMessage || projectionStatusLabel(projection)}
+                {failureCodeMessage(projection.failure) ||
+                  projectionStatusLabel(projection)}
               </span>
             </div>
           )}
@@ -322,10 +325,12 @@ export const SessionRow = memo(function SessionRow({
           description={
             canResume ? (
               <Trans>
-                删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。
+                删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。若此刻它又恢复了传输，需先取消才能删除记录。
               </Trans>
             ) : (
-              <Trans>记录删除后无法恢复；已传输的文件不受影响。</Trans>
+              <Trans>
+                记录删除后无法恢复；已传输的文件不受影响。若此刻它又恢复了传输，需先取消才能删除记录。
+              </Trans>
             )
           }
           confirmLabel={<Trans>删除记录</Trans>}

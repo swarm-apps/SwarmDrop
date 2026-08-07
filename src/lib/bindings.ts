@@ -7,8 +7,14 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	start: (pairedDevices: PairedDeviceInfo[], networkOptions: {
-	customBootstrapNodes?: string[],
+	start: (networkOptions: {
+	/**
+	 *  由当前 host 提供的引导/中继节点完整地址。
+	 * 
+	 *  公共基础设施是桌面、移动和 Web 各自的部署策略，不属于跨平台核心；各端可按自身
+	 *  transport 能力提供不同的 TCP、QUIC、WebSocket 或 WebRTC Direct 地址。
+	 */
+	bootstrapNodes?: string[],
 	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
@@ -20,7 +26,7 @@ export const commands = {
 	 *  跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
 	 */
 	publicReachability?: boolean,
-} | null) => __TAURI_INVOKE<null>("start", { pairedDevices, networkOptions }),
+} | null) => __TAURI_INVOKE<null>("start", { networkOptions }),
 	shutdown: () => __TAURI_INVOKE<null>("shutdown"),
 	listDevices: (filter: "all" | "connected" | "paired" | null) => __TAURI_INVOKE<DeviceListResult>("list_devices", { filter }),
 	getNetworkStatus: () => __TAURI_INVOKE<NetworkStatus>("get_network_status"),
@@ -28,9 +34,9 @@ export const commands = {
 	installUpdate: (url: string, isForce: boolean) => __TAURI_INVOKE<null>("install_update", { url, isForce }),
 	listInboxItems: (includeArchived: boolean) => __TAURI_INVOKE<InboxItemSummary[]>("list_inbox_items", { includeArchived }),
 	/**
-	 *  检索收件箱。`limit` 默认 20，`include_archived` 默认 false。
+	 *  检索收件箱。`limit` 缺省取三端共享的 [`INBOX_SEARCH_LIMIT`]，`include_archived` 默认 false。
 	 * 
-	 *  数据库未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
+	 *  存储端口未注入时由 Tauri State 注入机制直接返回错误（不会 panic）。
 	 */
 	searchInbox: (query: string, limit: number | null, includeArchived: boolean | null) => __TAURI_INVOKE<InboxSearchHit[]>("search_inbox", { query, limit, includeArchived }),
 	getInboxItemDetail: (itemId: string) => __TAURI_INVOKE<({
@@ -46,6 +52,18 @@ export const commands = {
 	showInboxItemInFolder: (itemId: string, fileId: number | null) => __TAURI_INVOKE<null>("show_inbox_item_in_folder", { itemId, fileId }),
 	exportInboxItem: (itemId: string, destinationDir: string) => __TAURI_INVOKE<null>("export_inbox_item", { itemId, destinationDir }),
 	archiveInboxItem: (itemId: string, archived: boolean) => __TAURI_INVOKE<null>("archive_inbox_item", { itemId, archived }),
+	/**
+	 *  删除收件箱条目；`delete_local_files` 为真时连已落盘的文件一起删。
+	 * 
+	 *  编排（先文件后记录、删文件失败不阻断、条目不存在报错）是**三端共用的领域规则**，
+	 *  住在 [`swarmdrop_transfer::inbox::delete_inbox_item`]。此前这里裸写
+	 *  `tokio::fs::remove_file` —— 那是绕过 `FileAccess` 端口的第三份删除实现，
+	 *  现已收编到 `TauriFileAccess::delete_finalized_file`。
+	 * 
+	 *  `FileAccess` 从 state 取而不是现建一个：与 `start()` 注入给 `TransferManager` 的
+	 *  **是同一个 `Arc`**（组装点在 `setup.rs`）。收件箱命令刻意不经 `TransferManager`
+	 *  ——它是与网络无关的内容账本，绑到节点生命周期上会变成「没联网就翻不了已收到的东西」。
+	 */
 	deleteInboxItem: (itemId: string, deleteLocalFiles: boolean) => __TAURI_INVOKE<null>("delete_inbox_item", { itemId, deleteLocalFiles }),
 	/**  从系统 keychain 初始化设备身份，不再要求用户输入 Stronghold 密码。 */
 	initializeIdentity: () => __TAURI_INVOKE<IdentityState>("initialize_identity"),
@@ -56,15 +74,25 @@ export const commands = {
 	/**  读取持久化的设备名（onboarding 完成前为 `None`）。 */
 	getDeviceName: () => __TAURI_INVOKE<string | null>("get_device_name"),
 	/**
-	 *  设置设备名并持久化。
+	 *  设置设备名：落盘 + 让已连接的对端立刻看到新名字。
 	 * 
-	 *  仅写入 `device_config.json`。要让新名字通过 identify 协议的 `agent_version`
-	 *  重新广播，前端在本命令返回后自己调 `shutdown` + `start`（前端持有
-	 *  paired_devices + network_options 上下文）。
+	 *  编排在 [`swarmdrop_core::device_name::rename_device`] 里（写盘 → 本机 `OsInfo` →
+	 *  identify `agent_version` 逐连接下发 + 主动 push → 发 `DeviceRenamed` 事件）。
+	 *  **节点不重启、连接不断、在途传输不中断。**
 	 * 
-	 *  `name = None`（或空串/纯空白）清空，回退到系统 hostname。
+	 *  「节点在不在跑」这件事由 core 的签名吸收：`guard.as_ref()` 本身就是
+	 *  `Option<&NetManager>`，节点未启动（onboarding，或设置页早于 `start`）时它是 `None`，
+	 *  core 走只落盘那条分支。宿主这侧因此不写 if/else。
+	 * 
+	 *  归一化（trim / 剥控制字符与 `;` / 40 char 截断 / 空则清空）全在
+	 *  [`DeviceName::parse`] 里，本命令不做任何就地处理 —— 三端共用同一个入口。
+	 *  `name = None`（或归一化后为空）清空，回退到系统 hostname。
+	 * 
+	 *  **返回归一化后的结果**（清空时 `None`），前端直接拿它更新本地状态。命令手里本来就握着
+	 *  `DeviceName::parse` 的产物，返回 `()` 只会逼调用方回读一次才知道真正落库的是什么。
+	 *  Web 端 `rename_device` 早就是这个形态，本次三端统一。
 	 */
-	setDeviceName: (name: string | null) => __TAURI_INVOKE<null>("set_device_name", { name }),
+	setDeviceName: (name: string | null) => __TAURI_INVOKE<string | null>("set_device_name", { name }),
 	/**
 	 *  生成一次性签名邀请串（供二维码/链接分享）。
 	 * 
@@ -73,8 +101,31 @@ export const commands = {
 	 */
 	generatePairInvite: (localOnly: boolean | null) => __TAURI_INVOKE<string>("generate_pair_invite", { localOnly }),
 	/**
-	 *  生成邀请串的二维码 SVG（三端统一编码规范：大写 alphanumeric + ECL::M + quiet zone，
-	 *  见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
+	 *  撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
+	 * 
+	 *  幂等：不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），所以前端可以
+	 *  fire-and-forget。节点未启动时同样无事可做——注册表随节点一起没了（重启后由
+	 *  `load_invites` 从库里读回，见 `invite-persistence`）。
+	 */
+	revokePairInvite: (invite: string) => __TAURI_INVOKE<boolean>("revoke_pair_invite", { invite }),
+	/**
+	 *  列出本机未过期的已发出邀请（最近生成的在前）。
+	 * 
+	 *  TTL 24h 之后「我现在有几条邀请在外面飘」不再是个可以忽略的问题 —— 这个列表加上
+	 *  [`revoke_pair_invite_by_id`] 是那段窗口的可见性与控制手段，不是可选装饰。
+	 */
+	listPairInvites: () => __TAURI_INVOKE<PairInviteListItem[]>("list_pair_invites"),
+	/**
+	 *  按列表条目的 `id`（capability 哈希 hex）撤销 —— 列表里没有原始邀请串。
+	 * 
+	 *  **返回是否已落盘**。`false` 意味着撤销在本次运行内生效了，但重启后那条邀请会复活
+	 *  （写穿失败，库里仍是生成时写下的 pending）—— UI 必须把这件事告诉用户，
+	 *  否则他会以为已经撤销干净了。
+	 */
+	revokePairInviteById: (id: string) => __TAURI_INVOKE<boolean>("revoke_pair_invite_by_id", { id }),
+	/**
+	 *  生成 canonical 邀请链接的二维码 SVG（三端统一编码规范：原样编码 + 最优分段 + ECL::M
+	 *  + quiet zone，见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
 	 */
 	inviteQrSvg: (invite: string) => __TAURI_INVOKE<string>("invite_qr_svg", { invite }),
 	/**
@@ -86,9 +137,13 @@ export const commands = {
 	/**
 	 *  用邀请串发起配对（受邀方）：解码验签 → 连接发起方 → 出示凭证。
 	 * 
-	 *  配对成功后自动加入已配对设备并 emit `paired-device-added`。
+	 *  配对成功后由 core 落盘并 emit `paired-device-added`。
+	 * 
+	 *  返回 [`PairingOutcome`]：`response` 是对端的答复，`persisted` 为 `false` 时表示
+	 *  **配对成功了但这条记录没写进钥匙串** —— 本次运行内可用，重启后这台设备会从列表消失
+	 *  （对端仍记着）。UI 必须如实告知，不能当成普通成功。
 	 */
-	consumePairInvite: (invite: string) => __TAURI_INVOKE<PairingResponse>("consume_pair_invite", { invite }),
+	consumePairInvite: (invite: string) => __TAURI_INVOKE<PairingOutcome>("consume_pair_invite", { invite }),
 	/**
 	 *  向对端发起配对请求
 	 * 
@@ -98,20 +153,68 @@ export const commands = {
 	 *  内核 newtype，方便通过 specta 生成 TypeScript bindings（内核类型本身不实现
 	 *  `specta::Type`）。
 	 */
-	requestPairing: (peerId: string, method: PairingMethod, addrs: string[] | null) => __TAURI_INVOKE<PairingResponse>("request_pairing", { peerId, method, addrs }),
+	requestPairing: (peerId: string, method: PairingMethod, addrs: string[] | null) => __TAURI_INVOKE<PairingOutcome>("request_pairing", { peerId, method, addrs }),
 	/**
-	 *  处理收到的配对请求（接受/拒绝）
+	 *  处理收到的配对请求（接受/拒绝）。
 	 * 
-	 *  接受配对后自动添加到已配对设备，并 emit `paired-device-added` 事件通知前端。
+	 *  接受后由 core 落盘并 emit `paired-device-added` 事件通知前端。
+	 * 
+	 *  **返回是否已落盘**（响应本身是入参，不必回传）：`false` = 配对成功但记录没写进钥匙串，
+	 *  重启后这台设备会不见（对端仍记着）。语义与 [`PairingOutcome::persisted`] 同。
 	 */
-	respondPairingRequest: (pendingId: number, method: PairingMethod, response: PairingResponse) => __TAURI_INVOKE<null>("respond_pairing_request", { pendingId, method, response }),
+	respondPairingRequest: (pendingId: number, method: PairingMethod, response: PairingResponse) => __TAURI_INVOKE<boolean>("respond_pairing_request", { pendingId, method, response }),
 	/**
-	 *  取消与指定设备的配对（同步更新运行时状态）
+	 *  取消与指定设备的配对。
+	 * 
+	 *  「节点在不在跑」这条分支由 core 的 [`swarmdrop_core::paired_devices::unpair`] 吸收：节点在跑就走
+	 *  `PairingManager::unpair`（持久化 → 共享内存表 → 事件，**fail-closed**，不会再出现
+	 *  「本次运行解除了、重启又复活」）；没跑则只删持久化并由 core 补发
+	 *  `PairedDeviceRemoved`（那条路径上 `PairingManager` 根本没起）。
+	 *  桌面此前在这里手工补那条事件、移动端忘了补 —— 同一段分支写两遍必然漂。
 	 * 
 	 *  `peer_id` 为 base58 字符串，由命令内部解析为 `NodeId`。
 	 */
 	removePairedDevice: (peerId: string) => __TAURI_INVOKE<null>("remove_paired_device", { peerId }),
-	/**  更新已配对设备的可信策略。 */
+	/**
+	 *  某信任级别的默认接收策略。
+	 * 
+	 *  **纯派生，不取任何 State**——它在节点没起来时也该能用（信任策略对话框可以先开着）。
+	 * 
+	 *  存在的全部理由是**不让前端再抄一份那张表**。此前 `trust-policy-dialog.tsx` 里有一份
+	 *  `defaultPolicyForTrust`、移动端 `device-trust.ts` 里另有一份，两份还长出了不同的
+	 *  「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
+	 *  现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处。
+	 * 
+	 *  `previous` 传该设备**当前**的策略；用户显式设过的保存位置与代收授权会被带过去
+	 *  （`blocked` 除外）。
+	 */
+	defaultReceivePolicy: (trustLevel: DeviceTrustLevel, previous: {
+	autoAccept: boolean,
+	requireConfirmation: boolean,
+	maxTransferBytes?: number | null,
+	allowDirectories: boolean,
+	allowRelayAutoAccept: boolean,
+	saveBehavior?: ReceiveSaveBehavior,
+	defaultSaveLocation?: string | null,
+	allowMcpSendToDevice: boolean,
+	/**
+	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
+	 * 
+	 *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
+	 *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+	 *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
+	 */
+	allowMcpAcceptFromDevice?: boolean,
+	expiresAt?: number | null,
+} | null) => __TAURI_INVOKE<DeviceReceivePolicy>("default_receive_policy", { trustLevel, previous }),
+	/**
+	 *  更新已配对设备的可信策略。
+	 * 
+	 *  落盘与「节点在跑时把新值推进共享内存表」都在 core 的
+	 *  [`swarmdrop_core::paired_devices::set_receive_policy`]（否则「策略已保存、本次运行仍按旧策略裁决入站
+	 *  offer」）。存在性检查也只在那一处 —— 它找不到时已经返回 `Err`，命令层再 `find` 一遍
+	 *  是走不到的死分支。
+	 */
 	updatePairedDevicePolicy: (peerId: string, trustLevel: DeviceTrustLevel, receivePolicy: {
 	autoAccept: boolean,
 	requireConfirmation: boolean,
@@ -138,12 +241,15 @@ export const commands = {
 	rejectReceive: (sessionId: string) => __TAURI_INVOKE<null>("reject_receive", { sessionId }),
 	cancelSend: (sessionId: string) => __TAURI_INVOKE<null>("cancel_send", { sessionId }),
 	cancelReceive: (sessionId: string) => __TAURI_INVOKE<null>("cancel_receive", { sessionId }),
+	pauseSend: (sessionId: string) => __TAURI_INVOKE<null>("pause_send", { sessionId }),
+	pauseReceive: (sessionId: string) => __TAURI_INVOKE<null>("pause_receive", { sessionId }),
 	getTransferProjections: () => __TAURI_INVOKE<TransferProjection[]>("get_transfer_projections"),
 	/**  发送方向会话的源文件绝对路径（「重新发送」重建载荷用；接收方向返回空列表）。 */
 	getTransferSourcePaths: (sessionId: string) => __TAURI_INVOKE<string[]>("get_transfer_source_paths", { sessionId }),
+	/**  删除单条传输记录。走域方法而非 `store().delete_session()`——「进行中不可删」的守卫在那里。 */
 	deleteTransferSession: (sessionId: string) => __TAURI_INVOKE<null>("delete_transfer_session", { sessionId }),
+	/**  清空传输历史：只删已终态的记录，进行中与可续传的会话保留（端口契约）。 */
 	clearTransferHistory: () => __TAURI_INVOKE<null>("clear_transfer_history"),
-	pauseTransfer: (sessionId: string) => __TAURI_INVOKE<null>("pause_transfer", { sessionId }),
 	resumeTransfer: (sessionId: string) => __TAURI_INVOKE<ResumeTransferResult>("resume_transfer", { sessionId }),
 	/**
 	 *  设置全局「暂停接收」。`true`=暂停：节点保持在线可发现、配对不受影响，但对新 offer
@@ -173,16 +279,25 @@ export const commands = {
 	startMcpServer: (port: number | null) => __TAURI_INVOKE<McpStatus>("start_mcp_server", { port }),
 	/**  停止 MCP Server */
 	stopMcpServer: () => __TAURI_INVOKE<McpStatus>("stop_mcp_server"),
-	/**  前端根处理器 mount 时调用：标记就绪并取走冷启动期间缓冲的外部打开路径。 */
-	takePendingExternalOpen: () => __TAURI_INVOKE<string[]>("take_pending_external_open"),
+	/**
+	 *  前端根处理器 mount 时调用：标记就绪并**一次取走**冷启动期间缓冲的两类负载
+	 *  （文件路径 + 深链邀请）。
+	 * 
+	 *  一次取走而非两个命令：`frontend_ready` 是共享标记，拆开会让第二类负载丢在
+	 *  「标记已置位、前端还没订阅完」那道缝里（详见 [`external_open::take_pending`]）。
+	 */
+	takePendingExternalOpen: () => __TAURI_INVOKE<PendingExternalOpen>("take_pending_external_open"),
 };
 
 /** Events */
 export const events = {
+	deviceRenamed: makeEvent<DeviceRenamed>("device-renamed"),
 	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
 	externalFileOpen: makeEvent<ExternalFileOpen>("external-file-open"),
+	externalPairInvite: makeEvent<ExternalPairInvite>("external-pair-invite"),
 	networkStatusChanged: makeEvent<NetworkStatusChanged>("network-status-changed"),
 	pairedDeviceAdded: makeEvent<PairedDeviceAdded>("paired-device-added"),
+	pairedDeviceRemoved: makeEvent<PairedDeviceRemoved>("paired-device-removed"),
 	pairingRequestReceived: makeEvent<PairingRequestReceived>("pairing-request-received"),
 	receivingPausedChanged: makeEvent<ReceivingPausedChanged>("receiving-paused-changed"),
 	transferAccepted: makeEvent<TransferAccepted>("transfer-accepted"),
@@ -209,13 +324,41 @@ export type AppErrorPayload = {
 	message: string,
 };
 
-export type BootstrapCandidateSource = "builtInPublic" | "userCustom" | "mdnsLanHelper" | 
+export type BootstrapCandidateSource = 
+/**  当前 host 注入的静态引导/中继配置（含各端默认值和用户追加地址）。 */
+"hostConfigured" | "mdnsLanHelper" | 
 /**  运行时经 identify 学到的基础设施节点（如 LanOnly 下经 LAN Helper 认识的公网中继） */
 "learned";
 
 export type CandidateSourceStatus = {
 	source: BootstrapCandidateSource,
 	count: number,
+};
+
+/**
+ *  链路详情：当前连接的可核对事实。
+ * 
+ *  与 [`ConnectionType`] 的分工——那个是给所有人看的一句话结论（局域网 / 打洞 /
+ *  中继），这个是「凭什么这么说」：走的哪条地址、哪种传输、经不经中继、经的是谁。
+ *  三端 UI 把它放在默认折叠的区块里，普通用户看不到，排障时一眼能拿到全部证据。
+ */
+export type ConnectionDetails = {
+	/**
+	 *  承载字节的传输协议。
+	 * 
+	 *  `None` 是真实存在的情况，不是缺陷：入站中继连接的 `send_back_addr` 只有
+	 *  `/p2p/<src>` 一段，地址里没有任何传输信息。呈现层照实显示「未知」。
+	 */
+	transport: TransportKind | null,
+	/**  当前最优连接的远端 multiaddr，原样给出——便于直接粘进 issue 或与日志比对。 */
+	remoteAddr: string,
+	/**
+	 *  中转身份：经中继时是那台 relay 的 PeerId，直连为 `None`。
+	 * 
+	 *  「经中继」三个字对排障几乎没用，得说清楚经的是哪一台——自建 relay 还是
+	 *  局域网里的 LanHelper，处理方式完全不同。
+	 */
+	relay: string | null,
 };
 
 /**  连接类型。 */
@@ -236,6 +379,19 @@ export type Device = {
 	peerId: string,
 	status: DeviceStatus,
 	connection: ConnectionType | null,
+	/**
+	 *  链路详情。仅在线且内核报告过连接地址时有值——离线设备、以及只靠 mDNS
+	 *  地址推断出 `connection` 的宽限期内，这里是 `None`（没连接就没有链路可谈）。
+	 */
+	connectionDetails: ConnectionDetails | null,
+	/**
+	 *  内核尝试过局域网直连升级但失败了。
+	 * 
+	 *  与 `connection == Relay` 一起看才有意义：那时它把「对端本来就在外网」与
+	 *  「对端就在同一网段却连不上」分开。后者呈现层应给出可行动的提示——查防火墙，
+	 *  或（浏览器上）允许本地网络访问。
+	 */
+	lanUpgradeFailed: boolean,
 	latency: number | null,
 	isPaired: boolean,
 	trustLevel: DeviceTrustLevel | null,
@@ -278,6 +434,18 @@ export type DeviceReceivePolicy = {
 	expiresAt?: number | null,
 };
 
+/**
+ *  本机设备名已更新（落盘 + identify 广播都已完成）。事件名 `"device-renamed"`。
+ * 
+ *  前端更新设备名镜像的**唯一**入口：改名可能来自另一个窗口或 MCP 工具，让发起改名的
+ *  那个界面自己刷新覆盖不到这些来源。`displayName` 已含「空则回退 hostname」的语义
+ *  （core 的 `OsInfo::display_name()`），前端不必再写一遍那个回退。
+ */
+export type DeviceRenamed = {
+	name: string | null,
+	displayName: string,
+};
+
 /**  设备状态。 */
 export type DeviceStatus = "online" | "offline";
 
@@ -312,6 +480,63 @@ export type EnumeratedFile = {
 export type ExternalFileOpen = {
 	paths: string[],
 };
+
+/**
+ *  深链（`swarmdrop://…`）送达的配对邀请链接原文。
+ * 
+ *  事件名 `"external-pair-invite"`。**未解码未验签** —— 宿主层只递文本，前端照常走
+ *  「解码验签 → 确认卡 → 用户确认」的安全闸，与扫码/粘贴同一条路
+ *  （openspec: pair-deep-link）。
+ */
+export type ExternalPairInvite = {
+	invite: string,
+};
+
+/**
+ *  会话失败原因。持久化进 `transfer_sessions.error_message` 列（类型不变，存 JSON）。
+ * 
+ *  变体数量刻意贴着**实际构造点**（三处 `ActorReport::FatalError` + 一处过期回收），
+ *  不预留「将来可能用到」的码 —— `failure-semantics-contract` 的 D3 已经吃过一次亏：
+ *  造出来到不了 UI 的判别码只是三端文案表里的死条目。
+ */
+export type FailureCode = 
+/**
+ *  落盘最终化失败 —— 含 bao 逐块验签不通过、sink 写入失败。
+ * 
+ *  用户能做的是重新传一次，所以三端文案落在「文件没能完整保存，请重新接收」。
+ */
+{ code: "fileFinalizeFailed"; fileName: string } | 
+/**
+ *  超过保留期仍未恢复，被启动清理回收。
+ * 
+ *  `retention_days` 进文案（「超过 N 天」），所以它是参数而不是常量 ——
+ *  保留期是配置项，两端可能不同。
+ */
+{ code: "sessionExpired"; retentionDays: number } | 
+/**
+ *  对端拒绝了续传请求。
+ * 
+ *  **直接内嵌 [`ResumeRejectReason`]，不再压成字符串。** 这条通道此前经
+ *  `resume_reject_message()` 把一个六变体的枚举摊平成六句中文 —— 判别信息在
+ *  wire 上本来就是结构化的，落库时降级成自由文本，到了 UI 又没法还原。
+ */
+{ code: "resumeRejected"; reason: ResumeRejectReason } | 
+/**
+ *  发送方的 Offer 没能送达对端（发送失败或收到非预期响应）。
+ * 
+ *  两个调用点的技术细节（IO 错误、响应类型）对用户是同一件事：对方没收到你的请求。
+ *  细节进 `warn!`。
+ */
+{ code: "offerFailed" } | 
+/**
+ *  **存量数据**：本判别码引入之前写入的自由文本。
+ * 
+ *  不写回填迁移 —— 失败原因是过程账本上的一句解释，重算不出来（原始错误早没了），
+ *  猜也猜不准。存量行原样展示旧串即可，新行一律是判别码；随着历史滚动它自然消失。
+ *  这与收件箱标题的处置不同（那边**回填**了），区别在于标题可以从文件列表重算，
+ *  失败原因不能。
+ */
+{ code: "legacy"; message: string };
 
 export type FileProgressInfo = {
 	fileId: number,
@@ -354,10 +579,18 @@ export type InboxItemDetail = {
 export type InboxItemFileEntry = {
 	id: number,
 	transferFileId: number | null,
+	/**  条目根之下的相对路径。**Web 宿主删文件用这个**——OPFS 的键就是它。 */
 	relativePath: string,
 	name: string,
 	size: number,
 	checksum: string,
+	/**
+	 *  宿主可直接操作的完整路径。**桌面 / 移动删文件用这个**（那边是真实文件系统路径）；
+	 *  **Web 上它是带 `opfs:/` 前缀的展示值，喂给 `remove_path` 会去找一个叫 `opfs:` 的目录**。
+	 * 
+	 *  两个路径字段并存且「该用哪个」按端不同，是这个 DTO 最容易踩空的地方——所以写在这里，
+	 *  而不是让每个宿主自己从别处推断。
+	 */
 	localPath: string,
 	missing: boolean,
 };
@@ -390,8 +623,13 @@ export type InboxSearchHit = {
 	itemCount: number,
 	rootPath: string | null,
 	receivedAt: number,
-	/**  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。 */
-	snippet: string,
+	/**
+	 *  命中所在文本的片段（在 Rust 端按子串位置切窗口生成）。
+	 * 
+	 *  `None` = **不该渲染片段行**：命中的是标题或来源名（条目行上已经显示着），
+	 *  或一个候选都没命中。判据在 [`inbox_snippet`]，三端不要各判一遍。
+	 */
+	snippet: string | null,
 	/**  该条目下的文件（文件名 + 相对路径），供 get_inbox_file 下钻。 */
 	files: InboxHitFile[],
 };
@@ -406,7 +644,13 @@ export type McpStatus = {
 };
 
 export type NetworkRuntimeConfig = {
-	customBootstrapNodes?: string[],
+	/**
+	 *  由当前 host 提供的引导/中继节点完整地址。
+	 * 
+	 *  公共基础设施是桌面、移动和 Web 各自的部署策略，不属于跨平台核心；各端可按自身
+	 *  transport 能力提供不同的 TCP、QUIC、WebSocket 或 WebRTC Direct 地址。
+	 */
+	bootstrapNodes?: string[],
 	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
@@ -472,13 +716,22 @@ export type NodeStatus = "running" | "stopped";
 /**  Offer 被拒绝的原因。 */
 export type OfferRejectReason = { type: "not_paired" } | { type: "user_declined" } | { type: "policy_rejected" } | 
 /**  接收方处于全局「暂停接收」状态，婉拒新 offer。 */
-{ type: "receiving_paused" };
+{ type: "receiving_paused" } | 
+/**
+ *  Offer 里有文件的 `relative_path` 会逃出保存目录（绝对路径、盘符或 `..` 穿越）。
+ * 
+ *  独立成一个变体而不是并进 `PolicyRejected`：这**不是**接收方的偏好设置拒绝了你，
+ *  而是这条 offer 本身不合法。两者对发送方的含义完全不同——前者「换个设置或问问对方」，
+ *  后者「你的客户端发了非法数据」。合法客户端永远不会触发它。
+ */
+{ type: "unsafe_path" };
 
 /**
  *  设备操作系统信息。
  * 
  *  `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
- *  `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+ *  `name` 是用户在 onboarding / 设置里起的名字（持久化），由 core 的组合根从
+ *  [`DeviceConfig`](crate::ports::DeviceConfig) 端口填充，UI 显示按
  *  `name.as_deref().unwrap_or(&hostname)` 回退。
  */
 export type OsInfo = {
@@ -489,6 +742,23 @@ export type OsInfo = {
 	platform: string,
 	arch: string,
 	capabilities?: string[],
+};
+
+/**
+ *  「已发出的邀请」列表条目。
+ * 
+ *  **没有邀请串本身** —— capability 明文不落盘也不出注册表（invite-persistence design D4），
+ *  所以重启后拼不回原始链接。UI 只能显示元数据 + 提供撤销；想再分享就生成一条新的。
+ */
+export type PairInviteListItem = {
+	/**  `sha256(capability)` 的 hex —— 撤销时回传，UI 当不透明 ID 用。 */
+	id: string,
+	/**  创建时刻（Unix 秒）。 */
+	createdAt: number,
+	/**  过期时刻（Unix 秒）。 */
+	expiresAt: number,
+	/**  已被对方消费（仍在列表里显示到过期，让用户知道它被用过）。 */
+	consumed: boolean,
 };
 
 /**  邀请串解码后的展示投影（用于配对确认卡；不含 capability 等敏感字段）。 */
@@ -515,10 +785,18 @@ export type PairedDeviceInfo = {
 } & OsInfo;
 
 /**
+ *  已解除配对的设备 PeerId（base58）。事件名 `"paired-device-removed"`。
+ * 
+ *  它是前端移除该设备的**唯一**入口：命令自己不再顺手改本地状态，否则同一条记录
+ *  会被两条路径各删一次，谁先谁后取决于时序。
+ */
+export type PairedDeviceRemoved = string;
+
+/**
  *  配对方式。
  * 
  *  `Direct` 为局域网直连（授权依据是「对端在本机 mDNS 多播域内」）；`Invite` 携带
- *  一次性邀请凭证（invite_id + capability，见 [`swarmdrop_invite`]）——受邀方
+ *  一次性邀请凭证（128bit capability，见 [`swarmdrop_invite`]）——受邀方
  *  解码邀请串后连接发起方并出示凭证，发起方按
  *  [`InviteRegistry`](swarmdrop_invite::InviteRegistry) 校验。
  * 
@@ -526,10 +804,22 @@ export type PairedDeviceInfo = {
  *  证明身份，被自包含签名邀请取代（openspec: pair-invite-protocol）。
  */
 export type PairingMethod = { type: "direct" } | { type: "invite"; 
-/**  邀请标识（发起端据此查 Registry）。 */
-invite_id: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number]; 
-/**  bearer 凭证明文（发起端比对哈希；信道保密靠邀请串的 fragment 传递）。 */
-capability: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] };
+/**  128bit bearer 凭证明文。发起端以其 SHA-256 查询状态表，明文不落盘。 */
+capability: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] };
+
+/**
+ *  一次配对尝试的结果。
+ * 
+ *  `persisted` 与 [`revoke_pair_invite_by_id`] 的返回值同构：**本次运行内已生效，但重启后
+ *  会变回去**。这类「一半成功」不能压成 `Err` —— 配对达成时对端已经把本机加进它的列表，
+ *  本机再报失败只会让两台设备对同一件事的认知永久分叉。UI 该说的是「这台设备重启后会丢，
+ *  建议重新配对」，不是「配对失败」。
+ */
+export type PairingOutcome = {
+	response: PairingResponse,
+	/**  设备是否已落盘。**仅当 `response` 为成功时有意义**，其余情况恒为 `true`。 */
+	persisted: boolean,
+};
 
 /**  配对被拒绝的原因。 */
 export type PairingRefuseReason = { type: "user_rejected" };
@@ -552,6 +842,14 @@ export type PairingRequestPayload = {
 export type PairingRequestReceived = PairingRequestPayload;
 
 export type PairingResponse = { status: "success" } | { status: "refused"; reason: PairingRefuseReason };
+
+/**  冷启动期间缓冲的外部入口负载（一次取走，见 [`take_pending`]）。 */
+export type PendingExternalOpen = {
+	/**  「打开方式」送达的路径（可能多个）。 */
+	paths: string[],
+	/**  深链送达的配对邀请链接（只留最后一条，见 [`Inner::invite`]）。 */
+	invite: string | null,
+};
 
 /**  `prepare_send` 的 hash 进度事件 */
 export type PrepareProgressEvent = {
@@ -586,6 +884,9 @@ export type ReceiveSaveBehavior =
  */
 export type ReceivingPausedChanged = boolean;
 
+/**  断点续传被拒绝的原因。 */
+export type ResumeRejectReason = { type: "cancelled" } | { type: "fatal_error" } | { type: "source_modified" } | { type: "checkpoint_invalid" } | { type: "peer_unavailable" } | { type: "session_not_found" };
+
 export type ResumeTransferResult = {
 	sessionId: string,
 	direction: string,
@@ -613,7 +914,16 @@ export type StartSendResult = {
 export type SuspendedReason = "local_paused" | "remote_paused" | "interrupted" | "peer_offline" | "app_restarted";
 
 /**  terminal 原因（phase=Terminal 时有值）。 */
-export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_error";
+export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_error" | 
+/**
+ *  入站 offer 的决策窗口耗尽，本端从未作答。
+ * 
+ *  **与 `Rejected` 分开是必要的，不是措辞讲究。** 对端看到的确实是一次婉拒（清理任务
+ *  drop 掉 responder，RPC handler 据此回复），但本端用户**什么都没做**——把它记成
+ *  「已拒绝」等于在他自己的传输历史里写一条他没做过的决定，而这恰恰是他下次想不起来
+ *  「我拒过这个人吗」时会去查的地方。
+ */
+"expired";
 
 export type TransferAccepted = TransferAcceptedEvent;
 
@@ -736,7 +1046,8 @@ export type TransferProjection = {
 	startedAt: number,
 	updatedAt: number,
 	finishedAt: number | null,
-	errorMessage: string | null,
+	/**  失败判别码（见 [`crate::failure`]）。曾是直达三端 UI 的自由中文文本。 */
+	failure: FailureCode | null,
 	policyAction: string | null,
 	policyReason: string | null,
 	savePath: CoreSaveLocation | null,
@@ -786,6 +1097,26 @@ export type TransferResumedFileInfo = {
 	size: number,
 	isDirectory: boolean,
 };
+
+/**
+ *  承载连接的传输协议（由 multiaddr 协议栈判定，见 [`Addr::transport`](crate::Addr::transport)）。
+ * 
+ *  与 [`PathKind`] **正交**，排障时要一起看：`PathKind` 回答「字节走不走中继」，
+ *  本枚举回答「字节跑在哪种传输上」。同是 `Relayed`，底层 TCP 还是 QUIC 指向
+ *  完全不同的排查方向；同是 `Direct`，`Webrtc` 说明是打洞来的、`Quic` 说明是公网直拨。
+ * 
+ *  变体名刻意不写成 `WebRtc`：camelCase 序列化后会变成 `"webRtc"`，而三端 UI 与
+ *  日志里这个词一直是 `webrtc`。
+ */
+export type TransportKind = 
+/**  TCP（上叠 Noise + Yamux）。 */
+"tcp" | 
+/**  QUIC v1（传输层自带 TLS）。 */
+"quic" | 
+/**  WebRTC 打洞：**信令**经 relay，数据面一个字节不过中继。 */
+"webrtc" | 
+/**  WebRTC Direct：certhash 免信令免域名，浏览器够到原生端的唯一入口。 */
+"webrtcDirect";
 
 /**
  *  托盘「打开接收文件夹」：路径由前端 `savePath` 拥有，故由前端打开。

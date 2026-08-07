@@ -12,7 +12,7 @@
 sequenceDiagram
     participant P as 对端
     participant EL as 事件循环
-    participant PM as PendingMap&lt;u64, ResponseChannel&gt;
+    participant PM as PendingMap
     participant Biz as 业务层
     participant User as 用户
     P->>EL: request-response 请求
@@ -62,7 +62,7 @@ sequenceDiagram
     participant User as 用户
     P->>R: 开 /swarmdrop/pairing/2 流 + 请求帧
     R->>T: accept(stream)（spawn 独立任务）
-    T->>T: read_frame::&lt;Req&gt;
+    T->>T: 读取 Req 请求帧
     T->>User: 弹窗「是否接受配对？」
     Note over T: 任务就地 await，阻塞它自己而已
     User-->>T: 点「接受」

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ban, Shield, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { commands } from "@/lib/bindings";
 import type {
   Device,
   DeviceReceivePolicy,
@@ -52,42 +53,66 @@ export function TrustPolicyDialog({
   const [trustLevel, setTrustLevel] = useState<DeviceTrustLevel>(
     device.trustLevel ?? "collaborator",
   );
-  const [policy, setPolicy] = useState<DeviceReceivePolicy>(() =>
-    normalizePolicy(device),
+  const [policy, setPolicy] = useState<DeviceReceivePolicy | null>(
+    device.receivePolicy,
   );
   const [limitMb, setLimitMb] = useState("");
   const [saving, setSaving] = useState(false);
+  /** 派生的轮次，用来丢弃过期结果（见 `updateTrustLevel`）。 */
+  const deriveSeq = useRef(0);
 
   useEffect(() => {
     if (!open) return;
-    const nextPolicy = normalizePolicy(device);
     setTrustLevel(device.trustLevel ?? "collaborator");
-    setPolicy(nextPolicy);
+    setPolicy(device.receivePolicy);
     setLimitMb(
-      nextPolicy.maxTransferBytes
-        ? String(Math.ceil(nextPolicy.maxTransferBytes / 1024 / 1024))
+      device.receivePolicy?.maxTransferBytes
+        ? String(Math.ceil(device.receivePolicy.maxTransferBytes / 1024 / 1024))
         : "",
     );
   }, [device, open]);
 
-  const updateTrustLevel = (value: DeviceTrustLevel) => {
-    const next = defaultPolicyForTrust(value, policy);
-    setTrustLevel(value);
-    setPolicy(next);
-    setLimitMb(
-      next.maxTransferBytes
-        ? String(Math.ceil(next.maxTransferBytes / 1024 / 1024))
-        : "",
-    );
+  /** 局部改一项策略。`policy` 为 null 时是 no-op——那时开关根本没渲染（见下方守卫）。 */
+  const patchPolicy = (patch: Partial<DeviceReceivePolicy>) =>
+    setPolicy((current) => (current ? { ...current, ...patch } : current));
+
+  // 切级别时的默认策略**向内核要**，不在前端算。
+  //
+  // 那张表此前在这里抄了一份、移动端抄了另一份，两份还长出了不同的「保留哪些字段」规则，
+  // 而内核那一份一个都不保留——同一个产品动作三种行为。现在规则只在
+  // `DeviceReceivePolicy::for_trust_level` 一处，这里只是把用户当前的策略递过去。
+  //
+  // 它是个纯派生命令（不取 State），失败只可能是 IPC 本身出问题——那时保持原策略不动
+  // 比把界面重置成一个猜出来的值诚实。
+  //
+  // **级别与策略一起提交**：派生成功之前不动 `trustLevel`。否则失败时会留下「级别已变、
+  // 策略还是旧的」这一对，而用户可以就这么点保存——`update_policy` 对传入的策略不做钳制，
+  // 于是存下一台「已阻止但开关还写着自动接收」的设备。（拦得住：`evaluate_receive_policy`
+  // 先判 `trust_level == Blocked` 再看策略，所以那是显示不一致而不是安全缺口。）
+  //
+  // 序号丢弃过期结果：连点两个级别时，先发的那次可能后 resolve，把 A 的默认值盖到 B 上。
+  const updateTrustLevel = async (value: DeviceTrustLevel) => {
+    const seq = ++deriveSeq.current;
+    try {
+      const next = await commands.defaultReceivePolicy(value, policy);
+      if (seq !== deriveSeq.current) return;
+      setTrustLevel(value);
+      setPolicy(next);
+      setLimitMb(
+        next.maxTransferBytes
+          ? String(Math.ceil(next.maxTransferBytes / 1024 / 1024))
+          : "",
+      );
+    } catch (err) {
+      if (seq !== deriveSeq.current) return;
+      toast.error(getErrorMessage(err));
+    }
   };
 
   const chooseDefaultSaveLocation = async () => {
     const selected = await pickFolder();
     if (selected) {
-      setPolicy((current) => ({
-        ...current,
-        defaultSaveLocation: selected,
-      }));
+      patchPolicy({ defaultSaveLocation: selected });
     }
   };
 
@@ -103,7 +128,7 @@ export function TrustPolicyDialog({
       : null;
 
   const handleSubmit = async () => {
-    if (limitInvalid) return;
+    if (limitInvalid || !policy) return;
     setSaving(true);
     try {
       await onSubmit(device, trustLevel, {
@@ -159,102 +184,99 @@ export function TrustPolicyDialog({
             </Select>
           </div>
 
-          <PolicySwitch
-            label={t`自动接收`}
-            description={t`启用后，符合策略的入站文件会直接进入收件箱`}
-            checked={policy.autoAccept}
-            disabled={autoAcceptDisabled}
-            onCheckedChange={(checked) =>
-              setPolicy((current) => ({
-                ...current,
-                autoAccept: checked,
-                requireConfirmation: !checked,
-              }))
-            }
-          />
+          {/* 已配对设备恒带策略（`PairedDeviceInfo::new` 就给了一份）。null 只可能来自
+              尚未配对的条目——本对话框不为它们打开，这层守卫是为了不再需要一份
+              「策略缺失时用什么」的前端默认表。 */}
+          {policy && (
+            <>
+            <PolicySwitch
+              label={t`自动接收`}
+              description={t`启用后，符合策略的入站文件会直接进入收件箱`}
+              checked={policy.autoAccept}
+              disabled={autoAcceptDisabled}
+              onCheckedChange={(checked) =>
+                patchPolicy({
+                  autoAccept: checked,
+                  requireConfirmation: !checked,
+                })
+              }
+            />
 
-          <PolicySwitch
-            label={t`允许文件夹`}
-            description={t`关闭后，包含子路径的传输会被策略拒绝`}
-            checked={policy.allowDirectories}
-            disabled={trustLevel === "blocked"}
-            onCheckedChange={(checked) =>
-              setPolicy((current) => ({
-                ...current,
-                allowDirectories: checked,
-              }))
-            }
-          />
+            <PolicySwitch
+              label={t`允许文件夹`}
+              description={t`关闭后，包含子路径的传输会被策略拒绝`}
+              checked={policy.allowDirectories}
+              disabled={trustLevel === "blocked"}
+              onCheckedChange={(checked) =>
+                patchPolicy({ allowDirectories: checked })
+              }
+            />
 
-          <PolicySwitch
-            label={t`允许中继自动接收`}
-            description={t`关闭后，通过中继连接的传输仍需手动确认`}
-            checked={policy.allowRelayAutoAccept}
-            disabled={!policy.autoAccept || trustLevel === "blocked"}
-            onCheckedChange={(checked) =>
-              setPolicy((current) => ({
-                ...current,
-                allowRelayAutoAccept: checked,
-              }))
-            }
-          />
+            <PolicySwitch
+              label={t`允许中继自动接收`}
+              description={t`关闭后，通过中继连接的传输仍需手动确认`}
+              checked={policy.allowRelayAutoAccept}
+              disabled={!policy.autoAccept || trustLevel === "blocked"}
+              onCheckedChange={(checked) =>
+                patchPolicy({ allowRelayAutoAccept: checked })
+              }
+            />
 
-          <PolicySwitch
-            label={t`允许 MCP/AI 代收`}
-            description={t`允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响`}
-            checked={policy.allowMcpAcceptFromDevice ?? false}
-            disabled={trustLevel === "blocked"}
-            onCheckedChange={(checked) =>
-              setPolicy((current) => ({
-                ...current,
-                allowMcpAcceptFromDevice: checked,
-              }))
-            }
-          />
+            <PolicySwitch
+              label={t`允许 MCP/AI 代收`}
+              description={t`允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响`}
+              checked={policy.allowMcpAcceptFromDevice ?? false}
+              disabled={trustLevel === "blocked"}
+              onCheckedChange={(checked) =>
+                patchPolicy({ allowMcpAcceptFromDevice: checked })
+              }
+            />
 
-          <div className="grid gap-2">
-            <Label htmlFor="trust-policy-limit">
-              <Trans>大小上限</Trans>
-            </Label>
-            <div className="flex items-center gap-2">
-              <Input
-                id="trust-policy-limit"
-                inputMode="numeric"
-                value={limitMb}
-                placeholder={t`不限制`}
-                aria-invalid={limitInvalid}
-                disabled={trustLevel === "blocked"}
-                onChange={(event) => setLimitMb(event.target.value)}
-              />
-              <span className="shrink-0 text-xs text-muted-foreground">MB</span>
+            <div className="grid gap-2">
+              <Label htmlFor="trust-policy-limit">
+                <Trans>大小上限</Trans>
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="trust-policy-limit"
+                  inputMode="numeric"
+                  value={limitMb}
+                  placeholder={t`不限制`}
+                  aria-invalid={limitInvalid}
+                  disabled={trustLevel === "blocked"}
+                  onChange={(event) => setLimitMb(event.target.value)}
+                />
+                <span className="shrink-0 text-xs text-muted-foreground">MB</span>
+              </div>
+              {limitInvalid ? (
+                <span className="text-xs text-destructive">
+                  <Trans>请输入大于 0 的数字，留空表示不限制</Trans>
+                </span>
+              ) : null}
             </div>
-            {limitInvalid ? (
-              <span className="text-xs text-destructive">
-                <Trans>请输入大于 0 的数字，留空表示不限制</Trans>
-              </span>
-            ) : null}
-          </div>
 
-          <div className="grid gap-2">
-            <Label>
-              <Trans>自动接收位置</Trans>
-            </Label>
-            <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border px-3 py-2">
-              <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                {policy.defaultSaveLocation || t`未设置`}
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={chooseDefaultSaveLocation}
-                disabled={trustLevel === "blocked"}
-              >
-                <Trans>选择</Trans>
-              </Button>
+            <div className="grid gap-2">
+              <Label>
+                <Trans>自动接收位置</Trans>
+              </Label>
+              <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border px-3 py-2">
+                <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                  {policy.defaultSaveLocation || t`未设置`}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={chooseDefaultSaveLocation}
+                  disabled={trustLevel === "blocked"}
+                >
+                  <Trans>选择</Trans>
+                </Button>
+              </div>
             </div>
-          </div>
+            </>
+          )}
         </div>
 
         <DialogFooter>
@@ -300,77 +322,6 @@ function PolicySwitch({
       />
     </div>
   );
-}
-
-function normalizePolicy(device: Device): DeviceReceivePolicy {
-  return {
-    ...defaultPolicyForTrust(device.trustLevel ?? "collaborator"),
-    ...device.receivePolicy,
-    saveBehavior: "inbox_and_default_save_location",
-  };
-}
-
-function defaultPolicyForTrust(
-  trustLevel: DeviceTrustLevel,
-  previous?: DeviceReceivePolicy,
-): DeviceReceivePolicy {
-  const defaultSaveLocation = previous?.defaultSaveLocation ?? null;
-  // 代收授权是用户显式动作，切换信任级别时保留上次的选择（阻止级别强制关）。
-  const allowMcpAcceptFromDevice = previous?.allowMcpAcceptFromDevice ?? false;
-  if (trustLevel === "owned") {
-    return {
-      autoAccept: true,
-      requireConfirmation: false,
-      maxTransferBytes: null,
-      allowDirectories: true,
-      allowRelayAutoAccept: true,
-      saveBehavior: "inbox_and_default_save_location",
-      defaultSaveLocation,
-      allowMcpSendToDevice: true,
-      allowMcpAcceptFromDevice,
-      expiresAt: null,
-    };
-  }
-  if (trustLevel === "temporary") {
-    return {
-      autoAccept: false,
-      requireConfirmation: true,
-      maxTransferBytes: 512 * 1024 * 1024,
-      allowDirectories: false,
-      allowRelayAutoAccept: false,
-      saveBehavior: "inbox_and_default_save_location",
-      defaultSaveLocation,
-      allowMcpSendToDevice: false,
-      allowMcpAcceptFromDevice,
-      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-    };
-  }
-  if (trustLevel === "blocked") {
-    return {
-      autoAccept: false,
-      requireConfirmation: false,
-      maxTransferBytes: 0,
-      allowDirectories: false,
-      allowRelayAutoAccept: false,
-      saveBehavior: "inbox_and_default_save_location",
-      defaultSaveLocation: null,
-      allowMcpSendToDevice: false,
-      allowMcpAcceptFromDevice: false,
-      expiresAt: null,
-    };
-  }
-  return {
-    autoAccept: false,
-    requireConfirmation: true,
-    maxTransferBytes: null,
-    allowDirectories: true,
-    allowRelayAutoAccept: false,
-    saveBehavior: "inbox_and_default_save_location",
-    defaultSaveLocation,
-    allowMcpSendToDevice: false,
-    allowMcpAcceptFromDevice,
-    expiresAt: null,
-  };
 }
 
 export function trustConfig(trustLevel: DeviceTrustLevel) {

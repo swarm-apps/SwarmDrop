@@ -35,6 +35,45 @@
 
 **相关文件**：`src/index.css`、`src/components/layout/app-topbar.tsx`
 
+### fumadocs 的 `--color-fd-muted-foreground` 在亮色下过不了 AA（2026-08-06 实测）
+
+文档站（含官网首页）的次级文字用 fumadocs 自带的 `--color-fd-muted-foreground`，亮色是
+`#737373`，落在页面底色 `#f5f5f5` 上实测 **4.35:1**——低于 WCAG AA 的 4.5，而 PRODUCT.md
+把 AA 写成了本项目的标准。**暗色那侧没问题**（`#b3b3b3cc` on `#121212` = 8.93:1），
+所以这是个单侧缺陷，只看暗色截图永远发现不了。
+
+这与 `global.css` 里记的「应用区不跟 fumadocs token」是同一个根因的两面：那套值服务的是
+长文阅读，拿来当界面文字就贴着线走。应用区已经换成自己的一套（muted 在卡片内 4.74），
+文档区仍在用 fumadocs 的。
+
+**正确做法**：覆盖变量，而不是逐个换 class——`text-fd-muted-foreground` 编译成
+`color: var(--color-fd-muted-foreground)`，覆盖一次所有用到它的地方一起跟上，将来新增的
+段落也自动落在合规值上：
+
+```css
+html:not(.dark) {
+  --color-fd-muted-foreground: #6a6a6a; /* on #f5f5f5 = 4.75 · on #f1f1f1 = 4.64 */
+}
+```
+
+**作用域是整站**（2026-08-06 从只覆盖首页扩到根）。一开始只挂在 `[data-swarmdrop-home]` 上，
+理由是「动整站观感属于另一件事」——但那个数在文档区同样是 4.35，缺陷本来就是全站的；
+两处用不同的灰还会让首页与文档之间出现说不出理由的色差。
+
+**量的时候注意两件事**，两条都真的把人骗过：
+
+1. **`getComputedStyle().color` 不含元素自身的 `opacity`。** 首页收尾那条品牌色带上，
+   正文满强度是 4.98，加了 `opacity-80` 之后是 **4.08**——按 computed color 量会显示合格。
+   要把祖先链上的 opacity 连乘进去再合成。
+2. **现代浏览器会返回 `oklab(...)` / `color(...)`。** 拿正则抠三个数会得到 oklab 分量，
+   算出来的对比度纯属虚构（实测把一条 4.98 报成 1.4）。可靠做法是画进 1×1 canvas
+   再 `getImageData` 读回 sRGB。
+
+**推论**：实心品牌青绿底上没有「淡一点」的余地——deep ink on teal 满强度就是 ~5.0，
+那是全部余量。层次靠字号和字重给，不要靠不透明度。
+
+**相关文件**：`docs/app/global.css`、`docs/app/(home)/page.tsx`
+
 ### 连接类型徽章三色保持语义可辨
 
 设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=green、打洞=sky、中继=amber。品牌主色现在也是青绿色，任何新的 success/online 语义用法都要先确认与 `text-brand` / `bg-primary` 拉得开距离；赤铜只留给 logo/品牌小点缀，不参与状态编码。
@@ -50,6 +89,7 @@
 - 顶栏组件需要给左侧留约 70-80px 给红绿灯占位（仅 macOS）
 - 自定义顶栏可以横跨整个窗口宽度，不要尝试绘制原生标题
 - Windows 端不走 Overlay，顶栏布局要兼容两种平台（用 `cfg!()` 等价的前端判断 + Tauri OS plugin）
+- 任何隐藏 `AppTopBar` 的布局（如 onboarding）也必须自行提供顶栏：macOS 留原生红绿灯和拖拽区，Windows/Linux 用一个右侧 `flex` 容器包裹并复用 `WindowControls`（它返回多个同级元素），否则 `justify-between` 会把每个控制按钮拉散；缺少这层 chrome 时，`set_decorations(false)` 后窗口也无法拖动或关闭
 
 **相关文件**：`src-tauri/tauri.conf.json`、`src/components/layout/*`
 
@@ -82,6 +122,39 @@ Lingui 配置 `sourceLocale: "zh"`，意味着代码里写 `<Trans>添加设备<
 
 ja / ko / es / fr / de 是规划目标，**当前实际只有 zh / zh-TW / en**（见 `lingui.config.ts` 与 `src/locales/`）。加新语言前先确认 Aurora / 字体 fallback 等下游是否准备好。
 
+### 共享组件包里的 `<Trans>` 要靠 `include` 才提取得到（2026-08-06）
+
+`packages/file-browser`（桌面 + Web 共用的 React DOM 组件）**组件内联 `<Trans>` 与
+`useLingui()` 的 `t`**，不通过 props 接收 UI 文案——那样每个调用点都要传一遍十几条串。
+
+代价是两端的 `lingui.config.ts` 都要把它纳入 `include`，**而两份配置的 rootDir 不同**：
+
+```ts
+// 仓库根 lingui.config.ts —— rootDir 就是仓库根，**没有** `../`
+include: ["src", "packages/file-browser/src"]
+
+// docs/lingui.config.ts —— rootDir 是 docs/，所以要 `../`
+include: ["app/app", "../packages/file-browser/src"]
+```
+
+写错的表现是 `i18n:extract` **静默少提取**（不报错，只是那几条不出现），第一次踩的就是在根
+配置里照抄了 `../`。
+
+同一句话在两端的 `.po` 里各存一份。这不是重复劳动，是「三端 catalog 独立」这条既定约定的
+必然结果——给这个包单独一份 catalog 意味着各端运行时要加载并管理第二个 i18n 实例。
+
+### `t` 不能当形参往纯函数里传（移动端踩的，但三端同理）
+
+`function statusText(status, t) { return t\`已完成\` }` 看起来在国际化，实际一条都提取不到：
+babel 宏认的是**词法作用域**里的 `const { t } = useLingui()`，`t` 一旦变成形参，模板串就只是
+个普通模板串。catalog 里没有对应 msgid，运行时回落到 msgid 本身——于是英文界面上原样显示中文。
+
+**这个失败模式完全静默**：typecheck 过、lint 过、`i18n:extract` 也不报错（它根本没看见）。
+
+**正确做法**：模块级 `Record<K, MessageDescriptor>` 存 `` msg`…` ``，组件里 `t(TABLE[key])`
+展开。三端同一个写法（`src/components/.../transfer-labels`、Web 的 `_lib/view-types.ts`、
+移动的 `file-row.tsx`）。
+
 ## Zustand selector 与派生数组
 
 ### filter / map 派生值必须套 useShallow
@@ -98,6 +171,31 @@ const nearbyDevices = useNetworkStore(
 ```
 
 **相关文件**：`src/routes/_app/devices/-components/add-device-menu.tsx`、项目里其他 selectors 见 `src/stores/`
+
+### 渲染期现算的「时间派生状态」会被 React bailout 冻住（倒计时过期态不出现）
+
+`useCountdown` 曾把 `isExpired` 写成渲染期现算的 `Date.now() >= expiresMs`，而重渲染的唯一
+驱动是 `setInterval` 里的 `setRemainingSeconds(...)`。**剩余秒数归零后每秒都 set 相同的 `0`，
+React bailout 不再重渲染**，于是现算的 `isExpired` 永远停在过期前那次快照上——配对页卡在
+「将在 0:00 后过期」，过期覆盖层永远不出现（2026-07 起 `pnpm tauri dev` 实机验证抓到；
+单测和 tsc 都测不出来，因为它只在「定时器仍在跑但值不再变化」这个时间窗里暴露）。
+
+**正确做法**：凡是随时间翻转的派生布尔值（过期、超时、冷却结束），**跟随驱动重渲染的那份
+state 一起写进 state**，不要在渲染期现算：
+
+```ts
+const update = () => {
+  const remainingMs = expiresMs - Date.now();
+  const next = { remainingSeconds: Math.max(0, Math.floor(remainingMs / 1000)), isExpired: remainingMs <= 0 };
+  setState((prev) =>
+    prev.remainingSeconds === next.remainingSeconds && prev.isExpired === next.isExpired ? prev : next,
+  );
+};
+```
+
+值不变时**返回同一份引用**让 bailout 继续生效（过期后定时器照跑，但不空转重渲）。
+
+**相关文件**：`src/hooks/use-countdown.ts`
 
 ### 弹窗 seeding effect 别依赖整个 store 对象（否则弹窗内改 store 会冲掉编辑态）
 
@@ -119,7 +217,36 @@ const nearbyDevices = useNetworkStore(
 `swarmdrop-invite::qr` 统一生成（桌面/web `InviteQr` 组件消费 SVG、RN 消费矩阵用
 react-native-svg 画 `<Rect>`），配色固化在渲染端，不接主题 token。
 
-**相关文件**：`src/components/pairing/invite-qr.tsx`、`mobile/src/components/pairing/invite-qr.tsx`
+### 白卡里的一切文字/图标色也必须固化，不能用主题 token
+
+白卡是「主题真空区」：`text-muted-foreground` / `text-foreground` 在暗色主题下会翻成浅灰
+或近白，压在**固定白底**上直接不可读。码面上的覆盖层文案、图标、按钮一律写死
+（桌面 `text-slate-700` / `bg-slate-900`，RN 同款 slate；错误态用 `red-600`，不要用
+`--destructive`——它在暗色下会被提亮，白底对比只剩 ~4:1）。
+
+**相关文件**：`src/components/pairing/invite-qr.tsx`（`QrOverlay`）、
+`mobile/src/components/pairing/invite-qr.tsx`
+
+### 码位状态用覆盖层，不替换整块内容
+
+「节点未启动 / 生成中 / 已过期 / 渲染失败」四态都以覆盖层压在码面上（码本体降到
+`opacity-[0.14]`），**不要**用状态文案把 `<InviteQr>` 整个换掉：换掉会让面板高度跳变，
+而且「过期」被渲染成一个转圈 spinner 时，用户读到的是「还在加载」——这正是改造前的
+真实缺陷。组件对外只暴露 `overlay?: { kind, message, action? }`，状态判定留在页面侧。
+
+加载态用**三枚定位角轮廓的 QR 骨架**而不是居中 spinner（product register：内容区
+loading 用骨架镜像真实布局）。
+
+**相关文件**：`src/components/pairing/invite-qr.tsx`、`src/routes/_app/pairing/generate.lazy.tsx`
+（`qrOverlay` 优先级：节点不可用 > 生成失败 > 已过期）、`src/components/pairing/invite-qr.test.tsx`
+
+### 配对两屏是「同一屏的两个方向」，切换挂在 TaskToolbar 的 trailing
+
+`/pairing/generate`（展示邀请）与 `/pairing/input`（粘贴邀请）共用标题「添加设备」，
+右上角挂 `PairingModeTabs` 互切，不必退回设备页再选另一个入口。两屏右栏都用
+`PairingSteps`（编号步骤）承载「对方要做什么」——编号在这里是真实顺序，不是装饰性分节标记。
+
+**相关文件**：`src/components/pairing/pairing-mode-tabs.tsx`、`src/components/pairing/pairing-steps.tsx`
 
 ## 暗色主题背景
 
@@ -198,6 +325,40 @@ react-native-svg 画 `<Rect>`），配色固化在渲染端，不接主题 token
 
 **相关文件**：`src/components/layout/master-detail-shell.tsx`（含 `SlideDrawer`）、`src/routes/_app/inbox/index.lazy.tsx`、`src/routes/_app/transfer/index.lazy.tsx`、`src/routes/_app/send/index.lazy.tsx`、`src/routes/_app/send/share-target.lazy.tsx`、`src/components/transfer/transfer-offer-dialog.tsx`、`src/hooks/use-media-query.ts`
 
+## ⚠️ `min-h-full` 不能烤进容器原语——同栏放第二块就溢出（2026-08-05 实测）
+
+`SectionShell`（`src/components/layout/section-primitives.tsx`）曾经带 `min-h-full`，
+用意是「让独占一栏的面板把玻璃铺到栏底」。**这个用意对，位置错**：
+`min-height: 100%` 解析的是父栏高度，于是**每一个**面板都要求整栏那么高。
+
+设备页左栏正好放了两块（已配对设备 + 活跃传输），实测：
+
+```
+网格行 = 1468px（按右栏内容定高）
+两个面板各 min-height:1468 + gap 20 = 2956
+→ 左栏 clientHeight 1468 / scrollHeight 2956，溢出 1488px
+```
+
+`overflow: visible` 让它们一路画到网格 `py-5` 的底部内边距之外、也画到滚动容器之外——
+**表现是「滚到最底下卡片贴着窗口边、像漏了 padding」**，而 padding 明明写着。
+
+**正确做法**：容器原语只管材质与内距（`glass-panel flex flex-col gap-4 rounded-[24px] p-4`）；
+需要铺满整栏的调用点自己写 `className="flex-1"`——在定高的 flex 列里它表达「分配剩余空间」，
+两个都写只是平分，不会各要 100%。
+
+**排查手法**（贴底类问题通用）：在 webview 里对每个滚动容器量
+`scrollHeight - clientHeight`，再看**最低的、画了背景/边框的后代**离容器底多远。
+直接量「容器底 − 直接子元素底」会误报：`TaskContent` 那种把 padding 放在内层 wrapper 的形态
+本来就是 0，而真正的内容还在 wrapper 的 padding 之内。
+
+**顺带排除的两个猜想**（都不成立，别再往这两个方向查）：
+- WKWebView 不是不认滚动容器的 `padding-bottom`——块级 / flex 列 / flex+gap / grid 四种形态实测都正确计入。
+- 也不是某个页面漏写 padding：全路由扫下来只有设备页有问题，其余（设置 / 配对生成 / TaskContent 系）
+  滚到底都稳定留 20px。
+
+**相关文件**：`src/components/layout/section-primitives.tsx`、
+`src/routes/_app/devices/-components/add-device-section.tsx`（`flex-1` 的调用点）
+
 ## 设置页（settings）布局与基元
 
 ### 设置页统一走「Section → Card → Row」基元 + bento 卡片网格
@@ -264,3 +425,64 @@ react-native-svg 画 `<Rect>`），配色固化在渲染端，不接主题 token
 **两个分组弹窗共用同一"分组区"骨架**：管理分组弹窗（`DeviceGroupsDialog`，可排序列表）和单设备别名弹窗（`DeviceOrganizationDialog`，多选归属 pill）都把分组内容放进**同款 recessed 容器**（`rounded-[16px] border border-border/60 bg-muted/20 dark:bg-white/[0.02]`）+ 下方一条"创建行"（`Input` + `variant="outline"` 的 `＋新建` 按钮，`disabled={!newGroup.trim()}` 门控）。pill 未选态用 `bg-background` + hairline，选中态 `bg-primary/10 text-brand border-primary/30` + `Check`——两弹窗视觉权重同源。新增同类"分组/标签选择"区沿用这套骨架，不要各画各的。
 
 **相关文件**：`src/routes/_app/devices/-components/device-organization-dialogs.tsx`（`DeviceGroupsDialog` / `SortableGroupRow` / `GroupRowPreview` / `restrictToVerticalAxis` / `DeviceOrganizationDialog`）
+
+## 剪贴板：桌面端读写都走 Tauri 插件，不用 navigator.clipboard
+
+桌面 Tauri WebView 里调 `navigator.clipboard.writeText` 会弹**浏览器权限申请**（"允许访问剪贴板？"），在原生 app 里体验很怪异。读同样不能用 WebView API（见下方「曾经的例外」）。
+
+**正确做法**：读写都走 `src/lib/clipboard.ts` 的 `copyText()` / `readText()`（封装 `@tauri-apps/plugin-clipboard-manager`）——原生系统剪贴板、零提示。`pnpm check:clipboard` 机器拦住绕过封装的写法（`scripts/check-clipboard-access.mjs`，只扫仓库根 `src/`）。
+
+**四处装配缺一不可**：
+- `src-tauri/Cargo.toml`：`tauri-plugin-clipboard-manager = "2"`
+- `src-tauri/src/setup.rs` 的 `register_plugins`：`.plugin(tauri_plugin_clipboard_manager::init())`
+- `src-tauri/capabilities/default.json`：`"clipboard-manager:allow-write-text"` **和** `"clipboard-manager:allow-read-text"`（**只加了插件不加 capability，运行时 invoke 会被拒**）
+- 前端：`package.json` 的 `@tauri-apps/plugin-clipboard-manager` + `pnpm install`
+
+**`readText()` 的错误不可归因**：剪贴板为空、内容非文本、权限缺失都 reject 且无法区分（插件底层是 arboard 的 `ContentNotAvailable`）。调用方一律按「读不到」处理，不要据此推断原因。
+
+**曾经的例外（2026-07-30 推翻，教训值得留着）**：这里原先写着「读剪贴板是例外，`use-clipboard-invite.ts` 故意用 `navigator.clipboard.readText()`，因为桌面 WebView 读剪贴板无系统提示，切插件还要多申请一个权限」。
+
+那条理由站不住，而且**它的错法很典型**：
+
+- `readText()` 在 WKWebView / WebKitGTK 上通常要求 transient activation，而该 hook 是在 `window` 的 `focus` 事件里调的 —— **focus 不构成用户手势**。
+- 而调用点写的是 `catch { return }`，把失败和「剪贴板本来就没内容」压成同一个静默分支。于是「这个功能在某个平台从来没生效过」不会产生任何信号，假设也就永远不会被证伪。
+
+**教训**：静默 catch + 未经实测的平台行为假设 = 一条能在知识库里活很久的错误记录。增强型功能失败时可以不打扰用户，但**必须留一条 debug 痕迹**，否则它坏没坏你都不知道。
+
+**相关文件**：`src/lib/clipboard.ts`、`src/hooks/use-clipboard-invite.ts`、`scripts/check-clipboard-access.mjs`、用到 `copyText` 的 `-device-info-section.tsx` / `-mcp-section.tsx` / `pairing/generate.lazy.tsx` / `inbox/index.lazy.tsx` / `network/lan-helper-address.tsx` / `-bootstrap-nodes-section.tsx`
+
+### 展示地址的块要么可复制、要么别长得像可点（2026-08-06）
+
+设置页原有三处 multiaddr 展示，形态几乎一样（等宽灰色长地址 + 圆角边框块），但**只有两处接了
+onClick**（局域网协助地址、设备信息 Peer ID），引导节点那两张卡是纯 `<div>`。于是用户点了没反应，
+第一反应是「复制功能坏了」——而排查要跨 clipboard 插件注册 / capability / Toaster 挂载三层，
+才能确认真相是「那里从来没接过交互」。**同页同形不同命，是最贵的一类 UI 缺陷。**
+
+**正确做法**：
+- 新增地址 / ID 展示块时直接沿用 `LanHelperAddress` 的形态：`<button>` + 右侧 `Copy` 图标 +
+  `hover:bg-accent/40` + toast。别自己画一个只读的。
+- **屏幕上显示截断值时，`copyText` 与 `title` 都必须给完整值**。`truncateAddr()` 的产物中间被
+  省略号吃掉一段，复制出去是一条**写错的** multiaddr；外层 `truncate` 还会再截一次，两重遮蔽下
+  UI 上根本拿不到原值（引导节点那两条此前就是这样，用户没有任何途径拿到完整地址）。
+- 行内已有别的按钮（如删除）时，只把地址本身包成 button——嵌套 `<button>` 非法。
+- button 的 cursor 全项目统一是 `default`（Tailwind v4 preflight 基线，项目未覆盖），
+  别单独给某一处加 `cursor-pointer`；可点性靠 hover 背景 + `Copy` 图标表达。
+
+**不要做**：
+- `copyText(x).then(onOk)` 不接错误分支。reject 时按钮不变态、toast 不弹，**现象和「压根没接
+  onClick」完全一样**，比本文件上面记的静默 catch 更难查。用 `.then(ok, err)` 而不是
+  `.then(ok).catch(err)`——后者会把 `onOk` 内部抛的错也吞成「复制失败」，误报。
+
+**待办（未做）**：设置页三处 multiaddr 展示可抽成一个 `<CopyableAddress>`，根除「有的能点有的不能点」。
+同理 6 处 `copyText` 调用点可抽 `useCopyToClipboard`，但各处行为差异真实（有的带 `copied` 态 +
+timeout，有的只 toast），需先统一语义再抽。
+
+**相关文件**：`src/routes/_app/settings/-bootstrap-nodes-section.tsx`（`handleCopyAddr`）、`src/components/network/lan-helper-address.tsx`（形态样板）
+
+## LAN 协助地址展示：数据源是 networkStatus.lanHelperAdvertisedAddrs，需自己拼 /p2p/<peerId>
+
+「浏览器快速连接本机」的 ws 地址来自 `networkStatus.lanHelperAdvertisedAddrs`（后端 `crates/core/src/network/manager.rs` 仅在 `provide_lan_helper` 开启时填充为私网监听地址）。这些是**裸监听地址、不含 `/p2p/` 段**，`reserve()` / `connect()` 都要求带 `/p2p/<id>`，故前端 `useLanHelperAddresses` 要 `.filter(a => a.includes("/ws")).map(a => \`${a}/p2p/${peerId}\`)`。
+
+**Zustand 派生别踩坑**：selector 只取稳定的 `s.networkStatus` 引用，`filter/map` 放 `useMemo` 里——直接在 selector 里派生数组每次返回新引用会无限 re-render（见本文件「Zustand selector 与派生数组」）。
+
+**相关文件**：`src/components/network/lan-helper-address.tsx`（`LanHelperAddress` + `useLanHelperAddresses`），装配在 `stop-node-sheet.tsx`（首页状态弹窗）和 `settings/-network-settings-section.tsx`

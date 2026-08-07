@@ -1,0 +1,1888 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-08-03 13:56+0900\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: en\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
+
+#: app/app/_components/node-panel.tsx
+msgid "· 刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
+msgstr "· Survives a page refresh. Clearing browser data gives this device a new identity, and paired devices will need to pair again."
+
+#: app/app/_components/node-panel.tsx
+msgid "（浏览器默认）"
+msgstr "(browser default)"
+
+#: app/app/_components/send-panel.tsx
+msgid "（离线）"
+msgstr " (offline)"
+
+#. placeholder {0}: Math.floor(elapsed / MINUTE)
+#: app/app/_components/relative-time.tsx
+msgid "{0, plural, other {# 分钟前}}"
+msgstr "{0, plural, one {# minute ago} other {# minutes ago}}"
+
+#. placeholder {0}: Math.floor(elapsed / DAY)
+#: app/app/_components/relative-time.tsx
+msgid "{0, plural, other {# 天前}}"
+msgstr "{0, plural, one {# day ago} other {# days ago}}"
+
+#. placeholder {0}: Math.floor(elapsed / HOUR)
+#: app/app/_components/relative-time.tsx
+msgid "{0, plural, other {# 小时前}}"
+msgstr "{0, plural, one {# hour ago} other {# hours ago}}"
+
+#. placeholder {0}: offerList.length
+#: app/app/_components/incoming-offers-panel.tsx
+msgid "{0} 个待处理"
+msgstr "{0} pending"
+
+#. placeholder {0}: devices.length
+#: app/app/_components/node-status-dialog.tsx
+msgid "{0} 台 · 在线 {onlineCount}"
+msgstr "{0} paired · {onlineCount} online"
+
+#. placeholder {0}: memberCount[group.id] ?? 0
+#: app/app/_components/group-manager-dialog.tsx
+msgid "{0} 台设备"
+msgstr "{0} devices"
+
+#. placeholder {0}: item.name
+#: ../packages/file-browser/src/file-row.tsx
+msgid "{0} 的进度"
+msgstr "Progress of {0}"
+
+#. placeholder {0}: node.fileCount
+#: ../packages/file-browser/src/folder-row.tsx
+msgid "{0} 项"
+msgstr "{0} items"
+
+#. placeholder {0}: items.length
+#. placeholder {1}: formatFileSize(totalSize)
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "{0} 项 · {1}"
+msgstr "{0} items · {1}"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "{activeRelayCount} 条可达"
+msgstr "{activeRelayCount} reachable"
+
+#. placeholder {0}: minutes % 60
+#: app/app/_components/node-status-dialog.tsx
+msgid "{hours} 小时 {0} 分钟"
+msgstr "{hours}h {0}m"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "{label}，点开查看详情"
+msgstr "{label}. Open for details"
+
+#: app/app/_lib/invite.ts
+msgid "{left}后失效"
+msgstr "expires in {left}"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "{minutes} 分钟"
+msgstr "{minutes} min"
+
+#: app/app/_lib/view-types.ts
+msgid "{title} 等 {itemCount} 个文件"
+msgstr "{title} and {itemCount} files"
+
+#. placeholder {0}: organizedDeviceName(device, organization)
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "「{0}」发来的文件按这里的设定处置。 策略只保存在本机，对方看不到。"
+msgstr "Files from “{0}” are handled according to these settings. The policy stays on this device — the other side never sees it."
+
+#. placeholder {0}: failure.fileName
+#: app/app/_lib/view-types.ts
+msgid "「{0}」没能完整保存，请重新接收"
+msgstr "“{0}” wasn’t saved completely. Please receive it again."
+
+#. placeholder {0}: current?.deviceName
+#: app/app/_components/pairing-request-host.tsx
+msgid "<0>{0}</0> 想与这台设备配对"
+msgstr "<0>{0}</0> wants to pair with this device"
+
+#. placeholder {0}: current?.deviceName
+#. placeholder {0}: offer.deviceName
+#. placeholder {1}: files.length
+#. placeholder {1}: offer.files.length
+#. placeholder {2}: formatFileSize(current?.totalSize ?? 0)
+#. placeholder {2}: formatFileSize(offer.totalSize)
+#: app/app/_components/incoming-offers-panel.tsx
+#: app/app/_components/transfer-offer-host.tsx
+msgid "<0>{0}</0> 想发送 {1} 个文件（{2}）"
+msgstr "<0>{0}</0> wants to send {1} file(s) ({2})"
+
+#: app/app/_components/connection-panel.tsx
+msgid "<0>生成邀请</0> 时会写进邀请里"
+msgstr "Written into the invite when you <0>generate one</0>"
+
+#: app/app/_lib/view-types.ts
+msgid "AI 代理"
+msgstr "AI agent"
+
+#: app/app/_components/about-panel.tsx
+msgid "AI 原生 · MCP"
+msgstr "AI-native · MCP"
+
+#: app/app/_components/invite-share.tsx
+msgid "circuit 已撤销，对方扫这个码也拨不回来。重新建立可达后请重新生成。"
+msgstr "The circuit was dropped, so scanning this code can no longer reach you. Re-establish reachability, then generate a new invite."
+
+#: app/app/_lib/store.ts
+msgid "localStorage（Window 主线程）"
+msgstr "localStorage (main window thread)"
+
+#: app/app/_components/app-nav.tsx
+msgid "SwarmDrop 官网首页"
+msgstr "SwarmDrop home"
+
+#: app/app/_components/invite-share.tsx
+msgid "一条邀请只能用一次。要再连一台设备，请重新生成。"
+msgstr "An invite works only once. Generate a new one to connect another device."
+
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "下载"
+msgstr "Download"
+
+#. placeholder {0}: file.name
+#: app/app/_components/inbox-views.tsx
+msgid "下载「{0}」失败"
+msgstr "Failed to download “{0}”"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "与另一台设备互换一次邀请即可，之后长期有效。"
+msgstr "Exchange one invite with another device — the pairing then lasts."
+
+#: app/app/_components/connection-badge.tsx
+#: app/app/_components/connection-panel.tsx
+#: app/app/_components/node-status-dialog.tsx
+#: app/app/_components/transfer-labels.ts
+msgid "中继"
+msgstr "Relay"
+
+#: app/app/_components/connection-badge.tsx
+msgid "中继节点"
+msgstr "Relay node"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "中继连接也自动接收"
+msgstr "Auto-accept over relay too"
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "临时设备"
+msgstr "Temporary"
+
+#: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
+msgid "主题"
+msgstr "Theme"
+
+#: app/app/_components/send-panel.tsx
+msgid "也可以直接从 <0>设备</0> 页点某台设备的「发送」，目标会自动带过来。"
+msgstr "You can also hit “Send” on a device from the <0>Devices</0> page — the target comes along automatically."
+
+#: app/app/_components/invite-share.tsx
+msgid "二维码生成失败，请用下方链接配对"
+msgstr "Could not render the QR code — pair with the link below"
+
+#: app/app/_components/device-grid.tsx
+msgid "互换一次邀请"
+msgstr "Swap an invite once"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "仅同一网络内可用"
+msgstr "Same network only"
+
+#: app/app/_components/connection-panel.tsx
+msgid "仅在需要接入私有或备用网络时添加。"
+msgstr "Add only when you need to join a private or backup network."
+
+#: app/app/_lib/view-types.ts
+msgid "今天"
+msgstr "Today"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "会话"
+msgstr "Sessions"
+
+#: app/app/_components/connection-badge.tsx
+#: app/app/_components/transfer-activity-panel.tsx
+#: app/app/_lib/nav.ts
+msgid "传输"
+msgstr "Transfers"
+
+#: ../packages/file-browser/src/file-card.tsx
+#: app/app/_components/device-stats.tsx
+#: app/app/_components/transfer-labels.ts
+msgid "传输中"
+msgstr "Transferring"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "传输会话列表"
+msgstr "Transfer session list"
+
+#: app/app/_components/send-panel.tsx
+msgid "传输已中断"
+msgstr "Transfer interrupted"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "传输进度"
+msgstr "Transfer progress"
+
+#: app/app/_lib/view-types.ts
+msgid "传输错误"
+msgstr "Transfer error"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "但这条记录没能存进浏览器，刷新页面后需要重新配对。"
+msgstr "But this record could not be stored in the browser — you'll need to pair again after a refresh."
+
+#: app/app/_components/incoming-offers-panel.tsx
+msgid "你关掉提示后，请求会留在这里等你决定。"
+msgstr "After you dismiss the prompt, requests wait here for your decision."
+
+#: app/app/_components/connection-panel.tsx
+msgid "你的可达地址"
+msgstr "Your reachable address"
+
+#: app/app/_components/about-panel.tsx
+#: app/app/_components/rail-tools.tsx
+msgid "使用文档"
+msgstr "Documentation"
+
+#: app/app/_components/device-organization-dialog.tsx
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "保存"
+msgstr "Save"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "保存中…"
+msgstr "Saving…"
+
+#: app/app/_components/group-manager-dialog.tsx
+msgid "保存分组名"
+msgstr "Save group name"
+
+#: app/app/_lib/view-types.ts
+msgid "保存失败，浏览器存储可能已满或被拒绝"
+msgstr "Saving failed. Browser storage may be full or blocked."
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "信任策略"
+msgstr "Trust policy"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "信任级别"
+msgstr "Trust level"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "停止中…"
+msgstr "Stopping…"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "停止后会断开所有连接，进行中的传输将中断。"
+msgstr "Stopping drops every connection; transfers in flight will be interrupted."
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "停止节点"
+msgstr "Stop node"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "允许文件夹"
+msgstr "Allow folders"
+
+#: app/app/_components/device-grid.tsx
+#: app/app/_components/transfer-labels.ts
+msgid "全部"
+msgstr "All"
+
+#. placeholder {0}: files.length
+#: app/app/_components/session-title.tsx
+msgid "共 {0} 个文件"
+msgstr "{0} file(s) in total"
+
+#: app/app/_components/about-panel.tsx
+msgid "关于"
+msgstr "About"
+
+#: app/app/_components/node-status-pill.tsx
+msgid "关停中"
+msgstr "stopping"
+
+#: app/app/_components/transfer-offer-host.tsx
+msgid "关掉这个窗口不会拒绝——请求会留在收件箱等你决定。"
+msgstr "Closing this does not decline it — the request waits in your inbox."
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "关闭后只接收单个文件，不接收整个目录。"
+msgstr "Off means single files only — whole directories are refused."
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "关闭后经中继来的传输一律要确认，即使开了自动接收。"
+msgstr "Off means relayed transfers always ask, even with auto-accept on."
+
+#: app/app/_components/inbox-views.tsx
+#~ msgid "准备中…"
+#~ msgstr "Preparing…"
+
+#: app/app/_components/send-panel.tsx
+msgid "准备文件的进度"
+msgstr "File preparation progress"
+
+#: app/app/_components/device-organization-dialog.tsx
+msgid "分组"
+msgstr "Groups"
+
+#: app/app/_components/group-manager-dialog.tsx
+msgid "分组只保存在这台设备上，不会同步给对方，也不影响传输。"
+msgstr "Groups stay on this device. They are not shared with peers and do not affect transfers."
+
+#: app/app/_components/group-manager-dialog.tsx
+msgid "分组名"
+msgstr "Group name"
+
+#: app/app/_components/relative-time.tsx
+msgid "刚刚"
+msgstr "Just now"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "刚刚启动"
+msgstr "Just started"
+
+#. placeholder {0}: group.name
+#: app/app/_components/group-manager-dialog.tsx
+msgid "删掉「{0}」？设备不受影响，只是不再归在这一组里。"
+msgstr "Delete “{0}”? Devices are unaffected — they just stop belonging to this group."
+
+#: app/app/_components/group-manager-dialog.tsx
+#: app/app/_components/inbox-views.tsx
+#: app/app/_components/transfer-detail.tsx
+msgid "删除"
+msgstr "Delete"
+
+#. placeholder {0}: group.name
+#: app/app/_components/group-manager-dialog.tsx
+msgid "删除「{0}」"
+msgstr "Delete “{0}”"
+
+#: app/app/_components/inbox-views.tsx
+#: app/app/_components/transfer-detail.tsx
+msgid "删除中"
+msgstr "Deleting"
+
+#: app/app/_components/inbox-views.tsx
+msgid "删除这条记录和浏览器里保存的文件；已下载到本机的副本不受影响"
+msgstr "Deletes this record and the copy stored in your browser; files you already downloaded are unaffected"
+
+#: app/app/_components/device-organization-dialog.tsx
+msgid "别名"
+msgstr "Alias"
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/device-organization-dialog.tsx
+msgid "别名与分组"
+msgstr "Alias and groups"
+
+#: app/app/_components/device-organization-dialog.tsx
+msgid "别名与分组只保存在本机，不会同步给对方，也不会改变对方看到的设备名。"
+msgstr "Aliases and groups stay on this device. They are never synced to the other side, and they do not change the name that device shows others."
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "到设备页点某台在线设备的「发送」，传输开始后会实时出现在这里。"
+msgstr "Hit Send on an online device, and the transfer shows up here live."
+
+#: app/app/_components/pairing-panel.tsx
+msgid "刷新页面后它可能恢复可用，建议稍后再撤销一次。"
+msgstr "It may come back after a page refresh — revoke it again later."
+
+#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
+msgid "刷新页面后需要重新配对。"
+msgstr "You'll need to pair again after refreshing the page."
+
+#: app/app/_lib/view-types.ts
+msgid "剪贴板"
+msgstr "Clipboard"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "剩余"
+msgstr "Remaining"
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "协作者"
+msgstr "Collaborator"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "单次上限（MB）"
+msgstr "Per-transfer limit (MB)"
+
+#: app/app/_components/about-panel.tsx
+msgid "去中心化、端到端加密的设备间传输。无账号、无服务器，文件不经过任何第三方。"
+msgstr "Decentralized, end-to-end encrypted transfer between your devices. No account, no server, no third party in the middle."
+
+#: app/app/_components/inbox-views.tsx
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "去设备页"
+msgstr "Go to Devices"
+
+#: app/app/_components/send-panel.tsx
+msgid "去配对设备"
+msgstr "Pair a device"
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/send-panel.tsx
+#: app/app/_components/transfer-labels.ts
+#: app/app/_lib/nav.ts
+msgid "发送"
+msgstr "Send"
+
+#: app/app/_components/send-panel.tsx
+msgid "发送中…"
+msgstr "Sending…"
+
+#: app/app/_components/send-panel.tsx
+msgid "发送失败"
+msgstr "Send failed"
+
+#: app/app/_lib/view-types.ts
+msgid "发送请求没能送达对方，请确认对方在线后重试"
+msgstr "Your request didn’t reach them. Make sure they’re online and try again."
+
+#: app/app/_components/send-panel.tsx
+msgid "发送进度"
+msgstr "Send progress"
+
+#: app/app/_components/send-panel.tsx
+msgid "发送需要先与对方配对。配对是一次性动作，配完即长期信任，之后可以直接从设备卡片发送。"
+msgstr "Sending requires pairing first. Pairing is a one-time action — afterwards you send straight from the device card."
+
+#: app/app/_components/connection-panel.tsx
+#: app/app/_components/device-organization-dialog.tsx
+#: app/app/_components/group-manager-dialog.tsx
+#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/transfer-detail.tsx
+#: app/app/_components/trust-policy-dialog.tsx
+#: app/app/_components/unpair-dialog.tsx
+msgid "取消"
+msgstr "Cancel"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "取消中"
+msgstr "Cancelling"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "取消后无法恢复"
+msgstr "Cancelling cannot be undone"
+
+#: app/app/_components/inbox-views.tsx
+msgid "取消归档"
+msgstr "Unarchive"
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/unpair-dialog.tsx
+msgid "取消配对"
+msgstr "Unpair"
+
+#: app/app/_components/unpair-dialog.tsx
+msgid "取消配对中…"
+msgstr "Unpairing…"
+
+#: app/app/_components/group-manager-dialog.tsx
+#: app/app/_components/node-panel.tsx
+msgid "取消重命名"
+msgstr "Cancel rename"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "只删这条记录，已接收的文件仍在收件箱"
+msgstr "Deletes only this record; received files stay in the inbox"
+
+#: app/app/_components/receive-panel.tsx
+msgid "只显示最近 {searchLimit} 条匹配，更早的未列出——请把关键词写得更具体。"
+msgstr "Showing only the {searchLimit} most recent matches; older ones are not listed — try a more specific search."
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "只清空已结束的记录；已接收的文件仍在收件箱，不受影响。"
+msgstr "Clears finished records only. Received files stay in the inbox, untouched."
+
+#: app/app/_components/transfer-labels.ts
+msgid "可恢复"
+msgstr "Resumable"
+
+#: app/app/_components/connection-panel.tsx
+#: app/app/_components/node-panel.tsx
+msgid "可达"
+msgstr "Reachable"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "可达地址"
+msgstr "Reachable address"
+
+#: app/app/_components/node-panel.tsx
+msgid "否"
+msgstr "No"
+
+#: app/app/_components/node-status-pill.tsx
+msgid "启动中"
+msgstr "starting"
+
+#: app/app/_components/start-node-button.tsx
+msgid "启动中…"
+msgstr "Starting…"
+
+#: app/app/_components/node-status-pill.tsx
+msgid "启动失败"
+msgstr "failed to start"
+
+#: app/app/_components/start-node-button.tsx
+msgid "启动节点"
+msgstr "Start node"
+
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "在文件夹中显示"
+msgstr "Show in Folder"
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/device-stats.tsx
+#: app/app/_components/send-panel.tsx
+msgid "在线"
+msgstr "Online"
+
+#: app/app/_components/inbox-views.tsx
+msgid "处理中"
+msgstr "Working"
+
+#: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/transfer-offer-host.tsx
+msgid "处理中…"
+msgstr "Working…"
+
+#: app/app/_components/transfer-offer-host.tsx
+msgid "处理完这条后，还有 {queued} 条请求在等待"
+msgstr "{queued} more request(s) waiting after this one"
+
+#: app/app/_components/copy-button.tsx
+msgid "复制"
+msgstr "Copy"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "复制会话 ID"
+msgstr "Copy session ID"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "复制可达地址"
+msgstr "Copy reachable address"
+
+#: app/app/_components/copy-button.tsx
+#: app/app/_components/node-panel.tsx
+#: app/app/_components/transfer-detail.tsx
+msgid "复制失败"
+msgstr "Copy failed"
+
+#: app/app/_components/connection-badge.tsx
+#: app/app/_components/invite-share.tsx
+msgid "复制失败，请手动选中"
+msgstr "Copy failed — select it manually"
+
+#: app/app/_components/node-panel.tsx
+#: app/app/_components/node-status-dialog.tsx
+msgid "复制节点 ID"
+msgstr "Copy node ID"
+
+#: app/app/_components/node-panel.tsx
+msgid "复制节点 ID：{nodeId}"
+msgstr "Copy node ID: {nodeId}"
+
+#: app/app/_components/connection-badge.tsx
+msgid "复制远端地址"
+msgstr "Copy remote address"
+
+#: app/app/_components/invite-share.tsx
+msgid "复制链接"
+msgstr "Copy link"
+
+#: app/app/_components/appearance-panel.tsx
+msgid "外观"
+msgstr "Appearance"
+
+#: app/app/_components/rail-tools.tsx
+msgid "外观与语言"
+msgstr "Appearance and language"
+
+#: app/app/_components/transfer-labels.ts
+msgid "失败"
+msgstr "Failed"
+
+#: app/app/_components/group-manager-dialog.tsx
+msgid "完成"
+msgstr "Done"
+
+#: app/app/_components/inbox-views.tsx
+msgid "对方发起传输、你接受之后，文件会落在这里，可以随时下载或归档。"
+msgstr "Once someone sends and you accept, files land here — download or archive them any time."
+
+#: app/app/_lib/view-types.ts
+msgid "对方尚未与你配对，请先完成配对后再试"
+msgstr "That device has not paired with you yet — pair first, then try again"
+
+#: app/app/_components/connection-badge.tsx
+msgid "对方就在同一网段，但直连没建起来"
+msgstr "That device is on your network, but no direct link came up"
+
+#: app/app/_lib/view-types.ts
+msgid "对方已取消这次传输，无法继续"
+msgstr "They cancelled this transfer, so it can’t continue."
+
+#: app/app/_components/send-panel.tsx
+msgid "对方已接受，正在传输"
+msgstr "Accepted — transferring"
+
+#: app/app/_lib/view-types.ts
+msgid "对方已暂停接收，请稍后再试"
+msgstr "That device has paused receiving — try again later"
+
+#: app/app/_lib/view-types.ts
+msgid "对方已经没有这次传输的记录了"
+msgstr "They no longer have a record of this transfer."
+
+#: app/app/_lib/view-types.ts
+msgid "对方拒绝了此次传输"
+msgstr "The other side declined this transfer"
+
+#: app/app/_lib/view-types.ts
+msgid "对方拒绝了这次配对"
+msgstr "They declined the pairing request"
+
+#: app/app/_components/transfer-labels.ts
+msgid "对方暂停"
+msgstr "Paused by peer"
+
+#: app/app/_lib/view-types.ts
+msgid "对方暂时不可用，请稍后再试"
+msgstr "They’re unavailable right now. Please try again later."
+
+#: app/app/_lib/view-types.ts
+msgid "对方的接收策略拒绝了此次传输"
+msgstr "The other side's receive policy rejected this transfer"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "对方的邀请链接"
+msgstr "Their invite link"
+
+#: app/app/_components/transfer-labels.ts
+msgid "对方离线"
+msgstr "Peer offline"
+
+#: app/app/_components/pairing-request-host.tsx
+msgid "对方节点 ID"
+msgstr "Their node ID"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "对方设备"
+msgstr "the other device"
+
+#: app/app/_lib/view-types.ts
+msgid "对方那边出错了，无法继续"
+msgstr "Something went wrong on their side, so it can’t continue."
+
+#: app/app/_components/node-panel.tsx
+msgid "对端在配对确认与传输请求里看到的就是这一行。清空即回落到浏览器 UA 派生的默认名 （当前是「{deviceNameFallback}」）。"
+msgstr "This is the name peers see in pairing confirmations and transfer requests. Clear it to fall back to the browser's UA-derived default (currently “{deviceNameFallback}”)."
+
+#: app/app/_components/node-panel.tsx
+msgid "对端在配对确认与传输请求里看到的就是这一行。清空即回落到浏览器 UA 派生的默认名。"
+msgstr "This is the name peers see in pairing confirmations and transfer requests. Clear it to fall back to the browser's UA-derived default."
+
+#: app/app/_components/connection-badge.tsx
+#: app/app/_components/transfer-labels.ts
+msgid "局域网"
+msgstr "LAN"
+
+#: app/app/_components/connection-panel.tsx
+msgid "局域网直连"
+msgstr "LAN direct"
+
+#: app/app/_components/transfer-labels.ts
+msgid "已中断"
+msgstr "Interrupted"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "已从剪贴板识别到一条邀请。"
+msgstr "Picked up an invite from your clipboard."
+
+#: app/app/_components/send-panel.tsx
+msgid "已发出，等待对方接受"
+msgstr "Sent — waiting for the other device to accept"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "已发出的邀请（未过期）"
+msgstr "Invites you sent (still valid)"
+
+#: app/app/_components/transfer-labels.ts
+#: app/app/_lib/view-types.ts
+msgid "已取消"
+msgstr "Cancelled"
+
+#: app/app/_components/connection-badge.tsx
+#: app/app/_components/copy-button.tsx
+#: app/app/_components/invite-share.tsx
+#: app/app/_components/transfer-detail.tsx
+msgid "已复制"
+msgstr "Copied"
+
+#: app/app/_components/node-panel.tsx
+msgid "已复制节点 ID"
+msgstr "Node ID copied"
+
+#: app/app/_components/transfer-labels.ts
+msgid "已完成"
+msgstr "Completed"
+
+#. placeholder {0}: file.name
+#: app/app/_components/receive-panel.tsx
+msgid "已开始下载 {0}"
+msgstr "Downloading {0}"
+
+#: app/app/_components/inbox-views.tsx
+msgid "已归档"
+msgstr "Archived"
+
+#: app/app/_components/connection-panel.tsx
+msgid "已恢复引导节点，正在连接…"
+msgstr "Bootstrap node restored, connecting…"
+
+#: app/app/_components/transfer-labels.ts
+msgid "已拒绝"
+msgstr "Declined"
+
+#: app/app/_components/receive-panel.tsx
+msgid "已接收"
+msgstr "Received"
+
+#: app/app/_components/send-panel.tsx
+msgid "已暂停"
+msgstr "Paused"
+
+#: app/app/_components/connection-panel.tsx
+msgid "已添加引导节点，正在连接…"
+msgstr "Bootstrap node added, connecting…"
+
+#: app/app/_components/connection-panel.tsx
+msgid "已移除引导节点"
+msgstr "Bootstrap node removed"
+
+#. placeholder {0}: decoded.displayName || t`对方设备`
+#: app/app/_components/pairing-panel.tsx
+msgid "已经和「{0}」配过对了，去「发送」页直接选它就行。"
+msgstr "You already paired with “{0}” — just pick it on the Send page."
+
+#: app/app/_components/send-panel.tsx
+#: app/app/_components/transfer-activity-panel.tsx
+#: app/app/_components/transfer-labels.ts
+msgid "已结束"
+msgstr "Finished"
+
+#: app/app/_lib/nav.ts
+msgid "已落盘的接收文件；待处理的入站请求也在这里决策。"
+msgstr "Files that finished landing on disk. Pending inbound requests are decided here too."
+
+#: app/app/_components/pairing-panel.tsx
+msgid "已被使用"
+msgstr "Used"
+
+#: app/app/_lib/invite.ts
+msgid "已过期"
+msgstr "Expired"
+
+#: app/app/_components/node-panel.tsx
+msgid "已连接"
+msgstr "Connected"
+
+#: app/app/_components/node-panel.tsx
+msgid "已连接的对端立刻就能看到新名字，不必刷新页面。"
+msgstr "Connected peers see the new name right away — no need to reload."
+
+#: app/app/_components/send-panel.tsx
+msgid "已送达"
+msgstr "Delivered"
+
+#. placeholder {0}: files.length
+#. placeholder {1}: formatFileSize(totalBytes)
+#: app/app/_components/send-panel.tsx
+#~ msgid "已选 {0} 个文件 · 共 <0>{1}</0>"
+#~ msgstr "{0} files selected · <0>{1}</0> total"
+
+#: app/app/_components/send-panel.tsx
+msgid "已选文件"
+msgstr "Selected Files"
+
+#: app/app/_components/device-stats.tsx
+#: app/app/_components/node-panel.tsx
+msgid "已配对"
+msgstr "Paired"
+
+#. placeholder {0}: consumeOutcome.peerId
+#: app/app/_components/pairing-panel.tsx
+msgid "已配对：<0>{0}</0>"
+msgstr "Paired: <0>{0}</0>"
+
+#: app/app/_components/device-grid.tsx
+#: app/app/_components/node-status-dialog.tsx
+#: app/app/_lib/view-types.ts
+msgid "已配对设备"
+msgstr "Paired devices"
+
+#: app/app/_lib/nav.ts
+msgid "已配对设备与配对入口。配对是一次性动作，配完即长期信任。"
+msgstr "Paired devices, and where you pair new ones. Pairing happens once and the trust lasts."
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "已阻止"
+msgstr "Blocked"
+
+#: app/app/_components/appearance-panel.tsx
+msgid "应用主题"
+msgstr "App theme"
+
+#: app/app/_components/app-nav.tsx
+msgid "应用导航"
+msgstr "App navigation"
+
+#: app/app/_components/transfer-labels.ts
+msgid "应用重启"
+msgstr "App restarted"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "开启后会顶掉「自动接收」——两者同时开时以本项为准。"
+msgstr "On overrides auto-accept — when both are on, this one wins."
+
+#: app/app/_components/connection-panel.tsx
+msgid "引导节点"
+msgstr "Bootstrap Nodes"
+
+#: app/app/_components/connection-panel.tsx
+msgid "引导节点地址"
+msgstr "Bootstrap node address"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "引导节点的增删与连通性测试在 <0>设置</0> 的「引导节点」区。"
+msgstr "Add, remove and test bootstrap nodes under <0>Settings</0> → Bootstrap Nodes."
+
+#: app/app/_components/inbox-views.tsx
+msgid "归档"
+msgstr "Archive"
+
+#: app/app/_components/connection-panel.tsx
+msgid "当前使用内置引导节点。"
+msgstr "Currently using the built-in bootstrap nodes."
+
+#: app/app/_components/pairing-panel.tsx
+msgid "当前没有在外面等待使用的邀请。"
+msgstr "No invites are currently out there waiting to be used."
+
+#: app/app/_components/secure-context-banner.tsx
+msgid "当前非 secure context，接收文件会失败。"
+msgstr "This is not a secure context, so receiving files will fail."
+
+#: app/app/_components/incoming-offers-panel.tsx
+msgid "待处理请求"
+msgstr "Pending requests"
+
+#: app/app/_components/device-card.tsx
+msgid "待确认"
+msgstr "unconfirmed"
+
+#: app/app/_components/connection-panel.tsx
+msgid "恢复引导节点失败"
+msgstr "Could not restore the bootstrap node"
+
+#: app/app/_components/invite-share.tsx
+msgid "手机上用 SwarmDrop 的「扫码」对准它；桌面端没有相机，复制链接发过去用「粘贴邀请」。"
+msgstr "On a phone, point SwarmDrop's scanner at it. Desktops have no camera — copy the link over and use “Paste invite”."
+
+#: app/app/_lib/view-types.ts
+msgid "打包内容"
+msgstr "Bundle"
+
+#: app/app/_components/transfer-activity-panel.tsx
+#: app/app/_components/transfer-detail.tsx
+msgid "打开传输会话列表"
+msgstr "Open transfer session list"
+
+#: app/app/_components/inbox-views.tsx
+msgid "打开收件箱列表"
+msgstr "Open inbox list"
+
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "打开文件"
+msgstr "Open file"
+
+#: app/app/_components/connection-badge.tsx
+msgid "打洞"
+msgstr "Hole-punch"
+
+#: app/app/_components/connection-panel.tsx
+#: app/app/_components/transfer-labels.ts
+msgid "打洞直连"
+msgstr "Hole-punched direct"
+
+#: app/app/_components/send-panel.tsx
+msgid "把文件拖到这里"
+msgstr "Drop files here"
+
+#: app/app/_components/incoming-offers-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/transfer-offer-host.tsx
+msgid "拒绝"
+msgstr "Decline"
+
+#: app/app/_components/device-grid.tsx
+msgid "按分组筛选"
+msgstr "Filter by group"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "按状态筛选会话"
+msgstr "Filter sessions by state"
+
+#: app/app/_components/connection-badge.tsx
+msgid "排查连接问题时把这些贴进 issue"
+msgstr "Paste these into an issue when reporting a connection problem"
+
+#: app/app/_components/incoming-offers-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/transfer-offer-host.tsx
+msgid "接受"
+msgstr "Accept"
+
+#: app/app/_components/transfer-labels.ts
+msgid "接收"
+msgstr "Receive"
+
+#: app/app/_components/inbox-views.tsx
+msgid "搜索中…"
+msgstr "Searching…"
+
+#: app/app/_components/inbox-views.tsx
+msgid "搜索收件箱"
+msgstr "Search the inbox"
+
+#: app/app/_components/inbox-views.tsx
+msgid "搜索标题、来源设备或文件名"
+msgstr "Search by title, source device, or file name"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "撤销"
+msgstr "Revoke"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "撤销中…"
+msgstr "Revoking…"
+
+#: app/app/_components/inbox-views.tsx
+#: app/app/_lib/nav.ts
+msgid "收件箱"
+msgstr "Inbox"
+
+#: app/app/_components/receive-panel.tsx
+msgid "收件箱列表"
+msgstr "Inbox list"
+
+#: app/app/_components/transfer-offer-host.tsx
+msgid "收到文件请求"
+msgstr "Incoming file request"
+
+#: app/app/_components/transfer-detail.tsx
+#~ msgid "收起文件"
+#~ msgstr "Collapse files"
+
+#: ../packages/file-browser/src/file-browser.tsx
+#: app/app/_components/inbox-views.tsx
+#: app/app/_components/transfer-detail.tsx
+#: app/app/_components/transfer-offer-host.tsx
+#: app/app/_lib/view-types.ts
+msgid "文件"
+msgstr "Files"
+
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "文件视图"
+msgstr "File view"
+
+#: ../packages/file-browser/src/file-card.tsx
+msgid "文件缺失"
+msgstr "File missing"
+
+#: app/app/_lib/view-types.ts
+msgid "文本"
+msgstr "Text"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "断点信息将一并清除，无法再续传；已接收的文件仍在收件箱"
+msgstr "Resume data goes with it, so this transfer can no longer be resumed; received files stay in the inbox"
+
+#: app/app/_components/about-panel.tsx
+msgid "断点续传"
+msgstr "Resumable transfers"
+
+#: app/app/_components/group-manager-dialog.tsx
+msgid "新分组名"
+msgstr "New group name"
+
+#: app/app/_components/device-organization-dialog.tsx
+#: app/app/_components/group-manager-dialog.tsx
+msgid "新建"
+msgstr "Create"
+
+#: app/app/_components/device-organization-dialog.tsx
+msgid "新建分组"
+msgstr "New group"
+
+#: app/app/_components/about-panel.tsx
+msgid "无账户 · 无服务器"
+msgstr "No account · no server"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "无需逐次确认，对方发来即开始接收。"
+msgstr "No per-transfer prompt — receiving starts as soon as they send."
+
+#: app/app/_lib/view-types.ts
+msgid "昨天"
+msgstr "Yesterday"
+
+#: app/app/_components/node-panel.tsx
+msgid "是"
+msgstr "Yes"
+
+#. placeholder {0}: files.length
+#: app/app/_components/transfer-detail.tsx
+#~ msgid "显示全部 {0} 个文件"
+#~ msgstr "Show all {0} files"
+
+#: app/app/_components/receive-panel.tsx
+msgid "显示已归档"
+msgstr "Show archived"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "暂停"
+msgstr "Pause"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "暂停中"
+msgstr "Pausing"
+
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "暂无文件"
+msgstr "No files"
+
+#: app/app/_components/send-panel.tsx
+msgid "更换"
+msgstr "Change"
+
+#: app/app/_components/about-panel.tsx
+msgid "更新日志"
+msgstr "Changelog"
+
+#: app/app/_lib/view-types.ts
+msgid "更早"
+msgstr "Earlier"
+
+#: app/app/_components/invite-share.tsx
+msgid "有效期已过，重新生成一条即可。"
+msgstr "It has expired — just generate a new one."
+
+#: app/app/_components/device-grid.tsx
+msgid "未分组"
+msgstr "Ungrouped"
+
+#: app/app/_components/transfer-labels.ts
+msgid "未及时处理"
+msgstr "Not answered in time"
+
+#: app/app/_components/node-status-pill.tsx
+msgid "未启动"
+msgstr "not started"
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "未命名传输"
+msgstr "Untitled transfer"
+
+#: app/app/_components/inbox-views.tsx
+msgid "未打开"
+msgstr "not opened"
+
+#: app/app/_components/connection-badge.tsx
+msgid "未知"
+msgstr "unknown"
+
+#: app/app/_components/connection-panel.tsx
+msgid "未连接"
+msgstr "Not connected"
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "本人设备"
+msgstr "My device"
+
+#: app/app/_lib/view-types.ts
+msgid "本周内"
+msgstr "This week"
+
+#: app/app/_components/invite-share.tsx
+msgid "本机可达已撤销"
+msgstr "Your reachability was revoked"
+
+#: app/app/_components/transfer-labels.ts
+msgid "本机暂停"
+msgstr "Paused here"
+
+#: app/app/_lib/view-types.ts
+msgid "来源未知"
+msgstr "Unknown source"
+
+#. placeholder {0}: item.sourceName
+#. placeholder {1}: item.itemCount
+#. placeholder {2}: formatFileSize(item.totalSize)
+#: app/app/_components/inbox-views.tsx
+msgid "来自 {0} · {1} 个文件 · {2}"
+msgstr "From {0} · {1} file(s) · {2}"
+
+#: app/app/_components/send-panel.tsx
+msgid "查看传输"
+msgstr "View transfer"
+
+#: app/app/_components/inbox-views.tsx
+msgid "查看传输记录"
+msgstr "View transfer"
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "查看全部"
+msgstr "See all"
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "查看全部传输"
+msgstr "See all transfers"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "查看收到的文件"
+msgstr "View received files"
+
+#: app/app/_components/connection-badge.tsx
+msgid "查看链路详情"
+msgstr "View link details"
+
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "树形视图"
+msgstr "Tree view"
+
+#: ../packages/file-browser/src/file-card.tsx
+msgid "根目录"
+msgstr "Root directory"
+
+#: app/app/_components/node-not-ready-state.tsx
+msgid "正在停止节点…"
+msgstr "Stopping the node…"
+
+#. placeholder {0}: prepareProgress.currentFile
+#. placeholder {1}: prepareProgress.completedFiles
+#. placeholder {2}: prepareProgress.totalFiles
+#. placeholder {3}: formatFileSize(prepareProgress.bytesHashed)
+#. placeholder {4}: formatFileSize(prepareProgress.totalBytes)
+#: app/app/_components/send-panel.tsx
+msgid "正在准备 {0}（{1}/{2} 文件 · {3}/{4}）"
+msgstr "Preparing {0} ({1}/{2} files · {3}/{4})"
+
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "正在准备下载"
+msgstr "Preparing download"
+
+#: app/app/_components/send-panel.tsx
+msgid "正在准备发送…"
+msgstr "Preparing to send…"
+
+#: app/app/_components/node-not-ready-state.tsx
+msgid "正在启动节点…"
+msgstr "Starting node…"
+
+#: app/app/_components/receive-panel.tsx
+msgid "正在打开收件箱…"
+msgstr "Opening the inbox…"
+
+#: app/app/_components/invite-share.tsx
+msgid "正在生成…"
+msgstr "Generating…"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "正在读取传输会话…"
+msgstr "Loading transfer sessions…"
+
+#: app/app/page.tsx
+msgid "正在进入 <0>设备</0>…"
+msgstr "Going to <0>Devices</0>…"
+
+#: app/app/_lib/view-types.ts
+msgid "此次传输被对方判定为不合法（文件路径异常），请检查客户端版本"
+msgstr "The other device rejected this transfer as malformed (bad file path). Check your client version."
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "每次确认"
+msgstr "Ask every time"
+
+#: app/app/_components/receive-panel.tsx
+msgid "没有匹配的收件箱条目。"
+msgstr "No inbox items match."
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "活跃传输"
+msgstr "Active transfers"
+
+#: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
+msgid "浅色"
+msgstr "Light"
+
+#: app/app/_components/connection-panel.tsx
+msgid "测试中…"
+msgstr "Testing…"
+
+#: app/app/_components/connection-panel.tsx
+msgid "测试连通性"
+msgstr "Test connection"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "浏览器不能被直接拨号，需要先连上一个引导节点，对方才找得到你。到 <0>设置</0> 页连接后再生成邀请。"
+msgstr "A browser cannot be dialed directly — connect to a bootstrap node first so others can reach you. Connect on the <0>Settings</0> page, then generate an invite."
+
+#: app/app/_components/connection-panel.tsx
+msgid "浏览器不能被直接拨号，需要经引导节点建立一个可达地址，对方才找得到你。内置节点会自动连接，通常无需调整。"
+msgstr "A browser cannot be dialed directly. It needs a bootstrap node to establish a reachable address before anyone can find you. The built-in nodes connect automatically and rarely need changing."
+
+#: app/app/_components/connection-badge.tsx
+msgid "浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。 文件仍会经中继送达，只是更慢。"
+msgstr "Your browser may need you to allow local network access; a firewall on the other side could also be blocking inbound connections. Files still arrive over the relay, just slower."
+
+#: app/app/_components/secure-context-banner.tsx
+msgid "浏览器在此环境不提供 <0>navigator.storage</0> / <1>crypto.subtle</1>，接收方落盘无法完成。请改用 <2>https</2>、<3>http://localhost</3> 或 <4>http://127.0.0.1</4> 访问，不要用 http 私网 IP。"
+msgstr "Here the browser does not provide <0>navigator.storage</0> or <1>crypto.subtle</1>, so the receiving side cannot write to disk. Use <2>https</2>, <3>http://localhost</3>, or <4>http://127.0.0.1</4> instead — not a plain-http private IP."
+
+#: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
+msgid "深色"
+msgstr "Dark"
+
+#: app/app/_components/connection-panel.tsx
+msgid "添加"
+msgstr "Add"
+
+#: app/app/_components/connection-panel.tsx
+msgid "添加中…"
+msgstr "Adding…"
+
+#: app/app/_components/connection-panel.tsx
+msgid "添加自定义引导节点"
+msgstr "Add a custom bootstrap node"
+
+#: app/app/_components/device-grid.tsx
+msgid "添加设备"
+msgstr "Add device"
+
+#: app/app/_components/send-panel.tsx
+msgid "清空"
+msgstr "Clear"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "清空中"
+msgstr "Clearing"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "清空记录"
+msgstr "Clear records"
+
+#: app/app/_lib/view-types.ts
+msgid "源文件已变更，无法继续，请重新发送"
+msgstr "The source file changed, so it can’t continue. Please send it again."
+
+#: app/app/_components/connection-badge.tsx
+msgid "点击查看远端地址"
+msgstr "Click for the remote address"
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "现在没有正在进行的传输"
+msgstr "Nothing is transferring right now"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "生成一条邀请发给对方"
+msgstr "Generate an invite to send"
+
+#: app/app/_components/device-grid.tsx
+msgid "生成一条邀请发给对方，或把对方给你的邀请粘进来。"
+msgstr "Generate an invite and send it over, or paste in the one they gave you."
+
+#: app/app/_components/pairing-panel.tsx
+msgid "生成中…"
+msgstr "Generating…"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "生成邀请"
+msgstr "Generate invite"
+
+#: app/app/_components/device-grid.tsx
+#~ msgid "用下面的「配对」区生成一条邀请发给对方，或把对方给你的邀请粘进去。"
+#~ msgstr "Use the Pairing section below to generate an invite, or paste the one you were given."
+
+#: app/app/_components/transfer-detail.tsx
+msgid "用时"
+msgstr "Duration"
+
+#: app/app/_components/appearance-panel.tsx
+msgid "界面语言"
+msgstr "Interface language"
+
+#. placeholder {0}: deviceDisplayName(device)
+#: app/app/_components/device-organization-dialog.tsx
+msgid "留空则使用 {0}"
+msgstr "Leave empty to use {0}"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "留空表示不限制"
+msgstr "Leave empty for no limit"
+
+#: app/app/_components/send-panel.tsx
+msgid "目标设备"
+msgstr "Target device"
+
+#: app/app/_components/unpair-dialog.tsx
+msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"
+msgstr "Unpair from “{deviceName}”? You will have to pair again before you can transfer files."
+
+#: app/app/_components/inbox-views.tsx
+#: app/app/_components/transfer-detail.tsx
+msgid "确认删除"
+msgstr "Confirm delete"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "确认取消"
+msgstr "Confirm cancel"
+
+#: app/app/_components/unpair-dialog.tsx
+msgid "确认取消配对"
+msgstr "Confirm unpair"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "确认清空"
+msgstr "Confirm clear"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "确认配对"
+msgstr "Confirm pairing"
+
+#: app/app/_components/device-card.tsx
+#: app/app/_components/send-panel.tsx
+msgid "离线"
+msgstr "Offline"
+
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "移除"
+msgstr "Remove"
+
+#. placeholder {0}: file.name
+#: app/app/_components/send-panel.tsx
+#~ msgid "移除 {0}"
+#~ msgstr "Remove {0}"
+
+#: app/app/_components/connection-panel.tsx
+msgid "移除引导节点"
+msgstr "Remove bootstrap node"
+
+#: app/app/_lib/view-types.ts
+msgid "空传输"
+msgstr "Empty transfer"
+
+#: app/app/_components/about-panel.tsx
+msgid "端到端加密"
+msgstr "End-to-end encrypted"
+
+#: app/app/_components/transfer-detail.tsx
+#~ msgid "等待中"
+#~ msgstr "Waiting"
+
+#: app/app/_components/transfer-labels.ts
+msgid "等待处理"
+msgstr "Awaiting decision"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "等待对方使用"
+msgstr "Waiting to be used"
+
+#: app/app/_components/transfer-labels.ts
+msgid "等待对方接受"
+msgstr "Waiting for acceptance"
+
+#: app/app/_components/device-grid.tsx
+#: app/app/_components/group-manager-dialog.tsx
+msgid "管理分组"
+msgstr "Manage groups"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "粘贴对方给你的邀请"
+msgstr "Paste the invite you were given"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "结束于"
+msgstr "Ended"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "续传"
+msgstr "Resume"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "续传中"
+msgstr "Resuming"
+
+#: app/app/_lib/view-types.ts
+msgid "续传进度已失效，请重新发送"
+msgstr "The resume progress is no longer valid. Please send it again."
+
+#: app/app/_components/node-panel.tsx
+msgid "编辑设备名：{displayName}"
+msgstr "Edit device name: {displayName}"
+
+#: ../packages/file-browser/src/file-row.tsx
+msgid "缺失"
+msgstr "Missing"
+
+#: ../packages/file-browser/src/file-browser.tsx
+msgid "网格视图"
+msgstr "Grid view"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "网络节点"
+msgstr "Network node"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "网络诊断"
+msgstr "Network diagnostics"
+
+#: app/app/_lib/view-types.ts
+msgid "网络错误"
+msgstr "Network error"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "自动接收"
+msgstr "Auto-accept"
+
+#. placeholder {0}: customRelays.length
+#: app/app/_components/connection-panel.tsx
+msgid "自定义 {0}"
+msgstr "Custom {0}"
+
+#: app/app/_components/connection-panel.tsx
+msgid "自定义节点"
+msgstr "Custom nodes"
+
+#: app/app/_components/connection-panel.tsx
+msgid "自建节点的地址形如 <0>/ip4/…/udp/…/webrtc-direct/certhash/…/p2p/12D3Koo…</0>"
+msgstr "A self-hosted node's address looks like <0>/ip4/…/udp/…/webrtc-direct/certhash/…/p2p/12D3Koo…</0>"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "节点 ID"
+msgstr "Node ID"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "节点{phase}"
+msgstr "Node {phase}"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "节点停着时收不到任何请求，已配对的设备会把你看作离线。"
+msgstr "While the node is stopped nothing reaches you, and paired devices see you as offline."
+
+#: app/app/_components/node-panel.tsx
+msgid "节点启动后，新名字会随本机身份一起广播出去。"
+msgstr "Once the node starts, the new name is broadcast with this device's identity."
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "节点在跑时，已配对的设备才能找到你并发起传输。"
+msgstr "Paired devices can only find you and start a transfer while the node is running."
+
+#: app/app/_components/node-not-ready-state.tsx
+msgid "节点已停止"
+msgstr "Node stopped"
+
+#: app/app/_components/node-not-ready-state.tsx
+msgid "节点没能启动"
+msgstr "The node failed to start"
+
+#: app/app/_components/device-grid.tsx
+#: app/app/_components/send-panel.tsx
+msgid "节点起来后，已配对的设备会出现在这里。"
+msgstr "Paired devices appear here once the node is up."
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "节点起来后，进行中与已结束的会话会出现在这里。"
+msgstr "Active and finished sessions appear here once the node is up."
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "节点起来后，进行中的传输会出现在这里"
+msgstr "Transfers in flight will show up here once the node is running"
+
+#: app/app/_components/receive-panel.tsx
+msgid "要定位的条目不在当前检索结果里。"
+msgstr "The item you linked to is not in the current search results."
+
+#: app/app/_components/receive-panel.tsx
+msgid "要定位的条目已不在收件箱。"
+msgstr "The item you linked to is no longer in the inbox."
+
+#: app/app/_components/receive-panel.tsx
+msgid "要定位的条目已归档。"
+msgstr "The item you linked to is archived."
+
+#: app/app/_lib/nav.ts
+msgid "设备"
+msgstr "Devices"
+
+#: app/app/_components/node-panel.tsx
+msgid "设备信息"
+msgstr "Device Info"
+
+#: app/app/_lib/nav.ts
+msgid "设备信息、引导节点与外观偏好。"
+msgstr "Device info, bootstrap nodes and appearance preferences."
+
+#: app/app/_components/node-panel.tsx
+msgid "设备名"
+msgstr "Device name"
+
+#: app/app/_components/node-panel.tsx
+msgid "设备名称已更新"
+msgstr "Device name updated"
+
+#: app/app/_components/device-card.tsx
+msgid "设备操作"
+msgstr "Device actions"
+
+#: app/app/_lib/nav.ts
+msgid "设置"
+msgstr "Settings"
+
+#: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
+msgid "语言"
+msgstr "Language"
+
+#: app/app/_components/trust-policy-dialog.tsx
+msgid "请填一个大于 0 的数字，或留空表示不限制。"
+msgstr "Enter a number greater than 0, or leave it empty for no limit."
+
+#. placeholder {0}: failure.retentionDays
+#: app/app/_lib/view-types.ts
+msgid "超过 {0} 天未恢复，已自动清理"
+msgstr "Not resumed for over {0} days, so it was cleaned up automatically."
+
+#: app/app/_components/appearance-panel.tsx
+#: app/app/_components/rail-tools.tsx
+msgid "跟随系统"
+msgstr "System"
+
+#: app/app/_components/node-panel.tsx
+msgid "身份存在哪里？"
+msgstr "Where is this identity stored?"
+
+#: app/app/_lib/view-types.ts
+msgid "身份错误"
+msgstr "Identity error"
+
+#: app/app/_lib/view-types.ts
+msgid "输入无效"
+msgstr "Invalid input"
+
+#: app/app/_components/node-status-pill.tsx
+msgid "运行中"
+msgstr "running"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "运行时长"
+msgstr "Uptime"
+
+#: app/app/_components/confirm-action.tsx
+msgid "返回"
+msgstr "Back"
+
+#. placeholder {0}: pendingPairings.length - 1
+#: app/app/_components/pairing-request-host.tsx
+msgid "还有 {0} 个请求等待处理"
+msgstr "{0} more request(s) waiting"
+
+#: app/app/_components/active-transfers-section.tsx
+msgid "还有 {hidden} 条进行中，<0>去传输页</0>查看。"
+msgstr "{hidden} more in flight — see them <0>in Transfers</0>."
+
+#: app/app/_components/incoming-offers-panel.tsx
+msgid "还有 {rest} 个文件"
+msgstr "{rest} more file(s)"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "还没有传输"
+msgstr "No transfers yet"
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "还没有传输会话。"
+msgstr "No transfer sessions yet."
+
+#: app/app/_components/device-organization-dialog.tsx
+msgid "还没有分组。在下方新建一个，用来按用途或归属把设备归类。"
+msgstr "No groups yet. Create one below to sort devices by purpose or owner."
+
+#: app/app/_components/group-manager-dialog.tsx
+msgid "还没有分组。设备多起来之后，分组能让「发给谁」这件事快一点。"
+msgstr "No groups yet. Once you have a few devices, groups make picking a target faster."
+
+#: app/app/_components/send-panel.tsx
+msgid "还没有可发送的设备"
+msgstr "No devices to send to yet"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "还没有可达地址，对方暂时拨不进来。"
+msgstr "No reachable address yet, so nobody can dial you."
+
+#: app/app/_components/device-grid.tsx
+msgid "还没有已配对的设备"
+msgstr "No paired devices yet"
+
+#: app/app/_components/inbox-views.tsx
+msgid "还没有收到的文件"
+msgstr "Nothing received yet"
+
+#: app/app/_components/receive-panel.tsx
+msgid "还没有收到的文件。"
+msgstr "No files received yet."
+
+#: app/app/_components/receive-panel.tsx
+msgid "还没有收到的文件（已归档的未显示）。"
+msgstr "No files received yet (archived ones are hidden)."
+
+#: app/app/_components/device-grid.tsx
+msgid "这个分组下还没有设备。"
+msgstr "No devices in this group."
+
+#: app/app/_components/invite-share.tsx
+msgid "这个码已经作废，请重新生成一条。"
+msgstr "This code is void — generate a new one."
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "这个筛选下没有会话。"
+msgstr "No sessions match this filter."
+
+#: app/app/_components/send-panel.tsx
+msgid "这台设备当前离线或已被阻止，换一台再试。"
+msgstr "That device is offline or blocked — pick another one."
+
+#: app/app/_components/pairing-panel.tsx
+msgid "这是本机生成的邀请——把它发给对方，不是自己用。"
+msgstr "This invite came from this device — send it to someone else rather than using it here."
+
+#: app/app/_components/transfer-detail.tsx
+msgid "这条发送只能在本页完成：刷新或关闭标签页后，浏览器读不回你选过的文件，会话与进度会一并消失。暂停后也只能在本页续传。"
+msgstr "This send can only be completed in this tab. Once you reload or close it, the browser can no longer read the files you picked, and the session and its progress are gone with them. Pausing still only lets you resume here."
+
+#: app/app/_lib/view-types.ts
+msgid "这条记录已经不在了，请返回列表重新开始"
+msgstr "This entry is no longer there. Go back to the list and start over."
+
+#: app/app/_components/inbox-views.tsx
+msgid "这条记录里没有文件"
+msgstr "This entry has no files"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "这条邀请已过期，让对方重新生成一条。"
+msgstr "This invite has expired — ask for a new one."
+
+#: app/app/_components/transfer-labels.ts
+msgid "进行中"
+msgstr "Active"
+
+#: app/app/_lib/nav.ts
+msgid "进行中与已结束的会话。选中一条查看文件明细与续传。"
+msgstr "Sessions in progress and finished. Pick one for per-file detail and resuming."
+
+#: app/app/_components/connection-badge.tsx
+msgid "远端地址"
+msgstr "Remote address"
+
+#: app/app/_components/connection-panel.tsx
+msgid "连接中"
+msgstr "Connecting"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "连接中…"
+msgstr "Connecting…"
+
+#: app/app/_components/transfer-labels.ts
+msgid "连接中断"
+msgstr "Connection lost"
+
+#: app/app/_components/connection-panel.tsx
+msgid "连接失败"
+msgstr "Connection failed"
+
+#: app/app/_components/transfer-labels.ts
+msgid "连接类型未知"
+msgstr "Connection type unknown"
+
+#: app/app/_lib/nav.ts
+msgid "选一台已配对设备，拖文件进来直接送达。"
+msgstr "Pick a paired device, drop files in, and they go straight over."
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "选一条会话"
+msgstr "Pick a session"
+
+#: app/app/_components/inbox-views.tsx
+msgid "选一条查看"
+msgstr "Pick an item"
+
+#: app/app/_components/inbox-views.tsx
+msgid "选中后这里会显示它的文件、来源与可用操作。"
+msgstr "Select one to see its files, where it came from, and what you can do with it."
+
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "选中后这里会显示逐文件进度、链路证据与可用操作。"
+msgstr "Select one to see per-file progress, link evidence and available actions."
+
+#: app/app/_components/appearance-panel.tsx
+msgid "选择后会记住；未选择时跟随浏览器的语言偏好"
+msgstr "Remembered once chosen; follows your browser's language preference until then"
+
+#: app/app/_components/appearance-panel.tsx
+msgid "选择应用的外观主题"
+msgstr "Pick the app's appearance"
+
+#: app/app/_components/send-panel.tsx
+msgid "选择文件"
+msgstr "Choose files"
+
+#: app/app/_components/send-panel.tsx
+msgid "选择文件夹"
+msgstr "Choose folder"
+
+#: app/app/_components/send-panel.tsx
+msgid "选择设备…"
+msgstr "Choose a device…"
+
+#: app/app/_components/transfer-detail.tsx
+msgid "速率"
+msgstr "Rate"
+
+#: app/app/_components/invite-share.tsx
+#: app/app/_components/pairing-panel.tsx
+msgid "邀请已撤销"
+msgstr "Invite revoked"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "邀请已撤销，但没能保存"
+msgstr "Invite revoked, but not saved"
+
+#: app/app/_components/invite-share.tsx
+msgid "邀请已被使用"
+msgstr "Invite already used"
+
+#: app/app/_components/invite-share.tsx
+msgid "邀请已过期"
+msgstr "Invite expired"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "邀请是一次性的：若对方已撤销它、或它已被别的设备用掉，也会走到这里——让对方重新生成一条。"
+msgstr "Invites are single-use: you also land here if they revoked it or another device already used it. Ask them to generate a new one."
+
+#: app/app/_components/pairing-panel.tsx
+msgid "邀请有效期 {INVITE_TTL_HOURS} 小时且跨刷新保留。这里列不出原始链接（凭证明文不留存）， 不想让它继续可用就撤销，需要再分享请重新生成。"
+msgstr "Invites last {INVITE_TTL_HOURS} hours and survive a reload. The original link is not listed here (the credential is never stored in the clear) — revoke it to make it stop working, or generate a new one to share again."
+
+#: app/app/_components/invite-share.tsx
+msgid "邀请链接"
+msgstr "Invite link"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "配对"
+msgstr "Pairing"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "配对中…"
+msgstr "Pairing…"
+
+#: app/app/_components/pairing-request-host.tsx
+msgid "配对之后双方都能互发文件。确认这是你认识的设备再接受。"
+msgstr "Once paired, either side can send files. Make sure you recognise this device before accepting."
+
+#: app/app/_components/pairing-panel.tsx
+msgid "配对后双方可以互相发送文件。确认是这台设备再继续。"
+msgstr "After pairing, either side can send files. Make sure this is the right device before continuing."
+
+#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-request-host.tsx
+msgid "配对成功，但这条记录没能存进浏览器"
+msgstr "Paired, but the record could not be stored in the browser"
+
+#: app/app/_lib/view-types.ts
+msgid "配对码"
+msgstr "Pairing code"
+
+#: app/app/_components/pairing-request-host.tsx
+msgid "配对请求"
+msgstr "Pairing request"
+
+#: app/app/_components/invite-share.tsx
+msgid "配对邀请二维码"
+msgstr "Pairing invite QR code"
+
+#. placeholder {0}: group.name
+#: app/app/_components/group-manager-dialog.tsx
+msgid "重命名「{0}」"
+msgstr "Rename “{0}”"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "重新生成"
+msgstr "Generate again"
+
+#: app/app/_components/connection-panel.tsx
+msgid "重新连接"
+msgstr "Reconnect"
+
+#: ../packages/file-browser/src/item-actions.tsx
+msgid "重试"
+msgstr "Retry"
+
+#: app/app/_components/inbox-views.tsx
+#~ msgid "重试下载"
+#~ msgstr "Retry download"
+
+#: app/app/_components/send-panel.tsx
+msgid "链接指向的设备不在已配对列表里（可能已解除配对）。从下面挑一台，或回设备页重新配对。"
+msgstr "The device this link points to is not in your paired list (it may have been unpaired). Pick one below, or pair again from Devices."
+
+#: app/app/_components/connection-badge.tsx
+msgid "链路详情"
+msgstr "Link details"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "限制这条邀请只能被同一网络里的设备使用。通过公网中继连接时请保持关闭，否则邀请里可能没有对方拨得通的地址。"
+msgstr "Limits this invite to devices on the same network. Keep it off when connecting through a public relay, or the invite may carry no reachable address."
+
+#: app/app/_components/connection-panel.tsx
+msgid "默认"
+msgstr "Default"
+
+#: app/app/_components/connection-panel.tsx
+msgid "默认入口"
+msgstr "Default entry"

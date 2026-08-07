@@ -140,12 +140,86 @@ The palette is almost monochrome by design — near-white/near-black neutrals do
 - **Glass Brand Rim** (`rgb(15 143 122 / 0.16)`): the border on `glass-accent` surfaces — a translucent rim of Harbor Teal that marks emphasized glass areas (pairing code, active device card).
 - **Aurora Mist / Aurora Cyan** (`#f7f7f7` / `#22d3ee`): the two colors driving the ambient WebGL background gradient; decorative only, never used in foreground UI.
 
+**Glass needs something behind it, and it needs the unprefixed property.** Two failure modes cost
+the web build its glass for months, and both are invisible in a token diff:
+
+1. `backdrop-filter: blur()` over a flat colour returns that same flat colour. Glass is only glass
+   when the ambient layer is actually reaching it — which is why the aurora's mask must not hollow
+   out the centre of the screen, where the panels are. Suppressing the ambient layer while keeping
+   the glass classes buys the compositing cost and none of the effect.
+2. The build can delete the standard property and keep only `-webkit-backdrop-filter`, which modern
+   Chrome no longer honours. Same tokens, same classes, no blur. See the web knowledge base entry —
+   the fix is to wrap the standard declaration in `@supports`, including the
+   `prefers-reduced-transparency` reset.
+
+**Panels are glass; rows inside them are solid.** Outer translucent, inner opaque is how depth is
+stated here — a master-detail column and the list rows inside it must not both be glass (that is
+the nested-card ban in another guise). Web keeps this as two constants, `PANEL_SURFACE` (glass) and
+`ROW_SURFACE` (solid). Prior to 2026-08-06 both columns of inbox and transfer were solid, which
+left those two routes with no glass at all while devices and settings had it — the same product
+reading as two.
+
 Dark mode remaps every neutral (background → `oklch(0.18 0.01 260)` ≈ `#0F1216`, foreground → `oklch(0.965 0.002 260)` ≈ `#F3F3F5`, border → `oklch(0.39 0.01 260)` ≈ `#42454B`) and lifts Harbor Teal for glow against the near-black canvas. The cool navy-tinted dark neutrals deliberately stay: deep navy plus teal/copper keeps the product feeling secure without returning to the old heavy-blue identity.
 
 ### Named Rules
 **The One Accent Rule.** Harbor Teal is the only saturated UI accent allowed outside the ambient background layer. Copper Core belongs to the logo and small brand moments only; if a screen needs a second "pop" of color, that's a sign it should be an icon or the WebGL background doing the work, not a second UI accent. (Connection-type badges — green LAN / sky hole-punch / amber relay — are semantic state coding, not decorative accents, and sit outside this rule.)
 
 **The Brand Fidelity Rule.** ✅ Re-anchored after logo palette selection (2026-07): the brand primary is **Harbor Teal** (`#0F8F7A`) with a **Copper Core** (`#C56A42`) only inside the logo/small brand accents. The fixed anchors are `oklch(0.583 0.105 177.1)` (light fill), `oklch(0.641 0.115 177.6)` (dark fill), `oklch(0.516 0.093 178.2)` (light text form), and `oklch(0.828 0.12 179)` (dark text form). Contrast verified: Deep Ink on teal 5.0:1 (light) and 6.3:1 (dark), `text-brand` on white 5.3:1, on dark canvas 12:1+. **The two-token split (fill vs. text) is load-bearing: never use the fill teal as small text on white, and keep Copper Core out of ordinary UI state/action roles.**
+
+**The State Ink Rule.** Semantic state colors have a **fill form and a text form**, exactly like
+the brand teal, and for the same reason: the fill values do not clear AA as small text
+(measured on white: success 3.30:1, warning **2.13:1**). Dots, fills and icons use the base color;
+**anything set as text uses the `-ink` variant** (`--success-ink` / `--warning-ink` /
+`--destructive-ink`, 4.9–6.3:1 on the app surfaces). Mobile introduced this split; desktop and web
+adopted it 2026-08-04. A bare `text-amber-600` / `text-emerald-600` in a diff is the tell that
+someone reached past the token.
+
+### Cross-platform token unification
+
+Three builds, three CSS dialects (desktop Tailwind v4 + oklch · web the same under fumadocs ·
+mobile NativeWind, which needs raw HSL triples for `hsl(var(--x))`). **The values are one system;
+only the notation differs.** Desktop and web write the *same oklch expressions verbatim* so the two
+files can be diffed by eye; mobile carries converted HSL and a mapping note in `mobile/CLAUDE.md`.
+
+What **must** match across all three — divergence here is a bug, not a fork:
+
+| | Why |
+|---|---|
+| Brand fill / brand text / ink-on-fill | The Brand Fidelity Rule. Mobile shipped the *text* value as `--primary` (plus white ink) until 2026-08-04, which made every primary button a shade darker there than on desktop. |
+| The `-ink` variants of success / warning / destructive | The State Ink Rule above. |
+| Dark neutrals tinted **cool navy** (hue ~260) | Named below; the web build sat on fumadocs' pure-neutral `#121212` and mobile on a teal-blue hue 209 until 2026-08-04 — three products' worth of dark mode. |
+| Card elevates *above* its surface | Light mode contrast between the two is inherently ~1.0:1; what carries elevation is direction + hairline + shadow. A card **darker** than its background reads as recessed and lands straight on the "grey on grey" anti-reference. |
+| Focus ring uses the brand, not a neutral | A neutral ring measured 2.31:1 on the web surface — below SC 1.4.11's 3:1 and effectively invisible. |
+| `--radius` scale and the two-radius vocabulary | 6–14px for controls, 18–24px for panels (§5). |
+
+What **may** diverge, with the reason recorded next to it:
+
+- **Dark focus ring on mobile** uses the bright text teal rather than the fill (10.5:1 vs 5.4:1 on
+  that darker canvas). A focus ring's job is to be seen.
+- **Light `--app-shell-background` is web-only tinted** — desktop `oklch(0.99 0.001 210)`, web
+  `oklch(0.99 0.005 195)`. That layer is now the aurora's canvas on web; the extra chroma (toward
+  the midpoint of brand teal 178 and aurora cyan ~207) is what lets the glass read as a layer in
+  light mode. **Lightness stays 0.99 on both** — `--muted-foreground` sits directly on this layer
+  and 0.985 measured 4.54:1, only 0.9% over AA. Do not "fix" the web value back to desktop's.
+- **Two tokens exist on web only**: `--ambient-aurora-opacity` (0.7 dark / 0.48 light — the shader
+  emits additive light, so a glow on near-black is a smudge on near-white) and `--glass-rail-bg`
+  (the nav rail must be translucent or it clips the whole left edge of the ambient layer; desktop
+  has no rail).
+- ~~**The WebGL ambient background is desktop-only.**~~ **Overturned 2026-08-05.** The web build
+  now ships it too; see "Ambient WebGL Background" in §5 for the shared contract and the web's
+  five deltas. The original reasoning (`ogl` weight plus continuous GPU on a phone-browser
+  baseline) was sound about *cost* and wrong about *what was being kept*: web dropped the
+  background but **kept the glass layer**, and `backdrop-filter: blur()` over a flat fill returns
+  that same flat fill. Measured: light `rgb(255 255 255 / 0.58)` over `oklch(0.99)` composites back
+  to 0.99; dark `oklch(0.31 / 0.56)` over `oklch(0.145)` lands at ≈0.24 against a `--card` of 0.27.
+  So the browser was paying for a compositing layer and receiving nothing — the same inbox
+  empty-state code read as a finished product on desktop and as a skeleton screen on web.
+- **Navigation shape** (desktop breadcrumb-only topbar vs. web sidebar) — see §5.
+
+**Never** re-derive any of these by hand-converting one platform's value into another's notation
+without writing the source expression down. The teal in web's `global.css` was hex for months and
+*happened* to be the same color as desktop's oklch — nobody could tell without doing the math,
+so nobody would have noticed it drifting.
 
 ## 3. Typography
 
@@ -200,12 +274,388 @@ The system runs two elevation languages side by side, and the split is deliberat
 - **Focus:** border shifts to `ring` color plus a 3px `ring-ring/50` halo — no glow, no color change beyond the ring.
 - **Error / Disabled:** invalid state adds a destructive-tinted ring; disabled drops to 50% opacity and disables pointer events.
 
-### Navigation (Topbar + Breadcrumb)
+### Device Card Contract (cross-platform)
+
+**This section binds all three builds — desktop, mobile, and web.** They are three separate
+implementations (React DOM / React Native / React DOM under a different bundler), so the shared
+artifact is this spec, not a shared component. Data is not the constraint: the `Device` DTO all
+three receive is generated from the same Rust struct (`crates/host/src/device.rs`) through three
+codegens, so every field below is available everywhere.
+
+**Required information slots.** A paired-device card SHALL present all eight:
+
+| # | Slot | Source | Notes |
+|---|---|---|---|
+| 1 | Device-type icon | `os` / `platform` | |
+| 2 | Display name | alias → peer `name` → hostname → short PeerId | via `@swarmdrop/shared-view` |
+| 3 | Online state | `status` | **dot *and* word** — a bare colored dot does not satisfy this |
+| 4 | Secondary identity line | groups + `hostname · shortPeerId` | only when names collide or groups exist |
+| 5 | Trust badge | `trustLevel`, `trustConfirmed` | includes the "unconfirmed" state |
+| 6 | Connection badge | `connection` + `latency` | latency shown whenever online and known; transport name is **not** inline — see below |
+| 7 | Send action | — | see Send Entry Contract |
+| 8 | Overflow entry | — | unpair at minimum; trust policy and alias/groups where supported |
+
+No build may drop a slot because "the layout is tight". Wrap, truncate, or move it to a secondary
+disclosure — do not discard information the user needs to judge a transfer.
+
+**Slot 6 disclosure — link details.** The connection badge SHALL be expandable into the link
+evidence behind it: transport (`TCP` / `QUIC` / `WebRTC` / `WebRTC Direct`), the remote multiaddr,
+and the relay's PeerId when one is in the path. That evidence is noise for an ordinary user and the
+whole answer for anyone debugging, so it lives *behind* the badge, never beside it. The badge itself
+may carry the transport name inline where the layout has room — it is one short token.
+
+Shape is a permitted divergence: desktop and web use a popover (both have pointers, so a floating
+layer costs nothing); mobile expands in place (an overlay on a touch device covers half the screen,
+and the mobile surface is already a full detail page). What may not diverge: the transport name is a
+proper noun and **is never translated** — users search it, paste it into issues, and diff it against
+logs. And when the address carries no transport (an inbound relay connection's `send_back_addr` is
+just `/p2p/<src>`), say "unknown" — do not invent a default.
+
+**On a device card the badge carries connection type + latency and stops there** (2026-08-06; this
+clause previously read "may carry the transport name inline where the layout has room"). Both DOM
+builds tried the inline form on cards and neither has the room: `WebRTC Direct` is 13 characters,
+wider than the icon, the type word and the latency put together, and device cards live in narrow
+grid columns. What it pushed off the row was the trust badge and the send action — slot 5 and slot 7
+losing their place to a detail of slot 6. Measured on web: 180px badge → 96px ("局域网 5ms").
+
+So on the DOM builds the disclosure gained a middle step: **badge → hover summary → popover**, cost
+rising with curiosity. The hover summary states the transport and says the popover holds the address.
+
+**Mobile is already conformant and needs no hover substitute**: its cards never passed `transport`
+to the badge. Its *device detail page* does keep the transport inline, and that is correct rather
+than a fork — a detail page is not a grid cell, and its link-details block is collapsed by default,
+so the badge is the only place the transport is visible without an expand. Room plus "the
+alternative is hidden" is the test; a grid card fails both.
+
+**The hover layer may never be the only route to anything.** The transport is still in the popover's
+"transport" row, reachable by click and by keyboard — which is what the checklist item "every
+interactive control reachable without hover" requires. A tooltip is a preview of a disclosure that
+exists, never a disclosure of its own. Desktop pins both halves (`device-card.test.tsx`: the badge
+does not contain the transport; a click reveals it) — pin them together or deleting the information
+outright stays green.
+
+**`WebRTC` and `WebRTC Direct` are two transports, not one abbreviated.** The first needs hole
+punching and a signalling path; the second dials a public bare IP directly and is the browser's only
+public entry point. Collapsing them reads as "swap the node and hole punching works too," which is
+false. Any address-to-label helper MUST test `/webrtc-direct` **before** `/webrtc`, or the longer
+one never matches — both builds' helpers had this ordering hazard, and desktop labelled
+`webrtc-direct` as plain `WebRTC` until 2026-08-05.
+
+**A truncated address must show where it was cut.** Both builds shorten bootstrap addresses for
+display; dropping the middle without an ellipsis produces a string that still parses as a plausible
+multiaddr (`/ip4/…/udp/4001/q/p2p/…` — the `quic-v1` segment silently gone), and users paste it into
+issues believing it complete.
+
+The remote address must be copyable and must not be truncated in the disclosure. A truncated
+multiaddr pasted into an issue is worthless.
+
+**Degradation.** When a field is absent (offline device has no `connection`/`latency`), that badge
+is simply not rendered; every other slot stays, and card height must not collapse or jitter. The
+same applies one level down: `connectionDetails` is null until the kernel has reported a connection
+address, and the badge then renders as a plain, non-interactive badge — an empty popover is worse
+than no popover.
+
+**The send action shares a row with the badges; it never owns one** (2026-08-06). Slot 7 sits in the
+card's footer row beside slots 5 and 6, at its natural width, right-aligned. Web shipped it as a
+`w-full` button on a row of its own until this date: inside a ~300px card that is a full-bleed
+saturated block, the loudest thing on the card, and all it says is "send" — the same failure the
+Layout Density Contract names under "Full-bleed primary buttons are a landing-page move". The other
+two builds were already right (desktop right-aligns in a `justify-between` footer, mobile uses a
+44×44 icon button in that row), so this was web rejoining them, not a new rule. Below `sm:` the
+button does go full width — that tier is thumb reach.
+
+A corollary the web build learned the hard way: **a footer row only holds if slot 6 stays short.**
+The full-width button was partly a consequence of the badge overflowing the row, not an independent
+choice. Fix the length before adding a row.
+
+**Whole-card affordance.** A card body is clickable and does one of two things, consistently within
+a build: trigger the single primary action (desktop: send), or open a device detail view (mobile).
+If it opens a detail view, the send action MUST still be directly reachable on the card itself —
+otherwise "sending starts from a device" quietly becomes "sending starts two taps from a device".
+Nested controls (overflow menu, badges) stop propagation. When the card's action is unavailable
+(device offline), the card is not clickable and visually degrades.
+
+**Permitted divergence.** Each build chooses its own card orientation and grid, material (glass vs
+flat), overflow container (dropdown menu / action sheet / inline second-step confirm / a device
+detail screen), and confirmation shape (modal vs inline). None of these may remove a slot or change
+what the primary action means.
+
+**Trust normalization comes from the shared package.** `normalizeTrustLevel` and
+`canSendToDevice` live in `@swarmdrop/shared-view`; no build re-derives them. The send affordance
+is gated on `canSendToDevice`, not on `status === "online"` alone — an *online but blocked* device
+must not offer send, and must not turn its whole card into a send target. (Desktop shipped the
+online-only check until 2026-08-04; `device-card.test.tsx` now pins both.)
+
+**Closed: the desktop trust/connection ternary.** Desktop used to render slots 5 and 6 as a
+ternary — the trust badge appeared *only when* the connection badge did not, so connected devices
+never showed their trust level, which is the one moment it matters most. All three builds now
+render both. If a build ever needs to save space here, it wraps or truncates; it does not choose
+one badge over the other.
+
+### Incoming Request Contract (cross-platform)
+
+**This section binds all three builds.** Two kinds of request arrive unsolicited — a pairing request
+and an inbound file offer — and both demand a decision from someone who was doing something else.
+
+**Global surface, not a page section.** Each build SHALL present these from a host mounted at the
+app shell (desktop `_app.tsx`, mobile `app/_layout.tsx`, web `app/app/layout.tsx`), so they appear
+on **every** route. A request rendered only inside one page is invisible to a user standing on any
+other page — which, on a multi-route build, is most of the time. (This is exactly what the web build
+did until the `lan-direct-upgrade` change: pairing requests lived inside the devices page, file
+offers inside the inbox page.)
+
+**Dismissal means opposite things for the two, and that is deliberate:**
+
+| | Closing the surface | Why |
+|---|---|---|
+| Pairing request | **= decline** | The other side is blocked waiting on this answer. Leaving it pending gives them a spinner with no end. |
+| File offer | **≠ decline** | The sender is queued, not blocked, and a mis-tap costing someone a whole transfer is far worse than one that costs a second click. |
+
+Because a file offer survives dismissal, a build that lets it be dismissed **SHALL** also give a
+place to find it again — both desktop and web put it at the top of the inbox list. A dismissible
+request with no way back is a silently dropped transfer.
+
+**The two clauses ship together.** Desktop shipped "close = decline" *and* no way back until
+2026-08-04, with the close button and outside-click suppressed on top of it — the only exit was
+Esc, which silently killed the sender's whole transfer. Whichever half you are changing, check the
+other: "close ≠ decline" without a retrieval point loses the offer, and a retrieval point while
+close still declines is dead code.
+
+**Queue, don't stack.** Show one request at a time; the next appears after the current is resolved.
+Say how many remain when more than one is waiting — all three builds do.
+
+### Send Entry Contract (cross-platform)
+
+- **Sending starts from a device.** Triggering send on a paired, online device card enters the send
+  flow with that target already selected. The user never picks the same device twice.
+- **The send page's target selector is a landing spot, not the main path.** It exists for deep links
+  (`?peerId=`) and for correcting a wrong target — not as the way a user normally sends.
+- **Offline devices do not offer send.** Disable or omit the action; never let someone click into a
+  guaranteed failure and learn about it from a kernel error.
+- **Deep-linked targets are untrusted input.** A `?peerId=` may point at a device that was unpaired
+  or went offline since the link was made — say so in place and keep submit disabled.
+
+### Layout Density Contract
+
+Written from the web build's 2026-08 rework, but the failure it names is not web-specific — check
+any build against it.
+
+**Spacing encodes grouping, so the steps must differ.** The web app area shipped for months with
+three identical 16px values: section-to-section gap, in-panel gap, and panel padding. When those
+collapse to one number, Gestalt proximity carries no information and grouping can only be stated by
+drawing boxes — which is exactly what the pages looked like, a stack of equally sized containers.
+The ratio now is **8 : 16 : 32** (`--space-in-group` / `--space-in-panel` / `--space-section`), with
+panel padding on its own step at 20px (`--space-panel`) because container padding follows the
+container's *role*, not its contents.
+
+- Between-group distance MUST be visibly greater than within-group distance.
+- Panel padding MUST NOT equal the panel's internal gap, or the panel stops reading as a container.
+- Verify by blur test: blur the screen until text is illegible; grouping must still be readable.
+- Reach for spacing before a divider. A hairline that exists because two blocks sit 16px apart is
+  spacing that gave up.
+
+**Type steps must be distinguishable.** Page title was 16px against a 15px section title — a 1px
+step is not a hierarchy, it just puts the burden on position. The ladder is **20 / 15 / 14 / 12**
+(page title with `-0.02em` tracking · section headline · body and list-item titles · labels), plus
+mono at 11–13px for machine values (The Mono Truth Rule is unchanged).
+
+**Column width is one number site-wide; line length belongs to the text, not the page.**
+(Revised 2026-08-06 — this clause previously specified three tiers: 1240 boards / 1040 settings /
+860 forms.) Tiering by content type was the right instinct, but all three were centred with
+`mx-auto`, so the content's left edge **jumped between routes**: measured at a 1440 viewport,
+devices/inbox/transfer sat at 224, settings at 307, send at 402 — up to 178px of travel between
+entries that sit next to each other in the rail. A stable left edge does more for "this is an
+application" than each page's ideal measure does.
+
+So the page gives one width (1240, same as the desktop `master-detail-shell.tsx`) and **the text
+constrains itself**: a form panel that should stay narrow sets its own `max-w`. That is the correct
+layer anyway — measure is a typographic property, and binding it to the page container makes a
+paragraph's readability depend on which route it happens to live on.
+
+One rule survives from the old clause, and it is the reason tiering was tried in the first place:
+**a panel that constrains itself must not centre itself.** Full-width header above a centred panel
+misaligns the two left edges. Constrain left-aligned instead.
+
+**Empty states size to their role.** An empty state that IS the whole column (a master-detail
+detail pane) fills and centers. An empty state that is one section *inside* a panel must not — a
+filled one leaves a ~320px cavity where content belongs, and three of those on a page is the
+"stack of equal empty boxes" look again. Sections that are usually empty (in-flight transfers)
+should collapse to a single row rather than render a titled panel around a void — but they may not
+disappear, because the entry point they carry has to survive.
+
+**Full-bleed primary buttons are a landing-page move.** A form's primary action belongs in a
+right-aligned footer at its natural width (full width below `sm:`, where thumb reach wins). A
+1100px saturated fill, usually rendered disabled, is the loudest thing on the page and says nothing.
+
+**Settings runs its own primitives, and that split is deliberate.** Desktop and web both build
+settings from `SettingsSection → SettingsCard → SettingsRow` (`src/routes/_app/settings/-settings-primitives.tsx`
+and `docs/app/app/_components/settings-primitives.tsx` — two implementations, one standard) rather
+than the page-panel primitive the rest of the app uses. The reason is content shape: list-and-grid
+pages need a container with presence, while settings is a run of small labelled rows whose grouping
+comes from hairlines inside one card. Wrapping every settings group in a page-level panel produces
+the stack of oversized cards both builds started with. Section titles drop a step to match (14px
+semibold + a bare brand icon, not the panel primitive's icon chip), and the bento grid tiers
+(`md:grid-cols-2` / `lg:grid-cols-6` with spans, 1040px column) are shared.
+
+Desktop pairs cards by height to keep row bottoms level; that only works when a column has enough
+sections to stack. Where it doesn't — web's preferences row is one short card beside one tall one —
+size to content instead. Stretching leaves a third of a card as empty glass, which reads as
+unfinished, not as breathing room. **Copy the rule, not the conclusion.**
+
+Desktop's own devices page violated this until 2026-08-06 and much more severely: the right-hand
+"add device" panel was `flex-1`, so with 16 paired devices it stretched to 1468px around 278px of
+content — **1206px of empty glass, 82% of the card**. The tell that it is the wrong lever: the
+emptiness scales with *the other column's* content.
+
+**A short aside column beside a long list should follow the scroll.** Once it sizes to content, the
+entry points in it (pairing, and a *live-updating* nearby-device list) scroll out of view while the
+user is still working through the list — and content that changes on its own is worthless where it
+cannot be seen. Make it `sticky` with `self-start`; a stretched grid item has no slack to stick with
+and the rule silently does nothing. Cap the one section inside it that grows without bound (nearby
+devices) rather than the card — a sticky element taller than the viewport puts its own bottom
+permanently out of reach, and capping the card instead would clip its glass corners.
+
+**The devices page splits at 1280px, and that is a second breakpoint on purpose.** 920 measures
+*master-detail* (list ↔ detail, both panes are content). The web devices page is a different
+shape — main content plus one column of auxiliary tooling (pairing) — and the web app area carries
+a navigation rail of its own, which 920 does not account for. The rail has three tiers
+(≥1024 expanded 224px · 768–1023 icon 64px · <768 bottom nav), so **the same viewport width leaves
+different content width on desktop and web**: the desktop devices page can split at 920 precisely
+because it has no rail.
+
+At 1280: `1280 − 224 (rail) − 48 (page padding) = 1008` content, minus a 360 pairing column and a
+32 gutter leaves a 616px main column — exactly two device cards (280×2 + 8). One tier down (1024
+viewport) the main column is 376px, which fits one card; a single-card main column beside a 360px
+sidebar reads as two things side by side rather than one main and one aside.
+
+Below 1280 the page stacks in the previous order (grid → active transfers → pairing), and pairing
+collapses to a single header row. **The CSS `xl:` grid and the JS `DEVICES_SPLIT_QUERY` are the same
+number and must flip together** — pairing's default-open state is tied to the layout, so a mismatch
+of one tier produces a 360px column containing nothing but a collapsed title.
+
+Pairing stays *in the page* in both tiers — not a dialog, not a drawer, not a sub-route. During
+pairing the user moves between two surfaces (send my invite out, paste theirs back in), and an
+overlay repeatedly covers the paired-device list, which is exactly where they are watching for the
+result. A sub-route is the same problem taken further: the whole list is gone. Splitting improves on
+the older in-place disclosure — both blocks are visible *at once*, so a newly paired device appears
+in the next column without collapsing anything first. Desktop diverges here (its pairing lives at
+`/pairing/generate` and `/pairing/input`) because its right column carries nearby-device discovery
+as well, and the browser has no mDNS to put there.
+
+**Section names are cross-platform.** The same concept gets the same title and icon in every build:
+web's settings say 设备信息 / 引导节点 with `MonitorSmartphone` / `RadioTower` because desktop does.
+Renaming is a **presentation-layer** change only — the web build still calls its component
+`ConnectionPanel` and its store domain `relays`, because those are kernel facts (it really does
+register relays). Two names for one thing in the UI makes users think there are two things to
+configure; two names between UI and kernel is just accurate.
+
+### Cross-platform UI Review Checklist
+
+Run this when adding or changing device-related UI in **any** build. It is a gate before visual
+review, not after.
+
+- [ ] All eight Device Card slots present (or explicitly absent because the data is)
+- [ ] Online state shows a dot **and** a word
+- [ ] Latency rendered whenever the device is online and `connection` is known
+- [ ] Send reachable from the device card, target pre-selected
+- [ ] Offline devices: send disabled, whole-card click disabled, visual degradation applied
+- [ ] Destructive actions (unpair) require one explicit confirmation, and can report failure
+- [ ] Display name / grouping / trust normalization come from `@swarmdrop/shared-view`, not a local copy
+- [ ] Every interactive control reachable without hover; touch targets ≥ 44×44 CSS px
+- [ ] New user-facing strings go through that build's i18n, including `aria-label` / `title` / `alt`
+
+### Navigation — Desktop shell (Topbar + Breadcrumb)
 - Desktop uses a single top bar: an unclickable logo mark, a node-status pill, a breadcrumb trail (home icon → intermediate clickable segments → unclickable current page), and window controls. There is no persistent sidebar in the current build — navigation depth is expressed through the breadcrumb, not through a nav rail.
 - The topbar's only structural line is a 1px `rgb(255 255 255 / 0.34)` (light) / `rgb(255 255 255 / 0.08)` (dark) bottom hairline — no shadow, no background fill of its own beyond the ambient shell.
 
+### Navigation — Web app area (Sidebar + Bottom Nav)
+The browser build (`docs/app/app`, hosted inside the docs site) uses a **persistent sidebar**, not the breadcrumb-only topbar. This is a deliberate fork, decided in issue #88 — it is the "check against the current breadcrumb-only pattern" the Don't-list below asks for, and its conclusion applies to the Web area only: **the desktop shell does not change.**
+
+Why the fork: the desktop app owns its entire window and can borrow the native title bar for chrome, so a breadcrumb is enough to say "you are inside an app". A browser tab has no such frame — the same tab renders marketing pages and docs — so persistent nav is the only structure that reads as an application rather than another document page. Deep-linkable routes also require a visible place to return to.
+
+- **Sections** mirror the desktop information architecture — devices / send / inbox / transfer / settings — so the two builds stay conceptually one product. Only the navigation *shape* differs.
+- **Persistent nav lists three of them: devices / inbox / settings.** Send and transfer are *sub-pages of devices*: entered from the devices page, they keep "devices" highlighted in the rail and state the parent in the page title as a breadcrumb (`设备 › 传输`, the parent segment being the link back). That title form is shared with the desktop shell on purpose: what the web build forks is the shape of the *persistent* navigation (rail vs breadcrumb trail), not how a page states its own parent — that should read the same in both. It replaced a separate `← 设备` row above the title, which put the visual weight of a two-line header on a small back arrow. This matches what the other two builds already did — the desktop topbar has no send entry, and the mobile tab bar has neither send nor transfer. Send in particular must never become a persistent nav item: the Send Entry Contract above says sending starts from a device, so a standing entry can only land the user on the target picker that exists for *correcting* a target. The parent/child relation lives in `docs/app/app/_lib/nav.ts`; giving an item a `parent` removes it from the rail.
+- **Three responsive tiers:** ≥1024px expanded rail (icon + label, 224px) · 768–1023px icon rail (64px, label degrades to `title`/`aria-label`) · <768px bottom nav with a brand+status header above the content. The single source of truth for the items is `docs/app/app/_lib/nav.ts`. Neither the header nor the bottom nav is `fixed`/`sticky` any more: the app shell is an `h-dvh` flex container and scrolling happens inside `main`, so both are ordinary `shrink-0` children that stay put on their own — which also removed the height constant that a `fixed` bar had to be compensated for.
+- **The brand mark is the way back to the marketing site** (`/`), and it is the web build's one departure from desktop's "unclickable logo mark" — trivially so, since the desktop shell has no marketing site to return to. The app area is a room inside the docs site with no door out: all three rail items live under `/app`, and the only other in-site link is "使用文档" in the bottom menu, which goes to docs rather than home. Clicking the logo to get home is the one browser convention nobody has to be taught, so the missing door hangs there. The link carries the tier padding (`min-h-11`, and the header row gives up its horizontal padding to it) so its hit area matches a nav item's — 207×44 expanded, 47×44 in the icon rail — and the mark lands on the same 20px left edge as the nav icons below it. Its accessible name states the destination ("SwarmDrop 官网首页"); in the icon rail the label is `display:none`, so that name is the only one there is.
+  - **Leaving `/app` does not interrupt transfers**, contrary to what the code said for a long time. The node runtime is a *module-level* singleton whose lifetime follows the page, not the React tree: `WebNodeBootstrap` has no cleanup by design, and the only call site of `closeNode()` is the "stop node" button in the status dialog. A client-side link out of the app area unmounts DOM and nothing else. Verified 2026-08-06 by round-tripping `/app/devices → /docs →` back in one document and sampling the status pill every 100ms for 4s — it never left "运行中", which is a tight test because stopping the node also resets the store. The retracted claim ("leaving `/app` unmounts the node singleton and interrupts transfers") had appeared in two component headers and cost a design decision before it was checked.
+- **Active state** is `bg-fd-accent` + `text-[var(--brand)]` + `aria-current="page"` — the one-accent rule still holds; no second saturated color enters the chrome.
+- **The count badge** (pending offers) uses the brand solid fill with `--brand-ink` text. It exists because splitting one page into five routes hides time-sensitive inbound requests behind a route — the badge is the compensation for that, not decoration. In-flight transfers get the same compensation in a different form: the devices page carries an "active transfers" section with live rows, which is what replaced their nav badge when transfer left the rail. **Whatever is taken out of the chrome has to reappear somewhere the user already is** — that rule is what both of these are instances of.
+- **Node status stays visible in every tier** (pill when there's room, bare status dot in the icon rail): "state is honestly visible" does not get dropped because the window got narrow. The pill is also the **entry point to node control** — status, uptime, relay reachability and diagnostics, plus start/stop. Node control is deliberately *behind* it rather than on any page: visible when looked for, never stumbled into.
+- **The rail costs 224px of content width, and page layouts must budget for it.** This is the one structural consequence of the fork that is easy to forget: a viewport width that splits comfortably on desktop may not on web. The devices page's 1280 split breakpoint is the worked example — see "The devices page splits at 1280px" under the Layout Density Contract.
+
+### Page overview stats (devices)
+
+The devices page header carries three counters on its right — **online / paired / in-transit**.
+Desktop's equivalent (`HomeOverview`) reads *nearby* / paired / in-transit; **web replaces "nearby"
+because it does not exist there** (mDNS discovery is a native capability). A counter that is
+permanently zero is worse than an absent one: it reads as "nothing is nearby" rather than "this
+build does not look".
+
+"Online" earns its slot on its own: offline devices offer no send action (Send Entry Contract), so
+"how many can I actually reach right now" is the page's most load-bearing number, and the section
+header's count only gives the total. Paired overlaps that count deliberately — with only "online 2"
+a user cannot tell 2-of-2 from 2-of-9.
+
+**It goes in the existing page header, not in a banner of its own.** Desktop's overview block
+carries its own title and positioning line; the web `PageHeader` already renders both, so a separate
+block would say the same sentence twice and cost a screenful of height. Desktop's block is itself
+"title left, stats right" — web is adding the missing half, not cloning the whole.
+
 ### Ambient WebGL Background (signature component)
 A `Renderer`-driven (`ogl`) full-bleed canvas sits behind every app screen: a slow Perlin-noise "soft aurora" gradient (`aurora-mist` → `aurora-cyan`) always on, plus a teal/light-blue "side rays" overlay that appears only in dark mode. The loop is gated by `IntersectionObserver` + `visibilitychange` (pauses when off-screen or the tab is hidden) and fully respects `prefers-reduced-motion` by freezing on the first frame instead of skipping the effect outright — the texture stays, the motion doesn't. This is the system's single biggest personality investment; everything else in the UI stays deliberately quiet so this can carry the "alive network" feeling.
+
+**Desktop and web both ship it** (web since 2026-08-05 — see the overturned bullet in
+"Cross-platform token unification"). Two implementations, one standard: the **shaders and the
+`*_CONFIG` blocks are copied verbatim** between `src/components/layout/app-ambient-background.tsx`
+and `docs/app/app/_components/ambient-canvas.tsx`. Never tune one side only — a drifted aurora is
+invisible in isolation (both are "a moving light") and only shows up side by side.
+
+The web deltas are all forced by the browser baseline, not by taste:
+
+| | Desktop | Web |
+|---|---|---|
+| Load | direct import | `next/dynamic` + `ssr:false` — pulling `_bg.wasm` to start the node outranks decoration. Measured: 15.6 KB gzip, absent from the route's first-load chunks |
+| DPR | aurora unset (1), rays capped at 2 | both capped by `ambientDpr()`: 1 below 768px, else ≤1.5 |
+| Frame rate | full RAF | throttled to 30 fps. The motion is second-scale; 30 and 60 are indistinguishable and the GPU work halves |
+| Layer opacity | — | **Shared, no longer a delta:** dark 1 · light 0.34 |
+| Mask | — | **Shared:** radial `mask-image`, two strengths by theme. Dark keeps 45% at the centre so panels have something to refract; light hollows it out entirely |
+
+**Opacity and mask are now shared by both builds** (2026-08-06). They were a web-only delta, which
+had it backwards in both directions: web's dark value (0.7) held the aurora below the level at
+which glass works at all, while desktop ran unmasked and let the shader's mid-height band cross the
+card area as the brightest thing on screen. An ambient layer's job is to be *sensed*, not seen
+first — "everything else stays quiet so this can carry the feeling" means legible, not loud.
+
+**Attenuate by position, not by amount.** Turning opacity down removes the light *behind the
+panels* too, and that light is the only thing glass has to work with. The mask presses on the
+centre, which is what the band problem actually called for.
+
+**The light/dark split that remains is a measured constraint, not a preference** (the table also
+read "0.7 dark / 0.48 light" for a while when the code said 0.34 — three places stating this, so
+check all three when changing it).
+
+Additive light on a near-white surface has almost no headroom before `--muted-foreground` on a
+glass card drops under WCAG AA. Sampled by colour mode over the text's own background, worst of
+3 frames — the layer drifts, so **single-frame sampling lies** (one frame of the 0.34 + soft-mask
+combination measured 4.566 and looked safe; its worst frame was 4.413):
+
+| Light configuration | Worst | |
+|---|---|---|
+| 0.34 + hollow mask | **4.645** | 3.2% headroom — shipped |
+| 0.24 + soft mask | 4.518 | 0.4% headroom, i.e. none |
+| 0.28 / 0.34 + soft mask | 4.443 / 4.413 | below AA |
+
+Dark has room to spare: full strength with the soft mask measures **7.3–8.4:1**. Desktop light,
+which previously ran unmasked at full strength, measured 4.693 before and 4.653 after — the mask
+moves it toward safety, not away.
+
+**Reduced-transparency drops the ambient layer entirely** (`display: none`), whereas
+reduced-motion freezes the first frame. The two preferences ask different questions: motion asks
+for stillness (keep the texture), transparency asks not to look through things — and once glass
+degrades to a flat fill, nothing behind it is visible anyway.
+
+**Mount it at the shell only.** It holds a WebGL context plus a RAF loop; per-route instances hit
+the browser's live-context cap, which fails by silently discarding the oldest context.
 
 ### Pairing Code Cell (signature component)
 Individual pairing-code digits render as `glass-control` chips (`18px` radius, `font-mono text-3xl`, inset top highlight) rather than a plain OTP input row — the one place glass chrome and mono type meet directly, appropriate for the single most "trust me with a secret" moment in the product.
@@ -223,6 +673,7 @@ Individual pairing-code digits render as `glass-control` chips (`18px` radius, `
 - **Don't** build a generic SaaS dashboard: no gradient hero blocks, no identical repeated card grids, no dashboard chrome added for its own sake (PRODUCT.md anti-reference).
 - **Don't** build a heavy enterprise back-office: no dense grey-on-grey tables, no Windows-style management-panel density (PRODUCT.md anti-reference).
 - **Don't** apply `backdrop-filter` to a button, input, or any control someone clicks or types into — glass is for containers, not controls.
+- **Don't** drop a Device Card Contract information slot because a layout got tight — wrap, truncate, or move it behind a disclosure, but don't leave the user unable to see how a device is connected or how much trust it has. (See "Device Card Contract"; it binds all three builds.)
 - **Don't** add a second saturated accent color to the static UI chrome; if a screen feels flat, that's a signal to lean on the ambient background or an icon, not a new hex.
 - **Don't** re-derive Harbor Teal from scratch or let Copper Core become a general UI accent — `oklch(0.583 0.105 177.1)` (light fill) / `oklch(0.641 0.115 177.6)` (dark fill) / `text-brand` for text form; treat these as fixed (The Brand Fidelity Rule). And never use the fill teal as small text on white — that's what `text-brand` exists for.
-- **Don't** add a persistent sidebar nav rail without checking against the current breadcrumb-only pattern first — it's a deliberate simplification, not an oversight.
+- **Don't** add a persistent sidebar nav rail to the **desktop shell** without checking against the current breadcrumb-only pattern first — it's a deliberate simplification, not an oversight. (The Web app area already went through that check and forked; see "Navigation — Web app area". A fork granted there is not a precedent for the desktop shell.)

@@ -124,6 +124,19 @@ pnpm test
 `cargo build` 出来的二进制会因为 `tauri.conf.json` 的 `devUrl` 指向没启动的 Vite dev server
 而白屏（窗口标题读出来是空字符串，`window.__TAURI__.core.invoke` 一直超时）。
 
+### 首次启动的空白窗口也要检查 Zustand 持久化合并
+
+`main.tsx` 会等待 preferences-store hydration 完成才渲染路由。Tauri Store 的文件即使存在，
+也可能还没有 `preferences-store` 这个 key；这时 Zustand 会把 `persistedState` 传为 `undefined`。
+若 `merge` 直接访问它的字段，hydration 会在内部 catch 后停住，`hasHydrated()` 永远为 false，
+窗口则因 `return null` 持续空白。
+
+**正确做法**：持久化合并函数先把缺失状态归一为 `{}`，例如
+`const persisted = (persistedState ?? {}) as Partial<PreferencesState>`；并在排查时用
+Tauri MCP Bridge 或 DevTools 检查 `usePreferencesStore.persist.hasHydrated()`。
+
+**相关文件**：`src/stores/preferences-store.ts`、`src/main.tsx`
+
 **相关文件**：`e2e/desktop/`、`dev-notes/blogs/desktop-webdriver-e2e.md`
 
 ### 桌面端官网素材录制用 WDIO demo spec + OBS WebSocket
@@ -217,9 +230,33 @@ pnpm --dir e2e/desktop record:mobile android 10
 opt-level = 3
 ```
 
-**Why**：crypto 依赖（`tauri-plugin-stronghold` / `chacha20poly1305` / `blake3` 等）和 libp2p 不开优化会慢 10-100×，dev 体感卡顿明显。
+**Why**：crypto 依赖（`chacha20poly1305` / `blake3` / `sha2` / `ed25519` 等）和 libp2p 不开优化会慢 10-100×，dev 体感卡顿明显。
+
+> 历史：这条最初是被 `tauri-plugin-stronghold` 逼出来的（它是当时最慢的一个）。
+> **Stronghold 已移除**（私钥改由系统钥匙串 `keyring` 管理），但这段配置**必须保留**
+> ——libp2p 与其余 crypto 依赖同样吃它。
 
 **不要做**：删除这段配置或把 `*` 改成具体 crate 列表——会漏掉新加的 crypto/网络依赖。
+
+### `target/` 是 10G 量级，跑全量测试要留够盘
+
+`opt-level = 3` + libp2p / webrtc-rs / tauri 三棵大依赖树的合并后果：`cargo clean` 之后
+跑一轮「check + 相关测试 + wasm 双 target + 桌面 bindings 导出 + mobile cdylib」就能重新
+长到 **10–11G**。`cargo test --workspace` 更吃——它要为每个 test target 各编一个二进制。
+
+盘紧时的取舍，按性价比排：
+
+| 手段 | 腾出 | 代价 |
+|---|---|---|
+| `rm -rf target/debug/incremental` | ~3.7G | 只影响下次增量编译速度，**最安全** |
+| `CARGO_INCREMENTAL=0` 跑 | 不再增长 | 单次编译略慢，适合一次性的门禁跑 |
+| `cargo clean` | ~10G | 全量重编（libp2p 那棵树十几分钟） |
+
+**`cargo clean` 治标不治本**：清完的余量若也只有 10G 出头，编一轮就又满了。真卡住时从
+项目外腾（Xcode DerivedData / Android 构建缓存都是纯派生物）比反复 clean 有效。
+
+跑不完全量测试时的降级顺序：先 `cargo test -p <改动的 crate>`（多数改动只需要一两个），
+完整 `--workspace` 交给 CI——它在 ubuntu runner 上跑，不受本机盘限制。
 
 ### wasm 构建：macOS 必须装 brew 的 LLVM，系统 clang 不行
 
@@ -256,6 +293,86 @@ iroh 官方 browser-echo 示例里那个 `wasm-bindgen = "=0.2.122"` 精确 pin 
 用 wasm-pack 就不必背这个包袱。
 
 **相关文件**：`spike/iroh-web/.cargo/config.toml`、`spike/iroh-web/README.md`
+
+### `crates/web` 的 wasm 测试要跑起来，chromedriver 主版本必须与本机 Chrome 一致
+
+`crates/web` 整个 crate 是 `#[cfg(wasm_browser)]`，**进不了 `cargo test --workspace`**；
+而 `check-wasm.sh` 的 `--all-targets` 只把 `#[wasm_bindgen_test]` 模块**编**进来。
+于是它那 20 条测试（IndexedDB 往返、OPFS、收件箱可见性与排序）长期处于
+「写了、编得过、**从没跑过**」的状态——2026-08-03 首次执行才发现这一点。
+
+代价是实打实的：`invite_store.rs` 的写读不对称（写 `serde_json::to_string` + `put_string`
+存字符串，读却用 `serde_wasm_bindgen::from_value` 当对象解析，于是**每一行都被静默丢弃**，
+已发出的邀请跨刷新全部消失）能活到被手动验证撞见——那条路径有往返测试覆盖，
+只要执行过一次就会当场红。**编得过给的是虚假的安全感。**
+
+**正确做法**：跑 `./scripts/test-wasm.sh`（CI 的 wasm job 里已接上）。它自己解析 Chrome
+版本并取匹配的 chromedriver，不信任 PATH 里碰巧存在的那个。
+
+**不要做**：直接 `wasm-pack test --headless --chrome crates/web` 而不管 driver 版本。
+chromedriver 主版本与 Chrome 不一致时，失败长这样：
+
+```
+Starting new webdriver session...
+Error: http status: 404
+driver status: signal: 9 (SIGKILL)
+```
+
+那个 404 是 driver 拒绝了 wasm-bindgen runner 的 W3C 端点，**与「测试挂了」看起来毫无
+区别**，极易误判成代码问题（Homebrew 的 chromedriver 跟着自己的节奏升级，与本机 Chrome
+常年错位——实测 brew 装的是 151，系统 Chrome 是 150）。后面那个 SIGKILL 是 runner 自己
+的清理，不是 Gatekeeper。
+
+另外两个只在 macOS 出现的坑，脚本里都处理了：
+
+- 下载来的 chromedriver 带 quarantine 且签名过不了 Gatekeeper，**启动即被 SIGKILL**。
+  `xattr -dr com.apple.quarantine` + `codesign --force --sign -` 自签名可放行。
+- wasm-pack 从 **PATH** 取 chromedriver，`CHROMEDRIVER` 环境变量会被它覆盖掉；且它内部
+  `cd crates/web` 再跑 cargo，所以前置进 PATH 的目录**必须是绝对路径**——相对路径的症状是
+  `No such file or directory (os error 2)`，同样与「driver 没装」无从区分。
+
+#### ⚠️ driver 缓存在 `target/` 下，会被 rust-cache 掏空成骨架（2026-08-06 修）
+
+**症状**：CI 的 `wasm` job 连红，`./scripts/test-wasm.sh` 报
+
+```
+All providers failed for chromedriver 150.0.7871.128:
+  - DefaultProvider: The browser folder (target/wasm-test-driver/chromedriver/linux-150.0.7871.128)
+    exists but the executable (…/chromedriver-linux64/chromedriver) is missing
+```
+
+**成因**：`DRIVER_ROOT` 在 `target/` 下，而 `swatinem/rust-cache` 会缓存并**清理** `target/`
+——它不认识非 cargo 产物，于是恢复回来的是**只有目录、没有二进制**的骨架。而
+`@puppeteer/browsers install` 见到版本目录已存在就拒绝安装，不会自愈。
+
+净效果：**CI 上第一次跑完之后每一次都必然失败**，且报错长得像网络问题。develop 在
+2026-08-06 连红三次都是它，期间那 25 条 wasm 测试一次都没在 CI 跑过——正是这个脚本当初
+要消灭的「写了、编得过、从没跑过」，换了个地方复发。
+
+**修法**：脚本发现「缓存里没有匹配当前 Chrome 版本的 driver」时，先 `rm -rf "$DRIVER_ROOT"`
+再装。走到那一步就已经确定缓存无用，清掉无损；不做定点删除是为了不把 puppeteer 的目录
+布局（`<root>/chromedriver/<platform>-<version>/…`，且 `<platform>` 在 Apple Silicon 上是
+`mac_arm` 不是 `mac`）抄进脚本。
+
+**复现方式**（照着做能精确重演，别用「随便造个空目录」——目录名不对就撞不上）：
+先正常跑一次让它装好，再 `rm -f $(find target/wasm-test-driver -name chromedriver -type f)`，
+然后重跑。修复前报上面那条，修复后自愈并 25 passed。
+
+**相关文件**：`scripts/test-wasm.sh`、`scripts/check-wasm.sh`、`.github/workflows/rust.yml`
+
+### docs 的 Next dev：浏览器必须用 localhost 访问，127.0.0.1 会静默死页
+
+Next.js dev server（`cd docs && pnpm dev`）以 `localhost:3000` 起，浏览器若用
+`http://127.0.0.1:3000` 打开，dev 资源（webpack-hmr、字体、client chunk）会被
+**Blocked cross-origin request** 拦截——症状极具迷惑性：页面正常渲染（SSR HTML），
+但**没有 hydrate**，所有按钮点了没反应、console 无任何报错，看起来像业务代码坏了。
+服务端日志（pnpm dev 的输出）里才有 Blocked 警告。
+
+**正确做法**：`/app` 等交互页实测一律 `http://localhost:3000`；或在 `next.config.mjs`
+加 `allowedDevOrigins: ['127.0.0.1']`。（README 里"实测用 127.0.0.1"说的是**静态
+serve 的产物**，与 Next dev 是两回事。）
+
+**相关文件**：`docs/next.config.mjs`、`docs/app/app/`
 
 ### spike/ 不进 workspace
 
@@ -302,6 +419,18 @@ Tauri dev 期间硬编码连这两个端口。改 `vite.config.ts` 端口会让 
 
 **相关文件**：`vite.config.ts`
 
+### Windows 开发时必须忽略根目录 `target/`
+
+Cargo workspace 的构建产物位于仓库根目录 `target/`。若 Vite 监听到 Cargo 正在写入的 `.exe`，Windows 会报 `EBUSY`，并使 `beforeDevCommand` 退出，进而导致 `pnpm tauri dev` 失败。
+
+**正确做法**：
+- 在 `vite.config.ts` 的 `server.watch.ignored` 中同时保留 `"**/src-tauri/**"` 和 `"**/target/**"`。
+
+**不要做**：
+- 只忽略 `src-tauri/**`；它不包含根目录 `target/`。
+
+**相关文件**：`vite.config.ts`
+
 ### TAURI_DEV_HOST 用于真机调试
 
 `vite.config.ts` 读取 `TAURI_DEV_HOST` env：设了就把 host / hmr.host 切到该 IP。本地 dev 不需要设。
@@ -312,7 +441,10 @@ Tauri dev 期间硬编码连这两个端口。改 `vite.config.ts` 端口会让 
 
 **为什么能用**：live 模式的注入机制就是往 `index.html`（见 `.impeccable/live/config.json` 的 `files`）插一段 `<script>`，而 `pnpm tauri dev` 本质是 `BeforeDevCommand: pnpm dev --host` 起 Vite，Tauri 原生窗口只是加载同一个 Vite dev server 的 `index.html`。跑 `node .claude/skills/impeccable/scripts/live.mjs` 注入后，Vite 的 HMR 会让已经打开的 Tauri 窗口自动重载，注入的悬浮选取器工具条会直接出现在真实窗口里，App 本身也照常渲染（因为 Tauri IPC 上下文还在）。
 
-**踩过的坑**：单独用 `pnpm dev`（不走 `pnpm tauri dev`）在普通浏览器 tab 里打开 `http://localhost:1420` 会是**空白页**——这是因为前端 mount 时就会 `invoke()` 走 Tauri IPC（network-store / auth-store 等），普通 Chrome tab 没有 `window.__TAURI_INTERNALS__`，直接崩渲染。所以"浏览器 tab 打开空白"和"live 注入机制在 Tauri 里失效"是两件不同的事，别混为一谈。
+**踩过的坑**：单独用 `pnpm dev`（不走 `pnpm tauri dev`）在普通浏览器 tab 里打开 `http://localhost:1420` 会是**空白页**——这是因为前端 mount 时就会走 Tauri IPC（`commands.initializeIdentity()` / network-store 等），普通 Chrome tab 没有 `window.__TAURI_INTERNALS__`，直接崩渲染。所以"浏览器 tab 打开空白"和"live 注入机制在 Tauri 里失效"是两件不同的事，别混为一谈。
+
+> 注意：这里说的桌面前端（`src/`）与 **Web 端**（`crates/web` + `docs/app/app`）是两套东西。
+> Web 端不走 Tauri IPC，本来就在浏览器里跑。
 
 **agent 这边怎么驱动**：live.md 文档写的是用 `browser_navigate` 之类的浏览器工具去看/截图，这对 Tauri 不适用；改用 `mcp__tauri__driver_session`（需要项目已装 `tauri-plugin-mcp-bridge`，本仓库已装）连接同一个正在跑的原生窗口，`mcp__tauri__webview_screenshot` / `webview_execute_js` 代替浏览器截图/取值，`live-poll.mjs` 的本地 HTTP helper 完全不关心注入的 JS 跑在哪个 webview 里，所以轮询/accept/discard 那套照常工作。
 
@@ -329,23 +461,30 @@ Tauri dev 期间硬编码连这两个端口。改 `vite.config.ts` 端口会让 
 - emit 事件时 payload 必须是 **JSON 对象**。`mcp__tauri__ipc_emit_event` 的 payload 参数如果传了字符串化 JSON，前端 `event.payload` 收到的是 string，`payload.paths` 为 undefined，listener 静默失败、页面毫无反应。保险做法是用 `webview_execute_js` 执行 `window.__TAURI__.event.emit("external-file-open", { paths })`
 
 **不要做**：
-- 通过 `window.location.href = "/xxx"` 验证路由 redirect——整页刷新会丢内存态（解锁状态），app 会弹回 unlock 屏
+- 通过 `window.location.href = "/xxx"` 验证路由 redirect——整页刷新会丢掉所有运行时 store
+  （share-store 的待发送文件、network-store 的节点状态等），链路验证到一半就断了。
+  用路由跳转 API，不要整页刷新。
+
+> 该条最初写的是「会弹回 unlock 屏」。**密码/解锁流程已整体移除**（首启只问设备名，
+> 身份由后端 keychain 静默管理），但「整页刷新丢内存态」这个坑本身依然成立。
 
 **相关文件**：`src/components/external-open-handler.tsx`、`src/lib/bindings.ts`（`events.externalFileOpen`）
 
 ## Git submodule
 
-### libs/ 是 swarm-p2p submodule
+### 本仓已无 submodule（libs/ 于 2026-07 删除）
 
-```
-[submodule "libs"]
-    path = libs
-    url = https://github.com/swarm-apps/swarm-p2p.git
-```
+**曾经**：`libs/` 是 `swarm-apps/swarm-p2p` 的 submodule，提供 `swarm-p2p-core`，克隆后必须
+`git submodule update --init --recursive` 才能 `cargo build`。
 
-**克隆后必须**：`git submodule update --init --recursive`，否则 `cargo build` 找不到 `swarm-p2p-core`。
+**现在**：网络栈由自研的 `crates/net` + `crates/net-base` 取代，`libs/` 已从工作树删除，
+`.gitmodules` 不存在。**克隆后直接 `pnpm install` 即可**，无需任何 submodule 步骤。
+swarm-p2p 的历史源仍在独立仓 `swarm-apps/swarm-p2p`，但本仓不再依赖它。
 
-**注意**：`libs/` 和主仓都是 **Rust 2024 edition**（各自 `[workspace.package] edition = "2024"`，成员 crate 通过 `edition.workspace = true` 继承），两边没有 edition 差异。
+- workspace member 全在 `crates/*` + `src-tauri` + `mobile-core`
+- `.github/workflows/rust.yml` 各 job 里的 `submodules: recursive` 现为 no-op，
+  保留只作未来再引入 submodule 的兜底
+- 迁移背景见 [net-kernel.md](net-kernel.md)，决策见 `dev-notes/why-libp2p-not-iroh.md`
 
 ## Lingui 提取
 
@@ -367,6 +506,52 @@ pnpm i18n:extract
 ```
 
 漏跑会导致 `src/locales/*/messages.po` 缺少新加的字符串，运行时降级显示原文。
+
+### ⚠️ Web 应用区漏跑不会「降级显示原文」，会直接显示 msgid（2026-08-05 踩到）
+
+桌面（Vite + babel macro）漏跑时确实降级成源文；**Web 应用区不是**。`docs` 的 `pnpm build`
+第一步就是 `lingui compile --typescript`，编出来的 catalog 里查不到某条 id 时，界面上出现的是
+**生成的 msgid 本身**——像 `YfX8tg` 这样一串六位随机字符，看起来像个会话号或错误码，
+完全不像缺翻译。
+
+更阴的是**只有生产构建会暴露**：dev 下同一句话显示正常，所以「改完在 dev 里看了一眼没问题」
+挡不住它。
+
+触发条件比想象中低——**改标点就够了**。把「现在没有正在进行的传输。」的句号去掉，
+Lingui 眼里就是一条全新的 msgid，旧译文自动进 `#~` 废弃区，en / zh-TW 当场缺两条。
+
+所以：**动了任何 `<Trans>` / `` t`` `` 里的字符（哪怕只是标点），必须**
+
+```bash
+cd docs && pnpm i18n:extract     # 看 Missing 那一列
+# 补完 en / zh-TW 的 msgstr 后再跑一次，Missing 必须归零
+cd docs && pnpm i18n:extract
+```
+
+改标点时旧译文就在同一个文件的 `#~ msgid` 里，照抄改标点即可，不用重译。
+
+## dev server 与 `next build` 抢 `.next/`，产物 CSS 会是旧的（2026-08-05 实证）
+
+`next dev` 与 `next build` **共用 `docs/.next/`**。dev server 开着跑 `pnpm build`，构建会
+「成功」并写出完整的 `out/`，但里面的 CSS 可能是**改动之前的**——没有任何警告。
+
+实证：改了 `app/global.css` 的十来处（新 token + 新组件类），`pnpm build` 后产物里
+`--app-shell-background` 还是旧值 `#fbfcfc`，`--space-section` / `--glass-rail-bg` /
+`--scrollbar-thumb` 一条都没有，而改动前就存在的 `--radius-panel:24px` 在。
+**停掉 dev server + `rm -rf .next out` 后重建，全部正确。**
+
+危险的不是构建失败，是构建**看起来成功**：验证「我的 CSS 改动进产物了吗」时会得到一个
+假阴性（以为没生效，去改代码），而 CI 里没有 dev server、构建是对的，于是本地与线上表现不一致。
+
+**所以：验证产物前先停 dev server。** 判据（grep 一个只在新代码里出现的 token 即可）：
+
+```bash
+cd docs && CSS=$(find out -name "*.css")
+grep -o -- "--你新加的-token:[^;}]*" $CSS   # 空 = 产物是旧的
+```
+
+这也是「一次只起一个 server」那条纪律的具体成因之一。要看真实形态用 `pnpm start`
+（`serve out`，只读静态产物，不碰 `.next`），别再开一个 dev。
 
 ## 版本号同步：两条独立版本线
 
@@ -391,6 +576,79 @@ pnpm i18n:extract
 
 `crates/core/Cargo.toml` 的 version 与两条线都无关，它是共享 core 自己的版本。
 
+## 跑 `crates/web` 的 wasm 测试：别用 `wasm-pack test`
+
+`wasm-pack test --headless --chrome` 有两个坑，叠在一起时报出来的错完全指不到病因：
+
+1. **它吃路径不吃 `-p`**。`wasm-pack test … -p swarmdrop-web` 会去解析仓库根的 `Cargo.toml`，
+   报 `failed to parse manifest: missing field package`（workspace 根没有 `[package]`）。
+   正确形式是 `wasm-pack test … crates/web`。
+2. **它强制用自己缓存的 ChromeDriver，且会覆盖你传的 `CHROMEDRIVER` 环境变量**。
+   缓存里那个 driver 的大版本与本机 Chrome 对不上时（写这条时是 driver 151 / Chrome 150），
+   driver 起来即被 SIGKILL，而 runner 报的是 **`Error: http status: 404`** ——
+   看着像网络或 URL 问题，其实是版本不匹配。别去 `codesign`，签名不是病因。
+
+**绕开 wasm-pack 直驱 cargo**，两个坑都不存在：
+
+```bash
+cd crates/web
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER="$HOME/Library/Caches/.wasm-pack/wasm-bindgen-cargo-install-<ver>/wasm-bindgen-test-runner" \
+CHROMEDRIVER=<与本机 Chrome 同大版本的 chromedriver> \
+WASM_BINDGEN_TEST_ONLY_WEB=1 \
+cargo test --target wasm32-unknown-unknown
+```
+
+chromedriver 按 Chrome 大版本从 <https://googlechromelabs.github.io/chrome-for-testing/> 取。
+
+**这些测试不在任何 CI 门禁里**：整个 `crates/web` 是 `#[cfg(wasm_browser)]`，
+进不了 `cargo test --workspace`；而 CI 也没有 headless Chrome。
+`scripts/check-wasm.sh` 只保证它们**编得过**（脚本末尾对 `swarmdrop-web` 单独加了一轮
+`--all-targets`，其余 crate 不能加 —— 它们的 dev-dependencies 里有 tokio/mio 这类
+native-only 的东西，wasm target 下直接编不过）。所以改 `crates/web` 的逻辑后，
+**编过 ≠ 测过**，要真跑一遍得用上面那条命令。
+
+## 三份自动生成的 bindings 都会静默漂移 —— 没有任何门禁拦它
+
+本仓有三份「由 Rust 生成的 TS」，**没有一份在 CI 里被校验**，于是它们会长期落后于源码
+而不报错：
+
+| 产物 | 谁生成 | 什么时候生成 |
+|---|---|---|
+| `src/lib/bindings.ts` | tauri-specta | `pnpm tauri dev`（debug 启动时）或 `cargo test -p swarmdrop export_ts_bindings` |
+| `crates/web/bindings/bindings.ts` | specta | `cargo test -p swarmdrop-web --features specta --test specta_export` |
+| `mobile/packages/swarmdrop-core/src/generated/` | uniffi (ubrn) | `ubrn build ios/android --and-generate`（要 Xcode / NDK） |
+
+2026-08-01 那次简化里，三份**同时**被发现落后于已提交的 Rust：桌面那份还带着已删的
+`pauseTransfer`、`start` 的参数个数也不对；uniffi 那份根本没有 `renameDevice` /
+`PairedDeviceRemoved` / `DeviceRenamed`，`startNode` 还带着已删的 `deviceName` 参数。
+前端能跑只是因为它调用的恰好是交集。**按移动端的失败模式，落后的 uniffi 绑定进 CI 会打出
+「启动即 checksum mismatch」的包。**
+
+**做法**：改了跨 IPC/FFI 边界的类型或命令签名，当场重生成对应那份并一起提交。不要指望
+「下次 `tauri dev` 会自动更新」——那只在有人恰好跑 dev 的时候才发生，而 CI 从不跑 dev。
+
+### 没有 Xcode / NDK 时怎么重生成 uniffi 绑定
+
+`ubrn build` 要原生工具链，但只重生成绑定不需要：
+
+```bash
+cargo build -p swarmdrop-mobile-core       # 先出 target/debug/libswarmdrop_mobile_core.dylib
+cd mobile/packages/swarmdrop-core/rust/mobile-core   # ⚠️ 必须 cd 到 Cargo.toml 所在目录
+../../../../node_modules/.bin/ubrn generate jsi bindings \
+  --library ../../../../../target/debug/libswarmdrop_mobile_core.dylib \
+  --ts-dir ../../src/generated --cpp-dir ../../cpp/generated
+cd ../.. && ../../node_modules/.bin/bob build   # ⚠️ 不能省
+```
+
+三个易踩点：cwd 不在 crate 目录会报 `manifest not exist`；**`bob build` 不能省**——
+`pnpm typecheck` 与 Metro 看的都是 `lib/typescript/src/generated/*.d.ts`，只重生成
+`src/generated` 的话 tsc 仍报旧类型；环境没有 prettier/clang-format 不影响 diff
+（仓库现存产物本来就是未格式化的）。跑两遍产物字节一致，是确定性的。
+
+**相关文件**：`src-tauri/src/setup.rs:293`（`export_ts_bindings` 测试）、
+`crates/web/tests/specta_export.rs`、`mobile/packages/swarmdrop-core/ubrn.config.yaml`、
+`mobile/dev-notes/knowledge/rust-bridge.md`
+
 ## 提交前 checklist
 
 ```bash
@@ -398,11 +656,36 @@ pnpm exec tsc --noEmit
 cargo check --workspace
 cargo fmt --all
 cargo clippy --workspace -- -D warnings   # 项目期望零 warning
+./scripts/check-wasm.sh                   # wasm 双 target；改了 crates/* 必跑
 ```
+
+改了跨边界类型还要**重生成三份 bindings 之一**（见上一节），CI 不会替你发现。
 
 ## CI / Release
 
 单仓两条 release 流水线，各由自己的 tag 触发（见上「版本号同步：两条独立版本线」）。
+
+### Bootstrap 的三条发布线与多架构镜像
+
+`swarm-bootstrap` 是服务端基础设施，不能复用桌面 `v*` 或移动 `mobile-v*` 的发布触发器；
+它使用第三条独立 tag：`bootstrap-vX.Y.Z`。工作流同时发布 GitHub Release 二进制和 GHCR 镜像。
+
+**正确做法**：
+- 在 `ubuntu-latest` 与 `ubuntu-24.04-arm` 原生构建 Linux amd64 / arm64；不要在单个
+  x86 runner 上用 QEMU 构建 release Rust 二进制。
+- 两个镜像构建必须是显式 job，`image-merge` 同时 `needs` 它们；不要用 matrix job 作为
+  唯一依赖，GitHub 可能在一个 matrix 子任务完成时就调度合并，错误发布单架构 manifest。
+- GHCR 两腿都只 push digest，最后用 `docker buildx imagetools create` 合成 manifest list；
+  不能让两腿并发推同一个 tag。
+- 延续上游 `ghcr.io/swarm-apps/swarm-bootstrap` 时，同时保留 `bootstrap-vX.Y.Z` 及其
+  `-amd64` / `-arm64` 兼容标签，并增加 `X.Y.Z`、`X.Y`、`latest`。该包最初关联
+  `swarm-apps/swarm-p2p`，首次由 `swarm-apps/SwarmDrop` 发版前须在包设置中授予其 Actions
+  写权限；工作流优先使用可选的 `GHCR_TOKEN`，否则回退 `GITHUB_TOKEN`。
+- 先创建 GitHub Release，再由两个 binary job 只追加 `.tar.gz` 与 `.sha256`；两个 job
+  同时创建 release 会发生竞态并可能遗漏一个架构的文件。
+- 运行前校验 tag 去掉 `bootstrap-v` 后与 `crates/bootstrap/Cargo.toml` 版本相等。
+
+**相关文件**：`.github/workflows/bootstrap-release.yml`、`crates/bootstrap/{Cargo.toml,README.md}`
 发版 = bump 该线的版本 + commit + tag + push tag。
 
 ### changelog 必须按路径 + tag 分流
@@ -417,6 +700,9 @@ git-cliff --latest --tag-pattern '^v[0-9]' --exclude-path 'mobile/**'
 git-cliff --config mobile/cliff.toml --latest --tag-pattern '^mobile-v' \
   --include-path 'mobile/**' --include-path 'crates/**' --include-path 'libs/**'
 ```
+
+> `--include-path 'libs/**'` 曾在 `mobile-release.yml` 两处挂着，`libs/` 于 2026-07 删除后
+> 成了 no-op，**已于 2026-07-27 清理**。共享 core 全部由 `crates/**` 覆盖。
 
 `--tag-pattern` 不能省：否则 git-cliff 会把另一条线的 tag 当成上一个版本。
 `pnpm changelog` / `changelog:latest` 已内置桌面侧过滤。
@@ -556,3 +842,207 @@ ubrn 用 `cargo metadata` 的 `target_directory` 定位产物，会自动跟到�
 
 **相关文件**：`Cargo.toml`、`mobile/packages/swarmdrop-core/rust/mobile-core/Cargo.toml`、
 `mobile/packages/swarmdrop-core/package.json`
+
+### expo-file-system 56.0.8 的 SAF FileHandle 必须保活 PFD
+
+Android 接收位置选系统目录后走 SAF `content://`。expo-file-system 56.0.8 的
+`FileSystemFileHandle.forContentURI` 只从 `ParcelFileDescriptor.fileDescriptor` 创建
+`FileChannel`，却不在 handle 中持有 `ParcelFileDescriptor`；PFD 被 GC 回收后，仍在使用的
+channel 会随机变成 `Bad file descriptor`。传输层随后只看到 data stream 被关闭，发送端常显示
+`connection is closed`，发生字节数取决于 GC 时机，**不是 100 MB 限制或缺少背压**。
+
+项目通过 `mobile/pnpm-workspace.yaml` 的 `patchedDependencies` 修复：
+
+- 持有 PFD 到 `FileHandle.close()`，并在 finally 中同时关闭；该部分来自 expo/expo#47176。
+- SAF 新传输用 `"wt"` 明确截断，续传用 `"rw"` 保留已有内容并做可定位写；同一进程恢复优先
+  复用现有 handle，不能用 `"w"` reopen，否则 checkpoint 还在而文件已被再次截断。
+
+补丁配置必须留在 `pnpm-workspace.yaml`（pnpm 11 不读 package.json 的 `pnpm` 字段），更新后用
+`pnpm install --config.allowUnusedPatches=true` 并确认 `mobile/pnpm-lock.yaml` 出现对应
+`patch_hash`。升级 expo-file-system 时先核对上游是否同时覆盖 PFD 生命周期和 SAF `"rw"` 写通道，
+不能只看到 #47176 合入就直接删除整个补丁。
+
+**相关文件**：`mobile/patches/expo-file-system@56.0.8.patch`、
+`mobile/src/core/foreign-file-access.ts`、`mobile/pnpm-workspace.yaml`
+
+## 跨三个 workspace 共享 TS 包：`packages/shared-view`
+
+三端共享的**纯视图逻辑**（设备显示投影 + 格式化）住在仓库根的 `packages/shared-view`。
+「什么该进这个包、什么不该」的判据写在**该包自己的 README** 里，别在这里找；这一节只记
+跨 workspace 接线的坑。
+
+### 发布 TS 源，不预构建 —— 但那不是「零配置」
+
+包的 `exports` 直接指向 `src/index.ts`，三端各付一行构建配置：
+
+| 端 | 声明 | 构建配置 |
+|---|---|---|
+| 桌面（Vite） | 根 workspace member，`workspace:*` | 无 |
+| Web（Next / turbopack） | `link:../packages/shared-view` | `transpilePackages` + **`turbopack.root` 放到仓库根** |
+| 移动（Metro） | `link:../packages/shared-view` | `watchFolders` 加 `../packages` |
+
+### turbopack 的 `root` 是文件系统边界，不只是 lockfile 探测起点
+
+`docs/next.config.mjs` 的 `turbopack.root` 原先锁在 `docs/`（为消除多 lockfile 警告）。
+共享包在仓库根，落在那个边界之外，于是：
+
+- `pnpm typecheck` **全绿**（tsc 沿 symlink 解析得到）
+- `next build` 报 `Module not found: Can't resolve '@swarmdrop/shared-view'`
+
+**只有构建那一步会红**，类型检查给不了任何提示。修法是把 root 指向仓库根——显式指定同样没有
+多 lockfile 警告（歧义来自推断，不是位置）。
+
+**预构建成 `.js` 救不了这条**（实测验证过）：失败的是 *resolution*，与产物是 `.ts` 还是 `.js`
+无关。所以 tsdown / tsup 之类只能省掉 `transpilePackages` 一行，省不掉 root——权衡时别把它
+算成收益。
+
+### 那条放宽的代价：Next < 16.3 的 dev 会吃光内存把机器搞重启（2026-08-05 实测）
+
+root 放到仓库根意味着 turbopack 把**整个仓库**纳入文件系统边界——包括 173G 的 `target/`、
+15G 的 `mobile/` 和散落的 686 个 `node_modules`。Next **16.2.6** 下这笔账在**首次编译任意
+路由**时结清（不是启动时——`Ready in 136ms` 之后内存才起飞，容易误判成「启动没问题」）：
+
+| 配置（同一路由 `/docs/`，16G 机器） | 峰值 | 结果 |
+|---|---|---|
+| 16.2.6 turbopack，root=仓库根 | **11 G 仍在陡升** | 熔断前未编译完；不干预即吃光内存**系统重启** |
+| 16.2.6 turbopack，root=`docs/` | 4.9 G | 完成 |
+| 16.2.6 **webpack**（`next dev --webpack`） | 2.5 G | 完成 |
+| **16.3.0 turbopack，root=仓库根** | **2.4 G** | 完成 |
+
+**修法就是升到 Next ≥ 16.3.0**，配置一行不用动——16.3 的 Turbopack 加了内存驱逐（非活跃
+路由换出到磁盘），官方口径「大型应用 dev 内存降约 90%」，本仓实测降幅同量级。
+
+两条别走弯路的结论：
+
+- **元凶不是 `target/`**。把 173G 的 `target/` 整个移出仓库再跑，照样爆到 11G——代价来自
+  root 变宽这件事本身（解析面 + 686 个 `node_modules`），不是某个大目录。所以
+  「清 target 就好了」是错的。
+- **`--webpack` 是留给旧版本的应急阀**，不是长期方案：它同样能编完且只吃 2.5G，但拿不到
+  turbopack 的编译速度。升上 16.3 之后不需要它。
+
+**相关文件**：`docs/next.config.mjs`、`docs/package.json`
+
+### 「零平台依赖」要两道门，`lib` 一道不够
+
+包的 `tsconfig` 用 `lib: ["ES2022"]`（无 DOM、`types: []`）挡住 `document.` / `window.`，
+但**挡不住 `import { useState } from "react"`**：包嵌在仓库根之下，tsc 的模块解析会一路向上
+走到**仓库根的 `node_modules`** 并解析成功。pnpm 的 isolated 链接兜不住这件事。
+
+第二道是 `scripts/check-shared-view-imports.mjs`：非测试源文件只允许相对路径 import。
+两道合并在 `pnpm check:shared-view`，**要留在提交前清单里**——第一道只在对该包自身跑 tsc 时
+成立，三端各自 typecheck 用的是各自的 lib。
+
+### `packages/` 统一在仓库根
+
+`swarmdrop-web`（wasm 产物）此前住在 `docs/packages/`，现已移到 `packages/swarmdrop-web`，
+与 `shared-view` 同级。`docs/pnpm-workspace.yaml` 因此退化成只有 `.` 一个成员，两个共享包
+都用 `link:` 引用。
+
+这个移动**依赖上面那条 turbopack root 的放宽**——包移出 `docs/` 后同样落在原 root 之外。
+
+### 有运行时 import 的共享包，独立 workspace 必须用 `file:` 而不是 `link:`（2026-08-06 实证）
+
+上面「零平台依赖要两道门」那条说的是 **tsc** 会一路向上解析到仓库根的 `node_modules`。
+**同一个机制在运行时同样成立，而且后果严重得多。**
+
+`shared-view` 一直用 `link:` 没出过事，是因为它**零运行时 import**。第一个有运行时依赖的
+共享包（`packages/file-browser`，React DOM 组件）照抄 `link:` 后，`docs` 的 `next build`
+在**预渲染阶段**炸：
+
+```
+✓ Compiled successfully in 3.7s        ← 宏展开、转译全都正常
+...
+TypeError: Cannot destructure property 'i18n' of 'j(...)' as it is null.
+  at ../packages/file-browser/src/xxx.tsx
+```
+
+不是没编译，是**运行时实例分裂**。`link:` 只是软链，解析真实路径后从
+`packages/file-browser/src/` 向上找 `node_modules`：
+
+| 解析起点 | 落到 |
+|---|---|
+| `packages/file-browser/src` | 仓库根 `@lingui/react@5.9`、`react@19.2.4` |
+| `docs/app/app` | `docs/node_modules` 的 `@lingui/react@6.6`、`react@19.2.7` |
+
+两个物理副本 = 两个 `React.createContext` = 组件读到的 context 恒为 `null`。
+
+**别以为对齐版本就能修**：根 workspace 与 `docs/` 各有自己的 `.pnpm` 目录，同版本也是两份
+物理副本，React 按文件路径判定模块身份。
+
+**也别以为这只是 Lingui 的事**：`react` 本身就在分裂名单里，所以**任何带 hooks 的共享组件**
+都会撞上（`useState` 从错误的 dispatcher 读 → "Invalid hook call"）。上面这个 case 先炸在
+Lingui 上纯属巧合——探针组件只用了 `useLingui`。
+
+**修法**：独立 workspace 侧改用 `file:`。
+
+```jsonc
+// docs/package.json
+"@swarmdrop/shared-view": "link:../packages/shared-view",   // 零 import，link: 够用
+"@swarmdrop/file-browser": "file:../packages/file-browser", // 有运行时 import，必须 file:
+```
+
+`file:` 让 pnpm 把包装进 **docs 自己的虚拟 store**
+（`docs/node_modules/.pnpm/@swarmdrop+file-browser@file+..+packages+file-browser/`），
+解析上下文随之变成 docs 的依赖树，两边落回同一份副本。
+
+**代价（会咬人的那条）**：pnpm 对 `file:` 目录依赖用**硬链接**，而硬链接在实践中根本不同步
+——**改了共享包就必须重跑 `cd docs && pnpm install`，无一例外**。
+
+硬链接共享 inode，所以「原地改内容」两边确实都能看到。问题是几乎没有工具原地改：编辑器、
+`Edit` 工具、格式化器都是写临时文件再 `rename()` 覆盖，新文件是新 inode，链接当场断，
+`docs/node_modules/` 里留着的还是旧副本。2026-08-06 实测：给 `FileBrowserActions` 加了个
+`onDownload`，docs 侧 `tsc` 报「`onDownload` does not exist in type」，源文件里明明有；
+`ls -li` 两边 inode 已经不同。
+
+**症状会伪装成别的问题**，别顺着表象查下去：
+
+| 症状 | 真因 |
+|---|---|
+| Next `Module not found` | 新增了文件 |
+| `tsc` 说某属性不存在，可你刚加了它 | 改了已有文件 |
+
+两种都是先 `pnpm install`（几秒），再怀疑代码——别去查 `transpilePackages` 或 turbopack root。
+
+**判据**：`packages/*` 下的包，**只要有任何非类型的 `import`**，被 `docs/` 或 `mobile/` 消费时
+就得用 `file:`。反过来，能守住「零运行时 import」的包（如 `shared-view`）继续用 `link:`——
+它少一层硬链接同步的麻烦。
+
+**相关文件**：`packages/shared-view/README.md`、`packages/file-browser/README.md`、
+`docs/next.config.mjs`、`docs/package.json`、`mobile/metro.config.js`、
+`scripts/check-shared-view-imports.mjs`
+
+## 本地 expo module 的 Kotlin 不在任何门禁里（2026-08-03 实证）
+
+`mobile/modules/*` 下的原生模块（`content-share`、`lan-multicast`）**没有任何一条常规检查会
+碰它们的 Kotlin**：`pnpm typecheck` 只看 TS，`pnpm lint`（biome）只扫 `src/`，
+`cargo check --workspace` 与 Rust 无关，CI 的 `mobile-build-android.yml` 只在 `mobile-v*` tag
+或手动触发时跑。**改了 Kotlin 而不手动编一次，第一次发现问题就是在打 tag 之后。**
+
+改 `mobile/modules/*/android/**` 后至少跑一次单模块编译（不碰 Rust，约 20 秒）：
+
+```bash
+cd mobile/android && ./gradlew :<模块目录名>:compileDebugKotlin --console=plain
+```
+
+模块名就是 `mobile/modules/` 下的目录名（autolinking 用它当 gradle project 名）。
+新建模块后先确认它被发现：
+
+```bash
+cd mobile && npx expo-modules-autolinking search --platform android
+```
+
+### 坑：`Function` 的 body 里不能用裸 `return@Function`
+
+expo module 的 `Function(name) { … }` body 返回类型是 `Any?`（返回值要过 JSI 桥），而 Kotlin
+里**不带值的 `return` 只在返回类型为 Unit 时合法**：
+
+```kotlin
+Function("acquire") {
+  if (alreadyDone) return@Function                    // ❌ expected 'Any?', actual 'Unit'
+  val x = something() ?: return@Function              // ❌ 同上
+}
+```
+
+用嵌套判断表达同样的意思，或显式 `return@Function null`。前者更干净。
+
+**相关文件**：`mobile/modules/lan-multicast/`、`mobile/modules/content-share/`

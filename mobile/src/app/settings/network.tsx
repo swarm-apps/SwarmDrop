@@ -14,6 +14,7 @@ import { Fragment, useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
+import { LanHelperAddresses } from "@/components/lan-helper-addresses";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
 import { StatusPill } from "@/components/status-pill";
@@ -25,8 +26,9 @@ import {
   discoveryModeFromNative,
 } from "@/core/network-discovery";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
-import { cn, errorMessage } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
@@ -127,7 +129,7 @@ export default function NetworkScreen() {
         setError(null);
       }
     } catch (err) {
-      toast.error(t`重启节点失败`, errorMessage(err));
+      toast.error(t`重启节点失败`, getErrorMessage(err));
     } finally {
       setRestarting(false);
     }
@@ -444,6 +446,11 @@ export default function NetworkScreen() {
             />
           </View>
         </SettingSection>
+
+        <LanHelperAddresses
+          addresses={networkStatus?.lanHelperAdvertisedAddrs ?? []}
+          peerId={networkStatus?.peerId}
+        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -585,8 +592,8 @@ function CandidateSourceLabel({
   >["candidateSources"][number]["source"];
 }) {
   switch (candidateSourceKey(source)) {
-    case "userCustom":
-      return <Trans>自定义</Trans>;
+    case "hostConfigured":
+      return <Trans>配置节点</Trans>;
     case "mdnsLanHelper":
       return <Trans>LAN Helper</Trans>;
     default:

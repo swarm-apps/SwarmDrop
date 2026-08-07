@@ -1,148 +1,23 @@
-import { normalizeRelativePath } from "@/core/file-browser-identity";
-import type { FileBrowserItem } from "./types";
+/**
+ * 建树 —— **已上移到 `@swarmdrop/shared-view`**，本模块只作转发。
+ *
+ * 上移的是算法本身（按 `relativePath` 派生目录层级、目录递归累计 size/fileCount、
+ * 目录优先排序），产出中立的**嵌套树**；`flattenVisibleNodes` 把它按展开态拍平成
+ * FlashList 要的行，也一并共用——桌面那边则把同一棵树投影成 `@headless-tree` 的
+ * `Map` + `dataLoader`，两种消费形态互不迁就。
+ *
+ * 共享版比原来多两样：`FileBrowserTree` 带 `totalSize` / `totalCount`（此前是各页
+ * 自己再 reduce 一遍），行的 `size` 是 `number`（此前 `bigint`）。
+ */
 
-export interface FileBrowserDirectoryRow {
-  type: "directory";
-  id: string;
-  name: string;
-  relativePath: string;
-  depth: number;
-  fileCount: number;
-  size: bigint;
-}
-
-export interface FileBrowserFileRow {
-  type: "file";
-  id: string;
-  item: FileBrowserItem;
-  depth: number;
-}
-
-export type FileBrowserTreeRow = FileBrowserDirectoryRow | FileBrowserFileRow;
-
-interface MutableDirectory {
-  type: "directory";
-  id: string;
-  name: string;
-  relativePath: string;
-  depth: number;
-  fileCount: number;
-  size: bigint;
-  children: MutableNode[];
-}
-
-interface MutableFile {
-  type: "file";
-  id: string;
-  item: FileBrowserItem;
-  depth: number;
-}
-
-type MutableNode = MutableDirectory | MutableFile;
-
-export interface FileBrowserTree {
-  roots: MutableNode[];
-  directoryIds: ReadonlySet<string>;
-}
-
-export function buildFileBrowserTree(
-  items: readonly FileBrowserItem[],
-): FileBrowserTree {
-  const root: MutableDirectory = {
-    type: "directory",
-    id: "dir:",
-    name: "",
-    relativePath: "",
-    depth: -1,
-    fileCount: 0,
-    size: 0n,
-    children: [],
-  };
-  const directories = new Map<string, MutableDirectory>([["", root]]);
-
-  for (const item of items) {
-    const relativePath = normalizeRelativePath(item.relativePath, item.name);
-    const segments = relativePath.split("/");
-    let parent = root;
-    let currentPath = "";
-
-    for (const segment of segments.slice(0, -1)) {
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-      let directory = directories.get(currentPath);
-      if (!directory) {
-        directory = {
-          type: "directory",
-          id: `dir:${currentPath}/`,
-          name: segment,
-          relativePath: `${currentPath}/`,
-          depth: currentPath.split("/").length - 1,
-          fileCount: 0,
-          size: 0n,
-          children: [],
-        };
-        directories.set(currentPath, directory);
-        parent.children.push(directory);
-      }
-      parent = directory;
-    }
-
-    parent.children.push({
-      type: "file",
-      id: `file:${item.id}`,
-      item: { ...item, relativePath },
-      depth: segments.length - 1,
-    });
-
-    root.fileCount += 1;
-    root.size += item.size;
-    let ancestorPath = "";
-    for (const segment of segments.slice(0, -1)) {
-      ancestorPath = ancestorPath ? `${ancestorPath}/${segment}` : segment;
-      const directory = directories.get(ancestorPath);
-      if (directory) {
-        directory.fileCount += 1;
-        directory.size += item.size;
-      }
-    }
-  }
-
-  for (const directory of directories.values()) {
-    directory.children.sort(compareTreeNodes);
-  }
-
-  return {
-    roots: root.children,
-    directoryIds: new Set(
-      [...directories.values()]
-        .filter((directory) => directory !== root)
-        .map((directory) => directory.id),
-    ),
-  };
-}
-
-export function flattenVisibleNodes(
-  tree: FileBrowserTree,
-  expandedIds: ReadonlySet<string>,
-): FileBrowserTreeRow[] {
-  const rows: FileBrowserTreeRow[] = [];
-  const visit = (nodes: readonly MutableNode[]) => {
-    for (const node of nodes) {
-      if (node.type === "file") {
-        rows.push(node);
-        continue;
-      }
-      const { children: _children, ...row } = node;
-      rows.push(row);
-      if (expandedIds.has(node.id)) visit(node.children);
-    }
-  };
-  visit(tree.roots);
-  return rows;
-}
-
-function compareTreeNodes(a: MutableNode, b: MutableNode): number {
-  if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
-  const aName = a.type === "directory" ? a.name : a.item.name;
-  const bName = b.type === "directory" ? b.name : b.item.name;
-  return aName.localeCompare(bName) || a.id.localeCompare(b.id);
-}
+export type {
+  FileBrowserDirectoryNode,
+  FileBrowserFileNode,
+  FileBrowserTree,
+  FileBrowserTreeNode,
+  FileBrowserTreeRow,
+} from "@swarmdrop/shared-view";
+export {
+  buildFileBrowserTree,
+  flattenVisibleNodes,
+} from "@swarmdrop/shared-view";

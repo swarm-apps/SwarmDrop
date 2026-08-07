@@ -3,11 +3,17 @@
 //! 所有可变状态在后台 actor 里；Endpoint 只持命令通道、流控制柄与
 //! watch 读端。用户永不接触事件循环（对比旧栈把 `EventReceiver` 直接
 //! 交给上层消费）。
+//!
+//! identify 的字段里，**只有 `agent_version` 可以运行时修改**
+//! （[`Endpoint::set_agent_version`]）。`protocol_version` 刻意不开：它是
+//! 兼容性判别码（本仓用 `/swarmdrop/2.0.0`，上层拿它筛 SwarmDrop 节点），
+//! 运行期翻转会让对端的兼容判断在连接中途变卦，语义上是另一回事。
 
 pub mod builder;
 pub mod presets;
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -60,12 +66,28 @@ impl AddrsInfo {
 }
 
 /// relay reservation 状态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// 状态机对失败诚实：拨号失败（全部候选地址耗尽）与 reservation 失效都
+/// 翻转到 [`Failed`](RelayState::Failed)，观察者可区分「正在连接」与
+/// 「连接失败」。机制层只报告可自证的事实——**不携带重试轮数**：轮数的
+/// 语义由上层退避策略定义（core 的 InfraSupervisor 是重试记账的唯一主人，
+/// 诊断经其 tracing 日志输出），内核不自行重试，每轮重试经
+/// `add_infrastructure_peer` 幂等触发。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RelayState {
-    /// 已请求 circuit listener，等待 relay 接受。
+    /// 正在建立（拨号或等待 relay 接受）。
     Connecting,
     /// reservation 已被接受（可经该 relay 被动接收连接）。
-    Active,
+    Active {
+        /// 本机经该 relay 的完整可达地址（`<relay>/p2p-circuit/p2p/<本机>`），
+        /// 由内核拼装下发——调用方不自行拼接（单一事实源）。
+        circuit_addr: Addr,
+    },
+    /// 尝试失败（拨号候选地址耗尽 / reservation 被拒或失效）。
+    Failed {
+        /// 末次错误描述。
+        last_error: String,
+    },
 }
 
 /// 基础设施节点角色（`add_infrastructure_peer`）。
@@ -109,6 +131,7 @@ pub(crate) struct Inner {
     /// Builder 启用 DHT 时为 Some。
     dht: Option<crate::dht::Dht>,
     connect_timeout: Duration,
+    next_connect_request_id: AtomicU64,
     closed: CancellationToken,
     actor_handle: Mutex<Option<n0_future::task::JoinHandle<()>>>,
 }
@@ -139,15 +162,46 @@ impl Endpoint {
     /// `NodeAddr.addrs` 为空表示只知道身份——依靠地址簿既有地址
     /// （AddressLookup 解析管线在 M2 接入此路径）。
     pub async fn connect(&self, addr: impl Into<NodeAddr>) -> Result<ConnInfo, ConnectError> {
+        self.connect_with_timeout(addr, self.inner.connect_timeout)
+            .await
+    }
+
+    /// 在指定时限内连接到对端。
+    ///
+    /// 超时不仅会结束调用方等待，还会通知 actor 清理已关闭的等待者；若没有
+    /// 其他调用者或基础设施角色使用该 peer，会中止底层 pending dial。
+    pub async fn connect_with_timeout(
+        &self,
+        addr: impl Into<NodeAddr>,
+        timeout: Duration,
+    ) -> Result<ConnInfo, ConnectError> {
         let addr = addr.into();
+        let node = addr.id;
+        let request_id = self
+            .inner
+            .next_connect_request_id
+            .fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.inner
             .actor_tx
-            .send(ActorMessage::Connect { addr, reply: tx })
+            .send(ActorMessage::Connect {
+                addr,
+                request_id,
+                reply: tx,
+            })
             .await
             .map_err(|_| ConnectError::Closed)?;
-        match n0_future::time::timeout(self.inner.connect_timeout, rx).await {
-            Err(_) => Err(ConnectError::Timeout),
+        match n0_future::time::timeout(timeout, rx).await {
+            Err(_) => {
+                // request_id 精确对应本次调用，不依赖 oneshot receiver 的销毁时序，
+                // 不会误删同一 peer 的并发等待者。
+                let _ = self
+                    .inner
+                    .actor_tx
+                    .send(ActorMessage::CancelConnect { node, request_id })
+                    .await;
+                Err(ConnectError::Timeout)
+            }
             Ok(Err(_)) => Err(ConnectError::Closed),
             Ok(Ok(result)) => result,
         }
@@ -168,6 +222,32 @@ impl Endpoint {
     pub async fn add_addrs(&self, node: NodeId, addrs: Vec<Addr>) -> Result<(), Error> {
         self.request(|reply| ActorMessage::AddAddrs { node, addrs, reply })
             .await
+    }
+
+    /// 动态登记一个本节点的外部可达地址。
+    ///
+    /// WebRTC Direct 的 `certhash` 只有 listener 实际启动后才会出现在
+    /// 地址中；公网 relay 可观察到该地址后通过此方法登记，使 reservation
+    /// 和 identify 都能向客户端公布完整可拨地址。
+    pub async fn add_external_addr(&self, addr: Addr) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::AddExternalAddr { addr, reply })
+            .await
+    }
+
+    /// 运行期改写 identify 的 agent_version（构造期初值见 [`Builder::agent_version`]）。
+    ///
+    /// 返回时新值已经生效，并已向**所有已连接对端**主动 push 一次 identify，
+    /// 对端在一个 RTT 内即可看到新值——不必重启节点、不断开任何连接。
+    ///
+    /// 未连接的对端**不排队补推**：新连接建立时 handler 直接取当前值，天然是新的。
+    ///
+    /// 值未变时是 no-op，不产生任何网络行为。
+    pub async fn set_agent_version(&self, agent_version: String) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::SetAgentVersion {
+            agent_version,
+            reply,
+        })
+        .await
     }
 
     /// 保活白名单：白名单内对端的连接豁免空闲回收（已配对设备用）。
@@ -201,6 +281,15 @@ impl Endpoint {
         .await
     }
 
+    /// 撤销指定 relay 的 reservation。
+    ///
+    /// 这会移除 circuit listener 与自动重建意图；若 helper 的拨号仍在进行且
+    /// 没有其他调用者，会一并中止该拨号。已建立的其他业务连接不会被影响。
+    pub async fn cancel_relay_reservation(&self, relay: NodeId) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::CancelRelayReservation { relay, reply })
+            .await
+    }
+
     /// 注册基础设施节点（bootstrap / LanHelper / 自建 relay）：进地址簿与
     /// kad 路由表、拨号，并按角色请求 reservation（断线后幂等重建）。
     pub async fn add_infrastructure_peer(
@@ -210,6 +299,17 @@ impl Endpoint {
     ) -> Result<(), Error> {
         let peer = peer.into();
         self.request(|reply| ActorMessage::AddInfraPeer { peer, roles, reply })
+            .await
+    }
+
+    /// 注销基础设施节点——[`add_infrastructure_peer`](Self::add_infrastructure_peer)
+    /// 的对称面：撤销 relay 常驻意图、清地址簿与 kad 路由表、关闭对应
+    /// circuit listener，并**立刻断开**与该节点的全部连接（含中止在途拨号，
+    /// pin 93c5059 的 `Pool::disconnect` 对 pending 连接调用 abort）。
+    ///
+    /// 注销后内核不再存在任何针对该节点的自动重连或 reservation 重建路径。
+    pub async fn remove_infrastructure_peer(&self, node: NodeId) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::RemoveInfraPeer { node, reply })
             .await
     }
 

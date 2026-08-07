@@ -1,4 +1,5 @@
 //! 网络生命周期 —— `start_node` / `shutdown_node` / `network_status`。
+
 //!
 //! 节点开关由 host 决定（用户显式控制）；节点运行期间的 presence
 //! （在线宣告 / 已配对设备保活与重连）由 core 自治，host 无需参与。
@@ -38,7 +39,7 @@ impl From<MobileDiscoveryMode> for DiscoveryMode {
 
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileNetworkRuntimeConfig {
-    pub custom_bootstrap_nodes: Vec<String>,
+    pub bootstrap_nodes: Vec<String>,
     pub discovery_mode: MobileDiscoveryMode,
     pub auto_discover_lan_helpers: bool,
     pub provide_lan_helper: bool,
@@ -49,7 +50,7 @@ pub struct MobileNetworkRuntimeConfig {
 impl From<MobileNetworkRuntimeConfig> for NetworkRuntimeConfig {
     fn from(config: MobileNetworkRuntimeConfig) -> Self {
         Self {
-            custom_bootstrap_nodes: config.custom_bootstrap_nodes,
+            bootstrap_nodes: config.bootstrap_nodes,
             discovery_mode: config.discovery_mode.into(),
             auto_discover_lan_helpers: config.auto_discover_lan_helpers,
             provide_lan_helper: config.provide_lan_helper,
@@ -60,8 +61,7 @@ impl From<MobileNetworkRuntimeConfig> for NetworkRuntimeConfig {
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
 pub enum MobileBootstrapCandidateSource {
-    BuiltInPublic,
-    UserCustom,
+    HostConfigured,
     MdnsLanHelper,
     Learned,
 }
@@ -69,8 +69,7 @@ pub enum MobileBootstrapCandidateSource {
 impl From<BootstrapCandidateSource> for MobileBootstrapCandidateSource {
     fn from(source: BootstrapCandidateSource) -> Self {
         match source {
-            BootstrapCandidateSource::BuiltInPublic => Self::BuiltInPublic,
-            BootstrapCandidateSource::UserCustom => Self::UserCustom,
+            BootstrapCandidateSource::HostConfigured => Self::HostConfigured,
             BootstrapCandidateSource::MdnsLanHelper => Self::MdnsLanHelper,
             BootstrapCandidateSource::Learned => Self::Learned,
         }
@@ -190,16 +189,16 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl MobileCore {
-    pub async fn start_node(
-        &self,
-        device_name: Option<String>,
-        network_config: MobileNetworkRuntimeConfig,
-    ) -> FfiResult<()> {
+    pub async fn start_node(&self, network_config: MobileNetworkRuntimeConfig) -> FfiResult<()> {
         let keypair = self.ensure_keypair().await?;
-        let paired_devices = swarmdrop_core::identity::load_paired_devices(self.keychain()).await?;
+        let webrtc_certificate_pem =
+            swarmdrop_core::identity::load_or_create_webrtc_certificate(self.keychain()).await?;
 
         // 启动前先确保 SQLite 已就绪（断点续传 / 历史记录都依赖它）
         let db = self.ensure_db().await?;
+        // 传输 / 收件箱端口在此**取回**而非新建：注入 TransferManager 的与 MobileCore
+        // 自持的是同一个 `Arc`（启动清理也用它），不是两个包装同一条连接的实例。
+        let store = self.ensure_store().await?;
         let event_bus = self.event_bus_arc() as std::sync::Arc<dyn swarmdrop_core::host::EventBus>;
 
         let file_access = self.file_access_arc();
@@ -208,23 +207,34 @@ impl MobileCore {
         // 否则历史列表会出现"永远在传"的幽灵条目。Paused 是用户主动暂停的合法
         // 状态，不动；终态自然也不动。复用 core coordinator，转换会发 projection 事件。
         // 同时回收超期未恢复的 suspended 接收会话并清理其 .part（与桌面端对称）。
-        crate::history::reconcile_stale_sessions(db.clone(), event_bus.clone(), &file_access)
+        crate::history::reconcile_stale_sessions(store.clone(), event_bus.clone(), &file_access)
             .await?;
+
+        // 这里只供平台探测部分：移动端 env 探测拿不到 hostname，回退 "Device"，UI 走 name 字段。
+        // 设备名不经 host 传入 —— core 的组合根从下面这个 device_config 端口读，本机
+        // OsInfo 于是只有那一个装配点。
+        let os_info = swarmdrop_core::device::OsInfo::default();
 
         let started = swarmdrop_core::runtime::start_node(
             keypair,
-            device_name,
-            paired_devices,
+            Some(webrtc_certificate_pem),
+            os_info,
+            self.device_config_arc(),
+            // 已配对设备的事实源是端口本身，core 内部 load 一次，host 不再预加载快照。
+            self.paired_device_store_arc(),
             network_config.into(),
+            swarmdrop_core::runtime::EndpointProfile::Native,
             event_bus.clone(),
             None, // 移动端无窗口聚焦概念，不需要 Notifier
+            // 邀请注册表落盘，与桌面同一套 SQL 实现（openspec: invite-persistence）
+            std::sync::Arc::new(swarmdrop_storage_sql::SqlInviteStore::new((*db).clone())),
             move |endpoint| {
                 swarmdrop_core::transfer::manager::TransferManager::new(
                     endpoint,
                     std::sync::Arc::new(swarmdrop_core::event_adapter::CoreTransferEvents(
                         event_bus,
                     )),
-                    std::sync::Arc::new(swarmdrop_storage_sql::SqlSessionStore::new(db)),
+                    store,
                     file_access,
                 )
             },

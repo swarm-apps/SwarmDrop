@@ -1,4 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  DEFAULT_FILE_BROWSER_VIEWS,
+  type DeviceOrganization,
+  emptyDeviceOrganization,
+  normalizeDeviceOrganization,
+  normalizeFileBrowserViews,
+} from "@swarmdrop/shared-view";
 import * as Crypto from "expo-crypto";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -7,23 +14,16 @@ import type {
   FileBrowserView,
 } from "@/components/file-browser/types";
 import type { DiscoveryModePreference } from "@/core/network-discovery";
-import {
-  type DeviceOrganization,
-  emptyDeviceOrganization,
-  normalizeDeviceOrganization,
-} from "@/lib/device-organization";
-
-export const DEFAULT_FILE_BROWSER_VIEWS: Record<
-  FileBrowserScope,
-  FileBrowserView
-> = {
-  send: "tree",
-  transfer: "tree",
-  inbox: "grid",
-};
 
 interface PreferencesState {
-  /** 用户自定义设备名,空字符串走系统 hostname / Device.deviceName fallback */
+  /**
+   * 用户自定义设备名的**显示镜像**,空字符串走系统 hostname / Device.deviceName fallback。
+   *
+   * 事实源在 Rust 侧的 `device_config.json`(core 的 `DeviceConfig` 端口):节点启动时
+   * 由 core 读进本机 `OsInfo`,对端看到的是那一份。这里留一份镜像只为 UI 冷启动时
+   * 立刻有值可渲染,写入只有两个来源:`applyDeviceName`(先写 core 再回写镜像),以及
+   * core 广播的 `DeviceRenamed` 事件(改名可能由本页之外的地方发起)。
+   */
   deviceName: string;
   /** 本机对已配对设备的别名与分组,仅保存在本机,不同步到对端。 */
   deviceOrganization: DeviceOrganization;
@@ -37,7 +37,7 @@ interface PreferencesState {
   provideLanHelper: boolean;
   /** 公网可达性：允许经公网中继被跨网设备访问，默认 true；关闭 = 严格局域网 */
   publicReachability: boolean;
-  /** 自定义引导节点(Multiaddr 字符串数组),与后端 DEFAULT_BOOTSTRAP_NODES 合并 */
+  /** 自定义引导节点(Multiaddr 字符串数组),启动时与移动端默认节点合并 */
   customBootstrapNodes: string[];
   /** 用户自定义接收文件保存目录的 URI(file:// 或 content://);null 走默认 transfersInboxUri */
   receivePath: string | null;
@@ -94,7 +94,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       publicReachability: true,
       customBootstrapNodes: [],
       receivePath: null,
-      fileBrowserViews: DEFAULT_FILE_BROWSER_VIEWS,
+      fileBrowserViews: { ...DEFAULT_FILE_BROWSER_VIEWS },
 
       setDeviceName(name) {
         set({ deviceName: name.trim() });
@@ -329,21 +329,9 @@ export const usePreferencesStore = create<PreferencesState>()(
           stored.receivePath === null
             ? { receivePath: stored.receivePath }
             : {}),
-          fileBrowserViews: mergeFileBrowserViews(stored.fileBrowserViews),
+          fileBrowserViews: normalizeFileBrowserViews(stored.fileBrowserViews),
         };
       },
     },
   ),
 );
-
-function mergeFileBrowserViews(
-  stored: PersistedPreferences["fileBrowserViews"],
-): Record<FileBrowserScope, FileBrowserView> {
-  const views = { ...DEFAULT_FILE_BROWSER_VIEWS };
-  if (!stored || typeof stored !== "object") return views;
-  for (const scope of ["send", "transfer", "inbox"] as const) {
-    const value = stored[scope];
-    if (value === "tree" || value === "grid") views[scope] = value;
-  }
-  return views;
-}

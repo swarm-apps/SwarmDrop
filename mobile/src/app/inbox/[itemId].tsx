@@ -59,6 +59,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { canOpenSaveFolder } from "@/core/saf-intent";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { inboxItemTitle } from "@/lib/inbox-title";
 import { openFileWithSystem, shareFileWithSystem } from "@/lib/open-file";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
@@ -138,7 +139,9 @@ export default function InboxDetailScreen() {
   }, [clearDetail]);
 
   const archived = detail?.item.archivedAt != null;
-  const title = detail?.item.title ?? t`收件箱详情`;
+  const title = detail
+    ? inboxItemTitle(detail.item.title, detail.item.itemCount)
+    : t`收件箱详情`;
   const fileCount = detail?.files.length ?? 0;
   const primaryFile = detail?.files.length === 1 ? detail.files[0] : null;
   const itemMissing =

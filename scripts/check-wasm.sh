@@ -20,10 +20,29 @@ if [[ "$(uname)" == "Darwin" ]]; then
   fi
 fi
 
-CRATES=(-p swarmdrop-net-base -p swarmdrop-net -p swarmdrop-host -p swarmdrop-transfer -p swarmdrop-invite -p swarmdrop-core -p swarmdrop-web)
+# webrtc-p2p 排在最前：它是双 target 的传输实现（浏览器侧是它存在的理由之一），
+# 且不依赖任何 swarmdrop crate，破了 wasm 应当第一个暴露。
+CRATES=(-p webrtc-p2p -p swarmdrop-net-base -p swarmdrop-net -p swarmdrop-host -p swarmdrop-transfer -p swarmdrop-invite -p swarmdrop-core -p swarmdrop-web)
 
 if [[ "${1:-}" == "--clippy" ]]; then
   cargo clippy "${CRATES[@]}" --target wasm32-unknown-unknown -- -D warnings
 else
   cargo check "${CRATES[@]}" --target wasm32-unknown-unknown
+fi
+
+# crates/web 额外过一遍 --all-targets，把 `wasm_bindgen_test` 模块也编进来。
+#
+# 上面那轮只编 lib：`crates/web` 里的 wasm 测试进不了 `cargo test --workspace`
+# （整个 crate 是 `#[cfg(wasm_browser)]`），于是写坏了没人知道。
+#
+# **编得过 ≠ 跑得过**：真正执行它们的是 `scripts/test-wasm.sh`（headless Chrome，
+# CI 的 wasm job 里紧跟本脚本之后）。这两条只是它的快速前哨——编译错误在这里
+# 几秒钟暴露，不必等到起浏览器。
+#
+# 只对它一个 crate 加：其余 crate 的 dev-dependencies 里有 tokio 这类 native-only 的东西
+# （mio 在 wasm 下直接编不过），`--all-targets` 会把它们一并拖进来。
+if [[ "${1:-}" == "--clippy" ]]; then
+  cargo clippy -p swarmdrop-web --target wasm32-unknown-unknown --all-targets -- -D warnings
+else
+  cargo check -p swarmdrop-web --target wasm32-unknown-unknown --all-targets
 fi

@@ -1,5 +1,17 @@
 # libp2p 与 Web 端（wasm）
 
+> **状态：调研结论已落地。** 本文是 2026-07-17 的**调研快照**，不是当前架构描述。
+>
+> 选定路线（rust-wasm 复用同一 Rust 核心）已实现：
+> - `crates/web` —— 浏览器 Web 壳，除 `types` 外全部 `cfg(wasm_browser)` 门控
+> - `docs/app/app` —— Web 端入口，由 Next.js 文档站承载
+> - `scripts/check-wasm.sh` —— wasm 双 target CI 门禁（net-base/net/host/transfer/invite/core/web）
+> - 浏览器端到端已于 2026-07-18 实测通过（ws / webrtc-direct dial、circuit 被动接收、双向 RPC）
+>
+> **读法**：以「为什么这么选」和「wasm 编译的坑」为主；里面的路线取舍与待办清单已成历史，
+> 不要当未完成工作。当前架构以 `CLAUDE.md` 为准，内核细节见 [net-kernel.md](net-kernel.md)。
+> 遗留未测项见 net-kernel.md 的「已知负债」。
+
 ## 概览
 
 2026-07-17 调研「rust-libp2p 能否编到 wasm，让 Web 端复用同一个 Rust 核心包」，
@@ -262,6 +274,27 @@ Chrome 138 opt-in，**Chrome 142（2025-10-28）正式上线**，限制公网站
 ⇒ **今天能用，未来一定会弹权限提示。** 不是阻断，是用户点「允许」——
 对 LocalSend 类工具用户本来就预期要授权，**但产品上要提前设计引导，不能等它突然冒出来**。
 企业侧有 `LocalNetworkAccessAllowedForUrls` 策略可预授权。
+
+**判据是「目标地址」，不是「用了哪种传输」**（2026-08-03 复核官方 Intent to Prototype，
+仍是未门控的原型阶段）。LNA 的定义原文是「any request from a public website to a local IP
+address or loopback, or from a local website to loopback」——所以要按**目标**分流，别笼统说
+「Chrome 要拦 WebRTC」：
+
+| 我们的路径 | 目标地址 | LNA 管不管 |
+|---|---|---|
+| webrtc-direct → 局域网原生端 | `192.168.x.x` 裸私网 IP | **正中靶心，会弹权限** |
+| webrtc-direct → 公网 bootstrap（4003） | 公网 IP | 不管 |
+| webrtc 打洞 → 跨网对端 | 对端 NAT 的公网地址（srflx） | 不管 |
+| webrtc 打洞 → 同 LAN 对端 | ICE 可能选中 host candidate（私网） | 那条候选会被管 |
+| relay circuit | relay 的公网地址 | 不管 |
+
+⇒ **打洞的主战场（跨网）完全不受影响**，会被管的只有「浏览器 ↔ 同网段原生端」这一格。
+而那一格被拒的退路是回落 relay（能用，慢），不是彻底断。
+
+尚不明确：Chrome 从 M74 起默认用 mDNS `.local` 名混淆 ICE host candidate（防网页经 WebRTC
+泄漏内网 IP），LNA 与它怎么交互那份 Intent 没写。到落地时再看，不影响现在的判断。
+
+**只影响浏览器**——桌面 / 移动原生端整个在这套约束之外。
 
 ### 页面必须是 HTTPS —— 别图省事让 LAN helper 托管网页
 

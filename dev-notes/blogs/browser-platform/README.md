@@ -26,6 +26,7 @@ Rust 编到 wasm 能不能跑，是**工具链**问题（见姊妹系列 [rust-w
 | 03 | [mixed content 与私网 IP 豁免](03-mixed-content-private-ip.md) | https 页面拨明文的规则；私网 IP 豁免与 webrtc-direct 免疫的 2×2 实证 |
 | 04 | [Rust Stream → JS ReadableStream](04-readablestream-bridge.md) | 事件流的桥；单 reader 约束、serde tag/camelCase 对齐、无自动 TS 类型 |
 | 05 | [wasm-bindgen 边界](05-wasm-bindgen-boundary.md) | newtype / SendWrapper / 可序列化 error / --weak-refs 四类 ABI 约束 |
+| 06 | [一次 DataChannel 误判：8 KiB 单帧限制不等于 8 KiB 接收缓冲](06-webrtc-datachannel-backpressure.md) | 协商消息大小、浏览器回调累计缓冲、`flush()` 与真实 relay 端到端验证 |
 
 ## 阅读顺序
 
@@ -66,6 +67,10 @@ graph TB
   01（secure context = 门 4）只讲平台事实，调试叙事在那边。
 - **[network-kernel/](../network-kernel/)** —— iroh 风格架构重构。
 - **[transfer-architecture/](../transfer-architecture/)** —— 传输域端口抽象、bao。
+- **[webrtc/](../webrtc/)**（后续系列）—— WebRTC **协议栈内部**：ICE/DTLS/SCTP 分层、
+  libp2p 的打洞与 direct、以及自研传输时向上游提的六个补丁。本系列讲浏览器**外部**能
+  给什么，那边讲协议**内部**怎么工作；06 篇的 8 KiB 消息上限在那边有上游视角
+  （libp2p#6560）。
 
 ## 主要素材出处
 

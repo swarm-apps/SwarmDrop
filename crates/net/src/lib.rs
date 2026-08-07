@@ -45,7 +45,7 @@ pub use swarmdrop_net_base::{
     Addr, DiscoverySource, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, SecretKey,
 };
 
-pub use config::{DhtConfig, RelayServerConfig};
+pub use config::{DhtConfig, RelayServerConfig, WebRtcP2pConfig};
 pub use dht::{Dht, DhtError, DhtKey, DhtRecord};
 pub use endpoint::{
     AddrsInfo, BindError, Builder, ConnInfo, Endpoint, InfraRoles, RelayState, presets,
@@ -59,3 +59,34 @@ pub use router::{ProtocolHandler, Router, RouterBuilder};
 pub use rpc::{CallOptions, MAX_RPC_FRAME, Rpc, RpcHandler, RpcMessage, RpcService};
 pub use stream::{Direction, P2pStream, StreamLimits};
 pub use watch::Watcher;
+
+/// 生成可持久化的 WebRTC Direct 证书 PEM（含私钥）。
+///
+/// 调用方必须把完整 PEM 放入安全存储后在每次启动时复用，不能仅保存密钥再重建。
+#[cfg(not(wasm_browser))]
+pub fn generate_webrtc_certificate_pem() -> Result<String, String> {
+    webrtc_p2p::Certificate::generate()
+        .map_err(|error| error.to_string())
+        .map(|certificate| certificate.serialize_pem())
+}
+
+/// 根据持久化 WebRTC Direct 证书构造可公告的公网地址。
+///
+/// `certhash` 由完整证书派生，必须与
+/// [`Builder::webrtc_certificate`](Builder::webrtc_certificate) 注入的 PEM 相同。
+#[cfg(not(wasm_browser))]
+pub fn webrtc_direct_addr_from_pem(
+    ip: std::net::IpAddr,
+    port: u16,
+    pem: &str,
+) -> Result<Addr, String> {
+    let certificate = webrtc_p2p::Certificate::from_pem(pem).map_err(|error| error.to_string())?;
+    // 走 webrtc-p2p 的编码器，别在这儿手拼——那边有 `direct_addr_roundtrips` 钉死
+    // 「与官方编码逐字一致」。多一条独立路径就多一处会悄悄漂移的 certhash，
+    // 而漂移的症状是存量分享地址集体拨不通。
+    let address = webrtc_p2p::protocol::addr::direct_addr(
+        std::net::SocketAddr::new(ip, port),
+        Some(certificate.fingerprint()),
+    );
+    Ok(Addr::from_multiaddr(address))
+}

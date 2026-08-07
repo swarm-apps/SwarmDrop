@@ -2,12 +2,16 @@
 
 mod common;
 
+use std::net::TcpListener;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use common::spawn_node;
 use futures::{AsyncReadExt, AsyncWriteExt};
 use swarmdrop_net::{
-    AcceptError, Endpoint, NodeAddr, P2pStream, ProtocolHandler, ProtocolId, Router, StreamLimits,
+    AcceptError, ConnectError, Endpoint, NodeAddr, P2pStream, ProtocolHandler, ProtocolId, Router,
+    SecretKey, StreamLimits,
 };
 
 const HOLD: ProtocolId = ProtocolId::from_static("/test/hold/1");
@@ -67,6 +71,114 @@ async fn subscriber_stream_ends_on_close() {
         .await
         .expect("event stream must end, not hang");
     assert!(end.is_none());
+}
+
+/// connect 超时不只是丢掉 Future：第二次同 peer 拨号必须能新建 TCP 连接。
+/// 否则会复用第一次遗留的 pending dial（libp2p 的 DialPeerConditionFalse）。
+#[tokio::test]
+async fn connect_timeout_aborts_orphaned_dial() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind hanging peer");
+    listener
+        .set_nonblocking(true)
+        .expect("make listener non-blocking");
+    let port = listener.local_addr().expect("listener addr").port();
+    // 存活期由测试主体显式收口，**不能用 wall-clock deadline**：这个线程从 spawn 起就开始
+    // 计时，而下面的 `Endpoint::builder().bind()` 在慢机器上要好几秒（实测 5–8s）。用固定
+    // 时限的话 listener 会在 client 拨号之前就退出，于是拨号拿到的是 `Connection refused`
+    // 而不是本用例要断言的「挂起后超时」——测试变成了和机器速度赛跑，且失败信息完全指不到病因。
+    // CI 只跑 ubuntu，那里 bind 快，所以这条只在本地慢机器上红。
+    let stop = Arc::new(AtomicBool::new(false));
+    let accepted = std::thread::spawn({
+        let stop = Arc::clone(&stop);
+        move || {
+            let mut sockets = Vec::new();
+            while !stop.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    // 保持 TCP 打开但不参与 Noise 握手：每次 client 拨号都会留下一
+                    // 条可计数连接，直到测试结束统一 drop。
+                    Ok((socket, _)) => sockets.push(socket),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("accept hanging peer: {error}"),
+                }
+            }
+            sockets.len()
+        }
+    });
+
+    let client = Endpoint::builder()
+        .connect_timeout(Duration::from_millis(100))
+        .bind()
+        .await
+        .expect("bind client");
+    let target = NodeAddr::with_addrs(
+        SecretKey::generate().node_id(),
+        vec![
+            format!("/ip4/127.0.0.1/tcp/{port}")
+                .parse()
+                .expect("valid address"),
+        ],
+    );
+    let result = client.connect(target.clone()).await;
+    // 给 actor 一次 poll Swarm 的机会处理 libp2p abort；随后同 peer 再拨一次。
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let retry = client
+        .connect_with_timeout(target, Duration::from_millis(100))
+        .await;
+
+    // 两次拨号都发出去了，让 listener 收工。这一步排在断言**之前**：断言失败时线程同样能退出，
+    // 失败现场是一条清楚的断言消息，而不是一个挂住的测试进程。
+    stop.store(true, Ordering::Relaxed);
+    let dials = accepted.join().expect("hanging peer thread");
+
+    assert!(
+        matches!(result, Err(ConnectError::Timeout)),
+        "hanging peer 应在调用方时限内超时，got: {result:?}"
+    );
+    assert!(
+        matches!(retry, Err(ConnectError::Timeout)),
+        "第二次拨号也应独立超时，got: {retry:?}"
+    );
+    assert!(
+        dials >= 2,
+        "取消旧拨号后，同 peer 的新 connect 必须发起新的 TCP 拨号，实际只有 {dials} 次"
+    );
+
+    client.close().await;
+}
+
+#[tokio::test]
+async fn explicitly_registered_external_addresses_are_published() {
+    let configured: swarmdrop_net::Addr = "/ip4/203.0.113.10/tcp/4001".parse().unwrap();
+    let endpoint = Endpoint::builder()
+        .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().expect("valid")])
+        .external_addrs(vec![configured.clone()])
+        .bind()
+        .await
+        .expect("bind");
+
+    let dynamic: swarmdrop_net::Addr = "/ip4/203.0.113.10/udp/4003/quic-v1".parse().unwrap();
+    endpoint
+        .add_external_addr(dynamic.clone())
+        .await
+        .expect("register dynamic address");
+
+    let mut watcher = endpoint.watch_addrs();
+    let external = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let external = watcher.get().external;
+            if external.contains(&configured) && external.contains(&dynamic) {
+                return external;
+            }
+            watcher.updated().await.expect("watch closed");
+        }
+    })
+    .await
+    .expect("external addresses should be published");
+    assert!(external.contains(&configured));
+    assert!(external.contains(&dynamic));
+    endpoint.close().await;
 }
 
 #[tokio::test]

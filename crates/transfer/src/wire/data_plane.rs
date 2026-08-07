@@ -8,13 +8,14 @@
 
 use std::sync::Arc;
 
-use swarmdrop_net::{AcceptError, P2pStream, ProtocolHandler};
+use swarmdrop_net::{AcceptError, Endpoint, NodeId, OpenError, P2pStream, ProtocolHandler};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::epoch::EpochGuard;
 use crate::manager::TransferManager;
-use crate::protocol::{FileRange, TRANSFER_DATA_PROTOCOL};
+use crate::progress::{RuntimeTransferDirection, TransferFailedEvent};
+use crate::protocol::{FileRange, TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2};
 use crate::wire::data_frame::{TransferDataFrame, TransferDataRole, read_frame, write_frame};
 use crate::{AppError, AppResult};
 
@@ -50,6 +51,31 @@ impl ProtocolHandler for TransferDataHandler {
     }
 }
 
+/// 打开数据面流：先拨 [`TRANSFER_DATA_PROTOCOL`]，对端不认识就退回
+/// [`TRANSFER_DATA_PROTOCOL_V2`]。
+///
+/// 只有 `UnsupportedProtocol` 才退回——那是 multistream-select 明确答复的「我没有这个
+/// 协议」。**其余错误一律原样上抛**：拨号超时、连接被拒这些换个协议名重试一遍同样会失败，
+/// 退回只会把一次失败变成两次、并且把真正的错误换成第二次那条更没信息量的。
+///
+/// 返回的流带着协商结果（[`P2pStream::protocol`]），发送端据此决定发不发窗口帧——
+/// 见 [`SenderActor::run_data_channel`](crate::actor::sender::SenderActor::run_data_channel)。
+async fn open_data_stream(endpoint: &Endpoint, peer: NodeId) -> AppResult<P2pStream> {
+    match endpoint.open(peer, TRANSFER_DATA_PROTOCOL).await {
+        Ok(stream) => Ok(stream),
+        Err(OpenError::UnsupportedProtocol(_)) => {
+            info!(
+                "对端不支持 {TRANSFER_DATA_PROTOCOL}，退回 {TRANSFER_DATA_PROTOCOL_V2}（无流控窗口）: peer={peer}"
+            );
+            endpoint
+                .open(peer, TRANSFER_DATA_PROTOCOL_V2)
+                .await
+                .map_err(|e| AppError::Transfer(format!("打开 data channel 失败: {e}")))
+        }
+        Err(e) => Err(AppError::Transfer(format!("打开 data channel 失败: {e}"))),
+    }
+}
+
 impl TransferManager {
     /// 打开出站数据面流，绑定发送会话并按 fetch_plan 连续推送。
     pub(crate) fn spawn_send_data_channel(
@@ -72,10 +98,7 @@ impl TransferManager {
 
         n0_future::task::spawn(async move {
             let result = async {
-                let stream = endpoint
-                    .open(peer_id, TRANSFER_DATA_PROTOCOL)
-                    .await
-                    .map_err(|e| AppError::Transfer(format!("打开 data channel 失败: {e}")))?;
+                let stream = open_data_stream(&endpoint, peer_id).await?;
                 session.run_data_channel(epoch, stream, fetch_plan).await
             }
             .await;
@@ -88,7 +111,7 @@ impl TransferManager {
             match result {
                 Ok(()) => {
                     session
-                        .on_completed(epoch, coordinator.as_ref(), events.as_ref())
+                        .on_completed(epoch, coordinator.as_ref(), store.as_ref())
                         .await;
                 }
                 Err(e) if session.cancel_token().is_cancelled() => {
@@ -96,6 +119,24 @@ impl TransferManager {
                 }
                 Err(e) => {
                     warn!("transfer-data 发送中断: session={session_id}, {e}");
+                    // Interrupted 是可恢复状态，projection 仍是前端的权威状态；但它不保存
+                    // 底层拨号/流错误。额外发出失败事件仅用于呈现这次中断的具体原因，避免
+                    // Web 端只能看到笼统的 suspended/interrupted 而无法诊断。
+                    if let Err(event_error) = events
+                        .emit(crate::events::TransferEvent::TransferFailed {
+                            event: TransferFailedEvent {
+                                session_id,
+                                direction: RuntimeTransferDirection::Send,
+                                error: e.to_string(),
+                            },
+                        })
+                        .await
+                    {
+                        warn!(
+                            "上报发送失败事件失败: session={}, error={}",
+                            session_id, event_error
+                        );
+                    }
                     session
                         .on_interrupted(epoch, coordinator.as_ref(), store.as_ref())
                         .await;
@@ -174,7 +215,7 @@ impl TransferManager {
             .start_data_channel(epoch, stream, fetch_plan, move |sid| {
                 actors.remove_receive_if_epoch(sid, epoch);
             })
-            .await;
+            .await?;
 
         Ok(())
     }

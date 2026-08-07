@@ -161,25 +161,42 @@ impl TransferManager {
             .collect()
     }
 
-    /// 接受传输并启动接收
+    /// 接受传输并启动接收。
     ///
-    /// **安全序**：先注册 ReceiverActor，再解决应答通道——对端 sender 收到
-    /// `accepted:true` 后立即打开数据面流，接收 actor 必须已就绪，否则 Hello 被拒。
+    /// ## 越线点（point of no return）
+    ///
+    /// `responder.send(accepted: true)` 是本函数的**越线点**：过了它对端立刻开始推数据，
+    /// 本机无法单方面撤回。三步布局因此是刻意的，不要随手调换：
+    ///
+    /// 1. **越线前**的可失败步骤全部收在 [`Self::prepare_accept`]。任何一步失败都把
+    ///    `offer` **放回 `pending`** 再返回 `Err` —— 否则那条 offer 从 UI 上消失、
+    ///    `responder` 随之 drop（对端 RPC 直接断），用户连重试的入口都没有。
+    /// 2. `start_receive_actor` 不可失败，且**必须早于**应答：对端收到 `accepted:true`
+    ///    后立即打开数据面流，actor 没就绪的话 Hello 会被拒。
+    /// 3. **越线后什么都不做** —— 这是本函数满足越线规则的方式，也是最强的那种：
+    ///    没有可失败的步骤，就没有「已经发生却报失败」的可能。
+    ///    ⚠️ 往这个函数尾部加任何 `?` 之前先想清楚：它失败时对端已经在推数据了。
+    ///
+    /// 原本 `dispatch(Accept)` 是写在应答**之后**并带 `?` 的 —— 它一失败，用户看到
+    /// 「接收失败」而文件正在往硬盘里写。挪到越线前之后这条路径不复存在。
+    /// 同规则的其他做法见 `handle_cancel_impl` / `handle_pause_impl` /
+    /// `handle_peer_disconnected_impl`：那几处确实挪不动，于是一律 `if let Err(e) = … { warn!(…) }`。
     pub async fn accept_and_start_receive(
         &self,
         session_id: &Uuid,
         save_location: crate::host::CoreSaveLocation,
     ) -> AppResult<()> {
-        let (_, offer) = self
-            .pending
-            .remove(session_id)
-            .ok_or_else(|| AppError::Transfer(format!("pending offer not found: {session_id}")))?;
+        let (_, offer) = self.pending.remove(session_id).ok_or_else(|| {
+            AppError::SessionNotFound(format!("pending offer not found: {session_id}"))
+        })?;
 
         info!("Accepting transfer offer: session={}", session_id);
 
-        self.store
-            .update_session_save_path(offer.session_id, save_location.clone())
-            .await?;
+        if let Err(e) = self.prepare_accept(&offer, &save_location).await {
+            // 放回待决表：越线还没发生，这次接受可以整个重来。
+            self.pending.insert(*session_id, offer);
+            return Err(e);
+        }
 
         self.start_receive_actor(
             0,
@@ -191,59 +208,119 @@ impl TransferManager {
             HashMap::new(),
         );
 
-        // 解决 transfer-ctrl handler 的应答通道 → 对端得 accepted:true，开始推送
-        let _ = offer.responder.send(TransferResponse::OfferResult {
-            accepted: true,
-            reason: None,
-        });
+        // 解决 transfer-ctrl handler 的应答通道 → 对端得 accepted:true，开始推送。
+        if offer
+            .responder
+            .send(TransferResponse::OfferResult {
+                accepted: true,
+                reason: None,
+            })
+            .is_err()
+        {
+            // 应答通道已关闭 = 对端**没有**收到接受（RPC 早就超时了），越线并未发生。
+            // 这是唯一需要主动补偿的分支：会话已经是 active、actor 已注册，得推回终态，
+            // 否则它会一直挂在活动列表里等一份永远不会来的数据。
+            warn!(
+                "接受已就绪但应答通道已关闭（对端 RPC 已断），回滚会话: session={}",
+                session_id
+            );
+            if let Some(actor) = self.remove_receive_actor(session_id) {
+                actor.cancel_and_wait().await;
+            }
+            if let Err(e) = self
+                .coordinator
+                .dispatch(*session_id, CoordinatorInput::User(UserCommand::Cancel))
+                .await
+            {
+                warn!("回滚接受时写取消状态失败: session={}, {}", session_id, e);
+            }
+            return Err(AppError::Transfer(format!(
+                "对端已断开，接受未送达: {session_id}"
+            )));
+        }
 
+        Ok(())
+    }
+
+    /// 越线前的可失败步骤。失败时调用方负责把 `offer` 放回 `pending`
+    /// （见 [`Self::accept_and_start_receive`] 的越线点说明）。
+    ///
+    /// **`dispatch(Accept)` 属于这里，不属于应答之后。** 它只写本机 DB，完全可以先做；
+    /// 先做的话失败还能干净地退出（offer 放回、用户重试），做在后面就只剩下两条烂路：
+    /// 报 `Err`（用户以为没收上，实际正在收）或者吞掉（活动列表永远停在 offered）。
+    async fn prepare_accept(
+        &self,
+        offer: &PendingOffer,
+        save_location: &crate::host::CoreSaveLocation,
+    ) -> AppResult<()> {
+        self.store
+            .update_session_save_path(offer.session_id, save_location.clone())
+            .await?;
         self.coordinator
             .dispatch(
                 offer.session_id,
                 CoordinatorInput::User(UserCommand::Accept),
             )
             .await?;
-
         Ok(())
     }
 
+    /// 拒绝入站 offer。
+    ///
+    /// 与 [`accept_and_start_receive`](Self::accept_and_start_receive) 同一条越线规则、
+    /// 同一种满足方式：状态转换写在应答**之前**，失败就把 offer 放回待决表让用户重试。
+    /// 写在之后的话它一失败，用户看到「拒绝失败」而对端已经按拒绝收尾了 —— 再点一次
+    /// 只会得到「offer 不存在」。
     pub async fn reject_and_respond(&self, session_id: &Uuid) -> AppResult<()> {
-        let (_, offer) = self
-            .pending
-            .remove(session_id)
-            .ok_or_else(|| AppError::Transfer(format!("pending offer not found: {session_id}")))?;
+        let (_, offer) = self.pending.remove(session_id).ok_or_else(|| {
+            AppError::SessionNotFound(format!("pending offer not found: {session_id}"))
+        })?;
 
         info!("Rejecting transfer offer: session={}", session_id);
 
-        let _ = offer.responder.send(TransferResponse::OfferResult {
-            accepted: false,
-            reason: Some(OfferRejectReason::UserDeclined),
-        });
-        self.coordinator
+        if let Err(e) = self
+            .coordinator
             .dispatch(
                 offer.session_id,
                 CoordinatorInput::User(UserCommand::Reject),
             )
-            .await?;
+            .await
+        {
+            self.pending.insert(*session_id, offer);
+            return Err(e);
+        }
+
+        // ==== 越线：此后无可失败步骤 ====
+        // 应答通道已关闭无需补偿：对端 RPC 早就断了，而拒绝本就是终态，本机记账已完成。
+        let _ = offer.responder.send(TransferResponse::OfferResult {
+            accepted: false,
+            reason: Some(OfferRejectReason::UserDeclined),
+        });
         Ok(())
     }
 
+    /// 暂停一条接收会话。
+    ///
+    /// 顺序与 [`pause_send`](Self::pause_send) 一致，**`notify_pause` 必须早于关闭 actor**
+    /// ——完整推导写在那里，一句话是：关流不携带原因，对端只会当成 `Interrupted`，而那条
+    /// 守卫先满足之后 `RemotePaused` 就再也进不来了。
+    ///
+    /// 接收方向不必落进度：文件进度由 `persist_chunk` 增量落库，projection 的
+    /// transferredBytes 直接 SUM 文件级，本来就是准的。
     pub async fn pause_receive(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
             .get_receive_actor(session_id)
-            .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
+            .ok_or_else(|| AppError::SessionNotFound(format!("接收会话不存在: {session_id}")))?;
 
-        session.cancel_and_wait().await;
-        // projection 的 transferredBytes 直接 SUM 文件级（文件进度已增量落库），
-        // 无需在 dispatch 前手工 sync session 级。
         self.coordinator
             .dispatch(
                 *session_id,
                 crate::coordinator::CoordinatorInput::User(crate::coordinator::UserCommand::Pause),
             )
             .await?;
-        self.remove_receive_actor(session_id);
         self.notify_pause(session.peer_id, *session_id).await;
+        session.cancel_and_wait().await;
+        self.remove_receive_actor(session_id);
 
         info!("Receive session paused: session={}", session_id);
         Ok(())
@@ -252,7 +329,7 @@ impl TransferManager {
     pub async fn cancel_receive(&self, session_id: &Uuid) -> AppResult<()> {
         let session = self
             .get_receive_actor(session_id)
-            .ok_or_else(|| AppError::Transfer(format!("接收会话不存在: {session_id}")))?;
+            .ok_or_else(|| AppError::SessionNotFound(format!("接收会话不存在: {session_id}")))?;
 
         session.cancel_and_wait().await;
         // Cancel 通知上提到 manager 层，与发送侧对称（ReceiverActor 不再持 endpoint）

@@ -1,0 +1,267 @@
+"use client";
+
+// Web 应用区的常驻导航，三档形态（#90）：
+//   ≥1024px  展开侧栏（图标 + 文字）
+//   768–1023 图标侧栏（w-16，文字降级为 title/aria-label）
+//   <768px   底部导航，配顶部品牌 + 状态条
+//
+// 三者都是**外壳 flex 布局里的常规子元素**（`shrink-0`），不用 fixed/sticky——
+// 应用外壳（layout.tsx）是 `h-dvh` 的受限高度容器，滚动只发生在 `main` 里。
+//
+// 所有内部跳转必须用 next/link——手写 <a href="/app/devices"> 不会被加上 basePath，
+// GitHub Pages 子路径（/SwarmDrop）下会整片 404。
+//
+// 徽标存在的理由：单页时入站 offer 与页面其它内容同屏可见，拆成多路由后它会藏进 /app/inbox。
+// 没有徽标，用户停在发送页时对「有人要发文件给我」零感知——这是重构自己引入的退化，不是新功能。
+//
+// **只有三项**（设备 / 收件箱 / 设置），与移动端 tab 同项同序。发送与传输是设备的子页面，
+// 在这里不占位；侧栏在那两条路由上高亮「设备」（`activeNavHref`）。理由写在 `_lib/nav.ts`。
+
+import { useLingui } from "@lingui/react/macro";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { appIconPath, appName } from "@/lib/shared";
+import { APP_NAV, activeNavHref, type AppNavItem } from "../_lib/nav";
+import { selectOfferCount, useWebNode } from "../_lib/store";
+import { NodeStatusDialog } from "./node-status-dialog";
+import { RailTools } from "./rail-tools";
+
+/**
+ * 该项的徽标数。计数在**列表外**订阅一次再传进来——hook 不能在 `APP_NAV.map` 里调。
+ * selector 返回的是数字，符合「selector 只许返回原始值或稳定引用」（见 store.ts）。
+ */
+function badgeCount(item: AppNavItem, offers: number): number {
+  return item.badge === "offers" ? offers : 0;
+}
+
+function useActiveHref(): string {
+  return activeNavHref(usePathname());
+}
+
+/**
+ * 品牌标记 —— **回官网首页的入口**。
+ *
+ * 应用区住在文档站里面，但进了 `/app` 就没有回头路：侧栏三项全在 `/app` 之内，唯一通向
+ * 站内别处的是底部菜单里的「使用文档」，而那是文档不是首页。点 logo 回首页是浏览器里
+ * 唯一不用教的约定，缺的这个入口就补在它身上。与桌面端「unclickable logo mark」分叉，
+ * 理由很实在：桌面壳根本没有「官网」可回。
+ *
+ * ## 离开 `/app` 不会中断传输（2026-08-06 实测 + 静态核对推翻旧说法）
+ *
+ * 节点运行时是**模块级**单例（`node-runtime.ts` 里的 `let node`），寿命跟着**页面**而不是
+ * React 树：`WebNodeBootstrap` 刻意没有 cleanup，全仓唯一调 `closeNode()` 的是
+ * `stopNodeRuntime()`，而它只有一个调用点——节点状态弹窗里的「停止节点」。于是客户端跳到
+ * `/` 只是卸载 DOM，事件消费与状态轮询照跑，回来时 `startNodeRuntime()` 幂等直接返回。
+ *
+ * 实测：`/app/devices` → `/docs` → 返回，全程同一个 document（`window` 上的标记存活），
+ * 返回后每 100ms 采样 4 秒，状态恒为「运行中」。这个判据是紧的——`stopNodeRuntime()` 会
+ * 连带 `reset()`，节点真被关过的话 pill 会掉到「未启动」，不可能瞒过采样。
+ *
+ * ⚠️ **这条此前反着写，而且真的挡下过设计。** 本文件与 `rail-tools.tsx` 都曾断言「离开
+ * `/app` 会卸载节点单例、中断正在进行的传输」；本轮最初正是因为信了它，把 logo 指向了
+ * `/app/devices`。要在这里重新引入「离开有代价」的结论前，先把上面那条实测重跑一遍。
+ *
+ * 品牌名后原本还缀着一个灰色的 "Web"。去掉了：它要澄清的「这是浏览器端、不是你装的那个」
+ * 由地址栏和站点本身回答得更早，挂在产品名后面反而像个版本尾巴。这个身份信息没丢——
+ * 设置页的「关于」面板仍写明 Web 端没有「已安装版本」这个概念。
+ */
+function BrandMark({
+  labelClassName = "",
+  className = "",
+}: {
+  labelClassName?: string;
+  className?: string;
+}) {
+  const { t } = useLingui();
+  // 可见文字只有 "SwarmDrop"，读屏与悬停拿到的是带落点的完整说法——图标档（768–1023）
+  // 文字是 `display:none`，那一档它是**唯一**的可访问名。「SwarmDrop」是它的子串，
+  // 满足 WCAG 2.5.3（可见标签必须包含在可访问名里）。
+  const label = t`SwarmDrop 官网首页`;
+  return (
+    // `min-h-11` + 由外层给的宽度 = 44px 起的点按区（DESIGN 的触达尺寸条）。
+    // `gap-3` / `px-3` 与下方 `SidebarLink` 同值，于是展开档里品牌图标与导航图标落在同一条
+    // 左边线上（都是容器 8 + 自身 12 = 20px）——此前品牌是 `px-3` 直接贴容器，比导航图标靠左 8px。
+    // 图标档没有可见文字（`labelClassName` 把它藏掉），读屏与悬停靠 `aria-label` / `title`。
+    <Link
+      href="/"
+      title={label}
+      aria-label={label}
+      className={`focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-foreground transition-colors hover:text-brand ${className}`}
+    >
+      <img src={appIconPath} alt="" className="size-5 shrink-0" />
+      <span className={labelClassName}>{appName}</span>
+    </Link>
+  );
+}
+
+/** 计数徽标：青绿实心底恒配深墨字（DESIGN 的 Brand Fidelity Rule，不用白字）。 */
+function CountBadge({ count, className = "" }: { count: number; className?: string }) {
+  return (
+    <span
+      className={`inline-flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground ${className}`}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+// ── 侧栏（≥768px）──────────────────────────────────────────────────────────
+
+export function AppSidebar() {
+  const { t } = useLingui();
+  const active = useActiveHref();
+  const offers = useWebNode(selectOfferCount);
+
+  return (
+    // `h-full` 而不是 `sticky top-0 h-screen`：外壳（layout.tsx）现在是 `h-dvh` 的
+    // flex 行，侧栏作为它的直接子元素自然满高，不需要 sticky 去模拟。
+    //
+    // 材质是 `glass-rail`（半透明 + 模糊）而不是实心 `bg-sidebar`：外壳底下现在有一层
+    // WebGL 极光，一条 224px 宽的不透明色块会把整个左边缘的光切掉。
+    // `relative z-10` 是它压在环境层之上的方式——`.app-shell` 刻意不做通配提升，
+    // 理由见 global.css。
+    <aside className="glass-rail relative z-10 hidden h-full shrink-0 flex-col border-r md:flex md:w-16 lg:w-56">
+      {/* 容器退到 `px-2`（与下方 `nav` 的 `p-2` 同值），把水平内边距让给品牌链接自己——
+          点按区因此与一条导航项等宽等高（实测两档都是 207×44 与 47×44，与 `SidebarLink`
+          逐像素相同），而不是只有文字那一小块。 */}
+      <div className="flex h-14 shrink-0 items-center border-b px-2">
+        <BrandMark
+          labelClassName="hidden lg:inline"
+          className="w-full md:justify-center lg:justify-start"
+        />
+      </div>
+
+      <nav aria-label={t`应用导航`} className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+        {APP_NAV.map((item) => (
+          <SidebarLink
+            key={item.href}
+            item={item}
+            active={active === item.href}
+            count={badgeCount(item, offers)}
+          />
+        ))}
+      </nav>
+
+      {/* 底部是一条底栏：左端**节点状态**（这台机器现在怎么样），右端**环境入口**
+          （主题 / 语言 / 文档收在一枚菜单后）。前者是状态，后者是调节；一行两端分置，
+          比上下堆两块更能说清它们不是同一类东西——而那枚 pill 其实是本页唯一诚实汇报
+          运行时的地方，也是节点启停的唯一入口。
+
+          三条排版约束（2026-08-06）：
+
+          1. **lg 一行、md 竖排。** 一行只在环境入口收成**一枚**按钮之后才成立：
+             三枚并排时最长的状态词（"failed to start"）会溢出 32px，把第三枚图标切掉一半。
+             实测数据与取舍写在 `rail-tools.tsx` 头部。图标档（64px 宽）横竖都放不下两个
+             36px，仍竖排。
+          2. **左边线对齐。** 容器 `px-2.5`(10)：导航图标落在 8+12=20，状态点落在
+             10+1(pill 边框)+10=21。实测 20/21，那 1px 是 pill 自己的描边，不值得为它写个
+             越界的 padding。动任一侧的 padding 都要重算这两个数。
+          3. **不要退回 `items-stretch`。** 它曾是这里的写法，而 `<button>` 默认居中内容
+             ——70px 的 pill 会被拉成 199px 的按钮再居中，圆点飘到 x=88，与上方导航图标
+             差了 66px。焦点环同样跟着整行走，与看得见的那 70px 对不上。这是本轮修的起点。 */}
+      <div className="flex shrink-0 flex-col gap-3 border-t px-2.5 py-3 md:items-center lg:flex-row lg:justify-between lg:gap-2">
+        {/* 图标档（768–1023）把 pill 收成 36×36 的正圆，与下面那枚菜单按钮同尺寸竖排对齐——
+            此前那一档是个 26×26、只剩边框没有文字的空胶囊，像没画完。 */}
+        <NodeStatusDialog
+          labelClassName="hidden lg:inline"
+          pillClassName="md:size-9 md:justify-center md:px-0 lg:h-auto lg:w-auto lg:justify-start lg:px-2.5"
+        />
+        <RailTools />
+      </div>
+    </aside>
+  );
+}
+
+function SidebarLink({
+  item,
+  active,
+  count,
+}: {
+  item: AppNavItem;
+  active: boolean;
+  count: number;
+}) {
+  const { t } = useLingui();
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      title={t(item.label)}
+      aria-current={active ? "page" : undefined}
+      className={`focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm transition-colors md:justify-center lg:justify-start ${
+        active
+          ? "bg-accent font-medium text-brand"
+          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+      }`}
+    >
+      <span className="relative shrink-0">
+        <Icon className="size-[18px]" aria-hidden="true" />
+        {/* 图标档没有行尾可放徽标，贴到图标右上角；展开档则走行尾那枚。 */}
+        {count > 0 && <CountBadge count={count} className="absolute -top-1.5 -right-2 lg:hidden" />}
+      </span>
+      <span className="hidden lg:inline">{t(item.label)}</span>
+      {count > 0 && <CountBadge count={count} className="ml-auto hidden lg:inline-flex" />}
+    </Link>
+  );
+}
+
+// ── 窄屏顶栏 + 底部导航（<768px）────────────────────────────────────────────
+
+/** 窄屏没有侧栏，品牌与节点状态改由顶栏承担。 */
+export function AppMobileHeader() {
+  return (
+    // 外壳已是受限高度、滚动发生在 main 里，所以顶栏是常规 flex 子元素（`shrink-0`）
+    // 而不再需要 `sticky top-0`——它本来就不会随内容滚走了。
+    <header className="glass-rail shrink-0 border-b md:hidden">
+      {/* `h-14` 与侧栏品牌行同高；品牌链接用 `-mx-3` 抵掉自身内边距，图标仍落在 16px
+          （与页面内容的 `px-4` 同一条左边线），点按区却比文字宽出 24px。 */}
+      <div className="flex h-14 items-center justify-between px-4">
+        <BrandMark className="-mx-3" />
+        <NodeStatusDialog />
+      </div>
+    </header>
+  );
+}
+
+export function AppBottomNav() {
+  const { t } = useLingui();
+  const active = useActiveHref();
+  const offers = useWebNode(selectOfferCount);
+
+  return (
+    // **不再是 `fixed` + 等高 spacer**：外壳（layout.tsx）现在是 `h-dvh` 的 flex 列，
+    // 导航作为最后一个 `shrink-0` 子元素天然贴底，滚动只发生在 `main` 里。
+    // 于是「知道高度的人和补偿高度的人应当是同一个」这条约定连同那个高度常量一起消失了
+    // ——没有补偿，就没有失准的可能。
+    <nav
+      aria-label={t`应用导航`}
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      className="glass-rail shrink-0 border-t md:hidden"
+    >
+      <ul className="mx-auto flex max-w-lg">
+        {APP_NAV.map((item) => {
+          const Icon = item.icon;
+          const isActive = active === item.href;
+          const count = badgeCount(item, offers);
+          return (
+            <li key={item.href} className="flex-1">
+              <Link
+                href={item.href}
+                aria-current={isActive ? "page" : undefined}
+                className={`focus-ring flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-[11px] transition-colors ${
+                  isActive ? "font-medium text-brand" : "text-muted-foreground"
+                }`}
+              >
+                <span className="relative">
+                  <Icon className="size-5" aria-hidden="true" />
+                  {count > 0 && <CountBadge count={count} className="absolute -top-1.5 -right-2.5" />}
+                </span>
+                {t(item.label)}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}

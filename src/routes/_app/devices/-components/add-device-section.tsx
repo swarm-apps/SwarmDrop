@@ -15,7 +15,11 @@ import type { Device } from "@/lib/bindings";
 import { cn } from "@/lib/utils";
 import { deviceDisplayName } from "@/lib/device-name";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
-import { SectionHeader, SectionShell } from "@/components/layout/section-primitives";
+import {
+  SectionHeader,
+  SectionShell,
+  SegmentedControl,
+} from "@/components/layout/section-primitives";
 
 type NearbyFilter = "all" | "unpaired" | "paired";
 
@@ -48,6 +52,18 @@ export function AddDeviceSection({
   const isFilteredEmpty = devices.length > 0 && filteredDevices.length === 0;
 
   return (
+    // **按内容高，不跟左栏齐平**（2026-08-06）。
+    //
+    // 这里此前是 `flex-1`，注释写着「要把玻璃铺到栏底与左栏齐平」。那条在左栏很短时看不出
+    // 问题，设备一多就塌了：16 台设备时左栏 1280px，而本块内容只有 478px——**底部 1206px
+    // 是空玻璃，占整张卡的 82%**。玻璃铺到栏底不会读成「呼吸感」，只会读成没写完。
+    //
+    // DESIGN.md 的 Layout Density Contract 正好写着这条：桌面端靠等高对齐行底，前提是那一栏
+    // **有足够的块可以竖叠**；这一栏只有一块，就该按内容收（「Copy the rule, not the
+    // conclusion」）。右栏下方露出的是页面背景（那层极光），不是一张没填满的卡。
+    //
+    // **不能改回 `min-h-full`**——那是「每个面板都要求整栏高」，同栏放第二块就溢出，
+    // 理由见 `SectionShell` 的文档。
     <SectionShell data-testid="add-device-section" className="gap-3.5">
       <SectionHeader
         title={<Trans>添加设备</Trans>}
@@ -62,7 +78,11 @@ export function AddDeviceSection({
             <Radio className="size-3.5" />
             <Trans>附近设备</Trans>
           </div>
-          <NearbyFilterControl value={nearbyFilter} onChange={setNearbyFilter} />
+          <SegmentedControl<NearbyFilter>
+            value={nearbyFilter}
+            options={nearbyFilterOptions}
+            onChange={setNearbyFilter}
+          />
         </div>
 
         {filteredDevices.length === 0 ? (
@@ -86,7 +106,19 @@ export function AddDeviceSection({
             </p>
           </div>
         ) : (
-          <div data-testid="nearby-devices-list" className="flex flex-col gap-2">
+          /* 限高 + 内部滚动：这一列的长度由**局域网里有多少台机器**决定，办公室里上双位数
+             很正常，而右栏现在是 `sticky` 的（见 `index.lazy.tsx`）——粘住的元素一旦高过
+             视口，超出的部分就再也滚不到，底部那两个配对入口会被顶出屏幕。
+
+             限的是这个列表而不是整张卡：滚动条落在真正会变长的那一段上，卡片的圆角与玻璃
+             投影保持完整（给 `SectionShell` 加 `overflow` 会把它们裁掉）。
+
+             `min(40vh, 340px)`：矮窗口按比例收，高窗口不让它一直长——这一列是「就近发现」
+             的取景框，不是完整清单。 */
+          <div
+            data-testid="nearby-devices-list"
+            className="flex max-h-[min(40vh,340px)] flex-col gap-2 overflow-y-auto"
+          >
             {filteredDevices.map((device) => (
               <NearbyDeviceRow
                 key={device.peerId}
@@ -103,18 +135,19 @@ export function AddDeviceSection({
 
       {/* 配对入口——跳转到 canonical 路由 */}
       <div className="grid grid-cols-2 gap-2">
+        {/* 文案与配对页的模式切换同名，侧栏两列也放得下不截断 */}
         <PairingEntryButton
           icon={QrCode}
           testid="pairing-generate-action"
-          title={<Trans>展示配对邀请</Trans>}
-          subtitle={<Trans>让对方扫码或粘贴</Trans>}
+          title={<Trans>展示邀请</Trans>}
+          subtitle={<Trans>让对方扫码</Trans>}
           onClick={() => navigate({ to: "/pairing/generate" })}
         />
         <PairingEntryButton
           icon={ClipboardPaste}
           testid="pairing-input-action"
-          title={<Trans>粘贴邀请配对</Trans>}
-          subtitle={<Trans>连接对方设备</Trans>}
+          title={<Trans>粘贴邀请</Trans>}
+          subtitle={<Trans>已收到邀请</Trans>}
           onClick={() => navigate({ to: "/pairing/input" })}
         />
       </div>
@@ -140,7 +173,7 @@ function PairingEntryButton({
       type="button"
       onClick={onClick}
       data-testid={testid}
-      className="group flex min-w-0 items-center gap-2 rounded-[12px] bg-white/38 px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/52 active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.065]"
+      className="group flex min-w-0 items-center gap-2 rounded-[12px] bg-white/38 px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/52 focus-ring active:scale-[0.99] motion-reduce:transition-none dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.065]"
     >
       <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-brand ring-1 ring-primary/15 dark:bg-primary/15 dark:ring-primary/10">
         <Icon className="size-3.5" />
@@ -179,7 +212,7 @@ function NearbyDeviceRow({
       data-testid="nearby-device-row"
       data-peer-id={device.peerId}
       data-device-paired={isPaired ? "true" : "false"}
-      className="group flex min-w-0 items-center gap-3 rounded-[15px] bg-white/35 p-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] transition-[background-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 hover:shadow-[0_12px_32px_rgba(219,163,65,0.07),inset_0_1px_0_rgba(255,255,255,0.5)] active:scale-[0.99] dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.07]"
+      className="group flex min-w-0 items-center gap-3 rounded-[15px] bg-white/35 p-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] transition-[background-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/55 hover:shadow-[0_12px_32px_rgb(8_121_104_/_0.08),inset_0_1px_0_rgba(255,255,255,0.5)] focus-ring active:scale-[0.99] motion-reduce:transition-none dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.07]"
     >
       <span className="flex size-9 shrink-0 items-center justify-center rounded-[13px] bg-primary/10 text-brand ring-1 ring-primary/15 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105 dark:bg-primary/15 dark:ring-primary/10">
         <DeviceIcon className="size-4.5" />
@@ -195,7 +228,7 @@ function NearbyDeviceRow({
       </span>
       <span
         className={cn(
-          "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium shadow-[0_8px_18px_rgba(219,163,65,0.18)]",
+          "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium shadow-[0_8px_18px_rgb(8_121_104_/_0.18)]",
           isPaired
             ? "bg-zinc-950 text-white dark:bg-primary/20 dark:text-brand dark:ring-1 dark:ring-primary/20"
             : "bg-primary text-primary-foreground",
@@ -204,34 +237,5 @@ function NearbyDeviceRow({
         {isPaired ? <Trans>发送</Trans> : <Trans>配对</Trans>}
       </span>
     </button>
-  );
-}
-
-function NearbyFilterControl({
-  value,
-  onChange,
-}: {
-  value: NearbyFilter;
-  onChange: (value: NearbyFilter) => void;
-}) {
-  return (
-    <div className="flex shrink-0 rounded-full bg-foreground/[0.045] p-0.5 dark:bg-white/[0.06]">
-      {nearbyFilterOptions.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          aria-pressed={value === option.value}
-          onClick={() => onChange(option.value)}
-          className={cn(
-            "rounded-full px-2 py-1 text-[11px] font-medium transition-[background-color,color] duration-200",
-            value === option.value
-              ? "bg-zinc-950 text-white dark:bg-primary/20 dark:text-brand"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
   );
 }

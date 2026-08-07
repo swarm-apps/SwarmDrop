@@ -10,8 +10,8 @@ use super::DiscoveryMode;
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum BootstrapCandidateSource {
-    BuiltInPublic,
-    UserCustom,
+    /// 当前 host 注入的静态引导/中继配置（含各端默认值和用户追加地址）。
+    HostConfigured,
     MdnsLanHelper,
     /// 运行时经 identify 学到的基础设施节点（如 LanOnly 下经 LAN Helper 认识的公网中继）
     Learned,
@@ -23,6 +23,21 @@ pub enum BootstrapCandidateSource {
 pub enum CandidateScope {
     Public,
     Lan,
+}
+
+impl CandidateScope {
+    /// 从地址形状推断 scope（HostConfigured 等无来源先验的候选用）。
+    ///
+    /// 任一私网/loopback 地址即判 Lan——注意这意味着混合地址候选会**绕过
+    /// `public_reachability` 闸门**（supervisor 对 Lan 候选无条件收敛），
+    /// 这是有意的：用户手动点名的本地 helper 不应被公网开关拦下。
+    pub fn infer(addrs: &[Addr]) -> Self {
+        if addrs.iter().any(|a| a.is_private_lan() || a.is_loopback()) {
+            Self::Lan
+        } else {
+            Self::Public
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +173,11 @@ impl BootstrapCandidateManager {
         }
     }
 
+    /// 移除候选（注销基础设施节点的策略层清理）。
+    pub fn remove(&mut self, peer_id: NodeId) {
+        self.candidates.remove(&peer_id);
+    }
+
     pub fn mark_connected(&mut self, peer_id: NodeId) {
         if let Some(candidate) = self.candidates.get_mut(&peer_id)
             && !matches!(candidate.health, CandidateHealth::RelayReady)
@@ -226,9 +246,8 @@ impl BootstrapCandidateManager {
             .map(|(source, count)| CandidateSourceStatus { source, count })
             .collect();
         statuses.sort_by_key(|status| match status.source {
-            BootstrapCandidateSource::UserCustom => 0,
+            BootstrapCandidateSource::HostConfigured => 0,
             BootstrapCandidateSource::MdnsLanHelper => 1,
-            BootstrapCandidateSource::BuiltInPublic => 2,
             BootstrapCandidateSource::Learned => 3,
         });
         statuses
@@ -260,7 +279,7 @@ mod tests {
         assert!(manager.upsert(
             peer,
             vec![addr1.clone()],
-            BootstrapCandidateSource::BuiltInPublic,
+            BootstrapCandidateSource::HostConfigured,
             CandidateRoles::kad_and_relay(),
             CandidateScope::Public,
         ));

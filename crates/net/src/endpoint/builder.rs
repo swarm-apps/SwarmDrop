@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use super::presets::Preset;
 use super::{AddrsInfo, Endpoint, Inner};
 use crate::actor::{Actor, ActorMessage, WatchSenders};
-use crate::config::{DhtConfig, EndpointConfig, RelayServerConfig};
+use crate::config::{DhtConfig, EndpointConfig, RelayServerConfig, WebRtcP2pConfig};
 use crate::dht::Dht;
 use crate::lookup::AddressLookupBuilder;
 use crate::stream::{StreamLimits, StreamRegistry};
@@ -68,6 +68,9 @@ impl Builder {
     }
 
     /// identify 的 agent_version（可携带设备能力信息）。
+    ///
+    /// 这里设的只是初值：运行期改用 [`Endpoint::set_agent_version`]，它会即时向
+    /// 已连接对端 push，无需重建节点。
     pub fn agent_version(mut self, agent: impl Into<String>) -> Self {
         self.config.agent_version = agent.into();
         self
@@ -76,6 +79,16 @@ impl Builder {
     /// 监听地址（wasm 下必须为空：浏览器不能 listen 本地 socket）。
     pub fn listen(mut self, addrs: Vec<Addr>) -> Self {
         self.config.listen = addrs;
+        self
+    }
+
+    /// 显式登记已知的外部可达地址。
+    ///
+    /// 典型场景是公网 relay 的 TCP/QUIC/WebSocket 地址。WebRTC Direct 的
+    /// certhash 可用 [`crate::webrtc_direct_addr_from_pem`] 从同一持久化证书
+    /// 预先派生；运行期发现的地址则使用 [`Endpoint::add_external_addr`] 登记。
+    pub fn external_addrs(mut self, addrs: Vec<Addr>) -> Self {
+        self.config.external_addrs = addrs;
         self
     }
 
@@ -94,6 +107,12 @@ impl Builder {
     /// AutoNAT v2 外部可达性探测。
     pub fn autonat(mut self, enabled: bool) -> Self {
         self.config.autonat = enabled;
+        self
+    }
+
+    /// AutoNAT v2 服务端（仅公网 bootstrap / relay 节点需要）。
+    pub fn autonat_server(mut self, enabled: bool) -> Self {
+        self.config.autonat_server = enabled;
         self
     }
 
@@ -119,6 +138,17 @@ impl Builder {
     /// 注入持久化证书，否则重启后分享出去的地址全部失效。native only。
     pub fn webrtc_certificate(mut self, pem: impl Into<String>) -> Self {
         self.config.webrtc_cert_pem = Some(pem.into());
+        self
+    }
+
+    /// 启用 WebRTC 打洞传输（内核层面默认关；core 的组合根对三端一律开启）。
+    ///
+    /// 与 webrtc-direct 正交：后者要求目标地址已可达，前者让双方都不可达的节点
+    /// （浏览器、NAT 后的原生端）经 relay 换信令后打洞。开启后本机既能拨
+    /// `<relay>/p2p-circuit/webrtc/p2p/<target>`，也会为 circuit reservation
+    /// 额外监听 `<relay>/p2p-circuit/webrtc` 以便被拨。
+    pub fn webrtc_p2p(mut self, config: WebRtcP2pConfig) -> Self {
+        self.config.webrtc_p2p = Some(config);
         self
     }
 
@@ -155,7 +185,13 @@ impl Builder {
         let node_id = secret.node_id();
         let config = self.config;
 
-        let mut swarm = build_swarm(secret.as_keypair().clone(), &config).await?;
+        let mut swarm = build_swarm(secret.as_keypair().clone(), &config)?;
+
+        // 公网 relay 的 reservation 响应依赖 Swarm 已知 external address。
+        // 在 actor 起前登记，避免启动早期的 reservation 漏带可拨地址。
+        for addr in &config.external_addrs {
+            swarm.add_external_address(addr.as_multiaddr().clone());
+        }
 
         // 开流快路径句柄（Control 可 Clone，注册入站协议由 Router 在 spawn 时进行）
         let control = swarm.behaviour().stream.new_control();
@@ -171,7 +207,12 @@ impl Builder {
         }
 
         // watch：actor 是唯一写者，Endpoint 持读端
-        let (addrs_tx, addrs_rx) = watch::channel(AddrsInfo::default());
+        // `Swarm::add_external_address` 不会保证回发 ExternalAddrConfirmed；
+        // 显式配置的公网地址由组合根负责正确性，故在状态视图中同步作为初值。
+        let (addrs_tx, addrs_rx) = watch::channel(AddrsInfo {
+            listen: Vec::new(),
+            external: config.external_addrs.clone(),
+        });
         let (nat_tx, nat_rx) = watch::channel(NatStatus::default());
         let (conns_tx, conns_rx) = watch::channel(BTreeMap::new());
         let (relays_tx, relays_rx) = watch::channel(BTreeMap::new());
@@ -205,6 +246,7 @@ impl Builder {
             watch_relays: relays_rx,
             dht: dht_enabled.then(|| Dht::new(actor_tx.clone())),
             connect_timeout: config.connect_timeout,
+            next_connect_request_id: std::sync::atomic::AtomicU64::new(1),
             closed: CancellationToken::new(),
             actor_handle: Mutex::new(Some(actor_handle)),
         });

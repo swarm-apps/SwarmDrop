@@ -72,6 +72,18 @@ jobs:
 
       - run: ./scripts/check-wasm.sh --clippy
 
+      # 上面两条只保证**编得过**。`crates/web` 整个 crate 是 `#[cfg(wasm_browser)]`，
+      # 进不了 `cargo test --workspace`，于是它那 20 条 `#[wasm_bindgen_test]`
+      # （IndexedDB 往返、OPFS、收件箱可见性与排序）曾长期「写了、编得过、从没跑过」——
+      # `invite_store.rs` 的写读不对称能活到被手动验证撞见，正是这个洞的直接后果。
+      - uses: browser-actions/setup-chrome@v1
+        with:
+          install-chromedriver: true
+
+      - run: cargo install wasm-pack --locked
+
+      - run: ./scripts/test-wasm.sh
+
   # clippy 单独一个 job 且不阻塞：存量 warning 数未知，先让它跑起来看基线，
   # 清干净之后再把 -D warnings 加上并设为必需。
   clippy:

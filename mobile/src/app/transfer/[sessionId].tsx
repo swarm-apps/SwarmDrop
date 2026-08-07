@@ -1,4 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { File } from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   CheckCircle2,
@@ -15,7 +16,10 @@ import {
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import type { MobileTransferProjection } from "react-native-swarmdrop-core";
+import type {
+  MobileTransferFile,
+  MobileTransferProjection,
+} from "react-native-swarmdrop-core";
 import { FileBrowser, fromProjection } from "@/components/file-browser";
 import { KeyValueRow } from "@/components/key-value-row";
 import {
@@ -52,10 +56,12 @@ import {
   projectionTransferredBytes,
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { getErrorMessage } from "@/lib/errors";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
-import { errorMessage, lastPathSegment, truncateMiddle } from "@/lib/utils";
+import { lastPathSegment, truncateMiddle } from "@/lib/utils";
 import { useInboxStore } from "@/stores/inbox-store";
+import { useShareStore } from "@/stores/share-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export default function TransferDetailScreen() {
@@ -71,14 +77,19 @@ export default function TransferDetailScreen() {
   const loadProjection = useTransferStore((s) => s.loadProjection);
   const deleteHistoryItem = useTransferStore((s) => s.deleteHistoryItem);
   const resumeHistoryItem = useTransferStore((s) => s.resumeHistoryItem);
+  const getSourcePaths = useTransferStore((s) => s.getSourcePaths);
+  const setSharedFiles = useShareStore((s) => s.setSharedFiles);
   const refreshAfterTransition = useTransferStore(
     (s) => s.refreshAfterTransition,
   );
 
+  // 暂停 / 取消按方向分派到 core 的对应方法 —— 方向就在 projection 里,不做试错探测。
+  const direction = projection ? projectionDirection(projection) : null;
+
   const completedReceiveSessionId =
     projection &&
     projectionStatus(projection) === "completed" &&
-    projectionDirection(projection) === "receive"
+    direction === "receive"
       ? projection.sessionId
       : null;
   const inboxItemId = useInboxStore((s) =>
@@ -93,7 +104,7 @@ export default function TransferDetailScreen() {
   );
 
   const [busy, setBusy] = useState<
-    null | "pausing" | "cancelling" | "resuming" | "deleting"
+    null | "pausing" | "cancelling" | "resuming" | "resending" | "deleting"
   >(null);
   const [loaded, setLoaded] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -112,33 +123,39 @@ export default function TransferDetailScreen() {
   }, [sessionId, loadProjection]);
 
   const onPause = useCallback(async () => {
-    if (!sessionId || busy) return;
+    if (!sessionId || !direction || busy) return;
     setBusy("pausing");
     try {
-      await getMobileCore().pauseTransfer(sessionId);
+      const core = getMobileCore();
+      await (direction === "send"
+        ? core.pauseSend(sessionId)
+        : core.pauseReceive(sessionId));
       await refreshAfterTransition(sessionId);
     } catch (err) {
-      toast.error(t`暂停失败`, errorMessage(err));
+      toast.error(t`暂停失败`, getErrorMessage(err));
     } finally {
       setBusy(null);
     }
-  }, [sessionId, busy, refreshAfterTransition, t]);
+  }, [sessionId, direction, busy, refreshAfterTransition, t]);
 
   const performCancel = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId || !direction) return;
     setBusy("cancelling");
     try {
-      await getMobileCore().cancelTransfer(sessionId);
+      const core = getMobileCore();
+      await (direction === "send"
+        ? core.cancelSend(sessionId)
+        : core.cancelReceive(sessionId));
       await refreshAfterTransition(sessionId);
       setCancelOpen(false);
       toast.success(t`已取消传输`);
       router.replace("/transfer" as never);
     } catch (err) {
-      toast.error(t`取消失败`, errorMessage(err));
+      toast.error(t`取消失败`, getErrorMessage(err));
     } finally {
       setBusy(null);
     }
-  }, [sessionId, refreshAfterTransition, router, t]);
+  }, [sessionId, direction, refreshAfterTransition, router, t]);
 
   const onResume = useCallback(async () => {
     if (!sessionId || busy) return;
@@ -152,7 +169,7 @@ export default function TransferDetailScreen() {
         } as never);
       }
     } catch (err) {
-      toast.error(t`恢复失败`, errorMessage(err));
+      toast.error(t`恢复失败`, getErrorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -165,22 +182,42 @@ export default function TransferDetailScreen() {
       await deleteHistoryItem(sessionId);
       router.back();
     } catch (err) {
-      toast.error(t`删除失败`, errorMessage(err));
+      toast.error(t`删除失败`, getErrorMessage(err));
     } finally {
       setBusy(null);
     }
   }, [sessionId, deleteHistoryItem, router, t]);
 
-  // 重新发送:失败的发送在核心里没有 resend API、投影也不含文件句柄,
-  // 只能诚实地回到发送流程(预选好该设备)让用户重新挑文件,而不是假装能一键重发。
-  const onResend = useCallback(() => {
+  // 重新发送:core 记了发送方向每个文件的源路径,取得全且文件仍在,就把它们塞进
+  // share-store 走「文件已定、挑设备」的分享流,省掉重新挑一遍。但源路径随时可能失效
+  // ——Android 的 SAF content URI 会过期、picker 落在 cache 的副本也可能被系统清掉
+  // ——所以拿不到 / 已失效时回到发送流程(预选好该设备)让用户重新挑文件,
+  // 不假装能一键重发。
+  const onResend = useCallback(async () => {
     const peerId = projection?.peerId;
-    if (!peerId) return;
-    router.push({
-      pathname: "/send/select-device",
-      params: { peerId },
-    } as never);
-  }, [router, projection?.peerId]);
+    if (!projection || !peerId || busy) return;
+    setBusy("resending");
+    try {
+      const files = resendFilesOf(
+        projection,
+        await getSourcePaths(projection.sessionId),
+      );
+      if (files.length > 0) {
+        setSharedFiles(files);
+        router.push("/send/share-target" as never);
+        return;
+      }
+      toast.info(t`原始文件已不可用`, {
+        description: t`请重新选择要发送的文件`,
+      });
+      router.push({
+        pathname: "/send/select-device",
+        params: { peerId },
+      } as never);
+    } finally {
+      setBusy(null);
+    }
+  }, [router, projection, busy, getSourcePaths, setSharedFiles, t]);
 
   useEffect(() => {
     if (!completedReceiveSessionId || inboxItemId) return;
@@ -518,7 +555,7 @@ function TransferProgressBlock({
           </View>
         }
         title={<Trans>传输失败</Trans>}
-        subtitle={<LocalizedError message={projection.errorMessage} />}
+        subtitle={<LocalizedError failure={projection.failure} />}
       />
     );
   }
@@ -539,7 +576,10 @@ function TransferProgressBlock({
   }
 
   // 其余挂起/终态(中断/离线/已取消/已拒绝):中性 chip,可恢复时给一句安心话。
-  const Icon = status === "cancelled" || status === "rejected" ? X : Pause;
+  const Icon =
+    status === "cancelled" || status === "rejected" || status === "expired"
+      ? X
+      : Pause;
   return (
     <StatusBanner
       chip={
@@ -702,6 +742,8 @@ function TransferActionBar({
         Icon={Send}
         label={<Trans>重新发送</Trans>}
         onPress={onResend}
+        disabled={busy === "resending"}
+        loading={busy === "resending"}
         variant="primary"
       />,
     );
@@ -777,6 +819,43 @@ function ActionButton({
  */
 function savePathOf(projection: MobileTransferProjection): string | null {
   return projection.contentRoot ?? null;
+}
+
+/**
+ * 「重新发送」的载荷 —— 源路径按文件行顺序返回,与 `projection.files` 一一对应。
+ * 数量对不上说明有文件没记源路径(接收会话 / 早期会话),不做猜测性配对;任一源文件
+ * 确定已不存在也整体放弃 —— 少发一半文件比诚实地让用户重选更糟。返回空数组即
+ * 「重发载荷不可用」,调用方据此回退。
+ */
+function resendFilesOf(
+  projection: MobileTransferProjection,
+  sourcePaths: string[],
+): MobileTransferFile[] {
+  if (
+    sourcePaths.length === 0 ||
+    sourcePaths.length !== projection.files.length
+  ) {
+    return [];
+  }
+  const files = projection.files.map((file, index) => ({
+    sourceId: sourcePaths[index],
+    name: file.name,
+    relativePath: file.relativePath,
+    size: file.size,
+  }));
+  return files.every((file) => sourceExists(file.sourceId) !== false)
+    ? files
+    : [];
+}
+
+/** expo-fs File 对 file:// 与 SAF document URI 都能查 exists。
+ *  true=存在 / false=确定不存在 / null=查询失败(未知,不可判缺失)。 */
+function sourceExists(uri: string): boolean | null {
+  try {
+    return new File(uri).exists;
+  } catch {
+    return null;
+  }
 }
 
 function formatDuration(seconds: number): string {

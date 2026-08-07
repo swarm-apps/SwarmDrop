@@ -4,6 +4,7 @@ import {
   BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { organizedDeviceName } from "@swarmdrop/shared-view";
 import { Directory } from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -33,6 +34,7 @@ import {
   ConnectionBadge,
   normalizeConnectionKind,
 } from "@/components/connection-badge";
+import { ConnectionDetailsSection } from "@/components/connection-details";
 import {
   DeviceOrganizeSheet,
   type DeviceOrganizeSheetRef,
@@ -59,16 +61,15 @@ import {
   type PolicyNote,
   policyForDevice,
   policySummaryForDevice,
-  policyWithTrustDefaults,
   resolveTrustLevel,
   type TrustLevel,
   trustLevelToNative,
 } from "@/core/device-trust";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { organizedDeviceName } from "@/lib/device-organization";
 import { devicePlatformIcon } from "@/lib/device-platform";
+import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
-import { cn, errorMessage, lastPathSegment } from "@/lib/utils";
+import { cn, lastPathSegment } from "@/lib/utils";
 import {
   summariesToOfflineDevices,
   useMobileCoreStore,
@@ -171,7 +172,7 @@ export default function DeviceDetailScreen() {
         );
         policySheetRef.current?.dismiss();
       } catch (err) {
-        toast.error(t`策略保存失败`, errorMessage(err));
+        toast.error(t`策略保存失败`, getErrorMessage(err));
       } finally {
         setSavingAction(null);
       }
@@ -210,7 +211,7 @@ export default function DeviceDetailScreen() {
       toast.success(t`已取消配对`);
       router.back();
     } catch (err) {
-      toast.error(t`取消配对失败`, errorMessage(err));
+      toast.error(t`取消配对失败`, getErrorMessage(err));
     } finally {
       setSavingAction(null);
     }
@@ -337,6 +338,7 @@ export default function DeviceDetailScreen() {
                   <View className="flex-row justify-end">
                     <ConnectionBadge
                       connection={device.connection}
+                      transport={device.connectionDetails?.transport}
                       latencyMs={device.latencyMs}
                     />
                   </View>
@@ -349,6 +351,12 @@ export default function DeviceDetailScreen() {
               <InfoRow
                 label={<Trans>延迟</Trans>}
                 value={`${Number(device.latencyMs)}ms`}
+              />
+            ) : null}
+            {device.connectionDetails ? (
+              <ConnectionDetailsSection
+                details={device.connectionDetails}
+                lanUpgradeFailed={device.lanUpgradeFailed}
               />
             ) : null}
             <InfoRow
@@ -454,9 +462,10 @@ export default function DeviceDetailScreen() {
           draftPolicy={draftPolicy}
           onLevelChange={(level) => {
             setDraftLevel(level);
-            setDraftPolicy((current) =>
-              policyWithTrustDefaults(level, current),
-            );
+            // 带上当前草稿：用户显式设过的落点由内核带过去（`blocked` 除外）。
+            // 在 updater 外算：`defaultReceivePolicy` 会走一次 FFI，而 updater 在
+            // StrictMode 下可能被调用两次。它是同步的（uniffi 自由函数），没有竞态。
+            setDraftPolicy(defaultReceivePolicy(level, draftPolicy));
           }}
           onPolicyChange={setDraftPolicy}
           onValidityChange={setPolicyValid}
@@ -581,12 +590,12 @@ function PolicyEditor({
       try {
         dir.list();
       } catch (probeErr) {
-        toast.error(t`此目录不可读`, errorMessage(probeErr));
+        toast.error(t`此目录不可读`, getErrorMessage(probeErr));
         return;
       }
       patchPolicy({ defaultSaveLocation: dir.uri });
     } catch (err) {
-      toast.error(t`选择失败`, errorMessage(err));
+      toast.error(t`选择失败`, getErrorMessage(err));
     }
   };
 

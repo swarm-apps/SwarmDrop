@@ -1,19 +1,35 @@
 @import "tailwindcss";
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
+/* shadcn/ui 的进出场动画（animate-in / fade-in / slide-in-from-*）来自这里，
+   dialog / dropdown / sheet 缺了它就是硬切。与桌面 src/index.css 同一个 import。 */
+@import "tw-animate-css";
 
 /*
- * SwarmDrop 品牌色：青绿主体 + 赤铜中心（取自新 logo 的双色方案），与桌面应用主题同源。
+ * SwarmDrop 品牌色：青绿主体 + 赤铜中心（取自新 logo 的双色方案），与桌面应用主题**同源**。
  * 青绿实心底 --brand-solid 恒配 --brand-ink 深墨字（4.9:1），避免小字白字对比不足；
  * 强调文字/图标用 --brand（亮模式加深到白底 5.3:1，暗模式切亮青绿）。
  * --tile 是应用暗色画布的深藏蓝，用于 CTA 等「深底品牌图形」场景，两种模式不变。
  * Fumadocs 自带 --color-fd-* 前缀变量，两套互不冲突。
+ *
+ * ## 三个青绿与桌面的对应关系（改任一个都要同改桌面 src/index.css）
+ *
+ * | 这里          | 桌面 src/index.css   | 用途           |
+ * |---------------|----------------------|----------------|
+ * | --brand       | --brand              | 强调文字/图标  |
+ * | --brand-solid | --primary            | 实心底         |
+ * | --brand-ink   | --primary-foreground | 实心底上的文字 |
+ *
+ * **值写成与桌面逐字相同的 oklch 表达式**，而不是它们的 hex 转换结果。此前这里是 hex
+ * （#087968 / #5ee0c8 / #0f8f7a / #13a38c），实测与桌面 oklch 的 sRGB 转换最大通道差 0–1，
+ * 即本来就是同一组颜色——但「同一组」这件事只能靠人去转换才看得出来，改一边漏另一边不会有
+ * 任何提示。写成同样的表达式后，两份文件的这几行可以直接肉眼比对。
  */
 :root {
-  --brand: #087968; /* 强调文字/图标/描边，白底 5.3:1 */
+  --brand: oklch(0.516 0.093 178.2); /* 强调文字/图标/描边，白底 5.3:1 */
   --brand-strong: #066457;
-  --brand-solid: #0f8f7a; /* 实心按钮/面板底色，恒配 --brand-ink */
-  --brand-ink: #020817; /* 青绿底上的文字 */
+  --brand-solid: oklch(0.583 0.105 177.1); /* 实心按钮/面板底色，恒配 --brand-ink */
+  --brand-ink: oklch(0.136 0.036 259.2); /* 青绿底上的文字 */
   --brand-soft: #e3f7f1;
   --brand-warm: #c56a42; /* logo 中心赤铜色，小面积品牌温度 */
   --sky: #0ea5e9; /* sky-500：天蓝点缀保留 */
@@ -21,23 +37,739 @@
 }
 
 .dark {
-  --brand: #5ee0c8; /* 暗底亮青绿 12:1+ */
+  --brand: oklch(0.828 0.12 179); /* 暗底亮青绿 12:1+ */
   --brand-strong: #8af0dd;
-  --brand-solid: #13a38c;
-  --brand-ink: #020817;
+  --brand-solid: oklch(0.641 0.115 177.6);
+  --brand-ink: oklch(0.136 0.036 259.2);
   --brand-soft: #0d3b34;
   --brand-warm: #e18762;
   --sky: #38bdf8; /* sky-400 */
   --tile: #0d111a;
 }
 
+/*
+ * ── SwarmDrop 应用区的语义 token ───────────────────────────────────────────
+ *
+ * Web 应用区（app/app）用 shadcn/ui 作组件底座，而 shadcn 读的是 --color-background /
+ * --color-border 这类**无前缀**的语义 token。
+ *
+ * ## 为什么不再跟 fumadocs 的 --color-fd-*（2026-08-04 改）
+ *
+ * 这一层原先把 shadcn 的语义 token 映射到 fumadocs 的文档皮肤上，只有 primary 接了品牌色。
+ * 那套值服务的是**长文阅读**，拿来当应用界面有三条量得出来的后果：
+ *
+ *   | 项                        | 跟 fumadocs 时 | 现在（与桌面同源） | 标准 |
+ *   |---------------------------|----------------|--------------------|------|
+ *   | muted-foreground 在卡片内 | 4.20:1 ❌      | 4.74:1             | AA 4.5:1 |
+ *   | 键盘焦点环                | 2.31:1 ❌      | 4.02:1             | WCAG 2.2 SC 1.4.11 → 3:1 |
+ *   | 卡片 vs 背景分层          | 1.04:1 ❌      | 白卡浮在壳色上 + 边框/玻璃质感 | 需可辨 |
+ *
+ * 第三条尤其修不了：fumadocs 的卡片（#F1F1F1）**比背景（#F5F5F5）还暗**，卡片看起来是凹的，
+ * 正好撞上 PRODUCT.md 反面参照里的「灰上加灰」。只调其中一个数会连带动到文档区。
+ *
+ * 所以应用区改用自己的一套，**值与桌面 `src/index.css` 逐字相同**（同一条纪律：写成同样的
+ * oklch 表达式而不是它的 hex 转换结果，好让两份文件能直接肉眼比对）。
+ *
+ * ## 文档区仍然零影响，依据变了但更强
+ *
+ * 旧依据是「只新增别名，不改写 --color-fd-*」。现在的依据是**两套 token 名互不相交**：
+ * 文档区读 `--color-fd-*`（本文件一个字都没动），应用区读这里的无前缀名，而文档区的
+ * 组件从不使用无前缀 utility（`bg-background` / `text-muted-foreground` 这类在
+ * `app/`、`components/`、`content/` 下除 `app/app` 与 `components/ui` 外零命中）。
+ * fumadocs 自身也不定义任何无前缀 token 名，不存在被顶掉的风险。
+ */
+:root {
+  /* 中性色阶：与桌面 src/index.css 的 :root 同源 */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  /* 焦点环走品牌色（= --brand-solid），不是中性灰。桌面同此。 */
+  --ring: oklch(0.583 0.105 177.1);
+  --radius: 0.625rem;
+
+  /*
+   * 应用外壳底色。**这一层现在托着 WebGL 环境背景**（`_components/ambient-canvas.tsx`），
+   * 所以它的取值不再只是「比纯白凉一丝」——它是极光的画布。
+   *
+   * 亮色**只把色度从 0.001 抬到 0.005、色相从 210 移到 195**（品牌青绿 178 与极光青
+   * ~207 的中点），亮度 0.99 原样不动。
+   *
+   * 曾经试过压到 0.985 让面板浮得更明显，**回退了**：`--muted-foreground`（0.556）
+   * 直接落在这层壳上（页头描述），裸壳实测 `lab(48.5)` / `lab(98.3)` = **4.54:1**，
+   * 只比 AA 高 0.9%——任何后续微调都会无声破线，而这里没有任何测试拦得住。
+   *
+   * ⚠️ **裸壳那个数不是全部。** 极光是加色层，它叠在壳上、也透过 58% 白的玻璃透进**卡面**，
+   * 而 muted 文字的绝大多数落点是卡面不是壳。要量就得量**合成之后的真实像素**：
+   *
+   *   1. 亮色打开设置页，`agent-browser screenshot` 连拍数帧（极光在动，单帧不算数）
+   *   2. 逐像素采「卡片内边距带」等确定无内容的区域，对 `#737373` 算 WCAG 对比度
+   *
+   * 2026-08-05 实测（6 帧 / 18 秒 / 四张卡）：极光 0.48 时最差 **4.518:1**（0.4% 余量，
+   * 太薄），压到 0.34 后 **4.566:1**；页头行 4.58:1。改这两个数中的任何一个都要重跑这条。
+   *
+   * 换来的层次本来也不是壳给的：亮色下让面板读得出来的是**极光有色度**——玻璃面板把
+   * 身后的极光洗淡去饱和，周围的壳仍是满强度，差的是色彩不是明度。这正是 DESIGN.md
+   * 那句「what carries elevation is direction + hairline + shadow」。
+   */
+  --app-shell-background: oklch(0.99 0.005 195);
+
+  /*
+   * 极光层的整体不透明度。亮暗两套差得远是必然的：同一段着色器输出的是**加色**的光，
+   * 打在近黑上是发光、打在近白上是脏渍。亮色压到 0.34 让它退成一层有色的洗染，
+   * 只负责给玻璃「可揉的东西」，不负责被看见。
+   *
+   * **0.34 这个数是对比度定的，不是审美定的。** 极光是加色层，它叠在壳上、也透过 58%
+   * 白的玻璃卡透进卡面——而 `--muted-foreground` 的绝大多数落点正是卡面。
+   * 0.48 时实测（截图逐像素采样，18 秒跨 6 帧）四张卡的最差背景是 `rgb(247,250,250)`，
+   * 对比度 **4.518:1**——只比 AA 高 0.4%，等于没有余量。见下方 `--app-shell-background`
+   * 的注释：那里当初量的是**裸壳**，漏了这一层合成。
+   *
+   * **2026-08-06 复测确认了这条，并否掉了「亮色也柔化遮罩」**（暗色那侧已经柔化，见 `.dark`）。
+   * 众数采样、跨 3 帧取最差，量的是 `--muted-foreground` 段落自己的背景：
+   *
+   * | 亮色配置 | 跨帧最差 | |
+   * |---|---|---|
+   * | 0.34 + 硬遮罩（现状） | **4.645** | 余量 3.2% |
+   * | 0.24 + 柔遮罩 | 4.518 | 余量 0.4%，等于没有 |
+   * | 0.28 + 柔遮罩 | 4.443 | 不达标 |
+   * | 0.34 + 柔遮罩 | 4.413 | 不达标 |
+   *
+   * 也就是说**柔化遮罩在亮色下换不来任何空间**：想保住中心的光就得把总量压到 0.24，
+   * 而那时余量已经归零。所以亮暗两侧的遮罩是分开的，那不是审美分叉——
+   * 加色光叠白底本来就没有空间，叠黑底才是发光。
+   *
+   * ⚠️ 单帧采样会骗人：0.34 + 柔遮罩在某一帧上量到 4.566（看着是过的），跨帧最差是 4.413。
+   * 极光在流动，**这类测量必须跨帧取最差**。
+   */
+  --ambient-aurora-opacity: 0.34;
+
+  /*
+   * 极光的遮罩。亮色这档把画面中心整个让出来（`transparent 8%`），理由见上方那张表：
+   * 中心是卡片所在，也就是 `--muted-foreground` 的落点，亮色下那里一点加色光都摊不起。
+   */
+  --ambient-aurora-mask: radial-gradient(
+    118% 88% at 50% 42%,
+    transparent 8%,
+    rgb(0 0 0 / 0.32) 52%,
+    #000 100%
+  );
+
+  /*
+   * 侧栏玻璃。侧栏是**结构容器**（DESIGN.md 的 Flat-Control, Glass-Chrome Rule），
+   * 有了极光之后它必须透——不透就是在氛围层上盖了一条 224px 宽的不透明色块，
+   * 整个左边缘的光被切掉。值与 `--glass-panel-bg` 同族但更实一档：它承载导航，
+   * 是常驻的定位物，不该跟着背景一起流动。
+   */
+  --glass-rail-bg: rgb(255 255 255 / 0.66);
+
+  /*
+   * 侧栏是**第二中性层**（product register：sidebar / toolbar / panel 应当与内容面不同层）。
+   * 此前是 `bg-fd-card/40` 压在文档皮肤的灰底上 ≈ #F3F3F3，与内容区几乎无差别。
+   *
+   * 桌面 `src/index.css` 也有一组同名 token，但**那个壳里根本没有侧栏**（刻意的
+   * breadcrumb-only，见 DESIGN.md），所以那份值从未被真正看过。这里的亮色值按实际使用
+   * 调过一档（0.975 而非 0.985），让它在 0.99 的壳色上分得出来；暗色与桌面一致。
+   */
+  --sidebar: oklch(0.975 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+
+  /*
+   * 状态色的双 token：**填充/圆点用本色，当文字一律用 ink 变体**。
+   *
+   * 状态色本身当小字都过不了 AA——实测白底上 success 3.30:1、warning 只有 2.13:1。
+   * ink 变体是移动端先做出来的（`mobile/src/global.css` 的「State Ink Rule」），
+   * 桌面与 Web 此前都没跟，于是三端同一句「在线」「已拒绝」的可读性各不相同。
+   * 这几个值就是移动端那组 HSL 的 oklch 写法，在本区底色上实测 4.88–6.25:1。
+   */
+  --success: oklch(0.627 0.17 149.2);
+  --success-ink: oklch(0.527 0.137 150.1);
+  --warning: oklch(0.77 0.165 70.6);
+  --warning-ink: oklch(0.554 0.145 49.2);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-ink: oklch(0.508 0.192 27.6);
+  --destructive-foreground: oklch(0.985 0.002 260);
+
+  /*
+   * 玻璃拟态（DESIGN.md 的 signature layer）。**只给结构容器**——面板、外壳、包着图标的
+   * 控件片；按钮和输入框一律扁平（Flat-Control, Glass-Chrome Rule）。
+   * 值与桌面 src/index.css 同源。
+   */
+  --glass-panel-bg: rgb(255 255 255 / 0.58);
+  --glass-card-bg: rgb(255 255 255 / 0.58);
+  --glass-control-bg: rgb(255 255 255 / 0.64);
+  --glass-accent-bg: linear-gradient(
+    135deg,
+    rgb(240 251 247 / 0.72),
+    rgb(255 255 255 / 0.56)
+  );
+  --glass-card-border: rgb(255 255 255 / 0.34);
+  --glass-control-border: rgb(15 23 42 / 0.055);
+  --glass-accent-border: rgb(15 143 122 / 0.16);
+  --glass-highlight: rgb(255 255 255 / 0.84);
+  --glass-shadow: 0 18px 56px rgb(15 23 42 / 0.07);
+  --glass-card-shadow: 0 12px 32px rgb(15 23 42 / 0.045);
+
+  /* 细滚动条的颜色。与桌面 src/index.css 逐字相同——同一条纪律，两份文件能肉眼比对。 */
+  --scrollbar-thumb: rgb(15 23 42 / 0.22);
+  --scrollbar-thumb-hover: rgb(15 23 42 / 0.34);
+}
+
+.dark {
+  /*
+   * 暗色是**冷藏蓝**（hue 260），不是纯中性黑。DESIGN.md 写明这是刻意的
+   * （"The cool navy-tinted dark neutrals deliberately stay"）——深藏蓝 + 青绿让产品
+   * 读起来像安全工具。跟 fumadocs 时这里是 #121212 纯中性，三端暗色于是有三个色相。
+   */
+  --background: oklch(0.18 0.01 260);
+  --foreground: oklch(0.965 0.002 260);
+  --card: oklch(0.27 0.008 260);
+  --card-foreground: oklch(0.965 0.002 260);
+  --popover: oklch(0.25 0.008 260);
+  --popover-foreground: oklch(0.965 0.002 260);
+  --secondary: oklch(0.32 0.009 260);
+  --secondary-foreground: oklch(0.955 0.002 260);
+  --muted: oklch(0.32 0.009 260);
+  --muted-foreground: oklch(0.79 0.007 260);
+  --accent: oklch(0.34 0.01 260);
+  --accent-foreground: oklch(0.955 0.002 260);
+  --border: oklch(0.39 0.01 260);
+  --input: oklch(0.39 0.01 260);
+  --ring: oklch(0.641 0.115 177.6);
+
+  --app-shell-background: oklch(0.145 0.012 260);
+  --sidebar: oklch(0.22 0.008 260);
+  --sidebar-border: oklch(0.39 0.01 260);
+
+  /*
+   * 暗色是极光的主场，**用满强度 1，与桌面一致**（2026-08-06 起）。
+   *
+   * 此前是 0.7，理由写着「1240px 限宽 + 32px 区块间距会让光带从缝隙里原样透出来，
+   * 满强度会烧成一条横贯全屏的亮带」。那个顾虑是真的，**但压不透明度是拿错了工具**：
+   * 它同时压掉了卡片背后的光，而那正是玻璃唯一的原料。结果是
+   * `ambient-canvas.tsx` 文件头说「有了这一层，玻璃才重新开始工作」，
+   * 而实际观感仍是「一块不透明的深灰砖」——两处自相矛盾了好几个月。
+   *
+   * 「光带横穿画面」交给下面那条**遮罩**去解，它按位置压、不按总量压：中心留 45%，
+   * 卡片背后因此有光可透，而缝隙里的光带不再是原样满强度。
+   *
+   * 对比度实测（众数采样、跨帧取最差，同亮色那套方法）：满强度 + 柔遮罩下
+   * `--muted-foreground` 的最差落点是 **5.767:1**，AA 余量 28%。暗色这侧空间很大——
+   * 深底上加一点光，前景（浅色字）与背景的距离反而是先拉开再收窄的。
+   */
+  --ambient-aurora-opacity: 1;
+
+  /*
+   * 暗色遮罩：中心留 45% 而不是亮色那档的全挖空。**这是玻璃质感的唯一来源**——
+   * `backdrop-filter: blur()` 作用在一块纯色上产出的还是那块纯色，中心挖空
+   * 就等于把卡片背后的东西全部拿走，玻璃只剩合成层开销。
+   */
+  --ambient-aurora-mask: radial-gradient(
+    118% 88% at 50% 42%,
+    rgb(0 0 0 / 0.45) 8%,
+    rgb(0 0 0 / 0.66) 52%,
+    #000 100%
+  );
+  --glass-rail-bg: oklch(0.26 0.01 260 / 0.58);
+
+  /* 暗色下状态色本身就够亮（7–11:1），ink 变体的差别只剩色相微调；两者都留是为了让
+     「填充用本色、文字用 ink」这条规矩在明暗两侧写法一致，调用点不必分支。 */
+  --success: oklch(0.723 0.192 149.6);
+  --success-ink: oklch(0.8 0.182 151.7);
+  --warning: oklch(0.861 0.173 92);
+  --warning-ink: oklch(0.833 0.164 83.9);
+  --destructive: oklch(0.67 0.19 25.723);
+  --destructive-ink: oklch(0.711 0.166 22.2);
+  --destructive-foreground: oklch(0.985 0.002 260);
+
+  --glass-panel-bg: oklch(0.31 0.01 260 / 0.56);
+  --glass-card-bg: oklch(0.31 0.01 260 / 0.56);
+  --glass-control-bg: oklch(0.34 0.01 260 / 0.58);
+  --glass-accent-bg: linear-gradient(
+    135deg,
+    oklch(0.34 0.055 177.6 / 0.56),
+    oklch(0.25 0.01 260 / 0.54)
+  );
+  --glass-card-border: oklch(1 0 0 / 0.1);
+  --glass-control-border: oklch(1 0 0 / 0.12);
+  --glass-accent-border: oklch(0.641 0.115 177.6 / 0.18);
+  --glass-highlight: oklch(1 0 0 / 0.12);
+  --glass-shadow: 0 24px 84px rgb(0 0 0 / 0.28);
+  --glass-card-shadow: 0 16px 40px rgb(0 0 0 / 0.18);
+
+  --scrollbar-thumb: rgb(255 255 255 / 0.26);
+  --scrollbar-thumb-hover: rgb(255 255 255 / 0.38);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* primary 走**品牌色**：应用区的主按钮是产品身份的一部分，跟着文档站主题走会让三端
+     的主色对不上。 */
+  --color-primary: var(--brand-solid);
+  --color-primary-foreground: var(--brand-ink);
+  --color-brand: var(--brand);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  /* 状态色：`bg-success` / `text-success-ink` 这类 utility 由此生成。
+     **文字一律用 -ink**，见上面 :root 里的说明。 */
+  --color-success: var(--success);
+  --color-success-ink: var(--success-ink);
+  --color-warning: var(--warning);
+  --color-warning-ink: var(--warning-ink);
+  --color-destructive-ink: var(--destructive-ink);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  /* 面板级圆角词汇（DESIGN.md：控件 6–14px / 面板 18–24px 是两套词汇，不是一套复用）。
+     Web 应用区此前全部塌成 rounded-lg / rounded-xl，面板与按钮的圆角一样大。 */
+  --radius-panel-sm: 18px;
+  --radius-panel: 24px;
+
+  /*
+   * ── 分组语义间距 ─────────────────────────────────────────────────────────
+   *
+   * 名字编码的是**分组意图**，不是尺寸。这不是洁癖：此前这套页面的三个关键间距
+   * 全是 16px——`PageShell` 的区块间距 `gap-4`、`SectionShell` 的面板内间距 `gap-4`、
+   * 面板内边距 `p-4`。三者相等时 Gestalt 邻近律失效，「哪些东西是一组」这件事就只能靠
+   * 画框来说，于是每一页都长成几个等大的盒子堆叠——正是它此前的样子。
+   *
+   * 硬规则：**组间距必须显著大于组内距**。这里的比例是 8 : 16 : 32 = 1 : 2 : 4。
+   * 面板内边距 20px 单独一档，取自「容器内边距由角色决定」——它比组内距大、比组间距小，
+   * 让面板边缘既不贴内容也不撑成空腔。
+   *
+   * 验收方式是 blur test：把页面模糊到字读不出来，分组关系应当仍然看得出来。
+   * 改这几个值之前先想清楚改的是哪一档的语义，不要为了「让某一页好看」单独调一个数。
+   */
+  --space-in-group: 0.5rem; /*  8px — 同一组内部：列表相邻行、标签与它的控件 */
+  --space-in-panel: 1rem; /* 16px — 面板内的分区：标题块 ↔ 内容块 */
+  --space-panel: 1.25rem; /* 20px — 面板自身的内边距（由容器角色决定，非内容决定） */
+  --space-section: 2rem; /* 32px — 页面上区块与区块之间 */
+}
+
+@layer components {
+  /* 键盘焦点环——全站统一一份，别再逐个组件抄 focus-visible:outline-* 三件套。
+     与桌面 src/index.css 的 .focus-ring 同形。 */
+  .focus-ring:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /*
+   * ── 动效与交互状态 ───────────────────────────────────────────────────────
+   *
+   * 曲线只有一条：ease-out-quart（起步快、收尾软）。不用 bounce / elastic ——
+   * 这是产品界面，用户在做事，动效是反馈不是表演。作用域限定在应用区，
+   * 不改文档站的默认曲线。
+   */
+  [data-swarmdrop-app],
+  [data-slot$="-content"] {
+    --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  /*
+   * **按压态**。六个交互状态里最常被漏掉的一个：默认 / 悬停 / 焦点 / 禁用 / 加载
+   * 这套组件都有，唯独按下去的那一刻没有任何回应——鼠标按住时界面是死的。
+   *
+   * 写在这里而不是 `components/ui/button.tsx` 的变体里，是因为那个文件与桌面同源、
+   * 文件头明写「从桌面同步时不要覆盖」。规则属于**应用区的交互基线**，不属于按钮的某个变体。
+   *
+   * `[data-slot$="-content"]` 那一支是给 portal 出去的 dialog / dropdown 里的按钮用的
+   * ——它们落在应用区锚点之外，同 base 层那条边框色规则的理由。
+   */
+  /*
+   * **给 Tailwind 的变量赋值，不要抢最终属性。**
+   *
+   * shadcn 的 Button 基类带 `transition-all`，它在 **utilities** 层输出
+   * `transition-timing-function: var(--tw-ease, …)` 与 `transition-duration: var(--tw-duration, .15s)`。
+   * 层叠层序优先于选择器权重，utilities 排在 components 之后——所以这里直接写
+   * `transition-timing-function` / `transition-duration` 会**整体落败**，按钮实际仍跑
+   * Tailwind 默认的 150ms + `cubic-bezier(.4,0,.2,1)`，而 `--ease-out-quart` 成了死变量。
+   * （2026-08-05 在构建产物里实测层偏移确认：本规则 @12734，`.transition-all` @80940。）
+   *
+   * 改成喂 `--tw-*` 之后不用挪层、不用 `!important`，将来谁加 `duration-*` 工具类也能正常覆盖。
+   */
+  [data-swarmdrop-app] [data-slot="button"],
+  [data-slot$="-content"] [data-slot="button"] {
+    --tw-ease: var(--ease-out-quart);
+    --tw-duration: 160ms;
+  }
+
+  [data-swarmdrop-app] [data-slot="button"]:not(:disabled):active,
+  [data-slot$="-content"] [data-slot="button"]:not(:disabled):active {
+    transform: scale(0.97);
+  }
+
+  /*
+   * 细滚动条。值与桌面 `src/index.css` 逐字相同，**但作用域限定在应用区**——
+   * 文档站是 fumadocs 的观感，不该被应用区的选择顺手改掉（同 base 层那条边框色规则的分寸）。
+   *
+   * 两套写法都留：Chrome 121+ / Firefox 走标准的 `scrollbar-width` + `scrollbar-color`
+   * （此时 `::-webkit-scrollbar` 会被忽略），旧 WebKit / Safari 走下面的伪元素。
+   * 伪元素那版的 `border: 3px solid transparent` + `background-clip: content-box`
+   * 是让 10px 的轨道里只有 4px 实心圆角，两侧留气——**不是**画一条 10px 的粗棒。
+   */
+  [data-swarmdrop-app] *,
+  [data-slot$="-content"] * {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+    scrollbar-width: thin;
+  }
+
+  [data-swarmdrop-app] *::-webkit-scrollbar,
+  [data-slot$="-content"] *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+    background: transparent;
+  }
+
+  [data-swarmdrop-app] *::-webkit-scrollbar-track,
+  [data-swarmdrop-app] *::-webkit-scrollbar-corner,
+  [data-slot$="-content"] *::-webkit-scrollbar-track,
+  [data-slot$="-content"] *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  [data-swarmdrop-app] *::-webkit-scrollbar-thumb,
+  [data-slot$="-content"] *::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-color: var(--scrollbar-thumb);
+    background-clip: content-box;
+  }
+
+  [data-swarmdrop-app] *::-webkit-scrollbar-thumb:hover,
+  [data-slot$="-content"] *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+
+  /*
+   * ── 应用外壳与环境层 ────────────────────────────────────────────────────
+   *
+   * 与桌面 `src/index.css` 的 `.app-shell` 同形，但**没有那条 `.app-shell > *`
+   * 通配提升**。桌面能用是因为它的直接子元素全是自己的结构件；这里的直接子元素还包括
+   * `<Toaster />`（sonner 的 `[data-sonner-toaster]` 靠 `position: fixed` 定位，
+   * 选择器权重与 `.app-shell > *` 打平，谁在后面谁赢）与几个 portal 宿主。
+   * 通配一提，toast 就从「钉在视口」变成「跟着外壳流」，而且只在有 toast 时才看得见。
+   *
+   * 所以改成**显式抬升**：`layout.tsx` 里那两个真结构件（侧栏、内容列）自己带
+   * `relative z-10`。少一条魔法，多两个可搜索的类名。
+   */
+  .app-shell {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background: var(--app-shell-background);
+  }
+
+  .app-ambient-background,
+  .app-ambient-light-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .app-ambient-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .app-ambient-aurora {
+    z-index: 0;
+    opacity: var(--ambient-aurora-opacity);
+    /*
+     * 中心压一档，光留在四周。**两档强度按主题分**，值见 `:root` / `.dark` 里的
+     * `--ambient-aurora-mask`（那里也写着为什么亮色必须挖空、暗色必须留 45%）。
+     *
+     * 遮罩本身要解的问题：着色器画的是一条水平光带（`bandHeight: 0.5` 把它钉在画面中线），
+     * 桌面窗口窄、面板铺得满，它大部分被玻璃洗掉；这里是 1240px 限宽的内容列 + 32px 的
+     * 区块间距，光带正好从缝隙里原样透出来，读起来像「屏幕中间横着一条彩带」而不是氛围，
+     * 还恰好压在活跃传输那一行上，让一条本该安静的行看起来被高亮了。
+     *
+     * 解法不是改着色器（那会与桌面分叉，且分叉在截图里看不出来），是**在合成层上遮**——
+     * 按位置压，不按总量压。后者（压 opacity）会连卡片背后的光一起拿走，而那是玻璃的原料。
+     */
+    -webkit-mask-image: var(--ambient-aurora-mask);
+    mask-image: var(--ambient-aurora-mask);
+  }
+
+  /* 侧光从右上角斜射进来，稍微放大并推出画外，避免看见 canvas 的直边。同桌面。 */
+  .app-ambient-light-overlay {
+    transform: translate3d(4%, -5%, 0) scale(1.08);
+    transform-origin: top right;
+  }
+
+  /*
+   * ⚠️ **顺序有意义：`-webkit-` 在前、标准属性在后。写反了标准属性会被构建删掉。**
+   *
+   * Lightning CSS（Tailwind v4 内置）把前缀版与标准版当作**同一个属性的两次声明**，
+   * 去重时只留**最后一条**。这两行此前是反着写的（标准在前），于是产物里只剩：
+   *
+   *   .glass-panel,…,.glass-rail { -webkit-backdrop-filter: blur(…) saturate(145%) }
+   *
+   * 而**现代 Chrome 已经不认那个前缀**（实测：手写一条前缀声明，computed `backdropFilter`
+   * 仍是 `none`，computed style 里根本没有 `webkitBackdropFilter` 这个键）。净结果是整个
+   * Web 应用区的玻璃在 Chrome 上从未生效——而同一个块里的 `background` 照常工作，所以
+   * 看起来只是「玻璃有点不透明」，一路查到构建产物才能定位。
+   *
+   * 排查时最容易走错的一步是**怀疑 token**：两端的 `--glass-*` 值逐字相同，对着比半天也
+   * 看不出问题。判据要落在 computed style 上：
+   *
+   *   getComputedStyle(document.querySelector('.glass-rail')).backdropFilter
+   *   // "none" = 规则没生效（既不是 token 不对，也不是 prefers-reduced-transparency）
+   *
+   * **归因更正（同日）**：这里一度写着「Lightning CSS 按 browserslist 裁剪前缀族，因为
+   * docs 的目标含 Chrome 64」，据此加了 `docs/.browserslistrc`。隔离实测推翻了它——
+   * 移走 browserslist 后，只要顺序是对的，两条照样都在。**browserslist 与这个缺陷无关**
+   * （Tailwind v4 本来也不读它）。那份配置留着是因为它自身合理，不是因为它修了什么。
+   *
+   * 判据（新增任何有前缀历史的属性都跑一次，dev 与 build 是两套管线，都要看）：
+   *
+   *   grep -oE '(^|[^-])backdrop-filter' out/_next/static/chunks/*.css
+   */
+  .glass-panel,
+  .glass-card,
+  .glass-control,
+  .glass-accent,
+  .glass-rail {
+    -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+    backdrop-filter: blur(var(--glass-blur, 18px)) saturate(145%);
+  }
+
+  /* 常驻导航（侧栏 / 窄屏顶栏 / 底部导航）的材质。比面板更实、更钝：
+     它是不动的定位物，不该跟着极光一起流。 */
+  .glass-rail {
+    --glass-blur: 24px;
+    background: var(--glass-rail-bg);
+  }
+
+  .glass-panel {
+    --glass-blur: 20px;
+    background: var(--glass-panel-bg);
+    box-shadow:
+      var(--glass-shadow),
+      inset 0 1px 0 var(--glass-highlight);
+  }
+
+  .glass-card {
+    --glass-blur: 16px;
+    border: 1px solid var(--glass-card-border);
+    background: var(--glass-card-bg);
+    box-shadow:
+      var(--glass-card-shadow),
+      inset 0 1px 0 var(--glass-highlight);
+  }
+
+  .glass-control {
+    --glass-blur: 12px;
+    border: 1px solid var(--glass-control-border);
+    background: var(--glass-control-bg);
+    box-shadow: inset 0 1px 0 var(--glass-highlight);
+  }
+
+  .glass-accent {
+    --glass-blur: 18px;
+    border: 1px solid var(--glass-accent-border);
+    background: var(--glass-accent-bg);
+    box-shadow:
+      var(--glass-card-shadow),
+      inset 0 1px 0 var(--glass-highlight);
+  }
+
+  /* 降级路径与新玻璃面同批交付，是 DESIGN.md 的硬要求（Reduced-Transparency Fallback），
+     不是后续补丁。 */
+  @media (prefers-reduced-transparency: reduce) {
+    /*
+     * ⚠️ 同上：`-webkit-` 在前、标准在后，写反了标准那条会被去重删掉。
+     *
+     * 降级这一侧中过同一枪，而且更没人会发现：产物里只剩 `-webkit-backdrop-filter: none`
+     * 时，现代 Chrome 上这个降级**根本关不掉玻璃**——用户开了「减少透明度」，模糊还在。
+     * 无障碍偏好这样失灵是不会有人来报的。
+     */
+    .glass-panel,
+    .glass-card,
+    .glass-control,
+    .glass-accent {
+      background: var(--card);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
+    /* 导航退回实心的第二中性层，不是 `--card`——它是 chrome，不是内容面。 */
+    .glass-rail {
+      background: var(--sidebar);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
+    /*
+     * 环境层整层撤掉。`prefers-reduced-transparency` 说的是「别让我隔着东西看东西」，
+     * 而这一层的全部作用就是「被隔着看」——玻璃降级成实心之后它照不出来，
+     * 留着只剩 GPU 开销。这与 `prefers-reduced-motion` 的处理**刻意不同**：
+     * 那边冻结首帧（纹理留下、动的去掉），这边整层去掉。两个偏好问的不是同一件事。
+     *
+     * 这条只是兜底：真正的省电在 JS 侧——`ambient-canvas.tsx` 用同一条 media query
+     * 门掉**挂载本身**，否则 `display:none` 之下两个 WebGL context 照样创建并一直占着
+     * 浏览器的 context 配额（RAF 倒是会被 IntersectionObserver 停掉）。
+     *
+     * ⚠️ **Firefox 至今没实现 `prefers-reduced-transparency`**，所以这整段降级对 FF 用户
+     * 从不触发。别把它当保底逃生口——玻璃在低对比场景下的可读性要靠 token 本身撑住。
+     */
+    .app-ambient-background,
+    .app-ambient-light-overlay {
+      display: none;
+    }
+
+    /* `.glass-panel` 是四个里**唯一没有 border** 的：它靠 blur + 半透明背景与页面分开。
+       降级把这两样都拿掉之后，它就成了一块与页面同色、无边、无阴影的矩形——面板边界
+       整个消失。另外三个自带 border，不受影响。 */
+    .glass-panel {
+      border: 1px solid var(--border);
+    }
+  }
+}
+
+@layer base {
+  /*
+   * shadcn 的组件写的是裸 `border` / `outline`，默认颜色由这条 base 规则给出。
+   *
+   * **作用域限定在应用区**（`[data-swarmdrop-app]`，挂在 app/app/layout.tsx 的根节点）。
+   * 桌面端那份是全局 `*`，因为整个 app 都归它管；这里不行——全局套用会把文档区每个元素的
+   * 默认边框色一起换掉。
+   *
+   * 后半段那几个 `[data-slot$="-content"]` 是必需的：Radix 把 dialog / dropdown /
+   * popover / sheet / tooltip 的内容 **portal 到 `document.body`**，落在应用区锚点之外，
+   * 于是拿到的是 fumadocs 在 `css/lib/base.css` 里设的全局默认边框色。亮色下两者接近看不出，
+   * **暗色下差得很明显**（这边 oklch(0.39 0.01 260) ≈ #42454b，那边 ≈ #2a2a2a）。
+   */
+  [data-swarmdrop-app],
+  [data-swarmdrop-app] *,
+  [data-slot$="-content"],
+  [data-slot$="-content"] * {
+    @apply border-border outline-ring/50;
+  }
+}
+
+/*
+ * 减弱动效的兜底。**只兜底，不代替各组件自己的降级**——环境层那条（冻结首帧 vs 整层撤掉）
+ * 就必须自己写，因为它要的是「纹理留下、动的去掉」，不是「快进到结束」。
+ *
+ * 加载指示器（`animate-spin` / `animate-pulse`）**刻意豁免**：转圈与脉冲传达的是
+ * 「还在做事」，那是状态不是装饰，压掉等于把信息删了。这条偏好防的是前庭不适，
+ * 一个 16px 的转圈不在此列。
+ *
+ * 用 0.01ms 而不是 `animation: none`：Radix 的进出场靠 animationend 收尾，`none` 会让
+ * dialog 关不掉、DOM 永远留在页面上。
+ */
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * 选择器**必须包含元素自身**，不能只写后代（`X *`）。Radix 的
+   * `[data-slot="dialog-content"]` / `-overlay` / `dropdown-menu-content` 各自带着
+   * `data-[state=open]:animate-in`，而它们 portal 到 `body`：既不在应用区锚点内，
+   * 也不是任何 `-content` 的后代——恰恰是这段注释要兜的那批进出场动画，一条都没兜到。
+   */
+  [data-swarmdrop-app],
+  [data-swarmdrop-app] *,
+  [data-slot$="-content"],
+  [data-slot$="-content"] *,
+  [data-slot$="-overlay"] {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  [data-swarmdrop-app]:not(.animate-spin):not(.animate-pulse),
+  [data-swarmdrop-app] *:not(.animate-spin):not(.animate-pulse),
+  [data-slot$="-content"]:not(.animate-spin):not(.animate-pulse),
+  [data-slot$="-content"] *:not(.animate-spin):not(.animate-pulse),
+  [data-slot$="-overlay"] {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+  }
+}
+
 html {
   scrollbar-gutter: stable;
+}
+
+/*
+ * 应用区把那条槽收掉。
+ *
+ * `scrollbar-gutter: stable` 是给**文档站**的：长短不一的文档页之间跳转时不左右抖。
+ * 但应用外壳是 `h-dvh overflow-hidden`，文档永远不溢出（实测 `scrollHeight ===
+ * clientHeight === 900`），于是这条槽从头到尾是空的——`documentElement` 宽 1440、
+ * `body` 只有 1425，右边那 15px 里 Chrome 还画着一条永远滚不动的轨道。看起来就是
+ * 「滚动条没贴边、还悬空着」。
+ *
+ * 真正的滚动发生在 `PageShell` 内部那个 `overflow-y-auto` 里，它的滚动条贴着内容区右缘，
+ * 本来就是对的位置。
+ *
+ * `:has()` 而不是给 `<html>` 加类：应用区是路由级的，加类要在客户端 effect 里做，
+ * 那会在首帧闪一下 15px。
+ */
+html:has([data-swarmdrop-app]) {
+  scrollbar-gutter: auto;
 }
 
 html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
+}
+
+/*
+ * ── 首页的次级文字色 ───────────────────────────────────────────────────
+ *
+ * fumadocs 的 `--color-fd-muted-foreground` 亮色是 `#737373`，落在页面底色 `#f5f5f5` 上
+ * 实测 **4.35:1**——低于 WCAG AA 的 4.5，而 PRODUCT.md 把 AA 写成了本项目的标准。
+ * 暗色那侧不受影响（`#b3b3b3cc` on `#121212` = 8.93:1），所以这条**只在亮色生效**。
+ *
+ * 首页比文档页更吃这条：区块导语、图注、等宽地址全是次级文字，是这一页的主要正文。
+ *
+ * `#6a6a6a` 是量出来的下限再留一点余量：
+ *   on #f5f5f5（页面底）4.75 · on #f1f1f1（`bg-fd-card` 面板）4.64
+ *
+ * **覆盖变量而不是逐个换 class**：`text-fd-muted-foreground` 编译成
+ * `color: var(--color-fd-muted-foreground)`（可在构建产物里 grep 到），所以在页面根上
+ * 换一次变量，整页所有用到它的地方一起跟上，将来新增的段落也自动落在合规值上。
+ *
+ * **整站生效**（2026-08-06 从只覆盖首页扩到根）。fumadocs 的默认值在文档区同样是
+ * 4.35，那不是首页的局部问题而是全站的无障碍缺陷；两处用不同的灰还会让首页与文档
+ * 之间出现说不出理由的色差。扩大后逐元素复核过亮色文档页，最低 4.6+（见
+ * `dev-notes/knowledge/theme-and-styling.md`）。
+ */
+html:not(.dark) {
+  --color-fd-muted-foreground: #6a6a6a;
 }
 
 /* ── 首页动效：纯 CSS，尊重 prefers-reduced-motion ──────────────────── */
@@ -57,22 +789,15 @@ html > body[data-scroll-locked] {
       animation-range: entry 0% cover 28%;
     }
   }
-
-  /* 蜂群节点呼吸 + 传输脉冲 */
-  .node-pulse {
-    animation: pulse 3.2s ease-in-out infinite;
-    animation-delay: var(--d, 0s);
-  }
-  .packet {
-    animation: travel 3.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-    animation-delay: var(--d, 0s);
-  }
-  .link-flow {
-    stroke-dasharray: 4 8;
-    animation: flow 1.4s linear infinite;
-  }
 }
 
+/*
+ * 首页只剩这一条关键帧。
+ *
+ * 此前还有 `pulse` / `travel` / `flow` 三条，服务于 hero 里那张手绘六边形蜂群图
+ * （`components/swarm-visual.tsx`）。2026-08 重写首页时那张插画整个删掉了——
+ * 一个文件传输工具的首页应当展示自己真实的界面，而不是一张示意图。
+ */
 @keyframes rise {
   from {
     opacity: 0;
@@ -84,37 +809,3 @@ html > body[data-scroll-locked] {
   }
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scale(0.94);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes travel {
-  0% {
-    offset-distance: 0%;
-    opacity: 0;
-  }
-  12% {
-    opacity: 1;
-  }
-  88% {
-    opacity: 1;
-  }
-  100% {
-    offset-distance: 100%;
-    opacity: 0;
-  }
-}
-
-@keyframes flow {
-  to {
-    stroke-dashoffset: -12;
-  }
-}

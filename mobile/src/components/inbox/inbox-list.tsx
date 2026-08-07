@@ -1,4 +1,4 @@
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import {
   Archive,
   Bot,
@@ -21,6 +21,8 @@ import { FilterChip, FilterChipRail } from "@/components/filter-chip";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { inboxItemTitle } from "@/lib/inbox-title";
+import { cn } from "@/lib/utils";
 import type { InboxPreviewItem } from "@/stores/inbox-store";
 
 export type InboxFilter =
@@ -198,6 +200,7 @@ function InboxRowComponent({
   /** 命中关键词:非空时在标题/来源里高亮匹配子串(大小写不敏感)。 */
   highlight?: string;
 }) {
+  const { t } = useLingui();
   const colors = useThemeColors();
   const Icon = contentIcon(item);
   return (
@@ -212,10 +215,28 @@ function InboxRowComponent({
       </View>
       <View className="min-w-0 flex-1 gap-1">
         <View className="flex-row items-center gap-2">
+          {/*
+            未读点。`lastOpenedAt` 由 core 在打开条目时写（`mark_inbox_item_opened`），
+            移动端此前**从未读过它**——「哪些是我还没看过的」在手机上完全不可见，而
+            桌面与 Web 都做了。收件箱的价值有一半来自「有没有新东西」，这个点回答的
+            正是那个问题。三端同一套表达：色点 + 标题加重。
+
+            字重是第二通道：色点对色盲用户不成立（同「状态点**与**文案同时在场」那条契约）。
+          */}
+          {item.lastOpenedAt == null && (
+            <View
+              accessibilityRole="image"
+              accessibilityLabel={t`未读`}
+              className="size-1.5 shrink-0 rounded-full bg-primary"
+            />
+          )}
           <HighlightedText
-            text={item.title}
+            text={inboxItemTitle(item.title, item.itemCount)}
             query={highlight}
-            className="min-w-0 flex-1 text-[14px] font-semibold text-foreground"
+            className={cn(
+              "min-w-0 flex-1 text-[14px] text-foreground",
+              item.lastOpenedAt == null ? "font-bold" : "font-semibold",
+            )}
             numberOfLines={1}
           />
           <InboxStatusBadges item={item} />
@@ -369,12 +390,28 @@ function isTextLike(item: InboxPreviewItem): boolean {
   );
 }
 
+/**
+ * `isImageFile` / `isVideoFile` 是**文件级**谓词，而这两个函数的产物是**条目级**断言
+ * ——它同时喂给图标、「图片」标签与筛选器。多文件条目里首文件只是第一个，不代表其余：
+ * 一个「封面.jpg + 50 个 zip」的条目按首文件判会被归成图片，进「图片」筛选。
+ * 故只对单文件条目判，其余一律走通用形态。
+ *
+ * 桌面 `ItemIcon`（`src/routes/_app/inbox/index.lazy.tsx`）表达的是同一条规矩的另一半
+ * ——它写 `count > 1` 就出归档图标。两边对 `itemCount === 0` 的处理不同（桌面仍去判空串的
+ * 扩展名、拿到通用文件图标，这里直接落到 `contentIcon` 的 `Archive`），但那一档是空传输，
+ * 两端都不会把它认成图片或视频——**这条判据要保证的正是这一点**。
+ */
 function isImageLike(item: InboxPreviewItem): boolean {
-  return isImageFile(item.title);
+  return isSingleFileItem(item) && isImageFile(item.title);
 }
 
 function isVideoLike(item: InboxPreviewItem): boolean {
-  return isVideoFile(item.title);
+  return isSingleFileItem(item) && isVideoFile(item.title);
+}
+
+/** 单文件条目：`title` 此时就是那个文件的名字，扩展名判断才成立。 */
+function isSingleFileItem(item: InboxPreviewItem): boolean {
+  return item.itemCount === 1;
 }
 
 function contentIcon(item: InboxPreviewItem) {

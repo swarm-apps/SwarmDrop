@@ -1,0 +1,429 @@
+<!doctype html>
+<!--
+  配对邀请落地页（openspec: invite-url-canonical，design D5）
+
+  ## 为什么是手写 HTML 而不是 Next 页面
+
+  这个页面是分享链接的第一跳，而站点经 GitHub Pages 在国内的可达性不确定（域名未备案，
+  境内 CDN 也就用不上）。它必须在慢网络下秒开。
+
+  Next 的 client component 光 React + framework runtime 的 baseline 就 ~150KB gzip，
+  而这个页面要做的只有「读 hash → 给两个出口」。放在 public/ 下手写，零 JS 框架、零往返，
+  静态导出会原样复制到 out/p/index.html —— 路径与 canonical 邀请链接的 `/p/` 段天然一致。
+
+  ## 刻意不做的两件事
+
+  - **不 decode 不验签**：那需要为 crates/invite 单独编一个薄 wasm 包（Rust wasm 最小也
+    几十 KB），直接违背上面的体积理由。身份确认卡（设备名/平台/短指纹）在 App 侧与
+    web app 区本来就有，安全闸一点没少。代价是这里只能说「有人邀请你」，说不出是谁。
+  - **不探测 App 是否安装**：跳 scheme 后用定时器测失焦的那套 hack 各浏览器行为不一，
+    没装 App 时还会留个报错页。并列出口诚实、零误判。
+
+  ## capability 不出这个页面
+
+  payload 在 URL fragment 里，浏览器不会把它发给服务器。本页也**不把它渲染进 DOM**
+  （只用于拼跳转地址与复制），所以既不进日志，也没有 XSS 面。
+
+  ## 多语言 · 体积
+
+  源 locale（zh）的原文写在 HTML 里、`data-i18n` 标出可替换的节点，字典只带 en / zh-TW。
+  这么做是为了**无 JS 也能读**（`#bad` 默认可见是同一条约束的另一半），**不是为了省字节**
+  ——补一份完整 zh 字典实测只多 99B gzip，deflate 会把它匹配到正文里同样的中文串上。
+
+  体积上限 10KB gzip，**本文件的注释也算在内**（public/ 下原样下发，不经任何处理），
+  所以论证放知识库、这里只留结论。`pnpm check:landing` 把关，它同时核对字典完整性。
+  完整论证见 `dev-notes/knowledge/web-app-frontend.md`。
+-->
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="title">配对邀请 · SwarmDrop</title>
+    <meta name="robots" content="noindex" />
+    <style>
+      :root {
+        --bg: #fbfbfa;
+        --card: #ffffff;
+        --fg: #1a1a19;
+        --muted: #6b6b68;
+        --border: #e5e5e3;
+        --accent: #16794f;
+        --accent-fg: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111110;
+          --card: #1a1a19;
+          --fg: #f2f2f0;
+          --muted: #9a9a96;
+          --border: #2a2a28;
+          --accent: #3ecf8e;
+          --accent-fg: #06251a;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+          "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      /* 繁体要另一套字形：Windows 上会一路落到 Microsoft YaHei，字照样显示、字形却是大陆
+         规范。依赖脚本把 <html lang> 改对，是 lang 属性的第二个消费者。 */
+      html:lang(zh-TW) body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+          "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+      }
+      main {
+        width: 100%;
+        max-width: 380px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 28px 24px;
+      }
+      .mark {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--accent-fg);
+        font-weight: 700;
+        font-size: 18px;
+        margin-bottom: 18px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 20px;
+        line-height: 1.35;
+      }
+      p {
+        margin: 0 0 20px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      a.primary,
+      button.secondary {
+        display: block;
+        width: 100%;
+        padding: 11px 16px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 500;
+        text-align: center;
+        text-decoration: none;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      a.primary {
+        background: var(--accent);
+        color: var(--accent-fg);
+        border: 1px solid transparent;
+        margin-bottom: 10px;
+      }
+      button.secondary {
+        background: transparent;
+        color: var(--fg);
+        border: 1px solid var(--border);
+      }
+      button.secondary:hover {
+        background: var(--bg);
+      }
+      .hint {
+        margin: 16px 0 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .links {
+        margin: 20px 0 0;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+        font-size: 13px;
+      }
+      .links a {
+        color: var(--muted);
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">S</div>
+
+      <!-- 有 payload：给出口。默认 hidden，脚本命中后显示 -->
+      <div id="ok" hidden>
+        <h1 data-i18n="ok-title">有人邀请你配对</h1>
+        <p data-i18n="ok-body">
+          配对一次即建立长期信任，之后互相传文件不需要再确认。下一步会显示对方的设备名与
+          身份指纹，由你确认。
+        </p>
+        <!-- 两条约束：
+             1. **相对路径**（`../`）而不是 `/app/devices/`。本页是 public/ 下的纯 HTML，
+                不经 Next 处理，所以拿不到 basePath 自动前缀 —— 站点部署在 `/SwarmDrop`
+                子路径下时，根路径写法会 404。相对路径在「子路径」与「将来的自定义域名根」
+                两种部署下都对，且不依赖 JS。
+             2. **尾斜杠是必需的**：站点 trailingSlash: true，产物在 app/devices/index.html。
+                少了它要吃一次 301，而兜底路径的 payload 挂在 fragment 上 —— 正是
+                invite-url-canonical design D4 警告「跳转中容易丢 fragment」的场景。 -->
+        <a class="primary" id="go-web" data-i18n="go-web" href="../app/devices/"
+          >在浏览器中配对</a
+        >
+        <!-- 深链出口。**默认 hidden**，只有脚本确认本平台注册了 swarmdrop: scheme 才显示 ——
+             无 JS 或 iOS（本期不做 iOS 深链）下不该出现一个点了没反应的按钮。 -->
+        <button class="secondary" id="go-app" data-i18n="go-app" type="button" hidden>
+          在 SwarmDrop App 中打开
+        </button>
+        <button class="secondary" id="copy" data-i18n="copy" type="button">
+          复制邀请链接
+        </button>
+        <p class="hint" id="app-hint" data-i18n="app-hint">
+          已装 App？复制链接后打开它，会自动识别剪贴板里的邀请。iPhone 上请进
+          「添加设备 → 粘贴」。
+        </p>
+        <p class="hint" id="copy-status" role="status" aria-live="polite"></p>
+      </div>
+
+      <!-- 无 payload：链接不完整。**默认可见**（渐进增强反过来）——JS 被禁时页面至少还有
+           一段能读的文字与出口，而不是只剩一个色块。脚本命中 payload 后才把它藏起来。 -->
+      <div id="bad">
+        <h1 data-i18n="bad-title">这个链接不完整</h1>
+        <p data-i18n="bad-body">
+          邀请内容没跟着链接一起过来 —— 多半是转发时被截断了。请让对方重新发一次完整链接，
+          或改用二维码。
+        </p>
+        <a class="primary" data-i18n="bad-cta" href="../">了解 SwarmDrop</a>
+      </div>
+
+      <div class="links">
+        <a href="../docs/" data-i18n="docs">使用文档</a> ·
+        <a href="../" data-i18n="download">下载 SwarmDrop</a>
+      </div>
+    </main>
+
+    <script>
+      (function () {
+        // ---- 多语言（见文件头）--------------------------------------------
+        // 「使用文档 / 已复制 / 添加设备 / 设备名」等术语与应用区 catalog
+        // （`docs/app/app/_locales/`）共用，改动要两边一起核对。
+        var STRINGS = {
+          en: {
+            title: "Pairing invite · SwarmDrop",
+            "ok-title": "Someone invited you to pair",
+            "ok-body":
+              "Pairing once establishes lasting trust — after that, sending files either way needs no further confirmation. The next step shows their device name and identity fingerprint for you to confirm.",
+            "go-web": "Pair in this browser",
+            "go-app": "Open in the SwarmDrop app",
+            copy: "Copy invite link",
+            "app-hint":
+              "Already have the app? Copy the link and open it — the invite is picked up from your clipboard automatically. On iPhone, go to Add device → Paste.",
+            "bad-title": "This link is incomplete",
+            "bad-body":
+              "The invite itself didn't come through with the link — most likely it was truncated when forwarded. Ask the sender to send the full link again, or use a QR code instead.",
+            "bad-cta": "About SwarmDrop",
+            docs: "Documentation",
+            download: "Download SwarmDrop",
+            copied: "Copied",
+            "copy-failed": "Copy failed — please copy the address bar manually",
+            "copy-unsupported":
+              "This browser can't copy for you — please copy the address bar manually",
+            "no-response":
+              "Nothing happened? The app may not be installed — you can pair in this browser instead.",
+          },
+          "zh-TW": {
+            title: "配對邀請 · SwarmDrop",
+            "ok-title": "有人邀請你配對",
+            "ok-body":
+              "配對一次即建立長期信任，之後互相傳檔案不需要再確認。下一步會顯示對方的裝置名稱與身分指紋，由你確認。",
+            "go-web": "在瀏覽器中配對",
+            "go-app": "在 SwarmDrop App 中開啟",
+            copy: "複製邀請連結",
+            "app-hint":
+              "已安裝 App？複製連結後開啟它，會自動識別剪貼簿裡的邀請。iPhone 上請進「新增裝置 → 貼上」。",
+            "bad-title": "這個連結不完整",
+            "bad-body":
+              "邀請內容沒跟著連結一起過來 —— 多半是轉發時被截斷了。請對方重新傳一次完整連結，或改用 QR 碼。",
+            "bad-cta": "了解 SwarmDrop",
+            docs: "使用說明",
+            download: "下載 SwarmDrop",
+            copied: "已複製",
+            "copy-failed": "複製失敗，請長按網址列手動複製",
+            "copy-unsupported": "這個瀏覽器不支援一鍵複製，請長按網址列手動複製",
+            "no-response": "沒有反應？可能還沒安裝 App，可以先在瀏覽器中配對。",
+          },
+        };
+
+        // 显式选择 > 浏览器偏好 > 源 locale，与应用区 `_lib/i18n.ts` 的 `resolveLocale`
+        // 同一套规则（那边有测试钉着，改判定要两边一起改）。**唯一一处刻意的分歧**：三种
+        // 语言都不沾时这里给 en、应用区回落 zh —— 这一屏的访客是被陌生链接带来的。
+        // 显式选择读的是应用区写的那把 key（同域互通）；隐私模式下访问会抛，故包 try。
+        var lang = (function () {
+          var stored;
+          try {
+            stored = localStorage.getItem("swarmdrop:locale");
+          } catch (e) {}
+          if (stored === "zh" || stored === "en" || stored === "zh-TW") return stored;
+
+          // 外层按**用户的偏好顺序**、内层才定精度 —— 与应用区 `preferredLocale` 同构。
+          // 反过来（先跨 tag 扫一遍精确匹配）会让靠后但精确的 tag 压过靠前的：Chrome 上
+          // 中文用户的列表常是 ["zh-CN","en-US","en"]，那样会把英文界面发给他。
+          var tags = navigator.languages || [navigator.language || ""];
+          for (var j = 0; j < tags.length; j++) {
+            var tag = String(tags[j] || "").toLowerCase();
+            if (tag.indexOf("zh") === 0 || tag.indexOf("yue") === 0) {
+              // `hans` 先判：`-hk` / `-mo` 是地区不是字形，`zh-Hans-HK` 明说了简体。
+              if (tag.indexOf("hans") >= 0) return "zh";
+              // 繁体的写法有 zh-TW / zh-HK / zh-MO / zh-Hant-* 与粤语，认全 —— 漏一个就是
+              // 把一屏简体字发给香港用户，而且「匹配成功」了，不会有任何报错。
+              return /hant|-tw|-hk|-mo|^yue/.test(tag) ? "zh-TW" : "zh";
+            }
+            if (tag.indexOf("en") === 0) return "en";
+          }
+          return "en";
+        })();
+
+        // `zh` 在 STRINGS 里没有条目 —— 不做任何 DOM 改写，HTML 原文即是答案。
+        var dict = STRINGS[lang];
+        if (dict) {
+          document.documentElement.lang = lang;
+          var nodes = document.querySelectorAll("[data-i18n]");
+          for (var i = 0; i < nodes.length; i++) {
+            var text = dict[nodes[i].getAttribute("data-i18n")];
+            if (text) nodes[i].textContent = text;
+          }
+        }
+
+        /** 取脚本里动态生成的文案；源 locale 下没有字典，用调用点给的中文原文。 */
+        function t(key, zh) {
+          return (dict && dict[key]) || zh;
+        }
+
+        // ---- payload ------------------------------------------------------
+        // base32（RFC 4648，A-Z2-7），大小写均放行 —— 外部客户端可能把链接大写化。
+        // 只认这个字符集，畸形输入一律当「链接不完整」，不做任何解码尝试。
+        //
+        // **这一句必须在多语言之后**：`#bad` 那一屏同样要翻译，而这里会 return。
+        var payload = (location.hash || "").slice(1);
+        if (!/^[A-Za-z2-7]+$/.test(payload)) return; // #bad 默认已可见
+
+        document.getElementById("bad").hidden = true;
+        document.getElementById("ok").hidden = false;
+
+        // **重建 canonical 链接，不用 location.href 原文。**
+        // 原文会带上分享渠道追加的 query（微信的 `?from=singlemessage` 是常态），也可能是
+        // `/p/index.html#…`（`pnpm dev` 下 public 只暴露成这个形式）。后端 extract_payload
+        // 找的是**连续**的受理前缀（`…/p/#`），中间夹了 query 就匹配不上 ——
+        // 症状是落地页显示成功、app 区却报「不是配对邀请链接」，很容易误判成后端问题。
+        // payload 已过字符集校验，重建比原样转发更可控。
+        //
+        // **base 从本页自身位置推导**，不能写死 `location.origin + "/p/#"`：站点当前部署在
+        // Pages 子路径 `/SwarmDrop` 下，写死根路径会拼出一个后端不受理的前缀（症状是落地页
+        // 显示正常、app 区却报「不是配对邀请链接」）。这样写在「子路径」与「将来的自定义
+        // 域名根」两种部署下都自适应 —— 两个域名都在后端的受理前缀列表里。
+        //
+        // 已验证的四种情形：`/SwarmDrop/p/`、`/SwarmDrop/p/index.html`、域名根 `/p/` 都能
+        // 拼出受理前缀；**`pnpm dev` 的 localhost 拼不出**（localhost 不在受理列表里，本地
+        // 点「在浏览器中配对」会被 app 区拒）。这是本地调试的既有限制，不是回归 —— 要在本地
+        // 走通这条路，把 localhost 前缀临时加进 `ACCEPTED_URL_PREFIXES`。
+        var base = location.pathname.replace(/\/p\/(index\.html)?$/, "");
+        var canonical = location.origin + base + "/p/#" + payload;
+
+        // 递交给 app 区走 sessionStorage，而不是把 payload 拼进下一个 URL：capability
+        // 完全不进第二个地址栏（刷新、分享、截图都带不走）。存完整链接则 app 区不必再
+        // 硬编码一份前缀。落地页与 app 区同域，storage 互通；app 区读取后立即删除。
+        //
+        // **写在点击时而不是页面加载时**：用户不点就离开的话，key 会在这个 tab 里留一整天
+        // （TTL 24h），之后进 app 区会莫名冒出一个陌生邀请预填。
+        var goWeb = document.getElementById("go-web");
+        goWeb.addEventListener("click", function () {
+          try {
+            sessionStorage.setItem("swarmdrop:pending-invite", canonical);
+          } catch (e) {
+            // 隐私模式等禁用 storage 的场景：退回把 payload 挂在 fragment 上传过去。
+            // 直接改 href 后让默认导航继续（此刻还没跳）。
+            goWeb.href = "../app/devices/#" + payload;
+          }
+        });
+
+        var status = document.getElementById("copy-status");
+
+        // ---- 深链出口 ----------------------------------------------------
+        // **单冒号形态，不能写 `swarmdrop://`。** 加了 `//` 之后 `https:` 会被当成
+        // authority（host=https + 空端口），URL 序列化丢掉那个冒号，canonical 前缀就
+        // 匹配不上了 —— 而这只在 macOS 上暴露（那条路径经已解析的 url::Url）。
+        // 契约由 `src-tauri/src/external_open.rs` 的 `tests::deep_link_contract` 钉住。
+        var deepLink = "swarmdrop:" + canonical;
+
+        // iOS / iPadOS 不注册这个 scheme（本期不做 iOS 深链），按钮保持隐藏。
+        // iPadOS 13+ 的 UA 伪装成 Macintosh，靠触摸点数补判。
+        var ua = navigator.userAgent;
+        var isIOS =
+          /iPhone|iPad|iPod/.test(ua) ||
+          (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+        if (!isIOS) {
+          var goApp = document.getElementById("go-app");
+          goApp.hidden = false;
+          goApp.addEventListener("click", function () {
+            // 未安装时点击在各浏览器上表现不一（Chrome 静默、Safari/Firefox 弹框），
+            // 都不会告诉页面结果。所以用「还在前台」当作没打开的信号：真打开了页面会
+            // 被切到后台，visibilityState 变 hidden。误判成本只是多一句提示。
+            var timer = setTimeout(function () {
+              if (document.visibilityState === "visible") {
+                status.textContent = t(
+                  "no-response",
+                  "没有反应？可能还没装 App，可以先在浏览器中配对。",
+                );
+              }
+            }, 1600);
+            document.addEventListener(
+              "visibilitychange",
+              function () {
+                clearTimeout(timer);
+              },
+              { once: true },
+            );
+            location.href = deepLink;
+          });
+        }
+
+        var copy = document.getElementById("copy");
+        copy.addEventListener("click", function () {
+          // navigator.clipboard 在非安全上下文与部分 in-app WebView 里是 undefined，
+          // 访问 .writeText 会**同步抛 TypeError** —— 不是 rejected promise，所以不能只靠
+          // then 的失败分支（否则按钮点了毫无反应）。而链接从微信/QQ 转发时第一跳恰好就
+          // 落在 in-app WebView，这是最可能的场景。
+          var done = function (text) {
+            status.textContent = text;
+            setTimeout(function () {
+              status.textContent = "";
+            }, 2500);
+          };
+          try {
+            navigator.clipboard.writeText(canonical).then(
+              function () {
+                done(t("copied", "已复制"));
+              },
+              function () {
+                done(t("copy-failed", "复制失败，请长按地址栏手动复制"));
+              },
+            );
+          } catch (e) {
+            done(t("copy-unsupported", "这个浏览器不支持一键复制，请长按地址栏手动复制"));
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

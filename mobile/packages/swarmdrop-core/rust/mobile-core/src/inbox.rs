@@ -3,9 +3,15 @@
 //! Inbox is the received-content ledger. It is intentionally separate from
 //! transfer activity projections so clearing Activity never removes received
 //! content records.
+//!
+//! 查询与标记一律经 `InboxStore` 端口（`MobileCore::ensure_store()` 取回的那一份），
+//! 不再直连 SeaORM 自由函数 —— 与 `history.rs` 走传输端口是同一条纪律。
+//! DTO 也随之来自 `swarmdrop_core::transfer::inbox`（领域侧），不再来自某个存储实现。
 
 use entity::{InboxContentKind, InboxSourceKind};
-use swarmdrop_storage_sql::inbox as inbox_ops;
+use swarmdrop_core::transfer::inbox::{
+    InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary, InboxSearchHit,
+};
 use uuid::Uuid;
 
 use crate::app::MobileCore;
@@ -70,10 +76,10 @@ pub struct MobileInboxItemSummary {
     pub missing: bool,
 }
 
-impl From<inbox_ops::InboxItemSummary> for MobileInboxItemSummary {
-    fn from(item: inbox_ops::InboxItemSummary) -> Self {
+impl From<InboxItemSummary> for MobileInboxItemSummary {
+    fn from(item: InboxItemSummary) -> Self {
         // 穷尽解构：上游 InboxItemSummary 新增字段时此处会编译失败（drift guard）。
-        let inbox_ops::InboxItemSummary {
+        let InboxItemSummary {
             id,
             transfer_session_id,
             source_peer_id,
@@ -124,10 +130,10 @@ pub struct MobileInboxFileEntry {
     pub missing: bool,
 }
 
-impl From<inbox_ops::InboxItemFileEntry> for MobileInboxFileEntry {
-    fn from(file: inbox_ops::InboxItemFileEntry) -> Self {
+impl From<InboxItemFileEntry> for MobileInboxFileEntry {
+    fn from(file: InboxItemFileEntry) -> Self {
         // 穷尽解构：上游 InboxItemFileEntry 新增字段时此处会编译失败（drift guard）。
-        let inbox_ops::InboxItemFileEntry {
+        let InboxItemFileEntry {
             id,
             transfer_file_id,
             relative_path,
@@ -157,10 +163,10 @@ pub struct MobileInboxItemDetail {
     pub transfer: Option<MobileTransferProjection>,
 }
 
-impl From<inbox_ops::InboxItemDetail> for MobileInboxItemDetail {
-    fn from(detail: inbox_ops::InboxItemDetail) -> Self {
+impl From<InboxItemDetail> for MobileInboxItemDetail {
+    fn from(detail: InboxItemDetail) -> Self {
         // 穷尽解构：上游 InboxItemDetail 新增字段时此处会编译失败（drift guard）。
-        let inbox_ops::InboxItemDetail {
+        let InboxItemDetail {
             item,
             files,
             transfer,
@@ -180,10 +186,10 @@ pub struct MobileInboxHitFile {
     pub relative_path: String,
 }
 
-impl From<inbox_ops::InboxHitFile> for MobileInboxHitFile {
-    fn from(file: inbox_ops::InboxHitFile) -> Self {
+impl From<InboxHitFile> for MobileInboxHitFile {
+    fn from(file: InboxHitFile) -> Self {
         // 穷尽解构（drift guard）：上游 InboxHitFile 新增字段时此处会编译失败。
-        let inbox_ops::InboxHitFile {
+        let InboxHitFile {
             name,
             relative_path,
         } = file;
@@ -204,14 +210,17 @@ pub struct MobileInboxSearchHit {
     pub root_path: Option<String>,
     pub received_at: i64,
     /// 命中所在文本的片段（core 端按子串位置切窗口生成）。
-    pub snippet: String,
+    ///
+    /// `None` = 不该渲染片段行：命中的是标题或来源名（条目行上已经显示着），或一个候选都
+    /// 没命中。判据在 core 的 `inbox_snippet`，端上不要再判一遍。
+    pub snippet: Option<String>,
     pub files: Vec<MobileInboxHitFile>,
 }
 
-impl From<inbox_ops::InboxSearchHit> for MobileInboxSearchHit {
-    fn from(hit: inbox_ops::InboxSearchHit) -> Self {
+impl From<InboxSearchHit> for MobileInboxSearchHit {
+    fn from(hit: InboxSearchHit) -> Self {
         // 穷尽解构（drift guard）：上游 InboxSearchHit 新增字段时此处会编译失败。
-        let inbox_ops::InboxSearchHit {
+        let InboxSearchHit {
             id,
             title,
             source_name,
@@ -253,8 +262,9 @@ impl MobileCore {
         &self,
         include_archived: bool,
     ) -> FfiResult<Vec<MobileInboxItemSummary>> {
-        let db = self.ensure_db().await?;
-        let items = inbox_ops::list_inbox_items(&db, include_archived)
+        let store = self.ensure_store().await?;
+        let items = store
+            .list_inbox_items(include_archived)
             .await
             .map_err(FfiError::from)?;
         Ok(items.into_iter().map(Into::into).collect())
@@ -265,8 +275,9 @@ impl MobileCore {
         item_id: String,
     ) -> FfiResult<Option<MobileInboxItemDetail>> {
         let item_uuid = parse_item_id(&item_id)?;
-        let db = self.ensure_db().await?;
-        let item = inbox_ops::get_inbox_item_detail(&db, item_uuid)
+        let store = self.ensure_store().await?;
+        let item = store
+            .get_inbox_item_detail(item_uuid)
             .await
             .map_err(FfiError::from)?;
         Ok(item.map(Into::into))
@@ -277,8 +288,9 @@ impl MobileCore {
         session_id: String,
     ) -> FfiResult<Option<MobileInboxItemDetail>> {
         let session_uuid = parse_session_id(&session_id)?;
-        let db = self.ensure_db().await?;
-        let item = inbox_ops::get_inbox_item_by_transfer_session_id(&db, session_uuid)
+        let store = self.ensure_store().await?;
+        let item = store
+            .get_inbox_item_by_transfer_session_id(session_uuid)
             .await
             .map_err(FfiError::from)?;
         Ok(item.map(Into::into))
@@ -286,26 +298,57 @@ impl MobileCore {
 
     pub async fn mark_inbox_item_opened(&self, item_id: String) -> FfiResult<()> {
         let item_uuid = parse_item_id(&item_id)?;
-        let db = self.ensure_db().await?;
-        inbox_ops::mark_inbox_item_opened(&db, item_uuid)
+        let store = self.ensure_store().await?;
+        store
+            .mark_inbox_item_opened(item_uuid)
             .await
             .map_err(FfiError::from)
     }
 
     pub async fn archive_inbox_item(&self, item_id: String, archived: bool) -> FfiResult<()> {
         let item_uuid = parse_item_id(&item_id)?;
-        let db = self.ensure_db().await?;
-        inbox_ops::archive_inbox_item(&db, item_uuid, archived)
+        let store = self.ensure_store().await?;
+        store
+            .archive_inbox_item(item_uuid, archived)
             .await
             .map_err(FfiError::from)
     }
 
+    /// **只删账本**，不碰文件。要连文件一起删走 [`Self::delete_inbox_item`]。
     pub async fn delete_inbox_item_record(&self, item_id: String) -> FfiResult<()> {
         let item_uuid = parse_item_id(&item_id)?;
-        let db = self.ensure_db().await?;
-        inbox_ops::delete_inbox_item_record(&db, item_uuid)
+        let store = self.ensure_store().await?;
+        store
+            .delete_inbox_item_record(item_uuid)
             .await
             .map_err(FfiError::from)
+    }
+
+    /// 删除收件箱条目；`delete_local_files` 为真时连已落盘的文件一起删。
+    ///
+    /// 编排（先文件后记录、删文件失败不阻断、条目不存在报错）住在
+    /// [`swarmdrop_core::transfer::inbox::delete_inbox_item`]，三端共用。此前**这段编排在
+    /// TS 里**（`inbox-store.ts` 的 `deleteLocalFiles` + 手写的顺序），于是同一段逻辑
+    /// 三端各一份，且那份在 detail 取不到时静默跳过、另两端报错。
+    ///
+    /// 「`file://` / SAF URI 怎么删」那一层仍在 JS（`ForeignFileAccess::delete_finalized_file`）
+    /// ——那才是真正的平台细节。
+    pub async fn delete_inbox_item(
+        &self,
+        item_id: String,
+        delete_local_files: bool,
+    ) -> FfiResult<()> {
+        let item_uuid = parse_item_id(&item_id)?;
+        let store = self.ensure_store().await?;
+        let file_access = self.file_access_arc();
+        swarmdrop_core::transfer::inbox::delete_inbox_item(
+            store.as_ref(),
+            file_access.as_ref(),
+            item_uuid,
+            delete_local_files,
+        )
+        .await
+        .map_err(FfiError::from)
     }
 
     pub async fn mark_inbox_file_missing(
@@ -316,24 +359,19 @@ impl MobileCore {
     ) -> FfiResult<()> {
         let item_uuid = parse_item_id(&item_id)?;
         let file_id_i32 = parse_file_id(file_id)?;
-        let db = self.ensure_db().await?;
-        let detail = inbox_ops::get_inbox_item_detail(&db, item_uuid)
-            .await
-            .map_err(FfiError::from)?
-            .ok_or_else(|| FfiError::Transfer("inbox item not found".into()))?;
-        if !detail.files.iter().any(|file| file.id == file_id_i32) {
-            return Err(FfiError::Transfer(
-                "inbox file does not belong to item".into(),
-            ));
-        }
-        inbox_ops::mark_inbox_item_file_missing(&db, file_id_i32, missing)
+        // 「file_id 必须属于 item_id」的归属校验是端口的义务（见 `InboxStore` 文档），
+        // 桥接层只负责把 item_id 传下去 —— 这条检查此前是移动端独有的，现已三端同规。
+        let store = self.ensure_store().await?;
+        store
+            .mark_inbox_item_file_missing(item_uuid, file_id_i32, missing)
             .await
             .map_err(FfiError::from)
     }
 
     pub async fn repair_missing_inbox_items(&self) -> FfiResult<Vec<MobileInboxItemDetail>> {
-        let db = self.ensure_db().await?;
-        let repaired = inbox_ops::repair_missing_inbox_items_for_completed_receives(&db)
+        let store = self.ensure_store().await?;
+        let repaired = store
+            .repair_missing_inbox_items_for_completed_receives()
             .await
             .map_err(FfiError::from)?;
         Ok(repaired.into_iter().map(Into::into).collect())
@@ -341,14 +379,18 @@ impl MobileCore {
 
     /// 收件箱全文检索（FTS）：匹配标题 / 来源 / 文件名+相对路径 / 文档正文，
     /// 按 received_at 倒序返回带 snippet 的命中项。镜像桌面 `search_inbox`（core 3d2d764）。
+    /// `limit` 缺省取三端共享的 [`INBOX_SEARCH_LIMIT`]——端上不要自带这个数字。
+    /// 此前 JS 侧写死 100、桌面 20、Web 50，而截断掉的永远是最早收到的那批，
+    /// 于是同一个查询词在两端搜出不同结果（#111）。
     pub async fn search_inbox(
         &self,
         query: String,
-        limit: u32,
+        limit: Option<u32>,
         include_archived: bool,
     ) -> FfiResult<Vec<MobileInboxSearchHit>> {
-        let db = self.ensure_db().await?;
-        let hits = inbox_ops::search_inbox(&db, &query, limit as usize, include_archived)
+        let store = self.ensure_store().await?;
+        let hits = store
+            .search_inbox_capped(&query, limit, include_archived)
             .await
             .map_err(FfiError::from)?;
         Ok(hits.into_iter().map(Into::into).collect())

@@ -1,0 +1,15 @@
+{
+  "name": "swarmdrop-web",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "swarmdrop_web_bg.wasm",
+    "swarmdrop_web.js",
+    "swarmdrop_web.d.ts"
+  ],
+  "main": "swarmdrop_web.js",
+  "types": "swarmdrop_web.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

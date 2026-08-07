@@ -26,8 +26,8 @@ import { Step, Steps } from "fumadocs-ui/components/steps";
 
 ### 启动节点
 
-打开应用，设置一个安全密码并启动 P2P 节点。
-密码用来保护设备私钥，私钥落 [Stronghold](https://docs.rs/iota-stronghold) 加密保险库，永不离开本机。
+打开应用，给这台设备起个名字，然后启动 P2P 节点。
+设备身份会自动生成，私钥托管在操作系统钥匙串里，永不离开本机——你不需要设置任何密码。
 
 </Step>
 
@@ -37,7 +37,7 @@ import { Step, Steps } from "fumadocs-ui/components/steps";
 
 有两种配对方式，选一种：
 
-- **配对码**（跨网络）：一方生成 6 位数字码，对方输入即可。
+- **邀请**（跨网络）：一方生成一次性邀请，把链接发过去或让对方扫二维码。
 - **局域网**（同一 Wi-Fi）：自动发现附近设备，点击配对。
 
 配对一次，之后互为信任设备，无需重复。
@@ -67,10 +67,10 @@ SwarmDrop 不需要你关心网络细节，它会按这个顺序尝试：
 
 ## 从源码构建
 
-需要 Node 18+、pnpm 11+、Rust 1.80+。
+需要 Node 18+、pnpm 11+、Rust 1.85+。本仓没有 git submodule，普通克隆即可。
 
 ```bash
-git clone --recurse-submodules git@github.com:swarm-apps/SwarmDrop.git
+git clone git@github.com:swarm-apps/SwarmDrop.git
 cd SwarmDrop
 pnpm install
 
@@ -78,4 +78,4 @@ pnpm tauri dev      # 开发
 pnpm tauri build    # 打包
 ```
 
-接下来可以读一读[核心概念](/docs/concepts)，理解配对码和 NAT 穿透背后发生了什么。
+接下来可以读一读[核心概念](/docs/concepts)，理解配对邀请和 NAT 穿透背后发生了什么。

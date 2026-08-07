@@ -1,7 +1,11 @@
 # 网络内核（swarmdrop-net）开发知识
 
-> 覆盖 `crates/net-base` + `crates/net`（2026-07 重构产物，替代 libs/ 的 swarm-p2p-core）。
+> 覆盖 `crates/net-base` + `crates/net`（2026-07 重构产物，取代 `libs/` 的 swarm-p2p-core
+> ——**该 submodule 已于 2026-07 从本仓删除**，`.gitmodules` 不存在，历史源在独立仓
+> `swarm-apps/swarm-p2p`）。
 > 架构设计依据见 `dev-notes/why-libp2p-not-iroh.md`；重构决策过程见当次 plan。
+>
+> **libp2p 依赖当前指向个人 fork**，不是官方 master——见下方「libp2p git pin 校准实录」。
 
 ## 架构速览（改内核前必读）
 
@@ -32,6 +36,19 @@ wire 类型，下沉会成环）。`swarmdrop-host` + `swarmdrop-transfer` 已�
 - 扩展点四件套范式（ergonomic RPITIT trait + Dyn trait + blanket impl）：
   `ProtocolHandler`、`RpcService`、`AddressLookup`(+Builder 回填)。
 
+### relay 意图的机制/策略分界（2026-07-23 定稿，deepen-relay-reconciliation）
+
+- **`RelayState` 不携带重试轮数**：机制层只报告可自证事实（`Connecting` / `Active{circuit_addr}` /
+  `Failed{last_error}`）。轮数语义由退避策略定义，唯一账本在 core 的 `InfraSupervisor.links`
+  （诊断走 tracing，不下发状态）。别再往 RelayState 加策略派生字段——actor 无法自洽维护它
+  （identify 重建、LAN helper 即时注册等路径会造成漂移，曾实证）。
+- **收敛环是双向的**：tick 正向（候选有→内核有）+ 反向（`watch_relays` 有条目而候选表无该
+  peer → 幂等发 `remove_infrastructure_peer`）。注销与在途注册的竞态由环的终态一致性闭合，
+  **不要**在共享收敛路径上加 re-check/epoch 类特例。反向判据的前提：候选表只经显式撤销移除
+  （无自动过期清出）且所有生产路径的 relay 登记均有候选条目——**引入候选自动清出机制前必须
+  重新评估**（spec `infra-peer-lifecycle` 已锁定该前提）。
+- `remove_relay_intent` 的直接注销调用是低延迟快路径，环是兜底，二者幂等叠加。
+
 ### 与旧栈（swarm-p2p-core）的关键差异
 
 | 旧 | 新 | 原因 |
@@ -42,12 +59,177 @@ wire 类型，下沉会成环）。`swarmdrop-host` + `swarmdrop-transfer` 已�
 | 命令责任链（trait 对象穿链） | 扁平 ActorMessage 枚举 + oneshot | 协议数固定，责任链的开闭收益换不回间接成本 |
 | kad 路由表兼职地址簿 | actor 自维护 AddressBook | `Swarm::add_peer_address` 只是广播（见坑 3） |
 
-## libp2p git master（pin 93c5059）校准实录
+## libp2p git pin 校准实录
 
-**为什么 git 不是 crates.io**：libp2p-webrtc 0.9.0-alpha.1（crates.io 最新）的
-webrtc-direct 实证跑不通，修复只在 master（PR 6429）。**升级 rev 必须走独立 PR +
-全量测试 + wasm check**；0.57 正式发布后切回 crates.io。identity/multiaddr 不用跟
-git——master 树自己解析到 crates.io（0.2.14 / 0.18.2），net-base 用 crates.io 版本天然 unify。
+> **pin 目标的时间线**：
+> 1. 官方 master `93c5059`（2026-07-13 快照）—— 下方 6 条坑均在此 rev 上实读校准，结论仍适用
+> 2. **当前：个人 fork `github.com/yexiyue/rust-libp2p`**。确切 rev 以根 `Cargo.toml` 为准，
+>    **不要从本文抄 rev**——文档必然滞后于 Cargo.toml。
+>
+> **这是当前架构最大的单点依赖风险**：上游安全更新需自行 rebase。退出条件见下节，
+> 那里写死了可判定的判据和验证命令。
+
+**为什么是 git 不是 crates.io**：crates.io 的 libp2p-webrtc 0.9.0-alpha.1 的 webrtc-direct
+实证跑不通，修复只在 master（PR 6429，已于 2026-05-22 合并但**尚未进任何 crates.io 发布版**）。
+identity/multiaddr 不用跟 git——master 树自己解析到 crates.io（0.2.14 / 0.18.2），
+net-base 用 crates.io 版本天然 unify。
+
+**升级 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
+
+### 临时 fork 集成策略 —— 含退出条件（校准于 2026-07-27）
+
+Web 端在上游合并前需要 WebRTC DataChannel 回调生命周期修复与连接级消息上限协商，
+因此 workspace 暂时 pin `yexiyue/rust-libp2p`。该分支以 `libp2p/rust-libp2p:master`
+为基线；`Cargo.lock` 必须与精确 revision 一起提交。
+
+#### fork 到底比上游多什么（2026-08-01 更新）
+
+**四条补丁全部已提 PR，无一漏提。** 四个 PR 都还 OPEN。
+
+| fork commit | 补丁 | 上游 PR | 状态（2026-07-31） |
+|---|---|---|---|
+| `db1bc23e` | `fix(webrtc-websys): defer data channel callback wakes` | [#6558](https://github.com/libp2p/rust-libp2p/pull/6558) | **OPEN** |
+| `c7d37a8d` | `feat(webrtc): negotiate data channel message limits` | [#6560](https://github.com/libp2p/rust-libp2p/pull/6560) | **OPEN** |
+| `9e3bcd9b` | `docs: add WebRTC message limit changelogs` | #6560（同 PR） | **OPEN** |
+| `c4c2c167` + `989cb610` | separate / configure receive buffer limit | #6560 的 `5984c716`（**squash 成单 commit**） | **OPEN** |
+| `262dea51` | `fix(relay): don't panic on circuit request without a matching reservation` | 我们提的 [#6570](https://github.com/libp2p/rust-libp2p/pull/6570) 已 **CLOSED**，改跟上游自己的 [#6472](https://github.com/libp2p/rust-libp2p/pull/6472) | **#6472 已 MERGED** |
+| `d858435c` | `feat(identify): allow updating agent_version at runtime` | [#6576](https://github.com/libp2p/rust-libp2p/pull/6576)（PR 分支另起，见下） | **OPEN**（2026-08-01 提） |
+
+末行那条**不是别人偷塞进来的**：它是本仓 `identify-agent-version-runtime-update` 变更的
+产物，分支 `feat/identify-runtime-agent-version`，基线正是上一版 pin 的 `262dea51`
+（刻意没 rebase 到上游 master，免得把上面几个 PR 的状态搅进这次变更、出问题时分不清是谁的锅）。
+给 identify 的 `Behaviour` 加 `set_agent_version` + `InEvent::AgentVersionChanged`，
+逐连接下发新值——**没有它，改设备名必须重启整个节点**（断开所有连接、中断进行中的传输），
+`crates/net` 侧绕不过去：`agent_version` 在每条连接建立时就被 clone 进了该连接的 Handler，
+只改 Behaviour 的 config 对已建立的连接无效。补丁按上游可接受的形态写（英文 doc、参数是裸
+`String`、不带任何 SwarmDrop 语义、附 smoke 测试与 CHANGELOG 条目），
+**2026-08-01 已提为 [#6576](https://github.com/libp2p/rust-libp2p/pull/6576)**。
+
+###### 提 PR 时另起了一条分支，别把两条搞混
+
+`262dea51` **不在上游 master 的历史上**（`git merge-base --is-ancestor` 判否）。直接从
+`feat/identify-runtime-agent-version` 提 PR 会把 **9 个 commit** 一起带进去 ——
+#6558 / #6560 两条 PR 的分支和 relay 修复全在里面。所以 PR 走的是另一条分支：
+
+| 分支 | 基线 | 用途 |
+|---|---|---|
+| `feat/identify-runtime-agent-version` @ `d858435c` | `262dea51`（fork 线） | **本仓 Cargo.toml pin 的就是它** |
+| `feat/identify-set-agent-version` @ `da9e151d` | 上游 master `3667c6c6` | 提给上游的 #6576（含 changelog 的 PR 链接 commit） |
+
+两条内容等价、SHA 不同。**pin 的那条永远不要 force-push 或删除** —— `d858435c` 一旦变成
+游离对象被 GitHub GC，`Cargo.lock` 就拉不到它，本仓构建当场断。要跟进 review 意见只改
+PR 那条（上游禁止 force push，只能追加 commit）。
+
+提交前在**上游最新 master 上**自测过：`cargo test -p libp2p-identify` 4 单测 + 9 smoke 全过
+（含新增的 `runtime_agent_version_update`）、`cargo fmt --check` 干净、
+`cargo clippy -p libp2p-identify --all-targets` 本 crate 零 warning。
+
+##### relay panic（2026-07-28，线上实证）
+
+**这条不是为 Web 端加的，是线上 relay 真的挂了才发现的**——公网 bootstrap 跑了 44 分钟后
+进程退出，日志停在：
+
+```
+thread 'tokio-rt-worker' panicked at protocols/relay/src/behaviour.rs:719:21:
+assertion `left == right` failed
+  left: None     ← 该连接的 reservation 状态
+ right: Active
+```
+
+成因：relay 处理 circuit 请求时从 `HashMap<ConnectionId, Reservation>` 里 **`.iter().next()`
+取任意一条连接**，然后 `assert_eq!(*status, Active)`。而连接建立时一律以 `Reservation::None`
+入表，只有 reserve 成功才翻成 `Active`。于是**目标节点只要多一条未 reserve 的连接**
+（重连时旧连接尚未清理、或因别的原因又拨了一次 relay），HashMap 的随机迭代序就可能取到它，
+整个 relay 进程随之退出——**可被远程触发**，源节点只需在那一刻发 circuit 请求。
+
+还有个更安静的后果：即使断言侥幸通过，circuit 也可能被挂到一条并不持有 reservation 的连接上。
+
+修法是找**持有 reservation 的那条**（`is_active()` 早就存在，只是这一处没用），找不到就落进
+已有的 `NO_RESERVATION` 拒绝分支。
+
+⚠️ **本仓 pin 到 `262dea51` 只是让新构建不再带这个 bug；已在跑的线上节点必须重新部署才生效。**
+
+> **对账时别只比 commit SHA。** PR 分支上的 `5984c716` 是 fork master 那两个 receive-buffer
+> commit 压缩后的形态——SHA 不同但内容等价（`poll_data_channel.rs` +70/-3 ≈ 两个 commit 的
+> 净效果）。只跑 `compare master...fork` 看 SHA 差集，会把**已提 PR 的补丁误判成「未提」**
+> （本文档 2026-07-27 就这么错过一次）。正确做法：`gh pr view <n> --json commits` 看 PR 实际
+> 内容，或直接比对文件。
+>
+> 同理，**两个 PR 分支互不包含**：#6558 与 #6560 各自基于上游 master 独立开分支，拿 fork master
+> 跟任一 PR 分支比，都会看到另一个 PR 的改动被列为「差异」——那不是遗漏。
+
+**WebRTC 那批补丁里唯一未进 PR 的内容**：`misc/webrtc-utils/src/stream.rs` 里 3 行文档注释
+（说明 transport-local 聚合接收缓冲为何与协商的单条消息上限相互独立）。纯注释、零功能影响，
+上游合并后随 rebase 自然消失，**不构成退出阻塞**。
+
+（identify 那条是另一回事——它是**有功能的**未提项，见上表末行与下节退出条件。）
+
+#### 退出条件（两阶段，各自可判定）
+
+**阶段 1 — 切回官方 git URL**：三个 PR 都进入 upstream master。
+
+```bash
+# 主判据：三个 PR 均为 MERGED —— 此时上游 master 已含全部所需修复
+gh pr view 6558 --repo libp2p/rust-libp2p --json state --jq .state
+gh pr view 6560 --repo libp2p/rust-libp2p --json state --jq .state
+gh pr view 6472 --repo libp2p/rust-libp2p --json state --jq .state   # relay panic，已 MERGED
+```
+
+> relay panic 那条要查的是**上游自己的 #6472**，不是我们提的 #6570——后者源码与 #6472 逐字节
+> 相同，2026-07-28 已按维护者要求关闭，**永远不会变成 MERGED**。照旧判据查 6570 会得到一个
+> 永不满足的退出条件。
+
+三个都 MERGED 后，把**五行** git 依赖（libp2p / -stream / -core / -swarm / -webrtc-utils）的
+URL 换回 `libp2p/rust-libp2p`、rev 换成上游 master 上含这三个 PR 的 commit，跑全量测试 +
+`./scripts/check-wasm.sh`。
+
+> **identify 那条补丁是独立于上面三条的第四条，判定上要分开看。**
+> 它**不进阶段 1 的判据**——三个 WebRTC/relay PR 合不合并，与它毫无关系，别因为它没提 PR 就
+> 认为阶段 1 退不了。
+>
+> 但它**阻塞「删掉 fork pin」这个终局**：`set_agent_version` 只在 fork 上，pin 一删，
+> `crates/net` 的 `Endpoint::set_agent_version` 直接编不过，改设备名就退回「必须重启整个节点」。
+> 所以终局多一步 —— 等 [#6576](https://github.com/libp2p/rust-libp2p/pull/6576) 合并
+> （2026-08-01 已提，见上表），或明确接受功能回退。**两条都没成之前，fork pin 不能删**。
+>
+> 判定：`gh pr view 6576 --repo libp2p/rust-libp2p --json state --jq .state`
+
+```bash
+# 辅助判据（查漏用，不是合并信号）：确认 fork 上没有漏提的自有补丁。
+# ahead_by 不会因 PR 合并而自动归零 —— squash 与 merge commit 让 SHA 对不上，
+# 要等 fork master 重置到上游后才归零。它回答「还有没有自有补丁」，不回答「能不能切」。
+gh api repos/libp2p/rust-libp2p/compare/master...yexiyue:master --jq '.ahead_by'
+```
+
+**阶段 2 — 切回 crates.io**：上游发布含这些修复的版本。
+
+```bash
+# 当前（2026-07-27）：crates.io 仍是 0.56.0 / 0.9.0-alpha.1，都不含 webrtc-direct 修复
+cargo search libp2p --limit 1
+cargo search libp2p-webrtc --limit 1
+```
+
+判据：`cargo search` 显示的 `libp2p` ≥ **0.57.0**、`libp2p-webrtc` ≥ **0.10.0-alpha**、
+`libp2p-stream` ≥ **0.5.0-alpha**（这三个正是 fork 树上的版本号，见 Cargo.lock）。
+到那时把 git 依赖整体换成 crates.io 版本号，`libp2p-stream` / `libp2p-webrtc` 仍需与
+`libp2p` 同期版本对齐。
+
+> **复查节奏**：这三条命令跑一次不到 10 秒。建议每次要动 `crates/net` 时顺手跑一遍——
+> 拖得越久，fork 与上游的 rebase 成本越高。
+
+`max_message_size` 只限制单条编码后的 DataChannel 消息，以及发送端的背压高水位；浏览器
+回调在 Rust task 再次 poll 前可能已累计多条合法消息，故 `webrtc-websys` 的累计读取缓冲
+通过 `Config::with_max_read_buffer_size` 单独显式配置为 256 KiB。它是本地资源上限，不参与
+协商；库会保证其不低于单条消息上限。两者不能混用，否则连续合法的 8 KiB 消息会被错误判定
+为对端过载并重置 stream。数据面每个 target 都应调用 `flush()`；回调唤醒已由 #6558 延后，
+不能再以跳过 `flush()` 规避回调重入。
+
+**正确做法**：
+- 每次更新先将 fork `master` 快进到上游，再重新合并仍未被上游接受的修复并跑 WebRTC/wasm 检查。
+- 上游合并或发布可用版本后，切回官方 URL（或 crates.io）并删除 fork pin。
+
+**不要做**：
+- 不要在产品仓库直接 pin 已删除分支或孤立 commit；这样 lockfile 无法长期可靠复现。
 
 ### 坑 1：relay server 的 HOP 协议默认不广告（relay 0.22.0，PR 6154）
 
@@ -82,6 +264,99 @@ dial 的候选地址来自 behaviour 的 `handle_pending_outbound_connection`。
 dial relay → identify 到达 → 才 listen circuit。内核的 `ensure_relay` 封装了这个时序
 （未连接先拨号，identify 经 `infra_relay_peers` 幂等触发真正 listen）。
 
+### 公网 Bootstrap + Relay 必须显式登记外部地址（2026-07）
+
+公网节点的实际 listener 常绑定 `0.0.0.0` / `[::]`。这类地址不能直接作为
+Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesInReservation`
+拒绝 reservation。`Swarm::add_external_address` 又不保证回发
+`ExternalAddrConfirmed`，只依赖 watch 事件会让状态与实际 Swarm 配置分叉。
+
+**正确做法**：
+- 组合根在 `Endpoint::bind()` 前经 `Builder::external_addrs()` 登记已知公网
+  TCP / QUIC / WebSocket 地址；它们同时成为 `watch_addrs().external` 初值。
+- 运行期得到的地址经 `Endpoint::add_external_addr()` 登记；actor 同步更新同一
+  watch 状态并通知 address lookup。
+- WebRTC Direct 使用与 transport 完全相同的持久化 PEM，通过
+  `webrtc_direct_addr_from_pem()` 预先派生带 `certhash` 的公网地址，**不要**等待
+  listener 启动后从字符串猜 hash。
+
+**相关文件**：`crates/net/src/{endpoint/{builder.rs,mod.rs},actor.rs,lib.rs}`、
+`crates/bootstrap/src/lib.rs`
+
+### 公共基础设施地址由 Host 配置，核心只消费候选（2026-07-24）
+
+`swarmdrop-core::NetworkRuntimeConfig` 不再内置公网 bootstrap/relay 地址；公共节点是各端
+部署策略，桌面、移动和浏览器的可用 transport 不同，必须由各自 host 注入完整 multiaddr。
+
+**正确做法**：
+- 桌面端在 `src/lib/bootstrap-nodes.ts` 维护 TCP / QUIC / WebSocket 等可用地址，启动时与用户偏好合并。
+- 移动端在 `mobile/src/core/bootstrap-nodes.ts` 维护 Android 可用的 TCP / QUIC 地址；当前不放 `/ws`。
+- 浏览器在 `docs/app/app/_lib/relay-helpers.ts` 使用 WebRTC Direct 或 WSS helper；每项必须附带 `/p2p/<peer-id>`，WebRTC Direct 还必须带稳定的 `certhash`。
+- 新公网 relay 同时承担 circuit relay 时，仍需按上一节登记其外部地址；客户端清单只解决“如何拨到它”，不替代服务器侧公告。
+
+**不要做**：
+- 不要把某一端可用的 `/ws` 或 `/webrtc-direct` 地址无差别下发给所有端；Android 当前无法拨 WebSocket，而浏览器不能拨 TCP/QUIC。
+
+**相关文件**：`crates/core/src/network/config.rs`、`src/lib/bootstrap-nodes.ts`、`mobile/src/core/bootstrap-nodes.ts`、`docs/app/app/_lib/relay-helpers.ts`
+
+### 每个 relay 只申请一份 reservation（2026-07-28 修）
+
+`request_relay_reservation` 曾对地址簿里该 relay 的**每个地址各 listen 一次**，于是一台
+通告 9 个地址的 LanHelper 就收到 9 份 reservation 请求。而配额是 **per-peer** 的
+（`max_reservations_per_peer` 默认 4），多数请求以 `ResourceLimitExceeded` 被拒 →
+listener 批量关闭 → reservation 反复丢失重建。公网 relay 的总配额（32）也曾被几个
+测试端占满，实测时表现为「怎么都 reserve 不上」。
+
+**一份就够**，三条依据：
+
+1. 走到该函数时**必然已连上 relay**（两个调用点都在 `conns` / identify 之后，见坑 5 的
+   时序），relay client 的 `ListenReq` 走「复用现有连接」分支；
+2. 我们传的地址只用来拼那条要通告的 external 地址，**不参与建连**；
+3. relay client 的 `reservation_addresses` 以 `ConnectionId` 为键——多份本就互相覆盖，
+   最终生效的只有一份。
+
+实测：请求数 13 → 2（两个 relay 各一份），`ResourceLimitExceeded` 归零。
+
+### presence 的启动序列必然抢跑——失败必须短退避，不能等满一个周期（2026-07-29 修）
+
+`PresenceSupervisor::run` 的装载把每台已配对设备排成 `next_probe_at: now`（立即重探），
+而那一刻 relay reservation 还没建立、DHT 也没连上任何节点——**首探注定失败**。原先
+`Unreachable` 分支无条件把下次排到 `probe_interval(75s) + jitter(≤15s)` 之后，
+**排期与探测结果无关**，于是第二次机会在一个完整周期之后。
+
+实测：浏览器刷新页面，已配对设备要 **89s** 才翻回在线。修成 2s 起步逐次翻倍、封顶回
+基础周期后，三次刷新分别是 **6s / 3s / 4s**。
+
+同一个启动序列还会让首次 `announce_online` 撞空（下面那条），但 announce 早就有
+`announce_backoff`（2s 起步）——**只有重探漏了退避**。改动同构，见
+`probe_backoff` 与回归守卫 `first_probe_failure_retries_fast`。
+
+> 通用教训：**任何"启动时立即做一次"的动作，都要假设它跑在网络就绪之前**，
+> 失败路径必须能快速重试。固定周期在这种场景下等价于「首次失败 = 一个周期的不可用」。
+
+### ⚠️ 别把浏览器的 `QuorumFailed` 归咎于 kad client 模式（2026-07-29 证伪）
+
+浏览器启动早期 `announce_online` 会报一次
+`QuorumFailed { success: [], quorum: 1 }`。曾据此判断「浏览器无 AutoNAT →
+kad 恒 `Mode::Client` → PutRecord 第二阶段拿不到 success」。**这个判断是错的**，
+沿它排查会一路走进 libp2p-kad 源码而找不到问题。
+
+两条实证否掉它：
+
+1. native 端用 `server_mode: false`（Client 模式，与浏览器完全一致）对同一个 bootstrap
+   做 `dht.put`，**成功**。client 模式 put 不了这个前提不成立。
+2. 开 `libp2p_kad=trace` 看失败的那次查询，**一条 `Request to peer in query succeeded`
+   都没有**——不是第二阶段拿不到 success，是**第一阶段就没有 peer 可问**。日志行序说明
+   一切：失败的 `QueryId(0)` 出现在第 5 行，而 webrtc-direct 连接第 55 行才就绪。
+
+真正的原因还是上面那条：**启动序列抢跑**。它只失败一次，`announce_backoff` 2s 后重试
+即成功——硬证据是让 native 去 DHT 读浏览器的 presence 记录，读得到（1100 字节，
+含正确的 circuit 地址）。
+
+另注：浏览器拿到 relay reservation 后，circuit 地址会被 confirm 成 external address，
+kad 随即 `Switching to server-mode`。所以浏览器**并非恒 Client**，这也是上述判断的
+另一处事实错误。
+
 ### 坑 6：kad `Record.expires` 的类型按 target 分叉
 
 native = `std::time::Instant`，wasm = web_time（与 `n0_future::time::Instant` 同源）——
@@ -96,20 +371,97 @@ master 的 libp2p-dns 依赖 hickory-resolver 0.26，其 `system_conf` 在 Andro
 1. `with_dns()` → `Transport::system`。修法：Android target 用
    `with_dns_config(公共 DNS, ResolverOpts::default())`（transport.rs 有
    `android_dns_config()`：AliDNS/DNSPod/Cloudflare/Google udp+tcp 四组）。
-2. `with_websocket()`——**宏展开硬编码 `libp2p_dns::tokio::Transport::system(tcp)`**
-   （`libp2p/src/builder/phase/websocket.rs`），不吃 with_dns_config。修法：Android
-   直接跳过 ws（WebsocketPhase 有 `with_relay_client` shortcut，内部 without_websocket）；
-   WS listener 本来就是「LanHelper 给浏览器」的桌面场景，移动端无消费方。
-   **契约后果**：Android endpoint 对 `/ws`、`/wss` 地址**完全不可拨**（不只是不
-   listen）——今天无影响（移动拨桌面走 TCP/QUIC），但属于平台能力不对称，规划
-   ws-only 节点时要记得。根因是 libp2p 上游缺口（websocket phase 应复用已配置的
-   dns config），已提上游 <https://github.com/libp2p/rust-libp2p/issues/6529>，
-   修复后本地可收敛回双分支。
+2. ~~`with_websocket()` 的宏展开硬编码 `Transport::system`~~ —— **随 WebSocket 整体移除
+   而消失（2026-07-28）**，Android 与桌面的 transport 栈现已一致。上游缺口
+   <https://github.com/libp2p/rust-libp2p/issues/6529> 对本项目不再有影响。
 
-只修 1 不修 2 表现完全一样（同一错误字符串），容易误判「没修上」——先怀疑第二处，
-再怀疑 .so 没重编。`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
+### Android 条件编译分支也必须通过 `-D warnings`（2026-07-24）
+
+移动端 release 使用 `RUSTFLAGS=-D warnings`，而仅在桌面目标编译的分支会让 Android
+的局部可变绑定变成硬错误。对于 listener 等平台差异，直接把 `#[cfg]` 放在 `vec![]`
+元素上，避免先声明 `mut` 再在某个 target 中 `push()`。
+
+**相关文件**：`crates/net/src/endpoint/presets.rs`
+
+`NameServerConfig` 需要直接依赖 hickory-resolver（libp2p::dns 只
 re-export ResolverConfig/ResolverOpts），版本必须与 libp2p-dns 同线（crates/net 的
 android target 依赖表）。
+
+### 坑 8：取消在途拨号要用 `disconnect_peer_id`，不是 `close_connection`
+
+`Swarm::close_connection(ConnectionId)` 只对 **established** 连接生效（`pool.get_established`），
+对 pending dial 返回 `false`——不能中断在途拨号。**`Swarm::disconnect_peer_id(PeerId)` →
+`Pool::disconnect` 才会对该 peer 的 pending 连接调用 `connection.abort()`**（pool.rs 文档明示
+"whether pending or established are closed asap"）。`remove_infrastructure_peer` 的"立刻断"
+语义靠它实现（2026-07-23 pin 93c5059 源码实读，`actor.rs::handle_remove_infra_peer`）。
+
+### 坑 9：watch 采样会跳过短暂中间态（事件双轨制的实证补充）
+
+浏览器实测 `relays_until_active`：不可达 helper 第 1 轮 `Failed` 写入 watch 后，JS 侧消费者
+经常在第 2-3 轮才观察到 Failed（wasm 单线程下 actor 与 JS future 抢调度，last-value-wins
+覆盖中间值）。**依赖"看到每一次状态翻转"的逻辑必须走 `NetEvent` 边沿轨**；watch 只保证
+最终收敛值可见。对 until_active 这类"等终态"逻辑无影响（Failed/Active 会持续存在直到下轮）。
+
+### 连接路径由「谁先建成」定终身——所以升级必须主动发起（2026-08-03 修）
+
+**症状**：同一个局域网里的两台已配对设备，连接徽标长期停在「中继」——不是显示错了，字节真的
+在绕公网。
+
+**成因链**（三条缺一不可，改任一条都能复现）：
+
+1. presence 经 DHT 发现对端在线后立刻 `connect`，那一刻地址簿里往往只有 circuit 候选
+   （mDNS 还没到，或对端平台压根收发不了组播），relay 于是先赢；
+2. `handle_connect` 开头「已连接就返回当前快照」——之后再多的 `connect` 都不会重拨；
+3. `try_upgrade_to_direct` 只在 identify 的 `listen_addrs` 里 `find(is_webrtc)`，
+   **对端自报的私网地址被整个忽略**；mDNS `Discovered` 也只 `record_addr` + emit，不拨号。
+
+**修法**：`actor.rs` 新增 `try_upgrade_to_lan`，两个地址来源汇进来——identify 的 `listen_addrs`
+（**主路径，不依赖 mDNS**）与 mDNS `Discovered`（来得更早）。
+
+四个要点，改这块前逐条对：
+
+- **别只修 mDNS**。它在两个移动平台都要过平台的门（下一节），而 identify 自报的私网地址一个门
+  都不用过。mDNS 只是「来得更早的那份」。
+- **LAN 升级不做 `should_initiate` 定序，打洞继续做**。LAN 握手是毫秒级无信令，两端各拨最坏多
+  一条 idle 回收的连接；定序则会让「只有一端拨得通」（防火墙拦入站 / 一端 mDNS 瞎了）彻底没救。
+  打洞一次是数秒 ICE + 信令往返，那才值得定序。
+- **两条路径的在途标记必须分开存**（`upgrading_lan` / `upgrading_direct`）。共用一个的话，跨网
+  场景下「对端自报的私网地址必然拨不通 → 失败 → 下轮又先试 LAN」会把打洞永久锁死，而 identify
+  默认 5 分钟才来一轮。
+- **候选要排除 circuit**。局域网 helper 自己就监听在私网地址上，它派发的 circuit 地址前半段同样
+  `is_private_lan()`——不排除就会把「换一条中继」当成「升级为直连」。
+- **候选上限必须按传输分组，不能笼统 `take(N)`**。原生端同时监听 tcp / quic-v1 /
+  webrtc-direct，各自再乘网卡数与 IPv4/IPv6，一台手机自报六条私网地址是常态；而
+  webrtc-direct 是 listen 列表里**最后**注册的，笼统截断砍掉的正是它。
+  **那一刀正好打死浏览器**：浏览器拨不了裸 TCP/QUIC，webrtc-direct 是它够到局域网内原生端的
+  唯一路径。症状是「浏览器 ↔ 同网段的手机永远停在中继」，且没有任何报错可查
+  （`lan_candidates` 按 `Addr::transport()` 分组，两条单测钉死）。
+
+**相关文件**：`crates/net/src/actor.rs`（`try_upgrade_to_lan` / `only_relayed` /
+`clear_upgrade_marks` / `is_lan_candidate`）
+
+### mDNS 在 iOS / Android 上要过平台的门（2026-08-03）
+
+内核一直是开着的（`presets::Native` → `.mdns(true)`，移动端同一 profile），**但两个平台各自会
+把组播吃掉**，症状是「代码没问题、设备就是发现不了」：
+
+| 平台 | 必需项 | 缺失的后果 |
+|---|---|---|
+| iOS | `NSLocalNetworkUsageDescription` | iOS 14+ 连权限弹窗都不出现，组播静默丢弃 |
+| iOS | `NSBonjourServices` 含 `_p2p._udp` | libp2p mdns 的服务名，见其 `SERVICE_NAME` |
+| Android | `CHANGE_WIFI_MULTICAST_STATE` + `MulticastLock` | Wi-Fi 芯片省电态直接在驱动层丢组播帧 |
+
+Android 的锁在 `mobile/modules/lan-multicast`（expo module，`setReferenceCounted(false)`），
+生命周期绑节点启停——持锁期间芯片不进省电态，节点停了还持着只是白耗电。
+
+⚠️ **iOS 侧未验证的一层**：裸 socket 绑 5353 + 加入 `224.0.0.251` 组播组（libp2p-mdns 正是这么
+做的）可能还需要 Apple 特批的 `com.apple.developer.networking.multicast` entitlement——经系统
+Bonjour API 浏览不需要，裸 socket 大概率需要。**这不阻塞局域网直连**：上一节的 identify 升级路径
+不碰组播，mDNS 只影响「多快发现」。
+
+顺带修掉的地雷：`behaviour/mod.rs` 里 mDNS 构建曾是 `.expect("mDNS initialization failed")`——
+把一个平台可选能力做成了启动硬前提，任何不给绑 5353 的环境会在节点启动时直接 panic。现已降级
+为 warn + 无 mDNS 继续跑。
 
 ### 其余确认
 
@@ -117,9 +469,773 @@ android target 依赖表）。
 - websocket phase 依赖 dns feature 的隐式耦合仍在（同开即可）。
 - `NetworkBehaviour` derive 的 **cfg 字段**（mdns/autonat/dcutr）双 target 编译均过；
   但 native 行为只有 relay/kad/identify/ping 被测试实证，**mdns/autonat/dcutr 的
-  运行时行为待真机冒烟确认**。
+  运行时行为待真机冒烟确认**（mdns 在移动端另有平台门，见上面那一节）。
 - ConnectionHandler 的关联类型（InboundOpenInfo 等）与 0.56 一致，keep_alive
   behaviour 近零改动移植。
+
+## WebRTC 打洞传输接线（`crates/webrtc-p2p`，2026-07-28）
+
+自研的打洞传输已接进内核。内核层面可关（`EndpointConfig.webrtc_p2p: Option<WebRtcP2pConfig>`，
+经 `Builder::webrtc_p2p(..)` 开启），但 **core 的组合根对三端一律开启**
+（`crates/core/src/runtime.rs`）——**打洞要两端都支持，只开浏览器等于没开**：
+`web ↔ NAT 后的桌面/手机` 那一格照样全程中转，而那恰恰是自研它最想拿下的场景。
+对原生端也不是冗余：dcutr 走 TCP/QUIC 直连，ICE 走 UDP + STUN 候选，覆盖的 NAT 类型不同。
+
+与官方 `libp2p-webrtc`（webrtc-direct）是**两个传输、可共存**：那个要求目标地址已可达，
+这个让双方都不可达的节点经 relay 换信令后打洞。
+
+### WebSocket 已整体移除（2026-07-28）
+
+客户端 transport、桌面 `/ws` listener、bootstrap 的 4002 端口一并砍掉。它唯一的活是
+「同网浏览器直连桌面」，webrtc-direct 做得更好：不占 TCP 端口、私网公网同一条路径。
+
+**三个副产品**：
+
+1. **坑 7 只剩一处炸点**。原来 Android 的 JNI DNS 问题有两处（`with_dns` 与
+   `with_websocket`），后者随 ws 消失——Android 与桌面的 transport 栈现在完全一致。
+2. **前缀误匹配的隐患没了**。circuit 地址形如 `/ip4/…/tcp/…/ws/p2p/<relay>/p2p-circuit/…`，
+   ws transport 只认前缀就照单全收、无视 circuit 段，会真的连上 relay 然后报
+   `WrongPeerId`（实测踩过）。
+3. **native 也能打洞了**。`with_websocket` 是 `ws.or_transport(已有)` 把自己排到最前，而
+   builder 不允许在 websocket phase 之后再加 transport——它在时，native 无法把 webrtc-p2p
+   排到 relay 前面。砍掉后两个 target 用同一套装配。
+
+Worker 模式（曾是 ws-only，因 webrtc-websys 在 Worker 里必 panic）同时失去意义——
+`docs/app/app` 从未真的 `new Worker`，那是 spike 遗留。
+
+### ⚠️ 不能用 `with_relay_client`——relay 会抢走打洞地址（2026-07-28 浏览器实测）
+
+打洞地址 `<relay>/p2p-circuit/webrtc/p2p/<target>` **含 `/p2p-circuit` 段**，而 relay client
+transport 的 `parse_relayed_multiaddr` 只要求有 circuit 段——**circuit 之后的 `/webrtc` 被
+塞进 `dst_addr` 而不报错**（`priv_client/transport.rs` 的 `p => { ... dst_addr.push(p) }`），
+于是它照单全收。
+
+谁先拿到取决于 `or_transport` 顺序，而 `with_relay_client` 内部写死
+`relay_transport.or_transport(已有链)`——**relay 永远在最前**。`with_other_transport` 无论
+注册多少次都在它后面，抢不过。
+
+**症状极隐蔽**：reservation 正常、中转正常、传输正常，只是打洞路径**一次都没被调用过**，
+且没有任何报错。实测靠在 webrtc-p2p 的 `listen_on` 里打日志才发现（那条日志因此保留）。
+
+**正确做法**：跳过 builder 的 relay phase——自己 `libp2p::relay::client::new()` 造 transport，
+用 `relay_first_webrtc()` 把 webrtc-p2p 放在 relay 前面，behaviour 经闭包外的
+`let mut relay_behaviour = None` 回传，最后用 **单参数** `with_behaviour(|key| ...)`
+（`RelayPhase` 的快捷方式，内部走 `without_relay()`）。多传一个 relay_client 参数就会走回
+那条把 relay 排最前的路。
+
+js-libp2p 没这个问题——它的 circuit transport filter 显式排除带 `/webrtc` 的地址。
+rust-libp2p 缺这道排除，因为上游还没有 private-to-private 的 WebRTC 传输。
+
+### listener 只在 `request_relay_reservation` 里挂，不跟随 reservation 事件
+
+本机要能「被拨」，需要一个 `<relay>/p2p-circuit/webrtc/p2p/<本机>` 监听
+（`Actor::ensure_webrtc_listener`），它才会进 `watch_addrs().listen` → `dialable()` → 邀请。
+
+两条约束：
+
+1. **不能进 `relay_listeners` 表**。它不是一份 reservation（webrtc-p2p transport 收下地址
+   只是登记 listener，不向 relay 请求任何东西），混进去它的 `ListenerClosed` 会被误判成
+   reservation 失效 → 误发 `RelayReservationLost`。故另存 `webrtc_listeners: PeerId → ListenerId`。
+2. **不要挂在 `ReservationReqAccepted` 的处理路径上**。那条路径正是 relay client 更新自己
+   `reservation_addresses` 表的时刻，在其中插入 `listen_on` 会扰动它的内部时序，把它的
+   `expect("Relay connection exist")` 打成 panic——浏览器实测 2/2 必现，短路后 0/2。
+   撤销同理，只在 `handle_remove_infra_peer` 做。
+   代价是 reservation 掉线期间地址短暂不可达；幂等重试会拉回来，比让对端地址簿反复失效好。
+
+### 浏览器侧排障：先收紧 tracing filter
+
+Web 端曾是全局 `DEBUG`，libp2p 各层的日志（multistream 协商、每连接 poll、identify push…）
+把浏览器 console 的行数上限冲爆——**自己的日志一条都看不到**。排 webrtc 打洞时因此误判过
+「对端毫无响应」。现按 target 分层（`crates/web/src/lib.rs` 的 `Targets`），日志量降两个
+数量级。**碰 Web 端排障先确认 filter，别对着被冲掉的日志下结论。**
+
+### ⚠️ 浏览器接收侧**没有背压**——大文件的流控只能由应用层做（2026-08-06 修）
+
+**症状**：桌面向浏览器发 20 MB，传到 12–22% 断，发送侧会话消失。小文件（3 MB 以下）
+一路正常，所以很容易误判成偶发网络问题。
+
+**实测现场**（浏览器 console）：
+
+```
+对端消息堆积超过读缓冲上限，重置子流 buffered=4194171 incoming=8190 max_read_buffer=4194304
+```
+
+精确撞在 4 MiB 上。`4 MiB / 20 MB ≈ 20%`，与观察到的中断点吻合。
+
+**根因是 WebRTC 的 API 缺口，不是本仓的 bug**。背压链有三层，这条链路上只有第三层能补：
+
+| 层 | 机制 | 实际 |
+|---|---|---|
+| SCTP 逐跳 | `a_rwnd` 收缩 → 发送端停发 | **被短路**：浏览器 `onmessage` 一触发就把字节交给 JS 并释放 SCTP 接收缓冲，窗口永不收缩 |
+| 本地发送队列 | `SEND_BUFFER_LIMIT`（已配 4 MiB） | 防的是**本端 OOM**，管不到「已送达对端 JS 但未被消费」的量 |
+| 应用层端到端 | 逐块 Ack | wire v2 删掉了 → **缺口在这一层** |
+
+这是 W3C 承认了十余年的缺口：[2014 年的 public-webrtc 提案](https://lists.w3.org/Archives/Public/public-webrtc/2014Mar/0063.html)
+就写明「底层 SCTP 完全支持背压，只是 `DataChannelInterface` 这层 API 不支持」，请求加
+`setReadEnabled(bool)`，至今未采纳（[webrtc-pc#1732](https://github.com/w3c/webrtc-pc/issues/1732)
+仍开着）。libp2p 的 WebRTC spec 也明确写着 message framing「is not concerned with
+flow-control」——**显式把流控推给上层**。js-libp2p 同样只做了发送侧 `bufferedAmount`
+背压，接收侧是无界 `Pushable` 队列。
+
+**为什么只有一个方向坏**：native 侧 webrtc-rs 是**拉模型**（`dc.poll().await`），不读就真不读，
+SCTP 窗口会收缩 → 浏览器→桌面天然有背压；桌面→浏览器是推模型，没有。
+
+**修法**：`swarmdrop-transfer` 在数据面加信用窗口（`WINDOW_CHUNKS = 16`，即 4 MiB 在途）——
+发送方每满一窗发一帧 `TransferDataFrame::Window` 并停下，接收方**把窗内每一块验签落盘完毕后**
+回同款帧才放行。停等而非滑动：滑动要在写的同时读确认，与数据面「整流顺序读写、不 split」
+的硬约束冲突；代价是每窗一个 RTT，20 MB 只停 5 次。
+
+**两个数是绑死的**：`WINDOW_CHUNKS × CHUNK_SIZE`（4 MiB）必须显著小于 `webrtc-p2p` 的
+`DEFAULT_MAX_READ_BUFFER`（16 MiB）。**调大窗口必须同时抬那个上限**，否则退回越限重置。
+护栏是 `actor::sender::tests::sender_stops_after_one_window_until_peer_acks`——删掉窗口后
+native↔native 照样跑得通（yamux/QUIC 顶着），只有浏览器会被撑爆，那是跑不进 CI 的失效模式，
+这条断言是它唯一的机器守卫。
+
+**别把 `MAX_BUFFERED_AMOUNT` 当成对端的在途上限。** 旧注释里就是这么推的（「对端可以合法地
+让 1 MiB 数据在途」），**是错的**：那个常量约束的是本端往外发，与对端往里灌毫无关系；后者
+在应用层窗口出现之前根本没有上限。这个错误推理正是 `DEFAULT_MAX_READ_BUFFER` 当初被定成
+4 MiB 的原因。
+
+#### ⚠️ 加一个帧 tag 就必须换协议名——`decode_frame` 对未知 tag 是**硬失败**
+
+窗口帧最初是直接加进 `/swarmdrop/transfer-data/2` 的，`TRANSFER_DATA_VERSION` 也留在 2。
+那样发出去，**已发布的 v0.12.0 会在 4 MiB 处被全部打断**：它的解码器读到 tag 7 返回
+「未知 transfer-data frame tag」，接收端随即中止整个会话。小于一窗的文件照常成功，所以
+症状是「小文件行、大文件到 20% 就断」——与本节开头那个 bug 一模一样，极容易误判成没修好。
+
+**这不是理论风险**：桌面与移动是两条独立版本线，移动端的更新永远滞后，而「桌面发照片到
+手机」正是最常走的路径。
+
+**修法**（都在 `crates/transfer`）：
+
+- `TRANSFER_DATA_PROTOCOL` 提到 `/swarmdrop/transfer-data/3`，同时保留
+  `TRANSFER_DATA_PROTOCOL_V2` 常量；
+- `core::runtime::build_router` 用**同一个 handler** 注册两个协议名——接收端的读循环对有没有
+  窗口帧都成立（没有就一帧也读不到），差别只在发送端；
+- 出站在 `wire::data_plane::open_data_stream` 里先拨 `/3`，**只有** `OpenError::UnsupportedProtocol`
+  才退回 `/2`（其余错误换个协议名重试同样失败，只会把真错误换成更没信息量的第二条）；
+- 发不发窗口帧由流自己带的协商结果决定（`WindowPacer::for_protocol` 读 `P2pStream::protocol()`），
+  **不由调用方传参**——这个判断只该有一个来源。
+
+**`TRANSFER_DATA_VERSION` 保持 2 是刻意的**：它校验的是「共有帧怎么编码」，而 v3 只是多认
+一个 tag、既有帧编码逐字未变。更实际的一条——退回 `/2` 时 Hello 必须仍然写 2，跟着提就把
+回退路径自己堵死了。能力协商交给 multistream-select，别在 payload 里再做一遍。
+
+护栏：`unpaced_stream_emits_no_window_frames`（v2 链路上一帧都不许发）与
+`pacer_only_paces_on_the_negotiated_v3_protocol`。
+
+### ⚠️ 不关闭的 `PeerConnection` 会把 CPU 烧光（2026-08-06 修）
+
+**症状**：桌面端「卡死」——webview 对任何 JS 都超时，看起来像前端挂了。实际是
+**CPU 被吃光**：`ps` 显示 948%，webview 只是抢不到时间片。
+
+**定位手法记一笔**（下次省半小时）：`sample <pid> 3 -mayDie -file out.txt`，然后读
+`Sort by top of stack` 那一段。这次的结论一眼可见——前十几项全是
+`PeerConnectionDriver::event_loop` / `RTCPeerConnection::poll_write` / `poll_timeout` /
+`mach_absolute_time`。**注意 `pgrep` 拿到的第一个 pid 往往是 pnpm 的 wrapper**，
+按 `ps aux | awk '$3 > 50'` 挑真正吃 CPU 的那个。
+
+**根因**：`webrtc-rs` 的 `PeerConnection` 背后是一个独立的 driver 任务，只有 `close()`
+之后才退出。上游的 `Drop` **只在 `dedicated_reactor` 模式下**设 shutdown 标志，并把
+general-runtime（我们用的那条）注释为「detach harmlessly onto the application's own
+worker pool」——**对已死的连接不成立**：detach 的 driver 不 park，而是在 `poll_timeout`
+上空转。
+
+泄漏有两条来源，**只堵一条没用**：
+
+1. **握手失败**：`direct::upgrade` 的 `inbound`/`outbound` 在 `finish()` 之前有八个 `?`
+   早退点。而拨号**会重试**（拨到非 webrtc-direct 的端口、certhash 不匹配、Noise 认证
+   失败都很常见），泄漏按重试次数累积——这是主因。
+2. **连接异常终止**：`StreamMuxer::poll_close` 只在 libp2p 走正常关闭流程时才被调到；
+   对端掉线或 Swarm 直接丢弃连接时，muxer 是**直接被 drop** 的。
+
+**修法**：`backend/native/managed.rs` 的 `ManagedPeerConnection` —— 一个 RAII 守卫，
+`Deref` 到 `Arc<dyn PeerConnection>`，drop 时把 `close()` 派给 runtime。握手路径、打洞
+backend 的 `State::Ready`、muxer 三处都用它持有连接，不变式收敛成一条：**只要连接被
+`ManagedPeerConnection` 持有，它就一定会被关闭**。所有权移交用 `into_inner()` 解除守卫，
+否则守卫会在函数返回时把刚建好的连接关掉。
+
+**这条与 wasm 侧的 `Drop` 是同一个道理的两面**（见 `backend::wasm::muxer`），但后果不
+对称：浏览器那边泄漏的是浏览器自己管的对象，native 这边泄漏的是**本进程的 CPU**。
+所以 native 侧漏掉它的代价大得多，而它恰恰是后加的。
+
+### 以本机为中转的 circuit 地址：拨不通、拨了还会挤掉真候选（2026-08-06）
+
+**症状**：桌面向浏览器发 offer 反复失败，日志里是
+`Dial error: Unexpected peer ID 12D3KooWRkj1…`（那串正是**桌面自己**）。
+
+**成因**：浏览器与桌面同网直连后，向桌面申请了 circuit reservation（桌面是开着
+relay server 的）。于是浏览器的可达地址里多出
+`…/p2p/<桌面>/p2p-circuit/p2p/<浏览器>`——**桌面自己的每条 listener 地址各一条**
+（tcp / quic / webrtc-direct 三份），再原样广告回桌面。桌面拿它去拨，第一跳拨的就是自己。
+
+这类地址**永远拨不通，也永远不需要拨**：本机能当对端的中转，前提就是两者之间已经有一条
+连接。留着它只会挤掉同批候选里真正可用的那些（relay hint 还有 `MAX_RELAY_HINTS` 上限，
+自指那条会把名额占掉）。
+
+**两处修复，各管一层**：
+
+- `crates/net` 的 `record_addr`（**地址进簿的唯一入口**，四条路径 `AddAddrs` /
+  `AddInfraPeer` / `Connect` 显式候选 / mDNS 的共同下游）丢弃 `is_relayed_by(addr, self)`
+  的地址。判据落在**中转跳**而非末位：末位是自己时 libp2p 自己就拒
+  （`DialError::LocalPeerId`），漏的正是中间这一跳。
+- `crates/core` 的 `presence::supervisor::spawn_probe` 跳过 `hint.peer_id == 本机` 的
+  relay hint——否则每轮固定浪费一次「先连 relay 再拨 circuit」，而第一步就是拨自己。
+
+  ⚠️ **筛必须在 `take(MAX_RELAY_HINTS)` 之前**。第一版写成了循环体里 `continue`，于是
+  自指的那条照样占掉三个名额之一——「真候选被挤掉」这个正要修的症状原样保留，只是换了个
+  地方发生。同一处 `hint.addrs.is_empty()` 的跳过是**存量的同类错误**，一并挪进 `filter`。
+  判据：`take(N)` 里的 N 表达的是「试几次」，那就只能截在**可试的**条目上。
+
+**⚠️ 这条过滤的日志必须是 `trace` 不能是 `debug`。** 默认 filter 就是
+`swarmdrop_net=debug`，而对端反复断连重连时它是**每秒上万条**的量级：实测一次 11 分钟的
+重连风暴写了 **640 MB** 日志，99.9% 是这一条。
+
+**顺带暴露的、尚未查清的问题**：那 640 MB 说明有个上游循环在以 ~4000 次/秒 的频率重放
+同一批地址（每 250µs 一次，四条一组）。加过滤之前它完全静默（`entry.contains` 去重后什么
+都不做），是这条日志第一次让它可见。过滤让它不再产生失败拨号，但**调用本身还在烧 CPU**，
+触发点是「ping 连续失败 → 主动断连重探」。要查它请开 `swarmdrop_net=trace` 并从
+`record_addr` 的四个调用方入手。
+
+### DataChannel 的 `Connecting` 不是错误（wasm 侧）
+
+`PeerConnection` 的 `connected`（DTLS 完成）**早于** DataChannel 的 `open`（SCTP 完成）。
+muxer 一交出去上层就开始写，此刻必然还是 `Connecting`——把它当写错误会让刚建立的打洞连接
+立刻刷屏报错，实际只差几十毫秒。正确做法是注册 waker 返回 `Pending`，并配 `onopen` 回调
+唤醒（**没有 onopen 就永远等不到通知**）。native 侧无此问题：`webrtc-rs` 的 `send` 是
+async，内部等 SCTP。
+
+### ⚠️ JS 回调闭包：释放之前**必须先解绑**，唤醒**必须延后**（2026-08-04 修）
+
+症状是浏览器 console 刷屏：
+
+```
+Uncaught Error: closure invoked recursively or after being dropped
+    at RTCDataChannel.i (...)
+```
+
+它是 **JS 侧的 Uncaught，不会 panic 掉 wasm**——节点照常跑（relay reservation 也照样
+accepted），所以极容易被当成网络问题查半天。真正发生的事：
+
+1. libp2p 子流被 drop（日志里那句 `Stream dropped without graceful close, sending Reset`）；
+2. `DropListener` 发完 Reset flag，最后一个 `PollDataChannel` 副本释放，wasm-bindgen
+   回收 `Closure`；
+3. 但 **JS 侧 `RTCDataChannel.onmessage` 还指着它**——浏览器事件队列里排着的、或对端随后
+   发来的消息照样触发，于是抛错并丢消息。
+
+**三条一起才算修好**（缺任何一条都会以不同形式复发）：
+
+| # | 约束 | 漏掉的后果 |
+|---|---|---|
+| 1 | 闭包要活到目标对象不再产生事件 | 回调**静默**失效，无任何报错 |
+| 2 | 释放之前先 `set_onxxx(None)` | 就是上面那个刷屏 |
+| 3 | 唤醒 waker 要延后到回调栈之外（`spawn_local`），且**先释放 `RefCell` 借用** | 重入 executor：轻则同一个报错，重则 `already borrowed` panic |
+
+`crates/webrtc-p2p/src/backend/wasm/callbacks.rs` 的 `JsCallbacks<T>` 把 1、2 收口成类型
+保证；3 是 `data_channel.rs` 的 `defer_wake`。`crates/web` 侧同一条不变量由
+`crates/web/src/js_guard.rs` 的 `JsGuard<T, C>` 承担（IndexedDB 的三个 handler 站点 +
+`AbortSignal` 的监听器）。
+
+两处都把 `detach` 做成**参数**而不是 target 类型上的 trait：解绑动作写在注册点旁边，
+加一个 handler 时两行相邻。曾写成 trait（一份「这个 JS 类型的全部 handler」清单），
+但那份清单在另一个文件里，注册点加了 handler 却忘记回来补清单，正是它要防的失效模式。
+
+**这是同一个错误犯第二次。** 官方 `webrtc-websys` 里这三条正是本仓提的
+[#6558](https://github.com/libp2p/rust-libp2p/pull/6558)（见上文 fork 台账），
+2026-07-28 自研 `crates/webrtc-p2p` 重写 wasm 后端时只带过来第 1 条。
+**以后凡是「自研替换掉一个曾打过补丁的上游实现」，先把那些补丁逐条对照过来**——
+补丁在 fork 里躺着，不会自己跟着走。
+
+同批漏抄的还有**累计读缓冲上限**（#6560 的 receive buffer 部分）：`onmessage` 在 Rust task
+再次 poll 之前能攒下多条各自合法的消息，没有上限就是浏览器 OOM，且它**不能拿单条消息
+上限来代替**（连续合法的 8 KiB 消息会被误判成对端过载）。
+
+⚠️ **但也不能照抄官方的 256 KiB**——那个值比本端自己的发送高水位
+`MAX_BUFFERED_AMOUNT`（1 MiB）还小。对端可以合法地让 1 MiB 在途，而浏览器接收侧每读满
+一个应用块（`CHUNK_SIZE` 也是 256 KiB）就要 await OPFS 落盘 + bao 校验，那一下停顿就够
+越限——**正常的快速传输会被判成「对端过载」并重置子流**。现取
+`max(4 MiB, max_message_size)`。定这类阈值时先看一眼对面允许多少在途。
+
+##### 两种终态错误相对读缓冲的顺序**相反**，不能合并成一个字段
+
+`errored`（`onerror`）与 `overloaded`（读缓冲越限）看着都是「通道废了」，一度合并成一个
+`fatal`。但：
+
+- **越限**丢过消息，缓冲里是**有洞的**字节流，接着解帧只会解出垃圾 → 必须**先于**缓冲报错；
+- **onerror** 一个字节都没丢，缓冲是完整合法的前缀 → 必须**后于**缓冲报错。
+
+合并后症状是常态路径出问题：发送方一关连接（SCTP ABORT → 浏览器 `error` 事件），接收侧
+就把已收到但没读完的尾部连同 FIN flag 一起丢掉，**正常收尾被报成流被 reset**。
+`poll_read` 的判定顺序现在是 `overloaded` → 缓冲 → `eof` → `errored`，四者顺序都是语义。
+
+### ⚠️ `RTCPeerConnection` 必须显式 `close()`，drop 掉句柄不算数
+
+浏览器不会回收一条还在跑 ICE/DTLS 的连接——Rust 侧 drop 只是撤掉一个引用。官方
+`webrtc-websys` 的 `Connection` 为此有 `impl Drop`；自研版一度只在 `Muxer::poll_close`
+里关，于是三条路径漏关、每次失败/异常终止都攒一条僵尸连接：
+
+| 路径 | 谁负责关 |
+|---|---|
+| 连接正常存活期 | `muxer::Inner` 的 `Drop`（数据面是最后持有者，异常终止时 libp2p 不会调 `poll_close`） |
+| 打洞信令失败 | `backend::wasm::Inner` 的 `Drop`，判据是 `Handover` 还在不在（已移交 = 连接归数据面，绝不能关） |
+| direct 建连失败**或被取消** | `direct::PendingConnection` 的 `Drop`，成功时 `disarm()` |
+
+最后一行是 RAII 而不是错误分支，这点**不能省成 `inspect_err`**：`Transport::dial` 返回的
+`Upgrade` future 会被 libp2p 的 `ConcurrentDial` **直接丢弃**（同时拨的另一个地址先成功，
+浏览器拨一个通告了多个 webrtc-direct 地址的 peer 就会走到），那条路径上错误分支根本不执行。
+取消、`?` 早退、panic 三条路只有 RAII 一起覆盖得住。
+
+第二条要特别小心：`WasmBackend` 的寿命**只到信令会话结束**（`Action::Connected` 后
+`connection_keep_alive()` 立刻转 false，那条 relay 上的信令连接被关，handler → session →
+backend 顺次 drop），而数据面还要活很久。同一个时序此前已经埋了一个更隐蔽的 bug：
+`ondatachannel` 闭包连同它捕获的 `dc_tx` 留在 backend 里，backend 一死，muxer 的
+`incoming` 立刻结束 → `poll_inbound` 报「连接已关闭」→ **刚建好的打洞连接自己塌了**。
+现在回调随 `take_muxer` 一并移交，与数据面同寿。
+
+### `FuturesUnordered` 空集时不注册 waker —— DropListener 会被晾着
+
+`while let Poll::Ready(Some(_)) = drop_listeners.poll_next_unpin(cx) {}` 这个写法有个洞：
+集合为空时 `poll_next` 返回 `Ready(None)` 且**不注册 waker**，循环以它收尾，本轮的 `cx`
+就白给了。之后 push 进去的 listener 要等连接因别的事情被唤醒才轮得到 poll。
+
+在 wasm 侧这不只是「晚一点」：`DropListener` 持着 `PollDataChannel` 的一份 clone，它不被
+poll 完，`Rc` 就不归零——**JS 回调迟迟不解绑、Reset 也迟迟不发**，连接安静下来（子流都关完、
+没有 identify/ping 活动）时尤其明显。故 `Ready(None)` 要自己把 waker 存下，push 之后主动
+`wake()`（官方 `webrtc-websys` 的 `no_drop_listeners_waker` 同款）。
+
+### webrtc-p2p 的 `Transport::listen_on` 必须唤醒 poll
+
+`listen_on` / `remove_listener` 是外部**同步**调用，往 `pending` 队列塞事件时没有任何东西
+会唤醒 poll（只有 `from_behaviour` 有消息才会）。少了这个唤醒，新监听地址要等到下一次因
+别的原因被 poll 才通告得出去。故 poll 挂起时存 waker，`queue()` 时唤醒。
+
+**本机 `/p2p` 段要自己补**——swarm 不代劳。relay client 也是自己补的
+（`priv_client/handler.rs` 的 `.with(P2pCircuit).with(P2p(local_peer_id))`）；漏了地址仍能
+listen 成功，但对端解析不出目标节点，拨不动。
+
+### `classify_path` 对 `/webrtc` 的例外
+
+打洞连接的远端地址天生带 circuit 段（**信令**确实经 relay），但数据面是直连、一个字节不过
+中继。`is_circuit()` 会把它判成 `Relayed`，于是 `path_rank` 把真直连排到中转之下、UI 显示
+也反了。`actor.rs` 的 `classify_path` 因此对含 `/webrtc` 的 circuit 地址返回 `Direct`
+（`is_hole_punched`），单测钉死。
+
+### `OptionalTransport` 只有 `From<T>`，没有 `From<Option<T>>`
+
+`OptionalTransport::from(opt)` 会包成 `OptionalTransport<Option<_>>`——那不是 `Transport`，
+报错信息绕。用 `match { Some(t) => ::some(t), None => ::none() }`。另外
+`with_other_transport` 闭包里没有 `?` 时错误类型推断不出来，要显式标注成
+`Box<dyn Error + Send + Sync>`（`TryIntoTransport` 唯一认的 Result 形态）。
+
+**相关文件**：`crates/net/src/{transport.rs,actor.rs,config.rs,behaviour/mod.rs}`、
+`crates/core/src/runtime.rs`；决策与 spike 实测见
+[`dev-notes/research/2026-07-webrtc-native-ice.md`](../research/2026-07-webrtc-native-ice.md)
+
+## webrtc-direct 自研实现（`crates/webrtc-p2p`，2026-07-28）
+
+同一个 crate 现在提供**两种模式**：打洞（上一节）与 direct。目标是完全替代官方
+`libp2p-webrtc`，把 native 依赖树里的两套 WebRTC 栈（0.17 + 0.20）并成一套。
+
+两条建连路径**刻意不复用**——差异全在安全语义上（谁的指纹可信、要不要 Noise、
+ICE 是否 lite），摊平成一个带 role 参数的函数极易改错一边。分派点在
+`swarm/transport.rs`，按 multiaddr 的协议段判别（`/webrtc` vs `/webrtc-direct`），
+两个方向的反向断言由 `dispatches_by_address_family` 钉死。
+
+端到端证据：`crates/webrtc-p2p/tests/direct_loopback.rs`（真绑端口、真 ICE-lite +
+DTLS + SCTP、真 Noise、真开子流传字节，且验证一个端口服务多条连接）。
+
+### ⚠️ rtc 0.20 的 `disable_certificate_fingerprint_verification` 是死代码
+
+**这是 direct 服务端的阻塞项，已 pin fork 绕过。**
+
+该 setting 有字段、有 setter，但**从未被传给 `RTCDtlsTransport`**——`start()` 一律装上
+指纹校验回调。旁边的 `allow_insecure_verification_algorithm` 走完全相同的路径且接线
+完整（`SettingEngine` → `internal.rs` → `RTCDtlsTransport::new` → `ConfigBuilder`），
+一对比就能看出是 sans-io 重构时漏接的一环。
+
+direct 的**服务端必须能关掉它**：它收不到真 offer，只能本地合成一份、`a=fingerprint`
+填占位值（`Fingerprint::FF`），身份改由 DataChannel 之上的 Noise 握手认证（spec FAQ
+第一条）。开关失效时 DTLS 在 Flight 4 报 `ErrNoMatchingCertificateFingerprint`。
+
+修复见 <https://github.com/webrtc-rs/rtc/pull/137>，**已随 rtc 0.20.0 正式版发布**
+（2026-07-31），本仓的 fork pin 已删除。这也是 `rtc` / `webrtc` **不得降回
+`0.20.0-rc.*`** 的原因之一：rc 版里这个开关仍是死代码，direct 监听端直接起不来。
+
+### 上游缺口台账（2026-07-28，pin 状态更新于 2026-08-04）
+
+做 direct 期间踩到的上游问题都已提出去。**关键区分：只有下表标「阻塞」的两项影响本仓的
+依赖 pin**，其余是反哺与待改进——看到「5 个上游 PR」不要以为退出条件从 3 个变成 5 个。
+
+> **webrtc-rs 那五条已全部出清**（下表标「已 pin」/「阻塞」的 rtc·webrtc 条目）：
+> 补丁 2026-07-29 合并进上游 master，2026-07-31 随 **0.20.0 正式版**发到 crates.io，
+> 本仓的两条 `[patch.crates-io]` 于 2026-08-04 整段删除。表里的「已 pin」现在读作
+> 「已在 0.20.0 里」。
+>
+> ⚠️ **当天下午两条 pin 又加回来了，但与这五个补丁无关**——是为了等
+> [#853](https://github.com/webrtc-rs/webrtc/pull/853) 公开两个 helper，见下面
+> 「webrtc 的 fork pin：删掉又加回来」。别把它读成「五个补丁又退回去了」。
+
+| 仓 | 编号 | 内容 | 对本仓的意义 |
+|---|---|---|---|
+| webrtc-rs/rtc | [PR 137](https://github.com/webrtc-rs/rtc/pull/137) | `disable_certificate_fingerprint_verification` 是死代码 | **阻塞** — direct 服务端没它建不起来 |
+| libp2p/rust-libp2p | [PR 6472](https://github.com/libp2p/rust-libp2p/pull/6472)（上游自己的） | relay circuit 无 reservation 时 panic | **阻塞** — 与 #6558/#6560 同属 git pin 退出条件 |
+| webrtc-rs/**rtc** | [PR 140](https://github.com/webrtc-rs/rtc/pull/140) | `RTCDataChannelInit` 的 `ordered` 默认成 `false`（issue 139） | 反哺 — 本仓已在自己这侧显式传参，不进 pin |
+| webrtc-rs/webrtc | [PR 825](https://github.com/webrtc-rs/webrtc/pull/825) | `on_data_channel` 把本端开的通道也报上来 | **已 pin**（见下）；muxer 的 `local_channels` 仍保留，它是不变式不是补丁 |
+| webrtc-rs/**rtc** | [PR 138](https://github.com/webrtc-rs/rtc/pull/138) | `send()` 在通道 open 前/关闭后返回 `Ok` 但**静默丢数据**（issue 826） | **已 pin**；`data_channel::await_open` **无论如何都要留** |
+| webrtc-rs/webrtc | [PR 828](https://github.com/webrtc-rs/webrtc/pull/828) | 加 `remote_certificate_fingerprint`（issue 827） | **已 pin**，`remote_fingerprint()` 收成一行 |
+| webrtc-rs/webrtc | [PR 850](https://github.com/webrtc-rs/webrtc/pull/850) → [853](https://github.com/webrtc-rs/webrtc/pull/853) | `gro_recv_buf_len` / `is_retryable_socket_recv_error` 是 `pub(crate)`，实现自定义 `AsyncUdpSocket` 只能照源码抄 | **已拒绝（2026-08-04）** — driver 策略不属 socket 契约，`pub` 会冻结内部分配策略。上游改为把规则写进公开文档，本仓按文档在 `udp_mux.rs` 自持一份。两条 pin 随之删除 |
+| libp2p/rust-libp2p | [PR 6571](https://github.com/libp2p/rust-libp2p/pull/6571) | `Fingerprint::from_sdp_format` | 纯反哺 — 合并后 `protocol/addr.rs` 的手写解析可删 |
+| libp2p/rust-libp2p | [PR 6572](https://github.com/libp2p/rust-libp2p/pull/6572) | offer SDP 模板搬进 `libp2p-webrtc-utils` | 纯反哺 — 合并后 `native/direct/sdp.rs` 的模板副本可删 |
+
+> #6571 / #6572 **基于上游 master 开分支，不在 fork 树上**——它们不进 `Cargo.toml` 的 pin，
+> 也不进退出条件。它们合并只是让本仓能删掉两处副本。
+
+> **我们的 relay panic PR #6570 已于 2026-07-28 关闭。** 维护者指出上游早有
+> [#6472](https://github.com/libp2p/rust-libp2p/pull/6472)，实测两者**源码逐字节相同**
+> （同一段 `find(|(_, status)| status.is_active())`），只有测试写法不同。
+> ⚠️ **这不缩短退出条件**：#6472 至今仍是 OPEN，那一行只是从「我们的 PR」换成
+> 「上游的 PR」，fork 上的补丁照旧要留着。
+
+⚠️ **issue 826 是本仓踩过最贵的一个坑**：Noise 握手第一条消息在
+`RTCPeerConnectionState::Connected` 时写出去就消失了，全链路零报错，表现为「握手莫名挂住」。
+实测数据在 issue 正文里（三条消息只到一条）。修法是发首包前等 `OnOpen`。
+
+根因后来钉死在 **rtc**（不在 webrtc）：`DataChannelHandler::handle_write` 确实返回了
+`ErrDataChannelNotExisted`，但它跑在 pipeline 的 write pass 上，那里的错误只 `warn!` 不上抛：
+
+```
+send result: Ok(())
+[WARN rtc::peer_connection::handler] DataChannelHandler.handle_write got error: data channel not existed
+```
+
+修复见 [rtc#138](https://github.com/webrtc-rs/rtc/pull/138)（把判据搬到 send 边界，
+用与 handler 完全相同的条件，于是两者不可能不一致）。顺带查出两件 issue 里没写的：
+**通道关闭后 send 同样返回 `Ok`**，且被拒的 send 还会错误累加 `outstanding_bytes`
+——那些字节从没进过 SCTP，永远不会被释放，等于把发送窗口永久缩小一截。
+
+> **就算 rtc#138 合并了，`await_open` 也不能删。** 它把「静默丢」变成「明确报错」，
+> 不代表可以不等——发之前仍然必须等通道 open。
+
+#### direct 的三个指纹从哪来——issue 827 只砸中其中一个
+
+Noise prologue 绑定**双方**指纹（`libp2p-webrtc-noise:<client><server>`，
+`libp2p-webrtc-utils/src/noise.rs`），两端算不出同一个 prologue 就握手失败。三个取值点：
+
+| 谁要谁的 | 来源 | 位置 |
+|---|---|---|
+| 拨号端要**服务端**的 | multiaddr 的 certhash（参数传入） | 两端皆是，spec 设计 |
+| wasm 拨号端要**自己**的 | `localDescription` 的 `a=fingerprint:` | `wasm/direct.rs::local_fingerprint` |
+| **服务端要拨号端的** | `get_stats` 的 certificate 项 | `native/direct/upgrade.rs::remote_fingerprint` |
+
+前两行不是绕法：certhash 本来就该从地址来；浏览器不给你直接读自己的证书指纹，
+解析 `localDescription` 是唯一途径。**只有第三行是 issue 827 逼出来的**——
+服务端在 direct 模式下收不到真 offer（自己合成、填 `Fingerprint::FF`），
+拨号端的指纹只存在于 DTLS 握手里，官方 0.17 用的正是 `get_remote_certificate()`。
+
+那一处曾靠 `cert.stats.id.starts_with("remote-certificate-")` 认远端项（id 前缀是 rtc 的
+实现细节，无文档承诺稳定）。现已换成上游 API [`PR 828`](https://github.com/webrtc-rs/webrtc/pull/828)
+的 `remote_certificate_fingerprint()`——库内部用 `Transport.remote_certificate_id` 反查，
+不再赌前缀。
+
+两道兜底都在：`tests/direct_loopback.rs` 跑真握手且断言 `accepted_peer == client_peer`
+（指纹取错 prologue 就对不上，Noise 当场失败）；上游那侧的测试则交叉验证
+「一端看到的 remote == 另一端的 local」，防的是取反了还静默通过——
+拿本端指纹去做 pin 校验等于自己跟自己比，会接受任何 peer。
+
+### webrtc 的 fork pin：删掉又加回来（2026-08-04）
+
+时间线值得记清楚，因为**两次 pin 的理由完全不同**：
+
+| 时间 | 状态 | 理由 |
+|---|---|---|
+| 2026-07-28 | pin fork | 五个功能补丁未合并 |
+| 2026-08-04 上午 | **删除** | 补丁随 0.20.0 正式版进 crates.io |
+| 2026-08-04 下午 | **重新 pin** | 等 [#850](https://github.com/webrtc-rs/webrtc/pull/850) 公开两个 helper |
+| 2026-08-04 晚 | pin 不变，**PR 改投** | 维护者要求投 `v0.20.x`（无 breaking change，合并后他自行 merge 回 master）→ 重开为 [#853](https://github.com/webrtc-rs/webrtc/pull/853)，#850 CLOSED。集成分支**没动**（那条绝不 force-push），故 `Cargo.toml` 的 rev 不变 |
+| 2026-08-04 深夜 | **再次删除，回 crates.io 0.20.0** | 上游拒绝公开那两个 helper（见下），pin 失去唯一理由 |
+
+**终局：两条 pin 已删，webrtc / rtc 都走 crates.io `0.20.0`。** 下面那段「等 API」的推理
+保留，因为结论被推翻的**方式**本身值得记：我们要的不是补丁而是「把内部函数提为 `pub`」，
+而这类请求的成败取决于**它是否属于对方的公开契约**，与它对下游多有用无关。维护者的划界是：
+`gro_recv_buf_len` / `is_retryable_socket_recv_error` 都由 **driver** 消费，而不是由
+`AsyncUdpSocket` 的**实现者**消费，所以它们是 driver 策略、不是 socket 契约的一部分；
+设成 `pub` 就等于把内部分配策略冻进 1.0 的兼容承诺。
+
+**但他接住了真实需求**：指出我们这种「一个 UDP socket 多路复用给多个 PeerConnection」的用法
+其实是在扮演 driver，本来就该自己拥有缓冲尺寸与错误分类；同时把两条规则补进了**公开文档**
+（commit `ef8ba660`）——`poll_recv` 的 `# Errors` 列出五个 transient 变体，
+`max_gro_segments` 的 `# Buffer sizing` 写死「合并段受路径 MTU 约束而非应用最大数据报」，
+并点名「跨连接多路复用的共享 socket 要在自己的循环里负责同样的 MTU 上界」。
+
+于是本仓按文档在 `udp_mux.rs` 自持一份（**不是照源码抄**），护栏是那个文件里的两条测试。
+这比 pin 一个 fork 更可持续：文档是契约，源码不是。
+
+第二次不是等修复，是**等一个新公开的 API**。`gro_recv_buf_len`（GRO 缓冲尺寸公式）
+与 `is_retryable_socket_recv_error`（读错误分类）在上游是 `pub(crate)`，而
+`crates/webrtc-p2p` 的 udp_mux 两个都要用。不 pin 就得在下游各抄一份，**而这两件事
+都没有反馈回路**：缓冲算小了内核静默丢尾部段、判据漏一种就把公网监听端口永久关掉，
+两者都不报错。本仓抄过一版，**两个都抄错了**（缓冲大 5.5 倍、错误集漏三个变体，
+见上面两条坑）。宁可背一条 pin，也不要在下游维护这两份复制品。
+
+- `rtc` → **官方** `webrtc-rs/rtc` 的 submodule commit `b47f82fe`，无自有补丁
+- `webrtc` → fork 分支 `swarmdrop-integration-0.21` = 上游 master + #850 + 一行适配
+
+⚠️ **两者都是未发布的 0.21.0**（crates.io 最高 0.20.0），故 `crates/webrtc-p2p` 的
+版本号也写 0.21.0，由这两条 patch 提供。
+⚠️ **`swarmdrop-integration-0.21` 不能 force-push**——commit 一游离就被 GC，构建当场断。
+#850 若被要求改形态，**另开分支**重建，不要改写这条。
+
+**同源约束**（两次 pin 都适用）：`webrtc` 与 `webrtc-p2p` 必须解析到**同一份** `rtc`，
+否则两个 source id = 两个互不兼容的同名 crate，`webrtc` 返回的类型对不上
+`use rtc::...` 的类型，直接编译失败。上游 master 用 `rtc = { version, path = "rtc" }`
+指 submodule，而 **`[patch.crates-io]` 不作用于 path 依赖**，所以集成分支必须把 `path`
+去掉——那就是「一行适配」，它**不能进上游**。
+
+（发布到 crates.io 的 `webrtc 0.20.0` 声明的是 `rtc = "^0.20.0"`，发布流程自动剥掉了
+`path`，所以走 crates.io 时天然同源、无需适配——这正是上午能删掉 pin 的前提。）
+
+验证收敛的命令（应只有一行 rtc）：
+
+```bash
+cargo tree -p webrtc-p2p -i rtc
+```
+
+### webrtc 0.20 没有 UDPMux —— 改从 `Runtime::wrap_udp_socket` 注入
+
+0.17 的 `UDPMux` / `UDPMuxWriter` / `UDPMuxConn` 体系在 0.20 整个消失
+（`SettingEngine::set_udp_network` 在 rtc 里已是**注释掉的 TODO**）。
+
+替代注入点更下层也更干净：`Runtime::wrap_udp_socket` 决定 `PeerConnection` 用哪个
+socket。于是复用一个端口的做法变成「给每条连接发一个假 socket」——发包转给共享
+socket，收包从自己的支路取。官方那 579 行 `udp_mux.rs` 里的 trait 适配层随之消失，
+只剩真正的分流逻辑（约 250 行）。
+
+**分流依据**：首包按 STUN `USERNAME` 里的 local ufrag（`<对端>:<本端>`，取**冒号前**
+那一半），其余按源地址。
+
+### ⚠️ 坑：udp_mux 必须自己拆 GRO —— 这是**旧代码一直漏做**的，不是升级引入的
+
+2026-08-04 切到 crates.io 0.20.0 时，上游把 socket 原语从 `async fn recv_from` 换成了
+quinn 风格的 `poll_recv(cx, bufs, meta)`（`recv_from` 降级成基于它的默认方法）。适配
+过程中才发现 udp_mux 一直缺一件事：**按 `RecvMeta::stride` 拆开内核 GRO 合并的数据报**。
+
+**因果别搞反**（这份文档里一度就记错了）：GRO 不是 0.20.0 才有的。旧 pin
+（`webrtc@3d6391cd`）的 `wrap_udp_socket` 就已经调
+`quinn_udp::UdpSocketState::new(...)`，那会在 socket 上**打开 UDP_GRO sockopt**；而
+当时 `UdpMux` 读包走 `recv_from`，底层是裸的 `tokio::UdpSocket::recv_from`，
+**不解析承载 stride 的 cmsg**。sockopt 开着，内核照样合并——只是 stride 信息被丢弃。
+
+于是 **0.20.0 之前的 Linux 构建（含已发布的 v0.10.4）在这条路径上是有缺陷的**：
+同一对端连发的数据报会被当成一个巨包投给支路（DTLS 记录层校验失败 / SCTP 解析失败，
+两者都静默丢弃），且缓冲只有 8 KiB，超出的尾部段被内核直接丢掉。表现为「偶发的、
+无日志的丢包」，极难归因。macOS / Windows 无 GRO，所以本机开发永远看不到。
+
+换成 poll 式 API 只是让这个约束**显式**了（`recv_from` 的文档明写「不要在可能发生
+GRO 的地方用它」）。现在 `UdpMux::poll` 是：`poll_recv` 收一批 → 按 `stride` 切成单个
+数据报入队 → 逐个 dispatch。
+
+⚠️ **本机 loopback 通常不触发 GRO**，`direct_loopback.rs` 那几条真链路测试走不到这条
+分支——覆盖它的是 `udp_mux.rs` 里 `split_datagrams` 的单测。改那段逻辑时别指望集成
+测试会红。
+
+同批还有两处纯签名变动：`Runtime::spawn` 返回 `Box<dyn JoinHandle>`（不再是具体类型），
+`spawn_reactor` 多了 `reactor_pool_size: usize` 首参；`Runtime` 另新增
+`resolve_host` / `sleep` / `interval` / `block_on` 四个必需方法，`MuxedRuntime` 一律转交
+`inner`（这层垫片只替换 UDP socket）。
+
+### ⚠️ 坑：瞬时读错误的判据漏一种，公网监听端口就会被远程掀掉
+
+`UdpMux::poll` 收到读错误时要判断「是某个对端的事」还是「端口废了」——后者会顺着
+`UdpMuxEvent::Error` 冒到 `Transport::poll`，那里 `listeners.remove()` + `ListenerClosed`，
+**4003 端口就此消失，进程还活着但再没人连得进来，且没有重试路径**。
+
+判据必须与 webrtc-rs 的 `is_retryable_socket_recv_error` 一致：
+`Interrupted | WouldBlock | ConnectionRefused | ConnectionReset | TimedOut`。
+
+**最容易漏的是 `ConnectionRefused`**：ICMP port unreachable 在 **Linux 上是它**，
+Windows 上才是 `ConnectionReset`。只认后者等于在 Linux 上留了个远程可触发的开关——
+随便哪个对端关掉进程，回来的 ICMP 就能掀掉整个监听端口。本仓一度就是这样
+（2026-08-04 修）。
+
+### 坑：`Transport::poll` 里的读循环必须有 burst 上限
+
+`UdpMux::poll` 的读循环开在 swarm 的 poll 线程上。没有上限的话，公网 4003 上一股持续
+流量（或一个刷包的扫描器）就能把 `Transport::poll` 永久留在里面，**节点其余所有传输、
+连接、behaviour 一起饿死**——而这是个未认证的输入源。
+
+修法与 webrtc-rs 的 `MAX_UDP_RECV_BURST` 一致：读满 64 轮就 `cx.waker().wake_by_ref()`
+后返回 `Pending`。自唤醒不能省——`pending` 队列里可能还有货，否则要等下一个数据报
+才会被处理。
+
+另有一条相关契约：`poll_recv` 返回 **`Ok(0)` 意思是「什么都没准备好」，不是「收到 0 条
+消息」**（上游 `runtime/primitives.rs` 明写）。当成后者会转出一轮没有 waker 的空循环。
+
+### 坑：GRO 缓冲按**段长**算，不是按单包上限算
+
+`gro_recv_buf_len` 是 `max_gro.min(64) * 1500`，无 GRO 时退化成 `UDP_RECV_BUF_LEN`
+（2000）。拿 8192（单包上限）当段长去乘会把缓冲算大 5 倍多（64 段时 512 KiB vs
+94 KiB）——GRO 的段不可能超过一个路径 MTU。另外 `max_gro_segments()` 是
+`AsyncUdpSocket` 实现给的值，**不能直接当分配乘数**，必须 clamp。
+
+> **这两条坑（缓冲尺寸 + 错误判据）现在都不用自己实现了。** 本仓一度各抄一份、
+> 两份都抄错，于是提了 [#850](https://github.com/webrtc-rs/webrtc/pull/850) 把上游
+> 那两个 `pub(crate)` 提为 `pub`，`udp_mux.rs` 改为直接
+> `use webrtc::runtime::{gro_recv_buf_len, is_retryable_socket_recv_error}`。
+> **不要再在本仓重新实现它们**——留这两条记录只为解释「为什么它们值得一条 pin」。
+
+### 坑：mDNS socket 也走 `wrap_udp_socket`
+
+`MuxedRuntime` 若无差别替换，`PeerConnection` 额外绑的 `0.0.0.0:5353` 多播 socket
+也会拿到同一条 mux 支路。更糟的是 driver 对 mDNS socket 用
+**`AsyncUdpSocket::local_addr()`** 建索引（我们返回的是共享监听端口），而对 ICE socket
+用 **bind 时的临时端口**——于是同一批入站包被随机打上两种 `local_addr` 标签，其中一半
+永远匹配不上 local candidate。
+
+症状极隐蔽：ICE 只在 warn 级刷 `Discarded message, not a valid local candidate`，
+握手静默超时。**修法**：`se.set_multicast_dns_mode(MulticastDnsMode::Disabled)`
+——direct 模式的地址是确定性构造的，本来也没有要发现的东西。
+
+### 坑：`PeerConnection` 的 `connected` 早于 DataChannel 的 `open`（native 也一样）
+
+research 文档曾记「native 侧没有这个问题，`webrtc-rs` 的 `send` 是 async 内部等 SCTP」
+——**0.20 不是这样**：DTLS 完成（`connected`）与 SCTP 关联建立之间实测差约 2 ms，
+期间 `dc.send()` **成功返回但把数据丢掉**。
+
+Noise 的第一条握手消息就这么静默消失，两端各自等对方直到超时。修法是写第一个字节前
+先等 `RTCDataChannelState::Open`（`data_channel::await_open`），出站/入站子流同样要等
+——否则表现为「刚开的流对端读到 EOF」。
+
+这与 wasm 侧那条「`Connecting` 不是错误」是同一个时序问题的两面。
+
+### 坑：webrtc 0.20 的 `on_data_channel` **也会回灌本端自己开的通道**
+
+`PeerConnectionEventHandler::on_data_channel` 顾名思义应该只报对端开来的通道，但
+webrtc 0.20 的 driver 对**每一个** `OnOpen` 事件都调它，不区分通道由谁建
+（`peer_connection/driver.rs` 的 `RTCDataChannelEvent::OnOpen` 分支）。
+
+> ⚠️ **别把这归因成「rtc 给 negotiated 通道发了 DCEP」——那是错的**，本文档一度这么写。
+> `rtc-datachannel` 明确对 negotiated 通道抑制了 DCEP 发送（`data_channel/mod.rs` 里
+> 带注释与专门的测试 `test_data_channel_negotiated_opens_stream_without_dcep_handshake`），
+> 对端**根本看不到**那条通道。出现在 `on_data_channel` 里的 id 0 是**自己刚建的**。
+
+后果有两个，第二个更严重：
+
+1. direct 的 Noise 通道（`negotiated` id 0）被当成第一条入站子流交给上层——它握手完就
+   关了，症状是「连接建好了，第一条子流一读就 `UnexpectedEof`」，与真正的对端关闭难分。
+2. **`poll_outbound` 开的业务子流同样会被回灌**，于是上层在一条对端根本不知情的流上等
+   协议协商。这条**打洞路径也有**，只是「一端只开流、另一端只收流」的测试撞不出来。
+
+正确的不变量是**「muxer 永不把本端开的通道当成入站子流」**：`Muxer` 持有一份
+`local_channels: HashSet<RTCDataChannelId>`，构造时收下建连期间已开的（direct 的 Noise
+通道），`poll_outbound` 每开一条就登记。按 id 而非 label 过滤——label 是本端自己编的，
+对端完全可以用同名 label 开流。
+
+（`init` 通道那条按 label 过滤是另一回事，不要一起改掉：它确实由对端 in-band 通告。）
+
+**这个缺口值得提上游**：与 rtc #137 同一性质，几行判断即可，且能同时消掉两个 target 的
+workaround。尚未提。
+
+### ⛔ 建 DataChannel 永远不要传 `None`——rtc 的 `ordered` 默认是 `false`
+
+**2026-07-28 实证，本轮最贵的一个坑。** `rtc::data_channel::RTCDataChannelInit` 是
+`#[derive(Default)]`，`ordered: bool` 于是默认成 **`false`**——与它自己紧邻的文档
+（「The default value of `true` guarantees that data will be delivered in order」）
+和 W3C 规范（`ordered` 默认 `true`）**都相反**。
+
+无序通道的后果远不止「乱序」：**无序 chunk 绕过 SCTP 的有序投递队列**，会抢在同一批
+发出的 DCEP OPEN 前面到达对端。对端在一条还不认识的 stream 上看到用户数据，
+`RTCDataChannelInternal::accept` 要求 PPID 必须是 DCEP，于是报
+`InvalidPayloadProtocolIdentifier(53)`（53 = WebRTC Binary，完全正常的值）——而那个错误跑在
+pipeline 的 read pass 上，**只 `warn!` 不上抛**，与 [issue 826](https://github.com/webrtc-rs/webrtc/issues/826)
+同一条吞错误的路径。
+
+净效果：**每条子流的第一条消息静默丢失**。发送端 `send()` 返回 `Ok`，链路零报错，
+表现为 multistream-select 永远协商不完、两端各自 10s 超时：
+
+```
+libp2p_swarm::connection: inbound stream upgrade timed out    ← 两端都刷
+rtc::peer_connection::handler: DataChannelHandler.handle_read got error:
+    Unknown PayloadProtocolIdentifier 53                       ← 开 RUST_LOG=rtc=debug 才看得见
+```
+
+排障提示：症状停在 libp2p 层，根因只在 `rtc` 的日志里。**direct 排障第一件事就是
+`RUST_LOG=rtc=debug`**——上面那行 warn 是唯一的线索。
+
+修法在 `native/muxer.rs::ordered_reliable()`，crate 内**所有** `create_data_channel`
+都过它，`None` 一处不留（Noise 通道本来就显式写了 `ordered: true`，所以握手一直是好的，
+坏的只有子流）。
+
+⚠️ **crate 级测试撞不出来**：`direct_loopback.rs` 那种手写 poll 循环会在
+`create_data_channel` 之后立刻再转一圈，DCEP OPEN 因而单独成包先发，竞态被盖住。
+真 swarm 的 poll 节奏才暴露它——回归守卫是 `crates/net/tests/webrtc.rs` 的
+`dial_own_webrtc_direct_listen_addr`（摘掉修复必红，已双向验证）。
+
+wasm 侧不受影响：浏览器 `createDataChannel` 按规范默认 `ordered: true`。
+
+上游已提 [rtc issue 139](https://github.com/webrtc-rs/rtc/issues/139)。
+
+### 用 `rtc::` 转出子 crate，不要直接依赖 `rtc-ice` / `rtc-stun`
+
+rtc `pub use` 了全套子 crate（`rtc::ice` / `rtc::stun` / `rtc::dtls` / …）。直接依赖
+`rtc-ice` 看似等价，但只要两边解析到的不是同一份，同名类型就分叉成两个，报
+「expected `rtc::rtc_ice::X`, found `rtc_ice::X`」这种极绕的错。经 `rtc::` 转一手
+天然同源。
+
+（2026-07 那阵 rtc 被 `[patch]` 换成 git 源时这是必然发生的；patch 虽已删除，但换成
+版本号解析后，任何一次版本漂移都能重演同样的分叉，所以这条约束照旧。）
+
+### direct 的 UDP 读循环挂在 `Transport::poll` 上
+
+与官方 `libp2p-webrtc` 同构：`UdpMux::poll` 由 `Transport::poll` 驱动，本 crate 全程
+无 `spawn`。代价是**停止 poll transport 就等于停掉这个端口上所有连接的收包**——
+包括建连之后的数据面。真实场景里 swarm 的事件循环一直在 poll，所以不成问题；但写
+测试时必须自己模拟（`direct_loopback.rs` 的 `drive`），否则会看到「握手永远不完成」。
+
+### 浏览器侧 direct dialer：两处只能绕的平台限制
+
+浏览器只做 dialer（`RTCPeerConnection` 没有服务端形态），且有两件事在 native 上是一行
+API、在这里必须绕：
+
+| | native | 浏览器 |
+|---|---|---|
+| 设 ICE 凭据 | `se.set_ice_credentials(ufrag, ufrag)` | **改写 `create_offer` 产出的 SDP**（`munge_ufrag`）——没有对应接口 |
+| 取本端指纹 | 直接从证书算 | 只能 parse `local_description()` 的 `a=fingerprint` 行 |
+
+证书由 `generateCertificate` 现生成、每次都换，这在 direct 里无所谓：**浏览器只拨不被拨**，
+没人会把它的 certhash 记进地址。
+
+另外 wasm 侧也补了 `await_connected`（等 `RTCPeerConnectionState` 的终态）。少了它，失败的
+连接只表现为「Noise 握手永远不返回」，最后由上层超时收场——**拿不到任何原因**。排 direct
+问题时，先看这条日志走到哪一步。
+
+### 浏览器实测怎么做
+
+`cargo run -p webrtc-p2p --example direct_listener` 起一个最小监听端，它打印带 certhash 与
+`/p2p` 段的完整地址；把地址粘进 `docs/app/app` 的 connect 框即可。
+
+**wasm 代码编过不代表逻辑对**——本次 wasm dialer 一次编译通过，但首轮实测直接超时（那次
+是公网 relay 挂了，不是实现问题）。浏览器那半必须真的用浏览器跑。
+
+⚠️ 改了 `crates/webrtc-p2p` 或 `crates/web` 后**必须 `cd docs && pnpm build:wasm`**，否则
+浏览器加载的还是旧产物——曾对着旧产物的日志判断新代码的行为。
+
+### 后续可做（本轮 code review 提出、未做）
+
+- **`DirectTransport` 实现 `libp2p_core::Transport`**，用 `OptionalTransport + or_transport`
+  替掉 `swarm/transport.rs` 里手写的地址分派。现在等于在 `Transport` 之上又造了一个小
+  `Transport`。纯结构重构、无功能收益，故未在发版前动。
+- **`webrtc_p2p::new` 强制要 `Factory`**，而 direct 全程不碰 `Backend`——测试与 example
+  都得捏一个「必然返回 Err」的假工厂来表达「我不需要这个平面」。对一个准备独立发布的
+  crate，这是 API 层的问题。
+> 这节里原有的四条「上游候选」**已全部提出去并落地**（webrtc #825/#828、rtc #138、
+> libp2p #6571/#6572），`remote_fingerprint` 也已换成上游 API。现状以上面的
+> 「上游缺口台账」为准，不要再照这节去重复提。
+
+**相关文件**：`crates/webrtc-p2p/src/backend/native/direct/{udp_mux,upgrade,sdp,certificate,transport}.rs`、
+`crates/webrtc-p2p/src/backend/wasm/direct.rs`、
+`crates/webrtc-p2p/src/{config.rs,swarm/{transport,direct}.rs}`、
+`crates/webrtc-p2p/examples/direct_listener.rs`、`crates/webrtc-p2p/Cargo.toml`（`rtc` /
+`webrtc` 的版本下限说明）、根 `Cargo.toml` 的 `[patch.crates-io]`（两条 pin 与退出条件）
 
 ## wasm 工程约定
 
@@ -133,6 +1249,10 @@ android target 依赖表）。
   storage-abstraction.md 的 SendWrapper 结论支撑）。`MaybeSend` 方案备而未用，
   真被 !Send 卡住时再引入。
 - `wasm-bindgen-futures` 必须精确 pin `=0.4.58`（master 的 libp2p-swarm 钉死了它）。
+- **`check-wasm.sh --clippy` 用 `-D warnings`，比本机 `cargo clippy` 严**：改 core/host 里
+  会进 wasm 门禁的代码时，纯 `cargo clippy`（无 `-D warnings`）只当 warning 放行的 lint
+  （如给 `start_node` 加参数触发的 `too_many_arguments`）会在 wasm job 变硬错误挂 CI。
+  提交前对 wasm 侧改动跑 `bash scripts/check-wasm.sh --clippy`，别只信本机 clippy 绿。
 
 ## wire v2 契约点（改动前先看固化测试）
 
@@ -157,27 +1277,58 @@ android target 依赖表）。
 wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core 与 web 共享），
 `PairingMethod` 现只剩 `Direct`（LAN mDNS）+ `Invite`。
 
-- **wire 契约（`invite.rs`，改动前看 `wire_v1_hex_snapshot` 单测）**：`sdinvite` 前缀 +
-  base32-nopad 小写 + postcard 单变体 enum `InviteWire::V1`（判别码 `0x00` 即版本，未知变体
-  解码即失败）。**签名尾置**——`InviteV1.signature` 是末位定长 64 字节，signable =
+- **wire 契约（`invite.rs`，改动前看 `wire_v1_keeps_version_capability_and_tail_signature_layout`
+  单测）**：链接是 `sd:` 前缀 +
+  base64url-nopad；二维码是 `SD` 前缀 + base32-nopad。二者承载相同的 postcard 单变体
+  enum `InviteWire::V1`（判别码 `0x00` 即版本，未知变体解码即失败）。wire 只传 128bit
+  capability、身份、精简地址、到期时刻、网络策略、设备名与平台名；不再传 invite_id 或签发时刻。
+  **签名尾置**——`InviteV1.signature` 是末位定长 64 字节，signable =
   `bytes[..len-64]` 覆盖含版本判别码在内的全部前置字节（防降级），验签公钥从 `inviter_id`
   的 identity multihash 就地恢复。字段序即契约，V1 发布后不可改。
-- **一次性/TTL**：`InviteRegistry`（发起端内存态）只存 `sha256(capability)`；入站 handle
+- **一次性/TTL**：`InviteRegistry`（发起端内存态）以 `sha256(capability)` 为键，不存明文；入站 handle
   非消费预检 + respond(Success) 原子 CAS `Pending→Consumed`（两台扫同码仅先确认者成功）。
-- **QR 三端统一（`qr.rs`，唯一编码源）**：喂 fast_qr 前把**整串（含 `sdinvite` 前缀）**
-  `.to_ascii_uppercase()` → 落 QR alphanumeric 模式（byte 模式 v13-15 降 v11-12，模块 -15%）；
-  ECL::M + 4 模块 quiet zone。三端渲染 core 出的 SVG/矩阵（桌面/web 用 `invite_qr_svg`、
-  RN 用 `invite_qr_matrix` + react-native-svg），**深模块 + 白底不随暗色反色**。
-  ⚠️ **整串大写含前缀**，故 `decode` 对前缀**必须大小写不敏感**——`strip_prefix("sdinvite")`
-  曾大小写敏感，扫码得到的 `SDINVITE…` 100% 解不出（粘贴走小写规范串侥幸没暴露，移动扫码落地
-  才发现）；已修（`invite.rs` 前缀 `eq_ignore_ascii_case` 回退）+ 补「整串大写 / 混排前缀」回归
-  断言（`roundtrip_and_case_insensitive`）。payload 段本就大小写不敏感。
+- **撤销（`PairingManager::revoke_invite`，2026-07-29 补齐接线）**：入参是**邀请串**不是
+  capability——三端 UI 手上只有串，capability 经解码取回（`revoke_via_decoded_invite_string_blocks_consume`
+  钉死往返一致）。**幂等且不返回 Result**：串解不开、capability 不在表里（已消费 / 非本机发出 /
+  节点重启后表已空）语义上都等价于「它已不可用」，正是调用方要的终态；传入他人的邀请串同样
+  no-op，撤销不了别人的东西。三端调用点统一为「生成新邀请前撤销被覆盖的旧串」+「clearActiveInvite」，
+  一律 fire-and-forget。
+  ⚠️ **不要在离开邀请页时撤销**：store 里 `activeInvite` 是刻意跨页面持久化的（用户复制走
+  链接后会切走等对方粘贴），撤销而不同步清 store 会得到「二维码照常显示、实际拨不通」——
+  比不撤销更糟。撤销与清状态必须成对。
+- **QR 三端统一（`qr.rs`，唯一编码源）**：链接 payload 的 Base64URL **不能**大写；先解出并验签
+  wire，再编码为 `SD` + Base32，才能落 QR alphanumeric 模式；ECL::M + 4 模块 quiet zone。
+  三端渲染 core 出的 SVG/矩阵（桌面/web 用 `invite_qr_svg`、RN 用 `invite_qr_matrix` +
+  react-native-svg），**深模块 + 白底不随暗色反色**。
+  `decode` 对 `SD` 二维码前缀和 Base32 payload 大小写不敏感；带 `:` 的 Base64URL 链接则必须
+  保持原样，补有两类回归断言。
+- **地址瘦身**：每类网络分别只留 TCP（无则 QUIC，native）和 WebRTC（浏览器）各一条；
+  两类路径从该网络分类的全部地址中独立挑选，避免 TCP-only 网卡排在前面时误删 WebRTC。
+  Auto 最多保留 100.64/10 overlay（Tailscale）、LAN、公网与 relay 的 native/WebRTC
+  各一条；198.18/15 仅在没有 overlay 时回退。LocalOnly 只保留 LAN 的 native/WebRTC。
 - **三端接线**：桌面命令 `generate_pair_invite`/`decode_pair_invite`/`invite_qr_svg`/
   `consume_pair_invite`；mobile uniffi 同名 + `pair_direct`（补回 Direct）+ `invite_qr_matrix`；
   web `WebNode::connect_invite`（decode 纯函数只需 net-base）。剪贴板感知（`hasStringAsync`
   探测亮 chip）与移动扫码（expo-camera `CameraView`：`barcodeTypes:["qr"]` + 前缀校验 +
   `lockRef` 一次性闸 + 权限三态 + AppState 回前台重拉）均已落地（`mobile/src/app/pairing/scan.tsx`）；
   原生 `CameraView` 需 `expo prebuild` 重编。
+
+### ⚠️ 客户端不要对邀请串做大小写归一（2026-07-29 修）
+
+`sdinvite` 时代的载荷是 Base32，大小写不敏感，于是 `scan.tsx` 顺手写了
+`previewInvite(raw.toLowerCase())`——注释还写着"归一回小写规范形态"。**换成
+`sd:<base64url>` 后这一行直接毁掉载荷**：Base64URL 里 `A` 与 `a` 是不同的 6 bit，
+小写化后 postcard 解不出来，移动端「粘贴邀请」100% 失败（扫码那条侥幸没事——二维码
+本来就是 Base32）。
+
+同一次改动里 KIND 前缀从 8 字符缩到 2 字符，`startsWith("sd")` 也一并退化成
+近乎无效的判据：任何以 sd 开头的二维码都会被送进 `previewInvite`，白白锁住扫码器
+再弹一次「邀请无效」。现已换成带字符集与长度下限的 `INVITE_PATTERN`，两种载体各一支。
+
+> 通用教训：**编码换了字母表，就要回头查所有做大小写变换的调用点**。Rust 侧
+> `decode_wire_text` 当时已经写明"带 `:` 的链接形态必须保持大小写"、单测也钉了
+> `decode(&s.to_ascii_uppercase()).is_err()`——契约是对的，漏的是三端调用侧的同步。
+> 前缀长度变化同理：它既是判别码也是误匹配的唯一屏障。
 
 ## 已知负债（勿当 bug 重报）
 

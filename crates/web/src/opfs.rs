@@ -7,6 +7,7 @@
 //! JsValue `!Send` 的 Send 兜底纪律见 `file_access` 模块 doc（本模块的 async fn 内部
 //! 直接跨 await 持 !Send 句柄，由调用方整段裹 `SendWrapper`）。
 
+use std::cell::RefCell;
 use std::time::Duration;
 
 use send_wrapper::SendWrapper;
@@ -35,8 +36,22 @@ fn ensure_secure_context() -> AppResult<()> {
     Ok(())
 }
 
+thread_local! {
+    /// 根句柄缓存。
+    ///
+    /// `navigator.storage.getDirectory()` 每次都是一次异步往返 + 一个超时定时器，而句柄在
+    /// 整个文档生命周期内恒有效。此前 `export_blob_url` 只在用户点下载时偶尔调一次，
+    /// 现在缩略图管线会**成批**调 [`open_file`]（一屏网格十几张图），那笔往返就成了常态开销。
+    ///
+    /// wasm 是单线程的，`thread_local` + `RefCell` 在这里没有并发问题。
+    static OPFS_ROOT: RefCell<Option<FileSystemDirectoryHandle>> = const { RefCell::new(None) };
+}
+
 /// OPFS 根目录（`navigator.storage.getDirectory()`，Window / Worker 通吃）。
 async fn opfs_root() -> AppResult<FileSystemDirectoryHandle> {
+    if let Some(cached) = OPFS_ROOT.with(|cell| cell.borrow().clone()) {
+        return Ok(cached);
+    }
     ensure_secure_context()?;
     let storage = crate::env::storage_manager()
         .ok_or_else(|| AppError::Transfer("navigator.storage 不可达（未知全局环境）".into()))?;
@@ -49,13 +64,16 @@ async fn opfs_root() -> AppResult<FileSystemDirectoryHandle> {
     {
         Ok(r) => r.map_err(js_to_err)?,
         Err(_) => {
-            return Err(AppError::Transfer(
+            return Err(AppError::StorageFailed(
                 "OPFS getDirectory 5s 超时——navigator.storage 未响应（非 secure context？）".into(),
             ));
         }
     };
-    root.dyn_into::<FileSystemDirectoryHandle>()
-        .map_err(|_| AppError::Transfer("getDirectory 返回非目录句柄".into()))
+    let handle = root
+        .dyn_into::<FileSystemDirectoryHandle>()
+        .map_err(|_| AppError::Transfer("getDirectory 返回非目录句柄".into()))?;
+    OPFS_ROOT.with(|cell| *cell.borrow_mut() = Some(handle.clone()));
+    Ok(handle)
 }
 
 /// 沿 `relative_path` 逐段建目录，返回末段文件句柄（`create:true`）。
@@ -112,35 +130,110 @@ pub(crate) async fn open_writable(
         .map_err(|_| AppError::Transfer("createWritable 返回类型错误".into()))
 }
 
-/// 读回 OPFS 文件建 blob URL（供 JS `<a download>` 下载）。demo 用。
+/// 删除 `relative_path` 这一条 OPFS 文件条目。返回**是否真的删掉了一条**。
 ///
-/// **快速失败**：文件不存在（会话未完成/不存在）→ `get_file_handle(create:false)` 立即 reject
-/// → 返回错误。外加超时兜底——保证**永不永久挂起**（team-lead 实测到 1800s+ 挂死，用超时封顶：
-/// 无论底层 OPFS 因何不响应，都在 5s 内明确失败，而非 await 永不解决）。
-pub async fn export_blob_url(relative_path: &str) -> AppResult<String> {
-    match n0_future::time::timeout(Duration::from_secs(5), export_blob_url_inner(relative_path))
-        .await
-    {
+/// 「不存在」返回 `Ok(false)` 而非 `Err`：接收侧还没落过任何 chunk 就取消是常态，
+/// 清理不能把取消流程一起拖失败。真失败（写句柄的独占锁还没释放、存储层报错）才回 `Err`，
+/// 由调用方 `warn!`。**调用前必须先 `abort()` 掉该文件的 writable 句柄**——锁在
+/// `close()` / `abort()` 时才释放，只把句柄 drop 掉要等 GC，此刻删会撞
+/// `NoModificationAllowedError`。
+///
+/// 只删末段那条文件，不递归删目录：会话目录留着，下一条会话还要往里写。
+/// 与 [`opfs_root`] / [`export_blob_url`] 同款 5s 超时兜底，保证永不挂死。
+pub(crate) async fn remove_path(relative_path: &str) -> AppResult<bool> {
+    match n0_future::time::timeout(Duration::from_secs(5), remove_path_inner(relative_path)).await {
         Ok(result) => result,
-        Err(_) => Err(AppError::Transfer(
-            "下载失败：OPFS 文件未就绪（会话未完成？）——5s 超时".into(),
+        Err(_) => Err(AppError::StorageFailed(
+            "OPFS 删除 5s 超时——写句柄未释放，或 navigator.storage 未响应".into(),
         )),
     }
 }
 
-async fn export_blob_url_inner(relative_path: &str) -> AppResult<String> {
+async fn remove_path_inner(relative_path: &str) -> AppResult<bool> {
+    let mut dir = opfs_root().await?;
+    let parts: Vec<&str> = relative_path.split('/').filter(|s| !s.is_empty()).collect();
+    let (file_name, dirs) = parts
+        .split_last()
+        .ok_or_else(|| AppError::Transfer("空 relative_path".into()))?;
+    // 逐段走到父目录（`create:false`——清理路径不该顺手建出目录来）。
+    for seg in dirs {
+        let opts = FileSystemGetDirectoryOptions::new();
+        opts.set_create(false);
+        let handle = match SendWrapper::new(JsFuture::from(
+            dir.get_directory_handle_with_options(seg, &opts),
+        ))
+        .await
+        {
+            Ok(handle) => handle,
+            // 目录都不在，末段文件自然也不在。
+            Err(e) if is_not_found(&e) => return Ok(false),
+            Err(e) => return Err(js_to_err(e)),
+        };
+        dir = handle
+            .dyn_into::<FileSystemDirectoryHandle>()
+            .map_err(|_| AppError::Transfer("子目录句柄类型错误".into()))?;
+    }
+    match SendWrapper::new(JsFuture::from(dir.remove_entry(file_name))).await {
+        Ok(_) => Ok(true),
+        Err(e) if is_not_found(&e) => Ok(false),
+        Err(e) => Err(js_to_err(e)),
+    }
+}
+
+/// JS 异常是否是 `NotFoundError`（OPFS 表达「这条目不存在」的标准形态）。
+///
+/// 按 `DomException::name` 判而非匹配 message：后者随浏览器与语言变，判据会静默失效。
+fn is_not_found(value: &JsValue) -> bool {
+    value
+        .dyn_ref::<web_sys::DomException>()
+        .is_some_and(|e| e.name() == "NotFoundError")
+}
+
+/// 打开 OPFS 里的一个文件，返回 `File` 句柄。
+///
+/// **不读字节**：`File` 是对底层内容的惰性引用（一个带 name / size / type 的 `Blob`），
+/// 真正的读取发生在调用方对它 `arrayBuffer()` / `createImageBitmap()` / `createObjectURL()`
+/// 的时候。缩略图管线要的正是这个——`createImageBitmap` 只吃 `Blob`，给它一个 blob URL
+/// 还得 `fetch` 一次绕回来，多一次拷贝，中间那个 URL 还必须记得 revoke。
+///
+/// **快速失败**：文件不存在（会话未完成/不存在）→ `get_file_handle(create:false)` 立即 reject
+/// → 返回错误。外加超时兜底——保证**永不永久挂起**（team-lead 实测到 1800s+ 挂死，用超时封顶：
+/// 无论底层 OPFS 因何不响应，都在 5s 内明确失败，而非 await 永不解决）。
+pub async fn open_file(relative_path: &str) -> AppResult<File> {
+    match n0_future::time::timeout(Duration::from_secs(5), open_file_inner(relative_path)).await {
+        Ok(result) => result,
+        Err(_) => Err(AppError::StorageFailed(
+            "读取失败：OPFS 文件未就绪（会话未完成？）——5s 超时".into(),
+        )),
+    }
+}
+
+async fn open_file_inner(relative_path: &str) -> AppResult<File> {
     let handle = opfs_file_handle(relative_path, false).await?;
-    let file = SendWrapper::new(JsFuture::from(handle.get_file()))
+    SendWrapper::new(JsFuture::from(handle.get_file()))
         .await
         .map_err(js_to_err)?
         .dyn_into::<File>()
-        .map_err(|_| AppError::Transfer("getFile 返回类型错误".into()))?;
+        .map_err(|_| AppError::Transfer("getFile 返回类型错误".into()))
+}
+
+/// 读回 OPFS 文件建 blob URL（收件箱下载入口；调用方点一次下载生成一个、用完 revoke）。
+///
+/// 就是 [`open_file`] + `createObjectURL`。超时兜底在 `open_file` 那一层——建 URL 本身是同步的。
+pub async fn export_blob_url(relative_path: &str) -> AppResult<String> {
+    let file = open_file(relative_path).await?;
     web_sys::Url::create_object_url_with_blob(&file).map_err(js_to_err)
 }
 
 /// JS 错误 → [`AppError`]（OPFS/JS 语境的通用收敛）。
+///
+/// 消息提取与 IndexedDB 侧共用 [`crate::error::js_message`]——这些错误（配额不足、
+/// NotFoundError…）会一路渲染到收件箱的错误卡片上，不能是 `JsValue` 的 Debug 噪音。
 pub(crate) fn js_to_err(v: JsValue) -> AppError {
-    AppError::Transfer(format!("OPFS/JS 错误: {v:?}"))
+    AppError::StorageFailed(format!(
+        "OPFS 错误: {}",
+        crate::error::js_message(&v, "未知 JS 异常")
+    ))
 }
 
 #[cfg(test)]
@@ -153,7 +246,7 @@ mod tests {
     /// Bug 2 回归：对未就绪（会话未完成 / 文件不存在）的路径，`export_blob_url` 必须**返回**
     /// 一个 `Err`，绝不永久挂起（team-lead 实测到 1800s+ 挂死）。
     ///
-    /// 本测试自身能跑完即证明「不永久挂起」：export_blob_url 内 5s 超时封顶，无论 OPFS 因何
+    /// 本测试自身能跑完即证明「不永久挂起」：超时封顶在 `open_file` 那一层，无论 OPFS 因何
     /// 不响应（含 harness 里 OPFS 不可用时 opfs_root 直接报错）都会在有限时间内落到 `Err`。
     /// 跑法：`wasm-pack test --headless --chrome -p swarmdrop-web`。
     #[wasm_bindgen_test]
@@ -162,6 +255,45 @@ mod tests {
         assert!(
             result.is_err(),
             "未就绪路径应快速失败返回 Err，实际: {result:?}"
+        );
+    }
+
+    /// 同一条护栏对 [`open_file`] 也必须成立——缩略图管线走的是它，而网格视图会对一屏
+    /// 十几个条目同时取图。少了这条超时，一个未就绪的路径就能挂住一个并发槽不放。
+    #[wasm_bindgen_test]
+    async fn open_file_missing_file_fails_fast() {
+        let result = open_file("does-not-exist/never-written.bin").await;
+        assert!(
+            result.is_err(),
+            "未就绪路径应快速失败返回 Err，实际: {:?}",
+            result.map(|_| "File")
+        );
+    }
+
+    /// `remove_path` 的往返：建 → 删 → 读不到；再删一次报 `Ok(false)` 而非 `Err`。
+    ///
+    /// 后半条是取消路径的硬要求：接收侧还没落过任何 chunk 就取消是常态，
+    /// 「文件不存在」若算错误就会把取消流程一起拖失败。
+    #[wasm_bindgen_test]
+    async fn remove_path_deletes_then_tolerates_missing() {
+        let path = "remove-path-test/partial.bin";
+        let writable = open_writable(path, false).await.expect("开写句柄");
+        SendWrapper::new(JsFuture::from(writable.close()))
+            .await
+            .expect("close 提交");
+
+        assert!(
+            export_blob_url(path).await.is_ok(),
+            "刚写完的文件应当读得回来"
+        );
+        assert!(
+            remove_path(path).await.expect("删除不应报错"),
+            "第一次删除应当删掉一条"
+        );
+        assert!(export_blob_url(path).await.is_err(), "删掉之后应当读不到");
+        assert!(
+            !remove_path(path).await.expect("重复删除不应报错"),
+            "不存在的路径应当返回 false 而不是 Err"
         );
     }
 }

@@ -240,34 +240,46 @@ impl MobileCore {
             .map_err(FfiError::from)
     }
 
-    /// 取消传输（自动判断是发送会话还是接收会话）
-    pub async fn cancel_transfer(&self, session_id: String) -> FfiResult<()> {
+    /// 取消发送会话。方向由调用方给（RN 侧 projection 带 direction），
+    /// 不做「先试发送、失败再试接收」的探测 —— 取消有副作用（发 wire 帧、删半成品、写终态），
+    /// 拿它当探针会误触发，错误也只能被拼成两句互相矛盾的话。
+    pub async fn cancel_send(&self, session_id: String) -> FfiResult<()> {
         let session_uuid = parse_session_id(&session_id)?;
         let manager = self.transfer_manager_arc().await?;
-        match manager.cancel_send(&session_uuid).await {
-            Ok(()) => Ok(()),
-            Err(send_err) => match manager.cancel_receive(&session_uuid).await {
-                Ok(()) => Ok(()),
-                Err(receive_err) => Err(FfiError::Transfer(format!(
-                    "取消传输失败: {send_err}; {receive_err}"
-                ))),
-            },
-        }
+        manager
+            .cancel_send(&session_uuid)
+            .await
+            .map_err(FfiError::from)
     }
 
-    /// 暂停传输（自动判断方向）
-    pub async fn pause_transfer(&self, session_id: String) -> FfiResult<()> {
+    /// 取消接收会话（含清理已落盘的半成品）。
+    pub async fn cancel_receive(&self, session_id: String) -> FfiResult<()> {
         let session_uuid = parse_session_id(&session_id)?;
         let manager = self.transfer_manager_arc().await?;
-        match manager.pause_send(&session_uuid).await {
-            Ok(()) => Ok(()),
-            Err(send_err) => match manager.pause_receive(&session_uuid).await {
-                Ok(()) => Ok(()),
-                Err(receive_err) => Err(FfiError::Transfer(format!(
-                    "暂停传输失败: {send_err}; {receive_err}"
-                ))),
-            },
-        }
+        manager
+            .cancel_receive(&session_uuid)
+            .await
+            .map_err(FfiError::from)
+    }
+
+    /// 暂停发送会话。
+    pub async fn pause_send(&self, session_id: String) -> FfiResult<()> {
+        let session_uuid = parse_session_id(&session_id)?;
+        let manager = self.transfer_manager_arc().await?;
+        manager
+            .pause_send(&session_uuid)
+            .await
+            .map_err(FfiError::from)
+    }
+
+    /// 暂停接收会话。
+    pub async fn pause_receive(&self, session_id: String) -> FfiResult<()> {
+        let session_uuid = parse_session_id(&session_id)?;
+        let manager = self.transfer_manager_arc().await?;
+        manager
+            .pause_receive(&session_uuid)
+            .await
+            .map_err(FfiError::from)
     }
 
     /// 设置全局「暂停接收」。暂停期间节点仍在线可发现、配对不受影响，但对新 offer

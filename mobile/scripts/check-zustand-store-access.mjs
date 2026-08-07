@@ -10,7 +10,7 @@ const allowlist = [
   {
     file: "src/core/event-bus.ts",
     pattern:
-      /use(MobileCore|Notification|Transfer|Inbox)Store\s*\.\s*getState\s*\(/,
+      /use(MobileCore|Notification|Transfer|Inbox|Preferences)Store\s*\.\s*getState\s*\(/,
     reason: "native core event bridge",
   },
   {

@@ -21,7 +21,7 @@ use crate::policy::{
 use crate::progress::{TransferFailedEvent, TransferPausedEvent};
 use crate::protocol::{
     FileInfo, OfferRejectReason, ResumeRejectReason, TransferOrigin, TransferRequest,
-    TransferResponse,
+    TransferResponse, file_info_is_consistent, is_safe_relative_path,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -193,6 +193,38 @@ where
             let Some(paired_device) = paired_device else {
                 return Ok(offer_result(false, Some(OfferRejectReason::NotPaired)));
             };
+
+            // **落盘路径的合法性校验必须在这里，而且必须在策略评估之前。**
+            //
+            // 这里是 wire 数据进入领域层的唯一入口，收口在此则三端（桌面的
+            // `save_dir.join`、移动的 SAF、Web 的 OPFS 目录链）一次覆盖，没有哪个宿主
+            // 可能忘记。放在策略之后则更糟：策略本身要读 `files`（按扩展名/目录判定），
+            // 拿一条 `../../..` 去比对「允许的文件夹」是拿脏数据做安全决策。
+            //
+            // 不缓存、不落库、不通知本机用户——这条 offer 从不存在过。
+            if let Some(bad) = files
+                .iter()
+                .find(|f| !is_safe_relative_path(&f.relative_path))
+            {
+                warn!(
+                    "拒绝入站 offer：文件路径会逃出保存目录 peer={} session={} path={:?}",
+                    peer_id, session_id, bad.relative_path
+                );
+                return Ok(offer_result(false, Some(OfferRejectReason::UnsafePath)));
+            }
+
+            // `name` 与 `relative_path` 必须自洽。两者都由对端控制，而接收端的用途是**分开的**
+            // ——确认弹窗展示 `name`、落盘只用 `relative_path`。不校验的话，一条
+            // `name: "photo.jpg"` + `relative_path: "autostart/evil.desktop"` 的 offer 会让
+            // 用户对着一张图片按下「接收」，落盘的却是个自启动项：路径合法、不出保存目录，
+            // 但**用户据以决策的信息是假的**。见 `file_info_is_consistent` 的文档。
+            if let Some(bad) = files.iter().find(|f| !file_info_is_consistent(f)) {
+                warn!(
+                    "拒绝入站 offer：文件名与路径不一致 peer={} session={} name={:?} path={:?}",
+                    peer_id, session_id, bad.name, bad.relative_path
+                );
+                return Ok(offer_result(false, Some(OfferRejectReason::UnsafePath)));
+            }
 
             // 全局「暂停接收」：节点保持在线可发现，但对新 offer 自动婉拒——
             // 不缓存、不落盘、不发 TransferOffer 事件、不打扰本机用户。恢复后照常处理。

@@ -1,10 +1,12 @@
-//! 身份持久化：`SecretKey` 的 protobuf 编码经 hex 存储，启动恢复。
+//! 设备身份密钥材料的持久化——**只管 `SecretKey`**。
 //!
-//! 范围内不做配对持久化，但节点身份必须稳定（circuit 地址 / 分享码发布都绑 NodeId），
-//! 故最小地存一份密钥。protobuf 编码与桌面/移动 keychain 存量同构。
+//! `SecretKey` 的 protobuf 编码经 hex 存储、启动恢复——节点身份必须稳定（circuit 地址与
+//! 邀请里的可拨地址都绑 NodeId）。protobuf 编码与桌面/移动 keychain 存量同构。存储后端按
+//! 环境双轨：Window 用 localStorage（同步、现状）；Worker 没有 localStorage，退到 OPFS 小
+//! 文件（与落盘同一存储域，Worker 全自治、无需主线程注入身份）。
 //!
-//! 存储后端按环境双轨：Window 用 localStorage（同步、现状）；Worker 没有 localStorage，
-//! 退到 OPFS 小文件（与落盘同一存储域，Worker 全自治、无需主线程注入身份）。
+//! 已配对设备列表**不在这里**：它是一份可导出、会被整份覆写的业务数据，端口与实现分别是
+//! `swarmdrop_host::PairedDeviceStore` 与 [`crate::paired_devices`]。
 
 use swarmdrop_net::SecretKey;
 use wasm_bindgen::JsCast;

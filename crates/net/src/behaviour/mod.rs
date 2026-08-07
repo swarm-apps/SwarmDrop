@@ -35,12 +35,21 @@ pub(crate) struct Behaviour {
     /// AutoNAT v2 客户端：让对端回拨确认外部可达性。
     #[cfg(not(wasm_browser))]
     pub autonat: Toggle<autonat::v2::client::Behaviour>,
+    /// AutoNAT v2 服务端（公网 bootstrap / relay 节点为客户端回拨探测）。
+    #[cfg(not(wasm_browser))]
+    pub autonat_server: Toggle<autonat::v2::server::Behaviour>,
     /// DCUtR 打洞协调（需要直连 socket，浏览器编译期不存在）。
     #[cfg(not(wasm_browser))]
     pub dcutr: Toggle<dcutr::Behaviour>,
     /// 中继服务端（LanHelper 模式）。类型在 wasm 也存在（relay feature），
     /// 无需 cfg——wasm 下配置恒 None。
     pub relay_server: Toggle<relay::Behaviour>,
+    /// WebRTC 打洞的信令面（`/webrtc-signaling/0.0.1`）。
+    ///
+    /// 与 `crate::transport` 里注册的 `webrtc_p2p::Transport` **是配对的一半**，
+    /// 二者由同一次 `webrtc_p2p::new()` 产出——拆开注册 dial 会直接失败。
+    /// 双 target 均可用（浏览器与 NAT 后原生端正是它的目标场景）。
+    pub webrtc_p2p: Toggle<webrtc_p2p::Behaviour>,
     /// 应用字节流（Router / Endpoint::open 的底座）。
     pub stream: libp2p_stream::Behaviour,
 }
@@ -49,6 +58,7 @@ impl Behaviour {
     pub(crate) fn new(
         keypair: &Keypair,
         relay_client: Option<relay::client::Behaviour>,
+        webrtc_p2p: Option<webrtc_p2p::Behaviour>,
         config: &EndpointConfig,
     ) -> Self {
         let peer_id = keypair.public().to_peer_id();
@@ -87,18 +97,37 @@ impl Behaviour {
             kad
         }));
 
+        // mDNS 是**可选的发现加速手段**，不是必需品：绑不上 5353（iOS 上被
+        // mDNSResponder 占着且不一定给 SO_REUSEPORT、容器/无线网卡缺组播接口）
+        // 只该退化成「局域网设备发现得慢一点」，不该让整个节点起不来。
+        // 此前这里是 `expect`，等于把一个平台可选能力做成了启动的硬前提——
+        // 任何一个不给绑 5353 的环境都会在节点启动时直接 panic。
+        //
+        // 退化后局域网直连并没有丢：`actor.rs` 的 `try_upgrade_to_lan` 还能从
+        // identify 自报的私网地址把中转连接升级成直连，那条路径不碰组播。
         #[cfg(not(wasm_browser))]
-        let mdns = Toggle::from(if config.mdns {
-            Some(
-                mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)
-                    .expect("mDNS initialization failed"),
-            )
-        } else {
-            None
-        });
+        let mdns = Toggle::from(config.mdns.then(|| {
+            match mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id) {
+                Ok(behaviour) => Some(behaviour),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "mDNS unavailable; lan discovery falls back to identify-based upgrade"
+                    );
+                    None
+                }
+            }
+        }).flatten());
 
         #[cfg(not(wasm_browser))]
         let autonat = Toggle::from(config.autonat.then(autonat::v2::client::Behaviour::default));
+
+        #[cfg(not(wasm_browser))]
+        let autonat_server = Toggle::from(
+            config
+                .autonat_server
+                .then(autonat::v2::server::Behaviour::default),
+        );
 
         #[cfg(not(wasm_browser))]
         let dcutr = Toggle::from(config.dcutr.then(|| dcutr::Behaviour::new(peer_id)));
@@ -141,8 +170,11 @@ impl Behaviour {
             #[cfg(not(wasm_browser))]
             autonat,
             #[cfg(not(wasm_browser))]
+            autonat_server,
+            #[cfg(not(wasm_browser))]
             dcutr,
             relay_server,
+            webrtc_p2p: Toggle::from(webrtc_p2p),
             stream: libp2p_stream::Behaviour::new(),
         }
     }

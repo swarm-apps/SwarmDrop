@@ -66,12 +66,16 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::set_device_name,
             // pairing
             commands::generate_pair_invite,
+            commands::revoke_pair_invite,
+            commands::list_pair_invites,
+            commands::revoke_pair_invite_by_id,
             commands::invite_qr_svg,
             commands::decode_pair_invite,
             commands::consume_pair_invite,
             commands::request_pairing,
             commands::respond_pairing_request,
             commands::remove_paired_device,
+            commands::default_receive_policy,
             commands::update_paired_device_policy,
             // transfer
             commands::scan_sources,
@@ -81,11 +85,12 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::reject_receive,
             commands::cancel_send,
             commands::cancel_receive,
+            commands::pause_send,
+            commands::pause_receive,
             commands::get_transfer_projections,
             commands::get_transfer_source_paths,
             commands::delete_transfer_session,
             commands::clear_transfer_history,
-            commands::pause_transfer,
             commands::resume_transfer,
             commands::set_receiving_paused,
             commands::is_receiving_paused,
@@ -105,6 +110,8 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::DevicesChanged,
             events::PairingRequestReceived,
             events::PairedDeviceAdded,
+            events::PairedDeviceRemoved,
+            events::DeviceRenamed,
             events::TransferOffer,
             events::TransferProgress,
             events::TransferAccepted,
@@ -117,6 +124,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::TransferProjectionUpdate,
             events::ReceivingPausedChanged,
             events::ExternalFileOpen,
+            events::ExternalPairInvite,
             events::TrayOpenReceiveFolder,
             events::TrayOpenSettings,
         ])
@@ -156,12 +164,24 @@ fn register_plugins(builder: Builder<Wry>) -> Builder<Wry> {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_biometry::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_process::init());
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        // deep-link：**只用它的 scheme 注册能力**（macOS plist / Windows 注册表 /
+        // Linux .desktop），事件消费仍走 `external_open` 那份自建 handler。
+        //
+        // 理由（openspec: pair-deep-link design D1）：自建 handler 带着两样不能丢的东西 ——
+        // `catch_unwind`（`RunEvent::Opened` 在 ObjC extern "C" 回调里触发，panic 不能跨
+        // 该边界 unwind，否则直接 abort）与全局 OnceLock 缓冲（冷启动时事件可能早于
+        // `app.manage(...)`，那时访问托管状态会 panic）。
+        //
+        // ⚠️ **待实测**：macOS 上本 plugin 也会挂 `RunEvent::Opened`，两个消费者是否互相
+        // 影响未验证（需要真机跑 `pnpm tauri dev` 并点一次深链）。若发现它抢事件，退路是
+        // 不装 plugin、自己写三平台注册（见 design D1 末尾）。
+        .plugin(tauri_plugin_deep_link::init());
 
     // MCP Bridge —— 仅 debug build 注册,供 @hypothesi/tauri-mcp-server 调试
     // (读日志 / 调 IPC / 操作 WebView)。默认监听 0.0.0.0:9223;release 不注册。
@@ -210,6 +230,17 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
             tracing::warn!("Failed to initialize updater plugin: {e}");
         }
 
+        // 深链 scheme 注册：**只有 dev 需要**（打包后由 installer / plist 完成）。
+        // 没有它，`pnpm tauri dev` 下点 swarmdrop:// 链接系统找不到处理程序，深链根本测不了。
+        // macOS 无需运行时注册（走 bundle plist），故只对 Windows / Linux 调。
+        #[cfg(all(debug_assertions, not(target_os = "macos")))]
+        {
+            use tauri_plugin_deep_link::DeepLinkExt as _;
+            if let Err(e) = app.deep_link().register_all() {
+                tracing::warn!("注册 swarmdrop:// scheme 失败（dev 下深链将不可用）: {e}");
+            }
+        }
+
         // 事件总线提前注入：启动清理也会经 Coordinator 发布 TransferProjection。
         let event_bus = crate::host::event_bus::TauriEventBus::new(app.handle().clone());
         app.manage(event_bus.clone());
@@ -217,12 +248,37 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
         // 数据库（SeaORM + SQLite）—— 同步执行 + 启动清理过期会话
         let handle = app.handle().clone();
         let db = tauri::async_runtime::block_on(crate::database::init_database(&handle))?;
+
+        // 传输域持久化端口的**唯一**构造点（openspec: inbox-store-port-completion design D5）。
+        //
+        // 注入 `TransferManager` 的（`commands::start` 的工厂闭包从 state 里取的就是这一份）
+        // 与宿主自持的（收件箱命令、MCP 工具、启动清理）**必须是同一个 `Arc`**，
+        // 不是两个包装同一条连接的实例——后者等于凭空多出一个事实源，
+        // 缓存、事务与将来的进程内状态都会在两份实例之间悄悄分叉。
+        //
+        // 托管端口而非节点：收件箱按定义是与网络无关的内容账本，
+        // 「没联网也能翻已经收到的东西」不该退化成「先启动节点」。
+        let transfer_store: crate::database::TransferStoreState = Arc::new(
+            swarmdrop_storage_sql::SqlSessionStore::new(Arc::new(db.clone())),
+        );
+
         let cleanup_event_bus: Arc<dyn swarmdrop_core::host::EventBus> = Arc::new(event_bus);
         tauri::async_runtime::block_on(crate::database::cleanup_stale_sessions(
-            &db,
+            &transfer_store,
             cleanup_event_bus,
         ))?;
+        app.manage(transfer_store);
         app.manage(db);
+
+        // 文件访问端口：**组装点建一次**，`start()` 注入给 TransferManager 的与收件箱命令
+        // 自持的是同一个 `Arc`（与上面 transfer_store 同一条纪律）。
+        //
+        // 建在这里而不是 `start()` 里，是因为收件箱命令**刻意不依赖节点启动**——它是与网络
+        // 无关的内容账本。`TauriFileAccess::new` 只需要 AppHandle，setup 阶段就已具备。
+        let file_access: Arc<dyn swarmdrop_core::host::FileAccess> = Arc::new(
+            crate::host::file_source::TauriFileAccess::new(app.handle().clone()),
+        );
+        app.manage(file_access);
 
         // MCP server 状态容器
         app.manage(crate::mcp::server::McpServerState::default());

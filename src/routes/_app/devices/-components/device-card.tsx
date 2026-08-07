@@ -1,18 +1,15 @@
-import { useState, type ComponentType } from "react";
+import { useState } from "react";
+import { canSendToDevice, normalizeTrustLevel } from "@swarmdrop/shared-view";
 import { cn } from "@/lib/utils";
 import { deviceDisplayName } from "@/lib/device-name";
-import { formatLatency } from "@/lib/format";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   Link,
   MoreHorizontal,
-  RadioTower,
   Send,
   Settings2,
   Tags,
   Unlink,
-  Wifi,
-  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,50 +29,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { msg } from "@lingui/core/macro";
-import type { MessageDescriptor } from "@lingui/core";
 import { useLingui } from "@lingui/react/macro";
 import { Trans } from "@lingui/react/macro";
 import type {
   Device,
-  ConnectionType,
   DeviceReceivePolicy,
   DeviceTrustLevel,
 } from "@/lib/bindings";
+import { ConnectionBadge } from "./connection-badge";
 import { TrustPolicyDialog, trustConfig } from "./trust-policy-dialog";
 
 const statusTone = {
   unpaired:
     "bg-primary/10 text-brand ring-primary/10 dark:bg-primary/12 dark:ring-primary/15",
-};
-
-const connectionConfig: Record<
-  ConnectionType,
-  {
-    icon: ComponentType<{ className?: string }>;
-    label: MessageDescriptor;
-    bgColor: string;
-    textColor: string;
-  }
-> = {
-  lan: {
-    icon: Wifi,
-    label: msg`局域网`,
-    bgColor: "bg-green-100",
-    textColor: "text-green-600",
-  },
-  dcutr: {
-    icon: Zap,
-    label: msg`打洞`,
-    bgColor: "bg-sky-100",
-    textColor: "text-sky-600",
-  },
-  relay: {
-    icon: RadioTower,
-    label: msg`中继`,
-    bgColor: "bg-amber-100",
-    textColor: "text-amber-600",
-  },
 };
 
 interface DeviceCardProps {
@@ -110,7 +76,14 @@ export function DeviceCard({
   const { t } = useLingui();
   const DeviceIcon = getDeviceIcon(device.os);
   const isOnline = device.status === "online";
-  const connConfig = device.connection ? connectionConfig[device.connection] : null;
+  /**
+   * 能不能发。**必须走共享包，不能只判 `isOnline`**：此前整卡点击与发送按钮的判据里都
+   * 没有信任级别，于是一台**在线的已阻止设备**在桌面上整卡可点、按钮高亮，点下去才由
+   * 内核拒绝——而「阻止」正是用户明确表态过不要跟它来往的那一档。
+   * Web 端一直用的这个函数；DESIGN.md 跨端清单也点名要求信任归一化来自 `shared-view`
+   * 而不是各端本地副本。
+   */
+  const canSend = canSendToDevice(device);
 
   const [unpairOpen, setUnpairOpen] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -119,13 +92,13 @@ export function DeviceCard({
   // 整张卡可点击:已配对+在线点击 = 发送;未配对点击 = 连接
   const handleCardClick = () => {
     if (device.isPaired) {
-      if (isOnline) onSend?.(device);
+      if (canSend) onSend?.(device);
     } else {
       onConnect?.(device);
     }
   };
 
-  const isInteractive = device.isPaired ? isOnline : !!onConnect;
+  const isInteractive = device.isPaired ? canSend : !!onConnect;
 
   return (
     <>
@@ -146,7 +119,10 @@ export function DeviceCard({
         }}
         className={cn(
           "group relative flex min-h-[132px] flex-col gap-2.5 overflow-hidden rounded-[22px] p-3.5 transition-[border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
-          device.isPaired && isOnline ? "glass-accent" : "glass-card",
+          // 强调层跟着**能不能用**走，不是「在不在线」。一台在线的已阻止设备如果照样
+          // 高亮，卡片在说「来点我」，而按钮禁用、信任徽标写着「已阻止」——同一张卡上
+          // 视觉与语义对着干。
+          device.isPaired && canSend ? "glass-accent" : "glass-card",
           isInteractive
             ? "cursor-pointer hover:border-primary/25 hover:shadow-[0_18px_42px_rgba(219,163,65,0.10)] active:scale-[0.99]"
             : "opacity-72",
@@ -174,30 +150,28 @@ export function DeviceCard({
             <span className="truncate text-sm font-medium text-foreground">
               {displayName}
             </span>
-            <div className="flex items-center gap-1">
-              {device.isPaired ? (
-                <>
-                  <span
-                    className={cn(
-                      "size-1.5 rounded-full",
-                      isOnline ? "bg-green-500" : "bg-muted-foreground"
-                    )}
-                  />
-                  <span
-                    className={cn(
-                      "text-[11px]",
-                      isOnline ? "text-green-500" : "text-muted-foreground"
-                    )}
-                  >
-                    {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
-                  </span>
-                </>
-              ) : (
-                <span className="text-[11px] text-muted-foreground">
-                  <Trans>未配对</Trans>
+            {/* 在线态只对已配对设备有意义，也只在这里说一次。
+                未配对时这一整行不渲染——「未配对」由下方恒在场的 `TrustBadge` 说，
+                两处都摆等于在一张 132px 的卡里把同一句话说两遍（同按钮不重复禁用
+                原因那条，见下方注释）。 */}
+            {device.isPaired && (
+              <div className="flex items-center gap-1">
+                <span
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    isOnline ? "bg-green-500" : "bg-muted-foreground"
+                  )}
+                />
+                <span
+                  className={cn(
+                    "text-[11px]",
+                    isOnline ? "text-green-500" : "text-muted-foreground"
+                  )}
+                >
+                  {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
                 </span>
-              )}
-            </div>
+              </div>
+            )}
             {(showIdentityHint || groupNames.length > 0) && (
               <p className="truncate text-[10px] text-muted-foreground">
                 {[
@@ -223,48 +197,53 @@ export function DeviceCard({
         </div>
 
         {/* Footer */}
-        <div className="mt-auto flex items-center justify-between gap-2">
-          {/* Connection Badge */}
-          {connConfig && device.latency != null ? (
-            <div
-              className={cn(
-                "flex items-center gap-1 rounded-full px-2.5 py-1 ring-1 ring-black/[0.03]",
-                connConfig.bgColor
-              )}
-            >
-              <connConfig.icon className={cn("size-2.5", connConfig.textColor)} />
-              <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
-                {t(connConfig.label)}
-              </span>
-              {formatLatency(device.latency) && (
-                <span className={cn("text-[10px] font-medium", connConfig.textColor)}>
-                  {formatLatency(device.latency)}
-                </span>
-              )}
-            </div>
-          ) : (
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-2">
+          {/* 信任徽标与连接徽标**同时在场**。
+              此前这里是三元二选一（有连接就只显示连接），于是**连上的设备永远看不到
+              自己的信任级别**——而那正是它最要紧的时刻：一台 `temporary` 或
+              `blocked` 的设备连上来时，用户需要在决定发文件之前看见这件事。
+              「待确认」（`trustConfirmed === false`）同理，此前也被一起吞掉。
+              DESIGN.md 的 Device Card Contract 把这条记为 Known gap，Web 端两枚并排。
+
+              连接徽标可点开链路详情，见 connection-badge.tsx。它的条件只看
+              `connection`：延迟要等第一次 ping（30s 间隔），此前 `latency` 为 null，
+              把它并进条件等于「刚连上的半分钟里连接方式不显示」。 */}
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
             <TrustBadge device={device} />
-          )}
+            {device.connection && <ConnectionBadge device={device} />}
+          </span>
 
           {/* Action Button */}
           {device.isPaired ? (
             <Button
               size="sm"
-              variant={isOnline ? "default" : "outline"}
-              disabled={!isOnline}
+              variant={canSend ? "default" : "outline"}
+              disabled={!canSend}
               data-testid="device-send-action"
               onClick={(e) => {
                 e.stopPropagation();
                 onSend?.(device);
               }}
               className={cn(
-                "h-auto shrink-0 gap-1.5 rounded-full px-3 py-1.5 text-xs transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]",
-                isOnline
+                // `ml-auto` 是**折行时的兜底**：这一行是 `flex-wrap justify-between`，
+                // 徽标与按钮同处一行时它不起作用（`justify-between` 已经把按钮推到右端）；
+                // 一旦窄到折行，没有它按钮会孤零零贴在第二行左端，读起来像一枚掉队的标签。
+                // 有了它，即使折行也是「徽标一行、动作右对齐一行」的页脚形态。
+                //
+                // 正常情况下不该折行——列宽由 `index.lazy.tsx` 的 `minmax(280px,1fr)` 保证。
+                "ml-auto h-auto shrink-0 gap-1.5 rounded-full px-3 py-1.5 text-xs transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]",
+                canSend
                   ? "shadow-[0_8px_18px_rgba(219,163,65,0.18)]"
                   : "glass-control border-transparent text-muted-foreground"
               )}
             >
               <Send className="size-3.5" />
+              {/* 按钮**不重复禁用原因**。「灰按钮要解释自己」在这张卡上已经由别处满足：
+                  离线由状态行的「● 离线」说，已阻止由上面恒在场的信任徽标说（它此前被
+                  连接徽标顶掉，才让按钮不得不兼职解释）。在一张 132px 高的卡里把同一句话
+                  说两遍，比不说更糟。
+                  Web 端 2026-08-06 起同此（它此前是按钮独占底部一整行、由按钮兼职解释禁用
+                  原因；那一行满宽实心块是整张卡上最响的东西，已改回同一行右对齐）。 */}
               <Trans>发送</Trans>
             </Button>
           ) : (
@@ -397,7 +376,9 @@ function TrustBadge({ device }: { device: Device }) {
     );
   }
 
-  const trust = trustConfig(device.trustLevel ?? "collaborator");
+  // 走共享包的归一化，不手抄 `?? "collaborator"`——那份默认值的语义（「内核允许为空，
+  // UI 一律按协作者呈现」）住在 `shared-view`，三端各抄一份迟早会有人改错一处。
+  const trust = trustConfig(normalizeTrustLevel(device.trustLevel));
   const Icon = trust.icon;
 
   return (

@@ -79,6 +79,17 @@ impl AppError {
     pub fn identity<S: Into<String>>(msg: S) -> Self {
         AppError::Core(swarmdrop_core::AppError::Identity(msg.into()))
     }
+    /// 参数解析失败（peer_id / multiaddr / 邀请标识等）。
+    ///
+    /// **不要再用 [`Self::identity`] 兜这类错误**：`kind` 是前端渲染文案的判别码，
+    /// 包成 Identity 会让用户看到一句「设备身份初始化失败」。
+    pub fn invalid_argument<S: Into<String>>(msg: S) -> Self {
+        AppError::Core(swarmdrop_core::AppError::InvalidArgument(msg.into()))
+    }
+    /// 设备身份还没加载进内存（与「读写身份失败」不同，见 core 的 `AppError`）。
+    pub fn identity_not_ready() -> Self {
+        AppError::Core(swarmdrop_core::AppError::IdentityNotReady)
+    }
     pub fn network<S: Into<String>>(msg: S) -> Self {
         AppError::Core(swarmdrop_core::AppError::Network(msg.into()))
     }

@@ -137,7 +137,7 @@ function ActivityProjectionCardComponent({
         </View>
       ) : null}
 
-      {reason || projection.errorMessage || policyNote ? (
+      {reason || projection.failure || policyNote ? (
         <View className="gap-1 rounded-lg bg-muted px-3 py-2">
           {reason ? (
             <Text className="text-[12px] text-muted-foreground">{reason}</Text>
@@ -153,12 +153,12 @@ function ActivityProjectionCardComponent({
               </Text>
             </View>
           ) : null}
-          {projection.errorMessage ? (
+          {projection.failure ? (
             <Text
               className="text-[12px] text-destructive-ink"
               numberOfLines={2}
             >
-              <LocalizedError message={projection.errorMessage} />
+              <LocalizedError failure={projection.failure} />
             </Text>
           ) : null}
         </View>

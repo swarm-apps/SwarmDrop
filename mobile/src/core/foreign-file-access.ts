@@ -9,17 +9,18 @@
  * Android 用户在「设置 → 接收位置」选系统目录时，saveDir 是 SAF
  * `content://com.android.externalstorage.documents/tree/...`。expo-file-system 56
  * 通过 ContentResolver.openFileDescriptor + FileChannel 真正支持 SAF chunk write，
- * 但有两个限制（来自 expo 文档）：
+ * 但有两个限制：
  *
- * 1. SAF 不支持 `FileMode.ReadWrite`，只能 `WriteOnly`
+ * 1. 上游 56.0.8 不允许 SAF 使用 `FileMode.ReadWrite`；项目补丁为只写场景接通了
+ *    `"rw"` FileChannel，使续传可以随机写且不会在 reopen 时截断已有内容
  * 2. SAF 不能拼路径 `new File(dir, "a/b/c.txt")`，要 `dir.createDirectory(name)`
  *    递归建子目录，叶子用 `dir.createFile(name, null)`
  *
  * 更关键：SAF 的 "w" mode 在大多数 DocumentsProvider 下会 truncate-on-open。
- * 因此 sink 生命周期内必须**保持 handle 打开**，所有 chunk 复用同一个 handle，
- * 避免每次 open 都丢失之前写入的内容。
+ * 因此新传输用 "wt" 明确清空，续传用 "rw" 保留内容；sink 生命周期内始终保持
+ * handle 打开，所有 chunk 复用同一个 handle。
  *
- * file:// 路径走 `ReadWrite` 模式 + 持久 handle，性能上比每 chunk open/close 也更优。
+ * file:// 路径同样按新建/续传选择 `Truncate` / `ReadWrite`，并持久复用 handle。
  */
 
 import { Directory, File, type FileHandle, FileMode } from "expo-file-system";
@@ -36,13 +37,23 @@ import {
  * lift callback return 时认不出错误类型，会走 `handle_callback_unexpected_error`
  * 触发 Rust panic（catch_unwind 后 abort，日志只有 "Rust panic" 没有源信息）。
  */
-async function wrapFfi<T>(fn: () => Promise<T> | T): Promise<T> {
+async function wrapFfi<T>(
+  operation: string,
+  fn: () => Promise<T> | T,
+): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw FfiError.Io.new(message);
+    throw FfiError.Io.new(`${operation}: ${errorDetail(err)}`);
   }
+}
+
+function errorDetail(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  if (typeof err === "object" && err !== null && "message" in err) {
+    return String(err.message);
+  }
+  return String(err);
 }
 
 interface OpenSink {
@@ -73,7 +84,7 @@ export class ExpoFileAccess implements ForeignFileAccess {
   private readonly sinks = new Map<string, OpenSink>();
 
   sourceMetadata(sourceId: string): Promise<MobileFileMetadata> {
-    return wrapFfi(() => {
+    return wrapFfi("read source metadata", () => {
       const file = new File(sourceId);
       if (!file.exists) {
         throw new Error(`source does not exist: ${sourceId}`);
@@ -95,31 +106,38 @@ export class ExpoFileAccess implements ForeignFileAccess {
     offset: bigint,
     length: bigint,
   ): Promise<ArrayBuffer> {
-    return wrapFfi(() => {
-      // 读路径 source 是 expo-fs File / SAF content uri，统一 ReadOnly 模式打开。
-      // source handle 不缓存——读取通常一次性 + RN core 端不会保持 sourceId 的
-      // 并发引用，频繁 open/close 性能可以接受。
-      const handle = new File(sourceId).open(FileMode.ReadOnly);
-      try {
-        handle.offset = Number(offset);
-        // expo-fs readBytes 返回 Uint8Array；ubrn 期望 ArrayBuffer
-        const bytes = handle.readBytes(Number(length));
-        return bytes.buffer.slice(
-          bytes.byteOffset,
-          bytes.byteOffset + bytes.byteLength,
-        ) as ArrayBuffer;
-      } finally {
-        handle.close();
-      }
-    });
+    return wrapFfi(
+      `read source chunk at offset ${offset} (${length} bytes)`,
+      () => {
+        // 读路径 source 是 expo-fs File / SAF content uri，统一 ReadOnly 模式打开。
+        // source handle 不缓存——读取通常一次性 + RN core 端不会保持 sourceId 的
+        // 并发引用，频繁 open/close 性能可以接受。
+        const handle = new File(sourceId).open(FileMode.ReadOnly);
+        try {
+          handle.offset = Number(offset);
+          // expo-fs readBytes 返回 Uint8Array；ubrn 期望 ArrayBuffer
+          const bytes = handle.readBytes(Number(length));
+          return bytes.buffer.slice(
+            bytes.byteOffset,
+            bytes.byteOffset + bytes.byteLength,
+          ) as ArrayBuffer;
+        } finally {
+          handle.close();
+        }
+      },
+    );
   }
 
   createSink(metadata: MobileFileMetadata): Promise<string> {
-    return wrapFfi(() => this.openSink(metadata, /* truncate */ true));
+    return wrapFfi("create receive file", () =>
+      this.openSink(metadata, /* truncate */ true),
+    );
   }
 
   openOrCreateSink(metadata: MobileFileMetadata): Promise<string> {
-    return wrapFfi(() => this.openSink(metadata, /* truncate */ false));
+    return wrapFfi("open receive file for resume", () =>
+      this.openSink(metadata, /* truncate */ false),
+    );
   }
 
   writeSinkChunk(
@@ -127,14 +145,17 @@ export class ExpoFileAccess implements ForeignFileAccess {
     offset: bigint,
     data: ArrayBuffer,
   ): Promise<void> {
-    return wrapFfi(() => {
-      const sink = this.sinks.get(sinkId);
-      if (!sink) {
-        throw new Error(`sink does not exist: ${sinkId}`);
-      }
-      sink.handle.offset = Number(offset);
-      sink.handle.writeBytes(new Uint8Array(data));
-    });
+    return wrapFfi(
+      `write receive chunk at offset ${offset} (${data.byteLength} bytes)`,
+      () => {
+        const sink = this.sinks.get(sinkId);
+        if (!sink) {
+          throw new Error("receive file handle does not exist");
+        }
+        sink.handle.offset = Number(offset);
+        sink.handle.writeBytes(new Uint8Array(data));
+      },
+    );
   }
 
   async finalizeSink(sinkId: string): Promise<MobileFinalizedSink> {
@@ -143,25 +164,23 @@ export class ExpoFileAccess implements ForeignFileAccess {
     // 返回最终落盘 URI + 其父目录 URI 供 core 落库:uri 即 createFile 返回的 file.uri
     // （SAF 下是真实 document URI，含系统对重名的 "foo (1)" 改写);dir 是建 sink 时
     // 从 expo-fs Directory 拿到的父目录 URI(SAF 合法可打开),供「打开文件夹」定位。
-    const sink = this.sinks.get(sinkId);
-    if (sink) {
-      this.sinks.delete(sinkId);
-      try {
-        sink.handle.close();
-      } catch {
-        // best-effort：handle 可能已被系统回收，忽略
+    return wrapFfi("finalize receive file", () => {
+      const sink = this.sinks.get(sinkId);
+      if (!sink) {
+        throw new Error("receive file handle does not exist");
       }
+      // close 失败意味着系统未确认写入句柄已正常收尾，不能再伪装成 finalize 成功。
+      // 保留 map 条目，允许上层 cleanup/retry 继续处理。
+      sink.handle.close();
+      this.sinks.delete(sinkId);
       return { uri: sinkId, dir: sink.dir };
-    }
-    // sink 不在(异常路径):dir 未知,回退空串,core 侧 content_root 计算会回退存储根。
-    return { uri: sinkId, dir: "" };
+    });
   }
 
   cleanupSink(sinkId: string): Promise<void> {
-    return wrapFfi(() => {
+    return wrapFfi("cleanup receive file", () => {
       const sink = this.sinks.get(sinkId);
       if (!sink) return;
-      this.sinks.delete(sinkId);
       try {
         sink.handle.close();
       } catch {
@@ -169,6 +188,26 @@ export class ExpoFileAccess implements ForeignFileAccess {
       }
       if (sink.file.exists) {
         sink.file.delete();
+      }
+      this.sinks.delete(sinkId);
+    });
+  }
+
+  /**
+   * 删除一个**已最终化**的文件。`uri` 是 finalizeSink 返回过的那个（file:// 或 SAF
+   * document URI），也就是落库到 localPath 的值。
+   *
+   * **文件已不存在不算错误**——删除幂等，重试路径上「删两次」很常见。
+   *
+   * 这里只回答「这个 URI 怎么删」这一层平台细节；「先删文件再删记录、失败不阻断」那套
+   * 编排在 core 的 `inbox::delete_inbox_item`，三端共用。此前编排整段写在
+   * `inbox-store.ts` 里，于是同一段逻辑三端各一份。
+   */
+  deleteFinalizedFile(uri: string): Promise<void> {
+    return wrapFfi("delete inbox file", () => {
+      const file = new File(uri);
+      if (file.exists) {
+        file.delete();
       }
     });
   }
@@ -178,15 +217,30 @@ export class ExpoFileAccess implements ForeignFileAccess {
     const saf = isSafUri(baseUri);
     const { file, dir } = saf
       ? ensureSafSinkFile(baseUri, metadata.relativePath)
-      : ensureLocalSinkFile(baseUri, metadata.relativePath, truncate);
+      : ensureLocalSinkFile(baseUri, metadata.relativePath);
 
-    // SAF 不支持 ReadWrite；走 WriteOnly。WriteOnly 模式 cursor 在头部，能 seek
-    // （FileChannel-from-FileOutputStream 支持 position），所以 chunk write OK。
-    // 必须保持 handle 打开整个 sink 生命周期：SAF "w" 模式 open 时会 truncate，
-    // 每 chunk 重新 open 会丢失之前内容。
-    const mode = saf ? FileMode.WriteOnly : FileMode.ReadWrite;
-    const handle = file.open(mode);
     const sinkId = file.uri;
+
+    const existing = this.sinks.get(sinkId);
+    if (existing) {
+      if (truncate) {
+        throw new Error("receive file is already open by another transfer");
+      }
+      if (
+        existing.metadata.size !== metadata.size ||
+        existing.metadata.checksum !== metadata.checksum
+      ) {
+        throw new Error("resume metadata does not match the open receive file");
+      }
+      // 同一进程内的恢复直接复用原 handle：既避免泄漏，也不触发 DocumentsProvider
+      // 的 reopen 行为。进程重启后的恢复则由下面的 ReadWrite("rw") 无截断打开。
+      return sinkId;
+    }
+
+    // 新传输用 "wt" 明确清空同名旧文件；续传用项目补丁接通的 "rw"，保留已有内容并
+    // 支持按 checkpoint offset 定位写。handle 必须贯穿整个 sink 生命周期。
+    const mode = truncate ? FileMode.Truncate : FileMode.ReadWrite;
+    const handle = file.open(mode);
     this.sinks.set(sinkId, { metadata, file, handle, dir });
     return sinkId;
   }
@@ -199,7 +253,6 @@ export class ExpoFileAccess implements ForeignFileAccess {
 function ensureLocalSinkFile(
   baseUri: string,
   relativePath: string,
-  truncate: boolean,
 ): SinkTarget {
   const baseDir = new Directory(baseUri);
   if (!baseDir.exists) {
@@ -210,10 +263,7 @@ function ensureLocalSinkFile(
   if (!parent.exists) {
     parent.create({ intermediates: true });
   }
-  if (truncate || !file.exists) {
-    if (file.exists) {
-      file.delete();
-    }
+  if (!file.exists) {
     file.create();
   }
   return { file, dir: parent.uri };
@@ -245,11 +295,10 @@ function ensureSafSinkFile(baseUri: string, relativePath: string): SinkTarget {
   const existingFile = findChildFile(currentDir, fileName);
   if (existingFile) {
     // 已存在时一律复用 —— 不论 truncate：
-    // - truncate=true：让 open(WriteOnly) 自己去 truncate-on-open（SAF "w" mode
-    //   的标准行为，expo 文档明说）。先 delete + 再 createFile 会触发 SAF
+    // - truncate=true：让 open(Truncate) 以 "wt" 明确清空。先 delete + 再 createFile 会触发 SAF
     //   异步 delete 没生效就被 createFile 命中 race，生成 "foo (1).txt" 或者
     //   返回不可写 fd，后续 writeBytes 报 "Bad file descriptor"。
-    // - truncate=false：断点续传场景，本来就要保留旧内容
+    // - truncate=false：用项目补丁支持的 "rw" 打开，断点续传保留旧内容
     return { file: existingFile, dir };
   }
   // mimeType 必须传 "application/octet-stream"。看似 null 等价，但 expo-file-system

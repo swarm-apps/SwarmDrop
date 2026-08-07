@@ -34,7 +34,7 @@ import { getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { formatLatency } from "@/lib/format";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
-import { FileBrowser } from "@/components/file-browser";
+import { FileBrowser } from "@swarmdrop/file-browser";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
 import { SendProgressView } from "./-components/send-progress-view";
 import { cn } from "@/lib/utils";
@@ -75,6 +75,11 @@ function ShareTargetPage() {
   const pairedDevices = useSecretStore((s) => s.pairedDevices);
   const consumeShareSources = useShareStore((s) => s.consume);
   const loadProjections = useTransferStore((s) => s.loadProjections);
+  // `removeTarget` 本身已是稳定引用（useCallback），包一层 memo 让 actions 对象也稳。
+  const removeActions = useMemo(
+    () => ({ onRemove: fileSelection.removeTarget }),
+    [fileSelection.removeTarget],
+  );
   const fileView = usePreferencesStore((state) => state.fileBrowserViews.send);
   const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
 
@@ -186,13 +191,7 @@ function ShareTargetPage() {
       title={<Trans>待发文件</Trans>}
       view={fileView}
       onViewChange={(nextView) => setFileBrowserView("send", nextView)}
-      actions={{
-        onRemove: (target) => fileSelection.removeFile(
-          target.type === "directory"
-            ? target.relativePath
-            : target.item.relativePath,
-        ),
-      }}
+      actions={removeActions}
       emptyState={{
         title: <Trans>文件已全部移除</Trans>,
         description: <Trans>返回后重新选择要分享的文件。</Trans>,

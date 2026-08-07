@@ -1,18 +1,20 @@
 use std::sync::{Arc, RwLock};
 
 use dashmap::DashMap;
-use swarmdrop_net::{Addr, Endpoint, NodeId, RelayState};
+use swarmdrop_net::{Addr, Endpoint, NodeAddr, NodeId, RelayState};
 use tokio_util::sync::CancellationToken;
 
-use super::candidates::CandidateScope;
+use super::candidates::{BootstrapCandidateSource, CandidateRoles, CandidateScope};
 use super::config::NetworkRuntimeConfig;
 use super::{BootstrapCandidateManager, NetworkStatus, NodeStatus};
-use crate::device::PairedDeviceInfo;
+use crate::device::{DeviceName, OsInfo, PairedDeviceInfo};
 use crate::device_manager::DeviceManager;
-use crate::host::{EventBus, Notifier};
+use crate::error::{AppError, AppResult};
+use crate::host::{EventBus, Notifier, PairedDeviceStore};
 use crate::infra::InfraSupervisor;
 use crate::pairing::manager::PairingManager;
 use crate::presence::{PresenceMap, PresenceSupervisor};
+use swarmdrop_invite::InviteStore;
 
 // TransferRuntime 端口随 transfer 域迁出（消费方 NetManager 在 core，实现方
 // TransferManager 在 transfer，端口定义在下层 transfer 以免 transfer 反依赖 core）。
@@ -41,14 +43,33 @@ impl<TTransfer> NetManager<TTransfer>
 where
     TTransfer: TransferRuntime,
 {
+    /// `invite_store` 是邀请注册表的落盘端口（native = `SqlInviteStore` /
+    /// wasm = IndexedDB 实现），由宿主注入；不需要持久化时传
+    /// `Arc::new(NoopInviteStore)`。构造后宿主应 `await pairing().load_invites()`。
+    ///
+    /// `paired_devices` 与 `paired_store` **不是冗余**：构造是同步的，拿不到 `.await`，
+    /// 所以由调用方（`runtime::start_node`）先从同一个端口 load 出快照建共享 `DashMap`，
+    /// 端口本身再转交 `PairingManager` 供 [`unpair`](PairingManager::unpair) 写回。
+    /// 两者同源，不是两个事实源。
+    ///
+    /// `os_info` 是**本机**设备信息（平台探测 + 用户设备名），由 `runtime::start_node`
+    /// 装配后透传给 [`PairingManager`]——配对请求与邀请串的 display 都读它。
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "与 runtime::start_node 同源：参数都是三端各自供给的端口/身份/配置，\
+                  打包成 struct 只是换个容器、不减调用方负担"
+    )]
     pub fn new(
         endpoint: Endpoint,
+        os_info: OsInfo,
         paired_devices: Vec<PairedDeviceInfo>,
         transfer: TTransfer,
         network_config: NetworkRuntimeConfig,
         candidates: BootstrapCandidateManager,
         event_bus: Arc<dyn EventBus>,
         notifier: Option<Arc<dyn Notifier>>,
+        invite_store: Arc<dyn InviteStore>,
+        paired_store: Arc<dyn PairedDeviceStore>,
     ) -> Self {
         // 创建共享的已配对设备 Map：PairingManager 读写，DeviceManager 只读
         let paired_map: Arc<DashMap<_, _>> = Arc::new(
@@ -71,10 +92,13 @@ where
         // pairing 需要 devices（Direct 的局域网校验）+ event_bus + notifier
         let pairing = Arc::new(PairingManager::new(
             endpoint.clone(),
+            os_info,
             paired_map,
             devices.clone(),
             event_bus,
             notifier,
+            invite_store,
+            paired_store,
         ));
         // 基础设施链路收敛：候选表为期望状态源，reservation 断线自动重建
         let infra = Arc::new(InfraSupervisor::new(
@@ -105,6 +129,34 @@ where
         &self.pairing
     }
 
+    /// 改本机设备名的**两步一致性入口**：内存态 + identify 的 `agent_version`，
+    /// 一次做完，返回更新后的完整 [`OsInfo`]。
+    ///
+    /// 这两步必须成对，此前只写在文档里：`PairingManager::set_device_name` 只改内存态
+    /// （新发的邀请、出站配对请求的 display 读它），identify 那半要调用方另起一步。
+    /// 谁单独调一次前者，就得到「新邀请写着新名字、已连接的对端 identify 到的还是旧名字」
+    /// ——一个没有任何报错、只能靠肉眼在两台设备之间对比才发现的偏差。收进一个方法之后
+    /// `set_device_name` 降为 `pub(crate)`，crate 外拿不到「只做一半」的那个动作。
+    ///
+    /// `name = None` 表示清空，回退系统 hostname。归一化由 [`DeviceName::parse`]
+    /// 在更外层完成——本方法只认已归一化的值。
+    ///
+    /// 落盘**不在这里**：它属于 [`DeviceConfig`](crate::host::DeviceConfig) 端口，且必须
+    /// 排在推网络之前（先广播再落盘一旦落盘失败，用户看到的是「改成功了」、重启却变回
+    /// 旧名字）。完整四步顺序见 [`rename_device`](crate::device_name::rename_device)。
+    pub async fn set_local_device_name(&self, name: Option<DeviceName>) -> AppResult<OsInfo> {
+        // ① 内存态：本机 OsInfo 的唯一写口，返回完整快照供 ② 重算 agent_version
+        //    （agent_version 里还有 caps= 槽位，不能由调用方自己拼串）。
+        let os_info = self.pairing.set_device_name(name);
+        // ② identify：既有连接原地更新 + 向已连接对端主动 push，一个 RTT 内生效。
+        //    未连接的对端不排队补推——它们下次连上时 handler 直接取新值。
+        self.endpoint
+            .set_agent_version(os_info.to_agent_version())
+            .await
+            .map_err(|e| AppError::Network(format!("广播新设备名失败: {e}")))?;
+        Ok(os_info)
+    }
+
     pub fn pairing_arc(&self) -> Arc<PairingManager> {
         self.pairing.clone()
     }
@@ -119,6 +171,46 @@ where
 
     pub fn transfer_arc(&self) -> Arc<TTransfer> {
         self.transfer.clone()
+    }
+
+    /// 手动登记一个 relay helper 的常驻可达意图（幂等，重复登记只合并地址）。
+    ///
+    /// 只写期望状态——候选表 `HostConfigured` + relay 角色；真正的拨号 /
+    /// reservation / 断线重建全部由 [`InfraSupervisor`] 统一收敛（单一收敛
+    /// 路径，最迟下一个 1s tick 启动第一轮）。进度经
+    /// `endpoint().watch_relays()` 观测（Connecting / Active / Failed）。
+    pub fn ensure_relay_intent(&self, helper: NodeAddr) {
+        let scope = CandidateScope::infer(&helper.addrs);
+        if let Ok(mut candidates) = self.candidates.write() {
+            candidates.upsert(
+                helper.id,
+                helper.addrs,
+                BootstrapCandidateSource::HostConfigured,
+                CandidateRoles {
+                    kad_server: false,
+                    relay_server: true,
+                },
+                scope,
+            );
+        }
+    }
+
+    /// 撤销 relay 常驻意图（[`ensure_relay_intent`](Self::ensure_relay_intent)
+    /// 的对称面）：清候选表与收敛状态，并注销内核侧登记——关 circuit
+    /// listener、立刻断开（含中止在途拨号）。
+    ///
+    /// 此处的直接注销调用是**低延迟快路径**（用户操作立即生效，不等 tick）；
+    /// 「不复活」的最终保证来自 supervisor 的反向收敛环——即便本调用与在途
+    /// 注册任务竞态、登记被短暂复活，环在下一轮差集必然清理，二者幂等叠加。
+    pub async fn remove_relay_intent(&self, node: NodeId) -> AppResult<()> {
+        if let Ok(mut candidates) = self.candidates.write() {
+            candidates.remove(node);
+        }
+        self.infra.remove(node);
+        self.endpoint
+            .remove_infrastructure_peer(node)
+            .await
+            .map_err(|e| AppError::Network(e.to_string()))
     }
 
     pub fn endpoint(&self) -> &Endpoint {
@@ -201,13 +293,13 @@ impl<TTransfer> Clone for SharedNetRefs<TTransfer> {
 impl<TTransfer> SharedNetRefs<TTransfer> {
     /// 当前持有活跃 reservation 的中继节点列表（本机经它们被动可达）。
     pub fn active_relay_peers(&self) -> Vec<NodeId> {
-        self.endpoint
-            .watch_relays()
-            .get()
-            .into_iter()
-            .filter(|(_, state)| matches!(state, RelayState::Active))
-            .map(|(peer, _)| peer)
-            .collect()
+        // with()：只读 key 无需深拷贝整个 map（RelayState 三态化后 value 含堆数据）
+        self.endpoint.watch_relays().with(|map| {
+            map.iter()
+                .filter(|(_, state)| matches!(state, RelayState::Active { .. }))
+                .map(|(peer, _)| *peer)
+                .collect()
+        })
     }
 
     /// 构建当前网络状态快照

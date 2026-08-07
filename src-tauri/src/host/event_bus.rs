@@ -11,10 +11,10 @@ use tauri_specta::Event as _;
 use uuid::Uuid;
 
 use crate::events::{
-    DevicesChanged, NetworkStatusChanged, PairedDeviceAdded, PairingRequestPayload,
-    PairingRequestReceived, TransferAccepted, TransferComplete, TransferDbError, TransferFailed,
-    TransferOffer, TransferPaused, TransferProgress, TransferProjectionUpdate, TransferRejected,
-    TransferResumed,
+    DeviceRenamed, DevicesChanged, NetworkStatusChanged, PairedDeviceAdded, PairedDeviceRemoved,
+    PairingRequestPayload, PairingRequestReceived, TransferAccepted, TransferComplete,
+    TransferDbError, TransferFailed, TransferOffer, TransferPaused, TransferProgress,
+    TransferProjectionUpdate, TransferRejected, TransferResumed,
 };
 
 /// 把 core 的 [`CoreEvent`] 翻译为 Tauri `app.emit(...)`。
@@ -108,17 +108,24 @@ impl EventBus for TauriEventBus {
                     .map_err(map_err)?;
             }
             CoreEvent::PairingCompleted { .. } => {}
+            // 新增/刷新方向只转发通知：持久化已由 core 的
+            // `PairingManager::commit_paired_device` 写过，且它发来的 `device` 就是**合并后**
+            // 的版本（保留了用户设过的信任级别与收件策略）。这里再 upsert 一次是第二条写路径，
+            // 会让「写盘失败」被第二次成功掩盖 —— 与下面移除方向同一条理由。
             CoreEvent::PairedDeviceAdded { device } => {
-                let peer_id = device.peer_id;
-                let provider = crate::host::keychain_provider(&self.app)
-                    .map_err(|error| swarmdrop_core::AppError::Network(error.to_string()))?;
-                let devices =
-                    swarmdrop_core::identity::upsert_paired_device(&*provider, device).await?;
-                if let Some(updated) = devices.into_iter().find(|item| item.peer_id == peer_id) {
-                    PairedDeviceAdded(updated)
-                        .emit(&self.app)
-                        .map_err(map_err)?;
-                }
+                PairedDeviceAdded(device).emit(&self.app).map_err(map_err)?;
+            }
+            // 移除方向只转发通知：持久化已由 `PairingManager::unpair` 写过，
+            // 这里再删一次会让「写盘失败」被第二次成功掩盖。
+            CoreEvent::PairedDeviceRemoved { peer_id } => {
+                PairedDeviceRemoved(peer_id.to_string())
+                    .emit(&self.app)
+                    .map_err(map_err)?;
+            }
+            CoreEvent::DeviceRenamed { name, display_name } => {
+                DeviceRenamed { name, display_name }
+                    .emit(&self.app)
+                    .map_err(map_err)?;
             }
             CoreEvent::TransferOfferReceived { offer } => {
                 TransferOffer(offer).emit(&self.app).map_err(map_err)?;

@@ -23,11 +23,72 @@ UniFFI 接口变化后至少跑：
 ```bash
 pnpm --filter react-native-swarmdrop-core build:android
 pnpm --filter react-native-swarmdrop-core build:ios
-pnpm --filter react-native-swarmdrop-core prepare
 ```
 
-前两步刷新 Rust 静态库、TS bindings 和 C++ bridge；最后一步刷新 package `exports.types` 指向的
-`lib/typescript`，否则 app 的 `react-native-swarmdrop-core` 类型解析会继续看到旧 API。
+它们刷新 Rust 静态库、TS bindings 和 C++ bridge，**并在末尾链一次 `bob build`**（`&& bob build`
+写在四个 `build:*` 脚本里，不必再手动补 `prepare`）。
+
+### 为什么必须链 `bob build`：产物三层，错序就是启动即崩
+
+这层桥有三份产物，运行时校验只认最后一份：
+
+| 产物 | 谁生成 | 谁消费 |
+|---|---|---|
+| `src/generated/*.ts` + `cpp/generated/*` | `ubrn ... --and-generate` | 下面两者的输入 |
+| `jniLibs/**/*.a`（Rust 静态库，含真实 checksum 函数） | 同上 | CMake 链进 `.so` |
+| `lib/module/*.js` | `bob build`（= `prepare`） | **Metro 实际加载的就是它**（`exports.default`） |
+
+`lib/module` 里编着一串 `uniffiEnsureInitialized()` 校验常量。它若落后于 `.a`，App 一进
+`import` 就抛：
+
+```
+FFI function uniffi_..._checksum_method_mobilecore_revoke_pair_invite
+has a checksum mismatch; this may signify previously undetected incompatible Uniffi versions
+```
+
+**这不是 uniffi 版本问题**（错误文案会把人带偏），是同一版本里 JS 与原生库不同代。
+
+`prepare` 挂在 `pnpm install` 上，所以默认顺序恰好是**反的**：install 先用仓库里提交的
+`src/generated` 编出 `lib/`，之后 `--and-generate` 才把 `src/generated` 覆盖成新的 ——
+`lib/` 就此停在上一代。
+
+**发版流水线踩过一次（`mobile-v0.10.0`）**：CI 正是 `pnpm install` → `build:android:release`
+→ gradle 打包，且当时重新生成的 bindings **没提交进仓库**，于是 `lib/` 编自旧的提交版本，
+打出来的 APK 一启动就崩。CI 全绿 —— 它只验证「编得过」，从不启动 App。所以：
+
+- **`lib/` 是 gitignore 的**（`packages/*/lib/`），CI 每次现编，因此**提交的 `src/generated`
+  必须是最新的**，否则 CI 那次 `bob build` 拿的就是旧输入；
+- 但即使有人又忘了提交，`&& bob build` 也会在 generate 之后重编 `lib/`，把这条失败模式
+  从根上掐掉。两道保险都留着。
+
+### 没有 Xcode / NDK 时怎么重生成 bindings
+
+改了 `#[uniffi::export]` 的签名但手边跑不了 `build:ios` / `build:android`（缺 Xcode 或
+NDK）时，不要手改 `src/generated`——它是生成物，手改必然与 `.a` 里的 checksum 对不上。
+用 ubrn 的 generate 子命令，它只需要一个**已编好的 cdylib**：
+
+```bash
+cargo build -p swarmdrop-mobile-core     # 产出 target/debug/libswarmdrop_mobile_core.dylib
+cd mobile/packages/swarmdrop-core/rust/mobile-core   # ⚠️ 必须在 Cargo.toml 所在目录跑
+../../../../node_modules/.bin/ubrn generate jsi bindings \
+  --library ../../../../../target/debug/libswarmdrop_mobile_core.dylib \
+  --ts-dir  ../../src/generated \
+  --cpp-dir ../../cpp/generated
+cd ../.. && ../../node_modules/.bin/bob build          # 刷新 lib/，见上一节
+```
+
+三个易踩点：
+
+- **cwd 必须是 rust crate 目录**。ubrn 会就地跑 `cargo metadata`，在别处跑只会报
+  `manifest path 'Cargo.toml' does not exist`——那条信息不会提示你 cd 去哪。
+- **`bob build` 不能省**。`pnpm typecheck` 与 Metro 看的都是 `lib/`（`lib/typescript/src/generated/*.d.ts`），
+  只重生成 `src/generated` 的话新签名根本不进 app 的类型视图，表现是「明明改了返回值，
+  tsc 还说是 void」。
+- 环境里没有 prettier / clang-format 时它会打印 `Skipping formatting…` 然后照常生成。
+  仓库里现存的产物本来就是未格式化的，所以这不会造成整文件 diff。
+
+`generate jsi bindings` **只**生成 TS + C++ bindings，不碰 turbo-module 胶水与
+`jniLibs/*.a`。真机产物仍需一次完整 `build:ios` / `build:android`。
 
 ### 镜像 core struct 的 `From` impl 必须用穷尽解构（drift guard）
 
@@ -55,6 +116,26 @@ impl From<TransferOfferEvent> for MobileTransferOffer {
 
 **相关文件**：`packages/swarmdrop-core/rust/mobile-core/src/{transfer,events,network,history,device,inbox,file_access}.rs`
 
+### `Option<T>` 在 uniffi 与 specta 下生成的 TS 类型不一样
+
+同一个 Rust `Option<String>`（现成的例子：`InboxItemSummary.root_path`、`last_opened_at`）：
+
+| codegen | 消费端 | 生成的 TS |
+|---|---|---|
+| **uniffi**（移动） | `src/generated/*.ts` | `field?: string` —— 可选属性，缺席是 `undefined` |
+| **specta**（桌面 / Web） | `src/lib/bindings.ts`、`crates/web/bindings/bindings.ts` | `field: string \| null` |
+
+所以**跨端共用的展示逻辑签名不能照抄桌面的 `string | null`**——移动端传进来的是
+`string | undefined`，`tsc` 会直接报 TS2345。移动端这一侧写 `string | undefined` 即可
+（调用点全是 uniffi 生成的类型）；只有当同一个函数要同时吃两套 codegen 的产物时，
+才需要 `string | null | undefined` 并用 falsy 判别覆盖两种缺席。
+
+这不是可以统一掉的东西：两套 codegen 对 `Option<T>` 的映射约定本来就不同，改任一边都是
+和上游打架。**留意点在「抄」上**：从桌面的 hook / 工具函数复制一份到 `mobile/src` 时，
+类型签名往往是最后才暴露问题的地方（逻辑照抄能跑，`?? ""` 也照样工作）。
+
+记于 2026-08-05（收件箱标题结构化那次改动的副产物）。
+
 ## Callback 错误必须包成 uniffi enum 形状
 
 ### 抛错前用 `FfiError.Variant.new(msg)` 包装
@@ -80,22 +161,65 @@ async function wrapFfi<T>(fn: () => Promise<T> | T): Promise<T> {
 
 **相关文件**：[src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts)
 
-### 读 UniffiError.message 时必须展开 .inner
+### `UniffiError` 的 message 与 inner **都不能给用户看**（2026-08-05 修正）
 
-ubrn 的 `UniffiError` 只把 `EnumName.Variant` 塞进 `message`，真正的 payload 在 `.inner` 数组（
-uniffi enum variant 的关联字段）。直接读 `err.message` 给用户看会显示 `"FfiError.Transfer"` 这种
-没信息量的字符串。
+ubrn 的 `UniffiError` 只把 `EnumName.Variant` 塞进 `message`，payload 在 `.inner` 数组
+（uniffi enum variant 的关联字段）。
 
-**正确做法**：用 `errorMessage()` helper，它自动展开 inner。
+> **本条推翻了旧版规则。** 旧文写的是「用 `errorMessage()` helper 展开 inner」，把展开后的
+> 串当成给用户看的文案 —— 那正是问题本身：展开出来的是 **Rust 侧写的中文技术描述**
+> （`FfiError.Transfer: 收件箱条目不存在`），英文界面上原样弹出。当时有 20 处 `toast.error`
+> 这么用。`errorMessage()` 已从 `lib/utils.ts` 删除。
 
-```ts
-const inner = (err as { inner?: unknown }).inner;
-if (Array.isArray(inner) && inner.length > 0) {
-  return `${err.message}: ${inner.map(String).join(", ")}`;
-}
-```
+`err.tag` 才是**稳定的语言无关判别码**（与 Rust `AppError` 的变体名一一对应）。规则两条：
 
-**相关文件**：[src/lib/utils.ts](../../src/lib/utils.ts)
+- **用户文案** → `getErrorMessage(err)`：查 `KIND_MESSAGES` 表拿 Lingui 描述符，
+  未命中的 kind 落通用兜底。桌面 `src/lib/errors.ts` 是同构的另一份。
+- **技术细节** → 只进 `console`。`getErrorMessage` 内部已经 log 了一份，调用点不必重复；
+  需要单独取时用 `errorDetail(err)`。
+
+**判别某个 kind 也用 `tag`，不要对 message 做子串匹配。** `event-bus.ts` 曾写
+`msg.includes("NodeNotStarted")` 来静默节点切换窗口期的预期错误 —— Rust 那句话改一个字
+这条静默就失效，表现是切换节点时冒出一串无害的 warn。现在是 `isErrorKind(err, "NodeNotStarted")`。
+
+**加了新 kind 要做两件事**：Rust 侧 `FfiError` 补变体 + 双向映射，然后**重新生成绑定**
+（`FfiError_Tags` 是生成物）；JS 侧在 `KIND_MESSAGES` 加一条并补 en 译文。
+漏掉后者不会报错，只会静默落到「出错了，请重试」。
+
+**相关文件**：[src/lib/errors.ts](../../src/lib/errors.ts),
+[src/core/event-bus.ts](../../src/core/event-bus.ts)
+
+### 会话失败原因也是判别码：`projection.failure`，别再猜 `errorMessage`（2026-08-05）
+
+上一条讲的是**命令返回值**（`FfiError`）。会话级失败原因走的是**另一条通道**
+——`TransferProjection` 的一个字段，落在 DB 里、不进 wire。它同样已经判别码化：
+`MobileFailureCode`（`FileFinalizeFailed` / `SessionExpired` / `ResumeRejected` /
+`OfferFailed` / `Legacy`），渲染走 `failureCodeLabel()` 的穷尽 `switch`。
+
+**这里曾经是 `friendlyTransferError` 的 9 条英文关键词正则，而且它会误命中。**
+输入是 `format!("文件最终化失败: {name} (file_id={id}): {e}")` —— **文件名拼在串里**，
+正则对整串跑：
+
+| 文件叫 | 命中 | 显示 | 真实原因 |
+|---|---|---|---|
+| `Q3-cancel.xlsx` | `/(cancel\|abort)/` | 「传输已取消」 | 校验失败 |
+| `network-diagram.png` | `/(network\|connect…)/` | 「网络连接中断」 | 校验失败 |
+
+确定性复现，不是概率。**「传输已取消」把一次数据损坏说成用户自己的操作** —— 比看到
+兜底文案糟得多。这也是「别对自由文本做匹配」这条规则的第二次翻车（第一次见上条的
+`event-bus.ts`），区别在于上一次是**静默失效**，这次是**自信地给错答案**。
+
+`Legacy { message }` 是判别码引入之前落库的老会话，原样展示；**不写回填** ——
+失败原因的原始错误早已不存在，重算不出来。（收件箱标题相反，那边**回填**了，
+因为标题能从文件列表重算。）
+
+**加新 code 要三步**：`crates/transfer/src/failure.rs` 加变体 → `history.rs` 的
+`MobileFailureCode` 镜像跟上（`From` impl 是穷尽 match，漏了编译不过）→ 重新生成绑定
+→ `failureCodeLabel` 补分支（穷尽 switch，漏了 tsc 会红）。三道门都是编译期的，
+比 `KIND_MESSAGES` 那条安全。
+
+**相关文件**：[src/components/transfer/shared.tsx](../../src/components/transfer/shared.tsx)、
+`crates/transfer/src/failure.rs`
 
 ## Panic 可见性
 

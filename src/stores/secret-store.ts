@@ -9,7 +9,7 @@
  */
 
 import { create } from "zustand";
-import { commands, type PairedDeviceInfo } from "@/lib/bindings";
+import { commands, events, type PairedDeviceInfo } from "@/lib/bindings";
 import { getErrorMessage } from "@/lib/errors";
 
 /** 已配对设备信息（直接复用后端 specta 生成类型）。 */
@@ -107,4 +107,28 @@ export async function rehydrateSecretStore() {
   const state = useSecretStore.getState();
   await state.init();
   state.setHasHydrated(true);
+}
+
+let unlistenPairedDeviceRemoved: (() => void) | null = null;
+
+/**
+ * 订阅「已解除配对」事件（后端已完成持久化删除）。
+ *
+ * 这是前端移除该设备的**唯一**入口：调用 `removePairedDevice` 命令的地方不再顺手改
+ * 本地状态，否则同一条记录会被两条路径各删一次。
+ *
+ * **挂在应用生命周期上而不是节点生命周期上**：解除配对在节点停止时同样可用
+ * （后端那条路径直接删持久化并补发本事件），而 network-store 的监听器会随
+ * `stopNetwork` 一起注销——挂在那里的话，节点停着时解除就变成「点了没反应」。
+ */
+export async function setupSecretListeners() {
+  cleanupSecretListeners();
+  unlistenPairedDeviceRemoved = await events.pairedDeviceRemoved.listen((event) => {
+    useSecretStore.getState().removePairedDevice(event.payload);
+  });
+}
+
+export function cleanupSecretListeners() {
+  unlistenPairedDeviceRemoved?.();
+  unlistenPairedDeviceRemoved = null;
 }

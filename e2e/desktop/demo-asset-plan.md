@@ -72,6 +72,15 @@ flowchart LR
   结构 + libp2p 生成**合法假 PeerId**（否则 `file_keychain` 反序列化会因非法 PeerId 整份退化为空），
   写入一组通用名设备（本人设备 / 协作者 / 待确认 / 临时）。
 
+> **订正（openspec `device-config-port`）：上面这条覆盖此前从未生效过。** `paths.rs` 写好了，
+> 但 `src-tauri/src/host.rs` 里**没有 `pub mod paths;`** —— 模块从未被编译进 app，三个调用方
+> （`file_keychain` / `device_config` / `database`）直读 Tauri 的 `app_data_dir()` /
+> `app_local_data_dir()`。于是实际发生的是：seeder 认这个变量、往 fixture 目录写假身份，app
+> 不认、照旧从**真实 profile** 读。**本 change 之前录出的素材带的是真实设备名与 peer ID，
+> §6 的隐私前提并不成立**；已产出的素材需按 §6 重新核对（必要时重录）。
+>
+> 本 change 起 `mod paths` 已声明、三个调用方全部改经它，上面描述的行为才第一次为真。
+
 ```bash
 FIXTURE=e2e/desktop/build/demo-profile
 SWARMDROP_DATA_DIR="$FIXTURE" cargo run -p swarmdrop-core --example seed_demo_profile
@@ -81,7 +90,8 @@ SWARMDROP_DATA_DIR="$FIXTURE" node e2e/desktop/scripts/record-desktop-demo.mjs d
 ```
 
 > macOS 已验证：WDIO 经 `tauri-plugin-wdio` 嵌入式 provider（报告为 `webkit`）驱动 app，
-> desktop-home 对空 fixture 与 6 台通用设备的 seeded fixture 均出干净静帧、全绿；真实 profile 全程未触碰。
+> desktop-home 对空 fixture 与 6 台通用设备的 seeded fixture 均出干净静帧、全绿。
+> （「真实 profile 全程未触碰」这句在接线前不成立，见上方订正；接线后需重新验证一次。）
 
 ### 3.2 从录制到成片（Phase A + B 已实现）
 

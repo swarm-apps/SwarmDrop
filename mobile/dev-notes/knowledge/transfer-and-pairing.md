@@ -139,14 +139,27 @@ const pairedDevices = useMemo(() => {
   NetManager 还没发现的 paired 设备会被空覆盖，UI 闪烁
 - 不要只订阅 `pairedDevicesCache` 就下「是否已配对」的结论——cache 有陈旧窗口（见下条）
 
-### 配对成功必须 publish `PairedDeviceAdded`，不能只写 keychain
+### 配对成功的落盘与事件都在 core，本壳既不写 keychain 也不 publish（2026-08-05 起）
 
-移动端 `pairing.rs` 的 `request_pairing` / `respond_pairing_request` 成功后**必须**
-`event_bus_arc().publish(CoreEvent::PairedDeviceAdded { device })`，不要自己调
-`upsert_paired_device`。原因是 `MobileEventBusAdapter::publish` 已经把「写 keychain + emit 给 JS」
-两件事一起做了——一次 publish 就够，也不会重复写盘；而 JS 的 `pairedDevicesCache` **只在收到事件时
-刷新**，只写 keychain 的话 JS 无从得知，cache 会停在冷启动的旧快照（节点停掉时永不自愈）。
-桌面 `src-tauri/commands/pairing.rs` 一直是 emit 的，这是移植时漏掉的不对称。
+`PairingManager::commit_paired_device` 一并做完「写 keychain + publish `PairedDeviceAdded`」，
+配对达成的三个点与 identify 刷新共用它。`MobileEventBusAdapter` 因此**只剩 emit 给 JS**，
+连 `paired_store` 字段都不再持有。
+
+> **本条推翻了旧版规则**（旧文：「`pairing.rs` 成功后必须自己 `publish`，由
+> `MobileEventBusAdapter::publish` 顺带写 keychain」）。那个形态下**落盘时机三端不一致**：
+> 移动端在 event bus 里写、桌面与 Web 在命令层写，于是同一个动作长出三种失败语义 ——
+> 移动端只记 `warn`（静默丢失），另两端 `?` 冒泡（报错，**而对端已经成功了**）。
+> 详见桌面仓 `dev-notes/knowledge/rust-backend.md` 的「同一个写动作散在三端，会长出三种失败语义」。
+
+**仍然成立的那一半**：JS 的 `pairedDevicesCache` **只在收到事件时刷新**，所以事件一定要发得出去
+—— 只是现在由 core 发、adapter 转，不再由本壳发。
+
+**新增：`persisted` 必须如实告诉用户。** 三个配对 API（`pairDirect` / `consumePairInvite` 的
+`MobilePairingResult.persisted`，`respondPairingRequest` 的返回值）会带回「这条记录有没有写进
+keychain」。`false` 是一种「一半成功」——对端已经认了本机、本次运行内也能用，但重启后会不见。
+不能报成失败（会和对端的认知分叉），也不能静默（用户不知道要重配）。三处统一走
+[src/lib/pairing-feedback.ts](../../src/lib/pairing-feedback.ts) 的 `warnIfPairingNotPersisted`，
+文案不要各写各的。
 
 **坑：`CoreEvent::PairingCompleted` 是死代码**——pinned core 里只有 enum 声明 + 桌面 event_bus
 一个空 match 分支，**零 publisher**。别监听它，也别指望它触发刷新（曾在 `event-bus.ts` 里挂了个

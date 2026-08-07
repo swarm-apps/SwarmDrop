@@ -72,6 +72,10 @@ export function projectionStatusLabel(
           return t`已取消`;
         case "rejected":
           return t`对方拒绝`;
+        // 「没答复」不是「失败」，也不是用户自己拒绝——两种都会让人误以为自己或对方
+        // 做过某个决定。落到 default 的失败文案尤其糟：它把一次正常的超时说成了故障。
+        case "expired":
+          return t`未及时处理`;
         case "fatal_error":
         default:
           return t`不可恢复失败`;

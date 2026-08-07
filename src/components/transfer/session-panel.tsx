@@ -39,13 +39,10 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { openTransferResult } from "@/lib/file-picker";
-import { getErrorMessage } from "@/lib/errors";
+import { failureCodeMessage, getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
-import {
-  FileBrowser,
-  fromTransferProjectionFiles,
-  type FileBrowserStatus,
-} from "@/components/file-browser";
+import { FileBrowser } from "@swarmdrop/file-browser";
+import { itemsFromProjection } from "@/lib/file-browser-adapters";
 import type {
   TransferProjection,
   TransferProgressEvent,
@@ -121,6 +118,9 @@ export function projectionStatusClassName(
           return STATUS_CLASSNAMES.completed;
         case "cancelled":
         case "rejected":
+        // 过期与取消同色：都是「没传成，但没出错」。走 default 会染成失败色，
+        // 在列表里与真正的传输故障混成一片。
+        case "expired":
           return STATUS_CLASSNAMES.cancelled;
         default:
           return STATUS_CLASSNAMES.failed;
@@ -200,6 +200,7 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
   const progressPercent = progress
     ? calcPercent(progress.transferredBytes, progress.totalBytes)
     : 0;
+  const failureMessage = failureCodeMessage(projection.failure);
 
   // 可恢复 / 中断的 suspended 会话
   if (projection.phase === "suspended") {
@@ -316,9 +317,9 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
         >
           <Trans>传输失败</Trans>
         </h3>
-        {projection.errorMessage && (
+        {failureMessage && (
           <p className="max-w-xs text-center text-xs leading-5 text-foreground/80 md:max-w-sm">
-            {projection.errorMessage}
+            {failureMessage}
           </p>
         )}
         <p className="max-w-xs text-center text-[11px] text-muted-foreground md:max-w-sm md:text-xs">
@@ -363,14 +364,11 @@ export const SessionFileSection = memo(function SessionFileSection({
 }) {
   const view = usePreferencesStore((state) => state.fileBrowserViews.transfer);
   const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
-  const defaultStatus: FileBrowserStatus = isProjectionCompleted(projection)
-    ? "completed"
-    : isProjectionFailed(projection)
-      ? "error"
-      : "waiting";
+  // 逐文件状态由 L1 从 phase + terminalReason 推断（含 paused / cancelled 两档），
+  // 不再由这里算一个粗粒度的 defaultStatus 灌进去。
   const items = useMemo(
-    () => fromTransferProjectionFiles(projection.files, { progress, defaultStatus }),
-    [defaultStatus, progress, projection.files],
+    () => itemsFromProjection(projection, progress),
+    [projection, progress],
   );
 
   return (
@@ -407,11 +405,11 @@ export const SessionActions = memo(function SessionActions({
 
   const handlePause = useCallback(async () => {
     try {
-      await doPauseTransfer(projection.sessionId);
+      await doPauseTransfer(projection.sessionId, projection.direction);
     } catch {
       // doPauseTransfer 已 toast
     }
-  }, [projection.sessionId]);
+  }, [projection.sessionId, projection.direction]);
 
   const handleCancel = useCallback(async () => {
     if (isCancelling) return;

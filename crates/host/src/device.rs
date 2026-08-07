@@ -3,6 +3,10 @@
 use serde::{Deserialize, Serialize};
 use swarmdrop_net_base::{Addr, NodeId};
 
+// 链路详情的组成部分之一，随 `ConnectionDetails` 一起进 IPC/FFI——
+// 消费方（uniffi 桥接、wasm 壳）从这里取，不必再依赖 net-base。
+pub use swarmdrop_net_base::TransportKind;
+
 /// 已配对设备信任等级。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -57,12 +61,32 @@ pub struct DeviceReceivePolicy {
 
 impl Default for DeviceReceivePolicy {
     fn default() -> Self {
-        Self::for_trust_level(DeviceTrustLevel::Collaborator)
+        Self::for_trust_level(DeviceTrustLevel::Collaborator, None)
     }
 }
 
 impl DeviceReceivePolicy {
-    pub fn for_trust_level(level: DeviceTrustLevel) -> Self {
+    /// 某信任级别的接收策略。**三端唯一的事实源**——桌面、移动、Web 都经各自的 binding
+    /// 调这里，不许再抄一份到 JS（那正是本函数收 `previous` 之前的状态：两份 JS 副本各自
+    /// 长出了不同的「保留哪些字段」规则，而内核这一份一个都不保留）。
+    ///
+    /// `previous` 是该设备**当前**的策略；新配对传 `None`。切换信任级别时，两项
+    /// **用户显式设过的东西**要带过去，不能被默认值抹掉：
+    ///
+    /// - `default_save_location` —— 用户选的自动接收落点。丢了它 `auto_accept` 就是一张
+    ///   空头支票：[`evaluate_receive_policy`](crate::device) 的消费方在这一项为空时一律
+    ///   退回手动确认（「未配置自动接收保存位置」）。也就是说「升到本人设备」这个动作会
+    ///   悄悄关掉自动接收——用户看到的开关还开着。
+    /// - `allow_mcp_accept_from_device` —— 代 AI 收件的授权。它只能由用户显式开启
+    ///   （见字段注释），那么级别变化既不该替他重新授权，也不该替他撤销。
+    ///
+    /// **`Blocked` 是唯一例外**：两项都清零。「已阻止」必须是一个不留后门的终态，
+    /// 而不是「阻止了但保存位置和代收授权还留着」。
+    pub fn for_trust_level(level: DeviceTrustLevel, previous: Option<&Self>) -> Self {
+        // 非 blocked 分支统一从这里取；blocked 分支不看它们。
+        let default_save_location = previous.and_then(|p| p.default_save_location.clone());
+        let allow_mcp_accept_from_device = previous.is_some_and(|p| p.allow_mcp_accept_from_device);
+
         match level {
             DeviceTrustLevel::Owned => Self {
                 auto_accept: true,
@@ -71,9 +95,9 @@ impl DeviceReceivePolicy {
                 allow_directories: true,
                 allow_relay_auto_accept: true,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
-                default_save_location: None,
+                default_save_location,
                 allow_mcp_send_to_device: true,
-                allow_mcp_accept_from_device: false,
+                allow_mcp_accept_from_device,
                 expires_at: None,
             },
             DeviceTrustLevel::Collaborator => Self {
@@ -83,9 +107,9 @@ impl DeviceReceivePolicy {
                 allow_directories: true,
                 allow_relay_auto_accept: false,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
-                default_save_location: None,
+                default_save_location,
                 allow_mcp_send_to_device: false,
-                allow_mcp_accept_from_device: false,
+                allow_mcp_accept_from_device,
                 expires_at: None,
             },
             DeviceTrustLevel::Temporary => Self {
@@ -95,9 +119,9 @@ impl DeviceReceivePolicy {
                 allow_directories: false,
                 allow_relay_auto_accept: false,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
-                default_save_location: None,
+                default_save_location,
                 allow_mcp_send_to_device: false,
-                allow_mcp_accept_from_device: false,
+                allow_mcp_accept_from_device,
                 expires_at: Some(chrono::Utc::now().timestamp_millis() + 24 * 60 * 60 * 1000),
             },
             DeviceTrustLevel::Blocked => Self {
@@ -116,10 +140,58 @@ impl DeviceReceivePolicy {
     }
 }
 
+/// 用户设置的设备名——**已归一化**的不可变值。
+///
+/// 唯一构造入口是 [`DeviceName::parse`]，未经归一化的 `String` 在类型层面就进不了
+/// [`DeviceConfig`](crate::ports::DeviceConfig) 端口。之所以做成 newtype 而不是一个
+/// 「各调用点自觉调用」的归一化自由函数：设备名的入口有桌面 IPC 命令、移动 uniffi 导出、
+/// wasm 导出三处，将来只会更多，漏掉任何一处都等于归一化不存在。
+///
+/// 归一化顺序：
+/// 1. `trim()`；
+/// 2. 剥掉控制字符与 `;`；
+/// 3. 截断到 [`MAX_CHARS`](Self::MAX_CHARS) 个 **char**（不是 byte——中文名 40 字要占
+///    120 字节，按 byte 截断还会切碎多字节序列）；
+/// 4. 再 `trim()` 一次（第 2、3 步可能在首尾留下空白，不补这一下 `parse` 就不是幂等的），
+///    结果为空则返回 `None`——「空」即清空，语义上等于回退到 [`OsInfo::hostname`]。
+///
+/// **为什么必须剥 `;`**：[`OsInfo::to_agent_version`] 用 `"; "` 拼字段、
+/// [`OsInfo::from_agent_version`] 按 `"; "` 切片再按 `name=` / `caps=` 前缀分派。设备名里
+/// 带一个 `"; caps=lan-helper"`，对端就会解析出本机并不具备的 capability，进而把本机当成
+/// 局域网协助节点（kad server + relay 候选）。归一化在此处一次性关掉这条注入。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DeviceName(String);
+
+impl DeviceName {
+    /// 设备名长度上限（char 数）。三端 UI 的 `maxLength` 与之对齐，后端截断只是防御纵深。
+    pub const MAX_CHARS: usize = 40;
+
+    /// 归一化并构造设备名；结果为空返回 `None`（= 清空，回退 hostname）。
+    pub fn parse(raw: &str) -> Option<Self> {
+        let cleaned: String = raw
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control() && *c != ';')
+            .take(Self::MAX_CHARS)
+            .collect();
+        let cleaned = cleaned.trim();
+        (!cleaned.is_empty()).then(|| Self(cleaned.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
 /// 设备操作系统信息。
 ///
 /// `hostname` 是系统主机名（运行时取，桌面端通常是机器名，移动端通常拿不到）；
-/// `name` 是用户在 onboarding / 设置里起的名字（持久化，host 注入），UI 显示按
+/// `name` 是用户在 onboarding / 设置里起的名字（持久化），由 core 的组合根从
+/// [`DeviceConfig`](crate::ports::DeviceConfig) 端口填充，UI 显示按
 /// `name.as_deref().unwrap_or(&hostname)` 回退。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -136,6 +208,13 @@ pub struct OsInfo {
 }
 
 impl Default for OsInfo {
+    /// Native 端（桌面 / 移动）的装配入口：运行时探测 hostname / os / arch，`name` 留空。
+    /// Web 端另有 `web_os_info()`，不走这里。
+    ///
+    /// `name` 由 core 的组合根（`start_node`）从
+    /// [`DeviceConfig`](crate::ports::DeviceConfig) 端口填充——宿主**没有** API 可以注入它。
+    /// 这不是审美：设备名一旦能从宿主侧塞进来，三端就会各读各的持久化、各自漏掉
+    /// [`DeviceName`] 的归一化，而本机 `OsInfo` 也就不再有唯一装配点。
     fn default() -> Self {
         // 移动端拿不到这两个环境变量，会落到 "Device" —— 此时 UI 走 name 字段。
         let hostname = std::env::var("COMPUTERNAME")
@@ -176,6 +255,19 @@ impl OsInfo {
             arch: String::new(),
             capabilities: Vec::new(),
         }
+    }
+
+    /// UI 显示名：`name` 去空白后非空则用它，否则回退 `hostname`。
+    ///
+    /// 收敛「name → hostname」回退语义于一处，避免各端（transfer / mobile / pairing / web）
+    /// 各手写一份、对「空串是否回退 / 是否 trim」处理分叉。
+    pub fn display_name(&self) -> String {
+        self.name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .unwrap_or(&self.hostname)
+            .to_string()
     }
 
     /// SwarmDrop 客户端 agent_version 前缀。
@@ -319,14 +411,21 @@ impl PairedDeviceInfo {
             os_info,
             paired_at,
             trust_level,
-            receive_policy: DeviceReceivePolicy::for_trust_level(trust_level),
+            // 新配对，没有「上一份策略」可带。
+            receive_policy: DeviceReceivePolicy::for_trust_level(trust_level, None),
             trust_confirmed: true,
         }
     }
 
+    /// 换信任级别并把接收策略重置为该级别的默认值。
+    ///
+    /// **带上当前策略**：用户显式设过的保存位置与代收授权要留住，理由见
+    /// [`DeviceReceivePolicy::for_trust_level`]。此前这里传的是「没有上一份」，
+    /// 于是「升到本人设备」会顺手把自动接收落点清掉，而 UI 上那个开关还开着。
     pub fn apply_trust_level_defaults(&mut self, trust_level: DeviceTrustLevel) {
         self.trust_level = trust_level;
-        self.receive_policy = DeviceReceivePolicy::for_trust_level(trust_level);
+        self.receive_policy =
+            DeviceReceivePolicy::for_trust_level(trust_level, Some(&self.receive_policy));
         self.trust_confirmed = true;
     }
 
@@ -339,6 +438,22 @@ impl PairedDeviceInfo {
         }
         self.os_info = os_info;
         true
+    }
+
+    /// 用一次**新观测**刷新本条目：只动 `os_info` / `paired_at`，
+    /// **保留** `trust_level` / `receive_policy` / `trust_confirmed`。
+    ///
+    /// 「新观测」指配对成功回调或 identify 刷新交上来的 [`Self::new`] 产物 —— 它恒为默认
+    /// 信任级别与默认收件策略。整条替换等于把用户手工设过的值静默重置，而
+    /// `receive_policy` 是被 `swarmdrop_transfer::policy` **真正裁决**的字段，不是展示项：
+    /// `Owned` 掉回 `Collaborator`、收紧过的策略放回默认，都会立刻改变入站 offer 的处置。
+    ///
+    /// 这条规则有两个调用点 —— `paired_devices::upsert`（写库）与
+    /// `PairingManager::commit_paired_device` 的**落盘失败回退**（写共享内存表）。
+    /// 两边必须是同一份：分叉出来就是「库里守着用户的策略、本次运行却按默认裁决」。
+    pub fn merge_observation(&mut self, observed: Self) {
+        self.os_info = observed.os_info;
+        self.paired_at = observed.paired_at;
     }
 }
 
@@ -361,6 +476,42 @@ pub enum ConnectionType {
     Relay,
 }
 
+/// 链路详情：当前连接的可核对事实。
+///
+/// 与 [`ConnectionType`] 的分工——那个是给所有人看的一句话结论（局域网 / 打洞 /
+/// 中继），这个是「凭什么这么说」：走的哪条地址、哪种传输、经不经中继、经的是谁。
+/// 三端 UI 把它放在默认折叠的区块里，普通用户看不到，排障时一眼能拿到全部证据。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionDetails {
+    /// 承载字节的传输协议。
+    ///
+    /// `None` 是真实存在的情况，不是缺陷：入站中继连接的 `send_back_addr` 只有
+    /// `/p2p/<src>` 一段，地址里没有任何传输信息。呈现层照实显示「未知」。
+    pub transport: Option<TransportKind>,
+    /// 当前最优连接的远端 multiaddr，原样给出——便于直接粘进 issue 或与日志比对。
+    #[cfg_attr(feature = "specta", specta(type = String))]
+    pub remote_addr: Addr,
+    /// 中转身份：经中继时是那台 relay 的 PeerId，直连为 `None`。
+    ///
+    /// 「经中继」三个字对排障几乎没用，得说清楚经的是哪一台——自建 relay 还是
+    /// 局域网里的 LanHelper，处理方式完全不同。
+    #[cfg_attr(feature = "specta", specta(type = Option<String>))]
+    pub relay: Option<NodeId>,
+}
+
+impl ConnectionDetails {
+    /// 由一条连接的远端地址派生。判据全部收口在 [`Addr`] 的谓词上。
+    pub fn from_addr(addr: Addr) -> Self {
+        Self {
+            transport: addr.transport(),
+            relay: addr.relay_node_id(),
+            remote_addr: addr,
+        }
+    }
+}
+
 /// 统一的设备输出类型。
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -372,6 +523,15 @@ pub struct Device {
     pub os_info: OsInfo,
     pub status: DeviceStatus,
     pub connection: Option<ConnectionType>,
+    /// 链路详情。仅在线且内核报告过连接地址时有值——离线设备、以及只靠 mDNS
+    /// 地址推断出 `connection` 的宽限期内，这里是 `None`（没连接就没有链路可谈）。
+    pub connection_details: Option<ConnectionDetails>,
+    /// 内核尝试过局域网直连升级但失败了。
+    ///
+    /// 与 `connection == Relay` 一起看才有意义：那时它把「对端本来就在外网」与
+    /// 「对端就在同一网段却连不上」分开。后者呈现层应给出可行动的提示——查防火墙，
+    /// 或（浏览器上）允许本地网络访问。
+    pub lan_upgrade_failed: bool,
     pub latency: Option<u64>,
     pub is_paired: bool,
     pub trust_level: Option<DeviceTrustLevel>,
@@ -426,7 +586,7 @@ pub fn infer_connection_type(addrs: &[Addr]) -> Option<ConnectionType> {
 mod tests {
     use swarmdrop_net_base::SecretKey;
 
-    use super::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
+    use super::{DeviceName, DeviceTrustLevel, OsInfo, PairedDeviceInfo};
 
     fn sample(name: Option<&str>, hostname: &str) -> OsInfo {
         OsInfo {
@@ -437,6 +597,66 @@ mod tests {
             arch: "aarch64".to_string(),
             capabilities: Vec::new(),
         }
+    }
+
+    #[test]
+    fn device_name_rejects_empty_and_blank() {
+        assert_eq!(DeviceName::parse(""), None);
+        assert_eq!(DeviceName::parse("   \t\n  "), None);
+        // 全是被剥掉的字符，剥完也是空
+        assert_eq!(DeviceName::parse(";;;"), None);
+    }
+
+    #[test]
+    fn device_name_truncates_by_char_not_byte() {
+        // 41 个中文字：按 byte 截断会切碎 UTF-8 序列（进而 panic），按 char 才对
+        let raw = "字".repeat(41);
+        let name = DeviceName::parse(&raw).expect("41 个中文字应截断而非拒绝");
+        assert_eq!(name.as_str().chars().count(), DeviceName::MAX_CHARS);
+        assert_eq!(name.as_str(), "字".repeat(DeviceName::MAX_CHARS));
+    }
+
+    #[test]
+    fn device_name_strips_separator_and_control_chars() {
+        let name = DeviceName::parse("我的电脑; caps=lan-helper\u{7}").expect("非空");
+        assert!(!name.as_str().contains(';'), "got: {}", name.as_str());
+        assert!(
+            !name.as_str().chars().any(char::is_control),
+            "got: {}",
+            name.as_str()
+        );
+    }
+
+    #[test]
+    fn device_name_parse_is_idempotent() {
+        for raw in ["我的电脑", "  书房 Mac ;  ", &"字".repeat(41)] {
+            let once = DeviceName::parse(raw).expect("非空");
+            let twice = DeviceName::parse(once.as_str()).expect("已归一化的串仍非空");
+            assert_eq!(once, twice, "parse 必须幂等: {raw}");
+        }
+    }
+
+    /// **回归锚点：agent_version 分隔符注入。**
+    ///
+    /// 这条测试红了，意味着设备名里的 `"; caps=..."` 又能穿过 [`DeviceName::parse`]
+    /// 被对端解析成 capability——对端会据此把本机当成局域网协助节点（kad server +
+    /// relay 候选）。修法是补归一化，**不是**改断言。
+    #[test]
+    fn device_name_blocks_agent_version_capability_injection() {
+        let injected = DeviceName::parse("我的电脑; caps=lan-helper").expect("非空");
+        let info = OsInfo {
+            name: Some(injected.into_string()),
+            ..sample(None, "MacBook-Pro")
+        };
+
+        let agent = info.to_agent_version();
+        let parsed = OsInfo::from_agent_version(&agent).expect("parse agent_version");
+
+        assert!(
+            parsed.capabilities.is_empty(),
+            "设备名不得注入 capability，got: {agent}"
+        );
+        assert!(!parsed.has_capability(OsInfo::LAN_HELPER_CAPABILITY));
     }
 
     #[test]
@@ -531,12 +751,67 @@ mod tests {
             DeviceTrustLevel::Temporary,
             DeviceTrustLevel::Blocked,
         ] {
-            let policy = super::DeviceReceivePolicy::for_trust_level(level);
+            let policy = super::DeviceReceivePolicy::for_trust_level(level, None);
             assert!(
                 !policy.allow_mcp_accept_from_device,
                 "代收默认应关闭: {level:?}"
             );
         }
+    }
+
+    /// 切换信任级别时，用户**显式设过**的两项要带过去。
+    ///
+    /// 这条规则此前只活在桌面与移动各自的 JS 副本里（且两份还不一样），内核这一份一个都不
+    /// 保留——于是同一个产品动作有两种行为。规则收进内核后，这里是它唯一的守卫。
+    ///
+    /// `default_save_location` 尤其要紧：它为空时消费方一律退回手动确认，所以丢了它等于
+    /// 「升到本人设备」把自动接收静默关掉，而 UI 上那个开关还开着。
+    #[test]
+    fn switching_trust_level_preserves_user_set_fields() {
+        let previous = super::DeviceReceivePolicy {
+            default_save_location: Some("/Users/me/Downloads".to_string()),
+            allow_mcp_accept_from_device: true,
+            ..super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Collaborator, None)
+        };
+
+        for level in [
+            DeviceTrustLevel::Owned,
+            DeviceTrustLevel::Collaborator,
+            DeviceTrustLevel::Temporary,
+        ] {
+            let policy = super::DeviceReceivePolicy::for_trust_level(level, Some(&previous));
+            assert_eq!(
+                policy.default_save_location.as_deref(),
+                Some("/Users/me/Downloads"),
+                "保存位置应带过去: {level:?}"
+            );
+            assert!(
+                policy.allow_mcp_accept_from_device,
+                "代收授权应带过去: {level:?}"
+            );
+        }
+    }
+
+    /// `Blocked` 是唯一例外：两项都清零。
+    ///
+    /// 「已阻止」必须是不留后门的终态——保留一个自动落点或一份代收授权，都会让「阻止」
+    /// 这个词名不副实。
+    #[test]
+    fn blocking_clears_preserved_fields() {
+        let previous = super::DeviceReceivePolicy {
+            default_save_location: Some("/Users/me/Downloads".to_string()),
+            allow_mcp_accept_from_device: true,
+            ..super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Owned, None)
+        };
+
+        let policy =
+            super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Blocked, Some(&previous));
+        assert_eq!(policy.default_save_location, None, "阻止后不该留下自动落点");
+        assert!(
+            !policy.allow_mcp_accept_from_device,
+            "阻止后不该留下代收授权"
+        );
+        assert_eq!(policy.max_transfer_bytes, Some(0), "阻止即拒收一切");
     }
 
     #[test]

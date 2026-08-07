@@ -27,7 +27,9 @@ export default function SharedFilesScreen() {
   const actions = useMemo<FileBrowserActions>(
     () => ({
       removeItem: (item) => {
-        if (item.sourceId) removeSharedBySourceId(item.sourceId);
+        // 共享模型的 `sourceId` 是 `string | number`（收件箱那一路用行主键）。
+        // 发送侧存的一律是 `file://` 来源串，转一次窄回 string。
+        if (item.sourceId) removeSharedBySourceId(String(item.sourceId));
       },
       removeDirectory: removeSharedDirectory,
     }),

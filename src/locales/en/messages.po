@@ -14,57 +14,42 @@ msgstr ""
 "Plural-Forms: \n"
 "X-Generator: @lingui/cli\n"
 
-#: src/routes/_app/send/share-target.lazy.tsx
-#~ msgid "—"
-#~ msgstr "—"
+#. placeholder {0}: offer.files.length
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "{0, plural, one {# 个文件} other {# 个文件}}"
+msgstr "{0, plural, one {# file} other {# files}}"
 
 #. placeholder {0}: detail.itemCount
 #. placeholder {0}: hit.itemCount
 #. placeholder {0}: item.itemCount
 #: src/routes/_app/inbox/index.lazy.tsx
-#: src/routes/_app/inbox/index.lazy.tsx
-#: src/routes/_app/inbox/index.lazy.tsx
 msgid "{0, plural, other {# 项}}"
 msgstr "{0, plural, one {# item} other {# items}}"
 
-#. placeholder {0}: node.fileCount ?? 0
-#: src/components/file-browser/folder-row.tsx
+#. placeholder {0}: formatTimeLeft(seconds)
+#: src/components/pairing/sent-invites.tsx
+msgid "{0} 后失效"
+msgstr "Expires in {0}"
+
+#. placeholder {0}: item.name
+#: packages/file-browser/src/file-row.tsx
+msgid "{0} 的进度"
+msgstr "Progress of {0}"
+
+#. placeholder {0}: node.fileCount
+#: packages/file-browser/src/folder-row.tsx
 msgid "{0} 项"
 msgstr "{0} items"
 
 #. placeholder {0}: items.length
 #. placeholder {1}: formatFileSize(totalSize)
-#: src/components/file-browser/file-browser.tsx
+#: packages/file-browser/src/file-browser.tsx
 msgid "{0} 项 · {1}"
 msgstr "{0} items · {1}"
-
-#: src/routes/_app/send/index.lazy.tsx
-#~ msgid "{0} 项，{1}"
-#~ msgstr "{0} items, {1}"
-
-#: src/routes/_app/send/share-target.lazy.tsx
-#~ msgid "{0} 项内容"
-#~ msgstr "{0} items"
-
-#: src/components/file-tree/file-tree.tsx
-#~ msgid "{0}/{totalCount}"
-#~ msgstr "{0}/{totalCount}"
-
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "{0}/6 位"
-#~ msgstr "{0}/6 digits"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgstr "{deviceCount, plural, one {# device} other {# devices}}"
-
-#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-#~ msgid "{deviceCount} 台设备"
-#~ msgstr "{deviceCount} devices"
-
-#: src/components/file-tree/folder-row.tsx
-#~ msgid "{fileCount} 项"
-#~ msgstr "{fileCount} items"
 
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "{firstFileName} 等 {fileCount} 个文件"
@@ -74,6 +59,19 @@ msgstr "{firstFileName} and {fileCount} files"
 #: src/stores/pairing-store.ts
 msgid "{label}超时（{0}s）"
 msgstr "{label} timed out ({0}s)"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "{title} 等 {itemCount} 个文件"
+msgstr "{title} and {itemCount} files"
+
+#. placeholder {0}: failure.fileName
+#: src/lib/errors.ts
+msgid "「{0}」没能完整保存，请重新接收"
+msgstr "“{0}” wasn’t saved completely. Please receive it again."
+
+#: src/components/pairing/clipboard-invite-banner.tsx
+msgid "<0>{deviceName}</0> 想和你配对，点此确认"
+msgstr "<0>{deviceName}</0> wants to pair with you — tap to confirm"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "<未设置>"
@@ -94,10 +92,6 @@ msgstr "AI-Native · MCP"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "Bundle"
 msgstr "Bundle"
-
-#: src/routes/_app/pairing/-device-found-view.tsx
-#~ msgid "CPU 架构"
-#~ msgstr "CPU Architecture"
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "MCP Server 已停止"
@@ -137,11 +131,14 @@ msgstr "SwarmDrop needs to stay online in the background to receive files from p
 msgid "一台设备正在请求与您配对"
 msgstr "A device is requesting to pair with you"
 
+#: packages/file-browser/src/item-actions.tsx
+msgid "下载"
+msgstr "Download"
+
 #: src/routes/_app/settings/-about-section.tsx
 msgid "下载中..."
 msgstr "Downloading..."
 
-#: src/lib/transfer-projection.ts
 #: src/lib/transfer-projection.ts
 msgid "不可恢复失败"
 msgstr "Unrecoverable failure"
@@ -158,16 +155,16 @@ msgstr "No limit"
 msgid "个文件"
 msgstr " files"
 
-#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "中继"
 msgstr "Relay"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "中继节点"
 msgstr "Relay Node"
 
-#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "临时设备"
 msgstr "Temporary device"
@@ -189,6 +186,10 @@ msgstr "Home"
 msgid "主题"
 msgstr "Theme"
 
+#: src/components/pairing/invite-qr.tsx
+msgid "二维码渲染失败"
+msgstr "QR code failed to render"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "仅删除记录"
 msgstr "Delete record only"
@@ -208,7 +209,7 @@ msgstr "LAN only"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "仅本地网络"
-msgstr ""
+msgstr "Local Network Only"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "仅用于本地展示和配对确认"
@@ -218,58 +219,39 @@ msgstr "Used only for local display and pairing confirmation"
 msgid "今天"
 msgstr "Today"
 
-#: src/routes/_app/transfer/index.lazy.tsx
-#~ msgid "从左侧列表选择会话，查看进度、文件明细和操作。"
-#~ msgstr "Select a session from the list to view progress, file details, and actions."
-
-#: src/routes/_app/devices/index.lazy.tsx
-#~ msgid "从附近设备发起配对，或使用配对码连接另一台设备。"
-#~ msgstr "Pair with a nearby device, or use a pairing code to connect another device."
-
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "从附近设备发起配对，或通过邀请连接另一台设备。"
-msgstr ""
+msgstr "Pair with a nearby device, or connect another device with an invite."
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "会话列表"
 msgstr "Session list"
 
 #: src/components/layout/app-topbar.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "传输"
 msgstr "Transfer"
 
-#: src/components/file-browser/file-card.tsx
+#: packages/file-browser/src/file-card.tsx
 #: src/lib/transfer-projection.ts
 #: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "传输中"
 msgstr "Transferring"
 
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "传输会话"
-#~ msgstr "Transfer session"
-
 #: src/components/transfer/session-panel.tsx
 #: src/lib/transfer-notifications.ts
 msgid "传输失败"
 msgstr "Transfer Failed"
 
-#: src/routes/_app/send/index.lazy.tsx
-#~ msgid "传输方式"
-#~ msgstr "Transfer method"
-
 #: src/components/layout/app-topbar.tsx
-#: src/components/layout/app-topbar.tsx
-#: src/components/layout/app-topbar.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "传输活动"
 msgstr "Transfers"
 
-#: src/routes/_app/transfer/index.lazy.tsx
-#: src/routes/_app/transfer/index.lazy.tsx
-#~ msgid "传输详情"
-#~ msgstr "Transfer Details"
+#: src/stores/pairing-store.ts
+msgid "但这条记录没能保存下来，重启后需要重新配对。"
+msgstr "But this record could not be saved — you'll need to pair again after a restart."
 
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "使用同网段已开启协助能力的桌面端"
@@ -294,6 +276,10 @@ msgstr "Save Location"
 #: src/components/transfer/transfer-offer-dialog.tsx
 msgid "保存到"
 msgstr "Save to"
+
+#: src/lib/errors.ts
+msgid "保存失败，请检查磁盘空间或更换保存位置"
+msgstr "Saving failed. Check your disk space or pick a different save location."
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "保存策略"
@@ -345,12 +331,8 @@ msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域�
 msgstr "Allow cross-network devices to reach this device through public relays; when disabled, strict LAN-only mode may make cross-network access unavailable"
 
 #: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "先查找，再确认"
-#~ msgstr "Find first, then confirm"
-
-#: src/routes/_app/pairing/input.lazy.tsx
 msgid "先验证，再确认"
-msgstr ""
+msgstr "Verify first, then confirm"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/index.lazy.tsx
@@ -359,14 +341,9 @@ msgid "全部"
 msgstr "All"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "公网"
-msgstr "Public network"
-
-#: src/components/network/stop-node-sheet.tsx
 msgid "公网可达"
 msgstr "Publicly reachable"
 
-#: src/routes/_app/settings/-network-settings-section.tsx
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "公网可达性"
 msgstr "Public reachability"
@@ -374,10 +351,6 @@ msgstr "Public reachability"
 #: src/components/network/stop-node-sheet.tsx
 msgid "公网地址"
 msgstr "Public Address"
-
-#: src/components/file-tree/file-tree.tsx
-#~ msgid "共 {totalCount} 项 · {0}"
-#~ msgstr "{totalCount} items · {0}"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "关于"
@@ -406,10 +379,6 @@ msgstr "When off, transfers over relay still require manual confirmation"
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "其他设备配对时会看到这个名称，你可以随时在设置中修改。"
 msgstr "Other devices see this name when pairing. You can change it anytime in Settings."
-
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "内容类型"
-#~ msgstr "Content type"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "内置节点用于首次发现网络，通常无需调整。"
@@ -455,21 +424,13 @@ msgstr "Switch to light theme"
 msgid "切换到深色主题"
 msgstr "Switch to dark theme"
 
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "切换过滤条件，或直接使用下方配对码连接。"
-#~ msgstr "Switch the filter, or use the pairing code below to connect."
+#: src/routes/_app/pairing/generate.lazy.tsx
+msgid "切换后会立即重新生成邀请，此前展示的二维码随即失效。"
+msgstr "Toggling regenerates the invite immediately; the QR code shown before stops working."
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "切换过滤条件，或通过邀请连接设备。"
-msgstr ""
-
-#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-#~ msgid "创建"
-#~ msgstr "Create"
-
-#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-#~ msgid "创建分组"
-#~ msgstr "Create group"
+msgstr "Change the filter, or connect a device with an invite."
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
@@ -487,23 +448,17 @@ msgstr "Delete group"
 #. placeholder {0}: group.name
 #. placeholder {0}: lastDeleteName.current
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "删除分组「{0}」"
 msgstr "Delete group “{0}”"
 
-#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-#~ msgid "删除分组不会取消其中设备的配对。"
-#~ msgstr "Deleting a group won't unpair the devices in it."
-
 #: src/routes/_app/transfer/-session-row.tsx
-msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。"
-msgstr "Deleting will also clear this task's checkpoint, so it can no longer be resumed. Files already transferred are not affected."
+msgid "删除后该任务的断点信息将一并清除，无法再继续续传；已传输的文件不受影响。若此刻它又恢复了传输，需先取消才能删除记录。"
+msgstr "Deleting will also clear this task's checkpoint, so it can no longer be resumed. Files already transferred are not affected. If it has resumed transferring by now, cancel it first before deleting the record."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "删除收件箱记录"
 msgstr "Delete inbox record"
 
-#: src/routes/_app/transfer/-session-row.tsx
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "删除记录"
 msgstr "Delete record"
@@ -522,11 +477,17 @@ msgid "剩余 {0}"
 msgstr "{0} remaining"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
-#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "协作者"
 msgstr "Collaborator"
 
-#: src/routes/_app/settings/-network-settings-section.tsx
+#: src/components/network/lan-helper-address.tsx
+msgid "协助地址已复制"
+msgstr "Helper address copied"
+
+#: src/stores/pairing-store.ts
+msgid "去「发送」页直接选它就行。"
+msgstr "Just pick it on the Send page."
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "发现模式"
 msgstr "Discovery mode"
@@ -534,14 +495,6 @@ msgstr "Discovery mode"
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "发现设备，配对，然后发送文件"
 msgstr "Discover devices, pair, then send files"
-
-#: src/routes/_app/transfer/index.lazy.tsx
-#~ msgid "发起或接收传输后，会话会出现在左侧列表。"
-#~ msgstr "Sessions appear in the list once you send or receive a transfer."
-
-#: src/routes/_app/pairing/-device-found-view.tsx
-#~ msgid "发起配对"
-#~ msgstr "Pair"
 
 #: src/components/transfer/session-panel.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
@@ -574,10 +527,6 @@ msgid "发送文件"
 msgstr "Send Files"
 
 #: src/routes/_app/send/index.lazy.tsx
-#~ msgid "发送文件到 {0}"
-#~ msgstr "Send files to {0}"
-
-#: src/routes/_app/send/index.lazy.tsx
 msgid "发送文件到 {displayName}"
 msgstr "Send files to {displayName}"
 
@@ -590,19 +539,17 @@ msgstr "Send More"
 msgid "发送给 {0}"
 msgstr "Send to {0}"
 
-#: src/routes/_app/pairing/-device-found-view.tsx
-#~ msgid "发送配对请求"
-#~ msgstr "Send Pairing Request"
+#: src/lib/errors.ts
+msgid "发送请求没能送达对方，请确认对方在线后重试"
+msgstr "Your request didn’t reach them. Make sure they’re online and try again."
 
 #: src/components/network/stop-node-sheet.tsx
 #: src/components/ui/confirm-dialog.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
-#: src/routes/_app/pairing/input.lazy.tsx
 #: src/routes/_app/pairing/input.lazy.tsx
 #: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
@@ -625,17 +572,16 @@ msgid "取消归档"
 msgstr "Unarchive"
 
 #: src/routes/_app/devices/-components/device-card.tsx
-#: src/routes/_app/devices/-components/device-card.tsx
 msgid "取消配对"
 msgstr "Unpair"
 
-#: src/routes/_app/pairing/generate.lazy.tsx
-#~ msgid "另一台设备输入配对码后，本机仍会弹出确认请求。"
-#~ msgstr "After the other device enters the code, this device will still show a confirmation request."
+#: src/routes/_app/devices/index.lazy.tsx
+msgid "取消配对失败"
+msgstr "Failed to unpair"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "只允许同一局域网连接"
-msgstr ""
+msgstr "Allow connections from the same LAN only"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "只建立你确认过的连接"
@@ -662,13 +608,8 @@ msgid "可达"
 msgstr "Reachable"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "可配对"
 msgstr "Pairable"
-
-#: src/routes/_app/send/share-target.lazy.tsx
-#~ msgid "合计"
-#~ msgstr "Total"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "同时删除本地文件"
@@ -713,11 +654,19 @@ msgstr "When enabled, inbound files matching the policy go straight to the Inbox
 msgid "在下方创建第一个分组来整理已配对设备。"
 msgstr "Create your first group below to organize paired devices."
 
+#: src/routes/_app/pairing/input.lazy.tsx
+msgid "在对方设备上打开 SwarmDrop，进入「添加设备 → 展示邀请」"
+msgstr "Open SwarmDrop on the other device, then go to Add Device → Show Invite"
+
+#: src/routes/_app/pairing/generate.lazy.tsx
+msgid "在对方设备上打开 SwarmDrop，进入「添加设备」"
+msgstr "Open SwarmDrop on the other device, then go to Add Device"
+
 #: src/components/transfer/session-panel.tsx
 msgid "在收件箱查看"
 msgstr "View in Inbox"
 
-#: src/components/file-browser/item-actions.tsx
+#: packages/file-browser/src/item-actions.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "在文件夹中显示"
 msgstr "Show in Folder"
@@ -753,32 +702,37 @@ msgstr "Processing..."
 msgid "复制"
 msgstr "Copy"
 
+#: src/components/network/lan-helper-address.tsx
+msgid "复制后可供浏览器端快速连接本机。"
+msgstr "Copy to let a browser connect to this device quickly."
+
+#: src/components/network/lan-helper-address.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/settings/-device-info-section.tsx
+#: src/routes/_app/settings/-mcp-section.tsx
+msgid "复制失败"
+msgstr "Copy failed"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "复制失败，请手动复制路径"
 msgstr "Copy failed, please copy the path manually"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制失败，请手动复制邀请"
-msgstr ""
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/pairing/generate.lazy.tsx
-#~ msgid "复制失败，请手动复制配对码"
-#~ msgstr "Copy failed, please copy the pairing code manually"
+msgstr "Copy failed. Please copy the invite manually."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "复制路径"
 msgstr "Copy path"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "复制远端地址"
+msgstr "Copy remote address"
+
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制邀请链接"
-msgstr ""
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/pairing/generate.lazy.tsx
-#~ msgid "复制配对码"
-#~ msgstr "Copy Code"
+msgstr "Copy Invite Link"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "外观"
@@ -787,10 +741,6 @@ msgstr "Appearance"
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "大小上限"
 msgstr "Size limit"
-
-#: src/components/file-tree/file-tree-item.tsx
-#~ msgid "失败"
-#~ msgstr "Failed"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "安全配对"
@@ -808,17 +758,29 @@ msgstr "Website"
 msgid "客户端配置"
 msgstr "Client Configuration"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "对方就在同一网段，但直连没建起来"
+msgstr "That device is on your network, but no direct link came up"
+
 #: src/lib/transfer-notifications.ts
 msgid "对方已取消传输"
 msgstr "Peer canceled transfer"
+
+#: src/lib/errors.ts
+msgid "对方已取消这次传输，无法继续"
+msgstr "They cancelled this transfer, so it can’t continue."
 
 #: src/lib/transfer-notifications.ts
 msgid "对方已暂停传输"
 msgstr "The peer has paused the transfer"
 
+#: src/lib/errors.ts
+msgid "对方已经没有这次传输的记录了"
+msgstr "They no longer have a record of this transfer."
+
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "对方扫码或粘贴邀请后，本机仍会弹出确认请求。"
-msgstr ""
+msgstr "After they scan or paste the invite, this device still asks you to confirm."
 
 #: src/lib/transfer-projection.ts
 msgid "对方拒绝"
@@ -836,59 +798,56 @@ msgstr "Pairing request was declined"
 msgid "对方暂停"
 msgstr "Paused by peer"
 
+#: src/lib/errors.ts
+msgid "对方暂时不可用，请稍后再试"
+msgstr "They’re unavailable right now. Please try again later."
+
 #: src/lib/transfer-projection.ts
 msgid "对方离线"
 msgstr "Peer offline"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "对方设备"
-msgstr ""
+msgstr "Their Device"
 
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "导出"
-#~ msgstr "Export"
+#: src/lib/errors.ts
+msgid "对方那边出错了，无法继续"
+msgstr "Something went wrong on their side, so it can’t continue."
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "将以下 JSON 添加到 AI 客户端（如 Claude Desktop、Cursor）的 MCP 配置中"
 msgstr "Add the following JSON to your AI client's MCP configuration (e.g. Claude Desktop, Cursor)"
 
-#. placeholder {0}: counts.all
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "将删除全部 {0} 条记录，包括可恢复任务的断点信息，此操作无法撤销；已传输的文件不受影响。"
-msgstr "This will delete all {0} records, including checkpoints of resumable tasks. This cannot be undone; transferred files are not affected."
+msgid "将删除已结束的传输记录，此操作无法撤销；进行中与可继续续传的任务会保留，已传输的文件不受影响。"
+msgstr "This will delete records of finished transfers and cannot be undone. In-progress and resumable tasks are kept; transferred files are not affected."
 
-#. placeholder {0}: formatCountdown(remainingSeconds)
+#. placeholder {0}: formatTimeLeft(remainingSeconds)
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "将在 {0} 后过期"
 msgstr "Expires in {0}"
 
-#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "局域网"
 msgstr "LAN"
 
 #: src/components/network/stop-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
 msgid "局域网协助"
 msgstr "LAN assistance"
 
+#: src/components/network/lan-helper-address.tsx
+msgid "局域网协助地址"
+msgstr "LAN Helper Address"
+
+#: src/components/pairing/pairing-mode-tabs.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
-msgid "展示配对邀请"
-msgstr ""
+msgid "展示邀请"
+msgstr "Show Invite"
 
-#: src/stores/pairing-store.ts
-#~ msgid "已与 {0} 配对成功"
-#~ msgstr "Paired with {0} successfully"
-
-#: src/stores/pairing-store.ts
-#: src/stores/pairing-store.ts
 #: src/stores/pairing-store.ts
 msgid "已与 {deviceName} 配对成功"
 msgstr "Paired with {deviceName} successfully"
-
-#: src/stores/pairing-store.ts
-#~ msgid "已与 {displayName} 配对成功"
-#~ msgstr "Paired with {displayName}"
 
 #: src/lib/transfer-projection.ts
 msgid "已中断"
@@ -905,6 +864,10 @@ msgstr "Inbox record deleted"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "已删除记录和本地文件"
 msgstr "Record and local files deleted"
+
+#: src/components/pairing/sent-invites.tsx
+msgid "已发出的邀请"
+msgstr "Invites you've sent"
 
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
@@ -923,6 +886,7 @@ msgstr "Transfer canceled"
 msgid "已取消归档"
 msgstr "Unarchived"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "已复制"
@@ -937,10 +901,6 @@ msgstr "Copied to clipboard"
 #: src/lib/transfer-projection.ts
 msgid "已完成"
 msgstr "Completed"
-
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "已导出到所选位置"
-#~ msgstr "Exported to the selected location"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "已就绪"
@@ -959,6 +919,10 @@ msgstr "Inbox record archived"
 msgid "已拒绝来自 {0} 的配对请求"
 msgstr "Declined pairing request from {0}"
 
+#: src/routes/_app/devices/-components/add-device-section.tsx
+msgid "已收到邀请"
+msgstr "Already have one"
+
 #: src/lib/transfer-projection.ts
 msgid "已暂停"
 msgstr "Paused"
@@ -971,25 +935,25 @@ msgstr "Trusted device policy updated"
 msgid "已检查收件箱"
 msgstr "Inbox checked"
 
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "已清理"
-#~ msgstr "Cleaned up"
-
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "已清空活动记录"
-msgstr "Activity cleared"
+msgid "已清空已结束的记录"
+msgstr "Finished records cleared"
 
-#: src/routes/_app/pairing/input.lazy.tsx
-msgid "已粘贴"
-msgstr ""
+#: src/stores/pairing-store.ts
+msgid "已经和这台设备配过对了"
+msgstr "Already paired with this device"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "已结束"
 msgstr "Ended"
 
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "已过期"
-#~ msgstr "Expired"
+#: src/components/pairing/sent-invites.tsx
+msgid "已被对方使用"
+msgstr "Used by the other device"
+
+#: src/components/pairing/sent-invites.tsx
+msgid "已过期"
+msgstr "Expired"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "已连接"
@@ -1013,7 +977,6 @@ msgid "已选文件"
 msgstr "Selected Files"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/devices/-components/add-device-section.tsx
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "已配对"
 msgstr "Paired"
@@ -1027,7 +990,6 @@ msgstr "Paired Devices"
 msgid "已配对设备优先展示，附近设备和配对入口收在右侧，打开应用就能开始操作。"
 msgstr "Paired devices come first; nearby devices and pairing are on the right, so you're ready to go the moment you open the app."
 
-#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "已阻止"
 msgstr "Blocked"
@@ -1054,10 +1016,13 @@ msgid "引导节点"
 msgstr "Bootstrap Nodes"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点地址已复制"
+msgstr "Bootstrap node address copied"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点已变更，需重启节点生效"
 msgstr "Bootstrap nodes changed, restart required to take effect"
 
-#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "归档"
 msgstr "Archive"
@@ -1070,22 +1035,13 @@ msgstr "Once the current session completes, it moves to history."
 msgid "当前使用内置引导节点。"
 msgstr "Currently using the built-in bootstrap nodes."
 
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "当前状态"
-#~ msgstr "Current status"
-
-#: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "待发文件"
 msgstr "Files to send"
 
-#: src/routes/_app/send/share-target.lazy.tsx
-#~ msgid "待发送"
-#~ msgstr "To Send"
-
-#: src/routes/_app/pairing/generate.lazy.tsx
-msgid "待生成"
-msgstr "Not generated"
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "待处理请求"
+msgstr "Pending requests"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "待确认"
@@ -1116,17 +1072,13 @@ msgstr "Groups"
 msgid "所有文件传输完成！"
 msgstr "All files transferred successfully!"
 
-#: src/routes/_app/send/share-target.lazy.tsx
-#~ msgid "所有文件已被移除。返回后重新选择要发送的内容。"
-#~ msgstr "All files have been removed. Go back and pick what to send again."
+#: src/routes/_app/pairing/generate.lazy.tsx
+msgid "手机上点「扫码」对准这个二维码；电脑上改用「粘贴邀请」"
+msgstr "On a phone, tap Scan and aim at this QR code; on a computer, switch to Paste Invite"
 
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "打开"
-#~ msgstr "Open"
-
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "打开 {0}"
-#~ msgstr "Open {0}"
+#: src/routes/_app/pairing/input.lazy.tsx
+msgid "手机上装了 SwarmDrop 的话，直接用手机扫对方的二维码更快。"
+msgstr "If SwarmDrop is installed on your phone, scanning their QR code with it is faster."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "打开传输记录"
@@ -1136,7 +1088,7 @@ msgstr "Open transfer record"
 msgid "打开收件箱列表"
 msgstr "Open inbox list"
 
-#: src/components/file-browser/item-actions.tsx
+#: packages/file-browser/src/item-actions.tsx
 msgid "打开文件"
 msgstr "Open file"
 
@@ -1144,7 +1096,7 @@ msgstr "Open file"
 msgid "打开文件夹"
 msgstr "Open Folder"
 
-#: src/routes/_app/devices/-components/device-card.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "打洞"
 msgstr "Direct"
@@ -1157,9 +1109,9 @@ msgstr "tray"
 msgid "找不到原始文件路径，请重新选择文件发送"
 msgstr "Original file paths not found. Please pick the files again to send."
 
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "找到设备后，你可以确认系统信息再发送配对请求。"
-#~ msgstr "Once a device is found, you can confirm its system info before sending a pairing request."
+#: src/stores/pairing-store.ts
+msgid "把它发给对方，不是自己用。"
+msgstr "Send it to the other device — it is not for use here."
 
 #: src/components/pairing/connection-request-dialog.tsx
 #: src/components/transfer/transfer-offer-dialog.tsx
@@ -1178,6 +1130,10 @@ msgstr "Drag to reorder, rename, or delete groups. Deleting a group won't unpair
 msgid "拖拽文件或文件夹到这里"
 msgstr "Drag files or folders here"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "排查连接问题时把这些贴进 issue"
+msgstr "Paste these into an issue when reporting a connection problem"
+
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "接受配对"
 msgstr "Accept"
@@ -1191,10 +1147,6 @@ msgstr "Accept"
 msgid "接收文件会默认保存到这里，可随时更改。"
 msgstr "Received files are saved here by default. You can change this anytime."
 
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "接收时间"
-#~ msgstr "Received"
-
 #: src/components/transfer/session-panel.tsx
 msgid "接收未完成，请让对方重新发起传输。"
 msgstr "The transfer didn't finish. Ask the sender to send it again."
@@ -1202,10 +1154,6 @@ msgstr "The transfer didn't finish. Ask the sender to send it again."
 #: src/components/transfer/policy-reason-badge.tsx
 msgid "接收策略"
 msgstr "Receive policy"
-
-#: src/routes/_app/settings/-network-settings-section.tsx
-#~ msgid "控制是否连接公网引导节点"
-#~ msgstr "Controls whether to connect to public bootstrap nodes"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "搜索收件箱"
@@ -1215,15 +1163,11 @@ msgstr "Search inbox"
 msgid "搜索标题、来源、文件名…"
 msgstr "Search by title, source, or filename..."
 
-#: src/routes/_app/pairing/-device-found-view.tsx
-#~ msgid "操作系统"
-#~ msgstr "OS"
+#: src/components/pairing/sent-invites.tsx
+msgid "撤销"
+msgstr "Revoke"
 
 #: src/components/layout/app-topbar.tsx
-#: src/components/layout/app-topbar.tsx
-#: src/components/layout/app-topbar.tsx
-#: src/components/layout/app-topbar.tsx
-#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "收件箱"
 msgstr "Inbox"
@@ -1236,10 +1180,9 @@ msgstr "Inbox record is still being created. Try again in a moment."
 msgid "收到文件"
 msgstr "Files Received"
 
-#: src/components/file-browser/file-browser.tsx
+#: packages/file-browser/src/file-browser.tsx
 #: src/components/transfer/session-panel.tsx
 #: src/components/transfer/transfer-offer-dialog.tsx
-#: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "文件"
 msgstr "Files"
@@ -1260,19 +1203,15 @@ msgstr "File transfer failed, please try again"
 msgid "文件已全部移除"
 msgstr "All files removed"
 
-#: src/routes/_app/send/share-target.lazy.tsx
-#~ msgid "文件已全部移除，返回重新分享。"
-#~ msgstr "All files removed. Go back to share again."
-
 #: src/components/transfer/session-panel.tsx
 msgid "文件明细"
 msgstr "File details"
 
-#: src/components/file-browser/file-browser.tsx
+#: packages/file-browser/src/file-browser.tsx
 msgid "文件视图"
 msgstr "File view"
 
-#: src/components/file-browser/file-card.tsx
+#: packages/file-browser/src/file-card.tsx
 msgid "文件缺失"
 msgstr "File missing"
 
@@ -1285,11 +1224,9 @@ msgid "断点续传"
 msgstr "Resumable Transfers"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
-#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "新分组名称"
 msgstr "New group name"
 
-#: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "新建"
 msgstr "Add"
@@ -1297,10 +1234,6 @@ msgstr "Add"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "无效的 Multiaddr 地址"
 msgstr "Invalid Multiaddr address"
-
-#: src/lib/errors.ts
-msgid "无效的配对码"
-msgstr "Invalid pairing code"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "无法加载这条记录"
@@ -1327,16 +1260,11 @@ msgstr "Yesterday"
 msgid "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
 msgstr "Whether to actively connect to public bootstrap nodes; LAN-only mode can still be reached across networks unless public reachability is disabled"
 
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "显示位置"
-#~ msgstr "Show location"
-
 #: src/components/transfer/session-panel.tsx
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "暂停传输"
 msgstr "Pause Transfer"
 
-#: src/routes/_app/transfer/index.lazy.tsx
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "暂无传输活动"
 msgstr "No transfer activity"
@@ -1345,7 +1273,7 @@ msgstr "No transfer activity"
 msgid "暂无已接收内容"
 msgstr "No received items yet"
 
-#: src/components/file-browser/file-browser.tsx
+#: packages/file-browser/src/file-browser.tsx
 msgid "暂无文件"
 msgstr "No files"
 
@@ -1379,10 +1307,6 @@ msgstr "Release Notes"
 msgid "更早"
 msgstr "Earlier"
 
-#: src/routes/_app/pairing/generate.lazy.tsx
-msgid "有效期"
-msgstr "Validity"
-
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "服务状态"
 msgstr "Service Status"
@@ -1390,6 +1314,10 @@ msgstr "Service Status"
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "未分组"
 msgstr "Ungrouped"
+
+#: src/lib/transfer-projection.ts
+msgid "未及时处理"
+msgstr "Not answered in time"
 
 #: src/components/layout/app-topbar.tsx
 #: src/components/network/start-node-sheet.tsx
@@ -1401,11 +1329,16 @@ msgstr "Stopped"
 msgid "未找到匹配项"
 msgstr "No matches found"
 
+#: src/lib/errors.ts
+msgid "未找到该设备"
+msgstr "Device not found"
+
 #: src/components/network/stop-node-sheet.tsx
 msgid "未提供"
 msgstr "Not provided"
 
 #: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "未知"
@@ -1419,17 +1352,18 @@ msgstr "Unknown file"
 msgid "未设置"
 msgstr "Not set"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "未读"
+msgstr "Unread"
+
 #: src/components/network/stop-node-sheet.tsx
 msgid "未连接"
 msgstr "Not connected"
 
 #: src/routes/_app/devices/-components/device-card.tsx
-#: src/routes/_app/devices/-components/device-card.tsx
 msgid "未配对"
 msgstr "Not Paired"
 
-#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "本人设备"
 msgstr "My device"
@@ -1437,10 +1371,6 @@ msgstr "My device"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "本周"
 msgstr "This Week"
-
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "本地位置"
-#~ msgstr "Local location"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "本地内容缺失"
@@ -1454,26 +1384,13 @@ msgstr "Once local files are deleted, clearing activity can't restore them."
 msgid "本机协助中"
 msgstr "Assisting"
 
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "本机配对码"
-#~ msgstr "Your pairing code"
+#: src/routes/_app/pairing/generate.lazy.tsx
+msgid "本机弹出确认请求，你同意后配对完成"
+msgstr "This device shows a confirmation request — approve it and pairing is done"
 
-#: src/routes/_app/settings/-network-settings-section.tsx
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "本设备作为局域网协助节点"
 msgstr "Use this device as a LAN assistance node"
-
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "来源与过程"
-#~ msgstr "Source & process"
-
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "来源类型"
-#~ msgstr "Source type"
-
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "来源设备"
-#~ msgstr "Source device"
 
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "来自"
@@ -1484,24 +1401,18 @@ msgstr "From"
 #. placeholder {0}: hit.sourceName
 #: src/components/transfer/transfer-offer-dialog.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
-#: src/routes/_app/inbox/index.lazy.tsx
-#: src/routes/_app/inbox/index.lazy.tsx
 msgid "来自 {0}"
 msgstr "From {0}"
 
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "查找中"
-#~ msgstr "Searching"
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "查看链路详情"
+msgstr "View link details"
 
-#: src/stores/pairing-store.ts
-#~ msgid "查找设备"
-#~ msgstr "Find Device"
-
-#: src/components/file-browser/file-browser.tsx
+#: packages/file-browser/src/file-browser.tsx
 msgid "树形视图"
 msgstr "Tree view"
 
-#: src/components/file-browser/file-card.tsx
+#: packages/file-browser/src/file-card.tsx
 msgid "根目录"
 msgstr "Root directory"
 
@@ -1512,10 +1423,6 @@ msgstr "Checking..."
 #: src/routes/_app/settings/-about-section.tsx
 msgid "检查更新"
 msgstr "Check for Updates"
-
-#: src/routes/_app/pairing/input.lazy.tsx
-msgid "检测到剪贴板中的配对邀请，点此继续"
-msgstr ""
 
 #. placeholder {0}: latestVersion ?? "?"
 #: src/routes/_app/settings/-about-section.tsx
@@ -1530,6 +1437,10 @@ msgstr "Transferring"
 msgid "正在保存..."
 msgstr "Saving..."
 
+#: packages/file-browser/src/item-actions.tsx
+msgid "正在准备下载"
+msgstr "Preparing download"
+
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "正在启动节点…"
 msgstr "Starting node…"
@@ -1538,28 +1449,11 @@ msgstr "Starting node…"
 msgid "正在建立会话..."
 msgstr "Establishing session..."
 
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "正在查找设备..."
-#~ msgstr "Searching for device..."
-
-#: src/routes/_app/pairing/generate.lazy.tsx
-msgid "正在生成邀请"
-msgstr ""
-
-#: src/routes/_app/pairing/generate.lazy.tsx
-#~ msgid "正在生成配对码"
-#~ msgstr "Generating pairing code"
-
 #. placeholder {0}: progress.completedFiles
 #. placeholder {1}: progress.totalFiles
 #: src/routes/_app/send/-components/prepare-progress-bar.tsx
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "Computing checksums ({0}/{1})"
-
-#: src/routes/_app/pairing/generate.lazy.tsx
-#~ msgid "正在运行"
-#~ msgstr "Running"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "此分类下暂无记录"
@@ -1573,10 +1467,6 @@ msgstr "Ask every time"
 msgid "没有在线设备"
 msgstr "No devices online"
 
-#: src/routes/_app/send/share-target.lazy.tsx
-#~ msgid "没有待发送的文件"
-#~ msgstr "No files to send"
-
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "没有符合条件的附近设备"
 msgstr "No matching nearby devices"
@@ -1585,17 +1475,9 @@ msgstr "No matching nearby devices"
 msgid "没有缺失的收件箱记录"
 msgstr "No missing inbox records"
 
-#: src/routes/_app/inbox/index.lazy.tsx
-#~ msgid "活动状态"
-#~ msgstr "Activity status"
-
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "浅色"
 msgstr "Light"
-
-#: src/routes/_app/inbox/index.lazy.tsx
-msgid "浏览收件箱"
-msgstr "Browse inbox"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "深色"
@@ -1605,29 +1487,40 @@ msgstr "Dark"
 msgid "添加"
 msgstr "Add"
 
-#: src/routes/_app/pairing/generate.lazy.tsx
-msgid "添加新设备"
-msgstr "Add New Device"
-
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "添加自定义引导节点"
 msgstr "Add Custom Bootstrap Node"
 
+#: src/components/layout/app-topbar.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
+#: src/routes/_app/pairing/generate.lazy.tsx
+#: src/routes/_app/pairing/input.lazy.tsx
 msgid "添加设备"
 msgstr "Add Device"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "清空全部传输记录？"
-msgstr "Clear all transfer records?"
+msgid "清空已结束的传输记录？"
+msgstr "Clear finished transfer records?"
 
 #: src/routes/_app/transfer/index.lazy.tsx
-msgid "清空活动记录"
-msgstr "Clear activity"
+msgid "清空已结束的记录"
+msgstr "Clear finished records"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "清空记录"
 msgstr "Clear records"
+
+#: src/lib/errors.ts
+msgid "源文件已变更，无法继续，请重新发送"
+msgstr "The source file changed, so it can’t continue. Please send it again."
+
+#: src/components/network/lan-helper-address.tsx
+msgid "点击复制"
+msgstr "Click to copy"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "点击查看远端地址"
+msgstr "Click for the remote address"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "点窗口关闭按钮（✕）后的行为"
@@ -1664,42 +1557,25 @@ msgstr "Listening address: {0}"
 msgid "监听端口"
 msgstr "Listening Port"
 
-#: src/routes/_app/send/index.lazy.tsx
-#~ msgid "目标设备"
-#~ msgstr "Target device"
-
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"
 msgstr "Are you sure you want to unpair \"{deviceName}\"? You'll need to pair again to transfer files."
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "确认"
-#~ msgstr "Confirm"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "确认取消配对"
 msgstr "Confirm Unpair"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "确认对端已启动，或直接使用下方配对码连接。"
-#~ msgstr "Make sure the other device is running, or use the pairing code below to connect."
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "确认对端已启动，或通过邀请连接设备。"
-msgstr ""
-
-#: src/routes/_app/send/index.lazy.tsx
-#~ msgid "确认目标设备在线后，将文件或文件夹拖到右侧面板。"
-#~ msgstr "Once the target device is online, drag files or folders to the right panel."
+msgstr "Make sure the other device is running, or connect it with an invite."
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "确认设备"
-msgstr ""
+msgstr "Confirm Device"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "确认配对"
-msgstr ""
+msgstr "Confirm Pairing"
 
 #: src/routes/_app/send/-components/send-progress-view.tsx
 msgid "离开此页不会中断传输，可在「传输活动」中继续查看。"
@@ -1709,9 +1585,13 @@ msgstr "Leaving this page won't interrupt the transfer — you can keep track of
 msgid "离线"
 msgstr "Offline"
 
-#: src/components/file-browser/item-actions.tsx
+#: packages/file-browser/src/item-actions.tsx
 msgid "移除"
 msgstr "Remove"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "空传输"
+msgstr "Empty transfer"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "端到端加密"
@@ -1730,6 +1610,10 @@ msgstr "Port must be between 1024 and 65535"
 msgid "等待中"
 msgstr "Waiting"
 
+#: src/components/pairing/sent-invites.tsx
+msgid "等待对方使用"
+msgstr "Waiting to be used"
+
 #: src/components/transfer/session-panel.tsx
 msgid "等待对方确认..."
 msgstr "Waiting for confirmation..."
@@ -1738,17 +1622,9 @@ msgstr "Waiting for confirmation..."
 msgid "等待确认"
 msgstr "Waiting for confirmation"
 
-#: src/routes/_app/pairing/input.lazy.tsx
-msgid "等待粘贴"
-msgstr ""
-
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "等待节点启动"
 msgstr "Waiting for node to start"
-
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "等待输入"
-#~ msgstr "Waiting for input"
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "等待选择"
@@ -1771,16 +1647,21 @@ msgid "管理设备分组"
 msgstr "Manage device groups"
 
 #: src/routes/_app/pairing/input.lazy.tsx
+msgid "粘贴到左侧，验证通过后确认发起配对"
+msgstr "Paste it on the left; once verified, confirm to start pairing"
+
+#: src/routes/_app/pairing/input.lazy.tsx
 msgid "粘贴后本机会验证并显示对端设备，确认后再发起配对。"
-msgstr ""
+msgstr "This device verifies the invite and shows the peer before pairing starts."
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "粘贴对方的配对邀请"
-msgstr ""
+msgstr "Paste their pairing invite"
 
+#: src/components/pairing/pairing-mode-tabs.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
-msgid "粘贴邀请配对"
-msgstr ""
+msgid "粘贴邀请"
+msgstr "Paste Invite"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "给设备取个名字"
@@ -1788,14 +1669,18 @@ msgstr "Name your device"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "继续"
-msgstr ""
+msgstr "Continue"
 
-#: src/components/file-browser/file-row.tsx
+#: src/lib/errors.ts
+msgid "续传进度已失效，请重新发送"
+msgstr "The resume progress is no longer valid. Please send it again."
+
+#: packages/file-browser/src/file-row.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "缺失"
 msgstr "Missing"
 
-#: src/components/file-browser/file-browser.tsx
+#: packages/file-browser/src/file-browser.tsx
 msgid "网格视图"
 msgstr "Grid view"
 
@@ -1820,11 +1705,9 @@ msgid "自动"
 msgstr "Auto"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-#: src/routes/_app/settings/-network-settings-section.tsx
 msgid "自动发现局域网协助节点"
 msgstr "Auto-discover LAN assistance nodes"
 
-#: src/routes/_app/settings/-network-settings-section.tsx
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "自动启动节点"
 msgstr "Auto-start Node"
@@ -1838,10 +1721,6 @@ msgstr "Auto Accept"
 msgid "自动接收位置"
 msgstr "Auto-accept location"
 
-#: src/components/network/stop-node-sheet.tsx
-msgid "自定义"
-msgstr "Custom"
-
 #. placeholder {0}: customBootstrapNodes.length
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "自定义 {0}"
@@ -1851,7 +1730,6 @@ msgstr "Custom {0}"
 msgid "自定义节点"
 msgstr "Custom nodes"
 
-#: src/stores/network-store.ts
 #: src/stores/network-store.ts
 msgid "节点启动失败"
 msgstr "Node failed to start"
@@ -1894,20 +1772,16 @@ msgid "解锁后自动启动 P2P 网络节点"
 msgstr "Automatically start P2P network node after unlock"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "让另一台设备输入这组 6 位数字"
-#~ msgstr "Have the other device enter these 6 digits"
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
-msgid "让对方扫码或粘贴"
-msgstr ""
+msgid "让对方扫码"
+msgstr "Let them scan it"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "让对方扫码或粘贴此邀请"
-msgstr ""
+msgstr "Have the other device scan or paste this invite"
 
-#: src/routes/_app/pairing/generate.lazy.tsx
-#~ msgid "让对方输入这组配对码"
-#~ msgstr "Have the other device enter this pairing code"
+#: src/routes/_app/pairing/input.lazy.tsx
+msgid "让对方点「复制邀请链接」，把那条链接发给你"
+msgstr "Have them tap \"Copy invite link\" and send you the link"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "让目标设备打开 SwarmDrop 并保持在线，或先配对一台设备。"
@@ -1918,8 +1792,8 @@ msgid "记住我的选择（之后可在「设置」中修改）"
 msgstr "Remember my choice (can be changed in Settings)"
 
 #: src/routes/_app/transfer/-session-row.tsx
-msgid "记录删除后无法恢复；已传输的文件不受影响。"
-msgstr "The record cannot be recovered after deletion; transferred files are not affected."
+msgid "记录删除后无法恢复；已传输的文件不受影响。若此刻它又恢复了传输，需先取消才能删除记录。"
+msgstr "The record cannot be recovered after deletion; transferred files are not affected. If it has resumed transferring by now, cancel it first before deleting the record."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "记录可能已被移除，或详情加载失败。请选择其它记录，或刷新收件箱。"
@@ -1958,10 +1832,6 @@ msgstr "Device name updated"
 msgid "设备名称已设置"
 msgstr "Device name set"
 
-#: src/routes/_app/pairing/-device-found-view.tsx
-#~ msgid "设备在线，可以建立连接"
-#~ msgstr "Device online, ready to connect"
-
 #: src/lib/transfer-notifications.ts
 msgid "设备已取消配对"
 msgstr "Device has been unpaired"
@@ -1974,29 +1844,21 @@ msgstr "Device actions"
 msgid "设备未找到"
 msgstr "Device not found"
 
-#: src/routes/_app/pairing/-device-found-view.tsx
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "设备详情"
-#~ msgstr "Device Details"
-
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "设备身份"
 msgstr "Device identity"
 
 #: src/lib/errors.ts
-msgid "设备身份初始化失败"
-msgstr "Failed to initialize device identity"
+msgid "设备身份尚未就绪，请重启应用后重试"
+msgstr "Device identity isn't ready yet. Restart the app and try again."
 
-#: src/components/layout/app-topbar.tsx
-#: src/components/layout/app-topbar.tsx
-#: src/components/layout/app-topbar.tsx
+#: src/lib/errors.ts
+msgid "设备身份读写失败"
+msgstr "Could not read or write the device identity"
+
 #: src/components/layout/app-topbar.tsx
 msgid "设置"
 msgstr "Settings"
-
-#: src/routes/_app/inbox/index.lazy.tsx
-msgid "试试更短的关键词，或检查是否包含已归档内容。"
-msgstr "Try shorter keywords, or check whether archived items are included."
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "该分组中还没有设备"
@@ -2031,6 +1893,11 @@ msgstr "Please finish setting up SwarmDrop first"
 msgid "请输入大于 0 的数字，留空表示不限制"
 msgstr "Enter a number greater than 0, or leave blank for no limit"
 
+#. placeholder {0}: failure.retentionDays
+#: src/lib/errors.ts
+msgid "超过 {0} 天未恢复，已自动清理"
+msgstr "Not resumed for over {0} days, so it was cleaned up automatically."
+
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "跟随系统"
 msgstr "System"
@@ -2042,31 +1909,6 @@ msgstr "Cross-Network"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "输入 Multiaddr 地址，如 /ip4/.../p2p/..."
 msgstr "Enter Multiaddr address, e.g. /ip4/.../p2p/..."
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "输入另一台设备上显示的 6 位数字配对码。"
-#~ msgstr "Enter the 6-digit pairing code shown on the other device."
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "输入另一台设备显示的 6 位数字"
-#~ msgstr "Enter the 6 digits shown on the other device"
-
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "输入另一台设备的配对码"
-#~ msgstr "Enter the other device's pairing code"
-
-#: src/routes/_app/pairing/input.lazy.tsx
-msgid "输入状态"
-msgstr ""
-
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "输入进度"
-#~ msgstr "Input progress"
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "输入配对码"
-#~ msgstr "Enter Code"
 
 #: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
@@ -2086,6 +1928,10 @@ msgstr "Back"
 msgid "返回后重新选择要分享的文件。"
 msgstr "Go back and select files to share again."
 
+#: src/components/transfer/transfer-offer-dialog.tsx
+msgid "还有 {waitingCount} 条在等待"
+msgstr "{waitingCount} more waiting"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "还没有分组"
 msgstr "No groups yet"
@@ -2102,6 +1948,14 @@ msgstr "No paired devices yet"
 msgid "这些信息仅保存在本机，不会同步给对端。"
 msgstr "This info is stored only on this device and never shared with peers."
 
+#: src/stores/pairing-store.ts
+msgid "这是本机生成的邀请"
+msgstr "This invite was generated on this device"
+
+#: src/lib/errors.ts
+msgid "这条记录已经不在了，请返回列表重新开始"
+msgstr "This entry is no longer there. Go back to the list and start over."
+
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "进入 SwarmDrop"
 msgstr "Enter SwarmDrop"
@@ -2110,17 +1964,13 @@ msgstr "Enter SwarmDrop"
 msgid "进行中"
 msgstr "Active"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "远端地址"
+msgstr "Remote address"
+
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "连接"
 msgstr "Connect"
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
-msgid "连接对方设备"
-msgstr ""
-
-#: src/routes/_app/pairing/input.lazy.tsx
-msgid "连接已有设备"
-msgstr "Connect Existing Device"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "连接请求"
@@ -2138,10 +1988,6 @@ msgstr "Quit app"
 msgid "选择"
 msgstr "Select"
 
-#: src/routes/_app/transfer/index.lazy.tsx
-#~ msgid "选择一个会话"
-#~ msgstr "Select a session"
-
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "选择一个设备"
 msgstr "Select a device"
@@ -2149,14 +1995,6 @@ msgstr "Select a device"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "选择一条收件箱记录查看详情"
 msgstr "Select an inbox record to view details"
-
-#: src/routes/_app/send/index.lazy.tsx
-#~ msgid "选择内容后，文件结构和总大小会在这里确认。"
-#~ msgstr "After you select content, its file structure and total size are confirmed here."
-
-#: src/routes/_app/send/share-target.lazy.tsx
-#~ msgid "选择右侧一台在线设备，端到端加密直接送达。"
-#~ msgstr "Pick an online device on the right for end-to-end encrypted direct delivery."
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "选择应用显示语言"
@@ -2178,22 +2016,51 @@ msgstr "Select Folder"
 msgid "选择设备"
 msgstr "Select Device"
 
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "通常是某一端的防火墙拦了入站连接。文件仍会经中继送达，只是更慢。"
+msgstr "Usually a firewall on one side is blocking inbound connections. Files still arrive over the relay, just slower."
+
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "通用"
 msgstr "General"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "邀请一次性有效，过期后可立即重新生成。"
-msgstr ""
+msgstr "The invite is single-use; regenerate it any time after it expires."
 
+#: src/components/pairing/sent-invites.tsx
+msgid "邀请凭证不会被保存，所以这里只能显示状态。需要再分享请重新生成一条。"
+msgstr "The invite credential is never stored, so only its status can be shown here. Generate a new one if you need to share again."
+
+#: src/components/pairing/sent-invites.tsx
+msgid "邀请已撤销"
+msgstr "Invite revoked"
+
+#: src/components/pairing/sent-invites.tsx
+msgid "邀请已撤销，但没能保存"
+msgstr "Invite revoked, but not saved"
+
+#: src/lib/errors.ts
 #: src/routes/_app/pairing/generate.lazy.tsx
 #: src/stores/pairing-store.ts
 msgid "邀请已过期"
-msgstr ""
+msgstr "Invite expired"
+
+#: src/lib/errors.ts
+msgid "邀请无效或已被使用"
+msgstr "This invite is invalid or has already been used"
+
+#: src/components/pairing/sent-invites.tsx
+msgid "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
+msgstr "Invites stay valid for 24 hours. Once generated they show up here and can be revoked at any time."
+
+#: src/lib/errors.ts
+msgid "邀请状态未能保存，本次配对已中止，请重新生成邀请"
+msgstr "The invite state could not be saved, so pairing was aborted. Please generate a new invite."
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "邀请经本地签名验证，真正建立信任仍需要双方确认。"
-msgstr ""
+msgstr "The invite is signature-verified locally; trust is only established once both sides confirm."
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "配对"
@@ -2201,7 +2068,7 @@ msgstr "Pair"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "配对中..."
-msgstr ""
+msgstr "Pairing..."
 
 #: src/routes/_app/pairing.tsx
 msgid "配对功能需要 P2P 节点处于运行状态"
@@ -2209,31 +2076,19 @@ msgstr "Pairing requires the P2P node to be running"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "配对后，双方可以互相发送文件。确认发起配对？"
-msgstr ""
+msgstr "Once paired, you can send files both ways. Start pairing?"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "配对后，该设备可以向您发送文件。请确认您认识此设备。"
 msgstr "Once paired, this device can send you files. Please make sure you recognize this device."
 
-#: src/routes/_app/pairing/-device-found-view.tsx
-#~ msgid "配对方式"
-#~ msgstr "Pairing Method"
+#: src/components/pairing/pairing-mode-tabs.tsx
+msgid "配对方式"
+msgstr "Pairing Method"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "配对码"
 msgstr "Pairing Code"
-
-#: src/routes/_app/pairing/generate.lazy.tsx
-#~ msgid "配对码只在短时间内有效，过期后可立即重新生成。"
-#~ msgstr "The pairing code is valid only briefly; regenerate it immediately once it expires."
-
-#: src/routes/_app/pairing/input.lazy.tsx
-#~ msgid "配对码只用于定位设备，真正建立信任仍需要双方确认。"
-#~ msgstr "The pairing code only locates the device; establishing trust still requires confirmation from both sides."
-
-#: src/lib/errors.ts
-msgid "配对码已过期"
-msgstr "Code expired"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "配对确认"
@@ -2244,13 +2099,24 @@ msgid "配对设备"
 msgstr "Paired Devices"
 
 #: src/stores/pairing-store.ts
-#: src/stores/pairing-store.ts
 msgid "配对请求"
 msgstr "Pairing request"
+
+#: src/components/pairing/invite-qr.tsx
+msgid "配对邀请二维码"
+msgstr "Pairing invite QR code"
+
+#: src/components/network/stop-node-sheet.tsx
+msgid "配置节点"
+msgstr "Configured"
 
 #: src/routes/_app/settings/-settings-primitives.tsx
 msgid "重启中..."
 msgstr "Restarting..."
+
+#: src/components/pairing/sent-invites.tsx
+msgid "重启应用后它可能恢复可用，建议稍后再撤销一次。"
+msgstr "It may become usable again after a restart — try revoking once more later."
 
 #: src/routes/_app/settings/-settings-primitives.tsx
 msgid "重启节点"
@@ -2264,19 +2130,17 @@ msgstr "Failed to restart node"
 msgid "重新发送"
 msgstr "Resend"
 
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/devices/-components/add-device-section.tsx
-#: src/routes/_app/pairing/generate.lazy.tsx
-#~ msgid "重新生成"
-#~ msgstr "Regenerate"
-
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "重新生成邀请"
-msgstr ""
+msgstr "Regenerate Invite"
 
-#: src/components/file-browser/item-actions.tsx
+#: packages/file-browser/src/item-actions.tsx
 msgid "重试"
 msgstr "Retry"
+
+#: src/routes/_app/devices/-components/connection-badge.tsx
+msgid "链路详情"
+msgstr "Link details"
 
 #: src/components/network/stop-node-sheet.tsx
 msgid "错误"
@@ -2291,12 +2155,8 @@ msgid "附近设备"
 msgstr "Nearby Devices"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
-#~ msgid "附近设备优先，已配对设备可直接发送。"
-#~ msgstr "Nearby devices come first; paired devices can send directly."
-
-#: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "附近设备优先，或通过邀请连接跨网设备。"
-msgstr ""
+msgstr "Nearby devices first, or use an invite to reach a device on another network."
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "随节点自动启动"
@@ -2306,7 +2166,6 @@ msgstr "Auto-start with node"
 msgid "项"
 msgstr "items"
 
-#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "默认"
 msgstr "Default"

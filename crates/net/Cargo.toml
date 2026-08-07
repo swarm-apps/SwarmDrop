@@ -12,6 +12,9 @@ edition.workspace = true
 
 [dependencies]
 swarmdrop-net-base = { workspace = true }
+# WebRTC 打洞传输。放顶层而非 target 表——它自己按 target 换后端（native = webrtc-rs，
+# wasm = 浏览器 RTCPeerConnection），双 target 都要编。
+webrtc-p2p = { workspace = true }
 n0-future = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
@@ -33,11 +36,9 @@ libp2p = { workspace = true, features = [
     "tokio",
     "tcp",
     "quic",
-    # ⚠️ 0.56 的 feature bug：只开 websocket 不开 dns 编不过（builder 的 websocket
-    # phase 无条件引用 libp2p_dns）。dns 本身也是 native 默认要的（Android 的差异走
-    # transport.rs 的 target cfg 分支，不走 crate feature——双 target 下 feature 面越小越好）。
+    # dns 是 native 默认要的（/dns4 地址解析）。Android 的差异走 transport.rs 的
+    # target cfg 分支，不走 crate feature——双 target 下 feature 面越小越好。
     "dns",
-    "websocket",
     "mdns",
     "noise",
     "yamux",
@@ -50,10 +51,6 @@ libp2p = { workspace = true, features = [
     "serde",
 ] }
 libp2p-stream = { workspace = true }
-# 原生 webrtc-direct 不在 libp2p facade 里（facade 只有 webrtc-websys），必须直接依赖
-libp2p-webrtc = { workspace = true, features = ["tokio", "pem"] }
-# webrtc Certificate::generate 需要（对齐 libp2p 生态的 rand 0.8）
-rand = "0.8"
 
 # ============ android ============
 # Android 显式公共 DNS（transport.rs）要构造 NameServerConfig，libp2p::dns 不
@@ -74,8 +71,6 @@ libp2p = { workspace = true, features = [
     "ping",
     "relay",
     "serde",
-    "websocket-websys",
-    "webrtc-websys",
 ] }
 libp2p-stream = { workspace = true }
 getrandom = { version = "0.3", features = ["wasm_js"] }
@@ -83,7 +78,7 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 futures-timer = { version = "3", features = ["wasm-bindgen"] }
 # master 的 libp2p-swarm 精确 pin =0.4.58，必须跟着钉，否则 cargo 无解
 wasm-bindgen-futures = "=0.4.58"
-# Window/Worker 环境探测（Worker 里不装 webrtc-websys，见 transport.rs）
+# Window/Worker 环境探测（见 transport.rs）
 web-sys = { version = "0.3", features = ["Window"] }
 
 [build-dependencies]

@@ -11,7 +11,7 @@ import type { FileBrowserView } from "./types";
 interface FileBrowserToolbarProps {
   title?: React.ReactElement | string;
   count: number;
-  totalSize: bigint;
+  totalSize: number;
   view: FileBrowserView;
   onViewChange: (view: FileBrowserView) => void;
   testID?: string;

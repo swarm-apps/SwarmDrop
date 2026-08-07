@@ -4,11 +4,13 @@
 //! 传输和持久化逻辑。当前先建立 crate 边界，后续任务会逐步迁移模块。
 
 pub mod device_manager;
+pub mod device_name;
 pub mod event_adapter;
 pub mod host;
 pub mod identity;
 pub mod infra;
 pub mod network;
+pub mod paired_devices;
 pub mod pairing;
 pub mod presence;
 pub mod protocol;

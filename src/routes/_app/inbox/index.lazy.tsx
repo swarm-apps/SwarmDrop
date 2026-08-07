@@ -16,7 +16,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
@@ -25,10 +24,10 @@ import {
   Bot,
   ChevronDown,
   Copy,
+  Download,
   FileArchive,
   FolderOpen,
   Inbox,
-  PanelLeft,
   RefreshCw,
   Search,
   Trash2,
@@ -43,13 +42,17 @@ import {
   type InboxItemSummary,
   type InboxSearchHit,
 } from "@/lib/bindings";
-import { getFileIcon, getFileIconColor } from "@/lib/file-icon";
 import { useInboxStore } from "@/stores/inbox-store";
+import { useTransferStore } from "@/stores/transfer-store";
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CenteredEmptyState } from "@/components/layout/section-primitives";
+import {
+  CenteredEmptyState,
+  RailEmptyHint,
+} from "@/components/layout/section-primitives";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -69,14 +72,22 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { copyText } from "@/lib/clipboard";
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
+import {
+  groupByTimeBucket,
+  type TimeBucket,
+  type TimeBucketKey,
+} from "@swarmdrop/shared-view";
 import { projectionStatusLabel } from "@/lib/transfer-projection";
 import {
   MasterDetailShell,
   OpenListButton,
 } from "@/components/layout/master-detail-shell";
 import { getErrorMessage } from "@/lib/errors";
-import { FileBrowser, fromInboxFiles } from "@/components/file-browser";
+import { FileBrowser, getFileIconStyle } from "@swarmdrop/file-browser";
+import type { FileBrowserItem } from "@swarmdrop/shared-view";
+import { itemsFromInbox } from "@/lib/file-browser-adapters";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 export const Route = createLazyFileRoute("/_app/inbox/")({
@@ -280,7 +291,7 @@ function InboxPage() {
       toast.error(t`该记录没有可用的本地路径`);
       return;
     }
-    void navigator.clipboard.writeText(path).then(
+    void copyText(path).then(
       () => toast.success(t`已复制到剪贴板`),
       () => toast.error(t`复制失败，请手动复制路径`),
     );
@@ -345,6 +356,7 @@ function InboxPage() {
             status={readerStatus}
             detail={selectedDetail}
             contained={!isCompact}
+            hasItems={items.length > 0}
             onOpenList={openList ?? undefined}
             onReveal={handleReveal}
             onCopyPath={handleCopyPath}
@@ -445,7 +457,10 @@ function InboxRail({
   const searchResults = useInboxStore((s) => s.searchResults);
 
   const isSearching = query.trim() !== "";
-  const groups = useMemo(() => groupInboxByTime(items), [items]);
+  // 分桶逻辑住在 `@swarmdrop/shared-view`（`groupByTimeBucket`）——Web 端也用同一份。
+  // 桶的边界（今天从几点起、本周算几天）三端不该有不同答案；本地只保留 `groupLabel`，
+  // 因为那是返回 `<Trans>` 的本地化文案，按该包的归属判据进不去。
+  const groups = useMemo(() => groupByTimeBucket(items, (i) => i.receivedAt), [items]);
   const railScrollRef = useRef<HTMLDivElement>(null);
 
   const visibleIds = useMemo(
@@ -565,6 +580,12 @@ function InboxRail({
         data-testid="inbox-list"
         className="mt-3 min-h-0 flex-1 scroll-pt-10 overflow-auto px-1 pb-1"
       >
+        {/* 被关掉的入站请求的找回入口。**它是「关闭 ≠ 拒绝」的配套条款**，不是附加功能：
+            DESIGN.md 的 Incoming Request Contract 写明「可关闭就必须有地方找回来，
+            否则那是一次被静默丢弃的传输」。放在检索之外——检索找的是已收到的内容，
+            而这些还没落盘。 */}
+        <DismissedOffersGroup />
+
         {isSearching ? (
           searching ? (
             <ListSkeleton />
@@ -581,12 +602,17 @@ function InboxRail({
               ))}
             </div>
           ) : (
-            <SearchEmptyState />
+            <RailEmptyHint data-testid="inbox-search-empty-state">
+              <Trans>未找到匹配项</Trans>
+            </RailEmptyHint>
           )
         ) : loading ? (
           <ListSkeleton />
         ) : items.length === 0 ? (
-          <InboxEmptyState />
+          // rail 只确认「空」；教学文案在详情侧的 InboxEmptyState（见 RailEmptyHint 文档）
+          <RailEmptyHint data-testid="inbox-empty-state">
+            <Trans>暂无已接收内容</Trans>
+          </RailEmptyHint>
         ) : (
           <div className="flex flex-col gap-5">
             {groups.map((group) => (
@@ -604,12 +630,84 @@ function InboxRail({
   );
 }
 
+/**
+ * 已关闭但未拒绝的入站文件请求。
+ *
+ * 只在有条目时占版面——空的时候连标题都不渲染，避免收件箱平时多出一块永远是空的区域
+ * （Web 端那块空的「待处理请求」卡就是反例）。
+ *
+ * 点一条即 `restoreOffer`，全局的 `TransferOfferDialog` 会重新把它弹出来：决策界面只有
+ * 一处，这里只负责把它叫回来。
+ */
+function DismissedOffersGroup() {
+  const { pendingOffers, dismissedOfferIds, restoreOffer } = useTransferStore(
+    useShallow((s) => ({
+      pendingOffers: s.pendingOffers,
+      dismissedOfferIds: s.dismissedOfferIds,
+      restoreOffer: s.restoreOffer,
+    })),
+  );
+
+  // selector 里 filter 会每次返回新数组导致无限重渲染，派生放这里。
+  const dismissed = useMemo(
+    () =>
+      pendingOffers.filter((offer) =>
+        dismissedOfferIds.includes(offer.sessionId),
+      ),
+    [pendingOffers, dismissedOfferIds],
+  );
+
+  if (dismissed.length === 0) return null;
+
+  return (
+    <div className="mb-5 flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 px-1.5 pb-1">
+        <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+          <Trans>待处理请求</Trans>
+        </h3>
+        <span className="rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-brand">
+          {dismissed.length}
+        </span>
+      </div>
+      {dismissed.map((offer) => (
+        <button
+          key={offer.sessionId}
+          type="button"
+          data-testid="dismissed-offer-row"
+          onClick={() => restoreOffer(offer.sessionId)}
+          className="focus-ring glass-control flex w-full items-center gap-2.5 rounded-[14px] px-2.5 py-2 text-left transition-colors hover:bg-accent/40"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-brand">
+            <Download className="size-3.5" />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-[13px] font-medium text-foreground">
+              <Trans>来自 {offer.deviceName}</Trans>
+            </span>
+            <span className="truncate text-[11px] text-muted-foreground">
+              <Plural
+                value={offer.files.length}
+                one="# 个文件"
+                other="# 个文件"
+              />
+              {" · "}
+              <span className="font-mono tabular-nums">
+                {formatFileSize(offer.totalSize)}
+              </span>
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function RailGroup({
   group,
   selectedId,
   onSelect,
 }: {
-  group: InboxTimeGroup;
+  group: TimeBucket<InboxItemSummary>;
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
@@ -635,6 +733,18 @@ function RailGroup({
       </div>
     </section>
   );
+}
+
+/**
+ * 条目标题：`title` 列存的是**首个文件名**，「等 N 个文件」这句由这里生成。
+ *
+ * 曾经是 Rust 侧渲染好整句再落库（`inbox_title`），于是历史条目的标题永远冻结在
+ * 写入时的语言。库里现在只存与语言无关的文件名，切语言立刻生效。
+ */
+function inboxItemTitle(title: string, itemCount: number): string {
+  if (itemCount === 0) return t`空传输`;
+  if (itemCount === 1) return title;
+  return t`${title} 等 ${itemCount} 个文件`;
 }
 
 function RailRowShell({
@@ -699,8 +809,29 @@ function InboxRailRow({
       onSelect={onSelect}
     >
       <span className="flex min-w-0 items-center gap-1.5">
-        <span className="truncate text-sm font-medium text-foreground">
-          {item.title}
+        {/*
+          未读点。**后端一直在写 `lastOpenedAt`**（`open_inbox_item` 内部调
+          `mark_inbox_item_opened`），但整个 `src/` 从来没有读过它——于是「哪些是我还没
+          看过的」这件事在桌面端完全不可见，而 Web 端做全了。收件箱的价值有一半来自
+          「有没有新东西」，那正是这个点在回答的问题。
+
+          标题在未读时加重：色点对色盲用户不成立，字重是它的第二通道（同设备卡「状态点
+          **与**文案同时在场」那条契约的思路）。
+        */}
+        {item.lastOpenedAt === null && (
+          <span
+            role="img"
+            aria-label={t`未读`}
+            className="size-1.5 shrink-0 rounded-full bg-primary"
+          />
+        )}
+        <span
+          className={cn(
+            "truncate text-sm text-foreground",
+            item.lastOpenedAt === null ? "font-semibold" : "font-medium",
+          )}
+        >
+          {inboxItemTitle(item.title, item.itemCount)}
         </span>
         {item.sourceKind === "mcp" && (
           <Bot
@@ -752,7 +883,7 @@ function SearchRow({
       onSelect={onSelect}
     >
       <span className="block truncate text-sm font-medium text-foreground">
-        {hit.title}
+        {inboxItemTitle(hit.title, hit.itemCount)}
       </span>
       <span className="mt-1 block truncate text-xs text-muted-foreground">
         <Trans>来自 {hit.sourceName}</Trans>
@@ -774,6 +905,7 @@ function InboxReader({
   status,
   detail,
   contained,
+  hasItems,
   onOpenList,
   onReveal,
   onCopyPath,
@@ -786,6 +918,12 @@ function InboxReader({
   status: ReaderStatus;
   detail: InboxItemDetail | null;
   contained: boolean;
+  /**
+   * 收件箱是否有任何记录。`status === "empty"` 只表示「没选中」（判据是 `!selectedId`），
+   * 分不出「有记录但没点」和「一条都没有」—— 后者下提示「选择一条记录查看详情」是
+   * 在让用户去选一个不存在的东西。
+   */
+  hasItems: boolean;
   /** 窄屏传入即渲染详情头部前导「打开列表」按钮；宽屏双栏不传。 */
   onOpenList?: () => void;
   onReveal: () => void;
@@ -800,9 +938,12 @@ function InboxReader({
     <OpenListButton openList={onOpenList} label={t`打开收件箱列表`} />
   ) : null;
 
+  // 与传输活动 DetailShell 用同一组类，两页的详情外壳因此行为一致。
+  // 窄屏（!contained）此前不给 flex-1：卡片只长到内容高度（空态就是 min-h-[320px]），
+  // 下方留一大片空白，而传输活动那边是撑满的 —— 这正是两页空态观感不统一的根因。
   const sectionClass = cn(
     "glass-panel flex flex-col rounded-[24px]",
-    contained && "min-h-0 overflow-hidden",
+    contained ? "min-h-0 flex-1 overflow-hidden" : "flex-1",
   );
 
   if (status === "ready" && detail) {
@@ -843,7 +984,11 @@ function InboxReader({
       )}
       <div className={cn("flex flex-1 flex-col", !contained && "min-h-[320px]")}>
         {status === "empty" ? (
-          <ReaderPlaceholder onOpenList={onOpenList} />
+          hasItems ? (
+            <ReaderPlaceholder />
+          ) : (
+            <InboxEmptyState />
+          )
         ) : status === "loading" ? (
           <ReaderSkeleton />
         ) : (
@@ -881,16 +1026,16 @@ function ReaderContent({
   const view = usePreferencesStore((state) => state.fileBrowserViews.inbox);
   const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
   const items = useMemo(
-    () => fromInboxFiles(detail.files, {
-      getPreviewUrl: (file) => {
-        try {
-          return convertFileSrc(file.localPath);
-        } catch {
-          return undefined;
-        }
-      },
+    () => itemsFromInbox(detail.id, detail.files),
+    [detail.id, detail.files],
+  );
+  // 动作对象沿 FileBrowser → 视图 → 行/卡 一路下传，内联字面量会在每一层打穿 memo。
+  const actions = useMemo(
+    () => ({
+      onOpen: (item: FileBrowserItem) => onFileOpen(Number(item.sourceId)),
+      onReveal: (item: FileBrowserItem) => onFileReveal(Number(item.sourceId)),
     }),
-    [detail.files],
+    [onFileOpen, onFileReveal],
   );
 
   return (
@@ -903,7 +1048,7 @@ function ReaderContent({
           {leading}
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-lg font-semibold tracking-tight text-foreground">
-              {detail.title}
+              {inboxItemTitle(detail.title, detail.itemCount)}
             </h2>
             <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
               <span>
@@ -999,15 +1144,9 @@ function ReaderContent({
 
       <FileBrowser
         items={items}
-        title={<Trans>文件</Trans>}
         view={view}
         onViewChange={(nextView) => setFileBrowserView("inbox", nextView)}
-        actions={{
-          onOpen: (item) => onFileOpen(Number(item.sourceId)),
-          onReveal: (item) => onFileReveal(Number(item.sourceId)),
-        }}
-        testId="inbox-file-grid"
-        cardTestId="inbox-file-card"
+        actions={actions}
         className={cn(
           "@container px-7 py-6",
           contained && "min-h-0 flex-1",
@@ -1020,30 +1159,20 @@ function ReaderContent({
 
 /* ─────────────────── 占位 / 骨架 / 空态 ─────────────────── */
 
-function ReaderPlaceholder({ onOpenList }: { onOpenList?: () => void }) {
+/**
+ * 「有记录但还没选」的占位。仅宽屏双栏下会出现——窄屏进来就直接落在这一屏，
+ * 而列表在抽屉里，此时该说的是「怎么打开列表」，那个按钮由外层 section 头部的
+ * `OpenListButton` 承担（此前这里**又画了一个**「浏览收件箱」，同一个动作两个入口）。
+ *
+ * 与其它空态共用 `CenteredEmptyState`，不再手抄一份同样的圆形图标 + 居中排版。
+ */
+function ReaderPlaceholder() {
   return (
-    <div
+    <CenteredEmptyState
       data-testid="inbox-reader-placeholder"
-      className="flex h-full min-h-[280px] flex-col items-center justify-center gap-3 px-6 text-center"
-    >
-      <div className="flex size-14 items-center justify-center rounded-full bg-muted">
-        <Inbox className="size-7 text-muted-foreground" />
-      </div>
-      <p className="text-sm text-muted-foreground">
-        <Trans>选择一条收件箱记录查看详情</Trans>
-      </p>
-      {onOpenList && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-1 gap-1.5"
-          onClick={onOpenList}
-        >
-          <PanelLeft className="size-4" />
-          <Trans>浏览收件箱</Trans>
-        </Button>
-      )}
-    </div>
+      icon={Inbox}
+      title={<Trans>选择一条收件箱记录查看详情</Trans>}
+    />
   );
 }
 
@@ -1128,17 +1257,6 @@ function InboxEmptyState() {
   );
 }
 
-function SearchEmptyState() {
-  return (
-    <CenteredEmptyState
-      data-testid="inbox-search-empty-state"
-      icon={Search}
-      title={<Trans>未找到匹配项</Trans>}
-      description={<Trans>试试更短的关键词，或检查是否包含已归档内容。</Trans>}
-      descriptionClassName="max-w-[26ch]"
-    />
-  );
-}
 
 /* ─────────────────── 小构件 ─────────────────── */
 
@@ -1170,8 +1288,8 @@ function Pill({
 
 function ItemIcon({ title, count }: { title: string; count: number }) {
   if (count > 1) return <FileArchive className="size-4.5 text-amber-500" />;
-  const Icon = getFileIcon(title);
-  return <Icon className={`size-4.5 ${getFileIconColor(title)}`} />;
+  const { icon: Icon, color } = getFileIconStyle(title);
+  return <Icon className={`size-4.5 ${color}`} />;
 }
 
 /** 把 snippet 里匹配查询词的部分高亮（大小写不敏感）。 */
@@ -1202,56 +1320,7 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
 
 /* ─────────────────── 数据：时间分组 + 标签 ─────────────────── */
 
-type InboxTimeGroupKey = "today" | "yesterday" | "week" | "earlier";
-
-interface InboxTimeGroup {
-  key: InboxTimeGroupKey;
-  items: InboxItemSummary[];
-}
-
-/**
- * 按 receivedAt（毫秒时间戳）把条目分到 今天 / 昨天 / 本周 / 更早 四桶。
- * 边界用日历运算（new Date(y,m,d-n)）而非固定 24h，避开夏令时当日的 1h 偏移。
- * 后端已按接收时间倒序返回，桶内保持该顺序。
- */
-function groupInboxByTime(items: InboxItemSummary[]): InboxTimeGroup[] {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const d = now.getDate();
-  const startOfToday = new Date(y, m, d).getTime();
-  const startOfYesterday = new Date(y, m, d - 1).getTime();
-  const startOfWeek = new Date(y, m, d - 6).getTime();
-
-  const buckets: Record<InboxTimeGroupKey, InboxItemSummary[]> = {
-    today: [],
-    yesterday: [],
-    week: [],
-    earlier: [],
-  };
-
-  for (const item of items) {
-    const ts = item.receivedAt;
-    if (Number.isNaN(ts)) {
-      buckets.earlier.push(item);
-    } else if (ts >= startOfToday) {
-      buckets.today.push(item);
-    } else if (ts >= startOfYesterday) {
-      buckets.yesterday.push(item);
-    } else if (ts >= startOfWeek) {
-      buckets.week.push(item);
-    } else {
-      buckets.earlier.push(item);
-    }
-  }
-
-  const order: InboxTimeGroupKey[] = ["today", "yesterday", "week", "earlier"];
-  return order
-    .filter((k) => buckets[k].length > 0)
-    .map((k) => ({ key: k, items: buckets[k] }));
-}
-
-function groupLabel(key: InboxTimeGroupKey) {
+function groupLabel(key: TimeBucketKey) {
   switch (key) {
     case "today":
       return <Trans>今天</Trans>;

@@ -6,10 +6,13 @@
  */
 
 import { Trans } from "@lingui/react/macro";
+import { formatTransferRate } from "@swarmdrop/shared-view";
 import { Download, Send } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import {
+  type MobileFailureCode,
+  MobileResumeRejectReason,
   MobileSuspendedReason,
   MobileTerminalReason,
   MobileTransferDirection,
@@ -115,6 +118,12 @@ const STATUS_META: Record<string, StatusMeta> = {
     bg: "bg-muted",
     text: "text-muted-foreground",
   },
+  // 与「已取消 / 已拒绝」同为中性：没传成，但没出错。
+  expired: {
+    key: "expired",
+    bg: "bg-muted",
+    text: "text-muted-foreground",
+  },
 };
 
 const FALLBACK_META: StatusMeta = {
@@ -159,6 +168,8 @@ export function StatusLabel({ status }: { status: AnyStatus }) {
       return <Trans>已取消</Trans>;
     case "rejected":
       return <Trans>已拒绝</Trans>;
+    case "expired":
+      return <Trans>未及时处理</Trans>;
     case "waiting_accept":
       return <Trans>等待响应</Trans>;
     case "interrupted":
@@ -197,30 +208,23 @@ export function ProgressBar({
 
 /* ─── 格式化函数 ─── */
 
-export function formatBytes(bytes: number | bigint): string {
-  const n = typeof bytes === "bigint" ? Number(bytes) : bytes;
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
+/**
+ * 字节量与百分比已收口到 `@swarmdrop/shared-view`（三端同一份取整规则）。
+ * `formatBytes` 是移动端沿用的名字，保留以免全量改调用点。
+ */
+export {
+  calcPercent,
+  formatFileSize as formatBytes,
+} from "@swarmdrop/shared-view";
 
-/** 速率：null / 非正数显示 "—"（与桌面 formatSpeed 行为一致）。 */
+/**
+ * 速率：算不出来时显示 "—"。
+ *
+ * 共享的 [`formatTransferRate`] 返回 `null` 而非占位串——占位是一句要翻译的文案，
+ * 三端各有各的说法，不该烤进格式化函数。这里补上移动端的破折号。
+ */
 export function formatSpeed(bytesPerSec: number | bigint | null): string {
-  if (bytesPerSec == null) return "—";
-  const n = typeof bytesPerSec === "bigint" ? Number(bytesPerSec) : bytesPerSec;
-  if (!Number.isFinite(n) || n <= 0) return "—";
-  return `${formatBytes(n)}/s`;
-}
-
-export function calcPercent(
-  transferred: number | bigint,
-  total: number | bigint,
-): number {
-  const t = typeof total === "bigint" ? Number(total) : total;
-  const tr =
-    typeof transferred === "bigint" ? Number(transferred) : transferred;
-  return t > 0 ? Math.min(100, Math.round((tr / t) * 100)) : 0;
+  return formatTransferRate(bytesPerSec) ?? "—";
 }
 
 /** 相对时间，不引入 dayjs/date-fns，保持依赖最小 */
@@ -256,44 +260,63 @@ function pad(n: number) {
 /* ─── 错误/原因 i18n 映射 ─── */
 
 /**
- * 把后端(Rust FfiError:io/network/transfer/database error…)抛出的技术错误串
- * 映射成"友好房东"口吻的中文。核心错误多为英文自由文本、无法穷举,所以用关键词
- * 启发式命中常见失败类别,未命中时降级到通用兜底 —— 绝不把原始英文直接甩给用户。
+ * 会话失败判别码 → 文案。
+ *
+ * **这里曾经是 9 条英文关键词正则。** 它匹配的输入是
+ * `format!("文件最终化失败: {name} (file_id={id}): {e}")` —— **文件名就拼在里面**，
+ * 于是一个叫 `Q3-cancel.xlsx` 的文件校验失败会命中 `/(cancel|abort)/`，
+ * 用户看到「传输已取消」：一次数据损坏被说成他自己的操作。确定性复现。
+ *
+ * 判别码把「是什么失败」和「怎么措辞」分开之后，猜测这件事根本不存在了。
+ * `Legacy` 是判别码引入之前落库的自由文本，原样展示。
  */
-export function friendlyTransferError(
-  message: string | null | undefined,
+export function failureCodeLabel(
+  failure: MobileFailureCode | null | undefined,
 ): ReactNode {
-  if (!message) return null;
-  const m = message.toLowerCase();
+  if (!failure) return null;
+  switch (failure.tag) {
+    case "FileFinalizeFailed":
+      return (
+        <Trans>「{failure.inner.fileName}」没能完整保存，请重新接收</Trans>
+      );
+    case "SessionExpired":
+      return (
+        <Trans>超过 {failure.inner.retentionDays} 天未恢复，已自动清理</Trans>
+      );
+    case "ResumeRejected":
+      return resumeRejectLabel(failure.inner.reason);
+    case "OfferFailed":
+      return <Trans>发送请求没能送达对方，请确认对方在线后重试</Trans>;
+    case "Legacy":
+      return failure.inner.message;
+  }
+}
 
-  if (/reject/.test(m)) return <Trans>对方拒绝了这次传输</Trans>;
-  if (/(cancel|abort)/.test(m)) return <Trans>传输已取消</Trans>;
-  if (/(timeout|timed out|deadline)/.test(m))
-    return <Trans>连接超时,请确认对方设备在线后重试</Trans>;
-  if (/(offline|disconnect|not connected|peer.*(gone|left|closed))/.test(m))
-    return <Trans>对方设备已离线,重新上线后可继续</Trans>;
-  if (/(network|connection|connect|reset|broken pipe|unreachable|dial)/.test(m))
-    return <Trans>网络连接中断,请确认两端在线后重试</Trans>;
-  if (/(no space|disk full|enospc|quota)/.test(m))
-    return <Trans>存储空间不足,清理后重试</Trans>;
-  if (/(permission|denied|eacces|forbidden|unauthor)/.test(m))
-    return <Trans>没有写入权限,请检查保存位置</Trans>;
-  if (/(not found|enoent|no such file|missing file)/.test(m))
-    return <Trans>找不到要传输的文件,可能已被移动或删除</Trans>;
-  if (/(io error|read|write)/.test(m))
-    return <Trans>读写文件时出错,请重试</Trans>;
-
-  return <Trans>传输过程中出错了,请重试</Trans>;
+function resumeRejectLabel(reason: MobileResumeRejectReason): ReactNode {
+  switch (reason) {
+    case MobileResumeRejectReason.Cancelled:
+      return <Trans>对方已取消这次传输，无法继续</Trans>;
+    case MobileResumeRejectReason.FatalError:
+      return <Trans>对方那边出错了，无法继续</Trans>;
+    case MobileResumeRejectReason.SourceModified:
+      return <Trans>源文件已变更，无法继续，请重新发送</Trans>;
+    case MobileResumeRejectReason.CheckpointInvalid:
+      return <Trans>续传进度已失效，请重新发送</Trans>;
+    case MobileResumeRejectReason.PeerUnavailable:
+      return <Trans>对方暂时不可用，请稍后再试</Trans>;
+    case MobileResumeRejectReason.SessionNotFound:
+      return <Trans>对方已经没有这次传输的记录了</Trans>;
+  }
 }
 
 export function LocalizedError({
-  message,
+  failure,
 }: {
-  message: string | null | undefined;
+  failure: MobileFailureCode | null | undefined;
 }) {
-  const friendly = friendlyTransferError(message);
-  if (!friendly) return null;
-  return <Text>{friendly}</Text>;
+  const label = failureCodeLabel(failure);
+  if (!label) return null;
+  return <Text>{label}</Text>;
 }
 
 export function projectionReasonLabel(
@@ -322,6 +345,9 @@ export function projectionReasonLabel(
   }
   if (projection.terminalReason === MobileTerminalReason.FatalError) {
     return <Trans>传输失败</Trans>;
+  }
+  if (projection.terminalReason === MobileTerminalReason.Expired) {
+    return <Trans>请求超时未处理，让对方重发一次</Trans>;
   }
   return null;
 }

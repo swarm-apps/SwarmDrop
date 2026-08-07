@@ -15,5 +15,13 @@ path = "src/main.rs"
 [dependencies]
 sea-orm-migration = { workspace = true }
 sea-orm = { workspace = true, features = ["schema-sync", "runtime-tokio-rustls", "sqlx-sqlite"] }
+# 冻结快照里的 `SaveLocation` 用 `FromJsonQueryResult`，它要求 Serialize/Deserialize。
+# 快照逐字复刻 entity 而不是另找一个「差不多的列类型」，为的是 schema builder 生成的 DDL
+# 与 entity 声明零推测地一致。
+serde = { workspace = true }
+# `FromJsonQueryResult` 的派生代码直接引用 `serde_json`。
+serde_json = { workspace = true }
 strum = { workspace = true }
+# `connect_and_migrate` 删库重建时必须留下痕迹——用户得能查到数据为什么没了。
+tracing = { workspace = true }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

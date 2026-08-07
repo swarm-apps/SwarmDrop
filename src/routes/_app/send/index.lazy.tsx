@@ -27,13 +27,13 @@ import {
   deviceGroupNames,
   deviceIdentityHint,
   organizedDeviceName,
-} from "@/lib/device-organization";
+} from "@swarmdrop/shared-view";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { FileDropZone } from "./-components/file-drop-zone";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
 import { SendProgressView } from "./-components/send-progress-view";
-import { FileBrowser } from "@/components/file-browser";
+import { FileBrowser } from "@swarmdrop/file-browser";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import {
   CommandDock,
@@ -78,6 +78,8 @@ function SendPage() {
       capabilities: stored.capabilities ?? [],
       status: "offline" as const,
       connection: null,
+      connectionDetails: null,
+      lanUpgradeFailed: false,
       latency: null,
       isPaired: true,
       trustLevel: stored.trustLevel ?? "collaborator",
@@ -223,6 +225,11 @@ function DesktopSendView({
   onBack,
 }: SendViewProps) {
   const DeviceIcon = getDeviceIcon(device.os || device.platform || "");
+  // `removeTarget` 本身已是稳定引用（useCallback），包一层 memo 让 actions 对象也稳。
+  const removeActions = useMemo(
+    () => ({ onRemove: fileSelection.removeTarget }),
+    [fileSelection.removeTarget],
+  );
   const view = usePreferencesStore((state) => state.fileBrowserViews.send);
   const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
 
@@ -334,13 +341,7 @@ function DesktopSendView({
                   title={<Trans>已选文件</Trans>}
                   view={view}
                   onViewChange={(nextView) => setFileBrowserView("send", nextView)}
-                  actions={{
-                    onRemove: (target) => fileSelection.removeFile(
-                      target.type === "directory"
-                        ? target.relativePath
-                        : target.item.relativePath,
-                    ),
-                  }}
+                  actions={removeActions}
                 />
               </div>
             ) : null}

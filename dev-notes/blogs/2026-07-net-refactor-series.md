@@ -45,6 +45,13 @@ Rust Stream → JS ReadableStream、wasm-bindgen 边界。**Web 平台知识视�
 - 想抠**传输安全 / 完整性**：6（配合 3 读，同题不同视角）
 - 只想看**踩坑复盘**：5（自带前情，可独立读）
 
+## 后续系列（不属于这次重构）
+
+- [webrtc/](webrtc/) —— **WebRTC：从零理解，到给上游提六个补丁**。重构之后，为了让浏览器
+  真正参与传输，自研了 `crates/webrtc-p2p` 取代官方的两个 WebRTC transport，并向
+  `rtc` / `webrtc` / `rust-libp2p` 提了 11 个 PR。前两篇是**零基础的 WebRTC 入门**
+  （ICE/DTLS/SCTP/SDP、libp2p 的打洞与 direct 两种模式），后六篇是踩坑复盘与上游协作方法论。
+
 ## 与旧文的关系
 
 重构**前**的旧文（`end-to-end-encryption.md`、`transfer-protocol-design.md` 等，描述 XChaCha20

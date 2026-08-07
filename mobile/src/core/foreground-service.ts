@@ -9,6 +9,7 @@ import notifee, {
 import type { MobileTransferProgress } from "react-native-swarmdrop-core";
 import { formatSpeed } from "@/components/transfer/shared";
 import { getMobileCore } from "@/core/mobile-core";
+import type { TransferDirection } from "@/core/transfer-types";
 
 /**
  * Android 前台服务:仅负责“举保活票 + 常驻通知”,让 node(tokio+libp2p)在 app
@@ -52,6 +53,8 @@ let channelReady: Promise<void> | null = null;
 let running = false;
 /** 当前在途传输 sessionId —— action 事件里 notification.data 缺失时的兜底。 */
 let activeSessionId: string | null = null;
+/** 当前在途传输方向 —— 与 activeSessionId 同款兜底,暂停/取消要按方向分派到对应导出。 */
+let activeDirection: TransferDirection | null = null;
 /** 进度刷新限流:上次刷新时间与百分比。 */
 let lastProgressAt = 0;
 let lastProgressPct = -1;
@@ -82,12 +85,23 @@ export async function handleForegroundServiceEvent(
   const rawSession = event.detail.notification?.data?.sessionId;
   const sessionId =
     typeof rawSession === "string" ? rawSession : (activeSessionId ?? null);
-  if (sessionId === null) return;
+  // 方向与 sessionId 同源(displayNotification 一并写进 data),缺失时一起回落到在途会话。
+  const rawDirection = event.detail.notification?.data?.direction;
+  const direction: TransferDirection | null =
+    rawDirection === "send" || rawDirection === "receive"
+      ? rawDirection
+      : activeDirection;
+  if (sessionId === null || direction === null) return;
   try {
+    const core = getMobileCore();
     if (actionId === FGS_ACTION_PAUSE) {
-      await getMobileCore().pauseTransfer(sessionId);
+      await (direction === "send"
+        ? core.pauseSend(sessionId)
+        : core.pauseReceive(sessionId));
     } else if (actionId === FGS_ACTION_CANCEL) {
-      await getMobileCore().cancelTransfer(sessionId);
+      await (direction === "send"
+        ? core.cancelSend(sessionId)
+        : core.cancelReceive(sessionId));
     }
   } catch (err) {
     console.warn(`[fgs] action ${actionId} failed:`, err);
@@ -134,6 +148,7 @@ export async function stopForegroundKeepAlive(): Promise<void> {
   if (!isAndroid || !running) return;
   running = false;
   activeSessionId = null;
+  activeDirection = null;
   lastProgressAt = 0;
   lastProgressPct = -1;
   try {
@@ -161,16 +176,19 @@ export async function updateTransferProgress(
   if (pct === lastProgressPct && now - lastProgressAt < 500) return;
   lastProgressAt = now;
   lastProgressPct = pct;
+  const direction: TransferDirection =
+    p.direction === "send" ? "send" : "receive";
   activeSessionId = p.sessionId;
+  activeDirection = direction;
 
-  const dirLabel = p.direction === "send" ? t`发送中` : t`接收中`;
+  const dirLabel = direction === "send" ? t`发送中` : t`接收中`;
   const fileCount = `${p.completedFiles}/${p.totalFiles}`;
   try {
     await notifee.displayNotification({
       id: FGS_NOTIFICATION_ID,
       title: `${dirLabel} · ${pct}%`,
       body: t`${fileCount} 个文件 · ${formatSpeed(p.speed)}`,
-      data: { kind: "transfer-progress", sessionId: p.sessionId },
+      data: { kind: "transfer-progress", sessionId: p.sessionId, direction },
       android: {
         ...FGS_ANDROID_BASE,
         progress: { max: 100, current: pct },
@@ -189,6 +207,7 @@ export async function updateTransferProgress(
 export async function clearTransferProgress(): Promise<void> {
   if (!isAndroid || !running) return;
   activeSessionId = null;
+  activeDirection = null;
   lastProgressAt = 0;
   lastProgressPct = -1;
   try {

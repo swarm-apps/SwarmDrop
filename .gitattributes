@@ -1,0 +1,12 @@
+# 生成物标记。
+#
+# `linguist-generated=true` 做两件事：PR diff 里默认折叠这些文件，以及把它们排除出仓库的
+# 语言统计。**它不影响 git 本身**——文件照样入库、照样参与合并，只是 review 时不再被几千行
+# 机器输出淹没。
+#
+# 这里只标**入库的构建产物**：它们由某条命令生成，改动应当来自重跑那条命令而不是手编辑。
+
+# wasm-pack 的输出（`cd docs && pnpm build:wasm`，源在 crates/web）。
+# `_bg.wasm` 是二进制、GitHub 本就不展开；真正干扰 review 的是 wasm-bindgen 生成的
+# `swarmdrop_web.js` glue 与 `.d.ts`——一次改动动辄几千行 diff。
+packages/swarmdrop-web/** linguist-generated=true

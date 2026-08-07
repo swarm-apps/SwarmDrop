@@ -2,9 +2,13 @@ name: Deploy Docs
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - "docs/**"
+      # try 页面依赖 crates/web 生成的 WASM；网络内核和依赖锁变更同样会改变产物。
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -43,10 +47,28 @@ jobs:
       - name: pnpm install
         run: pnpm install --frozen-lockfile
 
+      # Pages 必须在当前提交重新生成 WASM，不能复用仓库中可能已经过期的产物包。
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Build WebAssembly
+        run: pnpm build:wasm
+
       - name: Build docs (static export)
         env:
-          # 必须匹配仓库名实际大小写：Pages 项目站点路径是 /SwarmDrop（大小写敏感），
-          # 小写 /swarmdrop 会让 _next/* 资源 404（目录会重定向，文件不会）
+          # 自定义域名部署在域名根，**没有 basePath**。这里只注入 origin，
+          # 供 metadataBase / sitemap 产出绝对 URL（缺它会让 docs/lib/site.ts 直接报错）。
+          #
+          # ⚠️ 域名的权威源是仓库 Settings → Pages 的 Custom domain 字段。本仓是
+          # workflow 型部署，仓库里的 CNAME 文件会被 GitHub **忽略** —— 别再放一个。
+          # 完整配置顺序见 docs/README.md 的「自定义域名怎么配」。
+          # 自定义域名（swarmapp.cn）待备案，暂留 Pages 子路径部署。
+          # 三处要一起改：这两个 env、next.config.mjs 的 basePath 注释、
+          # crates/invite 的 INVITE_URL_PREFIX。
+          PAGES_SITE_ORIGIN: https://swarm-apps.github.io
           PAGES_BASE_PATH: /SwarmDrop
         run: pnpm build
 

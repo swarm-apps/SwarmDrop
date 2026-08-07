@@ -30,6 +30,7 @@ import { useTransferStore } from "@/stores/transfer-store";
 import { isProjectionActive } from "@/lib/transfer-projection";
 import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { commands } from "@/lib/bindings";
+import { getErrorMessage } from "@/lib/errors";
 import { OfflineEmptyState } from "./-components/offline-empty-state";
 import { StartNodeSheet } from "@/components/network/start-node-sheet";
 import { StopNodeSheet } from "@/components/network/stop-node-sheet";
@@ -39,9 +40,9 @@ import {
   deviceIdentityHint,
   hasDuplicateOrganizedName,
   organizedDeviceName,
-  sortGroups,
+  sortDeviceGroups,
   type DeviceOrganization,
-} from "@/lib/device-organization";
+} from "@swarmdrop/shared-view";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import {
   DeviceGroupsDialog,
@@ -62,7 +63,6 @@ function DevicesPage() {
   const fetchDevices = useNetworkStore((s) => s.fetchDevices);
   const isOnline = status === "running" || status === "starting";
   const storedPairedDevices = useSecretStore((state) => state.pairedDevices);
-  const removePairedDevice = useSecretStore((state) => state.removePairedDevice);
   const upsertPairedDevice = useSecretStore((state) => state.upsertPairedDevice);
   const deviceOrganization = usePreferencesStore((state) => state.deviceOrganization);
   const setDeviceAlias = usePreferencesStore((state) => state.setDeviceAlias);
@@ -125,6 +125,8 @@ function DevicesPage() {
           capabilities: stored.capabilities ?? [],
           status: "offline" as const,
           connection: null,
+          connectionDetails: null,
+          lanUpgradeFailed: false,
           latency: null,
           isPaired: true,
           trustLevel: stored.trustLevel ?? "collaborator",
@@ -187,10 +189,15 @@ function DevicesPage() {
     directPairing(device.peerId);
   };
 
-  const handleUnpair = (device: Device) => {
-    // 同时更新后端运行时状态(节点未运行时静默成功)
-    commands.removePairedDevice(device.peerId);
-    removePairedDevice(device.peerId);
+  const handleUnpair = async (device: Device) => {
+    try {
+      // 后端 fail-closed:持久化失败会整体报错,此时设备仍在列表里,用户重试即可。
+      // 列表移除交给 paired-device-removed 事件(network-store 订阅),这里不重复删。
+      await commands.removePairedDevice(device.peerId);
+    } catch (err) {
+      toast.error(t`取消配对失败`, { description: getErrorMessage(err) });
+      return;
+    }
     clearDeviceOrganization(device.peerId);
   };
 
@@ -335,7 +342,19 @@ function DesktopDevicesView({
               <ActiveTransfersSection items={activeItems} />
             </div>
 
-            <aside className="flex min-w-0 flex-col gap-5">
+            {/*
+              右栏跟随滚动。左栏是「已配对设备 + 活跃传输」，设备一多就有一两千像素高
+              （16 台时 1280px），而右栏这块按内容只有 ~280px——不跟随的话，用户往下翻
+              设备列表时，配对入口与**实时发现中**的附近设备一起滚出视野。后者尤其不该走：
+              它是会自己变化的内容，看不见就等于没有。
+
+              `self-start` 是必需的：grid item 默认 `align-self: stretch`，被拉伸的元素
+              没有「粘」的余地，`sticky` 会静默失效（不报错，就是不动）。
+
+              `top-5` 与容器的 `py-5` 对齐，粘住时与顶栏保持同一道间距。**只在分栏档生效**
+              ——窄屏是单列堆叠，那时粘住会让它压在设备列表上。
+            */}
+            <aside className="flex min-w-0 flex-col gap-5 min-[920px]:sticky min-[920px]:top-5 min-[920px]:self-start">
               <AddDeviceSection
                 devices={nearbyDevices}
                 onSend={onSend}
@@ -472,7 +491,7 @@ function PairedDevicesSection({
           >
             <Trans>未分组</Trans>
           </GroupFilterButton>
-          {sortGroups(organization.groups).map((group) => (
+          {sortDeviceGroups(organization.groups).map((group) => (
               <GroupFilterButton
                 key={group.id}
                 selected={selectedGroupId === group.id}
@@ -507,9 +526,31 @@ function PairedDevicesSection({
           }
         />
       ) : (
+        // **列数由每列能有多宽决定，不由视口断点决定**（2026-08-06）。
+        //
+        // 此前是 `sm:grid-cols-2 xl:grid-cols-3`。断点说的是「窗口多宽」，而这一栏的实际
+        // 宽度还要减去右侧 360–380px 的配对栏和页面内边距：1220px 容器下左栏只剩 ~756px，
+        // `xl:` 的 3 列于是每张卡 244px、内容区 216px。
+        //
+        // 而卡片页脚要同时放下信任徽标 + 连接徽标 + 发送按钮（契约的 5/6/7 三个信息位），
+        // 中文实测 ~227px——**已经放不下，发送按钮被挤到第二行**，正是「发送按钮单独占一行」
+        // 那个观感。英文更糟：`Collaborator` 比「协作者」宽出一大截，缺口还要再大一圈。
+        //
+        // `auto-fill + minmax(300px, 1fr)` 把判据换成「每列至少 300px」。**300 是算出来的，
+        // 不是挑好看的**——它就是那一行页脚放得下的最小卡宽：
+        //
+        //   中文  协作者 60 + 局域网 1ms 96 + 发送 70 + 两个 6px 间隙 = 238，加卡片内边距 28 → 266
+        //   英文  Collaborator 92 + LAN 12ms 95 + Send 62 + 12          = 261，加内边距      → 289
+        //
+        // 取 300 留一点余量。**改这个数之前先重新量这两行**：任何让徽标变宽的改动
+        // （加一个状态词、换一种更长的传输名）都会把它顶上去，而症状是发送按钮又掉到第二行。
+        //
+        // 代价说清楚：960px 的默认窗口下左栏只有 495px，于是这里落成 1 列而不是原来的 2 列。
+        // 那不是退步——原来的 2 列每张只有 241px，正是页脚放不下的那档；
+        // 「窄两列 + 折行的按钮」和「宽一列 + 完整页脚」之间，这里选后者。
         <div
           data-testid="paired-devices-grid"
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+          className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]"
         >
           {devices.map((device) => (
             <DeviceCard

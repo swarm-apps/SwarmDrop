@@ -20,9 +20,13 @@ import {
 import { initMobileCore } from "@/core/mobile-core";
 import { buildNetworkRuntimeConfig } from "@/core/network-discovery";
 import { ensureNotificationPermission } from "@/core/notifier";
-import { errorMessage } from "@/lib/utils";
+import { getErrorMessage } from "@/lib/errors";
 import { usePairingInviteStore } from "@/stores/pairing-invite-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
+import {
+  acquireMulticastLock,
+  releaseMulticastLock,
+} from "../../modules/lan-multicast";
 
 export type RuntimeState = "stopped" | "starting" | "running" | "error";
 /** 设备身份加载状态 —— UI 端用 i18n 渲染对应文案 */
@@ -64,6 +68,31 @@ function toPairedSummaries(devices: DeviceInfo[]): PairedDeviceSummary[] {
       receivePolicy: d.receivePolicy,
       trustConfirmed: d.trustConfirmed,
     }));
+}
+
+/**
+ * 对齐设备名的事实源 —— core 侧的 `device_config.json`。
+ *
+ * 含一次性迁移：设备名此前只存在 JS 侧的 AsyncStorage 镜像里，core 从没见过它。
+ * 升级到本版本后若不推一次,存量用户的设备名会静默变回系统 hostname。判据是
+ * 「core 没有值且镜像非空」,所以只会在升级后的第一次身份就绪时发生一次;之后
+ * core 有值,这里就只剩「把 core 的值回写镜像」这一件事。
+ *
+ * 迁移失败不阻断启动:设备名不对只是显示问题,不该让 app 起不来。
+ */
+async function syncDeviceNameWithCore(): Promise<void> {
+  try {
+    const core = await initMobileCore();
+    let name = await core.getDeviceName();
+    const mirror = usePreferencesStore.getState().deviceName.trim();
+    if (name === undefined && mirror) {
+      // 用返回值而非直接用 mirror:core 会归一化(剥 `;` 与控制字符、按 char 截到 40)。
+      name = await core.renameDevice(mirror);
+    }
+    usePreferencesStore.getState().setDeviceName(name ?? "");
+  } catch (err) {
+    console.warn("[mobile-core-store] syncDeviceNameWithCore failed:", err);
+  }
 }
 
 type MobileCoreState = {
@@ -132,6 +161,13 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             identityStatus: "ready",
             initialized: true,
           });
+          // 把本机身份推给邀请 store，供「这是你自己的邀请」的自我过滤用。
+          // **推而不拉**：反向 import 会成环（本文件已 import 那个 store），
+          // 而 core 的 initializeIdentity 是异步的、没有同步 getter 可问。
+          usePairingInviteStore.setState({ selfPeerId: identity.peerId });
+          // 设备名的事实源已下沉到 core,存量安装要把 AsyncStorage 镜像推下去。
+          // 必须在下面 autoStart 之前跑完,否则冷启动那一次节点用的还是旧名字。
+          await syncDeviceNameWithCore();
           // 身份就绪后立即拉一次 keychain paired 设备,
           // 保证主屏/选择接收设备页冷启动就有离线视图(不依赖节点是否启动)。
           await get().loadPairedDevicesCache();
@@ -141,7 +177,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           }
         } catch (error) {
           set({
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
             identityStatus: "failed",
           });
         }
@@ -166,6 +202,8 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           await core.shutdownNode();
           // 节点停 → 拆前台服务(node running ⇔ FGS up)
           void stopForegroundKeepAlive();
+          // 组播锁同一条生命周期：持着它 Wi-Fi 芯片不进省电态,白耗电。
+          releaseMulticastLock();
           set({
             runtimeState: "stopped",
             networkStatus: null,
@@ -176,7 +214,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           usePairingInviteStore.getState().clearActiveInvite();
           return { ok: true, state: "stopped" };
         } catch (err) {
-          const message = errorMessage(err);
+          const message = getErrorMessage(err);
           console.warn("[mobile-core-store] shutdownNode failed:", err);
           set({ error: message });
           return { ok: false, state: get().runtimeState, error: message };
@@ -193,8 +231,9 @@ export const useMobileCoreStore = create<MobileCoreState>()(
         try {
           const core = await initMobileCore();
           const prefs = usePreferencesStore.getState();
+          // 设备名不在这里传：core 的组合根从 device_config 端口自己读
+          // （`preferences-store.deviceName` 只是显示镜像）。
           await core.startNode(
-            prefs.deviceName?.trim() || undefined,
             buildNetworkRuntimeConfig({
               customBootstrapNodes: prefs.customBootstrapNodes,
               discoveryMode: prefs.discoveryMode,
@@ -217,6 +256,9 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             // 并拉起前台服务保活(Android;iOS 内部 no-op)。
             void ensureNotificationPermission();
             void startForegroundKeepAlive();
+            // mDNS 的组播帧在没有这把锁时会被 Wi-Fi 驱动丢掉(Android),
+            // 于是同网设备只能经公网 relay 相见。iOS 内部 no-op。
+            acquireMulticastLock();
           }
           if (nextRuntimeState !== "running") {
             const message = "节点未进入运行状态";
@@ -225,7 +267,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           }
           return { ok: true, state: nextRuntimeState };
         } catch (err) {
-          const message = errorMessage(err);
+          const message = getErrorMessage(err);
           set({
             error: message,
             runtimeState: "error",
@@ -246,7 +288,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             runtimeState: toRuntimeState(networkStatus.status),
           });
         } catch (err) {
-          set({ error: errorMessage(err) });
+          set({ error: getErrorMessage(err) });
         }
       },
 
@@ -259,7 +301,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             runtimeState: toRuntimeState(networkStatus.status),
           });
         } catch (err) {
-          set({ error: errorMessage(err) });
+          set({ error: getErrorMessage(err) });
         }
       },
 
@@ -279,7 +321,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           await get().loadPairedDevicesCache();
           return updated;
         } catch (err) {
-          set({ error: errorMessage(err) });
+          set({ error: getErrorMessage(err) });
           throw err;
         }
       },
@@ -293,7 +335,7 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             devices: state.devices.filter((device) => device.peerId !== peerId),
           }));
         } catch (err) {
-          set({ error: errorMessage(err) });
+          set({ error: getErrorMessage(err) });
           throw err;
         }
       },
@@ -361,6 +403,8 @@ export function summariesToOfflineDevices(
     arch: s.arch,
     status: "offline",
     connection: undefined,
+    connectionDetails: undefined,
+    lanUpgradeFailed: false,
     latencyMs: undefined,
     isPaired: true,
     trustLevel: s.trustLevel ?? undefined,

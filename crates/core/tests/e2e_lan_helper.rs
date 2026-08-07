@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use swarmdrop_core::device::OsInfo;
 use swarmdrop_core::event_adapter::CoreTransferEvents;
-use swarmdrop_core::host::{CoreAppPaths, CoreEvent, EventBus, FileAccess, MemoryHost};
+use swarmdrop_core::host::{CoreEvent, EventBus, FileAccess, MemoryHost};
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::{handle_core_node_event, run_event_loop};
 use swarmdrop_core::network::{BootstrapCandidateSource, DiscoveryMode, NetManager};
@@ -33,16 +33,6 @@ struct TestNode {
     host: MemoryHost,
     _db: Arc<DatabaseConnection>,
     _router: Router,
-}
-
-fn test_paths() -> CoreAppPaths {
-    let base = std::env::temp_dir();
-    CoreAppPaths {
-        data_dir: base.clone(),
-        cache_dir: base.clone(),
-        temp_dir: base.clone(),
-        log_dir: base,
-    }
 }
 
 async fn make_db() -> Arc<DatabaseConnection> {
@@ -92,7 +82,7 @@ async fn spawn_node(
     network_config: NetworkRuntimeConfig,
 ) -> TestNode {
     let peer_id = secret.node_id();
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let db = make_db().await;
 
     let endpoint = build_endpoint(secret, ip, agent_version, is_helper).await;
@@ -108,12 +98,15 @@ async fn spawn_node(
     let candidate_manager = create_candidate_manager(&network_config);
     let manager = NetManager::new(
         endpoint.clone(),
+        OsInfo::default(),
         Vec::new(),
         transfer,
         network_config,
         candidate_manager,
         event_bus.clone(),
         None,
+        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+        Arc::new(host.clone()),
     );
 
     // Router：三协议入站路由，复用 runtime 的装配（避免协议注册漂移）。
@@ -299,7 +292,7 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
 
     fn runtime_config(mode: DiscoveryMode, provide_lan_helper: bool) -> NetworkRuntimeConfig {
         NetworkRuntimeConfig {
-            custom_bootstrap_nodes: Vec::new(),
+            bootstrap_nodes: Vec::new(),
             discovery_mode: mode,
             auto_discover_lan_helpers: true,
             provide_lan_helper,
@@ -352,8 +345,8 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
                 !status
                     .candidate_sources
                     .iter()
-                    .any(|s| s.source == BootstrapCandidateSource::BuiltInPublic),
-                "LAN Only 模式下节点 {label} 不应加载内置公网候选"
+                    .any(|s| s.source == BootstrapCandidateSource::HostConfigured),
+                "LAN Only 模式下节点 {label} 不应加载 host 配置的公网候选"
             );
         }
     }

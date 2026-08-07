@@ -25,20 +25,23 @@ use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 use swarmdrop_core::device::{OsInfo, PairedDeviceInfo};
 use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{
-    CoreAppPaths, CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, FileSourceId,
-    HostFileMetadata, MemoryHost,
+    CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, FileSourceId, HostFileMetadata,
+    MemoryHost,
 };
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::run_event_loop;
-use swarmdrop_core::protocol::{FileInfo, OfferRejectReason, TransferOrigin};
+use swarmdrop_core::protocol::{
+    FileInfo, OfferRejectReason, TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2, TransferOrigin,
+};
 use swarmdrop_core::runtime::build_router;
 use swarmdrop_core::transfer::coordinator::{
     ActorReport, CoordinatorInput, NetworkSignal, TransferCoordinator, TransferState, UserCommand,
 };
+use swarmdrop_core::transfer::failure::FailureCode;
 use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
-use swarmdrop_core::transfer::store::CreateSessionInput;
+use swarmdrop_core::transfer::store::{CreateSessionInput, InboxStore, SessionStore};
 use swarmdrop_core::transfer::{CHUNK_SIZE, HostEnumeratedFile};
 use swarmdrop_storage_sql::{SqlSessionStore, ops};
 
@@ -56,17 +59,6 @@ struct TestNode {
     db: Arc<DatabaseConnection>,
     /// 保活：drop 后入站流路由停止。
     _router: Router,
-}
-
-/// 测试用 app paths —— MemoryHost 不碰真实文件系统，随便给个目录即可。
-fn test_paths() -> CoreAppPaths {
-    let base = std::env::temp_dir();
-    CoreAppPaths {
-        data_dir: base.clone(),
-        cache_dir: base.clone(),
-        temp_dir: base.clone(),
-        log_dir: base,
-    }
 }
 
 /// 关 mDNS + 只监听 127.0.0.1 随机端口的测试 Endpoint（开 DHT server 供在线记录）。
@@ -141,12 +133,15 @@ async fn spawn_node(
     let candidate_manager = create_candidate_manager(&network_config);
     let manager = NetManager::new(
         endpoint.clone(),
+        OsInfo::default(),
         paired,
         transfer,
         network_config,
         candidate_manager,
         event_bus.clone(),
         None,
+        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+        Arc::new(host.clone()),
     );
     let transfer = manager.transfer_arc();
 
@@ -243,8 +238,13 @@ async fn connected_paired_pair(host_a: MemoryHost, host_b: MemoryHost) -> (TestN
     (node_a, node_b)
 }
 
-/// 预置一个 active 接收会话（create_session 直接写 phase=Active），供清理 / 信号 / 断连测试复用。
-async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id: &str) {
+/// 预置一个单文件接收会话，phase 由 `lifecycle` 一次写到位（建会话即目标状态）。
+async fn seed_receive_session(
+    db: &DatabaseConnection,
+    session_id: Uuid,
+    peer_id: &str,
+    lifecycle: TransferState,
+) {
     let files = vec![FileInfo {
         file_id: 0,
         name: "a.bin".to_string(),
@@ -265,13 +265,18 @@ async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id:
                 path: "/recv".to_string(),
             }),
             source_paths: None,
-            lifecycle: TransferState::active(0),
+            lifecycle,
             policy: None,
             origin: None,
         },
     )
     .await
     .expect("create_session");
+}
+
+/// active 是最常用的一档（清理 / 信号 / 断连测试都要），单列一层薄壳。
+async fn seed_active_session(db: &DatabaseConnection, session_id: Uuid, peer_id: &str) {
+    seed_receive_session(db, session_id, peer_id, TransferState::active(0)).await;
 }
 
 #[expect(
@@ -300,16 +305,21 @@ async fn seed_suspended_session(
             total_size,
             save_path,
             source_paths,
-            lifecycle: TransferState::active(0),
+            // 建会话时一次写到 suspended：状态直写的旁路已删，fixture 走 lifecycle 入参。
+            lifecycle: TransferState {
+                phase: TransferPhase::Suspended,
+                suspended_reason: Some(SuspendedReason::LocalPaused),
+                terminal_reason: None,
+                epoch: 0,
+                recoverable: true,
+                failure: None,
+            },
             policy: None,
             origin: None,
         },
     )
     .await
     .expect("create resume session");
-    ops::mark_session_paused(db, session_id)
-        .await
-        .expect("seed suspended session");
 }
 
 /// 节点的 host 是否收到过某个 offer 的 TransferOfferReceived 事件。
@@ -341,11 +351,33 @@ async fn wait_completed(db: &DatabaseConnection, session_id: Uuid, who: &str) {
 /// 连通性 smoke：两个真实节点关 mDNS + 显式 dial 能建连。坐实路径 B 的最小前提。
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_two_nodes_connect() {
-    let (node_a, node_b) =
-        connected_paired_pair(MemoryHost::new(test_paths()), MemoryHost::new(test_paths())).await;
+    let (node_a, node_b) = connected_paired_pair(MemoryHost::new(), MemoryHost::new()).await;
 
     assert!(node_a.manager.devices().is_connected(&node_b.peer_id));
     assert!(node_b.manager.devices().is_connected(&node_a.peer_id));
+}
+
+/// **旧版数据面协议必须继续被服务**。
+///
+/// v0.12.0 及更早的客户端只会拨 `/swarmdrop/transfer-data/2`；`/3` 是这次为流控窗口帧新加
+/// 的名字（加 tag 必须换名，理由见 `TRANSFER_DATA_PROTOCOL` 的文档）。摘掉 v2 的注册等于
+/// 对所有存量客户端断供，而症状只会出现在跨版本的真机之间——CI 里两端永远同版本，别的测试
+/// 一条都不会红。
+///
+/// 判据是 `open` 不返回 `UnsupportedProtocol`：能开出流就说明 Router 认这个名字。开完即丢，
+/// 不发 Hello——本条只管协商，传输本身由其余 e2e 覆盖。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_legacy_data_protocol_is_still_served() {
+    let (node_a, node_b) = connected_paired_pair(MemoryHost::new(), MemoryHost::new()).await;
+
+    for protocol in [TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2] {
+        node_a
+            .manager
+            .endpoint()
+            .open(node_b.peer_id, protocol.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{protocol} 应当被服务，却拿到 {e}"));
+    }
 }
 
 /// 单文件传输 happy path：A prepare → send_offer → B accept → 拉取落盘 → 双方 Completed。
@@ -366,8 +398,8 @@ async fn e2e_single_file_transfer() {
     };
 
     // 发送方 host 预置源文件；接收方 host 空。
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     // A: 哈希准备 + 发 Offer。
     let prepared_id = Uuid::new_v4();
@@ -459,6 +491,40 @@ async fn e2e_single_file_transfer() {
         emitted_terminal_projection(&node_b),
         "接收方应发 Terminal/Completed projection（3.3 对称性）"
     );
+
+    // 回归锚点：传完之后**两侧**的 transferredBytes 都应等于文件大小。
+    //
+    // 发送方向曾经恒为 0：projection 的 transferredBytes 是文件级 SUM
+    // （`store::projection_of`），而发送侧的进度只活在内存 ProgressTracker 里——接收侧有
+    // `persist_chunk` 逐块增量落库，发送侧只在 pause / interrupted 两条终态路径批量落一次，
+    // **完成路径漏了**。表现是传完的会话在发送方 UI 上显示「已完成 0 B / 500 MB 0%」，
+    // 接收方同一条却是 100%（2026-08-04 Web 端双 origin 实测）。修复是让
+    // `SenderActor::on_completed` 与 `on_interrupted` 对称地先落进度再转终态。
+    let transferred = |node: &TestNode| {
+        node.host
+            .events()
+            .iter()
+            .filter_map(|e| match e {
+                CoreEvent::TransferProjection { projection }
+                    if projection.session_id == session_id
+                        && projection.phase == TransferPhase::Terminal =>
+                {
+                    Some(projection.transferred_bytes)
+                }
+                _ => None,
+            })
+            .next_back()
+    };
+    assert_eq!(
+        transferred(&node_a),
+        Some(data.len() as i64),
+        "发送方终态 projection 的 transferredBytes 应等于文件大小，而不是 0"
+    );
+    assert_eq!(
+        transferred(&node_b),
+        Some(data.len() as i64),
+        "接收方终态 projection 的 transferredBytes 应等于文件大小"
+    );
 }
 
 /// MCP 来源的传输完成后，接收端 inbox 应记为 `source_kind = Mcp`。
@@ -478,8 +544,8 @@ async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
         checksum: None,
         save_dir: None,
     };
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let prepared_id = Uuid::new_v4();
     node_a
@@ -533,13 +599,11 @@ async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
     wait_completed(node_b.db.as_ref(), session_id, "接收方").await;
 
     // 接收端：完成会话落 inbox，source_kind 应由 origin(mcp) 派生为 Mcp。
-    let detail = swarmdrop_storage_sql::inbox::ensure_inbox_item_for_completed_receive_session(
-        node_b.db.as_ref(),
-        session_id,
-    )
-    .await
-    .expect("ensure inbox item")
-    .expect("inbox item created");
+    let detail = SqlSessionStore::new(node_b.db.clone())
+        .ensure_inbox_item_for_completed_receive_session(session_id)
+        .await
+        .expect("ensure inbox item")
+        .expect("inbox item created");
     assert!(
         matches!(detail.item.source_kind, entity::InboxSourceKind::Mcp),
         "MCP 来源传输应在 inbox 记为 Mcp，实际 {:?}",
@@ -555,7 +619,7 @@ async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_startup_cleanup_active_to_suspended() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
 
     // 预置一个 active 会话（create_session 直接写 phase=Active）。
@@ -598,13 +662,150 @@ async fn e2e_startup_cleanup_active_to_suspended() {
     assert_eq!(again, 0, "第二次清理无 active 会话");
 }
 
+/// D4：「进行中不可删」是域不变量，守卫在 `TransferManager::delete_session`。
+///
+/// 三端的删除入口（桌面命令 / MCP 工具 / wasm 导出）都只调这一条域方法，所以拦截必须
+/// 在这里——UI 的按钮可见性拦不住 MCP 客户端，也拦不住一份陈旧的前端状态。放行 suspended
+/// 是刻意的：它没有活 actor，代价只是断点信息一并消失（确认文案已这么写）。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_delete_session_rejects_active_allows_terminal_and_suspended() {
+    let db = make_db().await;
+    let host = MemoryHost::new();
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
+    // 守卫只碰 store 与 phase，装一个裸 manager 即可（不需要 router / event_loop）。
+    let transfer = TransferManager::new(
+        test_endpoint(SecretKey::generate()).await,
+        Arc::new(CoreTransferEvents(event_bus)),
+        Arc::new(SqlSessionStore::new(db.clone())),
+        file_access,
+    );
+
+    let active = Uuid::new_v4();
+    let suspended = Uuid::new_v4();
+    let terminal = Uuid::new_v4();
+    seed_active_session(db.as_ref(), active, "peer").await;
+    seed_receive_session(
+        db.as_ref(),
+        suspended,
+        "peer",
+        TransferState {
+            phase: TransferPhase::Suspended,
+            suspended_reason: Some(SuspendedReason::LocalPaused),
+            terminal_reason: None,
+            epoch: 0,
+            recoverable: true,
+            failure: None,
+        },
+    )
+    .await;
+    seed_receive_session(
+        db.as_ref(),
+        terminal,
+        "peer",
+        TransferState {
+            phase: TransferPhase::Terminal,
+            suspended_reason: None,
+            terminal_reason: Some(TerminalReason::Completed),
+            epoch: 0,
+            recoverable: false,
+            failure: None,
+        },
+    )
+    .await;
+
+    let err = transfer
+        .delete_session(active)
+        .await
+        .expect_err("进行中的会话不可删");
+    assert!(
+        err.to_string().contains("取消"),
+        "错误应指向「请先取消」而不是一句无从下手的失败：{err}"
+    );
+    assert!(
+        ops::get_transfer_projection(db.as_ref(), active)
+            .await
+            .unwrap()
+            .is_some(),
+        "被拒绝的删除不能留下半删状态"
+    );
+
+    for (id, label) in [(terminal, "终态"), (suspended, "挂起")] {
+        transfer
+            .delete_session(id)
+            .await
+            .unwrap_or_else(|e| panic!("{label}会话应可删: {e}"));
+        assert!(
+            ops::get_transfer_projection(db.as_ref(), id)
+                .await
+                .unwrap()
+                .is_none(),
+            "{label}会话应已删除"
+        );
+    }
+}
+
+/// 回归锚点：**先到的 `Interrupted` 会把后到的 `RemotePaused` 永久挡在门外。**
+///
+/// `reduce_network` 的两条守卫都要求 `state.is_active()`，所以一旦 Interrupted 先把会话转成
+/// suspended，随后到达的 RemotePaused 就不再满足守卫、被静默丢弃——会话永远停在
+/// 「连接中断」而不是「对方暂停」。
+///
+/// 这正是 `pause_send` / `pause_receive` 里 **`notify_pause` 必须早于 cancel actor** 的
+/// 全部理由：关闭数据流不携带原因，对端只会当成 Interrupted，而控制帧要走一个 RTT，永远晚
+/// 一步。那不是偶发竞态，是确定性的顺序错误（2026-08-04 Web 端双 origin 实测：接收方显示
+/// 「连接中断」，console 里只有 `data channel 在完成前关闭`，没有任何暂停通知）。
+///
+/// 本测试**不主张这条守卫应该放宽**——放宽会让「某些 suspended 可被覆盖」渗进状态机语义。
+/// 它锁定的是后果，好让下一个想重排那两个函数的人先看到代价。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_interrupted_first_shuts_out_late_remote_paused() {
+    let db = make_db().await;
+    let host = MemoryHost::new();
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let coordinator = TransferCoordinator::new(
+        Arc::new(SqlSessionStore::new(db.clone())),
+        Arc::new(CoreTransferEvents(event_bus)),
+    );
+
+    let session_id = Uuid::new_v4();
+    seed_active_session(db.as_ref(), session_id, "peer").await;
+
+    // 数据流先断（本地立即生效）。
+    coordinator
+        .dispatch_network_current(session_id, NetworkSignal::Interrupted)
+        .await
+        .expect("dispatch interrupted")
+        .expect("active → suspended 应发生转换");
+
+    // 控制帧一个 RTT 之后才到——此时会话已非 active。
+    let transition = coordinator
+        .dispatch_network_current(session_id, NetworkSignal::RemotePaused)
+        .await
+        .expect("dispatch remote paused");
+    assert!(
+        transition.is_none(),
+        "会话已是 suspended，RemotePaused 不应再触发转换"
+    );
+
+    let p = ops::get_transfer_projection(db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        p.suspended_reason,
+        Some(SuspendedReason::Interrupted),
+        "迟到的 RemotePaused 覆盖不了 Interrupted —— 所以通知必须发在关流之前"
+    );
+}
+
 /// 轮 4 task 3.3：对端 Pause/Cancel 经 `dispatch_network_current` 写"对端"reason，
 /// 与本地 pause 的 LocalPaused 区分。这是 handle_pause_impl / handle_cancel_impl 接线的核心
 /// 逻辑（跨节点 mid-transfer 取消对小文件有竞态，故直接在 coordinator 层确定性验证）。
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_remote_signals_write_remote_reason() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let coordinator = TransferCoordinator::new(
         Arc::new(SqlSessionStore::new(db.clone())),
@@ -659,7 +860,7 @@ async fn e2e_peer_disconnect_interrupts_active() {
     let fake_peer = SecretKey::generate().node_id();
     let node = spawn_node(
         SecretKey::generate(),
-        MemoryHost::new(test_paths()),
+        MemoryHost::new(),
         make_db().await,
         vec![paired_info(fake_peer)],
     )
@@ -720,8 +921,8 @@ async fn e2e_receiver_initiated_resume_probe_commit_completes() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let session_id = Uuid::new_v4();
     let files = vec![FileInfo {
@@ -816,8 +1017,8 @@ async fn e2e_sender_initiated_resume_probe_commit_completes() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let session_id = Uuid::new_v4();
     let files = vec![FileInfo {
@@ -911,8 +1112,8 @@ async fn e2e_receiver_rejects_offer() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let prepared_id = Uuid::new_v4();
     node_a
@@ -1005,7 +1206,7 @@ async fn e2e_multichunk_multifile_transfer() {
         ("small.bin", patterned(123)),                // 单块小文件
     ];
 
-    let mut host_a = MemoryHost::new(test_paths());
+    let mut host_a = MemoryHost::new();
     let mut enumerated = Vec::new();
     for (idx, (name, data)) in specs.iter().enumerate() {
         let sid = FileSourceId(format!("src-{idx}"));
@@ -1029,7 +1230,7 @@ async fn e2e_multichunk_multifile_transfer() {
         });
     }
 
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let prepared_id = Uuid::new_v4();
     node_a
@@ -1103,8 +1304,8 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     let session_id = Uuid::new_v4();
     let files = vec![FileInfo {
@@ -1207,7 +1408,7 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_reap_expired_receive_cleans_part() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
 
     let session_id = Uuid::new_v4();
@@ -1263,12 +1464,10 @@ async fn e2e_reap_expired_receive_cleans_part() {
         .expect("seed bytes");
     assert!(host.sink_bytes(&sink).is_some(), "回收前 sink 应存在");
 
-    let reaped = ops::reap_expired_suspended_receives(
-        db.as_ref(),
-        swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS,
-    )
-    .await
-    .expect("reap");
+    let reaped = SqlSessionStore::new(db.clone())
+        .reap_expired_suspended_receives(swarmdrop_core::transfer::SUSPENDED_RECEIVE_RETENTION_SECS)
+        .await
+        .expect("reap");
     assert_eq!(reaped.len(), 1, "应回收 1 个过期接收会话");
     swarmdrop_core::transfer::cleanup_expired_part_files(&file_access, &reaped).await;
 
@@ -1293,7 +1492,7 @@ async fn e2e_reap_expired_receive_cleans_part() {
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_fatal_error_persists_message() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let coordinator = TransferCoordinator::new(
         Arc::new(SqlSessionStore::new(db.clone())),
@@ -1308,7 +1507,7 @@ async fn e2e_fatal_error_persists_message() {
             session_id,
             CoordinatorInput::Actor {
                 epoch: 0,
-                report: ActorReport::FatalError("发送 Offer 失败: 对端不可达".into()),
+                report: ActorReport::FatalError(FailureCode::OfferFailed),
             },
         )
         .await
@@ -1322,9 +1521,9 @@ async fn e2e_fatal_error_persists_message() {
     assert_eq!(model.phase, TransferPhase::Terminal);
     assert_eq!(model.terminal_reason, Some(TerminalReason::FatalError));
     assert_eq!(
-        model.error_message.as_deref(),
-        Some("发送 Offer 失败: 对端不可达"),
-        "fatal_error 应把失败原因持久化到 error_message"
+        model.error_message.as_deref().map(FailureCode::from_column),
+        Some(FailureCode::OfferFailed),
+        "fatal_error 应把失败判别码持久化到 error_message 列"
     );
 }
 
@@ -1337,7 +1536,7 @@ async fn e2e_fatal_error_persists_message() {
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_terminal_irreversible_under_concurrent_complete_cancel() {
     let db = make_db().await;
-    let host = MemoryHost::new(test_paths());
+    let host = MemoryHost::new();
     let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
     let coordinator = TransferCoordinator::new(
         Arc::new(SqlSessionStore::new(db.clone())),
@@ -1424,8 +1623,8 @@ async fn e2e_paused_offer_declined_then_resumes_on_resume() {
         save_dir: None,
     };
 
-    let host_a = MemoryHost::new(test_paths()).with_source(source_id.clone(), meta, data.clone());
-    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new(test_paths())).await;
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
 
     // —— 暂停接收 ——
     node_b.transfer.set_receiving_paused(true);
@@ -1540,13 +1739,107 @@ async fn e2e_paused_offer_declined_then_resumes_on_resume() {
     .await;
 }
 
+/// 安全回归：对端声明的 `relative_path` 若会逃出保存目录，整条 Offer 必须被拒。
+///
+/// 接收侧最终做的是 `save_dir.join(relative_path)`，而 `Path::join` 遇到绝对路径会把 base
+/// **整段丢弃**、`..` 会向上穿越，`create_dir_all(parent)` 还会把目标目录建出来——这条校验
+/// 缺席时，一个已配对的对端可以往本机任意位置写文件（`~/.ssh/authorized_keys`、
+/// `/etc/cron.d/...`）。配对不蕴含这个权限：产品自己就有 `temporary` / `collaborator`
+/// 这些低于 `owned` 的信任级别。
+///
+/// 断言的三件事与「暂停接收」那条同构：A 拿到 `UnsafePath`、B **不弹给用户**、B **不落库**。
+/// 后两条同样重要——一条被拒的攻击不该在受害者的收件箱里留下痕迹。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_offer_with_escaping_relative_path_is_rejected() {
+    let data = b"evil payload".to_vec();
+    let source_id = FileSourceId("src-evil".to_string());
+    // 宿主侧的元数据用正常路径：攻击点在 **wire 上声明的 relative_path**，
+    // 由下面的 `HostEnumeratedFile` 直接给出，不经过本机文件系统。
+    let meta = HostFileMetadata {
+        name: "authorized_keys".to_string(),
+        relative_path: "authorized_keys".to_string(),
+        size: data.len() as u64,
+        modified_at: None,
+        checksum: None,
+        save_dir: None,
+    };
+
+    let host_a = MemoryHost::new().with_source(source_id.clone(), meta, data.clone());
+    let (node_a, node_b) = connected_paired_pair(host_a, MemoryHost::new()).await;
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id,
+            vec![HostEnumeratedFile {
+                source_id: source_id.clone(),
+                name: "authorized_keys".to_string(),
+                relative_path: "../../../../.ssh/authorized_keys".to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare");
+
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0u32],
+            TransferOrigin::Human,
+        )
+        .await
+        .expect("send_offer");
+
+    poll_until(
+        || {
+            node_a.host.events().iter().any(|e| {
+                matches!(
+                    e,
+                    CoreEvent::TransferRejected { event } if event.session_id == session_id
+                )
+            })
+        },
+        Duration::from_secs(10),
+        "A 收到 TransferRejected(UnsafePath)",
+    )
+    .await;
+
+    let rejected_reason = node_a.host.events().iter().find_map(|e| match e {
+        CoreEvent::TransferRejected { event } if event.session_id == session_id => {
+            Some(event.reason.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(
+        rejected_reason,
+        Some(Some(OfferRejectReason::UnsafePath)),
+        "路径逃逸的拒绝原因必须是 UnsafePath——并进 PolicyRejected 会让发送方以为\
+         是对方的偏好设置问题，而这其实是「你的客户端发了非法数据」"
+    );
+
+    assert!(
+        !received_offer(&node_b, session_id),
+        "路径逃逸的 offer 不得弹给用户——用户没有能力判断这件事，问了也只是把风险转嫁给他"
+    );
+    assert!(
+        ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+            .await
+            .expect("query b")
+            .is_none(),
+        "路径逃逸的 offer 不得落库：一条被拒的攻击不该在受害者的记录里留下痕迹"
+    );
+}
+
 /// 回归（僵尸节点治本）：停止节点后 run_event_loop 随 cancel_token 退出，
 /// swarm 被释放、连接断开——对端必须在宽限期后判其离线，而不是被
 /// keep-alive 白名单钉死的僵尸连接骗成永久在线。
 #[tokio::test(flavor = "multi_thread")]
 async fn shutdown_node_goes_offline_on_peer() {
-    let (node_a, node_b) =
-        connected_paired_pair(MemoryHost::new(test_paths()), MemoryHost::new(test_paths())).await;
+    let (node_a, node_b) = connected_paired_pair(MemoryHost::new(), MemoryHost::new()).await;
     let id_b = node_b.peer_id;
 
     // 双方 presence 就绪：A 视角 B 在线
@@ -1588,4 +1881,202 @@ async fn shutdown_node_goes_offline_on_peer() {
         "停止节点后 A 视角 B 离线",
     )
     .await;
+}
+
+// ===== 越线规则（openspec: failure-semantics-contract）=====
+//
+// 「越线点」= `responder.send(OfferResult)`：过了它对端的状态就已经改变，本机撤不回来。
+// 这两条测试守的是它两侧的行为，**互为对偶**，改 `accept_and_start_receive` 的语句顺序
+// 一定会红掉其中一条。
+
+/// 装一个只有 store 的裸 manager（不起 router / event_loop）。
+///
+/// 越线规则只涉及 pending 表、store 与 coordinator，不需要真连上对端。
+async fn bare_manager(db: Arc<DatabaseConnection>) -> (Arc<TransferManager>, MemoryHost) {
+    let host = MemoryHost::new();
+    let event_bus: Arc<dyn EventBus> = Arc::new(host.clone());
+    let file_access: Arc<dyn FileAccess> = Arc::new(host.clone());
+    let transfer = Arc::new(TransferManager::new(
+        test_endpoint(SecretKey::generate()).await,
+        Arc::new(CoreTransferEvents(event_bus)),
+        Arc::new(SqlSessionStore::new(db)),
+        file_access,
+    ));
+    (transfer, host)
+}
+
+/// 删掉一条会话及其文件行。**顺序不能反** —— `transfer_files → transfer_sessions`
+/// 的外键刻意没带 `ON DELETE`，先删父行会被 SQLite 的 FK 约束拦下。
+async fn drop_session_rows(db: &DatabaseConnection, session_id: Uuid) {
+    use sea_orm::{ColumnTrait, QueryFilter};
+    entity::TransferFile::delete_many()
+        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .exec(db)
+        .await
+        .expect("删除文件行");
+    entity::TransferSession::delete_by_id(session_id)
+        .exec(db)
+        .await
+        .expect("删除会话行");
+}
+
+/// 缓存一条待用户决定的入站 offer，返回它的应答通道。
+async fn cache_offer(
+    transfer: &TransferManager,
+    session_id: Uuid,
+    peer_id: NodeId,
+) -> tokio::sync::oneshot::Receiver<swarmdrop_core::protocol::TransferResponse> {
+    transfer
+        .cache_inbound_offer(
+            peer_id,
+            "对端".to_string(),
+            session_id,
+            vec![FileInfo {
+                file_id: 0,
+                name: "a.bin".to_string(),
+                relative_path: "a.bin".to_string(),
+                size: 1024,
+                checksum: "deadbeef".to_string(),
+            }],
+            1024,
+            TransferOrigin::Human,
+            swarmdrop_core::transfer::policy::ReceivePolicyDecision {
+                action: swarmdrop_core::transfer::policy::ReceivePolicyAction::RequireConfirmation,
+                reason: "测试".to_string(),
+                save_location: None,
+            },
+        )
+        .await
+        .expect("cache_inbound_offer")
+}
+
+/// **越线之前**失败 → offer 必须能重试。
+///
+/// 回归的是这条真实路径：`pending.remove` 之后还有可失败的步骤，一旦失败，那条 offer
+/// 从 UI 上消失、`responder` 随 `offer` 一起 drop（对端 RPC 当场断），用户想再点一次
+/// 「接受」都没得点。修法是失败时把 offer 放回 `pending`。
+///
+/// 造失败的方式是删掉库里的会话行，让 `update_session_save_path` 报 `SessionNotFound`
+/// —— 用真实的失败路径，而不是往代码里塞一个测试专用的注入点。
+///
+/// 删之前要先删 `transfer_files`：那条外键**故意没有** `ON DELETE`（删会话是应用层的事，
+/// 见 `entity::transfer_file`），所以直接删父行会被 SQLite 拦下。
+#[tokio::test(flavor = "multi_thread")]
+async fn accept_before_the_line_keeps_the_offer_retryable() {
+    let db = make_db().await;
+    let (transfer, _host) = bare_manager(db.clone()).await;
+    let session_id = Uuid::new_v4();
+    let peer_id = SecretKey::generate().node_id();
+    let mut rx = cache_offer(&transfer, session_id, peer_id).await;
+
+    // 抽掉会话行 → 越线前的第一步必失败。
+    drop_session_rows(db.as_ref(), session_id).await;
+
+    let err = transfer
+        .accept_and_start_receive(
+            &session_id,
+            CoreSaveLocation::Path {
+                path: "/tmp".to_string(),
+            },
+        )
+        .await
+        .expect_err("越线前失败必须冒泡");
+    assert!(
+        matches!(err, swarmdrop_core::AppError::SessionNotFound(_)),
+        "应报「不存在」而不是别的 kind: {err}"
+    );
+
+    assert_eq!(
+        transfer.pending_offer_peer(&session_id),
+        Some(peer_id),
+        "越线还没发生，offer 必须留在待决表里让用户重试"
+    );
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ),
+        "对端不该收到任何应答 —— 通道既没送值也没被 drop"
+    );
+}
+
+/// **越线未发生**（应答通道已关闭）→ 回滚，不留活的会话。
+///
+/// 对端 RPC 超时后 handler 会 drop 掉接收端，此时 `responder.send` 失败 = 对端根本没收到
+/// 「接受」。原实现是 `let _ =` 直接忽略，于是本机会话停在 `active`、ReceiverActor 挂着
+/// 等一份永远不会来的数据。现在要求：撤掉 actor、把会话推到终态、返回 Err。
+#[tokio::test(flavor = "multi_thread")]
+async fn accept_rolls_back_when_the_peer_already_hung_up() {
+    let db = make_db().await;
+    let (transfer, _host) = bare_manager(db.clone()).await;
+    let session_id = Uuid::new_v4();
+    let peer_id = SecretKey::generate().node_id();
+
+    // drop 应答通道的接收端 = 模拟对端 RPC 已超时、handler 已退出。
+    drop(cache_offer(&transfer, session_id, peer_id).await);
+
+    let err = transfer
+        .accept_and_start_receive(
+            &session_id,
+            CoreSaveLocation::Path {
+                path: "/tmp".to_string(),
+            },
+        )
+        .await
+        .expect_err("对端已断开，接受送不出去");
+    assert!(
+        err.to_string().contains("对端已断开"),
+        "错误该指向对端断开，而不是一句泛泛的传输失败: {err}"
+    );
+
+    assert!(
+        transfer.get_receive_actor(&session_id).is_none(),
+        "回滚必须撤掉已注册的 ReceiverActor，否则它会一直等一份不会来的数据"
+    );
+    let projection = ops::get_transfer_projection(db.as_ref(), session_id)
+        .await
+        .expect("查询 projection")
+        .expect("会话仍在");
+    assert_eq!(
+        projection.phase,
+        TransferPhase::Terminal,
+        "会话必须落到终态，不能停在 active"
+    );
+}
+
+/// 拒绝路径同样把状态转换放在越线之前：转换失败时 offer 放回，用户可以再点一次。
+///
+/// 反过来（转换写在应答之后）的后果是：用户看到「拒绝失败」，而对端已经按拒绝收尾了，
+/// 再点一次只会得到「offer 不存在」。
+#[tokio::test(flavor = "multi_thread")]
+async fn reject_before_the_line_keeps_the_offer_retryable() {
+    let db = make_db().await;
+    let (transfer, _host) = bare_manager(db.clone()).await;
+    let session_id = Uuid::new_v4();
+    let peer_id = SecretKey::generate().node_id();
+    let mut rx = cache_offer(&transfer, session_id, peer_id).await;
+
+    // 关掉连接池 → `dispatch` 的第一句 `find_session` 直接报错。
+    //
+    // 这里**不能**照 accept 那条测试删会话行：`dispatch` 查不到 session 时返回的是
+    // `Ok(None)`（视作「无事可做」），拒绝会静默成功，测不到任何东西。
+    db.close_by_ref().await.expect("关闭连接池");
+
+    transfer
+        .reject_and_respond(&session_id)
+        .await
+        .expect_err("越线前失败必须冒泡");
+
+    assert_eq!(
+        transfer.pending_offer_peer(&session_id),
+        Some(peer_id),
+        "拒绝没写成，offer 必须留着"
+    );
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ),
+        "对端不该收到拒绝应答"
+    );
 }

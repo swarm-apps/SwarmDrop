@@ -27,7 +27,8 @@ import { usePreferencesStore } from "@/stores/preferences-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
-import { applyDeviceName } from "@/lib/device-name";
+import { applyDeviceName, DEVICE_NAME_MAX_CHARS } from "@/lib/device-name";
+import { copyText } from "@/lib/clipboard";
 import { getErrorMessage } from "@/lib/errors";
 import { SettingsCard, SettingsSection } from "./-settings-primitives";
 
@@ -86,11 +87,14 @@ export function DeviceInfoSection() {
   const DeviceIcon = getDeviceIcon(currentOsType);
 
   const osLabel = `${getPlatformLabel(currentPlatform)} ${currentOsVersion} · ${currentArch}`;
+  const isOnline = nodeStatus === "running";
 
   const handleSaveName = useCallback(async () => {
     const trimmed = nameInput.trim();
     if (trimmed && trimmed !== deviceName) {
       try {
+        // 成功即「已落盘 + 已连接的对端已收到新名字」，没有中间态要分开汇报：失败一定
+        // 从后端的 AppResult 抛上来，落盘失败时网络那一步压根不会执行。
         await applyDeviceName(trimmed);
         toast.success(t`设备名称已更新`);
       } catch (err) {
@@ -101,18 +105,22 @@ export function DeviceInfoSection() {
     setEditing(false);
   }, [nameInput, deviceName, t]);
 
+  // 失败必须显式报出来：`copyText` reject 时若不接 catch，Check 图标不亮、toast 也不弹，
+  // 表现和「没点到」完全一样（见 theme-and-styling.md 的静默 catch 教训）。
   const handleCopyPeerId = useCallback(() => {
     if (!deviceId) return;
-    navigator.clipboard.writeText(deviceId).then(() => {
-      setCopied(true);
-      toast.success(t`已复制到剪贴板`);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    copyText(deviceId).then(
+      () => {
+        setCopied(true);
+        toast.success(t`已复制到剪贴板`);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => toast.error(t`复制失败`),
+    );
   }, [deviceId, t]);
 
   const connectedPeers = networkStatus?.connectedPeers ?? 0;
   const natStatus = networkStatus?.natStatus ?? "unknown";
-  const isOnline = nodeStatus === "running";
 
   const stats: StatItem[] = [
     {
@@ -192,6 +200,7 @@ export function DeviceInfoSection() {
                     }}
                     className="h-7 w-full max-w-50 px-1 py-0 text-base font-bold sm:text-lg"
                     autoFocus
+                    maxLength={DEVICE_NAME_MAX_CHARS}
                   />
                 ) : (
                   <>

@@ -5,15 +5,16 @@
 
 use std::sync::Arc;
 
-use sea_orm::EntityTrait;
 use serde::Serialize;
 use swarmdrop_core::transfer::HostEnumeratedFile;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
 use swarmdrop_core::transfer::progress::PrepareProgressEvent;
+use swarmdrop_core::transfer::store::TransferProjection;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
+use crate::database::TransferStoreState;
 use crate::host::event_bus::PrepareChannelGuard;
 use crate::host::file_source::{EnumeratedFile, FileSource, source_id};
 use crate::network::NetManagerState;
@@ -188,59 +189,66 @@ pub async fn cancel_receive(
     Ok(transfer.cancel_receive(&session_id).await?)
 }
 
+// 暂停与取消一样按方向分两条：方向是投影里现成的事实，前端直接分派，
+// 后端不做「先试发送失败再试接收」的试错（那会把一条真实错误藏进两串拼接文案里）。
+
+#[tauri::command]
+#[specta::specta]
+pub async fn pause_send(net: State<'_, NetManagerState>, session_id: Uuid) -> crate::AppResult<()> {
+    let transfer = get_transfer(&net).await?;
+    Ok(transfer.pause_send(&session_id).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn pause_receive(
+    net: State<'_, NetManagerState>,
+    session_id: Uuid,
+) -> crate::AppResult<()> {
+    let transfer = get_transfer(&net).await?;
+    Ok(transfer.pause_receive(&session_id).await?)
+}
+
 // ============ 传输投影 API ============
+//
+// 查询类命令吃的是**账本端口**（`TransferStoreState`，组装点在 `setup.rs` 就 manage 好了），
+// 不经 `TransferManager`。传输历史与节点在不在跑无关：走网络层意味着 start 失败或还没
+// start 时，前端一挂载就整页 `node_not_started`——而它要的只是读一张表。
 
 #[tauri::command]
 #[specta::specta]
 pub async fn get_transfer_projections(
-    db: State<'_, sea_orm::DatabaseConnection>,
-) -> crate::AppResult<Vec<crate::database::ops::TransferProjection>> {
-    Ok(crate::database::ops::get_transfer_projections(&db).await?)
+    store: State<'_, TransferStoreState>,
+) -> crate::AppResult<Vec<TransferProjection>> {
+    Ok(store.list_transfer_projections().await?)
 }
 
+/// 删除单条传输记录。走域方法而非 `store().delete_session()`——「进行中不可删」的守卫在那里。
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_transfer_session(
-    db: State<'_, sea_orm::DatabaseConnection>,
+    net: State<'_, NetManagerState>,
     session_id: Uuid,
 ) -> crate::AppResult<()> {
-    Ok(crate::database::ops::delete_session(&db, session_id).await?)
+    let transfer = get_transfer(&net).await?;
+    Ok(transfer.delete_session(session_id).await?)
 }
 
+/// 清空传输历史：只删已终态的记录，进行中与可续传的会话保留（端口契约）。
 #[tauri::command]
 #[specta::specta]
-pub async fn clear_transfer_history(
-    db: State<'_, sea_orm::DatabaseConnection>,
-) -> crate::AppResult<()> {
-    Ok(crate::database::ops::clear_all_history(&db).await?)
+pub async fn clear_transfer_history(store: State<'_, TransferStoreState>) -> crate::AppResult<()> {
+    Ok(store.clear_all_history().await?)
 }
 
 /// 发送方向会话的源文件绝对路径（「重新发送」重建载荷用；接收方向返回空列表）。
 #[tauri::command]
 #[specta::specta]
 pub async fn get_transfer_source_paths(
-    db: State<'_, sea_orm::DatabaseConnection>,
+    store: State<'_, TransferStoreState>,
     session_id: Uuid,
 ) -> crate::AppResult<Vec<String>> {
-    Ok(crate::database::ops::get_session_source_paths(&db, session_id).await?)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn pause_transfer(
-    net: State<'_, NetManagerState>,
-    session_id: Uuid,
-) -> crate::AppResult<()> {
-    let transfer = get_transfer(&net).await?;
-    match transfer.pause_send(&session_id).await {
-        Ok(()) => Ok(()),
-        Err(send_err) => match transfer.pause_receive(&session_id).await {
-            Ok(()) => Ok(()),
-            Err(receive_err) => Err(crate::AppError::transfer(format!(
-                "暂停传输失败: {send_err}; {receive_err}"
-            ))),
-        },
-    }
+    Ok(store.get_session_source_paths(session_id).await?)
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -258,14 +266,14 @@ pub struct ResumeTransferResult {
 #[tauri::command]
 #[specta::specta]
 pub async fn resume_transfer(
-    db: State<'_, sea_orm::DatabaseConnection>,
     net: State<'_, NetManagerState>,
     session_id: Uuid,
 ) -> crate::AppResult<ResumeTransferResult> {
     let transfer = get_transfer(&net).await?;
 
-    let session = entity::TransferSession::find_by_id(session_id)
-        .one(db.inner())
+    let session = transfer
+        .store()
+        .find_session(session_id)
         .await?
         .ok_or_else(|| crate::AppError::transfer("会话不存在"))?;
 

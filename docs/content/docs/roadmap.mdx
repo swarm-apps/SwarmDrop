@@ -7,19 +7,22 @@ SwarmDrop 已经能稳定地端到端加密传文件，仍在持续打磨。
 
 ## 已完成
 
-- [x] **P2P 网络**：libp2p、mDNS、Kademlia DHT、Relay、DCUtR。
-- [x] **设备配对**：6 位配对码、局域网直连、生物识别解锁。
+- [x] **P2P 网络**：mDNS、Kademlia DHT、Relay、DCUtR、WebRTC-Direct。
+- [x] **设备配对**：一次性签名邀请（链接 / 二维码）、局域网直连。
 - [x] **文件传输**：端到端加密、实时进度、历史记录。
+- [x] **断点续传**：传输中断后从 checkpoint 继续，不必从头再来。
+- [x] **收件箱**：本地 SQLite 归档与关键词检索。
+- [x] **MCP 集成**：AI Agent 可直接经 SwarmDrop 发文件、检索收件箱。
+- [x] **移动端**：Android 与 iOS，与桌面共享同一套 Rust 核心。
 - [x] **多语言**：简体中文、繁体中文、English。
 
 ## 进行中
 
-- [ ] **断点续传**：传输中断后从 checkpoint 继续，不必从头再来。
-- [ ] **移动端打磨**：Android 端体验与桌面对齐。
+- [ ] **Web 端**：把同一套 Rust 核心编到 wasm，让浏览器也成为传输端。
+- [ ] **扩展 Agent 工具集**：通过 MCP 驱动完整传输生命周期（状态 / 取消 / 暂停 / 恢复）。
 
 ## 计划中
 
-- [ ] **MCP 集成**：让 AI 助手直接通过 SwarmDrop 发文件。
-- [ ] **iOS 支持**：把全平台版图补全。
+- [ ] **端上内容抽取**：让收件箱检索能读到文件内容，而不只是文件名。
 
 路线会随社区反馈调整。有想法欢迎到 [GitHub Issues](https://github.com/swarm-apps/SwarmDrop/issues) 提。

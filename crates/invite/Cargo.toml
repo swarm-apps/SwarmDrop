@@ -10,10 +10,23 @@ edition.workspace = true
 swarmdrop-net-base = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+# 邀请注册表的落盘端口（native = storage-sql / wasm = web 的 IndexedDB）
+async-trait = { workspace = true }
 sha2 = { workspace = true }
 # 邀请串编码：postcard wire（单变体 enum 版本化）+ base32 文本
 postcard = { version = "1.1", features = ["use-std"] }
 data-encoding = "2"
-# 二维码生成（wasm-first，SvgBuilder / 模块矩阵）
-fast_qr = { version = "0.13", features = ["svg"] }
+# 二维码生成（wasm-clean，SVG / 模块矩阵）。
+#
+# 必须是支持 QR 标准 Annex J 最优分段的编码器：canonical 邀请链接里的 `#` 不在 QR
+# alphanumeric 字符集内，全串统一模式的编码器（如 fast_qr 0.13 的 best_encoding）会因
+# 这一个字符把整串降级到 byte mode，数据量涨约 45%。qrcode 的 `QrCode::new` 走
+# `bits::encode_auto`，`#` 只花两次 mode 切换（约 33 bit ≈ 6 个字符）。
+#
+# **必须 default-features = false**：默认 features 含 `image`，会拉进 image ^0.25。
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = { workspace = true }
+
+[dev-dependencies]
+# 注册表的落盘路径是 async；并发双花那条用真线程 + block_on 抢锁（见 invite.rs 测试注释）
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync"] }
