@@ -113,54 +113,67 @@ export const InviteShare = memo(function InviteShare({
     : null;
 
   return (
-    <div className="mt-3 flex flex-col items-center gap-3 sm:flex-row sm:items-start">
-      <div
-        className="relative flex shrink-0 items-center justify-center rounded-xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:ring-white/15"
-        style={{ width: QR_SIZE + CARD_PADDING * 2, height: QR_SIZE + CARD_PADDING * 2 }}
-      >
-        {html ? (
-          <div
-            role="img"
-            aria-label={t`配对邀请二维码`}
-            // 压到扫不动为止：失效的码若还能被读到，对方只会白跑一趟失败流程。
-            className={`size-full [&>svg]:size-full ${overlay ? "opacity-[0.09]" : ""}`}
-            // SVG 由 wasm 侧受信任生成（纯几何 path，无脚本），内联安全。
-            dangerouslySetInnerHTML={html}
-          />
-        ) : (
-          // 白卡内固定深色，理由见文件头
-          <p className="px-2 text-center text-xs text-slate-500">
-            {invite === null ? <Trans>正在生成…</Trans> : <Trans>二维码生成失败，请用下方链接配对</Trans>}
-          </p>
-        )}
-        {overlay && <QrOverlay kind={overlay} />}
-      </div>
+    /*
+     * **横排与否看容器宽度，不看视口宽度。**
+     *
+     * 这里原本是 `sm:flex-row`（视口 ≥640px 就横排），但这块的实际归宿是设备页 ≥1280 档
+     * 那条 **360px 侧栏**——视口 1440px 满足 `sm:`，容器却只有 320px（实测；360 减去
+     * `--space-panel` 两侧各 20）：二维码固定占 220，右列剩下不到 100px，那段两行说明
+     * 被切成每行三四个字。视口断点在这里表达的是「页面有多宽」，而这块要问的是「我有多宽」。
+     *
+     * `@md`（28rem = 448px）是二维码 220 + 说明列至少 ~180 的和：低于它就竖排，
+     * 二维码居中、文字占满整行。
+     */
+    <div className="@container mt-3">
+      <div className="flex flex-col items-center gap-3 @md:flex-row @md:items-start">
+        <div
+          className="relative flex shrink-0 items-center justify-center rounded-xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:ring-white/15"
+          style={{ width: QR_SIZE + CARD_PADDING * 2, height: QR_SIZE + CARD_PADDING * 2 }}
+        >
+          {html ? (
+            <div
+              role="img"
+              aria-label={t`配对邀请二维码`}
+              // 压到扫不动为止：失效的码若还能被读到，对方只会白跑一趟失败流程。
+              className={`size-full [&>svg]:size-full ${overlay ? "opacity-[0.09]" : ""}`}
+              // SVG 由 wasm 侧受信任生成（纯几何 path，无脚本），内联安全。
+              dangerouslySetInnerHTML={html}
+            />
+          ) : (
+            // 白卡内固定深色，理由见文件头
+            <p className="px-2 text-center text-xs text-slate-500">
+              {invite === null ? <Trans>正在生成…</Trans> : <Trans>二维码生成失败，请用下方链接配对</Trans>}
+            </p>
+          )}
+          {overlay && <QrOverlay kind={overlay} />}
+        </div>
 
-      <div className="flex w-full min-w-0 flex-col gap-2">
-        {/* 扫码只有手机端做得到（桌面端无相机，见 `_app/pairing/input.lazy.tsx`），
-            所以两条路径要分端说清楚，不能笼统写「扫码或粘贴」。 */}
-        <p className="text-xs text-muted-foreground">
-          <Trans>手机上用 SwarmDrop 的「扫码」对准它；桌面端没有相机，复制链接发过去用「粘贴邀请」。</Trans>
-        </p>
-        {/* 剩余有效期贴着说明走，不写死「24 小时内有效」——那句话在码已经躺了半天之后
-            仍然照说不误，等于没说。失效后交给码面上的覆盖层，这里不再重复。 */}
-        {overlay === null && expiresAt !== null && (
-          <p className="text-xs text-fd-muted-foreground" aria-live="polite">
-            {t(remainingLabel(expiresAt, now, i18n.locale))}
+        <div className="flex w-full min-w-0 flex-col gap-2">
+          {/* 扫码只有手机端做得到（桌面端无相机，见 `_app/pairing/input.lazy.tsx`），
+              所以两条路径要分端说清楚，不能笼统写「扫码或粘贴」。 */}
+          <p className="text-xs text-muted-foreground">
+            <Trans>手机上用 SwarmDrop 的「扫码」对准它；桌面端没有相机，复制链接发过去用「粘贴邀请」。</Trans>
           </p>
-        )}
-        {/* `key` 让按钮随邀请换代重挂：否则「已复制」会在点了「重新生成」之后继续挂着，
-            而剪贴板里躺的是刚被撤销的上一条；「复制失败」同理会残留到一条全新的邀请上。 */}
-        <CopyInviteButton key={invite ?? "pending"} invite={invite} />
-        {/* 手选兜底：复制按钮在极少数环境下不可用（权限被拒），链接本身仍要够得着。
-            一行截断而不是多行 textarea——它是第三顺位的路径，不该占主要视觉重量。 */}
-        <input
-          readOnly
-          value={invite ?? ""}
-          aria-label={t`邀请链接`}
-          onFocus={(e) => e.currentTarget.select()}
-          className="w-full truncate rounded-lg border border-fd-border bg-fd-background px-2 py-1.5 font-mono text-xs text-fd-muted-foreground"
-        />
+          {/* 剩余有效期贴着说明走，不写死「24 小时内有效」——那句话在码已经躺了半天之后
+              仍然照说不误，等于没说。失效后交给码面上的覆盖层，这里不再重复。 */}
+          {overlay === null && expiresAt !== null && (
+            <p className="text-xs text-fd-muted-foreground" aria-live="polite">
+              {t(remainingLabel(expiresAt, now, i18n.locale))}
+            </p>
+          )}
+          {/* `key` 让按钮随邀请换代重挂：否则「已复制」会在点了「重新生成」之后继续挂着，
+              而剪贴板里躺的是刚被撤销的上一条；「复制失败」同理会残留到一条全新的邀请上。 */}
+          <CopyInviteButton key={invite ?? "pending"} invite={invite} />
+          {/* 手选兜底：复制按钮在极少数环境下不可用（权限被拒），链接本身仍要够得着。
+              一行截断而不是多行 textarea——它是第三顺位的路径，不该占主要视觉重量。 */}
+          <input
+            readOnly
+            value={invite ?? ""}
+            aria-label={t`邀请链接`}
+            onFocus={(e) => e.currentTarget.select()}
+            className="w-full truncate rounded-lg border border-fd-border bg-fd-background px-2 py-1.5 font-mono text-xs text-fd-muted-foreground"
+          />
+        </div>
       </div>
     </div>
   );

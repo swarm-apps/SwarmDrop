@@ -14,13 +14,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { InviteShare } from "./invite-share";
+import { PairingConfirmDialog } from "./pairing-confirm-dialog";
 import { SectionHeader, SectionShell } from "./section";
 import { WebErrorCard } from "./web-error-view";
 import {
   INVITE_TTL_HOURS,
   INVITE_URL_PREFIX,
   remainingLabel,
-  remainingSeconds,
   extractInviteLink,
 } from "../_lib/invite";
 import { NAV } from "../_lib/nav";
@@ -122,15 +122,21 @@ export function PairingPanel({
   const [previewError, setPreviewError] = useState<WebError | null>(null);
   /** 解码成功但本地就该拦下的（自己发的邀请 / 已配过的设备）：说一句话，不亮确认卡。 */
   const [previewNotice, setPreviewNotice] = useState<string | null>(null);
+  /**
+   * 确认对话框被**收起**（Esc / 点遮罩）而不是被放弃（点「取消」）。
+   *
+   * 两者必须分开：`/p/` 落地页那条来路已经 `sessionStorage.removeItem` 并
+   * `history.replaceState` 抹掉了 fragment，`inviteInput` 是那串邀请在世上唯一的副本，
+   * 而 Esc 是最容易误触的键。收起只是收起——`preview` 留着，下面那行入口能把它请回来。
+   * 同一条教训在本文件的折叠逻辑里已经记过一次（见 `dismissed`）。
+   */
+  const [confirmDismissed, setConfirmDismissed] = useState(false);
   /** 三格永远一起变——收口成一个函数，免得某条路径漏清其中一格留下前一次的残影。 */
   const resetPreview = () => {
     setPreview(null);
     setPreviewError(null);
     setPreviewNotice(null);
   };
-  /** 已过期的邀请不给「配对」按钮：点了也只是白跑一趟发起端的 TTL 校验。 */
-  const previewExpired = preview !== null && remainingSeconds(preview.expiresAt, now) <= 0;
-
   /**
    * 把一条邀请串放进消费框的**唯一入口**。手打 / 剪贴板感知 / `/p/` 落地页 handoff
    * 三条来路全部收口在这里，于是「解码 → 确认卡 → 用户点确认」这道闸没有旁路——
@@ -140,9 +146,24 @@ export function PairingPanel({
    * 变化上；「确认卡出现之前零出网」也正是靠这一点成立。
    */
   const setInviteAndPreview = (link: string) => {
+    // **握手在途时不换邀请。** `connect_invite` 一旦发出，对端就可能已经 CAS 消费掉那条
+    // 邀请；此时换串会走到下面的 `cancel()`，把 seq 推进一格，于是真结果回来时
+    // `useAsyncAction` 判它过期直接丢弃——不设 `consumeOutcome`、不刷设备清单、也不报
+    // 「一半成功」。用户看到的是「什么都没发生」，而邀请已经用掉了，再点只会拿到
+    // 「已被使用」的拒绝。
+    //
+    // 这条路径不是假想的：确认对话框打开时 `document` 上的 paste 监听照常工作（事件目标是
+    // 对话框里的按钮，不匹配那个 `input/textarea/contenteditable` 早退条件），而握手走 relay
+    // 时界面上好几秒没有动静，再按一次 Cmd+V 是很自然的动作。
+    if (consumeAction.pending) return;
     setInviteInput(link);
     setConsumeOutcome(null);
     resetPreview();
+    // 新邀请要重新亮出确认卡，压过上一条的「收起」。
+    setConfirmDismissed(false);
+    // 上一条邀请的握手错误属于上一条。不清掉的话，「A 配对失败 → 不关对话框、直接粘贴 B」
+    // 会让 B 的确认卡顶着 A 的错误开场。
+    consumeAction.cancel();
     // 新到的邀请要压过之前的「收起」——`dismissed` 说的是「这一条我看过了」，
     // 不是「以后都别弹」。三条来路里有两条不经过点击，藏起来等于用户不知道它来了。
     setDismissed(false);
@@ -187,6 +208,9 @@ export function PairingPanel({
     setInviteInput("");
     resetPreview();
     setPastedFromClipboard(false);
+    setConfirmDismissed(false);
+    // 同 `setInviteAndPreview`：错误跟着它所属的那条邀请一起走。
+    consumeAction.cancel();
   };
 
   // 从配对落地页（/p/）过来时把邀请接过来预填。
@@ -553,59 +577,38 @@ export function PairingPanel({
             {previewNotice}
           </p>
         )}
+        {/* 确认卡被收起后把它请回来的入口。**没有它，Esc 就成了一次静默的功能失效**：
+            邀请串还在（这正是收起与放弃的分别），但屏幕上没有任何东西说它还在、
+            也没有任何地方能再走到「确认配对」——而那是这条路径唯一的出口。 */}
+        {preview && confirmDismissed && (
+          <button
+            type="button"
+            onClick={() => setConfirmDismissed(false)}
+            className="focus-ring mt-2 flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs transition-colors hover:bg-accent sm:min-h-9"
+          >
+            <span className="min-w-0 truncate text-muted-foreground">
+              <Trans>
+                已识别到「{preview.displayName || t`对方设备`}」的邀请
+              </Trans>
+            </span>
+            <span className="shrink-0 font-medium text-foreground">
+              <Trans>查看</Trans>
+            </span>
+          </button>
+        )}
         {previewError && <WebErrorCard error={previewError} className="mt-2 text-xs" />}
-        {/* 确认卡：出网之前先把「对方是谁、还有效多久、是不是仅局域网」摆出来。 */}
-        {preview && (
-          <div className="mt-2 rounded-lg border bg-background px-3 py-2.5">
-            <p className="text-xs text-foreground">
-              <span className="font-medium">{preview.displayName || t`对方设备`}</span>
-              <span className="ml-2 text-muted-foreground">{preview.displayPlatform}</span>
-            </p>
-            {/* 只露末 8 位：够用来跟对方核一句，不必铺满一行 */}
-            <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-              {preview.peerId.slice(-8)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t(remainingLabel(preview.expiresAt, now, i18n.locale))}
-              {preview.localOnly && <> · <Trans>仅同一网络内可用</Trans></>}
-            </p>
-            {previewExpired ? (
-              <p className="mt-2 text-xs text-warning-ink">
-                <Trans>这条邀请已过期，让对方重新生成一条。</Trans>
-              </p>
-            ) : (
-              <p className="mt-2 text-xs text-muted-foreground">
-                <Trans>配对后双方可以互相发送文件。确认是这台设备再继续。</Trans>
-              </p>
-            )}
-            <div className="mt-2 flex gap-2">
-              {!previewExpired && (
-                <Button
-                  size="sm"
-                  onClick={doConsumeInvite}
-                  disabled={!ready || consumeAction.pending}
-                                  >
-                  {consumeAction.pending ? <Trans>配对中…</Trans> : <Trans>确认配对</Trans>}
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={clearInvite}
-                disabled={consumeAction.pending}
-                              >
-                <Trans>取消</Trans>
-              </Button>
-            </div>
-          </div>
-        )}
-        {/* 真错误（连不上、握手失败）才走这里。「对方拒绝」不在其中——它是正常结果，
-            连同「邀请可能已被撤销/用掉」那句解释一起挂在下面的 refused 分支上：
-            「已撤销」在受邀方本地判不出来（撤销状态只在邀请方的注册表里，那条邀请一个字节
-            都没传播过来），所以只能在拿到拒绝之后说。 */}
-        {consumeAction.error && (
-          <WebErrorCard error={consumeAction.error} className="mt-2 text-xs" />
-        )}
+        {/*
+          确认卡走 Dialog（`PairingConfirmDialog`），不再内联在这一栏里。
+          它与入站的 `PairingRequestHost` 是同一件事的两个方向，本该长一样；而这一栏在
+          ≥1280 档只有 360px 宽，装不下让人核对身份该有的信息密度（完整 NodeId 就摆不开）。
+          理由与 DESIGN.md 的关系写在那个组件的文件头。
+
+          「出网之前先把对方是谁摆出来」这道闸没有变——`preview` 仍然是 `connect_invite`
+          的唯一前置（见 `doConsumeInvite`），只是它现在长在对话框上。
+
+          握手失败（`consumeAction.error`）也留在对话框里：那时邀请还没被消费，用户可以
+          直接再点一次「确认配对」，把错误显示在这里反而要求他先关掉对话框才看得见。
+        */}
         {consumeOutcome?.refused && (
           <>
             {/* 对方拒绝**不是错误**：不走 WebErrorCard（那会给出「网络错误」这个标题）。 */}
@@ -764,6 +767,21 @@ export function PairingPanel({
           </div>
         </div>
       )}
+
+      {/*
+        出站确认对话框。**必须挂在 `open &&` 之外**：邀请有三条来路，其中剪贴板感知与
+        `/p/` 落地页 handoff 都不经过用户点击，而面板可能正处在收起态（`dismissed`）——
+        挂在里面等于那两条路径静默失效。
+      */}
+      <PairingConfirmDialog
+        preview={confirmDismissed ? null : preview}
+        now={now}
+        pending={consumeAction.pending}
+        error={consumeAction.error}
+        onConfirm={doConsumeInvite}
+        onCancel={clearInvite}
+        onDismiss={() => setConfirmDismissed(true)}
+      />
     </SectionShell>
   );
 }

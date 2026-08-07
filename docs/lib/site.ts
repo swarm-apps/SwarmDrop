@@ -1,8 +1,14 @@
 // 站点 URL 常量。两个 PAGES_* 都由 CI 提供（见 .github/workflows/docs.yml），
 // 本地 build 都留空 → localhost 根路径，便于直接验证。
 //
-// **站点部署在 Pages 子路径下**，所以裸字符串路径（`<img src>`、metadata 里的 `/x`）
-// 必须手动拼 BASE_PATH——`next/link` / `next/image` 才会自动加前缀。理由见 next.config.mjs。
+// **站点部署在 Pages 子路径下**，所以裸字符串路径（`<img src>`、`next/image` 的字符串
+// src、metadata 里的 `/x`）必须手动拼 BASE_PATH。理由见 next.config.mjs。
+//
+// ⚠️ 只有 `next/link` 自动加前缀，**`next/image` 不加**。它在 optimized 模式下是靠
+// 转成 `/_next/image?url=…` 间接带上前缀的，而本站 `images.unoptimized`（静态导出的
+// 硬性要求）会让 src 原样输出。这条差别在 2026-08-07 让首页三张截图线上 404 —— 本地
+// 开发因为 BASE_PATH 为空恰好看不出来，**只有部署到 Pages 才暴露**。
+// 用 `lib/shared.ts` 的 `assetPath()`，别手写 `/x.png`。
 
 /** 生产 origin；无尾斜杠。只有构建期服务端读它（metadataBase / sitemap）。 */
 export const SITE_ORIGIN =

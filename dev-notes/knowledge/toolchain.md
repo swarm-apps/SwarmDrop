@@ -770,6 +770,60 @@ SwarmDrop 的 `src-tauri` 是 Cargo workspace member，不是独立 Cargo 项目
 
 **相关文件**：`.github/workflows/release.yml`
 
+### macOS 签名：arm64 的 ad-hoc 是硬性下限，不是可选优化（2026-08-07）
+
+在此之前 CI 完全没有代码签名 —— `TAURI_SIGNING_PRIVATE_KEY` 是 **updater 的 minisign**
+（验证更新包完整性），与 Gatekeeper / codesign 是**两件不相干的事**，别把前者当成"已经签过名了"。
+
+后果是 arm64 的 dmg 在 Apple Silicon 上装不了，且报错极具误导性：**「已损坏，无法打开，
+你应该将它移到废纸篓」**。文件一点没坏。真实机制分两层：
+
+1. **Apple Silicon 内核硬性要求**：加载可执行页时必须校验页哈希（Code Directory），
+   没有就直接 SIGKILL。x86_64 无此限制 —— 这就是为什么同一次构建 Intel 版能装、arm64 版不能。
+2. **为什么是"已损坏"而不是"未签名"**：Rust 链接器本来会给 arm64 二进制加 ad-hoc 签名，
+   但 bundler 打包时改了 `.app` 内容（Info.plist / 图标 / 资源），哈希对不上，签名**变成损坏态**。
+   这比干脆没签名更糟 —— macOS 15 起「已损坏」**没有 UI 绕过路径**（右键打开的快捷方式已被移除）。
+
+三档状态，选型时按这个分：
+
+| 状态 | 表现 | 用户能否自救 | 能否公证 |
+|---|---|---|---|
+| 签名损坏 / 缺失 | 「已损坏，移到废纸篓」 | ❌ 只能 `xattr -dr com.apple.quarantine` | — |
+| **ad-hoc**（当前） | 「无法验证开发者」 | ✅ 系统设置 → 隐私与安全性 → 仍要打开 | ❌ |
+| Developer ID + 公证 + staple | 双击直接开 | — 无摩擦 | ✅ |
+
+**正确做法**：`src-tauri/tauri.conf.json` 的 `bundle.macOS.signingIdentity` 设 `"-"`
+（`-` 是 codesign 表示 ad-hoc 的特殊标识符）。它让 bundler 在**打包完成后**重新
+`codesign -s -`，把哈希表重算一遍。零成本、不需要任何证书、CI 无需额外 secrets。
+
+**字段名易错点**：`MacConfig` 是 `rename_all = "camelCase"`，且外层是
+`#[serde(rename = "macOS", alias = "macos")]` —— 写 `macOS`（OS 大写）或 `macos` 都行，
+但 `signingIdentity` 的驼峰不能错。好在该结构体带 `deny_unknown_fields`，
+拼错会在 `cargo check -p swarmdrop`（tauri-build 解析配置）当场报错，不会静默忽略。
+
+**`hardenedRuntime` 默认就是 `true`**（`tauri-utils` 的 `MacConfig::default`），
+所以 ad-hoc 会以 `--options runtime` 签。刻意**没有**改成 false：hardened runtime 的唯一
+实际用途是公证的前置条件（ad-hoc 根本不能公证，理论上没收益），但 Tauri 官方默认如此、
+大量应用这么跑，且将来切 Developer ID 时正好需要它为 true。若实测出现 library validation
+类的加载失败，再考虑显式关掉。
+
+**未验证、需要实测的一条**：keychain 的访问控制绑定签名身份，ad-hoc 的 designated
+requirement 是内容哈希（cdhash）、**每次构建都变**。`keyring` 里存的 Ed25519 设备私钥
+可能在每次更新后都要用户重新授权一次。Developer ID 签名不会有这问题（身份绑 Team ID，
+跨版本稳定）。**首次发 ad-hoc 版本前，务必拿旧版 → 新版实跑一遍升级路径确认。**
+
+**将来切 Developer ID**：把 `"-"` 换成 `"Developer ID Application: NAME (TEAMID)"`，
+CI 补 `APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY`，
+公证再加 `APPLE_API_ISSUER` / `APPLE_API_KEY` / `APPLE_API_KEY_PATH`（比 `APPLE_ID` +
+app 专用密码稳，不随密码轮换失效）。需 Apple Developer Program，$99/年 —— **没有免费替代**，
+免费 Apple ID 签出来的东西 7 天过期且不能分发，ad-hoc 就是免费档的上限。
+
+Windows 侧另说：Authenticode 私钥自 2023-06 起强制硬件存储，`.pfx` 不能再塞进 CI secrets。
+开源项目可申请 **SignPath Foundation** 免费签名（要求 OSI 许可证 + 公开可追溯构建 +
+每次发布手动批准 + 只支持 GitHub Actions / GitLab CI）。
+
+**相关文件**：`src-tauri/tauri.conf.json`、`.github/workflows/release.yml`
+
 ### mobile-release.yml 缺两条 iroh-ffi 已验证的 CI 实践
 
 2026-07 读 iroh-ffi 的 CI 时发现两条我们缺、且**与迁不迁 iroh 无关**的实践，可直接抄：

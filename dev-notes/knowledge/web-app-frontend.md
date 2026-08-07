@@ -189,14 +189,27 @@ query param 名只在 `PARAM` 里定义一次（生产方与 `useSearchParams().
 
 两条配套约束（`basePath` 仍在，见本文开头的更正，所以它们都还有效）：
 
-- **非框架管辖的纯字符串路径要手拼 `BASE_PATH`**。`next/link` 与 `next/image` 会自动加，
-  但 `<img src="/x">`、metadata 里的 `/x` 不会——`/x` 解析时会把 base path 整段替换掉。
-  已知需要拼的：`docs/lib/shared.ts` 的 `appIconPath`（`${BASE_PATH}/app-icon.png`）。
+- **非框架管辖的纯字符串路径要手拼 `BASE_PATH`**。`/x` 解析时会把 base path 整段替换掉。
+  一律走 `docs/lib/shared.ts` 的 `assetPath()`，别手写 `/x.png`。
+
+  > ⚠️ **本条 2026-08-07 更正，此前写的是「`next/link` 与 `next/image` 会自动加」——
+  > `next/image` 那半句是错的，并且直接导致了线上事故。** `next/link` 确实会自动加；
+  > `next/image` 只在 optimized 模式下才间接带上前缀（src 被转成 `/_next/image?url=…`），
+  > 而本站 `images: { unoptimized: true }`（静态导出的硬性要求）会让字符串 src **原样输出**。
+  >
+  > 首页三张截图 `src="/shots/*.png"` 就是这么在 Pages 上 404 的，hero 图整块空白。
+  > 静态导入（`import shot from "./x.png"`）不受影响——它走 webpack 资源管线。
+  >
+  > **本地看不出来**：本地 `BASE_PATH` 为空，`/shots/x.png` 正好是对的，只有部署到子路径
+  > 才炸。所以下面那条「本地验证子路径部署」必须连 `src` 一起 grep，不能只 grep `href`。
 - **本地验证子路径部署**：`PAGES_BASE_PATH=/SwarmDrop pnpm build`，然后 grep 导出产物里的
   `href` 确认全部带前缀：
 
   ```bash
-  grep -o 'href="/app[^"]*"' out/app/*/index.html   # 应当为空（都该带 /SwarmDrop 前缀）
+  # 导航：应当为空（都该带 /SwarmDrop 前缀）
+  grep -o 'href="/app[^"]*"' out/app/*/index.html
+  # 静态资源：同样应当为空 —— 只 grep href 会漏掉 <Image>，2026-08-07 就是这么漏的
+  grep -ro 'src="/[^"]*\.\(png\|jpg\|svg\|webp\)"' out/ | grep -v '/SwarmDrop/'
   ```
 
   路径大小写必须精确匹配仓库名 `SwarmDrop`（Pages 区分大小写）。
@@ -625,6 +638,84 @@ UI 停在旧值不动。
 判断依据是「这个字段会不会在集合不变的前提下单独变化」——会，就必须进清单。
 
 **相关文件**：`docs/app/app/_lib/store.ts`
+
+## ⚠️ 共享组件包的类名必须显式 `@source`，否则样式**只丢一半**（2026-08-07）
+
+`docs/app/global.css` 里这一行不是可选的：
+
+```css
+@source "../node_modules/@swarmdrop/file-browser/src";
+```
+
+Tailwind v4 的自动内容检测有两条硬规则，仓库根的源码包同时踩中：
+
+1. **扫描根是构建时的 cwd**。`next build` 在 `docs/` 下跑，`packages/` 在它之外。
+2. **`node_modules` 被无条件排除**（显式 `@source` 覆盖这条排除，这正是上面那行的作用）。
+
+⚠️ **路径要指 `node_modules` 下那份，不要指仓库根的 `packages/file-browser/src`。**
+docs 用 `file:` 协议引它（见该包 README 的硬约束），pnpm 解析成 `.pnpm` 下的**硬链接副本**
+而不是符号链接（只有 `link:` 的 shared-view 才是真 symlink）。两份 inode 相同只是硬链接
+尚未破裂——做原子写（写临时文件 + rename）的编辑器改一次源码就会断开，此后**Tailwind 扫新
+源码、Next 编旧副本**：重命名过的类名不再生成，正好复现下面那种「样式随机缺几条」。
+指向 node_modules 则扫描的与编译的恒为同一份。
+
+**症状不是「组件整个没样式」**——那反而一眼能看出来。真实症状是**随机缺几条**：包里只有
+「docs 自己也恰好用过」的类能活下来，其余整批不生成。实际丢过的两条，各自造成一个看起来
+完全无关的 bug：
+
+| 丢掉的类 | 表现出来的样子 |
+|---|---|
+| `aspect-[4/3]` + `object-cover` | 收件箱网格里图片按原始比例撑高，卡片高度参差；`FileGridView` 的虚拟行按**固定估算高**定位，于是第二行直接盖住第一行的文件名区 |
+| `pointer-coarse:opacity-100` | 触摸屏上动作条永远 `opacity-0`——而 Web 端**唯一**的取回入口（下载按钮）就在那条动作条里 |
+
+两条都没有反馈回路：构建绿、tsc 绿、测试绿，只有肉眼看得出来，且看到的现象离根因很远
+（「网格布局写错了」「下载功能没做」）。
+
+**查法**：构建后 grep 产物 CSS 里那条 CSS **属性**（不是类名——类名会被转义，属性不会）。
+
+```bash
+cd docs && pnpm build
+grep -c "aspect-ratio" $(find out -name "*.css" | head -1)   # 0 就是没扫到
+```
+
+桌面端不需要这行：Vite 从仓库根启动，`packages/` 本来就在扫描范围内。**以后再往 `docs/`
+引仓库根的源码包，记得同步加一条 `@source`。**
+
+### 组件内部的排布看容器宽度，不看视口断点
+
+同一次修的第二个 bug，根因不同但同样是「用错了尺度」：`InviteShare` 用 `sm:flex-row`
+决定二维码与说明文字并排，而它的实际归宿是设备页 ≥1280 档那条 **360px 侧栏**——视口 1400
+满足 `sm:`，容器却只有 320px（360 减去 `--space-panel` 两侧各 20），于是 220px 的二维码旁边
+只剩 100px，说明文字被切成每行三四个字。
+
+**判据**：这个 flex 方向问的是「我有多宽」还是「页面有多宽」？前者用容器查询
+（`@container` + `@md:`），后者才用 `sm:` / `md:`。放进侧栏、抽屉、分栏里的组件一律是前者。
+Tailwind v4 内置容器查询，不需要插件。阈值按内容算：`@md`（28rem = 448px）= 二维码 220 +
+说明列至少 ~180。
+
+## 配对确认：出站 Esc = 收起，入站 Esc = 拒绝（2026-08-07）
+
+两个方向的身份确认对话框共用 `PairingIdentityDialog` 的骨架，**但关闭语义刻意相反**，
+别去「统一」它：
+
+| | 关闭（Esc / 点遮罩） | 为什么 |
+|---|---|---|
+| 入站 `PairingRequestHost` | **拒绝** | 对方正卡在等待里，不答复等于让他一直转圈——关闭必须是一个答复 |
+| 出站 `PairingConfirmDialog` | **只收起**，邀请串留着 | 那边没有人在等；而 `/p/` 落地页那条来路已经 `sessionStorage.removeItem` + `history.replaceState` 抹掉 fragment，React state 里那串是它在世上**唯一**的副本 |
+
+出站那半接 `clearInvite` 会让一次误触不可恢复地删掉邀请——`pairing-panel.tsx` 的折叠逻辑里
+记过同一个教训（那里的 `dismissed` 就是为它存在的）。收起之后**必须给一个请回来的入口**
+（面板里那行「已识别到「X」的邀请 · 查看」），否则 Esc 就成了一次静默的功能失效：串还在，
+但屏幕上没有任何东西说它还在，也没有任何地方能再走到「确认配对」。
+
+### 顺带：握手在途时不许换邀请
+
+`setInviteAndPreview` 开头那句 `if (consumeAction.pending) return` 不是防抖。`connect_invite`
+一旦发出，对端就可能已经 CAS 消费掉那条邀请；此时换串会推进 `useAsyncAction` 的 seq，真结果
+回来时被判过期直接丢弃——不设 outcome、不刷设备清单、不报「一半成功」。用户看到「什么都没
+发生」，而邀请已经用掉了。触发路径很日常：确认对话框打开时 `document` 上的 paste 监听照常
+工作（事件目标是对话框里的按钮，不匹配那个 input/textarea 早退条件），而握手走 relay 时
+界面好几秒没动静，再按一次 Cmd+V 很自然。
 
 ## 组件底座是 shadcn/ui，token 走映射层（2026-08 起）
 

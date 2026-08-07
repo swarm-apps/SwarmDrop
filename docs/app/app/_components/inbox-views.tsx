@@ -14,7 +14,9 @@ import {
   Archive,
   ArchiveRestore,
   ArrowLeftRight,
+  Download,
   Inbox,
+  LoaderCircle,
   MonitorSmartphone,
   Search,
   Trash2,
@@ -36,6 +38,7 @@ import { preferencesActions, usePreferences } from "../_lib/preferences-store";
 import { opfsThumbnailSource } from "../_lib/thumbnail-source";
 import type { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import {
+  DOWNLOAD_ALL_KEY,
   INBOX_CONTENT_KIND_LABEL,
   INBOX_SOURCE_KIND_LABEL,
   inboxItemTitleLabel,
@@ -246,6 +249,7 @@ export function InboxDetailPanel({
   archive,
   remove,
   onDownload,
+  onDownloadAll,
 }: {
   openList: (() => void) | null;
   item: InboxItemDetail;
@@ -258,6 +262,7 @@ export function InboxDetailPanel({
   archive: ItemAction;
   remove: ItemAction;
   onDownload: (item: InboxItemDetail, file: InboxItemFileEntry) => void;
+  onDownloadAll: (item: InboxItemDetail) => void;
 }) {
   const { t } = useLingui();
   const archived = item.archivedAt !== null;
@@ -278,6 +283,14 @@ export function InboxDetailPanel({
       ),
     [items, item.id, pendingKeys],
   );
+  /**
+   * **批量本身**在不在跑。判据是 `downloadAll` 自己那把 `:all` 键，不是逐文件 pending 的
+   * 并集——后者会让「单点某一行的下载」也把头部按钮变成禁用的 spinner「下载中…」，
+   * 界面在说「批量正在跑」而实际只有一个文件在走。
+   */
+  const downloading = downloadAction.isPending(`${item.id}:${DOWNLOAD_ALL_KEY}`);
+  /** 有 `missing` 的文件取不回来，`downloadAll` 会跳过它们——一个都不剩时按钮不该亮着。 */
+  const downloadableCount = item.files.filter((file) => !file.missing).length;
   const failures = item.files.flatMap((file) => {
     const error = downloadAction.errorFor(downloadKey(file.id));
     return error ? [{ file, error }] : [];
@@ -355,6 +368,26 @@ export function InboxDetailPanel({
         onViewChange={(nextView) => preferencesActions.setFileBrowserView("inbox", nextView)}
         thumbnailSource={opfsThumbnailSource}
         actions={actions}
+        // 单文件条目不给这颗按钮：那一行上就有下载，两个入口做同一件事只是噪音。
+        // 全部 missing 时同样不给——它点下去一个字节也取不到。
+        headerActions={
+          items.length > 1 && downloadableCount > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onDownloadAll(item)}
+              disabled={!ready || downloading}
+              className="h-8 gap-1.5 text-xs"
+            >
+              {downloading ? (
+                <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Download className="size-3.5" aria-hidden />
+              )}
+              {downloading ? <Trans>下载中…</Trans> : <Trans>全部下载</Trans>}
+            </Button>
+          )
+        }
         emptyState={{ title: <Trans>这条记录里没有文件</Trans> }}
         // 详情侧自己是滚动容器，本区块按内容定高；树形视图内部虚拟滚动，需要确定高度。
         className="flex-none"

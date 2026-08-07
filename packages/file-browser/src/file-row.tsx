@@ -5,7 +5,7 @@ import { Progress } from "./progress";
 import { cn } from "./cn";
 import { formatFileSize } from "@swarmdrop/shared-view";
 import { getFileIconStyle } from "./file-icon";
-import { FileItemActions } from "./item-actions";
+import { FileItemActions, hasPrimaryAction } from "./item-actions";
 import type { FileBrowserItem } from "@swarmdrop/shared-view";
 import type { FileBrowserActions } from "./types";
 
@@ -76,8 +76,13 @@ function FileRowComponent({
       <FileItemActions
         item={item}
         actions={actions}
-        // `pointer-coarse:opacity-100` 同 FileCard：触摸屏没有 hover，藏起来就等于没有。
-        className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
+        // 主动作（下载）在场时常驻，见 `hasPrimaryAction`；其余动作是便利项，hover 才露出。
+        // `transition-opacity` 一起进条件分支——常驻那一路没有 opacity 会变，留着是条死类。
+        // `pointer-coarse:opacity-100` 兜住触摸屏：那里没有 hover，藏起来就等于没有。
+        className={cn(
+          !hasPrimaryAction(actions) &&
+            "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100",
+        )}
       />
     </div>
   );

@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { DownloadPanel } from "@/components/download-panel";
 import { MobileDownloadCard } from "@/components/mobile-download-card";
-import { appName, links, swarmhiveConfig } from "@/lib/shared";
+import { appName, assetPath, links, swarmhiveConfig } from "@/lib/shared";
 // 落地页 CTA 直接指向应用区落点，绕开 `/app` 那一跳（它只是给手输地址的人兜底的重定向壳）。
 import { APP_HOME } from "@/app/app/_lib/nav";
 import { Mono, Section, SectionHead, SHELL } from "./_components/home-primitives";
@@ -191,7 +191,7 @@ function Hero() {
         >
           <div className="rounded-[20px] border border-white/12 bg-white/[0.04] p-1.5 shadow-[0_48px_120px_-24px_rgba(0,0,0,0.75)] backdrop-blur-sm">
             <Image
-              src="/shots/desktop-devices.png"
+              src={assetPath("shots/desktop-devices.png")}
               alt="SwarmDrop 桌面端的设备页：已配对设备网格，第一张卡显示对端在线、信任级别为协作者、经局域网连接，右侧是附近设备与配对入口。"
               width={1680}
               height={920}
@@ -365,14 +365,14 @@ function ThreeHosts() {
     <Section tone="sunken">
       <SectionHead
         title="三端，同一个内核"
-        lead="桌面端与移动端共用同一份 Rust 核心，浏览器端把它编成 wasm。浏览器不是「网页版精简功能」，它跑完整的节点、协议和配对握手，只是没有 mDNS。"
+        lead="桌面端与移动端共用同一份 Rust 核心，浏览器端把它编成 wasm——不是「网页版精简功能」，而是完整的节点、协议和配对握手，只少了 mDNS。"
       />
 
       <div className="mt-14 grid items-end gap-8 lg:grid-cols-12">
         <figure className="reveal lg:col-span-7">
           <div className="overflow-hidden rounded-2xl border border-fd-border shadow-[0_28px_70px_-30px_rgb(15_23_42_/_0.45)]">
             <Image
-              src="/shots/web-devices.png"
+              src={assetPath("shots/web-devices.png")}
               alt="SwarmDrop 浏览器端的设备页：左侧持久侧边栏，主区是已配对设备与配对面板，设备卡显示在线状态、信任级别与局域网连接延迟。"
               width={2800}
               height={1300}
@@ -387,7 +387,7 @@ function ThreeHosts() {
         <figure className="reveal lg:col-span-5">
           <div className="overflow-hidden rounded-2xl border border-fd-border shadow-[0_28px_70px_-30px_rgb(15_23_42_/_0.45)]">
             <Image
-              src="/shots/desktop-pairing.png"
+              src={assetPath("shots/desktop-pairing.png")}
               alt="SwarmDrop 桌面端的配对页：中间是邀请二维码与 24 小时倒计时，左侧列出已发出的邀请及其状态，每条都可撤销。"
               width={1680}
               height={960}
@@ -478,14 +478,12 @@ function SecurityLedger() {
           那类 callout 形态。顶边是这一页上「区块用横线分隔」这套语言的延续。 */}
       <div className="reveal mt-6 border-t-2 border-[var(--brand)] bg-fd-card/50 p-6 sm:p-8">
         <h3 className="text-lg font-semibold tracking-tight">我们删掉过一层加密</h3>
-        <div className="mt-3 max-w-[62ch] space-y-3 text-[15px] leading-7 text-fd-muted-foreground">
+        <div className="mt-3 max-w-[62ch] text-[15px] leading-7 text-fd-muted-foreground">
           <p>
-            早期版本在传输层之上又套了一层 XChaCha20-Poly1305。后来把它整块删了，因为它是自引用的冗余：
-            密钥经同一条 Noise 信道分发，能读到密文的攻击者必然也能读到密钥。
-          </p>
-          <p>
-            更要命的是它和逐块校验不能共存——加密之后校验和会变成密文的哈希，「根哈希 == 明文
-            BLAKE3」这条不变量当场就塌了。宁可少一层，也不要一层看起来很安全的装饰。
+            早期版本在传输层之上又套了一层 XChaCha20-Poly1305，后来整块删了。它是自引用的冗余——
+            密钥经同一条 Noise 信道分发，能读密文的攻击者必然也能读密钥；更要命的是它和逐块校验
+            不能共存，加密之后校验和会变成密文的哈希，「根哈希 == 明文 BLAKE3」这条不变量当场就塌。
+            宁可少一层，也不要一层看起来很安全的装饰。
           </p>
         </div>
         <Link
@@ -527,7 +525,7 @@ function Agents() {
         <div>
           <SectionHead
             title="agent 也是一台设备"
-            lead="桌面端内置一个本地 MCP server，20 个工具。agent 用的是和你完全相同的那条通道——发文件、查收件箱、看传输状态。它不是贴上去的「AI 功能」，就是另一个正常客户端。"
+            lead="桌面端内置一个本地 MCP server，20 个工具。agent 用的是和你完全相同的那条通道——发文件、查收件箱、看传输状态。"
           />
 
           <ul className="reveal mt-8 flex flex-wrap gap-2">
@@ -590,7 +588,7 @@ function Downloads({
     <Section id="download">
       <SectionHead
         title="装到你的设备上"
-        lead="下载项直接来自 SwarmHive stable channel，发版后官网零改动就指向最新包。应用内更新走独立的 updater 端点。"
+        lead="安装包由我们自己的开源发布服务分发，装好之后应用会自己检查更新。"
       />
 
       <div className="reveal mt-12 grid gap-6 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] lg:items-start">
@@ -638,8 +636,7 @@ function Closing() {
               直接吃掉本就不宽裕的那点余量（DESIGN.md：deep ink on teal ≈ 5.0，就是全部）。
               层次靠字号给：48px 粗体标题 vs 15px 正文，已经足够。 */}
           <p className="mt-4 max-w-[46ch] text-[15px] leading-7">
-            没有「发送模式」和「接收模式」——配过对的设备发来东西，后台就收下了。浏览器端连装都不用，
-            不合用关掉标签页即可，什么都没留下。
+            没有「发送模式」和「接收模式」——配过对的设备发来东西，后台就收下了。
           </p>
         </div>
 

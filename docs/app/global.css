@@ -1,6 +1,30 @@
 @import "tailwindcss";
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
+
+/*
+ * 共享组件包的类名扫描。**没有这行，`@swarmdrop/file-browser` 的样式会静默丢一半。**
+ *
+ * Tailwind v4 的自动内容检测有两条硬规则，这个包同时踩中：
+ *   1. 扫描根是构建时的 cwd（`next build` 在 `docs/` 下跑），仓库根的 `packages/` 在它之外；
+ *   2. `node_modules` 被无条件排除（显式 `@source` 覆盖这条排除，这正是本行的作用）。
+ *
+ * 于是包里**只有 docs 自己也恰好用过的类**能活下来，其余整批不生成——症状不是「整个组件
+ * 没样式」（那反而好查），而是随机缺几条：曾丢掉 `aspect-[4/3]` + `object-cover`
+ * （收件箱网格里图片按原始比例撑高，虚拟行按固定估算高定位，第二行直接盖住第一行的文件名）
+ * 与 `pointer-coarse:opacity-100`（触摸屏上动作条永远透明，Web 端唯一的下载入口点不出来）。
+ *
+ * ⚠️ **路径必须指向 `node_modules` 下那一份，不能指向仓库根的 `packages/file-browser/src`。**
+ * docs 用的是 `file:` 协议（README 里那条硬约束），pnpm 把它解析成 `.pnpm` 下的**硬链接副本**
+ * 而非符号链接（只有 `link:` 的 shared-view 才是真 symlink）。两份 inode 今天相同纯属硬链接
+ * 尚未破裂——任何做原子写（写临时文件 + rename）的编辑器改一次源码就会断开，此后 Tailwind
+ * 扫的是新源码、Next 编的是旧副本，重命名过的类名在产物 CSS 里不再生成，正好复现上面那种
+ * 「样式随机缺几条」。指向 node_modules 则扫描的与编译的恒为同一份。
+ *
+ * 桌面端不需要这行：Vite 从仓库根启动，`packages/` 本来就在扫描范围内。
+ * **以后再往 `docs/` 引仓库根的源码包，记得同步加一条。**
+ */
+@source "../node_modules/@swarmdrop/file-browser/src";
 /* shadcn/ui 的进出场动画（animate-in / fade-in / slide-in-from-*）来自这里，
    dialog / dropdown / sheet 缺了它就是硬切。与桌面 src/index.css 同一个 import。 */
 @import "tw-animate-css";

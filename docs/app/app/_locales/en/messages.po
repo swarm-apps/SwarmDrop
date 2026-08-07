@@ -92,6 +92,10 @@ msgstr "expires in {left}"
 msgid "{minutes} 分钟"
 msgstr "{minutes} min"
 
+#: app/app/_components/receive-panel.tsx
+msgid "{started, plural, other {已开始下载 # 个文件}}"
+msgstr "{started, plural, one {Started downloading # file} other {Started downloading # files}}"
+
 #: app/app/_lib/view-types.ts
 msgid "{title} 等 {itemCount} 个文件"
 msgstr "{title} and {itemCount} files"
@@ -106,7 +110,7 @@ msgstr "Files from “{0}” are handled according to these settings. The policy
 msgid "「{0}」没能完整保存，请重新接收"
 msgstr "“{0}” wasn’t saved completely. Please receive it again."
 
-#. placeholder {0}: current?.deviceName
+#. placeholder {0}: shown?.deviceName
 #: app/app/_components/pairing-request-host.tsx
 msgid "<0>{0}</0> 想与这台设备配对"
 msgstr "<0>{0}</0> wants to pair with this device"
@@ -159,6 +163,10 @@ msgstr "Download"
 msgid "下载「{0}」失败"
 msgstr "Failed to download “{0}”"
 
+#: app/app/_components/inbox-views.tsx
+msgid "下载中…"
+msgstr "Downloading…"
+
 #: app/app/_components/pairing-panel.tsx
 msgid "与另一台设备互换一次邀请即可，之后长期有效。"
 msgstr "Exchange one invite with another device — the pairing then lasts."
@@ -200,6 +208,7 @@ msgstr "Could not render the QR code — pair with the link below"
 msgid "互换一次邀请"
 msgstr "Swap an invite once"
 
+#: app/app/_components/pairing-confirm-dialog.tsx
 #: app/app/_components/pairing-panel.tsx
 msgid "仅同一网络内可用"
 msgstr "Same network only"
@@ -307,6 +316,10 @@ msgstr "Allow folders"
 #: app/app/_components/transfer-labels.ts
 msgid "全部"
 msgstr "All"
+
+#: app/app/_components/inbox-views.tsx
+msgid "全部下载"
+msgstr "Download all"
 
 #. placeholder {0}: files.length
 #: app/app/_components/session-title.tsx
@@ -472,7 +485,7 @@ msgstr "Sending requires pairing first. Pairing is a one-time action — afterwa
 #: app/app/_components/connection-panel.tsx
 #: app/app/_components/device-organization-dialog.tsx
 #: app/app/_components/group-manager-dialog.tsx
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-confirm-dialog.tsx
 #: app/app/_components/transfer-detail.tsx
 #: app/app/_components/trust-policy-dialog.tsx
 #: app/app/_components/unpair-dialog.tsx
@@ -685,10 +698,11 @@ msgstr "Their invite link"
 msgid "对方离线"
 msgstr "Peer offline"
 
-#: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/pairing-identity-dialog.tsx
 msgid "对方节点 ID"
 msgstr "Their node ID"
 
+#: app/app/_components/pairing-confirm-dialog.tsx
 #: app/app/_components/pairing-panel.tsx
 msgid "对方设备"
 msgstr "the other device"
@@ -755,6 +769,10 @@ msgstr "Completed"
 msgid "已开始下载 {0}"
 msgstr "Downloading {0}"
 
+#: app/app/_components/receive-panel.tsx
+#~ msgid "已开始下载 {started} 个文件"
+#~ msgstr "Started downloading {started} files"
+
 #: app/app/_components/inbox-views.tsx
 msgid "已归档"
 msgstr "Archived"
@@ -801,6 +819,11 @@ msgstr "Files that finished landing on disk. Pending inbound requests are decide
 #: app/app/_components/pairing-panel.tsx
 msgid "已被使用"
 msgstr "Used"
+
+#. placeholder {0}: preview.displayName || t`对方设备`
+#: app/app/_components/pairing-panel.tsx
+msgid "已识别到「{0}」的邀请"
+msgstr "Invite from “{0}” detected"
 
 #: app/app/_lib/invite.ts
 msgid "已过期"
@@ -1158,6 +1181,10 @@ msgstr "Unknown source"
 msgid "来自 {0} · {1} 个文件 · {2}"
 msgstr "From {0} · {1} file(s) · {2}"
 
+#: app/app/_components/pairing-panel.tsx
+msgid "查看"
+msgstr "View"
+
 #: app/app/_components/send-panel.tsx
 msgid "查看传输"
 msgstr "View transfer"
@@ -1267,6 +1294,10 @@ msgstr "A browser cannot be dialed directly — connect to a bootstrap node firs
 #: app/app/_components/connection-panel.tsx
 msgid "浏览器不能被直接拨号，需要经引导节点建立一个可达地址，对方才找得到你。内置节点会自动连接，通常无需调整。"
 msgstr "A browser cannot be dialed directly. It needs a bootstrap node to establish a reachable address before anyone can find you. The built-in nodes connect automatically and rarely need changing."
+
+#: app/app/_components/receive-panel.tsx
+msgid "浏览器可能会询问是否允许下载多个文件。"
+msgstr "Your browser may ask whether to allow multiple downloads."
 
 #: app/app/_components/connection-badge.tsx
 msgid "浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。 文件仍会经中继送达，只是更慢。"
@@ -1383,7 +1414,7 @@ msgstr "Confirm unpair"
 msgid "确认清空"
 msgstr "Confirm clear"
 
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-confirm-dialog.tsx
 msgid "确认配对"
 msgstr "Confirm pairing"
 
@@ -1704,7 +1735,7 @@ msgstr "This entry is no longer there. Go back to the list and start over."
 msgid "这条记录里没有文件"
 msgstr "This entry has no files"
 
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-confirm-dialog.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"
 msgstr "This invite has expired — ask for a new one."
 
@@ -1817,7 +1848,7 @@ msgstr "Invite link"
 msgid "配对"
 msgstr "Pairing"
 
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-confirm-dialog.tsx
 msgid "配对中…"
 msgstr "Pairing…"
 
@@ -1825,9 +1856,13 @@ msgstr "Pairing…"
 msgid "配对之后双方都能互发文件。确认这是你认识的设备再接受。"
 msgstr "Once paired, either side can send files. Make sure you recognise this device before accepting."
 
+#: app/app/_components/pairing-confirm-dialog.tsx
+msgid "配对之后双方都能互发文件。确认这是你认识的设备再继续。"
+msgstr "Once paired, either side can send files. Make sure you recognise this device before continuing."
+
 #: app/app/_components/pairing-panel.tsx
-msgid "配对后双方可以互相发送文件。确认是这台设备再继续。"
-msgstr "After pairing, either side can send files. Make sure this is the right device before continuing."
+#~ msgid "配对后双方可以互相发送文件。确认是这台设备再继续。"
+#~ msgstr "After pairing, either side can send files. Make sure this is the right device before continuing."
 
 #: app/app/_components/pairing-panel.tsx
 #: app/app/_components/pairing-request-host.tsx
