@@ -182,6 +182,9 @@
         ]
       }
     ],
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "linux": {
       "deb": {
         "depends": [
