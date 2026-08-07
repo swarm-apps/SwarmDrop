@@ -164,6 +164,27 @@ function SendPanelInner() {
 **相关文件**：`docs/app/app/_components/send-panel.tsx`、
 `docs/app/app/_components/transfer-activity-panel.tsx`、`docs/app/app/_components/panel-fallback.tsx`
 
+#### ⚠️ `pnpm dev` 下这些页面**打不开**，别以为是自己刚写的代码坏了（2026-08-07）
+
+`next dev` 里，读 `useSearchParams()` 的三条路由**永久停在 fallback**：
+`/app/transfer`（「正在读取传输会话…」）、`/app/send`、`/app/inbox`；不读它的
+`/app/devices` 与 `/app/settings` 正常。**`pnpm build` 的静态产物上不复现**。
+
+实测（Next 16.3.0 / React 19.2，干净重启的 dev server，10/10）：
+
+- 与 Fast Refresh 无关——重启 dev server 后第一次访问就是这样
+- 与 query 有无无关——`/app/transfer/?session=abc` 一样卡
+- 页面**不是没渲染**：内容树已经渲染过一遍，被 React 收进 `<div hidden>`（Suspense 的
+  hidden 模式），fallback 盖在上面。所以 `document.querySelector('[data-testid=...]')`
+  找得到元素，`offsetParent` 却是 null——**用 DOM 存在性判断「页面好了」会误判**
+
+根因未定位（不是 `cacheComponents` / `ppr`，`next.config.mjs` 没开）。**手测这三页请用生产
+产物**，跑法同下面「Next Dev Tools 浮标」那节：
+
+```bash
+cd docs && pnpm build && python3 -m http.server 3210 -d out
+```
+
 ## 路由字符串一律走 `_lib/nav.ts`，不在组件里手拼
 
 `nav.ts` 是导航的单一事实源：`NAV.devices` / `NAV.send` … 按 key 索引（写错是编译错误，

@@ -62,6 +62,7 @@ import { MasterDetail, OpenListButton } from "./master-detail";
 import { SessionTitle } from "./session-title";
 import { TransferDetailPanel } from "./transfer-detail";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
+import { peerLabel } from "../_lib/device-presentation";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
@@ -411,6 +412,7 @@ const TransferActivityItem = memo(function TransferActivityItem({
   // 速率只在真的在传时才有意义。其余阶段（等待接受 / 已中断 / 已结束）给时间——
   // 「什么时候的事」在那些阶段正是用户要问的（同桌面 `-session-row.tsx` 的右列）。
   const rate = projection.phase === "active" ? formatTransferRate(live?.speed) : null;
+  const peer = peerLabel(projection.peerName, projection.peerId);
 
   return (
     <li>
@@ -428,7 +430,7 @@ const TransferActivityItem = memo(function TransferActivityItem({
             colorClass={PHASE_META[projection.phase].dot}
             pulse={projection.phase === "active"}
           />
-          <SessionTitle files={projection.files} fallback={projection.peerName} />
+          <SessionTitle files={projection.files} fallback={peer} />
           <span className="shrink-0 text-[11px] text-muted-foreground">{t(phaseLabel(projection))}</span>
         </div>
 
@@ -441,7 +443,7 @@ const TransferActivityItem = memo(function TransferActivityItem({
               role="img"
               aria-label={t(DIRECTION_LABEL[projection.direction])}
             />
-            <span className="truncate">{projection.peerName}</span>
+            <span className="truncate">{peer}</span>
           </span>
           <span className="shrink-0 font-mono tabular-nums">
             {formatFileSize(done)} / {formatFileSize(total)}

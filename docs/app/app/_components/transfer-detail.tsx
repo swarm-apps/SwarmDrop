@@ -59,6 +59,7 @@ import {
   sessionEndedAt,
   transferSample,
 } from "../_lib/format";
+import { peerLabel } from "../_lib/device-presentation";
 import { itemsFromProjection } from "../_lib/file-browser-adapters";
 import { inboxItemHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
@@ -105,6 +106,7 @@ export function TransferDetailPanel({
   // 的纪律对整条进度条依然成立）。逐文件那一路已经不走它了——见下面 `fileItems` 的说明。
   const { live, done, total, percent } = transferSample(projection, liveProgress);
   const DirectionIcon = projection.direction === "send" ? ArrowUpFromLine : ArrowDownToLine;
+  const peer = peerLabel(projection.peerName, projection.peerId);
 
   return (
     // 详情自己是滚动容器（`min-h-0 flex-1` + `overflow-y-auto`）：宽屏下滚详情不会带走
@@ -118,7 +120,7 @@ export function TransferDetailPanel({
               colorClass={PHASE_META[projection.phase].dot}
               pulse={projection.phase === "active"}
             />
-            <SessionTitle files={projection.files} fallback={projection.peerName} />
+            <SessionTitle files={projection.files} fallback={peer} />
           </div>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
@@ -127,7 +129,7 @@ export function TransferDetailPanel({
                 role="img"
                 aria-label={t(DIRECTION_LABEL[projection.direction])}
               />
-              {projection.peerName}
+              {peer}
             </span>
             <span aria-hidden>·</span>
             <span>{t(phaseLabel(projection))}</span>

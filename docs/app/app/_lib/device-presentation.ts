@@ -9,8 +9,34 @@
 // 文案由 `device-card.tsx` 按同一个枚举值 switch 出 `<Trans>`。
 
 import { Laptop, Monitor, RadioTower, Smartphone, Wifi, Zap, type LucideIcon } from "lucide-react";
-import type { TrustLevel } from "@swarmdrop/shared-view";
+import { shortPeerId, type TrustLevel } from "@swarmdrop/shared-view";
 import type { Device } from "./view-types";
+
+/**
+ * 一条**记录 / 请求**上「对方是谁」那一格的显示名。
+ *
+ * 与 `organizedDeviceName` 的分工：那个用于**设备清单**，读的是当下的 `Device`，还会算上
+ * 本机别名；这个读的是**落库那一刻的名字快照**（传输记录的 `peerName`、收件箱的
+ * `sourceName`、入站 offer 的 `deviceName`），它们都可能是空串——内核的
+ * `OsInfo::display_name()` 在 name 与 hostname 都没有时就返回空，占位归展示层。
+ *
+ * 空着渲染的后果按位置递增：列表里那一格不再回答「发给谁」；收件箱是永久表，空名会一直留着；
+ * 而入站 offer 的确认框会变成「『』想发送 3 个文件」——请用户对一个无名氏的传输做决定。
+ *
+ * 回落用设备页 `organizedDeviceName` 最后一档的**同一个** `shortPeerId`，不另造截断规则；
+ * 不用「未知设备」这类文案——那会让两台无名设备显示成同一行字，比空白更糟。
+ *
+ * `name` 收 `null | undefined` 是因为跨 wasm 边界的形状类型层保证不了
+ * （知识库：`.d.ts` 说 `string`，运行时可能是别的）。这一格现在有五个渲染点共用，
+ * 让其中任何一个因为 `undefined.trim()` 把整页打白不值当。
+ *
+ * ⚠️ **产生空值的是共享内核**，桌面（`-session-row.tsx` / `session-panel.tsx`）与移动
+ * （`history-transfer-row.tsx` 等）的接收方向记录有同一个空值面，目前都是裸渲染。补齐它们时
+ * 这个函数该上移 `@swarmdrop/shared-view`（现在只有一端用，按该包 README 的归属判据 2 不进）。
+ */
+export function peerLabel(name: string | null | undefined, peerId: string): string {
+  return name?.trim() || shortPeerId(peerId);
+}
 
 const OS_ICONS: Record<string, LucideIcon> = {
   windows: Monitor,

@@ -458,7 +458,39 @@ panic `the subtree starting at 16384 contains at most 16384 bytes`。根因是�
   **它不收设备名**——`name` 由 `start_node` 从 `DeviceConfig` 端口填，宿主没有 API 可以注入，这是「本机 OsInfo 只有一个装配点」的编译期保证，不是口头约定。
 - `OsInfo::display_name()`：`name` 去空白后非空则用、否则回退 `hostname`，收敛 UI 显示名的回退语义。
 
-**不要做**：手写 `name.filter(|n| !n.is_empty()).unwrap_or_else(|| hostname.clone())`——仓库里已有几处历史副本（`transfer/incoming.rs` / `mobile events.rs` / `pairing/manager.rs`）对「空串是否回退 / 是否 trim」处理已分叉，是遇到就该收编进 `display_name()` 的技术债，别再添新副本。
+**不要做**：手写 `name.filter(|n| !n.is_empty()).unwrap_or_else(|| hostname.clone())`——遇到就收编进 `display_name()`，别再添新副本。**注意漏 `trim()` 的那种副本是「看起来对」的**：设备名为 `"  "` 时它返回两个空格，而 `display_name()` 回退 hostname，两者只在这一种输入上分叉，没有任何报错。
+
+剩余待收编（2026-08-07 核实）：
+
+| 位置 | 现状 |
+|---|---|
+| `mobile/…/mobile-core/src/events.rs:237` | `!n.is_empty()`，**漏 trim** |
+| `src-tauri/src/mcp/tools.rs:357` | 更远——直接取 `os_info.hostname`（连 `name` 都不看），且找不到设备时把**完整 52 字符 peer_id** 写进 `peer_name` |
+| ~~`crates/transfer/src/incoming.rs`~~ | 已收编（2026-08-07） |
+
+### 落进传输记录的 `peer_name`：一个字段，四个调用点，三种口径（2026-08-07）
+
+`TransferManager::send_offer(…, peer_name, …)` 是三端唯一的发送入口，也是 `peer_name` 列的
+唯一写入者。但**它信任调用方**，于是同一台设备在不同来路下被记成不同的名字：
+
+| 调用点 | 传的是什么 |
+|---|---|
+| `src/routes/_app/send/index.lazy.tsx` | `organizedDeviceName` —— **把本机别名烤进记录** |
+| `src/routes/_app/send/share-target.lazy.tsx` | `deviceDisplayName`（两级） |
+| `mobile/src/app/send/select-device.tsx` | `organizedDeviceName` |
+| `crates/web/src/node.rs` 的 `send_files` | 内核 `OsInfo::display_name()`（2026-08-07 改；**此前是字面量 `"web"`**） |
+
+后果按严重度递增：桌面自己的两条发送路径就不一致；别名改了之后旧记录留着旧别名（别名是
+「我怎么称呼它」，本不该进对端的记录）；而 Web 那个字面量让**发出去的每一条记录都叫「web」**
+——`peerName` 正是列表行里回答「发给谁」的唯一一格，它恒定之后，几行记录除了时间戳完全同形，
+用户报成「传输记录重复展示」。
+
+**接收方向没有这个问题**：它一直是内核在 `incoming.rs` 里派生的，与调用方无关。
+
+更深的做法是**删掉 `peer_name` 参数**，让 `send_offer` 自己经 `PeerDirectory` 派生（接收侧
+现成的那条路），把「收发同名」从注释变成类型保证。代价是 `create_transfer` 在组合根里跑在
+`paired_devices` 装配**之前**（`crates/core/src/runtime.rs`），要么把配对表上提、要么给
+`TransferManager` 做一次晚绑定（`TransferCtrlService` 已有这个形态）。未做。
 
 **更不要做**：`OsInfo::default()`。它产出的是占位主机名，而**需要本机 OsInfo 的地方全在
 `PairingManager` 手上**（`self.os_info`，组合根注入的快照）：`request_pairing` 的

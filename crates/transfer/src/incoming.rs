@@ -242,7 +242,7 @@ where
                 via_relay,
                 now_ms: chrono::Utc::now().timestamp_millis(),
             });
-            let device_name = display_device_name(&paired_device);
+            let device_name = paired_device.os_info.display_name();
 
             if policy_decision.action == ReceivePolicyAction::Reject {
                 runtime
@@ -357,15 +357,6 @@ where
             Ok(response)
         }
     }
-}
-
-fn display_device_name(device: &PairedDeviceInfo) -> String {
-    device
-        .os_info
-        .name
-        .clone()
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| device.os_info.hostname.clone())
 }
 
 /// transfer 控制面 typed RPC 服务。
