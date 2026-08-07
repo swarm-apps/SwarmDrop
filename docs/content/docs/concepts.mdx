@@ -14,14 +14,14 @@ import { Mermaid } from "@/components/mermaid";
     A["桌面 React + Tauri · 移动 React Native · 浏览器 wasm"]
   end
   subgraph Core["共享业务核心 · Rust"]
-    B["分块加密 · 校验 · 进度调度 · 断点续传"]
+    B["分块 · 逐块验签 · 进度调度 · 断点续传"]
     G["配对邀请 · 设备身份"]
   end
   subgraph Net["网络内核"]
     D["mDNS · 局域网发现"]
     E["Kademlia DHT · 在线记录"]
     F["Relay + DCUtR · NAT 穿透"]
-    H["TCP · QUIC · WebSocket · WebRTC-Direct"]
+    H["TCP · QUIC · WebRTC-Direct"]
   end
   A -- "类型化 IPC / uniffi / wasm" --> Core
   Core -- "Endpoint API" --> Net
