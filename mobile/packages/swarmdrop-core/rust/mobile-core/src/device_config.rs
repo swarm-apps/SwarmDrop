@@ -17,37 +17,32 @@
 //!
 //! [`DeviceConfig`]: swarmdrop_core::host::DeviceConfig
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-/// 由 host 传入的数据目录算出 `device_config.json` 的落点。
+/// 由数据目录算出 `device_config.json` 的落点。
 ///
-/// 去掉 `file://` 前缀与尾部斜杠 —— 与 `app.rs` 的 `open_db` 同一套处理：expo 的
-/// `Paths.document.uri` 是 URI 而非裸路径（形如 `file:///.../Documents/`），直接喂给
-/// `std::path` 会得到一个名为 `file:` 的**相对**目录，写进去的名字下次启动读不回来
-/// （表现为「改了名字，重启又变回去」）。这是移动端相对桌面唯一的真差异。
-pub(crate) fn device_config_path(data_dir: &str) -> PathBuf {
-    let dir = data_dir
-        .strip_prefix("file://")
-        .unwrap_or(data_dir)
-        .trim_end_matches('/');
-    PathBuf::from(dir).join("device_config.json")
+/// 入参已是文件系统路径——`file://` URI 的解析在 [`MobileCore::new`] 的边界由
+/// [`crate::utils::parse_host_dir`] 一次性完成，本函数只负责拼接。
+///
+/// [`MobileCore::new`]: crate::app::MobileCore::new
+pub(crate) fn device_config_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("device_config.json")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 读写行为的用例住在 `crates/host` 的 `device_config_file`；这里只钉移动端独有的
-    /// 那一条 —— `Paths.document.uri` 的 `file://` 前缀必须剥掉，且落点是绝对路径。
+    /// 读写行为的用例住在 `crates/host` 的 `device_config_file`；这里只钉落点。
+    /// URI 解析已由 `utils::parse_host_dir` 的用例覆盖。
     #[test]
-    fn strips_file_scheme_prefix_and_trailing_slash() {
+    fn appends_config_filename_to_data_dir() {
         assert_eq!(
-            device_config_path("file:///var/mobile/Documents/"),
+            device_config_path(Path::new("/var/mobile/Documents")),
             PathBuf::from("/var/mobile/Documents/device_config.json")
         );
-        // 裸路径（Android 的 `Paths.document.uri` 也可能没有 scheme）原样接受
         assert_eq!(
-            device_config_path("/data/user/0/com.yexiyue.swarmdrop/files"),
+            device_config_path(Path::new("/data/user/0/com.yexiyue.swarmdrop/files")),
             PathBuf::from("/data/user/0/com.yexiyue.swarmdrop/files/device_config.json")
         );
     }

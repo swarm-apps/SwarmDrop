@@ -20,16 +20,16 @@
 
 - [x] 3.1 导出 `init_logging(dir: String)`，目录由宿主传入（design D3）
 - [x] 3.2 导出 `log_file_path() -> Option<String>`；未初始化时返回空值而非无效路径
-- [ ] 3.3 重建桥接 `pnpm --filter react-native-swarmdrop-core build:ios` 并重新生成 TS 绑定，与产物一起提交
+- [x] 3.3 重建桥接 `pnpm --filter react-native-swarmdrop-core build:ios` 并重新生成 TS 绑定，与产物一起提交
 
 ## 4. RN 侧接线
 
-- [ ] 4.1 在启动流程中调用 `initLogging()`，目录取自 `expo-file-system` 的 cache 类目录（非 documents，见 design D3）
-- [ ] 4.2 设置页新增「导出日志」入口
-- [ ] 4.3 导出前展示隐私提示（日志含设备标识与网络地址），**提示必须在拉起分享面板之前**
-- [ ] 4.4 用 `expo-sharing` 拉起系统分享面板，附带 `logFilePath()` 返回的文件
-- [ ] 4.5 日志文件尚未生成时展示空状态，不拉起面板、不报错
-- [ ] 4.6 新增文案走 Lingui，跑 `pnpm i18n:extract` 并补 en 译文
+- [x] 4.1 在启动流程中调用 `initLogging()`，目录取自 `expo-file-system` 的 cache 类目录（非 documents，见 design D3）
+- [x] 4.2 设置页新增「导出日志」入口
+- [x] 4.3 导出前展示隐私提示（日志含设备标识与网络地址），**提示必须在拉起分享面板之前**
+- [x] 4.4 用 `expo-sharing` 拉起系统分享面板，附带 `logFilePath()` 返回的文件
+- [x] 4.5 日志文件尚未生成时展示空状态，不拉起面板、不报错
+- [x] 4.6 新增文案走 Lingui，跑 `pnpm i18n:extract` 并补 en 译文
 
 ## 5. 修正既有注释
 
@@ -41,13 +41,13 @@
 - [x] 6.2 **`./scripts/check-wasm.sh`（含 `--clippy`）必须过** —— 验证新依赖没有渗进共享 crate
 - [x] 6.3 补一条测试断言 guard 在初始化后仍存活（design D6 那条无声失败的兜底）
 - [x] 6.4 补测试覆盖幂等：连续两次 `init_logging()` 不 panic、不重复注册
-- [ ] 6.5 在 `mobile/` 下跑 `pnpm typecheck`
-- [ ] 6.6 Android 真机/模拟器验证：`adb logcat` 能看到日志条目
-- [ ] 6.7 iOS 真机/模拟器验证：Console.app 能看到日志条目
-- [ ] 6.8 真机验证落盘与导出：产生日志 → 设置页导出 → 分享面板出现且文件内容正确
-- [ ] 6.9 记录接入前后的移动端包体差值，确认新依赖代价可接受
+- [x] 6.5 在 `mobile/` 下跑 `pnpm typecheck`
+- [x] 6.6 Android 真机/模拟器验证：`adb logcat` 能看到日志条目
+- [x] 6.7 iOS 真机/模拟器验证：Console.app 能看到日志条目
+- [ ] 6.8 真机验证落盘与导出：产生日志 → 设置页导出 → 分享面板出现且文件内容正确（落盘已在 iOS/Android 双端验证；**分享面板那一步需手动点**，Expo 坐标点击不生效、iOS UI 自动化要 WebDriverAgent）
+- [ ] 6.9 记录接入前后的移动端包体差值，确认新依赖代价可接受（⚠️ **基线已不可得**——改动已在树上，debug 产物含调试信息无参考价值。建议下次发版用 release 产物对比）
 
 ## 7. 收尾
 
-- [ ] 7.1 把落地结论从 `dev-notes/research/2026-08-logging.md` 提炼进 `dev-notes/knowledge/`（research 记「为什么这么选」，knowledge 记「现行架构的事实」），并把该篇状态从 🟡 待决策 改为已落地
-- [ ] 7.2 更新 issue 模板 `bug_report.yml` 的日志字段——移动端从「拿不到」改为「设置页可导出」
+- [x] 7.1 把落地结论从 `dev-notes/research/2026-08-logging.md` 提炼进 `dev-notes/knowledge/`（research 记「为什么这么选」，knowledge 记「现行架构的事实」），并把该篇状态从 🟡 待决策 改为已落地
+- [x] 7.2 更新 issue 模板 `bug_report.yml` 的日志字段——移动端从「拿不到」改为「设置页可导出」

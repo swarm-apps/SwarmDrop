@@ -661,6 +661,83 @@ cargo clippy --workspace -- -D warnings   # 项目期望零 warning
 
 改了跨边界类型还要**重生成三份 bindings 之一**（见上一节），CI 不会替你发现。
 
+### SwarmdropCore.podspec 的 ubrn 版本号会漂移，症状伪装成 C++ 编译错（2026-08-07 踩到）
+
+`mobile/ios` 构建报：
+
+```
+no member named 'string_from_buffer' in 'uniffi_jsi::Bridging<std::string>'
+  → packages/swarmdrop-core/cpp/generated/swarmdrop_mobile_core.cpp
+```
+
+**看着像生成的 C++ 有 bug，其实是 pod 版本对不上。** 完整链条：
+
+1. `SwarmdropCore.podspec` 曾写死 `s.dependency "uniffi-bindgen-react-native", "0.31.0-2"`；
+2. 该文件在 `ubrn.config.yaml` 的 **`noOverwrite`** 名单里 —— `ubrn build --and-generate`
+   刻意不覆盖它，所以升级 npm 包时这行**不会**被同步；
+3. `package.json` 升到 `0.31.0-3` 后，生成器按新版产出 C++，调用了新接口；
+4. 而 podspec 的 `s.source` 是 **git tag**（不是本地 node_modules），CocoaPods 按
+   `0.31.0-2` 从 git 拉了**旧运行时**，其 `UniffiString.h` 只有 64 行、没有那个成员；
+5. 于是在 xcodebuild 阶段才炸，且错误指向生成的 .cpp，与真正的原因隔着两层。
+
+**判据**：直接比两份头文件，一眼就能定位，不必读 C++。
+
+```bash
+diff mobile/node_modules/uniffi-bindgen-react-native/cpp/includes/UniffiString.h \
+     mobile/ios/Pods/uniffi-bindgen-react-native/cpp/includes/UniffiString.h
+```
+
+**已修**：podspec 改成从 `package.json` 读，消除第二事实源——
+
+```ruby
+s.dependency "uniffi-bindgen-react-native", package["devDependencies"]["uniffi-bindgen-react-native"]
+```
+
+**若仍不同步**（Podfile.lock 锁着旧版时 `pod install` 不会升）：
+
+```bash
+cd mobile/ios && pod update uniffi-bindgen-react-native
+```
+
+⚠️ `pod install` 不够，`pod cache clean` 也不够 —— lock 与 podspec 的约束才是锁，
+两者都指向新版之后 `pod update` 才会真正换掉运行时。
+
+### 日志在哪、怎么取（2026-08-07 落地）
+
+排查问题时先想「日志能不能拿到」。三端现状：
+
+| 端 | 落盘位置 | 开发者怎么看 | 用户怎么交出来 |
+|---|---|---|---|
+| 移动 | app sandbox 的 `cache/logs/swarmdrop.<date>.log` | `adb logcat -s SwarmDrop` / Console.app（subsystem `com.yexiyue.swarmdrop`） | 设置 → 关于 → 诊断 → 导出日志（系统分享面板） |
+| 桌面 | `app_log_dir()`（macOS `~/Library/Logs/com.yexiyue.swarmdrop`） | 终端启动看 stdout | 设置 → 关于 → 打开日志文件夹 |
+| 浏览器 | — | 设置页事件日志面板 | 同左 |
+
+按天轮转、保留 7 份；**文件层固定 `INFO`，控制台/平台层跟随 `EnvFilter`**
+（默认 `swarmdrop=debug,swarmdrop_net=debug`）。`tracing-appender` 只能按时间轮转，
+控量手段是「少写」而不是勤轮转，那条 `FILE_LEVEL` 常量就是控量点。
+
+四条实施时踩到或差点踩到的：
+
+1. **`non_blocking()` 的 guard 必须与应用同生命周期**。它一 drop，后台写线程就停、
+   日志静默消失且**不报任何错**，没有反馈回路。移动端存进进程级 `OnceLock`，
+   桌面端存进 Tauri managed state，两端各有一条测试钉住。
+2. **移动端的目录参数是 `file://` URI**。expo 的 `Paths.*.uri` 带 scheme，
+   `Path::new("file:///x")` 会得到一个名为 `file:` 的**相对**目录——写进去的东西下次
+   读不回来。统一在 `mobile-core/src/utils.rs` 的 `parse_host_dir()` 边界解析一次，
+   反向由 `to_host_uri()` 出去，内部一律 `PathBuf`。**别在新的消费点再剥一遍前缀。**
+3. **日志系统自己要写第一行**。否则用户「什么都没做就导出」会拿到 0 字节文件，
+   看起来像功能坏了。`init_logging` 成功后立刻写一条「日志已启动」并记下文件位置。
+4. **Android 的平台层是自实现的**（`logging/android.rs`），因为现成 crate 全停更了。
+   改它必须同时改那 6 条测试——级别映射、内嵌 NUL 替换、UTF-8 边界截断都没有反馈回路，
+   错了只是日志变形或丢失，不会报错。
+
+桌面端的文件层是**延迟装载**的：`init_tracing()` 在 `tauri::Builder` 之前跑（那时
+`app_log_dir()` 还拿不到），先注册控制台层 + 一个 `reload` 空位，setup hook 里再把文件层
+装进去。空位类型必须是 `Option<Box<dyn Layer<..>>>`，写成具体的 `fmt::Layer<..>` 会把
+writer 类型烤进签名、装载时对不上。
+
+**选型推导见** [`dev-notes/research/2026-08-logging.md`](../research/2026-08-logging.md)。
+
 ## CI / Release
 
 单仓两条 release 流水线，各由自己的 tag 触发（见上「版本号同步：两条独立版本线」）。

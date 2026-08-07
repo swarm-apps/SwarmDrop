@@ -65,7 +65,8 @@ static STATE: OnceLock<LogState> = OnceLock::new();
 /// 初始化日志。幂等：重复调用直接返回，不 panic、不重复注册订阅器。
 ///
 /// `dir` 由宿主传入而非在此推导平台目录——RN 侧本来就持有 `expo-file-system` 的目录
-/// 常量，传进来比在 Rust 里分叉两套平台代码更直接，也更好测。
+/// 常量，传进来比在 Rust 里分叉两套平台代码更直接，也更好测。它是 `file://` URI，
+/// 与 `MobileCore::new` 一样在边界经 [`crate::utils::parse_host_dir`] 解析。
 ///
 /// 任何失败（目录不可写、订阅器已被别处注册）都就地吞掉：日志是诊断设施，
 /// 不该让应用起不来。
@@ -74,18 +75,26 @@ pub fn init_logging(dir: String) {
     if STATE.get().is_some() {
         return;
     }
-    if let Some(state) = build(Path::new(&dir)) {
+    if let Some(state) = build(&crate::utils::parse_host_dir(&dir)) {
+        let file = state.file_path.clone();
         // 竞态下另一个线程可能已经写入；set 失败说明对方赢了，丢弃本次即可。
-        let _ = STATE.set(state);
+        if STATE.set(state).is_ok() {
+            // 立刻写一行。没有它，用户在「什么都没做就导出日志」时会拿到一个**空文件**
+            // ——2026-08-07 首次真机验证时就是这样：应用起来了但没启节点，
+            // `crates/*` 自然没有 INFO 级事件，文件 0 字节，看起来像功能坏了。
+            // 这一行同时标明日志何时开始、落在哪，排查时是有用的锚点。
+            tracing::info!(target: "swarmdrop", file = %file.display(), "日志已启动");
+        }
     }
 }
 
-/// 当前日志文件路径。未初始化时返回 `None`，供调用方展示空状态。
+/// 当前日志文件的 `file://` URI。未初始化时返回 `None`，供调用方展示空状态。
+///
+/// 返回 URI 而非裸路径：宿主的世界是 URI（`Sharing.shareAsync` 只认它），
+/// 与 [`init_logging`] 收 URI 的契约对称，调用方不必知道我们内部存的是 [`PathBuf`]。
 #[uniffi::export]
 pub fn log_file_path() -> Option<String> {
-    STATE
-        .get()
-        .map(|s| s.file_path.to_string_lossy().into_owned())
+    STATE.get().map(|s| crate::utils::to_host_uri(&s.file_path))
 }
 
 fn build(dir: &Path) -> Option<LogState> {
@@ -205,6 +214,55 @@ mod tests {
         match log_file_path() {
             None => {}
             Some(p) => assert!(!p.is_empty(), "已初始化时路径不该为空"),
+        }
+    }
+
+    /// 默认过滤必须真的匹配到本仓的 target，否则日志一条都不会产生——而且**不报错**。
+    ///
+    /// 2026-08-07 首次真机验证时日志文件是空的，就是从这里查起的：`EnvFilter` 的
+    /// target 是前缀匹配，`swarmdrop=debug` 能否覆盖 `swarmdrop_core` / `swarmdrop_net`
+    /// 这些实际 target，靠读文档不如直接跑一遍。
+    #[test]
+    fn default_filter_matches_real_crate_targets() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone)]
+        struct Buf(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for Buf {
+            type Writer = Self;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        for target in ["swarmdrop_core", "swarmdrop_net", "swarmdrop_transfer"] {
+            let sink = Buf(Arc::new(Mutex::new(Vec::new())));
+            let subscriber = tracing_subscriber::registry()
+                .with(fmt::layer().with_writer(sink.clone()).with_ansi(false))
+                .with(EnvFilter::new(DEFAULT_FILTER));
+
+            tracing::subscriber::with_default(subscriber, || {
+                tracing::info!(target: "swarmdrop_core", "probe");
+                tracing::info!(target: "swarmdrop_net", "probe");
+                tracing::info!(target: "swarmdrop_transfer", "probe");
+            });
+
+            let out = String::from_utf8_lossy(&sink.0.lock().unwrap()).into_owned();
+            assert!(
+                out.contains("probe"),
+                "DEFAULT_FILTER ({DEFAULT_FILTER}) 没有匹配到 target `{target}`，\
+                 这会导致日志一条都不产生且不报错"
+            );
         }
     }
 

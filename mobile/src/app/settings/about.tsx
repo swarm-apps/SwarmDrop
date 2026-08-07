@@ -12,6 +12,7 @@ import {
   Lock,
   MessageSquare,
   RefreshCw,
+  ScrollText,
   Waypoints,
 } from "lucide-react-native";
 import {
@@ -23,6 +24,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { logFilePath } from "react-native-swarmdrop-core";
 import {
   SettingDivider,
   SettingRow,
@@ -32,6 +34,7 @@ import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
 import { useUpdate } from "@/hooks/use-update";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { shareFileWithSystem } from "@/lib/open-file";
 import { toast } from "@/lib/toast";
 
 const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
@@ -56,6 +59,25 @@ export default function AboutScreen() {
   const onCheckUpdate = () => {
     if (isChecking) return;
     void check(true);
+  };
+
+  /**
+   * 导出日志到系统分享面板。
+   *
+   * `logFilePath()` 返回 `file://` URI；未初始化或尚未写出文件时返回 undefined，
+   * 此时给明确空态而不是拉起一个分享不了任何东西的面板。
+   */
+  const onExportLogs = () => {
+    const uri = logFilePath();
+    if (uri === undefined) {
+      toast.error(t`暂无日志`, t`日志尚未生成，请先使用一段时间再试`);
+      return;
+    }
+    const fileName = uri.split("/").pop() ?? "swarmdrop.log";
+    void shareFileWithSystem(uri, fileName, t`导出日志`).catch((err) => {
+      console.warn("[about] share log failed:", err);
+      toast.error(t`导出日志失败`, err);
+    });
   };
 
   return (
@@ -178,6 +200,24 @@ export default function AboutScreen() {
             onPress={() =>
               openUrl("https://github.com/swarm-apps/SwarmDrop/releases")
             }
+          />
+        </SettingSection>
+
+        {/* 诊断日志。说明常驻在入口上方而非点击后弹窗——用户在按下去之前就该
+            知道要分享出去的是什么。 */}
+        <SettingSection label={t`诊断`}>
+          <View className="px-3.5 pt-3 pb-1">
+            <Text className="text-[12px] leading-4 text-muted-foreground">
+              <Trans>
+                遇到问题时，日志能帮我们定位。它包含设备 ID
+                与网络地址，发送前请自行过目。
+              </Trans>
+            </Text>
+          </View>
+          <LinkRow
+            icon={ScrollText}
+            label={t`导出日志`}
+            onPress={onExportLogs}
           />
         </SettingSection>
       </ScrollView>
