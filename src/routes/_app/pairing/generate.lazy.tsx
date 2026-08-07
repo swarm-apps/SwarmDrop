@@ -197,7 +197,7 @@ function PairingGeneratePage() {
                     className={cn(
                       "glass-control flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm tabular-nums",
                       isExpiringSoon
-                        ? "text-amber-700 dark:text-amber-300"
+                        ? "text-warning-ink"
                         : "text-muted-foreground",
                     )}
                   >

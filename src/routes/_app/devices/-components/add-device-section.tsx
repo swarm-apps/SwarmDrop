@@ -229,8 +229,10 @@ function NearbyDeviceRow({
       <span
         className={cn(
           "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium shadow-[0_8px_18px_rgb(8_121_104_/_0.18)]",
+          // 已配对 → 次级（品牌 tint）；未配对 → 主 CTA（品牌实心）。层级差别靠
+          // 实心 vs tint 表达，不靠换一个色系——浅色此前用的是纯黑底白字。
           isPaired
-            ? "bg-zinc-950 text-white dark:bg-primary/20 dark:text-brand dark:ring-1 dark:ring-primary/20"
+            ? "bg-primary/15 text-brand ring-1 ring-primary/20"
             : "bg-primary text-primary-foreground",
         )}
       >

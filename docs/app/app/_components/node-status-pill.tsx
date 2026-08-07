@@ -18,9 +18,9 @@ import { StatusDot } from "./status-dot";
 
 const STATUS_META: Record<NodeStatus, { label: MessageDescriptor; dot: string; pulse?: boolean }> = {
   idle: { label: msg`未启动`, dot: "bg-muted-foreground" },
-  starting: { label: msg`启动中`, dot: "bg-amber-500", pulse: true },
-  running: { label: msg`运行中`, dot: "bg-emerald-500" },
-  closing: { label: msg`关停中`, dot: "bg-amber-500", pulse: true },
+  starting: { label: msg`启动中`, dot: "bg-warning", pulse: true },
+  running: { label: msg`运行中`, dot: "bg-success" },
+  closing: { label: msg`关停中`, dot: "bg-warning", pulse: true },
   error: { label: msg`启动失败`, dot: "bg-destructive" },
 };
 

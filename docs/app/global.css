@@ -222,6 +222,13 @@
   --warning-ink: oklch(0.554 0.145 49.2);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-ink: oklch(0.508 0.192 27.6);
+
+  /* 连接方式徽标的第三色（打洞）。DESIGN.md 的 One Accent Rule 把「连接方式三色」
+     列为例外并点名 sky，但三端此前谁都没有它的 token：桌面写 sky-100/sky-600、
+     Web 写 sky-500/12、移动干脆改用 primary——于是「打洞」在手机上是青绿、
+     在另两端是天蓝。值取自 Tailwind sky-500 / sky-700，ink 变体白底 4.6:1。 */
+  --info: oklch(0.685 0.169 237.323);
+  --info-ink: oklch(0.5 0.134 242.749);
   --destructive-foreground: oklch(0.985 0.002 260);
 
   /*
@@ -314,6 +321,9 @@
   --warning-ink: oklch(0.833 0.164 83.9);
   --destructive: oklch(0.67 0.19 25.723);
   --destructive-ink: oklch(0.711 0.166 22.2);
+
+  --info: oklch(0.746 0.16 232.661);
+  --info-ink: oklch(0.828 0.111 230.318);
   --destructive-foreground: oklch(0.985 0.002 260);
 
   --glass-panel-bg: oklch(0.31 0.01 260 / 0.56);
@@ -370,6 +380,8 @@
   --color-warning: var(--warning);
   --color-warning-ink: var(--warning-ink);
   --color-destructive-ink: var(--destructive-ink);
+  --color-info: var(--info);
+  --color-info-ink: var(--info-ink);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

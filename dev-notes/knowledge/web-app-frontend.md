@@ -834,6 +834,37 @@ curl -s "$(浏览器里读 link[rel=stylesheet].href)" | grep -o '[^-]backdrop-f
 
 **相关文件**：`docs/components.json`、`docs/app/global.css`、`docs/lib/cn.ts`
 
+### 加了新 token 却「不生效」，先怀疑 Next 的构建缓存（2026-08-07 实测）
+
+给 `global.css` 加 `--info` / `--info-ink` 并在 `@theme inline` 里映射 `--color-info` 之后，
+`pnpm build` 的产物 CSS 里**既没有 `.bg-info`，也没有 `--info:` 的定义**，而同一次改动里的
+`bg-success/12`（同样写在一个 `.ts` 文件里）却生成得好好的——看起来像是 Tailwind 漏扫了某类文件，
+或者 `@theme inline` 对新变量有什么额外要求。
+
+都不是。`rm -rf .next && pnpm build` 之后全部正常。是 Next 的增量缓存判定 CSS 没变。
+
+**规矩**：**新增** CSS 变量 / theme 映射后，验证那一次必须清 `.next` 再 build。改已有变量的**值**
+不受影响（值变了 hash 就变），只有「加一个此前不存在的 utility」会撞上这个。少了这一步，很容易
+顺着错误方向去改 `@source`、改文件扩展名、把 token 挪进 `@theme` ——全是白工。
+
+**查证方式**（比翻产物文件名可靠，Next 的 CSS chunk 名不带内容 hash）：
+
+```bash
+rm -rf .next && pnpm build
+python3 -c "import glob,pathlib; s=''.join(pathlib.Path(f).read_text() for f in glob.glob('.next/static/chunks/*.css')); print('.bg-info' in s, '--info:' in s)"
+```
+
+### 状态色一律走 token，`-ink` 只给文字
+
+`--success` / `--warning` / `--destructive` / `--info` 四组各带 `-ink` 文字变体（State Ink Rule，
+见根 `DESIGN.md`）。**填充 / 圆点 / 图标用本色，任何文字用 ink**，token 自己随主题切换，
+所以 `dark:` 分支是多余的——`bg-amber-50 ... dark:bg-amber-950/40` 这种双份写法是硬编码时代
+的遗物，token 化时一并删掉。
+
+本区剩下的调色板直用只有两处，都是刻意的**主题真空区**且各自带注释：`invite-share.tsx` 的
+二维码白卡（含它的 `QrOverlay`）、`appearance-panel.tsx` 的主题预览缩略图（那是在画「主题长什么样」，
+跟着主题变反而错）。新增第三处之前先确认它真属于这一类。
+
 ## `scrollbar-gutter: stable` 会在应用区右边留一条永远空的死边
 
 `global.css` 里 `html { scrollbar-gutter: stable }` 是给**文档站**的：长短不一的文档页之间

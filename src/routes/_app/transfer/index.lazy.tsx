@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowRightLeft, Trash2 } from "lucide-react";
+import { ArrowLeftRight, Trash2 } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
@@ -331,7 +331,7 @@ function DetailEmptyState() {
   return (
     <CenteredEmptyState
       data-testid="transfer-detail-empty-state"
-      icon={ArrowRightLeft}
+      icon={ArrowLeftRight}
       title={<Trans>暂无传输活动</Trans>}
       description={
         <Trans>

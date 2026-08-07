@@ -46,18 +46,18 @@ const statusConfig: Record<
   },
   starting: {
     label: msg`启动中`,
-    dotColor: "bg-yellow-500 animate-pulse",
-    className: "bg-yellow-500/10 text-yellow-600 border-transparent",
+    dotColor: "bg-warning animate-pulse",
+    className: "bg-warning/15 text-warning-ink border-transparent",
   },
   running: {
     label: msg`运行中`,
-    dotColor: "bg-green-500",
-    className: "bg-green-500/10 text-green-600 border-transparent",
+    dotColor: "bg-success",
+    className: "bg-success/15 text-success-ink border-transparent",
   },
   error: {
     label: msg`错误`,
-    dotColor: "bg-red-500",
-    className: "bg-red-500/10 text-red-600 border-transparent",
+    dotColor: "bg-destructive",
+    className: "bg-destructive/15 text-destructive-ink border-transparent",
   },
 };
 
@@ -316,7 +316,7 @@ function StopNodeContent({
               className={cn(
                 "border-transparent text-xs",
                 publicReachable
-                  ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                  ? "bg-success/15 text-success-ink"
                   : "bg-muted text-muted-foreground",
               )}
             >
@@ -340,7 +340,7 @@ function StopNodeContent({
                   className={cn(
                     "border-transparent text-xs",
                     relayReady
-                      ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                      ? "bg-success/15 text-success-ink"
                       : "bg-muted text-muted-foreground",
                   )}
                 >
@@ -360,7 +360,7 @@ function StopNodeContent({
                 className={cn(
                   "border-transparent text-xs",
                   bootstrapConnected
-                    ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                    ? "bg-success/15 text-success-ink"
                     : "bg-muted text-muted-foreground",
                 )}
               >
@@ -382,7 +382,7 @@ function StopNodeContent({
                   className={cn(
                     "border-transparent text-xs",
                     localLanHelperRunning
-                      ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                      ? "bg-success/15 text-success-ink"
                       : "bg-muted text-muted-foreground",
                   )}
                 >
@@ -449,7 +449,7 @@ function StopNodeContent({
 
       {/* 警告 + 按钮 */}
       <DialogFooter className="flex flex-col gap-3">
-        <p className="text-center text-xs text-red-500 dark:text-red-400">
+        <p className="text-center text-xs text-destructive-ink">
           <Trans>停止后将断开所有连接，其他设备将无法发现你</Trans>
         </p>
         <div className="flex gap-2">

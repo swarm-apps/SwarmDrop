@@ -368,8 +368,8 @@ function DeviceOption({
           {deviceDisplayName(device)}
         </p>
         <div className="mt-0.5 flex items-center gap-1.5">
-          <span className="size-1.5 rounded-full bg-green-500" />
-          <span className="text-[11px] text-green-500">
+          <span className="size-1.5 rounded-full bg-success" />
+          <span className="text-[11px] text-success-ink">
             <Trans>在线</Trans>
           </span>
           <ConnectionHint device={device} />

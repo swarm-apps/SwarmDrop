@@ -9,6 +9,7 @@ import {
 import { useRouter } from "expo-router";
 import {
   ArrowLeftRight,
+  MonitorSmartphone,
   OctagonAlert,
   Plus,
   Power,
@@ -16,7 +17,6 @@ import {
   Radio,
   RefreshCcw,
   SearchX,
-  Smartphone,
   Tags,
 } from "lucide-react-native";
 import {
@@ -310,7 +310,7 @@ export default function DevicesScreen() {
 
         {pairedDevices.length === 0 ? (
           <EmptyState
-            icon={Smartphone}
+            icon={MonitorSmartphone}
             title={<Trans>还没有配对设备</Trans>}
             description={
               <Trans>点下方「添加设备」，把你的电脑或另一台手机接进来。</Trans>
@@ -319,7 +319,7 @@ export default function DevicesScreen() {
           />
         ) : visiblePairedDevices.length === 0 ? (
           <InlineEmptyState
-            icon={Smartphone}
+            icon={MonitorSmartphone}
             title={<Trans>该分组还没有设备</Trans>}
             description={<Trans>在设备详情里可以把设备加入分组</Trans>}
             testID="devices-empty-group"

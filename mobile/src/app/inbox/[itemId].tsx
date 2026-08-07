@@ -12,11 +12,10 @@ import {
   Database,
   ExternalLink,
   Eye,
-  FileArchive,
   FileText,
   FileWarning,
   FolderOpen,
-  Image as ImageIcon,
+  Inbox,
   type LucideIcon,
   MoreHorizontal,
   Package,
@@ -24,7 +23,7 @@ import {
   Smartphone,
   Tag,
   Trash2,
-  Video,
+  TriangleAlert,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -38,6 +37,7 @@ import { useShallow } from "zustand/react/shallow";
 import {
   FileBrowser,
   type FileBrowserActions,
+  fileBrowserIcon,
   fromInboxFiles,
   inboxFileId,
   isImageFile,
@@ -392,7 +392,7 @@ export default function InboxDetailScreen() {
             className="items-center gap-3 py-12"
             testID="inbox-detail-missing-state"
           >
-            <FileArchive color={colors.mutedForeground} size={30} />
+            <TriangleAlert color={colors.mutedForeground} size={30} />
             <Text className="text-[14px] font-semibold text-foreground">
               <Trans>收件箱记录不存在</Trans>
             </Text>
@@ -968,8 +968,8 @@ function TypeChip({
     : multi
       ? Package
       : primaryFile
-        ? fileIcon(primaryFile.name)
-        : FileArchive;
+        ? fileBrowserIcon(primaryFile.name)
+        : Inbox;
   return (
     <View
       className={cn(
@@ -1226,12 +1226,6 @@ function isMissingFileError(err: unknown, file: InboxFileEntry): boolean {
   // 不靠错误文案判断（本地化 / 不同平台下英文子串会漏判）：复查文件是否还在原位。
   // 同样只认「明确不存在」，查询失败不判缺失。
   return fileExists(file.localPath) === false;
-}
-
-function fileIcon(name: string): LucideIcon {
-  if (isImageFile(name)) return ImageIcon;
-  if (isVideoFile(name)) return Video;
-  return FileArchive;
 }
 
 const detailStyles = StyleSheet.create({

@@ -31,9 +31,9 @@ export const CONNECTION_META: Record<
   NonNullable<Device["connection"]>,
   { Icon: LucideIcon; className: string }
 > = {
-  lan: { Icon: Wifi, className: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" },
-  dcutr: { Icon: Zap, className: "bg-sky-500/12 text-sky-700 dark:text-sky-300" },
-  relay: { Icon: RadioTower, className: "bg-amber-500/12 text-amber-700 dark:text-amber-300" },
+  lan: { Icon: Wifi, className: "bg-success/12 text-success-ink" },
+  dcutr: { Icon: Zap, className: "bg-info/12 text-info-ink" },
+  relay: { Icon: RadioTower, className: "bg-warning/15 text-warning-ink" },
 };
 
 /**
@@ -43,6 +43,6 @@ export const CONNECTION_META: Record<
 export const TRUST_META: Record<TrustLevel, { className: string }> = {
   owned: { className: "bg-[var(--brand-solid)]/12 text-brand" },
   collaborator: { className: "bg-muted text-muted-foreground" },
-  temporary: { className: "bg-amber-500/12 text-amber-700 dark:text-amber-300" },
-  blocked: { className: "bg-destructive/12 text-destructive" },
+  temporary: { className: "bg-warning/15 text-warning-ink" },
+  blocked: { className: "bg-destructive/12 text-destructive-ink" },
 };

@@ -11,7 +11,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bot,
   Download,
-  ExternalLink,
   FolderOpen,
   Github,
   Globe2,
@@ -19,6 +18,7 @@ import {
   KeyRound,
   Loader2,
   RefreshCw,
+  ScrollText,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
@@ -215,7 +215,7 @@ function GithubButton() {
 function ReleaseNotesButton() {
   return (
     <ExternalLinkButton
-      icon={ExternalLink}
+      icon={ScrollText}
       label={<Trans>更新日志</Trans>}
       url="https://github.com/swarm-apps/SwarmDrop/blob/main/CHANGELOG.md"
     />

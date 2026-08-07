@@ -199,7 +199,7 @@ export const SessionRow = memo(function SessionRow({
               className={cn(
                 "flex items-center gap-1.5 text-[12px]",
                 projection.phase === "waiting_accept"
-                  ? "text-amber-600 dark:text-amber-400"
+                  ? "text-warning-ink"
                   : "text-muted-foreground",
               )}
             >
@@ -212,7 +212,7 @@ export const SessionRow = memo(function SessionRow({
             <div className="mt-0.5 flex flex-col gap-1.5">
               <Progress value={progressPercent} className="h-1.5" />
               <div className="flex items-center justify-between text-[11px]">
-                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                <span className="flex items-center gap-1 text-warning-ink">
                   <Pause className="size-3" />
                   {projectionStatusLabel(projection)}
                 </span>
@@ -224,7 +224,7 @@ export const SessionRow = memo(function SessionRow({
           )}
 
           {isProjectionCompleted(projection) && (
-            <div className="flex items-center gap-1.5 text-[12px] text-green-600 dark:text-green-400">
+            <div className="flex items-center gap-1.5 text-[12px] text-success-ink">
               <CheckCircle2 className="size-3.5" />
               {projectionStatusLabel(projection)}
             </div>

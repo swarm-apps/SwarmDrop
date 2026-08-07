@@ -423,7 +423,7 @@ function TransferItemActions({
         </div>
       </div>
       {failureLabel && (
-        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{t(failureLabel)}</p>
+        <p className="mt-2 text-xs text-destructive-ink">{t(failureLabel)}</p>
       )}
       {pause.error && <WebErrorCard error={pause.error} className="mt-2 text-xs" />}
       {resume.error && <WebErrorCard error={resume.error} className="mt-2 text-xs" />}

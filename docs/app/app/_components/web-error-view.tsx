@@ -24,12 +24,12 @@ export function WebErrorCard({
   return (
     <div
       role="alert"
-      className={`rounded-lg border border-red-500/40 bg-red-50 px-4 py-3 text-sm dark:border-red-500/30 dark:bg-red-950/40 ${className}`}
+      className={`rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm ${className}`}
     >
-      <p className="font-medium text-red-900 dark:text-red-200">
+      <p className="font-medium text-destructive-ink">
         {title ?? t(WEB_ERROR_KIND_LABEL[error.kind])}
       </p>
-      <p className="mt-1 font-mono text-xs break-all text-red-800/90 dark:text-red-200/80">
+      <p className="mt-1 font-mono text-xs break-all text-destructive-ink/90">
         {error.message}
       </p>
     </div>

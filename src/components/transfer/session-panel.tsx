@@ -10,8 +10,8 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   CheckCircle2,
   FolderOpen,
   Inbox,
@@ -72,13 +72,13 @@ export function DirectionIcon({ isSend }: { isSend: boolean }) {
         "flex size-9 shrink-0 items-center justify-center rounded-lg md:size-10 md:rounded-xl",
         isSend
           ? "bg-primary/10 text-brand dark:bg-primary/15"
-          : "bg-green-50 text-green-500 dark:bg-green-500/15 dark:text-green-400",
+          : "bg-success/15 text-success-ink",
       )}
     >
       {isSend ? (
-        <ArrowUpRight className="size-4 md:size-4.5" strokeWidth={2.5} />
+        <ArrowUpFromLine className="size-4 md:size-4.5" strokeWidth={2.5} />
       ) : (
-        <ArrowDownLeft className="size-4 md:size-4.5" strokeWidth={2.5} />
+        <ArrowDownToLine className="size-4 md:size-4.5" strokeWidth={2.5} />
       )}
     </div>
   );
@@ -87,17 +87,13 @@ export function DirectionIcon({ isSend }: { isSend: boolean }) {
 /* ─── 状态徽章配色（与 projectionStatusLabel 同一套 phase 语义） ─── */
 
 const STATUS_CLASSNAMES = {
-  pending: "bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400",
-  waiting_accept:
-    "bg-yellow-100 text-yellow-600 dark:bg-yellow-500/15 dark:text-yellow-400",
-  transferring: "bg-primary/15 text-brand dark:bg-primary/15",
-  paused:
-    "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-  completed:
-    "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-400",
-  failed: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400",
-  cancelled:
-    "bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400",
+  pending: "bg-muted text-muted-foreground",
+  waiting_accept: "bg-warning/15 text-warning-ink",
+  transferring: "bg-primary/15 text-brand",
+  paused: "bg-warning/15 text-warning-ink",
+  completed: "bg-success/15 text-success-ink",
+  failed: "bg-destructive/15 text-destructive-ink",
+  cancelled: "bg-muted text-muted-foreground",
 } as const;
 
 export function projectionStatusClassName(
@@ -154,13 +150,13 @@ export const SessionSummaryHeader = memo(function SessionSummaryHeader({
           "flex size-11 shrink-0 items-center justify-center rounded-full md:size-12",
           isSend
             ? "bg-primary/10 dark:bg-primary/15"
-            : "bg-green-50 dark:bg-green-500/15",
+            : "bg-success/15",
         )}
       >
         <DeviceIcon
           className={cn(
             "size-5.5 md:size-6",
-            isSend ? "text-brand" : "text-green-600 dark:text-green-400",
+            isSend ? "text-brand" : "text-success-ink",
           )}
         />
       </div>
@@ -263,8 +259,8 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
 
     return (
       <div className="flex flex-col items-center gap-2.5 py-2 md:gap-3 md:py-4">
-        <div className="flex size-14 items-center justify-center rounded-full bg-green-100 dark:bg-green-500/15 md:size-16">
-          <CheckCircle2 className="size-7 text-green-600 dark:text-green-400 md:size-8" />
+        <div className="flex size-14 items-center justify-center rounded-full bg-success/15 md:size-16">
+          <CheckCircle2 className="size-7 text-success-ink md:size-8" />
         </div>
         <h3
           data-testid="send-success-state"
@@ -308,8 +304,8 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
     // 避免同一标签在面板里出现两次，也不把用户留在死胡同。
     return (
       <div className="flex flex-col items-center gap-2.5 py-2 md:gap-3 md:py-4">
-        <div className="flex size-14 items-center justify-center rounded-full bg-red-100 dark:bg-red-500/15 md:size-16">
-          <XCircle className="size-7 text-red-600 dark:text-red-400 md:size-8" />
+        <div className="flex size-14 items-center justify-center rounded-full bg-destructive/15 md:size-16">
+          <XCircle className="size-7 text-destructive-ink md:size-8" />
         </div>
         <h3
           data-testid="send-failure-state"

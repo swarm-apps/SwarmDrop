@@ -2,10 +2,10 @@ import { useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import {
   ChevronRight,
-  Globe,
   Info,
   Languages,
   type LucideIcon,
+  Network,
   Palette,
   Settings as SettingsIcon,
 } from "lucide-react-native";
@@ -50,7 +50,7 @@ export default function MainSettingsScreen() {
         />
         <SettingDivider />
         <NavRow
-          icon={Globe}
+          icon={Network}
           label={t`网络`}
           testID="settings-network-row"
           onPress={() => router.push("/settings/network" as never)}

@@ -128,6 +128,45 @@ green ~3.3:1，red ~3.5:1，teal ~4.0:1）。所以 `global.css` 另有一套高
 
 **相关文件**：[src/global.css](../../src/global.css)，[DESIGN.md](../../DESIGN.md)
 
+### `--info`（sky）是连接徽章第三色，别再借 primary（2026-08-07）
+
+`CONNECTION_META` 的「打洞」此前用 `primary`——三端里只有这里是青绿，桌面与 Web 都是天蓝
+（DESIGN.md 的 One Accent Rule 点名 sky 作打洞色）。借品牌色的代价不只是不一致：青绿在这个产品里
+已经有确定含义（品牌 / 最高信任 / 进行中），再兼一个「连接方式」就谁都读不准了。
+
+现在 `global.css` 有 `--info` / `--info-ink`（= 桌面 Web 那组 oklch 的 HSL 写法，取自
+Tailwind sky-500 / sky-700），`useThemeColors()` 也导出 `colors.info` 供图标 `color` prop 用。
+**它只服务连接三色**（局域网 `success` · 打洞 `info` · 中继 `warning`），别处不要再冒出信息蓝。
+
+**相关文件**：[src/components/connection-badge.tsx](../../src/components/connection-badge.tsx)、
+[src/hooks/useThemeColors.ts](../../src/hooks/useThemeColors.ts)
+
+### 信任级别的 collaborator 是**中性**，不是 success
+
+`TRUST_META` 曾把 collaborator 涂成 `success` 绿。它是**默认**信任级别——多数设备都落在这档，
+于是设备列表里凭空多出一片第二饱和色，跟 owned 的品牌青绿抢注意力。三端现在同一套：
+owned `primary` · collaborator `muted` · temporary `warning` · blocked `destructive`。
+
+**相关文件**：[src/components/trust-badge.tsx](../../src/components/trust-badge.tsx)
+
+### 图标要先查 DESIGN.md 的跨端绑定表，别凭手感挑（2026-08-07）
+
+一次三端全扫查出来的：收件箱三个空态画的是 `FileArchive`（压缩包）而另两端是 `Inbox`；
+传输记录空态是 `Activity` 而另两端是 `ArrowLeftRight`；设备集合空态是 `Smartphone` 而另两端是
+`MonitorSmartphone`；「发送」按钮是 `SendHorizontal` 而另两端是 `Send`；连 Windows 设备都画成
+`Laptop`（另两端是 `Monitor`）。完整表在根 `DESIGN.md` 的「The icon table」。
+
+两条本端特有的：
+
+- **`Github` 在 `lucide-react-native` 里不存在**（lucide 已把品牌图标移出核心集；
+  `lucide-react` 里那个是 deprecated 别名）。关于页因此用 `Code`，代码里有注释——别「修」回去，
+  改成 `Github` 会直接 `TS2305: has no exported member`。
+- **文件类型图标用 `fileBrowserIcon()`**（`components/file-browser/file-icon.ts`，已从该包
+  index 导出）。收件箱详情页曾另写一份三档映射、fallback 给 `FileArchive`——通用文件是 `File`。
+
+**相关文件**：[src/components/file-browser/file-icon.ts](../../src/components/file-browser/file-icon.ts)、
+[DESIGN.md](../../../DESIGN.md)
+
 ### FlatList / SectionList 用 `contentContainerStyle`，不要用 `contentContainerClassName`
 
 NativeWind 5 preview 给 `ScrollView` 注册了 `contentContainerClassName`（`AppScreen` 在用），
@@ -311,6 +350,33 @@ navigationBars inset、**不按视图相交计算**——实测给 tab 内内容
 覆盖,onboarding 三屏最初就是这样导致卖点和按钮贴边。
 
 **相关文件**:[src/components/onboarding/onboarding-scaffold.tsx](../../src/components/onboarding/onboarding-scaffold.tsx)、
+[src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)
+
+### BottomActionBar 的直接子元素必须自带 `flex-1`,否则整栏内容缩到左半边
+
+`BottomActionBar`([src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx))
+本身是 `flex-row`,但 **RN 的 View 默认 `flexGrow: 0`**(与 Web 的 `flex: 0 1 auto` 又不同,
+RN 连 `flexShrink` 都是 0)——子元素不写 `flex-1` 就按内容宽度排,整块贴左、右侧留一大截空白。
+子元素内部再写 `justify-between` 也没用:它分配的是那个"内容宽"容器,不是整栏。
+
+**正确做法**:传进 `BottomActionBar` 的那一层永远带 `flex-1`;栏内"左说明 + 右按钮组"的形态
+再给文本 `flex-1 numberOfLines={1}`、按钮组 `shrink-0`,长文案(文件数 + 体积)才会截断而不是挤按钮。
+
+```tsx
+<BottomActionBar>
+  <View className="flex-1 flex-row items-center justify-between gap-3">
+    <Text className="flex-1 text-[13px] text-muted-foreground" numberOfLines={1}>…</Text>
+    <View className="shrink-0 flex-row gap-2">{buttons}</View>
+  </View>
+</BottomActionBar>
+```
+
+**不要做**:只写 `<View className="flex-row items-center justify-between gap-3">`。发送准备页
+(`send/select-device.tsx`)最初就漏了 `flex-1`,「发送」按钮离右边缘差了小半屏——同文件的
+`PrepareProgressBar` 分支写了 `flex-1`,所以只在"未开始发送"这一态露出来。其余四处
+(transfer 详情 / inbox 详情 / shared-files / share-target)一直是对的。
+
+**相关文件**:[src/app/send/select-device.tsx](../../src/app/send/select-device.tsx)、
 [src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)
 
 ### Toast 走 burnt(各平台原生机制),门面在 lib/toast.ts

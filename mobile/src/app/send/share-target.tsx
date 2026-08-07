@@ -11,7 +11,7 @@
 
 import { Trans, useLingui } from "@lingui/react/macro";
 import { type Href, useNavigation, useRouter } from "expo-router";
-import { Check, Files, Inbox, Send } from "lucide-react-native";
+import { Check, Files, MonitorSmartphone, Send } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -229,7 +229,7 @@ export default function ShareTargetScreen() {
             </View>
           ) : (
             <EmptyState
-              icon={Inbox}
+              icon={MonitorSmartphone}
               title={<Trans>没有在线设备</Trans>}
               description={
                 <Trans>

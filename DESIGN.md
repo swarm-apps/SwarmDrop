@@ -170,9 +170,25 @@ Dark mode remaps every neutral (background → `oklch(0.18 0.01 260)` ≈ `#0F12
 the brand teal, and for the same reason: the fill values do not clear AA as small text
 (measured on white: success 3.30:1, warning **2.13:1**). Dots, fills and icons use the base color;
 **anything set as text uses the `-ink` variant** (`--success-ink` / `--warning-ink` /
-`--destructive-ink`, 4.9–6.3:1 on the app surfaces). Mobile introduced this split; desktop and web
-adopted it 2026-08-04. A bare `text-amber-600` / `text-emerald-600` in a diff is the tell that
-someone reached past the token.
+`--destructive-ink`, 4.9–6.3:1 on the app surfaces). Mobile introduced this split; web adopted it
+2026-08-04. A bare `text-amber-600` / `text-emerald-600` in a diff is the tell that someone reached
+past the token.
+
+⚠️ **Desktop only actually adopted it 2026-08-07.** This paragraph claimed all three builds had it
+for three days while `src/index.css` carried no `--success` / `--warning` / `-ink` token at all —
+so desktop had nothing to reach for and reached past by necessity: **159 palette literals** across
+19 files (`text-green-600` for online, `bg-amber-100` for paused, `bg-zinc-950` for a selected
+segment). They are now tokens, and the values are the same oklch expressions web uses. The lesson
+is about this document, not the CSS: *"all three builds do X" is a claim to verify against the
+files, not a plan recorded in the past tense.*
+
+**A fourth state color: `--info` / `--info-ink` (sky).** The One Accent Rule below names sky as the
+hole-punch connection color, but no build had a token for it — desktop wrote `sky-100/sky-600`, web
+`sky-500/12`, and mobile gave up and reused `primary`, which made "hole-punch" teal on phones and
+blue everywhere else *and* spent the brand color on a non-brand meaning. `--info` exists so the
+three-color connection set (LAN `success` · hole-punch `info` · relay `warning`) is one row of
+tokens rather than three dialects. It is **only** for that set; a new "informational blue" anywhere
+else in the UI is a second accent and the One Accent Rule still forbids it.
 
 ### Cross-platform token unification
 
@@ -561,6 +577,30 @@ Renaming is a **presentation-layer** change only — the web build still calls i
 register relays). Two names for one thing in the UI makes users think there are two things to
 configure; two names between UI and kernel is just accurate.
 
+#### The icon table
+
+"…and icon" went unenforced until 2026-08-07, when a sweep found the same concept drawn three
+different ways across the builds. These are the bindings; changing one means changing three.
+
+| Concept | Icon | Note |
+|---|---|---|
+| Transfers (nav, empty state, section) | `ArrowLeftRight` | Not `ArrowRightLeft` — desktop had the mirrored twin, mobile's transfer-history empty state had `Activity` |
+| Inbox | `Inbox` | Mobile drew all three of its inbox empty states as `FileArchive`, i.e. a zip file |
+| Devices (the *set* — nav, empty state, picker) | `MonitorSmartphone` | A single device still uses its platform icon |
+| Send action | `Send` | Not `SendHorizontal` |
+| Direction: sending / receiving | `ArrowUpFromLine` / `ArrowDownToLine` | Three builds had four pairs, including two inside mobile alone |
+| Pairing / invite | `Link2` · `QrCode` · `ClipboardPaste` | |
+| Groups | `Tags` | |
+| Bootstrap / relay | `RadioTower` | |
+| Device platform | `Monitor` win+linux · `Laptop` mac · `Smartphone` ios+android | Mobile drew Windows as `Laptop`; its extra `Tablet` branch is fine — it sits before a fallback the others share |
+| File types | `packages/file-browser/src/file-icon.ts` | Unknown type is `File`, **not** `FileArchive` |
+| Settings sections | `Network` · `HardDrive` · `MonitorSmartphone` · `Bot` · `RadioTower` · `Palette` · `Info` | |
+| Docs · repo · changelog | `BookText` · `Github` · `ScrollText` | `Github` is a lucide brand icon that **`lucide-react-native` no longer ships**, so mobile uses `Code` there — a library limit, recorded so nobody "fixes" it back |
+
+State colors bind the same way: the four trust levels are `primary` (owned) / `muted`
+(collaborator) / `warning` (temporary) / `destructive` (blocked) in all three builds. Collaborator
+is the *default* level — coloring it, as mobile did with `success`, tints most of a device list.
+
 ### Cross-platform UI Review Checklist
 
 Run this when adding or changing device-related UI in **any** build. It is a gate before visual
@@ -575,6 +615,11 @@ review, not after.
 - [ ] Display name / grouping / trust normalization come from `@swarmdrop/shared-view`, not a local copy
 - [ ] Every interactive control reachable without hover; touch targets ≥ 44×44 CSS px
 - [ ] New user-facing strings go through that build's i18n, including `aria-label` / `title` / `alt`
+- [ ] Icons match the icon table above — a concept the other builds already draw keeps their glyph
+- [ ] No raw palette class (`bg-green-500`, `text-amber-600`, `bg-zinc-950`) — state goes through
+      `success` / `warning` / `destructive` / `info` + the `-ink` text form. The three standing
+      exceptions are the QR white card, the camera scanner, and the theme-preview thumbnails:
+      all three are deliberately theme-vacuum surfaces and say so in a comment.
 
 ### Navigation — Desktop shell (Topbar + Breadcrumb)
 - Desktop uses a single top bar: an unclickable logo mark, a node-status pill, a breadcrumb trail (home icon → intermediate clickable segments → unclickable current page), and window controls. There is no persistent sidebar in the current build — navigation depth is expressed through the breadcrumb, not through a nav rail.

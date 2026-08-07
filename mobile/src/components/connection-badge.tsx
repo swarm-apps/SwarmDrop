@@ -8,12 +8,18 @@ import { cn } from "@/lib/utils";
 
 type ConnectionKind = "lan" | "dcutr" | "relay";
 
-/** tone 对应设计系统语义 token,图标色在组件内从 useThemeColors 取(随暗色切换,不硬编码 hex)。 */
+/**
+ * tone 对应设计系统语义 token,图标色在组件内从 useThemeColors 取(随暗色切换,不硬编码 hex)。
+ *
+ * 三色与桌面 / Web 同一套(DESIGN.md 的 One Accent Rule 把连接方式列为例外并点名 sky):
+ * 局域网 success · 打洞 info(sky) · 中继 warning。打洞此前借用 primary,
+ * 于是同一枚徽标在这里是青绿、在另两端是天蓝——而青绿是品牌色,借出去就多了一个含义。
+ */
 const CONNECTION_META: Record<
   ConnectionKind,
   {
     icon: typeof Wifi;
-    tone: "success" | "primary" | "warning";
+    tone: "success" | "info" | "warning";
     bg: string;
     text: string;
     label: () => React.ReactNode;
@@ -28,9 +34,9 @@ const CONNECTION_META: Record<
   },
   dcutr: {
     icon: Zap,
-    tone: "primary",
-    bg: "bg-primary/10",
-    text: "text-primary-ink",
+    tone: "info",
+    bg: "bg-info/12",
+    text: "text-info-ink",
     label: () => <Trans>打洞</Trans>,
   },
   relay: {

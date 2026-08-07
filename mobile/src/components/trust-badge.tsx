@@ -55,9 +55,17 @@ export function TrustLabel({ level }: { level: TrustLevel }) {
   }
 }
 
+/**
+ * 四级信任的配色，三端同一套（桌面 `trustConfig`、Web `TRUST_META`）：
+ * owned 用品牌色（唯一饱和色留给最高信任），collaborator 中性，
+ * temporary → warning，blocked → destructive。
+ *
+ * collaborator 此前是 `success` 绿：它是**默认**级别，多数设备都落在这里，
+ * 于是设备列表里凭空多出一片第二饱和色，与 owned 的青绿抢注意力。
+ */
 const TRUST_META: Record<TrustLevel, { bg: string; text: string }> = {
   owned: { bg: "bg-primary/10", text: "text-primary-ink" },
-  collaborator: { bg: "bg-success/10", text: "text-success-ink" },
+  collaborator: { bg: "bg-muted", text: "text-muted-foreground" },
   temporary: { bg: "bg-warning/15", text: "text-warning-ink" },
   blocked: { bg: "bg-destructive/15", text: "text-destructive-ink" },
 };

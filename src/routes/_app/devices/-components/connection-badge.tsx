@@ -61,20 +61,20 @@ const connectionConfig: Record<
   lan: {
     icon: Wifi,
     label: msg`局域网`,
-    bgColor: "bg-green-100",
-    textColor: "text-green-600",
+    bgColor: "bg-success/12",
+    textColor: "text-success-ink",
   },
   dcutr: {
     icon: Zap,
     label: msg`打洞`,
-    bgColor: "bg-sky-100",
-    textColor: "text-sky-600",
+    bgColor: "bg-info/12",
+    textColor: "text-info-ink",
   },
   relay: {
     icon: RadioTower,
     label: msg`中继`,
-    bgColor: "bg-amber-100",
-    textColor: "text-amber-600",
+    bgColor: "bg-warning/15",
+    textColor: "text-warning-ink",
   },
 };
 
@@ -168,7 +168,7 @@ export function ConnectionBadge({ device }: { device: Device }) {
           // 对端就在同一网段却连不上。后者是可行动的，前者不是。
           //
               // 桌面端不提浏览器权限（那是 Web 端的成因），只说防火墙。
-              <div className="flex gap-2 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
+              <div className="flex gap-2 rounded-lg bg-warning/12 px-3 py-2.5 text-xs text-warning-ink">
                 <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
                 <div className="space-y-1">
                   <p className="font-medium">

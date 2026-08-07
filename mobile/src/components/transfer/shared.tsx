@@ -7,7 +7,7 @@
 
 import { Trans } from "@lingui/react/macro";
 import { formatTransferRate } from "@swarmdrop/shared-view";
-import { Download, Send } from "lucide-react-native";
+import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import {
@@ -45,9 +45,9 @@ export function DirectionIcon({ direction }: { direction: TransferDirection }) {
       )}
     >
       {isSend ? (
-        <Send size={16} color={iconColor} strokeWidth={2.25} />
+        <ArrowUpFromLine size={16} color={iconColor} strokeWidth={2.25} />
       ) : (
-        <Download size={16} color={iconColor} strokeWidth={2.25} />
+        <ArrowDownToLine size={16} color={iconColor} strokeWidth={2.25} />
       )}
     </View>
   );

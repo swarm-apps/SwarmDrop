@@ -99,7 +99,7 @@ export function DeviceCard({
             <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
             <span className="flex items-center gap-1.5 text-xs">
               {/* 契约第 3 项：状态点**与**文案同时在场。只有色点不满足——色盲用户读不到它。 */}
-              <StatusDot colorClass={isOnline ? "bg-emerald-500" : "bg-muted-foreground"} />
+              <StatusDot colorClass={isOnline ? "bg-success" : "bg-muted-foreground"} />
               <span className={isOnline ? "text-success-ink" : "text-muted-foreground"}>
                 {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}
               </span>

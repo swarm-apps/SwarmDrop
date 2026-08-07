@@ -4,15 +4,15 @@ import type { LucideIcon } from "lucide-react-native";
 import {
   ArrowUpRight,
   BadgeCheck,
-  BookOpen,
+  BookText,
   Code,
   Download,
   FileText,
   KeyRound,
-  Lock,
   MessageSquare,
   RefreshCw,
   ScrollText,
+  ShieldCheck,
   Waypoints,
 } from "lucide-react-native";
 import {
@@ -116,18 +116,14 @@ export default function AboutScreen() {
         <SettingSection label={t`安全与加密`}>
           <View className="gap-3.5 p-3.5">
             <SecurityFeatureRow
-              icon={Lock}
+              icon={ShieldCheck}
               title={<Trans>端到端加密</Trans>}
-              description={
-                <Trans>Noise 或 TLS 1.3，中继全程只经手密文</Trans>
-              }
+              description={<Trans>Noise 或 TLS 1.3，中继全程只经手密文</Trans>}
             />
             <SecurityFeatureRow
               icon={KeyRound}
               title={<Trans>一次一密</Trans>}
-              description={
-                <Trans>每条连接独立握手，会话密钥仅存内存</Trans>
-              }
+              description={<Trans>每条连接独立握手，会话密钥仅存内存</Trans>}
             />
             <SecurityFeatureRow
               icon={Waypoints}
@@ -175,13 +171,16 @@ export default function AboutScreen() {
 
         <SettingSection label={t`资源`}>
           <LinkRow
+            // 三端此处本该同为 `Github`，但 lucide-react-native 1.x 不带品牌图标
+            // （lucide 已把它们移出核心集，桌面/Web 的 `Github` 是 lucide-react 里
+            // 尚存的 deprecated 别名）。这是库能力差异，不是漏对齐。
             icon={Code}
             label="GitHub"
             onPress={() => openUrl("https://github.com/swarm-apps/SwarmDrop")}
           />
           <SettingDivider />
           <LinkRow
-            icon={BookOpen}
+            icon={BookText}
             label={t`文档`}
             onPress={() => openUrl("https://swarm-apps.github.io/SwarmDrop/")}
           />
@@ -195,7 +194,7 @@ export default function AboutScreen() {
           />
           <SettingDivider />
           <LinkRow
-            icon={FileText}
+            icon={ScrollText}
             label={t`更新日志`}
             onPress={() =>
               openUrl("https://github.com/swarm-apps/SwarmDrop/releases")
@@ -214,11 +213,7 @@ export default function AboutScreen() {
               </Trans>
             </Text>
           </View>
-          <LinkRow
-            icon={ScrollText}
-            label={t`导出日志`}
-            onPress={onExportLogs}
-          />
+          <LinkRow icon={FileText} label={t`导出日志`} onPress={onExportLogs} />
         </SettingSection>
       </ScrollView>
     </SafeAreaView>

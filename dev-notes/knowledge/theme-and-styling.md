@@ -76,9 +76,62 @@ html:not(.dark) {
 
 ### 连接类型徽章三色保持语义可辨
 
-设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=green、打洞=sky、中继=amber。品牌主色现在也是青绿色，任何新的 success/online 语义用法都要先确认与 `text-brand` / `bg-primary` 拉得开距离；赤铜只留给 logo/品牌小点缀，不参与状态编码。
+设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=`success`、打洞=`info`、中继=`warning`
+（分别是 green / sky / amber 的 token 形态）。品牌主色现在也是青绿色，任何新的 success/online
+语义用法都要先确认与 `text-brand` / `bg-primary` 拉得开距离；赤铜只留给 logo/品牌小点缀，
+不参与状态编码。
 
-**相关文件**：`src/routes/_app/devices/-components/device-card.tsx`（`connectionConfig`）
+**`--info` 是 2026-08-07 才有的**。此前 sky 这一档三端谁都没 token：桌面写 `sky-100/sky-600`、
+Web 写 `sky-500/12`、移动索性改用 `primary`——于是「打洞」在手机上是青绿、另两端是天蓝，
+而且把品牌色借给了一个非品牌含义。它**只服务这一组三色**，别处再冒出「信息蓝」就是第二个
+强调色，One Accent Rule 依旧拦着。
+
+**相关文件**：`src/routes/_app/devices/-components/connection-badge.tsx`（`connectionConfig`）、
+`docs/app/app/_lib/device-presentation.ts`（`CONNECTION_META`）、
+`mobile/src/components/connection-badge.tsx`
+
+### 桌面此前整个缺 success / warning / -ink token（2026-08-07 补齐）
+
+`DESIGN.md` 的 State Ink Rule 从 2026-08-04 起就写着「三端都已采纳」，但 `src/index.css` 里
+**一个 `--success` / `--warning` / `-ink` 都没有**。桌面代码不是不守规矩，是无处可守：
+19 个文件、159 处 Tailwind 调色板直用（在线 `text-green-600`、暂停 `bg-amber-100`、
+分段选中态 `bg-zinc-950 text-white`），同一句「在线」在三端是三个绿。
+
+现在桌面 `src/index.css` 与 `docs/app/global.css` 的这组值**逐字相同**，移动端是同一组的 HSL
+写法。改一个值必须三份一起动。
+
+**正确做法**：
+- 填充 / 圆点 / 图标 → `bg-success` `bg-warning` `bg-destructive` `bg-info`（常配 `/12`~`/15`）
+- 任何**文字** → `text-success-ink` / `text-warning-ink` / `text-destructive-ink` / `text-info-ink`
+- token 自己随主题切换，**不要再写 `dark:` 分支**——原先那种 `bg-green-100 dark:bg-green-500/15`
+  的双份写法是硬编码时代的产物，token 化后是纯噪音
+
+**不要做**：`text-green-600` / `bg-amber-100` / `bg-zinc-950` / `bg-foreground text-background`。
+最后那个尤其隐蔽——它在浅色下是一块纯黑，会比同屏的主 CTA 还抢眼（引导节点的 Multiaddr
+徽标、附近设备的「发送」按钮、分段控件选中态都栽在这上面）。
+
+**三处例外**（都是刻意的「主题真空区」，各自带注释）：二维码白卡、相机扫码屏、
+设置页的主题预览缩略图——它们画的是「一张白纸 / 一块取景框 / 一个主题的样子」，
+跟着主题变反而错。
+
+**相关文件**：`src/index.css`、`docs/app/global.css`、`mobile/src/global.css`
+
+### 三端同一概念必须同一个图标（2026-08-07 立表）
+
+`DESIGN.md` 的 "Section names are cross-platform" 一直写着「同名同图标」，但没人对过表。
+一次全扫的结果：传输在桌面是 `ArrowRightLeft`、另两端是镜像的 `ArrowLeftRight`，移动的传输记录
+空态干脆是 `Activity`；收件箱三个空态在移动端画成 `FileArchive`（一个压缩包）；「发送」在移动端
+是 `SendHorizontal`；传输方向三端凑出**四套**箭头（移动端自己内部就有两套）。
+
+完整绑定表在 `DESIGN.md` 的「The icon table」，改一处就是改三处。两条容易踩的：
+
+- **通用文件图标是 `File` 不是 `FileArchive`**。共享映射在
+  `packages/file-browser/src/file-icon.ts`（桌面 + Web）与
+  `mobile/src/components/file-browser/file-icon.ts`；收件箱详情页曾**另写一份**三档映射，
+  fallback 给了压缩包图标。要用就 import 现成的，别再抄一份。
+- **`Github` 在 `lucide-react-native` 里不存在**。lucide 已把品牌图标移出核心集，
+  `lucide-react` 那个是尚存的 deprecated 别名。移动端因此用 `Code`，这是库能力差异，
+  代码里有注释，别「修」回去。
 
 ## 窗口装饰 (macOS)
 

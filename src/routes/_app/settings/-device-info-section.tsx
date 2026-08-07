@@ -169,7 +169,7 @@ export function DeviceInfoSection() {
             <div className="relative shrink-0">
               <div
                 className={`absolute -left-1 -top-1 z-10 size-3.5 rounded-full border-2 border-background ${
-                  isOnline ? "bg-green-500" : "bg-muted-foreground/40"
+                  isOnline ? "bg-success" : "bg-muted-foreground/40"
                 }`}
               />
               <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 sm:size-16">
@@ -208,7 +208,7 @@ export function DeviceInfoSection() {
                       {displayName}
                     </h3>
                     {isOnline && (
-                      <span className="shrink-0 rounded-full border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-400 sm:px-2 sm:text-[11px]">
+                      <span className="shrink-0 rounded-full border border-success/25 bg-success/12 px-1.5 py-0.5 text-[10px] font-medium text-success-ink sm:px-2 sm:text-[11px]">
                         {t`在线`}
                       </span>
                     )}
@@ -243,7 +243,7 @@ export function DeviceInfoSection() {
                   {truncatePeerId(deviceId ?? "")}
                 </span>
                 {copied ? (
-                  <Check className="size-3.5 shrink-0 text-green-500" />
+                  <Check className="size-3.5 shrink-0 text-success-ink" />
                 ) : (
                   <Copy className="size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
                 )}

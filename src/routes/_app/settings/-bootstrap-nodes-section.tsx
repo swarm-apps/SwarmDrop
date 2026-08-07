@@ -270,7 +270,10 @@ export function BootstrapNodesSection() {
               <Plus className="size-4" />
               <Trans>添加自定义引导节点</Trans>
             </span>
-            <span className="rounded-full bg-foreground px-2.5 py-1 text-[11px] font-medium text-background">
+            {/* 与同卡片里 TCP / QUIC 那枚传输徽标同一套语汇——它也是「格式提示」。
+                此前是 `bg-foreground text-background`（浅色下一块纯黑），在一个
+                text-muted-foreground 的行里反而成了整页最重的东西。 */}
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-brand">
               Multiaddr
             </span>
           </button>

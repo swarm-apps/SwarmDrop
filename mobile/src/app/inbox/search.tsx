@@ -3,7 +3,8 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
   AlertTriangle,
   ChevronRight,
-  FileArchive,
+  Inbox,
+  Package,
   Search,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -241,7 +242,7 @@ function SearchBody({
 
       {items.length === 0 ? (
         <EmptyState
-          icon={FileArchive}
+          icon={Inbox}
           title={<Trans>收件箱还是空的</Trans>}
           description={<Trans>完成接收后，可以在这里搜索标题或来源。</Trans>}
           testID="inbox-search-empty-state"
@@ -362,7 +363,7 @@ function InboxHitRow({
       className="min-h-20 flex-row items-center gap-3 rounded-lg border border-border bg-card p-3.5 active:bg-muted/50"
     >
       <View className="size-12 items-center justify-center rounded-xl bg-primary/10">
-        <FileArchive color={colors.primary} size={20} />
+        <Package color={colors.primary} size={20} />
       </View>
       <View className="min-w-0 flex-1 gap-1">
         <View className="flex-row items-center gap-2">

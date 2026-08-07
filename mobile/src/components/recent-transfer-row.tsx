@@ -1,5 +1,5 @@
 import { Trans } from "@lingui/react/macro";
-import { Download, Upload } from "lucide-react-native";
+import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react-native";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
 import type {
@@ -56,9 +56,9 @@ function RecentTransferRowComponent({
         )}
       >
         {isOutgoing ? (
-          <Upload size={16} color={colors.primary} />
+          <ArrowUpFromLine size={16} color={colors.primary} />
         ) : (
-          <Download size={16} color={colors.success} />
+          <ArrowDownToLine size={16} color={colors.success} />
         )}
       </View>
 

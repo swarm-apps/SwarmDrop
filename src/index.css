@@ -31,6 +31,29 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.583 0.105 177.1);
+
+  /*
+   * 状态色的双 token（DESIGN.md 的 State Ink Rule）：**填充/圆点用本色，当文字一律用
+   * ink 变体**。状态色本身当小字过不了 AA——白底上 success 3.30:1、warning 只有 2.13:1。
+   *
+   * 值与 `docs/app/global.css` **逐字相同**（那边先落的，源头是移动端那组 HSL）。
+   * 桌面此前整个缺这组 token，于是 `text-green-600` / `bg-amber-500` 这类调色板直用
+   * 在这里长了一百多处——同一句「在线」「已拒绝」三端各是一个颜色。
+   * 加或改一个值必须三份一起动，别只改一端。
+   */
+  --success: oklch(0.627 0.17 149.2);
+  --success-ink: oklch(0.527 0.137 150.1);
+  --warning: oklch(0.77 0.165 70.6);
+  --warning-ink: oklch(0.554 0.145 49.2);
+  --destructive-ink: oklch(0.508 0.192 27.6);
+
+  /* 连接方式徽标的第三色（打洞）。DESIGN.md 的 One Accent Rule 把「连接方式三色」
+     列为例外并点名 sky，但三端此前谁都没有它的 token：桌面写 sky-100/sky-600、
+     Web 写 sky-500/12、移动干脆改用 primary——于是「打洞」在手机上是青绿、
+     在另两端是天蓝。值取自 Tailwind sky-500 / sky-700，ink 变体白底 4.6:1。 */
+  --info: oklch(0.685 0.169 237.323);
+  --info-ink: oklch(0.5 0.134 242.749);
+
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -116,6 +139,18 @@
   --border: oklch(0.39 0.01 260);
   --input: oklch(0.39 0.01 260);
   --ring: oklch(0.641 0.115 177.6);
+
+  /* 暗色下状态色本身就够亮（7–11:1），ink 变体的差别只剩色相微调；两者都留是为了让
+     「填充用本色、文字用 ink」这条规矩在明暗两侧写法一致，调用点不必分支。 */
+  --success: oklch(0.723 0.192 149.6);
+  --success-ink: oklch(0.8 0.182 151.7);
+  --warning: oklch(0.861 0.173 92);
+  --warning-ink: oklch(0.833 0.164 83.9);
+  --destructive-ink: oklch(0.711 0.166 22.2);
+
+  --info: oklch(0.746 0.16 232.661);
+  --info-ink: oklch(0.828 0.111 230.318);
+
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -179,6 +214,13 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-ink: var(--success-ink);
+  --color-warning: var(--warning);
+  --color-warning-ink: var(--warning-ink);
+  --color-destructive-ink: var(--destructive-ink);
+  --color-info: var(--info);
+  --color-info-ink: var(--info-ink);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

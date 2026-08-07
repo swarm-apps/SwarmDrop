@@ -275,8 +275,11 @@ export default function SendPreparePage() {
         {prepareProgress ? (
           <PrepareProgressBar progress={prepareProgress} />
         ) : (
-          <View className="flex-row items-center justify-between gap-3">
-            <Text className="text-[13px] text-muted-foreground">
+          <View className="flex-1 flex-row items-center justify-between gap-3">
+            <Text
+              className="flex-1 text-[13px] text-muted-foreground"
+              numberOfLines={1}
+            >
               {selectedFiles.length > 0 ? (
                 <Trans>
                   {selectedFiles.length} 个文件 · {formatBytes(totalSize)}
@@ -285,7 +288,7 @@ export default function SendPreparePage() {
                 <Trans>选择要发送的内容</Trans>
               )}
             </Text>
-            <View className="flex-row gap-2">
+            <View className="shrink-0 flex-row gap-2">
               <Pressable
                 onPress={onCancel}
                 accessibilityRole="button"

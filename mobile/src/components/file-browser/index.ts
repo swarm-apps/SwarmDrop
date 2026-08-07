@@ -14,6 +14,7 @@ export {
   fromSelectedFiles,
 } from "./adapters";
 export { FileBrowser } from "./file-browser";
+export { fileBrowserIcon } from "./file-icon";
 export {
   IMAGE_EXTENSIONS,
   isImageFile,

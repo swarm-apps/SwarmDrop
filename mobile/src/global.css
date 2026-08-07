@@ -26,6 +26,8 @@
   --color-warning-foreground: hsl(var(--warning-foreground));
   --color-warning-ink: hsl(var(--warning-ink));
   --color-primary-ink: hsl(var(--primary-ink));
+  --color-info: hsl(var(--info));
+  --color-info-ink: hsl(var(--info-ink));
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
@@ -70,6 +72,11 @@
   --success-ink: 142.4 71.8% 29.2%;
   --warning-ink: 26 90% 37%;
   --destructive-ink: 0 74% 42%;
+  /* 连接方式徽标的第三色（打洞）。桌面/Web 的 --info / --info-ink，转成 HSL；
+     取自 Tailwind sky-500 / sky-700。此前这里没有它，「打洞」只好挪用 primary，
+     于是同一枚徽标在手机上是青绿、在另两端是天蓝。 */
+  --info: 198.6 88.7% 48.4%;
+  --info-ink: 200.6 88% 27.8%;
   /* 品牌主色**文字**形态，= 桌面的 --brand `oklch(0.516 0.093 178.2)`（白底 5.3:1）。
      值没变——变的是它不再同时兼任填充色。 */
   --primary-ink: 171 87.3% 25.3%;
@@ -108,6 +115,8 @@
     --success-ink: 141.9 69.2% 58%;
     --warning-ink: 43 96% 56%;
     --destructive-ink: 0 90.6% 70.8%;
+    --info: 198.4 93.2% 59.6%;
+    --info-ink: 198.6 93.2% 68.8%;
     /* = 桌面暗色 --brand `oklch(0.828 0.12 179)`，值不变。 */
     --primary-ink: 168.9 67.8% 62.4%;
     --border: 187.5 27.3% 17.3%;

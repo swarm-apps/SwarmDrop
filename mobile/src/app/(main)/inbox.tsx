@@ -3,7 +3,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import {
   AlertTriangle,
   ArchiveRestore,
-  FileArchive,
+  Clock,
   HardDrive,
   Inbox,
   RefreshCw,
@@ -161,7 +161,7 @@ export default function InboxScreen() {
       <InboxListSkeleton />
     ) : items.length === 0 ? (
       <EmptyState
-        icon={FileArchive}
+        icon={Inbox}
         title={<Trans>收件箱还是空的</Trans>}
         description={
           <Trans>
@@ -174,7 +174,7 @@ export default function InboxScreen() {
       />
     ) : (
       <EmptyState
-        icon={FileArchive}
+        icon={Inbox}
         title={<Trans>当前筛选下没有内容</Trans>}
         description={
           <Trans>切换上方筛选范围，或进入搜索页查找历史内容。</Trans>
@@ -332,7 +332,7 @@ function InboxToolbar({
           value={formatBytes(totalBytes)}
         />
         <StatPill
-          icon={RefreshCw}
+          icon={Clock}
           label={<Trans>最近</Trans>}
           value={
             latest === null ? <Trans>暂无</Trans> : formatRelativeTime(latest)

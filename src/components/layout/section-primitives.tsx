@@ -235,8 +235,10 @@ export function SegmentedControl<T extends string>({
             className={cn(
               "focus-ring flex items-center gap-1.5 rounded-full font-medium transition-[background-color,color] duration-200",
               size === "md" ? "px-3 py-1.5 text-[12px]" : "px-2 py-1 text-[11px]",
+              // 选中态两侧同为品牌色 tint。浅色此前是 `bg-zinc-950 text-white`——
+              // 一块纯黑，既不在调色板里，也比同屏的主 CTA 还重（One Accent Rule）。
               active
-                ? "bg-zinc-950 text-white dark:bg-primary/20 dark:text-brand"
+                ? "bg-primary/15 text-brand"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >

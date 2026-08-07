@@ -1,6 +1,6 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Activity, Search, SearchX, Trash2 } from "lucide-react-native";
+import { ArrowLeftRight, Search, SearchX, Trash2 } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import { SectionList, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -276,7 +276,7 @@ export default function ActivityScreen() {
           <View className="pt-5">
             {allProjections.length === 0 ? (
               <EmptyState
-                icon={Activity}
+                icon={ArrowLeftRight}
                 title={<Trans>暂无传输记录</Trans>}
                 description={
                   <Trans>从设备页发送文件，或接收其他设备发来的内容。</Trans>

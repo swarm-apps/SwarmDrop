@@ -24,7 +24,7 @@ msgstr "{0} files"
 
 #. placeholder {0}: selectedFiles.length
 #. placeholder {1}: formatBytes(totalSize)
-#: src/app/send/select-device.tsx:281
+#: src/app/send/select-device.tsx:284
 msgid "{0} 个文件 · {1}"
 msgstr "{0} files · {1}"
 
@@ -147,7 +147,7 @@ msgstr "NAT"
 msgid "NAT 状态"
 msgstr "NAT status"
 
-#: src/app/settings/about.tsx:122
+#: src/app/settings/about.tsx:121
 msgid "Noise 或 TLS 1.3，中继全程只经手密文"
 msgstr "Noise or TLS 1.3 — relays only ever forward ciphertext"
 
@@ -168,7 +168,7 @@ msgstr "SwarmDrop isn't online yet"
 msgid "一切就绪"
 msgstr "All set"
 
-#: src/app/settings/about.tsx:127
+#: src/app/settings/about.tsx:125
 msgid "一次一密"
 msgstr "One key per transfer"
 
@@ -196,7 +196,7 @@ msgid "中止"
 msgstr "Abort"
 
 #: src/app/settings/network.tsx:170
-#: src/components/connection-badge.tsx:41
+#: src/components/connection-badge.tsx:47
 #: src/components/node-control-sheet.tsx:236
 msgid "中继"
 msgstr "Relay"
@@ -474,11 +474,11 @@ msgstr "Max size"
 msgid "最近"
 msgstr "Recent"
 
-#: src/app/inbox/search.tsx:233
+#: src/app/inbox/search.tsx:234
 msgid "最近接收"
 msgstr "Recently received"
 
-#: src/app/send/select-device.tsx:318
+#: src/app/send/select-device.tsx:321
 #: src/app/send/share-target.tsx:275
 msgid "准备中"
 msgstr "Preparing"
@@ -625,7 +625,7 @@ msgstr "Encryption"
 
 #: src/app/(main)/inbox.tsx:224
 #: src/app/inbox/[itemId].tsx:333
-#: src/app/inbox/search.tsx:256
+#: src/app/inbox/search.tsx:257
 #: src/app/transfer/[sessionId].tsx:272
 msgid "加载中"
 msgstr "Loading"
@@ -659,7 +659,7 @@ msgstr "Decentralized, cross-network, end-to-end encrypted file transfer"
 msgid "去系统设置开启"
 msgstr "Open system settings"
 
-#: src/app/settings/about.tsx:191
+#: src/app/settings/about.tsx:190
 msgid "反馈"
 msgstr "Feedback"
 
@@ -687,7 +687,7 @@ msgstr "To {0}"
 
 #: src/app/(main)/index.tsx:854
 #: src/app/send/select-device.tsx:231
-#: src/app/send/select-device.tsx:318
+#: src/app/send/select-device.tsx:321
 #: src/app/transfer/[sessionId].tsx:409
 msgid "发送"
 msgstr "Send"
@@ -732,7 +732,7 @@ msgstr "Your request didn’t reach them. Make sure they’re online and try aga
 #: src/app/(main)/index.tsx:847
 #: src/app/pairing/found-device.tsx:125
 #: src/app/pairing/found-device.tsx:129
-#: src/app/send/select-device.tsx:299
+#: src/app/send/select-device.tsx:302
 #: src/app/settings/bootstrap-nodes.tsx:203
 #: src/app/transfer/[sessionId].tsx:682
 #: src/components/device-organization-sheets.tsx:239
@@ -870,7 +870,7 @@ msgstr "Discover helper nodes on the local network."
 msgid "在线"
 msgstr "Online"
 
-#: src/app/send/select-device.tsx:361
+#: src/app/send/select-device.tsx:364
 msgid "在线 · 可接收"
 msgstr "Online · ready"
 
@@ -938,7 +938,7 @@ msgstr "Security & encryption"
 msgid "完成"
 msgstr "Done"
 
-#: src/app/inbox/search.tsx:246
+#: src/app/inbox/search.tsx:247
 msgid "完成接收后，可以在这里搜索标题或来源。"
 msgstr "After receiving content, you can search titles or sources here."
 
@@ -1012,7 +1012,7 @@ msgid "对端离线"
 msgstr "Peer offline"
 
 #: src/app/settings/about.tsx:77
-#: src/app/settings/about.tsx:219
+#: src/app/settings/about.tsx:216
 msgid "导出日志"
 msgstr "Export logs"
 
@@ -1046,7 +1046,7 @@ msgstr "Ready · Public"
 msgid "就绪 · 配置节点"
 msgstr "Ready · Configured"
 
-#: src/components/connection-badge.tsx:27
+#: src/components/connection-badge.tsx:33
 msgid "局域网"
 msgstr "LAN"
 
@@ -1141,7 +1141,7 @@ msgstr "Rejected"
 msgid "已拒绝文件"
 msgstr "Files rejected"
 
-#: src/app/settings/about.tsx:168
+#: src/app/settings/about.tsx:164
 msgid "已是最新"
 msgstr "Up to date"
 
@@ -1207,7 +1207,7 @@ msgstr "Paired devices"
 msgid "已阻止"
 msgstr "Blocked"
 
-#: src/app/send/select-device.tsx:359
+#: src/app/send/select-device.tsx:362
 msgid "已阻止 · 不可发送"
 msgstr "Blocked · cannot send"
 
@@ -1367,7 +1367,7 @@ msgstr "Turn on flashlight"
 msgid "打开文件夹"
 msgstr "Open folder"
 
-#: src/components/connection-badge.tsx:34
+#: src/components/connection-badge.tsx:40
 msgid "打洞"
 msgstr "Hole punching"
 
@@ -1410,11 +1410,11 @@ msgstr "Failed to decline pairing"
 msgid "拖动排序"
 msgstr "Drag to reorder"
 
-#: src/app/inbox/search.tsx:315
+#: src/app/inbox/search.tsx:316
 msgid "换一个关键词，或切换上方筛选范围。"
 msgstr "Try another keyword, or switch the filter above."
 
-#: src/app/inbox/search.tsx:306
+#: src/app/inbox/search.tsx:307
 msgid "换一个关键词试试。"
 msgstr "Try another keyword."
 
@@ -1494,24 +1494,24 @@ msgstr "Search"
 msgid "搜索传输记录"
 msgstr "Search transfer history"
 
-#: src/app/inbox/search.tsx:282
+#: src/app/inbox/search.tsx:283
 msgid "搜索失败"
 msgstr "Search failed"
 
 #: src/app/(main)/inbox.tsx:124
-#: src/app/inbox/search.tsx:159
+#: src/app/inbox/search.tsx:160
 msgid "搜索收件箱"
 msgstr "Search Inbox"
 
-#: src/app/inbox/search.tsx:157
+#: src/app/inbox/search.tsx:158
 msgid "搜索标题、来源、文件名…"
 msgstr "Search by title, source, filename..."
 
-#: src/app/inbox/search.tsx:157
+#: src/app/inbox/search.tsx:158
 msgid "搜索标题或来源"
 msgstr "Search by title or source"
 
-#: src/app/inbox/search.tsx:233
+#: src/app/inbox/search.tsx:234
 msgid "搜索结果"
 msgstr "Search results"
 
@@ -1556,7 +1556,7 @@ msgid "收件箱详情"
 msgstr "Inbox details"
 
 #: src/app/(main)/inbox.tsx:165
-#: src/app/inbox/search.tsx:245
+#: src/app/inbox/search.tsx:246
 msgid "收件箱还是空的"
 msgstr "Inbox is empty"
 
@@ -1617,7 +1617,7 @@ msgstr "Discard"
 msgid "放弃选择？"
 msgstr "Discard selection?"
 
-#: src/app/send/select-device.tsx:389
+#: src/app/send/select-device.tsx:392
 #: src/app/transfer/[sessionId].tsx:281
 #: src/components/activity-projection-card.tsx:108
 #: src/components/file-browser/file-browser-toolbar.tsx:37
@@ -1633,7 +1633,7 @@ msgid "文件传输失败，请重试"
 msgstr "File transfer failed, please try again"
 
 #: src/app/device/[peerId].tsx:389
-#: src/app/send/select-device.tsx:390
+#: src/app/send/select-device.tsx:393
 msgid "文件夹"
 msgstr "Folder"
 
@@ -1660,7 +1660,7 @@ msgstr "Text"
 msgid "文本内容"
 msgstr "Text content"
 
-#: src/app/settings/about.tsx:185
+#: src/app/settings/about.tsx:184
 msgid "文档"
 msgstr "Docs"
 
@@ -1689,7 +1689,7 @@ msgstr "No account needed. Device identity stays on this device."
 msgid "日志尚未生成，请先使用一段时间再试"
 msgstr "No log file yet — use the app for a while and try again"
 
-#: src/app/settings/about.tsx:135
+#: src/app/settings/about.tsx:131
 msgid "明文不经过任何服务器"
 msgstr "Plaintext never touches any server"
 
@@ -1773,7 +1773,7 @@ msgstr "Update failed"
 msgid "更新归档状态失败"
 msgstr "Failed to update archive state"
 
-#: src/app/settings/about.tsx:199
+#: src/app/settings/about.tsx:198
 msgid "更新日志"
 msgstr "Changelog"
 
@@ -1781,7 +1781,7 @@ msgstr "Changelog"
 msgid "有效期"
 msgstr "Expires"
 
-#: src/app/settings/about.tsx:152
+#: src/app/settings/about.tsx:148
 msgid "有新版可用"
 msgstr "Update available"
 
@@ -1865,7 +1865,7 @@ msgstr "Paused locally"
 msgid "本机配对邀请"
 msgstr "This device's pairing invite"
 
-#: src/app/inbox/search.tsx:237
+#: src/app/inbox/search.tsx:238
 msgid "条"
 msgstr "items"
 
@@ -1920,11 +1920,11 @@ msgstr "View diagnostics"
 msgid "树形视图"
 msgstr "Tree view"
 
-#: src/app/settings/about.tsx:162
+#: src/app/settings/about.tsx:158
 msgid "检查失败"
 msgstr "Check failed"
 
-#: src/app/settings/about.tsx:145
+#: src/app/settings/about.tsx:141
 msgid "检查更新"
 msgstr "Check for updates"
 
@@ -1968,7 +1968,7 @@ msgstr "Keeping an eye out for nearby devices"
 
 #. placeholder {0}: progress.completedFiles.toString()
 #. placeholder {1}: progress.totalFiles.toString()
-#: src/app/send/select-device.tsx:429
+#: src/app/send/select-device.tsx:432
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "Hashing ({0}/{1})"
 
@@ -1998,7 +1998,7 @@ msgstr "This device requires confirmation before receiving starts."
 msgid "每一笔传输的过程都记在这里；收好的东西请到收件箱找"
 msgstr "Every transfer is logged here; find what you've received in the inbox"
 
-#: src/app/settings/about.tsx:129
+#: src/app/settings/about.tsx:126
 msgid "每条连接独立握手，会话密钥仅存内存"
 msgstr "Each connection handshakes on its own; session keys live only in memory"
 
@@ -2007,8 +2007,8 @@ msgstr "Each connection handshakes on its own; session keys live only in memory"
 msgid "没有匹配的传输记录"
 msgstr "No matching transfers"
 
-#: src/app/inbox/search.tsx:305
-#: src/app/inbox/search.tsx:314
+#: src/app/inbox/search.tsx:306
+#: src/app/inbox/search.tsx:315
 msgid "没有匹配的内容"
 msgstr "No matching content"
 
@@ -2070,7 +2070,7 @@ msgstr "Clear transfer history"
 msgid "清除搜索"
 msgstr "Clear search"
 
-#: src/app/inbox/search.tsx:316
+#: src/app/inbox/search.tsx:317
 msgid "清除筛选"
 msgstr "Clear filters"
 
@@ -2082,11 +2082,11 @@ msgstr "The source file changed, so it can’t continue. Please send it again."
 msgid "点下方「添加设备」，把你的电脑或另一台手机接进来。"
 msgstr "Tap “Add device” below to bring in your computer or another phone."
 
-#: src/app/settings/about.tsx:134
+#: src/app/settings/about.tsx:130
 msgid "点对点直连"
 msgstr "Direct peer-to-peer"
 
-#: src/app/send/select-device.tsx:391
+#: src/app/send/select-device.tsx:394
 msgid "照片"
 msgstr "Photos"
 
@@ -2156,7 +2156,7 @@ msgstr "Is this the device you want to pair with?"
 msgid "确认配对"
 msgstr "Confirm pairing"
 
-#: src/app/send/select-device.tsx:392
+#: src/app/send/select-device.tsx:395
 #: src/components/inbox/inbox-list.tsx:107
 #: src/components/inbox/inbox-list.tsx:434
 msgid "视频"
@@ -2168,7 +2168,7 @@ msgstr "Videos"
 msgid "离线"
 msgstr "Offline"
 
-#: src/app/send/select-device.tsx:365
+#: src/app/send/select-device.tsx:368
 msgid "离线 · 等待对端上线"
 msgstr "Offline · waiting for peer"
 
@@ -2358,7 +2358,7 @@ msgstr "Node restarted with the new discovery settings"
 msgid "节点已重启"
 msgstr "Node restarted"
 
-#: src/app/send/select-device.tsx:363
+#: src/app/send/select-device.tsx:366
 #: src/lib/errors.ts:51
 msgid "节点未启动"
 msgstr "Node not running"
@@ -2476,7 +2476,7 @@ msgstr "Could not read or write the device identity"
 msgid "设置"
 msgstr "Settings"
 
-#: src/app/settings/about.tsx:208
+#: src/app/settings/about.tsx:207
 msgid "诊断"
 msgstr "Diagnostics"
 
@@ -2539,7 +2539,7 @@ msgstr "Enter a number greater than 0, or leave blank for no limit"
 msgid "请重新选择要发送的文件"
 msgstr "Pick the files you want to send again"
 
-#: src/app/settings/about.tsx:176
+#: src/app/settings/about.tsx:172
 msgid "资源"
 msgstr "Resources"
 
@@ -2557,7 +2557,7 @@ msgstr "Follow system"
 msgid "跨网络直连,不同 WiFi 也能传"
 msgstr "Direct cross-network transfer, even on different Wi-Fi"
 
-#: src/app/settings/about.tsx:142
+#: src/app/settings/about.tsx:138
 msgid "软件更新"
 msgstr "Software update"
 
@@ -2659,7 +2659,7 @@ msgstr "Choose appearance"
 msgid "选择失败"
 msgstr "Pick failed"
 
-#: src/app/send/select-device.tsx:285
+#: src/app/send/select-device.tsx:288
 msgid "选择要发送的内容"
 msgstr "Choose what to send"
 
@@ -2694,7 +2694,7 @@ msgstr "Notifications enabled"
 msgid "通知提醒"
 msgstr "Notification alerts"
 
-#: src/app/settings/about.tsx:211
+#: src/app/settings/about.tsx:210
 msgid "遇到问题时，日志能帮我们定位。它包含设备 ID 与网络地址，发送前请自行过目。"
 msgstr "Logs help us pin down what went wrong. They contain your device ID and network addresses — please review before sending."
 
@@ -2826,7 +2826,7 @@ msgstr "Regenerate Invite"
 
 #: src/app/(main)/inbox.tsx:273
 #: src/app/inbox/[itemId].tsx:383
-#: src/app/inbox/search.tsx:284
+#: src/app/inbox/search.tsx:285
 #: src/app/onboarding/setup.tsx:54
 msgid "重试"
 msgstr "Retry"
@@ -2884,7 +2884,7 @@ msgid "需要确认"
 msgstr "Requires confirmation"
 
 #: src/app/inbox/[itemId].tsx:596
-#: src/app/inbox/search.tsx:386
+#: src/app/inbox/search.tsx:387
 #: src/components/inbox/inbox-list.tsx:258
 msgid "项"
 msgstr "items"

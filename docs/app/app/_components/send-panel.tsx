@@ -541,7 +541,7 @@ function TargetSection({
             {organizedDeviceName(target, organization)}
           </p>
           <span className="flex items-center gap-1.5 text-xs">
-            <StatusDot colorClass={online ? "bg-emerald-500" : "bg-muted-foreground"} />
+            <StatusDot colorClass={online ? "bg-success" : "bg-muted-foreground"} />
             <span
               className={online ? "text-success-ink" : "text-muted-foreground"}
             >

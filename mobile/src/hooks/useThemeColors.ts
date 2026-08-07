@@ -26,6 +26,7 @@ export function useThemeColors() {
     "--destructive-foreground",
   );
   const success = useUnstableNativeVariable("--success");
+  const info = useUnstableNativeVariable("--info");
   const warning = useUnstableNativeVariable("--warning");
   const border = useUnstableNativeVariable("--border");
   const muted = useUnstableNativeVariable("--muted");
@@ -43,6 +44,7 @@ export function useThemeColors() {
       destructive: hsl(destructive),
       destructiveForeground: hsl(destructiveForeground),
       success: hsl(success),
+      info: hsl(info),
       warning: hsl(warning),
       border: hsl(border),
       muted: hsl(muted),
@@ -59,6 +61,7 @@ export function useThemeColors() {
       destructive,
       destructiveForeground,
       success,
+      info,
       warning,
       border,
       muted,

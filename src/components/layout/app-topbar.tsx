@@ -17,7 +17,7 @@ import {
   Square,
   X,
   Home,
-  ArrowRightLeft,
+  ArrowLeftRight,
   Inbox,
   Link2,
   Moon,
@@ -66,7 +66,7 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
     return [home, { icon: Inbox, label: <Trans>收件箱</Trans> }];
   }
   if (pathname.startsWith("/transfer")) {
-    return [home, { icon: ArrowRightLeft, label: <Trans>传输活动</Trans> }];
+    return [home, { icon: ArrowLeftRight, label: <Trans>传输活动</Trans> }];
   }
   if (pathname.startsWith("/send")) {
     return [home, { icon: Send, label: <Trans>发送文件</Trans> }];
@@ -193,7 +193,7 @@ export function AppTopBar() {
               data-testid="topbar-transfer-link"
               className="relative"
             >
-              <ArrowRightLeft className="size-4" />
+              <ArrowLeftRight className="size-4" />
               <span className="hidden text-xs font-medium xl:inline">
                 <Trans>传输</Trans>
               </span>
@@ -315,29 +315,36 @@ interface StatusPillConfig {
   label: React.ReactNode;
 }
 
+/**
+ * 节点状态 pill 的配色。**与移动端 `status-pill.tsx` 是同一套语汇**：
+ * 底 `/15`、文字走 `-ink` 变体、圆点用状态色本体（State Ink Rule）。
+ *
+ * 这里曾是四组 Tailwind 调色板直用（green-100/emerald-300/zinc-400…），
+ * 于是同一个「在线」在三端是三个绿。token 随主题切换，不再需要 `dark:` 分支。
+ */
 const pillStyles: Record<NodeStatus, StatusPillConfig> = {
   running: {
-    bg: "bg-green-100 dark:bg-emerald-500/15",
-    text: "text-green-700 dark:text-emerald-300",
-    dot: "bg-green-600",
+    bg: "bg-success/15",
+    text: "text-success-ink",
+    dot: "bg-success",
     label: <Trans>在线 · 可接收</Trans>,
   },
   starting: {
-    bg: "bg-amber-100 dark:bg-amber-900/30",
-    text: "text-amber-700 dark:text-amber-300",
-    dot: "bg-amber-500 animate-pulse",
+    bg: "bg-warning/15",
+    text: "text-warning-ink",
+    dot: "bg-warning animate-pulse",
     label: <Trans>启动中</Trans>,
   },
   stopped: {
-    bg: "bg-zinc-100 dark:bg-secondary",
-    text: "text-zinc-600 dark:text-muted-foreground",
-    dot: "bg-zinc-400",
+    bg: "bg-muted",
+    text: "text-muted-foreground",
+    dot: "bg-muted-foreground",
     label: <Trans>未启动</Trans>,
   },
   error: {
-    bg: "bg-red-100 dark:bg-red-900/30",
-    text: "text-red-700 dark:text-red-300",
-    dot: "bg-red-600",
+    bg: "bg-destructive/15",
+    text: "text-destructive-ink",
+    dot: "bg-destructive",
     label: <Trans>节点错误</Trans>,
   },
 };

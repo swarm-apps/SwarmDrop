@@ -12,7 +12,7 @@ import {
   ChevronDown,
   Clock,
   RotateCcw,
-  SendHorizontal,
+  Send,
   Shield,
   ShieldCheck,
   ShieldX,
@@ -427,7 +427,7 @@ export default function DeviceDetailScreen() {
           disabled={!sendable}
           className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
-          <SendHorizontal
+          <Send
             color={sendable ? colors.primaryForeground : colors.mutedForeground}
             size={17}
           />

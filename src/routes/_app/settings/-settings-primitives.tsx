@@ -122,8 +122,8 @@ export function NodeRestartBanner({
   onRestart,
 }: NodeRestartBannerProps) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-300/70 bg-amber-50 px-3.5 py-2.5 dark:border-amber-900/60 dark:bg-amber-950/40">
-      <span className="text-xs leading-5 text-amber-800 dark:text-amber-200">
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-warning/30 bg-warning/12 px-3.5 py-2.5">
+      <span className="text-xs leading-5 text-warning-ink">
         {message}
       </span>
       <Button

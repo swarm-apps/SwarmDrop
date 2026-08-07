@@ -60,14 +60,14 @@ import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 
 const PATH_META: Record<PathKindJson, { label: MessageDescriptor; dot: string }> = {
-  local: { label: msg`局域网直连`, dot: "bg-emerald-500" },
-  direct: { label: msg`打洞直连`, dot: "bg-sky-500" },
-  relayed: { label: msg`中继`, dot: "bg-amber-500" },
+  local: { label: msg`局域网直连`, dot: "bg-success" },
+  direct: { label: msg`打洞直连`, dot: "bg-info" },
+  relayed: { label: msg`中继`, dot: "bg-warning" },
 };
 
 const RELAY_META: Record<RelayStateKind, { label: MessageDescriptor; dot: string }> = {
-  connecting: { label: msg`连接中`, dot: "bg-amber-500" },
-  active: { label: msg`可达`, dot: "bg-emerald-500" },
+  connecting: { label: msg`连接中`, dot: "bg-warning" },
+  active: { label: msg`可达`, dot: "bg-success" },
   failed: { label: msg`连接失败`, dot: "bg-destructive" },
 };
 
