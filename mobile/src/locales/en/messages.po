@@ -147,6 +147,10 @@ msgstr "NAT"
 msgid "NAT 状态"
 msgstr "NAT status"
 
+#: src/app/settings/about.tsx:100
+msgid "Noise 或 TLS 1.3，中继全程只经手密文"
+msgstr "Noise or TLS 1.3 — relays only ever forward ciphertext"
+
 #: src/app/device/[peerId].tsx:363
 #: src/components/node-control-sheet.tsx:199
 msgid "Peer ID"
@@ -159,10 +163,6 @@ msgstr "SwarmDrop is running in the background"
 #: src/app/(main)/index.tsx:435
 msgid "SwarmDrop 还没上线"
 msgstr "SwarmDrop isn't online yet"
-
-#: src/app/settings/about.tsx:100
-msgid "XChaCha20-Poly1305，路上没人能看到内容"
-msgstr "XChaCha20-Poly1305, nobody can see the contents along the way"
 
 #: src/app/onboarding/setup.tsx:80
 msgid "一切就绪"
@@ -599,7 +599,7 @@ msgstr "Alias & groups"
 msgid "刷新"
 msgstr "Refresh"
 
-#: src/components/inbox/inbox-list.tsx:423
+#: src/components/inbox/inbox-list.tsx:439
 msgid "剪贴板"
 msgstr "Clipboard"
 
@@ -659,7 +659,7 @@ msgstr "Decentralized, cross-network, end-to-end encrypted file transfer"
 msgid "去系统设置开启"
 msgstr "Open system settings"
 
-#: src/app/settings/about.tsx:167
+#: src/app/settings/about.tsx:169
 msgid "反馈"
 msgstr "Feedback"
 
@@ -802,7 +802,7 @@ msgstr "Reachable"
 msgid "可配对"
 msgstr "Pairable"
 
-#: src/components/inbox/inbox-list.tsx:425
+#: src/components/inbox/inbox-list.tsx:441
 msgid "合集"
 msgstr "Bundle"
 
@@ -846,7 +846,7 @@ msgid "启动节点失败"
 msgstr "Failed to start node"
 
 #: src/components/inbox/inbox-list.tsx:106
-#: src/components/inbox/inbox-list.tsx:417
+#: src/components/inbox/inbox-list.tsx:433
 msgid "图片"
 msgstr "Images"
 
@@ -1132,7 +1132,7 @@ msgstr "Rejected"
 msgid "已拒绝文件"
 msgstr "Files rejected"
 
-#: src/app/settings/about.tsx:144
+#: src/app/settings/about.tsx:146
 msgid "已是最新"
 msgstr "Up to date"
 
@@ -1613,7 +1613,7 @@ msgstr "Discard selection?"
 #: src/components/activity-projection-card.tsx:108
 #: src/components/file-browser/file-browser-toolbar.tsx:37
 #: src/components/inbox/inbox-list.tsx:105
-#: src/components/inbox/inbox-list.tsx:427
+#: src/components/inbox/inbox-list.tsx:443
 #: src/components/recent-transfer-row.tsx:73
 #: src/components/transfer-offer-host.tsx:237
 msgid "文件"
@@ -1643,7 +1643,7 @@ msgid "文件缺失"
 msgstr "File missing"
 
 #: src/components/inbox/inbox-list.tsx:108
-#: src/components/inbox/inbox-list.tsx:421
+#: src/components/inbox/inbox-list.tsx:437
 msgid "文本"
 msgstr "Text"
 
@@ -1651,7 +1651,7 @@ msgstr "Text"
 msgid "文本内容"
 msgstr "Text content"
 
-#: src/app/settings/about.tsx:161
+#: src/app/settings/about.tsx:163
 msgid "文档"
 msgstr "Docs"
 
@@ -1676,7 +1676,7 @@ msgstr "Cannot open link"
 msgid "无需账号,设备身份只存在本机"
 msgstr "No account needed. Device identity stays on this device."
 
-#: src/app/settings/about.tsx:111
+#: src/app/settings/about.tsx:113
 msgid "明文不经过任何服务器"
 msgstr "Plaintext never touches any server"
 
@@ -1756,7 +1756,7 @@ msgstr "Update failed"
 msgid "更新归档状态失败"
 msgstr "Failed to update archive state"
 
-#: src/app/settings/about.tsx:175
+#: src/app/settings/about.tsx:177
 msgid "更新日志"
 msgstr "Changelog"
 
@@ -1764,7 +1764,7 @@ msgstr "Changelog"
 msgid "有效期"
 msgstr "Expires"
 
-#: src/app/settings/about.tsx:128
+#: src/app/settings/about.tsx:130
 msgid "有新版可用"
 msgstr "Update available"
 
@@ -1903,11 +1903,11 @@ msgstr "View diagnostics"
 msgid "树形视图"
 msgstr "Tree view"
 
-#: src/app/settings/about.tsx:138
+#: src/app/settings/about.tsx:140
 msgid "检查失败"
 msgstr "Check failed"
 
-#: src/app/settings/about.tsx:121
+#: src/app/settings/about.tsx:123
 msgid "检查更新"
 msgstr "Check for updates"
 
@@ -1981,9 +1981,9 @@ msgstr "This device requires confirmation before receiving starts."
 msgid "每一笔传输的过程都记在这里；收好的东西请到收件箱找"
 msgstr "Every transfer is logged here; find what you've received in the inbox"
 
-#: src/app/settings/about.tsx:106
-msgid "每次传输临时生成密钥，用完即弃"
-msgstr "A fresh key is generated for every transfer and discarded afterwards"
+#: src/app/settings/about.tsx:107
+msgid "每条连接独立握手，会话密钥仅存内存"
+msgstr "Each connection handshakes on its own; session keys live only in memory"
 
 #: src/app/activity.tsx:290
 #: src/app/transfer/search.tsx:89
@@ -2065,7 +2065,7 @@ msgstr "The source file changed, so it can’t continue. Please send it again."
 msgid "点下方「添加设备」，把你的电脑或另一台手机接进来。"
 msgstr "Tap “Add device” below to bring in your computer or another phone."
 
-#: src/app/settings/about.tsx:110
+#: src/app/settings/about.tsx:112
 msgid "点对点直连"
 msgstr "Direct peer-to-peer"
 
@@ -2141,7 +2141,7 @@ msgstr "Confirm pairing"
 
 #: src/app/send/select-device.tsx:392
 #: src/components/inbox/inbox-list.tsx:107
-#: src/components/inbox/inbox-list.tsx:418
+#: src/components/inbox/inbox-list.tsx:434
 msgid "视频"
 msgstr "Videos"
 
@@ -2518,7 +2518,7 @@ msgstr "Enter a number greater than 0, or leave blank for no limit"
 msgid "请重新选择要发送的文件"
 msgstr "Pick the files you want to send again"
 
-#: src/app/settings/about.tsx:152
+#: src/app/settings/about.tsx:154
 msgid "资源"
 msgstr "Resources"
 
@@ -2536,7 +2536,7 @@ msgstr "Follow system"
 msgid "跨网络直连,不同 WiFi 也能传"
 msgstr "Direct cross-network transfer, even on different Wi-Fi"
 
-#: src/app/settings/about.tsx:118
+#: src/app/settings/about.tsx:120
 msgid "软件更新"
 msgstr "Software update"
 

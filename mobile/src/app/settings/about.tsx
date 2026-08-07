@@ -97,13 +97,15 @@ export default function AboutScreen() {
               icon={Lock}
               title={<Trans>端到端加密</Trans>}
               description={
-                <Trans>XChaCha20-Poly1305，路上没人能看到内容</Trans>
+                <Trans>Noise 或 TLS 1.3，中继全程只经手密文</Trans>
               }
             />
             <SecurityFeatureRow
               icon={KeyRound}
               title={<Trans>一次一密</Trans>}
-              description={<Trans>每次传输临时生成密钥，用完即弃</Trans>}
+              description={
+                <Trans>每条连接独立握手，会话密钥仅存内存</Trans>
+              }
             />
             <SecurityFeatureRow
               icon={Waypoints}
