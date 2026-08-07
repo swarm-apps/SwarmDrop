@@ -14,6 +14,7 @@ import { Trans } from "@lingui/react/macro";
 import { formatFileSize } from "@swarmdrop/shared-view";
 import { Button } from "@/components/ui/button";
 import { WebErrorCard } from "./web-error-view";
+import { peerLabel } from "../_lib/device-presentation";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
@@ -86,7 +87,7 @@ export function IncomingOffersPanel() {
             <li key={offer.sessionId} className="rounded-lg border bg-background px-3 py-2">
               <p className="text-xs text-foreground">
                 <Trans>
-                  <span className="font-medium">{offer.deviceName}</span> 想发送{" "}
+                  <span className="font-medium">{peerLabel(offer.deviceName, offer.peerId)}</span> 想发送{" "}
                   {offer.files.length} 个文件（{formatFileSize(offer.totalSize)}）
                 </Trans>
               </p>

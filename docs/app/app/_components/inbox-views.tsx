@@ -32,6 +32,7 @@ import { OpenListButton } from "./master-detail";
 import { RelativeTime } from "./relative-time";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
+import { peerLabel } from "../_lib/device-presentation";
 import { itemsFromInbox } from "../_lib/file-browser-adapters";
 import { NAV, inboxItemHref, transferSessionHref } from "../_lib/nav";
 import { preferencesActions, usePreferences } from "../_lib/preferences-store";
@@ -221,7 +222,7 @@ export function InboxListRow({
         <span className="flex items-baseline justify-between gap-2 text-[11px] text-muted-foreground">
           <span className="truncate">
             <Trans>
-              来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
+              来自 {peerLabel(item.sourceName, item.sourcePeerId)} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
             </Trans>
           </span>
           {/* 「什么时候收到的」此前整个收件箱都没有——列表按 receivedAt 倒序排着，
@@ -322,7 +323,7 @@ export function InboxDetailPanel({
           </p>
           <p className="truncate text-xs text-muted-foreground">
             <Trans>
-              来自 {item.sourceName} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
+              来自 {peerLabel(item.sourceName, item.sourcePeerId)} · {item.itemCount} 个文件 · {formatFileSize(item.totalSize)}
             </Trans>
             {" · "}
             <RelativeTime timestamp={item.receivedAt} />
