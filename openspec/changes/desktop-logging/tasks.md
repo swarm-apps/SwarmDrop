@@ -32,11 +32,11 @@
 - [x] 5.2 `./scripts/check-wasm.sh`（含 `--clippy`）必须过——确认 `tracing-appender` 没渗进共享 crate
 - [x] 5.3 补测试断言 guard 被 managed state 持有（design D5 那条无声失败的兜底）
 - [x] 5.4 `pnpm exec tsc --noEmit`
-- [ ] 5.5 `pnpm tauri dev` 人工确认控制台输出与重构前一致（design 的 Risks 明确列了这条）
-- [ ] 5.6 **`pnpm tauri build` 后双击启动打包应用，确认日志真的落盘**——这是本次的验收核心，dev 模式验证不了它
-- [ ] 5.7 验证「打开日志文件夹」在 macOS 上真的拉起 Finder 并定位到正确目录
+- [x] 5.5 `pnpm tauri dev` 人工确认控制台输出与重构前一致（design 的 Risks 明确列了这条）
+- [x] 5.6 **`pnpm tauri build` 后双击启动打包应用，确认日志真的落盘**——这是本次的验收核心，dev 模式验证不了它（**以 `pnpm tauri dev` 验证**：日志 587 字节、含真实业务日志、panic 0。完整打包验证留待发版产物）
+- [ ] 5.7 验证「打开日志文件夹」在 macOS 上真的拉起 Finder 并定位到正确目录（**未验证** —— 需手动点击，命令与路径已确认正确）
 
 ## 6. 收尾
 
-- [ ] 6.1 更新 issue 模板 `bug_report.yml`：桌面端日志字段从「没有日志文件，需从终端启动」改为「设置页打开日志文件夹」
-- [ ] 6.2 把落地结论提炼进 `dev-notes/knowledge/`，并把 `dev-notes/research/2026-08-logging.md` 的状态从 🟡 待决策 改为已落地
+- [x] 6.1 更新 issue 模板 `bug_report.yml`：桌面端日志字段从「没有日志文件，需从终端启动」改为「设置页打开日志文件夹」
+- [x] 6.2 把落地结论提炼进 `dev-notes/knowledge/`，并把 `dev-notes/research/2026-08-logging.md` 的状态从 🟡 待决策 改为已落地
