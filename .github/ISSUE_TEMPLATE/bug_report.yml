@@ -1,0 +1,111 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **If this is a security vulnerability, please don't file it here** — use
+        [private vulnerability reporting](https://github.com/swarm-apps/SwarmDrop/security/advisories/new)
+        instead. See [SECURITY.md](https://github.com/swarm-apps/SwarmDrop/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Which build?
+      options:
+        - Desktop — macOS
+        - Desktop — Windows
+        - Desktop — Linux
+        - Mobile — Android
+        - Mobile — iOS
+        - Browser
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: SwarmDrop version
+      description: Desktop and mobile show it under Settings → About. For the browser build, tell us roughly when you loaded the page.
+      placeholder: "0.12.2"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS version
+      placeholder: "macOS 15.2 / Windows 11 23H2 / Ubuntu 24.04 / Android 15 / Safari 18"
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Pair two devices via invite link
+        2. Send a 500 MB file from A to B
+        3. Put B to sleep halfway through
+        4. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: route
+    attributes:
+      label: Which route was the transfer on?
+      description: >
+        Device cards show how a peer is connected. Not sure? Pick "Not sure" —
+        it's genuinely useful to know it was ambiguous.
+      options:
+        - Direct LAN — same network
+        - NAT hole-punch — different networks
+        - Relay — fallback
+        - Not sure
+        - Not a transfer problem
+    validations:
+      required: true
+
+  - type: textarea
+    id: peer
+    attributes:
+      label: The other device, if a transfer was involved
+      description: Which platform was on the other end, and were both online at the time?
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional, but very helpful)
+      description: |
+        There is no log file — the desktop app writes to stdout, so you only see logs if you
+        launch it from a terminal:
+
+        - **macOS**: `/Applications/swarmdrop.app/Contents/MacOS/swarmdrop`
+        - **Linux**: run the AppImage or `swarmdrop` binary from a shell
+        - **Windows**: run `swarmdrop.exe` from PowerShell
+
+        For more detail, prefix with `RUST_LOG=swarmdrop=trace,swarmdrop_net=trace`.
+        In the browser build, the Settings page has an event log.
+
+        **Please skim before pasting** — logs contain your device ID and network addresses.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this isn't a duplicate
+          required: true
+        - label: This is not a security vulnerability (those go through private reporting)
+          required: true

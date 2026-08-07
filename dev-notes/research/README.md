@@ -25,5 +25,6 @@
 | [Web 应用区 i18n 选型](2026-08-web-app-i18n.md) | 🟡 已给结论待实施 | Lingui + 运行时切换、不引 `[lang]` 段；macro 在 Next 16 Turbopack 下已实测可编译（#102） |
 | [Rust 侧的中文串：它是不是 i18n 问题](2026-08-rust-side-user-strings.md) | 🟢 已决策并落地 | 1466 处里到得了用户的只有 3 条通道；推荐判别码化而非 Rust 侧 i18n。附带发现一个真 bug（文件名参与错误匹配） |
 | [`docs/` 依赖升级评估](2026-08-docs-deps-upgrade.md) | 🟡 部分落地 | Next 16.3 已升（它是 dev 吃光内存把机器搞重启的正解）；fumadocs 换搜索引擎 + lucide v1 删品牌图标要一起改，TS 7 等 7.1 |
+| [桌面端日志落盘](2026-08-desktop-logging.md) | 🟡 待决策 | 日志只去 stdout，打包后双击启动等于没有，用户报 bug 交不出现场。选型被栈单方面决定：官方 `tauri-plugin-log` 只吃 `log` crate，本仓全是 `tracing` → 用 `tracing-appender` |
 
 状态图例：🟢 已决策采纳 · 🟡 验证中 / 待决策 · 🔴 已否决（保留论证）
